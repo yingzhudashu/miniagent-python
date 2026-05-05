@@ -4,7 +4,7 @@ Self-Optimization 子系统的所有类型。
 
 类型分类：
 1. OptimizationProposal — 优化提案
-2. TestCase — 测试用例
+2. OptTestCase — 测试用例
 3. OptimizationResult — 优化结果
 4. InspectionReport — 自我审视报告
 5. ResearchReport — 外部调研报告
@@ -24,14 +24,14 @@ from typing import Any
 RiskLevel = str  # "low" | "medium" | "high" | "destructive"
 
 # ============================================================================
-# TestCase — 测试用例
+# OptTestCase — 测试用例
 # ============================================================================
 
 TestCaseType = str  # "unit" | "integration" | "e2e"
 
 
 @dataclass
-class TestCase:
+class OptTestCase:  # Renamed to avoid pytest test class collision
     """测试用例 — 每个优化提案必须附带至少一个测试用例。"""
 
     id: str
@@ -74,7 +74,7 @@ class OptimizationProposal:
     expected_benefit: str
     files: list[FileChange] = field(default_factory=list)
     dependencies: list[str] = field(default_factory=list)
-    test_cases: list[TestCase] = field(default_factory=list)
+    test_cases: list[OptTestCase] = field(default_factory=list)
     rollback_plan: str | None = None
     estimated_time_seconds: int | None = None
 
@@ -198,7 +198,7 @@ class TestExecutionResult:
 
 
 @dataclass
-class TestSummary:
+class OptTestSummary:  # Renamed to avoid pytest test class collision
     """测试汇总。"""
 
     total: int
@@ -213,7 +213,7 @@ class OptimizationResult:
     proposal_id: str
     status: OptimizationStatus
     test_results: list[TestExecutionResult] = field(default_factory=list)
-    test_summary: TestSummary | None = None
+    test_summary: OptTestSummary | None = None
     git_snapshot: str | None = None
     fix_attempts: int = 0
     reverted: bool = False
@@ -254,7 +254,7 @@ class OptimizationSummary:
 __all__ = [
     "RiskLevel",
     "TestCaseType",
-    "TestCase",
+    "OptTestCase",
     "OptimizationType",
     "FileChange",
     "OptimizationProposal",
@@ -268,7 +268,7 @@ __all__ = [
     "ResearchReport",
     "OptimizationStatus",
     "TestExecutionResult",
-    "TestSummary",
+    "OptTestSummary",
     "OptimizationResult",
     "OptimizationLogEntry",
     "OptimizationSummary",

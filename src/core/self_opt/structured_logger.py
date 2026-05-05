@@ -177,7 +177,7 @@ def log_proposal_executed(
     """
     import datetime
 
-    from .types import TestSummary
+    from .types import OptTestSummary
 
     test_summary_dict = None
     if result.test_summary:
@@ -328,8 +328,8 @@ def load_optimization_log(
                         test_summary_data = payload.get("testSummary")
                         test_summary = None
                         if test_summary_data:
-                            from .types import TestSummary
-                            test_summary = TestSummary(
+                            from .types import OptTestSummary
+                            test_summary = OptTestSummary(
                                 total=test_summary_data.get("total", 0),
                                 passed=test_summary_data.get("passed", 0),
                                 failed=test_summary_data.get("failed", 0),

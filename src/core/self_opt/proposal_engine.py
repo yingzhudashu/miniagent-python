@@ -36,7 +36,7 @@ from .types import (
     OptimizationProposal,
     InspectionReport,
     PainPoint,
-    TestCase,
+    OptTestCase,
     TestCaseType,
 )
 
@@ -253,13 +253,13 @@ def _generate_file_changes(proposal: dict[str, Any], inspection: InspectionRepor
     return changes
 
 
-def _generate_test_cases(proposal: dict[str, Any], proposal_type: str) -> list[TestCase]:
+def _generate_test_cases(proposal: dict[str, Any], proposal_type: str) -> list[OptTestCase]:
     """为提案生成测试用例。"""
-    test_cases: list[TestCase] = []
+    test_cases: list[OptTestCase] = []
     proposal_id = proposal.get("id", "unknown")
     target = proposal.get("target", "unknown")
 
-    test_cases.append(TestCase(
+    test_cases.append(OptTestCase(
         id=f"test-{proposal_id}-import",
         type="unit",
         description=f"验证 {target[:40]} 可以正确导入",
@@ -270,7 +270,7 @@ def _generate_test_cases(proposal: dict[str, Any], proposal_type: str) -> list[T
     ))
 
     if proposal_type == "add":
-        test_cases.append(TestCase(
+        test_cases.append(OptTestCase(
             id=f"test-{proposal_id}-basic",
             type="unit",
             description=f"验证 {target[:40]} 基本功能",
@@ -280,7 +280,7 @@ def _generate_test_cases(proposal: dict[str, Any], proposal_type: str) -> list[T
             command=f"python -m pytest tests/test_{proposal_id}.py -v",
         ))
     elif proposal_type == "modify":
-        test_cases.append(TestCase(
+        test_cases.append(OptTestCase(
             id=f"test-{proposal_id}-regression",
             type="unit",
             description=f"验证修改不破坏现有功能",

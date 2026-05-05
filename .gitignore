@@ -1,45 +1,9 @@
-# Dependencies
-.venv/
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
+*.pyc
+*.pyo
+.pytest_cache/
 *.egg-info/
 dist/
 build/
-*.egg
-
-# Environment variables (NEVER commit)
+state/
 .env
-!.env.example
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Logs
-*.log
-
-# Temp/debug files
-*.tmp
-
-# Optimization logs (auto-generated)
-OPTIMIZATION_LOG.md
-logs/
-
-# Coverage
-htmlcov/
-.coverage
-coverage.xml
-
-# mypy
-.mypy_cache/
-
-# pytest
-.pytest_cache/

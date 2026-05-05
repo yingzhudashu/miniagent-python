@@ -25,8 +25,8 @@ from .types import (
     OptimizationProposal,
     OptimizationResult,
     TestExecutionResult,
-    TestSummary,
-    TestCase,
+    OptTestSummary,
+    OptTestCase,
     FileChange,
 )
 
@@ -129,7 +129,7 @@ async def apply_file_changes(
 
 
 async def run_test_case(
-    test_case: TestCase,
+    test_case: OptTestCase,
     project_root: str,
     timeout_seconds: int = 60,
 ) -> TestExecutionResult:
@@ -237,7 +237,7 @@ async def execute_optimization(
             proposal_id=proposal.id,
             status="success" if failed == 0 and total > 0 else "failed",
             test_results=test_results,
-            test_summary=TestSummary(total=total, passed=passed, failed=failed),
+            test_summary=OptTestSummary(total=total, passed=passed, failed=failed),
             fix_attempts=0,
             reverted=False,
             lesson=lesson,
