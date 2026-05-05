@@ -404,4 +404,39 @@ class KeywordIndex:
         return removed_count
 
 
-__all__ = ["KeywordIndex", "extract_keywords"]
+# ============================================================================
+# 全局单例和便捷函数
+# ============================================================================
+
+_default_index = KeywordIndex()
+
+
+def search_relevant_memory(
+    query: str, top_k: int = 5, min_score: int = 0
+) -> list[dict[str, Any]]:
+    """搜索相关记忆（全局便捷函数）。"""
+    return _default_index.search(query, top_k=top_k, min_score=min_score)
+
+
+def format_search_results(results: list[dict[str, Any]]) -> str:
+    """将搜索结果格式化为可注入 prompt 的文本。"""
+    if not results:
+        return ""
+    lines = ["相关记忆："]
+    for r in results:
+        lines.append(f"- [{r.get('session_id', '?')}] {r.get('summary', '')[:100]}")
+    return "\n".join(lines)
+
+
+def get_index_stats() -> dict[str, Any]:
+    """获取索引统计信息（全局便捷函数）。"""
+    return _default_index.get_stats()
+
+
+__all__ = [
+    "KeywordIndex",
+    "extract_keywords",
+    "search_relevant_memory",
+    "format_search_results",
+    "get_index_stats",
+]

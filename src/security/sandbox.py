@@ -99,4 +99,14 @@ def is_path_allowed(input_path: str, allowed_dirs: list[str]) -> bool:
         return False
 
 
-__all__ = ["resolve_sandbox_path", "is_path_allowed"]
+def get_default_workspace() -> str:
+    """获取默认工作空间路径。
+
+    优先级：
+    1. 环境变量 MINI_AGENT_WORKSPACE
+    2. 当前工作目录
+    """
+    return os.environ.get("MINI_AGENT_WORKSPACE", os.getcwd())
+
+
+__all__ = ["resolve_sandbox_path", "is_path_allowed", "get_default_workspace"]

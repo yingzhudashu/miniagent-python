@@ -142,8 +142,10 @@ class AgentConfig:
     model_overrides: dict[str, Any] = field(default_factory=dict)
     session_key: str | None = None
     session_workspace: str | None = None
+    session_registry: Any | None = None  # ToolRegistryProtocol (optional session-level registry)
     session_toolboxes: list[Any] = field(default_factory=list)  # list[Toolbox]
     conversation_history: list[dict[str, str]] = field(default_factory=list)
+    output_manager: Any | None = None  # OutputManager (optional)
 
 
 __all__ = [

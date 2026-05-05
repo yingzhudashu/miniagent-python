@@ -241,4 +241,35 @@ class InstanceManager:
             return {"success": False, "reason": str(e)}
 
 
-__all__ = ["InstanceManager"]
+# ─── 模块级便捷函数 ───
+
+_default_mgr = InstanceManager()
+
+
+def try_acquire_instance() -> dict:
+    """尝试获取单实例锁（便捷函数）。"""
+    return _default_mgr.try_acquire()
+
+
+def force_acquire_instance() -> dict:
+    """强制获取单实例锁（便捷函数）。"""
+    return _default_mgr.force_acquire()
+
+
+def release_instance() -> None:
+    """释放单实例锁（便捷函数）。"""
+    _default_mgr.release()
+
+
+def stop_instance() -> dict:
+    """停止正在运行的实例（便捷函数）。"""
+    return _default_mgr.stop()
+
+
+__all__ = [
+    "InstanceManager",
+    "try_acquire_instance",
+    "force_acquire_instance",
+    "release_instance",
+    "stop_instance",
+]

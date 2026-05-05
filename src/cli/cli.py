@@ -1,45 +1,444 @@
-"""Mini Agent Python — CLI entry point.
+"""Mini Agent Python — CLI 交互入口 (Phase 7)
 
-Interactive command-line interface for the Mini Agent.
+Mini Agent 的用户界面层，负责初始化所有子系统并启动交互循环。
 
-Usage:
-    python -m src                  # Start interactive CLI
-    python -m src --feishu         # Start Feishu poll mode
-    python -m src --help           # Show help
+职责：
+1. 初始化核心子系统（ToolRegistry、ToolMonitor、SkillRegistry、OutputManager）
+2. 自动发现并加载 skills/ 目录下的技能包
+3. 注册所有工具（内置 + 技能贡献 + self-opt）
+4. 显示欢迎信息和工作空间概览
+5. 启动交互式循环，处理用户输入
+6. 处理内置命令：.stats, .skills, .profile, .skill, .plan, .log, .optimize, quit
+
+内置命令：
+- `.stats`        — 查看工具使用统计
+- `.skills`       — 查看已加载技能
+- `.sessions`     — 查看会话列表
+- `.profile <name>` — 切换模型预设
+- `.skill search <query>` — 搜索 ClawHub 技能
+- `.skill install <slug>` — 安装技能
+- `.skill list`   — 列出已安装技能
+- `.plan <内容>`  — 跳过规划直接执行
+- `.log <路径>`   — 开启增量日志
+- `.optimize`     — 自我优化
+- `.session new/switch/destroy` — 会话管理
+- `.promote`      — 升维工具
+- `.demote`       — 降维工具
+- quit / exit     — 退出程序
 """
 
 from __future__ import annotations
 
-import argparse
+import asyncio
+import json
+import os
 import sys
+import signal
+from pathlib import Path
+from typing import Any
+
+# ── 初始化核心子系统 ──
+
+from src.core.agent import run_agent
+from src.core.executor import MODEL
+from src.core.config import MODEL_PROFILES, get_default_agent_config
+from src.core.instance_manager import try_acquire_instance, force_acquire_instance, release_instance, stop_instance
+from src.core.registry import DefaultToolRegistry
+from src.core.monitor import DefaultToolMonitor
+from src.skills.registry import DefaultSkillRegistry
+from src.skills.loader import discover_skill_packages
+from src.skills.clawhub_client import create_clawhub_client, search_local_skills
+from src.session.manager import DefaultSessionManager as SessionManager
+from src.tools.filesystem import filesystem_tools
+from src.tools.exec import exec_tools
+from src.tools.web import web_tools
+from src.tools.skills import skills_tools
+from src.tools.self_opt import self_opt_tools
+from src.security.sandbox import get_default_workspace
+
+# ── 全局状态 ──
+
+registry = DefaultToolRegistry()
+monitor = DefaultToolMonitor()
+skill_registry = DefaultSkillRegistry()
+clawhub = create_clawhub_client()
+
+# 注册内置工具
+for name, tool in filesystem_tools.items():
+    registry.register(name, tool)
+for name, tool in exec_tools.items():
+    registry.register(name, tool)
+for name, tool in web_tools.items():
+    registry.register(name, tool)
+for name, tool in skills_tools.items():
+    registry.register(name, tool)
+for name, tool in self_opt_tools.items():
+    registry.register(name, tool)
+
+active_profile = os.environ.get("MODEL_PROFILE", "balanced")
+session_manager: SessionManager | None = None
+active_session_id = "cli-interactive"
+log_file: str | None = None
 
 
-def main() -> None:
-    """CLI 主入口"""
-    parser = argparse.ArgumentParser(
-        description="Mini Agent Python — A minimal LLM agent"
+# ── 技能加载 ──
+
+async def load_skills() -> list:
+    """自动发现并加载技能包。"""
+    skills_root = os.environ.get(
+        "MINI_AGENT_SKILLS",
+        str(Path(__file__).parent.parent / "skills"),
     )
-    parser.add_argument(
-        "--feishu",
-        action="store_true",
-        help="Start in Feishu poll mode",
-    )
-    parser.add_argument(
-        "--version",
-        action="version",
-        version="miniagent-python 1.0.0",
-    )
 
-    args = parser.parse_args()
+    if not os.path.isdir(skills_root):
+        print(f"ℹ️ 技能目录不存在: {skills_root}")
+        return []
 
-    if args.feishu:
-        print("🚀 Starting Feishu poll mode... (not yet implemented)")
+    packages = await discover_skill_packages(skills_root)
+    for pkg in packages:
+        skill_registry.register_package(pkg)
+        print(f"📦 已加载技能包: {pkg.name} ({len(pkg.skills)} 个技能)")
+        for skill in pkg.skills:
+            if skill.tools:
+                for name, tool in skill.tools.items():
+                    try:
+                        registry.register(name, tool)
+                    except ValueError:
+                        print(f"⚠️ 工具 '{name}' 已存在，跳过")
+
+    return packages
+
+
+# ── 欢迎信息 ──
+
+def print_welcome(all_toolboxes, loaded_skills):
+    """显示欢迎信息。"""
+    version = "0.1.0"  # TODO: 从 pyproject.toml 读取
+    toolbox_names = [tb.name for tb in all_toolboxes]
+    tool_names = registry.list()
+
+    print(f"🤖 Mini Agent v{version} 已启动")
+    print(f"📡 模型: {MODEL} | 预设: {active_profile}")
+    print(f"📂 工作空间: {get_default_workspace()}")
+    print(f"🧰 工具箱: {', '.join(toolbox_names)}")
+    print(f"🔧 工具: {', '.join(tool_names)}")
+    if loaded_skills:
+        print(f"🎯 技能: {', '.join(s.name for s in loaded_skills)}")
+    print(
+        '💡 输入问题，或 "quit" 退出 | 命令: .stats .skills .sessions .profile .skill .plan .log .optimize .promote'
+    )
+    print("─" * 60)
+
+
+# ── CLI 主循环 ──
+
+async def main():
+    global active_session_id, log_file, session_manager
+
+    # 单实例检查
+    if "--stop" in sys.argv:
+        result = stop_instance()
+        if result.success:
+            print("✅ Mini Agent 已停止")
+        else:
+            print(f"ℹ️ {result.reason}")
+        sys.exit(0)
+
+    force_mode = "--force" in sys.argv
+    instance_result = force_acquire_instance() if force_mode else try_acquire_instance()
+    if not instance_result.success:
+        if "existing_pid" in instance_result.__dict__:
+            print(f"❌ Mini Agent 已在运行 (PID={instance_result.existing_pid})")
+            print(f"   强制启动: python -m src --force")
+        else:
+            print(f"❌ 无法获取实例锁: {instance_result.reason}")
         sys.exit(1)
 
-    print("🦞 Mini Agent Python — Interactive CLI (not yet implemented)")
-    print("💡 Phase 1 complete: project skeleton + type layer")
-    print("📋 Next: Phase 2 — Infrastructure layer")
+    # 注册退出钩
+    def _on_exit():
+        try:
+            release_instance()
+        except Exception:
+            pass
+
+    signal.signal(signal.SIGINT, lambda *_: (_on_exit(), sys.exit(0)))
+    signal.signal(signal.SIGTERM, lambda *_: (_on_exit(), sys.exit(0)))
+
+    # 加载技能
+    loaded_skills = await load_skills()
+
+    # 工具箱
+    skill_toolboxes = skill_registry.get_all_toolboxes()
+    all_toolboxes = skill_toolboxes  # TODO: 合并 DEFAULT_TOOLBOXES
+    skill_prompts = skill_registry.get_system_prompts()
+
+    # 初始化 SessionManager
+    session_manager = SessionManager(registry, all_toolboxes, loaded_skills)
+    session_manager.get_or_create(active_session_id, description="CLI 交互会话")
+    print("🧩 多会话管理已初始化")
+
+    # 欢迎信息
+    print_welcome(all_toolboxes, loaded_skills)
+
+    # 关键词索引清理（启动时）
+    try:
+        from src.core.keyword_index import KeywordIndex
+        ki = KeywordIndex()
+        ki.load()
+        pruned = ki.prune_expired(30)
+        if pruned > 0:
+            print(f"🧹 已清理 {pruned} 条过期索引")
+    except Exception:
+        pass
+
+    # 主循环
+    while True:
+        try:
+            user_input = await asyncio.to_thread(input, "\n> ")
+        except EOFError:
+            break
+
+        user_input = user_input.strip()
+        if not user_input:
+            continue
+        if user_input.lower() in ("quit", "exit"):
+            break
+
+        # ── 内置命令处理 ──
+
+        # .stop
+        if user_input == ".stop":
+            result = stop_instance()
+            if result.success:
+                print("✅ 实例已停止")
+                sys.exit(0)
+            else:
+                print(f"ℹ️ {result.reason}")
+            continue
+
+        # .stats
+        if user_input == ".stats":
+            print("\n" + monitor.report())
+            continue
+
+        # .skills
+        if user_input == ".skills":
+            skills = skill_registry.get_all()
+            if not skills:
+                print("\n🎯 暂无已加载的技能")
+            else:
+                print("\n🎯 已加载技能:")
+                for s in skills:
+                    print(f"  - {s.name} ({s.id}): {s.description}")
+            continue
+
+        # .sessions
+        if user_input == ".sessions":
+            sessions = session_manager.list()
+            main_tools = session_manager.get_main_tools()
+            print("\n🧩 多会话管理")
+            print(f"  活跃会话: {len(sessions)}")
+            print(f"  主空间工具: {len(main_tools)} 个")
+            print(f"  当前会话: {active_session_id}")
+            for s in sessions:
+                marker = " ← 当前" if s.session_id == active_session_id else ""
+                print(f"  - {s.session_id}{marker}")
+                print(f"    工具: {s.tool_count} | 技能: {s.skill_count} | 目录: {s.files_path}")
+            continue
+
+        # .session new/switch/destroy
+        if user_input.startswith(".session "):
+            parts = user_input.split()
+            sub_cmd = parts[1] if len(parts) > 1 else ""
+
+            if sub_cmd == "new":
+                new_id = parts[2] if len(parts) > 2 else f"cli-{int(__import__('time').time())}"
+                desc = " ".join(parts[3:]) if len(parts) > 3 else "CLI 会话"
+                ctx = session_manager.get_or_create(new_id, description=desc)
+                active_session_id = new_id
+                print(f"🆕 会话已创建并切换: {new_id}")
+                print(f"   工作空间: {ctx.config.files_path}")
+                print(f"   工具数: {ctx.registry.list().__len__()}")
+            elif sub_cmd == "switch" and len(parts) >= 3:
+                target_id = parts[2]
+                ctx = session_manager.get_or_create(target_id)
+                if ctx:
+                    active_session_id = target_id
+                    print(f"🔄 已切换到会话: {target_id}")
+                else:
+                    print(f"❌ 会话不存在: {target_id}")
+            elif sub_cmd == "destroy" and len(parts) >= 3:
+                target_id = parts[2]
+                if target_id == active_session_id:
+                    print("⚠️ 无法销毁当前活跃会话，请先 .session switch 到其他会话")
+                else:
+                    ok = session_manager.destroy(target_id)
+                    print(f"{'🗑️ 会话已销毁' if ok else '⚠️ 会话不存在'}: {target_id}")
+            else:
+                print("❌ 未知 .session 命令。用法: .session new [id] [desc] | .session switch <id> | .session destroy <id>")
+            continue
+
+        # .promote
+        if user_input.startswith(".promote "):
+            parts = user_input.split()
+            target = parts[1]
+            if target == "all":
+                if session_manager:
+                    results = session_manager.promote_all_tools(active_session_id)
+                    print("\n🚀 批量升维结果:")
+                    for r in results:
+                        print(f"  {r}")
+            else:
+                if session_manager:
+                    result = session_manager.promote_tool(active_session_id, target)
+                    print(result)
+            continue
+
+        # .demote
+        if user_input.startswith(".demote "):
+            tool_name = user_input.split()[1]
+            if session_manager:
+                result = session_manager.demote_tool(tool_name)
+                print(result)
+            continue
+
+        # .profile
+        if user_input.startswith(".profile"):
+            parts = user_input.split()
+            if len(parts) < 2:
+                print(f"\n📡 当前模型预设: {active_profile}")
+                print("\n可用预设:")
+                for name, profile in MODEL_PROFILES.items():
+                    marker = " ← 当前" if name == active_profile else ""
+                    print(f"  - {name}: {profile.description}{marker}")
+            else:
+                profile_name = parts[1]
+                if profile_name in MODEL_PROFILES:
+                    active_profile = profile_name
+                    print(f"📡 模型预设已切换到: {profile_name}")
+                else:
+                    print(f"❌ 未知预设: {profile_name}。使用 .profile 查看可用列表。")
+            continue
+
+        # .skill
+        if user_input.startswith(".skill "):
+            parts = user_input.split()
+            sub_cmd = parts[1] if len(parts) > 1 else ""
+
+            if sub_cmd == "search" and len(parts) >= 3:
+                query = " ".join(parts[2:])
+                print(f"🔍 搜索技能: '{query}'...")
+                try:
+                    skills_root = os.environ.get(
+                        "MINI_AGENT_SKILLS",
+                        str(Path(__file__).parent.parent / "skills"),
+                    )
+                    local_results = search_local_skills(skills_root, query)
+                    if local_results:
+                        print("\n本地技能:")
+                        for s in local_results:
+                            print(f"  - {s['name']} ({s['slug']}): {s['description']}")
+                    else:
+                        print("  未找到匹配的本地技能")
+                except Exception as e:
+                    print(f"❌ 搜索失败: {e}")
+            elif sub_cmd == "install" and len(parts) >= 3:
+                slug = parts[2]
+                print(f"📥 安装技能: {slug}...")
+                try:
+                    result = await clawhub.download(slug)
+                    print(f"✅ 已安装到: {result['path']}")
+                except Exception as e:
+                    print(f"❌ 安装失败: {e}")
+            elif sub_cmd == "list":
+                skills_root = os.environ.get(
+                    "MINI_AGENT_SKILLS",
+                    str(Path(__file__).parent.parent / "skills"),
+                )
+                local_results = search_local_skills(skills_root, "")
+                if local_results:
+                    print("\n📦 已安装技能:")
+                    for s in local_results:
+                        print(f"  - {s['name']} ({s['slug']}): {s['description']}")
+                else:
+                    print("  暂无已安装的技能")
+            else:
+                print("❌ 未知 .skill 命令。用法: .skill search <query> | .skill install <slug> | .skill list")
+            continue
+
+        # .log
+        if user_input.startswith(".log "):
+            log_file = user_input[5:].strip() or None
+            if log_file:
+                print(f"📝 增量日志已开启: {log_file}")
+            else:
+                print("📝 增量日志已关闭")
+            continue
+
+        # .optimize
+        if user_input.startswith(".optimize"):
+            sub_cmd = user_input.split()[1] if len(user_input.split()) > 1 else ""
+            project_root = str(Path(__file__).parent.parent)
+            src_dir = os.path.join(project_root, "src")
+
+            try:
+                if sub_cmd == "inspect":
+                    print("\n🔍 启动自我审视...")
+                    # 简易版：统计代码行数
+                    total_lines = 0
+                    py_files = 0
+                    for root, _, files in os.walk(src_dir):
+                        for f in files:
+                            if f.endswith(".py"):
+                                py_files += 1
+                                total_lines += len(Path(os.path.join(root, f)).read_text().splitlines())
+                    print(f"📦 Python 文件: {py_files}, 总代码行数: {total_lines}")
+                elif sub_cmd == "status":
+                    print("\n📊 优化仪表盘")
+                    print(f"  工具调用次数: {monitor._total_calls}")
+                    print(f"  成功率: {monitor._success_count}/{monitor._total_calls}")
+                else:
+                    print("\n🚀 启动自我优化流程...")
+                    print("  子命令: .optimize inspect | .optimize status | .optimize auto")
+            except Exception as e:
+                print(f"\n❌ 自我优化失败: {e}")
+            continue
+
+        # ── Agent 执行 ──
+        skip_planning = user_input.startswith(".plan ")
+        actual_input = user_input[6:] if skip_planning else user_input
+
+        try:
+            session_ctx = session_manager.get_or_create(active_session_id)
+
+            # 调用 Agent
+            reply = await run_agent(
+                actual_input,
+                registry=registry,
+                monitor=monitor,
+                toolboxes=all_toolboxes,
+                skip_planning=skip_planning,
+                agent_config={
+                    "debug": True,
+                    "log_file": log_file,
+                    "session_key": active_session_id,
+                },
+                system_prompt="\n\n".join(skill_prompts) if skill_prompts else None,
+            )
+            print(f"\n🦾 {reply}")
+
+            # 更新对话历史
+            session_ctx.conversation_history.append({"role": "user", "content": actual_input})
+            session_ctx.conversation_history.append({"role": "assistant", "content": reply})
+
+        except Exception as e:
+            print(f"\n❌ 错误: {e}")
+
+    # 退出
+    print("\n👋 bye")
+    print("\n" + monitor.report())
+    release_instance()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

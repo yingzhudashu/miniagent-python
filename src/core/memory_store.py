@@ -369,8 +369,16 @@ class DefaultMemoryStore(MemoryStoreProtocol):
         # index_entry(session_id, full_entry)
 
 
+# ============================================================================
+# 全局单例
+# ============================================================================
+
+memory_store = DefaultMemoryStore()
+"""全局共享的 MemoryStore 实例。"""
+
 __all__ = [
     "DefaultMemoryStore",
+    "memory_store",
     "format_memory_for_prompt",
     "extract_facts",
     "generate_turn_summary",

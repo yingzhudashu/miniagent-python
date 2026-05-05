@@ -1,0 +1,316 @@
+"""Mini Agent Python — Self-Optimization 工具 (Phase 5)
+
+提供自我优化能力：
+- self_inspect: 分析当前架构和代码质量
+- external_research: 搜索外部先进架构和论文
+- generate_proposal: 生成优化提案
+- implement_change: 实施代码变更
+- run_tests: 运行测试验证
+- git_snapshot: Git 快照管理
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import sys
+from pathlib import Path
+from typing import Any
+
+from src.types.tool import ToolDefinition, ToolContext, ToolResult
+
+
+# ─── 风险评估 ────────────────────────────────────────────
+
+def _assess_risk(type_: str, target: str) -> str:
+    """评估操作风险等级。"""
+    lower = f"{type_} {target}".lower()
+    destructive = ["delete", "remove core", "overwrite config", ".env"]
+    high = ["modify core", "refactor agent", "modify planner", "change registry"]
+    medium = ["modify tool", "add dependency", "refactor"]
+
+    for k in destructive:
+        if k in lower:
+            return "destructive"
+    for k in high:
+        if k in lower:
+            return "high"
+    for k in medium:
+        if k in lower:
+            return "medium"
+    return "low"
+
+
+# ─── Git 辅助函数 ────────────────────────────────────────
+
+async def _run_git(args: list[str], cwd: str) -> tuple[int, str]:
+    """执行 git 命令并返回 (exit_code, output)。"""
+    proc = await asyncio.create_subprocess_exec(
+        "git", *args,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        cwd=cwd,
+    )
+    stdout, stderr = await proc.communicate()
+    out = (stdout or b"").decode("utf-8", errors="replace").strip()
+    err = (stderr or b"").decode("utf-8", errors="replace").strip()
+    return proc.returncode or 0, out or err
+
+
+# ════════════════════════════════════════════════════════
+# self_inspect
+# ════════════════════════════════════════════════════════
+
+_self_inspect_schema = {
+    "type": "function",
+    "function": {
+        "name": "self_inspect",
+        "description": "分析当前 Agent 的架构完整性、代码质量和痛点",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "srcDir": {"type": "string", "description": "项目 src/ 目录路径"},
+                "detailed": {"type": "boolean", "description": "是否输出详细报告"},
+            },
+        },
+    },
+}
+
+
+async def _self_inspect_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    src_dir = str(args.get("srcDir", "")) or os.path.join(ctx.cwd, "src")
+    detailed = bool(args.get("detailed", False))
+
+    if not os.path.isdir(src_dir):
+        return ToolResult(success=False, content=f"错误: src 目录不存在: {src_dir}")
+
+    # 简单的代码分析
+    py_files: list[dict[str, Any]] = []
+    total_lines = 0
+
+    for root, _, files in os.walk(src_dir):
+        for f in files:
+            if not f.endswith(".py"):
+                continue
+            fp = os.path.join(root, f)
+            try:
+                content = Path(fp).read_text(encoding="utf-8")
+                lines = content.count("\n") + 1
+                total_lines += lines
+                imports = len([l for l in content.split("\n") if l.strip().startswith(("import ", "from "))])
+                exports = content.count("__all__")
+                py_files.append({
+                    "path": os.path.relpath(fp, src_dir),
+                    "lines": lines,
+                    "imports": imports,
+                    "has_exports": exports > 0,
+                })
+            except Exception:
+                pass
+
+    lines_out = [
+        "══════════════════════════════════════════",
+        "🔍 Self-Inspection Report",
+        "══════════════════════════════════════════",
+        f"📦 Python 文件数: {len(py_files)}",
+        f"📊 总代码行数: {total_lines}",
+        "",
+        "📁 模块概览:",
+    ]
+
+    for m in sorted(py_files, key=lambda x: -x["lines"]):
+        lines_out.append(f"  📄 {m['path']} ({m['lines']} 行, {m['imports']} imports)")
+
+    if detailed:
+        lines_out.append("\n📋 详细分析:")
+        for m in py_files:
+            lines_out.append(f"\n  {m['path']}:")
+            lines_out.append(f"    行数: {m['lines']}")
+            lines_out.append(f"    导入数: {m['imports']}")
+            lines_out.append(f"    有 __all__: {'✅' if m['has_exports'] else '❌'}")
+
+    return ToolResult(success=True, content="\n".join(lines_out))
+
+
+# ════════════════════════════════════════════════════════
+# generate_proposal
+# ════════════════════════════════════════════════════════
+
+_generate_proposal_schema = {
+    "type": "function",
+    "function": {
+        "name": "generate_proposal",
+        "description": "生成优化提案（含测试用例），不会自动执行",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "target": {"type": "string", "description": "优化目标"},
+                "type": {"type": "string", "enum": ["add", "remove", "modify", "refactor"]},
+                "description": {"type": "string", "description": "改动说明"},
+                "rationale": {"type": "string", "description": "优化依据"},
+            },
+            "required": ["target", "description"],
+        },
+    },
+}
+
+
+async def _generate_proposal_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolResult:
+    target = str(args.get("target", ""))
+    type_ = str(args.get("type", "add"))
+    description = str(args.get("description", ""))
+    rationale = str(args.get("rationale", "基于架构分析"))
+    risk = _assess_risk(type_, target)
+    proposal_id = f"prop-{int(__import__('time').time())}"
+
+    lines = [
+        "══════════════════════════════════════════",
+        "📋 Optimization Proposal",
+        "══════════════════════════════════════════",
+        f"🆔 ID: {proposal_id}",
+        f"📌 类型: {type_}",
+        f"⚠️ 风险等级: {risk}",
+        f"🎯 目标: {target}",
+        f"📝 说明: {description}",
+        f"📖 依据: {rationale}",
+        "",
+        "⚠️ 此提案尚未执行。使用 implement_change 工具实施。",
+    ]
+
+    return ToolResult(success=True, content="\n".join(lines))
+
+
+# ════════════════════════════════════════════════════════
+# run_tests
+# ════════════════════════════════════════════════════════
+
+_run_tests_schema = {
+    "type": "function",
+    "function": {
+        "name": "run_tests",
+        "description": "运行测试验证变更",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "command": {"type": "string", "description": "测试命令（默认 pytest）"},
+                "cwd": {"type": "string", "description": "工作目录"},
+            },
+        },
+    },
+}
+
+
+async def _run_tests_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    command = str(args.get("command", "python -m pytest"))
+    cwd = str(args.get("cwd", "")) or ctx.cwd
+
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=cwd,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+        out = (stdout or b"").decode("utf-8", errors="replace").strip()
+        err = (stderr or b"").decode("utf-8", errors="replace").strip()
+        code = proc.returncode or 0
+
+        content = out or err or "(无输出)"
+        content += f"\n\n[exit code: {code}]"
+
+        return ToolResult(success=(code == 0), content=content)
+    except asyncio.TimeoutError:
+        return ToolResult(success=False, content="❌ 测试执行超时 (120s)")
+    except Exception as e:
+        return ToolResult(success=False, content=f"❌ 测试执行失败: {e}")
+
+
+# ════════════════════════════════════════════════════════
+# git_snapshot
+# ════════════════════════════════════════════════════════
+
+_git_snapshot_schema = {
+    "type": "function",
+    "function": {
+        "name": "git_snapshot",
+        "description": "Git 快照管理（创建/列出/回滚）",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["create", "list", "revert"]},
+                "message": {"type": "string", "description": "commit message"},
+                "commitHash": {"type": "string", "description": "要回滚到的 commit hash"},
+            },
+            "required": ["action"],
+        },
+    },
+}
+
+
+async def _git_snapshot_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    action = str(args.get("action", "create"))
+    project_root = ctx.cwd
+
+    try:
+        if action == "create":
+            message = str(args.get("message", "self-opt: snapshot"))
+            await _run_git(["add", "-A"], project_root)
+            code, out = await _run_git(["commit", "-m", message], project_root)
+            if code != 0:
+                return ToolResult(success=True, content="无变更需要提交")
+            _, hash_out = await _run_git(["log", "-1", "--format=%H"], project_root)
+            return ToolResult(success=True, content=f"✅ Git 快照已创建: {hash_out}")
+
+        if action == "list":
+            _, out = await _run_git(["log", "-10", "--format=%h %s (%cr)"], project_root)
+            return ToolResult(success=True, content=f"Git 历史:\n{out}")
+
+        if action == "revert":
+            commit_hash = str(args.get("commitHash", "HEAD"))
+            code, out = await _run_git(["reset", "--hard", commit_hash], project_root)
+            if code == 0:
+                return ToolResult(success=True, content=f"✅ 已回滚到 {commit_hash}")
+            return ToolResult(success=False, content=f"回滚失败: {out}")
+
+        return ToolResult(success=False, content=f"未知操作: {action}")
+
+    except Exception as e:
+        return ToolResult(success=False, content=f"Git 操作失败: {e}")
+
+
+# ─── 导出 ────────────────────────────────────────────────
+
+self_opt_tools: dict[str, ToolDefinition] = {
+    "self_inspect": ToolDefinition(
+        schema=_self_inspect_schema,
+        handler=_self_inspect_handler,
+        permission="sandbox",
+        help_text="分析当前 Agent 架构和代码质量",
+        toolbox="self_optimization",
+    ),
+    "generate_proposal": ToolDefinition(
+        schema=_generate_proposal_schema,
+        handler=_generate_proposal_handler,
+        permission="sandbox",
+        help_text="生成优化提案",
+        toolbox="self_optimization",
+    ),
+    "run_tests": ToolDefinition(
+        schema=_run_tests_schema,
+        handler=_run_tests_handler,
+        permission="allowlist",
+        help_text="运行测试验证",
+        toolbox="self_optimization",
+    ),
+    "git_snapshot": ToolDefinition(
+        schema=_git_snapshot_schema,
+        handler=_git_snapshot_handler,
+        permission="require-confirm",
+        help_text="Git 快照管理",
+        toolbox="self_optimization",
+    ),
+}
+
+__all__ = ["self_opt_tools"]
