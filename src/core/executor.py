@@ -65,6 +65,7 @@ def get_client() -> AsyncOpenAI:
 # ─── 回调类型 ────────────────────────────────────────────
 
 OnToolCall = Callable[[str, str, str], None]  # (name, args_json, result)
+OnThinking = Callable[[str], Awaitable[None]]  # (thinking_text)
 
 
 # ─── 核心：执行计划 ─────────────────────────────────────
@@ -76,6 +77,7 @@ async def execute_plan(
     monitor: ToolMonitorProtocol,
     agent_config: AgentConfig,
     on_tool_call: OnToolCall | None = None,
+    on_thinking: OnThinking | None = None,
 ) -> str:
     """执行结构化计划（ReAct 循环）。
 
@@ -194,6 +196,11 @@ async def execute_plan(
                 },
             })
 
+        # ── 触发思考回调 ──
+        if on_thinking and msg.content:
+            turn_label = f"[第 {max_turns - turns_left} 轮思考]"
+            await on_thinking(f"{turn_label}\n{msg.content}")
+
         # ── 无工具调用 → 最终回复 ──
         if not msg.tool_calls:
             final_reply = msg.content or "(空回复)"
@@ -277,6 +284,11 @@ async def execute_plan(
             })
             if on_tool_call:
                 on_tool_call(tc.function.name, tc.function.arguments, result.content)
+
+            # 工具执行结果也推给思考回调
+            if on_thinking:
+                preview = result.content[:200]
+                await on_thinking(f"🔧 {tc.function.name} → {preview}")
 
     # ── 达到最大轮数 ──
     loop_stats = loop_detector.get_stats()

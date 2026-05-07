@@ -181,6 +181,17 @@ class DisplayManager:
         indicator = self._c("⠋", _MAGENTA)
         self._print(f"  {indicator} {self._c('思考中...', _DIM)}")
 
+    def show_thinking_content(self, text: str) -> None:
+        """显示 LLM 思考内容"""
+        self._busy = True
+        # 多行思考内容，首行标注，后续缩进
+        lines = text.split("\n")
+        for i, line in enumerate(lines):
+            if i == 0:
+                self._print(f"  {self._c('💭', _MAGENTA)} {self._c(line, _DIM)}")
+            else:
+                self._print(f"     {self._c(line, _DIM)}")
+
     def update_spinner(self) -> None:
         """更新旋转指示器（在循环中定期调用）"""
         if not self._busy or not self._color:

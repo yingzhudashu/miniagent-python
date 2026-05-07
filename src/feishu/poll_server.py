@@ -384,6 +384,42 @@ async def _send_reply(config: FeishuConfig, chat_id: str, reply: str) -> None:
         _logger.error("发送回复异常: %s", e)
 
 
+async def _send_thinking(config: FeishuConfig, chat_id: str, thinking: str) -> None:
+    """通过飞书 API 发送思考过程（带前缀标记）。"""
+    try:
+        import lark_oapi as lark
+        from lark_oapi.api.im.v1 import (
+            CreateMessageRequest,
+            CreateMessageRequestBody,
+        )
+
+        client = lark.Client.builder().app_id(config.app_id).app_secret(config.app_secret).build()
+
+        # 截断过长的思考内容
+        max_len = 500
+        truncated = thinking[:max_len] + "..." if len(thinking) > max_len else thinking
+
+        request = CreateMessageRequest.builder() \
+            .receive_id_type("chat_id") \
+            .request_body(
+                CreateMessageRequestBody.builder()
+                .receive_id(chat_id)
+                .msg_type("text")
+                .content(json.dumps({"text": f"💭 {truncated}"}))
+                .build()
+            ) \
+            .build()
+
+        response = client.im.v1.message.create(request)
+        if not response.success():
+            _logger.warning("发送思考失败: %s %s", response.code, response.msg)
+
+    except ImportError:
+        pass  # 静默失败，不影响主流程
+    except Exception as e:
+        _logger.debug("发送思考异常: %s", e)
+
+
 __all__ = ["start_feishu_poll_server", "try_begin_processing", "release_processing", "feishu_main"]
 
 
@@ -391,6 +427,7 @@ async def feishu_main():
     """飞书独立模式入口（--feishu 参数）。"""
     import signal
     import os
+    import asyncio
     from src.feishu.types import FeishuConfig
     from src.feishu.agent_handler import create_feishu_handler
     from src.core.registry import DefaultToolRegistry
@@ -433,7 +470,11 @@ async def feishu_main():
         verification_token=os.environ.get("FEISHU_VERIFICATION_TOKEN", ""),
     )
 
-    handler = create_feishu_handler(registry, monitor, skill_toolboxes, [], skill_prompts if skill_prompts else None)
+    async def _send_thinking_feishu(chat_id: str, thinking: str) -> None:
+        """飞书思考回调。"""
+        await _send_thinking(config, chat_id, thinking)
+
+    handler = create_feishu_handler(registry, monitor, skill_toolboxes, [], skill_prompts if skill_prompts else None, _send_thinking_feishu)
 
     def _on_exit(*_):
         _logger.info("飞书服务已停止")

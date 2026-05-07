@@ -67,6 +67,11 @@ skill_registry = DefaultSkillRegistry()
 clawhub = create_clawhub_client()
 dm = DisplayManager(prompt="> ")
 
+
+async def _on_thinking_cli(text: str, display: DisplayManager) -> None:
+    """CLI 思考回调：显示 LLM 思考内容。"""
+    display.show_thinking_content(text)
+
 # 注册内置工具
 for name, tool in filesystem_tools.items():
     registry.register(name, tool)
@@ -478,9 +483,11 @@ async def main():
                     "debug": False,  # 关闭 debug 避免刷屏
                     "log_file": log_file,
                     "session_key": active_session_id,
+                    "conversation_history": session_ctx.conversation_history,
                 },
                 system_prompt="\n\n".join(skill_prompts) if skill_prompts else None,
                 on_tool_call=on_tool_call,
+                on_thinking=lambda text: _on_thinking_cli(text, dm),
             )
             # 显示最终回复
             dm.show_reply(reply)
@@ -488,6 +495,10 @@ async def main():
             # 更新对话历史
             session_ctx.conversation_history.append({"role": "user", "content": actual_input})
             session_ctx.conversation_history.append({"role": "assistant", "content": reply})
+
+            # 限制历史长度（保留最近 40 条）
+            if len(session_ctx.conversation_history) > 40:
+                session_ctx.conversation_history = session_ctx.conversation_history[-40:]
 
         except Exception as e:
             dm.show_error(str(e))

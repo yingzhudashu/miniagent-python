@@ -30,6 +30,7 @@ from src.security.sandbox import get_default_workspace
 
 OnToolCall = Callable[[str, str, str], None]
 OnPlan = Callable[[StructuredPlan], Awaitable[bool]]
+OnThinking = Callable[[str], Awaitable[None]]
 
 
 # ─── 主入口 ──────────────────────────────────────────────
@@ -45,6 +46,7 @@ async def run_agent(
     skip_planning: bool = False,
     on_tool_call: OnToolCall | None = None,
     on_plan: OnPlan | None = None,
+    on_thinking: OnThinking | None = None,
 ) -> str:
     """运行 Agent（两阶段模式）。
 
@@ -61,6 +63,7 @@ async def run_agent(
         skip_planning: 跳过规划阶段
         on_tool_call: 工具调用回调
         on_plan: 计划确认回调（返回 True 批准执行）
+        on_thinking: 思考过程回调
 
     Returns:
         Agent 的最终回复文本
@@ -111,7 +114,7 @@ async def run_agent(
                 return "⚠️ 操作已取消"
 
     # ── Phase 2: 执行 ──
-    return await execute_plan(plan, user_input, registry, monitor, merged_config, on_tool_call)
+    return await execute_plan(plan, user_input, registry, monitor, merged_config, on_tool_call, on_thinking)
 
 
 # ─── 线性管线执行器 ─────────────────────────────────────

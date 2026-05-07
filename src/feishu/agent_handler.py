@@ -35,6 +35,7 @@ def create_feishu_handler(
     toolboxes: list[Toolbox],
     skills: list[Skill],
     skill_prompts: list[str] | None = None,
+    send_thinking: Callable[[str, str], Awaitable[None]] | None = None,
 ) -> Callable[[str, str, str], Awaitable[str]]:
     """创建飞书消息处理器。
 
@@ -44,6 +45,7 @@ def create_feishu_handler(
         toolboxes: 工具箱列表
         skills: 已加载技能列表
         skill_prompts: 技能系统提示
+        send_thinking: 发送思考过程 (chat_id, thinking_text)
 
     Returns:
         消息处理函数 (content, chatId, senderId) => reply
@@ -70,6 +72,13 @@ def create_feishu_handler(
         history = _conversation_histories[chat_id]
 
         try:
+            # 创建 on_thinking 回调（捕获 chat_id）
+            on_thinking = None
+            if send_thinking:
+                async def _think(text: str) -> None:
+                    await send_thinking(chat_id, text)
+                on_thinking = _think
+
             # 调用 Agent
             reply = await run_agent(
                 content,
@@ -83,6 +92,7 @@ def create_feishu_handler(
                     "debug": False,
                 },
                 system_prompt="\n\n".join(skill_prompts) if skill_prompts else None,
+                on_thinking=on_thinking,
             )
 
             # 更新对话历史
