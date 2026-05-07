@@ -224,22 +224,7 @@ async def main():
     except Exception:
         pass
 
-    # ── 工具调用回调（实时显示进度） ──
-    def on_tool_call(name: str, args_json: str, result: str) -> None:
-        """工具执行完成后显示结果"""
-        try:
-            args = json.loads(args_json)
-        except Exception:
-            args = {}
-        preview = ""
-        if result:
-            preview = result[:80].replace("\n", " ")
-        success = not result.startswith("⚠") and not result.startswith("错误")
-        dm.show_tool_result(name, success, preview)
-
-    import time as _time
-
-    # 主循环
+    # ── Agent 执行 ──
     while True:
         try:
             user_input = await asyncio.to_thread(dm.prompt)
@@ -486,7 +471,6 @@ async def main():
                     "conversation_history": session_ctx.conversation_history,
                 },
                 system_prompt="\n\n".join(skill_prompts) if skill_prompts else None,
-                on_tool_call=on_tool_call,
                 on_thinking=lambda text: _on_thinking_cli(text, dm),
             )
             # 显示最终回复
