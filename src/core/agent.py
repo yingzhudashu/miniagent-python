@@ -19,6 +19,9 @@ from src.types.config import AgentConfig
 from src.types.tool import Toolbox, ToolContext, ToolRegistryProtocol
 from src.types.agent import ToolMonitorProtocol, PipelineStep, PipelineResult
 from src.core.config import get_default_agent_config, merge_agent_config
+from src.core.logger import get_logger
+
+_logger = get_logger(__name__)
 from src.core.executor import execute_plan
 from src.core.monitor import DefaultToolMonitor
 from src.security.sandbox import get_default_workspace
@@ -96,11 +99,10 @@ async def run_agent(
                 merged_config = merge_agent_config(merged_config, overrides)
 
         if merged_config.debug:
-            print(f"\n📋 规划结果:")
-            print(f"  摘要: {plan.summary}")
-            print(f"  工具箱: {', '.join(plan.required_toolboxes)}")
-            print(f"  预估 token: {plan.estimated_tokens.total}")
-            print(f"  风险: {plan.risk_level}")
+            _logger.info("规划结果: %s", plan.summary)
+            _logger.debug("工具箱: %s", ', '.join(plan.required_toolboxes))
+            _logger.debug("预估 token: %d", plan.estimated_tokens.total)
+            _logger.debug("风险等级: %s", plan.risk_level)
 
         # 高风险操作需要用户确认
         if plan.requires_confirmation and on_plan:

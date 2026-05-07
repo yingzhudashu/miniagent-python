@@ -43,18 +43,21 @@ from src.core.agent import run_agent
 from src.core.executor import MODEL
 from src.core.config import MODEL_PROFILES, get_default_agent_config
 from src.core.instance_manager import try_acquire_instance, force_acquire_instance, release_instance, stop_instance
+from src.core.process_tracker import cleanup_all_processes, get_active_processes
 from src.core.registry import DefaultToolRegistry
 from src.core.monitor import DefaultToolMonitor
 from src.skills.registry import DefaultSkillRegistry
 from src.skills.loader import discover_skill_packages
 from src.skills.clawhub_client import create_clawhub_client, search_local_skills
 from src.session.manager import DefaultSessionManager as SessionManager
+from src.types.memory import SessionOptions
 from src.tools.filesystem import filesystem_tools
 from src.tools.exec import exec_tools
 from src.tools.web import web_tools
 from src.tools.skills import skills_tools
 from src.tools.self_opt import self_opt_tools
 from src.security.sandbox import get_default_workspace
+from src.cli.display_manager import DisplayManager
 
 # ── 全局状态 ──
 
@@ -62,6 +65,7 @@ registry = DefaultToolRegistry()
 monitor = DefaultToolMonitor()
 skill_registry = DefaultSkillRegistry()
 clawhub = create_clawhub_client()
+dm = DisplayManager(prompt="> ")
 
 # 注册内置工具
 for name, tool in filesystem_tools.items():
@@ -111,23 +115,34 @@ async def load_skills() -> list:
 
 # ── 欢迎信息 ──
 
-def print_welcome(all_toolboxes, loaded_skills):
+def _get_version() -> str:
+    """从 pyproject.toml 读取版本号。"""
+    try:
+        import tomllib
+        pyproject = Path(__file__).parent.parent.parent / "pyproject.toml"
+        with open(pyproject, "rb") as f:
+            data = tomllib.load(f)
+        return data.get("project", {}).get("version", "unknown")
+    except Exception:
+        return "0.1.0"
+
+
+def print_welcome(dm, all_toolboxes, loaded_skills):
     """显示欢迎信息。"""
-    version = "0.1.0"  # TODO: 从 pyproject.toml 读取
+    version = _get_version()
     toolbox_names = [tb.name for tb in all_toolboxes]
     tool_names = registry.list()
+    skill_names = [s.name for s in loaded_skills] if loaded_skills else None
 
-    print(f"🤖 Mini Agent v{version} 已启动")
-    print(f"📡 模型: {MODEL} | 预设: {active_profile}")
-    print(f"📂 工作空间: {get_default_workspace()}")
-    print(f"🧰 工具箱: {', '.join(toolbox_names)}")
-    print(f"🔧 工具: {', '.join(tool_names)}")
-    if loaded_skills:
-        print(f"🎯 技能: {', '.join(s.name for s in loaded_skills)}")
-    print(
-        '💡 输入问题，或 "quit" 退出 | 命令: .stats .skills .sessions .profile .skill .plan .log .optimize .promote'
+    dm.print_welcome(
+        version=version,
+        model=MODEL,
+        profile=active_profile,
+        workspace=get_default_workspace(),
+        tools=tool_names,
+        toolboxes=toolbox_names,
+        skills=skill_names,
     )
-    print("─" * 60)
 
 
 # ── CLI 主循环 ──
@@ -135,50 +150,63 @@ def print_welcome(all_toolboxes, loaded_skills):
 async def main():
     global active_session_id, log_file, session_manager
 
+    # Windows 控制台 UTF-8 输出支持
+    if sys.platform == "win32":
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
     # 单实例检查
     if "--stop" in sys.argv:
         result = stop_instance()
-        if result.success:
-            print("✅ Mini Agent 已停止")
+        if result.get("success"):
+            dm.show_info("Mini Agent 已停止")
         else:
-            print(f"ℹ️ {result.reason}")
+            dm.show_info(result.get("reason", ""))
         sys.exit(0)
 
     force_mode = "--force" in sys.argv
     instance_result = force_acquire_instance() if force_mode else try_acquire_instance()
-    if not instance_result.success:
-        if "existing_pid" in instance_result.__dict__:
-            print(f"❌ Mini Agent 已在运行 (PID={instance_result.existing_pid})")
-            print(f"   强制启动: python -m src --force")
+    if not instance_result.get("success"):
+        if "existing_pid" in instance_result:
+            dm.show_error(f"Mini Agent 已在运行 (PID={instance_result.get('existing_pid')})")
+            dm.show_info("强制启动: python -m src --force")
         else:
-            print(f"❌ 无法获取实例锁: {instance_result.reason}")
+            dm.show_error(f"无法获取实例锁: {instance_result.get('reason', '')}")
         sys.exit(1)
 
-    # 注册退出钩
-    def _on_exit():
+    # 注册退出钩（信号 → 优雅退出）
+    async def _graceful_exit():
+        try:
+            await cleanup_all_processes()
+        except Exception:
+            pass
         try:
             release_instance()
         except Exception:
             pass
+        sys.exit(0)
 
-    signal.signal(signal.SIGINT, lambda *_: (_on_exit(), sys.exit(0)))
-    signal.signal(signal.SIGTERM, lambda *_: (_on_exit(), sys.exit(0)))
+    def _on_signal(*_):
+        asyncio.create_task(_graceful_exit())
+
+    signal.signal(signal.SIGINT, _on_signal)
+    signal.signal(signal.SIGTERM, _on_signal)
 
     # 加载技能
     loaded_skills = await load_skills()
 
     # 工具箱
     skill_toolboxes = skill_registry.get_all_toolboxes()
-    all_toolboxes = skill_toolboxes  # TODO: 合并 DEFAULT_TOOLBOXES
+    all_toolboxes = skill_toolboxes  # 所有工具箱由 skill_registry 统一管理
     skill_prompts = skill_registry.get_system_prompts()
 
     # 初始化 SessionManager
     session_manager = SessionManager(registry, all_toolboxes, loaded_skills)
-    session_manager.get_or_create(active_session_id, description="CLI 交互会话")
-    print("🧩 多会话管理已初始化")
+    session_manager.get_or_create(active_session_id, SessionOptions(description="CLI 交互会话"))
+    dm.show_info("多会话管理已初始化")
 
     # 欢迎信息
-    print_welcome(all_toolboxes, loaded_skills)
+    print_welcome(dm, all_toolboxes, loaded_skills)
 
     # 关键词索引清理（启动时）
     try:
@@ -187,14 +215,29 @@ async def main():
         ki.load()
         pruned = ki.prune_expired(30)
         if pruned > 0:
-            print(f"🧹 已清理 {pruned} 条过期索引")
+            dm.show_info(f"已清理 {pruned} 条过期索引")
     except Exception:
         pass
+
+    # ── 工具调用回调（实时显示进度） ──
+    def on_tool_call(name: str, args_json: str, result: str) -> None:
+        """工具执行完成后显示结果"""
+        try:
+            args = json.loads(args_json)
+        except Exception:
+            args = {}
+        preview = ""
+        if result:
+            preview = result[:80].replace("\n", " ")
+        success = not result.startswith("⚠") and not result.startswith("错误")
+        dm.show_tool_result(name, success, preview)
+
+    import time as _time
 
     # 主循环
     while True:
         try:
-            user_input = await asyncio.to_thread(input, "\n> ")
+            user_input = await asyncio.to_thread(dm.prompt)
         except EOFError:
             break
 
@@ -204,46 +247,45 @@ async def main():
         if user_input.lower() in ("quit", "exit"):
             break
 
+        # 显示用户输入（到历史流）
+        dm.show_user_input(user_input)
+
         # ── 内置命令处理 ──
 
-        # .stop
         if user_input == ".stop":
             result = stop_instance()
-            if result.success:
-                print("✅ 实例已停止")
+            if result.get("success"):
+                dm.show_info("实例已停止")
                 sys.exit(0)
             else:
-                print(f"ℹ️ {result.reason}")
+                dm.show_info(result.get("reason", ""))
             continue
 
-        # .stats
         if user_input == ".stats":
-            print("\n" + monitor.report())
+            dm.show_command_result("📊 工具统计", monitor.report())
             continue
 
-        # .skills
         if user_input == ".skills":
             skills = skill_registry.get_all()
             if not skills:
-                print("\n🎯 暂无已加载的技能")
+                dm.show_command_result("🎯 技能", "暂无已加载的技能")
             else:
-                print("\n🎯 已加载技能:")
-                for s in skills:
-                    print(f"  - {s.name} ({s.id}): {s.description}")
+                lines = [f"{s.name} ({s.id}): {s.description}" for s in skills]
+                dm.show_command_result("🎯 已加载技能", "\n".join(lines))
             continue
 
-        # .sessions
         if user_input == ".sessions":
             sessions = session_manager.list()
             main_tools = session_manager.get_main_tools()
-            print("\n🧩 多会话管理")
-            print(f"  活跃会话: {len(sessions)}")
-            print(f"  主空间工具: {len(main_tools)} 个")
-            print(f"  当前会话: {active_session_id}")
+            lines = [
+                f"活跃会话: {len(sessions)}",
+                f"主空间工具: {len(main_tools)} 个",
+                f"当前会话: {active_session_id}",
+            ]
             for s in sessions:
                 marker = " ← 当前" if s.session_id == active_session_id else ""
-                print(f"  - {s.session_id}{marker}")
-                print(f"    工具: {s.tool_count} | 技能: {s.skill_count} | 目录: {s.files_path}")
+                lines.append(f"  - {s.session_id}{marker} | 工具:{s.tool_count} 技能:{s.skill_count}")
+            dm.show_command_result("🧩 多会话管理", "\n".join(lines))
             continue
 
         # .session new/switch/destroy
@@ -252,82 +294,79 @@ async def main():
             sub_cmd = parts[1] if len(parts) > 1 else ""
 
             if sub_cmd == "new":
-                new_id = parts[2] if len(parts) > 2 else f"cli-{int(__import__('time').time())}"
+                new_id = parts[2] if len(parts) > 2 else f"cli-{int(_time.time())}"
                 desc = " ".join(parts[3:]) if len(parts) > 3 else "CLI 会话"
-                ctx = session_manager.get_or_create(new_id, description=desc)
+                ctx = session_manager.get_or_create(new_id, SessionOptions(description=desc))
                 active_session_id = new_id
-                print(f"🆕 会话已创建并切换: {new_id}")
-                print(f"   工作空间: {ctx.config.files_path}")
-                print(f"   工具数: {ctx.registry.list().__len__()}")
+                dm.show_info(f"会话已创建并切换: {new_id}")
             elif sub_cmd == "switch" and len(parts) >= 3:
                 target_id = parts[2]
                 ctx = session_manager.get_or_create(target_id)
                 if ctx:
                     active_session_id = target_id
-                    print(f"🔄 已切换到会话: {target_id}")
+                    dm.show_info(f"已切换到会话: {target_id}")
                 else:
-                    print(f"❌ 会话不存在: {target_id}")
+                    dm.show_error(f"会话不存在: {target_id}")
             elif sub_cmd == "destroy" and len(parts) >= 3:
                 target_id = parts[2]
                 if target_id == active_session_id:
-                    print("⚠️ 无法销毁当前活跃会话，请先 .session switch 到其他会话")
+                    dm.show_warning("无法销毁当前活跃会话，请先 .session switch 到其他会话")
                 else:
                     ok = session_manager.destroy(target_id)
-                    print(f"{'🗑️ 会话已销毁' if ok else '⚠️ 会话不存在'}: {target_id}")
+                    if ok:
+                        dm.show_info(f"会话已销毁: {target_id}")
+                    else:
+                        dm.show_error(f"会话不存在: {target_id}")
             else:
-                print("❌ 未知 .session 命令。用法: .session new [id] [desc] | .session switch <id> | .session destroy <id>")
+                dm.show_error("未知 .session 命令")
+                dm.show_info("用法: .session new [id] [desc] | .session switch <id> | .session destroy <id>")
             continue
 
-        # .promote
         if user_input.startswith(".promote "):
             parts = user_input.split()
             target = parts[1]
             if target == "all":
                 if session_manager:
                     results = session_manager.promote_all_tools(active_session_id)
-                    print("\n🚀 批量升维结果:")
-                    for r in results:
-                        print(f"  {r}")
+                    dm.show_command_result("🚀 批量升维", "\n".join(str(r) for r in results))
             else:
                 if session_manager:
                     result = session_manager.promote_tool(active_session_id, target)
-                    print(result)
+                    dm.show_info(result)
             continue
 
-        # .demote
         if user_input.startswith(".demote "):
             tool_name = user_input.split()[1]
             if session_manager:
                 result = session_manager.demote_tool(tool_name)
-                print(result)
+                dm.show_info(result)
             continue
 
-        # .profile
         if user_input.startswith(".profile"):
             parts = user_input.split()
             if len(parts) < 2:
-                print(f"\n📡 当前模型预设: {active_profile}")
-                print("\n可用预设:")
+                lines = [f"当前预设: {active_profile}", "可用预设:"]
                 for name, profile in MODEL_PROFILES.items():
                     marker = " ← 当前" if name == active_profile else ""
-                    print(f"  - {name}: {profile.description}{marker}")
+                    lines.append(f"  - {name}: {profile.description}{marker}")
+                dm.show_command_result("📡 模型预设", "\n".join(lines))
             else:
                 profile_name = parts[1]
                 if profile_name in MODEL_PROFILES:
                     active_profile = profile_name
-                    print(f"📡 模型预设已切换到: {profile_name}")
+                    dm.show_info(f"模型预设已切换到: {profile_name}")
                 else:
-                    print(f"❌ 未知预设: {profile_name}。使用 .profile 查看可用列表。")
+                    dm.show_error(f"未知预设: {profile_name}")
+                    dm.show_info("使用 .profile 查看可用列表")
             continue
 
-        # .skill
         if user_input.startswith(".skill "):
             parts = user_input.split()
             sub_cmd = parts[1] if len(parts) > 1 else ""
 
             if sub_cmd == "search" and len(parts) >= 3:
                 query = " ".join(parts[2:])
-                print(f"🔍 搜索技能: '{query}'...")
+                dm.show_info(f"搜索技能: '{query}'...")
                 try:
                     skills_root = os.environ.get(
                         "MINI_AGENT_SKILLS",
@@ -335,21 +374,20 @@ async def main():
                     )
                     local_results = search_local_skills(skills_root, query)
                     if local_results:
-                        print("\n本地技能:")
-                        for s in local_results:
-                            print(f"  - {s['name']} ({s['slug']}): {s['description']}")
+                        lines = [f"{s['name']} ({s['slug']}): {s['description']}" for s in local_results]
+                        dm.show_command_result("🔍 本地技能", "\n".join(lines))
                     else:
-                        print("  未找到匹配的本地技能")
+                        dm.show_info("未找到匹配的本地技能")
                 except Exception as e:
-                    print(f"❌ 搜索失败: {e}")
+                    dm.show_error(f"搜索失败: {e}")
             elif sub_cmd == "install" and len(parts) >= 3:
                 slug = parts[2]
-                print(f"📥 安装技能: {slug}...")
+                dm.show_info(f"安装技能: {slug}...")
                 try:
                     result = await clawhub.download(slug)
-                    print(f"✅ 已安装到: {result['path']}")
+                    dm.show_info(f"已安装到: {result['path']}")
                 except Exception as e:
-                    print(f"❌ 安装失败: {e}")
+                    dm.show_error(f"安装失败: {e}")
             elif sub_cmd == "list":
                 skills_root = os.environ.get(
                     "MINI_AGENT_SKILLS",
@@ -357,25 +395,23 @@ async def main():
                 )
                 local_results = search_local_skills(skills_root, "")
                 if local_results:
-                    print("\n📦 已安装技能:")
-                    for s in local_results:
-                        print(f"  - {s['name']} ({s['slug']}): {s['description']}")
+                    lines = [f"{s['name']} ({s['slug']}): {s['description']}" for s in local_results]
+                    dm.show_command_result("📦 已安装技能", "\n".join(lines))
                 else:
-                    print("  暂无已安装的技能")
+                    dm.show_info("暂无已安装的技能")
             else:
-                print("❌ 未知 .skill 命令。用法: .skill search <query> | .skill install <slug> | .skill list")
+                dm.show_error("未知 .skill 命令")
+                dm.show_info("用法: .skill search <query> | .skill install <slug> | .skill list")
             continue
 
-        # .log
         if user_input.startswith(".log "):
             log_file = user_input[5:].strip() or None
             if log_file:
-                print(f"📝 增量日志已开启: {log_file}")
+                dm.show_info(f"增量日志已开启: {log_file}")
             else:
-                print("📝 增量日志已关闭")
+                dm.show_info("增量日志已关闭")
             continue
 
-        # .optimize
         if user_input.startswith(".optimize"):
             sub_cmd = user_input.split()[1] if len(user_input.split()) > 1 else ""
             project_root = str(Path(__file__).parent.parent)
@@ -383,8 +419,7 @@ async def main():
 
             try:
                 if sub_cmd == "inspect":
-                    print("\n🔍 启动自我审视...")
-                    # 简易版：统计代码行数
+                    dm.show_info("启动自我审视...")
                     total_lines = 0
                     py_files = 0
                     for root, _, files in os.walk(src_dir):
@@ -392,16 +427,34 @@ async def main():
                             if f.endswith(".py"):
                                 py_files += 1
                                 total_lines += len(Path(os.path.join(root, f)).read_text().splitlines())
-                    print(f"📦 Python 文件: {py_files}, 总代码行数: {total_lines}")
+                    dm.show_command_result("📦 代码统计", f"Python 文件: {py_files}, 总代码行数: {total_lines}")
                 elif sub_cmd == "status":
-                    print("\n📊 优化仪表盘")
-                    print(f"  工具调用次数: {monitor._total_calls}")
-                    print(f"  成功率: {monitor._success_count}/{monitor._total_calls}")
+                    lines = [
+                        f"工具调用次数: {monitor._total_calls}",
+                        f"成功率: {monitor._success_count}/{monitor._total_calls}",
+                    ]
+                    dm.show_command_result("📊 优化仪表盘", "\n".join(lines))
                 else:
-                    print("\n🚀 启动自我优化流程...")
-                    print("  子命令: .optimize inspect | .optimize status | .optimize auto")
+                    dm.show_command_result("🚀 自我优化", "子命令: .optimize inspect | .optimize status | .optimize auto")
             except Exception as e:
-                print(f"\n❌ 自我优化失败: {e}")
+                dm.show_error(f"自我优化失败: {e}")
+            continue
+
+        if user_input == ".help":
+            dm.show_command_result("💡 可用命令",
+                ".stats    — 工具统计\n"
+                ".skills   — 已加载技能\n"
+                ".sessions — 会话列表\n"
+                ".profile  — 模型预设\n"
+                ".skill    — 技能管理\n"
+                ".session  — 会话操作\n"
+                ".plan     — 跳过规划直接执行\n"
+                ".log      — 增量日志\n"
+                ".optimize — 自我优化\n"
+                ".promote  — 升维工具\n"
+                ".demote   — 降维工具\n"
+                ".help     — 此帮助\n"
+                "quit/exit — 退出")
             continue
 
         # ── Agent 执行 ──
@@ -411,6 +464,9 @@ async def main():
         try:
             session_ctx = session_manager.get_or_create(active_session_id)
 
+            # 显示思考状态
+            dm.show_thinking()
+
             # 调用 Agent
             reply = await run_agent(
                 actual_input,
@@ -419,24 +475,32 @@ async def main():
                 toolboxes=all_toolboxes,
                 skip_planning=skip_planning,
                 agent_config={
-                    "debug": True,
+                    "debug": False,  # 关闭 debug 避免刷屏
                     "log_file": log_file,
                     "session_key": active_session_id,
                 },
                 system_prompt="\n\n".join(skill_prompts) if skill_prompts else None,
+                on_tool_call=on_tool_call,
             )
-            print(f"\n🦾 {reply}")
+            # 显示最终回复
+            dm.show_reply(reply)
 
             # 更新对话历史
             session_ctx.conversation_history.append({"role": "user", "content": actual_input})
             session_ctx.conversation_history.append({"role": "assistant", "content": reply})
 
         except Exception as e:
-            print(f"\n❌ 错误: {e}")
+            dm.show_error(str(e))
 
     # 退出
-    print("\n👋 bye")
-    print("\n" + monitor.report())
+    dm.farewell(monitor.report())
+
+    # 子进程清理
+    active = get_active_processes()
+    if active:
+        dm.show_info(f"正在清理 {len(active)} 个子进程...")
+    await cleanup_all_processes()
+
     release_instance()
 
 

@@ -20,6 +20,10 @@ import subprocess
 import sys
 import time
 
+from src.core.logger import get_logger
+
+_logger = get_logger(__name__)
+
 
 def _ensure_state_dir(state_dir: str) -> None:
     """确保状态目录存在
@@ -101,14 +105,14 @@ class InstanceManager:
                     return {"success": False, "existing_pid": existing_pid}
 
                 # PID 文件存在但进程已死
-                print(
-                    f"检测到过期 PID 文件 (PID={existing_pid})，"
-                    f"进程已不存在，清理中..."
+                _logger.warning(
+                    "检测到过期 PID 文件 (PID=%d)，进程已不存在，清理中...",
+                    existing_pid,
                 )
                 os.unlink(self._pid_file)
             except (ValueError, OSError):
                 # PID 文件损坏，删除重建
-                print("PID 文件读取失败，清理中...")
+                _logger.warning("PID 文件读取失败，清理中...")
                 try:
                     os.unlink(self._pid_file)
                 except OSError:
@@ -143,7 +147,7 @@ class InstanceManager:
                 return {"success": True}
 
             # 尝试终止已有进程
-            print(f"正在终止旧实例 (PID={existing_pid})...")
+            _logger.info("正在终止旧实例 (PID=%d)...", existing_pid)
             try:
                 if sys.platform == "win32":
                     subprocess.check_output(
@@ -210,7 +214,7 @@ class InstanceManager:
                 }
 
             # 终止进程
-            print(f"正在停止 Mini Agent (PID={existing_pid})...")
+            _logger.info("正在停止 Mini Agent (PID=%d)...", existing_pid)
             try:
                 if sys.platform == "win32":
                     subprocess.check_output(
@@ -234,7 +238,7 @@ class InstanceManager:
                 os.unlink(self._pid_file)
             except OSError:
                 pass
-            print("Mini Agent 已停止")
+            _logger.info("Mini Agent 已停止")
             return {"success": True}
 
         except Exception as e:

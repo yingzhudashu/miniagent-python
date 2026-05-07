@@ -19,6 +19,9 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Any, Awaitable, Callable
 
 from src.feishu.types import FeishuConfig
+from src.core.logger import get_logger
+
+_logger = get_logger(__name__)
 
 
 async def _send_reply(config: FeishuConfig, chat_id: str, reply: str) -> None:
@@ -45,14 +48,14 @@ async def _send_reply(config: FeishuConfig, chat_id: str, reply: str) -> None:
 
         response = client.im.v1.message.create(request)
         if response.success():
-            print(f"[飞书] 已回复 [{chat_id}]")
+            _logger.debug("已回复 [%s]", chat_id)
         else:
-            print(f"[飞书] 发送回复失败: {response.code} {response.msg}")
+            _logger.warning("发送回复失败: %s %s", response.code, response.msg)
 
     except ImportError:
-        print("❌ 请安装 lark-oapi: pip install lark-oapi")
+        _logger.error("请安装 lark-oapi: pip install lark-oapi")
     except Exception as e:
-        print(f"[飞书] 回复失败 [{chat_id}]: {e}")
+        _logger.error("回复失败 [%s]: %s", chat_id, e)
 
 
 async def _handle_event(
@@ -86,12 +89,12 @@ async def _handle_event(
     from src.feishu.poll_server import try_begin_processing, release_processing
 
     if message_id and not try_begin_processing(message_id):
-        print(f"[飞书去重] 跳过重复消息: {message_id}")
+        _logger.debug("跳过重复消息: %s", message_id)
         return
 
     # 只处理文本消息
     if msg_type != "text":
-        print(f"[飞书] 忽略非文本消息: {msg_type}")
+        _logger.debug("忽略非文本消息: %s", msg_type)
         if message_id:
             release_processing(message_id)
         return
@@ -109,14 +112,14 @@ async def _handle_event(
             release_processing(message_id)
         return
 
-    print(f"[飞书] 收到消息 [{chat_id}] {sender_id}: {text}")
+    _logger.info("收到消息 [%s] %s: %s", chat_id, sender_id, text)
 
     try:
         reply = await message_handler(text, chat_id, sender_id)
         if reply:
             await _send_reply(config, chat_id, reply)
     except Exception as e:
-        print(f"[飞书] 处理消息失败: {e}")
+        _logger.error("处理消息失败: %s", e)
     finally:
         if message_id:
             release_processing(message_id)
@@ -148,7 +151,7 @@ def create_feishu_server(
 
                 # 处理 URL 验证 (challenge)
                 if data.get("type") == "url_verification":
-                    print("[飞书] 收到 URL 验证请求")
+                    _logger.info("收到 URL 验证请求")
                     challenge = data.get("challenge", "")
                     response_body = json.dumps({"challenge": challenge}).encode("utf-8")
                     self.send_response(200)
@@ -168,7 +171,7 @@ def create_feishu_server(
                 self.wfile.write(json.dumps({"code": 0}).encode("utf-8"))
 
             except Exception as e:
-                print(f"[飞书] 处理请求失败: {e}")
+                _logger.error("处理请求失败: %s", e)
                 self.send_response(500)
                 self.end_headers()
                 self.wfile.write(b"Internal Server Error")
@@ -201,8 +204,8 @@ def start_feishu_server(
     """
     server = create_feishu_server(config, message_handler)
 
-    print(f"🚀 飞书 Webhook 服务器已启动: http://0.0.0.0:{config.port}/webhook")
-    print(f"📌 请在飞书开放平台配置请求地址: https://your-domain:{config.port}/webhook")
+    _logger.info("飞书 Webhook 服务器已启动: http://0.0.0.0:%d/webhook", config.port)
+    _logger.info("请在飞书开放平台配置请求地址: https://your-domain:%d/webhook", config.port)
 
     return server
 

@@ -24,6 +24,9 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from src.feishu.types import FeishuConfig
+from src.core.logger import get_logger
+
+_logger = get_logger(__name__)
 
 # 去重配置
 DEDUP_TTL_MS = 5 * 60 * 1000  # 5 分钟
@@ -38,8 +41,7 @@ _processing_claims: dict[str, float] = {}
 
 # 磁盘去重
 _state_dir = os.path.join(
-    os.environ.get("MINI_AGENT_STATE", os.getcwd()),
-    ".mini-agent-state",
+    os.environ.get("MINI_AGENT_STATE", os.path.join(os.getcwd(), "state")),
     "feishu",
     "dedup",
 )
@@ -174,7 +176,7 @@ async def _process_chat_queue(chat_id: str) -> None:
     try:
         await fn()
     except Exception as e:
-        print(f"[飞书队列] 处理失败 [{chat_id}]: {e}")
+        _logger.warning("队列处理失败 [%s]: %s", chat_id, e)
 
     # 继续处理下一条
     if queue:
@@ -203,7 +205,7 @@ def debounce_message(chat_id: str, fn, delay_ms: int = 1500) -> None:
         try:
             await fn()
         except Exception as e:
-            print(f"[飞书防抖] 处理失败: {e}")
+            _logger.warning("防抖处理失败: %s", e)
 
     task = asyncio.create_task(_delayed())
     _debounce_timers[chat_id] = task
@@ -228,110 +230,125 @@ async def start_feishu_poll_server(
 
     # 单客户端保护
     if _singleton_client and _singleton_app_id == config.app_id:
-        print("[飞书] 已存在相同 appId 的 WSClient，复用现有连接")
+        _logger.info("已存在相同 appId 的 WSClient，复用现有连接")
         return
 
     if _singleton_client and _singleton_app_id != config.app_id:
-        print(f"[飞书] 存在不同 appId 的 WSClient ({_singleton_app_id})，先关闭")
+        _logger.info("存在不同 appId 的 WSClient (%s)，先关闭", _singleton_app_id)
         await _singleton_client.close()
         _singleton_client = None
         _singleton_app_id = None
 
-    # 创建 WSClient
+    # 加载 SDK
     try:
         import lark_oapi as lark
-        from lark_oapi.adapter.httpx import AsyncHttpClient
-    except ImportError:
-        print("❌ 请安装 lark-oapi: pip install lark-oapi")
+        from lark_oapi.api.im.v1.model.p2_im_message_receive_v1 import P2ImMessageReceiveV1
+        from lark_oapi.event.dispatcher_handler import EventDispatcherHandler
+        from lark_oapi.core.enum import LogLevel
+    except ImportError as e:
+        _logger.error("请安装 lark-oapi: pip install lark-oapi (%s)", e)
         raise
 
-    # 事件处理函数
-    async def on_message_receive(data: Any):
+    # 同步回调（SDK 要求 sync），内部通过 asyncio.create_task 调度 async 逻辑
+    def on_message_receive(event: P2ImMessageReceiveV1) -> None:
         """处理 im.message.receive_v1 事件。"""
         try:
-            message_id = data.get("message", {}).get("message_id", "")
+            message = event.event.message
+            if not message:
+                return
+
+            message_id = message.message_id or ""
             if not message_id:
-                print("[飞书] 收到无 message_id 的事件，跳过")
+                _logger.warning("收到无 message_id 的事件，跳过")
                 return
 
             # 去重检查
             if not try_begin_processing(message_id):
-                print(f"[飞书去重] 跳过重复消息: {message_id}")
+                _logger.debug("跳过重复消息: %s", message_id)
                 return
 
-            try:
-                message = data.get("message", {})
-                sender = data.get("sender", {})
+            chat_id = message.chat_id or ""
+            sender = event.event.sender
+            sender_id = (sender.sender_id.open_id or "") if sender and sender.sender_id else ""
+            msg_type = message.message_type or ""
 
-                if not message:
-                    release_processing(message_id)
-                    return
-
-                chat_id = message.get("chat_id", "")
-                sender_id = sender.get("sender_id", {}).get("open_id", "")
-                msg_type = message.get("message_type", "")
-
-                if msg_type != "text":
-                    release_processing(message_id)
-                    return
-
-                content_str = message.get("content", "")
-                text = ""
-                try:
-                    parsed = json.loads(content_str)
-                    text = parsed.get("text", "")
-                except (json.JSONDecodeError, TypeError):
-                    text = content_str
-
-                if not text.strip():
-                    release_processing(message_id)
-                    return
-
-                print(f"[飞书] 收到消息 [{chat_id}] {sender_id}: {text}")
-
-                # 加入顺序队列 + 防抖
-                async def _handle():
-                    try:
-                        reply = await message_handler(text, chat_id, sender_id)
-                        if reply:
-                            await _send_reply(config, chat_id, reply)
-                            print(f"[飞书] 已回复 [{chat_id}]")
-                    except Exception as e:
-                        print(f"[飞书] 处理消息失败: {e}")
-                    finally:
-                        release_processing(message_id)
-
-                enqueue_chat_message(chat_id, _handle)
-
-            except Exception:
+            if msg_type != "text":
                 release_processing(message_id)
-                raise
+                return
+
+            content_str = message.content or ""
+            text = ""
+            try:
+                parsed = json.loads(content_str)
+                text = parsed.get("text", "")
+            except (json.JSONDecodeError, TypeError):
+                text = content_str
+
+            if not text.strip():
+                release_processing(message_id)
+                return
+
+            _logger.info("收到消息 [%s] %s: %s", chat_id, sender_id, text)
+
+            # 调度异步处理
+            async def _handle():
+                try:
+                    reply = await message_handler(text, chat_id, sender_id)
+                    if reply:
+                        await _send_reply(config, chat_id, reply)
+                        _logger.debug("已回复 [%s]", chat_id)
+                except Exception as e:
+                    _logger.error("处理消息失败: %s", e)
+                finally:
+                    release_processing(message_id)
+
+            enqueue_chat_message(chat_id, _handle)
 
         except Exception as e:
-            print(f"[飞书] 事件处理异常: {e}")
+            _logger.error("事件处理异常: %s", e)
+
+    # 构建 EventDispatcherHandler
+    encrypt_key = config.encrypt_key or ""
+    verification_token = config.verification_token or ""
+    event_handler = (
+        EventDispatcherHandler.builder(
+            encrypt_key, verification_token
+        )
+        .register_p2_im_message_receive_v1(on_message_receive)
+        .build()
+    )
 
     # 启动 WebSocket 客户端
     try:
-        # 使用 lark-oapi WSClient
-        ws_client = lark.ws.WSClient(
+        ws_client = lark.ws.Client(
             app_id=config.app_id,
             app_secret=config.app_secret,
-            event_handler=lark.ws.EventHandler(
-                on_im_message_receive_v1=on_message_receive,
-            ),
+            event_handler=event_handler,
+            log_level=LogLevel.INFO,
         )
 
         _singleton_client = ws_client
         _singleton_app_id = config.app_id
 
-        print("🚀 飞书 WebSocket 长轮询模式已启动（无需公网 IP）")
-        print("📌 消息会通过 WebSocket 自动从飞书服务器拉取")
+        _logger.info("WebSocket 长轮询模式已启动（无需公网 IP）")
+        _logger.info("消息会通过 WebSocket 自动从飞书服务器拉取")
 
-        # 运行 WSClient（阻塞）
-        await ws_client.start()
+        # lark-oapi 的 start() 是同步方法，内部调用 loop.run_until_complete()
+        # 在已运行的事件循环中无法使用。直接调用内部异步方法：
+        await ws_client._connect()
+
+        # 启动 ping 循环
+        asyncio.create_task(ws_client._ping_loop())
+
+        # 等待连接断开
+        try:
+            await asyncio.Event().wait()
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            _logger.info("收到退出信号")
+            await ws_client._disconnect()
 
     except Exception as e:
-        print(f"❌ 飞书 WebSocket 启动失败: {e}")
+        _logger.error("WebSocket 启动失败: %s", e)
         raise
 
 
@@ -359,12 +376,76 @@ async def _send_reply(config: FeishuConfig, chat_id: str, reply: str) -> None:
 
         response = client.im.v1.message.create(request)
         if not response.success():
-            print(f"[飞书] 发送回复失败: {response.code} {response.msg}")
+            _logger.warning("发送回复失败: %s %s", response.code, response.msg)
 
     except ImportError:
-        print("❌ 请安装 lark-oapi: pip install lark-oapi")
+        _logger.error("请安装 lark-oapi: pip install lark-oapi")
     except Exception as e:
-        print(f"[飞书] 发送回复异常: {e}")
+        _logger.error("发送回复异常: %s", e)
 
 
-__all__ = ["start_feishu_poll_server", "try_begin_processing", "release_processing"]
+__all__ = ["start_feishu_poll_server", "try_begin_processing", "release_processing", "feishu_main"]
+
+
+async def feishu_main():
+    """飞书独立模式入口（--feishu 参数）。"""
+    import signal
+    import os
+    from src.feishu.types import FeishuConfig
+    from src.feishu.agent_handler import create_feishu_handler
+    from src.core.registry import DefaultToolRegistry
+    from src.core.monitor import DefaultToolMonitor
+    from src.skills.registry import DefaultSkillRegistry
+    from src.skills.loader import discover_skill_packages
+    from src.tools.filesystem import filesystem_tools
+    from src.tools.exec import exec_tools
+    from src.tools.web import web_tools
+    from src.tools.skills import skills_tools
+    from src.tools.self_opt import self_opt_tools
+    from pathlib import Path
+
+    registry = DefaultToolRegistry()
+    for name, tool in {**filesystem_tools, **exec_tools, **web_tools, **skills_tools, **self_opt_tools}.items():
+        registry.register(name, tool)
+
+    monitor = DefaultToolMonitor()
+    skill_registry = DefaultSkillRegistry()
+
+    skills_root = os.environ.get("MINI_AGENT_SKILLS", str(Path(__file__).parent.parent / "skills"))
+    if os.path.isdir(skills_root):
+        packages = await discover_skill_packages(skills_root)
+        for pkg in packages:
+            skill_registry.register_package(pkg)
+            for skill in pkg.skills:
+                if skill.tools:
+                    for name, tool in skill.tools.items():
+                        try:
+                            registry.register(name, tool)
+                        except ValueError:
+                            pass
+
+    skill_toolboxes = skill_registry.get_all_toolboxes()
+    skill_prompts = skill_registry.get_system_prompts()
+
+    config = FeishuConfig(
+        app_id=os.environ.get("FEISHU_APP_ID", ""),
+        app_secret=os.environ.get("FEISHU_APP_SECRET", ""),
+        verification_token=os.environ.get("FEISHU_VERIFICATION_TOKEN", ""),
+    )
+
+    handler = create_feishu_handler(registry, monitor, skill_toolboxes, [], skill_prompts if skill_prompts else None)
+
+    def _on_exit(*_):
+        _logger.info("飞书服务已停止")
+        # 同步清理子进程
+        try:
+            from src.core.process_tracker import _sync_cleanup
+            _sync_cleanup()
+        except Exception:
+            pass
+        import sys; sys.exit(0)
+
+    signal.signal(signal.SIGINT, _on_exit)
+    signal.signal(signal.SIGTERM, _on_exit)
+
+    await start_feishu_poll_server(config, handler)

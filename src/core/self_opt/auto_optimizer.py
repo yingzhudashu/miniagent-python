@@ -20,12 +20,10 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 from .types import (
     InspectionReport,
@@ -97,8 +95,6 @@ async def _execute_proposal(
     Returns:
         优化执行结果。
     """
-    import datetime
-
     start_time = time.time()
     result = await execute_optimization(proposal, project_root)
     result.git_snapshot = snapshot_info.branch_name if snapshot_info else None
@@ -233,8 +229,6 @@ async def run_auto_optimization(
     Returns:
         自动优化结果。
     """
-    import datetime
-
     start_time = time.time()
     src_dir = src_dir or os.path.join(project_root, "src")
     result = AutoOptimizeResult()

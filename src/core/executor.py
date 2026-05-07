@@ -22,14 +22,27 @@ from openai import AsyncOpenAI
 from src.types.planning import StructuredPlan
 from src.types.config import AgentConfig
 from src.types.tool import ToolContext, ToolRegistryProtocol
-from src.types.agent import ToolMonitorProtocol
-from src.core.logger import append_log, truncate
+from src.types.agent import ToolMonitorProtocol, LoopDetectionConfig
+from src.core.config import DEFAULT_LOOP_DETECTION, get_default_model_config
+from src.core.logger import append_log, truncate, get_logger
+
+_logger = get_logger(__name__)
 from src.core.loop_detector import LoopDetector
 from src.core.context_manager import DefaultContextManager
 from src.core.memory_store import memory_store, extract_facts, generate_turn_summary
 from src.core.keyword_index import search_relevant_memory, format_search_results, get_index_stats
-from src.core.config import get_default_model_config, DEFAULT_LOOP_DETECTION
+from src.core.loop_detector import LoopDetector
 from src.security.sandbox import get_default_workspace
+
+# ─── Agent 身份 ────────────────────────────────────────────
+
+AGENT_NAME = "MiniAgent"
+AGENT_IDENTITY = (
+    f"你是 {AGENT_NAME}，一个基于 Python 的轻量级 LLM Agent。"
+    "你具备两阶段规划（Plan → Execute）、ReAct 循环执行、"
+    "工具箱调用、技能加载和自我优化能力。"
+    "回答时保持专业、简洁、高效。"
+)
 
 # ─── 共享 OpenAI 客户端 ──────────────────────────────────
 
@@ -93,7 +106,8 @@ async def execute_plan(
     )
 
     # ── 循环检测器 ──
-    loop_config = agent_config.loop_detection or DEFAULT_LOOP_DETECTION
+    loop_config_data = agent_config.loop_detection or DEFAULT_LOOP_DETECTION
+    loop_config = LoopDetectionConfig(**loop_config_data) if isinstance(loop_config_data, dict) else loop_config_data
     loop_detector = LoopDetector(loop_config)
 
     # ── 上下文管理器 ──
@@ -105,7 +119,7 @@ async def execute_plan(
     )
 
     # ── System prompt + 记忆注入 ──
-    system_prompt = f"你是一个有用的助手。{plan.summary}"
+    system_prompt = f"{AGENT_IDENTITY}\n\n当前任务：{plan.summary}"
 
     if agent_config.session_key:
         memory = await memory_store.load(agent_config.session_key)
@@ -116,7 +130,7 @@ async def execute_plan(
         if search_text:
             system_prompt += f"\n\n{search_text}"
             if agent_config.debug:
-                print(f"🔍 Layer 3 语义检索: {len(relevant)} 条相关记忆")
+                _logger.debug("Layer 3 语义检索: %d 条相关记忆", len(relevant))
 
         context_manager.init(system_prompt, user_input)
         if memory:
@@ -129,7 +143,7 @@ async def execute_plan(
         for msg in agent_config.conversation_history:
             context_manager.append(msg)
         if agent_config.debug:
-            print(f"📜 恢复对话历史: {len(agent_config.conversation_history)} 条消息")
+            _logger.debug("恢复对话历史: %d 条消息", len(agent_config.conversation_history))
 
     max_turns = agent_config.max_turns
     turns_left = max_turns
@@ -141,10 +155,10 @@ async def execute_plan(
 
     if agent_config.debug:
         idx_stats = get_index_stats()
-        print(f"\n🔧 使用 {len(tools)} 个工具 (策略: {agent_config.tool_selection_strategy})")
-        print(f"📊 计划: {plan.summary}")
-        print(f"🔄 最大轮数: {max_turns} | 循环检测: {'启用' if loop_config.enabled else '禁用'}")
-        print(f"🧠 三层记忆: L3(关键词索引 {idx_stats['total_keywords']} 词)")
+        _logger.info("使用 %d 个工具 (策略: %s)", len(tools), agent_config.tool_selection_strategy)
+        _logger.info("计划: %s", plan.summary)
+        _logger.info("最大轮数: %d | 循环检测: %s", max_turns, '启用' if loop_config.enabled else '禁用')
+        _logger.debug("三层记忆: L3(关键词索引 %d 词)", idx_stats['total_keywords'])
 
     client = get_client()
 
@@ -155,7 +169,7 @@ async def execute_plan(
         messages = context_manager.get_messages()
 
         if agent_config.debug:
-            print(f"\n📨 LLM 请求 (第 {max_turns - turns_left} 轮): 消息数={len(messages)}, 工具数={len(tools)}")
+            _logger.debug("LLM 请求 (第 %d 轮): 消息数=%d, 工具数=%d", max_turns - turns_left, len(messages), len(tools))
 
         response = await client.chat.completions.create(
             model=MODEL,
@@ -185,7 +199,7 @@ async def execute_plan(
             final_reply = msg.content or "(空回复)"
             elapsed = time.monotonic_ns() // 1_000_000 - start_ms
             monitor.record("llm_response", elapsed, True)
-            context_manager.append(msg)  # type: ignore[arg-type]
+            context_manager.append({"role": "assistant", "content": final_reply})
 
             if agent_config.session_key and final_reply:
                 await _save_session_memory(
@@ -193,12 +207,18 @@ async def execute_plan(
                 )
 
             if agent_config.debug:
-                print(context_manager.get_token_report())
+                _logger.debug(context_manager.get_token_report())
 
             return final_reply
 
         # 追加 LLM 回复到上下文
-        context_manager.append(msg)  # type: ignore[arg-type]
+        assistant_msg = {"role": "assistant", "content": msg.content or ""}
+        if msg.tool_calls:
+            assistant_msg["tool_calls"] = [
+                {"id": tc.id, "type": "function", "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                for tc in msg.tool_calls
+            ]
+        context_manager.append(assistant_msg)
 
         # ── 按顺序执行每个工具调用 ──
         for tc in msg.tool_calls:
@@ -221,12 +241,12 @@ async def execute_plan(
                 if loop_check.level == "critical":
                     elapsed = time.monotonic_ns() // 1_000_000 - start_ms
                     monitor.record(tc.function.name, elapsed, False)
-                    print(f"🛑 循环检测拦截: {loop_check.message}")
+                    _logger.warning("循环检测拦截: %s", loop_check.message)
                     return f"⚠️ 任务执行被终止：{loop_check.message}\n\n建议：简化请求或明确具体目标。"
 
                 if loop_check.level == "warning" and not loop_warning_shown:
                     loop_warning_shown = True
-                    print(f"⚠️ {loop_check.message}")
+                    _logger.warning(loop_check.message)
             except Exception:
                 args = {}
 
@@ -267,7 +287,7 @@ async def execute_plan(
         )
 
     if agent_config.debug:
-        print(context_manager.get_token_report())
+        _logger.debug(context_manager.get_token_report())
 
     return (
         f"⚠️ 达到最大调用次数（{max_turns} 轮），任务未完成。\n\n"
@@ -300,4 +320,4 @@ async def _save_session_memory(
     })
 
 
-__all__ = ["execute_plan", "get_client", "MODEL"]
+__all__ = ["execute_plan", "get_client", "MODEL", "AGENT_NAME", "AGENT_IDENTITY"]

@@ -26,26 +26,32 @@ from src.types.planning import (
     FallbackPlan,
 )
 from src.types.tool import Toolbox
-from src.core.logger import append_log, truncate
+from src.core.logger import append_log, truncate, get_logger
+
+_logger = get_logger(__name__)
+
+# ─── Agent 身份 ────────────────────────────────────────────
+
+AGENT_NAME = "MiniAgent"
 
 # ─── 常量 ───────────────────────────────────────────────
 
-PLAN_SYSTEM_PROMPT = """你是一个任务规划专家。分析用户需求，生成结构化的执行计划。
+PLAN_SYSTEM_PROMPT = f"""你是 {AGENT_NAME} 的规划器。你是一个任务规划专家，负责分析用户需求并生成结构化的执行计划。
 
 请以 JSON 格式返回计划，包含以下字段：
-{
+{{
   "summary": "计划摘要",
-  "steps": [{"stepNumber":1,"description":"","requiredToolboxes":[],"expectedInput":"","expectedOutput":"","dependsOn":null}],
+  "steps": [{{"stepNumber":1,"description":"","requiredToolboxes":[],"expectedInput":"","expectedOutput":"","dependsOn":null}}],
   "requiredToolboxes": [],
-  "suggestedConfig": {"maxTurns":5,"toolTimeout":30,"riskLevel":"low"},
-  "estimatedTokens": {"promptTokens":500,"completionTokens":500,"toolResultTokens":200,"total":1200},
-  "contextStrategy": {"mode":"normal","reason":""},
+  "suggestedConfig": {{"maxTurns":5,"toolTimeout":30,"riskLevel":"low"}},
+  "estimatedTokens": {{"promptTokens":500,"completionTokens":500,"toolResultTokens":200,"total":1200}},
+  "contextStrategy": {{"mode":"normal","reason":""}},
   "requiresConfirmation": false,
   "riskLevel": "low",
-  "estimatedCost": {"inputTokens":0,"outputTokens":0,"totalUSD":0},
-  "outputSpec": {"language":"zh-CN","format":"markdown","expectedDeliverable":""},
-  "fallbackPlan": {"degradeToSimple":true,"degradedMaxTurns":5}
-}
+  "estimatedCost": {{"inputTokens":0,"outputTokens":0,"totalUSD":0}},
+  "outputSpec": {{"language":"zh-CN","format":"markdown","expectedDeliverable":""}},
+  "fallbackPlan": {{"degradeToSimple":true,"degradedMaxTurns":5}}
+}}
 
 只返回 JSON，不要包含其他文字。"""
 
@@ -124,7 +130,7 @@ async def generate_plan(
             return _dict_to_plan(plan_data)
 
         except Exception as e:
-            print(f"Planner attempt {attempt + 1} failed: {e}")
+            _logger.warning("Planner attempt %d failed: %s", attempt + 1, e)
             if attempt == MAX_RETRIES - 1:
                 return _fallback_plan(user_input)
 
@@ -215,4 +221,4 @@ def _fallback_plan(user_input: str) -> StructuredPlan:
     )
 
 
-__all__ = ["generate_plan"]
+__all__ = ["generate_plan", "AGENT_NAME", "PLAN_SYSTEM_PROMPT"]

@@ -18,6 +18,10 @@ from __future__ import annotations
 import json
 import os
 import re
+
+from src.core.logger import get_logger
+
+_logger = get_logger(__name__)
 from datetime import datetime, timezone
 from typing import Any
 
@@ -298,7 +302,7 @@ class DefaultMemoryStore(MemoryStoreProtocol):
 
             self._cache[memory.session_id] = memory
         except Exception as e:
-            print(f"[memory-store] 保存失败 [{memory.session_id}]: {e}")
+            _logger.error("保存失败 [%s]: %s", memory.session_id, e)
 
     async def update_summary(
         self, session_id: str, summary: str, facts: list[str]

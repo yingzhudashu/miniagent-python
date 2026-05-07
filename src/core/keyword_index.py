@@ -27,6 +27,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 from src.types.memory import MemoryEntry, MemoryEntryInput
+from src.core.logger import get_logger
+
+_logger = get_logger(__name__)
 
 
 # ============================================================================
@@ -188,9 +191,13 @@ class KeywordIndex:
 
             self._loaded = True
         except Exception as e:
-            print(f"[keyword-index] 加载索引失败，重建中... {e}")
+            _logger.warning("加载索引失败，重建中: %s", e)
             self._index.clear()
             self._loaded = True
+
+    def load(self) -> None:
+        """从磁盘加载索引（公开接口）。"""
+        self._load()
 
     def save(self) -> None:
         """保存索引到磁盘
@@ -223,7 +230,7 @@ class KeywordIndex:
             with open(self._index_file, "w", encoding="utf-8") as f:
                 json.dump(disk, f, indent=2, ensure_ascii=False)
         except Exception as e:
-            print(f"[keyword-index] 保存索引失败: {e}")
+            _logger.error("保存索引失败: %s", e)
 
     def index_entry(
         self, session_id: str, entry: MemoryEntryInput | MemoryEntry
@@ -415,7 +422,20 @@ def search_relevant_memory(
     query: str, top_k: int = 5, min_score: int = 0
 ) -> list[dict[str, Any]]:
     """搜索相关记忆（全局便捷函数）。"""
-    return _default_index.search(query, top_k=top_k, min_score=min_score)
+    results = _default_index.search_relevant(query, limit=top_k)
+    # 转换为 dict 列表以兼容下游
+    return [
+        {
+            "session_id": r.session_id,
+            "timestamp": r.timestamp,
+            "summary": r.summary,
+            "user_snippet": r.user_snippet,
+            "facts": r.facts,
+            "score": r.score,
+        }
+        for r in results
+        if r.score >= min_score
+    ]
 
 
 def format_search_results(results: list[dict[str, Any]]) -> str:

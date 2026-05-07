@@ -137,6 +137,7 @@ class Session:
         workspace_path: 会话工作空间路径
         config_overrides: 会话配置覆盖
         destroyed: 是否已销毁
+        conversation_history: 对话历史（用于上下文保持）
     """
 
     id: str
@@ -147,6 +148,7 @@ class Session:
     workspace_path: str | None = None
     config_overrides: dict[str, Any] = field(default_factory=dict)
     destroyed: bool = False
+    conversation_history: list[dict[str, Any]] = field(default_factory=list)
 
 
 class SessionManagerProtocol(Protocol):

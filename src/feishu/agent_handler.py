@@ -22,8 +22,11 @@ from typing import Any, Awaitable, Callable
 from src.core.agent import run_agent
 from src.core.registry import DefaultToolRegistry
 from src.core.monitor import DefaultToolMonitor
+from src.core.logger import get_logger
 from src.types.tool import Toolbox
 from src.types.skill import Skill
+
+_logger = get_logger(__name__)
 
 
 def create_feishu_handler(
@@ -93,7 +96,7 @@ def create_feishu_handler(
             return reply
 
         except Exception as e:
-            print(f"[飞书 Agent] 处理失败: {e}")
+            _logger.error("处理失败: %s", e)
             return f"⚠️ 处理失败: {e}"
 
     return handler

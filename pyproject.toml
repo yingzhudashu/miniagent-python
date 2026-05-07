@@ -4,7 +4,7 @@ build-backend = "setuptools.backends._legacy:_Backend"
 
 [project]
 name = "miniagent-python"
-version = "1.0.0"
+version = "0.1.0"
 description = "A minimal LLM agent with two-phase planning, skill system, self-optimization, and Feishu integration"
 readme = "README.md"
 license = {text = "MIT"}

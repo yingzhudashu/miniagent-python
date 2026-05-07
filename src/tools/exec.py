@@ -17,6 +17,10 @@ import sys
 from typing import Any
 
 from src.types.tool import ToolDefinition, ToolContext, ToolResult
+from src.core.process_tracker import (
+    create_tracked_subprocess,
+    deregister_process,
+)
 
 # ─── Schema ──────────────────────────────────────────────
 
@@ -67,21 +71,13 @@ async def _exec_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
                 )
 
     try:
-        # 创建子进程
-        if sys.platform == "win32":
-            proc = await asyncio.create_subprocess_shell(
-                command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=cwd,
-            )
-        else:
-            proc = await asyncio.create_subprocess_shell(
-                command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=cwd,
-            )
+        # 创建子进程（自动追踪，防止孤儿）
+        proc = await create_tracked_subprocess(
+            command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=cwd,
+        )
 
         # 等待完成（带超时）
         try:
@@ -89,8 +85,13 @@ async def _exec_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
                 proc.communicate(), timeout=timeout
             )
         except asyncio.TimeoutError:
-            proc.kill()
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
             await proc.wait()
+            # 从追踪列表移除
+            await deregister_process(proc)
             return ToolResult(
                 success=False,
                 content=f"❌ 命令执行超时 ({timeout}s)",
@@ -110,6 +111,8 @@ async def _exec_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
             content = "(无输出)"
         content += f"\n\n[exit code: {code}]"
 
+        # 从追踪列表移除（已完成）
+        await deregister_process(proc)
         return ToolResult(success=(code == 0), content=content)
 
     except Exception as e:

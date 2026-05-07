@@ -9,7 +9,10 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from src.core.logger import get_logger
 from src.types.config import AgentConfig, ModelConfig, ModelProfile
+
+_logger = get_logger(__name__)
 
 
 # ============================================================================
@@ -198,7 +201,7 @@ def apply_model_profile(config: ModelConfig, profile_name: str) -> ModelConfig:
     """
     profile = MODEL_PROFILES.get(profile_name)
     if not profile:
-        print(f"⚠️ 未知模型预设: {profile_name}，使用 balanced")
+        _logger.warning("未知模型预设: %s，使用 balanced", profile_name)
         return apply_model_profile(config, "balanced")
 
     return ModelConfig(

@@ -1,9 +1,17 @@
-"""Mini Agent Python — 增量日志写入器
+"""Mini Agent Python — 日志系统
 
-将 Agent 运行过程中的 LLM 输入/输出增量追加到 JSONL 文件。
-每行一个 JSON 对象，方便后续解析或 tail -f 实时观察。
+提供两种日志能力：
+1. 控制台日志：通过 get_logger() 获取标准 logging.Logger 实例
+2. 结构化文件日志：通过 append_log() 追加 JSONL 格式到文件
 
-日志格式（每行 JSON）：
+控制台日志使用指南：
+    from src.core.logger import get_logger
+    logger = get_logger(__name__)
+    logger.info("启动成功")
+    logger.warning("配置缺失，使用默认值")
+    logger.error("连接失败", exc_info=True)
+
+JSONL 文件日志格式：
 {
     "ts": "2026-05-01T08:00:00.000Z",
     "phase": "plan" | "exec",
@@ -17,9 +25,56 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import sys
 from datetime import datetime, timezone
 from typing import Any
+
+
+# ─── 控制台日志 ─────────────────────────────────────────────
+
+# 全局 logger 缓存，避免重复配置
+_loggers: dict[str, logging.Logger] = {}
+
+
+def get_logger(name: str) -> logging.Logger:
+    """获取控制台 Logger 实例
+
+    自动配置统一格式和颜色（如果终端支持）。
+    同一 name 多次调用返回同一实例。
+
+    Args:
+        name: 模块名称，通常为 __name__
+
+    Returns:
+        配置好的 logging.Logger 实例
+
+    Example:
+        logger = get_logger(__name__)
+        logger.info("模块已加载")
+    """
+    if name in _loggers:
+        return _loggers[name]
+
+    logger = logging.getLogger(name)
+
+    # 只在首次配置 handler
+    if not logger.handlers:
+        logger.setLevel(logging.DEBUG)
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setLevel(logging.INFO)
+
+        # 统一格式：[时间] [级别] [模块] 消息
+        fmt = "%(asctime)s [%(levelname)-7s] %(name)s — %(message)s"
+        handler.setFormatter(logging.Formatter(fmt, datefmt="%H:%M:%S"))
+        logger.addHandler(handler)
+
+        # 阻止传播到 root logger（避免重复输出）
+        logger.propagate = False
+
+    _loggers[name] = logger
+    return logger
 
 
 def append_log(log_file: str, entry: dict[str, Any]) -> None:
@@ -74,4 +129,4 @@ def truncate(obj: Any, max_len: int = 2000) -> str:
     return s
 
 
-__all__ = ["append_log", "truncate"]
+__all__ = ["get_logger", "append_log", "truncate"]

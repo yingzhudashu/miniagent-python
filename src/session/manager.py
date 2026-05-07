@@ -29,6 +29,9 @@ from src.types.tool import ToolDefinition, ToolContext, Toolbox, RegisteredTool
 from src.types.skill import Skill
 from src.types.memory import Session, SessionOptions, SessionManagerProtocol
 from src.core.registry import DefaultToolRegistry
+from src.core.logger import get_logger
+
+_logger = get_logger(__name__)
 
 
 # ============================================================================
@@ -263,10 +266,7 @@ class DefaultSessionManager(SessionManagerProtocol):
 
         self._sessions[session_id] = ctx
 
-        print(
-            f"会话已创建: {session_id} "
-            f"({core_count} 个核心工具) [{files_path}]"
-        )
+        _logger.info("会话已创建: %s (%d 个核心工具)", session_id, core_count)
         return session
 
     def get(self, id: str) -> Session | None:
@@ -314,7 +314,7 @@ class DefaultSessionManager(SessionManagerProtocol):
             except Exception:
                 pass
 
-        print(f"会话已销毁: {id}")
+        _logger.info("会话已销毁: %s", id)
         return True
 
     def get_active_id(self) -> str:

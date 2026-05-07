@@ -14,36 +14,49 @@ Mini Agent 是一个基于 LLM 的智能个人助手，采用 **Plan-then-Execut
 
 ## 2. 核心架构
 
-### 2.1 两阶段引擎
+### 2.1 Agent 身份系统
+
+Agent 在运行时有明确的身份认知，通过 System Prompt 注入给 LLM：
+
+| 角色 | 身份 | System Prompt |
+|------|------|---------------|
+| 规划器 | `MiniAgent 的规划器` | "你是 MiniAgent 的规划器。你是一个任务规划专家..." |
+| 执行器 | `MiniAgent` | "你是 MiniAgent，一个基于 Python 的轻量级 LLM Agent..." |
+
+身份定义在 `src/core/executor.py` 和 `src/core/planner.py` 中，通过 `AGENT_NAME` 和 `AGENT_IDENTITY` 常量导出。
+
+### 2.2 两阶段引擎
 
 **Phase 1 - 规划器 (Planner)**:
 - 接收用户输入，调用 LLM 生成结构化计划 (StructuredPlan)
 - 决定需要调用哪些工具、按什么顺序
+- 3 次重试机制，全部失败时降级为 fallback 简单计划
 
 **Phase 2 - 执行器 (Executor)**:
 - ReAct 循环执行计划中的工具调用
-- 处理工具结果，生成最终回复
+- 循环检测、记忆注入、上下文管理
+- 支持 `on_tool_call` 回调（用于 CLI 实时进度显示）
 
 **Agent 层**:
 - 编排规划器和执行器
 - 支持跳过规划直接执行 (`.plan` 命令)
-- 管理对话历史和工具监控
+- 管理对话历史、工具监控和记忆
 
-### 2.2 工具系统
+### 2.3 工具系统
 
 工具按功能分组到工具箱 (Toolbox)：
 
 | 工具箱 | 工具 | 说明 |
 |--------|------|------|
 | filesystem | read_file, write_file, edit, list_files | 文件操作 |
-| exec | run_command | 命令执行 |
+| exec | run_command | 命令执行（含子进程跟踪） |
 | web | web_fetch, web_search | 网页工具 |
 | skills | search_skills, install_skill, list_skills | 技能管理 |
 | self_opt | .optimize inspect/status/auto | 自我优化 |
 
-所有工具调用都经过安全沙箱验证路径。
+**子进程管理**: 通过 `process_tracker.py` 跟踪所有子进程 PID，退出时自动清理孤儿进程。
 
-### 2.3 技能系统
+### 2.4 技能系统
 
 技能是可插拔的代码包，位于 `skills/` 目录：
 
@@ -63,7 +76,7 @@ skills/
 
 **ClawHub**: 支持从 ClawHub.ai 搜索、下载、安装远程技能。
 
-### 2.4 记忆系统
+### 2.5 记忆系统
 
 三层记忆架构：
 
@@ -81,7 +94,7 @@ skills/
 - **会话记忆**: 会话级别的对话历史，跨轮次保留
 - **语义记忆**: 通过关键词索引搜索的长期记忆
 
-### 2.5 会话管理
+### 2.6 会话管理
 
 每个会话独立隔离：
 - 独立的工具注册表
@@ -95,14 +108,22 @@ skills/
 
 ```
 python -m src → 交互式循环
-  ├── .stats      → 工具使用统计
-  ├── .skills     → 已加载技能
-  ├── .sessions   → 会话列表
-  ├── .profile    → 切换模型预设
-  ├── .optimize   → 自我优化
-  ├── .plan       → 跳过规划直接执行
-  └── quit        → 退出
+  ├── DisplayManager    → 终端显示管理（去重、颜色、spinner）
+  ├── .stats            → 工具使用统计
+  ├── .skills           → 已加载技能
+  ├── .sessions         → 会话列表
+  ├── .profile          → 切换模型预设
+  ├── .optimize         → 自我优化
+  ├── .plan             → 跳过规划直接执行
+  └── quit              → 退出
 ```
+
+**DisplayManager**:
+- 去重输出：相同内容不重复打印
+- 历史稳定：新输出不影响历史显示
+- 实时进度：LLM 思考时显示 spinner
+- 工具回调：`on_tool_call` 实时显示工具执行结果
+- 彩色输出：ANSI 转义码区分信息/警告/错误
 
 ### 3.2 飞书集成
 
@@ -185,6 +206,13 @@ python -m src → 交互式循环
 - 进程存活检测
 - 支持强制启动和停止
 
+### 5.3 子进程跟踪
+
+`process_tracker.py` 提供：
+- 自动记录所有 `run_command` 产生的子进程 PID
+- 启动时检测孤儿进程并清理
+- 退出时优雅终止所有活跃子进程
+
 ## 6. 开发
 
 ### 6.1 添加新工具
@@ -207,3 +235,9 @@ pytest tests/ -v
 pytest tests/test_sandbox.py -v
 pytest tests/test_integration.py -v
 ```
+
+### 6.4 日志规范
+
+- 库代码：使用 `get_logger(__name__)` 而非 `print()`
+- CLI 代码：使用 `DisplayManager` 方法输出
+- 结构化日志：使用 `append_log()` 写入 JSONL 文件

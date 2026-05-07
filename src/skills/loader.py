@@ -31,6 +31,9 @@ from typing import Any
 
 from src.types.skill import Skill, SkillPackage
 from src.types.tool import ToolDefinition
+from src.core.logger import get_logger
+
+_logger = get_logger(__name__)
 
 
 # ─── SKILL.md 解析 ───────────────────────────────────────
@@ -69,7 +72,7 @@ def _import_module_from_path(module_name: str, file_path: str) -> Any:
         spec.loader.exec_module(module)
         return module
     except Exception as e:
-        print(f"⚠️ 加载 {file_path} 失败: {e}")
+        _logger.warning("加载 %s 失败: %s", file_path, e)
         del sys.modules[module_name]
         return None
 
