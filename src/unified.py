@@ -10,10 +10,9 @@
 架构:
 - 一套 registry / monitor / skill_registry / session_manager
 - CLI 通过 stdin 交互，飞书通过 WebSocket 长轮询
-- 两边通过 session_key 路由到同一个 SessionManager
-- CLI 默认使用 "cli-interactive" 会话
-- 飞书每个 chat_id 自动创建/获取独立会话
-- CLI 用户可以通过 .session switch 切换到飞书会话查看/操作
+- 共享 UnifiedEngine 管理思考回调和会话路由
+- CLI 输入可注入到任意会话（包括飞书会话）
+- 飞书思考过程实时显示在 CLI 终端
 """
 
 from __future__ import annotations
@@ -69,11 +68,120 @@ active_session_id = "cli-interactive"
 log_file: str | None = None
 
 
+# ═══════════════════════════════════════════════════════════
+# Unified Engine — 共享思考回调 + 会话路由
+# ═══════════════════════════════════════════════════════════
+
+class ThinkingDisplay:
+    """终端思考过程显示（CLI + 飞书共享）"""
+
+    def __init__(self) -> None:
+        self._active_sessions: dict[str, bool] = {}
+
+    def mark_active(self, chat_id: str, active: bool) -> None:
+        if active:
+            self._active_sessions[chat_id] = True
+        else:
+            self._active_sessions.pop(chat_id, None)
+
+    def show(self, text: str, chat_id: str = "") -> None:
+        prefix = f"[{chat_id[:8]}] " if chat_id else ""
+        lines = text.split("\n")
+        for i, line in enumerate(lines):
+            if i == 0:
+                print(f"  💭 {prefix}{line}")
+            else:
+                print(f"     {prefix}{line}")
+
+
+class UnifiedEngine:
+    """统一管理引擎
+
+    职责：
+    - 共享思考回调：飞书处理时的思考实时显示在 CLI
+    - 会话路由：CLI 可注入消息到任意会话
+    - 会话管理：CLI 和飞书共享 session_manager
+    """
+
+    def __init__(self) -> None:
+        self.thinking = ThinkingDisplay()
+        self._feishu_sessions: dict[str, list[dict[str, str]]] = {}
+
+    async def run_agent_with_thinking(
+        self,
+        user_input: str,
+        chat_id: str,
+        skill_toolboxes: list,
+        skill_prompts: str | None,
+        *,
+        is_feishu: bool = False,
+    ) -> str:
+        """运行 agent 并实时显示思考过程"""
+        history = self._get_or_create_history(chat_id)
+        session_opts = SessionOptions(description=f"{'飞书' if is_feishu else 'CLI'}: {chat_id}")
+        session_manager.get_or_create(chat_id, session_opts)
+
+        self.thinking.mark_active(chat_id, True)
+
+        on_thinking = None
+        if is_feishu:
+            cid = chat_id
+
+            async def _thinking(text: str) -> None:
+                self.thinking.show(text, cid)
+
+            on_thinking = _thinking
+        else:
+            async def _cli_thinking(text: str) -> None:
+                self.thinking.show(text)
+
+            on_thinking = _cli_thinking
+
+        reply = await run_agent(
+            user_input,
+            registry=registry,
+            monitor=monitor,
+            toolboxes=skill_toolboxes,
+            skip_planning=False,
+            agent_config={
+                "session_key": chat_id,
+                "conversation_history": history,
+                "debug": False,
+            },
+            system_prompt=skill_prompts,
+            on_thinking=on_thinking,
+        )
+
+        history.append({"role": "user", "content": user_input})
+        history.append({"role": "assistant", "content": reply})
+        if len(history) > 40:
+            self._feishu_sessions[chat_id] = history[-40:]
+
+        self.thinking.mark_active(chat_id, False)
+        return reply
+
+    def inject_message(self, chat_id: str, content: str) -> None:
+        """向指定会话注入消息"""
+        history = self._get_or_create_history(chat_id)
+        history.append({"role": "user", "content": content, "_injected": True})
+
+    def _get_or_create_history(self, chat_id: str) -> list[dict[str, str]]:
+        if chat_id not in self._feishu_sessions:
+            self._feishu_sessions[chat_id] = []
+        return self._feishu_sessions[chat_id]
+
+
+# 全局引擎实例
+engine: UnifiedEngine | None = None
+
+
 # ── 初始化 ──
 
 async def init_subsystems():
     """初始化所有共享子系统。"""
-    global session_manager
+    global session_manager, engine
+
+    engine = UnifiedEngine()
 
     # 加载技能
     skills_root = os.environ.get(
@@ -124,6 +232,7 @@ def print_welcome(feishu_enabled: bool = False):
     print(f"📋 CLI 会话: {active_session_id}")
     if feishu_enabled:
         print(f"💬 飞书: 已启用（WebSocket 长轮询）")
+        print(f"💡 飞书消息处理时的思考过程将在此终端显示")
     print(f"{'='*60}\n")
 
 
@@ -131,7 +240,7 @@ def print_welcome(feishu_enabled: bool = False):
 
 async def run_cli_loop(skill_toolboxes, skill_prompts):
     """CLI 交互循环。"""
-    global active_session_id, log_file
+    global active_session_id, log_file, engine
 
     while True:
         try:
@@ -162,6 +271,12 @@ async def run_cli_loop(skill_toolboxes, skill_prompts):
             for s in sessions:
                 marker = " ← 当前" if s.id == active_session_id else ""
                 print(f"  - {s.id}{marker} | 工具: {s.turn_count} 轮")
+            # 显示引擎中的飞书会话
+            if engine and engine._feishu_sessions:
+                print("\n📡 飞书会话:")
+                for cid, hist in engine._feishu_sessions.items():
+                    active = " (活跃)" if engine.thinking._active_sessions.get(cid) else ""
+                    print(f"  - {cid}{active} | {len(hist)//2} 轮对话")
             continue
 
         if user_input.startswith(".session "):
@@ -184,6 +299,30 @@ async def run_cli_loop(skill_toolboxes, skill_prompts):
                 print("用法: .session switch <id> | .session list")
             continue
 
+        # ── 注入消息到指定会话 ──
+        if user_input.startswith(".send "):
+            parts = user_input.split(" ", 2)
+            if len(parts) >= 3:
+                target_id = parts[1]
+                message = parts[2]
+                if engine:
+                    engine.inject_message(target_id, message)
+                    print(f"📤 已注入消息到 {target_id}")
+                    # 如果目标是当前会话，直接处理
+                    if target_id == active_session_id:
+                        try:
+                            reply = await engine.run_agent_with_thinking(
+                                message, target_id, skill_toolboxes, skill_prompts
+                            )
+                            print(f"\n🦾 {reply}\n")
+                        except Exception as e:
+                            print(f"\n❌ 错误: {e}\n")
+                else:
+                    print("❌ 引擎未初始化")
+            else:
+                print("用法: .send <session_id> <message>")
+            continue
+
         if user_input.startswith(".profile"):
             parts = user_input.split()
             if len(parts) >= 2 and parts[1] in MODEL_PROFILES:
@@ -195,29 +334,20 @@ async def run_cli_loop(skill_toolboxes, skill_prompts):
             continue
 
         # ── Agent 执行 ──
-        skip_planning = user_input.startswith(".plan ")
-        actual_input = user_input[6:] if skip_planning else user_input
-
         try:
             session_ctx = session_manager.get_or_create(active_session_id)
+            print(f"\n👤 You {user_input}")
 
-            reply = await run_agent(
-                actual_input,
-                registry=registry,
-                monitor=monitor,
-                toolboxes=skill_toolboxes,
-                skip_planning=skip_planning,
-                agent_config={
-                    "debug": False,
-                    "log_file": log_file,
-                    "session_key": active_session_id,
-                    "conversation_history": session_ctx.conversation_history,
-                },
-                system_prompt="\n\n".join(skill_prompts) if skill_prompts else None,
+            reply = await engine.run_agent_with_thinking(
+                user_input,
+                active_session_id,
+                skill_toolboxes,
+                "\n\n".join(skill_prompts) if skill_prompts else None,
             )
-            print(f"\n🦾 {reply}\n")
+            print(f"\n🦾 Agent\n  {reply}\n")
 
-            session_ctx.conversation_history.append({"role": "user", "content": actual_input})
+            # 同步到 session_manager（.sessions 等命令可见）
+            session_ctx.conversation_history.append({"role": "user", "content": user_input})
             session_ctx.conversation_history.append({"role": "assistant", "content": reply})
 
         except Exception as e:
@@ -229,37 +359,21 @@ async def run_cli_loop(skill_toolboxes, skill_prompts):
 # ── 飞书处理器 ──
 
 def create_feishu_handler(skill_toolboxes, skill_prompts):
-    """创建飞书消息处理器。"""
-    _histories: dict[str, list[dict[str, str]]] = {}
+    """创建飞书消息处理器（共享引擎）。"""
 
     async def handler(content: str, chat_id: str, sender_id: str) -> str:
-        if chat_id not in _histories:
-            _histories[chat_id] = []
-            # 通过 session_manager 也会创建对应会话
-            session_manager.get_or_create(chat_id, SessionOptions(description=f"飞书: {chat_id}"))
-
-        history = _histories[chat_id]
+        if not engine:
+            return "⚠️ 引擎未初始化"
 
         try:
-            reply = await run_agent(
+            print(f"\n📨 [飞书 {chat_id[:8]}] {content}")
+            reply = await engine.run_agent_with_thinking(
                 content,
-                registry=registry,
-                monitor=monitor,
-                toolboxes=skill_toolboxes,
-                skip_planning=False,
-                agent_config={
-                    "session_key": chat_id,
-                    "conversation_history": history,
-                    "debug": False,
-                },
-                system_prompt="\n\n".join(skill_prompts) if skill_prompts else None,
+                chat_id,
+                skill_toolboxes,
+                "\n\n".join(skill_prompts) if skill_prompts else None,
+                is_feishu=True,
             )
-
-            history.append({"role": "user", "content": content})
-            history.append({"role": "assistant", "content": reply})
-            if len(history) > 40:
-                _histories[chat_id] = history[-40:]
-
             return reply
         except Exception as e:
             return f"⚠️ 处理失败: {e}"

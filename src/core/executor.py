@@ -295,14 +295,6 @@ async def execute_plan(
             if on_tool_call:
                 on_tool_call(tc.function.name, tc.function.arguments, result.content)
 
-            # 工具执行结果也推给思考回调
-            if on_thinking:
-                try:
-                    preview = result.content[:200]
-                    await on_thinking(f"🔧 {tc.function.name} → {preview}")
-                except Exception:
-                    pass  # 思考回调失败不影响主流程
-
     # ── 达到最大轮数 ──
     loop_stats = loop_detector.get_stats()
 
