@@ -140,10 +140,17 @@ async def execute_plan(
     else:
         context_manager.init(system_prompt, user_input)
 
-    # ── 恢复对话历史 ──
+    # ── 恢复对话历史（在当前输入之前） ──
     if agent_config.conversation_history:
-        for msg in agent_config.conversation_history:
-            context_manager.append(msg)
+        # 先保存当前 user_input
+        current_user_msg = {"role": "user", "content": user_input}
+        # 重建消息：system + 历史 + 当前输入
+        context_manager._messages = [
+            context_manager._messages[0],  # system prompt
+            *agent_config.conversation_history,  # 历史消息
+            current_user_msg,  # 当前输入
+        ]
+        context_manager._recalculate_tokens()
         if agent_config.debug:
             _logger.debug("恢复对话历史: %d 条消息", len(agent_config.conversation_history))
 
@@ -198,8 +205,11 @@ async def execute_plan(
 
         # ── 触发思考回调 ──
         if on_thinking and msg.content:
-            turn_label = f"[第 {max_turns - turns_left} 轮思考]"
-            await on_thinking(f"{turn_label}\n{msg.content}")
+            try:
+                turn_label = f"[第 {max_turns - turns_left} 轮思考]"
+                await on_thinking(f"{turn_label}\n{msg.content}")
+            except Exception:
+                pass  # 思考回调失败不影响主流程
 
         # ── 无工具调用 → 最终回复 ──
         if not msg.tool_calls:
@@ -287,8 +297,11 @@ async def execute_plan(
 
             # 工具执行结果也推给思考回调
             if on_thinking:
-                preview = result.content[:200]
-                await on_thinking(f"🔧 {tc.function.name} → {preview}")
+                try:
+                    preview = result.content[:200]
+                    await on_thinking(f"🔧 {tc.function.name} → {preview}")
+                except Exception:
+                    pass  # 思考回调失败不影响主流程
 
     # ── 达到最大轮数 ──
     loop_stats = loop_detector.get_stats()
