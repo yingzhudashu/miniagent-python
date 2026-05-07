@@ -17,7 +17,13 @@ from src.types.tool import ToolDefinition, ToolContext, ToolResult
 
 
 def _get_skills_root() -> str:
-    """获取技能根目录。"""
+    """获取技能根目录。
+
+    优先级：
+    1. 环境变量 MINI_AGENT_SKILLS
+    2. 从 cwd 向上查找包含 pyproject.toml 或 setup.py 的目录下的 skills/
+    3. 回退到 cwd/skills
+    """
     env = os.environ.get("MINI_AGENT_SKILLS")
     if env:
         return env
@@ -58,6 +64,18 @@ _search_schema = {
 
 
 async def _search_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolResult:
+    """搜索 ClawHub 技能市场或本地已安装的技能。
+
+    支持三种搜索来源：local（仅本地）、clawhub（仅在线）、all（同时搜索）。
+    本地搜索通过匹配 SKILL.md 中的名称和描述实现，ClawHub 搜索调用远程 API。
+
+    Args:
+        args: 包含 query（搜索关键词）、source（可选，默认 'all'）、limit（可选，默认 10）
+        _ctx: 工具执行上下文（此工具不使用）
+
+    Returns:
+        ToolResult: 搜索结果列表，包含名称、描述、星级和下载量
+    """
     query = str(args["query"])
     source = str(args.get("source", "all"))
     limit = int(args.get("limit", 10))
@@ -122,6 +140,18 @@ _install_schema = {
 
 
 async def _install_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolResult:
+    """从 ClawHub 技能市场下载并安装一个技能。
+
+    此工具标记为 require-confirm 权限，安装前需用户确认。
+    安装前检查是否已存在同名技能，防止覆盖。
+
+    Args:
+        args: 包含 slug（技能唯一标识）、version（可选，指定版本）
+        _ctx: 工具执行上下文（此工具不使用）
+
+    Returns:
+        ToolResult: 成功时返回安装路径、版本号和文件数；失败时提示原因
+    """
     slug = str(args["slug"])
     version = args.get("version")
 
@@ -178,6 +208,18 @@ _list_schema = {
 
 
 async def _list_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolResult:
+    """列出所有已安装的本地技能。
+
+    通过扫描 skills/ 目录下的 SKILL.md 文件实现。
+    verbose 模式下额外显示版本、作者和安装路径信息。
+
+    Args:
+        args: 包含 verbose（可选，是否显示详细信息）
+        _ctx: 工具执行上下文（此工具不使用）
+
+    Returns:
+        ToolResult: 已安装技能列表，或提示使用 search_skills 安装新技能
+    """
     verbose = bool(args.get("verbose", False))
     skills_root = _get_skills_root()
 

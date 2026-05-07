@@ -24,7 +24,14 @@ from src.types.tool import ToolDefinition, ToolContext, ToolResult
 # ─── 风险评估 ────────────────────────────────────────────
 
 def _assess_risk(type_: str, target: str) -> str:
-    """评估操作风险等级。"""
+    """评估优化操作的风险等级。
+
+    根据操作类型和目标的关键词匹配，返回 risk level：
+    - destructive: 删除核心文件、覆盖配置等破坏性操作
+    - high: 修改核心模块（agent/planner/registry）
+    - medium: 修改工具逻辑、添加依赖
+    - low: 其他低风险操作
+    """
     lower = f"{type_} {target}".lower()
     destructive = ["delete", "remove core", "overwrite config", ".env"]
     high = ["modify core", "refactor agent", "modify planner", "change registry"]
@@ -45,7 +52,11 @@ def _assess_risk(type_: str, target: str) -> str:
 # ─── Git 辅助函数 ────────────────────────────────────────
 
 async def _run_git(args: list[str], cwd: str) -> tuple[int, str]:
-    """执行 git 命令并返回 (exit_code, output)。"""
+    """执行 git 命令并返回 (exit_code, output)。
+
+    使用 asyncio.create_subprocess_exec 异步执行，避免阻塞事件循环。
+    stdout 和 stderr 合并为单一输出字符串。
+    """
     proc = await asyncio.create_subprocess_exec(
         "git", *args,
         stdout=asyncio.subprocess.PIPE,
@@ -79,6 +90,18 @@ _self_inspect_schema = {
 
 
 async def _self_inspect_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    """分析当前 Agent 的架构完整性和代码质量。
+
+    通过静态扫描 Python 文件，统计行数、导入数和导出情况，
+    生成项目概览报告，帮助识别大型模块和潜在架构问题。
+
+    Args:
+        args: 包含 srcDir（可选，src 目录路径，默认 ctx.cwd/src）、detailed（可选，是否输出详细报告）
+        ctx: 工具执行上下文
+
+    Returns:
+        ToolResult: 自我检视报告，包含文件统计和模块概览
+    """
     src_dir = str(args.get("srcDir", "")) or os.path.join(ctx.cwd, "src")
     detailed = bool(args.get("detailed", False))
 
@@ -157,6 +180,19 @@ _generate_proposal_schema = {
 
 
 async def _generate_proposal_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolResult:
+    """生成优化提案（含测试用例），不会自动执行。
+
+    根据优化目标、类型和描述生成结构化提案，自动评估风险等级。
+    提案生成后需通过 implement_change 工具执行。
+
+    Args:
+        args: 包含 target（优化目标）、type（操作类型：add/remove/modify/refactor）、
+              description（改动说明）、rationale（可选，优化依据）
+        _ctx: 工具执行上下文（此工具不使用）
+
+    Returns:
+        ToolResult: 格式化的提案报告，包含 ID、类型、风险等级等信息
+    """
     target = str(args.get("target", ""))
     type_ = str(args.get("type", "add"))
     description = str(args.get("description", ""))
@@ -202,6 +238,18 @@ _run_tests_schema = {
 
 
 async def _run_tests_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    """运行测试验证变更。
+
+    默认使用 pytest，支持自定义测试命令。120 秒超时保护，
+    防止测试陷入死循环或长时间挂起。
+
+    Args:
+        args: 包含 command（可选，测试命令，默认 'python -m pytest'）、cwd（可选，工作目录）
+        ctx: 工具执行上下文
+
+    Returns:
+        ToolResult: 测试输出和 exit code；超时或异常时返回错误信息
+    """
     command = str(args.get("command", "python -m pytest"))
     cwd = str(args.get("cwd", "")) or ctx.cwd
 
@@ -250,6 +298,19 @@ _git_snapshot_schema = {
 
 
 async def _git_snapshot_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    """Git 快照管理（创建/列出/回滚）。
+
+    此工具标记为 require-confirm 权限，因为回滚操作会覆盖工作区。
+    create 操作先 add -A 再 commit，确保所有变更被记录。
+
+    Args:
+        args: 包含 action（必需：create/list/revert）、message（create 时的 commit message）、
+              commitHash（revert 时的目标 commit hash）
+        ctx: 工具执行上下文，cwd 作为项目根目录
+
+    Returns:
+        ToolResult: 操作结果 — create 返回 commit hash，list 返回最近 10 条历史，revert 返回成功/失败
+    """
     action = str(args.get("action", "create"))
     project_root = ctx.cwd
 

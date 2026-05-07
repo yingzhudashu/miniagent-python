@@ -320,6 +320,13 @@ async def start_feishu_poll_server(
 
     # 启动 WebSocket 客户端
     try:
+        # ── 关键修复：lark-oapi SDK 在模块加载时捕获了 event loop，
+        #    但 asyncio.run() 会创建全新 loop。如果不替换，
+        #    SDK 的 _receive_message_loop() 会调度到错误的 loop 上，
+        #    导致消息永远收不到、思考回调永远不触发。
+        import lark_oapi.ws.client as _sdk_ws_mod
+        _sdk_ws_mod.loop = asyncio.get_running_loop()
+
         ws_client = lark.ws.Client(
             app_id=config.app_id,
             app_secret=config.app_secret,

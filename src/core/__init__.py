@@ -1,4 +1,15 @@
-"""Mini Agent Python — Core engine module."""
+"""Mini Agent Python — 核心引擎模块
+
+导出项目核心基础设施：
+- 配置管理 (config, MODEL_PROFILES)
+- 日志系统 (logger)
+- 工具注册与监控 (registry, monitor)
+- 循环检测 (loop_detector)
+- 关键词索引 (keyword_index)
+- 实例管理 (instance_manager)
+- 进程跟踪 (process_tracker)
+- 规划器与执行器身份常量 (planner, executor)
+"""
 
 from src.core.config import (
     MODEL_PROFILES,

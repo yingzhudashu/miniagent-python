@@ -25,7 +25,11 @@ from src.security.sandbox import resolve_sandbox_path, get_default_workspace
 
 
 def _allowed_dirs(ctx: ToolContext) -> list[str]:
-    """获取允许的目录列表。"""
+    """获取允许的目录列表。
+
+    优先使用 ToolContext 中的 allowed_paths，
+    如果未设置则回退到默认工作空间。
+    """
     return ctx.allowed_paths if ctx.allowed_paths else [get_default_workspace()]
 
 
@@ -52,6 +56,18 @@ _read_file_schema = {
 
 
 async def _read_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    """读取文件内容。
+
+    支持分页读取（offset/limit 参数），避免大文件一次性加载到上下文。
+    返回总行数和已读取行数作为 meta 信息，方便 LLM 判断是否需要继续读取。
+
+    Args:
+        args: 包含 path（必需）、offset（可选，默认1）、limit（可选，默认1000）
+        ctx: 工具执行上下文，提供沙箱路径限制
+
+    Returns:
+        ToolResult: 成功时包含文件内容（可能截断）和 meta 信息
+    """
     file_path = resolve_sandbox_path(str(args["path"]), _allowed_dirs(ctx))
     offset = int(args.get("offset", 1))
     limit = int(args.get("limit", 1000))
@@ -91,6 +107,17 @@ _write_file_schema = {
 
 
 async def _write_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    """写入或创建文件。
+
+    自动创建中间目录（os.makedirs exist_ok=True），适合 LLM 生成新文件。
+
+    Args:
+        args: 包含 path（文件路径）和 content（写入内容）
+        ctx: 工具执行上下文
+
+    Returns:
+        ToolResult: 成功时返回写入的字节数
+    """
     file_path = resolve_sandbox_path(str(args["path"]), _allowed_dirs(ctx))
     content = str(args["content"])
 
@@ -123,6 +150,18 @@ _edit_file_schema = {
 
 
 async def _edit_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    """精确替换文件中的文本（只替换唯一匹配的一处）。
+
+    要求 oldText 在文件中只出现一次，避免意外替换多处内容。
+    这是安全设计：LLM 经常给出不够精确的替换文本，此检查防止误改。
+
+    Args:
+        args: 包含 path（文件路径）、oldText（要替换的原文）、newText（新文本）
+        ctx: 工具执行上下文
+
+    Returns:
+        ToolResult: 成功时返回替换信息；失败时提示未找到或多处匹配
+    """
     file_path = resolve_sandbox_path(str(args["path"]), _allowed_dirs(ctx))
     old_text = str(args["oldText"])
     new_text = str(args["newText"])
@@ -163,6 +202,18 @@ _list_dir_schema = {
 
 
 async def _list_dir_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    """列出目录内容（文件和子目录）。
+
+    递归模式使用树形缩进展示，目录优先排列（排序 key: not x.is_dir()）。
+    递归结果上限 200 条，防止超大目录撑爆上下文。
+
+    Args:
+        args: 包含 path（目录路径）、recursive（可选，是否递归）
+        ctx: 工具执行上下文
+
+    Returns:
+        ToolResult: 成功时返回带 emoji 图标的目录树
+    """
     dir_path = resolve_sandbox_path(str(args["path"]), _allowed_dirs(ctx))
     recursive = bool(args.get("recursive", False))
 
@@ -174,6 +225,12 @@ async def _list_dir_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResul
         entries: list[str] = []
 
         def _walk(d: Path, prefix: str) -> None:
+            """递归遍历目录，构建树形列表。
+
+            Args:
+                d: 当前目录路径
+                prefix: 缩进前缀
+            """
             try:
                 items = sorted(d.iterdir(), key=lambda x: (not x.is_dir(), x.name))
             except PermissionError:
@@ -214,6 +271,17 @@ _create_dir_schema = {
 
 
 async def _create_dir_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    """创建新目录。
+
+    默认递归创建父目录（exist_ok=True），幂等操作，已存在不报错。
+
+    Args:
+        args: 包含 path（目录路径）、recursive（可选，默认 True）
+        ctx: 工具执行上下文
+
+    Returns:
+        ToolResult: 成功时返回创建的路径
+    """
     dir_path = resolve_sandbox_path(str(args["path"]), _allowed_dirs(ctx))
     recursive = args.get("recursive", True)
     os.makedirs(dir_path, exist_ok=bool(recursive))
@@ -242,6 +310,17 @@ _move_file_schema = {
 
 
 async def _move_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    """移动文件或重命名。
+
+    自动创建目标文件的父目录，使用 shutil.move 支持跨文件系统移动。
+
+    Args:
+        args: 包含 from（源路径）和 to（目标路径）
+        ctx: 工具执行上下文
+
+    Returns:
+        ToolResult: 成功时返回移动前后的路径
+    """
     src = resolve_sandbox_path(str(args["from"]), _allowed_dirs(ctx))
     dst = resolve_sandbox_path(str(args["to"]), _allowed_dirs(ctx))
     os.makedirs(os.path.dirname(dst), exist_ok=True)
@@ -271,6 +350,17 @@ _copy_file_schema = {
 
 
 async def _copy_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    """复制文件。
+
+    使用 shutil.copy2 保留元数据（修改时间、权限等）。
+
+    Args:
+        args: 包含 from（源路径）和 to（目标路径）
+        ctx: 工具执行上下文
+
+    Returns:
+        ToolResult: 成功时返回复制前后的路径
+    """
     src = resolve_sandbox_path(str(args["from"]), _allowed_dirs(ctx))
     dst = resolve_sandbox_path(str(args["to"]), _allowed_dirs(ctx))
     os.makedirs(os.path.dirname(dst), exist_ok=True)
@@ -300,6 +390,18 @@ _delete_file_schema = {
 
 
 async def _delete_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    """删除文件或目录（危险操作）。
+
+    此工具标记为 require-confirm 权限，执行前需用户确认。
+    删除目录必须设置 recursive=true，防止意外删除整个目录。
+
+    Args:
+        args: 包含 path（要删除的路径）、recursive（可选，删除目录时需设为 True）
+        ctx: 工具执行上下文
+
+    Returns:
+        ToolResult: 成功时返回删除的路径；目录非递归时返回错误
+    """
     file_path = resolve_sandbox_path(str(args["path"]), _allowed_dirs(ctx))
     recursive = bool(args.get("recursive", False))
 
