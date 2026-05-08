@@ -385,6 +385,11 @@ def create_feishu_handler(skill_toolboxes, skill_prompts):
 
 async def unified_main():
     """统一启动：CLI + 飞书。"""
+    # Windows UTF-8（必须在任何 emoji 输出之前）
+    if sys.platform == "win32":
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
     # 单实例检查
     force_mode = "--force" in sys.argv
     instance_result = force_acquire_instance() if force_mode else try_acquire_instance()

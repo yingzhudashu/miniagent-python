@@ -493,4 +493,7 @@ class DefaultSessionManager(SessionManagerProtocol):
         return self._main_registry
 
 
-__all__ = ["DefaultSessionManager", "SessionConfig", "SessionInfo"]
+__all__ = ["DefaultSessionManager", "SessionManager", "SessionConfig", "SessionInfo"]
+
+# Compatibility alias
+SessionManager = DefaultSessionManager
