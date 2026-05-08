@@ -173,13 +173,70 @@ class DefaultSessionManager(SessionManagerProtocol):
         except Exception:
             pass  # 忽略保存失败
 
+    # -----------------------------------------------------------------------
+    # 会话历史持久化
+    # -----------------------------------------------------------------------
+
+    def save_session_history(self, session_id: str) -> None:
+        """持久化会话历史到磁盘
+
+        Args:
+            session_id: 会话 ID
+        """
+        ctx = self._sessions.get(session_id)
+        if not ctx:
+            return
+        try:
+            history = ctx.get("conversation_history", [])
+            path = os.path.join(ctx["config"].workspace_path, "history.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(history, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def load_session_history(self, session_id: str) -> list:
+        """从磁盘加载会话历史
+
+        Args:
+            session_id: 会话 ID
+
+        Returns:
+            历史消息列表
+        """
+        ctx = self._sessions.get(session_id)
+        if not ctx:
+            return []
+        try:
+            path = os.path.join(ctx["config"].workspace_path, "history.json")
+            if os.path.isfile(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+        except Exception:
+            pass
+        return []
+
+    def load_all_sessions(self) -> list[str]:
+        """从磁盘加载所有已保存的会话 ID
+
+        Returns:
+            已保存的会话 ID 列表
+        """
+        workspaces = _get_workspaces_dir()
+        ids = []
+        if os.path.isdir(workspaces):
+            for name in os.listdir(workspaces):
+                config_path = os.path.join(workspaces, name, "config.json")
+                if os.path.isfile(config_path):
+                    ids.append(name.replace("_", "-"))  # 反向 safe_id
+        return ids
+
     def get_or_create(
         self, id: str, options: SessionOptions | None = None
     ) -> Session:
         """获取或创建会话
 
         - 已存在 → 返回现有会话
-        - 不存在 → 创建工作空间 + 注册表 + 克隆核心工具
+        - 不存在 → 检查工作空间配置是否存在 → 加载历史 + 创建
 
         Args:
             id: 会话唯一标识
@@ -193,7 +250,87 @@ class DefaultSessionManager(SessionManagerProtocol):
             ctx["config"].last_active = datetime.now(timezone.utc).isoformat()
             return ctx["session"]
 
+        # 检查是否有持久化的工作空间（重启后恢复）
+        safe_id = self._make_safe_id(id)
+        workspace_path = os.path.join(_get_workspaces_dir(), safe_id)
+        config_path = os.path.join(workspace_path, "config.json")
+        if os.path.isfile(config_path):
+            return self._restore(id, workspace_path, options)
+
         return self._create(id, options)
+
+    def _restore(
+        self, session_id: str, workspace_path: str, options: SessionOptions | None
+    ) -> Session:
+        """从磁盘恢复已有会话（含历史）"""
+        config_path = os.path.join(workspace_path, "config.json")
+        with open(config_path, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+
+        config = SessionConfig(
+            session_id=raw["session_id"],
+            workspace_path=raw["workspace_path"],
+            files_path=raw["files_path"],
+            skills_path=raw["skills_path"],
+            created_at=raw["created_at"],
+            last_active=datetime.now(timezone.utc).isoformat(),
+            description=raw.get("description", ""),
+            chat_id=raw.get("chat_id"),
+            sender_id=raw.get("sender_id"),
+        )
+
+        registry = DefaultToolRegistry()
+        core_count = 0
+        for name, tool in self._main_registry.get_all().items():
+            if not tool.toolbox:
+                try:
+                    registry.register(name, ToolDefinition(
+                        schema=tool.schema, handler=tool.handler,
+                        permission=tool.permission, help_text=tool.help_text,
+                        toolbox=tool.toolbox,
+                    ))
+                    core_count += 1
+                except ValueError:
+                    pass
+
+        session = Session(
+            id=session_id,
+            description=config.description,
+            created_at=config.created_at,
+            last_active_at=config.last_active,
+            workspace_path=config.files_path,
+        )
+
+        # 加载持久化的对话历史
+        history_path = os.path.join(workspace_path, "history.json")
+        if os.path.isfile(history_path):
+            try:
+                with open(history_path, "r", encoding="utf-8") as f:
+                    conversation_history = json.load(f)
+            except Exception:
+                conversation_history = []
+        else:
+            conversation_history = []
+
+        # 同步到 Session 对象
+        session.conversation_history = list(conversation_history)
+
+        ctx = {
+            "session_id": session_id,
+            "config": config,
+            "registry": registry,
+            "session": session,
+            "toolboxes": [],
+            "skills": [],
+            "conversation_history": conversation_history,
+        }
+        self._sessions[session_id] = ctx
+
+        _logger.info(
+            "会话已恢复: %s (%d 个核心工具, %d 条历史)",
+            session_id, core_count, len(conversation_history),
+        )
+        return session
 
     def _create(self, session_id: str, options: SessionOptions | None) -> Session:
         """创建新会话

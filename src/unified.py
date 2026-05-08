@@ -117,9 +117,11 @@ class UnifiedEngine:
         is_feishu: bool = False,
     ) -> str:
         """运行 agent 并实时显示思考过程"""
-        history = self._get_or_create_history(chat_id)
         session_opts = SessionOptions(description=f"{'飞书' if is_feishu else 'CLI'}: {chat_id}")
-        session_manager.get_or_create(chat_id, session_opts)
+        session_ctx = session_manager.get_or_create(chat_id, session_opts)
+        # 使用 SessionManager 的 history（确保持久化一致）
+        history = session_ctx.conversation_history
+        self._feishu_sessions[chat_id] = history
 
         self.thinking.mark_active(chat_id, True)
 
@@ -157,6 +159,10 @@ class UnifiedEngine:
         if len(history) > 40:
             self._feishu_sessions[chat_id] = history[-40:]
 
+        # 持久化到磁盘
+        if session_manager:
+            session_manager.save_session_history(chat_id)
+
         self.thinking.mark_active(chat_id, False)
         return reply
 
@@ -167,6 +173,11 @@ class UnifiedEngine:
 
     def _get_or_create_history(self, chat_id: str) -> list[dict[str, str]]:
         if chat_id not in self._feishu_sessions:
+            # 尝试从 SessionManager 加载持久化历史
+            if session_manager:
+                ctx = session_manager.get_or_create(chat_id)
+                self._feishu_sessions[chat_id] = ctx.conversation_history
+                return ctx.conversation_history
             self._feishu_sessions[chat_id] = []
         return self._feishu_sessions[chat_id]
 
@@ -345,10 +356,6 @@ async def run_cli_loop(skill_toolboxes, skill_prompts):
                 "\n\n".join(skill_prompts) if skill_prompts else None,
             )
             print(f"\n🦾 Agent\n  {reply}\n")
-
-            # 同步到 session_manager（.sessions 等命令可见）
-            session_ctx.conversation_history.append({"role": "user", "content": user_input})
-            session_ctx.conversation_history.append({"role": "assistant", "content": reply})
 
         except Exception as e:
             print(f"\n❌ 错误: {e}\n")

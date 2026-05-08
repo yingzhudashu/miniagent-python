@@ -520,6 +520,15 @@ class _BridgeHandler(BaseHTTPRequestHandler):
                     state["sessions"][session_id] = []
                 state["sessions"][session_id].append({"role": "user", "content": message, "_injected_by": "cli"})
                 result = {"status": "ok", "message": "已注入到会话 " + session_id}
+            elif action == "inject_reply":
+                session_id = data.get("session_id", "cli-interactive")
+                reply = data.get("reply", "")
+                if "sessions" not in state:
+                    state["sessions"] = {}
+                if session_id not in state["sessions"]:
+                    state["sessions"][session_id] = []
+                state["sessions"][session_id].append({"role": "assistant", "content": reply, "_from": "cli"})
+                result = {"status": "ok"}
             elif action == "get_history":
                 session_id = data.get("session_id", "cli-interactive")
                 history = state.get("sessions", {}).get(session_id, [])
@@ -609,6 +618,10 @@ async def feishu_main():
     skill_toolboxes = skill_registry.get_all_toolboxes()
     skill_prompts = skill_registry.get_system_prompts()
 
+    # 初始化 SessionManager（用于历史持久化）
+    from src.session.manager import DefaultSessionManager as SessionManager
+    session_manager = SessionManager(registry, skill_toolboxes, [])
+
     config = FeishuConfig(
         app_id=os.environ.get("FEISHU_APP_ID", ""),
         app_secret=os.environ.get("FEISHU_APP_SECRET", ""),
@@ -619,7 +632,7 @@ async def feishu_main():
         """飞书思考回调。"""
         await _send_thinking(config, chat_id, thinking)
 
-    handler = create_feishu_handler(registry, monitor, skill_toolboxes, [], skill_prompts if skill_prompts else None, _send_thinking_feishu)
+    handler = create_feishu_handler(registry, monitor, skill_toolboxes, [], skill_prompts if skill_prompts else None, _send_thinking_feishu, session_manager=session_manager)
 
     def _on_exit(*_):
         _logger.info("飞书服务已停止")

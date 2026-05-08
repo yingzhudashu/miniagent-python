@@ -10,6 +10,11 @@ Mini Agent 的用户界面层，负责初始化所有子系统并启动交互循
 5. 启动交互式循环，处理用户输入
 6. 处理内置命令：.stats, .skills, .profile, .skill, .plan, .log, .optimize, quit
 
+启动参数：
+- `--standalone` / `--no-bridge` — 跳过飞书桥接检测，强制独立 CLI 模式
+- `--force` — 强制获取实例锁
+- `--stop` — 停止运行中的实例
+
 内置命令：
 - `.stats`        — 查看工具使用统计
 - `.skills`       — 查看已加载技能
@@ -24,6 +29,7 @@ Mini Agent 的用户界面层，负责初始化所有子系统并启动交互循
 - `.session new/switch/destroy` — 会话管理
 - `.promote`      — 升维工具
 - `.demote`       — 降维工具
+- `.bridge`       — 查看桥接状态（桥接模式）
 - quit / exit     — 退出程序
 """
 
@@ -34,6 +40,7 @@ import json
 import os
 import sys
 import signal
+import time as _time
 from pathlib import Path
 from typing import Any
 
@@ -191,8 +198,11 @@ async def main():
             dm.show_info(result.get("reason", ""))
         sys.exit(0)
 
+    # ── 独立模式（跳过桥接检测） ──
+    standalone = "--standalone" in sys.argv or "--no-bridge" in sys.argv
+
     # ── 检测飞书桥接服务器 ──
-    if _check_feishu_bridge():
+    if not standalone and _check_feishu_bridge():
         dm.show_info("✅ 检测到飞书实例，已连接至共享会话")
         dm.show_info("💡 输入 .bridge 查看桥接状态")
         await _run_cli_bridge_mode()
@@ -204,7 +214,7 @@ async def main():
     if not instance_result.get("success"):
         if "existing_pid" in instance_result:
             dm.show_error(f"Mini Agent 已在运行 (PID={instance_result.get('existing_pid')})")
-            dm.show_info("连接到飞书实例: python -m src --feishu 启动后，CLI 将自动桥接")
+            dm.show_info("独立模式: python -m src --standalone")
             dm.show_info("强制启动: python -m src --force")
         else:
             dm.show_error(f"无法获取实例锁: {instance_result.get('reason', '')}")
@@ -474,6 +484,7 @@ async def main():
                 ".optimize — 自我优化\n"
                 ".promote  — 升维工具\n"
                 ".demote   — 降维工具\n"
+                ".bridge   — 桥接状态（桥接模式）\n"
                 ".help     — 此帮助\n"
                 "quit/exit — 退出")
             continue
@@ -515,6 +526,10 @@ async def main():
             if len(session_ctx.conversation_history) > 40:
                 session_ctx.conversation_history = session_ctx.conversation_history[-40:]
 
+            # 持久化到磁盘
+            if session_manager:
+                session_manager.save_session_history(active_session_id)
+
         except Exception as e:
             dm.show_error(str(e))
 
@@ -531,8 +546,28 @@ async def main():
 
 
 async def _run_cli_bridge_mode():
-    """CLI 桥接模式：连接到飞书实例，共享同一会话。"""
+    """CLI 桥接模式：连接到飞书实例，共享同一会话。
+    
+    注意：桥接消息会直接通过本地 Agent 处理（而非飞书实例），
+    这样既能共享会话数据，又能获得即时响应。
+    """
     global active_session_id
+
+    # 桥接模式下初始化 SessionManager（与独立模式相同）
+    loaded_skills = await load_skills()
+    skill_toolboxes = skill_registry.get_all_toolboxes()
+    skill_prompts = skill_registry.get_system_prompts()
+
+    session_manager = SessionManager(registry, skill_toolboxes, loaded_skills)
+    session_ctx = session_manager.get_or_create(active_session_id,
+        SessionOptions(description="CLI 桥接会话"))
+
+    # 加载持久化历史
+    loaded_history = session_manager.load_session_history(active_session_id)
+    if loaded_history:
+        session_ctx.conversation_history = loaded_history
+
+    dm.show_info("会话已加载（" + str(len(session_ctx.conversation_history)) + " 条历史）")
 
     while True:
         try:
@@ -558,22 +593,45 @@ async def _run_cli_bridge_mode():
                 dm.show_error(f"桥接断开: {e}")
             continue
 
-        # ── 注入消息到飞书会话 ──
+        # ── 通过本地 Agent 处理消息 ──
         try:
-            # 注入到共享会话
-            _bridge_request("inject", session_id=active_session_id, message=user_input)
             dm.show_thinking()
-            # 等待回复
-            import time
-            time.sleep(1)
-            history = _bridge_request("get_history", session_id=active_session_id)
-            msgs = history.get("history", [])
-            if msgs and msgs[-1].get("role") == "assistant":
-                dm.show_reply(msgs[-1]["content"])
-            else:
-                dm.show_info("等待飞书处理中...")
+
+            reply = await run_agent(
+                user_input,
+                registry=registry,
+                monitor=monitor,
+                toolboxes=skill_toolboxes,
+                skip_planning=False,
+                agent_config={
+                    "debug": False,
+                    "session_key": active_session_id,
+                    "conversation_history": session_ctx.conversation_history,
+                },
+                system_prompt="\n\n".join(skill_prompts) if skill_prompts else None,
+            )
+
+            dm.show_reply(reply)
+
+            # 更新对话历史
+            session_ctx.conversation_history.append({"role": "user", "content": user_input})
+            session_ctx.conversation_history.append({"role": "assistant", "content": reply})
+
+            if len(session_ctx.conversation_history) > 40:
+                session_ctx.conversation_history = session_ctx.conversation_history[-40:]
+
+            # 持久化到磁盘
+            session_manager.save_session_history(active_session_id)
+
+            # 同步到飞书桥接服务器（供飞书实例读取）
+            try:
+                _bridge_request("inject", session_id=active_session_id, message=user_input)
+                _bridge_request("inject_reply", session_id=active_session_id, reply=reply)
+            except Exception:
+                pass  # 飞书实例可能未运行
+
         except Exception as e:
-            dm.show_error(f"桥接失败: {e}")
+            dm.show_error(f"处理失败: {e}")
 
     dm.show_info("已断开与飞书实例的连接")
 

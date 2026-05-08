@@ -36,6 +36,7 @@ def create_feishu_handler(
     skills: list[Skill],
     skill_prompts: list[str] | None = None,
     send_thinking: Callable[[str, str], Awaitable[None]] | None = None,
+    session_manager=None,
 ) -> Callable[[str, str, str], Awaitable[str]]:
     """创建飞书消息处理器。
 
@@ -51,7 +52,7 @@ def create_feishu_handler(
         消息处理函数 (content, chatId, senderId) => reply
     """
 
-    # 会话历史缓存
+    # 会话历史缓存（fallback，无 SessionManager 时使用）
     _conversation_histories: dict[str, list[dict[str, str]]] = {}
 
     async def handler(content: str, chat_id: str, sender_id: str) -> str:
@@ -66,10 +67,13 @@ def create_feishu_handler(
             Agent 回复文本
         """
         # 获取或创建会话历史
-        if chat_id not in _conversation_histories:
-            _conversation_histories[chat_id] = []
-
-        history = _conversation_histories[chat_id]
+        if session_manager:
+            session_ctx = session_manager.get_or_create(chat_id)
+            history = session_ctx.conversation_history
+        else:
+            if chat_id not in _conversation_histories:
+                _conversation_histories[chat_id] = []
+            history = _conversation_histories[chat_id]
 
         try:
             # 创建 on_thinking 回调（捕获 chat_id）
@@ -101,7 +105,11 @@ def create_feishu_handler(
 
             # 限制历史长度
             if len(history) > 40:
-                _conversation_histories[chat_id] = history[-40:]
+                history[:] = history[-40:]
+
+            # 持久化到磁盘
+            if session_manager:
+                session_manager.save_session_history(chat_id)
 
             return reply
 
