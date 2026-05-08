@@ -19,7 +19,6 @@ from src.core.config import (
     merge_agent_config,
 )
 from src.core.logger import append_log, truncate, get_logger
-from src.core.output_manager import OutputManager
 from src.core.monitor import DefaultToolMonitor
 from src.core.registry import DefaultToolRegistry
 from src.core.loop_detector import LoopDetector
@@ -45,7 +44,6 @@ __all__ = [
     "get_logger",
     "append_log",
     "truncate",
-    "OutputManager",
     "DefaultToolMonitor",
     "DefaultToolRegistry",
     "LoopDetector",

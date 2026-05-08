@@ -145,7 +145,6 @@ class AgentConfig:
     session_registry: Any | None = None  # ToolRegistryProtocol (optional session-level registry)
     session_toolboxes: list[Any] = field(default_factory=list)  # list[Toolbox]
     conversation_history: list[dict[str, str]] = field(default_factory=list)
-    output_manager: Any | None = None  # OutputManager (optional)
 
 
 __all__ = [

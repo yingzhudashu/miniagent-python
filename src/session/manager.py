@@ -58,11 +58,13 @@ class SessionConfig:
 
     Attributes:
         session_id: 会话 ID
+        session_number: 会话编号（用于显示，如 #1, #2）
         workspace_path: 工作空间路径
         files_path: 文件目录（工具操作默认位置）
         skills_path: 技能目录
         created_at: 创建时间
         last_active: 最后活跃时间
+        title: 会话标题（可重命名）
         description: 描述
         chat_id: 关联的 chatId
         sender_id: 关联的 senderId
@@ -73,6 +75,8 @@ class SessionConfig:
     skills_path: str
     created_at: str
     last_active: str
+    session_number: int = 0
+    title: str = ""
     description: str = ""
     chat_id: str | None = None
     sender_id: str | None = None
@@ -128,11 +132,32 @@ class DefaultSessionManager(SessionManagerProtocol):
         self._main_toolboxes: list[Toolbox] = main_toolboxes or []
         self._main_skills: list[Skill] = main_skills or []
         self._active_session_id: str | None = None
+        self._next_number: int = 1  # 下一个会话编号
         self._ensure_workspaces_dir()
+        self._scan_existing_numbers()
 
     def _ensure_workspaces_dir(self) -> None:
         """确保工作空间目录存在"""
         os.makedirs(_get_workspaces_dir(), exist_ok=True)
+
+    def _scan_existing_numbers(self) -> None:
+        """扫描已有会话编号，确定下一个可用编号。"""
+        workspaces = _get_workspaces_dir()
+        if not os.path.isdir(workspaces):
+            return
+        max_num = 0
+        for name in os.listdir(workspaces):
+            config_path = os.path.join(workspaces, name, "config.json")
+            if os.path.isfile(config_path):
+                try:
+                    with open(config_path, "r", encoding="utf-8") as f:
+                        raw = json.load(f)
+                    num = raw.get("session_number", 0)
+                    if isinstance(num, int) and num > max_num:
+                        max_num = num
+                except Exception:
+                    pass
+        self._next_number = max_num + 1
 
     def _make_safe_id(self, session_id: str) -> str:
         """将非法路径字符替换为安全字符
@@ -162,6 +187,8 @@ class DefaultSessionManager(SessionManagerProtocol):
                         "skills_path": config.skills_path,
                         "created_at": config.created_at,
                         "last_active": config.last_active,
+                        "session_number": config.session_number,
+                        "title": config.title,
                         "description": config.description,
                         "chat_id": config.chat_id,
                         "sender_id": config.sender_id,
@@ -174,14 +201,38 @@ class DefaultSessionManager(SessionManagerProtocol):
             pass  # 忽略保存失败
 
     # -----------------------------------------------------------------------
-    # 会话历史持久化
+    # 会话历史持久化（Persistence Layer）
+    # -----------------------------------------------------------------------
+    #
+    # 历史持久化机制：
+    #   每个会话的对话历史保存在工作空间下的 history.json 文件中。
+    #   格式：[{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
+    #
+    # 保存时机：
+    #   - CLI 模式：每次 agent turn 完成后调用 save_session_history()
+    #   - 飞书模式：每条消息处理完成后调用 save_session_history()
+    #   - 统一模式：run_agent_with_thinking() 内部自动保存
+    #
+    # 加载时机：
+    #   - _restore() 中自动加载：当检测到已有工作空间配置时，恢复历史
+    #   - load_session_history() 显式加载：桥接模式启动时手动加载
+    #
+    # 存储路径：
+    #   state/workspaces/<safe_session_id>/history.json
     # -----------------------------------------------------------------------
 
     def save_session_history(self, session_id: str) -> None:
         """持久化会话历史到磁盘
 
+        将内存中的 conversation_history 写入工作空间的 history.json 文件。
+        此方法在每次 agent turn 后调用，确保历史不会因重启丢失。
+
         Args:
             session_id: 会话 ID
+
+        Note:
+            静默失败（try/except pass），不影响主流程。
+            历史持久化是增强功能，不是关键路径。
         """
         ctx = self._sessions.get(session_id)
         if not ctx:
@@ -192,16 +243,20 @@ class DefaultSessionManager(SessionManagerProtocol):
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(history, f, ensure_ascii=False, indent=2)
         except Exception:
-            pass
+            pass  # 静默失败，不影响主流程
 
     def load_session_history(self, session_id: str) -> list:
         """从磁盘加载会话历史
+
+        读取工作空间中的 history.json，返回解析后的消息列表。
+        用于桥接模式启动时恢复历史上下文。
 
         Args:
             session_id: 会话 ID
 
         Returns:
-            历史消息列表
+            历史消息列表，格式：[{"role": "user", "content": "..."}, ...]
+            如果文件不存在或解析失败，返回空列表。
         """
         ctx = self._sessions.get(session_id)
         if not ctx:
@@ -218,8 +273,11 @@ class DefaultSessionManager(SessionManagerProtocol):
     def load_all_sessions(self) -> list[str]:
         """从磁盘加载所有已保存的会话 ID
 
+        扫描工作空间目录，查找所有包含 config.json 的子目录，
+        返回已持久化的会话 ID 列表。用于会话列表展示和恢复。
+
         Returns:
-            已保存的会话 ID 列表
+            已保存的会话 ID 列表（safe_id 反向转换）
         """
         workspaces = _get_workspaces_dir()
         ids = []
@@ -262,11 +320,32 @@ class DefaultSessionManager(SessionManagerProtocol):
     def _restore(
         self, session_id: str, workspace_path: str, options: SessionOptions | None
     ) -> Session:
-        """从磁盘恢复已有会话（含历史）"""
+        """从磁盘恢复已有会话（含历史）
+
+        当检测到工作空间中已存在 config.json 时调用此方法。
+        典型场景：应用重启后，恢复之前创建的会话。
+
+        恢复流程：
+        1. 读取 config.json，重建 SessionConfig
+        2. 克隆主空间核心工具到新会话的注册表
+        3. 创建 Session 对象
+        4. 加载 history.json（如果存在），同步到 session.conversation_history
+        5. 注册到 _sessions 字典
+
+        Args:
+            session_id: 会话唯一标识
+            workspace_path: 工作空间路径
+            options: 可选配置（恢复时通常不使用）
+
+        Returns:
+            恢复后的 Session 对象
+        """
+        # 1. 读取配置
         config_path = os.path.join(workspace_path, "config.json")
         with open(config_path, "r", encoding="utf-8") as f:
             raw = json.load(f)
 
+        # 2. 重建配置
         config = SessionConfig(
             session_id=raw["session_id"],
             workspace_path=raw["workspace_path"],
@@ -274,15 +353,18 @@ class DefaultSessionManager(SessionManagerProtocol):
             skills_path=raw["skills_path"],
             created_at=raw["created_at"],
             last_active=datetime.now(timezone.utc).isoformat(),
+            session_number=raw.get("session_number", 0),
+            title=raw.get("title", ""),
             description=raw.get("description", ""),
             chat_id=raw.get("chat_id"),
             sender_id=raw.get("sender_id"),
         )
 
+        # 3. 创建会话级注册表 + 克隆核心工具
         registry = DefaultToolRegistry()
         core_count = 0
         for name, tool in self._main_registry.get_all().items():
-            if not tool.toolbox:
+            if not tool.toolbox:  # 无 toolbox = 核心工具
                 try:
                     registry.register(name, ToolDefinition(
                         schema=tool.schema, handler=tool.handler,
@@ -293,6 +375,7 @@ class DefaultSessionManager(SessionManagerProtocol):
                 except ValueError:
                     pass
 
+        # 4. 创建 Session 对象
         session = Session(
             id=session_id,
             description=config.description,
@@ -301,7 +384,7 @@ class DefaultSessionManager(SessionManagerProtocol):
             workspace_path=config.files_path,
         )
 
-        # 加载持久化的对话历史
+        # 5. 加载持久化的对话历史
         history_path = os.path.join(workspace_path, "history.json")
         if os.path.isfile(history_path):
             try:
@@ -312,9 +395,10 @@ class DefaultSessionManager(SessionManagerProtocol):
         else:
             conversation_history = []
 
-        # 同步到 Session 对象
+        # 6. 同步到 Session 对象（关键：确保 in-memory 和 disk 一致）
         session.conversation_history = list(conversation_history)
 
+        # 7. 注册到内存字典
         ctx = {
             "session_id": session_id,
             "config": config,
@@ -358,8 +442,11 @@ class DefaultSessionManager(SessionManagerProtocol):
             skills_path=skills_path,
             created_at=now,
             last_active=now,
+            session_number=self._next_number,
+            title=options.title if options and options.title else "",
             description=options.description if options else "",
         )
+        self._next_number += 1
 
         self._save_config(config)
 
@@ -475,6 +562,66 @@ class DefaultSessionManager(SessionManagerProtocol):
             return False
         self._active_session_id = id
         return True
+
+    def rename_session(self, session_id: str, new_title: str) -> bool:
+        """重命名会话标题
+
+        Args:
+            session_id: 会话 ID
+            new_title: 新标题
+
+        Returns:
+            成功返回 True
+        """
+        ctx = self._sessions.get(session_id)
+        if not ctx:
+            return False
+        ctx["config"].title = new_title
+        ctx["config"].last_active = datetime.now(timezone.utc).isoformat()
+        self._save_config(ctx["config"])
+        if ctx["session"].id == session_id:
+            ctx["session"].description = new_title
+        return True
+
+    def get_session_display_name(self, session_id: str) -> str:
+        """获取会话显示名称（编号 + 标题）
+
+        Args:
+            session_id: 会话 ID
+
+        Returns:
+            显示名称，如 "#1 工作" 或 "#2 cli-interactive"
+        """
+        ctx = self._sessions.get(session_id)
+        if not ctx:
+            return session_id
+        config = ctx["config"]
+        title = config.title if config.title else session_id
+        return f"#{config.session_number} {title}"
+
+    def list_all_sessions_with_info(self) -> list[dict]:
+        """列出所有会话及其详细信息
+
+        Returns:
+            会话信息列表
+        """
+        result = []
+        for ctx in self._sessions.values():
+            config = ctx["config"]
+            history = ctx.get("conversation_history", [])
+            # 检查会话锁
+            lock_owner = _get_session_lock_owner(config.workspace_path)
+            result.append({
+                "id": config.session_id,
+                "number": config.session_number,
+                "title": config.title or config.session_id,
+                "created_at": config.created_at,
+                "last_active": config.last_active,
+                "turn_count": len(history) // 2,
+                "locked": lock_owner is not None,
+                "lock_pid": lock_owner,
+            })
+        return sorted(result, key=lambda x: x["number"])
 
     def promote_tool(self, session_id: str, tool_name: str) -> bool:
         """工具升维：将会话中的工具提升到主空间
@@ -628,6 +775,18 @@ class DefaultSessionManager(SessionManagerProtocol):
             主空间的 ToolRegistry 实例
         """
         return self._main_registry
+
+
+def _get_session_lock_owner(workspace_path: str) -> int | None:
+    """获取会话的实例锁 PID（如果有）"""
+    lock_file = os.path.join(workspace_path, ".lock")
+    if os.path.isfile(lock_file):
+        try:
+            with open(lock_file, "r") as f:
+                return int(f.read().strip())
+        except Exception:
+            pass
+    return None
 
 
 __all__ = ["DefaultSessionManager", "SessionManager", "SessionConfig", "SessionInfo"]

@@ -1,12 +1,18 @@
-"""Mini Agent Python — 包入口
+"""Mini Agent Python — 统一入口
 
-支持:
-- `python -m src` 启动 CLI
-- `python -m src --feishu` 启动飞书长轮询
-- `python -m src --unified` CLI + 飞书同时运行（共享子系统）
-- `python -m src --unified --feishu` 同上（显式指定）
-- `python -m src --force` 强制获取实例锁
-- `python -m src --stop` 停止运行中的实例
+启动 Agent 后默认进入 CLI 模式。
+运行时可通过 `.feishu start` 动态启用飞书连接。
+
+用法:
+    python -m src              # CLI 模式（默认）
+    python -m src --feishu     # CLI + 飞书同时启动
+    python -m src --force      # 强制获取实例锁
+    python -m src --stop       # 停止运行中的实例
+
+架构:
+- 一套 registry / monitor / skill_registry / session_manager
+- CLI 通过 stdin 交互，飞书通过 WebSocket 长轮询（运行时可插拔）
+- 共享 UnifiedEngine 管理思考回调和会话路由
 """
 
 from __future__ import annotations
@@ -24,41 +30,27 @@ def _load_env():
         if os.path.exists(env_path):
             load_dotenv(env_path)
     except ImportError:
-        pass  # python-dotenv 未安装，跳过
+        pass
 
 
 def main():
-    """入口函数"""
+    """统一入口 — 始终走 unified 路径。"""
     _load_env()
 
-    # 统一模式：CLI + 飞书同时运行
-    if "--unified" in sys.argv:
+    if "--stop" in sys.argv:
         try:
-            from src.unified import unified_entry
-            unified_entry()
-            return
-        except ImportError as e:
-            print(f"❌ 无法导入统一模块: {e}")
-            sys.exit(1)
+            from src.core.instance_manager import stop_instance
+            result = stop_instance()
+            if result.get("success"):
+                print("✅ Mini Agent 已停止")
+            else:
+                print(f"ℹ️ {result.get('reason', '未运行')}")
+        except Exception as e:
+            print(f"❌ 停止失败: {e}")
+        sys.exit(0)
 
-    # 纯飞书模式
-    if "--feishu" in sys.argv and "--unified" not in sys.argv:
-        try:
-            from src.feishu.poll_server import feishu_main
-            asyncio.run(feishu_main())
-            return
-        except ImportError:
-            print("❌ 无法导入飞书模块，请确保已安装依赖")
-            sys.exit(1)
-
-    # 默认：CLI 模式
-    try:
-        from src.cli.cli import main as cli_main
-    except ImportError:
-        print("❌ 无法导入 CLI 模块，请确保已安装依赖")
-        sys.exit(1)
-
-    asyncio.run(cli_main())
+    from src.unified import unified_entry
+    unified_entry()
 
 
 if __name__ == "__main__":

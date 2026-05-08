@@ -57,7 +57,9 @@ async def _exec_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
 
     使用 asyncio.create_subprocess_shell 实现异步命令执行。
     """
-    command = str(args["command"])
+    command = str(args["command"]).strip()
+    if not command:
+        return ToolResult(success=False, content="❌ 命令不能为空")
     cwd = str(args.get("cwd", "")) or ctx.cwd
     timeout = float(args.get("timeout", 30))
 

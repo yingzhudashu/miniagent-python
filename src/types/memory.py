@@ -110,6 +110,7 @@ class SessionOptions:
     """会话配置选项
 
     Attributes:
+        title: 会话标题（可重命名）
         description: 会话描述
         parent_session_id: 继承的父会话 ID
         workspace_path: 自定义工作空间路径
@@ -117,6 +118,7 @@ class SessionOptions:
         toolboxes: 初始工具箱列表
     """
 
+    title: str = ""
     description: str | None = None
     parent_session_id: str | None = None
     workspace_path: str | None = None
