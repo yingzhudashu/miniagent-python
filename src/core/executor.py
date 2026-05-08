@@ -32,6 +32,7 @@ from src.core.context_manager import DefaultContextManager
 from src.core.memory_store import memory_store, extract_facts, generate_turn_summary
 from src.core.keyword_index import search_relevant_memory, format_search_results, get_index_stats
 from src.core.loop_detector import LoopDetector
+from src.core.activity_log import activity_log
 from src.security.sandbox import get_default_workspace
 
 # ─── Agent 身份 ────────────────────────────────────────────
@@ -162,6 +163,11 @@ async def execute_plan(
     turn_tool_calls: list[dict[str, Any]] = []
     final_reply = ""
 
+    # 活动日志 — 记录会话开始
+    session_key = agent_config.session_key or "default"
+    source = "cli"  # 默认 CLI，飞书调用方会设置 session_key
+    activity_log.log_session_start(session_key, user_input, source)
+
     if agent_config.debug:
         idx_stats = get_index_stats()
         _logger.info("使用 %d 个工具 (策略: %s)", len(tools), agent_config.tool_selection_strategy)
@@ -203,28 +209,34 @@ async def execute_plan(
                 },
             })
 
-        # ── 触发思考回调（含工具调用信息） ──
+        # ── 触发思考回调（仅显示工具名 + 意图，不显示详情） ──
         if on_thinking:
             try:
                 if msg.content:
-                    turn_label = f"[第 {max_turns - turns_left} 轮思考]"
+                    turn_label = f"[第 {max_turns - turns_left} 轮]"
                     await on_thinking(f"{turn_label}\n{msg.content}")
-                # 显示工具调用详情
+                # 工具调用：只显示名称和意图
                 if msg.tool_calls:
                     for tc in msg.tool_calls:
-                        tool_call_info = f"🔧 调用工具: {tc.function.name}"
                         try:
                             args_dict = json.loads(tc.function.arguments)
-                            if args_dict:
-                                args_preview = ", ".join(
-                                    f"{k}={str(v)[:80]}" for k, v in list(args_dict.items())[:3]
-                                )
-                                tool_call_info += f" ({args_preview})"
+                            intent = _extract_tool_intent(tc.function.name, args_dict)
                         except (json.JSONDecodeError, TypeError):
-                            pass
-                        await on_thinking(tool_call_info)
+                            intent = "执行操作"
+                        await on_thinking(f"🔧 {tc.function.name} — {intent}")
             except Exception:
                 pass  # 思考回调失败不影响主流程
+
+        # ── 记录 LLM 调用详情到活动日志 ──
+        activity_log.log_llm_call(
+            session_key=session_key,
+            turn=max_turns - turns_left,
+            model=MODEL,
+            message_count=len(messages),
+            tool_count=len(tools),
+            thinking=msg.content,
+            token_usage=response.usage.model_dump() if response.usage else None,
+        )
 
         # ── 无工具调用 → 最终回复 ──
         if not msg.tool_calls:
@@ -237,6 +249,7 @@ async def execute_plan(
                 await _save_session_memory(
                     agent_config.session_key, user_input, final_reply, turn_tool_calls
                 )
+                activity_log.log_final_reply(session_key, final_reply)
 
             if agent_config.debug:
                 _logger.debug(context_manager.get_token_report())
@@ -264,24 +277,6 @@ async def execute_plan(
                 if on_tool_call:
                     on_tool_call(tc.function.name, tc.function.arguments, "⚠️ 未知工具")
                 continue
-
-            # ── 触发思考回调：显示工具调用信息 ──
-            if on_thinking:
-                try:
-                    tool_call_info = f"🔧 调用工具: {tc.function.name}"
-                    # 显示关键参数（截断过长内容）
-                    try:
-                        args_dict = json.loads(tc.function.arguments)
-                        if args_dict:
-                            args_preview = ", ".join(
-                                f"{k}={str(v)[:80]}" for k, v in list(args_dict.items())[:3]
-                            )
-                            tool_call_info += f" ({args_preview})"
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-                    await on_thinking(tool_call_info)
-                except Exception:
-                    pass  # 思考回调失败不影响主流程
 
             # ── 循环检测 ──
             try:
@@ -325,23 +320,24 @@ async def execute_plan(
                 "tool_call_id": tc.id,
                 "content": result.content,
             })
-            # 工具执行结果推给思考回调（CLI/飞书统一展示）
-            if on_thinking:
-                try:
-                    preview = result.content[:200]
-                    await on_thinking(f"🔧 {tc.function.name} → {preview}")
-                except Exception:
-                    pass  # 思考回调失败不影响主流程
 
-
+            # ── 工具调用详情写入活动日志 ──
+            intent = _extract_tool_intent(tc.function.name, args)
+            activity_log.log_tool_call(
+                session_key=session_key,
+                tool_name=tc.function.name,
+                intent=intent,
+                args=args,
+                result=result.content,
+                duration_ms=tool_elapsed,
+                success=result.success,
+            )
 
     # ── 达到最大轮数 ──
     loop_stats = loop_detector.get_stats()
 
     if agent_config.session_key:
-        await _save_session_memory(
-            agent_config.session_key, user_input, "达到最大轮数，任务未完成", turn_tool_calls
-        )
+        activity_log.log_incomplete(session_key, f"达到最大轮数 {max_turns}")
 
     if agent_config.debug:
         _logger.debug(context_manager.get_token_report())
@@ -351,6 +347,36 @@ async def execute_plan(
         f"建议：简化请求，分步骤执行。\n\n"
         f"📊 本轮统计：工具调用 {loop_stats['total_calls']} 次"
     )
+
+
+# ─── 工具意图提取 ──────────────────────────────────────────
+
+def _extract_tool_intent(tool_name: str, args: dict[str, Any]) -> str:
+    """从工具调用中提取简要意图描述。"""
+    # 常见工具的意图映射
+    intent_map = {
+        "read_file": "读取文件",
+        "write_file": "写入文件",
+        "edit_file": "编辑文件",
+        "list_dir": "列出目录",
+        "exec_command": "执行命令",
+        "web_search": "搜索网页",
+        "web_fetch": "抓取网页",
+        "read_memory": "读取记忆",
+        "write_memory": "写入记忆",
+        "search_memory": "搜索记忆",
+    }
+    base_intent = intent_map.get(tool_name, f"调用 {tool_name}")
+
+    # 尝试从参数中提取关键信息
+    if args:
+        # 优先取 path, query, command, content
+        for key in ("path", "query", "command", "content", "url"):
+            if key in args:
+                val = str(args[key])[:60]
+                return f"{base_intent}: {val}"
+
+    return base_intent
 
 
 # ─── 记忆保存 ────────────────────────────────────────────
