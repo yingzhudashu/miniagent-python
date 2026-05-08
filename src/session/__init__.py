@@ -6,7 +6,7 @@
 每个会话拥有独立的工作空间、工具注册表和对话历史。
 """
 
-from src.session.manager import SessionManager
+from src.session.manager import DefaultSessionManager as SessionManager
 from src.session.workspace import WorkspaceManager
 
 __all__ = ["SessionManager", "WorkspaceManager"]
