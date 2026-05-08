@@ -25,6 +25,7 @@ from typing import Any, Awaitable, Callable
 
 from src.feishu.types import FeishuConfig
 from src.core.logger import get_logger
+from src.core.message_queue import message_queue, QueueMode
 
 _logger = get_logger(__name__)
 
@@ -148,41 +149,8 @@ def release_processing(message_id: str):
 _load_disk_dedup()
 
 
-# ─── 顺序队列 ───
-
-_chat_queues: dict[str, list] = {}
-
-
-def enqueue_chat_message(chat_id: str, fn) -> None:
-    """将消息加入聊天室顺序队列。"""
-    queue = _chat_queues.get(chat_id)
-    if queue is None:
-        queue = []
-        _chat_queues[chat_id] = queue
-    queue.append(fn)
-
-    # 如果队列长度为 1，说明没有正在处理，立即开始
-    if len(queue) == 1:
-        asyncio.create_task(_process_chat_queue(chat_id))
-
-
-async def _process_chat_queue(chat_id: str) -> None:
-    """处理聊天室顺序队列。"""
-    queue = _chat_queues.get(chat_id)
-    if not queue:
-        return
-
-    fn = queue.pop(0)
-    try:
-        await fn()
-    except Exception as e:
-        _logger.warning("队列处理失败 [%s]: %s", chat_id, e)
-
-    # 继续处理下一条
-    if queue:
-        asyncio.create_task(_process_chat_queue(chat_id))
-    else:
-        del _chat_queues[chat_id]
+# ─── 消息队列 ───
+# 已由 src.core.message_queue.MessageQueueManager 统一管理
 
 
 # ─── 飞书客户端 ───
@@ -276,7 +244,7 @@ async def start_feishu_poll_server(
                 finally:
                     release_processing(message_id)
 
-            enqueue_chat_message(chat_id, _handle)
+            asyncio.create_task(message_queue.dispatch(chat_id, _handle()))
 
         except Exception as e:
             _logger.error("事件处理异常: %s", e)

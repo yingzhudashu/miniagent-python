@@ -37,6 +37,7 @@ from typing import Any
 from src.core.agent import run_agent
 from src.core.executor import MODEL
 from src.core.config import MODEL_PROFILES
+from src.core.message_queue import message_queue, QueueMode
 from src.core.registry import DefaultToolRegistry
 from src.core.monitor import DefaultToolMonitor
 from src.skills.registry import DefaultSkillRegistry
@@ -537,8 +538,22 @@ def _get_session_display() -> str:
 # ═══════════════════════════════════════════════════════════
 
 async def run_cli_loop(skill_toolboxes, skill_prompts):
-    """CLI 交互循环。"""
+    """CLI 交互循环（通过消息队列处理）。"""
     global active_session_id, engine, feishu_task
+
+    async def _process_input(user_input: str) -> None:
+        """实际处理用户输入。"""
+        try:
+            print(f"\n👤 You: {user_input}")
+            reply = await engine.run_agent_with_thinking(
+                user_input,
+                active_session_id,
+                skill_toolboxes,
+                "\n\n".join(skill_prompts) if skill_prompts else None,
+            )
+            print(f"\n🦾 Agent\n  {reply}\n")
+        except Exception as e:
+            print(f"\n❌ 错误: {e}\n")
 
     while True:
         try:
@@ -598,6 +613,21 @@ async def run_cli_loop(skill_toolboxes, skill_prompts):
                 feishu_status()
             continue
 
+        # ── 消息队列控制 ──
+        if user_input.startswith(".queue"):
+            parts = user_input.split()
+            sub = parts[1] if len(parts) > 1 else ""
+            if sub == "status":
+                _cmd_queue_status()
+            elif sub == "set" and len(parts) >= 3:
+                await _cmd_queue_set(parts[2])
+            else:
+                print("\n用法:")
+                print("  .queue status          查看队列状态")
+                print("  .queue set <mode>      切换模式 (queue / preemptive)")
+                print(f"  当前模式: {message_queue.mode.value}")
+            continue
+
         if user_input == ".stats":
             print(f"\n{monitor.report()}")
             continue
@@ -617,20 +647,8 @@ async def run_cli_loop(skill_toolboxes, skill_prompts):
             _cmd_help()
             continue
 
-        # ── Agent 执行 ──
-        try:
-            print(f"\n👤 You: {user_input}")
-
-            reply = await engine.run_agent_with_thinking(
-                user_input,
-                active_session_id,
-                skill_toolboxes,
-                "\n\n".join(skill_prompts) if skill_prompts else None,
-            )
-            print(f"\n🦾 Agent\n  {reply}\n")
-
-        except Exception as e:
-            print(f"\n❌ 错误: {e}\n")
+        # ── Agent 执行（通过消息队列） ──
+        await message_queue.dispatch_cli(_process_input(user_input))
 
     # 清理会话锁
     release_session_lock(active_session_id)
@@ -669,6 +687,14 @@ def _cmd_help() -> None:
     print("    .feishu start                   启动飞书 WebSocket 连接")
     print("    .feishu stop                    停止飞书连接")
     print("    .feishu status                  查看飞书运行状态")
+    print()
+
+    # ── 消息队列 ──
+    mode = message_queue.mode.value
+    print("  📬 消息队列")
+    print(f"    .queue status                   查看队列状态")
+    print(f"    .queue set <模式>               切换 queue / preemptive")
+    print(f"    当前: {mode} (默认 queue)")
     print()
 
     # ── 模型预设 ──
@@ -807,6 +833,38 @@ def _cmd_session_rename(session_id: str, new_title: str) -> None:
         print(f"✅ 已重命名: {display}")
     else:
         print(f"❌ 会话不存在: {session_id}")
+
+
+# ═══════════════════════════════════════════════════════════
+# 消息队列控制命令
+# ═══════════════════════════════════════════════════════════
+
+def _cmd_queue_status() -> None:
+    """查看队列状态。"""
+    status = message_queue.get_status()
+    mode_label = "🟢 队列模式" if status["mode"] == "queue" else "🔴 打断模式"
+    print(f"\n📬 消息队列状态")
+    print(f"  模式: {mode_label} ({status['mode']})")
+    for label, info in status["chats"].items():
+        busy_icon = "🔴" if info["busy"] else "⚪"
+        print(f"  {label}: {busy_icon} 处理中" if info["busy"] else f"  {label}: 空闲")
+        if info["pending"] > 0:
+            print(f"    等待: {info['pending']} 条")
+    print()
+
+
+async def _cmd_queue_set(mode_str: str) -> None:
+    """切换消息队列模式。"""
+    mode_str = mode_str.lower()
+    if mode_str == "queue":
+        message_queue.mode = QueueMode.QUEUE
+        print("✅ 已切换到 队列模式（消息按顺序处理）")
+    elif mode_str == "preemptive":
+        message_queue.mode = QueueMode.PREEMPTIVE
+        print("✅ 已切换到 打断模式（最新消息打断前面处理）")
+    else:
+        print(f"❌ 未知模式: {mode_str}")
+        print("   可用: queue, preemptive")
 
 
 # ═══════════════════════════════════════════════════════════
