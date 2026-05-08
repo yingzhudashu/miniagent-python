@@ -59,6 +59,28 @@ from src.tools.self_opt import self_opt_tools
 from src.security.sandbox import get_default_workspace
 from src.cli.display_manager import DisplayManager
 
+# ── CLI 桥接客户端 ──
+
+def _check_feishu_bridge() -> bool:
+    """检查飞书实例的 HTTP 桥接是否可用。"""
+    import socket
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.5)
+            s.connect(("127.0.0.1", 18789))
+        return True
+    except (ConnectionRefusedError, OSError, socket.timeout):
+        return False
+
+
+def _bridge_request(action: str, **kwargs) -> dict:
+    """向飞书桥接服务器发送请求。"""
+    import urllib.request
+    data = json.dumps({"action": action, **kwargs}).encode("utf-8")
+    req = urllib.request.Request("http://127.0.0.1:18789", data=data, headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
 # ── 全局状态 ──
 
 registry = DefaultToolRegistry()
@@ -160,7 +182,7 @@ async def main():
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-    # 单实例检查
+    # ── 停止命令 ──
     if "--stop" in sys.argv:
         result = stop_instance()
         if result.get("success"):
@@ -169,11 +191,20 @@ async def main():
             dm.show_info(result.get("reason", ""))
         sys.exit(0)
 
+    # ── 检测飞书桥接服务器 ──
+    if _check_feishu_bridge():
+        dm.show_info("✅ 检测到飞书实例，已连接至共享会话")
+        dm.show_info("💡 输入 .bridge 查看桥接状态")
+        await _run_cli_bridge_mode()
+        return
+
+    # ── 单实例检查（独立模式） ──
     force_mode = "--force" in sys.argv
     instance_result = force_acquire_instance() if force_mode else try_acquire_instance()
     if not instance_result.get("success"):
         if "existing_pid" in instance_result:
             dm.show_error(f"Mini Agent 已在运行 (PID={instance_result.get('existing_pid')})")
+            dm.show_info("连接到飞书实例: python -m src --feishu 启动后，CLI 将自动桥接")
             dm.show_info("强制启动: python -m src --force")
         else:
             dm.show_error(f"无法获取实例锁: {instance_result.get('reason', '')}")
@@ -497,6 +528,54 @@ async def main():
     await cleanup_all_processes()
 
     release_instance()
+
+
+async def _run_cli_bridge_mode():
+    """CLI 桥接模式：连接到飞书实例，共享同一会话。"""
+    global active_session_id
+
+    while True:
+        try:
+            user_input = await asyncio.to_thread(dm.prompt)
+        except EOFError:
+            break
+
+        user_input = user_input.strip()
+        if not user_input:
+            continue
+        if user_input.lower() in ("quit", "exit"):
+            break
+
+        dm.show_user_input(user_input)
+
+        # ── 桥接模式专用命令 ──
+        if user_input == ".bridge":
+            try:
+                status = _bridge_request("status")
+                sessions = status.get("active_sessions", [])
+                dm.show_command_result("🔗 桥接状态", f"活跃会话: {', '.join(sessions) if sessions else '无'}")
+            except Exception as e:
+                dm.show_error(f"桥接断开: {e}")
+            continue
+
+        # ── 注入消息到飞书会话 ──
+        try:
+            # 注入到共享会话
+            _bridge_request("inject", session_id=active_session_id, message=user_input)
+            dm.show_thinking()
+            # 等待回复
+            import time
+            time.sleep(1)
+            history = _bridge_request("get_history", session_id=active_session_id)
+            msgs = history.get("history", [])
+            if msgs and msgs[-1].get("role") == "assistant":
+                dm.show_reply(msgs[-1]["content"])
+            else:
+                dm.show_info("等待飞书处理中...")
+        except Exception as e:
+            dm.show_error(f"桥接失败: {e}")
+
+    dm.show_info("已断开与飞书实例的连接")
 
 
 if __name__ == "__main__":

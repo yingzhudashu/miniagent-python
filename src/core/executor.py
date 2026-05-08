@@ -203,11 +203,26 @@ async def execute_plan(
                 },
             })
 
-        # ── 触发思考回调 ──
-        if on_thinking and msg.content:
+        # ── 触发思考回调（含工具调用信息） ──
+        if on_thinking:
             try:
-                turn_label = f"[第 {max_turns - turns_left} 轮思考]"
-                await on_thinking(f"{turn_label}\n{msg.content}")
+                if msg.content:
+                    turn_label = f"[第 {max_turns - turns_left} 轮思考]"
+                    await on_thinking(f"{turn_label}\n{msg.content}")
+                # 显示工具调用详情
+                if msg.tool_calls:
+                    for tc in msg.tool_calls:
+                        tool_call_info = f"🔧 调用工具: {tc.function.name}"
+                        try:
+                            args_dict = json.loads(tc.function.arguments)
+                            if args_dict:
+                                args_preview = ", ".join(
+                                    f"{k}={str(v)[:80]}" for k, v in list(args_dict.items())[:3]
+                                )
+                                tool_call_info += f" ({args_preview})"
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+                        await on_thinking(tool_call_info)
             except Exception:
                 pass  # 思考回调失败不影响主流程
 
@@ -249,6 +264,24 @@ async def execute_plan(
                 if on_tool_call:
                     on_tool_call(tc.function.name, tc.function.arguments, "⚠️ 未知工具")
                 continue
+
+            # ── 触发思考回调：显示工具调用信息 ──
+            if on_thinking:
+                try:
+                    tool_call_info = f"🔧 调用工具: {tc.function.name}"
+                    # 显示关键参数（截断过长内容）
+                    try:
+                        args_dict = json.loads(tc.function.arguments)
+                        if args_dict:
+                            args_preview = ", ".join(
+                                f"{k}={str(v)[:80]}" for k, v in list(args_dict.items())[:3]
+                            )
+                            tool_call_info += f" ({args_preview})"
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                    await on_thinking(tool_call_info)
+                except Exception:
+                    pass  # 思考回调失败不影响主流程
 
             # ── 循环检测 ──
             try:

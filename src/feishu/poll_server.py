@@ -22,6 +22,8 @@ import os
 import time
 from pathlib import Path
 from typing import Any, Awaitable, Callable
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
 
 from src.feishu.types import FeishuConfig
 from src.core.logger import get_logger
@@ -360,7 +362,7 @@ async def start_feishu_poll_server(
 
 
 async def _send_reply(config: FeishuConfig, chat_id: str, reply: str) -> None:
-    """通过飞书 API 发送回复。"""
+    """通过飞书 API 发送回复（使用交互式卡片）。"""
     try:
         import lark_oapi as lark
         from lark_oapi.api.im.v1 import (
@@ -370,13 +372,25 @@ async def _send_reply(config: FeishuConfig, chat_id: str, reply: str) -> None:
 
         client = lark.Client.builder().app_id(config.app_id).app_secret(config.app_secret).build()
 
+        # 构建飞书交互式卡片
+        card = {
+            "config": {"wide_screen_mode": True},
+            "header": {
+                "title": {"tag": "plain_text", "content": "🤖 Mini Agent"},
+                "template": "blue"
+            },
+            "elements": [
+                {"tag": "div", "text": {"tag": "lark_md", "content": reply}}
+            ]
+        }
+
         request = CreateMessageRequest.builder() \
             .receive_id_type("chat_id") \
             .request_body(
                 CreateMessageRequestBody.builder()
                 .receive_id(chat_id)
-                .msg_type("text")
-                .content(json.dumps({"text": reply}))
+                .msg_type("interactive")
+                .content(json.dumps(card))
                 .build()
             ) \
             .build()
@@ -389,10 +403,31 @@ async def _send_reply(config: FeishuConfig, chat_id: str, reply: str) -> None:
         _logger.error("请安装 lark-oapi: pip install lark-oapi")
     except Exception as e:
         _logger.error("发送回复异常: %s", e)
+        # 降级为纯文本
+        try:
+            import lark_oapi as lark
+            from lark_oapi.api.im.v1 import (
+                CreateMessageRequest,
+                CreateMessageRequestBody,
+            )
+            client = lark.Client.builder().app_id(config.app_id).app_secret(config.app_secret).build()
+            request = CreateMessageRequest.builder() \
+                .receive_id_type("chat_id") \
+                .request_body(
+                    CreateMessageRequestBody.builder()
+                    .receive_id(chat_id)
+                    .msg_type("text")
+                    .content(json.dumps({"text": reply}))
+                    .build()
+                ) \
+                .build()
+            client.im.v1.message.create(request)
+        except Exception:
+            pass
 
 
 async def _send_thinking(config: FeishuConfig, chat_id: str, thinking: str) -> None:
-    """通过飞书 API 发送思考过程（带前缀标记）。"""
+    """通过飞书 API 发送思考过程（使用交互式卡片）。"""
     try:
         import lark_oapi as lark
         from lark_oapi.api.im.v1 import (
@@ -403,16 +438,31 @@ async def _send_thinking(config: FeishuConfig, chat_id: str, thinking: str) -> N
         client = lark.Client.builder().app_id(config.app_id).app_secret(config.app_secret).build()
 
         # 截断过长的思考内容
-        max_len = 500
+        max_len = 800
         truncated = thinking[:max_len] + "..." if len(thinking) > max_len else thinking
+
+        # 清理可能导致格式问题的字符
+        cleaned = truncated.replace("\r", "").replace("\t", "  ")
+
+        # 构建飞书交互式卡片
+        card = {
+            "config": {"wide_screen_mode": True},
+            "header": {
+                "title": {"tag": "plain_text", "content": "💭 思考中"},
+                "template": "gray"
+            },
+            "elements": [
+                {"tag": "div", "text": {"tag": "lark_md", "content": cleaned}}
+            ]
+        }
 
         request = CreateMessageRequest.builder() \
             .receive_id_type("chat_id") \
             .request_body(
                 CreateMessageRequestBody.builder()
                 .receive_id(chat_id)
-                .msg_type("text")
-                .content(json.dumps({"text": f"💭 {truncated}"}))
+                .msg_type("interactive")
+                .content(json.dumps(card, ensure_ascii=False))
                 .build()
             ) \
             .build()
@@ -427,7 +477,95 @@ async def _send_thinking(config: FeishuConfig, chat_id: str, thinking: str) -> N
         _logger.debug("发送思考异常: %s", e)
 
 
-__all__ = ["start_feishu_poll_server", "try_begin_processing", "release_processing", "feishu_main"]
+__all__ = ["start_feishu_poll_server", "try_begin_processing", "release_processing", "feishu_main", "start_http_bridge", "is_http_bridge_running"]
+
+# ─── CLI 桥接服务器（轻量 HTTP） ───
+
+_BRIDGE_PORT = 18789
+_bridge_server = None
+_bridge_shared_state = {}
+
+
+def is_http_bridge_running() -> bool:
+    """检查 CLI 桥接服务器是否已在运行。"""
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.connect(("127.0.0.1", _BRIDGE_PORT))
+            return True
+        except (ConnectionRefusedError, OSError):
+            return False
+
+
+class _BridgeHandler(BaseHTTPRequestHandler):
+    """轻量 HTTP 桥接：CLI 连接到此端口与飞书实例共享会话。"""
+
+    def do_POST(self):
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length).decode("utf-8")
+            data = json.loads(body)
+
+            action = data.get("action", "")
+            state = self.server.shared_state
+
+            if action == "status":
+                result = {"status": "ok", "active_sessions": list(state.get("sessions", {}).keys())}
+            elif action == "inject":
+                session_id = data.get("session_id", "cli-interactive")
+                message = data.get("message", "")
+                if "sessions" not in state:
+                    state["sessions"] = {}
+                if session_id not in state["sessions"]:
+                    state["sessions"][session_id] = []
+                state["sessions"][session_id].append({"role": "user", "content": message, "_injected_by": "cli"})
+                result = {"status": "ok", "message": "已注入到会话 " + session_id}
+            elif action == "get_history":
+                session_id = data.get("session_id", "cli-interactive")
+                history = state.get("sessions", {}).get(session_id, [])
+                result = {"status": "ok", "history": history}
+            else:
+                result = {"status": "error", "message": "未知操作: " + action}
+
+            response = json.dumps(result, ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(response)
+        except Exception as e:
+            self.send_response(500)
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "error", "message": str(e)}, ensure_ascii=False).encode("utf-8"))
+
+    def do_GET(self):
+        self.do_POST()
+
+    def log_message(self, format, *args):
+        pass  # 静默日志
+
+
+def start_http_bridge():
+    """在后台线程启动轻量 HTTP 桥接服务器，供 CLI 连接。"""
+    global _bridge_server
+    if _bridge_server:
+        return
+
+    server = HTTPServer(("127.0.0.1", _BRIDGE_PORT), _BridgeHandler)
+    server.shared_state = _bridge_shared_state
+    _bridge_server = server
+
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    _logger.info("HTTP 桥接服务器已启动 (端口 %d)", _BRIDGE_PORT)
+
+
+def stop_http_bridge():
+    """停止 HTTP 桥接服务器。"""
+    global _bridge_server
+    if _bridge_server:
+        _bridge_server.shutdown()
+        _bridge_server = None
+        _logger.info("HTTP 桥接服务器已停止")
 
 
 async def feishu_main():
@@ -495,5 +633,8 @@ async def feishu_main():
 
     signal.signal(signal.SIGINT, _on_exit)
     signal.signal(signal.SIGTERM, _on_exit)
+
+    # 启动 HTTP 桥接服务器（供 CLI 连接）
+    start_http_bridge()
 
     await start_feishu_poll_server(config, handler)
