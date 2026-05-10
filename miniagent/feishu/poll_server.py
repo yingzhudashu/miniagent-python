@@ -381,16 +381,166 @@ async def _send_reply(config: FeishuConfig, chat_id: str, reply: str) -> None:
             pass
 
 
+def _normalize_im_receive_chat_id(chat_id: str) -> str:
+    """去掉内部路由前缀 ``feishu:``，得到 IM API 可用的 ``receive_id``（``receive_id_type=chat_id``）。"""
+    c = (chat_id or "").strip()
+    if c.startswith("feishu:"):
+        return c[len("feishu:") :]
+    return c
+
+
+# 单条「思考」卡片：流式时用 PATCH 更新同一 message_id；飞书对单条消息可 PATCH 次数有限，须节流。
+FEISHU_THINKING_BODY_MAX = 12000
+FEISHU_THINKING_PATCH_MIN_INTERVAL_S = 0.35
+FEISHU_THINKING_PATCH_MIN_CHAR_DELTA = 450
+FEISHU_THINKING_PATCH_BUDGET = 12
+
+
+def _thinking_interactive_card_dict(cleaned_markdown: str, template: str) -> dict[str, Any]:
+    return {
+        "config": {"wide_screen_mode": True},
+        "header": {
+            "title": {"tag": "plain_text", "content": "💭 思考中"},
+            "template": template,
+        },
+        "elements": [
+            {"tag": "div", "text": {"tag": "lark_md", "content": cleaned_markdown}},
+        ],
+    }
+
+
+def _prepare_thinking_markdown(raw: str) -> str:
+    t = raw if len(raw) <= FEISHU_THINKING_BODY_MAX else raw[: FEISHU_THINKING_BODY_MAX] + "…"
+    return t.replace("\r", "").replace("\t", "  ")
+
+
+def _create_interactive_thinking_message(
+    config: FeishuConfig, chat_id: str, card_json: str
+) -> str | None:
+    """创建交互式思考卡片，成功返回 message_id。"""
+    try:
+        import lark_oapi as lark
+        from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
+
+        client = lark.Client.builder().app_id(config.app_id).app_secret(config.app_secret).build()
+        request = (
+            CreateMessageRequest.builder()
+            .receive_id_type("chat_id")
+            .request_body(
+                CreateMessageRequestBody.builder()
+                .receive_id(chat_id)
+                .msg_type("interactive")
+                .content(card_json)
+                .build()
+            )
+            .build()
+        )
+        response = client.im.v1.message.create(request)
+        if response.success() and response.data and response.data.message_id:
+            return response.data.message_id
+        _logger.warning("创建思考消息失败: %s %s", response.code, response.msg)
+    except ImportError:
+        _logger.error("请安装 lark-oapi: pip install lark-oapi")
+    except Exception as e:
+        _logger.debug("创建思考消息异常: %s", e)
+    return None
+
+
+def _patch_interactive_thinking_message(config: FeishuConfig, message_id: str, card_json: str) -> bool:
+    """PATCH 更新已有交互卡片内容。"""
+    try:
+        import lark_oapi as lark
+        from lark_oapi.api.im.v1 import PatchMessageRequest, PatchMessageRequestBody
+
+        client = lark.Client.builder().app_id(config.app_id).app_secret(config.app_secret).build()
+        body = PatchMessageRequestBody.builder().content(card_json).build()
+        request = PatchMessageRequest.builder().message_id(message_id).request_body(body).build()
+        response = client.im.v1.message.patch(request)
+        if response.success():
+            return True
+        _logger.warning("更新思考消息失败: %s %s", response.code, response.msg)
+    except ImportError:
+        pass
+    except Exception as e:
+        _logger.debug("更新思考消息异常: %s", e)
+    return False
+
+
+async def push_feishu_thinking_stream(
+    config: FeishuConfig,
+    chat_id: str,
+    markdown: str,
+    template: str,
+    st: Any,
+    *,
+    new_round: bool,
+) -> None:
+    """ReAct 单轮 LLM 流式思考：同一会话只保留一条卡片，用 PATCH 节流更新（避免每条 chunk 新建消息）。"""
+    import time
+
+    chat_id = _normalize_im_receive_chat_id(chat_id)
+    if not chat_id:
+        return
+
+    if new_round:
+        st.feishu_thinking_message_id = None
+        st.feishu_last_patch_monotonic = 0.0
+        st.feishu_last_patched_char_len = -1
+        st.feishu_patch_budget = FEISHU_THINKING_PATCH_BUDGET
+
+    st.feishu_stream_accumulated = markdown
+    cleaned = _prepare_thinking_markdown(markdown)
+    card_json = json.dumps(_thinking_interactive_card_dict(cleaned, template), ensure_ascii=False)
+
+    if not st.feishu_thinking_message_id:
+        mid = _create_interactive_thinking_message(config, chat_id, card_json)
+        if mid:
+            st.feishu_thinking_message_id = mid
+            st.feishu_last_patch_monotonic = time.monotonic()
+            st.feishu_last_patched_char_len = len(markdown)
+        return
+
+    now = time.monotonic()
+    delta_t = now - st.feishu_last_patch_monotonic
+    delta_c = len(markdown) - st.feishu_last_patched_char_len
+    need_patch = delta_t >= FEISHU_THINKING_PATCH_MIN_INTERVAL_S or delta_c >= FEISHU_THINKING_PATCH_MIN_CHAR_DELTA
+    if need_patch and st.feishu_patch_budget > 0:
+        if _patch_interactive_thinking_message(config, st.feishu_thinking_message_id, card_json):
+            st.feishu_patch_budget -= 1
+            st.feishu_last_patch_monotonic = now
+            st.feishu_last_patched_char_len = len(markdown)
+
+
+async def finalize_feishu_thinking_stream(
+    config: FeishuConfig,
+    chat_id: str,
+    template: str,
+    st: Any,
+) -> None:
+    """一轮 LLM 流结束或进入工具行前：PATCH 为最终全文，并释放 message_id（下一轮新建卡片）。"""
+    chat_id = _normalize_im_receive_chat_id(chat_id)
+    mid = getattr(st, "feishu_thinking_message_id", None)
+    acc = getattr(st, "feishu_stream_accumulated", "") or ""
+    if not chat_id or not mid or not acc.strip():
+        return
+    cleaned = _prepare_thinking_markdown(acc)
+    card_json = json.dumps(_thinking_interactive_card_dict(cleaned, template), ensure_ascii=False)
+    if _patch_interactive_thinking_message(config, mid, card_json):
+        st.feishu_thinking_message_id = None
+        st.feishu_stream_accumulated = ""
+        st.feishu_last_patched_char_len = -1
+
+
 async def _send_thinking(config: FeishuConfig, chat_id: str, thinking: str, template: str = "gray") -> None:
     """通过飞书 API 发送思考过程（使用交互式卡片）。
 
     Args:
         config: 飞书应用配置
-        chat_id: 飞书聊天室 ID（如 oc_xxx）
+        chat_id: 飞书聊天室 ID（如 oc_xxx）；勿传入 ``feishu:oc_xxx`` 形式（会自动剥离前缀）
         thinking: 思考过程文本
         template: 卡片颜色模板（gray=思考中, blue=已回复）
     """
-    # 验证 chat_id 有效性（群聊以 oc_ 开头，私聊也需有效）
+    chat_id = _normalize_im_receive_chat_id(chat_id)
     if not chat_id:
         _logger.debug("跳过发送思考：空的 chat_id")
         return
@@ -404,24 +554,10 @@ async def _send_thinking(config: FeishuConfig, chat_id: str, thinking: str, temp
 
         client = lark.Client.builder().app_id(config.app_id).app_secret(config.app_secret).build()
 
-        # 截断过长的思考内容
-        max_len = 800
-        truncated = thinking[:max_len] + "..." if len(thinking) > max_len else thinking
-
-        # 清理可能导致格式问题的字符
-        cleaned = truncated.replace("\r", "").replace("\t", "  ")
-
-        # 构建飞书交互式卡片
-        card = {
-            "config": {"wide_screen_mode": True},
-            "header": {
-                "title": {"tag": "plain_text", "content": "💭 思考中"},
-                "template": template
-            },
-            "elements": [
-                {"tag": "div", "text": {"tag": "lark_md", "content": cleaned}}
-            ]
-        }
+        # 工具意图等短行：单独一条卡片（非流式轮次）
+        short = thinking[:2000] + "…" if len(thinking) > 2000 else thinking
+        cleaned = _prepare_thinking_markdown(short)
+        card_json = json.dumps(_thinking_interactive_card_dict(cleaned, template), ensure_ascii=False)
 
         request = CreateMessageRequest.builder() \
             .receive_id_type("chat_id") \
@@ -429,7 +565,7 @@ async def _send_thinking(config: FeishuConfig, chat_id: str, thinking: str, temp
                 CreateMessageRequestBody.builder()
                 .receive_id(chat_id)
                 .msg_type("interactive")
-                .content(json.dumps(card, ensure_ascii=False))
+                .content(card_json)
                 .build()
             ) \
             .build()

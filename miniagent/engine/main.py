@@ -1227,6 +1227,7 @@ def _create_feishu_handler(
                 activity_log=ctx.activity_log,
                 keyword_index=ctx.keyword_index,
                 client=ctx.openai_client,
+                feishu_receive_chat_id=chat_id,
             )
             return reply
         except Exception as e:

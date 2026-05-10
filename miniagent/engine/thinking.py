@@ -14,23 +14,24 @@ from __future__ import annotations
 import inspect
 import logging
 import sys
-from typing import Awaitable, Callable
+from typing import Any, Awaitable, Callable
 
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.shortcuts import print_formatted_text
 
 _logger = logging.getLogger(__name__)
 
-# 飞书发送回调类型
-OnFeishuSend = Callable[[str, str, str], Awaitable[None]]
-# 参数: (chat_id, thinking_text, template)
+# 飞书发送回调：streaming=True 时走「单条卡片 + PATCH 节流」；False 时先 finalize 再发独立卡片（工具行）
+OnFeishuSend = Callable[..., Awaitable[None]]
 
 
 class _SessionThinkingState:
     """单个会话的思考状态（内部使用）。"""
     __slots__ = ("step_counter", "buffer", "feishu_send", "feishu_chat_id",
                  "stream_step", "stream_header", "stream_done", "stream_printed",
-                 "stream_first_body_chunk")
+                 "stream_first_body_chunk",
+                 "feishu_thinking_message_id", "feishu_stream_accumulated",
+                 "feishu_last_patch_monotonic", "feishu_last_patched_char_len", "feishu_patch_budget")
 
     step_counter: int
     buffer: list[str]
@@ -41,6 +42,11 @@ class _SessionThinkingState:
     stream_done: bool
     stream_printed: int  # 已打印的字符数（用于增量输出）
     stream_first_body_chunk: bool  # 每轮流式正文首段首行缩进
+    feishu_thinking_message_id: str | None
+    feishu_stream_accumulated: str
+    feishu_last_patch_monotonic: float
+    feishu_last_patched_char_len: int
+    feishu_patch_budget: int
 
     def __init__(self) -> None:
         self.step_counter = 0
@@ -52,6 +58,11 @@ class _SessionThinkingState:
         self.stream_done = False
         self.stream_printed = 0
         self.stream_first_body_chunk = True
+        self.feishu_thinking_message_id = None
+        self.feishu_stream_accumulated = ""
+        self.feishu_last_patch_monotonic = 0.0
+        self.feishu_last_patched_char_len = -1
+        self.feishu_patch_budget = 0
 
 
 class ThinkingDisplay:
@@ -139,6 +150,15 @@ class ThinkingDisplay:
         state.stream_done = False
         state.stream_printed = 0
         state.stream_first_body_chunk = True
+        state.feishu_thinking_message_id = None
+        state.feishu_stream_accumulated = ""
+        state.feishu_last_patch_monotonic = 0.0
+        state.feishu_last_patched_char_len = -1
+        state.feishu_patch_budget = 0
+
+    def thinking_state(self, session_key: str) -> Any:
+        """返回会话级思考状态（供引擎 finalize 飞书流式卡片）。"""
+        return self._get_state(session_key)
 
     def enable_feishu(self, session_key: str, chat_id: str, send_callback: OnFeishuSend) -> None:
         state = self._get_state(session_key)
@@ -180,7 +200,15 @@ class ThinkingDisplay:
         if state.feishu_send and state.feishu_chat_id:
             formatted = "\n".join(f"     {line}" for line in text.split("\n"))
             try:
-                await state.feishu_send(state.feishu_chat_id, formatted, "gray")
+                # 与 executor 对齐：新一轮 LLM 流的第一帧 stream_step 仍为 None
+                is_new_round = streaming and state.stream_step is None
+                await state.feishu_send(
+                    state.feishu_chat_id,
+                    formatted,
+                    "gray",
+                    is_new_round=is_new_round,
+                    streaming=streaming,
+                )
             except Exception as e:
                 _logger.warning("飞书思考发送失败: %s", e, exc_info=True)
                 err = f"\u26a0\ufe0f \u98de\u4e66\u53d1\u9001\u5931\u8d25: {e}\n"

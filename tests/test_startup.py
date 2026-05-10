@@ -308,7 +308,7 @@ def test_thinking_show_mirrors_to_sink_when_feishu_and_sink():
 
     feishu_sent: list[tuple[str, str, str]] = []
 
-    async def feishu_send(chat_id: str, text: str, template: str) -> None:
+    async def feishu_send(chat_id: str, text: str, template: str, **_kw: object) -> None:
         feishu_sent.append((chat_id, text, template))
 
     td.enable_feishu("sk1", "cid1", feishu_send)

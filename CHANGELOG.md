@@ -27,6 +27,11 @@
 - **注释**：`engine/main.py`、`core/executor.py`、`core/planner.py`、`engine/command_dispatch.py`、`infrastructure/channel_router.py`、`feishu/poll_server.py`、`infrastructure/instance.py` 等关键分支补充「为何如此」说明；校正 executor/planner 模块标题中的阶段表述。
 - **CI**：[`.github/workflows/ci.yml`](.github/workflows/ci.yml) 新增 `test-feishu-extra` job（Python 3.12，`[dev,feishu]`）；[docs/ENGINEERING.md](docs/ENGINEERING.md) §2 同步描述。
 
+### 修复
+
+- **飞书发送思考**：`run_agent_with_thinking` 误将内部 `session_key`（`feishu:oc_...`）当作 IM `receive_id`，导致错误码 230001 `invalid receive_id`。现传入事件中的原始 `chat_id`，并在 `_send_thinking` 中剥离 `feishu:` 前缀以防回归。
+- **飞书思考流式**：ReAct 每轮 LLM 流式输出改为 **同一条交互卡片**（首次 `create` + 节流 `patch`），避免每几个 token 新建一条消息；工具意图等仍单独发短卡片。无工具收尾时由 `finalize_feishu_thinking_stream` 补全文。
+
 ## [2.0.0] - 2026-05-10
 
 ### Breaking changes

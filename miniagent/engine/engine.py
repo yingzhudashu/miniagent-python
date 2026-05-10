@@ -60,6 +60,7 @@ class UnifiedEngine:
         activity_log: Any | None = None,
         keyword_index: Any | None = None,
         client: Any | None = None,
+        feishu_receive_chat_id: str | None = None,
     ) -> str:
         """运行 agent 并显示思考过程。
 
@@ -82,6 +83,9 @@ class UnifiedEngine:
             activity_log: 活动日志（同上）
             keyword_index: 关键词索引（同上）
             client: LLM 客户端（``None`` 时由 ``run_agent`` 回落到共享工厂）
+            feishu_receive_chat_id: 飞书消息 API 用的会话 ID（如群聊 ``oc_xxx``）。
+                必须与 ``receive_id_type=chat_id`` 一致，**不得**传入内部路由键 ``feishu:oc_xxx``。
+                缺省时若 ``session_key`` 以 ``feishu:`` 开头则自动去掉前缀（兼容旧调用）。
         """
         ms, al, ki = resolve_memory_dependencies(memory_store, activity_log, keyword_index)
 
@@ -107,22 +111,53 @@ class UnifiedEngine:
             if router is None:
                 raise ValueError("channel_router 为必填（飞书会话且提供 feishu_config 时）")
             bound_channels = router.get_bound_channels(session_key)
+            # 飞书 create message 的 receive_id，须为 oc_ 等原始 ID，不能传 feishu: 前缀的内部 session_key
+            im_recv = (feishu_receive_chat_id or "").strip()
+            if not im_recv and session_key.startswith("feishu:"):
+                im_recv = session_key[len("feishu:") :]
 
-            async def _feishu_send(chat_id: str, text: str, template: str) -> None:
-                """飞书思考消息发送回调。"""
-                from miniagent.feishu.poll_server import _send_thinking
-                await _send_thinking(feishu_config, chat_id, text, template)
+            async def _feishu_send(
+                chat_id: str,
+                text: str,
+                template: str,
+                *,
+                is_new_round: bool = False,
+                streaming: bool = True,
+            ) -> None:
+                """飞书思考：流式一轮一条卡片（PATCH 节流）；非流式为工具行等独立消息。"""
+                from miniagent.feishu.poll_server import (
+                    finalize_feishu_thinking_stream,
+                    push_feishu_thinking_stream,
+                    _send_thinking,
+                )
+
+                st_local = self.thinking.thinking_state(session_key)
+                if streaming:
+                    await push_feishu_thinking_stream(
+                        feishu_config, chat_id, text, template, st_local, new_round=is_new_round
+                    )
+                else:
+                    await finalize_feishu_thinking_stream(feishu_config, chat_id, template, st_local)
+                    await _send_thinking(feishu_config, chat_id, text, template)
 
             # 如果 CLI 也绑定到此会话，注册双回调（终端 + 飞书）
             if router.CLI_CHANNEL in bound_channels:
-                async def _dual_send(chat_id: str, text: str, template: str) -> None:
-                    """双通道：飞书 + CLI transcript（由 ThinkingDisplay._output_sink 镜像）。"""
-                    from miniagent.feishu.poll_server import _send_thinking
-                    await _send_thinking(feishu_config, chat_id, text, template)
+                async def _dual_send(
+                    chat_id: str,
+                    text: str,
+                    template: str,
+                    *,
+                    is_new_round: bool = False,
+                    streaming: bool = True,
+                ) -> None:
+                    """双通道：飞书仍走流式卡片；CLI 由 ThinkingDisplay._output_sink 镜像。"""
+                    await _feishu_send(
+                        chat_id, text, template, is_new_round=is_new_round, streaming=streaming
+                    )
 
-                self.thinking.enable_feishu(session_key, session_key, _dual_send)
+                self.thinking.enable_feishu(session_key, im_recv, _dual_send)
             else:
-                self.thinking.enable_feishu(session_key, session_key, _feishu_send)
+                self.thinking.enable_feishu(session_key, im_recv, _feishu_send)
 
         # 5. 思考回调（支持流式更新）
         async def _thinking(text: str, streaming: bool = False, header: str = "") -> None:
@@ -148,6 +183,13 @@ class UnifiedEngine:
             keyword_index=ki,
             client=client,
         )
+        # 无工具调用等场景：最后一轮 LLM 流结束后无 streaming=False，需在此 PATCH 落盘全文
+        if is_feishu and feishu_config:
+            from miniagent.feishu.poll_server import finalize_feishu_thinking_stream
+
+            await finalize_feishu_thinking_stream(
+                feishu_config, im_recv, "gray", self.thinking.thinking_state(session_key)
+            )
         # 流式思考最后一 chunk 往往不以换行结束；否则下一区块（分隔线/回复）会黏在同一行。
         self.thinking.end_thinking()
 

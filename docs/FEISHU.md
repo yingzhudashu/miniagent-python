@@ -52,8 +52,8 @@ ChannelRouter.resolve_feishu_message(chat_id, sender_id, chat_type)
     ▼
 UnifiedEngine.run_agent_with_thinking()
     │
-    ├── CLI: 终端打印思考过程
-    └── 飞书: 缓冲思考 → 完成后整批发送
+    ├── CLI: 终端流式打印思考过程
+    └── 飞书（群聊）: 每轮 LLM 思考 **一条交互卡片**（首次发送后按节流 PATCH 更新，避免每 token 一条新消息）；工具意图等仍为单独短消息
 ```
 
 ## chat_type 支持
@@ -75,7 +75,7 @@ handler 函数支持 `chat_type` 参数，用于区分群聊和私聊：
 3. **命令拦截** — 以 `.` 开头的消息路由到 `dispatch_command()`
 4. **解析 session_key** — 通过 `ChannelRouter.resolve_feishu_message()`
 5. **运行 Agent** — `run_agent_with_thinking(session_key, ...)`
-6. **发送思考** — 缓冲模式：完成后通过 `_send_thinking()` 发送
+6. **发送思考** — `push_feishu_thinking_stream()` / `finalize_feishu_thinking_stream()` + `_send_thinking()`（工具行）；详见 `miniagent/feishu/poll_server.py` 顶部常量（PATCH 频率与单条可 PATCH 次数上限）
 7. **发送回复** — 通过 `_send_reply()` 发送最终回复
 
 ## 关键修复
@@ -143,9 +143,9 @@ echo $FEISHU_APP_ID
 - 群聊：`oc_` 开头
 - 用户：`ou_` 开头
 
-### 思考过程未发送
+### 思考过程未发送或更新失败
 
-当消息来自飞书会话时，思考过程会缓冲，完成后整批发送。如果内容为空，不会发送。
+群聊且 `is_feishu=True` 时才会推送思考卡片。若内容始终为空则不会发。若 PATCH 失败（权限、频率等），日志中会有 `更新思考消息失败`；飞书对单条消息可 PATCH 次数有限，实现上已做时间与字数节流。
 
 ## 命令参考
 
