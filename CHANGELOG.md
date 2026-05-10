@@ -6,13 +6,26 @@
 
 - **文档对齐**：`docs/INDEX.md`、`docs/DEPLOYMENT.md`、`docs/SECURITY.md` 等与 **`miniagent.__version__`（本版 2.0.1）** 一致；移除对已删除的 `unified.py` / `requirements.txt` 的过时描述。
 - **新增**：[docs/INSTANCE_REGISTRY.md](docs/INSTANCE_REGISTRY.md)（多实例注册表、PID 判定、`MINI_AGENT_STATE`）。
+- **新增**：[docs/ENGINEERING.md](docs/ENGINEERING.md)（质量门禁、单一事实来源、文档维护清单）。
+- **索引**：`docs/INDEX.md` 目录树补充 `core/openai_client.py`、`memory/defaults.py` 与 `feishu_state` / `feishu_runtime` 关系说明。
 - **勘误**：`DEPLOYMENT.md` 中 Python 最低版本改为与 `pyproject.toml` 一致的 **3.10+**；`FEISHU.md` 更新运行时路径说明。
 
 ### Engineering
 
 - **`.gitignore`**：忽略根级别 `debug-*.log`。
-- **注释**：充实 `miniagent/__init__.py`、`compat.unified_entry`、`infrastructure/instance` 模块 docstring（注册清理语义与组合根职责）。
-- **README**：补充 `MINI_AGENT_STATE`、实例注册清理说明、开发与静态检查命令。
+- **注释**：充实 `miniagent/__init__.py`、`compat.unified_entry`、`infrastructure/instance` 模块 docstring（注册清理语义与组合根职责）；校正 `core/agent` 模块说明；若干包 `__init__` 与入口注释与架构对齐。
+- **README**：补充 `MINI_AGENT_STATE`、实例注册清理说明、开发与静态检查命令；项目结构树补充 `cli/`、`runtime/`、`openai_client`、`defaults`；文档表增加 `ENGINEERING.md`。
+- **CI**：`.github/workflows/ci.yml` 增加 `python -m compileall -q miniagent`。
+- **配置**：`pyproject.toml` 中 Ruff 增加 `src = ["miniagent", "tests"]`。
+- **环境模板**：`.env.example` 增加 `MINI_AGENT_STATE` 说明与示例（默认注释掉）。
+- **包结构**：为 `miniagent/feishu/` 补充 `__init__.py`（模块说明，与常规 Python 包布局一致）。
+
+### 第二轮工程化（同 2.0.1 文档修订）
+
+- **workspaces 政策**：[docs/ENGINEERING.md](docs/ENGINEERING.md) §3.1 与 [docs/INDEX.md](docs/INDEX.md) 说明当前跟踪的示例文件与 `.gitignore` 边界；推荐 `MINI_AGENT_STATE`。
+- **文档交叉引用**：[docs/SECURITY.md](docs/SECURITY.md) §8；[docs/CLI.md](docs/CLI.md)、[docs/FEISHU.md](docs/FEISHU.md) 文末「相关文档」；README / CONTRIBUTING 中 `git clone <repo-url>` 占位说明。
+- **注释**：`engine/main.py`、`core/executor.py`、`core/planner.py`、`engine/command_dispatch.py`、`infrastructure/channel_router.py`、`feishu/poll_server.py`、`infrastructure/instance.py` 等关键分支补充「为何如此」说明；校正 executor/planner 模块标题中的阶段表述。
+- **CI**：[`.github/workflows/ci.yml`](.github/workflows/ci.yml) 新增 `test-feishu-extra` job（Python 3.12，`[dev,feishu]`）；[docs/ENGINEERING.md](docs/ENGINEERING.md) §2 同步描述。
 
 ## [2.0.0] - 2026-05-10
 

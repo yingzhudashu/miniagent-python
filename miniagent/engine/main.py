@@ -165,7 +165,7 @@ async def unified_main(ctx: RuntimeContext) -> None:
     from miniagent.engine.init import init_subsystems
     from miniagent.engine.welcome import print_welcome
 
-    # 注册多实例
+    # 磁盘注册：分配 instance_id 前会清扫 PID 已失效的目录（不 kill 其它进程）
     feishu_mode = "--feishu" in sys.argv
     reg_result = register_instance(
         mode="both" if feishu_mode else "cli",
@@ -187,7 +187,7 @@ async def unified_main(ctx: RuntimeContext) -> None:
         lambda tb, tp, st: _create_feishu_handler(tb, tp, st, ctx)
     )
 
-    # 注册信号处理器
+    # 信号：尽快释放会话锁并取消飞书 task，避免残留 .lock 或后台 WS
     def _on_exit(*_: Any) -> None:
         from miniagent.engine.session_lock import release_session_lock
 
@@ -225,7 +225,7 @@ async def unified_main(ctx: RuntimeContext) -> None:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-    # 若带 --feishu：同进程内拉起飞书（随后仍进入 CLI 主循环）
+    # 飞书与 CLI 共进程：先起 WS 长轮询任务，再进入同一 stdin 主循环（无单独纯飞书入口）
     if state["feishu_enabled"]:
         ctx.feishu.start(
             skill_toolboxes,
@@ -254,7 +254,7 @@ async def unified_main(ctx: RuntimeContext) -> None:
         skill_prompts,
     )
 
-    # 清理
+    # run_cli_loop 正常返回后的收尾（异常路径依赖信号与 finally）
     from miniagent.engine.session_lock import release_session_lock
 
     task = ctx.feishu.get_task()

@@ -1,11 +1,11 @@
 {
   "session_id": "session-a",
-  "cumulative_summary": "用户hello，回复: ok\n- 用户hello，回复: ok\n- 用户hello，回复: ok",
+  "cumulative_summary": "用户hello，回复: ok\n- 用户hello，回复: ok\n- 用户hello，回复: ok\n- 用户hello，回复: ok\n- 用户hello，回复: ok\n- 用户hello，回复: ok\n- 用户hello，回复: ok",
   "key_facts": [],
   "entries": [],
   "total_turns": 0,
   "first_seen": "2026-05-10T07:24:57.527524+00:00",
-  "last_active": "2026-05-10T07:41:04.879474+00:00",
+  "last_active": "2026-05-10T08:09:12.419117+00:00",
   "chat_id": null,
   "sender_id": null
 }

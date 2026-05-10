@@ -143,7 +143,7 @@ class ChannelRouter:
             channel_id = f"{self.FEISHU_P2P_PREFIX}{sender_id}"
             return self.resolve(channel_id)
         else:
-            # 群聊始终独立
+            # 群聊：固定 feishu:<chat_id>，不查 _bindings（与 CHANNEL_BINDING 文档一致）
             return f"{self.FEISHU_GROUP_PREFIX}{chat_id}"
 
     # -----------------------------------------------------------------------

@@ -37,6 +37,7 @@
 | 文档 | 说明 | 适合读者 |
 |------|------|----------|
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 贡献指南、开发规范 | 贡献者 |
+| [ENGINEERING.md](ENGINEERING.md) | 仓库卫生、质量门禁、单一事实来源 | 维护者、CI 负责人 |
 
 ---
 
@@ -54,18 +55,21 @@ miniagent-python/
 │   │   ├── planner.py            # Phase 1: 规划
 │   │   ├── executor.py           # Phase 2: ReAct 执行
 │   │   ├── config.py             # 配置管理
+│   │   ├── openai_client.py      # 共享 AsyncOpenAI 工厂（测试可 reset）
 │   │   └── self_opt/             # 自我优化子系统
 │   ├── engine/                   # 运行时引擎
 │   │   ├── main.py               # 主启动入口
 │   │   ├── engine.py             # UnifiedEngine
 │   │   ├── command_dispatch.py   # 统一命令调度
 │   │   ├── cli_commands.py       # CLI 命令实现
-│   │   ├── feishu_runtime.py     # 飞书运行时
+│   │   ├── feishu_state.py       # FeishuRuntime 实现
+│   │   ├── feishu_runtime.py     # 兼容重导出（同 feishu_state）
 │   │   ├── session_lock.py       # 会话锁
 │   │   ├── thinking.py           # 思考显示
 │   │   ├── init.py               # 子系统初始化
 │   │   └── welcome.py            # 欢迎界面
 │   ├── feishu/                   # 飞书通信
+│   │   ├── __init__.py           # 子包说明（运行时壳见 engine/feishu_state）
 │   │   ├── poll_server.py        # WebSocket 长轮询
 │   │   ├── agent_handler.py      # 消息处理
 │   │   ├── server.py             # HTTP Webhook
@@ -80,6 +84,7 @@ miniagent-python/
 │   │   ├── loop_detector.py      # 循环检测
 │   │   └── process.py            # 进程管理
 │   ├── memory/                   # 记忆系统
+│   │   ├── defaults.py           # 进程默认记忆 bundle / 状态根
 │   │   ├── context.py            # 上下文管理
 │   │   ├── store.py              # 记忆存储
 │   │   ├── activity_log.py       # 活动日志
@@ -105,6 +110,8 @@ miniagent-python/
 ├── workspaces/                   # 运行时工作目录
 └── README.md                     # 项目介绍
 ```
+
+**`workspaces/` 与 Git**：大部分运行时目录已被 `.gitignore` 忽略；少数 `memory/` 与 `keyword-index.json` 文件**刻意跟踪**作结构示例，详见 [ENGINEERING.md](ENGINEERING.md) §3.1。本地与 CI 推荐设置 `MINI_AGENT_STATE`。
 
 ---
 

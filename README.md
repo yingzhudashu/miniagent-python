@@ -17,10 +17,12 @@
 ## 快速开始
 
 ```bash
-# 安装
+# 安装（<repo-url> 为占位符，请换为实际远程；fork 说明见 docs/CONTRIBUTING.md）
 git clone <repo-url>
 cd miniagent-python
-pip install -e ".[dev]"    # 日常开发含 pytest / ruff；仅需运行时可用 pip install -e .
+pip install -e ".[dev]"              # 开发：pytest / ruff
+# pip install -e ".[dev,feishu]"    # 若需本地跑通飞书 SDK 相关路径
+# 仅需运行时：pip install -e .
 cp .env.example .env       # 编辑填入 OPENAI_API_KEY
 
 # 可选：将状态目录迁出仓库（测试 / 多副本部署）
@@ -53,11 +55,15 @@ python -m miniagent --stop           # 列出实例；交互停止 / --stop --al
 
 ```
 miniagent/
-├── core/           # 核心引擎 (agent, planner, executor)
-├── engine/         # 运行时编排 (main, engine, commands)
+├── __main__.py     # 进程入口（.env、--stop、委托 compat）
+├── compat.py       # 聚合导出与 unified_entry（组装 RuntimeContext）
+├── runtime/        # RuntimeContext 组合根
+├── cli/            # 控制台脚本 miniagent 的入口
+├── core/           # 核心引擎 (agent, planner, executor, openai_client, self_opt)
+├── engine/         # 运行时编排 (main, engine, commands, feishu_state)
 ├── feishu/         # 飞书通信 (WebSocket, handler)
-├── infrastructure/ # 基础设施 (registry, queue, monitor)
-├── memory/         # 三层记忆 (store, context, index)
+├── infrastructure/ # 基础设施 (registry, queue, monitor, instance, channel_router)
+├── memory/         # 三层记忆 (store, context, index, defaults)
 ├── session/        # 会话管理 (manager, workspace)
 ├── skills/         # 技能系统 (registry, loader, clawhub)
 ├── tools/          # LLM 工具 (exec, filesystem, web)
@@ -77,6 +83,7 @@ miniagent/
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 部署指南 |
 | [docs/SECURITY.md](docs/SECURITY.md) | 安全模型 |
 | [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | 贡献指南 |
+| [docs/ENGINEERING.md](docs/ENGINEERING.md) | 软件工程实践与质量门禁 |
 | [docs/INSTANCE_REGISTRY.md](docs/INSTANCE_REGISTRY.md) | 多实例注册与清理语义 |
 | [docs/SELF_OPT.md](docs/SELF_OPT.md) | 自我优化 |
 
@@ -85,6 +92,7 @@ miniagent/
 ```bash
 python -m pytest tests/ -v       # 约 119 tests（以 pytest 收集为准）
 python -m ruff check miniagent tests
+python -m compileall -q miniagent
 ```
 
 ## 技术栈

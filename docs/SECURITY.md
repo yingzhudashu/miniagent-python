@@ -155,3 +155,9 @@ release_session_lock("default")
 - [ ] 飞书应用已设置 IP 白名单（如适用）
 - [ ] 工作空间目录权限正确
 - [ ] 定期检查 `workspaces/instances/` 无残留死实例
+
+## 8. 相关文档
+
+- [ENGINEERING.md](ENGINEERING.md)：`.env` 与密钥不入库、CI 质量门禁、`MINI_AGENT_STATE` 与 `workspaces/` 跟踪政策。
+- [DEPLOYMENT.md](DEPLOYMENT.md)：安装、运行环境与故障排除。
+- [INSTANCE_REGISTRY.md](INSTANCE_REGISTRY.md)：多实例与磁盘注册目录语义。

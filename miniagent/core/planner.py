@@ -1,6 +1,6 @@
-"""Mini Agent Python — 规划器 (Phase 4)
+"""Mini Agent Python — 规划器（两阶段中的规划阶段）
 
-两阶段 Agent 的规划阶段。调用 LLM 分析用户需求，生成结构化执行计划。
+调用 LLM 分析用户需求，生成结构化执行计划（``StructuredPlan``）。
 支持 3 次重试，全部失败时降级为 fallback 简单计划。
 
 规划器默认使用 :func:`miniagent.core.openai_client.get_shared_async_openai`；

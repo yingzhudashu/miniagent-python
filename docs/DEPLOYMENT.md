@@ -240,3 +240,9 @@ python -m miniagent --feishu           # 实例 #2 (CLI + 飞书)
 | 会话锁冲突 | 运行 `python -m miniagent --stop` 清理 |
 | Agent 卡死 | 使用 `.status` 检查，或 `.stop` 重启 |
 | 编码问题 | 确保 `PYTHONIOENCODING=utf-8` |
+
+## 相关文档
+
+- [ENGINEERING.md](ENGINEERING.md)：CI 与本地质量门禁、`MINI_AGENT_STATE` 与仓库卫生约定。
+- [SECURITY.md](SECURITY.md)：沙箱与密钥处理。
+- [INSTANCE_REGISTRY.md](INSTANCE_REGISTRY.md)：多实例与 `--stop` 行为。

@@ -1,4 +1,8 @@
-"""记忆子系统
+"""记忆子系统（跨会话持久化与检索）
+
+与 ``miniagent.engine`` 内按会话维护的 ``conversation_history`` 不同：本包提供 **可写入磁盘的
+长期记忆、活动日志与关键词索引**；进程默认三元组由 ``defaults.get_process_default_memory_bundle()``
+构造，根目录受 ``MINI_AGENT_STATE`` 影响。
 
 导出：
 - 上下文管理 (context)

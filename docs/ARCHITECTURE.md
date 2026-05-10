@@ -56,10 +56,11 @@ Mini Agent Python 采用 **两阶段架构**（Plan → Execute），通过 **Re
 
 | 文件 | 职责 |
 |------|------|
-| `__main__.py` | 统一入口，加载 .env，解析命令行参数 |
-| `compat.py` | 聚合导出与 `unified_entry`；构造 `RuntimeContext` 后进入 `unified_main` |
+| `__main__.py` | 统一入口：`.env`、`--stop` 子命令，其余委托 `compat.unified_entry` |
+| `compat.py` | 聚合导出与 `unified_entry`；构造 `RuntimeContext`（含 `get_shared_async_openai()`）后 `asyncio.run(unified_main)` |
+| `core/openai_client.py` | 共享 `AsyncOpenAI` 惰性单例；测试可 `reset_shared_async_openai_for_tests()` |
 | `runtime/context.py` | `RuntimeContext`：进程级 registry / monitor / skill_registry / clawhub / engine / channel_router / message_queue / feishu / memory_store / activity_log / keyword_index / openai_client（可选） |
-| `cli/cli.py` | CLI 入口（委托给 `__main__`） |
+| `cli/cli.py` | 控制台脚本 `miniagent` 的入口（委托 `__main__.main`） |
 
 ### 2. 引擎层 (Engine)
 

@@ -8,11 +8,12 @@
 
 | 子包 | 职责 | 关键文件 |
 |------|------|---------|
-| `core/` | Agent 核心逻辑（规划+执行） | agent.py, executor.py, planner.py |
+| `cli/` | 控制台入口脚本（`project.scripts` → `main`） | cli.py |
+| `core/` | Agent 核心逻辑（规划+执行） | agent.py, executor.py, planner.py, openai_client.py |
 | `engine/` | 运行时编排、CLI、生命周期 | main.py, engine.py, command_dispatch.py |
 | `feishu/` | 飞书通信 | poll_server.py, agent_handler.py |
 | `infrastructure/` | 基础设施（注册表、监控、队列） | registry.py, message_queue.py, instance.py |
-| `memory/` | 三层记忆系统 | store.py, context.py, keyword_index.py |
+| `memory/` | 三层记忆系统 | store.py, context.py, keyword_index.py, defaults.py |
 | `session/` | 会话管理与持久化 | manager.py, workspace.py |
 | `skills/` | 可插拔技能系统 | registry.py, loader.py, clawhub_client.py |
 | `tools/` | LLM 可调用的工具 | exec.py, filesystem.py, web.py |
@@ -25,7 +26,7 @@
 ## 开发环境设置
 
 ```bash
-# 1. 克隆项目
+# 1. 克隆项目（将 <repo-url> 换为你的 fork 或上游 Git 远程；README 快速开始中亦使用同一占位）
 git clone <repo-url>
 cd miniagent-python
 
@@ -264,11 +265,13 @@ refactor: 拆分 unified.py 为 engine/ 包
 
 ## 软件工程实践（仓库卫生）
 
+更完整的清单（质量门禁、单一事实来源、文档对齐）见 **[ENGINEERING.md](ENGINEERING.md)**。
+
 | 项目 | 约定 |
 |------|------|
 | **单一可安装包** | 开发与安装均以 ``miniagent`` 包为准；不再维护顶层 ``src`` 兼容包或根目录 ``requirements.txt``。依赖声明只在 ``pyproject.toml``。 |
-| **CI** | [``.github/workflows/ci.yml``](../.github/workflows/ci.yml) 在 push/PR 上对 Python 3.10 / 3.12 运行 ``ruff check miniagent tests`` 与 ``pytest``；合并前应在本地执行相同命令。 |
-| **状态目录** | 默认 ``workspaces/``；测试与并行运行请设置 ``MINI_AGENT_STATE``，避免污染本机数据（见上文「运行时目录与测试隔离」）。 |
+| **CI** | [``.github/workflows/ci.yml``](../.github/workflows/ci.yml) 在 push/PR 上对 Python 3.10 / 3.12 运行 ``compileall``、``ruff check miniagent tests`` 与 ``pytest``；合并前应在本地执行相同命令。 |
+| **状态目录** | 默认 ``workspaces/``；测试与并行运行请设置 ``MINI_AGENT_STATE``，避免污染本机数据（见上文「运行时目录与测试隔离」与根目录 ``.env.example`` 注释）。 |
 | **忽略规则** | ``.gitignore`` 已排除 ``__pycache__``、``.pytest_cache``、``.ruff_cache``、``*.egg-info``、本地 ``debug-*.log`` 及常见运行时产物；勿将含密钥的 ``.env`` 提交入库。 |
 
 ### 文档与版本对齐清单（发版或大范围文档改动时）

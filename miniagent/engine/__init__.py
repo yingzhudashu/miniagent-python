@@ -1,11 +1,17 @@
-"""Engine — 模块化引擎包
+"""Engine — 模块化引擎包（进程内运行时编排）
 
-拆分自 unified.py (890 行)。
+拆分自 unified.py (890 行)。本包负责 **启动与关停、CLI 主循环、命令调度、飞书任务生命周期、
+会话锁与欢迎界面**；与 ``miniagent.core`` 的边界：core 不包含 asyncio 主循环与 stdin 交互。
+
+未在 ``__all__`` 中列出但仍属本包公共 API 的模块（按需直接 import）：
+- ``command_dispatch``：``.`` 命令统一调度
+- ``cli_state``：全屏 CLI 循环状态
+- ``feishu_runtime``：对 ``feishu_state.FeishuRuntime`` 的兼容重导出
 
 模块：
 - session_lock   会话级锁管理
 - thinking       思考过程显示
-- engine         核心引擎
+- engine         核心引擎（UnifiedEngine）
 - cli_commands   CLI 命令处理
 - feishu_state   飞书运行时（FeishuRuntime）
 - init           子系统初始化

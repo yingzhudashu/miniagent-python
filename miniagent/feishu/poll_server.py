@@ -1,4 +1,4 @@
-"""Mini Agent Python — 飞书 WebSocket 长轮询服务器 (Phase 8)
+"""Mini Agent Python — 飞书 WebSocket 长轮询
 
 使用飞书 SDK WSClient 长轮询模式接收事件推送。
 
@@ -30,7 +30,7 @@ _logger = get_logger(__name__)
 DEDUP_TTL_MS = 5 * 60 * 1000  # 5 分钟
 DEDUP_MAX_SIZE = 2000
 
-# 单例状态
+# 单例状态（每进程一套 WS；防多客户端抢事件，与 OpenClaw 对齐）
 _singleton_client: Any = None
 _singleton_app_id: str | None = None
 
@@ -246,6 +246,7 @@ async def start_feishu_poll_server(
                 finally:
                     release_processing(message_id)
 
+            # 按 chat_id 入队：与同聊天室消息串行，避免多协程交错改写上下文
             asyncio.create_task(mq.dispatch(chat_id, _handle()))
 
         except Exception as e:

@@ -1,4 +1,4 @@
-"""Mini Agent Python — Agent 编排层 (Phase 4)
+"""Mini Agent Python — Agent 编排层（两阶段主入口）
 
 两阶段架构的主入口：
 - Phase 1: Planning（规划） — LLM 分析需求，生成 StructuredPlan

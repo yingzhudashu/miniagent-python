@@ -158,3 +158,9 @@ echo $FEISHU_APP_ID
 ## 架构说明
 
 飞书运行时位于 `miniagent/engine/feishu_state.py`（`FeishuRuntime`）；`feishu_runtime.py` 仅为兼容重导出。历史上单文件 `unified.py` 已移除，入口请使用 `miniagent.compat.unified_entry` / `python -m miniagent`。
+
+## 相关文档
+
+- [ENGINEERING.md](ENGINEERING.md)：可选安装 `pip install -e ".[dev,feishu]"`、CI 飞书 job 说明。
+- [SECURITY.md](SECURITY.md)：飞书凭证与 `.env` 要求。
+- [DEPLOYMENT.md](DEPLOYMENT.md)：部署与依赖。

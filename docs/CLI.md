@@ -241,3 +241,9 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 🦾 Agent
   北京今天晴，气温 15-25°C...
 ```
+
+## 相关文档
+
+- [ENGINEERING.md](ENGINEERING.md)：本地与 CI 质量门禁、`MINI_AGENT_STATE`。
+- [SECURITY.md](SECURITY.md)：沙箱与工具安全模型。
+- [CHANNEL_BINDING.md](CHANNEL_BINDING.md)：CLI 与飞书会话绑定。

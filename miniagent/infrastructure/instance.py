@@ -157,6 +157,7 @@ class InstanceRegistry:
             实例元数据
         """
         _validate_instance_mode(mode)
+        # 新实例领取 ID 前清扫僵尸目录，使 ``--stop``/列表与磁盘一致且不误占号
         self._cleanup_dead_registered_instances()
         inst_id = _next_instance_id(self._inst_dir)
         my_dir = self._inst_dir / str(inst_id)

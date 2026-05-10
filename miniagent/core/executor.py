@@ -1,6 +1,6 @@
-"""Mini Agent Python — ReAct 循环执行器 (Phase 4)
+"""Mini Agent Python — ReAct 循环执行器（两阶段中的执行阶段）
 
-Phase 2 核心：执行结构化计划，实现 ReAct 循环（Think → Act → Observe）。
+执行 Phase 1 产出的结构化计划，实现 ReAct 循环（Think → Act → Observe）。
 
 工作流程：
 1. 根据 plan.requiredToolboxes 筛选工具
@@ -185,7 +185,8 @@ async def execute_plan(
 
     llm_client = client if client is not None else get_shared_async_openai()
 
-    # ── ReAct 循环 ──
+    # ── ReAct 循环：每轮一次流式 completion；无 tool_calls 则收敛为最终回复 ──
+    # 退出条件：见上；另有循环检测在单轮工具执行前可能提前 return。
     while turns_left > 0:
         turns_left -= 1
         start_ms = time.monotonic_ns() // 1_000_000
