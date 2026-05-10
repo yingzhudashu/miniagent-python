@@ -1,7 +1,6 @@
 """Tests for tool monitor."""
 
-import pytest
-from src.core.monitor import DefaultToolMonitor
+from miniagent.infrastructure.monitor import DefaultToolMonitor
 
 
 class TestDefaultToolMonitor:

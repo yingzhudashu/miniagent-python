@@ -3,8 +3,24 @@
 import tempfile
 import os
 import pytest
-from src.core.registry import DefaultToolRegistry
-from src.session.manager import DefaultSessionManager
+from miniagent.infrastructure.registry import DefaultToolRegistry
+from miniagent.session.manager import DefaultSessionManager
+from miniagent.types.config import normalize_conversation_history
+
+
+def test_normalize_conversation_history_wrapped_dict():
+    raw = {
+        "session_id": "default",
+        "messages": [{"role": "user", "content": "hi"}],
+    }
+    out = normalize_conversation_history(raw)
+    assert out == [{"role": "user", "content": "hi"}]
+
+
+def test_normalize_conversation_history_filters_non_dict():
+    raw = [{"role": "user", "content": "a"}, "skip", {"role": "assistant", "content": "b"}]
+    out = normalize_conversation_history(raw)
+    assert len(out) == 2
 
 
 class TestDefaultSessionManager:

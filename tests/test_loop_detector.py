@@ -1,7 +1,6 @@
 """Tests for loop detector."""
 
-import pytest
-from src.core.loop_detector import LoopDetector
+from miniagent.infrastructure.loop_detector import LoopDetector
 
 
 class TestLoopDetector:

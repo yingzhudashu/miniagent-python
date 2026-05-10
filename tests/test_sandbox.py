@@ -3,7 +3,7 @@
 import os
 import tempfile
 import pytest
-from src.security.sandbox import resolve_sandbox_path, is_path_allowed
+from miniagent.security.sandbox import resolve_sandbox_path, is_path_allowed
 
 
 class TestResolveSandboxPath:

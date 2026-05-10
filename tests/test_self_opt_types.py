@@ -1,13 +1,9 @@
 """Tests for self-optimization types."""
 
-import pytest
-from src.core.self_opt.types import (
+from miniagent.core.self_opt.types import (
     OptTestCase,
     FileChange,
     OptimizationProposal,
-    CodeQualityMetric,
-    ModuleAnalysis,
-    PainPoint,
     InspectionReport,
     OptimizationResult,
     OptTestSummary,

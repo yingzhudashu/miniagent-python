@@ -1,0 +1,4631 @@
+{
+  "version": 1,
+  "updated_at": "2026-05-10T07:50:42.308973+00:00",
+  "total_entries": 333,
+  "index": {
+    "user": {
+      "references": [
+        {
+          "session_id": "session-add",
+          "timestamp": "2026-05-10T07:24:57.284992+00:00",
+          "user_snippet": "Hello",
+          "summary": "User said hello",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "session-add",
+          "timestamp": "2026-05-10T07:36:59.838074+00:00",
+          "user_snippet": "Hello",
+          "summary": "User said hello",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "session-add",
+          "timestamp": "2026-05-10T07:41:04.518981+00:00",
+          "user_snippet": "Hello",
+          "summary": "User said hello",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "hello": {
+      "references": [
+        {
+          "session_id": "session-add",
+          "timestamp": "2026-05-10T07:24:57.284992+00:00",
+          "user_snippet": "Hello",
+          "summary": "User said hello",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "session-add",
+          "timestamp": "2026-05-10T07:36:59.838074+00:00",
+          "user_snippet": "Hello",
+          "summary": "User said hello",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "session-add",
+          "timestamp": "2026-05-10T07:41:04.518981+00:00",
+          "user_snippet": "Hello",
+          "summary": "User said hello",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "said": {
+      "references": [
+        {
+          "session_id": "session-add",
+          "timestamp": "2026-05-10T07:24:57.284992+00:00",
+          "user_snippet": "Hello",
+          "summary": "User said hello",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "session-add",
+          "timestamp": "2026-05-10T07:36:59.838074+00:00",
+          "user_snippet": "Hello",
+          "summary": "User said hello",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "session-add",
+          "timestamp": "2026-05-10T07:41:04.518981+00:00",
+          "user_snippet": "Hello",
+          "summary": "User said hello",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "ping": {
+      "references": [
+        {
+          "session_id": "session-dict-entry",
+          "timestamp": "2026-05-10T07:24:57.292295+00:00",
+          "user_snippet": "ping",
+          "summary": "pong",
+          "facts": [
+            "a"
+          ],
+          "weight": 1.0
+        },
+        {
+          "session_id": "session-dict-entry",
+          "timestamp": "2026-05-10T07:36:59.880834+00:00",
+          "user_snippet": "ping",
+          "summary": "pong",
+          "facts": [
+            "a"
+          ],
+          "weight": 1.0
+        },
+        {
+          "session_id": "session-dict-entry",
+          "timestamp": "2026-05-10T07:41:04.581612+00:00",
+          "user_snippet": "ping",
+          "summary": "pong",
+          "facts": [
+            "a"
+          ],
+          "weight": 1.0
+        }
+      ]
+    },
+    "pong": {
+      "references": [
+        {
+          "session_id": "session-dict-entry",
+          "timestamp": "2026-05-10T07:24:57.292295+00:00",
+          "user_snippet": "ping",
+          "summary": "pong",
+          "facts": [
+            "a"
+          ],
+          "weight": 1.0
+        },
+        {
+          "session_id": "session-dict-entry",
+          "timestamp": "2026-05-10T07:36:59.880834+00:00",
+          "user_snippet": "ping",
+          "summary": "pong",
+          "facts": [
+            "a"
+          ],
+          "weight": 1.0
+        },
+        {
+          "session_id": "session-dict-entry",
+          "timestamp": "2026-05-10T07:41:04.581612+00:00",
+          "user_snippet": "ping",
+          "summary": "pong",
+          "facts": [
+            "a"
+          ],
+          "weight": 1.0
+        }
+      ]
+    },
+    "心机制": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "于的": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "agent": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "你是": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "我是一": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "化等": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "的轻量": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "核心": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "个基于": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "一个基于": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "阶段规": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "循环执行": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "环执行": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "复我是": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "用户你": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "置两": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "工具": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "户你": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "轻量": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "我内": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "行工具": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "与自我": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "什么回": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "加载": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "划循": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "的轻量级": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "你是什": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "内置": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "循环执": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "我优": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "与自": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "miniagent": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "基于": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "等核心": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "么回复": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "我优化": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "优化等": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "载与": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "段规": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "箱调": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "什么用": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "react": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "技能加载与自我优化等核心机制": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "执行": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "你是什么": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "自我优": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "我是": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "环执": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "等核": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "什么": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "级我内": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "用户": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "优化": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "机制": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "载与自": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "execute": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "回复": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "执行工": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "回复我": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "划循环": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "箱调用": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "技能": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "用技能": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "循环": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "量级": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "调用": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "阶段": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "用技": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "能加载": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "工具箱": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "llm": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "复我": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "级我": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "置两阶": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "行工": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "轻量级": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "两阶段": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "是什": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "工具箱调用": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "具箱": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "是一": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "是一个": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "量级我": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "两阶": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "我内置": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "能加": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "自我": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "心机": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "户你是": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "python": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "于的轻": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "我内置两阶段规划": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "个基": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "一个基": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "化等核": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "内置两": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "调用技": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "plan": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "么用": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "么用户": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "段规划": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "规划": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "规划循": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "用户你是什么": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "的轻": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "核心机": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "基于的": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "是什么": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "技能加": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "么回": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "具箱调": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "加载与": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:28.021213+00:00",
+          "user_snippet": "你是什么？",
+          "summary": "用户你是什么？，回复: 我是 **MiniAgent**，一个基于 Python 的轻量级 LLM Agent。我内置两阶段规划（Plan → Execute）、ReAct 循环执行、工具箱调用、技能加载与自我优化等核心机制",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "取最新": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "索引": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "api": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "预报": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "请直接": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "气中国": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "若您已配置天气查询": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "我将": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "通过": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "按流": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "国天气": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "用户明天深圳天气如何": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "天气": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "网获": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "气查询": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "用户明": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "接联网": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "据建": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "置天气": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "或联网": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "件请直": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "气中": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "您已配": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "或联": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "象数据": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "接联": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "气如何": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "搜索引": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "新准确": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "新准": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "用我": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "我目前": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "立即": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "取最": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "过手机": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "直接联": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "最新": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "我目": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "立即按": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "时气象": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "时气": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "或联网插件": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "app": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "天气网": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "或搜索": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "将立": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "前无": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "按流程": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "准确的": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "过手": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "报若": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "查询或": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "搜索": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "以获取": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "确的": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "获取实": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "中国": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "引擎查": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "气象数": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "查询深": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "网获取": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "请直接调用": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "取实时": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "即按": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "无法直": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "建议您通过手机天气": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "天气中": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "数据": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "报若您": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "程为": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "擎查": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "深圳明": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "议您通": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "天气以": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "天气查": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "网插": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "天深圳": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "议您": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "我将立": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "机天气": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "圳天气": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "置天": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "如何回": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "气查": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "件请": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "实时": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "明天天": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "建议您": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "最新准": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "将立即": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "中国天气网或搜索引擎查询": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "法直": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "手机": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "目前": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "机天": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "网或搜": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "国天": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "确的预": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "请直": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "用我将": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "索引擎": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "何用": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "圳明": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "中国天": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "询深": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "象数": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "或搜": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "我目前无法直接联网获取实时气象数据": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "若您": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "引擎": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "手机天": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "天气如": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "查询": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "以获": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "联网获": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "以获取最新": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "目前无": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "如何用": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "插件": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "天深": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "气以获": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "程为您": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "复我目": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "配置天": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "联网插": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "取实": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "前无法": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "询深圳": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "流程": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "的预": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "流程为": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "法直接": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "通过手": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "即按流": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "明天深": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "联网": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "网或": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "户明天": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "圳天": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "准确的预报": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "何用户": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "数据建": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "建议": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "直接调": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "擎查询": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "我将立即按流程为您": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "据建议": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "无法": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "您已": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "准确": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "气如": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "气象": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "您通": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "已配": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "调用我": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "天天": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "询或": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "户明": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "若您已": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "实时气": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "明天深圳天气如何": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "天天气": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "获取": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "气网或": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "已配置": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "询或联": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "气以": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "您通过": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "接调用": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "的预报": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "气网": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "深圳": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "预报若": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "插件请": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "如何": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "何回": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "直接": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "网插件": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "深圳天": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "何回复": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "圳明天": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "获取最": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "明天": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "配置": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "为您": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "明天天气": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "接调": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:26:50.705307+00:00",
+          "user_snippet": "明天深圳天气如何？",
+          "summary": "用户明天深圳天气如何？，回复: 我目前无法直接联网获取实时气象数据。建议您通过手机天气 App、中国天气网或搜索引擎查询“深圳 明天天气”以获取最新、准确的预报。若您已配置天气查询 API 或联网插件，请直接调用，我将立即按流程为您",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "的上一": {
+      "references": [
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "一句话": {
+      "references": [
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "户我的": {
+      "references": [
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "的上": {
+      "references": [
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "用户我": {
+      "references": [
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "上一": {
+      "references": [
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "您的": {
+      "references": [
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "一句": {
+      "references": [
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "复您": {
+      "references": [
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "回复您": {
+      "references": [
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "句话": {
+      "references": [
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "我的上一句话是什么": {
+      "references": [
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "话是你": {
+      "references": [
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "您的上一句话是": {
+      "references": [
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "您的上": {
+      "references": [
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "话是": {
+      "references": [
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "是你": {
+      "references": [
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "是你是": {
+      "references": [
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "我的": {
+      "references": [
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "户我": {
+      "references": [
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "复您的": {
+      "references": [
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "句话是": {
+      "references": [
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "话是什": {
+      "references": [
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "上一句": {
+      "references": [
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "我的上": {
+      "references": [
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "用户我的上一句话是什么": {
+      "references": [
+        {
+          "session_id": "feishu_p2p:ou_0d030c303b16d8773737d7e1afe20e6f",
+          "timestamp": "2026-05-10T07:27:47.683272+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**你是什么？**”",
+          "facts": [],
+          "weight": 1.0
+        },
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "是明": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "是明天": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    },
+    "话是明": {
+      "references": [
+        {
+          "session_id": "default",
+          "timestamp": "2026-05-10T07:50:42.307972+00:00",
+          "user_snippet": "我的上一句话是什么？",
+          "summary": "用户我的上一句话是什么？，回复: 您的上一句话是：“**明天深圳天气如何？**”",
+          "facts": [],
+          "weight": 1.0
+        }
+      ]
+    }
+  }
+}

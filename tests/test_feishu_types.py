@@ -1,7 +1,6 @@
 """Tests for feishu types."""
 
-import pytest
-from src.feishu.types import FeishuConfig, FeishuMessageEvent, FeishuReply
+from miniagent.feishu.types import FeishuConfig, FeishuMessageEvent, FeishuReply
 
 
 class TestFeishuConfig:

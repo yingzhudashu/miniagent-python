@@ -1,8 +1,8 @@
 """Tests for tool registry."""
 
 import pytest
-from src.core.registry import DefaultToolRegistry
-from src.types.tool import ToolDefinition
+from miniagent.infrastructure.registry import DefaultToolRegistry
+from miniagent.types.tool import ToolDefinition
 
 
 def make_tool(name: str = "test") -> ToolDefinition:

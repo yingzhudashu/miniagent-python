@@ -3,9 +3,9 @@
 import os
 import tempfile
 import pytest
-from src.skills.registry import DefaultSkillRegistry
-from src.skills.loader import discover_skill_packages
-from src.types.skill import Skill
+from miniagent.skills.registry import DefaultSkillRegistry
+from miniagent.skills.loader import discover_skill_packages
+from miniagent.types.skill import Skill
 
 
 class TestDefaultSkillRegistry:
