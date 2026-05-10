@@ -5,6 +5,9 @@
 
 - 运行时：``from miniagent.runtime import RuntimeContext``
 - 引擎：``from miniagent.engine import ...``
+
+``unified_entry`` 内会先 ``load_external_config_from_env()`` 再构造 ``RuntimeContext``，以便
+``openai_client`` 与补丁一致；外部 JSON 写入环境变量的安全说明见 ``docs/SECURITY.md``。
 """
 
 from __future__ import annotations
@@ -68,7 +71,15 @@ def unified_entry() -> None:
     from miniagent.infrastructure.message_queue import MessageQueueManager
     from miniagent.infrastructure.registry import DefaultToolRegistry
     from miniagent.infrastructure.monitor import DefaultToolMonitor
+    from miniagent.runtime.external_config import (
+        get_external_config_patch,
+        load_external_config_from_env,
+    )
     from miniagent.core.openai_client import get_shared_async_openai
+
+    # 可选遗留 JSON；主配置以 .env 为准（见 external_config 模块说明）
+    load_external_config_from_env()
+    ext_patch = dict(get_external_config_patch())
     from miniagent.memory.defaults import get_process_default_memory_bundle
     from miniagent.skills import DefaultSkillRegistry, create_clawhub_client
 
@@ -92,6 +103,7 @@ def unified_entry() -> None:
         activity_log=activity_log,
         keyword_index=keyword_index,
         openai_client=get_shared_async_openai(),
+        external_config_patch=ext_patch or None,
     )
     asyncio.run(unified_main(ctx))
 

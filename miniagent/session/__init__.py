@@ -1,9 +1,10 @@
-"""Mini Agent Python — 会话管理模块
+"""会话管理模块（磁盘布局 + 运行时 ``SessionManager``）
 
-提供多会话隔离机制：
-- SessionManager: 会话创建/切换/销毁
-- WorkspaceManager: 文件系统隔离
-每个会话拥有独立的工作空间、工具注册表和对话历史。
+- ``SessionManager``：实际类名为 ``DefaultSessionManager``，此处导出为 ``SessionManager`` 别名；
+  负责编号↔ID、切换会话、历史路径与锁（见 ``manager.py``）。
+- ``WorkspaceManager``：会话目录下 ``files/``、``skills/`` 等工作区生命周期（见 ``workspace.py``）。
+
+与 ``miniagent.types.memory.SessionManagerProtocol`` 对齐的是 ``DefaultSessionManager`` 的公开行为。
 """
 
 from miniagent.session.manager import DefaultSessionManager as SessionManager

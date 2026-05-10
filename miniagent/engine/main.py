@@ -143,6 +143,9 @@ async def unified_main(ctx: RuntimeContext) -> None:
     Args:
         ctx: 运行时组合根（registry / monitor / skill_registry / clawhub / engine）
     """
+    # MINIAGENT_CONFIG 已在 compat.unified_entry 中加载；勿在此处重复调用以免噪音。
+    # 若测试或嵌入场景仅调用 unified_main，需自行先执行 load_external_config_from_env()。
+
     registry = ctx.registry
     skill_registry = ctx.skill_registry
     engine = ctx.engine

@@ -1,6 +1,6 @@
 # CLI 命令手册
 
-> Mini Agent Python | 所有 `.` 命令在 CLI 和飞书中均可使用
+> Mini Agent Python | 版本: 2.0.2 | 所有 `.` 命令在 CLI 和飞书中均可使用
 
 会话切换（`.session switch`）会同步更新 **CLI 通道绑定** 与已自动跟随的 **飞书私聊 sender**，使二者与 `active_session_id` 一致。飞书多实例场景下，仅一个进程可持有入站连接（见 [FEISHU.md](FEISHU.md) / `feishu_inbound_owner.json`）。
 

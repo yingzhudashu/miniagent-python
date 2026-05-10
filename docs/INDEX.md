@@ -1,6 +1,6 @@
 # Mini Agent Python — 文档索引
 
-> 📅 最后更新: 2026-05-10 | 版本: 2.0.1（与 `miniagent.__version__` 对齐）
+> 📅 最后更新: 2026-05-11 | 版本: 2.0.2（与 `miniagent.__version__` 对齐）
 
 ---
 
@@ -8,6 +8,7 @@
 
 | 文档 | 说明 | 适合读者 |
 |------|------|----------|
+| **[USER_GUIDE.md](USER_GUIDE.md)** | **零基础全项目使用指南**（安装、配置、日常、FAQ、安全） | **所有用户；新手首选** |
 | [README](../README.md) | 项目介绍、快速上手 | 所有用户 |
 | [CHANGELOG](../CHANGELOG.md) | 版本变更记录 | 所有用户 |
 
@@ -43,75 +44,101 @@
 
 ## 📁 项目结构
 
+**权威目录树（与仓库同步）**；README 中仅为缩略指引，详见本段。
+
 ```
 miniagent-python/
-├── miniagent/                          # 源代码
-│   ├── __main__.py               # 统一入口
-│   ├── compat.py                 # 聚合导出与 unified_entry（原 unified 模块已移除）
-│   ├── runtime/                  # RuntimeContext 组合根
-│   ├── cli/                      # CLI 入口
-│   ├── core/                     # 核心引擎 (规划 + 执行)
-│   │   ├── agent.py              # Agent 编排
-│   │   ├── planner.py            # Phase 1: 规划
-│   │   ├── executor.py           # Phase 2: ReAct 执行
-│   │   ├── config.py             # 配置管理
-│   │   ├── openai_client.py      # 共享 AsyncOpenAI 工厂（测试可 reset）
-│   │   └── self_opt/             # 自我优化子系统
-│   ├── engine/                   # 运行时引擎
-│   │   ├── main.py               # 主启动入口
+├── miniagent/
+│   ├── __main__.py               # 统一入口（.env、--stop → compat.unified_entry）
+│   ├── compat.py                 # 聚合导出与 unified_entry
+│   ├── runtime/
+│   │   ├── context.py            # RuntimeContext 组合根
+│   │   └── external_config.py    # MINIAGENT_CONFIG 等外部 JSON 加载与补丁
+│   ├── cli/
+│   │   └── cli.py                # console_scripts 入口 → __main__
+│   ├── core/
+│   │   ├── agent.py              # 两阶段编排入口 run_agent / run_pipeline
+│   │   ├── planner.py            # Phase 1 结构化规划
+│   │   ├── executor.py           # Phase 2 ReAct / 分步执行
+│   │   ├── config.py             # AgentConfig、MODEL_PROFILES
+│   │   ├── openai_client.py      # 共享 AsyncOpenAI
+│   │   ├── llm_params.py         # 完成参数与 thinking 合并
+│   │   ├── thinking_presets.py   # 业务深度 → 档位映射
+│   │   ├── task_classifier.py    # 任务难度预分类
+│   │   ├── vendor/qwen_extra.py  # DashScope/Qwen extra_body
+│   │   └── self_opt/             # 自我优化（inspector、proposal、git 等）
+│   ├── engine/
+│   │   ├── main.py               # unified_main、CLI 主循环
 │   │   ├── engine.py             # UnifiedEngine
-│   │   ├── command_dispatch.py   # 统一命令调度
-│   │   ├── cli_commands.py       # CLI 命令实现
-│   │   ├── feishu_state.py       # FeishuRuntime 实现
-│   │   ├── feishu_runtime.py     # 兼容重导出（同 feishu_state）
-│   │   ├── session_lock.py       # 会话锁
-│   │   ├── thinking.py           # 思考显示
-│   │   ├── init.py               # 子系统初始化
-│   │   └── welcome.py            # 欢迎界面
-│   ├── feishu/                   # 飞书通信
-│   │   ├── __init__.py           # 子包说明（运行时壳见 engine/feishu_state）
-│   │   ├── poll_server.py        # WebSocket 长轮询
-│   │   ├── agent_handler.py      # 消息处理
-│   │   ├── server.py             # HTTP Webhook
-│   │   └── types.py              # 类型定义
-│   ├── infrastructure/           # 基础设施
-│   │   ├── registry.py           # 工具注册
-│   │   ├── monitor.py            # 性能监控
-│   │   ├── message_queue.py      # 消息队列
-│   │   ├── channel_router.py     # 通道-会话路由器
-│   │   ├── instance.py           # 多实例注册表
-│   │   ├── logger.py             # 日志
-│   │   ├── loop_detector.py      # 循环检测
-│   │   └── process.py            # 进程管理
-│   ├── memory/                   # 记忆系统
-│   │   ├── defaults.py           # 进程默认记忆 bundle / 状态根
-│   │   ├── context.py            # 上下文管理
-│   │   ├── store.py              # 记忆存储
-│   │   ├── activity_log.py       # 活动日志
-│   │   └── keyword_index.py      # 语义检索
-│   ├── session/                  # 会话管理
-│   │   ├── manager.py            # 会话管理器
-│   │   └── workspace.py          # 工作空间
-│   ├── skills/                   # 技能系统
-│   │   ├── registry.py           # 技能注册
-│   │   ├── loader.py             # 技能加载
-│   │   └── clawhub_client.py     # ClawHub 客户端
-│   ├── tools/                    # LLM 可调用的工具
-│   │   ├── exec.py               # 命令执行
-│   │   ├── filesystem.py         # 文件操作
-│   │   ├── web.py                # 网页访问
-│   │   ├── skills.py             # 技能工具
-│   │   └── self_opt.py           # 自优化工具
-│   ├── security/                 # 安全层
-│   │   └── sandbox.py            # 沙箱
-│   └── types/                    # 类型定义
-├── tests/                        # 单元测试
-├── docs/                         # 文档
-├── workspaces/                   # 运行时工作目录
-└── README.md                     # 项目介绍
+│   │   ├── init.py               # 内置工具、技能、MCP、SessionManager
+│   │   ├── builtin_tools.py      # ALL_TOOLS 注册
+│   │   ├── command_dispatch.py   # `.` 命令调度
+│   │   ├── cli_commands.py       # 命令实现
+│   │   ├── cli_state.py          # CliLoopState 与主循环状态对齐
+│   │   ├── feishu_state.py       # FeishuRuntime
+│   │   ├── feishu_runtime.py     # 兼容别名：重导出 FeishuRuntime
+│   │   ├── session_lock.py
+│   │   ├── thinking.py           # ThinkingDisplay
+│   │   └── welcome.py
+│   ├── feishu/
+│   │   ├── poll_server.py
+│   │   ├── agent_handler.py
+│   │   ├── server.py
+│   │   └── types.py
+│   ├── infrastructure/
+│   │   ├── registry.py           # ToolRegistry
+│   │   ├── monitor.py
+│   │   ├── message_queue.py
+│   │   ├── channel_router.py
+│   │   ├── instance.py
+│   │   ├── feishu_inbound_lock.py
+│   │   ├── tracing.py
+│   │   ├── logger.py
+│   │   ├── loop_detector.py
+│   │   └── process.py
+│   ├── memory/
+│   │   ├── defaults.py           # 进程默认记忆 bundle / MINI_AGENT_STATE
+│   │   ├── context.py            # 消息窗口、压缩、记忆注入
+│   │   ├── store.py
+│   │   ├── activity_log.py
+│   │   ├── keyword_index.py
+│   │   ├── memory_pipeline.py    # 记忆注入管线
+│   │   ├── history_archive.py
+│   │   ├── history_bridge.py
+│   │   ├── layered_memory.py
+│   │   └── dream_scheduler.py
+│   ├── session/
+│   │   ├── manager.py
+│   │   └── workspace.py
+│   ├── skills/
+│   │   ├── registry.py
+│   │   ├── loader.py
+│   │   ├── paths.py              # 技能根目录解析
+│   │   ├── builtin_toolboxes.py
+│   │   └── clawhub_client.py
+│   ├── tools/
+│   │   ├── exec.py
+│   │   ├── filesystem.py
+│   │   ├── web.py
+│   │   ├── skills.py
+│   │   ├── self_opt.py
+│   │   ├── git_readonly.py
+│   │   └── session_memory.py     # 会话记忆类工具（init 注册）
+│   ├── mcp/                      # 可选：stdio MCP → mcp_* 工具
+│   │   ├── bridge.py
+│   │   └── runtime.py
+│   ├── security/
+│   │   └── sandbox.py
+│   └── types/                    # Pydantic / Protocol（__init__.py 聚合导出）
+├── scripts/                      # 维护脚本（如 bootstrap_clawhub_skills.py）
+├── tests/
+├── docs/
+│   └── examples/                 # 脱敏配置片段（见 examples/README.md）
+├── workspaces/                   # 默认状态目录（可用 MINI_AGENT_STATE 迁出）
+└── README.md
 ```
 
-**`workspaces/` 与 Git**：大部分运行时目录已被 `.gitignore` 忽略；少数 `memory/` 与 `keyword-index.json` 文件**刻意跟踪**作结构示例，详见 [ENGINEERING.md](ENGINEERING.md) §3.1。本地与 CI 推荐设置 `MINI_AGENT_STATE`。
+**`workspaces/` 与 Git**：`.gitignore` 已忽略 `instances/`、`sessions/`、`memory/`、`keyword-index.json`、`feishu/`、性能日志、飞书路由 JSON 等运行时产物；结构说明见 [ENGINEERING.md](ENGINEERING.md) §3.1。本地与 CI 推荐设置 `MINI_AGENT_STATE` 将状态迁出仓库；需要提交**脱敏**结构示例时请放在 [examples/](examples/)（说明见 [examples/README.md](examples/README.md)），勿将含密钥或真实对话的文件放在 `workspaces/` 并尝试提交。
 
 ---
 

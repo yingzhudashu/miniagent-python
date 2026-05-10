@@ -119,8 +119,10 @@ class AgentConfig:
         model_overrides: 模型覆盖
         session_key: 会话记忆键
         session_workspace: 会话工作空间路径
+        session_registry: 会话级工具注册表（可选）
         session_toolboxes: 会话工具箱列表
         conversation_history: 对话历史（跨轮次保留）
+        risk_level: 风险等级（来自规划建议或计划，供执行阶段提示）
     """
 
     max_turns: int = 20
@@ -145,6 +147,7 @@ class AgentConfig:
     session_registry: Any | None = None  # ToolRegistryProtocol (optional session-level registry)
     session_toolboxes: list[Any] = field(default_factory=list)  # list[Toolbox]
     conversation_history: list[dict[str, str]] = field(default_factory=list)
+    risk_level: str | None = None  # "low" | "medium" | "high"
 
 
 def normalize_conversation_history(value: Any) -> list[dict[str, Any]]:

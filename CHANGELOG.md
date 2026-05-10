@@ -1,5 +1,47 @@
 # Changelog
 
+## [Unreleased]
+
+### Security
+
+- **文档**：[SECURITY.md](docs/SECURITY.md) 新增「外部 JSON（MINIAGENT_CONFIG）与进程环境」专节，说明 `apiKey` 写入 `os.environ` 的风险与缓解；数据安全原则与检查清单与之对齐。
+
+### Documentation
+
+- **[USER_GUIDE.md](docs/USER_GUIDE.md)**：新增零基础全项目使用指南（安装、`.env`、启动、点命令摘要、飞书/搜索/技能/MCP 可选章节、FAQ、安全清单）；[README.md](README.md) 与 [INDEX.md](docs/INDEX.md) 增加入口。
+- **[DEPLOYMENT.md](docs/DEPLOYMENT.md)**：在「状态目录与多实例注册」后补充会话落盘与 `MINIAGENT_CONFIG` 风险指引，链至 [SECURITY.md](docs/SECURITY.md)。
+
+### Engineering
+
+- **`.gitignore`**：默认忽略 `workspaces/memory/`、`workspaces/keyword-index.json`、`workspaces/perf*.jsonl`、`workspaces/feishu_inbound_owner.json`、`workspaces/feishu/`。
+- **文档**：[ENGINEERING.md](docs/ENGINEERING.md) §3.1 / §4、[INDEX.md](docs/INDEX.md)「workspaces 与 Git」段落与上述策略一致；[CONTRIBUTING.md](docs/CONTRIBUTING.md) 子包数量表述与目录表一致。
+- **注释**：充实 `core`（`agent` / `planner` / `executor`）、`runtime`（`context` / `external_config`）、`engine`（`engine` / `init`）、`compat`、`feishu` 包等模块级说明；`executor` 模块说明中 `ContextBudgetExceeded` 改为全限定类引用；`keyword_index` 模块说明补充勿提交索引文件。
+- **示例目录**：新增 [docs/examples/](docs/examples/)（README + 脱敏 `sample-external-config.fragment.json`），与 INDEX 目录树及「勿将密钥放入 workspaces」表述一致。
+
+## [2.0.2] - 2026-05-10
+
+### Packaging
+
+- **`[mcp]` optional extra**：`pyproject.toml` 增加 `mcp>=1.0.0`，与文档及 `MINIAGENT_MCP_STDIO` 安装说明一致；`.env.example` 补充 `pip install miniagent-python[mcp]`。
+- **CI**：新增 `test-mcp-extra` job（Python 3.12，`[dev,mcp]` + MCP SDK import 冒烟）。
+
+### Documentation
+
+- **目录树**：`docs/INDEX.md` 与 `docs/ARCHITECTURE.md` 同步 `mcp/`、`memory` 管线模块、`tools/git_readonly`、`session_memory`、`infrastructure/tracing` 等；README「项目结构」改为指向 INDEX。
+- **版本标语**：核心与专题文档页眉与 `miniagent.__version__`（**2.0.2**）对齐；完整清单见 [docs/ENGINEERING.md](docs/ENGINEERING.md) §5。补全 `CLI.md`、`FEISHU.md`、`SELF_OPT.md`、`CHANNEL_BINDING.md`、`CYBERNETICS_PLAN.md` 页眉。
+- **关键词索引**：`keyword_index` 模块说明标明索引路径相对 ``state_dir`` / ``MINI_AGENT_STATE``。
+
+### Fixes
+
+- **飞书思考**：无 `_output_sink` 时仍维护流式状态，使同轮工具默认合并到单张交互卡片；工具追加后 PATCH 失败时打 `warning`；`_send_reply` 对 `receive_id` 校验支持群聊 `oc_` 与单聊 `ou_`，并统一经 `_normalize_im_receive_chat_id`。
+- **欢迎界面版本**：`engine/welcome.get_version()` 改为返回 `miniagent.__version__`，避免 `pyproject.toml` 使用 `dynamic.version` 时误读为 `0.1.0`。
+
+### Engineering
+
+- **注释与模块说明**：充实 `types`、`infrastructure`、`memory`、`session`、`skills`、`tools`、`mcp`、`core`、`engine`、`feishu`、`cli`、`__main__` 等包与关键模块的 docstring（职责边界与导入约定）。
+- **测试**：新增 `tests/test_welcome_version.py`，断言 `get_version()` 与 `miniagent.__version__` 一致。
+- **`.gitignore`**：增加 `**/__pycache__/`（嵌套字节码目录）。
+
 ## [2.0.1] - 2026-05-10
 
 ### Documentation

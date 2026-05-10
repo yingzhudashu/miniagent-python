@@ -1,11 +1,11 @@
-"""Self-optimization subsystem.
+"""自我优化子系统（工具可调用的内省与提案管线）
 
-提供 Agent 自我优化能力：
-- 项目检查（inspector）：分析代码质量、测试覆盖、性能瓶颈
-- 提案生成（proposal_engine）：基于检查结果生成优化建议
-- 自动优化（auto_optimizer）：在安全约束下自动实施低风险变更
-- Git 快照（git_snapshot）：变更前后版本控制
-"""
+- ``inspector``：代码与结构静态分析
+- ``proposal_engine``：生成可读的优化提案
+- ``auto_optimizer``：在约束下尝试低风险变更
+- ``git_snapshot``：变更前后快照
+
+对外工具由 ``miniagent.tools.self_opt`` 注册；类型模型见下方导出。"""
 
 from miniagent.core.self_opt.types import (
     OptTestCase,

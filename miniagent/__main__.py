@@ -10,10 +10,10 @@
     python -m miniagent --stop --all # 停止全部运行中实例
     python -m miniagent --stop 1 2   # 停止指定实例 ID（可多个）
 
-架构:
-- 一套 registry / monitor / skill_registry / session_manager
-- CLI 通过 stdin 交互，飞书通过 WebSocket 长轮询（运行时可插拔）
-- 共享 UnifiedEngine 管理思考回调与会话路由
+架构（组合根）:
+- 进程级依赖由 ``compat.unified_entry`` 注入 ``RuntimeContext``（registry、monitor、engine、队列、路由等）
+- CLI 经 ``run_cli_loop``；飞书经 ``FeishuRuntime`` + ``poll_server``（同进程可插拔）
+- ``UnifiedEngine`` 编排 ``run_agent`` 与思考回调；会话由 ``SessionManager`` 单一数据源
 """
 
 from __future__ import annotations

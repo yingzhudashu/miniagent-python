@@ -1,6 +1,6 @@
 # 部署指南
 
-> 模块: Mini Agent Python | 版本: 2.0.1（权威版本号见 `miniagent/__init__.py`）
+> 模块: Mini Agent Python | 版本: 2.0.2（权威版本号见 `miniagent/__init__.py`）
 
 ## 环境要求
 
@@ -102,6 +102,10 @@ python -m miniagent --stop 1 2       # 停止指定实例 ID（非交互）
 - 默认将运行时状态写入当前工作目录下的 **`workspaces/`**（含 `instances/`、`sessions/` 等）。
 - 设置 **`MINI_AGENT_STATE`** 可把整个状态根迁到其它路径（测试、多副本部署时常用）。
 - 每次 **新进程注册实例前** 会清理磁盘上 **PID 已不存在** 的旧实例目录，**不会**误杀仍在运行的其它 Agent 进程。细节见 [INSTANCE_REGISTRY.md](INSTANCE_REGISTRY.md)。
+
+对话历史、分层记忆、关键词索引、飞书去重状态等可能写入上述状态根下的子目录（含敏感业务内容）。
+备份介质权限、共享主机上的路径隔离，以及可选 ``MINIAGENT_CONFIG`` JSON 将密钥注入进程环境的风险，
+见 [SECURITY.md](SECURITY.md)（含 §「外部 JSON（MINIAGENT_CONFIG）与进程环境」）。
 
 ## 飞书配置
 

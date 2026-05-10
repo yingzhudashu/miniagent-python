@@ -1,6 +1,6 @@
 # 系统架构
 
-> Mini Agent Python | 版本: 2.0.1 | 架构图: [architecture.drawio](architecture.drawio)
+> Mini Agent Python | 版本: 2.0.2 | 架构图: [architecture.drawio](architecture.drawio)
 
 ## 架构总览
 
@@ -50,6 +50,22 @@ Mini Agent Python 采用 **两阶段架构**（Plan → Execute），通过 **Re
         └─────────────────────────────┘
 ```
 
+## 与 OpenClaw 的关系
+
+- **OpenClaw**：自托管 **Gateway**，将 Discord、Telegram、飞书等多种渠道接到「口袋里的」Agent，强调多通道、会话隔离与控制中心 UI；官方文档见 [https://docs.openclaw.ai](https://docs.openclaw.ai)。
+- **本仓库（Mini Agent Python）**：定位是 **Python Agent 核心**——两阶段规划、ReAct、`ToolRegistry`、技能与 ClawHub、飞书与 CLI、本地记忆与工作空间。它**不是** OpenClaw Gateway 的等价实现，但可与同一生态（如 ClawHub 技能）对齐使用习惯。
+- **可选 MCP**：环境变量 `MINIAGENT_MCP_STDIO` 设为 JSON 数组 `[command, arg1, ...]`（与 `stdio` 启动参数一致），进程启动时在 [`engine/init.py`](miniagent/engine/init.py) 中调用 [`register_mcp_stdio_tools`](miniagent/mcp/runtime.py) 连接 MCP 服务端并注册 `mcp_*` 工具；需安装可选依赖 `pip install miniagent-python[mcp]`。
+
+### 外部 JSON 配置（OpenClaw 形状子集）
+
+- **路径**：环境变量 `MINIAGENT_CONFIG` 或 `MINIAGENT_OPENCLAW_CONFIG` 指向**用户本机** JSON 文件（**勿**将含 API Key 的文件提交到仓库）。
+- **加载时机**：仅在 [`compat.unified_entry`](miniagent/compat.py) 启动时调用 [`load_external_config_from_env`](miniagent/runtime/external_config.py)（在构造 `RuntimeContext` / 首次 `get_shared_async_openai()` 之前）。补丁快照写入 `RuntimeContext.external_config_patch`。若嵌入代码仅调用 `unified_main` 而无 `unified_entry`，需自行先加载外部配置。
+- **合并字段（已实现子集）**：`models.providers.<id>.baseUrl` / `apiKey`；`models.providers.<id>.models` 列表或字典中的 `contextWindow` / `maxTokens`（按当前 `OPENAI_MODEL` 匹配，仅当未设置 `AGENT_CONTEXT_WINDOW` / `OPENAI_MAX_TOKENS` 时生效）；`agents.defaults.model.primary`（支持 `bailian/qwen` 形式，或**无斜杠**时在 providers 的 `models` 中反查所属 provider）；`contextTokens`；`thinkingDefault`；`agents.defaults.models.<ref>.params.thinking_budget`。
+- **预留未用**：`agents.defaults.model.fallbacks` 仅进入进程内补丁元数据，**不**触发自动换模重试。
+- **任务难度预分类**：`MINIAGENT_TASK_CLASSIFIER` 默认为开启（`1`/`true`）；关闭则始终走完整规划。简单任务跳过规划，执行阶段使用低思考档位。「正在评估任务难度…」由 [`run_agent`](miniagent/core/agent.py) 在分类前触发（经 `UnifiedEngine` 传入的 `on_thinking`），而非仅在 `engine.py` 内单独调用。评估结束后会以非流式 `on_thinking` 推送 `[任务难度]` 结论；结构化规划生成后以单独一条非流式推送 `[执行计划]` 摘要（飞书通道下各对应一条独立交互卡片）。可通过 **`MINIAGENT_ANNOUNCE_DIFFICULTY_AND_PLAN=0`** 关闭上述两条结论推送（保留 ReAct 流式思考与工具行）。
+- **分步执行**：`MINIAGENT_PHASED_EXECUTION` 默认开启；有关闭需求时设为 `0`。`MINIAGENT_STEP_MAX_TURNS` 控制每步子循环上限（默认 5）。若最后一步在单步子轮次内未以无工具回复结束，执行器返回**专用说明**（区别于全局「达到最大轮数」）；中间步未结束时向上下文追加简短系统提示并继续下一步（若总轮数仍有余量）。
+- **思考深度与供应商**：[`resolve_exec_completion_kwargs`](miniagent/core/llm_params.py) / [`resolve_planner_completion_kwargs`](miniagent/core/llm_params.py) 合并 `thinking_level` / `thinking_budget`；DashScope/Qwen 兼容 `base_url` 时通过 [`build_thinking_extra_body`](miniagent/core/vendor/qwen_extra.py) 注入 `extra_body`。可选环境变量 `OPENAI_MAX_TOKENS` 覆盖输出 `max_tokens`（优先于外部文件中的按模型 `maxTokens`）。
+
 ## 各层详细说明
 
 ### 1. 入口层 (Entry)
@@ -59,7 +75,7 @@ Mini Agent Python 采用 **两阶段架构**（Plan → Execute），通过 **Re
 | `__main__.py` | 统一入口：`.env`、`--stop` 子命令，其余委托 `compat.unified_entry` |
 | `compat.py` | 聚合导出与 `unified_entry`；构造 `RuntimeContext`（含 `get_shared_async_openai()`）后 `asyncio.run(unified_main)` |
 | `core/openai_client.py` | 共享 `AsyncOpenAI` 惰性单例；测试可 `reset_shared_async_openai_for_tests()` |
-| `runtime/context.py` | `RuntimeContext`：进程级 registry / monitor / skill_registry / clawhub / engine / channel_router / message_queue / feishu / memory_store / activity_log / keyword_index / openai_client（可选） |
+| `runtime/context.py` | `RuntimeContext`：进程级 registry / monitor / skill_registry / clawhub / engine / channel_router / message_queue / feishu / memory_store / activity_log / keyword_index / openai_client（可选）/ external_config_patch（外部 JSON 补丁快照，可选） |
 | `cli/cli.py` | 控制台脚本 `miniagent` 的入口（委托 `__main__.main`） |
 
 ### 2. 引擎层 (Engine)
@@ -99,8 +115,13 @@ Agent 的大脑，实现两阶段架构。
 |------|------|
 | `agent.py` | 两阶段主入口：`run_agent()` (Plan→Execute), `run_pipeline()` (线性管线) |
 | `planner.py` | Phase 1 规划器：LLM 分析需求 → 生成 `StructuredPlan` → 选择工具箱 → 估算 tokens |
-| `executor.py` | Phase 2 执行器：ReAct 循环 (Think→Act→Observe) → 工具调用 → 记忆注入 → 活动日志 |
+| `executor.py` | Phase 2 执行器：ReAct 循环；在 `plan.steps` 非空且未关闭 `MINIAGENT_PHASED_EXECUTION` 时按步骤分子循环，每步单独解析 `thinking_level`/`thinking_budget` |
 | `config.py` | 配置管理：`MODEL_PROFILES`, `AgentConfig` 合并, 循环检测默认值 |
+| `openai_client.py` | 进程内共享 `AsyncOpenAI` 工厂；测试可 `reset_shared_async_openai_for_tests()` |
+| `llm_params.py` | 合并规划/执行阶段的 `max_tokens`、thinking 等与供应商相关参数 |
+| `thinking_presets.py` | 业务描述深度 → `thinking_level` 等档位映射 |
+| `task_classifier.py` | 任务难度预分类（简单任务可跳过结构化规划） |
+| `vendor/qwen_extra.py` | 兼容 Qwen/DashScope 时在 `extra_body` 注入 thinking 字段 |
 | `self_opt/` | 自我优化子系统（详见 [SELF_OPT.md](SELF_OPT.md)） |
 
 #### ReAct 循环详解
@@ -141,6 +162,12 @@ Agent 的大脑，实现两阶段架构。
 | Layer 2 | `activity_log.py` | 活动日志：详细操作流水，写入 `memory/YYYY-MM-DD.md` |
 | Layer 3 | `keyword_index.py` | 语义检索：TF-IDF 加权关键词索引，跨会话搜索 |
 | 管理 | `context.py` | 上下文管理：Token 计数、自动压缩、记忆注入、消息窗口 |
+| 进程默认 | `defaults.py` | `MINI_AGENT_STATE`、进程级默认记忆 bundle |
+| 管线 | `memory_pipeline.py` | 将记忆/摘要注入对话上下文的管线步骤 |
+| 归档 | `history_archive.py` | 历史归档与裁剪策略 |
+| 桥接 | `history_bridge.py` | 会话历史与记忆层之间的衔接 |
+| 分层视图 | `layered_memory.py` | 多层记忆抽象与组装 |
+| 周期任务 | `dream_scheduler.py` | 轻量后台精炼 / 长时记忆触发的调度 |
 
 ### 6. 会话层 (Session)
 
@@ -155,6 +182,8 @@ Agent 的大脑，实现两阶段架构。
 |------|------|
 | `registry.py` | 技能注册表：注册/发现/状态管理 |
 | `loader.py` | 技能加载器：动态导入、工具箱提取、Prompt 合并 |
+| `paths.py` | 技能根目录解析（`MINI_AGENT_SKILLS` / 默认 `workspaces/skills`） |
+| `builtin_toolboxes.py` | 内置工具箱定义，与技能包合并 |
 | `clawhub_client.py` | ClawHub 客户端：技能搜索/安装/版本管理 |
 
 ### 8. 工具层 (Tools)
@@ -168,6 +197,17 @@ LLM 可通过 function calling 调用的工具：
 | `web.py` | 网页访问 (search/fetch) |
 | `skills.py` | 技能操作 (install/list) |
 | `self_opt.py` | 自优化工具 (inspect/optimize) |
+| `git_readonly.py` | 只读 Git 查询（日志、diff 等） |
+| `session_memory.py` | 会话级记忆辅助工具（由 `engine/init` 注册） |
+
+### 8b. MCP（可选）
+
+| 文件 | 职责 |
+|------|------|
+| `mcp/bridge.py` | MCP 工具定义与 OpenAI function schema 互转 |
+| `mcp/runtime.py` | stdio 连接、注册 `mcp_*` 工具；需 `pip install miniagent-python[mcp]` |
+
+环境变量 `MINIAGENT_MCP_STDIO`（JSON 数组）在 [`engine/init.py`](miniagent/engine/init.py) 启动时解析；详见上文「与 OpenClaw 的关系」中的 MCP 说明。
 
 ### 9. 基础设施层 (Infrastructure)
 
@@ -176,7 +216,10 @@ LLM 可通过 function calling 调用的工具：
 | `registry.py` | `ToolRegistry`：工具注册/查找/Schema 导出 |
 | `monitor.py` | 性能监控器：耗时统计、成功率追踪 |
 | `message_queue.py` | 消息队列：按 chat_id 隔离、queue/preemptive 双模式、耗时追踪 |
+| `channel_router.py` | CLI / 飞书私聊 / 群聊 → `session_key` 与绑定关系 |
 | `instance.py` | 多实例注册表：自增 ID、心跳、PID 存活检测、超时清理 |
+| `feishu_inbound_lock.py` | 飞书 WebSocket 入站跨进程独占（磁盘锁） |
+| `tracing.py` | 轻量追踪/跨度钩子（与日志配合） |
 | `logger.py` | 日志系统：`append_log()`, `get_logger()` |
 | `loop_detector.py` | 循环检测器：相似度检测、warning/critical 分级 |
 | `process.py` | 进程管理：子进程追踪、孤儿进程清理 |
@@ -278,7 +321,7 @@ _format_status(state, message_queue)
 
 ## 运行时组合根
 
-启动时由 `compat.unified_entry`（或等价入口）实例化 `RuntimeContext`（见 `runtime/context.py`），字段包括 `registry`、`monitor`、`skill_registry`、`clawhub`、`engine`，以及 **`channel_router`**、**`message_queue`**、**`feishu`**（`FeishuRuntime`），以及 **`memory_store`**、**`activity_log`**、**`keyword_index`**，以及 **`openai_client`**（入口通常设为 `get_shared_async_openai()`；为 `None` 时执行链回落共享工厂）。`unified_main`、CLI 主循环与飞书消息处理器通过该对象（或由其闭包捕获）获取依赖，避免在 `compat`/`unified` 等模块上维护可变全局。
+启动时由 `compat.unified_entry`（或等价入口）实例化 `RuntimeContext`（见 `runtime/context.py`），字段包括 `registry`、`monitor`、`skill_registry`、`clawhub`、`engine`，以及 **`channel_router`**、**`message_queue`**、**`feishu`**（`FeishuRuntime`），以及 **`memory_store`**、**`activity_log`**、**`keyword_index`**，以及 **`openai_client`**（入口通常设为 `get_shared_async_openai()`；为 `None` 时执行链回落共享工厂），以及可选的 **`external_config_patch`**（`MINIAGENT_CONFIG` 加载后的只读快照）。`unified_main`、CLI 主循环与飞书消息处理器通过该对象（或由其闭包捕获）获取依赖，避免在 `compat`/`unified` 等模块上维护可变全局。
 
 `clawhub` 由入口注入并写入 `ToolContext`，技能工具优先使用 `ToolContext.clawhub`；必要时仍可调用 `create_clawhub_client()` 作为回退。
 

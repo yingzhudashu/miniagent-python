@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+import os
 import sys
 from typing import Any, Awaitable, Callable
 
@@ -21,7 +22,16 @@ from prompt_toolkit.shortcuts import print_formatted_text
 
 _logger = logging.getLogger(__name__)
 
-# 飞书发送回调：streaming=True 时走「单条卡片 + PATCH 节流」；False 时先 finalize 再发独立卡片（工具行）
+
+def _merge_tools_enabled() -> bool:
+    """同轮工具行与流式思考合并展示；``MINIAGENT_THINKING_MERGE_TOOLS=0`` 关闭。
+
+    合并路径依赖保留 ``stream_header`` 直至新一轮流式或 ``end_thinking``，以便同一轮多次工具连续追加。
+    """
+    return os.environ.get("MINIAGENT_THINKING_MERGE_TOOLS", "1") != "0"
+
+
+# 飞书发送回调：streaming=True 走 PATCH 节流；False 时 finalize+新卡，或 merge_tools 时追加同卡
 OnFeishuSend = Callable[..., Awaitable[None]]
 
 
@@ -31,7 +41,8 @@ class _SessionThinkingState:
                  "stream_step", "stream_header", "stream_done", "stream_printed",
                  "stream_first_body_chunk",
                  "feishu_thinking_message_id", "feishu_stream_accumulated",
-                 "feishu_last_patch_monotonic", "feishu_last_patched_char_len", "feishu_patch_budget")
+                 "feishu_last_patch_monotonic", "feishu_last_patched_char_len", "feishu_patch_budget",
+                 "feishu_tool_section_started")
 
     step_counter: int
     buffer: list[str]
@@ -47,6 +58,7 @@ class _SessionThinkingState:
     feishu_last_patch_monotonic: float
     feishu_last_patched_char_len: int
     feishu_patch_budget: int
+    feishu_tool_section_started: bool
 
     def __init__(self) -> None:
         self.step_counter = 0
@@ -63,6 +75,7 @@ class _SessionThinkingState:
         self.feishu_last_patch_monotonic = 0.0
         self.feishu_last_patched_char_len = -1
         self.feishu_patch_budget = 0
+        self.feishu_tool_section_started = False
 
 
 class ThinkingDisplay:
@@ -155,6 +168,7 @@ class ThinkingDisplay:
         state.feishu_last_patch_monotonic = 0.0
         state.feishu_last_patched_char_len = -1
         state.feishu_patch_budget = 0
+        state.feishu_tool_section_started = False
 
     def thinking_state(self, session_key: str) -> Any:
         """返回会话级思考状态（供引擎 finalize 飞书流式卡片）。"""
@@ -192,22 +206,39 @@ class ThinkingDisplay:
         state.step_counter += 1
         return step
 
+    def _should_emit_cli(self, state: _SessionThinkingState) -> bool:
+        """无 transcript sink 且仅走飞书时不在本机重复打印；仍依赖下方逻辑更新 stream_header 等状态。"""
+        if self._output_sink:
+            return True
+        if state.feishu_send and state.feishu_chat_id:
+            return False
+        return True
+
     async def show(self, text: str, session_key: str = "", chat_id: str = "",
                    streaming: bool = False, header: str = "") -> None:
         state = self._get_state(session_key)
 
-        # 飞书实时推送（与下方 CLI transcript 镜像可并存）
+        hdr = (header or "").strip()
+        merge_tools = (
+            _merge_tools_enabled()
+            and not streaming
+            and bool(hdr)
+            and bool(state.stream_header)
+            and hdr == state.stream_header
+        )
+
+        # 飞书实时推送（与下方 CLI transcript 镜像可并存）；正文用原始文本便于 lark_md
         if state.feishu_send and state.feishu_chat_id:
-            formatted = "\n".join(f"     {line}" for line in text.split("\n"))
             try:
                 # 与 executor 对齐：新一轮 LLM 流的第一帧 stream_step 仍为 None
                 is_new_round = streaming and state.stream_step is None
                 await state.feishu_send(
                     state.feishu_chat_id,
-                    formatted,
+                    text,
                     "gray",
                     is_new_round=is_new_round,
                     streaming=streaming,
+                    merge_tools=merge_tools,
                 )
             except Exception as e:
                 _logger.warning("飞书思考发送失败: %s", e, exc_info=True)
@@ -218,8 +249,23 @@ class ThinkingDisplay:
                     else:
                         self._output_sink(err)
 
-            if not self._output_sink:
-                return
+        if merge_tools:
+            if state.stream_step is not None and not state.stream_done:
+                if self._should_emit_cli(state):
+                    self._emit("\n")
+                state.stream_done = True
+            lines = (text or "").splitlines() or [""]
+            if self._buffer_enabled:
+                state.buffer.extend(f"     {line}" for line in lines)
+            elif self._should_emit_cli(state):
+                body = "\n".join(f"    {ln}" for ln in lines)
+                self._emit(body + "\n")
+            state.stream_step = None
+            # 保留 stream_header：同轮内可能多次 on_thinking(..., False, turn_label)
+            state.stream_done = False
+            state.stream_printed = 0
+            state.stream_first_body_chunk = True
+            return
 
         if self._buffer_enabled:
             state.buffer.extend(f"     {line}" for line in text.split("\n"))
@@ -234,7 +280,8 @@ class ThinkingDisplay:
                 state.stream_printed = 0
                 state.stream_first_body_chunk = True
                 label = f"  \U0001f4ad [{state.stream_step}] {state.stream_header}"
-                self._emit_line(label, "blue")
+                if self._should_emit_cli(state):
+                    self._emit_line(label, "blue")
 
             # 增量输出：只打印新增的字符
             if state.stream_printed == 0 and text == state.stream_header:
@@ -242,12 +289,14 @@ class ThinkingDisplay:
             new_text = text[state.stream_printed :]
             if new_text:
                 new_text = self._indent_stream_body_paragraphs(new_text, state)
-                self._emit(new_text)
+                if self._should_emit_cli(state):
+                    self._emit(new_text)
                 state.stream_printed = len(text)
         else:
             # 非流式：结束之前的流式
             if state.stream_step is not None and not state.stream_done:
-                self._emit("\n")
+                if self._should_emit_cli(state):
+                    self._emit("\n")
                 state.stream_done = True
             state.stream_step = None
             state.stream_header = ""
@@ -257,22 +306,25 @@ class ThinkingDisplay:
 
             step = self._next_step(session_key)
             lines = (text or "").splitlines() or [""]
-            self._emit_line(f"  \U0001f4ad [{step}]", "blue")
-            body = "\n".join(f"    {ln}" for ln in lines)
-            self._emit(body + "\n")
+            if self._should_emit_cli(state):
+                self._emit_line(f"  \U0001f4ad [{step}]", "blue")
+                body = "\n".join(f"    {ln}" for ln in lines)
+                self._emit(body + "\n")
 
     def end_thinking(self) -> None:
         """结束当前流式显示块。"""
         for state in self._states.values():
             if state.stream_step is not None and not state.stream_done:
-                self._emit("\n")
+                if self._should_emit_cli(state):
+                    self._emit("\n")
                 state.stream_done = True
                 state.stream_step = None
                 state.stream_header = ""
                 state.stream_printed = 0
                 state.stream_first_body_chunk = True
         if self._default.stream_step is not None and not self._default.stream_done:
-            self._emit("\n")
+            if self._should_emit_cli(self._default):
+                self._emit("\n")
             self._default.stream_done = True
             self._default.stream_step = None
             self._default.stream_header = ""

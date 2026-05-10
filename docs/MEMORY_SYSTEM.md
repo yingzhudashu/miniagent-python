@@ -1,6 +1,6 @@
 # 三层记忆系统
 
-> 模块: `miniagent/memory/` | 版本: 2.0.1
+> 模块: `miniagent/memory/` | 版本: 2.0.2
 
 ## 架构概览
 

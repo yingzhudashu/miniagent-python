@@ -1,4 +1,5 @@
 __pycache__/
+**/__pycache__/
 .ruff_cache/
 *.pyc
 *.pyo
@@ -18,3 +19,10 @@ workspaces/**/*.lock
 workspaces/sessions/
 workspaces/workspaces/
 workspaces/cli/
+
+# 记忆索引、性能日志、飞书路由等运行时产物（默认不入库；需要示例请放 docs/examples/）
+workspaces/memory/
+workspaces/keyword-index.json
+workspaces/perf*.jsonl
+workspaces/feishu_inbound_owner.json
+workspaces/feishu/

@@ -1,13 +1,17 @@
-"""Mini Agent Python — 类型定义模块
+"""Mini Agent Python — 领域类型与协议（Pydantic/dataclass/Protocol）
 
-领域划分（6 个文件）：
-- tool: 工具/工具箱/注册表 + 上下文管理
-- config: 双层配置体系
-- memory: 记忆存储 + 会话管理
-- skill: 技能系统 + ClawHub 技能市场
-- agent: Agent 运行结果 + 统计 + 循环检测 + 管线
-- planning: 规划系统
-- feishu: 飞书集成（canonical：`miniagent.feishu.types`）
+本包只放 **数据结构契约**，不包含 I/O 或业务编排。实现落在 ``miniagent.core``、
+``miniagent.memory``、``miniagent.infrastructure`` 等模块。
+
+模块划分：
+
+- ``tool``: 工具定义、``ToolContext``、注册表协议、上下文压缩相关类型
+- ``config``: ``ModelProfile`` / ``AgentConfig`` 等双层配置
+- ``memory``: 记忆与会话的 **类型**；持久化实现见 ``miniagent.memory``
+- ``skill``: 技能包、ClawHub 协议
+- ``agent``: 运行结果、监控协议、循环检测配置、线性管线
+- ``planning``: Phase 1 结构化计划（``StructuredPlan`` 等）
+- ``feishu``: 自 ``miniagent.feishu.types`` 再导出，便于 ``from miniagent.types import …``
 """
 
 from miniagent.types.tool import (

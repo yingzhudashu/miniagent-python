@@ -1,0 +1,387 @@
+# Mini Agent Python — 全项目使用指南（新手向）
+
+> 本文面向 **零基础或仅有普通电脑使用经验** 的读者，按顺序操作即可完成安装、配置与日常使用。  
+> 技术细节与命令全集以专题文档为准；本文提供 **路径导航 + 常见操作 + 安全习惯**。  
+> 版本与仓库内 `miniagent.__version__` 对齐时请参见 [INDEX.md](INDEX.md) 页眉。
+
+---
+
+## 目录
+
+1. [前言：本项目能做什么](#1-前言本项目能做什么)
+2. [开始前准备](#2-开始前准备)
+3. [获取代码与安装](#3-获取代码与安装)
+4. [首次配置（环境变量与 .env）](#4-首次配置环境变量与-env)
+5. [第一次启动与退出](#5-第一次启动与退出)
+6. [日常对话怎么用](#6-日常对话怎么用)
+7. [点命令（`.`）速查](#7-点命令速查)
+8. [会话与多会话](#8-会话与多会话)
+9. [飞书（可选）](#9-飞书可选)
+10. [联网搜索与浏览器工具（可选）](#10-联网搜索与浏览器工具可选)
+11. [技能与 ClawHub（可选）](#11-技能与-clawhub可选)
+12. [MCP 工具（可选）](#12-mcp-工具可选)
+13. [状态目录、备份与 Git](#13-状态目录备份与-git)
+14. [常见问题（FAQ）](#14-常见问题faq)
+15. [安全与隐私清单](#15-安全与隐私清单)
+16. [进阶阅读与开发](#16-进阶阅读与开发)
+17. [文档索引](#17-文档索引)
+
+---
+
+## 1. 前言：本项目能做什么
+
+**Mini Agent Python** 是一个在本地（或你自己的服务器）上运行的 **智能助手程序**。它通过 **大语言模型（LLM）** 理解你的文字需求，并可在授权范围内 **调用工具**（例如读写工作区文件、执行命令、联网搜索等），尽量自动完成任务。
+
+与「只能聊天」的网页机器人相比，典型差异包括：
+
+| 能力 | 说明 |
+|------|------|
+| **两阶段** | 先 **规划** 再 **执行**（你可从回复节奏上感知：先有条理再动手），细节见 [ARCHITECTURE.md](ARCHITECTURE.md)。 |
+| **工具** | 模型可调用注册的工具（文件、命令、搜索等）；未配置的联网密钥不会偷偷联网。 |
+| **CLI + 可选飞书** | 默认在终端里对话；也可 **同一进程** 里挂上飞书机器人（长轮询），没有单独的「只飞书无终端」形态。 |
+| **会话与记忆** | 多会话隔离，并支持跨会话记忆与检索；见 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md)。 |
+
+**不适合的场景**：不要把它当作对公网匿名用户开放的多租户服务；部署与安全边界见 [SECURITY.md](SECURITY.md)、[DEPLOYMENT.md](DEPLOYMENT.md)。
+
+---
+
+## 2. 开始前准备
+
+### 2.1 你需要什么
+
+- **电脑**：Windows、macOS 或 Linux 均可。
+- **Python**：**3.10 或更高**（与仓库 `pyproject.toml` 中 `requires-python` 一致）。终端输入 `python --version` 或 `python3 --version` 可查看。
+- **网络**：安装依赖、调用云端 LLM、以及（若启用）联网搜索时需要能访问对应服务商。
+- **终端**：Windows 上可用 PowerShell 或「终端」应用；macOS/Linux 用自带终端即可。
+- **Git（可选）**：从 Git 仓库克隆代码时需要；若只有 ZIP 源码包也可解压使用。
+
+### 2.2 你需要准备什么账号或密钥（概念层面）
+
+- **至少一种 LLM API**：程序通过 **OpenAI 兼容接口** 调用模型。你会有「API 地址」和「API 密钥」两个概念；密钥 **只应** 出现在本机 `.env` 或环境变量里，**不要** 写进聊天截图或发给陌生人。
+- **可选**：飞书企业自建应用、Tavily 搜索密钥、Playwright 浏览器、MCP 服务等——用到再配置即可。
+
+具体变量名见下一章与仓库根目录的 [.env.example](../.env.example)。
+
+### 2.3 厂商控制台与注册细节
+
+各服务商的 **注册、计费、控制台菜单** 以官方文档为准。本仓库侧的安装条件、端口与运行环境检查见 [DEPLOYMENT.md](DEPLOYMENT.md)；飞书侧步骤见 [FEISHU.md](FEISHU.md)。
+
+---
+
+## 3. 获取代码与安装
+
+### 3.1 获取代码
+
+若使用 Git（将 `<仓库地址>` 换成你的实际地址）：
+
+```bash
+git clone <仓库地址>
+cd miniagent-python
+```
+
+若没有 Git，请用浏览器下载源码 ZIP 并解压，再在终端中 `cd` 到解压后的目录。
+
+### 3.2 建议：使用虚拟环境
+
+虚拟环境可以把本项目依赖与系统其它 Python 项目隔开，减少「装乱套」。
+
+**Windows（PowerShell）**
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -U pip
+```
+
+**macOS / Linux**
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -U pip
+```
+
+若 `python` 命令不存在，可尝试 `python3`。
+
+### 3.3 安装本项目
+
+**仅运行（最小）**
+
+```bash
+pip install -e .
+```
+
+**开发（含测试与静态检查）**
+
+```bash
+pip install -e ".[dev]"
+```
+
+**可选能力（按需叠加）**
+
+| 能力 | 安装命令 |
+|------|----------|
+| 飞书 SDK | `pip install -e ".[feishu]"` |
+| 浏览器抓取（Playwright） | `pip install -e ".[browser]"` 然后按官方文档安装浏览器，如 `playwright install chromium` |
+| MCP 官方 SDK | `pip install -e ".[mcp]"` |
+
+可同时写：`pip install -e ".[dev,feishu]"` 等。权威列表见 [ENGINEERING.md](ENGINEERING.md) 与 [pyproject.toml](../pyproject.toml)。
+
+### 3.4 启动方式说明
+
+安装完成后，可用任一方式启动（等价入口）：
+
+```bash
+python -m miniagent
+```
+
+或（若 `PATH` 已包含脚本目录）：
+
+```bash
+miniagent
+```
+
+二者都对应 `pyproject.toml` 里的 `miniagent` 控制台脚本。
+
+---
+
+## 4. 首次配置（环境变量与 .env）
+
+### 4.1 创建 .env
+
+在 **项目根目录**（与 `pyproject.toml` 同级）执行：
+
+```bash
+cp .env.example .env
+```
+
+Windows PowerShell 若无 `cp`，可用：
+
+```powershell
+Copy-Item .env.example .env
+```
+
+用任意文本编辑器打开 `.env`，按需取消注释并填写。**不要** 把填好密钥的 `.env` 上传到公开仓库；仓库已默认在 `.gitignore` 中忽略 `.env`。
+
+### 4.2 必填（最小可运行）
+
+至少需要能访问 LLM：
+
+| 变量 | 含义 |
+|------|------|
+| `OPENAI_API_KEY` | 你的 API 密钥（由服务商控制台生成；**勿**在文档或截图中泄露）。 |
+| `OPENAI_BASE_URL` | 可选。使用官方或兼容网关时按服务商说明填写。 |
+| `OPENAI_MODEL` | 可选。默认可用服务商推荐的模型 id。 |
+
+若暂时不理解 `BASE_URL`，可先只填密钥与模型，按服务商文档校对。
+
+### 4.3 常用可选变量（摘选）
+
+完整注释以 [.env.example](../.env.example) 为准。下表仅列新手常问的项：
+
+| 变量 | 用途 |
+|------|------|
+| `MODEL_PROFILE` | 模型行为预设：`creative` / `balanced` / `precise` / `code` / `fast` 等。 |
+| `AGENT_MAX_TURNS` | 单轮任务最大对话轮数上限相关配置（见示例文件注释）。 |
+| `AGENT_DEBUG` | `true` 时更啰嗦的日志；日常可 `false`。 |
+| `TAVILY_API_KEY` 或 `WEB_SEARCH_API_KEY` | 启用联网搜索（Tavily）时使用其一即可。 |
+| `FEISHU_APP_ID` / `FEISHU_APP_SECRET` / `FEISHU_VERIFICATION_TOKEN` | 飞书应用凭证；仅在使用飞书时填写。 |
+| `MINI_AGENT_STATE` | 状态根目录，见第 13 章。 |
+| `MINIAGENT_SELF_OPT_TOOLS` | 设为 `0` 可关闭自我优化类工具注册，见 [SELF_OPT.md](SELF_OPT.md)。 |
+| `MINIAGENT_MCP_STDIO` | MCP stdio 启动命令的 JSON 数组字符串，见第 12 章。 |
+| `MINIAGENT_CONFIG` | 可选外部 JSON 路径（遗留兼容）；密钥会进入进程环境，风险见 [SECURITY.md](SECURITY.md)。 |
+
+### 4.4 外部 JSON（不推荐新手首选）
+
+若你使用 OpenClaw 等导出的 JSON 配置，可通过 `MINIAGENT_CONFIG` 指向文件。其 `apiKey` 可能被写入进程环境。**务必** 限制文件权限、勿提交入库，并阅读 [SECURITY.md](SECURITY.md) 中「外部 JSON（MINIAGENT_CONFIG）与进程环境」一节。脱敏结构示例见 [examples/sample-external-config.fragment.json](examples/sample-external-config.fragment.json)。
+
+---
+
+## 5. 第一次启动与退出
+
+### 5.1 仅终端（CLI）
+
+```bash
+python -m miniagent
+```
+
+看到欢迎信息后，可直接用 **自然语言** 输入需求。部分环境也可用 `quit` / `exit` 退出（与 [CLI.md](CLI.md) 一致）。
+
+### 5.2 终端 + 飞书同时启动
+
+需已安装 `[feishu]` 并配置飞书环境变量：
+
+```bash
+python -m miniagent --feishu
+```
+
+飞书 **不会** 单独占一个无终端的进程；始终与 CLI 主循环一起。更多见第 9 章与 [FEISHU.md](FEISHU.md)。
+
+### 5.3 多实例与停止其它进程
+
+```bash
+python -m miniagent --stop
+```
+
+用于列出本机已注册实例并交互停止；`--stop --all` 或 `--stop 1 2` 等用法见 [README.md](../README.md) 与 [INSTANCE_REGISTRY.md](INSTANCE_REGISTRY.md)。  
+说明：清理的是 **注册信息** 与 **你选择的进程**；不要随意结束他人机器上的进程。
+
+---
+
+## 6. 日常对话怎么用
+
+1. 启动后，在提示处 **直接输入中文或英文需求** 即可。  
+2. 若任务需要工具，界面可能出现 **思考过程** 或 **工具调用提示**（取决于通道与配置），等待结束即可。  
+3. 若模型建议的规划过长，你仍可用点命令（第 7 章）查看状态、切换会话等。  
+4. **规划 / 执行** 对用户而言不必深究：可理解为「先想清楚步骤，再逐步做完」。
+
+---
+
+## 7. 点命令（`.`）速查
+
+所有以下命令在 **CLI 与飞书** 中均可使用（前缀为英文句点 `.`）。**完整说明、示例输出与边界情况** 见 [CLI.md](CLI.md)。
+
+### 7.1 最常用命令（一张表）
+
+| 命令 | 作用 |
+|------|------|
+| `.help` | 显示帮助 |
+| `.status` | 查看运行状态（不中断当前执行） |
+| `.session list` | 列出会话 |
+| `.session switch <编号或ID>` | 切换当前会话 |
+| `.session create <ID> [标题]` | 新建会话 |
+| `.session rename <编号或ID> <新标题>` | 重命名 |
+| `.instance list` | 列出运行中的实例 |
+| `.feishu start` / `.feishu stop` / `.feishu status` | 飞书连接控制 |
+| `.queue status` | 消息队列状态 |
+| `.queue set queue` 或 `.queue set preemptive` | 切换队列模式 |
+| `.bind status` / `.bind cli …` / `.bind feishu …` | 通道与会话绑定，见 [CHANNEL_BINDING.md](CHANNEL_BINDING.md) |
+| `.unbind …` / `.unbind all` | 解除绑定 |
+| `.profile <预设名>` | 切换模型预设（与 `MODEL_PROFILE` 等配合） |
+| `.stats` | 工具调用统计 |
+| `.stop` | 停止当前实例并退出 |
+
+### 7.2 使用提示
+
+- 命令前必须是 **`.`**（句点），后面跟子命令与参数，中间空格按 [CLI.md](CLI.md) 示例。  
+- 不确定时先 `.help` 或 `.status`。
+
+---
+
+## 8. 会话与多会话
+
+- **会话**就像「不同的聊天窗口」，历史与部分配置相互隔离。  
+- 使用 `.session list` 查看列表；`.session switch` 切换到工作上下文。  
+- 会话与记忆落盘位置受 **`MINI_AGENT_STATE`** 控制，详见第 13 章与 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md)。
+
+---
+
+## 9. 飞书（可选）
+
+1. 安装依赖：`pip install -e ".[feishu]"`。  
+2. 在飞书开放平台创建企业自建应用，获取 **App ID**、**App Secret**、事件订阅与权限按 [FEISHU.md](FEISHU.md) 操作。  
+3. 将凭证填入 `.env`（勿泄露）。  
+4. 启动 `python -m miniagent --feishu` 或在 CLI 中 `.feishu start`。  
+
+**入站锁**：同一状态根下通常只允许一个进程持有飞书入站连接，避免重复收消息；细节见 [FEISHU.md](FEISHU.md) 与 [SECURITY.md](SECURITY.md)。
+
+---
+
+## 10. 联网搜索与浏览器工具（可选）
+
+- **联网搜索（Tavily）**：在 `.env` 配置 `TAVILY_API_KEY` 或 `WEB_SEARCH_API_KEY`。未配置时，若模型尝试调用搜索工具，会得到 **明确错误提示**，不影响其它工具。  
+- **浏览器正文抽取**：需 `[browser]` 与 Playwright 浏览器安装；用于部分需渲染的网页。  
+
+超时等变量见 [.env.example](../.env.example)。
+
+---
+
+## 11. 技能与 ClawHub（可选）
+
+- 默认技能根目录为仓库下 **`workspaces/skills/`**（旧版若使用根目录 `skills/`，请迁移或设置 `MINI_AGENT_SKILLS`）。  
+- 可从 ClawHub 等来源安装技能包；引导脚本见仓库 `scripts/bootstrap_clawhub_skills.py`（参数以官方技能页为准）。  
+- 深入说明见 [README.md](../README.md) 技能章节与 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md) 中与技能相关的部分。
+
+---
+
+## 12. MCP 工具（可选）
+
+1. `pip install -e ".[mcp]"`。  
+2. 在 `.env` 中设置 `MINIAGENT_MCP_STDIO` 为 **JSON 数组** 形式的启动命令，例如文档中展示的 `["npx","-y","@组织/包名"]` 形态（请替换为你信任的 MCP 服务）。  
+3. 重启进程后，工具会注册进同一工具列表。  
+
+具体键名与注释见 [.env.example](../.env.example)。
+
+---
+
+## 13. 状态目录、备份与 Git
+
+### 13.1 默认布局
+
+未设置 `MINI_AGENT_STATE` 时，进程常把状态写在项目下的 **`workspaces/`**（实例、会话、锁、飞书去重、记忆索引等）。可通过环境变量把整棵状态树迁到其它磁盘路径，便于备份或多副本隔离。
+
+### 13.2 哪些不应提交到 Git
+
+根目录 `.gitignore` 已忽略多数运行时目录与文件（如 `workspaces/sessions/`、`workspaces/memory/`、`workspaces/feishu/`、`keyword-index.json` 等）。**不要** 强行把含隐私对话或密钥的文件 `git add` 进去。政策说明见 [ENGINEERING.md](ENGINEERING.md) §3.1。
+
+### 13.3 备份建议
+
+若 `MINI_AGENT_STATE` 指向重要数据目录，请用你自己的备份方案（加密盘、权限控制、定期拷贝）。详见 [DEPLOYMENT.md](DEPLOYMENT.md) 与 [SECURITY.md](SECURITY.md)。
+
+---
+
+## 14. 常见问题（FAQ）
+
+| 现象 | 建议 |
+|------|------|
+| 启动报错与 API 密钥相关 | 检查 `.env` 是否在项目根、`OPENAI_API_KEY` 是否已填且无多余引号空格；勿把密钥发到公共论坛。 |
+| 无法联网查天气/新闻 | 配置 Tavily 相关变量；或接受「未配置则工具返回错误」的设计。 |
+| 飞书无响应 | 查 `.feishu status`、凭证、事件订阅、是否另一进程已占入站锁；见 [FEISHU.md](FEISHU.md)。 |
+| 想换「性格」或温度感 | 使用 `.profile` 或设置 `MODEL_PROFILE` / 相关 env，见 [.env.example](../.env.example)。 |
+| 想关闭自我优化工具 | 设置 `MINIAGENT_SELF_OPT_TOOLS=0`，见 [SELF_OPT.md](SELF_OPT.md)。 |
+| 磁盘里会话太多 | 用 `.session` 管理或迁移 `MINI_AGENT_STATE`；理解历史与归档见 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md)。 |
+| 怀疑卡住 | `.status`；必要时查看日志级别 `AGENT_DEBUG`。 |
+
+---
+
+## 15. 安全与隐私清单
+
+1. **`.env` 与任何含密钥的 JSON** 仅本机保存，权限收紧；勿提交 Git。  
+2. **不要在截图、录屏、聊天里** 暴露完整密钥或企业内部令牌。  
+3. **共享电脑**：使用独立用户目录与独立 `MINI_AGENT_STATE`，用完可删除状态目录。  
+4. **外部 JSON**：若使用 `MINIAGENT_CONFIG`，阅读 [SECURITY.md](SECURITY.md) §6。  
+5. **工具能力**：文件与命令受沙箱等约束，见 [SECURITY.md](SECURITY.md)；不要给不可信人员开放你的运行环境。  
+6. **备份介质**：会话与记忆可能含敏感业务文本，备份同样需加密与访问控制。
+
+---
+
+## 16. 进阶阅读与开发
+
+- 参与开发与代码规范：[CONTRIBUTING.md](CONTRIBUTING.md)  
+- 仓库卫生、CI、单一事实来源：[ENGINEERING.md](ENGINEERING.md)  
+- 架构与数据流：[ARCHITECTURE.md](ARCHITECTURE.md)  
+- 部署与运维：[DEPLOYMENT.md](DEPLOYMENT.md)
+
+普通用户日常使用 **读到第 15 章即可**；开发贡献再读 CONTRIBUTING / ENGINEERING。
+
+---
+
+## 17. 文档索引
+
+| 文档 | 适合 |
+|------|------|
+| [README.md](../README.md) | 项目概览与最短命令 |
+| [INDEX.md](INDEX.md) | 全部文档导航 |
+| [CLI.md](CLI.md) | 点命令全集与示例 |
+| [FEISHU.md](FEISHU.md) | 飞书集成 |
+| [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md) | 记忆与子系统 |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | 安装与部署 |
+| [SECURITY.md](SECURITY.md) | 安全模型与清单 |
+| [INSTANCE_REGISTRY.md](INSTANCE_REGISTRY.md) | 多实例与注册表 |
+| [SELF_OPT.md](SELF_OPT.md) | 自我优化 |
+| [CHANNEL_BINDING.md](CHANNEL_BINDING.md) | 通道绑定 |
+| [examples/README.md](examples/README.md) | 脱敏配置示例说明 |
+
+---
+
+**结语**：按第 3～5 章完成安装与启动后，建议先熟悉 **自然语言提问** 与 **`.help` / `.status` / `.session list`**，再按需打开飞书、搜索与技能。遇到问题优先查第 14 章 FAQ 与对应专题文档。

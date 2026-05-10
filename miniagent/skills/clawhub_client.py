@@ -1,6 +1,6 @@
-"""Mini Agent Python — ClawHub 技能市场客户端 (Phase 6)
+"""ClawHub 技能市场 HTTP 客户端（与 OpenClaw 生态对齐的 clawhub.ai API）。
 
-参考 OpenClaw 的 ClawHub (clawhub.ai) 设计，提供：
+提供：
 - 技能搜索（关键词/标签）
 - 技能详情查询
 - 技能下载和安装
@@ -35,7 +35,13 @@ class ClawHubClient(Protocol):
     async def get_detail(self, slug: str) -> dict[str, Any]:
         ...
 
-    async def download(self, slug: str, version: str | None = None) -> dict[str, Any]:
+    async def download(
+        self,
+        slug: str,
+        version: str | None = None,
+        *,
+        skills_root: str | None = None,
+    ) -> dict[str, Any]:
         ...
 
 
@@ -95,14 +101,22 @@ class _ClawHubClientImpl:
         url = f"{self._base_url}/skills/{slug}"
         return await self._fetch_json(url)
 
-    async def download(self, slug: str, version: str | None = None) -> dict[str, Any]:
-        """下载技能包并安装到本地。"""
+    async def download(
+        self,
+        slug: str,
+        version: str | None = None,
+        *,
+        skills_root: str | None = None,
+    ) -> dict[str, Any]:
+        """下载技能包并安装到本地 ``skills_root/<slug>``。"""
+        from miniagent.skills.paths import get_skills_root as _default_skills_root
+
         detail = await self.get_detail(slug)
         files = detail.get("files", [])
 
-        # 确定本地路径
-        project_root = _find_project_root()
-        skills_dir = os.path.join(project_root, "skills", slug)
+        root = skills_root if skills_root else _default_skills_root()
+        os.makedirs(root, exist_ok=True)
+        skills_dir = os.path.join(root, slug)
 
         # 写入文件
         for file_info in files:
@@ -133,18 +147,6 @@ class _ClawHubClientImpl:
 def create_clawhub_client(base_url: str = CLAWHUB_API) -> _ClawHubClientImpl:
     """创建 ClawHub 客户端。"""
     return _ClawHubClientImpl(base_url)
-
-
-# ─── 项目根目录查找 ──────────────────────────────────────
-
-def _find_project_root() -> str:
-    """从 cwd 向上查找项目根目录。"""
-    d = Path.cwd()
-    while d != d.parent:
-        if (d / "pyproject.toml").exists() or (d / "setup.py").exists():
-            return str(d)
-        d = d.parent
-    return str(Path.cwd())
 
 
 # ─── 本地技能搜索 ────────────────────────────────────────

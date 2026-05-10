@@ -1,9 +1,7 @@
-"""Mini Agent Python — 技能包加载器 (Phase 6)
+"""技能包加载器 — 从技能根目录（``get_skills_root()``，默认 ``workspaces/skills``）发现包。
 
-从 skills/ 目录自动发现并加载技能包。
-
-目录结构约定：
-    skills/
+目录结构约定（示例）：
+    workspaces/skills/
     ├── default/                 # 技能包名称（目录名 = 技能包 ID）
     │   ├── SKILL.md             # 技能包总览文档
     │   └── skills/              # 子技能目录
@@ -14,7 +12,7 @@
         └── ...
 
 加载规则：
-1. 扫描 skills/ 下所有一级子目录
+1. 扫描技能根目录下所有一级子目录
 2. 读取 SKILL.md 作为技能包文档
 3. 尝试导入 __init__.py 获取 skills 列表
 4. 如果不存在，尝试动态加载 skills/ 子目录

@@ -236,7 +236,11 @@ class ClawHubClientProtocol(Protocol):
 
     @abstractmethod
     async def download(
-        self, slug: str, version: str | None = None
+        self,
+        slug: str,
+        version: str | None = None,
+        *,
+        skills_root: str | None = None,
     ) -> dict[str, Any]:
         """下载技能包
 

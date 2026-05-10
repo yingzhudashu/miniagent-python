@@ -1,13 +1,12 @@
 """Engine — UnifiedEngine 核心引擎
 
-拆分自 unified.py。
+从旧版 ``unified`` 单文件拆分而来。**职责**：按 ``session_key`` 绑定 ``SessionManager`` 与会话历史；
+组装技能工具箱与系统提示片段；调用 :func:`miniagent.core.agent.run_agent` 并串联 ``ThinkingDisplay``
+（CLI 实时打印 / 飞书侧缓冲后卡片）；在适当时机解析 ``resolve_memory_dependencies`` 注入的
+``memory_store`` / ``activity_log`` / ``keyword_index``。
 
-职责：
-- 会话上下文管理
-- Agent 执行编排（含思考回调）
-- 会话历史持久化
-- 飞书思考推送
-- 集成：context_manager、memory_store、activity_log
+**非职责**：不实现飞书 WebSocket 协议细节（见 :mod:`miniagent.feishu.poll_server`）；不解析 ``.`` 命令
+（见 :mod:`miniagent.engine.command_dispatch`）。与 :mod:`miniagent.core` 的分工：core 无 asyncio 主循环与 stdin。
 """
 
 from __future__ import annotations
@@ -19,7 +18,6 @@ from typing import Any
 from miniagent.core.agent import run_agent
 from miniagent.memory.context import DefaultContextManager
 from miniagent.memory.defaults import resolve_memory_dependencies
-from miniagent.memory.store import format_memory_for_prompt
 from miniagent.session.manager import SessionOptions
 
 
@@ -98,9 +96,7 @@ class UnifiedEngine:
         ctx = session_manager.get_or_create(session_key, session_opts)
         history = ctx.conversation_history
 
-        # 2. 加载跨会话记忆 + 渐进式分层摘要注入 system
-        memory = await ms.load(session_key)
-        memory_text = format_memory_for_prompt(memory)
+        # 2. 技能与分层摘要进入 execute_plan 的 system（会话记忆由执行器 inject_memory 注入，避免重复）
         from miniagent.memory.memory_pipeline import build_layered_memory_augmentation
 
         layered_augment = build_layered_memory_augmentation(
@@ -111,9 +107,7 @@ class UnifiedEngine:
             combined_skill = (
                 f"{skill_prompts}\n\n{layered_augment}" if skill_prompts else layered_augment
             )
-        system_prompt = "\n\n".join(
-            x for x in (combined_skill, memory_text or None) if x
-        ) or None
+        system_prompt = (combined_skill.strip() if combined_skill else None) or None
 
         # 3. 重置该会话的思考计数器（每个会话独立计数，多群并发安全）
         self.thinking.reset_counter(session_key)
@@ -138,9 +132,11 @@ class UnifiedEngine:
                 *,
                 is_new_round: bool = False,
                 streaming: bool = True,
+                merge_tools: bool = False,
             ) -> None:
-                """飞书思考：流式一轮一条卡片（PATCH 节流）；非流式为工具行等独立消息。"""
+                """飞书思考：流式一轮一条卡片（PATCH 节流）；同轮工具合并时追加同卡；否则 finalize + 独立卡。"""
                 from miniagent.feishu.poll_server import (
+                    append_feishu_thinking_same_card,
                     finalize_feishu_thinking_stream,
                     push_feishu_thinking_stream,
                     _send_thinking,
@@ -150,6 +146,10 @@ class UnifiedEngine:
                 if streaming:
                     await push_feishu_thinking_stream(
                         feishu_config, chat_id, text, template, st_local, new_round=is_new_round
+                    )
+                elif merge_tools:
+                    await append_feishu_thinking_same_card(
+                        feishu_config, chat_id, text, template, st_local
                     )
                 else:
                     await finalize_feishu_thinking_stream(feishu_config, chat_id, template, st_local)
@@ -164,10 +164,16 @@ class UnifiedEngine:
                     *,
                     is_new_round: bool = False,
                     streaming: bool = True,
+                    merge_tools: bool = False,
                 ) -> None:
                     """双通道：飞书仍走流式卡片；CLI 由 ThinkingDisplay._output_sink 镜像。"""
                     await _feishu_send(
-                        chat_id, text, template, is_new_round=is_new_round, streaming=streaming
+                        chat_id,
+                        text,
+                        template,
+                        is_new_round=is_new_round,
+                        streaming=streaming,
+                        merge_tools=merge_tools,
                     )
 
                 self.thinking.enable_feishu(session_key, im_recv, _dual_send)
@@ -182,8 +188,13 @@ class UnifiedEngine:
             if streaming:
                 key = header if (header or "").strip() else "__stream__"
                 thinking_by_label[key] = text
-            if not streaming and text:
-                tool_thought_lines.append(text)
+            elif text:
+                hdr = (header or "").strip()
+                if hdr and hdr in thinking_by_label:
+                    prev = thinking_by_label[hdr]
+                    thinking_by_label[hdr] = (prev + "\n" + text) if prev else text
+                else:
+                    tool_thought_lines.append(text)
             await self.thinking.show(
                 text, session_key if is_feishu else "", streaming=streaming, header=header
             )

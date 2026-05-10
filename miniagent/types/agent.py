@@ -1,6 +1,12 @@
 """Mini Agent Python — Agent 运行结果与统计类型
 
-Agent 执行后的返回类型、性能监控统计、循环检测、线性管线。
+包含：
+
+- ``AgentRunResult`` / ``AgentRunOptions``：单次 ``run_agent`` 或管线执行的输出与覆盖项
+- ``ToolStats``、``ToolMonitorProtocol``：工具耗时与成功率统计（默认实现见
+  ``miniagent.infrastructure.monitor``）
+- ``LoopDetection*``：执行器内循环检测配置与结果（检测器见 ``loop_detector``）
+- ``PipelineStep`` / ``PipelineResult``：无 LLM 循环的线性 ``run_pipeline`` 模式
 """
 
 from __future__ import annotations

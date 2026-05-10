@@ -1,4 +1,8 @@
-"""会话日记索引、会话级长期记忆、Agent 级长期记忆 — 按会话/全局 JSON 存储。"""
+"""分层长期记忆 JSON：会话 rollup（``session_lt``）与全局 Agent 摘要（``agent_lt``）。
+
+与 ``history_archive`` 写出的按日 ``diary`` Markdown 相配合：本模块负责结构化锚点与
+读写的稳定文件名（经 ``_safe_session_id`` 净化 ``session_key``）。
+"""
 
 from __future__ import annotations
 

@@ -9,31 +9,16 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 from typing import Any
 
 from miniagent.types.tool import ToolDefinition, ToolContext, ToolResult
 
 
 def _get_skills_root() -> str:
-    """获取技能根目录。
+    """与引擎、ClawHub 安装共用技能根目录（见 :func:`miniagent.skills.paths.get_skills_root`）。"""
+    from miniagent.skills.paths import get_skills_root
 
-    优先级：
-    1. 环境变量 MINI_AGENT_SKILLS
-    2. 从 cwd 向上查找包含 pyproject.toml 或 setup.py 的目录下的 skills/
-    3. 回退到 cwd/skills
-    """
-    env = os.environ.get("MINI_AGENT_SKILLS")
-    if env:
-        return env
-
-    # 从 cwd 向上查找包含 pyproject.toml 或 setup.py 的目录
-    d = Path.cwd()
-    while d != d.parent:
-        if (d / "pyproject.toml").exists() or (d / "setup.py").exists():
-            return str(d / "skills")
-        d = d.parent
-    return str(Path.cwd() / "skills")
+    return get_skills_root()
 
 
 # ════════════════════════════════════════════════════════
@@ -172,8 +157,8 @@ async def _install_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult
                 content=f"⚠️ 技能 \"{slug}\" 已安装在 {install_dir}\n如需重新安装，请先删除该目录",
             )
 
+        result = await client.download(slug, version, skills_root=skills_root)
         detail = await client.get_detail(slug)
-        result = await client.download(slug, version)
 
         return ToolResult(
             success=True,

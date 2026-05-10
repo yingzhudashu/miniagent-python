@@ -1,9 +1,13 @@
 """Mini Agent Python — 记忆与会话管理类型
 
-三层记忆架构：
-- Layer 1: 上下文记忆（当前对话历史）
-- Layer 2: 会话记忆（同聊天室的长期记忆，持久化到文件）
-- Layer 3: 语义检索（跨所有会话的相关记忆，关键词索引）
+描述三层记忆 **概念模型** 与 ``SessionManagerProtocol`` 等契约；具体存储、索引与
+管线逻辑在 ``miniagent.memory``（如 ``store``、``keyword_index``、``memory_pipeline``）。
+
+层次对应关系（概念）：
+
+- Layer 1: 当前对话窗口（与 ``miniagent.memory.context`` 协同）
+- Layer 2: 会话级持久记忆（如 ``DefaultMemoryStore``）
+- Layer 3: 跨会话检索（如 ``KeywordIndex``）
 """
 
 from __future__ import annotations

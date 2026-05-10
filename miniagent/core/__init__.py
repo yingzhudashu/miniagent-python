@@ -1,15 +1,13 @@
 """核心引擎模块（规划 + 执行 + 配置）
 
 职责边界：
-- **本包**：LLM 驱动的两阶段编排（``agent``）、规划/执行实现（``planner`` / ``executor``）、
-  合并后的 ``AgentConfig``（``config``）；共享 ``AsyncOpenAI`` 工厂在邻接模块
-  ``miniagent.core.openai_client``（本 ``__init__`` 不导出，避免与显式 ``client=`` 注入混淆）。
-- **非本包**：运行时主循环、CLI、飞书、消息队列在 ``miniagent.engine``；磁盘记忆在 ``miniagent.memory``。
+- **本包**：LLM 驱动的两阶段编排（``agent``）、规划/执行（``planner`` / ``executor``）、
+  配置合并（``config``）、调用参数与供应商适配（``llm_params``、``vendor/qwen_extra``）、
+  任务预分类（``task_classifier``）、thinking 档位映射（``thinking_presets``）、
+  自我优化子包（``self_opt``）。共享 ``AsyncOpenAI`` 见 ``openai_client``（本 ``__init__`` 不导出）。
+- **非本包**：主循环与通道在 ``miniagent.engine``；持久记忆在 ``miniagent.memory``。
 
-导出：
-- 配置管理 (config)
-- 规划器与执行器身份常量 (planner, executor)
-- Agent 主入口 (agent)
+``__all__`` 仅聚合最常用的稳定入口；其余子模块请按需 ``import``。
 """
 
 from miniagent.core.config import (

@@ -1,6 +1,6 @@
 # 多实例注册表
 
-> 模块: `miniagent/infrastructure/instance.py` | 版本: 2.0.1
+> 模块: `miniagent/infrastructure/instance.py` | 版本: 2.0.2
 
 本文说明 **多进程并行运行** 时的磁盘注册布局、存活判定与生命周期。**不会**替代源码阅读：行为以仓库内实现为准。
 

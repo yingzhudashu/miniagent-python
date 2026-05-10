@@ -1,6 +1,6 @@
 # 软件工程实践与仓库卫生
 
-> Mini Agent Python | 版本: 2.0.1 | 与 `miniagent.__version__` 对齐
+> Mini Agent Python | 版本: 2.0.2 | 与 `miniagent.__version__` 对齐
 
 本文档汇总本仓库在**可维护性、可重复构建、安全与协作**上的约定，作为 [CONTRIBUTING.md](CONTRIBUTING.md) 的补充：后者偏「如何写代码」，本文偏「仓库与发布如何保持健康」。
 
@@ -12,7 +12,7 @@
 |------|----------|------|
 | 可安装包名与源码布局 | `pyproject.toml` → `[tool.setuptools.packages.find]` | 仅打包 `miniagent*`；不再维护顶层 `src` 作为可导入包。 |
 | 版本号 | `miniagent/__init__.py` 中 `__version__` | `pyproject.toml` 通过 `dynamic.version` 读取；发版时与 `CHANGELOG.md`、本文档顶部标语一并更新。 |
-| 依赖声明 | `pyproject.toml` `[project]` / `optional-dependencies` | 不使用根目录 `requirements.txt`；运行时依赖与可选组（`dev`、`feishu`）集中在此。 |
+| 依赖声明 | `pyproject.toml` `[project]` / `optional-dependencies` | 不使用根目录 `requirements.txt`；运行时依赖与可选组（`dev`、`feishu`、`browser`、`mcp`）集中在此。 |
 | 环境变量说明 | 仓库根 `.env.example` | 复制为 `.env` 后本地填写；**勿将含真实密钥的 `.env` 提交入库**（见 `.gitignore`）。 |
 | 架构与行为细节 | `docs/ARCHITECTURE.md` 及各专题文档 | README 只做索引与快速上手；深度说明以 `docs/` 为准。 |
 
@@ -33,6 +33,7 @@ CI 说明：
 
 - **`test` job**（矩阵 Python 3.10 / 3.12）：`pip install -e ".[dev]"`，跑 `compileall`、`ruff`、`pytest`。
 - **`test-feishu-extra` job**（仅 3.12）：`pip install -e ".[dev,feishu]"` 后再跑 `compileall`、`ruff` 与 `pytest`，确保安装 `lark-oapi` 时仍通过（与主矩阵并行，不拖慢双版本安装）。
+- **`test-mcp-extra` job**（仅 3.12）：`pip install -e ".[dev,mcp]"`，对官方 `mcp` SDK 做 `import` 冒烟，再跑 `compileall`、`ruff` 与 `pytest`，防止 `[mcp]` extra 与代码导入漂移。
 
 说明：
 
@@ -54,20 +55,16 @@ CI 说明：
 
 ### 3.1 `workspaces/` 与 Git 跟踪政策
 
-**运行时生成物默认不入库**：`.gitignore` 已排除 `workspaces/instances/`、`workspaces/sessions/`、`**/*.lock`、`workspaces/cli/` 等，避免把本机 PID、会话历史提交到远程。
+**运行时生成物默认不入库**：`.gitignore` 已排除 `workspaces/instances/`、`workspaces/sessions/`、`workspaces/memory/`、`workspaces/keyword-index.json`、`workspaces/perf*.jsonl`、`workspaces/feishu_inbound_owner.json`、`workspaces/feishu/`（含 WebSocket 去重等）、`**/*.lock`、`workspaces/cli/` 等，避免把本机 PID、会话历史、记忆索引、对话落盘、飞书去重状态提交到远程。
 
-**当前仓库中仍被跟踪的少数路径**（视为「示例 / 文档化数据结构」，便于新人理解磁盘布局；**非**生产密钥）：
-
-- `workspaces/keyword-index.json`
-- `workspaces/memory/*.json`、部分 `workspaces/memory/*.md`
-
-若 fork 后希望 **零跟踪** 任何运行时产物：在确认无团队依赖后，可 `git rm --cached` 上述路径、将对应 glob 写入 `.gitignore`，并更新本段说明。日常开发仍建议使用 `MINI_AGENT_STATE` 将状态迁出仓库。
+若历史上曾将上述路径纳入版本跟踪，可在确认无团队依赖后执行 `git rm --cached <路径>` 并保留 `.gitignore` 规则。需要随仓库携带的**非敏感**结构示例，请放在 `docs/examples/` 等显式文档化目录。日常开发仍建议使用 `MINI_AGENT_STATE` 将状态迁出仓库。
 
 ---
 
 ## 4. 安全与密钥
 
-- 密钥仅通过环境变量或本地 `.env` 注入；代码库中不出现真实 token。
+- 密钥优先通过环境变量或本地 `.env` 注入；代码库中不出现真实 token。
+- 可选外部 JSON（`MINIAGENT_CONFIG`）可将 `apiKey` 回填至进程环境，风险与清单见 [SECURITY.md](SECURITY.md) §6。
 - 工具执行与文件访问受 [SECURITY.md](SECURITY.md) 所述沙箱与策略约束；部署面见 [DEPLOYMENT.md](DEPLOYMENT.md)。
 
 ---
@@ -76,10 +73,14 @@ CI 说明：
 
 大范围重构或发版时建议核对：
 
-1. `miniagent/__init__.py` 的 `__version__` 与 `CHANGELOG.md`、`docs/*` 顶部版本标语一致。
-2. [INDEX.md](INDEX.md) 中目录树与仓库实际文件一致（含 `core/openai_client.py`、`memory/defaults.py` 等）。
-3. README 中的命令、测试数量与 `pytest --collect-only -q` 输出一致。
-4. 行为变更同步 `ARCHITECTURE.md` 或对应专题文档（如 `CHANNEL_BINDING.md`、`MEMORY_SYSTEM.md`）。
+1. `miniagent/__init__.py` 的 `__version__` 与 `CHANGELOG.md`、下列 **带版本标语** 的 `docs/*.md` 一致（标语格式建议：`> Mini Agent Python | 版本: x.y.z | …` 或 INDEX 的「与 `miniagent.__version__` 对齐」行）：
+   - [ARCHITECTURE.md](ARCHITECTURE.md)、[INDEX.md](INDEX.md)、[ENGINEERING.md](ENGINEERING.md)、[CONTRIBUTING.md](CONTRIBUTING.md)
+   - [DEPLOYMENT.md](DEPLOYMENT.md)、[MEMORY_SYSTEM.md](MEMORY_SYSTEM.md)、[SECURITY.md](SECURITY.md)、[INSTANCE_REGISTRY.md](INSTANCE_REGISTRY.md)
+   - [CLI.md](CLI.md)、[FEISHU.md](FEISHU.md)、[SELF_OPT.md](SELF_OPT.md)、[CHANNEL_BINDING.md](CHANNEL_BINDING.md)、[CYBERNETICS_PLAN.md](CYBERNETICS_PLAN.md)、[USER_GUIDE.md](USER_GUIDE.md)（若文内写明版本号须与 `__version__` 一致）
+2. 欢迎界面：`miniagent.engine.welcome.get_version()` 必须与 `miniagent.__version__` 同源（勿依赖 `pyproject.toml` 静态 `version` 字段）。
+3. [INDEX.md](INDEX.md) 中目录树与仓库实际文件一致（含 `core/openai_client.py`、`memory/defaults.py` 等）。
+4. README 中的命令、测试数量与 `pytest --collect-only -q` 输出一致。
+5. 行为变更同步 `ARCHITECTURE.md` 或对应专题文档（如 `CHANNEL_BINDING.md`、`MEMORY_SYSTEM.md`）。
 
 ---
 
@@ -90,4 +91,5 @@ CI 说明：
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 开发环境、编码规范、测试约定 |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 分层架构与数据流 |
 | [INDEX.md](INDEX.md) | 全部文档索引 |
+| [USER_GUIDE.md](USER_GUIDE.md) | 零基础使用指南 |
 | [CHANGELOG.md](../CHANGELOG.md) | 版本历史 |

@@ -3,11 +3,14 @@
 导出所有内置工具集合，按功能分组：
 - filesystem_tools: 文件/目录操作（read/write/edit/list/create/move/copy/delete）
 - exec_tools: 命令执行
-- web_tools: 网页抓取和搜索
+- web_tools: Tavily 搜索（web_search）、Playwright 正文抽取（browser_extract_text）、HTTP 抓取（fetch_url）、时间（get_time）
 - skills_tools: 技能搜索和安装
-- self_opt_tools: 自我优化工具
+- self_opt_tools: 自我优化工具（可由 MINIAGENT_SELF_OPT_TOOLS=0 在注册阶段跳过）
+- git_readonly_tools: 只读 git status/diff
 
-ALL_TOOLS 字典汇总所有内置工具，供 Agent 编排层使用。
+另：``session_memory.session_memory_tools`` 在 ``engine.init_subsystems`` 中单独注册，不在 ``ALL_TOOLS`` 字典内。
+
+ALL_TOOLS 汇总上述内置工具子集；启动时由 ``register_builtin_tools`` 写入主注册表。
 """
 
 from miniagent.tools.filesystem import filesystem_tools
@@ -15,6 +18,7 @@ from miniagent.tools.exec import exec_tools
 from miniagent.tools.web import web_tools
 from miniagent.tools.skills import skills_tools
 from miniagent.tools.self_opt import self_opt_tools
+from miniagent.tools.git_readonly import git_readonly_tools
 
 # 汇总所有内置工具
 ALL_TOOLS = {
@@ -23,6 +27,7 @@ ALL_TOOLS = {
     **web_tools,
     **skills_tools,
     **self_opt_tools,
+    **git_readonly_tools,
 }
 
 __all__ = [
@@ -31,5 +36,6 @@ __all__ = [
     "web_tools",
     "skills_tools",
     "self_opt_tools",
+    "git_readonly_tools",
     "ALL_TOOLS",
 ]

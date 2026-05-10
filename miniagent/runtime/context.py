@@ -8,6 +8,9 @@ CLI 主循环与飞书消息 handler 的闭包向下传递。设计目标：
 
 历史上曾把这些依赖挂在已移除的 ``unified`` 模块全局上；新代码请只通过本上下文或显式参数传递依赖。
 
+构造顺序上，入口通常在创建本对象**之前**调用 ``load_external_config_from_env()``，以便 ``external_config_patch``
+与 ``openai_client`` 使用一致的模型/thinking 补丁；详见 :mod:`miniagent.runtime.external_config`。
+
 字段提示：
 
 - ``clawhub``：入口注入的 ClawHub 客户端；部分工具仍可能直接调用工厂函数，与注入并存。
@@ -37,6 +40,7 @@ class RuntimeContext:
         activity_log: 活动日志写入器（``ActivityLogger``）
         keyword_index: 关键词检索索引（``KeywordIndex``）
         openai_client: LLM 客户端（``AsyncOpenAI`` 或兼容实现）；``None`` 表示使用默认工厂
+        external_config_patch: 启动时 ``load_external_config_from_env`` 后的补丁快照（只读 dict）；未加载则为 ``None``
         create_feishu_handler_factory: ``(toolboxes, prompts, state) -> handler``，
             在 ``unified_main`` 内赋值，闭包捕获本上下文
         cli_transcript_append: 全屏 CLI 时注册 ``(style_cls, text) -> None``，
@@ -55,5 +59,6 @@ class RuntimeContext:
     activity_log: Any
     keyword_index: Any
     openai_client: Any | None = None
+    external_config_patch: dict[str, Any] | None = None
     create_feishu_handler_factory: Callable[..., Any] | None = field(default=None, repr=False)
     cli_transcript_append: Callable[[str, str], None] | None = field(default=None, repr=False)

@@ -9,6 +9,16 @@
       "last_diary_refine": 1778409704.4461915,
       "last_rollup_day": "2026-05-10",
       "last_session_lt_refine": 1778409704.4461915
+    },
+    "session-a": {
+      "last_diary_refine": 1778414035.1869707,
+      "last_rollup_day": "2026-05-10",
+      "last_session_lt_refine": 1778414035.1869707
+    },
+    "feishu:oc_testchat": {
+      "last_diary_refine": 1778428959.8345697,
+      "last_rollup_day": "2026-05-10",
+      "last_session_lt_refine": 1778428959.8345697
     }
   },
   "last_agent_lt_refine": 1778409142.515836

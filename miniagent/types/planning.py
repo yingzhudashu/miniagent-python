@@ -23,6 +23,7 @@ class PlanStep:
         expected_input: 期望输入
         expected_output: 期望输出
         depends_on: 依赖的步骤序号（None 表示无依赖）
+        thinking_level: 本步执行时模型思考深度（low / medium / high，缺省由规划难度默认）
     """
 
     step_number: int
@@ -31,6 +32,7 @@ class PlanStep:
     expected_input: str = ""
     expected_output: str = ""
     depends_on: int | None = None
+    thinking_level: str | None = None
 
 
 @dataclass

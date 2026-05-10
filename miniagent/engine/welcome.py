@@ -3,28 +3,21 @@
 拆分自 unified.py。
 
 职责：
-- 版本号读取（从 pyproject.toml）
+- 版本号：与 ``miniagent.__version__`` 一致（``pyproject.toml`` 使用 dynamic version，勿再读静态字段）
 - 欢迎信息打印
 - 会话显示名称获取
 """
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 
 def get_version() -> str:
-    """从 pyproject.toml 读取版本号。"""
-    try:
-        import tomllib
+    """返回发布版本号，与 ``miniagent.__version__`` 及 setuptools ``dynamic.version`` 同源。"""
+    from miniagent import __version__
 
-        pyproject = Path(__file__).parent.parent.parent / "pyproject.toml"
-        with open(pyproject, "rb") as f:
-            data = tomllib.load(f)
-        return data.get("project", {}).get("version", "0.1.0")
-    except Exception:
-        return "0.1.0"
+    return __version__
 
 
 def get_session_display(session_manager: Any, active_session_id: str) -> str:

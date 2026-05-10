@@ -305,82 +305,6 @@ async def start_feishu_poll_server(
         raise
 
 
-async def _send_reply(config: FeishuConfig, chat_id: str, reply: str) -> None:
-    """通过飞书 API 发送回复（使用交互式卡片）。
-
-    Args:
-        config: 飞书应用配置
-        chat_id: 飞书聊天室 ID（如 oc_xxx）
-        reply: 回复文本
-    """
-    # 验证 chat_id 有效性
-    if not chat_id or not chat_id.startswith("oc_"):
-        _logger.debug("跳过发送回复：无效的 chat_id (%s)", chat_id)
-        return
-
-    try:
-        import lark_oapi as lark
-        from lark_oapi.api.im.v1 import (
-            CreateMessageRequest,
-            CreateMessageRequestBody,
-        )
-
-        client = lark.Client.builder().app_id(config.app_id).app_secret(config.app_secret).build()
-
-        # 构建飞书交互式卡片
-        card = {
-            "config": {"wide_screen_mode": True},
-            "header": {
-                "title": {"tag": "plain_text", "content": "🤖 Mini Agent"},
-                "template": "blue"
-            },
-            "elements": [
-                {"tag": "div", "text": {"tag": "lark_md", "content": reply}}
-            ]
-        }
-
-        request = CreateMessageRequest.builder() \
-            .receive_id_type("chat_id") \
-            .request_body(
-                CreateMessageRequestBody.builder()
-                .receive_id(chat_id)
-                .msg_type("interactive")
-                .content(json.dumps(card))
-                .build()
-            ) \
-            .build()
-
-        response = client.im.v1.message.create(request)
-        if not response.success():
-            _logger.warning("发送回复失败: %s %s", response.code, response.msg)
-
-    except ImportError:
-        _logger.error("请安装 lark-oapi: pip install lark-oapi")
-    except Exception as e:
-        _logger.error("发送回复异常: %s", e)
-        # 降级为纯文本
-        try:
-            import lark_oapi as lark
-            from lark_oapi.api.im.v1 import (
-                CreateMessageRequest,
-                CreateMessageRequestBody,
-            )
-            client = lark.Client.builder().app_id(config.app_id).app_secret(config.app_secret).build()
-            request = CreateMessageRequest.builder() \
-                .receive_id_type("chat_id") \
-                .request_body(
-                    CreateMessageRequestBody.builder()
-                    .receive_id(chat_id)
-                    .msg_type("text")
-                    .content(json.dumps({"text": reply}))
-                    .build()
-                ) \
-                .build()
-            client.im.v1.message.create(request)
-        except Exception:
-            pass
-
-
 def _normalize_im_receive_chat_id(chat_id: str) -> str:
     """去掉内部路由前缀 ``feishu:``，得到 IM API 可用的 ``receive_id``（``receive_id_type=chat_id``）。"""
     c = (chat_id or "").strip()
@@ -389,29 +313,47 @@ def _normalize_im_receive_chat_id(chat_id: str) -> str:
     return c
 
 
+def _is_valid_im_receive_id(chat_id: str) -> bool:
+    """群聊 oc_、单聊 ou_ 等可作为 ``receive_id``（与开放平台常见 ID 前缀一致）。"""
+    c = (chat_id or "").strip()
+    return bool(c) and (c.startswith("oc_") or c.startswith("ou_"))
+
+
 # 单条「思考」卡片：流式时用 PATCH 更新同一 message_id；飞书对单条消息可 PATCH 次数有限，须节流。
-FEISHU_THINKING_BODY_MAX = 12000
+FEISHU_CARD_BODY_MAX = 12000
+FEISHU_THINKING_BODY_MAX = FEISHU_CARD_BODY_MAX  # 兼容旧名
 FEISHU_THINKING_PATCH_MIN_INTERVAL_S = 0.35
 FEISHU_THINKING_PATCH_MIN_CHAR_DELTA = 450
 FEISHU_THINKING_PATCH_BUDGET = 12
 
 
-def _thinking_interactive_card_dict(cleaned_markdown: str, template: str) -> dict[str, Any]:
+def _prepare_card_markdown(raw: str, max_len: int = FEISHU_CARD_BODY_MAX) -> str:
+    t = raw if len(raw) <= max_len else raw[:max_len] + "…"
+    return t.replace("\r", "").replace("\t", "  ")
+
+
+def _prepare_thinking_markdown(raw: str) -> str:
+    return _prepare_card_markdown(raw, FEISHU_THINKING_BODY_MAX)
+
+
+def _feishu_interactive_card_dict(
+    header_title: str, body_markdown: str, template: str
+) -> dict[str, Any]:
+    """交互卡片：正文为 lark_md（飞书客户端内渲染为 Markdown 子集）。"""
     return {
         "config": {"wide_screen_mode": True},
         "header": {
-            "title": {"tag": "plain_text", "content": "💭 思考中"},
+            "title": {"tag": "plain_text", "content": header_title},
             "template": template,
         },
         "elements": [
-            {"tag": "div", "text": {"tag": "lark_md", "content": cleaned_markdown}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": body_markdown}},
         ],
     }
 
 
-def _prepare_thinking_markdown(raw: str) -> str:
-    t = raw if len(raw) <= FEISHU_THINKING_BODY_MAX else raw[: FEISHU_THINKING_BODY_MAX] + "…"
-    return t.replace("\r", "").replace("\t", "  ")
+def _thinking_interactive_card_dict(cleaned_markdown: str, template: str) -> dict[str, Any]:
+    return _feishu_interactive_card_dict("💭 思考中", cleaned_markdown, template)
 
 
 def _create_interactive_thinking_message(
@@ -487,6 +429,7 @@ async def push_feishu_thinking_stream(
         st.feishu_last_patch_monotonic = 0.0
         st.feishu_last_patched_char_len = -1
         st.feishu_patch_budget = FEISHU_THINKING_PATCH_BUDGET
+        st.feishu_tool_section_started = False
 
     st.feishu_stream_accumulated = markdown
     cleaned = _prepare_thinking_markdown(markdown)
@@ -517,7 +460,7 @@ async def finalize_feishu_thinking_stream(
     template: str,
     st: Any,
 ) -> None:
-    """一轮 LLM 流结束或进入工具行前：PATCH 为最终全文，并释放 message_id（下一轮新建卡片）。"""
+    """一轮 LLM 流结束或非合并的非流式块前：PATCH 为最终全文，并释放 message_id（下一轮新建卡片）。"""
     chat_id = _normalize_im_receive_chat_id(chat_id)
     mid = getattr(st, "feishu_thinking_message_id", None)
     acc = getattr(st, "feishu_stream_accumulated", "") or ""
@@ -529,16 +472,54 @@ async def finalize_feishu_thinking_stream(
         st.feishu_thinking_message_id = None
         st.feishu_stream_accumulated = ""
         st.feishu_last_patched_char_len = -1
+        st.feishu_tool_section_started = False
+
+
+async def append_feishu_thinking_same_card(
+    config: FeishuConfig,
+    chat_id: str,
+    tool_line: str,
+    template: str,
+    st: Any,
+) -> None:
+    """同轮工具意图：追加到当前思考卡片的 lark_md 正文并 PATCH（不新建消息、不计入流式 PATCH 预算）。"""
+    chat_id = _normalize_im_receive_chat_id(chat_id)
+    line = (tool_line or "").strip()
+    if not chat_id or not line:
+        return
+
+    acc = (getattr(st, "feishu_stream_accumulated", None) or "") or ""
+    mid = getattr(st, "feishu_thinking_message_id", None)
+    section_started = bool(getattr(st, "feishu_tool_section_started", False))
+    flat = line.replace("\n", " ").strip()
+    if not section_started:
+        addition = f"\n\n---\n\n**工具**\n\n- {flat}"
+        st.feishu_tool_section_started = True
+    else:
+        addition = f"\n- {flat}"
+
+    acc2 = acc + addition
+    st.feishu_stream_accumulated = acc2
+    cleaned = _prepare_thinking_markdown(acc2)
+    card_json = json.dumps(_thinking_interactive_card_dict(cleaned, template), ensure_ascii=False)
+
+    if mid:
+        if not _patch_interactive_thinking_message(config, mid, card_json):
+            _logger.warning(
+                "飞书思考卡片追加工具后 PATCH 失败 message_id=%s（正文已累积，客户端可能未刷新）",
+                mid,
+            )
+        return
+
+    new_mid = _create_interactive_thinking_message(config, chat_id, card_json)
+    if new_mid:
+        st.feishu_thinking_message_id = new_mid
 
 
 async def _send_thinking(config: FeishuConfig, chat_id: str, thinking: str, template: str = "gray") -> None:
-    """通过飞书 API 发送思考过程（使用交互式卡片）。
+    """通过飞书 API 发送思考过程（交互式卡片）。
 
-    Args:
-        config: 飞书应用配置
-        chat_id: 飞书聊天室 ID（如 oc_xxx）；勿传入 ``feishu:oc_xxx`` 形式（会自动剥离前缀）
-        thinking: 思考过程文本
-        template: 卡片颜色模板（gray=思考中, blue=已回复）
+    默认与流式思考合并为同卡；本函数仅在 ``merge_tools`` 关闭或非同轮 header 等场景下发送**独立**短卡片。
     """
     chat_id = _normalize_im_receive_chat_id(chat_id)
     if not chat_id:
@@ -554,7 +535,6 @@ async def _send_thinking(config: FeishuConfig, chat_id: str, thinking: str, temp
 
         client = lark.Client.builder().app_id(config.app_id).app_secret(config.app_secret).build()
 
-        # 工具意图等短行：单独一条卡片（非流式轮次）
         short = thinking[:2000] + "…" if len(thinking) > 2000 else thinking
         cleaned = _prepare_thinking_markdown(short)
         card_json = json.dumps(_thinking_interactive_card_dict(cleaned, template), ensure_ascii=False)
@@ -579,5 +559,60 @@ async def _send_thinking(config: FeishuConfig, chat_id: str, thinking: str, temp
     except Exception as e:
         _logger.debug("发送思考异常: %s", e)
 
+
+async def _send_reply(config: FeishuConfig, chat_id: str, reply: str) -> None:
+    """通过飞书 API 发送回复（交互式卡片 + lark_md，与思考卡片同一套构建逻辑）。"""
+    cid = _normalize_im_receive_chat_id(chat_id)
+    if not _is_valid_im_receive_id(cid):
+        _logger.debug("跳过发送回复：无效的 chat_id (%s)", chat_id)
+        return
+
+    body = _prepare_card_markdown(reply or "")
+    card = _feishu_interactive_card_dict("🤖 Mini Agent", body, "blue")
+
+    try:
+        import lark_oapi as lark
+        from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
+
+        client = lark.Client.builder().app_id(config.app_id).app_secret(config.app_secret).build()
+        request = (
+            CreateMessageRequest.builder()
+            .receive_id_type("chat_id")
+            .request_body(
+                CreateMessageRequestBody.builder()
+                .receive_id(cid)
+                .msg_type("interactive")
+                .content(json.dumps(card, ensure_ascii=False))
+                .build()
+            )
+            .build()
+        )
+        response = client.im.v1.message.create(request)
+        if not response.success():
+            _logger.warning("发送回复失败: %s %s", response.code, response.msg)
+    except ImportError:
+        _logger.error("请安装 lark-oapi: pip install lark-oapi")
+    except Exception as e:
+        _logger.error("发送回复异常: %s", e)
+        try:
+            import lark_oapi as lark
+            from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
+
+            client = lark.Client.builder().app_id(config.app_id).app_secret(config.app_secret).build()
+            request = (
+                CreateMessageRequest.builder()
+                .receive_id_type("chat_id")
+                .request_body(
+                    CreateMessageRequestBody.builder()
+                    .receive_id(cid)
+                    .msg_type("text")
+                    .content(json.dumps({"text": reply}))
+                    .build()
+                )
+                .build()
+            )
+            client.im.v1.message.create(request)
+        except Exception:
+            pass
 
 

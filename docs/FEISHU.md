@@ -1,6 +1,6 @@
 # 飞书集成文档
 
-> Mini Agent Python — 飞书 WebSocket 长轮询
+> Mini Agent Python | 版本: 2.0.2 | 飞书 WebSocket 长轮询
 
 ## 快速开始
 
@@ -53,7 +53,7 @@ ChannelRouter.resolve_feishu_message(chat_id, sender_id, chat_type)
 UnifiedEngine.run_agent_with_thinking()
     │
     ├── CLI: 终端流式打印思考过程
-    └── 飞书（群聊与私聊）: 每轮 LLM 思考 **一条交互卡片**（PATCH 节流）；工具意图等仍为单独短消息
+    └── 飞书（群聊与私聊）: 每轮 LLM 思考 **一条交互卡片**（`lark_md` 渲染；PATCH 节流）；同轮工具意图默认 **追加到该卡片**（与 CLI 的 `MINIAGENT_THINKING_MERGE_TOOLS` 一致；设为 `0` 时工具行仍各建一条短卡片）
 ```
 
 ## chat_type 支持
@@ -76,8 +76,8 @@ handler 函数支持 `chat_type` 参数，用于区分群聊和私聊：
 3. **命令拦截** — 以 `.` 开头的消息路由到 `dispatch_command()`
 4. **解析 session_key** — 通过 `ChannelRouter.resolve_feishu_message()`
 5. **运行 Agent** — `run_agent_with_thinking(session_key, ...)`
-6. **发送思考** — `push_feishu_thinking_stream()` / `finalize_feishu_thinking_stream()` + `_send_thinking()`（工具行）；详见 `miniagent/feishu/poll_server.py` 顶部常量（PATCH 频率与单条可 PATCH 次数上限）
-7. **发送回复** — 通过 `_send_reply()` 发送最终回复
+6. **发送思考** — `push_feishu_thinking_stream()`；同轮合并工具时 `append_feishu_thinking_same_card()`；否则 `finalize_feishu_thinking_stream()` + `_send_thinking()`；详见 `miniagent/feishu/poll_server.py` 顶部常量（PATCH 频率与单条可 PATCH 次数上限）
+7. **发送回复** — `_send_reply()` 使用与思考相同的交互卡片构建（`_feishu_interactive_card_dict` + `_prepare_card_markdown`）；入站 `chat_id` 会先 `_normalize_im_receive_chat_id`，仅当规范化后以 `oc_`（群）或 `ou_`（用户）开头时才发送。
 
 ## 关键修复
 

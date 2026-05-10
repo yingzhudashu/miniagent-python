@@ -1,8 +1,10 @@
-"""Mini Agent Python — 模型与 Agent 配置管理
+"""模型与 Agent 配置管理（环境变量 + 可选外部 JSON 补丁）
 
-双层配置体系：模型层 + Agent 层。
-支持环境变量覆盖，预设快速切换。
-"""
+- **模型层** ``ModelConfig``：端点、温度、``max_tokens``、thinking 等。
+- **Agent 层** ``AgentConfig``：``max_turns``、工具超时、上下文压缩阈值、循环检测等。
+
+扁平环境变量优先；``external_config`` 在启动时加载的补丁由 ``get_default_model_config`` 等与 env 合并
+（thinking 以 env 为准覆盖补丁）。``MODEL_PROFILES`` 提供预设别名。"""
 
 from __future__ import annotations
 
@@ -130,23 +132,105 @@ def get_default_model_config() -> ModelConfig:
     """获取默认 ModelConfig
 
     根据环境变量和预设构建完整的模型配置。
-    读取的环境变量：OPENAI_BASE_URL, OPENAI_MODEL, MODEL_PROFILE, AGENT_CONTEXT_WINDOW
+    读取的环境变量：OPENAI_BASE_URL, OPENAI_MODEL, MODEL_PROFILE, AGENT_CONTEXT_WINDOW,
+    OPENAI_MAX_TOKENS（可选，覆盖输出 max_tokens）、AGENT_THINKING_DEFAULT（low/medium/high）、
+    OPENAI_THINKING_BUDGET（非负整数，覆盖当前模型的 thinking 预算）。
+
+    合并优先级（thinking）：``MODEL_PROFILE`` 为基线；若设置了 ``AGENT_THINKING_DEFAULT`` 则用之；
+    否则若存在可选外部 JSON 补丁中的 ``thinking_default`` 则用之；否则保持基线。
+
+    ``OPENAI_THINKING_BUDGET`` 若显式设置且可解析为非负整数，则覆盖上述推导的预算
+    （与 ``AGENT_THINKING_DEFAULT`` 同时设置时，**最终 thinking 预算以此为准**，档位仍由后者决定）。
+    若**未**设置 ``AGENT_THINKING_DEFAULT``，则还可使用外部 JSON 的 ``thinking_budget_by_model``
+    覆盖当前模型的预算；一旦设置了 ``AGENT_THINKING_DEFAULT``，则不再用该按模型项（避免与 env 档位冲突）。
+
+    可选 ``MINIAGENT_CONFIG`` / ``MINIAGENT_OPENCLAW_CONFIG`` 仅作兼容：在对应扁平环境变量
+    **未设置** 时回填 ``OPENAI_*`` 等；thinking 相关仍以**环境变量优先于补丁**。
 
     Returns:
         默认的模型配置对象
     """
+    from miniagent.core.thinking_presets import map_openclaw_thinking_to_model
+    from miniagent.runtime.external_config import get_external_config_patch
+
+    def _limits_for_current_model(e: dict[str, Any], mname: str) -> dict[str, int] | None:
+        ml = e.get("model_limits")
+        if not isinstance(ml, dict):
+            return None
+        for key in (mname, mname.split("/")[-1]):
+            if key and isinstance(ml.get(key), dict):
+                ent = ml[key]
+                if isinstance(ent, dict):
+                    return {k: int(v) for k, v in ent.items() if isinstance(v, int)}
+        return None
+
     profile_name = os.environ.get("MODEL_PROFILE", "balanced")
     preset = MODEL_PROFILES.get(profile_name, MODEL_PROFILES["balanced"])
+    ext = get_external_config_patch()
+
+    thinking_level = preset.thinking_level
+    thinking_budget = preset.thinking_budget
+
+    env_td = (os.environ.get("AGENT_THINKING_DEFAULT") or "").strip().lower()
+    thinking_default_from_env = env_td in ("low", "medium", "high")
+    if thinking_default_from_env:
+        thinking_level, thinking_budget = map_openclaw_thinking_to_model(env_td)
+    else:
+        td = ext.get("thinking_default")
+        if isinstance(td, str):
+            tdn = td.strip().lower()
+            if tdn in ("low", "medium", "high"):
+                thinking_level, thinking_budget = map_openclaw_thinking_to_model(tdn)
+
+    model_name = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+
+    budget_raw = os.environ.get("OPENAI_THINKING_BUDGET")
+    budget_from_env: int | None = None
+    if budget_raw is not None and str(budget_raw).strip() != "":
+        try:
+            b = int(str(budget_raw).strip())
+            if b >= 0:
+                budget_from_env = b
+        except ValueError:
+            pass
+
+    if budget_from_env is not None:
+        thinking_budget = budget_from_env
+    elif not thinking_default_from_env:
+        bym = ext.get("thinking_budget_by_model")
+        if isinstance(bym, dict):
+            if model_name in bym and isinstance(bym[model_name], int):
+                thinking_budget = int(bym[model_name])
+            else:
+                short = model_name.split("/")[-1]
+                if short != model_name and short in bym and isinstance(bym[short], int):
+                    thinking_budget = int(bym[short])
+
+    limits_lm = _limits_for_current_model(ext, model_name)
+
+    if "AGENT_CONTEXT_WINDOW" in os.environ:
+        context_window = _env_int("AGENT_CONTEXT_WINDOW", 128000)
+    elif limits_lm and limits_lm.get("context_window"):
+        context_window = int(limits_lm["context_window"])
+    else:
+        context_window = 128000
+
+    if "OPENAI_MAX_TOKENS" in os.environ:
+        max_tokens = _env_int("OPENAI_MAX_TOKENS", preset.max_tokens)
+    elif limits_lm and limits_lm.get("max_tokens"):
+        max_tokens = int(limits_lm["max_tokens"])
+    else:
+        max_tokens = preset.max_tokens
 
     return ModelConfig(
         base_url=os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
-        model=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+        model=model_name,
         temperature=preset.temperature,
         top_p=preset.top_p,
-        max_tokens=preset.max_tokens,
-        thinking_level=preset.thinking_level,
-        thinking_budget=preset.thinking_budget,
-        context_window=_env_int("AGENT_CONTEXT_WINDOW", 128000),
+        max_tokens=max_tokens,
+        thinking_level=thinking_level,
+        thinking_budget=thinking_budget,
+        context_window=context_window,
         stream=False,
         retry_count=2,
         profiles=MODEL_PROFILES,
@@ -261,8 +345,10 @@ def merge_agent_config(
         "model_overrides": dict(base.model_overrides),
         "session_key": base.session_key,
         "session_workspace": base.session_workspace,
+        "session_registry": base.session_registry,
         "session_toolboxes": list(base.session_toolboxes),
         "conversation_history": list(base.conversation_history),
+        "risk_level": base.risk_level,
     }
 
     # 应用覆盖

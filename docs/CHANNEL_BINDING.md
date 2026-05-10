@@ -1,6 +1,6 @@
 # 通道绑定 (Channel Binding)
 
-> Mini Agent Python — 将 CLI 与飞书通道绑定到同一会话，实现跨平台上下文共享
+> Mini Agent Python | 版本: 2.0.2 | 将 CLI 与飞书通道绑定到同一会话，实现跨平台上下文共享
 
 ## 设计原理
 

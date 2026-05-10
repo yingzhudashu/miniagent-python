@@ -1,10 +1,10 @@
 # 贡献指南
 
-> Mini Agent Python | 版本: 2.0.1
+> Mini Agent Python | 版本: 2.0.2
 
 ## 项目架构
 
-项目分为 10 个子包，各司其职：
+项目按一级子包划分职责（共 12 个：`cli`、`core`、`engine`、`feishu`、`infrastructure`、`memory`、`session`、`skills`、`tools`、`security`、`types`、`runtime`）：
 
 | 子包 | 职责 | 关键文件 |
 |------|------|---------|

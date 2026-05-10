@@ -1,4 +1,8 @@
-"""会话历史 ↔ LLM API：保留 thinking 等扩展 role 于磁盘，调用 API 前映射为合法消息。"""
+"""会话历史 ↔ Chat Completions：磁盘可存扩展 ``role``（如 ``thinking``），调用 API 前做清洗。
+
+``conversation_history_for_llm`` 将内部格式映射为 OpenAI 兼容的 ``user``/``assistant``/
+``system``/``tool``；含归档标记的 system 消息会保留为简短衔接说明。
+"""
 
 from __future__ import annotations
 

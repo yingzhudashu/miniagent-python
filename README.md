@@ -25,6 +25,11 @@ pip install -e ".[dev]"              # 开发：pytest / ruff
 # 仅需运行时：pip install -e .
 cp .env.example .env       # 编辑填入 OPENAI_API_KEY
 
+# 联网检索（天气、新闻等）：在 .env 中配置 TAVILY_API_KEY（或 WEB_SEARCH_API_KEY）
+# 可选：无头浏览器抓取 CSR 页面 — pip install -e ".[browser]" && playwright install chromium
+# 可选：MCP stdio 工具 — pip install -e ".[mcp]"，并在 .env 配置 MINIAGENT_MCP_STDIO（见 .env.example）
+# 可选：ClawHub 基线技能 — python scripts/bootstrap_clawhub_skills.py（slug 以 https://clawhub.ai 技能页为准，若默认失败可用 --slug author/slug）
+
 # 可选：将状态目录迁出仓库（测试 / 多副本部署）
 # PowerShell: $env:MINI_AGENT_STATE = "$env:TEMP\miniagent-state"
 # bash: export MINI_AGENT_STATE=/tmp/miniagent-state
@@ -36,6 +41,17 @@ python -m miniagent --stop           # 列出实例；交互停止 / --stop --al
 ```
 
 新进程注册时会自动删除磁盘上 **PID 已退出** 的旧实例注册目录，**不会**终止仍在运行的其它 Agent。详见 [docs/INSTANCE_REGISTRY.md](docs/INSTANCE_REGISTRY.md)。
+
+### 联网工具与配置说明
+
+- **`web_search`**（Tavily）需配置密钥；未配置时调用会返回明确错误，不影响其余工具。
+- **`browser_extract_text`** 依赖可选依赖 `miniagent-python[browser]`；未安装时返回安装提示。
+- **内置工具始终出现在工具列表中**；不需要联网时请勿配置 Tavily Key 即可。可选外部 JSON（`MINIAGENT_CONFIG`）中的 `tools.web.search` **当前不会**单独开关注册项（与部分外部产品配置字段仅为语义对齐）；若需避免模型调用搜索，可在系统提示或策略侧约束。
+- **自我优化工具**（`self_inspect`、`generate_proposal` 等）默认注册；生产环境若需收敛暴露面，可设置环境变量 **`MINIAGENT_SELF_OPT_TOOLS=0`**。详见 [.env.example](.env.example)。
+
+### 技能目录迁移
+
+旧版本若将技能装在仓库根目录 **`skills/`**，请迁移至 **`workspaces/skills/`**（或设置 **`MINI_AGENT_SKILLS`** 指向原目录），否则引擎不会加载旧路径。
 
 ## 常用命令
 
@@ -53,28 +69,15 @@ python -m miniagent --stop           # 列出实例；交互停止 / --stop --al
 
 ## 项目结构
 
-```
-miniagent/
-├── __main__.py     # 进程入口（.env、--stop、委托 compat）
-├── compat.py       # 聚合导出与 unified_entry（组装 RuntimeContext）
-├── runtime/        # RuntimeContext 组合根
-├── cli/            # 控制台脚本 miniagent 的入口
-├── core/           # 核心引擎 (agent, planner, executor, openai_client, self_opt)
-├── engine/         # 运行时编排 (main, engine, commands, feishu_state)
-├── feishu/         # 飞书通信 (WebSocket, handler)
-├── infrastructure/ # 基础设施 (registry, queue, monitor, instance, channel_router)
-├── memory/         # 三层记忆 (store, context, index, defaults)
-├── session/        # 会话管理 (manager, workspace)
-├── skills/         # 技能系统 (registry, loader, clawhub)
-├── tools/          # LLM 工具 (exec, filesystem, web)
-├── security/       # 安全沙箱
-└── types/          # 类型定义
-```
+源码包为 `miniagent/`；子包包括 `runtime`（组合根）、`core`（规划/执行）、`engine`（主循环与命令）、`feishu`、`infrastructure`、`memory`、`session`、`skills`、`tools`、`mcp`（可选 stdio MCP）、`security`、`types`。
+
+**与仓库一致的完整目录树**见 [docs/INDEX.md](docs/INDEX.md) §项目结构。
 
 ## 文档
 
 | 文档 | 说明 |
 |------|------|
+| [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | **零基础使用指南**（安装、配置、点命令、飞书/可选能力、FAQ、安全） |
 | [docs/INDEX.md](docs/INDEX.md) | 文档索引 |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 系统架构 |
 | [docs/CLI.md](docs/CLI.md) | CLI 命令手册 |
@@ -90,7 +93,7 @@ miniagent/
 ## 测试
 
 ```bash
-python -m pytest tests/ -v       # 约 119 tests（以 pytest 收集为准）
+python -m pytest tests/ -v       # 以 pytest 收集为准
 python -m ruff check miniagent tests
 python -m compileall -q miniagent
 ```
@@ -101,6 +104,8 @@ python -m compileall -q miniagent
 - OpenAI API (GPT-4o-mini)
 - 飞书 SDK (lark-oapi, WebSocket)
 - pytest (单元测试)
+
+**可选 pip extra**（与 [`pyproject.toml`](pyproject.toml) 一致；权威说明见 [docs/ENGINEERING.md](docs/ENGINEERING.md) §1）：`dev`（pytest / ruff）、`feishu`（lark-oapi）、`browser`（playwright）、`mcp`（官方 mcp SDK）。
 
 ## License
 

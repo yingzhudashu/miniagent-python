@@ -1,19 +1,23 @@
 """Engine — 子系统初始化
 
-拆分自 unified.py。
+拆分自 unified.py。在 ``unified_main`` 早期调用 ``init_subsystems``，完成 **工具与技能**
+的就绪后再进入 CLI 循环。
 
-职责：
-- 加载技能包
-- 创建 SessionManager
-- 创建默认会话并加锁
-- 清理过期关键词索引
+顺序要点（与注册覆盖语义一致）：
+
+1. ``register_builtin_tools``：内置 ``ALL_TOOLS``
+2. 磁盘技能包发现并注册工具（同名冲突时跳过技能侧）
+3. ``session_memory_tools``：会话级记忆工具
+4. 可选 ``MINIAGENT_MCP_STDIO``：stdio MCP 工具（未安装 ``mcp`` 包则打日志跳过）
+5. 合并 ``BUILTIN_TOOLBOXES`` 与技能工具箱；创建 ``SessionManager``；默认会话加锁；
+   ``KeywordIndex.prune_expired`` 清理过期索引项
 """
 
 from __future__ import annotations
 
+import json
 import os
 import random
-from pathlib import Path
 from typing import Any
 
 from miniagent.infrastructure.logger import get_logger
@@ -44,14 +48,18 @@ async def init_subsystems(
     Returns:
         (loaded_skills, skill_toolboxes, skill_prompts, active_session_id, session_manager)
     """
+    from miniagent.engine.builtin_tools import register_builtin_tools
     from miniagent.skills.loader import discover_skill_packages
     from miniagent.tools.session_memory import session_memory_tools
 
-    # 1. 加载技能包
-    skills_root = os.environ.get(
-        "MINI_AGENT_SKILLS",
-        str(Path(__file__).parent.parent.parent / "workspaces" / "skills"),
-    )
+    # 0. 内置工具（ALL_TOOLS）先于技能包；同名时内置优先（技能注册遇 ValueError 则跳过）
+    reg_n = register_builtin_tools(registry)
+    if reg_n:
+        _logger.info("已注册 %d 个内置工具（ALL_TOOLS）", reg_n)
+
+    from miniagent.skills.paths import get_skills_root
+
+    skills_root = get_skills_root()
     loaded_skills = []
     if os.path.isdir(skills_root):
         packages = await discover_skill_packages(skills_root)
@@ -72,8 +80,31 @@ async def init_subsystems(
         except ValueError:
             pass
 
+    mcp_raw = os.environ.get("MINIAGENT_MCP_STDIO", "").strip()
+    if mcp_raw:
+        try:
+            spec = json.loads(mcp_raw)
+            if isinstance(spec, list) and len(spec) >= 1:
+                from miniagent.mcp.runtime import register_mcp_stdio_tools
+
+                mcp_n = await register_mcp_stdio_tools(
+                    registry, str(spec[0]), [str(x) for x in spec[1:]]
+                )
+                _logger.info("MINIAGENT_MCP_STDIO: 已注册 %d 个 MCP 工具", mcp_n)
+        except ImportError:
+            _logger.warning("MINIAGENT_MCP_STDIO: 未安装 mcp 包，跳过（pip install miniagent-python[mcp]）")
+        except Exception as e:
+            _logger.warning("MINIAGENT_MCP_STDIO: %s", e)
+
     # 2. 获取工具箱和系统提示
+    from miniagent.skills.builtin_toolboxes import BUILTIN_TOOLBOXES
+
     skill_toolboxes = skill_registry.get_all_toolboxes()
+    seen_tb = {t.id for t in skill_toolboxes}
+    for tb in BUILTIN_TOOLBOXES:
+        if tb.id not in seen_tb:
+            skill_toolboxes.append(tb)
+            seen_tb.add(tb.id)
     skill_prompts = skill_registry.get_system_prompts()
 
     # 3. 创建 SessionManager

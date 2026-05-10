@@ -1,6 +1,7 @@
-"""Mini Agent Python — 飞书适配类型 (Phase 8)
+"""飞书侧数据类型（配置、入站消息事件、回复载体）
 
-飞书消息事件、配置、响应相关类型。
+供 ``poll_server``、``agent_handler`` 与 ``miniagent.types`` 再导出使用；
+网络与 SDK 细节仍在各调用模块内处理，本文件保持无 I/O 纯数据。
 """
 
 from __future__ import annotations

@@ -26,6 +26,10 @@ from miniagent.types.memory import SessionMemory
 from miniagent.memory.store import format_memory_for_prompt
 
 
+class ContextBudgetExceeded(RuntimeError):
+    """context_overflow_strategy 为 error 且上下文超过压缩阈值时抛出。"""
+
+
 # ============================================================================
 # Token 估算
 # ============================================================================
@@ -101,6 +105,8 @@ class DefaultContextManager(ContextManagerProtocol):
         context_window: int,
         compress_threshold: float,
         tools: list[ChatCompletionToolParam] | None = None,
+        *,
+        overflow_strategy: str = "summarize",
     ) -> None:
         """创建上下文管理器
 
@@ -108,6 +114,7 @@ class DefaultContextManager(ContextManagerProtocol):
             context_window: 上下文窗口大小（token）
             compress_threshold: 压缩触发阈值（0.0-1.0）
             tools: 工具 schema 列表（可选）
+            overflow_strategy: summarize | truncate | error（见 AgentConfig.context_overflow_strategy）
         """
         self._messages: list[ChatCompletionMessageParam] = []
         self._system_prompt: str = ""
@@ -115,8 +122,14 @@ class DefaultContextManager(ContextManagerProtocol):
         self._context_window = context_window
         self._tools: list[ChatCompletionToolParam] = tools or []
         self._compress_threshold = compress_threshold
+        self._overflow_strategy = overflow_strategy
         self._compressed = False
         self._total_tokens_estimate = 0
+
+    def set_tools(self, tools: list[ChatCompletionToolParam] | None) -> None:
+        """运行时替换工具 schema 列表（用于分步执行时按步骤切换可见工具）。"""
+        self._tools = tools or []
+        self._recalculate_tokens()
 
     def get_state(self) -> ContextState:
         """获取当前上下文状态
@@ -158,7 +171,14 @@ class DefaultContextManager(ContextManagerProtocol):
         self._recalculate_tokens()
 
         if self.needs_compression():
-            self.compress()
+            if self._overflow_strategy == "error":
+                raise ContextBudgetExceeded(
+                    "上下文 token 估算已超过可用预算。请缩短对话、新开会话或提高压缩阈值。"
+                )
+            if self._overflow_strategy == "truncate":
+                self._compress_truncate()
+            else:
+                self.compress()
 
     def needs_compression(self) -> bool:
         """检查是否需要压缩
@@ -220,6 +240,15 @@ class DefaultContextManager(ContextManagerProtocol):
             {"role": "system", "content": summary}
         ]
 
+        self._compressed = True
+        self._recalculate_tokens()
+
+    def _compress_truncate(self) -> None:
+        """从第三条消息起删除最旧条目，直至低于阈值或仅剩 system 与一条 user。"""
+        guard = 0
+        while self.needs_compression() and len(self._messages) > 2 and guard < 2000:
+            guard += 1
+            del self._messages[2]
         self._compressed = True
         self._recalculate_tokens()
 
@@ -309,4 +338,10 @@ class DefaultContextManager(ContextManagerProtocol):
         )
 
 
-__all__ = ["DefaultContextManager", "estimate_tokens", "estimate_tool_tokens", "TokenEstimate"]
+__all__ = [
+    "DefaultContextManager",
+    "ContextBudgetExceeded",
+    "estimate_tokens",
+    "estimate_tool_tokens",
+    "TokenEstimate",
+]

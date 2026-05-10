@@ -1,4 +1,8 @@
-"""渐进式披露：在 system 侧拼接会话长期记忆与 Agent 长期记忆摘要。"""
+"""渐进式披露：在 **system** 侧拼接会话级 / Agent 级长期记忆摘要。
+
+由 ``build_layered_memory_augmentation`` 生成可追加的文本；是否注入及长度上限受
+``MINI_AGENT_LAYERED_MEMORY_*`` 环境变量控制。依赖 ``layered_memory`` 与按日 ``diary`` 文件。
+"""
 
 from __future__ import annotations
 

@@ -1,9 +1,9 @@
-"""Mini Agent Python — Feishu 消息处理器
+"""飞书消息处理器（通用回调工厂）
 
-处理飞书消息事件，将消息转发给 Agent 处理。
-
-导出：
-- create_feishu_handler(): 创建飞书消息处理器
+``create_feishu_handler`` 提供可组合的 ``on_message`` 钩子；生产路径下由 ``engine.main`` 构造
+闭包，将事件导入 ``MessageQueueManager`` / ``UnifiedEngine``，与 CLI 共用命令与 Agent 逻辑。
+``mention_required`` / ``auto_reply`` 控制群聊是否必须 @ 机器人及是否由框架代发占位回复；
+实际 Agent 正文仍由队列消费侧统一生成，避免与 CLI 行为分叉。
 """
 
 from __future__ import annotations
