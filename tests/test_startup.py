@@ -188,6 +188,7 @@ def test_feishu_handler_creation():
         "session_manager": None,
         "instance_id": 1,
         "runtime_ctx": ctx,
+        "feishu_p2p_synced_senders": set(),
     }
     handler = _create_feishu_handler([], [], loop_state, ctx)
     assert callable(handler)
@@ -359,6 +360,7 @@ def test_command_dispatch_all_commands():
         "session_manager": None,
         "instance_id": 1,
         "runtime_ctx": ctx,
+        "feishu_p2p_synced_senders": set(),
     }
 
     async def run_all():
@@ -414,6 +416,7 @@ def test_dispatch_queue_set_async_capture():
         "session_manager": None,
         "instance_id": 1,
         "runtime_ctx": ctx,
+        "feishu_p2p_synced_senders": set(),
     }
 
     async def run():
@@ -461,6 +464,7 @@ def test_dispatch_feishu_blocks_session_mutations():
         "session_manager": None,
         "instance_id": 1,
         "runtime_ctx": ctx,
+        "feishu_p2p_synced_senders": set(),
     }
 
     async def run():

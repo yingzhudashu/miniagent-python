@@ -114,6 +114,7 @@ async def execute_plan(
         allowed_paths=[workspace],
         permission="allowlist",
         clawhub=clawhub,
+        session_key=getattr(agent_config, "session_key", None),
     )
 
     # ── 循环检测器 ──
@@ -151,12 +152,15 @@ async def execute_plan(
 
     # ── 恢复对话历史（在当前输入之前） ──
     if agent_config.conversation_history:
+        from miniagent.memory.history_bridge import conversation_history_for_llm
+
         # 先保存当前 user_input
         current_user_msg = {"role": "user", "content": user_input}
+        hist_api = conversation_history_for_llm(agent_config.conversation_history)
         # 重建消息：system + 历史 + 当前输入
         context_manager._messages = [
             context_manager._messages[0],  # system prompt
-            *agent_config.conversation_history,  # 历史消息
+            *hist_api,  # 历史消息（含 thinking → assistant 映射）
             current_user_msg,  # 当前输入
         ]
         context_manager._recalculate_tokens()

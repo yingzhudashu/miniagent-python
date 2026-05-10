@@ -182,6 +182,7 @@ async def unified_main(ctx: RuntimeContext) -> None:
         "session_manager": None,
         "instance_id": instance_id,
         "runtime_ctx": ctx,
+        "feishu_p2p_synced_senders": set(),
     }
     ctx.create_feishu_handler_factory = (
         lambda tb, tp, st: _create_feishu_handler(tb, tp, st, ctx)
@@ -1043,6 +1044,8 @@ async def _run_cli_loop_fallback(
                     try_lock_session,
                     release_session_lock,
                     is_session_locked,
+                    channel_router,
+                    state.get("feishu_p2p_synced_senders"),
                 )
             elif sub_cmd == "create" and len(parts) >= 3:
                 await cmd_session_create(
@@ -1195,6 +1198,19 @@ def _create_feishu_handler(
             except Exception as e:
                 return f"\u274c \u547d\u4ee4\u6267\u884c\u5931\u8d25: {e}"
 
+        # ── 飞书私聊：与 CLI 共用当前活跃会话（自动绑定；手动 .bind feishu 会从同步集合移除）
+        if chat_type == "p2p":
+            cid = f"{channel_router.FEISHU_P2P_PREFIX}{sender_id}"
+            synced: set[str] = state.setdefault("feishu_p2p_synced_senders", set())  # type: ignore[assignment]
+            if not isinstance(synced, set):
+                synced = set()
+                state["feishu_p2p_synced_senders"] = synced
+            if not channel_router.is_bound(cid):
+                act = (state.get("active_session_id") or "").strip()
+                if act:
+                    channel_router.bind(cid, act)
+                    synced.add(sender_id)
+
         # ── 解析 session_key ──
         session_key = channel_router.resolve_feishu_message(
             chat_id, sender_id, chat_type
@@ -1216,7 +1232,7 @@ def _create_feishu_handler(
                 session_key,
                 skill_toolboxes,
                 "\n\n".join(skill_prompts) if skill_prompts else None,
-                is_feishu=chat_type == "group",
+                is_feishu=True,
                 registry=registry,
                 monitor=monitor,
                 session_manager=state.get("session_manager"),

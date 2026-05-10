@@ -4,10 +4,9 @@
 
 ## 设计原理
 
-默认情况下，每个输入通道拥有**独立会话**：
-- CLI 输入 → `__cli__` 会话
-- 飞书群聊 `oc_xxx` → `feishu:oc_xxx` 会话
-- 飞书私聊 `ou_xxx` → `feishu_p2p:ou_xxx` 会话
+- **CLI**：启动时由 `init_subsystems` 将 `__cli__` 绑定到本实例的默认会话（`default` 或 `default-xxxx`），并 `set_primary`；执行 `.session switch` 成功后会**同步** `__cli__` 与「自动跟随」的飞书私聊 sender 到同一目标会话。
+- **飞书群聊**：始终独立会话 `feishu:<chat_id>`，不参与「随 CLI 切换」的自动绑定。
+- **飞书私聊**：首条私聊消息到达时，若该 `feishu_p2p:<sender_id>` 尚未绑定，则**自动绑定**到当前 `active_session_id`（与 CLI 同一工作会话）；sender 记入 `feishu_p2p_synced_senders`，之后随 `.session switch` 一起重绑。若你使用 `.bind feishu <sender> <会话>` 手动绑定，该 sender 会从自动同步集合中移除，以免切换会话时覆盖你的手动映射。
 
 通道绑定通过 `ChannelRouter` 将多个通道映射到**同一个主会话**，实现：
 - **记忆共享**：跨通道的对话历史、事实提取、摘要全部互通

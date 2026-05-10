@@ -47,13 +47,13 @@ create_feishu_handler() → handler(content, chat_id, sender_id, chat_type)
 ChannelRouter.resolve_feishu_message(chat_id, sender_id, chat_type)
     │
     ├── 群聊: 返回 "feishu:<chat_id>" → 独立会话
-    └── 私聊: 返回 "feishu_p2p:<sender_id>" → 检查是否绑定
+    └── 私聊: 未绑定时自动绑到当前 CLI 活跃会话后再 resolve
     │
     ▼
 UnifiedEngine.run_agent_with_thinking()
     │
     ├── CLI: 终端流式打印思考过程
-    └── 飞书（群聊）: 每轮 LLM 思考 **一条交互卡片**（首次发送后按节流 PATCH 更新，避免每 token 一条新消息）；工具意图等仍为单独短消息
+    └── 飞书（群聊与私聊）: 每轮 LLM 思考 **一条交互卡片**（PATCH 节流）；工具意图等仍为单独短消息
 ```
 
 ## chat_type 支持
@@ -63,10 +63,11 @@ handler 函数支持 `chat_type` 参数，用于区分群聊和私聊：
 | chat_type | 行为 | session_key |
 |-----------|------|------------|
 | `group` | 独立会话，始终创建/使用 `feishu:<chat_id>` | `feishu:<chat_id>` |
-| `p2p` | 检查通道绑定，已绑定则使用绑定的 session_key | `feishu_p2p:<sender_id>` 或绑定的目标 |
+| `p2p` | 若尚未绑定，则自动 `bind(feishu_p2p:<sender>, active_session_id)`；已绑定则使用目标 session_key | 通常为当前 CLI 活跃会话 |
 
-**私聊绑定**：当 `feishu_p2p:<sender_id>` 已绑定到某会话时，
-该用户的私聊消息将使用绑定的 session_key，实现与 CLI 或其他飞书用户的上下文共享。
+**飞书入站独占**：同一 `MINI_AGENT_STATE` 下通过 `workspaces/feishu_inbound_owner.json` 保证**仅一个存活进程**可成功执行 `.feishu start` / 持有 WebSocket，避免多开实例重复收消息。停止飞书或 WS 任务结束时会释放锁。
+
+**私聊绑定**：手动 `.bind feishu` 仍可用；自动绑定的 sender 会随 `.session switch` 与 CLI 一起切会话，手动绑定过的 sender 不再参与自动重绑。
 
 ## 消息处理流程
 

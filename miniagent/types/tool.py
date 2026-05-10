@@ -59,12 +59,14 @@ class ToolContext:
         allowed_paths: 允许访问的路径列表（sandbox 模式下生效）
         permission: 权限级别
         clawhub: ClawHub 客户端（可选；由 RuntimeContext 注入，技能搜索/安装工具优先使用）
+        session_key: 当前 Agent 会话键（可选；由执行器注入供会话级只读工具使用）
     """
 
     cwd: str
     allowed_paths: list[str] = field(default_factory=list)
     permission: ToolPermission = "sandbox"
     clawhub: Any | None = None
+    session_key: str | None = None
 
 
 @dataclass

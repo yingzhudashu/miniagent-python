@@ -155,6 +155,12 @@ async def dispatch_command(
                             try_lock_session,
                             release_session_lock,
                             is_session_locked,
+                            channel_router,
+                            state.get("feishu_p2p_synced_senders")
+                            if isinstance(
+                                state.get("feishu_p2p_synced_senders"), set
+                            )
+                            else None,
                         )
                     state["active_session_id"] = new_active
                     output = buf.getvalue().strip()
@@ -300,7 +306,7 @@ async def dispatch_command(
     # ── .bind ──
     if cmd == ".bind":
         args = parts[1:] if len(parts) > 1 else []
-        output = cmd_bind(channel_router, args)
+        output = cmd_bind(channel_router, args, state)
         if capture:
             return output
         print(output)
@@ -309,7 +315,7 @@ async def dispatch_command(
     # ── .unbind ──
     if cmd == ".unbind":
         args = parts[1:] if len(parts) > 1 else []
-        output = cmd_unbind(channel_router, args)
+        output = cmd_unbind(channel_router, args, state)
         if capture:
             return output
         print(output)

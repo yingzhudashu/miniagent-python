@@ -62,12 +62,40 @@ class FeishuRuntime:
             self._emit_user_line("\u274c \u672a\u914d\u7f6e\u98de\u4e66\u51ed\u8bc1 (FEISHU_APP_ID)")
             return
 
-        self._config = config
-        handler = (
-            create_handler(skill_toolboxes, skill_prompts, state)
-            if state is not None
-            else create_handler(skill_toolboxes, skill_prompts)
+        if self._running and self._task and not self._task.done():
+            self._emit_user_line("\u2139\ufe0f [\u98de\u4e66] \u5df2\u5728\u8fd0\u884c\u4e2d")
+            return
+
+        from miniagent.infrastructure.feishu_inbound_lock import (
+            try_acquire_feishu_inbound_owner,
         )
+
+        inst_id = None
+        if state is not None and isinstance(state, dict):
+            try:
+                inst_id = int(state.get("instance_id") or 0) or None
+            except (TypeError, ValueError):
+                inst_id = None
+        ok, lock_msg = try_acquire_feishu_inbound_owner(instance_id=inst_id)
+        if not ok:
+            self._emit_user_line(lock_msg)
+            return
+
+        from miniagent.infrastructure.feishu_inbound_lock import (
+            release_feishu_inbound_owner,
+        )
+
+        try:
+            self._config = config
+            handler = (
+                create_handler(skill_toolboxes, skill_prompts, state)
+                if state is not None
+                else create_handler(skill_toolboxes, skill_prompts)
+            )
+        except Exception as e:
+            release_feishu_inbound_owner()
+            self._emit_user_line(f"\u274c \u98de\u4e66\u542f\u52a8\u5931\u8d25: {e}")
+            raise
 
         mq = self._message_queue
 
@@ -79,9 +107,15 @@ class FeishuRuntime:
             except asyncio.CancelledError:
                 _logger.info("\u98de\u4e66: \u5df2\u53d6\u6d88")
                 self._emit_user_line("\u2139\ufe0f [\u98de\u4e66] \u5df2\u505c\u6b62")
+                raise
             except Exception as e:
                 _logger.error("[\u98de\u4e66] \u8fd0\u884c\u5f02\u5e38: %s", e, exc_info=True)
                 self._running = False
+            finally:
+                try:
+                    release_feishu_inbound_owner()
+                except Exception:
+                    pass
 
         self._task = asyncio.create_task(_run())
         self._running = True
@@ -97,12 +131,28 @@ class FeishuRuntime:
         """停止飞书连接。"""
         if not self._running:
             self._emit_user_line("\u2139\ufe0f \u98de\u4e66\u672a\u8fd0\u884c")
+            try:
+                from miniagent.infrastructure.feishu_inbound_lock import (
+                    release_feishu_inbound_owner,
+                )
+
+                release_feishu_inbound_owner()
+            except Exception:
+                pass
             return
 
         self._running = False
         if self._task:
             self._task.cancel()
             self._task = None
+        try:
+            from miniagent.infrastructure.feishu_inbound_lock import (
+                release_feishu_inbound_owner,
+            )
+
+            release_feishu_inbound_owner()
+        except Exception:
+            pass
         self._emit_user_line("\u2705 \u98de\u4e66\u5df2\u505c\u6b62")
         try:
             from miniagent.infrastructure.instance import update_instance_mode
@@ -117,6 +167,27 @@ class FeishuRuntime:
             self._emit_user_line("\U0001f7e2 \u98de\u4e66: \u8fd0\u884c\u4e2d")
         else:
             self._emit_user_line("\u26aa \u98de\u4e66: \u672a\u542f\u7528")
+        try:
+            from miniagent.infrastructure.feishu_inbound_lock import (
+                read_feishu_inbound_owner,
+            )
+
+            info = read_feishu_inbound_owner()
+            if info:
+                alive = info.get("alive")
+                pid = info.get("pid")
+                oid = info.get("instance_id", "?")
+                st = "\u5b58\u6d3b" if alive else "\u53ef\u80fd\u5df2\u6b7b"
+                self._emit_user_line(
+                    f"\U0001f512 \u98de\u4e66\u5165\u7ad9\u9501: PID={pid} "
+                    f"\u5b9e\u4f8b#{oid} ({st})"
+                )
+            else:
+                self._emit_user_line(
+                    "\U0001f513 \u98de\u4e66\u5165\u7ad9\u9501: \u672a\u5360\u7528"
+                )
+        except Exception:
+            pass
 
     def is_running(self) -> bool:
         return self._running

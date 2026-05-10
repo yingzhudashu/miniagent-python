@@ -17,6 +17,24 @@ import os
 from typing import Any
 
 
+def sync_channel_router_to_session(
+    channel_router: Any,
+    session_id: str,
+    feishu_p2p_synced_senders: set[str] | None,
+) -> None:
+    """将 CLI 与「自动同步」的飞书私聊通道绑定到同一主会话，并更新 primary。"""
+    from miniagent.infrastructure.channel_router import ChannelRouter
+
+    if channel_router is None:
+        return
+    channel_router.bind(ChannelRouter.CLI_CHANNEL, session_id)
+    channel_router.set_primary(session_id)
+    if feishu_p2p_synced_senders:
+        pfx = ChannelRouter.FEISHU_P2P_PREFIX
+        for sid in feishu_p2p_synced_senders:
+            channel_router.bind(f"{pfx}{sid}", session_id)
+
+
 def _resolve_session(
     session_manager: Any, id_or_number: str
 ) -> str | None:
@@ -147,6 +165,8 @@ async def cmd_session_switch(
     try_lock_session: Any,
     release_session_lock: Any,
     is_session_locked: Any,
+    channel_router: Any | None = None,
+    feishu_p2p_synced_senders: set[str] | None = None,
 ) -> str:
     """切换到指定会话。
 
@@ -218,8 +238,11 @@ async def cmd_session_switch(
         try_lock_session(active_session_id)
         return active_session_id
 
-    # 切换成功
+    # 切换成功：CLI 与自动同步的飞书私聊跟到同一 session_key
     active_session_id = session_id
+    sync_channel_router_to_session(
+        channel_router, session_id, feishu_p2p_synced_senders
+    )
     display = session_manager.get_session_display_name(session_id)
     print(f"🔄 已切换到会话: {display}")
     return active_session_id
@@ -328,7 +351,9 @@ async def cmd_queue_set(message_queue: Any, mode_str: str) -> None:
         print("   可用: queue, preemptive")
 
 
-def cmd_bind(channel_router: Any, args: list[str]) -> str:
+def cmd_bind(
+    channel_router: Any, args: list[str], state: dict[str, Any] | None = None
+) -> str:
     """绑定通道到指定会话。
 
     用法:
@@ -372,12 +397,18 @@ def cmd_bind(channel_router: Any, args: list[str]) -> str:
         channel_id = f"{ChannelRouter.FEISHU_P2P_PREFIX}{sender_id}"
         old = channel_router.bind(channel_id, session_id)
         old_msg = f"（原绑定: {old}）" if old else ""
+        if state is not None:
+            synced = state.setdefault("feishu_p2p_synced_senders", set())
+            if isinstance(synced, set):
+                synced.discard(sender_id)
         return f"✅ 飞书私聊 ({sender_id[:8]}...) 已绑定到: {session_id} {old_msg}"
 
     return f"❌ 未知通道: {channel}"
 
 
-def cmd_unbind(channel_router: Any, args: list[str]) -> str:
+def cmd_unbind(
+    channel_router: Any, args: list[str], state: dict[str, Any] | None = None
+) -> str:
     """解除通道绑定。
 
     用法:
@@ -405,6 +436,10 @@ def cmd_unbind(channel_router: Any, args: list[str]) -> str:
             return "📭 没有已绑定的通道"
         count = len(bindings)
         channel_router.unbind_all()
+        if state is not None and "feishu_p2p_synced_senders" in state:
+            st = state["feishu_p2p_synced_senders"]
+            if isinstance(st, set):
+                st.clear()
         return f"✅ 已解除 {count} 个通道绑定"
 
     elif target == "cli":
@@ -419,6 +454,10 @@ def cmd_unbind(channel_router: Any, args: list[str]) -> str:
         sender_id = args[1]
         channel_id = f"{ChannelRouter.FEISHU_P2P_PREFIX}{sender_id}"
         old = channel_router.unbind(channel_id)
+        if state is not None:
+            synced = state.get("feishu_p2p_synced_senders")
+            if isinstance(synced, set):
+                synced.discard(sender_id)
         if old:
             return f"✅ 飞书私聊 ({sender_id[:8]}...) 已解除绑定（原: {old}）"
         return "📭 该飞书私聊未绑定任何会话"
@@ -529,6 +568,7 @@ def cmd_help(
 
 
 __all__ = [
+    "sync_channel_router_to_session",
     "cmd_session_list",
     "cmd_session_switch",
     "cmd_session_create",

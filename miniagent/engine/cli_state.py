@@ -18,6 +18,8 @@ class CliLoopState(TypedDict):
     session_manager: Any | None
     instance_id: int
     runtime_ctx: Any
+    #: 飞书私聊 sender_id，首次私聊自动绑到当前活跃会话；随 ``.session switch`` 重绑
+    feishu_p2p_synced_senders: set[str]
 
 
 __all__ = ["CliLoopState"]

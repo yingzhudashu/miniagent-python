@@ -45,6 +45,7 @@ async def init_subsystems(
         (loaded_skills, skill_toolboxes, skill_prompts, active_session_id, session_manager)
     """
     from miniagent.skills.loader import discover_skill_packages
+    from miniagent.tools.session_memory import session_memory_tools
 
     # 1. 加载技能包
     skills_root = os.environ.get(
@@ -64,6 +65,12 @@ async def init_subsystems(
                             registry.register(name, tool)
                         except ValueError:
                             pass
+
+    for name, tool in session_memory_tools.items():
+        try:
+            registry.register(name, tool)
+        except ValueError:
+            pass
 
     # 2. 获取工具箱和系统提示
     skill_toolboxes = skill_registry.get_all_toolboxes()
@@ -105,6 +112,7 @@ def _init_default_session(session_manager: Any, channel_router: Any) -> str:
 
     # 将 CLI 通道绑定到 default 会话，使 CLI 启动时共享同一会话和历史
     channel_router.bind("__cli__", session_id)
+    channel_router.set_primary(session_id)
 
     # 尝试加锁
     ok, reason = try_lock_session(session_id)
@@ -114,6 +122,8 @@ def _init_default_session(session_manager: Any, channel_router: Any) -> str:
     # 被其他实例占用，创建新会话
     session_id = f"default-{random.randint(1000, 9999)}"
     session_manager.get_or_create(session_id, SessionOptions(description="默认会话"))
+    channel_router.bind("__cli__", session_id)
+    channel_router.set_primary(session_id)
     try_lock_session(session_id)
     return session_id
 

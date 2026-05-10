@@ -12,6 +12,8 @@
 
 from __future__ import annotations
 
+import os
+import re
 from typing import Any
 
 from miniagent.core.agent import run_agent
@@ -96,9 +98,22 @@ class UnifiedEngine:
         ctx = session_manager.get_or_create(session_key, session_opts)
         history = ctx.conversation_history
 
-        # 2. 加载跨会话记忆
+        # 2. 加载跨会话记忆 + 渐进式分层摘要注入 system
         memory = await ms.load(session_key)
         memory_text = format_memory_for_prompt(memory)
+        from miniagent.memory.memory_pipeline import build_layered_memory_augmentation
+
+        layered_augment = build_layered_memory_augmentation(
+            session_key, user_input=user_input
+        )
+        combined_skill = skill_prompts
+        if layered_augment:
+            combined_skill = (
+                f"{skill_prompts}\n\n{layered_augment}" if skill_prompts else layered_augment
+            )
+        system_prompt = "\n\n".join(
+            x for x in (combined_skill, memory_text or None) if x
+        ) or None
 
         # 3. 重置该会话的思考计数器（每个会话独立计数，多群并发安全）
         self.thinking.reset_counter(session_key)
@@ -159,9 +174,19 @@ class UnifiedEngine:
             else:
                 self.thinking.enable_feishu(session_key, im_recv, _feishu_send)
 
-        # 5. 思考回调（支持流式更新）
+        # 5. 思考回调（支持流式更新；落盘到 history 的 thinking role）
+        thinking_by_label: dict[str, str] = {}
+        tool_thought_lines: list[str] = []
+
         async def _thinking(text: str, streaming: bool = False, header: str = "") -> None:
-            await self.thinking.show(text, session_key if is_feishu else "", streaming=streaming, header=header)
+            if streaming:
+                key = header if (header or "").strip() else "__stream__"
+                thinking_by_label[key] = text
+            if not streaming and text:
+                tool_thought_lines.append(text)
+            await self.thinking.show(
+                text, session_key if is_feishu else "", streaming=streaming, header=header
+            )
 
         # 6. 调用 Agent
         reply = await run_agent(
@@ -175,7 +200,7 @@ class UnifiedEngine:
                 "conversation_history": history,
                 "debug": False,
             },
-            system_prompt=(f"{skill_prompts}\n\n{memory_text}" if memory_text else skill_prompts),
+            system_prompt=system_prompt,
             on_thinking=_thinking,
             clawhub=clawhub,
             memory_store=ms,
@@ -197,11 +222,40 @@ class UnifiedEngine:
         if is_feishu:
             self.thinking.disable_buffer(session_key)
 
-        # 8. 更新历史
+        # 8. 更新历史（含思考过程；会话历史不总结，仅后续可归档到日记）
+        def _turn_label_sort_key(item: tuple[str, str]) -> tuple[int, str]:
+            lab = item[0]
+            m = re.search(r"第\s*(\d+)\s*轮", lab)
+            if m:
+                return (int(m.group(1)), lab)
+            return (10_000, lab)
+
+        thinking_parts: list[str] = []
+        for label, blob in sorted(thinking_by_label.items(), key=_turn_label_sort_key):
+            b = (blob or "").strip()
+            if b:
+                thinking_parts.append(f"{label}\n{b}")
+        if tool_thought_lines:
+            thinking_parts.append("\n".join(tool_thought_lines))
+        thinking_blob = "\n\n".join(thinking_parts).strip()
+
         history.append({"role": "user", "content": user_input})
+        if thinking_blob:
+            history.append({"role": "thinking", "content": thinking_blob})
         history.append({"role": "assistant", "content": reply})
-        if len(history) > 40:
-            del history[: len(history) - 40]
+        try:
+            cap = int(os.environ.get("MINI_AGENT_HISTORY_TAIL_MESSAGES", "200"))
+        except ValueError:
+            cap = 200
+
+        from miniagent.memory.history_archive import (
+            maybe_archive_old_turns,
+            trim_history_tail_by_turns,
+        )
+
+        # 先归档再按整轮截断，避免未写入日记即从首部硬删
+        maybe_archive_old_turns(session_key, history)
+        trim_history_tail_by_turns(history, cap)
 
         # 9. 活动日志
         al.log_session_start(
@@ -222,6 +276,13 @@ class UnifiedEngine:
             summary = generate_turn_summary(user_input, [], reply)
             facts = extract_facts(reply)
             await ms.update_summary(session_key, summary, facts)
+        except Exception:
+            pass
+
+        try:
+            from miniagent.memory.dream_scheduler import schedule_memory_maintenance
+
+            schedule_memory_maintenance(session_key)
         except Exception:
             pass
 

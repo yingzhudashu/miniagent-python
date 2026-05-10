@@ -272,6 +272,10 @@ _format_status(state, message_queue)
 5. **session_manager 为唯一数据源**：`UnifiedEngine` 不再维护冗余的 `_feishu_sessions`
    字典，所有会话历史统一通过 `SessionManager` 管理，避免多源不一致。
 
+6. **飞书私聊与 CLI 同会话**：首条私聊自动 `bind` 到 `active_session_id`；`.session switch` 通过 `sync_channel_router_to_session()` 同步 CLI 与已登记的私聊 sender。飞书 WebSocket 入站由 `feishu_inbound_owner.json` 做跨进程独占。
+
+7. **分层记忆管线**：`history_archive` 归档、`memory_pipeline` 注入、`dream_scheduler` 周期/体量触发的轻量精炼与 `session_lt` / `agent_lt` 更新（详见 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md)）。
+
 ## 运行时组合根
 
 启动时由 `compat.unified_entry`（或等价入口）实例化 `RuntimeContext`（见 `runtime/context.py`），字段包括 `registry`、`monitor`、`skill_registry`、`clawhub`、`engine`，以及 **`channel_router`**、**`message_queue`**、**`feishu`**（`FeishuRuntime`），以及 **`memory_store`**、**`activity_log`**、**`keyword_index`**，以及 **`openai_client`**（入口通常设为 `get_shared_async_openai()`；为 `None` 时执行链回落共享工厂）。`unified_main`、CLI 主循环与飞书消息处理器通过该对象（或由其闭包捕获）获取依赖，避免在 `compat`/`unified` 等模块上维护可变全局。

@@ -838,6 +838,7 @@ class DefaultSessionManager(SessionManagerProtocol):
                 allowed_paths=[default_workspace],
                 permission="allowlist",
                 clawhub=self._clawhub,
+                session_key=session_id,
             )
 
         return ToolContext(
@@ -845,6 +846,7 @@ class DefaultSessionManager(SessionManagerProtocol):
             allowed_paths=[ctx["config"].files_path],
             permission="allowlist",
             clawhub=self._clawhub,
+            session_key=session_id,
         )
 
     # -----------------------------------------------------------------------
