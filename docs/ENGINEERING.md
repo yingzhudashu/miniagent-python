@@ -51,6 +51,7 @@ CI 说明：
 
 可选增强（未默认纳入 CI，团队可自行约定）：
 
+- 性能合成与剖析流程见 [PERFORMANCE.md](PERFORMANCE.md)；可选 workflow **Perf smoke**（`workflow_dispatch` / 定时）跑 `pytest -m perf` 与 `scripts/perf_profile_tracemalloc.py` 并上传 artifact。
 - 覆盖率：`pytest --cov=miniagent --cov-report=term-missing`（需在 `optional-dependencies.dev` 中增加 `pytest-cov`）。
 - 渐进类型检查：自 `types/`、`core/config.py` 等模块起引入 `mypy`（或等价工具），**不默认**纳入 CI，待配置稳定后再考虑门禁。
 

@@ -164,6 +164,7 @@ class KeywordIndex:
         self._state_dir = state_dir
         self._index: dict[str, _IndexEntry] = {}
         self._loaded = False
+        self._dirty = False
         self._index_file = os.path.join(state_dir, "keyword-index.json")
 
     def _ensure_loaded(self) -> None:
@@ -197,10 +198,12 @@ class KeywordIndex:
                 self._index[keyword] = _IndexEntry(keyword=keyword, references=refs)
 
             self._loaded = True
+            self._dirty = False
         except Exception as e:
             _logger.warning("加载索引失败，重建中: %s", e)
             self._index.clear()
             self._loaded = True
+            self._dirty = False
 
     def load(self) -> None:
         """从磁盘加载索引（公开接口）。"""
@@ -209,8 +212,11 @@ class KeywordIndex:
     def save(self) -> None:
         """保存索引到磁盘
 
-        通常在应用退出时调用。
+        无未提交变更时快速返回（避免重复重写整文件）。
+        通常在批次末尾、进程退出或维护清理后调用。
         """
+        if not self._dirty:
+            return
         try:
             os.makedirs(self._state_dir, exist_ok=True)
             disk = {
@@ -236,6 +242,7 @@ class KeywordIndex:
             }
             with open(self._index_file, "w", encoding="utf-8") as f:
                 json.dump(disk, f, indent=2, ensure_ascii=False)
+            self._dirty = False
         except Exception as e:
             _logger.error("保存索引失败: %s", e)
 
@@ -280,6 +287,7 @@ class KeywordIndex:
                     facts=getattr(entry, "facts", []) or [],
                     weight=1.0,
                 ))
+                self._dirty = True
 
     def search_relevant(
         self, query: str, limit: int = 10, recent_minutes: int = 0
@@ -412,7 +420,8 @@ class KeywordIndex:
         for k in empty_keys:
             del self._index[k]
 
-        if removed_count > 0:
+        if removed_count > 0 or empty_keys:
+            self._dirty = True
             self.save()
 
         return removed_count

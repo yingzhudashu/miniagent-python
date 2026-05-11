@@ -1,0 +1,35 @@
+# 可选：合成 perf 冒烟 + 剖析脚本 artifact（不阻塞主 CI push/PR）
+name: Perf smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
+
+jobs:
+  perf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Pytest perf marker
+        run: python -m pytest tests/test_perf_synthetic.py -q -m perf --tb=short
+
+      - name: Tracemalloc profile script
+        run: python scripts/perf_profile_tracemalloc.py --json-out perf-snapshot.json
+
+      - name: Upload perf artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-snapshot
+          path: perf-snapshot.json

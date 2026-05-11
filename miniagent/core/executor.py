@@ -951,6 +951,9 @@ async def _save_session_memory(
             facts=facts,
         ),
     )
+    flush_ki = getattr(memory_store, "flush_keyword_index", None)
+    if callable(flush_ki):
+        flush_ki()
 
 
 __all__ = [

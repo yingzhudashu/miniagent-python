@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "commit": "optional-git-sha",
+  "generated_at": "2026-05-12T00:00:00Z",
+  "environment": {
+    "python": "3.12.x",
+    "platform": "linux|win32|darwin"
+  },
+  "scenarios": [
+    {
+      "id": "S1_execute_plan_mock",
+      "median_ms": 0,
+      "notes": "Fill after local run; compare across commits"
+    },
+    {
+      "id": "S2_keyword_index_batch_flush",
+      "median_ms": 0,
+      "keyword_index_save_calls": 1,
+      "notes": "Expect 1 save after N add_entry + flush"
+    }
+  ]
+}

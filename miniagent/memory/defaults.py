@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import atexit
 import os
 from typing import Any
 
@@ -57,6 +58,17 @@ def resolve_memory_dependencies(
         ki = inner if inner is not None else bki
     return ms, al, ki
 
+
+def _flush_process_keyword_index_at_exit() -> None:
+    if _bundle is None:
+        return
+    try:
+        _bundle[2].save()
+    except Exception:
+        pass
+
+
+atexit.register(_flush_process_keyword_index_at_exit)
 
 __all__ = [
     "get_state_root",

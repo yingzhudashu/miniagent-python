@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Performance
+
+- **关键词索引**：`KeywordIndex` 引入 `_dirty`，仅在变更后写盘；`DefaultMemoryStore.add_entry` 不再每次 `save()`，由 `flush_keyword_index()` 与 `executor` 会话记忆保存路径、进程 `atexit` 触发落盘，减少重复整文件重写；批量多次 `add_entry` 后单次 flush 可合并写盘。
+- **文档与工具**：新增 [docs/PERFORMANCE.md](docs/PERFORMANCE.md)、`tests/perf_helpers.py`、`tests/test_perf_synthetic.py`、`tests/perf_baselines/example.json`、`scripts/perf_profile_tracemalloc.py`；`pyproject.toml` 增加 `perf` pytest marker；根目录 `.gitignore` 忽略 `perf-snapshot.json`（剖析脚本 `--json-out` 默认文件名）。
+
 ### Changed
 
 - **CLI 思考**：`ThinkingDisplay` 在 `merge_tools` 后保留流式步骤与已打印长度，与同 `thinking_header` 的飞书单卡对齐；流式阶段 `header` 变更时**无飞书**也会重置流式状态（原逻辑仅在启用飞书时清空）。

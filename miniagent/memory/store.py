@@ -217,6 +217,18 @@ class DefaultMemoryStore(MemoryStoreProtocol):
         self._cache: dict[str, SessionMemory] = {}
         self._keyword_index = keyword_index
 
+    def flush_keyword_index(self) -> None:
+        """将 Layer 3 关键词索引的挂起变更写入磁盘。"""
+        try:
+            idx = self._keyword_index
+            if idx is None:
+                from miniagent.memory.defaults import get_process_default_memory_bundle
+
+                idx = get_process_default_memory_bundle()[2]
+            idx.save()
+        except Exception:
+            pass
+
     def _ensure_dir(self) -> None:
         """确保记忆目录存在"""
         os.makedirs(self._memory_dir, exist_ok=True)
@@ -424,7 +436,6 @@ class DefaultMemoryStore(MemoryStoreProtocol):
 
                 idx = get_process_default_memory_bundle()[2]
             idx.index_entry(session_id, full_entry)
-            idx.save()
         except Exception:
             pass  # 关键词索引失败不影响主流程
 
