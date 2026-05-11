@@ -64,6 +64,7 @@ _VALID_INSTANCE_MODES = frozenset({"cli", "both"})
 
 
 def _validate_instance_mode(mode: str) -> None:
+    """校验实例 mode 属于 ``cli`` / ``both``，否则抛 ``ValueError``。"""
     if mode not in _VALID_INSTANCE_MODES:
         raise ValueError(
             f"instance mode must be 'cli' or 'both', got {mode!r}"
@@ -135,6 +136,10 @@ class InstanceRegistry:
         state_dir: str | None = None,
         pid_checker: Any = None,
     ) -> None:
+        """Args:
+            state_dir: 状态根目录；默认 ``MINI_AGENT_STATE`` 或仓库下 ``workspaces``。
+            pid_checker: 可注入的 PID 存活探测（测试用）。
+        """
         self._state_dir = _get_state_dir(state_dir)
         self._inst_dir = _ensure_instances_dir(self._state_dir)
         self._my_id: int | None = None
@@ -443,6 +448,7 @@ def stop_instance_by_id(
 
 
 def _inst_md_cell(text: str) -> str:
+    """将单元格文本压成单行并转义 ``|``，供 GFM 表格渲染。"""
     s = (text or "").replace("\r\n", "\n").replace("\r", "\n")
     return s.replace("|", "\\|").replace("\n", " ").strip()
 

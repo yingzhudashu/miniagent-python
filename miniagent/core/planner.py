@@ -195,6 +195,7 @@ async def generate_plan(
 
 
 def _json_object_unsupported(err: Exception) -> bool:
+    """判断异常是否表示 ``json_object``/``response_format`` 不受支持（与 task_classifier 同源启发式）。"""
     if _OpenAIBadRequestError is not None and isinstance(err, _OpenAIBadRequestError):
         return True
     low = str(err).lower()
@@ -250,6 +251,7 @@ def _dict_to_plan(data: dict[str, Any], *, default_step_thinking: str = "medium"
     step_fallback = str(data.get("defaultStepThinkingLevel") or default_step_thinking)
 
     def _step_as_dict(s: Any, idx: int) -> dict[str, Any]:
+        """将原始步骤项（dict / str / 其它）规范为规划步骤字段字典。"""
         if isinstance(s, dict):
             return s
         if isinstance(s, str):
@@ -273,6 +275,7 @@ def _dict_to_plan(data: dict[str, Any], *, default_step_thinking: str = "medium"
         }
 
     def _step_thinking_level(s: dict[str, Any]) -> str | None:
+        """解析单步 ``thinkingLevel``，缺省则回落 ``step_fallback``。"""
         tl = s.get("thinkingLevel")
         if tl is None or tl == "":
             return step_fallback

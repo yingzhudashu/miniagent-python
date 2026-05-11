@@ -595,6 +595,7 @@ def cmd_unbind(
 
 
 def format_schedule_command_usage() -> str:
+    """返回 ``.schedule`` 子命令的用法说明文本（终端与工具复用）。"""
     return (
         "定时任务（持久化在 MINI_AGENT_STATE/scheduled_tasks/，经消息队列跑 Agent）：\n"
         "  .schedule list\n"
@@ -624,6 +625,7 @@ def _schedule_head_strip_tz_tokens(tokens: list[str]) -> tuple[list[str], str]:
 
 
 def _parse_schedule_session_spec(token: str) -> Any:
+    """解析 ``add`` 子命令中的会话目标 token，返回 :class:`~miniagent.scheduled_tasks.models.SessionSpec`。"""
     from miniagent.scheduled_tasks.models import SessionSpec
 
     t = token.strip()
@@ -643,6 +645,7 @@ def _parse_schedule_session_spec(token: str) -> Any:
 
 
 def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
+    """处理 ``.schedule`` 点命令：列出/展示/增删改定时任务；飞书等非变异渠道受 ``allow_mutations`` 限制。"""
     from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec
     from miniagent.scheduled_tasks.store import compute_initial_next_run, load_tasks, save_tasks
 

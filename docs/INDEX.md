@@ -41,6 +41,7 @@
 |------|------|----------|
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 贡献指南、开发规范 | 贡献者 |
 | [ENGINEERING.md](ENGINEERING.md) | 仓库卫生、质量门禁、单一事实来源 | 维护者、CI 负责人 |
+| [docstring_inventory.md](docstring_inventory.md) | 缺失 docstring 扫描报告（`scripts/docstring_inventory.py` 生成） | 维护者 |
 
 ### 可选：离线测评（本地）
 

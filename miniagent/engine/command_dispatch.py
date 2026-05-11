@@ -247,6 +247,7 @@ async def dispatch_command(
         return None
 
     def _abort_queue_output() -> str:
+        """中止当前/指定 chat 队列上的 dispatch 任务并返回格式化结果文本。"""
         tid = (message_queue_abort_chat_id or "").strip() or message_queue.CLI_CHAT_ID
         res = message_queue.abort_chat(tid)
         return format_queue_abort_message(res)

@@ -26,6 +26,7 @@ def register_trace_hook(hook: TraceHook) -> None:
 
 
 def unregister_trace_hook(hook: TraceHook) -> None:
+    """移除已注册的 trace 钩子（不存在时静默）。"""
     try:
         _hooks.remove(hook)
     except ValueError:
@@ -33,6 +34,7 @@ def unregister_trace_hook(hook: TraceHook) -> None:
 
 
 def clear_trace_hooks() -> None:
+    """清空全部 trace 钩子（测试隔离或子进程重置用）。"""
     _hooks.clear()
 
 

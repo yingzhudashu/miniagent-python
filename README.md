@@ -119,6 +119,8 @@ python -m ruff check miniagent tests
 python -m compileall -q miniagent
 ```
 
+用例数量以 `pytest tests/ --collect-only -q` 的收集结果为准（勿在文档中硬编码条数以免漂移）；与 [docs/ENGINEERING.md](docs/ENGINEERING.md) §5 核对清单一致。
+
 评测目录说明与产物勿提交约定见 [docs/EVALUATION_LOCAL.md](docs/EVALUATION_LOCAL.md)；手动触发仅跑评测见 [docs/ENGINEERING.md](docs/ENGINEERING.md) 第 2 节。
 
 ## 技术栈

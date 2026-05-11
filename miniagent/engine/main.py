@@ -124,6 +124,7 @@ def _feishu_user_status_fn(ctx: RuntimeContext) -> Callable[[str], None]:
     """飞书状态行：全屏已注册 ``cli_transcript_append`` 时写入 transcript，否则 print。"""
 
     def _emit(msg: str) -> None:
+        """将飞书状态行写入全屏 transcript（样式 ``cli-muted``）或退回 ``print``。"""
         fn = ctx.cli_transcript_append
         line = msg if msg.endswith("\n") else msg + "\n"
         if fn is not None:
@@ -196,6 +197,7 @@ async def unified_main(ctx: RuntimeContext) -> None:
 
     # 信号：尽快释放会话锁并取消飞书 task，避免残留 .lock 或后台 WS
     def _on_exit(*_: Any) -> None:
+        """SIGINT/SIGTERM：停定时任务、释会话锁、取消飞书 task 后退出进程。"""
         from miniagent.engine.session_lock import release_session_lock
 
         ev = ctx.scheduled_tasks_stop_event
@@ -424,6 +426,7 @@ async def run_cli_loop(
         *,
         run_id: str = "post-fix",
     ) -> None:
+        """调试 NDJSON 追加写入（存在则记录 hypothesis/布局信息；失败静默）。"""
         try:
             import json as _json
             import time as _time
@@ -452,6 +455,7 @@ async def run_cli_loop(
             pass
 
     def _dbg_transcript_summary() -> dict:
+        """返回 transcript 条数、类型分布与尾部类型名（供调试日志使用）。"""
         types: dict[str, int] = {}
         for f in _transcript:
             k = type(f).__name__
@@ -465,6 +469,7 @@ async def run_cli_loop(
     # #endregion
 
     def _transcript_fragment_len(frag: Any) -> int:
+        """估算单条 transcript 片段的字符长度（tuple 文本或 ``ANSI`` 包裹串）。"""
         if isinstance(frag, tuple) and len(frag) >= 2:
             return len(frag[1])
         try:
@@ -477,6 +482,7 @@ async def run_cli_loop(
         return 0
 
     def _trim_transcript() -> None:
+        """当总字符数超过上限时从头部丢弃片段，保留最近内容。"""
         total = sum(_transcript_fragment_len(f) for f in _transcript)
         while total > _MAX_TRANSCRIPT_CHARS and len(_transcript) > 16:
             old = _transcript.pop(0)
@@ -504,9 +510,11 @@ async def run_cli_loop(
     _output_scroll_ref: list[Any] = [None]
 
     def _sp() -> Any:
+        """当前 ``ScrollablePane`` 引用（输出区滚动容器）。"""
         return _output_scroll_ref[0]
 
     def _viewport_rows() -> int:
+        """可用于输出区的近似行数（终端高度减去 chrome）。"""
         try:
             app = get_app()
             return max(6, (app.output.get_size().rows or 24) - 4)
@@ -514,6 +522,7 @@ async def run_cli_loop(
             return 20
 
     def _viewport_cols() -> int:
+        """输出区可用列宽（扣除滚动条占位）。"""
         try:
             sp = _sp()
             if sp is None:
@@ -526,6 +535,7 @@ async def run_cli_loop(
             return 79
 
     def _content_preferred_height() -> int:
+        """transcript 内容理想高度（用于计算最大滚动偏移）。"""
         try:
             sp = _sp()
             if sp is None:
@@ -538,22 +548,26 @@ async def run_cli_loop(
             return 0
 
     def _max_output_scroll() -> int:
+        """``vertical_scroll`` 合法上限：内容高度与视口行数之差。"""
         vh = _content_preferred_height()
         rows = _viewport_rows()
         return max(0, vh - rows)
 
     def _output_at_bottom() -> bool:
+        """用户是否已滚动到输出区底部（决定是否自动粘底）。"""
         sp = _sp()
         if sp is None:
             return True
         return sp.vertical_scroll >= _max_output_scroll() - 1
 
     def _snap_output_bottom() -> None:
+        """将输出区滚动条置底。"""
         sp = _sp()
         if sp is not None:
             sp.vertical_scroll = _max_output_scroll()
 
     def _wheel_line_step() -> int:
+        """滚轮一次滚动的近似行数。"""
         return max(1, _viewport_rows() // 6)
 
     def _apply_transcript_scroll(signed_step: int, src: str) -> None:
@@ -605,9 +619,11 @@ async def run_cli_loop(
         __slots__ = ("_inner",)
 
         def __init__(self, inner: FormattedTextControl) -> None:
+            """包装内层 ``FormattedTextControl`` 以拦截鼠标滚轮事件。"""
             self._inner = inner
 
         def preferred_width(self, max_available_width: int) -> int | None:
+            """委托内层宽度计算。"""
             return self._inner.preferred_width(max_available_width)
 
         def preferred_height(
@@ -617,6 +633,7 @@ async def run_cli_loop(
             wrap_lines: bool,
             get_line_prefix,
         ) -> int | None:
+            """委托内层高度计算（可选附带调试 NDJSON 采样）。"""
             # #region agent log
             if _dbg_ph_remain[0] > 0:
                 _dbg_ph_remain[0] -= 1
@@ -638,9 +655,11 @@ async def run_cli_loop(
             )
 
         def create_content(self, width: int, height: int) -> UIContent:
+            """委托内层生成 ``UIContent``。"""
             return self._inner.create_content(width, height)
 
         def mouse_handler(self, mouse_event: MouseEvent) -> NotImplementedOrNone:
+            """滚轮事件改为驱动 ``ScrollablePane`` 纵向滚动，其余交给内层。"""
             if mouse_event.event_type == MouseEventType.SCROLL_UP:
                 _apply_transcript_scroll(-_wheel_line_step(), "mouse.SCROLL_UP")
                 get_app().invalidate()
@@ -669,6 +688,7 @@ async def run_cli_loop(
     _output_scroll_ref[0] = output_scroll
 
     def _append_transcript(style_cls: str, text: str) -> None:
+        """向 transcript 追加样式化文本；同样式尾部合并；维护粘底与长度裁剪。"""
         if not text:
             return
         at_bottom = _output_at_bottom()
@@ -695,6 +715,7 @@ async def run_cli_loop(
             _stick_bottom[0] = False
 
     def _transcript_plain() -> str:
+        """将当前 transcript 转为纯文本（剥离 ANSI，用于复制等）。"""
         from miniagent.engine.markdown_cli import strip_ansi
 
         parts: list[str] = []
@@ -727,16 +748,19 @@ async def run_cli_loop(
         event.app.exit(result="__exit__")
 
     def _scroll_step() -> int:
+        """PageUp/PageDown 一次滚动的行数（约为半屏）。"""
         return max(1, _viewport_rows() // 2)
 
     @kb.add("pageup", filter=has_focus(input_buffer))
     def _on_pageup(event):
+        """上翻输出区约半屏。"""
         _stick_bottom[0] = False
         output_scroll.vertical_scroll = max(0, output_scroll.vertical_scroll - _scroll_step())
         event.app.invalidate()
 
     @kb.add("pagedown", filter=has_focus(input_buffer))
     def _on_pagedown(event):
+        """下翻输出区约半屏。"""
         _stick_bottom[0] = False
         output_scroll.vertical_scroll = min(
             _max_output_scroll(), output_scroll.vertical_scroll + _scroll_step()
@@ -745,12 +769,14 @@ async def run_cli_loop(
 
     @kb.add("c-home", filter=has_focus(input_buffer))
     def _on_ctrl_home(event):
+        """输出区滚到顶部。"""
         _stick_bottom[0] = False
         output_scroll.vertical_scroll = 0
         event.app.invalidate()
 
     @kb.add("c-end", filter=has_focus(input_buffer))
     def _on_ctrl_end(event):
+        """输出区滚到底并恢复粘底。"""
         _stick_bottom[0] = True
         _snap_output_bottom()
         event.app.invalidate()
@@ -758,11 +784,13 @@ async def run_cli_loop(
     # 无坐标的滚轮（Windows 控制台等）默认会变成 Up/Down 只作用于输入框；eager 优先改为滚动 transcript。
     @kb.add(Keys.ScrollUp, eager=True, filter=has_focus(input_buffer))
     def _on_scroll_up_key(event):
+        """无坐标滚轮映射为 Up：向上滚动 transcript。"""
         _apply_transcript_scroll(-_wheel_line_step(), "keys.ScrollUp")
         event.app.invalidate()
 
     @kb.add(Keys.ScrollDown, eager=True, filter=has_focus(input_buffer))
     def _on_scroll_down_key(event):
+        """无坐标滚轮映射为 Down：向下滚动 transcript。"""
         _apply_transcript_scroll(_wheel_line_step(), "keys.ScrollDown")
         event.app.invalidate()
 
@@ -907,13 +935,14 @@ async def run_cli_loop(
         *,
         ansi_markdown: str | None = None,
     ) -> None:
+        """``ThinkingDisplay`` 输出槽：写入思考标签/正文或整段 Rich 渲染后的 ANSI。"""
         if ansi_markdown is not None:
             from prompt_toolkit.formatted_text import ANSI
 
             body_lines = ansi_markdown.rstrip("\n").split("\n")
-            indented = "\n".join(ln if ln else "" for ln in body_lines) + "\n"
+            transcript_body = "\n".join(ln if ln else "" for ln in body_lines) + "\n"
             at_bottom = _output_at_bottom()
-            _transcript.append(ANSI(indented))
+            _transcript.append(ANSI(transcript_body))
             _trim_transcript()
             try:
                 get_app().invalidate()
@@ -937,10 +966,12 @@ async def run_cli_loop(
         return max(40, _viewport_cols())
 
     def _cli_rule_heavy() -> None:
+        """在 transcript 中画粗分隔线（双线条字符）。"""
         w = _rule_line_width()
         _append_transcript("class:cli-border-strong", "\u2550" * w + "\n")
 
     def _cli_rule_light() -> None:
+        """在 transcript 中画细分隔线。"""
         w = _rule_line_width()
         _append_transcript("class:cli-border", "\u2500" * w + "\n")
 
@@ -969,15 +1000,15 @@ async def run_cli_loop(
         if ansi_body and ansi_body.strip():
             at_bottom = _output_at_bottom()
             body_lines = ansi_body.rstrip("\n").split("\n")
-            indented = "\n".join(ln if ln else "" for ln in body_lines) + "\n"
-            _transcript.append(ANSI(indented))
+            transcript_body = "\n".join(ln if ln else "" for ln in body_lines) + "\n"
+            _transcript.append(ANSI(transcript_body))
             # #region agent log
             _dbg_ndjson_02(
                 "H1-H2",
                 "main.py:_cli_block_reply",
                 "appended ANSI fragment to transcript",
                 {
-                    "ansi_chars": len(indented),
+                    "ansi_chars": len(transcript_body),
                     "summary_after": _dbg_transcript_summary(),
                     "flatten_out_len": len(_flatten_transcript_for_pt()),
                 },
@@ -1169,12 +1200,15 @@ async def _run_cli_loop_fallback(
     _fb_w = 60
 
     def _fb_rule_heavy() -> None:
+        """非全屏 CLI 下的粗分隔线（stdout）。"""
         print("\u2550" * _fb_w)
 
     def _fb_rule_light() -> None:
+        """非全屏 CLI 下的细分隔线（stdout）。"""
         print("\u2500" * _fb_w)
 
     async def _process_input(user_input: str) -> None:
+        """备用终端：打印 You/Assistant 区块并调用 ``run_agent_with_thinking``。"""
         try:
             session_key = channel_router.resolve("__cli__")
             print()

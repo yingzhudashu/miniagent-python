@@ -77,7 +77,7 @@ python -m pytest tests/ -q -m "not evaluation"
 | 缩进 | 4 空格 |
 | 引号 | 双引号优先 |
 | 注释语言 | 中文 |
-| docstring | 必须，中文 |
+| docstring | 必须，中文（每个 ``.py`` 须具备模块级 docstring；类与**非 magic** 函数须具备 docstring；见下「缺失项扫描」与 magic 例外） |
 
 ### 类型注解
 
@@ -226,14 +226,94 @@ async def my_tool_handler(args: dict, ctx: ToolContext) -> ToolResult:
 3. 在 `cmd_help()` 添加帮助文本
 4. CLI 和飞书自动共享新命令
 
-## 注释与文档（分层约定）
+## 文档字符串（docstring）规范
+
+完整分层约定见下表；本节补充**写法模板**与**交叉引用**，与 [ARCHITECTURE.md](ARCHITECTURE.md) 及 [ENGINEERING.md](ENGINEERING.md) §5 一并维护。
+
+### 语言与风格
+
+- **语言**：模块、类、函数 docstring 使用**简体中文**（与代码内注释一致）。
+- **交叉引用**：在模块级 docstring 中引用其它模块/类时，可与代码库现有写法一致，使用 rST 指令（如 ``:mod:``、``:class:``）或反引号包裹的完整限定名，便于 Sphinx 与 IDE 解析；与 [ARCHITECTURE.md](ARCHITECTURE.md) 术语保持一致。
+- **详略**：简单 getter、单行委托函数用 **1～3 行**说明「做什么」即可；含 IO、并发、环境变量或跨子系统契约的函数应写清 **Args / Returns / Raises / Note**（按需选段，不必强行四段俱全）。
+
+### 模块级 docstring 建议包含
+
+1. **一句话职责**（本文件解决什么问题）。
+2. **与架构的对应关系**（可写「详见 ARCHITECTURE.md §…」或链到具体子系统名，如消息队列、两阶段编排）。
+3. **依赖与边界**：主要 import、是否仅主线程、是否假设已有 ``RuntimeContext``、是否读写 ``MINI_AGENT_STATE`` 等。
+4. **非显而易见的行为**：例如懒加载、与飞书/CLI 共用路径、默认环境变量开关。
+
+### 函数级模板
+
+**无参或薄封装：**
+
+```python
+def get_foo() -> Foo:
+    """返回进程内缓存的 Foo 单例（首次调用时创建）。"""
+```
+
+**带参数与返回值：**
+
+```python
+def merge_config(base: AgentConfig, overrides: dict[str, Any]) -> AgentConfig:
+    """将 ``overrides`` 中的已知键合并进 ``base`` 的副本。
+
+    Args:
+        base: 默认配置（不会被原地修改）。
+        overrides: 扁平或嵌套补丁字典，未知键忽略。
+
+    Returns:
+        新的 ``AgentConfig`` 实例。
+
+    Note:
+        与 ``load_external_config_from_env`` 的语义差异见 ARCHITECTURE.md 外部配置小节。
+    """
+```
+
+**异步与副作用（网络/磁盘）：**
+
+```python
+async def dispatch_message(queue: MessageQueue, item: QueueItem) -> None:
+    """将 ``item`` 投递进队列；可能在抢占模式下取消同 chat 上正在执行的任务。
+
+    Args:
+        queue: 进程内消息队列。
+        item: 待处理消息封装。
+
+    Raises:
+        RuntimeError: 队列已关闭时。
+
+    Note:
+        与 ``preemptive`` 模式相关的不变量见 ARCHITECTURE.md 消息队列章节。
+    """
+```
+
+### 子包 ``__init__.py``
+
+- 若导出公共符号，模块 docstring 中列出**子包职责**与**主要导出**（或写明「聚合导出，实现见子模块」），避免空文件无说明。
+
+### 缺失项扫描（可选）
+
+仓库提供 ``scripts/docstring_inventory.py``，可列出当前仍缺 docstring 的模块与符号；生成 Markdown 报告：
+
+```bash
+python scripts/docstring_inventory.py --write docs/docstring_inventory.md
+```
+
+**与上表「docstring 必须」的关系**：脚本为自动化清单——除 ``__init__`` 外，名称形如 ``__x__`` 的方法**不在清单中检查**（不要求 docstring）；公开 API、普通函数与模块仍应符合上表。若报告中出现「（本次扫描无缺失项。）」表示按脚本规则当前无缺口。
+
+**模块首行约定**：模块 docstring 须为文件**首条**语句（须写在 ``from __future__ import annotations`` 之前），否则 CPython 不将其视为 ``__doc__``，脚本也会判为「模块 docstring 缺失」。
+
+报告文件见 [docstring_inventory.md](docstring_inventory.md)（提交前若更新报告，请与 docstring 改动同一批提交）。
+
+### 注释与文档（分层约定）
 
 | 层级 | 要求 |
 |------|------|
-| 模块 | 文件顶部 docstring：职责、主要依赖、async/线程假设 |
-| 公开 API | 类与公开函数：中文 docstring，说明参数、副作用、可能异常 |
+| 模块 | 文件顶部 docstring：职责、主要依赖、async/线程假设；复杂包注明与 ARCHITECTURE 的对应章节 |
+| 公开 API | 类与公开函数：中文 docstring；参数、副作用、可能异常按需说明 |
 | 复杂分支 | 如 CLI 主循环、命令调度、ReAct、多实例：关键分支旁简短说明「为何如此」 |
-| 避免 | 逐行复述代码；大段迁移史放在 CHANGELOG / ARCHITECTURE |
+| 避免 | 逐行复述代码；大段迁移史放在 CHANGELOG / ARCHITECTURE；显而易见的代码不要写长篇 docstring |
 
 ## Git 规范
 

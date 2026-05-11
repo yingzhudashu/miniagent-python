@@ -76,6 +76,7 @@ def _extract_post_media_items(content_str: str) -> list[tuple[str, str, str]]:
     seen: set[tuple[str, str]] = set()
 
     def walk(node: Any) -> None:
+        """深度优先遍历 post JSON 子树，去重收集图片与附件 key。"""
         if isinstance(node, dict):
             tag = node.get("tag")
             if tag == "img":
@@ -566,6 +567,7 @@ def _neutralize_lone_asterisks_for_lark(text: str) -> str:
 
 
 def _collapse_excessive_blank_lines(text: str) -> str:
+    """将连续三个及以上换行压成双换行，避免卡片正文过长空白。"""
     return re.sub(r"\n{3,}", "\n\n", text or "")
 
 
@@ -584,10 +586,12 @@ def _feishu_wide_table_fallback_mode() -> str:
 
 
 def _is_gfm_table_separator_line(line: str) -> bool:
+    """判断一行是否为 GFM 表格分隔行（仅含 ``-``、``:``、``|`` 等）。"""
     return bool(re.match(r"^\s*\|?[\s\-:|]+\|?\s*$", line))
 
 
 def _parse_gfm_table_row_cells(line: str) -> list[str]:
+    """按管道符拆分表格行并 strip 各单元格（容忍首尾 ``|``）。"""
     s = line.strip()
     if s.startswith("|"):
         s = s[1:]
@@ -620,6 +624,7 @@ def _gfm_table_block_to_text_table(
         widths.append(min(max_cell_width, max(mw, 3)))
 
     def trunc(cell: str, w: int) -> str:
+        """单元格截断/左对齐填充至宽度 ``w``。"""
         x = (cell or "").replace("\n", " ").replace("\r", "")
         if len(x) <= w:
             return x.ljust(w)
@@ -648,6 +653,7 @@ def _normalize_lark_md(text: str) -> str:
     t = re.sub(r"<br\s*/?>", "\n", t, flags=re.IGNORECASE)
 
     def _collapse_fence_line(line: str) -> str:
+        """将过长反引号围栏起首统一为三个 ```，兼容飞书 lark_md。"""
         m = re.match(r"^(`{3,})(.*)$", line)
         if m and len(m.group(1)) > 3:
             return "```" + m.group(2)
@@ -719,6 +725,7 @@ def _prepare_card_markdown(
     *,
     normalize: bool = True,
 ) -> str:
+    """最终回复等卡片正文：长度帽、制表符与可选 ``_normalize_lark_md``。"""
     cap = feishu_card_body_max() if max_len is None else max_len
     t = raw if len(raw) <= cap else raw[:cap] + "…"
     t = t.replace("\r", "").replace("\t", "  ")
@@ -728,6 +735,7 @@ def _prepare_card_markdown(
 
 
 def _prepare_thinking_markdown(raw: str) -> str:
+    """思考流卡片专用：等同 ``_prepare_thinking_body_for_card`` 且启用长度帽。"""
     return _prepare_thinking_body_for_card(raw, apply_cap=True)
 
 
@@ -829,6 +837,7 @@ def _feishu_interactive_card_dict(
 
 
 def _thinking_interactive_card_dict(cleaned_markdown: str, template: str) -> dict[str, Any]:
+    """构建标题为「思考中」的交互卡片 JSON dict（lark_md 正文）。"""
     return _feishu_interactive_card_dict("💭 思考中", cleaned_markdown, template)
 
 

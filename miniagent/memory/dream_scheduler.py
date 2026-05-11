@@ -30,6 +30,7 @@ _STATE_NAME = "dream_state.json"
 
 
 def _state_dir() -> str:
+    """Dream 调度读写所在状态根目录。"""
     return os.environ.get("MINI_AGENT_STATE", os.path.join(os.getcwd(), "workspaces"))
 
 # 默认周期（秒）
@@ -48,6 +49,7 @@ _last_schedule_monotonic: float = 0.0
 
 
 def _state_path() -> str:
+    """``memory/dream_state.json`` 绝对路径（确保 ``memory`` 目录存在）。"""
     root = _state_dir()
     d = os.path.join(root, "memory")
     os.makedirs(d, exist_ok=True)
@@ -55,6 +57,7 @@ def _state_path() -> str:
 
 
 def _load_dream_state() -> dict[str, Any]:
+    """读取 dream 状态 JSON；不存在或损坏时返回空 dict。"""
     p = _state_path()
     if not os.path.isfile(p):
         return {}
@@ -66,6 +69,7 @@ def _load_dream_state() -> dict[str, Any]:
 
 
 def _save_dream_state(data: dict[str, Any]) -> None:
+    """原子写回 dream 状态（失败仅 debug 日志）。"""
     try:
         with open(_state_path(), "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
@@ -74,6 +78,7 @@ def _save_dream_state(data: dict[str, Any]) -> None:
 
 
 def _diary_dir_size(session_key: str) -> int:
+    """估算某会话 ``memory/diary/<safe>`` 下文件总字节数（体量闸门用）。"""
     from miniagent.memory.history_archive import safe_session_id_for_memory
 
     root = os.path.join(
@@ -123,6 +128,7 @@ def _try_file_lock() -> bool:
 
 
 def _release_file_lock() -> None:
+    """若锁文件由本 PID 持有则删除，释放跨进程 dream 互斥。"""
     lock = os.path.join(_state_dir(), "memory", "dream.lock")
     try:
         if os.path.isfile(lock):
@@ -204,6 +210,7 @@ def schedule_memory_maintenance(session_key: str | None) -> None:
     _last_schedule_monotonic = now_m
 
     async def _job() -> None:
+        """后台执行 ``_refine_session``，全程持有 ``dream.lock``。"""
         if not _try_file_lock():
             return
         try:

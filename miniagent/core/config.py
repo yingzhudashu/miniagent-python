@@ -156,6 +156,7 @@ def get_default_model_config() -> ModelConfig:
     from miniagent.runtime.external_config import get_external_config_patch
 
     def _limits_for_current_model(e: dict[str, Any], mname: str) -> dict[str, int] | None:
+        """从外部补丁 ``e['model_limits']`` 中解析当前模型名对应的整型上限字典。"""
         ml = e.get("model_limits")
         if not isinstance(ml, dict):
             return None

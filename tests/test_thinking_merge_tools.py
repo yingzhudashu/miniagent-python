@@ -245,3 +245,61 @@ async def test_feishu_same_header_after_merge_tools_not_new_round() -> None:
     assert flags[1] is False
     assert flags[2] is False
     assert flags[3] is False
+
+
+@pytest.mark.asyncio
+async def test_cli_same_header_after_merge_tools_one_label_and_no_dup_prefix() -> None:
+    """同一步内工具后继续流式：CLI 仅一条步骤标签，且不累打上一子轮正文（对齐 _joined_phase_cumulative）。"""
+    from miniagent.engine.thinking import ThinkingDisplay
+
+    td = ThinkingDisplay()
+    sink: list[tuple[str, str]] = []
+
+    def capture(text: str, kind: str = "chunk") -> None:
+        sink.append((text, kind))
+
+    td.set_output_sink(capture)
+    hdr = "[步骤 1/3] x"
+    sep = "\n\n"
+    await td.show(hdr, streaming=True, header=hdr)
+    await td.show("alpha", streaming=True, header=hdr)
+    await td.show("`t` · 成功", streaming=False, header=hdr)
+    # 模拟执行器第二子轮首包：上一段 + 分隔 + 新正文
+    await td.show(f"alpha{sep}beta", streaming=True, header=hdr)
+
+    label_lines = [t for t, k in sink if k == "label"]
+    assert len(label_lines) == 1
+    assert hdr in label_lines[0]
+
+    chunks = "".join(t for t, k in sink if k == "chunk")
+    assert chunks.count("alpha") == 1
+    assert "beta" in chunks
+    assert "成功" in chunks
+
+
+@pytest.mark.asyncio
+async def test_cli_phase_changed_resets_stream_without_feishu() -> None:
+    """纯 CLI（无飞书）：流式 header 切换时收尾并重置，应出现两条步骤标签。"""
+    from miniagent.engine.thinking import ThinkingDisplay
+
+    td = ThinkingDisplay()
+    sink: list[tuple[str, str]] = []
+
+    def capture(text: str, kind: str = "chunk") -> None:
+        sink.append((text, kind))
+
+    td.set_output_sink(capture)
+    h_plan = "[评估与计划]"
+    h_exec = "[执行]"
+    await td.show(h_plan, streaming=True, header=h_plan)
+    await td.show("planning body", streaming=True, header=h_plan)
+    await td.show("exec body", streaming=True, header=h_exec)
+
+    label_lines = [t for t, k in sink if k == "label"]
+    assert len(label_lines) == 2
+    assert h_plan in label_lines[0]
+    assert h_exec in label_lines[1]
+
+    chunks = "".join(t for t, k in sink if k == "chunk")
+    assert "planning body" in chunks
+    assert "exec body" in chunks

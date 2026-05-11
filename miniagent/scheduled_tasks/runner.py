@@ -43,6 +43,7 @@ def build_run_scheduled_job_coro(
     )
 
     async def _run() -> str | None:
+        """执行单条定时任务：构造带前缀 prompt 并走 ``run_agent_with_thinking``。"""
         engine = ctx.engine
         registry = ctx.registry
         monitor = ctx.monitor

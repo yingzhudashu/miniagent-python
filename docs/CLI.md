@@ -20,6 +20,7 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 
 - **`MINIAGENT_CLI_RAW_MARKDOWN=1`**：强制关闭回复区 Rich。
 - **`MINIAGENT_CLI_THINKING_RICH=1`**：对**非流式**思考块尝试 Rich；**流式**输出的规划/执行过程仍为纯文本；与工具行合并（`merge_tools`）的短行仍为纯文本。
+- 默认 **`MINIAGENT_THINKING_MERGE_TOOLS`**（非 `0` 即开启）时，同一 `thinking_header`（如 `[步骤 i/n]`、`[执行]`）内：工具意图行会接在当前流式块后，**不另起新的「步骤」标签**，且继续流式时不会整段重打上一子轮正文（与飞书同卡 PATCH 语义一致）。关闭合并则工具行单独成块。流式 **header 切换**（如规划 → 执行）时无论是否启用飞书都会收尾并重置流式状态。
 - 渲染宽度与滚动条占用与主循环一致，便于表格与回复区对齐。
 
 详见 [README.md](../README.md) 与 [USER_GUIDE.md](USER_GUIDE.md) §4.3。

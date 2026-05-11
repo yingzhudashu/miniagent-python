@@ -36,6 +36,7 @@ class ChannelRouter:
     FEISHU_GROUP_PREFIX = "feishu:"     # 飞书群聊通道前缀 + chat_id
 
     def __init__(self) -> None:
+        """初始化空绑定表与主会话指针。"""
         # channel_id → primary_session_id
         self._bindings: dict[str, str] = {}
         # primary_session_id → [channel_id, ...]  反向索引

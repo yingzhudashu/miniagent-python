@@ -41,9 +41,11 @@ class ClawHubClient(Protocol):
     """ClawHub 客户端接口。"""
 
     async def search(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
+        """按关键词搜索技能，返回 API 原始 item 列表。"""
         ...
 
     async def get_detail(self, slug: str) -> dict[str, Any]:
+        """拉取指定 slug 的技能元数据与文件清单。"""
         ...
 
     async def download(
@@ -53,6 +55,7 @@ class ClawHubClient(Protocol):
         *,
         skills_root: str | None = None,
     ) -> dict[str, Any]:
+        """下载并解压技能包到 ``skills_root``，返回结果摘要 dict。"""
         ...
 
 
@@ -62,6 +65,9 @@ class _ClawHubClientImpl:
     """ClawHub 客户端实现。"""
 
     def __init__(self, base_url: str = CLAWHUB_API) -> None:
+        """Args:
+            base_url: API 根路径，默认 ``CLAWHUB_API``。
+        """
         self._base_url = base_url
 
     async def _fetch_json(self, url: str) -> Any:

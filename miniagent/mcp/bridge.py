@@ -21,6 +21,7 @@ except ImportError:
 
 
 def is_mcp_available() -> bool:
+    """当前环境是否已安装官方 ``mcp`` 包（未安装则 stdio 工具注册会失败）。"""
     return _MCP_INSTALLED
 
 

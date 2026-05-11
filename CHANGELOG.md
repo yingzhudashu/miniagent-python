@@ -4,6 +4,7 @@
 
 ### Changed
 
+- **CLI 思考**：`ThinkingDisplay` 在 `merge_tools` 后保留流式步骤与已打印长度，与同 `thinking_header` 的飞书单卡对齐；流式阶段 `header` 变更时**无飞书**也会重置流式状态（原逻辑仅在启用飞书时清空）。
 - **CLI / 飞书展示（跟进）**：移除未再使用的 `stream_first_body_chunk`；**思考卡与 CLI transcript 顶格输出**（不再对段落首行、列表行或 User/Assistant/思考区正文统一加空格缩进）；`finalize_feishu_thinking_stream` 分片后对各 chunk 跳过第二次 `_normalize_lark_md`（正文已在 `_prepare_thinking_body_for_card` 中规范化）。
 - **执行轮数默认**：`AGENT_MAX_TURNS` 默认 400；`MINIAGENT_STEP_MAX_TURNS` 未设置时默认 48；同一步内思考片段默认以双换行拼接（`MINIAGENT_THINKING_SEGMENT_SEPARATOR` 可覆盖）。
 - **飞书**：宽 GFM 表超管道阈值时支持 `MINIAGENT_FEISHU_TABLE_FALLBACK`（`both` / `hint` / `unicode`）；思考卡工具区精简；`lark_md` 规范化（孤星号、U+FFFD、水平线、零宽与 `<br>` 等）；同一步多轮 ReAct 默认 PATCH 同一张思考卡。
@@ -12,6 +13,8 @@
 
 ### Documentation
 
+- **CONTRIBUTING / ENGINEERING**：新增「文档字符串（docstring）规范」与模板、可选清单脚本说明；ENGINEERING §5 增补大批量改 docstring 后的 ruff/spot-check 项；新增 [docstring_inventory.md](docs/docstring_inventory.md)（由 `scripts/docstring_inventory.py` 生成）。
+- **跟进**：澄清清单脚本对 magic method / ``__init__`` 的规则与 CONTRIBUTING 表格对齐；报告空结果时明示「无缺失项」；ENGINEERING「可选增强」补充渐进 mypy；README 说明用例数以 ``pytest --collect-only`` 为准；新增 ``tests/test_docstring_inventory.py``。
 - **ARCHITECTURE / USER_GUIDE / MEMORY_SYSTEM / README / CLI / FEISHU / INDEX**：与上述默认值及终端 Markdown、飞书表降级、v2 备忘链接对齐；`.env.example` 补充相关变量说明。
 - **FEISHU / `.env.example`**：`MINIAGENT_FEISHU_REPLY_PLAIN` 与思考卡累积正文受 `MINI_AGENT_FEISHU_CARD_BODY_MAX` 截断的行为写清（仍为 interactive `lark_md`；完整内容见 history）。
 - **[USER_GUIDE.md](docs/USER_GUIDE.md)**：新增零基础全项目使用指南（安装、`.env`、启动、点命令摘要、飞书/搜索/技能/MCP 可选章节、FAQ、安全清单）；[README.md](README.md) 与 [INDEX.md](docs/INDEX.md) 增加入口。
@@ -26,6 +29,7 @@
 - **`.gitignore`**：默认忽略 `workspaces/memory/`、`workspaces/keyword-index.json`、`workspaces/perf*.jsonl`、`workspaces/feishu_inbound_owner.json`、`workspaces/feishu/`。
 - **文档**：[ENGINEERING.md](docs/ENGINEERING.md) §3.1 / §4、[INDEX.md](docs/INDEX.md)「workspaces 与 Git」段落与上述策略一致；[CONTRIBUTING.md](docs/CONTRIBUTING.md) 子包数量表述与目录表一致。
 - **注释**：充实 `core`（`agent` / `planner` / `executor`）、`runtime`（`context` / `external_config`）、`engine`（`engine` / `init`）、`compat`、`feishu` 包等模块级说明；`executor` 模块说明中 `ContextBudgetExceeded` 改为全限定类引用；`keyword_index` 模块说明补充勿提交索引文件。
+- **注释（补全）**：按清单为 `miniagent/` 内此前缺 docstring 的函数、嵌套函数、Protocol 成员与关键方法补充中文说明（含 `engine/main` TUI 辅助、`feishu/poll_server` 规范化、`memory` 子系统、`tools`、`skills`、`scheduled_tasks`、`mcp` 等）。
 - **示例目录**：新增 [docs/examples/](docs/examples/)（README + 脱敏 `sample-external-config.fragment.json`），与 INDEX 目录树及「勿将密钥放入 workspaces」表述一致。
 
 ## [2.0.2] - 2026-05-10

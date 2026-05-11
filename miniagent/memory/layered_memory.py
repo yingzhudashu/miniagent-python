@@ -20,20 +20,24 @@ _logger = get_logger(__name__)
 
 
 def _safe_session_id(session_key: str) -> str:
+    """文件名安全化（与 history_archive 规则一致）。"""
     return re.sub(r"[^a-zA-Z0-9_-]", "_", session_key)
 
 
 def _state_dir() -> str:
+    """长期记忆 JSON 所在状态根目录。"""
     return os.environ.get("MINI_AGENT_STATE", os.path.join(os.getcwd(), "workspaces"))
 
 
 def _session_lt_path(session_key: str) -> str:
+    """``memory/session_lt/<safe>.json`` 路径。"""
     d = os.path.join(_state_dir(), "memory", "session_lt")
     os.makedirs(d, exist_ok=True)
     return os.path.join(d, f"{_safe_session_id(session_key)}.json")
 
 
 def _agent_lt_path() -> str:
+    """全局 Agent 长期记忆 ``memory/agent_lt/global.json`` 路径。"""
     d = os.path.join(_state_dir(), "memory", "agent_lt")
     os.makedirs(d, exist_ok=True)
     return os.path.join(d, "global.json")
@@ -52,6 +56,7 @@ def load_session_longterm(session_key: str) -> dict[str, Any]:
 
 
 def save_session_longterm(session_key: str, data: dict[str, Any]) -> None:
+    """写入会话级长期记忆 JSON，并刷新 ``updated_at``。"""
     path = _session_lt_path(session_key)
     data = dict(data)
     data["session_key"] = session_key
@@ -86,6 +91,7 @@ def append_session_day_rollup(
 
 
 def load_agent_longterm() -> dict[str, Any]:
+    """读取全局 Agent 长期记忆；缺省为 ``{"entries": []}``。"""
     path = _agent_lt_path()
     if not os.path.isfile(path):
         return {"entries": []}
@@ -97,6 +103,7 @@ def load_agent_longterm() -> dict[str, Any]:
 
 
 def save_agent_longterm(data: dict[str, Any]) -> None:
+    """写入全局 Agent 长期记忆并刷新 ``updated_at``。"""
     path = _agent_lt_path()
     data = dict(data)
     data["updated_at"] = datetime.now(timezone.utc).isoformat()

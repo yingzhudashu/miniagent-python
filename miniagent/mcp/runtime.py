@@ -16,6 +16,7 @@ _holder: list[Any] = []
 
 
 def _tool_result_text(res: Any) -> str:
+    """将 MCP ``CallToolResult.content`` 中的文本块拼成单字符串；无文本则 JSON 序列化整体。"""
     parts: list[str] = []
     for block in getattr(res, "content", None) or []:
         txt = getattr(block, "text", None)

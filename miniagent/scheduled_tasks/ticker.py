@@ -30,6 +30,7 @@ _MAX_DUE_PER_TICK = 5
 
 
 def _sleep_seconds_until(tasks: list[ScheduledTask]) -> float:
+    """根据已启用任务的 ``next_run_at`` 计算下一次唤醒前的睡眠秒数（有界 0.5～60s）。"""
     now = time.time()
     candidates: list[float] = []
     for t in tasks:
@@ -184,6 +185,7 @@ def start_scheduled_tasks_ticker(
     ctx.scheduled_tasks_stop_event = stop_event
 
     async def _runner() -> None:
+        """后台入口：运行 ``scheduled_tasks_loop`` 直至 ``stop_event``。"""
         await scheduled_tasks_loop(ctx, state, skill_toolboxes, skill_prompts, stop_event)
 
     task = asyncio.create_task(_runner(), name="miniagent_scheduled_tasks")

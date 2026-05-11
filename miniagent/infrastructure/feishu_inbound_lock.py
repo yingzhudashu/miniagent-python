@@ -20,6 +20,7 @@ _LOCK_FILENAME = "feishu_inbound_owner.json"
 
 
 def _state_root(state_dir: str | None) -> Path:
+    """解析状态根路径（显式参数优先，否则环境变量或 cwd/workspaces）。"""
     root = state_dir or os.environ.get(
         "MINI_AGENT_STATE", os.path.join(os.getcwd(), "workspaces")
     )
@@ -27,6 +28,7 @@ def _state_root(state_dir: str | None) -> Path:
 
 
 def _is_pid_alive(pid: int) -> bool:
+    """跨平台探测进程是否仍存活（Windows 使用 tasklist，POSIX 使用 ``os.kill(..., 0)``）。"""
     if pid <= 0:
         return False
     try:

@@ -22,10 +22,12 @@ TAVILY_SEARCH_URL = "https://api.tavily.com/search"
 
 
 def _tavily_api_key() -> str:
+    """读取 Tavily Key（``TAVILY_API_KEY`` 或 ``WEB_SEARCH_API_KEY``）。"""
     return (os.environ.get("TAVILY_API_KEY") or os.environ.get("WEB_SEARCH_API_KEY") or "").strip()
 
 
 def _tavily_timeout_sec() -> float:
+    """Tavily HTTP 超时秒数（``TAVILY_TIMEOUT`` 或回退 ``AGENT_HTTP_TIMEOUT``）。"""
     raw = os.environ.get("TAVILY_TIMEOUT", "").strip()
     if raw:
         try:
@@ -39,6 +41,7 @@ def _tavily_timeout_sec() -> float:
 
 
 def _browser_timeout_ms() -> int:
+    """Playwright 导航超时毫秒数（``BROWSER_TOOL_TIMEOUT`` 或 HTTP 超时推导）。"""
     raw = os.environ.get("BROWSER_TOOL_TIMEOUT", "").strip()
     if raw:
         try:
@@ -53,6 +56,7 @@ def _browser_timeout_ms() -> int:
 
 
 def _allowed_http_url(url: str, *, https_only: bool = False) -> bool:
+    """校验 URL 方案为主机名非空的 http(s)；可选强制 https。"""
     p = urlparse(url.strip())
     if p.scheme not in ("http", "https"):
         return False
@@ -86,6 +90,7 @@ _web_search_schema = {
 
 
 async def _web_search_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolResult:
+    """``web_search`` 工具实现：调用 Tavily 并格式化摘要结果。"""
     query = str(args["query"]).strip()
     max_results = min(20, max(1, int(args.get("maxResults", 8))))
     key = _tavily_api_key()
@@ -179,6 +184,7 @@ _browser_extract_schema = {
 
 
 async def _browser_extract_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolResult:
+    """``browser_extract_text``：无头 Chromium 拉取页面 ``body`` 内可见文本。"""
     url = str(args["url"]).strip()
     max_chars = int(args.get("maxChars", 12000))
     wait_until = str(args.get("waitUntil", "domcontentloaded")).strip()
@@ -299,6 +305,7 @@ _time_schema = {
 
 
 async def _time_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolResult:
+    """``get_time``：返回指定时区当前本地时间与 UTC 偏移说明。"""
     tz_name = str(args.get("timezone", "")) or os.environ.get("TZ", "Asia/Shanghai")
 
     try:

@@ -35,6 +35,7 @@ class DefaultSkillRegistry(SkillRegistryProtocol):
     """
 
     def __init__(self) -> None:
+        """初始化空注册表与包列表。"""
         self._skills: dict[str, Skill] = {}
         self._packages: list[SkillPackage] = []
         self._skill_entries: dict[str, SkillEntry] = {}

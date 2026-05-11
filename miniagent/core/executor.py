@@ -101,6 +101,7 @@ def get_client() -> AsyncOpenAI:
 
 
 def _env_phased_execution_enabled() -> bool:
+    """是否启用分阶段执行（工具批次与 LLM 轮次分段），由 ``MINIAGENT_PHASED_EXECUTION`` 控制，默认开启。"""
     v = os.environ.get("MINIAGENT_PHASED_EXECUTION", "1")
     return str(v).strip().lower() in ("1", "true", "yes")
 
@@ -112,6 +113,7 @@ def _tool_intent_in_thinking_enabled() -> bool:
 
 
 def _step_max_turns_cap() -> int:
+    """分步模式下单步内 ReAct 轮数上限（``MINIAGENT_STEP_MAX_TURNS``，无效或未设时默认 48）。"""
     raw = os.environ.get("MINIAGENT_STEP_MAX_TURNS", "").strip()
     if raw:
         try:
@@ -342,6 +344,7 @@ async def execute_plan(
     sep = _thinking_segment_separator()
 
     def _joined_phase_cumulative(label: str, current_body: str) -> str:
+        """将同一 ``label`` 下历史执行轮正文与 ``current_body`` 用分段符拼接，供思考流 cumulative 展示。"""
         prev = [p for p in _exec_hist_segments.get(label, []) if (p or "").strip()]
         if not prev:
             return current_body
@@ -352,6 +355,7 @@ async def execute_plan(
         tools_arg: list[Any],
         thinking_phase_label: str,
     ) -> tuple[Any, dict[str, Any], int, Any, str, str]:
+        """流式调用执行阶段 LLM 一轮，聚合正文与 tool_calls，并驱动 ``on_thinking``。"""
         nonlocal exec_turn_no
         exec_turn_no += 1
         start_ms = time.monotonic_ns() // 1_000_000
@@ -526,6 +530,7 @@ async def execute_plan(
         success: bool,
         thinking_header: str,
     ) -> None:
+        """安全调用 ``on_tool_finish``，在签名支持时注入 ``thinking_header``。"""
         if on_tool_finish is None:
             return
         try:
@@ -547,6 +552,7 @@ async def execute_plan(
                 _logger.exception("on_tool_finish 回调失败: %s", e)
 
     async def _run_tool_calls_phase(msg: Any, start_ms: int, thinking_header: str) -> str | None:
+        """处理 assistant 消息中的 tool_calls：入上下文、循环检测、并发执行工具并写回 tool 消息。"""
         nonlocal loop_warning_shown
         assistant_msg = {"role": "assistant", "content": msg.content or ""}
         if msg.tool_calls:
@@ -617,6 +623,7 @@ async def execute_plan(
         async def _run_tool(
             tc: Any, args: dict[str, Any], tool: Any
         ) -> tuple[Any, dict[str, Any], Any, Any, int]:
+            """执行单个 tool_call（含超时与监控），返回 tool 消息构造所需字段。"""
             from miniagent.types.tool import ToolResult
 
             tool_start = time.monotonic_ns() // 1_000_000
@@ -869,6 +876,7 @@ async def execute_plan(
 # ─── 工具意图提取 ──────────────────────────────────────────
 
 def _tool_intent_max_chars() -> int:
+    """工具意图摘要写入思考流时的最大字符数（``MINIAGENT_TOOL_INTENT_MAX_CHARS``）。"""
     raw = os.environ.get("MINIAGENT_TOOL_INTENT_MAX_CHARS", "4000").strip()
     try:
         return max(0, int(raw))
@@ -877,6 +885,7 @@ def _tool_intent_max_chars() -> int:
 
 
 def _clip_intent_value(s: str) -> str:
+    """将意图字符串截断至 :func:`_tool_intent_max_chars` 上限并追加长度提示。"""
     cap = _tool_intent_max_chars()
     if cap <= 0:
         return s

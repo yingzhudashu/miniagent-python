@@ -17,6 +17,7 @@ _logger = get_logger(__name__)
 
 
 def _safe_session_id(session_key: str) -> str:
+    """将 ``session_key`` 净化为文件系统安全片段（与 diary/session_lt 一致）。"""
     return re.sub(r"[^a-zA-Z0-9_-]", "_", session_key)
 
 
@@ -26,10 +27,12 @@ def safe_session_id_for_memory(session_key: str) -> str:
 
 
 def _state_dir() -> str:
+    """状态根目录：``MINI_AGENT_STATE`` 或仓库下 ``workspaces``。"""
     return os.environ.get("MINI_AGENT_STATE", os.path.join(os.getcwd(), "workspaces"))
 
 
 def _diary_path(session_key: str, day: str) -> str:
+    """某日日记 Markdown 绝对路径（确保目录存在）。"""
     base = os.path.join(_state_dir(), "memory", "diary", _safe_session_id(session_key))
     os.makedirs(base, exist_ok=True)
     return os.path.join(base, f"{day}.md")
@@ -63,10 +66,12 @@ def history_archive_token_hint() -> int | None:
 
 
 def _max_messages() -> int:
+    """内部别名：当前归档消息数阈值。"""
     return history_archive_max_messages()
 
 
 def _max_tokens_hint() -> int | None:
+    """内部别名：可选 token 估算阈值。"""
     return history_archive_token_hint()
 
 
@@ -149,6 +154,7 @@ def maybe_archive_old_turns(session_key: str, history: list[dict[str, Any]]) -> 
     from miniagent.memory.history_bridge import estimate_history_messages_tokens
 
     def over() -> bool:
+        """是否超过条数或（若配置）近似 token 上限。"""
         if len(history) > max_msg:
             return True
         if tok_hint and estimate_history_messages_tokens(history) > tok_hint:

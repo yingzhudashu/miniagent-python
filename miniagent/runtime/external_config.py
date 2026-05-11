@@ -45,6 +45,7 @@ def get_external_config_patch() -> dict[str, Any]:
 
 
 def reset_external_config_for_tests() -> None:
+    """清空进程内 ``MINIAGENT_CONFIG`` 补丁缓存（pytest 隔离用）。"""
     global _PATCH
     _PATCH = {}
 

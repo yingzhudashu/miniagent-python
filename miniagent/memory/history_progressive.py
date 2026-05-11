@@ -41,6 +41,7 @@ def _progressive_enabled(explicit: bool | None) -> bool:
 
 
 def _maintenance_max_iters() -> int:
+    """单轮历史维护循环最大迭代次数（``MINI_AGENT_HISTORY_MAINTENANCE_MAX_ITERS``）。"""
     raw = os.environ.get("MINI_AGENT_HISTORY_MAINTENANCE_MAX_ITERS", "").strip()
     if raw:
         try:
@@ -51,6 +52,7 @@ def _maintenance_max_iters() -> int:
 
 
 def _over_archive_limits(history: list[dict[str, Any]]) -> bool:
+    """是否应触发 L4 归档路径（条数或 token 提示超阈值）。"""
     from miniagent.memory.history_archive import history_archive_max_messages, history_archive_token_hint
 
     if len(history) > history_archive_max_messages():
@@ -65,6 +67,7 @@ def _over_archive_limits(history: list[dict[str, Any]]) -> bool:
 
 
 def _over_tail_cap(history: list[dict[str, Any]], cap: int) -> bool:
+    """``cap`` 非负且当前消息数超过尾部上限时为真。"""
     return cap >= 0 and len(history) > cap
 
 

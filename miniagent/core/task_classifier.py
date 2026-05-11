@@ -25,6 +25,7 @@ except ImportError:
 
 
 def _json_object_unsupported(err: Exception) -> bool:
+    """判断异常是否表示当前端点不支持 ``response_format=json_object``（用于重试时关闭 JSON 模式）。"""
     if _OpenAIBadRequestError is not None and isinstance(err, _OpenAIBadRequestError):
         return True
     low = str(err).lower()
@@ -32,6 +33,8 @@ def _json_object_unsupported(err: Exception) -> bool:
 
 
 class TaskDifficulty(str, Enum):
+    """任务难度离散档位，与规划/执行 thinking 档位映射共用。"""
+
     SIMPLE = "simple"
     NORMAL = "normal"
     MEDIUM = "medium"
@@ -39,6 +42,7 @@ class TaskDifficulty(str, Enum):
 
 
 def task_classifier_enabled() -> bool:
+    """是否启用规划前难度分类（``MINIAGENT_TASK_CLASSIFIER``，默认开启）。"""
     v = os.environ.get("MINIAGENT_TASK_CLASSIFIER", "1")
     return str(v).strip().lower() in ("1", "true", "yes")
 

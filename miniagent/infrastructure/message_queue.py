@@ -169,6 +169,7 @@ class _ChatQueue:
         self._dispatch_wait_tasks.add(task)
 
     def unregister_dispatch_wait_task(self, task: asyncio.Task) -> None:
+        """从 ``dispatch_wait`` 跟踪集合移除已完成/已取消的任务句柄。"""
         self._dispatch_wait_tasks.discard(task)
 
     def abort_pending(self, mode: QueueMode) -> dict[str, Any]:
@@ -273,6 +274,7 @@ class MessageQueueManager:
 
     @mode.setter
     def mode(self, value: QueueMode) -> None:
+        """设置队列模式（顺序或抢占）；不中断已在跑的任务。"""
         self._mode = value
 
     def _get_queue(self, chat_id: str) -> _ChatQueue:

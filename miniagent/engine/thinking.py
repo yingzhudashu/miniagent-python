@@ -36,11 +36,13 @@ def _merge_tools_enabled() -> bool:
 
 
 def _cli_thinking_rich_enabled() -> bool:
+    """全屏 CLI 下是否对非流式思考正文尝试 Rich→ANSI（``MINIAGENT_CLI_THINKING_RICH``）。"""
     v = os.environ.get("MINIAGENT_CLI_THINKING_RICH", "").strip().lower()
     return v in ("1", "true", "yes")
 
 
 def _cli_thinking_render_width() -> int:
+    """无注入宽度回调时，用终端列宽推导 Rich 渲染宽度。"""
     try:
         return max(40, shutil.get_terminal_size(fallback=(100, 24)).columns - 4)
     except Exception:
@@ -58,6 +60,8 @@ def indent_stream_thinking_suffix(full_text: str, prev_printed: int, *, indent: 
     start = max(0, min(prev_printed, n))
     if start >= n:
         return ""
+    if not indent:
+        return full[start:n]
     out: list[str] = []
     i = start
     while i < n:
@@ -87,6 +91,7 @@ def indent_stream_thinking_suffix(full_text: str, prev_printed: int, *, indent: 
 
 
 def _thinking_body_looks_like_markdown(text: str) -> bool:
+    """启发式判断正文是否像 Markdown（代码围栏、表格、标题、强调等）。"""
     s = text or ""
     if not s.strip():
         return False
@@ -130,6 +135,7 @@ class _SessionThinkingState:
     feishu_tool_section_started: bool
 
     def __init__(self) -> None:
+        """初始化会话级流式/飞书 PATCH 状态为默认值。"""
         self.step_counter = 0
         self.buffer = []
         self.feishu_send = None
@@ -154,6 +160,7 @@ class ThinkingDisplay:
     """
 
     def __init__(self) -> None:
+        """构造显示协调器：按 ``session_key`` 分桶状态，并保留无会话时的默认桶。"""
         self._states: dict[str, _SessionThinkingState] = {}
         self._default: _SessionThinkingState = _SessionThinkingState()
         self._buffer_enabled: bool = False
@@ -169,6 +176,7 @@ class ThinkingDisplay:
         self._cli_markdown_width_fn = fn
 
     def _cli_rich_markdown_width(self) -> int:
+        """Rich 渲染宽度：优先回调，其次终端列宽。"""
         if self._cli_markdown_width_fn is not None:
             try:
                 return max(40, int(self._cli_markdown_width_fn()))
@@ -226,11 +234,13 @@ class ThinkingDisplay:
             sys.stdout.flush()
 
     def _get_state(self, session_key: str) -> _SessionThinkingState:
+        """懒创建并返回某会话的思考状态对象。"""
         if session_key not in self._states:
             self._states[session_key] = _SessionThinkingState()
         return self._states[session_key]
 
     def reset_counter(self, session_key: str = "") -> None:
+        """重置指定会话的步骤计数、缓冲与飞书流式字段（新用户轮次前调用）。"""
         state = self._get_state(session_key)
         state.step_counter = 0
         state.buffer.clear()
@@ -252,16 +262,19 @@ class ThinkingDisplay:
         return self._get_state(session_key)
 
     def enable_feishu(self, session_key: str, chat_id: str, send_callback: OnFeishuSend) -> None:
+        """为会话注册飞书 chat_id 与发送协程，用于思考卡片 PATCH。"""
         state = self._get_state(session_key)
         state.feishu_chat_id = chat_id
         state.feishu_send = send_callback
 
     def enable_buffer(self) -> None:
+        """打开默认桶缓冲（不落盘终端），用于仅需收集思考文本的场景。"""
         self._buffer_enabled = True
         self._default.buffer.clear()
         self._default.feishu_send = None
 
     def disable_buffer(self, session_key: str = "") -> None:
+        """关闭缓冲并清空指定会话或全局默认桶的飞书句柄。"""
         if session_key:
             state = self._get_state(session_key)
             state.buffer.clear()
@@ -274,10 +287,12 @@ class ThinkingDisplay:
             self._default.feishu_chat_id = ""
 
     def get_buffered(self, session_key: str = "") -> str:
+        """返回缓冲中的思考行拼接文本（换行连接）。"""
         state = self._get_state(session_key)
         return "\n".join(state.buffer)
 
     def _next_step(self, session_key: str) -> int:
+        """分配并递增会话内步骤序号（💡 [n] 标签用）。"""
         state = self._get_state(session_key)
         step = state.step_counter
         state.step_counter += 1
@@ -293,6 +308,7 @@ class ThinkingDisplay:
 
     async def show(self, text: str, session_key: str = "", chat_id: str = "",
                    streaming: bool = False, header: str = "") -> None:
+        """展示一段思考：同步飞书卡片、CLI transcript/print、merge_tools 与流式状态机。"""
         state = self._get_state(session_key)
 
         hdr = (header or "").strip()
@@ -304,24 +320,25 @@ class ThinkingDisplay:
             and bool(state.stream_header)
             and hdr != state.stream_header
         )
-        if phase_changed and state.feishu_send and state.feishu_chat_id:
-            open_feishu = bool(getattr(state, "feishu_thinking_message_id", None))
-            if state.stream_step is not None or open_feishu:
-                try:
-                    await state.feishu_send(
-                        state.feishu_chat_id,
-                        "",
-                        "gray",
-                        is_new_round=False,
-                        streaming=False,
-                        merge_tools=False,
-                        finalize_only=True,
-                    )
-                except TypeError:
-                    _logger.debug(
-                        "feishu_send 不支持 finalize_only，阶段切换时可能未收尾思考卡",
-                        exc_info=True,
-                    )
+        if phase_changed:
+            if state.feishu_send and state.feishu_chat_id:
+                open_feishu = bool(getattr(state, "feishu_thinking_message_id", None))
+                if state.stream_step is not None or open_feishu:
+                    try:
+                        await state.feishu_send(
+                            state.feishu_chat_id,
+                            "",
+                            "gray",
+                            is_new_round=False,
+                            streaming=False,
+                            merge_tools=False,
+                            finalize_only=True,
+                        )
+                    except TypeError:
+                        _logger.debug(
+                            "feishu_send 不支持 finalize_only，阶段切换时可能未收尾思考卡",
+                            exc_info=True,
+                        )
             if self._should_emit_cli(state) and state.stream_step is not None and not state.stream_done:
                 self._emit("\n")
             state.stream_done = True
@@ -340,7 +357,7 @@ class ThinkingDisplay:
         # 飞书实时推送（与下方 CLI transcript 镜像可并存）；正文用原始文本便于 lark_md
         if state.feishu_send and state.feishu_chat_id:
             try:
-                # 同一步/同一 thinking_header 内工具后继续流式：不新开卡片（stream_step 在 merge 后常为 None）
+                # 同一步/同一 thinking_header 内工具后继续流式：不新开卡片（merge_tools 后保留 stream_step）
                 is_new_round = streaming and state.stream_step is None and (
                     not state.stream_header or hdr != state.stream_header
                 )
@@ -373,10 +390,8 @@ class ThinkingDisplay:
             elif self._should_emit_cli(state):
                 body = "\n".join(lines)
                 self._emit(body + "\n")
-            state.stream_step = None
-            # 保留 stream_header：同轮内可能多次 on_thinking(..., False, turn_label)
+            # 保留 stream_step / stream_printed / stream_header：同一步内工具后继续流式不新开 CLI 标签、不重复打印已输出正文
             state.stream_done = False
-            state.stream_printed = 0
             return
 
         if self._buffer_enabled:

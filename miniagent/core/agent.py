@@ -37,6 +37,7 @@ from miniagent.security.sandbox import get_default_workspace
 _logger = get_logger(__name__)
 
 def _announce_difficulty_and_plan_enabled() -> bool:
+    """是否向用户展示任务难度与规划摘要（由 ``MINIAGENT_ANNOUNCE_DIFFICULTY_AND_PLAN`` 控制，默认开启）。"""
     v = os.environ.get("MINIAGENT_ANNOUNCE_DIFFICULTY_AND_PLAN", "1")
     return str(v).strip().lower() not in ("0", "false", "no")
 
@@ -148,9 +149,9 @@ def _format_plan_message(
             ei = (st.expected_input or "").strip()
             eo = (st.expected_output or "").strip()
             if ei:
-                lines.append(f"   预期输入：{ei}")
+                lines.append(f"预期输入：{ei}")
             if eo:
-                lines.append(f"   预期产出：{eo}")
+                lines.append(f"预期产出：{eo}")
     if plan.required_toolboxes:
         lines.append("")
         lines.append(f"涉及工具箱：{', '.join(plan.required_toolboxes)}")

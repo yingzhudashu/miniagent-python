@@ -238,6 +238,7 @@ class UnifiedEngine:
             *,
             full_record: str | None = None,
         ) -> None:
+            """桥接 :meth:`run_agent` 的 ``on_thinking``：更新按标签聚合的缓冲并驱动 UI/飞书展示。"""
             record = full_record if full_record is not None else text
             if streaming:
                 key = header if (header or "").strip() else "__stream__"
@@ -261,6 +262,7 @@ class UnifiedEngine:
             *,
             thinking_header: str = "",
         ) -> None:
+            """工具结束回调：按环境变量决定写入历史的详略，并复用 ``_thinking`` 落盘。"""
             status = "成功" if success else "失败"
             short = f"`{tool_name}` · {status}"
             if _tool_finish_verbose_history():
@@ -325,6 +327,7 @@ class UnifiedEngine:
 
         # 8. 更新历史（含思考过程；会话历史不总结，仅后续可归档到日记）
         def _turn_label_sort_key(item: tuple[str, str]) -> tuple[int, int, str]:
+            """将思考区块标签排序：规划步骤 → 评估 → 执行 → 第 n 轮 → 其它。"""
             lab = item[0]
             m = re.search(r"\[步骤\s*(\d+)\s*/\s*(\d+)\s*\]", lab)
             if m:

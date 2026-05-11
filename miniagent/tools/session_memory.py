@@ -61,6 +61,7 @@ _search_session_diary_schema = {
 async def _read_session_diary_handler(
     args: dict[str, Any], ctx: ToolContext
 ) -> ToolResult:
+    """读取本会话某日 ``diary`` Markdown（可截断）。"""
     from datetime import datetime, timezone
 
     from miniagent.memory.history_archive import diary_file_path
@@ -95,6 +96,7 @@ async def _read_session_diary_handler(
 async def _search_session_diary_handler(
     args: dict[str, Any], ctx: ToolContext
 ) -> ToolResult:
+    """在会话 diary 目录内做子串扫描，返回带上下文的命中片段。"""
     from miniagent.memory.history_archive import safe_session_id_for_memory
 
     sk = (ctx.session_key or "").strip()

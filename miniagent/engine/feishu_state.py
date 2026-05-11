@@ -21,6 +21,9 @@ class FeishuRuntime:
     """飞书 WebSocket 长轮询生命周期（绑定到特定 :class:`~miniagent.infrastructure.message_queue.MessageQueueManager`）。"""
 
     def __init__(self, message_queue: Any) -> None:
+        """Args:
+            message_queue: 与 CLI 共用的 :class:`~miniagent.infrastructure.message_queue.MessageQueueManager`。
+        """
         self._message_queue = message_queue
         self._task: asyncio.Task | None = None
         self._running: bool = False
@@ -108,6 +111,7 @@ class FeishuRuntime:
             text_h, media_h = h, None
 
         async def _run() -> None:
+            """后台协程：带指数退避地维持飞书 WebSocket 长轮询，退出时释放入站锁。"""
             attempt = 0
             try:
                 _logger.info("\u98de\u4e66: \u6b63\u5728\u542f\u52a8 WebSocket \u957f\u8f6e\u8be2")
@@ -230,21 +234,27 @@ class FeishuRuntime:
             pass
 
     def is_running(self) -> bool:
+        """是否标记为运行中（与底层 task 是否存活可能短暂不一致）。"""
         return self._running
 
     def get_config(self) -> Any:
+        """返回最近一次构造的 :class:`~miniagent.feishu.types.FeishuConfig` 或 ``None``。"""
         return self._config
 
     def get_task(self) -> asyncio.Task | None:
+        """返回飞书长轮询后台 :class:`asyncio.Task`，未启动则为 ``None``。"""
         return self._task
 
     def set_task(self, task: asyncio.Task | None) -> None:
+        """测试或特殊场景下替换后台 task 句柄。"""
         self._task = task
 
     def set_running(self, value: bool) -> None:
+        """直接设置运行标志（慎用；正常路径由 ``start``/``stop``/``_run`` 维护）。"""
         self._running = value
 
     def set_config(self, config: Any) -> None:
+        """测试注入用：覆盖当前缓存的飞书配置对象。"""
         self._config = config
 
 

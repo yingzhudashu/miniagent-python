@@ -52,6 +52,7 @@ CI 说明：
 可选增强（未默认纳入 CI，团队可自行约定）：
 
 - 覆盖率：`pytest --cov=miniagent --cov-report=term-missing`（需在 `optional-dependencies.dev` 中增加 `pytest-cov`）。
+- 渐进类型检查：自 `types/`、`core/config.py` 等模块起引入 `mypy`（或等价工具），**不默认**纳入 CI，待配置稳定后再考虑门禁。
 
 ---
 
@@ -99,8 +100,9 @@ CI 说明：
    - [CLI.md](CLI.md)、[FEISHU.md](FEISHU.md)、[SELF_OPT.md](SELF_OPT.md)、[CHANNEL_BINDING.md](CHANNEL_BINDING.md)、[CYBERNETICS_PLAN.md](CYBERNETICS_PLAN.md)、[USER_GUIDE.md](USER_GUIDE.md)、[EVALUATION_LOCAL.md](EVALUATION_LOCAL.md)（若文内写明版本号须与 `__version__` 一致）
 2. 欢迎界面：`miniagent.engine.welcome.get_version()` 必须与 `miniagent.__version__` 同源（勿依赖 `pyproject.toml` 静态 `version` 字段）。
 3. [INDEX.md](INDEX.md) 中目录树与仓库实际文件一致（含 `core/openai_client.py`、`memory/defaults.py` 等）。
-4. README 中的命令、测试数量与 `pytest --collect-only -q` 输出一致。
+4. README 中的命令与测试说明：若需核对用例数量，以本地或 CI 的 `pytest tests/ --collect-only -q` 输出为准（避免在 README 硬编码条数导致漂移）。
 5. 行为变更同步 `ARCHITECTURE.md` 或对应专题文档（如 `CHANNEL_BINDING.md`、`MEMORY_SYSTEM.md`）。
+6. **大批量增补或调整 docstring 后**：在本地执行 `python -m ruff check miniagent tests` 与 spot-check（避免行长、引号或无意改坏字符串）；风格约定见 [CONTRIBUTING.md](CONTRIBUTING.md)「文档字符串（docstring）规范」。
 
 ---
 

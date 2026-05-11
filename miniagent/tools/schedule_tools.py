@@ -38,6 +38,7 @@ def _session_from_tool(
 
 
 async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    """``manage_scheduled_task``：JSON 驱动定时任务 CRUD；飞书等非 CLI 渠道禁止写操作。"""
     from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec
     from miniagent.scheduled_tasks.store import compute_initial_next_run, load_tasks, save_tasks
 

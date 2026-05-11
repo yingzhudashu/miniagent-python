@@ -53,11 +53,13 @@ _git_diff_schema = {
 
 
 def _resolve_repo_root(arg_path: str | None, ctx: ToolContext) -> str:
+    """工具参数中的仓库路径与 ``ctx.cwd`` 解析为绝对路径。"""
     base = (arg_path or "").strip() or ctx.cwd
     return os.path.abspath(base)
 
 
 async def _git_status_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    """``git_status``：``git status --porcelain=v1 -b``。"""
     root = _resolve_repo_root(args.get("path"), ctx)
     proc = await asyncio.create_subprocess_exec(
         "git",
@@ -78,6 +80,7 @@ async def _git_status_handler(args: dict[str, Any], ctx: ToolContext) -> ToolRes
 
 
 async def _git_diff_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    """``git_diff``：工作区或暂存区 diff，超长截断。"""
     root = _resolve_repo_root(args.get("path"), ctx)
     staged = bool(args.get("staged"))
     cmd = ["git", "-C", root, "diff"]
