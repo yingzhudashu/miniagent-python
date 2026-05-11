@@ -15,16 +15,17 @@
 5. [第一次启动与退出](#5-第一次启动与退出)
 6. [日常对话怎么用](#6-日常对话怎么用)
 7. [点命令（`.`）速查](#7-点命令速查)
-8. [会话与多会话](#8-会话与多会话)
-9. [飞书（可选）](#9-飞书可选)
-10. [联网搜索与浏览器工具（可选）](#10-联网搜索与浏览器工具可选)
-11. [技能与 ClawHub（可选）](#11-技能与-clawhub可选)
-12. [MCP 工具（可选）](#12-mcp-工具可选)
-13. [状态目录、备份与 Git](#13-状态目录备份与-git)
-14. [常见问题（FAQ）](#14-常见问题faq)
-15. [安全与隐私清单](#15-安全与隐私清单)
-16. [进阶阅读与开发](#16-进阶阅读与开发)
-17. [文档索引](#17-文档索引)
+8. [定时任务（.schedule）](#8-定时任务)
+9. [会话与多会话](#9-会话与多会话)
+10. [飞书（可选）](#10-飞书可选)
+11. [联网搜索与浏览器工具（可选）](#11-联网搜索与浏览器工具可选)
+12. [技能与 ClawHub（可选）](#12-技能与-clawhub可选)
+13. [MCP 工具（可选）](#13-mcp-工具可选)
+14. [状态目录、备份与 Git](#14-状态目录备份与-git)
+15. [常见问题（FAQ）](#15-常见问题faq)
+16. [安全与隐私清单](#16-安全与隐私清单)
+17. [进阶阅读与开发](#17-进阶阅读与开发)
+18. [文档索引](#18-文档索引)
 
 ---
 
@@ -182,13 +183,14 @@ Copy-Item .env.example .env
 | 变量 | 用途 |
 |------|------|
 | `MODEL_PROFILE` | 模型行为预设：`creative` / `balanced` / `precise` / `code` / `fast` 等。 |
-| `AGENT_MAX_TURNS` | 单轮任务最大对话轮数上限相关配置（见示例文件注释）。 |
+| `AGENT_MAX_TURNS` | 单轮 ReAct 最大轮数，**默认 200**（见 `.env.example`）。结构化规划返回的 `maxTurns` **只会抬高不会压低**该上限。若开启分步执行（`MINIAGENT_PHASED_EXECUTION`）仍遇单步内用尽，需另调 **`MINIAGENT_STEP_MAX_TURNS`**。 |
+| `MINIAGENT_TOOL_INTENT_MAX_CHARS` | 工具意图预览（如 `exec_command` 的命令片段）最大字符数，默认 4000；`0` 表示不截断。 |
 | `AGENT_DEBUG` | `true` 时更啰嗦的日志；日常可 `false`。 |
 | `TAVILY_API_KEY` 或 `WEB_SEARCH_API_KEY` | 启用联网搜索（Tavily）时使用其一即可。 |
 | `FEISHU_APP_ID` / `FEISHU_APP_SECRET` / `FEISHU_VERIFICATION_TOKEN` | 飞书应用凭证；仅在使用飞书时填写。 |
-| `MINI_AGENT_STATE` | 状态根目录，见第 13 章。 |
+| `MINI_AGENT_STATE` | 状态根目录，见第 14 章。 |
 | `MINIAGENT_SELF_OPT_TOOLS` | 设为 `0` 可关闭自我优化类工具注册，见 [SELF_OPT.md](SELF_OPT.md)。 |
-| `MINIAGENT_MCP_STDIO` | MCP stdio 启动命令的 JSON 数组字符串，见第 12 章。 |
+| `MINIAGENT_MCP_STDIO` | MCP stdio 启动命令的 JSON 数组字符串，见第 13 章。 |
 | `MINIAGENT_CONFIG` | 可选外部 JSON 路径（遗留兼容）；密钥会进入进程环境，风险见 [SECURITY.md](SECURITY.md)。 |
 
 ### 4.4 外部 JSON（不推荐新手首选）
@@ -215,7 +217,7 @@ python -m miniagent
 python -m miniagent --feishu
 ```
 
-飞书 **不会** 单独占一个无终端的进程；始终与 CLI 主循环一起。更多见第 9 章与 [FEISHU.md](FEISHU.md)。
+飞书 **不会** 单独占一个无终端的进程；始终与 CLI 主循环一起。更多见第 10 章与 [FEISHU.md](FEISHU.md)。
 
 ### 5.3 多实例与停止其它进程
 
@@ -260,6 +262,7 @@ python -m miniagent --stop
 | `.profile <预设名>` | 切换模型预设（与 `MODEL_PROFILE` 等配合） |
 | `.stats` | 工具调用统计 |
 | `.stop` | 停止当前实例并退出 |
+| `.schedule …` | 定时任务（列表/添加/删除等），详见第 8 章与 [CLI.md](CLI.md) |
 
 ### 7.2 使用提示
 
@@ -268,15 +271,30 @@ python -m miniagent --stop
 
 ---
 
-## 8. 会话与多会话
+## 8. 定时任务
 
-- **会话**就像「不同的聊天窗口」，历史与部分配置相互隔离。  
-- 使用 `.session list` 查看列表；`.session switch` 切换到工作上下文。  
-- 会话与记忆落盘位置受 **`MINI_AGENT_STATE`** 控制，详见第 13 章与 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md)。
+在 **本地 CLI** 中可用点命令 **`.schedule`** 管理持久化定时任务：到达时间后，进程会像普通聊天一样把一轮 Agent 请求放进 **消息队列**，再进入与手动输入相同的执行路径。任务保存在 **`MINI_AGENT_STATE/scheduled_tasks/tasks.json`**（未设置 `MINI_AGENT_STATE` 时一般为仓库下 `workspaces/scheduled_tasks/`；该目录不宜提交到 Git，见 [ENGINEERING.md](ENGINEERING.md) §3.1）。
+
+**新手要点**：
+
+- 先输入 **无参数的 `.schedule`** 或 **`.schedule list`** 查看子命令与说明；完整语法见 [CLI.md](CLI.md) 与 [README.md](../README.md)「定时任务」。
+- **`add` 子命令**里若要在参数后面写 **较长的任务说明（prompt）**，须用 **` -- `**（空格、两个连字符、空格）把前面的选项和后面的正文隔开，否则解析会错乱。
+- **Agent 会话里**（非终端）：可用内置工具 **`run_dot_command`** 执行与终端一致的 `.schedule …`；也可用 **`manage_scheduled_task`** 以 JSON 做增删改查，减少拼写错误。二者均可通过环境变量关闭（见 [.env.example](../.env.example)：`MINIAGENT_CLI_DOT_TOOLS`、`MINIAGENT_SCHEDULE_TOOLS`）。
+- **飞书里**：为安全起见，通常 **只允许** `.schedule list` / `show`；**添加、删除、启用、禁用**请在 **本机终端** 的 CLI 中操作（与 `.session` 的变异限制类似）。
+
+关闭整个后台调度循环（不删磁盘上的任务表）：设置环境变量 **`MINIAGENT_DISABLE_SCHEDULED_TASKS=1`**。架构与数据流见 [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」。
 
 ---
 
-## 9. 飞书（可选）
+## 9. 会话与多会话
+
+- **会话**就像「不同的聊天窗口」，历史与部分配置相互隔离。  
+- 使用 `.session list` 查看列表；`.session switch` 切换到工作上下文。  
+- 会话与记忆落盘位置受 **`MINI_AGENT_STATE`** 控制，详见第 14 章与 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md)。
+
+---
+
+## 10. 飞书（可选）
 
 1. 安装依赖：`pip install -e ".[feishu]"`。  
 2. 在飞书开放平台创建企业自建应用，获取 **App ID**、**App Secret**、事件订阅与权限按 [FEISHU.md](FEISHU.md) 操作。  
@@ -287,7 +305,7 @@ python -m miniagent --stop
 
 ---
 
-## 10. 联网搜索与浏览器工具（可选）
+## 11. 联网搜索与浏览器工具（可选）
 
 - **联网搜索（Tavily）**：在 `.env` 配置 `TAVILY_API_KEY` 或 `WEB_SEARCH_API_KEY`。未配置时，若模型尝试调用搜索工具，会得到 **明确错误提示**，不影响其它工具。  
 - **浏览器正文抽取**：需 `[browser]` 与 Playwright 浏览器安装；用于部分需渲染的网页。  
@@ -296,15 +314,17 @@ python -m miniagent --stop
 
 ---
 
-## 11. 技能与 ClawHub（可选）
+## 12. 技能与 ClawHub（可选）
 
 - 默认技能根目录为仓库下 **`workspaces/skills/`**（旧版若使用根目录 `skills/`，请迁移或设置 `MINI_AGENT_SKILLS`）。  
-- 可从 ClawHub 等来源安装技能包；引导脚本见仓库 `scripts/bootstrap_clawhub_skills.py`（参数以官方技能页为准）。  
-- 深入说明见 [README.md](../README.md) 技能章节与 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md) 中与技能相关的部分。
+- **内置基线**：仓库预置 **`skill-creator`**（来自 [anthropics/skills](https://github.com/anthropics/skills)，含 `LICENSE.txt`）与 **`skill-vetter`**（安全审查说明），**克隆源码或使用 `pip install -e .`** 后随目录存在即可加载，无需先运行脚本。  
+- **仅从 PyPI 安装 wheel**（无完整仓库树）时，默认路径下可能没有预置技能文件；需要基线时请克隆仓库、editable 安装，或手动复制 `workspaces/skills/skill-creator` 与 `skill-vetter`，详见 [README.md](../README.md)「技能目录迁移」与 [THIRD_PARTY_SKILLS.md](../workspaces/skills/THIRD_PARTY_SKILLS.md)。  
+- **扩展**：可从 ClawHub 安装更多技能包，引导脚本见 `scripts/bootstrap_clawhub_skills.py`（参数以官方技能页为准；脚本仅为额外安装，不替代内置基线）。  
+- 目录说明见 [workspaces/skills/README.md](../workspaces/skills/README.md)；深入说明见 [README.md](../README.md) 技能章节与 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md) 中与技能相关的部分。
 
 ---
 
-## 12. MCP 工具（可选）
+## 13. MCP 工具（可选）
 
 1. `pip install -e ".[mcp]"`。  
 2. 在 `.env` 中设置 `MINIAGENT_MCP_STDIO` 为 **JSON 数组** 形式的启动命令，例如文档中展示的 `["npx","-y","@组织/包名"]` 形态（请替换为你信任的 MCP 服务）。  
@@ -314,7 +334,7 @@ python -m miniagent --stop
 
 ---
 
-## 13. 状态目录、备份与 Git
+## 14. 状态目录、备份与 Git
 
 ### 13.1 默认布局
 
@@ -330,7 +350,7 @@ python -m miniagent --stop
 
 ---
 
-## 14. 常见问题（FAQ）
+## 15. 常见问题（FAQ）
 
 | 现象 | 建议 |
 |------|------|
@@ -344,7 +364,7 @@ python -m miniagent --stop
 
 ---
 
-## 15. 安全与隐私清单
+## 16. 安全与隐私清单
 
 1. **`.env` 与任何含密钥的 JSON** 仅本机保存，权限收紧；勿提交 Git。  
 2. **不要在截图、录屏、聊天里** 暴露完整密钥或企业内部令牌。  
@@ -355,18 +375,18 @@ python -m miniagent --stop
 
 ---
 
-## 16. 进阶阅读与开发
+## 17. 进阶阅读与开发
 
 - 参与开发与代码规范：[CONTRIBUTING.md](CONTRIBUTING.md)  
 - 仓库卫生、CI、单一事实来源：[ENGINEERING.md](ENGINEERING.md)  
 - 架构与数据流：[ARCHITECTURE.md](ARCHITECTURE.md)  
 - 部署与运维：[DEPLOYMENT.md](DEPLOYMENT.md)
 
-普通用户日常使用 **读到第 15 章即可**；开发贡献再读 CONTRIBUTING / ENGINEERING。
+普通用户日常使用 **读到第 16 章即可**；开发贡献再读 CONTRIBUTING / ENGINEERING。
 
 ---
 
-## 17. 文档索引
+## 18. 文档索引
 
 | 文档 | 适合 |
 |------|------|
@@ -384,4 +404,4 @@ python -m miniagent --stop
 
 ---
 
-**结语**：按第 3～5 章完成安装与启动后，建议先熟悉 **自然语言提问** 与 **`.help` / `.status` / `.session list`**，再按需打开飞书、搜索与技能。遇到问题优先查第 14 章 FAQ 与对应专题文档。
+**结语**：按第 3～5 章完成安装与启动后，建议先熟悉 **自然语言提问** 与 **`.help` / `.status` / `.session list`**，再按需打开飞书、搜索与技能。遇到问题优先查第 15 章 FAQ 与对应专题文档。

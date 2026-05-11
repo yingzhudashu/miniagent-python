@@ -221,6 +221,20 @@ class MessageQueueManager:
         q = self._get_queue(chat_id)
         await q.enqueue(coro, self._mode, on_start, on_done)
 
+    async def dispatch_wait(
+        self, chat_id: str, coro, on_start=None, on_done=None
+    ) -> None:
+        """与 :meth:`dispatch` 同一串行锁，但阻塞直到 ``coro`` 执行完毕（QUEUE 模式）。
+
+        供定时任务等需在触发点确认落盘后再继续的逻辑；普通消息仍用 ``dispatch``。
+        """
+        q = self._get_queue(chat_id)
+        if self._mode == QueueMode.PREEMPTIVE:
+            await q.enqueue(coro, self._mode, on_start, on_done)
+            return
+        t = asyncio.create_task(q._run_sequential(coro, on_start, on_done))
+        await t
+
     async def dispatch_cli(self, coro, on_start=None, on_done=None) -> None:
         """CLI 专用分发（使用内部 chat_id "__cli__"）。
 
@@ -230,6 +244,10 @@ class MessageQueueManager:
             on_done: 完成回调
         """
         await self.dispatch(self.CLI_CHAT_ID, coro, on_start, on_done)
+
+    async def dispatch_cli_wait(self, coro, on_start=None, on_done=None) -> None:
+        """CLI 队列上分发并等待 ``coro`` 完成（见 :meth:`dispatch_wait`）。"""
+        await self.dispatch_wait(self.CLI_CHAT_ID, coro, on_start, on_done)
 
     def get_status(self) -> dict[str, Any]:
         """获取所有聊天室的队列状态。

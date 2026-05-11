@@ -21,6 +21,18 @@ from miniagent.memory.defaults import resolve_memory_dependencies
 from miniagent.session.manager import SessionOptions
 
 
+def _fence_tool_output(body: str) -> str:
+    """选用足够长的 Markdown fence，避免工具输出内含 ``` 时破坏渲染。"""
+    b = (body or "").strip()
+    for width in range(3, 48):
+        fence = "`" * width
+        opener = fence + "\n"
+        closer = "\n" + fence
+        if opener not in b and closer not in b and not b.endswith(fence):
+            return f"{fence}\n{b}\n{fence}"
+    return f"```\n{b}\n```"
+
+
 class UnifiedEngine:
     """统一管理引擎。
 
@@ -61,6 +73,7 @@ class UnifiedEngine:
         keyword_index: Any | None = None,
         client: Any | None = None,
         feishu_receive_chat_id: str | None = None,
+        cli_loop_state: Any | None = None,
     ) -> str:
         """运行 agent 并显示思考过程。
 
@@ -86,6 +99,7 @@ class UnifiedEngine:
             feishu_receive_chat_id: 飞书消息 API 用的会话 ID（如群聊 ``oc_xxx``）。
                 必须与 ``receive_id_type=chat_id`` 一致，**不得**传入内部路由键 ``feishu:oc_xxx``。
                 缺省时若 ``session_key`` 以 ``feishu:`` 开头则自动去掉前缀（兼容旧调用）。
+            cli_loop_state: 与 CLI/飞书主循环共享的 ``CliLoopState``；注入后工具 ``run_dot_command`` 可调度点命令。
         """
         ms, al, ki = resolve_memory_dependencies(memory_store, activity_log, keyword_index)
 
@@ -199,6 +213,23 @@ class UnifiedEngine:
                 text, session_key if is_feishu else "", streaming=streaming, header=header
             )
 
+        async def _tool_finish(
+            tool_name: str,
+            args_json: str,
+            result: str,
+            success: bool,
+            *,
+            thinking_header: str = "",
+        ) -> None:
+            status = "成功" if success else "失败"
+            body = (result or "").strip()
+            block = (
+                f"**工具 `{tool_name}`**（{status}）\n"
+                f"- 参数：`{args_json}`\n"
+                f"- 输出：\n{_fence_tool_output(body)}"
+            )
+            await _thinking(block, False, header=thinking_header or "")
+
         # 6. 调用 Agent
         reply = await run_agent(
             user_input,
@@ -210,9 +241,12 @@ class UnifiedEngine:
                 "session_key": session_key,
                 "conversation_history": history,
                 "debug": False,
+                "cli_loop_state": cli_loop_state,
+                "cli_dispatch_allow_mutations": (not is_feishu),
             },
             system_prompt=system_prompt,
             on_thinking=_thinking,
+            on_tool_finish=_tool_finish,
             clawhub=clawhub,
             memory_store=ms,
             activity_log=al,

@@ -20,11 +20,99 @@ import asyncio
 import json
 import os
 import time
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Protocol
 
 from miniagent.feishu.types import FeishuConfig
 from miniagent.infrastructure.logger import get_logger
+
 _logger = get_logger(__name__)
+
+
+class FeishuMediaHandler(Protocol):
+    """file/image 入站异步处理：成功或已落盘应返回非「⚠️」前缀字符串；失败返回 ``⚠️`` 前缀以便不入磁盘去重。"""
+
+    async def __call__(
+        self,
+        config: FeishuConfig,
+        message_id: str,
+        chat_id: str,
+        sender_id: str,
+        chat_type: str,
+        msg_type: str,
+        file_key: str,
+        suggested_name: str,
+        resource_type: str,
+    ) -> str | None: ...
+
+
+def _parse_feishu_media_payload(
+    msg_type: str, content_str: str
+) -> tuple[str, str, str] | None:
+    """解析 file/image 消息的 file_key 与建议文件名。返回 (resource_type, file_key, suggested_name)。"""
+    try:
+        d = json.loads(content_str or "{}")
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if msg_type == "file":
+        fk = d.get("file_key")
+        name = d.get("file_name") or d.get("name") or "download.bin"
+        if not fk:
+            return None
+        return ("file", str(fk), str(name))
+    if msg_type == "image":
+        ik = d.get("image_key")
+        if not ik:
+            return None
+        return ("image", str(ik), "image.bin")
+    return None
+
+
+def _extract_post_media_items(content_str: str) -> list[tuple[str, str, str]]:
+    """从 post 富文本 JSON 中递归收集 (resource_type, file_key_or_image_key, suggested_name)。"""
+    out: list[tuple[str, str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            tag = node.get("tag")
+            if tag == "img":
+                ik = node.get("image_key") or node.get("image_token")
+                if ik and ("image", str(ik)) not in seen:
+                    seen.add(("image", str(ik)))
+                    out.append(("image", str(ik), "image.bin"))
+            elif tag == "media":
+                fk = node.get("file_key")
+                if fk and ("file", str(fk)) not in seen:
+                    seen.add(("file", str(fk)))
+                    nm = node.get("file_name") or node.get("name") or "download.bin"
+                    out.append(("file", str(fk), str(nm)))
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for x in node:
+                walk(x)
+
+    try:
+        root = json.loads(content_str or "{}")
+    except (json.JSONDecodeError, TypeError):
+        return []
+    walk(root)
+    return out
+
+
+async def reset_feishu_ws_singleton() -> None:
+    """关闭并清空本模块持有的飞书 WS 单例，便于外层重连前重建 Client。"""
+    global _singleton_client, _singleton_app_id
+    c = _singleton_client
+    _singleton_client = None
+    _singleton_app_id = None
+    if c is None:
+        return
+    try:
+        await c._disconnect()
+    except Exception as e:
+        _logger.debug("reset_feishu_ws_singleton: %s", e)
+
 
 # 去重配置
 DEDUP_TTL_MS = 5 * 60 * 1000  # 5 分钟
@@ -142,6 +230,21 @@ def release_processing(message_id: str):
         _save_disk_dedup()
 
 
+def abandon_processing_claim(message_id: str) -> None:
+    """仅丢弃内存中的处理权，不写入磁盘去重（可恢复失败时调用，避免永久跳过）。"""
+    key = _resolve_dedup_key(message_id)
+    if not key:
+        return
+    _processing_claims.pop(key, None)
+
+
+def _feishu_media_reply_indicates_failure(reply: str | None) -> bool:
+    """media_handler 用「⚠️」前缀表示不可落盘的失败类回复。"""
+    if not reply:
+        return False
+    return reply.lstrip().startswith("\u26a0\ufe0f")
+
+
 # 初始化磁盘去重
 _load_disk_dedup()
 
@@ -157,6 +260,7 @@ async def start_feishu_poll_server(
     message_handler: Callable[[str, str, str, str], Awaitable[str]],
     *,
     message_queue: Any,
+    media_handler: FeishuMediaHandler | None = None,
 ) -> None:
     """启动飞书 WebSocket 长轮询模式。
 
@@ -167,20 +271,20 @@ async def start_feishu_poll_server(
         config: 飞书应用配置
         message_handler: 消息处理函数 (content, chatId, senderId, chatType) => reply
         message_queue: 本进程使用的消息队列管理器（与 CLI 共用）
+        media_handler: 可选；处理 file/image 入站（见 ``_create_feishu_handler`` 返回的第二个回调）
     """
     mq = message_queue
     global _singleton_client, _singleton_app_id
 
-    # 单客户端保护
-    if _singleton_client and _singleton_app_id == config.app_id:
-        _logger.info("已存在相同 appId 的 WSClient，复用现有连接")
-        return
-
-    if _singleton_client and _singleton_app_id != config.app_id:
-        _logger.info("存在不同 appId 的 WSClient (%s)，先关闭", _singleton_app_id)
-        await _singleton_client.close()
-        _singleton_client = None
-        _singleton_app_id = None
+    # 任何残留单例一律关闭后重建，避免「同 appId 直接 return」导致外层重连误判为断线空转。
+    if _singleton_client is not None:
+        if _singleton_app_id != config.app_id:
+            _logger.info("存在不同 appId 的 WSClient (%s)，先关闭", _singleton_app_id)
+        else:
+            _logger.warning(
+                "检测到残留 WebSocket 单例（与当前 appId 相同），将关闭后重建"
+            )
+        await reset_feishu_ws_singleton()
 
     # 加载 SDK
     try:
@@ -216,38 +320,129 @@ async def start_feishu_poll_server(
             msg_type = message.message_type or ""
             chat_type = getattr(event.event.message, "chat_type", "group") or "group"
 
-            if msg_type != "text":
-                release_processing(message_id)
-                return
-
             content_str = message.content or ""
-            text = ""
-            try:
-                parsed = json.loads(content_str)
-                text = parsed.get("text", "")
-            except (json.JSONDecodeError, TypeError):
-                text = content_str
 
-            if not text.strip():
+            if msg_type == "text":
+                text = ""
+                try:
+                    parsed = json.loads(content_str)
+                    text = parsed.get("text", "")
+                except (json.JSONDecodeError, TypeError):
+                    text = content_str
+
+                if not text.strip():
+                    release_processing(message_id)
+                    return
+
+                _logger.debug("收到消息 [%s] %s: %s", chat_id, sender_id, text)
+
+                async def _handle():
+                    finalized = False
+                    try:
+                        reply = await message_handler(text, chat_id, sender_id, chat_type)
+                        if reply:
+                            await _send_reply(config, chat_id, reply)
+                            _logger.debug("已回复 [%s]", chat_id)
+                        finalized = True
+                    except Exception as e:
+                        _logger.error("处理消息失败: %s", e)
+                    finally:
+                        if finalized:
+                            release_processing(message_id)
+                        else:
+                            abandon_processing_claim(message_id)
+
+                asyncio.create_task(mq.dispatch(chat_id, _handle()))
+            elif msg_type in ("file", "image") and media_handler:
+                parsed_media = _parse_feishu_media_payload(msg_type, content_str)
+                if not parsed_media:
+                    release_processing(message_id)
+                    return
+                res_type, file_key, suggested_name = parsed_media
+
+                async def _handle_media():
+                    finalized = False
+                    try:
+                        reply = await media_handler(
+                            config,
+                            message_id,
+                            chat_id,
+                            sender_id,
+                            chat_type,
+                            msg_type,
+                            file_key,
+                            suggested_name,
+                            res_type,
+                        )
+                        if _feishu_media_reply_indicates_failure(reply):
+                            finalized = False
+                        else:
+                            silent = (
+                                os.environ.get("MINIAGENT_FEISHU_MEDIA_SILENT_REPLY", "")
+                                .strip()
+                                .lower()
+                                in ("1", "true", "yes", "on")
+                            )
+                            if reply and not silent:
+                                await _send_reply(config, chat_id, reply)
+                            finalized = True
+                    except Exception as e:
+                        _logger.error("处理飞书媒体失败: %s", e)
+                    finally:
+                        if finalized:
+                            release_processing(message_id)
+                        else:
+                            abandon_processing_claim(message_id)
+
+                asyncio.create_task(mq.dispatch(chat_id, _handle_media()))
+            elif msg_type == "post" and media_handler:
+                post_items = _extract_post_media_items(content_str)
+                if not post_items:
+                    release_processing(message_id)
+                    return
+
+                async def _handle_post_media():
+                    finalized = False
+                    silent = (
+                        os.environ.get("MINIAGENT_FEISHU_MEDIA_SILENT_REPLY", "")
+                        .strip()
+                        .lower()
+                        in ("1", "true", "yes", "on")
+                    )
+                    combined: list[str] = []
+                    try:
+                        for res_type, fk, suggested in post_items:
+                            reply = await media_handler(
+                                config,
+                                message_id,
+                                chat_id,
+                                sender_id,
+                                chat_type,
+                                "post",
+                                fk,
+                                suggested,
+                                res_type,
+                            )
+                            if _feishu_media_reply_indicates_failure(reply):
+                                finalized = False
+                                return
+                            if reply:
+                                combined.append(reply)
+                        if combined and not silent:
+                            await _send_reply(config, chat_id, "\n".join(combined))
+                        finalized = True
+                    except Exception as e:
+                        _logger.error("处理飞书 post 媒体失败: %s", e)
+                    finally:
+                        if finalized:
+                            release_processing(message_id)
+                        else:
+                            abandon_processing_claim(message_id)
+
+                asyncio.create_task(mq.dispatch(chat_id, _handle_post_media()))
+            else:
                 release_processing(message_id)
                 return
-
-            _logger.debug("收到消息 [%s] %s: %s", chat_id, sender_id, text)
-
-            # 调度异步处理
-            async def _handle():
-                try:
-                    reply = await message_handler(text, chat_id, sender_id, chat_type)
-                    if reply:
-                        await _send_reply(config, chat_id, reply)
-                        _logger.debug("已回复 [%s]", chat_id)
-                except Exception as e:
-                    _logger.error("处理消息失败: %s", e)
-                finally:
-                    release_processing(message_id)
-
-            # 按 chat_id 入队：与同聊天室消息串行，避免多协程交错改写上下文
-            asyncio.create_task(mq.dispatch(chat_id, _handle()))
 
         except Exception as e:
             _logger.error("事件处理异常: %s", e)
@@ -264,6 +459,8 @@ async def start_feishu_poll_server(
     )
 
     # 启动 WebSocket 客户端
+    ws_client: Any = None
+    ping_task: asyncio.Task[Any] | None = None
     try:
         # ── 关键修复：lark-oapi SDK 在模块加载时捕获了 event loop，
         #    但 asyncio.run() 会创建全新 loop。如果不替换，
@@ -290,19 +487,29 @@ async def start_feishu_poll_server(
         # 在已运行的事件循环中无法使用。直接调用内部异步方法：
         await ws_client._connect()
 
-        # 启动 ping 循环
-        asyncio.create_task(ws_client._ping_loop())
+        ping_task = asyncio.create_task(ws_client._ping_loop())
 
-        # 等待连接断开
         try:
             await asyncio.Event().wait()
         except (KeyboardInterrupt, asyncio.CancelledError):
             _logger.info("收到退出信号")
             await ws_client._disconnect()
+            raise
 
     except Exception as e:
         _logger.error("WebSocket 启动失败: %s", e)
         raise
+    finally:
+        # 与 FeishuRuntime 循环开头的 reset 互补：保证异常/取消路径下 SDK 与单例状态一致。
+        if ping_task is not None and not ping_task.done():
+            ping_task.cancel()
+            try:
+                await ping_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                pass
+        await reset_feishu_ws_singleton()
 
 
 def _normalize_im_receive_chat_id(chat_id: str) -> str:
@@ -320,20 +527,56 @@ def _is_valid_im_receive_id(chat_id: str) -> bool:
 
 
 # 单条「思考」卡片：流式时用 PATCH 更新同一 message_id；飞书对单条消息可 PATCH 次数有限，须节流。
-FEISHU_CARD_BODY_MAX = 12000
-FEISHU_THINKING_BODY_MAX = FEISHU_CARD_BODY_MAX  # 兼容旧名
 FEISHU_THINKING_PATCH_MIN_INTERVAL_S = 0.35
 FEISHU_THINKING_PATCH_MIN_CHAR_DELTA = 450
 FEISHU_THINKING_PATCH_BUDGET = 12
 
 
-def _prepare_card_markdown(raw: str, max_len: int = FEISHU_CARD_BODY_MAX) -> str:
-    t = raw if len(raw) <= max_len else raw[:max_len] + "…"
+def feishu_card_body_max() -> int:
+    """单张交互卡片 lark_md 正文上限（字符近似）；可用 MINI_AGENT_FEISHU_CARD_BODY_MAX 覆盖。"""
+    raw = os.environ.get("MINI_AGENT_FEISHU_CARD_BODY_MAX", "").strip()
+    if raw:
+        try:
+            return max(1000, int(raw))
+        except ValueError:
+            pass
+    return 48_000
+
+
+# 兼容旧导入：仅为进程首次 import 时的快照；运行时上限请以 feishu_card_body_max() 为准。
+FEISHU_CARD_BODY_MAX = feishu_card_body_max()
+FEISHU_THINKING_BODY_MAX = FEISHU_CARD_BODY_MAX
+
+
+def _prepare_card_markdown(raw: str, max_len: int | None = None) -> str:
+    cap = feishu_card_body_max() if max_len is None else max_len
+    t = raw if len(raw) <= cap else raw[:cap] + "…"
     return t.replace("\r", "").replace("\t", "  ")
 
 
 def _prepare_thinking_markdown(raw: str) -> str:
-    return _prepare_card_markdown(raw, FEISHU_THINKING_BODY_MAX)
+    return _prepare_card_markdown(raw)
+
+
+def _chunk_feishu_card_markdown(reply: str, max_len: int | None = None) -> list[str]:
+    """将超长正文切成多张卡片可用的段落（最后在每张内仍经 _prepare_card_markdown 规范化）。"""
+    cap = feishu_card_body_max() if max_len is None else max_len
+    t = (reply or "").replace("\r", "").replace("\t", "  ")
+    if cap <= 0 or len(t) <= cap:
+        return [t]
+    chunks: list[str] = []
+    rest = t
+    while rest:
+        if len(rest) <= cap:
+            chunks.append(rest)
+            break
+        cut = rest.rfind("\n", 0, cap)
+        if cut < max(cap // 2, 1):
+            cut = cap
+        chunk = rest[:cut]
+        chunks.append(chunk)
+        rest = rest[cut:].lstrip("\n")
+    return chunks
 
 
 def _feishu_interactive_card_dict(
@@ -460,15 +703,63 @@ async def finalize_feishu_thinking_stream(
     template: str,
     st: Any,
 ) -> None:
-    """一轮 LLM 流结束或非合并的非流式块前：PATCH 为最终全文，并释放 message_id（下一轮新建卡片）。"""
+    """一轮 LLM 流结束或非合并的非流式块前：PATCH 首张卡片为正文第一段；超长则追加多张「思考续页」卡片。"""
     chat_id = _normalize_im_receive_chat_id(chat_id)
     mid = getattr(st, "feishu_thinking_message_id", None)
     acc = getattr(st, "feishu_stream_accumulated", "") or ""
     if not chat_id or not mid or not acc.strip():
         return
-    cleaned = _prepare_thinking_markdown(acc)
-    card_json = json.dumps(_thinking_interactive_card_dict(cleaned, template), ensure_ascii=False)
-    if _patch_interactive_thinking_message(config, mid, card_json):
+    chunks = _chunk_feishu_card_markdown(acc)
+    if not chunks:
+        return
+    nch = len(chunks)
+    first_body = _prepare_card_markdown(chunks[0])
+    card_json = json.dumps(_thinking_interactive_card_dict(first_body, template), ensure_ascii=False)
+    patched = _patch_interactive_thinking_message(config, mid, card_json)
+    if not patched:
+        _logger.warning("finalize 思考 PATCH 失败 message_id=%s", mid)
+    if nch > 1:
+        try:
+            import lark_oapi as lark
+            from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
+
+            client = lark.Client.builder().app_id(config.app_id).app_secret(config.app_secret).build()
+            for j in range(1, nch):
+                body = _prepare_card_markdown(chunks[j])
+                title = f"💭 思考中 ({j + 1}/{nch})"
+                card = _feishu_interactive_card_dict(title, body, template)
+                req_json = json.dumps(card, ensure_ascii=False)
+                request = (
+                    CreateMessageRequest.builder()
+                    .receive_id_type("chat_id")
+                    .request_body(
+                        CreateMessageRequestBody.builder()
+                        .receive_id(chat_id)
+                        .msg_type("interactive")
+                        .content(req_json)
+                        .build()
+                    )
+                    .build()
+                )
+                try:
+                    response = client.im.v1.message.create(request)
+                except Exception as e:
+                    _logger.warning("思考续页发送异常 (%s/%s): %s", j + 1, nch, e)
+                    break
+                if not response.success():
+                    _logger.warning(
+                        "思考续页发送失败 (%s/%s): %s %s",
+                        j + 1,
+                        nch,
+                        getattr(response, "code", "?"),
+                        getattr(response, "msg", "?"),
+                    )
+                    break
+        except ImportError:
+            pass
+        except Exception as e:
+            _logger.debug("思考续页跳过: %s", e)
+    if patched:
         st.feishu_thinking_message_id = None
         st.feishu_stream_accumulated = ""
         st.feishu_last_patched_char_len = -1
@@ -491,12 +782,20 @@ async def append_feishu_thinking_same_card(
     acc = (getattr(st, "feishu_stream_accumulated", None) or "") or ""
     mid = getattr(st, "feishu_thinking_message_id", None)
     section_started = bool(getattr(st, "feishu_tool_section_started", False))
+    raw = tool_line or ""
+    is_multiline = ("\n" in raw) or ("```" in line)
     flat = line.replace("\n", " ").strip()
     if not section_started:
-        addition = f"\n\n---\n\n**工具**\n\n- {flat}"
+        if is_multiline:
+            addition = f"\n\n---\n\n**工具**\n\n{line}"
+        else:
+            addition = f"\n\n---\n\n**工具**\n\n- {flat}"
         st.feishu_tool_section_started = True
     else:
-        addition = f"\n- {flat}"
+        if is_multiline:
+            addition = f"\n\n---\n\n{line}"
+        else:
+            addition = f"\n- {flat}"
 
     acc2 = acc + addition
     st.feishu_stream_accumulated = acc2
@@ -535,8 +834,7 @@ async def _send_thinking(config: FeishuConfig, chat_id: str, thinking: str, temp
 
         client = lark.Client.builder().app_id(config.app_id).app_secret(config.app_secret).build()
 
-        short = thinking[:2000] + "…" if len(thinking) > 2000 else thinking
-        cleaned = _prepare_thinking_markdown(short)
+        cleaned = _prepare_thinking_markdown(thinking)
         card_json = json.dumps(_thinking_interactive_card_dict(cleaned, template), ensure_ascii=False)
 
         request = CreateMessageRequest.builder() \
@@ -560,21 +858,24 @@ async def _send_thinking(config: FeishuConfig, chat_id: str, thinking: str, temp
         _logger.debug("发送思考异常: %s", e)
 
 
-async def _send_reply(config: FeishuConfig, chat_id: str, reply: str) -> None:
-    """通过飞书 API 发送回复（交互式卡片 + lark_md，与思考卡片同一套构建逻辑）。"""
-    cid = _normalize_im_receive_chat_id(chat_id)
-    if not _is_valid_im_receive_id(cid):
-        _logger.debug("跳过发送回复：无效的 chat_id (%s)", chat_id)
-        return
+def _send_interactive_reply_cards(
+    config: FeishuConfig,
+    cid: str,
+    parts: list[str],
+) -> tuple[int, int]:
+    """发送多条交互卡片回复。返回 (已成功条数, 总条数)；任一分片失败即中止后续分片。"""
+    import lark_oapi as lark
+    from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
 
-    body = _prepare_card_markdown(reply or "")
-    card = _feishu_interactive_card_dict("🤖 Mini Agent", body, "blue")
-
-    try:
-        import lark_oapi as lark
-        from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
-
-        client = lark.Client.builder().app_id(config.app_id).app_secret(config.app_secret).build()
+    n = len(parts)
+    if n == 0:
+        return (0, 0)
+    client = lark.Client.builder().app_id(config.app_id).app_secret(config.app_secret).build()
+    sent = 0
+    for i, part in enumerate(parts):
+        body = _prepare_card_markdown(part)
+        title = "🤖 Mini Agent" if n == 1 else f"🤖 Mini Agent ({i + 1}/{n})"
+        card = _feishu_interactive_card_dict(title, body, "blue")
         request = (
             CreateMessageRequest.builder()
             .receive_id_type("chat_id")
@@ -587,18 +888,35 @@ async def _send_reply(config: FeishuConfig, chat_id: str, reply: str) -> None:
             )
             .build()
         )
-        response = client.im.v1.message.create(request)
-        if not response.success():
-            _logger.warning("发送回复失败: %s %s", response.code, response.msg)
-    except ImportError:
-        _logger.error("请安装 lark-oapi: pip install lark-oapi")
-    except Exception as e:
-        _logger.error("发送回复异常: %s", e)
         try:
-            import lark_oapi as lark
-            from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
+            response = client.im.v1.message.create(request)
+        except Exception as e:
+            _logger.warning("发送回复分片异常 (%s/%s): %s", i + 1, n, e)
+            return (sent, n)
+        if not response.success():
+            _logger.warning(
+                "发送回复失败 (%s/%s): %s %s",
+                i + 1,
+                n,
+                getattr(response, "code", "?"),
+                getattr(response, "msg", "?"),
+            )
+            return (sent, n)
+        sent += 1
+    return (sent, n)
 
-            client = lark.Client.builder().app_id(config.app_id).app_secret(config.app_secret).build()
+
+def _send_plain_text_chunks(config: FeishuConfig, cid: str, text: str) -> None:
+    """interactive 不可用或需短提示时，按正文上限分条发送纯文本。"""
+    try:
+        import lark_oapi as lark
+        from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
+
+        chunks = _chunk_feishu_card_markdown(text or "")
+        if not chunks:
+            return
+        client = lark.Client.builder().app_id(config.app_id).app_secret(config.app_secret).build()
+        for i, ch in enumerate(chunks):
             request = (
                 CreateMessageRequest.builder()
                 .receive_id_type("chat_id")
@@ -606,13 +924,60 @@ async def _send_reply(config: FeishuConfig, chat_id: str, reply: str) -> None:
                     CreateMessageRequestBody.builder()
                     .receive_id(cid)
                     .msg_type("text")
-                    .content(json.dumps({"text": reply}))
+                    .content(json.dumps({"text": ch}, ensure_ascii=False))
                     .build()
                 )
                 .build()
             )
-            client.im.v1.message.create(request)
-        except Exception:
-            pass
+            try:
+                response = client.im.v1.message.create(request)
+            except Exception as e:
+                _logger.warning("发送文本回退异常 (%s/%s): %s", i + 1, len(chunks), e)
+                break
+            if not response.success():
+                _logger.warning(
+                    "发送文本回退失败 (%s/%s): %s %s",
+                    i + 1,
+                    len(chunks),
+                    getattr(response, "code", "?"),
+                    getattr(response, "msg", "?"),
+                )
+                break
+    except ImportError:
+        pass
+    except Exception as e:
+        _logger.debug("文本回退跳过: %s", e)
+
+
+async def _send_reply(config: FeishuConfig, chat_id: str, reply: str) -> None:
+    """通过飞书 API 发送回复（交互式卡片 + lark_md，与思考卡片同一套构建逻辑）。"""
+    cid = _normalize_im_receive_chat_id(chat_id)
+    if not _is_valid_im_receive_id(cid):
+        _logger.debug("跳过发送回复：无效的 chat_id (%s)", chat_id)
+        return
+
+    parts = _chunk_feishu_card_markdown(reply or "")
+    n = len(parts)
+    sent = 0
+    try:
+        sent, _ = _send_interactive_reply_cards(config, cid, parts)
+    except ImportError:
+        _logger.error("请安装 lark-oapi: pip install lark-oapi")
+        _send_plain_text_chunks(config, cid, reply or "")
+        return
+    except Exception as e:
+        _logger.error("发送回复异常: %s", e)
+        sent = 0
+
+    if sent >= n:
+        return
+    if sent > 0:
+        notice = (
+            f"（Mini Agent：本回复共分 {n} 段，已成功发送前 {sent} 段；"
+            "剩余段落未能送达。完整内容见本会话的 history.json。）"
+        )
+        _send_plain_text_chunks(config, cid, notice)
+        return
+    _send_plain_text_chunks(config, cid, reply or "")
 
 

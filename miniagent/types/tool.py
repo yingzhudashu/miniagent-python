@@ -21,11 +21,11 @@ from openai.types.chat import ChatCompletionMessageParam, ChatCompletionToolPara
 # 权限与工具箱
 # ============================================================================
 
-# 工具权限级别
-# - sandbox: 沙箱保护，只能在 allowed_paths 内操作
-# - allowlist: 白名单模式，只允许预定义的命令操作
-# - require-confirm: 必须用户确认后才能执行
-ToolPermission = str  # Literal["sandbox", "allowlist", "require-confirm"]
+# 工具权限级别（字符串别名，语义与沙箱/策略模块一致）：
+# - sandbox：在 allowed_paths 内受沙箱约束
+# - allowlist：仅允许预置安全命令清单
+# - require-confirm：执行前需用户确认（若上层实现该流程）
+ToolPermission = str  # 约定 Literal["sandbox", "allowlist", "require-confirm"]
 
 
 @dataclass
@@ -60,6 +60,8 @@ class ToolContext:
         permission: 权限级别
         clawhub: ClawHub 客户端（可选；由 RuntimeContext 注入，技能搜索/安装工具优先使用）
         session_key: 当前 Agent 会话键（可选；由执行器注入供会话级只读工具使用）
+        cli_loop_state: 与 unified_main 共享的状态 dict（可选；点命令工具用）
+        cli_dispatch_allow_mutations: 是否允许 dispatch 在 capture 下执行会话变异子命令
     """
 
     cwd: str
@@ -67,6 +69,8 @@ class ToolContext:
     permission: ToolPermission = "sandbox"
     clawhub: Any | None = None
     session_key: str | None = None
+    cli_loop_state: Any | None = None
+    cli_dispatch_allow_mutations: bool = True
 
 
 @dataclass

@@ -77,6 +77,9 @@ async def dispatch_command(
         cmd_session_rename,
         cmd_session_switch,
         cmd_unbind,
+        feishu_markdown_commands_enabled,
+        format_queue_command_usage,
+        format_session_command_usage,
     )
     from miniagent.engine.session_lock import (
         is_session_locked,
@@ -96,6 +99,7 @@ async def dispatch_command(
     message_queue = rt.message_queue
     channel_router = rt.channel_router
     feishu_rt = rt.feishu
+    md_cmds = capture and feishu_markdown_commands_enabled()
 
     parts = text.split()
     cmd = parts[0].lower() if parts else ""
@@ -124,7 +128,7 @@ async def dispatch_command(
     # ── .instance ──
     if cmd == ".instance":
         sub_cmd = parts[1] if len(parts) > 1 else ""
-        output = _capture(lambda: cmd_instance_handler(parts, sub_cmd, state))
+        output = _capture(lambda md=md_cmds: cmd_instance_handler(parts, sub_cmd, state, markdown=md))
         if capture:
             return output
         print(output)
@@ -140,7 +144,7 @@ async def dispatch_command(
         block_remote = capture and not allow_session_mutations_when_capture
 
         if sub_cmd == "list":
-            output = _capture(lambda: cmd_session_list(sm, active))
+            output = _capture(lambda md=md_cmds: cmd_session_list(sm, active, markdown=md))
         elif sub_cmd == "switch" and len(parts) >= 3:
             if block_remote:
                 output = _REMOTE_SESSION_HINT
@@ -190,13 +194,7 @@ async def dispatch_command(
                     lambda: cmd_session_rename(sm, parts[2], " ".join(parts[3:]))
                 )
         else:
-            output = (
-                "用法:\n"
-                "  .session list                  列出所有会话\n"
-                "  .session switch <编号/ID>       切换到指定会话（仅 CLI）\n"
-                "  .session create <ID> [标题]     创建新会话\n"
-                "  .session rename <编号/ID> <标题>  重命名会话"
-            )
+            output = format_session_command_usage()
 
         if capture:
             return output
@@ -246,7 +244,7 @@ async def dispatch_command(
     if cmd == ".queue":
         sub = parts[1] if len(parts) > 1 else ""
         if sub == "status":
-            output = _capture(lambda: cmd_queue_status(message_queue))
+            output = _capture(lambda md=md_cmds: cmd_queue_status(message_queue, markdown=md))
         elif sub == "set" and len(parts) >= 3:
             buf = io.StringIO()
             try:
@@ -256,12 +254,7 @@ async def dispatch_command(
             except Exception as e:
                 output = f"❌ 命令执行失败: {e}"
         else:
-            output = (
-                "用法:\n"
-                "  .queue status          查看队列状态\n"
-                "  .queue set <模式>      切换 queue / preemptive\n"
-                f"  当前: {message_queue.mode.value}"
-            )
+            output = format_queue_command_usage(message_queue)
 
         if capture:
             return output
@@ -316,6 +309,20 @@ async def dispatch_command(
     if cmd == ".unbind":
         args = parts[1:] if len(parts) > 1 else []
         output = cmd_unbind(channel_router, args, state)
+        if capture:
+            return output
+        print(output)
+        return None
+
+    # ── .schedule（定时任务）──
+    if cmd == ".schedule":
+        from miniagent.engine.cli_commands import cmd_schedule
+
+        sub_s = parts[1].lower() if len(parts) > 1 else ""
+        block_remote = capture and not allow_session_mutations_when_capture
+        mutating = sub_s in ("add", "remove", "enable", "disable")
+        allow_muts = not (block_remote and mutating)
+        output = cmd_schedule(text, allow_mutations=allow_muts)
         if capture:
             return output
         print(output)

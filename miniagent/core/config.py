@@ -242,7 +242,7 @@ def get_default_agent_config() -> AgentConfig:
     """获取默认 AgentConfig
 
     支持环境变量覆盖：
-    - AGENT_MAX_TURNS: 最大对话轮数（默认 20）
+    - AGENT_MAX_TURNS: 最大对话轮数（默认 200）
     - AGENT_TOOL_TIMEOUT: 工具超时秒数（默认 60）
     - AGENT_HTTP_TIMEOUT: HTTP 超时秒数（默认 120）
     - AGENT_CONTEXT_RESERVE: 上下文预留比例（默认 0.15）
@@ -254,7 +254,7 @@ def get_default_agent_config() -> AgentConfig:
         默认的 Agent 配置对象
     """
     return AgentConfig(
-        max_turns=_env_int("AGENT_MAX_TURNS", 20),
+        max_turns=_env_int("AGENT_MAX_TURNS", 200),
         tool_timeout=_env_int("AGENT_TOOL_TIMEOUT", 60),
         http_timeout=_env_int("AGENT_HTTP_TIMEOUT", 120),
         context_reserve_ratio=_env_float("AGENT_CONTEXT_RESERVE", 0.15),
@@ -349,6 +349,8 @@ def merge_agent_config(
         "session_toolboxes": list(base.session_toolboxes),
         "conversation_history": list(base.conversation_history),
         "risk_level": base.risk_level,
+        "cli_loop_state": base.cli_loop_state,
+        "cli_dispatch_allow_mutations": base.cli_dispatch_allow_mutations,
     }
 
     # 应用覆盖

@@ -32,6 +32,7 @@
 | [SELF_OPT.md](SELF_OPT.md) | 自我优化子系统 | 高级用户、开发者 |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | 部署指南 | 运维 |
 | [INSTANCE_REGISTRY.md](INSTANCE_REGISTRY.md) | 多实例注册表与磁盘布局 | 开发者、运维 |
+| [ARCHITECTURE.md](ARCHITECTURE.md) §定时任务子系统；[USER_GUIDE.md](USER_GUIDE.md) §8 | 定时任务（`.schedule`、持久化、`manage_scheduled_task`） | 所有用户、开发者 |
 
 ## 🤝 参与贡献
 
@@ -80,9 +81,18 @@ miniagent-python/
 │   │   ├── session_lock.py
 │   │   ├── thinking.py           # ThinkingDisplay
 │   │   └── welcome.py
+│   ├── scheduled_tasks/          # 定时任务：持久化 + 进程内 ticker → 消息队列跑 Agent
+│   │   ├── __init__.py
+│   │   ├── models.py             # ScheduledTask / ScheduleSpec
+│   │   ├── store.py              # tasks.json 读写
+│   │   ├── lock.py               # 单进程调度互斥
+│   │   ├── ticker.py             # 周期 tick、投递协程
+│   │   ├── runner.py             # build_run_scheduled_job_coro → UnifiedEngine
+│   │   └── resolve.py            # 执行目标 session_key / 飞书判定
 │   ├── feishu/
 │   │   ├── poll_server.py
 │   │   ├── agent_handler.py
+│   │   ├── resource_io.py        # 飞书媒体/资源下载与会话落盘
 │   │   ├── server.py
 │   │   └── types.py
 │   ├── infrastructure/
@@ -123,6 +133,8 @@ miniagent-python/
 │   │   ├── skills.py
 │   │   ├── self_opt.py
 │   │   ├── git_readonly.py
+│   │   ├── cli_dispatch_tools.py # run_dot_command（点命令同源）
+│   │   ├── schedule_tools.py     # manage_scheduled_task（结构化 CRUD）
 │   │   └── session_memory.py     # 会话记忆类工具（init 注册）
 │   ├── mcp/                      # 可选：stdio MCP → mcp_* 工具
 │   │   ├── bridge.py
@@ -130,15 +142,16 @@ miniagent-python/
 │   ├── security/
 │   │   └── sandbox.py
 │   └── types/                    # Pydantic / Protocol（__init__.py 聚合导出）
-├── scripts/                      # 维护脚本（如 bootstrap_clawhub_skills.py）
+├── scripts/                      # 维护脚本（bootstrap_clawhub_skills.py、vendor_skill_from_github.py）
 ├── tests/
 ├── docs/
 │   └── examples/                 # 脱敏配置片段（见 examples/README.md）
 ├── workspaces/                   # 默认状态目录（可用 MINI_AGENT_STATE 迁出）
+│   └── skills/                   # 技能包根（内置 skill-creator、skill-vetter，见 THIRD_PARTY_SKILLS.md）
 └── README.md
 ```
 
-**`workspaces/` 与 Git**：`.gitignore` 已忽略 `instances/`、`sessions/`、`memory/`、`keyword-index.json`、`feishu/`、性能日志、飞书路由 JSON 等运行时产物；结构说明见 [ENGINEERING.md](ENGINEERING.md) §3.1。本地与 CI 推荐设置 `MINI_AGENT_STATE` 将状态迁出仓库；需要提交**脱敏**结构示例时请放在 [examples/](examples/)（说明见 [examples/README.md](examples/README.md)），勿将含密钥或真实对话的文件放在 `workspaces/` 并尝试提交。
+**`workspaces/` 与 Git**：`.gitignore` 已忽略 `instances/`、`sessions/`、`memory/`、`scheduled_tasks/`（定时任务表）、`keyword-index.json`、`feishu/`、性能日志、飞书路由 JSON 等运行时产物；结构说明见 [ENGINEERING.md](ENGINEERING.md) §3.1。本地与 CI 推荐设置 `MINI_AGENT_STATE` 将状态迁出仓库；需要提交**脱敏**结构示例时请放在 [examples/](examples/)（说明见 [examples/README.md](examples/README.md)），勿将含密钥或真实对话的文件放在 `workspaces/` 并尝试提交。
 
 ---
 

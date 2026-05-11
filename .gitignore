@@ -19,6 +19,7 @@ workspaces/**/*.lock
 workspaces/sessions/
 workspaces/workspaces/
 workspaces/cli/
+workspaces/scheduled_tasks/
 
 # 记忆索引、性能日志、飞书路由等运行时产物（默认不入库；需要示例请放 docs/examples/）
 workspaces/memory/

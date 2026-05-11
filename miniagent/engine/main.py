@@ -195,6 +195,12 @@ async def unified_main(ctx: RuntimeContext) -> None:
     def _on_exit(*_: Any) -> None:
         from miniagent.engine.session_lock import release_session_lock
 
+        ev = ctx.scheduled_tasks_stop_event
+        if ev is not None:
+            ev.set()
+        st = ctx.scheduled_tasks_ticker
+        if st is not None and not st.done():
+            st.cancel()
         if state["active_session_id"]:
             release_session_lock(state["active_session_id"])
         task = ctx.feishu.get_task()
@@ -239,6 +245,10 @@ async def unified_main(ctx: RuntimeContext) -> None:
             user_status=_feishu_user_status_fn(ctx),
         )
 
+    from miniagent.scheduled_tasks.ticker import start_scheduled_tasks_ticker
+
+    start_scheduled_tasks_ticker(ctx, state, skill_toolboxes, skill_prompts)
+
     # 显示欢迎信息
     print_welcome(
         registry,
@@ -260,6 +270,16 @@ async def unified_main(ctx: RuntimeContext) -> None:
 
     # run_cli_loop 正常返回后的收尾（异常路径依赖信号与 finally）
     from miniagent.engine.session_lock import release_session_lock
+
+    if ctx.scheduled_tasks_stop_event is not None:
+        ctx.scheduled_tasks_stop_event.set()
+    st_ticker = ctx.scheduled_tasks_ticker
+    if st_ticker is not None and not st_ticker.done():
+        st_ticker.cancel()
+        try:
+            await st_ticker
+        except asyncio.CancelledError:
+            pass
 
     task = ctx.feishu.get_task()
     if task:
@@ -825,6 +845,7 @@ async def run_cli_loop(
                 activity_log=ctx.activity_log,
                 keyword_index=ctx.keyword_index,
                 client=ctx.openai_client,
+                cli_loop_state=state,
             )
             _cli_block_reply(reply)
         except Exception as e:
@@ -946,6 +967,8 @@ async def _run_cli_loop_fallback(
         cmd_session_list,
         cmd_session_rename,
         cmd_session_switch,
+        format_queue_command_usage,
+        format_session_command_usage,
     )
     from miniagent.engine.session_lock import (
         is_session_locked,
@@ -987,6 +1010,7 @@ async def _run_cli_loop_fallback(
                 activity_log=ctx.activity_log,
                 keyword_index=ctx.keyword_index,
                 client=ctx.openai_client,
+                cli_loop_state=state,
             )
             print()
             _fb_rule_light()
@@ -1060,11 +1084,7 @@ async def _run_cli_loop_fallback(
             elif sub_cmd == "rename" and len(parts) >= 4:
                 cmd_session_rename(state.get("session_manager"), parts[2], " ".join(parts[3:]))
             else:
-                print("\n\u7528\u6cd5:")
-                print("  .session list                  \u5217\u51fa\u6240\u6709\u4f1a\u8bdd")
-                print("  .session switch <id>           \u5207\u6362\u5230\u6307\u5b9a\u4f1a\u8bdd")
-                print("  .session create <id> [title]   \u521b\u5efa\u65b0\u4f1a\u8bdd")
-                print("  .session rename <id> <title>   \u91cd\u547d\u540d\u4f1a\u8bdd\n")
+                print(format_session_command_usage() + "\n")
             continue
 
         if user_input.startswith(".feishu"):
@@ -1090,10 +1110,7 @@ async def _run_cli_loop_fallback(
             elif sub == "set" and len(parts) >= 3:
                 await cmd_queue_set(message_queue, parts[2])
             else:
-                print("\n\u7528\u6cd5:")
-                print("  .queue status          \u67e5\u770b\u961f\u5217\u72b6\u6001")
-                print("  .queue set <mode>      \u5207\u6362\u6a21\u5f0f (queue / preemptive)")
-                print(f"  \u5f53\u524d\u6a21\u5f0f: {message_queue.mode.value}\n")
+                print(format_queue_command_usage(message_queue) + "\n")
             continue
 
         if user_input == ".stats":
@@ -1247,12 +1264,126 @@ def _create_feishu_handler(
                 keyword_index=ctx.keyword_index,
                 client=ctx.openai_client,
                 feishu_receive_chat_id=chat_id,
+                cli_loop_state=state,
             )
             return reply
         except Exception as e:
             return f"\u26a0\ufe0f \u5904\u7406\u5931\u8d25: {e}"
 
-    return handler
+    async def media_handler(
+        cfg: Any,
+        message_id: str,
+        chat_id: str,
+        sender_id: str,
+        chat_type: str,
+        msg_type: str,
+        file_key: str,
+        suggested_name: str,
+        resource_type: str,
+    ) -> str | None:
+        """下载飞书 file/image 到当前会话 workspace/files/feishu_incoming/。"""
+        from miniagent.feishu.resource_io import download_message_resource, sanitize_filename
+        from miniagent.types.memory import SessionOptions
+
+        if not engine:
+            return "\u26a0\ufe0f \u5f15\u64ce\u672a\u521d\u59cb\u5316"
+
+        sm = state.get("session_manager")
+        if sm is None:
+            return "\u26a0\ufe0f \u4f1a\u8bdd\u7ba1\u7406\u5668\u672a\u521d\u59cb\u5316\uff0c\u65e0\u6cd5\u4fdd\u5b58\u6587\u4ef6"
+
+        if chat_type == "p2p":
+            cid = f"{channel_router.FEISHU_P2P_PREFIX}{sender_id}"
+            synced: set[str] = state.setdefault("feishu_p2p_synced_senders", set())  # type: ignore[assignment]
+            if not isinstance(synced, set):
+                synced = set()
+                state["feishu_p2p_synced_senders"] = synced
+            if not channel_router.is_bound(cid):
+                act = (state.get("active_session_id") or "").strip()
+                if act:
+                    channel_router.bind(cid, act)
+                    synced.add(sender_id)
+
+        session_key = channel_router.resolve_feishu_message(
+            chat_id, sender_id, chat_type
+        )
+        sess = sm.get_or_create(
+            session_key,
+            SessionOptions(description="\u98de\u4e66\u5a92\u4f53\u5165\u7ad9"),
+        )
+        base = (sess.workspace_path or "").strip()
+        if not base:
+            return "\u26a0\ufe0f \u4f1a\u8bdd\u5de5\u4f5c\u533a\u672a\u914d\u7f6e\uff0c\u65e0\u6cd5\u5199\u5165\u6587\u4ef6"
+
+        incoming = os.path.join(base, "feishu_incoming")
+        os.makedirs(incoming, exist_ok=True)
+
+        safe = sanitize_filename(suggested_name)
+        root, ext = os.path.splitext(safe)
+        tag = (message_id or "msg").replace("/", "_")[:16]
+        dest_name = f"{root}_{tag}{ext}" if root else f"file_{tag}{ext or '.bin'}"
+        dest_path = os.path.join(incoming, dest_name)
+
+        if resource_type not in ("file", "image"):
+            return "\u26a0\ufe0f \u4e0d\u652f\u6301\u7684\u8d44\u6e90\u7c7b\u578b"
+
+        try:
+            data, _header_name = await download_message_resource(
+                cfg.app_id,
+                cfg.app_secret,
+                message_id=message_id,
+                file_key=file_key,
+                type_=resource_type,
+            )
+        except Exception as e:
+            return f"\u26a0\ufe0f \u4e0b\u8f7d\u5931\u8d25: {e}"
+
+        with open(dest_path, "wb") as f:
+            f.write(data)
+
+        try:
+            rel = os.path.relpath(dest_path, base)
+        except ValueError:
+            rel = os.path.basename(dest_path)
+
+        _emit_feishu_cli(
+            f"\n\U0001f4ce [\u98de\u4e66\u5a92\u4f53 {chat_id[:8]}] \u5df2\u4fdd\u5b58: {rel}"
+        )
+
+        flag = (os.environ.get("MINIAGENT_FEISHU_MEDIA_RUN_AGENT") or "").strip().lower()
+        run_agent_on_media = flag in ("1", "true", "yes", "on")
+        if not run_agent_on_media:
+            return f"\u2705 \u5df2\u4fdd\u5b58\u5230\u4f1a\u8bdd\u6587\u4ef6\u533a: {rel}"
+
+        user_line = (
+            f"[\u98de\u4e66\u5165\u7ad9] \u5df2\u4fdd\u5b58\u5a92\u4f53\u5230\u4f1a\u8bdd\u76ee\u5f55\uff08\u76f8\u5bf9 files \uff09: {rel}\n"
+            f"\u8bf7\u67e5\u770b\u8be5\u6587\u4ef6\u5e76\u8bf4\u660e\u4f60\u53ef\u4ee5\u5982\u4f55\u534f\u52a9\u5904\u7406\u3002"
+        )
+        try:
+            reply = await engine.run_agent_with_thinking(
+                user_line,
+                session_key,
+                skill_toolboxes,
+                "\n\n".join(skill_prompts) if skill_prompts else None,
+                is_feishu=True,
+                registry=registry,
+                monitor=monitor,
+                session_manager=sm,
+                feishu_config=ctx.feishu.get_config(),
+                channel_router=channel_router,
+                clawhub=ctx.clawhub,
+                memory_store=ctx.memory_store,
+                activity_log=ctx.activity_log,
+                keyword_index=ctx.keyword_index,
+                client=ctx.openai_client,
+                feishu_receive_chat_id=chat_id,
+                cli_loop_state=state,
+            )
+            return reply
+        except Exception as e:
+            return f"\u2705 \u5df2\u4fdd\u5b58 {rel}\uff08Agent \u5904\u7406\u5931\u8d25: {e}\uff09"
+
+    return handler, media_handler
 
 
 __all__ = ["unified_main", "run_cli_loop"]

@@ -10,6 +10,10 @@
 
 另：``session_memory.session_memory_tools`` 在 ``engine.init_subsystems`` 中单独注册，不在 ``ALL_TOOLS`` 字典内。
 
+``cli_dispatch_tools``（``run_dot_command``）可由环境变量 ``MINIAGENT_CLI_DOT_TOOLS=0`` 在注册阶段关闭；工具参数 ``max_chars`` 可限制返回长度。
+
+``schedule_tools``（``manage_scheduled_task``）可由 ``MINIAGENT_SCHEDULE_TOOLS=0`` 关闭注册。
+
 ALL_TOOLS 汇总上述内置工具子集；启动时由 ``register_builtin_tools`` 写入主注册表。
 """
 
@@ -19,6 +23,8 @@ from miniagent.tools.web import web_tools
 from miniagent.tools.skills import skills_tools
 from miniagent.tools.self_opt import self_opt_tools
 from miniagent.tools.git_readonly import git_readonly_tools
+from miniagent.tools.cli_dispatch_tools import cli_dispatch_tools
+from miniagent.tools.schedule_tools import schedule_tools
 
 # 汇总所有内置工具
 ALL_TOOLS = {
@@ -28,6 +34,8 @@ ALL_TOOLS = {
     **skills_tools,
     **self_opt_tools,
     **git_readonly_tools,
+    **cli_dispatch_tools,
+    **schedule_tools,
 }
 
 __all__ = [
@@ -37,5 +45,7 @@ __all__ = [
     "skills_tools",
     "self_opt_tools",
     "git_readonly_tools",
+    "cli_dispatch_tools",
+    "schedule_tools",
     "ALL_TOOLS",
 ]

@@ -100,7 +100,7 @@ class AgentConfig:
     3. plan.suggested_config — 规划器推荐
 
     Attributes:
-        max_turns: 最大轮数（ReAct loop 迭代次数，默认 20）
+        max_turns: 最大轮数（ReAct loop 迭代次数，默认 200）
         tool_timeout: 工具超时（秒，默认 60）
         http_timeout: HTTP 超时（秒，默认 120）
         context_reserve_ratio: 上下文保留比例（默认 0.15）
@@ -123,9 +123,11 @@ class AgentConfig:
         session_toolboxes: 会话工具箱列表
         conversation_history: 对话历史（跨轮次保留）
         risk_level: 风险等级（来自规划建议或计划，供执行阶段提示）
+        cli_loop_state: 与 CLI/飞书共享的 CliLoopState dict（供 run_dot_command 等工具调用 dispatch_command）
+        cli_dispatch_allow_mutations: capture 模式下是否允许 .session 等会改共享状态的子命令（飞书应为 False）
     """
 
-    max_turns: int = 20
+    max_turns: int = 200
     tool_timeout: int = 60
     http_timeout: int = 120
     context_reserve_ratio: float = 0.15
@@ -148,6 +150,8 @@ class AgentConfig:
     session_toolboxes: list[Any] = field(default_factory=list)  # list[Toolbox]
     conversation_history: list[dict[str, str]] = field(default_factory=list)
     risk_level: str | None = None  # "low" | "medium" | "high"
+    cli_loop_state: Any | None = None
+    cli_dispatch_allow_mutations: bool = True
 
 
 def normalize_conversation_history(value: Any) -> list[dict[str, Any]]:

@@ -24,6 +24,15 @@ from typing import Any, Protocol
 CLAWHUB_API = "https://clawhub.ai/api/v1"
 
 
+def skill_install_dir_name(slug: str) -> str:
+    """与 ``discover_skill_packages`` 对齐的包目录名（``skills_root`` 下一级）。
+
+    ClawHub 可能使用 ``author/pkg`` 形式 slug；安装时写入 ``skills_root/<pkg>``，
+    避免仅出现 ``skills_root/author`` 而无包级 ``SKILL.md`` 导致发现失败。
+    """
+    return slug.replace("\\", "/").rstrip("/").split("/")[-1]
+
+
 # ─── 客户端接口 ──────────────────────────────────────────
 
 class ClawHubClient(Protocol):
@@ -101,6 +110,25 @@ class _ClawHubClientImpl:
         url = f"{self._base_url}/skills/{slug}"
         return await self._fetch_json(url)
 
+    async def _files_from_download_endpoint(
+        self, slug: str, version: str | None
+    ) -> list[dict[str, Any]]:
+        """部分部署在详情无 ``files`` 时由 ``GET .../download`` 返回 JSON 文件列表。"""
+        from urllib.parse import quote
+
+        url = f"{self._base_url}/skills/{slug}/download"
+        if version:
+            url += f"?version={quote(version)}"
+        try:
+            data = await self._fetch_json(url)
+        except Exception:
+            return []
+        if isinstance(data, dict):
+            raw = data.get("files") or []
+            if isinstance(raw, list):
+                return raw
+        return []
+
     async def download(
         self,
         slug: str,
@@ -108,15 +136,32 @@ class _ClawHubClientImpl:
         *,
         skills_root: str | None = None,
     ) -> dict[str, Any]:
-        """下载技能包并安装到本地 ``skills_root/<slug>``。"""
+        """下载技能包并安装到本地 ``skills_root/<包目录名>``。
+
+        ``包目录名`` 为 ``slug`` 路径的最后一段（与 :func:`skill_install_dir_name` 一致），
+        以便 ``discover_skill_packages`` 能发现带 ``author/`` 前缀的 ClawHub slug。
+        """
         from miniagent.skills.paths import get_skills_root as _default_skills_root
 
         detail = await self.get_detail(slug)
-        files = detail.get("files", [])
+        files = detail.get("files") or []
+        if not files and isinstance(detail.get("latestVersion"), dict):
+            files = detail["latestVersion"].get("files") or []
+        if not files:
+            files = await self._files_from_download_endpoint(slug, version)
 
         root = skills_root if skills_root else _default_skills_root()
         os.makedirs(root, exist_ok=True)
-        skills_dir = os.path.join(root, slug)
+        dir_name = skill_install_dir_name(slug)
+        skills_dir = os.path.join(root, dir_name)
+        os.makedirs(skills_dir, exist_ok=True)
+
+        if not files:
+            raise RuntimeError(
+                f"ClawHub 未返回可写入的文件列表（slug={slug!r}）。"
+                "请改用 GitHub 源：python scripts/vendor_skill_from_github.py …，"
+                "或复制仓库内 workspaces/skills 已 vendoring 的技能包。"
+            )
 
         # 写入文件
         for file_info in files:
@@ -214,4 +259,4 @@ def search_local_skills(skills_root: str, query: str) -> list[dict[str, Any]]:
     return results
 
 
-__all__ = ["create_clawhub_client", "search_local_skills"]
+__all__ = ["create_clawhub_client", "search_local_skills", "skill_install_dir_name"]

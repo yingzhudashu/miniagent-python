@@ -19,6 +19,7 @@ CLI 主循环与飞书消息 handler 的闭包向下传递。设计目标：
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -41,8 +42,8 @@ class RuntimeContext:
         keyword_index: 关键词检索索引（``KeywordIndex``）
         openai_client: LLM 客户端（``AsyncOpenAI`` 或兼容实现）；``None`` 表示使用默认工厂
         external_config_patch: 启动时 ``load_external_config_from_env`` 后的补丁快照（只读 dict）；未加载则为 ``None``
-        create_feishu_handler_factory: ``(toolboxes, prompts, state) -> handler``，
-            在 ``unified_main`` 内赋值，闭包捕获本上下文
+        create_feishu_handler_factory: ``(toolboxes, prompts, state) -> handler`` 或
+            ``(text_handler, media_handler)`` 元组；在 ``unified_main`` 内赋值，闭包捕获本上下文
         cli_transcript_append: 全屏 CLI 时注册 ``(style_cls, text) -> None``，
             将飞书/侧路输出写入 transcript；未注册时相关代码回退到 ``print``。
     """
@@ -62,3 +63,6 @@ class RuntimeContext:
     external_config_patch: dict[str, Any] | None = None
     create_feishu_handler_factory: Callable[..., Any] | None = field(default=None, repr=False)
     cli_transcript_append: Callable[[str, str], None] | None = field(default=None, repr=False)
+    #: 定时任务后台循环（``miniagent.scheduled_tasks``）；可选便于退出时 cancel
+    scheduled_tasks_ticker: asyncio.Task[Any] | None = field(default=None, repr=False)
+    scheduled_tasks_stop_event: asyncio.Event | None = field(default=None, repr=False)

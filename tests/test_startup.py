@@ -190,8 +190,9 @@ def test_feishu_handler_creation():
         "runtime_ctx": ctx,
         "feishu_p2p_synced_senders": set(),
     }
-    handler = _create_feishu_handler([], [], loop_state, ctx)
-    assert callable(handler)
+    text_h, media_h = _create_feishu_handler([], [], loop_state, ctx)
+    assert callable(text_h)
+    assert callable(media_h)
 
 
 def test_set_console_log_threshold_updates_handlers():
@@ -243,6 +244,8 @@ def test_feishu_user_status_fn_uses_cli_transcript_append():
 
 def test_feishu_start_user_status_avoids_print(monkeypatch):
     """有 user_status 时 start() 同步反馈不调用 builtins.print。"""
+    state_dir = tempfile.mkdtemp(prefix="miniagent_feishu_start_")
+    monkeypatch.setenv("MINI_AGENT_STATE", state_dir)
     monkeypatch.setenv("FEISHU_APP_ID", "test_app")
     monkeypatch.setenv("FEISHU_APP_SECRET", "secret")
     monkeypatch.setenv("FEISHU_VERIFICATION_TOKEN", "token")
@@ -282,13 +285,16 @@ def test_feishu_start_user_status_avoids_print(monkeypatch):
 
             return _handler
 
-        rt.start(
-            [],
-            [],
-            _make_handler,
-            {"runtime_ctx": None},
-            user_status=user_status,
-        )
+        try:
+            rt.start(
+                [],
+                [],
+                _make_handler,
+                {"runtime_ctx": None},
+                user_status=user_status,
+            )
+        finally:
+            shutil.rmtree(state_dir, ignore_errors=True)
 
     assert status_lines
     assert any("\u2705" in s for s in status_lines)  # 飞书已启动

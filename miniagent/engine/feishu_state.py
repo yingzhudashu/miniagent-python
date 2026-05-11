@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import random
 from typing import Any, Callable
 
 from miniagent.infrastructure.logger import get_logger
@@ -46,7 +47,7 @@ class FeishuRuntime:
             user_status: 可选 ``(msg: str) -> None``，由全屏 CLI 注册为写入 transcript；
                 未提供时使用 ``print``，避免与 prompt_toolkit 备用屏混写时丢失信息。
         """
-        from miniagent.feishu.poll_server import start_feishu_poll_server
+        from miniagent.feishu.poll_server import reset_feishu_ws_singleton, start_feishu_poll_server
         from miniagent.feishu.types import FeishuConfig
 
         self._user_status = user_status
@@ -87,7 +88,7 @@ class FeishuRuntime:
 
         try:
             self._config = config
-            handler = (
+            h = (
                 create_handler(skill_toolboxes, skill_prompts, state)
                 if state is not None
                 else create_handler(skill_toolboxes, skill_prompts)
@@ -98,24 +99,61 @@ class FeishuRuntime:
             raise
 
         mq = self._message_queue
+        if isinstance(h, tuple):
+            text_h = h[0]
+            media_h = h[1] if len(h) > 1 else None
+        else:
+            text_h, media_h = h, None
 
         async def _run() -> None:
+            attempt = 0
             try:
                 _logger.info("\u98de\u4e66: \u6b63\u5728\u542f\u52a8 WebSocket \u957f\u8f6e\u8be2")
                 self._emit_user_line("\U0001f310 [\u98de\u4e66] \u6b63\u5728\u542f\u52a8 WebSocket \u957f\u8f6e\u8be2\u2026")
-                await start_feishu_poll_server(config, handler, message_queue=mq)
-            except asyncio.CancelledError:
-                _logger.info("\u98de\u4e66: \u5df2\u53d6\u6d88")
-                self._emit_user_line("\u2139\ufe0f [\u98de\u4e66] \u5df2\u505c\u6b62")
-                raise
-            except Exception as e:
-                _logger.error("[\u98de\u4e66] \u8fd0\u884c\u5f02\u5e38: %s", e, exc_info=True)
-                self._running = False
+                while True:
+                    if attempt >= 1:
+                        cap = min(60.0, 2.0 ** min(attempt, 6))
+                        delay = cap * (0.5 + random.random() * 0.5)
+                        self._emit_user_line(
+                            f"\u2139\ufe0f [\u98de\u4e66] \u7ea6 {delay:.1f}s \u540e\u91cd\u8fde\u2026"
+                        )
+                        try:
+                            await asyncio.sleep(delay)
+                        except asyncio.CancelledError:
+                            _logger.info("\u98de\u4e66: \u5df2\u53d6\u6d88\uff08\u9000\u51fa\u7b49\u5f85\uff09")
+                            self._emit_user_line("\u2139\ufe0f [\u98de\u4e66] \u5df2\u505c\u6b62")
+                            raise
+                    try:
+                        await reset_feishu_ws_singleton()
+                        await start_feishu_poll_server(
+                            config,
+                            text_h,
+                            message_queue=mq,
+                            media_handler=media_h,
+                        )
+                        _logger.warning(
+                            "\u98de\u4e66 WebSocket \u4f1a\u8bdd\u5df2\u7ed3\u675f\uff0c\u5c06\u9000\u907f\u540e\u91cd\u8fde"
+                        )
+                    except asyncio.CancelledError:
+                        _logger.info("\u98de\u4e66: \u5df2\u53d6\u6d88")
+                        self._emit_user_line("\u2139\ufe0f [\u98de\u4e66] \u5df2\u505c\u6b62")
+                        raise
+                    except Exception as e:
+                        _logger.error("[\u98de\u4e66] \u8fd0\u884c\u5f02\u5e38: %s", e, exc_info=True)
+                        self._emit_user_line(
+                            f"\u2139\ufe0f [\u98de\u4e66] \u8fde\u63a5\u5f02\u5e38\uff0c\u5c06\u91cd\u8bd5: {e}"
+                        )
+                    attempt += 1
             finally:
+                try:
+                    await reset_feishu_ws_singleton()
+                except Exception:
+                    pass
                 try:
                     release_feishu_inbound_owner()
                 except Exception:
                     pass
+                self._running = False
 
         self._task = asyncio.create_task(_run())
         self._running = True

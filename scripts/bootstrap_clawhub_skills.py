@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
-"""从 ClawHub 批量安装基线技能到默认技能目录（与引擎 ``get_skills_root()`` 一致）。
+"""从 ClawHub **额外**下载技能到默认技能目录（与 ``get_skills_root()`` 一致）。
+
+仓库已内置 **skill-creator**（来自 anthropics/skills）与 **skill-vetter**（本仓库配套审查说明），
+克隆即可加载；本脚本**不是**基线必需步骤，仅用于在 ClawHub API 可用时安装**更多**技能包。
 
 用法:
   python scripts/bootstrap_clawhub_skills.py
-  python scripts/bootstrap_clawhub_skills.py --slug chindden/skill-creator --slug spclaudehome/skill-vetter
+  python scripts/bootstrap_clawhub_skills.py --slug your-org/skill-example --slug other-org/other-skill
 
 slug **必须与 ClawHub 技能详情页上的标识一致**（可能含 ``author/slug`` 形式）。
-默认列表仅为占位；若 HTTP 404，请打开 https://clawhub.ai 搜索技能并复制页面 slug，
-或使用 Agent 的 ``search_skills`` 工具核对后再传入 ``--slug``。
+安装目录为 slug **最后一段**（与 ``miniagent.skills.clawhub_client.skill_install_dir_name`` 一致），
+以便引擎只扫描 ``skills_root`` 一级子目录时仍能发现包。
+
+以下示例中的 ``your-org/skill-example`` 仅为占位，**请替换**为站点上的真实 slug；若 HTTP 404，
+请打开 https://clawhub.ai 搜索技能并复制页面 slug，或使用 Agent 的 ``search_skills`` 工具核对。
 """
 
 from __future__ import annotations
@@ -23,7 +29,7 @@ DEFAULT_SLUGS = ("skill-creator", "skill-vetter")
 
 
 async def _install_slugs(slugs: list[str]) -> int:
-    from miniagent.skills.clawhub_client import create_clawhub_client
+    from miniagent.skills.clawhub_client import create_clawhub_client, skill_install_dir_name
     from miniagent.skills.paths import get_skills_root
 
     root = get_skills_root()
@@ -34,7 +40,7 @@ async def _install_slugs(slugs: list[str]) -> int:
         slug = slug.strip()
         if not slug:
             continue
-        dest = os.path.join(root, *slug.replace("\\", "/").split("/"))
+        dest = os.path.join(root, skill_install_dir_name(slug))
         if os.path.isdir(dest):
             print(f"跳过（已存在）: {slug} -> {dest}")
             continue
@@ -53,12 +59,16 @@ async def _install_slugs(slugs: list[str]) -> int:
 
 
 def main() -> None:
-    epilog = """示例:
-  %(prog)s --slug chindden/skill-creator
+    epilog = """示例（slug 请改为 clawhub.ai 上真实值）:
+  %(prog)s --slug your-org/skill-example
   %(prog)s --slug skill-creator
-若默认列表报错 404，请以站点展示为准替换 slug。"""
+若默认列表报错 404，请以站点展示为准替换 slug。
+含 author/ 前缀的 slug 会安装到目录名最后一段（与技能发现规则一致）。"""
     ap = argparse.ArgumentParser(
-        description="从 ClawHub 下载技能到 MINI_AGENT_SKILLS（默认 workspaces/skills）",
+        description=(
+            "可选：从 ClawHub 额外安装技能（内置 skill-creator / skill-vetter 已在 workspaces/skills，无需本脚本）。"
+            "安装到 MINI_AGENT_SKILLS 或默认 workspaces/skills。"
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=epilog,
     )

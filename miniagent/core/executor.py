@@ -10,6 +10,7 @@
 5. 循环直到：LLM 不再调用工具 / 达到 maxTurns / 循环检测拦截
 
 ``MINIAGENT_PHASED_EXECUTION`` 开启且 ``plan.steps`` 非空时，按步骤分子循环（每步独立 thinking 解析）；
+若最后一步单步子轮次用尽而全局 ``AGENT_MAX_TURNS`` 仍有余量，会追加一轮不传 tools 的收尾 synthesis。
 详见环境变量说明与 ``docs/ARCHITECTURE.md``。
 
 **不变量**：工具调用均在 :class:`miniagent.types.tool.ToolContext` 限定的 ``cwd`` / ``allowed_paths`` 内执行
@@ -20,6 +21,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import os
 import time
@@ -92,6 +94,12 @@ def _env_phased_execution_enabled() -> bool:
     return str(v).strip().lower() in ("1", "true", "yes")
 
 
+def _tool_intent_in_thinking_enabled() -> bool:
+    """是否在工具执行前向 on_thinking 推送 🔧 意图行（与 on_tool_finish 全文块并存时可关闭以减少冗余）。"""
+    v = os.environ.get("MINIAGENT_TOOL_INTENT_IN_THINKING", "1")
+    return str(v).strip().lower() not in ("0", "false", "no")
+
+
 def _step_max_turns_cap() -> int:
     raw = os.environ.get("MINIAGENT_STEP_MAX_TURNS", "").strip()
     if raw:
@@ -144,6 +152,8 @@ def _append_context_or_return(
 
 OnToolCall = Callable[[str, str, str], None]  # (name, args_json, result)
 OnThinking = Callable[[str, bool, str], Awaitable[None]]  # (thinking_text, streaming, header)
+# 兼容仅 4 参回调；支持可选关键字 thinking_header（与当前 ReAct 轮标签一致，供飞书合并展示）。
+OnToolFinish = Callable[..., Awaitable[None]]
 
 
 # ─── 核心：执行计划 ─────────────────────────────────────
@@ -157,6 +167,7 @@ async def execute_plan(
     on_tool_call: OnToolCall | None = None,
     on_thinking: OnThinking | None = None,
     *,
+    on_tool_finish: OnToolFinish | None = None,
     system_prompt: str | None = None,
     clawhub: Any | None = None,
     memory_store: Any | None = None,
@@ -172,7 +183,9 @@ async def execute_plan(
         registry: 工具注册表
         monitor: 性能监控器
         agent_config: 合并后的 Agent 配置
-        on_tool_call: 工具调用回调
+        on_tool_call: 工具调用回调（如未知工具等路径）
+        on_tool_finish: 每个工具执行完成后异步回调（名称、参数 JSON 字符串、完整结果、是否成功）。
+            若回调签名包含关键字参数 ``thinking_header``（或 ``**kwargs``），将传入当前 ReAct 轮标签（如 ``[第 1 轮]``）；否则仅按四参调用。
         memory_store: 记忆存储（默认与 ``MINI_AGENT_STATE`` 进程 bundle 一致）
         activity_log: 活动日志（同上）
         keyword_index: 关键词索引（同上；缺省时优先使用 store 已绑定索引）
@@ -197,7 +210,9 @@ async def execute_plan(
         allowed_paths=[workspace],
         permission="allowlist",
         clawhub=clawhub,
-        session_key=getattr(agent_config, "session_key", None),
+        session_key=agent_config.session_key,
+        cli_loop_state=agent_config.cli_loop_state,
+        cli_dispatch_allow_mutations=agent_config.cli_dispatch_allow_mutations,
     )
 
     # ── 循环检测器 ──
@@ -292,7 +307,7 @@ async def execute_plan(
     async def _stream_exec_turn(
         merge_overrides: dict[str, Any] | None,
         tools_arg: list[Any],
-    ) -> tuple[Any, dict[str, Any], int, Any, str]:
+    ) -> tuple[Any, dict[str, Any], int, Any, str, str]:
         nonlocal exec_turn_no
         exec_turn_no += 1
         start_ms = time.monotonic_ns() // 1_000_000
@@ -382,7 +397,7 @@ async def execute_plan(
             tool_calls=full_tool_calls or None,
         )
 
-        if on_thinking and full_tool_calls:
+        if on_thinking and full_tool_calls and _tool_intent_in_thinking_enabled():
             try:
                 for tc in full_tool_calls:
                     try:
@@ -432,9 +447,36 @@ async def execute_plan(
             thinking=full_content,
             token_usage=_usage.model_dump() if _usage else None,
         )
-        return msg, exec_kw, start_ms, _usage, full_content
+        return msg, exec_kw, start_ms, _usage, full_content, turn_label
 
-    async def _run_tool_calls_phase(msg: Any, start_ms: int) -> str | None:
+    async def _invoke_on_tool_finish(
+        name: str,
+        args_json: str,
+        result: str,
+        success: bool,
+        thinking_header: str,
+    ) -> None:
+        if on_tool_finish is None:
+            return
+        try:
+            sig = inspect.signature(on_tool_finish)
+            kwargs: dict[str, Any] = {}
+            if "thinking_header" in sig.parameters or any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+            ):
+                kwargs["thinking_header"] = thinking_header
+            await on_tool_finish(name, args_json, result, success, **kwargs)
+        except TypeError:
+            try:
+                await on_tool_finish(name, args_json, result, success)
+            except Exception as e:
+                if agent_config.debug:
+                    _logger.exception("on_tool_finish 回调失败（四参回退）: %s", e)
+        except Exception as e:
+            if agent_config.debug:
+                _logger.exception("on_tool_finish 回调失败: %s", e)
+
+    async def _run_tool_calls_phase(msg: Any, start_ms: int, thinking_header: str) -> str | None:
         nonlocal loop_warning_shown
         assistant_msg = {"role": "assistant", "content": msg.content or ""}
         if msg.tool_calls:
@@ -472,6 +514,13 @@ async def execute_plan(
                     return oob_u
                 if on_tool_call:
                     on_tool_call(tc.function.name, tc.function.arguments, "⚠️ 未知工具")
+                await _invoke_on_tool_finish(
+                    tc.function.name,
+                    tc.function.arguments,
+                    f"错误：未知工具 {tc.function.name}。可用: {avail}",
+                    False,
+                    thinking_header,
+                )
                 continue
 
             try:
@@ -554,8 +603,6 @@ async def execute_plan(
                         "content": result.content,
                     },
                 )
-                if oob_t:
-                    return oob_t
                 intent = _extract_tool_intent(tc.function.name, args)
                 al.log_tool_call(
                     session_key=session_key,
@@ -566,6 +613,15 @@ async def execute_plan(
                     duration_ms=tool_elapsed,
                     success=result.success,
                 )
+                await _invoke_on_tool_finish(
+                    tc.function.name,
+                    tc.function.arguments,
+                    result.content,
+                    result.success,
+                    thinking_header,
+                )
+                if oob_t:
+                    return oob_t
         return None
 
     use_phased = _env_phased_execution_enabled() and bool(plan.steps)
@@ -573,7 +629,7 @@ async def execute_plan(
     if not use_phased:
         while turns_left > 0:
             turns_left -= 1
-            msg, _exec_kw, start_ms, _usage, _full_content = await _stream_exec_turn(None, tools)
+            msg, _exec_kw, start_ms, _usage, _full_content, turn_label = await _stream_exec_turn(None, tools)
 
             if not msg.tool_calls:
                 final_reply = msg.content or "(空回复)"
@@ -600,10 +656,34 @@ async def execute_plan(
 
                 return final_reply
 
-            early = await _run_tool_calls_phase(msg, start_ms)
+            early = await _run_tool_calls_phase(msg, start_ms, turn_label)
             if early is not None:
                 return early
     else:
+        async def _finish_phased_text_turn(
+            final_reply: str, start_ms_text: int, *, save_memory: bool
+        ) -> str | None:
+            """写入本轮纯文本 assistant；可选落会话记忆。若上下文超预算则返回错误文案。"""
+            elapsed_txt = time.monotonic_ns() // 1_000_000 - start_ms_text
+            monitor.record("llm_response", elapsed_txt, True)
+            oob_txt = _append_context_or_return(
+                context_manager, {"role": "assistant", "content": final_reply}
+            )
+            if oob_txt:
+                return oob_txt
+            if save_memory and agent_config.session_key and final_reply:
+                await _save_session_memory(
+                    ms,
+                    agent_config.session_key,
+                    user_input,
+                    final_reply,
+                    turn_tool_calls,
+                )
+                al.log_final_reply(session_key, final_reply)
+            if agent_config.debug:
+                _logger.debug(context_manager.get_token_report())
+            return None
+
         n_steps = len(plan.steps)
         for si, step in enumerate(plan.steps):
             is_last = si == n_steps - 1
@@ -630,38 +710,48 @@ async def execute_plan(
             while sub_left > 0 and turns_left > 0:
                 turns_left -= 1
                 sub_left -= 1
-                msg, _ek, start_ms, _u, _fc = await _stream_exec_turn(step_merge, step_tools)
+                msg, _ek, start_ms, _u, _fc, turn_label = await _stream_exec_turn(step_merge, step_tools)
 
                 if not msg.tool_calls:
                     final_reply = msg.content or "(空回复)"
-                    elapsed = time.monotonic_ns() // 1_000_000 - start_ms
-                    monitor.record("llm_response", elapsed, True)
-                    oob = _append_context_or_return(
-                        context_manager, {"role": "assistant", "content": final_reply}
+                    oob_txt = await _finish_phased_text_turn(
+                        final_reply, start_ms, save_memory=is_last
                     )
-                    if oob:
-                        return oob
-                    if is_last and agent_config.session_key and final_reply:
-                        await _save_session_memory(
-                            ms,
-                            agent_config.session_key,
-                            user_input,
-                            final_reply,
-                            turn_tool_calls,
-                        )
-                        al.log_final_reply(session_key, final_reply)
-                    if agent_config.debug:
-                        _logger.debug(context_manager.get_token_report())
+                    if oob_txt is not None:
+                        return oob_txt
                     if is_last:
                         return final_reply
                     step_resolved = True
                     break
 
-                early = await _run_tool_calls_phase(msg, start_ms)
+                early = await _run_tool_calls_phase(msg, start_ms, turn_label)
                 if early is not None:
                     return early
 
             if is_last and not step_resolved:
+                if turns_left > 0:
+                    oob_g = _append_context_or_return(
+                        context_manager,
+                        {
+                            "role": "user",
+                            "content": (
+                                "（系统：本步单步子轮次已用尽；工具结果已在上下文中。"
+                                "请仅用自然语言给出本步的最终简短小结，不要调用工具。）"
+                            ),
+                        },
+                    )
+                    if oob_g:
+                        return oob_g
+                    turns_left -= 1
+                    msg_g, _, start_ms_g, _, _, _ = await _stream_exec_turn(step_merge, [])
+                    if not msg_g.tool_calls:
+                        final_reply = msg_g.content or "(空回复)"
+                        oob_txt = await _finish_phased_text_turn(
+                            final_reply, start_ms_g, save_memory=True
+                        )
+                        if oob_txt is not None:
+                            return oob_txt
+                        return final_reply
                 return (
                     "⚠️ 最后一步在单步子轮次（MINIAGENT_STEP_MAX_TURNS）或总轮数限制内，"
                     "未以「无工具调用」形式结束。\n\n"
@@ -701,6 +791,23 @@ async def execute_plan(
 
 # ─── 工具意图提取 ──────────────────────────────────────────
 
+def _tool_intent_max_chars() -> int:
+    raw = os.environ.get("MINIAGENT_TOOL_INTENT_MAX_CHARS", "4000").strip()
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 4000
+
+
+def _clip_intent_value(s: str) -> str:
+    cap = _tool_intent_max_chars()
+    if cap <= 0:
+        return s
+    if len(s) <= cap:
+        return s
+    return s[:cap] + f"…（共 {len(s)} 字）"
+
+
 def _extract_tool_intent(tool_name: str, args: dict[str, Any]) -> str:
     """从工具调用中提取简要意图描述。"""
     # 常见工具的意图映射
@@ -726,7 +833,7 @@ def _extract_tool_intent(tool_name: str, args: dict[str, Any]) -> str:
         # 优先取 path, query, command, content
         for key in ("path", "query", "command", "content", "url"):
             if key in args:
-                val = str(args[key])[:60]
+                val = _clip_intent_value(str(args[key]))
                 return f"{base_intent}: {val}"
 
     return base_intent

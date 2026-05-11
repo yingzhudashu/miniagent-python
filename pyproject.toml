@@ -16,6 +16,7 @@ keywords = ["llm", "agent", "react", "tool-calling", "feishu"]
 
 dependencies = [
     "openai>=1.0.0",
+    "tzdata>=2024.1",
     "python-dotenv>=1.0.0",
     "aiohttp>=3.9.0",
     "httpx>=0.25.0",
@@ -52,6 +53,9 @@ include = ["miniagent*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "dot_help_dispatch: real dispatch_command path for .help (filter with -m 'not dot_help_dispatch' to skip)",
+]
 
 [tool.ruff]
 target-version = "py310"

@@ -1,11 +1,19 @@
 """Tests for skill registry and loader."""
 
 import os
+from pathlib import Path
 import tempfile
 import pytest
 from miniagent.skills.registry import DefaultSkillRegistry
-from miniagent.skills.loader import discover_skill_packages
+from miniagent.skills.clawhub_client import skill_install_dir_name
+from miniagent.skills.loader import discover_skill_packages, parse_skill_md
 from miniagent.types.skill import Skill
+
+
+def test_skill_install_dir_name_flattens_nested_slug():
+    assert skill_install_dir_name("skill-creator") == "skill-creator"
+    assert skill_install_dir_name("org/skill-creator") == "skill-creator"
+    assert skill_install_dir_name(r"org\pkg-name") == "pkg-name"
 
 
 class TestDefaultSkillRegistry:
@@ -55,3 +63,19 @@ class TestSkillLoader:
                 f.write("name = 'Test Skill'\ndescription = 'A test skill'\n")
             packages = await discover_skill_packages(tmpdir)
             assert isinstance(packages, list)
+
+    async def test_repo_builtin_skill_packages_load(self):
+        repo_root = Path(__file__).resolve().parent.parent
+        skills_root = repo_root / "workspaces" / "skills"
+        packages = await discover_skill_packages(str(skills_root))
+        ids = sorted(p.id for p in packages)
+        assert "skill-creator" in ids
+        assert "skill-vetter" in ids
+        creator = next(p for p in packages if p.id == "skill-creator")
+        assert creator.skill_md
+        cmeta, _ = parse_skill_md(creator.skill_md)
+        assert cmeta.get("name") == "skill-creator"
+        vetter = next(p for p in packages if p.id == "skill-vetter")
+        assert vetter.skill_md
+        vmeta, _ = parse_skill_md(vetter.skill_md)
+        assert vmeta.get("name") == "skill-vetter"

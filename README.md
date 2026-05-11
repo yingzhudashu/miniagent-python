@@ -9,10 +9,13 @@
 - **三层记忆**: 短期记忆 / 活动日志 / 语义检索
 - **双通道接入**: 同一进程内 CLI 主循环 + 可选飞书 WebSocket 长轮询（无单独「纯飞书」入口）
 - **消息队列**: queue（按序）/ preemptive（打断）双模式
+- **定时任务**: 持久化任务表 + 进程内调度，经与聊天相同的消息队列执行 Agent 回合；CLI 下可用 `run_dot_command`（`.schedule …`）或 `manage_scheduled_task` 结构化接口
 - **多实例**: 注册表 + 心跳，支持多终端并行
 - **可插拔技能**: 动态加载，ClawHub 技能市场
 - **自我优化**: 代码检查 + 优化提案 + Git 快照
 - **沙箱安全**: 路径白名单 + 循环检测 + 权限控制
+
+**执行轮数**：`AGENT_MAX_TURNS` 默认 **200**；规划器建议的轮数不会把该上限压小。分步模式下单步上限见 `MINIAGENT_STEP_MAX_TURNS`（默认 5，见 `docs/ARCHITECTURE.md`）。
 
 ## 快速开始
 
@@ -28,7 +31,7 @@ cp .env.example .env       # 编辑填入 OPENAI_API_KEY
 # 联网检索（天气、新闻等）：在 .env 中配置 TAVILY_API_KEY（或 WEB_SEARCH_API_KEY）
 # 可选：无头浏览器抓取 CSR 页面 — pip install -e ".[browser]" && playwright install chromium
 # 可选：MCP stdio 工具 — pip install -e ".[mcp]"，并在 .env 配置 MINIAGENT_MCP_STDIO（见 .env.example）
-# 可选：ClawHub 基线技能 — python scripts/bootstrap_clawhub_skills.py（slug 以 https://clawhub.ai 技能页为准，若默认失败可用 --slug author/slug）
+# 内置基线技能：workspaces/skills/skill-creator（Apache-2.0，自 anthropics/skills）、skill-vetter（审查说明）；可选从 ClawHub 安装更多 — python scripts/bootstrap_clawhub_skills.py（`author/slug` 会装到 slug 最后一段目录；详情无 files 时会试 /download，仍失败则见 THIRD_PARTY_SKILLS.md）
 
 # 可选：将状态目录迁出仓库（测试 / 多副本部署）
 # PowerShell: $env:MINI_AGENT_STATE = "$env:TEMP\miniagent-state"
@@ -40,6 +43,14 @@ python -m miniagent --feishu         # CLI + 飞书
 python -m miniagent --stop           # 列出实例；交互停止 / --stop --all / --stop <id>...
 ```
 
+### 定时任务
+
+- 任务保存在 `MINI_AGENT_STATE/scheduled_tasks/tasks.json`（未设置 `MINI_AGENT_STATE` 时默认为仓库下 `workspaces/`）。
+- 终端：`.schedule list` 查看用法；`add` 子命令须用 ` -- `（空格、两个连字符、空格）把前面的参数和后面的 prompt 分开。
+- Agent（本地 CLI 会话）：内置 **`run_dot_command`** 可执行与终端一致的 `.schedule …`；内置 **`manage_scheduled_task`** 用 JSON 增删改查，减少拼写错误。
+- 飞书侧：与 `.session` 类似，**仅允许** `.schedule list` / `show`，`add/remove/enable/disable` 须在本地 CLI 执行。
+- 环境变量：`MINIAGENT_DISABLE_SCHEDULED_TASKS=1` 关闭后台调度循环；`MINIAGENT_SCHEDULE_TOOLS=0` 不注册 `manage_scheduled_task`；`MINIAGENT_CLI_DOT_TOOLS=0` 不注册 `run_dot_command`。
+
 新进程注册时会自动删除磁盘上 **PID 已退出** 的旧实例注册目录，**不会**终止仍在运行的其它 Agent。详见 [docs/INSTANCE_REGISTRY.md](docs/INSTANCE_REGISTRY.md)。
 
 ### 联网工具与配置说明
@@ -48,8 +59,11 @@ python -m miniagent --stop           # 列出实例；交互停止 / --stop --al
 - **`browser_extract_text`** 依赖可选依赖 `miniagent-python[browser]`；未安装时返回安装提示。
 - **内置工具始终出现在工具列表中**；不需要联网时请勿配置 Tavily Key 即可。可选外部 JSON（`MINIAGENT_CONFIG`）中的 `tools.web.search` **当前不会**单独开关注册项（与部分外部产品配置字段仅为语义对齐）；若需避免模型调用搜索，可在系统提示或策略侧约束。
 - **自我优化工具**（`self_inspect`、`generate_proposal` 等）默认注册；生产环境若需收敛暴露面，可设置环境变量 **`MINIAGENT_SELF_OPT_TOOLS=0`**。详见 [.env.example](.env.example)。
+- **点命令工具**：Agent 执行阶段可通过内置工具 **`run_dot_command`** 调用与终端一致的 `.help`、`.status`、`.session list` 等（由进程内 `CliLoopState` 注入；飞书侧与会话相关的变异命令仍受限制）。若不需要该能力，可设置 **`MINIAGENT_CLI_DOT_TOOLS=0`** 关闭注册。详见 [.env.example](.env.example) 与 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
 ### 技能目录迁移
+
+仓库 **`workspaces/skills/skill-creator`** 与 **`skill-vetter`** 为内置基线（**克隆源码仓库或 `pip install -e .` 后随目录存在**）。发行版 **wheel** 默认不把 `workspaces/skills` 打进安装包：若仅用 **`pip install miniagent-python`** 且当前工作目录下没有完整仓库树，默认技能根路径下可能没有预置包；需要基线时请 **克隆仓库**、**editable 安装**，或将仓库中的 **`workspaces/skills/skill-creator`** 与 **`skill-vetter`** 拷贝到你的 `MINI_AGENT_SKILLS`（或默认 `workspaces/skills`）目录。第三方与同步说明见 [workspaces/skills/THIRD_PARTY_SKILLS.md](workspaces/skills/THIRD_PARTY_SKILLS.md)。
 
 旧版本若将技能装在仓库根目录 **`skills/`**，请迁移至 **`workspaces/skills/`**（或设置 **`MINI_AGENT_SKILLS`** 指向原目录），否则引擎不会加载旧路径。
 

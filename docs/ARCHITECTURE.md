@@ -63,7 +63,7 @@ Mini Agent Python 采用 **两阶段架构**（Plan → Execute），通过 **Re
 - **合并字段（已实现子集）**：`models.providers.<id>.baseUrl` / `apiKey`；`models.providers.<id>.models` 列表或字典中的 `contextWindow` / `maxTokens`（按当前 `OPENAI_MODEL` 匹配，仅当未设置 `AGENT_CONTEXT_WINDOW` / `OPENAI_MAX_TOKENS` 时生效）；`agents.defaults.model.primary`（支持 `bailian/qwen` 形式，或**无斜杠**时在 providers 的 `models` 中反查所属 provider）；`contextTokens`；`thinkingDefault`；`agents.defaults.models.<ref>.params.thinking_budget`。
 - **预留未用**：`agents.defaults.model.fallbacks` 仅进入进程内补丁元数据，**不**触发自动换模重试。
 - **任务难度预分类**：`MINIAGENT_TASK_CLASSIFIER` 默认为开启（`1`/`true`）；关闭则始终走完整规划。简单任务跳过规划，执行阶段使用低思考档位。「正在评估任务难度…」由 [`run_agent`](miniagent/core/agent.py) 在分类前触发（经 `UnifiedEngine` 传入的 `on_thinking`），而非仅在 `engine.py` 内单独调用。评估结束后会以非流式 `on_thinking` 推送 `[任务难度]` 结论；结构化规划生成后以单独一条非流式推送 `[执行计划]` 摘要（飞书通道下各对应一条独立交互卡片）。可通过 **`MINIAGENT_ANNOUNCE_DIFFICULTY_AND_PLAN=0`** 关闭上述两条结论推送（保留 ReAct 流式思考与工具行）。
-- **分步执行**：`MINIAGENT_PHASED_EXECUTION` 默认开启；有关闭需求时设为 `0`。`MINIAGENT_STEP_MAX_TURNS` 控制每步子循环上限（默认 5）。若最后一步在单步子轮次内未以无工具回复结束，执行器返回**专用说明**（区别于全局「达到最大轮数」）；中间步未结束时向上下文追加简短系统提示并继续下一步（若总轮数仍有余量）。
+- **分步执行**：`MINIAGENT_PHASED_EXECUTION` 默认开启；有关闭需求时设为 `0`。`MINIAGENT_STEP_MAX_TURNS` 控制每步子循环上限（默认 5）。若最后一步在单步子轮次内未以无工具回复结束，且 **`AGENT_MAX_TURNS` 仍有余量**，执行器会先追加一轮不传 tools 的收尾 synthesis，请模型仅用自然语言小结；若全局轮数也已用尽或收尾仍异常，则返回**专用说明**（区别于全局「达到最大轮数」）。中间步未结束时向上下文追加简短系统提示并继续下一步（若总轮数仍有余量）。
 - **思考深度与供应商**：[`resolve_exec_completion_kwargs`](miniagent/core/llm_params.py) / [`resolve_planner_completion_kwargs`](miniagent/core/llm_params.py) 合并 `thinking_level` / `thinking_budget`；DashScope/Qwen 兼容 `base_url` 时通过 [`build_thinking_extra_body`](miniagent/core/vendor/qwen_extra.py) 注入 `extra_body`。可选环境变量 `OPENAI_MAX_TOKENS` 覆盖输出 `max_tokens`（优先于外部文件中的按模型 `maxTokens`）。
 
 ## 各层详细说明
@@ -199,6 +199,9 @@ LLM 可通过 function calling 调用的工具：
 | `self_opt.py` | 自优化工具 (inspect/optimize) |
 | `git_readonly.py` | 只读 Git 查询（日志、diff 等） |
 | `session_memory.py` | 会话级记忆辅助工具（由 `engine/init` 注册） |
+| `cli_dispatch_tools.py` | `run_dot_command`：经 [`command_dispatch.dispatch_command`](miniagent/engine/command_dispatch.py) 执行点命令（`capture=True`，与 CLI 同源） |
+
+**run_dot_command 与进程状态**：[`UnifiedEngine.run_agent_with_thinking`](miniagent/engine/engine.py) 将共享 [`CliLoopState`](miniagent/engine/cli_state.py) 写入 `AgentConfig.cli_loop_state`，[`execute_plan`](miniagent/core/executor.py) 再注入 `ToolContext`。飞书入站路径下 `cli_dispatch_allow_mutations=False`，与飞书里直接发 `.session switch` / `create` / `rename` 一致，不得改 CLI 共享的 `active_session_id`。若嵌入代码只调用 [`run_agent`](miniagent/core/agent.py) 而不经 `run_agent_with_thinking`，需在 `agent_config` 中自行传入 `cli_loop_state`（及按需的 `cli_dispatch_allow_mutations`），否则工具会返回不可用说明。注册开关：环境变量 **`MINIAGENT_CLI_DOT_TOOLS`**（默认开启，`0`/`false`/`off` 跳过注册，见 `.env.example`）。
 
 ### 8b. MCP（可选）
 
@@ -249,12 +252,15 @@ CLI 输入将使用绑定的会话上下文（记忆/文件/工具共享）。
 
 ```
 飞书平台 → WSClient (WebSocket) → poll_server.on_message_receive()
-    → 去重检查 → 防抖合并 → message_queue.dispatch_feishu()
-    → handler() → 命令拦截 (.开头) 或 engine.run_agent_with_thinking()
+    → 去重检查 → message_queue.dispatch(chat_id, ...)
+    → text: handler() → 命令拦截 (.开头) 或 engine.run_agent_with_thinking()
+    → file/image/post: media_handler() → 资源下载 → 会话 files/feishu_incoming/
         → channel_router.resolve_feishu_message(chat_id, sender_id, chat_type)
         → run_agent() → planner → executor (ReAct)
         → 工具调用 → LLM 回复 → 飞书 API 发送回复
 ```
+
+`FeishuRuntime` 在同进程内对 `start_feishu_poll_server` 做**退避重连**；`feishu_inbound_owner` 锁在重连期间仍由该实例持有。
 
 **通道绑定影响**：飞书私聊消息通过 `resolve_feishu_message()` 解析：
 - 若 `feishu_p2p:<sender_id>` 已绑定，则使用绑定的 session_key
@@ -270,6 +276,47 @@ command_dispatch.dispatch_command()
 _format_status(state, message_queue)
     ↓
 返回字符串 → 飞书回复 / CLI print
+```
+
+## 定时任务子系统
+
+与「记忆层 `dream_scheduler`」不同，本节的 **定时任务**指用户配置的 **周期性/一次性 Agent 回合**：任务定义持久化在磁盘，由进程内后台循环触发，经与聊天相同的 **消息队列** 进入 `UnifiedEngine.run_agent_with_thinking`。
+
+### 持久化与路径
+
+- **文件**：`{MINI_AGENT_STATE}/scheduled_tasks/tasks.json`（未设置 `MINI_AGENT_STATE` 时默认为仓库工作目录下 `workspaces/scheduled_tasks/tasks.json`）。读写见 [`miniagent/scheduled_tasks/store.py`](../miniagent/scheduled_tasks/store.py)。
+- **Git**：该目录为运行时状态，应在 `.gitignore` 中排除（与 [ENGINEERING.md](ENGINEERING.md) §3.1 一致）。
+
+### 运行时链路
+
+1. **启动**：[`unified_main` / CLI 主循环](../miniagent/engine/main.py) 在构造 `RuntimeContext` 后调用 [`start_scheduled_tasks_ticker`](../miniagent/scheduled_tasks/ticker.py)，将 `asyncio.Task` 记入 `RuntimeContext.scheduled_tasks_ticker`，并用 `scheduled_tasks_stop_event` 协作退出。
+2. **Ticker**：[`tick_once`](../miniagent/scheduled_tasks/ticker.py) 在取得进程内调度锁后 `load_tasks()`，对到期且启用的任务构建协程；同一任务可并发防护（`_inflight`）；每 tick 处理数量有上限（`_MAX_DUE_PER_TICK`）。
+3. **Runner**：[`build_run_scheduled_job_coro`](../miniagent/scheduled_tasks/runner.py) 根据任务与会话路由解析 `session_key` 与消息队列用 `chat_id`，合成 prompt（带任务名前缀），调用 `UnifiedEngine.run_agent_with_thinking`；飞书通道是否启用由 [`should_run_feishu`](../miniagent/scheduled_tasks/resolve.py) 等判定。
+4. **用户入口**：终端与 CLI 侧 **`.schedule`** 子命令（实现见 [`cli_commands.py`](../miniagent/engine/cli_commands.py)）；Agent 执行阶段可选工具 **`manage_scheduled_task`**（[`schedule_tools.py`](../miniagent/tools/schedule_tools.py)，注册开关 **`MINIAGENT_SCHEDULE_TOOLS`**）、**`run_dot_command`**（与 `.schedule` 同源，**`MINIAGENT_CLI_DOT_TOOLS`**）。
+
+### 环境变量
+
+| 变量 | 作用 |
+|------|------|
+| `MINIAGENT_DISABLE_SCHEDULED_TASKS` | 为真时 ticker 早退，不调度定时任务 |
+| `MINIAGENT_SCHEDULE_TOOLS` | 设为 `0` 等则不注册 `manage_scheduled_task` |
+| `MINIAGENT_CLI_DOT_TOOLS` | 设为 `0` 等则不注册 `run_dot_command` |
+
+**飞书侧**：与 `.session` 类似，通常仅允许 `.schedule list` / `show`；`add` / `remove` / `enable` / `disable` 须在本地 CLI 执行（详见 [README.md](../README.md) 与 [USER_GUIDE.md](USER_GUIDE.md) §8）。
+
+### 数据流示意
+
+```mermaid
+flowchart LR
+  tasksJson[tasks_json]
+  ticker[Ticker_tick_once]
+  runner[Runner_build_job]
+  engineNode[UnifiedEngine]
+  mq[MessageQueue]
+  tasksJson --> ticker
+  ticker --> runner
+  runner --> engineNode
+  engineNode --> mq
 ```
 
 ## 关键设计决策
@@ -346,7 +393,7 @@ _format_status(state, message_queue)
 | 扩展点 | 方式 | 说明 |
 |--------|------|------|
 | 添加工具 | `miniagent/tools/` 新增文件 | 实现 handler + register 函数 |
-| 添加技能 | `workspaces/skills/` | manifest.yaml + Python 模块 |
+| 添加技能 | `workspaces/skills/<pkg>/` | 包级 `SKILL.md`，工具见 `skills/<name>/SKILL.md` 与 `tools.py`（约定见 `miniagent/skills/loader.py`、[workspaces/skills/README.md](../workspaces/skills/README.md)） |
 | 添加命令 | `command_dispatch.py` | 注册新路由 |
 | 自定义模型 | `.env` + `config.py` | 支持任何 OpenAI 兼容 API |
 | 新通道 | 仿照 `feishu/` | 实现消息接收 + 回复发送 |

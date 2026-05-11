@@ -1,4 +1,4 @@
-"""兼容模块名：飞书运行时实现见 :mod:`miniagent.engine.feishu_state`。"""
+"""兼容别名模块：仅重导出 :class:`FeishuRuntime`；实现与维护请在 :mod:`miniagent.engine.feishu_state` 单点修改。"""
 
 from miniagent.engine.feishu_state import FeishuRuntime
 

@@ -148,6 +148,7 @@ release_session_lock("default")
 | 共享主机 / 多租户：子进程或库读取环境变量 | 优先使用 `.env` + 进程隔离；若必须用 JSON，部署后限制文件所有者 |
 | 日志误带密钥 | 本仓库加载成功时仅记录**配置路径与模型名**，不记录 Key；仍应避免在自定义补丁或 `AGENT_DEBUG=true` 时把完整请求体写入日志 |
 | 会话与记忆落盘 | 默认在 `MINI_AGENT_STATE`（常为 `workspaces/`）下写入 `sessions/`、`memory/` 等，可能含对话内容；备份与审计策略见 [DEPLOYMENT.md](DEPLOYMENT.md) |
+| 定时任务表 | `scheduled_tasks/tasks.json` 保存各任务的 **prompt** 与元数据，可能含业务或隐私；勿提交版本库（默认路径见 [.gitignore](../.gitignore) 与 [ENGINEERING.md](ENGINEERING.md) §3.1） |
 
 日常推荐：**主配置仍用 `.env`**，外部 JSON 仅作迁移或团队统一模型目录时的补充。
 

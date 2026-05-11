@@ -62,6 +62,15 @@ BUILTIN_TOOLBOXES: list[Toolbox] = [
         description="通过 MINIAGENT_MCP_STDIO 接入的外部 MCP 工具",
         keywords=["mcp", "扩展"],
     ),
+    Toolbox(
+        id="miniagent_shell",
+        name="MiniAgent 点命令",
+        description=(
+            "进程内点命令（run_dot_command）与结构化定时任务（manage_scheduled_task）；"
+            "含 .help、.status、.session、.schedule 等"
+        ),
+        keywords=["点命令", "session", "queue", "schedule", "定时", "help", "status", "miniagent"],
+    ),
 ]
 
 __all__ = ["BUILTIN_TOOLBOXES"]

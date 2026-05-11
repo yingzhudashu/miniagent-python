@@ -18,6 +18,7 @@ def test_register_builtin_tools_populates_registry() -> None:
     assert "fetch_url" in names
     assert "web_search" in names
     assert "browser_extract_text" in names
+    assert "manage_scheduled_task" in names
 
 
 def test_register_builtin_tools_skips_self_opt_when_disabled(monkeypatch) -> None:
@@ -26,6 +27,24 @@ def test_register_builtin_tools_skips_self_opt_when_disabled(monkeypatch) -> Non
     register_builtin_tools(reg)
     names = reg.list()
     assert "self_inspect" not in names
+    assert "read_file" in names
+
+
+def test_register_builtin_tools_skips_cli_dot_when_disabled(monkeypatch) -> None:
+    monkeypatch.setenv("MINIAGENT_CLI_DOT_TOOLS", "0")
+    reg = DefaultToolRegistry()
+    register_builtin_tools(reg)
+    names = reg.list()
+    assert "run_dot_command" not in names
+    assert "read_file" in names
+
+
+def test_register_builtin_tools_skips_schedule_tools_when_disabled(monkeypatch) -> None:
+    monkeypatch.setenv("MINIAGENT_SCHEDULE_TOOLS", "0")
+    reg = DefaultToolRegistry()
+    register_builtin_tools(reg)
+    names = reg.list()
+    assert "manage_scheduled_task" not in names
     assert "read_file" in names
 
 

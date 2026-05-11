@@ -36,6 +36,11 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 | | `.unbind all` | 解除所有绑定 |
 | **队列** | `.queue status` | 查看消息队列状态 |
 | | `.queue set <模式>` | 切换 queue / preemptive |
+| **定时任务** | `.schedule` | 无参或与 `list` 相同：列出用法与子命令 |
+| | `.schedule list` | 列出所有定时任务 |
+| | `.schedule show <id>` | 打印任务 JSON |
+| | `.schedule add …` | 新增 interval / once 任务（须含 ` -- ` 分隔 prompt） |
+| | `.schedule remove|enable|disable <id>` | 删除 / 启用 / 禁用 |
 | **模型** | `.profile <名称>` | 切换模型预设 |
 | **统计** | `.stats` | 工具调用统计 |
 | **绑定** | `.bind status` | 查看所有通道绑定状态 |
@@ -122,6 +127,32 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 **两种模式：**
 - `queue`（默认）：消息按顺序处理
 - `preemptive`：最新消息打断当前处理
+
+### .schedule — 定时任务
+
+任务持久化在 **`MINI_AGENT_STATE/scheduled_tasks/tasks.json`**（未设置环境变量时一般为仓库下 `workspaces/scheduled_tasks/`）。触发时与手动输入一样经 **消息队列** 跑一轮 Agent。详见 [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」与 [USER_GUIDE.md](USER_GUIDE.md) 第 8 章。
+
+**语法摘要**（与无参 `.schedule` 打印一致）：
+
+```
+.schedule list
+.schedule show <id>
+.schedule remove <id>
+.schedule enable <id>   |   .schedule disable <id>
+.schedule add <id> every <秒> <primary|ephemeral|fixed:会话ID> [--tz IANA] -- <prompt>
+.schedule add <id> once <ISO8601> <primary|ephemeral|fixed:会话ID> [--tz IANA] -- <prompt>
+```
+
+**要点**：
+
+- **`add` 必须包含 ` -- `**（空格、两个连字符、空格）：前面为调度与会话参数，后面为交给模型的 **prompt**；缺少分隔符会报错。
+- **`every`**：间隔秒数为正整数；**`once`**：时间为 ISO8601（可含 `Z` 或 `+08:00`）；未带时区的 naive 时间由 **`--tz`**（默认 `UTC`）解释。
+- **会话**：`primary` 使用当前路由的主会话 / 活跃会话；`ephemeral` 每次新建临时会话键；`fixed:会话ID` 固定到某会话（如 `fixed:default` 或 `fixed:feishu:oc_xxx`，后者可用于飞书群任务）。
+- **关闭调度循环**（不删任务表）：环境变量 `MINIAGENT_DISABLE_SCHEDULED_TASKS=1`。
+
+**飞书渠道**：在飞书里发 `.schedule` 时，通常 **仅允许** `list` / `show`；`add` / `remove` / `enable` / `disable` 须在 **本机 CLI** 执行（与 `.session` 变异限制类似）。
+
+**Agent 工具**（可选，由环境变量控制注册）：`run_dot_command` 可执行与上文相同的点命令行；`manage_scheduled_task` 以 JSON 维护任务。见 [.env.example](../.env.example) 中 `MINIAGENT_CLI_DOT_TOOLS`、`MINIAGENT_SCHEDULE_TOOLS`。
 
 ### .bind / .unbind — 通道绑定
 

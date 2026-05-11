@@ -8,6 +8,7 @@
 
 - ``poll_server``：长连接与消息派发、去重与防抖
 - ``agent_handler``：将飞书事件转为与 CLI 统一的处理路径（闭包注入队列/引擎）
+- ``resource_io``：消息内 file/image 资源下载（依赖 lark-oapi）
 - ``types``：配置与事件/回复数据结构
 - ``server``：Webhook 相关（若部署该形态）
 """

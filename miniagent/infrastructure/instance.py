@@ -440,6 +440,40 @@ def stop_instance_by_id(
     return get_registry(state_dir).stop(instance_id)
 
 
+def _inst_md_cell(text: str) -> str:
+    s = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    return s.replace("|", "\\|").replace("\n", " ").strip()
+
+
+def format_instances_markdown(instances: list[dict[str, Any]]) -> str:
+    """运行实例列表的 GFM 表格（飞书友好）。"""
+    if not instances:
+        return "📭 暂无运行实例"
+
+    lines = [
+        "## 运行实例",
+        "",
+        "> cli=仅 CLI，both=CLI+飞书",
+        "",
+        "| ID | PID | 模式 | 启动时间 | 会话数 | 主机 | 备注 |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    my_pid = os.getpid()
+    for inst in instances:
+        marker = "当前" if inst["pid"] == my_pid else ""
+        sid = inst["instance_id"]
+        pid = inst["pid"]
+        mode = inst.get("mode", "?")
+        start = str(inst.get("start_time", "?"))[:19]
+        sessions = len(inst.get("active_sessions", []))
+        host = inst.get("hostname", "?")
+        lines.append(
+            f"| {sid} | {pid} | {_inst_md_cell(str(mode))} | {_inst_md_cell(start)} | {sessions} | "
+            f"{_inst_md_cell(str(host))} | {_inst_md_cell(marker)} |"
+        )
+    return "\n".join(lines) + "\n"
+
+
 def format_instances_table(instances: list[dict[str, Any]]) -> str:
     """格式化为表格文本。"""
     if not instances:
@@ -475,5 +509,6 @@ __all__ = [
     "list_instances",
     "stop_instance_by_id",
     "format_instances_table",
+    "format_instances_markdown",
     "HEARTBEAT_TIMEOUT",
 ]

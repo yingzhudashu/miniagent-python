@@ -32,11 +32,6 @@ from miniagent.security.sandbox import get_default_workspace
 
 _logger = get_logger(__name__)
 
-_MAX_PLAN_STEPS_LISTED = 24
-_MAX_STEP_DESC_CHARS = 240
-_MAX_PLAN_BODY_CHARS = 1800
-
-
 def _announce_difficulty_and_plan_enabled() -> bool:
     v = os.environ.get("MINIAGENT_ANNOUNCE_DIFFICULTY_AND_PLAN", "1")
     return str(v).strip().lower() not in ("0", "false", "no")
@@ -83,7 +78,7 @@ def _format_plan_message(
     user_skip_planning: bool = False,
     simple_classified: bool = False,
 ) -> str:
-    """Truncated plan text for on_thinking / Feishu; keep under typical card limits."""
+    """Full plan markdown for on_thinking / session history; Feishu caps apply in poll_server."""
     if not from_llm_planner:
         reason = _skip_structured_plan_reason(
             no_toolboxes=no_toolboxes,
@@ -99,22 +94,19 @@ def _format_plan_message(
     if plan.steps:
         lines.append("")
         lines.append("步骤概要：")
-        shown = 0
-        for i, st in enumerate(plan.steps[:_MAX_PLAN_STEPS_LISTED], start=1):
+        for i, st in enumerate(plan.steps, start=1):
             desc = (st.description or "").strip()
-            if len(desc) > _MAX_STEP_DESC_CHARS:
-                desc = desc[: _MAX_STEP_DESC_CHARS - 1] + "…"
             lines.append(f"{i}. {desc}")
-            shown += 1
-        if len(plan.steps) > shown:
-            lines.append(f"… 共 {len(plan.steps)} 步，此处仅列前 {shown} 步")
+            ei = (st.expected_input or "").strip()
+            eo = (st.expected_output or "").strip()
+            if ei:
+                lines.append(f"   预期输入：{ei}")
+            if eo:
+                lines.append(f"   预期产出：{eo}")
     if plan.required_toolboxes:
         lines.append("")
         lines.append(f"涉及工具箱：{', '.join(plan.required_toolboxes)}")
-    body = "\n".join(lines)
-    if len(body) > _MAX_PLAN_BODY_CHARS:
-        body = body[: _MAX_PLAN_BODY_CHARS - 1] + "…"
-    return body
+    return "\n".join(lines)
 
 
 async def _safe_on_thinking(
@@ -131,6 +123,7 @@ async def _safe_on_thinking(
 # ─── 回调类型 ────────────────────────────────────────────
 
 OnToolCall = Callable[[str, str, str], None]
+OnToolFinish = Callable[..., Awaitable[None]]
 OnPlan = Callable[[StructuredPlan], Awaitable[bool]]
 OnThinking = Callable[[str, bool, str], Awaitable[None]]
 
@@ -147,6 +140,7 @@ async def run_agent(
     system_prompt: str | None = None,
     skip_planning: bool = False,
     on_tool_call: OnToolCall | None = None,
+    on_tool_finish: OnToolFinish | None = None,
     on_plan: OnPlan | None = None,
     on_thinking: OnThinking | None = None,
     clawhub: Any | None = None,
@@ -173,6 +167,10 @@ async def run_agent(
         system_prompt: 自定义系统提示词
         skip_planning: 跳过规划阶段
         on_tool_call: 工具调用回调
+        on_tool_finish: 每个工具执行后的异步回调（名称、参数 JSON、完整输出、是否成功）。
+            执行器在签名支持时会额外传入 ``thinking_header``（当前 ReAct 轮标签，如 ``[第 1 轮]``），供飞书等同轮合并展示。
+            会话 ``history.json`` 中的工具全文块依赖此回调；不传则不会落盘工具输出。
+            ``UnifiedEngine.run_agent_with_thinking`` 已默认传入。
         on_plan: 计划确认回调（返回 True 批准执行）
         on_thinking: 思考过程回调（含难度/规划可见输出与执行阶段流式思考）
 
@@ -252,7 +250,7 @@ async def run_agent(
             sc = plan.suggested_config
             overrides: dict[str, Any] = {}
             if sc.max_turns is not None:
-                overrides["max_turns"] = sc.max_turns
+                overrides["max_turns"] = max(merged_config.max_turns, sc.max_turns)
             if sc.tool_timeout is not None:
                 overrides["tool_timeout"] = sc.tool_timeout
             if sc.risk_level is not None:
@@ -320,6 +318,7 @@ async def run_agent(
         merged_config,
         on_tool_call,
         on_thinking,
+        on_tool_finish=on_tool_finish,
         system_prompt=system_prompt,
         clawhub=clawhub,
         memory_store=memory_store,
@@ -387,7 +386,7 @@ def _create_default_plan() -> StructuredPlan:
         summary="直接执行模式",
         steps=[],
         required_toolboxes=[],
-        suggested_config=SuggestedConfig(max_turns=5, tool_timeout=30, risk_level="low"),
+        suggested_config=SuggestedConfig(max_turns=None, tool_timeout=30, risk_level="low"),
         estimated_tokens=EstimatedTokens(),
         context_strategy=ContextStrategy(mode="normal", reason="跳过规划"),
         requires_confirmation=False,

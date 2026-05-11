@@ -13,8 +13,58 @@
 
 from __future__ import annotations
 
+import json
 import os
+import time
 from typing import Any
+
+
+def feishu_markdown_commands_enabled() -> bool:
+    """飞书 capture 路径下是否用 Markdown 表格输出部分 `.` 命令（会话列表、队列、实例列表）。"""
+    v = os.environ.get("MINIAGENT_FEISHU_MARKDOWN_COMMANDS", "0")
+    return str(v).strip().lower() in ("1", "true", "yes")
+
+
+def format_session_command_usage() -> str:
+    """与 ``format_help_markdown`` 中会话小节一致的用法说明（CLI 提示与 dispatch 共用）。"""
+    return (
+        "用法:\n"
+        "  .session list                   列出所有会话\n"
+        "  .session switch <编号/ID>       切换到指定会话（飞书 capture 下仅 list；改会话请在本地 CLI）\n"
+        "  .session create <ID> [标题]     创建新会话\n"
+        "  .session rename <编号/ID> <标题>  重命名会话"
+    )
+
+
+def format_queue_command_usage(message_queue: Any) -> str:
+    """与帮助中队列小节一致的用法说明。"""
+    mode = message_queue.mode.value
+    return (
+        "用法:\n"
+        "  .queue status                   查看队列状态\n"
+        "  .queue set <模式>               切换 queue / preemptive\n"
+        f"  当前模式: {mode}"
+    )
+
+
+def _md_escape_cell(text: str) -> str:
+    """表格单元格：去掉换行并转义管道符。"""
+    s = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    s = s.replace("|", "\\|").replace("\n", " ").strip()
+    return s
+
+
+def _md_help_section(title: str, hint: str | None, rows: list[tuple[str, str]]) -> str:
+    """生成分组 Markdown：可选引用提示 + GFM 表格。"""
+    lines: list[str] = [f"### {title}", ""]
+    if hint:
+        lines.append(f"> {hint}")
+        lines.append("")
+    lines.extend(["| 命令 | 说明 |", "| --- | --- |"])
+    for cmd, desc in rows:
+        lines.append(f"| {_md_escape_cell(cmd)} | {_md_escape_cell(desc)} |")
+    lines.append("")
+    return "\n".join(lines)
 
 
 def sync_channel_router_to_session(
@@ -69,7 +119,9 @@ def _resolve_session(
     return None
 
 
-def cmd_session_list(session_manager: Any, active_session_id: str) -> None:
+def cmd_session_list(
+    session_manager: Any, active_session_id: str, *, markdown: bool = False
+) -> None:
     """列出所有会话并标记当前活跃会话。
 
     显示每个会话的编号、标题、轮次和锁定状态。
@@ -78,6 +130,7 @@ def cmd_session_list(session_manager: Any, active_session_id: str) -> None:
     Args:
         session_manager: 会话管理器实例
         active_session_id: 当前活跃会话 ID
+        markdown: True 时输出 GFM 表格（飞书 ``MINIAGENT_FEISHU_MARKDOWN_COMMANDS``）
     """
     if not session_manager:
         print("⚠️ 会话管理器未初始化")
@@ -88,6 +141,25 @@ def cmd_session_list(session_manager: Any, active_session_id: str) -> None:
 
     if not sessions:
         print("📭 暂无会话")
+        return
+
+    if markdown:
+        lines = ["## 会话列表", "", "| 编号 | 会话 | 轮次 | 备注 |", "| --- | --- | --- | --- |"]
+        for s in sessions:
+            marker = "当前" if s["id"] == active_session_id else ""
+            lock_info = ""
+            if s["locked"]:
+                if s["lock_pid"] == my_pid:
+                    lock_info = "本实例锁定"
+                else:
+                    lock_info = f"PID {s['lock_pid']} 锁定"
+            remark = " · ".join(x for x in (marker, lock_info) if x)
+            title_cell = _md_escape_cell(f"#{s['number']} {s['title']}")
+            lines.append(
+                f"| {s['number']} | {title_cell} | {s['turn_count']} | {_md_escape_cell(remark)} |"
+            )
+        print("\n".join(lines))
+        print()
         return
 
     print("\n📋 会话列表:")
@@ -104,11 +176,13 @@ def cmd_session_list(session_manager: Any, active_session_id: str) -> None:
                 lock_info = f" 🔒 (PID={s['lock_pid']})"
 
         display = f"#{s['number']} {s['title']}"
-        print(f"  - {display}{marker} | {s['turn_count']} 轮{lock_info}")
+        print(f"  - {display}{marker} · {s['turn_count']} 轮{lock_info}")
     print()
 
 
-def cmd_instance_handler(parts: list[str], sub_cmd: str, state: dict) -> None:
+def cmd_instance_handler(
+    parts: list[str], sub_cmd: str, state: dict, *, markdown: bool = False
+) -> None:
     """处理 .instance 命令及其子命令。
 
     支持两个子命令：
@@ -119,17 +193,22 @@ def cmd_instance_handler(parts: list[str], sub_cmd: str, state: dict) -> None:
         parts: 命令分割后的参数列表
         sub_cmd: 子命令名称（list / stop）
         state: 运行时状态字典，包含 instance_id 等信息
+        markdown: True 时实例列表为 GFM 表格（飞书 ``MINIAGENT_FEISHU_MARKDOWN_COMMANDS``）
     """
     from miniagent.infrastructure.instance import (
         list_instances,
         stop_instance_by_id,
+        format_instances_markdown,
         format_instances_table,
     )
 
     if sub_cmd == "list" or sub_cmd == "":
         # 列出所有运行中的实例
         instances = list_instances()
-        print(format_instances_table(instances))
+        if markdown:
+            print(format_instances_markdown(instances))
+        else:
+            print(format_instances_table(instances))
 
     elif sub_cmd == "stop" and len(parts) >= 3:
         # 停止指定实例
@@ -304,7 +383,7 @@ def cmd_session_rename(session_manager: Any, id_or_number: str, new_title: str) 
         print("❌ 重命名失败")
 
 
-def cmd_queue_status(message_queue: Any) -> None:
+def cmd_queue_status(message_queue: Any, *, markdown: bool = False) -> None:
     """查看消息队列状态。
 
     显示当前队列模式（queue / preemptive）以及
@@ -312,9 +391,28 @@ def cmd_queue_status(message_queue: Any) -> None:
 
     Args:
         message_queue: 消息队列管理器实例
+        markdown: True 时输出 GFM 表格（飞书 ``MINIAGENT_FEISHU_MARKDOWN_COMMANDS``）
     """
     status = message_queue.get_status()
     mode_label = "🟢 队列模式" if status["mode"] == "queue" else "🔴 打断模式"
+
+    if markdown:
+        lines = [
+            "## 消息队列状态",
+            "",
+            f"**模式**: {mode_label}（`{status['mode']}`）",
+            "",
+            "| 会话 | 状态 | 等待条数 |",
+            "| --- | --- | --- |",
+        ]
+        for label, info in status["chats"].items():
+            busy = "处理中" if info["busy"] else "空闲"
+            pend = str(info["pending"])
+            lines.append(f"| {_md_escape_cell(label)} | {busy} | {pend} |")
+        print("\n".join(lines))
+        print()
+        return
+
     print("\n📬 消息队列状态:")
     print(f"  模式: {mode_label} ({status['mode']})")
 
@@ -465,6 +563,336 @@ def cmd_unbind(
     return f"❌ 未知通道: {target}"
 
 
+def format_schedule_command_usage() -> str:
+    return (
+        "定时任务（持久化在 MINI_AGENT_STATE/scheduled_tasks/，经消息队列跑 Agent）：\n"
+        "  .schedule list\n"
+        "  .schedule show <id>\n"
+        "  .schedule remove <id>\n"
+        "  .schedule enable <id>  |  .schedule disable <id>\n"
+        "  .schedule add <id> every <秒> <primary|ephemeral|fixed:会话ID> [--tz IANA] -- <prompt>\n"
+        "  .schedule add <id> once <ISO8601> <primary|ephemeral|fixed:会话ID> [--tz IANA] -- <prompt>\n"
+        "  说明: 用 `` -- `` 分隔参数区与 prompt；once 的 naive 时间按 ``--tz``（默认 UTC）解释。\n"
+        "  关闭调度: 环境变量 MINIAGENT_DISABLE_SCHEDULED_TASKS=1"
+    )
+
+
+def _schedule_head_strip_tz_tokens(tokens: list[str]) -> tuple[list[str], str]:
+    """从 ``add ...`` 参数列表中去掉 ``--tz X``，返回 (新列表, 时区名)。"""
+    tz = "UTC"
+    out: list[str] = []
+    i = 0
+    while i < len(tokens):
+        if tokens[i] == "--tz" and i + 1 < len(tokens):
+            tz = tokens[i + 1].strip() or "UTC"
+            i += 2
+            continue
+        out.append(tokens[i])
+        i += 1
+    return out, tz
+
+
+def _parse_schedule_session_spec(token: str) -> Any:
+    from miniagent.scheduled_tasks.models import SessionSpec
+
+    t = token.strip()
+    if t == "primary":
+        return SessionSpec(mode="primary")
+    if t == "ephemeral":
+        return SessionSpec(mode="ephemeral")
+    if t.startswith("fixed:"):
+        sid = t[6:].strip()
+        if not sid:
+            raise ValueError("fixed: 后须填写会话 ID（如 default 或 feishu:oc_xxx）")
+        feishu_chat: str | None = None
+        if sid.startswith("feishu:"):
+            feishu_chat = sid[7:].strip() or None
+        return SessionSpec(mode="fixed", session_id=sid, feishu_chat_id=feishu_chat)
+    raise ValueError(f"未知会话说明 {token!r}，须为 primary / ephemeral / fixed:...")
+
+
+def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
+    from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec
+    from miniagent.scheduled_tasks.store import compute_initial_next_run, load_tasks, save_tasks
+
+    raw = (text or "").strip()
+    if not raw.lower().startswith(".schedule"):
+        return format_schedule_command_usage()
+    rest = raw[9:].strip()  # len(".schedule")
+    if not rest:
+        return format_schedule_command_usage()
+    parts = rest.split()
+    sub = parts[0].lower()
+
+    if sub == "list":
+        tasks = load_tasks()
+        if not tasks:
+            return "（暂无定时任务）"
+        lines = ["定时任务:"]
+        for t in tasks:
+            nxt = t.next_run_at
+            nxt_s = f"{nxt:.0f}" if nxt is not None else "-"
+            lines.append(
+                f"  • {t.id}  ({t.name})  enabled={t.enabled}  "
+                f"{t.schedule.kind}  next={nxt_s}  runs={t.run_count}"
+            )
+            if t.last_error:
+                err = t.last_error.replace("\n", " ")[:160]
+                lines.append(f"      err: {err}")
+        return "\n".join(lines)
+
+    if sub == "show" and len(parts) >= 2:
+        tid = parts[1]
+        for t in load_tasks():
+            if t.id == tid:
+                return json.dumps(t.to_json(), ensure_ascii=False, indent=2)
+        return f"未找到任务: {tid}"
+
+    if not allow_mutations:
+        if sub in ("add", "remove", "enable", "disable"):
+            return "⚠️ 当前渠道不允许修改定时任务，请在本地 MiniAgent CLI 执行。"
+
+    if sub == "remove" and len(parts) >= 2:
+        tid = parts[1]
+        tasks = load_tasks()
+        new = [x for x in tasks if x.id != tid]
+        if len(new) == len(tasks):
+            return f"未找到任务: {tid}"
+        save_tasks(new)
+        return f"✅ 已删除任务 {tid}"
+
+    if sub == "enable" and len(parts) >= 2:
+        tid = parts[1]
+        tasks = load_tasks()
+        for t in tasks:
+            if t.id == tid:
+                t.enabled = True
+                if t.next_run_at is None:
+                    t.next_run_at = compute_initial_next_run(t)
+                save_tasks(tasks)
+                return f"✅ 已启用 {tid}"
+        return f"未找到任务: {tid}"
+
+    if sub == "disable" and len(parts) >= 2:
+        tid = parts[1]
+        tasks = load_tasks()
+        for t in tasks:
+            if t.id == tid:
+                t.enabled = False
+                save_tasks(tasks)
+                return f"✅ 已禁用 {tid}"
+        return f"未找到任务: {tid}"
+
+    if sub == "add":
+        marker = " -- "
+        if marker not in raw:
+            return "缺少 `` -- `` 分隔符（用于分隔会话参数与 prompt）。\n" + format_schedule_command_usage()
+        head, prompt = raw.split(marker, 1)
+        prompt = prompt.strip()
+        if not prompt:
+            return "prompt 不能为空"
+        head0 = head.strip()
+        if head0.lower().startswith(".schedule"):
+            head0 = head0[9:].strip()
+        hparts = head0.split()
+        hparts, tz_name = _schedule_head_strip_tz_tokens(hparts)
+        if len(hparts) < 5 or hparts[0].lower() != "add":
+            return "参数不足。\n" + format_schedule_command_usage()
+        tid = hparts[1]
+        kind = hparts[2].lower()
+        try:
+            if kind == "every":
+                sec = int(hparts[3], 10)
+                if sec <= 0:
+                    return "间隔须为正整数"
+                sess = _parse_schedule_session_spec(hparts[4])
+                task = ScheduledTask(
+                    id=tid,
+                    name=tid,
+                    prompt=prompt,
+                    enabled=True,
+                    schedule=ScheduleSpec(
+                        kind="interval",
+                        interval_seconds=sec,
+                        timezone=tz_name,
+                    ),
+                    session=sess,
+                )
+                task.next_run_at = compute_initial_next_run(task)
+            elif kind == "once":
+                iso = hparts[3]
+                sess = _parse_schedule_session_spec(hparts[4])
+                task = ScheduledTask(
+                    id=tid,
+                    name=tid,
+                    prompt=prompt,
+                    enabled=True,
+                    schedule=ScheduleSpec(
+                        kind="once",
+                        once_at_iso=iso,
+                        timezone=tz_name,
+                    ),
+                    session=sess,
+                )
+                task.next_run_at = compute_initial_next_run(task)
+                if task.next_run_at is None:
+                    return "无法解析 once 时间，请使用 ISO8601（可含 Z 或 +08:00）"
+                if task.next_run_at < time.time():
+                    return "一次性任务时间已在过去，请使用未来时间"
+            else:
+                return "调度类型须为 every 或 once。\n" + format_schedule_command_usage()
+        except ValueError as e:
+            return f"❌ {e}"
+
+        tasks = load_tasks()
+        if any(x.id == tid for x in tasks):
+            return f"任务 ID 已存在: {tid}"
+        tasks.append(task)
+        save_tasks(tasks)
+        return f"✅ 已添加任务 {tid}，next_run_at={task.next_run_at}"
+
+    return format_schedule_command_usage()
+
+
+def format_help_markdown(
+    model_profiles: dict[str, Any],
+    active_profile: str,
+    message_queue: Any,
+    instance_id: int | None = None,
+) -> str:
+    """生成 `.help` 的 Markdown 正文（表格分组），供 CLI 打印与飞书 capture 复用。"""
+    profiles = ", ".join(model_profiles.keys())
+    mode = message_queue.mode.value
+    inst_line = f"\n当前实例：**#{instance_id}**" if instance_id else ""
+
+    header = "\n".join(
+        [
+            "## Mini Agent 命令",
+            "",
+            f"消息队列模式：**{mode}** ｜ 当前模型预设：**{active_profile}** ｜ 可用预设：`{profiles}`{inst_line}",
+            "",
+        ]
+    )
+
+    sections: list[str] = [
+        _md_help_section(
+            "启动命令（在操作系统终端执行）",
+            None,
+            [
+                ("`python -m miniagent`", "启动 CLI 模式"),
+                ("`python -m miniagent --feishu`", "启动 CLI + 飞书"),
+                ("`python -m miniagent --stop`", "列出实例；交互选择停止"),
+                ("`python -m miniagent --stop --all`", "停止全部实例"),
+                ("`python -m miniagent --stop <id>...`", "停止指定实例 ID"),
+            ],
+        ),
+        _md_help_section(
+            "实例管理",
+            None,
+            [
+                ("`.instance list`", "列出所有运行实例"),
+                ("`.instance stop <id>`", "停止指定实例"),
+            ],
+        ),
+        _md_help_section(
+            "会话管理",
+            "编号与原始 ID 均可，例如 `.session switch 1` 或 `.session switch default`。",
+            [
+                ("`.session list`", "列出所有会话"),
+                ("`.session switch <编号/ID>`", "切换到指定会话"),
+                ("`.session create <ID> [标题]`", "创建新会话，可指定标题"),
+                ("`.session rename <编号/ID> <新标题>`", "重命名会话"),
+            ],
+        ),
+        _md_help_section(
+            "飞书控制",
+            None,
+            [
+                ("`.feishu start`", "启动飞书 WebSocket 连接"),
+                ("`.feishu stop`", "停止飞书连接"),
+                ("`.feishu status`", "查看飞书运行状态"),
+            ],
+        ),
+        _md_help_section(
+            "通道绑定",
+            "绑定后 CLI 与飞书共享同一会话，记忆、文件与工具互通。",
+            [
+                ("`.bind status`", "查看通道绑定状态"),
+                ("`.bind cli <会话>`", "CLI 绑定到指定会话"),
+                ("`.bind feishu <sender> <会话>`", "飞书私聊绑定到指定会话"),
+                ("`.unbind cli`", "解除 CLI 绑定"),
+                ("`.unbind feishu <sender>`", "解除飞书私聊绑定"),
+                ("`.unbind all`", "解除所有绑定"),
+            ],
+        ),
+        _md_help_section(
+            "消息队列",
+            "`queue` 为默认；`preemptive` 允许新消息插队。",
+            [
+                ("`.queue status`", "查看队列状态"),
+                ("`.queue set <模式>`", "切换 `queue` / `preemptive`"),
+            ],
+        ),
+        _md_help_section(
+            "定时任务",
+            "用 `` -- `` 分隔参数与 prompt；once 可加 ``--tz``；飞书侧仅 list/show。",
+            [
+                ("`.schedule list`", "列出任务"),
+                ("`.schedule show <id>`", "查看 JSON"),
+                ("`.schedule add ...`", "interval/once（见无参 `.schedule`）；Agent 可用 manage_scheduled_task"),
+                ("`.schedule remove|enable|disable <id>`", "管理任务"),
+            ],
+        ),
+        _md_help_section(
+            "模型预设",
+            None,
+            [
+                ("`.profile <名称>`", "切换模型预设"),
+            ],
+        ),
+        _md_help_section(
+            "工具与统计",
+            None,
+            [
+                ("`.stats`", "查看工具调用统计"),
+                ("`.status`", "查看系统运行状态"),
+            ],
+        ),
+        _md_help_section(
+            "实例控制",
+            None,
+            [
+                (
+                    "`.stop`",
+                    (
+                        f"停止当前实例并退出（实例 #{instance_id}）"
+                        if instance_id
+                        else "停止当前实例并退出"
+                    ),
+                ),
+            ],
+        ),
+        _md_help_section(
+            "其他",
+            None,
+            [
+                ("`.help`", "显示本帮助"),
+                ("`.copy`", "复制当前会话 transcript 到剪贴板（全屏 CLI）"),
+                ("`quit` / `exit`", "退出程序"),
+            ],
+        ),
+    ]
+
+    footer = "\n".join(
+        [
+            "> 提示：直接输入文字即可与 Agent 对话。",
+            "",
+        ]
+    )
+
+    return header + "".join(sections) + footer
+
+
 def cmd_help(
     model_profiles: dict[str, Any],
     active_profile: str,
@@ -473,16 +901,7 @@ def cmd_help(
 ) -> None:
     """显示分类帮助信息。
 
-    按功能分组展示所有可用命令：
-    - 启动命令
-    - 实例管理
-    - 会话管理
-    - 飞书控制
-    - 消息队列
-    - 模型预设
-    - 工具与统计
-    - 实例控制
-    - 其他命令
+    按功能分组展示所有可用命令（Markdown 表格，便于飞书 lark_md 渲染）。
 
     Args:
         model_profiles: 可用的模型预设配置
@@ -490,84 +909,12 @@ def cmd_help(
         message_queue: 消息队列管理器实例
         instance_id: 当前实例 ID（可选）
     """
-    profiles = ", ".join(model_profiles.keys())
-    mode = message_queue.mode.value
-    inst_info = f" (#{instance_id})" if instance_id else ""
-
-    print()
-    print("  ╭─── Mini Agent 命令手册 ─────────────────────────────────╮")
-    print()
-
-    print("  🚀 启动命令（终端）")
-    print("    python -m miniagent                     启动 CLI 模式")
-    print("    python -m miniagent --feishu            启动 CLI + 飞书")
-    print("    python -m miniagent --stop              列出实例；交互选择停止")
-    print("    python -m miniagent --stop --all         停止全部实例")
-    print("    python -m miniagent --stop <id>...       停止指定实例 ID")
-    print()
-
-    print("  🏭 实例管理")
-    print("    .instance list                  列出所有运行实例")
-    print("    .instance stop <id>             停止指定实例")
-    print()
-
-    print("  📁 会话管理")
-    print("    .session list                   列出所有会话")
-    print("    .session switch <编号/ID>       切换到指定会话")
-    print("    .session create <ID> [标题]     创建新会话，可指定标题")
-    print("    .session rename <编号/ID> <新标题>  重命名会话")
-    print("  提示: 编号/ID 均可，如 .session switch 1 或 .session switch default")
-    print()
-
-    print("  💬 飞书控制")
-    print("    .feishu start                   启动飞书 WebSocket 连接")
-    print("    .feishu stop                    停止飞书连接")
-    print("    .feishu status                  查看飞书运行状态")
-    print()
-
-    print("  📡 通道绑定")
-    print("    .bind status                    查看通道绑定状态")
-    print("    .bind cli <会话>                CLI 绑定到指定会话")
-    print("    .bind feishu <sender> <会话>    飞书私聊绑定到指定会话")
-    print("    .unbind cli                     解除 CLI 绑定")
-    print("    .unbind feishu <sender>         解除飞书私聊绑定")
-    print("    .unbind all                     解除所有绑定")
-    print("  提示: 绑定后 CLI/飞书共享同一会话，记忆/文件/工具全部互通")
-    print()
-
-    print("  📬 消息队列")
-    print("    .queue status                   查看队列状态")
-    print("    .queue set <模式>               切换 queue / preemptive")
-    print(f"    当前: {mode} (默认 queue)")
-    print()
-
-    print("  📡 模型预设")
-    print("    .profile <名称>                 切换模型预设")
-    print(f"    可用预设: {profiles}")
-    print(f"    当前预设: {active_profile}")
-    print()
-
-    print("  📊 工具与统计")
-    print("    .stats                          查看工具调用统计")
-    print("    .status                         查看系统运行状态")
-    print()
-
-    print("  ⚙️ 实例控制")
-    print(f"    .stop                           停止当前实例并退出{inst_info}")
-    print()
-
-    print("  📖 其他")
-    print("    .help                           显示本帮助")
-    print("    .copy                           复制当前会话 transcript 到剪贴板（全屏 CLI）")
-    print("    quit / exit                     退出程序")
-    print()
-
-    print("  💡 提示: 直接输入文字即可与 Agent 对话")
-    print("  ╰─────────────────────────────────────────────────────────╯")
-    print()
+    print(format_help_markdown(model_profiles, active_profile, message_queue, instance_id))
 
 
 __all__ = [
+    "cmd_schedule",
+    "format_schedule_command_usage",
     "sync_channel_router_to_session",
     "cmd_session_list",
     "cmd_session_switch",
@@ -576,4 +923,8 @@ __all__ = [
     "cmd_queue_status",
     "cmd_queue_set",
     "cmd_help",
+    "format_help_markdown",
+    "feishu_markdown_commands_enabled",
+    "format_session_command_usage",
+    "format_queue_command_usage",
 ]
