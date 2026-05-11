@@ -3,6 +3,8 @@
 本包只放 **数据结构契约**，不包含 I/O 或业务编排。实现落在 ``miniagent.core``、
 ``miniagent.memory``、``miniagent.infrastructure`` 等模块。
 
+架构总览见 ``docs/ARCHITECTURE.md``；记忆语义见 ``docs/MEMORY_SYSTEM.md``。
+
 模块划分：
 
 - ``tool``: 工具定义、``ToolContext``、注册表协议、上下文压缩相关类型

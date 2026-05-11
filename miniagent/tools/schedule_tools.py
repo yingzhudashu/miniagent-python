@@ -1,4 +1,7 @@
-"""结构化定时任务工具：供 Agent 以 JSON 参数增删改查，避免拼写 ``.schedule add`` 行。"""
+"""结构化定时任务工具：供 Agent 以 JSON 参数增删改查，避免拼写 ``.schedule add`` 行。
+
+持久化与 ``tasks.json`` 格式见 ``miniagent.scheduled_tasks.store``；用户文档见 ``README``、``docs/USER_GUIDE.md``。
+"""
 
 from __future__ import annotations
 

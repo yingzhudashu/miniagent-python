@@ -25,6 +25,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+cli = [
+    "rich>=13.0.0",
+]
 feishu = [
     "lark-oapi>=1.4.0",
 ]
@@ -55,6 +58,7 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [
     "dot_help_dispatch: real dispatch_command path for .help (filter with -m 'not dot_help_dispatch' to skip)",
+    "evaluation: tests under tests/evaluation (often network/API; default CI uses -m 'not evaluation')",
 ]
 
 [tool.ruff]

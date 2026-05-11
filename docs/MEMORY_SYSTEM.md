@@ -228,5 +228,5 @@ messages = [
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
 | `context_compress_threshold` | 0.8 | token 压缩阈值 (80% 窗口) |
-| `max_turns` | 200 | ReAct 最大轮数（与 `AGENT_MAX_TURNS` / `AgentConfig` 一致；可由环境变量覆盖） |
+| `max_turns` | 400 | ReAct 最大轮数（与 `AGENT_MAX_TURNS` / `AgentConfig` 一致；可由环境变量覆盖） |
 | 记忆检索 top_k | 8 | Layer 3 返回条目数 |

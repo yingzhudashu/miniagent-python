@@ -7,6 +7,8 @@ ClawHub 客户端由 ``create_clawhub_client()`` 构造并注入 ``RuntimeContex
 搜索/安装技能时复用（``ToolContext.clawhub`` 优先）。
 
 导出：注册表、解析/加载函数、ClawHub 工厂、技能根路径解析。
+
+目录迁移与 wheel 发行说明见根目录 ``README``；第三方清单见 ``workspaces/skills/THIRD_PARTY_SKILLS.md``。
 """
 
 from miniagent.skills.registry import DefaultSkillRegistry

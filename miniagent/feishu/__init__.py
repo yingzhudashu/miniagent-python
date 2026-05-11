@@ -11,6 +11,8 @@
 - ``resource_io``：消息内 file/image 资源下载（依赖 lark-oapi）
 - ``types``：配置与事件/回复数据结构
 - ``server``：Webhook 相关（若部署该形态）
+
+运维与安全清单见 ``docs/FEISHU.md``、``docs/SECURITY.md``；入站锁见 ``feishu_inbound_lock``。
 """
 
 __all__: list[str] = []

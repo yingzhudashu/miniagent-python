@@ -169,3 +169,79 @@ async def test_engine_history_merges_tool_under_turn(monkeypatch):
     assert "🔧 web_search" in content
     assert "brain text" in content
     assert content.index("[第 1 轮]") < content.index("🔧")
+
+
+@pytest.mark.asyncio
+async def test_cli_thinking_rich_sends_ansi_markdown(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MINIAGENT_CLI_THINKING_RICH", "1")
+    from miniagent.engine.thinking import ThinkingDisplay
+
+    td = ThinkingDisplay()
+    calls: list[dict[str, object]] = []
+
+    def sink(
+        text: str, kind: str = "chunk", *, ansi_markdown: str | None = None
+    ) -> None:
+        calls.append({"text": text, "kind": kind, "ansi_markdown": ansi_markdown})
+
+    td.set_output_sink(sink)
+    md = "## Sec\n\n| x | y |\n|---|---|\n| 1 | 2 |\n"
+    await td.show(md, streaming=False, header="")
+    assert any(c.get("ansi_markdown") for c in calls)
+
+
+@pytest.mark.asyncio
+async def test_cli_thinking_rich_falls_back_when_no_ansi(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MINIAGENT_CLI_THINKING_RICH", "1")
+    monkeypatch.setattr(
+        "miniagent.engine.markdown_cli.render_markdown_to_ansi",
+        lambda *_a, **_k: None,
+    )
+    from miniagent.engine.thinking import ThinkingDisplay
+
+    td = ThinkingDisplay()
+    records: list[tuple[str | None, str | None]] = []
+
+    def sink(
+        text: str, kind: str = "chunk", *, ansi_markdown: str | None = None
+    ) -> None:
+        records.append((text, ansi_markdown))
+
+    td.set_output_sink(sink)
+    md = "## Sec\n\n| x | y |\n|---|---|\n| 1 | 2 |\n"
+    await td.show(md, streaming=False, header="")
+    assert all(am is None for _, am in records)
+    joined = "".join(t or "" for t, _ in records)
+    assert "|" in joined
+
+
+@pytest.mark.asyncio
+async def test_feishu_same_header_after_merge_tools_not_new_round() -> None:
+    """同一步内工具后继续流式：飞书不应新开思考卡（is_new_round=False）。"""
+    from miniagent.engine.thinking import ThinkingDisplay
+
+    td = ThinkingDisplay()
+    flags: list[bool] = []
+
+    async def feishu_send(
+        chat_id: str,
+        text: str,
+        template: str,
+        *,
+        is_new_round: bool = False,
+        streaming: bool = True,
+        merge_tools: bool = False,
+        finalize_only: bool = False,
+    ) -> None:
+        flags.append(is_new_round)
+
+    td.enable_feishu("sk", "oc_x", feishu_send)
+    hdr = "[步骤 1/3] x"
+    await td.show(hdr, session_key="sk", streaming=True, header=hdr)
+    await td.show(hdr + "a", session_key="sk", streaming=True, header=hdr)
+    await td.show("`t` · 成功", session_key="sk", streaming=False, header=hdr)
+    await td.show(hdr + "b", session_key="sk", streaming=True, header=hdr)
+    assert flags[0] is True
+    assert flags[1] is False
+    assert flags[2] is False
+    assert flags[3] is False

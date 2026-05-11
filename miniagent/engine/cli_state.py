@@ -1,6 +1,7 @@
 """CLI 与命令调度共享的运行时状态（类型收窄）。
 
 ``unified_main`` 构造的字典与此 :class:`CliLoopState` 对齐；飞书 handler 闭包捕获同一结构。
+定时任务协程（``scheduled_tasks.runner``）亦读取其中 ``active_session_id`` / ``runtime_ctx``。
 """
 
 from __future__ import annotations

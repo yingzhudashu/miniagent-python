@@ -29,6 +29,7 @@
 |------|------|----------|
 | [CLI.md](CLI.md) | CLI 命令手册 | 所有用户 |
 | [FEISHU.md](FEISHU.md) | 飞书集成指南 | 运维、开发者 |
+| [FEISHU_CARD_V2_SPIKE.md](FEISHU_CARD_V2_SPIKE.md) | 飞书卡片 JSON v2 / 表格方向备忘（调研） | 开发者 |
 | [SELF_OPT.md](SELF_OPT.md) | 自我优化子系统 | 高级用户、开发者 |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | 部署指南 | 运维 |
 | [INSTANCE_REGISTRY.md](INSTANCE_REGISTRY.md) | 多实例注册表与磁盘布局 | 开发者、运维 |
@@ -40,6 +41,10 @@
 |------|------|----------|
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 贡献指南、开发规范 | 贡献者 |
 | [ENGINEERING.md](ENGINEERING.md) | 仓库卫生、质量门禁、单一事实来源 | 维护者、CI 负责人 |
+
+### 可选：离线测评（本地）
+
+评测脚本与用例 JSON 位于 `tests/evaluation/`，**源码与小体积 JSON 宜纳入 Git**；运行方式与产物边界见 [EVALUATION_LOCAL.md](EVALUATION_LOCAL.md)。默认 CI 使用 `pytest -m "not evaluation"`；**轨迹与生成报告不入库**（见根目录 `.gitignore`），且勿 `git add -f` 轨迹以免泄漏对话中的密钥。
 
 ---
 
@@ -143,7 +148,7 @@ miniagent-python/
 │   │   └── sandbox.py
 │   └── types/                    # Pydantic / Protocol（__init__.py 聚合导出）
 ├── scripts/                      # 维护脚本（bootstrap_clawhub_skills.py、vendor_skill_from_github.py）
-├── tests/
+├── tests/                        # pytest 主收集根；可选子目录 evaluation/ 见 EVALUATION_LOCAL.md
 ├── docs/
 │   └── examples/                 # 脱敏配置片段（见 examples/README.md）
 ├── workspaces/                   # 默认状态目录（可用 MINI_AGENT_STATE 迁出）

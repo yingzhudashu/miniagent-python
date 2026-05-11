@@ -11,6 +11,8 @@ ClawHub API 约定：
 - 搜索: GET /v1/skills/search?q=<query>&limit=<n>
 - 详情: GET /v1/skills/<slug>
 - 下载: GET /v1/skills/<slug>/download?version=<ver>
+
+联网失败时的降级行为见 ``search_local_skills``；合规使用见 ``workspaces/skills/THIRD_PARTY_SKILLS.md``。
 """
 
 from __future__ import annotations

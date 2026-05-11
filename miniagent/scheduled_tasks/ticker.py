@@ -1,6 +1,8 @@
 """进程内 asyncio 调度循环：周期性 ``tick_once``、加锁、将到期任务经 ``message_queue`` 投递执行。
 
-与 ``engine.main`` 中启动的 ``start_scheduled_tasks_ticker`` 配套；环境变量 ``MINIAGENT_DISABLE_SCHEDULED_TASKS`` 可关闭。"""
+与 ``engine.main`` 中启动的 ``start_scheduled_tasks_ticker`` 配套；环境变量 ``MINIAGENT_DISABLE_SCHEDULED_TASKS`` 可关闭。
+
+并发语义：同一进程内单 ticker 循环；跨进程通过 ``scheduler.lock``（见 ``lock``）避免重复 tick。"""
 from __future__ import annotations
 
 import asyncio

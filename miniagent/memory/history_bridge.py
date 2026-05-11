@@ -2,6 +2,8 @@
 
 ``conversation_history_for_llm`` 将内部格式映射为 OpenAI 兼容的 ``user``/``assistant``/
 ``system``/``tool``；含归档标记的 system 消息会保留为简短衔接说明。
+
+与 ``openai_message_sanitize`` 分工：后者剥离 ``_*`` 键，本模块处理角色与业务裁剪。
 """
 
 from __future__ import annotations

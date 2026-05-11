@@ -27,3 +27,9 @@ workspaces/keyword-index.json
 workspaces/perf*.jsonl
 workspaces/feishu_inbound_owner.json
 workspaces/feishu/
+
+# 可选离线测评：轨迹与生成报告默认不入库（评测源码 *.py 可提交；详见 docs/EVALUATION_LOCAL.md）
+tests/evaluation/runners/trajectories/
+tests/evaluation/**/evaluation_results.json
+docs/EVALUATION_REPORT.html
+docs/evaluation_results.json

@@ -5,6 +5,8 @@
 - ``WorkspaceManager``：会话目录下 ``files/``、``skills/`` 等工作区生命周期（见 ``workspace.py``）。
 
 与 ``miniagent.types.memory.SessionManagerProtocol`` 对齐的是 ``DefaultSessionManager`` 的公开行为。
+
+会话与 Engine 的衔接见 ``docs/ARCHITECTURE.md``；磁盘布局另见 ``docs/INSTANCE_REGISTRY.md``（状态根目录）。
 """
 
 from miniagent.session.manager import DefaultSessionManager as SessionManager

@@ -8,6 +8,8 @@
 - ``register()`` 在分配新 ``instance_id`` **之前** 会扫描并删除 PID 已失效的目录；**不会**向其它进程发送终止信号。
 - ``heartbeat`` 文件仍会更新，便于人工排查；**不参与**「是否存活」的权威判定，避免心跳写入滞后导致误删仍在运行的实例注册信息。
 
+运维向说明见 ``docs/INSTANCE_REGISTRY.md``。
+
 实例注册表结构：
     workspaces/
     └── instances/

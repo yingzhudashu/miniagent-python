@@ -14,6 +14,8 @@
 - 进程级依赖由 ``compat.unified_entry`` 注入 ``RuntimeContext``（registry、monitor、engine、队列、路由等）
 - CLI 经 ``run_cli_loop``；飞书经 ``FeishuRuntime`` + ``poll_server``（同进程可插拔）
 - ``UnifiedEngine`` 编排 ``run_agent`` 与思考回调；会话由 ``SessionManager`` 单一数据源
+
+文档索引见 ``docs/INDEX.md``；架构详见 ``docs/ARCHITECTURE.md``。
 """
 
 from __future__ import annotations

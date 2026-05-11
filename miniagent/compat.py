@@ -8,6 +8,8 @@
 
 ``unified_entry`` 内会先 ``load_external_config_from_env()`` 再构造 ``RuntimeContext``，以便
 ``openai_client`` 与补丁一致；外部 JSON 写入环境变量的安全说明见 ``docs/SECURITY.md``。
+
+启动编排与异步主流程见 ``docs/ARCHITECTURE.md``（``unified_entry`` → ``unified_main``）。
 """
 
 from __future__ import annotations

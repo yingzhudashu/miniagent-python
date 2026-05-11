@@ -1,9 +1,13 @@
 """Mini Agent Python — 工作空间管理
 
 管理会话的独立文件系统工作空间，包括：
+
 - 工作空间创建/销毁
 - 文件同步（继承父会话文件）
 - 路径解析（默认工作目录）
+
+执行阶段 ``ToolContext.cwd`` 与会话 ``files/`` 对齐由 ``UnifiedEngine`` / ``init_subsystems`` 注入；
+若绕过引擎直接调用 ``run_pipeline``，须自行保证上下文与会话目录一致（见根目录 ``README`` 说明）。
 """
 
 from __future__ import annotations

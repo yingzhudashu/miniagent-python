@@ -12,6 +12,8 @@
 适用场景：
 - 无需公网 IP，适合家庭网络或内网部署
 - 飞书开放平台的企业自建应用
+
+媒体落盘后是否自动跑 Agent、静默回复等开关见 ``docs/ENGINEERING.md`` §1 表格与 ``docs/FEISHU.md``。
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import time
 from typing import Any, Awaitable, Callable, Protocol
 
@@ -352,7 +355,11 @@ async def start_feishu_poll_server(
                         else:
                             abandon_processing_claim(message_id)
 
-                asyncio.create_task(mq.dispatch(chat_id, _handle()))
+                # 点命令走控制面：不得与 Agent 同锁排队，否则卡死时无法在飞书侧下发 `.abort` 等。
+                if text.lstrip().startswith("."):
+                    asyncio.create_task(_handle())
+                else:
+                    asyncio.create_task(mq.dispatch(chat_id, _handle()))
             elif msg_type in ("file", "image") and media_handler:
                 parsed_media = _parse_feishu_media_payload(msg_type, content_str)
                 if not parsed_media:
@@ -548,20 +555,246 @@ FEISHU_CARD_BODY_MAX = feishu_card_body_max()
 FEISHU_THINKING_BODY_MAX = FEISHU_CARD_BODY_MAX
 
 
-def _prepare_card_markdown(raw: str, max_len: int | None = None) -> str:
+def _strip_unicode_replacement_chars(text: str) -> str:
+    """去掉 U+FFFD，减少工具输出乱码时的占位符刷屏。"""
+    return (text or "").replace("\ufffd", "")
+
+
+def _neutralize_lone_asterisks_for_lark(text: str) -> str:
+    """将不成对的 ASCII `*` 换成全角 `＊`，减轻 lark_md 把技术正文误解析为斜体。"""
+    return re.sub(r"(?<!\*)\*(?!\*)", "\uff0a", text or "")
+
+
+def _collapse_excessive_blank_lines(text: str) -> str:
+    return re.sub(r"\n{3,}", "\n\n", text or "")
+
+
+_WIDE_TABLE_HINT = (
+    ">（以下表格列数较多，飞书 lark_md 可能无法良好渲染；"
+    "完整内容见本会话 **history.json** 或使用本地 CLI。）"
+)
+
+
+def _feishu_wide_table_fallback_mode() -> str:
+    """``MINIAGENT_FEISHU_TABLE_FALLBACK``: hint / unicode / both（默认 both）。"""
+    v = (os.environ.get("MINIAGENT_FEISHU_TABLE_FALLBACK") or "both").strip().lower()
+    if v in ("hint", "unicode", "both"):
+        return v
+    return "both"
+
+
+def _is_gfm_table_separator_line(line: str) -> bool:
+    return bool(re.match(r"^\s*\|?[\s\-:|]+\|?\s*$", line))
+
+
+def _parse_gfm_table_row_cells(line: str) -> list[str]:
+    s = line.strip()
+    if s.startswith("|"):
+        s = s[1:]
+    if s.endswith("|"):
+        s = s[:-1]
+    return [c.strip() for c in s.split("|")]
+
+
+def _gfm_table_block_to_text_table(
+    block_lines: list[str], *, max_cell_width: int = 28
+) -> str:
+    """将 GFM 管道表转为等宽文本表（单元格截断），供 lark_md 代码块展示。"""
+    rows: list[list[str]] = []
+    for line in block_lines:
+        if not line.strip() or _is_gfm_table_separator_line(line):
+            continue
+        rows.append(_parse_gfm_table_row_cells(line))
+    if not rows:
+        return ""
+    ncols = max(len(r) for r in rows)
+    for r in rows:
+        while len(r) < ncols:
+            r.append("")
+    widths: list[int] = []
+    for ci in range(ncols):
+        mw = 0
+        for r in rows:
+            if ci < len(r):
+                mw = max(mw, len((r[ci] or "").replace("\n", " ").replace("\r", "")))
+        widths.append(min(max_cell_width, max(mw, 3)))
+
+    def trunc(cell: str, w: int) -> str:
+        x = (cell or "").replace("\n", " ").replace("\r", "")
+        if len(x) <= w:
+            return x.ljust(w)
+        if w <= 1:
+            return "…"[:w]
+        return x[: w - 1] + "…"
+
+    out_lines: list[str] = []
+    for ri, r in enumerate(rows):
+        cells = [trunc(r[ci], widths[ci]) for ci in range(ncols)]
+        out_lines.append("| " + " | ".join(cells) + " |")
+        if ri == 0:
+            out_lines.append(
+                "|-" + "-|-".join("-" * widths[ci] for ci in range(ncols)) + "-|"
+            )
+    return "\n".join(out_lines)
+
+
+def _normalize_lark_md(text: str) -> str:
+    """将常见 GFM / HTML 写法降级为飞书 ``lark_md`` 更易接受的正文。"""
+    if not text:
+        return ""
+    t = text.replace("\ufeff", "").replace("\u200b", "").replace("\u200c", "")
+    t = _strip_unicode_replacement_chars(t)
+    t = _neutralize_lone_asterisks_for_lark(t)
+    t = re.sub(r"<br\s*/?>", "\n", t, flags=re.IGNORECASE)
+
+    def _collapse_fence_line(line: str) -> str:
+        m = re.match(r"^(`{3,})(.*)$", line)
+        if m and len(m.group(1)) > 3:
+            return "```" + m.group(2)
+        return line
+
+    t = "\n".join(_collapse_fence_line(L) for L in t.split("\n"))
+
+    # 过宽 Markdown 表格：列过多时整块替换为提示，避免客户端显示为「原始管道符」
+    lines = t.split("\n")
+    out: list[str] = []
+    i = 0
+    max_pipes = int(os.environ.get("MINIAGENT_FEISHU_LARK_TABLE_MAX_PIPES", "14"))
+    while i < len(lines):
+        row0 = lines[i]
+        if i + 1 < len(lines) and "|" in row0 and re.match(
+            r"^\s*\|?[\s\-:|]+\|?\s*$", lines[i + 1]
+        ):
+            j = i
+            pipe_peak = 0
+            while j < len(lines) and lines[j].strip() and "|" in lines[j]:
+                pipe_peak = max(pipe_peak, lines[j].count("|"))
+                j += 1
+            if pipe_peak > max_pipes:
+                mode = _feishu_wide_table_fallback_mode()
+                utf_block = _gfm_table_block_to_text_table(lines[i:j])
+                fenced = f"```\n{utf_block}\n```" if utf_block else ""
+                if mode == "hint":
+                    out.append(_WIDE_TABLE_HINT)
+                elif mode == "unicode":
+                    if fenced:
+                        out.append(fenced)
+                else:
+                    out.append(
+                        _WIDE_TABLE_HINT + (f"\n\n{fenced}" if fenced else "")
+                    )
+            else:
+                out.extend(lines[i:j])
+            i = j
+            continue
+        out.append(row0)
+        i += 1
+    joined = "\n".join(out)
+    joined = re.sub(
+        r"(?m)^[ \t]*(?:---+|\*{3,}|_{3,})[ \t]*$",
+        "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+        joined,
+    )
+    return joined
+
+
+def _prepare_thinking_body_for_card(
+    raw: str,
+    *,
+    apply_cap: bool = True,
+    max_len: int | None = None,
+) -> str:
+    """思考卡片正文：折叠空行、可选长度帽、``lark_md`` 规范化（正文左对齐，不再人为段首/列表缩进）。"""
+    cap = feishu_card_body_max() if max_len is None else max_len
+    t = (raw or "").replace("\r", "").replace("\t", "  ")
+    t = _collapse_excessive_blank_lines(t)
+    if apply_cap and len(t) > cap:
+        t = t[:cap] + "…"
+    return _normalize_lark_md(t)
+
+
+def _prepare_card_markdown(
+    raw: str,
+    max_len: int | None = None,
+    *,
+    normalize: bool = True,
+) -> str:
     cap = feishu_card_body_max() if max_len is None else max_len
     t = raw if len(raw) <= cap else raw[:cap] + "…"
-    return t.replace("\r", "").replace("\t", "  ")
+    t = t.replace("\r", "").replace("\t", "  ")
+    if normalize:
+        return _normalize_lark_md(t)
+    return t
 
 
 def _prepare_thinking_markdown(raw: str) -> str:
-    return _prepare_card_markdown(raw)
+    return _prepare_thinking_body_for_card(raw, apply_cap=True)
 
 
-def _chunk_feishu_card_markdown(reply: str, max_len: int | None = None) -> list[str]:
-    """将超长正文切成多张卡片可用的段落（最后在每张内仍经 _prepare_card_markdown 规范化）。"""
+def _feishu_reply_plain_enabled() -> bool:
+    """``MINIAGENT_FEISHU_REPLY_PLAIN``：最终回复先发交互卡片但正文去掉常见 Markdown 标记（仍为 ``lark_md``）。"""
+    v = os.environ.get("MINIAGENT_FEISHU_REPLY_PLAIN", "").strip().lower()
+    return v in ("1", "true", "yes")
+
+
+def _strip_light_markdown_for_feishu_plain(text: str) -> str:
+    """弱化 Markdown 标记，减轻客户端对部分语法显示成「源码」时的观感（非完整解析器）。"""
+    t = (text or "").replace("\r\n", "\n")
+    t = re.sub(r"```[^\n]*\n([\s\S]*?)```", r"\1", t)
+    t = re.sub(r"`([^`]+)`", r"\1", t)
+    prev = None
+    while prev != t:
+        prev = t
+        t = re.sub(r"\*\*([^*]+)\*\*", r"\1", t)
+        t = re.sub(r"__([^_]+)__", r"\1", t)
+    return t
+
+
+def _chunk_tail_unclosed_fence(chunk: str) -> bool:
+    """按行首 ``` 切换：块末尾是否落在未闭合的代码围栏内。"""
+    inside = False
+    for line in chunk.split("\n"):
+        st = line.strip()
+        if st.startswith("```"):
+            inside = not inside
+    return inside
+
+
+def _feishu_chunk_cut_index(text: str, cap: int) -> int:
+    """在 ``cap`` 附近选换行切分；尽量不把切分落在未闭合的 ``` 围栏内。"""
+    if len(text) <= cap:
+        return len(text)
+    cut = text.rfind("\n", 0, cap)
+    if cut < max(cap // 2, 1):
+        cut = cap
+    spare = max(8000, cap // 8)
+    limit = min(len(text), cut + spare)
+    while cut < limit:
+        if not _chunk_tail_unclosed_fence(text[:cut]):
+            return cut
+        nxt = text.find("\n", cut)
+        if nxt == -1:
+            return len(text)
+        cut = nxt + 1
+    return cut
+
+
+def _chunk_feishu_card_markdown(
+    reply: str,
+    max_len: int | None = None,
+    *,
+    already_normalized: bool = False,
+) -> list[str]:
+    """将超长正文切成多张卡片可用的段落。
+
+    默认分片前先做 ``_normalize_lark_md``，避免表格/零宽等在块边界上被截断后单卡语义不完整；
+    ``already_normalized=True`` 时跳过（用于已走 ``_prepare_thinking_body_for_card`` 的思考收尾；finalize 对各 chunk 用 ``_prepare_card_markdown(..., normalize=False)`` 仅做截断与 ``\\r``/``\\t`` 替换）。
+    切分时尽量避开未闭合的代码围栏。
+    """
     cap = feishu_card_body_max() if max_len is None else max_len
     t = (reply or "").replace("\r", "").replace("\t", "  ")
+    if not already_normalized:
+        t = _normalize_lark_md(t)
     if cap <= 0 or len(t) <= cap:
         return [t]
     chunks: list[str] = []
@@ -570,9 +803,9 @@ def _chunk_feishu_card_markdown(reply: str, max_len: int | None = None) -> list[
         if len(rest) <= cap:
             chunks.append(rest)
             break
-        cut = rest.rfind("\n", 0, cap)
-        if cut < max(cap // 2, 1):
-            cut = cap
+        cut = _feishu_chunk_cut_index(rest, cap)
+        if cut <= 0:
+            cut = min(len(rest), cap)
         chunk = rest[:cut]
         chunks.append(chunk)
         rest = rest[cut:].lstrip("\n")
@@ -709,11 +942,12 @@ async def finalize_feishu_thinking_stream(
     acc = getattr(st, "feishu_stream_accumulated", "") or ""
     if not chat_id or not mid or not acc.strip():
         return
-    chunks = _chunk_feishu_card_markdown(acc)
+    prep = _prepare_thinking_body_for_card(acc, apply_cap=False)
+    chunks = _chunk_feishu_card_markdown(prep, already_normalized=True)
     if not chunks:
         return
     nch = len(chunks)
-    first_body = _prepare_card_markdown(chunks[0])
+    first_body = _prepare_card_markdown(chunks[0], normalize=False)
     card_json = json.dumps(_thinking_interactive_card_dict(first_body, template), ensure_ascii=False)
     patched = _patch_interactive_thinking_message(config, mid, card_json)
     if not patched:
@@ -725,7 +959,7 @@ async def finalize_feishu_thinking_stream(
 
             client = lark.Client.builder().app_id(config.app_id).app_secret(config.app_secret).build()
             for j in range(1, nch):
-                body = _prepare_card_markdown(chunks[j])
+                body = _prepare_card_markdown(chunks[j], normalize=False)
                 title = f"💭 思考中 ({j + 1}/{nch})"
                 card = _feishu_interactive_card_dict(title, body, template)
                 req_json = json.dumps(card, ensure_ascii=False)
@@ -782,20 +1016,12 @@ async def append_feishu_thinking_same_card(
     acc = (getattr(st, "feishu_stream_accumulated", None) or "") or ""
     mid = getattr(st, "feishu_thinking_message_id", None)
     section_started = bool(getattr(st, "feishu_tool_section_started", False))
-    raw = tool_line or ""
-    is_multiline = ("\n" in raw) or ("```" in line)
     flat = line.replace("\n", " ").strip()
     if not section_started:
-        if is_multiline:
-            addition = f"\n\n---\n\n**工具**\n\n{line}"
-        else:
-            addition = f"\n\n---\n\n**工具**\n\n- {flat}"
+        addition = f"\n\n**工具**\n\n- {flat}"
         st.feishu_tool_section_started = True
     else:
-        if is_multiline:
-            addition = f"\n\n---\n\n{line}"
-        else:
-            addition = f"\n- {flat}"
+        addition = f"\n- {flat}"
 
     acc2 = acc + addition
     st.feishu_stream_accumulated = acc2
@@ -906,8 +1132,16 @@ def _send_interactive_reply_cards(
     return (sent, n)
 
 
-def _send_plain_text_chunks(config: FeishuConfig, cid: str, text: str) -> None:
-    """interactive 不可用或需短提示时，按正文上限分条发送纯文本。"""
+def _send_plain_text_chunks(
+    config: FeishuConfig, cid: str, text: str, *, reason: str | None = None
+) -> None:
+    """interactive 不可用或需短提示时，按正文上限分条发送纯文本（无 Markdown 渲染）。"""
+    if reason:
+        _logger.warning(
+            "飞书发送 msg_type=text 回退（无 lark_md 渲染）: reason=%s chat_id_prefix=%s",
+            reason,
+            (cid or "")[:12],
+        )
     try:
         import lark_oapi as lark
         from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
@@ -956,14 +1190,17 @@ async def _send_reply(config: FeishuConfig, chat_id: str, reply: str) -> None:
         _logger.debug("跳过发送回复：无效的 chat_id (%s)", chat_id)
         return
 
-    parts = _chunk_feishu_card_markdown(reply or "")
+    body = reply or ""
+    if _feishu_reply_plain_enabled():
+        body = _strip_light_markdown_for_feishu_plain(body)
+    parts = _chunk_feishu_card_markdown(body)
     n = len(parts)
     sent = 0
     try:
         sent, _ = _send_interactive_reply_cards(config, cid, parts)
     except ImportError:
         _logger.error("请安装 lark-oapi: pip install lark-oapi")
-        _send_plain_text_chunks(config, cid, reply or "")
+        _send_plain_text_chunks(config, cid, reply or "", reason="lark_oapi_import_error")
         return
     except Exception as e:
         _logger.error("发送回复异常: %s", e)
@@ -976,8 +1213,8 @@ async def _send_reply(config: FeishuConfig, chat_id: str, reply: str) -> None:
             f"（Mini Agent：本回复共分 {n} 段，已成功发送前 {sent} 段；"
             "剩余段落未能送达。完整内容见本会话的 history.json。）"
         )
-        _send_plain_text_chunks(config, cid, notice)
+        _send_plain_text_chunks(config, cid, notice, reason="partial_card_send_notice")
         return
-    _send_plain_text_chunks(config, cid, reply or "")
+    _send_plain_text_chunks(config, cid, reply or "", reason="interactive_reply_failed_full_fallback")
 
 

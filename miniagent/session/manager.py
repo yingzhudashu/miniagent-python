@@ -18,6 +18,8 @@
         └── <instanceId>/
             ├── meta.json
             └── heartbeat
+
+设计背景见 ``docs/ARCHITECTURE.md``（会话与记忆）；长期记忆文件布局见 ``docs/MEMORY_SYSTEM.md``。
 """
 
 from __future__ import annotations
@@ -818,6 +820,17 @@ class DefaultSessionManager(SessionManagerProtocol):
     # -----------------------------------------------------------------------
     # 工具执行上下文
     # -----------------------------------------------------------------------
+
+    def get_session_files_path(self, session_id: str) -> str | None:
+        """返回会话文件沙箱根目录（``…/sessions/<safe_id>/files``）。
+
+        仅在会话已加载到内存（例如刚 ``get_or_create``）后可用；否则返回 ``None``。
+        """
+        ctx = self._sessions.get(session_id)
+        if not ctx:
+            return None
+        fp = getattr(ctx["config"], "files_path", "") or ""
+        return fp if fp else None
 
     def get_tool_context(self, session_id: str) -> ToolContext:
         """获取会话的工具执行上下文

@@ -6,6 +6,8 @@
 未绑定时：每个通道独立会话（保持当前行为）。
 绑定后：多通道共享同一主会话。
 
+用户可见行为与命令说明见 ``docs/CHANNEL_BINDING.md``。
+
 Example:
     router = ChannelRouter()
     router.resolve("__cli__")          # → "__cli__"（未绑定，独立会话）

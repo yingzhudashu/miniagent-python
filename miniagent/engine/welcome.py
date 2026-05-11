@@ -6,10 +6,13 @@
 - 版本号：与 ``miniagent.__version__`` 一致（``pyproject.toml`` 使用 dynamic version，勿再读静态字段）
 - 欢迎信息打印
 - 会话显示名称获取
+
+文档维护清单要求版本号与 ``CHANGELOG`` / ``docs/ENGINEERING.md`` 一致。
 """
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 
@@ -58,6 +61,19 @@ def print_welcome(
     print(f"  📡 {model}  ({active_profile})")
     print(f"  🔧 {tool_count} tools  ·  📦 {skill_count} skills  ·  {feishu_label}")
     print(f"  💼 {display_name}")
+    hint_on = os.environ.get("MINIAGENT_WELCOME_CLI_HINT", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+    if hint_on:
+        try:
+            import rich.markdown  # noqa: F401
+        except ImportError:
+            print(
+                "  💡 提示: pip install -e \".[cli]\" 可在终端渲染 Assistant 的 Markdown（表格/加粗等）。"
+            )
     print()
 
 

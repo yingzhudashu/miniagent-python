@@ -1,10 +1,12 @@
 """定时任务持久化：``tasks.json`` 的读写、下次触发时间计算与运行后重算。
 
-路径根由 ``MINI_AGENT_STATE`` 或当前工作目录下 ``workspaces`` 决定，与 README/ENGINEERING 描述一致。"""
+路径根由 ``MINI_AGENT_STATE`` 或当前工作目录下 ``workspaces`` 决定，与 README / ``docs/ENGINEERING.md`` §3 描述一致。"""
 from __future__ import annotations
 
 import json
 import os
+import secrets
+import sys
 import time
 from datetime import datetime, timezone
 
@@ -53,17 +55,40 @@ def load_tasks() -> list[ScheduledTask]:
 
 
 def save_tasks(tasks: list[ScheduledTask]) -> None:
-    """原子写回 ``tasks.json``（先写临时文件再 ``os.replace``）。"""
+    """原子写回 ``tasks.json``（唯一临时名 + ``os.replace``；Windows 上带短退避重试）。"""
     p = tasks_file_path()
     os.makedirs(os.path.dirname(p), exist_ok=True)
     payload = {
         "version": _FILE_VERSION,
         "tasks": [t.to_json() for t in tasks],
     }
-    tmp = p + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, p)
+    dir_name = os.path.dirname(p)
+    delays = (0.0, 0.02, 0.05, 0.1, 0.2, 0.35)
+    last_err: OSError | None = None
+    for attempt, delay in enumerate(delays):
+        if delay > 0:
+            time.sleep(delay)
+        tmp = os.path.join(dir_name, f"tasks-{secrets.token_hex(16)}.tmp")
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+                f.flush()
+                try:
+                    os.fsync(f.fileno())
+                except OSError:
+                    pass
+            os.replace(tmp, p)
+            return
+        except OSError as e:
+            last_err = e
+            try:
+                if os.path.isfile(tmp):
+                    os.unlink(tmp)
+            except OSError:
+                pass
+            if attempt < len(delays) - 1 and sys.platform == "win32":
+                continue
+            raise last_err
 
 
 def _parse_once_utc_epoch(spec: ScheduleSpec, now_ts: float) -> float | None:

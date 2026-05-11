@@ -8,6 +8,8 @@ Gating 机制（参考 OpenClaw metadata）：
 - requires.config: 必须为真的 AgentConfig 键
 - os: 适用的操作系统
 - always: 始终可用（跳过所有 gate）
+
+与 OpenClaw 元数据对齐；技能侧 ``SKILL.md`` 字段说明见仓库内技能模板文档。
 """
 
 from __future__ import annotations

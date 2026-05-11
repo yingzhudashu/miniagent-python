@@ -7,6 +7,8 @@
   自我优化子包（``self_opt``）。共享 ``AsyncOpenAI`` 见 ``openai_client``（本 ``__init__`` 不导出）。
 - **非本包**：主循环与通道在 ``miniagent.engine``；持久记忆在 ``miniagent.memory``。
 
+两阶段与配置合并的细节见 ``docs/ARCHITECTURE.md``；自我优化子包另见 ``docs/SELF_OPT.md``。
+
 ``__all__`` 仅聚合最常用的稳定入口；其余子模块请按需 ``import``。
 """
 

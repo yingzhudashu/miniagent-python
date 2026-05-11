@@ -1,4 +1,7 @@
-"""只读 Git 工具：状态与差异（工作目录默认为会话 cwd）。"""
+"""只读 Git 工具：状态与差异（工作目录默认为会话 ``cwd``）。
+
+不向仓库写入；大量 diff 截断见模块内 ``_MAX_DIFF_CHARS``。
+"""
 
 from __future__ import annotations
 

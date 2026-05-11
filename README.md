@@ -15,7 +15,11 @@
 - **自我优化**: 代码检查 + 优化提案 + Git 快照
 - **沙箱安全**: 路径白名单 + 循环检测 + 权限控制
 
-**执行轮数**：`AGENT_MAX_TURNS` 默认 **200**；规划器建议的轮数不会把该上限压小。分步模式下单步上限见 `MINIAGENT_STEP_MAX_TURNS`（默认 5，见 `docs/ARCHITECTURE.md`）。
+**会话文件与管线**：`UnifiedEngine.run_agent_with_thinking` 会把当前会话的 `files` 目录注入执行阶段；若直接调用 `run_pipeline`，默认 `ToolContext` 仍为 `MINI_AGENT_WORKSPACE` / 进程 cwd，不会自动与会话 `files` 对齐，需要自行传入 `ToolContext`。
+
+**执行轮数**：`AGENT_MAX_TURNS` 默认 **400**；规划器建议的轮数不会把该上限压小。分步模式下单步上限见 `MINIAGENT_STEP_MAX_TURNS`（默认 **48**，见 `docs/ARCHITECTURE.md`）。
+
+**终端 Markdown 渲染**：全屏 CLI 下 **Assistant 最终回复** 在已安装可选依赖 `pip install -e ".[cli]"`（Rich）时，会将 Markdown（含常见 GFM 表格）渲染为彩色 ANSI；未安装则回退为原始文本。设置 **`MINIAGENT_CLI_RAW_MARKDOWN=1`** 可强制关闭回复区 Rich。思考过程在设置 **`MINIAGENT_CLI_THINKING_RICH=1`** 且 transcript sink 支持 ANSI 块时，仅对**非流式**思考片段尝试 Rich：**流式**规划/执行正文仍为纯文本；默认开启的同轮 **merge_tools** 工具行仍为纯文本。全屏 TUI 下思考 Rich 宽度与回复区对齐。Rich 思考块在 transcript 中为裸 ANSI，与周边 `cli-think-body` 样式可能略有差异。未安装 Rich 时启动可打印安装提示，**`MINIAGENT_WELCOME_CLI_HINT=0`** 可关闭。
 
 ## 快速开始
 
@@ -25,6 +29,7 @@ git clone <repo-url>
 cd miniagent-python
 pip install -e ".[dev]"              # 开发：pytest / ruff
 # pip install -e ".[dev,feishu]"    # 若需本地跑通飞书 SDK 相关路径
+# pip install -e ".[cli]"           # 终端内将 Assistant 的 Markdown 渲染为彩色样式（Rich）
 # 仅需运行时：pip install -e .
 cp .env.example .env       # 编辑填入 OPENAI_API_KEY
 
@@ -103,14 +108,18 @@ python -m miniagent --stop           # 列出实例；交互停止 / --stop --al
 | [docs/ENGINEERING.md](docs/ENGINEERING.md) | 软件工程实践与质量门禁 |
 | [docs/INSTANCE_REGISTRY.md](docs/INSTANCE_REGISTRY.md) | 多实例注册与清理语义 |
 | [docs/SELF_OPT.md](docs/SELF_OPT.md) | 自我优化 |
+| [docs/EVALUATION_LOCAL.md](docs/EVALUATION_LOCAL.md) | 可选：本地离线测评与产物约定 |
 
 ## 测试
 
 ```bash
-python -m pytest tests/ -v       # 以 pytest 收集为准
+python -m pytest tests/ -q -m "not evaluation"   # 与默认 CI 一致（排除 tests/evaluation 下 marker）
+python -m pytest tests/ -q                       # 含评测子目录全部用例
 python -m ruff check miniagent tests
 python -m compileall -q miniagent
 ```
+
+评测目录说明与产物勿提交约定见 [docs/EVALUATION_LOCAL.md](docs/EVALUATION_LOCAL.md)；手动触发仅跑评测见 [docs/ENGINEERING.md](docs/ENGINEERING.md) 第 2 节。
 
 ## 技术栈
 
@@ -119,7 +128,7 @@ python -m compileall -q miniagent
 - 飞书 SDK (lark-oapi, WebSocket)
 - pytest (单元测试)
 
-**可选 pip extra**（与 [`pyproject.toml`](pyproject.toml) 一致；权威说明见 [docs/ENGINEERING.md](docs/ENGINEERING.md) §1）：`dev`（pytest / ruff）、`feishu`（lark-oapi）、`browser`（playwright）、`mcp`（官方 mcp SDK）。
+**可选 pip extra**（与 [`pyproject.toml`](pyproject.toml) 一致；权威说明见 [docs/ENGINEERING.md](docs/ENGINEERING.md) 第 1 节）：`dev`（pytest / ruff）、`feishu`（lark-oapi）、`browser`（playwright）、`mcp`（官方 mcp SDK）。
 
 ## License
 

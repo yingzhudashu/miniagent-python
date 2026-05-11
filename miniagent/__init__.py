@@ -13,6 +13,7 @@
 - **入口**：用户进程请使用 ``python -m miniagent`` 或控制台脚本 ``miniagent``（见 ``project.scripts``）。
 - **组合根**：进程级依赖集中在 ``RuntimeContext``（``miniagent.runtime.context``），由 ``compat.unified_entry`` 构造；子系统避免再挂模块级全局单例。
 - **状态目录**：默认写入仓库下 ``workspaces/``；可通过环境变量 ``MINI_AGENT_STATE`` 迁出（测试与多实例场景推荐），详见 ``docs/ENGINEERING.md`` 与 ``docs/INSTANCE_REGISTRY.md``。
+- **文档索引**：``docs/INDEX.md``；架构总览 ``docs/ARCHITECTURE.md``。
 
 启动方式：
     python -m miniagent          # 仅 CLI（默认）

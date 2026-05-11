@@ -7,6 +7,8 @@
 
 **非职责**：不实现飞书 WebSocket 协议细节（见 :mod:`miniagent.feishu.poll_server`）；不解析 ``.`` 命令
 （见 :mod:`miniagent.engine.command_dispatch`）。与 :mod:`miniagent.core` 的分工：core 无 asyncio 主循环与 stdin。
+
+详见 ``docs/ARCHITECTURE.md``（UnifiedEngine 与会话管线）。
 """
 
 from __future__ import annotations
@@ -31,6 +33,12 @@ def _fence_tool_output(body: str) -> str:
         if opener not in b and closer not in b and not b.endswith(fence):
             return f"{fence}\n{b}\n{fence}"
     return f"```\n{b}\n```"
+
+
+def _tool_finish_verbose_history() -> bool:
+    """``MINIAGENT_TOOL_FINISH_VERBOSE=1`` 时 thinking 落盘含参数与输出；默认仅工具名与成败。"""
+    v = os.environ.get("MINIAGENT_TOOL_FINISH_VERBOSE", "").strip().lower()
+    return v in ("1", "true", "yes")
 
 
 class UnifiedEngine:
@@ -74,6 +82,7 @@ class UnifiedEngine:
         client: Any | None = None,
         feishu_receive_chat_id: str | None = None,
         cli_loop_state: Any | None = None,
+        agent_config_overrides: dict[str, Any] | None = None,
     ) -> str:
         """运行 agent 并显示思考过程。
 
@@ -88,7 +97,7 @@ class UnifiedEngine:
             is_feishu: 当前请求是否来自飞书通道（非独立启动形态；进程始终带 CLI）
             registry: 工具注册表（注入）
             monitor: 性能监控器（注入）
-            session_manager: 会话管理器（注入）
+            session_manager: 会话管理器（**必填**；负责 ``get_or_create``、历史持久化与会话 ``files`` 路径）
             feishu_config: 飞书配置（注入）
             channel_router: 通道路由器（飞书思考多通道回调时使用）
             clawhub: ClawHub 客户端（注入至工具上下文，技能搜索/安装复用）
@@ -100,8 +109,14 @@ class UnifiedEngine:
                 必须与 ``receive_id_type=chat_id`` 一致，**不得**传入内部路由键 ``feishu:oc_xxx``。
                 缺省时若 ``session_key`` 以 ``feishu:`` 开头则自动去掉前缀（兼容旧调用）。
             cli_loop_state: 与 CLI/飞书主循环共享的 ``CliLoopState``；注入后工具 ``run_dot_command`` 可调度点命令。
+            agent_config_overrides: 合并进 ``run_agent`` 的 ``agent_config``（如 ``history_progressive_compression``）。
         """
         ms, al, ki = resolve_memory_dependencies(memory_store, activity_log, keyword_index)
+
+        if session_manager is None:
+            raise ValueError(
+                "run_agent_with_thinking 需要注入 session_manager（会话历史与工作区依赖 SessionManager）"
+            )
 
         # 1. 获取会话
         session_opts = SessionOptions(
@@ -109,6 +124,16 @@ class UnifiedEngine:
         )
         ctx = session_manager.get_or_create(session_key, session_opts)
         history = ctx.conversation_history
+
+        # 优先 API get_session_files_path；无则回退 Session.files_path（旧桩/测试可能无该方法）
+        session_workspace = None
+        getter = getattr(session_manager, "get_session_files_path", None)
+        if callable(getter):
+            session_workspace = getter(session_key)
+        if not session_workspace:
+            session_workspace = getattr(ctx, "files_path", None) or getattr(
+                ctx, "workspace_path", None
+            ) or None
 
         # 2. 技能与分层摘要进入 execute_plan 的 system（会话记忆由执行器 inject_memory 注入，避免重复）
         from miniagent.memory.memory_pipeline import build_layered_memory_augmentation
@@ -147,6 +172,7 @@ class UnifiedEngine:
                 is_new_round: bool = False,
                 streaming: bool = True,
                 merge_tools: bool = False,
+                finalize_only: bool = False,
             ) -> None:
                 """飞书思考：流式一轮一条卡片（PATCH 节流）；同轮工具合并时追加同卡；否则 finalize + 独立卡。"""
                 from miniagent.feishu.poll_server import (
@@ -157,6 +183,11 @@ class UnifiedEngine:
                 )
 
                 st_local = self.thinking.thinking_state(session_key)
+                if finalize_only:
+                    await finalize_feishu_thinking_stream(
+                        feishu_config, chat_id, template, st_local
+                    )
+                    return
                 if streaming:
                     await push_feishu_thinking_stream(
                         feishu_config, chat_id, text, template, st_local, new_round=is_new_round
@@ -179,6 +210,7 @@ class UnifiedEngine:
                     is_new_round: bool = False,
                     streaming: bool = True,
                     merge_tools: bool = False,
+                    finalize_only: bool = False,
                 ) -> None:
                     """双通道：飞书仍走流式卡片；CLI 由 ThinkingDisplay._output_sink 镜像。"""
                     await _feishu_send(
@@ -188,6 +220,7 @@ class UnifiedEngine:
                         is_new_round=is_new_round,
                         streaming=streaming,
                         merge_tools=merge_tools,
+                        finalize_only=finalize_only,
                     )
 
                 self.thinking.enable_feishu(session_key, im_recv, _dual_send)
@@ -198,17 +231,24 @@ class UnifiedEngine:
         thinking_by_label: dict[str, str] = {}
         tool_thought_lines: list[str] = []
 
-        async def _thinking(text: str, streaming: bool = False, header: str = "") -> None:
+        async def _thinking(
+            text: str,
+            streaming: bool = False,
+            header: str = "",
+            *,
+            full_record: str | None = None,
+        ) -> None:
+            record = full_record if full_record is not None else text
             if streaming:
                 key = header if (header or "").strip() else "__stream__"
-                thinking_by_label[key] = text
-            elif text:
+                thinking_by_label[key] = record
+            elif record:
                 hdr = (header or "").strip()
                 if hdr and hdr in thinking_by_label:
                     prev = thinking_by_label[hdr]
-                    thinking_by_label[hdr] = (prev + "\n" + text) if prev else text
+                    thinking_by_label[hdr] = (prev + "\n" + record) if prev else record
                 else:
-                    tool_thought_lines.append(text)
+                    tool_thought_lines.append(record)
             await self.thinking.show(
                 text, session_key if is_feishu else "", streaming=streaming, header=header
             )
@@ -222,28 +262,44 @@ class UnifiedEngine:
             thinking_header: str = "",
         ) -> None:
             status = "成功" if success else "失败"
-            body = (result or "").strip()
-            block = (
-                f"**工具 `{tool_name}`**（{status}）\n"
-                f"- 参数：`{args_json}`\n"
-                f"- 输出：\n{_fence_tool_output(body)}"
-            )
-            await _thinking(block, False, header=thinking_header or "")
+            short = f"`{tool_name}` · {status}"
+            if _tool_finish_verbose_history():
+                body = (result or "").strip()
+                record = (
+                    f"**工具 `{tool_name}`**（{status}）\n"
+                    f"- 参数：`{args_json}`\n"
+                    f"- 输出：\n{_fence_tool_output(body)}"
+                )
+            else:
+                record = short
+            await _thinking(short, False, header=thinking_header or "", full_record=record)
 
         # 6. 调用 Agent
+        _recv_chat = (feishu_receive_chat_id or "").strip()
+        if not _recv_chat and session_key.startswith("feishu:"):
+            _recv_chat = session_key[len("feishu:") :].strip()
+        agent_cfg_in: dict[str, Any] = {
+            "session_key": session_key,
+            "session_workspace": session_workspace,
+            "conversation_history": history,
+            "debug": False,
+            "cli_loop_state": cli_loop_state,
+            "cli_dispatch_allow_mutations": (not is_feishu),
+            "feishu_receive_chat_id": _recv_chat or None,
+        }
+        if agent_config_overrides:
+            agent_cfg_in.update(agent_config_overrides)
+        from miniagent.core.config import get_default_agent_config, merge_agent_config
+
+        merged_for_prog = merge_agent_config(get_default_agent_config(), agent_cfg_in)
+
         reply = await run_agent(
             user_input,
             registry=registry,
             monitor=monitor,
             toolboxes=skill_toolboxes,
             skip_planning=False,
-            agent_config={
-                "session_key": session_key,
-                "conversation_history": history,
-                "debug": False,
-                "cli_loop_state": cli_loop_state,
-                "cli_dispatch_allow_mutations": (not is_feishu),
-            },
+            agent_config=agent_cfg_in,
             system_prompt=system_prompt,
             on_thinking=_thinking,
             on_tool_finish=_tool_finish,
@@ -268,12 +324,19 @@ class UnifiedEngine:
             self.thinking.disable_buffer(session_key)
 
         # 8. 更新历史（含思考过程；会话历史不总结，仅后续可归档到日记）
-        def _turn_label_sort_key(item: tuple[str, str]) -> tuple[int, str]:
+        def _turn_label_sort_key(item: tuple[str, str]) -> tuple[int, int, str]:
             lab = item[0]
+            m = re.search(r"\[步骤\s*(\d+)\s*/\s*(\d+)\s*\]", lab)
+            if m:
+                return (0, int(m.group(1)), lab)
+            if lab.startswith("[评估与计划]"):
+                return (1, 0, lab)
+            if lab.startswith("[执行]"):
+                return (2, 0, lab)
             m = re.search(r"第\s*(\d+)\s*轮", lab)
             if m:
-                return (int(m.group(1)), lab)
-            return (10_000, lab)
+                return (3, int(m.group(1)), lab)
+            return (4, 0, lab)
 
         thinking_parts: list[str] = []
         for label, blob in sorted(thinking_by_label.items(), key=_turn_label_sort_key):
@@ -293,14 +356,15 @@ class UnifiedEngine:
         except ValueError:
             cap = 200
 
-        from miniagent.memory.history_archive import (
-            maybe_archive_old_turns,
-            trim_history_tail_by_turns,
-        )
+        from miniagent.memory.history_progressive import run_session_history_maintenance
 
-        # 先归档再按整轮截断，避免未写入日记即从首部硬删
-        maybe_archive_old_turns(session_key, history)
-        trim_history_tail_by_turns(history, cap)
+        # 渐进 L1–L3 后单次归档/删轮循环，避免一次调用内多轮硬切
+        run_session_history_maintenance(
+            session_key,
+            history,
+            tail_cap=cap,
+            progressive_compression=merged_for_prog.history_progressive_compression,
+        )
 
         # 9. 活动日志
         al.log_session_start(

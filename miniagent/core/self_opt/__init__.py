@@ -5,7 +5,8 @@
 - ``auto_optimizer``：在约束下尝试低风险变更
 - ``git_snapshot``：变更前后快照
 
-对外工具由 ``miniagent.tools.self_opt`` 注册；类型模型见下方导出。"""
+对外工具由 ``miniagent.tools.self_opt`` 注册；类型模型见下方导出。
+用户文档与安全开关（``MINIAGENT_SELF_OPT_TOOLS``）见 ``docs/SELF_OPT.md``。"""
 
 from miniagent.core.self_opt.types import (
     OptTestCase,

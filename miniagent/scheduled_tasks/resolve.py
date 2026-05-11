@@ -1,4 +1,6 @@
-"""解析定时任务应在哪个 ``session_key`` 上执行，以及如何映射到消息队列 ``chat_id`` 与飞书收信方。"""
+"""解析定时任务应在哪个 ``session_key`` 上执行，以及如何映射到消息队列 ``chat_id`` 与飞书收信方。
+
+``primary`` / ``fixed`` / ``ephemeral`` 三种模式对用户行为的含义见 ``docs/USER_GUIDE.md``。"""
 from __future__ import annotations
 
 import time

@@ -3,6 +3,8 @@
 提供飞书 WebSocket 服务器的创建接口。
 此模块为兼容层，实际实现位于 poll_server.py。
 
+新集成优先阅读 ``docs/FEISHU.md`` 再选用 Webhook 或长轮询形态。
+
 导出：
 - create_feishu_server(): 创建飞书服务器实例（返回异步启动函数）
 """

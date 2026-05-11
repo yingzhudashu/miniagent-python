@@ -15,6 +15,8 @@
 ``schedule_tools``（``manage_scheduled_task``）可由 ``MINIAGENT_SCHEDULE_TOOLS=0`` 关闭注册。
 
 ALL_TOOLS 汇总上述内置工具子集；启动时由 ``register_builtin_tools`` 写入主注册表。
+
+沙箱与命令策略见 ``docs/SECURITY.md``；可选依赖与 Key 见根目录 ``README``。
 """
 
 from miniagent.tools.filesystem import filesystem_tools

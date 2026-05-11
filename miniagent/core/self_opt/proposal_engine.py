@@ -7,6 +7,8 @@
 - 评估提案风险等级
 - 生成文件变更计划
 - 按优先级排序提案
+
+详见 ``docs/SELF_OPT.md``。
 """
 
 from __future__ import annotations

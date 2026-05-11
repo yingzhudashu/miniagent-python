@@ -125,6 +125,8 @@ class AgentConfig:
         risk_level: 风险等级（来自规划建议或计划，供执行阶段提示）
         cli_loop_state: 与 CLI/飞书共享的 CliLoopState dict（供 run_dot_command 等工具调用 dispatch_command）
         cli_dispatch_allow_mutations: capture 模式下是否允许 .session 等会改共享状态的子命令（飞书应为 False）
+        feishu_receive_chat_id: 飞书 API 用 ``chat_id``（如 ``oc_xxx``）；注入工具上下文以便 ``run_dot_command`` 的 ``.abort`` 等作用于当前群队列
+        history_progressive_compression: 是否启用磁盘会话历史的渐进式压缩（L1–L3）；关闭后仅归档/删轮
     """
 
     max_turns: int = 200
@@ -152,6 +154,8 @@ class AgentConfig:
     risk_level: str | None = None  # "low" | "medium" | "high"
     cli_loop_state: Any | None = None
     cli_dispatch_allow_mutations: bool = True
+    feishu_receive_chat_id: str | None = None
+    history_progressive_compression: bool = True
 
 
 def normalize_conversation_history(value: Any) -> list[dict[str, Any]]:

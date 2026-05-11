@@ -11,6 +11,8 @@
 - cumulative_summary: 累计对话摘要
 - key_facts: 关键事实列表（偏好、约定、重要信息）
 - entries: 最近对话条目
+
+详见 ``docs/MEMORY_SYSTEM.md``（会话级 Layer 2）。
 """
 
 from __future__ import annotations

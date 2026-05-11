@@ -10,7 +10,9 @@
 - copy_file: 复制文件
 - delete_file: 删除文件/目录（require-confirm）
 
-所有操作受路径沙箱保护。
+所有操作受路径沙箱保护（:func:`miniagent.security.sandbox.resolve_sandbox_path`）。
+
+越权路径拒绝行为见 ``docs/SECURITY.md``。
 """
 
 from __future__ import annotations

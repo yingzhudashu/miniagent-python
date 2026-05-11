@@ -31,6 +31,18 @@ def test_build_execution_system_prompt_skips_empty_caller() -> None:
     assert "ID" in s
     assert "当前任务：T" in s
     assert s.count("\n\n") >= 1
+    assert "默认文件根目录" not in s
+
+
+def test_build_execution_system_prompt_session_files_root_blank_ignored() -> None:
+    s = build_execution_system_prompt(
+        agent_identity="ID",
+        caller_system_prompt=None,
+        plan_summary="T",
+        keyword_context=None,
+        session_files_root="   ",
+    )
+    assert "默认文件根目录" not in s
 
 
 def test_parse_plan_json_brace_slice() -> None:
@@ -288,7 +300,7 @@ async def test_execute_plan_calls_on_tool_finish() -> None:
     assert finishes[0][0] == "ping_tool"
     assert finishes[0][2] == "tool-out"
     assert finishes[0][3] is True
-    assert finishes[0][4] == "[第 1 轮]"
+    assert finishes[0][4] == "[执行]"
 
 
 @pytest.mark.asyncio

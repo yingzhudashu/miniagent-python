@@ -12,6 +12,8 @@
 
 其它模块：``session_lock``、``thinking``、``engine``、``cli_commands``、``feishu_state``、
 ``init``、``main``、``welcome``（见各文件模块文档）。
+
+主架构与用户可见命令见 ``docs/ARCHITECTURE.md``、``docs/CLI.md``。
 """
 
 from miniagent.engine.session_lock import try_lock_session, release_session_lock, is_session_locked

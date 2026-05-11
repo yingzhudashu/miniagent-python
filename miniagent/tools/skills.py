@@ -4,6 +4,8 @@
 - search_skills: 搜索 ClawHub 或本地技能
 - install_skill: 下载并安装技能
 - list_skills: 列出已安装技能
+
+技能目录与第三方许可见 ``workspaces/skills/THIRD_PARTY_SKILLS.md``；市场 API 见 ``clawhub_client``。
 """
 
 from __future__ import annotations

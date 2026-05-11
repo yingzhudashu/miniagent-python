@@ -140,7 +140,7 @@ class Session:
         created_at: 创建时间
         last_active_at: 最后活跃时间
         turn_count: 累计对话轮数
-        workspace_path: 会话工作空间路径
+        workspace_path: 历史字段名；实际含义为 **工具文件沙箱根**（``…/sessions/<safe>/files``），与 ``files_path`` 属性相同
         config_overrides: 会话配置覆盖
         destroyed: 是否已销毁
         conversation_history: 对话历史（用于上下文保持）
@@ -155,6 +155,11 @@ class Session:
     config_overrides: dict[str, Any] = field(default_factory=dict)
     destroyed: bool = False
     conversation_history: list[dict[str, Any]] = field(default_factory=list)
+
+    @property
+    def files_path(self) -> str | None:
+        """工具可读写的文件目录（与 ``SessionManager`` 的 ``SessionConfig.files_path`` 一致）。"""
+        return self.workspace_path
 
 
 class SessionManagerProtocol(Protocol):

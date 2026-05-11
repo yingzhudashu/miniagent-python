@@ -41,6 +41,21 @@ async def test_run_agent_with_thinking_forwards_client_to_run_agent() -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_agent_with_thinking_requires_session_manager() -> None:
+    engine = UnifiedEngine()
+    with pytest.raises(ValueError, match="session_manager"):
+        await engine.run_agent_with_thinking(
+            "hello",
+            "session-a",
+            [],
+            None,
+            registry=MagicMock(),
+            monitor=MagicMock(),
+            session_manager=None,
+        )
+
+
+@pytest.mark.asyncio
 async def test_run_agent_forwards_client_to_execute_plan() -> None:
     """run_agent 传入的 client 应传入 execute_plan（空 toolboxes 走默认计划，不调用规划 LLM）。"""
     from miniagent.core.agent import run_agent

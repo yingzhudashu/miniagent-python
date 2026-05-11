@@ -7,6 +7,8 @@
 ``planner_model_overrides`` 与 :func:`miniagent.core.llm_params.resolve_planner_completion_kwargs` 合并，
 用于低温、较小 ``max_tokens`` 等规划专用参数。默认客户端为
 :func:`miniagent.core.openai_client.get_shared_async_openai`；测试可通过 ``generate_plan(..., client=...)`` 注入桩。
+
+输出契约与 Phase 2 消费方式见 ``docs/ARCHITECTURE.md``。
 """
 
 from __future__ import annotations

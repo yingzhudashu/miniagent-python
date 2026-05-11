@@ -14,6 +14,16 @@ python -m miniagent --stop --all        # 停止全部
 python -m miniagent --stop 1 2          # 停止指定 ID
 ```
 
+## 终端 Markdown（Rich，可选）
+
+全屏 CLI（prompt_toolkit TUI）下，上方 transcript 中 **Assistant 最终回复** 在已安装 **`pip install -e ".[cli]"`** 时由 Rich 将 Markdown（含常见表格）渲染为彩色 ANSI。未安装则显示原始 Markdown 文本。
+
+- **`MINIAGENT_CLI_RAW_MARKDOWN=1`**：强制关闭回复区 Rich。
+- **`MINIAGENT_CLI_THINKING_RICH=1`**：对**非流式**思考块尝试 Rich；**流式**输出的规划/执行过程仍为纯文本；与工具行合并（`merge_tools`）的短行仍为纯文本。
+- 渲染宽度与滚动条占用与主循环一致，便于表格与回复区对齐。
+
+详见 [README.md](../README.md) 与 [USER_GUIDE.md](USER_GUIDE.md) §4.3。
+
 ## 命令总览
 
 | 分类 | 命令 | 说明 |
@@ -36,6 +46,7 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 | | `.unbind all` | 解除所有绑定 |
 | **队列** | `.queue status` | 查看消息队列状态 |
 | | `.queue set <模式>` | 切换 queue / preemptive |
+| | `.queue abort` / `.abort` | 中止本 `chat_id` 上 `dispatch` / `dispatch_wait` 投递的任务（非 `.stop`） |
 | **定时任务** | `.schedule` | 无参或与 `list` 相同：列出用法与子命令 |
 | | `.schedule list` | 列出所有定时任务 |
 | | `.schedule show <id>` | 打印任务 JSON |
@@ -123,6 +134,8 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 > .queue set preemptive
 ✅ 已切换到 打断模式（最新消息打断前面处理）
 ```
+
+**中止队列：**`.queue abort` 与短命令 `.abort` 会取消当前聊天室（飞书为当前群/私聊 `chat_id`，CLI 为内部 `__cli__`）上排队与执行中的任务，包括经 `dispatch_wait` 投递的回合（如部分定时任务）。不会退出进程；与 `.stop`（停实例）不同。
 
 **两种模式：**
 - `queue`（默认）：消息按顺序处理

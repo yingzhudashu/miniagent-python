@@ -10,11 +10,14 @@
 - 当 token 使用 > compress_threshold 时触发
 - 中间历史用一行描述替代（不调用 LLM，节省成本）
 - 保留最重要的上下文（system prompt + 最近对话）
+
+详见 ``docs/MEMORY_SYSTEM.md``。
 """
 
 from __future__ import annotations
 
 import json
+import os
 
 from openai.types.chat import (
     ChatCompletionMessageParam,
@@ -84,6 +87,17 @@ def estimate_tool_tokens(tools: list[ChatCompletionToolParam]) -> int:
 # ContextManager 实现
 # ============================================================================
 
+# 与执行器 tool 消息 redact 一致；可经 MINI_AGENT_CONTEXT_TOOL_REDACT=0 关闭
+_TOOL_MESSAGE_REDACT_PLACEHOLDER = "（工具返回已压缩；若需细节请缩短对话或查阅活动日志。）"
+
+
+def _context_tool_redact_enabled() -> bool:
+    raw = os.environ.get("MINI_AGENT_CONTEXT_TOOL_REDACT")
+    if raw is None or not str(raw).strip():
+        return True
+    return str(raw).strip().lower() in ("true", "1", "yes")
+
+
 class DefaultContextManager(ContextManagerProtocol):
     """默认上下文管理器
 
@@ -125,6 +139,22 @@ class DefaultContextManager(ContextManagerProtocol):
         self._overflow_strategy = overflow_strategy
         self._compressed = False
         self._total_tokens_estimate = 0
+
+    def try_redact_oldest_tool_message_once(self) -> bool:
+        """将列表中最早一条 ``role=tool`` 的正文替换为短占位（幂等），不删消息。"""
+        if not _context_tool_redact_enabled():
+            return False
+        for m in self._messages:
+            if m.get("role") != "tool":
+                continue
+            c = m.get("content")
+            if not isinstance(c, str):
+                continue
+            if c.strip() == _TOOL_MESSAGE_REDACT_PLACEHOLDER.strip():
+                continue
+            m["content"] = _TOOL_MESSAGE_REDACT_PLACEHOLDER  # type: ignore[index]
+            return True
+        return False
 
     def set_tools(self, tools: list[ChatCompletionToolParam] | None) -> None:
         """运行时替换工具 schema 列表（用于分步执行时按步骤切换可见工具）。"""
@@ -175,6 +205,18 @@ class DefaultContextManager(ContextManagerProtocol):
                 raise ContextBudgetExceeded(
                     "上下文 token 估算已超过可用预算。请缩短对话、新开会话或提高压缩阈值。"
                 )
+            redacted_any = False
+            for _ in range(32):
+                if not self.needs_compression():
+                    break
+                if not self.try_redact_oldest_tool_message_once():
+                    break
+                self._recalculate_tokens()
+                redacted_any = True
+            if redacted_any:
+                self._compressed = True
+            if not self.needs_compression():
+                return
             if self._overflow_strategy == "truncate":
                 self._compress_truncate()
             else:

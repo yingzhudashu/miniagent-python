@@ -32,3 +32,47 @@ def test_overflow_summarize_inserts_placeholder_when_heavy_history() -> None:
     assert cm._compressed
     roles = [m.get("role") for m in cm.get_messages()]
     assert "system" in roles
+
+
+def test_append_redacts_multiple_tool_messages_in_one_pass(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MINI_AGENT_CONTEXT_TOOL_REDACT", "1")
+    cm = DefaultContextManager(18_000, 0.06, [], overflow_strategy="summarize")
+    cm.init("s", "u")
+    cm.append(
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "1", "type": "function", "function": {"name": "f", "arguments": "{}"}}
+            ],
+        }
+    )
+    cm.append({"role": "tool", "tool_call_id": "1", "content": "A" * 7000})
+    cm.append(
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "2", "type": "function", "function": {"name": "f", "arguments": "{}"}}
+            ],
+        }
+    )
+    cm.append({"role": "tool", "tool_call_id": "2", "content": "B" * 7000})
+    tools = [m for m in cm.get_messages() if m.get("role") == "tool"]
+    assert len(tools) == 2
+    assert "A" * 10 not in (tools[0].get("content") or "")
+    assert "B" * 10 not in (tools[1].get("content") or "")
+
+
+def test_tool_redact_runs_before_summarize(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MINI_AGENT_CONTEXT_TOOL_REDACT", "1")
+    cm = DefaultContextManager(12_000, 0.15, [], overflow_strategy="summarize")
+    cm.init("s", "u")
+    cm.append({"role": "assistant", "content": "a", "tool_calls": [{"id": "1", "type": "function", "function": {"name": "f", "arguments": "{}"}}]})
+    cm.append({"role": "tool", "tool_call_id": "1", "content": "HUGE " * 4000})
+    msgs = cm.get_messages()
+    tool_msgs = [m for m in msgs if m.get("role") == "tool"]
+    assert tool_msgs
+    assert "HUGE" not in (tool_msgs[0].get("content") or "")

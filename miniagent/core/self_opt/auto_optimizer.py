@@ -13,6 +13,8 @@
 - 高风险提案需要确认
 - 每次变更前后创建快照
 - 测试失败自动回滚
+
+详见 ``docs/SELF_OPT.md``。
 """
 
 from __future__ import annotations

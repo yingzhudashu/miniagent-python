@@ -1,7 +1,10 @@
 """类 AutoDream 的记忆维护：周期 + 体量闸门。
 
 在每次 agent 回合结束后由引擎触发；带最短间隔节流，避免每轮创建过多后台任务。
-跨进程精炼互斥使用 ``memory/dream.lock``。"""
+跨进程精炼互斥使用 ``memory/dream.lock``。
+
+与三层记忆中「夜间精炼」叙事对应，见 ``docs/MEMORY_SYSTEM.md``。
+"""
 
 from __future__ import annotations
 

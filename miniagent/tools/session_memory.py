@@ -1,4 +1,7 @@
-"""会话记忆只读工具：读取按会话隔离的归档日记、在日记目录内搜索关键词。"""
+"""会话记忆只读工具：读取按会话隔离的归档日记、在日记目录内搜索关键词。
+
+与 ``history_archive`` 写入布局一致；语义见 ``docs/MEMORY_SYSTEM.md``。
+"""
 
 from __future__ import annotations
 

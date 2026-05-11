@@ -7,6 +7,8 @@
 - 自定义工作目录
 - 分别捕获 stdout / stderr
 - 安全过滤（沙箱模式下阻止危险命令）
+
+命令允许清单与威胁模型见 ``docs/SECURITY.md``；子进程由 ``process`` 模块追踪以便退出时清理。
 """
 
 from __future__ import annotations

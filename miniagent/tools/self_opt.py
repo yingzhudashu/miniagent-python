@@ -7,6 +7,8 @@
 - implement_change: 实施代码变更
 - run_tests: 运行测试验证
 - git_snapshot: Git 快照管理
+
+生产环境可通过 ``MINIAGENT_SELF_OPT_TOOLS=0`` 关闭注册；说明见 ``docs/SELF_OPT.md``。
 """
 
 from __future__ import annotations

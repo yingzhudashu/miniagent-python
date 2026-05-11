@@ -1,4 +1,7 @@
-"""跨进程互斥：仅一个实例执行调度 tick（与 dream.lock 策略一致）。"""
+"""跨进程互斥：仅一个存活实例持有 ``scheduler.lock`` 并执行 ``ticker.tick_once``。
+
+设计动机：多开 CLI 时避免重复触发同一 ``tasks.json``；PID 失效则下一实例可抢占。
+与 ``dream_scheduler`` 的 ``dream.lock`` 思路一致，文件路径不同。"""
 
 from __future__ import annotations
 

@@ -16,6 +16,8 @@
 2. 读取 SKILL.md 作为技能包文档
 3. 尝试导入 __init__.py 获取 skills 列表
 4. 如果不存在，尝试动态加载 skills/ 子目录
+
+解析出的 :class:`~miniagent.types.skill.Skill` 由 ``DefaultSkillRegistry`` 索引；详见 ``docs/ARCHITECTURE.md``。
 """
 
 from __future__ import annotations

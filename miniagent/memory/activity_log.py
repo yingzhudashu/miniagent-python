@@ -18,6 +18,8 @@
 - result: {...} (前 500 字)
 ### 最终回复
 ...
+
+详见 ``docs/MEMORY_SYSTEM.md``（Layer 2 流水账）。
 """
 
 from __future__ import annotations

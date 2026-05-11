@@ -7,6 +7,8 @@
 - 创建快照（通过 Git tag 或 stash）
 - 回滚到指定快照
 - 检查未提交的变更
+
+详见 ``docs/SELF_OPT.md``。
 """
 
 from __future__ import annotations

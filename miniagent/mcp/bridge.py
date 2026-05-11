@@ -4,6 +4,8 @@
 - ``list_mcp_tools_openai``：临时 stdio 连接并列出工具（高级用法；常驻连接见 ``runtime``）。
 
 未安装官方 ``mcp`` 包时 ``is_mcp_available()`` 为 False；安装使用 ``pip install miniagent-python[mcp]``。
+
+Schema 形状需满足 OpenAI Chat Completions ``tools`` 约束（见 ``executor`` 筛选逻辑）。
 """
 
 from __future__ import annotations

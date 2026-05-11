@@ -183,7 +183,7 @@ Copy-Item .env.example .env
 | 变量 | 用途 |
 |------|------|
 | `MODEL_PROFILE` | 模型行为预设：`creative` / `balanced` / `precise` / `code` / `fast` 等。 |
-| `AGENT_MAX_TURNS` | 单轮 ReAct 最大轮数，**默认 200**（见 `.env.example`）。结构化规划返回的 `maxTurns` **只会抬高不会压低**该上限。若开启分步执行（`MINIAGENT_PHASED_EXECUTION`）仍遇单步内用尽，需另调 **`MINIAGENT_STEP_MAX_TURNS`**。 |
+| `AGENT_MAX_TURNS` | 单轮 ReAct 最大轮数，**默认 400**（见 `.env.example`）。结构化规划返回的 `maxTurns` **只会抬高不会压低**该上限。若开启分步执行（`MINIAGENT_PHASED_EXECUTION`）仍遇单步内用尽，需另调 **`MINIAGENT_STEP_MAX_TURNS`**（未设置时默认 **48**）。 |
 | `MINIAGENT_TOOL_INTENT_MAX_CHARS` | 工具意图预览（如 `exec_command` 的命令片段）最大字符数，默认 4000；`0` 表示不截断。 |
 | `AGENT_DEBUG` | `true` 时更啰嗦的日志；日常可 `false`。 |
 | `TAVILY_API_KEY` 或 `WEB_SEARCH_API_KEY` | 启用联网搜索（Tavily）时使用其一即可。 |
@@ -192,6 +192,12 @@ Copy-Item .env.example .env
 | `MINIAGENT_SELF_OPT_TOOLS` | 设为 `0` 可关闭自我优化类工具注册，见 [SELF_OPT.md](SELF_OPT.md)。 |
 | `MINIAGENT_MCP_STDIO` | MCP stdio 启动命令的 JSON 数组字符串，见第 13 章。 |
 | `MINIAGENT_CONFIG` | 可选外部 JSON 路径（遗留兼容）；密钥会进入进程环境，风险见 [SECURITY.md](SECURITY.md)。 |
+| `MINIAGENT_CLI_RAW_MARKDOWN` | 设为 `1`/`true` 时关闭全屏 CLI 下 **Assistant 最终回复** 的 Rich Markdown 渲染（便于复制）。 |
+| `MINIAGENT_CLI_THINKING_RICH` | 设为 `1`/`true` 且已 `pip install -e ".[cli]"` 时，对**非流式**思考片段尝试 Rich；**流式**规划/执行正文仍为纯文本；同轮 **merge_tools** 工具行仍为纯文本。 |
+| `MINIAGENT_WELCOME_CLI_HINT` | 未安装 Rich 时启动是否打印「建议 pip install .[cli]」；默认 `1`，设为 `0`/`false` 关闭。 |
+| `MINIAGENT_FEISHU_TABLE_FALLBACK` | 飞书：`both` / `hint` / `unicode`，列数超阈值时宽 GFM 表的降级方式，见 [FEISHU.md](FEISHU.md)。 |
+| `MINIAGENT_THINKING_SEGMENT_SEPARATOR` | 分步执行同一步内多段思考拼接符；留空为双换行，见 `.env.example`。 |
+| `MINIAGENT_TOOL_FINISH_VERBOSE` | `1` 时 `history.json` 中工具块含参数与输出；默认 `0` 仅名称与成败。 |
 
 ### 4.4 外部 JSON（不推荐新手首选）
 

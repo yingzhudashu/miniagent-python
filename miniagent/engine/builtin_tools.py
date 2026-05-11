@@ -1,6 +1,8 @@
 """将 ALL_TOOLS 注册到主 ToolRegistry（内置工具先于技能包加载）。
 
 同名冲突策略：**内置优先**。技能包注册时使用 try/except，已占用名称则跳过。
+
+环境变量收敛暴露面（自我优化 / 点命令 / 定时任务工具）的说明见 ``README`` 与 ``docs/SECURITY.md``。
 """
 
 from __future__ import annotations

@@ -1,4 +1,7 @@
-"""会话历史过长时，将最早若干完整轮次原样写入按会话隔离的日记并插入衔接锚点。"""
+"""会话历史过长时，将最早若干完整轮次原样写入按会话隔离的日记并插入衔接锚点。
+
+与 ``read_session_diary`` / ``search_session_diary`` 工具读路径一致；背景见 ``docs/MEMORY_SYSTEM.md``。
+"""
 
 from __future__ import annotations
 
@@ -38,8 +41,8 @@ def diary_file_path(session_key: str, day: str | None = None) -> str:
     return _diary_path(session_key, d)
 
 
-def _max_messages() -> int:
-    """长度阈值；环境变量可设较小值（测试或窄上下文），至少为 1。"""
+def history_archive_max_messages() -> int:
+    """``MINI_AGENT_HISTORY_MAX_MESSAGES`` 阈值（至少 1）；供渐进压缩等模块复用。"""
     try:
         v = int(os.environ.get("MINI_AGENT_HISTORY_MAX_MESSAGES", "120"))
         return max(1, v)
@@ -47,7 +50,8 @@ def _max_messages() -> int:
         return 120
 
 
-def _max_tokens_hint() -> int | None:
+def history_archive_token_hint() -> int | None:
+    """``MINI_AGENT_HISTORY_ARCHIVE_TOKEN_HINT``；未设置或无效时返回 None。"""
     raw = os.environ.get("MINI_AGENT_HISTORY_ARCHIVE_TOKEN_HINT", "").strip()
     if not raw:
         return None
@@ -56,6 +60,14 @@ def _max_tokens_hint() -> int | None:
         return v if v > 0 else None
     except ValueError:
         return None
+
+
+def _max_messages() -> int:
+    return history_archive_max_messages()
+
+
+def _max_tokens_hint() -> int | None:
+    return history_archive_token_hint()
 
 
 def _one_simple_turn_len(history: list[dict[str, Any]], start: int) -> int:
@@ -79,28 +91,59 @@ def _one_simple_turn_len(history: list[dict[str, Any]], start: int) -> int:
     return i - start + 1
 
 
-def trim_history_tail_by_turns(history: list[dict[str, Any]], cap: int) -> None:
-    """从头部删除最旧消息直至 ``len(history) <= cap``，优先按「从首个 user 起的整轮」删除。"""
-    guard = 0
-    while len(history) > cap and guard < 10000:
-        guard += 1
-        if not history:
-            break
-        top = history[0]
-        role = top.get("role")
-        # 首部非 user：单条移除（锚点、孤儿等），避免半轮硬切
-        if role != "user":
-            history.pop(0)
-            continue
-        turn_len = _one_simple_turn_len(history, 0)
-        if turn_len <= 0:
-            history.pop(0)
-            continue
-        del history[:turn_len]
+def trim_history_tail_by_turns(history: list[dict[str, Any]], cap: int) -> bool:
+    """从头部删除**至多一轮**（或一条首部非 user 消息），当 ``len(history) > cap`` 时执行。
+
+    保留近期消息：通过反复由调用方调用本函数直至 ``len <= cap`` 实现渐进截断。
+
+    Returns:
+        若本次删除了至少一条消息则为 True，否则 False。
+    """
+    if cap < 0 or len(history) <= cap:
+        return False
+    if not history:
+        return False
+    top = history[0]
+    role = top.get("role")
+    if role != "user":
+        history.pop(0)
+        return True
+    turn_len = _one_simple_turn_len(history, 0)
+    if turn_len <= 0:
+        history.pop(0)
+        return True
+    del history[:turn_len]
+    return True
 
 
-def maybe_archive_old_turns(session_key: str, history: list[dict[str, Any]]) -> None:
-    """若历史超过阈值，从最旧端按轮剪切到日记文件，并插入锚点消息（不总结正文）。"""
+def append_archive_chunk_to_diary(
+    session_key: str, chunk: list[dict[str, Any]]
+) -> tuple[str, int, str] | None:
+    """将一段消息 JSON 追加写入当日日记；成功返回 ``(path, seq, day)``，失败返回 None。"""
+    day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    path = diary_file_path(session_key, day)
+    seq = int(datetime.now(timezone.utc).timestamp() * 1000) % 1_000_000_000
+    header = f"\n\n## archive {day} seq={seq} session={session_key!r}\n\n"
+    try:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(header)
+            f.write("```json\n")
+            f.write(json.dumps(chunk, ensure_ascii=False, indent=2))
+            f.write("\n```\n")
+    except OSError as e:
+        _logger.warning("写入会话日记失败: %s", e)
+        return None
+    return path, seq, day
+
+
+def maybe_archive_old_turns(session_key: str, history: list[dict[str, Any]]) -> bool:
+    """若历史超过阈值，从最旧 user 起**仅归档一轮**到日记并插入锚点；否则不操作。
+
+    需仍低于阈值时由调用方多次调用（渐进式）。
+
+    Returns:
+        若完成一轮归档则为 True；未归档（未超阈值或失败回滚）为 False。
+    """
     max_msg = _max_messages()
     tok_hint = _max_tokens_hint()
     from miniagent.memory.history_bridge import estimate_history_messages_tokens
@@ -112,65 +155,58 @@ def maybe_archive_old_turns(session_key: str, history: list[dict[str, Any]]) -> 
             return True
         return False
 
-    while over():
-        if not history:
-            break
-        fu = next(
-            (i for i, m in enumerate(history) if m.get("role") == "user"),
-            None,
-        )
-        if fu is None:
-            # 无 user 起点（例如连续锚点）：丢弃首部一条并继续，直至有 user 或可清空
-            if history:
-                _logger.debug(
-                    "归档跳过：未找到 user 起点，丢弃 role=%s",
-                    history[0].get("role"),
-                )
-                history.pop(0)
-            continue
-        turn_len = _one_simple_turn_len(history, fu)
-        if turn_len <= 0:
-            history.pop(fu)
-            continue
-        chunk = history[fu : fu + turn_len]
-        del history[fu : fu + turn_len]
+    if not over() or not history:
+        return False
 
-        day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        path = diary_file_path(session_key, day)
-        seq = int(datetime.now(timezone.utc).timestamp() * 1000) % 1_000_000_000
-        header = f"\n\n## archive {day} seq={seq} session={session_key!r}\n\n"
-        try:
-            with open(path, "a", encoding="utf-8") as f:
-                f.write(header)
-                f.write("```json\n")
-                f.write(json.dumps(chunk, ensure_ascii=False, indent=2))
-                f.write("\n```\n")
-        except OSError as e:
-            _logger.warning("写入会话日记失败: %s", e)
-            # 放回去以免丢失
-            history[:0] = chunk
-            break
+    fu = next(
+        (i for i, m in enumerate(history) if m.get("role") == "user"),
+        None,
+    )
+    if fu is None:
+        if history:
+            _logger.debug(
+                "归档跳过：未找到 user 起点，丢弃 role=%s",
+                history[0].get("role"),
+            )
+            history.pop(0)
+            return True
+        return False
 
-        anchor = (
-            f"[历史已归档至日记 {path} ，片段 seq={seq} ，共 {turn_len} 条消息。"
-            "需要细节时请检索该会话当日日记文件。]"
-        )
-        archive_ref: dict[str, Any] = {
-            "diary_path": path,
-            "day": day,
-            "seq": seq,
-            "message_count": turn_len,
-            "session_key": session_key,
-        }
-        history.insert(
-            fu,
-            {
-                "role": "system",
-                "content": anchor,
-                "_history_archive_marker": True,
-                "_archive_ref": archive_ref,
-            },
-        )
+    turn_len = _one_simple_turn_len(history, fu)
+    if turn_len <= 0:
+        history.pop(fu)
+        return True
+
+    chunk = history[fu : fu + turn_len]
+    del history[fu : fu + turn_len]
+
+    written = append_archive_chunk_to_diary(session_key, chunk)
+    if written is None:
+        history[fu:fu] = chunk
+        return False
+
+    path, seq, day = written
+    anchor = (
+        f"[历史已归档至日记 {path} ，片段 seq={seq} ，共 {turn_len} 条消息。"
+        "需要细节时请检索该会话当日日记文件。]"
+    )
+    archive_ref: dict[str, Any] = {
+        "diary_path": path,
+        "day": day,
+        "seq": seq,
+        "message_count": turn_len,
+        "session_key": session_key,
+    }
+    history.insert(
+        fu,
+        {
+            "role": "system",
+            "content": anchor,
+            "_history_archive_marker": True,
+            "_archive_ref": archive_ref,
+        },
+    )
+    return True
 
 
 __all__ = [
@@ -178,4 +214,7 @@ __all__ = [
     "diary_file_path",
     "trim_history_tail_by_turns",
     "safe_session_id_for_memory",
+    "append_archive_chunk_to_diary",
+    "history_archive_max_messages",
+    "history_archive_token_hint",
 ]

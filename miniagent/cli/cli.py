@@ -5,6 +5,8 @@
 用法：
     python -m miniagent.cli.cli          # 交互模式
     python -m miniagent.cli.cli --help   # 显示帮助
+
+推荐使用 ``python -m miniagent`` 或已安装的 ``miniagent`` 命令（与本模块等价入口）。
 """
 
 from __future__ import annotations

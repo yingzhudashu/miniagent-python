@@ -7,6 +7,7 @@
 
 进程默认三元组由 ``defaults.get_process_default_memory_bundle()`` 构造，根目录受
 ``MINI_AGENT_STATE`` 影响，并与 ``compat.unified_entry`` 注入 ``RuntimeContext`` 的路径一致。
+三层记忆与用户可见语义见 ``docs/MEMORY_SYSTEM.md``。
 
 本 ``__init__`` 聚合最常用的可导入符号：
 

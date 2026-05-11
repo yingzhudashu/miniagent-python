@@ -2,14 +2,24 @@
 
 ## [Unreleased]
 
-### Security
+### Changed
 
-- **文档**：[SECURITY.md](docs/SECURITY.md) 新增「外部 JSON（MINIAGENT_CONFIG）与进程环境」专节，说明 `apiKey` 写入 `os.environ` 的风险与缓解；数据安全原则与检查清单与之对齐。
+- **CLI / 飞书展示（跟进）**：移除未再使用的 `stream_first_body_chunk`；**思考卡与 CLI transcript 顶格输出**（不再对段落首行、列表行或 User/Assistant/思考区正文统一加空格缩进）；`finalize_feishu_thinking_stream` 分片后对各 chunk 跳过第二次 `_normalize_lark_md`（正文已在 `_prepare_thinking_body_for_card` 中规范化）。
+- **执行轮数默认**：`AGENT_MAX_TURNS` 默认 400；`MINIAGENT_STEP_MAX_TURNS` 未设置时默认 48；同一步内思考片段默认以双换行拼接（`MINIAGENT_THINKING_SEGMENT_SEPARATOR` 可覆盖）。
+- **飞书**：宽 GFM 表超管道阈值时支持 `MINIAGENT_FEISHU_TABLE_FALLBACK`（`both` / `hint` / `unicode`）；思考卡工具区精简；`lark_md` 规范化（孤星号、U+FFFD、水平线、零宽与 `<br>` 等）；同一步多轮 ReAct 默认 PATCH 同一张思考卡。
+- **CLI**：可选 `MINIAGENT_CLI_THINKING_RICH` 对非流式思考块 Rich 渲染；全屏 TUI 下思考 Rich 宽度与 Assistant 回复区一致（`set_cli_markdown_width`）；未安装 Rich 时欢迎界面可提示安装 `.[cli]`（`MINIAGENT_WELCOME_CLI_HINT=0` 关闭）。
+- **历史落盘**：`on_tool_finish` 默认仅记录工具名与成败；`MINIAGENT_TOOL_FINISH_VERBOSE=1` 恢复详细块。
 
 ### Documentation
 
+- **ARCHITECTURE / USER_GUIDE / MEMORY_SYSTEM / README / CLI / FEISHU / INDEX**：与上述默认值及终端 Markdown、飞书表降级、v2 备忘链接对齐；`.env.example` 补充相关变量说明。
+- **FEISHU / `.env.example`**：`MINIAGENT_FEISHU_REPLY_PLAIN` 与思考卡累积正文受 `MINI_AGENT_FEISHU_CARD_BODY_MAX` 截断的行为写清（仍为 interactive `lark_md`；完整内容见 history）。
 - **[USER_GUIDE.md](docs/USER_GUIDE.md)**：新增零基础全项目使用指南（安装、`.env`、启动、点命令摘要、飞书/搜索/技能/MCP 可选章节、FAQ、安全清单）；[README.md](README.md) 与 [INDEX.md](docs/INDEX.md) 增加入口。
 - **[DEPLOYMENT.md](docs/DEPLOYMENT.md)**：在「状态目录与多实例注册」后补充会话落盘与 `MINIAGENT_CONFIG` 风险指引，链至 [SECURITY.md](docs/SECURITY.md)。
+
+### Security
+
+- **文档**：[SECURITY.md](docs/SECURITY.md) 新增「外部 JSON（MINIAGENT_CONFIG）与进程环境」专节，说明 `apiKey` 写入 `os.environ` 的风险与缓解；数据安全原则与检查清单与之对齐。
 
 ### Engineering
 

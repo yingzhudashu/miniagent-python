@@ -12,6 +12,8 @@
 依赖注入：``unified_main`` / ``run_cli_loop`` / 飞书 handler 工厂通过
 :class:`miniagent.runtime.context.RuntimeContext` 获取 registry、monitor、engine 等，
 勿再依赖 ``unified`` 模块级全局。
+
+异步时序（队列 → Agent → 回复）见 ``docs/ARCHITECTURE.md``；点命令见 ``docs/CLI.md``。
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -402,14 +405,101 @@ async def run_cli_loop(
     input_buffer = Buffer(history=FileHistory(history_file))
 
     _MAX_TRANSCRIPT_CHARS = 400_000
-    _transcript: list[tuple[str, str]] = []
+    _transcript: list[Any] = []
     _stick_bottom: list[bool] = [True]
 
+    # #region agent log
+    _DBG_LOG_02 = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        "debug-02b0ad.log",
+    )
+    _dbg_ph_remain: list[int] = [150]
+    _dbg_pt_ver_done: list[bool] = [False]
+
+    def _dbg_ndjson_02(
+        hypothesis_id: str,
+        location: str,
+        message: str,
+        data: dict,
+        *,
+        run_id: str = "post-fix",
+    ) -> None:
+        try:
+            import json as _json
+            import time as _time
+
+            extra: dict = {}
+            if not _dbg_pt_ver_done[0]:
+                _dbg_pt_ver_done[0] = True
+                try:
+                    import prompt_toolkit as _pt
+
+                    extra["prompt_toolkit_version"] = getattr(_pt, "__version__", None)
+                except Exception:
+                    extra["prompt_toolkit_version"] = None
+            payload = {
+                "sessionId": "02b0ad",
+                "runId": run_id,
+                "hypothesisId": hypothesis_id,
+                "location": location,
+                "message": message,
+                "data": {**data, **extra},
+                "timestamp": int(_time.time() * 1000),
+            }
+            with open(_DBG_LOG_02, "a", encoding="utf-8") as _df:
+                _df.write(_json.dumps(payload, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+
+    def _dbg_transcript_summary() -> dict:
+        types: dict[str, int] = {}
+        for f in _transcript:
+            k = type(f).__name__
+            types[k] = types.get(k, 0) + 1
+        return {
+            "len": len(_transcript),
+            "types": types,
+            "tail_type_names": [type(f).__name__ for f in _transcript[-8:]],
+        }
+
+    # #endregion
+
+    def _transcript_fragment_len(frag: Any) -> int:
+        if isinstance(frag, tuple) and len(frag) >= 2:
+            return len(frag[1])
+        try:
+            from prompt_toolkit.formatted_text.ansi import ANSI as PTANSI
+
+            if isinstance(frag, PTANSI):
+                return len(frag.value)
+        except Exception:
+            pass
+        return 0
+
     def _trim_transcript() -> None:
-        total = sum(len(t) for _, t in _transcript)
+        total = sum(_transcript_fragment_len(f) for f in _transcript)
         while total > _MAX_TRANSCRIPT_CHARS and len(_transcript) > 16:
-            _, old = _transcript.pop(0)
-            total -= len(old)
+            old = _transcript.pop(0)
+            total -= _transcript_fragment_len(old)
+
+    def _flatten_transcript_for_pt() -> list[Any]:
+        """Expand stored ``ANSI(...)`` rows to plain (style, text) fragments.
+
+        ``to_formatted_text`` treats top-level lists as already normalized and does
+        not recurse into items, so a mix of tuples and ``ANSI`` breaks ``split_lines``.
+        """
+        from prompt_toolkit.formatted_text.ansi import ANSI as PTANSI
+        from prompt_toolkit.formatted_text.base import to_formatted_text
+
+        out: list[Any] = []
+        for frag in _transcript:
+            if isinstance(frag, tuple) and len(frag) >= 2:
+                out.append(frag)
+            elif isinstance(frag, PTANSI):
+                out.extend(to_formatted_text(frag))
+            else:
+                out.extend(to_formatted_text(frag))
+        return out
 
     _output_scroll_ref: list[Any] = [None]
 
@@ -527,6 +617,22 @@ async def run_cli_loop(
             wrap_lines: bool,
             get_line_prefix,
         ) -> int | None:
+            # #region agent log
+            if _dbg_ph_remain[0] > 0:
+                _dbg_ph_remain[0] -= 1
+                _dbg_ndjson_02(
+                    "H1-H5",
+                    "main.py:_TranscriptPaneControl.preferred_height",
+                    "before inner.preferred_height",
+                    {
+                        "width": width,
+                        "max_available_height": max_available_height,
+                        "wrap_lines": wrap_lines,
+                        "summary": _dbg_transcript_summary(),
+                        "ph_logs_left_after": _dbg_ph_remain[0],
+                    },
+                )
+            # #endregion
             return self._inner.preferred_height(
                 width, max_available_height, wrap_lines, get_line_prefix
             )
@@ -546,7 +652,7 @@ async def run_cli_loop(
             return self._inner.mouse_handler(mouse_event)
 
     transcript_inner = FormattedTextControl(
-        text=lambda: _transcript,
+        text=_flatten_transcript_for_pt,
         focusable=False,
     )
     transcript_window = Window(
@@ -566,7 +672,12 @@ async def run_cli_loop(
         if not text:
             return
         at_bottom = _output_at_bottom()
-        if _transcript and _transcript[-1][0] == style_cls:
+        if (
+            _transcript
+            and isinstance(_transcript[-1], tuple)
+            and len(_transcript[-1]) >= 2
+            and _transcript[-1][0] == style_cls
+        ):
             st, prev = _transcript[-1]
             _transcript[-1] = (st, prev + text)
         else:
@@ -584,7 +695,21 @@ async def run_cli_loop(
             _stick_bottom[0] = False
 
     def _transcript_plain() -> str:
-        return "".join(t for _, t in _transcript)
+        from miniagent.engine.markdown_cli import strip_ansi
+
+        parts: list[str] = []
+        for frag in _transcript:
+            if isinstance(frag, tuple) and len(frag) >= 2:
+                parts.append(frag[1])
+            else:
+                try:
+                    from prompt_toolkit.formatted_text.ansi import ANSI as PTANSI
+
+                    if isinstance(frag, PTANSI):
+                        parts.append(strip_ansi(frag.value))
+                except Exception:
+                    pass
+        return "".join(parts)
 
     kb = KeyBindings()
 
@@ -776,19 +901,48 @@ async def run_cli_loop(
             text = text + "\n"
         _append_transcript(style, text)
 
-    def _thinking_sink(fragment: str, kind: str = "chunk") -> None:
+    def _thinking_sink(
+        fragment: str,
+        kind: str = "chunk",
+        *,
+        ansi_markdown: str | None = None,
+    ) -> None:
+        if ansi_markdown is not None:
+            from prompt_toolkit.formatted_text import ANSI
+
+            body_lines = ansi_markdown.rstrip("\n").split("\n")
+            indented = "\n".join(ln if ln else "" for ln in body_lines) + "\n"
+            at_bottom = _output_at_bottom()
+            _transcript.append(ANSI(indented))
+            _trim_transcript()
+            try:
+                get_app().invalidate()
+            except Exception:
+                pass
+            if at_bottom or _stick_bottom[0]:
+                _snap_output_bottom()
+                if at_bottom:
+                    _stick_bottom[0] = True
+            else:
+                _stick_bottom[0] = False
+            return
         style = "class:cli-think-head" if kind == "label" else "class:cli-think-body"
         _append_transcript(style, fragment)
 
     engine.thinking.set_output_sink(_thinking_sink)
+    engine.thinking.set_cli_markdown_width(lambda: max(40, _viewport_cols() - 2))
 
-    _cli_w = 60
+    def _rule_line_width() -> int:
+        """与 Markdown 渲染宽度同源，避免分隔线与正文视觉错位。"""
+        return max(40, _viewport_cols())
 
     def _cli_rule_heavy() -> None:
-        _append_transcript("class:cli-border-strong", "\u2550" * _cli_w + "\n")
+        w = _rule_line_width()
+        _append_transcript("class:cli-border-strong", "\u2550" * w + "\n")
 
     def _cli_rule_light() -> None:
-        _append_transcript("class:cli-border", "\u2500" * _cli_w + "\n")
+        w = _rule_line_width()
+        _append_transcript("class:cli-border", "\u2500" * w + "\n")
 
     def _cli_block_user(prompt: str) -> None:
         """本轮提问区块。"""
@@ -798,17 +952,51 @@ async def run_cli_loop(
         _append_transcript("class:cli-user-title", "You\n")
         _cli_rule_light()
         for line in (prompt or "").splitlines() or [""]:
-            _append_transcript("class:cli-user-body", "  " + line + "\n")
+            _append_transcript("class:cli-user-body", line + "\n")
         _append_transcript("class:cli-spacer", "\n")
 
     def _cli_block_reply(text: str) -> None:
-        """最终回复区块。"""
+        """最终回复区块（可选 Rich → ANSI，经 prompt_toolkit 解析）。"""
+        from miniagent.engine.markdown_cli import render_markdown_to_ansi
+        from prompt_toolkit.formatted_text import ANSI
+
         _append_transcript("class:cli-spacer", "\n")
         _cli_rule_light()
         _append_transcript("class:cli-assistant-title", "Assistant\n")
         _cli_rule_light()
-        for line in (text or "").splitlines() or [""]:
-            _append_transcript("class:cli-assistant-body", "  " + line + "\n")
+        md_w = max(40, _viewport_cols() - 2)
+        ansi_body = render_markdown_to_ansi(text or "", width=md_w)
+        if ansi_body and ansi_body.strip():
+            at_bottom = _output_at_bottom()
+            body_lines = ansi_body.rstrip("\n").split("\n")
+            indented = "\n".join(ln if ln else "" for ln in body_lines) + "\n"
+            _transcript.append(ANSI(indented))
+            # #region agent log
+            _dbg_ndjson_02(
+                "H1-H2",
+                "main.py:_cli_block_reply",
+                "appended ANSI fragment to transcript",
+                {
+                    "ansi_chars": len(indented),
+                    "summary_after": _dbg_transcript_summary(),
+                    "flatten_out_len": len(_flatten_transcript_for_pt()),
+                },
+            )
+            # #endregion
+            _trim_transcript()
+            try:
+                get_app().invalidate()
+            except Exception:
+                pass
+            if at_bottom or _stick_bottom[0]:
+                _snap_output_bottom()
+                if at_bottom:
+                    _stick_bottom[0] = True
+            else:
+                _stick_bottom[0] = False
+        else:
+            for line in (text or "").splitlines() or [""]:
+                _append_transcript("class:cli-assistant-body", line + "\n")
         _append_transcript("class:cli-spacer", "\n")
         _cli_rule_heavy()
 
@@ -994,7 +1182,7 @@ async def _run_cli_loop_fallback(
             print("You")
             _fb_rule_light()
             for line in (user_input or "").splitlines() or [""]:
-                print("  " + line)
+                print(line)
             print()
             reply = await engine.run_agent_with_thinking(
                 user_input,
@@ -1016,8 +1204,21 @@ async def _run_cli_loop_fallback(
             _fb_rule_light()
             print("Assistant")
             _fb_rule_light()
-            for line in (reply or "").splitlines() or [""]:
-                print("  " + line)
+            from miniagent.engine.markdown_cli import cli_raw_markdown_enabled
+
+            fb_w = max(40, shutil.get_terminal_size(fallback=(80, 24)).columns - 4)
+            if cli_raw_markdown_enabled():
+                for line in (reply or "").splitlines() or [""]:
+                    print(line)
+            else:
+                try:
+                    from rich.console import Console
+                    from rich.markdown import Markdown
+
+                    Console(soft_wrap=True, width=fb_w).print(Markdown(reply or ""))
+                except ImportError:
+                    for line in (reply or "").splitlines() or [""]:
+                        print(line)
             print()
             _fb_rule_heavy()
         except Exception as e:
@@ -1109,8 +1310,20 @@ async def _run_cli_loop_fallback(
                 cmd_queue_status(message_queue)
             elif sub == "set" and len(parts) >= 3:
                 await cmd_queue_set(message_queue, parts[2])
+            elif sub == "abort":
+                from miniagent.engine.cli_commands import format_queue_abort_message
+
+                res = message_queue.abort_chat(message_queue.CLI_CHAT_ID)
+                print(format_queue_abort_message(res) + "\n")
             else:
                 print(format_queue_command_usage(message_queue) + "\n")
+            continue
+
+        if user_input == ".abort":
+            from miniagent.engine.cli_commands import format_queue_abort_message
+
+            res = message_queue.abort_chat(message_queue.CLI_CHAT_ID)
+            print(format_queue_abort_message(res) + "\n")
             continue
 
         if user_input == ".stats":
@@ -1209,6 +1422,7 @@ def _create_feishu_handler(
                     skill_prompts=skill_prompts,
                     capture=True,
                     allow_session_mutations_when_capture=False,
+                    message_queue_abort_chat_id=chat_id,
                 )
                 if reply is not None:
                     _emit_feishu_cli(

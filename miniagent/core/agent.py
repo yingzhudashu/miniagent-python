@@ -7,8 +7,11 @@
 
 **边界**：本模块不处理 stdin/stdout、消息队列或飞书 HTTP；仅编排 LLM 与工具。通道相关回调通过
 ``on_thinking`` / ``on_tool_call`` 等注入，由 :class:`miniagent.engine.engine.UnifiedEngine` 等上层接线。
+规划可见输出合并为 ``[评估与计划]`` 流式段；可选关键字参数 ``full_record`` 由引擎用于会话历史全量落盘（见 ``miniagent.core.thinking_callback.invoke_on_thinking``）。
 
-**导出**：``run_agent``（两阶段主入口）、``run_pipeline``（线性工具序列，无 LLM 循环）。
+**导出**：``run_agent``、``run_pipeline``、常量 ``PLANNING_STREAM_HEADER``。
+
+设计背景见 ``docs/ARCHITECTURE.md``（两阶段管线）。
 """
 
 from __future__ import annotations
@@ -26,6 +29,7 @@ from miniagent.types.agent import ToolMonitorProtocol, PipelineStep, PipelineRes
 from miniagent.core.config import get_default_agent_config, merge_agent_config
 from miniagent.core.thinking_presets import map_business_depth
 from miniagent.core.executor import execute_plan
+from miniagent.core.thinking_callback import invoke_on_thinking
 from miniagent.infrastructure.logger import get_logger
 from miniagent.infrastructure.monitor import DefaultToolMonitor
 from miniagent.security.sandbox import get_default_workspace
@@ -70,6 +74,50 @@ def _skip_structured_plan_reason(
     return "原因：未调用结构化规划器。"
 
 
+PLANNING_STREAM_HEADER = "[评估与计划]"
+
+
+def _format_task_difficulty_display(difficulty: Any) -> str:
+    """规划阶段展示用短文案（历史仍用 _format_task_difficulty_message）。"""
+    labels = {
+        "simple": "简单",
+        "normal": "一般",
+        "medium": "中等",
+        "complex": "复杂",
+    }
+    key = getattr(difficulty, "value", str(difficulty))
+    zh = labels.get(key, key)
+    return f"**难度** {zh}（{key}）"
+
+
+def _format_plan_display_short(
+    plan: StructuredPlan,
+    *,
+    from_llm_planner: bool,
+    no_toolboxes: bool = False,
+    user_skip_planning: bool = False,
+    simple_classified: bool = False,
+) -> str:
+    """执行计划展示用精简 Markdown（无逐步预期输入/产出长段）。"""
+    if not from_llm_planner:
+        reason = _skip_structured_plan_reason(
+            no_toolboxes=no_toolboxes,
+            user_skip_planning=user_skip_planning,
+            simple_classified=simple_classified,
+        )
+        return "**计划**（已跳过结构化规划）\n" + reason + f"\n摘要：{(plan.summary or '').strip() or '—'}"
+    lines: list[str] = ["**计划**", (plan.summary or "").strip() or "—"]
+    if plan.steps:
+        lines.append("")
+        for i, st in enumerate(plan.steps, start=1):
+            desc = (st.description or "").strip() or "—"
+            lines.append(f"{i}. {desc}")
+    if plan.required_toolboxes:
+        lines.append("")
+        lines.append(f"工具箱：`{', '.join(plan.required_toolboxes)}`")
+    return "\n".join(lines)
+
+
 def _format_plan_message(
     plan: StructuredPlan,
     *,
@@ -109,23 +157,13 @@ def _format_plan_message(
     return "\n".join(lines)
 
 
-async def _safe_on_thinking(
-    cb: OnThinking | None, text: str, *, header: str
-) -> None:
-    if not cb:
-        return
-    try:
-        await cb(text, False, header)
-    except Exception:
-        pass
-
-
 # ─── 回调类型 ────────────────────────────────────────────
 
 OnToolCall = Callable[[str, str, str], None]
 OnToolFinish = Callable[..., Awaitable[None]]
 OnPlan = Callable[[StructuredPlan], Awaitable[bool]]
-OnThinking = Callable[[str, bool, str], Awaitable[None]]
+# 兼容三参回调；支持可选关键字 ``full_record`` 的引擎见 ``invoke_on_thinking``。
+OnThinking = Callable[..., Awaitable[None]]
 
 
 # ─── 主入口 ──────────────────────────────────────────────
@@ -154,9 +192,10 @@ async def run_agent(
     Phase 1: 规划（可跳过）
     Phase 2: ReAct 循环执行
 
-    当提供 ``on_thinking`` 且环境变量 ``MINIAGENT_ANNOUNCE_DIFFICULTY_AND_PLAN`` 非 ``0``/``false``（默认开启）时，
-    会在分类结束后推送 ``[任务难度]``、在进入执行前推送 ``[执行计划]`` 摘要（非流式）；飞书通道下通常为独立卡片。
-    设为 ``0`` 可关闭上述两条结论推送，不影响 ReAct 流式思考与工具行。
+    当提供 ``on_thinking`` 且 ``MINIAGENT_ANNOUNCE_DIFFICULTY_AND_PLAN`` 非 ``0``/``false``（默认开启）时，
+    将「评估任务难度 → 难度结论 → 执行计划」合并为同一条流式思考（header ``[评估与计划]``）；展示为精简文案，
+    完整 Markdown 通过可选关键字 ``full_record`` 写入会话历史（由 :class:`~miniagent.engine.engine.UnifiedEngine` 接线）。
+    设为 ``0`` 可关闭上述推送。
 
     Args:
         user_input: 用户的原始需求
@@ -168,7 +207,7 @@ async def run_agent(
         skip_planning: 跳过规划阶段
         on_tool_call: 工具调用回调
         on_tool_finish: 每个工具执行后的异步回调（名称、参数 JSON、完整输出、是否成功）。
-            执行器在签名支持时会额外传入 ``thinking_header``（当前 ReAct 轮标签，如 ``[第 1 轮]``），供飞书等同轮合并展示。
+            执行器在签名支持时会额外传入 ``thinking_header``（当前执行阶段标签，如 ``[执行]`` 或 ``[步骤 1/3] …``），供飞书等同段合并展示。
             会话 ``history.json`` 中的工具全文块依赖此回调；不传则不会落盘工具输出。
             ``UnifiedEngine.run_agent_with_thinking`` 已默认传入。
         on_plan: 计划确认回调（返回 True 批准执行）
@@ -200,12 +239,20 @@ async def run_agent(
     effective_skip = skip_planning
     from_llm_planner = False
 
+    planning_hist = ""
+    planning_display = ""
+
     if toolboxes and not skip_planning and task_classifier_enabled():
-        if on_thinking:
-            try:
-                await on_thinking("正在评估任务难度…", False, "")
-            except Exception:
-                pass
+        planning_hist = "正在评估任务难度…"
+        planning_display = "📋 正在评估任务难度…"
+        if _announce_difficulty_and_plan_enabled() and on_thinking:
+            await invoke_on_thinking(
+                on_thinking,
+                planning_display,
+                True,
+                PLANNING_STREAM_HEADER,
+                full_record=planning_hist,
+            )
         difficulty = await classify_task_difficulty(
             user_input,
             [t.id for t in toolboxes],
@@ -215,10 +262,16 @@ async def run_agent(
         if difficulty == TaskDifficulty.SIMPLE:
             effective_skip = True
         if _announce_difficulty_and_plan_enabled() and on_thinking:
-            await _safe_on_thinking(
+            diff_msg = _format_task_difficulty_message(difficulty)
+            diff_disp = _format_task_difficulty_display(difficulty)
+            planning_hist = planning_hist + "\n\n" + diff_msg
+            planning_display = planning_display + "\n\n" + diff_disp
+            await invoke_on_thinking(
                 on_thinking,
-                _format_task_difficulty_message(difficulty),
-                header="任务难度",
+                planning_display,
+                True,
+                PLANNING_STREAM_HEADER,
+                full_record=planning_hist,
             )
 
     # ── 直接执行模式 ──
@@ -293,20 +346,41 @@ async def run_agent(
                 return "⚠️ 操作已取消"
 
     if _announce_difficulty_and_plan_enabled() and on_thinking:
-        await _safe_on_thinking(
-            on_thinking,
-            _format_plan_message(
-                plan,
-                from_llm_planner=from_llm_planner,
-                no_toolboxes=len(toolboxes) == 0,
-                user_skip_planning=skip_planning,
-                simple_classified=(
-                    bool(toolboxes)
-                    and not skip_planning
-                    and difficulty == TaskDifficulty.SIMPLE
-                ),
+        plan_msg = _format_plan_message(
+            plan,
+            from_llm_planner=from_llm_planner,
+            no_toolboxes=len(toolboxes) == 0,
+            user_skip_planning=skip_planning,
+            simple_classified=(
+                bool(toolboxes)
+                and not skip_planning
+                and difficulty == TaskDifficulty.SIMPLE
             ),
-            header="执行计划",
+        )
+        plan_disp = _format_plan_display_short(
+            plan,
+            from_llm_planner=from_llm_planner,
+            no_toolboxes=len(toolboxes) == 0,
+            user_skip_planning=skip_planning,
+            simple_classified=(
+                bool(toolboxes)
+                and not skip_planning
+                and difficulty == TaskDifficulty.SIMPLE
+            ),
+        )
+        if planning_hist:
+            planning_hist = planning_hist + "\n\n" + plan_msg
+        else:
+            planning_hist = plan_msg
+        planning_display = (
+            (planning_display + "\n\n" if planning_display else "") + plan_disp
+        )
+        await invoke_on_thinking(
+            on_thinking,
+            planning_display,
+            True,
+            PLANNING_STREAM_HEADER,
+            full_record=planning_hist,
         )
 
     # ── Phase 2: 执行 ──
@@ -394,4 +468,4 @@ def _create_default_plan() -> StructuredPlan:
     )
 
 
-__all__ = ["run_agent", "run_pipeline"]
+__all__ = ["run_agent", "run_pipeline", "PLANNING_STREAM_HEADER"]

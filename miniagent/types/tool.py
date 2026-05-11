@@ -62,6 +62,7 @@ class ToolContext:
         session_key: 当前 Agent 会话键（可选；由执行器注入供会话级只读工具使用）
         cli_loop_state: 与 unified_main 共享的状态 dict（可选；点命令工具用）
         cli_dispatch_allow_mutations: 是否允许 dispatch 在 capture 下执行会话变异子命令
+        message_queue_abort_chat_id: 飞书当前 ``chat_id``；供 ``run_dot_command`` 执行 ``.abort`` 等时传给 ``dispatch_command``
     """
 
     cwd: str
@@ -71,6 +72,7 @@ class ToolContext:
     session_key: str | None = None
     cli_loop_state: Any | None = None
     cli_dispatch_allow_mutations: bool = True
+    message_queue_abort_chat_id: str | None = None
 
 
 @dataclass

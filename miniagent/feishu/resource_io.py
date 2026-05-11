@@ -1,4 +1,7 @@
-"""飞书 IM 消息资源下载（file / image），带简单重试。"""
+"""飞书 IM 消息资源下载（file / image），带简单重试。
+
+依赖可选包 ``lark-oapi``（``pip install miniagent-python[feishu]``）；凭证来自 ``FeishuConfig``。
+"""
 
 from __future__ import annotations
 

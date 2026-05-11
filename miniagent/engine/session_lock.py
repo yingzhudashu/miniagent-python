@@ -6,6 +6,8 @@
 - 跨实例锁检测（PID 存活检查）
 - 过期锁自动清理（进程死亡后）
 - 幂等锁定（同一进程重复锁定成功）
+
+与多实例 PID 语义互补说明见 ``docs/INSTANCE_REGISTRY.md``。
 """
 
 from __future__ import annotations

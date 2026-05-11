@@ -377,6 +377,8 @@ def test_command_dispatch_all_commands():
             ".unbind all",
             ".feishu status",
             ".queue status",
+            ".queue abort",
+            ".abort",
             ".profile",
         ]
         for cmd in cmds:

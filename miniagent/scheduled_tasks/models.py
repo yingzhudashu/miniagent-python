@@ -1,6 +1,8 @@
 """定时任务领域模型：调度规格、会话绑定与可序列化的任务实体。
 
-与 :mod:`miniagent.scheduled_tasks.store` 的 JSON 结构一一对应；字段变更需同步迁移读写逻辑。"""
+与 :mod:`miniagent.scheduled_tasks.store` 的 JSON 结构一一对应；字段变更需同步迁移读写逻辑。
+
+用户可见字段语义见 ``docs/USER_GUIDE.md``（定时任务）。"""
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field

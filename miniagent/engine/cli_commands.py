@@ -9,6 +9,8 @@
 - 帮助显示：分类展示所有可用命令
 
 注意：所有会话命令同时支持**编号**（如 1）和**原始 ID**（如 default）。
+
+终端帮助正文与表格格式维护请与 ``docs/CLI.md`` 对齐。
 """
 
 from __future__ import annotations
@@ -43,8 +45,37 @@ def format_queue_command_usage(message_queue: Any) -> str:
         "用法:\n"
         "  .queue status                   查看队列状态\n"
         "  .queue set <模式>               切换 queue / preemptive\n"
+        "  .queue abort                    中止本通道队列（含 dispatch_wait 投递中的任务；不退出进程）\n"
+        "  .abort                          同上（短命令）\n"
         f"  当前模式: {mode}"
     )
+
+
+def format_queue_abort_message(result: dict[str, Any]) -> str:
+    """将 :meth:`~miniagent.infrastructure.message_queue.MessageQueueManager.abort_chat` 的返回值格式化为用户可读文案。"""
+    cr = bool(result.get("cancelled_running"))
+    cp = int(result.get("cancelled_pending") or 0)
+    pr = bool(result.get("cancelled_preemptive_current"))
+    cdw = int(result.get("cancelled_dispatch_wait") or 0)
+    if not cr and cp == 0 and not pr and cdw == 0:
+        return (
+            "✅ 已处理：当前聊天队列无运行中或排队的任务（进程与实例仍在运行）。\n"
+            "提示：全屏 CLI 在 Agent 单轮执行期间无法再次输入点命令；飞书侧可随时发送 `.abort` / `.queue abort` 打断。"
+        )
+    lines: list[str] = [
+        "✅ 已中止本聊天消息队列上的任务（未调用 `.stop`，进程与实例仍在运行）。",
+    ]
+    if pr:
+        lines.append("  · 已取消打断（preemptive）模式下当前执行的任务。")
+    if cr and not pr:
+        lines.append("  · 已取消正在执行的任务。")
+    if cp > 0:
+        lines.append(f"  · 已取消 {cp} 个排队中的任务。")
+    if cdw > 0:
+        lines.append(
+            f"  · 已取消 {cdw} 个 dispatch_wait 包装任务（如经该路径投递的定时回合）。"
+        )
+    return "\n".join(lines)
 
 
 def _md_escape_cell(text: str) -> str:
@@ -827,10 +858,12 @@ def format_help_markdown(
         ),
         _md_help_section(
             "消息队列",
-            "`queue` 为默认；`preemptive` 允许新消息插队。",
+            "`queue` 为默认；`preemptive` 允许新消息插队。`.queue abort` / `.abort` 取消本 `chat_id` 上经 `dispatch` / `dispatch_wait` 投递的任务，**不是** `.stop`（停实例）。飞书侧可随时发送以打断卡住的 Agent；全屏 CLI 在单轮 Agent 执行中无法再次输入点命令。",
             [
                 ("`.queue status`", "查看队列状态"),
                 ("`.queue set <模式>`", "切换 `queue` / `preemptive`"),
+                ("`.queue abort`", "中止本通道队列内运行中与排队的任务；不退出进程"),
+                ("`.abort`", "同上（短命令）"),
             ],
         ),
         _md_help_section(

@@ -11,6 +11,8 @@ CLI 主循环与飞书消息 handler 的闭包向下传递。设计目标：
 构造顺序上，入口通常在创建本对象**之前**调用 ``load_external_config_from_env()``，以便 ``external_config_patch``
 与 ``openai_client`` 使用一致的模型/thinking 补丁；详见 :mod:`miniagent.runtime.external_config`。
 
+整体关系图见 ``docs/ARCHITECTURE.md``。
+
 字段提示：
 
 - ``clawhub``：入口注入的 ClawHub 客户端；部分工具仍可能直接调用工厂函数，与注入并存。

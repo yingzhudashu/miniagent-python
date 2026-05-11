@@ -33,20 +33,21 @@
 python -m pip install -e ".[dev]"
 python -m ruff check miniagent tests
 python -m compileall -q miniagent
-python -m pytest tests/ -q
+python -m pytest tests/ -q -m "not evaluation"
 ```
 
 CI 说明：
 
-- **`test` job**（矩阵 Python 3.10 / 3.12）：`pip install -e ".[dev]"`，跑 `compileall`、`ruff`、`pytest`。
-- **`test-feishu-extra` job**（仅 3.12）：`pip install -e ".[dev,feishu]"` 后再跑 `compileall`、`ruff` 与 `pytest`，确保安装 `lark-oapi` 时仍通过（与主矩阵并行，不拖慢双版本安装）。
-- **`test-mcp-extra` job**（仅 3.12）：`pip install -e ".[dev,mcp]"`，对官方 `mcp` SDK 做 `import` 冒烟，再跑 `compileall`、`ruff` 与 `pytest`，防止 `[mcp]` extra 与代码导入漂移。
+- **`test` job**（矩阵 Python 3.10 / 3.12）：`pip install -e ".[dev]"`，跑 `compileall`、`ruff`、`pytest -m "not evaluation"`。
+- **`test-feishu-extra` job**（仅 3.12）：`pip install -e ".[dev,feishu]"` 后再跑 `compileall`、`ruff` 与 `pytest -m "not evaluation"`，确保安装 `lark-oapi` 时仍通过（与主矩阵并行，不拖慢双版本安装）。
+- **`test-mcp-extra` job**（仅 3.12）：`pip install -e ".[dev,mcp]"`，对官方 `mcp` SDK 做 `import` 冒烟，再跑 `compileall`、`ruff` 与 `pytest -m "not evaluation"`，防止 `[mcp]` extra 与代码导入漂移。
+- **`evaluation` job**：仅在 **手动 `workflow_dispatch`** 时运行，`pytest -m evaluation`；可在仓库 Secrets 中配置 `OPENAI_API_KEY`、`TAVILY_API_KEY` 等供依赖网络的评测用例使用。
 
 说明：
 
 - **Ruff**：风格与部分静态问题；配置见 `pyproject.toml` `[tool.ruff]`。
 - **compileall**：全包语法编译，可捕获部分「仅某测试未覆盖路径」的语法错误。
-- **Pytest**：默认 `asyncio_mode = auto`；未装 `lark-oapi` 时部分飞书路径可能跳过；本地可改用 `pip install -e ".[dev,feishu]"` 与 CI 飞书 job 对齐。
+- **Pytest**：默认 `asyncio_mode = auto`；`tests/evaluation/` 下用例由 `conftest` 统一打上 `evaluation` marker，与主 CI 隔离；本地若要一次跑全量可执行 `python -m pytest tests/ -q`（含评测）。未装 `lark-oapi` 时部分飞书路径可能跳过；本地可改用 `pip install -e ".[dev,feishu]"` 与 CI 飞书 job 对齐。
 
 可选增强（未默认纳入 CI，团队可自行约定）：
 
@@ -66,13 +67,25 @@ CI 说明：
 
 若历史上曾将上述路径纳入版本跟踪，可在确认无团队依赖后执行 `git rm --cached <路径>` 并保留 `.gitignore` 规则。需要随仓库携带的**非敏感**结构示例，请放在 `docs/examples/` 等显式文档化目录。日常开发仍建议使用 `MINI_AGENT_STATE` 将状态迁出仓库。
 
+### 3.2 可选离线测评产物
+
+若使用 `tests/evaluation/`（见 [EVALUATION_LOCAL.md](EVALUATION_LOCAL.md)）：
+
+| 类型 | Git 策略 |
+|------|----------|
+| **应提交** | `tests/evaluation/**/*.py`、`conftest.py`、小体积 `test_cases/*.json`、评测脚本等非密钥文本 |
+| **勿提交** | `tests/evaluation/runners/trajectories/`、`**/evaluation_results.json`、生成到 `docs/` 的报告或导出 JSON |
+
+**轨迹 JSON、聚合评分与 HTML 报告**体积大且环境相关；对话片段中还可能误粘贴 **API Key**，即使已在 `.gitignore` 中列出，也**不要**使用 `git add -f` 强行入库。根目录 `.gitignore` 已忽略 `tests/evaluation/runners/trajectories/`、`tests/evaluation/**/evaluation_results.json`、`docs/EVALUATION_REPORT.html`、`docs/evaluation_results.json` 等。
+
 ---
 
 ## 4. 安全与密钥
 
-- 密钥优先通过环境变量或本地 `.env` 注入；代码库中不出现真实 token。
+- 密钥优先通过环境变量或本地 `.env` 注入；代码库中不出现真实 token（含 **OpenAI**、**Tavily** (`TAVILY_API_KEY` / `WEB_SEARCH_API_KEY`)、飞书 Secret 等）。
 - 可选外部 JSON（`MINIAGENT_CONFIG`）可将 `apiKey` 回填至进程环境，风险与清单见 [SECURITY.md](SECURITY.md) §6。
 - 工具执行与文件访问受 [SECURITY.md](SECURITY.md) 所述沙箱与策略约束；部署面见 [DEPLOYMENT.md](DEPLOYMENT.md)。
+- **推送前自检（建议）**：勿提交 `.env`；`git diff --cached` 抽查是否误入密钥；可用 `rg` 等搜索疑似模式（如 `tvly-`、`sk-[A-Za-z0-9]{20,}`）并与占位符区分。仓库可在 GitHub 开启 Secret scanning / Push protection（在网页端配置）。
 
 ---
 
@@ -83,7 +96,7 @@ CI 说明：
 1. `miniagent/__init__.py` 的 `__version__` 与 `CHANGELOG.md`、下列 **带版本标语** 的 `docs/*.md` 一致（标语格式建议：`> Mini Agent Python | 版本: x.y.z | …` 或 INDEX 的「与 `miniagent.__version__` 对齐」行）：
    - [ARCHITECTURE.md](ARCHITECTURE.md)、[INDEX.md](INDEX.md)、[ENGINEERING.md](ENGINEERING.md)、[CONTRIBUTING.md](CONTRIBUTING.md)
    - [DEPLOYMENT.md](DEPLOYMENT.md)、[MEMORY_SYSTEM.md](MEMORY_SYSTEM.md)、[SECURITY.md](SECURITY.md)、[INSTANCE_REGISTRY.md](INSTANCE_REGISTRY.md)
-   - [CLI.md](CLI.md)、[FEISHU.md](FEISHU.md)、[SELF_OPT.md](SELF_OPT.md)、[CHANNEL_BINDING.md](CHANNEL_BINDING.md)、[CYBERNETICS_PLAN.md](CYBERNETICS_PLAN.md)、[USER_GUIDE.md](USER_GUIDE.md)（若文内写明版本号须与 `__version__` 一致）
+   - [CLI.md](CLI.md)、[FEISHU.md](FEISHU.md)、[SELF_OPT.md](SELF_OPT.md)、[CHANNEL_BINDING.md](CHANNEL_BINDING.md)、[CYBERNETICS_PLAN.md](CYBERNETICS_PLAN.md)、[USER_GUIDE.md](USER_GUIDE.md)、[EVALUATION_LOCAL.md](EVALUATION_LOCAL.md)（若文内写明版本号须与 `__version__` 一致）
 2. 欢迎界面：`miniagent.engine.welcome.get_version()` 必须与 `miniagent.__version__` 同源（勿依赖 `pyproject.toml` 静态 `version` 字段）。
 3. [INDEX.md](INDEX.md) 中目录树与仓库实际文件一致（含 `core/openai_client.py`、`memory/defaults.py` 等）。
 4. README 中的命令、测试数量与 `pytest --collect-only -q` 输出一致。
@@ -99,4 +112,5 @@ CI 说明：
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 分层架构与数据流 |
 | [INDEX.md](INDEX.md) | 全部文档索引 |
 | [USER_GUIDE.md](USER_GUIDE.md) | 零基础使用指南 |
+| [EVALUATION_LOCAL.md](EVALUATION_LOCAL.md) | 可选本地离线测评与 Git 忽略约定 |
 | [CHANGELOG.md](../CHANGELOG.md) | 版本历史 |

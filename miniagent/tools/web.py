@@ -4,6 +4,8 @@
 - browser_extract_text: Playwright 打开页面并抽取可见正文（CSR / 强 JS 站点）
 - fetch_url: HTTP GET + HTML → 纯文本（轻量）
 - get_time: 当前时间
+
+Tavily / Playwright 可选依赖与 Key 见根目录 ``README``；HTTP 超时与环境变量见 ``.env.example``。
 """
 
 from __future__ import annotations

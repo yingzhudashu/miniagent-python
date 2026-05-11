@@ -6,6 +6,8 @@
 - 文件变更（FileChange）：对源码的修改描述
 - 测试用例（OptTestCase）：验证优化效果的测试
 - 优化结果（OptimizationResult）：执行优化后的结果
+
+概念说明见 ``docs/SELF_OPT.md``。
 """
 
 from __future__ import annotations

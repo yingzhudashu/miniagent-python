@@ -2,6 +2,8 @@
 
 与 ``history_archive`` 写出的按日 ``diary`` Markdown 相配合：本模块负责结构化锚点与
 读写的稳定文件名（经 ``_safe_session_id`` 净化 ``session_key``）。
+
+Layer 3 摘要语义见 ``docs/MEMORY_SYSTEM.md``。
 """
 
 from __future__ import annotations

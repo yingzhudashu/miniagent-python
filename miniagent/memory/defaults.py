@@ -1,5 +1,7 @@
 """进程级默认记忆三元组 — 与 ``compat.unified_entry`` 同源构造逻辑。
 
+语义见 ``docs/MEMORY_SYSTEM.md``（默认路径与 ``MINI_AGENT_STATE``）。
+
 未通过 ``RuntimeContext`` / ``execute_plan`` 注入时，回落到此处缓存的单套实例，
 目录根由 ``MINI_AGENT_STATE``（默认 ``<cwd>/workspaces``）决定。
 """

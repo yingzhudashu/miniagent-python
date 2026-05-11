@@ -2,6 +2,8 @@
 
 供 ``poll_server``、``agent_handler`` 与 ``miniagent.types`` 再导出使用；
 网络与 SDK 细节仍在各调用模块内处理，本文件保持无 I/O 纯数据。
+
+亦通过 ``miniagent.types`` 再导出，便于 ``from miniagent.types import FeishuConfig``。
 """
 
 from __future__ import annotations

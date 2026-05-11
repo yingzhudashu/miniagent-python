@@ -1,4 +1,8 @@
-"""进程内点命令工具：将 CLI/飞书共享的 ``dispatch_command`` 暴露给 Agent 工具调用。"""
+"""进程内点命令工具：将 CLI/飞书共享的 ``dispatch_command`` 暴露给 Agent 工具调用。
+
+``ToolContext.cli_loop_state`` 须由 ``unified_main`` 注入；飞书变异命令拦截规则见
+``docs/FEISHU.md``、``docs/CLI.md``。
+"""
 
 from __future__ import annotations
 
@@ -12,13 +16,14 @@ _run_dot_command_schema = {
         "name": "run_dot_command",
         "description": (
             "执行与终端一致的 MiniAgent 点命令，返回捕获的文本输出。"
-            "支持：.help、.status、.session list、.queue status、"
+            "支持：.help、.status、.session list、.queue status、.queue abort、.abort、"
             ".schedule list | .schedule show <id> | .schedule add | .schedule remove | "
             ".schedule enable | .schedule disable。"
             "其中 .schedule add 必须使用「空格双连字符空格」分隔参数区与 prompt，"
             "示例：.schedule add myid every 300 primary -- 请每5分钟总结当前会话。"
             "飞书场景下：.session 的切换/创建等、以及 .schedule 的 add/remove/enable/disable 会被拒绝"
             "（仅允许 .schedule list/show）；本地 CLI 对话中 Agent 可执行上述变异命令。"
+            "飞书且已注入 receive_chat_id 时，.abort / .queue abort 作用于当前群/私聊的消息队列；否则作用于 CLI 队列。"
         ),
         "parameters": {
             "type": "object",
@@ -75,6 +80,7 @@ async def _run_dot_command_handler(
         capture=True,
         allow_session_mutations_when_capture=ctx.cli_dispatch_allow_mutations,
         feishu_user_status=None,
+        message_queue_abort_chat_id=ctx.message_queue_abort_chat_id,
     )
     if out is None:
         return ToolResult(

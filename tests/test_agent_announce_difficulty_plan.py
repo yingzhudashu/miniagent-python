@@ -1,4 +1,4 @@
-"""任务难度与规划结论通过 on_thinking 推送（飞书下各为独立非流式卡片）。"""
+"""规划阶段 on_thinking：合并为 ``[评估与计划]`` 单 header 流式推送。"""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from miniagent.core.agent import (
+    PLANNING_STREAM_HEADER,
     _format_plan_message,
     _format_task_difficulty_message,
     run_agent,
@@ -89,8 +90,9 @@ async def test_plan_announce_before_execute_when_classifier_off(
                 on_thinking=ot,
             )
 
-    assert sequence[0].startswith("ot:执行计划:False:")
-    assert "plan summary unique" in sequence[0] or "plan summary unique" in "".join(sequence)
+    assert sequence[0].startswith(f"ot:{PLANNING_STREAM_HEADER}:True:")
+    joined = "".join(sequence)
+    assert "plan summary unique" in joined
     assert sequence[-1] == "execute_plan"
 
 
@@ -124,10 +126,11 @@ async def test_difficulty_announced_when_classifier_runs(
                 )
 
     headers = [h for h, _ in captured]
-    assert "任务难度" in headers
-    assert "执行计划" in headers
-    assert any("[任务难度]" in t for _, t in captured)
-    assert any("[执行计划]" in t for _, t in captured)
+    assert all(h == PLANNING_STREAM_HEADER for h in headers)
+    blob = "\n".join(t for _, t in captured)
+    assert "📋" in blob or "评估" in blob
+    assert "**难度**" in blob
+    assert "**计划**" in blob or "s" in blob
 
 
 @pytest.mark.asyncio
@@ -165,7 +168,7 @@ async def test_on_plan_reject_skips_plan_announce_and_execute(
             )
 
     assert "取消" in out or "取消" in str(out)
-    assert not any("[执行计划]" in x for x in captured)
+    assert not any("**计划**" in x or "[执行计划]" in x for x in captured)
     ex.assert_not_called()
 
 

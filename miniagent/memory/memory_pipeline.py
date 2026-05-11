@@ -2,6 +2,8 @@
 
 由 ``build_layered_memory_augmentation`` 生成可追加的文本；是否注入及长度上限受
 ``MINI_AGENT_LAYERED_MEMORY_*`` 环境变量控制。依赖 ``layered_memory`` 与按日 ``diary`` 文件。
+
+披露顺序与隐私提示见 ``docs/MEMORY_SYSTEM.md``。
 """
 
 from __future__ import annotations

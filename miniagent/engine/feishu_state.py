@@ -1,6 +1,8 @@
 """飞书运行时状态 — 每进程一个实例，由 :class:`RuntimeContext` 持有。
 
 封装原 ``feishu_runtime`` 模块级全局（task / config / running），便于测试与多上下文隔离。
+
+协议细节与运维配置见 ``docs/FEISHU.md``。
 """
 
 from __future__ import annotations

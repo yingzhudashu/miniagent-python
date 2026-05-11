@@ -31,6 +31,7 @@ from typing import Any, Awaitable, Callable
 from openai import AsyncOpenAI
 
 from miniagent.core.llm_params import resolve_exec_completion_kwargs
+from miniagent.core.openai_message_sanitize import strip_leading_underscore_keys_from_messages
 from miniagent.core.openai_client import get_shared_async_openai
 from miniagent.core.thinking_presets import map_business_depth
 from miniagent.types.memory import MemoryEntryInput
@@ -42,6 +43,7 @@ from miniagent.core.config import DEFAULT_LOOP_DETECTION, get_default_model_conf
 from miniagent.infrastructure.logger import append_log, truncate, get_logger
 from miniagent.infrastructure.loop_detector import LoopDetector
 from miniagent.infrastructure.tracing import emit_trace
+from miniagent.core.thinking_callback import invoke_on_thinking
 from miniagent.memory.context import ContextBudgetExceeded, DefaultContextManager
 from miniagent.memory.store import extract_facts, generate_turn_summary
 from miniagent.memory.keyword_index import format_search_results, search_relevant_with_index
@@ -73,6 +75,7 @@ def build_execution_system_prompt(
     caller_system_prompt: str | None,
     plan_summary: str,
     keyword_context: str | None,
+    session_files_root: str | None = None,
 ) -> str:
     """按约定拼接执行阶段 system：身份 → 调用方技能/指令 → 任务摘要 → 关键词检索上下文。"""
     parts: list[str] = [agent_identity.strip()]
@@ -81,6 +84,14 @@ def build_execution_system_prompt(
     parts.append(f"当前任务：{plan_summary.strip()}")
     if keyword_context and keyword_context.strip():
         parts.append(keyword_context.strip())
+    root = (session_files_root or "").strip()
+    if root:
+        abs_root = os.path.abspath(root)
+        parts.append(
+            "本回合默认文件根目录："
+            f"{abs_root}。read_file、write_file、list_dir、edit_file 等工具的路径参数若为相对路径，"
+            "均相对于该目录；不要使用 `../` 等方式逃逸到该目录之外。"
+        )
     return "\n\n".join(parts)
 
 
@@ -96,8 +107,8 @@ def _env_phased_execution_enabled() -> bool:
 
 def _tool_intent_in_thinking_enabled() -> bool:
     """是否在工具执行前向 on_thinking 推送 🔧 意图行（与 on_tool_finish 全文块并存时可关闭以减少冗余）。"""
-    v = os.environ.get("MINIAGENT_TOOL_INTENT_IN_THINKING", "1")
-    return str(v).strip().lower() not in ("0", "false", "no")
+    v = os.environ.get("MINIAGENT_TOOL_INTENT_IN_THINKING", "0")
+    return str(v).strip().lower() in ("1", "true", "yes")
 
 
 def _step_max_turns_cap() -> int:
@@ -107,7 +118,16 @@ def _step_max_turns_cap() -> int:
             return max(1, int(raw))
         except ValueError:
             pass
-    return 5
+    # 分步模式下每步内多轮工具调用较多，默认放宽以减少单步截断告警
+    return 48
+
+
+def _thinking_segment_separator() -> str:
+    """同一步内多轮 LLM 思考片段拼接符；默认双换行（飞书友好）。设 MINIAGENT_THINKING_SEGMENT_SEPARATOR 可覆盖，如 ``\\n\\n---\\n\\n``。"""
+    raw = os.environ.get("MINIAGENT_THINKING_SEGMENT_SEPARATOR", "").strip()
+    if raw:
+        return raw.replace("\\n", "\n")
+    return "\n\n"
 
 
 def _resolve_exec_tools(
@@ -136,6 +156,15 @@ def _resolve_exec_tools(
     return effective_registry.get_schemas_by_toolboxes(tbs)
 
 
+def _step_thinking_header(si: int, n_steps: int, step: PlanStep) -> str:
+    """分步执行时用于思考展示/合并的步骤级 header。"""
+    sn = int(step.step_number) if step.step_number is not None else si + 1
+    desc = (step.description or "").strip().replace("\n", " ")
+    if len(desc) > 72:
+        desc = desc[:69] + "…"
+    return f"[步骤 {sn}/{n_steps}] {desc}".strip()
+
+
 def _append_context_or_return(
     context_manager: DefaultContextManager,
     msg: dict[str, Any],
@@ -151,7 +180,7 @@ def _append_context_or_return(
 # ─── 回调类型 ────────────────────────────────────────────
 
 OnToolCall = Callable[[str, str, str], None]  # (name, args_json, result)
-OnThinking = Callable[[str, bool, str], Awaitable[None]]  # (thinking_text, streaming, header)
+OnThinking = Callable[..., Awaitable[None]]  # (text, streaming, header, *, full_record=...)
 # 兼容仅 4 参回调；支持可选关键字 thinking_header（与当前 ReAct 轮标签一致，供飞书合并展示）。
 OnToolFinish = Callable[..., Awaitable[None]]
 
@@ -205,6 +234,7 @@ async def execute_plan(
 
     # ── 执行上下文 ──
     workspace = agent_config.session_workspace or get_default_workspace()
+    mq_abort = (agent_config.feishu_receive_chat_id or "").strip() or None
     ctx = ToolContext(
         cwd=workspace,
         allowed_paths=[workspace],
@@ -213,6 +243,7 @@ async def execute_plan(
         session_key=agent_config.session_key,
         cli_loop_state=agent_config.cli_loop_state,
         cli_dispatch_allow_mutations=agent_config.cli_dispatch_allow_mutations,
+        message_queue_abort_chat_id=mq_abort,
     )
 
     # ── 循环检测器 ──
@@ -247,6 +278,7 @@ async def execute_plan(
             caller_system_prompt=system_prompt,
             plan_summary=plan.summary,
             keyword_context=keyword_context,
+            session_files_root=agent_config.session_workspace,
         )
         if agent_config.risk_level:
             merged_system += f"\n\n（本任务风险等级：{agent_config.risk_level}）"
@@ -259,6 +291,7 @@ async def execute_plan(
             caller_system_prompt=system_prompt,
             plan_summary=plan.summary,
             keyword_context=None,
+            session_files_root=agent_config.session_workspace,
         )
         if agent_config.risk_level:
             merged_system += f"\n\n（本任务风险等级：{agent_config.risk_level}）"
@@ -303,15 +336,28 @@ async def execute_plan(
     llm_client = client if client is not None else get_shared_async_openai()
 
     exec_turn_no = 0
+    _exec_hist_segments: dict[str, list[str]] = {}
+    _phase_header_sent: set[str] = set()
+
+    sep = _thinking_segment_separator()
+
+    def _joined_phase_cumulative(label: str, current_body: str) -> str:
+        prev = [p for p in _exec_hist_segments.get(label, []) if (p or "").strip()]
+        if not prev:
+            return current_body
+        return sep.join(prev + [current_body])
 
     async def _stream_exec_turn(
         merge_overrides: dict[str, Any] | None,
         tools_arg: list[Any],
+        thinking_phase_label: str,
     ) -> tuple[Any, dict[str, Any], int, Any, str, str]:
         nonlocal exec_turn_no
         exec_turn_no += 1
         start_ms = time.monotonic_ns() // 1_000_000
-        messages = context_manager.get_messages()
+        messages = strip_leading_underscore_keys_from_messages(
+            list(context_manager.get_messages())
+        )
         turn_display = exec_turn_no
 
         if agent_config.debug:
@@ -324,14 +370,24 @@ async def execute_plan(
 
         full_content = ""
         full_tool_calls: list[Any] = []
-        turn_label = f"[第 {turn_display} 轮]"
+        thinking_header = thinking_phase_label
         _thinking_started = False
         _tool_call_accum: dict[int, dict[str, str]] = {}
         _usage = None
 
         if on_thinking and not _thinking_started:
             try:
-                await on_thinking(f"{turn_label}", True, turn_label)
+                if thinking_phase_label not in _phase_header_sent:
+                    await invoke_on_thinking(
+                        on_thinking,
+                        thinking_phase_label,
+                        True,
+                        thinking_phase_label,
+                        full_record=_joined_phase_cumulative(
+                            thinking_phase_label, thinking_phase_label
+                        ),
+                    )
+                    _phase_header_sent.add(thinking_phase_label)
                 _thinking_started = True
             except Exception:
                 pass
@@ -363,8 +419,15 @@ async def execute_plan(
             if delta.content:
                 full_content += delta.content
                 if on_thinking:
+                    cum = _joined_phase_cumulative(thinking_phase_label, full_content)
                     try:
-                        await on_thinking(full_content, True, turn_label)
+                        await invoke_on_thinking(
+                            on_thinking,
+                            cum,
+                            True,
+                            thinking_phase_label,
+                            full_record=cum,
+                        )
                     except Exception:
                         pass
             if delta.tool_calls:
@@ -405,8 +468,13 @@ async def execute_plan(
                         intent = _extract_tool_intent(tc.function.name, args_dict)
                     except (json.JSONDecodeError, TypeError):
                         intent = "执行操作"
-                    await on_thinking(
-                        f"🔧 {tc.function.name} — {intent}", False, turn_label
+                    line = f"🔧 {tc.function.name} — {intent}"
+                    await invoke_on_thinking(
+                        on_thinking,
+                        line,
+                        False,
+                        thinking_phase_label,
+                        full_record=line,
                     )
             except Exception:
                 pass
@@ -447,7 +515,9 @@ async def execute_plan(
             thinking=full_content,
             token_usage=_usage.model_dump() if _usage else None,
         )
-        return msg, exec_kw, start_ms, _usage, full_content, turn_label
+        if (full_content or "").strip():
+            _exec_hist_segments.setdefault(thinking_phase_label, []).append(full_content)
+        return msg, exec_kw, start_ms, _usage, full_content, thinking_header
 
     async def _invoke_on_tool_finish(
         name: str,
@@ -629,7 +699,9 @@ async def execute_plan(
     if not use_phased:
         while turns_left > 0:
             turns_left -= 1
-            msg, _exec_kw, start_ms, _usage, _full_content, turn_label = await _stream_exec_turn(None, tools)
+            msg, _exec_kw, start_ms, _usage, _full_content, turn_label = await _stream_exec_turn(
+                None, tools, "[执行]"
+            )
 
             if not msg.tool_calls:
                 final_reply = msg.content or "(空回复)"
@@ -686,6 +758,7 @@ async def execute_plan(
 
         n_steps = len(plan.steps)
         for si, step in enumerate(plan.steps):
+            phase_lbl = _step_thinking_header(si, n_steps, step)
             is_last = si == n_steps - 1
             step_tools = _resolve_exec_tools(effective_registry, agent_config, plan, step)
             context_manager.set_tools(step_tools)
@@ -710,7 +783,9 @@ async def execute_plan(
             while sub_left > 0 and turns_left > 0:
                 turns_left -= 1
                 sub_left -= 1
-                msg, _ek, start_ms, _u, _fc, turn_label = await _stream_exec_turn(step_merge, step_tools)
+                msg, _ek, start_ms, _u, _fc, turn_label = await _stream_exec_turn(
+                    step_merge, step_tools, phase_lbl
+                )
 
                 if not msg.tool_calls:
                     final_reply = msg.content or "(空回复)"
@@ -743,7 +818,9 @@ async def execute_plan(
                     if oob_g:
                         return oob_g
                     turns_left -= 1
-                    msg_g, _, start_ms_g, _, _, _ = await _stream_exec_turn(step_merge, [])
+                    msg_g, _, start_ms_g, _, _, _ = await _stream_exec_turn(
+                        step_merge, [], phase_lbl
+                    )
                     if not msg_g.tool_calls:
                         final_reply = msg_g.content or "(空回复)"
                         oob_txt = await _finish_phased_text_turn(

@@ -11,6 +11,8 @@
 4. 可选 ``MINIAGENT_MCP_STDIO``：stdio MCP 工具（未安装 ``mcp`` 包则打日志跳过）
 5. 合并 ``BUILTIN_TOOLBOXES`` 与技能工具箱；创建 ``SessionManager``；默认会话加锁；
    ``KeywordIndex.prune_expired`` 清理过期索引项
+
+环境与可选组件开关汇总见根目录 ``README``、``.env.example``；架构见 ``docs/ARCHITECTURE.md``。
 """
 
 from __future__ import annotations

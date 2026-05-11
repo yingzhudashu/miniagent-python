@@ -20,10 +20,12 @@ def test_merge_agent_config_cli_loop_fields() -> None:
         {
             "cli_loop_state": state,
             "cli_dispatch_allow_mutations": False,
+            "feishu_receive_chat_id": "oc_x",
         },
     )
     assert merged.cli_loop_state is state
     assert merged.cli_dispatch_allow_mutations is False
+    assert merged.feishu_receive_chat_id == "oc_x"
 
 
 @pytest.mark.asyncio
@@ -66,12 +68,14 @@ async def test_run_dot_command_dispatches_capture_and_allow_flag(
         capture,
         allow_session_mutations_when_capture,
         feishu_user_status,
+        message_queue_abort_chat_id=None,
     ):
         captured["text"] = text
         captured["state"] = state
         captured["capture"] = capture
         captured["allow"] = allow_session_mutations_when_capture
         captured["feishu_user_status"] = feishu_user_status
+        captured["message_queue_abort_chat_id"] = message_queue_abort_chat_id
         return "mocked"
 
     monkeypatch.setattr(
@@ -92,6 +96,7 @@ async def test_run_dot_command_dispatches_capture_and_allow_flag(
         cwd="/tmp",
         cli_loop_state=st,
         cli_dispatch_allow_mutations=False,
+        message_queue_abort_chat_id="oc_tool_room",
     )
     r = await _run_dot_command_handler({"line": "  .status  "}, ctx)
     assert r.success is True
@@ -101,6 +106,7 @@ async def test_run_dot_command_dispatches_capture_and_allow_flag(
     assert captured["capture"] is True
     assert captured["allow"] is False
     assert captured["feishu_user_status"] is None
+    assert captured["message_queue_abort_chat_id"] == "oc_tool_room"
 
 
 @pytest.mark.asyncio

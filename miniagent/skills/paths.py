@@ -2,6 +2,8 @@
 
 旧版若将技能装在仓库根目录 ``skills/``，请整体移动到 ``workspaces/skills/``，
 或设置环境变量 ``MINI_AGENT_SKILLS`` 指向原目录；引擎不会自动合并两处扫描。
+
+用户说明见根目录 ``README``「技能目录迁移」。
 """
 
 from __future__ import annotations

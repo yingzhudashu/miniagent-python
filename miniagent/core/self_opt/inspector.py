@@ -7,6 +7,8 @@
 - 测试覆盖率检查
 - 痛点识别
 - 模块依赖分析
+
+详见 ``docs/SELF_OPT.md``。
 """
 
 from __future__ import annotations

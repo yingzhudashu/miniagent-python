@@ -4,7 +4,9 @@
 - **Agent 层** ``AgentConfig``：``max_turns``、工具超时、上下文压缩阈值、循环检测等。
 
 扁平环境变量优先；``external_config`` 在启动时加载的补丁由 ``get_default_model_config`` 等与 env 合并
-（thinking 以 env 为准覆盖补丁）。``MODEL_PROFILES`` 提供预设别名。"""
+（thinking 以 env 为准覆盖补丁）。``MODEL_PROFILES`` 提供预设别名。
+
+外部 JSON（``MINIAGENT_CONFIG``）写入环境变量的风险见 ``docs/SECURITY.md`` §6。"""
 
 from __future__ import annotations
 
@@ -242,19 +244,22 @@ def get_default_agent_config() -> AgentConfig:
     """获取默认 AgentConfig
 
     支持环境变量覆盖：
-    - AGENT_MAX_TURNS: 最大对话轮数（默认 200）
+    - AGENT_MAX_TURNS: 最大对话轮数（默认 400）
     - AGENT_TOOL_TIMEOUT: 工具超时秒数（默认 60）
     - AGENT_HTTP_TIMEOUT: HTTP 超时秒数（默认 120）
     - AGENT_CONTEXT_RESERVE: 上下文预留比例（默认 0.15）
     - AGENT_CONTEXT_COMPRESS_THRESHOLD: 压缩触发阈值（默认 0.6）
     - AGENT_DEBUG: 调试模式
     - AGENT_LOG_TOKEN_USAGE: 记录 token 使用量
+    - MINI_AGENT_HISTORY_PROGRESSIVE: 磁盘会话渐进压缩 L1–L3（与 ``history_progressive_compression`` 一致）
+    - MINI_AGENT_HISTORY_MAINTENANCE_MAX_ITERS: 每轮用户消息后历史维护循环上限
+    - MINI_AGENT_CONTEXT_TOOL_REDACT: 执行期 ContextManager 是否在摘要前逐条 redact ``tool`` 消息
 
     Returns:
         默认的 Agent 配置对象
     """
     return AgentConfig(
-        max_turns=_env_int("AGENT_MAX_TURNS", 200),
+        max_turns=_env_int("AGENT_MAX_TURNS", 400),
         tool_timeout=_env_int("AGENT_TOOL_TIMEOUT", 60),
         http_timeout=_env_int("AGENT_HTTP_TIMEOUT", 120),
         context_reserve_ratio=_env_float("AGENT_CONTEXT_RESERVE", 0.15),
@@ -272,6 +277,9 @@ def get_default_agent_config() -> AgentConfig:
         log_token_usage=_env_bool("AGENT_LOG_TOKEN_USAGE", True),
         log_file=None,
         loop_detection=dict(DEFAULT_LOOP_DETECTION),
+        history_progressive_compression=_env_bool(
+            "MINI_AGENT_HISTORY_PROGRESSIVE", True
+        ),
     )
 
 
@@ -351,6 +359,8 @@ def merge_agent_config(
         "risk_level": base.risk_level,
         "cli_loop_state": base.cli_loop_state,
         "cli_dispatch_allow_mutations": base.cli_dispatch_allow_mutations,
+        "feishu_receive_chat_id": base.feishu_receive_chat_id,
+        "history_progressive_compression": base.history_progressive_compression,
     }
 
     # 应用覆盖

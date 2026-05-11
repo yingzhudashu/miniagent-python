@@ -1,10 +1,12 @@
-"""多消息队列管理器
+"""多消息队列管理器（CLI / 飞书共享）
 
 支持两种模式：
-- queue: 队列模式（默认），消息逐个按顺序处理，互不影响
-- preemptive: 打断模式，最新消息打断正在处理的任务，队列清空
 
-每个聊天室独立队列，CLI 使用专用 chat_id "__cli__"。
+- **queue**：默认；同一 ``chat_id`` 内消息严格串行，先入先出。
+- **preemptive**：新消息取消当前协程并清空等待队列，适用于「只要最新指令」的交互。
+
+每个聊天室独立一条逻辑队列；CLI 固定使用 ``chat_id="__cli__"``。与引擎主循环的衔接见
+``miniagent.engine.main``；架构背景见 ``docs/ARCHITECTURE.md``（消息队列与双通道）。
 """
 
 from __future__ import annotations
@@ -44,12 +46,14 @@ class _ChatQueue:
         - _queue: 排队等待处理的任务列表（仅队列模式使用）
         - _current_task: 当前正在执行的任务
         - _task_start_time: 当前任务开始时间（用于计算运行时长）
+        - _dispatch_wait_tasks: ``dispatch_wait`` 创建的包装 Task（不在 ``_queue`` 中），供 ``abort_pending`` 一并取消
         """
         self._lock = asyncio.Lock()
         self._processing = False
         self._queue: list[asyncio.Task] = []
         self._current_task: asyncio.Task | None = None
         self._task_start_time: float | None = None
+        self._dispatch_wait_tasks: set[asyncio.Task] = set()
 
     @property
     def pending(self) -> int:
@@ -138,20 +142,99 @@ class _ChatQueue:
             on_start: 开始回调
             on_done: 完成回调
         """
-        async with self._lock:
-            self._processing = True
-            self.mark_task_start()
-            try:
-                if on_start:
-                    on_start()
-                await coro
-                if on_done:
-                    on_done()
-            except asyncio.CancelledError:
-                pass  # 被打断时静默退出
-            finally:
-                self._processing = False
-                self.mark_task_end()
+        user_coro_started = False
+        try:
+            async with self._lock:
+                self._processing = True
+                self.mark_task_start()
+                try:
+                    if on_start:
+                        on_start()
+                    user_coro_started = True
+                    await coro
+                    if on_done:
+                        on_done()
+                except asyncio.CancelledError:
+                    pass  # 被打断时静默退出（与历史行为一致）
+                finally:
+                    self._processing = False
+                    self.mark_task_end()
+        except asyncio.CancelledError:
+            if not user_coro_started and asyncio.iscoroutine(coro):
+                coro.close()
+            raise
+
+    def register_dispatch_wait_task(self, task: asyncio.Task) -> None:
+        """由 ``MessageQueueManager.dispatch_wait``（QUEUE 模式）登记，结束时须 ``unregister_dispatch_wait_task``。"""
+        self._dispatch_wait_tasks.add(task)
+
+    def unregister_dispatch_wait_task(self, task: asyncio.Task) -> None:
+        self._dispatch_wait_tasks.discard(task)
+
+    def abort_pending(self, mode: QueueMode) -> dict[str, Any]:
+        """取消本聊天室队列上的工作：当前执行中的包装任务 + 排队中的任务。
+
+        不退出进程、不注销实例。用于 `.queue abort` / 飞书打断。
+
+        Args:
+            mode: 全局队列模式（PREEMPTIVE 时需取消 ``_current_task``）。
+
+        Returns:
+            ``cancelled_running``：是否取消了正在执行的主任务；
+            ``cancelled_pending``：取消的仅排队（等待锁）的包装任务数；
+            ``cancelled_preemptive_current``：是否取消了 preemptive 路径上的当前任务。
+            ``cancelled_dispatch_wait``：取消的 ``dispatch_wait`` 包装任务数（QUEUE 模式定时任务等）。
+        """
+        cancelled_preemptive_current = False
+        if mode == QueueMode.PREEMPTIVE:
+            for t in list(self._queue):
+                if not t.done():
+                    t.cancel()
+            self._queue.clear()
+            wait_cancelled_pre = 0
+            for t in list(self._dispatch_wait_tasks):
+                if not t.done():
+                    t.cancel()
+                    wait_cancelled_pre += 1
+            self._dispatch_wait_tasks.clear()
+            if self._current_task is not None and not self._current_task.done():
+                self._current_task.cancel()
+                cancelled_preemptive_current = True
+            return {
+                "cancelled_running": cancelled_preemptive_current,
+                "cancelled_pending": 0,
+                "cancelled_preemptive_current": cancelled_preemptive_current,
+                "cancelled_dispatch_wait": wait_cancelled_pre,
+            }
+
+        was_processing = self._processing
+        cancelled_wrappers = 0
+        for t in list(self._queue):
+            if not t.done():
+                t.cancel()
+                cancelled_wrappers += 1
+        self._queue = [t for t in self._queue if not t.done()]
+
+        wait_cancelled = 0
+        for t in list(self._dispatch_wait_tasks):
+            if not t.done():
+                t.cancel()
+                wait_cancelled += 1
+        self._dispatch_wait_tasks = {
+            t for t in self._dispatch_wait_tasks if not t.done()
+        }
+
+        total_wrappers = cancelled_wrappers + wait_cancelled
+        cancelled_running = (
+            1 if (was_processing and total_wrappers >= 1) else 0
+        )
+        cancelled_pending = max(0, total_wrappers - cancelled_running)
+        return {
+            "cancelled_running": bool(cancelled_running),
+            "cancelled_pending": cancelled_pending,
+            "cancelled_preemptive_current": False,
+            "cancelled_dispatch_wait": wait_cancelled,
+        }
 
 
 class MessageQueueManager:
@@ -233,7 +316,11 @@ class MessageQueueManager:
             await q.enqueue(coro, self._mode, on_start, on_done)
             return
         t = asyncio.create_task(q._run_sequential(coro, on_start, on_done))
-        await t
+        q.register_dispatch_wait_task(t)
+        try:
+            await t
+        finally:
+            q.unregister_dispatch_wait_task(t)
 
     async def dispatch_cli(self, coro, on_start=None, on_done=None) -> None:
         """CLI 专用分发（使用内部 chat_id "__cli__"）。
@@ -248,6 +335,24 @@ class MessageQueueManager:
     async def dispatch_cli_wait(self, coro, on_start=None, on_done=None) -> None:
         """CLI 队列上分发并等待 ``coro`` 完成（见 :meth:`dispatch_wait`）。"""
         await self.dispatch_wait(self.CLI_CHAT_ID, coro, on_start, on_done)
+
+    def abort_chat(self, chat_id: str) -> dict[str, Any]:
+        """中止指定 ``chat_id`` 队列：取消运行中与排队中的任务，不退出进程。
+
+        懒创建：若该聊天室尚无队列，返回零计数。
+        """
+        if chat_id not in self._queues:
+            return {
+                "chat_id": chat_id,
+                "cancelled_running": False,
+                "cancelled_pending": 0,
+                "cancelled_preemptive_current": False,
+                "cancelled_dispatch_wait": 0,
+            }
+        q = self._queues[chat_id]
+        out = q.abort_pending(self._mode)
+        out["chat_id"] = chat_id
+        return out
 
     def get_status(self) -> dict[str, Any]:
         """获取所有聊天室的队列状态。

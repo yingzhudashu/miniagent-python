@@ -1,4 +1,7 @@
-"""内置工具箱元数据（供规划阶段与 UI 展示；不依赖技能包目录）。"""
+"""内置工具箱元数据（供规划阶段与 UI 展示；不依赖技能包目录）。
+
+与 ``miniagent.tools.ALL_TOOLS`` 能力对齐；Phase 1 规划器按 toolbox id 筛选 Phase 2 可见工具。
+"""
 
 from __future__ import annotations
 

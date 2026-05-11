@@ -20,6 +20,8 @@
 
 该文件含检索用文本片段，**勿提交**到版本库；根目录 ``.gitignore`` 已默认排除仓库下
 ``workspaces/keyword-index.json``。
+
+Layer 3 检索与注入顺序见 ``docs/MEMORY_SYSTEM.md``。
 """
 
 from __future__ import annotations
