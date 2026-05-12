@@ -7,6 +7,7 @@
 - skills_tools: 技能搜索和安装
 - self_opt_tools: 自我优化工具（可由 MINIAGENT_SELF_OPT_TOOLS=0 在注册阶段跳过）
 - git_readonly_tools: 只读 git status/diff
+- feishu_im_tools: 飞书 IM 工具（发送消息、上传图片/文件等）
 
 另：``session_memory.session_memory_tools`` 在 ``engine.init_subsystems`` 中单独注册，不在 ``ALL_TOOLS`` 字典内。
 

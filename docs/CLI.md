@@ -55,12 +55,6 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 | | `.schedule remove|enable|disable <id>` | 删除 / 启用 / 禁用 |
 | **模型** | `.profile <名称>` | 切换模型预设 |
 | **统计** | `.stats` | 工具调用统计 |
-| **绑定** | `.bind status` | 查看所有通道绑定状态 |
-| | `.bind cli <会话>` | CLI 绑定到指定会话 |
-| | `.bind feishu <sender> <会话>` | 飞书私聊绑定到指定会话 |
-| | `.unbind cli` | 解除 CLI 绑定 |
-| | `.unbind feishu <sender>` | 解除飞书私聊绑定 |
-| | `.unbind all` | 解除所有绑定 |
 | **控制** | `.stop` | 停止当前实例并退出 |
 | **帮助** | `.help` | 显示帮助信息 |
 | | `quit` / `exit` | 退出程序 |

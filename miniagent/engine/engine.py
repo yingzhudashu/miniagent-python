@@ -51,11 +51,11 @@ class UnifiedEngine:
     将用户输入传递给 Agent，管理会话历史和思考显示。
     集成上下文管理、跨会话记忆、活动日志。
 
-    依赖注入：
-    - registry: 工具注册表（运行时注入）
-    - monitor: 性能监控器（运行时注入）
-    - session_manager: 会话管理器（运行时注入）
-    - feishu_config: 飞书配置（运行时注入）
+    运行参数（均通过 :meth:`run_agent_with_thinking` 注入）：
+    - registry: 工具注册表
+    - monitor: 性能监控器
+    - session_manager: 会话管理器（必填）
+    - feishu_config: 飞书配置
     """
 
     def __init__(self) -> None:

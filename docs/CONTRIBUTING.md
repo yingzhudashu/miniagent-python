@@ -4,7 +4,7 @@
 
 ## 项目架构
 
-项目按一级子包划分职责（**12 个核心子包** + **可选 `mcp/`**：stdio MCP 桥接；与 `compat`、根 `__main__` 同属入口周边）：
+项目按一级子包划分职责（**13 个核心子包** + **可选 `mcp/`**：stdio MCP 桥接；与 `compat`、根 `__main__` 同属入口周边）：
 
 | 子包 | 职责 | 关键文件 |
 |------|------|---------|
@@ -18,7 +18,8 @@
 | `skills/` | 可插拔技能系统 | registry.py, loader.py, clawhub_client.py |
 | `tools/` | LLM 可调用的工具 | exec.py, filesystem.py, web.py |
 | `security/` | 沙箱与权限 | sandbox.py |
-| `types/` | 共享类型定义 | agent.py, config.py, tool.py, planning.py |
+| `scheduled_tasks/` | 定时任务：持久化 + 进程内调度 | models.py, store.py, ticker.py, runner.py |
+| `types/` | 共享类型定义 | agent.py, config.py, tool.py, planning.py, memory.py, skill.py |
 | `runtime/` | 进程级组合根 | `context.py`（`RuntimeContext`） |
 | `mcp/` | 可选 stdio MCP → `mcp_*` 工具 | `bridge.py`, `runtime.py`（需 `pip install -e ".[mcp]"`） |
 

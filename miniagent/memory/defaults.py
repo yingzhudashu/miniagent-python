@@ -1,4 +1,4 @@
-"""进程级默认记忆三元组 — 与 ``compat.unified_entry`` 同源构造逻辑。
+"""进程级默认记忆三元组 — 与 ``engine.main.unified_main`` 同源构造逻辑。
 
 语义见 ``docs/MEMORY_SYSTEM.md``（默认路径与 ``MINI_AGENT_STATE``）。
 

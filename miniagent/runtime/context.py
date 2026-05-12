@@ -1,6 +1,6 @@
 """RuntimeContext — 单进程内 Agent 运行所需的组合依赖。
 
-由入口（如 ``compat.unified_entry``）在启动时 **一次性构造**，再经 ``unified_main``、
+由入口（如 ``engine.main.unified_main``）在启动时 **一次性构造**，再经 ``unified_main``、
 CLI 主循环与飞书消息 handler 的闭包向下传递。设计目标：
 
 - **可测试**：单元测试可注入伪造的 registry / engine / memory，无需改动全局单例。

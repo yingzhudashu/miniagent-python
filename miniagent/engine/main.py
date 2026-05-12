@@ -7,7 +7,7 @@
 - 子系统初始化
 - CLI 主循环；可选同进程内启动飞书长轮询（无独立「纯飞书」入口）
 - 优雅关闭（含子进程清理）
-- 集成 process_tracker 孤儿进程清理
+- 子进程清理（``cleanup_all_processes``）
 
 依赖注入：``unified_main`` / ``run_cli_loop`` / 飞书 handler 工厂通过
 :class:`miniagent.runtime.context.RuntimeContext` 获取 registry、monitor、engine 等，
@@ -152,7 +152,7 @@ async def unified_main(ctx: RuntimeContext) -> None:
     Args:
         ctx: 运行时组合根（registry / monitor / skill_registry / clawhub / engine）
     """
-    # MINIAGENT_CONFIG 已在 compat.unified_entry 中加载；勿在此处重复调用以免噪音。
+    # MINIAGENT_CONFIG 已在启动早期加载；勿在此处重复调用以免噪音。
     # 若测试或嵌入场景仅调用 unified_main，需自行先执行 load_external_config_from_env()。
 
     registry = ctx.registry

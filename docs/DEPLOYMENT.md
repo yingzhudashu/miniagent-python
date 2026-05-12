@@ -22,7 +22,7 @@
 ### 1. 克隆项目
 
 ```bash
-git clone https://github.com/your-org/miniagent-python.git
+git clone https://github.com/yingzhudashu/miniagent-python.git
 cd miniagent-python
 ```
 

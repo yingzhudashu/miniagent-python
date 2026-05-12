@@ -2,11 +2,9 @@
 
 提供自我优化能力：
 - self_inspect: 分析当前架构和代码质量
-- external_research: 搜索外部先进架构和论文
-- generate_proposal: 生成优化提案
-- implement_change: 实施代码变更
-- run_tests: 运行测试验证
-- git_snapshot: Git 快照管理
+- generate_proposal: 生成优化提案（含风险评估）
+- run_tests: 运行测试验证变更
+- git_snapshot: Git 快照管理（创建/列出/回滚）
 
 生产环境可通过 ``MINIAGENT_SELF_OPT_TOOLS=0`` 关闭注册；说明见 ``docs/SELF_OPT.md``。
 """

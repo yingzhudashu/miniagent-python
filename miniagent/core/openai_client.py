@@ -1,7 +1,7 @@
 """共享 AsyncOpenAI 客户端 — 进程内惰性单例。
 
 供 ``generate_plan`` / ``execute_plan`` / ``run_agent`` 在调用方未传入 ``client=`` 时回落使用；
-``RuntimeContext.openai_client`` 在 ``compat.unified_entry`` 中通常设为同一实例，保证全链路一致。
+``RuntimeContext.openai_client`` 在 ``engine.main.unified_main`` 中通常设为同一实例，保证全链路一致。
 
 **测试**：调用 ``reset_shared_async_openai_for_tests()`` 可清空缓存，便于注入 stub 或避免用例间泄漏。
 """

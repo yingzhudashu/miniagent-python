@@ -440,4 +440,4 @@ class MessageQueueManager:
         return "\n".join(lines)
 
 
-# MessageQueueManager 由 RuntimeContext.message_queue 持有（见 compat.unified_entry），非模块级单例。
+# MessageQueueManager 由 RuntimeContext.message_queue 持有，非模块级单例。

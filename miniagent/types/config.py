@@ -99,7 +99,7 @@ class AgentConfig:
     3. plan.suggested_config — 规划器推荐
 
     Attributes:
-        max_turns: 最大轮数（ReAct loop 迭代次数，默认 200）
+        max_turns: 最大轮数（ReAct loop 迭代次数，数据类默认 200，运行时由 get_default_agent_config() 返回 400）
         tool_timeout: 工具超时（秒，默认 60）
         http_timeout: HTTP 超时（秒，默认 120）
         context_reserve_ratio: 上下文保留比例（默认 0.15）

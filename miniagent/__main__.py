@@ -11,7 +11,7 @@
     python -m miniagent --stop 1 2   # 停止指定实例 ID（可多个）
 
 架构（组合根）:
-- 进程级依赖由 ``compat.unified_entry`` 注入 ``RuntimeContext``（registry、monitor、engine、队列、路由等）
+- 进程级依赖由 ``engine.main.unified_main`` 构造 ``RuntimeContext``（registry、monitor、engine、队列、路由等）
 - CLI 经 ``run_cli_loop``；飞书经 ``FeishuRuntime`` + ``poll_server``（同进程可插拔）
 - ``UnifiedEngine`` 编排 ``run_agent`` 与思考回调；会话由 ``SessionManager`` 单一数据源
 
@@ -157,7 +157,7 @@ def _run_stop_command() -> int:
 
 
 def main():
-    """统一入口 — 委托 ``compat.unified_entry``。"""
+    """统一入口 — 委托 ``compat.unified_entry`` 构造 RuntimeContext 后启动 ``unified_main``。"""
     _load_env()
 
     if "--stop" in sys.argv:

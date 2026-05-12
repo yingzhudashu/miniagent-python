@@ -4,122 +4,162 @@
 
 ## 概述
 
-Self-Opt 是 Mini Agent 的自优化机制，通过分析和优化提示词来提升 Agent 表现。
+Self-Opt 是 Mini Agent 的自我优化机制，通过对项目代码进行静态分析与结构检查，识别质量问题和痛点，生成可读的优化提案，并在约束下安全地应用变更。
+
+> **不是对话日志分析器。** 本子系统面向**代码质量**（而非运行时对话），与「记忆层」和「活动日志」正交。
 
 ## 模块结构
 
 ```
 miniagent/core/self_opt/
-├── __init__.py          # 包入口
-├── types.py             # 类型定义（SelfOptConfig, AnalysisResult, Proposal）
-├── inspector.py         # 对话分析器（分析 LLM 调用日志）
-├── auto_optimizer.py    # 自动优化器（生成优化方案）
-├── proposal_engine.py   # 提案引擎（评估和应用优化）
-└── git_snapshot.py      # Git 快照（优化前后的版本对比）
+├── __init__.py             # 包入口，导出类型模型
+├── types.py                # 类型定义（InspectionReport, OptimizationProposal 等）
+├── inspector.py            # 代码与结构静态分析
+├── proposal_engine.py      # 生成优化提案
+├── auto_optimizer.py       # 在约束下尝试低风险变更
+└── git_snapshot.py         # 变更前后 Git 快照与回滚
 ```
+
+用户工具接口与注册见 [`miniagent/tools/self_opt.py`](../miniagent/tools/self_opt.py)；
+环境变量 **`MINIAGENT_SELF_OPT_TOOLS=0`** 可关闭工具注册（见 `.env.example`）。
+
+## 类型模型
+
+核心类型由 `miniagent.core.self_opt` 包级导出：
+
+| 类型 | 说明 |
+|------|------|
+| `ModuleAnalysis` | 单模块分析结果（文件数、行数、估算覆盖率、质量指标） |
+| `PainPoint` | 痛点条目（类型、描述、严重度、影响文件） |
+| `InspectionReport` | 完整检查报告（模块分析列表、痛点列表、总体指标） |
+| `FileChange` | 文件级变更（操作类型: add/edit/delete、路径、内容） |
+| `OptimizationProposal` | 优化提案（标题、描述、信心度、文件变更列表、风险等级） |
+| `OptimizationResult` | 优化执行结果（成功/失败、测试摘要） |
+| `CodeQualityMetric` | 质量指标（名称、值） |
+| `OptTestCase` / `OptTestSummary` | 测试用例定义与执行摘要 |
 
 ## 工作流程
 
 ```
-对话日志 → Inspector 分析 → Optimizer 生成方案 → Proposal Engine 评估 → 应用优化
+项目代码 → inspector 静态分析 → InspectionReport
+                                      ↓
+                        proposal_engine 生成提案 → list[OptimizationProposal]
+                                      ↓
+                        auto_optimizer 评估 & 应用 → OptimizationResult
+                                      ↓
+                        git_snapshot 快照 → 可回滚
 ```
 
-### 1. Inspector（分析器）
+### 1. Inspector（代码分析器）
 
-分析历史对话，识别问题模式：
-- 工具调用失败率
-- 重复执行相同操作
-- 回复质量下降
-- 上下文丢失
+对项目进行静态扫描，逐模块分析并识别痛点：
+
+- 文件数 / 行数统计
+- 估算测试覆盖率
+- 模块质量指标（docstring 覆盖率、函数/类密度等）
+- 痛点识别（长文件、低覆盖、无文档等）
 
 ```python
-from miniagent.core.self_opt import Inspector
+from miniagent.core.self_opt import inspect_project
 
-inspector = Inspector()
-result = await ins inspector.analyze(conversation_history)
+report = await inspect_project(root="/path/to/project")
+# report: InspectionReport
+#   - modules: list[ModuleAnalysis]
+#   - pain_points: list[PainPoint]
+#   - metrics: list[CodeQualityMetric]
 ```
 
-### 2. AutoOptimizer（自动优化器）
+### 2. ProposalEngine（提案引擎）
 
-根据分析结果生成优化提案：
-- 提示词调整
-- 工具选择优化
-- 上下文管理改进
+基于痛点生成可读的优化提案：
+
+- 从 `PainPoint` 转换为 `OptimizationProposal`
+- 生成测试相关提案（补充缺失测试）
+- 每个提案含信心度与风险等级
 
 ```python
-from miniagent.core.self_opt import AutoOptimizer
+from miniagent.core.self_opt import generate_proposals
 
-optimizer = AutoOptimizer()
-proposal = await optimizer.generate(analysis_result)
+proposals = await generate_proposals(report, root="/path/to/project")
+# proposals: list[OptimizationProposal]
+#   每个提案含 title、description、confidence、changes、risk_level
 ```
 
-### 3. ProposalEngine（提案引擎）
+### 3. AutoOptimizer（自动优化器）
 
-评估优化方案的可行性，应用最优方案：
-- 评分排序
-- 冲突检测
-- 渐进式应用
+在约束下安全地应用优化提案：
+
+- 逐文件变更（创建/编辑/删除）
+- 应用前后运行验证测试
+- 记录执行结果
 
 ```python
-from miniagent.core.self_opt import ProposalEngine
+from miniagent.core.self_opt import apply_proposal
 
-engine = ProposalEngine()
-await engine.apply(proposal)
+result = await apply_proposal(proposal, root="/path/to/project")
+# result: OptimizationResult
+#   含 success 状态与测试摘要
+```
+
+完整编排（分析 → 提案 → 应用）：
+
+```python
+from miniagent.core.self_opt import run_auto_optimization
+
+result = await run_auto_optimization(
+    root="/path/to/project",
+    auto_apply=False,    # True 时自动应用低风险提案
+    min_confidence=0.5,  # 最低信心度阈值
+)
 ```
 
 ### 4. GitSnapshot（版本快照）
 
-在应用优化前后创建 Git 快照，便于回滚：
-- 优化前快照
-- 优化后快照
-- 差异对比
+在优化前后创建 Git 快照，支持回滚：
 
 ```python
-from miniagent.core.self_opt import GitSnapshot
-
-snapshot = GitSnapshot()
-await snapshot.capture("before_optimization")
-# ... 应用优化 ...
-await snapshot.capture("after_optimization")
-```
-
-## 配置
-
-```python
-from miniagent.core.self_opt import SelfOptConfig
-
-config = SelfOptConfig(
-    analysis_window=50,      # 分析窗口大小（最近 N 条对话）
-    min_confidence=0.7,      # 最低置信度
-    auto_apply=False,        # 是否自动应用（推荐手动确认）
+from miniagent.core.self_opt import (
+    is_in_git_repo,
+    has_uncommitted_changes,
+    create_snapshot,
+    rollback_snapshot,
+    get_recent_commits,
 )
+
+# 检查
+assert is_in_git_repo()
+assert not has_uncommitted_changes()
+
+# 快照
+sha = create_snapshot("before-optimization")
+# ... 应用优化 ...
+# 需要回滚时:
+# rollback_snapshot(sha)
+
+# 查看近期提交
+commits = get_recent_commits(limit=5)
 ```
 
-## 类型定义
+## 工具接口
 
-### AnalysisResult
+Agent 执行阶段可通过以下工具使用 self-opt 能力（注册见 `miniagent/tools/self_opt.py`）：
 
-```python
-@dataclass
-class AnalysisResult:
-    issues: list[Issue]       # 发现的问题
-    metrics: dict[str, float] # 量化指标
-    timestamp: float          # 分析时间
-```
+| 工具 | 说明 |
+|------|------|
+| `self_inspect` | 对项目执行静态分析，返回检查报告 |
+| `generate_proposal` | 基于分析结果生成优化提案 |
+| `run_self_opt_tests` | 运行提案附带的验证测试 |
+| `git_snapshot` | 创建/管理 Git 快照 |
 
-### Proposal
+**安全控制**：生产环境可设置 **`MINIAGENT_SELF_OPT_TOOLS=0`** 关闭全部 self-opt 工具注册。
 
-```python
-@dataclass
-class Proposal:
-    title: str           # 提案标题
-    description: str     # 详细描述
-    confidence: float    # 置信度 (0-1)
-    changes: list[Change] # 具体变更
-    risk_level: str      # 风险等级：low/medium/high
-```
+## 环境变量
 
-## 架构说明
+| 变量 | 作用 |
+|------|------|
+| `MINIAGENT_SELF_OPT_TOOLS` | 默认开启；设为 `0`/`false`/`off` 时不注册 self-opt 工具 |
 
-Self-Opt 模块已补全，包含 5 个文件。
-类型定义在 `miniagent/core/self_opt/types.py`。
+## 相关文档
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) — 系统架构中的 self_opt 位置
+- [CONTRIBUTING.md](CONTRIBUTING.md) — 代码规范与 docstring 约定

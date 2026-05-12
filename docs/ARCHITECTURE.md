@@ -149,8 +149,18 @@ Agent 的大脑，实现两阶段架构。
 |------|------|
 | `poll_server.py` | WebSocket 长轮询：WSClient 单例、内存+磁盘双重去重、消息防抖合并、优雅关闭 |
 | `agent_handler.py` | 消息处理器：`create_feishu_handler()` → 飞书消息 → Agent → 回复 |
+| `agent_channel_prompts.py` | 通道级提示词配置 |
 | `server.py` | HTTP Webhook（备选，需公网 IP） |
 | `types.py` | `FeishuConfig`, `FeishuEvent` 类型定义 |
+| `resource_io.py` | 飞书媒体/资源下载与会话落盘 |
+| `im_send.py` | IM 发送客户端封装 |
+| `im_tool_policy.py` | 内置飞书工具策略 |
+| `lark_response.py` | 飞书响应构建 |
+| `docx_client.py` | 云文档 CRUD 客户端 |
+| `docx_blocks.py` | 云文档块级操作（`document_block_children.create`） |
+| `drive_client.py` | 云盘列举客户端 |
+| `folder_token_resolve.py` | 云盘文件夹 URL / token 解析 |
+| `upload_io.py` | 上传并发 I/O |
 
 ### 5. 记忆层 (Memory)
 
@@ -166,6 +176,7 @@ Agent 的大脑，实现两阶段架构。
 | 管线 | `memory_pipeline.py` | 将记忆/摘要注入对话上下文的管线步骤 |
 | 归档 | `history_archive.py` | 历史归档与裁剪策略 |
 | 桥接 | `history_bridge.py` | 会话历史与记忆层之间的衔接 |
+| 渐进式 | `history_progressive.py` | 渐进式历史披露与按需加载 |
 | 分层视图 | `layered_memory.py` | 多层记忆抽象与组装 |
 | 周期任务 | `dream_scheduler.py` | 轻量后台精炼 / 长时记忆触发的调度 |
 
@@ -200,6 +211,8 @@ LLM 可通过 function calling 调用的工具：
 | `git_readonly.py` | 只读 Git 查询（日志、diff 等） |
 | `session_memory.py` | 会话级记忆辅助工具（由 `engine/init` 注册） |
 | `cli_dispatch_tools.py` | `run_dot_command`：经 [`command_dispatch.dispatch_command`](miniagent/engine/command_dispatch.py) 执行点命令（`capture=True`，与 CLI 同源） |
+| `schedule_tools.py` | `manage_scheduled_task`：定时任务结构化 CRUD |
+| `feishu_im_tools.py` | 可选飞书 IM/云文档工具（需 `pip install -e ".[feishu]"`） |
 
 **run_dot_command 与进程状态**：[`UnifiedEngine.run_agent_with_thinking`](miniagent/engine/engine.py) 将共享 [`CliLoopState`](miniagent/engine/cli_state.py) 写入 `AgentConfig.cli_loop_state`，[`execute_plan`](miniagent/core/executor.py) 再注入 `ToolContext`。飞书入站路径下 `cli_dispatch_allow_mutations=False`，与飞书里直接发 `.session switch` / `create` / `rename` 一致，不得改 CLI 共享的 `active_session_id`。若嵌入代码只调用 [`run_agent`](miniagent/core/agent.py) 而不经 `run_agent_with_thinking`，需在 `agent_config` 中自行传入 `cli_loop_state`（及按需的 `cli_dispatch_allow_mutations`），否则工具会返回不可用说明。注册开关：环境变量 **`MINIAGENT_CLI_DOT_TOOLS`**（默认开启，`0`/`false`/`off` 跳过注册，见 `.env.example`）。
 
@@ -225,6 +238,8 @@ LLM 可通过 function calling 调用的工具：
 | `tracing.py` | 轻量追踪/跨度钩子（与日志配合） |
 | `logger.py` | 日志系统：`append_log()`, `get_logger()` |
 | `loop_detector.py` | 循环检测器：相似度检测、warning/critical 分级 |
+| `process.py` | 进程管理：子进程追踪、孤儿进程清理 |
+| `debug_ndjson.py` | 可选 NDJSON 调试落盘 |
 | `process.py` | 进程管理：子进程追踪、孤儿进程清理 |
 
 ### 10. 安全层 + 类型层
