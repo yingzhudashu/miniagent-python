@@ -5,6 +5,6 @@
 以降低 prompt injection 导致的越权读写的风险。威胁模型与解析规则见 ``sandbox`` 模块文档。
 """
 
-from miniagent.security.sandbox import resolve_sandbox_path, get_default_workspace
+from miniagent.security.sandbox import get_default_workspace, resolve_sandbox_path
 
 __all__ = ["resolve_sandbox_path", "get_default_workspace"]

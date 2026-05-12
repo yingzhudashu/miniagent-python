@@ -23,13 +23,17 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Pytest perf marker
+        env:
+          PYTHONHASHSEED: "0"
         run: python -m pytest tests/test_perf_synthetic.py -q -m perf --tb=short
 
       - name: Tracemalloc profile script
-        run: python scripts/perf_profile_tracemalloc.py --json-out perf-snapshot.json
+        env:
+          PYTHONHASHSEED: "0"
+        run: python scripts/perf_profile_tracemalloc.py --inner-repeat 4 --json-out perf-snapshot.json
 
       - name: Upload perf artifact
         uses: actions/upload-artifact@v4
         with:
-          name: perf-snapshot
+          name: perf-snapshot-${{ github.sha }}
           path: perf-snapshot.json

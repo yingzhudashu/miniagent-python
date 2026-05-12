@@ -25,7 +25,7 @@
 15. [常见问题（FAQ）](#15-常见问题faq)
 16. [安全与隐私清单](#16-安全与隐私清单)
 17. [进阶阅读与开发](#17-进阶阅读与开发)
-18. [文档索引](#18-文档索引)
+18. [文档索引](#18-文档索引)（含 [进阶与维护](#user-guide-sec18-advanced) 专题链）
 
 ---
 
@@ -309,7 +309,9 @@ python -m miniagent --stop
 
 **入站锁**：同一状态根下通常只允许一个进程持有飞书入站连接，避免重复收消息；细节见 [FEISHU.md](FEISHU.md) 与 [SECURITY.md](SECURITY.md)。
 
----
+**可选内置工具**：`.env` 中 `MINIAGENT_FEISHU_TOOLS=1` 时注册发文件、撤回、建文档、读 Markdown、列云盘、追加文档正文等工具；或 **未设置** `MINIAGENT_FEISHU_TOOLS` 且 `MINIAGENT_FEISHU_TOOLS_AUTO=1`（且已配置 `FEISHU_APP_ID`/`SECRET`）时由进程启动阶段自动注册（**不**等待 `.feishu start`；详见 [FEISHU.md](FEISHU.md)）。显式 `MINIAGENT_FEISHU_TOOLS=0`/`false`/`off` 关闭；其它无法识别的取值也关闭。依赖开放平台权限与 [FEISHU.md](FEISHU.md) 自检清单（含 `receive_id_type`、默认 `folder_token`、可选 `FEISHU_DOCX_URL_PREFIX`）。
+
+**工作区路径**：通过飞书发附件时，工具只能访问当前会话 **`files/`** 目录下的相对路径；飞书入站附件保存在 `files/feishu_incoming/`，详见 [FEISHU.md](FEISHU.md)「飞书与会话工作区文件」。
 
 ## 11. 联网搜索与浏览器工具（可选）
 
@@ -388,7 +390,7 @@ python -m miniagent --stop
 - 架构与数据流：[ARCHITECTURE.md](ARCHITECTURE.md)  
 - 部署与运维：[DEPLOYMENT.md](DEPLOYMENT.md)
 
-普通用户日常使用 **读到第 16 章即可**；开发贡献再读 CONTRIBUTING / ENGINEERING。
+普通用户日常使用 **读到第 16 章即可**；开发贡献请读 [CONTRIBUTING.md](CONTRIBUTING.md) / [ENGINEERING.md](ENGINEERING.md)，并见 **第 18 章** [进阶与维护](#user-guide-sec18-advanced) 表（含 PERFORMANCE、EVALUATION_LOCAL 等）。
 
 ---
 
@@ -407,6 +409,20 @@ python -m miniagent --stop
 | [SELF_OPT.md](SELF_OPT.md) | 自我优化 |
 | [CHANNEL_BINDING.md](CHANNEL_BINDING.md) | 通道绑定 |
 | [examples/README.md](examples/README.md) | 脱敏配置示例说明 |
+
+<a id="user-guide-sec18-advanced"></a>
+
+### 进阶与维护（贡献者 / CI）
+
+| 文档 | 适合 |
+|------|------|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | 分层架构与数据流 |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | 开发环境、编码与测试约定 |
+| [ENGINEERING.md](ENGINEERING.md) | 质量门禁、CI、`.gitignore` 与单一事实来源 |
+| [PERFORMANCE.md](PERFORMANCE.md) | 性能合成冒烟、基线与剖析 |
+| [EVALUATION_LOCAL.md](EVALUATION_LOCAL.md) | 可选离线测评与产物勿提交约定 |
+| [CYBERNETICS_PLAN.md](CYBERNETICS_PLAN.md) | 控制论路线规划稿（实验性） |
+| [docstring_inventory.md](docstring_inventory.md) | docstring 缺失扫描（`scripts/docstring_inventory.py`） |
 
 ---
 

@@ -18,18 +18,18 @@ import os
 from typing import Any
 
 from miniagent.core.openai_client import get_shared_async_openai
+from miniagent.infrastructure.logger import append_log, get_logger, truncate
 from miniagent.types.planning import (
-    StructuredPlan,
-    PlanStep,
-    SuggestedConfig,
-    EstimatedTokens,
     ContextStrategy,
     EstimatedCost,
-    OutputSpec,
+    EstimatedTokens,
     FallbackPlan,
+    OutputSpec,
+    PlanStep,
+    StructuredPlan,
+    SuggestedConfig,
 )
 from miniagent.types.tool import Toolbox
-from miniagent.infrastructure.logger import append_log, truncate, get_logger
 
 _logger = get_logger(__name__)
 
@@ -139,6 +139,19 @@ async def generate_plan(
                 "model": planner_kw["model"],
                 "json_object": use_json_object,
             })
+            # #region agent log
+            try:
+                from miniagent.infrastructure.debug_ndjson import agent_debug_log
+
+                agent_debug_log(
+                    hypothesis_id="B",
+                    location="planner.py:generate_plan",
+                    message="before_planner_chat_completions",
+                    data={"attempt": attempt + 1, "model": planner_kw.get("model"), "json_object": use_json_object},
+                )
+            except Exception:
+                pass
+            # #endregion
             try:
                 response = await llm_client.chat.completions.create(**create_args)
             except Exception as api_err:
@@ -184,6 +197,23 @@ async def generate_plan(
             return _dict_to_plan(plan_data, default_step_thinking=default_step_thinking)
 
         except Exception as e:
+            # #region agent log
+            try:
+                from miniagent.infrastructure.debug_ndjson import agent_debug_log
+
+                agent_debug_log(
+                    hypothesis_id="B",
+                    location="planner.py:generate_plan",
+                    message="planner_attempt_failed",
+                    data={
+                        "attempt": attempt + 1,
+                        "exc_type": type(e).__name__,
+                        "exc_msg": str(e)[:400],
+                    },
+                )
+            except Exception:
+                pass
+            # #endregion
             _logger.warning("Planner attempt %d failed: %s", attempt + 1, e)
             if attempt == MAX_RETRIES - 1:
                 return _fallback_plan(user_input)

@@ -11,7 +11,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from miniagent.feishu.poll_server import start_feishu_poll_server
 from miniagent.feishu.types import FeishuConfig
@@ -41,8 +42,8 @@ def create_feishu_server(
     config = FeishuConfig(
         app_id=app_id,
         app_secret=app_secret,
-        verify_token=verify_token,
-        encrypt_key=encrypt_key,
+        verification_token=verify_token or None,
+        encrypt_key=encrypt_key or None,
     )
 
     async def start() -> None:

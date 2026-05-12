@@ -6,16 +6,22 @@
 - 权限级别（ToolPermission）
 - 工具箱（Toolbox）：粗粒度能力分组
 - 上下文管理：Token 估算、上下文压缩
+
+**类型注解注意**：``ToolRegistryProtocol`` 含成员方法 ``list``；在其体内若将返回值写为内建泛型 ``list[T]``，
+mypy 会将 ``list`` 解析为该方法而非类型构造器并报 ``valid-type``。故协议中与 ``list`` 相邻的列表返回
+注解使用 ``typing.List[...]``（或 ``from __future__ import annotations`` 下仍须避免与方法名同形的
+``list[...]`` 出现在该 Protocol 块内）。长期若重命名 API 为 ``list_tool_names`` 等，可再统一改为小写 ``list`` 泛型。
 """
 
 from __future__ import annotations
 
+import builtins
 from abc import abstractmethod
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 
 from openai.types.chat import ChatCompletionMessageParam, ChatCompletionToolParam
-
 
 # ============================================================================
 # 权限与工具箱
@@ -63,6 +69,8 @@ class ToolContext:
         cli_loop_state: 与 unified_main 共享的状态 dict（可选；点命令工具用）
         cli_dispatch_allow_mutations: 是否允许 dispatch 在 capture 下执行会话变异子命令
         message_queue_abort_chat_id: 飞书当前 ``chat_id``；供 ``run_dot_command`` 执行 ``.abort`` 等时传给 ``dispatch_command``
+        feishu_im_receive_id_type: 飞书发消息时的 ``receive_id_type``（``chat_id`` / ``open_id`` / ``union_id``）；缺省由执行器读环境变量
+        feishu_im_receive_id: 当 ``receive_id_type`` 为 ``open_id`` / ``union_id`` 时用于 ``create`` 的默认 ``receive_id``（通常为入站 ``sender_id``）
     """
 
     cwd: str
@@ -73,6 +81,8 @@ class ToolContext:
     cli_loop_state: Any | None = None
     cli_dispatch_allow_mutations: bool = True
     message_queue_abort_chat_id: str | None = None
+    feishu_im_receive_id_type: str | None = None
+    feishu_im_receive_id: str | None = None
 
 
 @dataclass
@@ -156,22 +166,22 @@ class ToolRegistryProtocol(Protocol):
         ...
 
     @abstractmethod
-    def get_schemas(self) -> list[ChatCompletionToolParam]:
+    def get_schemas(self) -> builtins.list[ChatCompletionToolParam]:
         """获取所有工具的 OpenAI schema"""
         ...
 
     @abstractmethod
-    def list(self) -> list[str]:
+    def list(self) -> builtins.list[str]:
         """获取所有工具名称"""
         ...
 
     @abstractmethod
-    def get_schemas_by_toolboxes(self, ids: list[str]) -> list[ChatCompletionToolParam]:
+    def get_schemas_by_toolboxes(self, ids: Sequence[str]) -> builtins.list[ChatCompletionToolParam]:
         """按工具箱筛选，返回 schema 列表"""
         ...
 
     @abstractmethod
-    def get_by_toolboxes(self, ids: list[str]) -> dict[str, RegisteredTool]:
+    def get_by_toolboxes(self, ids: Sequence[str]) -> dict[str, RegisteredTool]:
         """按工具箱筛选，返回完整工具对象"""
         ...
 

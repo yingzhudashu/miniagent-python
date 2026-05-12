@@ -49,7 +49,7 @@ def load_session_longterm(session_key: str) -> dict[str, Any]:
     if not os.path.isfile(path):
         return {"session_key": session_key, "day_entries": []}
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
     except Exception:
         return {"session_key": session_key, "day_entries": []}
@@ -96,7 +96,7 @@ def load_agent_longterm() -> dict[str, Any]:
     if not os.path.isfile(path):
         return {"entries": []}
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
     except Exception:
         return {"entries": []}

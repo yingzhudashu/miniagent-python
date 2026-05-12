@@ -29,9 +29,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from miniagent.infrastructure.logger import get_logger
 from miniagent.types.skill import Skill, SkillPackage
 from miniagent.types.tool import ToolDefinition
-from miniagent.infrastructure.logger import get_logger
 
 _logger = get_logger(__name__)
 

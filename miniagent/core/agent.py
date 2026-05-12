@@ -9,6 +9,8 @@
 ``on_thinking`` / ``on_tool_call`` 等注入，由 :class:`miniagent.engine.engine.UnifiedEngine` 等上层接线。
 规划可见输出合并为 ``[评估与计划]`` 流式段；可选关键字参数 ``full_record`` 由引擎用于会话历史全量落盘（见 ``miniagent.core.thinking_callback.invoke_on_thinking``）。
 
+**轮数上限（与执行器一致）**：全局 ReAct 上限由环境变量 ``AGENT_MAX_TURNS`` 控制（默认见 ``docs/ARCHITECTURE.md``）；分步模式下单步上限为 ``MINIAGENT_STEP_MAX_TURNS``。规划器给出的建议轮数**不会**把上述硬上限压低。
+
 **导出**：``run_agent``、``run_pipeline``、常量 ``PLANNING_STREAM_HEADER``。
 
 设计背景见 ``docs/ARCHITECTURE.md``（两阶段管线）。
@@ -18,21 +20,27 @@ from __future__ import annotations
 
 import json
 import os
-from typing import TYPE_CHECKING, Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from openai import AsyncOpenAI
 
-from miniagent.types.planning import StructuredPlan, SuggestedConfig, EstimatedTokens, ContextStrategy
-from miniagent.types.tool import Toolbox, ToolContext, ToolRegistryProtocol
-from miniagent.types.agent import ToolMonitorProtocol, PipelineStep, PipelineResult
 from miniagent.core.config import get_default_agent_config, merge_agent_config
-from miniagent.core.thinking_presets import map_business_depth
 from miniagent.core.executor import execute_plan
 from miniagent.core.thinking_callback import invoke_on_thinking
+from miniagent.core.thinking_presets import map_business_depth
 from miniagent.infrastructure.logger import get_logger
 from miniagent.infrastructure.monitor import DefaultToolMonitor
 from miniagent.security.sandbox import get_default_workspace
+from miniagent.types.agent import PipelineResult, PipelineStep, ToolMonitorProtocol
+from miniagent.types.planning import (
+    ContextStrategy,
+    EstimatedTokens,
+    StructuredPlan,
+    SuggestedConfig,
+)
+from miniagent.types.tool import Toolbox, ToolContext, ToolRegistryProtocol
 
 _logger = get_logger(__name__)
 
@@ -186,7 +194,7 @@ async def run_agent(
     memory_store: Any | None = None,
     activity_log: Any | None = None,
     keyword_index: Any | None = None,
-    client: "AsyncOpenAI | None" = None,
+    client: AsyncOpenAI | None = None,
 ) -> str:
     """运行 Agent（两阶段模式）。
 

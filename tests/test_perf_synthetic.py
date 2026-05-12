@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tempfile
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -16,7 +17,27 @@ from miniagent.types.config import AgentConfig
 from miniagent.types.memory import MemoryEntryInput, SessionMemory
 from miniagent.types.planning import StructuredPlan
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
-from tests.perf_helpers import median_wall_seconds_async
+from tests.perf_helpers import (
+    assert_two_medians_within_ratio,
+    median_wall_seconds,
+    median_wall_seconds_async,
+    tracemalloc_peak_diff_mb,
+)
+
+
+def _large_tool_schemas(count: int = 40) -> list[dict[str, Any]]:
+    """与 S3/S4 对齐的大型 OpenAI-style tool schema 列表（仅用于 perf 合成）。"""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": f"tool_{i}",
+                "description": "x" * 200,
+                "parameters": {"type": "object", "properties": {f"p{j}": {"type": "string"} for j in range(8)}},
+            },
+        }
+        for i in range(count)
+    ]
 
 
 @pytest.mark.perf
@@ -113,6 +134,10 @@ async def test_s1_execute_plan_mock_median_under_cap() -> None:
         )
         assert "done" in out
 
+    med_a = await median_wall_seconds_async(3, _once)
+    med_b = await median_wall_seconds_async(3, _once)
+    assert_two_medians_within_ratio(med_a, med_b, msg="S1 run-to-run median jitter")
+
     med = await median_wall_seconds_async(5, _once)
     assert med < 5.0, f"S1 median wall too high: {med:.3f}s"
 
@@ -172,17 +197,7 @@ def test_s3_context_manager_estimate_bounded() -> None:
 
     from miniagent.memory.context import DefaultContextManager
 
-    tools = [
-        {
-            "type": "function",
-            "function": {
-                "name": f"tool_{i}",
-                "description": "x" * 200,
-                "parameters": {"type": "object", "properties": {f"p{j}": {"type": "string"} for j in range(8)}},
-            },
-        }
-        for i in range(40)
-    ]
+    tools = _large_tool_schemas(40)
 
     cm = DefaultContextManager(
         context_window=128000,
@@ -196,3 +211,106 @@ def test_s3_context_manager_estimate_bounded() -> None:
     _ = cm.get_token_report()
     elapsed = time.perf_counter() - t0
     assert elapsed < 3.0, f"S3 estimate too slow: {elapsed:.3f}s"
+
+
+@pytest.mark.perf
+def test_s4_tool_budget_burst_median_under_cap() -> None:
+    """S4：多工具下反复取 token 报告（依赖工具 token 缓存，防 needs_compression 路径退化）。"""
+    from miniagent.memory.context import DefaultContextManager
+
+    tools = _large_tool_schemas(40)
+    cm = DefaultContextManager(
+        context_window=128000,
+        compress_threshold=0.99,
+        tools=tools,
+        overflow_strategy="summarize",
+    )
+    cm.init("system " * 100, "hello " * 400)
+
+    def burst() -> None:
+        for _ in range(250):
+            _ = cm.get_token_report()
+
+    med = median_wall_seconds(5, burst)
+    assert med < 10.0, f"S4 budget burst too slow: {med:.3f}s"
+
+
+@pytest.mark.perf
+def test_s5_normalize_lark_md_median_under_cap() -> None:
+    """S5：飞书 lark_md 规范化纯 CPU 路径（不访问网络；与 poll_server 热点对照）。"""
+    from miniagent.feishu.poll_server import _normalize_lark_md
+
+    lines: list[str] = []
+    for i in range(450):
+        lines.extend(["**bold**", "a * b", "---", f"段落{i} 测试"])
+    body = "\n\n".join(lines)
+
+    def once() -> None:
+        _normalize_lark_md(body)
+
+    med = median_wall_seconds(5, once)
+    assert med < 8.0, f"S5 normalize_lark_md too slow: {med:.3f}s"
+
+
+@pytest.mark.perf
+def test_s6_memory_store_batch_tracemalloc_peak_loose() -> None:
+    """S6：批量 add_entry + flush 的分配峰值（宽松上界，防灾难性分配回归）。"""
+    import asyncio
+    from datetime import datetime, timezone
+
+    from miniagent.memory.keyword_index import KeywordIndex
+    from miniagent.memory.store import DefaultMemoryStore
+    from miniagent.types.memory import MemoryEntryInput, SessionMemory
+
+    def run() -> None:
+        async def body() -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                ki = KeywordIndex(state_dir=tmp)
+                store = DefaultMemoryStore(state_dir=tmp, keyword_index=ki)
+                sid = "s6-perf"
+                now = datetime.now(timezone.utc).isoformat()
+                mem = SessionMemory(
+                    session_id=sid,
+                    cumulative_summary="",
+                    key_facts=[],
+                    entries=[],
+                    total_turns=0,
+                    first_seen=now,
+                    last_active=now,
+                )
+                await store.save(mem)
+                for i in range(25):
+                    await store.add_entry(
+                        sid,
+                        MemoryEntryInput(
+                            timestamp=now,
+                            user_snippet=f"用户片段{i} 关键词测试",
+                            summary=f"摘要{i}",
+                            facts=[f"事实{i}"],
+                        ),
+                    )
+                store.flush_keyword_index()
+
+        asyncio.run(body())
+
+    peak_mb = tracemalloc_peak_diff_mb(run)
+    assert peak_mb < 180.0, f"S6 tracemalloc peak too high: {peak_mb:.1f} MiB"
+
+
+@pytest.mark.perf
+def test_s7_exec_payload_json_serialize_median_under_cap() -> None:
+    """S7：messages + tools 的 json.dumps 本地耗时上界（与 execute_plan 组装路径对齐）。"""
+    from miniagent.core.request_payload import serialize_exec_payload_sample
+
+    tools = _large_tool_schemas(28)
+
+    def once() -> None:
+        ml, tl = serialize_exec_payload_sample(tools, user_turn_pairs=6)
+        assert ml > 1000 and tl > 500
+
+    med_a = median_wall_seconds(3, once)
+    med_b = median_wall_seconds(3, once)
+    assert_two_medians_within_ratio(med_a, med_b, msg="S7 run-to-run median jitter")
+
+    med = median_wall_seconds(5, once)
+    assert med < 4.0, f"S7 serialize_exec_payload_sample too slow: {med:.3f}s"

@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlparse
 
-from miniagent.types.tool import ToolDefinition, ToolContext, ToolResult
+from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 TAVILY_SEARCH_URL = "https://api.tavily.com/search"
 

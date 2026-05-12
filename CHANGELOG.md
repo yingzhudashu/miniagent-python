@@ -5,10 +5,14 @@
 ### Performance
 
 - **关键词索引**：`KeywordIndex` 引入 `_dirty`，仅在变更后写盘；`DefaultMemoryStore.add_entry` 不再每次 `save()`，由 `flush_keyword_index()` 与 `executor` 会话记忆保存路径、进程 `atexit` 触发落盘，减少重复整文件重写；批量多次 `add_entry` 后单次 flush 可合并写盘。
-- **文档与工具**：新增 [docs/PERFORMANCE.md](docs/PERFORMANCE.md)、`tests/perf_helpers.py`、`tests/test_perf_synthetic.py`、`tests/perf_baselines/example.json`、`scripts/perf_profile_tracemalloc.py`；`pyproject.toml` 增加 `perf` pytest marker；根目录 `.gitignore` 忽略 `perf-snapshot.json`（剖析脚本 `--json-out` 默认文件名）。
+- **上下文**：`DefaultContextManager` 对工具 schema 的 token 估算结果做缓存（`set_tools` 时失效），减少 `needs_compression` / `get_token_report` 热路径上重复的 `json.dumps`。
+- **文档 / 剖析与合成 perf**：[docs/PERFORMANCE.md](docs/PERFORMANCE.md)、`tests/perf_helpers.py`、`tests/test_perf_synthetic.py`、`tests/perf_baselines/example.json`、`scripts/perf_profile_tracemalloc.py`（`--inner-repeat`）、`scripts/compare_perf_snapshots.py`（根对象校验、`inner_repeat` 不一致 WARN）；`pyproject.toml` 的 `perf` marker；L1 含 S4–S6 及 S7 backlog 说明；`.gitignore` 忽略 `perf-snapshot.json` 与 `perf.out`；Perf smoke 上传带 `${{ github.sha }}` 的 artifact，剖析步骤使用 `--inner-repeat 4`。
 
 ### Changed
 
+- **飞书云文档 / 云盘**：`feishu_create_document` 与 `feishu_list_drive_files` 共用父目录解析：支持在 `folder_token` 中传入**云盘文件夹分享 URL**（解析 `folder/...` 或查询参数 `folder_token`）；列举工具 `folder_token` 可与创建一样省略（回退环境变量）；可选 `FEISHU_DOC_FOLDER_FALLBACK_ROOT_META=1` 时调用根文件夹元数据 API（`drive_client.get_root_folder_meta`，默认关闭）。详见 [FEISHU.md](docs/FEISHU.md)、[.env.example](.env.example)。
+- **飞书（复查）**：`run_agent_with_thinking` 合并飞书通道 system 提示时，按与执行器相同的 **effective_registry**（`session_registry` 优先）判断是否已注册 `feishu_*`；`MINIAGENT_FEISHU_TOOLS` 为非认可取值时不再落入 AUTO；[FEISHU.md](docs/FEISHU.md) / [.env.example](.env.example) 写明 `MINIAGENT_FEISHU_TOOLS_AUTO` 在进程 init 即注册、不等待 WebSocket；[README](README.md) 飞书索引补充 AUTO 与 `FEISHU_DOCX_URL_PREFIX`。
+- **飞书**：`MINIAGENT_FEISHU_RECEIVE_ID_TYPE` / 入站注入的 `feishu_im_receive_id`（发送者 open_id）与内置工具 `feishu_send_workspace_file` 默认 `receive_id` 对齐；`poll_server` 在 interactive/text 发送失败时记录开放平台错误摘要；[FEISHU.md](docs/FEISHU.md) 标明 docx 为 `block_children.create` 而非 `batch_update`；[README](README.md) / [USER_GUIDE](docs/USER_GUIDE.md) 增加飞书工具索引；合并 Unreleased 飞书变更条目。
 - **CLI 思考**：`ThinkingDisplay` 在 `merge_tools` 后保留流式步骤与已打印长度，与同 `thinking_header` 的飞书单卡对齐；流式阶段 `header` 变更时**无飞书**也会重置流式状态（原逻辑仅在启用飞书时清空）。
 - **CLI / 飞书展示（跟进）**：移除未再使用的 `stream_first_body_chunk`；**思考卡与 CLI transcript 顶格输出**（不再对段落首行、列表行或 User/Assistant/思考区正文统一加空格缩进）；`finalize_feishu_thinking_stream` 分片后对各 chunk 跳过第二次 `_normalize_lark_md`（正文已在 `_prepare_thinking_body_for_card` 中规范化）。
 - **执行轮数默认**：`AGENT_MAX_TURNS` 默认 400；`MINIAGENT_STEP_MAX_TURNS` 未设置时默认 48；同一步内思考片段默认以双换行拼接（`MINIAGENT_THINKING_SEGMENT_SEPARATOR` 可覆盖）。
@@ -18,12 +22,15 @@
 
 ### Documentation
 
-- **CONTRIBUTING / ENGINEERING**：新增「文档字符串（docstring）规范」与模板、可选清单脚本说明；ENGINEERING §5 增补大批量改 docstring 后的 ruff/spot-check 项；新增 [docstring_inventory.md](docs/docstring_inventory.md)（由 `scripts/docstring_inventory.py` 生成）。
-- **跟进**：澄清清单脚本对 magic method / ``__init__`` 的规则与 CONTRIBUTING 表格对齐；报告空结果时明示「无缺失项」；ENGINEERING「可选增强」补充渐进 mypy；README 说明用例数以 ``pytest --collect-only`` 为准；新增 ``tests/test_docstring_inventory.py``。
-- **ARCHITECTURE / USER_GUIDE / MEMORY_SYSTEM / README / CLI / FEISHU / INDEX**：与上述默认值及终端 Markdown、飞书表降级、v2 备忘链接对齐；`.env.example` 补充相关变量说明。
-- **FEISHU / `.env.example`**：`MINIAGENT_FEISHU_REPLY_PLAIN` 与思考卡累积正文受 `MINI_AGENT_FEISHU_CARD_BODY_MAX` 截断的行为写清（仍为 interactive `lark_md`；完整内容见 history）。
-- **[USER_GUIDE.md](docs/USER_GUIDE.md)**：新增零基础全项目使用指南（安装、`.env`、启动、点命令摘要、飞书/搜索/技能/MCP 可选章节、FAQ、安全清单）；[README.md](README.md) 与 [INDEX.md](docs/INDEX.md) 增加入口。
-- **[DEPLOYMENT.md](docs/DEPLOYMENT.md)**：在「状态目录与多实例注册」后补充会话落盘与 `MINIAGENT_CONFIG` 风险指引，链至 [SECURITY.md](docs/SECURITY.md)。
+- **[INDEX.md](docs/INDEX.md) / [ENGINEERING.md](docs/ENGINEERING.md) / [README.md](README.md)**：权威目录树与 `miniagent/` 同步（含 `memory/history_progressive.py`）；§1 依赖 SSOT 表补充 `typing`（mypy 试点）及 `dev` 内含 `pytest-cov`；开发安装注释指向 ENGINEERING §2 覆盖率示例命令。
+- **`miniagent/types/tool.py`**：模块 docstring 说明 `ToolRegistryProtocol.list` 与内建 `list[...]` 泛型注解的 mypy 冲突及 `typing.List` 用法。
+- **[CONTRIBUTING.md](docs/CONTRIBUTING.md)**：提交前仓库卫生、`git clean -fdX` 与误删 `.env` 风险；§3.1 与 ENGINEERING 交叉引用；docstring 规范与 `scripts/docstring_inventory.py` / [docstring_inventory.md](docs/docstring_inventory.md)（magic、`__init__`、空清单语义）。
+- **ENGINEERING / CI / 工具脚本**：§2 本地命令块与 `test` job 对齐（含 `mypy`）；[`.pre-commit-config.yaml`](.pre-commit-config.yaml) 可选 ruff hook；`docstring_inventory.py` 控制台 UTF-8 重定向。
+- **跟进**：ENGINEERING §5 大批量改 docstring 后的 ruff/spot-check；README 用例数以 ``pytest --collect-only`` 为准；新增 ``tests/test_docstring_inventory.py``。
+- **专题对齐**：[ARCHITECTURE.md](docs/ARCHITECTURE.md) / [USER_GUIDE.md](docs/USER_GUIDE.md) / [MEMORY_SYSTEM.md](docs/MEMORY_SYSTEM.md) / [CLI.md](docs/CLI.md) / [FEISHU.md](docs/FEISHU.md) 等与默认轮数、终端 Markdown、飞书表降级、v2 备忘及 `.env.example` 变量说明对齐。
+- **[FEISHU.md](docs/FEISHU.md) / `.env.example`**：`MINIAGENT_FEISHU_REPLY_PLAIN` 与思考卡正文受 `MINI_AGENT_FEISHU_CARD_BODY_MAX` 截断行为说明。
+- **[USER_GUIDE.md](docs/USER_GUIDE.md)**：零基础使用指南（安装、启动、点命令、飞书/搜索/技能/MCP、FAQ、安全）。
+- **[DEPLOYMENT.md](docs/DEPLOYMENT.md)**：状态目录与多实例注册后补充会话落盘与 `MINIAGENT_CONFIG` 风险指引，链至 [SECURITY.md](docs/SECURITY.md)。
 
 ### Security
 
@@ -31,6 +38,7 @@
 
 ### Engineering
 
+- **Ruff / 类型 / 覆盖率**：`pyproject.toml` 启用 `[tool.ruff.lint]`（`E4`、`E7`、`E9`、`F`、`I`、`UP`；`E402` 忽略）；`dev` 依赖增加 `pytest-cov`；可选 extra `typing`（`mypy`）与 `[tool.mypy]` 试点配置；`miniagent.types.tool.ToolRegistryProtocol` 内与方法名 ``list`` 冲突的 ``list[...]`` 标注改为 ``List[...]`` 以通过 `mypy miniagent/types`；CI `test` job 安装 `.[dev,typing]` 并跑 `mypy miniagent/types`。
 - **`.gitignore`**：默认忽略 `workspaces/memory/`、`workspaces/keyword-index.json`、`workspaces/perf*.jsonl`、`workspaces/feishu_inbound_owner.json`、`workspaces/feishu/`。
 - **文档**：[ENGINEERING.md](docs/ENGINEERING.md) §3.1 / §4、[INDEX.md](docs/INDEX.md)「workspaces 与 Git」段落与上述策略一致；[CONTRIBUTING.md](docs/CONTRIBUTING.md) 子包数量表述与目录表一致。
 - **注释**：充实 `core`（`agent` / `planner` / `executor`）、`runtime`（`context` / `external_config`）、`engine`（`engine` / `init`）、`compat`、`feishu` 包等模块级说明；`executor` 模块说明中 `ContextBudgetExceeded` 改为全限定类引用；`keyword_index` 模块说明补充勿提交索引文件。

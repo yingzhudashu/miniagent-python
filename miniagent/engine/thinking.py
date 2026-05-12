@@ -19,7 +19,8 @@ import os
 import re
 import shutil
 import sys
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.shortcuts import print_formatted_text
@@ -114,6 +115,7 @@ OnFeishuSend = Callable[..., Awaitable[None]]
 class _SessionThinkingState:
     """单个会话的思考状态（内部使用）。"""
     __slots__ = ("step_counter", "buffer", "feishu_send", "feishu_chat_id",
+                 "feishu_reply_to_message_id", "feishu_reply_in_thread",
                  "stream_step", "stream_header", "stream_done", "stream_printed",
                  "feishu_thinking_message_id", "feishu_stream_accumulated",
                  "feishu_last_patch_monotonic", "feishu_last_patched_char_len", "feishu_patch_budget",
@@ -123,6 +125,8 @@ class _SessionThinkingState:
     buffer: list[str]
     feishu_send: OnFeishuSend | None
     feishu_chat_id: str
+    feishu_reply_to_message_id: str | None
+    feishu_reply_in_thread: bool
     stream_step: int | None
     stream_header: str
     stream_done: bool
@@ -140,6 +144,8 @@ class _SessionThinkingState:
         self.buffer = []
         self.feishu_send = None
         self.feishu_chat_id = ""
+        self.feishu_reply_to_message_id = None
+        self.feishu_reply_in_thread = False
         self.stream_step = None
         self.stream_header = ""
         self.stream_done = False
@@ -246,6 +252,8 @@ class ThinkingDisplay:
         state.buffer.clear()
         state.feishu_send = None
         state.feishu_chat_id = ""
+        state.feishu_reply_to_message_id = None
+        state.feishu_reply_in_thread = False
         state.stream_step = None
         state.stream_header = ""
         state.stream_done = False
@@ -261,11 +269,24 @@ class ThinkingDisplay:
         """返回会话级思考状态（供引擎 finalize 飞书流式卡片）。"""
         return self._get_state(session_key)
 
-    def enable_feishu(self, session_key: str, chat_id: str, send_callback: OnFeishuSend) -> None:
-        """为会话注册飞书 chat_id 与发送协程，用于思考卡片 PATCH。"""
+    def enable_feishu(
+        self,
+        session_key: str,
+        chat_id: str,
+        send_callback: OnFeishuSend,
+        *,
+        reply_to_message_id: str | None = None,
+        reply_in_thread: bool = False,
+    ) -> None:
+        """为会话注册飞书 chat_id 与发送协程，用于思考卡片 PATCH。
+
+        ``reply_to_message_id`` 非空时，首张思考卡可走「回复消息」API（见 ``MINIAGENT_FEISHU_REPLY_TARGET``）。
+        """
         state = self._get_state(session_key)
         state.feishu_chat_id = chat_id
         state.feishu_send = send_callback
+        state.feishu_reply_to_message_id = (reply_to_message_id or "").strip() or None
+        state.feishu_reply_in_thread = bool(reply_in_thread)
 
     def enable_buffer(self) -> None:
         """打开默认桶缓冲（不落盘终端），用于仅需收集思考文本的场景。"""
@@ -280,11 +301,15 @@ class ThinkingDisplay:
             state.buffer.clear()
             state.feishu_send = None
             state.feishu_chat_id = ""
+            state.feishu_reply_to_message_id = None
+            state.feishu_reply_in_thread = False
         else:
             self._buffer_enabled = False
             self._default.buffer.clear()
             self._default.feishu_send = None
             self._default.feishu_chat_id = ""
+            self._default.feishu_reply_to_message_id = None
+            self._default.feishu_reply_in_thread = False
 
     def get_buffered(self, session_key: str = "") -> str:
         """返回缓冲中的思考行拼接文本（换行连接）。"""

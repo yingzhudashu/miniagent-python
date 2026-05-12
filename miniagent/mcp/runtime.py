@@ -46,8 +46,9 @@ async def register_mcp_stdio_tools(
     from miniagent.types.tool import ToolDefinition, ToolResult
 
     try:
-        from mcp import ClientSession, StdioServerParameters
         from mcp.client.stdio import stdio_client
+
+        from mcp import ClientSession, StdioServerParameters
     except ImportError as e:
         raise RuntimeError("未安装 mcp 包: pip install miniagent-python[mcp]") from e
 

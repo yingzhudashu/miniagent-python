@@ -53,7 +53,10 @@ def _maintenance_max_iters() -> int:
 
 def _over_archive_limits(history: list[dict[str, Any]]) -> bool:
     """是否应触发 L4 归档路径（条数或 token 提示超阈值）。"""
-    from miniagent.memory.history_archive import history_archive_max_messages, history_archive_token_hint
+    from miniagent.memory.history_archive import (
+        history_archive_max_messages,
+        history_archive_token_hint,
+    )
 
     if len(history) > history_archive_max_messages():
         return True

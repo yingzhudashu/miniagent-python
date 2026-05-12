@@ -19,14 +19,15 @@ ALL_TOOLS 汇总上述内置工具子集；启动时由 ``register_builtin_tools
 沙箱与命令策略见 ``docs/SECURITY.md``；可选依赖与 Key 见根目录 ``README``。
 """
 
-from miniagent.tools.filesystem import filesystem_tools
-from miniagent.tools.exec import exec_tools
-from miniagent.tools.web import web_tools
-from miniagent.tools.skills import skills_tools
-from miniagent.tools.self_opt import self_opt_tools
-from miniagent.tools.git_readonly import git_readonly_tools
 from miniagent.tools.cli_dispatch_tools import cli_dispatch_tools
+from miniagent.tools.exec import exec_tools
+from miniagent.tools.feishu_im_tools import feishu_im_tools
+from miniagent.tools.filesystem import filesystem_tools
+from miniagent.tools.git_readonly import git_readonly_tools
 from miniagent.tools.schedule_tools import schedule_tools
+from miniagent.tools.self_opt import self_opt_tools
+from miniagent.tools.skills import skills_tools
+from miniagent.tools.web import web_tools
 
 # 汇总所有内置工具
 ALL_TOOLS = {
@@ -38,6 +39,7 @@ ALL_TOOLS = {
     **git_readonly_tools,
     **cli_dispatch_tools,
     **schedule_tools,
+    **feishu_im_tools,
 }
 
 __all__ = [
@@ -49,5 +51,6 @@ __all__ = [
     "git_readonly_tools",
     "cli_dispatch_tools",
     "schedule_tools",
+    "feishu_im_tools",
     "ALL_TOOLS",
 ]

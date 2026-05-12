@@ -15,7 +15,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-
 # ─── 检查相关类型 ─────────────────────────────────────────
 
 

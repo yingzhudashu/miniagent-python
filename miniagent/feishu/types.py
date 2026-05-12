@@ -31,6 +31,20 @@ class FeishuConfig:
 
 
 @dataclass
+class FeishuInboundText:
+    """飞书入站文本（及线程元数据），供 ``poll_server`` → Agent handler 使用。"""
+
+    text: str
+    chat_id: str
+    sender_id: str
+    chat_type: str
+    message_id: str = ""
+    root_id: str | None = None
+    parent_id: str | None = None
+    thread_id: str | None = None
+
+
+@dataclass
 class FeishuMessageEvent:
     """飞书消息事件
 
@@ -66,4 +80,4 @@ class FeishuReply:
     receive_id_type: str = "chat_id"
 
 
-__all__ = ["FeishuConfig", "FeishuMessageEvent", "FeishuReply"]
+__all__ = ["FeishuConfig", "FeishuInboundText", "FeishuMessageEvent", "FeishuReply"]

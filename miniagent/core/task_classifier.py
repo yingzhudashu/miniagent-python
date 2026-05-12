@@ -119,6 +119,19 @@ async def classify_task_difficulty(
                 create_args: dict[str, Any] = {**kw, "messages": messages}  # type: ignore[typeddict-item]
                 if use_json_object:
                     create_args["response_format"] = {"type": "json_object"}
+                # #region agent log
+                try:
+                    from miniagent.infrastructure.debug_ndjson import agent_debug_log
+
+                    agent_debug_log(
+                        hypothesis_id="B",
+                        location="task_classifier.py:classify_task_difficulty",
+                        message="before_chat_completions",
+                        data={"attempt": _attempt, "model": kw.get("model"), "json_object": use_json_object},
+                    )
+                except Exception:
+                    pass
+                # #endregion
                 resp = await llm.chat.completions.create(**create_args)
                 break
             except Exception as api_err:
@@ -145,6 +158,19 @@ async def classify_task_difficulty(
         if d in ("复杂",):
             return TaskDifficulty.COMPLEX
     except Exception as e:
+        # #region agent log
+        try:
+            from miniagent.infrastructure.debug_ndjson import agent_debug_log
+
+            agent_debug_log(
+                hypothesis_id="B",
+                location="task_classifier.py:classify_task_difficulty",
+                message="classifier_failed",
+                data={"exc_type": type(e).__name__, "exc_msg": str(e)[:400]},
+            )
+        except Exception:
+            pass
+        # #endregion
         _logger.warning("任务难度分类失败，降级为 normal: %s", e)
     return TaskDifficulty.NORMAL
 

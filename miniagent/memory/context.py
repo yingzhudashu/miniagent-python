@@ -24,9 +24,9 @@ from openai.types.chat import (
     ChatCompletionToolParam,
 )
 
-from miniagent.types.tool import ContextManagerProtocol, ContextState, TokenEstimate
-from miniagent.types.memory import SessionMemory
 from miniagent.memory.store import format_memory_for_prompt
+from miniagent.types.memory import SessionMemory
+from miniagent.types.tool import ContextManagerProtocol, ContextState, TokenEstimate
 
 
 class ContextBudgetExceeded(RuntimeError):
@@ -104,6 +104,9 @@ class DefaultContextManager(ContextManagerProtocol):
 
     管理 LLM 对话的上下文消息列表，提供 token 估算、上下文压缩、记忆注入。
 
+    工具 schema 的 token 估算带缓存：若运行时修改可见工具列表或其内容，请通过
+    ``set_tools`` 更新，勿仅原地修改内部列表后仍期望预算立即刷新。
+
     Example:
         cm = DefaultContextManager(
             context_window=128000,
@@ -140,6 +143,9 @@ class DefaultContextManager(ContextManagerProtocol):
         self._overflow_strategy = overflow_strategy
         self._compressed = False
         self._total_tokens_estimate = 0
+        # 工具 schema 不变时缓存其 token 估算，避免 needs_compression / get_token_report 反复 json.dumps
+        self._cached_tool_tokens: int = 0
+        self._tool_tokens_dirty = True
 
     def try_redact_oldest_tool_message_once(self) -> bool:
         """将列表中最早一条 ``role=tool`` 的正文替换为短占位（幂等），不删消息。"""
@@ -160,6 +166,7 @@ class DefaultContextManager(ContextManagerProtocol):
     def set_tools(self, tools: list[ChatCompletionToolParam] | None) -> None:
         """运行时替换工具 schema 列表（用于分步执行时按步骤切换可见工具）。"""
         self._tools = tools or []
+        self._tool_tokens_dirty = True
         self._recalculate_tokens()
 
     def get_state(self) -> ContextState:
@@ -342,13 +349,20 @@ class DefaultContextManager(ContextManagerProtocol):
     # 内部方法
     # -----------------------------------------------------------------------
 
+    def _get_tool_tokens_estimate(self) -> int:
+        """工具 schema 的 token 估算（带缓存，失效于 ``set_tools`` / 构造后首次替换工具）。"""
+        if self._tool_tokens_dirty:
+            self._cached_tool_tokens = estimate_tool_tokens(self._tools)
+            self._tool_tokens_dirty = False
+        return self._cached_tool_tokens
+
     def _get_available_budget(self) -> int:
         """获取可用于对话历史的 token 预算
 
         Returns:
             可用 token 预算
         """
-        tool_tokens = estimate_tool_tokens(self._tools)
+        tool_tokens = self._get_tool_tokens_estimate()
         system_tokens = estimate_tokens(self._system_prompt)
         # 预留 10% 给输出
         output_reserve = int(self._context_window * 0.1)

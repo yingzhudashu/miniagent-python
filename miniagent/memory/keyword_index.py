@@ -33,8 +33,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from miniagent.types.memory import MemoryEntry, MemoryEntryInput
 from miniagent.infrastructure.logger import get_logger
+from miniagent.types.memory import MemoryEntry, MemoryEntryInput
 
 _logger = get_logger(__name__)
 
@@ -179,7 +179,7 @@ class KeywordIndex:
                 self._loaded = True
                 return
 
-            with open(self._index_file, "r", encoding="utf-8") as f:
+            with open(self._index_file, encoding="utf-8") as f:
                 disk = json.load(f)
 
             self._index.clear()

@@ -232,7 +232,7 @@ class InstanceRegistry:
                 continue
 
             try:
-                with open(meta_file, "r", encoding="utf-8") as f:
+                with open(meta_file, encoding="utf-8") as f:
                     meta = json.load(f)
 
                 is_alive = self._is_pid_alive(meta)
@@ -276,7 +276,7 @@ class InstanceRegistry:
             return {"success": False, "reason": f"实例 #{instance_id} 不存在"}
 
         try:
-            with open(meta_file, "r", encoding="utf-8") as f:
+            with open(meta_file, encoding="utf-8") as f:
                 meta = json.load(f)
         except Exception as e:
             return {"success": False, "reason": f"读取元数据失败: {e}"}
@@ -378,7 +378,7 @@ class InstanceRegistry:
             if not meta_file.exists():
                 continue
             try:
-                with open(meta_file, "r", encoding="utf-8") as f:
+                with open(meta_file, encoding="utf-8") as f:
                     meta = json.load(f)
                 if self._is_pid_alive(meta):
                     continue

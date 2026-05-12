@@ -4,6 +4,8 @@
 ``MINI_AGENT_LAYERED_MEMORY_*`` 环境变量控制。依赖 ``layered_memory`` 与按日 ``diary`` 文件。
 
 披露顺序与隐私提示见 ``docs/MEMORY_SYSTEM.md``。
+
+**调用时机**：通常在规划/执行前由引擎或执行路径组装进 **system** 侧补充段，与 ``DefaultContextManager`` 中的近期消息窗口正交；不替代 ``keyword_index`` 的检索注入逻辑。
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ def _tail_diary_preview(session_key: str, max_chars: int = 2000) -> str:
         path = diary_file_path(session_key, day)
         if not os.path.isfile(path):
             return ""
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             raw = f.read()
         if len(raw) <= max_chars:
             return raw

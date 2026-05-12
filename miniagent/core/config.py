@@ -361,6 +361,12 @@ def merge_agent_config(
         "cli_loop_state": base.cli_loop_state,
         "cli_dispatch_allow_mutations": base.cli_dispatch_allow_mutations,
         "feishu_receive_chat_id": base.feishu_receive_chat_id,
+        "feishu_trigger_message_id": base.feishu_trigger_message_id,
+        "feishu_root_id": base.feishu_root_id,
+        "feishu_parent_id": base.feishu_parent_id,
+        "feishu_thread_id": base.feishu_thread_id,
+        "feishu_im_receive_id_type": base.feishu_im_receive_id_type,
+        "feishu_im_receive_id": base.feishu_im_receive_id,
         "history_progressive_compression": base.history_progressive_compression,
     }
 

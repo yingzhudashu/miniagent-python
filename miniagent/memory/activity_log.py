@@ -75,7 +75,7 @@ class ActivityLogger:
         """
         path = self._get_today_path()
         if os.path.exists(path):
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 return f.read()
         return ""
 

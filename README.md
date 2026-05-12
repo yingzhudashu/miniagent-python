@@ -7,7 +7,7 @@
 - **两阶段架构**: Plan（规划）→ Execute（执行），精确控制工具调用
 - **ReAct 循环**: Think → Act → Observe，多轮推理直到任务完成
 - **三层记忆**: 短期记忆 / 活动日志 / 语义检索
-- **双通道接入**: 同一进程内 CLI 主循环 + 可选飞书 WebSocket 长轮询（无单独「纯飞书」入口）
+- **双通道接入**: 同一进程内 CLI 主循环 + 可选飞书 WebSocket 长轮询（无单独「纯飞书」入口）；飞书可选内置工具（发文件、云盘、云文档等）见 [docs/FEISHU.md](docs/FEISHU.md)，需 `pip install -e ".[feishu]"` 与 `.env` 中 `MINIAGENT_FEISHU_TOOLS=1`，或（未显式关闭该变量时）`MINIAGENT_FEISHU_TOOLS_AUTO=1` 且已配置 `FEISHU_APP_ID`/`SECRET`；创建文档的可选分享链接前缀见 `FEISHU_DOCX_URL_PREFIX`（详表见 FEISHU.md）
 - **消息队列**: queue（按序）/ preemptive（打断）双模式
 - **定时任务**: 持久化任务表 + 进程内调度，经与聊天相同的消息队列执行 Agent 回合；CLI 下可用 `run_dot_command`（`.schedule …`）或 `manage_scheduled_task` 结构化接口
 - **多实例**: 注册表 + 心跳，支持多终端并行
@@ -27,7 +27,8 @@
 # 安装（<repo-url> 为占位符，请换为实际远程；fork 说明见 docs/CONTRIBUTING.md）
 git clone <repo-url>
 cd miniagent-python
-pip install -e ".[dev]"              # 开发：pytest / ruff
+pip install -e ".[dev,typing]"       # 开发：与默认 CI `test` job 一致（pytest / ruff / pytest-cov / mypy 试点）
+# pip install -e ".[dev]"           # 若不需要本地跑 mypy，可仅用 dev extra
 # pip install -e ".[dev,feishu]"    # 若需本地跑通飞书 SDK 相关路径
 # pip install -e ".[cli]"           # 终端内将 Assistant 的 Markdown 渲染为彩色样式（Rich）
 # 仅需运行时：pip install -e .
@@ -47,6 +48,8 @@ python -m miniagent                  # CLI 模式
 python -m miniagent --feishu         # CLI + 飞书
 python -m miniagent --stop           # 列出实例；交互停止 / --stop --all / --stop <id>...
 ```
+
+与 [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) 开发环境节相比：README 此处**默认**使用 `pip install -e ".[dev,typing]"`，以便与本节「测试」中的 `mypy` 及 CI `test` job 一致；CONTRIBUTING 仍以 `.[dev]` 为默认并在注释中说明如何改为 `.[dev,typing]`。若以合并前完整门禁为准，两处最终应统一到 [ENGINEERING.md](docs/ENGINEERING.md) §2 的命令块。
 
 ### 定时任务
 
@@ -109,6 +112,11 @@ python -m miniagent --stop           # 列出实例；交互停止 / --stop --al
 | [docs/INSTANCE_REGISTRY.md](docs/INSTANCE_REGISTRY.md) | 多实例注册与清理语义 |
 | [docs/SELF_OPT.md](docs/SELF_OPT.md) | 自我优化 |
 | [docs/EVALUATION_LOCAL.md](docs/EVALUATION_LOCAL.md) | 可选：本地离线测评与产物约定 |
+| [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | 性能 KPI、合成冒烟、基线与剖析 |
+| [docs/CHANNEL_BINDING.md](docs/CHANNEL_BINDING.md) | 通道绑定 |
+| [docs/CYBERNETICS_PLAN.md](docs/CYBERNETICS_PLAN.md) | 控制论/自适应路线（规划稿） |
+
+**完整专题列表与目录树**以 [docs/INDEX.md](docs/INDEX.md) 为准。
 
 ## 测试
 
@@ -117,6 +125,7 @@ python -m pytest tests/ -q -m "not evaluation"   # 与默认 CI 一致（排除 
 python -m pytest tests/ -q                       # 含评测子目录全部用例
 python -m ruff check miniagent tests
 python -m compileall -q miniagent
+python -m mypy miniagent/types                   # 与默认 CI `test` job 一致（需 pip install -e ".[dev,typing]"）
 ```
 
 用例数量以 `pytest tests/ --collect-only -q` 的收集结果为准（勿在文档中硬编码条数以免漂移）；与 [docs/ENGINEERING.md](docs/ENGINEERING.md) §5 核对清单一致。
@@ -130,7 +139,7 @@ python -m compileall -q miniagent
 - 飞书 SDK (lark-oapi, WebSocket)
 - pytest (单元测试)
 
-**可选 pip extra**（与 [`pyproject.toml`](pyproject.toml) 一致；权威说明见 [docs/ENGINEERING.md](docs/ENGINEERING.md) 第 1 节）：`dev`（pytest / ruff）、`feishu`（lark-oapi）、`browser`（playwright）、`mcp`（官方 mcp SDK）。
+**可选 pip extra**（与 [`pyproject.toml`](pyproject.toml) 一致；权威说明见 [docs/ENGINEERING.md](docs/ENGINEERING.md) 第 1 节）：`dev`（pytest / ruff / pytest-cov）、`typing`（mypy）、`cli`（Rich）、`feishu`（lark-oapi）、`browser`（playwright）、`mcp`（官方 mcp SDK）。
 
 ## License
 

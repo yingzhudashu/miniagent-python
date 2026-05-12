@@ -227,10 +227,10 @@ def cmd_instance_handler(
         markdown: True 时实例列表为 GFM 表格（飞书 ``MINIAGENT_FEISHU_MARKDOWN_COMMANDS``）
     """
     from miniagent.infrastructure.instance import (
-        list_instances,
-        stop_instance_by_id,
         format_instances_markdown,
         format_instances_table,
+        list_instances,
+        stop_instance_by_id,
     )
 
     if sub_cmd == "list" or sub_cmd == "":

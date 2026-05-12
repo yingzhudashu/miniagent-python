@@ -16,61 +16,61 @@
 - ``feishu``: 自 ``miniagent.feishu.types`` 再导出，便于 ``from miniagent.types import …``
 """
 
-from miniagent.types.tool import (
-    ToolPermission,
-    Toolbox,
-    ToolContext,
-    ToolResult,
-    ToolDefinition,
-    RegisteredTool,
-    ToolRegistryProtocol,
-    TokenEstimate,
-    ContextState,
-    ContextManagerProtocol,
+from miniagent.feishu.types import FeishuConfig, FeishuInboundText, FeishuMessageEvent, FeishuReply
+from miniagent.types.agent import (
+    AgentRunOptions,
+    AgentRunResult,
+    LoopDetectionConfig,
+    LoopDetectionResult,
+    LoopLevel,
+    PipelineResult,
+    PipelineStep,
+    ToolMonitorProtocol,
+    ToolStats,
 )
 from miniagent.types.config import (
-    ModelProfile,
+    AgentConfig,
     BuiltInProfile,
     ModelConfig,
-    AgentConfig,
+    ModelProfile,
 )
 from miniagent.types.memory import (
     MemoryEntry,
     MemoryEntryInput,
-    SessionMemory,
     MemoryStoreProtocol,
-    SessionOptions,
     Session,
     SessionManagerProtocol,
-)
-from miniagent.types.skill import (
-    SkillMetadata,
-    SkillEntry,
-    Skill,
-    SkillPackage,
-    SkillRegistryProtocol,
-    ClawHubSearchResult,
-    ClawHubSkillDetail,
-    ClawHubClientProtocol,
-)
-from miniagent.types.agent import (
-    AgentRunResult,
-    AgentRunOptions,
-    ToolStats,
-    ToolMonitorProtocol,
-    LoopDetectionConfig,
-    LoopLevel,
-    LoopDetectionResult,
-    PipelineStep,
-    PipelineResult,
+    SessionMemory,
+    SessionOptions,
 )
 from miniagent.types.planning import (
-    PlanStep,
     PlanChunk,
-    SuggestedConfig,
+    PlanStep,
     StructuredPlan,
+    SuggestedConfig,
 )
-from miniagent.feishu.types import FeishuConfig, FeishuMessageEvent, FeishuReply
+from miniagent.types.skill import (
+    ClawHubClientProtocol,
+    ClawHubSearchResult,
+    ClawHubSkillDetail,
+    Skill,
+    SkillEntry,
+    SkillMetadata,
+    SkillPackage,
+    SkillRegistryProtocol,
+)
+from miniagent.types.tool import (
+    ContextManagerProtocol,
+    ContextState,
+    RegisteredTool,
+    TokenEstimate,
+    Toolbox,
+    ToolContext,
+    ToolDefinition,
+    ToolPermission,
+    ToolRegistryProtocol,
+    ToolResult,
+)
 
 __all__ = [
     # tool
@@ -122,6 +122,7 @@ __all__ = [
     "SuggestedConfig",
     "StructuredPlan",
     # feishu
+    "FeishuInboundText",
     "FeishuMessageEvent",
     "FeishuConfig",
     "FeishuReply",

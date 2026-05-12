@@ -15,7 +15,6 @@ from miniagent.infrastructure.monitor import DefaultToolMonitor
 from miniagent.infrastructure.registry import DefaultToolRegistry
 from miniagent.runtime.context import RuntimeContext
 from miniagent.skills import DefaultSkillRegistry, create_clawhub_client
-
 from tests.test_startup import _make_memory_bundle
 
 

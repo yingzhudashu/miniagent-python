@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from miniagent.types.agent import ToolStats, ToolMonitorProtocol
+from miniagent.types.agent import ToolMonitorProtocol, ToolStats
 
 
 class DefaultToolMonitor(ToolMonitorProtocol):

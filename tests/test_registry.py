@@ -1,6 +1,7 @@
 """Tests for tool registry."""
 
 import pytest
+
 from miniagent.infrastructure.registry import DefaultToolRegistry
 from miniagent.types.tool import ToolDefinition
 

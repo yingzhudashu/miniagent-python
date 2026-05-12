@@ -54,8 +54,9 @@ async def list_mcp_tools_openai(
     if not _MCP_INSTALLED:
         raise RuntimeError("未安装 mcp 包，请执行: pip install miniagent-python[mcp]")
 
-    from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
+
+    from mcp import ClientSession, StdioServerParameters
 
     params = StdioServerParameters(command=command, args=args, env=env)
     out: list[dict[str, Any]] = []

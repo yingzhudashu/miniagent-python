@@ -65,7 +65,6 @@ async def test_dispatch_abort_respects_message_queue_abort_chat_id():
     from miniagent.infrastructure.registry import DefaultToolRegistry
     from miniagent.runtime.context import RuntimeContext
     from miniagent.skills import DefaultSkillRegistry, create_clawhub_client
-
     from tests.test_startup import _make_memory_bundle
 
     mq = MessageQueueManager()

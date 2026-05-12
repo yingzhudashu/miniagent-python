@@ -58,7 +58,7 @@ def try_lock_session(session_id: str) -> tuple[bool, str]:
 
     if os.path.exists(lock_path):
         try:
-            with open(lock_path, "r") as f:
+            with open(lock_path) as f:
                 locked_pid = int(f.read().strip())
             if locked_pid == my_pid:
                 return True, ""  # 我自己锁的，幂等
@@ -84,7 +84,7 @@ def release_session_lock(session_id: str) -> None:
     lock_path = _get_lock_path(session_id)
     try:
         if os.path.exists(lock_path):
-            with open(lock_path, "r") as f:
+            with open(lock_path) as f:
                 locked_pid = int(f.read().strip())
             if locked_pid == os.getpid():
                 os.unlink(lock_path)
@@ -102,7 +102,7 @@ def is_session_locked(session_id: str) -> int | None:
     if not os.path.exists(lock_path):
         return None
     try:
-        with open(lock_path, "r") as f:
+        with open(lock_path) as f:
             locked_pid = int(f.read().strip())
         if locked_pid == os.getpid():
             return None

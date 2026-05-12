@@ -1,8 +1,10 @@
 """Tests for session manager."""
 
-import tempfile
 import os
+import tempfile
+
 import pytest
+
 from miniagent.infrastructure.registry import DefaultToolRegistry
 from miniagent.session.manager import DefaultSessionManager
 from miniagent.types.config import normalize_conversation_history

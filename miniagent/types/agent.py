@@ -16,7 +16,6 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 
-
 @dataclass
 class AgentRunResult:
     """Agent 运行结果
@@ -30,7 +29,7 @@ class AgentRunResult:
 
     reply: str = ""
     total_tool_calls: int = 0
-    tool_stats: dict[str, "ToolStats"] = field(default_factory=dict)
+    tool_stats: dict[str, ToolStats] = field(default_factory=dict)
     used_tools: list[str] = field(default_factory=list)
 
 
@@ -170,12 +169,12 @@ class ToolMonitorProtocol(Protocol):
         ...
 
     @abstractmethod
-    def get_stats(self, tool: str) -> "ToolStats | None":
+    def get_stats(self, tool: str) -> ToolStats | None:
         """获取单个工具的统计"""
         ...
 
     @abstractmethod
-    def get_all_stats(self) -> dict[str, "ToolStats"]:
+    def get_all_stats(self) -> dict[str, ToolStats]:
         """获取所有工具的统计"""
         ...
 

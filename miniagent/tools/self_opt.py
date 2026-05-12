@@ -18,8 +18,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from miniagent.types.tool import ToolDefinition, ToolContext, ToolResult
-
+from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 # ─── 风险评估 ────────────────────────────────────────────
 

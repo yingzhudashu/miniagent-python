@@ -22,8 +22,8 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from miniagent.types.tool import ToolDefinition, ToolContext, ToolResult
-from miniagent.security.sandbox import resolve_sandbox_path, get_default_workspace
+from miniagent.security.sandbox import get_default_workspace, resolve_sandbox_path
+from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 
 def _allowed_dirs(ctx: ToolContext) -> list[str]:

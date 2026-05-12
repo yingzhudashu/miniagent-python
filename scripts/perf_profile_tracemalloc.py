@@ -57,22 +57,41 @@ def _run_keyword_index_batch(tmp: str) -> None:
     asyncio.run(_body())
 
 
+def _run_keyword_index_batch_repeated(tmp: str, repeat: int) -> None:
+    """重复跑热路径，便于 cProfile 下减少冷启动占比（见 docs/PERFORMANCE.md §3）。
+
+    每次迭代使用独立子目录，避免在同一 state_dir 上无限累积条目。
+    """
+    n = max(1, repeat)
+    for i in range(n):
+        sub = os.path.join(tmp, f"run_{i}")
+        os.makedirs(sub, exist_ok=True)
+        _run_keyword_index_batch(sub)
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description="Miniagent perf profiling helper")
     p.add_argument("--no-tracemalloc", action="store_true", help="仅跑热路径，不启用 tracemalloc")
     p.add_argument("--top", type=int, default=15, help="tracemalloc 打印条数")
     p.add_argument("--json-out", type=str, default="", help="写入摘要 JSON 路径（供 CI artifact）")
+    p.add_argument(
+        "--inner-repeat",
+        type=int,
+        default=1,
+        metavar="N",
+        help="在父临时目录下创建 run_0..run_{N-1} 子目录，各跑一批 keyword_index+store（cProfile 时建议 >=50 以突出热路径）",
+    )
     args = p.parse_args()
 
     with tempfile.TemporaryDirectory() as tmp:
         if args.no_tracemalloc:
-            _run_keyword_index_batch(tmp)
+            _run_keyword_index_batch_repeated(tmp, args.inner_repeat)
             peak_mb = None
         else:
             tracemalloc.start()
             try:
                 tracemalloc.reset_peak()
-                _run_keyword_index_batch(tmp)
+                _run_keyword_index_batch_repeated(tmp, args.inner_repeat)
                 _cur, peak = tracemalloc.get_traced_memory()
                 peak_mb = round(peak / (1024 * 1024), 4)
                 snap = tracemalloc.take_snapshot()
@@ -85,6 +104,7 @@ def main() -> int:
 
     payload = {
         "scenario": "keyword_index_batch_20",
+        "inner_repeat": int(args.inner_repeat),
         "tracemalloc_peak_mib": peak_mb,
         "no_tracemalloc": bool(args.no_tracemalloc),
     }

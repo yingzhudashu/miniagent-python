@@ -25,20 +25,22 @@ import shutil
 import signal
 import subprocess
 import sys
-from typing import TYPE_CHECKING, Any, Callable
+import threading
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     # prompt_toolkit≥3.0.50 仅在类型检查块中定义该别名，运行时 key_bindings 无此名（勿在运行中 from … import）。
     from prompt_toolkit.key_binding.key_bindings import NotImplementedOrNone
 
-from miniagent.infrastructure.logger import set_console_log_threshold
-from miniagent.infrastructure.process import cleanup_all_processes
+from miniagent.engine.cli_state import CliLoopState
+from miniagent.engine.shutdown import shutdown_runtime
 from miniagent.infrastructure.instance import (
     heartbeat,
     register_instance,
     unregister_instance,
 )
-from miniagent.engine.cli_state import CliLoopState
+from miniagent.infrastructure.logger import set_console_log_threshold
 from miniagent.runtime.context import RuntimeContext
 
 _logger = logging.getLogger(__name__)
@@ -138,6 +140,9 @@ def _feishu_user_status_fn(ctx: RuntimeContext) -> Callable[[str], None]:
     return _emit
 
 
+# ─── unified_main：RuntimeContext 注入后的进程主流程（init → 信号/实例 → CLI 循环 / 飞书任务）──
+
+
 async def unified_main(ctx: RuntimeContext) -> None:
     """主启动流程。
 
@@ -195,24 +200,35 @@ async def unified_main(ctx: RuntimeContext) -> None:
         lambda tb, tp, st: _create_feishu_handler(tb, tp, st, ctx)
     )
 
-    # 信号：尽快释放会话锁并取消飞书 task，避免残留 .lock 或后台 WS
-    def _on_exit(*_: Any) -> None:
-        """SIGINT/SIGTERM：停定时任务、释会话锁、取消飞书 task 后退出进程。"""
-        from miniagent.engine.session_lock import release_session_lock
+    # 信号：在事件循环线程内 await 统一关停（飞书 WS reset、子进程、实例注销）
+    main_loop = asyncio.get_running_loop()
+    _sig_lock = threading.Lock()
+    _sig_armed: dict[str, bool] = {"v": False}
 
-        ev = ctx.scheduled_tasks_stop_event
-        if ev is not None:
-            ev.set()
-        st = ctx.scheduled_tasks_ticker
-        if st is not None and not st.done():
-            st.cancel()
-        if state["active_session_id"]:
-            release_session_lock(state["active_session_id"])
-        task = ctx.feishu.get_task()
-        if task:
-            task.cancel()
-            ctx.feishu.set_task(None)
+    async def _shutdown_after_signal(signum: int) -> None:
+        """信号触发后在事件循环内执行 ``shutdown_runtime`` 并退出进程。"""
+        await shutdown_runtime(
+            ctx,
+            state,
+            reason=f"signal:{signum}",
+            call_unregister=True,
+            # 信号路径上 prompt_toolkit 可能仍占用 stdin/线程池；跳过默认线程池关闭以缩短竞态窗口
+            shutdown_default_executor=False,
+        )
         sys.exit(0)
+
+    def _on_exit(signum: int, *_: Any) -> None:
+        """信号处理器：防重入后把关停协程投递回主循环线程。"""
+        with _sig_lock:
+            if _sig_armed["v"]:
+                os._exit(128)
+            _sig_armed["v"] = True
+
+        def _kick() -> None:
+            """在主循环线程上调度 ``_shutdown_after_signal``。"""
+            asyncio.create_task(_shutdown_after_signal(signum))
+
+        main_loop.call_soon_threadsafe(_kick)
 
     signal.signal(signal.SIGINT, _on_exit)
     signal.signal(signal.SIGTERM, _on_exit)
@@ -274,25 +290,18 @@ async def unified_main(ctx: RuntimeContext) -> None:
     )
 
     # run_cli_loop 正常返回后的收尾（异常路径依赖信号与 finally）
-    from miniagent.engine.session_lock import release_session_lock
+    await shutdown_runtime(
+        ctx,
+        state,
+        reason="run_cli_loop_returned",
+        abort_message_queues=True,
+        release_cli_session_lock=False,
+        call_unregister=False,
+        shutdown_default_executor=True,
+    )
 
-    if ctx.scheduled_tasks_stop_event is not None:
-        ctx.scheduled_tasks_stop_event.set()
-    st_ticker = ctx.scheduled_tasks_ticker
-    if st_ticker is not None and not st_ticker.done():
-        st_ticker.cancel()
-        try:
-            await st_ticker
-        except asyncio.CancelledError:
-            pass
 
-    task = ctx.feishu.get_task()
-    if task:
-        task.cancel()
-    release_session_lock(state["active_session_id"])
-
-    # 清理子进程
-    await cleanup_all_processes()
+# ─── run_cli_loop：prompt_toolkit 全屏/简化终端上的 stdin 主循环（点命令 → 队列 → Agent）──
 
 
 async def run_cli_loop(
@@ -316,9 +325,9 @@ async def run_cli_loop(
     message_queue = ctx.message_queue
 
     try:
+        from prompt_toolkit.formatted_text import HTML
         from prompt_toolkit.history import FileHistory
         from prompt_toolkit.styles import Style
-        from prompt_toolkit.formatted_text import HTML
     except ImportError:
         await _run_cli_loop_fallback(
             ctx, state, skill_toolboxes, skill_prompts,
@@ -341,20 +350,20 @@ async def run_cli_loop(
     history_file = os.path.join(history_dir, "history.txt")
 
     # ── CLI 界面：底部固定输入框（类似 Claude Code） ──
+    from prompt_toolkit.application import Application, get_app
     from prompt_toolkit.buffer import Buffer
+    from prompt_toolkit.filters import has_focus
+    from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.keys import Keys
     from prompt_toolkit.layout import HSplit, Layout, VSplit, Window
     from prompt_toolkit.layout.controls import (
         BufferControl,
         FormattedTextControl,
-        UIControl,
         UIContent,
+        UIControl,
     )
     from prompt_toolkit.layout.dimension import LayoutDimension as D
     from prompt_toolkit.layout.scrollable_pane import ScrollablePane
-    from prompt_toolkit.key_binding import KeyBindings
-    from prompt_toolkit.application import Application, get_app
-    from prompt_toolkit.filters import has_focus
-    from prompt_toolkit.keys import Keys
     from prompt_toolkit.mouse_events import MouseEvent, MouseEventType
 
     # #region agent log
@@ -988,8 +997,9 @@ async def run_cli_loop(
 
     def _cli_block_reply(text: str) -> None:
         """最终回复区块（可选 Rich → ANSI，经 prompt_toolkit 解析）。"""
-        from miniagent.engine.markdown_cli import render_markdown_to_ansi
         from prompt_toolkit.formatted_text import ANSI
+
+        from miniagent.engine.markdown_cli import render_markdown_to_ansi
 
         _append_transcript("class:cli-spacer", "\n")
         _cli_rule_light()
@@ -1116,12 +1126,14 @@ async def run_cli_loop(
 
         # ── .stop ──
         if user_input == ".stop":
-            try:
-                unregister_instance()
-                term_write("\u2705 当前实例已停止", "ansigreen")
-            except Exception:
-                pass
-            release_session_lock(state["active_session_id"])
+            await shutdown_runtime(
+                ctx,
+                state,
+                reason="dot_stop_ptk",
+                release_cli_session_lock=True,
+                call_unregister=True,
+            )
+            term_write("\u2705 \u5f53\u524d\u5b9e\u4f8b\u5df2\u505c\u6b62", "ansigreen")
             sys.exit(0)
 
         # ── 其余点命令：统一走 dispatch（capture → transcript，避免 print 破坏全屏）──
@@ -1279,12 +1291,14 @@ async def _run_cli_loop_fallback(
             continue
 
         if user_input == ".stop":
-            try:
-                unregister_instance()
-                print("\u2705 \u5f53\u524d\u5b9e\u4f8b\u5df2\u505c\u6b62")
-            except Exception:
-                pass
-            release_session_lock(state["active_session_id"])
+            await shutdown_runtime(
+                ctx,
+                state,
+                reason="dot_stop_fallback",
+                release_cli_session_lock=True,
+                call_unregister=True,
+            )
+            print("\u2705 \u5f53\u524d\u5b9e\u4f8b\u5df2\u505c\u6b62")
             sys.exit(0)
 
         if user_input.startswith(".instance"):
@@ -1332,7 +1346,7 @@ async def _run_cli_loop_fallback(
                     user_status=_feishu_user_status_fn(ctx),
                 )
             elif user_input == ".feishu stop":
-                ctx.feishu.stop()
+                await ctx.feishu.stop_async()
             else:
                 ctx.feishu.status()
             continue
@@ -1416,30 +1430,22 @@ def _create_feishu_handler(
     registry = ctx.registry
     monitor = ctx.monitor
     from miniagent.engine.command_dispatch import dispatch_command
+    from miniagent.feishu.types import FeishuInboundText
 
     channel_router = ctx.channel_router
     _emit_feishu_cli = _feishu_user_status_fn(ctx)
 
-    async def handler(
-        content: str,
-        chat_id: str,
-        sender_id: str,
-        chat_type: str = "group",
-    ) -> str:
-        """处理单条飞书消息。
+    async def handler(inbound: FeishuInboundText) -> str:
+        """处理单条飞书消息（:class:`~miniagent.feishu.types.FeishuInboundText`）。
 
         以 `.` 开头的消息路由到统一命令调度器（与 CLI 共享）。
         普通消息通过 ChannelRouter 解析 session_key 后交给 Agent 处理。
-
-        Args:
-            content: 消息文本内容
-            chat_id: 飞书聊天室 ID
-            sender_id: 消息发送者 ID
-            chat_type: "group"（群聊）或 "p2p"（私聊）
-
-        Returns:
-            Agent 回复文本或错误提示。
         """
+        content = inbound.text
+        chat_id = inbound.chat_id
+        sender_id = inbound.sender_id
+        chat_type = inbound.chat_type or "group"
+
         if not engine:
             return "\u26a0\ufe0f \u5f15\u64ce\u672a\u521d\u59cb\u5316"
 
@@ -1512,6 +1518,11 @@ def _create_feishu_handler(
                 keyword_index=ctx.keyword_index,
                 client=ctx.openai_client,
                 feishu_receive_chat_id=chat_id,
+                feishu_trigger_message_id=inbound.message_id or None,
+                feishu_root_id=inbound.root_id,
+                feishu_parent_id=inbound.parent_id,
+                feishu_thread_id=inbound.thread_id,
+                feishu_im_receive_id=(inbound.sender_id or "").strip() or None,
                 cli_loop_state=state,
             )
             return reply
@@ -1528,6 +1539,7 @@ def _create_feishu_handler(
         file_key: str,
         suggested_name: str,
         resource_type: str,
+        thread_id: str | None = None,
     ) -> str | None:
         """下载飞书 file/image 到当前会话 workspace/files/feishu_incoming/。"""
         from miniagent.feishu.resource_io import download_message_resource, sanitize_filename
@@ -1625,6 +1637,9 @@ def _create_feishu_handler(
                 keyword_index=ctx.keyword_index,
                 client=ctx.openai_client,
                 feishu_receive_chat_id=chat_id,
+                feishu_trigger_message_id=message_id or None,
+                feishu_thread_id=(thread_id or "").strip() or None,
+                feishu_im_receive_id=(sender_id or "").strip() or None,
                 cli_loop_state=state,
             )
             return reply

@@ -40,7 +40,11 @@ mcp = [
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.0.0",
     "ruff>=0.1.0",
+]
+typing = [
+    "mypy>=1.8.0",
 ]
 
 [project.scripts]
@@ -66,3 +70,20 @@ markers = [
 target-version = "py310"
 line-length = 100
 src = ["miniagent", "tests"]
+
+[tool.ruff.lint]
+# 渐进启用：语法/未定义名/导入顺序/pyupgrade（UP）；行长由上方 line-length 与 formatter 约束，不单开 E501 门禁
+select = ["E4", "E7", "E9", "F", "I", "UP"]
+ignore = ["E402"]  # 部分模块需在 import 前改 sys.path / 环境，保留延后 import
+
+[tool.ruff.lint.isort]
+known-first-party = ["miniagent"]
+
+# 可选渐进类型检查：默认仅作配置占位；本地建议先对单个子包跑：
+#   pip install -e ".[dev,typing]" && python -m mypy miniagent/types
+[tool.mypy]
+python_version = "3.10"
+warn_unused_configs = true
+ignore_missing_imports = true
+explicit_package_bases = true
+show_error_codes = true

@@ -2,7 +2,7 @@
 
 ``create_feishu_handler`` 提供可组合的 ``on_message`` 钩子（``FeishuMessageEvent`` 模型），
 适用于自建 Webhook/试验代码。生产 CLI 路径下由 ``miniagent.engine.main._create_feishu_handler``
-构造 ``(text_handler, media_handler)`` 元组，经 ``FeishuRuntime`` 交给
+构造 ``(text_handler, media_handler)`` 元组（文本 handler 签名为 ``FeishuInboundText -> str``），经 ``FeishuRuntime`` 交给
 ``miniagent.feishu.poll_server.start_feishu_poll_server``（文本 + file/image/post 媒体入站）。
 详见 ``docs/FEISHU.md``。
 ``mention_required`` / ``auto_reply`` 控制群聊是否必须 @ 机器人及是否由框架代发占位回复；
@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from typing import Awaitable, Callable
+from collections.abc import Awaitable, Callable
 
 from miniagent.feishu.types import FeishuMessageEvent, FeishuReply
 from miniagent.infrastructure.logger import get_logger

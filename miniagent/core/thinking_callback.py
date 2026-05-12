@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import inspect
 import logging
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 _logger = logging.getLogger(__name__)
 

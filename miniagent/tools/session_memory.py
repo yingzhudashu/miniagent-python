@@ -8,8 +8,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from miniagent.types.tool import ToolDefinition, ToolContext, ToolResult
-
+from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 _read_session_diary_schema = {
     "type": "function",

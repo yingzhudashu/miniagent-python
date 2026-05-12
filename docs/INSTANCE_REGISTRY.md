@@ -42,6 +42,11 @@
 
 `register()` 启动前清理与 `list_all()` 使用相同的 **`_is_pid_alive`** 语义，避免「刚启动扫了一遍、列表又扫出另一套规则」的分叉。
 
+## 定时任务调度锁（`scheduler.lock`）
+
+- 路径：**`<状态根>/scheduled_tasks/scheduler.lock`**（见 `miniagent/scheduled_tasks/lock.py`）。
+- 进程被 **`os._exit`、硬杀或崩溃** 时，锁文件可能短时间残留；**下一进程**在 `try_acquire_scheduler_lock` 中若发现锁内 PID 已不存在，会删除锁并重试，语义与上文实例目录的 **PID 存活判定** 类似。
+
 ## 相关文档
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — 多实例与并发安全总览

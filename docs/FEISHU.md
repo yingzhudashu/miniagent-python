@@ -44,7 +44,7 @@ miniagent/feishu/poll_server.py
     │
     ▼
 engine.main._create_feishu_handler() → (text_handler, media_handler)
-    │                                      （仅 text 走 Agent；file/image 走 media_handler）
+    │                                      （text 以 ``FeishuInboundText`` 调 Agent；file/image 走 media_handler）
     ▼
 ChannelRouter.resolve_feishu_message(chat_id, sender_id, chat_type)
     │
@@ -69,12 +69,64 @@ UnifiedEngine.run_agent_with_thinking()
 | `MINIAGENT_TOOL_INTENT_IN_THINKING` | `0`/`false` 关闭工具执行前的 🔧 意图行（仍保留工具结果全文块） |
 | `MINIAGENT_CLI_DOT_TOOLS` | 默认 `1`；`0`/`false`/`off` 时不注册 `run_dot_command`（Agent 无法经工具调点命令） |
 | `MINIAGENT_FEISHU_REPLY_PLAIN` | `1`/`true`/`yes` 时仅影响**最终 Assistant 回复**：分片前启发式弱化部分 `**`、代码围栏、行内反引号等；**仍为 `msg_type=interactive` 且正文为 `lark_md`**，并非 `text` 纯文本消息。名称表示「弱化标记」而非改消息类型 |
+| `MINIAGENT_FEISHU_REPLY_TARGET` | `create`（默认）：在会话内 **新建** 消息；`reply`：对入站 `message_id` 使用开放平台 **回复消息** API（思考卡与最终回复、含 text 回退均同策略）；其它非法取值按 `create` 处理 |
+| `MINIAGENT_FEISHU_REPLY_IN_THREAD` | 与上一项 `reply` 联用；显式 `1`/`true` 等为话题内回复；`0`/`false` 等为否；**未设置**且入站 `thread_id` 非空时，默认 `reply_in_thread=True`（仍可由显式 `0` 关闭） |
+| `MINIAGENT_FEISHU_CARD_ACTION_ROUTER` | 真值时注册 `p2.card.action.trigger`：从按钮 `action.value` 读取 `miniagent_text`/`text` 与 `chat_id`（或依赖回调 `context.open_chat_id`）后投递同一 `message_handler` 队列 |
+| `MINIAGENT_FEISHU_TOOLS` | 真值时注册内置飞书工具（含 `feishu_send_workspace_file`、`feishu_recall_message`、`feishu_create_document`、`feishu_get_document_markdown`、`feishu_list_drive_files`、`feishu_append_document_text`）；默认 `0`；若变量**已设置**但取值既非认可真值也非认可假值，按**关闭**处理（不落入 AUTO） |
+| `MINIAGENT_FEISHU_TOOLS_AUTO` | 真值且已配置 `FEISHU_APP_ID` + `FEISHU_APP_SECRET` 时，在**未设置** `MINIAGENT_FEISHU_TOOLS` 或仅依赖其缺省行为时自动注册上述工具。**注册发生在进程初始化内置工具阶段**（与 `register_builtin_tools` 同时），**不**等待 `.feishu start` 或 WebSocket 已连接；因此仅 CLI、环境内已有飞书凭证时模型仍可能看到 `feishu_*`。若需缩小暴露面，请显式 `MINIAGENT_FEISHU_TOOLS=0` 或不设置 AUTO |
+| `FEISHU_DOCX_URL_PREFIX` / `MINIAGENT_FEISHU_DOCX_URL_PREFIX` | 二者任一：创建云文档工具成功时在输出中附带可分享链接；值为租户 Web 前缀，如 `https://your-tenant.feishu.cn/docx`（末尾斜杠可有可无）。未配置时工具仅返回 `document_id` |
+| `MINIAGENT_FEISHU_RECEIVE_ID_TYPE` | `create` 发消息时的 `receive_id_type`：`chat_id`（默认）/`open_id`/`union_id`；非 `chat_id` 时内置工具默认 `receive_id` 为入站 **sender_id**（经 `AgentConfig.feishu_im_receive_id` 注入）；可被工具参数或 `AgentConfig.feishu_im_receive_id_type` 覆盖 |
+| `FEISHU_DEFAULT_DOC_FOLDER_TOKEN` / `MINIAGENT_FEISHU_DOC_FOLDER_TOKEN` | 创建/列举云盘时若工具未传 `folder_token`（或传了但无法从 URL 解析），回退使用该云盘文件夹 token（**二者任选其一配置即可**，避免设为不同目录造成困惑） |
+| `FEISHU_DOC_FOLDER_FALLBACK_ROOT_META` | 为 `1`/`true`/`yes`/`on` 时，在上述仍无父目录 token 的情况下调用开放平台「根文件夹元数据」接口作为最后回退（**默认关闭**；需云盘元数据/读写等权限，见开放平台文档；国际租户若域名不匹配请改用手动 token） |
+
+### 出站能力矩阵（摘要）
+
+| 能力 | 实现要点 |
+|------|----------|
+| 会话内新消息 / 回复某条消息 | `create` 与 `im/v1/messages`；`reply` 与 `im/v1/messages/:id/reply`（见上表环境变量） |
+| 上传并发 file/image 消息 | `miniagent/feishu/upload_io.py` + 工具 `feishu_send_workspace_file`（需 `MINIAGENT_FEISHU_TOOLS=1` 或 `MINIAGENT_FEISHU_TOOLS_AUTO=1` 与 `FEISHU_APP_ID`/`SECRET`） |
+| 云文档创建与 Markdown 读取 | `miniagent/feishu/docx_client.py` + 工具 `feishu_create_document` / `feishu_get_document_markdown`（需开放平台 **docx** 相关权限）；可选 URL 前缀见上表 |
+| 云文档末尾追加纯文本 | 工具 `feishu_append_document_text` + [`docx_blocks`](../miniagent/feishu/docx_blocks.py)：调用开放平台 **`document_block_children.create`** 在页面块下插入文本子块（**不是** `document_block.batch_update` / PATCH 通用块编辑） |
+| 云盘列举 | 工具 `feishu_list_drive_files` + [`drive_client`](../miniagent/feishu/drive_client.py)（需云盘读权限）；`folder_token` 可为文件夹 token、云盘分享链接中的路径 token，或与创建文档相同的环境默认 / 可选根目录回退 |
+| 通用块级 `document_block.batch_update` / 富文本块编辑 | **未封装**；若需改已有块或复杂排版，须另行对接开放平台 API |
+| 撤回机器人消息 | 工具 `feishu_recall_message`（`im/v1/messages/:id` DELETE） |
 
 模块 [`poll_server`](../miniagent/feishu/poll_server.py) 中的 `FEISHU_CARD_BODY_MAX` 仅为 **首次 import 时的快照**；运行时应使用 `feishu_card_body_max()` 读取当前环境。
 
-## chat_type 支持
+### 开放平台权限（scope）
 
-handler 函数支持 `chat_type` 参数，用于区分群聊和私聊：
+下列为能力对应的**典型**权限名称；具体以飞书开放平台当前文档为准（[权限列表](https://open.feishu.cn/document/server-docs/docs/scope)）。
+
+| 能力 | 说明 |
+|------|------|
+| IM 发消息 / 回复 | 机器人收发消息相关能力（如 `im:message` 等，依应用类型与订阅事件而定） |
+| 上传图片 / 文件并发 IM | 消息内资源与上传相关能力 |
+| 删除消息 | 与 `im/v1/messages/:message_id` 删除接口对应的权限 |
+| 云文档创建与读 raw_content | docx 文档读写相关能力 |
+| 云盘列举文件夹 | drive 文件列表相关能力（以当前开放平台文档为准） |
+| 卡片交互回调 | 需在开放平台配置事件订阅（如 `p2.card.action.trigger`）与卡片 `action` 行为 |
+
+### 飞书工具与 IM 自检清单
+
+发文件/建文档失败时，工具返回里会带开放平台 **`code` / `msg`**（及常见 `log_id`），请按下列顺序排查：
+
+1. **依赖**：已 `pip install -e ".[feishu]"`（或 `miniagent-python[feishu]`），进程能 `import lark_oapi`。
+2. **工具开关**：`MINIAGENT_FEISHU_TOOLS=1`（或 `true`/`on`），或 **未设置** `MINIAGENT_FEISHU_TOOLS` 且 `MINIAGENT_FEISHU_TOOLS_AUTO=1`（且已配置 App ID/Secret）。飞书长轮询启动时若凭证齐全但未注册扩展工具，进程会打一条 **INFO** 自检日志指向本节。
+3. **凭证**：`FEISHU_APP_ID`、`FEISHU_APP_SECRET` 已配置（与长轮询使用同一应用）。
+4. **权限**：应用已开通上表 IM / docx / drive 等能力，机器人已进群（群聊），租户未禁用量级调用。
+5. **会话 ID**：默认 `receive_id_type=chat_id`，工具使用当前回合的 **群/会话 `chat_id`**。若设置 `MINIAGENT_FEISHU_RECEIVE_ID_TYPE=open_id`（或 `union_id`），须与 **`receive_id` 同类型**；此时默认 `receive_id` 为入站注入的 **发送者 `sender_id`（通常为 open_id）**，缺省则须在工具参数中显式传入 `receive_id`。
+6. **云文档目录**：`feishu_create_document` / `feishu_list_drive_files` 需要云盘**父文件夹** `folder_token`；可直接传 token，或传飞书云盘**文件夹分享链接**（工具会解析路径中的 `folder/<token>`）；也可配置 `FEISHU_DEFAULT_DOC_FOLDER_TOKEN` / `MINIAGENT_FEISHU_DOC_FOLDER_TOKEN`。若仍无 token，可显式设置 `FEISHU_DOC_FOLDER_FALLBACK_ROOT_META=1` 尝试根目录元数据 API（须具备 drive 相关权限，且默认关闭以免在租户根目录误创建）。仍失败时按工具返回的「已尝试」项排查。
+7. **权威说明**：[飞书权限列表](https://open.feishu.cn/document/server-docs/docs/scope) 以开放平台当前文档为准。
+
+### 飞书与会话工作区文件（发附件）
+
+内置工具 `feishu_send_workspace_file` 的 `relative_path` 必须是**相对当前会话工作区根**的路径（与 `SessionManager` 为该会话分配的 `files_path` 一致，通常为 `…/sessions/<safe_id>/files/`）。飞书用户发到机器人的 file/image 经入站 `media_handler` 保存到 **`files/feishu_incoming/`** 下，发送时应使用该相对路径（例如 `files/feishu_incoming/报告_msgid.pdf`）。
+
+**不是**用户操作系统上的任意绝对路径。若需发送尚未在工作区内的内容，应先用会话内的文件读写工具写入 `files/` 后再调用发送工具。
+
+## chat_type 与入站结构体
+
+生产路径中文本入站使用单参 **`FeishuInboundText`**（定义见 [`miniagent/feishu/types.py`](../miniagent/feishu/types.py)），其中字段 **`chat_type`** 区分群聊与私聊；不再向 handler 单独传入 `chat_type` 位置参数。
 
 | chat_type | 行为 | session_key |
 |-----------|------|------------|
@@ -92,7 +144,7 @@ handler 函数支持 `chat_type` 参数，用于区分群聊和私聊：
 ### 文本（`message_type == text`）
 
 1. **接收消息** — WebSocket 长轮询接收事件
-2. **提取内容** — 解析 `chat_id`、`sender_id`、`chat_type`、消息文本
+2. **提取内容** — 解析 `chat_id`、`sender_id`、`chat_type`、消息文本，以及开放平台事件中的 **`message_id`**、**`root_id`**、**`parent_id`**、**`thread_id`**（后三者可能为空；用于话题上下文与 `MINIAGENT_FEISHU_REPLY_TARGET=reply` 时的默认话题内回复策略）
 3. **命令拦截** — 以 `.` 开头的消息路由到 `dispatch_command()`（例如 `.help` 与可选 ``MINIAGENT_FEISHU_MARKDOWN_COMMANDS=1`` 下的 `.session list` 等返回 Markdown **表格**，依赖客户端对 GFM / `lark_md` 子集的支持；若表格显示异常可改用本地 CLI 或关闭该变量）
 4. **解析 session_key** — 通过 `ChannelRouter.resolve_feishu_message()`
 5. **运行 Agent** — `run_agent_with_thinking(session_key, ...)`
@@ -138,7 +190,7 @@ reply = await engine.run_agent_with_thinking(content, active_session_id, ...)
 
 ### chat_type 支持（私聊 vs 群聊）
 
-系统通过 `chat_type` 参数区分飞书消息类型：
+系统通过 **`FeishuInboundText.chat_type`**（或与媒体路径等价的元数据）区分飞书消息类型：
 
 | chat_type | 会话策略 | session_key 格式 | 参与绑定 |
 |-----------|----------|------------------|----------|
@@ -149,7 +201,14 @@ reply = await engine.run_agent_with_thinking(content, active_session_id, ...)
 - **私聊**：默认独立，可通过 `.bind feishu <sender_id> <会话>` 绑定到其他会话
 - **绑定效果**：私聊消息使用绑定会话的上下文；CLI 终端实时打印预览
 
+**Agent 配置字段**：`AgentConfig` 中的 **`feishu_root_id`** / **`feishu_parent_id`** / **`feishu_thread_id`** 对应入站事件的 `root_id` / `parent_id` / `thread_id`；其中 `feishu_root_id` 与历史方案里口头说的「reply_root / feishu_reply_root_id」语境一致（话题根消息 id）。
+
 详见 [CHANNEL_BINDING.md](CHANNEL_BINDING.md)。
+
+### 已知限制与风险
+
+- **`receive_id_type`**：机器人主循环出站仍以 **`chat_id`** + 规范化后的 `oc_`/`ou_` 为主；**内置飞书工具**发 `create` 消息时可经 `MINIAGENT_FEISHU_RECEIVE_ID_TYPE`、工具参数或 `AgentConfig.feishu_im_receive_id_type` 使用 `open_id`/`union_id`，须与传入的 `receive_id` 类型一致。
+- **卡片回调 `p2.card.action.trigger`**：依赖按钮 `action.value` 与回调 `context.open_chat_id` 等字段；无内置幂等键；生产使用需在开放平台完成订阅与卡片配置，必要时在业务 `value` 中自带去重键。
 
 ## API 调用
 

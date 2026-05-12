@@ -71,6 +71,7 @@ async def dispatch_command(
     if not text.startswith("."):
         return None
 
+    from miniagent.core.config import MODEL_PROFILES
     from miniagent.engine.cli_commands import (
         cmd_bind,
         cmd_help,
@@ -92,7 +93,6 @@ async def dispatch_command(
         release_session_lock,
         try_lock_session,
     )
-    from miniagent.core.config import MODEL_PROFILES
 
     rt = state.get("runtime_ctx")
     if rt is None:
@@ -118,17 +118,20 @@ async def dispatch_command(
         print(output)
         return None
 
-    # ── .stop：仅 CLI；直接 unregister + 释放锁并 sys.exit（飞书 capture 路径已拒绝）
+    # ── .stop：仅 CLI；飞书 capture 路径已拒绝
     if cmd == ".stop":
         if capture:
             return "⚠️ .stop 命令只能在 CLI 使用"
-        try:
-            from miniagent.infrastructure.instance import unregister_instance
-            unregister_instance()
-            print("✅ 当前实例已停止")
-        except Exception:
-            pass
-        release_session_lock(state.get("active_session_id", ""))
+        from miniagent.engine.shutdown import shutdown_runtime
+
+        await shutdown_runtime(
+            rt,
+            state,  # type: ignore[arg-type]
+            reason="dot_stop_dispatch",
+            release_cli_session_lock=True,
+            call_unregister=True,
+        )
+        print("✅ 当前实例已停止")
         sys.exit(0)
 
     # ── .instance ──

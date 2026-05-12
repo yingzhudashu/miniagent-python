@@ -1,7 +1,9 @@
 """Tests for memory store (async)."""
 
 import tempfile
+
 import pytest
+
 from miniagent.memory.store import DefaultMemoryStore
 from miniagent.types.memory import MemoryEntryInput
 
@@ -22,8 +24,9 @@ class TestMemoryStore:
     async def test_add_entry(self):
         sid = "session-add"
         # Create initial memory by calling save
-        from miniagent.types.memory import SessionMemory
         from datetime import datetime, timezone
+
+        from miniagent.types.memory import SessionMemory
         memory = SessionMemory(
             session_id=sid,
             cumulative_summary="",
@@ -49,8 +52,9 @@ class TestMemoryStore:
     async def test_add_entry_accepts_plain_dict(self):
         """executor 等调用方曾传入 dict；须与 MemoryEntryInput 等价处理。"""
         sid = "session-dict-entry"
-        from miniagent.types.memory import SessionMemory
         from datetime import datetime, timezone
+
+        from miniagent.types.memory import SessionMemory
 
         now = datetime.now(timezone.utc).isoformat()
         memory = SessionMemory(
@@ -81,8 +85,9 @@ class TestMemoryStore:
 
     async def test_update_summary(self):
         sid = "session-update"
-        from miniagent.types.memory import SessionMemory
         from datetime import datetime, timezone
+
+        from miniagent.types.memory import SessionMemory
         memory = SessionMemory(
             session_id=sid,
             cumulative_summary="",

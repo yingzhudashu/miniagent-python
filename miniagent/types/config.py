@@ -11,7 +11,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-
 # ============================================================================
 # Model Profile — 模型预设
 # ============================================================================
@@ -126,6 +125,12 @@ class AgentConfig:
         cli_loop_state: 与 CLI/飞书共享的 CliLoopState dict（供 run_dot_command 等工具调用 dispatch_command）
         cli_dispatch_allow_mutations: capture 模式下是否允许 .session 等会改共享状态的子命令（飞书应为 False）
         feishu_receive_chat_id: 飞书 API 用 ``chat_id``（如 ``oc_xxx``）；注入工具上下文以便 ``run_dot_command`` 的 ``.abort`` 等作用于当前群队列
+        feishu_trigger_message_id: 触发本轮的飞书入站 ``message_id``（可选；供工具/提示词与 ``MINIAGENT_FEISHU_REPLY_TARGET=reply`` 出站）
+        feishu_root_id: 入站事件 ``root_id``（话题根消息，可选；与历史方案中的「reply_root」语境一致）
+        feishu_parent_id: 入站事件 ``parent_id``（可选）
+        feishu_thread_id: 入站事件 ``thread_id``（可选；话题上下文）
+        feishu_im_receive_id_type: 飞书 IM ``create`` 消息的 ``receive_id_type``（``chat_id`` / ``open_id`` / ``union_id``）；缺省由工具上下文读环境变量 ``MINIAGENT_FEISHU_RECEIVE_ID_TYPE``
+        feishu_im_receive_id: 与上一项配合：非 ``chat_id`` 时作为默认 ``receive_id``（通常为入站发送者 ``open_id``）
         history_progressive_compression: 是否启用磁盘会话历史的渐进式压缩（L1–L3）；关闭后仅归档/删轮
     """
 
@@ -155,6 +160,12 @@ class AgentConfig:
     cli_loop_state: Any | None = None
     cli_dispatch_allow_mutations: bool = True
     feishu_receive_chat_id: str | None = None
+    feishu_trigger_message_id: str | None = None
+    feishu_root_id: str | None = None
+    feishu_parent_id: str | None = None
+    feishu_thread_id: str | None = None
+    feishu_im_receive_id_type: str | None = None
+    feishu_im_receive_id: str | None = None
     history_progressive_compression: bool = True
 
 

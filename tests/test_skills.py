@@ -1,12 +1,14 @@
 """Tests for skill registry and loader."""
 
 import os
-from pathlib import Path
 import tempfile
+from pathlib import Path
+
 import pytest
-from miniagent.skills.registry import DefaultSkillRegistry
+
 from miniagent.skills.clawhub_client import skill_install_dir_name
 from miniagent.skills.loader import discover_skill_packages, parse_skill_md
+from miniagent.skills.registry import DefaultSkillRegistry
 from miniagent.types.skill import Skill
 
 

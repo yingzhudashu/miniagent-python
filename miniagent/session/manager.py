@@ -20,6 +20,8 @@
             └── heartbeat
 
 设计背景见 ``docs/ARCHITECTURE.md``（会话与记忆）；长期记忆文件布局见 ``docs/MEMORY_SYSTEM.md``。
+
+**与引擎的衔接**：进程内在 ``miniagent.engine.init.init_subsystems`` 中构造默认实现；``UnifiedEngine.run_agent_with_thinking`` 按 ``session_key`` 解析 ``files/`` 根目录、会话级工具注册表与历史落盘路径，勿在业务层绕过 ``SessionManager`` 直接写 ``workspaces/sessions/<id>`` 以免与锁、索引不一致。
 """
 
 from __future__ import annotations
@@ -31,12 +33,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from miniagent.types.tool import ToolDefinition, ToolContext, Toolbox
-from miniagent.types.skill import Skill
-from miniagent.types.config import normalize_conversation_history
-from miniagent.types.memory import Session, SessionOptions, SessionManagerProtocol
-from miniagent.infrastructure.registry import DefaultToolRegistry
 from miniagent.infrastructure.logger import get_logger
+from miniagent.infrastructure.registry import DefaultToolRegistry
+from miniagent.types.config import normalize_conversation_history
+from miniagent.types.memory import Session, SessionManagerProtocol, SessionOptions
+from miniagent.types.skill import Skill
+from miniagent.types.tool import Toolbox, ToolContext, ToolDefinition
 
 _logger = get_logger(__name__)
 
@@ -211,7 +213,7 @@ class DefaultSessionManager(SessionManagerProtocol):
             config_path = os.path.join(workspaces, name, "config.json")
             if os.path.isfile(config_path):
                 try:
-                    with open(config_path, "r", encoding="utf-8-sig") as f:
+                    with open(config_path, encoding="utf-8-sig") as f:
                         raw = json.load(f)
                     result.append({
                         "dir_name": name,
@@ -336,7 +338,7 @@ class DefaultSessionManager(SessionManagerProtocol):
         try:
             path = os.path.join(ctx["config"].workspace_path, "history.json")
             if os.path.isfile(path):
-                with open(path, "r", encoding="utf-8-sig") as f:
+                with open(path, encoding="utf-8-sig") as f:
                     return normalize_conversation_history(json.load(f))
         except Exception:
             pass
@@ -464,7 +466,7 @@ class DefaultSessionManager(SessionManagerProtocol):
         """
         # 1. 读取配置
         config_path = os.path.join(workspace_path, "config.json")
-        with open(config_path, "r", encoding="utf-8-sig") as f:
+        with open(config_path, encoding="utf-8-sig") as f:
             raw = json.load(f)
 
         config = SessionConfig(
@@ -485,7 +487,7 @@ class DefaultSessionManager(SessionManagerProtocol):
         history_path = os.path.join(workspace_path, "history.json")
         if os.path.isfile(history_path):
             try:
-                with open(history_path, "r", encoding="utf-8-sig") as f:
+                with open(history_path, encoding="utf-8-sig") as f:
                     conversation_history = normalize_conversation_history(json.load(f))
             except Exception:
                 conversation_history = []
@@ -945,7 +947,7 @@ def _get_session_lock_owner(workspace_path: str) -> int | None:
     lock_file = os.path.join(workspace_path, ".lock")
     if os.path.isfile(lock_file):
         try:
-            with open(lock_file, "r") as f:
+            with open(lock_file) as f:
                 return int(f.read().strip())
         except Exception:
             pass

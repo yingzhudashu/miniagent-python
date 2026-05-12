@@ -16,11 +16,11 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from miniagent.types.tool import ToolDefinition, ToolContext, ToolResult
 from miniagent.infrastructure.process import (
     create_tracked_subprocess,
     deregister_process,
 )
+from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 # ─── Schema ──────────────────────────────────────────────
 

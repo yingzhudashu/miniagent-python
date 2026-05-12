@@ -21,11 +21,15 @@ def test_merge_agent_config_cli_loop_fields() -> None:
             "cli_loop_state": state,
             "cli_dispatch_allow_mutations": False,
             "feishu_receive_chat_id": "oc_x",
+            "feishu_im_receive_id_type": "open_id",
+            "feishu_im_receive_id": "ou_sender",
         },
     )
     assert merged.cli_loop_state is state
     assert merged.cli_dispatch_allow_mutations is False
     assert merged.feishu_receive_chat_id == "oc_x"
+    assert merged.feishu_im_receive_id_type == "open_id"
+    assert merged.feishu_im_receive_id == "ou_sender"
 
 
 @pytest.mark.asyncio

@@ -4,7 +4,7 @@
 
 ## 项目架构
 
-项目按一级子包划分职责（共 12 个：`cli`、`core`、`engine`、`feishu`、`infrastructure`、`memory`、`session`、`skills`、`tools`、`security`、`types`、`runtime`）：
+项目按一级子包划分职责（**12 个核心子包** + **可选 `mcp/`**：stdio MCP 桥接；与 `compat`、根 `__main__` 同属入口周边）：
 
 | 子包 | 职责 | 关键文件 |
 |------|------|---------|
@@ -20,6 +20,7 @@
 | `security/` | 沙箱与权限 | sandbox.py |
 | `types/` | 共享类型定义 | agent.py, config.py, tool.py, planning.py |
 | `runtime/` | 进程级组合根 | `context.py`（`RuntimeContext`） |
+| `mcp/` | 可选 stdio MCP → `mcp_*` 工具 | `bridge.py`, `runtime.py`（需 `pip install -e ".[mcp]"`） |
 
 **版本号**：以 `miniagent.__version__`（`miniagent/__init__.py`）为权威；`pyproject.toml` 通过 `tool.setuptools.dynamic` 读取该属性。
 
@@ -37,6 +38,8 @@ source .venv/bin/activate  # Linux/Mac
 
 # 3. 安装依赖（开发模式）
 pip install -e ".[dev]"
+# 与默认 CI `test` job 一致（含 mypy）请使用：pip install -e ".[dev,typing]"
+# （与 README 快速开始默认 `.[dev,typing]` 不同：此处为最小安装；跑 mypy 前请改用上一行。）
 
 # 4. 配置环境
 cp .env.example .env
@@ -46,6 +49,8 @@ cp .env.example .env
 python -m pytest tests/ -q -m "not evaluation"
 # 含 tests/evaluation 全量：
 # python -m pytest tests/ -q
+#
+# 合并前完整本地门禁（ruff / compileall / mypy / pytest）与 [ENGINEERING.md](ENGINEERING.md) §2 命令块一致；已安装 ".[dev,typing]" 时包含 mypy。
 ```
 
 ## 运行时目录与测试隔离
@@ -59,6 +64,12 @@ python -m pytest tests/ -q -m "not evaluation"
 $env:MINI_AGENT_STATE = "$env:TEMP\miniagent-test-state"
 python -m pytest tests/ -q -m "not evaluation"
 ```
+
+### 提交前仓库卫生（缓存与构建产物）
+
+- 推送前执行 **`git status`**：索引与工作区中不应出现 **`__pycache__/`**、**`.pytest_cache/`**、**`.ruff_cache/`**、**`.mypy_cache/`**、**`*.egg-info/`** 等；这些路径已由根目录 [`.gitignore`](../.gitignore) 忽略，若仍出现在「待提交」列表中，说明曾用 **`git add -f`** 误加，应改为 `git rm --cached <路径>` 后仅提交源码。
+- 仅清理**已被 Git 忽略**的本地生成物（不删除未跟踪的源码与新文件）时，可在仓库根执行：`git clean -fdX`（PowerShell / bash 相同）。**注意**：根目录 `.gitignore` 中的 **`.env`** 也会被视作「已忽略文件」一并删除；执行前请备份密钥，或改用逐个删除缓存目录（如仅删 `**/__pycache__`）。**勿**使用 `git clean -fdx`（小写 `x` 会删除所有未跟踪文件，易误删未入库的新模块）。
+- 与「运行时目录」一节配合：日常设置 **`MINI_AGENT_STATE`** 指向仓库外目录，可减少 `workspaces/**/*.lock`、定时任务表等个人状态出现在 `git status` 中。
 
 ### 推送前自检（密钥与轨迹）
 

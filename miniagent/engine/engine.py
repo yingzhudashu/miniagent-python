@@ -8,6 +8,10 @@
 **非职责**：不实现飞书 WebSocket 协议细节（见 :mod:`miniagent.feishu.poll_server`）；不解析 ``.`` 命令
 （见 :mod:`miniagent.engine.command_dispatch`）。与 :mod:`miniagent.core` 的分工：core 无 asyncio 主循环与 stdin。
 
+**并发与队列**：CLI 与飞书共用同一进程时，「执行一轮 :meth:`run_agent_with_thinking`」的调度仍应由
+:class:`miniagent.infrastructure.message_queue.MessageQueueManager` 按 ``chat_id`` 串行或抢占；本类不替代队列，
+仅在被调用的协程内完成单次回合的 LLM/工具编排。
+
 详见 ``docs/ARCHITECTURE.md``（UnifiedEngine 与会话管线）。
 """
 
@@ -81,6 +85,12 @@ class UnifiedEngine:
         keyword_index: Any | None = None,
         client: Any | None = None,
         feishu_receive_chat_id: str | None = None,
+        feishu_trigger_message_id: str | None = None,
+        feishu_root_id: str | None = None,
+        feishu_parent_id: str | None = None,
+        feishu_thread_id: str | None = None,
+        feishu_im_receive_id_type: str | None = None,
+        feishu_im_receive_id: str | None = None,
         cli_loop_state: Any | None = None,
         agent_config_overrides: dict[str, Any] | None = None,
     ) -> str:
@@ -108,6 +118,13 @@ class UnifiedEngine:
             feishu_receive_chat_id: 飞书消息 API 用的会话 ID（如群聊 ``oc_xxx``）。
                 必须与 ``receive_id_type=chat_id`` 一致，**不得**传入内部路由键 ``feishu:oc_xxx``。
                 缺省时若 ``session_key`` 以 ``feishu:`` 开头则自动去掉前缀（兼容旧调用）。
+            feishu_trigger_message_id: 入站飞书 ``message_id``（可选；供 AgentConfig 与 ``MINIAGENT_FEISHU_REPLY_TARGET=reply``）。
+            feishu_root_id: 入站 ``root_id``（可选）。
+            feishu_parent_id: 入站 ``parent_id``（可选）。
+            feishu_thread_id: 入站 ``thread_id``（可选；与 ``MINIAGENT_FEISHU_REPLY_TARGET=reply`` 及未显式设置
+                ``MINIAGENT_FEISHU_REPLY_IN_THREAD`` 时是否默认话题内回复有关）。
+            feishu_im_receive_id_type: 飞书 IM 发消息 ``receive_id_type``（``chat_id`` / ``open_id`` / ``union_id``）；缺省由执行器读环境变量。
+            feishu_im_receive_id: 非 ``chat_id`` 时作为默认 ``receive_id``（通常为入站发送者 ``open_id``）。
             cli_loop_state: 与 CLI/飞书主循环共享的 ``CliLoopState``；注入后工具 ``run_dot_command`` 可调度点命令。
             agent_config_overrides: 合并进 ``run_agent`` 的 ``agent_config``（如 ``history_progressive_compression``）。
         """
@@ -164,6 +181,10 @@ class UnifiedEngine:
             if not im_recv and session_key.startswith("feishu:"):
                 im_recv = session_key[len("feishu:") :]
 
+            from miniagent.feishu.poll_server import feishu_outbound_reply_params
+
+            r_mid, r_thr = feishu_outbound_reply_params(feishu_trigger_message_id, feishu_thread_id)
+
             async def _feishu_send(
                 chat_id: str,
                 text: str,
@@ -176,10 +197,10 @@ class UnifiedEngine:
             ) -> None:
                 """飞书思考：流式一轮一条卡片（PATCH 节流）；同轮工具合并时追加同卡；否则 finalize + 独立卡。"""
                 from miniagent.feishu.poll_server import (
+                    _send_thinking,
                     append_feishu_thinking_same_card,
                     finalize_feishu_thinking_stream,
                     push_feishu_thinking_stream,
-                    _send_thinking,
                 )
 
                 st_local = self.thinking.thinking_state(session_key)
@@ -198,7 +219,14 @@ class UnifiedEngine:
                     )
                 else:
                     await finalize_feishu_thinking_stream(feishu_config, chat_id, template, st_local)
-                    await _send_thinking(feishu_config, chat_id, text, template)
+                    await _send_thinking(
+                        feishu_config,
+                        chat_id,
+                        text,
+                        template,
+                        reply_to_message_id=getattr(st_local, "feishu_reply_to_message_id", None),
+                        reply_in_thread=bool(getattr(st_local, "feishu_reply_in_thread", False)),
+                    )
 
             # 如果 CLI 也绑定到此会话，注册双回调（终端 + 飞书）
             if router.CLI_CHANNEL in bound_channels:
@@ -223,9 +251,21 @@ class UnifiedEngine:
                         finalize_only=finalize_only,
                     )
 
-                self.thinking.enable_feishu(session_key, im_recv, _dual_send)
+                self.thinking.enable_feishu(
+                    session_key,
+                    im_recv,
+                    _dual_send,
+                    reply_to_message_id=r_mid,
+                    reply_in_thread=r_thr,
+                )
             else:
-                self.thinking.enable_feishu(session_key, im_recv, _feishu_send)
+                self.thinking.enable_feishu(
+                    session_key,
+                    im_recv,
+                    _feishu_send,
+                    reply_to_message_id=r_mid,
+                    reply_in_thread=r_thr,
+                )
 
         # 5. 思考回调（支持流式更新；落盘到 history 的 thinking role）
         thinking_by_label: dict[str, str] = {}
@@ -288,12 +328,26 @@ class UnifiedEngine:
             "cli_loop_state": cli_loop_state,
             "cli_dispatch_allow_mutations": (not is_feishu),
             "feishu_receive_chat_id": _recv_chat or None,
+            "feishu_trigger_message_id": (feishu_trigger_message_id or "").strip() or None,
+            "feishu_root_id": (feishu_root_id or "").strip() or None,
+            "feishu_parent_id": (feishu_parent_id or "").strip() or None,
+            "feishu_thread_id": (feishu_thread_id or "").strip() or None,
+            "feishu_im_receive_id_type": (feishu_im_receive_id_type or "").strip() or None,
+            "feishu_im_receive_id": (feishu_im_receive_id or "").strip() or None,
         }
         if agent_config_overrides:
             agent_cfg_in.update(agent_config_overrides)
         from miniagent.core.config import get_default_agent_config, merge_agent_config
 
         merged_for_prog = merge_agent_config(get_default_agent_config(), agent_cfg_in)
+
+        effective_registry = merged_for_prog.session_registry or registry
+        if is_feishu and effective_registry is not None:
+            from miniagent.feishu.agent_channel_prompts import append_feishu_channel_system
+
+            system_prompt = append_feishu_channel_system(
+                system_prompt, is_feishu=True, registry=effective_registry
+            )
 
         reply = await run_agent(
             user_input,

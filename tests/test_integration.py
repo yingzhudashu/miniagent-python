@@ -14,8 +14,8 @@ class TestAllImports:
         pass
 
     def test_tools(self):
-        from miniagent.tools.filesystem import filesystem_tools
         from miniagent.tools.exec import exec_tools
+        from miniagent.tools.filesystem import filesystem_tools
         from miniagent.tools.web import web_tools
 
         assert len(filesystem_tools) > 0
@@ -71,7 +71,7 @@ class TestBasicWorkflows:
 
     def test_sandbox_workflow(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            from miniagent.security.sandbox import resolve_sandbox_path, is_path_allowed
+            from miniagent.security.sandbox import is_path_allowed, resolve_sandbox_path
 
             path = os.path.join(tmpdir, "test.txt")
             result = resolve_sandbox_path(path, [tmpdir])

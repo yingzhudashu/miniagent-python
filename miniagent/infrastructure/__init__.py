@@ -16,30 +16,30 @@
 - 消息队列 (``MessageQueueManager``)、通道路由 (``ChannelRouter``)
 """
 
-from miniagent.infrastructure.logger import get_logger, append_log, truncate
-from miniagent.infrastructure.registry import DefaultToolRegistry
-from miniagent.infrastructure.monitor import DefaultToolMonitor
-from miniagent.infrastructure.loop_detector import LoopDetector
+from miniagent.infrastructure.channel_router import ChannelRouter
 from miniagent.infrastructure.instance import (
     InstanceRegistry,
-    register_instance,
-    update_instance_mode,
-    heartbeat,
-    unregister_instance,
-    list_instances,
-    stop_instance_by_id,
     format_instances_table,
+    heartbeat,
+    list_instances,
+    register_instance,
+    stop_instance_by_id,
+    unregister_instance,
+    update_instance_mode,
 )
+from miniagent.infrastructure.logger import append_log, get_logger, truncate
+from miniagent.infrastructure.loop_detector import LoopDetector
+from miniagent.infrastructure.message_queue import MessageQueueManager, QueueMode
+from miniagent.infrastructure.monitor import DefaultToolMonitor
 from miniagent.infrastructure.process import (
     cleanup_all_processes,
     create_tracked_subprocess,
-    register_process,
     deregister_process,
-    get_tracked_count,
     get_active_processes,
+    get_tracked_count,
+    register_process,
 )
-from miniagent.infrastructure.message_queue import MessageQueueManager, QueueMode
-from miniagent.infrastructure.channel_router import ChannelRouter
+from miniagent.infrastructure.registry import DefaultToolRegistry
 
 __all__ = [
     "get_logger",

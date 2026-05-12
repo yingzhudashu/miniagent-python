@@ -144,7 +144,10 @@ async def tick_once(
                 finally:
                     _inflight.discard(task_id)
 
-            asyncio.create_task(_one_job())
+            jt = asyncio.create_task(_one_job())
+            reg = getattr(ctx, "register_shutdown_tracked_task", None)
+            if callable(reg):
+                reg(jt)
     finally:
         release_scheduler_lock()
 

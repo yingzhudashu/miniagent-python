@@ -14,6 +14,20 @@
 
 **注意**：线上感知的 p95 延迟通常由 **LLM/HTTP** 主导；L1 回归用于防止 Python 侧退化，不替代端到端评测。
 
+### 1.1 进程关闭顺序（`shutdown_runtime`）
+
+与 [miniagent/engine/shutdown.py](../miniagent/engine/shutdown.py) 实现一致，供排障与代码审阅对齐：
+
+1. 取消并等待 `RuntimeContext.shutdown_tracked_tasks`（如 `tick_once` 派生的 job）。
+2. `cancel_pending_dream_tasks()`（记忆维护后台）。
+3. 定时任务 ticker：`stop_event.set()`，取消并 `await` ticker task。
+4. 飞书：`await feishu.stop_async()`（或 fallback await），再防御性 `reset_feishu_ws_singleton()`。
+5. 可选：`message_queue.abort_all_chats()`。
+6. `cleanup_all_processes()`；按需 `release_session_lock`；按需 `unregister_instance()`。
+7. 可选：`loop.shutdown_default_executor()`（短超时）。**信号路径**（`SIGINT`/`SIGTERM`）当前在 [miniagent/engine/main.py](../miniagent/engine/main.py) 传入 `shutdown_default_executor=False`，以降低与全屏 CLI / 线程池的竞态。
+
+**与 `run_cli_loop` 的关系**：用户正常 `quit` 时，循环末尾通常会先 `release_session_lock` + `unregister_instance()`，随后 `unified_main` 再调用 `shutdown_runtime(..., release_cli_session_lock=False, call_unregister=False)`，避免重复；`.stop` 与信号路径则传 `True` 以覆盖未走循环清理即退出的情况。
+
 ## 2. 场景矩阵（合成）
 
 | ID | 场景 | 目的 |
@@ -21,15 +35,25 @@
 | S1 | `execute_plan` + Mock 流式、1 次工具调用 | 执行器主路径本地耗时上界（宽松断言） |
 | S2 | `DefaultMemoryStore.add_entry` 多次 + 单次 `flush_keyword_index` | 关键词索引 **合并落盘**（相对「每 add 一次 save」） |
 | S3 | `DefaultContextManager` + 较多工具 schema 的 token 估算 | 上下文/序列化路径冒烟（阈值宽松） |
+| S4 | 多工具下反复 `get_token_report`（burst） | 预算与报告路径；依赖工具 schema token **缓存**，防 `needs_compression` 相关路径退化 |
+| S5 | `_normalize_lark_md` 大段正文 | 飞书 **纯 CPU** 规范化；不访问网络，与 `poll_server` 侧热点对照 |
+| S6 | 批量 `add_entry` + `flush` 的 tracemalloc 峰值 | 分配量宽松上界；与 `scripts/perf_profile_tracemalloc.py` 场景一致 |
+| S7 | `serialize_exec_payload_sample`（DefaultContextManager + messages/tools `json.dumps`） | 与 `execute_plan` 请求组装对齐的 Python 序列化冒烟 |
 
-扩展场景时保持 **确定性**（固定 tmp 状态目录、Mock client），避免在默认 CI 中依赖网络。
+扩展场景时保持 **确定性**（固定 tmp 状态目录、Mock client），避免在默认 CI 中依赖网络。可选在 CI 中设置 **`PYTHONHASHSEED=0`**（见 `.github/workflows/perf-smoke.yml`）以降低 dict 迭代顺序带来的抖动。
+
+### 2.1 后续场景（Backlog）
+
+- （暂无与 §2 表格重复的待办；新场景在表格中登记并在此节补充说明即可）
 
 ## 3. 本地剖析命令
 
 ### 3.1 cProfile（CPU）
 
+对 `scripts/perf_profile_tracemalloc.py` **单次进程**跑 cProfile 时，累计时间常被 **importlib 冷启动** 主导；要突出内存批处理热路径，请加大 `--inner-repeat`（每次迭代使用独立子目录，避免状态无限膨胀）：
+
 ```bash
-python -m cProfile -o perf.out scripts/perf_profile_tracemalloc.py --no-tracemalloc
+python -m cProfile -o perf.out scripts/perf_profile_tracemalloc.py --no-tracemalloc --inner-repeat 80
 python -c "import pstats; p=pstats.Stats('perf.out'); p.strip_dirs().sort_stats('cumtime').print_stats(40)"
 ```
 
@@ -38,13 +62,24 @@ python -c "import pstats; p=pstats.Stats('perf.out'); p.strip_dirs().sort_stats(
 ```bash
 python scripts/perf_profile_tracemalloc.py --top 25
 python scripts/perf_profile_tracemalloc.py --json-out perf-snapshot.json
+python scripts/perf_profile_tracemalloc.py --inner-repeat 20 --json-out perf-snapshot.json
 ```
 
 ### 3.3 py-spy（采样，需单独安装）
 
 ```bash
-py-spy record -o profile.svg -- python scripts/perf_profile_tracemalloc.py --no-tracemalloc
+py-spy record -o profile.svg -- python scripts/perf_profile_tracemalloc.py --no-tracemalloc --inner-repeat 40
 ```
+
+### 3.4 两次剖析 JSON 对比（基线）
+
+`perf_profile_tracemalloc.py --json-out` 写入的 JSON 含 `tracemalloc_peak_mib`、`inner_repeat` 等字段。将一次输出保存为 `tests/perf_baselines/<你的环境>.json` 后，可与新跑结果对比（**非门禁**，用于人工或可选告警）：
+
+```bash
+python scripts/compare_perf_snapshots.py tests/perf_baselines/my-baseline.json perf-snapshot.json --warn-ratio 1.35
+```
+
+对比 **tracemalloc_peak_mib** 时，请使两侧 JSON 的 **`inner_repeat` 与是否 `--no-tracemalloc`** 一致；否则脚本会打印 WARN，峰值可能不可比。`compare_perf_snapshots.py` 仅接受根为 **JSON 对象** 的文件（与 `perf_profile` 输出一致），勿将 `example.json` 的 `scenarios` 数组根文件误作输入。
 
 ## 4. 基线文件格式（`tests/perf_baselines/`）
 
@@ -56,19 +91,30 @@ py-spy record -o profile.svg -- python scripts/perf_profile_tracemalloc.py --no-
 - `commit`：可选，Git SHA  
 - `generated_at`：ISO8601 UTC  
 - `environment`：`python`, `platform`  
-- `scenarios`：数组，元素含 `id`, `median_ms`, `notes`  
+- `scenarios`：数组，元素含 `id`, `median_ms`, `notes`（与 L1 合成用例 id 对齐，便于 PR 描述引用）  
+
+另可将 `scripts/perf_profile_tracemalloc.py --json-out` 的产出 **复制** 为 `perf_baselines/tracemalloc_*.json`，供 `compare_perf_snapshots.py` 使用（该脚本读取的是脚本 JSON 格式，与 `example.json` 的 `scenarios` 数组可并存为不同文件）。
 
 CI **不**依赖基线文件是否存在；可选 workflow 仅上传当次脚本输出 artifact。
 
 ## 5. 已确认/已缓解的热点（代码侧）
 
+### 5.1 已缓解
+
 - **关键词索引**：`KeywordIndex` 使用 `_dirty`；`index_entry` 只改内存。`DefaultMemoryStore.add_entry` 不再每次 `save()`；在 [`miniagent/core/executor.py`](../miniagent/core/executor.py) 的 `_save_session_memory` 末尾 **`flush_keyword_index()`** 保证每轮仍落盘一次。批量 `add_entry` 后显式 `flush_keyword_index()` 可减少写次数。进程退出时 [`miniagent/memory/defaults.py`](../miniagent/memory/defaults.py) 通过 **atexit** 再刷一次默认 bundle 的索引，降低异常退出丢失概率。  
-- **Feishu `json.dumps`**：仍可能是热点；优化前应用 py-spy 对 `poll_server` 路径采样确认。
+- **上下文预算中的工具 schema**：[`miniagent/memory/context.py`](../miniagent/memory/context.py) 的 `DefaultContextManager` 对 `estimate_tool_tokens`（内部多次 `json.dumps(tool)`）做 **按次失效缓存**（调用 **`set_tools`** 或构造后首次用时计算；之后复用）。若需更新工具列表或 schema 内容，**必须**通过 `set_tools` 传入新列表，勿仅原地修改已绑定列表并依赖预算立即变化。
+
+### 5.2 待验证 / 剖析指引
+
+- **单次脚本 cProfile**：若不使用 `--inner-repeat`，top `cumtime` 多为导入链；见 §3.1。  
+- **Feishu `json.dumps`**：仍可能是线上热点；优化前应用 py-spy 对 `poll_server` 长驻路径采样确认；S5 仅覆盖 `_normalize_lark_md`，不替代整链 profiling。
 
 ## 6. 相关文件
 
 | 文件 | 作用 |
 |------|------|
-| [`tests/perf_helpers.py`](../tests/perf_helpers.py) | 中位数计时、可选 tracemalloc |
+| [`miniagent/core/request_payload.py`](../miniagent/core/request_payload.py) | S7：`serialize_exec_payload_sample`（执行轮次 messages/tools 序列化样本） |
+| [`miniagent/engine/shutdown.py`](../miniagent/engine/shutdown.py) | 统一关停：定时任务、飞书、队列、子进程、实例注册 |
 | [`tests/test_perf_synthetic.py`](../tests/test_perf_synthetic.py) | 合成 perf 用例（默认参与 `pytest -m "not evaluation"`） |
-| [`scripts/perf_profile_tracemalloc.py`](../scripts/perf_profile_tracemalloc.py) | 本地可重复剖析入口 |
+| [`scripts/perf_profile_tracemalloc.py`](../scripts/perf_profile_tracemalloc.py) | 本地可重复剖析入口（支持 `--inner-repeat`） |
+| [`scripts/compare_perf_snapshots.py`](../scripts/compare_perf_snapshots.py) | 对比两次 `--json-out` JSON（峰值比例告警） |

@@ -14,6 +14,10 @@
 - 飞书开放平台的企业自建应用
 
 媒体落盘后是否自动跑 Agent、静默回复等开关见 ``docs/ENGINEERING.md`` §1 表格与 ``docs/FEISHU.md``。
+
+**与消息队列的边界**：本模块在事件回调中组包用户文本（及可选媒体路径）后，应通过路由层投递到
+``MessageQueueManager``，由队列保证同聊天室与 CLI 侧约定的顺序/抢占语义；本文件不直接替代
+``miniagent.infrastructure.message_queue``。
 """
 
 from __future__ import annotations
@@ -23,12 +27,101 @@ import json
 import os
 import re
 import time
-from typing import Any, Awaitable, Callable, Protocol
+from collections.abc import Awaitable, Callable
+from typing import Any, Protocol
 
-from miniagent.feishu.types import FeishuConfig
+from miniagent.feishu.types import FeishuConfig, FeishuInboundText
 from miniagent.infrastructure.logger import get_logger
 
 _logger = get_logger(__name__)
+
+# --- 出站：reply 参数、interactive/text（经 im_send）---
+# 入站文本 handler：单参数 ``FeishuInboundText``，返回回复正文。
+FeishuTextMessageHandler = Callable[[FeishuInboundText], Awaitable[str]]
+
+
+def feishu_outbound_reply_params(
+    trigger_message_id: str | None,
+    thread_id: str | None = None,
+) -> tuple[str | None, bool]:
+    """是否使用飞书「回复消息」API（``im/v1/messages/:message_id/reply``）。
+
+    环境变量：
+    - ``MINIAGENT_FEISHU_REPLY_TARGET``：``create``（默认，会话内新消息）或 ``reply``；其它值视为 ``create``。
+    - ``MINIAGENT_FEISHU_REPLY_IN_THREAD``：显式 ``1``/``true`` 等为真；``0``/``false`` 等为假；**未设置**且入站
+      ``thread_id`` 非空时，在 ``reply`` 模式下默认 ``reply_in_thread=True``。
+
+    Returns:
+        ``(reply_parent_message_id_or_None, reply_in_thread)``
+    """
+    mode = (os.environ.get("MINIAGENT_FEISHU_REPLY_TARGET") or "create").strip().lower()
+    if mode not in ("create", "reply"):
+        return None, False
+    if mode != "reply":
+        return None, False
+    mid = (trigger_message_id or "").strip()
+    if not mid:
+        return None, False
+    raw_thr = (os.environ.get("MINIAGENT_FEISHU_REPLY_IN_THREAD") or "").strip().lower()
+    if raw_thr in ("0", "false", "no", "off"):
+        thr = False
+    elif raw_thr in ("1", "true", "yes", "on"):
+        thr = True
+    else:
+        thr = bool((thread_id or "").strip())
+    return mid, thr
+
+
+def _post_interactive_message(
+    config: FeishuConfig,
+    *,
+    receive_id: str,
+    card_json: str,
+    reply_to_message_id: str | None = None,
+    reply_in_thread: bool = False,
+) -> tuple[bool, str | None]:
+    """发送一条 ``msg_type=interactive``；成功返回 ``(True, message_id)``。"""
+    from miniagent.feishu.im_send import post_im_message
+
+    ok, mid, err = post_im_message(
+        config,
+        receive_id=receive_id,
+        msg_type="interactive",
+        content_json=card_json,
+        reply_to_message_id=reply_to_message_id,
+        reply_in_thread=reply_in_thread,
+    )
+    if not ok:
+        _logger.warning("发送 interactive 失败: %s", err or "?")
+        return False, None
+    if not mid:
+        _logger.warning("发送 interactive 成功但未返回 message_id")
+        return False, None
+    return True, mid
+
+
+def _post_text_message(
+    config: FeishuConfig,
+    *,
+    receive_id: str,
+    text_content_json: str,
+    reply_to_message_id: str | None = None,
+    reply_in_thread: bool = False,
+) -> bool:
+    """发送一条 ``msg_type=text``；成功返回 True。"""
+    from miniagent.feishu.im_send import post_im_message
+
+    ok, _mid, err = post_im_message(
+        config,
+        receive_id=receive_id,
+        msg_type="text",
+        content_json=text_content_json,
+        reply_to_message_id=reply_to_message_id,
+        reply_in_thread=reply_in_thread,
+    )
+    if not ok:
+        _logger.warning("发送 text 失败: %s", err or "?")
+    return ok
 
 
 class FeishuMediaHandler(Protocol):
@@ -45,6 +138,7 @@ class FeishuMediaHandler(Protocol):
         file_key: str,
         suggested_name: str,
         resource_type: str,
+        thread_id: str | None = None,
     ) -> str | None: ...
 
 
@@ -104,6 +198,9 @@ def _extract_post_media_items(content_str: str) -> list[tuple[str, str, str]]:
     return out
 
 
+# --- WebSocket 单例：reset 供关停或重连前释放 SDK Client ---
+
+
 async def reset_feishu_ws_singleton() -> None:
     """关闭并清空本模块持有的飞书 WS 单例，便于外层重连前重建 Client。"""
     global _singleton_client, _singleton_app_id
@@ -118,6 +215,7 @@ async def reset_feishu_ws_singleton() -> None:
         _logger.debug("reset_feishu_ws_singleton: %s", e)
 
 
+# --- 入站 message_id：内存 claim + 磁盘 JSON（防重复进队列；TTL 见下）---
 # 去重配置
 DEDUP_TTL_MS = 5 * 60 * 1000  # 5 分钟
 DEDUP_MAX_SIZE = 2000
@@ -153,7 +251,7 @@ def _load_disk_dedup():
     try:
         _ensure_state_dir()
         if os.path.isfile(_dedup_file):
-            with open(_dedup_file, "r", encoding="utf-8") as f:
+            with open(_dedup_file, encoding="utf-8") as f:
                 _disk_dedup = json.load(f)
     except Exception:
         _disk_dedup = {}
@@ -257,11 +355,12 @@ _load_disk_dedup()
 # 已由 miniagent.infrastructure.message_queue.MessageQueueManager 统一管理
 
 
-# ─── 飞书客户端 ───
+# ─── 长轮询入口：WSClient、事件回调、handler 内投递 message_queue ───
+# 与 ``# ─── 消息队列 ───`` 注释呼应：此处只负责连接与解析，顺序语义由传入的 ``message_queue`` 保证。
 
 async def start_feishu_poll_server(
     config: FeishuConfig,
-    message_handler: Callable[[str, str, str, str], Awaitable[str]],
+    message_handler: FeishuTextMessageHandler,
     *,
     message_queue: Any,
     media_handler: FeishuMediaHandler | None = None,
@@ -273,12 +372,26 @@ async def start_feishu_poll_server(
 
     Args:
         config: 飞书应用配置
-        message_handler: 消息处理函数 (content, chatId, senderId, chatType) => reply
+        message_handler: 消息处理函数 ``FeishuInboundText`` => 回复正文
         message_queue: 本进程使用的消息队列管理器（与 CLI 共用）
         media_handler: 可选；处理 file/image 入站（见 ``_create_feishu_handler`` 返回的第二个回调）
     """
     mq = message_queue
     global _singleton_client, _singleton_app_id
+
+    # #region agent log
+    try:
+        from miniagent.infrastructure.debug_ndjson import agent_debug_log
+
+        agent_debug_log(
+            hypothesis_id="E",
+            location="poll_server.py:start_feishu_poll_server",
+            message="poll_server_entry",
+            data={"app_id_len": len((config.app_id or "").strip())},
+        )
+    except Exception:
+        pass
+    # #endregion
 
     # 任何残留单例一律关闭后重建，避免「同 appId 直接 return」导致外层重连误判为断线空转。
     if _singleton_client is not None:
@@ -294,9 +407,22 @@ async def start_feishu_poll_server(
     try:
         import lark_oapi as lark
         from lark_oapi.api.im.v1.model.p2_im_message_receive_v1 import P2ImMessageReceiveV1
-        from lark_oapi.event.dispatcher_handler import EventDispatcherHandler
         from lark_oapi.core.enum import LogLevel
+        from lark_oapi.event.dispatcher_handler import EventDispatcherHandler
     except ImportError as e:
+        # #region agent log
+        try:
+            from miniagent.infrastructure.debug_ndjson import agent_debug_log
+
+            agent_debug_log(
+                hypothesis_id="E",
+                location="poll_server.py:start_feishu_poll_server",
+                message="lark_oapi_import_failed",
+                data={"exc_type": "ImportError", "exc_msg": str(e)[:300]},
+            )
+        except Exception:
+            pass
+        # #endregion
         _logger.error("请安装 lark-oapi: pip install lark-oapi (%s)", e)
         raise
 
@@ -340,12 +466,35 @@ async def start_feishu_poll_server(
 
                 _logger.debug("收到消息 [%s] %s: %s", chat_id, sender_id, text)
 
+                root_id = (message.root_id or "").strip() or None
+                parent_id = (message.parent_id or "").strip() or None
+                thread_id = (message.thread_id or "").strip() or None
+                inbound = FeishuInboundText(
+                    text=text,
+                    chat_id=chat_id,
+                    sender_id=sender_id,
+                    chat_type=chat_type or "group",
+                    message_id=message_id,
+                    root_id=root_id,
+                    parent_id=parent_id,
+                    thread_id=thread_id,
+                )
+
                 async def _handle():
                     finalized = False
                     try:
-                        reply = await message_handler(text, chat_id, sender_id, chat_type)
+                        reply = await message_handler(inbound)
                         if reply:
-                            await _send_reply(config, chat_id, reply)
+                            r_mid, r_thr = feishu_outbound_reply_params(
+                                inbound.message_id, inbound.thread_id
+                            )
+                            await _send_reply(
+                                config,
+                                chat_id,
+                                reply,
+                                reply_to_message_id=r_mid,
+                                reply_in_thread=r_thr,
+                            )
                             _logger.debug("已回复 [%s]", chat_id)
                         finalized = True
                     except Exception as e:
@@ -367,6 +516,7 @@ async def start_feishu_poll_server(
                     release_processing(message_id)
                     return
                 res_type, file_key, suggested_name = parsed_media
+                thread_id_media = (message.thread_id or "").strip()
 
                 async def _handle_media():
                     finalized = False
@@ -381,6 +531,7 @@ async def start_feishu_poll_server(
                             file_key,
                             suggested_name,
                             res_type,
+                            thread_id_media or None,
                         )
                         if _feishu_media_reply_indicates_failure(reply):
                             finalized = False
@@ -392,7 +543,16 @@ async def start_feishu_poll_server(
                                 in ("1", "true", "yes", "on")
                             )
                             if reply and not silent:
-                                await _send_reply(config, chat_id, reply)
+                                r_mid, r_thr = feishu_outbound_reply_params(
+                                    message_id, thread_id_media or None
+                                )
+                                await _send_reply(
+                                    config,
+                                    chat_id,
+                                    reply,
+                                    reply_to_message_id=r_mid,
+                                    reply_in_thread=r_thr,
+                                )
                             finalized = True
                     except Exception as e:
                         _logger.error("处理飞书媒体失败: %s", e)
@@ -408,6 +568,7 @@ async def start_feishu_poll_server(
                 if not post_items:
                     release_processing(message_id)
                     return
+                thread_id_post = (message.thread_id or "").strip()
 
                 async def _handle_post_media():
                     finalized = False
@@ -430,6 +591,7 @@ async def start_feishu_poll_server(
                                 fk,
                                 suggested,
                                 res_type,
+                                thread_id_post or None,
                             )
                             if _feishu_media_reply_indicates_failure(reply):
                                 finalized = False
@@ -437,7 +599,16 @@ async def start_feishu_poll_server(
                             if reply:
                                 combined.append(reply)
                         if combined and not silent:
-                            await _send_reply(config, chat_id, "\n".join(combined))
+                            r_mid, r_thr = feishu_outbound_reply_params(
+                                message_id, thread_id_post or None
+                            )
+                            await _send_reply(
+                                config,
+                                chat_id,
+                                "\n".join(combined),
+                                reply_to_message_id=r_mid,
+                                reply_in_thread=r_thr,
+                            )
                         finalized = True
                     except Exception as e:
                         _logger.error("处理飞书 post 媒体失败: %s", e)
@@ -455,16 +626,96 @@ async def start_feishu_poll_server(
         except Exception as e:
             _logger.error("事件处理异常: %s", e)
 
+    def _feishu_card_action_router_enabled() -> bool:
+        """是否将卡片按钮事件经路由投递到消息队列（环境变量开关）。"""
+        return (os.environ.get("MINIAGENT_FEISHU_CARD_ACTION_ROUTER") or "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
+
+    def _on_card_action_trigger(event: Any) -> Any:
+        """同步回调：将卡片 ``action.value`` 中的文本投递给同一 ``message_handler``。"""
+        from lark_oapi.event.callback.model.p2_card_action_trigger import (
+            CallBackToast,
+            P2CardActionTriggerResponse,
+        )
+
+        resp = P2CardActionTriggerResponse()
+        bad = CallBackToast()
+        bad.type = "error"
+        bad.content = "Mini Agent：缺少 miniagent_text 或 chat_id（请在按钮 value 中提供）"
+        resp.toast = bad
+
+        try:
+            ev = getattr(event, "event", None)
+            if not ev:
+                return resp
+            act = getattr(ev, "action", None)
+            ctx = getattr(ev, "context", None)
+            op = getattr(ev, "operator", None)
+            value = dict(getattr(act, "value", None) or {}) if act else {}
+            text = str(value.get("miniagent_text") or value.get("text") or "").strip()
+            chat_id = str(value.get("chat_id") or "").strip()
+            if not chat_id and ctx is not None:
+                chat_id = str(getattr(ctx, "open_chat_id", None) or "").strip()
+            sender_id = ""
+            if op is not None:
+                sender_id = str(getattr(op, "open_id", None) or "").strip()
+            if not text or not chat_id:
+                return resp
+            inbound = FeishuInboundText(
+                text=text,
+                chat_id=chat_id,
+                sender_id=sender_id,
+                chat_type=str(value.get("chat_type") or "group"),
+                message_id=str(value.get("message_id") or "").strip(),
+            )
+
+            async def _card_job() -> None:
+                try:
+                    reply = await message_handler(inbound)
+                    if reply:
+                        cr_mid, cr_thr = feishu_outbound_reply_params(
+                            inbound.message_id or None, inbound.thread_id
+                        )
+                        await _send_reply(
+                            config,
+                            chat_id,
+                            reply,
+                            reply_to_message_id=cr_mid,
+                            reply_in_thread=cr_thr,
+                        )
+                except Exception as ex:
+                    _logger.warning("卡片动作调度 Agent 失败: %s", ex)
+
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                bad.content = "Mini Agent：无运行中的事件循环，无法调度"
+                return resp
+
+            loop.create_task(mq.dispatch(chat_id, _card_job()))
+            ok = CallBackToast()
+            ok.type = "info"
+            ok.content = "已提交处理"
+            resp.toast = ok
+            return resp
+        except Exception as e:
+            _logger.warning("卡片动作入口异常: %s", e)
+            bad.content = f"Mini Agent：{e}"
+            return resp
+
     # 构建 EventDispatcherHandler
     encrypt_key = config.encrypt_key or ""
     verification_token = config.verification_token or ""
-    event_handler = (
-        EventDispatcherHandler.builder(
-            encrypt_key, verification_token
-        )
-        .register_p2_im_message_receive_v1(on_message_receive)
-        .build()
+    _edb = EventDispatcherHandler.builder(encrypt_key, verification_token).register_p2_im_message_receive_v1(
+        on_message_receive
     )
+    if _feishu_card_action_router_enabled():
+        _edb = _edb.register_p2_card_action_trigger(_on_card_action_trigger)
+    event_handler = _edb.build()
 
     # 启动 WebSocket 客户端
     ws_client: Any = None
@@ -534,6 +785,7 @@ def _is_valid_im_receive_id(chat_id: str) -> bool:
     return bool(c) and (c.startswith("oc_") or c.startswith("ou_"))
 
 
+# --- lark_md / GFM：规范化、宽表降级、卡片分片与 PATCH 节流（与 ThinkingDisplay 输出对齐）---
 # 单条「思考」卡片：流式时用 PATCH 更新同一 message_id；飞书对单条消息可 PATCH 次数有限，须节流。
 FEISHU_THINKING_PATCH_MIN_INTERVAL_S = 0.35
 FEISHU_THINKING_PATCH_MIN_CHAR_DELTA = 450
@@ -842,34 +1094,23 @@ def _thinking_interactive_card_dict(cleaned_markdown: str, template: str) -> dic
 
 
 def _create_interactive_thinking_message(
-    config: FeishuConfig, chat_id: str, card_json: str
+    config: FeishuConfig,
+    chat_id: str,
+    card_json: str,
+    *,
+    reply_to_message_id: str | None = None,
+    reply_in_thread: bool = False,
 ) -> str | None:
     """创建交互式思考卡片，成功返回 message_id。"""
-    try:
-        import lark_oapi as lark
-        from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
-
-        client = lark.Client.builder().app_id(config.app_id).app_secret(config.app_secret).build()
-        request = (
-            CreateMessageRequest.builder()
-            .receive_id_type("chat_id")
-            .request_body(
-                CreateMessageRequestBody.builder()
-                .receive_id(chat_id)
-                .msg_type("interactive")
-                .content(card_json)
-                .build()
-            )
-            .build()
-        )
-        response = client.im.v1.message.create(request)
-        if response.success() and response.data and response.data.message_id:
-            return response.data.message_id
-        _logger.warning("创建思考消息失败: %s %s", response.code, response.msg)
-    except ImportError:
-        _logger.error("请安装 lark-oapi: pip install lark-oapi")
-    except Exception as e:
-        _logger.debug("创建思考消息异常: %s", e)
+    ok, mid = _post_interactive_message(
+        config,
+        receive_id=chat_id,
+        card_json=card_json,
+        reply_to_message_id=reply_to_message_id,
+        reply_in_thread=reply_in_thread,
+    )
+    if ok and mid:
+        return mid
     return None
 
 
@@ -921,7 +1162,15 @@ async def push_feishu_thinking_stream(
     card_json = json.dumps(_thinking_interactive_card_dict(cleaned, template), ensure_ascii=False)
 
     if not st.feishu_thinking_message_id:
-        mid = _create_interactive_thinking_message(config, chat_id, card_json)
+        r_mid = getattr(st, "feishu_reply_to_message_id", None)
+        r_thr = bool(getattr(st, "feishu_reply_in_thread", False))
+        mid = _create_interactive_thinking_message(
+            config,
+            chat_id,
+            card_json,
+            reply_to_message_id=r_mid,
+            reply_in_thread=r_thr,
+        )
         if mid:
             st.feishu_thinking_message_id = mid
             st.feishu_last_patch_monotonic = time.monotonic()
@@ -962,46 +1211,23 @@ async def finalize_feishu_thinking_stream(
     if not patched:
         _logger.warning("finalize 思考 PATCH 失败 message_id=%s", mid)
     if nch > 1:
-        try:
-            import lark_oapi as lark
-            from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
-
-            client = lark.Client.builder().app_id(config.app_id).app_secret(config.app_secret).build()
-            for j in range(1, nch):
-                body = _prepare_card_markdown(chunks[j], normalize=False)
-                title = f"💭 思考中 ({j + 1}/{nch})"
-                card = _feishu_interactive_card_dict(title, body, template)
-                req_json = json.dumps(card, ensure_ascii=False)
-                request = (
-                    CreateMessageRequest.builder()
-                    .receive_id_type("chat_id")
-                    .request_body(
-                        CreateMessageRequestBody.builder()
-                        .receive_id(chat_id)
-                        .msg_type("interactive")
-                        .content(req_json)
-                        .build()
-                    )
-                    .build()
-                )
-                try:
-                    response = client.im.v1.message.create(request)
-                except Exception as e:
-                    _logger.warning("思考续页发送异常 (%s/%s): %s", j + 1, nch, e)
-                    break
-                if not response.success():
-                    _logger.warning(
-                        "思考续页发送失败 (%s/%s): %s %s",
-                        j + 1,
-                        nch,
-                        getattr(response, "code", "?"),
-                        getattr(response, "msg", "?"),
-                    )
-                    break
-        except ImportError:
-            pass
-        except Exception as e:
-            _logger.debug("思考续页跳过: %s", e)
+        r_mid = getattr(st, "feishu_reply_to_message_id", None)
+        r_thr = bool(getattr(st, "feishu_reply_in_thread", False))
+        for j in range(1, nch):
+            body = _prepare_card_markdown(chunks[j], normalize=False)
+            title = f"💭 思考中 ({j + 1}/{nch})"
+            card = _feishu_interactive_card_dict(title, body, template)
+            req_json = json.dumps(card, ensure_ascii=False)
+            ok, _ = _post_interactive_message(
+                config,
+                receive_id=chat_id,
+                card_json=req_json,
+                reply_to_message_id=r_mid,
+                reply_in_thread=r_thr,
+            )
+            if not ok:
+                _logger.warning("思考续页发送失败 (%s/%s)", j + 1, nch)
+                break
     if patched:
         st.feishu_thinking_message_id = None
         st.feishu_stream_accumulated = ""
@@ -1045,12 +1271,26 @@ async def append_feishu_thinking_same_card(
             )
         return
 
-    new_mid = _create_interactive_thinking_message(config, chat_id, card_json)
+    new_mid = _create_interactive_thinking_message(
+        config,
+        chat_id,
+        card_json,
+        reply_to_message_id=getattr(st, "feishu_reply_to_message_id", None),
+        reply_in_thread=bool(getattr(st, "feishu_reply_in_thread", False)),
+    )
     if new_mid:
         st.feishu_thinking_message_id = new_mid
 
 
-async def _send_thinking(config: FeishuConfig, chat_id: str, thinking: str, template: str = "gray") -> None:
+async def _send_thinking(
+    config: FeishuConfig,
+    chat_id: str,
+    thinking: str,
+    template: str = "gray",
+    *,
+    reply_to_message_id: str | None = None,
+    reply_in_thread: bool = False,
+) -> None:
     """通过飞书 API 发送思考过程（交互式卡片）。
 
     默认与流式思考合并为同卡；本函数仅在 ``merge_tools`` 关闭或非同轮 header 等场景下发送**独立**短卡片。
@@ -1061,34 +1301,18 @@ async def _send_thinking(config: FeishuConfig, chat_id: str, thinking: str, temp
         return
 
     try:
-        import lark_oapi as lark
-        from lark_oapi.api.im.v1 import (
-            CreateMessageRequest,
-            CreateMessageRequestBody,
-        )
-
-        client = lark.Client.builder().app_id(config.app_id).app_secret(config.app_secret).build()
-
         cleaned = _prepare_thinking_markdown(thinking)
         card_json = json.dumps(_thinking_interactive_card_dict(cleaned, template), ensure_ascii=False)
+        ok, _ = _post_interactive_message(
+            config,
+            receive_id=chat_id,
+            card_json=card_json,
+            reply_to_message_id=reply_to_message_id,
+            reply_in_thread=reply_in_thread,
+        )
+        if not ok:
+            _logger.warning("发送思考失败（interactive）")
 
-        request = CreateMessageRequest.builder() \
-            .receive_id_type("chat_id") \
-            .request_body(
-                CreateMessageRequestBody.builder()
-                .receive_id(chat_id)
-                .msg_type("interactive")
-                .content(card_json)
-                .build()
-            ) \
-            .build()
-
-        response = client.im.v1.message.create(request)
-        if not response.success():
-            _logger.warning("发送思考失败: %s %s", response.code, response.msg)
-
-    except ImportError:
-        pass  # 静默失败，不影响主流程
     except Exception as e:
         _logger.debug("发送思考异常: %s", e)
 
@@ -1097,52 +1321,42 @@ def _send_interactive_reply_cards(
     config: FeishuConfig,
     cid: str,
     parts: list[str],
+    *,
+    reply_to_message_id: str | None = None,
+    reply_in_thread: bool = False,
 ) -> tuple[int, int]:
     """发送多条交互卡片回复。返回 (已成功条数, 总条数)；任一分片失败即中止后续分片。"""
-    import lark_oapi as lark
-    from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
-
     n = len(parts)
     if n == 0:
         return (0, 0)
-    client = lark.Client.builder().app_id(config.app_id).app_secret(config.app_secret).build()
     sent = 0
     for i, part in enumerate(parts):
         body = _prepare_card_markdown(part)
         title = "🤖 Mini Agent" if n == 1 else f"🤖 Mini Agent ({i + 1}/{n})"
         card = _feishu_interactive_card_dict(title, body, "blue")
-        request = (
-            CreateMessageRequest.builder()
-            .receive_id_type("chat_id")
-            .request_body(
-                CreateMessageRequestBody.builder()
-                .receive_id(cid)
-                .msg_type("interactive")
-                .content(json.dumps(card, ensure_ascii=False))
-                .build()
-            )
-            .build()
+        card_json = json.dumps(card, ensure_ascii=False)
+        ok, _mid = _post_interactive_message(
+            config,
+            receive_id=cid,
+            card_json=card_json,
+            reply_to_message_id=reply_to_message_id,
+            reply_in_thread=reply_in_thread,
         )
-        try:
-            response = client.im.v1.message.create(request)
-        except Exception as e:
-            _logger.warning("发送回复分片异常 (%s/%s): %s", i + 1, n, e)
-            return (sent, n)
-        if not response.success():
-            _logger.warning(
-                "发送回复失败 (%s/%s): %s %s",
-                i + 1,
-                n,
-                getattr(response, "code", "?"),
-                getattr(response, "msg", "?"),
-            )
+        if not ok:
+            _logger.warning("发送回复失败 (%s/%s)", i + 1, n)
             return (sent, n)
         sent += 1
     return (sent, n)
 
 
 def _send_plain_text_chunks(
-    config: FeishuConfig, cid: str, text: str, *, reason: str | None = None
+    config: FeishuConfig,
+    cid: str,
+    text: str,
+    *,
+    reason: str | None = None,
+    reply_to_message_id: str | None = None,
+    reply_in_thread: bool = False,
 ) -> None:
     """interactive 不可用或需短提示时，按正文上限分条发送纯文本（无 Markdown 渲染）。"""
     if reason:
@@ -1152,47 +1366,33 @@ def _send_plain_text_chunks(
             (cid or "")[:12],
         )
     try:
-        import lark_oapi as lark
-        from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
-
         chunks = _chunk_feishu_card_markdown(text or "")
         if not chunks:
             return
-        client = lark.Client.builder().app_id(config.app_id).app_secret(config.app_secret).build()
         for i, ch in enumerate(chunks):
-            request = (
-                CreateMessageRequest.builder()
-                .receive_id_type("chat_id")
-                .request_body(
-                    CreateMessageRequestBody.builder()
-                    .receive_id(cid)
-                    .msg_type("text")
-                    .content(json.dumps({"text": ch}, ensure_ascii=False))
-                    .build()
-                )
-                .build()
+            payload = json.dumps({"text": ch}, ensure_ascii=False)
+            ok = _post_text_message(
+                config,
+                receive_id=cid,
+                text_content_json=payload,
+                reply_to_message_id=reply_to_message_id,
+                reply_in_thread=reply_in_thread,
             )
-            try:
-                response = client.im.v1.message.create(request)
-            except Exception as e:
-                _logger.warning("发送文本回退异常 (%s/%s): %s", i + 1, len(chunks), e)
+            if not ok:
+                _logger.warning("发送文本回退失败 (%s/%s)", i + 1, len(chunks))
                 break
-            if not response.success():
-                _logger.warning(
-                    "发送文本回退失败 (%s/%s): %s %s",
-                    i + 1,
-                    len(chunks),
-                    getattr(response, "code", "?"),
-                    getattr(response, "msg", "?"),
-                )
-                break
-    except ImportError:
-        pass
     except Exception as e:
         _logger.debug("文本回退跳过: %s", e)
 
 
-async def _send_reply(config: FeishuConfig, chat_id: str, reply: str) -> None:
+async def _send_reply(
+    config: FeishuConfig,
+    chat_id: str,
+    reply: str,
+    *,
+    reply_to_message_id: str | None = None,
+    reply_in_thread: bool = False,
+) -> None:
     """通过飞书 API 发送回复（交互式卡片 + lark_md，与思考卡片同一套构建逻辑）。"""
     cid = _normalize_im_receive_chat_id(chat_id)
     if not _is_valid_im_receive_id(cid):
@@ -1206,10 +1406,23 @@ async def _send_reply(config: FeishuConfig, chat_id: str, reply: str) -> None:
     n = len(parts)
     sent = 0
     try:
-        sent, _ = _send_interactive_reply_cards(config, cid, parts)
+        sent, _ = _send_interactive_reply_cards(
+            config,
+            cid,
+            parts,
+            reply_to_message_id=reply_to_message_id,
+            reply_in_thread=reply_in_thread,
+        )
     except ImportError:
         _logger.error("请安装 lark-oapi: pip install lark-oapi")
-        _send_plain_text_chunks(config, cid, reply or "", reason="lark_oapi_import_error")
+        _send_plain_text_chunks(
+            config,
+            cid,
+            reply or "",
+            reason="lark_oapi_import_error",
+            reply_to_message_id=reply_to_message_id,
+            reply_in_thread=reply_in_thread,
+        )
         return
     except Exception as e:
         _logger.error("发送回复异常: %s", e)
@@ -1222,8 +1435,22 @@ async def _send_reply(config: FeishuConfig, chat_id: str, reply: str) -> None:
             f"（Mini Agent：本回复共分 {n} 段，已成功发送前 {sent} 段；"
             "剩余段落未能送达。完整内容见本会话的 history.json。）"
         )
-        _send_plain_text_chunks(config, cid, notice, reason="partial_card_send_notice")
+        _send_plain_text_chunks(
+            config,
+            cid,
+            notice,
+            reason="partial_card_send_notice",
+            reply_to_message_id=reply_to_message_id,
+            reply_in_thread=reply_in_thread,
+        )
         return
-    _send_plain_text_chunks(config, cid, reply or "", reason="interactive_reply_failed_full_fallback")
+    _send_plain_text_chunks(
+        config,
+        cid,
+        reply or "",
+        reason="interactive_reply_failed_full_fallback",
+        reply_to_message_id=reply_to_message_id,
+        reply_in_thread=reply_in_thread,
+    )
 
 

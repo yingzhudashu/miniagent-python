@@ -18,14 +18,14 @@ import os
 import shutil
 import sys
 
+from miniagent.types.config import AgentConfig
 from miniagent.types.skill import (
     Skill,
-    SkillPackage,
     SkillEntry,
+    SkillPackage,
     SkillRegistryProtocol,
 )
 from miniagent.types.tool import Toolbox, ToolDefinition
-from miniagent.types.config import AgentConfig
 
 
 class DefaultSkillRegistry(SkillRegistryProtocol):

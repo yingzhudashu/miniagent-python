@@ -13,6 +13,8 @@
 若最后一步单步子轮次用尽而全局 ``AGENT_MAX_TURNS`` 仍有余量，会追加一轮不传 tools 的收尾 synthesis。
 详见环境变量说明与 ``docs/ARCHITECTURE.md``。
 
+**工具结果回注**：每轮工具输出经 ``tool`` role 消息写回 ``DefaultContextManager``；同轮 ``merge_tools``（若配置开启）可在展示层合并多工具行，但**不影响**此处消息序列语义。
+
 **不变量**：工具调用均在 :class:`miniagent.types.tool.ToolContext` 限定的 ``cwd`` / ``allowed_paths`` 内执行
 （通常由沙箱默认工作区推导）。上下文 token 超预算时抛出
 :class:`miniagent.memory.context.ContextBudgetExceeded`，由上层决定是否换会话或压缩。
@@ -25,29 +27,30 @@ import inspect
 import json
 import os
 import time
+from collections.abc import Awaitable, Callable
 from types import SimpleNamespace
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from openai import AsyncOpenAI
 
-from miniagent.core.llm_params import resolve_exec_completion_kwargs
-from miniagent.core.openai_message_sanitize import strip_leading_underscore_keys_from_messages
-from miniagent.core.openai_client import get_shared_async_openai
-from miniagent.core.thinking_presets import map_business_depth
-from miniagent.types.memory import MemoryEntryInput
-from miniagent.types.planning import PlanStep, StructuredPlan
-from miniagent.types.config import AgentConfig
-from miniagent.types.tool import ToolContext, ToolRegistryProtocol
-from miniagent.types.agent import ToolMonitorProtocol, LoopDetectionConfig
 from miniagent.core.config import DEFAULT_LOOP_DETECTION, get_default_model_config
-from miniagent.infrastructure.logger import append_log, truncate, get_logger
+from miniagent.core.llm_params import resolve_exec_completion_kwargs
+from miniagent.core.openai_client import get_shared_async_openai
+from miniagent.core.openai_message_sanitize import strip_leading_underscore_keys_from_messages
+from miniagent.core.thinking_callback import invoke_on_thinking
+from miniagent.core.thinking_presets import map_business_depth
+from miniagent.infrastructure.logger import append_log, get_logger, truncate
 from miniagent.infrastructure.loop_detector import LoopDetector
 from miniagent.infrastructure.tracing import emit_trace
-from miniagent.core.thinking_callback import invoke_on_thinking
 from miniagent.memory.context import ContextBudgetExceeded, DefaultContextManager
-from miniagent.memory.store import extract_facts, generate_turn_summary
 from miniagent.memory.keyword_index import format_search_results, search_relevant_with_index
+from miniagent.memory.store import extract_facts, generate_turn_summary
 from miniagent.security.sandbox import get_default_workspace
+from miniagent.types.agent import LoopDetectionConfig, ToolMonitorProtocol
+from miniagent.types.config import AgentConfig
+from miniagent.types.memory import MemoryEntryInput
+from miniagent.types.planning import PlanStep, StructuredPlan
+from miniagent.types.tool import ToolContext, ToolRegistryProtocol
 
 _logger = get_logger(__name__)
 
@@ -187,7 +190,7 @@ OnThinking = Callable[..., Awaitable[None]]  # (text, streaming, header, *, full
 OnToolFinish = Callable[..., Awaitable[None]]
 
 
-# ─── 核心：执行计划 ─────────────────────────────────────
+# ─── 核心：execute_plan（ReAct 主循环；可选分步子循环 + 无 tools 收尾 synthesis）──
 
 async def execute_plan(
     plan: StructuredPlan,
@@ -237,6 +240,11 @@ async def execute_plan(
     # ── 执行上下文 ──
     workspace = agent_config.session_workspace or get_default_workspace()
     mq_abort = (agent_config.feishu_receive_chat_id or "").strip() or None
+    rid_raw = (getattr(agent_config, "feishu_im_receive_id_type", None) or "").strip().lower()
+    if rid_raw not in ("chat_id", "open_id", "union_id"):
+        rid_raw = (os.environ.get("MINIAGENT_FEISHU_RECEIVE_ID_TYPE") or "").strip().lower()
+    feishu_rid_type = rid_raw if rid_raw in ("chat_id", "open_id", "union_id") else None
+    im_recv_alt = (getattr(agent_config, "feishu_im_receive_id", None) or "").strip() or None
     ctx = ToolContext(
         cwd=workspace,
         allowed_paths=[workspace],
@@ -246,6 +254,8 @@ async def execute_plan(
         cli_loop_state=agent_config.cli_loop_state,
         cli_dispatch_allow_mutations=agent_config.cli_dispatch_allow_mutations,
         message_queue_abort_chat_id=mq_abort,
+        feishu_im_receive_id_type=feishu_rid_type,
+        feishu_im_receive_id=im_recv_alt,
     )
 
     # ── 循环检测器 ──

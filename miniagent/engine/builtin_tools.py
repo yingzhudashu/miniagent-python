@@ -10,9 +10,11 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from miniagent.feishu.im_tool_policy import feishu_im_tools_should_register
 from miniagent.infrastructure.logger import get_logger
 from miniagent.tools import ALL_TOOLS
 from miniagent.tools.cli_dispatch_tools import CLI_DOT_TOOL_NAMES
+from miniagent.tools.feishu_im_tools import FEISHU_IM_TOOL_NAMES
 from miniagent.tools.schedule_tools import SCHEDULE_TOOL_NAMES
 from miniagent.tools.self_opt import self_opt_tools
 
@@ -39,6 +41,11 @@ def _schedule_tools_registration_enabled() -> bool:
     return v not in ("0", "false", "no", "off")
 
 
+def _feishu_im_tools_registration_enabled() -> bool:
+    """飞书 IM/云文档工具；见 ``MINIAGENT_FEISHU_TOOLS`` / ``MINIAGENT_FEISHU_TOOLS_AUTO``。"""
+    return feishu_im_tools_should_register()
+
+
 def register_builtin_tools(registry: Any) -> int:
     """注册 ALL_TOOLS 中的内置工具（可按环境变量排除 self_opt）。
 
@@ -48,6 +55,7 @@ def register_builtin_tools(registry: Any) -> int:
     skip_self_opt = not _self_opt_registration_enabled()
     skip_cli_dot = not _cli_dot_tools_registration_enabled()
     skip_schedule = not _schedule_tools_registration_enabled()
+    skip_feishu_im = not _feishu_im_tools_registration_enabled()
     n = 0
     for name, tool in ALL_TOOLS.items():
         if skip_self_opt and name in _SELF_OPT_NAMES:
@@ -55,6 +63,8 @@ def register_builtin_tools(registry: Any) -> int:
         if skip_cli_dot and name in CLI_DOT_TOOL_NAMES:
             continue
         if skip_schedule and name in SCHEDULE_TOOL_NAMES:
+            continue
+        if skip_feishu_im and name in FEISHU_IM_TOOL_NAMES:
             continue
         try:
             registry.register(name, tool)

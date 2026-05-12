@@ -13,14 +13,18 @@
 
 模块级 docstring 按 AST 首条语句判断；本仓库约定其位于 ``from __future__ import annotations`` **之前**
 （见 CONTRIBUTING「模块级 docstring」）。
+
+在 Windows 控制台运行本脚本时，``main`` 会尝试将 ``sys.stdout`` 设为 UTF-8（``reconfigure`` 或
+``TextIOWrapper``），减轻中文清单在终端乱码；管道到其它程序时若仍异常，可设置环境变量 ``PYTHONUTF8=1``
+或仅用 ``--write`` 输出到 Markdown 文件查看。
 """
 
 from __future__ import annotations
 
 import argparse
 import ast
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 
 def _has_docstring(node: ast.AST) -> bool:
@@ -71,6 +75,23 @@ def scan_file(path: Path) -> tuple[bool, list[str]]:
 
 
 def main() -> None:
+    import io
+    import sys
+
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError, AttributeError):
+            pass
+    enc = getattr(sys.stdout, "encoding", None) or ""
+    if enc.lower() != "utf-8" and hasattr(sys.stdout, "buffer"):
+        sys.stdout = io.TextIOWrapper(
+            sys.stdout.buffer,
+            encoding="utf-8",
+            errors="replace",
+            line_buffering=True,
+        )
+
     parser = argparse.ArgumentParser(description="List miniagent symbols missing docstrings.")
     parser.add_argument(
         "--root",

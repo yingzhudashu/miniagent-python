@@ -3,7 +3,10 @@
 import pytest
 
 from miniagent.core.config import get_default_agent_config, merge_agent_config
-from miniagent.core.llm_params import resolve_exec_completion_kwargs, resolve_planner_completion_kwargs
+from miniagent.core.llm_params import (
+    resolve_exec_completion_kwargs,
+    resolve_planner_completion_kwargs,
+)
 
 
 def test_resolve_exec_uses_model_overrides() -> None:

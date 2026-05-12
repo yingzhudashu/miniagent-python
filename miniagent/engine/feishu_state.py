@@ -10,7 +10,8 @@ from __future__ import annotations
 import asyncio
 import os
 import random
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from miniagent.infrastructure.logger import get_logger
 
@@ -64,6 +65,19 @@ class FeishuRuntime:
         )
 
         if not config.app_id:
+            # #region agent log
+            try:
+                from miniagent.infrastructure.debug_ndjson import agent_debug_log
+
+                agent_debug_log(
+                    hypothesis_id="D",
+                    location="feishu_state.py:FeishuRuntime.start",
+                    message="feishu_skip_no_app_id",
+                    data={},
+                )
+            except Exception:
+                pass
+            # #endregion
             _logger.warning("未配置 FEISHU_APP_ID，跳过飞书启动")
             self._emit_user_line("\u274c \u672a\u914d\u7f6e\u98de\u4e66\u51ed\u8bc1 (FEISHU_APP_ID)")
             return
@@ -83,6 +97,19 @@ class FeishuRuntime:
             except (TypeError, ValueError):
                 inst_id = None
         ok, lock_msg = try_acquire_feishu_inbound_owner(instance_id=inst_id)
+        # #region agent log
+        try:
+            from miniagent.infrastructure.debug_ndjson import agent_debug_log
+
+            agent_debug_log(
+                hypothesis_id="D",
+                location="feishu_state.py:FeishuRuntime.start",
+                message="feishu_inbound_lock",
+                data={"lock_ok": ok, "instance_id": inst_id, "lock_msg_snip": (lock_msg or "")[:200]},
+            )
+        except Exception:
+            pass
+        # #endregion
         if not ok:
             self._emit_user_line(lock_msg)
             return
@@ -114,6 +141,9 @@ class FeishuRuntime:
             """后台协程：带指数退避地维持飞书 WebSocket 长轮询，退出时释放入站锁。"""
             attempt = 0
             try:
+                from miniagent.feishu.im_tool_policy import log_feishu_im_tools_startup_hint_once
+
+                log_feishu_im_tools_startup_hint_once()
                 _logger.info("\u98de\u4e66: \u6b63\u5728\u542f\u52a8 WebSocket \u957f\u8f6e\u8be2")
                 self._emit_user_line("\U0001f310 [\u98de\u4e66] \u6b63\u5728\u542f\u52a8 WebSocket \u957f\u8f6e\u8be2\u2026")
                 while True:
@@ -159,10 +189,24 @@ class FeishuRuntime:
                     release_feishu_inbound_owner()
                 except Exception:
                     pass
+                self._task = None
                 self._running = False
 
         self._task = asyncio.create_task(_run())
         self._running = True
+        # #region agent log
+        try:
+            from miniagent.infrastructure.debug_ndjson import agent_debug_log
+
+            agent_debug_log(
+                hypothesis_id="D",
+                location="feishu_state.py:FeishuRuntime.start",
+                message="feishu_background_task_created",
+                data={"app_id_len": len(config.app_id or ""), "has_secret": bool((config.app_secret or "").strip())},
+            )
+        except Exception:
+            pass
+        # #endregion
         self._emit_user_line("\u2705 \u98de\u4e66\u5df2\u542f\u52a8")
         try:
             from miniagent.infrastructure.instance import update_instance_mode
@@ -171,8 +215,38 @@ class FeishuRuntime:
         except Exception:
             pass
 
+    async def stop_async(self) -> None:
+        """异步停止：等待后台 task 完成取消链，以便 ``reset`` / 入站锁在 ``finally`` 中执行。"""
+        t = self._task
+        if not self._running and not (t and not t.done()):
+            try:
+                from miniagent.infrastructure.feishu_inbound_lock import (
+                    release_feishu_inbound_owner,
+                )
+
+                release_feishu_inbound_owner()
+            except Exception:
+                pass
+            return
+
+        if t and not t.done():
+            t.cancel()
+            try:
+                await t
+            except asyncio.CancelledError:
+                pass
+        self._task = None
+        self._running = False
+        self._emit_user_line("\u2705 \u98de\u4e66\u5df2\u505c\u6b62")
+        try:
+            from miniagent.infrastructure.instance import update_instance_mode
+
+            update_instance_mode("cli")
+        except Exception:
+            pass
+
     def stop(self) -> None:
-        """停止飞书连接。"""
+        """停止飞书连接（同步路径：仅 ``cancel``，清理在 task ``finally`` 与 ``stop_async`` 中完成）。"""
         if not self._running:
             self._emit_user_line("\u2139\ufe0f \u98de\u4e66\u672a\u8fd0\u884c")
             try:
@@ -186,8 +260,16 @@ class FeishuRuntime:
             return
 
         self._running = False
-        if self._task:
-            self._task.cancel()
+        t = self._task
+        if t and not t.done():
+            t.cancel()
+
+            def _clear(_fut: asyncio.Task) -> None:
+                if self._task is t:
+                    self._task = None
+
+            t.add_done_callback(_clear)
+        else:
             self._task = None
         try:
             from miniagent.infrastructure.feishu_inbound_lock import (

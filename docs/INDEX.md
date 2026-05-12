@@ -1,6 +1,6 @@
 # Mini Agent Python — 文档索引
 
-> 📅 最后更新: 2026-05-11 | 版本: 2.0.2（与 `miniagent.__version__` 对齐）
+> 📅 最后更新: 2026-05-12 | 版本: 2.0.2（与 `miniagent.__version__` 对齐）
 
 ---
 
@@ -41,7 +41,7 @@
 |------|------|----------|
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 贡献指南、开发规范 | 贡献者 |
 | [ENGINEERING.md](ENGINEERING.md) | 仓库卫生、质量门禁、单一事实来源 | 维护者、CI 负责人 |
-| [PERFORMANCE.md](PERFORMANCE.md) | 性能 KPI 分层、合成基准、剖析命令与基线格式 | 维护者 |
+| [PERFORMANCE.md](PERFORMANCE.md) | 性能 KPI 分层、合成基准、剖析命令、基线格式与 JSON 对比 | 维护者 |
 | [docstring_inventory.md](docstring_inventory.md) | 缺失 docstring 扫描报告（`scripts/docstring_inventory.py` 生成） | 维护者 |
 
 ### 可选：离线测评（本地）
@@ -58,6 +58,7 @@
 miniagent-python/
 ├── miniagent/
 │   ├── __main__.py               # 统一入口（.env、--stop → compat.unified_entry）
+│   ├── __init__.py               # 包版本号 __version__
 │   ├── compat.py                 # 聚合导出与 unified_entry
 │   ├── runtime/
 │   │   ├── context.py            # RuntimeContext 组合根
@@ -69,7 +70,10 @@ miniagent-python/
 │   │   ├── planner.py            # Phase 1 结构化规划
 │   │   ├── executor.py           # Phase 2 ReAct / 分步执行
 │   │   ├── config.py             # AgentConfig、MODEL_PROFILES
+│   │   ├── request_payload.py    # 请求体构建辅助（与执行器/通道对齐）
 │   │   ├── openai_client.py      # 共享 AsyncOpenAI
+│   │   ├── openai_message_sanitize.py
+│   │   ├── thinking_callback.py  # 思考流回调适配
 │   │   ├── llm_params.py         # 完成参数与 thinking 合并
 │   │   ├── thinking_presets.py   # 业务深度 → 档位映射
 │   │   ├── task_classifier.py    # 任务难度预分类
@@ -85,8 +89,10 @@ miniagent-python/
 │   │   ├── cli_state.py          # CliLoopState 与主循环状态对齐
 │   │   ├── feishu_state.py       # FeishuRuntime
 │   │   ├── feishu_runtime.py     # 兼容别名：重导出 FeishuRuntime
+│   │   ├── shutdown.py           # 进程关停与资源释放编排
 │   │   ├── session_lock.py
 │   │   ├── thinking.py           # ThinkingDisplay
+│   │   ├── markdown_cli.py       # CLI Markdown / ANSI 辅助
 │   │   └── welcome.py
 │   ├── scheduled_tasks/          # 定时任务：持久化 + 进程内 ticker → 消息队列跑 Agent
 │   │   ├── __init__.py
@@ -97,11 +103,20 @@ miniagent-python/
 │   │   ├── runner.py             # build_run_scheduled_job_coro → UnifiedEngine
 │   │   └── resolve.py            # 执行目标 session_key / 飞书判定
 │   ├── feishu/
-│   │   ├── poll_server.py
+│   │   ├── poll_server.py        # 长轮询、事件分发、与消息队列衔接
 │   │   ├── agent_handler.py
-│   │   ├── resource_io.py        # 飞书媒体/资源下载与会话落盘
+│   │   ├── agent_channel_prompts.py
 │   │   ├── server.py
-│   │   └── types.py
+│   │   ├── types.py
+│   │   ├── resource_io.py        # 飞书媒体/资源下载与会话落盘
+│   │   ├── im_send.py            # IM 发送客户端封装
+│   │   ├── im_tool_policy.py     # 内置飞书工具策略
+│   │   ├── lark_response.py
+│   │   ├── docx_client.py
+│   │   ├── docx_blocks.py
+│   │   ├── drive_client.py
+│   │   ├── folder_token_resolve.py  # 云盘文件夹 URL / token 解析
+│   │   └── upload_io.py
 │   ├── infrastructure/
 │   │   ├── registry.py           # ToolRegistry
 │   │   ├── monitor.py
@@ -112,7 +127,8 @@ miniagent-python/
 │   │   ├── tracing.py
 │   │   ├── logger.py
 │   │   ├── loop_detector.py
-│   │   └── process.py
+│   │   ├── process.py
+│   │   └── debug_ndjson.py       # 可选 NDJSON 调试落盘
 │   ├── memory/
 │   │   ├── defaults.py           # 进程默认记忆 bundle / MINI_AGENT_STATE
 │   │   ├── context.py            # 消息窗口、压缩、记忆注入
@@ -122,6 +138,7 @@ miniagent-python/
 │   │   ├── memory_pipeline.py    # 记忆注入管线
 │   │   ├── history_archive.py
 │   │   ├── history_bridge.py
+│   │   ├── history_progressive.py
 │   │   ├── layered_memory.py
 │   │   └── dream_scheduler.py
 │   ├── session/
@@ -142,14 +159,15 @@ miniagent-python/
 │   │   ├── git_readonly.py
 │   │   ├── cli_dispatch_tools.py # run_dot_command（点命令同源）
 │   │   ├── schedule_tools.py     # manage_scheduled_task（结构化 CRUD）
+│   │   ├── feishu_im_tools.py    # 可选 extra「feishu」：云文档/IM 等内置工具
 │   │   └── session_memory.py     # 会话记忆类工具（init 注册）
 │   ├── mcp/                      # 可选：stdio MCP → mcp_* 工具
 │   │   ├── bridge.py
 │   │   └── runtime.py
 │   ├── security/
 │   │   └── sandbox.py
-│   └── types/                    # Pydantic / Protocol（__init__.py 聚合导出）
-├── scripts/                      # 维护脚本（bootstrap_clawhub_skills.py、vendor_skill_from_github.py）
+│   └── types/                    # Pydantic / Protocol（agent、config、tool、planning、memory、skill；__init__ 聚合导出）
+├── scripts/                      # 维护脚本（bootstrap_clawhub_skills.py、vendor_skill_from_github.py、compare_perf_snapshots.py、perf_profile_tracemalloc.py 等）
 ├── tests/                        # pytest 主收集根；可选子目录 evaluation/ 见 EVALUATION_LOCAL.md
 ├── docs/
 │   └── examples/                 # 脱敏配置片段（见 examples/README.md）

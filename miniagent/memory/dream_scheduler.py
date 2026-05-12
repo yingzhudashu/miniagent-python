@@ -18,8 +18,8 @@ from typing import Any
 from miniagent.infrastructure.logger import get_logger
 from miniagent.memory.layered_memory import (
     append_session_day_rollup,
-    load_session_longterm,
     load_agent_longterm,
+    load_session_longterm,
     save_agent_longterm,
     save_session_longterm,
 )
@@ -47,6 +47,9 @@ _MIN_SCHEDULE_INTERVAL = float(
 )
 _last_schedule_monotonic: float = 0.0
 
+# ``shutdown_runtime`` 会取消并等待这些 task，避免进程退出后仍短暂占用事件循环
+_pending_dream_tasks: set[asyncio.Task[Any]] = set()
+
 
 def _state_path() -> str:
     """``memory/dream_state.json`` 绝对路径（确保 ``memory`` 目录存在）。"""
@@ -62,7 +65,7 @@ def _load_dream_state() -> dict[str, Any]:
     if not os.path.isfile(p):
         return {}
     try:
-        with open(p, "r", encoding="utf-8") as f:
+        with open(p, encoding="utf-8") as f:
             return json.load(f)
     except Exception:
         return {}
@@ -114,7 +117,7 @@ def _try_file_lock() -> bool:
             return True
         except FileExistsError:
             try:
-                with open(lock, "r", encoding="utf-8") as f:
+                with open(lock, encoding="utf-8") as f:
                     pid = int(f.read().strip() or "0")
             except Exception:
                 return False
@@ -132,7 +135,7 @@ def _release_file_lock() -> None:
     lock = os.path.join(_state_dir(), "memory", "dream.lock")
     try:
         if os.path.isfile(lock):
-            with open(lock, "r", encoding="utf-8") as f:
+            with open(lock, encoding="utf-8") as f:
                 if f.read().strip() == str(os.getpid()):
                     os.unlink(lock)
     except OSError:
@@ -219,10 +222,31 @@ def schedule_memory_maintenance(session_key: str | None) -> None:
             _release_file_lock()
 
     try:
-        asyncio.create_task(_job())
+        t = asyncio.create_task(_job())
+        _pending_dream_tasks.add(t)
+
+        def _done(_fut: asyncio.Task[Any]) -> None:
+            _pending_dream_tasks.discard(_fut)
+
+        t.add_done_callback(_done)
     except RuntimeError:
         # 无 running loop（极少）
         pass
 
 
-__all__ = ["schedule_memory_maintenance", "DIARY_REFINE_SEC", "SESSION_LT_REFINE_SEC", "AGENT_LT_REFINE_SEC"]
+async def cancel_pending_dream_tasks() -> None:
+    """取消并等待仍在排队的 dream 维护 task（进程退出时由 ``shutdown_runtime`` 调用）。"""
+    snap = [t for t in _pending_dream_tasks if not t.done()]
+    for t in snap:
+        t.cancel()
+    if snap:
+        await asyncio.gather(*snap, return_exceptions=True)
+
+
+__all__ = [
+    "schedule_memory_maintenance",
+    "cancel_pending_dream_tasks",
+    "DIARY_REFINE_SEC",
+    "SESSION_LT_REFINE_SEC",
+    "AGENT_LT_REFINE_SEC",
+]

@@ -9,15 +9,15 @@
 用户文档与安全开关（``MINIAGENT_SELF_OPT_TOOLS``）见 ``docs/SELF_OPT.md``。"""
 
 from miniagent.core.self_opt.types import (
-    OptTestCase,
-    FileChange,
-    OptimizationProposal,
     CodeQualityMetric,
-    ModuleAnalysis,
-    PainPoint,
+    FileChange,
     InspectionReport,
+    ModuleAnalysis,
+    OptimizationProposal,
     OptimizationResult,
+    OptTestCase,
     OptTestSummary,
+    PainPoint,
 )
 
 __all__ = [

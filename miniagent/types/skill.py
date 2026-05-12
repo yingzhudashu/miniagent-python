@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from miniagent.types.config import AgentConfig
-from miniagent.types.tool import ToolDefinition, Toolbox
+from miniagent.types.tool import Toolbox, ToolDefinition
 
 
 @dataclass
@@ -82,8 +82,8 @@ class Skill:
     name: str
     description: str
     keywords: list[str] = field(default_factory=list)
-    tools: dict[str, "ToolDefinition"] = field(default_factory=dict)
-    toolboxes: list["Toolbox"] = field(default_factory=list)
+    tools: dict[str, ToolDefinition] = field(default_factory=dict)
+    toolboxes: list[Toolbox] = field(default_factory=list)
     system_prompt: str | None = None
     skill_md: str | None = None
     metadata: SkillMetadata | None = None

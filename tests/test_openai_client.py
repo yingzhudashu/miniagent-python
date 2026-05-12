@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -15,9 +16,14 @@ from miniagent.core.openai_client import (
 
 def test_get_shared_async_openai_singleton() -> None:
     reset_shared_async_openai_for_tests()
-    a = get_shared_async_openai()
-    b = get_shared_async_openai()
-    assert a is b
+    os.environ["OPENAI_API_KEY"] = "sk-test-placeholder-for-singleton"
+    try:
+        a = get_shared_async_openai()
+        b = get_shared_async_openai()
+        assert a is b
+    finally:
+        os.environ.pop("OPENAI_API_KEY", None)
+        reset_shared_async_openai_for_tests()
 
 
 @pytest.mark.asyncio

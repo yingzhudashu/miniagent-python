@@ -7,6 +7,11 @@
 
 每个聊天室独立一条逻辑队列；CLI 固定使用 ``chat_id="__cli__"``。与引擎主循环的衔接见
 ``miniagent.engine.main``；架构背景见 ``docs/ARCHITECTURE.md``（消息队列与双通道）。
+
+**与 ChannelRouter 的关系**：飞书入站经 :class:`miniagent.infrastructure.channel_router.ChannelRouter`
+解析 ``session_key`` 后，应将「跑一轮 Agent」的协程投递到本管理器的 ``enqueue``，由 ``chat_id``（或
+路由键）保证同一聊天室内顺序或抢占语义；切勿在路由层再开无队列保护的并行 ``create_task`` 调用引擎，
+否则可能打乱会话历史与锁语义。
 """
 
 from __future__ import annotations
@@ -355,6 +360,13 @@ class MessageQueueManager:
         out = q.abort_pending(self._mode)
         out["chat_id"] = chat_id
         return out
+
+    def abort_all_chats(self) -> dict[str, Any]:
+        """对所有已创建的聊天室队列调用 :meth:`abort_chat`（进程退出时用）。"""
+        merged: dict[str, Any] = {"chats": {}}
+        for cid in list(self._queues.keys()):
+            merged["chats"][cid] = self.abort_chat(cid)
+        return merged
 
     def get_status(self) -> dict[str, Any]:
         """获取所有聊天室的队列状态。

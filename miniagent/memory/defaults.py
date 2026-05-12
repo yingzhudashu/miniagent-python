@@ -60,6 +60,7 @@ def resolve_memory_dependencies(
 
 
 def _flush_process_keyword_index_at_exit() -> None:
+    """进程退出时尽力将进程级关键词索引落盘（静默吞异常）。"""
     if _bundle is None:
         return
     try:

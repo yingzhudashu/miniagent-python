@@ -14,29 +14,19 @@
 
 from __future__ import annotations
 
-# ── Session Lock ──
-from miniagent.engine.session_lock import (
-    try_lock_session,
-    release_session_lock,
-    is_session_locked,
+# ── CLI Commands ──
+from miniagent.engine.cli_commands import (
+    cmd_help,
+    cmd_queue_set,
+    cmd_queue_status,
+    cmd_session_create,
+    cmd_session_list,
+    cmd_session_rename,
+    cmd_session_switch,
 )
-
-# ── Thinking Display ──
-from miniagent.engine.thinking import ThinkingDisplay
 
 # ── Core Engine ──
 from miniagent.engine.engine import UnifiedEngine
-
-# ── CLI Commands ──
-from miniagent.engine.cli_commands import (
-    cmd_session_list,
-    cmd_session_switch,
-    cmd_session_create,
-    cmd_session_rename,
-    cmd_queue_status,
-    cmd_queue_set,
-    cmd_help,
-)
 
 # ── Feishu Runtime（实例由 RuntimeContext.feishu 持有）──
 from miniagent.engine.feishu_state import FeishuRuntime
@@ -45,11 +35,20 @@ from miniagent.engine.feishu_state import FeishuRuntime
 from miniagent.engine.init import init_subsystems
 
 # ── Main Entry ──
-from miniagent.engine.main import unified_main, run_cli_loop
+from miniagent.engine.main import run_cli_loop, unified_main
+
+# ── Session Lock ──
+from miniagent.engine.session_lock import (
+    is_session_locked,
+    release_session_lock,
+    try_lock_session,
+)
+
+# ── Thinking Display ──
+from miniagent.engine.thinking import ThinkingDisplay
 
 # ── Welcome ──
-from miniagent.engine.welcome import get_version, get_session_display, print_welcome
-
+from miniagent.engine.welcome import get_session_display, get_version, print_welcome
 from miniagent.runtime.context import RuntimeContext
 
 
@@ -69,15 +68,15 @@ def unified_entry() -> None:
     """
     import asyncio
 
+    from miniagent.core.openai_client import get_shared_async_openai
     from miniagent.infrastructure.channel_router import ChannelRouter
     from miniagent.infrastructure.message_queue import MessageQueueManager
-    from miniagent.infrastructure.registry import DefaultToolRegistry
     from miniagent.infrastructure.monitor import DefaultToolMonitor
+    from miniagent.infrastructure.registry import DefaultToolRegistry
     from miniagent.runtime.external_config import (
         get_external_config_patch,
         load_external_config_from_env,
     )
-    from miniagent.core.openai_client import get_shared_async_openai
 
     # 可选遗留 JSON；主配置以 .env 为准（见 external_config 模块说明）
     load_external_config_from_env()

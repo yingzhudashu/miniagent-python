@@ -21,17 +21,17 @@ from __future__ import annotations
 
 import os
 
-from miniagent.core.self_opt.types import (
-    FileChange,
-    OptimizationProposal,
-    OptimizationResult,
-    OptTestSummary,
-)
 from miniagent.core.self_opt.git_snapshot import (
     create_snapshot,
     has_uncommitted_changes,
     is_in_git_repo,
     rollback_snapshot,
+)
+from miniagent.core.self_opt.types import (
+    FileChange,
+    OptimizationProposal,
+    OptimizationResult,
+    OptTestSummary,
 )
 from miniagent.infrastructure.logger import get_logger
 

@@ -1,11 +1,11 @@
 """Tests for self-optimization types."""
 
 from miniagent.core.self_opt.types import (
-    OptTestCase,
     FileChange,
-    OptimizationProposal,
     InspectionReport,
+    OptimizationProposal,
     OptimizationResult,
+    OptTestCase,
     OptTestSummary,
 )
 
