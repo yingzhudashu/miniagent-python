@@ -49,15 +49,14 @@ python -m miniagent --feishu         # CLI + 飞书
 python -m miniagent --stop           # 列出实例；交互停止 / --stop --all / --stop <id>...
 ```
 
-与 [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) 开发环境节相比：README 此处**默认**使用 `pip install -e ".[dev,typing]"`，以便与本节「测试」中的 `mypy` 及 CI `test` job 一致；CONTRIBUTING 仍以 `.[dev]` 为默认并在注释中说明如何改为 `.[dev,typing]`。若以合并前完整门禁为准，两处最终应统一到 [ENGINEERING.md](docs/ENGINEERING.md) §2 的命令块。
+README、[docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) 与 [docs/ENGINEERING.md](docs/ENGINEERING.md) §2 均以 `pip install -e ".[dev,typing]"` 与默认 CI `test` job 一致；完整本地门禁命令以 ENGINEERING §2 为准。
 
 ### 定时任务
 
-- 任务保存在 `MINI_AGENT_STATE/scheduled_tasks/tasks.json`（未设置 `MINI_AGENT_STATE` 时默认为仓库下 `workspaces/`）。
-- 终端：`.schedule list` 查看用法；`add` 子命令须用 ` -- `（空格、两个连字符、空格）把前面的参数和后面的 prompt 分开。
-- Agent（本地 CLI 会话）：内置 **`run_dot_command`** 可执行与终端一致的 `.schedule …`；内置 **`manage_scheduled_task`** 用 JSON 增删改查，减少拼写错误。
-- 飞书侧：与 `.session` 类似，**仅允许** `.schedule list` / `show`，`add/remove/enable/disable` 须在本地 CLI 执行。
-- 环境变量：`MINIAGENT_DISABLE_SCHEDULED_TASKS=1` 关闭后台调度循环；`MINIAGENT_SCHEDULE_TOOLS=0` 不注册 `manage_scheduled_task`；`MINIAGENT_CLI_DOT_TOOLS=0` 不注册 `run_dot_command`。
+- 持久化任务表：`MINI_AGENT_STATE/scheduled_tasks/tasks.json`（未设置时一般为 `workspaces/scheduled_tasks/`）。
+- 终端用 **`.schedule`** 管理（`add` / `update` 须用 ` -- ` 分隔 prompt）；支持 `every` / `once` / 五段 **cron**；未写 `--tz` 时用 **`TZ`** / `MINIAGENT_TIMEZONE`（定时任务还可单独设 `MINIAGENT_SCHEDULE_TIMEZONE`）。旧任务若仍为 `timezone: UTC` 请自行 **`update --tz`** 或 **`.schedule align-tz`**。
+- 飞书 WebSocket 已连接且 `primary` 与飞书私聊已绑定时，定时任务结果会同步推到飞书（`MINIAGENT_SCHEDULE_FEISHU_MIRROR=0` 可关）。
+- 飞书侧通常仅 **list** / **show**；增删改须在本地 CLI。用户向说明见 [docs/USER_GUIDE.md](docs/USER_GUIDE.md) 第 8 章。
 
 新进程注册时会自动删除磁盘上 **PID 已退出** 的旧实例注册目录，**不会**终止仍在运行的其它 Agent。详见 [docs/INSTANCE_REGISTRY.md](docs/INSTANCE_REGISTRY.md)。
 
@@ -87,7 +86,7 @@ python -m miniagent --stop           # 列出实例；交互停止 / --stop --al
 | `.queue status` | 消息队列状态 |
 | `.help` | 显示完整帮助 |
 
-> 所有 `.` 命令在 CLI 和飞书中均可使用。
+> 多数 `.` 命令在 CLI 与飞书均可使用；`.schedule` 的 add/update/remove/enable/disable 及部分 `.session` 变异仅允许在本机 CLI 执行（见 [docs/CLI.md](docs/CLI.md)）。
 
 ## 项目结构
 
@@ -115,8 +114,9 @@ python -m miniagent --stop           # 列出实例；交互停止 / --stop --al
 | [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | 性能 KPI、合成冒烟、基线与剖析 |
 | [docs/CHANNEL_BINDING.md](docs/CHANNEL_BINDING.md) | 通道绑定 |
 | [docs/CYBERNETICS_PLAN.md](docs/CYBERNETICS_PLAN.md) | 控制论/自适应路线（规划稿） |
+| [docs/examples/](docs/examples/) | 脱敏外部配置片段（见 examples/README.md） |
 
-**完整专题列表与目录树**以 [docs/INDEX.md](docs/INDEX.md) 为准。
+**完整专题列表与目录树**以 [docs/INDEX.md](docs/INDEX.md) 为准。飞书卡片 JSON v2 调研见 [docs/FEISHU.md](docs/FEISHU.md)「调研与路线图」。
 
 ## 测试
 

@@ -37,10 +37,70 @@ def _make_memory_bundle():
     return ms, al, ki
 
 
-def test_unified_entry_imports():
-    """unified_entry 内部所有 import 正常。"""
-    from miniagent.compat import unified_entry
+def test_import_smoke():
+    """入口、compat 聚合 API 与 __main__ 模块可正常 import。"""
+    from miniagent.__main__ import main
+    from miniagent.compat import (
+        FeishuRuntime,
+        RuntimeContext,
+        run_cli_loop,
+        unified_entry,
+        unified_main,
+    )
+    from miniagent.engine.cli_commands import (
+        cmd_bind,
+        cmd_help,
+        cmd_session_list,
+        cmd_unbind,
+    )
+    from miniagent.engine.command_dispatch import dispatch_command
+    from miniagent.engine.engine import UnifiedEngine
+    from miniagent.engine.thinking import ThinkingDisplay
+    from miniagent.feishu.poll_server import start_feishu_poll_server
+    from miniagent.feishu.types import FeishuConfig, FeishuInboundText
+    from miniagent.infrastructure.channel_router import ChannelRouter
+    from miniagent.infrastructure.message_queue import MessageQueueManager, QueueMode
+    from miniagent.infrastructure.monitor import DefaultToolMonitor
+    from miniagent.infrastructure.registry import DefaultToolRegistry
+    from miniagent.skills import DefaultSkillRegistry, create_clawhub_client
+
     assert callable(unified_entry)
+    assert callable(unified_main)
+    assert callable(run_cli_loop)
+    assert all(
+        [
+            main,
+            RuntimeContext,
+            FeishuRuntime,
+            UnifiedEngine,
+            ThinkingDisplay,
+            dispatch_command,
+            cmd_bind,
+            cmd_unbind,
+            cmd_session_list,
+            cmd_help,
+            ChannelRouter,
+            MessageQueueManager,
+            QueueMode,
+            DefaultToolMonitor,
+            DefaultToolRegistry,
+            start_feishu_poll_server,
+            FeishuConfig,
+            FeishuInboundText,
+            DefaultSkillRegistry,
+            create_clawhub_client,
+        ]
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", "from miniagent.__main__ import main; print('OK')"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert "ImportError" not in result.stderr, f"Import 失败: {result.stderr}"
+    assert "Traceback" not in result.stderr, f"启动失败: {result.stderr}"
+    assert "OK" in result.stdout
 
 
 def test_cli_output_buffer_readonly_append():
@@ -92,54 +152,14 @@ def test_cli_layout_initial_focus_on_input_buffer():
     assert layout.current_buffer is input_buffer
 
 
-def test_component_creation():
-    """所有核心组件可以正常创建。"""
-    from miniagent.engine.engine import UnifiedEngine
-    from miniagent.infrastructure.monitor import DefaultToolMonitor
-    from miniagent.infrastructure.registry import DefaultToolRegistry
-    from miniagent.skills import DefaultSkillRegistry, create_clawhub_client
-
-    registry = DefaultToolRegistry()
-    monitor = DefaultToolMonitor()
-    skill_registry = DefaultSkillRegistry()
-    clawhub = create_clawhub_client()
-    engine = UnifiedEngine()
-
-    assert registry is not None
-    assert monitor is not None
-    assert skill_registry is not None
-    assert clawhub is not None
-    assert engine is not None
-
-
-def test_main_entry_no_import_errors():
-    """python -m miniagent 在 import 阶段不报 ImportError。
-
-    通过传入 --help 标志（会被 argparse 或 sys.argv 捕获），
-    或者直接检查 python -c "import miniagent.__main__" 是否崩溃。
-    如果模块有 import 错误，任何方式运行都会报出来。
-    """
-    # 方法 1：直接 import 入口模块
-    result = subprocess.run(
-        [sys.executable, "-c", "from miniagent.__main__ import main; print('OK')"],
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
-    assert "ImportError" not in result.stderr, f"Import 失败: {result.stderr}"
-    assert "Traceback" not in result.stderr, f"启动失败: {result.stderr}"
-    assert "OK" in result.stdout, f"输出异常: stdout={result.stdout}, stderr={result.stderr}"
-
-
-def test_unified_entry_callable():
-    """unified_entry 可以被正常调用（验证内部依赖完整）。"""
+def test_core_components_constructible():
+    """组合根依赖（registry/monitor/skills/engine）可构造；unified_entry 可调用。"""
     from miniagent.compat import unified_entry
     from miniagent.engine.engine import UnifiedEngine
     from miniagent.infrastructure.monitor import DefaultToolMonitor
     from miniagent.infrastructure.registry import DefaultToolRegistry
     from miniagent.skills import DefaultSkillRegistry, create_clawhub_client
 
-    # 模拟 unified_entry 的内部流程（构造组合根所需依赖）
     assert all(
         (
             DefaultToolRegistry(),
@@ -149,7 +169,6 @@ def test_unified_entry_callable():
             UnifiedEngine(),
         )
     )
-
     assert callable(unified_entry)
 
 
@@ -487,56 +506,6 @@ def test_dispatch_feishu_blocks_session_mutations():
         assert "共享" in out or "终端" in out
 
     asyncio.run(run())
-
-
-def test_all_public_imports():
-    """项目公开 API 都可以正常 import。"""
-    # 入口
-    from miniagent.__main__ import main
-
-    # 聚合入口（compat）
-    from miniagent.compat import (
-        FeishuRuntime,
-        RuntimeContext,
-        run_cli_loop,
-        unified_entry,
-        unified_main,
-    )
-    from miniagent.engine.cli_commands import (
-        cmd_bind,
-        cmd_help,
-        cmd_session_list,
-        cmd_unbind,
-    )
-    from miniagent.engine.command_dispatch import dispatch_command
-
-    # engine
-    from miniagent.engine.engine import UnifiedEngine
-    from miniagent.engine.thinking import ThinkingDisplay
-
-    # feishu
-    from miniagent.feishu.poll_server import start_feishu_poll_server
-    from miniagent.feishu.types import FeishuConfig, FeishuInboundText
-
-    # infrastructure
-    from miniagent.infrastructure.channel_router import ChannelRouter
-    from miniagent.infrastructure.message_queue import MessageQueueManager, QueueMode
-    from miniagent.infrastructure.monitor import DefaultToolMonitor
-    from miniagent.infrastructure.registry import DefaultToolRegistry
-
-    # skills
-    from miniagent.skills import DefaultSkillRegistry, create_clawhub_client
-
-    assert all([
-        main, unified_entry, unified_main, run_cli_loop,
-        RuntimeContext, FeishuRuntime,
-        UnifiedEngine, ThinkingDisplay, dispatch_command,
-        cmd_bind, cmd_unbind, cmd_session_list, cmd_help,
-        ChannelRouter, MessageQueueManager, QueueMode,
-        DefaultToolMonitor, DefaultToolRegistry,
-        start_feishu_poll_server, FeishuConfig, FeishuInboundText,
-        DefaultSkillRegistry, create_clawhub_client,
-    ])
 
 
 def test_actual_instance_startup():

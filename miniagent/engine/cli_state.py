@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import Any, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 
 class CliLoopState(TypedDict):
@@ -21,6 +21,8 @@ class CliLoopState(TypedDict):
     runtime_ctx: Any
     #: 飞书私聊 sender_id，首次私聊自动绑到当前活跃会话；随 ``.session switch`` 重绑
     feishu_p2p_synced_senders: set[str]
+    #: 最近一次飞书入站 chat_id，供定时任务无绑定时镜像投递回退
+    last_feishu_receive_chat_id: NotRequired[str]
 
 
 __all__ = ["CliLoopState"]

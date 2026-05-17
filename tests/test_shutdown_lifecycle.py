@@ -18,6 +18,7 @@ from miniagent.runtime.context import RuntimeContext
 from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec, SessionSpec
 from miniagent.scheduled_tasks.store import save_tasks
 from miniagent.scheduled_tasks.ticker import tick_once
+from tests.scheduled_tasks_helpers import patch_tick_once_locks
 
 
 def _minimal_ctx() -> RuntimeContext:
@@ -182,6 +183,7 @@ async def test_tick_once_job_registered_then_shutdown_cancels(
         session=SessionSpec(mode="primary"),
         next_run_at=time.time() - 1.0,
     )
+    due_at = float(t.next_run_at or 0)
     save_tasks([t])
 
     async def _slow_coro() -> None:
@@ -194,8 +196,7 @@ async def test_tick_once_job_registered_then_shutdown_cancels(
         "miniagent.scheduled_tasks.ticker.build_run_scheduled_job_coro",
         _fake_build,
     )
-    monkeypatch.setattr("miniagent.scheduled_tasks.ticker.try_acquire_scheduler_lock", lambda: True)
-    monkeypatch.setattr("miniagent.scheduled_tasks.ticker.release_scheduler_lock", lambda: None)
+    patch_tick_once_locks(monkeypatch)
 
     ctx = _minimal_ctx()
     st: CliLoopState = {
@@ -223,6 +224,14 @@ async def test_tick_once_job_registered_then_shutdown_cancels(
         shutdown_default_executor=False,
     )
     assert all(x.done() for x in pending)
+
+    from miniagent.scheduled_tasks.store import load_tasks
+
+    loaded = load_tasks()
+    assert len(loaded) == 1
+    nxt = loaded[0].next_run_at
+    assert nxt is not None
+    assert nxt <= due_at + 1.0
 
 
 @pytest.mark.asyncio

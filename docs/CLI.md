@@ -1,8 +1,8 @@
 # CLI 命令手册
 
-> Mini Agent Python | 版本: 2.0.2 | 所有 `.` 命令在 CLI 和飞书中均可使用
+> Mini Agent Python | 版本: 2.0.2 | 多数 `.` 命令在 CLI 与飞书均可使用；`.schedule` 的 add/update/remove/enable/disable 及部分 `.session` 变异仅允许在本机 CLI 执行
 
-会话切换（`.session switch`）会同步更新 **CLI 通道绑定** 与已自动跟随的 **飞书私聊 sender**，使二者与 `active_session_id` 一致。飞书多实例场景下，仅一个进程可持有入站连接（见 [FEISHU.md](FEISHU.md) / `feishu_inbound_owner.json`）。
+在 **本地 CLI** 执行 `.session switch` 时，会同步更新 **CLI 通道绑定** 与已自动跟随的 **飞书私聊 sender**，使二者与 `active_session_id` 一致（在飞书内发 `.session switch` / `create` / `rename` 等变异子命令不会修改共享状态，见 [FEISHU.md](FEISHU.md)）。飞书多实例场景下，仅一个进程可持有入站连接（见 `feishu_inbound_owner.json`）。
 
 ## 启动命令
 
@@ -51,7 +51,8 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 | **定时任务** | `.schedule` | 无参或与 `list` 相同：列出用法与子命令 |
 | | `.schedule list` | 列出所有定时任务 |
 | | `.schedule show <id>` | 打印任务 JSON |
-| | `.schedule add …` | 新增 interval / once 任务（须含 ` -- ` 分隔 prompt） |
+| | `.schedule add …` | 新增 interval / once / cron 任务（须含 ` -- ` 分隔 prompt） |
+| | `.schedule update <id> …` | 修改已有任务（语法同 add） |
 | | `.schedule remove|enable|disable <id>` | 删除 / 启用 / 禁用 |
 | **模型** | `.profile <名称>` | 切换模型预设 |
 | **统计** | `.stats` | 工具调用统计 |
@@ -147,16 +148,20 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 .schedule show <id>
 .schedule remove <id>
 .schedule enable <id>   |   .schedule disable <id>
+.schedule align-tz
 .schedule add <id> every <秒> <primary|ephemeral|fixed:会话ID> [--tz IANA] -- <prompt>
 .schedule add <id> once <ISO8601> <primary|ephemeral|fixed:会话ID> [--tz IANA] -- <prompt>
+.schedule add <id> cron "<分> <时> <日> <月> <周>" <primary|ephemeral|fixed:会话ID> [--tz IANA] -- <prompt>
 ```
 
 **要点**：
 
 - **`add` 必须包含 ` -- `**（空格、两个连字符、空格）：前面为调度与会话参数，后面为交给模型的 **prompt**；缺少分隔符会报错。
-- **`every`**：间隔秒数为正整数；**`once`**：时间为 ISO8601（可含 `Z` 或 `+08:00`）；未带时区的 naive 时间由 **`--tz`**（默认 `UTC`）解释。
+- **`every`**：间隔秒数为正整数；**`once`**：时间为 ISO8601（可含 `Z` 或 `+08:00`）；未带时区的 naive 时间由 **`--tz`** 解释（未写时读 `MINIAGENT_SCHEDULE_TIMEZONE` / `TZ`，见 [.env.example](../.env.example)）。
+- **飞书收结果**：飞书 WebSocket 已连接且任务为 **`primary`** 且已与飞书私聊绑定时，定时任务会镜像思考流与最终回复到飞书（`MINIAGENT_SCHEDULE_FEISHU_MIRROR=0` 关闭）；详见 [USER_GUIDE.md](USER_GUIDE.md) §8。
 - **会话**：`primary` 使用当前路由的主会话 / 活跃会话；`ephemeral` 每次新建临时会话键；`fixed:会话ID` 固定到某会话（如 `fixed:default` 或 `fixed:feishu:oc_xxx`，后者可用于飞书群任务）。
-- **关闭调度循环**（不删任务表）：环境变量 `MINIAGENT_DISABLE_SCHEDULED_TASKS=1`。
+- **时区**：cron 墙钟以 `tasks.json` 内 `schedule.timezone` 为准；未写 `--tz` 时新建任务用 `MINIAGENT_SCHEDULE_TIMEZONE` / `TZ`。遗留 `timezone: UTC` 请 **`update --tz`** 或 **`.schedule align-tz`**（批量写盘并重算 `next_run_at`）。
+- **关闭调度循环**（不删任务表）：`MINIAGENT_DISABLE_SCHEDULED_TASKS=1`；dispatch 失败退避秒数：`MINIAGENT_SCHEDULE_DISPATCH_BACKOFF`（默认 60，见 [.env.example](../.env.example)）。
 
 **飞书渠道**：在飞书里发 `.schedule` 时，通常 **仅允许** `list` / `show`；`add` / `remove` / `enable` / `disable` 须在 **本机 CLI** 执行（与 `.session` 变异限制类似）。
 
@@ -164,38 +169,14 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 
 ### .bind / .unbind — 通道绑定
 
-将 CLI 或飞书私聊绑定到同一会话，共享记忆和上下文。
+将 CLI 或飞书私聊绑定到同一会话，共享记忆与上下文；**飞书群聊不参与绑定**。
 
-```
-> .bind status
-📡 通道绑定状态
-==============================
-  主会话: default
+- `.bind status` — 查看绑定
+- `.bind cli <会话>` — CLI 绑定（编号或 ID）
+- `.bind feishu <sender_id> <会话>` — 飞书私聊绑定
+- `.unbind cli` / `.unbind feishu <sender_id>` / `.unbind all` — 解除绑定
 
-  💻 CLI → default
-  💬 飞书私聊 (ou_xxxxx...) → default
-
-> .bind cli oc_3a135408
-✅ CLI 已绑定到会话: oc_3a135408
-
-> .bind feishu ou_xxxxxxxxxxxxx default
-✅ 飞书私聊 (ou_xxxxxx...) 已绑定到: default
-```
-
-**绑定后效果**：
-- CLI 输入使用绑定的会话上下文
-- 飞书私聊消息共享同一记忆
-- 群聊始终独立，不参与绑定
-
-```bash
-> .unbind cli
-✅ CLI 已解除绑定（原: oc_3a135408）
-
-> .unbind all
-✅ 已解除 2 个通道绑定
-```
-
-详见 [CHANNEL_BINDING.md](CHANNEL_BINDING.md)。
+示例输出、自动跟随 `.session switch` 与私聊首条自动绑定等见 **[CHANNEL_BINDING.md](CHANNEL_BINDING.md)**。
 
 ### .feishu — 飞书控制
 
@@ -216,46 +197,18 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 ```
 > .profile
 当前预设: balanced
-可用: fast, balanced, quality, creative
+可用: creative, balanced, precise, code, fast
 
-> .profile quality
-📡 已切换到预设: quality
+> .profile precise
+📡 已切换到预设: precise
 ```
-
-### .bind / .unbind — 通道绑定
-
-将 CLI 或飞书私聊绑定到同一会话，实现跨平台记忆/文件/工具共享。
-
-```
-> .bind status
-📡 通道绑定状态
-==============================
-  未绑定任何通道，各通道独立会话
-
-> .bind cli default
-✅ CLI 已绑定到会话: default
-
-> .bind feishu ou_abc123 2
-✅ 飞书私聊 (ou_abc...) 已绑定到会话: 2
-
-> .unbind cli
-✅ CLI 已解除绑定（原: default）
-
-> .unbind all
-✅ 已解除 2 个通道绑定
-```
-
-**命令格式**：
-- `.bind cli <会话>` — CLI 绑定到指定会话（编号或 ID）
-- `.bind feishu <sender_id> <会话>` — 飞书私聊绑定（sender_id 必填）
-- `.bind status` — 查看所有绑定状态
-- `.unbind cli` / `.unbind feishu <sender_id>` / `.unbind all` — 解除绑定
-
-> ⚠️ **飞书群聊不参与绑定**，始终使用独立会话。详见 [CHANNEL_BINDING.md](CHANNEL_BINDING.md)。
 
 ## 飞书中使用命令
 
 飞书消息以 `.` 开头时，自动路由到命令调度器而非 Agent：
+
+- **多数**点命令（如 `.status`、`.help`、`.queue status`）可在飞书使用。
+- **仅本机 CLI**：`.schedule` 的 `add` / `update` / `remove` / `enable` / `disable`；部分 `.session` 变异（新建/切换/重命名等，与 [USER_GUIDE.md](USER_GUIDE.md) 第 8、9 章一致）。
 
 ```
 飞书发送: .status

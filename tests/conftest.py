@@ -2,12 +2,21 @@
 
 import os
 import sys
+import tempfile
 
 import pytest
 
 # Add project root to path
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
+
+
+@pytest.fixture()
+def state_dir(monkeypatch: pytest.MonkeyPatch) -> str:
+    """Isolated MINI_AGENT_STATE directory for scheduled_tasks / store tests."""
+    d = tempfile.mkdtemp()
+    monkeypatch.setenv("MINI_AGENT_STATE", d)
+    return d
 
 
 @pytest.fixture(autouse=True)

@@ -12,13 +12,13 @@
 | `core/` | Agent 核心逻辑（规划+执行） | agent.py, executor.py, planner.py, openai_client.py |
 | `engine/` | 运行时编排、CLI、生命周期 | main.py, engine.py, command_dispatch.py |
 | `feishu/` | 飞书通信 | poll_server.py, agent_handler.py |
-| `infrastructure/` | 基础设施（注册表、监控、队列） | registry.py, message_queue.py, instance.py |
+| `infrastructure/` | 基础设施（注册表、监控、队列） | registry.py, message_queue.py, timezone_config.py, env_loader.py, instance.py |
 | `memory/` | 三层记忆系统 | store.py, context.py, keyword_index.py, defaults.py |
 | `session/` | 会话管理与持久化 | manager.py, workspace.py |
 | `skills/` | 可插拔技能系统 | registry.py, loader.py, clawhub_client.py |
 | `tools/` | LLM 可调用的工具 | exec.py, filesystem.py, web.py |
 | `security/` | 沙箱与权限 | sandbox.py |
-| `scheduled_tasks/` | 定时任务：持久化 + 进程内调度 | models.py, store.py, ticker.py, runner.py |
+| `scheduled_tasks/` | 定时任务：持久化 + 进程内调度 | models.py, store.py, cron.py, timezone_util.py, feishu_delivery.py, ticker.py, runner.py, lock.py, file_lock.py, resolve.py |
 | `types/` | 共享类型定义 | agent.py, config.py, tool.py, planning.py, memory.py, skill.py |
 | `runtime/` | 进程级组合根 | `context.py`（`RuntimeContext`） |
 | `mcp/` | 可选 stdio MCP → `mcp_*` 工具 | `bridge.py`, `runtime.py`（需 `pip install -e ".[mcp]"`） |
@@ -37,10 +37,9 @@ python -m venv .venv
 .venv\Scripts\activate     # Windows
 source .venv/bin/activate  # Linux/Mac
 
-# 3. 安装依赖（开发模式）
-pip install -e ".[dev]"
-# 与默认 CI `test` job 一致（含 mypy）请使用：pip install -e ".[dev,typing]"
-# （与 README 快速开始默认 `.[dev,typing]` 不同：此处为最小安装；跑 mypy 前请改用上一行。）
+# 3. 安装依赖（开发模式，与默认 CI `test` job 一致）
+pip install -e ".[dev,typing]"
+# 完整本地门禁命令见 [ENGINEERING.md](ENGINEERING.md) §2
 
 # 4. 配置环境
 cp .env.example .env

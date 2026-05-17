@@ -1489,6 +1489,8 @@ def _create_feishu_handler(
         session_key = channel_router.resolve_feishu_message(
             chat_id, sender_id, chat_type
         )
+        if (chat_id or "").strip():
+            state["last_feishu_receive_chat_id"] = chat_id.strip()
 
         if chat_type == "p2p" and channel_router.is_bound(
             f"feishu_p2p:{sender_id}"

@@ -602,26 +602,68 @@ def format_schedule_command_usage() -> str:
         "  .schedule show <id>\n"
         "  .schedule remove <id>\n"
         "  .schedule enable <id>  |  .schedule disable <id>\n"
+        "  .schedule align-tz\n"
+        "  .schedule update <id> every|once|cron ...（语法同 add，不含新建 id） [--tz IANA] -- <prompt>\n"
         "  .schedule add <id> every <秒> <primary|ephemeral|fixed:会话ID> [--tz IANA] -- <prompt>\n"
         "  .schedule add <id> once <ISO8601> <primary|ephemeral|fixed:会话ID> [--tz IANA] -- <prompt>\n"
-        "  说明: 用 `` -- `` 分隔参数区与 prompt；once 的 naive 时间按 ``--tz``（默认 UTC）解释。\n"
+        '  .schedule add <id> cron "<分> <时> <日> <月> <周>" <primary|...> [--tz IANA] -- <prompt>\n'
+        "  说明: 用 `` -- `` 分隔参数区与 prompt；cron 为标准 5 段 Unix 表达式（半角 *）。\n"
         "  关闭调度: 环境变量 MINIAGENT_DISABLE_SCHEDULED_TASKS=1"
     )
 
 
-def _schedule_head_strip_tz_tokens(tokens: list[str]) -> tuple[list[str], str]:
-    """从 ``add ...`` 参数列表中去掉 ``--tz X``，返回 (新列表, 时区名)。"""
-    tz = "UTC"
+def _schedule_head_strip_tz_tokens(tokens: list[str]) -> tuple[list[str], str | None, bool]:
+    """从参数列表去掉 ``--tz X``，返回 (新列表, 时区或 None, 是否显式指定)。"""
+    tz_override: str | None = None
+    tz_explicit = False
     out: list[str] = []
     i = 0
     while i < len(tokens):
         if tokens[i] == "--tz" and i + 1 < len(tokens):
-            tz = tokens[i + 1].strip() or "UTC"
+            tz_override = tokens[i + 1].strip() or "UTC"
+            tz_explicit = True
             i += 2
             continue
         out.append(tokens[i])
         i += 1
-    return out, tz
+    return out, tz_override, tz_explicit
+
+
+def _resolve_schedule_tz(
+    tz_override: str | None,
+    tz_explicit: bool,
+    *,
+    existing: Any | None = None,
+) -> tuple[str, bool]:
+    """``add`` 用 env 默认；``update`` 未写 ``--tz`` 时保留原任务时区。"""
+    from miniagent.scheduled_tasks.timezone_util import default_schedule_timezone
+
+    if tz_override is not None:
+        return tz_override, tz_explicit
+    if existing is not None:
+        return (
+            (existing.schedule.timezone or "").strip() or default_schedule_timezone(),
+            bool(existing.schedule.timezone_explicit),
+        )
+    return default_schedule_timezone(), False
+
+
+def _parse_cron_add_tokens(tokens: list[str]) -> tuple[str, str]:
+    """从 ``add <id> cron … <session>`` 的 token 列表解析 cron 与会话 token。"""
+    if len(tokens) < 4 or tokens[0].lower() != "add" or tokens[2].lower() != "cron":
+        raise ValueError("cron 参数不足")
+    rest = tokens[3:]
+    if len(rest) < 2:
+        raise ValueError("cron 须为 5 段（分 时 日 月 周）及会话说明")
+    sess_token = rest[-1]
+    cron_parts = rest[:-1]
+    if len(cron_parts) == 1:
+        expr = cron_parts[0]
+    elif len(cron_parts) == 5:
+        expr = " ".join(cron_parts)
+    else:
+        raise ValueError("cron 须为 5 段（分 时 日 月 周），或使用引号包裹整段表达式")
+    return expr, sess_token
 
 
 def _parse_schedule_session_spec(token: str) -> Any:
@@ -647,7 +689,15 @@ def _parse_schedule_session_spec(token: str) -> Any:
 def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
     """处理 ``.schedule`` 点命令：列出/展示/增删改定时任务；飞书等非变异渠道受 ``allow_mutations`` 限制。"""
     from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec
-    from miniagent.scheduled_tasks.store import compute_initial_next_run, load_tasks, save_tasks
+    from miniagent.scheduled_tasks.store import (
+        align_task_timezones_to_env,
+        compute_initial_next_run,
+        format_next_run_display,
+        load_tasks,
+        repair_invalid_schedules,
+        save_tasks,
+        task_timezone_list_hint,
+    )
 
     raw = (text or "").strip()
     if not raw.lower().startswith(".schedule"):
@@ -663,12 +713,16 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
         if not tasks:
             return "（暂无定时任务）"
         lines = ["定时任务:"]
+        now = time.time()
         for t in tasks:
-            nxt = t.next_run_at
-            nxt_s = f"{nxt:.0f}" if nxt is not None else "-"
+            nxt_s = format_next_run_display(t, now_ts=now)
+            kind = t.schedule.kind
+            if kind == "cron" and t.schedule.cron_expr:
+                kind = f'cron "{t.schedule.cron_expr}"'
+            hint = task_timezone_list_hint(t)
             lines.append(
                 f"  • {t.id}  ({t.name})  enabled={t.enabled}  "
-                f"{t.schedule.kind}  next={nxt_s}  runs={t.run_count}"
+                f"{kind}  next={nxt_s}  runs={t.run_count}{hint}"
             )
             if t.last_error:
                 err = t.last_error.replace("\n", " ")[:160]
@@ -682,8 +736,22 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
                 return json.dumps(t.to_json(), ensure_ascii=False, indent=2)
         return f"未找到任务: {tid}"
 
+    if sub == "align-tz":
+        if not allow_mutations:
+            return "❌ 飞书渠道不允许修改定时任务，请在本地 CLI 执行 .schedule align-tz"
+        tasks = load_tasks()
+        n, detail = align_task_timezones_to_env(tasks)
+        if n == 0:
+            msg = "无需对齐时区的任务。"
+            if detail:
+                msg += "\n" + "\n".join(detail)
+            return msg
+        repair_invalid_schedules(tasks)
+        save_tasks(tasks)
+        return f"✅ 已对齐 {n} 个任务时区:\n" + "\n".join(detail)
+
     if not allow_mutations:
-        if sub in ("add", "remove", "enable", "disable"):
+        if sub in ("add", "update", "remove", "enable", "disable", "align-tz"):
             return "⚠️ 当前渠道不允许修改定时任务，请在本地 MiniAgent CLI 执行。"
 
     if sub == "remove" and len(parts) >= 2:
@@ -703,6 +771,7 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
                 t.enabled = True
                 if t.next_run_at is None:
                     t.next_run_at = compute_initial_next_run(t)
+                repair_invalid_schedules(tasks)
                 save_tasks(tasks)
                 return f"✅ 已启用 {tid}"
         return f"未找到任务: {tid}"
@@ -718,6 +787,8 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
         return f"未找到任务: {tid}"
 
     if sub == "add":
+        import shlex
+
         marker = " -- "
         if marker not in raw:
             return "缺少 `` -- `` 分隔符（用于分隔会话参数与 prompt）。\n" + format_schedule_command_usage()
@@ -728,14 +799,20 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
         head0 = head.strip()
         if head0.lower().startswith(".schedule"):
             head0 = head0[9:].strip()
-        hparts = head0.split()
-        hparts, tz_name = _schedule_head_strip_tz_tokens(hparts)
-        if len(hparts) < 5 or hparts[0].lower() != "add":
+        try:
+            hparts = shlex.split(head0)
+        except ValueError as e:
+            return f"❌ 参数解析失败: {e}"
+        hparts, tz_override, tz_explicit_flag = _schedule_head_strip_tz_tokens(hparts)
+        tz_name, tz_explicit = _resolve_schedule_tz(tz_override, tz_explicit_flag)
+        if len(hparts) < 4 or hparts[0].lower() != "add":
             return "参数不足。\n" + format_schedule_command_usage()
         tid = hparts[1]
         kind = hparts[2].lower()
         try:
             if kind == "every":
+                if len(hparts) < 5:
+                    return "参数不足。\n" + format_schedule_command_usage()
                 sec = int(hparts[3], 10)
                 if sec <= 0:
                     return "间隔须为正整数"
@@ -749,11 +826,14 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
                         kind="interval",
                         interval_seconds=sec,
                         timezone=tz_name,
+                        timezone_explicit=tz_explicit,
                     ),
                     session=sess,
                 )
                 task.next_run_at = compute_initial_next_run(task)
             elif kind == "once":
+                if len(hparts) < 5:
+                    return "参数不足。\n" + format_schedule_command_usage()
                 iso = hparts[3]
                 sess = _parse_schedule_session_spec(hparts[4])
                 task = ScheduledTask(
@@ -765,6 +845,7 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
                         kind="once",
                         once_at_iso=iso,
                         timezone=tz_name,
+                        timezone_explicit=tz_explicit,
                     ),
                     session=sess,
                 )
@@ -773,8 +854,30 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
                     return "无法解析 once 时间，请使用 ISO8601（可含 Z 或 +08:00）"
                 if task.next_run_at < time.time():
                     return "一次性任务时间已在过去，请使用未来时间"
+            elif kind == "cron":
+                from miniagent.scheduled_tasks.cron import validate_cron_expr
+
+                cron_expr, sess_token = _parse_cron_add_tokens(hparts)
+                cron_expr = validate_cron_expr(cron_expr)
+                sess = _parse_schedule_session_spec(sess_token)
+                task = ScheduledTask(
+                    id=tid,
+                    name=tid,
+                    prompt=prompt,
+                    enabled=True,
+                    schedule=ScheduleSpec(
+                        kind="cron",
+                        cron_expr=cron_expr,
+                        timezone=tz_name,
+                        timezone_explicit=tz_explicit,
+                    ),
+                    session=sess,
+                )
+                task.next_run_at = compute_initial_next_run(task)
+                if task.next_run_at is None:
+                    return "无法根据 cron 计算下次触发时间"
             else:
-                return "调度类型须为 every 或 once。\n" + format_schedule_command_usage()
+                return "调度类型须为 every、once 或 cron。\n" + format_schedule_command_usage()
         except ValueError as e:
             return f"❌ {e}"
 
@@ -783,7 +886,102 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
             return f"任务 ID 已存在: {tid}"
         tasks.append(task)
         save_tasks(tasks)
-        return f"✅ 已添加任务 {tid}，next_run_at={task.next_run_at}"
+        return (
+            f"✅ 已添加任务 {tid}，timezone={task.schedule.timezone}"
+            f"，next={format_next_run_display(task)}"
+        )
+
+    if sub == "update":
+        import shlex
+
+        marker = " -- "
+        if marker not in raw:
+            return "缺少 `` -- `` 分隔符。\n" + format_schedule_command_usage()
+        head, prompt = raw.split(marker, 1)
+        prompt = prompt.strip()
+        if not prompt:
+            return "prompt 不能为空"
+        head0 = head.strip()
+        if head0.lower().startswith(".schedule"):
+            head0 = head0[9:].strip()
+        try:
+            hparts = shlex.split(head0)
+        except ValueError as e:
+            return f"❌ 参数解析失败: {e}"
+        hparts, tz_override, tz_explicit_flag = _schedule_head_strip_tz_tokens(hparts)
+        if len(hparts) < 4 or hparts[0].lower() != "update":
+            return "参数不足。\n" + format_schedule_command_usage()
+        tid = hparts[1]
+        kind = hparts[2].lower()
+        tasks = load_tasks()
+        existing = next((x for x in tasks if x.id == tid), None)
+        if existing is None:
+            return f"未找到任务: {tid}"
+        tz_name, tz_explicit = _resolve_schedule_tz(
+            tz_override, tz_explicit_flag, existing=existing
+        )
+        try:
+            if kind == "every":
+                if len(hparts) < 5:
+                    return "参数不足。\n" + format_schedule_command_usage()
+                sec = int(hparts[3], 10)
+                if sec <= 0:
+                    return "间隔须为正整数"
+                sess = _parse_schedule_session_spec(hparts[4])
+                existing.prompt = prompt
+                existing.schedule = ScheduleSpec(
+                    kind="interval",
+                    interval_seconds=sec,
+                    timezone=tz_name,
+                    timezone_explicit=tz_explicit,
+                )
+                existing.session = sess
+            elif kind == "once":
+                if len(hparts) < 5:
+                    return "参数不足。\n" + format_schedule_command_usage()
+                iso = hparts[3]
+                sess = _parse_schedule_session_spec(hparts[4])
+                existing.prompt = prompt
+                existing.schedule = ScheduleSpec(
+                    kind="once",
+                    once_at_iso=iso,
+                    timezone=tz_name,
+                    timezone_explicit=tz_explicit,
+                )
+                existing.session = sess
+            elif kind == "cron":
+                from miniagent.scheduled_tasks.cron import validate_cron_expr
+
+                cron_expr, sess_token = _parse_cron_add_tokens(
+                    ["add", tid, "cron", *hparts[3:]]
+                )
+                cron_expr = validate_cron_expr(cron_expr)
+                sess = _parse_schedule_session_spec(sess_token)
+                existing.prompt = prompt
+                existing.schedule = ScheduleSpec(
+                    kind="cron",
+                    cron_expr=cron_expr,
+                    timezone=tz_name,
+                    timezone_explicit=tz_explicit,
+                )
+                existing.session = sess
+            else:
+                return "调度类型须为 every、once 或 cron。\n" + format_schedule_command_usage()
+        except ValueError as e:
+            return f"❌ {e}"
+        existing.enabled = True
+        existing.last_error = None
+        existing.next_run_at = compute_initial_next_run(existing)
+        if existing.next_run_at is None:
+            repair_invalid_schedules(tasks)
+            save_tasks(tasks)
+            return "无法计算下次触发时间（请检查调度参数）"
+        repair_invalid_schedules(tasks)
+        save_tasks(tasks)
+        return (
+            f"✅ 已更新任务 {tid}，timezone={existing.schedule.timezone}"
+            f"，next={format_next_run_display(existing)}"
+        )
 
     return format_schedule_command_usage()
 
@@ -876,6 +1074,7 @@ def format_help_markdown(
                 ("`.schedule list`", "列出任务"),
                 ("`.schedule show <id>`", "查看 JSON"),
                 ("`.schedule add ...`", "interval/once（见无参 `.schedule`）；Agent 可用 manage_scheduled_task"),
+                ("`.schedule update <id> …`", "修改任务（语法同 add）"),
                 ("`.schedule remove|enable|disable <id>`", "管理任务"),
             ],
         ),

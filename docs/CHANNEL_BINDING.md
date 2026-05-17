@@ -56,6 +56,7 @@
 - CLI 处理复杂任务（代码编写、文件操作）
 - 飞书私聊用于移动场景（快速查询、状态检查）
 - 两者记忆完全同步
+- **定时任务**：会话模式为 **`primary`** 的 cron/interval 任务在飞书 WebSocket 已连接且已绑定私聊时，会把思考流与最终回复镜像到飞书（与 CLI 共享记忆）；见 [USER_GUIDE.md](USER_GUIDE.md) §8、`MINIAGENT_SCHEDULE_FEISHU_MIRROR`。
 
 ### 场景 2：飞书为主，CLI 干预
 

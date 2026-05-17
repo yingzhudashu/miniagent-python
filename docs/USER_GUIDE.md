@@ -112,10 +112,10 @@ python -m pip install -U pip
 pip install -e .
 ```
 
-**开发（含测试与静态检查）**
+**开发（含测试与静态检查，与默认 CI 一致）**
 
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[dev,typing]"
 ```
 
 **可选能力（按需叠加）**
@@ -143,6 +143,8 @@ miniagent
 ```
 
 二者都对应 `pyproject.toml` 里的 `miniagent` 控制台脚本。
+
+> **安装长文 SSOT**：与 [README.md](../README.md) 快速开始重复时，以本章为准；开发/CI 门禁安装见 [ENGINEERING.md](ENGINEERING.md) §2。
 
 ---
 
@@ -247,7 +249,7 @@ python -m miniagent --stop
 
 ## 7. 点命令（`.`）速查
 
-所有以下命令在 **CLI 与飞书** 中均可使用（前缀为英文句点 `.`）。**完整说明、示例输出与边界情况** 见 [CLI.md](CLI.md)。
+多数以下命令在 **CLI 与飞书** 中均可使用（前缀为英文句点 `.`）。**`.schedule` 的 add/update/remove/enable/disable** 及部分 **`.session` 变异** 仅允许在本机 CLI 执行（见第 8 章）。**完整说明、示例输出与边界情况** 见 [CLI.md](CLI.md)。
 
 ### 7.1 最常用命令（一张表）
 
@@ -284,18 +286,26 @@ python -m miniagent --stop
 **新手要点**：
 
 - 先输入 **无参数的 `.schedule`** 或 **`.schedule list`** 查看子命令与说明；完整语法见 [CLI.md](CLI.md) 与 [README.md](../README.md)「定时任务」。
+- 调度方式：**`every <秒>`**（固定间隔）、**`once <ISO8601>`**（一次性）、**`cron "<分> <时> <日> <月> <周>"`**（标准 Unix **5 段** cron，如每天 20:00 上海：`cron "0 20 * * *"` 且时区为 `Asia/Shanghai`）。**Cron 墙钟以 `tasks.json` 里 `schedule.timezone` 为准**；未写 `--tz` 时新建任务会写入环境默认（**`MINIAGENT_TIMEZONE`** / **`MINIAGENT_SCHEDULE_TIMEZONE`** / **`TZ`**，见 [.env.example](../.env.example)）。不支持 Quartz 扩展字段（`?`/`L`/`W`）、`@daily` 宏或 6 段「含秒」表达式。
+- **飞书收结果**：飞书 WebSocket 已连接且任务为 **`primary`**（并与 CLI 绑定了飞书私聊，见 [CHANNEL_BINDING.md](CHANNEL_BINDING.md)）时，定时任务会像普通对话一样把**思考过程与最终回复**推到飞书，并与该私聊共用消息队列键（与用户发消息时 `chat_id` 一致，避免并发抢跑）。CLI transcript 仍会打印摘要。关闭镜像：`MINIAGENT_SCHEDULE_FEISHU_MIRROR=0`。无绑定时默认**不**推送；若需回退到进程内记录的「最后活跃飞书聊天」，设置 `MINIAGENT_SCHEDULE_FEISHU_LAST_CHAT=1`。
+- **旧任务时区**：若磁盘仍为 `"timezone": "UTC"`（非显式 `--tz UTC`），运行时会按进程默认时区**计算**下次触发，但 `list` 可能标注 `[tz=UTC，建议 .schedule align-tz]`。一键对齐：**.schedule align-tz`**（将遗留 UTC 写入 `Asia/Shanghai` 等并重算 `next_run_at`），或 **`.schedule update … --tz Asia/Shanghai`**。
+- **Agent 感知时区**：每轮执行会在 system 中注入当前进程时区与本地时间；定时任务 prompt 亦含调度时区说明。`get_time` 默认与进程时区一致。
+- **修改任务**：`.schedule update <id> …`（语法同 `add`，不含新建 id）或工具 `manage_scheduled_task` / `action=update`。
 - **`add` 子命令**里若要在参数后面写 **较长的任务说明（prompt）**，须用 **` -- `**（空格、两个连字符、空格）把前面的选项和后面的正文隔开，否则解析会错乱。
+- **漏跑**：进程停机期间错过的周期**只补触发 1 次**；恢复后按 cron/interval 计算下一次，不会连跑所有错过的次数。
+- **长任务**：若一次执行超过间隔，下次触发时间在**本轮结束后**再按规则计算（有效周期 ≈ 执行时长 + 间隔）。
 - **Agent 会话里**（非终端）：可用内置工具 **`run_dot_command`** 执行与终端一致的 `.schedule …`；也可用 **`manage_scheduled_task`** 以 JSON 做增删改查，减少拼写错误。二者均可通过环境变量关闭（见 [.env.example](../.env.example)：`MINIAGENT_CLI_DOT_TOOLS`、`MINIAGENT_SCHEDULE_TOOLS`）。
 - **飞书里**：为安全起见，通常 **只允许** `.schedule list` / `show`；**添加、删除、启用、禁用**请在 **本机终端** 的 CLI 中操作（与 `.session` 的变异限制类似）。
 
-关闭整个后台调度循环（不删磁盘上的任务表）：设置环境变量 **`MINIAGENT_DISABLE_SCHEDULED_TASKS=1`**。架构与数据流见 [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」。
+关闭整个后台调度循环（不删磁盘上的任务表）：设置环境变量 **`MINIAGENT_DISABLE_SCHEDULED_TASKS=1`**。任务 dispatch 失败时推迟下次触发，默认退避 60 秒，可由 **`MINIAGENT_SCHEDULE_DISPATCH_BACKOFF`** 调整（见 [.env.example](../.env.example)）。架构与数据流见 [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」。
 
 ---
 
 ## 9. 会话与多会话
 
 - **会话**就像「不同的聊天窗口」，历史与部分配置相互隔离。  
-- 使用 `.session list` 查看列表；`.session switch` 切换到工作上下文。  
+- 使用 `.session list` 查看列表；在 **本地 CLI** 用 `.session switch` 切换到工作上下文。  
+- **飞书里**发送 `.session switch` / `create` / `rename` 等变异子命令**不会**修改与 CLI 共享的 `active_session_id` 或会话存储，仅返回提示；请在本地终端执行（见 [FEISHU.md](FEISHU.md)、[CLI.md](CLI.md)）。  
 - 会话与记忆落盘位置受 **`MINI_AGENT_STATE`** 控制，详见第 14 章与 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md)。
 
 ---
@@ -344,15 +354,15 @@ python -m miniagent --stop
 
 ## 14. 状态目录、备份与 Git
 
-### 13.1 默认布局
+### 14.1 默认布局
 
 未设置 `MINI_AGENT_STATE` 时，进程常把状态写在项目下的 **`workspaces/`**（实例、会话、锁、飞书去重、记忆索引等）。可通过环境变量把整棵状态树迁到其它磁盘路径，便于备份或多副本隔离。
 
-### 13.2 哪些不应提交到 Git
+### 14.2 哪些不应提交到 Git
 
-根目录 `.gitignore` 已忽略多数运行时目录与文件（如 `workspaces/sessions/`、`workspaces/memory/`、`workspaces/feishu/`、`keyword-index.json` 等）。**不要** 强行把含隐私对话或密钥的文件 `git add` 进去。政策说明见 [ENGINEERING.md](ENGINEERING.md) §3.1。
+根目录 `.gitignore` 已忽略多数运行时目录与文件（如 `workspaces/sessions/`、`workspaces/scheduled_tasks/`、`workspaces/memory/`、`workspaces/feishu/`、`keyword-index.json` 等）。**不要** 强行把含隐私对话或密钥的文件 `git add` 进去。政策说明见 [ENGINEERING.md](ENGINEERING.md) §3.1。
 
-### 13.3 备份建议
+### 14.3 备份建议
 
 若 `MINI_AGENT_STATE` 指向重要数据目录，请用你自己的备份方案（加密盘、权限控制、定期拷贝）。详见 [DEPLOYMENT.md](DEPLOYMENT.md) 与 [SECURITY.md](SECURITY.md)。
 
@@ -395,6 +405,8 @@ python -m miniagent --stop
 ---
 
 ## 18. 文档索引
+
+**完整专题列表与目录树**以 [INDEX.md](INDEX.md) 为准；下表为常用入口。
 
 | 文档 | 适合 |
 |------|------|

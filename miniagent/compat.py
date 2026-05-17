@@ -68,6 +68,10 @@ def unified_entry() -> None:
     """
     import asyncio
 
+    from miniagent.infrastructure.env_loader import load_dotenv_from_project_root
+
+    load_dotenv_from_project_root()
+
     from miniagent.core.openai_client import get_shared_async_openai
     from miniagent.infrastructure.channel_router import ChannelRouter
     from miniagent.infrastructure.message_queue import MessageQueueManager

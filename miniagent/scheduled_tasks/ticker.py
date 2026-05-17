@@ -2,7 +2,7 @@
 
 与 ``engine.main`` 中启动的 ``start_scheduled_tasks_ticker`` 配套；环境变量 ``MINIAGENT_DISABLE_SCHEDULED_TASKS`` 可关闭。
 
-并发语义：同一进程内单 ticker 循环；跨进程通过 ``scheduler.lock``（见 ``lock``）避免重复 tick。"""
+并发语义：同一进程内单 ticker 循环；跨进程通过 ``scheduler.lock``（tick）与 ``job_<id>.lock``（执行）避免重复触发。"""
 from __future__ import annotations
 
 import asyncio
@@ -13,13 +13,19 @@ from typing import Any
 from miniagent.engine.cli_state import CliLoopState
 from miniagent.infrastructure.logger import get_logger
 from miniagent.runtime.context import RuntimeContext
-from miniagent.scheduled_tasks.lock import release_scheduler_lock, try_acquire_scheduler_lock
+from miniagent.scheduled_tasks.lock import (
+    release_job_lock,
+    release_scheduler_lock,
+    try_acquire_job_lock,
+    try_acquire_scheduler_lock,
+)
 from miniagent.scheduled_tasks.models import ScheduledTask
 from miniagent.scheduled_tasks.runner import build_run_scheduled_job_coro
 from miniagent.scheduled_tasks.store import (
-    compute_initial_next_run,
+    TaskRunOutcome,
+    finalize_task_after_run,
     load_tasks,
-    recompute_next_after_run,
+    repair_invalid_schedules,
     save_tasks,
 )
 
@@ -45,20 +51,6 @@ def _sleep_seconds_until(tasks: list[ScheduledTask]) -> float:
     return max(0.5, min(60.0, nxt - now))
 
 
-def _sync_missing_next_runs(tasks: list[ScheduledTask]) -> bool:
-    """为已启用且尚无 next_run_at 的任务补齐时间；若有变更返回 True。"""
-    changed = False
-    now = time.time()
-    for t in tasks:
-        if not t.enabled or t.next_run_at is not None:
-            continue
-        n = compute_initial_next_run(t, now)
-        if n is not None:
-            t.next_run_at = n
-            changed = True
-    return changed
-
-
 async def tick_once(
     ctx: RuntimeContext,
     state: CliLoopState,
@@ -78,7 +70,7 @@ async def tick_once(
         return
     try:
         tasks = load_tasks()
-        if _sync_missing_next_runs(tasks):
+        if repair_invalid_schedules(tasks):
             save_tasks(tasks)
 
         now = time.time()
@@ -87,6 +79,8 @@ async def tick_once(
             if not t.enabled or t.id in _inflight:
                 continue
             if t.next_run_at is not None and t.next_run_at <= now:
+                if not try_acquire_job_lock(t.id):
+                    continue
                 due.append(t)
         due.sort(key=lambda x: float(x.next_run_at or 0))
         due = due[:_MAX_DUE_PER_TICK]
@@ -97,6 +91,8 @@ async def tick_once(
             _inflight.add(job_id)
 
             async def _one_job(task_id: str = job_id) -> None:
+                outcome: TaskRunOutcome = "skipped"
+                agent_error: str | None = None
                 try:
                     tlist = load_tasks()
                     task = next((x for x in tlist if x.id == task_id), None)
@@ -118,31 +114,29 @@ async def tick_once(
                         await mq.dispatch_cli_wait(_wrap())
                     else:
                         await mq.dispatch_wait(mq_chat, _wrap())
-                    err = err_holder[0]
-
-                    tlist2 = load_tasks()
-                    task2 = next((x for x in tlist2 if x.id == task_id), None)
-                    if task2:
-                        task2.last_run_at = time.time()
-                        task2.run_count = int(task2.run_count or 0) + 1
-                        if err:
-                            task2.last_error = err
-                        else:
-                            task2.last_error = None
-                        recompute_next_after_run(task2)
-                        save_tasks(tlist2)
+                    agent_error = err_holder[0]
+                    outcome = "agent_error" if agent_error else "completed"
+                except asyncio.CancelledError:
+                    outcome = "cancelled"
+                    raise
                 except Exception:
                     _logger.exception("定时任务包装执行失败: %s", task_id)
-                    try:
-                        tlist3 = load_tasks()
-                        task3 = next((x for x in tlist3 if x.id == task_id), None)
-                        if task3:
-                            task3.last_error = "dispatch/wrap failure (see logs)"
-                            save_tasks(tlist3)
-                    except Exception:
-                        pass
+                    outcome = "dispatch_failed"
                 finally:
+                    try:
+                        tlist2 = load_tasks()
+                        task2 = next((x for x in tlist2 if x.id == task_id), None)
+                        if task2:
+                            finalize_task_after_run(
+                                task2,
+                                outcome=outcome,
+                                agent_error=agent_error,
+                            )
+                            save_tasks(tlist2)
+                    except Exception:
+                        _logger.exception("定时任务写回状态失败: %s", task_id)
                     _inflight.discard(task_id)
+                    release_job_lock(task_id)
 
             jt = asyncio.create_task(_one_job())
             reg = getattr(ctx, "register_shutdown_tracked_task", None)

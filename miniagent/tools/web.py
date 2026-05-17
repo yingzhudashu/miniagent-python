@@ -306,7 +306,9 @@ _time_schema = {
 
 async def _time_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolResult:
     """``get_time``：返回指定时区当前本地时间与 UTC 偏移说明。"""
-    tz_name = str(args.get("timezone", "")) or os.environ.get("TZ", "Asia/Shanghai")
+    from miniagent.infrastructure.timezone_config import process_timezone
+
+    tz_name = str(args.get("timezone", "")).strip() or process_timezone()
 
     try:
         from zoneinfo import ZoneInfo

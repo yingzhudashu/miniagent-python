@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Added
+
+- **定时任务**：标准 **5 段 Unix cron**（`croniter`）；CLI `.schedule add … cron "分 时 日 月 周"` 与工具 `add_cron` / **`update`**；`list` 显示本地化下次触发时间。
+- **定时任务可靠性**：跨进程 `job_<id>.lock`、`tasks.json.lock`；dispatch 失败退避（`MINIAGENT_SCHEDULE_DISPATCH_BACKOFF`，默认 60s）；非法 cron 写入 `last_error`；shutdown 取消 job 不再误退避。
+- **定时任务飞书与时区**：`primary` + 通道绑定时镜像推送最终回复到飞书（`MINIAGENT_SCHEDULE_FEISHU_MIRROR`）；默认时区读 `MINIAGENT_SCHEDULE_TIMEZONE` / `TZ`（与 `.env` 一致）。
+
+### Changed
+
+- **定时任务飞书完善**：私聊镜像的消息队列键与入站 `chat_id` 对齐；`MINIAGENT_SCHEDULE_FEISHU_LAST_CHAT` 控制无绑定时的最后聊天回退（默认关）；`repair` 对仍为 UTC 的旧任务打一次性时区提示日志。
+- **全局时区 SSOT**：`process_timezone()`（`MINIAGENT_TIMEZONE` / `TZ`）；遗留 UTC 任务 `effective_task_timezone` 按 env 计算、`.schedule align-tz` 写盘；Agent system 与定时任务 prompt 注入本地时间。
+- **时区 env 边界**：`process_timezone` 不再读取 `MINIAGENT_SCHEDULE_TIMEZONE`；调度专用变量仅影响 `default_schedule_timezone` / `align-tz`。
+
 ### Performance
 
 - **关键词索引**：`KeywordIndex` 引入 `_dirty`，仅在变更后写盘；`DefaultMemoryStore.add_entry` 不再每次 `save()`，由 `flush_keyword_index()` 与 `executor` 会话记忆保存路径、进程 `atexit` 触发落盘，减少重复整文件重写；批量多次 `add_entry` 后单次 flush 可合并写盘。
@@ -22,6 +34,9 @@
 
 ### Documentation
 
+- **docs 全面修订**：统一多实例 **PID 存活** 语义（修正 DEPLOYMENT/SECURITY/drawio 等「心跳 30s 清理」过时表述）；CLI/README/USER_GUIDE 收窄飞书点命令范围；CLI 去重 `.bind`、修正 `.profile` 预设示例；DEPLOYMENT 补定时任务运维与备份；INDEX 目录树同步 `scheduled_tasks`（`cron.py`、`file_lock.py`）；FEISHU v2 调研并入 [FEISHU.md](docs/FEISHU.md)；CONTRIBUTING/ENGINEERING/USER_GUIDE 安装与 SSOT 交叉引用对齐。
+- **docs 复查完善**：修正 README 开发安装脚注与 CONTRIBUTING/ENGINEERING 一致；[architecture.drawio](docs/architecture.drawio) 页脚去掉硬编码 pytest 用例数；USER_GUIDE §9/§14.2 与 CLI 补充飞书 `.session` 语义；删除已并入 FEISHU 的 `FEISHU_CARD_V2_SPIKE.md`；INDEX 合并 FEISHU 索引行、README 定时任务节缩写。
+- **[architecture.drawio](docs/architecture.drawio)**：与 [ARCHITECTURE.md](docs/ARCHITECTURE.md) 对齐（`compat.unified_entry`、`RuntimeContext`、`ChannelRouter`、`feishu_state`、记忆 `defaults` 注入、`scheduled_tasks` / 可选 `mcp`、扩展工具与飞书模块；主数据流与页脚统计更新）。
 - **[INDEX.md](docs/INDEX.md) / [ENGINEERING.md](docs/ENGINEERING.md) / [README.md](README.md)**：权威目录树与 `miniagent/` 同步（含 `memory/history_progressive.py`）；§1 依赖 SSOT 表补充 `typing`（mypy 试点）及 `dev` 内含 `pytest-cov`；开发安装注释指向 ENGINEERING §2 覆盖率示例命令。
 - **`miniagent/types/tool.py`**：模块 docstring 说明 `ToolRegistryProtocol.list` 与内建 `list[...]` 泛型注解的 mypy 冲突及 `typing.List` 用法。
 - **[CONTRIBUTING.md](docs/CONTRIBUTING.md)**：提交前仓库卫生、`git clean -fdX` 与误删 `.env` 风险；§3.1 与 ENGINEERING 交叉引用；docstring 规范与 `scripts/docstring_inventory.py` / [docstring_inventory.md](docs/docstring_inventory.md)（magic、`__init__`、空清单语义）。

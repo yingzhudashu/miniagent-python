@@ -12,6 +12,10 @@ from miniagent.engine.cli_state import CliLoopState
 from miniagent.infrastructure.logger import get_logger
 from miniagent.runtime.context import RuntimeContext
 from miniagent.scheduled_tasks.models import ScheduledTask
+from miniagent.scheduled_tasks.feishu_delivery import (
+    resolve_feishu_delivery,
+    send_scheduled_reply_to_feishu,
+)
 from miniagent.scheduled_tasks.resolve import resolve_execution_target, should_run_feishu
 
 _logger = get_logger(__name__)
@@ -41,19 +45,41 @@ def build_run_scheduled_job_coro(
     session_key, feishu_recv, mq_chat = resolve_execution_target(
         task, channel_router=channel_router, state=state
     )
+    delivery = resolve_feishu_delivery(
+        task,
+        session_key=session_key,
+        feishu_recv=feishu_recv,
+        mq_chat=mq_chat,
+        channel_router=channel_router,
+        state=state,
+        feishu_runtime=ctx.feishu,
+    )
+    if delivery is not None:
+        mq_chat = delivery.mq_chat_id
+        feishu_recv = delivery.receive_chat_id
+        session_key = delivery.session_key
 
     async def _run() -> str | None:
         """执行单条定时任务：构造带前缀 prompt 并走 ``run_agent_with_thinking``。"""
         engine = ctx.engine
         registry = ctx.registry
         monitor = ctx.monitor
-        is_fs = should_run_feishu(
+        is_fs = delivery is not None or should_run_feishu(
             session_key,
             feishu_recv,
             feishu_enabled=bool(state.get("feishu_enabled")),
         )
-        feishu_cfg = ctx.feishu.get_config() if is_fs else None
-        prompt = f"[定时任务 {task.name}]\n{task.prompt}"
+        feishu_cfg = ctx.feishu.get_config() if is_fs and ctx.feishu else None
+        from miniagent.infrastructure.timezone_config import now_in_process_tz
+        from miniagent.scheduled_tasks.store import effective_task_timezone
+
+        sched_tz = effective_task_timezone(task)
+        now = now_in_process_tz()
+        prompt = (
+            f"[定时任务 {task.name} | 调度时区 {sched_tz} | "
+            f"当前本地 {now.strftime('%Y-%m-%d %H:%M:%S')}]\n"
+            f"{task.prompt}"
+        )
         _emit_cli(ctx, f"⏰ 定时任务开始: {task.id} → {session_key}")
 
         try:
@@ -78,10 +104,26 @@ def build_run_scheduled_job_coro(
             )
             preview = (reply or "").strip().replace("\n", " ")[:200]
             _emit_cli(ctx, f"⏰ 定时任务完成: {task.id} — {preview}")
+            if delivery is not None and feishu_cfg and (reply or "").strip():
+                try:
+                    await send_scheduled_reply_to_feishu(feishu_cfg, delivery, task, reply or "")
+                except Exception:
+                    _logger.exception("定时任务飞书投递失败: %s", task.id)
             return None
         except Exception as e:
             _logger.exception("定时任务执行失败: %s", task.id)
             _emit_cli(ctx, f"❌ 定时任务失败 {task.id}: {e}")
-            return f"{e!s}\n{traceback.format_exc()}"[:4000]
+            err_text = f"{e!s}\n{traceback.format_exc()}"[:4000]
+            if delivery is not None and feishu_cfg:
+                try:
+                    await send_scheduled_reply_to_feishu(
+                        feishu_cfg,
+                        delivery,
+                        task,
+                        f"定时任务执行失败:\n{err_text[:3500]}",
+                    )
+                except Exception:
+                    _logger.exception("定时任务飞书失败通知发送失败: %s", task.id)
+            return err_text
 
     return _run(), mq_chat

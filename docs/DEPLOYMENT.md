@@ -10,12 +10,26 @@
 | pip | 23+ | 包管理 |
 | Git | 2.x | 版本控制（自我优化需要） |
 
-### 可选依赖
+### 核心 Python 依赖（随 `pip install -e .` 安装）
 
 | 依赖 | 用途 |
 |------|------|
-| lark-oapi | 飞书 SDK（启用 CLI+飞书 时必需） |
-| python-dotenv | .env 文件加载 |
+| python-dotenv | 加载仓库根 `.env` |
+| croniter / tzdata | 定时任务 cron 解析与时区（非 optional extra） |
+| openai / pydantic 等 | 见 `pyproject.toml` `[project]` |
+
+### 可选 pip extra
+
+| extra | 用途 |
+|-------|------|
+| `feishu` | 飞书 SDK（`lark-oapi`）；启用 CLI+飞书 时安装 |
+| `cli` | 终端 Rich Markdown 渲染 |
+| `browser` | Playwright 无头浏览器（`browser_extract_text`） |
+| `mcp` | 官方 MCP SDK（`MINIAGENT_MCP_STDIO`） |
+| `dev` | pytest、ruff、pytest-cov |
+| `typing` | mypy（与 CI `test` job 一致） |
+
+完整列表见 [ENGINEERING.md](ENGINEERING.md) §1 与 [pyproject.toml](../pyproject.toml)。
 
 ## 安装步骤
 
@@ -189,7 +203,7 @@ Register-ScheduledTask -TaskName "MiniAgent" -Action $action -Trigger $trigger
 Mini Agent 支持多实例并行运行：
 
 - 每个实例通过 `workspaces/instances/<id>/meta.json` 注册
-- 心跳超时 30 秒自动清理死实例
+- `register()` / `list_all()` 按 **操作系统 PID 是否仍存在** 清理僵尸注册目录；心跳文件仅作观测，**不作为**存活判定（详见 [INSTANCE_REGISTRY.md](INSTANCE_REGISTRY.md)）
 - 同一会话通过 `.lock` 文件互斥，防止并发冲突
 
 ```bash
@@ -206,6 +220,22 @@ python -m miniagent --feishu           # 实例 #2 (CLI + 飞书)
 .instance list                   # 列出所有实例
 .instance stop 2                 # 停止实例 #2
 ```
+
+## 定时任务与状态
+
+用户配置的 **周期性 / 一次性 Agent 回合** 持久化在状态根下：
+
+| 路径 | 说明 |
+|------|------|
+| `{MINI_AGENT_STATE}/scheduled_tasks/tasks.json` | 任务定义（含 **prompt**，可能含业务隐私） |
+| `scheduled_tasks/*.lock` | 调度与单任务互斥锁（见 [INSTANCE_REGISTRY.md](INSTANCE_REGISTRY.md)） |
+
+- **依赖**：`croniter`、`tzdata` 已包含在主包 `[project]` 依赖中，无需单独 extra。
+- **运维环境变量**：
+  - `MINIAGENT_DISABLE_SCHEDULED_TASKS=1` — 关闭后台 ticker（不删除磁盘任务表）
+  - `MINIAGENT_SCHEDULE_DISPATCH_BACKOFF` — dispatch 失败时推迟 `next_run_at` 的秒数（默认 60）
+  - `MINIAGENT_TIMEZONE` / `TZ` — 进程默认 IANA 时区（Agent、`get_time`、新建定时任务默认）；修改 `.env` 后须**重启进程**（Windows 上尤其重要）
+- **用户操作**：CLI `.schedule`（含 **`align-tz`** 将遗留 `timezone: UTC` 对齐到 env）、Agent 工具 `manage_scheduled_task`（`align_tz`）；飞书侧通常仅 `list` / `show`。详见 [USER_GUIDE.md](USER_GUIDE.md) §8、[ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」。
 
 ## 监控和日志
 
@@ -231,6 +261,7 @@ python -m miniagent --feishu           # 实例 #2 (CLI + 飞书)
 | 目录 | 说明 | 备份建议 |
 |------|------|---------|
 | `workspaces/sessions/` | 会话历史和配置 | 定期备份 |
+| `workspaces/scheduled_tasks/` | 定时任务表（含 prompt） | 与 sessions 同级敏感，定期备份 |
 | `workspaces/memory/` | 活动日志 | 按需备份 |
 | `workspaces/skills/` | 已安装技能 | 可重新安装 |
 | `.env` | 环境配置 | 必须备份（含密钥） |
@@ -250,3 +281,4 @@ python -m miniagent --feishu           # 实例 #2 (CLI + 飞书)
 - [ENGINEERING.md](ENGINEERING.md)：CI 与本地质量门禁、`MINI_AGENT_STATE` 与仓库卫生约定。
 - [SECURITY.md](SECURITY.md)：沙箱与密钥处理。
 - [INSTANCE_REGISTRY.md](INSTANCE_REGISTRY.md)：多实例与 `--stop` 行为。
+- [USER_GUIDE.md](USER_GUIDE.md) §8：定时任务用户说明。

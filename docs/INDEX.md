@@ -1,6 +1,6 @@
 # Mini Agent Python — 文档索引
 
-> 📅 最后更新: 2026-05-12 | 版本: 2.0.2（与 `miniagent.__version__` 对齐）
+> 📅 最后更新: 2026-05-17 | 版本: 2.0.2（与 `miniagent.__version__` 对齐）
 
 ---
 
@@ -16,7 +16,7 @@
 
 | 文档 | 说明 | 适合读者 |
 |------|------|----------|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | 系统架构总览 | 开发者、架构师 |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | 系统架构总览（含定时任务子系统；用户操作见 [USER_GUIDE.md](USER_GUIDE.md) §8） | 开发者、架构师 |
 | [architecture.drawio](architecture.drawio) | 架构图 (draw.io) | 开发者 |
 | [CHANNEL_BINDING.md](CHANNEL_BINDING.md) | 通道绑定功能详解 | 高级用户、开发者 |
 | [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md) | 三层记忆系统详解 | 开发者 |
@@ -28,12 +28,10 @@
 | 文档 | 说明 | 适合读者 |
 |------|------|----------|
 | [CLI.md](CLI.md) | CLI 命令手册 | 所有用户 |
-| [FEISHU.md](FEISHU.md) | 飞书集成指南 | 运维、开发者 |
-| [FEISHU_CARD_V2_SPIKE.md](FEISHU_CARD_V2_SPIKE.md) | 飞书卡片 JSON v2 / 表格方向备忘（调研） | 开发者 |
+| [FEISHU.md](FEISHU.md) | 飞书集成（含 §调研与路线图：卡片 JSON v2） | 运维、开发者 |
 | [SELF_OPT.md](SELF_OPT.md) | 自我优化子系统 | 高级用户、开发者 |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | 部署指南 | 运维 |
 | [INSTANCE_REGISTRY.md](INSTANCE_REGISTRY.md) | 多实例注册表与磁盘布局 | 开发者、运维 |
-| [ARCHITECTURE.md](ARCHITECTURE.md) §定时任务子系统；[USER_GUIDE.md](USER_GUIDE.md) §8 | 定时任务（`.schedule`、持久化、`manage_scheduled_task`） | 所有用户、开发者 |
 
 ## 🤝 参与贡献
 
@@ -98,7 +96,11 @@ miniagent-python/
 │   │   ├── __init__.py
 │   │   ├── models.py             # ScheduledTask / ScheduleSpec
 │   │   ├── store.py              # tasks.json 读写
-│   │   ├── lock.py               # 单进程调度互斥
+│   │   ├── cron.py               # cron 下一触发时间（croniter）
+│   │   ├── timezone_util.py      # 定时任务新建默认时区（MINIAGENT_SCHEDULE_TIMEZONE）
+│   │   ├── feishu_delivery.py    # primary 镜像飞书投递与消息队列 chat_id 对齐
+│   │   ├── file_lock.py          # tasks.json / job 跨进程锁
+│   │   ├── lock.py               # scheduler.lock（tick 互斥）
 │   │   ├── ticker.py             # 周期 tick、投递协程
 │   │   ├── runner.py             # build_run_scheduled_job_coro → UnifiedEngine
 │   │   └── resolve.py            # 执行目标 session_key / 飞书判定
@@ -121,6 +123,8 @@ miniagent-python/
 │   │   ├── registry.py           # ToolRegistry
 │   │   ├── monitor.py
 │   │   ├── message_queue.py
+│   │   ├── timezone_config.py    # process_timezone / Agent 本地时间注入
+│   │   ├── env_loader.py         # 加载项目根 .env
 │   │   ├── channel_router.py
 │   │   ├── instance.py
 │   │   ├── feishu_inbound_lock.py
@@ -172,7 +176,7 @@ miniagent-python/
 ├── docs/
 │   └── examples/                 # 脱敏配置片段（见 examples/README.md）
 ├── workspaces/                   # 默认状态目录（可用 MINI_AGENT_STATE 迁出）
-│   └── skills/                   # 技能包根（内置 skill-creator、skill-vetter，见 THIRD_PARTY_SKILLS.md）
+│   └── skills/                   # 技能包根（内置 skill-creator、skill-vetter；第三方见 [workspaces/skills/THIRD_PARTY_SKILLS.md](../workspaces/skills/THIRD_PARTY_SKILLS.md)）
 └── README.md
 ```
 

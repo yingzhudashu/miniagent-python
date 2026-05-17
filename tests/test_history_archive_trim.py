@@ -9,13 +9,7 @@ from miniagent.memory.history_archive import (
     maybe_archive_old_turns,
     trim_history_tail_by_turns,
 )
-
-
-def _turn(user: str, assistant: str) -> list[dict]:
-    return [
-        {"role": "user", "content": user},
-        {"role": "assistant", "content": assistant},
-    ]
+from tests.history_helpers import history_turn as _turn
 
 
 def test_trim_history_tail_by_turns_removes_whole_turns(tmp_path, monkeypatch):

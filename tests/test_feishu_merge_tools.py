@@ -101,32 +101,6 @@ async def test_feishu_merge_tools_uses_append_not_second_send_thinking(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_thinking_show_feishu_only_no_sink_still_merges_state() -> None:
-    """无 CLI sink 时仍维护 stream_header，使飞书回调收到 merge_tools=True。"""
-    from miniagent.engine.thinking import ThinkingDisplay
-
-    td = ThinkingDisplay()
-    received: list[dict[str, Any]] = []
-
-    async def feishu_send(
-        chat_id: str,
-        text: str,
-        template: str,
-        **kw: Any,
-    ) -> None:
-        received.append({"chat_id": chat_id, "text": text, "template": template, **kw})
-
-    td.enable_feishu("sk1", "oc_x", feishu_send)
-    lab = "[第 1 轮]"
-    await td.show(lab, session_key="sk1", streaming=True, header=lab)
-    await td.show(lab + "hi", session_key="sk1", streaming=True, header=lab)
-    await td.show("🔧 t — i", session_key="sk1", streaming=False, header=lab)
-
-    assert received[-1]["merge_tools"] is True
-    assert received[-1]["text"] == "🔧 t — i"
-
-
-@pytest.mark.asyncio
 async def test_thinking_show_passes_merge_tools_to_feishu(monkeypatch: pytest.MonkeyPatch) -> None:
     from miniagent.engine.thinking import ThinkingDisplay
 

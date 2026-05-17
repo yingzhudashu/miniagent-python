@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
-ScheduleKind = Literal["interval", "once"]
+ScheduleKind = Literal["interval", "once", "cron"]
 SessionMode = Literal["primary", "ephemeral", "fixed"]
 
 
@@ -21,8 +21,12 @@ class ScheduleSpec:
     interval_seconds: int | None = None
     #: once 模式：ISO8601（可含 Z 或偏移）；与 timezone 联用见 store 计算逻辑
     once_at_iso: str | None = None
-    #: IANA 名称，如 UTC、Asia/Shanghai；用于解析 naive 的 once_at
+    #: cron 模式：标准 5 段 Unix cron（分 时 日 月 周）
+    cron_expr: str | None = None
+    #: IANA 名称，如 UTC、Asia/Shanghai；用于解析 naive 的 once_at 与 cron 墙钟
     timezone: str = "UTC"
+    #: 用户曾显式 ``--tz`` / 工具传入 timezone 时为 True；遗留 UTC 迁移时跳过
+    timezone_explicit: bool = False
 
 
 @dataclass
@@ -71,7 +75,9 @@ class ScheduledTask:
                 kind=sch.get("kind", "interval"),
                 interval_seconds=sch.get("interval_seconds"),
                 once_at_iso=sch.get("once_at_iso"),
+                cron_expr=sch.get("cron_expr"),
                 timezone=str(sch.get("timezone") or "UTC"),
+                timezone_explicit=bool(sch.get("timezone_explicit", False)),
             ),
             session=SessionSpec(
                 mode=sess.get("mode", "primary"),

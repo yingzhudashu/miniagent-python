@@ -25,18 +25,10 @@ import sys
 
 
 def _load_env():
-    """加载仓库根目录下的 ``.env``（若存在）。
+    """加载仓库根目录下的 ``.env``（若存在）。"""
+    from miniagent.infrastructure.env_loader import load_dotenv_from_project_root
 
-    解析路径：``__file__`` 所在包目录的上级的上级为项目根（``miniagent`` 的父目录）。
-    若未安装 ``python-dotenv`` 则静默跳过。不覆盖已存在于进程环境中的变量（由 dotenv 默认行为决定）。
-    """
-    try:
-        from dotenv import load_dotenv
-        env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
-        if os.path.exists(env_path):
-            load_dotenv(env_path)
-    except ImportError:
-        pass
+    load_dotenv_from_project_root()
 
 
 def _argv_after_flag(argv: list[str], flag: str) -> list[str]:

@@ -9,6 +9,46 @@ import pytest
 pytest.importorskip("lark_oapi")
 
 
+def test_resolve_im_receive_id_type_env_and_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
+    from miniagent.feishu.im_send import resolve_im_receive_id_type
+
+    assert resolve_im_receive_id_type("open_id") == "open_id"
+    monkeypatch.setenv("MINIAGENT_FEISHU_RECEIVE_ID_TYPE", "union_id")
+    assert resolve_im_receive_id_type(None) == "union_id"
+    monkeypatch.delenv("MINIAGENT_FEISHU_RECEIVE_ID_TYPE", raising=False)
+    assert resolve_im_receive_id_type(None) == "chat_id"
+
+
+def test_post_im_message_reply_uses_reply_api() -> None:
+    from miniagent.feishu.im_send import post_im_message
+    from miniagent.feishu.types import FeishuConfig
+
+    cfg = FeishuConfig(app_id="a", app_secret="b")
+    client = MagicMock()
+    ok = MagicMock()
+    ok.success.return_value = True
+    ok.data = MagicMock()
+    ok.data.message_id = "mid_reply"
+    client.im.v1.message.reply.return_value = ok
+    mock_builder = MagicMock()
+    mock_builder.app_id.return_value = mock_builder
+    mock_builder.app_secret.return_value = mock_builder
+    mock_builder.build.return_value = client
+
+    with patch("lark_oapi.Client.builder", return_value=mock_builder):
+        success, mid, err = post_im_message(
+            cfg,
+            receive_id="oc_1",
+            msg_type="text",
+            content_json='{"text":"hi"}',
+            reply_to_message_id="om_parent",
+        )
+
+    assert success and mid == "mid_reply" and err is None
+    client.im.v1.message.reply.assert_called_once()
+    client.im.v1.message.create.assert_not_called()
+
+
 def test_post_im_message_create_returns_message_id() -> None:
     from miniagent.feishu.im_send import post_im_message
     from miniagent.feishu.types import FeishuConfig
@@ -133,6 +173,36 @@ def test_append_plain_text_calls_create_children() -> None:
 
     assert n == 2
     client.docx.v1.document_block_children.create.assert_called_once()
+
+
+def test_send_im_image_message_success() -> None:
+    from miniagent.feishu.types import FeishuConfig
+    from miniagent.feishu.upload_io import send_im_image_message
+
+    cfg = FeishuConfig(app_id="a", app_secret="b")
+    with patch("miniagent.feishu.upload_io._post_im_message", return_value=(True, None)):
+        ok, err = send_im_image_message(cfg, "oc_1", "img_key_1")
+    assert ok is True and err is None
+
+
+def test_delete_im_message_success() -> None:
+    from miniagent.feishu.types import FeishuConfig
+    from miniagent.feishu.upload_io import delete_im_message
+
+    cfg = FeishuConfig(app_id="a", app_secret="b")
+    client = MagicMock()
+    ok = MagicMock()
+    ok.success.return_value = True
+    client.im.v1.message.delete.return_value = ok
+    mock_builder = MagicMock()
+    mock_builder.app_id.return_value = mock_builder
+    mock_builder.app_secret.return_value = mock_builder
+    mock_builder.build.return_value = client
+
+    with patch("lark_oapi.Client.builder", return_value=mock_builder):
+        success, err = delete_im_message(cfg, "om_del")
+    assert success is True
+    assert err == ""
 
 
 def test_upload_im_file_uses_file_create() -> None:

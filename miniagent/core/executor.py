@@ -95,6 +95,9 @@ def build_execution_system_prompt(
             f"{abs_root}。read_file、write_file、list_dir、edit_file 等工具的路径参数若为相对路径，"
             "均相对于该目录；不要使用 `../` 等方式逃逸到该目录之外。"
         )
+    from miniagent.infrastructure.timezone_config import format_agent_timezone_context
+
+    parts.append(format_agent_timezone_context())
     return "\n\n".join(parts)
 
 

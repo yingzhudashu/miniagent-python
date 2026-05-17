@@ -13,13 +13,7 @@ from miniagent.memory.history_progressive import (
     run_session_history_maintenance,
     strip_thinking_to_turn_summary,
 )
-
-
-def _turn(user: str, assistant: str) -> list[dict]:
-    return [
-        {"role": "user", "content": user},
-        {"role": "assistant", "content": assistant},
-    ]
+from tests.history_helpers import history_turn as _turn
 
 
 def test_maybe_archive_at_most_one_turn_per_call(tmp_path, monkeypatch):

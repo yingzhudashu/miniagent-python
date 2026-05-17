@@ -233,14 +233,13 @@ LLM 可通过 function calling 调用的工具：
 | `monitor.py` | 性能监控器：耗时统计、成功率追踪 |
 | `message_queue.py` | 消息队列：按 chat_id 隔离、queue/preemptive 双模式、耗时追踪 |
 | `channel_router.py` | CLI / 飞书私聊 / 群聊 → `session_key` 与绑定关系 |
-| `instance.py` | 多实例注册表：自增 ID、心跳、PID 存活检测、超时清理 |
+| `instance.py` | 多实例注册表：自增 ID、心跳（观测）、PID 僵尸目录清理（非心跳超时） |
 | `feishu_inbound_lock.py` | 飞书 WebSocket 入站跨进程独占（磁盘锁） |
 | `tracing.py` | 轻量追踪/跨度钩子（与日志配合） |
 | `logger.py` | 日志系统：`append_log()`, `get_logger()` |
 | `loop_detector.py` | 循环检测器：相似度检测、warning/critical 分级 |
 | `process.py` | 进程管理：子进程追踪、孤儿进程清理 |
 | `debug_ndjson.py` | 可选 NDJSON 调试落盘 |
-| `process.py` | 进程管理：子进程追踪、孤儿进程清理 |
 
 ### 10. 安全层 + 类型层
 
@@ -305,15 +304,22 @@ _format_status(state, message_queue)
 ### 运行时链路
 
 1. **启动**：[`unified_main` / CLI 主循环](../miniagent/engine/main.py) 在构造 `RuntimeContext` 后调用 [`start_scheduled_tasks_ticker`](../miniagent/scheduled_tasks/ticker.py)，将 `asyncio.Task` 记入 `RuntimeContext.scheduled_tasks_ticker`，并用 `scheduled_tasks_stop_event` 协作退出。
-2. **Ticker**：[`tick_once`](../miniagent/scheduled_tasks/ticker.py) 在取得进程内调度锁后 `load_tasks()`，对到期且启用的任务构建协程；同一任务可并发防护（`_inflight`）；每 tick 处理数量有上限（`_MAX_DUE_PER_TICK`）。
-3. **Runner**：[`build_run_scheduled_job_coro`](../miniagent/scheduled_tasks/runner.py) 根据任务与会话路由解析 `session_key` 与消息队列用 `chat_id`，合成 prompt（带任务名前缀），调用 `UnifiedEngine.run_agent_with_thinking`；飞书通道是否启用由 [`should_run_feishu`](../miniagent/scheduled_tasks/resolve.py) 等判定。
-4. **用户入口**：终端与 CLI 侧 **`.schedule`** 子命令（实现见 [`cli_commands.py`](../miniagent/engine/cli_commands.py)）；Agent 执行阶段可选工具 **`manage_scheduled_task`**（[`schedule_tools.py`](../miniagent/tools/schedule_tools.py)，注册开关 **`MINIAGENT_SCHEDULE_TOOLS`**）、**`run_dot_command`**（与 `.schedule` 同源，**`MINIAGENT_CLI_DOT_TOOLS`**）。
+2. **Ticker**：[`tick_once`](../miniagent/scheduled_tasks/ticker.py) 在取得 `scheduler.lock` 后 `load_tasks()`，经 `repair_invalid_schedules` 补齐/校验 cron；对到期任务先取 `job_<id>.lock` 再投递协程；同进程 `_inflight` 防重入；每 tick 最多 `_MAX_DUE_PER_TICK` 条。
+3. **Runner**：[`build_run_scheduled_job_coro`](../miniagent/scheduled_tasks/runner.py) 经 [`resolve_execution_target`](../miniagent/scheduled_tasks/resolve.py) 与 [`resolve_feishu_delivery`](../miniagent/scheduled_tasks/feishu_delivery.py) 解析 `session_key`、消息队列 `chat_id`（与入站 `poll_server.dispatch(chat_id)` 对齐）及飞书 `receive_id`；合成 prompt 后调用 `UnifiedEngine.run_agent_with_thinking`（`is_feishu=True` 时推送思考卡）；最终回复由 runner 调用 `_send_reply`（与入站 handler 对称）。默认时区见 [`timezone_util.py`](../miniagent/scheduled_tasks/timezone_util.py)。
+4. **用户入口**：终端与 CLI 侧 **`.schedule`** 子命令（`every` / `once` / **`cron`** 五段表达式，实现见 [`cli_commands.py`](../miniagent/engine/cli_commands.py)）；Agent 可选 **`manage_scheduled_task`**（含 `add_cron`，[`schedule_tools.py`](../miniagent/tools/schedule_tools.py)）；下一触发时间由 [`cron.py`](../miniagent/scheduled_tasks/cron.py) + **croniter** 计算。
+5. **并发**：`scheduler.lock`（tick）+ `job_<id>.lock`（执行）+ `tasks.json.lock`（读写）；dispatch 失败时 `next_run_at` 默认退避 60s，可由 **`MINIAGENT_SCHEDULE_DISPATCH_BACKOFF`** 覆盖（见 [`store.py`](../miniagent/scheduled_tasks/store.py) 与 `.env.example`）。
 
 ### 环境变量
 
 | 变量 | 作用 |
 |------|------|
 | `MINIAGENT_DISABLE_SCHEDULED_TASKS` | 为真时 ticker 早退，不调度定时任务 |
+| `MINIAGENT_SCHEDULE_DISPATCH_BACKOFF` | dispatch 失败时推迟 `next_run_at` 的秒数（默认 60） |
+| `MINIAGENT_TIMEZONE` | 进程默认 IANA 时区（Agent system、`get_time`；优先级高于 `TZ`） |
+| `MINIAGENT_SCHEDULE_TIMEZONE` | 仅定时任务**新建**默认（`align-tz` 写盘亦用此链）；未设则 `MINIAGENT_TIMEZONE` / `TZ` |
+| `TZ` | 与上兼容的时区 env（`.env` 常见 `Asia/Shanghai`） |
+| `MINIAGENT_SCHEDULE_FEISHU_MIRROR` | `0` 时关闭 primary→已绑定飞书的镜像投递（默认开启） |
+| `MINIAGENT_SCHEDULE_FEISHU_LAST_CHAT` | `1` 时无绑定时可回退到 `last_feishu_receive_chat_id`（默认关闭） |
 | `MINIAGENT_SCHEDULE_TOOLS` | 设为 `0` 等则不注册 `manage_scheduled_task` |
 | `MINIAGENT_CLI_DOT_TOOLS` | 设为 `0` 等则不注册 `run_dot_command` |
 
