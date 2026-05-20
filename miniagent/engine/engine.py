@@ -22,6 +22,7 @@ import re
 from typing import Any
 
 from miniagent.core.agent import run_agent
+from miniagent.engine.cli_commands import feishu_dot_commands_full_enabled
 from miniagent.memory.context import DefaultContextManager
 from miniagent.memory.defaults import resolve_memory_dependencies
 from miniagent.session.manager import SessionOptions
@@ -326,7 +327,9 @@ class UnifiedEngine:
             "conversation_history": history,
             "debug": False,
             "cli_loop_state": cli_loop_state,
-            "cli_dispatch_allow_mutations": (not is_feishu),
+            "cli_dispatch_allow_mutations": (
+                True if not is_feishu else feishu_dot_commands_full_enabled()
+            ),
             "feishu_receive_chat_id": _recv_chat or None,
             "feishu_trigger_message_id": (feishu_trigger_message_id or "").strip() or None,
             "feishu_root_id": (feishu_root_id or "").strip() or None,

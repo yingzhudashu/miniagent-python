@@ -57,6 +57,40 @@ def test_feishu_im_tools_auto_off_without_creds(monkeypatch: pytest.MonkeyPatch)
     assert feishu_im_tools_should_register() is False
 
 
+def test_feishu_im_tools_auto_default_on_with_creds(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MINIAGENT_FEISHU_TOOLS", raising=False)
+    monkeypatch.delenv("MINIAGENT_FEISHU_TOOLS_AUTO", raising=False)
+    monkeypatch.setenv("FEISHU_APP_ID", "a")
+    monkeypatch.setenv("FEISHU_APP_SECRET", "b")
+    from miniagent.feishu.im_tool_policy import feishu_im_tools_should_register
+
+    assert feishu_im_tools_should_register() is True
+
+
+def test_feishu_im_tools_auto_default_off_without_creds_or_auto(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("MINIAGENT_FEISHU_TOOLS", raising=False)
+    monkeypatch.delenv("MINIAGENT_FEISHU_TOOLS_AUTO", raising=False)
+    monkeypatch.delenv("FEISHU_APP_ID", raising=False)
+    monkeypatch.delenv("FEISHU_APP_SECRET", raising=False)
+    from miniagent.feishu.im_tool_policy import feishu_im_tools_should_register
+
+    assert feishu_im_tools_should_register() is False
+
+
+def test_feishu_im_tools_auto_default_off_when_auto_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("MINIAGENT_FEISHU_TOOLS", raising=False)
+    monkeypatch.setenv("MINIAGENT_FEISHU_TOOLS_AUTO", "0")
+    monkeypatch.setenv("FEISHU_APP_ID", "a")
+    monkeypatch.setenv("FEISHU_APP_SECRET", "b")
+    from miniagent.feishu.im_tool_policy import feishu_im_tools_should_register
+
+    assert feishu_im_tools_should_register() is False
+
+
 def test_startup_hint_logs_once(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("FEISHU_APP_ID", "a")
     monkeypatch.setenv("FEISHU_APP_SECRET", "b")
@@ -133,7 +167,8 @@ def test_append_feishu_channel_skips_without_creds(monkeypatch: pytest.MonkeyPat
 async def test_feishu_create_document_accepts_folder_share_url(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("FEISHU_APP_ID", "a")
     monkeypatch.setenv("FEISHU_APP_SECRET", "b")
-    monkeypatch.delenv("FEISHU_DEFAULT_DOC_FOLDER_TOKEN", raising=False)
+    monkeypatch.delenv("MINIAGENT_FEISHU_DOC_FOLDER_TOKEN", raising=False)
+    monkeypatch.setenv("FEISHU_DOC_FOLDER_FALLBACK_ROOT_META", "0")
     ctx = MagicMock()
     url = "https://tenant.feishu.cn/drive/folder/fldcnFromShare"
     with patch("miniagent.feishu.docx_client.create_document") as mock_create:
@@ -150,8 +185,8 @@ async def test_feishu_create_document_accepts_folder_share_url(monkeypatch: pyte
 async def test_feishu_create_document_includes_url(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("FEISHU_APP_ID", "a")
     monkeypatch.setenv("FEISHU_APP_SECRET", "b")
-    monkeypatch.setenv("FEISHU_DEFAULT_DOC_FOLDER_TOKEN", "fld")
-    monkeypatch.setenv("FEISHU_DOCX_URL_PREFIX", "https://example.feishu.cn/docx/")
+    monkeypatch.setenv("MINIAGENT_FEISHU_DOC_FOLDER_TOKEN", "fld")
+    monkeypatch.setenv("MINIAGENT_FEISHU_DOCX_URL_PREFIX", "https://example.feishu.cn/docx/")
     ctx = MagicMock()
     with patch("miniagent.feishu.docx_client.create_document", return_value=("doc_x", 1)):
         from miniagent.tools.feishu_im_tools import _feishu_create_document

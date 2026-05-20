@@ -1429,6 +1429,7 @@ def _create_feishu_handler(
     engine = ctx.engine
     registry = ctx.registry
     monitor = ctx.monitor
+    from miniagent.engine.cli_commands import feishu_dot_commands_full_enabled
     from miniagent.engine.command_dispatch import dispatch_command
     from miniagent.feishu.types import FeishuInboundText
 
@@ -1461,7 +1462,7 @@ def _create_feishu_handler(
                     skill_toolboxes=skill_toolboxes,
                     skill_prompts=skill_prompts,
                     capture=True,
-                    allow_session_mutations_when_capture=False,
+                    allow_session_mutations_when_capture=feishu_dot_commands_full_enabled(),
                     message_queue_abort_chat_id=chat_id,
                 )
                 if reply is not None:

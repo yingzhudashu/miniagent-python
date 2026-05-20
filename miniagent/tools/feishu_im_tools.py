@@ -43,9 +43,12 @@ def _feishu_config_from_env() -> FeishuConfig | None:
 
 def _docx_open_url(document_id: str) -> str | None:
     """若配置了 URL 前缀，则返回浏览器可打开的 docx 链接（租户域名须自行配置）。"""
-    prefix = (
-        (os.environ.get("FEISHU_DOCX_URL_PREFIX") or "").strip()
-        or (os.environ.get("MINIAGENT_FEISHU_DOCX_URL_PREFIX") or "").strip()
+    from miniagent.infrastructure.env_parse import env_str_legacy
+
+    prefix = env_str_legacy(
+        "MINIAGENT_FEISHU_DOCX_URL_PREFIX",
+        "FEISHU_DOCX_URL_PREFIX",
+        deprecate_msg="FEISHU_DOCX_URL_PREFIX 已弃用，请改用 MINIAGENT_FEISHU_DOCX_URL_PREFIX。",
     )
     if not prefix:
         return None
@@ -216,7 +219,7 @@ async def _feishu_create_document(args: dict[str, Any], ctx: ToolContext) -> Too
         return ToolResult(success=False, content=f"⚠️ 创建失败: {e}")
     url = _docx_open_url(doc_id)
     url_line = f"\n- url: {url}" if url else ""
-    hint = "" if url else "\n（配置 FEISHU_DOCX_URL_PREFIX 或 MINIAGENT_FEISHU_DOCX_URL_PREFIX 可在输出中带可分享链接）"
+    hint = "" if url else "\n（配置 MINIAGENT_FEISHU_DOCX_URL_PREFIX 可在输出中带可分享链接）"
     return ToolResult(
         success=True,
         content=f"✅ 已创建云文档。\n- document_id: {doc_id}\n- revision_id: {rev}{url_line}{hint}",
@@ -375,10 +378,10 @@ _feishu_create_doc_schema = {
         "name": "feishu_create_document",
         "description": (
             "在指定云盘文件夹下创建空白飞书云文档，返回 document_id（及 revision_id）；"
-            "若环境配置了 FEISHU_DOCX_URL_PREFIX 或 MINIAGENT_FEISHU_DOCX_URL_PREFIX（如 https://example.feishu.cn/docx），"
+            "若环境配置了 MINIAGENT_FEISHU_DOCX_URL_PREFIX（如 https://example.feishu.cn/docx），"
             "则同时返回可分享的浏览器 url。"
             "folder_token 可为云盘文件夹 token 或飞书云盘文件夹分享链接；省略时依次使用环境变量 "
-            "FEISHU_DEFAULT_DOC_FOLDER_TOKEN / MINIAGENT_FEISHU_DOC_FOLDER_TOKEN，"
+            "MINIAGENT_FEISHU_DOC_FOLDER_TOKEN，"
             "或在设置 FEISHU_DOC_FOLDER_FALLBACK_ROOT_META=1 时调用根目录元数据 API（须具备 drive 权限，默认关闭）。"
         ),
         "parameters": {

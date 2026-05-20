@@ -7,10 +7,10 @@
 - **两阶段架构**: Plan（规划）→ Execute（执行），精确控制工具调用
 - **ReAct 循环**: Think → Act → Observe，多轮推理直到任务完成
 - **三层记忆**: 短期记忆 / 活动日志 / 语义检索
-- **双通道接入**: 同一进程内 CLI 主循环 + 可选飞书 WebSocket 长轮询（无单独「纯飞书」入口）；飞书可选内置工具（发文件、云盘、云文档等）见 [docs/FEISHU.md](docs/FEISHU.md)，需 `pip install -e ".[feishu]"` 与 `.env` 中 `MINIAGENT_FEISHU_TOOLS=1`，或（未显式关闭该变量时）`MINIAGENT_FEISHU_TOOLS_AUTO=1` 且已配置 `FEISHU_APP_ID`/`SECRET`；创建文档的可选分享链接前缀见 `FEISHU_DOCX_URL_PREFIX`（详表见 FEISHU.md）
+- **双通道接入**: 同一进程内 CLI 主循环 + 可选飞书 WebSocket 长连接（无单独「纯飞书」入口）；出站默认 **`reply`**（`MINIAGENT_FEISHU_REPLY_TARGET`）；内置飞书工具默认由 `MINIAGENT_FEISHU_TOOLS_AUTO` 注册（`MINIAGENT_FEISHU_TOOLS=0` 可关）。详见 [docs/FEISHU.md](docs/FEISHU.md)、[CHANGELOG.md](CHANGELOG.md) `[Unreleased]`
 - **消息队列**: queue（按序）/ preemptive（打断）双模式
 - **定时任务**: 持久化任务表 + 进程内调度，经与聊天相同的消息队列执行 Agent 回合；CLI 下可用 `run_dot_command`（`.schedule …`）或 `manage_scheduled_task` 结构化接口
-- **多实例**: 注册表 + 心跳，支持多终端并行
+- **多实例**: 注册表 + PID 存活清理（心跳仅观测），支持多终端并行；详见 [docs/INSTANCE_REGISTRY.md](docs/INSTANCE_REGISTRY.md)
 - **可插拔技能**: 动态加载，ClawHub 技能市场
 - **自我优化**: 代码检查 + 优化提案 + Git 快照
 - **沙箱安全**: 路径白名单 + 循环检测 + 权限控制
@@ -53,26 +53,19 @@ README、[docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) 与 [docs/ENGINEERING.md](
 
 ### 定时任务
 
-- 持久化任务表：`MINI_AGENT_STATE/scheduled_tasks/tasks.json`（未设置时一般为 `workspaces/scheduled_tasks/`）。
-- 终端用 **`.schedule`** 管理（`add` / `update` 须用 ` -- ` 分隔 prompt）；支持 `every` / `once` / 五段 **cron**；未写 `--tz` 时用 **`TZ`** / `MINIAGENT_TIMEZONE`（定时任务还可单独设 `MINIAGENT_SCHEDULE_TIMEZONE`）。旧任务若仍为 `timezone: UTC` 请自行 **`update --tz`** 或 **`.schedule align-tz`**。
-- 飞书 WebSocket 已连接且 `primary` 与飞书私聊已绑定时，定时任务结果会同步推到飞书（`MINIAGENT_SCHEDULE_FEISHU_MIRROR=0` 可关）。
-- 飞书侧通常仅 **list** / **show**；增删改须在本地 CLI。用户向说明见 [docs/USER_GUIDE.md](docs/USER_GUIDE.md) 第 8 章。
+- 任务表：`MINI_AGENT_STATE/scheduled_tasks/tasks.json`（默认 `workspaces/scheduled_tasks/`）。
+- 本机 CLI 用 **`.schedule`** 管理（五段 cron / every / once）；飞书侧默认仅 **list** / **show**。
+- `primary` 任务在飞书私聊已绑定时可镜像推送（`MINIAGENT_SCHEDULE_FEISHU_MIRROR=0` 可关）。
+
+操作细节见 [docs/USER_GUIDE.md](docs/USER_GUIDE.md) §8、[docs/CLI.md](docs/CLI.md)。
 
 新进程注册时会自动删除磁盘上 **PID 已退出** 的旧实例注册目录，**不会**终止仍在运行的其它 Agent。详见 [docs/INSTANCE_REGISTRY.md](docs/INSTANCE_REGISTRY.md)。
 
-### 联网工具与配置说明
+### 联网、点命令与技能（要点）
 
-- **`web_search`**（Tavily）需配置密钥；未配置时调用会返回明确错误，不影响其余工具。
-- **`browser_extract_text`** 依赖可选依赖 `miniagent-python[browser]`；未安装时返回安装提示。
-- **内置工具始终出现在工具列表中**；不需要联网时请勿配置 Tavily Key 即可。可选外部 JSON（`MINIAGENT_CONFIG`）中的 `tools.web.search` **当前不会**单独开关注册项（与部分外部产品配置字段仅为语义对齐）；若需避免模型调用搜索，可在系统提示或策略侧约束。
-- **自我优化工具**（`self_inspect`、`generate_proposal` 等）默认注册；生产环境若需收敛暴露面，可设置环境变量 **`MINIAGENT_SELF_OPT_TOOLS=0`**。详见 [.env.example](.env.example)。
-- **点命令工具**：Agent 执行阶段可通过内置工具 **`run_dot_command`** 调用与终端一致的 `.help`、`.status`、`.session list` 等（由进程内 `CliLoopState` 注入；飞书侧与会话相关的变异命令仍受限制）。若不需要该能力，可设置 **`MINIAGENT_CLI_DOT_TOOLS=0`** 关闭注册。详见 [.env.example](.env.example) 与 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
-
-### 技能目录迁移
-
-仓库 **`workspaces/skills/skill-creator`** 与 **`skill-vetter`** 为内置基线（**克隆源码仓库或 `pip install -e .` 后随目录存在**）。发行版 **wheel** 默认不把 `workspaces/skills` 打进安装包：若仅用 **`pip install miniagent-python`** 且当前工作目录下没有完整仓库树，默认技能根路径下可能没有预置包；需要基线时请 **克隆仓库**、**editable 安装**，或将仓库中的 **`workspaces/skills/skill-creator`** 与 **`skill-vetter`** 拷贝到你的 `MINI_AGENT_SKILLS`（或默认 `workspaces/skills`）目录。第三方与同步说明见 [workspaces/skills/THIRD_PARTY_SKILLS.md](workspaces/skills/THIRD_PARTY_SKILLS.md)。
-
-旧版本若将技能装在仓库根目录 **`skills/`**，请迁移至 **`workspaces/skills/`**（或设置 **`MINI_AGENT_SKILLS`** 指向原目录），否则引擎不会加载旧路径。
+- **联网**：`web_search` 需 Tavily Key（未配置时调用返回明确错误）；`browser_extract_text` 需 `[browser]`。见 [.env.example](.env.example)、[docs/USER_GUIDE.md](docs/USER_GUIDE.md) §11。
+- **自我优化 / 点命令工具**：默认注册；可用 `MINIAGENT_SELF_OPT_TOOLS=0`、`MINIAGENT_CLI_DOT_TOOLS=0` 关闭。飞书侧点命令限制见 [docs/CLI.md](docs/CLI.md)、[docs/FEISHU.md](docs/FEISHU.md)。
+- **技能目录**：内置 `workspaces/skills/skill-creator`、`skill-vetter`；wheel 不含技能包时需克隆或 editable 安装。迁移与 ClawHub 见 [docs/USER_GUIDE.md](docs/USER_GUIDE.md) §12、[workspaces/skills/THIRD_PARTY_SKILLS.md](workspaces/skills/THIRD_PARTY_SKILLS.md)。
 
 ## 常用命令
 
@@ -95,6 +88,8 @@ README、[docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) 与 [docs/ENGINEERING.md](
 **与仓库一致的完整目录树**见 [docs/INDEX.md](docs/INDEX.md) §项目结构。
 
 ## 文档
+
+**新手请先看** [docs/USER_GUIDE.md](docs/USER_GUIDE.md)；下列为专题索引。
 
 | 文档 | 说明 |
 |------|------|

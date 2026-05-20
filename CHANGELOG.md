@@ -4,15 +4,35 @@
 
 ### Added
 
+- **飞书点命令**：环境变量 **`MINIAGENT_FEISHU_DOT_COMMANDS_FULL`**（默认关）使飞书点命令与 CLI 全量对齐（含 `.session`/`.schedule` 变异与 `.stop`）；`dispatch_command` 的 `block_remote` 与 env 一致（防御性）。
 - **定时任务**：标准 **5 段 Unix cron**（`croniter`）；CLI `.schedule add … cron "分 时 日 月 周"` 与工具 `add_cron` / **`update`**；`list` 显示本地化下次触发时间。
 - **定时任务可靠性**：跨进程 `job_<id>.lock`、`tasks.json.lock`；dispatch 失败退避（`MINIAGENT_SCHEDULE_DISPATCH_BACKOFF`，默认 60s）；非法 cron 写入 `last_error`；shutdown 取消 job 不再误退避。
-- **定时任务飞书与时区**：`primary` + 通道绑定时镜像推送最终回复到飞书（`MINIAGENT_SCHEDULE_FEISHU_MIRROR`）；默认时区读 `MINIAGENT_SCHEDULE_TIMEZONE` / `TZ`（与 `.env` 一致）。
+- **定时任务飞书与时区**：`primary` + 通道绑定时镜像推送最终回复到飞书（`MINIAGENT_SCHEDULE_FEISHU_MIRROR`）；新建任务默认时区链为 `MINIAGENT_SCHEDULE_TIMEZONE` → `MINIAGENT_TIMEZONE` → `TZ` → `Asia/Shanghai`（与 `.env` 一致）。
+
+### Breaking changes
+
+- **飞书出站**：未设置 `MINIAGENT_FEISHU_REPLY_TARGET` 时默认 **`reply`**（原为 `create`）；显式 `create` 可恢复旧行为。
+- **飞书体验**：`MINIAGENT_FEISHU_REPLY_PLAIN`、`MINIAGENT_FEISHU_CARD_ACTION_ROUTER` 默认 **开**；无法识别的非空取值视为 **关**（`env_flag_strict`）。
+- **飞书工具**：`MINIAGENT_FEISHU_TOOLS_AUTO` 默认 **开**（仍需 `FEISHU_APP_ID`/`SECRET`）；显式 `MINIAGENT_FEISHU_TOOLS=0` 或 `MINIAGENT_FEISHU_TOOLS_AUTO=0` 可关闭。
+- **云盘回退**：`FEISHU_DOC_FOLDER_FALLBACK_ROOT_META` 默认 **开**；`0`/`false` 可关闭根目录元数据 API 回退。
+- **环境变量别名**：请改用 `MINIAGENT_CONFIG`、`MINIAGENT_FEISHU_DOCX_URL_PREFIX`、`MINIAGENT_FEISHU_DOC_FOLDER_TOKEN`；旧名 `MINIAGENT_OPENCLAW_CONFIG`、`FEISHU_DOCX_URL_PREFIX`、`FEISHU_DEFAULT_DOC_FOLDER_TOKEN` 仍会读取并打弃用警告（下一版本可能移除）。
 
 ### Changed
 
+- **环境变量**：重组 [.env.example](.env.example)（分节索引、飞书凭证块、推荐配置与进阶分离）；新增 [`miniagent/infrastructure/env_parse.py`](miniagent/infrastructure/env_parse.py)（`env_flag` / `env_flag_strict` / `env_str_legacy`）。
 - **定时任务飞书完善**：私聊镜像的消息队列键与入站 `chat_id` 对齐；`MINIAGENT_SCHEDULE_FEISHU_LAST_CHAT` 控制无绑定时的最后聊天回退（默认关）；`repair` 对仍为 UTC 的旧任务打一次性时区提示日志。
 - **全局时区 SSOT**：`process_timezone()`（`MINIAGENT_TIMEZONE` / `TZ`）；遗留 UTC 任务 `effective_task_timezone` 按 env 计算、`.schedule align-tz` 写盘；Agent system 与定时任务 prompt 注入本地时间。
 - **时区 env 边界**：`process_timezone` 不再读取 `MINIAGENT_SCHEDULE_TIMEZONE`；调度专用变量仅影响 `default_schedule_timezone` / `align-tz`。
+
+- **飞书云文档 / 云盘**：`feishu_create_document` 与 `feishu_list_drive_files` 共用父目录解析：支持在 `folder_token` 中传入**云盘文件夹分享 URL**；列举工具 `folder_token` 可与创建一样省略（回退 `MINIAGENT_FEISHU_DOC_FOLDER_TOKEN` 或默认开启的根目录元数据 API）。详见 [FEISHU.md](docs/FEISHU.md)、[.env.example](.env.example)。
+- **飞书（复查）**：`run_agent_with_thinking` 合并飞书通道 system 提示时，按与执行器相同的 **effective_registry**（`session_registry` 优先）判断是否已注册 `feishu_*`；`MINIAGENT_FEISHU_TOOLS` 为非认可取值时不再落入 AUTO；[FEISHU.md](docs/FEISHU.md) / [.env.example](.env.example) 写明 `MINIAGENT_FEISHU_TOOLS_AUTO` 在进程 init 即注册、不等待 WebSocket。
+- **飞书**：`MINIAGENT_FEISHU_RECEIVE_ID_TYPE` / 入站注入的 `feishu_im_receive_id`（发送者 open_id）与内置工具 `feishu_send_workspace_file` 默认 `receive_id` 对齐；`poll_server` 在 interactive/text 发送失败时记录开放平台错误摘要；[FEISHU.md](docs/FEISHU.md) 标明 docx 为 `block_children.create` 而非 `batch_update`；[README](README.md) / [USER_GUIDE](docs/USER_GUIDE.md) 增加飞书工具索引。
+- **CLI 思考**：`ThinkingDisplay` 在 `merge_tools` 后保留流式步骤与已打印长度，与同 `thinking_header` 的飞书单卡对齐；流式阶段 `header` 变更时**无飞书**也会重置流式状态（原逻辑仅在启用飞书时清空）。
+- **CLI / 飞书展示（跟进）**：移除未再使用的 `stream_first_body_chunk`；**思考卡与 CLI transcript 顶格输出**；`finalize_feishu_thinking_stream` 分片后对各 chunk 跳过第二次 `_normalize_lark_md`。
+- **执行轮数默认**：`AGENT_MAX_TURNS` 默认 400；`MINIAGENT_STEP_MAX_TURNS` 未设置时默认 48；同一步内思考片段默认以双换行拼接（`MINIAGENT_THINKING_SEGMENT_SEPARATOR` 可覆盖）。
+- **飞书**：宽 GFM 表超管道阈值时支持 `MINIAGENT_FEISHU_TABLE_FALLBACK`（`both` / `hint` / `unicode`）；思考卡工具区精简；`lark_md` 规范化；同一步多轮 ReAct 默认 PATCH 同一张思考卡。
+- **CLI**：可选 `MINIAGENT_CLI_THINKING_RICH` 对非流式思考块 Rich 渲染；全屏 TUI 下思考 Rich 宽度与 Assistant 回复区一致；`MINIAGENT_WELCOME_CLI_HINT=0` 可关闭 Rich 安装提示。
+- **历史落盘**：`on_tool_finish` 默认仅记录工具名与成败；`MINIAGENT_TOOL_FINISH_VERBOSE=1` 恢复详细块。
 
 ### Performance
 
@@ -20,32 +40,10 @@
 - **上下文**：`DefaultContextManager` 对工具 schema 的 token 估算结果做缓存（`set_tools` 时失效），减少 `needs_compression` / `get_token_report` 热路径上重复的 `json.dumps`。
 - **文档 / 剖析与合成 perf**：[docs/PERFORMANCE.md](docs/PERFORMANCE.md)、`tests/perf_helpers.py`、`tests/test_perf_synthetic.py`、`tests/perf_baselines/example.json`、`scripts/perf_profile_tracemalloc.py`（`--inner-repeat`）、`scripts/compare_perf_snapshots.py`（根对象校验、`inner_repeat` 不一致 WARN）；`pyproject.toml` 的 `perf` marker；L1 含 S4–S6 及 S7 backlog 说明；`.gitignore` 忽略 `perf-snapshot.json` 与 `perf.out`；Perf smoke 上传带 `${{ github.sha }}` 的 artifact，剖析步骤使用 `--inner-repeat 4`。
 
-### Changed
-
-- **飞书云文档 / 云盘**：`feishu_create_document` 与 `feishu_list_drive_files` 共用父目录解析：支持在 `folder_token` 中传入**云盘文件夹分享 URL**（解析 `folder/...` 或查询参数 `folder_token`）；列举工具 `folder_token` 可与创建一样省略（回退环境变量）；可选 `FEISHU_DOC_FOLDER_FALLBACK_ROOT_META=1` 时调用根文件夹元数据 API（`drive_client.get_root_folder_meta`，默认关闭）。详见 [FEISHU.md](docs/FEISHU.md)、[.env.example](.env.example)。
-- **飞书（复查）**：`run_agent_with_thinking` 合并飞书通道 system 提示时，按与执行器相同的 **effective_registry**（`session_registry` 优先）判断是否已注册 `feishu_*`；`MINIAGENT_FEISHU_TOOLS` 为非认可取值时不再落入 AUTO；[FEISHU.md](docs/FEISHU.md) / [.env.example](.env.example) 写明 `MINIAGENT_FEISHU_TOOLS_AUTO` 在进程 init 即注册、不等待 WebSocket；[README](README.md) 飞书索引补充 AUTO 与 `FEISHU_DOCX_URL_PREFIX`。
-- **飞书**：`MINIAGENT_FEISHU_RECEIVE_ID_TYPE` / 入站注入的 `feishu_im_receive_id`（发送者 open_id）与内置工具 `feishu_send_workspace_file` 默认 `receive_id` 对齐；`poll_server` 在 interactive/text 发送失败时记录开放平台错误摘要；[FEISHU.md](docs/FEISHU.md) 标明 docx 为 `block_children.create` 而非 `batch_update`；[README](README.md) / [USER_GUIDE](docs/USER_GUIDE.md) 增加飞书工具索引；合并 Unreleased 飞书变更条目。
-- **CLI 思考**：`ThinkingDisplay` 在 `merge_tools` 后保留流式步骤与已打印长度，与同 `thinking_header` 的飞书单卡对齐；流式阶段 `header` 变更时**无飞书**也会重置流式状态（原逻辑仅在启用飞书时清空）。
-- **CLI / 飞书展示（跟进）**：移除未再使用的 `stream_first_body_chunk`；**思考卡与 CLI transcript 顶格输出**（不再对段落首行、列表行或 User/Assistant/思考区正文统一加空格缩进）；`finalize_feishu_thinking_stream` 分片后对各 chunk 跳过第二次 `_normalize_lark_md`（正文已在 `_prepare_thinking_body_for_card` 中规范化）。
-- **执行轮数默认**：`AGENT_MAX_TURNS` 默认 400；`MINIAGENT_STEP_MAX_TURNS` 未设置时默认 48；同一步内思考片段默认以双换行拼接（`MINIAGENT_THINKING_SEGMENT_SEPARATOR` 可覆盖）。
-- **飞书**：宽 GFM 表超管道阈值时支持 `MINIAGENT_FEISHU_TABLE_FALLBACK`（`both` / `hint` / `unicode`）；思考卡工具区精简；`lark_md` 规范化（孤星号、U+FFFD、水平线、零宽与 `<br>` 等）；同一步多轮 ReAct 默认 PATCH 同一张思考卡。
-- **CLI**：可选 `MINIAGENT_CLI_THINKING_RICH` 对非流式思考块 Rich 渲染；全屏 TUI 下思考 Rich 宽度与 Assistant 回复区一致（`set_cli_markdown_width`）；未安装 Rich 时欢迎界面可提示安装 `.[cli]`（`MINIAGENT_WELCOME_CLI_HINT=0` 关闭）。
-- **历史落盘**：`on_tool_finish` 默认仅记录工具名与成败；`MINIAGENT_TOOL_FINISH_VERBOSE=1` 恢复详细块。
-
 ### Documentation
 
-- **docs 全面修订**：统一多实例 **PID 存活** 语义（修正 DEPLOYMENT/SECURITY/drawio 等「心跳 30s 清理」过时表述）；CLI/README/USER_GUIDE 收窄飞书点命令范围；CLI 去重 `.bind`、修正 `.profile` 预设示例；DEPLOYMENT 补定时任务运维与备份；INDEX 目录树同步 `scheduled_tasks`（`cron.py`、`file_lock.py`）；FEISHU v2 调研并入 [FEISHU.md](docs/FEISHU.md)；CONTRIBUTING/ENGINEERING/USER_GUIDE 安装与 SSOT 交叉引用对齐。
-- **docs 复查完善**：修正 README 开发安装脚注与 CONTRIBUTING/ENGINEERING 一致；[architecture.drawio](docs/architecture.drawio) 页脚去掉硬编码 pytest 用例数；USER_GUIDE §9/§14.2 与 CLI 补充飞书 `.session` 语义；删除已并入 FEISHU 的 `FEISHU_CARD_V2_SPIKE.md`；INDEX 合并 FEISHU 索引行、README 定时任务节缩写。
-- **[architecture.drawio](docs/architecture.drawio)**：与 [ARCHITECTURE.md](docs/ARCHITECTURE.md) 对齐（`compat.unified_entry`、`RuntimeContext`、`ChannelRouter`、`feishu_state`、记忆 `defaults` 注入、`scheduled_tasks` / 可选 `mcp`、扩展工具与飞书模块；主数据流与页脚统计更新）。
-- **[INDEX.md](docs/INDEX.md) / [ENGINEERING.md](docs/ENGINEERING.md) / [README.md](README.md)**：权威目录树与 `miniagent/` 同步（含 `memory/history_progressive.py`）；§1 依赖 SSOT 表补充 `typing`（mypy 试点）及 `dev` 内含 `pytest-cov`；开发安装注释指向 ENGINEERING §2 覆盖率示例命令。
-- **`miniagent/types/tool.py`**：模块 docstring 说明 `ToolRegistryProtocol.list` 与内建 `list[...]` 泛型注解的 mypy 冲突及 `typing.List` 用法。
-- **[CONTRIBUTING.md](docs/CONTRIBUTING.md)**：提交前仓库卫生、`git clean -fdX` 与误删 `.env` 风险；§3.1 与 ENGINEERING 交叉引用；docstring 规范与 `scripts/docstring_inventory.py` / [docstring_inventory.md](docs/docstring_inventory.md)（magic、`__init__`、空清单语义）。
-- **ENGINEERING / CI / 工具脚本**：§2 本地命令块与 `test` job 对齐（含 `mypy`）；[`.pre-commit-config.yaml`](.pre-commit-config.yaml) 可选 ruff hook；`docstring_inventory.py` 控制台 UTF-8 重定向。
-- **跟进**：ENGINEERING §5 大批量改 docstring 后的 ruff/spot-check；README 用例数以 ``pytest --collect-only`` 为准；新增 ``tests/test_docstring_inventory.py``。
-- **专题对齐**：[ARCHITECTURE.md](docs/ARCHITECTURE.md) / [USER_GUIDE.md](docs/USER_GUIDE.md) / [MEMORY_SYSTEM.md](docs/MEMORY_SYSTEM.md) / [CLI.md](docs/CLI.md) / [FEISHU.md](docs/FEISHU.md) 等与默认轮数、终端 Markdown、飞书表降级、v2 备忘及 `.env.example` 变量说明对齐。
-- **[FEISHU.md](docs/FEISHU.md) / `.env.example`**：`MINIAGENT_FEISHU_REPLY_PLAIN` 与思考卡正文受 `MINI_AGENT_FEISHU_CARD_BODY_MAX` 截断行为说明。
-- **[USER_GUIDE.md](docs/USER_GUIDE.md)**：零基础使用指南（安装、启动、点命令、飞书/搜索/技能/MCP、FAQ、安全）。
-- **[DEPLOYMENT.md](docs/DEPLOYMENT.md)**：状态目录与多实例注册后补充会话落盘与 `MINIAGENT_CONFIG` 风险指引，链至 [SECURITY.md](docs/SECURITY.md)。
+- **文档 SSOT 重组**：[INDEX.md](docs/INDEX.md) 目录树补全 `ws_client` / `ws_health` / `env_parse`；统一 `history.json`；`MINIAGENT_OPENCLAW_CONFIG` 等改为「已废弃」表述；README / USER_GUIDE 去重；DEPLOYMENT / EVALUATION_LOCAL 开发安装与 CI 对齐（`.[dev,typing]`）；FEISHU 运维速查与会话隔离说明；ENGINEERING §5 维护清单增强。详情见各专题文档，不在此逐文件列举。
+- **历史文档修订**（此前多轮）：多实例 PID 存活语义、FEISHU v2 调研并入 [FEISHU.md](docs/FEISHU.md)、`architecture.drawio` 与 ARCHITECTURE 对齐、USER_GUIDE 零基础指南、examples/ 脱敏片段等。
 
 ### Security
 
@@ -212,7 +210,7 @@
 - 更新: README.md, CHANGELOG.md, SELF_OPT.md
 
 ### 测试
-- 78 个单元测试通过, 1 个跳过
+- 单元测试通过（用例数以 `pytest tests/ --collect-only -q` 为准）
 - 覆盖: registry, monitor, sandbox, session, skills, loop_detector, instance, memory_store, feishu_types, self_opt_types, integration
 
 ### 清理

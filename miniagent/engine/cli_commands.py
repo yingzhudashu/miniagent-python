@@ -23,8 +23,16 @@ from typing import Any
 
 def feishu_markdown_commands_enabled() -> bool:
     """飞书 capture 路径下是否用 Markdown 表格输出部分 `.` 命令（会话列表、队列、实例列表）。"""
-    v = os.environ.get("MINIAGENT_FEISHU_MARKDOWN_COMMANDS", "0")
-    return str(v).strip().lower() in ("1", "true", "yes")
+    from miniagent.infrastructure.env_parse import env_flag
+
+    return env_flag("MINIAGENT_FEISHU_MARKDOWN_COMMANDS", default=False)
+
+
+def feishu_dot_commands_full_enabled() -> bool:
+    """飞书是否允许与 CLI 相同的点命令（含 .session/.schedule 变异与 .stop）。"""
+    from miniagent.infrastructure.env_parse import env_flag
+
+    return env_flag("MINIAGENT_FEISHU_DOT_COMMANDS_FULL", default=False)
 
 
 def format_session_command_usage() -> str:
@@ -32,7 +40,7 @@ def format_session_command_usage() -> str:
     return (
         "用法:\n"
         "  .session list                   列出所有会话\n"
-        "  .session switch <编号/ID>       切换到指定会话（飞书 capture 下仅 list；改会话请在本地 CLI）\n"
+        "  .session switch <编号/ID>       切换到指定会话（飞书默认仅 list；MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1 时与 CLI 同等）\n"
         "  .session create <ID> [标题]     创建新会话\n"
         "  .session rename <编号/ID> <标题>  重命名会话"
     )
@@ -1069,7 +1077,7 @@ def format_help_markdown(
         ),
         _md_help_section(
             "定时任务",
-            "用 `` -- `` 分隔参数与 prompt；once 可加 ``--tz``；飞书侧仅 list/show。",
+            "用 `` -- `` 分隔参数与 prompt；once 可加 ``--tz``；飞书默认仅 list/show，MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1 时与 CLI 同等。",
             [
                 ("`.schedule list`", "列出任务"),
                 ("`.schedule show <id>`", "查看 JSON"),
@@ -1160,6 +1168,7 @@ __all__ = [
     "cmd_help",
     "format_help_markdown",
     "feishu_markdown_commands_enabled",
+    "feishu_dot_commands_full_enabled",
     "format_session_command_usage",
     "format_queue_command_usage",
 ]

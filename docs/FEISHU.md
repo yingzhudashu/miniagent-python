@@ -1,6 +1,6 @@
 # 飞书集成文档
 
-> Mini Agent Python | 版本: 2.0.2 | 飞书 WebSocket 长轮询
+> Mini Agent Python | 版本: 2.0.2 | 飞书 WebSocket 长连接
 
 ## 快速开始
 
@@ -22,7 +22,7 @@ python -m miniagent --feishu
 
 或在 CLI 中运行：`.feishu start`
 
-**启动形态**：进程始终以 **CLI 主循环** 为主；上述两种方式均为 **CLI + 飞书**（同进程内附加飞书长轮询），不存在无 CLI 的独立飞书进程入口。
+**启动形态**：进程始终以 **CLI 主循环** 为主；上述两种方式均为 **CLI + 飞书**（同进程内附加飞书 WebSocket 长连接），不存在无 CLI 的独立飞书进程入口。
 
 在全屏 prompt_toolkit CLI 下，飞书启动提示、入站横幅、以及与 CLI 绑定同一会话时的「思考」镜像，都会写入上方 **transcript**（`RuntimeContext.cli_transcript_append`），而不再向裸 stdout `print`，避免与备用屏输入行互相覆盖。
 
@@ -30,15 +30,30 @@ python -m miniagent --feishu
 
 全屏 CLI 运行时会暂时把 ``get_logger`` 控制台输出提高到 **WARNING**（集成终端里 stderr 仍会打乱备用屏）。调试若需要 INFO/DEBUG，可设置环境变量 **`MINI_AGENT_TUI_VERBOSE_LOG=1`**。
 
-在飞书里发送以 ``.`` 开头的命令时，``.session switch`` / ``create`` / ``rename`` 等**不会**修改与本地 CLI 共享的 ``active_session_id`` 或会话存储，仅返回提示；请在本地 MiniAgent 终端执行这些子命令。调试 HTTP 栈时请勿开启 ``HTTPX_LOG_LEVEL=debug`` 等会把第三方日志打到终端的配置，以免干扰全屏 UI。
+在飞书里发送以 ``.`` 开头的命令时，默认 `.session switch` / `create` / `rename` 以及 `.schedule` 的 `add`/`update`/`remove`/`enable`/`disable`/`align-tz` **不会**修改与本地 CLI 共享的 ``active_session_id`` 或 ``tasks.json``，仅返回提示；``.stop`` 亦默认拒绝（避免远程结束进程）。请在本地 MiniAgent 终端执行，或设置 **`MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1`** 放开全部点命令（启动时会打 WARNING；群聊误触风险需自行管控）。启用 FULL 后飞书侧 `.stop` 成功即进程退出，通常**不会**再收到第二条飞书确认消息。调试 HTTP 栈时请勿开启 ``HTTPX_LOG_LEVEL=debug`` 等会把第三方日志打到终端的配置，以免干扰全屏 UI。
 
-Agent 在飞书会话中若通过内置工具 **`run_dot_command`** 调点命令，上述会话变异限制同样生效（`cli_dispatch_allow_mutations=False`，与 `dispatch_command` 的飞书 capture 语义一致）。不需要该能力时可将 **`MINIAGENT_CLI_DOT_TOOLS=0`**，启动时不再注册该工具（见仓库根目录 `.env.example`）。
+Agent 在飞书会话中若通过内置工具 **`run_dot_command`** 调点命令，上述限制与直接发点命令一致（默认 `cli_dispatch_allow_mutations=False`；`MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1` 时为 True）。不需要该能力时可将 **`MINIAGENT_CLI_DOT_TOOLS=0`**，启动时不再注册该工具（见仓库根目录 `.env.example`）。
+
+## 运维速查（WebSocket）
+
+连接由 `poll_server` + `ws_health` 监督；默认关闭 SDK 内建 `auto_reconnect`，断线后由 `FeishuRuntime` 外层退避重建。Windows 上 `WinError 121`、收包循环退出等日志后若出现「约 Xs 后重连」，属**预期自愈**。
+
+| 环境变量 | 默认 | 说明 |
+|----------|------|------|
+| `MINIAGENT_FEISHU_WS_AUTO_RECONNECT` | `0` | `1` 启用 SDK 内建重连（不推荐） |
+| `MINIAGENT_FEISHU_WS_WATCHDOG_INTERVAL_S` | `30` | 看门狗轮询（秒）；**非**多实例注册心跳 |
+| `MINIAGENT_FEISHU_WS_DEAD_CONN_GRACE_S` | `90` | 连接为空超过该秒数则重建 |
+| `MINIAGENT_FEISHU_WS_RECONNECT_GRACE_S` | `300` | 仅 `AUTO_RECONNECT=1` 时生效 |
+| `MINIAGENT_FEISHU_WS_REFRESH_INTERVAL_S` | `0` | 定期主动刷新；不稳定网络可设 `3600` |
+| `MINIAGENT_FEISHU_WS_IDLE_REFRESH_S` | `0` | 无入站超过 N 秒刷新（默认关） |
+
+私聊绑定与排障见 [CHANNEL_BINDING.md](CHANNEL_BINDING.md)；Windows 专项见下文「Windows / 长连接」。
 
 ## 架构
 
 ```
 飞书开放平台
-    │ WebSocket 长轮询
+    │ WebSocket 长连接
     ▼
 miniagent/feishu/poll_server.py
     │
@@ -65,19 +80,20 @@ UnifiedEngine.run_agent_with_thinking()
 | `MINI_AGENT_FEISHU_CARD_BODY_MAX` | 单张交互卡片正文近似上限；过低易增加分片条数。流式思考 PATCH 与每次 `append_feishu_thinking_same_card` 会对**当前累积正文整体**做规范化并可能截断为 `…`；单卡极长时较早内容可能不再显示（完整文本仍在会话 **history.json**） |
 | `MINI_AGENT_THINKING_FOR_LLM_MAX_CHARS` | 仅影响 `conversation_history_for_llm()` 对 `thinking` 的映射，不影响飞书 |
 | `MINIAGENT_FEISHU_MARKDOWN_COMMANDS` | `1` 时飞书侧 `.session list` / `.queue status` / `.instance list` 使用 Markdown 表格（与 `.help` 同为 lark_md 子集；默认 `0`） |
+| `MINIAGENT_FEISHU_DOT_COMMANDS_FULL` | `1`/`true`/`yes`/`on` 时飞书点命令与 CLI 同等（含会话/定时任务变异与 `.stop`；默认 `0`） |
 | `MINIAGENT_FEISHU_TABLE_FALLBACK` | 列数超过 `MINIAGENT_FEISHU_LARK_TABLE_MAX_PIPES` 时：`both`（默认）= 提示 + 代码块内等宽文本表；`unicode` = 仅文本表；`hint` = 仅提示 |
 | `MINIAGENT_TOOL_INTENT_IN_THINKING` | `0`/`false` 关闭工具执行前的 🔧 意图行（仍保留工具结果全文块） |
 | `MINIAGENT_CLI_DOT_TOOLS` | 默认 `1`；`0`/`false`/`off` 时不注册 `run_dot_command`（Agent 无法经工具调点命令） |
-| `MINIAGENT_FEISHU_REPLY_PLAIN` | `1`/`true`/`yes` 时仅影响**最终 Assistant 回复**：分片前启发式弱化部分 `**`、代码围栏、行内反引号等；**仍为 `msg_type=interactive` 且正文为 `lark_md`**，并非 `text` 纯文本消息。名称表示「弱化标记」而非改消息类型 |
-| `MINIAGENT_FEISHU_REPLY_TARGET` | `create`（默认）：在会话内 **新建** 消息；`reply`：对入站 `message_id` 使用开放平台 **回复消息** API（思考卡与最终回复、含 text 回退均同策略）；其它非法取值按 `create` 处理 |
+| `MINIAGENT_FEISHU_REPLY_PLAIN` | 默认 **开**（`0`/`false`/`off` 关闭）：仅影响**最终 Assistant 回复**，分片前弱化部分 Markdown；**仍为 `interactive` + `lark_md`**；无法识别的非空取值视为 **关** |
+| `MINIAGENT_FEISHU_REPLY_TARGET` | 默认 **`reply`**（回复入站 `message_id`）；`create` 为会话内新建消息；非法取值按 `create` 处理 |
 | `MINIAGENT_FEISHU_REPLY_IN_THREAD` | 与上一项 `reply` 联用；显式 `1`/`true` 等为话题内回复；`0`/`false` 等为否；**未设置**且入站 `thread_id` 非空时，默认 `reply_in_thread=True`（仍可由显式 `0` 关闭） |
-| `MINIAGENT_FEISHU_CARD_ACTION_ROUTER` | 真值时注册 `p2.card.action.trigger`：从按钮 `action.value` 读取 `miniagent_text`/`text` 与 `chat_id`（或依赖回调 `context.open_chat_id`）后投递同一 `message_handler` 队列 |
-| `MINIAGENT_FEISHU_TOOLS` | 真值时注册内置飞书工具（含 `feishu_send_workspace_file`、`feishu_recall_message`、`feishu_create_document`、`feishu_get_document_markdown`、`feishu_list_drive_files`、`feishu_append_document_text`）；默认 `0`；若变量**已设置**但取值既非认可真值也非认可假值，按**关闭**处理（不落入 AUTO） |
-| `MINIAGENT_FEISHU_TOOLS_AUTO` | 真值且已配置 `FEISHU_APP_ID` + `FEISHU_APP_SECRET` 时，在**未设置** `MINIAGENT_FEISHU_TOOLS` 或仅依赖其缺省行为时自动注册上述工具。**注册发生在进程初始化内置工具阶段**（与 `register_builtin_tools` 同时），**不**等待 `.feishu start` 或 WebSocket 已连接；因此仅 CLI、环境内已有飞书凭证时模型仍可能看到 `feishu_*`。若需缩小暴露面，请显式 `MINIAGENT_FEISHU_TOOLS=0` 或不设置 AUTO |
-| `FEISHU_DOCX_URL_PREFIX` / `MINIAGENT_FEISHU_DOCX_URL_PREFIX` | 二者任一：创建云文档工具成功时在输出中附带可分享链接；值为租户 Web 前缀，如 `https://your-tenant.feishu.cn/docx`（末尾斜杠可有可无）。未配置时工具仅返回 `document_id` |
+| `MINIAGENT_FEISHU_CARD_ACTION_ROUTER` | 默认 **开**；注册 `p2.card.action.trigger`：从按钮 `action.value` 读取 `miniagent_text`/`text` 与 `chat_id` 后投递同一 `message_handler` 队列；无法识别的非空取值视为 **关** |
+| `MINIAGENT_FEISHU_TOOLS` | 真值时注册内置飞书工具；若变量**已设置**但取值既非认可真值也非认可假值，按**关闭**处理（不落入 AUTO） |
+| `MINIAGENT_FEISHU_TOOLS_AUTO` | 默认 **开**：未设置 `MINIAGENT_FEISHU_TOOLS` 且已配置 `FEISHU_APP_ID`/`SECRET` 时自动注册上述工具（进程 init，不等待 WebSocket）。显式 `MINIAGENT_FEISHU_TOOLS=0` 可关闭 |
+| `MINIAGENT_FEISHU_DOCX_URL_PREFIX` | 创建云文档成功时在输出中附带可分享链接（租户 Web 前缀，如 `https://your-tenant.feishu.cn/docx`） |
 | `MINIAGENT_FEISHU_RECEIVE_ID_TYPE` | `create` 发消息时的 `receive_id_type`：`chat_id`（默认）/`open_id`/`union_id`；非 `chat_id` 时内置工具默认 `receive_id` 为入站 **sender_id**（经 `AgentConfig.feishu_im_receive_id` 注入）；可被工具参数或 `AgentConfig.feishu_im_receive_id_type` 覆盖 |
-| `FEISHU_DEFAULT_DOC_FOLDER_TOKEN` / `MINIAGENT_FEISHU_DOC_FOLDER_TOKEN` | 创建/列举云盘时若工具未传 `folder_token`（或传了但无法从 URL 解析），回退使用该云盘文件夹 token（**二者任选其一配置即可**，避免设为不同目录造成困惑） |
-| `FEISHU_DOC_FOLDER_FALLBACK_ROOT_META` | 为 `1`/`true`/`yes`/`on` 时，在上述仍无父目录 token 的情况下调用开放平台「根文件夹元数据」接口作为最后回退（**默认关闭**；需云盘元数据/读写等权限，见开放平台文档；国际租户若域名不匹配请改用手动 token） |
+| `MINIAGENT_FEISHU_DOC_FOLDER_TOKEN` | 创建/列举云盘时若工具未传 `folder_token`（或无法从 URL 解析），回退使用该云盘文件夹 token |
+| `FEISHU_DOC_FOLDER_FALLBACK_ROOT_META` | 默认 **开**；在上述仍无父目录 token 时调用根文件夹元数据 API（`0`/`false` 关闭；需云盘权限） |
 
 ### 出站能力矩阵（摘要）
 
@@ -111,11 +127,11 @@ UnifiedEngine.run_agent_with_thinking()
 发文件/建文档失败时，工具返回里会带开放平台 **`code` / `msg`**（及常见 `log_id`），请按下列顺序排查：
 
 1. **依赖**：已 `pip install -e ".[feishu]"`（或 `miniagent-python[feishu]`），进程能 `import lark_oapi`。
-2. **工具开关**：`MINIAGENT_FEISHU_TOOLS=1`（或 `true`/`on`），或 **未设置** `MINIAGENT_FEISHU_TOOLS` 且 `MINIAGENT_FEISHU_TOOLS_AUTO=1`（且已配置 App ID/Secret）。飞书长轮询启动时若凭证齐全但未注册扩展工具，进程会打一条 **INFO** 自检日志指向本节。
-3. **凭证**：`FEISHU_APP_ID`、`FEISHU_APP_SECRET` 已配置（与长轮询使用同一应用）。
+2. **工具开关**：`MINIAGENT_FEISHU_TOOLS=1`，或 **未设置** `MINIAGENT_FEISHU_TOOLS` 且默认已开的 `MINIAGENT_FEISHU_TOOLS_AUTO`（需 App ID/Secret）。显式 `MINIAGENT_FEISHU_TOOLS=0` 或 `MINIAGENT_FEISHU_TOOLS_AUTO=0` 可关闭。凭证齐全但未注册扩展工具时，进程会打 **INFO** 自检日志指向本节。
+3. **凭证**：`FEISHU_APP_ID`、`FEISHU_APP_SECRET` 已配置（与 WebSocket 长连接使用同一应用）。
 4. **权限**：应用已开通上表 IM / docx / drive 等能力，机器人已进群（群聊），租户未禁用量级调用。
 5. **会话 ID**：默认 `receive_id_type=chat_id`，工具使用当前回合的 **群/会话 `chat_id`**。若设置 `MINIAGENT_FEISHU_RECEIVE_ID_TYPE=open_id`（或 `union_id`），须与 **`receive_id` 同类型**；此时默认 `receive_id` 为入站注入的 **发送者 `sender_id`（通常为 open_id）**，缺省则须在工具参数中显式传入 `receive_id`。
-6. **云文档目录**：`feishu_create_document` / `feishu_list_drive_files` 需要云盘**父文件夹** `folder_token`；可直接传 token，或传飞书云盘**文件夹分享链接**（工具会解析路径中的 `folder/<token>`）；也可配置 `FEISHU_DEFAULT_DOC_FOLDER_TOKEN` / `MINIAGENT_FEISHU_DOC_FOLDER_TOKEN`。若仍无 token，可显式设置 `FEISHU_DOC_FOLDER_FALLBACK_ROOT_META=1` 尝试根目录元数据 API（须具备 drive 相关权限，且默认关闭以免在租户根目录误创建）。仍失败时按工具返回的「已尝试」项排查。
+6. **云文档目录**：`feishu_create_document` / `feishu_list_drive_files` 需要云盘**父文件夹** `folder_token`；可直接传 token，或传飞书云盘**文件夹分享链接**（工具会解析路径中的 `folder/<token>`）；也可配置 `MINIAGENT_FEISHU_DOC_FOLDER_TOKEN`。若仍无 token，默认会尝试根目录元数据 API（`FEISHU_DOC_FOLDER_FALLBACK_ROOT_META`，默认开；`0` 关闭）。仍失败时按工具返回的「已尝试」项排查。
 7. **权威说明**：[飞书权限列表](https://open.feishu.cn/document/server-docs/docs/scope) 以开放平台当前文档为准。
 
 ### 飞书与会话工作区文件（发附件）
@@ -137,15 +153,23 @@ UnifiedEngine.run_agent_with_thinking()
 
 **常驻与锁**：`FeishuRuntime` 在后台任务中循环调用 `start_feishu_poll_server`；单次 WebSocket 断线或启动失败会**指数退避后自动重连**，此期间**不释放入站锁**（其它进程仍无法抢占）。仅在执行 `.feishu stop`、任务被取消或进程退出路径上释放锁。
 
+**WebSocket 会话监督**（`miniagent/feishu/ws_health.py`）：连接成功后由看门狗监督收包任务与连接状态；收包循环退出、连接长时间为空、或达到定期刷新间隔时，会结束当前会话并由 `FeishuRuntime` 外层退避重建。默认**关闭** SDK 内建 `auto_reconnect`，避免与外层重连脱节导致「进程显示运行中但收不到消息」。`.feishu status` 可查看上次会话结束原因与最后入站时间。
+
+### Windows / 长连接
+
+Windows 上可能出现 `OSError: [WinError 121]` 或日志 `receive message loop exit` / `no close frame received or sent`（网络休眠、VPN、NAT、网卡节能等）。增强后这些日志后通常会紧跟 `飞书 WS 会话监督结束` 与 CLI `约 Xs 后重连`，属**预期自愈**，不等于进程崩溃。WebSocket 环境变量表见上文 [运维速查（WebSocket）](#运维速查websocket)。
+
+运维建议：电源计划中避免网卡「允许计算机关闭此设备以节约电源」；不稳定网络可设 `MINIAGENT_FEISHU_WS_REFRESH_INTERVAL_S=3600`。
+
 **私聊绑定**：手动 `.bind feishu` 仍可用；自动绑定的 sender 会随 `.session switch` 与 CLI 一起切会话，手动绑定过的 sender 不再参与自动重绑。
 
 ## 消息处理流程
 
 ### 文本（`message_type == text`）
 
-1. **接收消息** — WebSocket 长轮询接收事件
+1. **接收消息** — WebSocket 长连接接收事件
 2. **提取内容** — 解析 `chat_id`、`sender_id`、`chat_type`、消息文本，以及开放平台事件中的 **`message_id`**、**`root_id`**、**`parent_id`**、**`thread_id`**（后三者可能为空；用于话题上下文与 `MINIAGENT_FEISHU_REPLY_TARGET=reply` 时的默认话题内回复策略）
-3. **命令拦截** — 以 `.` 开头的消息路由到 `dispatch_command()`（例如 `.help` 与可选 ``MINIAGENT_FEISHU_MARKDOWN_COMMANDS=1`` 下的 `.session list` 等返回 Markdown **表格**，依赖客户端对 GFM / `lark_md` 子集的支持；若表格显示异常可改用本地 CLI 或关闭该变量）
+3. **命令拦截** — 以 `.` 开头的消息路由到 `dispatch_command()`（默认拒绝会话/定时任务变异与 `.stop`；``MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1`` 时与 CLI 同等）。例如 `.help` 与可选 ``MINIAGENT_FEISHU_MARKDOWN_COMMANDS=1`` 下的 `.session list` 等返回 Markdown **表格**，依赖客户端对 GFM / `lark_md` 子集的支持；若表格显示异常可改用本地 CLI 或关闭该变量
 4. **解析 session_key** — 通过 `ChannelRouter.resolve_feishu_message()`
 5. **运行 Agent** — `run_agent_with_thinking(session_key, ...)`
 6. **发送思考** — 与 CLI 一致由 `ThinkingDisplay` 驱动：`push_feishu_thinking_stream()` 对同一逻辑段 PATCH 节流更新；规划阶段为单 header ``[评估与计划]`` 的流式卡；执行阶段为 ``[执行]`` 或分步时的 ``[步骤 i/n] …``；同段内工具结果走 `append_feishu_thinking_same_card()`；阶段切换时仅 `finalize_feishu_thinking_stream()` 收尾当前卡（不另发空思考卡）；**finalize 与 PATCH 共用 `_prepare_thinking_body_for_card`**（折叠空行与 `lark_md` 规范化一致，正文顶格无额外段首/列表缩进）。非流式结论块仍为 `finalize` + `_send_thinking()`。详见 `miniagent/feishu/poll_server.py` 顶部常量（PATCH 频率与单条可 PATCH 次数上限）
@@ -186,7 +210,8 @@ reply = await engine.run_agent_with_thinking(content, active_session_id, ...)
 
 ### 会话隔离
 
-处理飞书侧消息时，每个 `chat_id` 自动创建独立会话，互不干扰。
+- **群聊**（`chat_type=group`）：每个 `chat_id` 使用独立会话 `feishu:<chat_id>`。
+- **私聊**（`p2p`）：未绑定时可自动绑到 CLI 活跃会话，与 CLI **共享**同一 `session_key`；已手动绑定或 `.session switch` 后行为见 [CHANNEL_BINDING.md](CHANNEL_BINDING.md)。
 
 ### chat_type 支持（私聊 vs 群聊）
 

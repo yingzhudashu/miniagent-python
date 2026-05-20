@@ -157,10 +157,10 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 **要点**：
 
 - **`add` 必须包含 ` -- `**（空格、两个连字符、空格）：前面为调度与会话参数，后面为交给模型的 **prompt**；缺少分隔符会报错。
-- **`every`**：间隔秒数为正整数；**`once`**：时间为 ISO8601（可含 `Z` 或 `+08:00`）；未带时区的 naive 时间由 **`--tz`** 解释（未写时读 `MINIAGENT_SCHEDULE_TIMEZONE` / `TZ`，见 [.env.example](../.env.example)）。
+- **`every`**：间隔秒数为正整数；**`once`**：时间为 ISO8601（可含 `Z` 或 `+08:00`）；未带时区的 naive 时间由 **`--tz`** 解释（未写时读 `MINIAGENT_SCHEDULE_TIMEZONE` → `MINIAGENT_TIMEZONE` → `TZ`，见 [.env.example](../.env.example)）。
 - **飞书收结果**：飞书 WebSocket 已连接且任务为 **`primary`** 且已与飞书私聊绑定时，定时任务会镜像思考流与最终回复到飞书（`MINIAGENT_SCHEDULE_FEISHU_MIRROR=0` 关闭）；详见 [USER_GUIDE.md](USER_GUIDE.md) §8。
 - **会话**：`primary` 使用当前路由的主会话 / 活跃会话；`ephemeral` 每次新建临时会话键；`fixed:会话ID` 固定到某会话（如 `fixed:default` 或 `fixed:feishu:oc_xxx`，后者可用于飞书群任务）。
-- **时区**：cron 墙钟以 `tasks.json` 内 `schedule.timezone` 为准；未写 `--tz` 时新建任务用 `MINIAGENT_SCHEDULE_TIMEZONE` / `TZ`。遗留 `timezone: UTC` 请 **`update --tz`** 或 **`.schedule align-tz`**（批量写盘并重算 `next_run_at`）。
+- **时区**：cron 墙钟以 `tasks.json` 内 `schedule.timezone` 为准；未写 `--tz` 时新建任务默认时区为 `MINIAGENT_SCHEDULE_TIMEZONE` → `MINIAGENT_TIMEZONE` → `TZ` → `Asia/Shanghai`。遗留 `timezone: UTC` 请 **`update --tz`** 或 **`.schedule align-tz`**（批量写盘并重算 `next_run_at`）。
 - **关闭调度循环**（不删任务表）：`MINIAGENT_DISABLE_SCHEDULED_TASKS=1`；dispatch 失败退避秒数：`MINIAGENT_SCHEDULE_DISPATCH_BACKOFF`（默认 60，见 [.env.example](../.env.example)）。
 
 **飞书渠道**：在飞书里发 `.schedule` 时，通常 **仅允许** `list` / `show`；`add` / `remove` / `enable` / `disable` 须在 **本机 CLI** 执行（与 `.session` 变异限制类似）。
@@ -208,7 +208,8 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 飞书消息以 `.` 开头时，自动路由到命令调度器而非 Agent：
 
 - **多数**点命令（如 `.status`、`.help`、`.queue status`）可在飞书使用。
-- **仅本机 CLI**：`.schedule` 的 `add` / `update` / `remove` / `enable` / `disable`；部分 `.session` 变异（新建/切换/重命名等，与 [USER_GUIDE.md](USER_GUIDE.md) 第 8、9 章一致）。
+- **默认仅本机 CLI**：`.schedule` 的 `add` / `update` / `remove` / `enable` / `disable` / `align-tz`；`.session` 的 `switch` / `create` / `rename`；`.stop`（与 [USER_GUIDE.md](USER_GUIDE.md) 第 8、9 章一致）。
+- **全开**：设置 `MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1` 后飞书与 CLI 点命令能力相同（见 [FEISHU.md](FEISHU.md)）。
 
 ```
 飞书发送: .status

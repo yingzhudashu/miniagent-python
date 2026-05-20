@@ -44,11 +44,13 @@ cd miniagent-python
 
 ```bash
 pip install -e .
-# 开发（pytest、ruff）：
-pip install -e ".[dev]"
+# 开发（与默认 CI test job 一致：pytest、ruff、mypy 试点）：
+pip install -e ".[dev,typing]"
 # 飞书通道：
 pip install -e ".[feishu]"
 ```
+
+> 完整本地门禁命令见 [ENGINEERING.md](ENGINEERING.md) §2。
 
 > 仓库 **不提供** 根目录 `requirements.txt`；依赖以 `pyproject.toml` 的 `[project]` / `[project.optional-dependencies]` 为准。
 
@@ -91,7 +93,7 @@ python -m miniagent
 python -m miniagent --feishu
 ```
 
-同时启动 CLI 交互和飞书 WebSocket 长轮询，飞书消息和 CLI 共享 Agent 引擎。
+同时启动 CLI 交互和飞书 WebSocket 长连接，飞书消息和 CLI 共享 Agent 引擎。
 
 ### 运行时启用飞书
 
@@ -132,7 +134,7 @@ python -m miniagent --stop 1 2       # 停止指定实例 ID（非交互）
 ### 2. 配置事件订阅
 
 1. 在应用管理后台，进入「事件订阅」
-2. 选择 **WebSocket 长轮询模式**（无需公网 IP）
+2. 选择 **WebSocket 长连接模式**（无需公网 IP）
 3. 订阅事件：`im.message.receive_v1`
 
 ### 3. 添加权限
@@ -157,7 +159,7 @@ python -m miniagent --feishu     # CLI + 飞书
 
 ### 家庭服务器 / NAS
 
-WebSocket 长轮询模式**无需公网 IP**，适合内网部署：
+WebSocket 长连接模式**无需公网 IP**，适合内网部署：
 
 ```bash
 # 使用 nohup 后台运行

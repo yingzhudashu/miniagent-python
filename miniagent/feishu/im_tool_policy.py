@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 
+from miniagent.infrastructure.env_parse import env_flag
 from miniagent.infrastructure.logger import get_logger
 
 _logger = get_logger(__name__)
@@ -35,8 +36,7 @@ def feishu_im_tools_should_register() -> bool:
             return False
         # 已设置但非认可取值：保守关闭，不落入 AUTO（避免误拼写意外开工具）
         return False
-    auto = (os.environ.get("MINIAGENT_FEISHU_TOOLS_AUTO") or "0").strip().lower()
-    if auto not in ("1", "true", "yes", "on"):
+    if not env_flag("MINIAGENT_FEISHU_TOOLS_AUTO", default=True):
         return False
     return feishu_credentials_configured()
 

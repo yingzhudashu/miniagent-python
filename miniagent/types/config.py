@@ -123,7 +123,7 @@ class AgentConfig:
         conversation_history: 对话历史（跨轮次保留）
         risk_level: 风险等级（来自规划建议或计划，供执行阶段提示）
         cli_loop_state: 与 CLI/飞书共享的 CliLoopState dict（供 run_dot_command 等工具调用 dispatch_command）
-        cli_dispatch_allow_mutations: capture 模式下是否允许 .session 等会改共享状态的子命令（飞书应为 False）
+        cli_dispatch_allow_mutations: capture 模式下是否允许 .session 等会改共享状态的子命令（飞书默认 False；MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1 时为 True）
         feishu_receive_chat_id: 飞书 API 用 ``chat_id``（如 ``oc_xxx``）；注入工具上下文以便 ``run_dot_command`` 的 ``.abort`` 等作用于当前群队列
         feishu_trigger_message_id: 触发本轮的飞书入站 ``message_id``（可选；供工具/提示词与 ``MINIAGENT_FEISHU_REPLY_TARGET=reply`` 出站）
         feishu_root_id: 入站事件 ``root_id``（话题根消息，可选；与历史方案中的「reply_root」语境一致）

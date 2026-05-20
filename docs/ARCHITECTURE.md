@@ -58,7 +58,7 @@ Mini Agent Python 采用 **两阶段架构**（Plan → Execute），通过 **Re
 
 ### 外部 JSON 配置（OpenClaw 形状子集）
 
-- **路径**：环境变量 `MINIAGENT_CONFIG` 或 `MINIAGENT_OPENCLAW_CONFIG` 指向**用户本机** JSON 文件（**勿**将含 API Key 的文件提交到仓库）。
+- **路径**：环境变量 `MINIAGENT_CONFIG` 指向**用户本机** JSON 文件（**勿**将含 API Key 的文件提交到仓库）。曾用别名 `MINIAGENT_OPENCLAW_CONFIG` **已废弃**，仍会读取并打 Deprecation 警告，请改用 `MINIAGENT_CONFIG`。
 - **加载时机**：仅在 [`compat.unified_entry`](miniagent/compat.py) 启动时调用 [`load_external_config_from_env`](miniagent/runtime/external_config.py)（在构造 `RuntimeContext` / 首次 `get_shared_async_openai()` 之前）。补丁快照写入 `RuntimeContext.external_config_patch`。若嵌入代码仅调用 `unified_main` 而无 `unified_entry`，需自行先加载外部配置。
 - **合并字段（已实现子集）**：`models.providers.<id>.baseUrl` / `apiKey`；`models.providers.<id>.models` 列表或字典中的 `contextWindow` / `maxTokens`（按当前 `OPENAI_MODEL` 匹配，仅当未设置 `AGENT_CONTEXT_WINDOW` / `OPENAI_MAX_TOKENS` 时生效）；`agents.defaults.model.primary`（支持 `bailian/qwen` 形式，或**无斜杠**时在 providers 的 `models` 中反查所属 provider）；`contextTokens`；`thinkingDefault`；`agents.defaults.models.<ref>.params.thinking_budget`。
 - **预留未用**：`agents.defaults.model.fallbacks` 仅进入进程内补丁元数据，**不**触发自动换模重试。
@@ -88,7 +88,7 @@ Mini Agent Python 采用 **两阶段架构**（Plan → Execute），通过 **Re
 | `engine.py` | `UnifiedEngine`：会话上下文管理、Agent 编排、思考回调、历史持久化 |
 | `command_dispatch.py` | 统一命令调度器：CLI 和飞书共享 `.` 命令，输出捕获（StringIO） |
 | `cli_commands.py` | CLI 命令实现：.session, .instance, .queue, .bind/.unbind, .help 等 |
-| `feishu_state.py` | `FeishuRuntime`：飞书长轮询任务 start/stop/status（`feishu_runtime.py` 仅为同名兼容重导出） |
+| `feishu_state.py` | `FeishuRuntime`：飞书 WebSocket 长连接任务 start/stop/status（`feishu_runtime.py` 仅为同名兼容重导出） |
 | `session_lock.py` | 会话级锁管理：PID 存活检测、跨实例互斥 |
 | `thinking.py` | `ThinkingDisplay`：CLI 实时打印 / 飞书缓冲模式 |
 | `init.py` | 子系统初始化：技能加载、SessionManager、默认会话 |
@@ -147,7 +147,9 @@ Agent 的大脑，实现两阶段架构。
 
 | 文件 | 职责 |
 |------|------|
-| `poll_server.py` | WebSocket 长轮询：WSClient 单例、内存+磁盘双重去重、消息防抖合并、优雅关闭 |
+| `poll_server.py` | WebSocket 长连接：WSClient 单例、内存+磁盘双重去重、消息防抖合并、与 `ws_health` 监督衔接 |
+| `ws_client.py` | lark WS 客户端包装：暴露 `receive_task` / `connected` 供监督循环使用 |
+| `ws_health.py` | 会话监督：看门狗、死连接/空闲刷新、与 `FeishuRuntime` 外层退避重连配合 |
 | `agent_handler.py` | 消息处理器：`create_feishu_handler()` → 飞书消息 → Agent → 回复 |
 | `agent_channel_prompts.py` | 通道级提示词配置 |
 | `server.py` | HTTP Webhook（备选，需公网 IP） |
@@ -185,7 +187,7 @@ Agent 的大脑，实现两阶段架构。
 | 文件 | 职责 |
 |------|------|
 | `manager.py` | `SessionManager`：创建/切换/重命名/列出会话，编号↔ID 双重解析，内存+磁盘双查找 |
-| `workspace.py` | 工作空间管理：会话目录结构、config.json、history.jsonl |
+| `workspace.py` | 工作空间管理：会话目录结构、config.json、history.json |
 
 ### 7. 技能层 (Skills)
 
@@ -214,7 +216,7 @@ LLM 可通过 function calling 调用的工具：
 | `schedule_tools.py` | `manage_scheduled_task`：定时任务结构化 CRUD |
 | `feishu_im_tools.py` | 可选飞书 IM/云文档工具（需 `pip install -e ".[feishu]"`） |
 
-**run_dot_command 与进程状态**：[`UnifiedEngine.run_agent_with_thinking`](miniagent/engine/engine.py) 将共享 [`CliLoopState`](miniagent/engine/cli_state.py) 写入 `AgentConfig.cli_loop_state`，[`execute_plan`](miniagent/core/executor.py) 再注入 `ToolContext`。飞书入站路径下 `cli_dispatch_allow_mutations=False`，与飞书里直接发 `.session switch` / `create` / `rename` 一致，不得改 CLI 共享的 `active_session_id`。若嵌入代码只调用 [`run_agent`](miniagent/core/agent.py) 而不经 `run_agent_with_thinking`，需在 `agent_config` 中自行传入 `cli_loop_state`（及按需的 `cli_dispatch_allow_mutations`），否则工具会返回不可用说明。注册开关：环境变量 **`MINIAGENT_CLI_DOT_TOOLS`**（默认开启，`0`/`false`/`off` 跳过注册，见 `.env.example`）。
+**run_dot_command 与进程状态**：[`UnifiedEngine.run_agent_with_thinking`](miniagent/engine/engine.py) 将共享 [`CliLoopState`](miniagent/engine/cli_state.py) 写入 `AgentConfig.cli_loop_state`，[`execute_plan`](miniagent/core/executor.py) 再注入 `ToolContext`。飞书入站路径下默认 `cli_dispatch_allow_mutations=False`（与飞书里直接发 `.session` / `.schedule` 变异一致）；**`MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1`** 时为 True，与 CLI 同等。若嵌入代码只调用 [`run_agent`](miniagent/core/agent.py) 而不经 `run_agent_with_thinking`，需在 `agent_config` 中自行传入 `cli_loop_state`（及按需的 `cli_dispatch_allow_mutations`），否则工具会返回不可用说明。注册开关：环境变量 **`MINIAGENT_CLI_DOT_TOOLS`**（默认开启，`0`/`false`/`off` 跳过注册，见 `.env.example`）。
 
 ### 8b. MCP（可选）
 
@@ -235,6 +237,9 @@ LLM 可通过 function calling 调用的工具：
 | `channel_router.py` | CLI / 飞书私聊 / 群聊 → `session_key` 与绑定关系 |
 | `instance.py` | 多实例注册表：自增 ID、心跳（观测）、PID 僵尸目录清理（非心跳超时） |
 | `feishu_inbound_lock.py` | 飞书 WebSocket 入站跨进程独占（磁盘锁） |
+| `env_loader.py` | 加载项目根 `.env` |
+| `env_parse.py` | `env_flag` / `env_flag_strict` / 遗留环境变量别名读取 |
+| `timezone_config.py` | `process_timezone()`（`MINIAGENT_TIMEZONE` / `TZ`） |
 | `tracing.py` | 轻量追踪/跨度钩子（与日志配合） |
 | `logger.py` | 日志系统：`append_log()`, `get_logger()` |
 | `loop_detector.py` | 循环检测器：相似度检测、warning/critical 分级 |
@@ -274,7 +279,7 @@ CLI 输入将使用绑定的会话上下文（记忆/文件/工具共享）。
         → 工具调用 → LLM 回复 → 飞书 API 发送回复
 ```
 
-`FeishuRuntime` 在同进程内对 `start_feishu_poll_server` 做**退避重连**；`feishu_inbound_owner` 锁在重连期间仍由该实例持有。
+`FeishuRuntime` 在同进程内对 `start_feishu_poll_server` 做**退避重连**；`feishu_inbound_owner` 锁在重连期间仍由该实例持有。连接成功后由 `miniagent/feishu/ws_health.py` 的**会话监督**（收包 task、看门狗、可选定期刷新）替代裸阻塞；断线或收包循环结束会在数秒内结束当前会话并触发外层重建，详见 `docs/FEISHU.md`「Windows / 长连接」。
 
 **通道绑定影响**：飞书私聊消息通过 `resolve_feishu_message()` 解析：
 - 若 `feishu_p2p:<sender_id>` 已绑定，则使用绑定的 session_key
@@ -359,10 +364,7 @@ flowchart LR
 
 ### 多实例设计
 
-从单实例 PID 锁升级到多实例注册表：
-- 支持多终端同时运行（CLI + 飞书）
-- **新实例 `register()` 时**与 **`list_all()`** 均会按 **操作系统 PID 是否仍存在** 清理僵尸注册目录（不向其它 PID 发终止信号）；心跳文件仍写入，仅供观测，不作为存活权威判定（详见 [INSTANCE_REGISTRY.md](INSTANCE_REGISTRY.md)）
-- 会话级锁保证数据一致性
+多实例注册表、PID 存活清理与心跳语义详见 [INSTANCE_REGISTRY.md](INSTANCE_REGISTRY.md)（SSOT）。要点：新实例 `register()` / `list_all()` 按 OS PID 清理僵尸目录，**不**向其它进程发终止信号；会话级锁保证数据一致性。
 
 ### 多会话并发安全
 

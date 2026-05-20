@@ -134,13 +134,13 @@ release_session_lock("default")
 
 - 内存 + 磁盘双重去重，防止重复处理
 - 消息防抖合并，防止短时间内大量重复消息
-- WebSocket 长轮询模式，无需暴露公网端口
+- WebSocket 长连接模式，无需暴露公网端口
 
 ## 6. 外部 JSON（MINIAGENT_CONFIG）与进程环境
 
 **位置**: `miniagent/runtime/external_config.py`
 
-为兼容 OpenClaw 等外部 JSON，进程启动时可设置环境变量 **`MINIAGENT_CONFIG`** 或 **`MINIAGENT_OPENCLAW_CONFIG`** 指向配置文件。解析后，若对应扁平环境变量尚未设置，会把 JSON 中的 **`apiKey` / `api_key`**、**`baseUrl`**、**`model`** 等写入 **`os.environ`**（例如 `OPENAI_API_KEY`），供 OpenAI 兼容客户端读取。
+为兼容 OpenClaw 等外部 JSON，进程启动时可设置环境变量 **`MINIAGENT_CONFIG`** 指向配置文件。解析后，若对应扁平环境变量尚未设置，会把 JSON 中的 **`apiKey` / `api_key`**、**`baseUrl`**、**`model`** 等写入 **`os.environ`**（例如 `OPENAI_API_KEY`），供 OpenAI 兼容客户端读取。
 
 | 风险 | 缓解 |
 |------|------|

@@ -2,7 +2,7 @@
 
 > 本文面向 **零基础或仅有普通电脑使用经验** 的读者，按顺序操作即可完成安装、配置与日常使用。  
 > 技术细节与命令全集以专题文档为准；本文提供 **路径导航 + 常见操作 + 安全习惯**。  
-> 版本与仓库内 `miniagent.__version__` 对齐时请参见 [INDEX.md](INDEX.md) 页眉。
+> 版本与仓库内 `miniagent.__version__` 对齐时请参见 [INDEX.md](INDEX.md) 页眉；**未发版行为**以 [CHANGELOG](../CHANGELOG.md) `[Unreleased]` 为准。
 
 ---
 
@@ -39,7 +39,7 @@
 |------|------|
 | **两阶段** | 先 **规划** 再 **执行**（你可从回复节奏上感知：先有条理再动手），细节见 [ARCHITECTURE.md](ARCHITECTURE.md)。 |
 | **工具** | 模型可调用注册的工具（文件、命令、搜索等）；未配置的联网密钥不会偷偷联网。 |
-| **CLI + 可选飞书** | 默认在终端里对话；也可 **同一进程** 里挂上飞书机器人（长轮询），没有单独的「只飞书无终端」形态。 |
+| **CLI + 可选飞书** | 默认在终端里对话；也可 **同一进程** 里挂上飞书机器人（WebSocket 长连接），没有单独的「只飞书无终端」形态。 |
 | **会话与记忆** | 多会话隔离，并支持跨会话记忆与检索；见 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md)。 |
 
 **不适合的场景**：不要把它当作对公网匿名用户开放的多租户服务；部署与安全边界见 [SECURITY.md](SECURITY.md)、[DEPLOYMENT.md](DEPLOYMENT.md)。
@@ -150,6 +150,8 @@ miniagent
 
 ## 4. 首次配置（环境变量与 .env）
 
+**升级迁移提示**（详见 [CHANGELOG](../CHANGELOG.md) `[Unreleased]` Breaking）：飞书出站默认 `MINIAGENT_FEISHU_REPLY_TARGET=reply`；内置飞书工具默认由 `MINIAGENT_FEISHU_TOOLS_AUTO` 注册；请改用 `MINIAGENT_CONFIG`、`MINIAGENT_FEISHU_DOCX_URL_PREFIX`、`MINIAGENT_FEISHU_DOC_FOLDER_TOKEN`（旧名仍会读取并打弃用警告）。飞书细节见第 10 章。
+
 ### 4.1 创建 .env
 
 在 **项目根目录**（与 `pyproject.toml` 同级）执行：
@@ -251,26 +253,18 @@ python -m miniagent --stop
 
 多数以下命令在 **CLI 与飞书** 中均可使用（前缀为英文句点 `.`）。**`.schedule` 的 add/update/remove/enable/disable** 及部分 **`.session` 变异** 仅允许在本机 CLI 执行（见第 8 章）。**完整说明、示例输出与边界情况** 见 [CLI.md](CLI.md)。
 
-### 7.1 最常用命令（一张表）
+### 7.1 最常用命令（速查）
 
 | 命令 | 作用 |
 |------|------|
 | `.help` | 显示帮助 |
 | `.status` | 查看运行状态（不中断当前执行） |
-| `.session list` | 列出会话 |
-| `.session switch <编号或ID>` | 切换当前会话 |
-| `.session create <ID> [标题]` | 新建会话 |
-| `.session rename <编号或ID> <新标题>` | 重命名 |
-| `.instance list` | 列出运行中的实例 |
-| `.feishu start` / `.feishu stop` / `.feishu status` | 飞书连接控制 |
-| `.queue status` | 消息队列状态 |
-| `.queue set queue` 或 `.queue set preemptive` | 切换队列模式 |
-| `.bind status` / `.bind cli …` / `.bind feishu …` | 通道与会话绑定，见 [CHANNEL_BINDING.md](CHANNEL_BINDING.md) |
-| `.unbind …` / `.unbind all` | 解除绑定 |
-| `.profile <预设名>` | 切换模型预设（与 `MODEL_PROFILE` 等配合） |
-| `.stats` | 工具调用统计 |
-| `.stop` | 停止当前实例并退出 |
-| `.schedule …` | 定时任务（列表/添加/删除等），详见第 8 章与 [CLI.md](CLI.md) |
+| `.session list` / `.session switch <id>` | 列出 / 切换会话 |
+| `.feishu start` / `.feishu stop` / `.feishu status` | 飞书 WebSocket 长连接控制 |
+| `.schedule list` | 查看定时任务（增删改见第 8 章，须在本地 CLI） |
+| `.bind status` | 通道绑定状态，见 [CHANNEL_BINDING.md](CHANNEL_BINDING.md) |
+
+**完整命令表、示例输出与边界情况** → [CLI.md](CLI.md)。
 
 ### 7.2 使用提示
 
@@ -285,19 +279,12 @@ python -m miniagent --stop
 
 **新手要点**：
 
-- 先输入 **无参数的 `.schedule`** 或 **`.schedule list`** 查看子命令与说明；完整语法见 [CLI.md](CLI.md) 与 [README.md](../README.md)「定时任务」。
-- 调度方式：**`every <秒>`**（固定间隔）、**`once <ISO8601>`**（一次性）、**`cron "<分> <时> <日> <月> <周>"`**（标准 Unix **5 段** cron，如每天 20:00 上海：`cron "0 20 * * *"` 且时区为 `Asia/Shanghai`）。**Cron 墙钟以 `tasks.json` 里 `schedule.timezone` 为准**；未写 `--tz` 时新建任务会写入环境默认（**`MINIAGENT_TIMEZONE`** / **`MINIAGENT_SCHEDULE_TIMEZONE`** / **`TZ`**，见 [.env.example](../.env.example)）。不支持 Quartz 扩展字段（`?`/`L`/`W`）、`@daily` 宏或 6 段「含秒」表达式。
-- **飞书收结果**：飞书 WebSocket 已连接且任务为 **`primary`**（并与 CLI 绑定了飞书私聊，见 [CHANNEL_BINDING.md](CHANNEL_BINDING.md)）时，定时任务会像普通对话一样把**思考过程与最终回复**推到飞书，并与该私聊共用消息队列键（与用户发消息时 `chat_id` 一致，避免并发抢跑）。CLI transcript 仍会打印摘要。关闭镜像：`MINIAGENT_SCHEDULE_FEISHU_MIRROR=0`。无绑定时默认**不**推送；若需回退到进程内记录的「最后活跃飞书聊天」，设置 `MINIAGENT_SCHEDULE_FEISHU_LAST_CHAT=1`。
-- **旧任务时区**：若磁盘仍为 `"timezone": "UTC"`（非显式 `--tz UTC`），运行时会按进程默认时区**计算**下次触发，但 `list` 可能标注 `[tz=UTC，建议 .schedule align-tz]`。一键对齐：**.schedule align-tz`**（将遗留 UTC 写入 `Asia/Shanghai` 等并重算 `next_run_at`），或 **`.schedule update … --tz Asia/Shanghai`**。
-- **Agent 感知时区**：每轮执行会在 system 中注入当前进程时区与本地时间；定时任务 prompt 亦含调度时区说明。`get_time` 默认与进程时区一致。
-- **修改任务**：`.schedule update <id> …`（语法同 `add`，不含新建 id）或工具 `manage_scheduled_task` / `action=update`。
-- **`add` 子命令**里若要在参数后面写 **较长的任务说明（prompt）**，须用 **` -- `**（空格、两个连字符、空格）把前面的选项和后面的正文隔开，否则解析会错乱。
-- **漏跑**：进程停机期间错过的周期**只补触发 1 次**；恢复后按 cron/interval 计算下一次，不会连跑所有错过的次数。
-- **长任务**：若一次执行超过间隔，下次触发时间在**本轮结束后**再按规则计算（有效周期 ≈ 执行时长 + 间隔）。
-- **Agent 会话里**（非终端）：可用内置工具 **`run_dot_command`** 执行与终端一致的 `.schedule …`；也可用 **`manage_scheduled_task`** 以 JSON 做增删改查，减少拼写错误。二者均可通过环境变量关闭（见 [.env.example](../.env.example)：`MINIAGENT_CLI_DOT_TOOLS`、`MINIAGENT_SCHEDULE_TOOLS`）。
-- **飞书里**：为安全起见，通常 **只允许** `.schedule list` / `show`；**添加、删除、启用、禁用**请在 **本机终端** 的 CLI 中操作（与 `.session` 的变异限制类似）。
+- 先 **`.schedule`** 或 **`.schedule list`** 查看子命令；语法与示例 → [CLI.md](CLI.md)。
+- **调度**：`every <秒>`、`once <ISO8601>`、五段 **`cron "分 时 日 月 周"`**；`add` 的长 prompt 须用 **` -- `** 与选项分隔。
+- **时区**：cron 墙钟以 `tasks.json` 的 `schedule.timezone` 为准；未写 `--tz` 时新建默认 **`MINIAGENT_SCHEDULE_TIMEZONE` → `MINIAGENT_TIMEZONE` → `TZ` → `Asia/Shanghai`**。**Agent 每轮本地时间**由 `process_timezone()` 注入（读 `MINIAGENT_TIMEZONE` / `TZ`，**不**读 `MINIAGENT_SCHEDULE_TIMEZONE`）。遗留 `timezone: UTC` 可用 **`.schedule align-tz`**。
+- **飞书**：默认仅 **list** / **show**；增删改须在本地 CLI。`primary` 任务在私聊已绑定时可镜像到飞书（`MINIAGENT_SCHEDULE_FEISHU_MIRROR=0` 可关）。
 
-关闭整个后台调度循环（不删磁盘上的任务表）：设置环境变量 **`MINIAGENT_DISABLE_SCHEDULED_TASKS=1`**。任务 dispatch 失败时推迟下次触发，默认退避 60 秒，可由 **`MINIAGENT_SCHEDULE_DISPATCH_BACKOFF`** 调整（见 [.env.example](../.env.example)）。架构与数据流见 [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」。
+退避、漏跑、工具接口与数据流 → [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」、[.env.example](../.env.example)。
 
 ---
 
@@ -305,7 +292,7 @@ python -m miniagent --stop
 
 - **会话**就像「不同的聊天窗口」，历史与部分配置相互隔离。  
 - 使用 `.session list` 查看列表；在 **本地 CLI** 用 `.session switch` 切换到工作上下文。  
-- **飞书里**发送 `.session switch` / `create` / `rename` 等变异子命令**不会**修改与 CLI 共享的 `active_session_id` 或会话存储，仅返回提示；请在本地终端执行（见 [FEISHU.md](FEISHU.md)、[CLI.md](CLI.md)）。  
+- **飞书里**（默认）发送 `.session switch` / `create` / `rename` 等变异子命令**不会**修改与 CLI 共享的 `active_session_id` 或会话存储，仅返回提示；请在本地终端执行，或设置 **`MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1`**（见 [FEISHU.md](FEISHU.md)、[CLI.md](CLI.md)）。  
 - 会话与记忆落盘位置受 **`MINI_AGENT_STATE`** 控制，详见第 14 章与 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md)。
 
 ---
@@ -319,7 +306,9 @@ python -m miniagent --stop
 
 **入站锁**：同一状态根下通常只允许一个进程持有飞书入站连接，避免重复收消息；细节见 [FEISHU.md](FEISHU.md) 与 [SECURITY.md](SECURITY.md)。
 
-**可选内置工具**：`.env` 中 `MINIAGENT_FEISHU_TOOLS=1` 时注册发文件、撤回、建文档、读 Markdown、列云盘、追加文档正文等工具；或 **未设置** `MINIAGENT_FEISHU_TOOLS` 且 `MINIAGENT_FEISHU_TOOLS_AUTO=1`（且已配置 `FEISHU_APP_ID`/`SECRET`）时由进程启动阶段自动注册（**不**等待 `.feishu start`；详见 [FEISHU.md](FEISHU.md)）。显式 `MINIAGENT_FEISHU_TOOLS=0`/`false`/`off` 关闭；其它无法识别的取值也关闭。依赖开放平台权限与 [FEISHU.md](FEISHU.md) 自检清单（含 `receive_id_type`、默认 `folder_token`、可选 `FEISHU_DOCX_URL_PREFIX`）。
+**可选内置工具**：`.env` 中 `MINIAGENT_FEISHU_TOOLS=1` 时注册发文件、撤回、建文档、读 Markdown、列云盘、追加文档正文等工具；或 **未设置** `MINIAGENT_FEISHU_TOOLS` 时默认由 `MINIAGENT_FEISHU_TOOLS_AUTO`（且已配置 `FEISHU_APP_ID`/`SECRET`）在进程启动阶段自动注册（**不**等待 `.feishu start`；详见 [FEISHU.md](FEISHU.md)）。显式 `MINIAGENT_FEISHU_TOOLS=0`/`false`/`off` 或 `MINIAGENT_FEISHU_TOOLS_AUTO=0` 可关闭。依赖开放平台权限与 [FEISHU.md](FEISHU.md) 自检清单（含 `receive_id_type`、默认 `folder_token`、可选 `MINIAGENT_FEISHU_DOCX_URL_PREFIX`）。
+
+**环境变量迁移**：见第 4 章「升级迁移提示」与 [CHANGELOG](../CHANGELOG.md) `[Unreleased]`。
 
 **工作区路径**：通过飞书发附件时，工具只能访问当前会话 **`files/`** 目录下的相对路径；飞书入站附件保存在 `files/feishu_incoming/`，详见 [FEISHU.md](FEISHU.md)「飞书与会话工作区文件」。
 

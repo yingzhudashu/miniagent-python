@@ -1,6 +1,6 @@
 # 软件工程实践与仓库卫生
 
-> Mini Agent Python | 版本: 2.0.2 | 与 `miniagent.__version__` 对齐
+> Mini Agent Python | 版本: 2.0.2 | 与 `miniagent.__version__` 对齐 | 未发版行为见 [CHANGELOG](../CHANGELOG.md) `[Unreleased]`
 
 本文档汇总本仓库在**可维护性、可重复构建、安全与协作**上的约定，作为 [CONTRIBUTING.md](CONTRIBUTING.md) 的补充：后者偏「如何写代码」，本文偏「仓库与发布如何保持健康」。
 
@@ -14,6 +14,7 @@
 | 版本号 | `miniagent/__init__.py` 中 `__version__` | `pyproject.toml` 通过 `dynamic.version` 读取；发版时与 `CHANGELOG.md`、本文档顶部标语一并更新。 |
 | 依赖声明 | `pyproject.toml` `[project]` / `optional-dependencies` | 不使用根目录 `requirements.txt`；运行时依赖与可选组（`dev`（含 `pytest-cov`）、`feishu`、`browser`、`mcp`、`cli`、`typing`（`mypy` 试点））集中在此。 |
 | 环境变量说明 | 仓库根 `.env.example` | 复制为 `.env` 后本地填写；**勿将含真实密钥的 `.env` 提交入库**（见 `.gitignore`）。 |
+| 环境变量遗留别名 | `.env.example` + 下表 | 读旧名会 Deprecation 警告；下一版本可能移除 |
 | 定时任务环境变量 | `.env.example` + [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」 | 用户面向摘要见 [USER_GUIDE.md](USER_GUIDE.md) §8；运维见 [DEPLOYMENT.md](DEPLOYMENT.md) |
 | 架构与行为细节 | `docs/ARCHITECTURE.md` 及各专题文档 | README 只做索引与快速上手；深度说明以 `docs/` 为准。 |
 
@@ -28,14 +29,24 @@
 
 | 变量 | 摘要 |
 |------|------|
-| `MINIAGENT_FEISHU_REPLY_TARGET` | `create`（默认）或 `reply`；非法值回退为 `create`。 |
+| `MINIAGENT_FEISHU_REPLY_PLAIN` | 默认 **开**（`0`/`false`/`off` 关闭）；无法识别的非空取值视为关。 |
+| `MINIAGENT_FEISHU_REPLY_TARGET` | 默认 **`reply`**；`create` 为会话内新建消息；非法值按 `create` 处理。 |
 | `MINIAGENT_FEISHU_REPLY_IN_THREAD` | 与 `reply` 联用；未设置且入站 `thread_id` 非空时默认话题内回复（见 FEISHU）。 |
-| `MINIAGENT_FEISHU_CARD_ACTION_ROUTER` | 为真时处理 `p2.card.action.trigger`，将按钮 payload 投递到同一消息队列。 |
-| `MINIAGENT_FEISHU_TOOLS` | 为真时注册内置飞书 IM/Doc 工具（需凭证与开放平台权限）。 |
-| `MINIAGENT_FEISHU_TOOLS_AUTO` | 为真且已配置 App ID/Secret 时，若未设置 `MINIAGENT_FEISHU_TOOLS` 则自动注册同上工具；**在进程 init 注册内置工具时生效**，不等待飞书 WebSocket。 |
-| `FEISHU_DOCX_URL_PREFIX` / `MINIAGENT_FEISHU_DOCX_URL_PREFIX` | 创建云文档工具输出中带可分享 Web 链接的前缀（租户域名须与飞书控制台一致）。 |
+| `MINIAGENT_FEISHU_CARD_ACTION_ROUTER` | 默认 **开**；处理 `p2.card.action.trigger` 并将按钮 payload 投递到同一消息队列；无法识别的非空取值视为关。 |
+| `MINIAGENT_FEISHU_TOOLS` | 为真时注册内置飞书 IM/Doc 工具；已设置但取值无法识别时**关闭**（不落入 AUTO）。 |
+| `MINIAGENT_FEISHU_TOOLS_AUTO` | 默认 **开**：未设置 `MINIAGENT_FEISHU_TOOLS` 且已配置 App ID/Secret 时在进程 init 自动注册；不等待 WebSocket。 |
+| `FEISHU_DOC_FOLDER_FALLBACK_ROOT_META` | 默认 **开**；无 `folder_token` 时尝试根目录元数据 API（`0`/`false` 关闭）。 |
+| `MINIAGENT_FEISHU_DOCX_URL_PREFIX` | 创建云文档工具输出中带可分享 Web 链接的前缀（租户域名须与飞书控制台一致）。 |
 | `MINIAGENT_FEISHU_RECEIVE_ID_TYPE` | 内置工具发 IM 时的 `receive_id_type`（`chat_id` / `open_id` / `union_id`）；非 `chat_id` 时默认 `receive_id` 为入站发送者 ID（见 [FEISHU.md](FEISHU.md)）。 |
-| `FEISHU_DEFAULT_DOC_FOLDER_TOKEN` / `MINIAGENT_FEISHU_DOC_FOLDER_TOKEN` | 创建云文档时默认父文件夹 token。 |
+| `MINIAGENT_FEISHU_DOC_FOLDER_TOKEN` | 创建/列举云盘时默认父文件夹 token。 |
+
+**遗留别名（仍会读取并打 Deprecation 警告，请迁移）**：
+
+| 旧名 | 新名 |
+|------|------|
+| `MINIAGENT_OPENCLAW_CONFIG` | `MINIAGENT_CONFIG` |
+| `FEISHU_DOCX_URL_PREFIX` | `MINIAGENT_FEISHU_DOCX_URL_PREFIX` |
+| `FEISHU_DEFAULT_DOC_FOLDER_TOKEN` | `MINIAGENT_FEISHU_DOC_FOLDER_TOKEN` |
 
 ---
 
@@ -125,6 +136,9 @@ CI 说明：
 6. **[architecture.drawio](architecture.drawio)** 与 `ARCHITECTURE.md` 分层与主数据流一致（入口 `compat`、组合根 `RuntimeContext`、通道路由、记忆注入方式、可选 MCP/定时任务）；`instance.py` 单元格为 **PID 存活** 语义（非心跳超时清理）；`scheduled_tasks` 含 `cron.py` / `file_lock.py`；发版或大架构变更时一并打开核对，页脚测试数以 `pytest tests/ --collect-only -q` 为准。
 7. **[DEPLOYMENT.md](DEPLOYMENT.md)**：定时任务路径/备份、`MINI_AGENT_STATE` 与多实例 PID 清理表述与 INSTANCE_REGISTRY 一致。
 8. **大批量增补或调整 docstring 后**：在本地执行 `python -m ruff check miniagent tests` 与 spot-check（避免行长、引号或无意改坏字符串）；风格约定见 [CONTRIBUTING.md](CONTRIBUTING.md)「文档字符串（docstring）规范」。
+9. **SSOT**：修改 env、点命令、定时任务、飞书出站时，以 [FEISHU.md](FEISHU.md) / [CLI.md](CLI.md) / [USER_GUIDE.md](USER_GUIDE.md) 之一为主文档撰写深度内容，其余文件只保留摘要并链入，避免三处全文复制。
+10. **禁止硬编码**：文档与 drawio 页脚勿写固定 pytest 用例数；以 `pytest tests/ --collect-only -q` 为准。
+11. **未发版行为**：若 `__version__` 未 bump 但 [CHANGELOG.md](../CHANGELOG.md) 有 `[Unreleased]` Breaking/默认变更，INDEX 页眉应注明「行为以 Unreleased 为准」，并同步 README 特性段与 USER_GUIDE 迁移提示。
 
 ---
 

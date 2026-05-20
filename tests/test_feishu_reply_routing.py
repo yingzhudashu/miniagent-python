@@ -9,10 +9,18 @@ import pytest
 pytest.importorskip("lark_oapi")
 
 
-def test_feishu_outbound_reply_params_default_create(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_feishu_outbound_reply_params_default_reply(monkeypatch: pytest.MonkeyPatch) -> None:
     from miniagent.feishu.poll_server import feishu_outbound_reply_params
 
     monkeypatch.delenv("MINIAGENT_FEISHU_REPLY_TARGET", raising=False)
+    monkeypatch.delenv("MINIAGENT_FEISHU_REPLY_IN_THREAD", raising=False)
+    assert feishu_outbound_reply_params("om_123") == ("om_123", False)
+
+
+def test_feishu_outbound_reply_params_explicit_create(monkeypatch: pytest.MonkeyPatch) -> None:
+    from miniagent.feishu.poll_server import feishu_outbound_reply_params
+
+    monkeypatch.setenv("MINIAGENT_FEISHU_REPLY_TARGET", "create")
     monkeypatch.delenv("MINIAGENT_FEISHU_REPLY_IN_THREAD", raising=False)
     assert feishu_outbound_reply_params("om_123") == (None, False)
 

@@ -1,10 +1,18 @@
 # Mini Agent Python — 文档索引
 
-> 📅 最后更新: 2026-05-17 | 版本: 2.0.2（与 `miniagent.__version__` 对齐）
+> 📅 最后更新: 2026-05-20 | 版本: 2.0.2（与 `miniagent.__version__` 对齐；未发版行为以 [CHANGELOG](../CHANGELOG.md) `[Unreleased]` 为准）
 
 ---
 
 ## 📖 快速开始
+
+**阅读路径**
+
+| 角色 | 建议顺序 |
+|------|----------|
+| 新用户 | [USER_GUIDE.md](USER_GUIDE.md) → [README](../README.md) 快速开始 → [CLI.md](CLI.md) |
+| 开发者 | 本页目录树 → [ARCHITECTURE.md](ARCHITECTURE.md) → 专题文档 |
+| 维护者 | [ENGINEERING.md](ENGINEERING.md) §5 清单 → [CHANGELOG](../CHANGELOG.md) |
 
 | 文档 | 说明 | 适合读者 |
 |------|------|----------|
@@ -21,7 +29,7 @@
 | [CHANNEL_BINDING.md](CHANNEL_BINDING.md) | 通道绑定功能详解 | 高级用户、开发者 |
 | [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md) | 三层记忆系统详解 | 开发者 |
 | [SECURITY.md](SECURITY.md) | 安全模型说明 | 运维、开发者 |
-| [CYBERNETICS_PLAN.md](CYBERNETICS_PLAN.md) | 控制论/自适应路线（规划稿，实验性） | 架构师 |
+| [CYBERNETICS_PLAN.md](CYBERNETICS_PLAN.md) | 控制论/自适应路线（**规划稿，非实现规格**） | 架构师 |
 
 ## 📦 模块文档
 
@@ -105,7 +113,9 @@ miniagent-python/
 │   │   ├── runner.py             # build_run_scheduled_job_coro → UnifiedEngine
 │   │   └── resolve.py            # 执行目标 session_key / 飞书判定
 │   ├── feishu/
-│   │   ├── poll_server.py        # 长轮询、事件分发、与消息队列衔接
+│   │   ├── poll_server.py        # WebSocket 长连接、事件分发、与消息队列衔接
+│   │   ├── ws_client.py          # lark WS 客户端包装（收包 task / connected）
+│   │   ├── ws_health.py          # 看门狗与会话监督（死连接/空闲刷新）
 │   │   ├── agent_handler.py
 │   │   ├── agent_channel_prompts.py
 │   │   ├── server.py
@@ -125,6 +135,7 @@ miniagent-python/
 │   │   ├── message_queue.py
 │   │   ├── timezone_config.py    # process_timezone / Agent 本地时间注入
 │   │   ├── env_loader.py         # 加载项目根 .env
+│   │   ├── env_parse.py          # env_flag / env_flag_strict / 遗留别名读取
 │   │   ├── channel_router.py
 │   │   ├── instance.py
 │   │   ├── feishu_inbound_lock.py

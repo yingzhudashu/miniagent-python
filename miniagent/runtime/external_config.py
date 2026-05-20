@@ -1,4 +1,4 @@
-"""可选外部 JSON（遗留兼容），由 ``MINIAGENT_CONFIG`` 或 ``MINIAGENT_OPENCLAW_CONFIG`` 指定路径。
+"""可选外部 JSON（遗留兼容），由 ``MINIAGENT_CONFIG`` 指定路径。
 
 推荐在 ``.env`` 中直接配置 ``OPENAI_*``、``AGENT_*``、``AGENT_THINKING_DEFAULT``、
 ``OPENAI_THINKING_BUDGET`` 等；本模块仅在未设置对应扁平环境变量时回填 ``OPENAI_*``、
@@ -111,14 +111,24 @@ def _find_provider_dict_for_model(
 
 
 def load_external_config_from_env() -> ExternalConfigPatch:
-    """读取可选 JSON 路径（``MINIAGENT_CONFIG`` / ``MINIAGENT_OPENCLAW_CONFIG``）。
+    """读取可选 JSON 路径（``MINIAGENT_CONFIG``）。
 
     非主配置方式：日常请用 ``.env``。若设置了路径且文件存在，则仅当对应 ``os.environ``
     键未设置时写入 ``OPENAI_*`` / ``AGENT_CONTEXT_WINDOW``；thinking 类仍以
     ``AGENT_THINKING_DEFAULT`` / ``OPENAI_THINKING_BUDGET`` 等为优先（见 ``get_default_model_config``）。
     """
     global _PATCH
-    path = (os.environ.get("MINIAGENT_CONFIG") or os.environ.get("MINIAGENT_OPENCLAW_CONFIG") or "").strip()
+    path = (os.environ.get("MINIAGENT_CONFIG") or "").strip()
+    legacy = (os.environ.get("MINIAGENT_OPENCLAW_CONFIG") or "").strip()
+    if legacy and not path:
+        _logger.warning(
+            "MINIAGENT_OPENCLAW_CONFIG 已废弃，请改用 MINIAGENT_CONFIG（本次仍读取旧变量路径）"
+        )
+        path = legacy
+    elif legacy and path and legacy != path:
+        _logger.warning(
+            "同时设置了 MINIAGENT_CONFIG 与 MINIAGENT_OPENCLAW_CONFIG，仅使用 MINIAGENT_CONFIG"
+        )
     patch = ExternalConfigPatch()
     if not path or not os.path.isfile(path):
         _PATCH = {}

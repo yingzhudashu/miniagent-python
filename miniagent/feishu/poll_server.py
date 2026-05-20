@@ -31,6 +31,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
 from miniagent.feishu.types import FeishuConfig, FeishuInboundText
+from miniagent.infrastructure.env_parse import TRUTHY, env_flag, env_flag_strict, env_str
 from miniagent.infrastructure.logger import get_logger
 
 _logger = get_logger(__name__)
@@ -47,14 +48,14 @@ def feishu_outbound_reply_params(
     """是否使用飞书「回复消息」API（``im/v1/messages/:message_id/reply``）。
 
     环境变量：
-    - ``MINIAGENT_FEISHU_REPLY_TARGET``：``create``（默认，会话内新消息）或 ``reply``；其它值视为 ``create``。
+    - ``MINIAGENT_FEISHU_REPLY_TARGET``：``reply``（默认，回复入站消息）或 ``create``（会话内新消息）；其它值视为 ``create``。
     - ``MINIAGENT_FEISHU_REPLY_IN_THREAD``：显式 ``1``/``true`` 等为真；``0``/``false`` 等为假；**未设置**且入站
       ``thread_id`` 非空时，在 ``reply`` 模式下默认 ``reply_in_thread=True``。
 
     Returns:
         ``(reply_parent_message_id_or_None, reply_in_thread)``
     """
-    mode = (os.environ.get("MINIAGENT_FEISHU_REPLY_TARGET") or "create").strip().lower()
+    mode = env_str("MINIAGENT_FEISHU_REPLY_TARGET", "reply").lower()
     if mode not in ("create", "reply"):
         return None, False
     if mode != "reply":
@@ -62,10 +63,10 @@ def feishu_outbound_reply_params(
     mid = (trigger_message_id or "").strip()
     if not mid:
         return None, False
-    raw_thr = (os.environ.get("MINIAGENT_FEISHU_REPLY_IN_THREAD") or "").strip().lower()
+    raw_thr = env_str("MINIAGENT_FEISHU_REPLY_IN_THREAD").lower()
     if raw_thr in ("0", "false", "no", "off"):
         thr = False
-    elif raw_thr in ("1", "true", "yes", "on"):
+    elif raw_thr in TRUTHY:
         thr = True
     else:
         thr = bool((thread_id or "").strip())
@@ -203,7 +204,7 @@ def _extract_post_media_items(content_str: str) -> list[tuple[str, str, str]]:
 
 async def reset_feishu_ws_singleton() -> None:
     """关闭并清空本模块持有的飞书 WS 单例，便于外层重连前重建 Client。"""
-    global _singleton_client, _singleton_app_id
+    global _singleton_client, _singleton_app_id, _ws_shutdown_event
     c = _singleton_client
     _singleton_client = None
     _singleton_app_id = None
@@ -223,6 +224,14 @@ DEDUP_MAX_SIZE = 2000
 # 单例状态（每进程一套 WS；防多客户端抢事件，与 OpenClaw 对齐）
 _singleton_client: Any = None
 _singleton_app_id: str | None = None
+_ws_shutdown_event: asyncio.Event | None = None
+
+
+def request_feishu_ws_shutdown() -> None:
+    """请求结束当前 WebSocket 会话监督（供 ``stop_async`` / 进程 shutdown 调用）。"""
+    ev = _ws_shutdown_event
+    if ev is not None:
+        ev.set()
 
 # 内存去重
 _processing_claims: dict[str, float] = {}
@@ -426,10 +435,13 @@ async def start_feishu_poll_server(
         _logger.error("请安装 lark-oapi: pip install lark-oapi (%s)", e)
         raise
 
+    from miniagent.feishu.ws_health import touch_ws_inbound_activity
+
     # 同步回调（SDK 要求 sync），内部通过 asyncio.create_task 调度 async 逻辑
     def on_message_receive(event: P2ImMessageReceiveV1) -> None:
         """处理 im.message.receive_v1 事件。"""
         try:
+            touch_ws_inbound_activity()
             message = event.event.message
             if not message:
                 return
@@ -536,11 +548,8 @@ async def start_feishu_poll_server(
                         if _feishu_media_reply_indicates_failure(reply):
                             finalized = False
                         else:
-                            silent = (
-                                os.environ.get("MINIAGENT_FEISHU_MEDIA_SILENT_REPLY", "")
-                                .strip()
-                                .lower()
-                                in ("1", "true", "yes", "on")
+                            silent = env_flag(
+                                "MINIAGENT_FEISHU_MEDIA_SILENT_REPLY", default=False
                             )
                             if reply and not silent:
                                 r_mid, r_thr = feishu_outbound_reply_params(
@@ -572,12 +581,7 @@ async def start_feishu_poll_server(
 
                 async def _handle_post_media():
                     finalized = False
-                    silent = (
-                        os.environ.get("MINIAGENT_FEISHU_MEDIA_SILENT_REPLY", "")
-                        .strip()
-                        .lower()
-                        in ("1", "true", "yes", "on")
-                    )
+                    silent = env_flag("MINIAGENT_FEISHU_MEDIA_SILENT_REPLY", default=False)
                     combined: list[str] = []
                     try:
                         for res_type, fk, suggested in post_items:
@@ -628,12 +632,7 @@ async def start_feishu_poll_server(
 
     def _feishu_card_action_router_enabled() -> bool:
         """是否将卡片按钮事件经路由投递到消息队列（环境变量开关）。"""
-        return (os.environ.get("MINIAGENT_FEISHU_CARD_ACTION_ROUTER") or "").strip().lower() in (
-            "1",
-            "true",
-            "yes",
-            "on",
-        )
+        return env_flag_strict("MINIAGENT_FEISHU_CARD_ACTION_ROUTER", default=True)
 
     def _on_card_action_trigger(event: Any) -> Any:
         """同步回调：将卡片 ``action.value`` 中的文本投递给同一 ``message_handler``。"""
@@ -649,6 +648,7 @@ async def start_feishu_poll_server(
         resp.toast = bad
 
         try:
+            touch_ws_inbound_activity()
             ev = getattr(event, "event", None)
             if not ev:
                 return resp
@@ -718,8 +718,15 @@ async def start_feishu_poll_server(
     event_handler = _edb.build()
 
     # 启动 WebSocket 客户端
-    ws_client: Any = None
+    from miniagent.feishu.ws_client import FeishuWsClient
+    from miniagent.feishu.ws_health import get_last_ws_session_end, supervise_feishu_ws_session
+
+    global _ws_shutdown_event
+
+    ws_client: FeishuWsClient | None = None
     ping_task: asyncio.Task[Any] | None = None
+    shutdown_event = asyncio.Event()
+    _ws_shutdown_event = shutdown_event
     try:
         # ── 关键修复：lark-oapi SDK 在模块加载时捕获了 event loop，
         #    但 asyncio.run() 会创建全新 loop。如果不替换，
@@ -728,7 +735,7 @@ async def start_feishu_poll_server(
         import lark_oapi.ws.client as _sdk_ws_mod
         _sdk_ws_mod.loop = asyncio.get_running_loop()
 
-        ws_client = lark.ws.Client(
+        ws_client = FeishuWsClient(
             app_id=config.app_id,
             app_secret=config.app_secret,
             event_handler=event_handler,
@@ -749,16 +756,25 @@ async def start_feishu_poll_server(
         ping_task = asyncio.create_task(ws_client._ping_loop())
 
         try:
-            await asyncio.Event().wait()
+            await supervise_feishu_ws_session(
+                ws_client,
+                shutdown_event=shutdown_event,
+            )
+            end_reason, _ = get_last_ws_session_end()
+            _logger.info(
+                "飞书 WebSocket 会话已结束（%s），将由外层退避后重连",
+                end_reason or "unknown",
+            )
         except (KeyboardInterrupt, asyncio.CancelledError):
             _logger.info("收到退出信号")
-            await ws_client._disconnect()
+            shutdown_event.set()
             raise
 
     except Exception as e:
         _logger.error("WebSocket 启动失败: %s", e)
         raise
     finally:
+        _ws_shutdown_event = None
         # 与 FeishuRuntime 循环开头的 reset 互补：保证异常/取消路径下 SDK 与单例状态一致。
         if ping_task is not None and not ping_task.done():
             ping_task.cancel()
@@ -831,7 +847,7 @@ _WIDE_TABLE_HINT = (
 
 def _feishu_wide_table_fallback_mode() -> str:
     """``MINIAGENT_FEISHU_TABLE_FALLBACK``: hint / unicode / both（默认 both）。"""
-    v = (os.environ.get("MINIAGENT_FEISHU_TABLE_FALLBACK") or "both").strip().lower()
+    v = env_str("MINIAGENT_FEISHU_TABLE_FALLBACK", "both").lower()
     if v in ("hint", "unicode", "both"):
         return v
     return "both"
@@ -917,7 +933,10 @@ def _normalize_lark_md(text: str) -> str:
     lines = t.split("\n")
     out: list[str] = []
     i = 0
-    max_pipes = int(os.environ.get("MINIAGENT_FEISHU_LARK_TABLE_MAX_PIPES", "14"))
+    try:
+        max_pipes = int(env_str("MINIAGENT_FEISHU_LARK_TABLE_MAX_PIPES", "14"))
+    except ValueError:
+        max_pipes = 14
     while i < len(lines):
         row0 = lines[i]
         if i + 1 < len(lines) and "|" in row0 and re.match(
@@ -993,8 +1012,7 @@ def _prepare_thinking_markdown(raw: str) -> str:
 
 def _feishu_reply_plain_enabled() -> bool:
     """``MINIAGENT_FEISHU_REPLY_PLAIN``：最终回复先发交互卡片但正文去掉常见 Markdown 标记（仍为 ``lark_md``）。"""
-    v = os.environ.get("MINIAGENT_FEISHU_REPLY_PLAIN", "").strip().lower()
-    return v in ("1", "true", "yes")
+    return env_flag_strict("MINIAGENT_FEISHU_REPLY_PLAIN", default=True)
 
 
 def _strip_light_markdown_for_feishu_plain(text: str) -> str:

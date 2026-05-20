@@ -176,11 +176,14 @@
         <mxCell id="170" value="💬 飞书层 — miniagent/feishu/  (飞书通信)" style="swimlane;startSize=28;fillColor=#e1d5e7;strokeColor=#9673a6;rounded=1;fontSize=12;fontStyle=1;horizontal=1;collapsible=0;" vertex="1" parent="1">
           <mxGeometry x="970" y="655" width="850" height="195" as="geometry"/>
         </mxCell>
-        <mxCell id="171" value="&lt;b&gt;poll_server.py&lt;/b&gt;&lt;br&gt;WebSocket 长轮询&lt;br&gt;WSClient / 去重 / 防抖" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="170">
-          <mxGeometry x="15" y="35" width="150" height="145" as="geometry"/>
+        <mxCell id="171" value="&lt;b&gt;poll_server.py&lt;/b&gt;&lt;br&gt;WebSocket 长连接&lt;br&gt;去重 / 防抖 / 分发" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="170">
+          <mxGeometry x="15" y="35" width="120" height="145" as="geometry"/>
+        </mxCell>
+        <mxCell id="171a" value="&lt;b&gt;ws_client.py&lt;/b&gt;&lt;br&gt;lark WS 包装&lt;br&gt;&lt;b&gt;ws_health.py&lt;/b&gt;&lt;br&gt;看门狗 / 会话监督" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9673a6;fontSize=9;" vertex="1" parent="170">
+          <mxGeometry x="145" y="35" width="120" height="145" as="geometry"/>
         </mxCell>
         <mxCell id="172" value="&lt;b&gt;agent_handler.py&lt;/b&gt;&lt;br&gt;create_feishu_handler()&lt;br&gt;→ run_agent_with_thinking" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="170">
-          <mxGeometry x="180" y="35" width="165" height="145" as="geometry"/>
+          <mxGeometry x="275" y="35" width="165" height="145" as="geometry"/>
         </mxCell>
         <mxCell id="173" value="im_send.py&lt;br&gt;im_tool_policy.py&lt;br&gt;lark_response.py&lt;br&gt;resource_io.py" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9673a6;fontSize=9;" vertex="1" parent="170">
           <mxGeometry x="360" y="35" width="130" height="145" as="geometry"/>
@@ -232,7 +235,7 @@
         <mxCell id="191" value="&lt;b&gt;manager.py&lt;/b&gt;&lt;br&gt;SessionManager&lt;br&gt;&lt;hr&gt;get_or_create()&lt;br&gt;resolve_session_id()&lt;br&gt;rename_session()&lt;br&gt;list_all_sessions_with_info()&lt;br&gt;磁盘持久化" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="190">
           <mxGeometry x="15" y="35" width="165" height="120" as="geometry"/>
         </mxCell>
-        <mxCell id="192" value="&lt;b&gt;workspace.py&lt;/b&gt;&lt;br&gt;工作空间管理&lt;br&gt;&lt;hr&gt;会话目录创建&lt;br&gt;config.json&lt;br&gt;history.jsonl" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="190">
+        <mxCell id="192" value="&lt;b&gt;workspace.py&lt;/b&gt;&lt;br&gt;工作空间管理&lt;br&gt;&lt;hr&gt;会话目录创建&lt;br&gt;config.json&lt;br&gt;history.json" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="190">
           <mxGeometry x="195" y="35" width="100" height="120" as="geometry"/>
         </mxCell>
 

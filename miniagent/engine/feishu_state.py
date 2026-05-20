@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import os
 import random
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -167,9 +168,17 @@ class FeishuRuntime:
                             message_queue=mq,
                             media_handler=media_h,
                         )
-                        _logger.warning(
-                            "\u98de\u4e66 WebSocket \u4f1a\u8bdd\u5df2\u7ed3\u675f\uff0c\u5c06\u9000\u907f\u540e\u91cd\u8fde"
-                        )
+                        try:
+                            from miniagent.feishu.ws_health import get_last_ws_session_end
+
+                            end_reason, _ = get_last_ws_session_end()
+                            if end_reason:
+                                self._emit_user_line(
+                                    f"\u2139\ufe0f [\u98de\u4e66] \u4f1a\u8bdd\u7ed3\u675f"
+                                    f"\uff08{end_reason}\uff09\uff0c\u5c06\u91cd\u8fde\u2026"
+                                )
+                        except Exception:
+                            pass
                     except asyncio.CancelledError:
                         _logger.info("\u98de\u4e66: \u5df2\u53d6\u6d88")
                         self._emit_user_line("\u2139\ufe0f [\u98de\u4e66] \u5df2\u505c\u6b62")
@@ -209,6 +218,16 @@ class FeishuRuntime:
         # #endregion
         self._emit_user_line("\u2705 \u98de\u4e66\u5df2\u542f\u52a8")
         try:
+            from miniagent.engine.cli_commands import feishu_dot_commands_full_enabled
+
+            if feishu_dot_commands_full_enabled():
+                _logger.warning(
+                    "已启用 MINIAGENT_FEISHU_DOT_COMMANDS_FULL：飞书可使用全部点命令"
+                    "（含 .session/.schedule 变异与 .stop，会修改与 CLI 共享的状态）"
+                )
+        except Exception:
+            pass
+        try:
             from miniagent.infrastructure.instance import update_instance_mode
 
             update_instance_mode("both")
@@ -229,10 +248,22 @@ class FeishuRuntime:
                 pass
             return
 
+        try:
+            from miniagent.feishu.poll_server import request_feishu_ws_shutdown
+
+            request_feishu_ws_shutdown()
+        except Exception:
+            pass
         if t and not t.done():
-            t.cancel()
             try:
-                await t
+                await asyncio.wait_for(t, timeout=3.0)
+            except asyncio.TimeoutError:
+                if not t.done():
+                    t.cancel()
+                    try:
+                        await t
+                    except asyncio.CancelledError:
+                        pass
             except asyncio.CancelledError:
                 pass
         self._task = None
@@ -261,6 +292,12 @@ class FeishuRuntime:
 
         self._running = False
         t = self._task
+        try:
+            from miniagent.feishu.poll_server import request_feishu_ws_shutdown
+
+            request_feishu_ws_shutdown()
+        except Exception:
+            pass
         if t and not t.done():
             t.cancel()
 
@@ -293,6 +330,29 @@ class FeishuRuntime:
             self._emit_user_line("\U0001f7e2 \u98de\u4e66: \u8fd0\u884c\u4e2d")
         else:
             self._emit_user_line("\u26aa \u98de\u4e66: \u672a\u542f\u7528")
+        try:
+            from miniagent.feishu.ws_health import (
+                get_last_ws_session_end,
+                get_ws_last_inbound_monotonic,
+            )
+
+            end_reason, end_at = get_last_ws_session_end()
+            if end_reason:
+                when = ""
+                if end_at:
+                    when = time.strftime("%H:%M:%S", time.localtime(end_at))
+                self._emit_user_line(
+                    f"\U0001f4ca \u98de\u4e66 WS: \u4e0a\u6b21\u4f1a\u8bdd\u7ed3\u675f={end_reason}"
+                    + (f" ({when})" if when else "")
+                )
+            last_in = get_ws_last_inbound_monotonic()
+            if last_in is not None:
+                ago = time.monotonic() - last_in
+                self._emit_user_line(
+                    f"\U0001f4ca \u98de\u4e66 WS: \u6700\u540e\u5165\u7ad9\u7ea6 {ago:.0f}s \u524d"
+                )
+        except Exception:
+            pass
         try:
             from miniagent.infrastructure.feishu_inbound_lock import (
                 read_feishu_inbound_owner,

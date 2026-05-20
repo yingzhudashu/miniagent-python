@@ -21,8 +21,9 @@ _run_dot_command_schema = {
             ".schedule enable | .schedule disable。"
             "其中 .schedule add 必须使用「空格双连字符空格」分隔参数区与 prompt，"
             "示例：.schedule add myid every 300 primary -- 请每5分钟总结当前会话。"
-            "飞书场景下：.session 的切换/创建等、以及 .schedule 的 add/remove/enable/disable 会被拒绝"
-            "（仅允许 .schedule list/show）；本地 CLI 对话中 Agent 可执行上述变异命令。"
+            "飞书场景下默认：.session 的切换/创建等、以及 .schedule 的 add/remove/enable/disable 会被拒绝"
+            "（仅允许 .schedule list/show）；设置 MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1 时飞书与 CLI 同等。"
+            "本地 CLI 对话中 Agent 始终可执行上述变异命令。"
             "飞书且已注入 receive_chat_id 时，.abort / .queue abort 作用于当前群/私聊的消息队列；否则作用于 CLI 队列。"
         ),
         "parameters": {

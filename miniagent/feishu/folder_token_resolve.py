@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import os
 import re
+
 from miniagent.feishu.types import FeishuConfig
+from miniagent.infrastructure.env_parse import env_flag, env_str_legacy
 
 # 飞书云盘文件夹路径常见形态：.../folder/<token>、.../drive/folder/<token>、...#/folder/<token>
 _FOLDER_IN_PATH = re.compile(
@@ -62,16 +63,16 @@ def folder_token_from_tool_arg(raw: str | None) -> tuple[str, str | None]:
 
 def default_doc_folder_token_from_env() -> str:
     """与 ``feishu_create_document`` 历史行为一致的环境变量默认父目录。"""
-    return (
-        (os.environ.get("FEISHU_DEFAULT_DOC_FOLDER_TOKEN") or "").strip()
-        or (os.environ.get("MINIAGENT_FEISHU_DOC_FOLDER_TOKEN") or "").strip()
+    return env_str_legacy(
+        "MINIAGENT_FEISHU_DOC_FOLDER_TOKEN",
+        "FEISHU_DEFAULT_DOC_FOLDER_TOKEN",
+        deprecate_msg="FEISHU_DEFAULT_DOC_FOLDER_TOKEN 已弃用，请改用 MINIAGENT_FEISHU_DOC_FOLDER_TOKEN。",
     )
 
 
 def root_meta_fallback_enabled() -> bool:
-    """是否启用「根文件夹元数据」API 作为最后回退（默认关闭）。"""
-    v = (os.environ.get("FEISHU_DOC_FOLDER_FALLBACK_ROOT_META") or "").strip().lower()
-    return v in ("1", "true", "yes", "on")
+    """是否启用「根文件夹元数据」API 作为最后回退（默认开启）。"""
+    return env_flag("FEISHU_DOC_FOLDER_FALLBACK_ROOT_META", default=True)
 
 
 def format_missing_folder_token_message(*, tried: list[str], root_meta_error: str | None = None) -> str:
@@ -81,7 +82,7 @@ def format_missing_folder_token_message(*, tried: list[str], root_meta_error: st
         "⚠️ 需要云盘父目录 folder_token。",
         f"已尝试：{tried_s}。",
         "请任选其一：在工具参数中传入文件夹 token 或飞书云盘文件夹完整链接；",
-        "或配置环境变量 FEISHU_DEFAULT_DOC_FOLDER_TOKEN / MINIAGENT_FEISHU_DOC_FOLDER_TOKEN；",
+        "或配置环境变量 MINIAGENT_FEISHU_DOC_FOLDER_TOKEN；",
         "或设置 FEISHU_DOC_FOLDER_FALLBACK_ROOT_META=1 并确保应用具备云盘根元数据权限（见 docs/FEISHU.md）。",
     ]
     if root_meta_error:

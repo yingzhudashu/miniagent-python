@@ -146,7 +146,7 @@ def get_default_model_config() -> ModelConfig:
     若**未**设置 ``AGENT_THINKING_DEFAULT``，则还可使用外部 JSON 的 ``thinking_budget_by_model``
     覆盖当前模型的预算；一旦设置了 ``AGENT_THINKING_DEFAULT``，则不再用该按模型项（避免与 env 档位冲突）。
 
-    可选 ``MINIAGENT_CONFIG`` / ``MINIAGENT_OPENCLAW_CONFIG`` 仅作兼容：在对应扁平环境变量
+    可选 ``MINIAGENT_CONFIG`` 仅作兼容：在对应扁平环境变量
     **未设置** 时回填 ``OPENAI_*`` 等；thinking 相关仍以**环境变量优先于补丁**。
 
     Returns:

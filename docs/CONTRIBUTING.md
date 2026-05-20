@@ -11,8 +11,8 @@
 | `cli/` | 控制台入口脚本（`project.scripts` → `main`） | cli.py |
 | `core/` | Agent 核心逻辑（规划+执行） | agent.py, executor.py, planner.py, openai_client.py |
 | `engine/` | 运行时编排、CLI、生命周期 | main.py, engine.py, command_dispatch.py |
-| `feishu/` | 飞书通信 | poll_server.py, agent_handler.py |
-| `infrastructure/` | 基础设施（注册表、监控、队列） | registry.py, message_queue.py, timezone_config.py, env_loader.py, instance.py |
+| `feishu/` | 飞书通信 | poll_server.py, ws_client.py, ws_health.py, agent_handler.py |
+| `infrastructure/` | 基础设施（注册表、监控、队列） | registry.py, message_queue.py, timezone_config.py, env_loader.py, env_parse.py, instance.py |
 | `memory/` | 三层记忆系统 | store.py, context.py, keyword_index.py, defaults.py |
 | `session/` | 会话管理与持久化 | manager.py, workspace.py |
 | `skills/` | 可插拔技能系统 | registry.py, loader.py, clawhub_client.py |

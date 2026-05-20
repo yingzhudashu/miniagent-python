@@ -18,9 +18,10 @@
 ## 2. 环境准备
 
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[dev,typing]"
 ```
 
+- 完整本地门禁见 [ENGINEERING.md](ENGINEERING.md) §2。
 - 涉及 **LLM 评判**（如 `evaluators/llm_judge.py`）时，需在 `.env` 中配置与主 Agent 相同的 **`OPENAI_API_KEY`**（或其它评测脚本读取的模型环境变量，以脚本内说明为准）。
 - 涉及 **飞书 / 浏览器 / MCP** 的用例时，按需安装：`pip install -e ".[dev,feishu]"`、`.[browser]`、`.[mcp]`。
 
