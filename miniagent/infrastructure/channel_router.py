@@ -221,6 +221,11 @@ class ChannelRouter:
                 display = self._format_channel(channel_id)
                 lines.append(f"  {display} → {session_id}")
 
+        from miniagent.infrastructure.cli_feishu_policy import focus_mode_status_line
+
+        lines.append("")
+        lines.append(focus_mode_status_line(self))
+
         return "\n".join(lines)
 
     @staticmethod

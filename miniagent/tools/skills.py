@@ -151,7 +151,10 @@ async def _install_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult
     try:
         client = _resolve_clawhub(ctx)
         skills_root = _get_skills_root()
-        install_dir = os.path.join(skills_root, slug)
+        from miniagent.skills.clawhub_client import skill_install_dir_name
+
+        dir_name = skill_install_dir_name(slug)
+        install_dir = os.path.join(skills_root, dir_name)
 
         if os.path.exists(install_dir):
             return ToolResult(
@@ -162,14 +165,45 @@ async def _install_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult
         result = await client.download(slug, version, skills_root=skills_root)
         detail = await client.get_detail(slug)
 
+        install_path = result.get("path") or install_dir
+        refresh_note = ""
+        st = ctx.cli_loop_state
+        if isinstance(st, dict):
+            rt = st.get("runtime_ctx")
+            if rt is not None:
+                from miniagent.skills.refresh import refresh_skills
+
+                try:
+                    fr = await refresh_skills(
+                        rt.registry,
+                        rt.skill_registry,
+                        package_dir=install_path,
+                        state=st,
+                        session_manager=st.get("session_manager"),
+                    )
+                    refresh_note = (
+                        f"\n\n🔄 已热加载到当前 Agent"
+                        f"（{len(fr.loaded_skills)} 个技能，"
+                        f"新增工具 {len(fr.added_tools)} 个）"
+                    )
+                except Exception as ex:
+                    refresh_note = (
+                        f"\n\n⚠️ 安装成功但热加载失败: {ex}"
+                        f"\n请执行 `.reload-skills` 或重启 Agent"
+                    )
+            else:
+                refresh_note = "\n\n💡 提示：执行 `.reload-skills` 或重启 Agent 后加载"
+        else:
+            refresh_note = "\n\n💡 提示：执行 `.reload-skills` 或重启 Agent 后加载"
+
         return ToolResult(
             success=True,
             content=(
                 f"✅ 技能 \"{slug}\" 安装成功！\n\n"
-                f"📁 安装路径: {result['path']}\n"
+                f"📁 安装路径: {install_path}\n"
                 f"📦 版本: {detail.get('version', 'unknown')}\n"
-                f"📄 文件数: {len(result.get('files', []))}\n\n"
-                f"💡 提示：重启 Agent 后新技能将自动加载"
+                f"📄 文件数: {len(result.get('files', []))}"
+                f"{refresh_note}"
             ),
         )
     except Exception as e:

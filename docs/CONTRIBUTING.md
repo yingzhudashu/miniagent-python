@@ -277,7 +277,7 @@ def merge_config(base: AgentConfig, overrides: dict[str, Any]) -> AgentConfig:
         新的 ``AgentConfig`` 实例。
 
     Note:
-        与 ``load_external_config_from_env`` 的语义差异见 ARCHITECTURE.md 外部配置小节。
+        运行时配置以扁平环境变量为准，见 ARCHITECTURE.md「配置（扁平环境变量）」。
     """
 ```
 

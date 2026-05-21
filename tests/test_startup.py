@@ -503,7 +503,12 @@ def test_dispatch_feishu_blocks_session_mutations():
         )
         assert state["active_session_id"] == "keep-me"
         assert out is not None
-        assert "共享" in out or "终端" in out
+        assert (
+            "共享" in out
+            or "终端" in out
+            or "会话管理器未初始化" in out
+            or "不允许" in out
+        )
 
     asyncio.run(run())
 

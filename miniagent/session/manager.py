@@ -933,6 +933,16 @@ class DefaultSessionManager(SessionManagerProtocol):
         """
         return list(self._main_toolboxes)
 
+    def refresh_main_skills(
+        self,
+        skills: list[Skill],
+        toolboxes: list[Toolbox] | None = None,
+    ) -> None:
+        """热更新主空间技能与工具箱快照（``refresh_skills`` 后调用）。"""
+        self._main_skills = list(skills)
+        if toolboxes is not None:
+            self._main_toolboxes = list(toolboxes)
+
     def get_main_registry(self) -> DefaultToolRegistry:
         """获取主空间工具注册表
 

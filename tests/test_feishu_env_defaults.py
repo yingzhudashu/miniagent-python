@@ -21,24 +21,6 @@ def test_feishu_reply_plain_typo_is_off(monkeypatch: pytest.MonkeyPatch) -> None
     assert _feishu_reply_plain_enabled() is False
 
 
-def test_openclaw_config_fallback(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    import json
-
-    from miniagent.runtime import external_config as ec
-
-    ec.reset_external_config_for_tests()
-    monkeypatch.delenv("MINIAGENT_CONFIG", raising=False)
-    cfg = {
-        "models": {"providers": {"p": {"baseUrl": "https://x/v1", "apiKey": "k"}}},
-        "agents": {"defaults": {"model": {"primary": "p/m"}}},
-    }
-    p = tmp_path / "legacy.json"
-    p.write_text(json.dumps(cfg), encoding="utf-8")
-    monkeypatch.setenv("MINIAGENT_OPENCLAW_CONFIG", str(p))
-    patch = ec.load_external_config_from_env()
-    assert patch.model == "m"
-
-
 def test_folder_token_legacy_env(monkeypatch: pytest.MonkeyPatch) -> None:
     from miniagent.feishu.folder_token_resolve import default_doc_folder_token_from_env
     from miniagent.infrastructure.env_parse import reset_env_legacy_warnings_for_tests

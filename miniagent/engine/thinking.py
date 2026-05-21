@@ -116,6 +116,7 @@ class _SessionThinkingState:
     """单个会话的思考状态（内部使用）。"""
     __slots__ = ("step_counter", "buffer", "feishu_send", "feishu_chat_id",
                  "feishu_reply_to_message_id", "feishu_reply_in_thread",
+                 "feishu_mirror_cli",
                  "stream_step", "stream_header", "stream_done", "stream_printed",
                  "feishu_thinking_message_id", "feishu_stream_accumulated",
                  "feishu_last_patch_monotonic", "feishu_last_patched_char_len", "feishu_patch_budget",
@@ -127,6 +128,7 @@ class _SessionThinkingState:
     feishu_chat_id: str
     feishu_reply_to_message_id: str | None
     feishu_reply_in_thread: bool
+    feishu_mirror_cli: bool
     stream_step: int | None
     stream_header: str
     stream_done: bool
@@ -146,6 +148,7 @@ class _SessionThinkingState:
         self.feishu_chat_id = ""
         self.feishu_reply_to_message_id = None
         self.feishu_reply_in_thread = False
+        self.feishu_mirror_cli = True
         self.stream_step = None
         self.stream_header = ""
         self.stream_done = False
@@ -254,6 +257,7 @@ class ThinkingDisplay:
         state.feishu_chat_id = ""
         state.feishu_reply_to_message_id = None
         state.feishu_reply_in_thread = False
+        state.feishu_mirror_cli = True
         state.stream_step = None
         state.stream_header = ""
         state.stream_done = False
@@ -277,16 +281,19 @@ class ThinkingDisplay:
         *,
         reply_to_message_id: str | None = None,
         reply_in_thread: bool = False,
+        mirror_cli: bool = True,
     ) -> None:
         """为会话注册飞书 chat_id 与发送协程，用于思考卡片 PATCH。
 
         ``reply_to_message_id`` 非空时，首张思考卡可走「回复消息」API（见 ``MINIAGENT_FEISHU_REPLY_TARGET``）。
+        ``mirror_cli=False`` 时全屏 transcript 不重复打印飞书侧思考（见 ``cli_feishu_policy``）。
         """
         state = self._get_state(session_key)
         state.feishu_chat_id = chat_id
         state.feishu_send = send_callback
         state.feishu_reply_to_message_id = (reply_to_message_id or "").strip() or None
         state.feishu_reply_in_thread = bool(reply_in_thread)
+        state.feishu_mirror_cli = mirror_cli
 
     def enable_buffer(self) -> None:
         """打开默认桶缓冲（不落盘终端），用于仅需收集思考文本的场景。"""
@@ -326,6 +333,12 @@ class ThinkingDisplay:
     def _should_emit_cli(self, state: _SessionThinkingState) -> bool:
         """无 transcript sink 且仅走飞书时不在本机重复打印；仍依赖下方逻辑更新 stream_header 等状态。"""
         if self._output_sink:
+            if (
+                state.feishu_send
+                and state.feishu_chat_id
+                and not state.feishu_mirror_cli
+            ):
+                return False
             return True
         if state.feishu_send and state.feishu_chat_id:
             return False

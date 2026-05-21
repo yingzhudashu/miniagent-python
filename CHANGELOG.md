@@ -4,6 +4,7 @@
 
 ### Added
 
+- **技能热加载**：`refresh_skills` / `.reload-skills`；`install_skill` 安装后自动加载；`MINIAGENT_SKILLS_WATCH` 可选监视技能目录；CLI/飞书/定时任务从 `state` 读取技能快照。
 - **飞书点命令**：环境变量 **`MINIAGENT_FEISHU_DOT_COMMANDS_FULL`**（默认关）使飞书点命令与 CLI 全量对齐（含 `.session`/`.schedule` 变异与 `.stop`）；`dispatch_command` 的 `block_remote` 与 env 一致（防御性）。
 - **定时任务**：标准 **5 段 Unix cron**（`croniter`）；CLI `.schedule add … cron "分 时 日 月 周"` 与工具 `add_cron` / **`update`**；`list` 显示本地化下次触发时间。
 - **定时任务可靠性**：跨进程 `job_<id>.lock`、`tasks.json.lock`；dispatch 失败退避（`MINIAGENT_SCHEDULE_DISPATCH_BACKOFF`，默认 60s）；非法 cron 写入 `last_error`；shutdown 取消 job 不再误退避。
@@ -11,11 +12,12 @@
 
 ### Breaking changes
 
+- **外部 JSON 配置**：已移除 `MINIAGENT_CONFIG`、`MINIAGENT_OPENCLAW_CONFIG` 及 `miniagent/runtime/external_config.py`。请改用 `.env` 扁平变量（`OPENAI_*`、`AGENT_CONTEXT_WINDOW`、`AGENT_THINKING_DEFAULT`、`OPENAI_THINKING_BUDGET`、`OPENAI_MAX_TOKENS` 等）；OpenClaw 字段映射见 [.env.example](.env.example) §2。
 - **飞书出站**：未设置 `MINIAGENT_FEISHU_REPLY_TARGET` 时默认 **`reply`**（原为 `create`）；显式 `create` 可恢复旧行为。
 - **飞书体验**：`MINIAGENT_FEISHU_REPLY_PLAIN`、`MINIAGENT_FEISHU_CARD_ACTION_ROUTER` 默认 **开**；无法识别的非空取值视为 **关**（`env_flag_strict`）。
 - **飞书工具**：`MINIAGENT_FEISHU_TOOLS_AUTO` 默认 **开**（仍需 `FEISHU_APP_ID`/`SECRET`）；显式 `MINIAGENT_FEISHU_TOOLS=0` 或 `MINIAGENT_FEISHU_TOOLS_AUTO=0` 可关闭。
 - **云盘回退**：`FEISHU_DOC_FOLDER_FALLBACK_ROOT_META` 默认 **开**；`0`/`false` 可关闭根目录元数据 API 回退。
-- **环境变量别名**：请改用 `MINIAGENT_CONFIG`、`MINIAGENT_FEISHU_DOCX_URL_PREFIX`、`MINIAGENT_FEISHU_DOC_FOLDER_TOKEN`；旧名 `MINIAGENT_OPENCLAW_CONFIG`、`FEISHU_DOCX_URL_PREFIX`、`FEISHU_DEFAULT_DOC_FOLDER_TOKEN` 仍会读取并打弃用警告（下一版本可能移除）。
+- **环境变量别名**：请改用 `MINIAGENT_FEISHU_DOCX_URL_PREFIX`、`MINIAGENT_FEISHU_DOC_FOLDER_TOKEN`；旧名 `FEISHU_DOCX_URL_PREFIX`、`FEISHU_DEFAULT_DOC_FOLDER_TOKEN` 仍会读取并打弃用警告（下一版本可能移除）。
 
 ### Changed
 
@@ -42,21 +44,22 @@
 
 ### Documentation
 
-- **文档 SSOT 重组**：[INDEX.md](docs/INDEX.md) 目录树补全 `ws_client` / `ws_health` / `env_parse`；统一 `history.json`；`MINIAGENT_OPENCLAW_CONFIG` 等改为「已废弃」表述；README / USER_GUIDE 去重；DEPLOYMENT / EVALUATION_LOCAL 开发安装与 CI 对齐（`.[dev,typing]`）；FEISHU 运维速查与会话隔离说明；ENGINEERING §5 维护清单增强。详情见各专题文档，不在此逐文件列举。
-- **历史文档修订**（此前多轮）：多实例 PID 存活语义、FEISHU v2 调研并入 [FEISHU.md](docs/FEISHU.md)、`architecture.drawio` 与 ARCHITECTURE 对齐、USER_GUIDE 零基础指南、examples/ 脱敏片段等。
+- **文档 SSOT 重组**：[INDEX.md](docs/INDEX.md) 目录树补全 `ws_client` / `ws_health` / `env_parse`；统一 `history.json`；README / USER_GUIDE 去重；DEPLOYMENT / EVALUATION_LOCAL 开发安装与 CI 对齐（`.[dev,typing]`）；FEISHU 运维速查与会话隔离说明；ENGINEERING §5 维护清单增强。详情见各专题文档，不在此逐文件列举。
+- **历史文档修订**（此前多轮）：多实例 PID 存活语义、FEISHU v2 调研并入 [FEISHU.md](docs/FEISHU.md)、`architecture.drawio` 与 ARCHITECTURE 对齐、USER_GUIDE 零基础指南等。
+- **env-only 文档同步**：移除 `runtime/external_config.py` 与 `docs/examples/sample-external-config.fragment.json`；ARCHITECTURE / USER_GUIDE / `.env.example` 改为扁平 env SSOT 与 OpenClaw 迁移表；`architecture.drawio` 去掉 `external_config` 节点；[docs/examples/](docs/examples/) README 改为 env 配置说明。
 
 ### Security
 
-- **文档**：[SECURITY.md](docs/SECURITY.md) 新增「外部 JSON（MINIAGENT_CONFIG）与进程环境」专节，说明 `apiKey` 写入 `os.environ` 的风险与缓解；数据安全原则与检查清单与之对齐。
+- **文档**：[SECURITY.md](docs/SECURITY.md) 删除「外部 JSON（MINIAGENT_CONFIG）与进程环境」专节；数据安全原则与检查清单改为以 `.env` 与进程环境为准。
 
 ### Engineering
 
 - **Ruff / 类型 / 覆盖率**：`pyproject.toml` 启用 `[tool.ruff.lint]`（`E4`、`E7`、`E9`、`F`、`I`、`UP`；`E402` 忽略）；`dev` 依赖增加 `pytest-cov`；可选 extra `typing`（`mypy`）与 `[tool.mypy]` 试点配置；`miniagent.types.tool.ToolRegistryProtocol` 内与方法名 ``list`` 冲突的 ``list[...]`` 标注改为 ``List[...]`` 以通过 `mypy miniagent/types`；CI `test` job 安装 `.[dev,typing]` 并跑 `mypy miniagent/types`。
 - **`.gitignore`**：默认忽略 `workspaces/memory/`、`workspaces/keyword-index.json`、`workspaces/perf*.jsonl`、`workspaces/feishu_inbound_owner.json`、`workspaces/feishu/`。
 - **文档**：[ENGINEERING.md](docs/ENGINEERING.md) §3.1 / §4、[INDEX.md](docs/INDEX.md)「workspaces 与 Git」段落与上述策略一致；[CONTRIBUTING.md](docs/CONTRIBUTING.md) 子包数量表述与目录表一致。
-- **注释**：充实 `core`（`agent` / `planner` / `executor`）、`runtime`（`context` / `external_config`）、`engine`（`engine` / `init`）、`compat`、`feishu` 包等模块级说明；`executor` 模块说明中 `ContextBudgetExceeded` 改为全限定类引用；`keyword_index` 模块说明补充勿提交索引文件。
+- **注释**：充实 `core`（`agent` / `planner` / `executor`）、`runtime`（`context`）、`engine`（`engine` / `init`）、`compat`、`feishu` 包等模块级说明；`executor` 模块说明中 `ContextBudgetExceeded` 改为全限定类引用；`keyword_index` 模块说明补充勿提交索引文件。
 - **注释（补全）**：按清单为 `miniagent/` 内此前缺 docstring 的函数、嵌套函数、Protocol 成员与关键方法补充中文说明（含 `engine/main` TUI 辅助、`feishu/poll_server` 规范化、`memory` 子系统、`tools`、`skills`、`scheduled_tasks`、`mcp` 等）。
-- **示例目录**：新增 [docs/examples/](docs/examples/)（README + 脱敏 `sample-external-config.fragment.json`），与 INDEX 目录树及「勿将密钥放入 workspaces」表述一致。
+- **遗留 env 提示**：[`env_loader.py`](miniagent/infrastructure/env_loader.py) 在加载 `.env` 后若仍设置 `MINIAGENT_CONFIG` / `MINIAGENT_OPENCLAW_CONFIG` 会打一次性 WARNING，指向 `.env.example` §2 迁移说明。
 
 ## [2.0.2] - 2026-05-10
 

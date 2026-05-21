@@ -149,12 +149,12 @@ async def unified_main(ctx: RuntimeContext) -> None:
     不再检查全局单实例 — 支持多实例并行。
     每个实例通过会话级 .lock 文件隔离。
 
+    嵌入场景若不经 ``compat.unified_entry``，调用方须先
+    ``load_dotenv_from_project_root()`` 或预先设置 ``OPENAI_*`` 等环境变量。
+
     Args:
         ctx: 运行时组合根（registry / monitor / skill_registry / clawhub / engine）
     """
-    # MINIAGENT_CONFIG 已在启动早期加载；勿在此处重复调用以免噪音。
-    # 若测试或嵌入场景仅调用 unified_main，需自行先执行 load_external_config_from_env()。
-
     registry = ctx.registry
     skill_registry = ctx.skill_registry
     engine = ctx.engine
@@ -270,6 +270,10 @@ async def unified_main(ctx: RuntimeContext) -> None:
 
     start_scheduled_tasks_ticker(ctx, state, skill_toolboxes, skill_prompts)
 
+    from miniagent.skills.watch import start_skills_watch
+
+    start_skills_watch(registry, skill_registry, state, ctx)
+
     # 显示欢迎信息
     print_welcome(
         registry,
@@ -312,6 +316,8 @@ async def run_cli_loop(
 ) -> None:
     """CLI 交互循环（使用 prompt_toolkit 实现固定输入区）。
 
+    ``skill_toolboxes`` / ``skill_prompts`` 参数保留兼容；实际从 ``state`` 读取以支持热加载。
+
     界面布局：
     ─────────── 分隔线 ───────────
     [Agent 输出区域]
@@ -323,6 +329,17 @@ async def run_cli_loop(
     monitor = ctx.monitor
     channel_router = ctx.channel_router
     message_queue = ctx.message_queue
+    from miniagent.skills.snapshots import (
+        get_skill_prompts_from_state,
+        get_skill_toolboxes_from_state,
+        join_skill_prompts,
+    )
+
+    def _skill_tb() -> list:
+        return get_skill_toolboxes_from_state(state) or skill_toolboxes
+
+    def _skill_sp() -> str | None:
+        return join_skill_prompts(get_skill_prompts_from_state(state) or skill_prompts)
 
     try:
         from prompt_toolkit.formatted_text import HTML
@@ -1063,8 +1080,8 @@ async def run_cli_loop(
             reply = await engine.run_agent_with_thinking(
                 user_input,
                 session_key,
-                skill_toolboxes,
-                "\n\n".join(skill_prompts) if skill_prompts else None,
+                _skill_tb(),
+                _skill_sp(),
                 registry=registry,
                 monitor=monitor,
                 session_manager=state.get("session_manager"),
@@ -1146,8 +1163,8 @@ async def run_cli_loop(
                 engine=engine,
                 registry=registry,
                 monitor=monitor,
-                skill_toolboxes=skill_toolboxes,
-                skill_prompts=skill_prompts,
+                skill_toolboxes=_skill_tb(),
+                skill_prompts=get_skill_prompts_from_state(state) or skill_prompts,
                 capture=True,
                 allow_session_mutations_when_capture=True,
                 feishu_user_status=_feishu_user_status_fn(ctx),
@@ -1208,6 +1225,17 @@ async def _run_cli_loop_fallback(
     )
 
     active_profile = os.environ.get("MODEL_PROFILE", "balanced")
+    from miniagent.skills.snapshots import (
+        get_skill_prompts_from_state,
+        get_skill_toolboxes_from_state,
+        join_skill_prompts,
+    )
+
+    def _skill_tb() -> list:
+        return get_skill_toolboxes_from_state(state) or skill_toolboxes
+
+    def _skill_sp() -> str | None:
+        return join_skill_prompts(get_skill_prompts_from_state(state) or skill_prompts)
 
     _fb_w = 60
 
@@ -1233,8 +1261,8 @@ async def _run_cli_loop_fallback(
             reply = await engine.run_agent_with_thinking(
                 user_input,
                 session_key,
-                skill_toolboxes,
-                "\n\n".join(skill_prompts) if skill_prompts else None,
+                _skill_tb(),
+                _skill_sp(),
                 registry=registry,
                 monitor=monitor,
                 session_manager=state.get("session_manager"),
@@ -1339,8 +1367,8 @@ async def _run_cli_loop_fallback(
         if user_input.startswith(".feishu"):
             if user_input == ".feishu start":
                 ctx.feishu.start(
-                    skill_toolboxes,
-                    skill_prompts,
+                    _skill_tb(),
+                    get_skill_prompts_from_state(state) or skill_prompts,
                     ctx.create_feishu_handler_factory,
                     state,
                     user_status=_feishu_user_status_fn(ctx),
@@ -1414,8 +1442,8 @@ async def _run_cli_loop_fallback(
 
 
 def _create_feishu_handler(
-    skill_toolboxes,
-    skill_prompts,
+    _skill_toolboxes,
+    _skill_prompts,
     state: CliLoopState,
     ctx: RuntimeContext,
 ):
@@ -1425,6 +1453,8 @@ def _create_feishu_handler(
     通过 ChannelRouter 解析 session_key：
     - 群聊消息: 始终独立会话
     - 私聊消息: 检查是否绑定到 CLI 会话（支持干预）
+
+    技能工具箱/提示词从 ``state`` 读取，支持 ``refresh_skills`` 后无需重启飞书 handler。
     """
     engine = ctx.engine
     registry = ctx.registry
@@ -1432,9 +1462,57 @@ def _create_feishu_handler(
     from miniagent.engine.cli_commands import feishu_dot_commands_full_enabled
     from miniagent.engine.command_dispatch import dispatch_command
     from miniagent.feishu.types import FeishuInboundText
+    from miniagent.skills.snapshots import (
+        get_skill_prompts_from_state,
+        get_skill_toolboxes_from_state,
+        join_skill_prompts,
+    )
 
     channel_router = ctx.channel_router
     _emit_feishu_cli = _feishu_user_status_fn(ctx)
+    from miniagent.infrastructure.cli_feishu_policy import (
+        should_allow_p2p_auto_bind,
+        should_mirror_feishu_to_cli,
+    )
+
+    def _maybe_auto_bind_p2p(chat_type: str, sender_id: str, loop_state: CliLoopState) -> None:
+        if (chat_type or "").strip().lower() != "p2p":
+            return
+        if not should_allow_p2p_auto_bind(channel_router):
+            return
+        cid = f"{channel_router.FEISHU_P2P_PREFIX}{sender_id}"
+        synced: set[str] = loop_state.setdefault("feishu_p2p_synced_senders", set())  # type: ignore[assignment]
+        if not isinstance(synced, set):
+            synced = set()
+            loop_state["feishu_p2p_synced_senders"] = synced
+        if not channel_router.is_bound(cid):
+            act = (loop_state.get("active_session_id") or "").strip()
+            if act:
+                channel_router.bind(cid, act)
+                synced.add(sender_id)
+
+    def _emit_feishu_preview(
+        *,
+        chat_type: str,
+        chat_id: str,
+        sender_id: str,
+        session_key: str,
+        line: str,
+    ) -> None:
+        if should_mirror_feishu_to_cli(
+            channel_router,
+            chat_type=chat_type,
+            chat_id=chat_id,
+            sender_id=sender_id,
+            session_key=session_key,
+        ):
+            _emit_feishu_cli(line)
+
+    def _skill_tb() -> list:
+        return get_skill_toolboxes_from_state(state)
+
+    def _skill_sp() -> str | None:
+        return join_skill_prompts(get_skill_prompts_from_state(state))
 
     async def handler(inbound: FeishuInboundText) -> str:
         """处理单条飞书消息（:class:`~miniagent.feishu.types.FeishuInboundText`）。
@@ -1459,34 +1537,30 @@ def _create_feishu_handler(
                     engine=engine,
                     registry=registry,
                     monitor=monitor,
-                    skill_toolboxes=skill_toolboxes,
-                    skill_prompts=skill_prompts,
+                    skill_toolboxes=_skill_tb(),
+                    skill_prompts=get_skill_prompts_from_state(state),
                     capture=True,
                     allow_session_mutations_when_capture=feishu_dot_commands_full_enabled(),
                     message_queue_abort_chat_id=chat_id,
                 )
                 if reply is not None:
-                    _emit_feishu_cli(
-                        f"\n\U0001f4e8 [\u98de\u4e66\u547d\u4ee4 {chat_id[:8]}] {content}"
+                    _maybe_auto_bind_p2p(chat_type, sender_id, state)
+                    cmd_sk = channel_router.resolve_feishu_message(
+                        chat_id, sender_id, chat_type
+                    )
+                    _emit_feishu_preview(
+                        chat_type=chat_type,
+                        chat_id=chat_id,
+                        sender_id=sender_id,
+                        session_key=cmd_sk,
+                        line=f"\n\U0001f4e8 [\u98de\u4e66\u547d\u4ee4 {chat_id[:8]}] {content}",
                     )
                     return reply
             except Exception as e:
                 return f"\u274c \u547d\u4ee4\u6267\u884c\u5931\u8d25: {e}"
 
-        # ── 飞书私聊：与 CLI 共用当前活跃会话（自动绑定；手动 .bind feishu 会从同步集合移除）
-        if chat_type == "p2p":
-            cid = f"{channel_router.FEISHU_P2P_PREFIX}{sender_id}"
-            synced: set[str] = state.setdefault("feishu_p2p_synced_senders", set())  # type: ignore[assignment]
-            if not isinstance(synced, set):
-                synced = set()
-                state["feishu_p2p_synced_senders"] = synced
-            if not channel_router.is_bound(cid):
-                act = (state.get("active_session_id") or "").strip()
-                if act:
-                    channel_router.bind(cid, act)
-                    synced.add(sender_id)
+        _maybe_auto_bind_p2p(chat_type, sender_id, state)
 
-        # ── 解析 session_key ──
         session_key = channel_router.resolve_feishu_message(
             chat_id, sender_id, chat_type
         )
@@ -1496,19 +1570,33 @@ def _create_feishu_handler(
         if chat_type == "p2p" and channel_router.is_bound(
             f"feishu_p2p:{sender_id}"
         ):
-            primary = channel_router.primary
-            _emit_feishu_cli(
+            primary = channel_router.primary or ""
+            preview = (
                 f"\n\U0001f4e8 [\u98de\u4e66\u79c1\u804a\u2192{primary[:12]}] {content}"
             )
         else:
-            _emit_feishu_cli(f"\n\U0001f4e8 [\u98de\u4e66 {chat_id[:8]}] {content}")
+            preview = f"\n\U0001f4e8 [\u98de\u4e66 {chat_id[:8]}] {content}"
+        _emit_feishu_preview(
+            chat_type=chat_type,
+            chat_id=chat_id,
+            sender_id=sender_id,
+            session_key=session_key,
+            line=preview,
+        )
+        mirror_cli = should_mirror_feishu_to_cli(
+            channel_router,
+            chat_type=chat_type,
+            chat_id=chat_id,
+            sender_id=sender_id,
+            session_key=session_key,
+        )
 
         try:
             reply = await engine.run_agent_with_thinking(
                 content,
                 session_key,
-                skill_toolboxes,
-                "\n\n".join(skill_prompts) if skill_prompts else None,
+                _skill_tb(),
+                _skill_sp(),
                 is_feishu=True,
                 registry=registry,
                 monitor=monitor,
@@ -1527,6 +1615,7 @@ def _create_feishu_handler(
                 feishu_thread_id=inbound.thread_id,
                 feishu_im_receive_id=(inbound.sender_id or "").strip() or None,
                 cli_loop_state=state,
+                feishu_mirror_cli=mirror_cli,
             )
             return reply
         except Exception as e:
@@ -1555,17 +1644,7 @@ def _create_feishu_handler(
         if sm is None:
             return "\u26a0\ufe0f \u4f1a\u8bdd\u7ba1\u7406\u5668\u672a\u521d\u59cb\u5316\uff0c\u65e0\u6cd5\u4fdd\u5b58\u6587\u4ef6"
 
-        if chat_type == "p2p":
-            cid = f"{channel_router.FEISHU_P2P_PREFIX}{sender_id}"
-            synced: set[str] = state.setdefault("feishu_p2p_synced_senders", set())  # type: ignore[assignment]
-            if not isinstance(synced, set):
-                synced = set()
-                state["feishu_p2p_synced_senders"] = synced
-            if not channel_router.is_bound(cid):
-                act = (state.get("active_session_id") or "").strip()
-                if act:
-                    channel_router.bind(cid, act)
-                    synced.add(sender_id)
+        _maybe_auto_bind_p2p(chat_type, sender_id, state)
 
         session_key = channel_router.resolve_feishu_message(
             chat_id, sender_id, chat_type
@@ -1609,8 +1688,19 @@ def _create_feishu_handler(
         except ValueError:
             rel = os.path.basename(dest_path)
 
-        _emit_feishu_cli(
-            f"\n\U0001f4ce [\u98de\u4e66\u5a92\u4f53 {chat_id[:8]}] \u5df2\u4fdd\u5b58: {rel}"
+        _emit_feishu_preview(
+            chat_type=chat_type,
+            chat_id=chat_id,
+            sender_id=sender_id,
+            session_key=session_key,
+            line=f"\n\U0001f4ce [\u98de\u4e66\u5a92\u4f53 {chat_id[:8]}] \u5df2\u4fdd\u5b58: {rel}",
+        )
+        media_mirror_cli = should_mirror_feishu_to_cli(
+            channel_router,
+            chat_type=chat_type,
+            chat_id=chat_id,
+            sender_id=sender_id,
+            session_key=session_key,
         )
 
         flag = (os.environ.get("MINIAGENT_FEISHU_MEDIA_RUN_AGENT") or "").strip().lower()
@@ -1626,8 +1716,8 @@ def _create_feishu_handler(
             reply = await engine.run_agent_with_thinking(
                 user_line,
                 session_key,
-                skill_toolboxes,
-                "\n\n".join(skill_prompts) if skill_prompts else None,
+                _skill_tb(),
+                _skill_sp(),
                 is_feishu=True,
                 registry=registry,
                 monitor=monitor,
@@ -1644,6 +1734,7 @@ def _create_feishu_handler(
                 feishu_thread_id=(thread_id or "").strip() or None,
                 feishu_im_receive_id=(sender_id or "").strip() or None,
                 cli_loop_state=state,
+                feishu_mirror_cli=media_mirror_cli,
             )
             return reply
         except Exception as e:

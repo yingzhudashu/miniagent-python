@@ -57,6 +57,7 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 | **模型** | `.profile <名称>` | 切换模型预设 |
 | **统计** | `.stats` | 工具调用统计 |
 | **控制** | `.stop` | 停止当前实例并退出 |
+| **技能** | `.reload-skills` | 从磁盘全量重新加载 `workspaces/skills`（`install_skill` 成功后通常已自动热加载） |
 | **帮助** | `.help` | 显示帮助信息 |
 | | `quit` / `exit` | 退出程序 |
 

@@ -148,18 +148,33 @@ class SkillRegistryProtocol(Protocol):
         ...
 
     @abstractmethod
-    def get_all_toolboxes(self) -> list[Toolbox]:
-        """获取所有技能贡献的工具箱"""
+    def get_package(self, package_id: str) -> SkillPackage | None:
+        """按包 ID 查询技能包"""
         ...
 
     @abstractmethod
-    def get_all_tools(self) -> dict[str, ToolDefinition]:
-        """获取所有技能贡献的工具"""
+    def unregister_package(self, package_id: str) -> tuple[list[str], list[str]]:
+        """注销技能包，返回 (removed_skill_ids, removed_tool_names)"""
         ...
 
     @abstractmethod
-    def get_system_prompts(self) -> list[str]:
-        """获取所有技能的 system prompt 增强"""
+    def clear_packages(self) -> tuple[list[str], list[str]]:
+        """清空所有技能包，返回 (removed_skill_ids, removed_tool_names)"""
+        ...
+
+    @abstractmethod
+    def get_all_toolboxes(self, config: AgentConfig | None = None) -> list[Toolbox]:
+        """获取可用技能贡献的工具箱（经 gating 过滤）"""
+        ...
+
+    @abstractmethod
+    def get_all_tools(self, config: AgentConfig | None = None) -> dict[str, ToolDefinition]:
+        """获取可用技能贡献的工具（经 gating 过滤）"""
+        ...
+
+    @abstractmethod
+    def get_system_prompts(self, config: AgentConfig | None = None) -> list[str]:
+        """获取可用技能的 system prompt 增强（经 gating 过滤）"""
         ...
 
     @abstractmethod

@@ -136,23 +136,7 @@ release_session_lock("default")
 - 消息防抖合并，防止短时间内大量重复消息
 - WebSocket 长连接模式，无需暴露公网端口
 
-## 6. 外部 JSON（MINIAGENT_CONFIG）与进程环境
-
-**位置**: `miniagent/runtime/external_config.py`
-
-为兼容 OpenClaw 等外部 JSON，进程启动时可设置环境变量 **`MINIAGENT_CONFIG`** 指向配置文件。解析后，若对应扁平环境变量尚未设置，会把 JSON 中的 **`apiKey` / `api_key`**、**`baseUrl`**、**`model`** 等写入 **`os.environ`**（例如 `OPENAI_API_KEY`），供 OpenAI 兼容客户端读取。
-
-| 风险 | 缓解 |
-|------|------|
-| JSON 文件含明文密钥，权限过宽时同机用户可读 | 配置文件权限收紧（类 Unix：`chmod 600`）；勿将含真实密钥的 JSON 提交到 Git |
-| 共享主机 / 多租户：子进程或库读取环境变量 | 优先使用 `.env` + 进程隔离；若必须用 JSON，部署后限制文件所有者 |
-| 日志误带密钥 | 本仓库加载成功时仅记录**配置路径与模型名**，不记录 Key；仍应避免在自定义补丁或 `AGENT_DEBUG=true` 时把完整请求体写入日志 |
-| 会话与记忆落盘 | 默认在 `MINI_AGENT_STATE`（常为 `workspaces/`）下写入 `sessions/`、`memory/` 等，可能含对话内容；备份与审计策略见 [DEPLOYMENT.md](DEPLOYMENT.md) |
-| 定时任务表 | `scheduled_tasks/tasks.json` 保存各任务的 **prompt** 与元数据，可能含业务或隐私；勿提交版本库（默认路径见 [.gitignore](../.gitignore) 与 [ENGINEERING.md](ENGINEERING.md) §3.1） |
-
-日常推荐：**主配置仍用 `.env`**，外部 JSON 仅作迁移或团队统一模型目录时的补充。
-
-## 7. 数据安全原则
+## 6. 数据安全原则
 
 | 原则 | 实现 |
 |------|------|
@@ -160,22 +144,21 @@ release_session_lock("default")
 | 会话隔离 | 每个 chat_id 独立队列和工作空间 |
 | 输入验证 | 路径解析前验证，防止注入 |
 | 输出截断 | LLM 响应和工具输出限制长度 |
-| 密钥不落库 | 仓库内不出现真实 token；`.env` / 外部 JSON 不入版本控制 |
+| 密钥不落库 | 仓库内不出现真实 token；`.env` 不入版本控制 |
 | 错误隔离 | 单个工具异常不影响 Agent 主流程 |
 
-说明：密钥存在于**进程环境**或**本地配置文件**中属预期行为；「不写入日志」依赖默认日志字段与关闭过度调试。
+说明：密钥存在于**进程环境**或项目根 **`.env`** 中属预期行为；「不写入日志」依赖默认日志字段与关闭过度调试。
 
-## 8. 安全配置检查清单
+## 7. 安全配置检查清单
 
 - [ ] `.env` 文件权限设置为 600（仅所有者可读写）
 - [ ] `.env` 已加入 `.gitignore`
-- [ ] 若使用 `MINIAGENT_CONFIG`：JSON 文件权限 600，且不在备份中明文扩散
 - [ ] `AGENT_DEBUG=false`（生产环境）
 - [ ] 飞书应用已设置 IP 白名单（如适用）
 - [ ] 工作空间目录权限正确；共享机上前缀 `MINI_AGENT_STATE` 到用户私有目录
 - [ ] 定期检查 `workspaces/instances/` 无残留死实例
 
-## 9. 相关文档
+## 8. 相关文档
 
 - [ENGINEERING.md](ENGINEERING.md)：`.env` 与密钥不入库、CI 质量门禁、`MINI_AGENT_STATE` 与 `workspaces/` 跟踪政策。
 - [DEPLOYMENT.md](DEPLOYMENT.md)：安装、运行环境与故障排除。

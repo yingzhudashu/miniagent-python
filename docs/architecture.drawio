@@ -56,11 +56,8 @@
         <mxCell id="115" value="🔗 组合根 — miniagent/runtime/  (RuntimeContext)" style="swimlane;startSize=28;fillColor=#e8eaf6;strokeColor=#5c6bc0;rounded=1;fontSize=12;fontStyle=1;horizontal=1;collapsible=0;" vertex="1" parent="1">
           <mxGeometry x="40" y="250" width="1780" height="85" as="geometry"/>
         </mxCell>
-        <mxCell id="116" value="&lt;b&gt;context.py&lt;/b&gt;&lt;br&gt;RuntimeContext&lt;br&gt;registry / monitor / engine&lt;br&gt;channel_router / message_queue&lt;br&gt;feishu / memory 三元组&lt;br&gt;openai_client / ext_config" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#5c6bc0;fontSize=9;" vertex="1" parent="115">
+        <mxCell id="116" value="&lt;b&gt;context.py&lt;/b&gt;&lt;br&gt;RuntimeContext&lt;br&gt;registry / monitor / engine&lt;br&gt;channel_router / message_queue&lt;br&gt;feishu / memory 三元组&lt;br&gt;openai_client" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#5c6bc0;fontSize=9;" vertex="1" parent="115">
           <mxGeometry x="15" y="32" width="200" height="48" as="geometry"/>
-        </mxCell>
-        <mxCell id="117" value="external_config.py&lt;br&gt;&lt;i&gt;MINIAGENT_CONFIG&lt;br&gt;OpenClaw 形状子集&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#5c6bc0;fontSize=9;" vertex="1" parent="115">
-          <mxGeometry x="230" y="32" width="155" height="48" as="geometry"/>
         </mxCell>
         <mxCell id="118" value="&lt;i&gt;unified_entry() 构造 ctx → asyncio.run(unified_main(ctx))&lt;/i&gt;" style="text;html=1;align=left;verticalAlign=middle;fontSize=9;fontColor=#5c6bc0;" vertex="1" parent="115">
           <mxGeometry x="400" y="40" width="400" height="30" as="geometry"/>

@@ -24,7 +24,9 @@ python -m miniagent --feishu
 
 **启动形态**：进程始终以 **CLI 主循环** 为主；上述两种方式均为 **CLI + 飞书**（同进程内附加飞书 WebSocket 长连接），不存在无 CLI 的独立飞书进程入口。
 
-在全屏 prompt_toolkit CLI 下，飞书启动提示、入站横幅、以及与 CLI 绑定同一会话时的「思考」镜像，都会写入上方 **transcript**（`RuntimeContext.cli_transcript_append`），而不再向裸 stdout `print`，避免与备用屏输入行互相覆盖。
+在全屏 prompt_toolkit CLI 下，飞书启动提示、以及**策略允许**的入站横幅与思考镜像，会写入上方 **transcript**（`RuntimeContext.cli_transcript_append`），而不再向裸 stdout `print`，避免与备用屏输入行互相覆盖。
+
+**CLI 显示隔离**（详见 [CHANNEL_BINDING.md](CHANNEL_BINDING.md) §CLI 显示策略）：默认 CLI 在 `default` 等一般会话时，**群聊**消息仅在飞书侧处理与回复，**不会**刷屏到 CLI；仅与 CLI 同会话的**私聊**会显示预览。`.bind cli feishu:oc_xxx`（或 `oc_xxx`，自动规范化）进入群聊聚焦后，CLI 只显示该群内容，私聊不再接入或显示。
 
 `get_logger()` 的诊断输出写入 **stderr**（不再写 stdout）；飞书 WebSocket 客户端 SDK 日志级别为 **ERROR**，避免与全屏 UI 争用终端。
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -123,10 +124,14 @@ async def test_capture_stop_allowed_when_full_enabled() -> None:
 
 
 @pytest.mark.asyncio
-async def test_capture_schedule_mutations_blocked_by_default() -> None:
+async def test_capture_schedule_mutations_blocked_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MINIAGENT_FEISHU_DOT_COMMANDS_FULL", "0")
     state = _minimal_dispatch_state()
+    task_id = f"t_{uuid.uuid4().hex[:8]}"
     out = await dispatch_command(
-        ".schedule add x every 60 primary -- hello",
+        f".schedule add {task_id} every 60 primary -- hello",
         state=state,
         capture=True,
         allow_session_mutations_when_capture=False,

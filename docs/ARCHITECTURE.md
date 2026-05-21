@@ -56,15 +56,14 @@ Mini Agent Python 采用 **两阶段架构**（Plan → Execute），通过 **Re
 - **本仓库（Mini Agent Python）**：定位是 **Python Agent 核心**——两阶段规划、ReAct、`ToolRegistry`、技能与 ClawHub、飞书与 CLI、本地记忆与工作空间。它**不是** OpenClaw Gateway 的等价实现，但可与同一生态（如 ClawHub 技能）对齐使用习惯。
 - **可选 MCP**：环境变量 `MINIAGENT_MCP_STDIO` 设为 JSON 数组 `[command, arg1, ...]`（与 `stdio` 启动参数一致），进程启动时在 [`engine/init.py`](miniagent/engine/init.py) 中调用 [`register_mcp_stdio_tools`](miniagent/mcp/runtime.py) 连接 MCP 服务端并注册 `mcp_*` 工具；需安装可选依赖 `pip install miniagent-python[mcp]`。
 
-### 外部 JSON 配置（OpenClaw 形状子集）
+### 配置（扁平环境变量）
 
-- **路径**：环境变量 `MINIAGENT_CONFIG` 指向**用户本机** JSON 文件（**勿**将含 API Key 的文件提交到仓库）。曾用别名 `MINIAGENT_OPENCLAW_CONFIG` **已废弃**，仍会读取并打 Deprecation 警告，请改用 `MINIAGENT_CONFIG`。
-- **加载时机**：仅在 [`compat.unified_entry`](miniagent/compat.py) 启动时调用 [`load_external_config_from_env`](miniagent/runtime/external_config.py)（在构造 `RuntimeContext` / 首次 `get_shared_async_openai()` 之前）。补丁快照写入 `RuntimeContext.external_config_patch`。若嵌入代码仅调用 `unified_main` 而无 `unified_entry`，需自行先加载外部配置。
-- **合并字段（已实现子集）**：`models.providers.<id>.baseUrl` / `apiKey`；`models.providers.<id>.models` 列表或字典中的 `contextWindow` / `maxTokens`（按当前 `OPENAI_MODEL` 匹配，仅当未设置 `AGENT_CONTEXT_WINDOW` / `OPENAI_MAX_TOKENS` 时生效）；`agents.defaults.model.primary`（支持 `bailian/qwen` 形式，或**无斜杠**时在 providers 的 `models` 中反查所属 provider）；`contextTokens`；`thinkingDefault`；`agents.defaults.models.<ref>.params.thinking_budget`。
-- **预留未用**：`agents.defaults.model.fallbacks` 仅进入进程内补丁元数据，**不**触发自动换模重试。
+- **SSOT**：项目根 `.env`（[`load_dotenv_from_project_root`](miniagent/infrastructure/env_loader.py)）与进程环境变量；[`get_default_model_config`](miniagent/core/config.py) 读取 `OPENAI_*`、`MODEL_PROFILE`、`AGENT_CONTEXT_WINDOW`、`AGENT_THINKING_DEFAULT`、`OPENAI_THINKING_BUDGET`、`OPENAI_MAX_TOKENS` 等。
+- **OpenClaw 迁移**：曾通过 `MINIAGENT_CONFIG` 指向 JSON 的路径已移除；字段映射见 [.env.example](../.env.example) §2。
+- **嵌入调用**：若跳过 [`compat.unified_entry`](miniagent/compat.py) 而直接 [`unified_main`](miniagent/engine/main.py)，须先调用 `load_dotenv_from_project_root()` 或预先设置所需环境变量（`OPENAI_*` 等）。
 - **任务难度预分类与规划可见输出**：`MINIAGENT_TASK_CLASSIFIER` 默认为开启（`1`/`true`）；关闭则始终走完整规划。简单任务可跳过结构化规划，执行阶段使用低思考档位。当 **`MINIAGENT_ANNOUNCE_DIFFICULTY_AND_PLAN`** 非 `0`（默认开启）且存在 `on_thinking` 时，[`run_agent`](miniagent/core/agent.py) 将「评估中 → 难度结论 → 执行计划」合并为**同一条**流式思考，统一 header 为 **`[评估与计划]`**；展示为精简 Markdown，完整难度/计划正文经可选关键字参数 **`full_record`** 由 [`UnifiedEngine`](miniagent/engine/engine.py) 写入会话 `thinking` 历史。飞书侧由 `ThinkingDisplay` + `push_feishu_thinking_stream` PATCH 同一张交互卡；进入执行阶段时若 header 切换，则 **`finalize_only`** 收尾当前卡再开新段（见 [`thinking.py`](miniagent/engine/thinking.py) / [`engine._feishu_send`](miniagent/engine/engine.py)）。**`MINIAGENT_ANNOUNCE_DIFFICULTY_AND_PLAN=0`** 可关闭上述规划段推送（保留 ReAct 流式思考与工具行）。
 - **分步执行**：`MINIAGENT_PHASED_EXECUTION` 默认开启；有关闭需求时设为 `0`。`MINIAGENT_STEP_MAX_TURNS` 控制每步子循环上限（未设置环境变量时默认 **48**）。若最后一步在单步子轮次内未以无工具回复结束，且 **`AGENT_MAX_TURNS`**（未设置环境变量时默认 **400**）仍有余量，执行器会先追加一轮不传 tools 的收尾 synthesis，请模型仅用自然语言小结；若全局轮数也已用尽或收尾仍异常，则返回**专用说明**（区别于全局「达到最大轮数」）。中间步未结束时向上下文追加简短系统提示并继续下一步（若总轮数仍有余量）。执行阶段 `on_thinking` 的合并 header 为 **`[执行]`**（单循环）或 **`[步骤 i/n]` + 描述摘要**（分步）；会话历史中各 `thinking` 段的磁盘拼接顺序由 [`engine.py`](miniagent/engine/engine.py) 内排序键决定，其中步骤顺序取自 header 中的 **`i/n`**，若与 `PlanStep.step_number` 枚举顺序不一致，仅影响展示块排序，不影响 LLM 上下文。
-- **思考深度与供应商**：[`resolve_exec_completion_kwargs`](miniagent/core/llm_params.py) / [`resolve_planner_completion_kwargs`](miniagent/core/llm_params.py) 合并 `thinking_level` / `thinking_budget`；DashScope/Qwen 兼容 `base_url` 时通过 [`build_thinking_extra_body`](miniagent/core/vendor/qwen_extra.py) 注入 `extra_body`。可选环境变量 `OPENAI_MAX_TOKENS` 覆盖输出 `max_tokens`（优先于外部文件中的按模型 `maxTokens`）。
+- **思考深度与供应商**：[`resolve_exec_completion_kwargs`](miniagent/core/llm_params.py) / [`resolve_planner_completion_kwargs`](miniagent/core/llm_params.py) 合并 `thinking_level` / `thinking_budget`；DashScope/Qwen 兼容 `base_url` 时通过 [`build_thinking_extra_body`](miniagent/core/vendor/qwen_extra.py) 注入 `extra_body`。可选环境变量 `OPENAI_MAX_TOKENS` 覆盖输出 `max_tokens`。
 
 ## 各层详细说明
 
@@ -75,7 +74,7 @@ Mini Agent Python 采用 **两阶段架构**（Plan → Execute），通过 **Re
 | `__main__.py` | 统一入口：`.env`、`--stop` 子命令，其余委托 `compat.unified_entry` |
 | `compat.py` | 聚合导出与 `unified_entry`；构造 `RuntimeContext`（含 `get_shared_async_openai()`）后 `asyncio.run(unified_main)` |
 | `core/openai_client.py` | 共享 `AsyncOpenAI` 惰性单例；测试可 `reset_shared_async_openai_for_tests()` |
-| `runtime/context.py` | `RuntimeContext`：进程级 registry / monitor / skill_registry / clawhub / engine / channel_router / message_queue / feishu / memory_store / activity_log / keyword_index / openai_client（可选）/ external_config_patch（外部 JSON 补丁快照，可选） |
+| `runtime/context.py` | `RuntimeContext`：进程级 registry / monitor / skill_registry / clawhub / engine / channel_router / message_queue / feishu / memory_store / activity_log / keyword_index / openai_client（可选） |
 | `cli/cli.py` | 控制台脚本 `miniagent` 的入口（委托 `__main__.main`） |
 
 ### 2. 引擎层 (Engine)
@@ -99,13 +98,14 @@ Mini Agent Python 采用 **两阶段架构**（Plan → Execute），通过 **Re
 | 文件 | 职责 |
 |------|------|
 | `channel_router.py` | `ChannelRouter`：通道-会话路由器，支持 CLI/飞书私聊绑定到同一主会话，群聊保持独立 |
+| `cli_feishu_policy.py` | CLI 聚焦模式与飞书入站 **transcript 镜像门控**（`should_mirror_feishu_to_cli`）；`.bind` 时裸 `oc_*` → `feishu:oc_*` |
 
 通道路由层负责将不同输入通道映射到统一的主会话 ID：
 - **CLI** (`__cli__`)：可绑定到任意会话，实现 CLI 干预飞书会话
 - **飞书私聊** (`feishu_p2p:<sender_id>`)：可绑定到 CLI 会话，实现飞书消息共享
 - **飞书群聊** (`feishu:<chat_id>`)：始终独立会话，不参与绑定
 
-详见 [CHANNEL_BINDING.md](CHANNEL_BINDING.md)。
+**CLI 显示隔离**（与路由并行）：一般模式下群聊 Agent 仍运行但不写入全屏 transcript；群聊聚焦（CLI 绑定 `feishu:oc_*`）时仅镜像当前群。门控在 `miniagent/engine/main.py` 飞书 handler 入站侧实现，思考镜像经 `feishu_mirror_cli` 与引擎对齐。详见 [CHANNEL_BINDING.md](CHANNEL_BINDING.md) §CLI 显示策略。
 
 ### 3. 核心层 (Core)
 
@@ -391,7 +391,7 @@ flowchart LR
 
 ## 运行时组合根
 
-启动时由 `compat.unified_entry`（或等价入口）实例化 `RuntimeContext`（见 `runtime/context.py`），字段包括 `registry`、`monitor`、`skill_registry`、`clawhub`、`engine`，以及 **`channel_router`**、**`message_queue`**、**`feishu`**（`FeishuRuntime`），以及 **`memory_store`**、**`activity_log`**、**`keyword_index`**，以及 **`openai_client`**（入口通常设为 `get_shared_async_openai()`；为 `None` 时执行链回落共享工厂），以及可选的 **`external_config_patch`**（`MINIAGENT_CONFIG` 加载后的只读快照）。`unified_main`、CLI 主循环与飞书消息处理器通过该对象（或由其闭包捕获）获取依赖，避免在 `compat`/`unified` 等模块上维护可变全局。
+启动时由 `compat.unified_entry`（或等价入口）实例化 `RuntimeContext`（见 `runtime/context.py`）；`unified_entry` 会先加载项目根 `.env`。仅嵌入 `unified_main(ctx)` 时，调用方须自行 `load_dotenv_from_project_root()` 或设置 env。字段包括 `registry`、`monitor`、`skill_registry`、`clawhub`、`engine`，以及 **`channel_router`**、**`message_queue`**、**`feishu`**（`FeishuRuntime`），以及 **`memory_store`**、**`activity_log`**、**`keyword_index`**，以及 **`openai_client`**（入口通常设为 `get_shared_async_openai()`；为 `None` 时执行链回落共享工厂）。`unified_main`、CLI 主循环与飞书消息处理器通过该对象（或由其闭包捕获）获取依赖，避免在 `compat`/`unified` 等模块上维护可变全局。
 
 `clawhub` 由入口注入并写入 `ToolContext`，技能工具优先使用 `ToolContext.clawhub`；必要时仍可调用 `create_clawhub_client()` 作为回退。
 
@@ -416,7 +416,14 @@ flowchart LR
 | 扩展点 | 方式 | 说明 |
 |--------|------|------|
 | 添加工具 | `miniagent/tools/` 新增文件 | 实现 handler + register 函数 |
-| 添加技能 | `workspaces/skills/<pkg>/` | 包级 `SKILL.md`，工具见 `skills/<name>/SKILL.md` 与 `tools.py`（约定见 `miniagent/skills/loader.py`、[workspaces/skills/README.md](../workspaces/skills/README.md)） |
+| 添加技能 | `workspaces/skills/<pkg>/` | 包级 `SKILL.md`，工具见 `skills/<name>/SKILL.md` 与 `tools.py`（约定见 `miniagent/skills/loader.py`、[workspaces/skills/README.md](../workspaces/skills/README.md)）；`install_skill` / `.reload-skills` / `refresh_skills` 可热加载，无需重启 |
+
+### 技能热加载（`refresh_skills`）
+
+- **入口**：进程启动 `init_subsystems` → `bootstrap_skill_packages`；运行期 `install_skill`（单包）、`.reload-skills` / `MINIAGENT_SKILLS_WATCH`（全量）。
+- **快照**：`state["skill_toolboxes"]` / `state["skill_prompts"]`；`run_agent` 与飞书 handler 每次从 state 读取，refresh 后**下一回合**生效。
+- **Gating**：`get_all_toolboxes` / `get_system_prompts` 仅聚合 `get_eligible_skills`；全量 refresh 卸载主 registry 工具时遍历**全部**已注册技能（含被 gating 的），避免幽灵工具。
+- **子会话**：refresh 只更新主空间 `registry`；已创建子会话的克隆工具集不会自动同步，需新建会话或 promote。
 | 添加命令 | `command_dispatch.py` | 注册新路由 |
 | 自定义模型 | `.env` + `config.py` | 支持任何 OpenAI 兼容 API |
 | 新通道 | 仿照 `feishu/` | 实现消息接收 + 回复发送 |

@@ -54,10 +54,17 @@ def _sleep_seconds_until(tasks: list[ScheduledTask]) -> float:
 async def tick_once(
     ctx: RuntimeContext,
     state: CliLoopState,
-    skill_toolboxes: list[Any],
-    skill_prompts: list[Any],
+    skill_toolboxes: list[Any] | None = None,
+    skill_prompts: list[Any] | None = None,
 ) -> None:
     """单次调度：加锁、选出到期任务、经 ``message_queue`` 异步投递 ``build_run_scheduled_job_coro``。"""
+    from miniagent.skills.snapshots import (
+        get_skill_prompts_from_state,
+        get_skill_toolboxes_from_state,
+    )
+
+    skill_toolboxes = get_skill_toolboxes_from_state(state) or skill_toolboxes or []
+    skill_prompts = get_skill_prompts_from_state(state) or skill_prompts or []
     if os.environ.get("MINIAGENT_DISABLE_SCHEDULED_TASKS", "").strip().lower() in (
         "1",
         "true",

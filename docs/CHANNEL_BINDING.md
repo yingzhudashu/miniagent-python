@@ -63,10 +63,10 @@
 你在飞书群聊中工作，但需要 CLI 终端的调试能力。
 
 ```bash
-# 1. CLI 绑定到飞书群聊会话
+# 1. CLI 绑定到飞书群聊会话（oc_ 会自动规范为 feishu:oc_xxx）
 > .bind cli oc_xxxxxxxxxxxxx
 
-✅ CLI 已绑定到会话: oc_xxxxxxxxxxxxx
+✅ CLI 已绑定到会话: feishu:oc_xxxxxxxxxxxxx
 
 # 2. 现在 CLI 的输入使用飞书群聊的会话上下文
 #    CLI 可以访问飞书群的全部对话历史
@@ -76,6 +76,7 @@
 - 飞书群聊是日常工作界面
 - CLI 用于 `.stats`、`.status` 等诊断命令
 - 通过 CLI 发送消息时，使用飞书群的记忆和文件
+- **CLI 聚焦为飞书群聊**时：终端仅显示该群的入站预览与思考镜像；其它群聊仍在后台处理但不写入 CLI；飞书私聊不会自动接入该群会话（`.bind feishu` 绑到群会话会被拒绝）
 
 ### 场景 3：解除绑定
 
@@ -154,6 +155,21 @@ channel_router.from_dict(data)      # 恢复绑定状态
 ```
 
 未来版本可能将绑定状态持久化到 `workspaces/bindings.json`。
+
+## CLI 显示策略（`cli_feishu_policy`）
+
+与「记忆/路由绑定」独立：控制飞书入站是否写入全屏 CLI **transcript**（及思考镜像），**不改变** Agent 是否在后台处理该消息。
+
+| CLI 聚焦模式 | 判定条件 | 群聊入站 CLI 预览 | 私聊入站 CLI 预览 |
+|--------------|----------|-------------------|-------------------|
+| **一般模式** | CLI 绑定 `default`、`__cli__` 等非 `feishu:oc_*` 会话 | 否（后台仍回复飞书） | 是（当私聊已绑定到与 CLI 相同会话） |
+| **飞书群聊聚焦** | CLI 绑定 `feishu:<chat_id>` | 是（仅当前绑定群） | 否 |
+
+- `.bind status` 末尾会打印当前聚焦模式说明。
+- `.bind cli <会话>` 会同步 `ChannelRouter.primary`（与 `.session switch` 一致），私聊预览标签 `[飞书私聊→…]` 与门控会话一致。
+- `.bind cli` / `.bind feishu` 的目标会话：裸 `oc_*` 规范为 `feishu:oc_*`；`ou_*` 为用户 ID，不自动加 `feishu:` 前缀。
+- 飞书侧以 `.` 开头的命令在镜像前也会执行私聊自动绑定（与正文消息顺序一致）。
+- 实现见 `miniagent/infrastructure/cli_feishu_policy.py`，飞书 handler 在 `miniagent/engine/main.py` 中调用 `should_mirror_feishu_to_cli`。
 
 ## 与 Session 系统的关系
 

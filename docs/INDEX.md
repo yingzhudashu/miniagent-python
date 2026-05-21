@@ -68,7 +68,6 @@ miniagent-python/
 │   ├── compat.py                 # 聚合导出与 unified_entry
 │   ├── runtime/
 │   │   ├── context.py            # RuntimeContext 组合根
-│   │   └── external_config.py    # MINIAGENT_CONFIG 等外部 JSON 加载与补丁
 │   ├── cli/
 │   │   └── cli.py                # console_scripts 入口 → __main__
 │   ├── core/

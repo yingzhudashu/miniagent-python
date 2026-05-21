@@ -44,7 +44,6 @@
 
 | 旧名 | 新名 |
 |------|------|
-| `MINIAGENT_OPENCLAW_CONFIG` | `MINIAGENT_CONFIG` |
 | `FEISHU_DOCX_URL_PREFIX` | `MINIAGENT_FEISHU_DOCX_URL_PREFIX` |
 | `FEISHU_DEFAULT_DOC_FOLDER_TOKEN` | `MINIAGENT_FEISHU_DOC_FOLDER_TOKEN` |
 
@@ -114,7 +113,6 @@ CI 说明：
 ## 4. 安全与密钥
 
 - 密钥优先通过环境变量或本地 `.env` 注入；代码库中不出现真实 token（含 **OpenAI**、**Tavily** (`TAVILY_API_KEY` / `WEB_SEARCH_API_KEY`)、飞书 Secret 等）。
-- 可选外部 JSON（`MINIAGENT_CONFIG`）可将 `apiKey` 回填至进程环境，风险与清单见 [SECURITY.md](SECURITY.md) §6。
 - 工具执行与文件访问受 [SECURITY.md](SECURITY.md) 所述沙箱与策略约束；部署面见 [DEPLOYMENT.md](DEPLOYMENT.md)。
 - **推送前自检（建议）**：勿提交 `.env`；`git diff --cached` 抽查是否误入密钥；可用 `rg` 等搜索疑似模式（如 `tvly-`、`sk-[A-Za-z0-9]{20,}`）并与占位符区分。仓库可在 GitHub 开启 Secret scanning / Push protection（在网页端配置）。
 

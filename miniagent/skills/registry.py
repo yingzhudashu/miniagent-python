@@ -61,6 +61,14 @@ class DefaultSkillRegistry(SkillRegistryProtocol):
         """获取所有已注册技能。"""
         return list(self._skills.values())
 
+    def _collect_registered_skill_tool_names(self) -> list[str]:
+        """汇总已注册技能贡献的工具名（不过 gating，供 refresh 卸载主 registry）。"""
+        names: list[str] = []
+        for skill in self._skills.values():
+            if skill.tools:
+                names.extend(skill.tools.keys())
+        return names
+
     # ── 技能包 ──
 
     def register_package(self, pkg: SkillPackage) -> None:
@@ -75,13 +83,53 @@ class DefaultSkillRegistry(SkillRegistryProtocol):
         """获取所有已注册的技能包。"""
         return list(self._packages)
 
+    def get_package(self, package_id: str) -> SkillPackage | None:
+        """按包 ID 查询已注册的技能包。"""
+        for pkg in self._packages:
+            if pkg.id == package_id:
+                return pkg
+        return None
+
+    def unregister_package(self, package_id: str) -> tuple[list[str], list[str]]:
+        """注销指定技能包及其下属技能。
+
+        Returns:
+            (removed_skill_ids, removed_tool_names)
+        """
+        removed_skill_ids: list[str] = []
+        removed_tool_names: list[str] = []
+        kept: list[SkillPackage] = []
+        for pkg in self._packages:
+            if pkg.id != package_id:
+                kept.append(pkg)
+                continue
+            for skill in pkg.skills:
+                removed_skill_ids.append(skill.id)
+                if skill.tools:
+                    removed_tool_names.extend(skill.tools.keys())
+                self.unregister(skill.id)
+        self._packages = kept
+        return removed_skill_ids, removed_tool_names
+
+    def clear_packages(self) -> tuple[list[str], list[str]]:
+        """清空所有技能包与技能索引（不触及工具注册表）。
+
+        Returns:
+            (removed_skill_ids, removed_tool_names)
+        """
+        removed_skill_ids = list(self._skills.keys())
+        removed_tool_names = self._collect_registered_skill_tool_names()
+        self._skills.clear()
+        self._packages.clear()
+        return removed_skill_ids, removed_tool_names
+
     # ── 聚合查询 ──
 
-    def get_all_toolboxes(self) -> list[Toolbox]:
-        """获取所有技能贡献的工具箱（自动去重）。"""
+    def get_all_toolboxes(self, config: AgentConfig | None = None) -> list[Toolbox]:
+        """获取可用技能贡献的工具箱（经 gating 过滤，自动去重）。"""
         seen: set[str] = set()
         result: list[Toolbox] = []
-        for skill in self._skills.values():
+        for skill in self.get_eligible_skills(config):
             if not skill.toolboxes:
                 continue
             for tb in skill.toolboxes:
@@ -90,18 +138,18 @@ class DefaultSkillRegistry(SkillRegistryProtocol):
                     result.append(tb)
         return result
 
-    def get_all_tools(self) -> dict[str, ToolDefinition]:
-        """获取所有技能贡献的工具定义。后注册覆盖先注册。"""
+    def get_all_tools(self, config: AgentConfig | None = None) -> dict[str, ToolDefinition]:
+        """获取可用技能贡献的工具定义（经 gating 过滤）。"""
         result: dict[str, ToolDefinition] = {}
-        for skill in self._skills.values():
+        for skill in self.get_eligible_skills(config):
             if skill.tools:
                 result.update(skill.tools)
         return result
 
-    def get_system_prompts(self) -> list[str]:
-        """获取所有技能的系统提示词增强。"""
+    def get_system_prompts(self, config: AgentConfig | None = None) -> list[str]:
+        """获取可用技能的系统提示词增强（经 gating 过滤）。"""
         prompts: list[str] = []
-        for skill in self._skills.values():
+        for skill in self.get_eligible_skills(config):
             if skill.system_prompt and skill.system_prompt.strip():
                 prompts.append(skill.system_prompt)
         return prompts

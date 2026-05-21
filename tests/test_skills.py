@@ -48,6 +48,19 @@ class TestDefaultSkillRegistry:
         reg = DefaultSkillRegistry()
         assert reg.get("ghost") is None
 
+    def test_unregister_package(self):
+        from miniagent.types.skill import SkillPackage
+
+        reg = DefaultSkillRegistry()
+        skill = Skill(id="pkg-x-s1", name="S", description="d")
+        reg.register_package(
+            SkillPackage(id="pkg-x", name="X", description="x", skills=[skill])
+        )
+        ids, _tools = reg.unregister_package("pkg-x")
+        assert "pkg-x-s1" in ids
+        assert reg.get_package("pkg-x") is None
+        assert reg.get("pkg-x-s1") is None
+
 
 @pytest.mark.asyncio
 class TestSkillLoader:

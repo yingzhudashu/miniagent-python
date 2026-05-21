@@ -69,6 +69,18 @@ async def shutdown_runtime(
         except asyncio.CancelledError:
             pass
 
+    # 3b) 技能目录监视
+    sw_ev = ctx.skills_watch_stop_event
+    if sw_ev is not None:
+        sw_ev.set()
+    sw_task = ctx.skills_watch_task
+    if sw_task is not None and not sw_task.done():
+        sw_task.cancel()
+        try:
+            await sw_task
+        except asyncio.CancelledError:
+            pass
+
     # 4) 飞书（await 取消以跑 poll_server / runtime 的 finally）
     fe = ctx.feishu
     stop_async = getattr(fe, "stop_async", None)

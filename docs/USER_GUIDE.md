@@ -150,7 +150,7 @@ miniagent
 
 ## 4. 首次配置（环境变量与 .env）
 
-**升级迁移提示**（详见 [CHANGELOG](../CHANGELOG.md) `[Unreleased]` Breaking）：飞书出站默认 `MINIAGENT_FEISHU_REPLY_TARGET=reply`；内置飞书工具默认由 `MINIAGENT_FEISHU_TOOLS_AUTO` 注册；请改用 `MINIAGENT_CONFIG`、`MINIAGENT_FEISHU_DOCX_URL_PREFIX`、`MINIAGENT_FEISHU_DOC_FOLDER_TOKEN`（旧名仍会读取并打弃用警告）。飞书细节见第 10 章。
+**升级迁移提示**（详见 [CHANGELOG](../CHANGELOG.md) `[Unreleased]` Breaking）：飞书出站默认 `MINIAGENT_FEISHU_REPLY_TARGET=reply`；内置飞书工具默认由 `MINIAGENT_FEISHU_TOOLS_AUTO` 注册；已移除 `MINIAGENT_CONFIG` 外部 JSON，请用 `.env` 扁平变量；飞书请改用 `MINIAGENT_FEISHU_DOCX_URL_PREFIX`、`MINIAGENT_FEISHU_DOC_FOLDER_TOKEN`（旧名仍会读取并打弃用警告）。飞书细节见第 10 章。
 
 ### 4.1 创建 .env
 
@@ -195,7 +195,6 @@ Copy-Item .env.example .env
 | `MINI_AGENT_STATE` | 状态根目录，见第 14 章。 |
 | `MINIAGENT_SELF_OPT_TOOLS` | 设为 `0` 可关闭自我优化类工具注册，见 [SELF_OPT.md](SELF_OPT.md)。 |
 | `MINIAGENT_MCP_STDIO` | MCP stdio 启动命令的 JSON 数组字符串，见第 13 章。 |
-| `MINIAGENT_CONFIG` | 可选外部 JSON 路径（遗留兼容）；密钥会进入进程环境，风险见 [SECURITY.md](SECURITY.md)。 |
 | `MINIAGENT_CLI_RAW_MARKDOWN` | 设为 `1`/`true` 时关闭全屏 CLI 下 **Assistant 最终回复** 的 Rich Markdown 渲染（便于复制）。 |
 | `MINIAGENT_CLI_THINKING_RICH` | 设为 `1`/`true` 且已 `pip install -e ".[cli]"` 时，对**非流式**思考片段尝试 Rich；**流式**规划/执行正文仍为纯文本；同轮 **merge_tools** 工具行仍为纯文本。 |
 | `MINIAGENT_WELCOME_CLI_HINT` | 未安装 Rich 时启动是否打印「建议 pip install .[cli]」；默认 `1`，设为 `0`/`false` 关闭。 |
@@ -203,9 +202,9 @@ Copy-Item .env.example .env
 | `MINIAGENT_THINKING_SEGMENT_SEPARATOR` | 分步执行同一步内多段思考拼接符；留空为双换行，见 `.env.example`。 |
 | `MINIAGENT_TOOL_FINISH_VERBOSE` | `1` 时 `history.json` 中工具块含参数与输出；默认 `0` 仅名称与成败。 |
 
-### 4.4 外部 JSON（不推荐新手首选）
+### 4.4 从 OpenClaw JSON 迁移
 
-若你使用 OpenClaw 等导出的 JSON 配置，可通过 `MINIAGENT_CONFIG` 指向文件。其 `apiKey` 可能被写入进程环境。**务必** 限制文件权限、勿提交入库，并阅读 [SECURITY.md](SECURITY.md) 中「外部 JSON（MINIAGENT_CONFIG）与进程环境」一节。脱敏结构示例见 [examples/sample-external-config.fragment.json](examples/sample-external-config.fragment.json)。
+若曾使用 OpenClaw 导出 JSON，请将字段写入 `.env`：`OPENAI_MODEL`、`OPENAI_BASE_URL`、`OPENAI_API_KEY`、`AGENT_CONTEXT_WINDOW`、`AGENT_THINKING_DEFAULT`、`OPENAI_THINKING_BUDGET`、`OPENAI_MAX_TOKENS`（映射见 [.env.example](../.env.example) §2）。
 
 ---
 
@@ -373,12 +372,11 @@ python -m miniagent --stop
 
 ## 16. 安全与隐私清单
 
-1. **`.env` 与任何含密钥的 JSON** 仅本机保存，权限收紧；勿提交 Git。  
+1. **`.env`** 仅本机保存，权限收紧；勿提交 Git。  
 2. **不要在截图、录屏、聊天里** 暴露完整密钥或企业内部令牌。  
 3. **共享电脑**：使用独立用户目录与独立 `MINI_AGENT_STATE`，用完可删除状态目录。  
-4. **外部 JSON**：若使用 `MINIAGENT_CONFIG`，阅读 [SECURITY.md](SECURITY.md) §6。  
-5. **工具能力**：文件与命令受沙箱等约束，见 [SECURITY.md](SECURITY.md)；不要给不可信人员开放你的运行环境。  
-6. **备份介质**：会话与记忆可能含敏感业务文本，备份同样需加密与访问控制。
+4. **工具能力**：文件与命令受沙箱等约束，见 [SECURITY.md](SECURITY.md)；不要给不可信人员开放你的运行环境。  
+5. **备份介质**：会话与记忆可能含敏感业务文本，备份同样需加密与访问控制。
 
 ---
 

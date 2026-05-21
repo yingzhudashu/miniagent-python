@@ -113,15 +113,22 @@ def sync_channel_router_to_session(
 ) -> None:
     """将 CLI 与「自动同步」的飞书私聊通道绑定到同一主会话，并更新 primary。"""
     from miniagent.infrastructure.channel_router import ChannelRouter
+    from miniagent.infrastructure.cli_feishu_policy import (
+        normalize_bind_session_id,
+        should_sync_p2p_on_session_switch,
+    )
 
     if channel_router is None:
         return
-    channel_router.bind(ChannelRouter.CLI_CHANNEL, session_id)
-    channel_router.set_primary(session_id)
-    if feishu_p2p_synced_senders:
+    sid = normalize_bind_session_id("cli", session_id)
+    channel_router.bind(ChannelRouter.CLI_CHANNEL, sid)
+    channel_router.set_primary(sid)
+    if feishu_p2p_synced_senders and should_sync_p2p_on_session_switch(
+        channel_router, sid
+    ):
         pfx = ChannelRouter.FEISHU_P2P_PREFIX
-        for sid in feishu_p2p_synced_senders:
-            channel_router.bind(f"{pfx}{sid}", session_id)
+        for sender in feishu_p2p_synced_senders:
+            channel_router.bind(f"{pfx}{sender}", sid)
 
 
 def _resolve_session(
@@ -521,16 +528,27 @@ def cmd_bind(
     channel = args[0].lower()
 
     if channel == "cli":
-        session_id = args[1]
+        from miniagent.infrastructure.cli_feishu_policy import normalize_bind_session_id
+
+        session_id = normalize_bind_session_id("cli", args[1])
         old = channel_router.bind(ChannelRouter.CLI_CHANNEL, session_id)
+        channel_router.set_primary(session_id)
         old_msg = f"（原绑定: {old}）" if old else ""
         return f"✅ CLI 已绑定到会话: {session_id} {old_msg}"
 
     elif channel == "feishu":
         if len(args) < 3:
             return "飞书私聊绑定需要 sender_id: .bind feishu <sender_id> <会话>"
+        from miniagent.infrastructure.cli_feishu_policy import (
+            normalize_bind_session_id,
+            p2p_bind_target_allowed,
+        )
+
         sender_id = args[1]
-        session_id = args[2]
+        session_id = normalize_bind_session_id("feishu", args[2])
+        ok, err = p2p_bind_target_allowed(channel_router, session_id)
+        if not ok:
+            return f"❌ {err}"
         channel_id = f"{ChannelRouter.FEISHU_P2P_PREFIX}{sender_id}"
         old = channel_router.bind(channel_id, session_id)
         old_msg = f"（原绑定: {old}）" if old else ""
@@ -1120,6 +1138,7 @@ def format_help_markdown(
             None,
             [
                 ("`.help`", "显示本帮助"),
+                ("`.reload-skills`", "从磁盘重新加载技能（无需重启）"),
                 ("`.copy`", "复制当前会话 transcript 到剪贴板（全屏 CLI）"),
                 ("`quit` / `exit`", "退出程序"),
             ],

@@ -51,7 +51,8 @@ async def init_subsystems(
         (loaded_skills, skill_toolboxes, skill_prompts, active_session_id, session_manager)
     """
     from miniagent.engine.builtin_tools import register_builtin_tools
-    from miniagent.skills.loader import discover_skill_packages
+    from miniagent.skills.load_runtime import bootstrap_skill_packages
+    from miniagent.skills.snapshots import build_skill_snapshots
     from miniagent.tools.session_memory import session_memory_tools
 
     # 0. 内置工具（ALL_TOOLS）先于技能包；同名时内置优先（技能注册遇 ValueError 则跳过）
@@ -59,22 +60,7 @@ async def init_subsystems(
     if reg_n:
         _logger.info("已注册 %d 个内置工具（ALL_TOOLS）", reg_n)
 
-    from miniagent.skills.paths import get_skills_root
-
-    skills_root = get_skills_root()
-    loaded_skills = []
-    if os.path.isdir(skills_root):
-        packages = await discover_skill_packages(skills_root)
-        for pkg in packages:
-            skill_registry.register_package(pkg)
-            loaded_skills.extend(pkg.skills)
-            for skill in pkg.skills:
-                if skill.tools:
-                    for name, tool in skill.tools.items():
-                        try:
-                            registry.register(name, tool)
-                        except ValueError:
-                            pass
+    loaded_skills, _added, _removed = await bootstrap_skill_packages(registry, skill_registry)
 
     for name, tool in session_memory_tools.items():
         try:
@@ -98,16 +84,14 @@ async def init_subsystems(
         except Exception as e:
             _logger.warning("MINIAGENT_MCP_STDIO: %s", e)
 
-    # 2. 获取工具箱和系统提示
-    from miniagent.skills.builtin_toolboxes import BUILTIN_TOOLBOXES
+    # 2. 获取工具箱和系统提示（含 gating）
+    from miniagent.core.config import get_default_agent_config
 
-    skill_toolboxes = skill_registry.get_all_toolboxes()
-    seen_tb = {t.id for t in skill_toolboxes}
-    for tb in BUILTIN_TOOLBOXES:
-        if tb.id not in seen_tb:
-            skill_toolboxes.append(tb)
-            seen_tb.add(tb.id)
-    skill_prompts = skill_registry.get_system_prompts()
+    try:
+        agent_cfg = get_default_agent_config()
+    except Exception:
+        agent_cfg = None
+    skill_toolboxes, skill_prompts = build_skill_snapshots(skill_registry, agent_cfg)
 
     # 3. 创建 SessionManager
     session_manager = SessionManager(registry, skill_toolboxes, loaded_skills, clawhub=clawhub)

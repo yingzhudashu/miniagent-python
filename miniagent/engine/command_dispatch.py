@@ -231,9 +231,16 @@ async def dispatch_command(
                 us = _resolve_feishu_user_status()
 
                 def _start() -> None:
+                    from miniagent.skills.snapshots import (
+                        get_skill_prompts_from_state,
+                        get_skill_toolboxes_from_state,
+                    )
+
                     feishu_rt.start(
-                        skill_toolboxes or [],
-                        skill_prompts or [],
+                        get_skill_toolboxes_from_state(state)
+                        or skill_toolboxes
+                        or [],
+                        get_skill_prompts_from_state(state) or skill_prompts or [],
                         factory,
                         state,
                         user_status=us,
@@ -306,6 +313,31 @@ async def dispatch_command(
         else:
             active = os.environ.get("MODEL_PROFILE", "balanced")
             output = f"当前预设: {active}\n可用: {', '.join(MODEL_PROFILES.keys())}"
+        if capture:
+            return output
+        print(output)
+        return None
+
+    # ── .reload-skills ──
+    if cmd in (".reload-skills", ".reload_skills"):
+        try:
+            from miniagent.skills.refresh import refresh_skills
+
+            fr = await refresh_skills(
+                registry,
+                rt.skill_registry,
+                state=state,
+                session_manager=state.get("session_manager"),
+            )
+            output = (
+                f"🔄 技能已重新加载\n"
+                f"  包: {', '.join(fr.package_ids) or '(无)'}\n"
+                f"  技能数: {len(fr.loaded_skills)}\n"
+                f"  新增工具: {len(fr.added_tools)}\n"
+                f"  移除工具: {len(fr.removed_tools)}"
+            )
+        except Exception as e:
+            output = f"❌ 技能 reload 失败: {e}"
         if capture:
             return output
         print(output)

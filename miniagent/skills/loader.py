@@ -61,8 +61,31 @@ def parse_skill_md(content: str) -> tuple[dict[str, str], str]:
 
 # ─── 动态导入模块 ────────────────────────────────────────
 
+def _module_name_for_path(prefix: str, file_path: str) -> str:
+    """按文件 mtime 生成模块名，便于 refresh 时加载更新后的 tools.py。"""
+    try:
+        mtime = int(os.path.getmtime(file_path))
+    except OSError:
+        mtime = 0
+    return f"{prefix}_{mtime}"
+
+
+def evict_skill_modules(*prefixes: str) -> None:
+    """从 ``sys.modules`` 移除匹配前缀的技能动态模块。"""
+    if not prefixes:
+        return
+    to_remove = [
+        name
+        for name in list(sys.modules)
+        if any(name == p or name.startswith(f"{p}_") for p in prefixes)
+    ]
+    for name in to_remove:
+        del sys.modules[name]
+
+
 def _import_module_from_path(module_name: str, file_path: str) -> Any:
     """从文件路径动态导入 Python 模块。"""
+    evict_skill_modules(module_name)
     spec = importlib.util.spec_from_file_location(module_name, file_path)
     if spec is None or spec.loader is None:
         return None
@@ -79,8 +102,9 @@ def _import_module_from_path(module_name: str, file_path: str) -> Any:
 
 # ─── 子技能加载 ──────────────────────────────────────────
 
-def _load_sub_skills(skills_dir: str) -> list[Skill]:
+def _load_sub_skills(skills_dir: str, *, package_name: str | None = None) -> list[Skill]:
     """从 skills/ 子目录加载子技能。"""
+    pkg = package_name or os.path.basename(os.path.dirname(skills_dir))
     skills: list[Skill] = []
 
     for entry in sorted(os.listdir(skills_dir)):
@@ -108,7 +132,8 @@ def _load_sub_skills(skills_dir: str) -> list[Skill]:
         # 加载工具定义
         tools: dict[str, ToolDefinition] | None = None
         if os.path.isfile(tools_py_path):
-            mod_name = f"_skill_{os.path.basename(skills_dir)}_{entry}_tools"
+            prefix = f"_skill_{pkg}_{entry}_tools"
+            mod_name = _module_name_for_path(prefix, tools_py_path)
             mod = _import_module_from_path(mod_name, tools_py_path)
             if mod:
                 tools = {}
@@ -171,9 +196,11 @@ async def load_skill_package(package_dir: str) -> SkillPackage | None:
     init_path = os.path.join(package_dir, "__init__.py")
     index_path = os.path.join(package_dir, "index.py")
 
+    evict_skill_modules(f"_skillpkg_{package_name}", f"_skill_{package_name}_")
+
     for candidate in (init_path, index_path):
         if os.path.isfile(candidate):
-            mod_name = f"_skillpkg_{package_name}"
+            mod_name = _module_name_for_path(f"_skillpkg_{package_name}", candidate)
             mod = _import_module_from_path(mod_name, candidate)
             if mod:
                 if hasattr(mod, "skills") and isinstance(mod.skills, list):
@@ -185,7 +212,7 @@ async def load_skill_package(package_dir: str) -> SkillPackage | None:
     # 尝试从 skills/ 子目录加载子技能
     sub_skills_dir = os.path.join(package_dir, "skills")
     if os.path.isdir(sub_skills_dir):
-        sub_skills = _load_sub_skills(sub_skills_dir)
+        sub_skills = _load_sub_skills(sub_skills_dir, package_name=package_name)
         skills.extend(sub_skills)
 
     if not skills and not skill_md:
@@ -231,4 +258,9 @@ async def discover_skill_packages(skills_root: str) -> list[SkillPackage]:
     return packages
 
 
-__all__ = ["parse_skill_md", "load_skill_package", "discover_skill_packages"]
+__all__ = [
+    "parse_skill_md",
+    "load_skill_package",
+    "discover_skill_packages",
+    "evict_skill_modules",
+]

@@ -94,6 +94,7 @@ class UnifiedEngine:
         feishu_im_receive_id: str | None = None,
         cli_loop_state: Any | None = None,
         agent_config_overrides: dict[str, Any] | None = None,
+        feishu_mirror_cli: bool = True,
     ) -> str:
         """运行 agent 并显示思考过程。
 
@@ -229,8 +230,11 @@ class UnifiedEngine:
                         reply_in_thread=bool(getattr(st_local, "feishu_reply_in_thread", False)),
                     )
 
-            # 如果 CLI 也绑定到此会话，注册双回调（终端 + 飞书）
-            if router.CLI_CHANNEL in bound_channels:
+            # 如果 CLI 也绑定到此会话且策略允许镜像，注册双回调（终端 + 飞书）
+            cli_dual = (
+                router.CLI_CHANNEL in bound_channels and feishu_mirror_cli
+            )
+            if cli_dual:
                 async def _dual_send(
                     chat_id: str,
                     text: str,
@@ -258,6 +262,7 @@ class UnifiedEngine:
                     _dual_send,
                     reply_to_message_id=r_mid,
                     reply_in_thread=r_thr,
+                    mirror_cli=True,
                 )
             else:
                 self.thinking.enable_feishu(
@@ -266,6 +271,7 @@ class UnifiedEngine:
                     _feishu_send,
                     reply_to_message_id=r_mid,
                     reply_in_thread=r_thr,
+                    mirror_cli=feishu_mirror_cli,
                 )
 
         # 5. 思考回调（支持流式更新；落盘到 history 的 thinking role）

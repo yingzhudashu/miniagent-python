@@ -29,19 +29,14 @@ def get_shared_async_openai() -> AsyncOpenAI:
                     hypothesis_id="C",
                     location="openai_client.py:get_shared_async_openai",
                     message="missing_openai_api_key_abort",
-                    data={
-                        "miniagent_config_set": bool(
-                            (os.environ.get("MINIAGENT_CONFIG") or "").strip()
-                        ),
-                    },
+                    data={},
                 )
             except Exception:
                 pass
             # #endregion
             raise RuntimeError(
                 "未配置 OPENAI_API_KEY，无法调用 LLM（任务分类、规划、对话均依赖）。"
-                "请在 .env 或环境中设置 OPENAI_API_KEY；若使用 MINIAGENT_CONFIG，请在 JSON 的 providers 中配置 "
-                "apiKey（加载后会写入 OPENAI_API_KEY）。使用国内/自建兼容端点时请同时设置 OPENAI_BASE_URL。"
+                "请在 .env 或环境中设置 OPENAI_API_KEY；使用国内/自建兼容端点时请同时设置 OPENAI_BASE_URL。"
             ) from None
         _shared = AsyncOpenAI(
             api_key=key,
