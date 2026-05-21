@@ -50,16 +50,20 @@ def _announce_difficulty_and_plan_enabled() -> bool:
     return str(v).strip().lower() not in ("0", "false", "no")
 
 
-def _format_task_difficulty_message(difficulty: Any) -> str:
-    """Human-readable difficulty line for on_thinking / Feishu card."""
-    labels = {
-        "simple": "简单",
-        "normal": "一般",
-        "medium": "中等",
-        "complex": "复杂",
-    }
+_DIFFICULTY_LABELS = {
+    "simple": "简单",
+    "normal": "一般",
+    "medium": "中等",
+    "complex": "复杂",
+}
+
+
+def _format_task_difficulty(difficulty: Any, *, display: bool = False) -> str:
+    """Format task difficulty; *display=True* returns the short CLI/Feishu card line."""
     key = getattr(difficulty, "value", str(difficulty))
-    zh = labels.get(key, key)
+    zh = _DIFFICULTY_LABELS.get(key, key)
+    if display:
+        return f"**难度** {zh}（{key}）"
     return (
         f"[任务难度]\n"
         f"评估结果：{zh}（{key}）\n"
@@ -84,19 +88,6 @@ def _skip_structured_plan_reason(
 
 
 PLANNING_STREAM_HEADER = "[评估与计划]"
-
-
-def _format_task_difficulty_display(difficulty: Any) -> str:
-    """规划阶段展示用短文案（历史仍用 _format_task_difficulty_message）。"""
-    labels = {
-        "simple": "简单",
-        "normal": "一般",
-        "medium": "中等",
-        "complex": "复杂",
-    }
-    key = getattr(difficulty, "value", str(difficulty))
-    zh = labels.get(key, key)
-    return f"**难度** {zh}（{key}）"
 
 
 def _format_plan_display_short(
@@ -271,8 +262,8 @@ async def run_agent(
         if difficulty == TaskDifficulty.SIMPLE:
             effective_skip = True
         if _announce_difficulty_and_plan_enabled() and on_thinking:
-            diff_msg = _format_task_difficulty_message(difficulty)
-            diff_disp = _format_task_difficulty_display(difficulty)
+            diff_msg = _format_task_difficulty(difficulty)
+            diff_disp = _format_task_difficulty(difficulty, display=True)
             planning_hist = planning_hist + "\n\n" + diff_msg
             planning_display = planning_display + "\n\n" + diff_disp
             await invoke_on_thinking(

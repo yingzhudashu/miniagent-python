@@ -2,6 +2,8 @@
 
 > Mini Agent Python | 版本: 2.0.2 | 规划稿（实验性）
 >
+> **Status: Draft / Exploratory — 待确认是否仍在进行**
+>
 > 基于钱学森《Engineering Cybernetics》(1954) 中心思想
 > 创建日期: 2026-05-09
 

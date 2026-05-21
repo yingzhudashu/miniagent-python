@@ -18,18 +18,7 @@ from miniagent.types.config import AgentConfig
 _logger = get_logger(__name__)
 
 
-try:
-    from openai import BadRequestError as _OpenAIBadRequestError
-except ImportError:
-    _OpenAIBadRequestError = None  # type: ignore[misc, assignment]
-
-
-def _json_object_unsupported(err: Exception) -> bool:
-    """判断异常是否表示当前端点不支持 ``response_format=json_object``（用于重试时关闭 JSON 模式）。"""
-    if _OpenAIBadRequestError is not None and isinstance(err, _OpenAIBadRequestError):
-        return True
-    low = str(err).lower()
-    return "response_format" in low or "json_object" in low
+from miniagent.core._openai_compat import json_object_unsupported as _json_object_unsupported
 
 
 class TaskDifficulty(str, Enum):

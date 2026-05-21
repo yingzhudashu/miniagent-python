@@ -9,7 +9,7 @@ import pytest
 from miniagent.core.agent import (
     PLANNING_STREAM_HEADER,
     _format_plan_message,
-    _format_task_difficulty_message,
+    _format_task_difficulty,
     run_agent,
 )
 from miniagent.core.task_classifier import TaskDifficulty
@@ -19,7 +19,7 @@ from miniagent.types.tool import Toolbox
 
 
 def test_format_task_difficulty_message() -> None:
-    s = _format_task_difficulty_message(TaskDifficulty.MEDIUM)
+    s = _format_task_difficulty(TaskDifficulty.MEDIUM)
     assert "[任务难度]" in s
     assert "中等" in s
 

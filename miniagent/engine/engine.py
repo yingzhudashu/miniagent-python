@@ -23,9 +23,12 @@ from typing import Any
 
 from miniagent.core.agent import run_agent
 from miniagent.engine.cli_commands import feishu_dot_commands_full_enabled
+from miniagent.infrastructure.logger import get_logger
 from miniagent.memory.context import DefaultContextManager
 from miniagent.memory.defaults import resolve_memory_dependencies
 from miniagent.session.manager import SessionOptions
+
+_logger = get_logger(__name__)
 
 
 def _fence_tool_output(body: str) -> str:
@@ -451,15 +454,15 @@ class UnifiedEngine:
             summary = generate_turn_summary(user_input, [], reply)
             facts = extract_facts(reply)
             await ms.update_summary(session_key, summary, facts)
-        except Exception:
-            pass
+        except Exception as e:
+            _logger.warning("Memory summary update failed: %s", e)
 
         try:
             from miniagent.memory.dream_scheduler import schedule_memory_maintenance
 
             schedule_memory_maintenance(session_key)
-        except Exception:
-            pass
+        except Exception as e:
+            _logger.warning("Dream scheduler scheduling failed: %s", e)
 
         return reply
 

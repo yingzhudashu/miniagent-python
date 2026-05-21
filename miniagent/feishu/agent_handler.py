@@ -1,4 +1,6 @@
-"""飞书消息处理器（通用回调工厂）
+"""DEPRECATED: This module is no longer imported anywhere.
+
+飞书消息处理器（通用回调工厂）
 
 ``create_feishu_handler`` 提供可组合的 ``on_message`` 钩子（``FeishuMessageEvent`` 模型），
 适用于自建 Webhook/试验代码。生产 CLI 路径下由 ``miniagent.engine.main._create_feishu_handler``

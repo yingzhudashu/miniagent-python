@@ -1,4 +1,7 @@
-"""执行路径本地序列化样本（无网络），供 L1 性能场景 S7 与剖析复用。"""
+"""Benchmarking utility: local serialization sample for L1 performance scenario S7.
+
+Not part of the runtime agent pipeline. Only used by performance tests.
+"""
 
 from __future__ import annotations
 

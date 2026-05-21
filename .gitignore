@@ -16,6 +16,13 @@ debug-*.log
 perf-snapshot.json
 perf.out
 
+# 测试覆盖率产物
+.coverage
+.coverage.*
+
+# Claude Code session 目录
+.claude/
+
 # 运行时状态（按需取消注释；若团队将 workspaces 提交为示例可保留跟踪）
 workspaces/instances/
 workspaces/**/*.lock

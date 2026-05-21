@@ -383,116 +383,13 @@ async def run_cli_loop(
     from prompt_toolkit.layout.scrollable_pane import ScrollablePane
     from prompt_toolkit.mouse_events import MouseEvent, MouseEventType
 
-    # #region agent log
-    try:
-        import json as _json
-        import time as _time
-
-        import prompt_toolkit as _pt
-
-        _kb = __import__(
-            "prompt_toolkit.key_binding.key_bindings", fromlist=["_probe"]
-        )
-        _repo_root = os.path.dirname(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        )
-        _log_path = os.path.join(_repo_root, "debug-f5825e.log")
-        with open(_log_path, "a", encoding="utf-8") as _lf:
-            _lf.write(
-                _json.dumps(
-                    {
-                        "sessionId": "f5825e",
-                        "runId": "post-fix",
-                        "hypothesisId": "H1",
-                        "location": "main.py:run_cli_loop:after_pt_imports",
-                        "message": "prompt_toolkit CLI imports succeeded",
-                        "data": {
-                            "pt_version": getattr(_pt, "__version__", None),
-                            "key_bindings_has_NotImplementedOrNone_runtime": hasattr(
-                                _kb, "NotImplementedOrNone"
-                            ),
-                        },
-                        "timestamp": int(_time.time() * 1000),
-                    },
-                    ensure_ascii=False,
-                )
-                + "\n"
-            )
-    except Exception:
-        pass
-    # #endregion
-
     from miniagent.engine.session_lock import release_session_lock
-
-    _dbg_path = os.path.normpath(
-        os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "..", "debug-b7d9b9.log")
-        )
-    )
 
     input_buffer = Buffer(history=FileHistory(history_file))
 
     _MAX_TRANSCRIPT_CHARS = 400_000
     _transcript: list[Any] = []
     _stick_bottom: list[bool] = [True]
-
-    # #region agent log
-    _DBG_LOG_02 = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        "debug-02b0ad.log",
-    )
-    _dbg_ph_remain: list[int] = [150]
-    _dbg_pt_ver_done: list[bool] = [False]
-
-    def _dbg_ndjson_02(
-        hypothesis_id: str,
-        location: str,
-        message: str,
-        data: dict,
-        *,
-        run_id: str = "post-fix",
-    ) -> None:
-        """调试 NDJSON 追加写入（存在则记录 hypothesis/布局信息；失败静默）。"""
-        try:
-            import json as _json
-            import time as _time
-
-            extra: dict = {}
-            if not _dbg_pt_ver_done[0]:
-                _dbg_pt_ver_done[0] = True
-                try:
-                    import prompt_toolkit as _pt
-
-                    extra["prompt_toolkit_version"] = getattr(_pt, "__version__", None)
-                except Exception:
-                    extra["prompt_toolkit_version"] = None
-            payload = {
-                "sessionId": "02b0ad",
-                "runId": run_id,
-                "hypothesisId": hypothesis_id,
-                "location": location,
-                "message": message,
-                "data": {**data, **extra},
-                "timestamp": int(_time.time() * 1000),
-            }
-            with open(_DBG_LOG_02, "a", encoding="utf-8") as _df:
-                _df.write(_json.dumps(payload, ensure_ascii=False) + "\n")
-        except Exception:
-            pass
-
-    def _dbg_transcript_summary() -> dict:
-        """返回 transcript 条数、类型分布与尾部类型名（供调试日志使用）。"""
-        types: dict[str, int] = {}
-        for f in _transcript:
-            k = type(f).__name__
-            types[k] = types.get(k, 0) + 1
-        return {
-            "len": len(_transcript),
-            "types": types,
-            "tail_type_names": [type(f).__name__ for f in _transcript[-8:]],
-        }
-
-    # #endregion
 
     def _transcript_fragment_len(frag: Any) -> int:
         """估算单条 transcript 片段的字符长度（tuple 文本或 ``ANSI`` 包裹串）。"""
@@ -610,34 +507,6 @@ async def run_cli_loop(
         else:
             sp.vertical_scroll = min(mx, before + step)
         after = sp.vertical_scroll
-        try:
-            import json as _json
-            import time as _time
-
-            with open(_dbg_path, "a", encoding="utf-8") as _df:
-                _df.write(
-                    _json.dumps(
-                        {
-                            "sessionId": "b7d9b9",
-                            "hypothesisId": "H-scroll",
-                            "location": "main.py:_apply_transcript_scroll",
-                            "message": "scroll",
-                            "data": {
-                                "src": src,
-                                "signed_step": signed_step,
-                                "step": step,
-                                "before": before,
-                                "after": after,
-                                "max_scroll": mx,
-                            },
-                            "timestamp": int(_time.time() * 1000),
-                        },
-                        ensure_ascii=False,
-                    )
-                    + "\n"
-                )
-        except Exception:
-            pass
 
     class _TranscriptPaneControl(UIControl):
         """将滚轮从「内层 Window 自滚」转为 ScrollablePane.vertical_scroll。"""
@@ -659,23 +528,7 @@ async def run_cli_loop(
             wrap_lines: bool,
             get_line_prefix,
         ) -> int | None:
-            """委托内层高度计算（可选附带调试 NDJSON 采样）。"""
-            # #region agent log
-            if _dbg_ph_remain[0] > 0:
-                _dbg_ph_remain[0] -= 1
-                _dbg_ndjson_02(
-                    "H1-H5",
-                    "main.py:_TranscriptPaneControl.preferred_height",
-                    "before inner.preferred_height",
-                    {
-                        "width": width,
-                        "max_available_height": max_available_height,
-                        "wrap_lines": wrap_lines,
-                        "summary": _dbg_transcript_summary(),
-                        "ph_logs_left_after": _dbg_ph_remain[0],
-                    },
-                )
-            # #endregion
+            """委托内层高度计算。"""
             return self._inner.preferred_height(
                 width, max_available_height, wrap_lines, get_line_prefix
             )
@@ -839,57 +692,7 @@ async def run_cli_loop(
         "cli-hint": "ansibrightblack dim",
         "cli-spacer": "",
     }
-    # #region agent log
-    import json
-    import time as _time
-
-    try:
-        with open(_dbg_path, "a", encoding="utf-8") as _df:
-            _df.write(
-                json.dumps(
-                    {
-                        "sessionId": "b7d9b9",
-                        "hypothesisId": "H1",
-                        "location": "miniagent/engine/main.py:cli_style",
-                        "message": "before_from_dict",
-                        "data": {
-                            "has_ansidim": any(
-                                "ansidim" in str(v) for v in _cli_style_dict.values()
-                            ),
-                            "sample_vals": list(_cli_style_dict.values())[:4],
-                        },
-                        "timestamp": int(_time.time() * 1000),
-                        "runId": "post-fix",
-                    },
-                    ensure_ascii=False,
-                )
-                + "\n"
-            )
-    except Exception:
-        pass
-    # #endregion
     cli_style = Style.from_dict(_cli_style_dict)
-    # #region agent log
-    try:
-        with open(_dbg_path, "a", encoding="utf-8") as _df:
-            _df.write(
-                json.dumps(
-                    {
-                        "sessionId": "b7d9b9",
-                        "hypothesisId": "H1-verify",
-                        "location": "miniagent/engine/main.py:cli_style",
-                        "message": "from_dict_ok",
-                        "data": {"style_type": type(cli_style).__name__},
-                        "timestamp": int(_time.time() * 1000),
-                        "runId": "post-fix",
-                    },
-                    ensure_ascii=False,
-                )
-                + "\n"
-            )
-    except Exception:
-        pass
-    # #endregion
 
     body = HSplit(
         [
@@ -1029,18 +832,6 @@ async def run_cli_loop(
             body_lines = ansi_body.rstrip("\n").split("\n")
             transcript_body = "\n".join(ln if ln else "" for ln in body_lines) + "\n"
             _transcript.append(ANSI(transcript_body))
-            # #region agent log
-            _dbg_ndjson_02(
-                "H1-H2",
-                "main.py:_cli_block_reply",
-                "appended ANSI fragment to transcript",
-                {
-                    "ansi_chars": len(transcript_body),
-                    "summary_after": _dbg_transcript_summary(),
-                    "flatten_out_len": len(_flatten_transcript_for_pt()),
-                },
-            )
-            # #endregion
             _trim_transcript()
             try:
                 get_app().invalidate()

@@ -1,4 +1,6 @@
-"""Mini Agent Python — Feishu 服务器（兼容层）
+"""DEPRECATED: This module is a thin compat shim. Import from miniagent.feishu.poll_server directly.
+
+Mini Agent Python — Feishu 服务器（兼容层）
 
 提供飞书 WebSocket 服务器的创建接口。
 此模块为兼容层，实际实现位于 poll_server.py。
