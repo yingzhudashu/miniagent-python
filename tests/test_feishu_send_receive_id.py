@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from miniagent.tools.feishu_im_tools import _default_receive_id_for_send, _effective_receive_id_type
+from miniagent.feishu.receive_id import default_receive_id_for_send, effective_receive_id_type
+
+_default_receive_id_for_send = default_receive_id_for_send
+_effective_receive_id_type = effective_receive_id_type
 from miniagent.types.tool import ToolContext
 
 

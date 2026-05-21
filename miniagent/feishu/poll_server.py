@@ -464,13 +464,20 @@ async def start_feishu_poll_server(
 
             content_str = message.content or ""
 
-            if msg_type == "text":
+            if msg_type in ("text", "interactive"):
+                from miniagent.feishu.cards.extract import inbound_text_from_message
+
                 text = ""
-                try:
-                    parsed = json.loads(content_str)
-                    text = parsed.get("text", "")
-                except (json.JSONDecodeError, TypeError):
-                    text = content_str
+                if msg_type == "interactive" and env_flag(
+                    "MINIAGENT_FEISHU_CARD_EXTRACT_INBOUND", default=True
+                ):
+                    text = inbound_text_from_message(msg_type, content_str) or ""
+                if not text and msg_type == "text":
+                    try:
+                        parsed = json.loads(content_str)
+                        text = parsed.get("text", "")
+                    except (json.JSONDecodeError, TypeError):
+                        text = content_str
 
                 if not text.strip():
                     release_processing(message_id)
@@ -656,13 +663,25 @@ async def start_feishu_poll_server(
             ctx = getattr(ev, "context", None)
             op = getattr(ev, "operator", None)
             value = dict(getattr(act, "value", None) or {}) if act else {}
-            text = str(value.get("miniagent_text") or value.get("text") or "").strip()
+            from miniagent.feishu.cards.action_router import inbound_text_from_card_action_value
+
+            text = (inbound_text_from_card_action_value(value) or "").strip()
             chat_id = str(value.get("chat_id") or "").strip()
             if not chat_id and ctx is not None:
                 chat_id = str(getattr(ctx, "open_chat_id", None) or "").strip()
             sender_id = ""
             if op is not None:
                 sender_id = str(getattr(op, "open_id", None) or "").strip()
+            dedupe_key = str(value.get("dedupe_key") or "").strip()
+            if dedupe_key:
+                from miniagent.feishu.cards.dedupe import should_skip_card_action
+
+                if should_skip_card_action(dedupe_key):
+                    ok = CallBackToast()
+                    ok.type = "info"
+                    ok.content = "已处理（重复操作已忽略）"
+                    resp.toast = ok
+                    return resp
             if not text or not chat_id:
                 return resp
             inbound = FeishuInboundText(
@@ -853,64 +872,6 @@ def _feishu_wide_table_fallback_mode() -> str:
     return "both"
 
 
-def _is_gfm_table_separator_line(line: str) -> bool:
-    """判断一行是否为 GFM 表格分隔行（仅含 ``-``、``:``、``|`` 等）。"""
-    return bool(re.match(r"^\s*\|?[\s\-:|]+\|?\s*$", line))
-
-
-def _parse_gfm_table_row_cells(line: str) -> list[str]:
-    """按管道符拆分表格行并 strip 各单元格（容忍首尾 ``|``）。"""
-    s = line.strip()
-    if s.startswith("|"):
-        s = s[1:]
-    if s.endswith("|"):
-        s = s[:-1]
-    return [c.strip() for c in s.split("|")]
-
-
-def _gfm_table_block_to_text_table(
-    block_lines: list[str], *, max_cell_width: int = 28
-) -> str:
-    """将 GFM 管道表转为等宽文本表（单元格截断），供 lark_md 代码块展示。"""
-    rows: list[list[str]] = []
-    for line in block_lines:
-        if not line.strip() or _is_gfm_table_separator_line(line):
-            continue
-        rows.append(_parse_gfm_table_row_cells(line))
-    if not rows:
-        return ""
-    ncols = max(len(r) for r in rows)
-    for r in rows:
-        while len(r) < ncols:
-            r.append("")
-    widths: list[int] = []
-    for ci in range(ncols):
-        mw = 0
-        for r in rows:
-            if ci < len(r):
-                mw = max(mw, len((r[ci] or "").replace("\n", " ").replace("\r", "")))
-        widths.append(min(max_cell_width, max(mw, 3)))
-
-    def trunc(cell: str, w: int) -> str:
-        """单元格截断/左对齐填充至宽度 ``w``。"""
-        x = (cell or "").replace("\n", " ").replace("\r", "")
-        if len(x) <= w:
-            return x.ljust(w)
-        if w <= 1:
-            return "…"[:w]
-        return x[: w - 1] + "…"
-
-    out_lines: list[str] = []
-    for ri, r in enumerate(rows):
-        cells = [trunc(r[ci], widths[ci]) for ci in range(ncols)]
-        out_lines.append("| " + " | ".join(cells) + " |")
-        if ri == 0:
-            out_lines.append(
-                "|-" + "-|-".join("-" * widths[ci] for ci in range(ncols)) + "-|"
-            )
-    return "\n".join(out_lines)
-
-
 def _normalize_lark_md(text: str) -> str:
     """将常见 GFM / HTML 写法降级为飞书 ``lark_md`` 更易接受的正文。"""
     if not text:
@@ -929,7 +890,8 @@ def _normalize_lark_md(text: str) -> str:
 
     t = "\n".join(_collapse_fence_line(L) for L in t.split("\n"))
 
-    # 过宽 Markdown 表格：列过多时整块替换为提示，避免客户端显示为「原始管道符」
+    from miniagent.feishu.cards.gfm_table import find_wide_gfm_table_block, gfm_table_block_to_text_table
+
     lines = t.split("\n")
     out: list[str] = []
     i = 0
@@ -938,33 +900,22 @@ def _normalize_lark_md(text: str) -> str:
     except ValueError:
         max_pipes = 14
     while i < len(lines):
-        row0 = lines[i]
-        if i + 1 < len(lines) and "|" in row0 and re.match(
-            r"^\s*\|?[\s\-:|]+\|?\s*$", lines[i + 1]
-        ):
-            j = i
-            pipe_peak = 0
-            while j < len(lines) and lines[j].strip() and "|" in lines[j]:
-                pipe_peak = max(pipe_peak, lines[j].count("|"))
-                j += 1
-            if pipe_peak > max_pipes:
-                mode = _feishu_wide_table_fallback_mode()
-                utf_block = _gfm_table_block_to_text_table(lines[i:j])
-                fenced = f"```\n{utf_block}\n```" if utf_block else ""
-                if mode == "hint":
-                    out.append(_WIDE_TABLE_HINT)
-                elif mode == "unicode":
-                    if fenced:
-                        out.append(fenced)
-                else:
-                    out.append(
-                        _WIDE_TABLE_HINT + (f"\n\n{fenced}" if fenced else "")
-                    )
+        found = find_wide_gfm_table_block(lines, i, max_pipes=max_pipes)
+        if found is not None:
+            bi, bj, _ = found
+            mode = _feishu_wide_table_fallback_mode()
+            utf_block = gfm_table_block_to_text_table(lines[bi:bj])
+            fenced = f"```\n{utf_block}\n```" if utf_block else ""
+            if mode == "hint":
+                out.append(_WIDE_TABLE_HINT)
+            elif mode == "unicode":
+                if fenced:
+                    out.append(fenced)
             else:
-                out.extend(lines[i:j])
-            i = j
+                out.append(_WIDE_TABLE_HINT + (f"\n\n{fenced}" if fenced else ""))
+            i = bj
             continue
-        out.append(row0)
+        out.append(lines[i])
         i += 1
     joined = "\n".join(out)
     joined = re.sub(
@@ -1093,22 +1044,15 @@ def _chunk_feishu_card_markdown(
 def _feishu_interactive_card_dict(
     header_title: str, body_markdown: str, template: str
 ) -> dict[str, Any]:
-    """交互卡片：正文为 lark_md（飞书客户端内渲染为 Markdown 子集）。"""
-    return {
-        "config": {"wide_screen_mode": True},
-        "header": {
-            "title": {"tag": "plain_text", "content": header_title},
-            "template": template,
-        },
-        "elements": [
-            {"tag": "div", "text": {"tag": "lark_md", "content": body_markdown}},
-        ],
-    }
+    from miniagent.feishu.cards.builder import build_interactive_card
+
+    return build_interactive_card(header_title, body_markdown, template)
 
 
 def _thinking_interactive_card_dict(cleaned_markdown: str, template: str) -> dict[str, Any]:
-    """构建标题为「思考中」的交互卡片 JSON dict（lark_md 正文）。"""
-    return _feishu_interactive_card_dict("💭 思考中", cleaned_markdown, template)
+    from miniagent.feishu.cards.builder import thinking_card_dict
+
+    return thinking_card_dict(cleaned_markdown, template)
 
 
 def _create_interactive_thinking_message(
@@ -1335,6 +1279,60 @@ async def _send_thinking(
         _logger.debug("发送思考异常: %s", e)
 
 
+def _feishu_card_v2_enabled() -> bool:
+    return env_flag_strict("MINIAGENT_FEISHU_CARD_V2", default=False)
+
+
+def _try_post_v2_wide_table_card(
+    config: FeishuConfig,
+    cid: str,
+    raw_part: str,
+    *,
+    title_suffix: str,
+    reply_to_message_id: str | None,
+    reply_in_thread: bool,
+) -> bool:
+    """宽 GFM 表第二张 v2 卡；失败时静默回退（不阻断 v1）。"""
+    if not _feishu_card_v2_enabled():
+        return False
+    try:
+        from miniagent.feishu.cards.table_v2 import build_v2_table_card, extract_wide_gfm_table
+
+        try:
+            max_pipes = int(env_str("MINIAGENT_FEISHU_LARK_TABLE_MAX_PIPES", "14"))
+        except ValueError:
+            max_pipes = 14
+        try:
+            max_rows = int(env_str("MINIAGENT_FEISHU_CARD_V2_MAX_ROWS", "20"))
+        except ValueError:
+            max_rows = 20
+        try:
+            max_cols = int(env_str("MINIAGENT_FEISHU_CARD_V2_MAX_COLS", "8"))
+        except ValueError:
+            max_cols = 8
+        rows = extract_wide_gfm_table(raw_part, max_pipes=max_pipes)
+        if not rows:
+            return False
+        card = build_v2_table_card(
+            rows,
+            header_title=f"📊 表格{title_suffix}",
+            template="blue",
+            max_rows=max_rows,
+            max_cols=max_cols,
+        )
+        ok, _ = _post_interactive_message(
+            config,
+            receive_id=cid,
+            card_json=json.dumps(card, ensure_ascii=False),
+            reply_to_message_id=reply_to_message_id,
+            reply_in_thread=reply_in_thread,
+        )
+        return ok
+    except Exception as ex:
+        _logger.debug("CARD_V2 宽表发送失败（已回退 v1）: %s", ex)
+        return False
+
+
 def _send_interactive_reply_cards(
     config: FeishuConfig,
     cid: str,
@@ -1364,6 +1362,15 @@ def _send_interactive_reply_cards(
             _logger.warning("发送回复失败 (%s/%s)", i + 1, n)
             return (sent, n)
         sent += 1
+        suffix = f" ({i + 1}/{n})" if n > 1 else ""
+        _try_post_v2_wide_table_card(
+            config,
+            cid,
+            part,
+            title_suffix=suffix,
+            reply_to_message_id=reply_to_message_id,
+            reply_in_thread=reply_in_thread,
+        )
     return (sent, n)
 
 

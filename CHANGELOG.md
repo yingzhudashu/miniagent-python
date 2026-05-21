@@ -4,6 +4,8 @@
 
 ### Added
 
+- **飞书收尾**：`miniagent/feishu/cards/`（构建/入站抽取/按钮路由/可选 CARD_V2 宽表）；工具 `feishu_send_interactive_card`、`feishu_update_message_card`；`feishu_doc` 扩展表格/媒体/import_raw/copy/move/权限/search/`write mode=replace`；`feishu_bitable` + `upload_attachment`；`MINIAGENT_FEISHU_USER_ACCESS_TOKEN`。
+- **飞书收尾加固**：`cards/gfm_table` 共用宽表解析；`search` 结构化错误；`upload_drive_media` 公开 API；`write(replace)` 报告删除失败数；工具 schema / 通道提示同步。
 - **技能热加载**：`refresh_skills` / `.reload-skills`；`install_skill` 安装后自动加载；`MINIAGENT_SKILLS_WATCH` 可选监视技能目录；CLI/飞书/定时任务从 `state` 读取技能快照。
 - **飞书点命令**：环境变量 **`MINIAGENT_FEISHU_DOT_COMMANDS_FULL`**（默认关）使飞书点命令与 CLI 全量对齐（含 `.session`/`.schedule` 变异与 `.stop`）；`dispatch_command` 的 `block_remote` 与 env 一致（防御性）。
 - **定时任务**：标准 **5 段 Unix cron**（`croniter`）；CLI `.schedule add … cron "分 时 日 月 周"` 与工具 `add_cron` / **`update`**；`list` 显示本地化下次触发时间。
@@ -12,6 +14,7 @@
 
 ### Breaking changes
 
+- **飞书内置工具名**：已移除 `feishu_create_document`、`feishu_get_document_markdown`、`feishu_append_document_text`。请改用聚合工具 **`feishu_doc`**（`action=create|read|append|…`）与 **`feishu_bitable`**（`action=get_meta|list_records|…`）。迁移示例：`feishu_create_document` → `feishu_doc` + `action=create`；`feishu_get_document_markdown` → `feishu_doc` + `action=read`。
 - **外部 JSON 配置**：已移除 `MINIAGENT_CONFIG`、`MINIAGENT_OPENCLAW_CONFIG` 及 `miniagent/runtime/external_config.py`。请改用 `.env` 扁平变量（`OPENAI_*`、`AGENT_CONTEXT_WINDOW`、`AGENT_THINKING_DEFAULT`、`OPENAI_THINKING_BUDGET`、`OPENAI_MAX_TOKENS` 等）；OpenClaw 字段映射见 [.env.example](.env.example) §2。
 - **飞书出站**：未设置 `MINIAGENT_FEISHU_REPLY_TARGET` 时默认 **`reply`**（原为 `create`）；显式 `create` 可恢复旧行为。
 - **飞书体验**：`MINIAGENT_FEISHU_REPLY_PLAIN`、`MINIAGENT_FEISHU_CARD_ACTION_ROUTER` 默认 **开**；无法识别的非空取值视为 **关**（`env_flag_strict`）。
@@ -26,7 +29,7 @@
 - **全局时区 SSOT**：`process_timezone()`（`MINIAGENT_TIMEZONE` / `TZ`）；遗留 UTC 任务 `effective_task_timezone` 按 env 计算、`.schedule align-tz` 写盘；Agent system 与定时任务 prompt 注入本地时间。
 - **时区 env 边界**：`process_timezone` 不再读取 `MINIAGENT_SCHEDULE_TIMEZONE`；调度专用变量仅影响 `default_schedule_timezone` / `align-tz`。
 
-- **飞书云文档 / 云盘**：`feishu_create_document` 与 `feishu_list_drive_files` 共用父目录解析：支持在 `folder_token` 中传入**云盘文件夹分享 URL**；列举工具 `folder_token` 可与创建一样省略（回退 `MINIAGENT_FEISHU_DOC_FOLDER_TOKEN` 或默认开启的根目录元数据 API）。详见 [FEISHU.md](docs/FEISHU.md)、[.env.example](.env.example)。
+- **飞书云文档 / 多维表格**：新增聚合工具 `feishu_doc`、`feishu_bitable`；`miniagent/feishu/docx/` 块级 API 与 `batch_update`；`feishu_doc` + `feishu_list_drive_files` 共用父目录解析：支持在 `folder_token` 中传入**云盘文件夹分享 URL**；列举工具 `folder_token` 可与创建一样省略（回退 `MINIAGENT_FEISHU_DOC_FOLDER_TOKEN` 或默认开启的根目录元数据 API）。详见 [FEISHU.md](docs/FEISHU.md)、[.env.example](.env.example)。
 - **飞书（复查）**：`run_agent_with_thinking` 合并飞书通道 system 提示时，按与执行器相同的 **effective_registry**（`session_registry` 优先）判断是否已注册 `feishu_*`；`MINIAGENT_FEISHU_TOOLS` 为非认可取值时不再落入 AUTO；[FEISHU.md](docs/FEISHU.md) / [.env.example](.env.example) 写明 `MINIAGENT_FEISHU_TOOLS_AUTO` 在进程 init 即注册、不等待 WebSocket。
 - **飞书**：`MINIAGENT_FEISHU_RECEIVE_ID_TYPE` / 入站注入的 `feishu_im_receive_id`（发送者 open_id）与内置工具 `feishu_send_workspace_file` 默认 `receive_id` 对齐；`poll_server` 在 interactive/text 发送失败时记录开放平台错误摘要；[FEISHU.md](docs/FEISHU.md) 标明 docx 为 `block_children.create` 而非 `batch_update`；[README](README.md) / [USER_GUIDE](docs/USER_GUIDE.md) 增加飞书工具索引。
 - **CLI 思考**：`ThinkingDisplay` 在 `merge_tools` 后保留流式步骤与已打印长度，与同 `thinking_header` 的飞书单卡对齐；流式阶段 `header` 变更时**无飞书**也会重置流式状态（原逻辑仅在启用飞书时清空）。

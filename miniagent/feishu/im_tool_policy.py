@@ -52,7 +52,7 @@ def log_feishu_im_tools_startup_hint_once() -> None:
     if feishu_im_tools_should_register():
         return
     _logger.info(
-        "飞书扩展内置工具未注册：Agent 无法通过 API 创建云文档、列举云盘或发送会话工作区文件。"
+        "飞书扩展内置工具未注册：Agent 无法使用 feishu_doc / feishu_bitable / 发文件等内置工具。"
         " 请设置 MINIAGENT_FEISHU_TOOLS=1，或不要设置 MINIAGENT_FEISHU_TOOLS 且设置 "
         "MINIAGENT_FEISHU_TOOLS_AUTO=1（并已配置 FEISHU_APP_ID/SECRET）；并参阅 docs/FEISHU.md"
         "「飞书工具与 IM 自检清单」。"

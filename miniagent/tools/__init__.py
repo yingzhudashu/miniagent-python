@@ -7,7 +7,9 @@
 - skills_tools: 技能搜索和安装
 - self_opt_tools: 自我优化工具（可由 MINIAGENT_SELF_OPT_TOOLS=0 在注册阶段跳过）
 - git_readonly_tools: 只读 git status/diff
-- feishu_im_tools: 飞书 IM 工具（发送消息、上传图片/文件等）
+- feishu_im_tools: 飞书 IM / 云盘工具
+- feishu_doc_tools: 飞书云文档 ``feishu_doc``
+- feishu_bitable_tools: 飞书多维表格 ``feishu_bitable``
 
 另：``session_memory.session_memory_tools`` 在 ``engine.init_subsystems`` 中单独注册，不在 ``ALL_TOOLS`` 字典内。
 
@@ -22,6 +24,9 @@ ALL_TOOLS 汇总上述内置工具子集；启动时由 ``register_builtin_tools
 
 from miniagent.tools.cli_dispatch_tools import cli_dispatch_tools
 from miniagent.tools.exec import exec_tools
+from miniagent.tools.feishu_bitable_tools import feishu_bitable_tools
+from miniagent.tools.feishu_card_tools import feishu_card_tools
+from miniagent.tools.feishu_doc_tools import feishu_doc_tools
 from miniagent.tools.feishu_im_tools import feishu_im_tools
 from miniagent.tools.filesystem import filesystem_tools
 from miniagent.tools.git_readonly import git_readonly_tools
@@ -41,6 +46,9 @@ ALL_TOOLS = {
     **cli_dispatch_tools,
     **schedule_tools,
     **feishu_im_tools,
+    **feishu_doc_tools,
+    **feishu_bitable_tools,
+    **feishu_card_tools,
 }
 
 __all__ = [
@@ -53,5 +61,8 @@ __all__ = [
     "cli_dispatch_tools",
     "schedule_tools",
     "feishu_im_tools",
+    "feishu_doc_tools",
+    "feishu_bitable_tools",
+    "feishu_card_tools",
     "ALL_TOOLS",
 ]

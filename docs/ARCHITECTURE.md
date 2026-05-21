@@ -158,8 +158,12 @@ Agent 的大脑，实现两阶段架构。
 | `im_send.py` | IM 发送客户端封装 |
 | `im_tool_policy.py` | 内置飞书工具策略 |
 | `lark_response.py` | 飞书响应构建 |
-| `docx_client.py` | 云文档 CRUD 客户端 |
-| `docx_blocks.py` | 云文档块级操作（`document_block_children.create`） |
+| `docx/` | 云文档：`client`（元数据/raw）、`blocks`（块 CRUD/batch）、`tables`、`media`、`markdown` |
+| `bitable/` | 多维表格记录与 `upload_record_attachment` |
+| `cards/` | 互动卡片构建、入站抽取、按钮路由、可选 v2 宽表 |
+| `drive_extra.py` | 云盘搜索（User Token）、权限、copy/move |
+| `receive_id.py` | IM 出站 `receive_id` 解析（工具与卡片共用） |
+| `docx_client.py` / `docx_blocks.py` | 兼容重导出（新代码请用 `docx/`） |
 | `drive_client.py` | 云盘列举客户端 |
 | `folder_token_resolve.py` | 云盘文件夹 URL / token 解析 |
 | `upload_io.py` | 上传并发 I/O |

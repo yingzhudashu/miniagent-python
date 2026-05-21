@@ -1,4 +1,4 @@
-"""feishu_im_tools 处理器（非 create_document）。"""
+"""feishu_im_tools 处理器单测（仅 IM/云盘）。"""
 
 from __future__ import annotations
 
@@ -10,22 +10,18 @@ pytest.importorskip("lark_oapi")
 
 
 @pytest.mark.asyncio
-async def test_feishu_get_document_markdown_returns_content(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from miniagent.tools.feishu_im_tools import _feishu_get_document_markdown
+async def test_feishu_list_drive_files_empty_table(monkeypatch: pytest.MonkeyPatch) -> None:
+    from miniagent.tools.feishu_im_tools import _feishu_list_drive_files
     from miniagent.types.tool import ToolContext
 
     monkeypatch.setenv("FEISHU_APP_ID", "a")
     monkeypatch.setenv("FEISHU_APP_SECRET", "b")
+    monkeypatch.setenv("MINIAGENT_FEISHU_DOC_FOLDER_TOKEN", "fld_env")
 
     with patch(
-        "miniagent.feishu.docx_client.get_document_raw_content",
-        return_value="# Title\n\nbody",
+        "miniagent.feishu.drive_client.list_folder_files_page",
+        return_value=([], None, False),
     ):
-        r = await _feishu_get_document_markdown(
-            {"document_id": "doc_xyz"},
-            ToolContext(cwd="/tmp"),
-        )
+        r = await _feishu_list_drive_files({}, ToolContext(cwd="/tmp"))
     assert r.success is True
-    assert "Title" in r.content
+    assert "has_more=False" in r.content

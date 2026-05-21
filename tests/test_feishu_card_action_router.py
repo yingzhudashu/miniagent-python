@@ -1,0 +1,28 @@
+"""卡片按钮 value → 入站文本。"""
+
+from __future__ import annotations
+
+from miniagent.feishu.cards.action_router import inbound_text_from_card_action_value
+from miniagent.feishu.cards.dedupe import reset_card_action_dedupe_for_tests, should_skip_card_action
+
+
+def test_inbound_text_miniagent_text() -> None:
+    t = inbound_text_from_card_action_value(
+        {"miniagent_text": "确认", "chat_id": "oc_x", "action_id": "ok"}
+    )
+    assert t == "确认"
+
+
+def test_inbound_text_action_id_with_form() -> None:
+    t = inbound_text_from_card_action_value(
+        {"action_id": "submit", "form": {"name": "a"}, "chat_id": "oc_x"}
+    )
+    assert t is not None
+    assert "action_id=submit" in t
+    assert "payload=" in t
+
+
+def test_dedupe_skips_repeat() -> None:
+    reset_card_action_dedupe_for_tests()
+    assert should_skip_card_action("k1") is False
+    assert should_skip_card_action("k1") is True

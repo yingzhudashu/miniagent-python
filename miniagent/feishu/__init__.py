@@ -11,8 +11,10 @@
 - ``resource_io``：消息内 file/image 资源下载（依赖 lark-oapi）
 - ``upload_io``：IM 素材上传与 file/image 消息发送
 - ``im_send``：IM 创建/回复消息的统一发送入口（供 ``poll_server`` / ``upload_io`` 复用）
-- ``docx_client``：云文档 docx 创建与 raw_content 读取（需开放平台权限）
-- ``docx_blocks``：docx 页面下追加纯文本段落（块级 API）
+- ``lark_client`` / ``token_resolve``：SDK 客户端与 docx/base URL 解析
+- ``docx/``：云文档块级读写（``feishu_doc`` 工具后端）
+- ``bitable/``：多维表格 CRUD（``feishu_bitable`` 工具后端）
+- ``docx_client`` / ``docx_blocks``：兼容重导出（请优先使用 ``docx`` 包）
 - ``drive_client``：云盘文件夹列举（folder_token）、可选根文件夹元数据（``get_root_folder_meta``）
 - ``folder_token_resolve``：工具参数/URL/环境变量/根目录回退的父目录 token 解析
 - ``lark_response``：开放平台错误摘要

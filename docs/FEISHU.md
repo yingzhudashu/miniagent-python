@@ -96,6 +96,9 @@ UnifiedEngine.run_agent_with_thinking()
 | `MINIAGENT_FEISHU_RECEIVE_ID_TYPE` | `create` 发消息时的 `receive_id_type`：`chat_id`（默认）/`open_id`/`union_id`；非 `chat_id` 时内置工具默认 `receive_id` 为入站 **sender_id**（经 `AgentConfig.feishu_im_receive_id` 注入）；可被工具参数或 `AgentConfig.feishu_im_receive_id_type` 覆盖 |
 | `MINIAGENT_FEISHU_DOC_FOLDER_TOKEN` | 创建/列举云盘时若工具未传 `folder_token`（或无法从 URL 解析），回退使用该云盘文件夹 token |
 | `FEISHU_DOC_FOLDER_FALLBACK_ROOT_META` | 默认 **开**；在上述仍无父目录 token 时调用根文件夹元数据 API（`0`/`false` 关闭；需云盘权限） |
+| `MINIAGENT_FEISHU_CARD_EXTRACT_INBOUND` | 默认 **开**；入站 `interactive` 抽取可读文本为 `[飞书卡片] …` |
+| `MINIAGENT_FEISHU_CARD_V2` | 默认 **关**；`1` 时回复分片含超宽 GFM 表时额外发 schema 2.0 表格卡（失败回退 v1） |
+| `MINIAGENT_FEISHU_USER_ACCESS_TOKEN` | 用户 OAuth token；`feishu_doc` + `action=search` 必填 |
 
 ### 出站能力矩阵（摘要）
 
@@ -103,11 +106,11 @@ UnifiedEngine.run_agent_with_thinking()
 |------|----------|
 | 会话内新消息 / 回复某条消息 | `create` 与 `im/v1/messages`；`reply` 与 `im/v1/messages/:id/reply`（见上表环境变量） |
 | 上传并发 file/image 消息 | `miniagent/feishu/upload_io.py` + 工具 `feishu_send_workspace_file`（需 `MINIAGENT_FEISHU_TOOLS=1` 或 `MINIAGENT_FEISHU_TOOLS_AUTO=1` 与 `FEISHU_APP_ID`/`SECRET`） |
-| 云文档创建与 Markdown 读取 | `miniagent/feishu/docx_client.py` + 工具 `feishu_create_document` / `feishu_get_document_markdown`（需开放平台 **docx** 相关权限）；可选 URL 前缀见上表 |
-| 云文档末尾追加纯文本 | 工具 `feishu_append_document_text` + [`docx_blocks`](../miniagent/feishu/docx_blocks.py)：调用开放平台 **`document_block_children.create`** 在页面块下插入文本子块（**不是** `document_block.batch_update` / PATCH 通用块编辑） |
-| 云盘列举 | 工具 `feishu_list_drive_files` + [`drive_client`](../miniagent/feishu/drive_client.py)（需云盘读权限）；`folder_token` 可为文件夹 token、云盘分享链接中的路径 token，或与创建文档相同的环境默认 / 可选根目录回退 |
-| 通用块级 `document_block.batch_update` / 富文本块编辑 | **未封装**；若需改已有块或复杂排版，须另行对接开放平台 API |
-| 撤回机器人消息 | 工具 `feishu_recall_message`（`im/v1/messages/:id` DELETE） |
+| 云文档（聚合工具） | **`feishu_doc`**：见下表；实现 [`miniagent/feishu/docx/`](../miniagent/feishu/docx/)、权限/搜索 [`drive_extra.py`](../miniagent/feishu/drive_extra.py) |
+| 多维表格 | **`feishu_bitable`**：`get_meta`/`list_fields`/`list_records`/`get_record`/`create_record`/`update_record`/`delete_record`/`upload_attachment`；[`bitable/`](../miniagent/feishu/bitable/) |
+| 互动卡片 | **`feishu_send_interactive_card`**、**`feishu_update_message_card`**；构建/入站抽取 [`cards/`](../miniagent/feishu/cards/) |
+| 云盘列举 | `feishu_list_drive_files` + [`drive_client`](../miniagent/feishu/drive_client.py) |
+| 撤回机器人消息 | `feishu_recall_message` |
 
 模块 [`poll_server`](../miniagent/feishu/poll_server.py) 中的 `FEISHU_CARD_BODY_MAX` 仅为 **首次 import 时的快照**；运行时应使用 `feishu_card_body_max()` 读取当前环境。
 
@@ -133,8 +136,47 @@ UnifiedEngine.run_agent_with_thinking()
 3. **凭证**：`FEISHU_APP_ID`、`FEISHU_APP_SECRET` 已配置（与 WebSocket 长连接使用同一应用）。
 4. **权限**：应用已开通上表 IM / docx / drive 等能力，机器人已进群（群聊），租户未禁用量级调用。
 5. **会话 ID**：默认 `receive_id_type=chat_id`，工具使用当前回合的 **群/会话 `chat_id`**。若设置 `MINIAGENT_FEISHU_RECEIVE_ID_TYPE=open_id`（或 `union_id`），须与 **`receive_id` 同类型**；此时默认 `receive_id` 为入站注入的 **发送者 `sender_id`（通常为 open_id）**，缺省则须在工具参数中显式传入 `receive_id`。
-6. **云文档目录**：`feishu_create_document` / `feishu_list_drive_files` 需要云盘**父文件夹** `folder_token`；可直接传 token，或传飞书云盘**文件夹分享链接**（工具会解析路径中的 `folder/<token>`）；也可配置 `MINIAGENT_FEISHU_DOC_FOLDER_TOKEN`。若仍无 token，默认会尝试根目录元数据 API（`FEISHU_DOC_FOLDER_FALLBACK_ROOT_META`，默认开；`0` 关闭）。仍失败时按工具返回的「已尝试」项排查。
-7. **权威说明**：[飞书权限列表](https://open.feishu.cn/document/server-docs/docs/scope) 以开放平台当前文档为准。
+6. **云文档目录**：`feishu_doc` + `action=create` 与 `feishu_list_drive_files` 需要云盘**父文件夹** `folder_token`；可直接传 token，或传飞书云盘**文件夹分享链接**（工具会解析路径中的 `folder/<token>`）；也可配置 `MINIAGENT_FEISHU_DOC_FOLDER_TOKEN`。若仍无 token，默认会尝试根目录元数据 API（`FEISHU_DOC_FOLDER_FALLBACK_ROOT_META`，默认开；`0` 关闭）。仍失败时按工具返回的「已尝试」项排查。
+7. **搜索**：`feishu_doc` + `action=search` 需配置 `MINIAGENT_FEISHU_USER_ACCESS_TOKEN`；无 token 时工具返回明确错误（含 `requires_user_token` 提示）。
+8. **权威说明**：[飞书权限列表](https://open.feishu.cn/document/server-docs/docs/scope) 以开放平台当前文档为准。
+
+### 集成验证建议（Bot vs User Token）
+
+下列能力在 CI 中仅 **mock 单测**；上线前请在真实租户用测试应用验证一次：
+
+| 能力 | Token | 注意 |
+|------|-------|------|
+| `feishu_doc` 表格 `create_table` / `write_table_cells` | 租户 Bot | `batch_update` 的 cell payload 须与当前开放平台文档一致；失败时查看工具返回中的 `code`/`msg` |
+| `feishu_bitable` `upload_attachment` | 租户 Bot | 附件字段须先 `list_fields` 确认为附件类型；`parent_type=bitable_file` 若无效可对照文档改为 `bitable_image` 等 |
+| `feishu_doc` `search` | **用户** `MINIAGENT_FEISHU_USER_ACCESS_TOKEN` | Bot token 不可用；无 token 时返回 JSON `requires_user_token: true` |
+| `list_permissions` / `add_permission` / `remove_permission` | 通常 Bot（视租户策略） | 部分租户仅所有者可改权限 |
+
+### `feishu_doc` action 一览
+
+| 类别 | action |
+|------|--------|
+| 基础 | `create`, `get`, `read`, `write`（`mode=replace` 整篇替换）, `append`, `delete` |
+| 块 | `list_blocks`, `get_block`, `update_block`, `delete_block`, `batch_update` |
+| 工作区 I/O | `export_raw`, `import_raw` |
+| 表格 | `create_table`, `write_table_cells`, `create_table_with_values` |
+| 媒体 | `upload_image`, `upload_file`, `download_media`, `upload_image_from_message` |
+| 云盘 | `copy`, `move` |
+| 协作 | `list_permissions`, `add_permission`, `remove_permission` |
+| 发现 | `search`（需 User Token） |
+
+### 互动卡片按钮 `action.value` 示例
+
+```json
+{
+  "miniagent_text": "确认执行",
+  "chat_id": "oc_xxx",
+  "action_id": "confirm_run",
+  "chat_type": "group",
+  "dedupe_key": "run-2026-05-21-1"
+}
+```
+
+无 `miniagent_text` 时，若提供 `action_id`（及可选 `form`/`form_value`），仍会合成 `[卡片操作] action_id=…` 文本并调度 Agent（需 `MINIAGENT_FEISHU_CARD_ACTION_ROUTER=1`）。
 
 ### 飞书与会话工作区文件（发附件）
 
@@ -285,22 +327,11 @@ echo $FEISHU_APP_ID
 
 飞书运行时位于 `miniagent/engine/feishu_state.py`（`FeishuRuntime`）；`feishu_runtime.py` 仅为兼容重导出。历史上单文件 `unified.py` 已移除，入口请使用 `miniagent.compat.unified_entry` / `python -m miniagent`。
 
-## 调研与路线图：交互卡片 JSON v2
+## 互动卡片（`cards/`）
 
-### 现状
-
-- 文本 Agent 回复与思考卡片经 [`miniagent/feishu/poll_server.py`](../miniagent/feishu/poll_server.py) 发送 `msg_type=interactive`，正文为旧式结构中的 `elements[].tag=div` + `text.tag=lark_md`。
-- 宽 GFM 表在列数超阈值时降级为提示 + 代码块内等宽文本表（`MINIAGENT_FEISHU_TABLE_FALLBACK`），不依赖 v2。
-
-### v2 能力（开放平台）
-
-- 卡片 JSON 2.0 提供 `column_set`、`table` 等容器，适合结构化表格与分栏（需客户端版本支持，见开放平台「component JSON v2.0」文档）。
-- **与当前路径的关系**：v2 与现有 `lark_md` 单 `div` 混排在同一条 `interactive` 消息内的兼容性需按官方 schema 实测；整体升级为 v2 卡片或「第二张卡片专发 table」会涉及较大改造与回退策略。
-
-### 建议
-
-- 短期：继续优化 `lark_md` + 文本表降级（已实现）。
-- 中长期：若需「真表格」预览，单独立项：解析 GFM → 生成 v2 `table`/`column_set`，限定行列上限，失败时回退 `lark_md`。
+- 出站/思考：v1 `lark_md`（[`cards/builder.py`](../miniagent/feishu/cards/builder.py)）。
+- 入站抽取与按钮路由：[`cards/extract.py`](../miniagent/feishu/cards/extract.py)、[`cards/action_router.py`](../miniagent/feishu/cards/action_router.py)。
+- 宽 GFM 表：默认 v1 内提示 + 等宽文本表（`MINIAGENT_FEISHU_TABLE_FALLBACK`）；可选 `MINIAGENT_FEISHU_CARD_V2=1` 在回复分片后追加 schema 2.0 `table` 第二张卡（[`cards/table_v2.py`](../miniagent/feishu/cards/table_v2.py)，失败回退 v1）。
 
 ## 相关文档
 
