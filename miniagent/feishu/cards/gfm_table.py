@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from typing import Any
 
 
 def is_gfm_table_separator_line(line: str) -> bool:

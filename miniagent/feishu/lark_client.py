@@ -1,8 +1,11 @@
 """飞书 ``lark-oapi`` 客户端工厂与配置读取。"""
 from __future__ import annotations
+
 import os
 from typing import Any
+
 from miniagent.feishu.types import FeishuConfig
+
 
 def config_from_env() -> FeishuConfig | None:
     aid = (os.environ.get("FEISHU_APP_ID") or "").strip()

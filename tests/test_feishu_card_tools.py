@@ -16,7 +16,8 @@ async def test_send_interactive_card_mock(monkeypatch: pytest.MonkeyPatch) -> No
     with patch(
         "miniagent.feishu.im_send.post_im_message",
         return_value=(True, "om_x", None),
-    ):        r = await _feishu_send_interactive_card(
+    ):
+        r = await _feishu_send_interactive_card(
             {"markdown_body": "hi", "receive_id": "oc_test"},
             ToolContext(cwd="/tmp", message_queue_abort_chat_id="oc_test"),
         )

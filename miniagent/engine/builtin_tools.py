@@ -10,11 +10,11 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from miniagent.feishu.feishu_tool_policy import FEISHU_EXT_TOOL_NAMES
 from miniagent.feishu.im_tool_policy import feishu_im_tools_should_register
 from miniagent.infrastructure.logger import get_logger
 from miniagent.tools import ALL_TOOLS
 from miniagent.tools.cli_dispatch_tools import CLI_DOT_TOOL_NAMES
-from miniagent.feishu.feishu_tool_policy import FEISHU_EXT_TOOL_NAMES
 from miniagent.tools.schedule_tools import SCHEDULE_TOOL_NAMES
 from miniagent.tools.self_opt import self_opt_tools
 

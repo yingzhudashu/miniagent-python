@@ -6,8 +6,8 @@ from typing import Any
 
 from miniagent.feishu.docx.blocks import _find_page_block_id, batch_update_blocks
 from miniagent.feishu.lark_client import build_client
-from miniagent.feishu.lark_response import format_lark_response_error
 from miniagent.feishu.types import FeishuConfig
+
 
 def create_table_block(
     config: FeishuConfig,

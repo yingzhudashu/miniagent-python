@@ -1,5 +1,6 @@
 """Parse document_id / bitable tokens from Feishu URLs."""
 from __future__ import annotations
+
 import re
 
 _DOCX = re.compile(r"/docx/([A-Za-z0-9_-]+)", re.I)

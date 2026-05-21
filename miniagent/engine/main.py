@@ -506,7 +506,6 @@ async def run_cli_loop(
             sp.vertical_scroll = max(0, before - step)
         else:
             sp.vertical_scroll = min(mx, before + step)
-        after = sp.vertical_scroll
 
     class _TranscriptPaneControl(UIControl):
         """将滚轮从「内层 Window 自滚」转为 ScrollablePane.vertical_scroll。"""

@@ -1,7 +1,9 @@
 """Feishu docx v1 block operations."""
 from __future__ import annotations
+
 import json
 from typing import Any
+
 from miniagent.feishu.lark_client import build_client
 from miniagent.feishu.lark_response import format_lark_response_error
 from miniagent.feishu.types import FeishuConfig
@@ -67,7 +69,10 @@ def _count_children(client, document_id: str, page_block_id: str) -> int:
     return total
 
 def append_plain_text_to_document(config: FeishuConfig, document_id: str, text: str) -> int:
-    from lark_oapi.api.docx.v1 import CreateDocumentBlockChildrenRequest, CreateDocumentBlockChildrenRequestBody
+    from lark_oapi.api.docx.v1 import (
+        CreateDocumentBlockChildrenRequest,
+        CreateDocumentBlockChildrenRequestBody,
+    )
     client = build_client(config)
     children = _paragraph_blocks_for_text((text or "")[:DOCX_APPEND_MAX_CHARS])
     if not children:
@@ -122,7 +127,13 @@ def get_block(config: FeishuConfig, document_id: str, block_id: str) -> dict:
     return out
 
 def update_block_text(config: FeishuConfig, document_id: str, block_id: str, content: str) -> None:
-    from lark_oapi.api.docx.v1 import BlockBuilder, PatchDocumentBlockRequest, Text, TextElement, TextRun
+    from lark_oapi.api.docx.v1 import (
+        BlockBuilder,
+        PatchDocumentBlockRequest,
+        Text,
+        TextElement,
+        TextRun,
+    )
     client = build_client(config)
     runs = _chunk_runs(content)
     elements = [TextElement.builder().text_run(TextRun.builder().content(r).build()).build() for r in runs]
@@ -158,7 +169,10 @@ def clear_document_content_blocks(config: FeishuConfig, document_id: str) -> tup
 
 
 def batch_update_blocks(config: FeishuConfig, document_id: str, requests_payload: list[dict]) -> dict:
-    from lark_oapi.api.docx.v1 import BatchUpdateDocumentBlockRequest, BatchUpdateDocumentBlockRequestBody
+    from lark_oapi.api.docx.v1 import (
+        BatchUpdateDocumentBlockRequest,
+        BatchUpdateDocumentBlockRequestBody,
+    )
     client = build_client(config)
     body = BatchUpdateDocumentBlockRequestBody.builder().requests(requests_payload).build()
     resp = client.docx.v1.document_block.batch_update(

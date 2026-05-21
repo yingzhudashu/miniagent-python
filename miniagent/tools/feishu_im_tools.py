@@ -14,7 +14,6 @@ from miniagent.feishu.receive_id import (
     default_receive_id_for_send,
     effective_receive_id_type,
 )
-from miniagent.feishu.types import FeishuConfig
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 FEISHU_IM_TOOL_NAMES = frozenset(

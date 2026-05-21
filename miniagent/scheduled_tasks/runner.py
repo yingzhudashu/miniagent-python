@@ -11,11 +11,11 @@ from typing import Any
 from miniagent.engine.cli_state import CliLoopState
 from miniagent.infrastructure.logger import get_logger
 from miniagent.runtime.context import RuntimeContext
-from miniagent.scheduled_tasks.models import ScheduledTask
 from miniagent.scheduled_tasks.feishu_delivery import (
     resolve_feishu_delivery,
     send_scheduled_reply_to_feishu,
 )
+from miniagent.scheduled_tasks.models import ScheduledTask
 from miniagent.scheduled_tasks.resolve import resolve_execution_target, should_run_feishu
 
 _logger = get_logger(__name__)

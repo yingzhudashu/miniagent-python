@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from collections import deque
 from typing import Any
 
 from miniagent.feishu.cards.sanitize import sanitize_card_text
@@ -20,7 +19,7 @@ def _text_from_obj(obj: Any) -> str:
     if isinstance(obj, dict):
         tag = str(obj.get("tag") or "").lower()
         if tag in ("plain_text", "lark_md"):
-            return str((obj.get("content") or obj.get("text") or ""))
+            return str(obj.get("content") or obj.get("text") or "")
         if tag == "text":
             inner = obj.get("text")
             if isinstance(inner, dict):

@@ -14,6 +14,7 @@ from miniagent.feishu.docx.client import (
     get_document,
     get_document_raw_content,
 )
+
 __all__ = [
     "DOCX_APPEND_MAX_BLOCKS",
     "DOCX_APPEND_MAX_CHARS",

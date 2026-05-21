@@ -1,8 +1,10 @@
 """Feishu docx v1 document API."""
 from __future__ import annotations
+
 from miniagent.feishu.lark_client import build_client
 from miniagent.feishu.lark_response import format_lark_response_error
 from miniagent.feishu.types import FeishuConfig
+
 
 def create_document(config: FeishuConfig, *, folder_token: str, title: str) -> tuple[str, int]:
     from lark_oapi.api.docx.v1 import CreateDocumentRequest, CreateDocumentRequestBody

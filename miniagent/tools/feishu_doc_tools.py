@@ -345,8 +345,8 @@ def _action_export_raw(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig
 
 
 def _action_import_raw(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig) -> ToolResult:
-    from miniagent.feishu.docx.markdown import markdown_to_plain_text
     from miniagent.feishu.docx.blocks import append_plain_text_to_document
+    from miniagent.feishu.docx.markdown import markdown_to_plain_text
 
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
     rel = str(args.get("relative_path") or args.get("path") or "").strip()
@@ -535,7 +535,11 @@ def _action_remove_permission(args: dict[str, Any], cfg: FeishuConfig) -> ToolRe
 
 
 def _action_search(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
-    from miniagent.feishu.drive_extra import SearchApiError, SearchRequiresUserTokenError, search_docs
+    from miniagent.feishu.drive_extra import (
+        SearchApiError,
+        SearchRequiresUserTokenError,
+        search_docs,
+    )
 
     q = str(args.get("query") or args.get("q") or "").strip()
     if not q:

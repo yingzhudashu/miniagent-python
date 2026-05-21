@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from miniagent.feishu.lark_client import build_client
@@ -100,7 +99,10 @@ def list_records(
     filter_expr: str | None = None,
     sort: list[str] | None = None,
 ) -> tuple[list[dict], str | None, bool]:
-    from lark_oapi.api.bitable.v1 import SearchAppTableRecordRequest, SearchAppTableRecordRequestBody
+    from lark_oapi.api.bitable.v1 import (
+        SearchAppTableRecordRequest,
+        SearchAppTableRecordRequestBody,
+    )
 
     client = build_client(config)
     body_b = SearchAppTableRecordRequestBody.builder()
@@ -237,7 +239,10 @@ def upload_record_attachment(
 
 
 def delete_records_batch(config: FeishuConfig, app_token: str, table_id: str, record_ids: list[str]) -> int:
-    from lark_oapi.api.bitable.v1 import BatchDeleteAppTableRecordRequest, BatchDeleteAppTableRecordRequestBody
+    from lark_oapi.api.bitable.v1 import (
+        BatchDeleteAppTableRecordRequest,
+        BatchDeleteAppTableRecordRequestBody,
+    )
 
     if not record_ids:
         return 0

@@ -414,7 +414,6 @@ async def start_feishu_poll_server(
 
     # 加载 SDK
     try:
-        import lark_oapi as lark
         from lark_oapi.api.im.v1.model.p2_im_message_receive_v1 import P2ImMessageReceiveV1
         from lark_oapi.core.enum import LogLevel
         from lark_oapi.event.dispatcher_handler import EventDispatcherHandler
@@ -890,7 +889,10 @@ def _normalize_lark_md(text: str) -> str:
 
     t = "\n".join(_collapse_fence_line(L) for L in t.split("\n"))
 
-    from miniagent.feishu.cards.gfm_table import find_wide_gfm_table_block, gfm_table_block_to_text_table
+    from miniagent.feishu.cards.gfm_table import (
+        find_wide_gfm_table_block,
+        gfm_table_block_to_text_table,
+    )
 
     lines = t.split("\n")
     out: list[str] = []

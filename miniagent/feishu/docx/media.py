@@ -19,7 +19,6 @@ def upload_drive_media(
     parent_type: str,
     parent_node: str,
 ) -> str:
-    import lark_oapi as lark
     from lark_oapi.api.drive.v1 import UploadAllMediaRequest, UploadAllMediaRequestBody
 
     client = build_client(config)

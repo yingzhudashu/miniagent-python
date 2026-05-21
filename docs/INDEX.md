@@ -29,7 +29,14 @@
 | [CHANNEL_BINDING.md](CHANNEL_BINDING.md) | 通道绑定功能详解 | 高级用户、开发者 |
 | [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md) | 三层记忆系统详解 | 开发者 |
 | [SECURITY.md](SECURITY.md) | 安全模型说明 | 运维、开发者 |
-| [CYBERNETICS_PLAN.md](CYBERNETICS_PLAN.md) | 控制论/自适应路线（**规划稿，非实现规格**） | 架构师 |
+| [CYBERNETICS_PLAN.md](CYBERNETICS_PLAN.md) | 控制论/自适应路线（**Draft / Exploratory**） | 架构师 |
+
+## 📋 参考文档
+
+| 文档 | 说明 | 适合读者 |
+|------|------|----------|
+| [ENV_REFERENCE.md](ENV_REFERENCE.md) | 全部环境变量参考（40+ 变量分类表格） | 所有用户 |
+| [FEISHU_TOOLS_REFERENCE.md](FEISHU_TOOLS_REFERENCE.md) | 飞书工具 API 完整参考（feishu_doc/feishu_bitable/card 工具） | 开发者 |
 
 ## 📦 模块文档
 
@@ -82,6 +89,7 @@ miniagent-python/
 │   │   ├── llm_params.py         # 完成参数与 thinking 合并
 │   │   ├── thinking_presets.py   # 业务深度 → 档位映射
 │   │   ├── task_classifier.py    # 任务难度预分类
+│   │   ├── _openai_compat.py     # OpenAI 兼容性共享工具
 │   │   ├── vendor/qwen_extra.py  # DashScope/Qwen extra_body
 │   │   └── self_opt/             # 自我优化（inspector、proposal、git 等）
 │   ├── engine/
@@ -115,19 +123,39 @@ miniagent-python/
 │   │   ├── poll_server.py        # WebSocket 长连接、事件分发、与消息队列衔接
 │   │   ├── ws_client.py          # lark WS 客户端包装（收包 task / connected）
 │   │   ├── ws_health.py          # 看门狗与会话监督（死连接/空闲刷新）
-│   │   ├── agent_handler.py
+│   │   ├── agent_handler.py      # （已废弃，不再导入）
 │   │   ├── agent_channel_prompts.py
-│   │   ├── server.py
+│   │   ├── server.py             # 兼容层（实际在 poll_server.py）
 │   │   ├── types.py
 │   │   ├── resource_io.py        # 飞书媒体/资源下载与会话落盘
 │   │   ├── im_send.py            # IM 发送客户端封装
 │   │   ├── im_tool_policy.py     # 内置飞书工具策略
 │   │   ├── lark_response.py
-│   │   ├── docx_client.py
-│   │   ├── docx_blocks.py
+│   │   ├── lark_client.py        # SDK 客户端工厂
+│   │   ├── feishu_tool_policy.py # Feishu 扩展工具名 SSOT
+│   │   ├── token_resolve.py      # URL token 提取（文档/多维表格）
+│   │   ├── receive_id.py         # 出站 receive_id 解析
 │   │   ├── drive_client.py
 │   │   ├── folder_token_resolve.py  # 云盘文件夹 URL / token 解析
-│   │   └── upload_io.py
+│   │   ├── upload_io.py             # IM 素材上传与 file/image 消息发送
+│   │   ├── docx_client.py           # 兼容层 → docx/client.py
+│   │   ├── docx_blocks.py           # 兼容层 → docx/blocks.py
+│   │   ├── docx/                    # 云文档 block 级操作子包
+│   │   │   ├── client.py            # 核心文档 API（create/get/delete/raw_content）
+│   │   │   ├── blocks.py            # Block 级操作（append/list/update/clear/batch）
+│   │   │   ├── tables.py            # 表格 Block 创建与单元格写入
+│   │   │   ├── media.py             # 文档媒体上传/下载
+│   │   │   └── markdown.py          # Markdown → 纯文本/Block 转换
+│   │   ├── bitable/                 # 多维表格 API 子包
+│   │   │   ├── client.py            # Bitable CRUD（meta/fields/records/attachment）
+│   │   ├── cards/                   # 交互卡片子包
+│   │   │   ├── builder.py           # 卡片/按钮构建
+│   │   │   ├── extract.py           # 入站消息文本抽取
+│   │   │   ├── action_router.py     # 按钮 value → 入站文本
+│   │   │   ├── dedupe.py            # 卡片按钮去重
+│   │   │   ├── gfm_table.py         # GFM 管道表解析
+│   │   │   ├── table_v2.py          # Schema 2.0 宽表卡片
+│   │   │   └── sanitize.py          # 卡片文本安全清理
 │   ├── infrastructure/
 │   │   ├── registry.py           # ToolRegistry
 │   │   ├── monitor.py
@@ -173,7 +201,10 @@ miniagent-python/
 │   │   ├── git_readonly.py
 │   │   ├── cli_dispatch_tools.py # run_dot_command（点命令同源）
 │   │   ├── schedule_tools.py     # manage_scheduled_task（结构化 CRUD）
-│   │   ├── feishu_im_tools.py    # 可选 extra「feishu」：云文档/IM 等内置工具
+│   │   ├── feishu_im_tools.py    # 可选 extra「feishu」：IM/云盘等内置工具
+│   │   ├── feishu_doc_tools.py   # 飞书云文档聚合工具（26 actions）
+│   │   ├── feishu_bitable_tools.py  # 飞书多维表格聚合工具（8 actions）
+│   │   ├── feishu_card_tools.py  # 飞书交互卡片工具
 │   │   └── session_memory.py     # 会话记忆类工具（init 注册）
 │   ├── mcp/                      # 可选：stdio MCP → mcp_* 工具
 │   │   ├── bridge.py

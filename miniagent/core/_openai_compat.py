@@ -5,7 +5,6 @@ Extracts patterns that were previously duplicated across planner.py and task_cla
 
 from __future__ import annotations
 
-
 try:
     from openai import BadRequestError as _OpenAIBadRequestError
 except ImportError:
