@@ -43,3 +43,4 @@ tests/evaluation/runners/trajectories/
 tests/evaluation/**/evaluation_results.json
 docs/EVALUATION_REPORT.html
 docs/evaluation_results.json
+workspaces/skills/ 
