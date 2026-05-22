@@ -35,6 +35,25 @@ def _tail_diary_preview(session_key: str, max_chars: int = 2000) -> str:
         return ""
 
 
+def _read_identity(system_prompt: str | None = None) -> str:
+    """读取 ``workspaces/identity.md`` 作为全局系统提示词前置段。
+
+    返回内容自动追加到 system prompt 最前面，作为 Agent 的"灵魂"设定。
+    文件不存在时返回空字符串。
+    """
+    import os
+    from pathlib import Path
+
+    base = os.environ.get("MINI_AGENT_STATE", os.path.join(os.getcwd(), "workspaces"))
+    identity_path = os.path.join(base, "identity.md")
+    if not os.path.isfile(identity_path):
+        return ""
+    try:
+        return Path(identity_path).read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
 def build_layered_memory_augmentation(
     session_key: str,
     *,
@@ -96,6 +115,12 @@ def build_layered_memory_augmentation(
             parts.append("【Agent 长期记忆】\n" + blob)
 
     _ = user_input
+
+    # 身份文件前置（始终注入，不受 layered_memory flag 控制）
+    identity = _read_identity()
+    if identity:
+        parts.insert(0, identity)
+
     if not parts:
         return ""
     out = "\n\n".join(parts)

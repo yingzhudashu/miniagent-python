@@ -11,14 +11,13 @@ from miniagent.infrastructure.timezone_config import (
     format_agent_timezone_context,
     process_timezone,
 )
-from miniagent.scheduled_tasks.timezone_util import default_schedule_timezone
 from miniagent.scheduled_tasks.cron import cron_next_run_epoch
 from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec, SessionSpec
 from miniagent.scheduled_tasks.store import (
     align_task_timezones_to_env,
     effective_task_timezone,
-    compute_initial_next_run,
 )
+from miniagent.scheduled_tasks.timezone_util import default_schedule_timezone
 
 
 def test_process_timezone_priority(monkeypatch: pytest.MonkeyPatch) -> None:

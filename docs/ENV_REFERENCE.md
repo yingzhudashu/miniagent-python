@@ -110,6 +110,17 @@
 | `TZ` | *(系统时区)* | 标准时区环境变量，如 `Asia/Shanghai` |
 | `MINIAGENT_TIMEZONE` | *(跟随 TZ)* | miniagent 时区配置，与 TZ 二选一 |
 
+## 7.1 嵌入搜索（语义记忆）
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `MINIAGENT_EMBED_SEARCH` | `0` | `1`/`true` 开启嵌入搜索；不设置时仅用关键词索引 |
+| `MINIAGENT_EMBED_BASE_URL` | *(同 OPENAI_BASE_URL)* | 备用嵌入服务 URL |
+| `MINIAGENT_EMBED_MODEL` | *(同 OPENAI_MODEL)* | 备用嵌入模型 |
+| `MINIAGENT_EMBED_DIM` | `1536` | 向量维度（自动从首次响应推断） |
+| `MINIAGENT_EMBED_TOP_K` | `8` | 最多返回记忆条目数 |
+| `MINIAGENT_EMBED_MIN_SCORE` | `0.3` | 最低余弦相似度阈值 |
+
 ## 8. CLI / 状态 / 调试
 
 | 变量 | 默认值 | 说明 |

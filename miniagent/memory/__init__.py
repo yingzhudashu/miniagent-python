@@ -24,6 +24,12 @@ from miniagent.memory.defaults import (
     get_state_root,
     resolve_memory_dependencies,
 )
+from miniagent.memory.embedding_search import (
+    EmbeddingIndex,
+    EmbeddingSearchProvider,
+    embedding_search_enabled,
+    get_embed_provider,
+)
 from miniagent.memory.keyword_index import (
     KeywordIndex,
     extract_keywords,
@@ -53,4 +59,8 @@ __all__ = [
     "get_state_root",
     "get_process_default_memory_bundle",
     "resolve_memory_dependencies",
+    "EmbeddingIndex",
+    "EmbeddingSearchProvider",
+    "embedding_search_enabled",
+    "get_embed_provider",
 ]

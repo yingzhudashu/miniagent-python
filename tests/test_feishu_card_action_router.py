@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from miniagent.feishu.cards.action_router import inbound_text_from_card_action_value
-from miniagent.feishu.cards.dedupe import reset_card_action_dedupe_for_tests, should_skip_card_action
+from miniagent.feishu.cards.dedupe import (
+    reset_card_action_dedupe_for_tests,
+    should_skip_card_action,
+)
 
 
 def test_inbound_text_miniagent_text() -> None:

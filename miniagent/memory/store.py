@@ -439,6 +439,21 @@ class DefaultMemoryStore(MemoryStoreProtocol):
         except Exception:
             pass  # 关键词索引失败不影响主流程
 
+        # Layer 3b: 嵌入索引（异步，失败静默回退）
+        try:
+            from miniagent.memory.embedding_search import (
+                embedding_search_enabled,
+                get_embed_provider,
+            )
+            if embedding_search_enabled():
+                provider = get_embed_provider(state_dir=self._state_dir)
+                text = " ".join([entry.user_snippet, entry.summary, *(entry.facts or [])])
+                emb = await provider.get_embedding(text)
+                if emb is not None:
+                    provider.index.index_entry(session_id, full_entry, embedding=emb)
+        except Exception:
+            pass  # 嵌入索引失败不影响主流程
+
 
 __all__ = [
     "DefaultMemoryStore",

@@ -8,7 +8,6 @@ import tempfile
 import pytest
 
 from miniagent.infrastructure.registry import DefaultToolRegistry
-from miniagent.skills.loader import discover_skill_packages
 from miniagent.skills.refresh import refresh_skills
 from miniagent.skills.registry import DefaultSkillRegistry
 from miniagent.types.skill import Skill

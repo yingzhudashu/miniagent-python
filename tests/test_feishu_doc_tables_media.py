@@ -63,9 +63,10 @@ async def test_feishu_doc_write_replace(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_remove_permission_mock() -> None:
+    from unittest.mock import MagicMock, patch
+
     from miniagent.feishu.drive_extra import remove_permission
     from miniagent.feishu.types import FeishuConfig
-    from unittest.mock import MagicMock, patch
 
     cfg = FeishuConfig(app_id="a", app_secret="b")
     mock_resp = MagicMock()

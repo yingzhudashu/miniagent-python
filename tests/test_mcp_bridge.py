@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from miniagent.mcp.bridge import is_mcp_available, mcp_tool_to_openai_param
 
 

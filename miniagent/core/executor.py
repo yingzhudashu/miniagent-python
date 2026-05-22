@@ -43,6 +43,10 @@ from miniagent.infrastructure.logger import append_log, get_logger, truncate
 from miniagent.infrastructure.loop_detector import LoopDetector
 from miniagent.infrastructure.tracing import emit_trace
 from miniagent.memory.context import ContextBudgetExceeded, DefaultContextManager
+from miniagent.memory.embedding_search import (
+    embedding_search_enabled_flag,
+    get_embed_provider,
+)
 from miniagent.memory.keyword_index import format_search_results, search_relevant_with_index
 from miniagent.memory.store import extract_facts, generate_turn_summary
 from miniagent.security.sandbox import get_default_workspace
@@ -280,8 +284,39 @@ async def execute_plan(
     if agent_config.session_key:
         memory = await ms.load(agent_config.session_key)
 
-        # Layer 3: 语义检索（ki 为注入索引或进程默认 bundle）
-        relevant = search_relevant_with_index(ki, user_input, top_k=8, min_score=0)
+        # Layer 3: 语义检索（嵌入搜索 + 关键词索引回退）
+        relevant: list[dict[str, Any]] = []
+        if embedding_search_enabled_flag():
+            try:
+                provider = get_embed_provider(state_dir=ms._state_dir if hasattr(ms, "_state_dir") else "workspaces")
+                embed_results = await provider.search(user_input, limit=8, min_score=0.3)
+                if embed_results:
+                    relevant = [
+                        {
+                            "session_id": r.session_id,
+                            "timestamp": r.timestamp,
+                            "summary": r.summary,
+                            "user_snippet": r.user_snippet,
+                            "facts": r.facts,
+                            "score": r.score,
+                        }
+                        for r in embed_results
+                    ]
+                    # 未缓存向量的新查询：将查询向量写入索引供后续索引
+                    if agent_config.debug:
+                        _logger.debug("嵌入搜索: %d 条相关记忆", len(relevant))
+            except Exception as e:
+                _logger.debug("嵌入搜索失败 (%s)，回退到关键词索引", e)
+
+        # 关键词索引补充（嵌入搜索未返回足够结果时）
+        if len(relevant) < 5:
+            kw_results = search_relevant_with_index(ki, user_input, top_k=8, min_score=0)
+            seen = {(r["session_id"], r["timestamp"]) for r in relevant}
+            for kw in kw_results:
+                key = (kw["session_id"], kw["timestamp"])
+                if key not in seen and len(relevant) < 8:
+                    relevant.append(kw)
+                    seen.add(key)
         search_text = format_search_results(relevant)
         if search_text:
             keyword_context = search_text

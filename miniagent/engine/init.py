@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import shutil
 from typing import Any
 
 from miniagent.infrastructure.logger import get_logger
@@ -54,6 +55,9 @@ async def init_subsystems(
     from miniagent.skills.load_runtime import bootstrap_skill_packages
     from miniagent.skills.snapshots import build_skill_snapshots
     from miniagent.tools.session_memory import session_memory_tools
+
+    # 0.5. 检查并恢复 baseline skills（skill-vetter / skill-creator）
+    _ensure_baseline_skills()
 
     # 0. 内置工具（ALL_TOOLS）先于技能包；同名时内置优先（技能注册遇 ValueError 则跳过）
     reg_n = register_builtin_tools(registry)
@@ -143,6 +147,41 @@ def _init_default_session(session_manager: Any, channel_router: Any) -> str:
     channel_router.set_primary(session_id)
     try_lock_session(session_id)
     return session_id
+
+
+_BASELINE_SKILLS = ("skill-vetter", "skill-creator")
+
+
+def _ensure_baseline_skills() -> None:
+    """检查 baseline skills 是否存在，缺失则从模板恢复。
+
+    若技能根目录不存在，会自动创建后再恢复。
+    """
+    skills_root = _get_skills_root_for_baseline()
+    if not skills_root:
+        return
+
+    os.makedirs(skills_root, exist_ok=True)
+
+    templates_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills", "templates")
+    if not os.path.isdir(templates_dir):
+        return
+
+    for name in _BASELINE_SKILLS:
+        target = os.path.join(skills_root, name)
+        if not os.path.isdir(target):
+            src = os.path.join(templates_dir, name)
+            if os.path.isdir(src):
+                shutil.copytree(src, target)
+                _logger.info("已恢复 baseline skill: %s", name)
+
+
+def _get_skills_root_for_baseline() -> str | None:
+    try:
+        from miniagent.skills.paths import get_skills_root
+        return get_skills_root()
+    except Exception:
+        return None
 
 
 __all__ = ["init_subsystems"]

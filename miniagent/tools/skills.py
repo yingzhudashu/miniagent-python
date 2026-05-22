@@ -2,7 +2,8 @@
 
 提供技能搜索、安装、列表工具，让 Agent 能自主管理技能扩展。
 - search_skills: 搜索 ClawHub 或本地技能
-- install_skill: 下载并安装技能
+- install_skill: 从 ClawHub 下载并安装技能
+- uninstall_skill: 卸载已安装技能
 - list_skills: 列出已安装技能
 
 技能目录与第三方许可见 ``workspaces/skills/THIRD_PARTY_SKILLS.md``；市场 API 见 ``clawhub_client``。
@@ -11,6 +12,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from typing import Any
 
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
@@ -165,7 +167,13 @@ async def _install_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult
         result = await client.download(slug, version, skills_root=skills_root)
         detail = await client.get_detail(slug)
 
+        # 自动审查新安装的技能
         install_path = result.get("path") or install_dir
+        vet_report = ""
+        if os.path.isdir(install_path):
+            from miniagent.skills.autovet import _auto_vet_skill
+            vet_report = _auto_vet_skill(install_path)
+
         refresh_note = ""
         st = ctx.cli_loop_state
         if isinstance(st, dict):
@@ -203,6 +211,7 @@ async def _install_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult
                 f"📁 安装路径: {install_path}\n"
                 f"📦 版本: {detail.get('version', 'unknown')}\n"
                 f"📄 文件数: {len(result.get('files', []))}"
+                f"{vet_report}"
                 f"{refresh_note}"
             ),
         )
@@ -270,6 +279,100 @@ async def _list_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolResult:
     return ToolResult(success=True, content="\n".join(lines))
 
 
+# ════════════════════════════════════════════════════════
+# uninstall_skill
+# ════════════════════════════════════════════════════════
+
+_uninstall_schema = {
+    "type": "function",
+    "function": {
+        "name": "uninstall_skill",
+        "description": "卸载一个已安装的技能（删除目录并从当前 Agent 中移除）",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "slug": {"type": "string", "description": "要卸载的技能 slug（唯一标识符）"},
+            },
+            "required": ["slug"],
+        },
+    },
+}
+
+
+async def _uninstall_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    """卸载一个已安装的技能，包括删除磁盘目录和热移除工具。
+
+    此工具标记为 require-confirm 权限，卸载前需用户确认。
+
+    Args:
+        args: 包含 slug（技能唯一标识）
+        ctx: 工具执行上下文
+
+    Returns:
+        ToolResult: 成功时返回卸载信息；失败时提示原因
+    """
+    slug = str(args["slug"])
+
+    try:
+        skills_root = _get_skills_root()
+        from miniagent.skills.clawhub_client import skill_install_dir_name
+
+        dir_name = skill_install_dir_name(slug)
+        install_dir = os.path.join(skills_root, dir_name)
+
+        if not os.path.isdir(install_dir):
+            return ToolResult(
+                success=False,
+                content=f"⚠️ 技能 \"{slug}\" 未安装在 {install_dir}\n使用 list_skills 查看已安装技能",
+            )
+
+        shutil.rmtree(install_dir)
+
+        # 热移除
+        refresh_note = ""
+        st = ctx.cli_loop_state
+        if isinstance(st, dict):
+            rt = st.get("runtime_ctx")
+            if rt is not None:
+                from miniagent.skills.refresh import refresh_skills
+
+                try:
+                    fr = await refresh_skills(
+                        rt.registry,
+                        rt.skill_registry,
+                        skills_root=skills_root,
+                        state=st,
+                        session_manager=st.get("session_manager"),
+                    )
+                    refresh_note = (
+                        f"\n\n🔄 已从当前 Agent 中移除"
+                        f"（移除工具 {len(fr.removed_tools)} 个）"
+                    )
+                except Exception as ex:
+                    refresh_note = (
+                        f"\n\n⚠️ 已删除目录但热移除失败: {ex}"
+                        f"\n请执行 `.reload-skills` 或重启 Agent"
+                    )
+            else:
+                refresh_note = "\n\n💡 提示：执行 `.reload-skills` 或重启 Agent 后生效"
+        else:
+            refresh_note = "\n\n💡 提示：执行 `.reload-skills` 或重启 Agent 后生效"
+
+        return ToolResult(
+            success=True,
+            content=(
+                f"✅ 技能 \"{slug}\" 已卸载\n\n"
+                f"📁 已删除: {install_dir}"
+                f"{refresh_note}"
+            ),
+        )
+    except Exception as e:
+        return ToolResult(
+            success=False,
+            content=f"❌ 卸载技能 \"{slug}\" 失败: {e}",
+        )
+
+
 # ─── 导出 ────────────────────────────────────────────────
 
 skills_tools: dict[str, ToolDefinition] = {
@@ -292,6 +395,13 @@ skills_tools: dict[str, ToolDefinition] = {
         handler=_list_handler,
         permission="sandbox",
         help_text="列出已安装技能",
+        toolbox="skills_management",
+    ),
+    "uninstall_skill": ToolDefinition(
+        schema=_uninstall_schema,
+        handler=_uninstall_handler,
+        permission="require-confirm",
+        help_text="卸载技能",
         toolbox="skills_management",
     ),
 }

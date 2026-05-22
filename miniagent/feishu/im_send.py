@@ -69,7 +69,6 @@ def post_im_message(
         ``(success, message_id_or_None, error_detail_or_None)``；失败时 ``error_detail`` 含开放平台 ``code``/``msg``。
     """
     try:
-        import lark_oapi as lark
         from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
 
         client = _get_lark_client(config)
