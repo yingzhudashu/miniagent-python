@@ -18,6 +18,25 @@ def parse_gfm_table_row_cells(line: str) -> list[str]:
     return [c.strip() for c in s.split("|")]
 
 
+def find_gfm_table_block(
+    lines: list[str],
+    start: int,
+) -> tuple[int, int] | None:
+    """从 ``start`` 起检测是否存在 GFM 表格块，返回 ``(header_start, block_end)``。
+
+    不依赖管道符数量阈值，任何 GFM 管道符表格都检测。
+    """
+    if start + 1 >= len(lines):
+        return None
+    row0 = lines[start]
+    if "|" not in row0 or not is_gfm_table_separator_line(lines[start + 1]):
+        return None
+    j = start + 2
+    while j < len(lines) and lines[j].strip() and "|" in lines[j]:
+        j += 1
+    return start, j
+
+
 def find_wide_gfm_table_block(
     lines: list[str],
     start: int,
@@ -61,6 +80,54 @@ def extract_wide_gfm_table_rows(
             rows.append(parse_gfm_table_row_cells(line))
         return rows if rows else None
     return None
+
+
+def gfm_table_block_to_bullet_list(
+    block_lines: list[str],
+    *,
+    key_value_threshold: int = 6,
+) -> str:
+    """将 GFM 管道表转为 bullet-point list 文本（供 lark_md 渲染）。
+
+    列数 <= key_value_threshold 时用简洁格式：``- 值1 | 值2 | 值3``
+    列数 > key_value_threshold 时用 key-value 格式：``- **表头1** → 值1, **表头2** → 值2``
+    """
+    rows: list[list[str]] = []
+    for line in block_lines:
+        if not line.strip() or is_gfm_table_separator_line(line):
+            continue
+        rows.append(parse_gfm_table_row_cells(line))
+    if not rows:
+        return ""
+    ncols = max(len(r) for r in rows)
+    for r in rows:
+        while len(r) < ncols:
+            r.append("")
+    headers = rows[0] if rows else []
+
+    bullets: list[str] = []
+    if ncols <= key_value_threshold:
+        # 简洁格式：每行一个 bullet，用管道符分隔
+        for row in rows[1:]:  # 跳过表头行
+            cells = " | ".join(c.strip() for c in row if c is not None)
+            bullets.append(f"- {cells}")
+    else:
+        # key-value 格式：每行数据以表头为键
+        for row in rows[1:]:
+            pairs: list[str] = []
+            first_key = True
+            for ci in range(ncols):
+                key = (headers[ci] if ci < len(headers) else f"列{ci + 1}").strip()
+                val = (row[ci] if ci < len(row) else "").strip()
+                if first_key:
+                    # 第一列作为 bullet 的标识
+                    bullets.append(f"- **{key}** → {val}")
+                    first_key = False
+                else:
+                    pairs.append(f"{key}={val}")
+            if pairs:
+                bullets[-1] += f"，{', '.join(pairs)}"
+    return "\n".join(bullets)
 
 
 def gfm_table_block_to_text_table(
@@ -109,7 +176,9 @@ def gfm_table_block_to_text_table(
 
 __all__ = [
     "extract_wide_gfm_table_rows",
+    "find_gfm_table_block",
     "find_wide_gfm_table_block",
+    "gfm_table_block_to_bullet_list",
     "gfm_table_block_to_text_table",
     "is_gfm_table_separator_line",
     "parse_gfm_table_row_cells",

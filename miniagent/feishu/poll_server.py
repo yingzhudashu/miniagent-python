@@ -848,27 +848,28 @@ def _strip_unicode_replacement_chars(text: str) -> str:
 
 
 def _neutralize_lone_asterisks_for_lark(text: str) -> str:
-    """将不成对的 ASCII `*` 换成全角 `＊`，减轻 lark_md 把技术正文误解析为斜体。"""
-    return re.sub(r"(?<!\*)\*(?!\*)", "\uff0a", text or "")
+    """将不成对的 ASCII `*` 换成全角 `＊`，减轻 lark_md 误解析为斜体。
+
+    代码围栏（`` ``` ``）内的 `*` 不受影响。
+    """
+    lines = (text or "").split("\n")
+    in_fence = False
+    result: list[str] = []
+    for line in lines:
+        stripped = line.lstrip()
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+            result.append(line)
+            continue
+        if not in_fence:
+            line = re.sub(r"(?<!\*)\*(?!\*)", "＊", line)
+        result.append(line)
+    return "\n".join(result)
 
 
 def _collapse_excessive_blank_lines(text: str) -> str:
     """将连续三个及以上换行压成双换行，避免卡片正文过长空白。"""
     return re.sub(r"\n{3,}", "\n\n", text or "")
-
-
-_WIDE_TABLE_HINT = (
-    ">（以下表格列数较多，飞书 lark_md 可能无法良好渲染；"
-    "完整内容见本会话 **history.json** 或使用本地 CLI。）"
-)
-
-
-def _feishu_wide_table_fallback_mode() -> str:
-    """``MINIAGENT_FEISHU_TABLE_FALLBACK``: hint / unicode / both（默认 both）。"""
-    v = env_str("MINIAGENT_FEISHU_TABLE_FALLBACK", "both").lower()
-    if v in ("hint", "unicode", "both"):
-        return v
-    return "both"
 
 
 def _normalize_lark_md(text: str) -> str:
@@ -889,32 +890,24 @@ def _normalize_lark_md(text: str) -> str:
 
     t = "\n".join(_collapse_fence_line(L) for L in t.split("\n"))
 
+    # ATX 标题转为粗体（lark_md 不支持 ### 标题语法）
+    t = re.sub(r"^(#{1,6})\s+(.+)$", r"**\2**", t, flags=re.MULTILINE)
+
     from miniagent.feishu.cards.gfm_table import (
-        find_wide_gfm_table_block,
-        gfm_table_block_to_text_table,
+        find_gfm_table_block,
+        gfm_table_block_to_bullet_list,
     )
 
     lines = t.split("\n")
     out: list[str] = []
     i = 0
-    try:
-        max_pipes = int(env_str("MINIAGENT_FEISHU_LARK_TABLE_MAX_PIPES", "14"))
-    except ValueError:
-        max_pipes = 14
     while i < len(lines):
-        found = find_wide_gfm_table_block(lines, i, max_pipes=max_pipes)
+        found = find_gfm_table_block(lines, i)
         if found is not None:
-            bi, bj, _ = found
-            mode = _feishu_wide_table_fallback_mode()
-            utf_block = gfm_table_block_to_text_table(lines[bi:bj])
-            fenced = f"```\n{utf_block}\n```" if utf_block else ""
-            if mode == "hint":
-                out.append(_WIDE_TABLE_HINT)
-            elif mode == "unicode":
-                if fenced:
-                    out.append(fenced)
-            else:
-                out.append(_WIDE_TABLE_HINT + (f"\n\n{fenced}" if fenced else ""))
+            bi, bj = found
+            bullet = gfm_table_block_to_bullet_list(lines[bi:bj])
+            if bullet:
+                out.append(bullet)
             i = bj
             continue
         out.append(lines[i])
@@ -964,8 +957,8 @@ def _prepare_thinking_markdown(raw: str) -> str:
 
 
 def _feishu_reply_plain_enabled() -> bool:
-    """``MINIAGENT_FEISHU_REPLY_PLAIN``：最终回复先发交互卡片但正文去掉常见 Markdown 标记（仍为 ``lark_md``）。"""
-    return env_flag_strict("MINIAGENT_FEISHU_REPLY_PLAIN", default=True)
+    """``MINIAGENT_FEISHU_REPLY_PLAIN``：默认渲染富文本 Markdown；设为 ``1`` 时去掉常见 Markdown 标记（仍为 ``lark_md``）。"""
+    return env_flag_strict("MINIAGENT_FEISHU_REPLY_PLAIN", default=False)
 
 
 def _strip_light_markdown_for_feishu_plain(text: str) -> str:
@@ -1019,7 +1012,7 @@ def _chunk_feishu_card_markdown(
     """将超长正文切成多张卡片可用的段落。
 
     默认分片前先做 ``_normalize_lark_md``，避免表格/零宽等在块边界上被截断后单卡语义不完整；
-    ``already_normalized=True`` 时跳过（用于已走 ``_prepare_thinking_body_for_card`` 的思考收尾；finalize 对各 chunk 用 ``_prepare_card_markdown(..., normalize=False)`` 仅做截断与 ``\\r``/``\\t`` 替换）。
+    ``already_normalized=True`` 时跳过规范化（用于已走 ``_prepare_thinking_body_for_card`` 的思考收尾）。
     切分时尽量避开未闭合的代码围栏。
     """
     cap = feishu_card_body_max() if max_len is None else max_len
@@ -1281,60 +1274,6 @@ async def _send_thinking(
         _logger.debug("发送思考异常: %s", e)
 
 
-def _feishu_card_v2_enabled() -> bool:
-    return env_flag_strict("MINIAGENT_FEISHU_CARD_V2", default=False)
-
-
-def _try_post_v2_wide_table_card(
-    config: FeishuConfig,
-    cid: str,
-    raw_part: str,
-    *,
-    title_suffix: str,
-    reply_to_message_id: str | None,
-    reply_in_thread: bool,
-) -> bool:
-    """宽 GFM 表第二张 v2 卡；失败时静默回退（不阻断 v1）。"""
-    if not _feishu_card_v2_enabled():
-        return False
-    try:
-        from miniagent.feishu.cards.table_v2 import build_v2_table_card, extract_wide_gfm_table
-
-        try:
-            max_pipes = int(env_str("MINIAGENT_FEISHU_LARK_TABLE_MAX_PIPES", "14"))
-        except ValueError:
-            max_pipes = 14
-        try:
-            max_rows = int(env_str("MINIAGENT_FEISHU_CARD_V2_MAX_ROWS", "20"))
-        except ValueError:
-            max_rows = 20
-        try:
-            max_cols = int(env_str("MINIAGENT_FEISHU_CARD_V2_MAX_COLS", "8"))
-        except ValueError:
-            max_cols = 8
-        rows = extract_wide_gfm_table(raw_part, max_pipes=max_pipes)
-        if not rows:
-            return False
-        card = build_v2_table_card(
-            rows,
-            header_title=f"📊 表格{title_suffix}",
-            template="blue",
-            max_rows=max_rows,
-            max_cols=max_cols,
-        )
-        ok, _ = _post_interactive_message(
-            config,
-            receive_id=cid,
-            card_json=json.dumps(card, ensure_ascii=False),
-            reply_to_message_id=reply_to_message_id,
-            reply_in_thread=reply_in_thread,
-        )
-        return ok
-    except Exception as ex:
-        _logger.debug("CARD_V2 宽表发送失败（已回退 v1）: %s", ex)
-        return False
-
-
 def _send_interactive_reply_cards(
     config: FeishuConfig,
     cid: str,
@@ -1364,15 +1303,6 @@ def _send_interactive_reply_cards(
             _logger.warning("发送回复失败 (%s/%s)", i + 1, n)
             return (sent, n)
         sent += 1
-        suffix = f" ({i + 1}/{n})" if n > 1 else ""
-        _try_post_v2_wide_table_card(
-            config,
-            cid,
-            part,
-            title_suffix=suffix,
-            reply_to_message_id=reply_to_message_id,
-            reply_in_thread=reply_in_thread,
-        )
     return (sent, n)
 
 

@@ -198,7 +198,6 @@ Copy-Item .env.example .env
 | `MINIAGENT_CLI_RAW_MARKDOWN` | 设为 `1`/`true` 时关闭全屏 CLI 下 **Assistant 最终回复** 的 Rich Markdown 渲染（便于复制）。 |
 | `MINIAGENT_CLI_THINKING_RICH` | 设为 `1`/`true` 且已 `pip install -e ".[cli]"` 时，对**非流式**思考片段尝试 Rich；**流式**规划/执行正文仍为纯文本；同轮 **merge_tools** 工具行仍为纯文本。 |
 | `MINIAGENT_WELCOME_CLI_HINT` | 未安装 Rich 时启动是否打印「建议 pip install .[cli]」；默认 `1`，设为 `0`/`false` 关闭。 |
-| `MINIAGENT_FEISHU_TABLE_FALLBACK` | 飞书：`both` / `hint` / `unicode`，列数超阈值时宽 GFM 表的降级方式，见 [FEISHU.md](FEISHU.md)。 |
 | `MINIAGENT_THINKING_SEGMENT_SEPARATOR` | 分步执行同一步内多段思考拼接符；留空为双换行，见 `.env.example`。 |
 | `MINIAGENT_TOOL_FINISH_VERBOSE` | `1` 时 `history.json` 中工具块含参数与输出；默认 `0` 仅名称与成败。 |
 

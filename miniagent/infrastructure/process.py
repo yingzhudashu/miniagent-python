@@ -33,7 +33,11 @@ async def register_process(proc: asyncio.subprocess.Process) -> None:
     Args:
         proc: asyncio subprocess 对象
     """
-    _tracked.append(proc)
+    if _lock is not None:
+        async with _lock:
+            _tracked.append(proc)
+    else:
+        _tracked.append(proc)
     _logger.debug("已追踪子进程 PID=%d", proc.pid)
 
 
@@ -44,7 +48,11 @@ async def deregister_process(proc: asyncio.subprocess.Process) -> None:
         proc: asyncio subprocess 对象
     """
     try:
-        _tracked.remove(proc)
+        if _lock is not None:
+            async with _lock:
+                _tracked.remove(proc)
+        else:
+            _tracked.remove(proc)
     except ValueError:
         pass
 

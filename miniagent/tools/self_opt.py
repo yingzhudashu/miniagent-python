@@ -269,19 +269,34 @@ async def _run_tests_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
     默认使用 pytest，支持自定义测试命令。120 秒超时保护，
     防止测试陷入死循环或长时间挂起。
 
-    Args:
-        args: 包含 command（可选，测试命令，默认 'python -m pytest'）、cwd（可选，工作目录）
-        ctx: 工具执行上下文
-
-    Returns:
-        ToolResult: 测试输出和 exit code；超时或异常时返回错误信息
+    安全限制：命令必须以已知测试工具开头，使用 exec（非 shell）执行。
     """
-    command = str(args.get("command", "python -m pytest"))
+    raw_command = str(args.get("command", "python -m pytest"))
     cwd = str(args.get("cwd", "")) or ctx.cwd
 
+    # 安全验证：命令必须以已知测试工具开头
+    _ALLOWED_PREFIXES = (
+        "pytest", "python -m pytest", "python3 -m pytest",
+        "unittest", "python -m unittest", "python3 -m unittest",
+        "npm test", "npm run test", "yarn test", "pnpm test",
+    )
+    cmd_normalized = raw_command.strip()
+    if not any(cmd_normalized.startswith(p) for p in _ALLOWED_PREFIXES):
+        return ToolResult(
+            success=False,
+            content=f"❌ 测试命令必须以已知测试工具开头（如 pytest、python -m pytest、npm test）\n"
+                    f"当前命令: {raw_command[:100]}",
+        )
+
     try:
-        proc = await asyncio.create_subprocess_shell(
-            command,
+        import shlex
+        cmd_parts = shlex.split(raw_command)
+    except ValueError:
+        return ToolResult(success=False, content="❌ 测试命令语法无效")
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd_parts,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd,
@@ -316,6 +331,7 @@ _git_snapshot_schema = {
                 "action": {"type": "string", "enum": ["create", "list", "revert"]},
                 "message": {"type": "string", "description": "commit message"},
                 "commitHash": {"type": "string", "description": "要回滚到的 commit hash"},
+                "force": {"type": "boolean", "description": "回滚时忽略未提交变更（默认 false）"},
             },
             "required": ["action"],
         },
@@ -356,6 +372,19 @@ async def _git_snapshot_handler(args: dict[str, Any], ctx: ToolContext) -> ToolR
 
         if action == "revert":
             commit_hash = str(args.get("commitHash", "HEAD"))
+            force = args.get("force", False)
+
+            # 安全检查：确认无未提交变更（除非 force=true）
+            if not force:
+                code, status_out = await _run_git(["status", "--porcelain"], project_root)
+                if code == 0 and status_out.strip():
+                    return ToolResult(
+                        success=False,
+                        content="❌ 存在未提交的变更，请先提交或暂存后再回滚。\n"
+                                "如需强制回滚（丢弃未提交变更），请设置 force=true。\n\n"
+                                f"未跟踪/修改的文件:\n{status_out[:500]}",
+                    )
+
             code, out = await _run_git(["reset", "--hard", commit_hash], project_root)
             if code == 0:
                 return ToolResult(success=True, content=f"✅ 已回滚到 {commit_hash}")

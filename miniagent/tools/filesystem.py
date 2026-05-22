@@ -74,7 +74,14 @@ async def _read_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
     offset = int(args.get("offset", 1))
     limit = int(args.get("limit", 1000))
 
-    content = Path(file_path).read_text(encoding="utf-8")
+    try:
+        content = Path(file_path).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return ToolResult(success=False, content=f"❌ 文件不存在: {args['path']}")
+    except PermissionError:
+        return ToolResult(success=False, content=f"❌ 权限不足，无法读取: {args['path']}")
+    except IsADirectoryError:
+        return ToolResult(success=False, content=f"❌ 路径是目录而非文件: {args['path']}")
     lines = content.split("\n")
     total = len(lines)
 
@@ -123,8 +130,15 @@ async def _write_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolRes
     file_path = resolve_sandbox_path(str(args["path"]), _allowed_dirs(ctx))
     content = str(args["content"])
 
-    os.makedirs(os.path.dirname(file_path), exist_ok=True)
-    Path(file_path).write_text(content, encoding="utf-8")
+    parent = os.path.dirname(file_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    try:
+        Path(file_path).write_text(content, encoding="utf-8")
+    except PermissionError:
+        return ToolResult(success=False, content=f"❌ 权限不足，无法写入: {args['path']}")
+    except OSError as e:
+        return ToolResult(success=False, content=f"❌ 写入失败: {e}")
 
     return ToolResult(success=True, content=f"✅ 已写入 {file_path} ({len(content)} 字节)")
 

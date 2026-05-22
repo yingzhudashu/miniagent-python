@@ -14,13 +14,18 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import re
 from typing import Any
 
+from miniagent.infrastructure.logger import get_logger
 from miniagent.infrastructure.process import (
     create_tracked_subprocess,
     deregister_process,
 )
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
+
+_logger = get_logger(__name__)
 
 # ─── Schema ──────────────────────────────────────────────
 
@@ -51,11 +56,59 @@ _BLOCKED_PATTERNS = [
     "> /dev/",
 ]
 
+# Shell 注入检测正则（沙箱模式下生效）
+_SHELL_INJECTION_RE = re.compile(
+    r"(\|\s*\w|"           # pipe to command: | ls
+    r";\s*\w|"             # semicolon command: ; ls
+    r"`[^`]+`|"            # backtick substitution
+    r"\$\([^)]+\)|"        # $(command) substitution
+    r"\$\{[^}]+\}|"        # ${var} substitution
+    r"eval\s|"             # eval command
+    r"exec\s|"             # exec command
+    r"curl\s.*\|\s*(bash|sh)|"  # curl pipe shell
+    r"wget\s.*\|\s*(bash|sh)|"  # wget pipe shell
+    r"chmod\s+777|"        # chmod 777
+    r"nc\s+-e|"            # netcat reverse shell
+    r"base64\s+-d\s*\|"    # base64 decode pipe
+    r")"
+)
+
+# 沙箱模式下允许的命令基础名
+_DEFAULT_ALLOWED_COMMANDS = frozenset({
+    "ls", "cat", "head", "tail", "grep", "find", "wc", "pwd",
+    "echo", "date", "whoami", "uname", "df", "du",
+    "ps", "uptime", "free", "top",
+    "python", "python3", "pip", "pip3",
+    "npm", "yarn", "pnpm", "node",
+    "git", "curl", "wget",
+    "mkdir", "touch", "cp", "mv", "chmod", "chown",
+    "sed", "awk", "sort", "uniq", "tee",
+    "zip", "unzip", "tar",
+    "sha256sum", "md5sum",
+    "ping", "nslookup", "dig",
+    "tree", "file", "stat",
+})
+
+
+def _get_allowed_commands() -> frozenset[str]:
+    """从环境变量读取允许的命令列表，默认为内置列表。"""
+    env = os.environ.get("MINIAGENT_ALLOWED_COMMANDS", "").strip()
+    if env:
+        return frozenset(c.strip() for c in env.split(",") if c.strip())
+    return _DEFAULT_ALLOWED_COMMANDS
+
+
+def _deny(command: str, reason: str) -> ToolResult:
+    """记录并返回拒绝结果。"""
+    _logger.warning("命令被拒绝: command=%s reason=%s", command, reason)
+    return ToolResult(success=False, content=f"❌ 命令被拒绝: {reason}")
+
 
 async def _exec_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     """exec_command 处理器。
 
     使用 asyncio.create_subprocess_shell 实现异步命令执行。
+    沙箱模式下启用多层防御：黑名单 + 注入检测 + 命令允许列表。
     """
     command = str(args["command"]).strip()
     if not command:
@@ -65,12 +118,27 @@ async def _exec_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
 
     # ── 安全检查 ──
     if ctx.permission == "sandbox":
+        # 第一层：危险命令黑名单
         for pattern in _BLOCKED_PATTERNS:
             if pattern in command:
-                return ToolResult(
-                    success=False,
-                    content=f"❌ 命令被拒绝: 包含危险操作 \"{pattern}\"",
-                )
+                return _deny(command, f"包含危险操作 \"{pattern}\"")
+
+        # 第二层：Shell 注入检测
+        if _SHELL_INJECTION_RE.search(command):
+            return _deny(command, "检测到可能的 shell 注入模式")
+
+        # 第三层：命令允许列表
+        allowed = _get_allowed_commands()
+        try:
+            import shlex
+            parts = shlex.split(command)
+        except ValueError:
+            return _deny(command, "命令语法无效")
+
+        if parts:
+            base_cmd = os.path.basename(parts[0])
+            if base_cmd not in allowed:
+                return _deny(command, f"'{base_cmd}' 不在允许的命令列表中")
 
     try:
         # 创建子进程（自动追踪，防止孤儿）

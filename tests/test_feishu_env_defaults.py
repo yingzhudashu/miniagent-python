@@ -5,13 +5,13 @@ from __future__ import annotations
 import pytest
 
 
-def test_feishu_reply_plain_default_on(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_feishu_reply_plain_default_off(monkeypatch: pytest.MonkeyPatch) -> None:
     from miniagent.feishu.poll_server import _feishu_reply_plain_enabled
 
     monkeypatch.delenv("MINIAGENT_FEISHU_REPLY_PLAIN", raising=False)
-    assert _feishu_reply_plain_enabled() is True
-    monkeypatch.setenv("MINIAGENT_FEISHU_REPLY_PLAIN", "0")
     assert _feishu_reply_plain_enabled() is False
+    monkeypatch.setenv("MINIAGENT_FEISHU_REPLY_PLAIN", "1")
+    assert _feishu_reply_plain_enabled() is True
 
 
 def test_feishu_reply_plain_typo_is_off(monkeypatch: pytest.MonkeyPatch) -> None:

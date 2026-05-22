@@ -57,19 +57,14 @@
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `MINIAGENT_FEISHU_REPLY_PLAIN` | `1` | `1` 时最终回复简化部分 Markdown |
+| `MINIAGENT_FEISHU_REPLY_PLAIN` | `0` | `1` 时最终回复简化部分 Markdown |
 | `MINIAGENT_FEISHU_REPLY_TARGET` | `reply` | `reply`=回复入站消息；`create`=新建消息 |
 | `MINIAGENT_FEISHU_CARD_ACTION_ROUTER` | `1` | `1` 时注册卡片按钮回调 |
 | `MINIAGENT_FEISHU_TOOLS_AUTO` | `1` | 未设 `MINIAGENT_FEISHU_TOOLS` 时，`1` 且已配凭据则自动注册飞书工具 |
 | `MINIAGENT_FEISHU_TOOLS` | *(空)* | 显式控制飞书工具注册：`1` 启用 |
 | `MINIAGENT_FEISHU_DOT_COMMANDS_FULL` | `0` | `1` 时飞书点命令与 CLI 同等功能 |
 | `FEISHU_DOC_FOLDER_FALLBACK_ROOT_META` | `1` | 无 folder_token 时尝试根目录元数据 API |
-| `MINIAGENT_FEISHU_TABLE_FALLBACK` | `both` | GFM 表回退策略 |
-| `MINIAGENT_FEISHU_LARK_TABLE_MAX_PIPES` | `14` | lark_md 表最大列数 |
 | `MINIAGENT_FEISHU_CARD_EXTRACT_INBOUND` | `1` | 入站 interactive 消息抽取可读文本 |
-| `MINIAGENT_FEISHU_CARD_V2` | `0` | `1` 时超宽 GFM 表额外发送 schema 2.0 卡片 |
-| `MINIAGENT_FEISHU_CARD_V2_MAX_ROWS` | `20` | V2 卡片最大行数 |
-| `MINIAGENT_FEISHU_CARD_V2_MAX_COLS` | `8` | V2 卡片最大列数 |
 | `MINIAGENT_FEISHU_USER_ACCESS_TOKEN` | *(空)* | 用户 OAuth token；`feishu_doc action=search` 需要 |
 | `MINIAGENT_FEISHU_MARKDOWN_COMMANDS` | `0` | 飞书 Markdown 命令支持 |
 | `MINIAGENT_FEISHU_REPLY_IN_THREAD` | `0` | 与 `REPLY_TARGET=reply` 联用，话题内回复 |

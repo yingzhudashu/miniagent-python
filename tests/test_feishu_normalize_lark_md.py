@@ -14,48 +14,43 @@ def test_prepare_card_markdown_collapses_long_fence() -> None:
     assert "```python" in out
 
 
-def test_prepare_card_markdown_wide_table_replaced(
+def test_prepare_card_markdown_wide_table_to_bullet_list(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from miniagent.feishu.poll_server import _prepare_card_markdown
 
-    monkeypatch.setenv("MINIAGENT_FEISHU_LARK_TABLE_MAX_PIPES", "4")
-    monkeypatch.setenv("MINIAGENT_FEISHU_TABLE_FALLBACK", "both")
     header = "|a|b|c|d|e|"
     sep = "|---|---|---|---|---|"
     row = "|1|2|3|4|5|"
     raw = f"intro\n\n{header}\n{sep}\n{row}\n"
     out = _prepare_card_markdown(raw, max_len=10_000)
-    assert "列数较多" in out
-    assert header not in out
-    assert "```" in out
-    assert "| 1 " in out or "| 1 |" in out
-
-
-def test_prepare_card_markdown_wide_table_fallback_hint_only(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from miniagent.feishu.poll_server import _prepare_card_markdown
-
-    monkeypatch.setenv("MINIAGENT_FEISHU_LARK_TABLE_MAX_PIPES", "4")
-    monkeypatch.setenv("MINIAGENT_FEISHU_TABLE_FALLBACK", "hint")
-    raw = "|a|b|c|d|e|\n|---|---|---|---|---|\n|1|2|3|4|5|\n"
-    out = _prepare_card_markdown(raw, max_len=10_000)
-    assert "列数较多" in out
+    # 表格应转为 bullet list，不再用代码块或警告提示
+    assert "- " in out
     assert "```" not in out
+    assert "列数较多" not in out
+    assert header not in out
 
 
-def test_prepare_card_markdown_wide_table_fallback_unicode_only(
+def test_prepare_card_markdown_narrow_table_also_converted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """窄表格也应转为 bullet list（lark_md 不支持任何管道符表格）。"""
     from miniagent.feishu.poll_server import _prepare_card_markdown
 
-    monkeypatch.setenv("MINIAGENT_FEISHU_LARK_TABLE_MAX_PIPES", "4")
-    monkeypatch.setenv("MINIAGENT_FEISHU_TABLE_FALLBACK", "unicode")
-    raw = "|a|b|c|d|e|\n|---|---|---|---|---|\n|1|2|3|4|5|\n"
+    raw = "|a|b|c|\n|---|---|---|\n|1|2|3|\n"
     out = _prepare_card_markdown(raw, max_len=10_000)
-    assert "列数较多" not in out
-    assert "```" in out
+    # 窄表格也应转为 bullet list
+    assert "- " in out
+    assert "|a|b|c|" not in out
+
+
+def test_prepare_card_markdown_heading_to_bold() -> None:
+    """ATX 标题转为粗体。"""
+    from miniagent.feishu.poll_server import _prepare_card_markdown
+
+    out = _prepare_card_markdown("### 三级标题", max_len=10_000)
+    assert "**三级标题**" in out
+    assert "###" not in out
 
 
 def test_prepare_card_markdown_preserves_pipe_prose_without_table_row() -> None:

@@ -29,7 +29,7 @@
 
 | 变量 | 摘要 |
 |------|------|
-| `MINIAGENT_FEISHU_REPLY_PLAIN` | 默认 **开**（`0`/`false`/`off` 关闭）；无法识别的非空取值视为关。 |
+| `MINIAGENT_FEISHU_REPLY_PLAIN` | 默认 **关**（设为 `1`/`true` 时开启纯文本模式）；无法识别的非空取值视为关。 |
 | `MINIAGENT_FEISHU_REPLY_TARGET` | 默认 **`reply`**；`create` 为会话内新建消息；非法值按 `create` 处理。 |
 | `MINIAGENT_FEISHU_REPLY_IN_THREAD` | 与 `reply` 联用；未设置且入站 `thread_id` 非空时默认话题内回复（见 FEISHU）。 |
 | `MINIAGENT_FEISHU_CARD_ACTION_ROUTER` | 默认 **开**；处理 `p2.card.action.trigger` 并将按钮 payload 投递到同一消息队列；无法识别的非空取值视为关。 |

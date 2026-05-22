@@ -83,10 +83,9 @@ UnifiedEngine.run_agent_with_thinking()
 | `MINI_AGENT_THINKING_FOR_LLM_MAX_CHARS` | 仅影响 `conversation_history_for_llm()` 对 `thinking` 的映射，不影响飞书 |
 | `MINIAGENT_FEISHU_MARKDOWN_COMMANDS` | `1` 时飞书侧 `.session list` / `.queue status` / `.instance list` 使用 Markdown 表格（与 `.help` 同为 lark_md 子集；默认 `0`） |
 | `MINIAGENT_FEISHU_DOT_COMMANDS_FULL` | `1`/`true`/`yes`/`on` 时飞书点命令与 CLI 同等（含会话/定时任务变异与 `.stop`；默认 `0`） |
-| `MINIAGENT_FEISHU_TABLE_FALLBACK` | 列数超过 `MINIAGENT_FEISHU_LARK_TABLE_MAX_PIPES` 时：`both`（默认）= 提示 + 代码块内等宽文本表；`unicode` = 仅文本表；`hint` = 仅提示 |
 | `MINIAGENT_TOOL_INTENT_IN_THINKING` | `0`/`false` 关闭工具执行前的 🔧 意图行（仍保留工具结果全文块） |
 | `MINIAGENT_CLI_DOT_TOOLS` | 默认 `1`；`0`/`false`/`off` 时不注册 `run_dot_command`（Agent 无法经工具调点命令） |
-| `MINIAGENT_FEISHU_REPLY_PLAIN` | 默认 **开**（`0`/`false`/`off` 关闭）：仅影响**最终 Assistant 回复**，分片前弱化部分 Markdown；**仍为 `interactive` + `lark_md`**；无法识别的非空取值视为 **关** |
+| `MINIAGENT_FEISHU_REPLY_PLAIN` | 默认 **关**（设为 `1`/`true`/`on` 时开启）：开启时最终回复会弱化 Markdown；**仍为 `interactive` + `lark_md`**；无法识别的非空取值视为 **关** |
 | `MINIAGENT_FEISHU_REPLY_TARGET` | 默认 **`reply`**（回复入站 `message_id`）；`create` 为会话内新建消息；非法取值按 `create` 处理 |
 | `MINIAGENT_FEISHU_REPLY_IN_THREAD` | 与上一项 `reply` 联用；显式 `1`/`true` 等为话题内回复；`0`/`false` 等为否；**未设置**且入站 `thread_id` 非空时，默认 `reply_in_thread=True`（仍可由显式 `0` 关闭） |
 | `MINIAGENT_FEISHU_CARD_ACTION_ROUTER` | 默认 **开**；注册 `p2.card.action.trigger`：从按钮 `action.value` 读取 `miniagent_text`/`text` 与 `chat_id` 后投递同一 `message_handler` 队列；无法识别的非空取值视为 **关** |
@@ -223,9 +222,10 @@ Windows 上可能出现 `OSError: [WinError 121]` 或日志 `receive message loo
 
 ### 模型输出与 lark_md
 
-飞书交互卡片正文为 **`lark_md` 子集**，并非完整 GFM。发送前会经 `_normalize_lark_md()` 做保守处理（零宽字符、`<br>`、过长围栏、**列数过多**的 Markdown 表格等）。为获得最佳展示，建议模型：
+飞书交互卡片正文为 **`lark_md` 子集**，并非完整 GFM。发送前会经 `_normalize_lark_md()` 做保守处理（零宽字符、`<br>`、过长围栏、**所有** GFM 表格等）。为获得最佳展示，建议模型：
 
-- 优先使用**短列表**与**三级以内标题**，避免过宽表格；若必须表格，控制列数（可用环境变量 `MINIAGENT_FEISHU_LARK_TABLE_MAX_PIPES` 调整阈值，默认按管道符数量判断）。超阈值时由 `MINIAGENT_FEISHU_TABLE_FALLBACK` 决定是否在提示下附带**代码块内的等宽文本表**（便于在客户端内阅读）。
+- 优先使用**短列表**。GFM 管道符表格在飞书 `lark_md` 中不受支持，**所有表格**自动转为 **bullet-point list** 格式（窄表：`- 值1 | 值2 | 值3`；宽表：`- **列名** → 值1, 列名2=值2, ...`），所有数据保留。
+- ATX 标题（`#`, `##`, `###` 等）自动转为**粗体**（`**标题**`），因为 `lark_md` 不支持标题语法。
 - 代码块使用标准 **三个反引号** 围栏。
 - 单独成行的 `---` / `***` / `___`（GFM 分隔线）会替换为横线字符，便于在不支持 ``hr`` 的客户端内阅读。
 - 若交互卡片发送失败而回退为 **`msg_type=text`**，飞书客户端**不会**把正文当 Markdown 渲染（纯文本展示），属平台能力限制而非模型未使用 Markdown。日志中会 **WARNING** `飞书发送 msg_type=text 回退（无 lark_md 渲染）: reason=…` 便于区分「渲染降级」与「API 失败」。
@@ -331,7 +331,7 @@ echo $FEISHU_APP_ID
 
 - 出站/思考：v1 `lark_md`（[`cards/builder.py`](../miniagent/feishu/cards/builder.py)）。
 - 入站抽取与按钮路由：[`cards/extract.py`](../miniagent/feishu/cards/extract.py)、[`cards/action_router.py`](../miniagent/feishu/cards/action_router.py)。
-- 宽 GFM 表：默认 v1 内提示 + 等宽文本表（`MINIAGENT_FEISHU_TABLE_FALLBACK`）；可选 `MINIAGENT_FEISHU_CARD_V2=1` 在回复分片后追加 schema 2.0 `table` 第二张卡（[`cards/table_v2.py`](../miniagent/feishu/cards/table_v2.py)，失败回退 v1）。
+- GFM 表格：**所有表格**转为 **bullet-point list**（[`cards/gfm_table.py`](../miniagent/feishu/cards/gfm_table.py) 中的 `gfm_table_block_to_bullet_list`）；窄表用 `|` 分隔，宽表用 key-value 格式。不再使用警告提示或代码块包裹。
 
 ## 相关文档
 

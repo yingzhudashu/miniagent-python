@@ -17,7 +17,7 @@
 - **飞书内置工具名**：已移除 `feishu_create_document`、`feishu_get_document_markdown`、`feishu_append_document_text`。请改用聚合工具 **`feishu_doc`**（`action=create|read|append|…`）与 **`feishu_bitable`**（`action=get_meta|list_records|…`）。迁移示例：`feishu_create_document` → `feishu_doc` + `action=create`；`feishu_get_document_markdown` → `feishu_doc` + `action=read`。
 - **外部 JSON 配置**：已移除 `MINIAGENT_CONFIG`、`MINIAGENT_OPENCLAW_CONFIG` 及 `miniagent/runtime/external_config.py`。请改用 `.env` 扁平变量（`OPENAI_*`、`AGENT_CONTEXT_WINDOW`、`AGENT_THINKING_DEFAULT`、`OPENAI_THINKING_BUDGET`、`OPENAI_MAX_TOKENS` 等）；OpenClaw 字段映射见 [.env.example](.env.example) §2。
 - **飞书出站**：未设置 `MINIAGENT_FEISHU_REPLY_TARGET` 时默认 **`reply`**（原为 `create`）；显式 `create` 可恢复旧行为。
-- **飞书体验**：`MINIAGENT_FEISHU_REPLY_PLAIN`、`MINIAGENT_FEISHU_CARD_ACTION_ROUTER` 默认 **开**；无法识别的非空取值视为 **关**（`env_flag_strict`）。
+- **飞书体验**：`MINIAGENT_FEISHU_REPLY_PLAIN` 默认 **关**（设为 `1` 才开启纯文本模式）；`MINIAGENT_FEISHU_CARD_ACTION_ROUTER` 默认 **开**；无法识别的非空取值视为 **关**（`env_flag_strict`）。
 - **飞书工具**：`MINIAGENT_FEISHU_TOOLS_AUTO` 默认 **开**（仍需 `FEISHU_APP_ID`/`SECRET`）；显式 `MINIAGENT_FEISHU_TOOLS=0` 或 `MINIAGENT_FEISHU_TOOLS_AUTO=0` 可关闭。
 - **云盘回退**：`FEISHU_DOC_FOLDER_FALLBACK_ROOT_META` 默认 **开**；`0`/`false` 可关闭根目录元数据 API 回退。
 - **环境变量别名**：请改用 `MINIAGENT_FEISHU_DOCX_URL_PREFIX`、`MINIAGENT_FEISHU_DOC_FOLDER_TOKEN`；旧名 `FEISHU_DOCX_URL_PREFIX`、`FEISHU_DEFAULT_DOC_FOLDER_TOKEN` 仍会读取并打弃用警告（下一版本可能移除）。

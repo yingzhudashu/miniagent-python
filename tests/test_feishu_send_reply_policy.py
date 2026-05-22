@@ -9,6 +9,12 @@ import pytest
 pytest.importorskip("lark_oapi")
 
 
+@pytest.fixture(autouse=True)
+def _clear_lark_client_cache():
+    from miniagent.feishu import im_send
+    im_send.clear_client_cache()
+
+
 def test_send_interactive_reply_cards_stops_after_failed_shard() -> None:
     from miniagent.feishu.poll_server import _send_interactive_reply_cards
     from miniagent.feishu.types import FeishuConfig
