@@ -40,7 +40,9 @@ def get_app_meta(config: FeishuConfig, app_token: str) -> dict[str, Any]:
     }
 
 
-def list_tables(config: FeishuConfig, app_token: str, *, page_token: str | None = None) -> tuple[list[dict], str | None, bool]:
+def list_tables(
+    config: FeishuConfig, app_token: str, *, page_token: str | None = None
+) -> tuple[list[dict], str | None, bool]:
     from lark_oapi.api.bitable.v1 import ListAppTableRequest
 
     client = build_client(config)
@@ -63,7 +65,9 @@ def list_tables(config: FeishuConfig, app_token: str, *, page_token: str | None 
     return items, str(nxt) if nxt else None, bool(getattr(resp.data, "has_more", False))
 
 
-def list_fields(config: FeishuConfig, app_token: str, table_id: str, *, page_token: str | None = None) -> tuple[list[dict], str | None, bool]:
+def list_fields(
+    config: FeishuConfig, app_token: str, table_id: str, *, page_token: str | None = None
+) -> tuple[list[dict], str | None, bool]:
     from lark_oapi.api.bitable.v1 import ListAppTableFieldRequest
 
     client = build_client(config)
@@ -126,7 +130,9 @@ def list_records(
         b = b.page_token(page_token)
     resp = client.bitable.v1.app_table_record.search(b.build())
     if not resp.success() or not resp.data:
-        raise RuntimeError(f"Feishu bitable record.search failed: {format_lark_response_error(resp)}")
+        raise RuntimeError(
+            f"Feishu bitable record.search failed: {format_lark_response_error(resp)}"
+        )
     items = []
     for rec in getattr(resp.data, "items", None) or []:
         items.append(
@@ -141,12 +147,18 @@ def list_records(
     return items, str(nxt) if nxt else None, bool(getattr(resp.data, "has_more", False))
 
 
-def get_record(config: FeishuConfig, app_token: str, table_id: str, record_id: str) -> dict[str, Any]:
+def get_record(
+    config: FeishuConfig, app_token: str, table_id: str, record_id: str
+) -> dict[str, Any]:
     from lark_oapi.api.bitable.v1 import GetAppTableRecordRequest
 
     client = build_client(config)
     resp = client.bitable.v1.app_table_record.get(
-        GetAppTableRecordRequest.builder().app_token(app_token).table_id(table_id).record_id(record_id).build()
+        GetAppTableRecordRequest.builder()
+        .app_token(app_token)
+        .table_id(table_id)
+        .record_id(record_id)
+        .build()
     )
     if not resp.success() or not resp.data or not resp.data.record:
         raise RuntimeError(f"Feishu bitable record.get failed: {format_lark_response_error(resp)}")
@@ -157,16 +169,24 @@ def get_record(config: FeishuConfig, app_token: str, table_id: str, record_id: s
     }
 
 
-def create_record(config: FeishuConfig, app_token: str, table_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+def create_record(
+    config: FeishuConfig, app_token: str, table_id: str, fields: dict[str, Any]
+) -> dict[str, Any]:
     from lark_oapi.api.bitable.v1 import AppTableRecord, CreateAppTableRecordRequest
 
     client = build_client(config)
     record = AppTableRecord.builder().fields(fields).build()
     resp = client.bitable.v1.app_table_record.create(
-        CreateAppTableRecordRequest.builder().app_token(app_token).table_id(table_id).request_body(record).build()
+        CreateAppTableRecordRequest.builder()
+        .app_token(app_token)
+        .table_id(table_id)
+        .request_body(record)
+        .build()
     )
     if not resp.success() or not resp.data or not resp.data.record:
-        raise RuntimeError(f"Feishu bitable record.create failed: {format_lark_response_error(resp)}")
+        raise RuntimeError(
+            f"Feishu bitable record.create failed: {format_lark_response_error(resp)}"
+        )
     rec = resp.data.record
     return {
         "record_id": str(getattr(rec, "record_id", None) or ""),
@@ -190,7 +210,9 @@ def update_record(
         .build()
     )
     if not resp.success() or not resp.data or not resp.data.record:
-        raise RuntimeError(f"Feishu bitable record.update failed: {format_lark_response_error(resp)}")
+        raise RuntimeError(
+            f"Feishu bitable record.update failed: {format_lark_response_error(resp)}"
+        )
     rec = resp.data.record
     return {
         "record_id": str(getattr(rec, "record_id", None) or record_id),
@@ -203,10 +225,16 @@ def delete_record(config: FeishuConfig, app_token: str, table_id: str, record_id
 
     client = build_client(config)
     resp = client.bitable.v1.app_table_record.delete(
-        DeleteAppTableRecordRequest.builder().app_token(app_token).table_id(table_id).record_id(record_id).build()
+        DeleteAppTableRecordRequest.builder()
+        .app_token(app_token)
+        .table_id(table_id)
+        .record_id(record_id)
+        .build()
     )
     if not resp.success():
-        raise RuntimeError(f"Feishu bitable record.delete failed: {format_lark_response_error(resp)}")
+        raise RuntimeError(
+            f"Feishu bitable record.delete failed: {format_lark_response_error(resp)}"
+        )
 
 
 def upload_record_attachment(
@@ -238,7 +266,9 @@ def upload_record_attachment(
     )
 
 
-def delete_records_batch(config: FeishuConfig, app_token: str, table_id: str, record_ids: list[str]) -> int:
+def delete_records_batch(
+    config: FeishuConfig, app_token: str, table_id: str, record_ids: list[str]
+) -> int:
     from lark_oapi.api.bitable.v1 import (
         BatchDeleteAppTableRecordRequest,
         BatchDeleteAppTableRecordRequestBody,
@@ -250,8 +280,14 @@ def delete_records_batch(config: FeishuConfig, app_token: str, table_id: str, re
     client = build_client(config)
     body = BatchDeleteAppTableRecordRequestBody.builder().records(ids).build()
     resp = client.bitable.v1.app_table_record.batch_delete(
-        BatchDeleteAppTableRecordRequest.builder().app_token(app_token).table_id(table_id).request_body(body).build()
+        BatchDeleteAppTableRecordRequest.builder()
+        .app_token(app_token)
+        .table_id(table_id)
+        .request_body(body)
+        .build()
     )
     if not resp.success():
-        raise RuntimeError(f"Feishu bitable batch_delete failed: {format_lark_response_error(resp)}")
+        raise RuntimeError(
+            f"Feishu bitable batch_delete failed: {format_lark_response_error(resp)}"
+        )
     return len(ids)

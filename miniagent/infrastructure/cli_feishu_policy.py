@@ -59,9 +59,7 @@ def should_allow_p2p_auto_bind(router: ChannelRouter) -> bool:
     return get_cli_focus_mode(router) != "feishu_group"
 
 
-def should_sync_p2p_on_session_switch(
-    router: ChannelRouter, target_session_id: str
-) -> bool:
+def should_sync_p2p_on_session_switch(router: ChannelRouter, target_session_id: str) -> bool:
     """切换到飞书群会话时不同步 feishu_p2p_synced_senders。
 
     在 ``sync_channel_router_to_session`` 中于 CLI 已绑定到 ``target`` 之后调用，
@@ -71,9 +69,7 @@ def should_sync_p2p_on_session_switch(
     return not is_feishu_group_session((target_session_id or "").strip())
 
 
-def p2p_bind_target_allowed(
-    router: ChannelRouter, target_session_id: str
-) -> tuple[bool, str]:
+def p2p_bind_target_allowed(router: ChannelRouter, target_session_id: str) -> tuple[bool, str]:
     """群聊聚焦下拒绝将私聊绑定到任意飞书群会话。"""
     target = (target_session_id or "").strip()
     if not target:

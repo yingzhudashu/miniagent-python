@@ -97,7 +97,13 @@ def test_load_tasks_skips_invalid_task_entries(state_dir: str) -> None:
             {
                 "version": 2,
                 "tasks": [
-                    {"id": "ok", "name": "n", "prompt": "p", "schedule": {"kind": "interval", "interval_seconds": 60}, "session": {"mode": "primary"}},
+                    {
+                        "id": "ok",
+                        "name": "n",
+                        "prompt": "p",
+                        "schedule": {"kind": "interval", "interval_seconds": 60},
+                        "session": {"mode": "primary"},
+                    },
                     {"bad": True},
                 ],
             },

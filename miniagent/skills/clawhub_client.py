@@ -37,6 +37,7 @@ def skill_install_dir_name(slug: str) -> str:
 
 # ─── 客户端接口 ──────────────────────────────────────────
 
+
 class ClawHubClient(Protocol):
     """ClawHub 客户端接口。"""
 
@@ -61,12 +62,13 @@ class ClawHubClient(Protocol):
 
 # ─── 客户端实现 ──────────────────────────────────────────
 
+
 class _ClawHubClientImpl:
     """ClawHub 客户端实现。"""
 
     def __init__(self, base_url: str = CLAWHUB_API) -> None:
         """Args:
-            base_url: API 根路径，默认 ``CLAWHUB_API``。
+        base_url: API 根路径，默认 ``CLAWHUB_API``。
         """
         self._base_url = base_url
 
@@ -204,6 +206,7 @@ def create_clawhub_client(base_url: str = CLAWHUB_API) -> _ClawHubClientImpl:
 
 # ─── 本地技能搜索 ────────────────────────────────────────
 
+
 def search_local_skills(skills_root: str, query: str) -> list[dict[str, Any]]:
     """本地技能搜索（不依赖网络）。
 
@@ -253,16 +256,18 @@ def search_local_skills(skills_root: str, query: str) -> list[dict[str, Any]]:
         ):
             continue
 
-        results.append({
-            "slug": entry,
-            "name": name,
-            "description": description,
-            "version": "local",
-            "tags": [],
-            "downloads": 0,
-            "stars": 0,
-            "author": "local",
-        })
+        results.append(
+            {
+                "slug": entry,
+                "name": name,
+                "description": description,
+                "version": "local",
+                "tags": [],
+                "downloads": 0,
+                "stars": 0,
+                "author": "local",
+            }
+        )
 
     return results
 

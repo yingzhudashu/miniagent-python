@@ -13,6 +13,7 @@ pytest.importorskip("lark_oapi")
 def _clear_lark_client_cache():
     """每个测试前清除 Lark 客户端缓存，确保 mock 生效。"""
     from miniagent.feishu import im_send
+
     im_send.clear_client_cache()
 
 
@@ -143,7 +144,7 @@ def test_list_folder_files_page_returns_entries() -> None:
 
 
 def test_append_plain_text_calls_create_children() -> None:
-    from miniagent.feishu.docx_blocks import append_plain_text_to_document
+    from miniagent.feishu.docx.blocks import append_plain_text_to_document
     from miniagent.feishu.types import FeishuConfig
 
     cfg = FeishuConfig(app_id="a", app_secret="b")
@@ -236,7 +237,7 @@ def test_upload_im_file_uses_file_create() -> None:
 
 
 def test_create_document_returns_ids() -> None:
-    from miniagent.feishu.docx_client import create_document
+    from miniagent.feishu.docx.client import create_document
     from miniagent.feishu.types import FeishuConfig
 
     cfg = FeishuConfig(app_id="a", app_secret="b")

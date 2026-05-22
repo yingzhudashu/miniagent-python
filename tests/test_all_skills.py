@@ -44,7 +44,10 @@ def _check_skill_parsing(pkg_dir, name):
     if not body or len(body.strip()) < 10:
         return "WARN", f"SKILL.md body 过短 ({len(body.strip())} chars)"
 
-    return "PASS", f"name={meta.get('name')}, desc_len={len(meta.get('description', ''))}, body_len={len(body.strip())}"
+    return (
+        "PASS",
+        f"name={meta.get('name')}, desc_len={len(meta.get('description', ''))}, body_len={len(body.strip())}",
+    )
 
 
 def _check_skill_registration(packages):
@@ -65,7 +68,9 @@ def _check_skill_registration(packages):
                 if gated_out:
                     results.append((pkg.id, "WARN", f"sub-skill 被 gating 过滤: {gated_out}"))
                 else:
-                    results.append((pkg.id, "PASS", f"{len(pkg.skills)} 个 sub-skill 全部 eligible"))
+                    results.append(
+                        (pkg.id, "PASS", f"{len(pkg.skills)} 个 sub-skill 全部 eligible")
+                    )
             else:
                 results.append((pkg.id, "PASS", "注册成功（纯指令型技能）"))
         except Exception as e:
@@ -82,6 +87,7 @@ def _check_tools_import(pkg_dir, name):
 
     try:
         import importlib.util
+
         spec = importlib.util.spec_from_file_location(f"{name}_tools", tools_py)
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
@@ -138,7 +144,7 @@ async def main():
     all_dirs = set()
     for d in os.listdir(skills_root):
         full = os.path.join(skills_root, d)
-        if os.path.isdir(full) and not d.startswith('.'):
+        if os.path.isdir(full) and not d.startswith("."):
             all_dirs.add(d)
     missed = all_dirs - set(pkg_names)
     if missed:
@@ -150,28 +156,36 @@ async def main():
     for pkg in sorted(packages, key=lambda p: p.id):
         status, msg = _check_skill_parsing(pkg.source_path, pkg.id)
         parse_results.append((pkg.id, status, msg))
-        icon = {"PASS": "[OK]", "FAIL": "[FAIL]", "WARN": "[WARN]", "SKIP": "[SKIP]"}.get(status, "?")
+        icon = {"PASS": "[OK]", "FAIL": "[FAIL]", "WARN": "[WARN]", "SKIP": "[SKIP]"}.get(
+            status, "?"
+        )
         print(f"  {icon} {pkg.id}: {msg}")
 
     # 3) 注册测试
     print("\n【阶段 3: 注册 & Gating】")
     reg_results = _check_skill_registration(packages)
     for pkg_id, status, msg in reg_results:
-        icon = {"PASS": "[OK]", "FAIL": "[FAIL]", "WARN": "[WARN]", "SKIP": "[SKIP]"}.get(status, "?")
+        icon = {"PASS": "[OK]", "FAIL": "[FAIL]", "WARN": "[WARN]", "SKIP": "[SKIP]"}.get(
+            status, "?"
+        )
         print(f"  {icon} {pkg_id}: {msg}")
 
     # 4) tools.py 导入测试
     print("\n【阶段 4: tools.py 导入（如有）】")
     for pkg in sorted(packages, key=lambda p: p.id):
         status, msg = _check_tools_import(pkg.source_path, pkg.id)
-        icon = {"PASS": "[OK]", "FAIL": "[FAIL]", "WARN": "[WARN]", "SKIP": "[SKIP]"}.get(status, "?")
+        icon = {"PASS": "[OK]", "FAIL": "[FAIL]", "WARN": "[WARN]", "SKIP": "[SKIP]"}.get(
+            status, "?"
+        )
         print(f"  {icon} {pkg.id}: {msg}")
 
     # 5) 脚本文件检查
     print("\n【阶段 5: 脚本文件完整性】")
     for pkg in sorted(packages, key=lambda p: p.id):
         status, msg = _check_scripts_exist(pkg.source_path, pkg.id)
-        icon = {"PASS": "[OK]", "FAIL": "[FAIL]", "WARN": "[WARN]", "SKIP": "[SKIP]"}.get(status, "?")
+        icon = {"PASS": "[OK]", "FAIL": "[FAIL]", "WARN": "[WARN]", "SKIP": "[SKIP]"}.get(
+            status, "?"
+        )
         print(f"  {icon} {pkg.id}: {msg}")
 
     # 汇总

@@ -67,10 +67,7 @@ def format_agent_timezone_context() -> str:
     tz_name = process_timezone()
     now = now_in_process_tz()
     weekday = _WEEKDAYS_ZH[now.weekday()]
-    local = (
-        f"{now.year}年{now.month}月{now.day}日{weekday} "
-        f"{now.strftime('%H:%M:%S')}"
-    )
+    local = f"{now.year}年{now.month}月{now.day}日{weekday} {now.strftime('%H:%M:%S')}"
     return (
         f"当前进程时区：{tz_name}；本地时间：{local}。"
         "涉及「今天/明天」、cron 墙钟或定时任务说明时，以该时区为准；"

@@ -35,7 +35,9 @@ def upload_drive_media(
     resp = client.drive.v1.media.upload_all(req)
     if not resp.success() or not resp.data:
         raise RuntimeError(f"media upload failed: {format_lark_response_error(resp)}")
-    token = str(getattr(resp.data, "file_token", None) or getattr(resp.data, "image_key", None) or "")
+    token = str(
+        getattr(resp.data, "file_token", None) or getattr(resp.data, "image_key", None) or ""
+    )
     if not token:
         raise RuntimeError("media upload: empty file_token")
     return token

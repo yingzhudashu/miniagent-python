@@ -3,45 +3,12 @@
 双层配置体系：
 - ModelConfig：模型层（API 端点、temperature、thinking 等）
 - AgentConfig：Agent 层（max_turns、tool_timeout、上下文策略等）
-- ModelProfile：模型配置预设（creative/balanced/precise 等）
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
-
-# ============================================================================
-# Model Profile — 模型预设
-# ============================================================================
-
-# 内置预设名称
-BuiltInProfile = str  # Literal["creative", "balanced", "precise", "code", "fast"]
-
-
-@dataclass
-class ModelProfile:
-    """模型配置预设
-
-    针对不同复杂度任务提供预调优的模型参数。
-
-    Attributes:
-        name: 预设名称
-        temperature: 温度（创造性 vs 确定性）
-        top_p: top_p 采样
-        max_tokens: 最大输出 token 数
-        thinking_level: thinking 级别
-        thinking_budget: thinking token 预算
-        description: 适用场景描述
-    """
-
-    name: str
-    temperature: float
-    top_p: float
-    max_tokens: int
-    thinking_level: str  # "disabled" | "light" | "medium" | "heavy"
-    thinking_budget: int
-    description: str
 
 
 # ============================================================================
@@ -53,7 +20,7 @@ class ModelProfile:
 class ModelConfig:
     """模型配置
 
-    基础配置 + 预设覆盖 + 运行时覆盖
+    各参数通过环境变量直接设置，无预设层级。
 
     Attributes:
         base_url: API 端点
@@ -66,8 +33,6 @@ class ModelConfig:
         context_window: 上下文窗口大小（token）
         stream: 是否使用流式输出
         retry_count: API 调用重试次数
-        profiles: 模型配置预设字典
-        active_profile: 当前使用的预设名称
     """
 
     base_url: str = "https://api.openai.com/v1"
@@ -80,8 +45,6 @@ class ModelConfig:
     context_window: int = 128000
     stream: bool = False
     retry_count: int = 2
-    profiles: dict[str, ModelProfile] = field(default_factory=dict)
-    active_profile: str = "balanced"
 
 
 # ============================================================================
@@ -185,8 +148,6 @@ def normalize_conversation_history(value: Any) -> list[dict[str, Any]]:
 
 
 __all__ = [
-    "BuiltInProfile",
-    "ModelProfile",
     "ModelConfig",
     "AgentConfig",
     "normalize_conversation_history",

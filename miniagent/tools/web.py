@@ -297,7 +297,10 @@ _time_schema = {
         "parameters": {
             "type": "object",
             "properties": {
-                "timezone": {"type": "string", "description": "时区名称（如 Asia/Shanghai），默认使用系统时区"},
+                "timezone": {
+                    "type": "string",
+                    "description": "时区名称（如 Asia/Shanghai），默认使用系统时区",
+                },
             },
         },
     },

@@ -1,6 +1,6 @@
 """miniagent/memory/embedding_search.py 的单元测试。
 
-嵌入搜索：余弦相似度、多供应商回退、索引持久化、开关控制。
+嵌入搜索：余弦相似度、索引持久化、开关控制。
 不依赖真实 API（全部 mock）。
 """
 
@@ -24,6 +24,7 @@ from miniagent.types.memory import MemoryEntryInput
 # 余弦相似度
 # ============================================================================
 
+
 class TestCosineSimilarity:
     def test_identical_vectors(self):
         assert _cosine_similarity([1.0, 2.0, 3.0], [1.0, 2.0, 3.0]) == pytest.approx(1.0)
@@ -45,6 +46,7 @@ class TestCosineSimilarity:
 # 文本 hash
 # ============================================================================
 
+
 class TestTextHash:
     def test_deterministic(self):
         assert _text_hash("hello") == _text_hash("hello")
@@ -56,6 +58,7 @@ class TestTextHash:
 # ============================================================================
 # 嵌入索引
 # ============================================================================
+
 
 class TestEmbeddingIndex:
     def _make_index(self, tmpdir: str) -> EmbeddingIndex:
@@ -163,12 +166,37 @@ class TestEmbeddingIndex:
 # 嵌入搜索提供者
 # ============================================================================
 
+
 class TestEmbeddingSearchProvider:
     def test_no_providers_without_config(self, tmp_path, monkeypatch):
-        """未配置 API 时 provider 无供应商。"""
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
-        monkeypatch.delenv("OPENAI_MODEL", raising=False)
+        """未配置 MINIAGENT_EMBED_* 时无 embedding 供应商，回退到关键词索引。"""
+        monkeypatch.delenv("MINIAGENT_EMBED_BASE_URL", raising=False)
+        monkeypatch.delenv("MINIAGENT_EMBED_MODEL", raising=False)
+        monkeypatch.setenv("OPENAI_API_KEY", "key1")
+        monkeypatch.setenv("OPENAI_BASE_URL", "https://openai.example.com/v1")
+        monkeypatch.setenv("OPENAI_MODEL", "gpt-4o-mini")
+        reset_embed_provider()
+
+        provider = EmbeddingSearchProvider(state_dir=str(tmp_path))
+        assert len(provider._providers) == 0
+
+    def test_embed_provider_only(self, tmp_path, monkeypatch):
+        """仅配置 MINIAGENT_EMBED_* 时作为唯一供应商。"""
+        monkeypatch.setenv("MINIAGENT_EMBED_BASE_URL", "https://embed.example.com/v1")
+        monkeypatch.setenv("MINIAGENT_EMBED_MODEL", "embed-model-v1")
+        monkeypatch.setenv("MINIAGENT_EMBED_API_KEY", "test-key")
+        reset_embed_provider()
+
+        provider = EmbeddingSearchProvider(state_dir=str(tmp_path))
+        assert len(provider._providers) == 1
+        assert provider._providers[0]["base_url"] == "https://embed.example.com/v1"
+        assert provider._providers[0]["model"] == "embed-model-v1"
+
+    def test_no_openai_fallback(self, tmp_path, monkeypatch):
+        """即使设置了 OPENAI_*，也不会将其作为 embedding 供应商。"""
+        monkeypatch.setenv("OPENAI_API_KEY", "key1")
+        monkeypatch.setenv("OPENAI_BASE_URL", "https://openai.example.com/v1")
+        monkeypatch.setenv("OPENAI_MODEL", "gpt-4o-mini")
         monkeypatch.delenv("MINIAGENT_EMBED_BASE_URL", raising=False)
         monkeypatch.delenv("MINIAGENT_EMBED_MODEL", raising=False)
         reset_embed_provider()
@@ -176,45 +204,11 @@ class TestEmbeddingSearchProvider:
         provider = EmbeddingSearchProvider(state_dir=str(tmp_path))
         assert len(provider._providers) == 0
 
-    def test_primary_provider(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-        monkeypatch.setenv("OPENAI_BASE_URL", "https://api.example.com/v1")
-        monkeypatch.setenv("OPENAI_MODEL", "text-embedding-3-small")
-        monkeypatch.delenv("MINIAGENT_EMBED_BASE_URL", raising=False)
-        monkeypatch.delenv("MINIAGENT_EMBED_MODEL", raising=False)
-        reset_embed_provider()
-
-        provider = EmbeddingSearchProvider(state_dir=str(tmp_path))
-        assert len(provider._providers) == 1
-        assert provider._providers[0]["api_key"] == "test-key"
-
-    def test_fallback_provider(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("OPENAI_API_KEY", "key1")
-        monkeypatch.setenv("OPENAI_BASE_URL", "https://primary.com/v1")
-        monkeypatch.setenv("OPENAI_MODEL", "model-a")
-        monkeypatch.setenv("MINIAGENT_EMBED_BASE_URL", "https://fallback.com/v1")
-        monkeypatch.setenv("MINIAGENT_EMBED_MODEL", "model-b")
-        reset_embed_provider()
-
-        provider = EmbeddingSearchProvider(state_dir=str(tmp_path))
-        assert len(provider._providers) == 2
-
-    def test_same_url_no_duplicate_provider(self, tmp_path, monkeypatch):
-        """备用与主供应商相同则不重复添加。"""
-        monkeypatch.setenv("OPENAI_API_KEY", "key1")
-        monkeypatch.setenv("OPENAI_BASE_URL", "https://same.com/v1")
-        monkeypatch.setenv("OPENAI_MODEL", "model-a")
-        monkeypatch.setenv("MINIAGENT_EMBED_BASE_URL", "https://same.com/v1")
-        monkeypatch.setenv("MINIAGENT_EMBED_MODEL", "model-a")
-        reset_embed_provider()
-
-        provider = EmbeddingSearchProvider(state_dir=str(tmp_path))
-        assert len(provider._providers) == 1
-
 
 # ============================================================================
 # 开关
 # ============================================================================
+
 
 class TestEmbeddingSearchEnabled:
     def test_default_disabled(self, monkeypatch):

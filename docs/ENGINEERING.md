@@ -87,7 +87,7 @@ CI 说明：
 
 - **默认**：Agent 将实例心跳、会话、锁等写入仓库下 `workspaces/`（部分路径见 `.gitignore`，如 `workspaces/sessions/`、`**/*.lock`）。
 - **推荐**：开发与 CI 设置 **`MINI_AGENT_STATE`** 指向临时目录，避免污染本机数据或与并行运行冲突（示例见 `CONTRIBUTING.md` 与 `.env.example` 注释）。
-- **语义**：多实例注册、PID 判定与清理规则见 [INSTANCE_REGISTRY.md](INSTANCE_REGISTRY.md)。
+- **语义**：多实例注册、PID 判定与清理规则见 §3.3。
 
 ### 3.1 `workspaces/` 与 Git 跟踪政策
 
@@ -99,7 +99,7 @@ CI 说明：
 
 ### 3.2 可选离线测评产物
 
-若使用 `tests/evaluation/`（见 [EVALUATION_LOCAL.md](EVALUATION_LOCAL.md)）：
+若使用 `tests/evaluation/`（见 §3.4）：
 
 | 类型 | Git 策略 |
 |------|----------|
@@ -107,6 +107,41 @@ CI 说明：
 | **勿提交** | `tests/evaluation/runners/trajectories/`、`**/evaluation_results.json`、生成到 `docs/` 的报告或导出 JSON |
 
 **轨迹 JSON、聚合评分与 HTML 报告**体积大且环境相关；对话片段中还可能误粘贴 **API Key**，即使已在 `.gitignore` 中列出，也**不要**使用 `git add -f` 强行入库。根目录 `.gitignore` 已忽略 `tests/evaluation/runners/trajectories/`、`tests/evaluation/**/evaluation_results.json`、`docs/EVALUATION_REPORT.html`、`docs/evaluation_results.json` 等。
+
+### 3.3 多实例注册表
+
+模块: `miniagent/infrastructure/instance.py`。**语义**：多实例注册、PID 判定与清理规则（原 INSTANCE_REGISTRY.md 内容合并于此）。
+
+- **注册**：CLI 主流程启动时调用 `register_instance()` → `InstanceRegistry.register()`。
+- **启动前清理**：分配新 `instance_id` 前扫描已有数字子目录；若 `meta.json` 中 PID 已不存在，则仅删除该注册目录。
+- **存活判定**：`meta.json` 中 `pid` 为正整数且 `_is_process_running(pid)` 为真 → 存活（Windows：`tasklist`；POSIX：`os.kill(pid, 0)`）。心跳仅作观测。
+- **实例目录**：`<状态根>/instances/<数字ID>/`，含 `meta.json`（PID、instance_id、mode、start_time 等）与可选 `heartbeat` 文件。
+- **清理原则**：仅清理僵尸目录，不会 `taskkill`/`kill` 运行中的进程；PID 复用场景下属于「宁可少删、避免误删」的权衡。
+
+**定时任务锁**（路径 `<状态根>/scheduled_tasks/`）：
+
+| 文件 | 作用 |
+|------|------|
+| `scheduler.lock` | 单次 `tick_once` 互斥 |
+| `job_<task_id>.lock` | 单条任务执行期互斥 |
+| `tasks.json.lock` | `tasks.json` 读写互斥 |
+
+崩溃后残留锁文件，下一进程发现锁内 PID 已不存在时会删除并重试。
+
+### 3.4 离线测评
+
+`tests/evaluation/` 用于离线轨迹录制、工具选择准确率、对抗用例等实验。**评测源码（`.py`、`conftest`、小体积 `test_cases/*.json`）应纳入 Git**；运行产物不入库。
+
+- **默认 CI**：`pytest tests/ -q -m "not evaluation"`（排除评测）
+- **仅评测**：`pytest tests/ -m evaluation -v --tb=short`
+- **跑全量**：`pytest tests/ -q`
+
+产物约定（已在 `.gitignore` 忽略，请勿 `git add -f`）：
+- `tests/evaluation/runners/trajectories/` — 轨迹 JSON（可能含密钥）
+- `tests/evaluation/**/evaluation_results.json` — 聚合评分
+- `docs/EVALUATION_REPORT.html`、`docs/evaluation_results.json` — 生成报告
+
+建议跑长时间评测时设置 `MINI_AGENT_STATE` 指向临时目录，避免与日常 `workspaces/` 会话干扰。
 
 ---
 
@@ -124,15 +159,15 @@ CI 说明：
 
 1. `miniagent/__init__.py` 的 `__version__` 与 `CHANGELOG.md`、下列 **带版本标语** 的 `docs/*.md` 一致（标语格式建议：`> Mini Agent Python | 版本: x.y.z | …` 或 INDEX 的「与 `miniagent.__version__` 对齐」行；若页眉仅写「与 `miniagent.__version__` 对齐」而无具体 semver，发版时核对语义一致即可）：
    - [ARCHITECTURE.md](ARCHITECTURE.md)、[INDEX.md](INDEX.md)、[ENGINEERING.md](ENGINEERING.md)、[CONTRIBUTING.md](CONTRIBUTING.md)
-   - [DEPLOYMENT.md](DEPLOYMENT.md)、[MEMORY_SYSTEM.md](MEMORY_SYSTEM.md)、[SECURITY.md](SECURITY.md)、[INSTANCE_REGISTRY.md](INSTANCE_REGISTRY.md)
-   - [CLI.md](CLI.md)、[FEISHU.md](FEISHU.md)、[SELF_OPT.md](SELF_OPT.md)、[CHANNEL_BINDING.md](CHANNEL_BINDING.md)、[CYBERNETICS_PLAN.md](CYBERNETICS_PLAN.md)、[USER_GUIDE.md](USER_GUIDE.md)、[EVALUATION_LOCAL.md](EVALUATION_LOCAL.md)（若文内写明版本号须与 `__version__` 一致）
+   - [DEPLOYMENT.md](DEPLOYMENT.md)、[MEMORY_SYSTEM.md](MEMORY_SYSTEM.md)、[SECURITY.md](SECURITY.md)
+   - [CLI.md](CLI.md)、[FEISHU.md](FEISHU.md)、[SELF_OPT.md](SELF_OPT.md)、[CHANNEL_BINDING.md](CHANNEL_BINDING.md)、[CYBERNETICS_PLAN.md](CYBERNETICS_PLAN.md)、[USER_GUIDE.md](USER_GUIDE.md)（若文内写明版本号须与 `__version__` 一致）
    - [PERFORMANCE.md](PERFORMANCE.md)（页眉与版本对齐语义时一并核对）
 2. 欢迎界面：`miniagent.engine.welcome.get_version()` 必须与 `miniagent.__version__` 同源（勿依赖 `pyproject.toml` 静态 `version` 字段）。
 3. [INDEX.md](INDEX.md) 中目录树与仓库实际文件一致（含 `core/openai_client.py`、`memory/defaults.py` 等）。
 4. README 中的命令与测试说明：若需核对用例数量，以本地或 CI 的 `pytest tests/ --collect-only -q` 输出为准（避免在 README 硬编码条数导致漂移）。
 5. 行为变更同步 `ARCHITECTURE.md` 或对应专题文档（如 `CHANNEL_BINDING.md`、`MEMORY_SYSTEM.md`）。
 6. **[architecture.drawio](architecture.drawio)** 与 `ARCHITECTURE.md` 分层与主数据流一致（入口 `compat`、组合根 `RuntimeContext`、通道路由、记忆注入方式、可选 MCP/定时任务）；`instance.py` 单元格为 **PID 存活** 语义（非心跳超时清理）；`scheduled_tasks` 含 `cron.py` / `file_lock.py`；发版或大架构变更时一并打开核对，页脚测试数以 `pytest tests/ --collect-only -q` 为准。
-7. **[DEPLOYMENT.md](DEPLOYMENT.md)**：定时任务路径/备份、`MINI_AGENT_STATE` 与多实例 PID 清理表述与 INSTANCE_REGISTRY 一致。
+7. **[DEPLOYMENT.md](DEPLOYMENT.md)**：定时任务路径/备份、`MINI_AGENT_STATE` 与多实例 PID 清理表述与 §3.3 一致。
 8. **大批量增补或调整 docstring 后**：在本地执行 `python -m ruff check miniagent tests` 与 spot-check（避免行长、引号或无意改坏字符串）；风格约定见 [CONTRIBUTING.md](CONTRIBUTING.md)「文档字符串（docstring）规范」。
 9. **SSOT**：修改 env、点命令、定时任务、飞书出站时，以 [FEISHU.md](FEISHU.md) / [CLI.md](CLI.md) / [USER_GUIDE.md](USER_GUIDE.md) 之一为主文档撰写深度内容，其余文件只保留摘要并链入，避免三处全文复制。
 10. **禁止硬编码**：文档与 drawio 页脚勿写固定 pytest 用例数；以 `pytest tests/ --collect-only -q` 为准。
@@ -148,6 +183,5 @@ CI 说明：
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 分层架构与数据流 |
 | [INDEX.md](INDEX.md) | 全部文档索引 |
 | [USER_GUIDE.md](USER_GUIDE.md) | 零基础使用指南 |
-| [EVALUATION_LOCAL.md](EVALUATION_LOCAL.md) | 可选本地离线测评与 Git 忽略约定 |
 | [CHANGELOG.md](../CHANGELOG.md) | 版本历史 |
 | [PERFORMANCE.md](PERFORMANCE.md) | 性能 KPI、合成冒烟与基线 |

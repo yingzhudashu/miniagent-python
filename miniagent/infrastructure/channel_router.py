@@ -33,7 +33,7 @@ class ChannelRouter:
     # 内置通道标识
     CLI_CHANNEL = "__cli__"
     FEISHU_P2P_PREFIX = "feishu_p2p:"  # 飞书私聊通道前缀 + sender_id
-    FEISHU_GROUP_PREFIX = "feishu:"     # 飞书群聊通道前缀 + chat_id
+    FEISHU_GROUP_PREFIX = "feishu:"  # 飞书群聊通道前缀 + chat_id
 
     def __init__(self) -> None:
         """初始化空绑定表与主会话指针。"""
@@ -126,9 +126,7 @@ class ChannelRouter:
         """
         return self._bindings.get(channel_id, channel_id)
 
-    def resolve_feishu_message(
-        self, chat_id: str, sender_id: str, chat_type: str = "group"
-    ) -> str:
+    def resolve_feishu_message(self, chat_id: str, sender_id: str, chat_type: str = "group") -> str:
         """从飞书消息解析会话 ID。
 
         - 群聊消息: 始终返回 "feishu:chat_id"（独立会话，不参与绑定）

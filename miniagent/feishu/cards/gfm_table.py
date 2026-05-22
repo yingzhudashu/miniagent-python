@@ -168,9 +168,7 @@ def gfm_table_block_to_text_table(
         cells = [trunc(r[ci], widths[ci]) for ci in range(ncols)]
         out_lines.append("| " + " | ".join(cells) + " |")
         if ri == 0:
-            out_lines.append(
-                "|-" + "-|-".join("-" * widths[ci] for ci in range(ncols)) + "-|"
-            )
+            out_lines.append("|-" + "-|-".join("-" * widths[ci] for ci in range(ncols)) + "-|")
     return "\n".join(out_lines)
 
 

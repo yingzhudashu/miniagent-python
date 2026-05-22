@@ -22,7 +22,12 @@ def test_strip_tool_calls_child_keys() -> None:
             "role": "assistant",
             "content": None,
             "tool_calls": [
-                {"id": "1", "type": "function", "function": {"name": "f", "arguments": "{}"}, "_meta": 9}
+                {
+                    "id": "1",
+                    "type": "function",
+                    "function": {"name": "f", "arguments": "{}"},
+                    "_meta": 9,
+                }
             ],
         }
     ]

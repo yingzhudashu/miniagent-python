@@ -31,6 +31,7 @@ from miniagent.types.agent import LoopDetectionConfig, LoopDetectionResult, Loop
 @dataclass
 class _CallRecord:
     """工具调用记录"""
+
     tool: str
     args: str  # JSON 序列化的参数（用于精确匹配）
     result: str  # 结果摘要（用于检测无进展轮询）
@@ -102,12 +103,14 @@ class LoopDetector:
         if not self._config.enabled:
             return
 
-        self._history.append(_CallRecord(
-            tool=tool,
-            args=json.dumps(args, ensure_ascii=False),
-            result=result[:200],  # 只保留前 200 字符
-            timestamp=time.time(),
-        ))
+        self._history.append(
+            _CallRecord(
+                tool=tool,
+                args=json.dumps(args, ensure_ascii=False),
+                result=result[:200],  # 只保留前 200 字符
+                timestamp=time.time(),
+            )
+        )
 
         # 保持历史记录在限制范围内
         max_size = self._config.history_size
@@ -136,10 +139,7 @@ class LoopDetector:
 
         # 检测 1: generic_repeat（相同工具 + 相同参数）
         if self._config.detectors.get("generic_repeat", False):
-            repeat_count = sum(
-                1 for r in self._history
-                if r.tool == tool and r.args == args_str
-            )
+            repeat_count = sum(1 for r in self._history if r.tool == tool and r.args == args_str)
             if repeat_count >= self._config.critical_threshold:
                 return LoopDetectionResult(
                     level="critical",
@@ -153,8 +153,7 @@ class LoopDetector:
                 return LoopDetectionResult(
                     level="warning",
                     message=(
-                        f"警告：{tool} 已重复调用 {repeat_count} 次"
-                        f"（参数相同），请考虑改变策略。"
+                        f"警告：{tool} 已重复调用 {repeat_count} 次（参数相同），请考虑改变策略。"
                     ),
                     pattern=f"{tool}({args_str}) x{repeat_count}",
                 )
@@ -173,9 +172,7 @@ class LoopDetector:
 
         return LoopDetectionResult(level="none", message="")
 
-    def _detect_poll_pattern(
-        self, tool: str, args_str: str
-    ) -> LoopDetectionResult | None:
+    def _detect_poll_pattern(self, tool: str, args_str: str) -> LoopDetectionResult | None:
         """检测轮询模式：连续调用相同工具但结果无变化"""
         consecutive: list[_CallRecord] = []
         for r in reversed(self._history):
@@ -191,29 +188,19 @@ class LoopDetector:
         results = [r.result for r in consecutive]
         unique_results = set(results)
 
-        if (
-            len(unique_results) == 1
-            and len(consecutive) >= self._config.warning_threshold
-        ):
+        if len(unique_results) == 1 and len(consecutive) >= self._config.warning_threshold:
             level: LoopLevel = (
-                "critical"
-                if len(consecutive) >= self._config.critical_threshold
-                else "warning"
+                "critical" if len(consecutive) >= self._config.critical_threshold else "warning"
             )
             return LoopDetectionResult(
                 level=level,
-                message=(
-                    f"检测到无进展轮询：{tool} 连续 {len(consecutive)} 次，"
-                    f"结果无变化。"
-                ),
+                message=(f"检测到无进展轮询：{tool} 连续 {len(consecutive)} 次，结果无变化。"),
                 pattern=f"{tool} 轮询 x{len(consecutive)}",
             )
 
         return None
 
-    def _detect_ping_pong(
-        self, tool: str, args_str: str
-    ) -> LoopDetectionResult | None:
+    def _detect_ping_pong(self, tool: str, args_str: str) -> LoopDetectionResult | None:
         """检测 ping-pong 模式：A→B→A→B→A→B"""
         if len(self._history) < 6:
             return None

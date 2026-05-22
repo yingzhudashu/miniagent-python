@@ -14,18 +14,10 @@ from miniagent.infrastructure.message_queue import MessageQueueManager
 
 def patch_tick_once_locks(monkeypatch: pytest.MonkeyPatch) -> None:
     """Mock cross-process locks so tick_once tests run without real lock files."""
-    monkeypatch.setattr(
-        "miniagent.scheduled_tasks.ticker.try_acquire_scheduler_lock", lambda: True
-    )
-    monkeypatch.setattr(
-        "miniagent.scheduled_tasks.ticker.release_scheduler_lock", lambda: None
-    )
-    monkeypatch.setattr(
-        "miniagent.scheduled_tasks.ticker.try_acquire_job_lock", lambda _id: True
-    )
-    monkeypatch.setattr(
-        "miniagent.scheduled_tasks.ticker.release_job_lock", lambda _id: None
-    )
+    monkeypatch.setattr("miniagent.scheduled_tasks.ticker.try_acquire_scheduler_lock", lambda: True)
+    monkeypatch.setattr("miniagent.scheduled_tasks.ticker.release_scheduler_lock", lambda: None)
+    monkeypatch.setattr("miniagent.scheduled_tasks.ticker.try_acquire_job_lock", lambda _id: True)
+    monkeypatch.setattr("miniagent.scheduled_tasks.ticker.release_job_lock", lambda _id: None)
 
 
 def minimal_tick_ctx(*, engine: Any | None = None) -> SimpleNamespace:

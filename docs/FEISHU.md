@@ -325,7 +325,7 @@ echo $FEISHU_APP_ID
 
 ## 架构说明
 
-飞书运行时位于 `miniagent/engine/feishu_state.py`（`FeishuRuntime`）；`feishu_runtime.py` 仅为兼容重导出。历史上单文件 `unified.py` 已移除，入口请使用 `miniagent.compat.unified_entry` / `python -m miniagent`。
+飞书运行时位于 `miniagent/engine/feishu_state.py`（`FeishuRuntime`）；`poll_server.py` 负责 WebSocket 长轮询事件分发。入口请使用 `python -m miniagent`。
 
 ## 互动卡片（`cards/`）
 
@@ -338,3 +338,109 @@ echo $FEISHU_APP_ID
 - [ENGINEERING.md](ENGINEERING.md)：可选安装 `pip install -e ".[dev,feishu]"`、CI 飞书 job 说明。
 - [SECURITY.md](SECURITY.md)：飞书凭证与 `.env` 要求。
 - [DEPLOYMENT.md](DEPLOYMENT.md)：部署与依赖。
+
+---
+
+## 工具 API 参考
+
+### feishu_doc（飞书云文档聚合工具）
+
+单一工具，通过 `action` 参数执行 26 种操作。
+
+**基础操作**
+
+| Action | 参数 | 权限 |
+|--------|------|------|
+| `create` | `title`, `folder_token`(可选), `folder_share_url`(可选) | 需创建权限 |
+| `get` | `document_id` | 需访问权限 |
+| `read` | `document_id` | 需读取权限 |
+| `write` | `document_id`, `text`, `mode`(append/replace) | 需编辑权限 |
+| `append` | `document_id`, `text` | 需编辑权限 |
+| `delete` | `document_id` | 需管理权限 |
+
+**Block 操作**
+
+| Action | 参数 | 权限 |
+|--------|------|------|
+| `list_blocks` | `document_id` | 需读取权限 |
+| `get_block` | `document_id`, `block_id` | 需读取权限 |
+| `update_block` | `document_id`, `block_id`, `text` | 需编辑权限 |
+| `delete_block` | `document_id`, `block_id` | 需编辑权限 |
+| `batch_update` | `document_id`, `operations`(JSON 数组) | 需编辑权限 |
+
+**导入/导出**
+
+| Action | 参数 | 权限 |
+|--------|------|------|
+| `export_raw` | `document_id` | 需导出权限 |
+| `import_raw` | `document_id`, `raw_content` | 需编辑权限 |
+
+**表格操作**
+
+| Action | 参数 | 权限 |
+|--------|------|------|
+| `create_table` | `document_id`, `rows`, `cols` | 需编辑权限 |
+| `write_table_cells` | `document_id`, `table_block_id`, `cells` | 需编辑权限 |
+| `create_table_with_values` | `document_id`, `headers`, `rows` | 需编辑权限 |
+
+**媒体操作**
+
+| Action | 参数 | 权限 |
+|--------|------|------|
+| `upload_image` | `document_id`, `image_path` | 需编辑权限 |
+| `upload_file` | `document_id`, `file_path` | 需编辑权限 |
+| `download_media` | `document_id`, `media_token` | 需读取权限 |
+| `upload_image_from_message` | `document_id` | 需编辑权限 |
+
+**云盘操作**
+
+| Action | 参数 | 权限 |
+|--------|------|------|
+| `copy` | `document_id`, `target_folder_token` | 需源读取+目标编辑权限 |
+| `move` | `document_id`, `target_folder_token` | 需源管理+目标编辑权限 |
+
+**协作者管理**
+
+| Action | 参数 | 权限 |
+|--------|------|------|
+| `list_permissions` | `document_id` | 需管理权限 |
+| `add_permission` | `document_id`, `member_type`, `member_id`, `permission` | 需管理权限 |
+| `remove_permission` | `document_id`, `member_type`, `member_id` | 需管理权限 |
+
+**搜索**
+
+| Action | 参数 | 权限 |
+|--------|------|------|
+| `search` | `query` | 需 `MINIAGENT_FEISHU_USER_ACCESS_TOKEN` |
+
+### feishu_bitable（飞书多维表格聚合工具）
+
+单一工具，通过 `action` 参数执行 8 种操作。
+
+| Action | 参数 | 权限 |
+|--------|------|------|
+| `get_meta` | `app_token` | 需访问权限 |
+| `list_fields` | `app_token`, `table_id` | 需读取权限 |
+| `list_records` | `app_token`, `table_id`, `page_token`(可选), `field_names`(可选) | 需读取权限 |
+| `get_record` | `app_token`, `table_id`, `record_id` | 需读取权限 |
+| `create_record` | `app_token`, `table_id`, `fields` | 需编辑权限 |
+| `update_record` | `app_token`, `table_id`, `record_id`, `fields` | 需编辑权限 |
+| `delete_record` | `app_token`, `table_id`, `record_id` | 需编辑权限 |
+| `upload_attachment` | `app_token`, `table_id`, `record_id`, `field_name`, `file_path` | 需编辑权限 |
+
+### 独立工具
+
+**feishu_send_interactive_card**
+
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| `receive_id` | 是 | 接收方 ID |
+| `template` | 是 | 卡片模板名称 |
+| `data` | 否 | 卡片模板变量 |
+| `receive_id_type` | 否 | ID 类型，默认 `chat_id` |
+
+**feishu_list_drive_files** — 列出云盘文件/目录（可选 `folder_token` 或 `folder_share_url`）
+
+**feishu_recall_message** — 撤回消息（参数 `message_id`）
+
+**feishu_send_workspace_file** — 发送工作区内文件到会话（参数 `file_path`）

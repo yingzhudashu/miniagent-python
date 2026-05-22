@@ -153,16 +153,14 @@ class UnifiedEngine:
         if callable(getter):
             session_workspace = getter(session_key)
         if not session_workspace:
-            session_workspace = getattr(ctx, "files_path", None) or getattr(
-                ctx, "workspace_path", None
-            ) or None
+            session_workspace = (
+                getattr(ctx, "files_path", None) or getattr(ctx, "workspace_path", None) or None
+            )
 
         # 2. 技能与分层摘要进入 execute_plan 的 system（会话记忆由执行器 inject_memory 注入，避免重复）
         from miniagent.memory.memory_pipeline import build_layered_memory_augmentation
 
-        layered_augment = build_layered_memory_augmentation(
-            session_key, user_input=user_input
-        )
+        layered_augment = build_layered_memory_augmentation(session_key, user_input=user_input)
         combined_skill = skill_prompts
         if layered_augment:
             combined_skill = (
@@ -223,7 +221,9 @@ class UnifiedEngine:
                         feishu_config, chat_id, text, template, st_local
                     )
                 else:
-                    await finalize_feishu_thinking_stream(feishu_config, chat_id, template, st_local)
+                    await finalize_feishu_thinking_stream(
+                        feishu_config, chat_id, template, st_local
+                    )
                     await _send_thinking(
                         feishu_config,
                         chat_id,
@@ -234,10 +234,9 @@ class UnifiedEngine:
                     )
 
             # 如果 CLI 也绑定到此会话且策略允许镜像，注册双回调（终端 + 飞书）
-            cli_dual = (
-                router.CLI_CHANNEL in bound_channels and feishu_mirror_cli
-            )
+            cli_dual = router.CLI_CHANNEL in bound_channels and feishu_mirror_cli
             if cli_dual:
+
                 async def _dual_send(
                     chat_id: str,
                     text: str,
@@ -436,9 +435,7 @@ class UnifiedEngine:
         )
 
         # 9. 活动日志
-        al.log_session_start(
-            session_key, user_input, source="feishu" if is_feishu else "cli"
-        )
+        al.log_session_start(session_key, user_input, source="feishu" if is_feishu else "cli")
         al.log_final_reply(session_key, reply)
 
         # 10. 持久化
@@ -484,9 +481,7 @@ class UnifiedEngine:
         """
         if session_manager:
             ctx = session_manager.get_or_create(session_key)
-            ctx.conversation_history.append(
-                {"role": "user", "content": content, "_injected": True}
-            )
+            ctx.conversation_history.append({"role": "user", "content": content, "_injected": True})
 
     def get_context_manager(self, session_key: str) -> DefaultContextManager | None:
         """获取会话的上下文管理器（用于 token 估算）。"""

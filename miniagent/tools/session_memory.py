@@ -57,9 +57,7 @@ _search_session_diary_schema = {
 }
 
 
-async def _read_session_diary_handler(
-    args: dict[str, Any], ctx: ToolContext
-) -> ToolResult:
+async def _read_session_diary_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     """读取本会话某日 ``diary`` Markdown（可截断）。"""
     from datetime import datetime, timezone
 
@@ -92,9 +90,7 @@ async def _read_session_diary_handler(
     return ToolResult(success=True, content=raw, meta={"path": path})
 
 
-async def _search_session_diary_handler(
-    args: dict[str, Any], ctx: ToolContext
-) -> ToolResult:
+async def _search_session_diary_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     """在会话 diary 目录内做子串扫描，返回带上下文的命中片段。"""
     from miniagent.memory.history_archive import safe_session_id_for_memory
 
@@ -126,9 +122,7 @@ async def _search_session_diary_handler(
         return ToolResult(success=True, content="（该会话尚无 diary 目录）")
 
     hits: list[str] = []
-    files = sorted(
-        f for f in os.listdir(root) if f.endswith(".md") or f.endswith(".txt")
-    )
+    files = sorted(f for f in os.listdir(root) if f.endswith(".md") or f.endswith(".txt"))
     for name in files[:max_files]:
         fp = os.path.join(root, name)
         try:

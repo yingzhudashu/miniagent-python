@@ -127,6 +127,7 @@ class TestMapOcMetadata:
 
     def test_string_json_metadata(self):
         import json
+
         raw = {"clawdbot": {"requires": {"bins": ["node"]}}}
         meta = {"metadata": json.dumps(raw)}
         result = _map_oc_metadata(meta)

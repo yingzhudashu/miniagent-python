@@ -66,9 +66,7 @@ _VALID_INSTANCE_MODES = frozenset({"cli", "both"})
 def _validate_instance_mode(mode: str) -> None:
     """校验实例 mode 属于 ``cli`` / ``both``，否则抛 ``ValueError``。"""
     if mode not in _VALID_INSTANCE_MODES:
-        raise ValueError(
-            f"instance mode must be 'cli' or 'both', got {mode!r}"
-        )
+        raise ValueError(f"instance mode must be 'cli' or 'both', got {mode!r}")
 
 
 def _ensure_instances_dir(state_dir: str) -> Path:
@@ -80,9 +78,7 @@ def _ensure_instances_dir(state_dir: str) -> Path:
 
 def _get_state_dir(state_dir: str | None = None) -> str:
     """获取状态目录。"""
-    return state_dir or os.environ.get(
-        "MINI_AGENT_STATE", os.path.join(os.getcwd(), "workspaces")
-    )
+    return state_dir or os.environ.get("MINI_AGENT_STATE", os.path.join(os.getcwd(), "workspaces"))
 
 
 def _is_process_running(pid: int) -> bool:
@@ -115,6 +111,7 @@ def _next_instance_id(inst_dir: Path) -> int:
 # InstanceRegistry
 # ============================================================================
 
+
 class InstanceRegistry:
     """多实例注册表
 
@@ -137,8 +134,8 @@ class InstanceRegistry:
         pid_checker: Any = None,
     ) -> None:
         """Args:
-            state_dir: 状态根目录；默认 ``MINI_AGENT_STATE`` 或仓库下 ``workspaces``。
-            pid_checker: 可注入的 PID 存活探测（测试用）。
+        state_dir: 状态根目录；默认 ``MINI_AGENT_STATE`` 或仓库下 ``workspaces``。
+        pid_checker: 可注入的 PID 存活探测（测试用）。
         """
         self._state_dir = _get_state_dir(state_dir)
         self._inst_dir = _ensure_instances_dir(self._state_dir)
@@ -187,7 +184,9 @@ class InstanceRegistry:
 
         _logger.info(
             "实例已注册: #%d (PID=%d, mode=%s)",
-            inst_id, os.getpid(), mode,
+            inst_id,
+            os.getpid(),
+            mode,
         )
         return dict(self._meta)
 
@@ -195,9 +194,7 @@ class InstanceRegistry:
         """更新当前实例心跳。"""
         if self._my_dir:
             heartbeat_file = self._my_dir / "heartbeat"
-            heartbeat_file.write_text(
-                f"{time.time():.0f}\n", encoding="utf-8"
-            )
+            heartbeat_file.write_text(f"{time.time():.0f}\n", encoding="utf-8")
 
     def unregister(self) -> None:
         """注销当前实例（退出时调用）。"""
@@ -222,7 +219,9 @@ class InstanceRegistry:
         if not self._inst_dir.exists():
             return results
 
-        for entry in sorted(self._inst_dir.iterdir(), key=lambda e: int(e.name) if e.name.isdigit() else 0):
+        for entry in sorted(
+            self._inst_dir.iterdir(), key=lambda e: int(e.name) if e.name.isdigit() else 0
+        ):
             if not entry.is_dir() or not entry.name.isdigit():
                 continue
 
@@ -440,9 +439,7 @@ def list_instances(state_dir: str | None = None) -> list[dict[str, Any]]:
     return get_registry(state_dir).list_all()
 
 
-def stop_instance_by_id(
-    instance_id: int, state_dir: str | None = None
-) -> dict[str, Any]:
+def stop_instance_by_id(instance_id: int, state_dir: str | None = None) -> dict[str, Any]:
     """停止指定实例。"""
     return get_registry(state_dir).stop(instance_id)
 

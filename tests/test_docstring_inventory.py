@@ -35,9 +35,7 @@ def test_scan_module_missing_docstring(inv, tmp_path: Path) -> None:
 def test_scan_function_missing_docstring(inv, tmp_path: Path) -> None:
     p = tmp_path / "m.py"
     p.write_text(
-        '"""mod."""\n'
-        "def foo():\n"
-        "    return 1\n",
+        '"""mod."""\ndef foo():\n    return 1\n',
         encoding="utf-8",
     )
     mod_ok, miss = inv.scan_file(p)

@@ -1,10 +1,10 @@
-"""模型与 Agent 配置管理（扁平环境变量 + ``MODEL_PROFILES`` 预设）
+"""模型与 Agent 配置管理（扁平环境变量）
 
 - **模型层** ``ModelConfig``：端点、温度、``max_tokens``、thinking 等。
 - **Agent 层** ``AgentConfig``：``max_turns``、工具超时、上下文压缩阈值、循环检测等。
 
-``get_default_model_config`` 从环境变量与 ``MODEL_PROFILES`` 构建；thinking 以
-``AGENT_THINKING_DEFAULT`` / ``OPENAI_THINKING_BUDGET`` 为准。"""
+所有参数通过环境变量直接设置，无预设层级。
+``AGENT_THINKING_DEFAULT`` / ``OPENAI_THINKING_BUDGET`` 控制 thinking 行为。"""
 
 from __future__ import annotations
 
@@ -15,64 +15,10 @@ from miniagent.infrastructure.logger import get_logger
 from miniagent.types.config import (
     AgentConfig,
     ModelConfig,
-    ModelProfile,
     normalize_conversation_history,
 )
 
 _logger = get_logger(__name__)
-
-
-# ============================================================================
-# 模型配置预设
-# ============================================================================
-
-MODEL_PROFILES: dict[str, ModelProfile] = {
-    "creative": ModelProfile(
-        name="creative",
-        temperature=0.9,
-        top_p=1.0,
-        max_tokens=8192,
-        thinking_level="disabled",
-        thinking_budget=0,
-        description="高创造性任务：写作、头脑风暴、创意生成",
-    ),
-    "balanced": ModelProfile(
-        name="balanced",
-        temperature=0.7,
-        top_p=1.0,
-        max_tokens=4096,
-        thinking_level="light",
-        thinking_budget=1024,
-        description="平衡模式：日常任务、通用问答（默认）",
-    ),
-    "precise": ModelProfile(
-        name="precise",
-        temperature=0.3,
-        top_p=0.9,
-        max_tokens=4096,
-        thinking_level="medium",
-        thinking_budget=2048,
-        description="精确模式：数据分析、代码审查、事实查询",
-    ),
-    "code": ModelProfile(
-        name="code",
-        temperature=0.2,
-        top_p=0.9,
-        max_tokens=8192,
-        thinking_level="light",
-        thinking_budget=2048,
-        description="编程模式：代码生成、调试、重构",
-    ),
-    "fast": ModelProfile(
-        name="fast",
-        temperature=0.3,
-        top_p=0.9,
-        max_tokens=2048,
-        thinking_level="disabled",
-        thinking_budget=0,
-        description="快速模式：简单问答、快速查询",
-    ),
-}
 
 
 # ============================================================================
@@ -131,25 +77,18 @@ DEFAULT_LOOP_DETECTION: dict[str, Any] = {
 def get_default_model_config() -> ModelConfig:
     """获取默认 ModelConfig
 
-    根据环境变量和预设构建完整的模型配置。
-    读取的环境变量：OPENAI_BASE_URL, OPENAI_MODEL, MODEL_PROFILE, AGENT_CONTEXT_WINDOW,
-    OPENAI_MAX_TOKENS（可选，覆盖输出 max_tokens）、AGENT_THINKING_DEFAULT（low/medium/high）、
-    OPENAI_THINKING_BUDGET（非负整数，覆盖当前模型的 thinking 预算）。
-
-    合并优先级（thinking）：``MODEL_PROFILE`` 为基线；若设置了 ``AGENT_THINKING_DEFAULT`` 则用之；
-    否则保持基线。``OPENAI_THINKING_BUDGET`` 若显式设置且可解析为非负整数，则覆盖推导的预算
-    （与 ``AGENT_THINKING_DEFAULT`` 同时设置时，**最终 thinking 预算以此为准**，档位仍由后者决定）。
+    所有参数通过环境变量直接设置。
+    读取的环境变量：OPENAI_BASE_URL, OPENAI_MODEL, AGENT_CONTEXT_WINDOW,
+    OPENAI_MAX_TOKENS、AGENT_THINKING_DEFAULT（low/medium/high）、
+    OPENAI_THINKING_BUDGET（非负整数，覆盖 thinking 预算）。
 
     Returns:
         默认的模型配置对象
     """
     from miniagent.core.thinking_presets import map_openclaw_thinking_to_model
 
-    profile_name = os.environ.get("MODEL_PROFILE", "balanced")
-    preset = MODEL_PROFILES.get(profile_name, MODEL_PROFILES["balanced"])
-
-    thinking_level = preset.thinking_level
-    thinking_budget = preset.thinking_budget
+    thinking_level = "light"
+    thinking_budget = 1024
 
     env_td = (os.environ.get("AGENT_THINKING_DEFAULT") or "").strip().lower()
     if env_td in ("low", "medium", "high"):
@@ -167,29 +106,27 @@ def get_default_model_config() -> ModelConfig:
             pass
 
     context_window = (
-        _env_int("AGENT_CONTEXT_WINDOW", 128000)
-        if "AGENT_CONTEXT_WINDOW" in os.environ
-        else 128000
+        _env_int("AGENT_CONTEXT_WINDOW", 128000) if "AGENT_CONTEXT_WINDOW" in os.environ else 128000
     )
     max_tokens = (
-        _env_int("OPENAI_MAX_TOKENS", preset.max_tokens)
+        _env_int("OPENAI_MAX_TOKENS", 4096)
         if "OPENAI_MAX_TOKENS" in os.environ
-        else preset.max_tokens
+        else 4096
     )
+    temperature = _env_float("AGENT_TEMPERATURE", 0.7)
+    top_p = _env_float("AGENT_TOP_P", 1.0)
 
     return ModelConfig(
         base_url=os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
         model=model_name,
-        temperature=preset.temperature,
-        top_p=preset.top_p,
+        temperature=temperature,
+        top_p=top_p,
         max_tokens=max_tokens,
         thinking_level=thinking_level,
         thinking_budget=thinking_budget,
         context_window=context_window,
         stream=False,
         retry_count=2,
-        profiles=MODEL_PROFILES,
-        active_profile=profile_name,
     )
 
 
@@ -216,9 +153,7 @@ def get_default_agent_config() -> AgentConfig:
         tool_timeout=_env_int("AGENT_TOOL_TIMEOUT", 60),
         http_timeout=_env_int("AGENT_HTTP_TIMEOUT", 120),
         context_reserve_ratio=_env_float("AGENT_CONTEXT_RESERVE", 0.15),
-        context_compress_threshold=_env_float(
-            "AGENT_CONTEXT_COMPRESS_THRESHOLD", 0.6
-        ),
+        context_compress_threshold=_env_float("AGENT_CONTEXT_COMPRESS_THRESHOLD", 0.6),
         context_overflow_strategy="summarize",
         compress_messages=True,
         tool_selection_strategy="toolbox",
@@ -230,49 +165,11 @@ def get_default_agent_config() -> AgentConfig:
         log_token_usage=_env_bool("AGENT_LOG_TOKEN_USAGE", True),
         log_file=None,
         loop_detection=dict(DEFAULT_LOOP_DETECTION),
-        history_progressive_compression=_env_bool(
-            "MINI_AGENT_HISTORY_PROGRESSIVE", True
-        ),
+        history_progressive_compression=_env_bool("MINI_AGENT_HISTORY_PROGRESSIVE", True),
     )
 
 
-def apply_model_profile(config: ModelConfig, profile_name: str) -> ModelConfig:
-    """应用模型预设到 ModelConfig
-
-    将指定预设的参数（temperature、top_p、max_tokens、thinking 等）
-    合并到现有配置中。未知预设名称会自动回退到 balanced。
-
-    Args:
-        config: 当前模型配置
-        profile_name: 预设名称（creative/balanced/precise/code/fast）
-
-    Returns:
-        应用预设后的新配置
-    """
-    profile = MODEL_PROFILES.get(profile_name)
-    if not profile:
-        _logger.warning("未知模型预设: %s，使用 balanced", profile_name)
-        return apply_model_profile(config, "balanced")
-
-    return ModelConfig(
-        base_url=config.base_url,
-        model=config.model,
-        temperature=profile.temperature,
-        top_p=profile.top_p,
-        max_tokens=profile.max_tokens,
-        thinking_level=profile.thinking_level,
-        thinking_budget=profile.thinking_budget,
-        context_window=config.context_window,
-        stream=config.stream,
-        retry_count=config.retry_count,
-        profiles=config.profiles,
-        active_profile=profile_name,
-    )
-
-
-def merge_agent_config(
-    base: AgentConfig, overrides: dict[str, Any]
-) -> AgentConfig:
+def merge_agent_config(base: AgentConfig, overrides: dict[str, Any]) -> AgentConfig:
     """合并 Agent 配置
 
     将覆盖配置合并到基础配置中。loop_detection 会逐字段合并，
@@ -338,10 +235,8 @@ def merge_agent_config(
 
 
 __all__ = [
-    "MODEL_PROFILES",
     "DEFAULT_LOOP_DETECTION",
     "get_default_model_config",
     "get_default_agent_config",
-    "apply_model_profile",
     "merge_agent_config",
 ]

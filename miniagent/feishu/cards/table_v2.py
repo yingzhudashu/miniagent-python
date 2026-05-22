@@ -33,7 +33,8 @@ def build_v2_table_card(
     columns = [
         {
             "name": f"c{ci}",
-            "display_name": (headers[ci] if ci < len(headers) else f"列{ci + 1}")[:40] or f"列{ci + 1}",
+            "display_name": (headers[ci] if ci < len(headers) else f"列{ci + 1}")[:40]
+            or f"列{ci + 1}",
             "width": "auto",
         }
         for ci in range(ncols)
@@ -43,11 +44,17 @@ def build_v2_table_card(
         if ri == 0:
             continue
         body_rows.append(
-            [{"tag": "plain_text", "content": (row[ci] if ci < len(row) else "")[:500]} for ci in range(ncols)]
+            [
+                {"tag": "plain_text", "content": (row[ci] if ci < len(row) else "")[:500]}
+                for ci in range(ncols)
+            ]
         )
     if not body_rows:
         body_rows = [
-            [{"tag": "plain_text", "content": (headers[ci] if ci < len(headers) else "")[:500]} for ci in range(ncols)]
+            [
+                {"tag": "plain_text", "content": (headers[ci] if ci < len(headers) else "")[:500]}
+                for ci in range(ncols)
+            ]
         ]
     return {
         "schema": "2.0",

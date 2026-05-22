@@ -34,9 +34,7 @@ async def invoke_on_thinking(
         sig = inspect.signature(cb)
         params = sig.parameters
         has_fr = "full_record" in params
-        has_varkw = any(
-            p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
-        )
+        has_varkw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
         if full_record is not None and (has_fr or has_varkw):
             try:
                 await cb(text, streaming, header, full_record=full_record)

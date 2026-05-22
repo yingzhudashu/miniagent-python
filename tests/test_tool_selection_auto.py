@@ -15,7 +15,11 @@ async def _h(args: dict, ctx) -> ToolResult:
 def _schema(name: str) -> dict:
     return {
         "type": "function",
-        "function": {"name": name, "description": "d", "parameters": {"type": "object", "properties": {}}},
+        "function": {
+            "name": name,
+            "description": "d",
+            "parameters": {"type": "object", "properties": {}},
+        },
     }
 
 

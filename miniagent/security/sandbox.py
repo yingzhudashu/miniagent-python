@@ -76,9 +76,7 @@ def resolve_sandbox_path(input_path: str, allowed_dirs: list[str]) -> str:
             return resolved
 
     # 路径不在任何允许的目录范围内，抛出错误
-    raise ValueError(
-        f'路径 "{input_path}" 超出允许的范围: {", ".join(allowed_dirs)}'
-    )
+    raise ValueError(f'路径 "{input_path}" 超出允许的范围: {", ".join(allowed_dirs)}')
 
 
 def is_path_allowed(input_path: str, allowed_dirs: list[str]) -> bool:

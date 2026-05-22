@@ -33,7 +33,10 @@ def _large_tool_schemas(count: int = 40) -> list[dict[str, Any]]:
             "function": {
                 "name": f"tool_{i}",
                 "description": "x" * 200,
-                "parameters": {"type": "object", "properties": {f"p{j}": {"type": "string"} for j in range(8)}},
+                "parameters": {
+                    "type": "object",
+                    "properties": {f"p{j}": {"type": "string"} for j in range(8)},
+                },
             },
         }
         for i in range(count)

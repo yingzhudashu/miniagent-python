@@ -7,7 +7,9 @@ import os
 import pytest
 
 
-def test_get_session_files_path_after_get_or_create(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_session_files_path_after_get_or_create(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("MINI_AGENT_STATE", str(tmp_path))
     from miniagent.infrastructure.registry import DefaultToolRegistry
     from miniagent.session.manager import DefaultSessionManager
@@ -20,7 +22,9 @@ def test_get_session_files_path_after_get_or_create(tmp_path, monkeypatch: pytes
     assert os.path.isdir(fp)
 
 
-def test_build_execution_system_prompt_includes_files_root(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_execution_system_prompt_includes_files_root(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     root = str(tmp_path / "files")
     os.makedirs(root, exist_ok=True)
     from miniagent.core.executor import build_execution_system_prompt

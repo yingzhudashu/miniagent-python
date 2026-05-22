@@ -25,9 +25,7 @@ async def test_set_cli_markdown_width_used_for_thinking_rich(
     td = ThinkingDisplay()
     td.set_cli_markdown_width(lambda: 99)
 
-    def sink(
-        text: str, kind: str = "chunk", *, ansi_markdown: str | None = None
-    ) -> None:
+    def sink(text: str, kind: str = "chunk", *, ansi_markdown: str | None = None) -> None:
         pass
 
     td.set_output_sink(sink)

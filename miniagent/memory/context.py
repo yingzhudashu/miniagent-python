@@ -37,6 +37,7 @@ class ContextBudgetExceeded(RuntimeError):
 # Token 估算
 # ============================================================================
 
+
 def estimate_tokens(text: str | None) -> int:
     """估算文本的 token 数量
 
@@ -263,9 +264,7 @@ class DefaultContextManager(ContextManagerProtocol):
 
         # 计算中间消息的统计
         middle_messages = self._messages[middle_start:middle_end]
-        removed_tokens = sum(
-            self._message_tokens(m) for m in middle_messages
-        )
+        removed_tokens = sum(self._message_tokens(m) for m in middle_messages)
         removed_count = len(middle_messages)
 
         # 生成摘要
@@ -286,9 +285,7 @@ class DefaultContextManager(ContextManagerProtocol):
             summary += f"。用户询问了：{'；'.join(user_msgs)}"
 
         # 替换中间消息
-        self._messages[middle_start:middle_end] = [
-            {"role": "system", "content": summary}
-        ]
+        self._messages[middle_start:middle_end] = [{"role": "system", "content": summary}]
 
         self._compressed = True
         self._recalculate_tokens()
@@ -390,9 +387,7 @@ class DefaultContextManager(ContextManagerProtocol):
 
     def _recalculate_tokens(self) -> None:
         """重新计算总 token 估算"""
-        self._total_tokens_estimate = sum(
-            self._message_tokens(m) for m in self._messages
-        )
+        self._total_tokens_estimate = sum(self._message_tokens(m) for m in self._messages)
 
 
 __all__ = [

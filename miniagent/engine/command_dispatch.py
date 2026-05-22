@@ -14,7 +14,6 @@ CLI 和飞书共享的命令路由，所有 `.命令` 都通过此模块处理�
 from __future__ import annotations
 
 import io
-import os
 import sys
 from collections.abc import Callable
 from contextlib import redirect_stdout
@@ -71,7 +70,6 @@ async def dispatch_command(
     if not text.startswith("."):
         return None
 
-    from miniagent.core.config import MODEL_PROFILES
     from miniagent.engine.cli_commands import (
         cmd_bind,
         cmd_help,
@@ -140,7 +138,9 @@ async def dispatch_command(
     # ── .instance ──
     if cmd == ".instance":
         sub_cmd = parts[1] if len(parts) > 1 else ""
-        output = _capture(lambda md=md_cmds: cmd_instance_handler(parts, sub_cmd, state, markdown=md))
+        output = _capture(
+            lambda md=md_cmds: cmd_instance_handler(parts, sub_cmd, state, markdown=md)
+        )
         if capture:
             return output
         print(output)
@@ -171,9 +171,7 @@ async def dispatch_command(
                             is_session_locked,
                             channel_router,
                             state.get("feishu_p2p_synced_senders")
-                            if isinstance(
-                                state.get("feishu_p2p_synced_senders"), set
-                            )
+                            if isinstance(state.get("feishu_p2p_synced_senders"), set)
                             else None,
                         )
                     state["active_session_id"] = new_active
@@ -200,9 +198,7 @@ async def dispatch_command(
             if block_remote:
                 output = _REMOTE_SESSION_HINT
             else:
-                output = _capture(
-                    lambda: cmd_session_rename(sm, parts[2], " ".join(parts[3:]))
-                )
+                output = _capture(lambda: cmd_session_rename(sm, parts[2], " ".join(parts[3:])))
         else:
             output = format_session_command_usage()
 
@@ -237,9 +233,7 @@ async def dispatch_command(
                     )
 
                     feishu_rt.start(
-                        get_skill_toolboxes_from_state(state)
-                        or skill_toolboxes
-                        or [],
+                        get_skill_toolboxes_from_state(state) or skill_toolboxes or [],
                         get_skill_prompts_from_state(state) or skill_prompts or [],
                         factory,
                         state,
@@ -305,19 +299,6 @@ async def dispatch_command(
         print(output)
         return None
 
-    # ── .profile ──
-    if cmd == ".profile":
-        if len(parts) >= 2 and parts[1] in MODEL_PROFILES:
-            os.environ["MODEL_PROFILE"] = parts[1]
-            output = f"📡 已切换到预设: {parts[1]}"
-        else:
-            active = os.environ.get("MODEL_PROFILE", "balanced")
-            output = f"当前预设: {active}\n可用: {', '.join(MODEL_PROFILES.keys())}"
-        if capture:
-            return output
-        print(output)
-        return None
-
     # ── .reload-skills ──
     if cmd in (".reload-skills", ".reload_skills"):
         try:
@@ -345,9 +326,8 @@ async def dispatch_command(
 
     # ── .help ──
     if cmd == ".help":
-        active_profile = os.environ.get("MODEL_PROFILE", "balanced")
         output = _capture(
-            lambda: cmd_help(MODEL_PROFILES, active_profile, message_queue, state.get("instance_id"))
+            lambda: cmd_help(message_queue, state.get("instance_id"))
         )
         if capture:
             return output
@@ -421,7 +401,11 @@ def _format_status(state: CliLoopState | dict[str, Any]) -> str:
     active = state.get("active_session_id", "")
     sm = state.get("session_manager")
     if sm and active:
-        display = sm.get_session_display_name(active) if hasattr(sm, "get_session_display_name") else active
+        display = (
+            sm.get_session_display_name(active)
+            if hasattr(sm, "get_session_display_name")
+            else active
+        )
         lines.append(f"📁 当前会话: {display}")
 
     # 飞书状态

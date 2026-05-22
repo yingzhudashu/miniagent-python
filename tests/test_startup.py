@@ -375,7 +375,7 @@ def test_command_dispatch_all_commands():
         activity_log=al,
         keyword_index=ki,
     )
-    ctx.create_feishu_handler_factory = lambda tb, tp, st: (lambda *a, **k: None)
+    ctx.create_feishu_handler_factory = lambda tb, tp, st: lambda *a, **k: None
 
     state = {
         "active_session_id": "default",
@@ -398,7 +398,6 @@ def test_command_dispatch_all_commands():
             ".queue status",
             ".queue abort",
             ".abort",
-            ".profile",
         ]
         for cmd in cmds:
             result = await dispatch_command(cmd, state=state, capture=True)
@@ -503,12 +502,7 @@ def test_dispatch_feishu_blocks_session_mutations():
         )
         assert state["active_session_id"] == "keep-me"
         assert out is not None
-        assert (
-            "共享" in out
-            or "终端" in out
-            or "会话管理器未初始化" in out
-            or "不允许" in out
-        )
+        assert "共享" in out or "终端" in out or "会话管理器未初始化" in out or "不允许" in out
 
     asyncio.run(run())
 
@@ -523,6 +517,7 @@ def test_actual_instance_startup():
     """
     # 清理旧实例锁，避免干扰
     import glob
+
     for lock in glob.glob(os.path.join(os.path.expanduser("~"), "miniagent", "*.lock")):
         try:
             os.unlink(lock)

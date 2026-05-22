@@ -81,9 +81,7 @@ class TestInstanceRegistry:
                 "hostname": "test-host",
                 "start_time": "2026-05-09T10:00:00",
             }
-            (stale / "meta.json").write_text(
-                json.dumps(meta), encoding="utf-8"
-            )
+            (stale / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
 
             mgr = InstanceRegistry(state_dir=tmpdir, pid_checker=checker)
             mgr.register(mode="cli")
@@ -114,9 +112,7 @@ class TestInstanceRegistry:
                 "hostname": "other",
                 "start_time": "2026-05-09T11:00:00",
             }
-            (other / "meta.json").write_text(
-                json.dumps(meta), encoding="utf-8"
-            )
+            (other / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
 
             mgr = InstanceRegistry(state_dir=tmpdir, pid_checker=checker)
             mgr.register(mode="cli")
@@ -129,19 +125,23 @@ class TestInstanceRegistry:
 
     def test_format_table_empty(self):
         from miniagent.infrastructure.instance import format_instances_table
+
         result = format_instances_table([])
         assert "暂无" in result
 
     def test_format_table_with_data(self):
         from miniagent.infrastructure.instance import format_instances_table
-        fake = [{
-            "instance_id": 1,
-            "pid": 12345,
-            "mode": "cli",
-            "start_time": "2026-05-09T10:00:00",
-            "active_sessions": ["default"],
-            "hostname": "test",
-        }]
+
+        fake = [
+            {
+                "instance_id": 1,
+                "pid": 12345,
+                "mode": "cli",
+                "start_time": "2026-05-09T10:00:00",
+                "active_sessions": ["default"],
+                "hostname": "test",
+            }
+        ]
         result = format_instances_table(fake)
         assert "#1" in result
         assert "cli" in result
@@ -161,6 +161,7 @@ class TestInstanceRegistry:
             assert mgr._meta["mode"] == "both"
             meta_path = mgr._my_dir / "meta.json"
             import json
+
             with open(meta_path, encoding="utf-8") as f:
                 disk = json.load(f)
             assert disk["mode"] == "both"

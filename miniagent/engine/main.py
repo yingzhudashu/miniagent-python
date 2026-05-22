@@ -164,6 +164,7 @@ async def unified_main(ctx: RuntimeContext) -> None:
         # 尝试启用 Windows VT 模式（某些终端可能不支持）
         try:
             import ctypes
+
             _h = ctypes.windll.kernel32.GetStdHandle(-11)
             if _h and _h != -1:
                 _mode = ctypes.c_ulong()
@@ -196,9 +197,7 @@ async def unified_main(ctx: RuntimeContext) -> None:
         "runtime_ctx": ctx,
         "feishu_p2p_synced_senders": set(),
     }
-    ctx.create_feishu_handler_factory = (
-        lambda tb, tp, st: _create_feishu_handler(tb, tp, st, ctx)
-    )
+    ctx.create_feishu_handler_factory = lambda tb, tp, st: _create_feishu_handler(tb, tp, st, ctx)
 
     # 信号：在事件循环线程内 await 统一关停（飞书 WS reset、子进程、实例注销）
     main_loop = asyncio.get_running_loop()
@@ -236,16 +235,20 @@ async def unified_main(ctx: RuntimeContext) -> None:
     # 初始化子系统
     from miniagent.session.manager import DefaultSessionManager as SessionManager
 
-    loaded_skills, skill_toolboxes, skill_prompts, active_session_id, session_manager = (
-        await init_subsystems(
-            registry,
-            skill_registry,
-            engine,
-            SessionManager,
-            ctx.channel_router,
-            clawhub=ctx.clawhub,
-            keyword_index=ctx.keyword_index,
-        )
+    (
+        loaded_skills,
+        skill_toolboxes,
+        skill_prompts,
+        active_session_id,
+        session_manager,
+    ) = await init_subsystems(
+        registry,
+        skill_registry,
+        engine,
+        SessionManager,
+        ctx.channel_router,
+        clawhub=ctx.clawhub,
+        keyword_index=ctx.keyword_index,
     )
     state["active_session_id"] = active_session_id
     state["skill_toolboxes"] = skill_toolboxes
@@ -279,7 +282,6 @@ async def unified_main(ctx: RuntimeContext) -> None:
         registry,
         skill_registry,
         MODEL,
-        os.environ.get("MODEL_PROFILE", "balanced"),
         state.get("session_manager"),
         active_session_id,
         state["feishu_enabled"],
@@ -347,14 +349,20 @@ async def run_cli_loop(
         from prompt_toolkit.styles import Style
     except ImportError:
         await _run_cli_loop_fallback(
-            ctx, state, skill_toolboxes, skill_prompts,
+            ctx,
+            state,
+            skill_toolboxes,
+            skill_prompts,
         )
         return
 
     # 无 TTY（如 pytest 子进程重定向 stdin/stdout）时全屏 Application 无法初始化，回退到 input() 循环
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         await _run_cli_loop_fallback(
-            ctx, state, skill_toolboxes, skill_prompts,
+            ctx,
+            state,
+            skill_toolboxes,
+            skill_prompts,
         )
         return
 
@@ -463,9 +471,7 @@ async def run_cli_loop(
             sp = _sp()
             if sp is None:
                 return 0
-            ph = sp.content.preferred_height(
-                _viewport_cols(), sp.max_available_height
-            )
+            ph = sp.content.preferred_height(_viewport_cols(), sp.max_available_height)
             return int(getattr(ph, "preferred", ph) or 0)
         except Exception:
             return 0
@@ -710,9 +716,7 @@ async def run_cli_loop(
             VSplit(
                 [
                     Window(
-                        FormattedTextControl(
-                            HTML("<prompt-prefix>\u276f </prompt-prefix>")
-                        ),
+                        FormattedTextControl(HTML("<prompt-prefix>\u276f </prompt-prefix>")),
                         width=D.exact(4),
                         height=D.exact(1),
                     ),
@@ -901,7 +905,10 @@ async def run_cli_loop(
             set_console_log_threshold(logging.INFO)
             ctx.cli_transcript_append = None
             await _run_cli_loop_fallback(
-                ctx, state, skill_toolboxes, skill_prompts,
+                ctx,
+                state,
+                skill_toolboxes,
+                skill_prompts,
             )
             return
         if user_input == "__exit__":
@@ -995,7 +1002,6 @@ async def _run_cli_loop_fallback(
     monitor = ctx.monitor
     channel_router = ctx.channel_router
     message_queue = ctx.message_queue
-    from miniagent.core.config import MODEL_PROFILES
     from miniagent.engine.cli_commands import (
         cmd_help,
         cmd_instance_handler,
@@ -1014,7 +1020,6 @@ async def _run_cli_loop_fallback(
         try_lock_session,
     )
 
-    active_profile = os.environ.get("MODEL_PROFILE", "balanced")
     from miniagent.skills.snapshots import (
         get_skill_prompts_from_state,
         get_skill_toolboxes_from_state,
@@ -1198,22 +1203,12 @@ async def _run_cli_loop_fallback(
 
         if user_input == ".status":
             from miniagent.engine.command_dispatch import _format_status as _fmt_status
+
             print(_fmt_status(state))
             continue
 
-        if user_input.startswith(".profile"):
-            parts = user_input.split()
-            if len(parts) >= 2 and parts[1] in MODEL_PROFILES:
-                active_profile = parts[1]
-                os.environ["MODEL_PROFILE"] = active_profile
-                print(f"\U0001f4e1 \u5df2\u5207\u6362\u5230\u9884\u8bbe: {parts[1]}")
-            else:
-                print(f"\u5f53\u524d\u9884\u8bbe: {active_profile}")
-                print("\u53ef\u7528: " + ", ".join(MODEL_PROFILES.keys()))
-            continue
-
         if user_input == ".help":
-            cmd_help(MODEL_PROFILES, active_profile, message_queue, state.get("instance_id"))
+            cmd_help(message_queue, state.get("instance_id"))
             continue
 
         await message_queue.dispatch_cli(_process_input(user_input))
@@ -1335,9 +1330,7 @@ def _create_feishu_handler(
                 )
                 if reply is not None:
                     _maybe_auto_bind_p2p(chat_type, sender_id, state)
-                    cmd_sk = channel_router.resolve_feishu_message(
-                        chat_id, sender_id, chat_type
-                    )
+                    cmd_sk = channel_router.resolve_feishu_message(chat_id, sender_id, chat_type)
                     _emit_feishu_preview(
                         chat_type=chat_type,
                         chat_id=chat_id,
@@ -1351,19 +1344,13 @@ def _create_feishu_handler(
 
         _maybe_auto_bind_p2p(chat_type, sender_id, state)
 
-        session_key = channel_router.resolve_feishu_message(
-            chat_id, sender_id, chat_type
-        )
+        session_key = channel_router.resolve_feishu_message(chat_id, sender_id, chat_type)
         if (chat_id or "").strip():
             state["last_feishu_receive_chat_id"] = chat_id.strip()
 
-        if chat_type == "p2p" and channel_router.is_bound(
-            f"feishu_p2p:{sender_id}"
-        ):
+        if chat_type == "p2p" and channel_router.is_bound(f"feishu_p2p:{sender_id}"):
             primary = channel_router.primary or ""
-            preview = (
-                f"\n\U0001f4e8 [\u98de\u4e66\u79c1\u804a\u2192{primary[:12]}] {content}"
-            )
+            preview = f"\n\U0001f4e8 [\u98de\u4e66\u79c1\u804a\u2192{primary[:12]}] {content}"
         else:
             preview = f"\n\U0001f4e8 [\u98de\u4e66 {chat_id[:8]}] {content}"
         _emit_feishu_preview(
@@ -1436,9 +1423,7 @@ def _create_feishu_handler(
 
         _maybe_auto_bind_p2p(chat_type, sender_id, state)
 
-        session_key = channel_router.resolve_feishu_message(
-            chat_id, sender_id, chat_type
-        )
+        session_key = channel_router.resolve_feishu_message(chat_id, sender_id, chat_type)
         sess = sm.get_or_create(
             session_key,
             SessionOptions(description="\u98de\u4e66\u5a92\u4f53\u5165\u7ad9"),

@@ -212,11 +212,13 @@ def get_recent_commits(
                 if line:
                     parts = line.split("|", 2)
                     if len(parts) == 3:
-                        commits.append({
-                            "hash": parts[0][:8],
-                            "message": parts[1],
-                            "date": parts[2],
-                        })
+                        commits.append(
+                            {
+                                "hash": parts[0][:8],
+                                "message": parts[1],
+                                "date": parts[2],
+                            }
+                        )
             return commits
         return []
 

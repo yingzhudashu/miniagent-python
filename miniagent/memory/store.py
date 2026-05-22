@@ -33,6 +33,7 @@ _logger = get_logger(__name__)
 # 路径配置
 # ============================================================================
 
+
 def _memory_file_path(state_dir: str, session_id: str) -> str:
     """生成记忆文件路径
 
@@ -52,6 +53,7 @@ def _memory_file_path(state_dir: str, session_id: str) -> str:
 # ============================================================================
 # 记忆格式化
 # ============================================================================
+
 
 def format_memory_for_prompt(memory: SessionMemory | None) -> str:
     """将记忆格式化为可注入 system prompt 的文本
@@ -90,9 +92,7 @@ def format_memory_for_prompt(memory: SessionMemory | None) -> str:
         parts.append("## 最近的对话")
         for entry in memory.entries[-5:]:
             time_str = entry.timestamp[:16].replace("T", " ")
-            parts.append(
-                f"[{time_str}] 用户: {entry.user_snippet} → 摘要: {entry.summary}"
-            )
+            parts.append(f"[{time_str}] 用户: {entry.user_snippet} → 摘要: {entry.summary}")
 
     if not parts:
         return ""
@@ -188,6 +188,7 @@ def generate_turn_summary(
 # ============================================================================
 # 记忆存储实现
 # ============================================================================
+
 
 class DefaultMemoryStore(MemoryStoreProtocol):
     """默认记忆存储实现
@@ -338,9 +339,7 @@ class DefaultMemoryStore(MemoryStoreProtocol):
         except Exception as e:
             _logger.error("保存失败 [%s]: %s", memory.session_id, e)
 
-    async def update_summary(
-        self, session_id: str, summary: str, facts: list[str]
-    ) -> None:
+    async def update_summary(self, session_id: str, summary: str, facts: list[str]) -> None:
         """更新摘要和事实
 
         Args:
@@ -384,9 +383,7 @@ class DefaultMemoryStore(MemoryStoreProtocol):
         memory.last_active = datetime.now(timezone.utc).isoformat()
         await self.save(memory)
 
-    async def add_entry(
-        self, session_id: str, entry: MemoryEntryInput | dict[str, Any]
-    ) -> None:
+    async def add_entry(self, session_id: str, entry: MemoryEntryInput | dict[str, Any]) -> None:
         """添加对话条目
 
         Args:
@@ -445,6 +442,7 @@ class DefaultMemoryStore(MemoryStoreProtocol):
                 embedding_search_enabled,
                 get_embed_provider,
             )
+
             if embedding_search_enabled():
                 provider = get_embed_provider(state_dir=self._state_dir)
                 text = " ".join([entry.user_snippet, entry.summary, *(entry.facts or [])])

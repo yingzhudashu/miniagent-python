@@ -41,7 +41,9 @@ def test_add_permission_mock() -> None:
     cfg = FeishuConfig(app_id="a", app_secret="b")
     mock_resp = MagicMock()
     mock_resp.success.return_value = True
-    mock_resp.data = MagicMock(member=MagicMock(member_type="email", member_id="u@x.com", perm="view"))
+    mock_resp.data = MagicMock(
+        member=MagicMock(member_type="email", member_id="u@x.com", perm="view")
+    )
     with patch("miniagent.feishu.drive_extra.build_client") as bc:
         bc.return_value.drive.v1.permission_member.create.return_value = mock_resp
         out = add_permission(cfg, "doc_tok", member_type="email", member_id="u@x.com")

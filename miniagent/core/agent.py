@@ -44,6 +44,7 @@ from miniagent.types.tool import Toolbox, ToolContext, ToolRegistryProtocol
 
 _logger = get_logger(__name__)
 
+
 def _announce_difficulty_and_plan_enabled() -> bool:
     """是否向用户展示任务难度与规划摘要（由 ``MINIAGENT_ANNOUNCE_DIFFICULTY_AND_PLAN`` 控制，默认开启）。"""
     v = os.environ.get("MINIAGENT_ANNOUNCE_DIFFICULTY_AND_PLAN", "1")
@@ -65,9 +66,7 @@ def _format_task_difficulty(difficulty: Any, *, display: bool = False) -> str:
     if display:
         return f"**难度** {zh}（{key}）"
     return (
-        f"[任务难度]\n"
-        f"评估结果：{zh}（{key}）\n"
-        "将据此调整规划与执行的思考深度（若已启用分类器）。"
+        f"[任务难度]\n评估结果：{zh}（{key}）\n将据此调整规划与执行的思考深度（若已启用分类器）。"
     )
 
 
@@ -105,7 +104,11 @@ def _format_plan_display_short(
             user_skip_planning=user_skip_planning,
             simple_classified=simple_classified,
         )
-        return "**计划**（已跳过结构化规划）\n" + reason + f"\n摘要：{(plan.summary or '').strip() or '—'}"
+        return (
+            "**计划**（已跳过结构化规划）\n"
+            + reason
+            + f"\n摘要：{(plan.summary or '').strip() or '—'}"
+        )
     lines: list[str] = ["**计划**", (plan.summary or "").strip() or "—"]
     if plan.steps:
         lines.append("")
@@ -167,6 +170,7 @@ OnThinking = Callable[..., Awaitable[None]]
 
 
 # ─── 主入口 ──────────────────────────────────────────────
+
 
 async def run_agent(
     user_input: str,
@@ -329,13 +333,11 @@ async def run_agent(
                 merged_config = merge_agent_config(merged_config, overrides)
 
         if merged_config.risk_level is None and plan.risk_level:
-            merged_config = merge_agent_config(
-                merged_config, {"risk_level": plan.risk_level}
-            )
+            merged_config = merge_agent_config(merged_config, {"risk_level": plan.risk_level})
 
         if merged_config.debug:
             _logger.info("规划结果: %s", plan.summary)
-            _logger.debug("工具箱: %s", ', '.join(plan.required_toolboxes))
+            _logger.debug("工具箱: %s", ", ".join(plan.required_toolboxes))
             _logger.debug("预估 token: %d", plan.estimated_tokens.total)
             _logger.debug("风险等级: %s", plan.risk_level)
 
@@ -352,9 +354,7 @@ async def run_agent(
             no_toolboxes=len(toolboxes) == 0,
             user_skip_planning=skip_planning,
             simple_classified=(
-                bool(toolboxes)
-                and not skip_planning
-                and difficulty == TaskDifficulty.SIMPLE
+                bool(toolboxes) and not skip_planning and difficulty == TaskDifficulty.SIMPLE
             ),
         )
         plan_disp = _format_plan_display_short(
@@ -363,18 +363,14 @@ async def run_agent(
             no_toolboxes=len(toolboxes) == 0,
             user_skip_planning=skip_planning,
             simple_classified=(
-                bool(toolboxes)
-                and not skip_planning
-                and difficulty == TaskDifficulty.SIMPLE
+                bool(toolboxes) and not skip_planning and difficulty == TaskDifficulty.SIMPLE
             ),
         )
         if planning_hist:
             planning_hist = planning_hist + "\n\n" + plan_msg
         else:
             planning_hist = plan_msg
-        planning_display = (
-            (planning_display + "\n\n" if planning_display else "") + plan_disp
-        )
+        planning_display = (planning_display + "\n\n" if planning_display else "") + plan_disp
         await invoke_on_thinking(
             on_thinking,
             planning_display,
@@ -403,6 +399,7 @@ async def run_agent(
 
 
 # ─── 线性管线执行器 ─────────────────────────────────────
+
 
 async def run_pipeline(
     steps: list[PipelineStep],
@@ -440,10 +437,13 @@ async def run_pipeline(
             return PipelineResult(steps=results, final_content=err_result["content"], success=False)
 
         result = await tool.handler(step.args, context)
-        results.append({
-            "tool": step.tool, "args": step.args,
-            "result": {"success": result.success, "content": result.content},
-        })
+        results.append(
+            {
+                "tool": step.tool,
+                "args": step.args,
+                "result": {"success": result.success, "content": result.content},
+            }
+        )
         pipeline_content += result.content + "\n"
 
         if on_tool_call:
@@ -453,6 +453,7 @@ async def run_pipeline(
 
 
 # ─── 内部辅助 ────────────────────────────────────────────
+
 
 def _create_default_plan() -> StructuredPlan:
     """创建默认计划（直接执行模式）。"""

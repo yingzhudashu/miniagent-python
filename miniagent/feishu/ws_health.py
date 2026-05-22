@@ -186,6 +186,14 @@ async def supervise_feishu_ws_session(
             except asyncio.CancelledError:
                 pass
 
+        # 显式检索 receive_task 异常（可能是正常关闭的
+        # ConnectionClosedOK），避免 "Task exception was never retrieved"。
+        if receive_task.done():
+            try:
+                receive_task.exception()
+            except (asyncio.CancelledError, Exception):
+                pass
+
         if shutdown_event.is_set():
             reason = "shutdown"
         elif exit_event.is_set():

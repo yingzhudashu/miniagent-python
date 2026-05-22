@@ -58,36 +58,77 @@ _BLOCKED_PATTERNS = [
 
 # Shell 注入检测正则（沙箱模式下生效）
 _SHELL_INJECTION_RE = re.compile(
-    r"(\|\s*\w|"           # pipe to command: | ls
-    r";\s*\w|"             # semicolon command: ; ls
-    r"`[^`]+`|"            # backtick substitution
-    r"\$\([^)]+\)|"        # $(command) substitution
-    r"\$\{[^}]+\}|"        # ${var} substitution
-    r"eval\s|"             # eval command
-    r"exec\s|"             # exec command
+    r"(\|\s*\w|"  # pipe to command: | ls
+    r";\s*\w|"  # semicolon command: ; ls
+    r"`[^`]+`|"  # backtick substitution
+    r"\$\([^)]+\)|"  # $(command) substitution
+    r"\$\{[^}]+\}|"  # ${var} substitution
+    r"eval\s|"  # eval command
+    r"exec\s|"  # exec command
     r"curl\s.*\|\s*(bash|sh)|"  # curl pipe shell
     r"wget\s.*\|\s*(bash|sh)|"  # wget pipe shell
-    r"chmod\s+777|"        # chmod 777
-    r"nc\s+-e|"            # netcat reverse shell
-    r"base64\s+-d\s*\|"    # base64 decode pipe
+    r"chmod\s+777|"  # chmod 777
+    r"nc\s+-e|"  # netcat reverse shell
+    r"base64\s+-d\s*\|"  # base64 decode pipe
     r")"
 )
 
 # 沙箱模式下允许的命令基础名
-_DEFAULT_ALLOWED_COMMANDS = frozenset({
-    "ls", "cat", "head", "tail", "grep", "find", "wc", "pwd",
-    "echo", "date", "whoami", "uname", "df", "du",
-    "ps", "uptime", "free", "top",
-    "python", "python3", "pip", "pip3",
-    "npm", "yarn", "pnpm", "node",
-    "git", "curl", "wget",
-    "mkdir", "touch", "cp", "mv", "chmod", "chown",
-    "sed", "awk", "sort", "uniq", "tee",
-    "zip", "unzip", "tar",
-    "sha256sum", "md5sum",
-    "ping", "nslookup", "dig",
-    "tree", "file", "stat",
-})
+_DEFAULT_ALLOWED_COMMANDS = frozenset(
+    {
+        "ls",
+        "cat",
+        "head",
+        "tail",
+        "grep",
+        "find",
+        "wc",
+        "pwd",
+        "echo",
+        "date",
+        "whoami",
+        "uname",
+        "df",
+        "du",
+        "ps",
+        "uptime",
+        "free",
+        "top",
+        "python",
+        "python3",
+        "pip",
+        "pip3",
+        "npm",
+        "yarn",
+        "pnpm",
+        "node",
+        "git",
+        "curl",
+        "wget",
+        "mkdir",
+        "touch",
+        "cp",
+        "mv",
+        "chmod",
+        "chown",
+        "sed",
+        "awk",
+        "sort",
+        "uniq",
+        "tee",
+        "zip",
+        "unzip",
+        "tar",
+        "sha256sum",
+        "md5sum",
+        "ping",
+        "nslookup",
+        "dig",
+        "tree",
+        "file",
+        "stat",
+    }
+)
 
 
 def _get_allowed_commands() -> frozenset[str]:
@@ -121,7 +162,7 @@ async def _exec_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         # 第一层：危险命令黑名单
         for pattern in _BLOCKED_PATTERNS:
             if pattern in command:
-                return _deny(command, f"包含危险操作 \"{pattern}\"")
+                return _deny(command, f'包含危险操作 "{pattern}"')
 
         # 第二层：Shell 注入检测
         if _SHELL_INJECTION_RE.search(command):
@@ -131,6 +172,7 @@ async def _exec_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         allowed = _get_allowed_commands()
         try:
             import shlex
+
             parts = shlex.split(command)
         except ValueError:
             return _deny(command, "命令语法无效")
@@ -151,9 +193,7 @@ async def _exec_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
 
         # 等待完成（带超时）
         try:
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                proc.communicate(), timeout=timeout
-            )
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except asyncio.TimeoutError:
             try:
                 proc.kill()

@@ -193,9 +193,7 @@ def compress_first_step_span_in_text(text: str) -> tuple[str, bool]:
         if num_m:
             plan_line = _find_plan_line_for_step(text, int(num_m.group(1)))
         if plan_line:
-            new_span = (
-                header_line + "\n" + plan_line + "\n\n" + STEP_BODY_REDACTED_MARKER + "\n"
-            )
+            new_span = header_line + "\n" + plan_line + "\n\n" + STEP_BODY_REDACTED_MARKER + "\n"
         else:
             new_span = header_line + "\n\n" + STEP_BODY_REDACTED_MARKER + "\n"
         return text[:start] + new_span + text[end:], True
@@ -287,9 +285,7 @@ def run_session_history_maintenance(
 
         progressed = False
         if prog and (over_a or over_t):
-            progressed, _action = apply_one_progressive_disk_step(
-                history, session_key=session_key
-            )
+            progressed, _action = apply_one_progressive_disk_step(history, session_key=session_key)
             if progressed:
                 continue
 

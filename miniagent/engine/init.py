@@ -84,7 +84,9 @@ async def init_subsystems(
                 )
                 _logger.info("MINIAGENT_MCP_STDIO: 已注册 %d 个 MCP 工具", mcp_n)
         except ImportError:
-            _logger.warning("MINIAGENT_MCP_STDIO: 未安装 mcp 包，跳过（pip install miniagent-python[mcp]）")
+            _logger.warning(
+                "MINIAGENT_MCP_STDIO: 未安装 mcp 包，跳过（pip install miniagent-python[mcp]）"
+            )
         except Exception as e:
             _logger.warning("MINIAGENT_MCP_STDIO: %s", e)
 
@@ -163,7 +165,9 @@ def _ensure_baseline_skills() -> None:
 
     os.makedirs(skills_root, exist_ok=True)
 
-    templates_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills", "templates")
+    templates_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills", "templates"
+    )
     if not os.path.isdir(templates_dir):
         return
 
@@ -179,6 +183,7 @@ def _ensure_baseline_skills() -> None:
 def _get_skills_root_for_baseline() -> str | None:
     try:
         from miniagent.skills.paths import get_skills_root
+
         return get_skills_root()
     except Exception:
         return None

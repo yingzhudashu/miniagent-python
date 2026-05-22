@@ -93,7 +93,9 @@ async def _feishu_send_interactive_card(args: dict[str, Any], ctx: ToolContext) 
     )
     if not ok:
         return ToolResult(success=False, content=f"⚠️ 发送卡片失败: {err or 'unknown'}")
-    return ToolResult(success=True, content=f"✅ 已发送交互卡片。\n- message_id: {mid or '（未返回）'}")
+    return ToolResult(
+        success=True, content=f"✅ 已发送交互卡片。\n- message_id: {mid or '（未返回）'}"
+    )
 
 
 async def _feishu_update_message_card(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
@@ -127,7 +129,9 @@ async def _feishu_update_message_card(args: dict[str, Any], ctx: ToolContext) ->
         if not resp.success():
             from miniagent.feishu.lark_response import format_lark_response_error
 
-            return ToolResult(success=False, content=f"⚠️ 更新失败: {format_lark_response_error(resp)}")
+            return ToolResult(
+                success=False, content=f"⚠️ 更新失败: {format_lark_response_error(resp)}"
+            )
     except Exception as e:
         return ToolResult(success=False, content=f"⚠️ 更新异常: {e}")
     return ToolResult(success=True, content=f"✅ 已更新消息卡片: {mid}")

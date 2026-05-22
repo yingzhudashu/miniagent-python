@@ -39,7 +39,12 @@ def test_save_and_load_session_longterm() -> None:
 
 
 def test_append_session_day_rollup() -> None:
-    append_session_day_rollup("sess2", day="2026-05-20", diary_relative="memory/diaries/sess2/2026-05-20.md", summary="Day 1")
+    append_session_day_rollup(
+        "sess2",
+        day="2026-05-20",
+        diary_relative="memory/diaries/sess2/2026-05-20.md",
+        summary="Day 1",
+    )
     doc = load_session_longterm("sess2")
     assert len(doc["day_entries"]) == 1
     entry = doc["day_entries"][0]

@@ -283,6 +283,4 @@ async def test_registry_gating_filters_toolboxes() -> None:
     ids = {s.id for s in eligible}
     assert "open" in ids
     assert "gated" not in ids
-    assert len(reg.get_system_prompts()) == len(
-        [s for s in eligible if s.system_prompt]
-    )
+    assert len(reg.get_system_prompts()) == len([s for s in eligible if s.system_prompt])

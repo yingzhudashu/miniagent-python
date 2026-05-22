@@ -91,7 +91,9 @@ async def _read_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
     if len(sliced) < total:
         result += f"\n... (共 {total} 行，仅显示 {len(sliced)} 行，使用 offset/limit 翻页)"
 
-    return ToolResult(success=True, content=result, meta={"totalLines": total, "readLines": len(sliced)})
+    return ToolResult(
+        success=True, content=result, meta={"totalLines": total, "readLines": len(sliced)}
+    )
 
 
 # ════════════════════════════════════════════════════════
@@ -186,14 +188,18 @@ async def _edit_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
     occurrences = content.count(old_text)
 
     if occurrences == 0:
-        return ToolResult(success=False, content=f"❌ 未找到匹配的文本: \"{old_text[:50]}...\"")
+        return ToolResult(success=False, content=f'❌ 未找到匹配的文本: "{old_text[:50]}..."')
     if occurrences > 1:
-        return ToolResult(success=False, content=f"❌ 找到 {occurrences} 处匹配，请提供更精确的 oldText")
+        return ToolResult(
+            success=False, content=f"❌ 找到 {occurrences} 处匹配，请提供更精确的 oldText"
+        )
 
     updated = content.replace(old_text, new_text, 1)
     Path(file_path).write_text(updated, encoding="utf-8")
 
-    return ToolResult(success=True, content=f"✅ 已替换 1 处 ({len(old_text)} → {len(new_text)} 字符)")
+    return ToolResult(
+        success=True, content=f"✅ 已替换 1 处 ({len(old_text)} → {len(new_text)} 字符)"
+    )
 
 
 # ════════════════════════════════════════════════════════

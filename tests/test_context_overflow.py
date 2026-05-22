@@ -70,7 +70,15 @@ def test_tool_redact_runs_before_summarize(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setenv("MINI_AGENT_CONTEXT_TOOL_REDACT", "1")
     cm = DefaultContextManager(12_000, 0.15, [], overflow_strategy="summarize")
     cm.init("s", "u")
-    cm.append({"role": "assistant", "content": "a", "tool_calls": [{"id": "1", "type": "function", "function": {"name": "f", "arguments": "{}"}}]})
+    cm.append(
+        {
+            "role": "assistant",
+            "content": "a",
+            "tool_calls": [
+                {"id": "1", "type": "function", "function": {"name": "f", "arguments": "{}"}}
+            ],
+        }
+    )
     cm.append({"role": "tool", "tool_call_id": "1", "content": "HUGE " * 4000})
     msgs = cm.get_messages()
     tool_msgs = [m for m in msgs if m.get("role") == "tool"]

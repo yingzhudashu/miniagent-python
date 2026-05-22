@@ -48,9 +48,7 @@ def conversation_history_for_llm(history: list[dict[str, Any]]) -> list[dict[str
             c = (m.get("content") or "").strip()
             if c:
                 capped = _truncate_thinking_for_llm(c, _thinking_for_llm_max_chars())
-                out.append(
-                    {"role": "assistant", "content": f"（思考过程）\n{capped}"}
-                )
+                out.append({"role": "assistant", "content": f"（思考过程）\n{capped}"})
             continue
         if role == "system" and m.get("_history_archive_marker"):
             brief = (m.get("content") or "").strip()

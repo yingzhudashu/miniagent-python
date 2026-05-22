@@ -53,9 +53,7 @@ class TestDefaultSkillRegistry:
 
         reg = DefaultSkillRegistry()
         skill = Skill(id="pkg-x-s1", name="S", description="d")
-        reg.register_package(
-            SkillPackage(id="pkg-x", name="X", description="x", skills=[skill])
-        )
+        reg.register_package(SkillPackage(id="pkg-x", name="X", description="x", skills=[skill]))
         ids, _tools = reg.unregister_package("pkg-x")
         assert "pkg-x-s1" in ids
         assert reg.get_package("pkg-x") is None

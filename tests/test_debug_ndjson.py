@@ -29,6 +29,7 @@ def test_writes_when_enabled(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
 
     # Force re-evaluation of module-level vars by reloading
     import importlib
+
     importlib.reload(debug_ndjson)
 
     debug_ndjson.agent_debug_log(

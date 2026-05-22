@@ -68,7 +68,6 @@ class ToolStats:
     errors: list[str] = field(default_factory=list)
 
 
-
 @dataclass
 class LoopDetectionConfig:
     """循环检测配置
@@ -85,11 +84,13 @@ class LoopDetectionConfig:
     history_size: int = 50
     warning_threshold: int = 8
     critical_threshold: int = 12
-    detectors: dict[str, bool] = field(default_factory=lambda: {
-        "generic_repeat": True,
-        "known_poll_no_progress": True,
-        "ping_pong": True,
-    })
+    detectors: dict[str, bool] = field(
+        default_factory=lambda: {
+            "generic_repeat": True,
+            "known_poll_no_progress": True,
+            "ping_pong": True,
+        }
+    )
 
 
 # 循环检测事件级别

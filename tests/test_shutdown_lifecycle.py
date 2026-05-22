@@ -90,7 +90,10 @@ async def test_feishu_stop_async_awaits_cancelled_poll_task() -> None:
         await asyncio.Event().wait()
 
     with (
-        patch.dict("os.environ", {"FEISHU_APP_ID": "x", "FEISHU_APP_SECRET": "y", "FEISHU_VERIFICATION_TOKEN": "z"}),
+        patch.dict(
+            "os.environ",
+            {"FEISHU_APP_ID": "x", "FEISHU_APP_SECRET": "y", "FEISHU_VERIFICATION_TOKEN": "z"},
+        ),
         patch(
             "miniagent.infrastructure.feishu_inbound_lock.try_acquire_feishu_inbound_owner",
             return_value=(True, "ok"),

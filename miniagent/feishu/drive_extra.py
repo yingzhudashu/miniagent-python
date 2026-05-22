@@ -48,7 +48,14 @@ class SearchRequiresUserTokenError(Exception):
 class SearchApiError(Exception):
     """搜索 HTTP/API 失败。"""
 
-    def __init__(self, message: str, *, code: int | None = None, msg: str | None = None, log_id: str | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: int | None = None,
+        msg: str | None = None,
+        log_id: str | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.api_msg = msg
@@ -88,7 +95,10 @@ def search_docs(
     raw = _http_post_json(
         "https://open.feishu.cn/open-apis/suite/docs-api/search/object",
         body,
-        headers={"Authorization": f"Bearer {ut}", "Content-Type": "application/json; charset=utf-8"},
+        headers={
+            "Authorization": f"Bearer {ut}",
+            "Content-Type": "application/json; charset=utf-8",
+        },
     )
     code = raw.get("code")
     if code not in (0, None):
@@ -117,16 +127,13 @@ def search_docs(
     return out
 
 
-def list_permissions(config: FeishuConfig, file_token: str, *, doc_type: str = "docx") -> list[dict]:
+def list_permissions(
+    config: FeishuConfig, file_token: str, *, doc_type: str = "docx"
+) -> list[dict]:
     from lark_oapi.api.drive.v1 import ListPermissionMemberRequest
 
     client = build_client(config)
-    req = (
-        ListPermissionMemberRequest.builder()
-        .token(file_token)
-        .type(doc_type)
-        .build()
-    )
+    req = ListPermissionMemberRequest.builder().token(file_token).type(doc_type).build()
     resp = client.drive.v1.permission_member.list(req)
     if not resp.success() or not resp.data:
         raise RuntimeError(f"list_permissions failed: {format_lark_response_error(resp)}")
@@ -142,11 +149,15 @@ def list_permissions(config: FeishuConfig, file_token: str, *, doc_type: str = "
     return items
 
 
-def copy_file(config: FeishuConfig, file_token: str, *, name: str, folder_token: str, doc_type: str = "docx") -> str:
+def copy_file(
+    config: FeishuConfig, file_token: str, *, name: str, folder_token: str, doc_type: str = "docx"
+) -> str:
     from lark_oapi.api.drive.v1 import CopyFileRequest, CopyFileRequestBody
 
     client = build_client(config)
-    body = CopyFileRequestBody.builder().name(name).folder_token(folder_token).type(doc_type).build()
+    body = (
+        CopyFileRequestBody.builder().name(name).folder_token(folder_token).type(doc_type).build()
+    )
     resp = client.drive.v1.file.copy(
         CopyFileRequest.builder().file_token(file_token).request_body(body).build()
     )
@@ -168,13 +179,7 @@ def add_permission(
     from lark_oapi.api.drive.v1 import BaseMember, CreatePermissionMemberRequest
 
     client = build_client(config)
-    body = (
-        BaseMember.builder()
-        .member_type(member_type)
-        .member_id(member_id)
-        .perm(perm)
-        .build()
-    )
+    body = BaseMember.builder().member_type(member_type).member_id(member_id).perm(perm).build()
     req = (
         CreatePermissionMemberRequest.builder()
         .token(file_token)
@@ -218,7 +223,9 @@ def remove_permission(
         raise RuntimeError(f"remove_permission failed: {format_lark_response_error(resp)}")
 
 
-def move_file(config: FeishuConfig, file_token: str, *, folder_token: str, doc_type: str = "docx") -> None:
+def move_file(
+    config: FeishuConfig, file_token: str, *, folder_token: str, doc_type: str = "docx"
+) -> None:
     from lark_oapi.api.drive.v1 import MoveFileRequest, MoveFileRequestBody
 
     client = build_client(config)

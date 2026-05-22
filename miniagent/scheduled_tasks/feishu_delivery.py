@@ -151,9 +151,7 @@ def resolve_feishu_delivery(
     recv_im, is_p2p = _channel_to_receive_id(channel)
     if not recv_im:
         return None
-    mq_id, receive_id = _resolve_mq_and_receive(
-        task, state, recv_im, is_p2p_bound=is_p2p
-    )
+    mq_id, receive_id = _resolve_mq_and_receive(task, state, recv_im, is_p2p_bound=is_p2p)
     return FeishuDeliveryTarget(
         receive_chat_id=receive_id,
         session_key=session_key,

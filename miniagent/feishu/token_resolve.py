@@ -1,4 +1,5 @@
 """Parse document_id / bitable tokens from Feishu URLs."""
+
 from __future__ import annotations
 
 import re
@@ -6,6 +7,7 @@ import re
 _DOCX = re.compile(r"/docx/([A-Za-z0-9_-]+)", re.I)
 _BASE = re.compile(r"/base/([A-Za-z0-9_-]+)", re.I)
 _TBL = re.compile(r"[?&]table(?:_id)?=([A-Za-z0-9_-]+)", re.I)
+
 
 def extract_doc_token(raw: str | None) -> str:
     s = (raw or "").strip()
@@ -16,6 +18,7 @@ def extract_doc_token(raw: str | None) -> str:
         return m.group(1) if m else ""
     return s
 
+
 def extract_bitable_app_token(raw: str | None) -> str:
     s = (raw or "").strip()
     if not s:
@@ -24,6 +27,7 @@ def extract_bitable_app_token(raw: str | None) -> str:
         m = _BASE.search(s.replace("\\", "/"))
         return m.group(1) if m else ""
     return s
+
 
 def extract_table_id(raw: str | None, *, url_hint: str | None = None) -> str:
     for src in (raw, url_hint):
@@ -36,5 +40,6 @@ def extract_table_id(raw: str | None, *, url_hint: str | None = None) -> str:
         if m:
             return m.group(1)
     return ""
+
 
 __all__ = ["extract_bitable_app_token", "extract_doc_token", "extract_table_id"]

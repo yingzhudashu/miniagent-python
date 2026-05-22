@@ -81,5 +81,3 @@ def test_format_toolbox_tool_names() -> None:
     assert "read_file" in hint
     assert "__core__" in hint
     assert "noop" in hint
-
-

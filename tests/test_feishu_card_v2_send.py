@@ -57,7 +57,9 @@ def test_normalize_lark_md_heading_to_bold(monkeypatch: pytest.MonkeyPatch) -> N
     assert "### text" in _normalize_lark_md("some ### text")
 
 
-def test_normalize_lark_md_bullet_list_has_key_value_for_wide(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_normalize_lark_md_bullet_list_has_key_value_for_wide(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """宽表格使用 key-value 格式的 bullet list。"""
     from miniagent.feishu.poll_server import _normalize_lark_md
 

@@ -36,13 +36,7 @@ def test_trim_at_most_one_turn_per_call(tmp_path, monkeypatch):
 
 
 def test_redact_first_tool_output_in_text():
-    raw = (
-        "**工具 `web_search`**（成功）\n"
-        "- 参数：`{}`\n"
-        "- 输出：\n"
-        "```\nhello world\n```\n"
-        "tail"
-    )
+    raw = "**工具 `web_search`**（成功）\n- 参数：`{}`\n- 输出：\n```\nhello world\n```\ntail"
     out, ok = redact_first_tool_output_in_text(raw)
     assert ok
     assert TOOL_OUTPUT_REDACTED_PLACEHOLDER in out
@@ -53,12 +47,7 @@ def test_redact_first_tool_output_in_text():
 
 
 def test_compress_first_step_span():
-    text = (
-        "[步骤 1/2] 做 A\n"
-        + ("stream thinking " * 20)
-        + "\n[步骤 2/2] 做 B\n"
-        + "more"
-    )
+    text = "[步骤 1/2] 做 A\n" + ("stream thinking " * 20) + "\n[步骤 2/2] 做 B\n" + "more"
     out, ok = compress_first_step_span_in_text(text)
     assert ok
     assert "stream thinking" not in out
@@ -105,12 +94,7 @@ def test_merge_agent_config_history_progressive_compression():
 
 
 def test_redact_param_with_internal_backticks() -> None:
-    raw = (
-        "**工具 `x`**（成功）\n"
-        '- 参数：`{"a": "`quote`"}`\n'
-        "- 输出：\n"
-        "```\nOUT\n```\n"
-    )
+    raw = '**工具 `x`**（成功）\n- 参数：`{"a": "`quote`"}`\n- 输出：\n```\nOUT\n```\n'
     out, ok = redact_first_tool_output_in_text(raw)
     assert ok
     assert "OUT" not in out
@@ -131,14 +115,7 @@ def test_compress_step_includes_plan_line_when_present() -> None:
 
 @pytest.mark.parametrize("fence", ("```", "````"))
 def test_redact_varied_fence_width(fence: str):
-    raw = (
-        "**工具 `x`**（失败）\n"
-        "- 参数：`{}`\n"
-        "- 输出：\n"
-        f"{fence}\n"
-        "BIG\n"
-        f"{fence}\n"
-    )
+    raw = f"**工具 `x`**（失败）\n- 参数：`{{}}`\n- 输出：\n{fence}\nBIG\n{fence}\n"
     out, ok = redact_first_tool_output_in_text(raw)
     assert ok
     assert "BIG" not in out

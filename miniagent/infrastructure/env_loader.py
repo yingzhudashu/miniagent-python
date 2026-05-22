@@ -16,9 +16,7 @@ def load_dotenv_from_project_root() -> None:
     try:
         from dotenv import load_dotenv
 
-        root = os.path.dirname(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        )
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         env_path = os.path.join(root, ".env")
         if os.path.exists(env_path):
             load_dotenv(env_path)

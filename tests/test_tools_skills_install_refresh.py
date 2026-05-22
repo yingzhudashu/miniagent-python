@@ -35,7 +35,9 @@ async def test_install_skill_hot_loads_without_restart() -> None:
             os.makedirs(os.path.join(pkg_dir, "skills", "main"), exist_ok=True)
             with open(os.path.join(pkg_dir, "SKILL.md"), "w", encoding="utf-8") as f:
                 f.write("---\nname: hot-skill\ndescription: hot\n---\n")
-            with open(os.path.join(pkg_dir, "skills", "main", "tools.py"), "w", encoding="utf-8") as f:
+            with open(
+                os.path.join(pkg_dir, "skills", "main", "tools.py"), "w", encoding="utf-8"
+            ) as f:
                 f.write(
                     "from miniagent.types.tool import ToolDefinition\n"
                     "hot_tool = ToolDefinition(\n"

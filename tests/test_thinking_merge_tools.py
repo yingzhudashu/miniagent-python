@@ -179,9 +179,7 @@ async def test_cli_thinking_rich_sends_ansi_markdown(monkeypatch: pytest.MonkeyP
     td = ThinkingDisplay()
     calls: list[dict[str, object]] = []
 
-    def sink(
-        text: str, kind: str = "chunk", *, ansi_markdown: str | None = None
-    ) -> None:
+    def sink(text: str, kind: str = "chunk", *, ansi_markdown: str | None = None) -> None:
         calls.append({"text": text, "kind": kind, "ansi_markdown": ansi_markdown})
 
     td.set_output_sink(sink)
@@ -202,9 +200,7 @@ async def test_cli_thinking_rich_falls_back_when_no_ansi(monkeypatch: pytest.Mon
     td = ThinkingDisplay()
     records: list[tuple[str | None, str | None]] = []
 
-    def sink(
-        text: str, kind: str = "chunk", *, ansi_markdown: str | None = None
-    ) -> None:
+    def sink(text: str, kind: str = "chunk", *, ansi_markdown: str | None = None) -> None:
         records.append((text, ansi_markdown))
 
     td.set_output_sink(sink)

@@ -1,4 +1,5 @@
 """Feishu docx v1 block operations."""
+
 from __future__ import annotations
 
 import json
@@ -15,6 +16,7 @@ _BLOCK_PAGE = 1
 _BLOCK_TEXT = 2
 _LIST_BLOCKS_MAX = 200
 
+
 def _chunk_runs(line: str) -> list[str]:
     if not line:
         return ["\u200b"]
@@ -25,40 +27,67 @@ def _chunk_runs(line: str) -> list[str]:
         s = s[_TEXT_RUN_MAX:]
     return parts
 
+
 def _paragraph_blocks_for_text(text: str) -> list[Any]:
     from lark_oapi.api.docx.v1 import BlockBuilder, Text, TextElement, TextRun
+
     lines = text.split("\n") or [""]
     blocks = []
     for raw in lines[:DOCX_APPEND_MAX_BLOCKS]:
         runs = _chunk_runs(raw)
-        elements = [TextElement.builder().text_run(TextRun.builder().content(r).build()).build() for r in runs]
-        blocks.append(BlockBuilder().block_type(_BLOCK_TEXT).text(Text.builder().elements(elements).build()).build())
+        elements = [
+            TextElement.builder().text_run(TextRun.builder().content(r).build()).build()
+            for r in runs
+        ]
+        blocks.append(
+            BlockBuilder()
+            .block_type(_BLOCK_TEXT)
+            .text(Text.builder().elements(elements).build())
+            .build()
+        )
     return blocks
+
 
 def _find_page_block_id(client, document_id: str) -> str:
     from lark_oapi.api.docx.v1 import ListDocumentBlockRequest
-    resp = client.docx.v1.document_block.list(ListDocumentBlockRequest.builder().document_id(document_id).page_size(50).build())
+
+    resp = client.docx.v1.document_block.list(
+        ListDocumentBlockRequest.builder().document_id(document_id).page_size(50).build()
+    )
     if not resp.success() or not resp.data or not resp.data.items:
-        raise RuntimeError(f"Feishu list document blocks failed: {format_lark_response_error(resp)}")
+        raise RuntimeError(
+            f"Feishu list document blocks failed: {format_lark_response_error(resp)}"
+        )
     for blk in resp.data.items:
-        if int(getattr(blk, "block_type", 0) or 0) == _BLOCK_PAGE and getattr(blk, "block_id", None):
+        if int(getattr(blk, "block_type", 0) or 0) == _BLOCK_PAGE and getattr(
+            blk, "block_id", None
+        ):
             return str(blk.block_id)
     first = resp.data.items[0]
     if not getattr(first, "block_id", None):
         raise RuntimeError("Feishu list document blocks: empty block_id")
     return str(first.block_id)
 
+
 def _count_children(client, document_id: str, page_block_id: str) -> int:
     from lark_oapi.api.docx.v1 import GetDocumentBlockChildrenRequest
+
     total = 0
     page_token = None
     while True:
-        b = GetDocumentBlockChildrenRequest.builder().document_id(document_id).block_id(page_block_id).page_size(50)
+        b = (
+            GetDocumentBlockChildrenRequest.builder()
+            .document_id(document_id)
+            .block_id(page_block_id)
+            .page_size(50)
+        )
         if page_token:
             b = b.page_token(page_token)
         resp = client.docx.v1.document_block_children.get(b.build())
         if not resp.success() or not resp.data:
-            raise RuntimeError(f"Feishu list block children failed: {format_lark_response_error(resp)}")
+            raise RuntimeError(
+                f"Feishu list block children failed: {format_lark_response_error(resp)}"
+            )
         total += len(getattr(resp.data, "items", None) or [])
         if not getattr(resp.data, "has_more", False):
             break
@@ -68,11 +97,13 @@ def _count_children(client, document_id: str, page_block_id: str) -> int:
         page_token = str(nxt)
     return total
 
+
 def append_plain_text_to_document(config: FeishuConfig, document_id: str, text: str) -> int:
     from lark_oapi.api.docx.v1 import (
         CreateDocumentBlockChildrenRequest,
         CreateDocumentBlockChildrenRequestBody,
     )
+
     client = build_client(config)
     children = _paragraph_blocks_for_text((text or "")[:DOCX_APPEND_MAX_CHARS])
     if not children:
@@ -80,11 +111,20 @@ def append_plain_text_to_document(config: FeishuConfig, document_id: str, text: 
     page_id = _find_page_block_id(client, document_id)
     idx = _count_children(client, document_id, page_id)
     body = CreateDocumentBlockChildrenRequestBody.builder().children(children).index(idx).build()
-    req = CreateDocumentBlockChildrenRequest.builder().document_id(document_id).block_id(page_id).request_body(body).build()
+    req = (
+        CreateDocumentBlockChildrenRequest.builder()
+        .document_id(document_id)
+        .block_id(page_id)
+        .request_body(body)
+        .build()
+    )
     resp = client.docx.v1.document_block_children.create(req)
     if not resp.success():
-        raise RuntimeError(f"Feishu create block children failed: {format_lark_response_error(resp)}")
+        raise RuntimeError(
+            f"Feishu create block children failed: {format_lark_response_error(resp)}"
+        )
     return len(children)
+
 
 def _block_summary(blk: Any) -> dict:
     return {
@@ -93,8 +133,12 @@ def _block_summary(blk: Any) -> dict:
         "parent_id": str(getattr(blk, "parent_id", None) or ""),
     }
 
-def list_document_blocks(config: FeishuConfig, document_id: str, *, page_token: str | None = None, page_size: int = 50) -> tuple[list[dict], str | None, bool]:
+
+def list_document_blocks(
+    config: FeishuConfig, document_id: str, *, page_token: str | None = None, page_size: int = 50
+) -> tuple[list[dict], str | None, bool]:
     from lark_oapi.api.docx.v1 import ListDocumentBlockRequest
+
     client = build_client(config)
     b = ListDocumentBlockRequest.builder().document_id(document_id).page_size(min(page_size, 500))
     if page_token:
@@ -108,10 +152,14 @@ def list_document_blocks(config: FeishuConfig, document_id: str, *, page_token: 
     nxt = getattr(resp.data, "page_token", None)
     return items, str(nxt) if nxt else None, bool(getattr(resp.data, "has_more", False))
 
+
 def get_block(config: FeishuConfig, document_id: str, block_id: str) -> dict:
     from lark_oapi.api.docx.v1 import GetDocumentBlockRequest
+
     client = build_client(config)
-    resp = client.docx.v1.document_block.get(GetDocumentBlockRequest.builder().document_id(document_id).block_id(block_id).build())
+    resp = client.docx.v1.document_block.get(
+        GetDocumentBlockRequest.builder().document_id(document_id).block_id(block_id).build()
+    )
     if not resp.success() or not resp.data or not resp.data.block:
         raise RuntimeError(f"Feishu get block failed: {format_lark_response_error(resp)}")
     blk = resp.data.block
@@ -126,6 +174,7 @@ def get_block(config: FeishuConfig, document_id: str, block_id: str) -> dict:
         out["text"] = "".join(parts)
     return out
 
+
 def update_block_text(config: FeishuConfig, document_id: str, block_id: str, content: str) -> None:
     from lark_oapi.api.docx.v1 import (
         BlockBuilder,
@@ -134,13 +183,29 @@ def update_block_text(config: FeishuConfig, document_id: str, block_id: str, con
         TextElement,
         TextRun,
     )
+
     client = build_client(config)
     runs = _chunk_runs(content)
-    elements = [TextElement.builder().text_run(TextRun.builder().content(r).build()).build() for r in runs]
-    block = BlockBuilder().block_id(block_id).block_type(_BLOCK_TEXT).text(Text.builder().elements(elements).build()).build()
-    resp = client.docx.v1.document_block.patch(PatchDocumentBlockRequest.builder().document_id(document_id).block_id(block_id).block(block).build())
+    elements = [
+        TextElement.builder().text_run(TextRun.builder().content(r).build()).build() for r in runs
+    ]
+    block = (
+        BlockBuilder()
+        .block_id(block_id)
+        .block_type(_BLOCK_TEXT)
+        .text(Text.builder().elements(elements).build())
+        .build()
+    )
+    resp = client.docx.v1.document_block.patch(
+        PatchDocumentBlockRequest.builder()
+        .document_id(document_id)
+        .block_id(block_id)
+        .block(block)
+        .build()
+    )
     if not resp.success():
         raise RuntimeError(f"Feishu patch block failed: {format_lark_response_error(resp)}")
+
 
 def delete_block(config: FeishuConfig, document_id: str, block_id: str) -> None:
     batch_update_blocks(config, document_id, [{"block_id": block_id, "delete_block": {}}])
@@ -168,15 +233,21 @@ def clear_document_content_blocks(config: FeishuConfig, document_id: str) -> tup
     return ok_n, fail_n
 
 
-def batch_update_blocks(config: FeishuConfig, document_id: str, requests_payload: list[dict]) -> dict:
+def batch_update_blocks(
+    config: FeishuConfig, document_id: str, requests_payload: list[dict]
+) -> dict:
     from lark_oapi.api.docx.v1 import (
         BatchUpdateDocumentBlockRequest,
         BatchUpdateDocumentBlockRequestBody,
     )
+
     client = build_client(config)
     body = BatchUpdateDocumentBlockRequestBody.builder().requests(requests_payload).build()
     resp = client.docx.v1.document_block.batch_update(
-        BatchUpdateDocumentBlockRequest.builder().document_id(document_id).request_body(body).build()
+        BatchUpdateDocumentBlockRequest.builder()
+        .document_id(document_id)
+        .request_body(body)
+        .build()
     )
     if not resp.success():
         raise RuntimeError(f"Feishu batch_update failed: {format_lark_response_error(resp)}")

@@ -33,14 +33,18 @@ def test_feishu_outbound_reply_params_reply_mode(monkeypatch: pytest.MonkeyPatch
     assert feishu_outbound_reply_params("om_abc") == ("om_abc", True)
 
 
-def test_feishu_outbound_reply_params_invalid_target_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_feishu_outbound_reply_params_invalid_target_falls_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from miniagent.feishu.poll_server import feishu_outbound_reply_params
 
     monkeypatch.setenv("MINIAGENT_FEISHU_REPLY_TARGET", "typo")
     assert feishu_outbound_reply_params("om_123") == (None, False)
 
 
-def test_feishu_outbound_reply_params_thread_id_default_in_thread(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_feishu_outbound_reply_params_thread_id_default_in_thread(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """未设置 ``MINIAGENT_FEISHU_REPLY_IN_THREAD`` 时，``thread_id`` 非空则默认话题内回复。"""
     from miniagent.feishu.poll_server import feishu_outbound_reply_params
 
@@ -49,7 +53,9 @@ def test_feishu_outbound_reply_params_thread_id_default_in_thread(monkeypatch: p
     assert feishu_outbound_reply_params("om_x", "t_thread_1") == ("om_x", True)
 
 
-def test_feishu_outbound_reply_params_explicit_off_overrides_thread(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_feishu_outbound_reply_params_explicit_off_overrides_thread(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from miniagent.feishu.poll_server import feishu_outbound_reply_params
 
     monkeypatch.setenv("MINIAGENT_FEISHU_REPLY_TARGET", "reply")

@@ -158,11 +158,7 @@ def _resolve_exec_tools(
         tbs = step_tbs if step_tbs else plan_tbs
         if tbs:
             return effective_registry.get_schemas_by_toolboxes(tbs)
-        tools = [
-            t.schema
-            for t in effective_registry.get_all().values()
-            if t.toolbox is None
-        ]
+        tools = [t.schema for t in effective_registry.get_all().values() if t.toolbox is None]
         return tools if tools else effective_registry.get_schemas()
     tbs = step_tbs if step_tbs else plan_tbs
     return effective_registry.get_schemas_by_toolboxes(tbs)
@@ -198,6 +194,7 @@ OnToolFinish = Callable[..., Awaitable[None]]
 
 
 # ─── 核心：execute_plan（ReAct 主循环；可选分步子循环 + 无 tools 收尾 synthesis）──
+
 
 async def execute_plan(
     plan: StructuredPlan,
@@ -267,7 +264,11 @@ async def execute_plan(
 
     # ── 循环检测器 ──
     loop_config_data = agent_config.loop_detection or DEFAULT_LOOP_DETECTION
-    loop_config = LoopDetectionConfig(**loop_config_data) if isinstance(loop_config_data, dict) else loop_config_data
+    loop_config = (
+        LoopDetectionConfig(**loop_config_data)
+        if isinstance(loop_config_data, dict)
+        else loop_config_data
+    )
     loop_detector = LoopDetector(loop_config)
 
     # ── 上下文管理器 ──
@@ -288,7 +289,9 @@ async def execute_plan(
         relevant: list[dict[str, Any]] = []
         if embedding_search_enabled_flag():
             try:
-                provider = get_embed_provider(state_dir=ms._state_dir if hasattr(ms, "_state_dir") else "workspaces")
+                provider = get_embed_provider(
+                    state_dir=ms._state_dir if hasattr(ms, "_state_dir") else "workspaces"
+                )
                 embed_results = await provider.search(user_input, limit=8, min_score=0.3)
                 if embed_results:
                     relevant = [
@@ -380,8 +383,10 @@ async def execute_plan(
         idx_stats = ki.get_stats()
         _logger.info("使用 %d 个工具 (策略: %s)", len(tools), agent_config.tool_selection_strategy)
         _logger.info("计划: %s", plan.summary)
-        _logger.info("最大轮数: %d | 循环检测: %s", max_turns, '启用' if loop_config.enabled else '禁用')
-        _logger.debug("三层记忆: L3(关键词索引 %d 词)", idx_stats['total_keywords'])
+        _logger.info(
+            "最大轮数: %d | 循环检测: %s", max_turns, "启用" if loop_config.enabled else "禁用"
+        )
+        _logger.debug("三层记忆: L3(关键词索引 %d 词)", idx_stats["total_keywords"])
 
     llm_client = client if client is not None else get_shared_async_openai()
 
@@ -407,9 +412,7 @@ async def execute_plan(
         nonlocal exec_turn_no
         exec_turn_no += 1
         start_ms = time.monotonic_ns() // 1_000_000
-        messages = strip_leading_underscore_keys_from_messages(
-            list(context_manager.get_messages())
-        )
+        messages = strip_leading_underscore_keys_from_messages(list(context_manager.get_messages()))
         turn_display = exec_turn_no
 
         if agent_config.debug:
@@ -447,15 +450,17 @@ async def execute_plan(
         exec_kw = resolve_exec_completion_kwargs(
             agent_config, stream=True, merge_overrides=merge_overrides
         )
-        emit_trace({
-            "type": "llm.request",
-            "phase": "exec",
-            "session_key": session_key,
-            "turn": turn_display,
-            "model": exec_kw["model"],
-            "message_count": len(messages),
-            "tool_count": len(tools_arg),
-        })
+        emit_trace(
+            {
+                "type": "llm.request",
+                "phase": "exec",
+                "session_key": session_key,
+                "turn": turn_display,
+                "model": exec_kw["model"],
+                "message_count": len(messages),
+                "tool_count": len(tools_arg),
+            }
+        )
         stream = await llm_client.chat.completions.create(
             messages=messages,  # type: ignore[arg-type]
             tools=tools_arg if tools_arg else None,  # type: ignore[arg-type]
@@ -531,32 +536,39 @@ async def execute_plan(
             except Exception:
                 pass
 
-        emit_trace({
-            "type": "llm.response",
-            "phase": "exec",
-            "session_key": session_key,
-            "turn": turn_display,
-            "has_tool_calls": bool(full_tool_calls),
-            "usage": _usage.model_dump() if _usage else None,
-        })
+        emit_trace(
+            {
+                "type": "llm.response",
+                "phase": "exec",
+                "session_key": session_key,
+                "turn": turn_display,
+                "has_tool_calls": bool(full_tool_calls),
+                "usage": _usage.model_dump() if _usage else None,
+            }
+        )
 
         if agent_config.log_file:
-            append_log(agent_config.log_file, {
-                "phase": "exec",
-                "turn": turn_display,
-                "req": {
-                    "model": exec_kw["model"],
-                    "messageCount": len(messages),
-                    "toolCount": len(tools_arg),
+            append_log(
+                agent_config.log_file,
+                {
+                    "phase": "exec",
+                    "turn": turn_display,
+                    "req": {
+                        "model": exec_kw["model"],
+                        "messageCount": len(messages),
+                        "toolCount": len(tools_arg),
+                    },
+                    "res": {
+                        "hasToolCalls": bool(full_tool_calls),
+                        "toolCalls": [
+                            {"name": tc.function.name, "args": truncate(tc.function.arguments, 300)}
+                            for tc in full_tool_calls
+                        ],
+                        "content": truncate(full_content or "", 1000) if full_content else None,
+                        "usage": _usage.model_dump() if _usage else None,
+                    },
                 },
-                "res": {
-                    "hasToolCalls": bool(full_tool_calls),
-                    "toolCalls": [{"name": tc.function.name, "args": truncate(tc.function.arguments, 300)}
-                                  for tc in full_tool_calls],
-                    "content": truncate(full_content or "", 1000) if full_content else None,
-                    "usage": _usage.model_dump() if _usage else None,
-                },
-            })
+            )
 
         al.log_llm_call(
             session_key=session_key,
@@ -656,8 +668,7 @@ async def execute_plan(
                     monitor.record(tc.function.name, elapsed, False)
                     _logger.warning("循环检测拦截: %s", loop_check.message)
                     return (
-                        f"⚠️ 任务执行被终止：{loop_check.message}\n\n"
-                        "建议：简化请求或明确具体目标。"
+                        f"⚠️ 任务执行被终止：{loop_check.message}\n\n建议：简化请求或明确具体目标。"
                     )
 
                 if loop_check.level == "warning" and not loop_warning_shown:
@@ -675,11 +686,13 @@ async def execute_plan(
             from miniagent.types.tool import ToolResult
 
             tool_start = time.monotonic_ns() // 1_000_000
-            emit_trace({
-                "type": "tool.start",
-                "session_key": session_key,
-                "tool": tc.function.name,
-            })
+            emit_trace(
+                {
+                    "type": "tool.start",
+                    "session_key": session_key,
+                    "tool": tc.function.name,
+                }
+            )
             try:
                 result = await asyncio.wait_for(
                     tool.handler(args, ctx),
@@ -693,13 +706,15 @@ async def execute_plan(
             except Exception as e:
                 result = ToolResult(success=False, content=f"⚠️ 执行异常: {e}")
             tool_elapsed = time.monotonic_ns() // 1_000_000 - tool_start
-            emit_trace({
-                "type": "tool.end",
-                "session_key": session_key,
-                "tool": tc.function.name,
-                "duration_ms": tool_elapsed,
-                "success": result.success,
-            })
+            emit_trace(
+                {
+                    "type": "tool.end",
+                    "session_key": session_key,
+                    "tool": tc.function.name,
+                    "duration_ms": tool_elapsed,
+                    "success": result.success,
+                }
+            )
             return tc, args, tool, result, tool_elapsed
 
         if pending:
@@ -713,11 +728,13 @@ async def execute_plan(
                     outcomes.append(await _run_tool(tc, args, tool))
 
             for tc, args, _tool, result, tool_elapsed in outcomes:
-                turn_tool_calls.append({
-                    "name": tc.function.name,
-                    "args": tc.function.arguments,
-                    "result": result.content,
-                })
+                turn_tool_calls.append(
+                    {
+                        "name": tc.function.name,
+                        "args": tc.function.arguments,
+                        "result": result.content,
+                    }
+                )
                 loop_detector.record(tc.function.name, args, result.content)
                 monitor.record(tc.function.name, tool_elapsed, result.success)
                 oob_t = _append_context_or_return(
@@ -787,6 +804,7 @@ async def execute_plan(
             if early is not None:
                 return early
     else:
+
         async def _finish_phased_text_turn(
             final_reply: str, start_ms_text: int, *, save_memory: bool
         ) -> str | None:
@@ -923,6 +941,7 @@ async def execute_plan(
 
 # ─── 工具意图提取 ──────────────────────────────────────────
 
+
 def _tool_intent_max_chars() -> int:
     """工具意图摘要写入思考流时的最大字符数（``MINIAGENT_TOOL_INTENT_MAX_CHARS``）。"""
     raw = os.environ.get("MINIAGENT_TOOL_INTENT_MAX_CHARS", "4000").strip()
@@ -974,6 +993,7 @@ def _extract_tool_intent(tool_name: str, args: dict[str, Any]) -> str:
 
 
 # ─── 记忆保存 ────────────────────────────────────────────
+
 
 async def _save_session_memory(
     memory_store: Any,

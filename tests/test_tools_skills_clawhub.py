@@ -14,9 +14,7 @@ from miniagent.types.tool import ToolContext
 async def test_search_skills_clawhub_uses_injected_client() -> None:
     fake = MagicMock()
     fake.search = AsyncMock(
-        return_value=[
-            {"slug": "x", "name": "X", "description": "d", "stars": 1, "downloads": 2}
-        ]
+        return_value=[{"slug": "x", "name": "X", "description": "d", "stars": 1, "downloads": 2}]
     )
     ctx = ToolContext(cwd=".", allowed_paths=["."], permission="allowlist", clawhub=fake)
 

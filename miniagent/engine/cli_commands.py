@@ -80,9 +80,7 @@ def format_queue_abort_message(result: dict[str, Any]) -> str:
     if cp > 0:
         lines.append(f"  · 已取消 {cp} 个排队中的任务。")
     if cdw > 0:
-        lines.append(
-            f"  · 已取消 {cdw} 个 dispatch_wait 包装任务（如经该路径投递的定时回合）。"
-        )
+        lines.append(f"  · 已取消 {cdw} 个 dispatch_wait 包装任务（如经该路径投递的定时回合）。")
     return "\n".join(lines)
 
 
@@ -123,17 +121,13 @@ def sync_channel_router_to_session(
     sid = normalize_bind_session_id("cli", session_id)
     channel_router.bind(ChannelRouter.CLI_CHANNEL, sid)
     channel_router.set_primary(sid)
-    if feishu_p2p_synced_senders and should_sync_p2p_on_session_switch(
-        channel_router, sid
-    ):
+    if feishu_p2p_synced_senders and should_sync_p2p_on_session_switch(channel_router, sid):
         pfx = ChannelRouter.FEISHU_P2P_PREFIX
         for sender in feishu_p2p_synced_senders:
             channel_router.bind(f"{pfx}{sender}", sid)
 
 
-def _resolve_session(
-    session_manager: Any, id_or_number: str
-) -> str | None:
+def _resolve_session(session_manager: Any, id_or_number: str) -> str | None:
     """解析用户输入的会话标识（编号或原始 ID）。
 
     优先使用 SessionManager 内置的 resolve_session_id 方法，
@@ -365,9 +359,7 @@ async def cmd_session_switch(
 
     # 切换成功：CLI 与自动同步的飞书私聊跟到同一 session_key
     active_session_id = session_id
-    sync_channel_router_to_session(
-        channel_router, session_id, feishu_p2p_synced_senders
-    )
+    sync_channel_router_to_session(channel_router, session_id, feishu_p2p_synced_senders)
     display = session_manager.get_session_display_name(session_id)
     print(f"🔄 已切换到会话: {display}")
     return active_session_id
@@ -495,9 +487,7 @@ async def cmd_queue_set(message_queue: Any, mode_str: str) -> None:
         print("   可用: queue, preemptive")
 
 
-def cmd_bind(
-    channel_router: Any, args: list[str], state: dict[str, Any] | None = None
-) -> str:
+def cmd_bind(channel_router: Any, args: list[str], state: dict[str, Any] | None = None) -> str:
     """绑定通道到指定会话。
 
     用法:
@@ -561,9 +551,7 @@ def cmd_bind(
     return f"❌ 未知通道: {channel}"
 
 
-def cmd_unbind(
-    channel_router: Any, args: list[str], state: dict[str, Any] | None = None
-) -> str:
+def cmd_unbind(channel_router: Any, args: list[str], state: dict[str, Any] | None = None) -> str:
     """解除通道绑定。
 
     用法:
@@ -817,7 +805,10 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
 
         marker = " -- "
         if marker not in raw:
-            return "缺少 `` -- `` 分隔符（用于分隔会话参数与 prompt）。\n" + format_schedule_command_usage()
+            return (
+                "缺少 `` -- `` 分隔符（用于分隔会话参数与 prompt）。\n"
+                + format_schedule_command_usage()
+            )
         head, prompt = raw.split(marker, 1)
         prompt = prompt.strip()
         if not prompt:
@@ -978,9 +969,7 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
             elif kind == "cron":
                 from miniagent.scheduled_tasks.cron import validate_cron_expr
 
-                cron_expr, sess_token = _parse_cron_add_tokens(
-                    ["add", tid, "cron", *hparts[3:]]
-                )
+                cron_expr, sess_token = _parse_cron_add_tokens(["add", tid, "cron", *hparts[3:]])
                 cron_expr = validate_cron_expr(cron_expr)
                 sess = _parse_schedule_session_spec(sess_token)
                 existing.prompt = prompt
@@ -1013,13 +1002,10 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
 
 
 def format_help_markdown(
-    model_profiles: dict[str, Any],
-    active_profile: str,
     message_queue: Any,
     instance_id: int | None = None,
 ) -> str:
     """生成 `.help` 的 Markdown 正文（表格分组），供 CLI 打印与飞书 capture 复用。"""
-    profiles = ", ".join(model_profiles.keys())
     mode = message_queue.mode.value
     inst_line = f"\n当前实例：**#{instance_id}**" if instance_id else ""
 
@@ -1027,7 +1013,7 @@ def format_help_markdown(
         [
             "## Mini Agent 命令",
             "",
-            f"消息队列模式：**{mode}** ｜ 当前模型预设：**{active_profile}** ｜ 可用预设：`{profiles}`{inst_line}",
+            f"消息队列模式：**{mode}**{inst_line}",
             "",
         ]
     )
@@ -1099,16 +1085,12 @@ def format_help_markdown(
             [
                 ("`.schedule list`", "列出任务"),
                 ("`.schedule show <id>`", "查看 JSON"),
-                ("`.schedule add ...`", "interval/once（见无参 `.schedule`）；Agent 可用 manage_scheduled_task"),
+                (
+                    "`.schedule add ...`",
+                    "interval/once（见无参 `.schedule`）；Agent 可用 manage_scheduled_task",
+                ),
                 ("`.schedule update <id> …`", "修改任务（语法同 add）"),
                 ("`.schedule remove|enable|disable <id>`", "管理任务"),
-            ],
-        ),
-        _md_help_section(
-            "模型预设",
-            None,
-            [
-                ("`.profile <名称>`", "切换模型预设"),
             ],
         ),
         _md_help_section(
@@ -1156,8 +1138,6 @@ def format_help_markdown(
 
 
 def cmd_help(
-    model_profiles: dict[str, Any],
-    active_profile: str,
     message_queue: Any,
     instance_id: int | None = None,
 ) -> None:
@@ -1166,12 +1146,10 @@ def cmd_help(
     按功能分组展示所有可用命令（Markdown 表格，便于飞书 lark_md 渲染）。
 
     Args:
-        model_profiles: 可用的模型预设配置
-        active_profile: 当前使用的模型预设
         message_queue: 消息队列管理器实例
         instance_id: 当前实例 ID（可选）
     """
-    print(format_help_markdown(model_profiles, active_profile, message_queue, instance_id))
+    print(format_help_markdown(message_queue, instance_id))
 
 
 __all__ = [

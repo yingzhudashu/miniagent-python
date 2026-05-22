@@ -144,7 +144,9 @@ async def test_execute_plan_phased_last_step_no_turns_left_still_warns(
         yield _Chunk(delta)
 
     mock_client = MagicMock()
-    mock_client.chat.completions.create = AsyncMock(side_effect=lambda *_a, **_k: only_tool_stream())
+    mock_client.chat.completions.create = AsyncMock(
+        side_effect=lambda *_a, **_k: only_tool_stream()
+    )
     ms, al, ki = mock_memory_bundle()
     out = await execute_plan(
         plan,

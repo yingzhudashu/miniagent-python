@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-from miniagent.core.config import MODEL_PROFILES
 from miniagent.engine.cli_commands import format_help_markdown
 from miniagent.engine.command_dispatch import dispatch_command
 from miniagent.engine.engine import UnifiedEngine
@@ -20,7 +19,7 @@ from tests.test_startup import _make_memory_bundle
 
 def test_format_help_markdown_has_tables_and_commands() -> None:
     mq = MessageQueueManager()
-    md = format_help_markdown(MODEL_PROFILES, "balanced", mq, instance_id=7)
+    md = format_help_markdown(mq, instance_id=7)
 
     assert "## Mini Agent" in md
     assert "| 命令 | 说明 |" in md
@@ -49,7 +48,7 @@ async def test_dispatch_help_capture_contains_table() -> None:
         activity_log=al,
         keyword_index=ki,
     )
-    ctx.create_feishu_handler_factory = lambda tb, tp, st: (lambda *a, **k: None)
+    ctx.create_feishu_handler_factory = lambda tb, tp, st: lambda *a, **k: None
 
     state = {
         "active_session_id": "default",

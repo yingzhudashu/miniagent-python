@@ -50,9 +50,7 @@ _run_dot_command_schema = {
 }
 
 
-async def _run_dot_command_handler(
-    args: dict[str, Any], ctx: ToolContext
-) -> ToolResult:
+async def _run_dot_command_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     """执行 ``run_dot_command``：转调 ``dispatch_command`` 并返回捕获输出。"""
     line = (args.get("line") or "").strip()
     if not line.startswith("."):

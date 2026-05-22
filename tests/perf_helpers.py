@@ -47,7 +47,9 @@ def assert_two_medians_within_ratio(
     if lo < 1e-9:
         return
     ratio = hi / lo
-    assert ratio <= max_ratio, msg or f"median ratio too high: {ratio:.2f} (lo={lo:.4f} hi={hi:.4f})"
+    assert ratio <= max_ratio, (
+        msg or f"median ratio too high: {ratio:.2f} (lo={lo:.4f} hi={hi:.4f})"
+    )
 
 
 def tracemalloc_peak_diff_mb(run: Callable[[], Any]) -> float:

@@ -8,7 +8,7 @@
 模块划分：
 
 - ``tool``: 工具定义、``ToolContext``、注册表协议、上下文压缩相关类型
-- ``config``: ``ModelProfile`` / ``AgentConfig`` 等双层配置
+- ``config``: ``ModelConfig`` / ``AgentConfig`` 等双层配置
 - ``memory``: 记忆与会话的 **类型**；持久化实现见 ``miniagent.memory``
 - ``skill``: 技能包、ClawHub 协议
 - ``agent``: 运行结果、监控协议、循环检测配置、线性管线
@@ -30,9 +30,7 @@ from miniagent.types.agent import (
 )
 from miniagent.types.config import (
     AgentConfig,
-    BuiltInProfile,
     ModelConfig,
-    ModelProfile,
 )
 from miniagent.types.memory import (
     MemoryEntry,
@@ -85,8 +83,6 @@ __all__ = [
     "ContextState",
     "ContextManagerProtocol",
     # config
-    "ModelProfile",
-    "BuiltInProfile",
     "ModelConfig",
     "AgentConfig",
     # memory

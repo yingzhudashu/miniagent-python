@@ -44,13 +44,7 @@ def upload_im_file(
     ft = (file_type or _guess_im_file_type(file_name)).strip() or "stream"
     client = lark.Client.builder().app_id(config.app_id).app_secret(config.app_secret).build()
     bio = io.BytesIO(data)
-    body = (
-        CreateFileRequestBody.builder()
-        .file_type(ft)
-        .file_name(file_name)
-        .file(bio)
-        .build()
-    )
+    body = CreateFileRequestBody.builder().file_type(ft).file_name(file_name).file(bio).build()
     request = CreateFileRequest.builder().request_body(body).build()
     resp = client.im.v1.file.create(request)
     if not resp.success() or not resp.data or not getattr(resp.data, "file_key", None):

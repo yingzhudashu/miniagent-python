@@ -3,6 +3,7 @@
 与 :mod:`miniagent.scheduled_tasks.store` 的 JSON 结构一一对应；字段变更需同步迁移读写逻辑。
 
 用户可见字段语义见 ``docs/USER_GUIDE.md``（定时任务）。"""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field

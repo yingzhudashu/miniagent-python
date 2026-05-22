@@ -1,6 +1,7 @@
 """定时任务持久化：``tasks.json`` 的读写、下次触发时间计算与运行后重算。
 
 路径根由 ``MINI_AGENT_STATE`` 或当前工作目录下 ``workspaces`` 决定，与 README / ``docs/ENGINEERING.md`` §3 描述一致。"""
+
 from __future__ import annotations
 
 import json
@@ -172,9 +173,7 @@ def align_task_timezones_to_env(
         n = compute_initial_next_run(t, now)
         if n is not None:
             t.next_run_at = n
-        lines.append(
-            f"  • {t.id} → tz={env_tz} next={format_next_run_display(t, now_ts=now)}"
-        )
+        lines.append(f"  • {t.id} → tz={env_tz} next={format_next_run_display(t, now_ts=now)}")
         count += 1
     return count, lines
 

@@ -20,9 +20,7 @@ def strip_leading_underscore_keys_from_messages(
         if not isinstance(m, dict):
             continue
         d: dict[str, Any] = {
-            k: v
-            for k, v in m.items()
-            if isinstance(k, str) and not k.startswith("_")
+            k: v for k, v in m.items() if isinstance(k, str) and not k.startswith("_")
         }
         tc = d.get("tool_calls")
         if isinstance(tc, list):

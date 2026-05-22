@@ -85,5 +85,7 @@ async def test_feishu_doc_create_accepts_folder_share_url(monkeypatch: pytest.Mo
         from miniagent.tools.feishu_doc_tools import _feishu_doc
         from miniagent.types.tool import ToolContext
 
-        r = await _feishu_doc({"action": "create", "title": "T", "folder_token": url}, ToolContext(cwd="/tmp"))
+        r = await _feishu_doc(
+            {"action": "create", "title": "T", "folder_token": url}, ToolContext(cwd="/tmp")
+        )
     assert r.success

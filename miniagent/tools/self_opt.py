@@ -20,6 +20,7 @@ from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 # ─── 风险评估 ────────────────────────────────────────────
 
+
 def _assess_risk(type_: str, target: str) -> str:
     """评估优化操作的风险等级。
 
@@ -48,6 +49,7 @@ def _assess_risk(type_: str, target: str) -> str:
 
 # ─── Git 辅助函数 ────────────────────────────────────────
 
+
 async def _run_git(args: list[str], cwd: str) -> tuple[int, str]:
     """执行 git 命令并返回 (exit_code, output)。
 
@@ -55,7 +57,8 @@ async def _run_git(args: list[str], cwd: str) -> tuple[int, str]:
     stdout 和 stderr 合并为单一输出字符串。
     """
     proc = await asyncio.create_subprocess_exec(
-        "git", *args,
+        "git",
+        *args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         cwd=cwd,
@@ -147,14 +150,22 @@ async def _self_inspect_handler(args: dict[str, Any], ctx: ToolContext) -> ToolR
                 content = Path(fp).read_text(encoding="utf-8")
                 lines = content.count("\n") + 1
                 total_lines += lines
-                imports = len([ln for ln in content.split("\n") if ln.strip().startswith(("import ", "from "))])
+                imports = len(
+                    [
+                        ln
+                        for ln in content.split("\n")
+                        if ln.strip().startswith(("import ", "from "))
+                    ]
+                )
                 exports = content.count("__all__")
-                py_files.append({
-                    "path": os.path.relpath(fp, code_root),
-                    "lines": lines,
-                    "imports": imports,
-                    "has_exports": exports > 0,
-                })
+                py_files.append(
+                    {
+                        "path": os.path.relpath(fp, code_root),
+                        "lines": lines,
+                        "imports": imports,
+                        "has_exports": exports > 0,
+                    }
+                )
             except Exception:
                 pass
 
@@ -276,20 +287,28 @@ async def _run_tests_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
 
     # 安全验证：命令必须以已知测试工具开头
     _ALLOWED_PREFIXES = (
-        "pytest", "python -m pytest", "python3 -m pytest",
-        "unittest", "python -m unittest", "python3 -m unittest",
-        "npm test", "npm run test", "yarn test", "pnpm test",
+        "pytest",
+        "python -m pytest",
+        "python3 -m pytest",
+        "unittest",
+        "python -m unittest",
+        "python3 -m unittest",
+        "npm test",
+        "npm run test",
+        "yarn test",
+        "pnpm test",
     )
     cmd_normalized = raw_command.strip()
     if not any(cmd_normalized.startswith(p) for p in _ALLOWED_PREFIXES):
         return ToolResult(
             success=False,
             content=f"❌ 测试命令必须以已知测试工具开头（如 pytest、python -m pytest、npm test）\n"
-                    f"当前命令: {raw_command[:100]}",
+            f"当前命令: {raw_command[:100]}",
         )
 
     try:
         import shlex
+
         cmd_parts = shlex.split(raw_command)
     except ValueError:
         return ToolResult(success=False, content="❌ 测试命令语法无效")
@@ -381,8 +400,8 @@ async def _git_snapshot_handler(args: dict[str, Any], ctx: ToolContext) -> ToolR
                     return ToolResult(
                         success=False,
                         content="❌ 存在未提交的变更，请先提交或暂存后再回滚。\n"
-                                "如需强制回滚（丢弃未提交变更），请设置 force=true。\n\n"
-                                f"未跟踪/修改的文件:\n{status_out[:500]}",
+                        "如需强制回滚（丢弃未提交变更），请设置 force=true。\n\n"
+                        f"未跟踪/修改的文件:\n{status_out[:500]}",
                     )
 
             code, out = await _run_git(["reset", "--hard", commit_hash], project_root)

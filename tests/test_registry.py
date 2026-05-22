@@ -9,7 +9,14 @@ from miniagent.types.tool import ToolDefinition
 def make_tool(name: str = "test") -> ToolDefinition:
     """Helper to create a ToolDefinition."""
     return ToolDefinition(
-        schema={"type": "function", "function": {"name": name, "description": f"A {name} tool", "parameters": {"type": "object", "properties": {}}}},
+        schema={
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": f"A {name} tool",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
         handler=lambda x, ctx: None,  # type: ignore
         permission="sandbox",
         help_text=f"Help for {name}",

@@ -26,7 +26,10 @@ _DANGEROUS_SHELL = [
 
 # 硬编码密钥模式
 _HARDcoded_SECRETS = [
-    (r"(?:api_key|apikey|secret_key|token|password)\s*=\s*['\"][A-Za-z0-9+/=]{16,}['\"]", "疑似硬编码密钥/令牌"),
+    (
+        r"(?:api_key|apikey|secret_key|token|password)\s*=\s*['\"][A-Za-z0-9+/=]{16,}['\"]",
+        "疑似硬编码密钥/令牌",
+    ),
     (r"AKIA[0-9A-Z]{16}", "疑似 AWS Access Key"),
     (r"ghp_[A-Za-z0-9]{36}", "疑似 GitHub Personal Access Token"),
 ]

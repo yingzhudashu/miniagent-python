@@ -33,6 +33,7 @@ def _state_dir() -> str:
     """Dream 调度读写所在状态根目录。"""
     return os.environ.get("MINI_AGENT_STATE", os.path.join(os.getcwd(), "workspaces"))
 
+
 # 默认周期（秒）
 DIARY_REFINE_SEC = int(os.environ.get("MINI_AGENT_DREAM_DIARY_SEC", str(7 * 86400)))
 SESSION_LT_REFINE_SEC = int(os.environ.get("MINI_AGENT_DREAM_SESSION_LT_SEC", str(30 * 86400)))
@@ -42,9 +43,7 @@ AGENT_LT_REFINE_SEC = int(os.environ.get("MINI_AGENT_DREAM_AGENT_LT_SEC", str(36
 SIZE_FORCE_BYTES = int(os.environ.get("MINI_AGENT_DREAM_SIZE_BYTES", str(800_000)))
 
 # 两次调度之间的最短间隔（秒），减轻每回合 create_task 压力
-_MIN_SCHEDULE_INTERVAL = float(
-    os.environ.get("MINI_AGENT_DREAM_MIN_INTERVAL_SEC", "60") or "60"
-)
+_MIN_SCHEDULE_INTERVAL = float(os.environ.get("MINI_AGENT_DREAM_MIN_INTERVAL_SEC", "60") or "60")
 _last_schedule_monotonic: float = 0.0
 
 # ``shutdown_runtime`` 会取消并等待这些 task，避免进程退出后仍短暂占用事件循环
@@ -212,6 +211,12 @@ def schedule_memory_maintenance(session_key: str | None) -> None:
         return
     _last_schedule_monotonic = now_m
 
+    # 仅在已有 running loop 时创建后台 task（无 loop 时静默跳过）
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+
     async def _job() -> None:
         """后台执行 ``_refine_session``，全程持有 ``dream.lock``。"""
         if not _try_file_lock():
@@ -221,17 +226,13 @@ def schedule_memory_maintenance(session_key: str | None) -> None:
         finally:
             _release_file_lock()
 
-    try:
-        t = asyncio.create_task(_job())
-        _pending_dream_tasks.add(t)
+    t = loop.create_task(_job())
+    _pending_dream_tasks.add(t)
 
-        def _done(_fut: asyncio.Task[Any]) -> None:
-            _pending_dream_tasks.discard(_fut)
+    def _done(_fut: asyncio.Task[Any]) -> None:
+        _pending_dream_tasks.discard(_fut)
 
-        t.add_done_callback(_done)
-    except RuntimeError:
-        # 无 running loop（极少）
-        pass
+    t.add_done_callback(_done)
 
 
 async def cancel_pending_dream_tasks() -> None:

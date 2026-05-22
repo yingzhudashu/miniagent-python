@@ -34,7 +34,6 @@ def print_welcome(
     registry: Any,
     skill_registry: Any,
     model: str,
-    active_profile: str,
     session_manager: Any,
     active_session_id: str,
     feishu_enabled: bool = False,
@@ -45,7 +44,6 @@ def print_welcome(
         registry: 工具注册表
         skill_registry: 技能注册表
         model: 当前模型名称
-        active_profile: 当前模型预设
         session_manager: 会话管理器
         active_session_id: 当前会话 ID
         feishu_enabled: 飞书是否已启用
@@ -58,7 +56,7 @@ def print_welcome(
 
     print()
     print(f"  🤖 Mini Agent  v{version}")
-    print(f"  📡 {model}  ({active_profile})")
+    print(f"  📡 {model}")
     print(f"  🔧 {tool_count} tools  ·  📦 {skill_count} skills  ·  {feishu_label}")
     print(f"  💼 {display_name}")
     hint_on = os.environ.get("MINIAGENT_WELCOME_CLI_HINT", "1").strip().lower() not in (
@@ -72,7 +70,7 @@ def print_welcome(
             import rich.markdown  # noqa: F401
         except ImportError:
             print(
-                "  💡 提示: pip install -e \".[cli]\" 可在终端渲染 Assistant 的 Markdown（表格/加粗等）。"
+                '  💡 提示: pip install -e ".[cli]" 可在终端渲染 Assistant 的 Markdown（表格/加粗等）。'
             )
     print()
 

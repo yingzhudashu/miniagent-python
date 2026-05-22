@@ -22,7 +22,9 @@ def test_resolve_exec_uses_model_overrides() -> None:
     assert kw["stream"] is True
 
 
-def test_resolve_exec_dashscope_includes_thinking_extra_body(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_resolve_exec_dashscope_includes_thinking_extra_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv(
         "OPENAI_BASE_URL",
         "https://dashscope.aliyuncs.com/compatible-mode/v1",

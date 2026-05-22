@@ -78,7 +78,7 @@ async def classify_task_difficulty(
 
     sys_prompt = (
         "你是任务难度分类器。根据用户诉求与可用工具箱 id 列表，判断复杂度。\n"
-        "只返回 JSON 对象：{\"difficulty\":\"simple|normal|medium|complex\"}\n"
+        '只返回 JSON 对象：{"difficulty":"simple|normal|medium|complex"}\n'
         "simple：单步可答、无需工具或极简单查询；normal：常规多步但清晰；"
         "medium：需多工具协作或中等推理；complex：长链路、强依赖工具或高风险。"
     )
@@ -116,7 +116,11 @@ async def classify_task_difficulty(
                         hypothesis_id="B",
                         location="task_classifier.py:classify_task_difficulty",
                         message="before_chat_completions",
-                        data={"attempt": _attempt, "model": kw.get("model"), "json_object": use_json_object},
+                        data={
+                            "attempt": _attempt,
+                            "model": kw.get("model"),
+                            "json_object": use_json_object,
+                        },
                     )
                 except Exception:
                     pass

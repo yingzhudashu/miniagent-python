@@ -27,6 +27,7 @@ class TestMemoryStore:
         from datetime import datetime, timezone
 
         from miniagent.types.memory import SessionMemory
+
         memory = SessionMemory(
             session_id=sid,
             cumulative_summary="",
@@ -88,6 +89,7 @@ class TestMemoryStore:
         from datetime import datetime, timezone
 
         from miniagent.types.memory import SessionMemory
+
         memory = SessionMemory(
             session_id=sid,
             cumulative_summary="",

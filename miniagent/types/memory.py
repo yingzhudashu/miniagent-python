@@ -95,16 +95,12 @@ class MemoryStoreProtocol(Protocol):
         ...
 
     @abstractmethod
-    async def update_summary(
-        self, session_key: str, summary: str, facts: list[str]
-    ) -> None:
+    async def update_summary(self, session_key: str, summary: str, facts: list[str]) -> None:
         """更新摘要和事实"""
         ...
 
     @abstractmethod
-    async def add_entry(
-        self, session_key: str, entry: MemoryEntryInput | dict[str, Any]
-    ) -> None:
+    async def add_entry(self, session_key: str, entry: MemoryEntryInput | dict[str, Any]) -> None:
         """添加条目（实现类可将 dict 规范为 MemoryEntryInput）。"""
         ...
 

@@ -1,17 +1,16 @@
 """Mini Agent Python — 嵌入式语义记忆检索
 
-在关键词索引之上提供基于向量嵌入的语义搜索，支持最多 3 个供应商的逐级回退：
-1. 主供应商（OPENAI_BASE_URL / OPENAI_MODEL 的 embedding 端点）
-2. 备用供应商（MINIAGENT_EMBED_BASE_URL / MINIAGENT_EMBED_MODEL）
-3. 关键词索引（原有 KeywordIndex，始终作为最终回退）
+提供基于向量嵌入的语义搜索。
+使用 ``MINIAGENT_EMBED_BASE_URL`` / ``MINIAGENT_EMBED_MODEL`` 配置专用 embedding 服务；
+未配置时不使用向量搜索，由调用方回退到关键词索引。
 
 存储：轻量 JSON 文件 ``<state_dir>/embedding-index.json``，每条记忆缓存其向量。
 检索：余弦相似度排名，无需外部向量数据库。
 
 环境变量：
 - ``MINIAGENT_EMBED_SEARCH``: 默认 ``0``；设 ``1``/``true`` 开启嵌入搜索，否则仅用关键词索引
-- ``MINIAGENT_EMBED_BASE_URL``: 备用嵌入服务 URL（未设置时与 OPENAI_BASE_URL 相同）
-- ``MINIAGENT_EMBED_MODEL``: 备用嵌入模型（未设置时与 OPENAI_MODEL 相同）
+- ``MINIAGENT_EMBED_BASE_URL``: 专用 embedding 服务 URL
+- ``MINIAGENT_EMBED_MODEL``: 专用 embedding 模型
 - ``MINIAGENT_EMBED_DIM``: 向量维度（自动从首次响应推断，默认 1536）
 - ``MINIAGENT_EMBED_TOP_K``: 最多返回条目数（默认 8）
 - ``MINIAGENT_EMBED_MIN_SCORE``: 最低余弦相似度阈值（默认 0.3）
@@ -40,6 +39,7 @@ _logger = get_logger(__name__)
 # 配置
 # ============================================================================
 
+
 def _is_truthy(val: str | None) -> bool:
     if val is None:
         return False  # default = disabled
@@ -52,10 +52,10 @@ def embedding_search_enabled() -> bool:
 
 
 def _get_embed_config() -> dict[str, str | int]:
-    """返回当前嵌入配置。"""
+    """专用 embedding 配置（MINIAGENT_EMBED_*）。"""
     base_url = os.environ.get("MINIAGENT_EMBED_BASE_URL", "")
     model = os.environ.get("MINIAGENT_EMBED_MODEL", "")
-    api_key = os.environ.get("OPENAI_API_KEY", "")
+    api_key = os.environ.get("MINIAGENT_EMBED_API_KEY", "")
     top_k = int(os.environ.get("MINIAGENT_EMBED_TOP_K", "8"))
     min_score = float(os.environ.get("MINIAGENT_EMBED_MIN_SCORE", "0.3"))
     return {
@@ -67,28 +67,10 @@ def _get_embed_config() -> dict[str, str | int]:
     }
 
 
-def _get_primary_config() -> dict[str, str | int]:
-    """主供应商配置（使用 OPENAI_*）。"""
-    return {
-        "base_url": os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
-        "model": os.environ.get("OPENAI_MODEL", ""),
-        "api_key": os.environ.get("OPENAI_API_KEY", ""),
-    }
-
-
-def _get_fallback_config() -> dict[str, str | int]:
-    """备用供应商配置。"""
-    cfg = _get_embed_config()
-    return {
-        "base_url": cfg["base_url"] or os.environ.get("OPENAI_BASE_URL", ""),
-        "model": cfg["model"] or os.environ.get("OPENAI_MODEL", ""),
-        "api_key": cfg["api_key"],
-    }
-
-
 # ============================================================================
 # 向量工具
 # ============================================================================
+
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
     """计算两个向量的余弦相似度。"""
@@ -110,6 +92,7 @@ def _text_hash(text: str) -> str:
 # ============================================================================
 # 嵌入 API 调用
 # ============================================================================
+
 
 async def _get_embedding(
     text: str,
@@ -145,9 +128,11 @@ async def _get_embedding(
 # 嵌入索引
 # ============================================================================
 
+
 @dataclass
 class _EmbeddingEntry:
     """嵌入索引中的一条记录。"""
+
     text: str
     embedding: list[float]
     session_id: str
@@ -161,6 +146,7 @@ class _EmbeddingEntry:
 @dataclass
 class EmbeddingSearchResult:
     """嵌入搜索结果。"""
+
     session_id: str
     timestamp: str
     user_snippet: str
@@ -323,14 +309,16 @@ class EmbeddingIndex:
                 continue
             sim = _cosine_similarity(query_embedding, entry.embedding)
             if sim >= min_score:
-                scored.append(EmbeddingSearchResult(
-                    session_id=entry.session_id,
-                    timestamp=entry.timestamp,
-                    user_snippet=entry.user_snippet,
-                    summary=entry.summary,
-                    facts=entry.facts,
-                    score=sim,
-                ))
+                scored.append(
+                    EmbeddingSearchResult(
+                        session_id=entry.session_id,
+                        timestamp=entry.timestamp,
+                        user_snippet=entry.user_snippet,
+                        summary=entry.summary,
+                        facts=entry.facts,
+                        score=sim,
+                    )
+                )
 
         scored.sort(key=lambda r: r.score, reverse=True)
         return scored[:limit]
@@ -344,16 +332,12 @@ class EmbeddingIndex:
 
 
 # ============================================================================
-# 多供应商嵌入搜索（带回退）
+# 嵌入搜索提供者
 # ============================================================================
 
-class EmbeddingSearchProvider:
-    """多供应商嵌入搜索，最多 3 级回退。
 
-    1. 主供应商（OPENAI_BASE_URL / OPENAI_MODEL）
-    2. 备用供应商（MINIAGENT_EMBED_BASE_URL / MINIAGENT_EMBED_MODEL）
-    3. 关键词索引（由调用方回退）
-    """
+class EmbeddingSearchProvider:
+    """使用 ``MINIAGENT_EMBED_BASE_URL`` / ``MINIAGENT_EMBED_MODEL`` 配置专用 embedding 服务。"""
 
     def __init__(self, state_dir: str = "workspaces") -> None:
         self._index = EmbeddingIndex(state_dir=state_dir)
@@ -361,28 +345,23 @@ class EmbeddingSearchProvider:
         self._init_providers()
 
     def _init_providers(self) -> None:
-        primary = _get_primary_config()
-        if primary["base_url"] and primary["model"] and primary["api_key"]:
-            self._providers.append(primary)
-
-        fallback = _get_fallback_config()
-        if (fallback["base_url"] and fallback["model"] and fallback["api_key"]
-                and (fallback["base_url"] != primary.get("base_url")
-                     or fallback["model"] != primary.get("model"))):
-            self._providers.append(fallback)
+        """仅使用 MINIAGENT_EMBED_* 专用配置；未配置时无 embedding，
+        由调用方回退到关键词索引。"""
+        embed = _get_embed_config()
+        if embed["base_url"] and embed["model"] and embed["api_key"]:
+            self._providers.append(embed)
 
     @property
     def index(self) -> EmbeddingIndex:
         return self._index
 
     async def get_embedding(self, text: str) -> list[float] | None:
-        """获取文本的嵌入向量，逐级尝试供应商。"""
-        # 清理文本：去掉多余空白
+        """获取文本的嵌入向量。"""
         clean = re.sub(r"\s+", " ", text).strip()
         if not clean:
             return None
 
-        for i, provider in enumerate(self._providers):
+        for provider in self._providers:
             try:
                 embedding = await _get_embedding(
                     clean,
@@ -390,11 +369,9 @@ class EmbeddingSearchProvider:
                     model=str(provider["model"]),
                     api_key=str(provider["api_key"]),
                 )
-                if i > 0:
-                    _logger.info("嵌入供应商 #%d 成功（回退）", i + 1)
                 return embedding
             except Exception as e:
-                _logger.warning("嵌入供应商 #%d 失败: %s", i + 1, e)
+                _logger.warning("嵌入供应商失败: %s", e)
                 continue
 
         return None
@@ -411,7 +388,9 @@ class EmbeddingSearchProvider:
         if query_embedding is None:
             return []
         return self._index.search_relevant(
-            query_embedding, limit=limit, min_score=min_score,
+            query_embedding,
+            limit=limit,
+            min_score=min_score,
         )
 
 

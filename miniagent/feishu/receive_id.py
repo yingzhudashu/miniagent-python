@@ -18,7 +18,9 @@ def effective_receive_id_type(args: dict[str, Any], ctx: ToolContext) -> str:
     return resolve_im_receive_id_type(None)
 
 
-def default_receive_id_for_send(args: dict[str, Any], ctx: ToolContext) -> tuple[str | None, str | None]:
+def default_receive_id_for_send(
+    args: dict[str, Any], ctx: ToolContext
+) -> tuple[str | None, str | None]:
     explicit = str(args.get("receive_id") or "").strip()
     if explicit:
         return explicit, None

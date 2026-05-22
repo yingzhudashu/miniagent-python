@@ -10,7 +10,9 @@ from miniagent.feishu.types import FeishuConfig
 
 
 @pytest.mark.asyncio
-async def test_feishu_merge_tools_uses_append_not_second_send_thinking(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_feishu_merge_tools_uses_append_not_second_send_thinking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from miniagent.engine.engine import UnifiedEngine
     from miniagent.infrastructure.monitor import DefaultToolMonitor
     from miniagent.infrastructure.registry import DefaultToolRegistry
@@ -30,7 +32,9 @@ async def test_feishu_merge_tools_uses_append_not_second_send_thinking(monkeypat
         acc = getattr(st, "feishu_stream_accumulated", "") or ""
         if not getattr(st, "feishu_tool_section_started", False):
             st.feishu_tool_section_started = True
-            st.feishu_stream_accumulated = acc + "\n\n---\n\n**工具**\n\n- " + line.replace("\n", " ")
+            st.feishu_stream_accumulated = (
+                acc + "\n\n---\n\n**工具**\n\n- " + line.replace("\n", " ")
+            )
         else:
             st.feishu_stream_accumulated = acc + "\n- " + line.replace("\n", " ")
 
@@ -40,9 +44,7 @@ async def test_feishu_merge_tools_uses_append_not_second_send_thinking(monkeypat
     async def fake_send_thinking(*args: Any, **kwargs: Any) -> None:
         calls.append(("send_thinking", (args, kwargs)))
 
-    monkeypatch.setattr(
-        "miniagent.feishu.poll_server.push_feishu_thinking_stream", fake_push
-    )
+    monkeypatch.setattr("miniagent.feishu.poll_server.push_feishu_thinking_stream", fake_push)
     monkeypatch.setattr(
         "miniagent.feishu.poll_server.append_feishu_thinking_same_card", fake_append
     )

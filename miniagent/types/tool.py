@@ -176,7 +176,9 @@ class ToolRegistryProtocol(Protocol):
         ...
 
     @abstractmethod
-    def get_schemas_by_toolboxes(self, ids: Sequence[str]) -> builtins.list[ChatCompletionToolParam]:
+    def get_schemas_by_toolboxes(
+        self, ids: Sequence[str]
+    ) -> builtins.list[ChatCompletionToolParam]:
         """按工具箱筛选，返回 schema 列表"""
         ...
 

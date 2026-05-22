@@ -41,6 +41,7 @@ _logger = get_logger(__name__)
 
 # ─── SKILL.md 解析 ───────────────────────────────────────
 
+
 def parse_skill_md(content: str) -> tuple[dict[str, Any], str]:
     """解析 SKILL.md 文件头部的 YAML front matter。
 
@@ -170,6 +171,7 @@ def _map_oc_metadata(meta: dict[str, Any]) -> Any | None:
 
 # ─── 动态导入模块 ────────────────────────────────────────
 
+
 def _module_name_for_path(prefix: str, file_path: str) -> str:
     """按文件 mtime 生成模块名，便于 refresh 时加载更新后的 tools.py。"""
     try:
@@ -211,7 +213,10 @@ def _import_module_from_path(module_name: str, file_path: str) -> Any:
 
 # ─── 子技能加载 ──────────────────────────────────────────
 
-def _load_sub_skills(skills_dir: str, *, package_name: str | None = None, inherit_metadata: Any | None = None) -> list[Skill]:
+
+def _load_sub_skills(
+    skills_dir: str, *, package_name: str | None = None, inherit_metadata: Any | None = None
+) -> list[Skill]:
     """从 skills/ 子目录加载子技能。"""
     pkg = package_name or os.path.basename(os.path.dirname(skills_dir))
     skills: list[Skill] = []
@@ -268,21 +273,24 @@ def _load_sub_skills(skills_dir: str, *, package_name: str | None = None, inheri
                         tools.update(value)
 
         if skill_md or tools:
-            skills.append(Skill(
-                id=f"{os.path.basename(skills_dir)}-{entry}",
-                name=name,
-                description=description,
-                keywords=keywords,
-                tools=tools,
-                skill_md=skill_md,
-                system_prompt=system_prompt,
-                metadata=skill_metadata or inherit_metadata,
-            ))
+            skills.append(
+                Skill(
+                    id=f"{os.path.basename(skills_dir)}-{entry}",
+                    name=name,
+                    description=description,
+                    keywords=keywords,
+                    tools=tools,
+                    skill_md=skill_md,
+                    system_prompt=system_prompt,
+                    metadata=skill_metadata or inherit_metadata,
+                )
+            )
 
     return skills
 
 
 # ─── 技能包加载 ──────────────────────────────────────────
+
 
 async def load_skill_package(package_dir: str) -> SkillPackage | None:
     """尝试从目录加载一个技能包。
@@ -363,7 +371,9 @@ async def load_skill_package(package_dir: str) -> SkillPackage | None:
     # 尝试从 skills/ 子目录加载子技能
     sub_skills_dir = os.path.join(package_dir, "skills")
     if os.path.isdir(sub_skills_dir):
-        sub_skills = _load_sub_skills(sub_skills_dir, package_name=package_name, inherit_metadata=package_metadata)
+        sub_skills = _load_sub_skills(
+            sub_skills_dir, package_name=package_name, inherit_metadata=package_metadata
+        )
         skills.extend(sub_skills)
 
     if not skills and not skill_md:
@@ -380,6 +390,7 @@ async def load_skill_package(package_dir: str) -> SkillPackage | None:
 
 
 # ─── 自动发现 ───────────────────────────────────────────
+
 
 async def discover_skill_packages(skills_root: str) -> list[SkillPackage]:
     """发现并加载 skills/ 目录下的所有技能包。

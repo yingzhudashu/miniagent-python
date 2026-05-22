@@ -160,6 +160,7 @@ def main():
         raise SystemExit(code)
 
     from miniagent.compat import unified_entry
+
     unified_entry()
 
 

@@ -27,7 +27,9 @@ def _parse_feishu_json_code(raw: Any) -> int | None:
         return None
 
 
-def _http_post_json(url: str, payload: dict[str, Any], *, headers: dict[str, str] | None = None) -> dict[str, Any]:
+def _http_post_json(
+    url: str, payload: dict[str, Any], *, headers: dict[str, str] | None = None
+) -> dict[str, Any]:
     data = json.dumps(payload).encode("utf-8")
     h = {"Content-Type": "application/json; charset=utf-8"}
     if headers:

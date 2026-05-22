@@ -27,7 +27,9 @@ async def test_feishu_bitable_get_meta(monkeypatch: pytest.MonkeyPatch) -> None:
             return_value=([{"table_id": "tbl1", "name": "Table1"}], None, False),
         ),
     ):
-        r = await _feishu_bitable({"action": "get_meta", "app_token": "appX"}, ToolContext(cwd="/tmp"))
+        r = await _feishu_bitable(
+            {"action": "get_meta", "app_token": "appX"}, ToolContext(cwd="/tmp")
+        )
     assert r.success is True
     assert "Demo" in r.content
     assert "tbl1" in r.content

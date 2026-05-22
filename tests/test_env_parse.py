@@ -39,9 +39,14 @@ def test_env_str_and_choice(monkeypatch: pytest.MonkeyPatch) -> None:
     assert env_str("MINIAGENT_TEST_STR", "reply") == "reply"
     monkeypatch.setenv("MINIAGENT_TEST_STR", "  create  ")
     assert env_str("MINIAGENT_TEST_STR", "reply") == "create"
-    assert env_choice("MINIAGENT_TEST_STR", frozenset({"create", "reply"}), default="reply") == "create"
+    assert (
+        env_choice("MINIAGENT_TEST_STR", frozenset({"create", "reply"}), default="reply")
+        == "create"
+    )
     monkeypatch.setenv("MINIAGENT_TEST_STR", "typo")
-    assert env_choice("MINIAGENT_TEST_STR", frozenset({"create", "reply"}), default="reply") == "reply"
+    assert (
+        env_choice("MINIAGENT_TEST_STR", frozenset({"create", "reply"}), default="reply") == "reply"
+    )
 
 
 def test_env_flag_strict_unknown_is_false(monkeypatch: pytest.MonkeyPatch) -> None:

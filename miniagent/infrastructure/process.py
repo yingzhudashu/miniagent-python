@@ -66,11 +66,13 @@ def get_active_processes() -> list[dict]:
     """返回活跃子进程信息列表。"""
     result = []
     for proc in _tracked:
-        result.append({
-            "pid": proc.pid,
-            "running": proc.returncode is None,
-            "returncode": proc.returncode,
-        })
+        result.append(
+            {
+                "pid": proc.pid,
+                "running": proc.returncode is None,
+                "returncode": proc.returncode,
+            }
+        )
     return result
 
 
@@ -180,6 +182,7 @@ def _sync_cleanup():
 
 
 # ─── 辅助：创建追踪子进程 ───
+
 
 async def create_tracked_subprocess(
     cmd: str,

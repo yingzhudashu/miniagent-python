@@ -89,10 +89,7 @@ def test_cmd_bind_cli_normalizes_oc_id(router: ChannelRouter) -> None:
     assert "feishu:oc_mygroup" in out
     assert router.resolve(ChannelRouter.CLI_CHANNEL) == "feishu:oc_mygroup"
     assert router.primary == "feishu:oc_mygroup"
-    assert (
-        router.resolve_feishu_message("oc_mygroup", "ou_x", "group")
-        == "feishu:oc_mygroup"
-    )
+    assert router.resolve_feishu_message("oc_mygroup", "ou_x", "group") == "feishu:oc_mygroup"
 
 
 def test_p2p_mirror_after_auto_bind_resolve(router: ChannelRouter) -> None:

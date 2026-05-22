@@ -109,8 +109,7 @@ def build_layered_memory_augmentation(
         if entries:
             tail = entries[-15:]
             blob = "\n".join(
-                f"- ({x.get('source_session', '')}) {x.get('text', '')[:400]}"
-                for x in tail
+                f"- ({x.get('source_session', '')}) {x.get('text', '')[:400]}" for x in tail
             )
             parts.append("【Agent 长期记忆】\n" + blob)
 

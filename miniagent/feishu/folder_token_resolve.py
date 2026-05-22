@@ -57,7 +57,10 @@ def folder_token_from_tool_arg(raw: str | None) -> tuple[str, str | None]:
         tok = extract_folder_token_from_url(s)
         if tok:
             return tok, None
-        return "", "未能从链接中解析出 folder_token；请使用云盘文件夹分享链接，或直接传入文件夹 token。"
+        return (
+            "",
+            "未能从链接中解析出 folder_token；请使用云盘文件夹分享链接，或直接传入文件夹 token。",
+        )
     return s, None
 
 
@@ -75,7 +78,9 @@ def root_meta_fallback_enabled() -> bool:
     return env_flag("FEISHU_DOC_FOLDER_FALLBACK_ROOT_META", default=True)
 
 
-def format_missing_folder_token_message(*, tried: list[str], root_meta_error: str | None = None) -> str:
+def format_missing_folder_token_message(
+    *, tried: list[str], root_meta_error: str | None = None
+) -> str:
     """统一缺省目录时的工具失败文案。"""
     tried_s = "、".join(tried) if tried else "（无）"
     lines = [
@@ -90,7 +95,9 @@ def format_missing_folder_token_message(*, tried: list[str], root_meta_error: st
     return "\n".join(lines)
 
 
-def resolve_parent_folder_token(folder_arg: str | None, *, cfg: FeishuConfig | None) -> tuple[str | None, str | None]:
+def resolve_parent_folder_token(
+    folder_arg: str | None, *, cfg: FeishuConfig | None
+) -> tuple[str | None, str | None]:
     """解析创建/列举云盘目录所用的父文件夹 token。
 
     顺序：工具参数（支持 URL）→ 环境默认 →（可选）根文件夹元数据 API。

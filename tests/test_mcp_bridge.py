@@ -54,4 +54,7 @@ def test_mcp_tool_to_openai_param_pydantic_schema() -> None:
 
     tool = _FakeMCPTool(input_schema=_PydanticLike())
     result = mcp_tool_to_openai_param(tool)
-    assert result["function"]["parameters"] == {"type": "object", "properties": {"x": {"type": "string"}}}
+    assert result["function"]["parameters"] == {
+        "type": "object",
+        "properties": {"x": {"type": "string"}},
+    }

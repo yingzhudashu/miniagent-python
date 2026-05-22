@@ -24,7 +24,7 @@ class FeishuRuntime:
 
     def __init__(self, message_queue: Any) -> None:
         """Args:
-            message_queue: 与 CLI 共用的 :class:`~miniagent.infrastructure.message_queue.MessageQueueManager`。
+        message_queue: 与 CLI 共用的 :class:`~miniagent.infrastructure.message_queue.MessageQueueManager`。
         """
         self._message_queue = message_queue
         self._task: asyncio.Task | None = None
@@ -80,7 +80,9 @@ class FeishuRuntime:
                 pass
             # #endregion
             _logger.warning("未配置 FEISHU_APP_ID，跳过飞书启动")
-            self._emit_user_line("\u274c \u672a\u914d\u7f6e\u98de\u4e66\u51ed\u8bc1 (FEISHU_APP_ID)")
+            self._emit_user_line(
+                "\u274c \u672a\u914d\u7f6e\u98de\u4e66\u51ed\u8bc1 (FEISHU_APP_ID)"
+            )
             return
 
         if self._running and self._task and not self._task.done():
@@ -106,7 +108,11 @@ class FeishuRuntime:
                 hypothesis_id="D",
                 location="feishu_state.py:FeishuRuntime.start",
                 message="feishu_inbound_lock",
-                data={"lock_ok": ok, "instance_id": inst_id, "lock_msg_snip": (lock_msg or "")[:200]},
+                data={
+                    "lock_ok": ok,
+                    "instance_id": inst_id,
+                    "lock_msg_snip": (lock_msg or "")[:200],
+                },
             )
         except Exception:
             pass
@@ -146,7 +152,9 @@ class FeishuRuntime:
 
                 log_feishu_im_tools_startup_hint_once()
                 _logger.info("\u98de\u4e66: \u6b63\u5728\u542f\u52a8 WebSocket \u957f\u8f6e\u8be2")
-                self._emit_user_line("\U0001f310 [\u98de\u4e66] \u6b63\u5728\u542f\u52a8 WebSocket \u957f\u8f6e\u8be2\u2026")
+                self._emit_user_line(
+                    "\U0001f310 [\u98de\u4e66] \u6b63\u5728\u542f\u52a8 WebSocket \u957f\u8f6e\u8be2\u2026"
+                )
                 while True:
                     if attempt >= 1:
                         cap = min(60.0, 2.0 ** min(attempt, 6))
@@ -157,7 +165,9 @@ class FeishuRuntime:
                         try:
                             await asyncio.sleep(delay)
                         except asyncio.CancelledError:
-                            _logger.info("\u98de\u4e66: \u5df2\u53d6\u6d88\uff08\u9000\u51fa\u7b49\u5f85\uff09")
+                            _logger.info(
+                                "\u98de\u4e66: \u5df2\u53d6\u6d88\uff08\u9000\u51fa\u7b49\u5f85\uff09"
+                            )
                             self._emit_user_line("\u2139\ufe0f [\u98de\u4e66] \u5df2\u505c\u6b62")
                             raise
                     try:
@@ -184,7 +194,9 @@ class FeishuRuntime:
                         self._emit_user_line("\u2139\ufe0f [\u98de\u4e66] \u5df2\u505c\u6b62")
                         raise
                     except Exception as e:
-                        _logger.error("[\u98de\u4e66] \u8fd0\u884c\u5f02\u5e38: %s", e, exc_info=True)
+                        _logger.error(
+                            "[\u98de\u4e66] \u8fd0\u884c\u5f02\u5e38: %s", e, exc_info=True
+                        )
                         self._emit_user_line(
                             f"\u2139\ufe0f [\u98de\u4e66] \u8fde\u63a5\u5f02\u5e38\uff0c\u5c06\u91cd\u8bd5: {e}"
                         )
@@ -211,7 +223,10 @@ class FeishuRuntime:
                 hypothesis_id="D",
                 location="feishu_state.py:FeishuRuntime.start",
                 message="feishu_background_task_created",
-                data={"app_id_len": len(config.app_id or ""), "has_secret": bool((config.app_secret or "").strip())},
+                data={
+                    "app_id_len": len(config.app_id or ""),
+                    "has_secret": bool((config.app_secret or "").strip()),
+                },
             )
         except Exception:
             pass

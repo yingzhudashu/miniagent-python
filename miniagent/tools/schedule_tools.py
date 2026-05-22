@@ -192,8 +192,7 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
         return ToolResult(
             success=True,
             content=(
-                f"✅ 已添加 interval 任务 {tid} timezone={tz} "
-                f"next={format_next_run_display(task)}"
+                f"✅ 已添加 interval 任务 {tid} timezone={tz} next={format_next_run_display(task)}"
             ),
         )
 
@@ -229,7 +228,9 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
         )
         task.next_run_at = compute_initial_next_run(task)
         if task.next_run_at is None:
-            return ToolResult(success=False, content="无法解析 once_iso，请使用 ISO8601（可含 Z 或偏移）")
+            return ToolResult(
+                success=False, content="无法解析 once_iso，请使用 ISO8601（可含 Z 或偏移）"
+            )
         if task.next_run_at < time.time():
             return ToolResult(success=False, content="一次性任务时间已在过去")
         tasks = load_tasks()
@@ -315,14 +316,18 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
             return ToolResult(success=False, content=f"❌ {e}")
         existing.prompt = prompt
         existing.session = sess
-        if schedule_kind == "interval" or (not schedule_kind and existing.schedule.kind == "interval"):
+        if schedule_kind == "interval" or (
+            not schedule_kind and existing.schedule.kind == "interval"
+        ):
             raw_sec = args.get("interval_seconds", existing.schedule.interval_seconds)
             try:
                 sec = int(raw_sec) if raw_sec is not None else 0
             except (TypeError, ValueError):
                 sec = 0
             if sec <= 0:
-                return ToolResult(success=False, content="interval 更新需要 interval_seconds（正整数）")
+                return ToolResult(
+                    success=False, content="interval 更新需要 interval_seconds（正整数）"
+                )
             existing.schedule = ScheduleSpec(
                 kind="interval",
                 interval_seconds=sec,
@@ -406,7 +411,10 @@ _manage_scheduled_task_schema = {
                     "type": "string",
                     "description": "任务 id（add_* / update / remove / show / set_enabled）",
                 },
-                "prompt": {"type": "string", "description": "add_* / update：注入 Agent 的用户提示正文"},
+                "prompt": {
+                    "type": "string",
+                    "description": "add_* / update：注入 Agent 的用户提示正文",
+                },
                 "schedule_kind": {
                     "type": "string",
                     "description": "update：interval | once | cron；省略则保持原 kind",

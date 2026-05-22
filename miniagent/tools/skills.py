@@ -77,7 +77,7 @@ async def _search_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     source = str(args.get("source", "all"))
     limit = int(args.get("limit", 10))
 
-    results: list[str] = [f"🔍 搜索技能: \"{query}\" (来源: {source})\n"]
+    results: list[str] = [f'🔍 搜索技能: "{query}" (来源: {source})\n']
 
     # 本地搜索
     if source in ("local", "all"):
@@ -161,7 +161,7 @@ async def _install_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult
         if os.path.exists(install_dir):
             return ToolResult(
                 success=False,
-                content=f"⚠️ 技能 \"{slug}\" 已安装在 {install_dir}\n如需重新安装，请先删除该目录",
+                content=f'⚠️ 技能 "{slug}" 已安装在 {install_dir}\n如需重新安装，请先删除该目录',
             )
 
         result = await client.download(slug, version, skills_root=skills_root)
@@ -172,6 +172,7 @@ async def _install_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult
         vet_report = ""
         if os.path.isdir(install_path):
             from miniagent.skills.autovet import _auto_vet_skill
+
             vet_report = _auto_vet_skill(install_path)
 
         refresh_note = ""
@@ -196,8 +197,7 @@ async def _install_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult
                     )
                 except Exception as ex:
                     refresh_note = (
-                        f"\n\n⚠️ 安装成功但热加载失败: {ex}"
-                        f"\n请执行 `.reload-skills` 或重启 Agent"
+                        f"\n\n⚠️ 安装成功但热加载失败: {ex}\n请执行 `.reload-skills` 或重启 Agent"
                     )
             else:
                 refresh_note = "\n\n💡 提示：执行 `.reload-skills` 或重启 Agent 后加载"
@@ -207,7 +207,7 @@ async def _install_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult
         return ToolResult(
             success=True,
             content=(
-                f"✅ 技能 \"{slug}\" 安装成功！\n\n"
+                f'✅ 技能 "{slug}" 安装成功！\n\n'
                 f"📁 安装路径: {install_path}\n"
                 f"📦 版本: {detail.get('version', 'unknown')}\n"
                 f"📄 文件数: {len(result.get('files', []))}"
@@ -218,7 +218,7 @@ async def _install_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult
     except Exception as e:
         return ToolResult(
             success=False,
-            content=f"❌ 安装技能 \"{slug}\" 失败: {e}\n\n请检查 slug 是否正确",
+            content=f'❌ 安装技能 "{slug}" 失败: {e}\n\n请检查 slug 是否正确',
         )
 
 
@@ -272,7 +272,9 @@ async def _list_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolResult:
         lines.append(f"  - [{s['slug']}] {s['name']}")
         lines.append(f"    {s['description']}")
         if verbose:
-            lines.append(f"    版本: {s.get('version', 'local')} | 作者: {s.get('author', 'local')}")
+            lines.append(
+                f"    版本: {s.get('version', 'local')} | 作者: {s.get('author', 'local')}"
+            )
             lines.append(f"    路径: {os.path.join(skills_root, s['slug'])}")
         lines.append("")
 
@@ -323,7 +325,7 @@ async def _uninstall_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
         if not os.path.isdir(install_dir):
             return ToolResult(
                 success=False,
-                content=f"⚠️ 技能 \"{slug}\" 未安装在 {install_dir}\n使用 list_skills 查看已安装技能",
+                content=f'⚠️ 技能 "{slug}" 未安装在 {install_dir}\n使用 list_skills 查看已安装技能',
             )
 
         shutil.rmtree(install_dir)
@@ -345,13 +347,11 @@ async def _uninstall_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
                         session_manager=st.get("session_manager"),
                     )
                     refresh_note = (
-                        f"\n\n🔄 已从当前 Agent 中移除"
-                        f"（移除工具 {len(fr.removed_tools)} 个）"
+                        f"\n\n🔄 已从当前 Agent 中移除（移除工具 {len(fr.removed_tools)} 个）"
                     )
                 except Exception as ex:
                     refresh_note = (
-                        f"\n\n⚠️ 已删除目录但热移除失败: {ex}"
-                        f"\n请执行 `.reload-skills` 或重启 Agent"
+                        f"\n\n⚠️ 已删除目录但热移除失败: {ex}\n请执行 `.reload-skills` 或重启 Agent"
                     )
             else:
                 refresh_note = "\n\n💡 提示：执行 `.reload-skills` 或重启 Agent 后生效"
@@ -360,16 +360,12 @@ async def _uninstall_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
 
         return ToolResult(
             success=True,
-            content=(
-                f"✅ 技能 \"{slug}\" 已卸载\n\n"
-                f"📁 已删除: {install_dir}"
-                f"{refresh_note}"
-            ),
+            content=(f'✅ 技能 "{slug}" 已卸载\n\n📁 已删除: {install_dir}{refresh_note}'),
         )
     except Exception as e:
         return ToolResult(
             success=False,
-            content=f"❌ 卸载技能 \"{slug}\" 失败: {e}",
+            content=f'❌ 卸载技能 "{slug}" 失败: {e}',
         )
 
 

@@ -67,6 +67,9 @@ markers = [
     "evaluation: tests under tests/evaluation (often network/API; default CI uses -m 'not evaluation')",
     "perf: synthetic local performance smoke (see docs/PERFORMANCE.md)",
 ]
+filterwarnings = [
+    "ignore::RuntimeWarning",
+]
 
 [tool.ruff]
 target-version = "py310"

@@ -43,31 +43,144 @@ _logger = get_logger(__name__)
 # 停用词
 # ============================================================================
 
-_STOP_WORDS = frozenset([
-    # 中文
-    "的", "了", "是", "在", "我", "有", "和", "就", "不", "人", "都", "一", "一个",
-    "上", "也", "很", "到", "说", "要", "去", "你", "会", "着", "没有", "看", "好",
-    "自己", "这", "那", "吗", "吧", "呢", "啊", "呀", "哦", "嗯", "哈",
-    # 英文
-    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
-    "have", "has", "had", "do", "does", "did", "will", "would", "could", "should",
-    "may", "might", "can", "shall", "of", "in", "to", "for", "with", "on", "at",
-    "from", "by", "as", "into", "through", "during", "before", "after",
-    "and", "but", "or", "nor", "so", "yet", "both", "either", "neither",
-    "not", "only", "own", "same", "than", "too", "very", "just", "because",
-    "i", "me", "my", "myself", "we", "our", "you", "your", "he", "him", "his",
-    "she", "her", "it", "its", "they", "them", "their", "what", "which", "who",
-    "whom", "this", "that", "these", "those", "am",
-])
+_STOP_WORDS = frozenset(
+    [
+        # 中文
+        "的",
+        "了",
+        "是",
+        "在",
+        "我",
+        "有",
+        "和",
+        "就",
+        "不",
+        "人",
+        "都",
+        "一",
+        "一个",
+        "上",
+        "也",
+        "很",
+        "到",
+        "说",
+        "要",
+        "去",
+        "你",
+        "会",
+        "着",
+        "没有",
+        "看",
+        "好",
+        "自己",
+        "这",
+        "那",
+        "吗",
+        "吧",
+        "呢",
+        "啊",
+        "呀",
+        "哦",
+        "嗯",
+        "哈",
+        # 英文
+        "the",
+        "a",
+        "an",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "have",
+        "has",
+        "had",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "could",
+        "should",
+        "may",
+        "might",
+        "can",
+        "shall",
+        "of",
+        "in",
+        "to",
+        "for",
+        "with",
+        "on",
+        "at",
+        "from",
+        "by",
+        "as",
+        "into",
+        "through",
+        "during",
+        "before",
+        "after",
+        "and",
+        "but",
+        "or",
+        "nor",
+        "so",
+        "yet",
+        "both",
+        "either",
+        "neither",
+        "not",
+        "only",
+        "own",
+        "same",
+        "than",
+        "too",
+        "very",
+        "just",
+        "because",
+        "i",
+        "me",
+        "my",
+        "myself",
+        "we",
+        "our",
+        "you",
+        "your",
+        "he",
+        "him",
+        "his",
+        "she",
+        "her",
+        "it",
+        "its",
+        "they",
+        "them",
+        "their",
+        "what",
+        "which",
+        "who",
+        "whom",
+        "this",
+        "that",
+        "these",
+        "those",
+        "am",
+    ]
+)
 
 
 # ============================================================================
 # 索引数据结构
 # ============================================================================
 
+
 @dataclass
 class _IndexReference:
     """索引中的记忆引用"""
+
     session_id: str
     timestamp: str
     user_snippet: str
@@ -79,6 +192,7 @@ class _IndexReference:
 @dataclass
 class _IndexEntry:
     """关键词索引条目"""
+
     keyword: str
     references: list[_IndexReference] = field(default_factory=list)
 
@@ -86,6 +200,7 @@ class _IndexEntry:
 @dataclass
 class _SearchResult:
     """检索结果"""
+
     session_id: str
     timestamp: str
     user_snippet: str
@@ -97,6 +212,7 @@ class _SearchResult:
 # ============================================================================
 # 分词
 # ============================================================================
+
 
 def extract_keywords(text: str) -> list[str]:
     """提取关键词（简化版中文分词 + 英文词元化）
@@ -119,9 +235,7 @@ def extract_keywords(text: str) -> list[str]:
     keywords: set[str] = set()
 
     # 英文分词
-    english_words = re.sub(
-        r"[^a-z0-9\u4e00-\u9fff\s]", " ", text.lower()
-    ).split()
+    english_words = re.sub(r"[^a-z0-9\u4e00-\u9fff\s]", " ", text.lower()).split()
     for w in english_words:
         if len(w) > 1 and w not in _STOP_WORDS:
             keywords.add(w)
@@ -130,11 +244,11 @@ def extract_keywords(text: str) -> list[str]:
     chinese_chars = re.sub(r"[^\u4e00-\u9fff]", "", text)
     for i in range(len(chinese_chars) - 1):
         if i + 1 < len(chinese_chars):
-            bigram = chinese_chars[i:i + 2]
+            bigram = chinese_chars[i : i + 2]
             if bigram not in _STOP_WORDS:
                 keywords.add(bigram)
         if i + 2 < len(chinese_chars):
-            trigram = chinese_chars[i:i + 3]
+            trigram = chinese_chars[i : i + 3]
             keywords.add(trigram)
 
     return list(keywords)
@@ -143,6 +257,7 @@ def extract_keywords(text: str) -> list[str]:
 # ============================================================================
 # 索引管理
 # ============================================================================
+
 
 class KeywordIndex:
     """关键词倒排索引
@@ -246,9 +361,7 @@ class KeywordIndex:
         except Exception as e:
             _logger.error("保存索引失败: %s", e)
 
-    def index_entry(
-        self, session_id: str, entry: MemoryEntryInput | MemoryEntry
-    ) -> None:
+    def index_entry(self, session_id: str, entry: MemoryEntryInput | MemoryEntry) -> None:
         """索引一条记忆条目
 
         Args:
@@ -259,11 +372,13 @@ class KeywordIndex:
 
         # 组合文本用于提取关键词
         facts = getattr(entry, "facts", []) or []
-        full_text = " ".join([
-            entry.user_snippet,
-            entry.summary,
-            *facts,
-        ])
+        full_text = " ".join(
+            [
+                entry.user_snippet,
+                entry.summary,
+                *facts,
+            ]
+        )
 
         keywords = extract_keywords(full_text)
 
@@ -279,14 +394,16 @@ class KeywordIndex:
                 for r in idx_entry.references
             )
             if not exists:
-                idx_entry.references.append(_IndexReference(
-                    session_id=session_id,
-                    timestamp=entry.timestamp,
-                    user_snippet=entry.user_snippet,
-                    summary=entry.summary,
-                    facts=getattr(entry, "facts", []) or [],
-                    weight=1.0,
-                ))
+                idx_entry.references.append(
+                    _IndexReference(
+                        session_id=session_id,
+                        timestamp=entry.timestamp,
+                        user_snippet=entry.user_snippet,
+                        summary=entry.summary,
+                        facts=getattr(entry, "facts", []) or [],
+                        weight=1.0,
+                    )
+                )
                 self._dirty = True
 
     def search_relevant(
@@ -312,6 +429,7 @@ class KeywordIndex:
         cutoff_time = None
         if recent_minutes > 0:
             from datetime import timedelta
+
             cutoff = datetime.now(timezone.utc) - timedelta(minutes=recent_minutes)
             cutoff_time = cutoff.isoformat()
 
@@ -403,9 +521,8 @@ class KeywordIndex:
         self._ensure_loaded()
 
         from datetime import timedelta
-        cutoff = (
-            datetime.now(timezone.utc) - timedelta(days=days_old)
-        ).isoformat()
+
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days_old)).isoformat()
         removed_count = 0
 
         for entry in self._index.values():
@@ -414,9 +531,7 @@ class KeywordIndex:
             removed_count += before - len(entry.references)
 
         # 清空关键词
-        empty_keys = [
-            k for k, v in self._index.items() if not v.references
-        ]
+        empty_keys = [k for k, v in self._index.items() if not v.references]
         for k in empty_keys:
             del self._index[k]
 
@@ -454,9 +569,7 @@ def search_relevant_with_index(
     ]
 
 
-def search_relevant_memory(
-    query: str, top_k: int = 5, min_score: int = 0
-) -> list[dict[str, Any]]:
+def search_relevant_memory(query: str, top_k: int = 5, min_score: int = 0) -> list[dict[str, Any]]:
     """搜索相关记忆（全局便捷函数）。"""
     from miniagent.memory.defaults import get_process_default_memory_bundle
 

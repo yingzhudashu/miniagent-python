@@ -27,6 +27,7 @@ class QueueMode(str, enum.Enum):
     - QUEUE: 队列模式（默认），消息逐个按顺序处理，互不影响
     - PREEMPTIVE: 打断模式，最新消息打断正在处理的任务，队列清空
     """
+
     QUEUE = "queue"
     PREEMPTIVE = "preemptive"
 
@@ -83,6 +84,7 @@ class _ChatQueue:
         """当前任务已运行秒数。"""
         if self._task_start_time is not None:
             import time
+
             return time.monotonic() - self._task_start_time
         return None
 
@@ -130,6 +132,7 @@ class _ChatQueue:
     def mark_task_start(self) -> None:
         """标记当前任务开始，记录启动时间戳。"""
         import time
+
         self._task_start_time = time.monotonic()
 
     def mark_task_end(self) -> None:
@@ -226,14 +229,10 @@ class _ChatQueue:
             if not t.done():
                 t.cancel()
                 wait_cancelled += 1
-        self._dispatch_wait_tasks = {
-            t for t in self._dispatch_wait_tasks if not t.done()
-        }
+        self._dispatch_wait_tasks = {t for t in self._dispatch_wait_tasks if not t.done()}
 
         total_wrappers = cancelled_wrappers + wait_cancelled
-        cancelled_running = (
-            1 if (was_processing and total_wrappers >= 1) else 0
-        )
+        cancelled_running = 1 if (was_processing and total_wrappers >= 1) else 0
         cancelled_pending = max(0, total_wrappers - cancelled_running)
         return {
             "cancelled_running": bool(cancelled_running),
@@ -311,9 +310,7 @@ class MessageQueueManager:
         q = self._get_queue(chat_id)
         await q.enqueue(coro, self._mode, on_start, on_done)
 
-    async def dispatch_wait(
-        self, chat_id: str, coro, on_start=None, on_done=None
-    ) -> None:
+    async def dispatch_wait(self, chat_id: str, coro, on_start=None, on_done=None) -> None:
         """与 :meth:`dispatch` 同一串行锁，但阻塞直到 ``coro`` 执行完毕（QUEUE 模式）。
 
         供定时任务等需在触发点确认落盘后再继续的逻辑；普通消息仍用 ``dispatch``。

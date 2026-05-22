@@ -151,10 +151,7 @@ class DefaultToolRegistry(ToolRegistryProtocol):
         if not ids:
             return self.get_schemas()
         id_set = set(ids)
-        return [
-            t.schema for t in self._tools.values()
-            if t.toolbox is None or t.toolbox in id_set
-        ]
+        return [t.schema for t in self._tools.values() if t.toolbox is None or t.toolbox in id_set]
 
     def get_by_toolboxes(self, ids: list[str]) -> dict[str, RegisteredTool]:
         """按工具箱 ID 筛选完整的工具对象
@@ -173,7 +170,8 @@ class DefaultToolRegistry(ToolRegistryProtocol):
             return self.get_all()
         id_set = set(ids)
         return {
-            name: tool for name, tool in self._tools.items()
+            name: tool
+            for name, tool in self._tools.items()
             if tool.toolbox is None or tool.toolbox in id_set
         }
 

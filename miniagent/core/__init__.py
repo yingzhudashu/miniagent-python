@@ -14,8 +14,6 @@
 
 from miniagent.core.agent import run_agent, run_pipeline
 from miniagent.core.config import (
-    MODEL_PROFILES,
-    apply_model_profile,
     get_default_agent_config,
     get_default_model_config,
     merge_agent_config,
@@ -24,10 +22,8 @@ from miniagent.core.executor import AGENT_IDENTITY, AGENT_NAME
 from miniagent.core.planner import AGENT_NAME as PLANNER_AGENT_NAME
 
 __all__ = [
-    "MODEL_PROFILES",
     "get_default_agent_config",
     "get_default_model_config",
-    "apply_model_profile",
     "merge_agent_config",
     "AGENT_NAME",
     "AGENT_IDENTITY",

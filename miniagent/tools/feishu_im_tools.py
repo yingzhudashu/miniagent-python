@@ -69,7 +69,9 @@ async def _feishu_send_workspace_file(args: dict[str, Any], ctx: ToolContext) ->
             upload_im_image,
         )
     except ImportError:
-        return ToolResult(success=False, content="⚠️ 请安装 lark-oapi（pip install miniagent-python[feishu]）。")
+        return ToolResult(
+            success=False, content="⚠️ 请安装 lark-oapi（pip install miniagent-python[feishu]）。"
+        )
 
     try:
         with open(path, "rb") as f:
@@ -147,7 +149,9 @@ async def _feishu_list_drive_files(args: dict[str, Any], ctx: ToolContext) -> To
     except ImportError:
         return ToolResult(success=False, content="⚠️ 请安装 lark-oapi。")
     try:
-        entries, next_tok, has_more = list_folder_files_page(cfg, folder_token=folder, page_token=page_token)
+        entries, next_tok, has_more = list_folder_files_page(
+            cfg, folder_token=folder, page_token=page_token
+        )
     except Exception as e:
         return ToolResult(success=False, content=f"⚠️ 列举失败: {e}")
     lines = ["| name | token | type |", "| --- | --- | --- |"]

@@ -85,7 +85,9 @@ async def _feishu_doc(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     try:
         require_lark_oapi()
     except ImportError:
-        return ToolResult(success=False, content="⚠️ 请安装 lark-oapi（pip install miniagent-python[feishu]）。")
+        return ToolResult(
+            success=False, content="⚠️ 请安装 lark-oapi（pip install miniagent-python[feishu]）。"
+        )
 
     try:
         if action == "create":
@@ -156,7 +158,9 @@ async def _action_create(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConf
     url = _docx_open_url(doc_id)
     url_line = f"\n- url: {url}" if url else ""
     hint = "" if url else "\n（配置 MINIAGENT_FEISHU_DOCX_URL_PREFIX 可带可分享链接）"
-    owner = str(args.get("owner_open_id") or getattr(ctx, "feishu_im_receive_id", None) or "").strip()
+    owner = str(
+        args.get("owner_open_id") or getattr(ctx, "feishu_im_receive_id", None) or ""
+    ).strip()
     owner_note = f"\n- owner_open_id: {owner}" if owner else ""
     return ToolResult(
         success=True,
@@ -460,7 +464,9 @@ def _action_download_media(args: dict[str, Any], ctx: ToolContext, cfg: FeishuCo
     return ToolResult(success=True, content=f"✅ 已下载 {len(data)} 字节到 {rel}")
 
 
-async def _action_upload_image_from_message(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig) -> ToolResult:
+async def _action_upload_image_from_message(
+    args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig
+) -> ToolResult:
     from miniagent.feishu.docx.media import upload_doc_image_from_bytes
     from miniagent.feishu.resource_io import download_message_resource
 
@@ -469,7 +475,9 @@ async def _action_upload_image_from_message(args: dict[str, Any], ctx: ToolConte
     fk = str(args.get("file_key") or "").strip()
     if not doc_id or not mid or not fk:
         return ToolResult(success=False, content="⚠️ 需要 doc_token、message_id、file_key。")
-    data, _ = await download_message_resource(cfg.app_id, cfg.app_secret, message_id=mid, file_key=fk, type_="image")
+    data, _ = await download_message_resource(
+        cfg.app_id, cfg.app_secret, message_id=mid, file_key=fk, type_="image"
+    )
     tok = upload_doc_image_from_bytes(cfg, doc_id, data)
     return ToolResult(success=True, content=f"✅ 已从消息插入图片，file_token={tok}")
 
@@ -517,7 +525,9 @@ def _action_add_permission(args: dict[str, Any], cfg: FeishuConfig) -> ToolResul
     member_id = str(args.get("member_id") or args.get("email") or args.get("open_id") or "").strip()
     perm = str(args.get("perm") or "view").strip()
     if not doc_id or not member_type or not member_id:
-        return ToolResult(success=False, content="⚠️ 需要 doc_token、member_type、member_id（或 email/open_id）。")
+        return ToolResult(
+            success=False, content="⚠️ 需要 doc_token、member_type、member_id（或 email/open_id）。"
+        )
     out = add_permission(cfg, doc_id, member_type=member_type, member_id=member_id, perm=perm)
     return ToolResult(success=True, content=_fmt_json(out))
 
@@ -590,7 +600,10 @@ _feishu_doc_schema = {
                     "description": "export_raw/import_raw/download_media/upload_image 等工作区相对路径",
                 },
                 "path": {"type": "string", "description": "relative_path 别名"},
-                "mode": {"type": "string", "description": "write 时：replace 整篇替换，默认 append"},
+                "mode": {
+                    "type": "string",
+                    "description": "write 时：replace 整篇替换，默认 append",
+                },
                 "table_block_id": {"type": "string", "description": "write_table_cells"},
                 "values": {"description": "表格二维数组或 JSON 字符串"},
                 "row_size": {"type": "integer", "description": "create_table"},

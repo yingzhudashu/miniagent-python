@@ -133,7 +133,9 @@ class ActivityLogger:
         lines.append(f"- model: {model}")
         lines.append(f"- messages: {message_count}, tools: {tool_count}")
         if token_usage:
-            lines.append(f"- tokens: prompt={token_usage.get('prompt_tokens', '?')}, completion={token_usage.get('completion_tokens', '?')}")
+            lines.append(
+                f"- tokens: prompt={token_usage.get('prompt_tokens', '?')}, completion={token_usage.get('completion_tokens', '?')}"
+            )
         if thinking:
             lines.append(f"- thinking: {thinking[:500]}")
         lines.append("")

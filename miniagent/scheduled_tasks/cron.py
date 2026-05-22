@@ -15,17 +15,13 @@ def normalize_cron_expr(expr: str) -> str:
     """NFKC 规范化并折叠空白；拒绝非 ASCII cron 字符（如全角 ``＊``）。"""
     stripped = (expr or "").strip()
     if any(ord(c) > 127 for c in stripped):
-        raise ValueError(
-            "cron 表达式须为 ASCII（分 时 日 月 周），请使用半角 * 而非全角 ＊ 等字符"
-        )
+        raise ValueError("cron 表达式须为 ASCII（分 时 日 月 周），请使用半角 * 而非全角 ＊ 等字符")
     raw = unicodedata.normalize("NFKC", stripped)
     collapsed = " ".join(raw.split())
     if not collapsed:
         raise ValueError("cron 表达式不能为空")
     if not _ASCII_CRON_RE.match(collapsed):
-        raise ValueError(
-            "cron 表达式须为 ASCII（分 时 日 月 周），请使用半角 * 而非全角 ＊ 等字符"
-        )
+        raise ValueError("cron 表达式须为 ASCII（分 时 日 月 周），请使用半角 * 而非全角 ＊ 等字符")
     parts = collapsed.split()
     if len(parts) != 5:
         raise ValueError(f"cron 须为 5 段（分 时 日 月 周），当前为 {len(parts)} 段")

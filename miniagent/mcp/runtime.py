@@ -27,7 +27,9 @@ def _tool_result_text(res: Any) -> str:
             parts.append(str(block["text"]))
     if parts:
         return "\n".join(parts)
-    return json.dumps(res.model_dump() if hasattr(res, "model_dump") else str(res), ensure_ascii=False)
+    return json.dumps(
+        res.model_dump() if hasattr(res, "model_dump") else str(res), ensure_ascii=False
+    )
 
 
 async def register_mcp_stdio_tools(

@@ -29,10 +29,7 @@ def _get_lark_client(config: FeishuConfig) -> Any:
     key = config.app_id
     if key not in _client_cache:
         _client_cache[key] = (
-            lark.Client.builder()
-            .app_id(config.app_id)
-            .app_secret(config.app_secret)
-            .build()
+            lark.Client.builder().app_id(config.app_id).app_secret(config.app_secret).build()
         )
     return _client_cache[key]
 

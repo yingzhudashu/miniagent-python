@@ -11,9 +11,11 @@ import pytest
 def test_parse_feishu_media_payload_file_and_image():
     from miniagent.feishu.poll_server import _parse_feishu_media_payload
 
-    assert _parse_feishu_media_payload(
-        "file", '{"file_key":"fk1","file_name":"a.pdf"}'
-    ) == ("file", "fk1", "a.pdf")
+    assert _parse_feishu_media_payload("file", '{"file_key":"fk1","file_name":"a.pdf"}') == (
+        "file",
+        "fk1",
+        "a.pdf",
+    )
     assert _parse_feishu_media_payload("image", '{"image_key":"ik9"}') == (
         "image",
         "ik9",
@@ -21,9 +23,11 @@ def test_parse_feishu_media_payload_file_and_image():
     )
     assert _parse_feishu_media_payload("file", "{}") is None
     assert _parse_feishu_media_payload("file", "not-json") is None
-    assert _parse_feishu_media_payload(
-        "file", '{"file_key":"fk2","name":"legacy.bin"}'
-    ) == ("file", "fk2", "legacy.bin")
+    assert _parse_feishu_media_payload("file", '{"file_key":"fk2","name":"legacy.bin"}') == (
+        "file",
+        "fk2",
+        "legacy.bin",
+    )
 
 
 @pytest.mark.asyncio

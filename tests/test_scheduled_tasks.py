@@ -117,10 +117,7 @@ def test_cmd_schedule_add_parses(state_dir: str) -> None:
 def test_cmd_schedule_add_once_with_tz_naive(state_dir: str) -> None:
     from miniagent.engine.cli_commands import cmd_schedule
 
-    line = (
-        ".schedule add tz1 once 2030-06-15T08:00:00 primary --tz Asia/Shanghai "
-        "-- remind me"
-    )
+    line = ".schedule add tz1 once 2030-06-15T08:00:00 primary --tz Asia/Shanghai -- remind me"
     msg = cmd_schedule(line, allow_mutations=True)
     assert "已添加" in msg
     tasks = load_tasks()
@@ -171,7 +168,9 @@ def test_resolve_primary_and_fixed_feishu(state_dir: str) -> None:
 
 
 @pytest.mark.asyncio
-async def test_tick_once_dispatches_and_updates(state_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_tick_once_dispatches_and_updates(
+    state_dir: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("MINIAGENT_DISABLE_SCHEDULED_TASKS", "0")
     t = ScheduledTask(
         id="run1",
@@ -217,7 +216,9 @@ def test_apply_dispatch_failure_backoff(state_dir: str) -> None:
 
 
 @pytest.mark.asyncio
-async def test_tick_once_dispatch_failure_backoff(state_dir: str, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_tick_once_dispatch_failure_backoff(
+    state_dir: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("MINIAGENT_DISABLE_SCHEDULED_TASKS", "0")
     t = ScheduledTask(
         id="fail1",
@@ -295,9 +296,7 @@ def test_repair_invalid_cron_sets_error(state_dir: str) -> None:
 def test_cmd_schedule_add_cron(state_dir: str) -> None:
     from miniagent.engine.cli_commands import cmd_schedule
 
-    line = (
-        '.schedule add cron1 cron "10 8 * * *" primary --tz Asia/Shanghai -- daily job'
-    )
+    line = '.schedule add cron1 cron "10 8 * * *" primary --tz Asia/Shanghai -- daily job'
     msg = cmd_schedule(line, allow_mutations=True)
     assert "已添加" in msg
     tasks = load_tasks()

@@ -18,7 +18,10 @@ async def test_feishu_doc_read_returns_json(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setenv("FEISHU_APP_SECRET", "b")
 
     with (
-        patch("miniagent.feishu.docx.client.get_document", return_value={"title": "T", "revision_id": 1}),
+        patch(
+            "miniagent.feishu.docx.client.get_document",
+            return_value={"title": "T", "revision_id": 1},
+        ),
         patch("miniagent.feishu.docx.client.get_document_raw_content", return_value="# Hi"),
         patch(
             "miniagent.feishu.docx.blocks.list_document_blocks",
@@ -53,8 +56,12 @@ async def test_feishu_doc_create_uses_folder_url(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setenv("FEISHU_DOC_FOLDER_FALLBACK_ROOT_META", "0")
     url = "https://tenant.feishu.cn/drive/folder/fldcnFromShare"
 
-    with patch("miniagent.feishu.docx.client.create_document", return_value=("doc_y", 2)) as mock_create:
-        r = await _feishu_doc({"action": "create", "title": "T", "folder_token": url}, ToolContext(cwd="/tmp"))
+    with patch(
+        "miniagent.feishu.docx.client.create_document", return_value=("doc_y", 2)
+    ) as mock_create:
+        r = await _feishu_doc(
+            {"action": "create", "title": "T", "folder_token": url}, ToolContext(cwd="/tmp")
+        )
     assert r.success is True
     mock_create.assert_called_once()
     assert mock_create.call_args.kwargs["folder_token"] == "fldcnFromShare"

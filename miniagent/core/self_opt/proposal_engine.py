@@ -56,23 +56,27 @@ def _pain_point_to_proposal(pain: PainPoint, root: str = "") -> OptimizationProp
     # 根据痛点类型添加文件变更
     if "缺少 __init__.py" in pain.description:
         proposal.type = "add"
-        proposal.files.append(FileChange(
-            path=pain.description.split("目录 ")[1].split(" 包含")[0] + "/__init__.py",
-            action="create",
-            content='"""模块文档字符串"""\n',
-            reason="添加包标识文件",
-        ))
+        proposal.files.append(
+            FileChange(
+                path=pain.description.split("目录 ")[1].split(" 包含")[0] + "/__init__.py",
+                action="create",
+                content='"""模块文档字符串"""\n',
+                reason="添加包标识文件",
+            )
+        )
     elif "文件过大" in pain.description:
         proposal.type = "refactor"
         proposal.risk_level = "medium"
     elif "缺少文档" in pain.description:
         proposal.type = "add"
-        proposal.files.append(FileChange(
-            path="CHANGELOG.md",
-            action="create",
-            content="# 变更日志\n\n## [Unreleased]\n",
-            reason="添加变更日志",
-        ))
+        proposal.files.append(
+            FileChange(
+                path="CHANGELOG.md",
+                action="create",
+                content="# 变更日志\n\n## [Unreleased]\n",
+                reason="添加变更日志",
+            )
+        )
 
     return proposal
 
@@ -89,26 +93,28 @@ def _generate_test_proposals(report: InspectionReport) -> list[OptimizationPropo
     proposals = []
 
     if report.test_coverage < 50:
-        proposals.append(OptimizationProposal(
-            id=_generate_proposal_id(),
-            type="add",
-            risk_level="low",
-            target="tests/",
-            description="提高测试覆盖率",
-            rationale=f"当前测试覆盖率约 {report.test_coverage}%，建议提升至 80%+",
-            expected_benefit="提高代码可靠性，减少回归 bug",
-            estimated_effort=120,
-            test_cases=[
-                OptTestCase(
-                    id="tc-coverage",
-                    type="unit",
-                    description="验证测试覆盖率提升",
-                    action="运行 coverage report",
-                    expected="覆盖率 > 80%",
-                    command="coverage report --show-missing",
-                ),
-            ],
-        ))
+        proposals.append(
+            OptimizationProposal(
+                id=_generate_proposal_id(),
+                type="add",
+                risk_level="low",
+                target="tests/",
+                description="提高测试覆盖率",
+                rationale=f"当前测试覆盖率约 {report.test_coverage}%，建议提升至 80%+",
+                expected_benefit="提高代码可靠性，减少回归 bug",
+                estimated_effort=120,
+                test_cases=[
+                    OptTestCase(
+                        id="tc-coverage",
+                        type="unit",
+                        description="验证测试覆盖率提升",
+                        action="运行 coverage report",
+                        expected="覆盖率 > 80%",
+                        command="coverage report --show-missing",
+                    ),
+                ],
+            )
+        )
 
     return proposals
 
@@ -147,16 +153,18 @@ async def generate_proposals(
     # 从模块问题生成提案
     for module in report.modules:
         if len(module.issues) > 2:
-            proposals.append(OptimizationProposal(
-                id=_generate_proposal_id(),
-                type="refactor",
-                risk_level="medium",
-                target=module.path,
-                description=f"重构模块: {module.path}",
-                rationale=f"发现 {len(module.issues)} 个问题: {'; '.join(module.issues)}",
-                expected_benefit="提高代码质量和可维护性",
-                estimated_effort=module.lines // 10,  # 每 10 行约 1 分钟
-            ))
+            proposals.append(
+                OptimizationProposal(
+                    id=_generate_proposal_id(),
+                    type="refactor",
+                    risk_level="medium",
+                    target=module.path,
+                    description=f"重构模块: {module.path}",
+                    rationale=f"发现 {len(module.issues)} 个问题: {'; '.join(module.issues)}",
+                    expected_benefit="提高代码质量和可维护性",
+                    estimated_effort=module.lines // 10,  # 每 10 行约 1 分钟
+                )
+            )
 
     # 按风险等级和预估工时排序（低风险、短工时优先）
     risk_order = {"low": 0, "medium": 1, "high": 2}

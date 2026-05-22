@@ -3,6 +3,7 @@
 与 ``engine.main`` 中启动的 ``start_scheduled_tasks_ticker`` 配套；环境变量 ``MINIAGENT_DISABLE_SCHEDULED_TASKS`` 可关闭。
 
 并发语义：同一进程内单 ticker 循环；跨进程通过 ``scheduler.lock``（tick）与 ``job_<id>.lock``（执行）避免重复触发。"""
+
 from __future__ import annotations
 
 import asyncio

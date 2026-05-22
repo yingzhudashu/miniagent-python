@@ -8,7 +8,7 @@
 - ``command_dispatch``：``.`` 命令统一调度
 - ``cli_state``：``CliLoopState`` TypedDict，与 ``unified_main`` 状态字典对齐
 - ``builtin_tools``：``register_builtin_tools``
-- ``feishu_runtime``：对 ``feishu_state.FeishuRuntime`` 的兼容重导出
+- ``feishu_state``：飞书运行时状态，由 ``RuntimeContext.feishu`` 持有
 
 其它模块：``session_lock``、``thinking``、``engine``、``cli_commands``、``feishu_state``、
 ``init``、``main``、``welcome``（见各文件模块文档）。

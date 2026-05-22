@@ -1,18 +1,18 @@
-"""飞书兼容层 ``create_feishu_server`` 构造与配置。"""
+"""飞书 ``start_feishu_poll_server`` 构造与配置验证。"""
 
 from __future__ import annotations
 
 import inspect
 
-from miniagent.feishu.server import create_feishu_server
+from miniagent.feishu.poll_server import start_feishu_poll_server
 
 
-def test_create_feishu_server_builds_feishu_config_with_verification_token() -> None:
-    """``FeishuConfig`` 使用 ``verification_token`` 字段，避免 ``verify_token`` 误名导致 TypeError。"""
-    start = create_feishu_server(
-        "app_x",
-        "sec_y",
-        verify_token="vtok",
-        encrypt_key="enc",
-    )
-    assert inspect.iscoroutinefunction(start)
+def test_start_feishu_poll_server_is_async_coroutine() -> None:
+    """``start_feishu_poll_server`` 是异步协程函数，接受 FeishuConfig 配置。"""
+    assert inspect.iscoroutinefunction(start_feishu_poll_server)
+    # 签名检查：第一个参数应为 config: FeishuConfig
+    sig = inspect.signature(start_feishu_poll_server)
+    params = list(sig.parameters.keys())
+    assert "config" in params
+    assert "message_handler" in params
+    assert "message_queue" in params

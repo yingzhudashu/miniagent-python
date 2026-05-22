@@ -143,9 +143,7 @@ class FeishuMediaHandler(Protocol):
     ) -> str | None: ...
 
 
-def _parse_feishu_media_payload(
-    msg_type: str, content_str: str
-) -> tuple[str, str, str] | None:
+def _parse_feishu_media_payload(msg_type: str, content_str: str) -> tuple[str, str, str] | None:
     """解析 file/image 消息的 file_key 与建议文件名。返回 (resource_type, file_key, suggested_name)。"""
     try:
         d = json.loads(content_str or "{}")
@@ -232,6 +230,7 @@ def request_feishu_ws_shutdown() -> None:
     ev = _ws_shutdown_event
     if ev is not None:
         ev.set()
+
 
 # 内存去重
 _processing_claims: dict[str, float] = {}
@@ -367,6 +366,7 @@ _load_disk_dedup()
 # ─── 长轮询入口：WSClient、事件回调、handler 内投递 message_queue ───
 # 与 ``# ─── 消息队列 ───`` 注释呼应：此处只负责连接与解析，顺序语义由传入的 ``message_queue`` 保证。
 
+
 async def start_feishu_poll_server(
     config: FeishuConfig,
     message_handler: FeishuTextMessageHandler,
@@ -407,9 +407,7 @@ async def start_feishu_poll_server(
         if _singleton_app_id != config.app_id:
             _logger.info("存在不同 appId 的 WSClient (%s)，先关闭", _singleton_app_id)
         else:
-            _logger.warning(
-                "检测到残留 WebSocket 单例（与当前 appId 相同），将关闭后重建"
-            )
+            _logger.warning("检测到残留 WebSocket 单例（与当前 appId 相同），将关闭后重建")
         await reset_feishu_ws_singleton()
 
     # 加载 SDK
@@ -554,9 +552,7 @@ async def start_feishu_poll_server(
                         if _feishu_media_reply_indicates_failure(reply):
                             finalized = False
                         else:
-                            silent = env_flag(
-                                "MINIAGENT_FEISHU_MEDIA_SILENT_REPLY", default=False
-                            )
+                            silent = env_flag("MINIAGENT_FEISHU_MEDIA_SILENT_REPLY", default=False)
                             if reply and not silent:
                                 r_mid, r_thr = feishu_outbound_reply_params(
                                     message_id, thread_id_media or None
@@ -728,9 +724,9 @@ async def start_feishu_poll_server(
     # 构建 EventDispatcherHandler
     encrypt_key = config.encrypt_key or ""
     verification_token = config.verification_token or ""
-    _edb = EventDispatcherHandler.builder(encrypt_key, verification_token).register_p2_im_message_receive_v1(
-        on_message_receive
-    )
+    _edb = EventDispatcherHandler.builder(
+        encrypt_key, verification_token
+    ).register_p2_im_message_receive_v1(on_message_receive)
     if _feishu_card_action_router_enabled():
         _edb = _edb.register_p2_card_action_trigger(_on_card_action_trigger)
     event_handler = _edb.build()
@@ -751,6 +747,7 @@ async def start_feishu_poll_server(
         #    SDK 的 _receive_message_loop() 会调度到错误的 loop 上，
         #    导致消息永远收不到、思考回调永远不触发。
         import lark_oapi.ws.client as _sdk_ws_mod
+
         _sdk_ws_mod.loop = asyncio.get_running_loop()
 
         ws_client = FeishuWsClient(
@@ -1071,7 +1068,9 @@ def _create_interactive_thinking_message(
     return None
 
 
-def _patch_interactive_thinking_message(config: FeishuConfig, message_id: str, card_json: str) -> bool:
+def _patch_interactive_thinking_message(
+    config: FeishuConfig, message_id: str, card_json: str
+) -> bool:
     """PATCH 更新已有交互卡片内容。"""
     try:
         import lark_oapi as lark
@@ -1137,7 +1136,10 @@ async def push_feishu_thinking_stream(
     now = time.monotonic()
     delta_t = now - st.feishu_last_patch_monotonic
     delta_c = len(markdown) - st.feishu_last_patched_char_len
-    need_patch = delta_t >= FEISHU_THINKING_PATCH_MIN_INTERVAL_S or delta_c >= FEISHU_THINKING_PATCH_MIN_CHAR_DELTA
+    need_patch = (
+        delta_t >= FEISHU_THINKING_PATCH_MIN_INTERVAL_S
+        or delta_c >= FEISHU_THINKING_PATCH_MIN_CHAR_DELTA
+    )
     if need_patch and st.feishu_patch_budget > 0:
         if _patch_interactive_thinking_message(config, st.feishu_thinking_message_id, card_json):
             st.feishu_patch_budget -= 1
@@ -1163,7 +1165,9 @@ async def finalize_feishu_thinking_stream(
         return
     nch = len(chunks)
     first_body = _prepare_card_markdown(chunks[0], normalize=False)
-    card_json = json.dumps(_thinking_interactive_card_dict(first_body, template), ensure_ascii=False)
+    card_json = json.dumps(
+        _thinking_interactive_card_dict(first_body, template), ensure_ascii=False
+    )
     patched = _patch_interactive_thinking_message(config, mid, card_json)
     if not patched:
         _logger.warning("finalize 思考 PATCH 失败 message_id=%s", mid)
@@ -1259,7 +1263,9 @@ async def _send_thinking(
 
     try:
         cleaned = _prepare_thinking_markdown(thinking)
-        card_json = json.dumps(_thinking_interactive_card_dict(cleaned, template), ensure_ascii=False)
+        card_json = json.dumps(
+            _thinking_interactive_card_dict(cleaned, template), ensure_ascii=False
+        )
         ok, _ = _post_interactive_message(
             config,
             receive_id=chat_id,
@@ -1409,5 +1415,3 @@ async def _send_reply(
         reply_to_message_id=reply_to_message_id,
         reply_in_thread=reply_in_thread,
     )
-
-

@@ -21,9 +21,7 @@ _LOCK_FILENAME = "feishu_inbound_owner.json"
 
 def _state_root(state_dir: str | None) -> Path:
     """解析状态根路径（显式参数优先，否则环境变量或 cwd/workspaces）。"""
-    root = state_dir or os.environ.get(
-        "MINI_AGENT_STATE", os.path.join(os.getcwd(), "workspaces")
-    )
+    root = state_dir or os.environ.get("MINI_AGENT_STATE", os.path.join(os.getcwd(), "workspaces"))
     return Path(root)
 
 

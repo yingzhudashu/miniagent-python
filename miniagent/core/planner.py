@@ -98,8 +98,10 @@ async def generate_plan(
     planner_kw = resolve_planner_completion_kwargs(ac, merge_overrides=planner_model_overrides)
 
     toolboxes_json = json.dumps(
-        [{"id": t.id, "name": t.name, "description": t.description, "keywords": t.keywords}
-         for t in toolboxes],
+        [
+            {"id": t.id, "name": t.name, "description": t.description, "keywords": t.keywords}
+            for t in toolboxes
+        ],
         ensure_ascii=False,
     )
 
@@ -110,7 +112,9 @@ async def generate_plan(
         f"可用工具箱:\n{toolboxes_json}",
     ]
     if tool_hint:
-        user_parts.append(f"各工具箱内可用工具名称（规划时请对齐 requiredToolboxes 与工具箱 id）:\n{tool_hint}")
+        user_parts.append(
+            f"各工具箱内可用工具名称（规划时请对齐 requiredToolboxes 与工具箱 id）:\n{tool_hint}"
+        )
 
     messages: list[dict[str, str]] = [
         {"role": "system", "content": PLAN_SYSTEM_PROMPT},
@@ -129,13 +133,15 @@ async def generate_plan(
             if use_json_object:
                 create_args["response_format"] = {"type": "json_object"}
 
-            emit_trace({
-                "type": "llm.request",
-                "phase": "plan",
-                "attempt": attempt + 1,
-                "model": planner_kw["model"],
-                "json_object": use_json_object,
-            })
+            emit_trace(
+                {
+                    "type": "llm.request",
+                    "phase": "plan",
+                    "attempt": attempt + 1,
+                    "model": planner_kw["model"],
+                    "json_object": use_json_object,
+                }
+            )
             # #region agent log
             try:
                 from miniagent.infrastructure.debug_ndjson import agent_debug_log
@@ -144,7 +150,11 @@ async def generate_plan(
                     hypothesis_id="B",
                     location="planner.py:generate_plan",
                     message="before_planner_chat_completions",
-                    data={"attempt": attempt + 1, "model": planner_kw.get("model"), "json_object": use_json_object},
+                    data={
+                        "attempt": attempt + 1,
+                        "model": planner_kw.get("model"),
+                        "json_object": use_json_object,
+                    },
                 )
             except Exception:
                 pass
@@ -166,26 +176,35 @@ async def generate_plan(
             if not content:
                 raise ValueError("Empty response from planner")
 
-            emit_trace({
-                "type": "llm.response",
-                "phase": "plan",
-                "attempt": attempt + 1,
-                "model": planner_kw["model"],
-                "usage": response.usage.model_dump() if response.usage else None,
-            })
+            emit_trace(
+                {
+                    "type": "llm.response",
+                    "phase": "plan",
+                    "attempt": attempt + 1,
+                    "model": planner_kw["model"],
+                    "usage": response.usage.model_dump() if response.usage else None,
+                }
+            )
 
             if log_file:
-                append_log(log_file, {
-                    "phase": "plan", "attempt": attempt + 1,
-                    "req": {"model": planner_kw["model"], "messages": [
-                        {"role": m["role"], "content": truncate(m.get("content", ""), 500)}
-                        for m in messages
-                    ]},
-                    "res": {
-                        "content": truncate(content, 2000),
-                        "usage": response.usage.model_dump() if response.usage else None,
+                append_log(
+                    log_file,
+                    {
+                        "phase": "plan",
+                        "attempt": attempt + 1,
+                        "req": {
+                            "model": planner_kw["model"],
+                            "messages": [
+                                {"role": m["role"], "content": truncate(m.get("content", ""), 500)}
+                                for m in messages
+                            ],
+                        },
+                        "res": {
+                            "content": truncate(content, 2000),
+                            "usage": response.usage.model_dump() if response.usage else None,
+                        },
                     },
-                })
+                )
 
             plan_data = _parse_plan_json(content)
             if "steps" not in plan_data or "requiredToolboxes" not in plan_data:
@@ -345,7 +364,8 @@ def _dict_to_plan(data: dict[str, Any], *, default_step_thinking: str = "medium"
             total=et.get("total", 1200),
         ),
         context_strategy=ContextStrategy(
-            mode=cs.get("mode", "normal"), reason=cs.get("reason", ""),
+            mode=cs.get("mode", "normal"),
+            reason=cs.get("reason", ""),
         ),
         requires_confirmation=data.get("requiresConfirmation", False),
         confirmation_message=data.get("confirmationMessage"),
@@ -371,22 +391,28 @@ def _fallback_plan(user_input: str) -> StructuredPlan:
     """回退计划：跳过详细规划，直接执行。"""
     return StructuredPlan(
         summary="直接执行模式：跳过详细规划",
-        steps=[PlanStep(
-            step_number=1,
-            description="根据用户需求直接处理",
-            required_toolboxes=[],
-            expected_input=user_input,
-            expected_output="用户需求的回复",
-            thinking_level="low",
-        )],
+        steps=[
+            PlanStep(
+                step_number=1,
+                description="根据用户需求直接处理",
+                required_toolboxes=[],
+                expected_input=user_input,
+                expected_output="用户需求的回复",
+                thinking_level="low",
+            )
+        ],
         required_toolboxes=[],
         suggested_config=SuggestedConfig(max_turns=5, tool_timeout=30, risk_level="low"),
-        estimated_tokens=EstimatedTokens(prompt_tokens=500, completion_tokens=500, tool_result_tokens=200, total=1200),
+        estimated_tokens=EstimatedTokens(
+            prompt_tokens=500, completion_tokens=500, tool_result_tokens=200, total=1200
+        ),
         context_strategy=ContextStrategy(mode="normal", reason="简单任务"),
         requires_confirmation=False,
         risk_level="low",
         estimated_cost=EstimatedCost(input_tokens=500, output_tokens=500, total_usd=0.0),
-        output_spec=OutputSpec(language="zh-CN", format="markdown", expected_deliverable="直接回复"),
+        output_spec=OutputSpec(
+            language="zh-CN", format="markdown", expected_deliverable="直接回复"
+        ),
         fallback_plan=FallbackPlan(degrade_to_simple=False, degraded_max_turns=5),
     )
 

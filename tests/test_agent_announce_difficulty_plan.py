@@ -217,6 +217,7 @@ async def test_skip_planning_announces_user_skip_not_simple(
     assert "显式跳过规划" in blob
     assert "[任务难度]" not in blob
 
+
 @pytest.mark.asyncio
 async def test_announce_disabled_skips_extra_on_thinking(
     monkeypatch: pytest.MonkeyPatch,

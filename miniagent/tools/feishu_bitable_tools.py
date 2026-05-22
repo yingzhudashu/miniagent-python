@@ -77,7 +77,9 @@ async def _feishu_bitable(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     try:
         require_lark_oapi()
     except ImportError:
-        return ToolResult(success=False, content="⚠️ 请安装 lark-oapi（pip install miniagent-python[feishu]）。")
+        return ToolResult(
+            success=False, content="⚠️ 请安装 lark-oapi（pip install miniagent-python[feishu]）。"
+        )
 
     app_token = extract_bitable_app_token(str(args.get("app_token") or ""))
     url_hint = str(args.get("app_url") or args.get("url") or "")
@@ -93,14 +95,21 @@ async def _feishu_bitable(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
             tables, nxt, has_more = list_tables(cfg, app_token)
             return ToolResult(
                 success=True,
-                content=_fmt_json({"app": meta, "tables": tables, "has_more": has_more, "page_token": nxt}),
+                content=_fmt_json(
+                    {"app": meta, "tables": tables, "has_more": has_more, "page_token": nxt}
+                ),
             )
         if not app_token or not table_id:
-            return ToolResult(success=False, content="⚠️ 需要 app_token 与 table_id（或 base URL 含 ?table=）。")
+            return ToolResult(
+                success=False, content="⚠️ 需要 app_token 与 table_id（或 base URL 含 ?table=）。"
+            )
 
         if action == "list_fields":
             items, nxt, has_more = list_fields(
-                cfg, app_token, table_id, page_token=str(args.get("page_token") or "").strip() or None
+                cfg,
+                app_token,
+                table_id,
+                page_token=str(args.get("page_token") or "").strip() or None,
             )
             return ToolResult(
                 success=True,
@@ -121,7 +130,8 @@ async def _feishu_bitable(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
                 page_size=int(args.get("page_size") or 100),
                 view_id=str(args.get("view_id") or "").strip() or None,
                 field_names=fn_list,
-                filter_expr=str(args.get("filter") or args.get("filter_expr") or "").strip() or None,
+                filter_expr=str(args.get("filter") or args.get("filter_expr") or "").strip()
+                or None,
                 sort=args.get("sort") if isinstance(args.get("sort"), list) else None,
             )
             return ToolResult(
@@ -132,7 +142,9 @@ async def _feishu_bitable(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
             rid = str(args.get("record_id") or "").strip()
             if not rid:
                 return ToolResult(success=False, content="⚠️ 需要 record_id。")
-            return ToolResult(success=True, content=_fmt_json(get_record(cfg, app_token, table_id, rid)))
+            return ToolResult(
+                success=True, content=_fmt_json(get_record(cfg, app_token, table_id, rid))
+            )
         if action == "create_record":
             fields = _parse_fields_arg(args.get("fields"))
             if fields is None:
@@ -168,7 +180,9 @@ async def _feishu_bitable(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
             rel = str(args.get("relative_path") or "").strip()
             ws = (ctx.cwd or "").strip()
             if not rid or not field_name or not rel or not ws:
-                return ToolResult(success=False, content="⚠️ 需要 record_id、field_name、relative_path。")
+                return ToolResult(
+                    success=False, content="⚠️ 需要 record_id、field_name、relative_path。"
+                )
             path = _resolve_under_workspace(ws, rel)
             with open(path, "rb") as f:
                 data = f.read()

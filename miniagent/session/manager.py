@@ -47,6 +47,7 @@ _logger = get_logger(__name__)
 # 路径
 # ============================================================================
 
+
 def _get_state_dir() -> str:
     """获取状态目录"""
     return os.environ.get("MINI_AGENT_STATE", os.path.join(os.getcwd(), "workspaces"))
@@ -63,6 +64,7 @@ def _get_workspaces_dir() -> str:
 # ============================================================================
 # 会话配置
 # ============================================================================
+
 
 @dataclass
 class SessionConfig:
@@ -81,6 +83,7 @@ class SessionConfig:
         chat_id: 关联的 chatId
         sender_id: 关联的 senderId
     """
+
     session_id: str
     workspace_path: str
     files_path: str
@@ -110,6 +113,7 @@ class SessionInfo:
         skill_count: 注册的技能数量
         files_path: 文件目录路径
     """
+
     session_id: str
     description: str
     created_at: str
@@ -122,6 +126,7 @@ class SessionInfo:
 # ============================================================================
 # SessionManager
 # ============================================================================
+
 
 class DefaultSessionManager(SessionManagerProtocol):
     """多会话管理器
@@ -182,13 +187,16 @@ class DefaultSessionManager(SessionManagerProtocol):
         for name, tool in self._main_registry.get_all().items():
             if not tool.toolbox:  # 无 toolbox = 核心工具
                 try:
-                    registry.register(name, ToolDefinition(
-                        schema=tool.schema,
-                        handler=tool.handler,
-                        permission=tool.permission,
-                        help_text=tool.help_text,
-                        toolbox=tool.toolbox,
-                    ))
+                    registry.register(
+                        name,
+                        ToolDefinition(
+                            schema=tool.schema,
+                            handler=tool.handler,
+                            permission=tool.permission,
+                            help_text=tool.help_text,
+                            toolbox=tool.toolbox,
+                        ),
+                    )
                     core_count += 1
                 except ValueError:
                     pass  # 已存在，跳过
@@ -215,11 +223,13 @@ class DefaultSessionManager(SessionManagerProtocol):
                 try:
                     with open(config_path, encoding="utf-8-sig") as f:
                         raw = json.load(f)
-                    result.append({
-                        "dir_name": name,
-                        "workspace_path": os.path.join(workspaces, name),
-                        "raw": raw,
-                    })
+                    result.append(
+                        {
+                            "dir_name": name,
+                            "workspace_path": os.path.join(workspaces, name),
+                            "raw": raw,
+                        }
+                    )
                 except Exception:
                     pass
         return result
@@ -362,9 +372,7 @@ class DefaultSessionManager(SessionManagerProtocol):
                     ids.append(name.replace("_", "-"))  # 反向 safe_id
         return ids
 
-    def get_or_create(
-        self, id: str, options: SessionOptions | None = None
-    ) -> Session:
+    def get_or_create(self, id: str, options: SessionOptions | None = None) -> Session:
         """获取或创建会话
 
         - 已存在 → 返回现有会话
@@ -499,7 +507,9 @@ class DefaultSessionManager(SessionManagerProtocol):
 
         _logger.info(
             "会话已恢复: %s (%d 个核心工具, %d 条历史)",
-            session_id, core_count, len(conversation_history),
+            session_id,
+            core_count,
+            len(conversation_history),
         )
         return ctx["session"]
 
@@ -584,6 +594,7 @@ class DefaultSessionManager(SessionManagerProtocol):
         if not keep_files:
             try:
                 import shutil
+
                 shutil.rmtree(ctx["config"].workspace_path, ignore_errors=True)
             except Exception:
                 pass
@@ -739,16 +750,18 @@ class DefaultSessionManager(SessionManagerProtocol):
             config = ctx["config"]
             history = ctx.get("conversation_history", [])
             lock_owner = _get_session_lock_owner(config.workspace_path)
-            result.append({
-                "id": config.session_id,
-                "number": config.session_number,
-                "title": config.title or config.session_id,
-                "created_at": config.created_at,
-                "last_active": config.last_active,
-                "turn_count": len(history) // 2,
-                "locked": lock_owner is not None,
-                "lock_pid": lock_owner,
-            })
+            result.append(
+                {
+                    "id": config.session_id,
+                    "number": config.session_number,
+                    "title": config.title or config.session_id,
+                    "created_at": config.created_at,
+                    "last_active": config.last_active,
+                    "turn_count": len(history) // 2,
+                    "locked": lock_owner is not None,
+                    "lock_pid": lock_owner,
+                }
+            )
             seen_ids.add(config.session_id)
 
         # 再添加磁盘上存在但内存中没有的会话
@@ -758,16 +771,18 @@ class DefaultSessionManager(SessionManagerProtocol):
                 continue
             try:
                 lock_owner = _get_session_lock_owner(entry["workspace_path"])
-                result.append({
-                    "id": sid,
-                    "number": entry["raw"].get("session_number", 0),
-                    "title": entry["raw"].get("title", "") or sid,
-                    "created_at": entry["raw"].get("created_at", ""),
-                    "last_active": entry["raw"].get("last_active", ""),
-                    "turn_count": 0,  # 不加载历史，避免开销
-                    "locked": lock_owner is not None,
-                    "lock_pid": lock_owner,
-                })
+                result.append(
+                    {
+                        "id": sid,
+                        "number": entry["raw"].get("session_number", 0),
+                        "title": entry["raw"].get("title", "") or sid,
+                        "created_at": entry["raw"].get("created_at", ""),
+                        "last_active": entry["raw"].get("last_active", ""),
+                        "turn_count": 0,  # 不加载历史，避免开销
+                        "locked": lock_owner is not None,
+                        "lock_pid": lock_owner,
+                    }
+                )
             except Exception:
                 pass
 
@@ -794,13 +809,16 @@ class DefaultSessionManager(SessionManagerProtocol):
             return False
 
         try:
-            self._main_registry.register(tool_name, ToolDefinition(
-                schema=tool.schema,
-                handler=tool.handler,
-                permission=tool.permission,
-                help_text=tool.help_text,
-                toolbox=tool.toolbox,
-            ))
+            self._main_registry.register(
+                tool_name,
+                ToolDefinition(
+                    schema=tool.schema,
+                    handler=tool.handler,
+                    permission=tool.permission,
+                    help_text=tool.help_text,
+                    toolbox=tool.toolbox,
+                ),
+            )
             return True
         except ValueError:
             return False  # 已在主空间存在
@@ -845,9 +863,7 @@ class DefaultSessionManager(SessionManagerProtocol):
         """
         ctx = self._sessions.get(session_id)
         if not ctx:
-            default_workspace = os.environ.get(
-                "MINI_AGENT_WORKSPACE", os.getcwd()
-            )
+            default_workspace = os.environ.get("MINI_AGENT_WORKSPACE", os.getcwd())
             return ToolContext(
                 cwd=default_workspace,
                 allowed_paths=[default_workspace],
@@ -868,9 +884,7 @@ class DefaultSessionManager(SessionManagerProtocol):
     # 会话级工具管理
     # -----------------------------------------------------------------------
 
-    def register_tool(
-        self, session_id: str, name: str, tool: ToolDefinition
-    ) -> bool:
+    def register_tool(self, session_id: str, name: str, tool: ToolDefinition) -> bool:
         """在会话中注册工具
 
         Args:

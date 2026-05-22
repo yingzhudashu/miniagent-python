@@ -12,6 +12,7 @@ pytest.importorskip("lark_oapi")
 @pytest.fixture(autouse=True)
 def _clear_lark_client_cache():
     from miniagent.feishu import im_send
+
     im_send.clear_client_cache()
 
 
@@ -62,4 +63,3 @@ def test_send_plain_text_chunks_sends_multiple(monkeypatch: pytest.MonkeyPatch) 
         _send_plain_text_chunks(cfg, "oc_test", "abcdefghijklmnop")
 
     assert client.im.v1.message.create.call_count >= 2
-

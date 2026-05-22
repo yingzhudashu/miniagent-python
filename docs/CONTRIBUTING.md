@@ -377,5 +377,5 @@ refactor: 拆分 unified.py 为 engine/ 包
 
 1. ``miniagent/__init__.py`` 中 ``__version__`` 已与 ``CHANGELOG``、主要 ``docs/*.md`` 顶部版本标语一致。
 2. ``docs/INDEX.md`` 中目录树与实际仓库一致（已移除的文件勿再列出）。
-3. 涉及行为变更时同步 ``ARCHITECTURE.md`` / 专题文档（如 ``INSTANCE_REGISTRY.md``）。
+3. 涉及行为变更时同步 ``ARCHITECTURE.md`` / 专题文档（如多实例注册表见 [ENGINEERING.md](ENGINEERING.md) §3.3）。
 4. ``README.md`` 中的命令、测试数量与 CI 保持可验证（测试数以 ``pytest --collect-only`` 为准）。
