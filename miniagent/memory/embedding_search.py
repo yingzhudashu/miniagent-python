@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import collections
 import hashlib
 import json
 import math
@@ -159,12 +160,14 @@ class EmbeddingIndex:
     """基于 JSON 文件的轻量嵌入索引。
 
     每条记忆缓存其向量表示，避免重复调用 API。
+    上限 ``max_entries``（默认 10000），超限时驱逐最早条目。
     """
 
     def __init__(self, state_dir: str = "workspaces") -> None:
         self._state_dir = state_dir
-        self._entries: dict[str, _EmbeddingEntry] = {}
+        self._entries: collections.OrderedDict[str, _EmbeddingEntry] = collections.OrderedDict()
         self._dim: int = int(os.environ.get("MINIAGENT_EMBED_DIM", "1536"))
+        self._max_entries: int = int(os.environ.get("MINIAGENT_EMBED_MAX_ENTRIES", "10000"))
         self._loaded = False
         self._dirty = False
         self._index_file = os.path.join(state_dir, "embedding-index.json")
@@ -279,7 +282,12 @@ class EmbeddingIndex:
                 facts=getattr(entry, "facts", []) or [],
                 text_hash=text_hash,
             )
+            self._entries.move_to_end(key)
             self._dirty = True
+            # 超过上限时驱逐最早条目
+            while len(self._entries) > self._max_entries:
+                self._entries.popitem(last=False)
+                self._dirty = True
 
     def search_relevant(
         self,

@@ -54,7 +54,7 @@ from miniagent.types.agent import LoopDetectionConfig, ToolMonitorProtocol
 from miniagent.types.config import AgentConfig
 from miniagent.types.memory import MemoryEntryInput
 from miniagent.types.planning import PlanStep, StructuredPlan
-from miniagent.types.tool import ToolContext, ToolRegistryProtocol
+from miniagent.types.tool import ToolContext, ToolRegistryProtocol, ToolResult
 
 _logger = get_logger(__name__)
 
@@ -683,8 +683,6 @@ async def execute_plan(
             tc: Any, args: dict[str, Any], tool: Any
         ) -> tuple[Any, dict[str, Any], Any, Any, int]:
             """执行单个 tool_call（含超时与监控），返回 tool 消息构造所需字段。"""
-            from miniagent.types.tool import ToolResult
-
             tool_start = time.monotonic_ns() // 1_000_000
             emit_trace(
                 {

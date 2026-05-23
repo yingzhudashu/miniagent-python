@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import collections
 import json
 import os
 import re
@@ -193,7 +194,8 @@ def generate_turn_summary(
 class DefaultMemoryStore(MemoryStoreProtocol):
     """默认记忆存储实现
 
-    基于文件系统的 JSON 持久化，带内存缓存。
+    基于文件系统的 JSON 持久化，带 LRU 内存缓存。
+    缓存上限由 ``MINIAGENT_MEMORY_STORE_CACHE_MAX`` 控制（默认 50）。
 
     Example:
         store = DefaultMemoryStore(state_dir="./workspaces")
@@ -215,8 +217,16 @@ class DefaultMemoryStore(MemoryStoreProtocol):
         """
         self._state_dir = state_dir
         self._memory_dir = os.path.join(state_dir, "memory")
-        self._cache: dict[str, SessionMemory] = {}
+        self._cache: collections.OrderedDict[str, SessionMemory] = collections.OrderedDict()
+        self._cache_max = int(os.environ.get("MINIAGENT_MEMORY_STORE_CACHE_MAX", "50"))
         self._keyword_index = keyword_index
+
+    def _cache_put(self, session_id: str, memory: SessionMemory) -> None:
+        """将记忆放入 LRU 缓存，超过上限时驱逐最旧条目。"""
+        self._cache[session_id] = memory
+        self._cache.move_to_end(session_id)
+        while len(self._cache) > self._cache_max:
+            self._cache.popitem(last=False)
 
     def flush_keyword_index(self) -> None:
         """将 Layer 3 关键词索引的挂起变更写入磁盘。"""
@@ -258,6 +268,7 @@ class DefaultMemoryStore(MemoryStoreProtocol):
         """
         # 先查缓存
         if session_id in self._cache:
+            self._cache.move_to_end(session_id)
             return self._cache[session_id]
 
         try:
@@ -297,7 +308,7 @@ class DefaultMemoryStore(MemoryStoreProtocol):
                 chat_id=data.get("chat_id"),
                 sender_id=data.get("sender_id"),
             )
-            self._cache[session_id] = memory
+            self._cache_put(session_id, memory)
             return memory
 
         except Exception:
@@ -335,7 +346,7 @@ class DefaultMemoryStore(MemoryStoreProtocol):
             with open(file_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
 
-            self._cache[memory.session_id] = memory
+            self._cache_put(memory.session_id, memory)
         except Exception as e:
             _logger.error("保存失败 [%s]: %s", memory.session_id, e)
 

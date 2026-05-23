@@ -8,7 +8,6 @@
 
 from __future__ import annotations
 
-import copy
 import os
 from typing import Any
 
@@ -56,7 +55,7 @@ def conversation_history_for_llm(history: list[dict[str, Any]]) -> list[dict[str
                 out.append({"role": "system", "content": brief})
             continue
         clean = {
-            k: copy.deepcopy(v)
+            k: (v.copy() if isinstance(v, (dict, list)) else v)
             for k, v in m.items()
             if isinstance(k, str) and not k.startswith("_")
         }

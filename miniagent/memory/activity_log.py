@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -54,6 +55,9 @@ class ActivityLogger:
             base_dir: 日志文件存储目录
         """
         self._base_dir = base_dir
+        self._read_cache: str | None = None
+        self._cache_path: str = ""
+        self._cache_expiry: float = 0.0
 
     def _get_today_path(self) -> str:
         """获取今日日志文件路径。
@@ -68,16 +72,26 @@ class ActivityLogger:
         return os.path.join(self._base_dir, f"{today}.md")
 
     def _read_today(self) -> str:
-        """读取今日日志文件内容。
+        """读取今日日志文件内容（30 秒内存缓存）。
 
         Returns:
             日志内容，文件不存在时返回空字符串
         """
         path = self._get_today_path()
+        now = time.monotonic()
+        if self._read_cache is not None and self._cache_path == path and now < self._cache_expiry:
+            return self._read_cache
+
         if os.path.exists(path):
             with open(path, encoding="utf-8") as f:
-                return f.read()
-        return ""
+                content = f.read()
+        else:
+            content = ""
+
+        self._read_cache = content
+        self._cache_path = path
+        self._cache_expiry = now + 30.0
+        return content
 
     def _append(self, content: str) -> None:
         """追加内容到今日日志文件。

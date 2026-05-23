@@ -142,7 +142,7 @@ async def test_s1_execute_plan_mock_median_under_cap() -> None:
     assert_two_medians_within_ratio(med_a, med_b, msg="S1 run-to-run median jitter")
 
     med = await median_wall_seconds_async(5, _once)
-    assert med < 5.0, f"S1 median wall too high: {med:.3f}s"
+    assert med < 3.0, f"S1 median wall too high: {med:.3f}s"
 
 
 @pytest.mark.perf
@@ -213,7 +213,7 @@ def test_s3_context_manager_estimate_bounded() -> None:
     t0 = time.perf_counter()
     _ = cm.get_token_report()
     elapsed = time.perf_counter() - t0
-    assert elapsed < 3.0, f"S3 estimate too slow: {elapsed:.3f}s"
+    assert elapsed < 1.5, f"S3 estimate too slow: {elapsed:.3f}s"
 
 
 @pytest.mark.perf
@@ -297,7 +297,7 @@ def test_s6_memory_store_batch_tracemalloc_peak_loose() -> None:
         asyncio.run(body())
 
     peak_mb = tracemalloc_peak_diff_mb(run)
-    assert peak_mb < 180.0, f"S6 tracemalloc peak too high: {peak_mb:.1f} MiB"
+    assert peak_mb < 120.0, f"S6 tracemalloc peak too high: {peak_mb:.1f} MiB"
 
 
 @pytest.mark.perf
@@ -317,3 +317,84 @@ def test_s7_exec_payload_json_serialize_median_under_cap() -> None:
 
     med = median_wall_seconds(5, once)
     assert med < 4.0, f"S7 serialize_exec_payload_sample too slow: {med:.3f}s"
+
+
+@pytest.mark.perf
+def test_s8_memory_store_lru_cache_bounded() -> None:
+    """S8：连续加载多个会话到 DefaultMemoryStore，验证 LRU cache 大小不超过上限。"""
+    from datetime import datetime, timezone
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ki = KeywordIndex(state_dir=tmp)
+        store = DefaultMemoryStore(state_dir=tmp, keyword_index=ki)
+
+        num_sessions = 60  # 超过默认 cache_max=50
+        now = datetime.now(timezone.utc).isoformat()
+
+        async def load_many() -> None:
+            for i in range(num_sessions):
+                sid = f"s8-session-{i}"
+                mem = SessionMemory(
+                    session_id=sid,
+                    cumulative_summary=f"summary {i}",
+                    key_facts=[f"fact {i}"],
+                    entries=[],
+                    total_turns=0,
+                    first_seen=now,
+                    last_active=now,
+                )
+                await store.save(mem)
+
+        import asyncio
+
+        asyncio.run(load_many())
+
+        # LRU 驱逐后 cache 大小应等于 cache_max（50）
+        assert len(store._cache) <= store._cache_max, (
+            f"LRU cache exceeded: {len(store._cache)} > {store._cache_max}"
+        )
+
+
+@pytest.mark.perf
+def test_s9_embedding_index_bounded() -> None:
+    """S9：EmbeddingIndex 连续添加条目，验证峰值不超过 max_entries。"""
+    from miniagent.memory.embedding_search import EmbeddingIndex
+
+    with tempfile.TemporaryDirectory() as tmp:
+        idx = EmbeddingIndex(state_dir=tmp)
+        idx._max_entries = 200  # 降低上限以加速测试
+
+        for i in range(250):
+            entry = MemoryEntryInput(
+                timestamp=f"2026-05-22T{i:02d}:00:00Z",
+                user_snippet=f"用户片段{i}",
+                summary=f"摘要{i}",
+                facts=[f"事实{i}"],
+            )
+            # 模拟 1536 维向量
+            idx.index_entry(f"sess-{i}", entry, embedding=[0.1] * 1536)
+
+        assert len(idx._entries) <= idx._max_entries, (
+            f"EmbeddingIndex exceeded max_entries: {len(idx._entries)} > {idx._max_entries}"
+        )
+
+
+@pytest.mark.perf
+def test_s10_keyword_index_bounded() -> None:
+    """S10：KeywordIndex 连续添加条目，验证关键词数不超过上限。"""
+    with tempfile.TemporaryDirectory() as tmp:
+        ki = KeywordIndex(state_dir=tmp)
+        ki._max_entries = 500  # 降低上限以加速测试
+
+        for i in range(200):
+            entry = MemoryEntryInput(
+                timestamp=f"2026-05-22T{i:02d}:00:00Z",
+                user_snippet=f"用户片段{i} 关键词{i} 测试{i}",
+                summary=f"摘要{i} 描述{i}",
+                facts=[f"事实{i}"],
+            )
+            ki.index_entry(f"sess-{i}", entry)
+
+        assert len(ki._index) <= ki._max_entries, (
+            f"KeywordIndex exceeded max_entries: {len(ki._index)} > {ki._max_entries}"
+        )

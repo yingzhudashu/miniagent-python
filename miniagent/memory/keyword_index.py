@@ -26,6 +26,7 @@ Layer 3 检索与注入顺序见 ``docs/MEMORY_SYSTEM.md``。
 
 from __future__ import annotations
 
+import collections
 import json
 import os
 import re
@@ -171,6 +172,10 @@ _STOP_WORDS = frozenset(
     ]
 )
 
+# 预编译分词正则（避免每次调用 re.compile）
+_RE_NON_ALNUM_CJK = re.compile(r"[^a-z0-9一-鿿\s]")
+_RE_CJK_ONLY = re.compile(r"[^一-鿿]")
+
 
 # ============================================================================
 # 索引数据结构
@@ -235,13 +240,13 @@ def extract_keywords(text: str) -> list[str]:
     keywords: set[str] = set()
 
     # 英文分词
-    english_words = re.sub(r"[^a-z0-9\u4e00-\u9fff\s]", " ", text.lower()).split()
+    english_words = _RE_NON_ALNUM_CJK.sub(" ", text.lower()).split()
     for w in english_words:
         if len(w) > 1 and w not in _STOP_WORDS:
             keywords.add(w)
 
     # 中文 2-gram + 3-gram
-    chinese_chars = re.sub(r"[^\u4e00-\u9fff]", "", text)
+    chinese_chars = _RE_CJK_ONLY.sub("", text)
     for i in range(len(chinese_chars) - 1):
         if i + 1 < len(chinese_chars):
             bigram = chinese_chars[i : i + 2]
@@ -277,7 +282,8 @@ class KeywordIndex:
             state_dir: 状态存储目录
         """
         self._state_dir = state_dir
-        self._index: dict[str, _IndexEntry] = {}
+        self._index: collections.OrderedDict[str, _IndexEntry] = collections.OrderedDict()
+        self._max_entries: int = int(os.environ.get("MINIAGENT_KEYWORD_INDEX_MAX", "20000"))
         self._loaded = False
         self._dirty = False
         self._index_file = os.path.join(state_dir, "keyword-index.json")
@@ -405,6 +411,11 @@ class KeywordIndex:
                     )
                 )
                 self._dirty = True
+
+        # 超过上限时驱逐最早关键词
+        while len(self._index) > self._max_entries:
+            self._index.popitem(last=False)
+            self._dirty = True
 
     def search_relevant(
         self, query: str, limit: int = 10, recent_minutes: int = 0
