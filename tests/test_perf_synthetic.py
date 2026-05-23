@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import tempfile
 from types import SimpleNamespace
 from typing import Any
@@ -258,7 +259,6 @@ def test_s5_normalize_lark_md_median_under_cap() -> None:
 @pytest.mark.perf
 def test_s6_memory_store_batch_tracemalloc_peak_loose() -> None:
     """S6：批量 add_entry + flush 的分配峰值（宽松上界，防灾难性分配回归）。"""
-    import asyncio
     from datetime import datetime, timezone
 
     from miniagent.memory.keyword_index import KeywordIndex
@@ -345,8 +345,6 @@ def test_s8_memory_store_lru_cache_bounded() -> None:
                 )
                 await store.save(mem)
 
-        import asyncio
-
         asyncio.run(load_many())
 
         # LRU 驱逐后 cache 大小应等于 cache_max（50）
@@ -384,7 +382,7 @@ def test_s10_keyword_index_bounded() -> None:
     """S10：KeywordIndex 连续添加条目，验证关键词数不超过上限。"""
     with tempfile.TemporaryDirectory() as tmp:
         ki = KeywordIndex(state_dir=tmp)
-        ki._max_entries = 500  # 降低上限以加速测试
+        ki._max_entries = 50  # 降低上限以触发驱逐
 
         for i in range(200):
             entry = MemoryEntryInput(
