@@ -1113,8 +1113,13 @@ async def push_feishu_thinking_stream(
         st.feishu_patch_budget = FEISHU_THINKING_PATCH_BUDGET
         st.feishu_tool_section_started = False
 
-    st.feishu_stream_accumulated = markdown
-    cleaned = _prepare_thinking_markdown(markdown)
+    # 非首轮时，保留已累积内容（含上轮工具结果），追加新轮思考
+    prev = st.feishu_stream_accumulated or ""
+    if prev and not new_round:
+        st.feishu_stream_accumulated = prev + "\n\n" + (markdown or "")
+    else:
+        st.feishu_stream_accumulated = markdown
+    cleaned = _prepare_thinking_markdown(st.feishu_stream_accumulated)
     card_json = json.dumps(_thinking_interactive_card_dict(cleaned, template), ensure_ascii=False)
 
     if not st.feishu_thinking_message_id:

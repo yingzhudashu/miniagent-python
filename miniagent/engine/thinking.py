@@ -527,14 +527,14 @@ class ThinkingDisplay:
         for state in self._states.values():
             if state.stream_step is not None and not state.stream_done:
                 if self._should_emit_cli(state):
-                    self._emit("\n\n")  # 思考结束空行
+                    self._emit("\n\n\n")  # 思考结束空行（2行空白）
                 state.stream_done = True
                 state.stream_step = None
                 state.stream_header = ""
                 state.stream_printed = 0
         if self._default.stream_step is not None and not self._default.stream_done:
             if self._should_emit_cli(self._default):
-                self._emit("\n\n")  # 思考结束空行
+                self._emit("\n\n\n")  # 思考结束空行（2行空白）
             self._default.stream_done = True
             self._default.stream_step = None
             self._default.stream_header = ""

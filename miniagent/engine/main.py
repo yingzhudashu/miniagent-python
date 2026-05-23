@@ -788,7 +788,8 @@ async def run_cli_loop(
         """处理用户输入并打印回复。"""
         try:
             session_key = channel_router.resolve("__cli__")
-            # 新输入开始：先贴上一轮底部，再画本轮 You 块，避免仍停在上次上滚位置。
+            # 新输入开始：先画轮次分隔线，再贴上一轮底部、画本轮 You 块
+            _cli_rule_heavy()
             _stick_bottom[0] = True
             try:
                 _snap_output_bottom()
