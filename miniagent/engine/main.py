@@ -263,6 +263,10 @@ async def run_cli_loop(
     monitor = ctx.monitor
     channel_router = ctx.channel_router
     message_queue = ctx.message_queue
+
+    # 注册全局执行锁到消息队列，保证 CLI 与飞书消息跨队列 FIFO 排序
+    message_queue.set_exec_lock(engine._exec_lock)
+
     from miniagent.skills.snapshots import (
         get_skill_prompts_from_state,
         get_skill_toolboxes_from_state,

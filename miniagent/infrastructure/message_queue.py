@@ -43,7 +43,7 @@ class _ChatQueue:
     每个聊天室对应一个 _ChatQueue 实例，由 MessageQueueManager 统一管理。
     """
 
-    def __init__(self) -> None:
+    def __init__(self, manager: MessageQueueManager | None = None) -> None:
         """初始化聊天室队列。
 
         属性说明：
@@ -53,6 +53,7 @@ class _ChatQueue:
         - _current_task: 当前正在执行的任务
         - _task_start_time: 当前任务开始时间（用于计算运行时长）
         - _dispatch_wait_tasks: ``dispatch_wait`` 创建的包装 Task（不在 ``_queue`` 中），供 ``abort_pending`` 一并取消
+        - _manager: 指向全局 MessageQueueManager，用于获取跨队列执行锁
         """
         self._lock = asyncio.Lock()
         self._processing = False
@@ -60,6 +61,7 @@ class _ChatQueue:
         self._current_task: asyncio.Task | None = None
         self._task_start_time: float | None = None
         self._dispatch_wait_tasks: set[asyncio.Task] = set()
+        self._manager = manager
 
     @property
     def pending(self) -> int:
@@ -112,18 +114,24 @@ class _ChatQueue:
             if self._current_task and not self._current_task.done():
                 self._current_task.cancel()
             self._queue.clear()
-            # 直接执行新任务（不走队列）
-            self._current_task = asyncio.create_task(coro)
+            # 直接执行新任务（不走队列），但仍需获取全局执行锁
+            if self._manager is not None and self._manager.exec_lock is not None:
+                await self._manager.exec_lock.acquire()
             try:
-                if on_start:
-                    on_start()
-                await self._current_task
-                if on_done:
-                    on_done()
-            except asyncio.CancelledError:
-                pass  # 被新任务打断，静默忽略
+                self._current_task = asyncio.create_task(coro)
+                try:
+                    if on_start:
+                        on_start()
+                    await self._current_task
+                    if on_done:
+                        on_done()
+                except asyncio.CancelledError:
+                    pass  # 被新任务打断，静默忽略
+                finally:
+                    self._current_task = None
             finally:
-                self._current_task = None
+                if self._manager is not None and self._manager.exec_lock is not None:
+                    self._manager.exec_lock.release()
         else:
             # 队列模式：创建包装任务加入队列，由 _run_sequential 保证串行
             task = asyncio.create_task(self._run_sequential(coro, on_start, on_done))
@@ -145,6 +153,9 @@ class _ChatQueue:
         同一聊天室的多个任务通过此方法串行执行，
         保证消息处理不会出现并发竞争。
 
+        **跨队列排序**：在持有本队列锁的同时获取全局执行锁，
+        防止其他队列的任务抢先执行，确保全局 FIFO。
+
         Args:
             coro: 要执行的协程
             on_start: 开始回调
@@ -155,6 +166,9 @@ class _ChatQueue:
             async with self._lock:
                 self._processing = True
                 self.mark_task_start()
+                # 跨队列执行锁：在持有队列锁时获取，保证全局 FIFO
+                if self._manager is not None and self._manager.exec_lock is not None:
+                    await self._manager.exec_lock.acquire()
                 try:
                     if on_start:
                         on_start()
@@ -162,9 +176,9 @@ class _ChatQueue:
                     await coro
                     if on_done:
                         on_done()
-                except asyncio.CancelledError:
-                    pass  # 被打断时静默退出（与历史行为一致）
                 finally:
+                    if self._manager is not None and self._manager.exec_lock is not None:
+                        self._manager.exec_lock.release()
                     self._processing = False
                     self.mark_task_end()
         except asyncio.CancelledError:
@@ -266,6 +280,7 @@ class MessageQueueManager:
         """
         self._mode = QueueMode.QUEUE
         self._queues: dict[str, _ChatQueue] = {}
+        self.exec_lock: asyncio.Lock | None = None
 
     @property
     def mode(self) -> QueueMode:
@@ -293,8 +308,19 @@ class MessageQueueManager:
             对应的 _ChatQueue 实例
         """
         if chat_id not in self._queues:
-            self._queues[chat_id] = _ChatQueue()
+            self._queues[chat_id] = _ChatQueue(manager=self)
         return self._queues[chat_id]
+
+    def set_exec_lock(self, lock: asyncio.Lock) -> None:
+        """设置全局执行排序锁。
+
+        各队列的 ``_run_sequential`` 在运行协程前必须先获取此锁，
+        从而保证跨队列的 FIFO 执行顺序（CLI 与飞书消息的全局排序）。
+
+        Args:
+            lock: asyncio.Lock 实例，通常来自 ``UnifiedEngine._exec_lock``
+        """
+        self.exec_lock = lock
 
     async def dispatch(self, chat_id: str, coro, on_start=None, on_done=None) -> None:
         """分发消息到指定聊天室队列。
