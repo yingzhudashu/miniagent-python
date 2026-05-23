@@ -1019,7 +1019,6 @@ async def _run_cli_loop_fallback(
         release_session_lock,
         try_lock_session,
     )
-
     from miniagent.skills.snapshots import (
         get_skill_prompts_from_state,
         get_skill_toolboxes_from_state,

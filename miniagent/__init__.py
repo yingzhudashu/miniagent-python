@@ -23,3 +23,5 @@
 __version__ = "2.0.2"
 __author__ = "mini-agent"
 __description__ = "基于 LLM 的智能个人助手，采用两阶段架构（规划 + 执行）"
+
+__all__ = ["__version__", "__author__", "__description__"]

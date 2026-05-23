@@ -1,3 +1,10 @@
+"""飞书云文档（Docx）块级操作封装。
+
+提供文档创建、删除、获取、块列举、块文本更新等能力。
+供 ``feishu_doc`` 工具及上层文档管理模块使用。
+底层通过 lark-oapi SDK 与飞书开放平台交互。
+"""
+
 from miniagent.feishu.docx.blocks import (
     DOCX_APPEND_MAX_BLOCKS,
     DOCX_APPEND_MAX_CHARS,

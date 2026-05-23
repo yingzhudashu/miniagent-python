@@ -92,12 +92,24 @@ workspaces/memory/agent_lt/                 # Agent 级长期记忆 JSON
 
 | 函数 | 说明 |
 |------|------|
-| `load(session_key)` | 加载会话记忆 |
-| `add_entry(session_key, entry)` | 添加记忆条目 |
-| `update_summary(session_key, summary, facts)` | 更新会话摘要 |
+| `load(session_key)` | 加载会话记忆（先查 LRU 缓存，未命中则读磁盘） |
+| `save(memory)` | 保存会话记忆到磁盘，同时更新 LRU 缓存 |
+| `add_entry(session_key, entry)` | 添加记忆条目，自动落盘 + 更新关键词/嵌入索引 |
+| `update_summary(session_key, summary, facts)` | 更新会话摘要，自动落盘 |
 | `extract_facts(text)` | 从文本中提取关键事实 |
 | `generate_turn_summary(user_input, tool_calls, reply)` | 生成单轮对话摘要 |
-| `search(session_key, query)` | 在当前会话记忆中搜索 |
+| `flush_keyword_index()` | 将挂起的关键词索引变更写入磁盘 |
+
+### LRU 缓存
+
+`DefaultMemoryStore._cache` 使用 `collections.OrderedDict` 实现 LRU 驱逐：
+
+- **上限**：默认 50 会话，可通过 `MINIAGENT_MEMORY_STORE_CACHE_MAX` 环境变量覆盖
+- **命中**：`move_to_end(session_id)` 提升活跃度
+- **驱逐**：`popitem(last=False)` 移除最旧条目
+- **写入**：`save()` 和 `load()`（未命中时）均经过 `_cache_put`，统一触发驱逐检查
+
+此设计确保长期运行的进程不会因无限增长的缓存导致内存膨胀。
 
 ### 记忆条目格式
 
@@ -130,13 +142,18 @@ workspaces/memory/agent_lt/                 # Agent 级长期记忆 JSON
 ```
 Executor (ReAct循环)
     ↓
-activity_log.log_session_start()
-activity_log.log_llm_call()      ← 每轮 LLM 调用
-activity_log.log_tool_call()     ← 每次工具执行
-activity_log.log_final_reply()   ← 最终回复
+activity_log.log_session_start()   ← 首次读今日文件（后续 30 秒内走内存缓存）
+activity_log.log_llm_call()        ← 每轮 LLM 调用
+activity_log.log_tool_call()       ← 每次工具执行
+activity_log.log_final_reply()     ← 最终回复
     ↓
 memory/YYYY-MM-DD.md
 ```
+
+### 读取缓存
+
+`_read_today()` 有 **30 秒内存缓存**，避免每次 `log_session_start` 都读取 Growing 的 Markdown 文件。
+缓存按文件路径隔离，跨日自动刷新。
 
 ### 示例输出
 
@@ -154,25 +171,73 @@ memory/YYYY-MM-DD.md
 
 ## Layer 3: 语义检索 (Semantic Memory)
 
+Layer 3 包含两个互补的检索后端：关键词索引（始终启用）和嵌入搜索（环境变量控制）。
+
+### 关键词索引
+
 **位置**: `miniagent/memory/keyword_index.py`
 
 跨会话的长期记忆检索，使用关键词索引 + TF-IDF 加权。
 
-### 核心机制
+#### 核心机制
 
 1. **关键词提取**: 从每次对话中提取关键信息
-2. **TF-IDF 加权**: 词频-逆文档频率评分
-3. **相似度搜索**: 根据当前输入检索相关历史记忆
+   - 英文：按空格和标点分词，去停用词，过滤单字符
+   - 中文：2-gram + 3-gram 字符组合
+2. **倒排索引**: 建立 关键词 → [记忆条目] 的映射
+3. **相关性排序**: 按匹配关键词数加权（3-gram 权重 1.5×）
 4. **结果格式化**: 将检索到的记忆格式化为 Agent 可读的提示
 
-### API
+#### 上限与驱逐
+
+关键词索引有 **`max_entries`** 上限（默认 20000 关键词，`MINIAGENT_KEYWORD_INDEX_MAX`）。
+超限时自动驱逐最早的关键词（基于插入顺序），避免索引无限增长。
+
+#### API
 
 | 函数 | 说明 |
 |------|------|
-| `search_relevant_memory(query, top_k=8)` | 搜索相关记忆 |
+| `search_relevant(query, top_k=8)` | 搜索相关记忆 |
 | `format_search_results(results)` | 格式化为提示文本 |
 | `get_index_stats()` | 获取索引统计 |
-| `add_entry(text, metadata)` | 添加索引条目 |
+| `index_entry(session_id, entry)` | 索引一条记忆条目 |
+| `prune_expired(days_old=30)` | 清理过期条目 |
+
+### 嵌入搜索（可选）
+
+**位置**: `miniagent/memory/embedding_search.py`
+
+基于向量嵌入的语义搜索，使用余弦相似度计算相关性。
+
+#### 配置
+
+通过环境变量控制（默认关闭，仅使用关键词索引）：
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `MINIAGENT_EMBED_SEARCH` | `0` | `1`/`true` 开启嵌入搜索 |
+| `MINIAGENT_EMBED_BASE_URL` | *(空)* | embedding 服务 URL |
+| `MINIAGENT_EMBED_MODEL` | *(空)* | embedding 模型 |
+| `MINIAGENT_EMBED_API_KEY` | *(空)* | embedding API 密钥 |
+| `MINIAGENT_EMBED_DIM` | `1536` | 向量维度 |
+| `MINIAGENT_EMBED_TOP_K` | `8` | 最多返回条目数 |
+| `MINIAGENT_EMBED_MIN_SCORE` | `0.3` | 最低余弦相似度阈值 |
+| `MINIAGENT_EMBED_MAX_ENTRIES` | `10000` | 嵌入索引上限 |
+
+#### 存储与驱逐
+
+- 索引文件：`<state_dir>/embedding-index.json`
+- 每条记忆缓存其 1536 维向量（约 12KB/条）
+- **上限**：10000 条（约 120MB），超限驱逐最早条目
+- 使用内容 hash 检测重复，相同内容不重复索引
+
+#### 检索流程
+
+执行阶段（`execute_plan`）会先尝试嵌入搜索，不足 5 条时补充关键词索引：
+
+```
+用户输入 → 嵌入搜索（若启用）→ 不足 5 条 → 关键词索引补充 → 格式化注入 system prompt
+```
 
 ## 上下文管理
 
@@ -230,3 +295,15 @@ messages = [
 | `context_compress_threshold` | 0.8 | token 压缩阈值 (80% 窗口) |
 | `max_turns` | 400 | ReAct 最大轮数（与 `AGENT_MAX_TURNS` / `AgentConfig` 一致；可由环境变量覆盖） |
 | 记忆检索 top_k | 8 | Layer 3 返回条目数 |
+
+## 环境变量汇总
+
+| 变量 | 默认值 | 影响模块 |
+|------|--------|----------|
+| `MINIAGENT_MEMORY_STORE_CACHE_MAX` | `50` | `store.py` LRU 缓存上限（会话数） |
+| `MINIAGENT_KEYWORD_INDEX_MAX` | `20000` | `keyword_index.py` 关键词数上限 |
+| `MINIAGENT_EMBED_SEARCH` | `0` | `embedding_search.py` 是否启用嵌入搜索 |
+| `MINIAGENT_EMBED_MAX_ENTRIES` | `10000` | `embedding_search.py` 嵌入条目上限 |
+| `MINI_AGENT_DREAM_*` | `7d/30d/365d` | `dream_scheduler.py` 维护周期 |
+| `MINI_AGENT_DREAM_SIZE_BYTES` | *(无)* | 体量闸门阈值 |
+| `MINI_AGENT_HISTORY_TAIL_MESSAGES` | `200` | 历史保留消息数 |

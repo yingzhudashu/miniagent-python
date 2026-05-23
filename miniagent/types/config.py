@@ -10,7 +10,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-
 # ============================================================================
 # ModelConfig — 模型层配置
 # ============================================================================

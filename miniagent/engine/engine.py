@@ -442,7 +442,6 @@ class UnifiedEngine:
         self._conversation_counter += 1
         if session_manager:
             session_manager.save_session_history(session_key)
-            self._save_numbered_history(session_key, history)
 
         # 11. 更新记忆存储
         try:
@@ -462,14 +461,6 @@ class UnifiedEngine:
             _logger.warning("Dream scheduler scheduling failed: %s", e)
 
         return reply
-
-    def _save_numbered_history(self, session_key: str, history: list[dict]) -> None:
-        """保存带编号的会话历史（已废弃）。
-
-        不再每轮创建独立文件，改为仅更新 history.json。
-        保留此方法避免旧代码调用报错。
-        """
-        pass
 
     def inject_message(self, session_key: str, content: str, *, session_manager: Any) -> None:
         """向指定会话注入消息。

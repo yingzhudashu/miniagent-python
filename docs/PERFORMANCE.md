@@ -39,6 +39,9 @@
 | S5 | `_normalize_lark_md` 大段正文 | 飞书 **纯 CPU** 规范化；不访问网络，与 `poll_server` 侧热点对照 |
 | S6 | 批量 `add_entry` + `flush` 的 tracemalloc 峰值 | 分配量宽松上界；与 `scripts/perf_profile_tracemalloc.py` 场景一致 |
 | S7 | `serialize_exec_payload_sample`（DefaultContextManager + messages/tools `json.dumps`） | 与 `execute_plan` 请求组装对齐的 Python 序列化冒烟 |
+| S8 | 连续加载 60 个会话到 `DefaultMemoryStore` | 验证 LRU cache 驱逐（`_cache_max` 默认 50） |
+| S9 | `EmbeddingIndex` 连续添加 250 条目 | 验证 `max_entries` 上限驱逐（200） |
+| S10 | `KeywordIndex` 连续添加 200 条目 | 验证关键词数不超过 `max_entries`（50） |
 
 扩展场景时保持 **确定性**（固定 tmp 状态目录、Mock client），避免在默认 CI 中依赖网络。可选在 CI 中设置 **`PYTHONHASHSEED=0`**（见 `.github/workflows/perf-smoke.yml`）以降低 dict 迭代顺序带来的抖动。
 
@@ -101,8 +104,14 @@ CI **不**依赖基线文件是否存在；可选 workflow 仅上传当次脚本
 
 ### 5.1 已缓解
 
-- **关键词索引**：`KeywordIndex` 使用 `_dirty`；`index_entry` 只改内存。`DefaultMemoryStore.add_entry` 不再每次 `save()`；在 [`miniagent/core/executor.py`](../miniagent/core/executor.py) 的 `_save_session_memory` 末尾 **`flush_keyword_index()`** 保证每轮仍落盘一次。批量 `add_entry` 后显式 `flush_keyword_index()` 可减少写次数。进程退出时 [`miniagent/memory/defaults.py`](../miniagent/memory/defaults.py) 通过 **atexit** 再刷一次默认 bundle 的索引，降低异常退出丢失概率。  
+- **关键词索引**：`KeywordIndex` 使用 `_dirty`；`index_entry` 只改内存。`DefaultMemoryStore.add_entry` 不再每次 `save()`；在 [`miniagent/core/executor.py`](../miniagent/core/executor.py) 的 `_save_session_memory` 末尾 **`flush_keyword_index()`** 保证每轮仍落盘一次。批量 `add_entry` 后显式 `flush_keyword_index()` 可减少写次数。进程退出时 [`miniagent/memory/defaults.py`](../miniagent/memory/defaults.py) 通过 **atexit** 再刷一次默认 bundle 的索引，降低异常退出丢失概率。关键词索引有 **`max_entries`** 上限（默认 20000，`MINIAGENT_KEYWORD_INDEX_MAX`），超过时修剪最早关键词。
 - **上下文预算中的工具 schema**：[`miniagent/memory/context.py`](../miniagent/memory/context.py) 的 `DefaultContextManager` 对 `estimate_tool_tokens`（内部多次 `json.dumps(tool)`）做 **按次失效缓存**（调用 **`set_tools`** 或构造后首次用时计算；之后复用）。若需更新工具列表或 schema 内容，**必须**通过 `set_tools` 传入新列表，勿仅原地修改已绑定列表并依赖预算立即变化。
+- **会话记忆缓存（LRU）**：[`miniagent/memory/store.py`](../miniagent/memory/store.py) 的 `DefaultMemoryStore._cache` 使用 `OrderedDict` 实现 LRU 驱逐，默认上限 50 会话（`MINIAGENT_MEMORY_STORE_CACHE_MAX`），命中时 `move_to_end` 提升活跃度，超限时 `popitem(last=False)` 驱逐最旧条目。
+- **嵌入索引上限**：[`miniagent/memory/embedding_search.py`](../miniagent/memory/embedding_search.py) 的 `EmbeddingIndex._entries` 有 `max_entries` 限制（默认 10000，`MINIAGENT_EMBED_MAX_ENTRIES`），每条 ~12KB（1536 维 × 8 字节），10000 条约 120MB；超限驱逐最早条目。
+- **活动日志读取缓存**：[`miniagent/memory/activity_log.py`](../miniagent/memory/activity_log.py) 的 `_read_today()` 有 30 秒内存缓存，避免每次 `log_session_start` 都读取 Growing 的 Markdown 文件。
+- **历史消息浅拷贝**：[`miniagent/memory/history_bridge.py`](../miniagent/memory/history_bridge.py) 的 `conversation_history_for_llm()` 用 `v.copy()` 替代 `copy.deepcopy(v)`，对简单 `{role, content}` 消息快 5-10 倍。
+- **预编译分词正则**：[`miniagent/memory/keyword_index.py`](../miniagent/memory/keyword_index.py) 的 `extract_keywords()` 使用模块级预编译 `_RE_NON_ALNUM_CJK` / `_RE_CJK_ONLY`，避免每次 `re.sub` 重新编译。
+- **执行器 import 提升**：[`miniagent/core/executor.py`](../miniagent/core/executor.py) 的 `ToolResult` import 从 `_run_tool` 内部移到模块顶部，节省每次工具调用的 import 开销。
 
 ### 5.2 待验证 / 剖析指引
 
