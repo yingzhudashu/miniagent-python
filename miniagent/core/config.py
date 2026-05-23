@@ -60,6 +60,9 @@ def _env_float(key: str, fallback: float) -> float:
 # 默认配置工厂
 # ============================================================================
 
+# 全局 Agent 名称
+AGENT_NAME = "MiniAgent"
+
 # 循环检测默认配置
 DEFAULT_LOOP_DETECTION: dict[str, Any] = {
     "enabled": _env_bool("LOOP_DETECTION_ENABLED", True),
@@ -175,6 +178,10 @@ def merge_agent_config(base: AgentConfig, overrides: dict[str, Any]) -> AgentCon
     将覆盖配置合并到基础配置中。loop_detection 会逐字段合并，
     确保未指定的子字段保留原值。
 
+    注意：此函数手动列出 AgentConfig 的每个字段，原因是需要对 conversation_history
+    等特殊字段进行规范化处理（而非简单的字典合并）。如果 AgentConfig 新增字段，
+    必须同步更新下方的 merged_dict 构造和 elif key in merged_dict 分支。
+
     Args:
         base: 基础配置（通常为 get_default_agent_config() 的结果）
         overrides: 要覆盖的字段
@@ -235,6 +242,7 @@ def merge_agent_config(base: AgentConfig, overrides: dict[str, Any]) -> AgentCon
 
 
 __all__ = [
+    "AGENT_NAME",
     "DEFAULT_LOOP_DETECTION",
     "get_default_model_config",
     "get_default_agent_config",

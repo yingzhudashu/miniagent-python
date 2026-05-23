@@ -315,7 +315,7 @@ python scripts/docstring_inventory.py --write docs/docstring_inventory.md
 
 **模块首行约定**：模块 docstring 须为文件**首条**语句（须写在 ``from __future__ import annotations`` 之前），否则 CPython 不将其视为 ``__doc__``，脚本也会判为「模块 docstring 缺失」。
 
-报告文件见 [docstring_inventory.md](docstring_inventory.md)（提交前若更新报告，请与 docstring 改动同一批提交）。
+报告文件见 [docstring_inventory.md](docstring_inventory.md)（按需生成，不强制提交到仓库；若更新报告，请与 docstring 改动同一批提交）。
 
 ### 注释与文档（分层约定）
 

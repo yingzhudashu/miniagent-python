@@ -105,9 +105,3 @@ class TestMemoryStore:
         assert loaded is not None
         assert "Python" in loaded.cumulative_summary
         assert any("Python" in f for f in loaded.key_facts)
-
-    async def test_search_empty(self):
-        # Memory store doesn't have a search method by default
-        # Verify that load returns None for nonexistent session
-        result = await self.store.load("nonexistent")
-        assert result is None

@@ -104,7 +104,7 @@ def _diary_dir_size(session_key: str) -> int:
 
 def _try_file_lock() -> bool:
     """跨进程互斥：独占文件 + PID（不保证崩溃后强一致，与实例注册表策略一致）。"""
-    from miniagent.infrastructure.instance import _is_process_running
+    from miniagent.infrastructure.instance import is_process_running
 
     lock = os.path.join(_state_dir(), "memory", "dream.lock")
     os.makedirs(os.path.dirname(lock), exist_ok=True)
@@ -120,7 +120,7 @@ def _try_file_lock() -> bool:
                     pid = int(f.read().strip() or "0")
             except Exception:
                 return False
-            if pid and pid != os.getpid() and _is_process_running(pid):
+            if pid and pid != os.getpid() and is_process_running(pid):
                 return False
             try:
                 os.unlink(lock)

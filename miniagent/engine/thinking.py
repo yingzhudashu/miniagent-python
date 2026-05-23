@@ -135,6 +135,7 @@ class _SessionThinkingState:
         "feishu_last_patched_char_len",
         "feishu_patch_budget",
         "feishu_tool_section_started",
+        "turn_number",
     )
 
     step_counter: int
@@ -154,6 +155,7 @@ class _SessionThinkingState:
     feishu_last_patched_char_len: int
     feishu_patch_budget: int
     feishu_tool_section_started: bool
+    turn_number: int
 
     def __init__(self) -> None:
         """初始化会话级流式/飞书 PATCH 状态为默认值。"""
@@ -174,6 +176,7 @@ class _SessionThinkingState:
         self.feishu_last_patched_char_len = -1
         self.feishu_patch_budget = 0
         self.feishu_tool_section_started = False
+        self.turn_number = 0
 
 
 class ThinkingDisplay:
@@ -279,6 +282,12 @@ class ThinkingDisplay:
         state.feishu_last_patched_char_len = -1
         state.feishu_patch_budget = 0
         state.feishu_tool_section_started = False
+
+    def next_turn(self, session_key: str = "") -> int:
+        """递增并返回 turn_number（新用户轮次前调用）。"""
+        state = self._get_state(session_key)
+        state.turn_number += 1
+        return state.turn_number
 
     def thinking_state(self, session_key: str) -> Any:
         """返回会话级思考状态（供引擎 finalize 飞书流式卡片）。"""
@@ -392,7 +401,7 @@ class ThinkingDisplay:
                 and state.stream_step is not None
                 and not state.stream_done
             ):
-                self._emit("\n")
+                self._emit("\n\n")  # 阶段间空行：结束上一阶段 + 留一行间隔
             state.stream_done = True
             state.stream_step = None
             state.stream_header = ""
@@ -473,10 +482,12 @@ class ThinkingDisplay:
             state.stream_printed = len(full)
         else:
             # 非流式：结束之前的流式
+            saved_header = ""
             if state.stream_step is not None and not state.stream_done:
                 if self._should_emit_cli(state):
-                    self._emit("\n")
+                    self._emit("\n\n")  # 阶段间空行：结束流式 + 留一行间隔
                 state.stream_done = True
+                saved_header = state.stream_header
             state.stream_step = None
             state.stream_header = ""
             state.stream_done = False
@@ -485,7 +496,8 @@ class ThinkingDisplay:
             step = self._next_step(session_key)
             lines = (text or "").splitlines() or [""]
             if self._should_emit_cli(state):
-                self._emit_line(f"\U0001f4ad [{step}]", "blue")
+                hdr_part = f" {saved_header}" if saved_header else ""
+                self._emit_line(f"\U0001f4ad [{step}]{hdr_part}", "blue")
                 body_md = text or ""
                 ansi_body: str | None = None
                 if (
@@ -515,14 +527,14 @@ class ThinkingDisplay:
         for state in self._states.values():
             if state.stream_step is not None and not state.stream_done:
                 if self._should_emit_cli(state):
-                    self._emit("\n")
+                    self._emit("\n\n")  # 思考结束空行
                 state.stream_done = True
                 state.stream_step = None
                 state.stream_header = ""
                 state.stream_printed = 0
         if self._default.stream_step is not None and not self._default.stream_done:
             if self._should_emit_cli(self._default):
-                self._emit("\n")
+                self._emit("\n\n")  # 思考结束空行
             self._default.stream_done = True
             self._default.stream_step = None
             self._default.stream_header = ""

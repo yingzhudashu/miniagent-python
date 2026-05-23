@@ -19,6 +19,8 @@ Example:
 
 from __future__ import annotations
 
+import json
+import os
 from typing import Any
 
 
@@ -78,6 +80,7 @@ class ChannelRouter:
         if self._primary is None:
             self._primary = session_id
 
+        self._auto_save()
         return old or ""
 
     def unbind(self, channel_id: str) -> str:
@@ -101,6 +104,7 @@ class ChannelRouter:
         if not self._bindings:
             self._primary = None
 
+        self._auto_save()
         return old
 
     def unbind_all(self) -> None:
@@ -160,6 +164,7 @@ class ChannelRouter:
             session_id: 主会话 ID
         """
         self._primary = session_id
+        self._auto_save()
 
     @property
     def primary(self) -> str | None:
@@ -241,7 +246,68 @@ class ChannelRouter:
 
     # -----------------------------------------------------------------------
     # 持久化（可选）
-    # -----------------------------------------------------------------------
+    # -------------------------------------------------------------------
+
+    def _state_dir(self) -> str:
+        """返回 MINI_AGENT_STATE 目录路径。"""
+        return os.environ.get("MINI_AGENT_STATE", "")
+
+    def _state_file(self) -> str | None:
+        """返回持久化文件路径；未设置 MINI_AGENT_STATE 时返回 None。"""
+        d = self._state_dir()
+        if not d:
+            return None
+        return os.path.join(d, "channel-router.json")
+
+    def _auto_save(self) -> None:
+        """若设置了状态目录则写入磁盘。"""
+        p = self._state_file()
+        if p:
+            self.save(path=p)
+
+    def save(self, path: str | None = None) -> str:
+        """将绑定状态写入磁盘 JSON 文件。
+
+        Args:
+            path: 可选的完整路径；默认使用 MINI_AGENT_STATE/channel-router.json
+
+        Returns:
+            写入的文件路径
+        """
+        if path is None:
+            p = self._state_file()
+            if p is None:
+                raise ValueError("未设置 MINI_AGENT_STATE 环境变量，需传入 path 参数")
+        else:
+            p = path
+
+        os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(self.to_dict(), f, ensure_ascii=False, indent=2)
+        return p
+
+    def load(self, path: str | None = None) -> bool:
+        """从磁盘加载绑定状态。
+
+        Args:
+            path: 可选的完整路径；默认使用 MINI_AGENT_STATE/channel-router.json
+
+        Returns:
+            True 如果成功加载，False 如果文件不存在
+        """
+        if path is None:
+            p = self._state_file()
+            if p is None or not os.path.isfile(p):
+                return False
+        else:
+            p = path
+            if not os.path.isfile(p):
+                return False
+
+        with open(p, encoding="utf-8") as f:
+            data = json.load(f)
+        self.from_dict(data)
+        return True
 
     def to_dict(self) -> dict[str, Any]:
         """序列化绑定状态。

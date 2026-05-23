@@ -200,14 +200,14 @@ feishu_card_tools: dict[str, ToolDefinition] = {
         handler=_feishu_send_interactive_card,
         permission="allowlist",
         help_text="发送飞书交互卡片",
-        toolbox=None,
+        toolbox="feishu",
     ),
     "feishu_update_message_card": ToolDefinition(
         schema=_update_schema,
         handler=_feishu_update_message_card,
         permission="allowlist",
         help_text="更新飞书交互卡片",
-        toolbox=None,
+        toolbox="feishu",
     ),
 }
 

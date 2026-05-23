@@ -150,9 +150,8 @@ Agent 的大脑，实现两阶段架构。
 | `poll_server.py` | WebSocket 长连接：WSClient 单例、内存+磁盘双重去重、消息防抖合并、与 `ws_health` 监督衔接 |
 | `ws_client.py` | lark WS 客户端包装：暴露 `receive_task` / `connected` 供监督循环使用 |
 | `ws_health.py` | 会话监督：看门狗、死连接/空闲刷新、与 `FeishuRuntime` 外层退避重连配合 |
-| `agent_handler.py` | 消息处理器：`create_feishu_handler()` → 飞书消息 → Agent → 回复 |
+| `main.py` 内 `_create_feishu_handler` | 消息处理器：飞书消息 → Agent → 回复（已从独立 `agent_handler.py` 合并至引擎主循环） |
 | `agent_channel_prompts.py` | 通道级提示词配置 |
-| `server.py` | HTTP Webhook（备选，需公网 IP） |
 | `types.py` | `FeishuConfig`, `FeishuEvent` 类型定义 |
 | `resource_io.py` | 飞书媒体/资源下载与会话落盘 |
 | `im_send.py` | IM 发送客户端封装 |
@@ -213,7 +212,6 @@ LLM 可通过 function calling 调用的工具：
 | `filesystem.py` | 文件操作 (read/write/list/edit) |
 | `web.py` | 网页访问 (search/fetch) |
 | `skills.py` | 技能操作 (install/list) |
-| `self_opt.py` | 自优化工具 (inspect/optimize) |
 | `git_readonly.py` | 只读 Git 查询（日志、diff 等） |
 | `session_memory.py` | 会话级记忆辅助工具（由 `engine/init` 注册） |
 | `cli_dispatch_tools.py` | `run_dot_command`：经 [`command_dispatch.dispatch_command`](miniagent/engine/command_dispatch.py) 执行点命令（`capture=True`，与 CLI 同源） |
@@ -368,7 +366,7 @@ flowchart LR
 
 ### 多实例设计
 
-多实例注册表、PID 存活清理与心跳语义详见 [INSTANCE_REGISTRY.md](INSTANCE_REGISTRY.md)（SSOT）。要点：新实例 `register()` / `list_all()` 按 OS PID 清理僵尸目录，**不**向其它进程发终止信号；会话级锁保证数据一致性。
+多实例注册表、PID 存活清理与心跳语义详见 [ENGINEERING.md](ENGINEERING.md) §3.3（SSOT）。要点：新实例 `register()` / `list_all()` 按 OS PID 清理僵尸目录，**不**向其它进程发终止信号；会话级锁保证数据一致性。
 
 ### 多会话并发安全
 

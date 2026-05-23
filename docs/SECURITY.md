@@ -39,7 +39,7 @@
 workspace = get_default_workspace()  # workspaces/sessions/<session_id>/files/
 
 # 路径验证
-resolved = resolve_sandbox_path(path, cwd, allowed_dirs)
+resolved = resolve_sandbox_path(path, ["/app/workspace"])
 # 如果路径不在 allowed_dirs 中 → 抛出 PermissionError
 ```
 
@@ -47,7 +47,7 @@ resolved = resolve_sandbox_path(path, cwd, allowed_dirs)
 
 ```python
 # ❌ 被拦截
-resolve_sandbox_path("../../etc/passwd", cwd, ["/app/workspace"])
+resolve_sandbox_path("../../etc/passwd", ["/app/workspace"])
 # → PermissionError: 路径越界
 
 # ✅ 允许
@@ -109,7 +109,7 @@ release_session_lock("default")
 
 - 每个实例在 `workspaces/instances/<id>/` 注册
 - **存活判定**以操作系统 PID 为准（Windows: tasklist, Unix: os.kill）；`register()` / `list_all()` 会清理 PID 已退出的僵尸目录
-- 心跳文件周期性刷新，仅供人工排查，**不**触发超时清理（详见 [INSTANCE_REGISTRY.md](INSTANCE_REGISTRY.md)）
+- 心跳文件周期性刷新，仅供人工排查，**不**触发超时清理（详见 [ENGINEERING.md](ENGINEERING.md) §3.3）
 
 ## 4. 循环检测
 
@@ -119,8 +119,8 @@ release_session_lock("default")
 
 | 级别 | 触发条件 | 处理方式 |
 |------|---------|---------|
-| `warning` | 相同工具+参数重复 3 次 | 日志警告 |
-| `critical` | 相同工具+参数重复 5 次 | 终止执行 |
+| `warning` | 相同工具+参数重复 5 次 | 日志警告 |
+| `critical` | 相同工具+参数重复 8 次 | 终止执行 |
 
 ## 5. 飞书凭证安全
 
@@ -160,6 +160,4 @@ release_session_lock("default")
 
 ## 8. 相关文档
 
-- [ENGINEERING.md](ENGINEERING.md)：`.env` 与密钥不入库、CI 质量门禁、`MINI_AGENT_STATE` 与 `workspaces/` 跟踪政策。
-- [DEPLOYMENT.md](DEPLOYMENT.md)：安装、运行环境与故障排除。
-- [INSTANCE_REGISTRY.md](INSTANCE_REGISTRY.md)：多实例与磁盘注册目录语义。
+- [ENGINEERING.md](ENGINEERING.md)：`.env` 与密钥不入库、CI 质量门禁、多实例与磁盘注册目录语义（§3.3）。

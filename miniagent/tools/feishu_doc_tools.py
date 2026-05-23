@@ -633,7 +633,7 @@ feishu_doc_tools: dict[str, ToolDefinition] = {
         handler=_feishu_doc,
         permission="allowlist",
         help_text="飞书云文档（docx）读写与块操作",
-        toolbox=None,
+        toolbox="feishu",
     ),
 }
 

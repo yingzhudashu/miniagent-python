@@ -19,7 +19,7 @@ def _job_lock_path(task_id: str) -> str:
 
 
 def _try_acquire_lock_file(lock: str) -> bool:
-    from miniagent.infrastructure.instance import _is_process_running
+    from miniagent.infrastructure.instance import is_process_running
 
     for _ in range(3):
         try:
@@ -33,7 +33,7 @@ def _try_acquire_lock_file(lock: str) -> bool:
                     pid = int(f.read().strip() or "0")
             except Exception:
                 return False
-            if pid and pid != os.getpid() and _is_process_running(pid):
+            if pid and pid != os.getpid() and is_process_running(pid):
                 return False
             try:
                 os.unlink(lock)

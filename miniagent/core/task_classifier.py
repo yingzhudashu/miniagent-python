@@ -10,15 +10,13 @@ import os
 from enum import Enum
 from typing import Any
 
+from miniagent.core._openai_compat import json_object_unsupported as _json_object_unsupported
 from miniagent.core.openai_client import get_shared_async_openai
 from miniagent.core.thinking_presets import map_business_depth, map_openclaw_thinking_to_model
 from miniagent.infrastructure.logger import get_logger
 from miniagent.types.config import AgentConfig
 
 _logger = get_logger(__name__)
-
-
-from miniagent.core._openai_compat import json_object_unsupported as _json_object_unsupported
 
 
 class TaskDifficulty(str, Enum):

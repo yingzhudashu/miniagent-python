@@ -105,11 +105,11 @@ def _format_plan_display_short(
             simple_classified=simple_classified,
         )
         return (
-            "**计划**（已跳过结构化规划）\n"
+            "[计划]（已跳过结构化规划）\n"
             + reason
             + f"\n摘要：{(plan.summary or '').strip() or '—'}"
         )
-    lines: list[str] = ["**计划**", (plan.summary or "").strip() or "—"]
+    lines: list[str] = ["[计划]", (plan.summary or "").strip() or "—"]
     if plan.steps:
         lines.append("")
         for i, st in enumerate(plan.steps, start=1):
@@ -190,6 +190,7 @@ async def run_agent(
     activity_log: Any | None = None,
     keyword_index: Any | None = None,
     client: AsyncOpenAI | None = None,
+    clarifier: Any | None = None,
 ) -> str:
     """运行 Agent（两阶段模式）。
 
@@ -228,6 +229,41 @@ async def run_agent(
     # ── 合并配置 ──
     base_config = get_default_agent_config()
     merged_config = merge_agent_config(base_config, agent_config or {})
+
+    # ── Phase 0: 需求澄清 ──
+    clarifier_enabled = os.environ.get("MINIAGENT_REQUIREMENT_CLARIFY", "1") != "0"
+    clarified_text = ""
+    if clarifier_enabled and clarifier is not None:
+        # 即时反馈：在 LLM 调用前让用户看到提示，避免"沉默太久"
+        if on_thinking:
+            try:
+                await invoke_on_thinking(
+                    on_thinking,
+                    "正在分析需求，识别模糊表述与边界条件…",
+                    True,
+                    "[需求澄清]",
+                )
+            except Exception:
+                pass
+        try:
+            clarified = await clarifier.clarify(user_input)
+            clarified_text = getattr(clarified, "clarified_goal", "") or ""
+            if clarified_text:
+                user_input = f"{user_input}\n\n澄清后的目标：{clarified_text}"
+                if _announce_difficulty_and_plan_enabled() and on_thinking:
+                    try:
+                        prompt = clarifier.to_system_prompt(clarified)
+                        await invoke_on_thinking(
+                            on_thinking,
+                            f"📝 需求已澄清：{clarified_text[:80]}",
+                            True,
+                            "[需求澄清]",
+                            full_record=prompt,
+                        )
+                    except Exception:
+                        pass
+        except Exception as e:
+            _logger.warning("需求澄清失败: %s", e)
 
     from miniagent.core.task_classifier import (
         TaskDifficulty,
@@ -300,6 +336,7 @@ async def run_agent(
             registry=registry,
             planner_model_overrides=planner_merge_for_difficulty(difficulty),
             default_step_thinking=default_step_thinking_for_difficulty(difficulty),
+            on_thinking=on_thinking,
         )
 
         # 合并规划器的建议配置
@@ -380,7 +417,7 @@ async def run_agent(
         )
 
     # ── Phase 2: 执行 ──
-    return await execute_plan(
+    reply = await execute_plan(
         plan,
         user_input,
         registry,
@@ -396,6 +433,21 @@ async def run_agent(
         keyword_index=keyword_index,
         client=client,
     )
+
+    # ── Phase 3: 反思评估 ──
+    reflection_enabled = os.environ.get("MINIAGENT_REFLECTION", "1") != "0"
+    if reflection_enabled:
+        from miniagent.core.problem_solver import reflect_on_result
+
+        reflection = await reflect_on_result(user_input, reply, client=client, on_thinking=on_thinking)
+        # 反思结果用于决策：不可接受时追加改进建议
+        if not reflection.acceptable and reflection.suggestions:
+            suggestions_text = "\n\n---\n[反思评估] 结果需改进\n建议：\n" + "\n".join(
+                f"- {s}" for s in reflection.suggestions[:3]
+            )
+            reply = reply + suggestions_text
+
+    return reply
 
 
 # ─── 线性管线执行器 ─────────────────────────────────────

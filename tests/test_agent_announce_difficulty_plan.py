@@ -81,6 +81,7 @@ async def test_plan_announce_before_execute_when_classifier_off(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("MINIAGENT_TASK_CLASSIFIER", "0")
+    monkeypatch.setenv("MINIAGENT_REFLECTION", "0")
     monkeypatch.setenv("MINIAGENT_ANNOUNCE_DIFFICULTY_AND_PLAN", "1")
     tb = Toolbox(id="fs", name="fs", description="files", keywords=[])
     fake_plan = StructuredPlan(
@@ -119,6 +120,7 @@ async def test_difficulty_announced_when_classifier_runs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("MINIAGENT_TASK_CLASSIFIER", "1")
+    monkeypatch.setenv("MINIAGENT_REFLECTION", "0")
     monkeypatch.setenv("MINIAGENT_ANNOUNCE_DIFFICULTY_AND_PLAN", "1")
     tb = Toolbox(id="fs", name="fs", description="files", keywords=[])
 
@@ -148,7 +150,7 @@ async def test_difficulty_announced_when_classifier_runs(
     blob = "\n".join(t for _, t in captured)
     assert "📋" in blob or "评估" in blob
     assert "**难度**" in blob
-    assert "**计划**" in blob or "s" in blob
+    assert "[计划]" in blob or "s" in blob
 
 
 @pytest.mark.asyncio
@@ -186,7 +188,7 @@ async def test_on_plan_reject_skips_plan_announce_and_execute(
             )
 
     assert "取消" in out or "取消" in str(out)
-    assert not any("**计划**" in x or "[执行计划]" in x for x in captured)
+    assert not any("[计划]" in x or "[执行计划]" in x for x in captured)
     ex.assert_not_called()
 
 
@@ -195,6 +197,7 @@ async def test_skip_planning_announces_user_skip_not_simple(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("MINIAGENT_TASK_CLASSIFIER", "1")
+    monkeypatch.setenv("MINIAGENT_REFLECTION", "0")
     monkeypatch.setenv("MINIAGENT_ANNOUNCE_DIFFICULTY_AND_PLAN", "1")
     tb = Toolbox(id="fs", name="fs", description="files", keywords=[])
 
@@ -223,6 +226,7 @@ async def test_announce_disabled_skips_extra_on_thinking(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("MINIAGENT_TASK_CLASSIFIER", "0")
+    monkeypatch.setenv("MINIAGENT_REFLECTION", "0")
     monkeypatch.setenv("MINIAGENT_ANNOUNCE_DIFFICULTY_AND_PLAN", "0")
     tb = Toolbox(id="fs", name="fs", description="files", keywords=[])
 

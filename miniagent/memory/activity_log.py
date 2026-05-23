@@ -102,6 +102,8 @@ class ActivityLogger:
         path = self._get_today_path()
         with open(path, "a", encoding="utf-8") as f:
             f.write(content)
+        # 写入后失效缓存，确保下次读取拿到最新内容
+        self._read_cache = None
 
     def log_session_start(self, session_key: str, user_input: str, source: str = "cli") -> None:
         """记录会话开始。

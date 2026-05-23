@@ -113,7 +113,7 @@ cli_dispatch_tools: dict[str, ToolDefinition] = {
         handler=_run_dot_command_handler,
         permission="allowlist",
         help_text="执行进程内点命令（含 .schedule 定时任务；飞书下部分子命令受限）",
-        toolbox=None,
+        toolbox="miniagent_shell",
     ),
 }
 

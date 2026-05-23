@@ -117,7 +117,7 @@ python -m miniagent --stop 1 2       # 停止指定实例 ID（非交互）
 
 - 默认将运行时状态写入当前工作目录下的 **`workspaces/`**（含 `instances/`、`sessions/` 等）。
 - 设置 **`MINI_AGENT_STATE`** 可把整个状态根迁到其它路径（测试、多副本部署时常用）。
-- 每次 **新进程注册实例前** 会清理磁盘上 **PID 已不存在** 的旧实例目录，**不会**误杀仍在运行的其它 Agent 进程。细节见 [INSTANCE_REGISTRY.md](INSTANCE_REGISTRY.md)。
+- 每次 **新进程注册实例前** 会清理磁盘上 **PID 已不存在** 的旧实例目录，**不会**误杀仍在运行的其它 Agent 进程。细节见 [ENGINEERING.md](ENGINEERING.md) §3.3。
 
 对话历史、分层记忆、关键词索引、飞书去重状态等可能写入上述状态根下的子目录（含敏感业务内容）。
 备份介质权限、共享主机上的路径隔离，见 [SECURITY.md](SECURITY.md)。
@@ -204,7 +204,7 @@ Register-ScheduledTask -TaskName "MiniAgent" -Action $action -Trigger $trigger
 Mini Agent 支持多实例并行运行：
 
 - 每个实例通过 `workspaces/instances/<id>/meta.json` 注册
-- `register()` / `list_all()` 按 **操作系统 PID 是否仍存在** 清理僵尸注册目录；心跳文件仅作观测，**不作为**存活判定（详见 [INSTANCE_REGISTRY.md](INSTANCE_REGISTRY.md)）
+- `register()` / `list_all()` 按 **操作系统 PID 是否仍存在** 清理僵尸注册目录；心跳文件仅作观测，**不作为**存活判定（详见 [ENGINEERING.md](ENGINEERING.md) §3.3）
 - 同一会话通过 `.lock` 文件互斥，防止并发冲突
 
 ```bash
@@ -229,7 +229,7 @@ python -m miniagent --feishu           # 实例 #2 (CLI + 飞书)
 | 路径 | 说明 |
 |------|------|
 | `{MINI_AGENT_STATE}/scheduled_tasks/tasks.json` | 任务定义（含 **prompt**，可能含业务隐私） |
-| `scheduled_tasks/*.lock` | 调度与单任务互斥锁（见 [INSTANCE_REGISTRY.md](INSTANCE_REGISTRY.md)） |
+| `scheduled_tasks/*.lock` | 调度与单任务互斥锁（见 [ENGINEERING.md](ENGINEERING.md) §3.3） |
 
 - **依赖**：`croniter`、`tzdata` 已包含在主包 `[project]` 依赖中，无需单独 extra。
 - **运维环境变量**：
@@ -281,5 +281,5 @@ python -m miniagent --feishu           # 实例 #2 (CLI + 飞书)
 
 - [ENGINEERING.md](ENGINEERING.md)：CI 与本地质量门禁、`MINI_AGENT_STATE` 与仓库卫生约定。
 - [SECURITY.md](SECURITY.md)：沙箱与密钥处理。
-- [INSTANCE_REGISTRY.md](INSTANCE_REGISTRY.md)：多实例与 `--stop` 行为。
+- [ENGINEERING.md](ENGINEERING.md) §3.3：多实例与 `--stop` 行为。
 - [USER_GUIDE.md](USER_GUIDE.md) §8：定时任务用户说明。

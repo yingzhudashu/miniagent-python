@@ -3,10 +3,10 @@
 导出所有内置工具集合，按功能分组：
 - filesystem_tools: 文件/目录操作（read/write/edit/list/create/move/copy/delete）
 - exec_tools: 命令执行
-- web_tools: Tavily 搜索（web_search）、Playwright 正文抽取（browser_extract_text）、HTTP 抓取（fetch_url）、时间（get_time）
+- web_tools: 时间查询（get_time）；web_search/browser_extract_text/fetch_url 已移至
+  ``miniagent/skills/templates/builtin-web`` skill 模板，启动时作为 skill 注册
 - skills_tools: 技能搜索和安装
-- self_opt_tools: 自我优化工具（可由 MINIAGENT_SELF_OPT_TOOLS=0 在注册阶段跳过）
-- git_readonly_tools: 只读 git status/diff
+- data_tools: 数据处理（CSV/JSON 读写）
 - feishu_im_tools: 飞书 IM / 云盘工具
 - feishu_doc_tools: 飞书云文档 ``feishu_doc``
 - feishu_bitable_tools: 飞书多维表格 ``feishu_bitable``
@@ -23,15 +23,14 @@ ALL_TOOLS 汇总上述内置工具子集；启动时由 ``register_builtin_tools
 """
 
 from miniagent.tools.cli_dispatch_tools import cli_dispatch_tools
+from miniagent.tools.data_tools import data_tools
 from miniagent.tools.exec import exec_tools
 from miniagent.tools.feishu_bitable_tools import feishu_bitable_tools
 from miniagent.tools.feishu_card_tools import feishu_card_tools
 from miniagent.tools.feishu_doc_tools import feishu_doc_tools
 from miniagent.tools.feishu_im_tools import feishu_im_tools
 from miniagent.tools.filesystem import filesystem_tools
-from miniagent.tools.git_readonly import git_readonly_tools
 from miniagent.tools.schedule_tools import schedule_tools
-from miniagent.tools.self_opt import self_opt_tools
 from miniagent.tools.skills import skills_tools
 from miniagent.tools.web import web_tools
 
@@ -41,14 +40,13 @@ ALL_TOOLS = {
     **exec_tools,
     **web_tools,
     **skills_tools,
-    **self_opt_tools,
-    **git_readonly_tools,
     **cli_dispatch_tools,
     **schedule_tools,
     **feishu_im_tools,
     **feishu_doc_tools,
     **feishu_bitable_tools,
     **feishu_card_tools,
+    **data_tools,
 }
 
 __all__ = [
@@ -56,13 +54,12 @@ __all__ = [
     "exec_tools",
     "web_tools",
     "skills_tools",
-    "self_opt_tools",
-    "git_readonly_tools",
     "cli_dispatch_tools",
     "schedule_tools",
     "feishu_im_tools",
     "feishu_doc_tools",
     "feishu_bitable_tools",
     "feishu_card_tools",
+    "data_tools",
     "ALL_TOOLS",
 ]

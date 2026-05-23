@@ -151,7 +151,7 @@ def _init_default_session(session_manager: Any, channel_router: Any) -> str:
     return session_id
 
 
-_BASELINE_SKILLS = ("skill-vetter", "skill-creator")
+_BASELINE_SKILLS = ("skill-vetter", "skill-creator", "builtin-web")
 
 
 def _ensure_baseline_skills() -> None:

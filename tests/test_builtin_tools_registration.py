@@ -15,10 +15,14 @@ def test_register_builtin_tools_populates_registry() -> None:
     assert n > 0
     names = reg.list()
     assert "read_file" in names
-    assert "fetch_url" in names
-    assert "web_search" in names
-    assert "browser_extract_text" in names
+    assert "get_time" in names
     assert "manage_scheduled_task" in names
+    # web_search/fetch_url/browser_extract_text 已移至 builtin-web skill，不再在 ALL_TOOLS
+    assert "web_search" not in names
+    assert "fetch_url" not in names
+    assert "browser_extract_text" not in names
+    # 新增 data_tools
+    assert "read_csv" in names
 
 
 def test_register_builtin_tools_skips_self_opt_when_disabled(monkeypatch) -> None:

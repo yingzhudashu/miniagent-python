@@ -386,7 +386,7 @@ python -m miniagent --stop
 - 架构与数据流：[ARCHITECTURE.md](ARCHITECTURE.md)  
 - 部署与运维：[DEPLOYMENT.md](DEPLOYMENT.md)
 
-普通用户日常使用 **读到第 16 章即可**；开发贡献请读 [CONTRIBUTING.md](CONTRIBUTING.md) / [ENGINEERING.md](ENGINEERING.md)，并见 **第 18 章** [进阶与维护](#user-guide-sec18-advanced) 表（含 PERFORMANCE、EVALUATION_LOCAL 等）。
+普通用户日常使用 **读到第 16 章即可**；开发贡献请读 [CONTRIBUTING.md](CONTRIBUTING.md) / [ENGINEERING.md](ENGINEERING.md)，并见 **第 18 章** [进阶与维护](#user-guide-sec18-advanced) 表（含 PERFORMANCE、CONTROL_THEORY 等）。
 
 ---
 
@@ -418,9 +418,9 @@ python -m miniagent --stop
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 开发环境、编码与测试约定 |
 | [ENGINEERING.md](ENGINEERING.md) | 质量门禁、CI、`.gitignore` 与单一事实来源 |
 | [PERFORMANCE.md](PERFORMANCE.md) | 性能合成冒烟、基线与剖析 |
-| [EVALUATION_LOCAL.md](EVALUATION_LOCAL.md) | 可选离线测评与产物勿提交约定 |
-| [CYBERNETICS_PLAN.md](CYBERNETICS_PLAN.md) | 控制论路线规划稿（实验性） |
-| [docstring_inventory.md](docstring_inventory.md) | docstring 缺失扫描（`scripts/docstring_inventory.py`） |
+| [CONTROL_THEORY.md](CONTROL_THEORY.md) | 控制论闭环：反馈控制器、状态观测器、自适应策略 |
+| [OUTPUT_FORMAT.md](OUTPUT_FORMAT.md) | CLI/飞书输出格式规范、流式输出、间距规则 |
+| [docstring_inventory.md](docstring_inventory.md) | docstring 缺失扫描（按需生成，不提交到仓库） |
 
 ---
 

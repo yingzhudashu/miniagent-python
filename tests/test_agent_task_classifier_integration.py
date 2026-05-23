@@ -14,6 +14,7 @@ from miniagent.types.tool import Toolbox
 @pytest.mark.asyncio
 async def test_simple_difficulty_skips_planner(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MINIAGENT_TASK_CLASSIFIER", "1")
+    monkeypatch.setenv("MINIAGENT_REFLECTION", "0")
     tb = Toolbox(id="fs", name="fs", description="files", keywords=[])
 
     with patch(
@@ -39,6 +40,7 @@ async def test_simple_difficulty_skips_planner(monkeypatch: pytest.MonkeyPatch) 
 @pytest.mark.asyncio
 async def test_classifier_off_always_plans(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MINIAGENT_TASK_CLASSIFIER", "0")
+    monkeypatch.setenv("MINIAGENT_REFLECTION", "0")
     tb = Toolbox(id="fs", name="fs", description="files", keywords=[])
 
     from miniagent.types.planning import StructuredPlan
@@ -59,6 +61,7 @@ async def test_suggested_thinking_level_merges_into_model_overrides(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("MINIAGENT_TASK_CLASSIFIER", "0")
+    monkeypatch.setenv("MINIAGENT_REFLECTION", "0")
     tb = Toolbox(id="fs", name="fs", description="files", keywords=[])
 
     from miniagent.types.planning import StructuredPlan, SuggestedConfig

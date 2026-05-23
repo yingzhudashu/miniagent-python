@@ -250,7 +250,7 @@ feishu_bitable_tools: dict[str, ToolDefinition] = {
         handler=_feishu_bitable,
         permission="allowlist",
         help_text="飞书多维表格记录与字段管理",
-        toolbox=None,
+        toolbox="feishu",
     ),
 }
 

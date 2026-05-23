@@ -4,7 +4,7 @@
 
 **存活与清理（重要）**
 
-- 是否在列表中显示、是否删除磁盘目录，均以 **操作系统 PID 是否存在** 为准（``_is_process_running``）。
+- 是否在列表中显示、是否删除磁盘目录，均以 **操作系统 PID 是否存在** 为准（``is_process_running``）。
 - ``register()`` 在分配新 ``instance_id`` **之前** 会扫描并删除 PID 已失效的目录；**不会**向其它进程发送终止信号。
 - ``heartbeat`` 文件仍会更新，便于人工排查；**不参与**「是否存活」的权威判定，避免心跳写入滞后导致误删仍在运行的实例注册信息。
 
@@ -81,7 +81,7 @@ def _get_state_dir(state_dir: str | None = None) -> str:
     return state_dir or os.environ.get("MINI_AGENT_STATE", os.path.join(os.getcwd(), "workspaces"))
 
 
-def _is_process_running(pid: int) -> bool:
+def is_process_running(pid: int) -> bool:
     """检测 PID 对应的进程是否仍在运行。"""
     try:
         if sys.platform == "win32":
@@ -142,7 +142,7 @@ class InstanceRegistry:
         self._my_id: int | None = None
         self._my_dir: Path | None = None
         self._meta: dict[str, Any] = {}
-        self._pid_checker = pid_checker or _is_process_running
+        self._pid_checker = pid_checker or is_process_running
 
     # ─── 生命周期 ───
 
@@ -281,7 +281,7 @@ class InstanceRegistry:
             return {"success": False, "reason": f"读取元数据失败: {e}"}
 
         pid = meta.get("pid", 0)
-        if not _is_process_running(pid):
+        if not is_process_running(pid):
             # 进程已死亡，清理残留
             try:
                 shutil.rmtree(inst_dir)
@@ -303,7 +303,7 @@ class InstanceRegistry:
             else:
                 os.kill(pid, 15)
                 for _ in range(50):
-                    if not _is_process_running(pid):
+                    if not is_process_running(pid):
                         break
                     time.sleep(0.1)
         except Exception as e:
@@ -384,18 +384,6 @@ class InstanceRegistry:
                 shutil.rmtree(entry)
             except Exception:
                 pass
-
-    @staticmethod
-    def _check_heartbeat(heartbeat_file: Path) -> bool:
-        """检查心跳是否超时（可选观测；list/register 清理不以心跳为准）。"""
-        if not heartbeat_file.exists():
-            return False
-        try:
-            ts = float(heartbeat_file.read_text().strip())
-            return (time.time() - ts) < HEARTBEAT_TIMEOUT
-        except Exception:
-            return False
-
 
 # ─── 模块级便捷函数 ───
 
@@ -515,5 +503,6 @@ __all__ = [
     "stop_instance_by_id",
     "format_instances_table",
     "format_instances_markdown",
+    "is_process_running",
     "HEARTBEAT_TIMEOUT",
 ]

@@ -52,11 +52,7 @@
 | `LOOP_WARNING_THRESHOLD` | `8` | 循环检测警告阈值 |
 | `LOOP_CRITICAL_THRESHOLD` | `12` | 循环检测临界阈值 |
 
-## 4. 飞书凭据
-
-同 Section 1 中 `FEISHU_APP_ID` 等四项；`--feishu` 启动时必须填写。
-
-## 5. 飞书核心体验
+## 4. 飞书核心体验
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
@@ -71,7 +67,7 @@
 | `MINIAGENT_FEISHU_MARKDOWN_COMMANDS` | `0` | `1`=飞书 `.session` 等命令输出 Markdown 表格 |
 | `MINIAGENT_FEISHU_REPLY_IN_THREAD` | `0` | 与 `REPLY_TARGET=reply` 联用，话题内回复 |
 
-## 6. 飞书文档/媒体/网络
+## 5. 飞书文档/媒体/网络
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
@@ -82,14 +78,14 @@
 | `MINIAGENT_FEISHU_MEDIA_SILENT_REPLY` | `0` | 媒体消息静默回复 |
 | `MINIAGENT_FEISHU_RECEIVE_ID_TYPE` | `chat_id` | 接收消息 ID 类型 |
 
-## 7. 飞书卡片渲染调优
+## 6. 飞书卡片渲染调优
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `MINI_AGENT_THINKING_FOR_LLM_MAX_CHARS` | `10000` | 飞书卡片中 thinking 正文最大字符 |
 | `MINI_AGENT_FEISHU_CARD_BODY_MAX` | `48000` | 飞书卡片 body 最大字符 |
 
-## 8. 飞书 WebSocket 长连接
+## 7. 飞书 WebSocket 长连接
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
@@ -98,7 +94,7 @@
 | `MINIAGENT_FEISHU_WS_DEAD_CONN_GRACE_S` | `90` | 死连接宽限期（秒） |
 | `MINIAGENT_FEISHU_WS_RECONNECT_GRACE_S` | `300` | 重连宽限期（秒） |
 
-## 9. 定时任务 & 时区
+## 8. 定时任务 & 时区
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
@@ -111,7 +107,7 @@
 | `TZ` | *(系统时区)* | 标准时区环境变量，如 `Asia/Shanghai` |
 | `MINIAGENT_TIMEZONE` | *(跟随 TZ)* | 与 TZ 二选一，优先级更高 |
 
-## 10. Web 搜索 & 浏览器
+## 9. Web 搜索 & 浏览器
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
@@ -119,7 +115,7 @@
 | `TAVILY_TIMEOUT` | `45` | Tavily 搜索超时秒数 |
 | `BROWSER_TOOL_TIMEOUT` | `60` | 浏览器工具超时秒数 |
 
-## 11. 嵌入搜索（语义记忆）
+## 10. 嵌入搜索（语义记忆）
 
 > 使用 `MINIAGENT_EMBED_BASE_URL` / `MINIAGENT_EMBED_MODEL` 配置专用的 embedding 服务。
 > 未配置时不进行向量搜索，仅用关键词倒排索引。
@@ -133,7 +129,7 @@
 | `MINIAGENT_EMBED_TOP_K` | `8` | 最多返回记忆条目数 |
 | `MINIAGENT_EMBED_MIN_SCORE` | `0.3` | 最低余弦相似度阈值 |
 
-## 12. CLI / 状态 / 调试 / MCP
+## 11. CLI / 状态 / 调试 / MCP
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|

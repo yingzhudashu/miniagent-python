@@ -44,7 +44,7 @@ from miniagent.infrastructure.loop_detector import LoopDetector
 from miniagent.infrastructure.tracing import emit_trace
 from miniagent.memory.context import ContextBudgetExceeded, DefaultContextManager
 from miniagent.memory.embedding_search import (
-    embedding_search_enabled_flag,
+    embedding_search_enabled,
     get_embed_provider,
 )
 from miniagent.memory.keyword_index import format_search_results, search_relevant_with_index
@@ -60,7 +60,8 @@ _logger = get_logger(__name__)
 
 # ─── Agent 身份 ────────────────────────────────────────────
 
-AGENT_NAME = "MiniAgent"
+from miniagent.core.config import AGENT_NAME
+
 AGENT_IDENTITY = (
     f"你是 {AGENT_NAME}，一个基于 Python 的轻量级 LLM Agent。"
     "你具备两阶段规划（Plan → Execute）、ReAct 循环执行、"
@@ -70,10 +71,6 @@ AGENT_IDENTITY = (
     "需要「今天/明天」等日期请先调用 get_time。"
     "回答时保持专业、简洁、高效。"
 )
-
-# ─── 默认模型名（兼容导出；实际请求参数见 resolve_exec_completion_kwargs）──
-
-MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 
 
 def build_execution_system_prompt(
@@ -212,6 +209,9 @@ async def execute_plan(
     activity_log: Any | None = None,
     keyword_index: Any | None = None,
     client: AsyncOpenAI | None = None,
+    feedback_controller: Any | None = None,
+    state_observer: Any | None = None,
+    adaptive_policy: Any | None = None,
 ) -> str:
     """执行结构化计划（ReAct 循环）。
 
@@ -236,6 +236,22 @@ async def execute_plan(
     from miniagent.memory.defaults import resolve_memory_dependencies
 
     ms, al, ki = resolve_memory_dependencies(memory_store, activity_log, keyword_index)
+
+    # ── 控制论模块：未传入且未禁用时自动实例化 ──
+    control_theory_enabled = os.environ.get("MINIAGENT_CONTROL_THEORY", "1") != "0"
+    if control_theory_enabled:
+        if feedback_controller is None:
+            from miniagent.core.feedback_controller import FeedbackController
+
+            feedback_controller = FeedbackController()
+        if state_observer is None:
+            from miniagent.core.state_observer import StateObserver
+
+            state_observer = StateObserver()
+        if adaptive_policy is None:
+            from miniagent.core.adaptive_policy import AdaptivePolicy
+
+            adaptive_policy = AdaptivePolicy()
 
     # ── 工具筛选 ──
     effective_registry = agent_config.session_registry or registry
@@ -287,7 +303,7 @@ async def execute_plan(
 
         # Layer 3: 语义检索（嵌入搜索 + 关键词索引回退）
         relevant: list[dict[str, Any]] = []
-        if embedding_search_enabled_flag():
+        if embedding_search_enabled():
             try:
                 provider = get_embed_provider(
                     state_dir=ms._state_dir if hasattr(ms, "_state_dir") else "workspaces"
@@ -374,6 +390,11 @@ async def execute_plan(
     # 跟踪工具调用
     turn_tool_calls: list[dict[str, Any]] = []
 
+    # 控制论闭环 — 跟踪最佳结果与简化状态
+    _best_reply_so_far: str | None = None
+    _tools_simplified = False
+    _ct_min_turn_for_terminate = 2  # 控制论前 N 轮不触发提前终止（让 Agent 先跑起来）
+
     # 活动日志 — 记录会话开始
     session_key = agent_config.session_key or "default"
     source = "cli"  # 默认 CLI，飞书调用方会设置 session_key
@@ -435,11 +456,11 @@ async def execute_plan(
                 if thinking_phase_label not in _phase_header_sent:
                     await invoke_on_thinking(
                         on_thinking,
-                        thinking_phase_label,
+                        f"{thinking_phase_label} 开始",
                         True,
                         thinking_phase_label,
                         full_record=_joined_phase_cumulative(
-                            thinking_phase_label, thinking_phase_label
+                            thinking_phase_label, f"{thinking_phase_label} 开始"
                         ),
                     )
                     _phase_header_sent.add(thinking_phase_label)
@@ -529,7 +550,7 @@ async def execute_plan(
                     await invoke_on_thinking(
                         on_thinking,
                         line,
-                        False,
+                        True,
                         thinking_phase_label,
                         full_record=line,
                     )
@@ -764,6 +785,156 @@ async def execute_plan(
                     return oob_t
         return None
 
+    # ── 控制论闭环：每轮工具执行后观测→评估→自适应 ──
+    async def _apply_control_theory_after_tools(
+        turn_tools: list[dict[str, Any]],
+        reply_so_far: str | None,
+    ) -> str | None:
+        """ReAct 轮次中工具执行后调用控制器，返回非 None 时需提前终止。"""
+        nonlocal _best_reply_so_far, _tools_simplified
+
+        if not control_theory_enabled:
+            return None
+
+        from miniagent.core.adaptive_policy import AdaptiveAction
+        from miniagent.core.feedback_controller import ControlMetrics
+
+        # 更新最佳结果
+        if reply_so_far and (not _best_reply_so_far or len(reply_so_far) > len(_best_reply_so_far)):
+            _best_reply_so_far = reply_so_far
+
+        # 1. 记录工具结果到 state_observer
+        tool_names_in_turn: list[tuple[str, bool]] = []
+        for tc in turn_tools:
+            result_content = tc.get("result", "")
+            success = "⚠️" not in result_content and "错误" not in result_content
+            state_observer.record_tool(tc["name"], success=success)
+            tool_names_in_turn.append((tc["name"], success))
+
+        # 2. 计算反馈指标
+        n_tools = len(turn_tools)
+        n_fail = sum(1 for _, ok in tool_names_in_turn if not ok)
+        failure_rate = n_fail / n_tools if n_tools > 0 else 0.0
+
+        # 工具重复率：同轮中同名工具占比
+        seen_names: set[str] = set()
+        n_repeat = 0
+        for name, _ in tool_names_in_turn:
+            if name in seen_names:
+                n_repeat += 1
+            seen_names.add(name)
+        repeat_rate = n_repeat / n_tools if n_tools > 0 else 0.0
+
+        # 误差估计：基础启发式（失败率*0.4 + 重复率*0.3 + 轮次衰减*0.3）
+        turn_decay = min(1.0, exec_turn_no / max(1, max_turns))
+        error_est = failure_rate * 0.4 + repeat_rate * 0.3 + turn_decay * 0.3
+
+        report = feedback_controller.step(
+            ControlMetrics(
+                tool_failure_rate=failure_rate,
+                tool_repeat_rate=repeat_rate,
+                error_estimate=error_est,
+                turn_number=exec_turn_no,
+            )
+        )
+
+        # 3. 状态观测
+        agent_state = state_observer.end_turn(
+            context_manager=context_manager,
+            controller=feedback_controller,
+        )
+
+        # 4. 自适应决策
+        decision = adaptive_policy.decide(report.state, agent_state)
+
+        # 调试日志
+        if agent_config.debug:
+            _logger.debug(
+                "控制论: state=%s error=%.3f slope=%.4f stability=%.3f action=%s reason=%s",
+                report.state.value,
+                report.error_value,
+                report.error_slope,
+                report.stability_index,
+                decision.action.value,
+                decision.reason,
+            )
+
+        # 5. 执行自适应动作
+        # 前 N 轮不触发提前终止/收敛（让 Agent 先跑起来，避免首轮无工具即判定收敛）
+        warmup_ok = exec_turn_no < _ct_min_turn_for_terminate
+
+        if decision.action == AdaptiveAction.TERMINATE and not warmup_ok:
+            best = _best_reply_so_far or "(无有效结果)"
+            if on_thinking:
+                try:
+                    await invoke_on_thinking(
+                        on_thinking,
+                        f"⚠️ 控制论：提前终止（{decision.reason}）",
+                        True,
+                        "[自适应调整]",
+                    )
+                except Exception:
+                    pass
+            return (
+                f"⚠️ 执行提前终止（控制论判定{decision.reason}）\n\n"
+                f"最佳部分结果：{best}"
+            )
+        if decision.action == AdaptiveAction.CONVERGED_EXIT and not warmup_ok:
+            best = _best_reply_so_far or "(无有效结果)"
+            if on_thinking:
+                try:
+                    await invoke_on_thinking(
+                        on_thinking,
+                        f"✅ 控制论：执行收敛（{decision.reason}）",
+                        True,
+                        "[自适应调整]",
+                    )
+                except Exception:
+                    pass
+            return (
+                f"✅ 执行收敛（{decision.reason}）\n\n结果：{best}"
+            )
+        if decision.action == AdaptiveAction.SIMPLIFY:
+            if decision.config_overrides.get("reduce_tools") and not _tools_simplified:
+                _tools_simplified = True
+                # 简化：只保留基础读写和执行工具
+                basic_names = {
+                    "read_file", "write_file", "edit_file",
+                    "list_dir", "exec_command", "get_time",
+                    "read_csv", "write_csv", "json_read", "json_write",
+                }
+                tools[:] = [t for t in tools if t.get("function", {}).get("name", "") in basic_names]
+                if agent_config.debug:
+                    _logger.debug("控制论简化：保留 %d 个基础工具", len(tools))
+            if on_thinking:
+                try:
+                    await invoke_on_thinking(
+                        on_thinking,
+                        f"⚠️ 控制论：简化策略（{decision.reason}）",
+                        True,
+                        "[自适应调整]",
+                    )
+                except Exception:
+                    pass
+
+        if decision.action == AdaptiveAction.COMPRESS:
+            if on_thinking:
+                try:
+                    await invoke_on_thinking(
+                        on_thinking,
+                        "📊 控制论：压缩上下文",
+                        True,
+                        "[自适应调整]",
+                    )
+                except Exception:
+                    pass
+            try:
+                context_manager.compress()
+            except AttributeError:
+                pass  # compress 方法可能不存在
+
+        return None
+
     use_phased = _env_phased_execution_enabled() and bool(plan.steps)
 
     if not use_phased:
@@ -801,6 +972,13 @@ async def execute_plan(
             early = await _run_tool_calls_phase(msg, start_ms, turn_label)
             if early is not None:
                 return early
+
+            # 控制论闭环：工具执行后观测→评估→自适应
+            ct_early = await _apply_control_theory_after_tools(
+                turn_tool_calls, _best_reply_so_far,
+            )
+            if ct_early is not None:
+                return ct_early
     else:
 
         async def _finish_phased_text_turn(
@@ -834,7 +1012,7 @@ async def execute_plan(
             step_tools = _resolve_exec_tools(effective_registry, agent_config, plan, step)
             context_manager.set_tools(step_tools)
             step_hint = (
-                f"【执行步骤 {step.step_number or si + 1}/{n_steps}】{step.description}\n"
+                f"[执行步骤 {step.step_number or si + 1}/{n_steps}] {step.description}\n"
                 f"预期输入：{step.expected_input}\n"
                 f"预期产出：{step.expected_output}\n"
                 "请仅完成本步骤；若当前无需工具，请直接给出简短步骤小结。"
@@ -873,6 +1051,13 @@ async def execute_plan(
                 early = await _run_tool_calls_phase(msg, start_ms, turn_label)
                 if early is not None:
                     return early
+
+                # 控制论闭环：工具执行后观测→评估→自适应
+                ct_early = await _apply_control_theory_after_tools(
+                    turn_tool_calls, _best_reply_so_far,
+                )
+                if ct_early is not None:
+                    return ct_early
 
             if is_last and not step_resolved:
                 if turns_left > 0:

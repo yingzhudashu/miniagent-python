@@ -46,80 +46,14 @@ from miniagent.runtime.context import RuntimeContext
 _logger = logging.getLogger(__name__)
 
 
-def _copy_text_to_system_clipboard(text: str) -> bool:
-    """将纯文本写入系统剪贴板（全屏 CLI 无法用鼠标框选 transcript 时可用）。"""
-    if not text:
-        return False
-    te = text.replace("\r\n", "\n")
-    try:
-        if sys.platform == "win32":
-            try:
-                r = subprocess.run(
-                    ["clip"],
-                    input=te.encode("utf-16le"),
-                    capture_output=True,
-                    timeout=10,
-                    check=False,
-                )
-                if r.returncode == 0:
-                    return True
-            except Exception:
-                pass
-            import ctypes
+from miniagent.engine.clipboard import copy_text_to_system_clipboard
 
-            GMEM_MOVEABLE = 0x0002
-            CF_UNICODETEXT = 13
-            user32 = ctypes.windll.user32
-            kernel32 = ctypes.windll.kernel32
-            if not user32.OpenClipboard(0):
-                return False
-            try:
-                if not user32.EmptyClipboard():
-                    return False
-                raw = te.encode("utf-16le") + b"\x00\x00"
-                n = len(raw)
-                h = kernel32.GlobalAlloc(GMEM_MOVEABLE, n)
-                if not h:
-                    return False
-                p = kernel32.GlobalLock(h)
-                if not p:
-                    kernel32.GlobalFree(h)
-                    return False
-                try:
-                    ctypes.memmove(p, raw, n)
-                finally:
-                    kernel32.GlobalUnlock(h)
-                if not user32.SetClipboardData(CF_UNICODETEXT, h):
-                    kernel32.GlobalFree(h)
-                    return False
-                return True
-            finally:
-                user32.CloseClipboard()
-        if sys.platform == "darwin":
-            r = subprocess.run(
-                ["pbcopy"],
-                input=te.encode("utf-8"),
-                capture_output=True,
-                timeout=10,
-                check=False,
-            )
-            return r.returncode == 0
-        for argv in (["wl-copy"], ["xclip", "-selection", "clipboard"]):
-            try:
-                r = subprocess.run(
-                    argv,
-                    input=te.encode("utf-8"),
-                    capture_output=True,
-                    timeout=10,
-                    check=False,
-                )
-                if r.returncode == 0:
-                    return True
-            except Exception:
-                continue
-        return False
-    except Exception:
-        return False
+
+def _configure_console_encoding() -> None:
+    """在 Windows 平台将 stdout/stderr 设为 UTF-8，避免中文编码异常。"""
+    if sys.platform == "win32":
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 
 def _feishu_user_status_fn(ctx: RuntimeContext) -> Callable[[str], None]:
@@ -158,23 +92,23 @@ async def unified_main(ctx: RuntimeContext) -> None:
     registry = ctx.registry
     skill_registry = ctx.skill_registry
     engine = ctx.engine
-    if sys.platform == "win32":
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-        # 尝试启用 Windows VT 模式（某些终端可能不支持）
-        try:
-            import ctypes
+    _configure_console_encoding()
+    # 尝试启用 Windows VT 模式（某些终端可能不支持）
+    try:
+        import ctypes
 
-            _h = ctypes.windll.kernel32.GetStdHandle(-11)
-            if _h and _h != -1:
-                _mode = ctypes.c_ulong()
-                if ctypes.windll.kernel32.GetConsoleMode(_h, ctypes.byref(_mode)):
-                    _new_mode = _mode.value | 0x0004
-                    ctypes.windll.kernel32.SetConsoleMode(_h, _new_mode)
-        except Exception:
-            pass  # VT 模式不可用，降级到 prompt_toolkit 颜色
+        _h = ctypes.windll.kernel32.GetStdHandle(-11)
+        if _h and _h != -1:
+            _mode = ctypes.c_ulong()
+            if ctypes.windll.kernel32.GetConsoleMode(_h, ctypes.byref(_mode)):
+                _new_mode = _mode.value | 0x0004
+                ctypes.windll.kernel32.SetConsoleMode(_h, _new_mode)
+    except Exception:
+        pass  # VT 模式不可用，降级到 prompt_toolkit 颜色
 
-    from miniagent.core.executor import MODEL
+    import os
+
+    MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
     from miniagent.engine.init import init_subsystems
     from miniagent.engine.welcome import print_welcome
 
@@ -255,9 +189,7 @@ async def unified_main(ctx: RuntimeContext) -> None:
     state["skill_prompts"] = skill_prompts
     state["session_manager"] = session_manager
 
-    if sys.platform == "win32":
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    _configure_console_encoding()
 
     # 飞书与 CLI 共进程：先起 WS 长轮询任务，再进入同一 stdin 主循环（无单独纯飞书入口）
     if state["feishu_enabled"]:
@@ -810,7 +742,7 @@ async def run_cli_loop(
     def _cli_block_user(prompt: str) -> None:
         """本轮提问区块。"""
         _stick_bottom[0] = True
-        _append_transcript("class:cli-spacer", "\n")
+        _append_transcript("class:cli-spacer", "\n\n\n")
         _cli_rule_heavy()
         _append_transcript("class:cli-user-title", "You\n")
         _cli_rule_light()
@@ -925,7 +857,7 @@ async def run_cli_loop(
         # ── .copy（全屏区为 FormattedText，终端一般无法框选复制）──
         if user_input == ".copy":
             plain = _transcript_plain()
-            if _copy_text_to_system_clipboard(plain):
+            if copy_text_to_system_clipboard(plain):
                 term_write(
                     f"\u2705 \u5df2\u590d\u5236 {len(plain)} \u5b57\u7b26\u5230\u526a\u8d34\u677f\n",
                     "ansigreen",
@@ -1045,6 +977,7 @@ async def _run_cli_loop_fallback(
         """备用终端：打印 You/Assistant 区块并调用 ``run_agent_with_thinking``。"""
         try:
             session_key = channel_router.resolve("__cli__")
+            print()
             print()
             _fb_rule_heavy()
             print("You")

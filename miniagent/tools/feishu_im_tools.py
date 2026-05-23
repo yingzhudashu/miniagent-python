@@ -233,21 +233,21 @@ feishu_im_tools: dict[str, ToolDefinition] = {
         handler=_feishu_send_workspace_file,
         permission="allowlist",
         help_text="上传会话工作区文件并发送到当前飞书会话",
-        toolbox=None,
+        toolbox="feishu",
     ),
     "feishu_recall_message": ToolDefinition(
         schema=_feishu_recall_schema,
         handler=_feishu_recall_message,
         permission="allowlist",
         help_text="撤回机器人已发送的飞书消息",
-        toolbox=None,
+        toolbox="feishu",
     ),
     "feishu_list_drive_files": ToolDefinition(
         schema=_feishu_list_drive_schema,
         handler=_feishu_list_drive_files,
         permission="allowlist",
         help_text="列举飞书云盘文件夹内容",
-        toolbox=None,
+        toolbox="feishu",
     ),
 }
 

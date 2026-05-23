@@ -18,13 +18,13 @@
 from __future__ import annotations
 
 import os
+import asyncio
 import re
 from typing import Any
 
 from miniagent.core.agent import run_agent
 from miniagent.engine.cli_commands import feishu_dot_commands_full_enabled
 from miniagent.infrastructure.logger import get_logger
-from miniagent.memory.context import DefaultContextManager
 from miniagent.memory.defaults import resolve_memory_dependencies
 from miniagent.session.manager import SessionOptions
 
@@ -63,12 +63,13 @@ class UnifiedEngine:
     """
 
     def __init__(self) -> None:
-        """初始化引擎：创建思考显示器、计数器、上下文管理器字典。"""
+        """初始化引擎：创建思考显示器、计数器、进程级执行锁。"""
         from miniagent.engine.thinking import ThinkingDisplay
 
         self.thinking = ThinkingDisplay()
         self._conversation_counter: int = 0
-        self._context_managers: dict[str, DefaultContextManager] = {}
+        self._clarifier: Any | None = None  # 懒加载：需求澄清器
+        self._exec_lock = asyncio.Lock()  # 进程级锁：序列化所有 run_agent_with_thinking 调用
 
     async def run_agent_with_thinking(
         self,
@@ -133,12 +134,67 @@ class UnifiedEngine:
             cli_loop_state: 与 CLI/飞书主循环共享的 ``CliLoopState``；注入后工具 ``run_dot_command`` 可调度点命令。
             agent_config_overrides: 合并进 ``run_agent`` 的 ``agent_config``（如 ``history_progressive_compression``）。
         """
-        ms, al, ki = resolve_memory_dependencies(memory_store, activity_log, keyword_index)
-
         if session_manager is None:
             raise ValueError(
                 "run_agent_with_thinking 需要注入 session_manager（会话历史与工作区依赖 SessionManager）"
             )
+
+        # 获取进程级执行锁：防止 CLI 和飞书（或不同飞书群）的并发调用导致
+        # 终端输出穿插、ThinkingDisplay 状态混乱、会话历史竞争
+        async with self._exec_lock:
+            return await self._run_agent_with_thinking_locked(
+                user_input, session_key, skill_toolboxes, skill_prompts,
+                is_feishu=is_feishu, registry=registry, monitor=monitor,
+                session_manager=session_manager, feishu_config=feishu_config,
+                channel_router=channel_router, clawhub=clawhub,
+                memory_store=memory_store, activity_log=activity_log,
+                keyword_index=keyword_index, client=client,
+                feishu_receive_chat_id=feishu_receive_chat_id,
+                feishu_trigger_message_id=feishu_trigger_message_id,
+                feishu_root_id=feishu_root_id, feishu_parent_id=feishu_parent_id,
+                feishu_thread_id=feishu_thread_id,
+                feishu_im_receive_id_type=feishu_im_receive_id_type,
+                feishu_im_receive_id=feishu_im_receive_id,
+                cli_loop_state=cli_loop_state,
+                agent_config_overrides=agent_config_overrides,
+                feishu_mirror_cli=feishu_mirror_cli,
+            )
+
+    async def _run_agent_with_thinking_locked(
+        self,
+        user_input: str,
+        session_key: str,
+        skill_toolboxes: list,
+        skill_prompts: str | None,
+        *,
+        is_feishu: bool = False,
+        registry: Any = None,
+        monitor: Any = None,
+        session_manager: Any = None,
+        feishu_config: Any = None,
+        channel_router: Any = None,
+        clawhub: Any | None = None,
+        memory_store: Any | None = None,
+        activity_log: Any | None = None,
+        keyword_index: Any | None = None,
+        client: Any | None = None,
+        feishu_receive_chat_id: str | None = None,
+        feishu_trigger_message_id: str | None = None,
+        feishu_root_id: str | None = None,
+        feishu_parent_id: str | None = None,
+        feishu_thread_id: str | None = None,
+        feishu_im_receive_id_type: str | None = None,
+        feishu_im_receive_id: str | None = None,
+        cli_loop_state: Any | None = None,
+        agent_config_overrides: dict[str, Any] | None = None,
+        feishu_mirror_cli: bool = True,
+    ) -> str:
+        """已获取进程级锁后的实际执行逻辑。
+
+        由 ``run_agent_with_thinking`` 在 ``async with self._exec_lock`` 内调用。
+        签名与外层方法一致。
+        """
+        ms, al, ki = resolve_memory_dependencies(memory_store, activity_log, keyword_index)
 
         # 1. 获取会话
         session_opts = SessionOptions(
@@ -300,7 +356,7 @@ class UnifiedEngine:
                 else:
                     tool_thought_lines.append(record)
             await self.thinking.show(
-                text, session_key if is_feishu else "", streaming=streaming, header=header
+                text, session_key, streaming=streaming, header=header
             )
 
         async def _tool_finish(
@@ -323,7 +379,7 @@ class UnifiedEngine:
                 )
             else:
                 record = short
-            await _thinking(short, False, header=thinking_header or "", full_record=record)
+            await _thinking(short, True, header=thinking_header or "", full_record=record)
 
         # 6. 调用 Agent
         _recv_chat = (feishu_receive_chat_id or "").strip()
@@ -375,6 +431,7 @@ class UnifiedEngine:
             activity_log=al,
             keyword_index=ki,
             client=client,
+            clarifier=self._get_clarifier(),
         )
         # 无工具调用等场景：最后一轮 LLM 流结束后无 streaming=False，需在此 PATCH 落盘全文
         if is_feishu and feishu_config:
@@ -474,9 +531,19 @@ class UnifiedEngine:
             ctx = session_manager.get_or_create(session_key)
             ctx.conversation_history.append({"role": "user", "content": content, "_injected": True})
 
-    def get_context_manager(self, session_key: str) -> DefaultContextManager | None:
-        """获取会话的上下文管理器（用于 token 估算）。"""
-        return self._context_managers.get(session_key)
+    def _get_clarifier(self) -> Any | None:
+        """懒加载需求澄清器。
+
+        受 ``MINIAGENT_REQUIREMENT_CLARIFY`` 环境变量控制（默认 ``1`` 开启）。
+        首次调用时创建并缓存实例，后续调用直接返回。
+        """
+        if os.environ.get("MINIAGENT_REQUIREMENT_CLARIFY", "1") == "0":
+            return None
+        if self._clarifier is None:
+            from miniagent.core.requirement_clarifier import RequirementClarifier
+
+            self._clarifier = RequirementClarifier(interactive=False)
+        return self._clarifier
 
 
 __all__ = ["UnifiedEngine"]

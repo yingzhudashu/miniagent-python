@@ -423,11 +423,6 @@ def reset_embed_provider() -> None:
     _embed_provider = None
 
 
-def embedding_search_enabled_flag() -> bool:
-    """环境变量控制开关。"""
-    return embedding_search_enabled()
-
-
 __all__ = [
     "EmbeddingIndex",
     "EmbeddingSearchProvider",

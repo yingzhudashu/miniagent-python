@@ -25,7 +25,7 @@ _DANGEROUS_SHELL = [
 ]
 
 # 硬编码密钥模式
-_HARDcoded_SECRETS = [
+_HARDCODED_SECRETS = [
     (
         r"(?:api_key|apikey|secret_key|token|password)\s*=\s*['\"][A-Za-z0-9+/=]{16,}['\"]",
         "疑似硬编码密钥/令牌",
@@ -91,6 +91,6 @@ def _auto_vet_skill(skill_dir: str) -> str:
 def _scan_content(filepath: str, content: str, warnings: list[str]) -> None:
     """扫描文件内容中的危险模式。"""
     rel = filepath
-    for pattern, desc in _DANGEROUS_SHELL + _HARDcoded_SECRETS + _DANGEROUS_PY:
+    for pattern, desc in _DANGEROUS_SHELL + _HARDCODED_SECRETS + _DANGEROUS_PY:
         if re.search(pattern, content, re.IGNORECASE):
             warnings.append(f"  - [{desc}] in {rel}")

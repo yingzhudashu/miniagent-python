@@ -2,6 +2,9 @@
 
 > Mini Agent Python | 版本: 2.0.2 | Self-Optimization 子系统
 
+> ⚠️ **注意**：`miniagent/tools/self_opt.py` 已移除，self-opt **不再作为 Agent 工具**暴露。
+> `miniagent/core/self_opt/` 库仍可作为编程 API 使用（见下方类型模型），但 Agent 执行阶段无法通过工具调用触发。
+
 ## 概述
 
 Self-Opt 是 Mini Agent 的自我优化机制，通过对项目代码进行静态分析与结构检查，识别质量问题和痛点，生成可读的优化提案，并在约束下安全地应用变更。
@@ -140,18 +143,11 @@ sha = create_snapshot("before-optimization")
 commits = get_recent_commits(limit=5)
 ```
 
-## 工具接口
+## 工具接口（已移除）
 
-Agent 执行阶段可通过以下工具使用 self-opt 能力（注册见 `miniagent/tools/self_opt.py`）：
+Agent 工具注册 `miniagent/tools/self_opt.py` 已删除。若需要 Agent 使用自优化能力，可参考下方的编程 API 自行封装工具。
 
-| 工具 | 说明 |
-|------|------|
-| `self_inspect` | 对项目执行静态分析，返回检查报告 |
-| `generate_proposal` | 基于分析结果生成优化提案 |
-| `run_self_opt_tests` | 运行提案附带的验证测试 |
-| `git_snapshot` | 创建/管理 Git 快照 |
-
-**安全控制**：生产环境可设置 **`MINIAGENT_SELF_OPT_TOOLS=0`** 关闭全部 self-opt 工具注册。
+~~`self_inspect`~~、~~`generate_proposal`~~、~~`run_self_opt_tests`~~、~~`git_snapshot`~~ 等工具已不再自动注册。
 
 ## 环境变量
 
