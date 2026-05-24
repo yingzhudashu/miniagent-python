@@ -390,8 +390,7 @@ async def execute_plan(
     # 跟踪工具调用
     turn_tool_calls: list[dict[str, Any]] = []
 
-    # 控制论闭环 — 跟踪最佳结果与简化状态
-    _best_reply_so_far: str | None = None
+    # 控制论闭环 — 简化状态跟踪
     _tools_simplified = False
     _ct_min_turn_for_terminate = 2  # 控制论前 N 轮不触发提前终止（让 Agent 先跑起来）
 
@@ -788,20 +787,15 @@ async def execute_plan(
     # ── 控制论闭环：每轮工具执行后观测→评估→自适应 ──
     async def _apply_control_theory_after_tools(
         turn_tools: list[dict[str, Any]],
-        reply_so_far: str | None,
     ) -> str | None:
         """ReAct 轮次中工具执行后调用控制器，返回非 None 时需提前终止。"""
-        nonlocal _best_reply_so_far, _tools_simplified
+        nonlocal _tools_simplified
 
         if not control_theory_enabled:
             return None
 
         from miniagent.core.adaptive_policy import AdaptiveAction
         from miniagent.core.feedback_controller import ControlMetrics
-
-        # 更新最佳结果
-        if reply_so_far and (not _best_reply_so_far or len(reply_so_far) > len(_best_reply_so_far)):
-            _best_reply_so_far = reply_so_far
 
         # 1. 记录工具结果到 state_observer
         tool_names_in_turn: list[tuple[str, bool]] = []
@@ -864,7 +858,17 @@ async def execute_plan(
         warmup_ok = exec_turn_no < _ct_min_turn_for_terminate
 
         if decision.action == AdaptiveAction.TERMINATE and not warmup_ok:
-            best = _best_reply_so_far or "(无有效结果)"
+            # 从上下文提取最后一条 assistant 消息作为备选结果
+            best = ""
+            try:
+                for msg in reversed(context_manager.get_messages()):
+                    if msg.get("role") == "assistant" and msg.get("content"):
+                        best = msg["content"]
+                        break
+            except Exception:
+                pass
+            if not best.strip():
+                best = "(无有效结果)"
             if on_thinking:
                 try:
                     await invoke_on_thinking(
@@ -880,15 +884,22 @@ async def execute_plan(
                 f"最佳部分结果：{best}"
             )
         if decision.action == AdaptiveAction.CONVERGED_EXIT and not warmup_ok:
-            # 收敛意味着执行质量良好，但必须等 Agent 产出有效回复才能退出
-            best = _best_reply_so_far or ""
+            # 收敛意味着执行质量良好，但 Agent 可能尚未产出最终回复
+            # 先尝试从上下文提取当前结果；若为空则继续执行让 Agent 产出
+            best = ""
+            try:
+                for msg in reversed(context_manager.get_messages()):
+                    if msg.get("role") == "assistant" and msg.get("content"):
+                        best = msg["content"]
+                        break
+            except Exception:
+                pass
             if not best.strip():
-                # 尚无有效回复，继续执行让 Agent 产出结果
                 if on_thinking:
                     try:
                         await invoke_on_thinking(
                             on_thinking,
-                            f"⏳ 控制论：已收敛但无有效回复，继续执行",
+                            "⏳ 控制论：已收敛但无有效回复，继续执行",
                             True,
                             "[自适应调整]",
                         )
@@ -988,9 +999,7 @@ async def execute_plan(
                 return early
 
             # 控制论闭环：工具执行后观测→评估→自适应
-            ct_early = await _apply_control_theory_after_tools(
-                turn_tool_calls, _best_reply_so_far,
-            )
+            ct_early = await _apply_control_theory_after_tools(turn_tool_calls)
             if ct_early is not None:
                 return ct_early
             turn_tool_calls.clear()
@@ -1068,9 +1077,7 @@ async def execute_plan(
                     return early
 
                 # 控制论闭环：工具执行后观测→评估→自适应
-                ct_early = await _apply_control_theory_after_tools(
-                    turn_tool_calls, _best_reply_so_far,
-                )
+                ct_early = await _apply_control_theory_after_tools(turn_tool_calls)
                 if ct_early is not None:
                     return ct_early
                 turn_tool_calls.clear()
