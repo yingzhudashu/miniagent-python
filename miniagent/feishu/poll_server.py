@@ -1113,12 +1113,9 @@ async def push_feishu_thinking_stream(
         st.feishu_patch_budget = FEISHU_THINKING_PATCH_BUDGET
         st.feishu_tool_section_started = False
 
-    # 非首轮时，保留已累积内容（含上轮工具结果），追加新轮思考
-    prev = st.feishu_stream_accumulated or ""
-    if prev and not new_round:
-        st.feishu_stream_accumulated = prev + "\n\n" + (markdown or "")
-    else:
-        st.feishu_stream_accumulated = markdown
+    # markdown 来自执行器的 on_thinking 流式回调，已是累积全文（executor 内 full_content += delta.content）。
+    # 此处直接替换，不要再次拼接，否则产生 A+AB+ABC 的重复输出。
+    st.feishu_stream_accumulated = markdown
     cleaned = _prepare_thinking_markdown(st.feishu_stream_accumulated)
     card_json = json.dumps(_thinking_interactive_card_dict(cleaned, template), ensure_ascii=False)
 
