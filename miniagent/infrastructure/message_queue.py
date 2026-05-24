@@ -280,7 +280,20 @@ class MessageQueueManager:
         """
         self._mode = QueueMode.QUEUE
         self._queues: dict[str, _ChatQueue] = {}
+        # 跨队列执行排序锁：各 _ChatQueue._run_sequential 在运行协程前必须获取此锁，
+        # 保证 CLI 与飞书等不同通道的消息按入队顺序全局 FIFO 执行。
+        # 注意：此锁与 engine._exec_lock **不同**，避免同一任务重复获取同一 asyncio.Lock 导致死锁。
         self.exec_lock: asyncio.Lock | None = None
+
+    def ensure_exec_lock(self) -> asyncio.Lock:
+        """获取或创建跨队列执行排序锁。
+
+        若尚未设置，自动创建一个新的 ``asyncio.Lock``。
+        返回当前使用的锁实例。
+        """
+        if self.exec_lock is None:
+            self.exec_lock = asyncio.Lock()
+        return self.exec_lock
 
     @property
     def mode(self) -> QueueMode:
@@ -312,13 +325,17 @@ class MessageQueueManager:
         return self._queues[chat_id]
 
     def set_exec_lock(self, lock: asyncio.Lock) -> None:
-        """设置全局执行排序锁。
+        """设置跨队列执行排序锁。
 
         各队列的 ``_run_sequential`` 在运行协程前必须先获取此锁，
         从而保证跨队列的 FIFO 执行顺序（CLI 与飞书消息的全局排序）。
 
+        **注意**：此锁**不能**是 ``engine._exec_lock``（同一任务重复获取同一
+        ``asyncio.Lock`` 会死锁）。应使用 ``MessageQueueManager.ensure_exec_lock()``
+        创建独立的锁实例。
+
         Args:
-            lock: asyncio.Lock 实例，通常来自 ``UnifiedEngine._exec_lock``
+            lock: asyncio.Lock 实例
         """
         self.exec_lock = lock
 

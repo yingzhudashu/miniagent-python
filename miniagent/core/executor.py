@@ -979,6 +979,7 @@ async def execute_plan(
             )
             if ct_early is not None:
                 return ct_early
+            turn_tool_calls.clear()
     else:
 
         async def _finish_phased_text_turn(
@@ -1058,6 +1059,7 @@ async def execute_plan(
                 )
                 if ct_early is not None:
                     return ct_early
+                turn_tool_calls.clear()
 
             if is_last and not step_resolved:
                 if turns_left > 0:
@@ -1210,7 +1212,6 @@ async def _save_session_memory(
 __all__ = [
     "execute_plan",
     "get_client",
-    "MODEL",
     "AGENT_NAME",
     "AGENT_IDENTITY",
     "build_execution_system_prompt",

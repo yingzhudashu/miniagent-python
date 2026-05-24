@@ -264,8 +264,8 @@ async def run_cli_loop(
     channel_router = ctx.channel_router
     message_queue = ctx.message_queue
 
-    # 注册全局执行锁到消息队列，保证 CLI 与飞书消息跨队列 FIFO 排序
-    message_queue.set_exec_lock(engine._exec_lock)
+    # 初始化跨队列执行排序锁（保证 CLI 与飞书消息跨队列 FIFO）
+    message_queue.ensure_exec_lock()
 
     from miniagent.skills.snapshots import (
         get_skill_prompts_from_state,
@@ -939,6 +939,10 @@ async def _run_cli_loop_fallback(
     monitor = ctx.monitor
     channel_router = ctx.channel_router
     message_queue = ctx.message_queue
+
+    # 初始化跨队列执行排序锁（与主循环一致）
+    message_queue.ensure_exec_lock()
+
     from miniagent.engine.cli_commands import (
         cmd_help,
         cmd_instance_handler,
