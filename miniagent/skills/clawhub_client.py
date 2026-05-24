@@ -207,67 +207,79 @@ def create_clawhub_client(base_url: str = CLAWHUB_API) -> _ClawHubClientImpl:
 # ─── 本地技能搜索 ────────────────────────────────────────
 
 
-def search_local_skills(skills_root: str, query: str) -> list[dict[str, Any]]:
+def search_local_skills(
+    skills_root: str,
+    query: str,
+    *,
+    extra_roots: list[str] | None = None,
+) -> list[dict[str, Any]]:
     """本地技能搜索（不依赖网络）。
 
     读取每个技能目录下的 SKILL.md，匹配名称、描述和内容。
 
     Args:
-        skills_root: 技能根目录路径
+        skills_root: 技能根目录路径（主根）
         query: 搜索关键词（空字符串返回所有技能）
+        extra_roots: 额外技能根目录列表（如会话技能目录），按顺序扫描
 
     Returns:
-        匹配的本地技能列表
+        匹配的本地技能列表（按根顺序去重，同 slug 以首次出现为准）
     """
-    if not os.path.isdir(skills_root):
-        return []
+    all_roots = [skills_root]
+    if extra_roots:
+        all_roots.extend(extra_roots)
 
+    seen_slugs: set[str] = set()
     results: list[dict[str, Any]] = []
-    query_lower = query.lower()
 
-    for entry in sorted(os.listdir(skills_root)):
-        if entry.startswith("."):
+    for root in all_roots:
+        if not os.path.isdir(root):
             continue
-        skill_dir = os.path.join(skills_root, entry)
-        if not os.path.isdir(skill_dir):
-            continue
+        for entry in sorted(os.listdir(root)):
+            if entry.startswith(".") or entry in seen_slugs:
+                continue
+            skill_dir = os.path.join(root, entry)
+            if not os.path.isdir(skill_dir):
+                continue
 
-        skill_md_path = os.path.join(skill_dir, "SKILL.md")
-        if not os.path.isfile(skill_md_path):
-            continue
+            skill_md_path = os.path.join(skill_dir, "SKILL.md")
+            if not os.path.isfile(skill_md_path):
+                continue
 
-        content = Path(skill_md_path).read_text(encoding="utf-8")
+            content = Path(skill_md_path).read_text(encoding="utf-8")
 
-        # 解析 front matter
-        meta_match = re.match(r"^---\n([\s\S]*?)\n---", content)
-        frontmatter = meta_match.group(1) if meta_match else ""
+            # 解析 front matter
+            meta_match = re.match(r"^---\n([\s\S]*?)\n---", content)
+            frontmatter = meta_match.group(1) if meta_match else ""
 
-        name_match = re.search(r"name:\s*(.+)", frontmatter)
-        name = name_match.group(1).strip() if name_match else entry
+            name_match = re.search(r"name:\s*(.+)", frontmatter)
+            name = name_match.group(1).strip() if name_match else entry
 
-        desc_match = re.search(r"description:\s*(.+)", frontmatter)
-        description = desc_match.group(1).strip() if desc_match else ""
+            desc_match = re.search(r"description:\s*(.+)", frontmatter)
+            description = desc_match.group(1).strip() if desc_match else ""
 
-        # 匹配
-        if query_lower and not (
-            query_lower in name.lower()
-            or query_lower in description.lower()
-            or query_lower in content.lower()
-        ):
-            continue
+            # 匹配
+            if query_lower := query.lower():
+                if not (
+                    query_lower in name.lower()
+                    or query_lower in description.lower()
+                    or query_lower in content.lower()
+                ):
+                    continue
 
-        results.append(
-            {
-                "slug": entry,
-                "name": name,
-                "description": description,
-                "version": "local",
-                "tags": [],
-                "downloads": 0,
-                "stars": 0,
-                "author": "local",
-            }
-        )
+            seen_slugs.add(entry)
+            results.append(
+                {
+                    "slug": entry,
+                    "name": name,
+                    "description": description,
+                    "version": "local",
+                    "tags": [],
+                    "downloads": 0,
+                    "stars": 0,
+                    "author": "local",
+                }
+            )
 
     return results
 

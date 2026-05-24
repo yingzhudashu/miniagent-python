@@ -82,9 +82,11 @@ async def _search_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     # 本地搜索
     if source in ("local", "all"):
         from miniagent.skills.clawhub_client import search_local_skills
+        from miniagent.skills.paths import get_all_skill_roots, get_skills_root
 
-        skills_root = _get_skills_root()
-        local_results = search_local_skills(skills_root, query)
+        skills_root = get_skills_root()
+        extra_roots = [r for r in get_all_skill_roots() if r != skills_root]
+        local_results = search_local_skills(skills_root, query, extra_roots=extra_roots)
         if local_results:
             results.append("📁 本地技能:")
             for s in local_results[:limit]:
@@ -244,7 +246,7 @@ _list_schema = {
 async def _list_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolResult:
     """列出所有已安装的本地技能。
 
-    通过扫描 skills/ 目录下的 SKILL.md 文件实现。
+    通过扫描所有技能根目录（主根 + 会话技能目录）下的 SKILL.md 文件实现。
     verbose 模式下额外显示版本、作者和安装路径信息。
 
     Args:
@@ -255,11 +257,12 @@ async def _list_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolResult:
         ToolResult: 已安装技能列表，或提示使用 search_skills 安装新技能
     """
     verbose = bool(args.get("verbose", False))
-    skills_root = _get_skills_root()
-
     from miniagent.skills.clawhub_client import search_local_skills
+    from miniagent.skills.paths import get_all_skill_roots, get_skills_root
 
-    results = search_local_skills(skills_root, "")
+    skills_root = get_skills_root()
+    extra_roots = [r for r in get_all_skill_roots() if r != skills_root]
+    results = search_local_skills(skills_root, "", extra_roots=extra_roots)
 
     if not results:
         return ToolResult(

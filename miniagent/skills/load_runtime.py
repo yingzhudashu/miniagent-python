@@ -7,7 +7,7 @@ from typing import Any
 
 from miniagent.infrastructure.logger import get_logger
 from miniagent.skills.loader import discover_skill_packages, load_skill_package
-from miniagent.skills.paths import get_skills_root
+from miniagent.skills.paths import get_all_skill_roots
 from miniagent.types.skill import Skill, SkillPackage
 
 _logger = get_logger(__name__)
@@ -49,15 +49,34 @@ async def discover_packages(
     *,
     skills_root: str | None = None,
     package_dir: str | None = None,
+    include_sessions: bool = True,
 ) -> list[SkillPackage]:
-    """发现待加载的技能包列表。"""
+    """发现待加载的技能包列表。
+
+    若未指定 ``skills_root`` 或 ``package_dir``，则扫描所有可用技能根目录
+    （主根 + 会话技能目录）。
+    """
     if package_dir:
         pkg = await load_skill_package(package_dir)
         return [pkg] if pkg else []
-    root = skills_root if skills_root is not None else get_skills_root()
-    if not os.path.isdir(root):
-        return []
-    return await discover_skill_packages(root)
+    if skills_root:
+        if not os.path.isdir(skills_root):
+            return []
+        return await discover_skill_packages(skills_root)
+    # 多根发现：主根优先，随后按会话顺序扫描
+    all_roots = get_all_skill_roots(include_sessions=include_sessions)
+    seen_ids: set[str] = set()
+    packages: list[SkillPackage] = []
+    for root in all_roots:
+        if not os.path.isdir(root):
+            continue
+        for pkg in await discover_skill_packages(root):
+            if pkg.id not in seen_ids:
+                seen_ids.add(pkg.id)
+                packages.append(pkg)
+            else:
+                _logger.debug("技能包 %s 已在主根注册，跳过会话根 %s", pkg.id, root)
+    return packages
 
 
 async def load_packages_into_registries(
@@ -101,8 +120,14 @@ async def bootstrap_skill_packages(
     *,
     skills_root: str | None = None,
 ) -> tuple[list[Skill], list[str], list[str]]:
-    """启动时全量加载技能目录（等价于 replace=True 的 discover + register）。"""
-    packages = await discover_packages(skills_root=skills_root)
+    """启动时全量加载技能目录（等价于 replace=True 的 discover + register）。
+
+    若未指定 ``skills_root``，则自动扫描主根 + 所有会话技能目录。
+    """
+    if skills_root:
+        packages = await discover_packages(skills_root=skills_root)
+    else:
+        packages = await discover_packages(include_sessions=True)
     return await load_packages_into_registries(
         registry,
         skill_registry,

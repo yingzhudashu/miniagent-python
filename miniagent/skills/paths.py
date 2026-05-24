@@ -28,4 +28,49 @@ def get_skills_root() -> str:
     return str(repo_root / "workspaces" / "skills")
 
 
-__all__ = ["get_skills_root"]
+def get_session_skills_dir(session_id: str) -> str:
+    """返回指定会话的技能目录路径（若存在）。
+
+    Args:
+        session_id: 会话 ID
+
+    Returns:
+        会话技能目录路径，格式为 ``workspaces/sessions/<id>/skills/``
+    """
+    here = Path(__file__).resolve().parent
+    repo_root = here.parent.parent
+    return str(repo_root / "workspaces" / "sessions" / session_id / "skills")
+
+
+def get_all_skill_roots(*, include_sessions: bool = True) -> list[str]:
+    """返回所有需要扫描的技能根目录列表。
+
+    包含：
+    1. 主技能根目录（``get_skills_root()``）
+    2. 所有已存在会话的 skills 子目录（若 ``include_sessions=True``）
+
+    同一技能名在多个根中出现时，主根优先（先扫描的优先注册）。
+    """
+    roots: list[str] = [get_skills_root()]
+
+    if include_sessions:
+        sessions_dir = _get_sessions_dir()
+        if os.path.isdir(sessions_dir):
+            for entry in sorted(os.listdir(sessions_dir)):
+                if entry.startswith("."):
+                    continue
+                session_skills = os.path.join(sessions_dir, entry, "skills")
+                if os.path.isdir(session_skills) and os.listdir(session_skills):
+                    roots.append(session_skills)
+
+    return roots
+
+
+def _get_sessions_dir() -> str:
+    """返回会话根目录路径。"""
+    here = Path(__file__).resolve().parent
+    repo_root = here.parent.parent
+    return str(repo_root / "workspaces" / "sessions")
+
+
+__all__ = ["get_skills_root", "get_session_skills_dir", "get_all_skill_roots"]
