@@ -335,6 +335,7 @@ class UnifiedEngine:
         # 5. 思考回调（支持流式更新；落盘到 history 的 thinking role）
         thinking_by_label: dict[str, str] = {}
         tool_thought_lines: list[str] = []
+        tool_calls_list: list[dict[str, str]] = []
 
         async def _thinking(
             text: str,
@@ -370,6 +371,12 @@ class UnifiedEngine:
             """工具结束回调：按环境变量决定写入历史的详略，并复用 ``_thinking`` 落盘。"""
             status = "成功" if success else "失败"
             short = f"`{tool_name}` · {status}"
+            # 积累结构化数据供引擎记忆更新
+            tool_calls_list.append({
+                "name": tool_name,
+                "args": args_json,
+                "result": result,
+            })
             if _tool_finish_verbose_history():
                 body = (result or "").strip()
                 record = (
@@ -500,12 +507,15 @@ class UnifiedEngine:
         if session_manager:
             session_manager.save_session_history(session_key)
 
-        # 11. 更新记忆存储
+        # 11. 更新记忆存储（使用本轮实际工具调用数据）
         try:
             from miniagent.memory.store import extract_facts, generate_turn_summary
 
-            summary = generate_turn_summary(user_input, [], reply)
-            facts = extract_facts(reply)
+            tool_results_text = " ".join(
+                tc.get("result", "") for tc in tool_calls_list
+            )
+            summary = generate_turn_summary(user_input, tool_calls_list, reply)
+            facts = extract_facts(user_input + " " + reply + " " + tool_results_text)
             await ms.update_summary(session_key, summary, facts)
         except Exception as e:
             _logger.warning("Memory summary update failed: %s", e)
