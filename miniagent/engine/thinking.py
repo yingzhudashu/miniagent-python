@@ -396,15 +396,10 @@ class ThinkingDisplay:
                             "feishu_send 不支持 finalize_only，阶段切换时可能未收尾思考卡",
                             exc_info=True,
                         )
-                # finalize 后清除飞书状态，确保新阶段新建卡片
-                state.feishu_thinking_message_id = None
-                state.feishu_stream_accumulated = ""
-            if (
-                self._should_emit_cli(state)
-                and state.stream_step is not None
-                and not state.stream_done
-            ):
-                self._emit("\n\n")  # 阶段间空行：结束上一阶段 + 留一行间隔
+            # 注意：飞书状态由后续 push_feishu_thinking_stream(new_round=True) 统一清理，
+            # 此处不重复清除，避免与 new_round 路径双重清零。
+            # CLI 空行由下方 streaming 块的 stream_done 检查统一处理，避免此处 emit 后又在下方的
+            # stream_step=None 分支再次 emit，造成双倍空行。
             state.stream_done = True
             state.stream_step = None
             state.stream_header = ""
@@ -483,6 +478,7 @@ class ThinkingDisplay:
             # 增量输出：只打印新增的字符
             full = text.replace("\r\n", "\n")
             if state.stream_printed == 0 and full == state.stream_header:
+                state.stream_printed = len(full)  # 记录已处理 header，避免下轮重打
                 return  # 纯 header 调用，不打印内容
             new_text = indent_stream_thinking_suffix(full, state.stream_printed)
             if new_text and self._should_emit_cli(state):
