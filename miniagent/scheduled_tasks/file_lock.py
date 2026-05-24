@@ -8,6 +8,12 @@ import sys
 import threading
 from collections.abc import Iterator
 
+# 平台相关文件锁模块
+if sys.platform == "win32":
+    import msvcrt
+else:
+    import fcntl
+
 _thread_lock = threading.RLock()
 
 
@@ -25,27 +31,19 @@ def tasks_json_lock() -> Iterator[None]:
         with open(lock_path, "a+b") as lock_f:
             try:
                 if sys.platform == "win32":
-                    import msvcrt
-
                     lock_f.seek(0)
                     msvcrt.locking(lock_f.fileno(), msvcrt.LK_LOCK, 1)
                 else:
-                    import fcntl
-
                     fcntl.flock(lock_f.fileno(), fcntl.LOCK_EX)
                 yield
             finally:
                 if sys.platform == "win32":
-                    import msvcrt
-
                     try:
                         lock_f.seek(0)
                         msvcrt.locking(lock_f.fileno(), msvcrt.LK_UNLCK, 1)
                     except OSError:
                         pass
                 else:
-                    import fcntl
-
                     try:
                         fcntl.flock(lock_f.fileno(), fcntl.LOCK_UN)
                     except OSError:

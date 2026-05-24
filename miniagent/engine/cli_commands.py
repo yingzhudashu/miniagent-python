@@ -1080,6 +1080,15 @@ def format_help_markdown(
             ],
         ),
         _md_help_section(
+            "确认控制",
+            "规划器判定高风险操作时会暂停等待确认。以下命令不经过消息队列，直接响应暂停点。",
+            [
+                ("`.confirm`", "批准当前待确认的规划，继续执行"),
+                ("`.adjust <内容>`", "调整内容并批准"),
+                ("`.reject`", "拒绝当前规划，取消操作"),
+            ],
+        ),
+        _md_help_section(
             "定时任务",
             "用 `` -- `` 分隔参数与 prompt；once 可加 ``--tz``；飞书默认仅 list/show，MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1 时与 CLI 同等。",
             [
@@ -1168,4 +1177,8 @@ __all__ = [
     "feishu_dot_commands_full_enabled",
     "format_session_command_usage",
     "format_queue_command_usage",
+    "format_queue_abort_message",
+    "cmd_bind",
+    "cmd_unbind",
+    "cmd_instance_handler",
 ]

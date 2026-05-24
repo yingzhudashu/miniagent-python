@@ -59,8 +59,7 @@ class ScheduledTask:
 
     def to_json(self) -> dict[str, Any]:
         """转为可写入 ``tasks.json`` 的纯 dict 结构。"""
-        d = asdict(self)
-        return d
+        return asdict(self)
 
     @staticmethod
     def from_json(data: dict[str, Any]) -> ScheduledTask:

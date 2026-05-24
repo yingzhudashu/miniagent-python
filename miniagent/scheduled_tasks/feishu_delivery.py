@@ -97,8 +97,6 @@ def _resolve_mq_and_receive(
     if is_p2p_bound and candidates:
         mq = candidates[0]
         return mq, mq
-    if not is_p2p_bound:
-        return recv_im, recv_im
     return recv_im, recv_im
 
 

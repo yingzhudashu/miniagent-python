@@ -12,15 +12,21 @@ from miniagent.types.tool import Toolbox
 def build_skill_snapshots(
     skill_registry: Any,
     config: AgentConfig | None = None,
+    *,
+    session_key: str | None = None,
 ) -> tuple[list[Toolbox], list[str]]:
-    """从技能注册表构建工具箱列表与系统提示词列表（含内置工具箱）。"""
-    skill_toolboxes = skill_registry.get_all_toolboxes(config)
+    """从技能注册表构建工具箱列表与系统提示词列表（含内置工具箱）。
+
+    ``session_key=None`` 时返回所有 scope（向后兼容）；
+    ``session_key`` 非 None 时仅返回 global + 该会话 scope 的技能。
+    """
+    skill_toolboxes = skill_registry.get_all_toolboxes(config, session_key=session_key)
     seen_tb = {t.id for t in skill_toolboxes}
     for tb in BUILTIN_TOOLBOXES:
         if tb.id not in seen_tb:
             skill_toolboxes.append(tb)
             seen_tb.add(tb.id)
-    skill_prompts = skill_registry.get_system_prompts(config)
+    skill_prompts = skill_registry.get_system_prompts(config, session_key=session_key)
     return skill_toolboxes, skill_prompts
 
 

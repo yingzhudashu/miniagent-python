@@ -96,7 +96,17 @@ async def refresh_skills(
 
     package_ids = [p.id for p in packages]
     all_skills = list(skill_registry.get_all())
-    skill_toolboxes, skill_prompts = build_skill_snapshots(skill_registry, agent_cfg)
+
+    # 从 state 中读取 active_session_id，用于 scope 过滤
+    session_key: str | None = None
+    if state is not None:
+        session_key = (state.get("active_session_id") or "").strip() or None
+
+    skill_toolboxes, skill_prompts = build_skill_snapshots(
+        skill_registry,
+        agent_cfg,
+        session_key=session_key,
+    )
     result = RefreshResult(
         loaded_skills=all_skills,
         skill_toolboxes=skill_toolboxes,

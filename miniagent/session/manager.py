@@ -282,7 +282,7 @@ class DefaultSessionManager(SessionManagerProtocol):
                     ensure_ascii=False,
                 )
         except Exception:
-            pass  # 忽略保存失败
+            _logger.exception("会话配置保存失败: %s", config.workspace_path)
 
     # -----------------------------------------------------------------------
     # 会话历史持久化（Persistence Layer）
@@ -474,8 +474,11 @@ class DefaultSessionManager(SessionManagerProtocol):
         """
         # 1. 读取配置
         config_path = os.path.join(workspace_path, "config.json")
-        with open(config_path, encoding="utf-8-sig") as f:
-            raw = json.load(f)
+        try:
+            with open(config_path, encoding="utf-8-sig") as f:
+                raw = json.load(f)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"会话配置 {config_path} JSON 格式无效: {e}") from e
 
         config = SessionConfig(
             session_id=raw["session_id"],
@@ -553,16 +556,16 @@ class DefaultSessionManager(SessionManagerProtocol):
         _logger.info("会话已创建: %s (%d 个核心工具)", session_id, core_count)
         return ctx["session"]
 
-    def get(self, id: str) -> Session | None:
+    def get(self, session_id: str) -> Session | None:
         """获取会话
 
         Args:
-            id: 会话 ID
+            session_id: 会话 ID
 
         Returns:
             会话对象，不存在返回 None
         """
-        ctx = self._sessions.get(id)
+        ctx = self._sessions.get(session_id)
         return ctx["session"] if ctx else None
 
     def list(self) -> list[Session]:

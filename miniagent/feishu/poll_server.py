@@ -40,6 +40,20 @@ _logger = get_logger(__name__)
 # 入站文本 handler：单参数 ``FeishuInboundText``，返回回复正文。
 FeishuTextMessageHandler = Callable[[FeishuInboundText], Awaitable[str]]
 
+# 引擎引用（供确认侧通道使用，卡片按钮回调中直接响应）
+_feishu_confirmation_engine: Any | None = None
+
+
+def set_feishu_confirmation_engine(engine: Any) -> None:
+    """设置飞书侧可访问的引擎引用，供卡片确认按钮使用。"""
+    global _feishu_confirmation_engine
+    _feishu_confirmation_engine = engine
+
+
+def get_feishu_confirmation_engine() -> Any | None:
+    """获取当前引擎引用。"""
+    return _feishu_confirmation_engine
+
 
 def feishu_outbound_reply_params(
     trigger_message_id: str | None,
@@ -679,6 +693,39 @@ async def start_feishu_poll_server(
                     return resp
             if not text or not chat_id:
                 return resp
+
+            # 拦截确认命令：直接响应确认通道，不经消息队列
+            if text in (".confirm", ".reject") or text.startswith(".adjust "):
+                engine = _feishu_confirmation_engine
+                if engine is not None:
+                    cc = getattr(engine, "confirmation_channel", None)
+                    if cc is not None and cc.has_pending:
+                        from miniagent.types.confirmation import ConfirmationResult
+
+                        if text == ".confirm":
+                            cc.respond(ConfirmationResult(approved=True))
+                            ok = CallBackToast()
+                            ok.type = "success"
+                            ok.content = "✅ 已确认，继续执行"
+                            resp.toast = ok
+                            return resp
+                        elif text == ".reject":
+                            cc.respond(ConfirmationResult(approved=False, rejected=True))
+                            ok = CallBackToast()
+                            ok.type = "warning"
+                            ok.content = "⚠️ 已拒绝，取消当前操作"
+                            resp.toast = ok
+                            return resp
+                        else:
+                            adjustment = text[len(".adjust "):].strip()
+                            if adjustment:
+                                cc.respond(ConfirmationResult(approved=True, adjustment=adjustment))
+                                ok = CallBackToast()
+                                ok.type = "success"
+                                ok.content = f"✅ 已调整：{adjustment[:40]}{'…' if len(adjustment) > 40 else ''}"
+                                resp.toast = ok
+                                return resp
+                # 无待确认请求或无引擎，继续走消息队列
             inbound = FeishuInboundText(
                 text=text,
                 chat_id=chat_id,
@@ -1042,9 +1089,17 @@ def _feishu_interactive_card_dict(
 
 
 def _thinking_interactive_card_dict(cleaned_markdown: str, template: str) -> dict[str, Any]:
-    from miniagent.feishu.cards.builder import thinking_card_dict
+    from miniagent.feishu.cards.builder import confirmation_buttons, thinking_card_dict
 
-    return thinking_card_dict(cleaned_markdown, template)
+    # 检查是否有待确认请求，有则附加按钮
+    buttons = None
+    cc = _feishu_confirmation_engine
+    if cc is not None:
+        cc_obj = getattr(cc, "confirmation_channel", None)
+        if cc_obj is not None and cc_obj.has_pending:
+            buttons = confirmation_buttons()
+
+    return thinking_card_dict(cleaned_markdown, template, buttons=buttons)
 
 
 def _create_interactive_thinking_message(

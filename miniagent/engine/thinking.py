@@ -136,6 +136,7 @@ class _SessionThinkingState:
         "feishu_patch_budget",
         "feishu_tool_section_started",
         "turn_number",
+        "_last_stream_full",
     )
 
     step_counter: int
@@ -156,6 +157,7 @@ class _SessionThinkingState:
     feishu_patch_budget: int
     feishu_tool_section_started: bool
     turn_number: int
+    _last_stream_full: str
 
     def __init__(self) -> None:
         """初始化会话级流式/飞书 PATCH 状态为默认值。"""
@@ -177,6 +179,7 @@ class _SessionThinkingState:
         self.feishu_patch_budget = 0
         self.feishu_tool_section_started = False
         self.turn_number = 0
+        self._last_stream_full = ""
 
 
 class ThinkingDisplay:
@@ -282,6 +285,7 @@ class ThinkingDisplay:
         state.feishu_last_patched_char_len = -1
         state.feishu_patch_budget = 0
         state.feishu_tool_section_started = False
+        state._last_stream_full = ""
 
     def next_turn(self, session_key: str = "") -> int:
         """递增并返回 turn_number（新用户轮次前调用）。"""
@@ -360,11 +364,40 @@ class ThinkingDisplay:
             return False
         return True
 
+    def _show_streaming(self, state: _SessionThinkingState, text: str) -> None:
+        """流式思考正文增量输出（带内容连续性校验，防止丢字）。"""
+        full = text.replace("\r\n", "\n")
+
+        # 首次流式纯 header 标注（如 "[执行]"），不打印正文，标记等待正文
+        if state.stream_printed == 0 and full == state.stream_header:
+            state.stream_printed = -1  # 标记"仅 header"，下次正文调用时重置
+            return
+
+        # 累积假设破裂检测：之前仅收到 header，现在来了带正文的内容
+        if state.stream_printed < 0:
+            state.stream_printed = 0
+
+        # ── 关键修复：内容连续性校验 ──
+        # stream_printed 记录的是上次调用时 full 的字符数。如果本次 full 的
+        # 前 stream_printed 个字符与上次不一致（如 LLM 分块累积文本在两次调用间
+        # 不是简单的"前缀增长"关系），直接按字符偏移会丢内容。
+        # 解决：验证上次"已打印"的文本前缀是否仍是本次 full 的前缀。
+        if state.stream_printed > 0 and len(full) > state.stream_printed:
+            last_full = state._last_stream_full
+            if last_full and not full.startswith(last_full):
+                # 内容不连续（如 "[执行] 开始" → LLM 实际正文），重置偏移
+                state.stream_printed = 0
+
+        new_text = indent_stream_thinking_suffix(full, state.stream_printed)
+        if new_text and self._should_emit_cli(state):
+            self._emit(new_text)
+        state.stream_printed = len(full)
+        state._last_stream_full = full  # 保存本次全文供下次校验
+
     async def show(
         self,
         text: str,
         session_key: str = "",
-        chat_id: str = "",
         streaming: bool = False,
         header: str = "",
     ) -> None:
@@ -404,6 +437,7 @@ class ThinkingDisplay:
             state.stream_step = None
             state.stream_header = ""
             state.stream_printed = 0
+            state._last_stream_full = ""
 
         merge_tools = (
             _merge_tools_enabled()
@@ -433,7 +467,7 @@ class ThinkingDisplay:
                 )
             except Exception as e:
                 _logger.warning("飞书思考发送失败: %s", e, exc_info=True)
-                err = f"\u26a0\ufe0f \u98de\u4e66\u53d1\u9001\u5931\u8d25: {e}\n"
+                err = f"⚠️ 飞书发送失败: {e}\n"
                 if self._output_sink:
                     if self._sink_has_kind:
                         self._output_sink(err, "label")
@@ -471,22 +505,12 @@ class ThinkingDisplay:
                 state.stream_header = header or ""
                 state.stream_printed = 0
                 state.stream_done = False
+                state._last_stream_full = ""
                 label = f"\U0001f4ad [{state.stream_step}] {state.stream_header}"
                 if self._should_emit_cli(state):
                     self._emit_line(label, "blue")
 
-            # 增量输出：只打印新增的字符
-            full = text.replace("\r\n", "\n")
-            if state.stream_printed == 0 and full == state.stream_header:
-                state.stream_printed = -1  # 标记"仅 header"，下次正文调用时重置
-                return  # 纯 header 调用，不打印内容
-            # 累积假设破裂检测（如 header-only 后 body 重置了正文）
-            if state.stream_printed < 0:
-                state.stream_printed = 0
-            new_text = indent_stream_thinking_suffix(full, state.stream_printed)
-            if new_text and self._should_emit_cli(state):
-                self._emit(new_text)
-            state.stream_printed = len(full)
+            self._show_streaming(state, text)
         else:
             # 非流式：结束之前的流式
             saved_header = ""
@@ -513,6 +537,7 @@ class ThinkingDisplay:
             state.stream_header = ""
             state.stream_done = False
             state.stream_printed = 0
+            state._last_stream_full = ""
 
             step = self._next_step(session_key)
             lines = (text or "").splitlines() or [""]
@@ -554,6 +579,7 @@ class ThinkingDisplay:
                 state.stream_step = None
                 state.stream_header = ""
                 state.stream_printed = 0
+                state._last_stream_full = ""
         if self._default.stream_step is not None and not self._default.stream_done:
             if self._should_emit_cli(self._default):
                 self._emit("\n\n\n")  # 思考结束空行（2行空白）
@@ -561,6 +587,7 @@ class ThinkingDisplay:
             self._default.stream_step = None
             self._default.stream_header = ""
             self._default.stream_printed = 0
+            self._default._last_stream_full = ""
 
 
 __all__ = ["ThinkingDisplay", "indent_stream_thinking_suffix"]

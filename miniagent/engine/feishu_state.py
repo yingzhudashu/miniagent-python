@@ -54,10 +54,17 @@ class FeishuRuntime:
             user_status: 可选 ``(msg: str) -> None``，由全屏 CLI 注册为写入 transcript；
                 未提供时使用 ``print``，避免与 prompt_toolkit 备用屏混写时丢失信息。
         """
-        from miniagent.feishu.poll_server import reset_feishu_ws_singleton, start_feishu_poll_server
+        from miniagent.feishu.poll_server import reset_feishu_ws_singleton, set_feishu_confirmation_engine, start_feishu_poll_server
         from miniagent.feishu.types import FeishuConfig
 
         self._user_status = user_status
+
+        # 设置引擎引用，供卡片确认按钮直接响应确认通道
+        if state is not None and isinstance(state, dict):
+            rt = state.get("runtime_ctx")
+            engine = getattr(rt, "engine", None) if rt else None
+            if engine is not None:
+                set_feishu_confirmation_engine(engine)
 
         config = FeishuConfig(
             app_id=os.environ.get("FEISHU_APP_ID", ""),

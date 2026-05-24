@@ -7,7 +7,7 @@ from typing import Any
 
 from miniagent.infrastructure.logger import get_logger
 from miniagent.skills.loader import discover_skill_packages, load_skill_package
-from miniagent.skills.paths import get_all_skill_roots
+from miniagent.skills.paths import get_all_skill_roots, resolve_scope_for_root
 from miniagent.types.skill import Skill, SkillPackage
 
 _logger = get_logger(__name__)
@@ -58,11 +58,18 @@ async def discover_packages(
     """
     if package_dir:
         pkg = await load_skill_package(package_dir)
-        return [pkg] if pkg else []
+        if pkg:
+            pkg.scope = resolve_scope_for_root(os.path.dirname(package_dir))
+            return [pkg]
+        return []
     if skills_root:
         if not os.path.isdir(skills_root):
             return []
-        return await discover_skill_packages(skills_root)
+        scope = resolve_scope_for_root(skills_root)
+        packages = await discover_skill_packages(skills_root)
+        for pkg in packages:
+            pkg.scope = scope
+        return packages
     # 多根发现：主根优先，随后按会话顺序扫描
     all_roots = get_all_skill_roots(include_sessions=include_sessions)
     seen_ids: set[str] = set()
@@ -70,8 +77,10 @@ async def discover_packages(
     for root in all_roots:
         if not os.path.isdir(root):
             continue
+        scope = resolve_scope_for_root(root)
         for pkg in await discover_skill_packages(root):
             if pkg.id not in seen_ids:
+                pkg.scope = scope
                 seen_ids.add(pkg.id)
                 packages.append(pkg)
             else:

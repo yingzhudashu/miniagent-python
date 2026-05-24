@@ -9,6 +9,13 @@ from miniagent.types.tool import ToolContext
 
 
 def effective_receive_id_type(args: dict[str, Any], ctx: ToolContext) -> str:
+    """解析出站消息的 receive_id_type。
+
+    优先级：工具参数 args > ToolContext 上下文 > IM 发送模块默认值。
+
+    Returns:
+        "chat_id"、"open_id" 或 "union_id"
+    """
     a = str(args.get("receive_id_type") or "").strip().lower()
     if a in ("chat_id", "open_id", "union_id"):
         return a
@@ -21,6 +28,14 @@ def effective_receive_id_type(args: dict[str, Any], ctx: ToolContext) -> str:
 def default_receive_id_for_send(
     args: dict[str, Any], ctx: ToolContext
 ) -> tuple[str | None, str | None]:
+    """解析出站消息的目标 receive_id。
+
+    优先使用 args 中显式传入的值；否则根据 receive_id_type 从上下文中
+    推断默认值。
+
+    Returns:
+        (receive_id, error_message) — 成功时 error_message 为 None
+    """
     explicit = str(args.get("receive_id") or "").strip()
     if explicit:
         return explicit, None

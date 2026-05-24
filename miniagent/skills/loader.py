@@ -422,7 +422,6 @@ async def discover_skill_packages(skills_root: str) -> list[SkillPackage]:
 
 __all__ = [
     "parse_skill_md",
-    "_map_oc_metadata",
     "load_skill_package",
     "discover_skill_packages",
     "evict_skill_modules",

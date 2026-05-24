@@ -73,4 +73,26 @@ def _get_sessions_dir() -> str:
     return str(repo_root / "workspaces" / "sessions")
 
 
-__all__ = ["get_skills_root", "get_session_skills_dir", "get_all_skill_roots"]
+def resolve_scope_for_root(root: str) -> str:
+    """根据技能根目录路径判断 scope：``"global"`` 或 ``"session:<id>"``。
+
+    Args:
+        root: 技能根目录路径
+
+    Returns:
+        scope 字符串，如 ``"global"`` 或 ``"session:abc123"``
+    """
+    sessions_dir = _get_sessions_dir()
+    if root.startswith(sessions_dir):
+        # workspaces/sessions/<id>/skills → session:<id>
+        parts = Path(root).parts
+        try:
+            sessions_idx = parts.index("sessions")
+            if sessions_idx + 1 < len(parts):
+                return f"session:{parts[sessions_idx + 1]}"
+        except ValueError:
+            pass
+    return "global"
+
+
+__all__ = ["get_skills_root", "get_session_skills_dir", "get_all_skill_roots", "resolve_scope_for_root"]

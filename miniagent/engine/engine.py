@@ -63,13 +63,13 @@ class UnifiedEngine:
     """
 
     def __init__(self) -> None:
-        """初始化引擎：创建思考显示器、计数器、进程级执行锁。"""
+        """初始化引擎：创建思考显示器、懒加载澄清器、进程级执行锁。"""
         from miniagent.engine.thinking import ThinkingDisplay
 
         self.thinking = ThinkingDisplay()
-        self._conversation_counter: int = 0
         self._clarifier: Any | None = None  # 懒加载：需求澄清器
         self._exec_lock = asyncio.Lock()  # 进程级锁：序列化所有 run_agent_with_thinking 调用
+        self._confirmation_channel: Any | None = None  # ConfirmationChannel 实例
 
     async def run_agent_with_thinking(
         self,
@@ -222,7 +222,7 @@ class UnifiedEngine:
             combined_skill = (
                 f"{skill_prompts}\n\n{layered_augment}" if skill_prompts else layered_augment
             )
-        system_prompt = (combined_skill.strip() if combined_skill else None) or None
+        system_prompt = combined_skill.strip() if combined_skill else None
 
         # 3. 重置该会话的思考计数器（每个会话独立计数，多群并发安全）
         self.thinking.reset_counter(session_key)
@@ -433,12 +433,14 @@ class UnifiedEngine:
             system_prompt=system_prompt,
             on_thinking=_thinking,
             on_tool_finish=_tool_finish,
+            on_plan=self._on_plan_handler(session_key),
             clawhub=clawhub,
             memory_store=ms,
             activity_log=al,
             keyword_index=ki,
             client=client,
             clarifier=self._get_clarifier(),
+            session_key=session_key,
         )
         # 无工具调用等场景：最后一轮 LLM 流结束后无 streaming=False，需在此 PATCH 落盘全文
         if is_feishu and feishu_config:
@@ -499,26 +501,27 @@ class UnifiedEngine:
         )
 
         # 9. 活动日志
-        al.log_session_start(session_key, user_input, source="feishu" if is_feishu else "cli")
-        al.log_final_reply(session_key, reply)
+        if al:
+            al.log_session_start(session_key, user_input, source="feishu" if is_feishu else "cli")
+            al.log_final_reply(session_key, reply)
 
         # 10. 持久化
-        self._conversation_counter += 1
         if session_manager:
             session_manager.save_session_history(session_key)
 
         # 11. 更新记忆存储（使用本轮实际工具调用数据）
-        try:
-            from miniagent.memory.store import extract_facts, generate_turn_summary
+        if ms is not None:
+            try:
+                from miniagent.memory.store import extract_facts, generate_turn_summary
 
-            tool_results_text = " ".join(
-                tc.get("result", "") for tc in tool_calls_list
-            )
-            summary = generate_turn_summary(user_input, tool_calls_list, reply)
-            facts = extract_facts(user_input + " " + reply + " " + tool_results_text)
-            await ms.update_summary(session_key, summary, facts)
-        except Exception as e:
-            _logger.warning("Memory summary update failed: %s", e)
+                tool_results_text = " ".join(
+                    tc.get("result", "") for tc in tool_calls_list
+                )
+                summary = generate_turn_summary(user_input, tool_calls_list, reply)
+                facts = extract_facts(user_input + " " + reply + " " + tool_results_text)
+                await ms.update_summary(session_key, summary, facts)
+            except Exception as e:
+                _logger.warning("Memory summary update failed: %s", e)
 
         try:
             from miniagent.memory.dream_scheduler import schedule_memory_maintenance
@@ -528,6 +531,53 @@ class UnifiedEngine:
             _logger.warning("Dream scheduler scheduling failed: %s", e)
 
         return reply
+
+    def _on_plan_handler(self, session_key: str):
+        """创建计划确认回调。
+
+        返回一个 async callable，通过确认侧通道暂停 agent 执行并等待用户确认。
+        此回调仅在 ``plan.requires_confirmation`` 为 True 时被调用。
+        """
+        channel = self._get_confirmation_channel()
+
+        async def handler(plan) -> bool:
+            if channel is None:
+                return True
+            from miniagent.core.agent import (
+                _format_plan_display_short,
+                _format_plan_message,
+            )
+            plan_summary = _format_plan_display_short(plan, from_llm_planner=True)
+            plan_full = _format_plan_message(plan, from_llm_planner=True)
+            from miniagent.types.confirmation import ConfirmationRequest, ConfirmationStage
+
+            req = ConfirmationRequest(
+                stage=ConfirmationStage.PLAN,
+                content=plan_summary,
+                full_content=plan_full,
+                context={"plan": True},
+            )
+            result = await channel.request_confirmation(req)
+            return result.approved
+
+        return handler
+
+    def _get_confirmation_channel(self):
+        """获取或创建进程级确认侧通道。
+
+        返回 ConfirmationChannel 实例，所有会话共享同一实例。
+        实际的会话隔离由 channel 内部的 asyncio.Event 管理。
+        """
+        if self._confirmation_channel is None:
+            from miniagent.core.confirmation_channel import ConfirmationChannel
+
+            self._confirmation_channel = ConfirmationChannel()
+        return self._confirmation_channel
+
+    @property
+    def confirmation_channel(self):
+        """公开访问确认通道，供 CLI 循环和飞书 handler 调用 ``respond()``。"""
+        return self._get_confirmation_channel()
 
     def inject_message(self, session_key: str, content: str, *, session_manager: Any) -> None:
         """向指定会话注入消息。
@@ -546,13 +596,14 @@ class UnifiedEngine:
 
         受 ``MINIAGENT_REQUIREMENT_CLARIFY`` 环境变量控制（默认 ``1`` 开启）。
         首次调用时创建并缓存实例，后续调用直接返回。
+        交互模式：通过确认侧通道等待用户确认/调整，而非全自动 LLM 推断。
         """
         if os.environ.get("MINIAGENT_REQUIREMENT_CLARIFY", "1") == "0":
             return None
         if self._clarifier is None:
             from miniagent.core.requirement_clarifier import RequirementClarifier
 
-            self._clarifier = RequirementClarifier(interactive=False)
+            self._clarifier = RequirementClarifier(interactive=True)
         return self._clarifier
 
 

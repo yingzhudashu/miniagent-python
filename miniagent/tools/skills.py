@@ -173,9 +173,9 @@ async def _install_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult
         install_path = result.get("path") or install_dir
         vet_report = ""
         if os.path.isdir(install_path):
-            from miniagent.skills.autovet import _auto_vet_skill
+            from miniagent.skills.autovet import auto_vet_skill
 
-            vet_report = _auto_vet_skill(install_path)
+            vet_report = auto_vet_skill(install_path)
 
         refresh_note = ""
         st = ctx.cli_loop_state

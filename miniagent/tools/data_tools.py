@@ -14,7 +14,19 @@ import json
 import os
 from typing import Any
 
+from miniagent.security.sandbox import get_default_workspace, resolve_sandbox_path
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
+
+
+def _allowed_dirs(ctx: ToolContext) -> list[str]:
+    """获取允许的目录列表，优先使用 ToolContext.allowed_paths。"""
+    return ctx.allowed_paths if ctx.allowed_paths else [get_default_workspace()]
+
+
+def _resolve_path(path: str, ctx: ToolContext) -> str:
+    """将路径解析为沙箱允许范围内的绝对路径。"""
+    return resolve_sandbox_path(path, _allowed_dirs(ctx))
+
 
 # ─── read_csv ────────────────────────────────────────────
 
@@ -38,9 +50,7 @@ _read_csv_schema = {
 
 
 async def _read_csv_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-    path = str(args["path"])
-    if not os.path.isabs(path):
-        path = os.path.join(ctx.cwd, path)
+    path = _resolve_path(str(args["path"]), ctx)
     if not os.path.isfile(path):
         return ToolResult(success=False, content=f"❌ 文件不存在: {path}")
     delimiter = str(args.get("delimiter", "")).strip()
@@ -97,9 +107,7 @@ _write_csv_schema = {
 
 
 async def _write_csv_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-    path = str(args["path"])
-    if not os.path.isabs(path):
-        path = os.path.join(ctx.cwd, path)
+    path = _resolve_path(str(args["path"]), ctx)
     delimiter = str(args.get("delimiter", ",")).strip() or ","
     raw_data = str(args.get("data", ""))
     try:
@@ -148,9 +156,7 @@ _json_read_schema = {
 
 
 async def _json_read_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-    path = str(args["path"])
-    if not os.path.isabs(path):
-        path = os.path.join(ctx.cwd, path)
+    path = _resolve_path(str(args["path"]), ctx)
     if not os.path.isfile(path):
         return ToolResult(success=False, content=f"❌ 文件不存在: {path}")
     encoding = str(args.get("encoding", "utf-8"))
@@ -196,9 +202,7 @@ _json_write_schema = {
 
 
 async def _json_write_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-    path = str(args["path"])
-    if not os.path.isabs(path):
-        path = os.path.join(ctx.cwd, path)
+    path = _resolve_path(str(args["path"]), ctx)
     pretty = args.get("pretty", True) in (True, "true", "1")
     raw_data = str(args.get("data", ""))
     try:

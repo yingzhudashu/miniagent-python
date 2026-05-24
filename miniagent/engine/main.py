@@ -19,11 +19,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import shutil
 import signal
-import subprocess
 import sys
 import threading
 from collections.abc import Callable
@@ -106,8 +106,6 @@ async def unified_main(ctx: RuntimeContext) -> None:
     except Exception:
         pass  # VT 模式不可用，降级到 prompt_toolkit 颜色
 
-    import os
-
     MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
     from miniagent.engine.init import init_subsystems
     from miniagent.engine.welcome import print_welcome
@@ -188,8 +186,6 @@ async def unified_main(ctx: RuntimeContext) -> None:
     state["skill_toolboxes"] = skill_toolboxes
     state["skill_prompts"] = skill_prompts
     state["session_manager"] = session_manager
-
-    _configure_console_encoding()
 
     # 飞书与 CLI 共进程：先起 WS 长轮询任务，再进入同一 stdin 主循环（无单独纯飞书入口）
     if state["feishu_enabled"]:
@@ -329,7 +325,39 @@ async def run_cli_loop(
 
     from miniagent.engine.session_lock import release_session_lock
 
+    def _load_session_history_to_input(state: dict, buf: Buffer) -> None:
+        """将当前会话的用户消息注入 prompt_toolkit 输入历史，使上下键可回顾。"""
+        sm = state.get("session_manager")
+        if sm is None:
+            return
+        session_id = state.get("active_session_id", "")
+        if not session_id:
+            return
+        session = sm.get(session_id)
+        if session is None:
+            return
+        # workspace_path 实际指向 files/ 目录，history.json 在其父目录
+        files_path = getattr(session, "workspace_path", None) or getattr(session, "files_path", None)
+        if not files_path:
+            return
+        history_path = os.path.join(os.path.dirname(files_path), "history.json")
+        if not os.path.isfile(history_path):
+            return
+        try:
+            with open(history_path, encoding="utf-8-sig") as f:
+                messages = json.load(f)
+            for msg in messages:
+                if isinstance(msg, dict) and msg.get("role") == "user":
+                    content = msg.get("content", "")
+                    if content:
+                        buf.history.append_string(content)
+        except Exception:
+            pass  # 历史加载失败不影响启动
+
     input_buffer = Buffer(history=FileHistory(history_file))
+
+    # 加载当前会话的对话历史到输入缓冲，使上下键可回顾已发送的用户消息
+    _load_session_history_to_input(state, input_buffer)
 
     _MAX_TRANSCRIPT_CHARS = 400_000
     _transcript: list[Any] = []
@@ -1150,6 +1178,23 @@ async def _run_cli_loop_fallback(
 
         if user_input == ".help":
             cmd_help(message_queue, state.get("instance_id"))
+            continue
+
+        # 统一分发：所有未被上述 if 捕获的 `.命令` 走 dispatch_command
+        if user_input.startswith("."):
+            from miniagent.engine.command_dispatch import dispatch_command as _dot_dispatch
+
+            result = await _dot_dispatch(
+                user_input,
+                state=state,
+                engine=ctx.engine,
+                registry=ctx.registry,
+                monitor=ctx.monitor,
+                feishu_user_status=_feishu_user_status_fn(ctx),
+                capture=False,
+            )
+            if result is not None:
+                print(result)
             continue
 
         await message_queue.dispatch_cli(_process_input(user_input))

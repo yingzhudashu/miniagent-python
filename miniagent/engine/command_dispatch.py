@@ -336,8 +336,11 @@ async def dispatch_command(
 
     # ── .bind ──
     if cmd == ".bind":
-        args = parts[1:] if len(parts) > 1 else []
-        output = cmd_bind(channel_router, args, state)
+        if channel_router is None:
+            output = "⚠️ 通道路由器未初始化"
+        else:
+            args = parts[1:] if len(parts) > 1 else []
+            output = cmd_bind(channel_router, args, state)
         if capture:
             return output
         print(output)
@@ -345,8 +348,11 @@ async def dispatch_command(
 
     # ── .unbind ──
     if cmd == ".unbind":
-        args = parts[1:] if len(parts) > 1 else []
-        output = cmd_unbind(channel_router, args, state)
+        if channel_router is None:
+            output = "⚠️ 通道路由器未初始化"
+        else:
+            args = parts[1:] if len(parts) > 1 else []
+            output = cmd_unbind(channel_router, args, state)
         if capture:
             return output
         print(output)
@@ -360,6 +366,37 @@ async def dispatch_command(
         mutating = sub_s in ("add", "remove", "enable", "disable")
         allow_muts = not (block_remote and mutating)
         output = cmd_schedule(text, allow_mutations=allow_muts)
+        if capture:
+            return output
+        print(output)
+        return None
+
+    # ── .confirm / .adjust / .reject（确认侧通道）──
+    if cmd in (".confirm", ".adjust", ".reject"):
+        cc = getattr(engine, "confirmation_channel", None) if engine else None
+        if cc is None or not cc.has_pending:
+            output = "⚠️ 当前无待确认的请求"
+        elif cmd == ".confirm":
+            from miniagent.types.confirmation import ConfirmationResult
+
+            cc.respond(ConfirmationResult(approved=True))
+            output = "✅ 已确认，继续执行"
+        elif cmd == ".reject":
+            from miniagent.types.confirmation import ConfirmationResult
+
+            cc.respond(ConfirmationResult(approved=False, rejected=True))
+            output = "⚠️ 已拒绝，取消当前操作"
+        else:
+            # .adjust <新内容>
+            adjustment = " ".join(parts[1:]).strip()
+            if not adjustment:
+                output = "用法：.adjust <调整后的内容>"
+            else:
+                from miniagent.types.confirmation import ConfirmationResult
+
+                cc.respond(ConfirmationResult(approved=True, adjustment=adjustment))
+                output = f"✅ 已调整并确认：{adjustment[:60]}{'…' if len(adjustment) > 60 else ''}"
+
         if capture:
             return output
         print(output)
@@ -413,11 +450,12 @@ def _format_status(state: CliLoopState | dict[str, Any]) -> str:
     lines.append(f"💬 飞书: {'🟢 运行中' if feishu_on else '⚪ 未启用'}")
 
     # 通道绑定状态
-    bindings = channel_router.get_all_bindings()
-    if bindings:
-        lines.append(f"📡 通道绑定: {len(bindings)} 个通道已绑定")
-        for ch, sess in bindings.items():
-            lines.append(f"   {ch[:20]} → {sess}")
+    if channel_router is not None:
+        bindings = channel_router.get_all_bindings()
+        if bindings:
+            lines.append(f"📡 通道绑定: {len(bindings)} 个通道已绑定")
+            for ch, sess in bindings.items():
+                lines.append(f"   {str(ch)[:20]} → {sess}")
 
     # 消息队列状态
     lines.append("")

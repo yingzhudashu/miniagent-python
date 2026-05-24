@@ -175,7 +175,14 @@ class _ClawHubClientImpl:
 
         # 写入文件
         for file_info in files:
-            file_path = os.path.join(skills_dir, file_info["path"])
+            rel_path = file_info["path"]
+            # 防止路径穿越：确保文件路径不包含 .. 且不跳出 skills_dir
+            if ".." in rel_path or os.path.isabs(rel_path):
+                raise RuntimeError(f"技能包文件路径不安全: {rel_path!r}")
+            file_path = os.path.join(skills_dir, rel_path)
+            # 二次校验：确保解析后路径仍在 skills_dir 内
+            if not os.path.abspath(file_path).startswith(os.path.abspath(skills_dir)):
+                raise RuntimeError(f"技能包文件路径跳出技能目录: {rel_path!r}")
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
             Path(file_path).write_text(file_info["content"], encoding="utf-8")
 

@@ -100,9 +100,6 @@ class ToolResult:
     meta: dict[str, Any] = field(default_factory=dict)
 
 
-# 工具处理器函数签名：(args, ctx) -> ToolResult
-ToolHandler = Callable[[dict[str, Any], ToolContext], ToolResult]
-
 
 # ============================================================================
 # 工具定义与注册表

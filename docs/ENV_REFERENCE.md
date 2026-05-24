@@ -133,7 +133,7 @@
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `MINIAGENT_SELF_OPT_TOOLS` | `1` | 自优化工具 |
+| `MINIAGENT_SELF_OPT_TOOLS` | `1` | ~~自优化工具~~（已失效；参见 [SELF_OPT.md](SELF_OPT.md)） |
 | `MINIAGENT_CLI_DOT_TOOLS` | `1` | CLI 点命令工具 |
 | `MINIAGENT_CLI_RAW_MARKDOWN` | `0` | CLI 原始 Markdown 输出 |
 | `MINIAGENT_CLI_THINKING_RICH` | `0` | CLI 富文本 thinking 展示 |

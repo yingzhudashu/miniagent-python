@@ -562,7 +562,7 @@ def search_relevant_with_index(
     index: KeywordIndex,
     query: str,
     top_k: int = 5,
-    min_score: int = 0,
+    min_score: float = 0.0,
 ) -> list[dict[str, Any]]:
     """在给定索引实例上搜索相关记忆（供注入式 KeywordIndex 使用）。"""
     results = index.search_relevant(query, limit=top_k)

@@ -14,15 +14,17 @@
 两种模式：
 - **自动推断**：LLM 一次性分析，零交互
 - **交互追问**：针对 LLM 识别的模糊点实时向用户追问（需 ``ask_user`` 回调）
+  追问前会先加载历史记忆，避免重复提问。
 
 使用方式：
-    >>> clarifier = RequirementClarifier(interactive=False)
-    >>> result = await clarifier.clarify("帮我查一下天气")
+    >>> clarifier = RequirementClarifier(interactive=True)
+    >>> result = await clarifier.clarify("帮我查一下天气", ask_user=..., memory_store=..., session_key="...")
     >>> print(result.clarified_goal)  # "获取指定城市的天气预报"
     >>> print(clarifier.to_system_prompt(result))  # 注入 system prompt
 
 与 Agent 的集成：
 澄清结果可通过 ``to_system_prompt()`` 转为 system prompt 片段注入后续 LLM 调用。
+交互模式下，澄清后还需经用户确认才进入规划阶段。
 """
 
 from __future__ import annotations
@@ -56,6 +58,8 @@ CLARIFY_PROMPT = """你是一个需求分析专家。请按以下步骤分析用
 Step 1 (Wittgenstein - 语言边界)：识别模糊表述、未定义概念、歧义词。
 Step 2 (Socrates - 反向追问)：推断隐含约束（专业度、格式、时间、范围）。
 Step 3 (Polanyi - 示例传递)：提供正向和反向示例来传递隐性知识。
+
+重要：如果提供了「历史会话记忆」，请先仔细阅读记忆内容，不要重复询问历史中已经回答过的问题。只在记忆确实无法覆盖的模糊点上追问。
 
 请以 JSON 格式返回：
 {

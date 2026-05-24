@@ -193,7 +193,6 @@ Copy-Item .env.example .env
 | `TAVILY_API_KEY` 或 `WEB_SEARCH_API_KEY` | 启用联网搜索（Tavily）时使用其一即可。 |
 | `FEISHU_APP_ID` / `FEISHU_APP_SECRET` / `FEISHU_VERIFICATION_TOKEN` | 飞书应用凭证；仅在使用飞书时填写。 |
 | `MINI_AGENT_STATE` | 状态根目录，见第 14 章。 |
-| `MINIAGENT_SELF_OPT_TOOLS` | 设为 `0` 可关闭自我优化类工具注册，见 [SELF_OPT.md](SELF_OPT.md)。 |
 | `MINIAGENT_MCP_STDIO` | MCP stdio 启动命令的 JSON 数组字符串，见第 13 章。 |
 | `MINIAGENT_CLI_RAW_MARKDOWN` | 设为 `1`/`true` 时关闭全屏 CLI 下 **Assistant 最终回复** 的 Rich Markdown 渲染（便于复制）。 |
 | `MINIAGENT_CLI_THINKING_RICH` | 设为 `1`/`true` 且已 `pip install -e ".[cli]"` 时，对**非流式**思考片段尝试 Rich；**流式**规划/执行正文仍为纯文本；同轮 **merge_tools** 工具行仍为纯文本。 |
@@ -322,8 +321,8 @@ python -m miniagent --stop
 ## 12. 技能与 ClawHub（可选）
 
 - 默认技能根目录为仓库下 **`workspaces/skills/`**（旧版若使用根目录 `skills/`，请迁移或设置 `MINI_AGENT_SKILLS`）。  
-- **内置基线**：仓库预置 **`skill-creator`**（来自 [anthropics/skills](https://github.com/anthropics/skills)，含 `LICENSE.txt`）与 **`skill-vetter`**（安全审查说明），**克隆源码或使用 `pip install -e .`** 后随目录存在即可加载，无需先运行脚本。  
-- **仅从 PyPI 安装 wheel**（无完整仓库树）时，默认路径下可能没有预置技能文件；需要基线时请克隆仓库、editable 安装，或手动复制 `workspaces/skills/skill-creator` 与 `skill-vetter`，详见 [README.md](../README.md)「技能目录迁移」。  
+- **内置基线**：仓库预置 **`skill-creator`**（来自 [anthropics/skills](https://github.com/anthropics/skills)，含 `LICENSE.txt`）；**`skill-vetter`**（安全审查）位于 `miniagent/skills/templates/skill-vetter/`，首次使用时可通过 `miniagent install-skill skill-vetter` 或手动复制到 `workspaces/skills/` 加载。  
+- **仅从 PyPI 安装 wheel**（无完整仓库树）时，默认路径下可能没有预置技能文件；需要基线时请克隆仓库、editable 安装，或手动复制 `workspaces/skills/skill-creator`，详见 [README.md](../README.md)「技能目录迁移」。  
 - **扩展**：可从 ClawHub 安装更多技能包，引导脚本见 `scripts/bootstrap_clawhub_skills.py`（参数以官方技能页为准；脚本仅为额外安装，不替代内置基线）。  
 - 目录说明见 [workspaces/skills/README.md](../workspaces/skills/README.md)；深入说明见 [README.md](../README.md) 技能章节与 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md) 中与技能相关的部分。
 
@@ -363,7 +362,6 @@ python -m miniagent --stop
 | 无法联网查天气/新闻 | 配置 Tavily 相关变量；或接受「未配置则工具返回错误」的设计。 |
 | 飞书无响应 | 查 `.feishu status`、凭证、事件订阅、是否另一进程已占入站锁；见 [FEISHU.md](FEISHU.md)。 |
 | 想换「性格」或温度感 | 使用 `.profile` 或设置 `MODEL_PROFILE` / 相关 env，见 [.env.example](../.env.example)。 |
-| 想关闭自我优化工具 | 设置 `MINIAGENT_SELF_OPT_TOOLS=0`，见 [SELF_OPT.md](SELF_OPT.md)。 |
 | 磁盘里会话太多 | 用 `.session` 管理或迁移 `MINI_AGENT_STATE`；理解历史与归档见 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md)。 |
 | 怀疑卡住 | `.status`；必要时查看日志级别 `AGENT_DEBUG`。 |
 

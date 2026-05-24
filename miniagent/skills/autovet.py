@@ -44,7 +44,7 @@ _DANGEROUS_PY = [
 ]
 
 
-def _auto_vet_skill(skill_dir: str) -> str:
+def auto_vet_skill(skill_dir: str) -> str:
     """自动审查一个技能目录。
 
     Args:

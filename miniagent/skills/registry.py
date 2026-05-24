@@ -39,6 +39,7 @@ class DefaultSkillRegistry(SkillRegistryProtocol):
         self._skills: dict[str, Skill] = {}
         self._packages: list[SkillPackage] = []
         self._skill_entries: dict[str, SkillEntry] = {}
+        self._scope_index: dict[str, list[str]] = {}  # scope → [pkg_id, ...]
 
     # ── 基本操作 ──
 
@@ -74,6 +75,8 @@ class DefaultSkillRegistry(SkillRegistryProtocol):
     def register_package(self, pkg: SkillPackage) -> None:
         """注册技能包（批量注册其中所有技能）。"""
         self._packages.append(pkg)
+        scope = pkg.scope or "global"
+        self._scope_index.setdefault(scope, []).append(pkg.id)
         for skill in pkg.skills:
             if not skill.skill_md and pkg.skill_md:
                 skill.skill_md = pkg.skill_md
@@ -103,6 +106,11 @@ class DefaultSkillRegistry(SkillRegistryProtocol):
             if pkg.id != package_id:
                 kept.append(pkg)
                 continue
+            scope = pkg.scope or "global"
+            if scope in self._scope_index and package_id in self._scope_index[scope]:
+                self._scope_index[scope].remove(package_id)
+                if not self._scope_index[scope]:
+                    del self._scope_index[scope]
             for skill in pkg.skills:
                 removed_skill_ids.append(skill.id)
                 if skill.tools:
@@ -121,15 +129,70 @@ class DefaultSkillRegistry(SkillRegistryProtocol):
         removed_tool_names = self._collect_registered_skill_tool_names()
         self._skills.clear()
         self._packages.clear()
+        self._scope_index.clear()
         return removed_skill_ids, removed_tool_names
 
     # ── 聚合查询 ──
 
-    def get_all_toolboxes(self, config: AgentConfig | None = None) -> list[Toolbox]:
-        """获取可用技能贡献的工具箱（经 gating 过滤，自动去重）。"""
+    def _get_matching_scopes(self, session_key: str | None = None) -> set[str]:
+        """根据 session_key 解析需要查询的 scope 集合。
+
+        ``session_key=None`` → 返回所有 scope（向后兼容）；
+        ``session_key="feishu:xxx"`` → 返回 ``{"global", "session:xxx"}``。
+        """
+        if session_key is None:
+            return set(self._scope_index.keys())
+        # 尝试从 session_key 中提取会话 ID
+        session_id = session_key
+        if session_key.startswith("feishu:"):
+            session_id = session_key[len("feishu:"):]
+        elif session_key.startswith("cli:"):
+            session_id = session_key[len("cli:"):]
+        return {"global", f"session:{session_id}"}
+
+    def _get_matching_packages(self, session_key: str | None = None) -> list[SkillPackage]:
+        """按 scope 过滤技能包。
+
+        返回全局包 + 指定会话的包（若 ``session_key`` 非 None）。
+        """
+        scopes = self._get_matching_scopes(session_key)
+        pkg_ids: set[str] = set()
+        for scope in scopes:
+            pkg_ids.update(self._scope_index.get(scope, []))
+        # 保持原始注册顺序
+        return [pkg for pkg in self._packages if pkg.id in pkg_ids]
+
+    def _get_matching_skills(self, config: AgentConfig | None = None, session_key: str | None = None) -> list[Skill]:
+        """按 scope 过滤后执行 gating，返回可用技能列表。"""
+        scopes = self._get_matching_scopes(session_key)
+        # 用 _scope_index 建立 skill_id → True 集合（O(1) 查询）
+        allowed_skill_ids: set[str] = set()
+        for scope in scopes:
+            for pkg_id in self._scope_index.get(scope, []):
+                pkg = self.get_package(pkg_id)
+                if pkg:
+                    allowed_skill_ids.update(s.id for s in pkg.skills)
+
+        eligible: list[Skill] = []
+        for skill in self.get_eligible_skills(config):
+            if skill.id in allowed_skill_ids:
+                eligible.append(skill)
+        return eligible
+
+    def get_all_toolboxes(
+        self,
+        config: AgentConfig | None = None,
+        *,
+        session_key: str | None = None,
+    ) -> list[Toolbox]:
+        """获取可用技能贡献的工具箱（经 gating + scope 过滤，自动去重）。
+
+        ``session_key=None`` 时返回所有 scope 的工具箱（向后兼容）；
+        ``session_key`` 非 None 时仅返回 global + 该会话 scope 的工具箱。
+        """
         seen: set[str] = set()
         result: list[Toolbox] = []
-        for skill in self.get_eligible_skills(config):
+        for skill in self._get_matching_skills(config, session_key):
             if not skill.toolboxes:
                 continue
             for tb in skill.toolboxes:
@@ -146,10 +209,19 @@ class DefaultSkillRegistry(SkillRegistryProtocol):
                 result.update(skill.tools)
         return result
 
-    def get_system_prompts(self, config: AgentConfig | None = None) -> list[str]:
-        """获取可用技能的系统提示词增强（经 gating 过滤）。"""
+    def get_system_prompts(
+        self,
+        config: AgentConfig | None = None,
+        *,
+        session_key: str | None = None,
+    ) -> list[str]:
+        """获取可用技能的系统提示词增强（经 gating + scope 过滤）。
+
+        ``session_key=None`` 时返回所有 scope 的提示词（向后兼容）；
+        ``session_key`` 非 None 时仅返回 global + 该会话 scope 的提示词。
+        """
         prompts: list[str] = []
-        for skill in self.get_eligible_skills(config):
+        for skill in self._get_matching_skills(config, session_key):
             if skill.system_prompt and skill.system_prompt.strip():
                 prompts.append(skill.system_prompt)
         return prompts

@@ -109,6 +109,7 @@ class SkillPackage:
     skills: list[Skill] = field(default_factory=list)
     skill_md: str | None = None
     source_path: str = ""
+    scope: str = "global"  # "global" | "session:<session_id>"
 
 
 class SkillRegistryProtocol(Protocol):

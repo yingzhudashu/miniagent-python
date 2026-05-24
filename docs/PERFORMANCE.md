@@ -45,10 +45,6 @@
 
 扩展场景时保持 **确定性**（固定 tmp 状态目录、Mock client），避免在默认 CI 中依赖网络。可选在 CI 中设置 **`PYTHONHASHSEED=0`**（见 `.github/workflows/perf-smoke.yml`）以降低 dict 迭代顺序带来的抖动。
 
-### 2.1 后续场景（Backlog）
-
-- （暂无与 §2 表格重复的待办；新场景在表格中登记并在此节补充说明即可）
-
 ## 3. 本地剖析命令
 
 ### 3.1 cProfile（CPU）
@@ -86,7 +82,7 @@ python scripts/compare_perf_snapshots.py tests/perf_baselines/my-baseline.json p
 
 ## 4. 基线文件格式（`tests/perf_baselines/`）
 
-用于人工或离线对比（**勿提交密钥**）。基线文件位于 `tests/perf_baselines/` 目录（如有）。
+用于人工或离线对比（**勿提交密钥**）。基线文件位于 `tests/perf_baselines/` 目录；首次使用请运行 `mkdir -p tests/perf_baselines` 创建。
 
 字段建议：
 

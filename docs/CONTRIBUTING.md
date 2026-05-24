@@ -11,7 +11,7 @@
 | `cli/` | 控制台入口脚本（`project.scripts` → `main`） | cli.py |
 | `core/` | Agent 核心逻辑（规划+执行） | agent.py, executor.py, planner.py, openai_client.py |
 | `engine/` | 运行时编排、CLI、生命周期 | main.py, engine.py, command_dispatch.py |
-| `feishu/` | 飞书通信 | poll_server.py, ws_client.py, ws_health.py, agent_handler.py |
+| `feishu/` | 飞书通信 | poll_server.py, ws_client.py, ws_health.py |
 | `infrastructure/` | 基础设施（注册表、监控、队列） | registry.py, message_queue.py, timezone_config.py, env_loader.py, env_parse.py, instance.py |
 | `memory/` | 三层记忆系统 | store.py, context.py, keyword_index.py, defaults.py |
 | `session/` | 会话管理与持久化 | manager.py, workspace.py |
@@ -315,7 +315,7 @@ python scripts/docstring_inventory.py --write docs/docstring_inventory.md
 
 **模块首行约定**：模块 docstring 须为文件**首条**语句（须写在 ``from __future__ import annotations`` 之前），否则 CPython 不将其视为 ``__doc__``，脚本也会判为「模块 docstring 缺失」。
 
-报告文件见 [docstring_inventory.md](docstring_inventory.md)（按需生成，不强制提交到仓库；若更新报告，请与 docstring 改动同一批提交）。
+报告文件按需生成：``docs/docstring_inventory.md``（不提交到仓库；查看运行 ``python scripts/docstring_inventory.py`` 即可）。
 
 ### 注释与文档（分层约定）
 

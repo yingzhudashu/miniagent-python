@@ -191,6 +191,7 @@ async def run_agent(
     keyword_index: Any | None = None,
     client: AsyncOpenAI | None = None,
     clarifier: Any | None = None,
+    session_key: str | None = None,
 ) -> str:
     """运行 Agent（两阶段模式）。
 
@@ -217,6 +218,7 @@ async def run_agent(
             ``UnifiedEngine.run_agent_with_thinking`` 已默认传入。
         on_plan: 计划确认回调（返回 True 批准执行）
         on_thinking: 思考过程回调（含难度/规划可见输出与执行阶段流式思考）
+        session_key: 会话标识符（用于记忆加载）
 
     Returns:
         Agent 的最终回复文本
@@ -246,7 +248,11 @@ async def run_agent(
             except Exception:
                 pass
         try:
-            clarified = await clarifier.clarify(user_input)
+            clarified = await clarifier.clarify(
+                user_input,
+                memory_store=memory_store,
+                session_key=session_key,
+            )
             clarified_text = getattr(clarified, "clarified_goal", "") or ""
             if clarified_text:
                 user_input = f"{user_input}\n\n澄清后的目标：{clarified_text}"
@@ -255,7 +261,7 @@ async def run_agent(
                         prompt = clarifier.to_system_prompt(clarified)
                         await invoke_on_thinking(
                             on_thinking,
-                            f"📝 需求已澄清：{clarified_text[:80]}",
+                            f"需求已澄清：{clarified_text[:80]}",
                             True,
                             "[需求澄清]",
                             full_record=prompt,
@@ -378,7 +384,7 @@ async def run_agent(
             _logger.debug("预估 token: %d", plan.estimated_tokens.total)
             _logger.debug("风险等级: %s", plan.risk_level)
 
-        # 高风险操作需要用户确认
+        # 高风险操作需要用户确认（on_plan 回调或确认侧通道）
         if plan.requires_confirmation and on_plan:
             approved = await on_plan(plan)
             if not approved:
