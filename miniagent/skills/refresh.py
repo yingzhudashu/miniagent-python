@@ -13,7 +13,6 @@ from miniagent.skills.load_runtime import (
     load_packages_into_registries,
     unregister_tool_names,
 )
-from miniagent.skills.paths import get_skills_root
 from miniagent.skills.snapshots import apply_skill_snapshots_to_state, build_skill_snapshots
 from miniagent.types.config import AgentConfig
 from miniagent.types.skill import Skill
@@ -58,8 +57,8 @@ async def refresh_skills(
     Args:
         registry: 主工具注册表
         skill_registry: 技能注册表
-        package_dir: 仅刷新指定包目录；为 None 时全量重扫 ``skills_root``
-        skills_root: 技能根目录（默认 ``get_skills_root()``）
+        package_dir: 仅刷新指定包目录；为 None 时全量重扫（主根 + 会话技能目录）
+        skills_root: 技能根目录（None 时启用多根发现）
         config: Agent 配置（gating）；None 时尝试 ``get_default_agent_config()``
         state: 可选 CLI state，成功时写入 ``skill_toolboxes`` / ``skill_prompts``
         session_manager: 可选，同步主空间技能列表
@@ -68,7 +67,6 @@ async def refresh_skills(
         RefreshResult
     """
     agent_cfg = _resolve_agent_config(config)
-    root = skills_root if skills_root is not None else get_skills_root()
     removed_tools: list[str] = []
 
     if package_dir:
@@ -84,7 +82,11 @@ async def refresh_skills(
             replace=False,
         )
     else:
-        packages = await discover_packages(skills_root=root)
+        # 多根发现：主根优先，随后会话技能目录
+        packages = await discover_packages(
+            skills_root=skills_root,
+            include_sessions=skills_root is None,
+        )
         loaded_skills, added_tools, removed_tools = await load_packages_into_registries(
             registry,
             skill_registry,
