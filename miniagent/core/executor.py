@@ -880,20 +880,34 @@ async def execute_plan(
                 f"最佳部分结果：{best}"
             )
         if decision.action == AdaptiveAction.CONVERGED_EXIT and not warmup_ok:
-            best = _best_reply_so_far or "(无有效结果)"
-            if on_thinking:
-                try:
-                    await invoke_on_thinking(
-                        on_thinking,
-                        f"✅ 控制论：执行收敛（{decision.reason}）",
-                        True,
-                        "[自适应调整]",
-                    )
-                except Exception:
-                    pass
-            return (
-                f"✅ 执行收敛（{decision.reason}）\n\n结果：{best}"
-            )
+            # 收敛意味着执行质量良好，但必须等 Agent 产出有效回复才能退出
+            best = _best_reply_so_far or ""
+            if not best.strip():
+                # 尚无有效回复，继续执行让 Agent 产出结果
+                if on_thinking:
+                    try:
+                        await invoke_on_thinking(
+                            on_thinking,
+                            f"⏳ 控制论：已收敛但无有效回复，继续执行",
+                            True,
+                            "[自适应调整]",
+                        )
+                    except Exception:
+                        pass
+            else:
+                if on_thinking:
+                    try:
+                        await invoke_on_thinking(
+                            on_thinking,
+                            f"✅ 控制论：执行收敛（{decision.reason}）",
+                            True,
+                            "[自适应调整]",
+                        )
+                    except Exception:
+                        pass
+                return (
+                    f"✅ 执行已收敛（{decision.reason}）\n\n{best}"
+                )
         if decision.action == AdaptiveAction.SIMPLIFY:
             if decision.config_overrides.get("reduce_tools") and not _tools_simplified:
                 _tools_simplified = True
