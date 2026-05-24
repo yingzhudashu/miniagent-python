@@ -144,6 +144,7 @@
 | `MINI_AGENT_WORKSPACE` | *(空)* | 工作区路径 |
 | `MINI_AGENT_SKILLS` | *(空)* | 技能包路径 |
 | `MINI_AGENT_CONTEXT_TOOL_REDACT` | `1` | 上下文工具脱敏 |
+| `MINI_AGENT_TUI_VERBOSE_LOG` | `0` | TUI 下允许 INFO/DEBUG 日志（默认提升至 WARNING） |
 | `MINIAGENT_DEBUG_SESSION_ID` | *(空)* | 设置后启用 NDJSON 调试日志 |
 | `MINIAGENT_DEBUG_LOG_PATH` | *(自动生成)* | 调试日志文件路径 |
 | `MINIAGENT_MCP_STDIO` | *(空)* | MCP stdio 服务器命令，JSON 数组字符串 |

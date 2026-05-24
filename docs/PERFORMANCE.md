@@ -10,7 +10,7 @@
 |------|------|------|
 | **L1 本地** | `wall_local`（秒）、`alloc_delta`（字节，可选 tracemalloc）、**关键词索引写盘次数**、上下文 `json.dumps` 相关耗时 | 使用 **Mock LLM**，不访问外网；见 `tests/test_perf_synthetic.py` |
 | **L2 剖析** | cProfile 累计时间、py-spy 火焰图、RSS | 开发机按需运行，见 §3 |
-| **L3 端到端** | 单用例 wall time、token usage | 依赖 API，见 `tests/evaluation/`、[EVALUATION_LOCAL.md](EVALUATION_LOCAL.md)；飞书路径另计 PATCH/轮询 |
+| **L3 端到端** | 单用例 wall time、token usage | 依赖 API，见 `tests/evaluation/`、[docs/ENGINEERING.md](ENGINEERING.md) §5；飞书路径另计 PATCH/轮询 |
 
 **注意**：线上感知的 p95 延迟通常由 **LLM/HTTP** 主导；L1 回归用于防止 Python 侧退化，不替代端到端评测。
 
@@ -86,7 +86,7 @@ python scripts/compare_perf_snapshots.py tests/perf_baselines/my-baseline.json p
 
 ## 4. 基线文件格式（`tests/perf_baselines/`）
 
-用于人工或离线对比（**勿提交密钥**）。示例见 [tests/perf_baselines/example.json](../tests/perf_baselines/example.json)。
+用于人工或离线对比（**勿提交密钥**）。基线文件位于 `tests/perf_baselines/` 目录（如有）。
 
 字段建议：
 

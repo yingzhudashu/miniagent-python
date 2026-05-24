@@ -195,27 +195,6 @@ class OptTestSummary:
 
 
 @dataclass
-class ResearchReport:
-    """外部研究报告。
-
-    用于记录 self_opt 工具中 external_research 的结果。
-
-    Attributes:
-        topic: 研究主题
-        summary: 研究摘要
-        sources: 来源列表
-        findings: 关键发现
-        timestamp: 研究时间
-    """
-
-    topic: str
-    summary: str = ""
-    sources: list[str] = field(default_factory=list)
-    findings: list[str] = field(default_factory=list)
-    timestamp: str = ""
-
-
-@dataclass
 class OptimizationResult:
     """优化执行结果。
 

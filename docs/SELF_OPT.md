@@ -23,8 +23,9 @@ miniagent/core/self_opt/
 └── git_snapshot.py         # 变更前后 Git 快照与回滚
 ```
 
-用户工具接口与注册见 [`miniagent/tools/self_opt.py`](../miniagent/tools/self_opt.py)；
-环境变量 **`MINIAGENT_SELF_OPT_TOOLS=0`** 可关闭工具注册（见 `.env.example`）。
+Self-Opt 作为编程 API 使用（见下方类型模型）；不再作为 Agent 工具暴露。
+
+环境变量 **`MINIAGENT_SELF_OPT_TOOLS=0`** 曾用于关闭工具注册（工具已移除，该变量不再有效）。
 
 ## 类型模型
 
@@ -126,7 +127,6 @@ from miniagent.core.self_opt import (
     has_uncommitted_changes,
     create_snapshot,
     rollback_snapshot,
-    get_recent_commits,
 )
 
 # 检查
@@ -138,9 +138,6 @@ sha = create_snapshot("before-optimization")
 # ... 应用优化 ...
 # 需要回滚时:
 # rollback_snapshot(sha)
-
-# 查看近期提交
-commits = get_recent_commits(limit=5)
 ```
 
 ## 工具接口（已移除）
@@ -153,7 +150,7 @@ Agent 工具注册 `miniagent/tools/self_opt.py` 已删除。若需要 Agent 使
 
 | 变量 | 作用 |
 |------|------|
-| `MINIAGENT_SELF_OPT_TOOLS` | 默认开启；设为 `0`/`false`/`off` 时不注册 self-opt 工具 |
+| `MINIAGENT_SELF_OPT_TOOLS` | **已失效**；self-opt 不再作为 Agent 工具注册 |
 
 ## 相关文档
 

@@ -233,7 +233,7 @@ python -m miniagent --feishu
 python -m miniagent --stop
 ```
 
-用于列出本机已注册实例并交互停止；`--stop --all` 或 `--stop 1 2` 等用法见 [README.md](../README.md) 与 [INSTANCE_REGISTRY.md](INSTANCE_REGISTRY.md)。  
+用于列出本机已注册实例并交互停止；`--stop --all` 或 `--stop 1 2` 等用法见 [README.md](../README.md) 与 [ENGINEERING.md](ENGINEERING.md) §3.3。  
 说明：清理的是 **注册信息** 与 **你选择的进程**；不要随意结束他人机器上的进程。
 
 ---
@@ -323,7 +323,7 @@ python -m miniagent --stop
 
 - 默认技能根目录为仓库下 **`workspaces/skills/`**（旧版若使用根目录 `skills/`，请迁移或设置 `MINI_AGENT_SKILLS`）。  
 - **内置基线**：仓库预置 **`skill-creator`**（来自 [anthropics/skills](https://github.com/anthropics/skills)，含 `LICENSE.txt`）与 **`skill-vetter`**（安全审查说明），**克隆源码或使用 `pip install -e .`** 后随目录存在即可加载，无需先运行脚本。  
-- **仅从 PyPI 安装 wheel**（无完整仓库树）时，默认路径下可能没有预置技能文件；需要基线时请克隆仓库、editable 安装，或手动复制 `workspaces/skills/skill-creator` 与 `skill-vetter`，详见 [README.md](../README.md)「技能目录迁移」与 [THIRD_PARTY_SKILLS.md](../workspaces/skills/THIRD_PARTY_SKILLS.md)。  
+- **仅从 PyPI 安装 wheel**（无完整仓库树）时，默认路径下可能没有预置技能文件；需要基线时请克隆仓库、editable 安装，或手动复制 `workspaces/skills/skill-creator` 与 `skill-vetter`，详见 [README.md](../README.md)「技能目录迁移」。  
 - **扩展**：可从 ClawHub 安装更多技能包，引导脚本见 `scripts/bootstrap_clawhub_skills.py`（参数以官方技能页为准；脚本仅为额外安装，不替代内置基线）。  
 - 目录说明见 [workspaces/skills/README.md](../workspaces/skills/README.md)；深入说明见 [README.md](../README.md) 技能章节与 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md) 中与技能相关的部分。
 
@@ -403,7 +403,7 @@ python -m miniagent --stop
 | [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md) | 记忆与子系统 |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | 安装与部署 |
 | [SECURITY.md](SECURITY.md) | 安全模型与清单 |
-| [INSTANCE_REGISTRY.md](INSTANCE_REGISTRY.md) | 多实例与注册表 |
+| [ENGINEERING.md](ENGINEERING.md) | 多实例与注册表（§3.3）、质量门禁 |
 | [SELF_OPT.md](SELF_OPT.md) | 自我优化 |
 | [CHANNEL_BINDING.md](CHANNEL_BINDING.md) | 通道绑定 |
 | [examples/README.md](examples/README.md) | 脱敏配置示例说明 |
@@ -420,7 +420,6 @@ python -m miniagent --stop
 | [PERFORMANCE.md](PERFORMANCE.md) | 性能合成冒烟、基线与剖析 |
 | [CONTROL_THEORY.md](CONTROL_THEORY.md) | 控制论闭环：反馈控制器、状态观测器、自适应策略 |
 | [OUTPUT_FORMAT.md](OUTPUT_FORMAT.md) | CLI/飞书输出格式规范、流式输出、间距规则 |
-| [docstring_inventory.md](docstring_inventory.md) | docstring 缺失扫描（按需生成，不提交到仓库） |
 
 ---
 

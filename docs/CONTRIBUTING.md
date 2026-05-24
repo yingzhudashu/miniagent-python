@@ -73,7 +73,7 @@ python -m pytest tests/ -q -m "not evaluation"
 
 ### 推送前自检（密钥与轨迹）
 
-- **勿提交** `.env`、含真实 Key 的 JSON、评测轨迹目录（见 [EVALUATION_LOCAL.md](EVALUATION_LOCAL.md)）；即使 `.gitignore` 已排除，也不要对可疑路径使用 `git add -f`。
+- **勿提交** `.env`、含真实 Key 的 JSON、评测轨迹目录（相关内容勿入库，见 [docs/ENGINEERING.md](ENGINEERING.md) §5）；即使 `.gitignore` 已排除，也不要对可疑路径使用 `git add -f`。
 - 推送前执行 `git diff --cached`，确认无意加入密钥或完整对话导出。
 - 可选：在仓库根执行检索，排查误粘贴（示例：`tvly-` 前缀、`sk-` 形态的长串需与文档占位符区分）。GitHub 侧建议开启 Secret scanning / Push protection。
 

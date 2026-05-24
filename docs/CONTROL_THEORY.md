@@ -31,7 +31,7 @@ ReAct 执行循环
     └─ 策略生效 ←──────┘
 ```
 
-**启用方式**：环境变量 `MINIAGENT_CYBERNETICS=1`（默认关闭，设为 `1`/`true`/`yes` 启用）。
+**启用方式**：环境变量 `MINIAGENT_CONTROL_THEORY`（默认开启，设为 `0`/`false`/`off` 可关闭）。
 
 ## StateObserver — 状态观测器
 
@@ -144,7 +144,7 @@ for turn in range(max_turns):
 
 | 变量 | 默认 | 说明 |
 |------|------|------|
-| `MINIAGENT_CYBERNETICS` | `0` | 是否启用控制论闭环（`1`/`true`/`yes` 启用） |
+| `MINIAGENT_CONTROL_THEORY` | `1` | 是否启用控制论闭环（`0`/`false`/`off` 关闭） |
 
 ## 相关文档
 

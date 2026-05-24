@@ -177,59 +177,9 @@ def rollback_snapshot(
         return {"success": False, "message": str(e)}
 
 
-def get_recent_commits(
-    count: int = 10,
-    *,
-    path: str | None = None,
-) -> list[dict[str, str]]:
-    """获取最近的提交记录。
-
-    Args:
-        count: 获取数量
-        path: 项目路径
-
-    Returns:
-        提交记录列表
-    """
-    if path is None:
-        path = os.getcwd()
-
-    if not is_in_git_repo(path):
-        return []
-
-    try:
-        result = subprocess.run(
-            ["git", "log", f"-{count}", "--format=%H|%s|%ai"],
-            cwd=path,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-
-        if result.returncode == 0:
-            commits = []
-            for line in result.stdout.strip().split("\n"):
-                if line:
-                    parts = line.split("|", 2)
-                    if len(parts) == 3:
-                        commits.append(
-                            {
-                                "hash": parts[0][:8],
-                                "message": parts[1],
-                                "date": parts[2],
-                            }
-                        )
-            return commits
-        return []
-
-    except (subprocess.TimeoutExpired, OSError):
-        return []
-
-
 __all__ = [
     "is_in_git_repo",
     "has_uncommitted_changes",
     "create_snapshot",
     "rollback_snapshot",
-    "get_recent_commits",
 ]

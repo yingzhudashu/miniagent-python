@@ -87,7 +87,7 @@ Mini Agent Python 采用 **两阶段架构**（Plan → Execute），通过 **Re
 | `engine.py` | `UnifiedEngine`：会话上下文管理、Agent 编排、思考回调、历史持久化 |
 | `command_dispatch.py` | 统一命令调度器：CLI 和飞书共享 `.` 命令，输出捕获（StringIO） |
 | `cli_commands.py` | CLI 命令实现：.session, .instance, .queue, .bind/.unbind, .help 等 |
-| `feishu_state.py` | `FeishuRuntime`：飞书 WebSocket 长连接任务 start/stop/status（`feishu_runtime.py` 仅为同名兼容重导出） |
+| `feishu_state.py` | `FeishuRuntime`：飞书 WebSocket 长连接任务 start/stop/status |
 | `session_lock.py` | 会话级锁管理：PID 存活检测、跨实例互斥 |
 | `thinking.py` | `ThinkingDisplay`：CLI 实时打印 / 飞书缓冲模式 |
 | `init.py` | 子系统初始化：技能加载、SessionManager、默认会话 |
@@ -98,7 +98,6 @@ Mini Agent Python 采用 **两阶段架构**（Plan → Execute），通过 **Re
 | 文件 | 职责 |
 |------|------|
 | `channel_router.py` | `ChannelRouter`：通道-会话路由器，支持 CLI/飞书私聊绑定到同一主会话，群聊保持独立 |
-| `cli_feishu_policy.py` | CLI 聚焦模式与飞书入站 **transcript 镜像门控**（`should_mirror_feishu_to_cli`）；`.bind` 时裸 `oc_*` → `feishu:oc_*` |
 
 通道路由层负责将不同输入通道映射到统一的主会话 ID：
 - **CLI** (`__cli__`)：可绑定到任意会话，实现 CLI 干预飞书会话
@@ -162,7 +161,6 @@ Agent 的大脑，实现两阶段架构。
 | `cards/` | 互动卡片构建、入站抽取、按钮路由、可选 v2 宽表 |
 | `drive_extra.py` | 云盘搜索（User Token）、权限、copy/move |
 | `receive_id.py` | IM 出站 `receive_id` 解析（工具与卡片共用） |
-| `docx_client.py` / `docx_blocks.py` | 兼容重导出（新代码请用 `docx/`） |
 | `drive_client.py` | 云盘列举客户端 |
 | `folder_token_resolve.py` | 云盘文件夹 URL / token 解析 |
 | `upload_io.py` | 上传并发 I/O |
@@ -210,9 +208,8 @@ LLM 可通过 function calling 调用的工具：
 |------|------|
 | `exec.py` | 命令执行 (subprocess) |
 | `filesystem.py` | 文件操作 (read/write/list/edit) |
-| `web.py` | 网页访问 (search/fetch) |
-| `skills.py` | 技能操作 (install/list) |
-| `git_readonly.py` | 只读 Git 查询（日志、diff 等） |
+| `web.py` | 时间查询 (get_time) |
+| `skills.py` | 技能操作 (install/uninstall/list) |
 | `session_memory.py` | 会话级记忆辅助工具（由 `engine/init` 注册） |
 | `cli_dispatch_tools.py` | `run_dot_command`：经 [`command_dispatch.dispatch_command`](miniagent/engine/command_dispatch.py) 执行点命令（`capture=True`，与 CLI 同源） |
 | `schedule_tools.py` | `manage_scheduled_task`：定时任务结构化 CRUD |
@@ -418,7 +415,7 @@ flowchart LR
 | 扩展点 | 方式 | 说明 |
 |--------|------|------|
 | 添加工具 | `miniagent/tools/` 新增文件 | 实现 handler + register 函数 |
-| 添加技能 | `workspaces/skills/<pkg>/` | 包级 `SKILL.md`，工具见 `skills/<name>/SKILL.md` 与 `tools.py`（约定见 `miniagent/skills/loader.py`、[workspaces/skills/README.md](../workspaces/skills/README.md)）；`install_skill` / `.reload-skills` / `refresh_skills` 可热加载，无需重启 |
+| 添加技能 | `workspaces/skills/<pkg>/` | 包级 `SKILL.md`，工具见 `skills/<name>/SKILL.md` 与 `tools.py`（约定见 `miniagent/skills/loader.py`、`workspaces/skills/skill-creator/SKILL.md`）；`install_skill` / `.reload-skills` / `refresh_skills` 可热加载，无需重启 |
 
 ### 技能热加载（`refresh_skills`）
 

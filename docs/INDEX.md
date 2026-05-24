@@ -34,7 +34,7 @@
 
 ```
 miniagent-python/
-├── miniagent/             # 核心源码（16 个子包）
+├── miniagent/             # 核心源码（14 个子包）
 │   ├── cli/               # CLI 入口
 │   ├── core/              # Agent 核心：规划、执行、配置、LLM
 │   ├── engine/            # 运行时引擎：主循环、命令调度、会话锁

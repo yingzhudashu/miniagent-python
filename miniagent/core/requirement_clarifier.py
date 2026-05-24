@@ -21,9 +21,8 @@
     >>> print(result.clarified_goal)  # "获取指定城市的天气预报"
     >>> print(clarifier.to_system_prompt(result))  # 注入 system prompt
 
-与 ``ProblemSolver`` 的集成：
-``ProblemSolver.solve()`` 接受 ``clarifications`` 参数，
-会将澄清结果合并到输入和 system prompt 中。
+与 Agent 的集成：
+澄清结果可通过 ``to_system_prompt()`` 转为 system prompt 片段注入后续 LLM 调用。
 """
 
 from __future__ import annotations
