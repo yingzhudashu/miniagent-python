@@ -478,8 +478,11 @@ class ThinkingDisplay:
             # 增量输出：只打印新增的字符
             full = text.replace("\r\n", "\n")
             if state.stream_printed == 0 and full == state.stream_header:
-                state.stream_printed = len(full)  # 记录已处理 header，避免下轮重打
+                state.stream_printed = -1  # 标记"仅 header"，下次正文调用时重置
                 return  # 纯 header 调用，不打印内容
+            # 累积假设破裂检测（如 header-only 后 body 重置了正文）
+            if state.stream_printed < 0:
+                state.stream_printed = 0
             new_text = indent_stream_thinking_suffix(full, state.stream_printed)
             if new_text and self._should_emit_cli(state):
                 self._emit(new_text)
