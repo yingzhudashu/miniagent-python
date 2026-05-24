@@ -396,6 +396,9 @@ class ThinkingDisplay:
                             "feishu_send 不支持 finalize_only，阶段切换时可能未收尾思考卡",
                             exc_info=True,
                         )
+                # finalize 后清除飞书状态，确保新阶段新建卡片
+                state.feishu_thinking_message_id = None
+                state.feishu_stream_accumulated = ""
             if (
                 self._should_emit_cli(state)
                 and state.stream_step is not None
@@ -463,11 +466,16 @@ class ThinkingDisplay:
 
         # CLI（全屏 sink 或 print_formatted_text；飞书+sink 时镜像到 transcript）
         if streaming:
-            # 首次流式：打印 header 标签
+            # 首次流式或新阶段：打印 header 标签
             if state.stream_step is None:
+                # 前一个流式阶段已结束（非流式调用结束或 end_thinking），先补空行
+                if state.stream_done:
+                    if self._should_emit_cli(state):
+                        self._emit("\n\n")  # 阶段间空行：结束上一阶段 + 留一行间隔
                 state.stream_step = self._next_step(session_key)
                 state.stream_header = header or ""
                 state.stream_printed = 0
+                state.stream_done = False
                 label = f"\U0001f4ad [{state.stream_step}] {state.stream_header}"
                 if self._should_emit_cli(state):
                     self._emit_line(label, "blue")
@@ -486,6 +494,20 @@ class ThinkingDisplay:
             if state.stream_step is not None and not state.stream_done:
                 if self._should_emit_cli(state):
                     self._emit("\n\n")  # 阶段间空行：结束流式 + 留一行间隔
+                # 飞书侧也需收尾当前流式卡片
+                if state.feishu_send and state.feishu_chat_id:
+                    try:
+                        await state.feishu_send(
+                            state.feishu_chat_id,
+                            "",
+                            "gray",
+                            is_new_round=False,
+                            streaming=False,
+                            merge_tools=False,
+                            finalize_only=True,
+                        )
+                    except TypeError:
+                        pass
                 state.stream_done = True
                 saved_header = state.stream_header
             state.stream_step = None
@@ -518,6 +540,7 @@ class ThinkingDisplay:
                     and self._sink_accepts_ansi_markdown
                 ):
                     self._output_sink("", "chunk", ansi_markdown=ansi_body)
+                    self._emit("\n")  # 非流式正文后补换行，避免与下一区块黏连
                 else:
                     body = "\n".join(lines)
                     self._emit(body + "\n")

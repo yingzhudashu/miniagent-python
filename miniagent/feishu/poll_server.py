@@ -1162,7 +1162,19 @@ async def finalize_feishu_thinking_stream(
     chat_id = _normalize_im_receive_chat_id(chat_id)
     mid = getattr(st, "feishu_thinking_message_id", None)
     acc = getattr(st, "feishu_stream_accumulated", "") or ""
-    if not chat_id or not mid or not acc.strip():
+    if not chat_id or not mid:
+        # 无卡片可 finalize，仍清理状态
+        st.feishu_thinking_message_id = None
+        st.feishu_stream_accumulated = ""
+        st.feishu_last_patched_char_len = -1
+        st.feishu_tool_section_started = False
+        return
+    if not acc.strip():
+        # 无累积内容，直接清理状态
+        st.feishu_thinking_message_id = None
+        st.feishu_stream_accumulated = ""
+        st.feishu_last_patched_char_len = -1
+        st.feishu_tool_section_started = False
         return
     prep = _prepare_thinking_body_for_card(acc, apply_cap=False)
     chunks = _chunk_feishu_card_markdown(prep, already_normalized=True)
