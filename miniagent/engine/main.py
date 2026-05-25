@@ -1013,6 +1013,7 @@ async def _run_cli_loop_fallback(
         cmd_queue_set,
         cmd_queue_status,
         cmd_session_create,
+        cmd_session_delete,
         cmd_session_list,
         cmd_session_rename,
         cmd_session_switch,
@@ -1171,6 +1172,13 @@ async def _run_cli_loop_fallback(
                 )
             elif sub_cmd == "rename" and len(parts) >= 4:
                 cmd_session_rename(state.get("session_manager"), parts[2], " ".join(parts[3:]))
+            elif sub_cmd == "delete" and len(parts) >= 3:
+                cmd_session_delete(
+                    state.get("session_manager"),
+                    state["active_session_id"],
+                    parts[2],
+                    release_session_lock,
+                )
             else:
                 print(format_session_command_usage() + "\n")
             continue

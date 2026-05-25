@@ -42,7 +42,8 @@ def format_session_command_usage() -> str:
         "  .session list                   列出所有会话\n"
         "  .session switch <编号/ID>       切换到指定会话（飞书默认仅 list；MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1 时与 CLI 同等）\n"
         "  .session create <ID> [标题]     创建新会话\n"
-        "  .session rename <编号/ID> <标题>  重命名会话"
+        "  .session rename <编号/ID> <标题>  重命名会话\n"
+        "  .session delete <编号/ID>       删除指定会话（不能删除当前活跃会话）"
     )
 
 
@@ -419,6 +420,52 @@ def cmd_session_rename(session_manager: Any, id_or_number: str, new_title: str) 
         print(f"✅ 已重命名: {display}")
     else:
         print("❌ 重命名失败")
+
+
+def cmd_session_delete(
+    session_manager: Any,
+    active_session_id: str,
+    id_or_number: str,
+    release_session_lock: Any,
+    *,
+    keep_files: bool = True,
+) -> None:
+    """删除指定会话（不能删除当前活跃会话）。
+
+    Args:
+        session_manager: 会话管理器实例
+        active_session_id: 当前活跃会话 ID
+        id_or_number: 会话编号（如 1）或原始 ID
+        release_session_lock: 释放会话锁的函数
+        keep_files: 是否保留工作空间文件（默认 True）
+    """
+    if not session_manager:
+        print("⚠️ 会话管理器未初始化")
+        return
+
+    session_id = _resolve_session(session_manager, id_or_number)
+    if not session_id:
+        print(f"❌ 会话不存在: {id_or_number}")
+        return
+
+    if session_id == active_session_id:
+        print("❌ 不能删除当前活跃会话，请先 .session switch 到其他会话")
+        return
+
+    display = session_manager.get_session_display_name(session_id)
+
+    # 释放锁（如果当前进程持有）
+    try:
+        release_session_lock(session_id)
+    except Exception:
+        pass
+
+    ok = session_manager.destroy(session_id, keep_files=keep_files)
+    if ok:
+        action = "已删除（保留文件）" if keep_files else "已删除（清除文件）"
+        print(f"✅ {display} {action}")
+    else:
+        print(f"❌ 删除失败: {display}")
 
 
 def cmd_queue_status(message_queue: Any, *, markdown: bool = False) -> None:
@@ -1046,6 +1093,7 @@ def format_help_markdown(
                 ("`.session switch <编号/ID>`", "切换到指定会话"),
                 ("`.session create <ID> [标题]`", "创建新会话，可指定标题"),
                 ("`.session rename <编号/ID> <新标题>`", "重命名会话"),
+                ("`.session delete <编号/ID>`", "删除会话（不可删除当前活跃会话）"),
             ],
         ),
         _md_help_section(
@@ -1169,6 +1217,7 @@ __all__ = [
     "cmd_session_switch",
     "cmd_session_create",
     "cmd_session_rename",
+    "cmd_session_delete",
     "cmd_queue_status",
     "cmd_queue_set",
     "cmd_help",

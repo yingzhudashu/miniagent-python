@@ -79,6 +79,7 @@ async def dispatch_command(
         cmd_queue_set,
         cmd_queue_status,
         cmd_session_create,
+        cmd_session_delete,
         cmd_session_list,
         cmd_session_rename,
         cmd_session_switch,
@@ -201,6 +202,22 @@ async def dispatch_command(
                 output = _REMOTE_SESSION_HINT
             else:
                 output = _capture(lambda: cmd_session_rename(sm, parts[2], " ".join(parts[3:])))
+        elif sub_cmd == "delete" and len(parts) >= 3:
+            if block_remote:
+                output = _REMOTE_SESSION_HINT
+            else:
+                buf = io.StringIO()
+                try:
+                    with redirect_stdout(buf):
+                        cmd_session_delete(
+                            sm,
+                            active,
+                            parts[2],
+                            release_session_lock,
+                        )
+                    output = buf.getvalue().strip()
+                except Exception as e:
+                    output = f"❌ 命令执行失败: {e}"
         else:
             output = format_session_command_usage()
 
