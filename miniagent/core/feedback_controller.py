@@ -77,13 +77,13 @@ class FeedbackController:
 
     Args:
         window_size: 用于趋势分析的滑动窗口大小（默认 5 轮）
-        convergence_threshold: 判定收敛的误差绝对值（默认 0.1）
+        convergence_threshold: 判定收敛的误差绝对值（默认 0.05，要求极高稳定性）
         slope_diverge_threshold: 判定发散的斜率阈值（默认 0.05/轮）
         slope_stuck_threshold: 判定停滞的斜率绝对值（默认 0.01/轮）
     """
 
     window_size: int = 5
-    convergence_threshold: float = 0.1
+    convergence_threshold: float = 0.05
     slope_diverge_threshold: float = 0.05
     slope_stuck_threshold: float = 0.01
 
@@ -184,7 +184,7 @@ class FeedbackController:
         n = len(self._error_history)
         confidence = min(1.0, n / max(3, self.window_size))
 
-        return slope_stability * 0.7 + confidence * 0.3
+        return slope_stability * 0.85 + confidence * 0.15
 
     def _classify_state(self, error: float, slope: float) -> ControlState:
         """根据误差和斜率分类当前状态。"""
@@ -195,7 +195,8 @@ class FeedbackController:
         if self._is_oscillating():
             return ControlState.OSCILLATING
 
-        if error < self.convergence_threshold:
+        # 收敛：要求足够低的误差 + 至少 3 轮执行历史，避免过早收敛
+        if error < self.convergence_threshold and len(self._error_history) >= 3:
             return ControlState.CONVERGED
 
         if abs(slope) < self.slope_stuck_threshold and len(self._error_history) >= 3:
@@ -204,20 +205,27 @@ class FeedbackController:
         return ControlState.STABLE
 
     def _is_oscillating(self) -> bool:
-        """检测误差是否在最近 3+ 轮内上下交替。"""
+        """检测误差是否在最近 4+ 轮内持续上下交替。
+
+        要求至少 4 个数据点，排除收敛尾部的正常波动，
+        只统计幅度超过 0.05 的方向变化，避免 3 点微抖误触发。
+        """
         history = self._error_history[-self.window_size:]
-        if len(history) < 3:
+        if len(history) < 4:
+            return False
+        # 误差已很低时，正常波动不算震荡
+        if history[-1] < self.convergence_threshold:
             return False
 
         direction_changes = 0
         for i in range(2, len(history)):
             prev_dir = history[i - 1] - history[i - 2]
             curr_dir = history[i] - history[i - 1]
-            if (prev_dir > 0) != (curr_dir > 0):
+            if abs(prev_dir) > 0.05 and abs(curr_dir) > 0.05 and (prev_dir > 0) != (curr_dir > 0):
                 direction_changes += 1
 
-        # 超过一半的轮次在反转方向 → 震荡
-        return direction_changes >= len(history) - 2
+        # 超过半数的轮次在反转方向 → 震荡
+        return direction_changes >= len(history) // 2 + 1
 
     def _recommend(self, state: ControlState, error: float, slope: float) -> str:
         """生成人类可读的建议。"""

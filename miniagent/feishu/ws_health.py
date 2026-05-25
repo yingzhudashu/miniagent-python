@@ -212,6 +212,12 @@ async def supervise_feishu_ws_session(
         return reason
     except asyncio.CancelledError:
         _record_session_end("shutdown" if shutdown_event.is_set() else "cancelled")
+        # 取消路径下显式消费 receive_task 异常，避免 "Task exception was never retrieved"。
+        if receive_task.done():
+            try:
+                receive_task.exception()
+            except (asyncio.CancelledError, Exception):
+                pass
         raise
     finally:
         watchdog_task.cancel()

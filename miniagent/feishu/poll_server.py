@@ -48,6 +48,12 @@ def set_feishu_confirmation_engine(engine: Any) -> None:
     """设置飞书侧可访问的引擎引用，供卡片确认按钮使用。"""
     global _feishu_confirmation_engine
     _feishu_confirmation_engine = engine
+    cc = getattr(engine, "confirmation_channel", None) if engine else None
+    _logger.info(
+        "set_feishu_confirmation_engine: engine=%s, confirmation_channel=%s",
+        engine is not None,
+        cc is not None,
+    )
 
 
 def get_feishu_confirmation_engine() -> Any | None:
@@ -539,7 +545,30 @@ async def start_feishu_poll_server(
                 if text.lstrip().startswith("."):
                     asyncio.create_task(_handle())
                 else:
-                    asyncio.create_task(mq.dispatch(chat_id, _handle()))
+                    # 需求澄清追问拦截：普通消息自动注入为回答
+                    _cc_eng = _feishu_confirmation_engine
+                    _cc = getattr(_cc_eng, "confirmation_channel", None) if _cc_eng else None
+                    if _cc and _cc.has_pending:
+                        from miniagent.types.confirmation import ConfirmationResult, ConfirmationStage
+
+                        if _cc.pending.stage == ConfirmationStage.CLARIFICATION:
+                            _logger.info("飞书澄清拦截: chat_id=%s, text=%s", chat_id[:12], text[:60])
+                            _cc.respond(ConfirmationResult(approved=True, adjustment=text))
+                            release_processing(message_id)
+                            _logger.info("飞书澄清已响应: confirmation_channel.respond() 已调用")
+                        else:
+                            _logger.debug(
+                                "飞书拦截: 有待确认请求但阶段为 %s，非 CLARIFICATION，走消息队列",
+                                getattr(_cc.pending.stage, "value", _cc.pending.stage),
+                            )
+                            asyncio.create_task(mq.dispatch(chat_id, _handle()))
+                    else:
+                        _logger.debug(
+                            "飞书拦截: 无待确认请求 (_cc_eng=%s, has_pending=%s)，走消息队列",
+                            _cc_eng is not None,
+                            _cc.has_pending if _cc else "N/A",
+                        )
+                        asyncio.create_task(mq.dispatch(chat_id, _handle()))
             elif msg_type in ("file", "image") and media_handler:
                 parsed_media = _parse_feishu_media_payload(msg_type, content_str)
                 if not parsed_media:
@@ -846,6 +875,32 @@ async def start_feishu_poll_server(
                 pass
             except Exception:
                 pass
+        # SDK 内部 _receive_message_loop 在 WebSocket 正常关闭时会抛出
+        # ConnectionClosedOK，若该任务未被 await 则会产生 "Task exception was never
+        # retrieved" 警告。此处显式消费该异常。
+        try:
+            from websockets.exceptions import ConnectionClosedOK
+        except ImportError:
+            ConnectionClosedOK = Exception  # type: ignore[misc, assignment]
+
+        try:
+            recv_task = getattr(ws_client, "receive_task", None)
+            if recv_task is not None and not recv_task.done():
+                recv_task.cancel()
+                try:
+                    await recv_task
+                except (asyncio.CancelledError, ConnectionClosedOK):
+                    pass
+                except Exception:
+                    pass
+            elif recv_task is not None:
+                # 已完成的任务显式读取结果，清除未检索异常
+                try:
+                    recv_task.result()
+                except (ConnectionClosedOK, Exception):
+                    pass
+        except Exception:
+            pass
         await reset_feishu_ws_singleton()
 
 

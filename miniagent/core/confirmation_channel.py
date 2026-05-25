@@ -1,17 +1,20 @@
 """Confirmation side-channel — 基于 asyncio.Event 的暂停/恢复机制。
 
 与消息队列独立：agent 执行线程调用 ``request_confirmation()`` 暂停，
-用户通过 CLI 点命令或飞书按钮调用 ``respond()`` 恢复。
+用户通过 CLI 点命令或飞书按钮回调调用 ``respond()`` 恢复。
 这确保确认交互不经过消息队列，也不会被当作普通消息处理。
 """
 
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from miniagent.types.confirmation import ConfirmationRequest, ConfirmationResult
+
+_logger = logging.getLogger(__name__)
 
 
 class ConfirmationChannel:
@@ -37,10 +40,15 @@ class ConfirmationChannel:
         Returns:
             用户的确认结果
         """
+        _logger.info(
+            "request_confirmation(): 设置待确认请求 stage=%s",
+            getattr(req.stage, "value", req.stage),
+        )
         self._pending = req
         self._result = None
         self._event.clear()
         await self._event.wait()
+        _logger.info("request_confirmation(): 已收到响应，恢复执行")
         result = self._result
         self._pending = None
         return result  # type: ignore[return-value]
@@ -52,7 +60,13 @@ class ConfirmationChannel:
             result: 用户的确认结果
         """
         if self._pending is None:
-            return  # 没有待确认的请求
+            _logger.debug("respond(): 无待确认请求，跳过")
+            return
+        _logger.info(
+            "respond(): 设置确认结果 approved=%s, adjustment=%s",
+            result.approved,
+            (result.adjustment or "")[:60] if hasattr(result, "adjustment") else "N/A",
+        )
         self._result = result
         self._event.set()
 

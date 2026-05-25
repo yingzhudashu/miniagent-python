@@ -344,11 +344,15 @@ class UnifiedEngine:
             *,
             full_record: str | None = None,
         ) -> None:
-            """桥接 :meth:`run_agent` 的 ``on_thinking``：更新按标签聚合的缓冲并驱动 UI/飞书展示。"""
+            """桥接 :meth:`run_agent` 的 ``on_thinking``：更新按标签聚合的缓冲并驱动 UI/飞书展示。
+
+            澄清类消息（header = ``[需求澄清]``）由思考卡片统一展示，不再走直发通道。
+            """
             record = full_record if full_record is not None else text
             if streaming:
                 key = header if (header or "").strip() else "__stream__"
-                thinking_by_label[key] = record
+                prev = thinking_by_label.get(key, "")
+                thinking_by_label[key] = (prev + "\n\n" + record) if prev else record
             elif record:
                 hdr = (header or "").strip()
                 if hdr and hdr in thinking_by_label:
@@ -441,6 +445,7 @@ class UnifiedEngine:
             client=client,
             clarifier=self._get_clarifier(),
             session_key=session_key,
+            confirmation_channel=self._get_confirmation_channel(),
         )
         # 无工具调用等场景：最后一轮 LLM 流结束后无 streaming=False，需在此 PATCH 落盘全文
         if is_feishu and feishu_config:

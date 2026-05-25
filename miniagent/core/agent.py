@@ -192,6 +192,7 @@ async def run_agent(
     client: AsyncOpenAI | None = None,
     clarifier: Any | None = None,
     session_key: str | None = None,
+    confirmation_channel: Any | None = None,
 ) -> str:
     """运行 Agent（两阶段模式）。
 
@@ -236,6 +237,31 @@ async def run_agent(
     clarifier_enabled = os.environ.get("MINIAGENT_REQUIREMENT_CLARIFY", "1") != "0"
     clarified_text = ""
     if clarifier_enabled and clarifier is not None:
+        # 交互追问回调（通过确认侧通道阻塞等待用户回答）
+        async def _ask_user_for_clarification(question: str) -> str:
+            if confirmation_channel is None or on_thinking is None:
+                _logger.warning("需求澄清: confirmation_channel 或 on_thinking 未设置，跳过追问")
+                return ""
+            _logger.info("需求澄清: 向用户发送追问: %s", question[:80])
+            # 直接发送问题，不含 .adjust 提示；用户直接回复即可
+            await invoke_on_thinking(on_thinking, f"❓ {question}", True, "[需求澄清]")
+            from miniagent.types.confirmation import ConfirmationRequest, ConfirmationStage
+
+            req = ConfirmationRequest(stage=ConfirmationStage.CLARIFICATION, content=question)
+            _logger.info("需求澄清: 已发送 ConfirmationRequest，等待用户回复...")
+            result = await confirmation_channel.request_confirmation(req)
+            answer = (result.adjustment or "").strip() if result else ""
+            _logger.info("需求澄清: 收到用户回复: %s", answer[:80] if answer else "(空)")
+            # 将用户回复展示到 CLI/飞书，保持上下文完整
+            if answer and on_thinking:
+                await invoke_on_thinking(
+                    on_thinking,
+                    f"用户回复：{answer}",
+                    True,
+                    "[需求澄清]",
+                )
+            return answer
+
         # 即时反馈：在 LLM 调用前让用户看到提示，避免"沉默太久"
         if on_thinking:
             try:
@@ -250,6 +276,7 @@ async def run_agent(
         try:
             clarified = await clarifier.clarify(
                 user_input,
+                ask_user=_ask_user_for_clarification,
                 memory_store=memory_store,
                 session_key=session_key,
             )
@@ -386,6 +413,16 @@ async def run_agent(
 
         # 高风险操作需要用户确认（on_plan 回调或确认侧通道）
         if plan.requires_confirmation and on_plan:
+            if on_thinking:
+                try:
+                    await invoke_on_thinking(
+                        on_thinking,
+                        "⚠️ 高风险操作，请确认执行计划。输入 .confirm 同意，.reject 拒绝，.adjust 调整。",
+                        True,
+                        "[等待确认]",
+                    )
+                except Exception:
+                    pass
             approved = await on_plan(plan)
             if not approved:
                 return "⚠️ 操作已取消"

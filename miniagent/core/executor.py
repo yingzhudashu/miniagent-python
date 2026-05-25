@@ -819,9 +819,8 @@ async def execute_plan(
             seen_names.add(name)
         repeat_rate = n_repeat / n_tools if n_tools > 0 else 0.0
 
-        # 误差估计：基础启发式（失败率*0.4 + 重复率*0.3 + 轮次衰减*0.3）
-        turn_decay = min(1.0, exec_turn_no / max(1, max_turns))
-        error_est = failure_rate * 0.4 + repeat_rate * 0.3 + turn_decay * 0.3
+        # 误差估计：失败率和重复率的加权（移除 turn_decay，避免单调递增噪声）
+        error_est = failure_rate * 0.6 + repeat_rate * 0.4
 
         report = feedback_controller.step(
             ControlMetrics(
@@ -869,16 +868,7 @@ async def execute_plan(
                 pass
             if not best.strip():
                 best = "(无有效结果)"
-            if on_thinking:
-                try:
-                    await invoke_on_thinking(
-                        on_thinking,
-                        f"⚠️ 控制论：提前终止（{decision.reason}）",
-                        True,
-                        "[自适应调整]",
-                    )
-                except Exception:
-                    pass
+            _logger.info("控制论：提前终止（%s）", decision.reason)
             return (
                 f"⚠️ 执行提前终止（控制论判定{decision.reason}）\n\n"
                 f"最佳部分结果：{best}"
@@ -895,27 +885,9 @@ async def execute_plan(
             except Exception:
                 pass
             if not best.strip():
-                if on_thinking:
-                    try:
-                        await invoke_on_thinking(
-                            on_thinking,
-                            "⏳ 控制论：已收敛但无有效回复，继续执行",
-                            True,
-                            "[自适应调整]",
-                        )
-                    except Exception:
-                        pass
+                _logger.debug("控制论：已收敛但无有效回复，继续执行")
             else:
-                if on_thinking:
-                    try:
-                        await invoke_on_thinking(
-                            on_thinking,
-                            f"✅ 控制论：执行收敛（{decision.reason}）",
-                            True,
-                            "[自适应调整]",
-                        )
-                    except Exception:
-                        pass
+                _logger.info("控制论：执行收敛（%s）", decision.reason)
                 return (
                     f"✅ 执行已收敛（{decision.reason}）\n\n{best}"
                 )
@@ -929,34 +901,24 @@ async def execute_plan(
                     "read_csv", "write_csv", "json_read", "json_write",
                 }
                 tools[:] = [t for t in tools if t.get("function", {}).get("name", "") in basic_names]
-                if agent_config.debug:
-                    _logger.debug("控制论简化：保留 %d 个基础工具", len(tools))
-            if on_thinking:
-                try:
-                    await invoke_on_thinking(
-                        on_thinking,
-                        f"⚠️ 控制论：简化策略（{decision.reason}）",
-                        True,
-                        "[自适应调整]",
-                    )
-                except Exception:
-                    pass
+                _logger.info("控制论简化：保留 %d 个基础工具", len(tools))
 
         if decision.action == AdaptiveAction.COMPRESS:
-            if on_thinking:
-                try:
-                    await invoke_on_thinking(
-                        on_thinking,
-                        "📊 控制论：压缩上下文",
-                        True,
-                        "[自适应调整]",
-                    )
-                except Exception:
-                    pass
+            _logger.debug("控制论：压缩上下文")
             try:
                 context_manager.compress()
             except AttributeError:
                 pass  # compress 方法可能不存在
+
+        if decision.action == AdaptiveAction.REPLAN:
+            _logger.info("控制论：执行停滞 %s，将尝试重新规划", decision.reason)
+            context_manager.append({
+                "role": "system",
+                "content": f"当前执行策略已失效（{decision.reason}）。请根据原始目标重新制定执行计划，尝试不同的方法。",
+            })
+            # 重置控制论计数器，避免重规划后立即再次触发
+            adaptive_policy.reset()
+            feedback_controller.reset()
 
         return None
 

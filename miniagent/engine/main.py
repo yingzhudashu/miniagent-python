@@ -642,6 +642,21 @@ async def run_cli_loop(
         _apply_transcript_scroll(_wheel_line_step(), "keys.ScrollDown")
         event.app.invalidate()
 
+    # 显式绑定上下方向键到输入历史导航（不依赖 BufferControl 默认行为）
+    @kb.add("up", filter=has_focus(input_buffer))
+    def _on_up(event):
+        """上方向键：浏览上一条历史消息。"""
+        input_buffer.load_history_if_not_yet_loaded()
+        input_buffer.history_backward()
+        event.app.invalidate()
+
+    @kb.add("down", filter=has_focus(input_buffer))
+    def _on_down(event):
+        """下方向键：浏览下一条历史消息。"""
+        input_buffer.load_history_if_not_yet_loaded()
+        input_buffer.history_forward()
+        event.app.invalidate()
+
     # PT 的 _parse_style_str 只认属性词 "dim"，不认 "ansidim"（后者会走 parse_color → ValueError）。
     _cli_style_dict = {
         "prompt-prefix": "bold ansigreen",
@@ -680,7 +695,7 @@ async def run_cli_loop(
             VSplit(
                 [
                     Window(
-                        FormattedTextControl(HTML("<prompt-prefix>\u276f </prompt-prefix>")),
+                        FormattedTextControl(HTML("<prompt-prefix>\u276f </prompt-prefix><cli-muted>\u2191\u2193\u5386\u53f2</cli-muted>")),
                         width=D.exact(4),
                         height=D.exact(1),
                     ),
@@ -714,6 +729,7 @@ async def run_cli_loop(
         "ansigreen": "class:cli-ok",
         "ansired": "class:cli-err",
         "ansiyellow": "class:cli-warn",
+        "ansicyan": "class:cli-user-title",
     }
 
     def term_write(text: str = "", color: str = "") -> None:
@@ -935,6 +951,15 @@ async def run_cli_loop(
                 term_write(reply + "\n")
                 continue
 
+        # ── 需求澄清追问拦截：普通消息自动注入为回答 ──
+        cc = getattr(engine, "confirmation_channel", None)
+        if cc and cc.has_pending:
+            from miniagent.types.confirmation import ConfirmationResult, ConfirmationStage
+
+            if cc.pending.stage == ConfirmationStage.CLARIFICATION:
+                cc.respond(ConfirmationResult(approved=True, adjustment=user_input))
+                continue
+
         # ── Agent 执行 ──
         await message_queue.dispatch_cli(_process_input(user_input))
 
@@ -1009,6 +1034,17 @@ async def _run_cli_loop_fallback(
     def _fb_rule_light() -> None:
         """非全屏 CLI 下的细分隔线（stdout）。"""
         print("\u2500" * _fb_w)
+
+
+    # readline 支持：使 fallback CLI 的 input() 支持上下键浏览历史
+    try:
+        import readline
+
+        readline.set_history_length(1000)
+        if os.path.isfile(history_file):
+            readline.read_history_file(history_file)
+    except ImportError:
+        readline = None  # Windows 可能无 readline
 
     async def _process_input(user_input: str) -> None:
         """备用终端：打印 You/Assistant 区块并调用 ``run_agent_with_thinking``。"""
@@ -1197,7 +1233,22 @@ async def _run_cli_loop_fallback(
                 print(result)
             continue
 
+        # ── 需求澄清追问拦截：普通消息自动注入为回答 ──
+        cc = getattr(engine, "confirmation_channel", None)
+        if cc and cc.has_pending:
+            from miniagent.types.confirmation import ConfirmationResult, ConfirmationStage
+
+            if cc.pending.stage == ConfirmationStage.CLARIFICATION:
+                cc.respond(ConfirmationResult(approved=True, adjustment=user_input))
+                continue
+
         await message_queue.dispatch_cli(_process_input(user_input))
+
+        if readline is not None:
+            try:
+                readline.write_history_file(history_file)
+            except Exception:
+                pass
 
         try:
             heartbeat()

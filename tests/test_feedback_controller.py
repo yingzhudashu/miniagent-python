@@ -45,7 +45,9 @@ class TestFeedbackController:
     def test_oscillation_detection(self) -> None:
         """误差交替变化应判定为 OSCILLATING。"""
         ctrl = FeedbackController()
-        pattern = [0.5, 0.3, 0.6, 0.2, 0.7, 0.1]
+        # 保持 composite error > 0.1（收敛阈值），同时呈现明显震荡
+        # composite = 0.6*error_estimate，所以 error_estimate 需 > 0.17
+        pattern = [0.8, 0.5, 0.9, 0.4, 1.0, 0.5]
         for i, err in enumerate(pattern, 1):
             report = ctrl.step(ControlMetrics(error_estimate=err, turn_number=i))
         assert report.state == ControlState.OSCILLATING

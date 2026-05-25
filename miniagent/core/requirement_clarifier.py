@@ -130,13 +130,7 @@ class RequirementClarifier:
         if memory_context:
             system = f"{memory_context}\n\n{CLARIFY_PROMPT}"
 
-        # Step 1 & 2: LLM 自动推断模糊点和约束
-        await invoke_on_thinking(
-            on_thinking,
-            "正在分析需求，识别模糊表述、边界条件与输出规格…",
-            True,
-            "[需求澄清]",
-        )
+        # agent.py 已在 LLM 调用前发送"正在分析需求…"提示，此处不再重复发送。
 
         result = await llm_json(
             prompt=user_input,
