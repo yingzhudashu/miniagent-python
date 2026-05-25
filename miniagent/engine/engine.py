@@ -347,21 +347,40 @@ class UnifiedEngine:
             """桥接 :meth:`run_agent` 的 ``on_thinking``：更新按标签聚合的缓冲并驱动 UI/飞书展示。
 
             澄清类消息（header = ``[需求澄清]``）由思考卡片统一展示，不再走直发通道。
+
+            聚合策略（按 ``thinking_by_label`` 的 key 分组累积）：
+            - 新 record 以已有内容为前缀 → **替换**（LLM 流式 chunk 增长）
+            - 已有内容以新 record 为前缀 → **保留**旧内容（新 record 是旧内容的一部分）
+            - 否则：**追加**到历史（澄清问题、用户回答、LLM 新 exec 轮）
+            全部分隔符统一为 ``\n\n``，与 executor 内 ``_joined_phase_cumulative`` 默认一致。
+
+            关键约束：``thinking_by_label`` 中同一 key 的内容必须与 executor 端
+            ``_joined_phase_cumulative`` 输出的**纯 LLM 正文前缀一致**，否则 prefix
+            检测失败导致重复。因此 ``streaming=True`` 时**不**向 thinking_by_label
+            追加非 LLM 记录（工具行等），改为走 ``tool_thought_lines``。
             """
             record = full_record if full_record is not None else text
-            if streaming:
-                key = header if (header or "").strip() else "__stream__"
+            key = header if (header or "").strip() else "__stream__"
+            if streaming and record:
                 prev = thinking_by_label.get(key, "")
-                thinking_by_label[key] = (prev + "\n\n" + record) if prev else record
-            elif record:
-                hdr = (header or "").strip()
-                if hdr and hdr in thinking_by_label:
-                    prev = thinking_by_label[hdr]
-                    thinking_by_label[hdr] = (prev + "\n" + record) if prev else record
+                if not prev:
+                    thinking_by_label[key] = record
+                elif record.startswith(prev):
+                    # LLM 流式 chunk 前缀增长：替换为最新全文
+                    thinking_by_label[key] = record
+                elif prev.startswith(record):
+                    # 新 record 是旧内容的一部分：保留旧内容
+                    pass
                 else:
-                    tool_thought_lines.append(record)
+                    thinking_by_label[key] = prev + "\n\n" + record
+            elif record:
+                # 非流式记录（工具行、澄清结果等）：统一走 tool_thought_lines，
+                # 不污染 thinking_by_label 的 LLM 正文前缀
+                tool_thought_lines.append(record)
+            # 使用聚合后的全文内容（飞书卡片需显示完整历史；CLI prefix-diffing 可处理跳变）
+            display_text = thinking_by_label.get(key, "") if (header or "").strip() else text
             await self.thinking.show(
-                text, session_key, streaming=streaming, header=header
+                display_text or text, session_key, streaming=streaming, header=header
             )
 
         async def _tool_finish(
@@ -390,7 +409,9 @@ class UnifiedEngine:
                 )
             else:
                 record = short
-            await _thinking(short, True, header=thinking_header or "", full_record=record)
+            # 工具行用 streaming=False，走 tool_thought_lines 而非 thinking_by_label。
+            # 这样可以避免工具行污染 LLM 正文前缀，导致下一轮 exec 的 prefix 检测失败。
+            await _thinking(short, False, header=thinking_header or "", full_record=record)
 
         # 6. 调用 Agent
         _recv_chat = (feishu_receive_chat_id or "").strip()

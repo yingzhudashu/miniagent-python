@@ -259,6 +259,10 @@ async def execute_plan(
 
     # ── 执行上下文 ──
     workspace = agent_config.session_workspace or get_default_workspace()
+    # 允许路径：workspace 作为主工作目录（会话 files/ 或 cwd），
+    # 同时加入项目根目录以确保 exec/mkdir 等环境操作不受路径限制。
+    _cwd = os.getcwd()
+    _allowed = list(dict.fromkeys([workspace, _cwd]))  # 去重但保持顺序
     mq_abort = (agent_config.feishu_receive_chat_id or "").strip() or None
     rid_raw = (getattr(agent_config, "feishu_im_receive_id_type", None) or "").strip().lower()
     if rid_raw not in ("chat_id", "open_id", "union_id"):
@@ -267,7 +271,7 @@ async def execute_plan(
     im_recv_alt = (getattr(agent_config, "feishu_im_receive_id", None) or "").strip() or None
     ctx = ToolContext(
         cwd=workspace,
-        allowed_paths=[workspace],
+        allowed_paths=_allowed,
         permission="allowlist",
         clawhub=clawhub,
         session_key=agent_config.session_key,

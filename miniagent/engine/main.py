@@ -1381,6 +1381,15 @@ def _create_feishu_handler(
 
         _maybe_auto_bind_p2p(chat_type, sender_id, state)
 
+        # \u2500\u2500 \u68c0\u67e5\u662f\u5426\u6709\u5f85\u6f84\u6e05\u9700\u6c42\uff08agent \u6b63\u5728\u7b49\u5f85\u7528\u6237\u56de\u7b54\uff09\u2500\u2500
+        cc = getattr(engine, "_confirmation_channel", None)
+        if cc and cc.has_pending:
+            from miniagent.types.confirmation import ConfirmationResult, ConfirmationStage
+
+            if cc.pending.stage == ConfirmationStage.CLARIFICATION:
+                cc.respond(ConfirmationResult(approved=True, adjustment=content))
+                return ""  # \u5df2\u56de\u590d\uff0c\u4e0d\u542f\u52a8\u65b0 agent \u4f1a\u8bdd
+
         session_key = channel_router.resolve_feishu_message(chat_id, sender_id, chat_type)
         if (chat_id or "").strip():
             state["last_feishu_receive_chat_id"] = chat_id.strip()
