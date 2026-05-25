@@ -415,17 +415,15 @@ async def execute_plan(
     llm_client = client if client is not None else get_shared_async_openai()
 
     exec_turn_no = 0
-    _exec_hist_segments: dict[str, list[str]] = {}
     _phase_header_sent: set[str] = set()
 
-    sep = _thinking_segment_separator()
-
     def _joined_phase_cumulative(label: str, current_body: str) -> str:
-        """将同一 ``label`` 下历史执行轮正文与 ``current_body`` 用分段符拼接，供思考流 cumulative 展示。"""
-        prev = [p for p in _exec_hist_segments.get(label, []) if (p or "").strip()]
-        if not prev:
-            return current_body
-        return sep.join(prev + [current_body])
+        """返回当前轮 LLM 正文（``current_body``），不含历史轮内容。
+
+        历史轮内容由执行器的 ``thinking_by_label`` 聚合（通过
+        prefix 检测将不同 exec 轮用 ``\\n\\n`` 拼接）与飞书卡片 PATCH 机制处理。
+        """
+        return current_body
 
     async def _stream_exec_turn(
         merge_overrides: dict[str, Any] | None,
@@ -603,8 +601,6 @@ async def execute_plan(
             thinking=full_content,
             token_usage=_usage.model_dump() if _usage else None,
         )
-        if (full_content or "").strip():
-            _exec_hist_segments.setdefault(thinking_phase_label, []).append(full_content)
         return msg, exec_kw, start_ms, _usage, full_content, thinking_header
 
     async def _invoke_on_tool_finish(

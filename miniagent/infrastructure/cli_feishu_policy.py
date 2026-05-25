@@ -105,9 +105,9 @@ def should_mirror_feishu_to_cli(
             return sk == cli_sk
         return False
 
-    # general：群聊不镜像；私聊仅当与 CLI 同会话
+    # general：群聊仅当 CLI 已绑定到该群会话时镜像；私聊按路由匹配
     if ct == "group":
-        return False
+        return sk == cli_sk
     if ct == "p2p":
         p2p_ch = f"{ChannelRouter.FEISHU_P2P_PREFIX}{(sender_id or '').strip()}"
         return router.resolve(p2p_ch) == cli_sk
