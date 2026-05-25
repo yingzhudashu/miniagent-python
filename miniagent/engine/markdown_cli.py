@@ -47,3 +47,10 @@ def render_markdown_to_ansi(markdown: str, *, width: int) -> str | None:
 def strip_ansi(text: str) -> str:
     """去掉 ANSI 转义，用于剪贴板等纯文本场景。"""
     return _STRIP_ANSI.sub("", text)
+
+
+__all__ = [
+    "cli_raw_markdown_enabled",
+    "render_markdown_to_ansi",
+    "strip_ansi",
+]

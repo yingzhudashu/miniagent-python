@@ -89,9 +89,10 @@ error = w1 * error_estimate + w2 * tool_failure_rate + w3 * tool_repeat_rate
 | 状态 | 条件 | 含义 |
 |------|------|------|
 | `STABLE` | 误差波动小，斜率接近 0 | 正常执行 |
-| `CONVERGING` | 斜率 < 0 且误差下降 | 正向收敛 |
-| `DIVERGING` | 斜率 > 0 且误差上升 | 需要干预 |
-| `OSCILLATING` | 误差交替升降 | 工具调用可能陷入循环 |
+| `CONVERGED` | 误差低于收敛阈值且已执行至少 3 轮 | 已收敛，可结束 |
+| `DIVERGING` | 斜率 > 发散阈值 | 误差递增，需要干预 |
+| `OSCILLATING` | 最近 4+ 轮误差上下交替 | 工具调用可能陷入循环 |
+| `STUCK` | 斜率 ≈ 0 且已执行至少 3 轮 | 执行停滞，无明显进展 |
 
 ## AdaptivePolicy — 自适应策略
 
@@ -101,11 +102,12 @@ error = w1 * error_estimate + w2 * tool_failure_rate + w3 * tool_repeat_rate
 
 | 决策 | 触发条件 | 效果 |
 |------|----------|------|
-| `TERMINATE` | 误差超过阈值且连续 N 轮发散 | 提前终止 ReAct 循环，返回当前最佳回复 |
-| `CONVERGED` | 误差低于收敛阈值且稳定 | 提前终止，认定已达成目标 |
-| `SIMPLIFY` | 工具重复率过高 + 误差上升 | 移除低效工具，仅保留基础工具 |
-| `COMPRESS` | 上下文使用率超过阈值 | 触发上下文压缩（保留关键消息） |
-| `CONTINUE` | 未达到上述条件 | 正常继续 ReAct 循环 |
+| `TERMINATE` | DIVERGING 持续 `max_diverge_turns`（默认 5）轮 | 提前终止 ReAct 循环，返回当前最佳回复 |
+| `CONVERGED_EXIT` | 误差低于收敛阈值（默认 0.05）且已执行至少 3 轮 | 提前终止，认定已达成目标 |
+| `SIMPLIFY` | 工具重复率过高 / 误差震荡 / 早期停滞 | 移除低效工具，仅保留基础工具 |
+| `COMPRESS` | 上下文使用率超过 `max_context_ratio`（默认 0.85） | 触发上下文压缩（保留关键消息） |
+| `REPLAN` | STUCK 持续 `max_turns_before_replan`（默认 10）轮 | 要求 LLM 重新规划后续步骤 |
+| `NORMAL` | 未达到上述条件 | 正常继续 ReAct 循环 |
 
 ### 防抖动机制
 
@@ -138,7 +140,7 @@ for turn in range(max_turns):
         compress_context()  # 压缩上下文
 ```
 
-**可见性**：所有控制论决策通过 `on_thinking` 回调以 `[自适应调整]` header 推送至 CLI 和飞书通道（`streaming=True`）。
+**可见性**：控制论决策通过 Python 标准日志（`_logger.info` / `_logger.debug`）输出，调试模式下可在日志中查看。
 
 ## 环境变量
 

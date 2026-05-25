@@ -677,3 +677,6 @@ def _format_status(state: CliLoopState | dict[str, Any]) -> str:
             lines.append(f"  {label}: ⚪ 空闲")
 
     return "\n".join(lines)
+
+
+__all__ = ["dispatch_command"]

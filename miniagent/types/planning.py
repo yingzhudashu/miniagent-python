@@ -170,6 +170,8 @@ class StructuredPlan:
 
 
 __all__ = [
+    "ContextStrategy",
+    "EstimatedTokens",
     "PlanStep",
     "PlanChunk",
     "SuggestedConfig",

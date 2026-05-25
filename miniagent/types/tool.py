@@ -19,7 +19,7 @@ import builtins
 from abc import abstractmethod
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Awaitable, Protocol
 
 from openai.types.chat import ChatCompletionMessageParam, ChatCompletionToolParam
 
@@ -104,6 +104,15 @@ class ToolResult:
 # ============================================================================
 # 工具定义与注册表
 # ============================================================================
+
+
+# ============================================================================
+# 工具处理器类型别名
+# ============================================================================
+
+# 工具处理器签名：接收 (args: dict, ctx: ToolContext) 并返回 ToolResult 协程。
+# 实际注册的工具函数必须是 async def，返回 ToolResult。
+ToolHandler = Callable[[dict[str, Any], "ToolContext"], Awaitable["ToolResult"]]
 
 
 @dataclass

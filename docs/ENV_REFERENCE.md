@@ -47,6 +47,12 @@
 | `AGENT_LOG_TOKEN_USAGE` | `true` | 是否记录 token 使用量 |
 | `MINIAGENT_TASK_CLASSIFIER` | `1` | 是否启用规划前任务难度分类 |
 | `MINIAGENT_PHASED_EXECUTION` | `1` | 是否启用分步执行模式 |
+| `MINIAGENT_CONTROL_THEORY` | `1` | 是否启用控制论反馈闭环（`0`/`false`/`off` 关闭） |
+| `MINIAGENT_REQUIREMENT_CLARIFY` | `1` | 是否启用规划前需求澄清（`0` 关闭） |
+| `MINIAGENT_REFLECTION` | `1` | 是否启用执行后自我反思（`0` 关闭） |
+| `MINIAGENT_THINKING_MERGE_TOOLS` | `1` | 合并相邻工具执行的 thinking 记录 |
+| `MINIAGENT_MEMORY_STORE_CACHE_MAX` | `50` | 记忆存储最大缓存条目数 |
+| `MINIAGENT_KEYWORD_INDEX_MAX` | `20000` | 关键词索引最大条目数 |
 | `LOOP_DETECTION_ENABLED` | `true` | 是否启用循环检测 |
 | `LOOP_HISTORY_SIZE` | `50` | 循环检测历史窗口大小 |
 | `LOOP_WARNING_THRESHOLD` | `8` | 循环检测警告阈值 |
@@ -128,6 +134,8 @@
 | `MINIAGENT_EMBED_DIM` | `1536` | 向量维度（通常无需手动设置） |
 | `MINIAGENT_EMBED_TOP_K` | `8` | 最多返回记忆条目数 |
 | `MINIAGENT_EMBED_MIN_SCORE` | `0.3` | 最低余弦相似度阈值 |
+| `MINIAGENT_EMBED_API_KEY` | *(空)* | embedding 服务 API 密钥（使用专用服务时需要） |
+| `MINIAGENT_EMBED_MAX_ENTRIES` | `10000` | 向量存储最大条目数 |
 
 ## 11. CLI / 状态 / 调试 / MCP
 

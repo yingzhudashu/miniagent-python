@@ -56,11 +56,6 @@ def set_feishu_confirmation_engine(engine: Any) -> None:
     )
 
 
-def get_feishu_confirmation_engine() -> Any | None:
-    """获取当前引擎引用。"""
-    return _feishu_confirmation_engine
-
-
 def feishu_outbound_reply_params(
     trigger_message_id: str | None,
     thread_id: str | None = None,
@@ -938,7 +933,6 @@ def feishu_card_body_max() -> int:
 
 # 兼容旧导入：仅为进程首次 import 时的快照；运行时上限请以 feishu_card_body_max() 为准。
 FEISHU_CARD_BODY_MAX = feishu_card_body_max()
-FEISHU_THINKING_BODY_MAX = FEISHU_CARD_BODY_MAX
 
 
 def _strip_unicode_replacement_chars(text: str) -> str:

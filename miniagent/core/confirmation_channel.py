@@ -79,3 +79,6 @@ class ConfirmationChannel:
     def has_pending(self) -> bool:
         """是否有待确认的请求。"""
         return self._pending is not None
+
+
+__all__ = ["ConfirmationChannel"]
