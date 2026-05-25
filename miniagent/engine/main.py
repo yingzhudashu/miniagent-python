@@ -112,6 +112,12 @@ async def unified_main(ctx: RuntimeContext) -> None:
 
     # 磁盘注册：分配 instance_id 前会清扫 PID 已失效的目录（不 kill 其它进程）
     feishu_mode = "--feishu" in sys.argv
+
+    # 解析 --session <name> 启动参数
+    _si = sys.argv.index("--session") if "--session" in sys.argv else -1
+    if _si >= 0 and _si + 1 < len(sys.argv):
+        os.environ["MINIAGENT_SESSION_NAME"] = sys.argv[_si + 1]
+
     reg_result = register_instance(
         mode="both" if feishu_mode else "cli",
         active_sessions=[],

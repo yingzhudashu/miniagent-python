@@ -103,7 +103,8 @@ async def init_subsystems(
     session_manager = SessionManager(registry, skill_toolboxes, loaded_skills, clawhub=clawhub)
 
     # 4. 创建默认会话并加锁
-    active_session_id = _init_default_session(session_manager, channel_router)
+    session_name = os.environ.get("MINIAGENT_SESSION_NAME", "").strip() or None
+    active_session_id = _init_default_session(session_manager, channel_router, session_name=session_name)
 
     # 5. 清理过期关键词索引
     try:
@@ -118,10 +119,14 @@ async def init_subsystems(
     return loaded_skills, skill_toolboxes, skill_prompts, active_session_id, session_manager
 
 
-def _init_default_session(session_manager: Any, channel_router: Any) -> str:
+def _init_default_session(session_manager: Any, channel_router: Any, *, session_name: str | None = None) -> str:
     """创建默认会话并加锁。
 
-    同时将 CLI 通道绑定到 default 会话，确保 CLI 和初始化使用同一会话。
+    同时将 CLI 通道绑定到默认会话，确保 CLI 和初始化使用同一会话。
+
+    Args:
+        session_name: 可选的会话名称（由 ``MINIAGENT_SESSION_NAME`` 传入）。
+            若不传，则使用 ``"default"``。
 
     Returns:
         active_session_id
@@ -129,26 +134,22 @@ def _init_default_session(session_manager: Any, channel_router: Any) -> str:
     from miniagent.engine.session_lock import try_lock_session
     from miniagent.session.manager import SessionOptions
 
-    # 使用统一命名：每个实例的第一个会话都叫 default
-    session_id = "default"
+    session_id = session_name or "default"
     session_manager.get_or_create(session_id, SessionOptions(description="默认会话"))
-
-    # 将 CLI 通道绑定到 default 会话，使 CLI 启动时共享同一会话和历史
     channel_router.bind("__cli__", session_id)
     channel_router.set_primary(session_id)
 
-    # 尝试加锁
     ok, reason = try_lock_session(session_id)
     if ok:
         return session_id
 
-    # 被其他实例占用，创建新会话
-    session_id = f"default-{random.randint(1000, 9999)}"
-    session_manager.get_or_create(session_id, SessionOptions(description="默认会话"))
-    channel_router.bind("__cli__", session_id)
-    channel_router.set_primary(session_id)
-    try_lock_session(session_id)
-    return session_id
+    # 被其他实例占用，自动回退
+    fallback = f"{session_id}-{random.randint(1000, 9999)}"
+    session_manager.get_or_create(fallback, SessionOptions(description="默认会话（回退）"))
+    channel_router.bind("__cli__", fallback)
+    channel_router.set_primary(fallback)
+    try_lock_session(fallback)
+    return fallback
 
 
 _BASELINE_SKILLS = ("skill-vetter", "skill-creator", "builtin-web")
