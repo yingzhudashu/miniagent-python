@@ -6,8 +6,8 @@
 
 from __future__ import annotations
 
-import sys
 import subprocess
+import sys
 
 
 def copy_text_to_system_clipboard(text: str) -> bool:

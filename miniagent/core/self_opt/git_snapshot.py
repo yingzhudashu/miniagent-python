@@ -83,7 +83,7 @@ def create_snapshot(
 ) -> dict[str, Any]:
     """创建 Git 快照。
 
-    优先使用 `git stash`，如果允许则创建 tag。
+    使用 `git stash` 创建快照，确保可回滚。
 
     Args:
         message: 快照描述
@@ -92,6 +92,7 @@ def create_snapshot(
 
     Returns:
         快照信息 {"success": bool, "ref": str, "message": str}
+               ref 为 stash@{N} 格式引用，可直接用于 pop/apply
     """
     if path is None:
         path = os.getcwd()
@@ -119,9 +120,9 @@ def create_snapshot(
         )
 
         if result.returncode == 0:
-            # 获取 stash 引用
+            # 获取 stash 引用（使用 stash@{N} 格式，可直接用于 pop）
             stash_result = subprocess.run(
-                ["git", "stash", "list", "-1", "--format=%H"],
+                ["git", "stash", "list", "-1", "--format=%gd"],
                 cwd=path,
                 capture_output=True,
                 text=True,

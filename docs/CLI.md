@@ -16,7 +16,7 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 
 ## 终端 Markdown（Rich，可选）
 
-全屏 CLI（prompt_toolkit TUI）下，上方 transcript 中 **Assistant 最终回复** 在已安装 **`pip install -e ".[cli]"`** 时由 Rich 将 Markdown（含常见表格）渲染为彩色 ANSI。未安装则显示原始 Markdown 文本。
+全屏 CLI（prompt_toolkit TUI）下，上方 transcript 中的 **Assistant 最终回复、dot 命令输出、思考过程正文** 在已安装 **`pip install -e ".[cli]"`** 时由 Rich 将 Markdown（含常见表格）渲染为彩色 ANSI。未安装则显示原始 Markdown 文本。
 
 - **`MINIAGENT_CLI_RAW_MARKDOWN=1`**：强制关闭回复区 Rich。
 - **`MINIAGENT_CLI_THINKING_RICH=1`**：对**非流式**思考块尝试 Rich；**流式**输出的规划/执行过程仍为纯文本；与工具行合并（`merge_tools`）的短行仍为纯文本。
@@ -61,6 +61,7 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 | | `.reject` | 拒绝待处理请求 |
 | **统计** | `.stats` | 工具调用统计 |
 | **控制** | `.stop` | 停止当前实例并退出 |
+| | `.copy` | 复制上一轮 Assistant 回复到系统剪贴板 |
 | **技能** | `.reload-skills` | 从磁盘全量重新加载 `workspaces/skills`（`install_skill` 成功后通常已自动热加载） |
 | **帮助** | `.help` | 显示帮助信息 |
 | | `quit` / `exit` | 退出程序 |

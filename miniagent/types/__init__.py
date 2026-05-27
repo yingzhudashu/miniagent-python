@@ -28,14 +28,14 @@ from miniagent.types.agent import (
     ToolMonitorProtocol,
     ToolStats,
 )
+from miniagent.types.config import (
+    AgentConfig,
+    ModelConfig,
+)
 from miniagent.types.confirmation import (
     ConfirmationRequest,
     ConfirmationResult,
     ConfirmationStage,
-)
-from miniagent.types.config import (
-    AgentConfig,
-    ModelConfig,
 )
 from miniagent.types.memory import (
     MemoryEntry,

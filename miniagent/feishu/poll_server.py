@@ -563,7 +563,10 @@ async def start_feishu_poll_server(
                     _cc_eng = _feishu_confirmation_engine
                     _cc = getattr(_cc_eng, "confirmation_channel", None) if _cc_eng else None
                     if _cc and _cc.has_pending:
-                        from miniagent.types.confirmation import ConfirmationResult, ConfirmationStage
+                        from miniagent.types.confirmation import (
+                            ConfirmationResult,
+                            ConfirmationStage,
+                        )
 
                         if _cc.pending.stage == ConfirmationStage.CLARIFICATION:
                             _logger.info("飞书澄清拦截: chat_id=%s, text=%s", chat_id[:12], text[:60])

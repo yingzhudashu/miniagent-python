@@ -1,4 +1,9 @@
-"""可选：监视技能目录变更并自动 refresh（``MINIAGENT_SKILLS_WATCH=1``）。"""
+"""可选：监视技能目录变更并自动 refresh（``MINIAGENT_SKILLS_WATCH=1``）。
+
+通过定期扫描技能目录下文件的 mtime 检测变更，发现变化后经防抖（2 秒）触发
+``refresh_skills`` 重新加载技能。轮询间隔由调用方 ``start_skills_watch`` 的
+``interval`` 参数控制（默认 5 秒）。
+"""
 
 from __future__ import annotations
 

@@ -11,7 +11,8 @@
 - ``feishu_state``：飞书运行时状态，由 ``RuntimeContext.feishu`` 持有
 
 其它模块：``session_lock``、``thinking``、``engine``、``cli_commands``、``feishu_state``、
-``init``、``main``、``welcome``（见各文件模块文档）。
+``init``、``main``、``welcome``、``markdown_cli``、``clipboard``、``shutdown``
+（见各文件模块文档）。
 
 主架构与用户可见命令见 ``docs/ARCHITECTURE.md``、``docs/CLI.md``。
 """

@@ -33,7 +33,7 @@ from typing import Any
 
 from openai import AsyncOpenAI
 
-from miniagent.core.config import DEFAULT_LOOP_DETECTION, get_default_model_config
+from miniagent.core.config import AGENT_NAME, DEFAULT_LOOP_DETECTION, get_default_model_config
 from miniagent.core.llm_params import resolve_exec_completion_kwargs
 from miniagent.core.openai_client import get_shared_async_openai
 from miniagent.core.openai_message_sanitize import strip_leading_underscore_keys_from_messages
@@ -59,8 +59,6 @@ from miniagent.types.tool import ToolContext, ToolRegistryProtocol, ToolResult
 _logger = get_logger(__name__)
 
 # ─── Agent 身份 ────────────────────────────────────────────
-
-from miniagent.core.config import AGENT_NAME
 
 AGENT_IDENTITY = (
     f"你是 {AGENT_NAME}，一个基于 Python 的轻量级 LLM Agent。"

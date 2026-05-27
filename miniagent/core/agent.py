@@ -490,7 +490,7 @@ async def run_agent(
     if reflection_enabled:
         from miniagent.core.problem_solver import reflect_on_result
 
-        reflection = await reflect_on_result(user_input, reply, client=client, on_thinking=on_thinking)
+        reflection = await reflect_on_result(user_input, reply, client=client, on_thinking=None)
         # 存储到引擎供飞书发送独立质量卡片
         if engine is not None:
             engine._last_reflection = reflection

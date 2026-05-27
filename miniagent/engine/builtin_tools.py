@@ -20,16 +20,20 @@ from miniagent.tools.schedule_tools import SCHEDULE_TOOL_NAMES
 _logger = get_logger(__name__)
 
 
+def _env_flag_false(key: str, default: str = "1") -> bool:
+    """检查环境变量是否**未**被设为关闭值（0/false/no/off）。"""
+    v = os.environ.get(key, default).strip().lower()
+    return v not in ("0", "false", "no", "off")
+
+
 def _cli_dot_tools_registration_enabled() -> bool:
     """默认注册 run_dot_command；设为 0/false/off 则跳过。"""
-    v = os.environ.get("MINIAGENT_CLI_DOT_TOOLS", "1").strip().lower()
-    return v not in ("0", "false", "no", "off")
+    return _env_flag_false("MINIAGENT_CLI_DOT_TOOLS")
 
 
 def _schedule_tools_registration_enabled() -> bool:
     """默认注册 manage_scheduled_task；设为 0/false/off 则跳过。"""
-    v = os.environ.get("MINIAGENT_SCHEDULE_TOOLS", "1").strip().lower()
-    return v not in ("0", "false", "no", "off")
+    return _env_flag_false("MINIAGENT_SCHEDULE_TOOLS")
 
 
 def _feishu_im_tools_registration_enabled() -> bool:

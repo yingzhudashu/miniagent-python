@@ -52,8 +52,10 @@ async def _apply_file_change(change: FileChange, root: str = "") -> bool:
 
     try:
         if change.action == "create":
-            # 确保父目录存在
-            os.makedirs(os.path.dirname(target_path), exist_ok=True)
+            # 确保父目录存在（无目录时跳过）
+            parent = os.path.dirname(target_path)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
             with open(target_path, "w", encoding="utf-8") as f:
                 f.write(change.content)
             _logger.info("创建文件: %s", change.path)
@@ -71,7 +73,9 @@ async def _apply_file_change(change: FileChange, root: str = "") -> bool:
         elif change.action == "rename":
             old_path = os.path.join(root, change.old_path) if root else change.old_path
             if os.path.exists(old_path):
-                os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                parent = os.path.dirname(target_path)
+                if parent:
+                    os.makedirs(parent, exist_ok=True)
                 os.rename(old_path, target_path)
                 _logger.info("重命名: %s -> %s", change.old_path, change.path)
 

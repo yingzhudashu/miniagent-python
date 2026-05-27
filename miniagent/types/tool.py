@@ -17,9 +17,9 @@ from __future__ import annotations
 
 import builtins
 from abc import abstractmethod
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Protocol
+from typing import Any, Protocol
 
 from openai.types.chat import ChatCompletionMessageParam, ChatCompletionToolParam
 

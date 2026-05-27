@@ -15,6 +15,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -42,7 +44,6 @@ async def llm_json(
 
     llm = client or get_shared_async_openai()
     if model is None:
-        import os
         model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
     resp = await llm.chat.completions.create(
         model=model,
@@ -56,8 +57,6 @@ async def llm_json(
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        import logging
-
         logging.getLogger(__name__).warning("LLM 返回的 JSON 解析失败: %s", text[:200])
         return {}
 

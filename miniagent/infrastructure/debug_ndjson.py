@@ -2,6 +2,8 @@
 
 Debug logging is disabled unless MINIAGENT_DEBUG_SESSION_ID is set.
 The log file path can be overridden via MINIAGENT_DEBUG_LOG_PATH.
+
+**注意**：本模块仅用于开发调试，日志可能包含工具参数与输出，请勿在生产环境启用。
 """
 
 from __future__ import annotations
@@ -31,6 +33,15 @@ def agent_debug_log(
     data: dict | None = None,
     run_id: str = "pre",
 ) -> None:
+    """追加一行 NDJSON 调试日志（仅当设置了 MINIAGENT_DEBUG_SESSION_ID 时生效）。
+
+    Args:
+        hypothesis_id: 假设/提案 ID
+        location: 调用位置标识
+        message: 调试消息
+        data: 附加数据（字典）
+        run_id: 运行阶段标识，默认 "pre"
+    """
     if not _SESSION:
         return
     try:

@@ -1071,6 +1071,7 @@ async def _run_cli_loop_fallback(
 
 
     # readline 支持：使 fallback CLI 的 input() 支持上下键浏览历史
+    history_file = os.path.join(os.path.expanduser("~"), ".miniagent_cli_history")
     try:
         import readline
 

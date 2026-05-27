@@ -42,7 +42,7 @@ Agent 执行结果：
 
 @dataclass
 class ReflectionResult:
-    """LLM 自评估结果质量。"""
+    """LLM 自评估结果。"""
 
     acceptable: bool            # 结果是否可接受
     quality_score: float        # 0-1 质量评分

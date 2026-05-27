@@ -34,7 +34,8 @@ def _count_lines(root: str) -> int:
     total = 0
     for f in Path(root).rglob("*.py"):
         try:
-            total += sum(1 for _ in open(f, encoding="utf-8", errors="ignore"))
+            with open(f, encoding="utf-8", errors="ignore") as fh:
+                total += sum(1 for _ in fh)
         except (OSError, PermissionError):
             pass
     return total

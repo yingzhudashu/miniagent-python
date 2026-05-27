@@ -450,7 +450,7 @@ async def dispatch_command(
     return None
 
 
-def _capture(fn) -> str:
+def _capture(fn: Callable[[], None]) -> str:
     """捕获 print 输出并返回字符串。"""
     buf = io.StringIO()
     try:

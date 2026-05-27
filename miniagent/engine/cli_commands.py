@@ -3,9 +3,11 @@
 本模块包含所有 CLI 交互命令的实现，从 unified.py 拆分而来。
 
 功能包括：
-- 会话管理：列出、切换、创建、重命名会话
+- 会话管理：列出、切换、创建、重命名、删除会话
 - 实例管理：列出运行中的实例、停止指定实例
 - 消息队列：查看队列状态、切换队列模式
+- 通道绑定：.bind / .unbind 子命令
+- 定时任务：.schedule add/list/remove/enable/disable
 - 帮助显示：分类展示所有可用命令
 
 注意：所有会话命令同时支持**编号**（如 1）和**原始 ID**（如 default）。
@@ -222,7 +224,7 @@ def cmd_session_list(
 
 
 def cmd_instance_handler(
-    parts: list[str], sub_cmd: str, state: dict, *, markdown: bool = False
+    parts: list[str], sub_cmd: str, state: dict[str, Any], *, markdown: bool = False
 ) -> None:
     """处理 .instance 命令及其子命令。
 

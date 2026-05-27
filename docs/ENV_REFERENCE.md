@@ -80,6 +80,7 @@
 | `MINIAGENT_FEISHU_DOCX_URL_PREFIX` | *(空)* | 文档 URL 前缀 |
 | `MINIAGENT_FEISHU_DOC_FOLDER_TOKEN` | *(空)* | 文档目录 token |
 | `MINIAGENT_FEISHU_MEDIA_RUN_AGENT` | `0` | `1`=收到文件/图片后触发 Agent 处理 |
+| `MINIAGENT_FEISHU_MEDIA_VISION_DESC` | `1` | `1`=收到图片时调用视觉模型生成描述 |
 | `MINIAGENT_FEISHU_MEDIA_SILENT_REPLY` | `0` | 媒体消息静默回复 |
 | `MINIAGENT_FEISHU_RECEIVE_ID_TYPE` | `chat_id` | 接收消息 ID 类型 |
 

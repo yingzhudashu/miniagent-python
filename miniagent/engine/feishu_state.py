@@ -54,7 +54,11 @@ class FeishuRuntime:
             user_status: 可选 ``(msg: str) -> None``，由全屏 CLI 注册为写入 transcript；
                 未提供时使用 ``print``，避免与 prompt_toolkit 备用屏混写时丢失信息。
         """
-        from miniagent.feishu.poll_server import reset_feishu_ws_singleton, set_feishu_confirmation_engine, start_feishu_poll_server
+        from miniagent.feishu.poll_server import (
+            reset_feishu_ws_singleton,
+            set_feishu_confirmation_engine,
+            start_feishu_poll_server,
+        )
         from miniagent.feishu.types import FeishuConfig
 
         self._user_status = user_status

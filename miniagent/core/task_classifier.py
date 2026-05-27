@@ -36,14 +36,12 @@ def task_classifier_enabled() -> bool:
 
 def planner_merge_for_difficulty(d: TaskDifficulty) -> dict[str, Any]:
     """规划阶段 model_overrides 合并片段（thinking_level / thinking_budget）。"""
-    key = "low"
-    if d == TaskDifficulty.NORMAL:
-        key = "low"
-    elif d == TaskDifficulty.MEDIUM:
+    if d == TaskDifficulty.MEDIUM:
         key = "medium"
     elif d == TaskDifficulty.COMPLEX:
         key = "high"
-    elif d == TaskDifficulty.SIMPLE:
+    else:
+        # NORMAL 和 SIMPLE 均使用 low
         key = "low"
     tl, tb = map_openclaw_thinking_to_model(key)
     return {"thinking_level": tl, "thinking_budget": tb}

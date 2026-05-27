@@ -14,9 +14,9 @@
 from __future__ import annotations
 
 import json
-import os
 from typing import Any
 
+from miniagent.core.config import AGENT_NAME
 from miniagent.core.openai_client import get_shared_async_openai
 from miniagent.infrastructure.logger import append_log, get_logger, truncate
 from miniagent.types.planning import (
@@ -32,8 +32,6 @@ from miniagent.types.planning import (
 from miniagent.types.tool import Toolbox
 
 _logger = get_logger(__name__)
-
-from miniagent.core.config import AGENT_NAME
 
 from miniagent.core._openai_compat import json_object_unsupported as _json_object_unsupported
 
@@ -257,7 +255,8 @@ async def generate_plan(
             if attempt == MAX_RETRIES - 1:
                 return _fallback_plan(user_input)
 
-    return _fallback_plan(user_input)
+    # 不可达：循环内最后一轮必定返回
+    assert False, "unreachable"
 
 
 # ─── 内部辅助 ───────────────────────────────────────────

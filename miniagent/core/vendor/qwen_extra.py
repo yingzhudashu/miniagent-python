@@ -27,7 +27,7 @@ def build_thinking_extra_body(
         return merged
 
     # 通义 OpenAI 兼容常见字段（随网关文档可调整）
-    if thinking_budget and thinking_budget > 0:
+    if thinking_budget > 0:
         merged.setdefault("enable_thinking", True)
         merged.setdefault("thinking_budget", thinking_budget)
     else:

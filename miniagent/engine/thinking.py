@@ -20,7 +20,6 @@ import re
 import shutil
 import sys
 from collections.abc import Awaitable, Callable
-from typing import Any
 
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.shortcuts import print_formatted_text
@@ -300,7 +299,7 @@ class ThinkingDisplay:
         state.turn_number += 1
         return state.turn_number
 
-    def thinking_state(self, session_key: str) -> Any:
+    def thinking_state(self, session_key: str) -> _SessionThinkingState:
         """返回会话级思考状态（供引擎 finalize 飞书流式卡片）。"""
         return self._get_state(session_key)
 
@@ -555,12 +554,12 @@ class ThinkingDisplay:
             step = self._next_step(session_key)
             lines = (text or "").splitlines() or [""]
 
-            # 无活跃流但有 header 且 merge_tools 开启：初始化流状态，
-            # 使后续同 header 的非流式调用能走 merge_tools 路径合并。
+            # 无活跃流（或旧流已收尾）但有 header 且 merge_tools 开启：初始化流状态，
+            # 使后续同 header 的非流式/流式调用能走 merge_tools 路径合并。
             if (
                 _merge_tools_enabled()
                 and bool(hdr)
-                and state.stream_step is None
+                and (state.stream_step is None or state.stream_done)
             ):
                 state.stream_step = step
                 state.stream_header = hdr

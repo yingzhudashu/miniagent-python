@@ -26,7 +26,7 @@ from openai.types.chat import (
 
 from miniagent.memory.store import format_memory_for_prompt
 from miniagent.types.memory import SessionMemory
-from miniagent.types.tool import ContextManagerProtocol, ContextState, TokenEstimate
+from miniagent.types.tool import ContextManagerProtocol, ContextState
 
 
 class ContextBudgetExceeded(RuntimeError):

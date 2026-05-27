@@ -17,9 +17,10 @@
 
 from __future__ import annotations
 
-import os
 import asyncio
+import os
 import re
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from miniagent.core.agent import run_agent
@@ -564,7 +565,7 @@ class UnifiedEngine:
 
         return reply
 
-    def _on_plan_handler(self, session_key: str):
+    def _on_plan_handler(self, session_key: str) -> Callable[[Any], Awaitable[bool]]:
         """创建计划确认回调。
 
         返回一个 async callable，通过确认侧通道暂停 agent 执行并等待用户确认。
@@ -594,7 +595,7 @@ class UnifiedEngine:
 
         return handler
 
-    def _get_confirmation_channel(self):
+    def _get_confirmation_channel(self) -> Any:
         """获取或创建进程级确认侧通道。
 
         返回 ConfirmationChannel 实例，所有会话共享同一实例。
@@ -607,7 +608,7 @@ class UnifiedEngine:
         return self._confirmation_channel
 
     @property
-    def confirmation_channel(self):
+    def confirmation_channel(self) -> Any:
         """公开访问确认通道，供 CLI 循环和飞书 handler 调用 ``respond()``。"""
         return self._get_confirmation_channel()
 

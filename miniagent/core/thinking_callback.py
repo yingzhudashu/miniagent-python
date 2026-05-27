@@ -10,11 +10,12 @@
 from __future__ import annotations
 
 import inspect
-import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-_logger = logging.getLogger(__name__)
+from miniagent.infrastructure.logger import get_logger
+
+_logger = get_logger(__name__)
 
 __all__ = ["invoke_on_thinking"]
 
