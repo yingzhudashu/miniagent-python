@@ -35,6 +35,18 @@ def _allowed_dirs(ctx: ToolContext) -> list[str]:
     return ctx.allowed_paths if ctx.allowed_paths else [get_default_workspace()]
 
 
+def _resolve_file_path(path_str: str, ctx: ToolContext) -> str:
+    """将路径解析为绝对路径，再传入沙箱验证。
+
+    相对路径相对于 ``ctx.cwd``（即会话 ``files/`` 目录）解析，
+    而非进程当前工作目录。这与系统提示词中告知 LLM 的默认文件根一致。
+    """
+    p = path_str.strip()
+    if not os.path.isabs(p):
+        p = os.path.join(ctx.cwd, p)
+    return resolve_sandbox_path(p, _allowed_dirs(ctx))
+
+
 # ════════════════════════════════════════════════════════
 # read_file
 # ════════════════════════════════════════════════════════
@@ -70,7 +82,7 @@ async def _read_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
     Returns:
         ToolResult: 成功时包含文件内容（可能截断）和 meta 信息
     """
-    file_path = resolve_sandbox_path(str(args["path"]), _allowed_dirs(ctx))
+    file_path = _resolve_file_path(str(args["path"]), ctx)
     offset = int(args.get("offset", 1))
     limit = int(args.get("limit", 1000))
 
@@ -129,7 +141,7 @@ async def _write_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolRes
     Returns:
         ToolResult: 成功时返回写入的字节数
     """
-    file_path = resolve_sandbox_path(str(args["path"]), _allowed_dirs(ctx))
+    file_path = _resolve_file_path(str(args["path"]), ctx)
     content = str(args["content"])
 
     parent = os.path.dirname(file_path)
@@ -180,7 +192,7 @@ async def _edit_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
     Returns:
         ToolResult: 成功时返回替换信息；失败时提示未找到或多处匹配
     """
-    file_path = resolve_sandbox_path(str(args["path"]), _allowed_dirs(ctx))
+    file_path = _resolve_file_path(str(args["path"]), ctx)
     old_text = str(args["oldText"])
     new_text = str(args["newText"])
 
@@ -236,7 +248,7 @@ async def _list_dir_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResul
     Returns:
         ToolResult: 成功时返回带 emoji 图标的目录树
     """
-    dir_path = resolve_sandbox_path(str(args["path"]), _allowed_dirs(ctx))
+    dir_path = _resolve_file_path(str(args["path"]), ctx)
     recursive = bool(args.get("recursive", False))
 
     p = Path(dir_path)
@@ -304,7 +316,7 @@ async def _create_dir_handler(args: dict[str, Any], ctx: ToolContext) -> ToolRes
     Returns:
         ToolResult: 成功时返回创建的路径
     """
-    dir_path = resolve_sandbox_path(str(args["path"]), _allowed_dirs(ctx))
+    dir_path = _resolve_file_path(str(args["path"]), ctx)
     recursive = args.get("recursive", True)
     os.makedirs(dir_path, exist_ok=bool(recursive))
     return ToolResult(success=True, content=f"✅ 已创建目录: {dir_path}")
@@ -343,8 +355,8 @@ async def _move_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
     Returns:
         ToolResult: 成功时返回移动前后的路径
     """
-    src = resolve_sandbox_path(str(args["from"]), _allowed_dirs(ctx))
-    dst = resolve_sandbox_path(str(args["to"]), _allowed_dirs(ctx))
+    src = _resolve_file_path(str(args["from"]), ctx)
+    dst = _resolve_file_path(str(args["to"]), ctx)
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     shutil.move(src, dst)
     return ToolResult(success=True, content=f"✅ 已移动: {src} → {dst}")
@@ -383,8 +395,8 @@ async def _copy_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
     Returns:
         ToolResult: 成功时返回复制前后的路径
     """
-    src = resolve_sandbox_path(str(args["from"]), _allowed_dirs(ctx))
-    dst = resolve_sandbox_path(str(args["to"]), _allowed_dirs(ctx))
+    src = _resolve_file_path(str(args["from"]), ctx)
+    dst = _resolve_file_path(str(args["to"]), ctx)
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     shutil.copy2(src, dst)
     return ToolResult(success=True, content=f"✅ 已复制: {src} → {dst}")
@@ -424,7 +436,7 @@ async def _delete_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolRe
     Returns:
         ToolResult: 成功时返回删除的路径；目录非递归时返回错误
     """
-    file_path = resolve_sandbox_path(str(args["path"]), _allowed_dirs(ctx))
+    file_path = _resolve_file_path(str(args["path"]), ctx)
     recursive = bool(args.get("recursive", False))
 
     p = Path(file_path)

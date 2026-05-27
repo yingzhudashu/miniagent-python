@@ -4,7 +4,7 @@
 
 ## 项目架构
 
-项目按一级子包划分职责（**13 个核心子包** + **可选 `mcp/`**：stdio MCP 桥接；与 `compat`、根 `__main__` 同属入口周边）：
+项目按一级子包划分职责（**14 个核心子包** + **可选 `mcp/`**：stdio MCP 桥接；与 `compat`、根 `__main__` 同属入口周边）：
 
 | 子包 | 职责 | 关键文件 |
 |------|------|---------|
@@ -16,7 +16,7 @@
 | `memory/` | 三层记忆系统 | store.py, context.py, keyword_index.py, defaults.py |
 | `session/` | 会话管理与持久化 | manager.py, workspace.py |
 | `skills/` | 可插拔技能系统 | registry.py, loader.py, clawhub_client.py |
-| `tools/` | LLM 可调用的工具 | exec.py, filesystem.py, web.py |
+| `tools/` | LLM 可调用的工具 | exec.py, filesystem.py, web.py, data_tools.py |
 | `security/` | 沙箱与权限 | sandbox.py |
 | `scheduled_tasks/` | 定时任务：持久化 + 进程内调度 | models.py, store.py, cron.py, timezone_util.py, feishu_delivery.py, ticker.py, runner.py, lock.py, file_lock.py, resolve.py |
 | `types/` | 共享类型定义 | agent.py, config.py, tool.py, planning.py, memory.py, skill.py |

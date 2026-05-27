@@ -4,6 +4,7 @@
 
 Gating 机制（参考 OpenClaw metadata）：
 - requires.bins: 系统必须存在的二进制文件
+- requires.com: 必须可创建的 Windows COM ProgID
 - requires.env: 必须存在的环境变量
 - requires.config: 必须为真的 AgentConfig 键
 - os: 适用的操作系统
@@ -226,10 +227,10 @@ class DefaultSkillRegistry(SkillRegistryProtocol):
                 prompts.append(skill.system_prompt)
         return prompts
 
-    # ── 配置覆盖 ──
+    # ── 配置覆盖（协议要求，供外部配置注入使用）──
 
     def set_skill_entries(self, entries: dict[str, SkillEntry]) -> None:
-        """设置技能配置覆盖。"""
+        """设置技能配置覆盖（供外部配置注入使用）。"""
         self._skill_entries = entries
 
     def get_skill_entry(self, skill_id: str) -> SkillEntry | None:
@@ -270,6 +271,11 @@ class DefaultSkillRegistry(SkillRegistryProtocol):
                 if not all(_is_bin_available(b) for b in meta.bins):
                     continue
 
+            # Windows COM 对象检查
+            if meta.com and len(meta.com) > 0:
+                if not all(_is_com_available(c) for c in meta.com):
+                    continue
+
             # 环境变量检查
             if meta.env and len(meta.env) > 0:
                 env_map = entry.env if entry and entry.env else {}
@@ -290,6 +296,27 @@ class DefaultSkillRegistry(SkillRegistryProtocol):
 def _is_bin_available(bin_name: str) -> bool:
     """检查二进制文件是否在 PATH 上可用。"""
     return shutil.which(bin_name) is not None
+
+
+def _is_com_available(progid: str) -> bool:
+    """检查 Windows COM ProgID 是否可创建。
+
+    非 Windows 平台始终返回 ``False``。
+    """
+    if os.name != "nt":
+        return False
+    try:
+        import win32com.client
+
+        app = win32com.client.Dispatch(progid)
+        # 尝试安全退出（部分 COM 对象不支持 Quit）
+        try:
+            getattr(app, "Quit", lambda: None)()
+        except Exception:
+            pass
+        return True
+    except Exception:
+        return False
 
 
 __all__ = ["DefaultSkillRegistry"]

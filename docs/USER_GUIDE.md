@@ -361,7 +361,6 @@ python -m miniagent --stop
 | 启动报错与 API 密钥相关 | 检查 `.env` 是否在项目根、`OPENAI_API_KEY` 是否已填且无多余引号空格；勿把密钥发到公共论坛。 |
 | 无法联网查天气/新闻 | 配置 Tavily 相关变量；或接受「未配置则工具返回错误」的设计。 |
 | 飞书无响应 | 查 `.feishu status`、凭证、事件订阅、是否另一进程已占入站锁；见 [FEISHU.md](FEISHU.md)。 |
-| 想换「性格」或温度感 | 使用 `.profile` 或设置 `MODEL_PROFILE` / 相关 env，见 [.env.example](../.env.example)。 |
 | 磁盘里会话太多 | 用 `.session` 管理或迁移 `MINI_AGENT_STATE`；理解历史与归档见 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md)。 |
 | 怀疑卡住 | `.status`；必要时查看日志级别 `AGENT_DEBUG`。 |
 
@@ -384,7 +383,7 @@ python -m miniagent --stop
 - 架构与数据流：[ARCHITECTURE.md](ARCHITECTURE.md)  
 - 部署与运维：[DEPLOYMENT.md](DEPLOYMENT.md)
 
-普通用户日常使用 **读到第 16 章即可**；开发贡献请读 [CONTRIBUTING.md](CONTRIBUTING.md) / [ENGINEERING.md](ENGINEERING.md)，并见 **第 18 章** [进阶与维护](#user-guide-sec18-advanced) 表（含 PERFORMANCE、CONTROL_THEORY 等）。
+普通用户日常使用 **读到第 16 章即可**；开发贡献请读 [CONTRIBUTING.md](CONTRIBUTING.md) / [ENGINEERING.md](ENGINEERING.md)，并见 **第 18 章** [进阶与维护](#user-guide-sec18-advanced) 表。
 
 ---
 
@@ -416,7 +415,6 @@ python -m miniagent --stop
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 开发环境、编码与测试约定 |
 | [ENGINEERING.md](ENGINEERING.md) | 质量门禁、CI、`.gitignore` 与单一事实来源 |
 | [PERFORMANCE.md](PERFORMANCE.md) | 性能合成冒烟、基线与剖析 |
-| [CONTROL_THEORY.md](CONTROL_THEORY.md) | 控制论闭环：反馈控制器、状态观测器、自适应策略 |
 | [OUTPUT_FORMAT.md](OUTPUT_FORMAT.md) | CLI/飞书输出格式规范、流式输出、间距规则 |
 
 ---

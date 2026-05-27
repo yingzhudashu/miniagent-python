@@ -23,6 +23,7 @@ class SkillMetadata:
 
     Attributes:
         bins: 必需的系统二进制文件
+        com: 必需的 Windows COM ProgID（如 ``Mathcad.Application``）
         env: 必需的环境变量
         config: 必需的 AgentConfig 字段
         primary_env: 主环境变量名
@@ -34,6 +35,7 @@ class SkillMetadata:
     """
 
     bins: list[str] | None = None
+    com: list[str] | None = None
     env: list[str] | None = None
     config: list[str] | None = None
     primary_env: str | None = None

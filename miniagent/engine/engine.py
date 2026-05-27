@@ -377,8 +377,12 @@ class UnifiedEngine:
                 # 非流式记录（工具行、澄清结果等）：统一走 tool_thought_lines，
                 # 不污染 thinking_by_label 的 LLM 正文前缀
                 tool_thought_lines.append(record)
-            # 使用聚合后的全文内容（飞书卡片需显示完整历史；CLI prefix-diffing 可处理跳变）
-            display_text = thinking_by_label.get(key, "") if (header or "").strip() else text
+            # 非流式显示使用原始 text（工具行），不用 thinking_by_label 的 LLM 正文前缀，
+            # 避免 merge_tools 路径误用 LLM 内容。
+            if not streaming and record:
+                display_text = text
+            else:
+                display_text = thinking_by_label.get(key, "") if (header or "").strip() else text
             await self.thinking.show(
                 display_text or text, session_key, streaming=streaming, header=header
             )
@@ -473,7 +477,7 @@ class UnifiedEngine:
             from miniagent.feishu.poll_server import finalize_feishu_thinking_stream
 
             await finalize_feishu_thinking_stream(
-                feishu_config, im_recv, "gray", self.thinking.thinking_state(session_key)
+                feishu_config, im_recv, "gray", self.thinking.thinking_state(session_key),
             )
         # 流式思考最后一 chunk 往往不以换行结束；否则下一区块（分隔线/回复）会黏在同一行。
         self.thinking.end_thinking()

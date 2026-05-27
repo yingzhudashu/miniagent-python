@@ -34,6 +34,7 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 | | `.session switch <编号/ID>` | 切换会话 |
 | | `.session create <ID> [标题]` | 创建新会话 |
 | | `.session rename <编号/ID> <新标题>` | 重命名会话 |
+| | `.session delete <编号/ID>` | 删除会话 |
 | **实例** | `.instance list` | 列出运行实例 |
 | | `.instance stop <ID>` | 停止指定实例 |
 | **飞书** | `.feishu start` | 启动飞书连接 |
@@ -54,7 +55,10 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 | | `.schedule add …` | 新增 interval / once / cron 任务（须含 ` -- ` 分隔 prompt） |
 | | `.schedule update <id> …` | 修改已有任务（语法同 add） |
 | | `.schedule remove|enable|disable <id>` | 删除 / 启用 / 禁用 |
-| **模型** | `.profile <名称>` | 切换模型预设 |
+| **确认** | `.review` | 对当前会话的最后回复进行自我反驳式审查 |
+| | `.confirm` | 确认待处理的确认请求 |
+| | `.adjust <内容>` | 调整并确认待处理请求 |
+| | `.reject` | 拒绝待处理请求 |
 | **统计** | `.stats` | 工具调用统计 |
 | **控制** | `.stop` | 停止当前实例并退出 |
 | **技能** | `.reload-skills` | 从磁盘全量重新加载 `workspaces/skills`（`install_skill` 成功后通常已自动热加载） |
@@ -101,6 +105,9 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 
 > .session rename 4 我的测试
 ✅ 已重命名: #4 我的测试
+
+> .session delete 4
+✅ 已删除会话: #4 我的测试
 ```
 
 ### .instance — 多实例管理
@@ -193,16 +200,36 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 ✅ 飞书已停止
 ```
 
-### .profile — 模型预设
+### .review — 答案审查
+
+对当前会话中的最后一条回复进行「自我反驳式」审查，发现逻辑漏洞、事实错误或遗漏，并输出改进建议。需要会话上下文和会话管理器。
 
 ```
-> .profile
-当前预设: balanced
-可用: creative, balanced, precise, code, fast
+> .review
 
-> .profile precise
-📡 已切换到预设: precise
+🔍 审查结果: 发现 2 个问题
+1. 未考虑时区差异，计算结果可能偏差
+2. 数据来源未标注，可信度无法评估
+
+💡 改进答案: ...
 ```
+
+### .confirm / .adjust / .reject — 确认侧通道
+
+当 Agent 通过确认通道（`ConfirmationChannel`）发起待确认请求时，可用以下命令响应：
+
+```
+> .confirm
+✅ 已确认通过
+
+> .adjust 使用北京时间计算
+✅ 已调整并确认：使用北京时间计算
+
+> .reject
+✅ 已拒绝
+```
+
+`.confirm` 直接通过；`.adjust` 携带调整内容作为回答注入；`.reject` 拒绝请求。
 
 ## 飞书中使用命令
 

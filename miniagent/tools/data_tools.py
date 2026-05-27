@@ -24,8 +24,15 @@ def _allowed_dirs(ctx: ToolContext) -> list[str]:
 
 
 def _resolve_path(path: str, ctx: ToolContext) -> str:
-    """将路径解析为沙箱允许范围内的绝对路径。"""
-    return resolve_sandbox_path(path, _allowed_dirs(ctx))
+    """将路径解析为沙箱允许范围内的绝对路径。
+
+    相对路径相对于 ``ctx.cwd``（即会话 ``files/`` 目录）解析，
+    而非进程当前工作目录。
+    """
+    p = path.strip()
+    if not os.path.isabs(p):
+        p = os.path.join(ctx.cwd, p)
+    return resolve_sandbox_path(p, _allowed_dirs(ctx))
 
 
 # ─── read_csv ────────────────────────────────────────────

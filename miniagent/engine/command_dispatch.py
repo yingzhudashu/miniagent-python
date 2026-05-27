@@ -16,7 +16,6 @@ from __future__ import annotations
 import io
 import json
 import os
-import sys
 from collections.abc import Callable
 from contextlib import redirect_stdout
 from typing import Any
@@ -135,8 +134,7 @@ async def dispatch_command(
             release_cli_session_lock=True,
             call_unregister=True,
         )
-        print("✅ 当前实例已停止")
-        sys.exit(0)
+        return "__EXIT__"
 
     # ── .instance ──
     if cmd == ".instance":

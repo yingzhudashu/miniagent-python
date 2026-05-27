@@ -39,7 +39,6 @@ class AgentRunOptions:
 
     Attributes:
         system_prompt: 系统提示词覆盖
-        registry: 工具注册表覆盖
         agent_config: Agent 层配置覆盖
         model_config: 模型层配置覆盖
     """

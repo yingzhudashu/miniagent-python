@@ -131,6 +131,7 @@ class _SessionThinkingState:
         "stream_printed",
         "feishu_thinking_message_id",
         "feishu_stream_accumulated",
+        "feishu_stream_llm_len",
         "feishu_last_patch_monotonic",
         "feishu_last_patched_char_len",
         "feishu_patch_budget",
@@ -152,6 +153,7 @@ class _SessionThinkingState:
     stream_printed: int  # 已打印的字符数（用于增量输出）
     feishu_thinking_message_id: str | None
     feishu_stream_accumulated: str
+    feishu_stream_llm_len: int  # LLM 正文字符数，用于工具段保留时的前缀计算
     feishu_last_patch_monotonic: float
     feishu_last_patched_char_len: int
     feishu_patch_budget: int
@@ -174,6 +176,7 @@ class _SessionThinkingState:
         self.stream_printed = 0
         self.feishu_thinking_message_id = None
         self.feishu_stream_accumulated = ""
+        self.feishu_stream_llm_len = 0
         self.feishu_last_patch_monotonic = 0.0
         self.feishu_last_patched_char_len = -1
         self.feishu_patch_budget = 0
@@ -466,7 +469,7 @@ class ThinkingDisplay:
                     finalize_only=False,
                 )
             except Exception as e:
-                _logger.warning("飞书思考发送失败: %s", e, exc_info=True)
+                _logger.warning("飞书思考发送失败: %s", e)
                 err = f"⚠️ 飞书发送失败: {e}\n"
                 if self._output_sink:
                     if self._sink_has_kind:
@@ -533,14 +536,31 @@ class ThinkingDisplay:
                         pass
                 state.stream_done = True
                 saved_header = state.stream_header
-            state.stream_step = None
-            state.stream_header = ""
-            state.stream_done = False
-            state.stream_printed = 0
-            state._last_stream_full = ""
 
             step = self._next_step(session_key)
             lines = (text or "").splitlines() or [""]
+
+            # 无活跃流但有 header 且 merge_tools 开启：初始化流状态，
+            # 使后续同 header 的非流式调用能走 merge_tools 路径合并。
+            if (
+                _merge_tools_enabled()
+                and bool(hdr)
+                and state.stream_step is None
+            ):
+                state.stream_step = step
+                state.stream_header = hdr
+                state.stream_printed = 0
+                state.stream_done = False
+                state._last_stream_full = ""
+                if self._should_emit_cli(state):
+                    label = f"\U0001f4ad [{state.stream_step}] {state.stream_header}"
+                    self._emit_line(label, "blue")
+                if self._should_emit_cli(state):
+                    body = "\n".join(lines)
+                    self._emit(body + "\n")
+                state.stream_done = False
+                return
+
             if self._should_emit_cli(state):
                 hdr_part = f" {saved_header}" if saved_header else ""
                 self._emit_line(f"\U0001f4ad [{step}]{hdr_part}", "blue")

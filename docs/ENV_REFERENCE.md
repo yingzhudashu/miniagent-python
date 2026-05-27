@@ -13,7 +13,7 @@
 | `OPENAI_API_KEY` | *(空)* | LLM API 密钥，启动必须 |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | API 基础 URL，可指向兼容 OpenAI 的第三方服务 |
 | `OPENAI_MODEL` | `gpt-4o-mini` | 主模型名称 |
-| `TAVILY_API_KEY` | *(空)* | Web 搜索 API 密钥（`web_search` 工具需要） |
+| `TAVILY_API_KEY` | *(空)* | Web 搜索 API 密钥（`web_search` 技能工具需要） |
 | `FEISHU_APP_ID` | *(空)* | 飞书应用 ID（`--feishu` 启动时必须） |
 | `FEISHU_APP_SECRET` | *(空)* | 飞书应用 Secret |
 | `FEISHU_VERIFICATION_TOKEN` | *(空)* | 飞书事件订阅验证 Token |
@@ -47,7 +47,6 @@
 | `AGENT_LOG_TOKEN_USAGE` | `true` | 是否记录 token 使用量 |
 | `MINIAGENT_TASK_CLASSIFIER` | `1` | 是否启用规划前任务难度分类 |
 | `MINIAGENT_PHASED_EXECUTION` | `1` | 是否启用分步执行模式 |
-| `MINIAGENT_CONTROL_THEORY` | `1` | 是否启用控制论反馈闭环（`0`/`false`/`off` 关闭） |
 | `MINIAGENT_REQUIREMENT_CLARIFY` | `1` | 是否启用规划前需求澄清（`0` 关闭） |
 | `MINIAGENT_REFLECTION` | `1` | 是否启用执行后自我反思（`0` 关闭） |
 | `MINIAGENT_THINKING_MERGE_TOOLS` | `1` | 合并相邻工具执行的 thinking 记录 |
@@ -99,6 +98,8 @@
 | `MINIAGENT_FEISHU_WS_WATCHDOG_INTERVAL_S` | `30` | 看门狗检测间隔（秒） |
 | `MINIAGENT_FEISHU_WS_DEAD_CONN_GRACE_S` | `90` | 死连接宽限期（秒） |
 | `MINIAGENT_FEISHU_WS_RECONNECT_GRACE_S` | `300` | 重连宽限期（秒） |
+| `MINIAGENT_FEISHU_WS_REFRESH_INTERVAL_S` | *(跟随 SDK 默认)* | WebSocket 连接刷新间隔（秒） |
+| `MINIAGENT_FEISHU_WS_IDLE_REFRESH_S` | *(跟随 SDK 默认)* | 空闲时 WebSocket 刷新间隔（秒） |
 
 ## 8. 定时任务 & 时区
 

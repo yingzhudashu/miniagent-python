@@ -4,7 +4,7 @@
 
 ## 架构总览
 
-Mini Agent Python 采用 **两阶段架构**（Plan → Execute），通过 **ReAct 循环** 实现 LLM 驱动的智能代理。系统分为 11 个功能层，支持 CLI 和飞书双通道接入，并通过 **ChannelRouter** 实现通道绑定与会话共享。
+Mini Agent Python 采用 **两阶段架构**（Plan → Execute），通过 **ReAct 循环** 实现 LLM 驱动的智能代理。系统分为 **12 个功能层**（含可选 MCP 层），支持 CLI 和飞书双通道接入，并通过 **ChannelRouter** 实现通道绑定与会话共享。
 
 ```
                     用户输入
@@ -208,12 +208,16 @@ LLM 可通过 function calling 调用的工具：
 |------|------|
 | `exec.py` | 命令执行 (subprocess) |
 | `filesystem.py` | 文件操作 (read/write/list/edit) |
-| `web.py` | 时间查询 (get_time) |
+| `web.py` | 时间查询 (get_time)、依赖检查 (check_app_availability) |
+| `data_tools.py` | 数据处理 (read_csv/write_csv/json_read/json_write) |
 | `skills.py` | 技能操作 (install/uninstall/list) |
 | `session_memory.py` | 会话级记忆辅助工具（由 `engine/init` 注册） |
 | `cli_dispatch_tools.py` | `run_dot_command`：经 [`command_dispatch.dispatch_command`](miniagent/engine/command_dispatch.py) 执行点命令（`capture=True`，与 CLI 同源） |
 | `schedule_tools.py` | `manage_scheduled_task`：定时任务结构化 CRUD |
 | `feishu_im_tools.py` | 可选飞书 IM/云文档工具（需 `pip install -e ".[feishu]"`） |
+| `feishu_doc_tools.py` | 飞书文档操作（create/append/list_blocks 等） |
+| `feishu_bitable_tools.py` | 飞书多维表格操作（get_meta/list_fields/list_records/create_record 等） |
+| `feishu_card_tools.py` | 飞书卡片消息更新（update_message_card） |
 
 **run_dot_command 与进程状态**：[`UnifiedEngine.run_agent_with_thinking`](miniagent/engine/engine.py) 将共享 [`CliLoopState`](miniagent/engine/cli_state.py) 写入 `AgentConfig.cli_loop_state`，[`execute_plan`](miniagent/core/executor.py) 再注入 `ToolContext`。飞书入站路径下默认 `cli_dispatch_allow_mutations=False`（与飞书里直接发 `.session` / `.schedule` 变异一致）；**`MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1`** 时为 True，与 CLI 同等。若嵌入代码只调用 [`run_agent`](miniagent/core/agent.py) 而不经 `run_agent_with_thinking`，需在 `agent_config` 中自行传入 `cli_loop_state`（及按需的 `cli_dispatch_allow_mutations`），否则工具会返回不可用说明。注册开关：环境变量 **`MINIAGENT_CLI_DOT_TOOLS`**（默认开启，`0`/`false`/`off` 跳过注册，见 `.env.example`）。
 

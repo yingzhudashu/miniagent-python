@@ -135,9 +135,11 @@ class ActivityLogger:
         """记录 LLM 调用详情。
 
         记录模型名称、消息数、工具数、token 用量和思考内容（截断 500 字）。
+        注意：此方法不单独写入 session_key 标识；会话标识由 ``log_session_start`` 写入，
+        调用方应确保先调用 ``log_session_start``。
 
         Args:
-            session_key: 会话标识符
+            session_key: 会话标识符（由调用方传入，日志头由 log_session_start 写入）
             turn: 当前轮次编号
             model: 使用的模型名称
             message_count: 上下文消息数
@@ -170,9 +172,10 @@ class ActivityLogger:
         """记录工具调用详情。
 
         记录工具名、意图、参数、结果（截断 500 字）、耗时和成功状态。
+        注意：会话标识由 ``log_session_start`` 写入，此方法仅追加调用详情。
 
         Args:
-            session_key: 会话标识符
+            session_key: 会话标识符（由 log_session_start 写入日志头）
             tool_name: 工具名称
             intent: 工具调用意图描述
             args: 工具调用参数
@@ -196,8 +199,10 @@ class ActivityLogger:
     def log_final_reply(self, session_key: str, reply: str) -> None:
         """记录最终回复（截断 1000 字）。
 
+        注意：会话标识由 ``log_session_start`` 写入，此方法仅追加回复内容。
+
         Args:
-            session_key: 会话标识符
+            session_key: 会话标识符（由 log_session_start 写入日志头）
             reply: LLM 最终回复内容
         """
         self._append(f"### 最终回复\n\n{reply[:1000]}\n\n")

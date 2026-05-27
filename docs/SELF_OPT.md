@@ -7,7 +7,7 @@
 
 ## 概述
 
-Self-Opt 是 Mini Agent 的自我优化机制，通过对项目代码进行静态分析与结构检查，识别质量问题和痛点，生成可读的优化提案，并在约束下安全地应用变更。
+Self-Opt 是 Mini Agent 的自我优化机制，通过对项目代码进行静态分析和结构检查，识别质量问题和痛点，生成可读的优化提案，并在约束下安全地应用变更。
 
 > **不是对话日志分析器。** 本子系统面向**代码质量**（而非运行时对话），与「记忆层」和「活动日志」正交。
 
@@ -25,11 +25,17 @@ miniagent/core/self_opt/
 
 Self-Opt 作为编程 API 使用（见下方类型模型）；不再作为 Agent 工具暴露。
 
-环境变量 **`MINIAGENT_SELF_OPT_TOOLS=0`** 曾用于关闭工具注册（工具已移除，该变量不再有效）。
-
 ## 类型模型
 
 核心类型由 `miniagent.core.self_opt` 包级导出：
+
+```python
+from miniagent.core.self_opt import (
+    ModuleAnalysis, PainPoint, InspectionReport,
+    FileChange, OptimizationProposal, OptimizationResult,
+    CodeQualityMetric, OptTestCase, OptTestSummary,
+)
+```
 
 | 类型 | 说明 |
 |------|------|
@@ -64,7 +70,7 @@ Self-Opt 作为编程 API 使用（见下方类型模型）；不再作为 Agent
 - 痛点识别（长文件、低覆盖、无文档等）
 
 ```python
-from miniagent.core.self_opt import inspect_project
+from miniagent.core.self_opt.inspector import inspect_project
 
 report = await inspect_project(root="/path/to/project")
 # report: InspectionReport
@@ -82,7 +88,7 @@ report = await inspect_project(root="/path/to/project")
 - 每个提案含信心度与风险等级
 
 ```python
-from miniagent.core.self_opt import generate_proposals
+from miniagent.core.self_opt.proposal_engine import generate_proposals
 
 proposals = await generate_proposals(report, root="/path/to/project")
 # proposals: list[OptimizationProposal]
@@ -98,7 +104,7 @@ proposals = await generate_proposals(report, root="/path/to/project")
 - 记录执行结果
 
 ```python
-from miniagent.core.self_opt import apply_proposal
+from miniagent.core.self_opt.auto_optimizer import apply_proposal
 
 result = await apply_proposal(proposal, root="/path/to/project")
 # result: OptimizationResult
@@ -108,7 +114,7 @@ result = await apply_proposal(proposal, root="/path/to/project")
 完整编排（分析 → 提案 → 应用）：
 
 ```python
-from miniagent.core.self_opt import run_auto_optimization
+from miniagent.core.self_opt.auto_optimizer import run_auto_optimization
 
 result = await run_auto_optimization(
     root="/path/to/project",
@@ -122,7 +128,7 @@ result = await run_auto_optimization(
 在优化前后创建 Git 快照，支持回滚：
 
 ```python
-from miniagent.core.self_opt import (
+from miniagent.core.self_opt.git_snapshot import (
     is_in_git_repo,
     has_uncommitted_changes,
     create_snapshot,
@@ -139,12 +145,6 @@ sha = create_snapshot("before-optimization")
 # 需要回滚时:
 # rollback_snapshot(sha)
 ```
-
-## 工具接口（已移除）
-
-Agent 工具注册 `miniagent/tools/self_opt.py` 已删除。若需要 Agent 使用自优化能力，可参考下方的编程 API 自行封装工具。
-
-~~`self_inspect`~~、~~`generate_proposal`~~、~~`run_self_opt_tests`~~、~~`git_snapshot`~~ 等工具已不再自动注册。
 
 ## 环境变量
 

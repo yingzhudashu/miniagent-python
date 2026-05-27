@@ -275,7 +275,7 @@ class ContextManagerProtocol(Protocol):
 
 
 # Forward reference fix
-from miniagent.types.memory import SessionMemory  # noqa: E402, F401
+from miniagent.types.memory import SessionMemory  # noqa: E402
 
 __all__ = [
     "ToolPermission",

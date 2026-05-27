@@ -940,7 +940,7 @@ async def run_cli_loop(
                 call_unregister=True,
             )
             term_write("\u2705 \u5f53\u524d\u5b9e\u4f8b\u5df2\u505c\u6b62", "ansigreen")
-            sys.exit(0)
+            break
 
         # ── 其余点命令：统一走 dispatch（capture → transcript，避免 print 破坏全屏）──
         if user_input.startswith("."):
@@ -958,6 +958,8 @@ async def run_cli_loop(
                 allow_session_mutations_when_capture=True,
                 feishu_user_status=_feishu_user_status_fn(ctx),
             )
+            if reply == "__EXIT__":
+                break
             if reply is not None:
                 term_write(reply + "\n")
                 continue
@@ -1139,7 +1141,7 @@ async def _run_cli_loop_fallback(
                 call_unregister=True,
             )
             print("\u2705 \u5f53\u524d\u5b9e\u4f8b\u5df2\u505c\u6b62")
-            sys.exit(0)
+            break
 
         if user_input.startswith(".instance"):
             parts = user_input.split()
@@ -1248,6 +1250,8 @@ async def _run_cli_loop_fallback(
                 feishu_user_status=_feishu_user_status_fn(ctx),
                 capture=False,
             )
+            if result == "__EXIT__":
+                break
             if result is not None:
                 print(result)
             continue
@@ -1384,6 +1388,8 @@ def _create_feishu_handler(
                     allow_session_mutations_when_capture=feishu_dot_commands_full_enabled(),
                     message_queue_abort_chat_id=chat_id,
                 )
+                if reply == "__EXIT__":
+                    return ""  # .stop 已通过 shutdown_runtime 清理，无需回复
                 if reply is not None:
                     _maybe_auto_bind_p2p(chat_type, sender_id, state)
                     cmd_sk = channel_router.resolve_feishu_message(chat_id, sender_id, chat_type)
@@ -1459,9 +1465,10 @@ def _create_feishu_handler(
                 cli_loop_state=state,
                 feishu_mirror_cli=mirror_cli,
             )
-            return reply
+            # 飞书单消息：思考 + 工具均在思考卡中展示，抑制独立回复消息。
+            return ""
         except Exception as e:
-            return f"\u26a0\ufe0f \u5904\u7406\u5931\u8d25: {e}"
+            return f"⚠️ 处理失败: {e}"
 
     async def media_handler(
         cfg: Any,
@@ -1576,7 +1583,8 @@ def _create_feishu_handler(
                 cli_loop_state=state,
                 feishu_mirror_cli=media_mirror_cli,
             )
-            return reply
+            # 飞书单消息：思考 + 工具均在思考卡中展示，抑制独立回复消息。
+            return ""
         except Exception as e:
             return f"\u2705 \u5df2\u4fdd\u5b58 {rel}\uff08Agent \u5904\u7406\u5931\u8d25: {e}\uff09"
 

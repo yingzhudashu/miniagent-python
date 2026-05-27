@@ -44,6 +44,7 @@ def process_timezone() -> str:
         ok = _validate_iana(raw)
         if ok:
             return ok
+    # 理论上不可达（Asia/Shanghai 始终有效），保留以防极端环境 zoneinfo 缺失
     return "UTC"
 
 

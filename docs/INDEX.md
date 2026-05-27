@@ -24,11 +24,7 @@
 
 **开发**：[CONTRIBUTING.md](CONTRIBUTING.md) · [ENGINEERING.md](ENGINEERING.md)（含多实例注册表、离线测评）
 
-**控制论**：[CONTROL_THEORY.md](CONTROL_THEORY.md) — 反馈控制器、状态观测器、自适应策略
-
 **输出格式**：[OUTPUT_FORMAT.md](OUTPUT_FORMAT.md) — CLI/飞书输出格式规范、流式输出、间距规则
-
-**探索性**：~~CYBERNETICS_PLAN.md~~ — 已实现并合并到 ARCHITECTURE.md 与 CONTROL_THEORY.md
 
 ## 📁 项目结构
 

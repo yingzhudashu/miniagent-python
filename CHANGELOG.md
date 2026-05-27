@@ -74,7 +74,7 @@
 ### Documentation
 
 - **目录树**：`docs/INDEX.md` 与 `docs/ARCHITECTURE.md` 同步 `mcp/`、`memory` 管线模块、`tools/git_readonly`、`session_memory`、`infrastructure/tracing` 等；README「项目结构」改为指向 INDEX。
-- **版本标语**：核心与专题文档页眉与 `miniagent.__version__`（**2.0.2**）对齐；完整清单见 [docs/ENGINEERING.md](docs/ENGINEERING.md) §5。补全 `CLI.md`、`FEISHU.md`、`SELF_OPT.md`、`CHANNEL_BINDING.md`、`CYBERNETICS_PLAN.md` 页眉。
+- **版本标语**：核心与专题文档页眉与 `miniagent.__version__`（**2.0.2**）对齐；完整清单见 [docs/ENGINEERING.md](docs/ENGINEERING.md) §5。补全 `CLI.md`、`FEISHU.md`、`SELF_OPT.md`、`CHANNEL_BINDING.md` 页眉。
 - **关键词索引**：`keyword_index` 模块说明标明索引路径相对 ``state_dir`` / ``MINI_AGENT_STATE``。
 
 ### Fixes

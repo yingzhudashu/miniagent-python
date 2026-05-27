@@ -87,6 +87,11 @@ async def _run_dot_command_handler(args: dict[str, Any], ctx: ToolContext) -> To
             success=False,
             content="⚠️ 未识别的点命令；请使用 .help 查看列表。",
         )
+    if out == "__EXIT__":
+        return ToolResult(
+            success=True,
+            content="✅ 实例已停止",
+        )
     stripped = (out or "").strip()
     if not stripped:
         return ToolResult(

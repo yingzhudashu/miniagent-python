@@ -122,6 +122,7 @@ def _map_oc_metadata(meta: dict[str, Any]) -> Any | None:
             return None
 
     bins: list[str] | None = None
+    com: list[str] | None = None
     env: list[str] | None = None
     config: list[str] | None = None
     primary_env: str | None = None
@@ -135,6 +136,7 @@ def _map_oc_metadata(meta: dict[str, Any]) -> Any | None:
             requires = clawdbot.get("requires")
             if isinstance(requires, dict):
                 bins = requires.get("bins")
+                com = requires.get("com")
                 env = requires.get("env")
                 config = requires.get("config")
             primary_env = clawdbot.get("primaryEnv")
@@ -143,6 +145,7 @@ def _map_oc_metadata(meta: dict[str, Any]) -> Any | None:
         else:
             # 路径 2: 扁平 miniagent 格式
             bins = raw.get("bins")
+            com = raw.get("com")
             env = raw.get("env")
             config = raw.get("config")
             primary_env = raw.get("primary_env") or raw.get("primaryEnv")
@@ -161,6 +164,7 @@ def _map_oc_metadata(meta: dict[str, Any]) -> Any | None:
 
     return SkillMetadata(
         bins=_to_str_list(bins),
+        com=_to_str_list(com),
         env=_to_str_list(env),
         config=_to_str_list(config),
         primary_env=str(primary_env) if primary_env else None,

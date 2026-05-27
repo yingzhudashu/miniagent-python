@@ -440,4 +440,4 @@ def _fallback_plan(user_input: str) -> StructuredPlan:
     )
 
 
-__all__ = ["generate_plan", "AGENT_NAME", "PLAN_SYSTEM_PROMPT"]
+__all__ = ["generate_plan"]

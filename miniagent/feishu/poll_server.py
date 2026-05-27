@@ -71,8 +71,6 @@ def feishu_outbound_reply_params(
         ``(reply_parent_message_id_or_None, reply_in_thread)``
     """
     mode = env_str("MINIAGENT_FEISHU_REPLY_TARGET", "reply").lower()
-    if mode not in ("create", "reply"):
-        return None, False
     if mode != "reply":
         return None, False
     mid = (trigger_message_id or "").strip()
@@ -337,8 +335,15 @@ def try_begin_processing(message_id: str) -> bool:
     return True
 
 
-def release_processing(message_id: str):
-    """释放处理权 + 记录到磁盘去重。"""
+def release_processing(message_id: str) -> None:
+    """释放处理权并记录到磁盘去重。
+
+    从内存处理权映射中移除该消息 ID，同时写入磁盘去重映射并
+    执行容量裁剪（超过 DEDUP_MAX_SIZE 时删除最老的 20%）。
+
+    Args:
+        message_id: 飞书消息 ID
+    """
     key = _resolve_dedup_key(message_id)
     if not key:
         return
@@ -372,10 +377,6 @@ def _feishu_media_reply_indicates_failure(reply: str | None) -> bool:
 
 # 初始化磁盘去重
 _load_disk_dedup()
-
-
-# ─── 消息队列 ───
-# 已由 miniagent.infrastructure.message_queue.MessageQueueManager 统一管理
 
 
 # ─── 长轮询入口：WSClient、事件回调、handler 内投递 message_queue ───
@@ -558,11 +559,8 @@ async def start_feishu_poll_server(
                             )
                             asyncio.create_task(mq.dispatch(chat_id, _handle()))
                     else:
-                        _logger.debug(
-                            "飞书拦截: 无待确认请求 (_cc_eng=%s, has_pending=%s)，走消息队列",
-                            _cc_eng is not None,
-                            _cc.has_pending if _cc else "N/A",
-                        )
+                        # _cc.has_pending 已为 False，无需重复打印
+                        _logger.debug("飞书拦截: 无待确认请求，走消息队列")
                         asyncio.create_task(mq.dispatch(chat_id, _handle()))
             elif msg_type in ("file", "image") and media_handler:
                 parsed_media = _parse_feishu_media_payload(msg_type, content_str)
@@ -1210,16 +1208,43 @@ async def push_feishu_thinking_stream(
     if not chat_id:
         return
 
+    # 先提取工具段（两条路径都需要），避免在 if/else 中重复。
+    # 注意：仅在上一轮确实追加过工具段时才需要保留（feishu_tool_section_started）。
+    _TOOL_MARKER = "\n\n**工具**"
+    existing = getattr(st, "feishu_stream_accumulated", "") or ""
+    llm_prefix_len = getattr(st, "feishu_stream_llm_len", 0)
+    tool_section = ""
+    if _TOOL_MARKER in existing and getattr(st, "feishu_tool_section_started", False):
+        tool_section = existing[existing.index(_TOOL_MARKER):]
+
     if new_round:
-        st.feishu_thinking_message_id = None
+        # 复用同一张思考卡：若上一轮有工具段，先保留旧轮 LLM 正文（不含工具段），
+        # 用分隔符衔接新轮；新轮的 LLM 正文写入后再重新附上工具段，避免新旧轮重复。
+        # 若上一轮无工具（tool_section 为空），直接初始化，由新轮 LLM 内容填充。
+        _round_separator = bool(tool_section)
+        if _round_separator:
+            idx = existing.index(_TOOL_MARKER)
+            llm_only = existing[:idx].rstrip()
+            st.feishu_stream_accumulated = (llm_only + "\n\n---\n\n") if llm_only else "\n\n---\n\n"
+        else:
+            st.feishu_stream_accumulated = ""
         st.feishu_last_patch_monotonic = 0.0
         st.feishu_last_patched_char_len = -1
         st.feishu_patch_budget = FEISHU_THINKING_PATCH_BUDGET
         st.feishu_tool_section_started = False
+        st.feishu_stream_llm_len = 0
+    else:
+        _round_separator = False
 
-    # markdown 来自执行器的 on_thinking 流式回调，已是累积全文（executor 内 full_content += delta.content）。
-    # 此处直接替换，不要再次拼接，否则产生 A+AB+ABC 的重复输出。
-    st.feishu_stream_accumulated = markdown
+    if _round_separator:
+        # 新轮已写入分隔符（仅含旧轮 LLM 正文），追加新轮 LLM 正文并重新附上工具段。
+        st.feishu_stream_accumulated += (markdown or "")
+        st.feishu_stream_accumulated += tool_section
+    elif tool_section and (markdown or "").startswith((existing[:llm_prefix_len] if llm_prefix_len else "") or ""):
+        st.feishu_stream_accumulated = (markdown or "") + tool_section
+    else:
+        st.feishu_stream_accumulated = markdown
+    st.feishu_stream_llm_len = len(markdown or "")
     cleaned = _prepare_thinking_markdown(st.feishu_stream_accumulated)
     card_json = json.dumps(_thinking_interactive_card_dict(cleaned, template), ensure_ascii=False)
 
@@ -1269,6 +1294,7 @@ async def finalize_feishu_thinking_stream(
         st.feishu_stream_accumulated = ""
         st.feishu_last_patched_char_len = -1
         st.feishu_tool_section_started = False
+        st.feishu_stream_llm_len = 0
         return
     if not acc.strip():
         # 无累积内容，直接清理状态
@@ -1276,6 +1302,7 @@ async def finalize_feishu_thinking_stream(
         st.feishu_stream_accumulated = ""
         st.feishu_last_patched_char_len = -1
         st.feishu_tool_section_started = False
+        st.feishu_stream_llm_len = 0
         return
     prep = _prepare_thinking_body_for_card(acc, apply_cap=False)
     chunks = _chunk_feishu_card_markdown(prep, already_normalized=True)
@@ -1284,7 +1311,7 @@ async def finalize_feishu_thinking_stream(
     nch = len(chunks)
     first_body = _prepare_card_markdown(chunks[0], normalize=False)
     card_json = json.dumps(
-        _thinking_interactive_card_dict(first_body, template), ensure_ascii=False
+        _thinking_interactive_card_dict(first_body, template), ensure_ascii=False,
     )
     patched = _patch_interactive_thinking_message(config, mid, card_json)
     if not patched:
@@ -1312,6 +1339,7 @@ async def finalize_feishu_thinking_stream(
         st.feishu_stream_accumulated = ""
         st.feishu_last_patched_char_len = -1
         st.feishu_tool_section_started = False
+        st.feishu_stream_llm_len = 0
 
 
 async def append_feishu_thinking_same_card(

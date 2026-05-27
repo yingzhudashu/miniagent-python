@@ -112,10 +112,9 @@ async def test_capture_stop_allowed_when_full_enabled() -> None:
             "miniagent.engine.shutdown.shutdown_runtime",
             new_callable=AsyncMock,
         ) as mock_shutdown:
-            with patch("miniagent.engine.command_dispatch.sys.exit") as mock_exit:
-                await dispatch_command(".stop", state=state, capture=True)
+            result = await dispatch_command(".stop", state=state, capture=True)
         mock_shutdown.assert_awaited_once()
-        mock_exit.assert_called_once_with(0)
+        assert result == "__EXIT__"
     finally:
         if old is None:
             os.environ.pop(key, None)

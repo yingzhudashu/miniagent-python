@@ -299,3 +299,54 @@ async def test_cli_phase_changed_resets_stream_without_feishu() -> None:
     chunks = "".join(t for t, k in sink if k == "chunk")
     assert "planning body" in chunks
     assert "exec body" in chunks
+
+
+@pytest.mark.asyncio
+async def test_cli_tools_merge_without_prior_streaming() -> None:
+    """LLM 无正文仅工具调用时，首个工具行初始化流状态，后续工具行合并。"""
+    from miniagent.engine.thinking import ThinkingDisplay
+
+    td = ThinkingDisplay()
+    sink: list[tuple[str, str]] = []
+
+    def capture(text: str, kind: str = "chunk") -> None:
+        sink.append((text, kind))
+
+    td.set_output_sink(capture)
+    label = "[执行]"
+
+    # 无 streaming=True 调用，直接非流式工具行
+    await td.show("🔧 tool_a — x", streaming=False, header=label)
+    await td.show("🔧 tool_b — y", streaming=False, header=label)
+
+    label_lines = [t for t, k in sink if k == "label"]
+    # 应只有一条轮次 label（由首个工具初始化）
+    assert len(label_lines) == 1
+    assert label in label_lines[0]
+
+    chunks = "".join(t for t, k in sink if k == "chunk")
+    assert "tool_a" in chunks and "tool_b" in chunks
+
+
+@pytest.mark.asyncio
+async def test_cli_tools_no_merge_when_disabled_and_no_prior_streaming(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MINIAGENT_THINKING_MERGE_TOOLS", "0")
+    from miniagent.engine.thinking import ThinkingDisplay
+
+    td = ThinkingDisplay()
+    sink: list[tuple[str, str]] = []
+
+    def capture(text: str, kind: str = "chunk") -> None:
+        sink.append((text, kind))
+
+    td.set_output_sink(capture)
+    label = "[执行]"
+
+    await td.show("🔧 tool_a — x", streaming=False, header=label)
+    await td.show("🔧 tool_b — y", streaming=False, header=label)
+
+    label_lines = [t for t, k in sink if k == "label"]
+    # merge_tools 关闭时，每个工具应有独立 label
+    assert len(label_lines) == 2

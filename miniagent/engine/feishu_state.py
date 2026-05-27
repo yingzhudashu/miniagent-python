@@ -202,7 +202,7 @@ class FeishuRuntime:
                         raise
                     except Exception as e:
                         _logger.error(
-                            "[\u98de\u4e66] \u8fd0\u884c\u5f02\u5e38: %s", e, exc_info=True
+                            "[\u98de\u4e66] \u8fd0\u884c\u5f02\u5e38: %s", e
                         )
                         self._emit_user_line(
                             f"\u2139\ufe0f [\u98de\u4e66] \u8fde\u63a5\u5f02\u5e38\uff0c\u5c06\u91cd\u8bd5: {e}"
