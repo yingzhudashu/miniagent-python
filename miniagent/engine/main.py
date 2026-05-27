@@ -329,10 +329,11 @@ async def run_cli_loop(
     from miniagent.engine.session_lock import release_session_lock
 
     def _load_session_history_to_input(state: dict, buf: Buffer) -> None:
-        """将当前会话的用户命令注入 prompt_toolkit 输入历史，使上下键可回顾。
+        """将当前会话的用户消息注入 prompt_toolkit 输入历史，使上下键可回顾。
 
-        仅加载以 ``.`` 开头的点命令（如 ``.review``、``.bind`` 等），
-        不加载普通对话消息，避免命令历史与对话内容混杂。
+        加载所有用户消息（普通对话 + 点命令），使上下键可回顾已发送的输入。
+        FileHistory 已保存交互输入到 history.txt，但此函数确保会话级历史
+        在进程重启或切换会话时也能被恢复。
         """
         sm = state.get("session_manager")
         if sm is None:
@@ -356,8 +357,7 @@ async def run_cli_loop(
             for msg in messages:
                 if isinstance(msg, dict) and msg.get("role") == "user":
                     content = (msg.get("content") or "").strip()
-                    # 仅加载点命令，跳过普通对话消息
-                    if content.startswith("."):
+                    if content:
                         buf.history.append_string(content)
         except Exception:
             pass  # 历史加载失败不影响启动
