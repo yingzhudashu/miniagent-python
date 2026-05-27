@@ -1453,6 +1453,58 @@ async def _send_thinking(
         _logger.debug("发送思考异常: %s", e)
 
 
+async def send_reflection_card(
+    config: FeishuConfig,
+    chat_id: str,
+    reflection: Any,
+    *,
+    reply_to_message_id: str | None = None,
+    thread_id: str | None = None,
+) -> None:
+    """发送质量评估独立卡片。
+
+    Args:
+        config: 飞书配置
+        chat_id: 聊天 ID
+        reflection: ReflectionResult 对象
+        reply_to_message_id: 回复的目标消息 ID
+        thread_id: 话题 ID
+    """
+    chat_id = _normalize_im_receive_chat_id(chat_id)
+    if not chat_id:
+        return
+
+    status = "质量评估通过" if getattr(reflection, "acceptable", True) else "质量评估需改进"
+    template = "gray" if reflection.acceptable else "warning"
+    score = getattr(reflection, "quality_score", 0)
+    suggestions = getattr(reflection, "suggestions", []) or []
+
+    lines: list[str] = [
+        "### 质量评估结果",
+        f"- **状态**：{status}",
+        f"- **评分**：{score:.1f}/1.0",
+    ]
+    if suggestions:
+        lines.append("")
+        lines.append("### 改进建议")
+        for s in suggestions[:5]:
+            lines.append(f"- {s}")
+
+    body = "\n".join(lines)
+    cleaned = _prepare_thinking_markdown(body)
+    card_json = json.dumps(_thinking_interactive_card_dict(cleaned, template), ensure_ascii=False)
+
+    ok, _ = _post_interactive_message(
+        config,
+        receive_id=chat_id,
+        card_json=card_json,
+        reply_to_message_id=reply_to_message_id,
+        reply_in_thread=bool(thread_id),
+    )
+    if not ok:
+        _logger.warning("发送质量评估卡片失败")
+
+
 def _send_interactive_reply_cards(
     config: FeishuConfig,
     cid: str,

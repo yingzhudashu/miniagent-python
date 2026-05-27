@@ -193,6 +193,7 @@ async def run_agent(
     clarifier: Any | None = None,
     session_key: str | None = None,
     confirmation_channel: Any | None = None,
+    engine: Any | None = None,
 ) -> str:
     """运行 Agent（两阶段模式）。
 
@@ -490,12 +491,15 @@ async def run_agent(
         from miniagent.core.problem_solver import reflect_on_result
 
         reflection = await reflect_on_result(user_input, reply, client=client, on_thinking=on_thinking)
-        # 反思结果始终追加到回复末尾，作为质量评估与输出结束标记
+        # 存储到引擎供飞书发送独立质量卡片
+        if engine is not None:
+            engine._last_reflection = reflection
+        # CLI 侧：在回复末尾追加质量评估尾部（飞书侧会发送独立卡片，不再依赖此处）
         status = "质量评估通过" if reflection.acceptable else "质量评估需改进"
         reflection_footer = f"\n\n---\n🤖 {status} | 质量评分 {reflection.quality_score:.1f}"
         if reflection.suggestions:
             reflection_footer += "\n\n建议：\n" + "\n".join(
-                f"- {s}" for s in reflection.suggestions[:3]
+                f"- {s}" for s in reflection.suggestions[:5]
             )
         reply = reply + reflection_footer
 

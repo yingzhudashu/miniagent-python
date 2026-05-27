@@ -67,9 +67,10 @@ class UnifiedEngine:
         from miniagent.engine.thinking import ThinkingDisplay
 
         self.thinking = ThinkingDisplay()
-        self._clarifier: Any | None = None  # 懒加载：需求澄清器
-        self._exec_lock = asyncio.Lock()  # 进程级锁：序列化所有 run_agent_with_thinking 调用
-        self._confirmation_channel: Any | None = None  # ConfirmationChannel 实例
+        self._clarifier: Any | None = None
+        self._exec_lock = asyncio.Lock()
+        self._confirmation_channel: Any | None = None
+        self._last_reflection: Any | None = None
 
     async def run_agent_with_thinking(
         self,
@@ -471,6 +472,7 @@ class UnifiedEngine:
             clarifier=self._get_clarifier(),
             session_key=session_key,
             confirmation_channel=self._get_confirmation_channel(),
+            engine=self,
         )
         # 无工具调用等场景：最后一轮 LLM 流结束后无 streaming=False，需在此 PATCH 落盘全文
         if is_feishu and feishu_config:

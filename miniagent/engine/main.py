@@ -740,13 +740,18 @@ async def run_cli_loop(
     }
 
     def term_write(text: str = "", color: str = "") -> None:
-        """写入上方 transcript（样式类，非裸 ANSI）。"""
+        """写入上方 transcript。优先尝试 markdown 渲染，失败降级为样式文本。"""
         if text == "":
             return
-        style = _LEGACY_COLOR_CLASS.get(color, "class:cli-default")
         if not text.endswith("\n"):
             text = text + "\n"
-        _append_transcript(style, text)
+        try:
+            md_w = max(40, _viewport_cols() - 2)
+            ansi_body = render_markdown_to_ansi(text, width=md_w)
+            _append_transcript(ansi_body)
+        except Exception:
+            style = _LEGACY_COLOR_CLASS.get(color, "class:cli-default")
+            _append_transcript(style, text)
 
     def _thinking_sink(
         fragment: str,
@@ -775,7 +780,24 @@ async def run_cli_loop(
                 _stick_bottom[0] = False
             return
         style = "class:cli-think-head" if kind == "label" else "class:cli-think-body"
-        _append_transcript(style, fragment)
+        if kind == "label":
+            _append_transcript(style, fragment)
+        else:
+            # 正文：优先尝试 markdown 渲染
+            try:
+                md_w = max(40, _viewport_cols() - 2)
+                ansi_body = render_markdown_to_ansi(fragment, width=md_w)
+                from prompt_toolkit.formatted_text import ANSI
+                _transcript.append(ANSI(ansi_body))
+                _trim_transcript()
+                try:
+                    get_app().invalidate()
+                except Exception:
+                    pass
+                if _output_at_bottom() or _stick_bottom[0]:
+                    _snap_output_bottom()
+            except Exception:
+                _append_transcript(style, fragment)
 
     engine.thinking.set_output_sink(_thinking_sink)
     engine.thinking.set_cli_markdown_width(lambda: max(40, _viewport_cols() - 2))
@@ -1463,6 +1485,20 @@ def _create_feishu_handler(
                 cli_loop_state=state,
                 feishu_mirror_cli=mirror_cli,
             )
+            # 发送质量评估卡片（如有）
+            reflection = getattr(engine, "_last_reflection", None)
+            if reflection:
+                try:
+                    from miniagent.feishu.poll_server import send_reflection_card
+                    cfg = ctx.feishu.get_config()
+                    await send_reflection_card(
+                        cfg, chat_id, reflection,
+                        reply_to_message_id=inbound.message_id or None,
+                        thread_id=(inbound.thread_id or "").strip() or None,
+                    )
+                except Exception:
+                    pass
+                engine._last_reflection = None
             # 飞书单消息：思考 + 工具均在思考卡中展示，抑制独立回复消息。
             return ""
         except Exception as e:

@@ -23,6 +23,12 @@ REFLECTION_PROMPT = """你是一个结果评估专家。请评估以下任务的
 Agent 执行结果：
 {reply}
 
+评估要求：
+1. 如果结果不可接受（acceptable=false），必须给出至少 3 条具体、可操作的改进建议
+2. 如果结果可接受但有不足（quality_score<0.8），也应给出改进建议
+3. 改进建议应具体指出哪里可以做得更好、更准确、更完整
+4. 建议条数最多 5 条
+
 请以 JSON 格式返回评估：
 {{
   "acceptable": true/false,
