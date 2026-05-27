@@ -142,15 +142,18 @@ async def test_append_feishu_thinking_same_card_updates_accumulator(
     st.feishu_thinking_message_id = None
     st.feishu_stream_accumulated = "[第 1 轮]hello"
     st.feishu_tool_section_started = False
+    st.feishu_pending_tool_lines = []
 
     monkeypatch.setattr(ps, "_create_interactive_thinking_message", lambda *_a, **_k: "newmid")
 
     cfg = FeishuConfig(app_id="a", app_secret="b")
     await append_feishu_thinking_same_card(cfg, "oc_x", "🔧 z — q", "gray", st)
 
+    # 新行为：无卡片时缓冲工具行，不创建新卡
     assert "**工具**" in st.feishu_stream_accumulated
     assert "🔧 z — q" in st.feishu_stream_accumulated
-    assert st.feishu_thinking_message_id == "newmid"
+    assert st.feishu_thinking_message_id is None  # 不创建独立卡片
+    assert len(st.feishu_pending_tool_lines) == 1  # 工具行已缓冲
 
 
 @pytest.mark.asyncio

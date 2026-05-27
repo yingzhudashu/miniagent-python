@@ -470,7 +470,11 @@ async def start_feishu_poll_server(
                 return
 
             # 过期消息拦截：基于 message.create_time（秒级 Unix 时间戳）
-            msg_create_time = getattr(message, "create_time", None) or 0
+            _raw_create_time = getattr(message, "create_time", None) or 0
+            try:
+                msg_create_time = int(_raw_create_time) if _raw_create_time else 0
+            except (ValueError, TypeError):
+                msg_create_time = 0
             if msg_create_time > 0:
                 _msg_age = time.time() - msg_create_time
                 _max_age = float(os.environ.get("MINIAGENT_FEISHU_MAX_MESSAGE_AGE_S", "600"))
@@ -1259,6 +1263,15 @@ async def push_feishu_thinking_stream(
     else:
         st.feishu_stream_accumulated = markdown
     st.feishu_stream_llm_len = len(markdown or "")
+
+    # 冲刷缓冲的工具行（在 LLM 内容设置后、卡片创建前）
+    pending = getattr(st, "feishu_pending_tool_lines", None)
+    if pending:
+        for tool_addition in pending:
+            st.feishu_stream_accumulated += tool_addition
+        st.feishu_pending_tool_lines = []
+        st.feishu_tool_section_started = True
+
     cleaned = _prepare_thinking_markdown(st.feishu_stream_accumulated)
     card_json = json.dumps(_thinking_interactive_card_dict(cleaned, template), ensure_ascii=False)
 
@@ -1308,6 +1321,7 @@ async def finalize_feishu_thinking_stream(
         st.feishu_stream_accumulated = ""
         st.feishu_last_patched_char_len = -1
         st.feishu_tool_section_started = False
+        st.feishu_pending_tool_lines = []
         st.feishu_stream_llm_len = 0
         return
     if not acc.strip():
@@ -1316,6 +1330,7 @@ async def finalize_feishu_thinking_stream(
         st.feishu_stream_accumulated = ""
         st.feishu_last_patched_char_len = -1
         st.feishu_tool_section_started = False
+        st.feishu_pending_tool_lines = []
         st.feishu_stream_llm_len = 0
         return
     prep = _prepare_thinking_body_for_card(acc, apply_cap=False)
@@ -1353,6 +1368,7 @@ async def finalize_feishu_thinking_stream(
         st.feishu_stream_accumulated = ""
         st.feishu_last_patched_char_len = -1
         st.feishu_tool_section_started = False
+        st.feishu_pending_tool_lines = []
         st.feishu_stream_llm_len = 0
 
 
@@ -1392,15 +1408,12 @@ async def append_feishu_thinking_same_card(
             )
         return
 
-    new_mid = _create_interactive_thinking_message(
-        config,
-        chat_id,
-        card_json,
-        reply_to_message_id=getattr(st, "feishu_reply_to_message_id", None),
-        reply_in_thread=bool(getattr(st, "feishu_reply_in_thread", False)),
-    )
-    if new_mid:
-        st.feishu_thinking_message_id = new_mid
+    # 尚无卡片：缓冲工具行，等待 LLM 流式创建卡片时一并写入
+    pending = getattr(st, "feishu_pending_tool_lines", None)
+    if pending is None:
+        st.feishu_pending_tool_lines = [addition]
+    else:
+        pending.append(addition)
 
 
 async def _send_thinking(

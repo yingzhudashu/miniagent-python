@@ -625,16 +625,14 @@ async def run_cli_loop(
 
     @kb.add("c-home", filter=has_focus(input_buffer))
     def _on_ctrl_home(event):
-        """输出区滚到顶部。"""
-        _stick_bottom[0] = False
-        output_scroll.vertical_scroll = 0
+        """Ctrl+Home: 光标跳到输入开头。"""
+        input_buffer.cursor_position = 0
         event.app.invalidate()
 
     @kb.add("c-end", filter=has_focus(input_buffer))
     def _on_ctrl_end(event):
-        """输出区滚到底并恢复粘底。"""
-        _stick_bottom[0] = True
-        _snap_output_bottom()
+        """Ctrl+End: 光标跳到输入末尾。"""
+        input_buffer.cursor_position = len(input_buffer.text)
         event.app.invalidate()
 
     # 无坐标的滚轮（Windows 控制台等）默认会变成 Up/Down 只作用于输入框；eager 优先改为滚动 transcript。
@@ -692,9 +690,10 @@ async def run_cli_loop(
             Window(
                 FormattedTextControl(
                     HTML(
-                        "<cli-hint>PgUp/PgDn · \u6eda\u8f6e · "
-                        "Ctrl+Home/End · .copy \u590d\u5236\u5168\u90e8\u5bf9\u8bdd · "
-                        "\u65b0\u6d88\u606f\u65f6\u81ea\u52a8\u8ddf\u968f\u8f93\u51fa</cli-hint>"
+                        "<cli-hint>PgUp/PgDn · 滚轮 · "
+                        "Ctrl+Home/End 移光标 · "
+                        ".copy 复制全部对话 · "
+                        "新消息时自动跟随输出</cli-hint>"
                     )
                 ),
                 height=D.exact(1),
@@ -724,7 +723,7 @@ async def run_cli_loop(
         layout=layout,
         key_bindings=kb,
         full_screen=True,
-        mouse_support=False,
+        mouse_support=True,
         style=cli_style,
     )
     ctx.cli_transcript_append = _append_transcript
@@ -846,6 +845,7 @@ async def run_cli_loop(
             session_key = channel_router.resolve("__cli__")
             # 新输入开始：先画轮次分隔线，再贴上一轮底部、画本轮 You 块
             _cli_rule_heavy()
+            _was_at_bottom = _output_at_bottom()
             _stick_bottom[0] = True
             try:
                 _snap_output_bottom()
@@ -855,9 +855,10 @@ async def run_cli_loop(
             _cli_block_user(user_input)
             try:
                 await asyncio.sleep(0)
-                _stick_bottom[0] = True
-                _snap_output_bottom()
-                get_app().invalidate()
+                if _was_at_bottom:
+                    _stick_bottom[0] = True
+                    _snap_output_bottom()
+                    get_app().invalidate()
             except Exception:
                 pass
             reply = await engine.run_agent_with_thinking(
@@ -1596,6 +1597,17 @@ def _create_feishu_handler(
             f"[\u98de\u4e66\u5165\u7ad9] \u5df2\u4fdd\u5b58\u5a92\u4f53\u5230\u4f1a\u8bdd\u76ee\u5f55\uff08\u76f8\u5bf9 files \uff09: {rel}\n"
             f"\u8bf7\u67e5\u770b\u8be5\u6587\u4ef6\u5e76\u8bf4\u660e\u4f60\u53ef\u4ee5\u5982\u4f55\u534f\u52a9\u5904\u7406\u3002"
         )
+        # \u56fe\u7247\u5165\u7ad9\uff1a\u81ea\u52a8\u8c03\u7528\u89c6\u89c9\u6a21\u578b\u751f\u6210\u63cf\u8ff0\uff0c\u6ce8\u5165\u5bf9\u8bdd\u5386\u53f2
+        if msg_type == "image" and (os.environ.get("MINIAGENT_FEISHU_MEDIA_VISION_DESC", "1") or "").strip().lower() not in ("0", "false", "no"):
+            model = (os.environ.get("OPENAI_MODEL") or "").strip()
+            if model and ctx.openai_client:
+                from miniagent.feishu.vision_desc import describe_image
+                desc = await describe_image(dest_path, ctx.openai_client, model)
+                if desc:
+                    user_line = (
+                        f"[\u98de\u4e66\u5165\u7ad9] \u7528\u6237\u4e0a\u4f20\u4e86\u4e00\u5f20\u56fe\u7247\uff0c\u5df2\u4fdd\u5b58\u5230 {rel}\n"
+                        f"\u56fe\u7247\u5185\u5bb9\uff1a{desc}"
+                    )
         try:
             reply = await engine.run_agent_with_thinking(
                 user_line,

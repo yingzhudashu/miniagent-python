@@ -95,6 +95,9 @@ def build_execution_system_prompt(
             "本回合默认文件根目录："
             f"{abs_root}。read_file、write_file、list_dir、edit_file 等工具的路径参数若为相对路径，"
             "均相对于该目录；不要使用 `../` 等方式逃逸到该目录之外。"
+            "\n\n## 会话文件\n"
+            "用户在对话中上传过文件到 feishu_incoming/ 子目录。"
+            "如需参考文件内容，可使用 read_file 等工具读取。"
         )
     from miniagent.infrastructure.timezone_config import format_agent_timezone_context
 

@@ -136,6 +136,7 @@ class _SessionThinkingState:
         "feishu_last_patched_char_len",
         "feishu_patch_budget",
         "feishu_tool_section_started",
+        "feishu_pending_tool_lines",
         "turn_number",
         "_last_stream_full",
     )
@@ -158,6 +159,7 @@ class _SessionThinkingState:
     feishu_last_patched_char_len: int
     feishu_patch_budget: int
     feishu_tool_section_started: bool
+    feishu_pending_tool_lines: list[str]
     turn_number: int
     _last_stream_full: str
 
@@ -181,6 +183,7 @@ class _SessionThinkingState:
         self.feishu_last_patched_char_len = -1
         self.feishu_patch_budget = 0
         self.feishu_tool_section_started = False
+        self.feishu_pending_tool_lines: list[str] = []
         self.turn_number = 0
         self._last_stream_full = ""
 
@@ -288,6 +291,7 @@ class ThinkingDisplay:
         state.feishu_last_patched_char_len = -1
         state.feishu_patch_budget = 0
         state.feishu_tool_section_started = False
+        state.feishu_pending_tool_lines = []
         state._last_stream_full = ""
 
     def next_turn(self, session_key: str = "") -> int:
