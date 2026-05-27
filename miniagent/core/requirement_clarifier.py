@@ -101,6 +101,7 @@ class RequirementClarifier:
         on_thinking: Any | None = None,
         memory_store: Any | None = None,
         session_key: str | None = None,
+        max_questions: int = 3,
     ) -> ClarifiedRequirement:
         """执行三步需求澄清。
 
@@ -111,6 +112,7 @@ class RequirementClarifier:
             on_thinking: 思考过程回调（可选；非 None 时输出澄清进度）
             memory_store: 记忆存储（可选；传入时加载会话记忆注入到澄清 LLM 上下文）
             session_key: 会话标识符（与 memory_store 配合使用）
+            max_questions: 最多追问数量
 
         Returns:
             澄清后的需求规格
@@ -166,7 +168,7 @@ class RequirementClarifier:
 
         # 交互模式：针对模糊点追问
         if self.interactive and ask_user and clarified.ambiguity_report:
-            for ambiguity in clarified.ambiguity_report[:3]:  # 最多追问 3 个
+            for ambiguity in clarified.ambiguity_report[:max_questions]:
                 answer = await ask_user(f"关于「{ambiguity}」，您能补充说明吗？")
                 if answer and answer.strip():
                     clarified.boundary_conditions.append(f"用户补充：{answer.strip()}")

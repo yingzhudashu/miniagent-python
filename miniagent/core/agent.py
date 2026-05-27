@@ -233,10 +233,59 @@ async def run_agent(
     base_config = get_default_agent_config()
     merged_config = merge_agent_config(base_config, agent_config or {})
 
-    # ── Phase 0: 需求澄清 ──
+    # ── Phase 0: 任务难度分类 ──
+    from miniagent.core.task_classifier import (
+        TaskDifficulty,
+        classify_task_difficulty,
+        default_step_thinking_for_difficulty,
+        exec_merge_for_simple_path,
+        planner_merge_for_difficulty,
+        task_classifier_enabled,
+    )
+
+    difficulty = TaskDifficulty.NORMAL
+    effective_skip = skip_planning
+
+    planning_hist = ""
+    planning_display = ""
+
+    if toolboxes and not skip_planning and task_classifier_enabled():
+        planning_hist = "正在评估任务难度…"
+        planning_display = "📋 正在评估任务难度…"
+        if _announce_difficulty_and_plan_enabled() and on_thinking:
+            await invoke_on_thinking(
+                on_thinking,
+                planning_display,
+                True,
+                PLANNING_STREAM_HEADER,
+                full_record=planning_hist,
+            )
+        difficulty = await classify_task_difficulty(
+            user_input,
+            [t.id for t in toolboxes],
+            client=client,
+            agent_config=merged_config,
+        )
+        if difficulty == TaskDifficulty.SIMPLE:
+            effective_skip = True
+        if _announce_difficulty_and_plan_enabled() and on_thinking:
+            diff_msg = _format_task_difficulty(difficulty)
+            diff_disp = _format_task_difficulty(difficulty, display=True)
+            planning_hist = planning_hist + "\n\n" + diff_msg
+            planning_display = planning_display + "\n\n" + diff_disp
+            await invoke_on_thinking(
+                on_thinking,
+                planning_display,
+                True,
+                PLANNING_STREAM_HEADER,
+                full_record=planning_hist,
+            )
+
+    # ── Phase 0.5: 需求澄清（按难度条件执行）──
+    # 简单任务：不澄清；一般任务：最多澄清 1 个问题；复杂任务：完整澄清
     clarifier_enabled = os.environ.get("MINIAGENT_REQUIREMENT_CLARIFY", "1") != "0"
     clarified_text = ""
-    if clarifier_enabled and clarifier is not None:
+    if clarifier_enabled and clarifier is not None and difficulty != TaskDifficulty.SIMPLE:
         # 交互追问回调（通过确认侧通道阻塞等待用户回答）
         async def _ask_user_for_clarification(question: str) -> str:
             if confirmation_channel is None or on_thinking is None:
@@ -274,11 +323,14 @@ async def run_agent(
             except Exception:
                 pass
         try:
+            # 一般任务最多 1 问；复杂任务最多 3 问
+            max_questions = 1 if difficulty == TaskDifficulty.NORMAL else 3
             clarified = await clarifier.clarify(
                 user_input,
                 ask_user=_ask_user_for_clarification,
                 memory_store=memory_store,
                 session_key=session_key,
+                max_questions=max_questions,
             )
             clarified_text = getattr(clarified, "clarified_goal", "") or ""
             if clarified_text:
@@ -298,54 +350,9 @@ async def run_agent(
         except Exception as e:
             _logger.warning("需求澄清失败: %s", e)
 
-    from miniagent.core.task_classifier import (
-        TaskDifficulty,
-        classify_task_difficulty,
-        default_step_thinking_for_difficulty,
-        exec_merge_for_simple_path,
-        planner_merge_for_difficulty,
-        task_classifier_enabled,
-    )
-
+    # ── Phase 1: 规划/默认计划 ──
     plan: StructuredPlan
-    difficulty = TaskDifficulty.NORMAL
-    effective_skip = skip_planning
     from_llm_planner = False
-
-    planning_hist = ""
-    planning_display = ""
-
-    if toolboxes and not skip_planning and task_classifier_enabled():
-        planning_hist = "正在评估任务难度…"
-        planning_display = "📋 正在评估任务难度…"
-        if _announce_difficulty_and_plan_enabled() and on_thinking:
-            await invoke_on_thinking(
-                on_thinking,
-                planning_display,
-                True,
-                PLANNING_STREAM_HEADER,
-                full_record=planning_hist,
-            )
-        difficulty = await classify_task_difficulty(
-            user_input,
-            [t.id for t in toolboxes],
-            client=client,
-            agent_config=merged_config,
-        )
-        if difficulty == TaskDifficulty.SIMPLE:
-            effective_skip = True
-        if _announce_difficulty_and_plan_enabled() and on_thinking:
-            diff_msg = _format_task_difficulty(difficulty)
-            diff_disp = _format_task_difficulty(difficulty, display=True)
-            planning_hist = planning_hist + "\n\n" + diff_msg
-            planning_display = planning_display + "\n\n" + diff_disp
-            await invoke_on_thinking(
-                on_thinking,
-                planning_display,
-                True,
-                PLANNING_STREAM_HEADER,
-                full_record=planning_hist,
-            )
 
     # ── 直接执行模式 ──
     if effective_skip or not toolboxes:

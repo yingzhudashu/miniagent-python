@@ -42,6 +42,7 @@ class FeishuInboundText:
     root_id: str | None = None
     parent_id: str | None = None
     thread_id: str | None = None
+    create_time: int = 0
 
 
 @dataclass

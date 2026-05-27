@@ -469,6 +469,19 @@ async def start_feishu_poll_server(
                 _logger.debug("跳过重复消息: %s", message_id)
                 return
 
+            # 过期消息拦截：基于 message.create_time（秒级 Unix 时间戳）
+            msg_create_time = getattr(message, "create_time", None) or 0
+            if msg_create_time > 0:
+                _msg_age = time.time() - msg_create_time
+                _max_age = float(os.environ.get("MINIAGENT_FEISHU_MAX_MESSAGE_AGE_S", "600"))
+                if _msg_age > _max_age:
+                    _logger.info(
+                        "跳过过期消息: message_id=%s, age=%.0fs > max=%.0fs",
+                        message_id, _msg_age, _max_age,
+                    )
+                    release_processing(message_id)
+                    return
+
             chat_id = message.chat_id or ""
             sender = event.event.sender
             sender_id = (sender.sender_id.open_id or "") if sender and sender.sender_id else ""
@@ -510,6 +523,7 @@ async def start_feishu_poll_server(
                     root_id=root_id,
                     parent_id=parent_id,
                     thread_id=thread_id,
+                    create_time=msg_create_time,
                 )
 
                 async def _handle():
