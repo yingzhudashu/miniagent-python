@@ -237,7 +237,7 @@ async def unified_main(ctx: RuntimeContext) -> None:
         abort_message_queues=True,
         release_cli_session_lock=False,
         call_unregister=False,
-        shutdown_default_executor=True,
+        shutdown_default_executor=False,
     )
 
 
