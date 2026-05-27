@@ -452,30 +452,41 @@ class ThinkingDisplay:
 
         # 飞书实时推送（与下方 CLI transcript 镜像可并存）；正文用原始文本便于 lark_md
         if state.feishu_send and state.feishu_chat_id:
-            try:
-                # 同一步/同一 thinking_header 内工具后继续流式：不新开卡片（merge_tools 后保留 stream_step）
-                is_new_round = (
-                    streaming
-                    and state.stream_step is None
-                    and (not state.stream_header or hdr != state.stream_header)
-                )
-                await state.feishu_send(
-                    state.feishu_chat_id,
-                    text,
-                    "gray",
-                    is_new_round=is_new_round,
-                    streaming=streaming,
-                    merge_tools=merge_tools,
-                    finalize_only=False,
-                )
-            except Exception as e:
-                _logger.warning("飞书思考发送失败: %s", e)
-                err = f"⚠️ 飞书发送失败: {e}\n"
-                if self._output_sink:
-                    if self._sink_has_kind:
-                        self._output_sink(err, "label")
-                    else:
-                        self._output_sink(err)
+            # 非流式、无活跃流、merge_tools 开启：仅初始化状态，不发独立卡片。
+            # 首张卡片由后续 LLM 流式创建（push_feishu_thinking_stream），工具行
+            # 走 append_feishu_thinking_same_card 追加入同卡。
+            _skip_feishu_init = (
+                _merge_tools_enabled()
+                and not streaming
+                and bool(hdr)
+                and state.stream_step is None
+                and not state.stream_header
+            )
+            if not _skip_feishu_init:
+                try:
+                    # 同一步/同一 thinking_header 内工具后继续流式：不新开卡片（merge_tools 后保留 stream_step）
+                    is_new_round = (
+                        streaming
+                        and state.stream_step is None
+                        and (not state.stream_header or hdr != state.stream_header)
+                    )
+                    await state.feishu_send(
+                        state.feishu_chat_id,
+                        text,
+                        "gray",
+                        is_new_round=is_new_round,
+                        streaming=streaming,
+                        merge_tools=merge_tools,
+                        finalize_only=False,
+                    )
+                except Exception as e:
+                    _logger.warning("飞书思考发送失败: %s", e)
+                    err = f"⚠️ 飞书发送失败: {e}\n"
+                    if self._output_sink:
+                        if self._sink_has_kind:
+                            self._output_sink(err, "label")
+                        else:
+                            self._output_sink(err)
 
         if merge_tools:
             if state.stream_step is not None and not state.stream_done:

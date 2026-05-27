@@ -175,7 +175,8 @@ class TestRunAgentReflection:
 
                             # 验证反思被调用
                             mock_reflect.assert_called_once()
-                            assert reply == "Agent 回复结果"
+                            assert "Agent 回复结果" in reply
+                            assert "质量评估" in reply
 
     @pytest.mark.asyncio
     async def test_reflection_explicitly_disabled(self):

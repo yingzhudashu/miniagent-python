@@ -483,12 +483,19 @@ async def run_agent(
         from miniagent.core.problem_solver import reflect_on_result
 
         reflection = await reflect_on_result(user_input, reply, client=client, on_thinking=on_thinking)
-        # 反思结果用于决策：不可接受时追加改进建议
-        if not reflection.acceptable and reflection.suggestions:
-            suggestions_text = "\n\n---\n[反思评估] 结果需改进\n建议：\n" + "\n".join(
+        # 反思结果始终追加到回复末尾，作为质量评估与输出结束标记
+        status = "✅ 质量评估通过" if reflection.acceptable else "⚠️ 质量评估需改进"
+        score = f"质量评分 {reflection.quality_score:.1f}"
+        reflection_footer = f"\n\n---\n🤖 {status} | {score}"
+        if reflection.acceptable:
+            reflection_footer += " | 结果可接受"
+        else:
+            reflection_footer += " | 结果需改进"
+        if reflection.suggestions:
+            reflection_footer += "\n\n建议：\n" + "\n".join(
                 f"- {s}" for s in reflection.suggestions[:3]
             )
-            reply = reply + suggestions_text
+        reply = reply + reflection_footer
 
     return reply
 
