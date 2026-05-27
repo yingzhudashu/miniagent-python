@@ -1537,12 +1537,6 @@ def _create_feishu_handler(
         incoming = os.path.join(base, "feishu_incoming")
         os.makedirs(incoming, exist_ok=True)
 
-        safe = sanitize_filename(suggested_name)
-        root, ext = os.path.splitext(safe)
-        tag = (message_id or "msg").replace("/", "_")[:16]
-        dest_name = f"{root}_{tag}{ext}" if root else f"file_{tag}{ext or '.bin'}"
-        dest_path = os.path.join(incoming, dest_name)
-
         if resource_type not in ("file", "image"):
             return "\u26a0\ufe0f \u4e0d\u652f\u6301\u7684\u8d44\u6e90\u7c7b\u578b"
 
@@ -1557,8 +1551,10 @@ def _create_feishu_handler(
         except Exception as e:
             return f"\u26a0\ufe0f \u4e0b\u8f7d\u5931\u8d25: {e}"
 
-        # \u6839\u636e\u6587\u4ef6\u5934 magic bytes \u4fee\u6b63\u6269\u5c55\u540d\uff0c\u907f\u514d\u56fe\u7247\u7b49\u88ab\u4fdd\u5b58\u4e3a .bin
-        safe = sanitize_filename(suggested_name)
+        # \u4f18\u5148\u4f7f\u7528 API \u8fd4\u56de\u7684\u5efa\u8bae\u540d\uff08\u5982\u5305\u542b\u539f\u59cb\u6587\u4ef6\u540d\uff09\uff1b\u5176\u6b21\u7528\u5165\u53c2\u540d\u3002
+        # \u6839\u636e\u6587\u4ef6\u5934 magic bytes \u4fee\u6b63\u6269\u5c55\u540d\uff0c\u907f\u514d\u56fe\u7247\u7b49\u88ab\u4fdd\u5b58\u4e3a\u65e0\u6269\u5c55\u540d\u6216 .bin\u3002
+        raw_name = (api_suggested_name or "").strip() or suggested_name
+        safe = sanitize_filename(raw_name)
         root, ext = os.path.splitext(safe)
         _detected_ext = _detect_ext_from_magic(data)
         if _detected_ext and ext.lower() in ("", ".bin", ".download", ".file"):
