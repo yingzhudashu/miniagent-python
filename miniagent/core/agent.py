@@ -484,13 +484,8 @@ async def run_agent(
 
         reflection = await reflect_on_result(user_input, reply, client=client, on_thinking=on_thinking)
         # 反思结果始终追加到回复末尾，作为质量评估与输出结束标记
-        status = "✅ 质量评估通过" if reflection.acceptable else "⚠️ 质量评估需改进"
-        score = f"质量评分 {reflection.quality_score:.1f}"
-        reflection_footer = f"\n\n---\n🤖 {status} | {score}"
-        if reflection.acceptable:
-            reflection_footer += " | 结果可接受"
-        else:
-            reflection_footer += " | 结果需改进"
+        status = "质量评估通过" if reflection.acceptable else "质量评估需改进"
+        reflection_footer = f"\n\n---\n🤖 {status} | 质量评分 {reflection.quality_score:.1f}"
         if reflection.suggestions:
             reflection_footer += "\n\n建议：\n" + "\n".join(
                 f"- {s}" for s in reflection.suggestions[:3]
