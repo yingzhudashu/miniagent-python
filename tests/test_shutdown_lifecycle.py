@@ -58,7 +58,6 @@ async def test_shutdown_runtime_cancels_tracked_tasks() -> None:
         abort_message_queues=False,
         release_cli_session_lock=False,
         call_unregister=False,
-        shutdown_default_executor=False,
     )
     assert t.done()
     assert ctx.shutdown_tracked_tasks == set() or all(x.done() for x in ctx.shutdown_tracked_tasks)
@@ -75,7 +74,6 @@ async def test_shutdown_runtime_feishu_stop_async_noop_when_never_started() -> N
         abort_message_queues=False,
         release_cli_session_lock=False,
         call_unregister=False,
-        shutdown_default_executor=False,
     )
     assert ctx.feishu.get_task() is None
 
@@ -158,7 +156,6 @@ async def test_shutdown_runtime_named_probe_task_not_still_running() -> None:
         abort_message_queues=False,
         release_cli_session_lock=False,
         call_unregister=False,
-        shutdown_default_executor=False,
     )
     for x in asyncio.all_tasks():
         if x.get_name() == "miniagent_shutdown_probe_slow":
@@ -224,7 +221,6 @@ async def test_tick_once_job_registered_then_shutdown_cancels(
         abort_message_queues=True,
         release_cli_session_lock=False,
         call_unregister=False,
-        shutdown_default_executor=False,
     )
     assert all(x.done() for x in pending)
 

@@ -25,12 +25,15 @@ async def shutdown_runtime(
     abort_message_queues: bool = True,
     release_cli_session_lock: bool = True,
     call_unregister: bool = True,
-    shutdown_default_executor: bool = True,
 ) -> None:
     """优雅释放子系统（幂等、可重复调用）。
 
     顺序：登记的后台 job → 定时 ticker → 飞书 task（await 取消链）→ 可选 MQ abort
-    → 子进程清理 → 会话锁 → 实例注销 → 可选关闭默认线程池。
+    → 子进程清理 → 会话锁 → 实例注销。
+
+    注意：不再关闭默认线程池（``shutdown_default_executor``）。prompt_toolkit 的
+    ``in_terminal()`` 异步上下文退出时仍会通过 ``run_in_executor`` 使用默认线程池，
+    此处提前关闭会导致 ``"Executor shutdown has been called"``。线程池由进程退出自动回收。
 
     Args:
         ctx: 运行时上下文
@@ -39,7 +42,6 @@ async def shutdown_runtime(
         abort_message_queues: 是否对各 chat 队列调用 ``abort_chat``
         release_cli_session_lock: 是否 ``release_session_lock(active_session_id)``
         call_unregister: 是否 ``unregister_instance()``（若已在 ``run_cli_loop`` 末尾注销可传 False）
-        shutdown_default_executor: 是否 ``loop.shutdown_default_executor()``（带短超时）
     """
     from miniagent.engine.session_lock import release_session_lock
     from miniagent.memory import dream_scheduler
@@ -123,16 +125,9 @@ async def shutdown_runtime(
         except Exception as e:
             _logger.debug("shutdown_runtime: unregister_instance: %s", e)
 
-    if shutdown_default_executor:
-        loop = asyncio.get_running_loop()
-        if hasattr(loop, "shutdown_default_executor"):
-            try:
-                await asyncio.wait_for(
-                    loop.shutdown_default_executor(),  # type: ignore[attr-defined]
-                    timeout=3.0,
-                )
-            except (asyncio.TimeoutError, Exception) as e:
-                _logger.debug("shutdown_default_executor: %s", e)
+    # 6) 默认线程池：不再主动关闭。prompt_toolkit 的 in_terminal() 异步上下文退出时
+    # 仍会通过 run_in_executor 使用默认线程池，此处提前关闭会导致
+    # "Executor shutdown has been called"。由进程退出时自动清理即可。
 
     if reason:
         _logger.info("shutdown_runtime: done (%s)", reason)

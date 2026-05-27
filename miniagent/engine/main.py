@@ -149,8 +149,6 @@ async def unified_main(ctx: RuntimeContext) -> None:
             state,
             reason=f"signal:{signum}",
             call_unregister=True,
-            # 信号路径上 prompt_toolkit 可能仍占用 stdin/线程池；跳过默认线程池关闭以缩短竞态窗口
-            shutdown_default_executor=False,
         )
         sys.exit(0)
 
@@ -237,7 +235,6 @@ async def unified_main(ctx: RuntimeContext) -> None:
         abort_message_queues=True,
         release_cli_session_lock=False,
         call_unregister=False,
-        shutdown_default_executor=False,
     )
 
 

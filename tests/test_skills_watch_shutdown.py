@@ -57,7 +57,6 @@ async def test_shutdown_stops_skills_watch() -> None:
             abort_message_queues=False,
             release_cli_session_lock=False,
             call_unregister=False,
-            shutdown_default_executor=False,
         )
 
     assert stop_event.is_set()

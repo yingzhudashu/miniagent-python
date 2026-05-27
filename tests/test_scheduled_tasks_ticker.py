@@ -116,7 +116,6 @@ async def test_shutdown_runtime_cancels_scheduled_tasks_ticker() -> None:
         abort_message_queues=False,
         release_cli_session_lock=False,
         call_unregister=False,
-        shutdown_default_executor=False,
     )
     assert ticker_task.done()
 
