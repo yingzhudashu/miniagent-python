@@ -164,7 +164,7 @@ def _parse_feishu_media_payload(msg_type: str, content_str: str) -> tuple[str, s
         return None
     if msg_type == "file":
         fk = d.get("file_key")
-        name = d.get("file_name") or d.get("name") or "download.bin"
+        name = d.get("file_name") or d.get("name") or "download"
         if not fk:
             return None
         return ("file", str(fk), str(name))
@@ -172,7 +172,7 @@ def _parse_feishu_media_payload(msg_type: str, content_str: str) -> tuple[str, s
         ik = d.get("image_key")
         if not ik:
             return None
-        return ("image", str(ik), "image.bin")
+        return ("image", str(ik), "image")
     return None
 
 
@@ -189,12 +189,12 @@ def _extract_post_media_items(content_str: str) -> list[tuple[str, str, str]]:
                 ik = node.get("image_key") or node.get("image_token")
                 if ik and ("image", str(ik)) not in seen:
                     seen.add(("image", str(ik)))
-                    out.append(("image", str(ik), "image.bin"))
+                    out.append(("image", str(ik), "image"))
             elif tag == "media":
                 fk = node.get("file_key")
                 if fk and ("file", str(fk)) not in seen:
                     seen.add(("file", str(fk)))
-                    nm = node.get("file_name") or node.get("name") or "download.bin"
+                    nm = node.get("file_name") or node.get("name") or "download"
                     out.append(("file", str(fk), str(nm)))
             for v in node.values():
                 walk(v)

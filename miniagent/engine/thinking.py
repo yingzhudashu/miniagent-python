@@ -37,9 +37,9 @@ def _merge_tools_enabled() -> bool:
 
 
 def _cli_thinking_rich_enabled() -> bool:
-    """全屏 CLI 下是否对非流式思考正文尝试 Rich→ANSI（``MINIAGENT_CLI_THINKING_RICH``）。"""
+    """全屏 CLI 下是否对非流式思考正文尝试 Rich→ANSI（``MINIAGENT_CLI_THINKING_RICH=0`` 关闭）。"""
     v = os.environ.get("MINIAGENT_CLI_THINKING_RICH", "").strip().lower()
-    return v in ("1", "true", "yes")
+    return v not in ("0", "false", "no")
 
 
 def _cli_thinking_render_width() -> int:

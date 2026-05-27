@@ -63,7 +63,7 @@ async def download_message_resource(
     raise last_err
 
 
-def sanitize_filename(name: str, fallback: str = "file.bin") -> str:
+def sanitize_filename(name: str, fallback: str = "file") -> str:
     """去掉路径分隔与非法字符，避免写入会话目录外。"""
     base = (name or "").strip() or fallback
     base = base.replace("\\", "_").replace("/", "_").replace("\x00", "")

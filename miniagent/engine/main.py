@@ -724,7 +724,7 @@ async def run_cli_loop(
         layout=layout,
         key_bindings=kb,
         full_screen=True,
-        mouse_support=True,
+        mouse_support=False,
         style=cli_style,
     )
     ctx.cli_transcript_append = _append_transcript
@@ -1467,6 +1467,39 @@ def _create_feishu_handler(
         except Exception as e:
             return f"⚠️ 处理失败: {e}"
 
+
+    # ── 文件头 magic bytes 检测 ──
+
+    _MAGIC_TABLE: list[tuple[bytes, str]] = [
+        (b"\x89PNG\r\n\x1a\n", ".png"),
+        (b"\xff\xd8\xff", ".jpg"),
+        (b"GIF87a", ".gif"),
+        (b"GIF89a", ".gif"),
+        (b"RIFF", ".webp"),
+        (b"\x00\x00\x01\x00", ".ico"),
+        (b"%PDF", ".pdf"),
+        (b"PK\x03\x04", ".zip"),
+        (b"PK\x05\x06", ".zip"),
+        (b"\x1f\x8b", ".gz"),
+        (b"\x7fELF", ".elf"),
+        (b"MZ", ".exe"),
+        (b"\xca\xfe\xba\xbe", ".macho"),
+        (b"\xfe\xed\xfa\xce", ".macho"),
+        (b"\xfe\xed\xfa\xcf", ".macho"),
+        (b"\xd0\xcf\x11\xe0", ".doc"),
+    ]
+
+    def _detect_ext_from_magic(data: bytes) -> str | None:
+        """根据文件头 magic bytes 推断扩展名。"""
+        if not data:
+            return None
+        for magic, ext in _MAGIC_TABLE:
+            if data[:len(magic)] == magic:
+                return ext
+        if data[:2] == b"BM":
+            return ".bmp"
+        return None
+
     async def media_handler(
         cfg: Any,
         message_id: str,
@@ -1514,7 +1547,7 @@ def _create_feishu_handler(
             return "\u26a0\ufe0f \u4e0d\u652f\u6301\u7684\u8d44\u6e90\u7c7b\u578b"
 
         try:
-            data, _header_name = await download_message_resource(
+            data, api_suggested_name = await download_message_resource(
                 cfg.app_id,
                 cfg.app_secret,
                 message_id=message_id,
@@ -1523,6 +1556,17 @@ def _create_feishu_handler(
             )
         except Exception as e:
             return f"\u26a0\ufe0f \u4e0b\u8f7d\u5931\u8d25: {e}"
+
+        # \u6839\u636e\u6587\u4ef6\u5934 magic bytes \u4fee\u6b63\u6269\u5c55\u540d\uff0c\u907f\u514d\u56fe\u7247\u7b49\u88ab\u4fdd\u5b58\u4e3a .bin
+        safe = sanitize_filename(suggested_name)
+        root, ext = os.path.splitext(safe)
+        _detected_ext = _detect_ext_from_magic(data)
+        if _detected_ext and ext.lower() in ("", ".bin", ".download", ".file"):
+            ext = _detected_ext
+            safe = root + ext
+        tag = (message_id or "msg").replace("/", "_")[:16]
+        dest_name = f"{root}_{tag}{ext}" if root else f"file_{tag}{ext or '.bin'}"
+        dest_path = os.path.join(incoming, dest_name)
 
         with open(dest_path, "wb") as f:
             f.write(data)

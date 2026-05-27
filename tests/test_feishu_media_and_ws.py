@@ -19,7 +19,7 @@ def test_parse_feishu_media_payload_file_and_image():
     assert _parse_feishu_media_payload("image", '{"image_key":"ik9"}') == (
         "image",
         "ik9",
-        "image.bin",
+        "image",
     )
     assert _parse_feishu_media_payload("file", "{}") is None
     assert _parse_feishu_media_payload("file", "not-json") is None
