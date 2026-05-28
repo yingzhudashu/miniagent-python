@@ -37,7 +37,6 @@ def render_markdown_to_ansi(markdown: str, *, width: int) -> str | None:
         width=w,
         force_terminal=True,
         color_system="standard",
-        soft_wrap=True,
         highlight=False,
     )
     console.print(Markdown(markdown or ""))

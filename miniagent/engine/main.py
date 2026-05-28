@@ -371,6 +371,7 @@ async def run_cli_loop(
     _MAX_TRANSCRIPT_CHARS = 400_000
     _transcript: list[Any] = []
     _stick_bottom: list[bool] = [True]
+    _last_md_width: list[int] = [0]  # 上次渲染 Markdown 的终端宽度
 
     def _transcript_fragment_len(frag: Any) -> int:
         """估算单条 transcript 片段的字符长度（tuple 文本或 ``ANSI`` 包裹串）。"""
@@ -392,23 +393,115 @@ async def run_cli_loop(
             old = _transcript.pop(0)
             total -= _transcript_fragment_len(old)
 
+    def _attach_md_source(ansi_obj: Any, source_md: str) -> None:
+        """在 ANSI 对象上附加原始 Markdown，供终端缩放时重新渲染。"""
+        ansi_obj._source_md = source_md  # type: ignore[attr-defined]
+
+    def _recheck_md_width() -> None:
+        """检测终端宽度变化，必要时重新渲染 transcript 中的 Markdown 条目。"""
+        try:
+            new_w = _viewport_cols()
+        except Exception:
+            return
+        old_w = _last_md_width[0]
+        if old_w != 0 and new_w == old_w:
+            return  # 宽度未变化，跳过重渲染
+        _last_md_width[0] = new_w
+        if not _transcript:
+            return  # transcript 为空，无需重渲染
+        from prompt_toolkit.formatted_text.ansi import ANSI as PTANSI
+
+        md_w = max(20, new_w // 3)  # CJK 安全宽度：假设显示宽度 2-3，增加缓冲
+        from miniagent.engine.markdown_cli import render_markdown_to_ansi
+
+        for frag in _transcript:
+            if isinstance(frag, PTANSI) and hasattr(frag, "_source_md"):
+                src = frag._source_md
+                if not src:
+                    continue
+                new_ansi = render_markdown_to_ansi(src, width=md_w)
+                if new_ansi is not None:
+                    frag.value = new_ansi  # 更新内部 ANSI 字符串
+        try:
+            get_app().invalidate()
+        except Exception:
+            pass
+
+    _BORDER_CLASSES = frozenset({"class:cli-border", "class:cli-border-strong"})
+    _HRULE_CHARS = frozenset({"─", "═", "━"})  # ─ ═ ━ (Markdown 水平线用到的字符)
+
+    def _is_hrule_line(text: str) -> bool:
+        """判断文本是否为水平分割线（≥80% 为盒绘制字符）。"""
+        if not text:
+            return False
+        hrule_count = sum(1 for ch in text if ch in _HRULE_CHARS)
+        return hrule_count >= len(text) * 0.8
+
+    def _truncate_hrule_in_ansi(ansi_list: list[Any], vp: int) -> list[Any]:
+        """截断 ANSI 输出中的水平分割线。
+
+        ``to_formatted_text(ANSI(...))`` 返回的列表可能包含长分割线，
+        需按 CJK 显示宽度（假设宽度 2-3）截断。
+        """
+        safe = max(1, vp // 3)
+        result: list[Any] = []
+        for item in ansi_list:
+            if isinstance(item, tuple) and len(item) >= 2:
+                style, text = item[0], item[1]
+                if _is_hrule_line(text.rstrip("\n")):
+                    # 截断分割线
+                    truncated = text[:safe]
+                    if text.endswith("\n"):
+                        truncated = truncated.rstrip("\n") + "\n"
+                    result.append((style, truncated))
+                else:
+                    result.append(item)
+            else:
+                result.append(item)
+        return result
+
+    def _border_truncate(text: str, vp: int) -> str:
+        """按视口宽度截断边框线文本，保留尾部 ``\n``。
+
+        盒绘制字符（═ U+2550、─ U+2500）在 CJK 终端为 Ambiguous 宽度 2-3，
+        ``len(text)`` 是字符数而非显示宽度，因此**始终**按 ``vp // 3`` 截断。
+        """
+        # 安全字符数 = 视口列数 // 3（增加缓冲区）
+        safe = max(1, vp // 3)
+        has_newline = text.endswith("\n")
+        if len(text) <= safe + 1:  # 已经足够短（safe chars + \n）
+            return text
+        truncated = text[:safe]
+        if has_newline:
+            truncated = truncated.rstrip("\n") + "\n"
+        return truncated
+
     def _flatten_transcript_for_pt() -> list[Any]:
         """Expand stored ``ANSI(...)`` rows to plain (style, text) fragments.
 
         ``to_formatted_text`` treats top-level lists as already normalized and does
         not recurse into items, so a mix of tuples and ``ANSI`` breaks ``split_lines``.
+
+        边框线（border）按视口宽度截断，不随 ``wrap_lines`` 折行。
         """
+        _recheck_md_width()
         from prompt_toolkit.formatted_text.ansi import ANSI as PTANSI
         from prompt_toolkit.formatted_text.base import to_formatted_text
 
+        vp = _viewport_cols()
         out: list[Any] = []
         for frag in _transcript:
             if isinstance(frag, tuple) and len(frag) >= 2:
-                out.append(frag)
+                style_cls, text = frag[0], frag[1]
+                if style_cls in _BORDER_CLASSES:
+                    text = _border_truncate(text, vp)
+                out.append((style_cls, text))
             elif isinstance(frag, PTANSI):
-                out.extend(to_formatted_text(frag))
+                ansi_list = to_formatted_text(frag)
+                out.extend(_truncate_hrule_in_ansi(ansi_list, vp))
             else:
-                out.extend(to_formatted_text(frag))
+                ansi_list = to_formatted_text(frag)
+                out.extend(_truncate_hrule_in_ansi(ansi_list, vp))
         return out
 
     _output_scroll_ref: list[Any] = [None]
@@ -746,6 +839,7 @@ async def run_cli_loop(
         mouse_support=True,
         style=cli_style,
     )
+    _last_md_width[0] = _viewport_cols()  # 记录初始终端宽度
     ctx.cli_transcript_append = _append_transcript
     ctx.cli_transcript_append_ansi = _append_ansi_transcript
     ctx.create_feishu_handler_factory = lambda tb, tp, st: _create_feishu_handler(tb, tp, st, ctx, _stick_bottom)
@@ -768,9 +862,16 @@ async def run_cli_loop(
         if not text.endswith("\n"):
             text = text + "\n"
         try:
-            md_w = max(40, _viewport_cols() - 2)
+            md_w = max(20, _viewport_cols() // 3)  # CJK 安全宽度
             ansi_body = render_markdown_to_ansi(text, width=md_w)
-            _append_transcript(ansi_body)
+            if ansi_body is not None:
+                from prompt_toolkit.formatted_text import ANSI
+                ansi_obj = ANSI(ansi_body)
+                _attach_md_source(ansi_obj, text)
+                _append_transcript("", "", ansi=ansi_obj)
+            else:
+                style = _LEGACY_COLOR_CLASS.get(color, "class:cli-default")
+                _append_transcript(style, text)
         except Exception:
             style = _LEGACY_COLOR_CLASS.get(color, "class:cli-default")
             _append_transcript(style, text)
@@ -807,10 +908,12 @@ async def run_cli_loop(
         else:
             # 正文：优先尝试 markdown 渲染
             try:
-                md_w = max(40, _viewport_cols() - 2)
+                md_w = max(20, _viewport_cols() // 3)  # CJK 安全宽度
                 ansi_body = render_markdown_to_ansi(fragment, width=md_w)
                 from prompt_toolkit.formatted_text import ANSI
-                _transcript.append(ANSI(ansi_body))
+                ansi_obj = ANSI(ansi_body)
+                _attach_md_source(ansi_obj, fragment)
+                _transcript.append(ansi_obj)
                 _trim_transcript()
                 try:
                     get_app().invalidate()
@@ -841,7 +944,7 @@ async def run_cli_loop(
     def _cli_block_user(prompt: str) -> None:
         """本轮提问区块。"""
         _stick_bottom[0] = True
-        _append_transcript("class:cli-spacer", "\n\n\n")
+        _append_transcript("class:cli-spacer", "\n")
         _cli_rule_heavy()
         _append_transcript("class:cli-user-title", "You\n")
         _cli_rule_light()
@@ -859,13 +962,15 @@ async def run_cli_loop(
         _cli_rule_light()
         _append_transcript("class:cli-assistant-title", "Assistant\n")
         _cli_rule_light()
-        md_w = max(40, _viewport_cols() - 2)
+        md_w = max(20, _viewport_cols() // 3)  # CJK 安全宽度
         ansi_body = render_markdown_to_ansi(text or "", width=md_w)
         if ansi_body and ansi_body.strip():
             at_bottom = _output_at_bottom()
             body_lines = ansi_body.rstrip("\n").split("\n")
             transcript_body = "\n".join(ln if ln else "" for ln in body_lines) + "\n"
-            _transcript.append(ANSI(transcript_body))
+            ansi_obj = ANSI(transcript_body)
+            _attach_md_source(ansi_obj, text or "")
+            _transcript.append(ansi_obj)
             _trim_transcript()
             try:
                 get_app().invalidate()
@@ -1146,7 +1251,7 @@ async def _run_cli_loop_fallback(
                     from rich.console import Console
                     from rich.markdown import Markdown
 
-                    Console(soft_wrap=True, width=fb_w).print(Markdown(reply or ""))
+                    Console(width=fb_w).print(Markdown(reply or ""))
                 except ImportError:
                     for line in (reply or "").splitlines() or [""]:
                         print(line)
@@ -1341,7 +1446,7 @@ def _format_cli_user_block(
     if append_fn is None or not prompt:
         return
     stick_bottom[0] = True
-    append_fn("class:cli-spacer", "\n\n\n")
+    append_fn("class:cli-spacer", "\n")
     append_fn("class:cli-border-strong", "═" * width + "\n")
     if channel_label:
         append_fn("class:cli-user-title", f"You · [{channel_label}]\n")
@@ -1376,12 +1481,16 @@ def _format_cli_reply_block(
     body = (text or "").strip()
     if body:
         try:
-            ansi_body = render_markdown_to_ansi(body, width=width)
+            # Markdown 渲染使用 CJK 安全宽度
+            md_w = max(20, width // 3)
+            ansi_body = render_markdown_to_ansi(body, width=md_w)
             if ansi_body and ansi_body.strip():
                 body_lines = ansi_body.rstrip("\n").split("\n")
                 transcript_body = "\n".join(ln if ln else "" for ln in body_lines) + "\n"
+                ansi_obj = ANSI(transcript_body)
+                ansi_obj._source_md = body  # type: ignore[attr-defined]
                 if append_ansi_fn:
-                    append_ansi_fn(ANSI(transcript_body))
+                    append_ansi_fn(ansi_obj)
                 else:
                     for line in body.splitlines() or [""]:
                         append_fn("class:cli-assistant-body", line + "\n")
