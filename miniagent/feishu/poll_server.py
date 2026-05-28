@@ -331,7 +331,6 @@ def try_begin_processing(message_id: str) -> bool:
 
     # 获取处理权
     _processing_claims[key] = now
-    _prune_claims()
     return True
 
 

@@ -200,6 +200,7 @@ class _IndexEntry:
 
     keyword: str
     references: list[_IndexReference] = field(default_factory=list)
+    seen: set[tuple[str, str]] = field(default_factory=set)  # (session_id, timestamp) 去重
 
 
 @dataclass
@@ -317,6 +318,7 @@ class KeywordIndex:
                     for r in data.get("references", [])
                 ]
                 self._index[keyword] = _IndexEntry(keyword=keyword, references=refs)
+                self._index[keyword].seen = {(r.session_id, r.timestamp) for r in refs}
 
             self._loaded = True
             self._dirty = False
@@ -395,11 +397,8 @@ class KeywordIndex:
             idx_entry = self._index[keyword]
 
             # 检查是否已存在相同会话 + 时间戳的引用
-            exists = any(
-                r.session_id == session_id and r.timestamp == entry.timestamp
-                for r in idx_entry.references
-            )
-            if not exists:
+            ref_key = (session_id, entry.timestamp)
+            if ref_key not in idx_entry.seen:
                 idx_entry.references.append(
                     _IndexReference(
                         session_id=session_id,
@@ -410,6 +409,7 @@ class KeywordIndex:
                         weight=1.0,
                     )
                 )
+                idx_entry.seen.add(ref_key)
                 self._dirty = True
 
         # 超过上限时驱逐最早关键词

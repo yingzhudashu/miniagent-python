@@ -383,11 +383,12 @@ class DefaultMemoryStore(MemoryStoreProtocol):
             memory.cumulative_summary = new_summary[-2000:]
 
         # 更新关键事实（去重，最多保留 20 条）
+        existing = {f.lower().strip() for f in memory.key_facts}
         for fact in facts:
             normalized = fact.lower().strip()
-            exists = any(f.lower().strip() == normalized for f in memory.key_facts)
-            if not exists:
+            if normalized not in existing:
                 memory.key_facts.append(fact)
+                existing.add(normalized)
         if len(memory.key_facts) > 20:
             memory.key_facts = memory.key_facts[-20:]
 

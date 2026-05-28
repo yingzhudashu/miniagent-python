@@ -361,7 +361,7 @@ class DefaultSessionManager(SessionManagerProtocol):
         返回已持久化的会话 ID 列表。用于会话列表展示和恢复。
 
         Returns:
-            已保存的会话 ID 列表（safe_id 反向转换）
+            已保存的会话 ID 列表（磁盘目录名，即 safe_id）
         """
         workspaces = _get_workspaces_dir()
         ids = []
@@ -369,7 +369,7 @@ class DefaultSessionManager(SessionManagerProtocol):
             for name in os.listdir(workspaces):
                 config_path = os.path.join(workspaces, name, "config.json")
                 if os.path.isfile(config_path):
-                    ids.append(name.replace("_", "-"))  # 反向 safe_id
+                    ids.append(name)
         return ids
 
     def get_or_create(self, id: str, options: SessionOptions | None = None) -> Session:

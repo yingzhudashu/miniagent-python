@@ -51,6 +51,8 @@ class DefaultToolRegistry(ToolRegistryProtocol):
     def __init__(self) -> None:
         """初始化空注册表"""
         self._tools: dict[str, RegisteredTool] = {}
+        self._schema_cache: list[ChatCompletionToolParam] | None = None
+        self._toolbox_schema_cache: dict[frozenset[str], list[ChatCompletionToolParam]] = {}
 
     def register(self, name: str, tool: ToolDefinition) -> None:
         """注册一个工具
@@ -75,6 +77,8 @@ class DefaultToolRegistry(ToolRegistryProtocol):
             help_text=tool.help_text,
             toolbox=tool.toolbox,
         )
+        self._schema_cache = None
+        self._toolbox_schema_cache.clear()
 
     def unregister(self, name: str) -> bool:
         """注销一个工具
@@ -87,6 +91,8 @@ class DefaultToolRegistry(ToolRegistryProtocol):
         """
         if name in self._tools:
             del self._tools[name]
+            self._schema_cache = None
+            self._toolbox_schema_cache.clear()
             return True
         return False
 
@@ -117,10 +123,14 @@ class DefaultToolRegistry(ToolRegistryProtocol):
         用于传递给 client.chat.completions.create() 的 tools 参数。
         LLM 根据这些 schema 理解可用工具及其参数。
 
+        带有缓存：register / unregister 时失效。
+
         Returns:
             OpenAI SDK 兼容的工具 schema 数组
         """
-        return [t.schema for t in self._tools.values()]
+        if self._schema_cache is None:
+            self._schema_cache = [t.schema for t in self._tools.values()]
+        return self._schema_cache
 
     def list(self) -> list[str]:
         """获取所有工具的名称列表
@@ -142,6 +152,8 @@ class DefaultToolRegistry(ToolRegistryProtocol):
         - 工具的 toolbox 字段在 id_set 中 → 包含
         - 工具的 toolbox 字段未设置（None）→ 始终包含（视为核心能力）
 
+        带有缓存：register / unregister 时失效。
+
         Args:
             ids: 工具箱 ID 数组（如 ["file_read", "exec"]）
 
@@ -150,8 +162,13 @@ class DefaultToolRegistry(ToolRegistryProtocol):
         """
         if not ids:
             return self.get_schemas()
-        id_set = set(ids)
-        return [t.schema for t in self._tools.values() if t.toolbox is None or t.toolbox in id_set]
+        cache_key = frozenset(ids)
+        if cache_key not in self._toolbox_schema_cache:
+            id_set = set(ids)
+            self._toolbox_schema_cache[cache_key] = [
+                t.schema for t in self._tools.values() if t.toolbox is None or t.toolbox in id_set
+            ]
+        return self._toolbox_schema_cache[cache_key]
 
     def get_by_toolboxes(self, ids: list[str]) -> dict[str, RegisteredTool]:
         """按工具箱 ID 筛选完整的工具对象

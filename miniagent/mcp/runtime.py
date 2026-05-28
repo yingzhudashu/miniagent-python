@@ -8,11 +8,13 @@
 
 from __future__ import annotations
 
+import atexit
 import json
 from typing import Any
 
 # 持有 stdio / session 上下文，防止被 GC 关闭
 _holder: list[Any] = []
+_registered_atexit = False
 
 
 def _tool_result_text(res: Any) -> str:
@@ -32,6 +34,16 @@ def _tool_result_text(res: Any) -> str:
     )
 
 
+def _cleanup_mcp_holder() -> None:
+    """进程退出时清理 MCP 连接句柄。
+
+    atexit 回调为同步函数，无法 ``await`` 异步 ``aclose``；
+    此处仅释放 Python 侧引用，确保 ``__aexit__`` 有机会被 GC 触发。
+    实际连接关闭由 OS 进程退出负责。
+    """
+    _holder.clear()
+
+
 async def register_mcp_stdio_tools(
     registry: Any,
     command: str,
@@ -44,6 +56,12 @@ async def register_mcp_stdio_tools(
     Returns:
         成功注册的工具数量
     """
+    global _registered_atexit
+
+    if not _registered_atexit:
+        _registered_atexit = True
+        atexit.register(_cleanup_mcp_holder)
+
     from miniagent.mcp.bridge import mcp_tool_to_openai_param
     from miniagent.types.tool import ToolDefinition, ToolResult
 

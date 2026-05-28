@@ -19,6 +19,7 @@
 from miniagent.infrastructure.channel_router import ChannelRouter
 from miniagent.infrastructure.instance import (
     InstanceRegistry,
+    format_instances_markdown,
     format_instances_table,
     heartbeat,
     list_instances,
@@ -65,4 +66,5 @@ __all__ = [
     "MessageQueueManager",
     "QueueMode",
     "ChannelRouter",
+    "format_instances_markdown",
 ]

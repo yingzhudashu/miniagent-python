@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 
 @dataclass
@@ -93,7 +93,7 @@ class LoopDetectionConfig:
 
 
 # 循环检测事件级别
-LoopLevel = str  # Literal["none", "warning", "critical"]
+LoopLevel = Literal["none", "warning", "critical"]
 
 
 @dataclass

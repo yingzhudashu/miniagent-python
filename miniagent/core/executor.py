@@ -429,7 +429,7 @@ async def execute_plan(
                 len(tools_arg),
             )
 
-        full_content = ""
+        full_content_parts: list[str] = []
         full_tool_calls: list[Any] = []
         thinking_header = thinking_phase_label
         _thinking_started = False
@@ -478,9 +478,9 @@ async def execute_plan(
             if hasattr(chunk, "usage") and chunk.usage:
                 _usage = chunk.usage
             if delta.content:
-                full_content += delta.content
+                full_content_parts.append(delta.content)
                 if on_thinking:
-                    cum = _joined_phase_cumulative(thinking_phase_label, full_content)
+                    cum = _joined_phase_cumulative(thinking_phase_label, "".join(full_content_parts))
                     try:
                         await invoke_on_thinking(
                             on_thinking,
@@ -507,6 +507,8 @@ async def execute_plan(
                             _tool_call_accum[idx]["name"] = tc_delta.function.name
                         if tc_delta.function.arguments:
                             _tool_call_accum[idx]["arguments"] += tc_delta.function.arguments
+
+        full_content = "".join(full_content_parts)
 
         if _tool_call_accum:
             full_tool_calls = []
