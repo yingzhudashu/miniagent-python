@@ -1229,11 +1229,9 @@ async def push_feishu_thinking_stream(
     if not chat_id:
         return
 
-    # 先提取工具段（两条路径都需要），避免在 if/else 中重复。
-    # 注意：仅在上一轮确实追加过工具段时才需要保留（feishu_tool_section_started）。
+    # 工具段提取：仅 new_round=True 且旧轮有工具时需要保留旧轮 LLM 正文（不含工具段）。
     _TOOL_MARKER = "\n\n**工具**"
     existing = getattr(st, "feishu_stream_accumulated", "") or ""
-    llm_prefix_len = getattr(st, "feishu_stream_llm_len", 0)
     tool_section = ""
     if _TOOL_MARKER in existing and getattr(st, "feishu_tool_section_started", False):
         tool_section = existing[existing.index(_TOOL_MARKER):]
@@ -1254,6 +1252,7 @@ async def push_feishu_thinking_stream(
         st.feishu_patch_budget = FEISHU_THINKING_PATCH_BUDGET
         st.feishu_tool_section_started = False
         st.feishu_stream_llm_len = 0
+        st.feishu_pending_header = ""
     else:
         _round_separator = False
 
@@ -1261,10 +1260,15 @@ async def push_feishu_thinking_stream(
         # 新轮已写入分隔符（仅含旧轮 LLM 正文），追加新轮 LLM 正文并重新附上工具段。
         st.feishu_stream_accumulated += (markdown or "")
         st.feishu_stream_accumulated += tool_section
-    elif tool_section and (markdown or "").startswith((existing[:llm_prefix_len] if llm_prefix_len else "") or ""):
-        st.feishu_stream_accumulated = (markdown or "") + tool_section
     else:
-        st.feishu_stream_accumulated = markdown
+        # 非新一轮：不重建 tool_section，避免与 append 路径已 PATCH 到卡上的工具重复。
+        # 若有 pending header（如 "[执行]"），预添加到卡片正文中。
+        pending_hdr = getattr(st, "feishu_pending_header", "") or ""
+        if pending_hdr:
+            st.feishu_stream_accumulated = f"**{pending_hdr}**\n\n{markdown or ''}"
+            st.feishu_pending_header = ""
+        else:
+            st.feishu_stream_accumulated = markdown or ""
     st.feishu_stream_llm_len = len(markdown or "")
 
     # 冲刷缓冲的工具行（在 LLM 内容设置后、卡片创建前）
@@ -1495,7 +1499,8 @@ async def send_reflection_card(
 
     body = "\n".join(lines)
     cleaned = _prepare_thinking_markdown(body)
-    card_json = json.dumps(_thinking_interactive_card_dict(cleaned, template), ensure_ascii=False)
+    # 使用 "🤖 Mini Agent" 卡片头，与 .help 命令输出格式一致
+    card_json = json.dumps(_feishu_interactive_card_dict("🤖 Mini Agent", cleaned, template), ensure_ascii=False)
 
     ok, _ = _post_interactive_message(
         config,

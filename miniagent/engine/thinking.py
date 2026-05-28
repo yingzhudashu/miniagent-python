@@ -136,6 +136,7 @@ class _SessionThinkingState:
         "feishu_patch_budget",
         "feishu_tool_section_started",
         "feishu_pending_tool_lines",
+        "feishu_pending_header",
         "turn_number",
         "_last_stream_full",
     )
@@ -159,6 +160,7 @@ class _SessionThinkingState:
     feishu_patch_budget: int
     feishu_tool_section_started: bool
     feishu_pending_tool_lines: list[str]
+    feishu_pending_header: str
     turn_number: int
     _last_stream_full: str
 
@@ -183,6 +185,7 @@ class _SessionThinkingState:
         self.feishu_patch_budget = 0
         self.feishu_tool_section_started = False
         self.feishu_pending_tool_lines: list[str] = []
+        self.feishu_pending_header = ""
         self.turn_number = 0
         self._last_stream_full = ""
 
@@ -291,6 +294,7 @@ class ThinkingDisplay:
         state.feishu_patch_budget = 0
         state.feishu_tool_section_started = False
         state.feishu_pending_tool_lines = []
+        state.feishu_pending_header = ""
         state._last_stream_full = ""
 
     def next_turn(self, session_key: str = "") -> int:
@@ -412,9 +416,10 @@ class ThinkingDisplay:
 
         hdr = (header or "").strip()
 
-        # 流式阶段切换：先于飞书 PATCH，避免新阶段正文拼进上一张卡
+        # 流式或非流式阶段切换：先于飞书 PATCH，避免新阶段正文拼进上一张卡。
+        # 注意：不要求 streaming=True，否则 [执行] 开始（streaming=False）无法检测到从规划到执行的 header 变化。
         phase_changed = (
-            streaming and bool(hdr) and bool(state.stream_header) and hdr != state.stream_header
+            bool(hdr) and bool(state.stream_header) and hdr != state.stream_header
         )
         if phase_changed:
             if state.feishu_send and state.feishu_chat_id:
@@ -561,12 +566,17 @@ class ThinkingDisplay:
                 and bool(hdr)
                 and (state.stream_step is None or state.stream_done)
             ):
+                _is_transition = bool(state.stream_done)
                 state.stream_step = step
                 state.stream_header = hdr
                 state.stream_printed = 0
                 state.stream_done = False
                 state._last_stream_full = ""
+                # 统一存入 feishu_pending_header，供 push_feishu_thinking_stream(new_round=False) 消费
+                state.feishu_pending_header = hdr
                 if self._should_emit_cli(state):
+                    if _is_transition:
+                        self._emit("\n\n")  # 阶段间空行：规划与执行之间留一行间隔
                     label = f"\U0001f4ad [{state.stream_step}] {state.stream_header}"
                     self._emit_line(label, "blue")
                 if self._should_emit_cli(state):

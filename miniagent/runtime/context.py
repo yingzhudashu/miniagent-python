@@ -46,6 +46,8 @@ class RuntimeContext:
         openai_client: LLM 客户端（``AsyncOpenAI`` 或兼容实现）；``None`` 表示使用默认工厂
         create_feishu_handler_factory: ``(toolboxes, prompts, state) -> handler`` 或
             ``(text_handler, media_handler)`` 元组；在 ``unified_main`` 内赋值，闭包捕获本上下文
+        cli_transcript_append_ansi: 全屏 CLI 时注册 ``(ansi_obj) -> None``，
+            将 ANSI 渲染内容写入 transcript 并管理滚动（与 ``cli_transcript_append`` 并列）。
         cli_transcript_append: 全屏 CLI 时注册 ``(style_cls, text) -> None``，
             将飞书/侧路输出写入 transcript；未注册时相关代码回退到 ``print``。
         skills_watch_task / skills_watch_stop_event: ``MINIAGENT_SKILLS_WATCH`` 目录监视任务。
@@ -64,6 +66,7 @@ class RuntimeContext:
     keyword_index: Any
     openai_client: Any | None = None
     create_feishu_handler_factory: Callable[..., Any] | None = field(default=None, repr=False)
+    cli_transcript_append_ansi: Callable[[Any], None] | None = field(default=None, repr=False)
     cli_transcript_append: Callable[[str, str], None] | None = field(default=None, repr=False)
     #: 定时任务后台循环（``miniagent.scheduled_tasks``）；可选便于退出时 cancel
     scheduled_tasks_ticker: asyncio.Task[Any] | None = field(default=None, repr=False)

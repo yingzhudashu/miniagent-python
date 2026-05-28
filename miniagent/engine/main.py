@@ -135,7 +135,8 @@ async def unified_main(ctx: RuntimeContext) -> None:
         "runtime_ctx": ctx,
         "feishu_p2p_synced_senders": set(),
     }
-    ctx.create_feishu_handler_factory = lambda tb, tp, st: _create_feishu_handler(tb, tp, st, ctx)
+    _dummy_stick: list[bool] = [True]
+    ctx.create_feishu_handler_factory = lambda tb, tp, st: _create_feishu_handler(tb, tp, st, ctx, _dummy_stick)
 
     # 信号：在事件循环线程内 await 统一关停（飞书 WS reset、子进程、实例注销）
     main_loop = asyncio.get_running_loop()
@@ -543,9 +544,9 @@ async def run_cli_loop(
     )
     _output_scroll_ref[0] = output_scroll
 
-    def _append_transcript(style_cls: str, text: str) -> None:
+    def _append_transcript(style_cls: str, text: str = "", *, ansi: Any = None) -> None:
         """向 transcript 追加样式化文本；同样式尾部合并；维护粘底与长度裁剪。"""
-        if not text:
+        if not text and ansi is None:
             return
         at_bottom = _output_at_bottom()
         if (
@@ -557,7 +558,10 @@ async def run_cli_loop(
             st, prev = _transcript[-1]
             _transcript[-1] = (st, prev + text)
         else:
-            _transcript.append((style_cls, text))
+            if ansi is not None:
+                _transcript.append(ansi)
+            else:
+                _transcript.append((style_cls, text))
         _trim_transcript()
         try:
             get_app().invalidate()
@@ -587,6 +591,22 @@ async def run_cli_loop(
                 except Exception:
                     pass
         return "".join(parts)
+
+    def _append_ansi_transcript(ansi_obj: Any) -> None:
+        """向 transcript 直接追加 ANSI 对象，含 trim/scroll 管理。"""
+        at_bottom = _output_at_bottom()
+        _transcript.append(ansi_obj)
+        _trim_transcript()
+        try:
+            get_app().invalidate()
+        except Exception:
+            pass
+        if at_bottom or _stick_bottom[0]:
+            _snap_output_bottom()
+            if at_bottom:
+                _stick_bottom[0] = True
+        else:
+            _stick_bottom[0] = False
 
     kb = KeyBindings()
 
@@ -727,6 +747,8 @@ async def run_cli_loop(
         style=cli_style,
     )
     ctx.cli_transcript_append = _append_transcript
+    ctx.cli_transcript_append_ansi = _append_ansi_transcript
+    ctx.create_feishu_handler_factory = lambda tb, tp, st: _create_feishu_handler(tb, tp, st, ctx, _stick_bottom)
     # stderr 日志仍会打乱 VS Code 等与 PT 共用的终端画布；TUI 期间默认只打 WARNING+
     if not os.environ.get("MINI_AGENT_TUI_VERBOSE_LOG"):
         set_console_log_threshold(logging.WARNING)
@@ -1307,11 +1329,74 @@ async def _run_cli_loop_fallback(
     print("\n\U0001f44b bye")
 
 
+def _format_cli_user_block(
+    append_fn: Callable[[str, str], None] | None,
+    prompt: str,
+    stick_bottom: list[bool],
+    width: int = 80,
+    *,
+    channel_label: str | None = None,
+) -> None:
+    """Write user block to CLI transcript with optional channel identifier."""
+    if append_fn is None or not prompt:
+        return
+    stick_bottom[0] = True
+    append_fn("class:cli-spacer", "\n\n\n")
+    append_fn("class:cli-border-strong", "═" * width + "\n")
+    if channel_label:
+        append_fn("class:cli-user-title", f"You · [{channel_label}]\n")
+    else:
+        append_fn("class:cli-user-title", "You\n")
+    append_fn("class:cli-border", "─" * width + "\n")
+    for line in (prompt or "").splitlines() or [""]:
+        append_fn("class:cli-user-body", line + "\n")
+    append_fn("class:cli-spacer", "\n")
+
+
+def _format_cli_reply_block(
+    append_fn: Callable[..., None] | None,
+    append_ansi_fn: Callable[[Any], None] | None,
+    text: str,
+    width: int = 80,
+) -> None:
+    """Write assistant reply block to CLI transcript with Markdown rendering.
+
+    Matches _cli_block_reply format: single-line border on top, double-line on bottom.
+    Markdown rendered via render_markdown_to_ansi -> ANSI object with scroll management.
+    """
+    if append_fn is None or not text:
+        return
+    from prompt_toolkit.formatted_text import ANSI
+    from miniagent.engine.markdown_cli import render_markdown_to_ansi
+
+    append_fn("class:cli-spacer", "\n")
+    append_fn("class:cli-border", chr(0x2500) * width + "\n")
+    append_fn("class:cli-assistant-title", "Assistant\n")
+    append_fn("class:cli-border", chr(0x2500) * width + "\n")
+    body = (text or "").strip()
+    if body:
+        try:
+            ansi_body = render_markdown_to_ansi(body, width=width)
+            if ansi_body and ansi_body.strip():
+                body_lines = ansi_body.rstrip("\n").split("\n")
+                transcript_body = "\n".join(ln if ln else "" for ln in body_lines) + "\n"
+                if append_ansi_fn:
+                    append_ansi_fn(ANSI(transcript_body))
+                else:
+                    for line in body.splitlines() or [""]:
+                        append_fn("class:cli-assistant-body", line + "\n")
+        except Exception:
+            for line in body.splitlines() or [""]:
+                append_fn("class:cli-assistant-body", line + "\n")
+    append_fn("class:cli-spacer", "\n")
+    append_fn("class:cli-border-strong", chr(0x2550) * width + "\n")
+
 def _create_feishu_handler(
     _skill_toolboxes,
     _skill_prompts,
     state: CliLoopState,
     ctx: RuntimeContext,
+    stick_bottom: list[bool],
 ):
     """创建飞书消息处理器。
 
@@ -1440,18 +1525,10 @@ def _create_feishu_handler(
         if (chat_id or "").strip():
             state["last_feishu_receive_chat_id"] = chat_id.strip()
 
-        if chat_type == "p2p" and channel_router.is_bound(f"feishu_p2p:{sender_id}"):
-            primary = channel_router.primary or ""
-            preview = f"\n\U0001f4e8 [\u98de\u4e66\u79c1\u804a\u2192{primary[:12]}] {content}"
-        else:
-            preview = f"\n\U0001f4e8 [\u98de\u4e66 {chat_id[:8]}] {content}"
-        _emit_feishu_preview(
-            chat_type=chat_type,
-            chat_id=chat_id,
-            sender_id=sender_id,
-            session_key=session_key,
-            line=preview,
-        )
+        # CLI 侧：以与纯 CLI 一致的格式展示用户问题，标题中融入飞书标识
+        if ctx.cli_transcript_append:
+            channel_label = "飞书私聊" if chat_type == "p2p" else f"飞书 {chat_id[:8]}"
+            _format_cli_user_block(ctx.cli_transcript_append, content, stick_bottom, channel_label=channel_label)
         mirror_cli = should_mirror_feishu_to_cli(
             channel_router,
             chat_type=chat_type,
@@ -1486,21 +1563,26 @@ def _create_feishu_handler(
                 cli_loop_state=state,
                 feishu_mirror_cli=mirror_cli,
             )
-            # 发送质量评估卡片（如有）
-            reflection = getattr(engine, "_last_reflection", None)
-            if reflection:
+            # 结论卡片（含质量评估尾部，与 .help 卡片一致格式）
+            if reply and reply.strip():
                 try:
-                    from miniagent.feishu.poll_server import send_reflection_card
+                    from miniagent.feishu.poll_server import _send_interactive_reply_cards
                     cfg = ctx.feishu.get_config()
-                    await send_reflection_card(
-                        cfg, chat_id, reflection,
+                    _send_interactive_reply_cards(
+                        cfg, chat_id, [(reply or "").strip()],
                         reply_to_message_id=inbound.message_id or None,
-                        thread_id=(inbound.thread_id or "").strip() or None,
+                        reply_in_thread=bool((inbound.thread_id or "").strip()),
                     )
                 except Exception:
                     pass
+            # 清理 engine._last_reflection（不再发送独立卡片）
+            if getattr(engine, "_last_reflection", None):
                 engine._last_reflection = None
-            # 飞书单消息：思考 + 工具均在思考卡中展示，抑制独立回复消息。
+
+            # CLI 侧：以与纯 CLI 一致的格式展示完整回复（含质量评估，markdown 渲染）
+            if ctx.cli_transcript_append and reply and reply.strip():
+                _format_cli_reply_block(ctx.cli_transcript_append, ctx.cli_transcript_append_ansi, (reply or "").strip())
+            # 飞书单消息：思考 + 工具均在思考卡中展示，结论通过回复卡片输出。
             return ""
         except Exception as e:
             return f"⚠️ 处理失败: {e}"

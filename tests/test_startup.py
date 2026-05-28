@@ -209,7 +209,7 @@ def test_feishu_handler_creation():
         "runtime_ctx": ctx,
         "feishu_p2p_synced_senders": set(),
     }
-    text_h, media_h = _create_feishu_handler([], [], loop_state, ctx)
+    text_h, media_h = _create_feishu_handler([], [], loop_state, ctx, [True])
     assert callable(text_h)
     assert callable(media_h)
 
