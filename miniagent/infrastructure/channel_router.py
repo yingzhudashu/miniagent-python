@@ -45,6 +45,11 @@ class ChannelRouter:
         self._reverse: dict[str, list[str]] = {}
         # 当前主会话（通过 set_primary 设置）
         self._primary: str | None = None
+        # CLI 上次会话状态（--continue 功能）
+        self._last_cli_session: str | None = None
+        self._last_cli_session_number: int = 0
+        self._last_cli_session_title: str = ""
+        self._last_cli_exit_time: str = ""
 
     # -----------------------------------------------------------------------
     # 绑定/解绑
@@ -319,6 +324,10 @@ class ChannelRouter:
             "bindings": dict(self._bindings),
             "reverse": {k: list(v) for k, v in self._reverse.items()},
             "primary": self._primary,
+            "last_cli_session": self._last_cli_session,
+            "last_cli_session_number": self._last_cli_session_number,
+            "last_cli_session_title": self._last_cli_session_title,
+            "last_cli_exit_time": self._last_cli_exit_time,
         }
 
     def from_dict(self, data: dict[str, Any]) -> None:
@@ -330,3 +339,50 @@ class ChannelRouter:
         self._bindings = dict(data.get("bindings", {}))
         self._reverse = {k: list(v) for k, v in data.get("reverse", {}).items()}
         self._primary = data.get("primary")
+        self._last_cli_session = data.get("last_cli_session")
+        self._last_cli_session_number = data.get("last_cli_session_number", 0)
+        self._last_cli_session_title = data.get("last_cli_session_title", "")
+        self._last_cli_exit_time = data.get("last_cli_exit_time", "")
+
+    # -----------------------------------------------------------------------
+    # CLI 会话状态持久化（--continue 功能）
+    # -----------------------------------------------------------------------
+
+    def save_cli_session_state(
+        self,
+        session_id: str,
+        session_number: int,
+        session_title: str,
+        exit_time: str | None = None,
+    ) -> None:
+        """保存 CLI 上次活跃会话状态。
+
+        Args:
+            session_id: 会话 ID
+            session_number: 会话编号
+            session_title: 会话标题
+            exit_time: 退出时间（ISO 格式）；默认当前时间
+        """
+        from datetime import datetime, timezone
+
+        self._last_cli_session = session_id
+        self._last_cli_session_number = session_number
+        self._last_cli_session_title = session_title
+        self._last_cli_exit_time = exit_time or datetime.now(timezone.utc).isoformat()
+        self._auto_save()
+
+    def load_cli_session_state(self) -> dict[str, Any]:
+        """加载 CLI 上次活跃会话状态。
+
+        Returns:
+            包含 last_cli_session, last_cli_session_number, last_cli_session_title,
+            last_cli_exit_time 的字典；无记录时返回空字典
+        """
+        if not self._last_cli_session:
+            return {}
+        return {
+            "last_cli_session": self._last_cli_session,
+            "last_cli_session_number": self._last_cli_session_number,
+            "last_cli_session_title": self._last_cli_session_title,
+            "last_cli_exit_time": self._last_cli_exit_time,
+        }

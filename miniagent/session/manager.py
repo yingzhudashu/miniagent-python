@@ -354,6 +354,47 @@ class DefaultSessionManager(SessionManagerProtocol):
             pass
         return []
 
+    def load_session_history_range(
+        self,
+        session_id: str,
+        start_idx: int = 0,
+        count: int = 10,
+    ) -> tuple[list, int]:
+        """分批加载会话历史（从末尾向前计数）。
+
+        用于 CLI 历史记录渐进式显示，避免一次性加载大量历史。
+
+        Args:
+            session_id: 会话 ID
+            start_idx: 起始索引（从末尾计数，0 表示最新）
+            count: 加载数量
+
+        Returns:
+            (消息列表, 总消息数)
+            消息按时间顺序返回（从旧到新）。
+        """
+        ctx = self._sessions.get(session_id)
+        if not ctx:
+            return [], 0
+
+        # 优先从内存读取
+        history = ctx.get("conversation_history", [])
+        if not history:
+            # 从磁盘加载完整历史
+            history = self.load_session_history(session_id)
+            ctx["conversation_history"] = history
+
+        total = len(history)
+        if total == 0:
+            return [], 0
+
+        # 从末尾切片（start_idx=0 表示最新）
+        actual_start = max(0, total - start_idx - count)
+        actual_end = total - start_idx
+
+        messages = history[actual_start:actual_end]
+        return messages, total
+
     def load_all_sessions(self) -> list[str]:
         """从磁盘加载所有已保存的会话 ID
 

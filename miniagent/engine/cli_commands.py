@@ -130,6 +130,30 @@ def sync_channel_router_to_session(
             channel_router.bind(f"{pfx}{sender}", sid)
 
 
+def _save_cli_session_state_on_switch(
+    session_manager: Any,
+    session_id: str,
+    channel_router: Any | None,
+) -> None:
+    """保存 CLI 上次会话状态到持久化（切换会话时调用）。"""
+    if not channel_router:
+        return
+    try:
+        sessions = session_manager.list_all_sessions_with_info()
+        for s in sessions:
+            if s.get("session_id") == session_id or s.get("id") == session_id:
+                session_number = s.get("session_number", 0)
+                session_title = s.get("title", "")
+                channel_router.save_cli_session_state(
+                    session_id,
+                    session_number,
+                    session_title,
+                )
+                return
+    except Exception:
+        pass
+
+
 def _resolve_session(session_manager: Any, id_or_number: str) -> str | None:
     """解析用户输入的会话标识（编号或原始 ID）。
 
@@ -365,6 +389,10 @@ async def cmd_session_switch(
     sync_channel_router_to_session(channel_router, session_id, feishu_p2p_synced_senders)
     display = session_manager.get_session_display_name(session_id)
     print(f"🔄 已切换到会话: {display}")
+
+    # 保存 CLI 上次会话状态（--continue 功能）
+    _save_cli_session_state_on_switch(session_manager, session_id, channel_router)
+
     return active_session_id
 
 

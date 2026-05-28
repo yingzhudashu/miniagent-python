@@ -373,6 +373,17 @@ async def run_cli_loop(
     _stick_bottom: list[bool] = [True]
     _last_md_width: list[int] = [0]  # 上次渲染 Markdown 的终端宽度
 
+    # 历史记录渐进式加载状态
+    _history_loaded_range: dict[str, Any] = {
+        "total_messages": 0,
+        "loaded_start": 0,
+        "loaded_end": 0,
+        "batch_size": 3,
+        "all_loaded": False,
+        "loading": False,
+    }
+    _initial_history_count: int = 5  # 启动时加载 5 条
+
     def _transcript_fragment_len(frag: Any) -> int:
         """估算单条 transcript 片段的字符长度（tuple 文本或 ``ANSI`` 包裹串）。"""
         if isinstance(frag, tuple) and len(frag) >= 2:
@@ -392,6 +403,152 @@ async def run_cli_loop(
         while total > _MAX_TRANSCRIPT_CHARS and len(_transcript) > 16:
             old = _transcript.pop(0)
             total -= _transcript_fragment_len(old)
+
+    def _render_history_message_to_transcript(msg: dict, prepend: bool = False) -> None:
+        """将历史消息渲染到 transcript。
+
+        Args:
+            msg: 历史消息字典，包含 role 和 content
+            prepend: True 时插入到顶部（加载更旧历史），False 时追加到底部（初始加载）
+        """
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+        if not content:
+            return
+
+        vp = _viewport_cols()
+        rule_w = max(10, vp // 3)
+
+        if role == "user":
+            if prepend:
+                # prepend=True: 插入到顶部，每条消息内部按正确顺序插入
+                # insert(0) 后插入的在上面，所以要：先插内容，再插标题分隔线
+                # 最终显示：spacer → 上分隔线 → 标题 → 内容 → 下分隔线
+                for line in content.splitlines():
+                    _transcript.insert(0, ("class:cli-user-body", line + "\n"))
+                _transcript.insert(0, ("class:cli-user-title", "You\n"))
+                _transcript.insert(0, ("class:cli-border", "─" * rule_w + "\n"))
+                _transcript.insert(0, ("class:cli-border-strong", "═" * rule_w + "\n"))
+                _transcript.insert(0, ("class:cli-spacer", "\n"))
+            else:
+                _cli_block_user(content)
+        elif role == "assistant":
+            md_w = max(20, vp // 3)
+            ansi = render_markdown_to_ansi(content, width=md_w)
+            if prepend:
+                # prepend=True: 插入到顶部，顺序：标题 → 内容 → 分隔线
+                if ansi:
+                    ansi_obj = ANSI(ansi)
+                    _attach_md_source(ansi_obj, content)
+                    _transcript.insert(0, ansi_obj)
+                else:
+                    for line in content.splitlines():
+                        _transcript.insert(0, ("class:cli-reply-body", line + "\n"))
+                _transcript.insert(0, ("class:cli-reply-title", "Agent\n"))
+                _transcript.insert(0, ("class:cli-border", "─" * rule_w + "\n"))
+            else:
+                _cli_block_reply(content)
+        elif role == "thinking":
+            if prepend:
+                _transcript.insert(0, ("class:cli-think-head", "💭 Thinking\n"))
+                _transcript.insert(0, ("class:cli-spacer", "\n"))
+            else:
+                _append_transcript("class:cli-think-head", "💭 Thinking\n")
+
+    def _load_initial_history_to_transcript() -> None:
+        """加载最近几条历史到 transcript 显示区。"""
+        sm = state.get("session_manager")
+        if not sm:
+            return
+        session_id = state.get("active_session_id", "")
+        if not session_id:
+            return
+
+        messages, total = sm.load_session_history_range(
+            session_id,
+            start_idx=0,
+            count=_initial_history_count,
+        )
+
+        # 无论是否有历史，都设置状态
+        _history_loaded_range["total_messages"] = total
+        _history_loaded_range["loaded_start"] = 0
+        _history_loaded_range["loaded_end"] = min(_initial_history_count, total)
+        _history_loaded_range["all_loaded"] = total <= _initial_history_count
+
+        if not messages:
+            return
+
+        # 渲染历史到 transcript（从旧到新）
+        for msg in messages:
+            _render_history_message_to_transcript(msg, prepend=False)
+
+        # 如果有更多历史，添加提示
+        if not _history_loaded_range["all_loaded"]:
+            remaining = total - _initial_history_count
+            _append_transcript(
+                "class:cli-hint",
+                f"\n[↑ 向上滚动加载更多历史 · 还有 {remaining} 条]\n"
+            )
+
+    def _trigger_lazy_load_more_history() -> None:
+        """触发懒加载更多历史（防重入）。"""
+        if _history_loaded_range["loading"]:
+            return
+        if _history_loaded_range["all_loaded"]:
+            return
+
+        _history_loaded_range["loading"] = True
+
+        try:
+            sm = state.get("session_manager")
+            session_id = state.get("active_session_id", "")
+            if not sm or not session_id:
+                return
+
+            next_start = _history_loaded_range["loaded_end"]
+            batch = _history_loaded_range["batch_size"]
+
+            messages, total = sm.load_session_history_range(
+                session_id,
+                start_idx=next_start,
+                count=batch,
+            )
+
+            if not messages:
+                _history_loaded_range["all_loaded"] = True
+                return
+
+            # 移除顶部的提示文字
+            if _transcript and isinstance(_transcript[0], tuple):
+                first_text = _transcript[0][1] if len(_transcript[0]) >= 2 else ""
+                if "加载更多历史" in first_text:
+                    _transcript.pop(0)
+
+            # 在顶部插入新加载的历史（从旧到新遍历，使旧消息在最上方）
+            for msg in messages:
+                _render_history_message_to_transcript(msg, prepend=True)
+
+            # 更新加载范围
+            _history_loaded_range["loaded_end"] = next_start + len(messages)
+            _history_loaded_range["all_loaded"] = (
+                _history_loaded_range["loaded_end"] >= total
+            )
+
+            # 如果仍有更多，恢复提示
+            if not _history_loaded_range["all_loaded"]:
+                remaining = total - _history_loaded_range["loaded_end"]
+                _transcript.insert(
+                    0,
+                    ("class:cli-hint", f"\n[↑ 加载更多历史 · 还有 {remaining} 条]\n")
+                )
+
+            # 刷新显示
+            from prompt_toolkit.application import get_app
+            get_app().invalidate()
+
+        finally:
+            _history_loaded_range["loading"] = False
 
     def _attach_md_source(ansi_obj: Any, source_md: str) -> None:
         """在 ANSI 对象上附加原始 Markdown，供终端缩放时重新渲染。"""
@@ -578,6 +735,10 @@ async def run_cli_loop(
             sp.vertical_scroll = max(0, before - step)
         else:
             sp.vertical_scroll = min(mx, before + step)
+
+        # 检测是否接近顶部，触发加载更多历史
+        if sp.vertical_scroll < 5 and signed_step < 0:
+            _trigger_lazy_load_more_history()
 
     class _TranscriptPaneControl(UIControl):
         """将滚轮从「内层 Window 自滚」转为 ScrollablePane.vertical_scroll。"""
@@ -1030,6 +1191,9 @@ async def run_cli_loop(
         except Exception as e:
             _append_transcript("class:cli-err", f"\u274c \u9519\u8bef: {e}\n")
 
+    # \u52a0\u8f7d\u521d\u59cb\u5386\u53f2\u5230 transcript
+    _load_initial_history_to_transcript()
+
     while True:
         try:
             user_input = await app.run_async()
@@ -1131,6 +1295,10 @@ async def run_cli_loop(
     # 清理
     set_console_log_threshold(logging.INFO)
     ctx.cli_transcript_append = None
+
+    # 保存 CLI 上次会话状态（--continue 功能）
+    _save_cli_session_state(ctx, state)
+
     release_session_lock(state["active_session_id"])
     try:
         unregister_instance()
@@ -1138,6 +1306,33 @@ async def run_cli_loop(
         pass
     # 全屏 Application 已结束；直接打印告别
     print("\n\U0001f44b bye\n", file=sys.stdout, flush=True)
+
+
+def _save_cli_session_state(ctx: RuntimeContext, state: CliLoopState) -> None:
+    """保存 CLI 上次会话状态到持久化（--continue 功能）。"""
+    try:
+        session_id = state.get("active_session_id", "")
+        if not session_id:
+            return
+
+        session_manager = state.get("session_manager")
+        if not session_manager:
+            return
+
+        # 获取会话信息
+        sessions = session_manager.list_all_sessions_with_info()
+        for s in sessions:
+            if s.get("session_id") == session_id:
+                session_number = s.get("session_number", 0)
+                session_title = s.get("title", "")
+                ctx.channel_router.save_cli_session_state(
+                    session_id,
+                    session_number,
+                    session_title,
+                )
+                return
+    except Exception:
+        pass
 
 
 async def _run_cli_loop_fallback(
@@ -1303,7 +1498,7 @@ async def _run_cli_loop_fallback(
             if sub_cmd == "list":
                 cmd_session_list(state.get("session_manager"), state["active_session_id"])
             elif sub_cmd == "switch" and len(parts) >= 3:
-                state["active_session_id"] = await cmd_session_switch(
+                new_session_id = await cmd_session_switch(
                     state.get("session_manager"),
                     state["active_session_id"],
                     parts[2],
@@ -1313,6 +1508,17 @@ async def _run_cli_loop_fallback(
                     channel_router,
                     state.get("feishu_p2p_synced_senders"),
                 )
+                # 切换成功后重置历史加载状态
+                if new_session_id != state["active_session_id"]:
+                    state["active_session_id"] = new_session_id
+                    _transcript.clear()
+                    _history_loaded_range["total_messages"] = 0
+                    _history_loaded_range["loaded_start"] = 0
+                    _history_loaded_range["loaded_end"] = 0
+                    _history_loaded_range["all_loaded"] = False
+                    _history_loaded_range["loading"] = False
+                    _load_initial_history_to_transcript()
+                    get_app().invalidate()
             elif sub_cmd == "create" and len(parts) >= 3:
                 await cmd_session_create(
                     state.get("session_manager"),
@@ -1425,6 +1631,9 @@ async def _run_cli_loop_fallback(
             heartbeat()
         except Exception:
             pass
+
+    # 保存 CLI 上次会话状态（--continue 功能）
+    _save_cli_session_state(ctx, state)
 
     release_session_lock(state["active_session_id"])
     try:

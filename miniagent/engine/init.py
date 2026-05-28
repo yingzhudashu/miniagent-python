@@ -125,8 +125,10 @@ def _init_default_session(session_manager: Any, channel_router: Any, *, session_
     同时将 CLI 通道绑定到默认会话，确保 CLI 和初始化使用同一会话。
 
     Args:
+        session_manager: 会话管理器实例
+        channel_router: 通道路由器，用于加载上次会话状态（--continue 功能）和绑定 CLI 通道
         session_name: 可选的会话名称（由 ``MINIAGENT_SESSION_NAME`` 传入）。
-            若不传，则使用 ``"default"``。
+            若不传，则使用 ``"default"`` 或上次会话（--continue 模式）。
 
     Returns:
         active_session_id
@@ -134,7 +136,33 @@ def _init_default_session(session_manager: Any, channel_router: Any, *, session_
     from miniagent.engine.session_lock import try_lock_session
     from miniagent.session.manager import SessionOptions
 
-    session_id = session_name or "default"
+    # --continue 参数支持：优先恢复上次会话
+    continue_mode = os.environ.get("MINIAGENT_CONTINUE_SESSION", "").strip() == "1"
+
+    if continue_mode and not session_name:
+        # 从持久化记录加载上次会话
+        last_state = channel_router.load_cli_session_state()
+        if last_state:
+            last_session_id = last_state.get("last_cli_session")
+            if last_session_id:
+                # 检查会话是否仍然存在
+                existing_sessions = session_manager.list_all_sessions_with_info()
+                existing_ids = {s.get("session_id") for s in existing_sessions}
+                if last_session_id in existing_ids:
+                    session_id = last_session_id
+                else:
+                    # 上次会话已删除，回退到 default
+                    _logger.info("上次会话 %s 已删除，回退到 default", last_session_id)
+                    session_id = "default"
+            else:
+                session_id = "default"
+        else:
+            session_id = "default"
+    elif session_name:
+        session_id = session_name
+    else:
+        session_id = "default"
+
     session_manager.get_or_create(session_id, SessionOptions(description="默认会话"))
     channel_router.bind("__cli__", session_id)
     channel_router.set_primary(session_id)

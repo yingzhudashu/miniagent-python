@@ -5,9 +5,10 @@
 
 用法:
     python -m miniagent              # CLI 模式（默认）
+    python -m miniagent --continue   # 继续上次会话（而非默认会话）
     python -m miniagent --feishu     # CLI + 飞书同时启动
     python -m miniagent --stop       # 列出运行中实例，交互选择停止（TTY）或见下方非交互用法
-    python -m miniagent --stop --all # 停止全部运行中实例
+    python -m miniagent --stop --all # 廜止全部运行中实例
     python -m miniagent --stop 1 2   # 停止指定实例 ID（可多个）
 
 架构（组合根）:
@@ -149,7 +150,14 @@ def _run_stop_command() -> int:
 
 def main():
     """统一入口 — 委托 ``compat.unified_entry`` 构造 RuntimeContext 后启动 ``unified_main``。"""
+    import os
+
     _load_env()
+
+    # --continue: 继续上次会话而非默认会话
+    if "--continue" in sys.argv:
+        os.environ["MINIAGENT_CONTINUE_SESSION"] = "1"
+        sys.argv.remove("--continue")
 
     if "--stop" in sys.argv:
         try:
