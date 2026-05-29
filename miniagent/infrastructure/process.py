@@ -105,11 +105,16 @@ async def _kill_tree_windows(pid: int) -> None:
 async def _kill_unix(proc: asyncio.subprocess.Process) -> None:
     """Unix：终止进程组。"""
     try:
-        os.killpg(os.getpgid(proc.pid), 15)  # SIGTERM
+        pgid = os.getpgid(proc.pid)
+        os.killpg(pgid, 15)  # SIGTERM
         await asyncio.wait_for(proc.wait(), timeout=3.0)
-    except (ProcessLookupError, OSError, asyncio.TimeoutError):
+    except (ProcessLookupError, OSError):
+        # 进程已退出或进程组不存在
+        pass
+    except asyncio.TimeoutError:
         try:
-            os.killpg(os.getpgid(proc.pid), 9)  # SIGKILL
+            pgid = os.getpgid(proc.pid)
+            os.killpg(pgid, 9)  # SIGKILL
             await asyncio.wait_for(proc.wait(), timeout=2.0)
         except (ProcessLookupError, OSError, asyncio.TimeoutError):
             pass
@@ -174,7 +179,10 @@ def _sync_cleanup():
                     timeout=5,
                 )
             else:
-                os.killpg(os.getpgid(proc.pid), 9)
+                pgid = os.getpgid(proc.pid)
+                os.killpg(pgid, 9)  # SIGKILL
+        except (ProcessLookupError, OSError):
+            pass  # 进程已退出或进程组不存在
         except Exception:
             pass
 
@@ -192,6 +200,7 @@ async def create_tracked_subprocess(
 
     等价于 asyncio.create_subprocess_shell，但会自动追踪。
     Windows 默认使用 CREATE_NEW_PROCESS_GROUP 防止孤儿。
+    Unix 默认使用 start_new_session 创建新进程组。
 
     Args:
         cmd: shell 命令
@@ -204,6 +213,9 @@ async def create_tracked_subprocess(
         flags = kwargs.pop("creationflags", 0)
         flags |= subprocess.CREATE_NEW_PROCESS_GROUP
         kwargs["creationflags"] = flags
+    else:
+        # Unix: 创建新进程组以便 killpg 能正确终止整个进程树
+        kwargs["start_new_session"] = True
 
     proc = await asyncio.create_subprocess_shell(cmd, **kwargs)
     await register_process(proc)
