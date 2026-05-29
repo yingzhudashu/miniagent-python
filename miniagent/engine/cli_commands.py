@@ -154,6 +154,106 @@ def _save_cli_session_state_on_switch(
         pass
 
 
+def _get_last_qa_with_metadata(
+    session_manager: Any,
+    session_id: str,
+) -> tuple[dict | None, dict | None]:
+    """获取当前会话的最后一轮 Q&A（带 metadata）。
+
+    用于 .improve 和 .review 命令获取上一轮对话上下文。
+
+    Args:
+        session_manager: 会话管理器实例
+        session_id: 当前会话 ID
+
+    Returns:
+        (user_msg_dict, assistant_msg_dict)
+        消息字典包含 role、content、metadata 等字段。
+    """
+    import json
+    import os
+
+    session = session_manager.get(session_id)
+    if session is None:
+        return None, None
+
+    # 优先从内存中的 conversation_history 读取
+    history = getattr(session, "conversation_history", None) or []
+    if not history:
+        # 回退到 history.json
+        files_path = getattr(session, "workspace_path", None) or getattr(session, "files_path", None)
+        if files_path:
+            hp = os.path.join(os.path.dirname(files_path), "history.json")
+            if os.path.isfile(hp):
+                try:
+                    with open(hp, encoding="utf-8-sig") as f:
+                        history = json.load(f)
+                except Exception:
+                    history = []
+
+    last_user = None
+    last_assistant = None
+
+    for msg in reversed(history):
+        if isinstance(msg, dict):
+            role = msg.get("role", "")
+            if role == "user" and last_user is None:
+                last_user = msg
+            elif role == "assistant" and last_assistant is None:
+                last_assistant = msg
+            if last_user and last_assistant:
+                break
+
+    return last_user, last_assistant
+
+
+def _extract_improve_suggestions(assistant_msg: dict) -> list[str]:
+    """从 assistant 消息中提取质量评估改进建议。
+
+    解析消息末尾的质量评估尾部文本，提取建议列表。
+
+    Args:
+        assistant_msg: assistant 消息字典
+
+    Returns:
+        建议列表（每条建议为字符串），无建议时返回空列表
+    """
+    import re
+
+    content = assistant_msg.get("content", "")
+    if not content:
+        return []
+
+    # 正则匹配质量评估尾部的建议部分
+    pattern = r"---\n🤖 .*?质量评分.*?\n\n建议：\n((?:- .+\n?)+)"
+    match = re.search(pattern, content)
+
+    if not match:
+        return []
+
+    suggestions_block = match.group(1)
+    suggestions = []
+
+    for line in suggestions_block.strip().split("\n"):
+        if line.startswith("- "):
+            suggestions.append(line[2:].strip())
+
+    return suggestions
+
+
+def _has_quality_evaluation(assistant_msg: dict) -> bool:
+    """检查 assistant 消息是否包含质量评估尾部。
+
+    Args:
+        assistant_msg: assistant 消息字典
+
+    Returns:
+        True 如果包含质量评估尾部
+    """
+    content = assistant_msg.get("content", "")
+    return "---\n🤖 " in content and "质量评分" in content
+
+
 def _resolve_session(session_manager: Any, id_or_number: str) -> str | None:
     """解析用户输入的会话标识（编号或原始 ID）。
 
@@ -1167,6 +1267,16 @@ def format_help_markdown(
             ],
         ),
         _md_help_section(
+            "答案改进",
+            "根据质量评估建议改进上一轮答案；支持多轮改进。",
+            [
+                ("`.improve`", "根据质量评估建议改进上一轮答案"),
+                ("`.improve --force`", "强制改进（即使质量已通过）"),
+                ("`.improve --reset`", "回退到原始答案重新改进"),
+                ("`.review`", "自我反驳式审查答案（迭代最多3轮）"),
+            ],
+        ),
+        _md_help_section(
             "定时任务",
             "用 `` -- `` 分隔参数与 prompt；once 可加 ``--tz``；飞书默认仅 list/show，MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1 时与 CLI 同等。",
             [
@@ -1224,6 +1334,58 @@ def format_help_markdown(
     return header + "".join(sections) + footer
 
 
+def cmd_improve(
+    session_manager: Any,
+    session_id: str,
+    *,
+    force: bool = False,
+    reset: bool = False,
+) -> tuple[dict, dict, list[str]] | tuple[str, bool]:
+    """获取改进上一轮答案所需的上下文。
+
+    从历史记录获取上一轮 Q&A，提取质量评估建议，
+    供 command_dispatch.py 的 _run_improve() 使用。
+
+    Args:
+        session_manager: 会话管理器实例
+        session_id: 当前会话 ID
+        force: 强制改进（即使质量已通过）
+        reset: 回退到原始答案重新改进
+
+    Returns:
+        成功: (user_msg_dict, assistant_msg_dict, suggestions)
+        失败: (错误消息, False)
+    """
+    # 1. 获取最后一轮 Q&A
+    last_user, last_assistant = _get_last_qa_with_metadata(session_manager, session_id)
+
+    # 2. 检查边界情况
+    if not last_assistant:
+        return "⚠️ 当前会话无历史对话，无法改进", False
+
+    # 3. 提取质量评估建议
+    suggestions = _extract_improve_suggestions(last_assistant)
+
+    if not suggestions:
+        if _has_quality_evaluation(last_assistant):
+            if force:
+                # 强制改进模式：即使无建议也允许改进（返回空建议列表）
+                return last_user, last_assistant, []
+            return "✅ 上一轮质量评估已通过，无需改进（使用 `.improve --force` 强制改进）", False
+        else:
+            return "⚠️ 上一轮未启用质量评估，无法改进", False
+
+    # 4. 检查是否已改进过（限制轮次）
+    metadata = last_assistant.get("metadata", {})
+    if metadata.get("improved") and not reset:
+        improve_round = metadata.get("improve_round", 1)
+        if improve_round >= 3:
+            return "⚠️ 已达到改进轮次上限（3轮），建议重新提问或使用 `.review`", False
+
+    # 5. 返回改进所需的上下文
+    return last_user, last_assistant, suggestions
+
+
 def cmd_help(
     message_queue: Any,
     instance_id: int | None = None,
@@ -1260,4 +1422,8 @@ __all__ = [
     "cmd_bind",
     "cmd_unbind",
     "cmd_instance_handler",
+    "cmd_improve",
+    "_get_last_qa_with_metadata",
+    "_extract_improve_suggestions",
+    "_has_quality_evaluation",
 ]

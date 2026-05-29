@@ -415,6 +415,67 @@ async def dispatch_command(
             print(output)
         return None
 
+    # ── .improve（根据质量评估建议改进答案）──
+    if cmd == ".improve":
+        rt = state.get("runtime_ctx")
+        sm = state.get("session_manager")
+        session_id = state.get("active_session_id", "")
+        if rt is None or sm is None or not session_id:
+            output = "⚠️ .improve 需要会话上下文和会话管理器"
+        else:
+            # 解析参数
+            force = "--force" in parts
+            reset = "--reset" in parts
+
+            # 导入辅助函数
+            from miniagent.engine.cli_commands import cmd_improve
+
+            result = cmd_improve(sm, session_id, force=force, reset=reset)
+
+            if isinstance(result, tuple) and len(result) == 2 and isinstance(result[1], bool):
+                # 错误情况
+                output = result[0]
+            else:
+                # 执行改进
+                user_msg_dict, assistant_msg_dict, suggestions = result
+                user_msg = user_msg_dict.get("content", "")
+                assistant_msg = assistant_msg_dict.get("content", "")
+
+                improved_answer = await _run_improve(
+                    user_msg, assistant_msg, suggestions,
+                    client=getattr(rt, "openai_client", None),
+                    term_write=getattr(rt, "cli_transcript_append", None),
+                    capture=capture,
+                )
+
+                if improved_answer:
+                    # 追加到历史
+                    session = sm.get(session_id)
+                    if session:
+                        metadata = assistant_msg_dict.get("metadata", {})
+                        improve_round = metadata.get("improve_round", 0) + 1 if metadata.get("improved") else 1
+
+                        session.conversation_history.append({
+                            "role": "assistant",
+                            "content": improved_answer,
+                            "metadata": {
+                                "improved": True,
+                                "improve_round": improve_round,
+                            }
+                        })
+                        # 持久化
+                        sm.save_session_history(session_id)
+
+                    output = improved_answer if capture else None
+                else:
+                    output = "⚠️ 改进失败"
+
+        if capture:
+            return output
+        if output:
+            print(output)
+        return None
+
     # ── .confirm / .adjust / .reject（确认侧通道）──
     if cmd in (".confirm", ".adjust", ".reject"):
         cc = getattr(engine, "confirmation_channel", None) if engine else None
@@ -632,6 +693,98 @@ async def _run_review(
         return f"🔍 审查完成\n\n{current_answer[:2000]}"
     print(current_answer[:2000])
     return None
+
+
+# ─── .improve 辅助函数 ───────────────────────────────
+
+_IMPROVE_SYSTEM = """你是一个答案优化专家。根据质量评估建议改进答案。
+返回 JSON 格式 {"improved_answer": "改进后的完整答案"}，不要包含其他文字。"""
+
+_IMPROVE_PROMPT = """请根据质量评估建议改进以下答案。
+
+用户原始问题：
+{user_input}
+
+当前答案：
+{current_answer}
+
+质量评估建议：
+{improve_suggestions}
+
+改进要求：
+1. 针对每条建议进行具体的改进
+2. 保持答案的核心内容和结构
+3. 补充遗漏的信息或细节
+4. 提升答案的准确性和完整性
+5. 优化表述的清晰度和专业性
+
+返回 JSON 格式 {"improved_answer": "改进后的完整答案"}"""
+
+
+async def _run_improve(
+    user_msg: str,
+    assistant_msg: str,
+    suggestions: list[str],
+    *,
+    client: Any = None,
+    term_write: Any = None,
+    capture: bool = False,
+) -> str | None:
+    """执行答案改进（根据质量评估建议）。
+
+    Args:
+        user_msg: 用户原始问题
+        assistant_msg: 当前答案
+        suggestions: 改进建议列表
+        client: OpenAI 异步客户端
+        term_write: CLI transcript 写入回调（可选）
+        capture: 是否捕获输出（飞书模式）
+
+    Returns:
+        改进后的答案（capture=True 时），或 None（直接 print）
+    """
+    from miniagent.core.llm_json import llm_json
+
+    def _write(text: str, color: str = "") -> None:
+        if term_write and callable(term_write):
+            try:
+                term_write(text, color)
+            except Exception:
+                pass
+        if not capture:
+            print(text)
+
+    _write("🔄 正在根据建议改进答案…", "ansicyan")
+
+    # 构建改进 prompt
+    suggestions_text = "\n".join(f"- {s}" for s in suggestions)
+    improve_prompt = _IMPROVE_PROMPT.format(
+        user_input=user_msg[:3000],
+        current_answer=assistant_msg[:5000],
+        improve_suggestions=suggestions_text,
+    )
+
+    # 调用 LLM 生成改进答案（返回 JSON）
+    result = await llm_json(
+        prompt=improve_prompt,
+        system=_IMPROVE_SYSTEM,
+        client=client,
+    )
+
+    # 从 JSON 中提取改进答案
+    improved_answer = result.get("improved_answer", "") if result else ""
+
+    if not improved_answer:
+        _write("⚠️ 改进失败（LLM 无响应）", "ansired")
+        return None
+
+    _write("✅ 答案已改进", "ansigreen")
+
+    if capture:
+        return f"🔄 改进完成\n\n{improved_answer[:2000]}"
+
+    print(improved_answer)
+    return improved_answer
 
 
 def _format_status(state: CliLoopState | dict[str, Any]) -> str:

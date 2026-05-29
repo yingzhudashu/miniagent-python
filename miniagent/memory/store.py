@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from miniagent.infrastructure.logger import get_logger
-from miniagent.types.memory import MemoryEntry, MemoryEntryInput, MemoryStoreProtocol, SessionMemory
+from miniagent.types.memory import FileMetadata, MemoryEntry, MemoryEntryInput, MemoryStoreProtocol, SessionMemory
 
 _logger = get_logger(__name__)
 
@@ -59,7 +59,7 @@ def _memory_file_path(state_dir: str, session_id: str) -> str:
 def format_memory_for_prompt(memory: SessionMemory | None) -> str:
     """将记忆格式化为可注入 system prompt 的文本
 
-    从 SessionMemory 提取关键事实、累计摘要和最近对话条目，
+    从 SessionMemory 提取关键事实、上传文件、累计摘要和最近对话条目，
     格式化为 Markdown 文本，可直接拼接到 system prompt 中。
 
     Args:
@@ -82,6 +82,19 @@ def format_memory_for_prompt(memory: SessionMemory | None) -> str:
         parts.append("## 关键记忆")
         for fact in memory.key_facts[-10:]:
             parts.append(f"- {fact}")
+
+    # 上传的文件（新增）
+    if memory.uploaded_files:
+        parts.append("## 上传的文件")
+        for file in memory.uploaded_files[-10:]:
+            type_label = {"image": "图片", "text": "文本", "binary": "文件"}.get(file.type, "文件")
+            size_kb = file.size // 1024 if file.size >= 1024 else file.size
+            size_label = f"{size_kb}KB" if file.size >= 1024 else f"{size_kb}B"
+            parts.append(f"- {file.name} ({type_label}, {size_label})")
+            if file.description:
+                # 描述截断到 200 字符
+                desc = file.description[:200] + "…" if len(file.description) > 200 else file.description
+                parts.append(f"  内容: {desc}")
 
     # 累计摘要
     if memory.cumulative_summary:
@@ -297,11 +310,31 @@ class DefaultMemoryStore(MemoryStoreProtocol):
                     except Exception:
                         continue
 
+            # 加载上传的文件
+            uploaded_files: list[FileMetadata] = []
+            for f in data.get("uploaded_files", []):
+                try:
+                    uploaded_files.append(
+                        FileMetadata(
+                            name=str(f.get("name", "")),
+                            path=str(f.get("path", "")),
+                            size=int(f.get("size", 0)),
+                            mime_type=str(f.get("mime_type", "")),
+                            type=str(f.get("type", "binary")),
+                            description=str(f.get("description", "")),
+                            timestamp=str(f.get("timestamp", "")),
+                            source=str(f.get("source", "cli")),
+                        )
+                    )
+                except Exception:
+                    continue
+
             memory = SessionMemory(
                 session_id=data["session_id"],
                 cumulative_summary=data.get("cumulative_summary", ""),
                 key_facts=data.get("key_facts", []),
                 entries=entries,
+                uploaded_files=uploaded_files,
                 total_turns=data.get("total_turns", 0),
                 first_seen=data.get("first_seen", ""),
                 last_active=data.get("last_active", ""),
@@ -336,6 +369,19 @@ class DefaultMemoryStore(MemoryStoreProtocol):
                         "facts": e.facts,
                     }
                     for e in memory.entries
+                ],
+                "uploaded_files": [
+                    {
+                        "name": f.name,
+                        "path": f.path,
+                        "size": f.size,
+                        "mime_type": f.mime_type,
+                        "type": f.type,
+                        "description": f.description,
+                        "timestamp": f.timestamp,
+                        "source": f.source,
+                    }
+                    for f in memory.uploaded_files
                 ],
                 "total_turns": memory.total_turns,
                 "first_seen": memory.first_seen,
@@ -464,10 +510,64 @@ class DefaultMemoryStore(MemoryStoreProtocol):
         except Exception:
             pass  # 嵌入索引失败不影响主流程
 
+    async def add_file(self, session_id: str, file_meta: FileMetadata) -> None:
+        """添加上传文件到记忆
+
+        Args:
+            session_id: 会话唯一标识
+            file_meta: 文件元数据
+        """
+        memory = await self.load(session_id)
+        if not memory:
+            now = datetime.now(timezone.utc).isoformat()
+            memory = SessionMemory(
+                session_id=session_id,
+                total_turns=0,
+                first_seen=now,
+                last_active=now,
+            )
+
+        memory.uploaded_files.append(file_meta)
+
+        # 最多保留 50 个文件记录
+        if len(memory.uploaded_files) > 50:
+            memory.uploaded_files = memory.uploaded_files[-50:]
+
+        # 图片或有描述的文件，同时作为 key_fact
+        if file_meta.description:
+            type_label = {"image": "图片", "text": "文本文件", "binary": "文件"}.get(file_meta.type, "文件")
+            fact = f"用户上传过{type_label} {file_meta.name}: {file_meta.description[:100]}"
+            existing = {f.lower().strip() for f in memory.key_facts}
+            if fact.lower().strip() not in existing and len(memory.key_facts) < 20:
+                memory.key_facts.append(fact)
+
+        memory.last_active = datetime.now(timezone.utc).isoformat()
+        await self.save(memory)
+
 
 __all__ = [
     "DefaultMemoryStore",
     "format_memory_for_prompt",
     "extract_facts",
     "generate_turn_summary",
+    "add_file_to_memory",
 ]
+
+
+async def add_file_to_memory(session_id: str, file_meta: FileMetadata, store: Any = None) -> None:
+    """将文件添加到会话记忆（便捷函数）
+
+    Args:
+        session_id: 会话 ID
+        file_meta: 文件元数据
+        store: 记忆存储实例（None 时使用进程默认）
+    """
+    if store is None:
+        from miniagent.memory.defaults import get_process_default_memory_bundle
+
+        store = get_process_default_memory_bundle()[0]
+
+    if store is None:
+        return
+
+    await store.add_file(session_id, file_meta)

@@ -27,6 +27,7 @@ import signal
 import sys
 import threading
 from collections.abc import Callable
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -1149,10 +1150,149 @@ async def run_cli_loop(
         _append_transcript("class:cli-spacer", "\n")
         _cli_rule_heavy()
 
+    async def _detect_and_process_file_markers(
+        user_input: str,
+        session_key: str,
+        session_manager: Any,
+        runtime_ctx: Any,
+    ) -> tuple[str, list[dict]]:
+        """检测用户输入中的 @file: 标记，处理文件并存储到记忆。
+
+        Args:
+            user_input: 用户原始输入
+            session_key: 会话 ID
+            session_manager: 会话管理器
+            runtime_ctx: 运行时上下文
+
+        Returns:
+            (处理后的输入, 文件信息列表)
+        """
+        import re
+
+        files_info: list[dict] = []
+
+        # 匹配 @file:path 或 file:path 标记
+        pattern = r"@file:([^\s]+)|file:([^\s]+)"
+        matches = re.findall(pattern, user_input)
+
+        if not matches:
+            return user_input, files_info
+
+        for match in matches:
+            file_path = match[0] or match[1]
+            if not file_path:
+                continue
+
+            # 解析路径
+            try:
+                if session_manager:
+                    session = session_manager.get(session_key)
+                    if session:
+                        base_path = session.workspace_path or ""
+                        if not os.path.isabs(file_path):
+                            # 相对路径：相对于会话 files 目录或当前目录
+                            if os.path.exists(file_path):
+                                resolved = file_path
+                            elif base_path and os.path.exists(os.path.join(base_path, file_path)):
+                                resolved = os.path.join(base_path, file_path)
+                            else:
+                                resolved = file_path
+                        else:
+                            resolved = file_path
+
+                        if os.path.isfile(resolved):
+                            # 读取文件元数据
+                            file_name = os.path.basename(resolved)
+                            file_size = os.path.getsize(resolved)
+
+                            # 检测 MIME 类型
+                            try:
+                                with open(resolved, "rb") as f:
+                                    header = f.read(32)
+                                mime_type = _detect_mime_from_magic(header) or "application/octet-stream"
+                            except Exception:
+                                mime_type = "application/octet-stream"
+
+                            file_type = "image" if mime_type.startswith("image/") else ("text" if mime_type.startswith("text/") else "binary")
+
+                            # 图片描述（如果有视觉模型）
+                            description = ""
+                            if file_type == "image" and runtime_ctx:
+                                try:
+                                    from miniagent.feishu.vision_desc import describe_image
+                                    client = getattr(runtime_ctx, "openai_client", None)
+                                    model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+                                    if client:
+                                        description = await describe_image(resolved, client, model)
+                                except Exception:
+                                    pass
+
+                            # 文本文件预览
+                            elif file_type == "text":
+                                try:
+                                    with open(resolved, "r", encoding="utf-8", errors="ignore") as f:
+                                        preview = f.read(500)
+                                    description = preview[:200]
+                                except Exception:
+                                    pass
+
+                            # 存储到记忆
+                            try:
+                                from miniagent.types.memory import FileMetadata
+                                from miniagent.memory.store import add_file_to_memory
+
+                                rel_path = file_path if not os.path.isabs(file_path) else os.path.basename(resolved)
+
+                                file_meta = FileMetadata(
+                                    name=file_name,
+                                    path=rel_path,
+                                    size=file_size,
+                                    mime_type=mime_type,
+                                    type=file_type,
+                                    description=description,
+                                    timestamp=datetime.now(timezone.utc).isoformat(),
+                                    source="cli",
+                                )
+
+                                await add_file_to_memory(session_key, file_meta, getattr(runtime_ctx, "memory_store", None))
+
+                                files_info.append({
+                                    "name": file_name,
+                                    "type": file_type,
+                                    "size": file_size,
+                                    "description": description[:100] if description else "",
+                                })
+                            except Exception:
+                                pass
+
+                            # 替换标记为描述
+                            marker = f"@file:{file_path}" if match[0] else f"file:{file_path}"
+                            type_label = {"image": "图片", "text": "文本文件", "binary": "文件"}.get(file_type, "文件")
+                            replacement = f"[{type_label}: {file_name}]"
+                            user_input = user_input.replace(marker, replacement)
+
+                            # 提示用户
+                            term_write(f"📎 已处理文件: {file_name} ({file_size // 1024}KB)\n", "ansicyan")
+                            if description:
+                                term_write(f"   内容摘要: {description[:100]}{'...' if len(description) > 100 else ''}\n", "ansicyan")
+
+                        else:
+                            term_write(f"⚠️ 文件不存在: {file_path}\n", "ansiyellow")
+            except Exception as e:
+                term_write(f"⚠️ 处理文件失败: {e}\n", "ansiyellow")
+
+        return user_input, files_info
+
     async def _process_input(user_input: str) -> None:
         """处理用户输入并打印回复。"""
         try:
             session_key = channel_router.resolve("__cli__")
+
+            # 检测并处理文件标记 @file:
+            user_input, files_info = await _detect_and_process_file_markers(
+                user_input, session_key, state.get("session_manager"), ctx
+            )
+
             # 新输入开始：先画轮次分隔线，再贴上一轮底部、画本轮 You 块
             _cli_rule_heavy()
             _was_at_bottom = _output_at_bottom()
@@ -1938,6 +2078,26 @@ def _create_feishu_handler(
             return ".bmp"
         return None
 
+    def _detect_mime_from_magic(data: bytes) -> str | None:
+        """根据文件头 magic bytes 推断 MIME 类型。"""
+        ext = _detect_ext_from_magic(data)
+        if ext is None:
+            return None
+        mime_map = {
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".gif": "image/gif",
+            ".webp": "image/webp",
+            ".ico": "image/x-icon",
+            ".bmp": "image/bmp",
+            ".pdf": "application/pdf",
+            ".zip": "application/zip",
+            ".gz": "application/gzip",
+            ".exe": "application/octet-stream",
+            ".doc": "application/msword",
+        }
+        return mime_map.get(ext, "application/octet-stream")
+
     async def media_handler(
         cfg: Any,
         message_id: str,
@@ -2004,6 +2164,31 @@ def _create_feishu_handler(
 
         with open(dest_path, "wb") as f:
             f.write(data)
+
+        # 将文件信息存储到会话记忆
+        try:
+            from miniagent.types.memory import FileMetadata
+            from miniagent.memory.store import add_file_to_memory
+
+            # 获取 MIME 类型
+            mime_type = _detect_mime_from_magic(data) or "application/octet-stream"
+
+            file_meta = FileMetadata(
+                name=dest_name,
+                path=rel,
+                size=len(data),
+                mime_type=mime_type,
+                type="image" if resource_type == "image" else ("text" if mime_type.startswith("text/") else "binary"),
+                description="",  # 图片描述稍后填充
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                source="feishu",
+            )
+
+            # 图片描述：如果有视觉模型描述，稍后更新
+            # 先添加基础信息
+            await add_file_to_memory(session_key, file_meta, ctx.memory_store)
+        except Exception:
+            pass  # 记忆存储失败不影响主流程
 
         try:
             rel = os.path.relpath(dest_path, base)

@@ -52,6 +52,31 @@ class MemoryEntryInput:
 
 
 @dataclass
+class FileMetadata:
+    """文件元数据：记录上传文件的信息
+
+    Attributes:
+        name: 文件名
+        path: 相对路径（相对于会话 files 目录）
+        size: 文件大小（bytes）
+        mime_type: MIME 类型
+        type: 文件类型（'image' | 'text' | 'binary'）
+        description: 图片描述或文本预览
+        timestamp: 入站时间
+        source: 来源（'cli' | 'feishu'）
+    """
+
+    name: str
+    path: str
+    size: int
+    mime_type: str
+    type: str  # 'image' | 'text' | 'binary'
+    description: str = ""
+    timestamp: str = ""
+    source: str = "cli"  # 'cli' | 'feishu'
+
+
+@dataclass
 class SessionMemory:
     """会话记忆：持久化的跨会话记忆数据
 
@@ -60,6 +85,7 @@ class SessionMemory:
         cumulative_summary: 运行累计摘要
         key_facts: 关键事实列表
         entries: 历史条目列表
+        uploaded_files: 上传的文件列表
         total_turns: 累计对话轮数
         first_seen: 首次活跃时间
         last_active: 最后活跃时间
@@ -71,6 +97,7 @@ class SessionMemory:
     cumulative_summary: str = ""
     key_facts: list[str] = field(default_factory=list)
     entries: list[MemoryEntry] = field(default_factory=list)
+    uploaded_files: list[FileMetadata] = field(default_factory=list)
     total_turns: int = 0
     first_seen: str = ""
     last_active: str = ""
@@ -208,6 +235,7 @@ class SessionManagerProtocol(Protocol):
 __all__ = [
     "MemoryEntry",
     "MemoryEntryInput",
+    "FileMetadata",
     "SessionMemory",
     "MemoryStoreProtocol",
     "SessionOptions",
