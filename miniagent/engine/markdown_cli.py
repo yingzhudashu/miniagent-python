@@ -18,10 +18,15 @@ def cli_raw_markdown_enabled() -> bool:
     return v in ("1", "true", "yes")
 
 
-def render_markdown_to_ansi(markdown: str, *, width: int) -> str | None:
+def render_markdown_to_ansi(markdown: str, *, width: int, justify: str = "left") -> str | None:
     """将 Markdown 转为带 ANSI 序列的文本；不可用或未安装 Rich 时返回 ``None``。
 
     使用 ``color_system=\"standard\"``，以便 ``prompt_toolkit.formatted_text.ANSI`` 稳定解析。
+
+    Args:
+        markdown: Markdown 文本
+        width: 渲染宽度
+        justify: 对齐方式，默认 "left"（靠左对齐），可选 "center"、"full"
     """
     if cli_raw_markdown_enabled():
         return None
@@ -39,7 +44,7 @@ def render_markdown_to_ansi(markdown: str, *, width: int) -> str | None:
         color_system="standard",
         highlight=False,
     )
-    console.print(Markdown(markdown or ""))
+    console.print(Markdown(markdown or "", justify=justify))
     return buf.getvalue()
 
 

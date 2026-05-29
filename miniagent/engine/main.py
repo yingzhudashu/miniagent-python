@@ -438,8 +438,8 @@ async def run_cli_loop(
             else:
                 _cli_block_user(content)
         elif role == "assistant":
-            md_w = max(20, vp // 3)
-            ansi = render_markdown_to_ansi(content, width=md_w)
+            md_w = _markdown_render_width()
+            ansi = render_markdown_to_ansi(content, width=md_w, justify="left")
             if prepend:
                 # prepend=True: 插入到顶部，顺序：标题 → 内容 → 分隔线
                 if ansi:
@@ -573,7 +573,7 @@ async def run_cli_loop(
             return  # transcript 为空，无需重渲染
         from prompt_toolkit.formatted_text.ansi import ANSI as PTANSI
 
-        md_w = max(20, new_w // 3)  # CJK 安全宽度：假设显示宽度 2-3，增加缓冲
+        md_w = _markdown_render_width()  # 统一使用更宽的渲染宽度
         from miniagent.engine.markdown_cli import render_markdown_to_ansi
 
         for frag in _transcript:
@@ -692,6 +692,15 @@ async def run_cli_loop(
             return max(1, cols - sb)
         except Exception:
             return 79
+
+    def _markdown_render_width() -> int:
+        """Markdown 渲染宽度：基于视口宽度，足够宽以保证可读性。
+
+        使用 vp - 4 作为基础宽度，与 Assistant 回复块宽度一致。
+        边框线等特殊情况使用 vp // 3 防止盒绘制字符溢出。
+        """
+        vp = _viewport_cols()
+        return max(40, vp - 4)  # 与 _cli_block_reply 的 md_w 一致
 
     def _content_preferred_height() -> int:
         """transcript 内容理想高度（用于计算最大滚动偏移）。"""
@@ -1030,8 +1039,8 @@ async def run_cli_loop(
         if not text.endswith("\n"):
             text = text + "\n"
         try:
-            md_w = max(20, _viewport_cols() // 3)  # CJK 安全宽度
-            ansi_body = render_markdown_to_ansi(text, width=md_w)
+            md_w = _markdown_render_width()  # 统一使用更宽的渲染宽度
+            ansi_body = render_markdown_to_ansi(text, width=md_w, justify="left")
             if ansi_body is not None:
                 from prompt_toolkit.formatted_text import ANSI
                 ansi_obj = ANSI(ansi_body)
@@ -1078,8 +1087,8 @@ async def run_cli_loop(
             from miniagent.engine.markdown_cli import render_markdown_to_ansi
 
             try:
-                md_w = max(20, _viewport_cols() // 3)  # CJK 安全宽度
-                ansi_body = render_markdown_to_ansi(fragment, width=md_w)
+                md_w = _markdown_render_width()  # 统一使用更宽的渲染宽度
+                ansi_body = render_markdown_to_ansi(fragment, width=md_w, justify="left")
                 from prompt_toolkit.formatted_text import ANSI
                 ansi_obj = ANSI(ansi_body)
                 _attach_md_source(ansi_obj, fragment)
