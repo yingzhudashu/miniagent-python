@@ -69,6 +69,7 @@ markers = [
 ]
 filterwarnings = [
     "ignore::RuntimeWarning",
+    "ignore::pytest.PytestCollectionWarning",
 ]
 
 [tool.ruff]
