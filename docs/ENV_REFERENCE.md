@@ -147,6 +147,7 @@
 | `MINIAGENT_CLI_DOT_TOOLS` | `1` | CLI 点命令工具 |
 | `MINIAGENT_CLI_RAW_MARKDOWN` | `0` | CLI 原始 Markdown 输出 |
 | `MINIAGENT_CLI_THINKING_RICH` | `0` | CLI 富文本 thinking 展示 |
+| `MINIAGENT_CLI_FILE_VISION_DESC` | `1` | CLI 图片视觉描述：设为 `0` 时禁用图片描述生成 |
 | `MINIAGENT_WELCOME_CLI_HINT` | `1` | CLI 启动提示 |
 | `MINIAGENT_SKILLS_WATCH` | `0` | 监视技能目录变更并自动 refresh |
 | `MINIAGENT_ALLOWED_COMMANDS` | *(空)* | exec 工具命令白名单（逗号分隔） |
