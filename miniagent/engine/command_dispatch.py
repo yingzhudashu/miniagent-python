@@ -88,6 +88,7 @@ async def dispatch_command(
         format_queue_abort_message,
         format_queue_command_usage,
         format_session_command_usage,
+        format_test_command_usage,
     )
     from miniagent.engine.session_lock import (
         is_session_locked,
@@ -507,6 +508,36 @@ async def dispatch_command(
         print(output)
         return None
 
+    # ── .test（自测命令）──
+    if cmd == ".test":
+        sub_cmd = parts[1].lower() if len(parts) > 1 else ""
+
+        if sub_cmd == "run":
+            # 运行测试
+            category_filter = parts[2] if len(parts) > 2 else None
+            name_pattern = parts[3] if len(parts) > 3 else None
+
+            output = await _run_test(
+                category=category_filter,
+                name_pattern=name_pattern,
+                term_write=getattr(rt, "cli_transcript_append", None),
+                capture=capture,
+            )
+        elif sub_cmd == "list":
+            # 列出测试样本
+            output = _list_test_samples()
+        elif sub_cmd == "status":
+            # 查看最近测试结果
+            output = _get_test_status()
+        else:
+            # 显示用法
+            output = format_test_command_usage()
+
+        if capture:
+            return output
+        print(output)
+        return None
+
     # 不是已知命令，返回 None 让调用者交给 agent 处理
     return None
 
@@ -843,6 +874,107 @@ def _format_status(state: CliLoopState | dict[str, Any]) -> str:
                 lines.append(f"    等待: {info['pending']} 条")
         else:
             lines.append(f"  {label}: ⚪ 空闲")
+
+    return "\n".join(lines)
+
+
+# ─── .test 辅助函数 ───────────────────────────────
+
+async def _run_test(
+    category: str | None = None,
+    name_pattern: str | None = None,
+    *,
+    term_write: Any = None,
+    capture: bool = False,
+) -> str:
+    """执行自测并返回结果。"""
+    from miniagent.testing.test_runner import run_self_test
+
+    def _write(text: str, color: str = "") -> None:
+        """适配 cli_transcript_append 的签名 (style, text) -> None"""
+        if term_write and callable(term_write):
+            try:
+                # cli_transcript_append 签名是 (style_cls, text)
+                # 将 ansicyan 等转换为 class:ansicyan 格式
+                style = f"class:{color}" if color else ""
+                term_write(style, text)
+            except Exception:
+                pass
+        if not capture:
+            print(text)
+
+    _write("🧪 正在运行自测...", "ansicyan")
+
+    report = await run_self_test(
+        category=category,
+        name_pattern=name_pattern,
+        term_write=_write,
+        mock=True,  # 默认使用 mock 模式，避免真实 LLM 调用
+    )
+
+    if capture:
+        result_lines = [
+            f"🧪 自测结果：{report.passed}/{report.total} 通过 ({report.pass_rate:.1%})",
+            f"执行时间：{report.duration_seconds:.1f}s",
+        ]
+        if report.failed > 0:
+            result_lines.append(f"\n失败的测试：")
+            for r in report.results:
+                if not r.passed:
+                    result_lines.append(f"  ✗ {r.sample_name}: {r.error_message}")
+        return "\n".join(result_lines)
+
+    return ""
+
+
+def _list_test_samples() -> str:
+    """列出所有测试样本。"""
+    from miniagent.testing.test_runner import TestRunner
+
+    runner = TestRunner()
+    samples = runner.load_samples()
+
+    if not samples:
+        return "📭 暂无测试样本"
+
+    # 按类别分组
+    by_category: dict[str, list] = {}
+    for s in samples:
+        if s.category not in by_category:
+            by_category[s.category] = []
+        by_category[s.category].append(s)
+
+    lines = ["📋 测试样本列表:", ""]
+    for cat, items in sorted(by_category.items()):
+        lines.append(f"  [{cat}]")
+        for s in items:
+            desc = s.description[:40] if s.description else s.input[:40]
+            priority_icon = "🔴" if s.priority == 1 else "🟡" if s.priority == 2 else "⚪"
+            lines.append(f"    {priority_icon} {s.name}: {desc}")
+
+    return "\n".join(lines)
+
+
+def _get_test_status() -> str:
+    """获取最近一次测试报告。"""
+    from miniagent.testing.test_runner import TestRunner
+
+    runner = TestRunner()
+    report = runner.get_last_report()
+
+    if not report:
+        return "📭 暂无测试记录，请先运行 `.test run`"
+
+    lines = [
+        f"🧪 最近测试报告：",
+        f"  时间：{report.get('timestamp', '未知')}",
+        f"  总数：{report.get('total', 0)}",
+        f"  通过：{report.get('passed', 0)}",
+        f"  失败：{report.get('failed', 0)}",
+        f"  跳过：{report.get('skipped', 0)}",
+        f"  通过率：{report.get('passed', 0) / max(1, report.get('total', 1)):.1%}",
+        f"  执行时长：{report.get('duration_seconds', 0):.1f}s",
+    ]
 
     return "\n".join(lines)
 

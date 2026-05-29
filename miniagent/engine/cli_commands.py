@@ -62,6 +62,18 @@ def format_queue_command_usage(message_queue: Any) -> str:
     )
 
 
+def format_test_command_usage() -> str:
+    """返回 `.test` 自测命令的用法说明。"""
+    return (
+        "自测命令（测试样本位于 tests/evaluation/samples/）：\n"
+        "  .test run                       运行所有测试（mock 模式）\n"
+        "  .test run <类别>                按类别过滤（security | prompt_injection | tool_selection | schema | regression | cost）\n"
+        "  .test run <类别> <名称正则>     进一步按名称过滤\n"
+        "  .test list                      列出所有测试样本\n"
+        "  .test status                    查看最近测试结果"
+    )
+
+
 def format_queue_abort_message(result: dict[str, Any]) -> str:
     """将 :meth:`~miniagent.infrastructure.message_queue.MessageQueueManager.abort_chat` 的返回值格式化为用户可读文案。"""
     cr = bool(result.get("cancelled_running"))
@@ -1299,6 +1311,17 @@ def format_help_markdown(
             ],
         ),
         _md_help_section(
+            "自测命令",
+            "测试样本位于 tests/evaluation/samples/；默认 mock 模式（不调用真实 LLM）。",
+            [
+                ("`.test run`", "运行所有测试"),
+                ("`.test run <类别>`", "按类别过滤（security | prompt_injection | tool_selection | schema | regression | cost）"),
+                ("`.test run <类别> <名称>`", "进一步按名称过滤（正则）"),
+                ("`.test list`", "列出所有测试样本"),
+                ("`.test status`", "查看最近测试结果"),
+            ],
+        ),
+        _md_help_section(
             "实例控制",
             None,
             [
@@ -1419,6 +1442,7 @@ __all__ = [
     "format_session_command_usage",
     "format_queue_command_usage",
     "format_queue_abort_message",
+    "format_test_command_usage",
     "cmd_bind",
     "cmd_unbind",
     "cmd_instance_handler",

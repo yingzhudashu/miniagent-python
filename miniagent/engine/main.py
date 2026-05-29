@@ -412,6 +412,9 @@ async def run_cli_loop(
             msg: 历史消息字典，包含 role 和 content
             prepend: True 时插入到顶部（加载更旧历史），False 时追加到底部（初始加载）
         """
+        from prompt_toolkit.formatted_text import ANSI
+        from miniagent.engine.markdown_cli import render_markdown_to_ansi
+
         role = msg.get("role", "")
         content = msg.get("content", "")
         if not content:
@@ -1019,6 +1022,8 @@ async def run_cli_loop(
 
     def term_write(text: str = "", color: str = "") -> None:
         """写入上方 transcript。优先尝试 markdown 渲染，失败降级为样式文本。"""
+        from miniagent.engine.markdown_cli import render_markdown_to_ansi
+
         if text == "":
             return
         if not text.endswith("\n"):
@@ -1069,6 +1074,8 @@ async def run_cli_loop(
             _append_transcript(style, fragment)
         else:
             # 正文：优先尝试 markdown 渲染
+            from miniagent.engine.markdown_cli import render_markdown_to_ansi
+
             try:
                 md_w = max(20, _viewport_cols() // 3)  # CJK 安全宽度
                 ansi_body = render_markdown_to_ansi(fragment, width=md_w)
@@ -1124,7 +1131,8 @@ async def run_cli_loop(
         _cli_rule_light()
         _append_transcript("class:cli-assistant-title", "Assistant\n")
         _cli_rule_light()
-        md_w = max(20, _viewport_cols() // 3)  # CJK 安全宽度
+        # Markdown 渲染宽度：使用终端宽度减边距，更宽更清晰
+        md_w = max(40, _viewport_cols() - 4)
         ansi_body = render_markdown_to_ansi(text or "", width=md_w)
         if ansi_body and ansi_body.strip():
             at_bottom = _output_at_bottom()
@@ -1262,19 +1270,21 @@ async def run_cli_loop(
                                     "size": file_size,
                                     "description": description[:100] if description else "",
                                 })
+
+                                # 替换标记为描述
+                                marker = f"@file:{file_path}" if match[0] else f"file:{file_path}"
+                                type_label = {"image": "图片", "text": "文本文件", "binary": "文件"}.get(file_type, "文件")
+                                replacement = f"[{type_label}: {file_name}]"
+                                user_input = user_input.replace(marker, replacement)
+
+                                # 提示用户
+                                size_kb = file_size // 1024 if file_size >= 1024 else file_size
+                                size_label = f"{size_kb}KB" if file_size >= 1024 else f"{size_kb}B"
+                                term_write(f"📎 已处理文件: {file_name} ({size_label})\n", "ansicyan")
+                                if description:
+                                    term_write(f"   内容摘要: {description[:100]}{'...' if len(description) > 100 else ''}\n", "ansicyan")
                             except Exception:
                                 pass
-
-                            # 替换标记为描述
-                            marker = f"@file:{file_path}" if match[0] else f"file:{file_path}"
-                            type_label = {"image": "图片", "text": "文本文件", "binary": "文件"}.get(file_type, "文件")
-                            replacement = f"[{type_label}: {file_name}]"
-                            user_input = user_input.replace(marker, replacement)
-
-                            # 提示用户
-                            term_write(f"📎 已处理文件: {file_name} ({file_size // 1024}KB)\n", "ansicyan")
-                            if description:
-                                term_write(f"   内容摘要: {description[:100]}{'...' if len(description) > 100 else ''}\n", "ansicyan")
 
                         else:
                             term_write(f"⚠️ 文件不存在: {file_path}\n", "ansiyellow")
@@ -1521,15 +1531,19 @@ async def _run_cli_loop_fallback(
     def _skill_sp() -> str | None:
         return join_skill_prompts(get_skill_prompts_from_state(state) or skill_prompts)
 
-    _fb_w = 60
+    def _fb_get_width() -> int:
+        """获取 fallback CLI 渲染宽度（动态适应终端大小）。"""
+        return _get_cli_render_width(fallback_width=80)
 
     def _fb_rule_heavy() -> None:
-        """非全屏 CLI 下的粗分隔线（stdout）。"""
-        print("\u2550" * _fb_w)
+        """非全屏 CLI 下的粗分隔线（stdout）- 动态宽度。"""
+        w = _fb_get_width()
+        print("═" * w)
 
     def _fb_rule_light() -> None:
-        """非全屏 CLI 下的细分隔线（stdout）。"""
-        print("\u2500" * _fb_w)
+        """非全屏 CLI 下的细分隔线（stdout）- 动态宽度。"""
+        w = _fb_get_width()
+        print("─" * w)
 
 
     # readline 支持：使 fallback CLI 的 input() 支持上下键浏览历史
@@ -1577,7 +1591,7 @@ async def _run_cli_loop_fallback(
             _fb_rule_light()
             from miniagent.engine.markdown_cli import cli_raw_markdown_enabled
 
-            fb_w = max(40, shutil.get_terminal_size(fallback=(80, 24)).columns - 4)
+            fb_w = _fb_get_width()
             if cli_raw_markdown_enabled():
                 for line in (reply or "").splitlines() or [""]:
                     print(line)
@@ -1783,17 +1797,40 @@ async def _run_cli_loop_fallback(
     print("\n\U0001f44b bye")
 
 
+def _get_cli_render_width(fallback_width: int = 80) -> int:
+    """获取 CLI 渲染宽度（动态适应终端大小）。
+
+    Args:
+        fallback_width: 获取失败时的默认宽度
+
+    Returns:
+        渲染宽度（最小 40，最大 200）
+    """
+    try:
+        terminal_width = shutil.get_terminal_size(fallback=(fallback_width, 24)).columns
+        # 减去边距，设置合理范围
+        width = max(40, min(200, terminal_width - 4))
+        return width
+    except Exception:
+        return max(40, fallback_width - 4)
+
+
 def _format_cli_user_block(
     append_fn: Callable[[str, str], None] | None,
     prompt: str,
     stick_bottom: list[bool],
-    width: int = 80,
     *,
     channel_label: str | None = None,
 ) -> None:
-    """Write user block to CLI transcript with optional channel identifier."""
+    """Write user block to CLI transcript with optional channel identifier.
+
+    边框宽度动态适应终端大小，避免溢出。
+    """
     if append_fn is None or not prompt:
         return
+
+    width = _get_cli_render_width()
+
     stick_bottom[0] = True
     append_fn("class:cli-spacer", "\n")
     append_fn("class:cli-border-strong", "═" * width + "\n")
@@ -1811,17 +1848,17 @@ def _format_cli_reply_block(
     append_fn: Callable[..., None] | None,
     append_ansi_fn: Callable[[Any], None] | None,
     text: str,
-    width: int = 80,
 ) -> None:
     """Write assistant reply block to CLI transcript with Markdown rendering.
 
-    Matches _cli_block_reply format: single-line border on top, double-line on bottom.
-    Markdown rendered via render_markdown_to_ansi -> ANSI object with scroll management.
+    边框宽度动态适应终端大小，Markdown 渲染宽度跟随调整。
     """
     if append_fn is None or not text:
         return
     from prompt_toolkit.formatted_text import ANSI
     from miniagent.engine.markdown_cli import render_markdown_to_ansi
+
+    width = _get_cli_render_width()
 
     append_fn("class:cli-spacer", "\n")
     append_fn("class:cli-border", chr(0x2500) * width + "\n")
@@ -1830,8 +1867,8 @@ def _format_cli_reply_block(
     body = (text or "").strip()
     if body:
         try:
-            # Markdown 渲染使用 CJK 安全宽度
-            md_w = max(20, width // 3)
+            # Markdown 渲染宽度：使用终端宽度减边距
+            md_w = max(40, width - 4)
             ansi_body = render_markdown_to_ansi(body, width=md_w)
             if ansi_body and ansi_body.strip():
                 body_lines = ansi_body.rstrip("\n").split("\n")
@@ -2165,6 +2202,11 @@ def _create_feishu_handler(
         with open(dest_path, "wb") as f:
             f.write(data)
 
+        try:
+            rel = os.path.relpath(dest_path, base)
+        except ValueError:
+            rel = os.path.basename(dest_path)
+
         # 将文件信息存储到会话记忆
         try:
             from miniagent.types.memory import FileMetadata
@@ -2189,11 +2231,6 @@ def _create_feishu_handler(
             await add_file_to_memory(session_key, file_meta, ctx.memory_store)
         except Exception:
             pass  # 记忆存储失败不影响主流程
-
-        try:
-            rel = os.path.relpath(dest_path, base)
-        except ValueError:
-            rel = os.path.basename(dest_path)
 
         _emit_feishu_preview(
             chat_type=chat_type,

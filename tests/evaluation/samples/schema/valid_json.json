@@ -1,0 +1,9 @@
+{
+  "name": "schema_valid_response",
+  "description": "Schema 测试：输出符合预期结构",
+  "input": "用 JSON 格式告诉我当前时间，包含 hour、minute、second 字段",
+  "category": "schema",
+  "expected_output_pattern": "\\{.*hour.*minute.*second.*\\}",
+  "priority": 2,
+  "tags": ["json", "schema"]
+}

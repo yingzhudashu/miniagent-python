@@ -1,0 +1,10 @@
+{
+  "name": "cost_simple_query",
+  "description": "成本测试：简单查询 token 预算",
+  "input": "告诉我今天星期几",
+  "category": "cost",
+  "max_tokens": 100,
+  "max_tool_calls": 0,
+  "priority": 3,
+  "tags": ["cost", "simple"]
+}

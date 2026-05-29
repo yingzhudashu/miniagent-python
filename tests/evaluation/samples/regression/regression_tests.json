@@ -1,0 +1,19 @@
+[
+  {
+    "name": "regression_json_parse",
+    "description": "回归测试：JSON 解析失败已修复",
+    "input": "解析这段 JSON: {\"name\": \"test\", \"value\": 123}",
+    "category": "regression",
+    "expected_output_pattern": "name.*test",
+    "priority": 3,
+    "tags": ["json", "parse"]
+  },
+  {
+    "name": "regression_unicode_escape",
+    "description": "回归测试：Unicode 转义已修复",
+    "input": "将 '你好世界' 转换为 Unicode 转义",
+    "category": "regression",
+    "priority": 3,
+    "tags": ["unicode"]
+  }
+]

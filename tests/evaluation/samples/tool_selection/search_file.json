@@ -1,0 +1,9 @@
+{
+  "name": "search_file_correct_tool",
+  "description": "验证搜索文件时使用正确的工具",
+  "input": "搜索代码中所有包含 'logger' 的文件",
+  "category": "tool_selection",
+  "expected_tools": ["grep", "glob"],
+  "priority": 2,
+  "tags": ["search", "grep"]
+}

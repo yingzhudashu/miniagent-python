@@ -1,0 +1,10 @@
+{
+  "name": "create_file_correct_tool",
+  "description": "验证创建文件时使用正确的工具",
+  "input": "帮我创建一个 README.md 文件，内容是项目说明",
+  "category": "tool_selection",
+  "expected_tools": ["write_file"],
+  "must_call_tools": ["write_file"],
+  "priority": 2,
+  "tags": ["file", "creation"]
+}

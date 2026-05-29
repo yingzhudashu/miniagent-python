@@ -44,9 +44,10 @@ def _cli_thinking_rich_enabled() -> bool:
 def _cli_thinking_render_width() -> int:
     """无注入宽度回调时，用终端列宽推导 Rich 渲染宽度。"""
     try:
-        return max(40, shutil.get_terminal_size(fallback=(100, 24)).columns - 4)
+        terminal_width = shutil.get_terminal_size(fallback=(80, 24)).columns
+        return max(40, min(200, terminal_width - 4))
     except Exception:
-        return 96
+        return 76  # 80 - 4
 
 
 def indent_stream_thinking_suffix(full_text: str, prev_printed: int, *, indent: str = "") -> str:
