@@ -251,7 +251,6 @@ async def run_agent(
     planning_display = ""
 
     if toolboxes and not skip_planning and task_classifier_enabled():
-        # 不再发送初始的"正在评估任务难度…"通知，避免与后续详细输出重复
         difficulty = await classify_task_difficulty(
             user_input,
             [t.id for t in toolboxes],

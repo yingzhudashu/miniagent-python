@@ -120,9 +120,6 @@ async def generate_plan(
     llm_client = client if client is not None else get_shared_async_openai()
     use_json_object = True
 
-    # 不再发送初始的"正在生成计划..."通知，避免与后续详细输出重复
-    # 详细执行计划将在 agent.py 中通过 _format_plan_message 输出
-
     for attempt in range(MAX_RETRIES):
         try:
             create_args: dict[str, Any] = {
