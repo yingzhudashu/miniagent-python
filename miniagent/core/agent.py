@@ -370,29 +370,37 @@ async def run_agent(
             on_thinking=on_thinking,
         )
 
-        # 合并规划器的建议配置
+        # 合并规划器的建议配置（suggested_config）到运行配置
+        # 规划器根据任务复杂度生成建议值，Agent 只会"抬高"下限，不会压低用户硬上限
         if plan.suggested_config:
             sc = plan.suggested_config
             overrides: dict[str, Any] = {}
+            # max_turns: 取用户设置与规划建议的较大值（保证规划器建议不压低上限）
             if sc.max_turns is not None:
                 overrides["max_turns"] = max(merged_config.max_turns, sc.max_turns)
+            # tool_timeout: 规划器可调整单工具超时
             if sc.tool_timeout is not None:
                 overrides["tool_timeout"] = sc.tool_timeout
+            # risk_level: 规划器可调整风险等级
             if sc.risk_level is not None:
                 overrides["risk_level"] = sc.risk_level
+            # context_overflow_strategy: 上下文溢出处理策略
             if sc.context_overflow_strategy is not None:
                 overrides["context_overflow_strategy"] = sc.context_overflow_strategy
+            # tool_selection_strategy: 工具选择策略
             if sc.tool_selection_strategy is not None:
                 overrides["tool_selection_strategy"] = sc.tool_selection_strategy
+            # thinking 参数：从业务档位映射到模型参数
             mo: dict[str, Any] = {}
             if sc.thinking_level:
                 tl, tb = map_business_depth(sc.thinking_level)
-                mo["thinking_level"] = tl
-                mo["thinking_budget"] = tb
+                mo["thinking_level"] = tl  # 模型参数名
+                mo["thinking_budget"] = tb  # token 预算
             if sc.model_overrides:
-                mo.update(sc.model_overrides)
+                mo.update(sc.model_overrides)  # 合规划器额外模型参数
             if mo:
                 overrides["model_overrides"] = mo
+            # parallelism: 并行策略（sequential=禁用并行，safe-parallel/full-parallel=启用）
             if sc.parallelism == "sequential":
                 overrides["allow_parallel_tools"] = False
             elif sc.parallelism in ("safe-parallel", "full-parallel"):

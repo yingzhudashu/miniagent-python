@@ -292,15 +292,29 @@ def _parse_plan_json(content: str) -> dict[str, Any]:
 
 
 def _dict_to_plan(data: dict[str, Any], *, default_step_thinking: str = "medium") -> StructuredPlan:
-    """将 LLM 返回的 dict 转为 StructuredPlan。"""
+    """将 LLM 返回的 dict 转为 StructuredPlan。
+
+    解析流程：
+    1. 步骤列表（steps）→ List[PlanStep]，支持 dict/str/其它三种输入格式
+    2. 嵌套配置（suggestedConfig 等）→ 各字段安全提取，空值回退默认
+    3. 组装为 StructuredPlan dataclass
+    """
+    # ── 步骤解析 ───────────────────────────────────────────────
     raw_steps = data.get("steps", [])
     if not isinstance(raw_steps, list):
         raw_steps = []
 
+    # 默认 thinking 档位：LLM 未指定时使用参数传入值
     step_fallback = str(data.get("defaultStepThinkingLevel") or default_step_thinking)
 
     def _step_as_dict(s: Any, idx: int) -> dict[str, Any]:
-        """将原始步骤项（dict / str / 其它）规范为规划步骤字段字典。"""
+        """将原始步骤项（dict / str / 其它）规范为规划步骤字段字典。
+
+        LLM 可能返回：
+        - dict: 完整结构，直接使用
+        - str: 仅描述，自动填充默认字段
+        - 其它: 强制转 str，按 str 处理
+        """
         if isinstance(s, dict):
             return s
         if isinstance(s, str):
@@ -324,7 +338,10 @@ def _dict_to_plan(data: dict[str, Any], *, default_step_thinking: str = "medium"
         }
 
     def _step_thinking_level(s: dict[str, Any]) -> str | None:
-        """解析单步 ``thinkingLevel``，缺省则回落 ``step_fallback``。"""
+        """解析单步 ``thinkingLevel``，缺省则回落 ``step_fallback``。
+
+        thinkingLevel 取值：low / medium / high，影响该步的推理深度。
+        """
         tl = s.get("thinkingLevel")
         if tl is None or tl == "":
             return step_fallback
@@ -343,11 +360,19 @@ def _dict_to_plan(data: dict[str, Any], *, default_step_thinking: str = "medium"
         for i, raw in enumerate(raw_steps, start=1)
         for s in (_step_as_dict(raw, i),)
     ]
+
+    # ── 嵌套配置解析（安全提取，空值回退）───────────────────────────────
+    # suggestedConfig: 执行建议（轮数、超时、风险等级、策略等）
     sc = data.get("suggestedConfig", {}) if isinstance(data.get("suggestedConfig"), dict) else {}
+    # estimatedTokens: Token 预估（用于成本监控）
     et = data.get("estimatedTokens", {}) if isinstance(data.get("estimatedTokens"), dict) else {}
+    # contextStrategy: 上下文处理策略（溢出时的压缩/摘要行为）
     cs = data.get("contextStrategy", {}) if isinstance(data.get("contextStrategy"), dict) else {}
+    # estimatedCost: 成本预估（USD）
     ec = data.get("estimatedCost", {}) if isinstance(data.get("estimatedCost"), dict) else {}
+    # outputSpec: 输出规格（语言、格式、交付物）
     osp = data.get("outputSpec", {}) if isinstance(data.get("outputSpec"), dict) else {}
+    # fallbackPlan: 降级计划（规划失败时的执行策略）
     fb = data.get("fallbackPlan", {}) if isinstance(data.get("fallbackPlan"), dict) else {}
 
     return StructuredPlan(

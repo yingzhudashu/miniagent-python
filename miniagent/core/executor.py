@@ -688,7 +688,13 @@ async def execute_plan(
         async def _run_tool(
             tc: Any, args: dict[str, Any], tool: Any
         ) -> tuple[Any, dict[str, Any], Any, Any, int]:
-            """执行单个 tool_call（含超时与监控），返回 tool 消息构造所需字段。"""
+            """执行单个 tool_call（含超时与监控），返回 tool 消息构造所需字段。
+
+            异常处理策略：
+            - TimeoutError: 工具执行超过 timeout_sec，返回超时提示
+            - Exception: 其他异常（权限拒绝、参数错误、内部错误等），返回错误信息
+            无论成功与否，都会记录 trace 和 monitor，不影响其他工具执行。
+            """
             tool_start = time.monotonic_ns() // 1_000_000
             emit_trace(
                 {
@@ -703,12 +709,32 @@ async def execute_plan(
                     timeout=timeout_sec,
                 )
             except asyncio.TimeoutError:
+                # 超时：工具执行时间超过限制，不影响后续工具
                 result = ToolResult(
                     success=False,
                     content=f"⚠️ 工具超时（{timeout_sec}s）: {tc.function.name}",
                 )
+                _logger.warning(
+                    "工具超时: %s (%.1fs)", tc.function.name, timeout_sec
+                )
+            except PermissionError as e:
+                # 权限拒绝：沙箱限制或文件权限不足
+                result = ToolResult(
+                    success=False,
+                    content=f"⚠️ 权限拒绝: {e}",
+                )
+                _logger.warning("工具权限拒绝: %s - %s", tc.function.name, e)
+            except FileNotFoundError as e:
+                # 文件不存在：read_file 等工具的常见错误
+                result = ToolResult(
+                    success=False,
+                    content=f"⚠️ 文件不存在: {e}",
+                )
+                _logger.debug("工具文件不存在: %s - %s", tc.function.name, e)
             except Exception as e:
+                # 其他异常：参数错误、内部错误等，记录详情供调试
                 result = ToolResult(success=False, content=f"⚠️ 执行异常: {e}")
+                _logger.warning("工具执行异常: %s - %s", tc.function.name, e)
             tool_elapsed = time.monotonic_ns() // 1_000_000 - tool_start
             emit_trace(
                 {
