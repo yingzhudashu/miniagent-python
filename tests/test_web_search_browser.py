@@ -5,10 +5,14 @@
 
 from __future__ import annotations
 
+import importlib.util
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+# Check if playwright is available (browser extra)
+_HAS_PLAYWRIGHT = importlib.util.find_spec("playwright") is not None
 
 # 从 skill 模板导入（非 ALL_TOOLS 路径）
 _skill_tools = os.path.join(
@@ -83,6 +87,7 @@ async def test_browser_extract_invalid_url() -> None:
 
 
 @pytest.mark.skipif(_browser_extract_handler is None, reason="builtin-web skill template not importable")
+@pytest.mark.skipif(not _HAS_PLAYWRIGHT, reason="playwright not installed (browser extra)")
 @pytest.mark.asyncio
 async def test_browser_extract_playwright_mock() -> None:
     from miniagent.types.tool import ToolContext

@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import importlib.util
+
 import pytest
+
+# Check if prompt_toolkit is available (cli extra)
+_HAS_PROMPT_TOOLKIT = importlib.util.find_spec("prompt_toolkit") is not None
 
 
 @pytest.mark.asyncio
@@ -172,6 +177,7 @@ async def test_engine_history_merges_tool_under_turn(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(not _HAS_PROMPT_TOOLKIT, reason="prompt_toolkit not installed (cli extra)")
 async def test_cli_thinking_rich_sends_ansi_markdown(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MINIAGENT_CLI_THINKING_RICH", "1")
     from miniagent.engine.thinking import ThinkingDisplay
@@ -189,6 +195,7 @@ async def test_cli_thinking_rich_sends_ansi_markdown(monkeypatch: pytest.MonkeyP
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(not _HAS_PROMPT_TOOLKIT, reason="prompt_toolkit not installed (cli extra)")
 async def test_cli_thinking_rich_falls_back_when_no_ansi(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MINIAGENT_CLI_THINKING_RICH", "1")
     monkeypatch.setattr(

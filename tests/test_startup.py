@@ -105,8 +105,11 @@ def test_import_smoke():
 
 def test_cli_output_buffer_readonly_append():
     """CLI 上方输出区使用 read_only Buffer；程序写入须 set_document(..., bypass_readonly=True)。"""
-    from prompt_toolkit.buffer import Buffer
-    from prompt_toolkit.document import Document
+    try:
+        from prompt_toolkit.buffer import Buffer
+        from prompt_toolkit.document import Document
+    except ImportError:
+        pytest.skip("prompt_toolkit not installed (cli extra)")
 
     buf = Buffer(read_only=True)
     frag = "hello\n"
@@ -507,6 +510,10 @@ def test_dispatch_feishu_blocks_session_mutations():
     asyncio.run(run())
 
 
+@pytest.mark.skipif(
+    not os.environ.get("OPENAI_API_KEY"),
+    reason="OPENAI_API_KEY not set (required for actual instance startup)",
+)
 def test_actual_instance_startup():
     """真实启动测试：以子进程启动实例，验证完整启动流程。
 
@@ -514,6 +521,8 @@ def test_actual_instance_startup():
     1. 进程未崩溃（无 Traceback/ImportError）
     2. 输出了欢迎信息（Mini Agent 特征文本）
     3. 发送 .stop 能正常退出
+
+    注意：此测试需要 OPENAI_API_KEY 环境变量，CI 默认不设置此变量。
     """
     # 清理旧实例锁，避免干扰
     import glob

@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import importlib.util
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+# Check if lark-oapi is available
+_HAS_LARK_OAPI = importlib.util.find_spec("lark_oapi") is not None
 
 
 def test_feishu_im_tools_explicit_on(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -74,6 +78,7 @@ def test_append_feishu_channel_without_tools_when_creds(monkeypatch: pytest.Monk
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(not _HAS_LARK_OAPI, reason="lark-oapi not installed (feishu extra)")
 async def test_feishu_doc_create_accepts_folder_share_url(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("FEISHU_APP_ID", "a")
     monkeypatch.setenv("FEISHU_APP_SECRET", "b")
