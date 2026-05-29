@@ -1224,9 +1224,10 @@ async def run_cli_loop(
 
                             file_type = "image" if mime_type.startswith("image/") else ("text" if mime_type.startswith("text/") else "binary")
 
-                            # 图片描述（如果有视觉模型）
+                            # 图片描述（如果有视觉模型，可通过环境变量禁用）
                             description = ""
-                            if file_type == "image" and runtime_ctx:
+                            vision_desc_enabled = (os.environ.get("MINIAGENT_CLI_FILE_VISION_DESC", "1") or "").strip().lower() not in ("0", "false", "no")
+                            if file_type == "image" and runtime_ctx and vision_desc_enabled:
                                 try:
                                     from miniagent.feishu.vision_desc import describe_image
                                     client = getattr(runtime_ctx, "openai_client", None)
@@ -1275,10 +1276,12 @@ async def run_cli_loop(
                                 # 替换标记为描述（包含图片/文本内容摘要，以便 Agent 理解）
                                 marker = f"@file:{file_path}" if match[0] else f"file:{file_path}"
                                 type_label = {"image": "图片", "text": "文本文件", "binary": "文件"}.get(file_type, "文件")
-                                if file_type == "image" and description:
-                                    replacement = f"[{type_label}: {file_name}]\n图片内容：{description}"
-                                elif file_type == "text" and description:
-                                    replacement = f"[{type_label}: {file_name}]\n内容预览：{description}"
+                                # 注入内容描述（限制长度避免 token 过长）
+                                max_desc_len = 150 if file_type == "image" else 100
+                                if description:
+                                    truncated_desc = description[:max_desc_len]
+                                    content_label = "图片内容" if file_type == "image" else "内容预览"
+                                    replacement = f"[{type_label}: {file_name}]\n{content_label}：{truncated_desc}"
                                 else:
                                     replacement = f"[{type_label}: {file_name}]"
                                 user_input = user_input.replace(marker, replacement)
