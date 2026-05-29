@@ -6,15 +6,37 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import websockets
-from lark_oapi.core.log import logger
-from lark_oapi.ws.client import Client as _LarkWsClient
-from lark_oapi.ws.client import _parse_ws_conn_exception
-from lark_oapi.ws.const import DEVICE_ID, SERVICE_ID
+
+# lark-oapi 是可选依赖；未安装时提供 placeholder，避免 import 阻塞测试
+try:
+    from lark_oapi.core.log import logger as _lark_logger
+    from lark_oapi.ws.client import Client as _LarkWsClient
+    from lark_oapi.ws.client import _parse_ws_conn_exception
+    from lark_oapi.ws.const import DEVICE_ID, SERVICE_ID
+
+    _HAS_LARK_OAPI = True
+except ImportError:
+    _LarkWsClient = object  # Placeholder base class
+    _lark_logger = logging.getLogger(__name__)  # Fallback logger
+    _HAS_LARK_OAPI = False
+
+    # Placeholder constants (not used when lark-oapi is missing)
+    DEVICE_ID = "device_id"
+    SERVICE_ID = "service_id"
+
+    def _parse_ws_conn_exception(exc: Exception) -> None:  # noqa: ARG001
+        """Placeholder for parsing WS connection exceptions."""
+        raise exc
+
+
+# Use lark-oapi logger if available, otherwise use fallback
+logger = _lark_logger
 
 
 def feishu_ws_auto_reconnect_enabled() -> bool:
