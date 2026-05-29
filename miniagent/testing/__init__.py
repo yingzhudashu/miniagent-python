@@ -9,15 +9,15 @@
 - 成本测试：验证 token 和调用次数是否在预算内
 """
 
-from miniagent.testing.types import (
-    TestSample,
-    TestResult,
-    TestReport,
-    SampleSpec,
-    ResultRecord,
-    ReportSummary,
-)
 from miniagent.testing.test_runner import TestRunner, run_self_test
+from miniagent.testing.types import (
+    ReportSummary,
+    ResultRecord,
+    SampleSpec,
+    TestReport,
+    TestResult,
+    TestSample,
+)
 
 __all__ = [
     "TestSample",

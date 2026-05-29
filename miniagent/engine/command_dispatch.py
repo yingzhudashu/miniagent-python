@@ -918,7 +918,7 @@ async def _run_test(
             f"执行时间：{report.duration_seconds:.1f}s",
         ]
         if report.failed > 0:
-            result_lines.append(f"\n失败的测试：")
+            result_lines.append("\n失败的测试：")
             for r in report.results:
                 if not r.passed:
                     result_lines.append(f"  ✗ {r.sample_name}: {r.error_message}")
@@ -966,7 +966,7 @@ def _get_test_status() -> str:
         return "📭 暂无测试记录，请先运行 `.test run`"
 
     lines = [
-        f"🧪 最近测试报告：",
+        "🧪 最近测试报告：",
         f"  时间：{report.get('timestamp', '未知')}",
         f"  总数：{report.get('total', 0)}",
         f"  通过：{report.get('passed', 0)}",

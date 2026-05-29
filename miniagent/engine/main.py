@@ -413,6 +413,7 @@ async def run_cli_loop(
             prepend: True 时插入到顶部（加载更旧历史），False 时追加到底部（初始加载）
         """
         from prompt_toolkit.formatted_text import ANSI
+
         from miniagent.engine.markdown_cli import render_markdown_to_ansi
 
         role = msg.get("role", "")
@@ -1238,7 +1239,7 @@ async def run_cli_loop(
                             # 文本文件预览
                             elif file_type == "text":
                                 try:
-                                    with open(resolved, "r", encoding="utf-8", errors="ignore") as f:
+                                    with open(resolved, encoding="utf-8", errors="ignore") as f:
                                         preview = f.read(500)
                                     description = preview[:200]
                                 except Exception:
@@ -1246,8 +1247,8 @@ async def run_cli_loop(
 
                             # 存储到记忆
                             try:
-                                from miniagent.types.memory import FileMetadata
                                 from miniagent.memory.store import add_file_to_memory
+                                from miniagent.types.memory import FileMetadata
 
                                 rel_path = file_path if not os.path.isabs(file_path) else os.path.basename(resolved)
 
@@ -1662,17 +1663,8 @@ async def _run_cli_loop_fallback(
                     channel_router,
                     state.get("feishu_p2p_synced_senders"),
                 )
-                # 切换成功后重置历史加载状态
                 if new_session_id != state["active_session_id"]:
                     state["active_session_id"] = new_session_id
-                    _transcript.clear()
-                    _history_loaded_range["total_messages"] = 0
-                    _history_loaded_range["loaded_start"] = 0
-                    _history_loaded_range["loaded_end"] = 0
-                    _history_loaded_range["all_loaded"] = False
-                    _history_loaded_range["loading"] = False
-                    _load_initial_history_to_transcript()
-                    get_app().invalidate()
             elif sub_cmd == "create" and len(parts) >= 3:
                 await cmd_session_create(
                     state.get("session_manager"),
@@ -1856,6 +1848,7 @@ def _format_cli_reply_block(
     if append_fn is None or not text:
         return
     from prompt_toolkit.formatted_text import ANSI
+
     from miniagent.engine.markdown_cli import render_markdown_to_ansi
 
     width = _get_cli_render_width()
@@ -1885,6 +1878,62 @@ def _format_cli_reply_block(
                 append_fn("class:cli-assistant-body", line + "\n")
     append_fn("class:cli-spacer", "\n")
     append_fn("class:cli-border-strong", chr(0x2550) * width + "\n")
+
+
+# ─── 文件头 magic bytes 检测（全局函数）───
+
+_MAGIC_TABLE: list[tuple[bytes, str]] = [
+    (b"\x89PNG\r\n\x1a\n", ".png"),
+    (b"\xff\xd8\xff", ".jpg"),
+    (b"GIF87a", ".gif"),
+    (b"GIF89a", ".gif"),
+    (b"RIFF", ".webp"),
+    (b"\x00\x00\x01\x00", ".ico"),
+    (b"%PDF", ".pdf"),
+    (b"PK\x03\x04", ".zip"),
+    (b"PK\x05\x06", ".zip"),
+    (b"\x1f\x8b", ".gz"),
+    (b"\x7fELF", ".elf"),
+    (b"MZ", ".exe"),
+    (b"\xca\xfe\xba\xbe", ".macho"),
+    (b"\xfe\xed\xfa\xce", ".macho"),
+    (b"\xfe\xed\xfa\xcf", ".macho"),
+    (b"\xd0\xcf\x11\xe0", ".doc"),
+]
+
+
+def _detect_ext_from_magic(data: bytes) -> str | None:
+    """根据文件头 magic bytes 推断扩展名。"""
+    if not data:
+        return None
+    for magic, ext in _MAGIC_TABLE:
+        if data[: len(magic)] == magic:
+            return ext
+    if data[:2] == b"BM":
+        return ".bmp"
+    return None
+
+
+def _detect_mime_from_magic(data: bytes) -> str | None:
+    """根据文件头 magic bytes 推断 MIME 类型。"""
+    ext = _detect_ext_from_magic(data)
+    if ext is None:
+        return None
+    mime_map = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".ico": "image/x-icon",
+        ".bmp": "image/bmp",
+        ".pdf": "application/pdf",
+        ".zip": "application/zip",
+        ".gz": "application/gzip",
+        ".exe": "application/octet-stream",
+        ".doc": "application/msword",
+    }
+    return mime_map.get(ext, "application/octet-stream")
+
 
 def _create_feishu_handler(
     _skill_toolboxes,
@@ -2083,58 +2132,6 @@ def _create_feishu_handler(
             return f"⚠️ 处理失败: {e}"
 
 
-    # ── 文件头 magic bytes 检测 ──
-
-    _MAGIC_TABLE: list[tuple[bytes, str]] = [
-        (b"\x89PNG\r\n\x1a\n", ".png"),
-        (b"\xff\xd8\xff", ".jpg"),
-        (b"GIF87a", ".gif"),
-        (b"GIF89a", ".gif"),
-        (b"RIFF", ".webp"),
-        (b"\x00\x00\x01\x00", ".ico"),
-        (b"%PDF", ".pdf"),
-        (b"PK\x03\x04", ".zip"),
-        (b"PK\x05\x06", ".zip"),
-        (b"\x1f\x8b", ".gz"),
-        (b"\x7fELF", ".elf"),
-        (b"MZ", ".exe"),
-        (b"\xca\xfe\xba\xbe", ".macho"),
-        (b"\xfe\xed\xfa\xce", ".macho"),
-        (b"\xfe\xed\xfa\xcf", ".macho"),
-        (b"\xd0\xcf\x11\xe0", ".doc"),
-    ]
-
-    def _detect_ext_from_magic(data: bytes) -> str | None:
-        """根据文件头 magic bytes 推断扩展名。"""
-        if not data:
-            return None
-        for magic, ext in _MAGIC_TABLE:
-            if data[:len(magic)] == magic:
-                return ext
-        if data[:2] == b"BM":
-            return ".bmp"
-        return None
-
-    def _detect_mime_from_magic(data: bytes) -> str | None:
-        """根据文件头 magic bytes 推断 MIME 类型。"""
-        ext = _detect_ext_from_magic(data)
-        if ext is None:
-            return None
-        mime_map = {
-            ".png": "image/png",
-            ".jpg": "image/jpeg",
-            ".gif": "image/gif",
-            ".webp": "image/webp",
-            ".ico": "image/x-icon",
-            ".bmp": "image/bmp",
-            ".pdf": "application/pdf",
-            ".zip": "application/zip",
-            ".gz": "application/gzip",
-            ".exe": "application/octet-stream",
-            ".doc": "application/msword",
-        }
-        return mime_map.get(ext, "application/octet-stream")
-
     async def media_handler(
         cfg: Any,
         message_id: str,
@@ -2209,8 +2206,8 @@ def _create_feishu_handler(
 
         # 将文件信息存储到会话记忆
         try:
-            from miniagent.types.memory import FileMetadata
             from miniagent.memory.store import add_file_to_memory
+            from miniagent.types.memory import FileMetadata
 
             # 获取 MIME 类型
             mime_type = _detect_mime_from_magic(data) or "application/octet-stream"
@@ -2268,7 +2265,7 @@ def _create_feishu_handler(
                         f"\u56fe\u7247\u5185\u5bb9\uff1a{desc}"
                     )
         try:
-            reply = await engine.run_agent_with_thinking(
+            _ = await engine.run_agent_with_thinking(
                 user_line,
                 session_key,
                 _skill_tb(),

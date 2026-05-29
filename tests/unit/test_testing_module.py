@@ -7,7 +7,14 @@ from __future__ import annotations
 
 import pytest
 
-from miniagent.testing.types import SampleSpec, ResultRecord, ReportSummary, TestSample, TestResult, TestReport
+from miniagent.testing.types import (
+    ReportSummary,
+    ResultRecord,
+    SampleSpec,
+    TestReport,
+    TestResult,
+    TestSample,
+)
 
 
 class TestTypes:

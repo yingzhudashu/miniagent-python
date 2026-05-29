@@ -59,6 +59,7 @@ async def test_run_agent_with_thinking_requires_session_manager() -> None:
 async def test_run_agent_forwards_client_to_execute_plan() -> None:
     """run_agent 传入的 client 应传入 execute_plan（空 toolboxes 走默认计划，不调用规划 LLM）。"""
     import os
+
     from miniagent.core.agent import run_agent
     from miniagent.infrastructure.monitor import DefaultToolMonitor
     from miniagent.infrastructure.registry import DefaultToolRegistry

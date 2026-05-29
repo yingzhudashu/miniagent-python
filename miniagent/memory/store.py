@@ -25,7 +25,13 @@ from datetime import datetime, timezone
 from typing import Any
 
 from miniagent.infrastructure.logger import get_logger
-from miniagent.types.memory import FileMetadata, MemoryEntry, MemoryEntryInput, MemoryStoreProtocol, SessionMemory
+from miniagent.types.memory import (
+    FileMetadata,
+    MemoryEntry,
+    MemoryEntryInput,
+    MemoryStoreProtocol,
+    SessionMemory,
+)
 
 _logger = get_logger(__name__)
 

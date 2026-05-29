@@ -8,11 +8,12 @@ from __future__ import annotations
 import json
 import re
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
-from miniagent.testing.types import TestReport, TestResult, TestSample, SampleSpec, ResultRecord
 from miniagent.infrastructure.logger import get_logger
+from miniagent.testing.types import ResultRecord, SampleSpec, TestReport, TestResult
 
 _logger = get_logger(__name__)
 
