@@ -251,16 +251,7 @@ async def run_agent(
     planning_display = ""
 
     if toolboxes and not skip_planning and task_classifier_enabled():
-        planning_hist = "正在评估任务难度…"
-        planning_display = "📋 正在评估任务难度…"
-        if _announce_difficulty_and_plan_enabled() and on_thinking:
-            await invoke_on_thinking(
-                on_thinking,
-                planning_display,
-                True,
-                PLANNING_STREAM_HEADER,
-                full_record=planning_hist,
-            )
+        # 不再发送初始的"正在评估任务难度…"通知，避免与后续详细输出重复
         difficulty = await classify_task_difficulty(
             user_input,
             [t.id for t in toolboxes],
@@ -272,8 +263,8 @@ async def run_agent(
         if _announce_difficulty_and_plan_enabled() and on_thinking:
             diff_msg = _format_task_difficulty(difficulty)
             diff_disp = _format_task_difficulty(difficulty, display=True)
-            planning_hist = planning_hist + "\n\n" + diff_msg
-            planning_display = planning_display + "\n\n" + diff_disp
+            planning_hist = diff_msg
+            planning_display = diff_disp
             await invoke_on_thinking(
                 on_thinking,
                 planning_display,

@@ -148,7 +148,7 @@ async def test_difficulty_announced_when_classifier_runs(
     headers = [h for h, _ in captured]
     assert all(h == PLANNING_STREAM_HEADER for h in headers)
     blob = "\n".join(t for _, t in captured)
-    assert "📋" in blob or "评估" in blob
+    # 输出应包含难度标签（display格式为 "**难度**"，full_record格式为 "[任务难度]评估结果"）
     assert "**难度**" in blob
     assert "[计划]" in blob or "s" in blob
 
