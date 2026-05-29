@@ -724,9 +724,13 @@ async def run_cli_loop(
         return _viewport_cols() >= _WRAP_LINES_THRESHOLD
 
     def _max_horizontal_scroll() -> int:
-        """水平滚动最大值：估计内容宽度 - 视口宽度。"""
-        # 简化实现：使用视口宽度作为估计上限
-        return max(0, _viewport_cols())
+        """水平滚动最大值：估计内容宽度 - 视口宽度。
+
+        简化实现：使用 2 倍视口宽度作为内容宽度估计，
+        确保足够大的滚动范围。
+        """
+        vp = _viewport_cols()
+        return max(0, vp * 2)  # 允许滚动到 2 倍视口宽度
 
     def _apply_horizontal_scroll(delta: int) -> None:
         """执行水平滚动。"""
@@ -848,13 +852,53 @@ async def run_cli_loop(
                 get_app().invalidate()
                 return None
 
-            # ─── 滚动条点击/拖动（垂直滚动条交互） ───────────────────────
-            if _is_scrollbar_click(mouse_event):
-                sp = _sp()
+            sp = _sp()
+
+            # ─── 滚动条拖动（持续处理） ───────────────────────────────────
+            # 优先检查拖动状态，而不是点击位置（用户可能拖出滚动条区域）
+            if _dragging_scrollbar[0]:
                 if sp is None:
+                    _dragging_scrollbar[0] = False
                     return self._inner.mouse_handler(mouse_event)
 
-                if mouse_event.event_type == MouseEventType.MOUSE_DOWN:
+                if mouse_event.event_type == MouseEventType.MOUSE_MOVE:
+                    try:
+                        current_y = getattr(mouse_event.position, "y", 0)
+                        delta_y = current_y - _drag_start_y[0]
+                        vp_rows = _viewport_rows()
+                        max_scroll = _max_output_scroll()
+                        scroll_delta = int(delta_y * max_scroll / vp_rows) if vp_rows > 0 else 0
+                        sp.vertical_scroll = max(0, min(max_scroll, sp.vertical_scroll + scroll_delta))
+                        _drag_start_y[0] = current_y
+                        get_app().invalidate()
+                    except Exception:
+                        pass
+                    return None
+                elif mouse_event.event_type == MouseEventType.MOUSE_UP:
+                    _dragging_scrollbar[0] = False
+                    return None
+
+            # ─── 水平拖动（持续处理） ───────────────────────────────────
+            # 优先检查水平拖动状态（用户可能拖出原始区域）
+            if _drag_start_x[0] is not None and not _should_wrap_lines():
+                if mouse_event.event_type == MouseEventType.MOUSE_MOVE:
+                    try:
+                        current_x = getattr(mouse_event.position, "x", 0)
+                        delta = _drag_start_x[0] - current_x
+                        _apply_horizontal_scroll(delta)
+                        _drag_start_x[0] = current_x
+                        get_app().invalidate()
+                    except Exception:
+                        pass
+                    return None
+                elif mouse_event.event_type == MouseEventType.MOUSE_UP:
+                    _drag_start_x[0] = None
+                    return None
+
+            # ─── 新点击/拖动开始 ───────────────────────────────────────
+            # 滚动条点击开始拖动
+            if _is_scrollbar_click(mouse_event) and mouse_event.event_type == MouseEventType.MOUSE_DOWN:
+                if sp is not None:
                     _dragging_scrollbar[0] = True
                     try:
                         _drag_start_y[0] = mouse_event.position.y
@@ -871,44 +915,15 @@ async def run_cli_loop(
                         get_app().invalidate()
                     except Exception:
                         pass
-                    return None
-                elif mouse_event.event_type == MouseEventType.MOUSE_MOVE:
-                    if _dragging_scrollbar[0]:
-                        try:
-                            current_y = getattr(mouse_event.position, "y", 0)
-                            delta_y = current_y - _drag_start_y[0]
-                            vp_rows = _viewport_rows()
-                            max_scroll = _max_output_scroll()
-                            scroll_delta = int(delta_y * max_scroll / vp_rows) if vp_rows > 0 else 0
-                            sp.vertical_scroll = max(0, min(max_scroll, sp.vertical_scroll + scroll_delta))
-                            _drag_start_y[0] = current_y
-                            get_app().invalidate()
-                        except Exception:
-                            pass
-                        return None
-                elif mouse_event.event_type == MouseEventType.MOUSE_UP:
-                    _dragging_scrollbar[0] = False
-                    return None
+                return None
 
-            # ─── 水平拖动（非折行模式） ───────────────────────────────────
-            if not _should_wrap_lines():
-                if mouse_event.event_type == MouseEventType.MOUSE_DOWN:
-                    try:
-                        _drag_start_x[0] = mouse_event.position.x
-                    except Exception:
-                        _drag_start_x[0] = 0
-                elif mouse_event.event_type == MouseEventType.MOUSE_MOVE:
-                    if _drag_start_x[0] is not None:
-                        try:
-                            current_x = getattr(mouse_event.position, "x", 0)
-                            delta = _drag_start_x[0] - current_x
-                            _apply_horizontal_scroll(delta)
-                            _drag_start_x[0] = current_x
-                            get_app().invalidate()
-                        except Exception:
-                            pass
-                elif mouse_event.event_type == MouseEventType.MOUSE_UP:
-                    _drag_start_x[0] = None
+            # 水平拖动开始（非折行模式）
+            if not _should_wrap_lines() and mouse_event.event_type == MouseEventType.MOUSE_DOWN:
+                try:
+                    _drag_start_x[0] = mouse_event.position.x
+                except Exception:
+                    _drag_start_x[0] = 0
+                return None
 
             return self._inner.mouse_handler(mouse_event)
 
