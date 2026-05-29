@@ -21,8 +21,16 @@ import shutil
 import sys
 from collections.abc import Awaitable, Callable
 
-from prompt_toolkit.formatted_text import FormattedText
-from prompt_toolkit.shortcuts import print_formatted_text
+# prompt_toolkit 是可选依赖（cli extra），未安装时提供 placeholder
+try:
+    from prompt_toolkit.formatted_text import FormattedText
+    from prompt_toolkit.shortcuts import print_formatted_text
+
+    _HAS_PROMPT_TOOLKIT = True
+except ImportError:
+    _HAS_PROMPT_TOOLKIT = False
+    FormattedText = None  # type: ignore[misc,assignment]
+    print_formatted_text = None  # type: ignore[misc,assignment]
 
 _logger = logging.getLogger(__name__)
 

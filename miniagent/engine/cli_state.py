@@ -6,7 +6,13 @@
 
 from __future__ import annotations
 
-from typing import Any, NotRequired, TypedDict
+from typing import Any, TypedDict
+
+# Python 3.10 compatibility: NotRequired is in typing_extensions
+try:
+    from typing import NotRequired
+except ImportError:
+    from typing_extensions import NotRequired
 
 
 class CliLoopState(TypedDict):
