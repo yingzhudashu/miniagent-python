@@ -1272,10 +1272,15 @@ async def run_cli_loop(
                                     "description": description[:100] if description else "",
                                 })
 
-                                # 替换标记为描述
+                                # 替换标记为描述（包含图片/文本内容摘要，以便 Agent 理解）
                                 marker = f"@file:{file_path}" if match[0] else f"file:{file_path}"
                                 type_label = {"image": "图片", "text": "文本文件", "binary": "文件"}.get(file_type, "文件")
-                                replacement = f"[{type_label}: {file_name}]"
+                                if file_type == "image" and description:
+                                    replacement = f"[{type_label}: {file_name}]\n图片内容：{description}"
+                                elif file_type == "text" and description:
+                                    replacement = f"[{type_label}: {file_name}]\n内容预览：{description}"
+                                else:
+                                    replacement = f"[{type_label}: {file_name}]"
                                 user_input = user_input.replace(marker, replacement)
 
                                 # 提示用户
