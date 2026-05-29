@@ -53,7 +53,8 @@ def _cli_thinking_render_width() -> int:
     """无注入宽度回调时，用终端列宽推导 Rich 渲染宽度。"""
     try:
         terminal_width = shutil.get_terminal_size(fallback=(80, 24)).columns
-        return max(40, min(200, terminal_width - 4))
+        # 最大500适应宽屏显示器，确保表格完整显示
+        return max(40, min(500, terminal_width - 4))
     except Exception:
         return 76  # 80 - 4
 

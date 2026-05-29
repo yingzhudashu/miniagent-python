@@ -1796,12 +1796,12 @@ def _get_cli_render_width(fallback_width: int = 80) -> int:
         fallback_width: 获取失败时的默认宽度
 
     Returns:
-        渲染宽度（最小 40，最大 200）
+        渲染宽度（最小 40，最大 500，适应宽屏显示器）
     """
     try:
         terminal_width = shutil.get_terminal_size(fallback=(fallback_width, 24)).columns
-        # 减去边距，设置合理范围
-        width = max(40, min(200, terminal_width - 4))
+        # 减去边距，设置合理范围（最大500适应宽屏）
+        width = max(40, min(500, terminal_width - 4))
         return width
     except Exception:
         return max(40, fallback_width - 4)
