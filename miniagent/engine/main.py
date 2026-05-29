@@ -560,7 +560,9 @@ async def run_cli_loop(
         ansi_obj._source_md = source_md  # type: ignore[attr-defined]
 
     def _recheck_md_width() -> None:
-        """检测终端宽度变化，必要时重新渲染 transcript 中的 Markdown 条目。"""
+        """检测终端宽度变化，必要时重新渲染 transcript 中的 Markdown 条目。
+        同时检测是否需要切换折行/水平滚动模式。
+        """
         try:
             new_w = _viewport_cols()
         except Exception:
@@ -569,6 +571,12 @@ async def run_cli_loop(
         if old_w != 0 and new_w == old_w:
             return  # 宽度未变化，跳过重渲染
         _last_md_width[0] = new_w
+
+        # ─── 水平滚动模式切换 ───────────────────────────────────────────
+        # 如果宽度足够（切换到折行模式），重置水平滚动
+        if _should_wrap_lines():
+            _reset_horizontal_scroll()
+
         if not _transcript:
             return  # transcript 为空，无需重渲染
         from prompt_toolkit.formatted_text.ansi import ANSI as PTANSI
@@ -581,7 +589,7 @@ async def run_cli_loop(
                 src = frag._source_md
                 if not src:
                     continue
-                new_ansi = render_markdown_to_ansi(src, width=md_w)
+                new_ansi = render_markdown_to_ansi(src, width=md_w, justify="left")
                 if new_ansi is not None:
                     frag.value = new_ansi  # 更新内部 ANSI 字符串
         try:
@@ -702,6 +710,49 @@ async def run_cli_loop(
         vp = _viewport_cols()
         return max(40, vp - 4)  # 与 _cli_block_reply 的 md_w 一致
 
+    # ─── 水平滚动控制 ───────────────────────────────────────────────
+    _WRAP_LINES_THRESHOLD = 60  # 宽度小于此值时禁用折行，启用水平滚动
+    _horizontal_scroll = [0]  # 水平滚动偏移（可变）
+    _drag_start_x = [None]  # 水平拖动起始 X 坐标
+    _dragging_scrollbar = [False]  # 正在拖动垂直滚动条
+    _drag_start_y = [0]  # 滚动条拖动起始 Y 坐标
+    _SCROLLBAR_WIDTH = 2  # 滚动条宽度（右侧约 1-2 列）
+    _transcript_window_ref = [None]  # Window 引用（用于设置 horizontal_scroll）
+
+    def _should_wrap_lines() -> bool:
+        """检测是否应该折行：宽度足够时折行，太窄时启用水平滚动。"""
+        return _viewport_cols() >= _WRAP_LINES_THRESHOLD
+
+    def _max_horizontal_scroll() -> int:
+        """水平滚动最大值：估计内容宽度 - 视口宽度。"""
+        # 简化实现：使用视口宽度作为估计上限
+        return max(0, _viewport_cols())
+
+    def _apply_horizontal_scroll(delta: int) -> None:
+        """执行水平滚动。"""
+        new_val = max(0, min(_max_horizontal_scroll(), _horizontal_scroll[0] + delta))
+        _horizontal_scroll[0] = new_val
+        w = _transcript_window_ref[0]
+        if w is not None:
+            w.horizontal_scroll = new_val
+
+    def _reset_horizontal_scroll() -> None:
+        """重置水平滚动（切换回折行模式时调用）。"""
+        _horizontal_scroll[0] = 0
+        w = _transcript_window_ref[0]
+        if w is not None:
+            w.horizontal_scroll = 0
+
+    def _is_scrollbar_click(mouse_event: MouseEvent) -> bool:
+        """检测是否点击在滚动条区域（右侧约 1-2 列）。"""
+        try:
+            vp_cols = _viewport_cols()
+            # MouseEvent.position 是 Point(x, y)
+            click_x = getattr(mouse_event.position, "x", 0)
+            return click_x >= vp_cols - _SCROLLBAR_WIDTH
+        except Exception:
+            return False
+
     def _content_preferred_height() -> int:
         """transcript 内容理想高度（用于计算最大滚动偏移）。"""
         try:
@@ -784,7 +835,10 @@ async def run_cli_loop(
             return self._inner.create_content(width, height)
 
         def mouse_handler(self, mouse_event: MouseEvent) -> NotImplementedOrNone:
-            """滚轮事件改为驱动 ``ScrollablePane`` 纵向滚动，其余交给内层。"""
+            """滚轮事件改为驱动 ScrollablePane 纵向滚动；
+            滚动条区域支持点击/拖动；非折行模式支持水平拖动。
+            """
+            # ─── 垂直滚轮 ───────────────────────────────────────────
             if mouse_event.event_type == MouseEventType.SCROLL_UP:
                 _apply_transcript_scroll(-_wheel_line_step(), "mouse.SCROLL_UP")
                 get_app().invalidate()
@@ -793,6 +847,69 @@ async def run_cli_loop(
                 _apply_transcript_scroll(_wheel_line_step(), "mouse.SCROLL_DOWN")
                 get_app().invalidate()
                 return None
+
+            # ─── 滚动条点击/拖动（垂直滚动条交互） ───────────────────────
+            if _is_scrollbar_click(mouse_event):
+                sp = _sp()
+                if sp is None:
+                    return self._inner.mouse_handler(mouse_event)
+
+                if mouse_event.event_type == MouseEventType.MOUSE_DOWN:
+                    _dragging_scrollbar[0] = True
+                    try:
+                        _drag_start_y[0] = mouse_event.position.y
+                    except Exception:
+                        _drag_start_y[0] = 0
+                    # 点击时直接跳到对应位置
+                    try:
+                        vp_rows = _viewport_rows()
+                        max_scroll = _max_output_scroll()
+                        click_y = getattr(mouse_event.position, "y", 0)
+                        fraction = click_y / vp_rows if vp_rows > 0 else 0
+                        new_scroll = int(fraction * max_scroll)
+                        sp.vertical_scroll = max(0, min(max_scroll, new_scroll))
+                        get_app().invalidate()
+                    except Exception:
+                        pass
+                    return None
+                elif mouse_event.event_type == MouseEventType.MOUSE_MOVE:
+                    if _dragging_scrollbar[0]:
+                        try:
+                            current_y = getattr(mouse_event.position, "y", 0)
+                            delta_y = current_y - _drag_start_y[0]
+                            vp_rows = _viewport_rows()
+                            max_scroll = _max_output_scroll()
+                            scroll_delta = int(delta_y * max_scroll / vp_rows) if vp_rows > 0 else 0
+                            sp.vertical_scroll = max(0, min(max_scroll, sp.vertical_scroll + scroll_delta))
+                            _drag_start_y[0] = current_y
+                            get_app().invalidate()
+                        except Exception:
+                            pass
+                        return None
+                elif mouse_event.event_type == MouseEventType.MOUSE_UP:
+                    _dragging_scrollbar[0] = False
+                    return None
+
+            # ─── 水平拖动（非折行模式） ───────────────────────────────────
+            if not _should_wrap_lines():
+                if mouse_event.event_type == MouseEventType.MOUSE_DOWN:
+                    try:
+                        _drag_start_x[0] = mouse_event.position.x
+                    except Exception:
+                        _drag_start_x[0] = 0
+                elif mouse_event.event_type == MouseEventType.MOUSE_MOVE:
+                    if _drag_start_x[0] is not None:
+                        try:
+                            current_x = getattr(mouse_event.position, "x", 0)
+                            delta = _drag_start_x[0] - current_x
+                            _apply_horizontal_scroll(delta)
+                            _drag_start_x[0] = current_x
+                            get_app().invalidate()
+                        except Exception:
+                            pass
+                elif mouse_event.event_type == MouseEventType.MOUSE_UP:
+                    _drag_start_x[0] = None
+
             return self._inner.mouse_handler(mouse_event)
 
     transcript_inner = FormattedTextControl(
@@ -801,8 +918,9 @@ async def run_cli_loop(
     )
     transcript_window = Window(
         _TranscriptPaneControl(transcript_inner),
-        wrap_lines=True,
+        wrap_lines=_should_wrap_lines,  # 动态控制：宽度足够时折行，太窄时启用水平滚动
     )
+    _transcript_window_ref[0] = transcript_window  # 保存引用用于水平滚动控制
     output_scroll = ScrollablePane(
         transcript_window,
         height=D(weight=1),
@@ -910,6 +1028,21 @@ async def run_cli_loop(
             _max_output_scroll(), output_scroll.vertical_scroll + _scroll_step()
         )
         event.app.invalidate()
+
+    # ─── 水平滚动键盘绑定 ───────────────────────────────────────────
+    @kb.add("s-left", filter=has_focus(input_buffer))
+    def _on_shift_left(event):
+        """Shift+Left: 水平向左滚动（仅非折行模式）。"""
+        if not _should_wrap_lines():
+            _apply_horizontal_scroll(-10)
+            event.app.invalidate()
+
+    @kb.add("s-right", filter=has_focus(input_buffer))
+    def _on_shift_right(event):
+        """Shift+Right: 水平向右滚动（仅非折行模式）。"""
+        if not _should_wrap_lines():
+            _apply_horizontal_scroll(10)
+            event.app.invalidate()
 
     @kb.add("c-home", filter=has_focus(input_buffer))
     def _on_ctrl_home(event):
