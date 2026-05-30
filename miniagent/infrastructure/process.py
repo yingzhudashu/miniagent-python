@@ -96,8 +96,13 @@ async def _kill_tree_windows(pid: int) -> None:
     except FileNotFoundError:
         # taskkill 不存在，回退到单进程终止
         try:
-            proc = await asyncio.create_subprocess_exec("taskkill", "/PID", str(pid), "/F")
-            await proc.wait()
+            # 使用 subprocess.run 同步执行，避免 asyncio 管道问题
+            subprocess.run(
+                ["taskkill", "/PID", str(pid), "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            )
         except Exception:
             pass
 
@@ -125,6 +130,8 @@ async def cleanup_all_processes() -> None:
 
     Windows：使用 taskkill /T 终止进程树
     Unix：使用 SIGTERM → SIGKILL 终止进程组
+
+    注意：会先尝试 communicate() 以关闭管道，避免 Windows asyncio "unclosed transport" 警告。
     """
     if not _tracked:
         return
@@ -138,13 +145,27 @@ async def cleanup_all_processes() -> None:
         _tracked.clear()
         return
 
-    # 并发清理
+    # 先尝试 communicate() 关闭管道（超时 0.5s）
+    async def _close_pipes(proc: asyncio.subprocess.Process) -> None:
+        try:
+            # communicate() 会关闭 stdin/stdout/stderr 管道
+            await asyncio.wait_for(proc.communicate(), timeout=0.5)
+        except asyncio.TimeoutError:
+            # 进程未响应，继续后续 kill 逻辑
+            pass
+        except Exception:
+            pass
+
+    await asyncio.gather(*[_close_pipes(p) for p in to_clean], return_exceptions=True)
+
+    # 并行清理
     tasks = []
     for proc in to_clean:
-        if sys.platform == "win32":
-            tasks.append(_kill_tree_windows(proc.pid))
-        else:
-            tasks.append(_kill_unix(proc))
+        if proc.returncode is None:  # 可能已被 communicate 关闭
+            if sys.platform == "win32":
+                tasks.append(_kill_tree_windows(proc.pid))
+            else:
+                tasks.append(_kill_unix(proc))
 
     if tasks:
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -202,6 +223,9 @@ async def create_tracked_subprocess(
     Windows 默认使用 CREATE_NEW_PROCESS_GROUP 防止孤儿。
     Unix 默认使用 start_new_session 创建新进程组。
 
+    注意：Windows 上 CREATE_NEW_PROCESS_GROUP 与管道不兼容。
+    如果调用方传入 stdout/stderr 管道，将自动移除该标志。
+
     Args:
         cmd: shell 命令
         **kwargs: 传给 asyncio.create_subprocess_shell 的参数
@@ -211,7 +235,14 @@ async def create_tracked_subprocess(
     """
     if sys.platform == "win32":
         flags = kwargs.pop("creationflags", 0)
-        flags |= subprocess.CREATE_NEW_PROCESS_GROUP
+        # Windows: CREATE_NEW_PROCESS_GROUP 与管道不兼容，如果调用方需要管道则不添加该标志
+        has_pipes = (
+            kwargs.get("stdout") is not None
+            or kwargs.get("stderr") is not None
+            or kwargs.get("stdin") is not None
+        )
+        if not has_pipes:
+            flags |= subprocess.CREATE_NEW_PROCESS_GROUP
         kwargs["creationflags"] = flags
     else:
         # Unix: 创建新进程组以便 killpg 能正确终止整个进程树
