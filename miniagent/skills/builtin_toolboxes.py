@@ -59,6 +59,12 @@ BUILTIN_TOOLBOXES: list[Toolbox] = [
         description="时间查询（get_time）",
         keywords=["时间", "日期", "timezone"],
     ),
+    Toolbox(
+        id="vision",
+        name="视觉理解",
+        description="分析图片内容，生成图片描述（analyze_image）",
+        keywords=["图片", "图像", "视觉", "vision", "看", "分析", "OCR"],
+    ),
 ]
 
 __all__ = ["BUILTIN_TOOLBOXES"]

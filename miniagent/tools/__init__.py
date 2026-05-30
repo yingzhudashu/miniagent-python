@@ -10,6 +10,7 @@
 - feishu_im_tools: 飞书 IM / 云盘工具
 - feishu_doc_tools: 飞书云文档 ``feishu_doc``
 - feishu_bitable_tools: 飞书多维表格 ``feishu_bitable``
+- vision_tools: 视觉理解（analyze_image）
 
 另：``session_memory.session_memory_tools`` 在 ``engine.init_subsystems`` 中单独注册，不在 ``ALL_TOOLS`` 字典内。
 
@@ -32,6 +33,7 @@ from miniagent.tools.feishu_im_tools import feishu_im_tools
 from miniagent.tools.filesystem import filesystem_tools
 from miniagent.tools.schedule_tools import schedule_tools
 from miniagent.tools.skills import skills_tools
+from miniagent.tools.vision import vision_tools
 from miniagent.tools.web import web_tools
 
 # 汇总所有内置工具
@@ -47,6 +49,7 @@ ALL_TOOLS = {
     **feishu_bitable_tools,
     **feishu_card_tools,
     **data_tools,
+    **vision_tools,
 }
 
 __all__ = [
@@ -61,5 +64,6 @@ __all__ = [
     "feishu_bitable_tools",
     "feishu_card_tools",
     "data_tools",
+    "vision_tools",
     "ALL_TOOLS",
 ]
