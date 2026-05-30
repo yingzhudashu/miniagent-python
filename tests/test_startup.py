@@ -178,8 +178,8 @@ def test_core_components_constructible():
 def test_feishu_handler_creation():
     """飞书 handler 可以正常创建。"""
     from miniagent.engine.engine import UnifiedEngine
+    from miniagent.engine.feishu_handler import create_feishu_handler
     from miniagent.engine.feishu_state import FeishuRuntime
-    from miniagent.engine.main import _create_feishu_handler
     from miniagent.infrastructure.channel_router import ChannelRouter
     from miniagent.infrastructure.message_queue import MessageQueueManager
     from miniagent.infrastructure.monitor import DefaultToolMonitor
@@ -212,7 +212,7 @@ def test_feishu_handler_creation():
         "runtime_ctx": ctx,
         "feishu_p2p_synced_senders": set(),
     }
-    text_h, media_h = _create_feishu_handler([], [], loop_state, ctx, [True])
+    text_h, media_h = create_feishu_handler([], [], loop_state, ctx, [True])
     assert callable(text_h)
     assert callable(media_h)
 

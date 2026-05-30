@@ -1,10 +1,11 @@
 # Mini Agent Python
 
-基于 LLM 的两阶段智能代理系统。支持 CLI 和飞书双通道接入。
+基于 LLM 的多阶段智能代理系统。支持 CLI 和飞书双通道接入。
 
 ## 特性
 
-- **两阶段架构**: Plan（规划）→ Execute（执行），精确控制工具调用
+- **多阶段架构**: Phase 0 (分类) → Phase 0.5 (需求澄清) → Phase 1 (规划) → Phase 2 (执行)，精确控制工具调用
+- **三步需求澄清**: Wittgenstein（语言边界）→ Socrates（反向追问）→ Polanyi（示例传递）
 - **ReAct 循环**: Think → Act → Observe，多轮推理直到任务完成
 - **三层记忆**: 短期记忆 / 活动日志 / 语义检索
 - **双通道接入**: 同一进程内 CLI 主循环 + 可选飞书 WebSocket 长连接（无单独「纯飞书」入口）；出站默认 **`reply`**（`MINIAGENT_FEISHU_REPLY_TARGET`）；内置飞书工具默认由 `MINIAGENT_FEISHU_TOOLS_AUTO` 注册（`MINIAGENT_FEISHU_TOOLS=0` 可关）。详见 [docs/FEISHU.md](docs/FEISHU.md)、[CHANGELOG.md](CHANGELOG.md) `[Unreleased]`

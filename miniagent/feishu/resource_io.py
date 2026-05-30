@@ -69,3 +69,10 @@ def sanitize_filename(name: str, fallback: str = "file") -> str:
     base = base.replace("\\", "_").replace("/", "_").replace("\x00", "")
     base = os.path.basename(base)
     return base or fallback
+
+
+__all__ = [
+    "ResourceType",
+    "download_message_resource",
+    "sanitize_filename",
+]

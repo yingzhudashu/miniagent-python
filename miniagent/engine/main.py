@@ -824,7 +824,7 @@ async def run_cli_loop(
             """委托内层生成 ``UIContent``。"""
             return self._inner.create_content(width, height)
 
-        def mouse_handler(self, mouse_event: MouseEvent) -> NotImplementedOrNone:
+        def mouse_handler(self, mouse_event: MouseEvent) -> NotImplemented | None:
             """滚轮事件改为驱动 ScrollablePane 纵向滚动；
             滚动条区域支持点击/拖动；非折行模式支持水平拖动。
             """
@@ -1014,16 +1014,16 @@ async def run_cli_loop(
                 show_cursor=False,
             )
 
-        def mouse_handler(self, mouse_event: MouseEvent) -> NotImplementedOrNone:
+        def mouse_handler(self, mouse_event: MouseEvent) -> NotImplemented | None:
             """处理水平滚动条鼠标事件。"""
             if _should_wrap_lines():
-                return NotImplementedOrNone
+                return NotImplemented
 
             vp = _viewport_cols()
             max_scroll = _max_horizontal_scroll()
 
             if max_scroll <= 0:
-                return NotImplementedOrNone
+                return NotImplemented
 
             click_x = getattr(mouse_event.position, "x", 0)
 
@@ -1056,7 +1056,7 @@ async def run_cli_loop(
                 # 鼠标拖动（可选实现，暂时跳过）
                 return None
 
-            return NotImplementedOrNone
+            return NotImplemented
 
     h_scrollbar_window = Window(
         _HorizontalScrollbarControl(),

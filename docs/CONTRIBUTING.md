@@ -250,7 +250,7 @@ async def my_tool_handler(args: dict, ctx: ToolContext) -> ToolResult:
 ### 模块级 docstring 建议包含
 
 1. **一句话职责**（本文件解决什么问题）。
-2. **与架构的对应关系**（可写「详见 ARCHITECTURE.md §…」或链到具体子系统名，如消息队列、两阶段编排）。
+2. **与架构的对应关系**（可写「详见 ARCHITECTURE.md §…」或链到具体子系统名，如消息队列、多阶段架构）。
 3. **依赖与边界**：主要 import、是否仅主线程、是否假设已有 ``RuntimeContext``、是否读写 ``MINI_AGENT_STATE`` 等。
 4. **非显而易见的行为**：例如懒加载、与飞书/CLI 共用路径、默认环境变量开关。
 

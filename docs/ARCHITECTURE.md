@@ -4,7 +4,7 @@
 
 ## 架构总览
 
-Mini Agent Python 采用 **两阶段架构**（Plan → Execute），通过 **ReAct 循环** 实现 LLM 驱动的智能代理。系统分为 **12 个功能层**（含可选 MCP 层），支持 CLI 和飞书双通道接入，并通过 **ChannelRouter** 实现通道绑定与会话共享。
+Mini Agent Python 采用 **多阶段架构**（Phase 0 分类 → Phase 0.5 需求澄清 → Phase 1 规划 → Phase 2 执行），通过 **ReAct 循环** 实现 LLM 驱动的智能代理。系统分为 **12 个功能层**（含可选 MCP 层），支持 CLI 和飞书双通道接入，并通过 **ChannelRouter** 实现通道绑定与会话共享。
 
 ```
                     用户输入
@@ -30,9 +30,11 @@ Mini Agent Python 采用 **两阶段架构**（Plan → Execute），通过 **Re
         └─────────────┬───────────────┘
                       ↓
         ┌─────── 核心层 (Core) ───────┐
+        │  Phase 0.5: requirement_clarifier.py │
+        │           需求澄清（三步法）  │
         │  Phase 1: planner.py 规划   │
         │  Phase 2: executor.py 执行  │
-        │  agent.py: 两阶段编排       │
+        │  agent.py: 多阶段编排       │
         └───────┬─────┬───────────────┘
                 ↓     ↓
          ┌──────┘     └──────┐
@@ -53,7 +55,7 @@ Mini Agent Python 采用 **两阶段架构**（Plan → Execute），通过 **Re
 ## 与 OpenClaw 的关系
 
 - **OpenClaw**：自托管 **Gateway**，将 Discord、Telegram、飞书等多种渠道接到「口袋里的」Agent，强调多通道、会话隔离与控制中心 UI；官方文档见 [https://docs.openclaw.ai](https://docs.openclaw.ai)。
-- **本仓库（Mini Agent Python）**：定位是 **Python Agent 核心**——两阶段规划、ReAct、`ToolRegistry`、技能与 ClawHub、飞书与 CLI、本地记忆与工作空间。它**不是** OpenClaw Gateway 的等价实现，但可与同一生态（如 ClawHub 技能）对齐使用习惯。
+- **本仓库（Mini Agent Python）**：定位是 **Python Agent 核心**——多阶段架构（需求澄清→规划→执行）、ReAct、`ToolRegistry`、技能与 ClawHub、飞书与 CLI、本地记忆与工作空间。它**不是** OpenClaw Gateway 的等价实现，但可与同一生态（如 ClawHub 技能）对齐使用习惯。
 - **可选 MCP**：环境变量 `MINIAGENT_MCP_STDIO` 设为 JSON 数组 `[command, arg1, ...]`（与 `stdio` 启动参数一致），进程启动时在 [`engine/init.py`](miniagent/engine/init.py) 中调用 [`register_mcp_stdio_tools`](miniagent/mcp/runtime.py) 连接 MCP 服务端并注册 `mcp_*` 工具；需安装可选依赖 `pip install miniagent-python[mcp]`。
 
 ### 配置（扁平环境变量）
@@ -109,11 +111,12 @@ Mini Agent Python 采用 **两阶段架构**（Plan → Execute），通过 **Re
 
 ### 3. 核心层 (Core)
 
-Agent 的大脑，实现两阶段架构。
+Agent 的大脑，采用 **多阶段架构**（Phase 0.5 需求澄清 → Phase 1 规划 → Phase 2 执行）。
 
 | 文件 | 职责 |
 |------|------|
-| `agent.py` | 两阶段主入口：`run_agent()` (Plan→Execute), `run_pipeline()` (线性管线) |
+| `agent.py` | 多阶段主入口：`run_agent()` (Clarify→Plan→Execute), `run_pipeline()` (线性管线) |
+| `requirement_clarifier.py` | Phase 0.5 需求澄清器：三步法（Wittgenstein→Socrates→Polanyi）将模糊输入转化为结构化需求 |
 | `planner.py` | Phase 1 规划器：LLM 分析需求 → 生成 `StructuredPlan` → 选择工具箱 → 估算 tokens |
 | `executor.py` | Phase 2 执行器：ReAct 循环；在 `plan.steps` 非空且未关闭 `MINIAGENT_PHASED_EXECUTION` 时按步骤分子循环，每步单独解析 `thinking_level`/`thinking_budget` |
 | `config.py` | 配置管理：`MODEL_PROFILES`, `AgentConfig` 合并, 循环检测默认值 |
@@ -124,24 +127,77 @@ Agent 的大脑，实现两阶段架构。
 | `vendor/qwen_extra.py` | 兼容 Qwen/DashScope 时在 `extra_body` 注入 thinking 字段 |
 | `self_opt/` | 自我优化子系统（详见 [SELF_OPT.md](SELF_OPT.md)） |
 
-#### ReAct 循环详解
+#### Phase 0.5: 需求澄清（三步法）
+
+当任务难度为 **普通或复杂**（非简单）时，`requirement_clarifier.py` 在规划之前执行三步需求澄清：
 
 ```
-用户输入 → Planner 规划 → StructuredPlan
-                              ↓
-                        Executor 循环:
-                    ┌──→ LLM 调用 (Think)
-                    │       ↓
-                    │   有工具调用? ──否──→ 返回最终回复
-                    │       ↓ 是
-                    │   执行工具 (Act)
-                    │       ↓
-                    │   结果反馈 (Observe)
-                    │       ↓
-                    │   循环检测
-                    │       ↓
-                    └── 继续循环 (max_turns)
+用户输入 "帮我查一下天气"
+        ↓
+┌─── RequirementClarifier ───┐
+│ Step 1 (Wittgenstein)      │ ← 识别模糊表述："查一下"未指定城市
+│ Step 2 (Socrates)          │ ← 推断隐含约束：当前时间、用户位置？
+│ Step 3 (Polanyi)           │ ← 正反向示例："北京今日天气" vs "天气"
+└─────────────┬──────────────┘
+              ↓
+ClarifiedRequirement（澄清后的需求规格）
+  - clarified_goal: "获取指定城市的实时天气信息"
+  - boundary_conditions: ["需明确城市名称", "返回温度、天气状况"]
+  - output_spec: "简洁文本，含温度和天气状况"
+  - examples: ["北京今天天气怎么样"]
+  - anti_examples: ["天气"]（过于模糊）
 ```
+
+**三步方法哲学基础**：
+1. **Wittgenstein（语言边界）**：识别模糊表述、未定义概念、歧义词
+   > "语言的边界就是世界的边界" — 明确什么是可表达的、什么是不可表达的
+2. **Socrates（反向追问）**：推断隐含约束（专业度、格式、时间、范围）
+   > 通过反向追问暴露隐式边界条件，直到无法再言语回答为止
+3. **Polanyi（示例传递）**：提供正反向示例来传递隐性知识
+   > "我们知道的比我们能说出的更多" — 用示例而非规则传递 tacit knowledge
+
+**两种模式**：
+- **自动推断**：LLM 一次性分析，零交互，适合非交互场景
+- **交互追问**：针对 LLM 识别的模糊点实时向用户追问（需 `ask_user` 回调）
+
+**与记忆层联动**：交互模式下，澄清前会加载会话历史记忆，避免重复追问已回答的问题。
+
+#### ReAct 循环详解（多阶段流程）
+
+```
+用户输入
+    ↓
+┌─ Phase 0: 任务分类 ─────────┐
+│  task_classifier.py         │ → 简单 / 普通 / 复杂
+└─────────────┬──────────────┘
+              ↓
+┌─ Phase 0.5: 需求澄清 ───────┐  ← 仅普通/复杂任务
+│  requirement_clarifier.py   │ → ClarifiedRequirement
+│  （三步法：语言边界→追问→示例）│
+└─────────────┬──────────────┘
+              ↓
+┌─ Phase 1: 规划 ─────────────┐
+│  planner.py                 │ → StructuredPlan
+│  生成步骤、选工具箱、估 tokens│
+└─────────────┬──────────────┘
+              ↓
+┌─ Phase 2: 执行 ─────────────┐
+│  executor.py (ReAct 循环)   │
+│  ┌──→ LLM 调用 (Think)      │
+│  │       ↓                  │
+│  │   有工具调用? ──否──→ 返回 │
+│  │       ↓ 是               │
+│  │   执行工具 (Act)          │
+│  │       ↓                  │
+│  │   结果反馈 (Observe)      │
+│  │       ↓                  │
+│  │   循环检测                │
+│  │       ↓                  │
+│  └── 继续循环 (max_turns)    │
+└─────────────────────────────┘
+```
+
+**简单任务优化**：当 `task_classifier.py` 判断任务为「简单」时，跳过 Phase 0.5 和 Phase 1，直接进入 Phase 2 执行（低思考档位），节省 LLM 调用开销。
 
 ### 4. 飞书层 (Feishu)
 
@@ -351,12 +407,20 @@ flowchart LR
 
 ## 关键设计决策
 
-### 为什么选择两阶段架构？
+### 为什么选择多阶段架构？
 
-1. **Phase 1 (规划)**: LLM 先分析需求，选择合适的工具箱，估算资源消耗
-2. **Phase 2 (执行)**: 只加载必要的工具，减少 token 浪费
+采用 **Phase 0 (分类) → Phase 0.5 (澄清) → Phase 1 (规划) → Phase 2 (执行)** 四阶段流水线：
 
-好处：复杂任务可以精确规划，简单任务可以跳过规划直接执行。
+1. **Phase 0 (任务分类)**: `task_classifier.py` 快速判断任务难度（简单/普通/复杂），简单任务跳过后续规划
+2. **Phase 0.5 (需求澄清)**: `requirement_clarifier.py` 三步法（Wittgenstein→Socrates→Polanyi）将模糊输入转化为结构化需求
+3. **Phase 1 (规划)**: `planner.py` 分析澄清后的需求，选择合适的工具箱，估算资源消耗，生成步骤化执行计划
+4. **Phase 2 (执行)**: `executor.py` 只加载必要的工具，按步骤执行 ReAct 循环
+
+**好处**：
+- 简单任务快速响应（跳过 Phase 0.5 和 Phase 1）
+- 模糊需求先澄清再规划，减少无效迭代
+- 复杂任务精确规划，按步骤执行，支持断点续跑
+- 动态调整思考档位，平衡响应质量与成本
 
 ### 消息队列设计
 

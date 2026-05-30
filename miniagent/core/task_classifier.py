@@ -137,13 +137,17 @@ async def classify_task_difficulty(
         for m in TaskDifficulty:
             if m.value == d:
                 return m
-        # 中文容错
+        # 中文容错：模型可能返回中文描述而非英文枚举值，映射到对应枚举。
+        # 简单 → SIMPLE: 适合直接执行，无需规划。
         if d in ("简单",):
             return TaskDifficulty.SIMPLE
+        # 一般/普通 → NORMAL: 默认难度，标准 ReAct 流程。
         if d in ("一般", "普通"):
             return TaskDifficulty.NORMAL
+        # 中等 → MEDIUM: 需要基础规划，执行步骤可控。
         if d in ("中等",):
             return TaskDifficulty.MEDIUM
+        # 复杂 → COMPLEX: 需要完整规划与多轮迭代。
         if d in ("复杂",):
             return TaskDifficulty.COMPLEX
     except Exception as e:

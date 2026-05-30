@@ -1,12 +1,14 @@
 """CLI 终端辅助工具函数。
 
-提供统一的终端宽度计算、状态格式化等公共工具，
-避免在 main.py 和 thinking.py 中重复实现。
+提供统一的终端宽度计算、状态格式化、文件类型检测等公共工具，
+避免在 main.py、feishu_handler.py 和其他模块中重复实现。
 
 模块职责：
 - 终端宽度计算（自适应宽屏）
 - 状态信息格式化
 - 历史记录提取辅助
+- 文件 magic bytes 检测（MIME/扩展名）
+- 飞书状态行输出
 
 非职责：
 - 不处理用户输入（属于 main.py）
@@ -16,8 +18,10 @@
 from __future__ import annotations
 
 import shutil
+from collections.abc import Callable
 from typing import Any
 
+from miniagent.runtime.context import RuntimeContext
 
 # ─── 终端宽度计算 ───────────────────────────────────────────────
 
@@ -148,6 +152,98 @@ def extract_last_qa_from_history(history: list[dict[str, Any]]) -> tuple[str, st
     return None
 
 
+# ─── 文件 magic bytes 检测 ───────────────────────────────────────────────
+
+_MAGIC_TABLE: list[tuple[bytes, str]] = [
+    (b"\x89PNG\r\n\x1a\n", ".png"),
+    (b"\xff\xd8\xff", ".jpg"),
+    (b"GIF87a", ".gif"),
+    (b"GIF89a", ".gif"),
+    (b"BM", ".bmp"),
+    (b"\x00\x00\x01\x00", ".ico"),
+    (b"RIFF", ".webp"),  # WebP 以 RIFF 开头
+    (b"\x1a\x45\xdf\xa3", ".webm"),  # WebM/MKV
+    (b"\x00\x00\x00\x1cftyp", ".mp4"),  # MP4 (ftyp 后通常为 isom/avc1 等)
+    (b"\x00\x00\x00\x20ftyp", ".mp4"),
+    (b"PK\x03\x04", ".zip"),  # ZIP / DOCX / XLSX / PPTX 等 Office 格式
+    (b"%PDF", ".pdf"),
+]
+
+
+def detect_ext_from_magic(data: bytes) -> str | None:
+    """根据文件头 magic bytes 检测扩展名。
+
+    Args:
+        data: 文件二进制数据（至少前 16 字节）
+
+    Returns:
+        检测到的扩展名（如 ".png"），或 None
+    """
+    if not data:
+        return None
+    for magic, ext in _MAGIC_TABLE:
+        if data[: len(magic)] == magic:
+            return ext
+    return None
+
+
+def detect_mime_from_magic(data: bytes) -> str | None:
+    """根据文件头 magic bytes 检测 MIME 类型。
+
+    Args:
+        data: 文件二进制数据
+
+    Returns:
+        MIME 类型字符串，或 None
+    """
+    ext = detect_ext_from_magic(data)
+    if not ext:
+        return None
+    mime_map: dict[str, str] = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".gif": "image/gif",
+        ".bmp": "image/bmp",
+        ".webp": "image/webp",
+        ".ico": "image/x-icon",
+        ".webm": "video/webm",
+        ".mp4": "video/mp4",
+        ".zip": "application/zip",
+        ".pdf": "application/pdf",
+    }
+    return mime_map.get(ext, "application/octet-stream")
+
+
+# ─── 飞书状态行输出 ───────────────────────────────────────────────
+
+def feishu_user_status_fn(ctx: RuntimeContext) -> Callable[[str], None]:
+    """飞书状态行输出函数工厂。
+
+    全屏 CLI 已注册 ``cli_transcript_append`` 时写入 transcript，否则 print。
+    用于飞书消息、命令等状态行的统一输出。
+
+    Args:
+        ctx: 运行时上下文
+
+    Returns:
+        状态行输出函数 ``(msg: str) -> None``
+    """
+
+    def _emit(msg: str) -> None:
+        """将飞书状态行写入全屏 transcript（样式 ``cli-muted``）或退回 ``print``。"""
+        fn = ctx.cli_transcript_append
+        line = msg if msg.endswith("\n") else msg + "\n"
+        if fn is not None:
+            try:
+                fn("class:cli-muted", line)
+            except Exception:
+                print(msg, flush=True)
+        else:
+            print(msg, flush=True)
+
+    return _emit
+
+
 __all__ = [
     "get_terminal_width",
     "get_render_width",
@@ -155,6 +251,9 @@ __all__ = [
     "format_file_size",
     "truncate_text",
     "extract_last_qa_from_history",
+    "detect_ext_from_magic",
+    "detect_mime_from_magic",
+    "feishu_user_status_fn",
     "MIN_RENDER_WIDTH",
     "MAX_RENDER_WIDTH",
     "WIDTH_MARGIN",

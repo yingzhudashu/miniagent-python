@@ -20,13 +20,24 @@ def resolve_exec_completion_kwargs(
     stream: bool,
     merge_overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """执行阶段（ReAct）chat.completions 参数。"""
+    """执行阶段（ReAct）chat.completions 参数。
+
+    Args:
+        agent_config: Agent 配置（含 model_overrides 覆盖默认值）。
+        stream: 是否启用流式响应（CLI/飞书需要 True）。
+        merge_overrides: 运行时额外覆盖（如特定工具调用时的参数调整）。
+
+    Returns:
+        kwargs 可直接传给 ``client.chat.completions.create(**kwargs)``。
+    """
     mc = get_default_model_config()
     ov = dict(agent_config.model_overrides)
     if merge_overrides:
         ov = {**ov, **merge_overrides}
 
+    # thinking_level: 思考深度档位（none/low/medium/high），影响模型推理展开程度。
     tl = str(ov.get("thinking_level", mc.thinking_level))
+    # thinking_budget: 思考预算（最大思考步数），控制模型自我反思迭代次数。
     tb = int(ov.get("thinking_budget", mc.thinking_budget))
 
     kw: dict[str, Any] = {
@@ -53,7 +64,18 @@ def resolve_planner_completion_kwargs(
     *,
     merge_overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """规划阶段参数；默认较低温度与适中 max_tokens。"""
+    """规划阶段参数；默认较低温度与适中 max_tokens。
+
+    规划阶段需要稳定输出结构化 JSON，故温度默认 0.3（低于执行阶段）。
+    max_tokens 默认 2048，足够生成完整规划 JSON。
+
+    Args:
+        agent_config: Agent 配置（可选，无时使用全局默认）。
+        merge_overrides: 运行时额外覆盖。
+
+    Returns:
+        kwargs 可直接传给 ``client.chat.completions.create(**kwargs)``。
+    """
     mc = get_default_model_config()
     ov: dict[str, Any] = dict(agent_config.model_overrides) if agent_config else {}
     if merge_overrides:

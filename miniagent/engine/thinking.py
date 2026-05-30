@@ -103,19 +103,17 @@ def indent_stream_thinking_suffix(full_text: str, prev_printed: int, *, indent: 
 
 
 def _thinking_body_looks_like_markdown(text: str) -> bool:
-    """启发式判断正文是否像 Markdown（代码围栏、表格、标题、强调等）。"""
+    """启发式判断正文是否像 Markdown（代码围栏、表格、标题、强调等）。
+
+    注意：为确保显示宽度一致，普通文本也应通过 Rich 渲染以获得正确的换行处理。
+    仅在文本为空时返回 False。
+    """
     s = text or ""
     if not s.strip():
         return False
-    if "```" in s:
-        return True
-    if s.count("|") >= 2 and "\n" in s:
-        return True
-    if re.search(r"^#{1,6}\s", s, re.MULTILINE):
-        return True
-    if "**" in s or "__" in s:
-        return True
-    return False
+    # 移除旧的条件判断，始终返回 True 以确保宽度一致性
+    # Rich Markdown 会正确处理普通文本的换行
+    return True
 
 
 # 飞书发送回调：streaming=True 走 PATCH 节流；False 时 finalize+新卡，或 merge_tools 时追加同卡；
@@ -124,7 +122,31 @@ OnFeishuSend = Callable[..., Awaitable[None]]
 
 
 class _SessionThinkingState:
-    """单个会话的思考状态（内部使用）。"""
+    """单个会话的思考状态（内部使用）。
+
+    飞书 PATCH 节流机制（防止高频 PATCH 请求）：
+    ───────────────────────────────────────────────────────────────────
+    飞书流式思考卡片通过 PATCH 更新正文，但飞书 API 有频率限制。
+    本类通过以下字段实现节流：
+
+    - feishu_last_patch_monotonic: 上次 PATCH 的单调时间（秒）。
+    - feishu_last_patched_char_len: 上次 PATCH 时已发送的字符数。
+    - feishu_patch_budget: 剩余 PATCH 次数（初始化为 N，每次 PATCH 减 1）。
+
+    节流策略（见 poll_server.py 中的发送逻辑）：
+    1. 首次流式创建卡片（POST），获得 message_id。
+    2. 后续流式正文：检查距上次 PATCH 是否超过最小间隔（如 0.5s）。
+    3. 若超过间隔且 patch_budget > 0：发送 PATCH 更新正文。
+    4. 流式结束时 PATCH 收尾（finalize_only=True）。
+
+    字段说明：
+    - feishu_stream_accumulated: 累积的流式正文（用于 PATCH 正文）。
+    - feishu_stream_llm_len: LLM 正文长度（不含工具段前缀）。
+    - feishu_tool_section_started: 是否已进入工具段（影响正文拼接）。
+    - feishu_pending_tool_lines: 待发送的工具行（批量 PATCH 时合并）。
+    - feishu_pending_header: 待发送的阶段标签（如 ``[步骤 1/3]``）。
+    ───────────────────────────────────────────────────────────────────
+    """
 
     __slots__ = (
         "step_counter",
@@ -421,7 +443,29 @@ class ThinkingDisplay:
         streaming: bool = False,
         header: str = "",
     ) -> None:
-        """展示一段思考：同步飞书卡片、CLI transcript/print、merge_tools 与流式状态机。"""
+        """展示一段思考：同步飞书卡片、CLI transcript/print、merge_tools 与流式状态机。
+
+        状态机流转（按 session_key 隔离）：
+        ┌─────────────────────────────────────────────────────────────────┐
+        │  stream_step=None, stream_done=False (初始/已收尾)             │
+        │         ↓ streaming=True + 首次 text                           │
+        │  stream_step=N, stream_header=header, stream_done=False       │
+        │         ↓ streaming=True + 同 header                           │
+        │  增量输出（_show_streaming），飞书 PATCH 节流                   │
+        │         ↓ streaming=False OR header 变化                      │
+        │  stream_done=True（结束流式，补空行）                           │
+        │         ↓ 再次 streaming=True + 新 header                      │
+        │  stream_step=N+1（新阶段，重新计数）                           │
+        └─────────────────────────────────────────────────────────────────┘
+
+        阶段切换（header 变化）时先 PATCH 收尾当前流式卡片，再开新阶段。
+
+        Args:
+            text: 思考正文（Markdown 或纯文本）。
+            session_key: 会话标识（用于状态隔离）。
+            streaming: 是否流式输出（LLM 逐 token）。
+            header: 阶段标签（如 ``[规划]``, ``[执行]``, ``[步骤 1/3]``）。
+        """
         state = self._get_state(session_key)
 
         hdr = (header or "").strip()

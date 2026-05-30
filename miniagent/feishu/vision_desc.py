@@ -92,3 +92,6 @@ async def describe_image(
             return ""
         _logger.warning("图片描述生成失败: %s", e)
         return ""
+
+
+__all__ = ["describe_image"]

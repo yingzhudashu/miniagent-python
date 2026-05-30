@@ -148,3 +148,12 @@ def delete_im_message(config: FeishuConfig, message_id: str) -> tuple[bool, str]
     if resp.success():
         return True, ""
     return False, format_lark_response_error(resp)
+
+
+__all__ = [
+    "upload_im_file",
+    "upload_im_image",
+    "send_im_file_message",
+    "send_im_image_message",
+    "delete_im_message",
+]

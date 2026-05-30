@@ -234,9 +234,9 @@ async def dispatch_command(
                 return feishu_user_status
             if capture:
                 return None
-            from miniagent.engine.main import _feishu_user_status_fn
+            from miniagent.engine.utils import feishu_user_status_fn
 
-            return _feishu_user_status_fn(rt)
+            return feishu_user_status_fn(rt)
 
         if text == ".feishu start":
             if factory is None:

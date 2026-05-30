@@ -456,11 +456,10 @@ async def run_agent(
                 bool(toolboxes) and not skip_planning and difficulty == TaskDifficulty.SIMPLE
             ),
         )
-        if planning_hist:
-            planning_hist = planning_hist + "\n\n" + plan_msg
-        else:
-            planning_hist = plan_msg
-        planning_display = (planning_display + "\n\n" if planning_display else "") + plan_disp
+        # 关键修复：不拼接已发送的难度内容，仅发送计划部分
+        # 避免在需求澄清后第二次 [评估与计划] 中重复显示难度
+        planning_hist = plan_msg
+        planning_display = plan_disp
         await invoke_on_thinking(
             on_thinking,
             planning_display,

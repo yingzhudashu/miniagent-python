@@ -271,6 +271,172 @@ async def _fetch_url_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolRes
         return ToolResult(success=False, content=f"❌ 抓取失败: {e}")
 
 
+# ════════════════════════════════════════════════════════
+# download_file
+# ════════════════════════════════════════════════════════
+
+_download_file_schema = {
+    "type": "function",
+    "function": {
+        "name": "download_file",
+        "description": (
+            "下载 HTTP 文件到会话沙箱目录。"
+            "适用于下载 PDF、ZIP、图片、视频等二进制文件；返回文件路径和大小。"
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "HTTP/HTTPS 文件 URL"},
+                "filename": {"type": "string", "description": "保存的文件名（可选，默认从 URL 或 Content-Disposition 提取）"},
+                "max_size_mb": {"type": "number", "description": "最大允许下载大小（MB，默认 50）"},
+            },
+            "required": ["url"],
+        },
+    },
+}
+
+
+async def _download_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    """下载 HTTP 文件到沙箱目录。
+
+    Args:
+        url: HTTP/HTTPS 文件 URL
+        filename: 保存的文件名（可选）
+        max_size_mb: 最大下载大小限制（MB）
+
+    Returns:
+        ToolResult 包含文件路径、大小、MIME 类型等信息
+    """
+    import os
+    from pathlib import Path
+    from urllib.parse import urlparse, unquote
+
+    url = str(args["url"]).strip()
+    max_size_mb = min(500, max(1, int(args.get("max_size_mb", 50))))
+    max_size_bytes = max_size_mb * 1024 * 1024
+
+    if not _allowed_http_url(url, https_only=False):
+        return ToolResult(success=False, content="❌ 仅允许 http/https URL，且须包含主机名")
+
+    # 解析默认文件名
+    parsed = urlparse(url)
+    default_name = unquote(os.path.basename(parsed.path) or "downloaded_file")
+
+    # 用户指定的文件名，或从 URL/Content-Disposition 提取
+    filename = str(args.get("filename", "")).strip() or default_name
+
+    # 安全：禁止路径穿越
+    filename = os.path.basename(filename)
+    if not filename:
+        filename = "downloaded_file"
+
+    # 沙箱目录：使用 ctx.cwd（会话 files 目录）
+    save_dir = ctx.cwd
+    os.makedirs(save_dir, exist_ok=True)
+    save_path = os.path.join(save_dir, filename)
+
+    timeout = 120.0
+    try:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            # 先发送 HEAD 请求检查大小和类型
+            try:
+                head_resp = await client.head(url)
+                content_length = int(head_resp.headers.get("content-length", 0) or 0)
+                content_type = head_resp.headers.get("content-type", "application/octet-stream")
+
+                # 从 Content-Disposition 提取文件名（如果未指定）
+                disposition = head_resp.headers.get("content-disposition", "")
+                if not args.get("filename") and disposition:
+                    # 解析 filename="xxx" 或 filename*=UTF-8''xxx
+                    import re
+                    match = re.search(r'filename[*]?=["\']?([^"\';\s]+)["\']?', disposition)
+                    if match:
+                        cd_name = unquote(match.group(1))
+                        filename = os.path.basename(cd_name) or filename
+                        save_path = os.path.join(save_dir, filename)
+
+                # 检查大小限制
+                if content_length > max_size_bytes:
+                    return ToolResult(
+                        success=False,
+                        content=f"❌ 文件过大: {content_length / 1024 / 1024:.1f}MB > {max_size_mb}MB 限制",
+                    )
+            except Exception:
+                content_length = 0
+                content_type = "application/octet-stream"
+
+            # 流式下载
+            total = 0
+            try:
+                async with client.stream("GET", url) as resp:
+                    resp.raise_for_status()
+
+                    # 再次检查 Content-Type
+                    content_type = resp.headers.get("content-type", content_type)
+
+                    with open(save_path, "wb") as f:
+                        for chunk in resp.iter_bytes(chunk_size=8192):
+                            total += len(chunk)
+                            if total > max_size_bytes:
+                                f.close()
+                                os.remove(save_path)
+                                return ToolResult(
+                                    success=False,
+                                    content=f"❌ 下载超过限制: {total / 1024 / 1024:.1f}MB > {max_size_mb}MB",
+                                )
+                            f.write(chunk)
+            except Exception as e:
+                # 清理部分下载的文件
+                if os.path.exists(save_path):
+                    try:
+                        os.remove(save_path)
+                    except Exception:
+                        pass
+                return ToolResult(success=False, content=f"❌ 下载失败: {e}")
+
+    except ImportError:
+        # 无 httpx，使用 urllib 回退
+        import asyncio
+        from urllib.request import urlopen
+
+        try:
+            resp_sync = await asyncio.to_thread(urlopen, url, timeout=timeout)
+            content_type = resp_sync.headers.get("content-type", "application/octet-stream")
+            data = resp_sync.read()
+            if len(data) > max_size_bytes:
+                return ToolResult(
+                    success=False,
+                    content=f"❌ 文件过大: {len(data) / 1024 / 1024:.1f}MB > {max_size_mb}MB",
+                )
+            with open(save_path, "wb") as f:
+                f.write(data)
+            total = len(data)
+        except Exception as e:
+            return ToolResult(success=False, content=f"❌ 下载失败: {e}")
+
+    # 格式化大小
+    size_str = f"{total / 1024:.1f}KB" if total < 1024 * 1024 else f"{total / 1024 / 1024:.2f}MB"
+
+    # 相对路径（便于用户理解）
+    try:
+        rel_path = os.path.relpath(save_path, save_dir)
+    except ValueError:
+        rel_path = filename
+
+    return ToolResult(
+        success=True,
+        content=f"✅ 下载完成\n文件: {rel_path}\n大小: {size_str}\n类型: {content_type}",
+        meta={
+            "path": save_path,
+            "filename": filename,
+            "size": total,
+            "content_type": content_type,
+        },
+    )
+
+
 # ─── ToolDefinition 注册 ──────────────────────────────────
 
 web_tools: dict[str, ToolDefinition] = {
@@ -293,6 +459,13 @@ web_tools: dict[str, ToolDefinition] = {
         handler=_fetch_url_handler,
         permission="sandbox",
         help_text="抓取网页内容并提取文本",
+        toolbox="web",
+    ),
+    "download_file": ToolDefinition(
+        schema=_download_file_schema,
+        handler=_download_file_handler,
+        permission="sandbox",
+        help_text="下载 HTTP 文件到沙箱目录",
         toolbox="web",
     ),
 }

@@ -32,7 +32,7 @@
 miniagent-python/
 ├── miniagent/             # 核心源码（14 个子包）
 │   ├── cli/               # CLI 入口
-│   ├── core/              # Agent 核心：规划、执行、配置、LLM
+│   ├── core/              # Agent 核心：任务分类、需求澄清、规划、执行、配置、LLM
 │   ├── engine/            # 运行时引擎：主循环、命令调度、会话锁
 │   ├── feishu/            # 飞书集成：IM、云文档、多维表格、卡片
 │   ├── infrastructure/    # 基础设施：注册表、消息队列、日志、实例

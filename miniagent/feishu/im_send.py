@@ -111,3 +111,11 @@ def post_im_message(
     except Exception as e:
         _logger.warning("Feishu IM send 异常: %s", e)
         return False, None, str(e)
+
+
+__all__ = [
+    "ImMsgType",
+    "clear_client_cache",
+    "resolve_im_receive_id_type",
+    "post_im_message",
+]

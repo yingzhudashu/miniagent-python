@@ -1,6 +1,6 @@
 """Mini Agent Python — 基于 LLM 的智能个人助手
 
-采用两阶段架构（规划 + 执行），支持：
+采用多阶段架构（Phase 0 分类 → Phase 0.5 需求澄清 → Phase 1 规划 → Phase 2 执行），支持：
 - 工具调用（文件系统、命令执行、网页搜索）
 - 可插拔技能系统
 - 自我优化子系统
@@ -22,6 +22,6 @@
 
 __version__ = "2.0.2"
 __author__ = "mini-agent"
-__description__ = "基于 LLM 的智能个人助手，采用两阶段架构（规划 + 执行）"
+__description__ = "基于 LLM 的智能个人助手，采用多阶段架构（分类→澄清→规划→执行）"
 
 __all__ = ["__version__", "__author__", "__description__"]

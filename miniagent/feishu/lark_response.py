@@ -18,3 +18,6 @@ def format_lark_response_error(resp: Any) -> str:
     if log_id is not None and str(log_id):
         parts.append(f"log_id={log_id}")
     return " ".join(parts) if parts else "unknown_error"
+
+
+__all__ = ["format_lark_response_error"]

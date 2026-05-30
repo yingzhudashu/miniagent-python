@@ -1647,3 +1647,21 @@ async def _send_reply(
         reply_to_message_id=reply_to_message_id,
         reply_in_thread=reply_in_thread,
     )
+
+
+__all__ = [
+    "set_feishu_confirmation_engine",
+    "feishu_outbound_reply_params",
+    "FeishuMediaHandler",
+    "reset_feishu_ws_singleton",
+    "request_feishu_ws_shutdown",
+    "try_begin_processing",
+    "release_processing",
+    "abandon_processing_claim",
+    "start_feishu_poll_server",
+    "feishu_card_body_max",
+    "push_feishu_thinking_stream",
+    "finalize_feishu_thinking_stream",
+    "append_feishu_thinking_same_card",
+    "send_reflection_card",
+]
