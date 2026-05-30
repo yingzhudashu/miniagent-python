@@ -66,7 +66,7 @@ def _format_task_difficulty(difficulty: Any, *, display: bool = False) -> str:
     if display:
         return f"**难度** {zh}（{key}）"
     return (
-        f"[任务难度]\n评估结果：{zh}（{key}）\n将据此调整规划与执行的思考深度（若已启用分类器）。"
+        f"任务难度：{zh}（{key}）\n将据此调整规划与执行的思考深度（若已启用分类器）。"
     )
 
 
@@ -105,11 +105,11 @@ def _format_plan_display_short(
             simple_classified=simple_classified,
         )
         return (
-            "[计划]（已跳过结构化规划）\n"
+            "（已跳过结构化规划）\n"
             + reason
             + f"\n摘要：{(plan.summary or '').strip() or '—'}"
         )
-    lines: list[str] = ["[计划]", (plan.summary or "").strip() or "—"]
+    lines: list[str] = [(plan.summary or "").strip() or "—"]
     if plan.steps:
         lines.append("")
         for i, st in enumerate(plan.steps, start=1):
@@ -137,11 +137,10 @@ def _format_plan_message(
             simple_classified=simple_classified,
         )
         return (
-            "[执行计划]\n"
             f"执行模式：跳过结构化规划。\n{reason}\n"
             f"摘要：{(plan.summary or '').strip() or '—'}"
         )
-    lines: list[str] = ["[执行计划]", (plan.summary or "").strip() or "—"]
+    lines: list[str] = [(plan.summary or "").strip() or "—"]
     if plan.steps:
         lines.append("")
         lines.append("步骤概要：")
@@ -314,8 +313,13 @@ async def run_agent(
             except Exception:
                 pass
         try:
-            # 一般任务最多 1 问；复杂任务最多 3 问
-            max_questions = 1 if difficulty == TaskDifficulty.NORMAL else 3
+            # 一般任务最多 1 问；中等任务最多 2 问；复杂任务最多 3 问
+            if difficulty == TaskDifficulty.NORMAL:
+                max_questions = 1
+            elif difficulty == TaskDifficulty.MEDIUM:
+                max_questions = 2
+            else:
+                max_questions = 3
             clarified = await clarifier.clarify(
                 user_input,
                 ask_user=_ask_user_for_clarification,

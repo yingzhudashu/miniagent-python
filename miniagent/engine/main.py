@@ -22,11 +22,9 @@ import asyncio
 import json
 import logging
 import os
-import shutil
 import signal
 import sys
 import threading
-from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -35,7 +33,12 @@ if TYPE_CHECKING:
     from prompt_toolkit.key_binding.key_bindings import NotImplementedOrNone
 
 from miniagent.engine.cli_state import CliLoopState
+from miniagent.engine.feishu_handler import create_feishu_handler
 from miniagent.engine.shutdown import shutdown_runtime
+
+# 飞书状态行输出（用于 feishu.start() 的 user_status 参数）
+from miniagent.engine.utils import detect_mime_from_magic, get_render_width
+from miniagent.engine.utils import feishu_user_status_fn as _feishu_user_status_fn
 from miniagent.infrastructure.instance import (
     heartbeat,
     register_instance,
@@ -55,24 +58,6 @@ def _configure_console_encoding() -> None:
     if sys.platform == "win32":
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-
-
-def _feishu_user_status_fn(ctx: RuntimeContext) -> Callable[[str], None]:
-    """飞书状态行：全屏已注册 ``cli_transcript_append`` 时写入 transcript，否则 print。"""
-
-    def _emit(msg: str) -> None:
-        """将飞书状态行写入全屏 transcript（样式 ``cli-muted``）或退回 ``print``。"""
-        fn = ctx.cli_transcript_append
-        line = msg if msg.endswith("\n") else msg + "\n"
-        if fn is not None:
-            try:
-                fn("class:cli-muted", line)
-            except Exception:
-                print(msg, flush=True)
-        else:
-            print(msg, flush=True)
-
-    return _emit
 
 
 # ─── unified_main：RuntimeContext 注入后的进程主流程（init → 信号/实例 → CLI 循环 / 飞书任务）──
@@ -137,7 +122,7 @@ async def unified_main(ctx: RuntimeContext) -> None:
         "feishu_p2p_synced_senders": set(),
     }
     _dummy_stick: list[bool] = [True]
-    ctx.create_feishu_handler_factory = lambda tb, tp, st: _create_feishu_handler(tb, tp, st, ctx, _dummy_stick)
+    ctx.create_feishu_handler_factory = lambda tb, tp, st: create_feishu_handler(tb, tp, st, ctx, _dummy_stick)
 
     # 信号：在事件循环线程内 await 统一关停（飞书 WS reset、子进程、实例注销）
     main_loop = asyncio.get_running_loop()
@@ -314,7 +299,7 @@ async def run_cli_loop(
     # ── CLI 界面：底部固定输入框（类似 Claude Code） ──
     from prompt_toolkit.application import Application, get_app
     from prompt_toolkit.buffer import Buffer
-    from prompt_toolkit.filters import has_focus
+    from prompt_toolkit.filters import Condition, has_focus
     from prompt_toolkit.key_binding import KeyBindings
     from prompt_toolkit.keys import Keys
     from prompt_toolkit.layout import HSplit, Layout, VSplit, Window
@@ -422,7 +407,7 @@ async def run_cli_loop(
             return
 
         vp = _viewport_cols()
-        rule_w = max(10, vp // 3)
+        rule_w = max(10, vp // 2)  # 边框线宽度（与 _border_truncate 一致）
 
         if role == "user":
             if prepend:
@@ -611,9 +596,9 @@ async def run_cli_loop(
         """截断 ANSI 输出中的水平分割线。
 
         ``to_formatted_text(ANSI(...))`` 返回的列表可能包含长分割线，
-        需按 CJK 显示宽度（假设宽度 2-3）截断。
+        使用 vp // 2 截断（与 _border_truncate 一致）。
         """
-        safe = max(1, vp // 3)
+        safe = max(1, vp // 2)  # 与 _border_truncate 保持一致
         result: list[Any] = []
         for item in ansi_list:
             if isinstance(item, tuple) and len(item) >= 2:
@@ -633,11 +618,11 @@ async def run_cli_loop(
     def _border_truncate(text: str, vp: int) -> str:
         """按视口宽度截断边框线文本，保留尾部 ``\n``。
 
-        盒绘制字符（═ U+2550、─ U+2500）在 CJK 终端为 Ambiguous 宽度 2-3，
-        ``len(text)`` 是字符数而非显示宽度，因此**始终**按 ``vp // 3`` 截断。
+        盒绘制字符（═ U+2550、─ U+2500）在 UTF-8 终端宽度约 1 列，
+        使用 vp // 2 作为更合理的宽度估计（比 vp//3 更宽）。
         """
-        # 安全字符数 = 视口列数 // 3（增加缓冲区）
-        safe = max(1, vp // 3)
+        # 安全字符数 = 视口列数 // 2（更合理的宽度估计）
+        safe = max(1, vp // 2)
         has_newline = text.endswith("\n")
         if len(text) <= safe + 1:  # 已经足够短（safe chars + \n）
             return text
@@ -704,14 +689,15 @@ async def run_cli_loop(
     def _markdown_render_width() -> int:
         """Markdown 渲染宽度：基于视口宽度，足够宽以保证可读性。
 
-        使用 vp - 4 作为基础宽度，与 Assistant 回复块宽度一致。
-        边框线等特殊情况使用 vp // 3 防止盒绘制字符溢出。
+        仅扣除最小边距（1列），滚动条已在 _viewport_cols 中扣除。
+        可通过环境变量 MINIAGENT_CLI_WIDTH_MARGIN 自定义边距。
         """
         vp = _viewport_cols()
-        return max(40, vp - 4)  # 与 _cli_block_reply 的 md_w 一致
+        margin = int(os.environ.get("MINIAGENT_CLI_WIDTH_MARGIN", "1") or "1")
+        return max(40, vp - margin)
 
     # ─── 水平滚动控制 ───────────────────────────────────────────────
-    _WRAP_LINES_THRESHOLD = 60  # 宽度小于此值时禁用折行，启用水平滚动
+    _WRAP_LINES_THRESHOLD = int(os.environ.get("MINIAGENT_CLI_WRAP_THRESHOLD", "40") or "40")  # 宽度小于此值时禁用折行，启用水平滚动
     _horizontal_scroll = [0]  # 水平滚动偏移（可变）
     _drag_start_x = [None]  # 水平拖动起始 X 坐标
     _dragging_scrollbar = [False]  # 正在拖动垂直滚动条
@@ -933,7 +919,7 @@ async def run_cli_loop(
     )
     transcript_window = Window(
         _TranscriptPaneControl(transcript_inner),
-        wrap_lines=_should_wrap_lines,  # 动态控制：宽度足够时折行，太窄时启用水平滚动
+        wrap_lines=Condition(_should_wrap_lines),  # 动态控制：宽度足够时折行，太窄时启用水平滚动
     )
     _transcript_window_ref[0] = transcript_window  # 保存引用用于水平滚动控制
     output_scroll = ScrollablePane(
@@ -944,6 +930,139 @@ async def run_cli_loop(
         show_scrollbar=True,
     )
     _output_scroll_ref[0] = output_scroll
+
+    # ─── 水平滚动条 UI ───────────────────────────────────────────────
+    def _render_horizontal_scrollbar() -> list[tuple[str, str]]:
+        """渲染水平滚动条为 FormattedText。
+
+        格式：◀ ░░░░█░░░░ ▶（左箭头 + 轨道 + 滑块 + 右箭头）
+        仅在 _should_wrap_lines() == False 时显示。
+        """
+        if _should_wrap_lines():
+            return [("class:cli-spacer", "")]  # 折行模式时隐藏
+
+        vp = _viewport_cols()
+        max_scroll = _max_horizontal_scroll()
+        current_scroll = _horizontal_scroll[0]
+
+        if max_scroll <= 0:
+            return [("class:cli-spacer", "")]  # 无滚动内容时隐藏
+
+        # 计算滑块位置和宽度
+        # 内容总宽度 = vp + max_scroll（视口 + 可滚动范围）
+        content_width = vp + max_scroll
+        fraction_visible = vp / float(content_width) if content_width > 0 else 1.0
+        fraction_scrolled = current_scroll / float(content_width) if content_width > 0 else 0.0
+
+        # 滑块宽度（至少 2 字符）
+        thumb_width = max(2, int(vp * fraction_visible))
+        # 滑块位置（相对于视口）
+        thumb_pos = min(vp - thumb_width, int(vp * fraction_scrolled))
+
+        # 构建滚动条字符
+        # 左箭头区域：2 字符
+        # 轨道区域：vp - 4 字符
+        # 右箭头区域：2 字符
+        track_width = vp - 4
+
+        result: list[tuple[str, str]] = []
+
+        # 左箭头
+        if current_scroll > 0:
+            result.append(("class:hsb-arrow", "◀ "))  # ◀ 实心箭头（可点击）
+        else:
+            result.append(("class:hsb-arrow-disabled", "◁ "))  # ◁ 空心箭头（禁用）
+
+        # 轨道 + 滑块
+        for i in range(track_width):
+            if thumb_pos <= i < thumb_pos + thumb_width:
+                # 滑块位置
+                result.append(("class:hsb-thumb", "█"))  # █ 全实心块
+            else:
+                # 轨道背景
+                result.append(("class:hsb-track", "░"))  # ░ 25% 实心块
+
+        # 右箭头
+        if current_scroll < max_scroll:
+            result.append(("class:hsb-arrow", " ▶"))  # ▶ 实心箭头（可点击）
+        else:
+            result.append(("class:hsb-arrow-disabled", " ▷"))  # ▷ 空心箭头（禁用）
+
+        return result
+
+    class _HorizontalScrollbarControl(UIControl):
+        """水平滚动条控件，支持鼠标交互。"""
+
+        __slots__ = ()
+
+        def preferred_width(self, max_available_width: int) -> int | None:
+            # 占满可用宽度（返回 int，而非 Dimension）
+            return max_available_width
+
+        def preferred_height(self, width: int, max_available_height: int, wrap_lines: bool, get_line_prefix) -> int | None:
+            # 仅在非折行模式且有水平滚动需求时显示（返回 int，而非 Dimension）
+            if not _should_wrap_lines() and _max_horizontal_scroll() > 0:
+                return 1
+            return 0
+
+        def create_content(self, width: int, height: int) -> UIContent:
+            # UIContent 需要 get_line 回调，而非 formatted_text
+            ft = _render_horizontal_scrollbar()
+            return UIContent(
+                get_line=lambda i: ft if i == 0 else [],
+                line_count=1,
+                show_cursor=False,
+            )
+
+        def mouse_handler(self, mouse_event: MouseEvent) -> NotImplementedOrNone:
+            """处理水平滚动条鼠标事件。"""
+            if _should_wrap_lines():
+                return NotImplementedOrNone
+
+            vp = _viewport_cols()
+            max_scroll = _max_horizontal_scroll()
+
+            if max_scroll <= 0:
+                return NotImplementedOrNone
+
+            click_x = getattr(mouse_event.position, "x", 0)
+
+            if mouse_event.event_type == MouseEventType.MOUSE_DOWN:
+                # 点击左箭头（x < 2）
+                if click_x < 2:
+                    _apply_horizontal_scroll(-20)
+                    get_app().invalidate()
+                    return None
+                # 点击右箭头（x >= vp - 2）
+                elif click_x >= vp - 2:
+                    _apply_horizontal_scroll(20)
+                    get_app().invalidate()
+                    return None
+                # 点击轨道/滑块（2 <= x < vp - 2）
+                else:
+                    track_width = vp - 4
+                    track_x = click_x - 2
+                    if track_width > 0:
+                        fraction = track_x / float(track_width)
+                        new_scroll = int(fraction * max_scroll)
+                        _horizontal_scroll[0] = max(0, min(max_scroll, new_scroll))
+                        w = _transcript_window_ref[0]
+                        if w is not None:
+                            w.horizontal_scroll = _horizontal_scroll[0]
+                        get_app().invalidate()
+                    return None
+
+            elif mouse_event.event_type == MouseEventType.MOUSE_MOVE:
+                # 鼠标拖动（可选实现，暂时跳过）
+                return None
+
+            return NotImplementedOrNone
+
+    h_scrollbar_window = Window(
+        _HorizontalScrollbarControl(),
+        height=D.exact(1),
+        dont_extend_width=True,
+    )
 
     def _append_transcript(style_cls: str, text: str = "", *, ansi: Any = None) -> None:
         """向 transcript 追加样式化文本；同样式尾部合并；维护粘底与长度裁剪。"""
@@ -1046,6 +1165,7 @@ async def run_cli_loop(
 
     # ─── 水平滚动键盘绑定 ───────────────────────────────────────────
     @kb.add("s-left", filter=has_focus(input_buffer))
+    @kb.add("s-left", filter=has_focus(input_buffer))
     def _on_shift_left(event):
         """Shift+Left: 水平向左滚动（仅非折行模式）。"""
         if not _should_wrap_lines():
@@ -1117,16 +1237,26 @@ async def run_cli_loop(
         "cli-warn": "ansiyellow",
         "cli-hint": "ansibrightblack dim",
         "cli-spacer": "",
+        # 滚动条样式增强（更醒目）
+        "scrollbar.button": "ansicyan bold reverse",  # 滑块：青色反显
+        "scrollbar.background": "ansibrightblack",    # 轨道：灰色背景
+        "scrollbar.arrow": "ansibrightblack bold",    # 箭头：加粗
+        # 水平滚动条样式
+        "hsb-thumb": "ansicyan bold reverse",
+        "hsb-track": "ansibrightblack",
+        "hsb-arrow": "ansibrightblack bold",
+        "hsb-arrow-disabled": "ansibrightblack dim",
     }
     cli_style = Style.from_dict(_cli_style_dict)
 
     body = HSplit(
         [
             output_scroll,
+            h_scrollbar_window,  # 水平滚动条（仅在窄窗口时显示）
             Window(
                 FormattedTextControl(
                     HTML(
-                        "<cli-hint>PgUp/PgDn · 滚轮 · "
+                        "<cli-hint>PgUp/PgDn · 滚轮 · Shift+←/→ 水平滚动 · "
                         "Ctrl+Home/End 移光标 · "
                         ".copy 复制全部对话 · "
                         "新消息时自动跟随输出</cli-hint>"
@@ -1165,7 +1295,7 @@ async def run_cli_loop(
     _last_md_width[0] = _viewport_cols()  # 记录初始终端宽度
     ctx.cli_transcript_append = _append_transcript
     ctx.cli_transcript_append_ansi = _append_ansi_transcript
-    ctx.create_feishu_handler_factory = lambda tb, tp, st: _create_feishu_handler(tb, tp, st, ctx, _stick_bottom)
+    ctx.create_feishu_handler_factory = lambda tb, tp, st: create_feishu_handler(tb, tp, st, ctx, _stick_bottom)
     # stderr 日志仍会打乱 VS Code 等与 PT 共用的终端画布；TUI 期间默认只打 WARNING+
     if not os.environ.get("MINI_AGENT_TUI_VERBOSE_LOG"):
         set_console_log_threshold(logging.WARNING)
@@ -1252,7 +1382,7 @@ async def run_cli_loop(
                 _append_transcript(style, fragment)
 
     engine.thinking.set_output_sink(_thinking_sink)
-    engine.thinking.set_cli_markdown_width(lambda: max(40, _viewport_cols() - 2))
+    engine.thinking.set_cli_markdown_width(_markdown_render_width)  # 统一使用 _markdown_render_width
 
     def _rule_line_width() -> int:
         """与 Markdown 渲染宽度同源，避免分隔线与正文视觉错位。"""
@@ -1289,8 +1419,8 @@ async def run_cli_loop(
         _cli_rule_light()
         _append_transcript("class:cli-assistant-title", "Assistant\n")
         _cli_rule_light()
-        # Markdown 渲染宽度：使用终端宽度减边距，更宽更清晰
-        md_w = max(40, _viewport_cols() - 4)
+        # Markdown 渲染宽度：统一使用 _markdown_render_width
+        md_w = _markdown_render_width()
         ansi_body = render_markdown_to_ansi(text or "", width=md_w)
         if ansi_body and ansi_body.strip():
             at_bottom = _output_at_bottom()
@@ -1375,7 +1505,7 @@ async def run_cli_loop(
                             try:
                                 with open(resolved, "rb") as f:
                                     header = f.read(32)
-                                mime_type = _detect_mime_from_magic(header) or "application/octet-stream"
+                                mime_type = detect_mime_from_magic(header) or "application/octet-stream"
                             except Exception:
                                 mime_type = "application/octet-stream"
 
@@ -1699,7 +1829,7 @@ async def _run_cli_loop_fallback(
 
     def _fb_get_width() -> int:
         """获取 fallback CLI 渲染宽度（动态适应终端大小）。"""
-        return _get_cli_render_width(fallback_width=80)
+        return get_render_width(fallback_width=80)
 
     def _fb_rule_heavy() -> None:
         """非全屏 CLI 下的粗分隔线（stdout）- 动态宽度。"""
@@ -1953,512 +2083,6 @@ async def _run_cli_loop_fallback(
         pass
     print("\n\U0001f44b bye")
 
-
-def _get_cli_render_width(fallback_width: int = 80) -> int:
-    """获取 CLI 渲染宽度（动态适应终端大小）。
-
-    Args:
-        fallback_width: 获取失败时的默认宽度
-
-    Returns:
-        渲染宽度（最小 40，最大 500，适应宽屏显示器）
-    """
-    try:
-        terminal_width = shutil.get_terminal_size(fallback=(fallback_width, 24)).columns
-        # 减去边距，设置合理范围（最大500适应宽屏）
-        width = max(40, min(500, terminal_width - 4))
-        return width
-    except Exception:
-        return max(40, fallback_width - 4)
-
-
-def _format_cli_user_block(
-    append_fn: Callable[[str, str], None] | None,
-    prompt: str,
-    stick_bottom: list[bool],
-    *,
-    channel_label: str | None = None,
-) -> None:
-    """Write user block to CLI transcript with optional channel identifier.
-
-    边框宽度动态适应终端大小，避免溢出。
-    """
-    if append_fn is None or not prompt:
-        return
-
-    width = _get_cli_render_width()
-
-    stick_bottom[0] = True
-    append_fn("class:cli-spacer", "\n")
-    append_fn("class:cli-border-strong", "═" * width + "\n")
-    if channel_label:
-        append_fn("class:cli-user-title", f"You · [{channel_label}]\n")
-    else:
-        append_fn("class:cli-user-title", "You\n")
-    append_fn("class:cli-border", "─" * width + "\n")
-    for line in (prompt or "").splitlines() or [""]:
-        append_fn("class:cli-user-body", line + "\n")
-    append_fn("class:cli-spacer", "\n")
-
-
-def _format_cli_reply_block(
-    append_fn: Callable[..., None] | None,
-    append_ansi_fn: Callable[[Any], None] | None,
-    text: str,
-) -> None:
-    """Write assistant reply block to CLI transcript with Markdown rendering.
-
-    边框宽度动态适应终端大小，Markdown 渲染宽度跟随调整。
-    """
-    if append_fn is None or not text:
-        return
-    from prompt_toolkit.formatted_text import ANSI
-
-    from miniagent.engine.markdown_cli import render_markdown_to_ansi
-
-    width = _get_cli_render_width()
-
-    append_fn("class:cli-spacer", "\n")
-    append_fn("class:cli-border", chr(0x2500) * width + "\n")
-    append_fn("class:cli-assistant-title", "Assistant\n")
-    append_fn("class:cli-border", chr(0x2500) * width + "\n")
-    body = (text or "").strip()
-    if body:
-        try:
-            # Markdown 渲染宽度：使用终端宽度减边距
-            md_w = max(40, width - 4)
-            ansi_body = render_markdown_to_ansi(body, width=md_w)
-            if ansi_body and ansi_body.strip():
-                body_lines = ansi_body.rstrip("\n").split("\n")
-                transcript_body = "\n".join(ln if ln else "" for ln in body_lines) + "\n"
-                ansi_obj = ANSI(transcript_body)
-                ansi_obj._source_md = body  # type: ignore[attr-defined]
-                if append_ansi_fn:
-                    append_ansi_fn(ansi_obj)
-                else:
-                    for line in body.splitlines() or [""]:
-                        append_fn("class:cli-assistant-body", line + "\n")
-        except Exception:
-            for line in body.splitlines() or [""]:
-                append_fn("class:cli-assistant-body", line + "\n")
-    append_fn("class:cli-spacer", "\n")
-    append_fn("class:cli-border-strong", chr(0x2550) * width + "\n")
-
-
-# ─── 文件头 magic bytes 检测（全局函数）───
-
-_MAGIC_TABLE: list[tuple[bytes, str]] = [
-    (b"\x89PNG\r\n\x1a\n", ".png"),
-    (b"\xff\xd8\xff", ".jpg"),
-    (b"GIF87a", ".gif"),
-    (b"GIF89a", ".gif"),
-    (b"RIFF", ".webp"),
-    (b"\x00\x00\x01\x00", ".ico"),
-    (b"%PDF", ".pdf"),
-    (b"PK\x03\x04", ".zip"),
-    (b"PK\x05\x06", ".zip"),
-    (b"\x1f\x8b", ".gz"),
-    (b"\x7fELF", ".elf"),
-    (b"MZ", ".exe"),
-    (b"\xca\xfe\xba\xbe", ".macho"),
-    (b"\xfe\xed\xfa\xce", ".macho"),
-    (b"\xfe\xed\xfa\xcf", ".macho"),
-    (b"\xd0\xcf\x11\xe0", ".doc"),
-]
-
-
-def _detect_ext_from_magic(data: bytes) -> str | None:
-    """根据文件头 magic bytes 推断扩展名。"""
-    if not data:
-        return None
-    for magic, ext in _MAGIC_TABLE:
-        if data[: len(magic)] == magic:
-            return ext
-    if data[:2] == b"BM":
-        return ".bmp"
-    return None
-
-
-def _detect_mime_from_magic(data: bytes) -> str | None:
-    """根据文件头 magic bytes 推断 MIME 类型。"""
-    ext = _detect_ext_from_magic(data)
-    if ext is None:
-        return None
-    mime_map = {
-        ".png": "image/png",
-        ".jpg": "image/jpeg",
-        ".gif": "image/gif",
-        ".webp": "image/webp",
-        ".ico": "image/x-icon",
-        ".bmp": "image/bmp",
-        ".pdf": "application/pdf",
-        ".zip": "application/zip",
-        ".gz": "application/gzip",
-        ".exe": "application/octet-stream",
-        ".doc": "application/msword",
-    }
-    return mime_map.get(ext, "application/octet-stream")
-
-
-def _create_feishu_handler(
-    _skill_toolboxes,
-    _skill_prompts,
-    state: CliLoopState,
-    ctx: RuntimeContext,
-    stick_bottom: list[bool],
-):
-    """创建飞书消息处理器。
-
-    飞书消息以 `.` 开头时，路由到统一命令调度器（与 CLI 共享）。
-    通过 ChannelRouter 解析 session_key：
-    - 群聊消息: 始终独立会话
-    - 私聊消息: 检查是否绑定到 CLI 会话（支持干预）
-
-    技能工具箱/提示词从 ``state`` 读取，支持 ``refresh_skills`` 后无需重启飞书 handler。
-    """
-    engine = ctx.engine
-    registry = ctx.registry
-    monitor = ctx.monitor
-    from miniagent.engine.cli_commands import feishu_dot_commands_full_enabled
-    from miniagent.engine.command_dispatch import dispatch_command
-    from miniagent.feishu.types import FeishuInboundText
-    from miniagent.skills.snapshots import (
-        get_skill_prompts_from_state,
-        get_skill_toolboxes_from_state,
-        join_skill_prompts,
-    )
-
-    channel_router = ctx.channel_router
-    _emit_feishu_cli = _feishu_user_status_fn(ctx)
-    from miniagent.infrastructure.cli_feishu_policy import (
-        should_allow_p2p_auto_bind,
-        should_mirror_feishu_to_cli,
-    )
-
-    def _maybe_auto_bind_p2p(chat_type: str, sender_id: str, loop_state: CliLoopState) -> None:
-        if (chat_type or "").strip().lower() != "p2p":
-            return
-        if not should_allow_p2p_auto_bind(channel_router):
-            return
-        cid = f"{channel_router.FEISHU_P2P_PREFIX}{sender_id}"
-        synced: set[str] = loop_state.setdefault("feishu_p2p_synced_senders", set())  # type: ignore[assignment]
-        if not isinstance(synced, set):
-            synced = set()
-            loop_state["feishu_p2p_synced_senders"] = synced
-        if not channel_router.is_bound(cid):
-            act = (loop_state.get("active_session_id") or "").strip()
-            if act:
-                channel_router.bind(cid, act)
-                synced.add(sender_id)
-
-    def _emit_feishu_preview(
-        *,
-        chat_type: str,
-        chat_id: str,
-        sender_id: str,
-        session_key: str,
-        line: str,
-    ) -> None:
-        if should_mirror_feishu_to_cli(
-            channel_router,
-            chat_type=chat_type,
-            chat_id=chat_id,
-            sender_id=sender_id,
-            session_key=session_key,
-        ):
-            _emit_feishu_cli(line)
-
-    def _skill_tb() -> list:
-        return get_skill_toolboxes_from_state(state)
-
-    def _skill_sp() -> str | None:
-        return join_skill_prompts(get_skill_prompts_from_state(state))
-
-    async def handler(inbound: FeishuInboundText) -> str:
-        """处理单条飞书消息（:class:`~miniagent.feishu.types.FeishuInboundText`）。
-
-        以 `.` 开头的消息路由到统一命令调度器（与 CLI 共享）。
-        普通消息通过 ChannelRouter 解析 session_key 后交给 Agent 处理。
-        """
-        content = inbound.text
-        chat_id = inbound.chat_id
-        sender_id = inbound.sender_id
-        chat_type = inbound.chat_type or "group"
-
-        if not engine:
-            return "\u26a0\ufe0f \u5f15\u64ce\u672a\u521d\u59cb\u5316"
-
-        # ── 命令拦截 ──
-        if content.startswith("."):
-            try:
-                reply = await dispatch_command(
-                    content.strip(),
-                    state=state,
-                    engine=engine,
-                    registry=registry,
-                    monitor=monitor,
-                    skill_toolboxes=_skill_tb(),
-                    skill_prompts=get_skill_prompts_from_state(state),
-                    capture=True,
-                    allow_session_mutations_when_capture=feishu_dot_commands_full_enabled(),
-                    message_queue_abort_chat_id=chat_id,
-                )
-                if reply == "__EXIT__":
-                    return ""  # .stop 已通过 shutdown_runtime 清理，无需回复
-                if reply is not None:
-                    _maybe_auto_bind_p2p(chat_type, sender_id, state)
-                    cmd_sk = channel_router.resolve_feishu_message(chat_id, sender_id, chat_type)
-                    _emit_feishu_preview(
-                        chat_type=chat_type,
-                        chat_id=chat_id,
-                        sender_id=sender_id,
-                        session_key=cmd_sk,
-                        line=f"\n\U0001f4e8 [\u98de\u4e66\u547d\u4ee4 {chat_id[:8]}] {content}",
-                    )
-                    return reply
-            except Exception as e:
-                return f"\u274c \u547d\u4ee4\u6267\u884c\u5931\u8d25: {e}"
-
-        _maybe_auto_bind_p2p(chat_type, sender_id, state)
-
-        # \u2500\u2500 \u68c0\u67e5\u662f\u5426\u6709\u5f85\u6f84\u6e05\u9700\u6c42\uff08agent \u6b63\u5728\u7b49\u5f85\u7528\u6237\u56de\u7b54\uff09\u2500\u2500
-        cc = getattr(engine, "_confirmation_channel", None)
-        if cc and cc.has_pending:
-            from miniagent.types.confirmation import ConfirmationResult, ConfirmationStage
-
-            if cc.pending.stage == ConfirmationStage.CLARIFICATION:
-                cc.respond(ConfirmationResult(approved=True, adjustment=content))
-                return ""  # \u5df2\u56de\u590d\uff0c\u4e0d\u542f\u52a8\u65b0 agent \u4f1a\u8bdd
-
-        session_key = channel_router.resolve_feishu_message(chat_id, sender_id, chat_type)
-        if (chat_id or "").strip():
-            state["last_feishu_receive_chat_id"] = chat_id.strip()
-
-        # CLI 侧：以与纯 CLI 一致的格式展示用户问题，标题中融入飞书标识
-        if ctx.cli_transcript_append:
-            channel_label = "飞书私聊" if chat_type == "p2p" else f"飞书 {chat_id[:8]}"
-            _format_cli_user_block(ctx.cli_transcript_append, content, stick_bottom, channel_label=channel_label)
-        mirror_cli = should_mirror_feishu_to_cli(
-            channel_router,
-            chat_type=chat_type,
-            chat_id=chat_id,
-            sender_id=sender_id,
-            session_key=session_key,
-        )
-
-        try:
-            reply = await engine.run_agent_with_thinking(
-                content,
-                session_key,
-                _skill_tb(),
-                _skill_sp(),
-                is_feishu=True,
-                registry=registry,
-                monitor=monitor,
-                session_manager=state.get("session_manager"),
-                feishu_config=ctx.feishu.get_config(),
-                channel_router=channel_router,
-                clawhub=ctx.clawhub,
-                memory_store=ctx.memory_store,
-                activity_log=ctx.activity_log,
-                keyword_index=ctx.keyword_index,
-                client=ctx.openai_client,
-                feishu_receive_chat_id=chat_id,
-                feishu_trigger_message_id=inbound.message_id or None,
-                feishu_root_id=inbound.root_id,
-                feishu_parent_id=inbound.parent_id,
-                feishu_thread_id=inbound.thread_id,
-                feishu_im_receive_id=(inbound.sender_id or "").strip() or None,
-                cli_loop_state=state,
-                feishu_mirror_cli=mirror_cli,
-            )
-            # 结论卡片（含质量评估尾部，与 .help 卡片一致格式）
-            if reply and reply.strip():
-                try:
-                    from miniagent.feishu.poll_server import _send_interactive_reply_cards
-                    cfg = ctx.feishu.get_config()
-                    _send_interactive_reply_cards(
-                        cfg, chat_id, [(reply or "").strip()],
-                        reply_to_message_id=inbound.message_id or None,
-                        reply_in_thread=bool((inbound.thread_id or "").strip()),
-                    )
-                except Exception:
-                    pass
-            # 清理 engine._last_reflection（不再发送独立卡片）
-            if getattr(engine, "_last_reflection", None):
-                engine._last_reflection = None
-
-            # CLI 侧：以与纯 CLI 一致的格式展示完整回复（含质量评估，markdown 渲染）
-            if ctx.cli_transcript_append and reply and reply.strip():
-                _format_cli_reply_block(ctx.cli_transcript_append, ctx.cli_transcript_append_ansi, (reply or "").strip())
-            # 飞书单消息：思考 + 工具均在思考卡中展示，结论通过回复卡片输出。
-            return ""
-        except Exception as e:
-            return f"⚠️ 处理失败: {e}"
-
-
-    async def media_handler(
-        cfg: Any,
-        message_id: str,
-        chat_id: str,
-        sender_id: str,
-        chat_type: str,
-        msg_type: str,
-        file_key: str,
-        suggested_name: str,
-        resource_type: str,
-        thread_id: str | None = None,
-    ) -> str | None:
-        """下载飞书 file/image 到当前会话 workspace/files/feishu_incoming/。"""
-        from miniagent.feishu.resource_io import download_message_resource, sanitize_filename
-        from miniagent.types.memory import SessionOptions
-
-        if not engine:
-            return "\u26a0\ufe0f \u5f15\u64ce\u672a\u521d\u59cb\u5316"
-
-        sm = state.get("session_manager")
-        if sm is None:
-            return "\u26a0\ufe0f \u4f1a\u8bdd\u7ba1\u7406\u5668\u672a\u521d\u59cb\u5316\uff0c\u65e0\u6cd5\u4fdd\u5b58\u6587\u4ef6"
-
-        _maybe_auto_bind_p2p(chat_type, sender_id, state)
-
-        session_key = channel_router.resolve_feishu_message(chat_id, sender_id, chat_type)
-        sess = sm.get_or_create(
-            session_key,
-            SessionOptions(description="\u98de\u4e66\u5a92\u4f53\u5165\u7ad9"),
-        )
-        base = (sess.workspace_path or "").strip()
-        if not base:
-            return "\u26a0\ufe0f \u4f1a\u8bdd\u5de5\u4f5c\u533a\u672a\u914d\u7f6e\uff0c\u65e0\u6cd5\u5199\u5165\u6587\u4ef6"
-
-        incoming = os.path.join(base, "feishu_incoming")
-        os.makedirs(incoming, exist_ok=True)
-
-        if resource_type not in ("file", "image"):
-            return "\u26a0\ufe0f \u4e0d\u652f\u6301\u7684\u8d44\u6e90\u7c7b\u578b"
-
-        try:
-            data, api_suggested_name = await download_message_resource(
-                cfg.app_id,
-                cfg.app_secret,
-                message_id=message_id,
-                file_key=file_key,
-                type_=resource_type,
-            )
-        except Exception as e:
-            return f"\u26a0\ufe0f \u4e0b\u8f7d\u5931\u8d25: {e}"
-
-        # \u4f18\u5148\u4f7f\u7528 API \u8fd4\u56de\u7684\u5efa\u8bae\u540d\uff08\u5982\u5305\u542b\u539f\u59cb\u6587\u4ef6\u540d\uff09\uff1b\u5176\u6b21\u7528\u5165\u53c2\u540d\u3002
-        # \u6839\u636e\u6587\u4ef6\u5934 magic bytes \u4fee\u6b63\u6269\u5c55\u540d\uff0c\u907f\u514d\u56fe\u7247\u7b49\u88ab\u4fdd\u5b58\u4e3a\u65e0\u6269\u5c55\u540d\u6216 .bin\u3002
-        raw_name = (api_suggested_name or "").strip() or suggested_name
-        safe = sanitize_filename(raw_name)
-        root, ext = os.path.splitext(safe)
-        _detected_ext = _detect_ext_from_magic(data)
-        if _detected_ext and ext.lower() in ("", ".bin", ".download", ".file"):
-            ext = _detected_ext
-            safe = root + ext
-        tag = (message_id or "msg").replace("/", "_")[:16]
-        dest_name = f"{root}_{tag}{ext}" if root else f"file_{tag}{ext or '.bin'}"
-        dest_path = os.path.join(incoming, dest_name)
-
-        with open(dest_path, "wb") as f:
-            f.write(data)
-
-        try:
-            rel = os.path.relpath(dest_path, base)
-        except ValueError:
-            rel = os.path.basename(dest_path)
-
-        # 将文件信息存储到会话记忆
-        try:
-            from miniagent.memory.store import add_file_to_memory
-            from miniagent.types.memory import FileMetadata
-
-            # 获取 MIME 类型
-            mime_type = _detect_mime_from_magic(data) or "application/octet-stream"
-
-            file_meta = FileMetadata(
-                name=dest_name,
-                path=rel,
-                size=len(data),
-                mime_type=mime_type,
-                type="image" if resource_type == "image" else ("text" if mime_type.startswith("text/") else "binary"),
-                description="",  # 图片描述稍后填充
-                timestamp=datetime.now(timezone.utc).isoformat(),
-                source="feishu",
-            )
-
-            # 图片描述：如果有视觉模型描述，稍后更新
-            # 先添加基础信息
-            await add_file_to_memory(session_key, file_meta, ctx.memory_store)
-        except Exception:
-            pass  # 记忆存储失败不影响主流程
-
-        _emit_feishu_preview(
-            chat_type=chat_type,
-            chat_id=chat_id,
-            sender_id=sender_id,
-            session_key=session_key,
-            line=f"\n\U0001f4ce [\u98de\u4e66\u5a92\u4f53 {chat_id[:8]}] \u5df2\u4fdd\u5b58: {rel}",
-        )
-        media_mirror_cli = should_mirror_feishu_to_cli(
-            channel_router,
-            chat_type=chat_type,
-            chat_id=chat_id,
-            sender_id=sender_id,
-            session_key=session_key,
-        )
-
-        flag = (os.environ.get("MINIAGENT_FEISHU_MEDIA_RUN_AGENT") or "").strip().lower()
-        run_agent_on_media = flag in ("1", "true", "yes", "on")
-        if not run_agent_on_media:
-            return f"\u2705 \u5df2\u4fdd\u5b58\u5230\u4f1a\u8bdd\u6587\u4ef6\u533a: {rel}"
-
-        user_line = (
-            f"[\u98de\u4e66\u5165\u7ad9] \u5df2\u4fdd\u5b58\u5a92\u4f53\u5230\u4f1a\u8bdd\u76ee\u5f55\uff08\u76f8\u5bf9 files \uff09: {rel}\n"
-            f"\u8bf7\u67e5\u770b\u8be5\u6587\u4ef6\u5e76\u8bf4\u660e\u4f60\u53ef\u4ee5\u5982\u4f55\u534f\u52a9\u5904\u7406\u3002"
-        )
-        # \u56fe\u7247\u5165\u7ad9\uff1a\u81ea\u52a8\u8c03\u7528\u89c6\u89c9\u6a21\u578b\u751f\u6210\u63cf\u8ff0\uff0c\u6ce8\u5165\u5bf9\u8bdd\u5386\u53f2
-        if msg_type == "image" and (os.environ.get("MINIAGENT_FEISHU_MEDIA_VISION_DESC", "1") or "").strip().lower() not in ("0", "false", "no"):
-            model = (os.environ.get("OPENAI_MODEL") or "").strip()
-            if model and ctx.openai_client:
-                from miniagent.feishu.vision_desc import describe_image
-                desc = await describe_image(dest_path, ctx.openai_client, model)
-                if desc:
-                    user_line = (
-                        f"[\u98de\u4e66\u5165\u7ad9] \u7528\u6237\u4e0a\u4f20\u4e86\u4e00\u5f20\u56fe\u7247\uff0c\u5df2\u4fdd\u5b58\u5230 {rel}\n"
-                        f"\u56fe\u7247\u5185\u5bb9\uff1a{desc}"
-                    )
-        try:
-            _ = await engine.run_agent_with_thinking(
-                user_line,
-                session_key,
-                _skill_tb(),
-                _skill_sp(),
-                is_feishu=True,
-                registry=registry,
-                monitor=monitor,
-                session_manager=sm,
-                feishu_config=ctx.feishu.get_config(),
-                channel_router=channel_router,
-                clawhub=ctx.clawhub,
-                memory_store=ctx.memory_store,
-                activity_log=ctx.activity_log,
-                keyword_index=ctx.keyword_index,
-                client=ctx.openai_client,
-                feishu_receive_chat_id=chat_id,
-                feishu_trigger_message_id=message_id or None,
-                feishu_thread_id=(thread_id or "").strip() or None,
-                feishu_im_receive_id=(sender_id or "").strip() or None,
-                cli_loop_state=state,
-                feishu_mirror_cli=media_mirror_cli,
-            )
-            # 飞书单消息：思考 + 工具均在思考卡中展示，抑制独立回复消息。
-            return ""
-        except Exception as e:
-            return f"\u2705 \u5df2\u4fdd\u5b58 {rel}\uff08Agent \u5904\u7406\u5931\u8d25: {e}\uff09"
-
-    return handler, media_handler
 
 
 __all__ = ["unified_main", "run_cli_loop"]

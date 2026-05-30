@@ -156,8 +156,9 @@ def redact_first_tool_output_in_text(text: str) -> tuple[str, bool]:
 
 
 def _find_plan_line_for_step(text: str, step_no: int) -> str | None:
-    """从 ``[执行计划]`` / ``[评估与计划]`` 块中匹配 ``步骤概要`` 下的 ``{n}. …`` 行。"""
-    for marker in ("[执行计划]", "[评估与计划]"):
+    """从 ``[评估与计划]`` / ``[执行计划]``（旧格式兼容）块中匹配 ``步骤概要`` 下的 ``{n}. …`` 行。"""
+    # 新格式优先，兼容旧格式历史记录
+    for marker in ("[评估与计划]", "[执行计划]"):
         idx = text.find(marker)
         if idx < 0:
             continue

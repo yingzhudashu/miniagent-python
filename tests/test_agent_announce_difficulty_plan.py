@@ -20,14 +20,14 @@ from miniagent.types.tool import Toolbox
 
 def test_format_task_difficulty() -> None:
     s = _format_task_difficulty(TaskDifficulty.MEDIUM)
-    assert "[任务难度]" in s
+    assert "任务难度" in s  # 新格式不含方括号标签
     assert "中等" in s
 
 
 def test_format_plan_message_skipped_no_toolboxes() -> None:
     p = StructuredPlan(summary="直接执行模式", steps=[], required_toolboxes=[])
     t = _format_plan_message(p, from_llm_planner=False, no_toolboxes=True)
-    assert "[执行计划]" in t
+    assert "跳过结构化规划" in t  # 新格式不含方括号标签
     assert "无可用工具箱" in t
 
 
@@ -148,9 +148,9 @@ async def test_difficulty_announced_when_classifier_runs(
     headers = [h for h, _ in captured]
     assert all(h == PLANNING_STREAM_HEADER for h in headers)
     blob = "\n".join(t for _, t in captured)
-    # 输出应包含难度标签（display格式为 "**难度**"，full_record格式为 "[任务难度]评估结果"）
+    # 输出应包含难度标签（display格式为 "**难度**"，full_record格式为 "任务难度：..."）
     assert "**难度**" in blob
-    assert "[计划]" in blob or "s" in blob
+    assert "s" in blob  # plan summary
 
 
 @pytest.mark.asyncio
@@ -188,7 +188,8 @@ async def test_on_plan_reject_skips_plan_announce_and_execute(
             )
 
     assert "取消" in out or "取消" in str(out)
-    assert not any("[计划]" in x or "[执行计划]" in x for x in captured)
+    # 当计划被拒绝时，不应发送计划相关内容
+    assert not any("跳过结构化规划" in x or "摘要" in x for x in captured)
     ex.assert_not_called()
 
 
@@ -218,7 +219,8 @@ async def test_skip_planning_announces_user_skip_not_simple(
 
     blob = "\n".join(captured)
     assert "显式跳过规划" in blob
-    assert "[任务难度]" not in blob
+    # display 格式为 "**难度**"，不含 "任务难度：" 标签
+    assert "任务难度：" not in blob
 
 
 @pytest.mark.asyncio
@@ -245,5 +247,5 @@ async def test_announce_disabled_skips_extra_on_thinking(
                 on_thinking=ot,
             )
 
-    assert not any("[执行计划]" in x for x in captured)
-    assert not any("[任务难度]" in x for x in captured)
+    assert not any("执行计划" in x for x in captured)  # 新格式不含方括号标签
+    assert not any("任务难度" in x for x in captured)
