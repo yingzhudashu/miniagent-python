@@ -559,8 +559,30 @@ class ThinkingDisplay:
             if self._buffer_enabled:
                 state.buffer.extend(lines)
             elif self._should_emit_cli(state):
-                body = "\n".join(lines)
-                self._emit(body + "\n")
+                # 与 merge_tools 初始化路径保持一致的 Rich Markdown 渲染
+                body_md = "\n".join(lines)
+                ansi_body: str | None = None
+                if (
+                    _cli_thinking_rich_enabled()
+                    and self._sink_accepts_ansi_markdown
+                    and self._output_sink
+                    and _thinking_body_looks_like_markdown(body_md)
+                ):
+                    from miniagent.engine.markdown_cli import render_markdown_to_ansi
+
+                    ansi_body = render_markdown_to_ansi(
+                        body_md, width=self._cli_rich_markdown_width()
+                    )
+                if (
+                    ansi_body
+                    and ansi_body.strip()
+                    and self._output_sink
+                    and self._sink_accepts_ansi_markdown
+                ):
+                    self._output_sink("", "chunk", ansi_markdown=ansi_body)
+                    self._emit("\n")
+                else:
+                    self._emit(body_md + "\n")
             # 保留 stream_step / stream_printed / stream_header：同一步内工具后继续流式不新开 CLI 标签、不重复打印已输出正文
             state.stream_done = False
             return
@@ -634,8 +656,30 @@ class ThinkingDisplay:
                     label = f"\U0001f4ad [{state.stream_step}] {state.stream_header}"
                     self._emit_line(label, "blue")
                 if self._should_emit_cli(state):
-                    body = "\n".join(lines)
-                    self._emit(body + "\n")
+                    # 与非 merge_tools 路径保持一致的 Rich Markdown 渲染
+                    body_md = "\n".join(lines)
+                    ansi_body: str | None = None
+                    if (
+                        _cli_thinking_rich_enabled()
+                        and self._sink_accepts_ansi_markdown
+                        and self._output_sink
+                        and _thinking_body_looks_like_markdown(body_md)
+                    ):
+                        from miniagent.engine.markdown_cli import render_markdown_to_ansi
+
+                        ansi_body = render_markdown_to_ansi(
+                            body_md, width=self._cli_rich_markdown_width()
+                        )
+                    if (
+                        ansi_body
+                        and ansi_body.strip()
+                        and self._output_sink
+                        and self._sink_accepts_ansi_markdown
+                    ):
+                        self._output_sink("", "chunk", ansi_markdown=ansi_body)
+                        self._emit("\n")
+                    else:
+                        self._emit(body_md + "\n")
                 state.stream_done = False
                 return
 

@@ -345,6 +345,7 @@ class UnifiedEngine:
             header: str = "",
             *,
             full_record: str | None = None,
+            reset: bool = False,
         ) -> None:
             """桥接 :meth:`run_agent` 的 ``on_thinking``：更新按标签聚合的缓冲并驱动 UI/飞书展示。
 
@@ -360,9 +361,17 @@ class UnifiedEngine:
             ``_joined_phase_cumulative`` 输出的**纯 LLM 正文前缀一致**，否则 prefix
             检测失败导致重复。因此 ``streaming=True`` 时**不**向 thinking_by_label
             追加非 LLM 记录（工具行等），改为走 ``tool_thought_lines``。
+
+            Args:
+                reset: 若为 True，清除该 header 对应的已有聚合内容（用于避免重复显示）
             """
             record = full_record if full_record is not None else text
             key = header if (header or "").strip() else "__stream__"
+
+            # reset=True 时清除已有聚合内容，避免语义不同的新阶段与旧内容拼接
+            if reset:
+                thinking_by_label.pop(key, None)
+
             if streaming and record:
                 prev = thinking_by_label.get(key, "")
                 if not prev:

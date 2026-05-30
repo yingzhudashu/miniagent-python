@@ -456,8 +456,8 @@ async def run_agent(
                 bool(toolboxes) and not skip_planning and difficulty == TaskDifficulty.SIMPLE
             ),
         )
-        # 关键修复：不拼接已发送的难度内容，仅发送计划部分
-        # 避免在需求澄清后第二次 [评估与计划] 中重复显示难度
+        # 关键修复：使用 reset=True 清除已有难度内容，避免重复显示
+        # 需求澄清后的第二次 [评估与计划] 应只显示规划概要
         planning_hist = plan_msg
         planning_display = plan_disp
         await invoke_on_thinking(
@@ -466,6 +466,7 @@ async def run_agent(
             True,
             PLANNING_STREAM_HEADER,
             full_record=planning_hist,
+            reset=True,
         )
 
     # ── Phase 2: 执行 ──

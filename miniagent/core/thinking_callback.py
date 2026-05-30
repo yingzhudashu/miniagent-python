@@ -27,18 +27,35 @@ async def invoke_on_thinking(
     header: str,
     *,
     full_record: str | None = None,
+    reset: bool = False,
 ) -> None:
-    """调用 ``on_thinking``；若签名含 ``full_record`` 或 ``**kwargs``，则尝试传入 ``full_record``。"""
+    """调用 ``on_thinking``；若签名含 ``full_record`` 或 ``reset`` 或 ``**kwargs``，则尝试传入。
+
+    Args:
+        cb: 回调函数
+        text: 思考内容文本
+        streaming: 是否流式输出
+        header: 阶段标签（如 ``[评估与计划]``）
+        full_record: 完整记录文本（用于会话历史落盘）
+        reset: 是否重置该 header 的聚合状态（用于清除重复内容）
+    """
     if cb is None:
         return
     try:
         sig = inspect.signature(cb)
         params = sig.parameters
         has_fr = "full_record" in params
+        has_reset = "reset" in params
         has_varkw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
+        # 构建可选参数字典
+        extra_kwargs: dict[str, Any] = {}
         if full_record is not None and (has_fr or has_varkw):
+            extra_kwargs["full_record"] = full_record
+        if reset and (has_reset or has_varkw):
+            extra_kwargs["reset"] = reset
+        if extra_kwargs:
             try:
-                await cb(text, streaming, header, full_record=full_record)
+                await cb(text, streaming, header, **extra_kwargs)
                 return
             except TypeError:
                 pass
