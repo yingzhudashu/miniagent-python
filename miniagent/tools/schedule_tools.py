@@ -15,6 +15,7 @@ SCHEDULE_TOOL_NAMES = frozenset({"manage_scheduled_task"})
 
 
 def _tool_timezone_spec(args: dict[str, Any]) -> tuple[str, bool]:
+    """解析工具调用中的时区参数：返回 (时区名, 是否用户显式指定)。"""
     from miniagent.scheduled_tasks.timezone_util import default_schedule_timezone
 
     raw = (args.get("timezone") or "").strip()

@@ -12,6 +12,7 @@ _LIST_RECORDS_MAX = 500
 
 
 def _fields_to_dict(fields: Any) -> dict[str, Any]:
+    """将多维表格字段对象转换为字典（支持 dict、对象列表、SDK 对象）。"""
     if fields is None:
         return {}
     if isinstance(fields, dict):

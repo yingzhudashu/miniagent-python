@@ -12,6 +12,7 @@ _MAX_DEPTH = 12
 
 
 def _text_from_obj(obj: Any) -> str:
+    """从飞书卡片组件对象中提取文本内容（支持 plain_text、lark_md、div、button 等）。"""
     if obj is None:
         return ""
     if isinstance(obj, str):
@@ -38,6 +39,7 @@ def _text_from_obj(obj: Any) -> str:
 
 
 def _walk(node: Any, *, depth: int, budget: list[int], parts: list[str]) -> None:
+    """递归遍历卡片 JSON 结构并收集文本片段。"""
     if budget[0] <= 0 or depth > _MAX_DEPTH:
         return
     budget[0] -= 1

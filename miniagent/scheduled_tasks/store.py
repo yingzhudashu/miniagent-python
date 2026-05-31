@@ -206,6 +206,7 @@ def _parse_once_utc_epoch(
 
 
 def _cron_next(task: ScheduledTask, after_ts: float) -> float | None:
+    """计算 cron 表达式的下一次触发时间戳；表达式无效时返回 None。"""
     from miniagent.scheduled_tasks.cron import cron_next_run_epoch
 
     expr = (task.schedule.cron_expr or "").strip()

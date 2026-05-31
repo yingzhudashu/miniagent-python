@@ -42,6 +42,7 @@ _resolve_under_workspace = resolve_under_workspace
 
 
 def _parse_fields_arg(raw: Any) -> dict[str, Any] | None:
+    """解析 fields 参数（支持 dict、JSON 字符串、None）。"""
     if raw is None:
         return None
     if isinstance(raw, dict):

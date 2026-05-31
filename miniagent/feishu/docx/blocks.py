@@ -18,6 +18,7 @@ _LIST_BLOCKS_MAX = 200
 
 
 def _chunk_runs(line: str) -> list[str]:
+    """将长文本行切分为不超过 _TEXT_RUN_MAX 的片段（飞书 API 单次限制）。"""
     if not line:
         return ["\u200b"]
     parts: list[str] = []
@@ -29,6 +30,7 @@ def _chunk_runs(line: str) -> list[str]:
 
 
 def _paragraph_blocks_for_text(text: str) -> list[Any]:
+    """将文本转换为飞书文档段落 Block 对象列表（按行分割，每行一个 Block）。"""
     from lark_oapi.api.docx.v1 import BlockBuilder, Text, TextElement, TextRun
 
     lines = text.split("\n") or [""]
@@ -49,6 +51,7 @@ def _paragraph_blocks_for_text(text: str) -> list[Any]:
 
 
 def _find_page_block_id(client, document_id: str) -> str:
+    """查找文档的 Page Block ID（作为根容器用于追加内容）。"""
     from lark_oapi.api.docx.v1 import ListDocumentBlockRequest
 
     resp = client.docx.v1.document_block.list(
@@ -70,6 +73,7 @@ def _find_page_block_id(client, document_id: str) -> str:
 
 
 def _count_children(client, document_id: str, page_block_id: str) -> int:
+    """统计 Page Block 下的子 Block 数量（分页遍历）。"""
     from lark_oapi.api.docx.v1 import GetDocumentBlockChildrenRequest
 
     total = 0
@@ -127,6 +131,7 @@ def append_plain_text_to_document(config: FeishuConfig, document_id: str, text: 
 
 
 def _block_summary(blk: Any) -> dict:
+    """提取 Block 的简要信息字典（block_id、block_type、parent_id）。"""
     return {
         "block_id": str(getattr(blk, "block_id", None) or ""),
         "block_type": int(getattr(blk, "block_type", None) or 0),

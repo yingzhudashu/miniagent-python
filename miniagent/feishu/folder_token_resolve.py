@@ -30,6 +30,7 @@ def extract_folder_token_from_url(s: str) -> str | None:
 
 
 def _looks_like_url_or_drive_link(s: str) -> bool:
+    """判断字符串是否为 URL 或飞书/Lark 云盘链接格式。"""
     sl = s.lower()
     if s.strip().startswith("http://") or s.strip().startswith("https://"):
         return True

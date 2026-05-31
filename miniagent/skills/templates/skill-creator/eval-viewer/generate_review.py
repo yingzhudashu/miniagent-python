@@ -89,6 +89,7 @@ def find_runs(workspace: Path) -> list[dict]:
 
 
 def _find_runs_recursive(root: Path, current: Path, runs: list[dict]) -> None:
+    """递归查找评估运行目录（含 outputs 子目录）。"""
     if not current.is_dir():
         return
 

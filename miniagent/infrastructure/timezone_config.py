@@ -18,6 +18,7 @@ _WEEKDAYS_ZH = (
 
 
 def _validate_iana(name: str) -> str | None:
+    """验证 IANA 时区名称有效性；无效时返回 None。"""
     raw = (name or "").strip()
     if not raw:
         return None

@@ -18,6 +18,7 @@ _thread_lock = threading.RLock()
 
 
 def _tasks_json_lock_path() -> str:
+    """构造 tasks.json 文件锁路径。"""
     root = os.environ.get("MINI_AGENT_STATE", os.path.join(os.getcwd(), "workspaces"))
     return os.path.join(root, "scheduled_tasks", "tasks.json.lock")
 

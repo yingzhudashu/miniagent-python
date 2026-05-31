@@ -35,12 +35,14 @@ def get_last_ws_session_end() -> tuple[str | None, float | None]:
 
 
 def _record_session_end(reason: str) -> None:
+    """记录 WebSocket 会话结束原因和时间（用于健康检测）。"""
     global _last_session_end_reason, _last_session_end_at
     _last_session_end_reason = reason
     _last_session_end_at = time.time()
 
 
 def _env_float(name: str, default: float) -> float:
+    """读取环境变量并解析为浮点数；无效时返回默认值。"""
     raw = (os.environ.get(name) or "").strip()
     if not raw:
         return default
@@ -70,6 +72,7 @@ def read_feishu_ws_health_config() -> FeishuWsHealthConfig:
 
 
 def _receive_loop_exit_reason(task: asyncio.Task[Any]) -> str:
+    """从 asyncio Task 中提取 receive_loop 退出原因。"""
     if task.cancelled():
         return "receive_loop_cancelled"
     exc = task.exception()

@@ -328,6 +328,7 @@ class FeishuRuntime:
             t.cancel()
 
             def _clear(_fut: asyncio.Task) -> None:
+                """清理任务引用回调。"""
                 if self._task is t:
                     self._task = None
 

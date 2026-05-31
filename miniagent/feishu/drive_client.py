@@ -30,6 +30,7 @@ def _parse_feishu_json_code(raw: Any) -> int | None:
 def _http_post_json(
     url: str, payload: dict[str, Any], *, headers: dict[str, str] | None = None
 ) -> dict[str, Any]:
+    """发送 JSON POST 请求并返回解析后的响应体。"""
     data = json.dumps(payload).encode("utf-8")
     h = {"Content-Type": "application/json; charset=utf-8"}
     if headers:
@@ -53,6 +54,7 @@ def _http_post_json(
 
 
 def _http_get_json(url: str, *, headers: dict[str, str]) -> dict[str, Any]:
+    """发送 JSON GET 请求并返回解析后的响应体。"""
     req = urllib.request.Request(url, method="GET", headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
@@ -72,6 +74,7 @@ def _http_get_json(url: str, *, headers: dict[str, str]) -> dict[str, Any]:
 
 
 def _fetch_tenant_access_token(config: FeishuConfig) -> str:
+    """获取飞书 tenant_access_token（用于 API 认证）。"""
     js = _http_post_json(
         _TENANT_TOKEN_URL,
         {"app_id": config.app_id, "app_secret": config.app_secret},

@@ -230,6 +230,7 @@ def schedule_memory_maintenance(session_key: str | None) -> None:
     _pending_dream_tasks.add(t)
 
     def _done(_fut: asyncio.Task[Any]) -> None:
+        """任务完成回调：从 pending 集合中移除。"""
         _pending_dream_tasks.discard(_fut)
 
     t.add_done_callback(_done)

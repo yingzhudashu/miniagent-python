@@ -41,6 +41,7 @@ def schedule_feishu_last_chat_enabled() -> bool:
 
 
 def _is_valid_im_receive_id(chat_id: str) -> bool:
+    """验证飞书 IM receive_id 格式有效性。"""
     from miniagent.feishu.poll_server import _is_valid_im_receive_id
 
     return _is_valid_im_receive_id((chat_id or "").strip())
@@ -59,6 +60,7 @@ def _channel_to_receive_id(channel_id: str) -> tuple[str | None, bool]:
 
 
 def _pick_bound_feishu_channel(bound: list[str]) -> str | None:
+    """从绑定的飞书渠道列表中选取首选渠道（优先私聊）。"""
     p2p: list[str] = []
     groups: list[str] = []
     for ch in bound:

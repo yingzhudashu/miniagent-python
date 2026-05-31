@@ -260,9 +260,11 @@ async def run_cli_loop(
     )
 
     def _skill_tb() -> list:
+        """从 state 获取当前技能工具箱列表（fallback 到传入参数）。"""
         return get_skill_toolboxes_from_state(state) or skill_toolboxes
 
     def _skill_sp() -> str | None:
+        """从 state 获取当前技能提示词拼接字符串（fallback 到传入参数）。"""
         return join_skill_prompts(get_skill_prompts_from_state(state) or skill_prompts)
 
     try:
@@ -1264,11 +1266,11 @@ async def run_cli_loop(
                 ),
                 height=D.exact(1),
             ),
-            Window(height=1, char="\u2500", style="class:cli-border"),
+            Window(height=1, char="─", style="class:cli-border"),
             VSplit(
                 [
                     Window(
-                        FormattedTextControl(HTML("<prompt-prefix>\u276f </prompt-prefix><cli-muted>\u2191\u2193\u5386\u53f2</cli-muted>")),
+                        FormattedTextControl(HTML("<prompt-prefix>❯ </prompt-prefix><cli-muted>↑↓历史</cli-muted>")),
                         width=D.exact(4),
                         height=D.exact(1),
                     ),
@@ -1412,12 +1414,12 @@ async def run_cli_loop(
     def _cli_rule_heavy() -> None:
         """在 transcript 中画粗分隔线（双线条字符）。"""
         w = _rule_line_width()
-        _append_transcript("class:cli-border-strong", "\u2550" * w + "\n")
+        _append_transcript("class:cli-border-strong", "╸" * w + "\n")
 
     def _cli_rule_light() -> None:
         """在 transcript 中画细分隔线。"""
         w = _rule_line_width()
-        _append_transcript("class:cli-border", "\u2500" * w + "\n")
+        _append_transcript("class:cli-border", "─" * w + "\n")
 
     def _cli_block_user(prompt: str) -> None:
         """本轮提问区块。"""
@@ -1656,9 +1658,9 @@ async def run_cli_loop(
             )
             _cli_block_reply(reply)
         except Exception as e:
-            _append_transcript("class:cli-err", f"\u274c \u9519\u8bef: {e}\n")
+            _append_transcript("class:cli-err", f"❌ 错误: {e}\n")
 
-    # \u52a0\u8f7d\u521d\u59cb\u5386\u53f2\u5230 transcript
+    # 加载初始历史到 transcript
     _load_initial_history_to_transcript()
 
     while True:
@@ -1697,13 +1699,13 @@ async def run_cli_loop(
             plain = _transcript_plain()
             if copy_text_to_system_clipboard(plain):
                 term_write(
-                    f"\u2705 \u5df2\u590d\u5236 {len(plain)} \u5b57\u7b26\u5230\u526a\u8d34\u677f\n",
+                    f"✅ 已复制 {len(plain)} 字符到剪贴板\n",
                     "ansigreen",
                 )
             else:
                 term_write(
-                    "\u274c \u590d\u5236\u5931\u8d25\uff08\u65e0\u526a\u8d34\u677f\u6216\u7f3a\u5c11 "
-                    "wl-copy / xclip / pbcopy / clip\uff09\n",
+                    "❌ 复制失败（无剪贴板或缺少 "
+                    "wl-copy / xclip / pbcopy / clip）\n",
                     "ansired",
                 )
             continue
@@ -1717,7 +1719,7 @@ async def run_cli_loop(
                 release_cli_session_lock=True,
                 call_unregister=True,
             )
-            term_write("\u2705 \u5f53\u524d\u5b9e\u4f8b\u5df2\u505c\u6b62", "ansigreen")
+            term_write("✅ 当前实例已停止", "ansigreen")
             break
 
         # ── 其余点命令：统一走 dispatch（capture → transcript，避免 print 破坏全屏）──
@@ -1843,9 +1845,11 @@ async def _run_cli_loop_fallback(
     )
 
     def _skill_tb() -> list:
+        """从 state 获取当前技能工具箱列表（fallback 到传入参数）。"""
         return get_skill_toolboxes_from_state(state) or skill_toolboxes
 
     def _skill_sp() -> str | None:
+        """从 state 获取当前技能提示词拼接字符串（fallback 到传入参数）。"""
         return join_skill_prompts(get_skill_prompts_from_state(state) or skill_prompts)
 
     def _fb_get_width() -> int:
@@ -1924,11 +1928,11 @@ async def _run_cli_loop_fallback(
             print()
             _fb_rule_heavy()
         except Exception as e:
-            print(f"\n\u274c \u9519\u8bef: {e}")
+            print(f"\n❌ 错误: {e}")
 
     while True:
         try:
-            user_input = await asyncio.to_thread(input, "\n\u276f ")
+            user_input = await asyncio.to_thread(input, "\n❯ ")
         except (EOFError, KeyboardInterrupt):
             break
 
@@ -1940,9 +1944,9 @@ async def _run_cli_loop_fallback(
 
         if user_input == ".copy":
             print(
-                "\n\u63d0\u793a: \u7b80\u6613\u6a21\u5f0f\u4e0b\u8f93\u51fa\u5728\u7ec8\u7aef\u5377\u8f74"
-                "\uff0c\u8bf7\u7528\u7ec8\u7aef\u81ea\u8eab\u9009\u62e9\u590d\u5236"
-                "\uff1b\u5168\u5c4f CLI \u4e0b\u8f93\u5165 .copy \u53ef\u590d\u5236 transcript\u3002\n"
+                "\n提示: 简易模式下输出在终端卷轴"
+                "，请用终端自身选择复制"
+                "；全屏 CLI 下输入 .copy 可复制 transcript。\n"
             )
             continue
 
@@ -1954,7 +1958,7 @@ async def _run_cli_loop_fallback(
                 release_cli_session_lock=True,
                 call_unregister=True,
             )
-            print("\u2705 \u5f53\u524d\u5b9e\u4f8b\u5df2\u505c\u6b62")
+            print("✅ 当前实例已停止")
             break
 
         if user_input.startswith(".instance"):

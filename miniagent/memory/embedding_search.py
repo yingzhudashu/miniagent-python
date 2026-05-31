@@ -42,6 +42,7 @@ _logger = get_logger(__name__)
 
 
 def _is_truthy(val: str | None) -> bool:
+    """判断字符串环境变量是否为真值（1/true/yes/on）。"""
     if val is None:
         return False  # default = disabled
     return val.strip().lower() in ("1", "true", "yes", "on")
@@ -173,10 +174,12 @@ class EmbeddingIndex:
         self._index_file = os.path.join(state_dir, "embedding-index.json")
 
     def _ensure_loaded(self) -> None:
+        """确保索引已从磁盘加载（延迟加载）。"""
         if not self._loaded:
             self._load()
 
     def _load(self) -> None:
+        """从磁盘加载嵌入索引 JSON 文件。"""
         try:
             if not os.path.exists(self._index_file):
                 self._loaded = True
@@ -239,9 +242,11 @@ class EmbeddingIndex:
             _logger.error("保存嵌入索引失败: %s", e)
 
     def _make_key(self, session_id: str, timestamp: str) -> str:
+        """构造索引条目的唯一键（session_id:timestamp）。"""
         return f"{session_id}:{timestamp}"
 
     def _indexable_text(self, entry: MemoryEntryInput | MemoryEntry) -> str:
+        """构造用于嵌入计算的文本（user_snippet + summary + facts）。"""
         facts = getattr(entry, "facts", []) or []
         return " ".join([entry.user_snippet, entry.summary, *facts])
 

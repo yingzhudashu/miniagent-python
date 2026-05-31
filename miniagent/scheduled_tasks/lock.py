@@ -17,11 +17,13 @@ _JOB_ID_SAFE = re.compile(r"[^a-zA-Z0-9_-]+")
 
 
 def _job_lock_path(task_id: str) -> str:
+    """构造任务锁文件路径：对 task_id 进行安全化处理并截断至 120 字符。"""
     safe = _JOB_ID_SAFE.sub("_", (task_id or "").strip())[:120] or "job"
     return os.path.join(tasks_dir(), f"job_{safe}.lock")
 
 
 def _try_acquire_lock_file(lock: str) -> bool:
+    """尝试获取文件锁：创建独占文件，若已存在且 PID 有效则重试 3 次后放弃。"""
     from miniagent.infrastructure.instance import is_process_running
 
     for _ in range(LOCK_RETRY_COUNT):
@@ -46,6 +48,7 @@ def _try_acquire_lock_file(lock: str) -> bool:
 
 
 def _release_lock_file(lock: str) -> None:
+    """释放文件锁：仅当锁内 PID 为当前进程时删除锁文件（忽略错误）。"""
     try:
         if os.path.isfile(lock):
             with open(lock, encoding="utf-8") as f:

@@ -48,6 +48,7 @@ _SUPPORTED_ACTIONS = (
 
 
 def _docx_open_url(document_id: str) -> str | None:
+    """构造云文档打开 URL（需配置 MINIAGENT_FEISHU_DOCX_URL_PREFIX）。"""
     prefix = env_str_legacy(
         "MINIAGENT_FEISHU_DOCX_URL_PREFIX",
         "FEISHU_DOCX_URL_PREFIX",
@@ -162,6 +163,7 @@ async def _action_create(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConf
 
 
 def _action_get(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
+    """获取云文档元数据（标题、revision_id 等）。"""
     from miniagent.feishu.docx.client import get_document
 
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
@@ -175,6 +177,7 @@ def _action_get(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
 
 
 def _action_read(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
+    """读取云文档正文内容与块类型统计。"""
     from miniagent.feishu.docx.blocks import list_document_blocks
     from miniagent.feishu.docx.client import get_document, get_document_raw_content
 
@@ -208,6 +211,7 @@ def _action_read(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
 
 
 def _action_append(args: dict[str, Any], cfg: FeishuConfig, *, full_write: bool) -> ToolResult:
+    """追加文本到云文档；mode=replace 时先清空再写入。"""
     from miniagent.feishu.docx.blocks import (
         DOCX_APPEND_MAX_CHARS,
         append_plain_text_to_document,
@@ -242,6 +246,7 @@ def _action_append(args: dict[str, Any], cfg: FeishuConfig, *, full_write: bool)
 
 
 def _action_delete(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
+    """删除云文档。"""
     from miniagent.feishu.docx.client import delete_document
 
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
@@ -252,6 +257,7 @@ def _action_delete(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
 
 
 def _action_list_blocks(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
+    """列出云文档内容块（分页）。"""
     from miniagent.feishu.docx.blocks import list_document_blocks
 
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
@@ -266,6 +272,7 @@ def _action_list_blocks(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
 
 
 def _action_get_block(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
+    """获取单个内容块详情。"""
     from miniagent.feishu.docx.blocks import get_block
 
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
@@ -276,6 +283,7 @@ def _action_get_block(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
 
 
 def _action_update_block(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
+    """更新单个内容块的文本内容。"""
     from miniagent.feishu.docx.blocks import update_block_text
 
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
@@ -288,6 +296,7 @@ def _action_update_block(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
 
 
 def _action_delete_block(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
+    """删除单个内容块。"""
     from miniagent.feishu.docx.blocks import delete_block
 
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
@@ -299,6 +308,7 @@ def _action_delete_block(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
 
 
 def _action_batch_update(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
+    """批量更新内容块（支持多种操作类型）。"""
     from miniagent.feishu.docx.blocks import batch_update_blocks
 
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
@@ -321,6 +331,7 @@ def _action_batch_update(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
 
 
 def _action_export_raw(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig) -> ToolResult:
+    """导出云文档正文到本地文件。"""
     from miniagent.feishu.docx.client import get_document_raw_content
 
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
@@ -342,6 +353,7 @@ def _action_export_raw(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig
 
 
 def _action_import_raw(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig) -> ToolResult:
+    """从本地文件导入 Markdown 内容到云文档。"""
     from miniagent.feishu.docx.blocks import append_plain_text_to_document
     from miniagent.feishu.docx.markdown import markdown_to_plain_text
 
@@ -363,6 +375,7 @@ def _action_import_raw(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig
 
 
 def _action_create_table(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
+    """在云文档中创建空白表格块。"""
     from miniagent.feishu.docx.tables import create_table_block
 
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
@@ -379,6 +392,7 @@ def _action_create_table(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
 
 
 def _action_write_table_cells(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
+    """写入表格单元格内容。"""
     from miniagent.feishu.docx.tables import write_table_cells
 
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
@@ -393,6 +407,7 @@ def _action_write_table_cells(args: dict[str, Any], cfg: FeishuConfig) -> ToolRe
 
 
 def _action_create_table_with_values(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
+    """创建表格块并直接填充数据。"""
     from miniagent.feishu.docx.tables import create_table_with_values
 
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
@@ -412,6 +427,7 @@ def _action_create_table_with_values(args: dict[str, Any], cfg: FeishuConfig) ->
 
 
 def _action_upload_image(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig) -> ToolResult:
+    """上传本地图片到云文档并插入。"""
     from miniagent.feishu.docx.media import upload_doc_image_from_path
 
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
@@ -424,6 +440,7 @@ def _action_upload_image(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConf
 
 
 def _action_upload_file(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig) -> ToolResult:
+    """上传本地文件作为云文档附件素材。"""
     from miniagent.feishu.docx.media import upload_doc_file_from_path
 
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
@@ -436,6 +453,7 @@ def _action_upload_file(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfi
 
 
 def _action_download_media(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig) -> ToolResult:
+    """下载云文档素材（图片/附件）到本地文件。"""
     from miniagent.feishu.docx.media import download_media_bytes
 
     tok = str(args.get("file_token") or args.get("token") or "").strip()
@@ -476,6 +494,7 @@ async def _action_upload_image_from_message(
 
 
 def _action_copy(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
+    """复制云文档到指定文件夹。"""
     from miniagent.feishu.drive_extra import copy_file
     from miniagent.feishu.folder_token_resolve import resolve_parent_folder_token
 
@@ -489,6 +508,7 @@ def _action_copy(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
 
 
 def _action_move(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
+    """移动云文档到指定文件夹。"""
     from miniagent.feishu.drive_extra import move_file
     from miniagent.feishu.folder_token_resolve import resolve_parent_folder_token
 
@@ -501,6 +521,7 @@ def _action_move(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
 
 
 def _action_list_permissions(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
+    """列出云文档协作者权限。"""
     from miniagent.feishu.drive_extra import list_permissions
 
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
@@ -511,6 +532,7 @@ def _action_list_permissions(args: dict[str, Any], cfg: FeishuConfig) -> ToolRes
 
 
 def _action_add_permission(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
+    """添加协作者权限（查看/编辑/管理）。"""
     from miniagent.feishu.drive_extra import add_permission
 
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
@@ -526,6 +548,7 @@ def _action_add_permission(args: dict[str, Any], cfg: FeishuConfig) -> ToolResul
 
 
 def _action_remove_permission(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
+    """移除协作者权限。"""
     from miniagent.feishu.drive_extra import remove_permission
 
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
@@ -538,6 +561,7 @@ def _action_remove_permission(args: dict[str, Any], cfg: FeishuConfig) -> ToolRe
 
 
 def _action_search(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
+    """搜索云文档（按关键词或类型筛选）。"""
     from miniagent.feishu.drive_extra import (
         SearchApiError,
         SearchRequiresUserTokenError,

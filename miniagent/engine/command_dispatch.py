@@ -230,6 +230,7 @@ async def dispatch_command(
         factory = rt.create_feishu_handler_factory
 
         def _resolve_feishu_user_status() -> Callable[[str], None] | None:
+            """解析飞书状态行回调：优先使用传入参数，capture 模式下返回 None。"""
             if feishu_user_status is not None:
                 return feishu_user_status
             if capture:
@@ -245,6 +246,7 @@ async def dispatch_command(
                 us = _resolve_feishu_user_status()
 
                 def _start() -> None:
+                    """启动飞书长轮询任务（动态获取当前技能配置）。"""
                     from miniagent.skills.snapshots import (
                         get_skill_prompts_from_state,
                         get_skill_toolboxes_from_state,
@@ -642,6 +644,7 @@ async def _run_review(
     from miniagent.core.llm_json import llm_json
 
     def _write(text: str, color: str = "") -> None:
+        """输出文本：优先走 term_write（全屏 CLI），无 capture 时 fallback 到 print。"""
         if term_write and callable(term_write):
             try:
                 term_write(text, color)
@@ -777,6 +780,7 @@ async def _run_improve(
     from miniagent.core.llm_json import llm_json
 
     def _write(text: str, color: str = "") -> None:
+        """输出文本：优先走 term_write（全屏 CLI），无 capture 时 fallback 到 print。"""
         if term_write and callable(term_write):
             try:
                 term_write(text, color)
@@ -891,6 +895,7 @@ async def _run_test(
     from miniagent.testing.test_runner import run_self_test
 
     def _write(text: str, color: str = "") -> None:
+        """输出文本：优先走 term_write（全屏 CLI），无 capture 时 fallback 到 print。"""
         """适配 cli_transcript_append 的签名 (style, text) -> None"""
         if term_write and callable(term_write):
             try:

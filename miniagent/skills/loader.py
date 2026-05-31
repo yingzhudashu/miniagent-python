@@ -156,6 +156,7 @@ def _map_oc_metadata(meta: dict[str, Any]) -> Any | None:
 
     # 类型安全转换
     def _to_str_list(v: Any) -> list[str] | None:
+        """将值转换为字符串列表（支持 None、列表、单值）。"""
         if v is None:
             return None
         if isinstance(v, list):

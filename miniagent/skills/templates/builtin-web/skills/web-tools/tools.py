@@ -19,10 +19,12 @@ _TAVILY_URL = "https://api.tavily.com/search"
 
 
 def _tavily_api_key() -> str:
+    """获取 Tavily API Key（优先 TAVILY_API_KEY，fallback WEB_SEARCH_API_KEY）。"""
     return (os.environ.get("TAVILY_API_KEY") or os.environ.get("WEB_SEARCH_API_KEY") or "").strip()
 
 
 def _tavily_timeout_sec() -> float:
+    """获取 Tavily 请求超时时间（秒）。"""
     raw = os.environ.get("TAVILY_TIMEOUT", "").strip()
     if raw:
         try:
@@ -36,6 +38,7 @@ def _tavily_timeout_sec() -> float:
 
 
 def _browser_timeout_ms() -> int:
+    """获取浏览器工具超时时间（毫秒）。"""
     raw = os.environ.get("BROWSER_TOOL_TIMEOUT", "").strip()
     if raw:
         try:
@@ -49,6 +52,7 @@ def _browser_timeout_ms() -> int:
 
 
 def _allowed_http_url(url: str, *, https_only: bool = False) -> bool:
+    """验证 URL 是否为有效的 HTTP/HTTPS 链接。"""
     p = urlparse(url.strip())
     if p.scheme not in ("http", "https"):
         return False

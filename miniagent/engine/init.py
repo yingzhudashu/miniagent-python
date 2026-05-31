@@ -210,6 +210,7 @@ def _ensure_baseline_skills() -> None:
 
 
 def _get_skills_root_for_baseline() -> str | None:
+    """获取技能根目录路径（用于基线比较）；失败时返回 None。"""
     try:
         from miniagent.skills.paths import get_skills_root
 

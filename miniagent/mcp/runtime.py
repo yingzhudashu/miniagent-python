@@ -90,6 +90,7 @@ async def register_mcp_stdio_tools(
         spec_o["function"]["name"] = reg_name
 
         def _make_handler(_session: Any, _orig_tool: str):
+            """创建 MCP 工具调用处理器（封装 session.call_tool）。"""
             async def handler(arguments: dict[str, Any], ctx: Any) -> ToolResult:
                 try:
                     res = await _session.call_tool(_orig_tool, arguments)

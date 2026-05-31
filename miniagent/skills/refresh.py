@@ -34,6 +34,7 @@ class RefreshResult:
 
 
 def _resolve_agent_config(config: AgentConfig | None) -> AgentConfig | None:
+    """解析 AgentConfig：传入非空则直接返回，否则尝试获取默认配置。"""
     if config is not None:
         return config
     try:
@@ -128,6 +129,7 @@ async def refresh_skills(
 
 
 def _log_refresh(result: RefreshResult) -> None:
+    """记录技能刷新结果到日志。"""
     _logger.info(
         "技能 refresh: 包=%s 技能数=%d 新增工具=%d 移除工具=%d",
         result.package_ids or "(none)",

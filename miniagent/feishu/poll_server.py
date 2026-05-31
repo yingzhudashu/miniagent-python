@@ -1150,12 +1150,14 @@ def _chunk_feishu_card_markdown(
 def _feishu_interactive_card_dict(
     header_title: str, body_markdown: str, template: str
 ) -> dict[str, Any]:
+    """构造飞书交互卡片 JSON 结构。"""
     from miniagent.feishu.cards.builder import build_interactive_card
 
     return build_interactive_card(header_title, body_markdown, template)
 
 
 def _thinking_interactive_card_dict(cleaned_markdown: str, template: str) -> dict[str, Any]:
+    """构造思考内容交互卡片（可能包含确认按钮）。"""
     from miniagent.feishu.cards.builder import confirmation_buttons, thinking_card_dict
 
     # 检查是否有待确认请求，有则附加按钮
