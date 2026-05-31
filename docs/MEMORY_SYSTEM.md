@@ -1,6 +1,6 @@
 # 三层记忆系统
 
-> 模块: `miniagent/memory/` | 版本: 2.0.2
+> 模块: `miniagent/memory/` | 版本: 2.0.3
 
 ## 架构概览
 
@@ -172,6 +172,19 @@ memory/YYYY-MM-DD.md
 ## Layer 3: 语义检索 (Semantic Memory)
 
 Layer 3 包含两个互补的检索后端：关键词索引（始终启用）和嵌入搜索（环境变量控制）。
+两者共享一个文本注册表以避免重复存储。
+
+### 共享文本注册表
+
+**位置**: `miniagent/memory/shared_registry.py`
+
+关键词索引与嵌入搜索共用 `MemoryEntryRegistry`，避免重复存储 `user_snippet`、`summary`、`facts` 等文本字段：
+
+- **存储结构**：以 `session_id:timestamp` 为键存储完整文本
+- **引用模式**：两个索引只存储键，按需从注册表获取内容
+- **内存节省**：约 50%（原每条记忆在两索引各存 ~500 字符 → 现仅存一份）
+- **上限驱逐**：默认 3000 条（`MINIAGENT_REGISTRY_MAX_ENTRIES`），超限驱逐最早条目
+- **持久化**：`workspaces/memory-registry.json`
 
 ### 关键词索引
 
@@ -301,6 +314,7 @@ messages = [
 | 变量 | 默认值 | 影响模块 |
 |------|--------|----------|
 | `MINIAGENT_MEMORY_STORE_CACHE_MAX` | `50` | `store.py` LRU 缓存上限（会话数） |
+| `MINIAGENT_REGISTRY_MAX_ENTRIES` | `3000` | `shared_registry.py` 共享注册表上限 |
 | `MINIAGENT_KEYWORD_INDEX_MAX` | `20000` | `keyword_index.py` 关键词数上限 |
 | `MINIAGENT_EMBED_SEARCH` | `0` | `embedding_search.py` 是否启用嵌入搜索 |
 | `MINIAGENT_EMBED_MAX_ENTRIES` | `10000` | `embedding_search.py` 嵌入条目上限 |

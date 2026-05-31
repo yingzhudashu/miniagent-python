@@ -1,6 +1,6 @@
 # 系统架构
 
-> Mini Agent Python | 版本: 2.0.2 | 架构图: [architecture.drawio](architecture.drawio)
+> Mini Agent Python | 版本: 2.0.3 | 架构图: [architecture.drawio](architecture.drawio)
 
 ## 架构总览
 

@@ -6,6 +6,21 @@
 
 本文档说明 Agent 从输入到输出的完整格式规范，涵盖 CLI 全屏模式、CLI 回退模式、飞书卡片模式三种渲染路径。
 
+## 输出前缀规范
+
+工具返回、CLI提示、飞书回复等场景统一使用以下 emoji 前缀（定义于 `miniagent/types/error_prefix.py`）：
+
+| 前缀 | 常量 | 含义 | 使用场景 |
+|------|------|------|----------|
+| ❌ | `ERROR_PREFIX` | 操作失败 | 文件不存在、权限拒绝、API 错误 |
+| ⚠️ | `WARNING_PREFIX` | 提示/警告 | 配置缺失、建议、需确认、非致命错误 |
+| ✅ | `SUCCESS_PREFIX` | 操作成功 | 文件写入、发送完成、创建成功 |
+
+**约定**：
+- `ToolResult(success=False, content=...)` 应使用 `ERROR_PREFIX` 或 `WARNING_PREFIX`
+- 飞书消息去重机制：`⚠️` 前缀的回复不入磁盘去重（`poll_server.py`）
+- 逐步迁移：新模块使用常量导入，旧模块逐步替换硬编码 emoji
+
 ## 1. CLI 全屏模式（prompt_toolkit TUI）
 
 ### 1.1 轮次结构
