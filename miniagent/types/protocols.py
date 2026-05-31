@@ -104,6 +104,7 @@ class OnThinkingCallback(Protocol):
         *,
         full_record: str | None = None,
         reset: bool = False,
+        is_last_step: bool = False,
     ) -> None: ...
 
 

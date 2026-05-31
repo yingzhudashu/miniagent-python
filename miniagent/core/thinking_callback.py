@@ -28,8 +28,9 @@ async def invoke_on_thinking(
     *,
     full_record: str | None = None,
     reset: bool = False,
+    is_last_step: bool = False,
 ) -> None:
-    """调用 ``on_thinking``；若签名含 ``full_record`` 或 ``reset`` 或 ``**kwargs``，则尝试传入。
+    """调用 ``on_thinking``；若签名含 ``full_record`` 或 ``reset`` 或 ``is_last_step`` 或 ``**kwargs``，则尝试传入。
 
     Args:
         cb: 回调函数
@@ -38,6 +39,7 @@ async def invoke_on_thinking(
         header: 阶段标签（如 ``[评估与计划]``）
         full_record: 完整记录文本（用于会话历史落盘）
         reset: 是否重置该 header 的聚合状态（用于清除重复内容）
+        is_last_step: 是否为规划的最后一步（最后一步的 LLM 正文不在思考区显示，避免重复）
     """
     if cb is None:
         return
@@ -46,6 +48,7 @@ async def invoke_on_thinking(
         params = sig.parameters
         has_fr = "full_record" in params
         has_reset = "reset" in params
+        has_last = "is_last_step" in params
         has_varkw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
         # 构建可选参数字典
         extra_kwargs: dict[str, Any] = {}
@@ -53,6 +56,8 @@ async def invoke_on_thinking(
             extra_kwargs["full_record"] = full_record
         if reset and (has_reset or has_varkw):
             extra_kwargs["reset"] = reset
+        if is_last_step and (has_last or has_varkw):
+            extra_kwargs["is_last_step"] = is_last_step
         if extra_kwargs:
             try:
                 await cb(text, streaming, header, **extra_kwargs)

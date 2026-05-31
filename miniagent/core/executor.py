@@ -480,6 +480,7 @@ async def execute_plan(
         merge_overrides: dict[str, Any] | None,
         tools_arg: list[Any],
         thinking_phase_label: str,
+        is_last_step: bool = False,
     ) -> tuple[Any, dict[str, Any], int, Any, str, str]:
         """流式调用执行阶段 LLM 一轮，聚合正文与 tool_calls，并驱动 ``on_thinking``。
 
@@ -487,6 +488,7 @@ async def execute_plan(
             merge_overrides: 模型参数覆盖（如 thinking_level/budget）
             tools_arg: 本轮可用的工具定义列表（传给 LLM tools 参数）
             thinking_phase_label: 思考流分段标题（如 "[执行]" 或 "[步骤 1/3]"）
+            is_last_step: 是否为规划的最后一步（最后一步的 LLM 正文不在思考区显示）
 
         Returns:
             tuple: (msg, usage, elapsed_ms, tool_calls, full_content, thinking_header)
@@ -570,6 +572,7 @@ async def execute_plan(
                             True,
                             thinking_phase_label,
                             full_record=cum,
+                            is_last_step=is_last_step,
                         )
                     except Exception:
                         pass
@@ -910,7 +913,7 @@ async def execute_plan(
         while turns_left > 0:
             turns_left -= 1
             msg, _exec_kw, start_ms, _usage, _full_content, turn_label = await _stream_exec_turn(
-                None, tools, "[执行]"
+                None, tools, "[执行]", is_last_step=True
             )
 
             if not msg.tool_calls:
@@ -996,7 +999,7 @@ async def execute_plan(
                 turns_left -= 1
                 sub_left -= 1
                 msg, _ek, start_ms, _u, _fc, turn_label = await _stream_exec_turn(
-                    step_merge, step_tools, phase_lbl
+                    step_merge, step_tools, phase_lbl, is_last_step=is_last
                 )
 
                 if not msg.tool_calls:
@@ -1032,7 +1035,7 @@ async def execute_plan(
                         return oob_g
                     turns_left -= 1
                     msg_g, _, start_ms_g, _, _, _ = await _stream_exec_turn(
-                        step_merge, [], phase_lbl
+                        step_merge, [], phase_lbl, is_last_step=True
                     )
                     if not msg_g.tool_calls:
                         final_reply = msg_g.content or "(空回复)"

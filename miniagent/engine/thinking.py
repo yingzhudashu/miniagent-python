@@ -305,7 +305,7 @@ class ThinkingDisplay:
             print_formatted_text(ft, end="")
             sys.stdout.flush()
 
-    def _emit_line(self, text: str, color: str = "ansiblue") -> None:
+    def _emit_line(self, text: str, color: str = "ansigray") -> None:
         """统一换行输出入口。"""
         if self._output_sink:
             if self._sink_has_kind:
@@ -461,6 +461,7 @@ class ThinkingDisplay:
         streaming: bool = False,
         header: str = "",
         reset: bool = False,
+        is_last_step: bool = False,
     ) -> None:
         """展示一段思考：同步飞书卡片、CLI transcript/print、merge_tools 与流式状态机。
 
@@ -485,6 +486,7 @@ class ThinkingDisplay:
             streaming: 是否流式输出（LLM 逐 token）。
             header: 阶段标签（如 ``[规划]``, ``[执行]``, ``[步骤 1/3]``）。
             reset: 是否重置流式状态（用于语义不同的新阶段清除旧状态）。
+            is_last_step: 是否为规划的最后一步（最后一步的 LLM 正文不在思考区显示，避免重复）。
         """
         state = self._get_state(session_key)
 
@@ -538,7 +540,8 @@ class ThinkingDisplay:
         )
 
         # 飞书实时推送（与下方 CLI transcript 镜像可并存）；正文用原始文本便于 lark_md
-        if state.feishu_send and state.feishu_chat_id:
+        # 最后一步的 LLM 流式正文不发送到飞书思考卡（避免与最终结论重复）
+        if state.feishu_send and state.feishu_chat_id and not (is_last_step and streaming):
             # 非流式、无活跃流、merge_tools 开启：仅初始化状态，不发独立卡片。
             # 首张卡片由后续 LLM 流式创建（push_feishu_thinking_stream），工具行
             # 走 append_feishu_thinking_same_card 追加入同卡。
@@ -618,6 +621,11 @@ class ThinkingDisplay:
 
         # CLI（全屏 sink 或 print_formatted_text；飞书+sink 时镜像到 transcript）
         if streaming:
+            # 最后一步的 LLM 流式正文不在思考区显示，避免与最终结论重复
+            # 且不更新流式状态，以免影响后续非流式（tool_finish）的显示
+            if is_last_step:
+                return
+
             # 首次流式或新阶段：打印 header 标签
             if state.stream_step is None:
                 # 前一个流式阶段已结束（非流式调用结束或 end_thinking），先补空行
@@ -631,7 +639,7 @@ class ThinkingDisplay:
                 state._last_stream_full = ""
                 label = f"\U0001f4ad [{state.stream_step}] {state.stream_header}"
                 if self._should_emit_cli(state):
-                    self._emit_line(label, "blue")
+                    self._emit_line(label, "gray")
 
             self._show_streaming(state, text)
         else:
@@ -679,7 +687,7 @@ class ThinkingDisplay:
                     if _is_transition:
                         self._emit("\n\n")  # 阶段间空行：规划与执行之间留一行间隔
                     label = f"\U0001f4ad [{state.stream_step}] {state.stream_header}"
-                    self._emit_line(label, "blue")
+                    self._emit_line(label, "gray")
                 if self._should_emit_cli(state):
                     # 与非 merge_tools 路径保持一致的 Rich Markdown 渲染
                     body_md = "\n".join(lines)
@@ -710,7 +718,7 @@ class ThinkingDisplay:
 
             if self._should_emit_cli(state):
                 hdr_part = f" {saved_header}" if saved_header else ""
-                self._emit_line(f"\U0001f4ad [{step}]{hdr_part}", "blue")
+                self._emit_line(f"\U0001f4ad [{step}]{hdr_part}", "gray")
                 body_md = text or ""
                 ansi_body: str | None = None
                 if (

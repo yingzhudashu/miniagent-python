@@ -346,6 +346,7 @@ class UnifiedEngine:
             *,
             full_record: str | None = None,
             reset: bool = False,
+            is_last_step: bool = False,
         ) -> None:
             """桥接 :meth:`run_agent` 的 ``on_thinking``：更新按标签聚合的缓冲并驱动 UI/飞书展示。
 
@@ -364,6 +365,7 @@ class UnifiedEngine:
 
             Args:
                 reset: 若为 True，清除该 header 对应的已有聚合内容（用于避免重复显示）
+                is_last_step: 若为 True，表示这是最后一步的 LLM 思考内容（不在思考区显示，避免重复）
             """
             record = full_record if full_record is not None else text
             key = header if (header or "").strip() else "__stream__"
@@ -395,8 +397,9 @@ class UnifiedEngine:
             else:
                 display_text = thinking_by_label.get(key, "") if (header or "").strip() else text
             # 关键修复：传递 reset 参数，让 ThinkingDisplay 在 reset=True 时重置流式状态
+            # 传递 is_last_step 参数，最后一步的 LLM 正文不在思考区显示（避免与最终结论重复）
             await self.thinking.show(
-                display_text or text, session_key, streaming=streaming, header=header, reset=reset
+                display_text or text, session_key, streaming=streaming, header=header, reset=reset, is_last_step=is_last_step
             )
 
         async def _tool_finish(
