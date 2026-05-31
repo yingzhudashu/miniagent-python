@@ -644,6 +644,11 @@ class ThinkingDisplay:
             self._show_streaming(state, text)
         else:
             # 非流式：结束之前的流式
+            # 最后一步的阶段开始提示（如 "[步骤 X/Y] 开始"）不在思考区显示
+            # tool_finish 等回调的 is_last_step 默认为 False，会正常显示
+            if is_last_step and text.strip().endswith("开始"):
+                return
+
             saved_header = ""
             if state.stream_step is not None and not state.stream_done:
                 if self._should_emit_cli(state):

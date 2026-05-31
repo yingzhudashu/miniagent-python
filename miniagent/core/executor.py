@@ -529,6 +529,7 @@ async def execute_plan(
                         False,
                         thinking_phase_label,
                         full_record=f"{thinking_phase_label} 开始",
+                        is_last_step=is_last_step,
                     )
                     _phase_header_sent.add(thinking_phase_label)
                 _thinking_started = True
