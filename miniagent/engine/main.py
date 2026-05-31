@@ -1370,15 +1370,22 @@ async def run_cli_loop(
             try:
                 md_w = _markdown_render_width()
                 # 检查最后一个元素是否是 ANSI 对象（正在进行流式输出）
+                # 关键：只有当 _source_md 属性存在时才合并（确保内容不丢失）
                 if _transcript and isinstance(_transcript[-1], PTANSI):
-                    # 流式输出：提取前一个 ANSI 对象的原始文本，合并新内容
-                    prev_text = getattr(_transcript[-1], "_source_md", "") or ""
-                    full_text = prev_text + fragment
-                    # 渲染完整文本（换行计算基于整体内容）
-                    ansi_body = render_markdown_to_ansi(full_text, width=md_w, justify="left")
-                    # 替换最后一个 ANSI 对象（而非追加新的）
-                    _transcript[-1] = ANSI(ansi_body)
-                    _attach_md_source(_transcript[-1], full_text)
+                    prev_text = getattr(_transcript[-1], "_source_md", None)
+                    if prev_text is not None:
+                        # 流式输出：合并新内容，渲染完整文本（换行计算基于整体内容）
+                        full_text = prev_text + fragment
+                        ansi_body = render_markdown_to_ansi(full_text, width=md_w, justify="left")
+                        # 替换最后一个 ANSI 对象（而非追加新的）
+                        _transcript[-1] = ANSI(ansi_body)
+                        _attach_md_source(_transcript[-1], full_text)
+                    else:
+                        # 没有 _source_md（非流式创建的 ANSI 对象），不合并，正常追加
+                        ansi_body = render_markdown_to_ansi(fragment, width=md_w, justify="left")
+                        ansi_obj = ANSI(ansi_body)
+                        _attach_md_source(ansi_obj, fragment)
+                        _transcript.append(ansi_obj)
                 else:
                     # 非流式输出或首个 chunk：正常 ANSI 渲染并追加
                     ansi_body = render_markdown_to_ansi(fragment, width=md_w, justify="left")
