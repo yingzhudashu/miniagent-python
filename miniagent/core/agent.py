@@ -51,6 +51,7 @@ from miniagent.types.planning import (
     StructuredPlan,
     SuggestedConfig,
 )
+from miniagent.types.protocols import OnThinkingCallback, OnToolFinishCallback
 from miniagent.types.tool import Toolbox, ToolContext, ToolRegistryProtocol
 
 _logger = get_logger(__name__)
@@ -173,10 +174,9 @@ def _format_plan_message(
 # ─── 回调类型 ────────────────────────────────────────────
 
 OnToolCall = Callable[[str, str, str], None]
-OnToolFinish = Callable[..., Awaitable[None]]
+OnToolFinish = OnToolFinishCallback
 OnPlan = Callable[[StructuredPlan], Awaitable[bool]]
-# 兼容三参回调；支持可选关键字 ``full_record`` 的引擎见 ``invoke_on_thinking``。
-OnThinking = Callable[..., Awaitable[None]]
+OnThinking = OnThinkingCallback
 
 
 # ─── 主入口 ──────────────────────────────────────────────

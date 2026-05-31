@@ -24,7 +24,16 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from miniagent.types.protocols import (
+        ActivityLogProtocol,
+        KeywordIndexProtocol,
+        MemoryStoreProtocol,
+        ToolMonitorProtocol,
+        ToolRegistryProtocol,
+    )
 
 
 @dataclass
@@ -53,17 +62,17 @@ class RuntimeContext:
         skills_watch_task / skills_watch_stop_event: ``MINIAGENT_SKILLS_WATCH`` 目录监视任务。
     """
 
-    registry: Any
-    monitor: Any
+    registry: ToolRegistryProtocol
+    monitor: ToolMonitorProtocol
     skill_registry: Any
     clawhub: Any
     engine: Any
     channel_router: Any
     message_queue: Any
     feishu: Any
-    memory_store: Any
-    activity_log: Any
-    keyword_index: Any
+    memory_store: MemoryStoreProtocol
+    activity_log: ActivityLogProtocol
+    keyword_index: KeywordIndexProtocol
     openai_client: Any | None = None
     create_feishu_handler_factory: Callable[..., Any] | None = field(default=None, repr=False)
     cli_transcript_append_ansi: Callable[[Any], None] | None = field(default=None, repr=False)

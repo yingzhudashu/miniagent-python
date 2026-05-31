@@ -8,7 +8,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from miniagent.types.protocols import ToolRegistryProtocol
+    from miniagent.types.tool import Toolbox
 
 # ============================================================================
 # ModelConfig — 模型层配置
@@ -115,8 +119,8 @@ class AgentConfig:
     model_overrides: dict[str, Any] = field(default_factory=dict)
     session_key: str | None = None
     session_workspace: str | None = None
-    session_registry: Any | None = None  # ToolRegistryProtocol (optional session-level registry)
-    session_toolboxes: list[Any] = field(default_factory=list)  # list[Toolbox]
+    session_registry: ToolRegistryProtocol | None = None
+    session_toolboxes: list[Toolbox] = field(default_factory=list)
     conversation_history: list[dict[str, str]] = field(default_factory=list)
     risk_level: str | None = None  # "low" | "medium" | "high"
     cli_loop_state: Any | None = None

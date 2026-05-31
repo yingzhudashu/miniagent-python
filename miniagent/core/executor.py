@@ -57,6 +57,7 @@ from miniagent.types.agent import LoopDetectionConfig, ToolMonitorProtocol
 from miniagent.types.config import AgentConfig
 from miniagent.types.memory import MemoryEntryInput
 from miniagent.types.planning import PlanStep, StructuredPlan
+from miniagent.types.protocols import OnThinkingCallback, OnToolFinishCallback
 from miniagent.types.tool import ToolContext, ToolRegistryProtocol, ToolResult
 
 # ── 性能优化：工具意图映射改为模块级常量，避免每次调用重建 ──
@@ -265,9 +266,9 @@ def _append_context_or_return(
 # ─── 回调类型 ────────────────────────────────────────────
 
 OnToolCall = Callable[[str, str, str], None]  # (name, args_json, result)
-OnThinking = Callable[..., Awaitable[None]]  # (text, streaming, header, *, full_record=...)
-# 兼容仅 4 参回调；支持可选关键字 thinking_header（与当前 ReAct 轮标签一致，供飞书合并展示）。
-OnToolFinish = Callable[..., Awaitable[None]]
+# 使用 Protocol 类型替代 Callable[..., Any]，详见 miniagent/types/protocols.py
+OnThinking = OnThinkingCallback  # (text, streaming, header, *, full_record=..., reset=...)
+OnToolFinish = OnToolFinishCallback  # (name, args_json, result, success, *, thinking_header=...)
 
 
 # ─── 核心：execute_plan（ReAct 主循环；可选分步子循环 + 无 tools 收尾 synthesis）──
