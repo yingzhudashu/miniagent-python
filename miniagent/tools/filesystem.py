@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from miniagent.security.sandbox import get_default_workspace, resolve_sandbox_path
+from miniagent.types.error_prefix import ERROR_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 # 导入共享路径解析函数（消除重复代码）
@@ -79,11 +80,11 @@ async def _read_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
             Path(file_path).read_text, encoding="utf-8"
         )
     except FileNotFoundError:
-        return ToolResult(success=False, content=f"❌ 文件不存在: {args['path']}")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 文件不存在: {args['path']}")
     except PermissionError:
-        return ToolResult(success=False, content=f"❌ 权限不足，无法读取: {args['path']}")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 权限不足，无法读取: {args['path']}")
     except IsADirectoryError:
-        return ToolResult(success=False, content=f"❌ 路径是目录而非文件: {args['path']}")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 路径是目录而非文件: {args['path']}")
     lines = content.split("\n")
     total = len(lines)
 
@@ -143,9 +144,9 @@ async def _write_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolRes
             Path(file_path).write_text, content, encoding="utf-8"
         )
     except PermissionError:
-        return ToolResult(success=False, content=f"❌ 权限不足，无法写入: {args['path']}")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 权限不足，无法写入: {args['path']}")
     except OSError as e:
-        return ToolResult(success=False, content=f"❌ 写入失败: {e}")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 写入失败: {e}")
 
     return ToolResult(success=True, content=f"✅ 已写入 {file_path} ({len(content)} 字节)")
 
@@ -195,17 +196,17 @@ async def _edit_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
             Path(file_path).read_text, encoding="utf-8"
         )
     except FileNotFoundError:
-        return ToolResult(success=False, content=f"❌ 文件不存在: {file_path}")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 文件不存在: {file_path}")
     except OSError as e:
-        return ToolResult(success=False, content=f"❌ 读取文件失败: {e}")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 读取文件失败: {e}")
 
     occurrences = content.count(old_text)
 
     if occurrences == 0:
-        return ToolResult(success=False, content=f'❌ 未找到匹配的文本: "{old_text[:50]}..."')
+        return ToolResult(success=False, content=f'{ERROR_PREFIX} 未找到匹配的文本: "{old_text[:50]}..."')
     if occurrences > 1:
         return ToolResult(
-            success=False, content=f"❌ 找到 {occurrences} 处匹配，请提供更精确的 oldText"
+            success=False, content=f"{ERROR_PREFIX} 找到 {occurrences} 处匹配，请提供更精确的 oldText"
         )
 
     updated = content.replace(old_text, new_text, 1)
@@ -257,7 +258,7 @@ async def _list_dir_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResul
 
     p = Path(dir_path)
     if not p.exists() or not p.is_dir():
-        return ToolResult(success=False, content=f"❌ 目录不存在: {dir_path}")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 目录不存在: {dir_path}")
 
     if recursive:
         entries: list[str] = []
@@ -363,14 +364,14 @@ async def _move_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
     dst = _resolve_file_path(str(args["to"]), ctx)
 
     if not os.path.exists(src):
-        return ToolResult(success=False, content=f"❌ 源文件不存在: {src}")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 源文件不存在: {src}")
 
     try:
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         shutil.move(src, dst)
         return ToolResult(success=True, content=f"✅ 已移动: {src} → {dst}")
     except OSError as e:
-        return ToolResult(success=False, content=f"❌ 移动失败: {e}")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 移动失败: {e}")
 
 
 # ════════════════════════════════════════════════════════
@@ -410,14 +411,14 @@ async def _copy_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
     dst = _resolve_file_path(str(args["to"]), ctx)
 
     if not os.path.exists(src):
-        return ToolResult(success=False, content=f"❌ 源文件不存在: {src}")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 源文件不存在: {src}")
 
     try:
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         shutil.copy2(src, dst)
         return ToolResult(success=True, content=f"✅ 已复制: {src} → {dst}")
     except OSError as e:
-        return ToolResult(success=False, content=f"❌ 复制失败: {e}")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 复制失败: {e}")
 
 
 # ════════════════════════════════════════════════════════
@@ -460,7 +461,7 @@ async def _delete_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolRe
     p = Path(file_path)
     if p.is_dir():
         if not recursive:
-            return ToolResult(success=False, content="❌ 删除目录需设置 recursive=true")
+            return ToolResult(success=False, content=f"{ERROR_PREFIX} 删除目录需设置 recursive=true")
         shutil.rmtree(file_path)
     else:
         p.unlink()
