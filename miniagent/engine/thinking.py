@@ -442,6 +442,7 @@ class ThinkingDisplay:
         session_key: str = "",
         streaming: bool = False,
         header: str = "",
+        reset: bool = False,
     ) -> None:
         """展示一段思考：同步飞书卡片、CLI transcript/print、merge_tools 与流式状态机。
 
@@ -458,23 +459,26 @@ class ThinkingDisplay:
         │  stream_step=N+1（新阶段，重新计数）                           │
         └─────────────────────────────────────────────────────────────────┘
 
-        阶段切换（header 变化）时先 PATCH 收尾当前流式卡片，再开新阶段。
+        阶段切换（header 变化）或 reset=True 时先 PATCH 收尾当前流式卡片，再开新阶段。
 
         Args:
             text: 思考正文（Markdown 或纯文本）。
             session_key: 会话标识（用于状态隔离）。
             streaming: 是否流式输出（LLM 逐 token）。
             header: 阶段标签（如 ``[规划]``, ``[执行]``, ``[步骤 1/3]``）。
+            reset: 是否重置流式状态（用于语义不同的新阶段清除旧状态）。
         """
         state = self._get_state(session_key)
 
         hdr = (header or "").strip()
 
-        # 流式或非流式阶段切换：先于飞书 PATCH，避免新阶段正文拼进上一张卡。
+        # reset=True 或流式/非流式阶段切换：先于飞书 PATCH，避免新阶段正文拼进上一张卡。
         # 注意：不要求 streaming=True，否则 [执行] 开始（streaming=False）无法检测到从规划到执行的 header 变化。
         phase_changed = (
             bool(hdr) and bool(state.stream_header) and hdr != state.stream_header
         )
+        # 关键修复：reset=True 也触发状态重置，避免语义不同的新内容与旧流式状态拼接导致重复显示
+        should_reset_stream = phase_changed or reset
         if phase_changed:
             if state.feishu_send and state.feishu_chat_id:
                 open_feishu = bool(getattr(state, "feishu_thinking_message_id", None))
@@ -494,6 +498,9 @@ class ThinkingDisplay:
                             "feishu_send 不支持 finalize_only，阶段切换时可能未收尾思考卡",
                             exc_info=True,
                         )
+        # 关键修复：流式状态重置在 phase_changed 或 reset=True 时都执行
+        # reset=True 表示语义不同的新内容，需要清除旧的 stream_printed 和 _last_stream_full
+        if should_reset_stream:
             # 注意：飞书状态由后续 push_feishu_thinking_stream(new_round=True) 统一清理，
             # 此处不重复清除，避免与 new_round 路径双重清零。
             # CLI 空行由下方 streaming 块的 stream_done 检查统一处理，避免此处 emit 后又在下方的

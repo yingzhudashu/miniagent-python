@@ -394,8 +394,9 @@ class UnifiedEngine:
                 display_text = text
             else:
                 display_text = thinking_by_label.get(key, "") if (header or "").strip() else text
+            # 关键修复：传递 reset 参数，让 ThinkingDisplay 在 reset=True 时重置流式状态
             await self.thinking.show(
-                display_text or text, session_key, streaming=streaming, header=header
+                display_text or text, session_key, streaming=streaming, header=header, reset=reset
             )
 
         async def _tool_finish(
