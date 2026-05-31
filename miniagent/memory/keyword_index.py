@@ -35,6 +35,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from miniagent.infrastructure.logger import get_logger
+from miniagent.memory.shared_registry import MemoryEntryRegistry, get_registry
 from miniagent.types.memory import MemoryEntry, MemoryEntryInput
 
 _logger = get_logger(__name__)
@@ -184,13 +185,9 @@ _RE_CJK_ONLY = re.compile(r"[^一-鿿]")
 
 @dataclass
 class _IndexReference:
-    """索引中的记忆引用"""
+    """索引中的记忆引用（仅存储键，文本从共享注册表获取）。"""
 
-    session_id: str
-    timestamp: str
-    user_snippet: str
-    summary: str
-    facts: list[str] = field(default_factory=list)
+    entry_key: str  # "session_id:timestamp"
     weight: float = 1.0
 
 
@@ -205,13 +202,9 @@ class _IndexEntry:
 
 @dataclass
 class _SearchResult:
-    """检索结果"""
+    """检索结果（文本从共享注册表获取）。"""
 
-    session_id: str
-    timestamp: str
-    user_snippet: str
-    summary: str
-    facts: list[str] = field(default_factory=list)
+    entry_key: str  # "session_id:timestamp"
     score: float = 0.0
 
 
@@ -269,6 +262,7 @@ class KeywordIndex:
     """关键词倒排索引
 
     管理记忆的关键词提取、索引构建和相关检索。
+    文本内容存储在共享注册表，索引仅存储键引用。
 
     Example:
         idx = KeywordIndex(state_dir="./workspaces")
@@ -276,13 +270,19 @@ class KeywordIndex:
         results = idx.search_relevant("我的投资偏好")
     """
 
-    def __init__(self, state_dir: str = "workspaces") -> None:
+    def __init__(
+        self,
+        state_dir: str = "workspaces",
+        registry: MemoryEntryRegistry | None = None,
+    ) -> None:
         """创建关键词索引
 
         Args:
             state_dir: 状态存储目录
+            registry: 共享注册表实例（None 时使用全局默认）
         """
         self._state_dir = state_dir
+        self._registry = registry or get_registry(state_dir)
         self._index: collections.OrderedDict[str, _IndexEntry] = collections.OrderedDict()
         self._max_entries: int = int(os.environ.get("MINIAGENT_KEYWORD_INDEX_MAX", "20000"))
         self._loaded = False
@@ -308,17 +308,13 @@ class KeywordIndex:
             for keyword, data in disk.get("index", {}).items():
                 refs = [
                     _IndexReference(
-                        session_id=r["session_id"],
-                        timestamp=r["timestamp"],
-                        user_snippet=r["user_snippet"],
-                        summary=r["summary"],
-                        facts=r.get("facts", []),
+                        entry_key=r["entry_key"],
                         weight=r.get("weight", 1.0),
                     )
                     for r in data.get("references", [])
                 ]
                 self._index[keyword] = _IndexEntry(keyword=keyword, references=refs)
-                self._index[keyword].seen = {(r.session_id, r.timestamp) for r in refs}
+                self._index[keyword].seen = {(r.entry_key) for r in refs}
 
             self._loaded = True
             self._dirty = False
@@ -343,18 +339,14 @@ class KeywordIndex:
         try:
             os.makedirs(self._state_dir, exist_ok=True)
             disk = {
-                "version": 1,
+                "version": 2,  # 新版本：仅存储键引用
                 "updated_at": datetime.now(timezone.utc).isoformat(),
                 "total_entries": len(self._index),
                 "index": {
                     k: {
                         "references": [
                             {
-                                "session_id": r.session_id,
-                                "timestamp": r.timestamp,
-                                "user_snippet": r.user_snippet,
-                                "summary": r.summary,
-                                "facts": r.facts,
+                                "entry_key": r.entry_key,
                                 "weight": r.weight,
                             }
                             for r in v.references
@@ -378,6 +370,9 @@ class KeywordIndex:
         """
         self._ensure_loaded()
 
+        # 注册到共享注册表
+        entry_key = self._registry.register(session_id, entry)
+
         # 组合文本用于提取关键词
         facts = getattr(entry, "facts", []) or []
         full_text = " ".join(
@@ -396,20 +391,15 @@ class KeywordIndex:
 
             idx_entry = self._index[keyword]
 
-            # 检查是否已存在相同会话 + 时间戳的引用
-            ref_key = (session_id, entry.timestamp)
-            if ref_key not in idx_entry.seen:
+            # 检查是否已存在相同键的引用
+            if entry_key not in idx_entry.seen:
                 idx_entry.references.append(
                     _IndexReference(
-                        session_id=session_id,
-                        timestamp=entry.timestamp,
-                        user_snippet=entry.user_snippet,
-                        summary=entry.summary,
-                        facts=getattr(entry, "facts", []) or [],
+                        entry_key=entry_key,
                         weight=1.0,
                     )
                 )
-                idx_entry.seen.add(ref_key)
+                idx_entry.seen.add(entry_key)
                 self._dirty = True
 
         # 超过上限时驱逐最早关键词
@@ -453,17 +443,18 @@ class KeywordIndex:
                 continue
 
             for ref in idx_entry.references:
-                if cutoff_time and ref.timestamp < cutoff_time:
+                # 从注册表获取时间戳用于过滤
+                shared_entry = self._registry.get(ref.entry_key)
+                if shared_entry is None:
                     continue
 
-                key = f"{ref.session_id}:{ref.timestamp}"
+                if cutoff_time and shared_entry.timestamp < cutoff_time:
+                    continue
+
+                key = ref.entry_key
                 if key not in scores:
                     scores[key] = _SearchResult(
-                        session_id=ref.session_id,
-                        timestamp=ref.timestamp,
-                        user_snippet=ref.user_snippet,
-                        summary=ref.summary,
-                        facts=ref.facts,
+                        entry_key=key,
                         score=0.0,
                     )
 
@@ -489,10 +480,13 @@ class KeywordIndex:
 
         parts = ["## 相关记忆检索"]
         for r in results:
-            time_str = r.timestamp[:16].replace("T", " ")
-            parts.append(f"- [{time_str}] {r.user_snippet} → {r.summary}")
-            if r.facts:
-                for f_item in r.facts[:3]:
+            shared_entry = self._registry.get(r.entry_key)
+            if shared_entry is None:
+                continue
+            time_str = shared_entry.timestamp[:16].replace("T", " ")
+            parts.append(f"- [{time_str}] {shared_entry.user_snippet} → {shared_entry.summary}")
+            if shared_entry.facts:
+                for f_item in shared_entry.facts[:3]:
                     parts.append(f"    事实: {f_item}")
 
         return "\n".join(parts)
@@ -538,7 +532,12 @@ class KeywordIndex:
 
         for entry in self._index.values():
             before = len(entry.references)
-            entry.references = [r for r in entry.references if r.timestamp >= cutoff]
+            # 过滤：从注册表获取时间戳判断（单次获取避免重复调用）
+            entry.references = [
+                r for r in entry.references
+                if (shared := self._registry.get(r.entry_key)) is not None
+                and shared.timestamp >= cutoff
+            ]
             removed_count += before - len(entry.references)
 
         # 清空关键词
@@ -566,18 +565,20 @@ def search_relevant_with_index(
 ) -> list[dict[str, Any]]:
     """在给定索引实例上搜索相关记忆（供注入式 KeywordIndex 使用）。"""
     results = index.search_relevant(query, limit=top_k)
-    return [
-        {
-            "session_id": r.session_id,
-            "timestamp": r.timestamp,
-            "summary": r.summary,
-            "user_snippet": r.user_snippet,
-            "facts": r.facts,
-            "score": r.score,
-        }
-        for r in results
-        if r.score >= min_score
-    ]
+    output = []
+    for r in results:
+        if r.score >= min_score:
+            shared_entry = index._registry.get(r.entry_key)
+            if shared_entry is not None:
+                output.append({
+                    "session_id": shared_entry.session_id,
+                    "timestamp": shared_entry.timestamp,
+                    "summary": shared_entry.summary,
+                    "user_snippet": shared_entry.user_snippet,
+                    "facts": shared_entry.facts,
+                    "score": r.score,
+                })
+    return output
 
 
 def search_relevant_memory(query: str, top_k: int = 5, min_score: int = 0) -> list[dict[str, Any]]:
@@ -587,18 +588,20 @@ def search_relevant_memory(query: str, top_k: int = 5, min_score: int = 0) -> li
     idx = get_process_default_memory_bundle()[2]
     results = idx.search_relevant(query, limit=top_k)
     # 转换为 dict 列表以兼容下游
-    return [
-        {
-            "session_id": r.session_id,
-            "timestamp": r.timestamp,
-            "summary": r.summary,
-            "user_snippet": r.user_snippet,
-            "facts": r.facts,
-            "score": r.score,
-        }
-        for r in results
-        if r.score >= min_score
-    ]
+    output = []
+    for r in results:
+        if r.score >= min_score:
+            shared_entry = idx._registry.get(r.entry_key)
+            if shared_entry is not None:
+                output.append({
+                    "session_id": shared_entry.session_id,
+                    "timestamp": shared_entry.timestamp,
+                    "summary": shared_entry.summary,
+                    "user_snippet": shared_entry.user_snippet,
+                    "facts": shared_entry.facts,
+                    "score": r.score,
+                })
+    return output
 
 
 def format_search_results(results: list[dict[str, Any]]) -> str:

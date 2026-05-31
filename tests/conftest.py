@@ -22,9 +22,13 @@ def state_dir(monkeypatch: pytest.MonkeyPatch) -> str:
 @pytest.fixture(autouse=True)
 def _reset_process_singletons_after_test() -> None:
     """Teardown：重置进程级默认记忆 bundle 与共享 AsyncOpenAI，减轻测试顺序敏感。"""
+    from miniagent.core.executor import _reset_env_caches_for_tests
     from miniagent.core.openai_client import reset_shared_async_openai_for_tests
+    from miniagent.infrastructure.loop_detector import clear_args_cache
     from miniagent.memory.defaults import reset_process_default_memory_bundle_for_tests
 
     yield
     reset_process_default_memory_bundle_for_tests()
     reset_shared_async_openai_for_tests()
+    _reset_env_caches_for_tests()
+    clear_args_cache()

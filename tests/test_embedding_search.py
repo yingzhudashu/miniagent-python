@@ -18,6 +18,7 @@ from miniagent.memory.embedding_search import (
     embedding_search_enabled,
     reset_embed_provider,
 )
+from miniagent.memory.shared_registry import MemoryEntryRegistry, reset_registry
 from miniagent.types.memory import MemoryEntryInput
 
 # ============================================================================
@@ -62,7 +63,8 @@ class TestTextHash:
 
 class TestEmbeddingIndex:
     def _make_index(self, tmpdir: str) -> EmbeddingIndex:
-        return EmbeddingIndex(state_dir=tmpdir)
+        registry = MemoryEntryRegistry(state_dir=tmpdir)
+        return EmbeddingIndex(state_dir=tmpdir, registry=registry)
 
     def test_index_and_search(self, tmp_path):
         idx = self._make_index(str(tmp_path))
@@ -78,7 +80,8 @@ class TestEmbeddingIndex:
         query_vec = [0.85, 0.15, 0.0]
         results = idx.search_relevant(query_vec, limit=5, min_score=0.0)
         assert len(results) == 1
-        assert results[0].session_id == "sess-1"
+        # 结果只包含 entry_key，需要从注册表获取详细信息
+        assert results[0].entry_key == "sess-1:2026-05-22T10:00:00Z"
         assert results[0].score == pytest.approx(
             _cosine_similarity([0.9, 0.1, 0.0], [0.85, 0.15, 0.0]),
             abs=1e-6,
@@ -105,11 +108,17 @@ class TestEmbeddingIndex:
         )
         idx.index_entry("sess-1", entry, embedding=[0.5, 0.5, 0.707])
         idx.save()
+        idx._registry.save()  # 同时保存注册表
 
-        idx2 = EmbeddingIndex(state_dir=str(tmp_path))
+        # 创建新索引并加载
+        registry2 = MemoryEntryRegistry(state_dir=str(tmp_path))
+        idx2 = EmbeddingIndex(state_dir=str(tmp_path), registry=registry2)
         idx2._load()
         assert len(idx2._entries) == 1
-        assert idx2._entries["sess-1:2026-05-22T10:00:00Z"].user_snippet == "持久化测试"
+        # 文本内容从注册表获取
+        shared = idx2._registry.get("sess-1:2026-05-22T10:00:00Z")
+        assert shared is not None
+        assert shared.user_snippet == "持久化测试"
 
     def test_duplicate_skip(self, tmp_path):
         idx = self._make_index(str(tmp_path))
@@ -135,7 +144,10 @@ class TestEmbeddingIndex:
         entry.user_snippet = "修改后的文本"
         idx.index_entry("sess-1", entry, embedding=[0.0, 1.0, 0.0])
         assert len(idx._entries) == 1
-        assert idx._entries["sess-1:2026-05-22T10:00:00Z"].user_snippet == "修改后的文本"
+        # 文本内容从注册表获取
+        shared = idx._registry.get("sess-1:2026-05-22T10:00:00Z")
+        assert shared is not None
+        assert shared.user_snippet == "修改后的文本"
 
     def test_get_stats(self, tmp_path):
         idx = self._make_index(str(tmp_path))
@@ -176,8 +188,10 @@ class TestEmbeddingSearchProvider:
         monkeypatch.setenv("OPENAI_BASE_URL", "https://openai.example.com/v1")
         monkeypatch.setenv("OPENAI_MODEL", "gpt-4o-mini")
         reset_embed_provider()
+        reset_registry()
 
-        provider = EmbeddingSearchProvider(state_dir=str(tmp_path))
+        registry = MemoryEntryRegistry(state_dir=str(tmp_path))
+        provider = EmbeddingSearchProvider(state_dir=str(tmp_path), registry=registry)
         assert len(provider._providers) == 0
 
     def test_embed_provider_only(self, tmp_path, monkeypatch):
@@ -186,8 +200,10 @@ class TestEmbeddingSearchProvider:
         monkeypatch.setenv("MINIAGENT_EMBED_MODEL", "embed-model-v1")
         monkeypatch.setenv("MINIAGENT_EMBED_API_KEY", "test-key")
         reset_embed_provider()
+        reset_registry()
 
-        provider = EmbeddingSearchProvider(state_dir=str(tmp_path))
+        registry = MemoryEntryRegistry(state_dir=str(tmp_path))
+        provider = EmbeddingSearchProvider(state_dir=str(tmp_path), registry=registry)
         assert len(provider._providers) == 1
         assert provider._providers[0]["base_url"] == "https://embed.example.com/v1"
         assert provider._providers[0]["model"] == "embed-model-v1"
@@ -200,8 +216,10 @@ class TestEmbeddingSearchProvider:
         monkeypatch.delenv("MINIAGENT_EMBED_BASE_URL", raising=False)
         monkeypatch.delenv("MINIAGENT_EMBED_MODEL", raising=False)
         reset_embed_provider()
+        reset_registry()
 
-        provider = EmbeddingSearchProvider(state_dir=str(tmp_path))
+        registry = MemoryEntryRegistry(state_dir=str(tmp_path))
+        provider = EmbeddingSearchProvider(state_dir=str(tmp_path), registry=registry)
         assert len(provider._providers) == 0
 
 

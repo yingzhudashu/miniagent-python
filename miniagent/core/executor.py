@@ -41,8 +41,11 @@ from miniagent.core.thinking_callback import invoke_on_thinking
 from miniagent.core.thinking_presets import map_business_depth
 from miniagent.infrastructure.logger import append_log, get_logger, truncate
 from miniagent.infrastructure.loop_detector import LoopDetector
+from miniagent.infrastructure.timezone_config import format_agent_timezone_context
 from miniagent.infrastructure.tracing import emit_trace
 from miniagent.memory.context import ContextBudgetExceeded, DefaultContextManager
+from miniagent.memory.defaults import resolve_memory_dependencies
+from miniagent.memory.history_bridge import conversation_history_for_llm
 from miniagent.memory.embedding_search import (
     embedding_search_enabled,
     get_embed_provider,
@@ -114,8 +117,6 @@ def build_execution_system_prompt(
             "用户在对话中上传过文件到 feishu_incoming/ 子目录。"
             "如需参考文件内容，可使用 read_file 等工具读取。"
         )
-    from miniagent.infrastructure.timezone_config import format_agent_timezone_context
-
     parts.append(format_agent_timezone_context())
     return "\n\n".join(parts)
 
@@ -125,36 +126,97 @@ def get_client() -> AsyncOpenAI:
     return get_shared_async_openai()
 
 
+# ─── 签名检查缓存（性能优化：避免重复 inspect.signature 调用）──
+
+# 缓存：function id -> 是否接受 thinking_header 参数
+_sig_accepts_header_cache: dict[int, bool] = {}
+
+
+def _check_sig_accepts_header(func: Callable[..., Any]) -> bool:
+    """检查函数签名是否接受 thinking_header 参数（带缓存）。"""
+    func_id = id(func)
+    if func_id in _sig_accepts_header_cache:
+        return _sig_accepts_header_cache[func_id]
+    try:
+        sig = inspect.signature(func)
+        accepts = "thinking_header" in sig.parameters or any(
+            p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+        )
+        _sig_accepts_header_cache[func_id] = accepts
+        return accepts
+    except (ValueError, TypeError):
+        _sig_accepts_header_cache[func_id] = False
+        return False
+
+
+def clear_sig_cache() -> None:
+    """清除签名缓存（测试用）。"""
+    _sig_accepts_header_cache.clear()
+
+# 模块级缓存变量（None 表示未初始化）
+_PHASED_EXECUTION_ENABLED: bool | None = None
+_TOOL_INTENT_IN_THINKING_ENABLED: bool | None = None
+_STEP_MAX_TURNS_CAP: int | None = None
+_THINKING_SEGMENT_SEPARATOR: str | None = None
+_TOOL_INTENT_MAX_CHARS: int | None = None
+
+
+def _reset_env_caches_for_tests() -> None:
+    """重置环境变量缓存和签名缓存（仅供测试使用）。"""
+    global _PHASED_EXECUTION_ENABLED, _TOOL_INTENT_IN_THINKING_ENABLED
+    global _STEP_MAX_TURNS_CAP, _THINKING_SEGMENT_SEPARATOR, _TOOL_INTENT_MAX_CHARS
+    global _sig_accepts_header_cache
+    _PHASED_EXECUTION_ENABLED = None
+    _TOOL_INTENT_IN_THINKING_ENABLED = None
+    _STEP_MAX_TURNS_CAP = None
+    _THINKING_SEGMENT_SEPARATOR = None
+    _TOOL_INTENT_MAX_CHARS = None
+    _sig_accepts_header_cache.clear()
+
+
 def _env_phased_execution_enabled() -> bool:
     """是否启用分阶段执行（工具批次与 LLM 轮次分段），由 ``MINIAGENT_PHASED_EXECUTION`` 控制，默认开启。"""
-    v = os.environ.get("MINIAGENT_PHASED_EXECUTION", "1")
-    return str(v).strip().lower() in ("1", "true", "yes")
+    global _PHASED_EXECUTION_ENABLED
+    if _PHASED_EXECUTION_ENABLED is None:
+        v = os.environ.get("MINIAGENT_PHASED_EXECUTION", "1")
+        _PHASED_EXECUTION_ENABLED = str(v).strip().lower() in ("1", "true", "yes")
+    return _PHASED_EXECUTION_ENABLED
 
 
 def _tool_intent_in_thinking_enabled() -> bool:
     """是否在工具执行前向 on_thinking 推送 🔧 意图行（与 on_tool_finish 全文块并存时可关闭以减少冗余）。"""
-    v = os.environ.get("MINIAGENT_TOOL_INTENT_IN_THINKING", "0")
-    return str(v).strip().lower() in ("1", "true", "yes")
+    global _TOOL_INTENT_IN_THINKING_ENABLED
+    if _TOOL_INTENT_IN_THINKING_ENABLED is None:
+        v = os.environ.get("MINIAGENT_TOOL_INTENT_IN_THINKING", "0")
+        _TOOL_INTENT_IN_THINKING_ENABLED = str(v).strip().lower() in ("1", "true", "yes")
+    return _TOOL_INTENT_IN_THINKING_ENABLED
 
 
 def _step_max_turns_cap() -> int:
     """分步模式下单步内 ReAct 轮数上限（``MINIAGENT_STEP_MAX_TURNS``，无效或未设时默认 48）。"""
-    raw = os.environ.get("MINIAGENT_STEP_MAX_TURNS", "").strip()
-    if raw:
-        try:
-            return max(1, int(raw))
-        except ValueError:
-            pass
-    # 分步模式下每步内多轮工具调用较多，默认放宽以减少单步截断告警
-    return 48
+    global _STEP_MAX_TURNS_CAP
+    if _STEP_MAX_TURNS_CAP is None:
+        raw = os.environ.get("MINIAGENT_STEP_MAX_TURNS", "").strip()
+        if raw:
+            try:
+                _STEP_MAX_TURNS_CAP = max(1, int(raw))
+            except ValueError:
+                _STEP_MAX_TURNS_CAP = 48
+        else:
+            _STEP_MAX_TURNS_CAP = 48
+    return _STEP_MAX_TURNS_CAP
 
 
 def _thinking_segment_separator() -> str:
     """同一步内多轮 LLM 思考片段拼接符；默认双换行（飞书友好）。设 MINIAGENT_THINKING_SEGMENT_SEPARATOR 可覆盖，如 ``\\n\\n---\\n\\n``。"""
-    raw = os.environ.get("MINIAGENT_THINKING_SEGMENT_SEPARATOR", "").strip()
-    if raw:
-        return raw.replace("\\n", "\n")
-    return "\n\n"
+    global _THINKING_SEGMENT_SEPARATOR
+    if _THINKING_SEGMENT_SEPARATOR is None:
+        raw = os.environ.get("MINIAGENT_THINKING_SEGMENT_SEPARATOR", "").strip()
+        if raw:
+            _THINKING_SEGMENT_SEPARATOR = raw.replace("\\n", "\n")
+        else:
+            _THINKING_SEGMENT_SEPARATOR = "\n\n"
+    return _THINKING_SEGMENT_SEPARATOR
 
 
 def _resolve_exec_tools(
@@ -248,8 +310,6 @@ async def execute_plan(
     Returns:
         LLM 的最终回复文本
     """
-    from miniagent.memory.defaults import resolve_memory_dependencies
-
     ms, al, ki = resolve_memory_dependencies(memory_store, activity_log, keyword_index)
 
     # ── 工具筛选 ──
@@ -313,17 +373,7 @@ async def execute_plan(
                 )
                 embed_results = await provider.search(user_input, limit=8, min_score=0.3)
                 if embed_results:
-                    relevant = [
-                        {
-                            "session_id": r.session_id,
-                            "timestamp": r.timestamp,
-                            "summary": r.summary,
-                            "user_snippet": r.user_snippet,
-                            "facts": r.facts,
-                            "score": r.score,
-                        }
-                        for r in embed_results
-                    ]
+                    relevant = provider.expand_results(embed_results)
                     # 未缓存向量的新查询：将查询向量写入索引供后续索引
                     if agent_config.debug:
                         _logger.debug("嵌入搜索: %d 条相关记忆", len(relevant))
@@ -371,8 +421,6 @@ async def execute_plan(
 
     # ── 恢复对话历史（在当前输入之前） ──
     if agent_config.conversation_history:
-        from miniagent.memory.history_bridge import conversation_history_for_llm
-
         # 先保存当前 user_input
         current_user_msg = {"role": "user", "content": user_input}
         hist_api = conversation_history_for_llm(agent_config.conversation_history)
@@ -531,8 +579,15 @@ async def execute_plan(
             full_tool_calls = []
             for idx in sorted(_tool_call_accum.keys()):
                 tc_info = _tool_call_accum[idx]
+                # 预解析 arguments（避免后续重复 JSON 解析）
+                try:
+                    tc_info["args_dict"] = json.loads(tc_info["arguments"])
+                except (json.JSONDecodeError, TypeError):
+                    tc_info["args_dict"] = {}
                 fn_obj = SimpleNamespace(name=tc_info["name"], arguments=tc_info["arguments"])
                 tc_obj = SimpleNamespace(id=tc_info["id"], function=fn_obj)
+                # 将 args_dict 附加到 tc_obj 以便后续使用
+                tc_obj._args_dict = tc_info["args_dict"]
                 full_tool_calls.append(tc_obj)
 
         msg = SimpleNamespace(
@@ -544,7 +599,7 @@ async def execute_plan(
             try:
                 for tc in full_tool_calls:
                     try:
-                        args_dict = json.loads(tc.function.arguments)
+                        args_dict = tc._args_dict  # 使用预解析的结果
                         intent = _extract_tool_intent(tc.function.name, args_dict)
                     except (json.JSONDecodeError, TypeError):
                         intent = "执行操作"
@@ -617,11 +672,8 @@ async def execute_plan(
         if on_tool_finish is None:
             return
         try:
-            sig = inspect.signature(on_tool_finish)
             kwargs: dict[str, Any] = {}
-            if "thinking_header" in sig.parameters or any(
-                p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
-            ):
+            if _check_sig_accepts_header(on_tool_finish):
                 kwargs["thinking_header"] = thinking_header
             await on_tool_finish(name, args_json, result, success, **kwargs)
         except TypeError:
@@ -683,7 +735,7 @@ async def execute_plan(
                 continue
 
             try:
-                args = json.loads(tc.function.arguments)
+                args = getattr(tc, "_args_dict", None) or json.loads(tc.function.arguments)
                 loop_check = loop_detector.check(tc.function.name, args)
 
                 if loop_check.level == "critical":
@@ -993,11 +1045,14 @@ async def execute_plan(
 
 def _tool_intent_max_chars() -> int:
     """工具意图摘要写入思考流时的最大字符数（``MINIAGENT_TOOL_INTENT_MAX_CHARS``）。"""
-    raw = os.environ.get("MINIAGENT_TOOL_INTENT_MAX_CHARS", "4000").strip()
-    try:
-        return max(0, int(raw))
-    except ValueError:
-        return 4000
+    global _TOOL_INTENT_MAX_CHARS
+    if _TOOL_INTENT_MAX_CHARS is None:
+        raw = os.environ.get("MINIAGENT_TOOL_INTENT_MAX_CHARS", "4000").strip()
+        try:
+            _TOOL_INTENT_MAX_CHARS = max(0, int(raw))
+        except ValueError:
+            _TOOL_INTENT_MAX_CHARS = 4000
+    return _TOOL_INTENT_MAX_CHARS
 
 
 def _clip_intent_value(s: str) -> str:

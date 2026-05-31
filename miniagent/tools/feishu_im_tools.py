@@ -9,7 +9,7 @@ import os
 from typing import Any
 
 from miniagent.feishu._utils import resolve_under_workspace
-from miniagent.feishu.folder_token_resolve import resolve_parent_folder_token
+from miniagent.feishu.folder_token_resolve import resolve_parent_folder_token_async
 from miniagent.feishu.lark_client import config_from_env
 from miniagent.feishu.receive_id import (
     default_receive_id_for_send,
@@ -132,7 +132,7 @@ async def _feishu_list_drive_files(args: dict[str, Any], ctx: ToolContext) -> To
     cfg = config_from_env()
     if cfg is None:
         return ToolResult(success=False, content="⚠️ 未配置 FEISHU_APP_ID / FEISHU_APP_SECRET。")
-    folder, folder_err = resolve_parent_folder_token(folder_arg, cfg=cfg)
+    folder, folder_err = await resolve_parent_folder_token_async(folder_arg, cfg=cfg)
     if folder_err or not folder:
         return ToolResult(success=False, content=folder_err or "⚠️ 缺少 folder_token。")
     folders_only = bool(args.get("folders_only"))

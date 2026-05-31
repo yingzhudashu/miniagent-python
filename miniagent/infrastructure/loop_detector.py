@@ -22,10 +22,38 @@ from __future__ import annotations
 
 import json
 import time
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any
 
 from miniagent.types.agent import LoopDetectionConfig, LoopDetectionResult, LoopLevel
+
+# ─── JSON 序列化缓存（性能优化：避免重复序列化相同参数）──
+
+_args_json_cache: OrderedDict[str, str] = OrderedDict()
+_ARGS_CACHE_MAX_SIZE = 100
+
+
+def _serialize_args(args: dict[str, Any]) -> str:
+    """序列化参数为 JSON，使用缓存避免重复计算。"""
+    # 使用参数的 repr 作为缓存键（比完整 hash 更快）
+    cache_key = repr(args)
+    if cache_key in _args_json_cache:
+        # LRU：移动到末尾
+        _args_json_cache.move_to_end(cache_key)
+        return _args_json_cache[cache_key]
+    # 未缓存，执行序列化
+    result = json.dumps(args, ensure_ascii=False)
+    _args_json_cache[cache_key] = result
+    # 保持缓存大小限制
+    if len(_args_json_cache) > _ARGS_CACHE_MAX_SIZE:
+        _args_json_cache.popitem(last=False)  # 移除最旧的
+    return result
+
+
+def clear_args_cache() -> None:
+    """清除参数序列化缓存（测试用）。"""
+    _args_json_cache.clear()
 
 
 @dataclass
@@ -106,7 +134,7 @@ class LoopDetector:
         self._history.append(
             _CallRecord(
                 tool=tool,
-                args=json.dumps(args, ensure_ascii=False),
+                args=_serialize_args(args),
                 result=result[:200],  # 只保留前 200 字符
                 timestamp=time.time(),
             )
@@ -135,7 +163,7 @@ class LoopDetector:
         if not self._config.enabled:
             return LoopDetectionResult(level="none", message="")
 
-        args_str = json.dumps(args, ensure_ascii=False)
+        args_str = _serialize_args(args)
 
         # 检测 1: generic_repeat（相同工具 + 相同参数）
         if self._config.detectors.get("generic_repeat", False):

@@ -24,6 +24,8 @@ def reset_process_default_memory_bundle_for_tests() -> None:
     """清空缓存，仅供测试在更改 ``MINI_AGENT_STATE`` 等环境后重新构造 bundle。"""
     global _bundle
     _bundle = None
+    from miniagent.memory.shared_registry import reset_registry
+    reset_registry()
 
 
 def get_process_default_memory_bundle() -> tuple[Any, Any, Any]:
@@ -32,10 +34,12 @@ def get_process_default_memory_bundle() -> tuple[Any, Any, Any]:
     if _bundle is None:
         from miniagent.memory.activity_log import ActivityLogger
         from miniagent.memory.keyword_index import KeywordIndex
+        from miniagent.memory.shared_registry import get_registry
         from miniagent.memory.store import DefaultMemoryStore
 
         state_root = get_state_root()
-        keyword_index = KeywordIndex(state_dir=state_root)
+        registry = get_registry(state_root)
+        keyword_index = KeywordIndex(state_dir=state_root, registry=registry)
         memory_store = DefaultMemoryStore(state_dir=state_root, keyword_index=keyword_index)
         activity_log = ActivityLogger(base_dir=os.path.join(state_root, "memory"))
         _bundle = (memory_store, activity_log, keyword_index)
@@ -60,11 +64,16 @@ def resolve_memory_dependencies(
 
 
 def _flush_process_keyword_index_at_exit() -> None:
-    """进程退出时尽力将进程级关键词索引落盘（静默吞异常）。"""
+    """进程退出时尽力将进程级关键词索引和注册表落盘（静默吞异常）。"""
     if _bundle is None:
         return
     try:
         _bundle[2].save()
+        # 同时保存共享注册表
+        from miniagent.memory.shared_registry import get_registry, reset_registry
+        registry = get_registry()
+        registry.save()
+        reset_registry()
     except Exception:
         pass
 

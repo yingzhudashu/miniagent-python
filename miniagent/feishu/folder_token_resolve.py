@@ -99,7 +99,7 @@ def format_missing_folder_token_message(
 def resolve_parent_folder_token(
     folder_arg: str | None, *, cfg: FeishuConfig | None
 ) -> tuple[str | None, str | None]:
-    """解析创建/列举云盘目录所用的父文件夹 token。
+    """解析创建/列举云盘目录所用的父文件夹 token（同步版本）。
 
     顺序：工具参数（支持 URL）→ 环境默认 →（可选）根文件夹元数据 API。
 
@@ -135,11 +135,51 @@ def resolve_parent_folder_token(
     return None, format_missing_folder_token_message(tried=tried)
 
 
+async def resolve_parent_folder_token_async(
+    folder_arg: str | None, *, cfg: FeishuConfig | None
+) -> tuple[str | None, str | None]:
+    """解析创建/列举云盘目录所用的父文件夹 token（异步版本）。
+
+    顺序：工具参数（支持 URL）→ 环境默认 →（可选）根文件夹元数据 API。
+
+    Returns:
+        ``(token, error_message)``；成功时 ``error_message`` 为 ``None``。
+    """
+    tried: list[str] = []
+    raw = (folder_arg or "").strip() if folder_arg is not None else ""
+    token, url_err = folder_token_from_tool_arg(raw if raw else None)
+    if url_err:
+        return None, f"⚠️ {url_err}"
+    if token:
+        return token, None
+
+    env_tok = default_doc_folder_token_from_env()
+    if env_tok:
+        return env_tok, None
+
+    if root_meta_fallback_enabled() and cfg is not None:
+        tried.append("FEISHU_DOC_FOLDER_FALLBACK_ROOT_META（drive/explorer/v2/root_folder/meta）")
+        try:
+            from miniagent.feishu.drive_client import get_root_folder_meta_async
+
+            return await get_root_folder_meta_async(cfg), None
+        except Exception as e:
+            return None, format_missing_folder_token_message(tried=tried, root_meta_error=str(e))
+
+    if root_meta_fallback_enabled() and cfg is None:
+        tried.append(
+            "FEISHU_DOC_FOLDER_FALLBACK_ROOT_META 已开启，但未提供 FeishuConfig，无法调用根目录 API"
+        )
+
+    return None, format_missing_folder_token_message(tried=tried)
+
+
 __all__ = [
     "default_doc_folder_token_from_env",
     "extract_folder_token_from_url",
     "folder_token_from_tool_arg",
     "format_missing_folder_token_message",
     "resolve_parent_folder_token",
+    "resolve_parent_folder_token_async",
     "root_meta_fallback_enabled",
 ]

@@ -42,6 +42,27 @@ from miniagent.types.tool import Toolbox, ToolContext, ToolDefinition
 
 _logger = get_logger(__name__)
 
+# ─── 会话历史硬限制（性能优化：防止内存膨胀）──
+
+MAX_HISTORY_MESSAGES = int(os.environ.get("MINIAGENT_MAX_HISTORY_MESSAGES", "200"))
+
+
+def _truncate_history(history: list[dict[str, Any]], max_messages: int = MAX_HISTORY_MESSAGES) -> list[dict[str, Any]]:
+    """截断历史消息，保留 system + 首条用户 + 最后 N-2 条消息。"""
+    if len(history) <= max_messages:
+        return history
+    # 保留 system 消息（通常是第一条）
+    system_msgs = [m for m in history if m.get("role") == "system"]
+    other_msgs = [m for m in history if m.get("role") != "system"]
+    if len(system_msgs) > 0 and len(other_msgs) > max_messages - 1:
+        # 保留首条用户消息 + 最后剩余消息
+        first_user = next((m for m in other_msgs if m.get("role") == "user"), None)
+        remaining = other_msgs[-(max_messages - len(system_msgs) - (1 if first_user else 0)):]
+        result = system_msgs + ([first_user] if first_user else []) + remaining
+        return result
+    # 简单截断：保留最后 max_messages 条
+    return history[-max_messages:]
+
 
 # ============================================================================
 # 路径
@@ -323,6 +344,9 @@ class DefaultSessionManager(SessionManagerProtocol):
             return
         try:
             history = ctx.get("conversation_history", [])
+            # 截断历史防止内存膨胀
+            history = _truncate_history(history)
+            ctx["conversation_history"] = history  # 更新内存中的历史
             path = os.path.join(ctx["config"].workspace_path, "history.json")
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(history, f, ensure_ascii=False, indent=2)

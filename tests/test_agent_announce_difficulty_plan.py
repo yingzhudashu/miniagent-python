@@ -98,7 +98,7 @@ async def test_plan_announce_before_execute_when_classifier_off(
         sequence.append("execute_plan")
         return "ok"
 
-    with patch("miniagent.core.planner.generate_plan", new_callable=AsyncMock) as gp:
+    with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
         gp.return_value = fake_plan
         with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
             ex.side_effect = fake_exec
@@ -130,11 +130,11 @@ async def test_difficulty_announced_when_classifier_runs(
         captured.append((header, text))
 
     with patch(
-        "miniagent.core.task_classifier.classify_task_difficulty",
+        "miniagent.core.agent.classify_task_difficulty",
         new_callable=AsyncMock,
     ) as clf:
         clf.return_value = TaskDifficulty.NORMAL
-        with patch("miniagent.core.planner.generate_plan", new_callable=AsyncMock) as gp:
+        with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
             gp.return_value = StructuredPlan(summary="s", steps=[], required_toolboxes=[])
             with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
                 ex.return_value = "done"
@@ -176,7 +176,7 @@ async def test_on_plan_reject_skips_plan_announce_and_execute(
     async def fake_on_plan(_plan: object) -> bool:
         return False
 
-    with patch("miniagent.core.planner.generate_plan", new_callable=AsyncMock) as gp:
+    with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
         gp.return_value = risky
         with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
             out = await run_agent(
@@ -237,7 +237,7 @@ async def test_announce_disabled_skips_extra_on_thinking(
     async def ot(text: str, streaming: bool, _header: str) -> None:
         captured.append(text[:80])
 
-    with patch("miniagent.core.planner.generate_plan", new_callable=AsyncMock) as gp:
+    with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
         gp.return_value = StructuredPlan(summary="s", steps=[], required_toolboxes=[])
         with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock):
             await run_agent(

@@ -28,12 +28,23 @@ if TYPE_CHECKING:
 
 from miniagent.core.config import get_default_agent_config, merge_agent_config
 from miniagent.core.executor import execute_plan
+from miniagent.core.planner import generate_plan
+from miniagent.core.problem_solver import reflect_on_result
+from miniagent.core.task_classifier import (
+    TaskDifficulty,
+    classify_task_difficulty,
+    default_step_thinking_for_difficulty,
+    exec_merge_for_simple_path,
+    planner_merge_for_difficulty,
+    task_classifier_enabled,
+)
 from miniagent.core.thinking_callback import invoke_on_thinking
 from miniagent.core.thinking_presets import map_business_depth
 from miniagent.infrastructure.logger import get_logger
 from miniagent.infrastructure.monitor import DefaultToolMonitor
 from miniagent.security.sandbox import get_default_workspace
 from miniagent.types.agent import PipelineResult, PipelineStep, ToolMonitorProtocol
+from miniagent.types.confirmation import ConfirmationRequest, ConfirmationStage
 from miniagent.types.planning import (
     ContextStrategy,
     EstimatedTokens,
@@ -234,15 +245,6 @@ async def run_agent(
     merged_config = merge_agent_config(base_config, agent_config or {})
 
     # ── Phase 0: 任务难度分类 ──
-    from miniagent.core.task_classifier import (
-        TaskDifficulty,
-        classify_task_difficulty,
-        default_step_thinking_for_difficulty,
-        exec_merge_for_simple_path,
-        planner_merge_for_difficulty,
-        task_classifier_enabled,
-    )
-
     difficulty = TaskDifficulty.NORMAL
     effective_skip = skip_planning
 
@@ -284,8 +286,6 @@ async def run_agent(
             _logger.info("需求澄清: 向用户发送追问: %s", question[:80])
             # 直接发送问题，不含 .adjust 提示；用户直接回复即可
             await invoke_on_thinking(on_thinking, f"❓ {question}", True, "[需求澄清]")
-            from miniagent.types.confirmation import ConfirmationRequest, ConfirmationStage
-
             req = ConfirmationRequest(stage=ConfirmationStage.CLARIFICATION, content=question)
             _logger.info("需求澄清: 已发送 ConfirmationRequest，等待用户回复...")
             result = await confirmation_channel.request_confirmation(req)
@@ -359,8 +359,6 @@ async def run_agent(
             )
     else:
         # ── Phase 1: 规划 ──
-        from miniagent.core.planner import generate_plan
-
         from_llm_planner = True
         plan = await generate_plan(
             user_input,
@@ -490,8 +488,6 @@ async def run_agent(
     # ── Phase 3: 反思评估 ──
     reflection_enabled = os.environ.get("MINIAGENT_REFLECTION", "1") != "0"
     if reflection_enabled:
-        from miniagent.core.problem_solver import reflect_on_result
-
         reflection = await reflect_on_result(user_input, reply, client=client, on_thinking=None)
         # 存储到引擎供飞书发送独立质量卡片
         if engine is not None:

@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import shutil
 from pathlib import Path
@@ -73,7 +74,10 @@ async def _read_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
     limit = int(args.get("limit", 1000))
 
     try:
-        content = Path(file_path).read_text(encoding="utf-8")
+        # 使用 asyncio.to_thread 避免阻塞事件循环
+        content = await asyncio.to_thread(
+            Path(file_path).read_text, encoding="utf-8"
+        )
     except FileNotFoundError:
         return ToolResult(success=False, content=f"❌ 文件不存在: {args['path']}")
     except PermissionError:
@@ -134,7 +138,10 @@ async def _write_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolRes
     if parent:
         os.makedirs(parent, exist_ok=True)
     try:
-        Path(file_path).write_text(content, encoding="utf-8")
+        # 使用 asyncio.to_thread 避免阻塞事件循环
+        await asyncio.to_thread(
+            Path(file_path).write_text, content, encoding="utf-8"
+        )
     except PermissionError:
         return ToolResult(success=False, content=f"❌ 权限不足，无法写入: {args['path']}")
     except OSError as e:
@@ -183,7 +190,10 @@ async def _edit_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
     new_text = str(args["newText"])
 
     try:
-        content = Path(file_path).read_text(encoding="utf-8")
+        # 使用 asyncio.to_thread 避免阻塞事件循环
+        content = await asyncio.to_thread(
+            Path(file_path).read_text, encoding="utf-8"
+        )
     except FileNotFoundError:
         return ToolResult(success=False, content=f"❌ 文件不存在: {file_path}")
     except OSError as e:
@@ -199,7 +209,9 @@ async def _edit_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
         )
 
     updated = content.replace(old_text, new_text, 1)
-    Path(file_path).write_text(updated, encoding="utf-8")
+    await asyncio.to_thread(
+        Path(file_path).write_text, updated, encoding="utf-8"
+    )
 
     return ToolResult(
         success=True, content=f"✅ 已替换 1 处 ({len(old_text)} → {len(new_text)} 字符)"

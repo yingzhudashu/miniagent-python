@@ -36,7 +36,7 @@ def _make_agent_config():
 
 
 _TC_PATH = "miniagent.core.task_classifier.task_classifier_enabled"
-_REFLECT_PATH = "miniagent.core.problem_solver.reflect_on_result"
+_REFLECT_PATH = "miniagent.core.agent.reflect_on_result"
 
 
 class TestRunAgentClarification:
@@ -153,9 +153,9 @@ class TestClarificationMaxQuestionsByDifficulty:
         clarifier.clarify = AsyncMock()
         clarifier.clarify.return_value = MagicMock(clarified_goal="")
 
-        with patch("miniagent.core.task_classifier.classify_task_difficulty", new_callable=AsyncMock) as clf:
+        with patch("miniagent.core.agent.classify_task_difficulty", new_callable=AsyncMock) as clf:
             clf.return_value = TaskDifficulty.NORMAL
-            with patch("miniagent.core.planner.generate_plan", new_callable=AsyncMock) as gp:
+            with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
                 gp.return_value = StructuredPlan(summary="s", steps=[], required_toolboxes=[])
                 with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
                     ex.return_value = "ok"
@@ -183,9 +183,9 @@ class TestClarificationMaxQuestionsByDifficulty:
         clarifier.clarify = AsyncMock()
         clarifier.clarify.return_value = MagicMock(clarified_goal="")
 
-        with patch("miniagent.core.task_classifier.classify_task_difficulty", new_callable=AsyncMock) as clf:
+        with patch("miniagent.core.agent.classify_task_difficulty", new_callable=AsyncMock) as clf:
             clf.return_value = TaskDifficulty.MEDIUM
-            with patch("miniagent.core.planner.generate_plan", new_callable=AsyncMock) as gp:
+            with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
                 gp.return_value = StructuredPlan(summary="s", steps=[], required_toolboxes=[])
                 with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
                     ex.return_value = "ok"
@@ -213,9 +213,9 @@ class TestClarificationMaxQuestionsByDifficulty:
         clarifier.clarify = AsyncMock()
         clarifier.clarify.return_value = MagicMock(clarified_goal="")
 
-        with patch("miniagent.core.task_classifier.classify_task_difficulty", new_callable=AsyncMock) as clf:
+        with patch("miniagent.core.agent.classify_task_difficulty", new_callable=AsyncMock) as clf:
             clf.return_value = TaskDifficulty.COMPLEX
-            with patch("miniagent.core.planner.generate_plan", new_callable=AsyncMock) as gp:
+            with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
                 gp.return_value = StructuredPlan(summary="s", steps=[], required_toolboxes=[])
                 with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
                     ex.return_value = "ok"

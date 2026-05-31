@@ -18,13 +18,13 @@ async def test_simple_difficulty_skips_planner(monkeypatch: pytest.MonkeyPatch) 
     tb = Toolbox(id="fs", name="fs", description="files", keywords=[])
 
     with patch(
-        "miniagent.core.task_classifier.classify_task_difficulty",
+        "miniagent.core.agent.classify_task_difficulty",
         new_callable=AsyncMock,
     ) as clf:
         from miniagent.core.task_classifier import TaskDifficulty
 
         clf.return_value = TaskDifficulty.SIMPLE
-        with patch("miniagent.core.planner.generate_plan", new_callable=AsyncMock) as gp:
+        with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
             with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
                 ex.return_value = "ok"
                 out = await run_agent(
@@ -47,7 +47,7 @@ async def test_classifier_off_always_plans(monkeypatch: pytest.MonkeyPatch) -> N
 
     fake_plan = StructuredPlan(summary="x", steps=[], required_toolboxes=[])
 
-    with patch("miniagent.core.planner.generate_plan", new_callable=AsyncMock) as gp:
+    with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
         gp.return_value = fake_plan
         with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
             ex.return_value = "done"
@@ -92,7 +92,7 @@ async def test_suggested_thinking_level_merges_into_model_overrides(
         )
         return "ok"
 
-    with patch("miniagent.core.planner.generate_plan", new_callable=AsyncMock) as gp:
+    with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
         gp.return_value = fake_plan
         with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
             ex.side_effect = _capture_exec

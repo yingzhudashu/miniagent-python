@@ -31,6 +31,7 @@ from typing import Any
 import httpx
 
 from miniagent.infrastructure.logger import get_logger
+from miniagent.memory.shared_registry import MemoryEntryRegistry, get_registry
 from miniagent.types.memory import MemoryEntry, MemoryEntryInput
 
 _logger = get_logger(__name__)
@@ -133,27 +134,18 @@ async def _get_embedding(
 
 @dataclass
 class _EmbeddingEntry:
-    """嵌入索引中的一条记录。"""
+    """嵌入索引中的一条记录（仅存储键和向量，文本从共享注册表获取）。"""
 
-    text: str
     embedding: list[float]
-    session_id: str
-    timestamp: str
-    user_snippet: str
-    summary: str
-    facts: list[str] = field(default_factory=list)
-    text_hash: str = ""
+    entry_key: str  # "session_id:timestamp"
+    text_hash: str = ""  # 用于检测内容变更
 
 
 @dataclass
 class EmbeddingSearchResult:
-    """嵌入搜索结果。"""
+    """嵌入搜索结果（文本从共享注册表获取）。"""
 
-    session_id: str
-    timestamp: str
-    user_snippet: str
-    summary: str
-    facts: list[str] = field(default_factory=list)
+    entry_key: str  # "session_id:timestamp"
     score: float = 0.0
 
 
@@ -161,14 +153,21 @@ class EmbeddingIndex:
     """基于 JSON 文件的轻量嵌入索引。
 
     每条记忆缓存其向量表示，避免重复调用 API。
-    上限 ``max_entries``（默认 10000），超限时驱逐最早条目。
+    文本内容存储在共享注册表，索引仅存储键引用。
+    上限 ``max_entries``（默认 2000），超限时驱逐最早条目。
     """
 
-    def __init__(self, state_dir: str = "workspaces") -> None:
+    def __init__(
+        self,
+        state_dir: str = "workspaces",
+        registry: MemoryEntryRegistry | None = None,
+    ) -> None:
         self._state_dir = state_dir
+        self._registry = registry or get_registry(state_dir)
         self._entries: collections.OrderedDict[str, _EmbeddingEntry] = collections.OrderedDict()
         self._dim: int = int(os.environ.get("MINIAGENT_EMBED_DIM", "1536"))
-        self._max_entries: int = int(os.environ.get("MINIAGENT_EMBED_MAX_ENTRIES", "10000"))
+        # 降低默认上限以减少内存占用（10000 条目 ≈ 60MB，2000 ≈ 12MB）
+        self._max_entries: int = int(os.environ.get("MINIAGENT_EMBED_MAX_ENTRIES", "2000"))
         self._loaded = False
         self._dirty = False
         self._index_file = os.path.join(state_dir, "embedding-index.json")
@@ -192,13 +191,8 @@ class EmbeddingIndex:
             self._entries.clear()
             for key, data in disk.get("entries", {}).items():
                 self._entries[key] = _EmbeddingEntry(
-                    text=data.get("text", ""),
                     embedding=data.get("embedding", []),
-                    session_id=data["session_id"],
-                    timestamp=data["timestamp"],
-                    user_snippet=data["user_snippet"],
-                    summary=data.get("summary", ""),
-                    facts=data.get("facts", []),
+                    entry_key=data.get("entry_key", key),
                     text_hash=data.get("text_hash", ""),
                 )
 
@@ -217,19 +211,14 @@ class EmbeddingIndex:
         try:
             os.makedirs(self._state_dir, exist_ok=True)
             disk = {
-                "version": 1,
+                "version": 2,  # 新版本：仅存储键引用
                 "dim": self._dim,
                 "updated_at": datetime.now(timezone.utc).isoformat(),
                 "total_entries": len(self._entries),
                 "entries": {
                     k: {
-                        "text": e.text,
                         "embedding": e.embedding,
-                        "session_id": e.session_id,
-                        "timestamp": e.timestamp,
-                        "user_snippet": e.user_snippet,
-                        "summary": e.summary,
-                        "facts": e.facts,
+                        "entry_key": e.entry_key,
                         "text_hash": e.text_hash,
                     }
                     for k, e in self._entries.items()
@@ -250,6 +239,14 @@ class EmbeddingIndex:
         facts = getattr(entry, "facts", []) or []
         return " ".join([entry.user_snippet, entry.summary, *facts])
 
+    def _get_text_from_registry(self, entry_key: str) -> str:
+        """从注册表获取可索引文本。"""
+        shared = self._registry.get(entry_key)
+        if shared is None:
+            return ""
+        facts = shared.facts or []
+        return " ".join([shared.user_snippet, shared.summary, *facts])
+
     def index_entry(
         self,
         session_id: str,
@@ -266,28 +263,24 @@ class EmbeddingIndex:
         """
         self._ensure_loaded()
 
-        key = self._make_key(session_id, entry.timestamp)
+        # 注册到共享注册表
+        entry_key = self._registry.register(session_id, entry)
         idx_text = self._indexable_text(entry)
         text_hash = _text_hash(idx_text)
 
         # 如果已有相同 hash 的缓存，跳过
-        if key in self._entries and self._entries[key].text_hash == text_hash:
+        if entry_key in self._entries and self._entries[entry_key].text_hash == text_hash:
             return
 
         if embedding is not None:
             if self._dim == 0:
                 self._dim = len(embedding)
-            self._entries[key] = _EmbeddingEntry(
-                text=idx_text,
+            self._entries[entry_key] = _EmbeddingEntry(
                 embedding=embedding,
-                session_id=session_id,
-                timestamp=entry.timestamp,
-                user_snippet=entry.user_snippet,
-                summary=entry.summary,
-                facts=getattr(entry, "facts", []) or [],
+                entry_key=entry_key,
                 text_hash=text_hash,
             )
-            self._entries.move_to_end(key)
+            self._entries.move_to_end(entry_key)
             self._dirty = True
             # 超过上限时驱逐最早条目
             while len(self._entries) > self._max_entries:
@@ -324,11 +317,7 @@ class EmbeddingIndex:
             if sim >= min_score:
                 scored.append(
                     EmbeddingSearchResult(
-                        session_id=entry.session_id,
-                        timestamp=entry.timestamp,
-                        user_snippet=entry.user_snippet,
-                        summary=entry.summary,
-                        facts=entry.facts,
+                        entry_key=entry.entry_key,
                         score=sim,
                     )
                 )
@@ -352,8 +341,13 @@ class EmbeddingIndex:
 class EmbeddingSearchProvider:
     """使用 ``MINIAGENT_EMBED_BASE_URL`` / ``MINIAGENT_EMBED_MODEL`` 配置专用 embedding 服务。"""
 
-    def __init__(self, state_dir: str = "workspaces") -> None:
-        self._index = EmbeddingIndex(state_dir=state_dir)
+    def __init__(
+        self,
+        state_dir: str = "workspaces",
+        registry: MemoryEntryRegistry | None = None,
+    ) -> None:
+        self._registry = registry or get_registry(state_dir)
+        self._index = EmbeddingIndex(state_dir=state_dir, registry=self._registry)
         self._providers: list[dict[str, str | int]] = []
         self._init_providers()
 
@@ -406,6 +400,43 @@ class EmbeddingSearchProvider:
             min_score=min_score,
         )
 
+    def expand_result(self, result: EmbeddingSearchResult) -> dict[str, Any] | None:
+        """从注册表获取完整文本内容。
+
+        Args:
+            result: 搜索结果
+
+        Returns:
+            包含完整文本的字典，或 None（若条目已不存在）
+        """
+        shared = self._registry.get(result.entry_key)
+        if shared is None:
+            return None
+        return {
+            "session_id": shared.session_id,
+            "timestamp": shared.timestamp,
+            "user_snippet": shared.user_snippet,
+            "summary": shared.summary,
+            "facts": shared.facts,
+            "score": result.score,
+        }
+
+    def expand_results(self, results: list[EmbeddingSearchResult]) -> list[dict[str, Any]]:
+        """批量扩展搜索结果。
+
+        Args:
+            results: 搜索结果列表
+
+        Returns:
+            包含完整文本的字典列表（过滤掉已不存在的条目）
+        """
+        expanded = []
+        for r in results:
+            item = self.expand_result(r)
+            if item is not None:
+                expanded.append(item)
+        return expanded
+
 
 # ============================================================================
 # 便捷函数
@@ -418,7 +449,8 @@ def get_embed_provider(state_dir: str = "workspaces") -> EmbeddingSearchProvider
     """获取或创建全局嵌入搜索提供者。"""
     global _embed_provider
     if _embed_provider is None:
-        _embed_provider = EmbeddingSearchProvider(state_dir=state_dir)
+        registry = get_registry(state_dir)
+        _embed_provider = EmbeddingSearchProvider(state_dir=state_dir, registry=registry)
     return _embed_provider
 
 
@@ -435,4 +467,6 @@ __all__ = [
     "embedding_search_enabled",
     "get_embed_provider",
     "reset_embed_provider",
+    "get_registry",
+    "reset_registry",
 ]

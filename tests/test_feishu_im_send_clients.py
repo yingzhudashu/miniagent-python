@@ -13,8 +13,10 @@ pytest.importorskip("lark_oapi")
 def _clear_lark_client_cache():
     """每个测试前清除 Lark 客户端缓存，确保 mock 生效。"""
     from miniagent.feishu import im_send
+    from miniagent.feishu import lark_client
 
     im_send.clear_client_cache()
+    lark_client.clear_client_cache()
 
 
 def test_resolve_im_receive_id_type_env_and_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
