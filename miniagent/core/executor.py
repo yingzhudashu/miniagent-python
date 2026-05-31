@@ -480,7 +480,22 @@ async def execute_plan(
         tools_arg: list[Any],
         thinking_phase_label: str,
     ) -> tuple[Any, dict[str, Any], int, Any, str, str]:
-        """流式调用执行阶段 LLM 一轮，聚合正文与 tool_calls，并驱动 ``on_thinking``。"""
+        """流式调用执行阶段 LLM 一轮，聚合正文与 tool_calls，并驱动 ``on_thinking``。
+
+        Args:
+            merge_overrides: 模型参数覆盖（如 thinking_level/budget）
+            tools_arg: 本轮可用的工具定义列表（传给 LLM tools 参数）
+            thinking_phase_label: 思考流分段标题（如 "[执行]" 或 "[步骤 1/3]"）
+
+        Returns:
+            tuple: (msg, usage, elapsed_ms, tool_calls, full_content, thinking_header)
+                - msg: LLM 返回的 assistant 消息对象
+                - usage: token 用量统计（prompt/completion/total）
+                - elapsed_ms: 本轮调用耗时（毫秒）
+                - tool_calls: 解析后的 tool_calls 列表（无则空）
+                - full_content: 聚合后的正文内容
+                - thinking_header: 当前思考分段标题（供工具回调）
+        """
         nonlocal exec_turn_no
         exec_turn_no += 1
         start_ms = time.monotonic_ns() // 1_000_000
@@ -688,7 +703,16 @@ async def execute_plan(
                 _logger.exception("on_tool_finish 回调失败: %s", e)
 
     async def _run_tool_calls_phase(msg: Any, start_ms: int, thinking_header: str) -> str | None:
-        """处理 assistant 消息中的 tool_calls：入上下文、循环检测、并发执行工具并写回 tool 消息。"""
+        """处理 assistant 消息中的 tool_calls：入上下文、循环检测、并发执行工具并写回 tool 消息。
+
+        Args:
+            msg: LLM 返回的 assistant 消息（含 content 与 tool_calls）
+            start_ms: 本轮开始时间戳（用于计算 elapsed）
+            thinking_header: 当前思考分段标题（传递给工具回调）
+
+        Returns:
+            str | None: 上下文超预算时返回错误消息；正常完成返回 None
+        """
         nonlocal loop_warning_shown
         assistant_msg = {"role": "assistant", "content": msg.content or ""}
         if msg.tool_calls:
@@ -759,6 +783,19 @@ async def execute_plan(
             tc: Any, args: dict[str, Any], tool: Any
         ) -> tuple[Any, dict[str, Any], Any, Any, int]:
             """执行单个 tool_call（含超时与监控），返回 tool 消息构造所需字段。
+
+            Args:
+                tc: tool_call 对象（含 id、function.name、function.arguments）
+                args: 解析后的工具参数字典
+                tool: ToolDefinition 对象（含 handler 与权限信息）
+
+        Returns:
+            tuple: (tc, args, result, tool, elapsed_ms)
+                - tc: 原 tool_call 对象
+                - args: 解析后的参数
+                - result: ToolResult（success/content/meta）
+                - tool: ToolDefinition
+                - elapsed_ms: 执行耗时（毫秒）
 
             异常处理策略：
             - TimeoutError: 工具执行超过 timeout_sec，返回超时提示
