@@ -1361,16 +1361,30 @@ async def run_cli_loop(
         if kind == "label":
             _append_transcript(style, fragment)
         else:
-            # 正文：优先尝试 markdown 渲染
+            # 正文：流式增量 ANSI 渲染优化
+            # 关键修复：检测是否正在进行流式 ANSI 输出，合并连续 ANSI 对象避免换行不正确
             from miniagent.engine.markdown_cli import render_markdown_to_ansi
+            from prompt_toolkit.formatted_text import ANSI
+            from prompt_toolkit.formatted_text.ansi import ANSI as PTANSI
 
             try:
-                md_w = _markdown_render_width()  # 统一使用更宽的渲染宽度
-                ansi_body = render_markdown_to_ansi(fragment, width=md_w, justify="left")
-                from prompt_toolkit.formatted_text import ANSI
-                ansi_obj = ANSI(ansi_body)
-                _attach_md_source(ansi_obj, fragment)
-                _transcript.append(ansi_obj)
+                md_w = _markdown_render_width()
+                # 检查最后一个元素是否是 ANSI 对象（正在进行流式输出）
+                if _transcript and isinstance(_transcript[-1], PTANSI):
+                    # 流式输出：提取前一个 ANSI 对象的原始文本，合并新内容
+                    prev_text = getattr(_transcript[-1], "_source_md", "") or ""
+                    full_text = prev_text + fragment
+                    # 渲染完整文本（换行计算基于整体内容）
+                    ansi_body = render_markdown_to_ansi(full_text, width=md_w, justify="left")
+                    # 替换最后一个 ANSI 对象（而非追加新的）
+                    _transcript[-1] = ANSI(ansi_body)
+                    _attach_md_source(_transcript[-1], full_text)
+                else:
+                    # 非流式输出或首个 chunk：正常 ANSI 渲染并追加
+                    ansi_body = render_markdown_to_ansi(fragment, width=md_w, justify="left")
+                    ansi_obj = ANSI(ansi_body)
+                    _attach_md_source(ansi_obj, fragment)
+                    _transcript.append(ansi_obj)
                 _trim_transcript()
                 try:
                     get_app().invalidate()
