@@ -8,6 +8,11 @@
 - ``core/agent.py`` 参数类型
 
 注意：Protocol 仅用于类型检查，不影响运行时行为。
+
+**注意**：ToolRegistryProtocol 和 ToolMonitorProtocol 已在各自模块定义：
+- ToolRegistryProtocol: miniagent/types/tool.py
+- ToolMonitorProtocol: miniagent/types/agent.py
+本模块仅定义运行时注入相关的 Protocol。
 """
 
 from __future__ import annotations
@@ -16,7 +21,6 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from miniagent.types.memory import MemoryData
-    from miniagent.types.tool import ToolDefinition
 
 
 @runtime_checkable
@@ -86,28 +90,6 @@ class KeywordIndexProtocol(Protocol):
     def get_stats(self) -> dict[str, Any]: ...
 
 
-@runtime_checkable
-class ToolRegistryProtocol(Protocol):
-    """工具注册表接口协议。
-
-    定义工具查询方法，供 agent 和 executor 使用。
-    """
-
-    def get(self, name: str) -> ToolDefinition | None: ...
-    def get_all(self) -> dict[str, ToolDefinition]: ...
-    def list(self) -> list[str]: ...
-
-
-@runtime_checkable
-class ToolMonitorProtocol(Protocol):
-    """工具监控接口协议。
-
-    定义性能记录方法。
-    """
-
-    def record(self, tool_name: str, elapsed_ms: int, success: bool) -> None: ...
-
-
 class OnThinkingCallback(Protocol):
     """思考回调接口协议。
 
@@ -146,8 +128,6 @@ __all__ = [
     "MemoryStoreProtocol",
     "ActivityLogProtocol",
     "KeywordIndexProtocol",
-    "ToolRegistryProtocol",
-    "ToolMonitorProtocol",
     "OnThinkingCallback",
     "OnToolFinishCallback",
 ]

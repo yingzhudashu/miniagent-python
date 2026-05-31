@@ -27,13 +27,13 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from miniagent.types.agent import ToolMonitorProtocol
     from miniagent.types.protocols import (
         ActivityLogProtocol,
         KeywordIndexProtocol,
         MemoryStoreProtocol,
-        ToolMonitorProtocol,
-        ToolRegistryProtocol,
     )
+    from miniagent.types.tool import ToolRegistryProtocol
 
 
 @dataclass

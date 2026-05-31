@@ -1,6 +1,6 @@
 # Self-Opt 自优化文档
 
-> Mini Agent Python | 版本: 2.0.2 | Self-Optimization 子系统
+> Mini Agent Python | 版本: 2.0.3 | Self-Optimization 子系统
 
 > ⚠️ **注意**：`miniagent/tools/self_opt.py` 已移除，self-opt **不再作为 Agent 工具**暴露。
 > `miniagent/core/self_opt/` 库仍可作为编程 API 使用（见下方类型模型），但 Agent 执行阶段无法通过工具调用触发。

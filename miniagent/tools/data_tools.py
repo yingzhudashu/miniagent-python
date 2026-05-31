@@ -15,6 +15,7 @@ import os
 from typing import Any
 
 from miniagent.security.sandbox import get_default_workspace, resolve_sandbox_path
+from miniagent.types.error_prefix import ERROR_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 # 导入共享路径解析函数（消除重复代码）
@@ -49,7 +50,7 @@ _read_csv_schema = {
 async def _read_csv_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     path = _resolve_path(str(args["path"]), ctx)
     if not os.path.isfile(path):
-        return ToolResult(success=False, content=f"❌ 文件不存在: {path}")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 文件不存在: {path}")
     delimiter = str(args.get("delimiter", "")).strip()
     encoding = str(args.get("encoding", "utf-8"))
     max_rows = int(args.get("maxRows", 100))
@@ -77,7 +78,7 @@ async def _read_csv_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResul
                 content = "(空文件)"
             return ToolResult(success=True, content=content)
     except Exception as e:
-        return ToolResult(success=False, content=f"❌ 读取失败: {e}")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 读取失败: {e}")
 
 
 # ─── write_csv ───────────────────────────────────────────
@@ -110,7 +111,7 @@ async def _write_csv_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
     try:
         data = json.loads(raw_data)
     except json.JSONDecodeError as e:
-        return ToolResult(success=False, content=f"❌ data 不是有效 JSON: {e}")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} data 不是有效 JSON: {e}")
 
     try:
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
@@ -126,10 +127,10 @@ async def _write_csv_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
                 writer.writerows(data)
                 n = len(data)
             else:
-                return ToolResult(success=False, content="❌ data 必须是非空数组")
+                return ToolResult(success=False, content=f"{ERROR_PREFIX} data 必须是非空数组")
         return ToolResult(success=True, content=f"✅ 已写入 {n} 行到 {path}")
     except Exception as e:
-        return ToolResult(success=False, content=f"❌ 写入失败: {e}")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 写入失败: {e}")
 
 
 # ─── json_read ───────────────────────────────────────────
@@ -155,7 +156,7 @@ _json_read_schema = {
 async def _json_read_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     path = _resolve_path(str(args["path"]), ctx)
     if not os.path.isfile(path):
-        return ToolResult(success=False, content=f"❌ 文件不存在: {path}")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 文件不存在: {path}")
     encoding = str(args.get("encoding", "utf-8"))
     max_chars = int(args.get("maxChars", 50000))
 
@@ -173,9 +174,9 @@ async def _json_read_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
             formatted = formatted[:max_chars] + "\n... (已截断)"
         return ToolResult(success=True, content=formatted)
     except json.JSONDecodeError as e:
-        return ToolResult(success=False, content=f"❌ JSON 解析失败: {e}")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} JSON 解析失败: {e}")
     except Exception as e:
-        return ToolResult(success=False, content=f"❌ 读取失败: {e}")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 读取失败: {e}")
 
 
 # ─── json_write ──────────────────────────────────────────
@@ -205,7 +206,7 @@ async def _json_write_handler(args: dict[str, Any], ctx: ToolContext) -> ToolRes
     try:
         parsed = json.loads(raw_data)
     except json.JSONDecodeError as e:
-        return ToolResult(success=False, content=f"❌ data 不是有效 JSON: {e}")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} data 不是有效 JSON: {e}")
 
     try:
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
@@ -215,7 +216,7 @@ async def _json_write_handler(args: dict[str, Any], ctx: ToolContext) -> ToolRes
         size = os.path.getsize(path)
         return ToolResult(success=True, content=f"✅ 已写入 JSON 到 {path}（{size} 字节）")
     except Exception as e:
-        return ToolResult(success=False, content=f"❌ 写入失败: {e}")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 写入失败: {e}")
 
 
 # ─── 导出 ────────────────────────────────────────────────
