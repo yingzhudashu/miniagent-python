@@ -10,21 +10,25 @@ import os
 from typing import Any
 
 
-def resolve_under_workspace(path: str | None) -> str:
-    """解析路径到工作空间目录下。
+def resolve_under_workspace(workspace: str, rel: str) -> str:
+    """将会话相对路径解析为实路径；越出 workspace 则抛 ValueError。
 
     Args:
-        path: 相对路径或 None。
+        workspace: 工作空间根目录。
+        rel: 相对路径。
 
     Returns:
-        工作空间下的绝对路径。
-    """
-    from miniagent.security.sandbox import get_default_workspace
+        解析后的绝对路径。
 
-    workspace = get_default_workspace()
-    if path:
-        return os.path.join(workspace, path)
-    return workspace
+    Raises:
+        ValueError: 路径越出工作空间。
+    """
+    base = os.path.realpath(workspace)
+    tail = (rel or "").strip().replace("\\", "/").lstrip("/")
+    cand = os.path.realpath(os.path.join(base, tail))
+    if cand != base and not cand.startswith(base + os.sep):
+        raise ValueError("路径越出会话工作区")
+    return cand
 
 
 def fmt_json(data: Any, indent: int = 2) -> str:

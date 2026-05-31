@@ -6,6 +6,7 @@ import json
 import os
 from typing import Any
 
+from miniagent.feishu._utils import fmt_json, resolve_under_workspace
 from miniagent.feishu.bitable.client import (
     create_record,
     delete_record,
@@ -35,18 +36,9 @@ _SUPPORTED_ACTIONS = (
     "upload_attachment",
 )
 
-
-def _fmt_json(data: Any) -> str:
-    return json.dumps(data, ensure_ascii=False, indent=2)
-
-
-def _resolve_under_workspace(workspace: str, rel: str) -> str:
-    base = os.path.realpath(workspace)
-    tail = (rel or "").strip().replace("\\", "/").lstrip("/")
-    cand = os.path.realpath(os.path.join(base, tail))
-    if cand != base and not cand.startswith(base + os.sep):
-        raise ValueError("路径越出会话工作区")
-    return cand
+# 保留原有函数名作为别名（向后兼容）
+_fmt_json = fmt_json
+_resolve_under_workspace = resolve_under_workspace
 
 
 def _parse_fields_arg(raw: Any) -> dict[str, Any] | None:

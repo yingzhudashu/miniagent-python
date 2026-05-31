@@ -326,8 +326,8 @@ class DefaultSessionManager(SessionManagerProtocol):
             path = os.path.join(ctx["config"].workspace_path, "history.json")
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(history, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass  # 静默失败，不影响主流程
+        except Exception as e:
+            _logger.warning("保存会话历史失败 (session=%s): %s", session_id, e)
 
     def load_session_history(self, session_id: str) -> list:
         """从磁盘加载会话历史

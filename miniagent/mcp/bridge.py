@@ -12,6 +12,9 @@ from __future__ import annotations
 
 from typing import Any
 
+# OpenAI function schema 描述字段最大长度
+MAX_DESCRIPTION_LENGTH = 4096
+
 try:
     import mcp  # noqa: F401
 
@@ -38,7 +41,7 @@ def mcp_tool_to_openai_param(tool: Any) -> dict[str, Any]:
         "type": "function",
         "function": {
             "name": str(name),
-            "description": str(desc)[:4096],
+            "description": str(desc)[:MAX_DESCRIPTION_LENGTH],
             "parameters": input_schema,
         },
     }

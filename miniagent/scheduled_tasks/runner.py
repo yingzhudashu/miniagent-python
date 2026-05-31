@@ -21,6 +21,9 @@ from miniagent.scheduled_tasks.resolve import resolve_execution_target, should_r
 
 _logger = get_logger(__name__)
 
+# 错误文本截断最大长度（飞书消息限制）
+MAX_ERROR_TEXT_LENGTH = 4000
+
 
 def _emit_cli(ctx: RuntimeContext, line: str) -> None:
     """定时任务日志：优先写入全屏 CLI transcript，否则 ``print``。"""
@@ -114,7 +117,7 @@ def build_run_scheduled_job_coro(
         except Exception as e:
             _logger.exception("定时任务执行失败: %s", task.id)
             _emit_cli(ctx, f"❌ 定时任务失败 {task.id}: {e}")
-            err_text = f"{e!s}\n{traceback.format_exc()}"[:4000]
+            err_text = f"{e!s}\n{traceback.format_exc()}"[:MAX_ERROR_TEXT_LENGTH]
             if delivery is not None and feishu_cfg:
                 try:
                     await send_scheduled_reply_to_feishu(

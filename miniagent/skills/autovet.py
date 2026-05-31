@@ -15,6 +15,9 @@ import os
 import re
 from pathlib import Path
 
+# 扫描文件大小上限（跳过超大文件）
+MAX_SCAN_FILE_SIZE = 1_000_000  # 1MB
+
 # 危险 shell 模式
 _DANGEROUS_SHELL = [
     (r"rm\s+-rf\s+/", "递归删除根目录或系统路径"),
@@ -73,6 +76,9 @@ def auto_vet_skill(skill_dir: str) -> str:
         for root, _dirs, files in os.walk(scripts_dir):
             for fname in files:
                 fpath = os.path.join(root, fname)
+                # 跳过超大文件
+                if os.path.getsize(fpath) > MAX_SCAN_FILE_SIZE:
+                    continue
                 try:
                     fcontent = Path(fpath).read_text(encoding="utf-8", errors="replace")
                     _scan_content(fpath, fcontent, warnings)

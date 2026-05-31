@@ -17,22 +17,12 @@ from typing import Any
 from miniagent.security.sandbox import get_default_workspace, resolve_sandbox_path
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
+# 导入共享路径解析函数（消除重复代码）
+from miniagent.tools._path_utils import allowed_dirs_from_ctx, resolve_path_from_ctx
 
-def _allowed_dirs(ctx: ToolContext) -> list[str]:
-    """获取允许的目录列表，优先使用 ToolContext.allowed_paths。"""
-    return ctx.allowed_paths if ctx.allowed_paths else [get_default_workspace()]
-
-
-def _resolve_path(path: str, ctx: ToolContext) -> str:
-    """将路径解析为沙箱允许范围内的绝对路径。
-
-    相对路径相对于 ``ctx.cwd``（即会话 ``files/`` 目录）解析，
-    而非进程当前工作目录。
-    """
-    p = path.strip()
-    if not os.path.isabs(p):
-        p = os.path.join(ctx.cwd, p)
-    return resolve_sandbox_path(p, _allowed_dirs(ctx))
+# 保留原有函数名作为别名（向后兼容）
+_allowed_dirs = allowed_dirs_from_ctx
+_resolve_path = resolve_path_from_ctx
 
 
 # ─── read_csv ────────────────────────────────────────────

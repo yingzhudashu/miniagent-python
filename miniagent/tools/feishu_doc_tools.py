@@ -7,6 +7,7 @@ import os
 from collections import Counter
 from typing import Any
 
+from miniagent.feishu._utils import fmt_json, resolve_under_workspace
 from miniagent.feishu.folder_token_resolve import resolve_parent_folder_token
 from miniagent.feishu.lark_client import config_from_env, require_lark_oapi
 from miniagent.feishu.token_resolve import extract_doc_token
@@ -58,17 +59,9 @@ def _docx_open_url(document_id: str) -> str | None:
     return f"{prefix.rstrip('/')}/{did}" if did else None
 
 
-def _resolve_under_workspace(workspace: str, rel: str) -> str:
-    base = os.path.realpath(workspace)
-    tail = (rel or "").strip().replace("\\", "/").lstrip("/")
-    cand = os.path.realpath(os.path.join(base, tail))
-    if cand != base and not cand.startswith(base + os.sep):
-        raise ValueError("路径越出会话工作区")
-    return cand
-
-
-def _fmt_json(data: Any) -> str:
-    return json.dumps(data, ensure_ascii=False, indent=2)
+# 保留原有函数名作为别名（向后兼容）
+_resolve_under_workspace = resolve_under_workspace
+_fmt_json = fmt_json
 
 
 async def _feishu_doc(args: dict[str, Any], ctx: ToolContext) -> ToolResult:

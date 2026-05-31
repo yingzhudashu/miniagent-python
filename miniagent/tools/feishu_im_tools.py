@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from miniagent.feishu._utils import resolve_under_workspace
 from miniagent.feishu.folder_token_resolve import resolve_parent_folder_token
 from miniagent.feishu.lark_client import config_from_env
 from miniagent.feishu.receive_id import (
@@ -24,15 +25,8 @@ FEISHU_IM_TOOL_NAMES = frozenset(
     }
 )
 
-
-def _resolve_under_workspace(workspace: str, rel: str) -> str:
-    """将会话相对路径解析为实路径；越出 ``workspace`` 则抛 ``ValueError``。"""
-    base = os.path.realpath(workspace)
-    tail = (rel or "").strip().replace("\\", "/").lstrip("/")
-    cand = os.path.realpath(os.path.join(base, tail))
-    if cand != base and not cand.startswith(base + os.sep):
-        raise ValueError("路径越出会话工作区")
-    return cand
+# 保留原有函数名作为别名（向后兼容）
+_resolve_under_workspace = resolve_under_workspace
 
 
 async def _feishu_send_workspace_file(args: dict[str, Any], ctx: ToolContext) -> ToolResult:

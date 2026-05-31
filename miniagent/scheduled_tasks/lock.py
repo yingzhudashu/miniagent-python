@@ -10,6 +10,9 @@ import re
 
 from miniagent.scheduled_tasks.store import tasks_dir
 
+# 锁文件重试次数
+LOCK_RETRY_COUNT = 3
+
 _JOB_ID_SAFE = re.compile(r"[^a-zA-Z0-9_-]+")
 
 
@@ -21,7 +24,7 @@ def _job_lock_path(task_id: str) -> str:
 def _try_acquire_lock_file(lock: str) -> bool:
     from miniagent.infrastructure.instance import is_process_running
 
-    for _ in range(3):
+    for _ in range(LOCK_RETRY_COUNT):
         try:
             fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             os.write(fd, str(os.getpid()).encode())

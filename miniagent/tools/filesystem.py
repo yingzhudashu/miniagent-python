@@ -25,26 +25,12 @@ from typing import Any
 from miniagent.security.sandbox import get_default_workspace, resolve_sandbox_path
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
+# 导入共享路径解析函数（消除重复代码）
+from miniagent.tools._path_utils import allowed_dirs_from_ctx, resolve_path_from_ctx
 
-def _allowed_dirs(ctx: ToolContext) -> list[str]:
-    """获取允许的目录列表。
-
-    优先使用 ToolContext 中的 allowed_paths，
-    如果未设置则回退到默认工作空间。
-    """
-    return ctx.allowed_paths if ctx.allowed_paths else [get_default_workspace()]
-
-
-def _resolve_file_path(path_str: str, ctx: ToolContext) -> str:
-    """将路径解析为绝对路径，再传入沙箱验证。
-
-    相对路径相对于 ``ctx.cwd``（即会话 ``files/`` 目录）解析，
-    而非进程当前工作目录。这与系统提示词中告知 LLM 的默认文件根一致。
-    """
-    p = path_str.strip()
-    if not os.path.isabs(p):
-        p = os.path.join(ctx.cwd, p)
-    return resolve_sandbox_path(p, _allowed_dirs(ctx))
+# 保留原有函数名作为别名（向后兼容）
+_allowed_dirs = allowed_dirs_from_ctx
+_resolve_file_path = resolve_path_from_ctx
 
 
 # ════════════════════════════════════════════════════════
@@ -196,7 +182,13 @@ async def _edit_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
     old_text = str(args["oldText"])
     new_text = str(args["newText"])
 
-    content = Path(file_path).read_text(encoding="utf-8")
+    try:
+        content = Path(file_path).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return ToolResult(success=False, content=f"❌ 文件不存在: {file_path}")
+    except OSError as e:
+        return ToolResult(success=False, content=f"❌ 读取文件失败: {e}")
+
     occurrences = content.count(old_text)
 
     if occurrences == 0:
@@ -357,9 +349,16 @@ async def _move_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
     """
     src = _resolve_file_path(str(args["from"]), ctx)
     dst = _resolve_file_path(str(args["to"]), ctx)
-    os.makedirs(os.path.dirname(dst), exist_ok=True)
-    shutil.move(src, dst)
-    return ToolResult(success=True, content=f"✅ 已移动: {src} → {dst}")
+
+    if not os.path.exists(src):
+        return ToolResult(success=False, content=f"❌ 源文件不存在: {src}")
+
+    try:
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.move(src, dst)
+        return ToolResult(success=True, content=f"✅ 已移动: {src} → {dst}")
+    except OSError as e:
+        return ToolResult(success=False, content=f"❌ 移动失败: {e}")
 
 
 # ════════════════════════════════════════════════════════
@@ -397,9 +396,16 @@ async def _copy_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
     """
     src = _resolve_file_path(str(args["from"]), ctx)
     dst = _resolve_file_path(str(args["to"]), ctx)
-    os.makedirs(os.path.dirname(dst), exist_ok=True)
-    shutil.copy2(src, dst)
-    return ToolResult(success=True, content=f"✅ 已复制: {src} → {dst}")
+
+    if not os.path.exists(src):
+        return ToolResult(success=False, content=f"❌ 源文件不存在: {src}")
+
+    try:
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copy2(src, dst)
+        return ToolResult(success=True, content=f"✅ 已复制: {src} → {dst}")
+    except OSError as e:
+        return ToolResult(success=False, content=f"❌ 复制失败: {e}")
 
 
 # ════════════════════════════════════════════════════════
