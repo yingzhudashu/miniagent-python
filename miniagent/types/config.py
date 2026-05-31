@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from miniagent.types.protocols import ToolRegistryProtocol
+    from miniagent.types.tool import ToolRegistryProtocol
     from miniagent.types.tool import Toolbox
 
 # ============================================================================

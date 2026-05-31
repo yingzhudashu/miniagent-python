@@ -20,7 +20,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from miniagent.types.memory import MemoryData
+    from miniagent.types.memory import SessionMemory
 
 
 @runtime_checkable
@@ -32,7 +32,7 @@ class MemoryStoreProtocol(Protocol):
 
     _state_dir: str
 
-    async def load(self, session_key: str) -> MemoryData | None: ...
+    async def load(self, session_key: str) -> SessionMemory | None: ...
     async def update_summary(
         self, session_key: str, summary: str, facts: list[str]
     ) -> None: ...
