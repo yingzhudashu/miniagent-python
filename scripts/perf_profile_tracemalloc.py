@@ -21,11 +21,11 @@ if _ROOT not in sys.path:
 
 
 def _run_keyword_index_batch(tmp: str) -> None:
+    import asyncio
+
     from miniagent.memory.keyword_index import KeywordIndex
     from miniagent.memory.store import DefaultMemoryStore
     from miniagent.types.memory import MemoryEntryInput, SessionMemory
-
-    import asyncio
 
     async def _body() -> None:
         ki = KeywordIndex(state_dir=tmp)

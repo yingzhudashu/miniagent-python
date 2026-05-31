@@ -66,7 +66,6 @@ CI 说明：
 - **`test` job**（矩阵 Python 3.10 / 3.12）：`pip install -e ".[dev,typing]"`，跑 `compileall`、`ruff`、`mypy miniagent/types`、`pytest -m "not evaluation"`。
 - **`test-feishu-extra` job**（仅 3.12）：`pip install -e ".[dev,feishu]"` 后再跑 `compileall`、`ruff` 与 `pytest -m "not evaluation"`，确保安装 `lark-oapi` 时仍通过（与主矩阵并行，不拖慢双版本安装）。
 - **`test-mcp-extra` job**（仅 3.12）：`pip install -e ".[dev,mcp]"`，对官方 `mcp` SDK 做 `import` 冒烟，再跑 `compileall`、`ruff` 与 `pytest -m "not evaluation"`，防止 `[mcp]` extra 与代码导入漂移。
-- **`evaluation` job**：仅在 **手动 `workflow_dispatch`** 时运行，`pytest -m evaluation`；可在仓库 Secrets 中配置 `OPENAI_API_KEY`、`TAVILY_API_KEY` 等供依赖网络的评测用例使用。
 
 说明：
 

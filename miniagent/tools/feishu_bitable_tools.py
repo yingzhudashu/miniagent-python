@@ -21,7 +21,7 @@ from miniagent.feishu.bitable.client import (
 )
 from miniagent.feishu.lark_client import config_from_env, require_lark_oapi
 from miniagent.feishu.token_resolve import extract_bitable_app_token, extract_table_id
-from miniagent.types.error_prefix import ERROR_PREFIX, WARNING_PREFIX, SUCCESS_PREFIX
+from miniagent.types.error_prefix import SUCCESS_PREFIX, WARNING_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 FEISHU_BITABLE_TOOL_NAMES = frozenset({"feishu_bitable"})

@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     # prompt_toolkit≥3.0.50 仅在类型检查块中定义该别名，运行时 key_bindings 无此名（勿在运行中 from … import）。
-    from prompt_toolkit.key_binding.key_bindings import NotImplementedOrNone
+    pass
 
 from miniagent.engine.cli_state import CliLoopState
 from miniagent.engine.feishu_handler import create_feishu_handler
@@ -1365,9 +1365,10 @@ async def run_cli_loop(
         else:
             # 正文：流式增量 ANSI 渲染优化
             # 关键修复：检测是否正在进行流式 ANSI 输出，合并连续 ANSI 对象避免换行不正确
-            from miniagent.engine.markdown_cli import render_markdown_to_ansi
             from prompt_toolkit.formatted_text import ANSI
             from prompt_toolkit.formatted_text.ansi import ANSI as PTANSI
+
+            from miniagent.engine.markdown_cli import render_markdown_to_ansi
 
             try:
                 md_w = _markdown_render_width()

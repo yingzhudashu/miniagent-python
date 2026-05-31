@@ -27,7 +27,7 @@ import inspect
 import json
 import os
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any
 
@@ -45,11 +45,11 @@ from miniagent.infrastructure.timezone_config import format_agent_timezone_conte
 from miniagent.infrastructure.tracing import emit_trace
 from miniagent.memory.context import ContextBudgetExceeded, DefaultContextManager
 from miniagent.memory.defaults import resolve_memory_dependencies
-from miniagent.memory.history_bridge import conversation_history_for_llm
 from miniagent.memory.embedding_search import (
     embedding_search_enabled,
     get_embed_provider,
 )
+from miniagent.memory.history_bridge import conversation_history_for_llm
 from miniagent.memory.keyword_index import format_search_results, search_relevant_with_index
 from miniagent.memory.store import extract_facts, generate_turn_summary
 from miniagent.security.sandbox import get_default_workspace

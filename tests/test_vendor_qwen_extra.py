@@ -1,6 +1,5 @@
 """Tests for miniagent/core/vendor/qwen_extra.py."""
 
-import pytest
 
 from miniagent.core.vendor.qwen_extra import build_thinking_extra_body
 

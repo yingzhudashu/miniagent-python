@@ -45,6 +45,7 @@ from miniagent.infrastructure.monitor import DefaultToolMonitor
 from miniagent.security.sandbox import get_default_workspace
 from miniagent.types.agent import PipelineResult, PipelineStep, ToolMonitorProtocol
 from miniagent.types.confirmation import ConfirmationRequest, ConfirmationStage
+from miniagent.types.error_prefix import WARNING_PREFIX
 from miniagent.types.planning import (
     ContextStrategy,
     EstimatedTokens,
@@ -52,7 +53,6 @@ from miniagent.types.planning import (
     SuggestedConfig,
 )
 from miniagent.types.protocols import OnThinkingCallback, OnToolFinishCallback
-from miniagent.types.error_prefix import WARNING_PREFIX
 from miniagent.types.tool import Toolbox, ToolContext, ToolRegistryProtocol
 
 _logger = get_logger(__name__)

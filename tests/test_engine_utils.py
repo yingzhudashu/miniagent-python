@@ -1,18 +1,17 @@
 """Tests for miniagent/engine/utils.py."""
 
-import pytest
 
 from miniagent.engine.utils import (
+    MAX_RENDER_WIDTH,
+    MIN_RENDER_WIDTH,
     detect_ext_from_magic,
     detect_mime_from_magic,
+    extract_last_qa_from_history,
     format_duration_seconds,
     format_file_size,
-    truncate_text,
-    extract_last_qa_from_history,
-    get_terminal_width,
     get_render_width,
-    MIN_RENDER_WIDTH,
-    MAX_RENDER_WIDTH,
+    get_terminal_width,
+    truncate_text,
 )
 
 

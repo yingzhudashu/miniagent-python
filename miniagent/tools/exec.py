@@ -23,7 +23,7 @@ from miniagent.infrastructure.process import (
     create_tracked_subprocess,
     deregister_process,
 )
-from miniagent.types.error_prefix import ERROR_PREFIX, WARNING_PREFIX
+from miniagent.types.error_prefix import ERROR_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 _logger = get_logger(__name__)

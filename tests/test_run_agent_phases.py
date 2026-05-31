@@ -160,8 +160,8 @@ class TestClarificationMaxQuestionsByDifficulty:
                 with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
                     ex.return_value = "ok"
 
-                    from miniagent.infrastructure.registry import DefaultToolRegistry
                     from miniagent.core.agent import run_agent
+                    from miniagent.infrastructure.registry import DefaultToolRegistry
                     await run_agent("task", registry=DefaultToolRegistry(), toolboxes=[tb], clarifier=clarifier)
 
         # 验证 max_questions=1 传给了 clarifier
@@ -190,8 +190,8 @@ class TestClarificationMaxQuestionsByDifficulty:
                 with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
                     ex.return_value = "ok"
 
-                    from miniagent.infrastructure.registry import DefaultToolRegistry
                     from miniagent.core.agent import run_agent
+                    from miniagent.infrastructure.registry import DefaultToolRegistry
                     await run_agent("task", registry=DefaultToolRegistry(), toolboxes=[tb], clarifier=clarifier)
 
         # 验证 max_questions=2 传给了 clarifier
@@ -220,8 +220,8 @@ class TestClarificationMaxQuestionsByDifficulty:
                 with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
                     ex.return_value = "ok"
 
-                    from miniagent.infrastructure.registry import DefaultToolRegistry
                     from miniagent.core.agent import run_agent
+                    from miniagent.infrastructure.registry import DefaultToolRegistry
                     await run_agent("task", registry=DefaultToolRegistry(), toolboxes=[tb], clarifier=clarifier)
 
         # 验证 max_questions=3 传给了 clarifier

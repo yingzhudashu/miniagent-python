@@ -15,7 +15,7 @@ from miniagent.feishu.receive_id import (
     default_receive_id_for_send,
     effective_receive_id_type,
 )
-from miniagent.types.error_prefix import ERROR_PREFIX, WARNING_PREFIX, SUCCESS_PREFIX
+from miniagent.types.error_prefix import SUCCESS_PREFIX, WARNING_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 FEISHU_IM_TOOL_NAMES = frozenset(

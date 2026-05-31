@@ -13,7 +13,7 @@ from miniagent.feishu.lark_client import config_from_env, require_lark_oapi
 from miniagent.feishu.token_resolve import extract_doc_token
 from miniagent.feishu.types import FeishuConfig
 from miniagent.infrastructure.env_parse import env_str_legacy
-from miniagent.types.error_prefix import ERROR_PREFIX, WARNING_PREFIX, SUCCESS_PREFIX
+from miniagent.types.error_prefix import SUCCESS_PREFIX, WARNING_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 FEISHU_DOC_TOOL_NAMES = frozenset({"feishu_doc"})

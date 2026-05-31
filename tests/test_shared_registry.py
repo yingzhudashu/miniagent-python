@@ -1,6 +1,5 @@
 """Tests for miniagent/memory/shared_registry.py."""
 
-import json
 import os
 import tempfile
 
@@ -111,7 +110,7 @@ class TestMemoryEntryRegistry:
             summary="Same summary",
             facts=["fact"],
         )
-        key = registry.register("session-1", entry)
+        registry.register("session-1", entry)
         registry.register("session-1", entry)
 
         assert registry.get_stats()["total_entries"] == 1

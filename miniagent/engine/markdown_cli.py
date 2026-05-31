@@ -11,7 +11,6 @@ from __future__ import annotations
 import os
 import re
 from io import StringIO
-from typing import Any
 
 _STRIP_ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -43,12 +42,12 @@ def render_markdown_to_ansi(markdown: str, *, width: int, justify: str = "left")
         return None
 
     try:
+        from rich import box  # noqa: F401
         from rich.console import Console
         from rich.markdown import Markdown
-        from rich.text import Text
-        from rich.panel import Panel
-        from rich import box
-        from rich.style import Style
+        from rich.panel import Panel  # noqa: F401
+        from rich.style import Style  # noqa: F401
+        from rich.text import Text  # noqa: F401
     except ImportError:
         return None
 
@@ -109,11 +108,11 @@ def _render_heading_left_aligned(level: int, text: str, width: int) -> str:
         ANSI 格式标题文本
     """
     try:
-        from rich.console import Console
-        from rich.text import Text
-        from rich.panel import Panel
         from rich import box
+        from rich.console import Console
+        from rich.panel import Panel
         from rich.style import Style
+        from rich.text import Text
     except ImportError:
         # 回退：简单文本
         prefix = "#" * level

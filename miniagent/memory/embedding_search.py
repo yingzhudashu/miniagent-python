@@ -24,7 +24,7 @@ import json
 import math
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -468,5 +468,4 @@ __all__ = [
     "get_embed_provider",
     "reset_embed_provider",
     "get_registry",
-    "reset_registry",
 ]

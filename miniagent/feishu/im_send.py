@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Literal
+from typing import Literal
 
 from miniagent.feishu.lark_client import build_client, clear_client_cache
 from miniagent.feishu.lark_response import format_lark_response_error

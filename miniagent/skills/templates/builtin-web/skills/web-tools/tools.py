@@ -312,8 +312,7 @@ async def _download_file_handler(args: dict[str, Any], ctx: ToolContext) -> Tool
         ToolResult 包含文件路径、大小、MIME 类型等信息
     """
     import os
-    from pathlib import Path
-    from urllib.parse import urlparse, unquote
+    from urllib.parse import unquote, urlparse
 
     url = str(args["url"]).strip()
     max_size_mb = min(500, max(1, int(args.get("max_size_mb", 50))))

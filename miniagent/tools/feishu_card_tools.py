@@ -8,7 +8,7 @@ from typing import Any
 from miniagent.feishu.cards.builder import build_button, build_interactive_card
 from miniagent.feishu.lark_client import config_from_env, require_lark_oapi
 from miniagent.feishu.receive_id import default_receive_id_for_send, effective_receive_id_type
-from miniagent.types.error_prefix import ERROR_PREFIX, WARNING_PREFIX, SUCCESS_PREFIX
+from miniagent.types.error_prefix import SUCCESS_PREFIX, WARNING_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 FEISHU_CARD_TOOL_NAMES = frozenset(

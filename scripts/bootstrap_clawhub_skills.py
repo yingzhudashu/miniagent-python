@@ -23,7 +23,6 @@ import asyncio
 import os
 import sys
 
-
 # 短 slug 与带前缀 slug 均可能存在；安装失败时请改用站点上的完整 slug
 DEFAULT_SLUGS = ("skill-creator", "skill-vetter")
 
