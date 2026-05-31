@@ -17,7 +17,9 @@ import json
 from typing import Any
 
 from miniagent.core.config import AGENT_NAME
+from miniagent.core.llm_json import parse_llm_json_response
 from miniagent.core.openai_client import get_shared_async_openai
+from miniagent.infrastructure.debug_ndjson import safe_agent_debug_log
 from miniagent.infrastructure.logger import append_log, get_logger, truncate
 from miniagent.types.planning import (
     ContextStrategy,
@@ -138,23 +140,15 @@ async def generate_plan(
                     "json_object": use_json_object,
                 }
             )
-            # #region agent log
-            try:
-                from miniagent.infrastructure.debug_ndjson import agent_debug_log
-
-                agent_debug_log(
-                    hypothesis_id="B",
-                    location="planner.py:generate_plan",
-                    message="before_planner_chat_completions",
-                    data={
-                        "attempt": attempt + 1,
-                        "model": planner_kw.get("model"),
-                        "json_object": use_json_object,
-                    },
-                )
-            except Exception:
-                pass
-            # #endregion
+            safe_agent_debug_log(
+                location="planner.py:generate_plan",
+                message="before_planner_chat_completions",
+                data={
+                    "attempt": attempt + 1,
+                    "model": planner_kw.get("model"),
+                    "json_object": use_json_object,
+                },
+            )
             try:
                 response = await llm_client.chat.completions.create(**create_args)
             except Exception as api_err:
@@ -202,7 +196,7 @@ async def generate_plan(
                     },
                 )
 
-            plan_data = _parse_plan_json(content)
+            plan_data = parse_llm_json_response(content)
             if "steps" not in plan_data or "requiredToolboxes" not in plan_data:
                 raise ValueError("Invalid plan: missing required fields")
 
@@ -223,23 +217,15 @@ async def generate_plan(
             return plan
 
         except Exception as e:
-            # #region agent log
-            try:
-                from miniagent.infrastructure.debug_ndjson import agent_debug_log
-
-                agent_debug_log(
-                    hypothesis_id="B",
-                    location="planner.py:generate_plan",
-                    message="planner_attempt_failed",
-                    data={
-                        "attempt": attempt + 1,
-                        "exc_type": type(e).__name__,
-                        "exc_msg": str(e)[:400],
-                    },
-                )
-            except Exception:
-                pass
-            # #endregion
+            safe_agent_debug_log(
+                location="planner.py:generate_plan",
+                message="planner_attempt_failed",
+                data={
+                    "attempt": attempt + 1,
+                    "exc_type": type(e).__name__,
+                    "exc_msg": str(e)[:400],
+                },
+            )
             _logger.warning("Planner attempt %d failed: %s", attempt + 1, e)
             if attempt == MAX_RETRIES - 1:
                 return _fallback_plan(user_input)
@@ -274,21 +260,6 @@ def _format_toolbox_tool_names(registry: Any, toolbox_ids: list[str]) -> str:
         names = sorted(by_tb.get(tid, []))
         lines.append(f"{tid}: {', '.join(names) if names else '(无匹配工具)'}")
     return "\n".join(lines)
-
-
-def _parse_plan_json(content: str) -> dict[str, Any]:
-    """解析规划器输出：去 markdown 围栏、截取首尾大括号、json.loads。"""
-    text = content.strip()
-    if text.startswith("```"):
-        text = text.replace("```json", "").replace("```", "").strip()
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        start = text.find("{")
-        end = text.rfind("}")
-        if start >= 0 and end > start:
-            return json.loads(text[start : end + 1])
-        raise
 
 
 def _dict_to_plan(data: dict[str, Any], *, default_step_thinking: str = "medium") -> StructuredPlan:

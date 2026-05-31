@@ -11,8 +11,10 @@ from enum import Enum
 from typing import Any
 
 from miniagent.core._openai_compat import json_object_unsupported as _json_object_unsupported
+from miniagent.core.llm_json import parse_llm_json_response
 from miniagent.core.openai_client import get_shared_async_openai
 from miniagent.core.thinking_presets import map_business_depth, map_openclaw_thinking_to_model
+from miniagent.infrastructure.debug_ndjson import safe_agent_debug_log
 from miniagent.infrastructure.logger import get_logger
 from miniagent.types.config import AgentConfig
 
@@ -104,23 +106,15 @@ async def classify_task_difficulty(
                 create_args: dict[str, Any] = {**kw, "messages": messages}  # type: ignore[typeddict-item]
                 if use_json_object:
                     create_args["response_format"] = {"type": "json_object"}
-                # #region agent log
-                try:
-                    from miniagent.infrastructure.debug_ndjson import agent_debug_log
-
-                    agent_debug_log(
-                        hypothesis_id="B",
-                        location="task_classifier.py:classify_task_difficulty",
-                        message="before_chat_completions",
-                        data={
-                            "attempt": _attempt,
-                            "model": kw.get("model"),
-                            "json_object": use_json_object,
-                        },
-                    )
-                except Exception:
-                    pass
-                # #endregion
+                safe_agent_debug_log(
+                    location="task_classifier.py:classify_task_difficulty",
+                    message="before_chat_completions",
+                    data={
+                        "attempt": _attempt,
+                        "model": kw.get("model"),
+                        "json_object": use_json_object,
+                    },
+                )
                 resp = await llm.chat.completions.create(**create_args)
                 break
             except Exception as api_err:
@@ -132,7 +126,7 @@ async def classify_task_difficulty(
         if resp is None:
             return TaskDifficulty.NORMAL
         raw = (resp.choices[0].message.content or "").strip()
-        data = json.loads(raw)
+        data = parse_llm_json_response(raw)
         d = str(data.get("difficulty", "")).strip().lower()
         for m in TaskDifficulty:
             if m.value == d:
@@ -151,19 +145,11 @@ async def classify_task_difficulty(
         if d in ("复杂",):
             return TaskDifficulty.COMPLEX
     except Exception as e:
-        # #region agent log
-        try:
-            from miniagent.infrastructure.debug_ndjson import agent_debug_log
-
-            agent_debug_log(
-                hypothesis_id="B",
-                location="task_classifier.py:classify_task_difficulty",
-                message="classifier_failed",
-                data={"exc_type": type(e).__name__, "exc_msg": str(e)[:400]},
-            )
-        except Exception:
-            pass
-        # #endregion
+        safe_agent_debug_log(
+            location="task_classifier.py:classify_task_difficulty",
+            message="classifier_failed",
+            data={"exc_type": type(e).__name__, "exc_msg": str(e)[:400]},
+        )
         _logger.warning("任务难度分类失败，降级为 normal: %s", e)
     return TaskDifficulty.NORMAL
 

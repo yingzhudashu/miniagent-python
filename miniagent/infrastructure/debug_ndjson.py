@@ -63,4 +63,44 @@ def agent_debug_log(
         pass
 
 
-__all__ = ["agent_debug_log"]
+def safe_agent_debug_log(
+    *,
+    location: str,
+    message: str,
+    data: dict | None = None,
+    hypothesis_id: str = "B",
+    run_id: str = "pre",
+) -> None:
+    """安全调用 agent_debug_log，自动填充常用参数，异常时静默。
+
+    相比 ``agent_debug_log``，此函数：
+    - 默认 hypothesis_id="B"（Agent 核心流程）
+    - 内置 try-except，调用方无需嵌套处理
+    - 调用前检查 _SESSION，避免无效调用
+
+    Args:
+        location: 调用位置标识（如 "planner.request"）
+        message: 调试消息
+        data: 附加数据（字典）
+        hypothesis_id: 假设 ID（默认 "B"）
+        run_id: 运行阶段标识（默认 "pre"）
+
+    Example:
+        # 替换原有重复模式
+        safe_agent_debug_log(location="planner.request", message="LLM调用", data={"model": model})
+    """
+    if not _SESSION:
+        return
+    try:
+        agent_debug_log(
+            hypothesis_id=hypothesis_id,
+            location=location,
+            message=message,
+            data=data or {},
+            run_id=run_id,
+        )
+    except Exception:
+        pass
+
+
+__all__ = ["agent_debug_log", "safe_agent_debug_log"]

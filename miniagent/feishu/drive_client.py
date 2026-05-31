@@ -11,6 +11,7 @@ from typing import Any
 
 import httpx
 
+from miniagent.feishu.lark_client import build_client, clear_client_cache
 from miniagent.feishu.lark_response import format_lark_response_error
 from miniagent.feishu.types import FeishuConfig
 
@@ -20,10 +21,7 @@ LIST_FILE_PAGE_SIZE = 50
 _TENANT_TOKEN_URL = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
 _ROOT_FOLDER_META_URL = "https://open.feishu.cn/open-apis/drive/explorer/v2/root_folder/meta"
 
-# ─── 客户端与 Token 缓存（性能优化）──
-
-# Lark SDK 客户端缓存（按 app_id 复用）
-_client_cache: dict[str, Any] = {}
+# ─── Token 缓存（性能优化）──
 
 # Tenant Access Token 缓存（带 TTL，1.5 小时有效期）
 _token_cache: dict[str, tuple[str, float]] = {}  # app_id -> (token, expiry_timestamp)
@@ -31,26 +29,6 @@ _TOKEN_TTL_SECONDS = 5400  # 1.5 小时（飞书 token 有效期 2 小时）
 
 # httpx 客户端缓存（复用连接池）
 _http_client: httpx.AsyncClient | None = None
-
-
-def _get_lark_client(config: FeishuConfig) -> Any:
-    """获取或复用已缓存的 Lark SDK 客户端。"""
-    try:
-        import lark_oapi as lark
-    except ImportError:
-        raise ImportError("请安装 lark-oapi: pip install lark-oapi")
-
-    key = config.app_id
-    if key not in _client_cache:
-        _client_cache[key] = (
-            lark.Client.builder().app_id(config.app_id).app_secret(config.app_secret).build()
-        )
-    return _client_cache[key]
-
-
-def clear_client_cache() -> None:
-    """清除客户端缓存（测试用）。"""
-    _client_cache.clear()
 
 
 def _get_http_client() -> httpx.AsyncClient:
@@ -312,7 +290,7 @@ def list_folder_files_page(
     """
     from lark_oapi.api.drive.v1 import ListFileRequest
 
-    client = _get_lark_client(config)
+    client = build_client(config)
     b = ListFileRequest.builder().folder_token(folder_token).page_size(min(page_size, 200))
     if page_token:
         b = b.page_token(page_token)

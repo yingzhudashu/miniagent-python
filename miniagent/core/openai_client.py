@@ -12,6 +12,8 @@ import os
 
 from openai import AsyncOpenAI
 
+from miniagent.infrastructure.debug_ndjson import safe_agent_debug_log
+
 _shared: AsyncOpenAI | None = None
 
 
@@ -21,19 +23,12 @@ def get_shared_async_openai() -> AsyncOpenAI:
     if _shared is None:
         key = (os.environ.get("OPENAI_API_KEY") or "").strip()
         if not key:
-            # #region agent log
-            try:
-                from miniagent.infrastructure.debug_ndjson import agent_debug_log
-
-                agent_debug_log(
-                    hypothesis_id="C",
-                    location="openai_client.py:get_shared_async_openai",
-                    message="missing_openai_api_key_abort",
-                    data={},
-                )
-            except Exception:
-                pass
-            # #endregion
+            safe_agent_debug_log(
+                hypothesis_id="C",
+                location="openai_client.py:get_shared_async_openai",
+                message="missing_openai_api_key_abort",
+                data={},
+            )
             raise RuntimeError(
                 "未配置 OPENAI_API_KEY，无法调用 LLM（任务分类、规划、对话均依赖）。"
                 "请在 .env 或环境中设置 OPENAI_API_KEY；使用国内/自建兼容端点时请同时设置 OPENAI_BASE_URL。"
@@ -42,29 +37,22 @@ def get_shared_async_openai() -> AsyncOpenAI:
             api_key=key,
             base_url=os.environ.get("OPENAI_BASE_URL") or None,
         )
-        # #region agent log
-        try:
-            from miniagent.infrastructure.debug_ndjson import agent_debug_log
-
-            bu = (os.environ.get("OPENAI_BASE_URL") or "").strip()
-            host = ""
-            if bu and "//" in bu:
-                host = bu.split("//", 1)[1].split("/", 1)[0][:120]
-            elif bu:
-                host = bu[:120]
-            agent_debug_log(
-                hypothesis_id="A",
-                location="openai_client.py:get_shared_async_openai",
-                message="shared_async_openai_created",
-                data={
-                    "base_url_nonempty": bool(bu),
-                    "base_url_host_snip": host,
-                    "api_key_len": len((os.environ.get("OPENAI_API_KEY") or "").strip()),
-                },
-            )
-        except Exception:
-            pass
-        # #endregion
+        bu = (os.environ.get("OPENAI_BASE_URL") or "").strip()
+        host = ""
+        if bu and "//" in bu:
+            host = bu.split("//", 1)[1].split("/", 1)[0][:120]
+        elif bu:
+            host = bu[:120]
+        safe_agent_debug_log(
+            hypothesis_id="A",
+            location="openai_client.py:get_shared_async_openai",
+            message="shared_async_openai_created",
+            data={
+                "base_url_nonempty": bool(bu),
+                "base_url_host_snip": host,
+                "api_key_len": len((os.environ.get("OPENAI_API_KEY") or "").strip()),
+            },
+        )
     return _shared
 
 

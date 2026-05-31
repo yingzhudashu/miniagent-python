@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from miniagent.core.executor import build_execution_system_prompt
-from miniagent.core.planner import _format_toolbox_tool_names, _parse_plan_json
+from miniagent.core.llm_json import parse_llm_json_response
+from miniagent.core.planner import _format_toolbox_tool_names
 from miniagent.infrastructure.registry import DefaultToolRegistry
 from miniagent.types.tool import ToolDefinition
 
@@ -42,9 +43,9 @@ def test_build_execution_system_prompt_session_files_root_blank_ignored() -> Non
     assert "默认文件根目录" not in s
 
 
-def test_parse_plan_json_brace_slice() -> None:
+def test_parse_llm_json_response_brace_slice() -> None:
     raw = '说明文字\n{"summary":"x","steps":[],"requiredToolboxes":[]}\n尾部'
-    data = _parse_plan_json(raw)
+    data = parse_llm_json_response(raw)
     assert data["summary"] == "x"
     assert data["requiredToolboxes"] == []
 
