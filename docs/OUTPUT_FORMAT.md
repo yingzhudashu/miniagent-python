@@ -143,11 +143,15 @@ Assistant
 
 ### 3.2 节流策略
 
-| 参数 | 默认 | 说明 |
-|------|------|------|
-| `FEISHU_THINKING_PATCH_INTERVAL_S` | 0.5s | PATCH 最小时间间隔 |
-| `FEISHU_THINKING_PATCH_CHAR_DELTA` | 50 chars | PATCH 最小字符增量 |
-| `FEISHU_THINKING_PATCH_BUDGET` | 20 | 单阶段最大 PATCH 次数 |
+通过环境变量可调整 PATCH 节流参数，优化流式体验：
+
+| 环境变量 | 默认值 | 说明 |
+|----------|--------|------|
+| `MINIAGENT_FEISHU_PATCH_INTERVAL` | 0.12s | PATCH 最小时间间隔（越小更新越频繁） |
+| `MINIAGENT_FEISHU_PATCH_CHAR_DELTA` | 30 chars | PATCH 最小字符增量（越小更新越频繁） |
+| `MINIAGENT_FEISHU_PATCH_BUDGET` | 40 | 单阶段最大 PATCH 次数 |
+
+默认值已优化为更流畅的流式体验（间隔更短、增量更小、预算更大）。
 
 ### 3.3 工具意图合并
 
