@@ -48,6 +48,23 @@ from miniagent.memory.embedding_search import (
     get_embed_provider,
 )
 from miniagent.memory.keyword_index import format_search_results, search_relevant_with_index
+
+# ── 性能优化：工具意图映射改为模块级常量，避免每次调用重建 ──
+_TOOL_INTENT_MAP: dict[str, str] = {
+    "read_file": "读取文件",
+    "write_file": "写入文件",
+    "edit_file": "编辑文件",
+    "list_dir": "列出目录",
+    "exec_command": "执行命令",
+    "web_search": "搜索网页",
+    "browser_extract_text": "浏览器提取正文",
+    "fetch_url": "抓取网页",
+    "read_memory": "读取记忆",
+    "write_memory": "写入记忆",
+    "search_memory": "搜索记忆",
+    "git_status": "Git 状态",
+    "git_diff": "Git 差异",
+}
 from miniagent.memory.store import extract_facts, generate_turn_summary
 from miniagent.security.sandbox import get_default_workspace
 from miniagent.types.agent import LoopDetectionConfig, ToolMonitorProtocol
@@ -995,23 +1012,7 @@ def _clip_intent_value(s: str) -> str:
 
 def _extract_tool_intent(tool_name: str, args: dict[str, Any]) -> str:
     """从工具调用中提取简要意图描述。"""
-    # 常见工具的意图映射
-    intent_map = {
-        "read_file": "读取文件",
-        "write_file": "写入文件",
-        "edit_file": "编辑文件",
-        "list_dir": "列出目录",
-        "exec_command": "执行命令",
-        "web_search": "搜索网页",
-        "browser_extract_text": "浏览器提取正文",
-        "fetch_url": "抓取网页",
-        "read_memory": "读取记忆",
-        "write_memory": "写入记忆",
-        "search_memory": "搜索记忆",
-        "git_status": "Git 状态",
-        "git_diff": "Git 差异",
-    }
-    base_intent = intent_map.get(tool_name, f"调用 {tool_name}")
+    base_intent = _TOOL_INTENT_MAP.get(tool_name, f"调用 {tool_name}")
 
     # 尝试从参数中提取关键信息
     if args:

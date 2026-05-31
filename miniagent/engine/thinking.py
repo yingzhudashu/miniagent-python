@@ -19,7 +19,13 @@ import os
 import re
 import shutil
 import sys
+import time
 from collections.abc import Awaitable, Callable
+
+# ── 性能优化：缓存终端宽度，避免频繁调用 get_terminal_size ──
+_TERMINAL_WIDTH_CACHE: int = 0
+_TERMINAL_WIDTH_CACHE_TIME: float = 0.0
+_TERMINAL_WIDTH_CACHE_TTL: float = 2.0  # 缓存有效期 2 秒
 
 # prompt_toolkit 是可选依赖（cli extra），未安装时提供 placeholder
 try:
@@ -50,11 +56,18 @@ def _cli_thinking_rich_enabled() -> bool:
 
 
 def _cli_thinking_render_width() -> int:
-    """无注入宽度回调时，用终端列宽推导 Rich 渲染宽度。"""
+    """无注入宽度回调时，用终端列宽推导 Rich 渲染宽度（带 TTL 缓存）。"""
+    global _TERMINAL_WIDTH_CACHE, _TERMINAL_WIDTH_CACHE_TIME
+    now = time.time()
+    if _TERMINAL_WIDTH_CACHE > 0 and (now - _TERMINAL_WIDTH_CACHE_TIME) < _TERMINAL_WIDTH_CACHE_TTL:
+        return _TERMINAL_WIDTH_CACHE
     try:
         terminal_width = shutil.get_terminal_size(fallback=(80, 24)).columns
         # 最大500适应宽屏显示器，确保表格完整显示
-        return max(40, min(500, terminal_width - 4))
+        width = max(40, min(500, terminal_width - 4))
+        _TERMINAL_WIDTH_CACHE = width
+        _TERMINAL_WIDTH_CACHE_TIME = now
+        return width
     except Exception:
         return 76  # 80 - 4
 
