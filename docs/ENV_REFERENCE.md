@@ -51,6 +51,7 @@
 | `MINIAGENT_REFLECTION` | `1` | 是否启用执行后自我反思（`0` 关闭） |
 | `MINIAGENT_THINKING_MERGE_TOOLS` | `1` | 合并相邻工具执行的 thinking 记录 |
 | `MINIAGENT_MEMORY_STORE_CACHE_MAX` | `50` | 记忆存储最大缓存条目数 |
+| `MINIAGENT_REGISTRY_MAX_ENTRIES` | `3000` | 共享注册表最大条目数 |
 | `MINIAGENT_KEYWORD_INDEX_MAX` | `20000` | 关键词索引最大条目数 |
 | `MINI_AGENT_HISTORY_TAIL_MESSAGES` | `200` | 会话历史尾部消息保留数（LLM 上下文注入） |
 | `MINI_AGENT_DREAM_INTERVAL_SHORT` | `7d` | 短周期记忆整理间隔 |

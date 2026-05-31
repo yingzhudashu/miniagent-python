@@ -1,6 +1,6 @@
 # 飞书集成文档
 
-> Mini Agent Python | 版本: 2.0.2 | 飞书 WebSocket 长连接
+> Mini Agent Python | 版本: 2.0.3 | 飞书 WebSocket 长连接
 
 ## 快速开始
 

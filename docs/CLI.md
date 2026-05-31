@@ -1,6 +1,6 @@
 # CLI 命令手册
 
-> Mini Agent Python | 版本: 2.0.2 | 多数 `.` 命令在 CLI 与飞书均可使用；`.schedule` 的 add/update/remove/enable/disable 及部分 `.session` 变异仅允许在本机 CLI 执行
+> Mini Agent Python | 版本: 2.0.3 | 多数 `.` 命令在 CLI 与飞书均可使用；`.schedule` 的 add/update/remove/enable/disable 及部分 `.session` 变异仅允许在本机 CLI 执行
 
 在 **本地 CLI** 执行 `.session switch` 时，会同步更新 **CLI 通道绑定** 与已自动跟随的 **飞书私聊 sender**，使二者与 `active_session_id` 一致（在飞书内发 `.session switch` / `create` / `rename` 等变异子命令不会修改共享状态，见 [FEISHU.md](FEISHU.md)）。飞书多实例场景下，仅一个进程可持有入站连接（见 `feishu_inbound_owner.json`）。
 

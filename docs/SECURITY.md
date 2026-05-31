@@ -1,6 +1,6 @@
 # 安全模型
 
-> 模块: `miniagent/security/` + 全局安全策略 | 版本: 2.0.2
+> 模块: `miniagent/security/` + 全局安全策略 | 版本: 2.0.3
 
 ## 安全架构概览
 
