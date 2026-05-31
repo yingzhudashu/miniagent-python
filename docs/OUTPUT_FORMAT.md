@@ -89,7 +89,7 @@ Assistant
 | 思考阶段之间（如 `[需求澄清]` → `[评估与计划]`） | **2 行**（1 行可见空白） | `ThinkingDisplay.show()` 阶段切换 emit `"\n\n"` |
 | 思考结束 → 最终回复前 | 由 `_cli_block_reply` 的 `"\n"` + light rule 处理 | `_cli_block_reply` |
 
-### 1.3 思考步骤编号
+### 1.6 思考步骤编号
 
 - 每轮对话开始时，通过 `ThinkingDisplay.reset_counter(session_key)` 重置为 **0**
 - 每个思考阶段（含流式和非流式）分配独立编号 `[n]`

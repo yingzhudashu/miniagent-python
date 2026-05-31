@@ -52,6 +52,10 @@
 | `MINIAGENT_THINKING_MERGE_TOOLS` | `1` | 合并相邻工具执行的 thinking 记录 |
 | `MINIAGENT_MEMORY_STORE_CACHE_MAX` | `50` | 记忆存储最大缓存条目数 |
 | `MINIAGENT_KEYWORD_INDEX_MAX` | `20000` | 关键词索引最大条目数 |
+| `MINI_AGENT_HISTORY_TAIL_MESSAGES` | `200` | 会话历史尾部消息保留数（LLM 上下文注入） |
+| `MINI_AGENT_DREAM_INTERVAL_SHORT` | `7d` | 短周期记忆整理间隔 |
+| `MINI_AGENT_DREAM_INTERVAL_LONG` | `30d` | 长周期记忆整理间隔 |
+| `MINI_AGENT_DREAM_INTERVAL_ARCHIVE` | `365d` | 归档周期记忆整理间隔 |
 | `LOOP_DETECTION_ENABLED` | `true` | 是否启用循环检测 |
 | `LOOP_HISTORY_SIZE` | `50` | 循环检测历史窗口大小 |
 | `LOOP_WARNING_THRESHOLD` | `8` | 循环检测警告阈值 |
@@ -71,6 +75,7 @@
 | `MINIAGENT_FEISHU_CARD_EXTRACT_INBOUND` | `1` | `1`=入站 interactive 消息抽取可读文本 |
 | `MINIAGENT_FEISHU_MARKDOWN_COMMANDS` | `0` | `1`=飞书 `.session` 等命令输出 Markdown 表格 |
 | `MINIAGENT_FEISHU_REPLY_IN_THREAD` | `0` | 与 `REPLY_TARGET=reply` 联用，话题内回复 |
+| `MINIAGENT_FEISHU_TABLE_FALLBACK` | `both` | 宽 GFM 表格回退策略：`both`=双模式，`hint`=提示切换，`unicode`=纯 Unicode |
 
 ## 5. 飞书文档/媒体/网络
 
