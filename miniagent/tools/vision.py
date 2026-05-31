@@ -18,6 +18,7 @@ from typing import Any
 
 from miniagent.core.openai_client import get_shared_async_openai
 from miniagent.security.sandbox import get_default_workspace, resolve_sandbox_path
+from miniagent.types.error_prefix import ERROR_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 # 导入共享路径解析函数（消除重复代码）
@@ -69,11 +70,11 @@ async def _analyze_image_handler(args: dict[str, Any], ctx: ToolContext) -> Tool
     try:
         image_path = _resolve_image_path(str(args["path"]), ctx)
     except ValueError as e:
-        return ToolResult(success=False, content=f"❌ 路径越权: {e}")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 路径越权: {e}")
 
     # 2. 检查文件存在性
     if not os.path.isfile(image_path):
-        return ToolResult(success=False, content=f"❌ 图片文件不存在: {args['path']}")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 图片文件不存在: {args['path']}")
 
     # 3. 检查文件大小（复用 vision_desc 的限制）
     size = os.path.getsize(image_path)
@@ -81,19 +82,19 @@ async def _analyze_image_handler(args: dict[str, Any], ctx: ToolContext) -> Tool
     if size > max_bytes:
         return ToolResult(
             success=False,
-            content=f"❌ 图片文件过大 ({size // 1024 // 1024}MB)，上限 20MB",
+            content=f"{ERROR_PREFIX} 图片文件过大 ({size // 1024 // 1024}MB)，上限 20MB",
         )
 
     # 4. 获取 OpenAI 客户端
     try:
         client = get_shared_async_openai()
     except RuntimeError as e:
-        return ToolResult(success=False, content=f"❌ LLM 客户端未配置: {e}")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} LLM 客户端未配置: {e}")
 
     # 5. 获取模型配置
     model = (os.environ.get("OPENAI_MODEL") or "").strip()
     if not model:
-        return ToolResult(success=False, content="❌ 未配置 OPENAI_MODEL")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 未配置 OPENAI_MODEL")
 
     # 6. 分析提示词
     prompt = str(args.get("prompt", "") or "请简洁描述这张图片的内容，不超过 150 字。")
@@ -112,7 +113,7 @@ async def _analyze_image_handler(args: dict[str, Any], ctx: ToolContext) -> Tool
         # describe_image 返回空字符串表示模型不支持视觉或调用失败
         return ToolResult(
             success=False,
-            content="❌ 图片分析失败（可能是模型不支持视觉理解，请确认 OPENAI_MODEL 配置）",
+            content=f"{ERROR_PREFIX} 图片分析失败（可能是模型不支持视觉理解，请确认 OPENAI_MODEL 配置）",
         )
 
     return ToolResult(

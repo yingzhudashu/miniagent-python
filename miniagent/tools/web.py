@@ -11,6 +11,7 @@ import shutil
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from miniagent.types.error_prefix import ERROR_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 # ════════════════════════════════════════════════════════
@@ -162,17 +163,17 @@ async def _app_avail_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolRes
     name = str(args.get("name", "")).strip()
 
     if not name:
-        return ToolResult(success=False, content="❌ name 参数不能为空")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} name 参数不能为空")
 
     checker = _CHECKERS.get(check_type)
     if not checker:
         types_str = ", ".join(_CHECKERS.keys())
-        return ToolResult(success=False, content=f"❌ 不支持的检查类型: {check_type}（支持: {types_str}）")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 不支持的检查类型: {check_type}（支持: {types_str}）")
 
     result = checker(name)
 
     if result.get("available"):
-        lines = [f"✅ {check_type}: {name} 可用"]
+        lines = [f"{SUCCESS_PREFIX} {check_type}: {name} 可用"]
         for key in ("path", "progid", "version", "set", "masked"):
             if key in result:
                 label = {"path": "路径", "progid": "ProgID", "version": "版本", "set": "已设置", "masked": "值"}[key]
@@ -180,7 +181,7 @@ async def _app_avail_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolRes
         return ToolResult(success=True, content="\n".join(lines))
     else:
         error = result.get("error", "未知原因不可用")
-        return ToolResult(success=False, content=f"❌ {check_type}: {name} 不可用 — {error}")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} {check_type}: {name} 不可用 — {error}")
 
 
 web_tools: dict[str, ToolDefinition] = {

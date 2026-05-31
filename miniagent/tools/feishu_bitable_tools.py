@@ -21,6 +21,7 @@ from miniagent.feishu.bitable.client import (
 )
 from miniagent.feishu.lark_client import config_from_env, require_lark_oapi
 from miniagent.feishu.token_resolve import extract_bitable_app_token, extract_table_id
+from miniagent.types.error_prefix import ERROR_PREFIX, WARNING_PREFIX, SUCCESS_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 FEISHU_BITABLE_TOOL_NAMES = frozenset({"feishu_bitable"})
@@ -61,17 +62,17 @@ async def _feishu_bitable(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     if action not in _SUPPORTED_ACTIONS:
         return ToolResult(
             success=False,
-            content=f"⚠️ 未知 action={action!r}。支持: {', '.join(_SUPPORTED_ACTIONS)}",
+            content=f"{WARNING_PREFIX} 未知 action={action!r}。支持: {', '.join(_SUPPORTED_ACTIONS)}",
         )
 
     cfg = config_from_env()
     if cfg is None:
-        return ToolResult(success=False, content="⚠️ 未配置 FEISHU_APP_ID / FEISHU_APP_SECRET。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 未配置 FEISHU_APP_ID / FEISHU_APP_SECRET。")
     try:
         require_lark_oapi()
     except ImportError:
         return ToolResult(
-            success=False, content="⚠️ 请安装 lark-oapi（pip install miniagent-python[feishu]）。"
+            success=False, content=f"{WARNING_PREFIX} 请安装 lark-oapi（pip install miniagent-python[feishu]）。"
         )
 
     app_token = extract_bitable_app_token(str(args.get("app_token") or ""))
@@ -83,7 +84,7 @@ async def _feishu_bitable(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     try:
         if action == "get_meta":
             if not app_token:
-                return ToolResult(success=False, content="⚠️ 需要 app_token 或 base URL。")
+                return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 app_token 或 base URL。")
             meta = get_app_meta(cfg, app_token)
             tables, nxt, has_more = list_tables(cfg, app_token)
             return ToolResult(
@@ -94,7 +95,7 @@ async def _feishu_bitable(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
             )
         if not app_token or not table_id:
             return ToolResult(
-                success=False, content="⚠️ 需要 app_token 与 table_id（或 base URL 含 ?table=）。"
+                success=False, content=f"{WARNING_PREFIX} 需要 app_token 与 table_id（或 base URL 含 ?table=）。"
             )
 
         if action == "list_fields":
@@ -134,14 +135,14 @@ async def _feishu_bitable(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         if action == "get_record":
             rid = str(args.get("record_id") or "").strip()
             if not rid:
-                return ToolResult(success=False, content="⚠️ 需要 record_id。")
+                return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 record_id。")
             return ToolResult(
                 success=True, content=_fmt_json(get_record(cfg, app_token, table_id, rid))
             )
         if action == "create_record":
             fields = _parse_fields_arg(args.get("fields"))
             if fields is None:
-                return ToolResult(success=False, content="⚠️ 需要 fields（对象或 JSON 字符串）。")
+                return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 fields（对象或 JSON 字符串）。")
             return ToolResult(
                 success=True,
                 content=_fmt_json(create_record(cfg, app_token, table_id, fields)),
@@ -150,9 +151,9 @@ async def _feishu_bitable(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
             rid = str(args.get("record_id") or "").strip()
             fields = _parse_fields_arg(args.get("fields"))
             if not rid:
-                return ToolResult(success=False, content="⚠️ 需要 record_id。")
+                return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 record_id。")
             if fields is None:
-                return ToolResult(success=False, content="⚠️ 需要 fields。")
+                return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 fields。")
             return ToolResult(
                 success=True,
                 content=_fmt_json(update_record(cfg, app_token, table_id, rid, fields)),
@@ -162,11 +163,11 @@ async def _feishu_bitable(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
             rids = args.get("record_ids")
             if isinstance(rids, list) and rids:
                 n = delete_records_batch(cfg, app_token, table_id, [str(x) for x in rids])
-                return ToolResult(success=True, content=f"✅ 已批量删除 {n} 条记录。")
+                return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已批量删除 {n} 条记录。")
             if not rid:
-                return ToolResult(success=False, content="⚠️ 需要 record_id 或 record_ids 数组。")
+                return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 record_id 或 record_ids 数组。")
             delete_record(cfg, app_token, table_id, rid)
-            return ToolResult(success=True, content=f"✅ 已删除记录 {rid}。")
+            return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已删除记录 {rid}。")
         if action == "upload_attachment":
             rid = str(args.get("record_id") or "").strip()
             field_name = str(args.get("field_name") or "").strip()
@@ -174,7 +175,7 @@ async def _feishu_bitable(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
             ws = (ctx.cwd or "").strip()
             if not rid or not field_name or not rel or not ws:
                 return ToolResult(
-                    success=False, content="⚠️ 需要 record_id、field_name、relative_path。"
+                    success=False, content=f"{WARNING_PREFIX} 需要 record_id、field_name、relative_path。"
                 )
             path = _resolve_under_workspace(ws, rel)
             with open(path, "rb") as f:
@@ -190,11 +191,11 @@ async def _feishu_bitable(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
             )
             return ToolResult(success=True, content=_fmt_json(out))
     except json.JSONDecodeError as e:
-        return ToolResult(success=False, content=f"⚠️ fields JSON 无效: {e}")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} fields JSON 无效: {e}")
     except Exception as e:
-        return ToolResult(success=False, content=f"⚠️ feishu_bitable.{action} 失败: {e}")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} feishu_bitable.{action} 失败: {e}")
 
-    return ToolResult(success=False, content="⚠️ 未处理的 action。")
+    return ToolResult(success=False, content=f"{WARNING_PREFIX} 未处理的 action。")
 
 
 _feishu_bitable_schema = {

@@ -15,7 +15,7 @@ import os
 from typing import Any
 
 from miniagent.security.sandbox import get_default_workspace, resolve_sandbox_path
-from miniagent.types.error_prefix import ERROR_PREFIX
+from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 # 导入共享路径解析函数（消除重复代码）
@@ -128,7 +128,7 @@ async def _write_csv_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
                 n = len(data)
             else:
                 return ToolResult(success=False, content=f"{ERROR_PREFIX} data 必须是非空数组")
-        return ToolResult(success=True, content=f"✅ 已写入 {n} 行到 {path}")
+        return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已写入 {n} 行到 {path}")
     except Exception as e:
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 写入失败: {e}")
 
@@ -214,7 +214,7 @@ async def _json_write_handler(args: dict[str, Any], ctx: ToolContext) -> ToolRes
         with open(path, "w", encoding="utf-8") as f:
             json.dump(parsed, f, ensure_ascii=False, indent=indent)
         size = os.path.getsize(path)
-        return ToolResult(success=True, content=f"✅ 已写入 JSON 到 {path}（{size} 字节）")
+        return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已写入 JSON 到 {path}（{size} 字节）")
     except Exception as e:
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 写入失败: {e}")
 

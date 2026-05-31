@@ -13,6 +13,7 @@ from miniagent.feishu.lark_client import config_from_env, require_lark_oapi
 from miniagent.feishu.token_resolve import extract_doc_token
 from miniagent.feishu.types import FeishuConfig
 from miniagent.infrastructure.env_parse import env_str_legacy
+from miniagent.types.error_prefix import ERROR_PREFIX, WARNING_PREFIX, SUCCESS_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 FEISHU_DOC_TOOL_NAMES = frozenset({"feishu_doc"})
@@ -70,17 +71,17 @@ async def _feishu_doc(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     if action not in _SUPPORTED_ACTIONS:
         return ToolResult(
             success=False,
-            content=f"⚠️ 未知 action={action!r}。支持: {', '.join(_SUPPORTED_ACTIONS)}",
+            content=f"{WARNING_PREFIX} 未知 action={action!r}。支持: {', '.join(_SUPPORTED_ACTIONS)}",
         )
 
     cfg = config_from_env()
     if cfg is None:
-        return ToolResult(success=False, content="⚠️ 未配置 FEISHU_APP_ID / FEISHU_APP_SECRET。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 未配置 FEISHU_APP_ID / FEISHU_APP_SECRET。")
     try:
         require_lark_oapi()
     except ImportError:
         return ToolResult(
-            success=False, content="⚠️ 请安装 lark-oapi（pip install miniagent-python[feishu]）。"
+            success=False, content=f"{WARNING_PREFIX} 请安装 lark-oapi（pip install miniagent-python[feishu]）。"
         )
 
     try:
@@ -135,9 +136,9 @@ async def _feishu_doc(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         if action == "search":
             return _action_search(args, cfg)
     except Exception as e:
-        return ToolResult(success=False, content=f"⚠️ feishu_doc.{action} 失败: {e}")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} feishu_doc.{action} 失败: {e}")
 
-    return ToolResult(success=False, content="⚠️ 未处理的 action。")
+    return ToolResult(success=False, content=f"{WARNING_PREFIX} 未处理的 action。")
 
 
 async def _action_create(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig) -> ToolResult:
@@ -147,7 +148,7 @@ async def _action_create(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConf
     folder_arg = str(args.get("folder_token") or "").strip()
     folder, folder_err = resolve_parent_folder_token(folder_arg, cfg=cfg)
     if folder_err or not folder:
-        return ToolResult(success=False, content=folder_err or "⚠️ 缺少 folder_token。")
+        return ToolResult(success=False, content=folder_err or f"{WARNING_PREFIX} 缺少 folder_token。")
     doc_id, rev = create_document(cfg, folder_token=folder, title=title)
     url = _docx_open_url(doc_id)
     url_line = f"\n- url: {url}" if url else ""
@@ -158,7 +159,7 @@ async def _action_create(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConf
     owner_note = f"\n- owner_open_id: {owner}" if owner else ""
     return ToolResult(
         success=True,
-        content=f"✅ 已创建云文档。\n- document_id: {doc_id}\n- revision_id: {rev}{url_line}{owner_note}{hint}",
+        content=f"{SUCCESS_PREFIX} 已创建云文档。\n- document_id: {doc_id}\n- revision_id: {rev}{url_line}{owner_note}{hint}",
     )
 
 
@@ -168,7 +169,7 @@ def _action_get(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
 
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
     if not doc_id:
-        return ToolResult(success=False, content="⚠️ 需要 doc_token 或 document_id。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token 或 document_id。")
     meta = get_document(cfg, doc_id)
     url = _docx_open_url(doc_id)
     if url:
@@ -183,7 +184,7 @@ def _action_read(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
 
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
     if not doc_id:
-        return ToolResult(success=False, content="⚠️ 需要 doc_token 或 document_id。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token 或 document_id。")
     meta = get_document(cfg, doc_id)
     text = get_document_raw_content(cfg, doc_id)
     blocks, _, _ = list_document_blocks(cfg, doc_id, page_size=200)
@@ -223,9 +224,9 @@ def _action_append(args: dict[str, Any], cfg: FeishuConfig, *, full_write: bool)
     content = str(args.get("content") or args.get("text") or "")
     mode = str(args.get("mode") or "").strip().lower()
     if not doc_id:
-        return ToolResult(success=False, content="⚠️ 需要 doc_token 或 document_id。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token 或 document_id。")
     if not content.strip():
-        return ToolResult(success=False, content="⚠️ content 为空。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} content 为空。")
     if full_write and mode == "replace":
         removed, failed = clear_document_content_blocks(cfg, doc_id)
         plain = markdown_to_plain_text(content)
@@ -233,7 +234,7 @@ def _action_append(args: dict[str, Any], cfg: FeishuConfig, *, full_write: bool)
         warn = f"（{failed} 个块删除失败，可能残留旧内容）" if failed else ""
         return ToolResult(
             success=True,
-            content=f"✅ write(replace)：已清除 {removed} 个块并写入 {n} 个新段落。{warn}",
+            content=f"{SUCCESS_PREFIX} write(replace)：已清除 {removed} 个块并写入 {n} 个新段落。{warn}",
         )
     n = append_plain_text_to_document(cfg, doc_id, content)
     note = ""
@@ -241,7 +242,7 @@ def _action_append(args: dict[str, Any], cfg: FeishuConfig, *, full_write: bool)
         note = "\n提示：write 默认 append；整篇替换请设 mode=replace。"
     return ToolResult(
         success=True,
-        content=f"✅ 已追加 {n} 个文本块（单次约 {DOCX_APPEND_MAX_CHARS} 字符上限）。{note}",
+        content=f"{SUCCESS_PREFIX} 已追加 {n} 个文本块（单次约 {DOCX_APPEND_MAX_CHARS} 字符上限）。{note}",
     )
 
 
@@ -251,9 +252,9 @@ def _action_delete(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
 
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
     if not doc_id:
-        return ToolResult(success=False, content="⚠️ 需要 doc_token 或 document_id。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token 或 document_id。")
     delete_document(cfg, doc_id)
-    return ToolResult(success=True, content=f"✅ 已删除云文档（file_token={doc_id}）。")
+    return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已删除云文档（file_token={doc_id}）。")
 
 
 def _action_list_blocks(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
@@ -262,7 +263,7 @@ def _action_list_blocks(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
 
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
     if not doc_id:
-        return ToolResult(success=False, content="⚠️ 需要 doc_token 或 document_id。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token 或 document_id。")
     page_token = str(args.get("page_token") or "").strip() or None
     items, nxt, has_more = list_document_blocks(cfg, doc_id, page_token=page_token)
     return ToolResult(
@@ -278,7 +279,7 @@ def _action_get_block(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
     block_id = str(args.get("block_id") or "").strip()
     if not doc_id or not block_id:
-        return ToolResult(success=False, content="⚠️ 需要 doc_token 与 block_id。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token 与 block_id。")
     return ToolResult(success=True, content=_fmt_json(get_block(cfg, doc_id, block_id)))
 
 
@@ -290,9 +291,9 @@ def _action_update_block(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
     block_id = str(args.get("block_id") or "").strip()
     content = str(args.get("content") or "")
     if not doc_id or not block_id:
-        return ToolResult(success=False, content="⚠️ 需要 doc_token 与 block_id。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token 与 block_id。")
     update_block_text(cfg, doc_id, block_id, content)
-    return ToolResult(success=True, content="✅ 已更新块文本。")
+    return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已更新块文本。")
 
 
 def _action_delete_block(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
@@ -302,9 +303,9 @@ def _action_delete_block(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
     block_id = str(args.get("block_id") or "").strip()
     if not doc_id or not block_id:
-        return ToolResult(success=False, content="⚠️ 需要 doc_token 与 block_id。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token 与 block_id。")
     delete_block(cfg, doc_id, block_id)
-    return ToolResult(success=True, content="✅ 已删除块。")
+    return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已删除块。")
 
 
 def _action_batch_update(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
@@ -314,18 +315,18 @@ def _action_batch_update(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
     requests_raw = args.get("requests")
     if not doc_id:
-        return ToolResult(success=False, content="⚠️ 需要 doc_token 或 document_id。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token 或 document_id。")
     if requests_raw is None:
-        return ToolResult(success=False, content="⚠️ 需要 requests（batch_update 请求数组）。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 requests（batch_update 请求数组）。")
     if isinstance(requests_raw, str):
         try:
             requests_payload = json.loads(requests_raw)
         except json.JSONDecodeError as e:
-            return ToolResult(success=False, content=f"⚠️ requests JSON 无效: {e}")
+            return ToolResult(success=False, content=f"{WARNING_PREFIX} requests JSON 无效: {e}")
     else:
         requests_payload = requests_raw
     if not isinstance(requests_payload, list):
-        return ToolResult(success=False, content="⚠️ requests 须为数组。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} requests 须为数组。")
     out = batch_update_blocks(cfg, doc_id, requests_payload)
     return ToolResult(success=True, content=_fmt_json(out))
 
@@ -337,19 +338,19 @@ def _action_export_raw(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
     rel = str(args.get("relative_path") or args.get("path") or "").strip()
     if not doc_id:
-        return ToolResult(success=False, content="⚠️ 需要 doc_token 或 document_id。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token 或 document_id。")
     ws = (ctx.cwd or "").strip()
     if not ws or not rel:
-        return ToolResult(success=False, content="⚠️ 需要会话工作区与 relative_path。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要会话工作区与 relative_path。")
     try:
         path = _resolve_under_workspace(ws, rel)
     except ValueError as e:
-        return ToolResult(success=False, content=f"⚠️ {e}")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} {e}")
     text = get_document_raw_content(cfg, doc_id)
     os.makedirs(os.path.dirname(path) or ws, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         f.write(text)
-    return ToolResult(success=True, content=f"✅ 已导出到工作区: {rel}（{len(text)} 字符）")
+    return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已导出到工作区: {rel}（{len(text)} 字符）")
 
 
 def _action_import_raw(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig) -> ToolResult:
@@ -360,18 +361,18 @@ def _action_import_raw(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
     rel = str(args.get("relative_path") or args.get("path") or "").strip()
     if not doc_id:
-        return ToolResult(success=False, content="⚠️ 需要 doc_token。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token。")
     ws = (ctx.cwd or "").strip()
     if not ws or not rel:
-        return ToolResult(success=False, content="⚠️ 需要 relative_path。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 relative_path。")
     try:
         path = _resolve_under_workspace(ws, rel)
     except ValueError as e:
-        return ToolResult(success=False, content=f"⚠️ {e}")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} {e}")
     with open(path, encoding="utf-8") as f:
         md = f.read()
     n = append_plain_text_to_document(cfg, doc_id, markdown_to_plain_text(md))
-    return ToolResult(success=True, content=f"✅ import_raw：已追加 {n} 段（不含 MD 表格）。")
+    return ToolResult(success=True, content=f"{SUCCESS_PREFIX} import_raw：已追加 {n} 段（不含 MD 表格）。")
 
 
 def _action_create_table(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
@@ -380,7 +381,7 @@ def _action_create_table(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
 
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
     if not doc_id:
-        return ToolResult(success=False, content="⚠️ 需要 doc_token。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token。")
     tid = create_table_block(
         cfg,
         doc_id,
@@ -388,7 +389,7 @@ def _action_create_table(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
         column_size=int(args.get("column_size") or 2),
         parent_block_id=str(args.get("parent_block_id") or "").strip() or None,
     )
-    return ToolResult(success=True, content=f"✅ table_block_id: {tid}")
+    return ToolResult(success=True, content=f"{SUCCESS_PREFIX} table_block_id: {tid}")
 
 
 def _action_write_table_cells(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
@@ -399,11 +400,11 @@ def _action_write_table_cells(args: dict[str, Any], cfg: FeishuConfig) -> ToolRe
     tid = str(args.get("table_block_id") or "").strip()
     values = args.get("values")
     if not doc_id or not tid:
-        return ToolResult(success=False, content="⚠️ 需要 doc_token 与 table_block_id。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token 与 table_block_id。")
     if isinstance(values, str):
         values = json.loads(values)
     write_table_cells(cfg, doc_id, tid, values)
-    return ToolResult(success=True, content="✅ 已写入表格单元格。")
+    return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已写入表格单元格。")
 
 
 def _action_create_table_with_values(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
@@ -415,7 +416,7 @@ def _action_create_table_with_values(args: dict[str, Any], cfg: FeishuConfig) ->
     if isinstance(values, str):
         values = json.loads(values)
     if not doc_id:
-        return ToolResult(success=False, content="⚠️ 需要 doc_token。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token。")
     tid = create_table_with_values(
         cfg,
         doc_id,
@@ -423,7 +424,7 @@ def _action_create_table_with_values(args: dict[str, Any], cfg: FeishuConfig) ->
         column_size=int(args.get("column_size") or 2),
         values=values or [],
     )
-    return ToolResult(success=True, content=f"✅ table_block_id: {tid}")
+    return ToolResult(success=True, content=f"{SUCCESS_PREFIX} table_block_id: {tid}")
 
 
 def _action_upload_image(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig) -> ToolResult:
@@ -433,10 +434,10 @@ def _action_upload_image(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConf
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
     rel = str(args.get("relative_path") or args.get("file_path") or "").strip()
     if not doc_id or not rel:
-        return ToolResult(success=False, content="⚠️ 需要 doc_token 与 relative_path。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token 与 relative_path。")
     path = _resolve_under_workspace(ctx.cwd or "", rel)
     tok = upload_doc_image_from_path(cfg, doc_id, path)
-    return ToolResult(success=True, content=f"✅ 已插入图片，file_token={tok}")
+    return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已插入图片，file_token={tok}")
 
 
 def _action_upload_file(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig) -> ToolResult:
@@ -446,10 +447,10 @@ def _action_upload_file(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfi
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
     rel = str(args.get("relative_path") or args.get("file_path") or "").strip()
     if not doc_id or not rel:
-        return ToolResult(success=False, content="⚠️ 需要 doc_token 与 relative_path。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token 与 relative_path。")
     path = _resolve_under_workspace(ctx.cwd or "", rel)
     tok = upload_doc_file_from_path(cfg, doc_id, path)
-    return ToolResult(success=True, content=f"✅ 已上传附件素材，file_token={tok}")
+    return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已上传附件素材，file_token={tok}")
 
 
 def _action_download_media(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig) -> ToolResult:
@@ -460,19 +461,19 @@ def _action_download_media(args: dict[str, Any], ctx: ToolContext, cfg: FeishuCo
     rel = str(args.get("relative_path") or args.get("path") or "").strip()
     extra = str(args.get("extra") or "").strip() or None
     if not tok:
-        return ToolResult(success=False, content="⚠️ 需要 file_token。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 file_token。")
     ws = (ctx.cwd or "").strip()
     if not ws or not rel:
-        return ToolResult(success=False, content="⚠️ 需要 relative_path 写入工作区。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 relative_path 写入工作区。")
     try:
         path = _resolve_under_workspace(ws, rel)
     except ValueError as e:
-        return ToolResult(success=False, content=f"⚠️ {e}")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} {e}")
     data = download_media_bytes(cfg, tok, extra=extra)
     os.makedirs(os.path.dirname(path) or ws, exist_ok=True)
     with open(path, "wb") as f:
         f.write(data)
-    return ToolResult(success=True, content=f"✅ 已下载 {len(data)} 字节到 {rel}")
+    return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已下载 {len(data)} 字节到 {rel}")
 
 
 async def _action_upload_image_from_message(
@@ -485,12 +486,12 @@ async def _action_upload_image_from_message(
     mid = str(args.get("message_id") or "").strip()
     fk = str(args.get("file_key") or "").strip()
     if not doc_id or not mid or not fk:
-        return ToolResult(success=False, content="⚠️ 需要 doc_token、message_id、file_key。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token、message_id、file_key。")
     data, _ = await download_message_resource(
         cfg.app_id, cfg.app_secret, message_id=mid, file_key=fk, type_="image"
     )
     tok = upload_doc_image_from_bytes(cfg, doc_id, data)
-    return ToolResult(success=True, content=f"✅ 已从消息插入图片，file_token={tok}")
+    return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已从消息插入图片，file_token={tok}")
 
 
 def _action_copy(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
@@ -502,9 +503,9 @@ def _action_copy(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
     name = str(args.get("name") or "副本").strip()
     folder, err = resolve_parent_folder_token(str(args.get("folder_token") or ""), cfg=cfg)
     if err or not folder:
-        return ToolResult(success=False, content=err or "⚠️ 需要 folder_token。")
+        return ToolResult(success=False, content=err or f"{WARNING_PREFIX} 需要 folder_token。")
     new_tok = copy_file(cfg, doc_id, name=name, folder_token=folder)
-    return ToolResult(success=True, content=f"✅ 已复制，新 token: {new_tok}")
+    return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已复制，新 token: {new_tok}")
 
 
 def _action_move(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
@@ -515,9 +516,9 @@ def _action_move(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
     folder, err = resolve_parent_folder_token(str(args.get("folder_token") or ""), cfg=cfg)
     if err or not folder:
-        return ToolResult(success=False, content=err or "⚠️ 需要 folder_token。")
+        return ToolResult(success=False, content=err or f"{WARNING_PREFIX} 需要 folder_token。")
     move_file(cfg, doc_id, folder_token=folder)
-    return ToolResult(success=True, content="✅ 已移动文档。")
+    return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已移动文档。")
 
 
 def _action_list_permissions(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
@@ -526,7 +527,7 @@ def _action_list_permissions(args: dict[str, Any], cfg: FeishuConfig) -> ToolRes
 
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
     if not doc_id:
-        return ToolResult(success=False, content="⚠️ 需要 doc_token。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token。")
     items = list_permissions(cfg, doc_id)
     return ToolResult(success=True, content=_fmt_json({"permissions": items}))
 
@@ -541,7 +542,7 @@ def _action_add_permission(args: dict[str, Any], cfg: FeishuConfig) -> ToolResul
     perm = str(args.get("perm") or "view").strip()
     if not doc_id or not member_type or not member_id:
         return ToolResult(
-            success=False, content="⚠️ 需要 doc_token、member_type、member_id（或 email/open_id）。"
+            success=False, content=f"{WARNING_PREFIX} 需要 doc_token、member_type、member_id（或 email/open_id）。"
         )
     out = add_permission(cfg, doc_id, member_type=member_type, member_id=member_id, perm=perm)
     return ToolResult(success=True, content=_fmt_json(out))
@@ -555,9 +556,9 @@ def _action_remove_permission(args: dict[str, Any], cfg: FeishuConfig) -> ToolRe
     member_type = str(args.get("member_type") or "").strip()
     member_id = str(args.get("member_id") or args.get("email") or args.get("open_id") or "").strip()
     if not doc_id or not member_type or not member_id:
-        return ToolResult(success=False, content="⚠️ 需要 doc_token、member_type、member_id。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token、member_type、member_id。")
     remove_permission(cfg, doc_id, member_type=member_type, member_id=member_id)
-    return ToolResult(success=True, content="✅ 已移除协作者权限。")
+    return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已移除协作者权限。")
 
 
 def _action_search(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
@@ -570,7 +571,7 @@ def _action_search(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
 
     q = str(args.get("query") or args.get("q") or "").strip()
     if not q:
-        return ToolResult(success=False, content="⚠️ 需要 query。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 query。")
     try:
         items = search_docs(cfg, q)
         return ToolResult(success=True, content=_fmt_json({"ok": True, "results": items}))

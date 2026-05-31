@@ -8,6 +8,7 @@ from typing import Any
 from miniagent.feishu.cards.builder import build_button, build_interactive_card
 from miniagent.feishu.lark_client import config_from_env, require_lark_oapi
 from miniagent.feishu.receive_id import default_receive_id_for_send, effective_receive_id_type
+from miniagent.types.error_prefix import ERROR_PREFIX, WARNING_PREFIX, SUCCESS_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 FEISHU_CARD_TOOL_NAMES = frozenset(
@@ -21,17 +22,17 @@ FEISHU_CARD_TOOL_NAMES = frozenset(
 async def _feishu_send_interactive_card(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     cfg = config_from_env()
     if cfg is None:
-        return ToolResult(success=False, content="⚠️ 未配置 FEISHU_APP_ID / FEISHU_APP_SECRET。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 未配置 FEISHU_APP_ID / FEISHU_APP_SECRET。")
     try:
         require_lark_oapi()
     except ImportError:
-        return ToolResult(success=False, content="⚠️ 请安装 lark-oapi。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 请安装 lark-oapi。")
 
     receive_id, recv_err = default_receive_id_for_send(args, ctx)
     if recv_err:
-        return ToolResult(success=False, content=f"⚠️ {recv_err}")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} {recv_err}")
     if not receive_id:
-        return ToolResult(success=False, content="⚠️ 缺少 receive_id。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 缺少 receive_id。")
 
     body = str(args.get("markdown_body") or args.get("body") or args.get("content") or "")
     header = str(args.get("header") or args.get("title") or "🤖 Mini Agent")
@@ -92,9 +93,9 @@ async def _feishu_send_interactive_card(args: dict[str, Any], ctx: ToolContext) 
         receive_id_type=rid_type,
     )
     if not ok:
-        return ToolResult(success=False, content=f"⚠️ 发送卡片失败: {err or 'unknown'}")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 发送卡片失败: {err or 'unknown'}")
     return ToolResult(
-        success=True, content=f"✅ 已发送交互卡片。\n- message_id: {mid or '（未返回）'}"
+        success=True, content=f"{SUCCESS_PREFIX} 已发送交互卡片。\n- message_id: {mid or '（未返回）'}"
     )
 
 
@@ -102,15 +103,15 @@ async def _feishu_update_message_card(args: dict[str, Any], ctx: ToolContext) ->
     _ = ctx
     cfg = config_from_env()
     if cfg is None:
-        return ToolResult(success=False, content="⚠️ 未配置 FEISHU_APP_ID / FEISHU_APP_SECRET。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 未配置 FEISHU_APP_ID / FEISHU_APP_SECRET。")
     try:
         require_lark_oapi()
     except ImportError:
-        return ToolResult(success=False, content="⚠️ 请安装 lark-oapi。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 请安装 lark-oapi。")
 
     mid = str(args.get("message_id") or "").strip()
     if not mid:
-        return ToolResult(success=False, content="⚠️ 需要 message_id。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 message_id。")
     body = str(args.get("markdown_body") or args.get("body") or "")
     header = str(args.get("header") or args.get("title") or "🤖 Mini Agent")
     template = str(args.get("template") or "blue")
@@ -130,11 +131,11 @@ async def _feishu_update_message_card(args: dict[str, Any], ctx: ToolContext) ->
             from miniagent.feishu.lark_response import format_lark_response_error
 
             return ToolResult(
-                success=False, content=f"⚠️ 更新失败: {format_lark_response_error(resp)}"
+                success=False, content=f"{WARNING_PREFIX} 更新失败: {format_lark_response_error(resp)}"
             )
     except Exception as e:
-        return ToolResult(success=False, content=f"⚠️ 更新异常: {e}")
-    return ToolResult(success=True, content=f"✅ 已更新消息卡片: {mid}")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 更新异常: {e}")
+    return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已更新消息卡片: {mid}")
 
 
 _send_schema = {

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from miniagent.types.error_prefix import ERROR_PREFIX, WARNING_PREFIX, SUCCESS_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 _run_dot_command_schema = {
@@ -56,14 +57,14 @@ async def _run_dot_command_handler(args: dict[str, Any], ctx: ToolContext) -> To
     if not line.startswith("."):
         return ToolResult(
             success=False,
-            content="⚠️ 参数 line 必须以 . 开头（与终端点命令一致）。",
+            content=f"{WARNING_PREFIX} 参数 line 必须以 . 开头（与终端点命令一致）。",
         )
 
     st = ctx.cli_loop_state
     if not isinstance(st, dict) or st.get("runtime_ctx") is None:
         return ToolResult(
             success=False,
-            content="⚠️ 点命令工具仅在完整进程集成（含 runtime_ctx）中可用。",
+            content=f"{WARNING_PREFIX} 点命令工具仅在完整进程集成（含 runtime_ctx）中可用。",
         )
 
     rt = st["runtime_ctx"]
@@ -85,12 +86,12 @@ async def _run_dot_command_handler(args: dict[str, Any], ctx: ToolContext) -> To
     if out is None:
         return ToolResult(
             success=False,
-            content="⚠️ 未识别的点命令；请使用 .help 查看列表。",
+            content=f"{WARNING_PREFIX} 未识别的点命令；请使用 .help 查看列表。",
         )
     if out == "__EXIT__":
         return ToolResult(
             success=True,
-            content="✅ 实例已停止",
+            content=f"{SUCCESS_PREFIX} 实例已停止",
         )
     stripped = (out or "").strip()
     if not stripped:

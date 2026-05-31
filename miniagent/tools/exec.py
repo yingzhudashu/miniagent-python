@@ -23,6 +23,7 @@ from miniagent.infrastructure.process import (
     create_tracked_subprocess,
     deregister_process,
 )
+from miniagent.types.error_prefix import ERROR_PREFIX, WARNING_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 _logger = get_logger(__name__)
@@ -142,7 +143,7 @@ def _get_allowed_commands() -> frozenset[str]:
 def _deny(command: str, reason: str) -> ToolResult:
     """记录并返回拒绝结果。"""
     _logger.warning("命令被拒绝: command=%s reason=%s", command, reason)
-    return ToolResult(success=False, content=f"❌ 命令被拒绝: {reason}")
+    return ToolResult(success=False, content=f"{ERROR_PREFIX} 命令被拒绝: {reason}")
 
 
 async def _exec_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
@@ -153,7 +154,7 @@ async def _exec_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     """
     command = str(args["command"]).strip()
     if not command:
-        return ToolResult(success=False, content="❌ 命令不能为空")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 命令不能为空")
     cwd = str(args.get("cwd", "")) or ctx.cwd
     timeout = float(args.get("timeout", 30))
 
@@ -204,7 +205,7 @@ async def _exec_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
             await deregister_process(proc)
             return ToolResult(
                 success=False,
-                content=f"❌ 命令执行超时 ({timeout}s)",
+                content=f"{ERROR_PREFIX} 命令执行超时 ({timeout}s)",
             )
 
         stdout = stdout_bytes.decode("utf-8", errors="replace").strip() if stdout_bytes else ""
@@ -226,7 +227,7 @@ async def _exec_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         return ToolResult(success=(code == 0), content=content)
 
     except Exception as e:
-        return ToolResult(success=False, content=f"❌ 执行失败: {e}")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 执行失败: {e}")
 
 
 # ─── 导出 ────────────────────────────────────────────────

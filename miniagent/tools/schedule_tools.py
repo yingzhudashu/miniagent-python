@@ -9,6 +9,7 @@ import json
 import time
 from typing import Any
 
+from miniagent.types.error_prefix import ERROR_PREFIX, WARNING_PREFIX, SUCCESS_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 SCHEDULE_TOOL_NAMES = frozenset({"manage_scheduled_task"})
@@ -68,7 +69,7 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
     if not read_only and not ctx.cli_dispatch_allow_mutations:
         return ToolResult(
             success=False,
-            content="⚠️ 当前渠道不允许修改定时任务（飞书场景）；请在本地 CLI 使用或使用 list/show。",
+            content=f"{WARNING_PREFIX} 当前渠道不允许修改定时任务（飞书场景）；请在本地 CLI 使用或使用 list/show。",
         )
 
     if action == "list":
@@ -93,7 +94,7 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
         if not ctx.cli_dispatch_allow_mutations:
             return ToolResult(
                 success=False,
-                content="⚠️ 当前渠道不允许修改定时任务；请在本地 CLI 执行 align_tz。",
+                content=f"{WARNING_PREFIX} 当前渠道不允许修改定时任务；请在本地 CLI 执行 align_tz。",
             )
         tasks = load_tasks()
         n, detail = align_task_timezones_to_env(tasks)
@@ -106,7 +107,7 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
         save_tasks(tasks)
         return ToolResult(
             success=True,
-            content=f"✅ 已对齐 {n} 个任务时区:\n" + "\n".join(detail),
+            content=f"{SUCCESS_PREFIX} 已对齐 {n} 个任务时区:\n" + "\n".join(detail),
         )
 
     if action == "show":
@@ -130,7 +131,7 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
         if len(new) == len(tasks):
             return ToolResult(success=False, content=f"未找到任务: {tid}")
         save_tasks(new)
-        return ToolResult(success=True, content=f"✅ 已删除任务 {tid}")
+        return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已删除任务 {tid}")
 
     if action == "set_enabled":
         tid = (args.get("task_id") or "").strip()
@@ -147,7 +148,7 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
                     t.next_run_at = compute_initial_next_run(t)
                 repair_invalid_schedules(tasks)
                 save_tasks(tasks)
-                return ToolResult(success=True, content=f"✅ 任务 {tid} enabled={en}")
+                return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 任务 {tid} enabled={en}")
         return ToolResult(success=False, content=f"未找到任务: {tid}")
 
     if action == "add_interval":
@@ -169,7 +170,7 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
                 args.get("fixed_session_id"),
             )
         except ValueError as e:
-            return ToolResult(success=False, content=f"❌ {e}")
+            return ToolResult(success=False, content=f"{ERROR_PREFIX} {e}")
         tz, tz_ex = _tool_timezone_spec(args)
         task = ScheduledTask(
             id=tid,
@@ -193,7 +194,7 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
         return ToolResult(
             success=True,
             content=(
-                f"✅ 已添加 interval 任务 {tid} timezone={tz} next={format_next_run_display(task)}"
+                f"{SUCCESS_PREFIX} 已添加 interval 任务 {tid} timezone={tz} next={format_next_run_display(task)}"
             ),
         )
 
@@ -212,7 +213,7 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
                 args.get("fixed_session_id"),
             )
         except ValueError as e:
-            return ToolResult(success=False, content=f"❌ {e}")
+            return ToolResult(success=False, content=f"{ERROR_PREFIX} {e}")
         tz, tz_ex = _tool_timezone_spec(args)
         task = ScheduledTask(
             id=tid,
@@ -241,7 +242,7 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
         save_tasks(tasks)
         return ToolResult(
             success=True,
-            content=f"✅ 已添加 once 任务 {tid} timezone={tz} next={format_next_run_display(task)}",
+            content=f"{SUCCESS_PREFIX} 已添加 once 任务 {tid} timezone={tz} next={format_next_run_display(task)}",
         )
 
     if action == "add_cron":
@@ -262,7 +263,7 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
                 args.get("fixed_session_id"),
             )
         except ValueError as e:
-            return ToolResult(success=False, content=f"❌ {e}")
+            return ToolResult(success=False, content=f"{ERROR_PREFIX} {e}")
         tz, tz_ex = _tool_timezone_spec(args)
         task = ScheduledTask(
             id=tid,
@@ -287,7 +288,7 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
         save_tasks(tasks)
         return ToolResult(
             success=True,
-            content=f"✅ 已添加 cron 任务 {tid} timezone={tz} next={format_next_run_display(task)}",
+            content=f"{SUCCESS_PREFIX} 已添加 cron 任务 {tid} timezone={tz} next={format_next_run_display(task)}",
         )
 
     if action == "update":
@@ -314,7 +315,7 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
                 args.get("fixed_session_id") or existing.session.session_id,
             )
         except ValueError as e:
-            return ToolResult(success=False, content=f"❌ {e}")
+            return ToolResult(success=False, content=f"{ERROR_PREFIX} {e}")
         existing.prompt = prompt
         existing.session = sess
         if schedule_kind == "interval" or (
@@ -354,7 +355,7 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
             try:
                 cron_expr = validate_cron_expr(cron_expr)
             except ValueError as e:
-                return ToolResult(success=False, content=f"❌ {e}")
+                return ToolResult(success=False, content=f"{ERROR_PREFIX} {e}")
             existing.schedule = ScheduleSpec(
                 kind="cron",
                 cron_expr=cron_expr,
@@ -375,7 +376,7 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
         return ToolResult(
             success=True,
             content=(
-                f"✅ 已更新 {tid} timezone={existing.schedule.timezone} "
+                f"{SUCCESS_PREFIX} 已更新 {tid} timezone={existing.schedule.timezone} "
                 f"next={format_next_run_display(existing)}"
             ),
         )

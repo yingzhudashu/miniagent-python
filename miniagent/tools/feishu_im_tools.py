@@ -15,6 +15,7 @@ from miniagent.feishu.receive_id import (
     default_receive_id_for_send,
     effective_receive_id_type,
 )
+from miniagent.types.error_prefix import ERROR_PREFIX, WARNING_PREFIX, SUCCESS_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 FEISHU_IM_TOOL_NAMES = frozenset(
@@ -40,20 +41,20 @@ async def _feishu_send_workspace_file(args: dict[str, Any], ctx: ToolContext) ->
 
     cfg = config_from_env()
     if cfg is None:
-        return ToolResult(success=False, content="⚠️ 未配置 FEISHU_APP_ID / FEISHU_APP_SECRET。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 未配置 FEISHU_APP_ID / FEISHU_APP_SECRET。")
     if recv_err:
-        return ToolResult(success=False, content=f"⚠️ {recv_err}")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} {recv_err}")
     if not receive_id:
-        return ToolResult(success=False, content="⚠️ 缺少 receive_id。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 缺少 receive_id。")
     ws = (ctx.cwd or "").strip()
     if not ws or not rel:
-        return ToolResult(success=False, content="⚠️ 缺少工作区路径或 relative_path。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 缺少工作区路径或 relative_path。")
     try:
         path = _resolve_under_workspace(ws, rel)
     except ValueError as e:
-        return ToolResult(success=False, content=f"⚠️ {e}")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} {e}")
     if not os.path.isfile(path):
-        return ToolResult(success=False, content=f"⚠️ 文件不存在: {rel}")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 文件不存在: {rel}")
 
     try:
         from miniagent.feishu.upload_io import (
@@ -64,14 +65,14 @@ async def _feishu_send_workspace_file(args: dict[str, Any], ctx: ToolContext) ->
         )
     except ImportError:
         return ToolResult(
-            success=False, content="⚠️ 请安装 lark-oapi（pip install miniagent-python[feishu]）。"
+            success=False, content=f"{WARNING_PREFIX} 请安装 lark-oapi（pip install miniagent-python[feishu]）。"
         )
 
     try:
         with open(path, "rb") as f:
             data = f.read()
     except OSError as e:
-        return ToolResult(success=False, content=f"⚠️ 读取文件失败: {e}")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 读取文件失败: {e}")
 
     try:
         if as_image:
@@ -97,10 +98,10 @@ async def _feishu_send_workspace_file(args: dict[str, Any], ctx: ToolContext) ->
                 receive_id_type=receive_id_type,
             )
     except Exception as e:
-        return ToolResult(success=False, content=f"⚠️ 上传或发送失败: {e}")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 上传或发送失败: {e}")
     if not ok:
-        return ToolResult(success=False, content=f"⚠️ 飞书发送失败: {err or 'unknown'}")
-    return ToolResult(success=True, content="✅ 已发送到当前飞书会话。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 飞书发送失败: {err or 'unknown'}")
+    return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已发送到当前飞书会话。")
 
 
 async def _feishu_recall_message(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
@@ -108,21 +109,21 @@ async def _feishu_recall_message(args: dict[str, Any], ctx: ToolContext) -> Tool
     _ = ctx
     mid = str(args.get("message_id") or "").strip()
     if not mid:
-        return ToolResult(success=False, content="⚠️ 需要 message_id。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 message_id。")
     cfg = config_from_env()
     if cfg is None:
-        return ToolResult(success=False, content="⚠️ 未配置 FEISHU_APP_ID / FEISHU_APP_SECRET。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 未配置 FEISHU_APP_ID / FEISHU_APP_SECRET。")
     try:
         from miniagent.feishu.upload_io import delete_im_message
     except ImportError:
-        return ToolResult(success=False, content="⚠️ 请安装 lark-oapi。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 请安装 lark-oapi。")
     try:
         ok, err = delete_im_message(cfg, mid)
     except Exception as e:
-        return ToolResult(success=False, content=f"⚠️ 撤回失败: {e}")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 撤回失败: {e}")
     if not ok:
-        return ToolResult(success=False, content=f"⚠️ 飞书删除消息 API 失败: {err or 'unknown'}")
-    return ToolResult(success=True, content="✅ 已请求撤回该消息。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 飞书删除消息 API 失败: {err or 'unknown'}")
+    return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已请求撤回该消息。")
 
 
 async def _feishu_list_drive_files(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
@@ -131,23 +132,23 @@ async def _feishu_list_drive_files(args: dict[str, Any], ctx: ToolContext) -> To
     folder_arg = str(args.get("folder_token") or "").strip()
     cfg = config_from_env()
     if cfg is None:
-        return ToolResult(success=False, content="⚠️ 未配置 FEISHU_APP_ID / FEISHU_APP_SECRET。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 未配置 FEISHU_APP_ID / FEISHU_APP_SECRET。")
     folder, folder_err = await resolve_parent_folder_token_async(folder_arg, cfg=cfg)
     if folder_err or not folder:
-        return ToolResult(success=False, content=folder_err or "⚠️ 缺少 folder_token。")
+        return ToolResult(success=False, content=folder_err or f"{WARNING_PREFIX} 缺少 folder_token。")
     folders_only = bool(args.get("folders_only"))
     name_sub = str(args.get("name_contains") or "").strip().lower()
     page_token = str(args.get("page_token") or "").strip() or None
     try:
         from miniagent.feishu.drive_client import list_folder_files_page
     except ImportError:
-        return ToolResult(success=False, content="⚠️ 请安装 lark-oapi。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 请安装 lark-oapi。")
     try:
         entries, next_tok, has_more = list_folder_files_page(
             cfg, folder_token=folder, page_token=page_token
         )
     except Exception as e:
-        return ToolResult(success=False, content=f"⚠️ 列举失败: {e}")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 列举失败: {e}")
     lines = ["| name | token | type |", "| --- | --- | --- |"]
     for e in entries:
         if folders_only and str(e.get("type") or "").lower() != "folder":
