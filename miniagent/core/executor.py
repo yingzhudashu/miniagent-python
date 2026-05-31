@@ -55,6 +55,7 @@ from miniagent.memory.store import extract_facts, generate_turn_summary
 from miniagent.security.sandbox import get_default_workspace
 from miniagent.types.agent import LoopDetectionConfig, ToolMonitorProtocol
 from miniagent.types.config import AgentConfig
+from miniagent.types.error_prefix import WARNING_PREFIX
 from miniagent.types.memory import MemoryEntryInput
 from miniagent.types.planning import PlanStep, StructuredPlan
 from miniagent.types.protocols import OnThinkingCallback, OnToolFinishCallback
@@ -259,7 +260,7 @@ def _append_context_or_return(
     try:
         context_manager.append(msg)
     except ContextBudgetExceeded as e:
-        return f"⚠️ {e}"
+        return f"{WARNING_PREFIX} {e}"
     return None
 
 
@@ -749,7 +750,7 @@ async def execute_plan(
                 if oob_u:
                     return oob_u
                 if on_tool_call:
-                    on_tool_call(tc.function.name, tc.function.arguments, "⚠️ 未知工具")
+                    on_tool_call(tc.function.name, tc.function.arguments, f"{WARNING_PREFIX} 未知工具")
                 await _invoke_on_tool_finish(
                     tc.function.name,
                     tc.function.arguments,
@@ -768,7 +769,7 @@ async def execute_plan(
                     monitor.record(tc.function.name, elapsed, False)
                     _logger.warning("循环检测拦截: %s", loop_check.message)
                     return (
-                        f"⚠️ 任务执行被终止：{loop_check.message}\n\n建议：简化请求或明确具体目标。"
+                        f"{WARNING_PREFIX} 任务执行被终止：{loop_check.message}\n\n建议：简化请求或明确具体目标。"
                     )
 
                 if loop_check.level == "warning" and not loop_warning_shown:
@@ -819,7 +820,7 @@ async def execute_plan(
                 # 超时：工具执行时间超过限制，不影响后续工具
                 result = ToolResult(
                     success=False,
-                    content=f"⚠️ 工具超时（{timeout_sec}s）: {tc.function.name}",
+                    content=f"{WARNING_PREFIX} 工具超时（{timeout_sec}s）: {tc.function.name}",
                 )
                 _logger.warning(
                     "工具超时: %s (%.1fs)", tc.function.name, timeout_sec
@@ -828,19 +829,19 @@ async def execute_plan(
                 # 权限拒绝：沙箱限制或文件权限不足
                 result = ToolResult(
                     success=False,
-                    content=f"⚠️ 权限拒绝: {e}",
+                    content=f"{WARNING_PREFIX} 权限拒绝: {e}",
                 )
                 _logger.warning("工具权限拒绝: %s - %s", tc.function.name, e)
             except FileNotFoundError as e:
                 # 文件不存在：read_file 等工具的常见错误
                 result = ToolResult(
                     success=False,
-                    content=f"⚠️ 文件不存在: {e}",
+                    content=f"{WARNING_PREFIX} 文件不存在: {e}",
                 )
                 _logger.debug("工具文件不存在: %s - %s", tc.function.name, e)
             except Exception as e:
                 # 其他异常：参数错误、内部错误等，记录详情供调试
-                result = ToolResult(success=False, content=f"⚠️ 执行异常: {e}")
+                result = ToolResult(success=False, content=f"{WARNING_PREFIX} 执行异常: {e}")
                 _logger.warning("工具执行异常: %s - %s", tc.function.name, e)
             tool_elapsed = time.monotonic_ns() // 1_000_000 - tool_start
             emit_trace(
@@ -1042,7 +1043,7 @@ async def execute_plan(
                             return oob_txt
                         return final_reply
                 return (
-                    "⚠️ 最后一步在单步子轮次（MINIAGENT_STEP_MAX_TURNS）或总轮数限制内，"
+                    f"{WARNING_PREFIX} 最后一步在单步子轮次（MINIAGENT_STEP_MAX_TURNS）或总轮数限制内，"
                     "未以「无工具调用」形式结束。\n\n"
                     "可提高 MINIAGENT_STEP_MAX_TURNS、AGENT_MAX_TURNS，"
                     "或设置 MINIAGENT_PHASED_EXECUTION=0 退回单循环执行后重试。"
@@ -1072,7 +1073,7 @@ async def execute_plan(
         _logger.debug(context_manager.get_token_report())
 
     return (
-        f"⚠️ 达到最大调用次数（{max_turns} 轮），任务未完成。\n\n"
+        f"{WARNING_PREFIX} 达到最大调用次数（{max_turns} 轮），任务未完成。\n\n"
         f"建议：简化请求，分步骤执行。\n\n"
         f"📊 本轮统计：工具调用 {loop_stats['total_calls']} 次"
     )

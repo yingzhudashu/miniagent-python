@@ -52,6 +52,7 @@ from miniagent.types.planning import (
     SuggestedConfig,
 )
 from miniagent.types.protocols import OnThinkingCallback, OnToolFinishCallback
+from miniagent.types.error_prefix import WARNING_PREFIX
 from miniagent.types.tool import Toolbox, ToolContext, ToolRegistryProtocol
 
 _logger = get_logger(__name__)
@@ -425,7 +426,7 @@ async def run_agent(
                 try:
                     await invoke_on_thinking(
                         on_thinking,
-                        "⚠️ 高风险操作，请确认执行计划。输入 .confirm 同意，.reject 拒绝，.adjust 调整。",
+                        f"{WARNING_PREFIX} 高风险操作，请确认执行计划。输入 .confirm 同意，.reject 拒绝，.adjust 调整。",
                         True,
                         "[等待确认]",
                     )
@@ -433,7 +434,7 @@ async def run_agent(
                     pass
             approved = await on_plan(plan)
             if not approved:
-                return "⚠️ 操作已取消"
+                return f"{WARNING_PREFIX} 操作已取消"
 
     if _announce_difficulty_and_plan_enabled() and on_thinking:
         plan_msg = _format_plan_message(
@@ -538,7 +539,7 @@ async def run_pipeline(
     for step in steps:
         tool = registry.get(step.tool)
         if tool is None:
-            err_result = {"success": False, "content": f"⚠️ 未知工具: {step.tool}"}
+            err_result = {"success": False, "content": f"{WARNING_PREFIX} 未知工具: {step.tool}"}
             results.append({"tool": step.tool, "args": step.args, "result": err_result})
             return PipelineResult(steps=results, final_content=err_result["content"], success=False)
 
