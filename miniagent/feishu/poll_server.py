@@ -933,9 +933,35 @@ def _is_valid_im_receive_id(chat_id: str) -> bool:
 
 # --- lark_md / GFM：规范化、宽表降级、卡片分片与 PATCH 节流（与 ThinkingDisplay 输出对齐）---
 # 单条「思考」卡片：流式时用 PATCH 更新同一 message_id；飞书对单条消息可 PATCH 次数有限，须节流。
-FEISHU_THINKING_PATCH_MIN_INTERVAL_S = 0.35
-FEISHU_THINKING_PATCH_MIN_CHAR_DELTA = 450
-FEISHU_THINKING_PATCH_BUDGET = 12
+# 节流参数可通过环境变量调整，默认值已优化为更流畅的流式体验（间隔更短、字符增量更小）
+
+
+def _env_float(key: str, default: float) -> float:
+    """读取环境变量浮点数，失败时返回默认值。"""
+    raw = os.environ.get(key, "").strip()
+    if raw:
+        try:
+            return float(raw)
+        except ValueError:
+            pass
+    return default
+
+
+def _env_int(key: str, default: int) -> int:
+    """读取环境变量整数，失败时返回默认值。"""
+    raw = os.environ.get(key, "").strip()
+    if raw:
+        try:
+            return int(raw)
+        except ValueError:
+            pass
+    return default
+
+
+# 默认值：间隔 0.12s（比之前 0.35s 更快）、字符增量 30（比之前 450 更小）、预算 40（比之前 12 更多）
+FEISHU_THINKING_PATCH_MIN_INTERVAL_S = _env_float("MINIAGENT_FEISHU_PATCH_INTERVAL", 0.12)
+FEISHU_THINKING_PATCH_MIN_CHAR_DELTA = _env_int("MINIAGENT_FEISHU_PATCH_CHAR_DELTA", 30)
+FEISHU_THINKING_PATCH_BUDGET = _env_int("MINIAGENT_FEISHU_PATCH_BUDGET", 40)
 
 
 def feishu_card_body_max() -> int:
