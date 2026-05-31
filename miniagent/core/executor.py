@@ -48,6 +48,13 @@ from miniagent.memory.embedding_search import (
     get_embed_provider,
 )
 from miniagent.memory.keyword_index import format_search_results, search_relevant_with_index
+from miniagent.memory.store import extract_facts, generate_turn_summary
+from miniagent.security.sandbox import get_default_workspace
+from miniagent.types.agent import LoopDetectionConfig, ToolMonitorProtocol
+from miniagent.types.config import AgentConfig
+from miniagent.types.memory import MemoryEntryInput
+from miniagent.types.planning import PlanStep, StructuredPlan
+from miniagent.types.tool import ToolContext, ToolRegistryProtocol, ToolResult
 
 # ── 性能优化：工具意图映射改为模块级常量，避免每次调用重建 ──
 _TOOL_INTENT_MAP: dict[str, str] = {
@@ -65,13 +72,6 @@ _TOOL_INTENT_MAP: dict[str, str] = {
     "git_status": "Git 状态",
     "git_diff": "Git 差异",
 }
-from miniagent.memory.store import extract_facts, generate_turn_summary
-from miniagent.security.sandbox import get_default_workspace
-from miniagent.types.agent import LoopDetectionConfig, ToolMonitorProtocol
-from miniagent.types.config import AgentConfig
-from miniagent.types.memory import MemoryEntryInput
-from miniagent.types.planning import PlanStep, StructuredPlan
-from miniagent.types.tool import ToolContext, ToolRegistryProtocol, ToolResult
 
 _logger = get_logger(__name__)
 

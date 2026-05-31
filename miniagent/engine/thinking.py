@@ -23,9 +23,14 @@ import time
 from collections.abc import Awaitable, Callable
 
 # ── 性能优化：缓存终端宽度，避免频繁调用 get_terminal_size ──
+# TTL 可通过环境变量 MINIAGENT_TERMINAL_WIDTH_CACHE_TTL 配置（秒），默认 2.0
+_TERMINAL_WIDTH_CACHE_TTL_RAW = os.environ.get("MINIAGENT_TERMINAL_WIDTH_CACHE_TTL", "2.0").strip()
+try:
+    _TERMINAL_WIDTH_CACHE_TTL: float = max(0.0, float(_TERMINAL_WIDTH_CACHE_TTL_RAW))
+except ValueError:
+    _TERMINAL_WIDTH_CACHE_TTL = 2.0
 _TERMINAL_WIDTH_CACHE: int = 0
 _TERMINAL_WIDTH_CACHE_TIME: float = 0.0
-_TERMINAL_WIDTH_CACHE_TTL: float = 2.0  # 缓存有效期 2 秒
 
 # prompt_toolkit 是可选依赖（cli extra），未安装时提供 placeholder
 try:
