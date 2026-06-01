@@ -109,11 +109,18 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 | | `.schedule add …` | 新增 interval / once / cron 任务（须含 ` -- ` 分隔 prompt） |
 | | `.schedule update <id> …` | 修改已有任务（语法同 add） |
 | | `.schedule remove|enable|disable <id>` | 删除 / 启用 / 禁用 |
-| **确认** | `.review` | 对当前会话的最后回复进行自我反驳式审查 |
-| | `.confirm` | 确认待处理的确认请求 |
+| **确认** | `.confirm` | 确认待处理的确认请求 |
 | | `.adjust <内容>` | 调整并确认待处理请求 |
 | | `.reject` | 拒绝待处理请求 |
+| **答案改进** | `.improve` | 根据质量评估建议改进上一轮答案 |
+| | `.improve --force` | 强制改进（即使质量已通过） |
+| | `.improve --reset` | 回退到原始答案重新改进 |
+| | `.review` | 自我反驳式审查答案（迭代最多3轮） |
 | **统计** | `.stats` | 工具调用统计 |
+| **自测** | `.test run` | 运行所有测试样本（默认 mock 模式） |
+| | `.test run <类别>` | 按类别过滤（security | prompt_injection | tool_selection | schema | regression | cost） |
+| | `.test list` | 列出所有测试样本 |
+| | `.test status` | 查看最近测试结果 |
 | **控制** | `.stop` | 停止当前实例并退出 |
 | | `.copy` | 复制上一轮 Assistant 回复到系统剪贴板 |
 | **技能** | `.reload-skills` | 从磁盘全量重新加载 `workspaces/skills`（`install_skill` 成功后通常已自动热加载） |
@@ -268,6 +275,43 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 
 💡 改进答案: ...
 ```
+
+### .improve — 答案改进
+
+根据质量评估建议改进上一轮答案，支持多轮改进。
+
+```
+> .improve
+🔄 正在根据建议改进答案…
+✅ 答案已改进
+
+> .improve --force
+强制改进（即使质量评估已通过）
+
+> .improve --reset
+回退到原始答案，重新开始改进流程
+```
+
+### .test — 自测命令
+
+运行内置测试样本验证 Agent 行为，默认使用 mock 模式（不调用真实 LLM）。
+
+```
+> .test run
+🧪 正在运行自测...
+🧪 自测结果：5/5 通过 (100.0%)
+
+> .test run security
+按类别过滤测试
+
+> .test list
+列出所有测试样本
+
+> .test status
+查看最近一次测试报告
+```
+
+测试样本位于 `tests/evaluation/samples/`。
 
 ### .confirm / .adjust / .reject — 确认侧通道
 
