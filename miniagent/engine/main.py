@@ -662,13 +662,6 @@ async def run_cli_loop(
         """获取指定 fragment 的字符数。"""
         return len(_get_transcript_fragment_text(frag_idx))
 
-    def _total_transcript_chars() -> int:
-        """计算 transcript 总字符数。"""
-        total = 0
-        for i in range(len(_transcript)):
-            total += _get_transcript_char_count(i)
-        return total
-
     def _extract_selection_text() -> str:
         """根据选择范围提取纯文本。"""
         start = _selection_start[0]
@@ -1092,6 +1085,10 @@ async def run_cli_loop(
             简化实现：基于屏幕坐标估算 transcript 位置。
             完整实现需要精确的坐标到文本映射（复杂度较高）。
             """
+            # 空 transcript 时不允许选择
+            if len(_transcript) == 0:
+                return NotImplemented
+
             try:
                 click_y = getattr(mouse_event.position, "y", 0)
                 click_x = getattr(mouse_event.position, "x", 0)
@@ -1103,28 +1100,22 @@ async def run_cli_loop(
                 return NotImplemented
 
             # 计算屏幕行到 transcript 内容的映射
-            # scroll_offset = sp.vertical_scroll（顶部隐藏的行数）
             scroll_offset = sp.vertical_scroll
-
-            # 简化：假设每行对应一个 transcript fragment（不完全准确但实用）
-            # 使用字符计数估算实际位置
-            total_chars = _total_transcript_chars()
             vp_rows = _viewport_rows()
 
             # 估算全局字符位置（基于屏幕坐标比例）
             if vp_rows > 0:
-                # 点击的绝对行位置（考虑滚动）
                 abs_line = scroll_offset + click_y
-                # 估算字符位置（假设平均行宽）
                 vp_cols = _viewport_cols()
                 approx_char_pos = abs_line * vp_cols + click_x
             else:
                 approx_char_pos = click_x
 
             # 将字符位置映射到 (fragment_idx, char_offset)
+            # 初始化为最后一个 fragment 的末尾（超出范围时的默认值）
+            target_frag_idx = len(_transcript) - 1
+            target_char_offset = _get_transcript_char_count(target_frag_idx)
             char_accum = 0
-            target_frag_idx = 0
-            target_char_offset = 0
 
             for frag_idx in range(len(_transcript)):
                 frag_len = _get_transcript_char_count(frag_idx)
@@ -1133,10 +1124,6 @@ async def run_cli_loop(
                     target_char_offset = max(0, min(frag_len, approx_char_pos - char_accum))
                     break
                 char_accum += frag_len
-                # 如果超出范围，使用最后一个 fragment
-                if frag_idx == len(_transcript) - 1:
-                    target_frag_idx = frag_idx
-                    target_char_offset = frag_len
 
             # 处理鼠标事件
             if mouse_event.event_type == MouseEventType.MOUSE_DOWN:
@@ -1384,14 +1371,14 @@ async def run_cli_loop(
 
     kb = KeyBindings()
 
-    # ─── 复制模式键绑定 ───────────────────────────────────────────
+    # ─── 复制模式键绑定（eager=True 确保优先级高于正常模式）───────────────────
     @kb.add("c-m")
     def _on_ctrl_m(event):
         """Ctrl+M 切换复制模式。"""
         _toggle_copy_mode()
         if _copy_mode_active[0]:
             # 进入复制模式：显示提示
-            _append_transcript("class:cli-copy-mode-hint", "\n[复制模式] 拖动鼠标选择 · Ctrl+C复制 · Enter复制并退出 · Esc取消 · Ctrl+M退出\n")
+            _append_transcript("class:cli-copy-mode-hint", "\n[复制模式] 拖动鼠标选择 · Ctrl+C复制 · Enter复制并退出 · Esc取消 · a全选 · Ctrl+M退出\n")
             _stick_bottom[0] = True
         else:
             # 退出复制模式：清除提示和选择
@@ -1401,7 +1388,8 @@ async def run_cli_loop(
     def _in_copy_mode() -> bool:
         return _copy_mode_active[0]
 
-    @kb.add("c-c", filter=Condition(_in_copy_mode))
+    # 使用 eager=True 确保复制模式下这些键优先处理，不传递给正常模式
+    @kb.add("c-c", eager=True, filter=Condition(_in_copy_mode))
     def _on_copy_mode_ctrl_c(event):
         """复制模式下 Ctrl+C 复制选中内容。"""
         text = _selection_text[0]
@@ -1414,7 +1402,7 @@ async def run_cli_loop(
             _append_transcript("class:cli-warn", "\n⚠️ 请先选择内容\n")
         _stick_bottom[0] = True
 
-    @kb.add("enter", filter=Condition(_in_copy_mode))
+    @kb.add("enter", eager=True, filter=Condition(_in_copy_mode))
     def _on_copy_mode_enter(event):
         """复制模式下 Enter 复制并退出。"""
         text = _selection_text[0]
@@ -1426,7 +1414,7 @@ async def run_cli_loop(
         _toggle_copy_mode()
         _stick_bottom[0] = True
 
-    @kb.add("escape", filter=Condition(_in_copy_mode))
+    @kb.add("escape", eager=True, filter=Condition(_in_copy_mode))
     def _on_copy_mode_escape(event):
         """复制模式下 Escape 取消选择或退出复制模式。"""
         if _selection_start[0] is not None:
@@ -1436,7 +1424,7 @@ async def run_cli_loop(
             # 无选择：退出复制模式
             _toggle_copy_mode()
 
-    @kb.add("a", filter=Condition(_in_copy_mode))
+    @kb.add("a", eager=True, filter=Condition(_in_copy_mode))
     def _on_copy_mode_select_all(event):
         """复制模式下 a 全选。"""
         if len(_transcript) > 0:
@@ -1445,9 +1433,12 @@ async def run_cli_loop(
             # 终点：最后一个 fragment 的末尾
             last_idx = len(_transcript) - 1
             last_len = _get_transcript_char_count(last_idx)
-            _selection_end[0] = (last_idx, last_len)
-            _selection_text[0] = _extract_selection_text()
-            _append_transcript("class:cli-ok", f"\n✅ 已全选 {len(_selection_text[0])} 字符\n")
+            if last_len > 0:
+                _selection_end[0] = (last_idx, last_len)
+                _selection_text[0] = _extract_selection_text()
+                _append_transcript("class:cli-ok", f"\n✅ 已全选 {len(_selection_text[0])} 字符\n")
+            else:
+                _append_transcript("class:cli-warn", "\n⚠️ 内容为空\n")
             _stick_bottom[0] = True
 
     # ─── 正常模式键绑定 ───────────────────────────────────────────
