@@ -31,6 +31,7 @@ from miniagent.engine.utils import (
     feishu_user_status_fn,
 )
 from miniagent.runtime.context import RuntimeContext
+from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
 
 # ─── 飞书处理器工厂 ───────────────────────────────────────────
 
@@ -135,7 +136,7 @@ def create_feishu_handler(
         chat_type = inbound.chat_type or "group"
 
         if not engine:
-            return "⚠️ 引擎未初始化"
+            return f"{WARNING_PREFIX} 引擎未初始化"
 
         # ── 命令拦截 ──
         if content.startswith("."):
@@ -166,7 +167,7 @@ def create_feishu_handler(
                     )
                     return reply
             except Exception as e:
-                return f"❌ 命令执行失赖: {e}"
+                return f"{ERROR_PREFIX} 命令执行失败: {e}"
 
         _maybe_auto_bind_p2p(chat_type, sender_id, state)
 
@@ -243,7 +244,7 @@ def create_feishu_handler(
             # 飞书单消息：思考 + 工具均在思考卡中展示，结论通过回复卡片输出。
             return ""
         except Exception as e:
-            return f"⚠️ 处理失败: {e}"
+            return f"{WARNING_PREFIX} 处理失败: {e}"
 
 
     async def media_handler(
@@ -263,11 +264,11 @@ def create_feishu_handler(
         from miniagent.types.memory import SessionOptions
 
         if not engine:
-            return "⚠️ 引擎未初始化"
+            return f"{WARNING_PREFIX} 引擎未初始化"
 
         sm = state.get("session_manager")
         if sm is None:
-            return "⚠️ 会话管理器未初始化，无法保存文件"
+            return f"{WARNING_PREFIX} 会话管理器未初始化，无法保存文件"
 
         _maybe_auto_bind_p2p(chat_type, sender_id, state)
 
@@ -278,13 +279,13 @@ def create_feishu_handler(
         )
         base = (sess.workspace_path or "").strip()
         if not base:
-            return "⚠️ 会话工作区未配置，无法写入文件"
+            return f"{WARNING_PREFIX} 会话工作区未配置，无法写入文件"
 
         incoming = os.path.join(base, "feishu_incoming")
         os.makedirs(incoming, exist_ok=True)
 
         if resource_type not in ("file", "image"):
-            return "⚠️ 不支持的资源类型"
+            return f"{WARNING_PREFIX} 不支持的资源类型"
 
         try:
             data, api_suggested_name = await download_message_resource(
@@ -295,7 +296,7 @@ def create_feishu_handler(
                 type_=resource_type,
             )
         except Exception as e:
-            return f"⚠️ 下载失赭: {e}"
+            return f"{WARNING_PREFIX} 下载失败: {e}"
 
         # 优先使用 API 返回的建议名（如包含原始文件名）；其次用入参名。
         # 根据文件头 magic bytes 修正扩展名，避免图片等被保存为无扩展名或 .bin。
@@ -361,7 +362,7 @@ def create_feishu_handler(
         flag = (os.environ.get("MINIAGENT_FEISHU_MEDIA_RUN_AGENT") or "").strip().lower()
         run_agent_on_media = flag in ("1", "true", "yes", "on")
         if not run_agent_on_media:
-            return f"✅ 已保存到会话文件区: {rel}"
+            return f"{SUCCESS_PREFIX} 已保存到会话文件区: {rel}"
 
         user_line = (
             f"[飞书入站] 已保存媒体到会话目录（相对 files ）: {rel}\n"
@@ -405,7 +406,7 @@ def create_feishu_handler(
             # 飞书单消息：思考 + 工具均在思考卡中展示，抑制独立回复消息。
             return ""
         except Exception as e:
-            return f"✅ 已保存 {rel}（Agent 处理失赭: {e}）"
+            return f"{SUCCESS_PREFIX} 已保存 {rel}（Agent 处理失败: {e}）"
 
     return handler, media_handler
 

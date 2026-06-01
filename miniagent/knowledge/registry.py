@@ -12,6 +12,7 @@ from typing import Any
 
 from miniagent.infrastructure.logger import get_logger
 from miniagent.knowledge.base import KnowledgeBase
+from miniagent.types.error_prefix import WARNING_PREFIX
 
 _logger = get_logger(__name__)
 
@@ -211,7 +212,7 @@ class KnowledgeRegistry:
         if kb_name:
             # 单知识库检索
             if kb_name not in self._mounted:
-                return f"⚠️ 知识库 '{kb_name}' 未挂载"
+                return f"{WARNING_PREFIX} 知识库 '{kb_name}' 未挂载"
             return self._mounted[kb_name].search(query, top_k, max_chars)
 
         # 跨知识库检索
