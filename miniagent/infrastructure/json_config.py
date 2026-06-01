@@ -112,16 +112,16 @@ class JsonConfigLoader:
         """
         # 确定配置文件路径
         if defaults_path is None:
-            # 使用内置默认配置
+            # 使用项目根目录的默认配置（与.env同级）
             self._defaults_path = str(
-                Path(__file__).parent.parent / "config.defaults.json"
+                Path(__file__).parent.parent.parent / "config.defaults.json"
             )
         else:
             self._defaults_path = defaults_path
 
         if user_path is None:
-            # 使用固定默认路径
-            self._user_path = str(Path(__file__).parent.parent.parent / "workspaces" / "config.user.json")
+            # 使用项目根目录的用户配置（与.env同级）
+            self._user_path = str(Path(__file__).parent.parent.parent / "config.user.json")
         else:
             self._user_path = user_path
 

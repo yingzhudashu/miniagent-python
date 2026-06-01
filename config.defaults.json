@@ -267,5 +267,19 @@
     "description": "后台任务配置",
     "max_concurrent": 4,
     "task_ttl_seconds": 3600
+  },
+
+  "secrets": {
+    "description": "敏感凭据配置（⚠️ 切勿提交到git！在config.user.json中填写）",
+    "openai_api_key": null,
+    "tavily_api_key": null,
+    "web_search_api_key": null,
+    "embed_api_key": null,
+    "feishu_app_id": null,
+    "feishu_app_secret": null,
+    "feishu_verification_token": null,
+    "feishu_encrypt_key": null,
+    "feishu_user_access_token": null,
+    "github_token": null
   }
 }

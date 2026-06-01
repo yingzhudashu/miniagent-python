@@ -15,6 +15,9 @@ state/
 .env.secrets
 .env.backup
 
+# 用户配置（敏感凭据）
+config.user.json
+
 # 本地调试日志（勿提交）
 debug-*.log
 perf-snapshot.json
@@ -29,7 +32,6 @@ perf.out
 
 # 运行时工作目录（全部忽略，但保留示例文件）
 workspaces/*
-!workspaces/config.user.json.example
 !workspaces/.gitkeep
 
 # 可选离线测评：轨迹与生成报告默认不入库（评测源码 *.py 可提交；详见 docs/EVALUATION_LOCAL.md）
