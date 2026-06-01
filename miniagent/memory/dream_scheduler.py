@@ -34,30 +34,47 @@ def _state_dir() -> str:
     return os.environ.get("MINI_AGENT_STATE", os.path.join(os.getcwd(), "workspaces"))
 
 
-# 默认周期（秒）- 使用安全解析函数避免环境变量格式错误导致导入崩溃
-def _safe_int_env(key: str, default: int) -> int:
-    """安全解析整数环境变量，失败时返回默认值。"""
-    try:
-        return int(os.environ.get(key, str(default)) or str(default))
-    except ValueError:
-        return default
+# 默认周期（秒）- 从JSON配置加载，环境变量可覆盖
+from miniagent.infrastructure.json_config import get_config
 
-def _safe_float_env(key: str, default: float) -> float:
-    """安全解析浮点数环境变量，失败时返回默认值。"""
-    try:
-        return float(os.environ.get(key, str(default)) or str(default))
-    except ValueError:
-        return default
+# 从JSON配置获取默认值，环境变量可覆盖
+DIARY_REFINE_SEC = get_config("dream.diary_refine_sec", 7 * 86400)
+SESSION_LT_REFINE_SEC = get_config("dream.session_lt_refine_sec", 30 * 86400)
+AGENT_LT_REFINE_SEC = get_config("dream.agent_lt_refine_sec", 365 * 86400)
 
-DIARY_REFINE_SEC = _safe_int_env("MINI_AGENT_DREAM_DIARY_SEC", 7 * 86400)
-SESSION_LT_REFINE_SEC = _safe_int_env("MINI_AGENT_DREAM_SESSION_LT_SEC", 30 * 86400)
-AGENT_LT_REFINE_SEC = _safe_int_env("MINI_AGENT_DREAM_AGENT_LT_SEC", 365 * 86400)
+# 环境变量覆盖支持（兼容旧配置）
+if os.environ.get("MINI_AGENT_DREAM_DIARY_SEC"):
+    try:
+        DIARY_REFINE_SEC = int(os.environ.get("MINI_AGENT_DREAM_DIARY_SEC") or str(DIARY_REFINE_SEC))
+    except ValueError:
+        pass
+if os.environ.get("MINI_AGENT_DREAM_SESSION_LT_SEC"):
+    try:
+        SESSION_LT_REFINE_SEC = int(os.environ.get("MINI_AGENT_DREAM_SESSION_LT_SEC") or str(SESSION_LT_REFINE_SEC))
+    except ValueError:
+        pass
+if os.environ.get("MINI_AGENT_DREAM_AGENT_LT_SEC"):
+    try:
+        AGENT_LT_REFINE_SEC = int(os.environ.get("MINI_AGENT_DREAM_AGENT_LT_SEC") or str(AGENT_LT_REFINE_SEC))
+    except ValueError:
+        pass
 
 # 体量闸门：超过则忽略最小间隔立刻标记需要精炼（由后台任务合并去重）
-SIZE_FORCE_BYTES = _safe_int_env("MINI_AGENT_DREAM_SIZE_BYTES", 800_000)
+SIZE_FORCE_BYTES = get_config("dream.size_force_bytes", 800_000)
+if os.environ.get("MINI_AGENT_DREAM_SIZE_BYTES"):
+    try:
+        SIZE_FORCE_BYTES = int(os.environ.get("MINI_AGENT_DREAM_SIZE_BYTES") or str(SIZE_FORCE_BYTES))
+    except ValueError:
+        pass
 
 # 两次调度之间的最短间隔（秒），减轻每回合 create_task 压力
-_MIN_SCHEDULE_INTERVAL = _safe_float_env("MINI_AGENT_DREAM_MIN_INTERVAL_SEC", 60.0)
+_MIN_SCHEDULE_INTERVAL = float(get_config("dream.min_schedule_interval_sec", 60.0) or 60.0)
+if os.environ.get("MINI_AGENT_DREAM_MIN_INTERVAL_SEC"):
+    try:
+        _MIN_SCHEDULE_INTERVAL = float(os.environ.get("MINI_AGENT_DREAM_MIN_INTERVAL_SEC") or str(_MIN_SCHEDULE_INTERVAL))
+    except ValueError:
+        pass
+
 _last_schedule_monotonic: float = 0.0
 
 # ``shutdown_runtime`` 会取消并等待这些 task，避免进程退出后仍短暂占用事件循环

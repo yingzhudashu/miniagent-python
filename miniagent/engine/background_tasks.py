@@ -4,6 +4,9 @@
 
 **性能优化**：
 - TTL 自动清理：已完成任务默认 3600 秒后自动清理
+
+**配置**：
+- 从JSON配置加载默认值，环境变量可覆盖
 """
 
 from __future__ import annotations
@@ -15,8 +18,24 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
-# 性能优化：默认 TTL（秒）
-DEFAULT_TASK_TTL_SECONDS = 3600  # 1 小时
+from miniagent.infrastructure.json_config import get_config
+
+# 从JSON配置加载默认值，环境变量可覆盖
+DEFAULT_TASK_TTL_SECONDS = get_config("background_tasks.task_ttl_seconds", 3600)
+DEFAULT_MAX_CONCURRENT = get_config("background_tasks.max_concurrent", 4)
+
+# 环境变量覆盖支持
+import os
+if os.environ.get("MINIAGENT_TASK_TTL_SECONDS"):
+    try:
+        DEFAULT_TASK_TTL_SECONDS = int(os.environ.get("MINIAGENT_TASK_TTL_SECONDS") or str(DEFAULT_TASK_TTL_SECONDS))
+    except ValueError:
+        pass
+if os.environ.get("MINIAGENT_MAX_CONCURRENT"):
+    try:
+        DEFAULT_MAX_CONCURRENT = int(os.environ.get("MINIAGENT_MAX_CONCURRENT") or str(DEFAULT_MAX_CONCURRENT))
+    except ValueError:
+        pass
 
 
 class TaskStatus(str, Enum):
@@ -59,20 +78,20 @@ class BackgroundTaskManager:
 
     def __init__(
         self,
-        max_concurrent: int = 4,
-        ttl_seconds: int = DEFAULT_TASK_TTL_SECONDS,
+        max_concurrent: int | None = None,
+        ttl_seconds: int | None = None,
     ) -> None:
         """创建后台任务管理器
 
         Args:
-            max_concurrent: 最大并行任务数（默认4）
-            ttl_seconds: 已完成任务 TTL（秒，默认3600）
+            max_concurrent: 最大并行任务数（None时从配置加载）
+            ttl_seconds: 已完成任务 TTL（秒，None时从配置加载）
         """
         self._tasks: dict[str, BackgroundTask] = {}
-        self._max_concurrent = max_concurrent
+        self._max_concurrent = max_concurrent if max_concurrent is not None else DEFAULT_MAX_CONCURRENT
         self._running_count = 0
         self._lock = asyncio.Lock()
-        self._ttl_seconds = ttl_seconds
+        self._ttl_seconds = ttl_seconds if ttl_seconds is not None else DEFAULT_TASK_TTL_SECONDS
         self._cleanup_task: asyncio.Task | None = None
         # 启动自动清理任务
         self._start_cleanup_loop()
