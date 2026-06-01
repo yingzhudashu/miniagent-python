@@ -1112,7 +1112,9 @@ async def execute_plan(
                     result = ToolResult(success=False, content=f"工具执行异常: {outcome}")
                     tool_elapsed = 0
                 else:
-                    tc, args, _tool, result, tool_elapsed = outcome
+                    # outcome 是 _run_tool 返回的元组，只提取 result 和 tool_elapsed
+                    # tc/args/tool 已经从 pending 获取
+                    _, _, _, result, tool_elapsed = outcome
                 turn_tool_calls.append(
                     {
                         "name": tc.function.name,
