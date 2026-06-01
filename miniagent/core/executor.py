@@ -597,6 +597,51 @@ async def execute_plan(
 
     sep = _thinking_segment_separator()
 
+    # ── 流式输出优化：增量 buffer ──
+    class _StreamingBuffer:
+        """高效的流式内容缓冲器，避免 O(n²) 字符拼接。
+
+        设计原理：
+        - 维护一个增长的 chunk 列表
+        - 当列表过长时（>100），合并为单个字符串
+        - 提供 getvalue() 获取当前内容
+        """
+
+        __slots__ = ("_chunks", "_length", "_consolidated")
+
+        def __init__(self) -> None:
+            self._chunks: list[str] = []
+            self._length: int = 0
+            self._consolidated: str | None = None
+
+        def append(self, chunk: str) -> None:
+            """追加一个 chunk"""
+            self._chunks.append(chunk)
+            self._length += len(chunk)
+            # 当 chunk 数过多时合并，避免列表过大
+            if len(self._chunks) > 100:
+                self._consolidated = "".join(self._chunks)
+                self._chunks = [self._consolidated]
+
+        def getvalue(self) -> str:
+            """获取当前完整内容"""
+            if self._consolidated is not None:
+                # 如果已经合并，直接返回或追加新 chunks
+                if len(self._chunks) == 1:
+                    return self._consolidated
+                return self._consolidated + "".join(self._chunks[1:])
+            return "".join(self._chunks)
+
+        def __len__(self) -> int:
+            """返回当前内容长度"""
+            return self._length
+
+        def clear(self) -> None:
+            """清空缓冲"""
+            self._chunks.clear()
+            self._length = 0
+            self._consolidated = None
+
     def _joined_phase_cumulative(label: str, current_body: str) -> str:
         """将同一 ``label`` 下历史执行轮正文与 ``current_body`` 用分段符拼接，供思考流 cumulative 展示。
 
@@ -645,7 +690,7 @@ async def execute_plan(
                 len(tools_arg),
             )
 
-        full_content_parts: list[str] = []
+        full_content_parts = _StreamingBuffer()
         full_tool_calls: list[Any] = []
         thinking_header = thinking_phase_label
         _thinking_started = False
@@ -697,7 +742,7 @@ async def execute_plan(
             if delta.content:
                 full_content_parts.append(delta.content)
                 if on_thinking:
-                    cum = _joined_phase_cumulative(thinking_phase_label, "".join(full_content_parts))
+                    cum = _joined_phase_cumulative(thinking_phase_label, full_content_parts.getvalue())
                     try:
                         await invoke_on_thinking(
                             on_thinking,
@@ -726,7 +771,7 @@ async def execute_plan(
                         if tc_delta.function.arguments:
                             _tool_call_accum[idx]["arguments"] += tc_delta.function.arguments
 
-        full_content = "".join(full_content_parts)
+        full_content = full_content_parts.getvalue()
 
         if _tool_call_accum:
             full_tool_calls = []

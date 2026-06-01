@@ -4,18 +4,85 @@
 
 重要：Rich Markdown 标题默认居中（Heading 类硬编码 text.justify = "center"），
 本模块通过自定义渲染强制标题左对齐。
+
+**性能优化**：
+- 模块级共享 Console 实例，避免重复创建
+- 渲染结果缓存（LRU），避免相同内容重复渲染
 """
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
+from collections import OrderedDict
 from io import StringIO
+from typing import Any
 
 _STRIP_ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 # 标题正则：匹配 # 开头的行
 _HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.+)$")
+
+# ── 性能优化：模块级共享 Console ──
+_shared_console_cache: dict[int, Any] = {}  # width -> Console
+_shared_console_original_file: dict[int, Any] = {}  # width -> original file
+
+# ── 性能优化：渲染结果缓存 ──
+_RENDER_CACHE_MAX_SIZE = 100
+_render_cache: OrderedDict[tuple[str, int, str], str] = OrderedDict()
+
+
+def _get_cached_console(width: int) -> Any | None:
+    """获取指定宽度的缓存 Console 实例。
+
+    Args:
+        width: 渲染宽度
+
+    Returns:
+        Console 实例，或 None（Rich 未安装）
+    """
+    try:
+        from rich.console import Console
+    except ImportError:
+        return None
+
+    w = max(20, int(width))
+    if w not in _shared_console_cache:
+        console = Console(
+            width=w,
+            force_terminal=True,
+            color_system="standard",
+            highlight=False,
+        )
+        _shared_console_cache[w] = console
+        _shared_console_original_file[w] = console.file
+    return _shared_console_cache[w]
+
+
+def _get_render_cache_key(markdown: str, width: int, justify: str) -> tuple[str, int, str]:
+    """生成渲染缓存键。
+
+    使用内容 hash 而非全文，减少内存占用。
+    """
+    content_hash = hashlib.md5(markdown.encode()).hexdigest()[:16]
+    return (content_hash, width, justify)
+
+
+def _get_cached_render(cache_key: tuple[str, int, str]) -> str | None:
+    """从缓存获取渲染结果。"""
+    if cache_key in _render_cache:
+        _render_cache.move_to_end(cache_key)  # LRU
+        return _render_cache[cache_key]
+    return None
+
+
+def _cache_render(cache_key: tuple[str, int, str], result: str) -> None:
+    """缓存渲染结果。"""
+    _render_cache[cache_key] = result
+    # LRU 驎出
+    while len(_render_cache) > _RENDER_CACHE_MAX_SIZE:
+        _render_cache.popitem(last=False)
 
 
 def cli_raw_markdown_enabled() -> bool:
@@ -30,6 +97,10 @@ def render_markdown_to_ansi(markdown: str, *, width: int, justify: str = "left")
     Rich Markdown 的 Heading 类硬编码 text.justify = "center"，忽略父级 justify 参数。
     本函数通过分段渲染解决：标题单独渲染（左对齐），其他内容用 Rich Markdown 渲染。
 
+    **性能优化**：
+    - 使用缓存 Console 实例
+    - LRU 缓存渲染结果
+
     Args:
         markdown: Markdown 文本
         width: 渲染宽度
@@ -41,9 +112,14 @@ def render_markdown_to_ansi(markdown: str, *, width: int, justify: str = "left")
     if cli_raw_markdown_enabled():
         return None
 
+    # 检查缓存
+    cache_key = _get_render_cache_key(markdown, width, justify)
+    cached = _get_cached_render(cache_key)
+    if cached is not None:
+        return cached
+
     try:
         from rich import box  # noqa: F401
-        from rich.console import Console
         from rich.markdown import Markdown
         from rich.panel import Panel  # noqa: F401
         from rich.style import Style  # noqa: F401
@@ -57,21 +133,12 @@ def render_markdown_to_ansi(markdown: str, *, width: int, justify: str = "left")
     lines = markdown.split("\n")
     output_parts: list[str] = []
 
-    # 性能优化：复用单个 Console 实例，避免重复创建
-    try:
-        from rich.console import Console
-        from rich.markdown import Markdown
-
-        # 创建单个 Console 实例（宽度预设置，避免每块重建）
-        shared_console = Console(
-            width=w,
-            force_terminal=True,
-            color_system="standard",
-            highlight=False,
-        )
-        original_file = shared_console.file  # 保存原始输出（用于恢复）
-    except ImportError:
+    # 性能优化：使用缓存 Console 实例
+    shared_console = _get_cached_console(w)
+    if shared_console is None:
         return None
+
+    original_file = _shared_console_original_file.get(w)
 
     i = 0
     while i < len(lines):
@@ -106,7 +173,10 @@ def render_markdown_to_ansi(markdown: str, *, width: int, justify: str = "left")
                 # 恢复 console 的原始输出
                 shared_console.file = original_file
 
-    return "".join(output_parts)
+    result = "".join(output_parts)
+    # 缓存结果
+    _cache_render(cache_key, result)
+    return result
 
 
 def _render_heading_left_aligned(level: int, text: str, width: int) -> str:
