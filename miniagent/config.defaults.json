@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "1.0.0",
+  "description": "MiniAgent Python 默认配置",
+
+  "model": {
+    "description": "模型配置",
+    "base_url": "https://api.openai.com/v1",
+    "model": "gpt-4o-mini",
+    "temperature": 0.7,
+    "top_p": 1.0,
+    "max_tokens": 4096,
+    "thinking_level": "light",
+    "thinking_budget": 1024,
+    "context_window": 128000,
+    "stream": false,
+    "retry_count": 2
+  },
+
+  "agent": {
+    "description": "Agent配置",
+    "max_turns": 400,
+    "tool_timeout": 60,
+    "http_timeout": 120,
+    "context_reserve_ratio": 0.15,
+    "context_compress_threshold": 0.6,
+    "allow_parallel_tools": false,
+    "max_questions": 3,
+    "loop_detection": {
+      "enabled": true,
+      "history_size": 50,
+      "warning_threshold": 8,
+      "critical_threshold": 12,
+      "detectors": {
+        "generic_repeat": true,
+        "known_poll_no_progress": true,
+        "ping_pong": true
+      }
+    }
+  },
+
+  "ui": {
+    "description": "UI显示配置",
+    "error_prefix": "❌",
+    "warning_prefix": "⚠️",
+    "success_prefix": "✅"
+  },
+
+  "render": {
+    "description": "终端渲染配置",
+    "min_width": 40,
+    "max_width": 500,
+    "width_margin": 4
+  },
+
+  "background_tasks": {
+    "description": "后台任务配置",
+    "max_concurrent": 4,
+    "task_ttl_seconds": 3600
+  },
+
+  "dream": {
+    "description": "记忆精炼调度配置",
+    "diary_refine_sec": 604800,
+    "session_lt_refine_sec": 2592000,
+    "agent_lt_refine_sec": 31536000,
+    "size_force_bytes": 800000,
+    "min_schedule_interval_sec": 60
+  },
+
+  "timezone": {
+    "description": "时区配置",
+    "default_fallback": "Asia/Shanghai"
+  },
+
+  "knowledge": {
+    "description": "知识库配置",
+    "default_root": "workspaces/knowledge",
+    "max_file_chars": 50000
+  },
+
+  "feishu": {
+    "description": "飞书配置",
+    "vision": {
+      "max_bytes": 20971520
+    },
+    "api_urls": {
+      "tenant_token": "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+      "root_folder_meta": "https://open.feishu.cn/open-apis/drive/explorer/v2/root_folder/meta"
+    }
+  },
+
+  "clawhub": {
+    "description": "ClawHub配置",
+    "api_url": "https://clawhub.ai/api/v1"
+  },
+
+  "web_search": {
+    "description": "Web搜索配置",
+    "tavily_url": "https://api.tavily.com/search"
+  },
+
+  "instance": {
+    "description": "实例管理配置",
+    "heartbeat_timeout": 30
+  },
+
+  "keyword_index": {
+    "description": "关键词索引配置",
+    "max_keywords": 20,
+    "min_keyword_len": 2
+  },
+
+  "memory": {
+    "description": "记忆配置",
+    "max_transcript_chars": 400000,
+    "initial_history_count": 5
+  },
+
+  "cli": {
+    "description": "CLI配置",
+    "wrap_threshold": 40,
+    "render_cache_max_size": 100
+  }
+}
