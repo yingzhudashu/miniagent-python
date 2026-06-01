@@ -158,14 +158,15 @@ def extract_last_qa_from_history(history: list[dict[str, Any]]) -> tuple[str, st
     user_msg = None
     assistant_msg = None
 
-    # 从后向前查找
+    # 从后向前查找：先找assistant（在后面），再找user（在前面）
     for msg in reversed(history):
         role = msg.get("role", "")
         if role == "assistant" and assistant_msg is None:
             assistant_msg = msg.get("content", "")
-        elif role == "user" and user_msg is None:
+        elif role == "user" and assistant_msg is not None:
+            # 找到assistant后，再找user才有效
             user_msg = msg.get("content", "")
-            break  # 找到用户消息后停止
+            break  # 找到user后停止
 
     if user_msg and assistant_msg:
         return (user_msg, assistant_msg)

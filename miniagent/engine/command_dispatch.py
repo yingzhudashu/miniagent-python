@@ -744,15 +744,16 @@ def _get_last_qa(session_manager, session_id: str) -> tuple[str | None, str | No
 
     last_user = None
     last_assistant = None
+    # 从后向前查找：先找assistant（在后面），再找user（在前面）
     for msg in reversed(history):
         if isinstance(msg, dict):
             role = msg.get("role", "")
             content = msg.get("content", "")
-            if role == "user" and content and last_user is None:
-                last_user = content
-            elif role == "assistant" and content and last_assistant is None:
+            if role == "assistant" and content and last_assistant is None:
                 last_assistant = content
-            if last_user and last_assistant:
+            elif role == "user" and content and last_assistant is not None:
+                # 找到assistant后，再找user才有效
+                last_user = content
                 break
     return last_user, last_assistant
 
