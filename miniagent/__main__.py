@@ -25,10 +25,10 @@ import sys
 
 
 def _load_env():
-    """加载仓库根目录下的 ``.env``（若存在）。"""
-    from miniagent.infrastructure.env_loader import load_dotenv_from_project_root
+    """加载敏感凭据（.env.secrets）。"""
+    from miniagent.infrastructure.env_loader import load_secrets_from_project_root
 
-    load_dotenv_from_project_root()
+    load_secrets_from_project_root()
 
 
 def _argv_after_flag(argv: list[str], flag: str) -> list[str]:

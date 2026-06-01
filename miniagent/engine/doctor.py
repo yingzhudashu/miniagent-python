@@ -5,8 +5,9 @@
 
 from __future__ import annotations
 
-import os
 import sys
+
+from miniagent.infrastructure.json_config import get_config
 
 
 def diagnose_environment() -> str:
@@ -22,6 +23,7 @@ def diagnose_environment() -> str:
     Returns:
         格式化的诊断报告
     """
+    import os
     lines = ["## MiniAgent 环境诊断", ""]
 
     # 1. Python环境
@@ -72,9 +74,9 @@ def diagnose_environment() -> str:
             lines.append(f"- ⚠️ {display_name}: 未设置")
     lines.append("")
 
-    # 4. 状态目录检查
+    # 4. 状态目录检查（从JSON配置读取）
     lines.append("### 状态目录")
-    state_dir = os.environ.get("MINI_AGENT_STATE", "workspaces")
+    state_dir = get_config("paths.state_dir", "workspaces")
     if os.path.exists(state_dir):
         lines.append(f"- ✅ 状态目录存在: {state_dir}")
         # 检查子目录

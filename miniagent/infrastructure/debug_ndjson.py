@@ -1,7 +1,7 @@
 """Session-scoped NDJSON append for DEBUG_MODE (Cursor). Do not log secrets.
 
-Debug logging is disabled unless MINIAGENT_DEBUG_SESSION_ID is set.
-The log file path can be overridden via MINIAGENT_DEBUG_LOG_PATH.
+Debug logging is disabled unless debug.session_id is set in JSON config.
+The log file path can be overridden via debug.log_path.
 
 **注意**：本模块仅用于开发调试，日志可能包含工具参数与输出，请勿在生产环境启用。
 """
@@ -13,11 +13,13 @@ import os
 import time
 from pathlib import Path
 
-_SESSION = os.environ.get("MINIAGENT_DEBUG_SESSION_ID", "")
+from miniagent.infrastructure.json_config import get_config
+
+_SESSION = get_config("debug.session_id", "")
 if _SESSION:
     _LOG = Path(
-        os.environ.get(
-            "MINIAGENT_DEBUG_LOG_PATH",
+        get_config(
+            "debug.log_path",
             str(Path(__file__).resolve().parents[2] / f"debug-{_SESSION}.log"),
         )
     )

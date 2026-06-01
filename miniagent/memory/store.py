@@ -24,6 +24,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
+from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.types.memory import (
     FileMetadata,
@@ -237,7 +238,7 @@ class DefaultMemoryStore(MemoryStoreProtocol):
         self._state_dir = state_dir
         self._memory_dir = os.path.join(state_dir, "memory")
         self._cache: collections.OrderedDict[str, SessionMemory] = collections.OrderedDict()
-        self._cache_max = int(os.environ.get("MINIAGENT_MEMORY_STORE_CACHE_MAX", "50"))
+        self._cache_max = get_config("memory.store_cache_max", 50)
         self._keyword_index = keyword_index
 
     def _cache_put(self, session_id: str, memory: SessionMemory) -> None:

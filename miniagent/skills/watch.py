@@ -1,4 +1,4 @@
-"""可选：监视技能目录变更并自动 refresh（``MINIAGENT_SKILLS_WATCH=1``）。
+"""可选：监视技能目录变更并自动 refresh（配置 features.skills_watch=true）。
 
 通过定期扫描技能目录下文件的 mtime 检测变更，发现变化后经防抖（2 秒）触发
 ``refresh_skills`` 重新加载技能。轮询间隔由调用方 ``start_skills_watch`` 的
@@ -11,6 +11,7 @@ import asyncio
 import os
 from typing import Any
 
+from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.skills.paths import get_skills_root
 from miniagent.skills.refresh import refresh_skills
@@ -22,12 +23,7 @@ _DEBOUNCE_SEC = 2.0
 
 def skills_watch_enabled() -> bool:
     """是否启用技能目录监视。"""
-    return os.environ.get("MINIAGENT_SKILLS_WATCH", "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
+    return get_config("features.skills_watch", False)
 
 
 def _scan_mtimes(root: str) -> dict[str, float]:

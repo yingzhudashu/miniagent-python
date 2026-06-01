@@ -1,6 +1,6 @@
 """CLI 下将 Assistant 的 Markdown 回复渲染为终端样式（可选 Rich）。
 
-依赖 ``pip install -e ".[cli]"``；原始 Markdown 模式见 ``MINIAGENT_CLI_RAW_MARKDOWN``。
+依赖 ``pip install -e ".[cli]"``；原始 Markdown 模式见配置 ``cli.raw_markdown``。
 
 重要：Rich Markdown 标题默认居中（Heading 类硬编码 text.justify = "center"），
 本模块通过自定义渲染强制标题左对齐。
@@ -13,11 +13,12 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import re
 from collections import OrderedDict
 from io import StringIO
 from typing import Any
+
+from miniagent.infrastructure.json_config import get_config
 
 _STRIP_ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -86,9 +87,8 @@ def _cache_render(cache_key: tuple[str, int, str], result: str) -> None:
 
 
 def cli_raw_markdown_enabled() -> bool:
-    """为 ``1``/``true``/``yes`` 时关闭渲染，保留原始 Markdown（便于复制或调试）。"""
-    v = os.environ.get("MINIAGENT_CLI_RAW_MARKDOWN", "").strip().lower()
-    return v in ("1", "true", "yes")
+    """配置 cli.raw_markdown=true 时关闭渲染，保留原始 Markdown（便于复制或调试）。"""
+    return get_config("cli.raw_markdown", False)
 
 
 def render_markdown_to_ansi(markdown: str, *, width: int, justify: str = "left") -> str | None:

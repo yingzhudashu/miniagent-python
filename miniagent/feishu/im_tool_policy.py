@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 
 from miniagent.infrastructure.env_parse import env_flag
+from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 
 _logger = get_logger(__name__)
@@ -20,23 +21,16 @@ def feishu_credentials_configured() -> bool:
 
 
 def feishu_im_tools_should_register() -> bool:
-    """是否注册 ``feishu_*`` 内置工具（与 :mod:`miniagent.engine.builtin_tools` 一致）。
+    """是否注册 ``feishu_*`` 内置工具。
 
-    - ``MINIAGENT_FEISHU_TOOLS=1``/``true``/``yes``/``on`` → 开启。
-    - ``MINIAGENT_FEISHU_TOOLS=0``/``false``/``no``/``off`` → **关闭**（优先于 AUTO）。
-    - 已设置但取值非上述认可项 → **关闭**（不落入 AUTO）。
-    - 未设置时：若 ``MINIAGENT_FEISHU_TOOLS_AUTO`` 为真且已配置 App ID/Secret → 开启。
+    - 配置 feishu.tools_explicit=true → 开启。
+    - 配置 feishu.tools_explicit=false → **关闭**（优先于 AUTO）。
+    - 未设置时：若 feishu.tools_auto 为真且已配置 App ID/Secret → 开启。
     """
-    raw = os.environ.get("MINIAGENT_FEISHU_TOOLS")
-    if raw is not None:
-        v = raw.strip().lower()
-        if v in ("1", "true", "yes", "on"):
-            return True
-        if v in ("0", "false", "no", "off"):
-            return False
-        # 已设置但非认可取值：保守关闭，不落入 AUTO（避免误拼写意外开工具）
-        return False
-    if not env_flag("MINIAGENT_FEISHU_TOOLS_AUTO", default=True):
+    explicit = get_config("feishu.tools_explicit", None)
+    if explicit is not None:
+        return bool(explicit)
+    if not get_config("feishu.tools_auto", True):
         return False
     return feishu_credentials_configured()
 

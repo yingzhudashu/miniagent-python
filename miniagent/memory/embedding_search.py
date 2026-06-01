@@ -1,19 +1,13 @@
 """Mini Agent Python — 嵌入式语义记忆检索
 
 提供基于向量嵌入的语义搜索。
-使用 ``MINIAGENT_EMBED_BASE_URL`` / ``MINIAGENT_EMBED_MODEL`` 配置专用 embedding 服务；
+使用 JSON配置 ``embedding.*`` 配置专用 embedding 服务；
 未配置时不使用向量搜索，由调用方回退到关键词索引。
 
 存储：轻量 JSON 文件 ``<state_dir>/embedding-index.json``，每条记忆缓存其向量。
 检索：余弦相似度排名，无需外部向量数据库。
 
-环境变量：
-- ``MINIAGENT_EMBED_SEARCH``: 默认 ``0``；设 ``1``/``true`` 开启嵌入搜索，否则仅用关键词索引
-- ``MINIAGENT_EMBED_BASE_URL``: 专用 embedding 服务 URL
-- ``MINIAGENT_EMBED_MODEL``: 专用 embedding 模型
-- ``MINIAGENT_EMBED_DIM``: 向量维度（自动从首次响应推断，默认 1536）
-- ``MINIAGENT_EMBED_TOP_K``: 最多返回条目数（默认 8）
-- ``MINIAGENT_EMBED_MIN_SCORE``: 最低余弦相似度阈值（默认 0.3）
+配置项见 config.defaults.json 中 embedding 配置节。
 """
 
 from __future__ import annotations
@@ -30,6 +24,7 @@ from typing import Any
 
 import httpx
 
+from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.memory.shared_registry import MemoryEntryRegistry, get_registry
 from miniagent.types.memory import MemoryEntry, MemoryEntryInput
@@ -42,31 +37,19 @@ _logger = get_logger(__name__)
 # ============================================================================
 
 
-def _is_truthy(val: str | None) -> bool:
-    """判断字符串环境变量是否为真值（1/true/yes/on）。"""
-    if val is None:
-        return False  # default = disabled
-    return val.strip().lower() in ("1", "true", "yes", "on")
-
-
 def embedding_search_enabled() -> bool:
     """是否启用嵌入搜索。"""
-    return _is_truthy(os.environ.get("MINIAGENT_EMBED_SEARCH"))
+    return get_config("embedding.enabled", False)
 
 
 def _get_embed_config() -> dict[str, str | int]:
-    """专用 embedding 配置（MINIAGENT_EMBED_*）。"""
-    base_url = os.environ.get("MINIAGENT_EMBED_BASE_URL", "")
-    model = os.environ.get("MINIAGENT_EMBED_MODEL", "")
-    api_key = os.environ.get("MINIAGENT_EMBED_API_KEY", "")
-    top_k = int(os.environ.get("MINIAGENT_EMBED_TOP_K", "8"))
-    min_score = float(os.environ.get("MINIAGENT_EMBED_MIN_SCORE", "0.3"))
+    """专用 embedding 配置。"""
     return {
-        "base_url": base_url,
-        "model": model,
-        "api_key": api_key,
-        "top_k": top_k,
-        "min_score": min_score,
+        "base_url": get_config("embedding.base_url", ""),
+        "model": get_config("embedding.model", ""),
+        "api_key": os.environ.get("MINIAGENT_EMBED_API_KEY", ""),  # API密钥保留环境变量
+        "top_k": get_config("embedding.top_k", 8),
+        "min_score": get_config("embedding.min_score", 0.3),
     }
 
 
@@ -198,9 +181,9 @@ class EmbeddingIndex:
         self._state_dir = state_dir
         self._registry = registry or get_registry(state_dir)
         self._entries: collections.OrderedDict[str, _EmbeddingEntry] = collections.OrderedDict()
-        self._dim: int = int(os.environ.get("MINIAGENT_EMBED_DIM", "1536"))
+        self._dim: int = get_config("embedding.dimension", 1536)
         # 降低默认上限以减少内存占用（10000 条目 ≈ 60MB，2000 ≈ 12MB）
-        self._max_entries: int = int(os.environ.get("MINIAGENT_EMBED_MAX_ENTRIES", "2000"))
+        self._max_entries: int = get_config("embedding.max_entries", 2000)
         self._loaded = False
         self._dirty = False
         self._index_file = os.path.join(state_dir, "embedding-index.json")

@@ -14,12 +14,7 @@
 - 英文：按空格和标点分词，去停用词
 - 混合：同时应用两种策略
 
-存储：索引文件为 ``{state_dir}/keyword-index.json``。``state_dir`` 构造参数默认
-``"workspaces"``；进程入口通常传入与 ``MINI_AGENT_STATE`` 一致的状态根，故路径等价于
-``<状态根>/keyword-index.json``（未迁出时常见为仓库下 ``workspaces/keyword-index.json``）。
-
-该文件含检索用文本片段，**勿提交**到版本库；根目录 ``.gitignore`` 已默认排除仓库下
-``workspaces/keyword-index.json``。
+存储：索引文件为 ``{state_dir}/keyword-index.json``。
 
 Layer 3 检索与注入顺序见 ``docs/MEMORY_SYSTEM.md``。
 """
@@ -34,6 +29,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.memory.shared_registry import MemoryEntryRegistry, get_registry
 from miniagent.types.memory import MemoryEntry, MemoryEntryInput
@@ -296,7 +292,7 @@ class KeywordIndex:
         self._state_dir = state_dir
         self._registry = registry or get_registry(state_dir)
         self._index: collections.OrderedDict[str, _IndexEntry] = collections.OrderedDict()
-        self._max_entries: int = int(os.environ.get("MINIAGENT_KEYWORD_INDEX_MAX", "20000"))
+        self._max_entries: int = get_config("memory.keyword_index_max", 20000)
         self._loaded = False
         self._dirty = False
         self._index_file = os.path.join(state_dir, "keyword-index.json")

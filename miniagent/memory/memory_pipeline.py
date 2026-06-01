@@ -1,7 +1,7 @@
 """渐进式披露：在 **system** 侧拼接会话级 / Agent 级长期记忆摘要。
 
 由 ``build_layered_memory_augmentation`` 生成可追加的文本；是否注入及长度上限受
-``MINI_AGENT_LAYERED_MEMORY_*`` 环境变量控制。依赖 ``layered_memory`` 与按日 ``diary`` 文件。
+JSON配置 ``memory.*`` 控制。依赖 ``layered_memory`` 与按日 ``diary`` 文件。
 
 披露顺序与隐私提示见 ``docs/MEMORY_SYSTEM.md``。
 
@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 
+from miniagent.infrastructure.json_config import get_config
 from miniagent.memory.layered_memory import load_agent_longterm, load_session_longterm
 
 
@@ -41,10 +42,9 @@ def _read_identity(system_prompt: str | None = None) -> str:
     返回内容自动追加到 system prompt 最前面，作为 Agent 的"灵魂"设定。
     文件不存在时返回空字符串。
     """
-    import os
     from pathlib import Path
 
-    base = os.environ.get("MINI_AGENT_STATE", os.path.join(os.getcwd(), "workspaces"))
+    base = get_config("paths.state_dir", os.path.join(os.getcwd(), "workspaces"))
     identity_path = os.path.join(base, "identity.md")
     if not os.path.isfile(identity_path):
         return ""
@@ -61,32 +61,20 @@ def build_layered_memory_augmentation(
     include_diary_today: bool = True,
 ) -> str:
     """返回附加到 system prompt 的文本（不含跨会话 DefaultMemoryStore 部分）。"""
-    flag = os.environ.get("MINI_AGENT_LAYERED_MEMORY_INJECT", "1").strip().lower()
-    if flag in ("0", "false", "no", "off"):
+    if not get_config("memory.layered_inject", True):
         return ""
 
-    try:
-        max_total = int(os.environ.get("MINI_AGENT_LAYERED_MEMORY_MAX_CHARS", "12000"))
-    except ValueError:
-        max_total = 12000
+    max_total = get_config("memory.layered_max_chars", 12000)
 
     parts: list[str] = []
 
     if include_diary_today:
-        try:
-            dc = int(os.environ.get("MINI_AGENT_DIARY_PREVIEW_CHARS", "2000"))
-        except ValueError:
-            dc = 2000
+        dc = get_config("memory.diary_preview_chars", 2000)
         prev = _tail_diary_preview(session_key, max_chars=max(0, dc))
         if prev.strip():
             parts.append("【本会话今日日记摘录（归档块可能含完整历史）】\n" + prev.strip())
 
-    if os.environ.get("MINI_AGENT_LAYERED_MEMORY_SESSION_LT", "1").strip().lower() not in (
-        "0",
-        "false",
-        "no",
-        "off",
-    ):
+    if get_config("memory.layered_session_lt", True):
         slt = load_session_longterm(session_key)
         days = slt.get("day_entries") or []
         if days:
@@ -98,12 +86,7 @@ def build_layered_memory_augmentation(
                 )
             parts.append("【会话长期记忆 — 日索引】\n" + "\n".join(lines))
 
-    if os.environ.get("MINI_AGENT_LAYERED_MEMORY_AGENT_LT", "1").strip().lower() not in (
-        "0",
-        "false",
-        "no",
-        "off",
-    ):
+    if get_config("memory.layered_agent_lt", True):
         ag = load_agent_longterm()
         entries = ag.get("entries") or []
         if entries:

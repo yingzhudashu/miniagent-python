@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from miniagent.engine.builtin_tools import register_builtin_tools
+from miniagent.infrastructure.json_config import JsonConfigLoader
 from miniagent.infrastructure.registry import DefaultToolRegistry
 from miniagent.types.tool import ToolDefinition
 
@@ -26,7 +27,9 @@ def test_register_builtin_tools_populates_registry() -> None:
 
 
 def test_register_builtin_tools_skips_self_opt_when_disabled(monkeypatch) -> None:
-    monkeypatch.setenv("MINIAGENT_SELF_OPT_TOOLS", "0")
+    monkeypatch.setenv("MINIAGENT_CLI_SELF_OPT_TOOLS", "0")
+    monkeypatch.delenv("MINIAGENT_CONFIG", raising=False)
+    JsonConfigLoader.get_instance().reload()
     reg = DefaultToolRegistry()
     register_builtin_tools(reg)
     names = reg.list()
@@ -35,7 +38,9 @@ def test_register_builtin_tools_skips_self_opt_when_disabled(monkeypatch) -> Non
 
 
 def test_register_builtin_tools_skips_cli_dot_when_disabled(monkeypatch) -> None:
-    monkeypatch.setenv("MINIAGENT_CLI_DOT_TOOLS", "0")
+    monkeypatch.setenv("MINIAGENT_CLI_DOT_TOOLS_ENABLED", "0")
+    monkeypatch.delenv("MINIAGENT_CONFIG", raising=False)
+    JsonConfigLoader.get_instance().reload()
     reg = DefaultToolRegistry()
     register_builtin_tools(reg)
     names = reg.list()
@@ -44,7 +49,9 @@ def test_register_builtin_tools_skips_cli_dot_when_disabled(monkeypatch) -> None
 
 
 def test_register_builtin_tools_skips_schedule_tools_when_disabled(monkeypatch) -> None:
-    monkeypatch.setenv("MINIAGENT_SCHEDULE_TOOLS", "0")
+    monkeypatch.setenv("MINIAGENT_SCHEDULED_TOOLS_ENABLED", "0")
+    monkeypatch.delenv("MINIAGENT_CONFIG", raising=False)
+    JsonConfigLoader.get_instance().reload()
     reg = DefaultToolRegistry()
     register_builtin_tools(reg)
     names = reg.list()

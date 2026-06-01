@@ -18,6 +18,7 @@ import os
 import re
 from typing import Any
 
+from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.infrastructure.process import (
     create_tracked_subprocess,
@@ -133,8 +134,8 @@ _DEFAULT_ALLOWED_COMMANDS = frozenset(
 
 
 def _get_allowed_commands() -> frozenset[str]:
-    """从环境变量读取允许的命令列表，默认为内置列表。"""
-    env = os.environ.get("MINIAGENT_ALLOWED_COMMANDS", "").strip()
+    """从配置读取允许的命令列表，默认为内置列表。"""
+    env = get_config("security.allowed_commands", "")
     if env:
         return frozenset(c.strip() for c in env.split(",") if c.strip())
     return _DEFAULT_ALLOWED_COMMANDS

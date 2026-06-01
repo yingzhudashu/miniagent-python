@@ -32,6 +32,7 @@ from typing import Any, Protocol
 
 from miniagent.feishu.types import FeishuConfig, FeishuInboundText
 from miniagent.infrastructure.env_parse import TRUTHY, env_flag, env_flag_strict, env_str
+from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 
 _logger = get_logger(__name__)
@@ -263,7 +264,7 @@ _processing_claims: dict[str, float] = {}
 
 # 磁盘去重
 _state_dir = os.path.join(
-    os.environ.get("MINI_AGENT_STATE", os.path.join(os.getcwd(), "workspaces")),
+    get_config("paths.state_dir", os.path.join(os.getcwd(), "workspaces")),
     "feishu",
     "dedup",
 )
@@ -489,7 +490,7 @@ async def start_feishu_poll_server(
                 msg_create_time = 0
             if msg_create_time > 0:
                 _msg_age = time.time() - msg_create_time
-                _max_age = float(os.environ.get("MINIAGENT_FEISHU_MAX_MESSAGE_AGE_S", "600"))
+                _max_age = get_config("feishu.max_message_age", 600)
                 if _msg_age > _max_age:
                     _logger.info(
                         "跳过过期消息: message_id=%s, age=%.0fs > max=%.0fs",
@@ -946,46 +947,18 @@ def _is_valid_im_receive_id(chat_id: str) -> bool:
 
 # --- lark_md / GFM：规范化、宽表降级、卡片分片与 PATCH 节流（与 ThinkingDisplay 输出对齐）---
 # 单条「思考」卡片：流式时用 PATCH 更新同一 message_id；飞书对单条消息可 PATCH 次数有限，须节流。
-# 节流参数可通过环境变量调整，默认值已优化为更流畅的流式体验（间隔更短、字符增量更小）
-
-
-def _env_float(key: str, default: float) -> float:
-    """读取环境变量浮点数，失败时返回默认值。"""
-    raw = os.environ.get(key, "").strip()
-    if raw:
-        try:
-            return float(raw)
-        except ValueError:
-            pass
-    return default
-
-
-def _env_int(key: str, default: int) -> int:
-    """读取环境变量整数，失败时返回默认值。"""
-    raw = os.environ.get(key, "").strip()
-    if raw:
-        try:
-            return int(raw)
-        except ValueError:
-            pass
-    return default
-
+# 节流参数从JSON配置读取，默认值已优化为更流畅的流式体验（间隔更短、字符增量更小）
 
 # 默认值：间隔 0.12s（比之前 0.35s 更快）、字符增量 30（比之前 450 更小）、预算 40（比之前 12 更多）
-FEISHU_THINKING_PATCH_MIN_INTERVAL_S = _env_float("MINIAGENT_FEISHU_PATCH_INTERVAL", 0.12)
-FEISHU_THINKING_PATCH_MIN_CHAR_DELTA = _env_int("MINIAGENT_FEISHU_PATCH_CHAR_DELTA", 30)
-FEISHU_THINKING_PATCH_BUDGET = _env_int("MINIAGENT_FEISHU_PATCH_BUDGET", 40)
+FEISHU_THINKING_PATCH_MIN_INTERVAL_S = float(get_config("feishu.patch.interval", 0.12))
+FEISHU_THINKING_PATCH_MIN_CHAR_DELTA = int(get_config("feishu.patch.char_delta", 30))
+FEISHU_THINKING_PATCH_BUDGET = int(get_config("feishu.patch.budget", 40))
 
 
 def feishu_card_body_max() -> int:
-    """单张交互卡片 lark_md 正文上限（字符近似）；可用 MINI_AGENT_FEISHU_CARD_BODY_MAX 覆盖。"""
-    raw = os.environ.get("MINI_AGENT_FEISHU_CARD_BODY_MAX", "").strip()
-    if raw:
-        try:
-            return max(1000, int(raw))
-        except ValueError:
-            pass
-    return 48_000
+    """单张交互卡片 lark_md 正文上限（字符近似）。"""
+    val = get_config("feishu.card.body_max_chars", 48000)
+    return max(1000, int(val)) if val else 48_000
 
 
 # 兼容旧导入：仅为进程首次 import 时的快照；运行时上限请以 feishu_card_body_max() 为准。

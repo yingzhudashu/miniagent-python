@@ -18,8 +18,9 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from typing import TYPE_CHECKING, Any
+
+from miniagent.infrastructure.json_config import get_config
 
 if TYPE_CHECKING:
     from openai import AsyncOpenAI
@@ -94,7 +95,7 @@ async def llm_json(
 
     llm = client or get_shared_async_openai()
     if model is None:
-        model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+        model = get_config("model.model", "gpt-4o-mini")
     resp = await llm.chat.completions.create(
         model=model,
         messages=[

@@ -7,11 +7,11 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from miniagent.feishu.feishu_tool_policy import FEISHU_EXT_TOOL_NAMES
 from miniagent.feishu.im_tool_policy import feishu_im_tools_should_register
+from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.tools import ALL_TOOLS
 from miniagent.tools.cli_dispatch_tools import CLI_DOT_TOOL_NAMES
@@ -20,24 +20,18 @@ from miniagent.tools.schedule_tools import SCHEDULE_TOOL_NAMES
 _logger = get_logger(__name__)
 
 
-def _env_flag_false(key: str, default: str = "1") -> bool:
-    """检查环境变量是否**未**被设为关闭值（0/false/no/off）。"""
-    v = os.environ.get(key, default).strip().lower()
-    return v not in ("0", "false", "no", "off")
-
-
 def _cli_dot_tools_registration_enabled() -> bool:
-    """默认注册 run_dot_command；设为 0/false/off 则跳过。"""
-    return _env_flag_false("MINIAGENT_CLI_DOT_TOOLS")
+    """默认注册 run_dot_command；设为 false 则跳过。"""
+    return bool(get_config("cli.dot_tools_enabled", True))
 
 
 def _schedule_tools_registration_enabled() -> bool:
-    """默认注册 manage_scheduled_task；设为 0/false/off 则跳过。"""
-    return _env_flag_false("MINIAGENT_SCHEDULE_TOOLS")
+    """默认注册 manage_scheduled_task；设为 false 则跳过。"""
+    return bool(get_config("scheduled_tools.enabled", True))
 
 
 def _feishu_im_tools_registration_enabled() -> bool:
-    """飞书 IM/云文档工具；见 ``MINIAGENT_FEISHU_TOOLS`` / ``MINIAGENT_FEISHU_TOOLS_AUTO``。"""
+    """飞书 IM/云文档工具；见配置 feishu.tools_auto。"""
     return feishu_im_tools_should_register()
 
 

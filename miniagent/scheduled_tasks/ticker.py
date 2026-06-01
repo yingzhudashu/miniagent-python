@@ -1,17 +1,17 @@
 """进程内 asyncio 调度循环：周期性 ``tick_once``、加锁、将到期任务经 ``message_queue`` 投递执行。
 
-与 ``engine.main`` 中启动的 ``start_scheduled_tasks_ticker`` 配套；环境变量 ``MINIAGENT_DISABLE_SCHEDULED_TASKS`` 可关闭。
+与 ``engine.main`` 中启动的 ``start_scheduled_tasks_ticker`` 配套；配置 ``scheduled_tasks.disabled`` 可关闭。
 
 并发语义：同一进程内单 ticker 循环；跨进程通过 ``scheduler.lock``（tick）与 ``job_<id>.lock``（执行）避免重复触发。"""
 
 from __future__ import annotations
 
 import asyncio
-import os
 import time
 from typing import Any
 
 from miniagent.engine.cli_state import CliLoopState
+from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.runtime.context import RuntimeContext
 from miniagent.scheduled_tasks.lock import (
@@ -66,12 +66,7 @@ async def tick_once(
 
     skill_toolboxes = get_skill_toolboxes_from_state(state) or skill_toolboxes or []
     skill_prompts = get_skill_prompts_from_state(state) or skill_prompts or []
-    if os.environ.get("MINIAGENT_DISABLE_SCHEDULED_TASKS", "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    ):
+    if get_config("scheduled_tasks.disabled", False):
         return
 
     if not try_acquire_scheduler_lock():

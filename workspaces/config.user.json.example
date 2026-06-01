@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "2.0.0",
+  "description": "MiniAgent 用户配置示例（复制为 config.user.json 并填写）",
+
+  "model": {
+    "base_url": "https://api.openai.com/v1",
+    "model": "gpt-4o-mini",
+    "temperature": 0.7,
+    "max_tokens": 4096
+  },
+
+  "agent": {
+    "max_turns": 400,
+    "tool_timeout": 60
+  },
+
+  "timezone": {
+    "default": "Asia/Shanghai"
+  },
+
+  "paths": {
+    "state_dir": "workspaces"
+  },
+
+  "feishu": {
+    "media": {
+      "run_agent": false,
+      "vision_desc": true
+    }
+  },
+
+  "features": {
+    "requirement_clarify": true,
+    "reflection": true
+  }
+}

@@ -9,7 +9,11 @@ __pycache__/
 dist/
 build/
 state/
+
+# 环境变量配置（敏感凭据）
 .env
+.env.secrets
+.env.backup
 
 # 本地调试日志（勿提交）
 debug-*.log
@@ -23,8 +27,10 @@ perf.out
 # Claude Code session 目录
 .claude/
 
-# 运行时工作目录（全部忽略）
-workspaces/
+# 运行时工作目录（全部忽略，但保留示例文件）
+workspaces/*
+!workspaces/config.user.json.example
+!workspaces/.gitkeep
 
 # 可选离线测评：轨迹与生成报告默认不入库（评测源码 *.py 可提交；详见 docs/EVALUATION_LOCAL.md）
 tests/evaluation/runners/trajectories/

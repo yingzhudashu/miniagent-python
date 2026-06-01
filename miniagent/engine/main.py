@@ -44,6 +44,7 @@ from miniagent.infrastructure.instance import (
     register_instance,
     unregister_instance,
 )
+from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import set_console_log_threshold
 from miniagent.runtime.context import RuntimeContext
 
@@ -70,7 +71,7 @@ async def unified_main(ctx: RuntimeContext) -> None:
     每个实例通过会话级 .lock 文件隔离。
 
     嵌入场景若不经 ``compat.unified_entry``，调用方须先
-    ``load_dotenv_from_project_root()`` 或预先设置 ``OPENAI_*`` 等环境变量。
+    ``load_secrets_from_project_root()`` 或预先设置 ``OPENAI_*`` 等敏感凭据环境变量。
 
     Args:
         ctx: 运行时组合根（registry / monitor / skill_registry / clawhub / engine）
@@ -92,7 +93,7 @@ async def unified_main(ctx: RuntimeContext) -> None:
     except Exception:
         pass  # VT 模式不可用，降级到 prompt_toolkit 颜色
 
-    MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+    MODEL = get_config("model.model", "gpt-4o-mini")
     from miniagent.engine.init import init_subsystems
     from miniagent.engine.welcome import print_welcome
 
@@ -292,7 +293,7 @@ async def run_cli_loop(
 
     # 历史记录文件
     history_dir = os.path.join(
-        os.environ.get("MINI_AGENT_STATE", os.path.join(os.getcwd(), "workspaces")),
+        get_config("paths.state_dir", os.path.join(os.getcwd(), "workspaces")),
         "cli",
     )
     os.makedirs(history_dir, exist_ok=True)
@@ -860,14 +861,13 @@ async def run_cli_loop(
         """Markdown 渲染宽度：基于视口宽度，足够宽以保证可读性。
 
         仅扣除最小边距（1列），滚动条已在 _viewport_cols 中扣除。
-        可通过环境变量 MINIAGENT_CLI_WIDTH_MARGIN 自定义边距。
         """
         vp = _viewport_cols()
-        margin = int(os.environ.get("MINIAGENT_CLI_WIDTH_MARGIN", "1") or "1")
-        return max(40, vp - margin)
+        margin = get_config("cli.width_margin", 1)
+        return max(40, vp - int(margin))
 
     # ─── 水平滚动控制 ───────────────────────────────────────────────
-    _WRAP_LINES_THRESHOLD = int(os.environ.get("MINIAGENT_CLI_WRAP_THRESHOLD", "40") or "40")  # 宽度小于此值时禁用折行，启用水平滚动
+    _WRAP_LINES_THRESHOLD = get_config("cli.wrap_threshold", 40)  # 宽度小于此值时禁用折行，启用水平滚动
     _horizontal_scroll = [0]  # 水平滚动偏移（可变）
     _drag_start_x = [None]  # 水平拖动起始 X 坐标
     _dragging_scrollbar = [False]  # 正在拖动垂直滚动条
@@ -1674,7 +1674,7 @@ async def run_cli_loop(
     ctx.cli_transcript_append_ansi = _append_ansi_transcript
     ctx.create_feishu_handler_factory = lambda tb, tp, st: create_feishu_handler(tb, tp, st, ctx, _stick_bottom)
     # stderr 日志仍会打乱 VS Code 等与 PT 共用的终端画布；TUI 期间默认只打 WARNING+
-    if not os.environ.get("MINI_AGENT_TUI_VERBOSE_LOG"):
+    if not get_config("features.tui_verbose_log", False):
         set_console_log_threshold(logging.WARNING)
 
     _LEGACY_COLOR_CLASS: dict[str, str] = {
@@ -1910,14 +1910,14 @@ async def run_cli_loop(
 
                             file_type = "image" if mime_type.startswith("image/") else ("text" if mime_type.startswith("text/") else "binary")
 
-                            # 图片描述（如果有视觉模型，可通过环境变量禁用）
+                            # 图片描述（如果有视觉模型，可通过配置禁用）
                             description = ""
-                            vision_desc_enabled = (os.environ.get("MINIAGENT_CLI_FILE_VISION_DESC", "1") or "").strip().lower() not in ("0", "false", "no")
+                            vision_desc_enabled = get_config("cli.file_vision_desc", True)
                             if file_type == "image" and runtime_ctx and vision_desc_enabled:
                                 try:
                                     from miniagent.feishu.vision_desc import describe_image
                                     client = getattr(runtime_ctx, "openai_client", None)
-                                    model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+                                    model = get_config("model.model", "gpt-4o-mini")
                                     if client:
                                         description = await describe_image(resolved, client, model)
                                 except Exception:

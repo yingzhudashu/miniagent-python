@@ -1,6 +1,6 @@
 """定时任务持久化：``tasks.json`` 的读写、下次触发时间计算与运行后重算。
 
-路径根由 ``MINI_AGENT_STATE`` 或当前工作目录下 ``workspaces`` 决定，与 README / ``docs/ENGINEERING.md`` §3 描述一致。"""
+路径根由 JSON配置 ``paths.state_dir`` 或当前工作目录下 ``workspaces`` 决定。"""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ import time
 from datetime import datetime, timezone
 from typing import Literal
 
+from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.infrastructure.timezone_config import process_timezone
 from miniagent.scheduled_tasks.file_lock import tasks_json_lock
@@ -32,20 +33,14 @@ TaskRunOutcome = Literal[
 
 
 def dispatch_failure_backoff_seconds() -> int:
-    """``MINIAGENT_SCHEDULE_DISPATCH_BACKOFF`` 秒数，默认 60。"""
-    raw = os.environ.get("MINIAGENT_SCHEDULE_DISPATCH_BACKOFF", "").strip()
-    if not raw:
-        return 60
-    try:
-        sec = int(raw, 10)
-        return max(1, sec)
-    except ValueError:
-        return 60
+    """调度失败退避秒数，默认 60。"""
+    sec = get_config("scheduled_tasks.dispatch_backoff", 60)
+    return max(1, int(sec))
 
 
 def _state_root() -> str:
-    """与引擎/记忆共用的状态根（``MINI_AGENT_STATE`` 或 ``<cwd>/workspaces``）。"""
-    return os.environ.get("MINI_AGENT_STATE", os.path.join(os.getcwd(), "workspaces"))
+    """与引擎/记忆共用的状态根。"""
+    return get_config("paths.state_dir", os.path.join(os.getcwd(), "workspaces"))
 
 
 def tasks_dir() -> str:

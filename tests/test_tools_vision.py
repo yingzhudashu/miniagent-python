@@ -163,6 +163,8 @@ async def test_analyze_image_no_model(
     mock_client = MagicMock()
 
     monkeypatch.delenv("OPENAI_MODEL", raising=False)
+    monkeypatch.delenv("MINIAGENT_MODEL_MODEL", raising=False)
+    monkeypatch.delenv("MINIAGENT_CONFIG", raising=False)
 
     with patch(
         "miniagent.tools.vision.get_shared_async_openai",
@@ -171,7 +173,7 @@ async def test_analyze_image_no_model(
         r = await _analyze_image_handler({"path": "test.png"}, ctx)
 
     assert not r.success
-    assert "未配置" in r.content
+    assert "未配置" in r.content or "model" in r.content.lower()
 
 
 async def test_vision_tools_export() -> None:

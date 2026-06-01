@@ -6,8 +6,8 @@
 - 运行时：``from miniagent.runtime import RuntimeContext``
 - 引擎：``from miniagent.engine import ...``
 
-``unified_entry`` 内会先 ``load_dotenv_from_project_root()`` 再构造 ``RuntimeContext``，配置以
-扁平环境变量为准（见 ``.env.example``）。
+``unified_entry`` 内会先 ``load_secrets_from_project_root()`` 再构造 ``RuntimeContext``。
+配置通过JSON格式传递（config.defaults.json / config.user.json / MINIAGENT_CONFIG环境变量）。
 
 启动编排与异步主流程见 ``docs/ARCHITECTURE.md``（``unified_entry`` → ``unified_main``）。
 """
@@ -68,9 +68,9 @@ def unified_entry() -> None:
     """
     import asyncio
 
-    from miniagent.infrastructure.env_loader import load_dotenv_from_project_root
+    from miniagent.infrastructure.env_loader import load_secrets_from_project_root
 
-    load_dotenv_from_project_root()
+    load_secrets_from_project_root()
 
     from miniagent.core.openai_client import get_shared_async_openai
     from miniagent.infrastructure.channel_router import ChannelRouter

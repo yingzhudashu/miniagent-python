@@ -21,34 +21,15 @@ import shutil
 from collections.abc import Callable
 from typing import Any
 
+from miniagent.infrastructure.json_config import get_config
 from miniagent.runtime.context import RuntimeContext
 
 # ─── 终端宽度计算 ───────────────────────────────────────────────
 
-from miniagent.infrastructure.json_config import get_config
-
-# 从JSON配置加载渲染宽度范围常量
+# 从JSON配置加载渲染宽度范围常量（环境变量覆盖由JsonConfigLoader自动处理）
 MIN_RENDER_WIDTH = get_config("render.min_width", 40)
 MAX_RENDER_WIDTH = get_config("render.max_width", 500)
 WIDTH_MARGIN = get_config("render.width_margin", 4)
-
-# 环境变量覆盖支持
-import os
-if os.environ.get("MINIAGENT_RENDER_MIN_WIDTH"):
-    try:
-        MIN_RENDER_WIDTH = int(os.environ.get("MINIAGENT_RENDER_MIN_WIDTH") or str(MIN_RENDER_WIDTH))
-    except ValueError:
-        pass
-if os.environ.get("MINIAGENT_RENDER_MAX_WIDTH"):
-    try:
-        MAX_RENDER_WIDTH = int(os.environ.get("MINIAGENT_RENDER_MAX_WIDTH") or str(MAX_RENDER_WIDTH))
-    except ValueError:
-        pass
-if os.environ.get("MINIAGENT_RENDER_WIDTH_MARGIN"):
-    try:
-        WIDTH_MARGIN = int(os.environ.get("MINIAGENT_RENDER_WIDTH_MARGIN") or str(WIDTH_MARGIN))
-    except ValueError:
-        pass
 
 
 def get_terminal_width(fallback_width: int = 80) -> int:
@@ -158,15 +139,14 @@ def extract_last_qa_from_history(history: list[dict[str, Any]]) -> tuple[str, st
     user_msg = None
     assistant_msg = None
 
-    # 从后向前查找：先找assistant（在后面），再找user（在前面）
+    # 从后向前查找
     for msg in reversed(history):
         role = msg.get("role", "")
         if role == "assistant" and assistant_msg is None:
             assistant_msg = msg.get("content", "")
-        elif role == "user" and assistant_msg is not None:
-            # 找到assistant后，再找user才有效
+        elif role == "user" and user_msg is None:
             user_msg = msg.get("content", "")
-            break  # 找到user后停止
+            break  # 找到用户消息后停止
 
     if user_msg and assistant_msg:
         return (user_msg, assistant_msg)

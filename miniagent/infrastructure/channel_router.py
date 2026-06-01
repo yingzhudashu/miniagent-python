@@ -23,6 +23,8 @@ import json
 import os
 from typing import Any
 
+from miniagent.infrastructure.json_config import get_config
+
 
 class ChannelRouter:
     """通道-会话路由器。
@@ -254,8 +256,8 @@ class ChannelRouter:
     # -------------------------------------------------------------------
 
     def _state_dir(self) -> str:
-        """返回 MINI_AGENT_STATE 目录路径。"""
-        return os.environ.get("MINI_AGENT_STATE", "")
+        """返回状态目录路径。"""
+        return get_config("paths.state_dir", "")
 
     def _state_file(self) -> str | None:
         """返回持久化文件路径；未设置 MINI_AGENT_STATE 时返回 None。"""

@@ -40,6 +40,7 @@ from miniagent.core.task_classifier import (
 )
 from miniagent.core.thinking_callback import invoke_on_thinking
 from miniagent.core.thinking_presets import map_business_depth
+from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.infrastructure.monitor import DefaultToolMonitor
 from miniagent.security.sandbox import get_default_workspace
@@ -59,9 +60,8 @@ _logger = get_logger(__name__)
 
 
 def _announce_difficulty_and_plan_enabled() -> bool:
-    """是否向用户展示任务难度与规划摘要（由 ``MINIAGENT_ANNOUNCE_DIFFICULTY_AND_PLAN`` 控制，默认开启）。"""
-    v = os.environ.get("MINIAGENT_ANNOUNCE_DIFFICULTY_AND_PLAN", "1")
-    return str(v).strip().lower() not in ("0", "false", "no")
+    """是否向用户展示任务难度与规划摘要（默认开启）。"""
+    return get_config("execution.announce_difficulty", True)
 
 
 _DIFFICULTY_LABELS = {
@@ -276,7 +276,7 @@ async def run_agent(
 
     # ── Phase 0.5: 需求澄清（按难度条件执行）──
     # 简单任务：不澄清；一般任务：最多澄清 1 个问题；复杂任务：完整澄清
-    clarifier_enabled = os.environ.get("MINIAGENT_REQUIREMENT_CLARIFY", "1") != "0"
+    clarifier_enabled = get_config("features.requirement_clarify", True)
     clarified_text = ""
     if clarifier_enabled and clarifier is not None and difficulty != TaskDifficulty.SIMPLE:
         # 交互追问回调（通过确认侧通道阻塞等待用户回答）
@@ -486,7 +486,7 @@ async def run_agent(
     )
 
     # ── Phase 3: 反思评估 ──
-    reflection_enabled = os.environ.get("MINIAGENT_REFLECTION", "1") != "0"
+    reflection_enabled = get_config("features.reflection", True)
     if reflection_enabled:
         reflection = await reflect_on_result(user_input, reply, client=client, on_thinking=None)
         # 存储到引擎供飞书发送独立质量卡片

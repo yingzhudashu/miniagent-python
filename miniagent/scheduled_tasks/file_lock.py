@@ -8,6 +8,8 @@ import sys
 import threading
 from collections.abc import Iterator
 
+from miniagent.infrastructure.json_config import get_config
+
 # 平台相关文件锁模块
 if sys.platform == "win32":
     import msvcrt
@@ -19,7 +21,7 @@ _thread_lock = threading.RLock()
 
 def _tasks_json_lock_path() -> str:
     """构造 tasks.json 文件锁路径。"""
-    root = os.environ.get("MINI_AGENT_STATE", os.path.join(os.getcwd(), "workspaces"))
+    root = get_config("paths.state_dir", os.path.join(os.getcwd(), "workspaces"))
     return os.path.join(root, "scheduled_tasks", "tasks.json.lock")
 
 

@@ -3,12 +3,13 @@
 提供分层配置加载机制：
 1. config.defaults.json - 默认配置（随代码发布）
 2. config.user.json - 用户配置（覆盖默认值）
-3. 环境变量 - 运行时覆盖（最高优先级）
+3. MINIAGENT_CONFIG环境变量 - JSON格式运行时配置
+4. 单项环境变量 - 最高优先级（如MINIAGENT_MODEL_TEMPERATURE）
 
 优先级顺序（从低到高）：
-defaults → user → 环境变量
+defaults → user → MINIAGENT_CONFIG(JSON) → 单项环境变量
 
-敏感信息（API密钥等）保留在 .env 文件中，不在JSON配置中管理。
+敏感信息（API密钥等）保留在.env.secrets文件中或环境变量中。
 """
 
 from __future__ import annotations
@@ -19,15 +20,79 @@ from pathlib import Path
 from typing import Any
 
 
+# 特殊环境变量别名映射（保留常用的老环境变量名）
+_SPECIAL_ENV_ALIASES = {
+    # 路径配置
+    "paths.state_dir": "MINI_AGENT_STATE",
+    "paths.skills_dir": "MINI_AGENT_SKILLS",
+    # 时区配置
+    "timezone.default": "MINIAGENT_TIMEZONE",
+    "scheduled_tasks.timezone": "MINIAGENT_SCHEDULE_TIMEZONE",
+    # embedding配置
+    "embedding.base_url": "MINIAGENT_EMBED_BASE_URL",
+    "embedding.model": "MINIAGENT_EMBED_MODEL",
+    "embedding.enabled": "MINIAGENT_EMBED_SEARCH",
+    # 定时任务配置
+    "scheduled_tasks.dispatch_backoff": "MINIAGENT_SCHEDULE_DISPATCH_BACKOFF",
+    "scheduled_tasks.feishu_mirror": "MINIAGENT_SCHEDULE_FEISHU_MIRROR",
+    "scheduled_tasks.feishu_last_chat": "MINIAGENT_SCHEDULE_FEISHU_LAST_CHAT",
+    "scheduled_tools.enabled": "MINIAGENT_SCHEDULE_TOOLS",
+    # 执行配置
+    "execution.thinking_separator": "MINIAGENT_THINKING_SEGMENT_SEPARATOR",
+    "execution.step_max_turns": "MINIAGENT_STEP_MAX_TURNS",
+    "execution.tool_intent_max_chars": "MINIAGENT_TOOL_INTENT_MAX_CHARS",
+    "execution.thinking_merge_tools": "MINIAGENT_THINKING_MERGE_TOOLS",
+    "execution.announce_difficulty": "MINIAGENT_ANNOUNCE_DIFFICULTY_AND_PLAN",
+    "execution.task_classifier_enabled": "MINIAGENT_TASK_CLASSIFIER",
+    # 飞书配置
+    "feishu.tools_explicit": "MINIAGENT_FEISHU_TOOLS",
+    "feishu.tools_auto": "MINIAGENT_FEISHU_TOOLS_AUTO",
+    "feishu.card.thinking_max_chars": "MINI_AGENT_THINKING_FOR_LLM_MAX_CHARS",
+    "feishu.card.body_max_chars": "MINI_AGENT_FEISHU_CARD_BODY_MAX",
+    "feishu.websocket.auto_reconnect": "MINIAGENT_FEISHU_WS_AUTO_RECONNECT",
+    "feishu.websocket.watchdog_interval": "MINIAGENT_FEISHU_WS_WATCHDOG_INTERVAL_S",
+    "feishu.websocket.dead_conn_grace": "MINIAGENT_FEISHU_WS_DEAD_CONN_GRACE_S",
+    "feishu.websocket.reconnect_grace": "MINIAGENT_FEISHU_WS_RECONNECT_GRACE_S",
+    "feishu.websocket.refresh_interval": "MINIAGENT_FEISHU_WS_REFRESH_INTERVAL_S",
+    "feishu.websocket.idle_refresh": "MINIAGENT_FEISHU_WS_IDLE_REFRESH_S",
+    # CLI配置
+    "cli.self_opt_tools": "MINIAGENT_SELF_OPT_TOOLS",
+    "cli.dot_tools_enabled": "MINIAGENT_CLI_DOT_TOOLS_ENABLED",
+    # 内存配置
+    "memory.history_max_messages": "MINI_AGENT_HISTORY_MAX_MESSAGES",
+    "memory.registry_max_entries": "MINIAGENT_REGISTRY_MAX_ENTRIES",
+    "memory.context_tool_redact": "MINI_AGENT_CONTEXT_TOOL_REDACT",
+    # 功能开关
+    "features.reflection": "MINIAGENT_REFLECTION",
+    "features.requirement_clarify": "MINIAGENT_REQUIREMENT_CLARIFY",
+    # 模型配置（OpenAI兼容端点常用名）
+    "model.base_url": "OPENAI_BASE_URL",
+    "model.model": "OPENAI_MODEL",
+    "model.max_tokens": "OPENAI_MAX_TOKENS",
+    "model.context_window": "AGENT_CONTEXT_WINDOW",
+    "model.thinking_level": "AGENT_THINKING_DEFAULT",
+    "model.thinking_budget": "OPENAI_THINKING_BUDGET",
+    "model.temperature": "AGENT_TEMPERATURE",
+    "model.top_p": "AGENT_TOP_P",
+    # Agent配置
+    "agent.max_turns": "AGENT_MAX_TURNS",
+    "agent.tool_timeout": "AGENT_TOOL_TIMEOUT",
+    "agent.http_timeout": "AGENT_HTTP_TIMEOUT",
+}
+
+
 class JsonConfigLoader:
     """JSON配置加载器。
 
     支持分层加载、点路径访问、环境变量覆盖。
+    支持MINIAGENT_CONFIG环境变量传递完整JSON配置。
 
     Example:
         config = JsonConfigLoader()
         model = config.get("model.model", "gpt-4o-mini")
-        temperature = config.get("model.temperature", 0.7)
+
+        # 通过环境变量传递JSON配置：
+        # MINIAGENT_CONFIG='{"model": {"temperature": 0.5, "model": "gpt-4o"}}'
     """
 
     _instance: JsonConfigLoader | None = None
@@ -55,14 +120,14 @@ class JsonConfigLoader:
             self._defaults_path = defaults_path
 
         if user_path is None:
-            # 自动查找用户配置
-            state_dir = os.environ.get("MINI_AGENT_STATE", "workspaces")
-            self._user_path = os.path.join(state_dir, "config.user.json")
+            # 使用固定默认路径
+            self._user_path = str(Path(__file__).parent.parent.parent / "workspaces" / "config.user.json")
         else:
             self._user_path = user_path
 
         self._defaults: dict[str, Any] = {}
         self._user: dict[str, Any] = {}
+        self._env_config: dict[str, Any] = {}  # MINIAGENT_CONFIG环境变量
         self._loaded = False
 
     def _load(self) -> None:
@@ -77,7 +142,37 @@ class JsonConfigLoader:
         if os.path.isfile(self._user_path):
             self._user = self._load_json(self._user_path)
 
+        # 加载MINIAGENT_CONFIG环境变量（JSON格式）
+        env_config_str = os.environ.get("MINIAGENT_CONFIG", "")
+        if env_config_str.strip():
+            self._env_config = self._parse_env_json(env_config_str)
+
         self._loaded = True
+
+    def _parse_env_json(self, json_str: str) -> dict[str, Any]:
+        """解析MINIAGENT_CONFIG环境变量中的JSON配置。
+
+        Args:
+            json_str: JSON字符串
+
+        Returns:
+            解析后的字典，失败时返回空字典
+        """
+        try:
+            data = json.loads(json_str)
+            if isinstance(data, dict):
+                # 过滤掉非配置字段
+                return {
+                    k: v
+                    for k, v in data.items()
+                    if not k.startswith("$") and k not in ("version", "description")
+                }
+            return {}
+        except json.JSONDecodeError as e:
+            import logging
+            _logger = logging.getLogger(__name__)
+            _logger.warning("MINIAGENT_CONFIG环境变量JSON解析失败: %s", e)
+            return {}
 
     def _load_json(self, path: str) -> dict[str, Any]:
         """加载JSON文件。
@@ -109,7 +204,7 @@ class JsonConfigLoader:
         """获取配置值。
 
         支持点路径访问，如 "model.temperature"。
-        优先级：环境变量 > 用户配置 > 默认配置。
+        优先级：单项环境变量 > MINIAGENT_CONFIG > 用户配置 > 默认配置。
 
         Args:
             key: 配置键（点路径格式）
@@ -120,18 +215,31 @@ class JsonConfigLoader:
         """
         self._load()
 
-        # 1. 检查环境变量（最高优先级）
+        # 1. 检查单项环境变量（最高优先级）
+        # 先检查特殊别名
+        special_env_key = _SPECIAL_ENV_ALIASES.get(key)
+        if special_env_key:
+            env_value = os.environ.get(special_env_key)
+            if env_value is not None:
+                return self._parse_env_value(env_value, default)
+
+        # 再检查标准命名规则
         env_key = self._to_env_key(key)
         env_value = os.environ.get(env_key)
         if env_value is not None:
             return self._parse_env_value(env_value, default)
 
-        # 2. 检查用户配置
+        # 2. 检查MINIAGENT_CONFIG环境变量中的JSON配置
+        env_config_value = self._get_nested(self._env_config, key)
+        if env_config_value is not None:
+            return env_config_value
+
+        # 3. 检查用户配置
         user_value = self._get_nested(self._user, key)
         if user_value is not None:
             return user_value
 
-        # 3. 检查默认配置
+        # 4. 检查默认配置
         defaults_value = self._get_nested(self._defaults, key)
         if defaults_value is not None:
             return defaults_value
@@ -160,6 +268,13 @@ class JsonConfigLoader:
         Returns:
             解析后的值
         """
+        # 尝试解析JSON格式的值
+        if value.startswith("{") or value.startswith("["):
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                pass
+
         # 根据默认值类型推断
         if isinstance(default, bool):
             return value.lower() in ("1", "true", "yes", "on")
@@ -173,6 +288,25 @@ class JsonConfigLoader:
                 return float(value)
             except ValueError:
                 return value
+
+        # 当默认值是None时，尝试推断常见类型
+        if default is None:
+            # 布尔值推断
+            if value.lower() in ("true", "yes", "on", "1"):
+                return True
+            if value.lower() in ("false", "no", "off", "0"):
+                return False
+            # 整数推断
+            try:
+                return int(value)
+            except ValueError:
+                pass
+            # 浮点数推断
+            try:
+                return float(value)
+            except ValueError:
+                pass
+
         # 字符串或其他类型
         return value
 
@@ -202,20 +336,19 @@ class JsonConfigLoader:
             section: 配置部分名称（如 "model"）
 
         Returns:
-            配置字典（合并默认值、用户值、环境变量）
+            配置字典（合并所有层级）
         """
         self._load()
 
-        # 获取默认配置部分
+        # 获取各层级配置部分
         defaults_section = self._defaults.get(section, {})
-
-        # 获取用户配置部分
         user_section = self._user.get(section, {})
+        env_config_section = self._env_config.get(section, {})
 
-        # 合并（用户覆盖默认）
-        merged = {**defaults_section, **user_section}
+        # 合并（优先级：env_config > user > defaults）
+        merged = {**defaults_section, **user_section, **env_config_section}
 
-        # 应用环境变量覆盖
+        # 应用单项环境变量覆盖
         for key, default_value in merged.items():
             full_key = f"{section}.{key}"
             env_key = self._to_env_key(full_key)
@@ -228,6 +361,7 @@ class JsonConfigLoader:
     def reload(self) -> None:
         """重新加载配置文件。"""
         self._loaded = False
+        self._env_config = {}
         self._load()
 
     @classmethod

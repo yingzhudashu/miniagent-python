@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.types.memory import MemoryEntry, MemoryEntryInput
 
@@ -48,7 +49,7 @@ class MemoryEntryRegistry:
     def __init__(self, state_dir: str = "workspaces") -> None:
         self._state_dir = state_dir
         self._entries: collections.OrderedDict[str, SharedEntry] = collections.OrderedDict()
-        self._max_entries: int = int(os.environ.get("MINIAGENT_REGISTRY_MAX_ENTRIES", "3000"))
+        self._max_entries: int = get_config("memory.registry_max_entries", 3000)
         self._loaded = False
         self._dirty = False
         self._registry_file = os.path.join(state_dir, "memory-registry.json")

@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import os
 
+from miniagent.infrastructure.json_config import get_config
+
 
 def resolve_sandbox_path(input_path: str, allowed_dirs: list[str]) -> str:
     """解析并验证路径是否在允许的目录范围内
@@ -103,10 +105,10 @@ def get_default_workspace() -> str:
     """获取默认工作空间路径。
 
     优先级：
-    1. 环境变量 MINI_AGENT_WORKSPACE
+    1. 配置 paths.workspace
     2. 当前工作目录
     """
-    return os.environ.get("MINI_AGENT_WORKSPACE", os.getcwd())
+    return get_config("paths.workspace", os.getcwd())
 
 
 __all__ = ["resolve_sandbox_path", "is_path_allowed", "get_default_workspace"]

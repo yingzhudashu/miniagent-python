@@ -1,11 +1,10 @@
 """任务难度轻量分类（可选）：在结构化规划前估算 simple/normal/medium/complex。
 
-``MINIAGENT_TASK_CLASSIFIER`` 默认开启；简单任务可跳过 Phase 1 规划并由 ``agent`` 下调 thinking。
+配置 execution.task_classifier_enabled 默认开启；简单任务可跳过 Phase 1 规划并由 ``agent`` 下调 thinking。
 失败时回落启发式或 JSON 解析兜底；与 ``thinking_presets``、``llm_params`` 协同。"""
 
 from __future__ import annotations
 
-import os
 from enum import Enum
 from typing import Any
 
@@ -14,6 +13,7 @@ from miniagent.core.llm_json import parse_llm_json_response
 from miniagent.core.openai_client import get_shared_async_openai
 from miniagent.core.thinking_presets import map_business_depth, map_openclaw_thinking_to_model
 from miniagent.infrastructure.debug_ndjson import safe_agent_debug_log
+from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.types.config import AgentConfig
 
@@ -30,9 +30,8 @@ class TaskDifficulty(str, Enum):
 
 
 def task_classifier_enabled() -> bool:
-    """是否启用规划前难度分类（``MINIAGENT_TASK_CLASSIFIER``，默认开启）。"""
-    v = os.environ.get("MINIAGENT_TASK_CLASSIFIER", "1")
-    return str(v).strip().lower() in ("1", "true", "yes")
+    """是否启用规划前难度分类（默认开启）。"""
+    return get_config("execution.task_classifier_enabled", True)
 
 
 def planner_merge_for_difficulty(d: TaskDifficulty) -> dict[str, Any]:

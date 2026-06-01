@@ -11,6 +11,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
+from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 
 _logger = get_logger(__name__)
@@ -27,8 +28,8 @@ def safe_session_id_for_memory(session_key: str) -> str:
 
 
 def _state_dir() -> str:
-    """状态根目录：``MINI_AGENT_STATE`` 或仓库下 ``workspaces``。"""
-    return os.environ.get("MINI_AGENT_STATE", os.path.join(os.getcwd(), "workspaces"))
+    """状态根目录：配置 paths.state_dir 或仓库下 ``workspaces``。"""
+    return get_config("paths.state_dir", os.path.join(os.getcwd(), "workspaces"))
 
 
 def _diary_path(session_key: str, day: str) -> str:
@@ -45,24 +46,14 @@ def diary_file_path(session_key: str, day: str | None = None) -> str:
 
 
 def history_archive_max_messages() -> int:
-    """``MINI_AGENT_HISTORY_MAX_MESSAGES`` 阈值（至少 1）；供渐进压缩等模块复用。"""
-    try:
-        v = int(os.environ.get("MINI_AGENT_HISTORY_MAX_MESSAGES", "120"))
-        return max(1, v)
-    except ValueError:
-        return 120
+    """归档消息数阈值（至少 1）；供渐进压缩等模块复用。"""
+    return max(1, get_config("memory.history_max_messages", 120))
 
 
 def history_archive_token_hint() -> int | None:
-    """``MINI_AGENT_HISTORY_ARCHIVE_TOKEN_HINT``；未设置或无效时返回 None。"""
-    raw = os.environ.get("MINI_AGENT_HISTORY_ARCHIVE_TOKEN_HINT", "").strip()
-    if not raw:
-        return None
-    try:
-        v = int(raw)
-        return v if v > 0 else None
-    except ValueError:
-        return None
+    """归档 token 提示阈值；未设置或无效时返回 None。"""
+    v = get_config("memory.archive_token_hint", None)
+    return v if v and v > 0 else None
 
 
 def _max_messages() -> int:

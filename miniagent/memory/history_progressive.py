@@ -1,15 +1,15 @@
 """渐进式会话历史压缩：按单工具 → 单步骤 → 整轮 thinking → 归档/删轮 顺序减量。
 
-策略与环境变量见 ``docs/MEMORY_SYSTEM.md``、``docs/ARCHITECTURE.md``（上下文窗口）。
+策略与配置见 ``docs/MEMORY_SYSTEM.md``、``docs/ARCHITECTURE.md``（上下文窗口）。
 """
 
 from __future__ import annotations
 
-import os
 import re
 from enum import Enum
 from typing import Any
 
+from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 
 _logger = get_logger(__name__)
@@ -31,24 +31,15 @@ class CompressionLevel(str, Enum):
 
 
 def _progressive_enabled(explicit: bool | None) -> bool:
-    """与 ``get_default_agent_config().history_progressive_compression`` / ``_env_bool`` 语义一致。"""
+    """与 ``get_default_agent_config().history_progressive_compression`` 语义一致。"""
     if explicit is not None:
         return bool(explicit)
-    v = os.environ.get("MINI_AGENT_HISTORY_PROGRESSIVE")
-    if v is not None and str(v).strip() != "":
-        return str(v).strip().lower() in ("true", "1", "yes")
-    return True
+    return get_config("memory.history_progressive", True)
 
 
 def _maintenance_max_iters() -> int:
-    """单轮历史维护循环最大迭代次数（``MINI_AGENT_HISTORY_MAINTENANCE_MAX_ITERS``）。"""
-    raw = os.environ.get("MINI_AGENT_HISTORY_MAINTENANCE_MAX_ITERS", "").strip()
-    if raw:
-        try:
-            return max(1, int(raw))
-        except ValueError:
-            pass
-    return 500
+    """单轮历史维护循环最大迭代次数。"""
+    return max(1, get_config("memory.maintenance_max_iters", 500))
 
 
 def _over_archive_limits(history: list[dict[str, Any]]) -> bool:

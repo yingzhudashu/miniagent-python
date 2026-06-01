@@ -8,11 +8,11 @@
 1. ``register_builtin_tools``：内置 ``ALL_TOOLS``
 2. 磁盘技能包发现并注册工具（同名冲突时跳过技能侧）
 3. ``session_memory_tools``：会话级记忆工具
-4. 可选 ``MINIAGENT_MCP_STDIO``：stdio MCP 工具（未安装 ``mcp`` 包则打日志跳过）
+4. 可选 ``mcp.stdio_command``：stdio MCP 工具（未安装 ``mcp`` 包则打日志跳过）
 5. 合并 ``BUILTIN_TOOLBOXES`` 与技能工具箱；创建 ``SessionManager``；默认会话加锁；
    ``KeywordIndex.prune_expired`` 清理过期索引项
 
-环境与可选组件开关汇总见根目录 ``README``、``.env.example``；架构见 ``docs/ARCHITECTURE.md``。
+配置见 config.defaults.json；架构见 ``docs/ARCHITECTURE.md``。
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ import random
 import shutil
 from typing import Any
 
+from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 
 _logger = get_logger(__name__)
@@ -72,7 +73,7 @@ async def init_subsystems(
         except ValueError:
             pass
 
-    mcp_raw = os.environ.get("MINIAGENT_MCP_STDIO", "").strip()
+    mcp_raw = get_config("mcp.stdio_command", "")
     if mcp_raw:
         try:
             spec = json.loads(mcp_raw)
@@ -103,7 +104,7 @@ async def init_subsystems(
     session_manager = SessionManager(registry, skill_toolboxes, loaded_skills, clawhub=clawhub)
 
     # 4. 创建默认会话并加锁
-    session_name = os.environ.get("MINIAGENT_SESSION_NAME", "").strip() or None
+    session_name = get_config("session.default_name", None)
     active_session_id = _init_default_session(session_manager, channel_router, session_name=session_name)
 
     # 5. 清理过期关键词索引
@@ -137,7 +138,7 @@ def _init_default_session(session_manager: Any, channel_router: Any, *, session_
     from miniagent.session.manager import SessionOptions
 
     # --continue 参数支持：优先恢复上次会话
-    continue_mode = os.environ.get("MINIAGENT_CONTINUE_SESSION", "").strip() == "1"
+    continue_mode = get_config("session.continue_mode", False)
 
     if continue_mode and not session_name:
         # 从持久化记录加载上次会话

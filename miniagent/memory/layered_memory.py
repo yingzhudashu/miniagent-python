@@ -14,6 +14,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
+from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 
 _logger = get_logger(__name__)
@@ -26,7 +27,7 @@ def _safe_session_id(session_key: str) -> str:
 
 def _state_dir() -> str:
     """长期记忆 JSON 所在状态根目录。"""
-    return os.environ.get("MINI_AGENT_STATE", os.path.join(os.getcwd(), "workspaces"))
+    return get_config("paths.state_dir", os.path.join(os.getcwd(), "workspaces"))
 
 
 def _session_lt_path(session_key: str) -> str:

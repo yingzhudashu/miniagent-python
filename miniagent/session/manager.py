@@ -33,6 +33,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.infrastructure.registry import DefaultToolRegistry
 from miniagent.types.config import normalize_conversation_history
@@ -44,7 +45,7 @@ _logger = get_logger(__name__)
 
 # ─── 会话历史硬限制（性能优化：防止内存膨胀）──
 
-MAX_HISTORY_MESSAGES = int(os.environ.get("MINIAGENT_MAX_HISTORY_MESSAGES", "200"))
+MAX_HISTORY_MESSAGES = get_config("memory.max_history_messages", 200)
 
 
 def _truncate_history(history: list[dict[str, Any]], max_messages: int = MAX_HISTORY_MESSAGES) -> list[dict[str, Any]]:
@@ -71,7 +72,7 @@ def _truncate_history(history: list[dict[str, Any]], max_messages: int = MAX_HIS
 
 def _get_state_dir() -> str:
     """获取状态目录"""
-    return os.environ.get("MINI_AGENT_STATE", os.path.join(os.getcwd(), "workspaces"))
+    return get_config("paths.state_dir", os.path.join(os.getcwd(), "workspaces"))
 
 
 def _get_workspaces_dir() -> str:
@@ -984,7 +985,7 @@ class DefaultSessionManager(SessionManagerProtocol):
         """
         ctx = self._sessions.get(session_id)
         if not ctx:
-            default_workspace = os.environ.get("MINI_AGENT_WORKSPACE", os.getcwd())
+            default_workspace = get_config("paths.workspace", os.getcwd())
             return ToolContext(
                 cwd=default_workspace,
                 allowed_paths=[default_workspace],

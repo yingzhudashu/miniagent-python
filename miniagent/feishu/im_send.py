@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import os
 from typing import Literal
 
 from miniagent.feishu.lark_client import build_client, clear_client_cache
 from miniagent.feishu.lark_response import format_lark_response_error
 from miniagent.feishu.types import FeishuConfig
+from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 
 _logger = get_logger(__name__)
@@ -18,13 +18,14 @@ _VALID_RECEIVE_ID_TYPES = frozenset({"chat_id", "open_id", "union_id"})
 
 
 def resolve_im_receive_id_type(explicit: str | None) -> str:
-    """解析 ``receive_id_type``：显式参数优先，否则读 ``MINIAGENT_FEISHU_RECEIVE_ID_TYPE``，默认 ``chat_id``。"""
+    """解析 ``receive_id_type``：显式参数优先，否则从JSON配置读取，默认 ``chat_id``。"""
     raw = (explicit or "").strip().lower()
     if raw in _VALID_RECEIVE_ID_TYPES:
         return raw
-    env = (os.environ.get("MINIAGENT_FEISHU_RECEIVE_ID_TYPE") or "").strip().lower()
-    if env in _VALID_RECEIVE_ID_TYPES:
-        return env
+    # 从JSON配置获取（支持环境变量覆盖）
+    env = get_config("feishu.receive_id_type", "chat_id")
+    if isinstance(env, str) and env.strip().lower() in _VALID_RECEIVE_ID_TYPES:
+        return env.strip().lower()
     return "chat_id"
 
 

@@ -52,6 +52,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from miniagent.infrastructure.json_config import get_config
+
 from miniagent.infrastructure.logger import get_logger
 
 _logger = get_logger(__name__)
@@ -78,7 +80,7 @@ def _ensure_instances_dir(state_dir: str) -> Path:
 
 def _get_state_dir(state_dir: str | None = None) -> str:
     """获取状态目录。"""
-    return state_dir or os.environ.get("MINI_AGENT_STATE", os.path.join(os.getcwd(), "workspaces"))
+    return state_dir or get_config("paths.state_dir", os.path.join(os.getcwd(), "workspaces"))
 
 
 def is_process_running(pid: int) -> bool:

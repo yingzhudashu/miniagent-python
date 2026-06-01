@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import time
 from dataclasses import dataclass
 from typing import Any
 
 from miniagent.feishu.ws_client import FeishuWsClient, feishu_ws_auto_reconnect_enabled
+from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 
 _logger = get_logger(__name__)
@@ -41,17 +41,6 @@ def _record_session_end(reason: str) -> None:
     _last_session_end_at = time.time()
 
 
-def _env_float(name: str, default: float) -> float:
-    """读取环境变量并解析为浮点数；无效时返回默认值。"""
-    raw = (os.environ.get(name) or "").strip()
-    if not raw:
-        return default
-    try:
-        return float(raw)
-    except ValueError:
-        return default
-
-
 @dataclass(frozen=True)
 class FeishuWsHealthConfig:
     watchdog_interval_s: float
@@ -63,11 +52,11 @@ class FeishuWsHealthConfig:
 
 def read_feishu_ws_health_config() -> FeishuWsHealthConfig:
     return FeishuWsHealthConfig(
-        watchdog_interval_s=_env_float("MINIAGENT_FEISHU_WS_WATCHDOG_INTERVAL_S", 30.0),
-        dead_conn_grace_s=_env_float("MINIAGENT_FEISHU_WS_DEAD_CONN_GRACE_S", 90.0),
-        reconnect_grace_s=_env_float("MINIAGENT_FEISHU_WS_RECONNECT_GRACE_S", 300.0),
-        refresh_interval_s=_env_float("MINIAGENT_FEISHU_WS_REFRESH_INTERVAL_S", 0.0),
-        idle_refresh_s=_env_float("MINIAGENT_FEISHU_WS_IDLE_REFRESH_S", 0.0),
+        watchdog_interval_s=float(get_config("feishu.websocket.watchdog_interval", 30.0)),
+        dead_conn_grace_s=float(get_config("feishu.websocket.dead_conn_grace", 90.0)),
+        reconnect_grace_s=float(get_config("feishu.websocket.reconnect_grace", 300.0)),
+        refresh_interval_s=float(get_config("feishu.websocket.refresh_interval", 0.0)),
+        idle_refresh_s=float(get_config("feishu.websocket.idle_refresh", 0.0)),
     )
 
 

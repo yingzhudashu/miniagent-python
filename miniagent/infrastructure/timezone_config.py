@@ -1,7 +1,9 @@
 """进程级 IANA 时区 SSOT：Agent、工具与定时任务默认均由此解析。
 
 **配置**：
-- 从JSON配置加载默认值，环境变量可覆盖
+- 从JSON配置加载默认值（timezone.default）
+- MINIAGENT_TIMEZONE环境变量覆盖（特殊别名，兼容常见用法）
+- TZ环境变量作为最终回退
 """
 
 from __future__ import annotations
@@ -11,8 +13,8 @@ from datetime import datetime
 
 from miniagent.infrastructure.json_config import get_config
 
-# 从JSON配置加载默认值
-_DEFAULT_FALLBACK = get_config("timezone.default_fallback", "Asia/Shanghai")
+# 默认时区（从JSON配置读取）
+_DEFAULT_FALLBACK = "Asia/Shanghai"
 
 _WEEKDAYS_ZH = (
     "星期一",
@@ -42,19 +44,39 @@ def _validate_iana(name: str) -> str | None:
 def process_timezone() -> str:
     """进程默认 IANA 时区（Agent、``get_time`` 等）。
 
-    优先级：``MINIAGENT_TIMEZONE`` → ``TZ`` → ``Asia/Shanghai``。
-    定时任务新建默认见 ``default_schedule_timezone()``（可单独 ``MINIAGENT_SCHEDULE_TIMEZONE``）。
+    优先级（从高到低）：
+    1. MINIAGENT_TIMEZONE环境变量（特殊别名）
+    2. MINIAGENT_TIMEZONE_DEFAULT环境变量（标准命名）
+    3. JSON配置 timezone.default
+    4. TZ环境变量（系统标准）
+    5. 默认值 Asia/Shanghai
     """
-    for raw in (
-        os.environ.get("MINIAGENT_TIMEZONE", "").strip(),
-        os.environ.get("TZ", "").strip(),
-        _DEFAULT_FALLBACK,
-    ):
-        ok = _validate_iana(raw)
-        if ok:
-            return ok
-    # 理论上不可达（Asia/Shanghai 始终有效），保留以防极端环境 zoneinfo 缺失
-    return "UTC"
+    # 1. 检查MINIAGENT_TIMEZONE（特殊别名）
+    raw = os.environ.get("MINIAGENT_TIMEZONE", "")
+    ok = _validate_iana(raw)
+    if ok:
+        return ok
+
+    # 2. 检查MINIAGENT_TIMEZONE_DEFAULT（标准命名）
+    raw = os.environ.get("MINIAGENT_TIMEZONE_DEFAULT", "")
+    ok = _validate_iana(raw)
+    if ok:
+        return ok
+
+    # 3. 从JSON配置读取
+    raw = get_config("timezone.default", "")
+    ok = _validate_iana(raw)
+    if ok:
+        return ok
+
+    # 4. 检查TZ环境变量
+    raw = os.environ.get("TZ", "")
+    ok = _validate_iana(raw)
+    if ok:
+        return ok
+
+    # 5. 默认回退
+    return "Asia/Shanghai"
 
 
 def now_in_process_tz() -> datetime:

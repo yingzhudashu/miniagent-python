@@ -1,31 +1,39 @@
-"""Tests for miniagent.core.config — 模型与 Agent 配置管理。"""
+"""Tests for miniagent.core.config — 模型与 Agent 配置管理。
+
+环境变量命名规则：MINIAGENT_<SECTION_KEY>（如 MINIAGENT_MODEL_MODEL）
+"""
 
 import pytest
 
 from miniagent.core.config import (
-    DEFAULT_LOOP_DETECTION,
     get_default_agent_config,
     get_default_model_config,
     merge_agent_config,
 )
+from miniagent.infrastructure.json_config import get_config_section, JsonConfigLoader
 
 
 class TestGetDefaultModelConfig:
-    """get_default_model_config 从环境变量读取并返回 ModelConfig。"""
+    """get_default_model_config 从JSON配置读取并返回 ModelConfig。"""
 
     def test_defaults(self, monkeypatch: pytest.MonkeyPatch):
-        """清空所有相关 env 时返回默认值。"""
+        """清空所有相关 env 时返回JSON默认值。"""
+        # 清空可能影响测试的环境变量
         for key in [
-            "OPENAI_BASE_URL",
-            "OPENAI_MODEL",
-            "AGENT_CONTEXT_WINDOW",
-            "OPENAI_MAX_TOKENS",
-            "AGENT_THINKING_DEFAULT",
-            "OPENAI_THINKING_BUDGET",
-            "AGENT_TEMPERATURE",
-            "AGENT_TOP_P",
+            "MINIAGENT_MODEL_BASE_URL",
+            "MINIAGENT_MODEL_MODEL",
+            "MINIAGENT_MODEL_CONTEXT_WINDOW",
+            "MINIAGENT_MODEL_MAX_TOKENS",
+            "MINIAGENT_MODEL_THINKING_LEVEL",
+            "MINIAGENT_MODEL_THINKING_BUDGET",
+            "MINIAGENT_MODEL_TEMPERATURE",
+            "MINIAGENT_MODEL_TOP_P",
+            "MINIAGENT_CONFIG",
         ]:
             monkeypatch.delenv(key, raising=False)
+
+        # 强制重新加载配置
+        JsonConfigLoader.get_instance().reload()
 
         cfg = get_default_model_config()
         assert cfg.base_url == "https://api.openai.com/v1"
@@ -40,64 +48,108 @@ class TestGetDefaultModelConfig:
         assert cfg.retry_count == 2
 
     def test_custom_model(self, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.setenv("OPENAI_MODEL", "gpt-4")
-        monkeypatch.delenv("AGENT_THINKING_DEFAULT", raising=False)
-        monkeypatch.delenv("OPENAI_THINKING_BUDGET", raising=False)
+        """单项环境变量覆盖模型名称。"""
+        monkeypatch.delenv("MINIAGENT_MODEL_THINKING_LEVEL", raising=False)
+        monkeypatch.delenv("MINIAGENT_MODEL_THINKING_BUDGET", raising=False)
+        monkeypatch.delenv("MINIAGENT_CONFIG", raising=False)
+        monkeypatch.setenv("MINIAGENT_MODEL_MODEL", "gpt-4")
+
+        JsonConfigLoader.get_instance().reload()
         cfg = get_default_model_config()
         assert cfg.model == "gpt-4"
 
+    def test_json_config_override(self, monkeypatch: pytest.MonkeyPatch):
+        """MINIAGENT_CONFIG环境变量（JSON格式）覆盖配置。"""
+        import json
+        config_json = json.dumps({"model": {"model": "gpt-4o", "temperature": 0.5}})
+        monkeypatch.setenv("MINIAGENT_CONFIG", config_json)
+        monkeypatch.delenv("MINIAGENT_MODEL_MODEL", raising=False)
+        monkeypatch.delenv("MINIAGENT_MODEL_TEMPERATURE", raising=False)
+
+        JsonConfigLoader.get_instance().reload()
+        cfg = get_default_model_config()
+        assert cfg.model == "gpt-4o"
+        assert cfg.temperature == 0.5
+
+    def test_single_env_overrides_json_config(self, monkeypatch: pytest.MonkeyPatch):
+        """单项环境变量优先级高于MINIAGENT_CONFIG。"""
+        import json
+        config_json = json.dumps({"model": {"temperature": 0.5}})
+        monkeypatch.setenv("MINIAGENT_CONFIG", config_json)
+        monkeypatch.setenv("MINIAGENT_MODEL_TEMPERATURE", "0.9")
+
+        JsonConfigLoader.get_instance().reload()
+        cfg = get_default_model_config()
+        assert cfg.temperature == 0.9
+
     def test_thinking_levels(self, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.delenv("OPENAI_THINKING_BUDGET", raising=False)
+        """thinking_level映射到对应的thinking_budget。"""
+        monkeypatch.delenv("MINIAGENT_MODEL_THINKING_BUDGET", raising=False)
+        monkeypatch.delenv("MINIAGENT_CONFIG", raising=False)
         for level, expected in [
-            ("low", ("light", 1024)),
+            ("light", ("light", 1024)),  # JSON默认值
             ("medium", ("medium", 8192)),
-            ("high", ("heavy", 81920)),
+            ("heavy", ("heavy", 81920)),
         ]:
-            monkeypatch.setenv("AGENT_THINKING_DEFAULT", level)
+            # 设置thinking_level（使用原始档位名low/medium/high或映射后的名称）
+            input_level = {"light": "low", "medium": "medium", "heavy": "high"}.get(expected[0], expected[0])
+            monkeypatch.setenv("MINIAGENT_MODEL_THINKING_LEVEL", input_level)
+            JsonConfigLoader.get_instance().reload()
             cfg = get_default_model_config()
             assert cfg.thinking_level == expected[0], f"Failed for {level}"
             assert cfg.thinking_budget == expected[1], f"Failed for {level}"
 
     def test_thinking_budget_override(self, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.setenv("AGENT_THINKING_DEFAULT", "low")
-        monkeypatch.setenv("OPENAI_THINKING_BUDGET", "4096")
+        monkeypatch.setenv("MINIAGENT_MODEL_THINKING_LEVEL", "light")
+        monkeypatch.setenv("MINIAGENT_MODEL_THINKING_BUDGET", "4096")
+        monkeypatch.delenv("MINIAGENT_CONFIG", raising=False)
+
+        JsonConfigLoader.get_instance().reload()
         cfg = get_default_model_config()
         assert cfg.thinking_level == "light"
         assert cfg.thinking_budget == 4096
 
     def test_context_window_and_max_tokens(self, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.setenv("AGENT_CONTEXT_WINDOW", "64000")
-        monkeypatch.setenv("OPENAI_MAX_TOKENS", "2048")
-        monkeypatch.delenv("AGENT_THINKING_DEFAULT", raising=False)
-        monkeypatch.delenv("OPENAI_THINKING_BUDGET", raising=False)
+        monkeypatch.setenv("MINIAGENT_MODEL_CONTEXT_WINDOW", "64000")
+        monkeypatch.setenv("MINIAGENT_MODEL_MAX_TOKENS", "2048")
+        monkeypatch.delenv("MINIAGENT_MODEL_THINKING_LEVEL", raising=False)
+        monkeypatch.delenv("MINIAGENT_MODEL_THINKING_BUDGET", raising=False)
+        monkeypatch.delenv("MINIAGENT_CONFIG", raising=False)
+
+        JsonConfigLoader.get_instance().reload()
         cfg = get_default_model_config()
         assert cfg.context_window == 64000
         assert cfg.max_tokens == 2048
 
     def test_base_url(self, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.setenv("OPENAI_BASE_URL", "https://api.example.com/v1")
-        monkeypatch.delenv("AGENT_THINKING_DEFAULT", raising=False)
-        monkeypatch.delenv("OPENAI_THINKING_BUDGET", raising=False)
+        monkeypatch.setenv("MINIAGENT_MODEL_BASE_URL", "https://api.example.com/v1")
+        monkeypatch.delenv("MINIAGENT_MODEL_THINKING_LEVEL", raising=False)
+        monkeypatch.delenv("MINIAGENT_MODEL_THINKING_BUDGET", raising=False)
+        monkeypatch.delenv("MINIAGENT_CONFIG", raising=False)
+
+        JsonConfigLoader.get_instance().reload()
         cfg = get_default_model_config()
         assert cfg.base_url == "https://api.example.com/v1"
 
 
 class TestGetDefaultAgentConfig:
-    """get_default_agent_config 从环境变量读取并返回 AgentConfig。"""
+    """get_default_agent_config 从JSON配置读取并返回 AgentConfig。"""
 
     def test_defaults(self, monkeypatch: pytest.MonkeyPatch):
         for key in [
-            "AGENT_MAX_TURNS",
-            "AGENT_TOOL_TIMEOUT",
-            "AGENT_HTTP_TIMEOUT",
-            "AGENT_CONTEXT_RESERVE",
-            "AGENT_CONTEXT_COMPRESS_THRESHOLD",
-            "AGENT_DEBUG",
-            "AGENT_LOG_TOKEN_USAGE",
-            "MINI_AGENT_HISTORY_PROGRESSIVE",
+            "MINIAGENT_AGENT_MAX_TURNS",
+            "MINIAGENT_AGENT_TOOL_TIMEOUT",
+            "MINIAGENT_AGENT_HTTP_TIMEOUT",
+            "MINIAGENT_AGENT_CONTEXT_RESERVE_RATIO",
+            "MINIAGENT_AGENT_CONTEXT_COMPRESS_THRESHOLD",
+            "MINIAGENT_AGENT_DEBUG",
+            "MINIAGENT_AGENT_LOG_TOKEN_USAGE",
+            "MINIAGENT_MEMORY_HISTORY_PROGRESSIVE",
+            "MINIAGENT_CONFIG",
         ]:
             monkeypatch.delenv(key, raising=False)
 
+        JsonConfigLoader.get_instance().reload()
         cfg = get_default_agent_config()
         assert cfg.max_turns == 400
         assert cfg.tool_timeout == 60
@@ -111,19 +163,31 @@ class TestGetDefaultAgentConfig:
         assert cfg.allow_parallel_tools is True
 
     def test_custom_max_turns(self, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.setenv("AGENT_MAX_TURNS", "100")
+        monkeypatch.setenv("MINIAGENT_AGENT_MAX_TURNS", "100")
+        monkeypatch.delenv("MINIAGENT_CONFIG", raising=False)
+
+        JsonConfigLoader.get_instance().reload()
         cfg = get_default_agent_config()
         assert cfg.max_turns == 100
 
     def test_debug_mode(self, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.setenv("AGENT_DEBUG", "true")
+        monkeypatch.setenv("MINIAGENT_AGENT_DEBUG", "true")
+        monkeypatch.delenv("MINIAGENT_CONFIG", raising=False)
+
+        JsonConfigLoader.get_instance().reload()
         cfg = get_default_agent_config()
         assert cfg.debug is True
 
     def test_loop_detection_copy(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.delenv("MINIAGENT_CONFIG", raising=False)
+        JsonConfigLoader.get_instance().reload()
+
         cfg = get_default_agent_config()
-        assert cfg.loop_detection is not DEFAULT_LOOP_DETECTION
-        assert cfg.loop_detection == DEFAULT_LOOP_DETECTION
+        # loop_detection应该从JSON配置加载
+        agent_section = get_config_section("agent")
+        default_loop_detection = agent_section.get("loop_detection", {})
+        assert cfg.loop_detection is not default_loop_detection  # 应该是副本
+        assert cfg.loop_detection == default_loop_detection  # 值应该相等
 
 
 class TestMergeAgentConfig:

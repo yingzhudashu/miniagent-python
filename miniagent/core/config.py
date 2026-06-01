@@ -1,16 +1,21 @@
-"""模型与 Agent 配置管理（扁平环境变量）
+"""模型与 Agent 配置管理（JSON配置优先）
 
 - **模型层** ``ModelConfig``：端点、温度、``max_tokens``、thinking 等。
 - **Agent 层** ``AgentConfig``：``max_turns``、工具超时、上下文压缩阈值、循环检测等。
 
-所有参数通过环境变量直接设置，无预设层级。
-``AGENT_THINKING_DEFAULT`` / ``OPENAI_THINKING_BUDGET`` 控制 thinking 行为。"""
+配置优先级（从低到高）：
+1. config.defaults.json - 默认配置（随代码发布）
+2. config.user.json - 用户配置（workspaces/）
+3. 环境变量 - 最高优先级（运行时覆盖）
+
+敏感信息（API密钥等）保留在 .env.secrets 或环境变量中。
+"""
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
+from miniagent.infrastructure.json_config import get_config, get_config_section
 from miniagent.infrastructure.logger import get_logger
 from miniagent.types.config import (
     AgentConfig,
@@ -22,153 +27,137 @@ _logger = get_logger(__name__)
 
 
 # ============================================================================
-# 环境变量辅助函数
+# 全局 Agent 名称
 # ============================================================================
+AGENT_NAME = "MiniAgent"
 
 
-def _env_int(key: str, fallback: int) -> int:
-    """从环境变量读取整数值"""
-    v = os.environ.get(key)
-    if v is not None:
-        try:
-            return int(v)
-        except ValueError:
-            pass
-    return fallback
+# ============================================================================
+# 配置获取辅助函数
+# ============================================================================
+def _cfg_str(key: str, default: str) -> str:
+    """从JSON配置读取字符串"""
+    return str(get_config(key, default))
 
 
-def _env_bool(key: str, fallback: bool) -> bool:
-    """从环境变量读取布尔值"""
-    v = os.environ.get(key)
-    if v is not None:
-        return v.lower() in ("true", "1", "yes")
-    return fallback
+def _cfg_int(key: str, default: int) -> int:
+    """从JSON配置读取整数"""
+    return int(get_config(key, default))
 
 
-def _env_float(key: str, fallback: float) -> float:
-    """从环境变量读取浮点值"""
-    v = os.environ.get(key)
-    if v is not None:
-        try:
-            return float(v)
-        except ValueError:
-            pass
-    return fallback
+def _cfg_bool(key: str, default: bool) -> bool:
+    """从JSON配置读取布尔值"""
+    return bool(get_config(key, default))
+
+
+def _cfg_float(key: str, default: float) -> float:
+    """从JSON配置读取浮点数"""
+    return float(get_config(key, default))
 
 
 # ============================================================================
 # 默认配置工厂
 # ============================================================================
 
-# 全局 Agent 名称
-AGENT_NAME = "MiniAgent"
-
-# 循环检测默认配置
-DEFAULT_LOOP_DETECTION: dict[str, Any] = {
-    "enabled": _env_bool("LOOP_DETECTION_ENABLED", True),
-    "history_size": _env_int("LOOP_HISTORY_SIZE", 50),
-    "warning_threshold": _env_int("LOOP_WARNING_THRESHOLD", 8),
-    "critical_threshold": _env_int("LOOP_CRITICAL_THRESHOLD", 12),
-    "detectors": {
-        "generic_repeat": True,
-        "known_poll_no_progress": True,
-        "ping_pong": True,
-    },
-}
-
-
 def get_default_model_config() -> ModelConfig:
     """获取默认 ModelConfig
 
-    所有参数通过环境变量直接设置。
-    读取的环境变量：OPENAI_BASE_URL, OPENAI_MODEL, AGENT_CONTEXT_WINDOW,
-    OPENAI_MAX_TOKENS、AGENT_THINKING_DEFAULT（low/medium/high）、
-    OPENAI_THINKING_BUDGET（非负整数，覆盖 thinking 预算）。
+    配置优先级：JSON配置 → 环境变量覆盖。
+    读取的配置项：model.base_url, model.model, model.temperature, model.top_p,
+    model.max_tokens, model.thinking_level, model.thinking_budget, model.context_window,
+    model.stream, model.retry_count。
+
+    特殊处理：当thinking_level设置为low/medium/high时，thinking_budget自动映射
+    （除非显式设置了thinking_budget）。
 
     Returns:
         默认的模型配置对象
     """
     from miniagent.core.thinking_presets import map_openclaw_thinking_to_model
 
-    thinking_level = "light"
-    thinking_budget = 1024
+    # 获取thinking配置
+    thinking_level_raw = _cfg_str("model.thinking_level", "light")
 
-    env_td = (os.environ.get("AGENT_THINKING_DEFAULT") or "").strip().lower()
-    if env_td in ("low", "medium", "high"):
-        thinking_level, thinking_budget = map_openclaw_thinking_to_model(env_td)
+    # 检查是否显式设置了thinking_budget（通过环境变量或MINIAGENT_CONFIG）
+    import os
+    import json
+    explicit_budget = None
 
-    model_name = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
-
-    budget_raw = os.environ.get("OPENAI_THINKING_BUDGET")
-    if budget_raw is not None and str(budget_raw).strip() != "":
+    # 检查单项环境变量
+    budget_env = os.environ.get("MINIAGENT_MODEL_THINKING_BUDGET")
+    if budget_env is not None:
         try:
-            b = int(str(budget_raw).strip())
-            if b >= 0:
-                thinking_budget = b
+            explicit_budget = int(budget_env)
         except ValueError:
             pass
 
-    context_window = (
-        _env_int("AGENT_CONTEXT_WINDOW", 128000) if "AGENT_CONTEXT_WINDOW" in os.environ else 128000
-    )
-    max_tokens = (
-        _env_int("OPENAI_MAX_TOKENS", 4096)
-        if "OPENAI_MAX_TOKENS" in os.environ
-        else 4096
-    )
-    temperature = _env_float("AGENT_TEMPERATURE", 0.7)
-    top_p = _env_float("AGENT_TOP_P", 1.0)
+    # 检查MINIAGENT_CONFIG中的thinking_budget
+    if explicit_budget is None:
+        config_json_str = os.environ.get("MINIAGENT_CONFIG", "")
+        if config_json_str.strip():
+            try:
+                config_json = json.loads(config_json_str)
+                if isinstance(config_json, dict):
+                    model_config = config_json.get("model", {})
+                    if isinstance(model_config, dict) and "thinking_budget" in model_config:
+                        explicit_budget = int(model_config["thinking_budget"])
+            except (json.JSONDecodeError, ValueError, TypeError):
+                pass
+
+    # 应用thinking_level映射
+    if thinking_level_raw.lower() in ("low", "medium", "high"):
+        mapped_level, mapped_budget = map_openclaw_thinking_to_model(thinking_level_raw)
+        thinking_level = mapped_level
+        thinking_budget = explicit_budget if explicit_budget is not None else mapped_budget
+    else:
+        thinking_level = thinking_level_raw
+        thinking_budget = explicit_budget if explicit_budget is not None else _cfg_int("model.thinking_budget", 1024)
 
     return ModelConfig(
-        base_url=os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
-        model=model_name,
-        temperature=temperature,
-        top_p=top_p,
-        max_tokens=max_tokens,
+        base_url=_cfg_str("model.base_url", "https://api.openai.com/v1"),
+        model=_cfg_str("model.model", "gpt-4o-mini"),
+        temperature=_cfg_float("model.temperature", 0.7),
+        top_p=_cfg_float("model.top_p", 1.0),
+        max_tokens=_cfg_int("model.max_tokens", 4096),
         thinking_level=thinking_level,
         thinking_budget=thinking_budget,
-        context_window=context_window,
-        stream=False,
-        retry_count=2,
+        context_window=_cfg_int("model.context_window", 128000),
+        stream=_cfg_bool("model.stream", False),
+        retry_count=_cfg_int("model.retry_count", 2),
     )
 
 
 def get_default_agent_config() -> AgentConfig:
     """获取默认 AgentConfig
 
-    支持环境变量覆盖：
-    - AGENT_MAX_TURNS: 最大对话轮数（默认 400）
-    - AGENT_TOOL_TIMEOUT: 工具超时秒数（默认 60）
-    - AGENT_HTTP_TIMEOUT: HTTP 超时秒数（默认 120）
-    - AGENT_CONTEXT_RESERVE: 上下文预留比例（默认 0.15）
-    - AGENT_CONTEXT_COMPRESS_THRESHOLD: 压缩触发阈值（默认 0.6）
-    - AGENT_DEBUG: 调试模式
-    - AGENT_LOG_TOKEN_USAGE: 记录 token 使用量
-    - MINI_AGENT_HISTORY_PROGRESSIVE: 磁盘会话渐进压缩 L1–L3（与 ``history_progressive_compression`` 一致）
-    - MINI_AGENT_HISTORY_MAINTENANCE_MAX_ITERS: 每轮用户消息后历史维护循环上限
-    - MINI_AGENT_CONTEXT_TOOL_REDACT: 执行期 ContextManager 是否在摘要前逐条 redact ``tool`` 消息
+    配置优先级：JSON配置 → 环境变量覆盖。
+    支持的配置项见 config.defaults.json 中 agent 和 memory 配置节。
 
     Returns:
         默认的 Agent 配置对象
     """
+    # 获取agent配置section，然后从中获取loop_detection
+    agent_section = get_config_section("agent")
+    loop_detection = dict(agent_section.get("loop_detection", {}))
+
     return AgentConfig(
-        max_turns=_env_int("AGENT_MAX_TURNS", 400),
-        tool_timeout=_env_int("AGENT_TOOL_TIMEOUT", 60),
-        http_timeout=_env_int("AGENT_HTTP_TIMEOUT", 120),
-        context_reserve_ratio=_env_float("AGENT_CONTEXT_RESERVE", 0.15),
-        context_compress_threshold=_env_float("AGENT_CONTEXT_COMPRESS_THRESHOLD", 0.6),
+        max_turns=_cfg_int("agent.max_turns", 400),
+        tool_timeout=_cfg_int("agent.tool_timeout", 60),
+        http_timeout=_cfg_int("agent.http_timeout", 120),
+        context_reserve_ratio=_cfg_float("agent.context_reserve_ratio", 0.15),
+        context_compress_threshold=_cfg_float("agent.context_compress_threshold", 0.6),
         context_overflow_strategy="summarize",
         compress_messages=True,
         tool_selection_strategy="toolbox",
         auto_execute_confirmed=False,
-        allow_parallel_tools=True,
+        allow_parallel_tools=_cfg_bool("agent.allow_parallel_tools", True),
         response_language="zh-CN",
         response_format="markdown",
-        debug=_env_bool("AGENT_DEBUG", False),
-        log_token_usage=_env_bool("AGENT_LOG_TOKEN_USAGE", True),
+        debug=_cfg_bool("agent.debug", False),
+        log_token_usage=_cfg_bool("agent.log_token_usage", True),
         log_file=None,
-        loop_detection=dict(DEFAULT_LOOP_DETECTION),
-        history_progressive_compression=_env_bool("MINI_AGENT_HISTORY_PROGRESSIVE", True),
+        loop_detection=loop_detection,
+        history_progressive_compression=_cfg_bool("memory.history_progressive", True),
     )
 
 
@@ -243,7 +232,6 @@ def merge_agent_config(base: AgentConfig, overrides: dict[str, Any]) -> AgentCon
 
 __all__ = [
     "AGENT_NAME",
-    "DEFAULT_LOOP_DETECTION",
     "get_default_model_config",
     "get_default_agent_config",
     "merge_agent_config",

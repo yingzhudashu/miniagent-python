@@ -11,6 +11,7 @@ import re
 from typing import Any
 from urllib.parse import urlparse
 
+from miniagent.infrastructure.json_config import get_config
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 # ─── Tavily 配置 ────────────────────────────────────────────
@@ -20,35 +21,18 @@ _TAVILY_URL = "https://api.tavily.com/search"
 
 def _tavily_api_key() -> str:
     """获取 Tavily API Key（优先 TAVILY_API_KEY，fallback WEB_SEARCH_API_KEY）。"""
+    # 敏感凭据，保留环境变量
     return (os.environ.get("TAVILY_API_KEY") or os.environ.get("WEB_SEARCH_API_KEY") or "").strip()
 
 
 def _tavily_timeout_sec() -> float:
     """获取 Tavily 请求超时时间（秒）。"""
-    raw = os.environ.get("TAVILY_TIMEOUT", "").strip()
-    if raw:
-        try:
-            return max(5.0, float(raw))
-        except ValueError:
-            pass
-    try:
-        return max(5.0, float(os.environ.get("AGENT_HTTP_TIMEOUT", "120")))
-    except ValueError:
-        return 45.0
+    return float(get_config("web_search.tavily_timeout", 45))
 
 
 def _browser_timeout_ms() -> int:
     """获取浏览器工具超时时间（毫秒）。"""
-    raw = os.environ.get("BROWSER_TOOL_TIMEOUT", "").strip()
-    if raw:
-        try:
-            return max(5000, int(float(raw) * 1000))
-        except ValueError:
-            pass
-    try:
-        return max(5000, int(float(os.environ.get("AGENT_HTTP_TIMEOUT", "120")) * 1000))
-    except ValueError:
-        return 60000
+    return int(float(get_config("web_search.browser_timeout", 60)) * 1000)
 
 
 def _allowed_http_url(url: str, *, https_only: bool = False) -> bool:

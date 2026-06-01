@@ -16,6 +16,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from miniagent.infrastructure.json_config import get_config
+
 from miniagent.core.openai_client import get_shared_async_openai
 
 # 导入共享路径解析函数（消除重复代码）
@@ -90,10 +92,10 @@ async def _analyze_image_handler(args: dict[str, Any], ctx: ToolContext) -> Tool
     except RuntimeError as e:
         return ToolResult(success=False, content=f"{ERROR_PREFIX} LLM 客户端未配置: {e}")
 
-    # 5. 获取模型配置
-    model = (os.environ.get("OPENAI_MODEL") or "").strip()
+    # 5. 获取模型配置（从JSON配置读取）
+    model = get_config("model.model", "")
     if not model:
-        return ToolResult(success=False, content=f"{ERROR_PREFIX} 未配置 OPENAI_MODEL")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 未配置模型(model.model)")
 
     # 6. 分析提示词
     prompt = str(args.get("prompt", "") or "请简洁描述这张图片的内容，不超过 150 字。")

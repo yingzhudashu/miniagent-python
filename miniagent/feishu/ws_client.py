@@ -7,11 +7,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import websockets
+
+from miniagent.infrastructure.json_config import get_config
 
 # lark-oapi 是可选依赖；未安装时提供 placeholder，避免 import 阻塞测试
 try:
@@ -41,8 +42,7 @@ logger = _lark_logger
 
 def feishu_ws_auto_reconnect_enabled() -> bool:
     """是否启用 lark-oapi SDK 内建 ``auto_reconnect``（默认关闭，由应用外层退避重连）。"""
-    raw = (os.environ.get("MINIAGENT_FEISHU_WS_AUTO_RECONNECT") or "0").strip().lower()
-    return raw in ("1", "true", "yes", "on")
+    return get_config("feishu.websocket.auto_reconnect", False)
 
 
 class FeishuWsClient(_LarkWsClient):

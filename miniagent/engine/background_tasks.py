@@ -6,7 +6,7 @@
 - TTL 自动清理：已完成任务默认 3600 秒后自动清理
 
 **配置**：
-- 从JSON配置加载默认值，环境变量可覆盖
+- 从JSON配置加载默认值，环境变量自动覆盖（JsonConfigLoader内置支持）
 """
 
 from __future__ import annotations
@@ -20,22 +20,9 @@ from typing import Any
 
 from miniagent.infrastructure.json_config import get_config
 
-# 从JSON配置加载默认值，环境变量可覆盖
+# 从JSON配置加载默认值（环境变量覆盖由JsonConfigLoader自动处理）
 DEFAULT_TASK_TTL_SECONDS = get_config("background_tasks.task_ttl_seconds", 3600)
 DEFAULT_MAX_CONCURRENT = get_config("background_tasks.max_concurrent", 4)
-
-# 环境变量覆盖支持
-import os
-if os.environ.get("MINIAGENT_TASK_TTL_SECONDS"):
-    try:
-        DEFAULT_TASK_TTL_SECONDS = int(os.environ.get("MINIAGENT_TASK_TTL_SECONDS") or str(DEFAULT_TASK_TTL_SECONDS))
-    except ValueError:
-        pass
-if os.environ.get("MINIAGENT_MAX_CONCURRENT"):
-    try:
-        DEFAULT_MAX_CONCURRENT = int(os.environ.get("MINIAGENT_MAX_CONCURRENT") or str(DEFAULT_MAX_CONCURRENT))
-    except ValueError:
-        pass
 
 
 class TaskStatus(str, Enum):

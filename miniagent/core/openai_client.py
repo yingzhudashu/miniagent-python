@@ -13,6 +13,7 @@ import os
 from openai import AsyncOpenAI
 
 from miniagent.infrastructure.debug_ndjson import safe_agent_debug_log
+from miniagent.infrastructure.json_config import get_config
 
 _shared: AsyncOpenAI | None = None
 
@@ -21,6 +22,7 @@ def get_shared_async_openai() -> AsyncOpenAI:
     """进程内惰性单例；测试可改为注入 ``execute_plan(..., client=...)`` / ``generate_plan(..., client=...)``。"""
     global _shared
     if _shared is None:
+        # API密钥必须从环境变量读取（敏感凭据）
         key = (os.environ.get("OPENAI_API_KEY") or "").strip()
         if not key:
             safe_agent_debug_log(
@@ -31,13 +33,15 @@ def get_shared_async_openai() -> AsyncOpenAI:
             )
             raise RuntimeError(
                 "未配置 OPENAI_API_KEY，无法调用 LLM（任务分类、规划、对话均依赖）。"
-                "请在 .env 或环境中设置 OPENAI_API_KEY；使用国内/自建兼容端点时请同时设置 OPENAI_BASE_URL。"
+                "请在 .env.secrets 或环境中设置 OPENAI_API_KEY；使用国内/自建兼容端点时请同时设置 OPENAI_BASE_URL。"
             ) from None
+        # base_url从JSON配置读取（支持环境变量覆盖）
+        base_url = get_config("model.base_url", None)
         _shared = AsyncOpenAI(
             api_key=key,
-            base_url=os.environ.get("OPENAI_BASE_URL") or None,
+            base_url=base_url,
         )
-        bu = (os.environ.get("OPENAI_BASE_URL") or "").strip()
+        bu = (base_url or "").strip()
         host = ""
         if bu and "//" in bu:
             host = bu.split("//", 1)[1].split("/", 1)[0][:120]
@@ -50,7 +54,7 @@ def get_shared_async_openai() -> AsyncOpenAI:
             data={
                 "base_url_nonempty": bool(bu),
                 "base_url_host_snip": host,
-                "api_key_len": len((os.environ.get("OPENAI_API_KEY") or "").strip()),
+                "api_key_len": len(key),
             },
         )
     return _shared

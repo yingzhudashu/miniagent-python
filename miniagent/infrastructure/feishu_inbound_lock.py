@@ -1,4 +1,4 @@
-"""飞书入站独占锁 — 同一 ``MINI_AGENT_STATE`` 下仅一个存活进程可持有飞书 WebSocket。
+"""飞书入站独占锁 — 同一状态目录下仅一个存活进程可持有飞书 WebSocket。
 
 用于多开 CLI 时避免多个进程同时连接同一飞书应用导致事件重复或状态错乱。
 死亡 PID 的锁文件会被后续 ``try_acquire`` 覆盖。
@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 
 _logger = get_logger(__name__)
@@ -20,8 +21,8 @@ _LOCK_FILENAME = "feishu_inbound_owner.json"
 
 
 def _state_root(state_dir: str | None) -> Path:
-    """解析状态根路径（显式参数优先，否则环境变量或 cwd/workspaces）。"""
-    root = state_dir or os.environ.get("MINI_AGENT_STATE", os.path.join(os.getcwd(), "workspaces"))
+    """解析状态根路径（显式参数优先，否则从配置读取）。"""
+    root = state_dir or get_config("paths.state_dir", os.path.join(os.getcwd(), "workspaces"))
     return Path(root)
 
 

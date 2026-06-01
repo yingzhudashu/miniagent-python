@@ -15,19 +15,16 @@ from __future__ import annotations
 
 import inspect
 import logging
-import os
 import shutil
 import sys
 import time
 from collections.abc import Awaitable, Callable
 
+from miniagent.infrastructure.json_config import get_config
+
 # ── 性能优化：缓存终端宽度，避免频繁调用 get_terminal_size ──
-# TTL 可通过环境变量 MINIAGENT_TERMINAL_WIDTH_CACHE_TTL 配置（秒），默认 2.0
-_TERMINAL_WIDTH_CACHE_TTL_RAW = os.environ.get("MINIAGENT_TERMINAL_WIDTH_CACHE_TTL", "2.0").strip()
-try:
-    _TERMINAL_WIDTH_CACHE_TTL: float = max(0.0, float(_TERMINAL_WIDTH_CACHE_TTL_RAW))
-except ValueError:
-    _TERMINAL_WIDTH_CACHE_TTL = 2.0
+# TTL 从JSON配置读取（秒），默认 2.0
+_TERMINAL_WIDTH_CACHE_TTL: float = max(0.0, float(get_config("execution.terminal_width_cache_ttl", 2.0)))
 _TERMINAL_WIDTH_CACHE: int = 0
 _TERMINAL_WIDTH_CACHE_TIME: float = 0.0
 
@@ -46,17 +43,16 @@ _logger = logging.getLogger(__name__)
 
 
 def _merge_tools_enabled() -> bool:
-    """同轮工具行与流式思考合并展示；``MINIAGENT_THINKING_MERGE_TOOLS=0`` 关闭。
+    """同轮工具行与流式思考合并展示。
 
     合并路径依赖保留 ``stream_header`` 直至新一轮流式或 ``end_thinking``，以便同一轮多次工具连续追加。
     """
-    return os.environ.get("MINIAGENT_THINKING_MERGE_TOOLS", "1") != "0"
+    return get_config("execution.thinking_merge_tools", True)
 
 
 def _cli_thinking_rich_enabled() -> bool:
-    """全屏 CLI 下是否对非流式思考正文尝试 Rich→ANSI（``MINIAGENT_CLI_THINKING_RICH=0`` 关闭）。"""
-    v = os.environ.get("MINIAGENT_CLI_THINKING_RICH", "").strip().lower()
-    return v not in ("0", "false", "no")
+    """全屏 CLI 下是否对非流式思考正文尝试 Rich→ANSI。"""
+    return get_config("cli.thinking_rich", False)
 
 
 def _cli_thinking_render_width() -> int:

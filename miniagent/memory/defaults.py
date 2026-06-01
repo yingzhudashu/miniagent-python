@@ -1,9 +1,9 @@
 """进程级默认记忆三元组 — 与 ``engine.main.unified_main`` 同源构造逻辑。
 
-语义见 ``docs/MEMORY_SYSTEM.md``（默认路径与 ``MINI_AGENT_STATE``）。
+语义见 ``docs/MEMORY_SYSTEM.md``（默认路径与配置 paths.state_dir）。
 
 未通过 ``RuntimeContext`` / ``execute_plan`` 注入时，回落到此处缓存的单套实例，
-目录根由 ``MINI_AGENT_STATE``（默认 ``<cwd>/workspaces``）决定。
+目录根由配置决定。
 """
 
 from __future__ import annotations
@@ -12,12 +12,14 @@ import atexit
 import os
 from typing import Any
 
+from miniagent.infrastructure.json_config import get_config
+
 _bundle: tuple[Any, Any, Any] | None = None
 
 
 def get_state_root() -> str:
-    """与 ``unified_entry`` 一致的状态根目录。"""
-    return os.environ.get("MINI_AGENT_STATE", os.path.join(os.getcwd(), "workspaces"))
+    """与配置一致的状态根目录。"""
+    return get_config("paths.state_dir", os.path.join(os.getcwd(), "workspaces"))
 
 
 def reset_process_default_memory_bundle_for_tests() -> None:

@@ -7,7 +7,7 @@
 
 设计原则：
 - 低开销：采集逻辑本身不影响性能
-- 可选：默认关闭，通过环境变量启用
+- 可选：默认关闭，通过配置启用
 - 轻量：不依赖外部库，纯 Python 实现
 """
 
@@ -18,6 +18,8 @@ import os
 import time
 from dataclasses import dataclass, field
 from typing import Any
+
+from miniagent.infrastructure.json_config import get_config
 
 
 @dataclass
@@ -67,10 +69,10 @@ class PerformanceMetrics:
         """创建性能指标采集器
 
         Args:
-            enabled: 是否启用（默认从环境变量读取）
+            enabled: 是否启用（默认从配置读取）
         """
         if enabled is None:
-            enabled = os.environ.get("MINIAGENT_PERF_METRICS", "0") == "1"
+            enabled = get_config("debug.perf_metrics", False)
         self._enabled = enabled
         self._records: list[LatencyRecord] = []
         self._start_time = time.monotonic()

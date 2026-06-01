@@ -30,6 +30,7 @@ from miniagent.engine.utils import (
     detect_mime_from_magic,
     feishu_user_status_fn,
 )
+from miniagent.infrastructure.json_config import get_config
 from miniagent.runtime.context import RuntimeContext
 from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
 
@@ -359,8 +360,8 @@ def create_feishu_handler(
             session_key=session_key,
         )
 
-        flag = (os.environ.get("MINIAGENT_FEISHU_MEDIA_RUN_AGENT") or "").strip().lower()
-        run_agent_on_media = flag in ("1", "true", "yes", "on")
+        flag = get_config("feishu.media.run_agent", False)
+        run_agent_on_media = flag in ("1", "true", "yes", "on") if isinstance(flag, str) else bool(flag)
         if not run_agent_on_media:
             return f"{SUCCESS_PREFIX} 已保存到会话文件区: {rel}"
 
@@ -369,8 +370,9 @@ def create_feishu_handler(
             f"请查看该文件并说明你可以如何协助处理。"
         )
         # 图片入站：自动调用视观模型生成描述，注入对话历史
-        if msg_type == "image" and (os.environ.get("MINIAGENT_FEISHU_MEDIA_VISION_DESC", "1") or "").strip().lower() not in ("0", "false", "no"):
-            model = (os.environ.get("OPENAI_MODEL") or "").strip()
+        vision_desc_enabled = get_config("feishu.media.vision_desc", True)
+        if msg_type == "image" and vision_desc_enabled:
+            model = get_config("model.model", "")
             if model and ctx.openai_client:
                 from miniagent.feishu.vision_desc import describe_image
                 desc = await describe_image(dest_path, ctx.openai_client, model)

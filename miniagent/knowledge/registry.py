@@ -10,6 +10,7 @@ import os
 import time
 from typing import Any
 
+from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.knowledge.base import KnowledgeBase
 from miniagent.types.error_prefix import WARNING_PREFIX
@@ -42,15 +43,15 @@ class KnowledgeRegistry:
         """创建知识库注册表。
 
         Args:
-            state_dir: 状态存储目录（默认 MINI_AGENT_STATE/knowledge）
+            state_dir: 状态存储目录（默认 paths.state_dir/knowledge）
         """
         if state_dir is None:
-            state_dir = os.environ.get(
-                "MINI_AGENT_STATE",
+            state_dir = get_config(
+                "paths.state_dir",
                 os.path.join(os.getcwd(), "workspaces"),
             )
         self._state_dir = state_dir
-        self._kb_dir = os.environ.get("MINIAGENT_KB_ROOT", _DEFAULT_KB_ROOT)
+        self._kb_dir = get_config("knowledge.root", _DEFAULT_KB_ROOT)
 
         # 已挂载的知识库：name -> KnowledgeBase
         self._mounted: dict[str, KnowledgeBase] = {}
@@ -59,7 +60,7 @@ class KnowledgeRegistry:
         self._load_registry()
 
         # 自动挂载默认知识库
-        if os.environ.get("MINIAGENT_KB_AUTO_MOUNT", "1") not in ("0", "false", "no"):
+        if get_config("knowledge.auto_mount", True):
             self._auto_mount()
 
     def _load_registry(self) -> None:
@@ -218,7 +219,7 @@ class KnowledgeRegistry:
         # 跨知识库检索
         results: list[str] = []
         total_chars = 0
-        max_chars = max_chars or int(os.environ.get("MINIAGENT_KB_MAX_CHARS", "8000"))
+        max_chars = max_chars or get_config("knowledge.max_chars", 8000)
 
         for kb in self._mounted.values():
             result = kb.search(query, top_k)

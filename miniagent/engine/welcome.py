@@ -12,8 +12,9 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any
+
+from miniagent.infrastructure.json_config import get_config
 
 
 def get_version() -> str:
@@ -59,12 +60,7 @@ def print_welcome(
     print(f"  📡 {model}")
     print(f"  🔧 {tool_count} tools  ·  📦 {skill_count} skills  ·  {feishu_label}")
     print(f"  💼 {display_name}")
-    hint_on = os.environ.get("MINIAGENT_WELCOME_CLI_HINT", "1").strip().lower() not in (
-        "0",
-        "false",
-        "no",
-        "off",
-    )
+    hint_on = get_config("cli.welcome_hint", True)
     if hint_on:
         try:
             import rich.markdown  # noqa: F401

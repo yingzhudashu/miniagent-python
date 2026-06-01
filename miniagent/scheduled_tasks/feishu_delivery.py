@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from miniagent.infrastructure.json_config import get_config
 from miniagent.scheduled_tasks.models import ScheduledTask
 from miniagent.scheduled_tasks.resolve import should_run_feishu
 
@@ -27,17 +27,13 @@ class FeishuDeliveryTarget:
 
 
 def schedule_feishu_mirror_enabled() -> bool:
-    """``MINIAGENT_SCHEDULE_FEISHU_MIRROR=0`` 时关闭 primary→绑定飞书镜像。"""
-    raw = os.environ.get("MINIAGENT_SCHEDULE_FEISHU_MIRROR", "").strip().lower()
-    if raw in ("0", "false", "no", "off"):
-        return False
-    return True
+    """是否启用 primary→绑定飞书镜像（默认开启）。"""
+    return get_config("scheduled_tasks.feishu_mirror", True)
 
 
 def schedule_feishu_last_chat_enabled() -> bool:
     """无通道绑定时，是否回退到 ``last_feishu_receive_chat_id``（默认关闭）。"""
-    raw = os.environ.get("MINIAGENT_SCHEDULE_FEISHU_LAST_CHAT", "").strip().lower()
-    return raw in ("1", "true", "yes", "on")
+    return get_config("scheduled_tasks.feishu_last_chat", False)
 
 
 def _is_valid_im_receive_id(chat_id: str) -> bool:

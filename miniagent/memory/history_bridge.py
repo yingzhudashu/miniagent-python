@@ -8,19 +8,14 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any
+
+from miniagent.infrastructure.json_config import get_config
 
 
 def _thinking_for_llm_max_chars() -> int:
-    """注入 API 前允许保留的思考文本最大字符数（``MINI_AGENT_THINKING_FOR_LLM_MAX_CHARS``）。"""
-    raw = os.environ.get("MINI_AGENT_THINKING_FOR_LLM_MAX_CHARS", "").strip()
-    if raw:
-        try:
-            return max(0, int(raw))
-        except ValueError:
-            pass
-    return 10_000
+    """注入 API 前允许保留的思考文本最大字符数。"""
+    return max(0, get_config("feishu.card.thinking_max_chars", 10_000))
 
 
 def _truncate_thinking_for_llm(content: str, max_chars: int) -> str:

@@ -8,8 +8,8 @@ CLI 主循环与飞书消息 handler 的闭包向下传递。设计目标：
 
 历史上曾把这些依赖挂在已移除的 ``unified`` 模块全局上；新代码请只通过本上下文或显式参数传递依赖。
 
-构造顺序上，入口通常在创建本对象**之前**调用 ``load_dotenv_from_project_root()``，以便 ``openai_client``
-与 ``get_default_model_config`` 读取一致的扁平环境变量。
+构造顺序上，入口通常在创建本对象**之前**调用 ``load_secrets_from_project_root()``，以便
+敏感凭据加载完成，配置通过JSON格式传递。
 
 整体关系图见 ``docs/ARCHITECTURE.md``。
 

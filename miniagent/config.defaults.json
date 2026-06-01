@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "version": "1.0.0",
-  "description": "MiniAgent Python 默认配置",
+  "version": "2.0.0",
+  "description": "MiniAgent Python 默认配置（完整版）",
 
   "model": {
     "description": "模型配置",
@@ -24,8 +24,10 @@
     "http_timeout": 120,
     "context_reserve_ratio": 0.15,
     "context_compress_threshold": 0.6,
-    "allow_parallel_tools": false,
+    "allow_parallel_tools": true,
     "max_questions": 3,
+    "debug": false,
+    "log_token_usage": true,
     "loop_detection": {
       "enabled": true,
       "history_size": 50,
@@ -37,6 +39,20 @@
         "ping_pong": true
       }
     }
+  },
+
+  "execution": {
+    "description": "执行行为配置",
+    "announce_difficulty": true,
+    "task_classifier_enabled": true,
+    "phased_enabled": true,
+    "step_max_turns": 48,
+    "thinking_separator": "",
+    "tool_intent_max_chars": 4000,
+    "tool_intent_in_thinking": false,
+    "tool_finish_verbose": false,
+    "thinking_merge_tools": true,
+    "terminal_width_cache_ttl": 2.0
   },
 
   "ui": {
@@ -53,10 +69,119 @@
     "width_margin": 4
   },
 
-  "background_tasks": {
-    "description": "后台任务配置",
-    "max_concurrent": 4,
-    "task_ttl_seconds": 3600
+  "cli": {
+    "description": "CLI配置",
+    "dot_tools_enabled": true,
+    "raw_markdown": false,
+    "thinking_rich": false,
+    "width_margin": 1,
+    "wrap_threshold": 40,
+    "file_vision_desc": true,
+    "welcome_hint": true,
+    "self_opt_tools": true,
+    "render_cache_max_size": 100
+  },
+
+  "feishu": {
+    "description": "飞书配置（非凭据部分）",
+    "reply_plain": false,
+    "reply_target": "reply",
+    "card_action_router": true,
+    "tools_auto": true,
+    "tools_explicit": null,
+    "dot_commands_full": false,
+    "card_extract_inbound": true,
+    "markdown_commands": false,
+    "reply_in_thread": false,
+    "receive_id_type": "chat_id",
+    "max_message_age": 600,
+    "vision": {
+      "max_bytes": 20971520
+    },
+    "media": {
+      "run_agent": false,
+      "vision_desc": true,
+      "silent_reply": false
+    },
+    "doc": {
+      "folder_token": null,
+      "docx_url_prefix": null,
+      "folder_fallback_root_meta": true
+    },
+    "websocket": {
+      "auto_reconnect": false,
+      "watchdog_interval": 30,
+      "dead_conn_grace": 90,
+      "reconnect_grace": 300,
+      "refresh_interval": 0,
+      "idle_refresh": 0
+    },
+    "card": {
+      "thinking_max_chars": 10000,
+      "body_max_chars": 48000
+    },
+    "patch": {
+      "description": "飞书思考卡片流式节流参数",
+      "interval": 0.12,
+      "char_delta": 30,
+      "budget": 40
+    },
+    "api_urls": {
+      "tenant_token": "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+      "root_folder_meta": "https://open.feishu.cn/open-apis/drive/explorer/v2/root_folder/meta"
+    }
+  },
+
+  "scheduled_tasks": {
+    "description": "定时任务配置",
+    "disabled": false,
+    "dispatch_backoff": 60,
+    "timezone": null,
+    "feishu_mirror": true,
+    "feishu_last_chat": false
+  },
+
+  "scheduled_tools": {
+    "description": "定时任务工具配置",
+    "enabled": true
+  },
+
+  "timezone": {
+    "description": "时区配置",
+    "default": "Asia/Shanghai",
+    "default_fallback": "Asia/Shanghai"
+  },
+
+  "embedding": {
+    "description": "嵌入搜索配置",
+    "enabled": false,
+    "base_url": null,
+    "model": null,
+    "dimension": 1536,
+    "top_k": 8,
+    "min_score": 0.3,
+    "max_entries": 2000
+  },
+
+  "memory": {
+    "description": "记忆配置",
+    "max_transcript_chars": 400000,
+    "initial_history_count": 5,
+    "history_progressive": true,
+    "maintenance_max_iters": 3,
+    "history_tail_messages": 200,
+    "history_max_messages": 120,
+    "archive_token_hint": null,
+    "max_history_messages": 200,
+    "store_cache_max": 50,
+    "registry_max_entries": 3000,
+    "keyword_index_max": 20000,
+    "context_tool_redact": true,
+    "layered_inject": true,
+    "layered_max_chars": 12000,
+    "diary_preview_chars": 2000,
+    "layered_session_lt": true,
+    "layered_agent_lt": true
   },
 
   "dream": {
@@ -68,26 +193,45 @@
     "min_schedule_interval_sec": 60
   },
 
-  "timezone": {
-    "description": "时区配置",
-    "default_fallback": "Asia/Shanghai"
+  "paths": {
+    "description": "路径配置",
+    "state_dir": "workspaces",
+    "workspace": null,
+    "skills_dir": null
+  },
+
+  "session": {
+    "description": "会话配置",
+    "default_name": null,
+    "continue_mode": false
+  },
+
+  "mcp": {
+    "description": "MCP配置",
+    "stdio_command": null
+  },
+
+  "debug": {
+    "description": "调试配置",
+    "session_id": null,
+    "log_path": null,
+    "perf_metrics": false
   },
 
   "knowledge": {
     "description": "知识库配置",
     "default_root": "workspaces/knowledge",
+    "root": null,
+    "auto_mount": true,
+    "max_chars": 8000,
     "max_file_chars": 50000
   },
 
-  "feishu": {
-    "description": "飞书配置",
-    "vision": {
-      "max_bytes": 20971520
-    },
-    "api_urls": {
-      "tenant_token": "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
-      "root_folder_meta": "https://open.feishu.cn/open-apis/drive/explorer/v2/root_folder/meta"
-    }
+  "web_search": {
+    "description": "Web搜索配置",
+    "tavily_url": "https://api.tavily.com/search",
+    "tavily_timeout": 45,
+    "browser_timeout": 60
   },
 
   "clawhub": {
@@ -95,9 +239,17 @@
     "api_url": "https://clawhub.ai/api/v1"
   },
 
-  "web_search": {
-    "description": "Web搜索配置",
-    "tavily_url": "https://api.tavily.com/search"
+  "security": {
+    "description": "安全配置",
+    "allowed_commands": null
+  },
+
+  "features": {
+    "description": "功能开关",
+    "requirement_clarify": true,
+    "reflection": true,
+    "skills_watch": false,
+    "tui_verbose_log": false
   },
 
   "instance": {
@@ -111,15 +263,9 @@
     "min_keyword_len": 2
   },
 
-  "memory": {
-    "description": "记忆配置",
-    "max_transcript_chars": 400000,
-    "initial_history_count": 5
-  },
-
-  "cli": {
-    "description": "CLI配置",
-    "wrap_threshold": 40,
-    "render_cache_max_size": 100
+  "background_tasks": {
+    "description": "后台任务配置",
+    "max_concurrent": 4,
+    "task_ttl_seconds": 3600
   }
 }

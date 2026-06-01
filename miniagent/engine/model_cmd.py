@@ -7,14 +7,16 @@ from __future__ import annotations
 
 import os
 
+from miniagent.infrastructure.json_config import get_config
+
 
 def get_current_model() -> str:
     """获取当前模型名称。
 
     Returns:
-        当前模型名称（从环境变量OPENAI_MODEL读取，默认gpt-4o-mini）
+        当前模型名称（从JSON配置读取，默认gpt-4o-mini）
     """
-    return os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+    return get_config("model.model", "gpt-4o-mini")
 
 
 def switch_model(new_model: str) -> str:

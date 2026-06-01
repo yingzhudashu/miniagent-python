@@ -18,13 +18,13 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from miniagent.core.agent import run_agent
 from miniagent.engine.cli_commands import feishu_dot_commands_full_enabled
+from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.memory.defaults import resolve_memory_dependencies
 from miniagent.session.manager import SessionOptions
@@ -45,9 +45,8 @@ def _fence_tool_output(body: str) -> str:
 
 
 def _tool_finish_verbose_history() -> bool:
-    """``MINIAGENT_TOOL_FINISH_VERBOSE=1`` 时 thinking 落盘含参数与输出；默认仅工具名与成败。"""
-    v = os.environ.get("MINIAGENT_TOOL_FINISH_VERBOSE", "").strip().lower()
-    return v in ("1", "true", "yes")
+    """配置 execution.tool_finish_verbose=true 时 thinking 落盘含参数与输出；默认仅工具名与成败。"""
+    return get_config("execution.tool_finish_verbose", False)
 
 
 class UnifiedEngine:
@@ -531,10 +530,7 @@ class UnifiedEngine:
         if thinking_blob:
             history.append({"role": "thinking", "content": thinking_blob})
         history.append({"role": "assistant", "content": reply})
-        try:
-            cap = int(os.environ.get("MINI_AGENT_HISTORY_TAIL_MESSAGES", "200"))
-        except ValueError:
-            cap = 200
+        cap = get_config("memory.history_tail_messages", 200)
 
         from miniagent.memory.history_progressive import run_session_history_maintenance
 
@@ -644,7 +640,7 @@ class UnifiedEngine:
         首次调用时创建并缓存实例，后续调用直接返回。
         交互模式：通过确认侧通道等待用户确认/调整，而非全自动 LLM 推断。
         """
-        if os.environ.get("MINIAGENT_REQUIREMENT_CLARIFY", "1") == "0":
+        if not get_config("features.requirement_clarify", True):
             return None
         if self._clarifier is None:
             from miniagent.core.requirement_clarifier import RequirementClarifier

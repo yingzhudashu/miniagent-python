@@ -34,12 +34,13 @@ from typing import Any
 
 from openai import AsyncOpenAI
 
-from miniagent.core.config import AGENT_NAME, DEFAULT_LOOP_DETECTION, get_default_model_config
+from miniagent.core.config import AGENT_NAME, get_default_model_config, get_default_agent_config
 from miniagent.core.llm_params import resolve_exec_completion_kwargs
 from miniagent.core.openai_client import get_shared_async_openai
 from miniagent.core.openai_message_sanitize import strip_leading_underscore_keys_from_messages
 from miniagent.core.thinking_callback import invoke_on_thinking
 from miniagent.core.thinking_presets import map_business_depth
+from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import append_log, get_logger, truncate
 from miniagent.infrastructure.loop_detector import LoopDetector
 from miniagent.infrastructure.timezone_config import format_agent_timezone_context
@@ -279,43 +280,34 @@ def _reset_env_caches_for_tests() -> None:
 
 
 def _env_phased_execution_enabled() -> bool:
-    """是否启用分阶段执行（工具批次与 LLM 轮次分段），由 ``MINIAGENT_PHASED_EXECUTION`` 控制，默认开启。"""
+    """是否启用分阶段执行（工具批次与 LLM 轮次分段），默认开启。"""
     global _PHASED_EXECUTION_ENABLED
     if _PHASED_EXECUTION_ENABLED is None:
-        v = os.environ.get("MINIAGENT_PHASED_EXECUTION", "1")
-        _PHASED_EXECUTION_ENABLED = str(v).strip().lower() in ("1", "true", "yes")
+        _PHASED_EXECUTION_ENABLED = get_config("execution.phased_enabled", True)
     return _PHASED_EXECUTION_ENABLED
 
 
 def _tool_intent_in_thinking_enabled() -> bool:
-    """是否在工具执行前向 on_thinking 推送 🔧 意图行（与 on_tool_finish 全文块并存时可关闭以减少冗余）。"""
+    """是否在工具执行前向 on_thinking 推送 🔧 意图行。"""
     global _TOOL_INTENT_IN_THINKING_ENABLED
     if _TOOL_INTENT_IN_THINKING_ENABLED is None:
-        v = os.environ.get("MINIAGENT_TOOL_INTENT_IN_THINKING", "0")
-        _TOOL_INTENT_IN_THINKING_ENABLED = str(v).strip().lower() in ("1", "true", "yes")
+        _TOOL_INTENT_IN_THINKING_ENABLED = get_config("execution.tool_intent_in_thinking", False)
     return _TOOL_INTENT_IN_THINKING_ENABLED
 
 
 def _step_max_turns_cap() -> int:
-    """分步模式下单步内 ReAct 轮数上限（``MINIAGENT_STEP_MAX_TURNS``，无效或未设时默认 48）。"""
+    """分步模式下单步内 ReAct 轮数上限（默认 48）。"""
     global _STEP_MAX_TURNS_CAP
     if _STEP_MAX_TURNS_CAP is None:
-        raw = os.environ.get("MINIAGENT_STEP_MAX_TURNS", "").strip()
-        if raw:
-            try:
-                _STEP_MAX_TURNS_CAP = max(1, int(raw))
-            except ValueError:
-                _STEP_MAX_TURNS_CAP = 48
-        else:
-            _STEP_MAX_TURNS_CAP = 48
+        _STEP_MAX_TURNS_CAP = get_config("execution.step_max_turns", 48)
     return _STEP_MAX_TURNS_CAP
 
 
 def _thinking_segment_separator() -> str:
-    """同一步内多轮 LLM 思考片段拼接符；默认双换行（飞书友好）。设 MINIAGENT_THINKING_SEGMENT_SEPARATOR 可覆盖，如 ``\\n\\n---\\n\\n``。"""
+    """同一步内多轮 LLM 思考片段拼接符；默认双换行。"""
     global _THINKING_SEGMENT_SEPARATOR
     if _THINKING_SEGMENT_SEPARATOR is None:
-        raw = os.environ.get("MINIAGENT_THINKING_SEGMENT_SEPARATOR", "").strip()
+        raw = get_config("execution.thinking_separator", "")
         if raw:
             _THINKING_SEGMENT_SEPARATOR = raw.replace("\\n", "\n")
         else:
@@ -429,7 +421,8 @@ async def execute_plan(
     mq_abort = (agent_config.feishu_receive_chat_id or "").strip() or None
     rid_raw = (getattr(agent_config, "feishu_im_receive_id_type", None) or "").strip().lower()
     if rid_raw not in ("chat_id", "open_id", "union_id"):
-        rid_raw = (os.environ.get("MINIAGENT_FEISHU_RECEIVE_ID_TYPE") or "").strip().lower()
+        # 从JSON配置获取（支持环境变量覆盖）
+        rid_raw = get_config("feishu.receive_id_type", "chat_id")
     feishu_rid_type = rid_raw if rid_raw in ("chat_id", "open_id", "union_id") else None
     im_recv_alt = (getattr(agent_config, "feishu_im_receive_id", None) or "").strip() or None
     ctx = ToolContext(
@@ -446,7 +439,8 @@ async def execute_plan(
     )
 
     # ── 循环检测器 ──
-    loop_config_data = agent_config.loop_detection or DEFAULT_LOOP_DETECTION
+    # 如果agent_config.loop_detection为空，使用默认配置
+    loop_config_data = agent_config.loop_detection or get_default_agent_config().loop_detection
     loop_config = (
         LoopDetectionConfig(**loop_config_data)
         if isinstance(loop_config_data, dict)
@@ -1332,14 +1326,10 @@ async def execute_plan(
 
 
 def _tool_intent_max_chars() -> int:
-    """工具意图摘要写入思考流时的最大字符数（``MINIAGENT_TOOL_INTENT_MAX_CHARS``）。"""
+    """工具意图摘要写入思考流时的最大字符数。"""
     global _TOOL_INTENT_MAX_CHARS
     if _TOOL_INTENT_MAX_CHARS is None:
-        raw = os.environ.get("MINIAGENT_TOOL_INTENT_MAX_CHARS", "4000").strip()
-        try:
-            _TOOL_INTENT_MAX_CHARS = max(0, int(raw))
-        except ValueError:
-            _TOOL_INTENT_MAX_CHARS = 4000
+        _TOOL_INTENT_MAX_CHARS = get_config("execution.tool_intent_max_chars", 4000)
     return _TOOL_INTENT_MAX_CHARS
 
 
