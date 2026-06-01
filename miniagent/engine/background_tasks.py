@@ -1,6 +1,9 @@
 """Mini Agent Python — 后台任务管理器
 
 支持在主session中启动子session并行执行任务，不污染主对话历史。
+
+**性能优化**：
+- TTL 自动清理：已完成任务默认 3600 秒后自动清理
 """
 
 from __future__ import annotations
@@ -11,6 +14,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
+
+# 性能优化：默认 TTL（秒）
+DEFAULT_TASK_TTL_SECONDS = 3600  # 1 小时
 
 
 class TaskStatus(str, Enum):
@@ -51,16 +57,69 @@ class BackgroundTaskManager:
         result = await manager.get_result(task_id)
     """
 
-    def __init__(self, max_concurrent: int = 4) -> None:
+    def __init__(
+        self,
+        max_concurrent: int = 4,
+        ttl_seconds: int = DEFAULT_TASK_TTL_SECONDS,
+    ) -> None:
         """创建后台任务管理器
 
         Args:
             max_concurrent: 最大并行任务数（默认4）
+            ttl_seconds: 已完成任务 TTL（秒，默认3600）
         """
         self._tasks: dict[str, BackgroundTask] = {}
         self._max_concurrent = max_concurrent
         self._running_count = 0
         self._lock = asyncio.Lock()
+        self._ttl_seconds = ttl_seconds
+        self._cleanup_task: asyncio.Task | None = None
+        # 启动自动清理任务
+        self._start_cleanup_loop()
+
+    def _start_cleanup_loop(self) -> None:
+        """启动 TTL 自动清理循环（后台任务）"""
+        try:
+            loop = asyncio.get_running_loop()
+            self._cleanup_task = loop.create_task(self._cleanup_loop())
+        except RuntimeError:
+            # 没有运行的事件循环，稍后在首次使用时启动
+            pass
+
+    async def _cleanup_loop(self) -> None:
+        """TTL 自动清理循环"""
+        while True:
+            try:
+                await asyncio.sleep(60)  # 每 60 秒检查一次
+                self._cleanup_expired_tasks()
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                # 静默处理异常，避免循环中断
+                pass
+
+    def _cleanup_expired_tasks(self) -> int:
+        """清理已过期任务（内部方法）
+
+        Returns:
+            清理的任务数量
+        """
+        now = datetime.now(timezone.utc)
+        expired_keys = []
+        for task_id, task in self._tasks.items():
+            if task.completed_at and task.status in (
+                TaskStatus.COMPLETED,
+                TaskStatus.FAILED,
+                TaskStatus.CANCELLED,
+            ):
+                elapsed = (now - task.completed_at).total_seconds()
+                if elapsed > self._ttl_seconds:
+                    expired_keys.append(task_id)
+
+        for key in expired_keys:
+            del self._tasks[key]
+
+        return len(expired_keys)
 
     async def start_task(
         self,
