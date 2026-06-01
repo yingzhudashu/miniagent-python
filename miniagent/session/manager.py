@@ -458,6 +458,14 @@ class DefaultSessionManager(SessionManagerProtocol):
         actual_end = total - start_idx
 
         messages = history[actual_start:actual_end]
+
+        # 确保对话轮次完整：如果第一条是 assistant（缺少对应的 user），
+        # 则向前扩展到包含其 user 消息（如果存在）
+        if messages and messages[0].get("role") == "assistant":
+            # 查找前一条 user 消息
+            if actual_start > 0 and history[actual_start - 1].get("role") == "user":
+                messages = [history[actual_start - 1]] + messages
+
         return messages, total
 
     def load_all_sessions(self) -> list[str]:
