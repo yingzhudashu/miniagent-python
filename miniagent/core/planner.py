@@ -201,19 +201,6 @@ async def generate_plan(
                 raise ValueError("Invalid plan: missing required fields")
 
             plan = _dict_to_plan(plan_data, default_step_thinking=default_step_thinking)
-            if on_thinking:
-                from miniagent.core.thinking_callback import invoke_on_thinking
-
-                try:
-                    summary = (plan.summary or "")[:80]
-                    await invoke_on_thinking(
-                        on_thinking,
-                        f"规划完成：{summary}" if summary else "规划完成",
-                        True,
-                        "[评估与计划]",
-                    )
-                except Exception:
-                    pass
             return plan
 
         except Exception as e:
