@@ -109,6 +109,11 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 | | `.schedule update <id> …` | 修改已有任务（语法同 add） |
 | | `.schedule remove|enable|disable <id>` | 删除 / 启用 / 禁用 |
 | | `.schedule align-tz` | 批量对齐时区（修复遗留 UTC） |
+| **知识库** | `.kb list` | 列出已挂载的知识库 |
+| | `.kb mount <路径> [名称]` | 挂载知识库（目录或文件） |
+| | `.kb unmount <名称>` | 卸载知识库 |
+| | `.kb search <关键词> [名称]` | 检索知识库内容 |
+| | `.kb reload [名称]` | 重新加载知识库 |
 | **确认** | `.confirm` | 确认待处理的确认请求 |
 | | `.adjust <内容>` | 调整并确认待处理请求 |
 | | `.reject` | 拒绝待处理请求 |
@@ -263,6 +268,58 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 ✅ 飞书已停止
 ```
 
+### .kb — 知识库管理
+
+挂载本地文档供 Agent 检索。知识库目录应有 `KB.yaml` 或 `files/` 子目录。
+
+```
+> .kb list
+
+📚 已挂载知识库:
+  - project_docs: 12 条目, 150 关键词
+    路径: /path/to/project_docs
+
+> .kb mount /path/to/docs my_kb
+✅ 已挂载知识库: my_kb
+   条目数: 5, 关键词: 80
+
+> .kb search API 接口 my_kb
+## 知识库: my_kb
+
+### api.md
+本文档描述 API 接口规范...
+
+> .kb unmount my_kb
+✅ 已卸载知识库: my_kb
+
+> .kb reload my_kb
+✅ 已重载知识库: my_kb
+```
+
+**Agent 工具**：Agent 可通过 `search_knowledge`、`read_knowledge_file`、`kb_list` 工具检索知识库。
+
+**知识库目录结构**：
+
+```
+my_kb/
+├── KB.yaml        # 配置文件（可选）
+└── files/         # 文件目录
+    ├── doc1.md
+    └── doc2.txt
+```
+
+KB.yaml 格式：
+
+```yaml
+name: my_kb            # 知识库名称
+description: 项目文档  # 描述
+file_patterns:         # 包含的文件模式
+  - "*.md"
+  - "*.txt"
+```
+
+详见 [KNOWLEDGE_BASE.md](KNOWLEDGE_BASE.md)。
+
 ### .review — 答案审查
 
 对当前会话中的最后一条回复进行「自我反驳式」审查，发现逻辑漏洞、事实错误或遗漏，并输出改进建议。需要会话上下文和会话管理器。
@@ -370,3 +427,4 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 - [ENGINEERING.md](ENGINEERING.md)：本地与 CI 质量门禁、`MINI_AGENT_STATE`。
 - [SECURITY.md](SECURITY.md)：沙箱与工具安全模型。
 - [CHANNEL_BINDING.md](CHANNEL_BINDING.md)：CLI 与飞书会话绑定。
+- [KNOWLEDGE_BASE.md](KNOWLEDGE_BASE.md)：知识库挂载与检索。

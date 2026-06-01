@@ -20,7 +20,7 @@
     python -m miniagent --feishu # CLI + 飞书同时启动（飞书侧为 WebSocket 长轮询）
 """
 
-__version__ = "2.0.2"
+__version__ = "2.0.3"
 __author__ = "mini-agent"
 __description__ = "基于 LLM 的智能个人助手，采用多阶段架构（分类→澄清→规划→执行）"
 

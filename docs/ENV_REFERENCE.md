@@ -145,7 +145,17 @@
 | `MINIAGENT_EMBED_API_KEY` | *(空)* | embedding 服务 API 密钥（使用专用服务时需要） |
 | `MINIAGENT_EMBED_MAX_ENTRIES` | `10000` | 向量存储最大条目数 |
 
-## 11. CLI / 状态 / 调试 / MCP
+## 11. 知识库
+
+> 挂载本地文档供 Agent 检索，详见 [KNOWLEDGE_BASE.md](KNOWLEDGE_BASE.md)。
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `MINIAGENT_KB_ROOT` | `workspaces/knowledge` | 知识库根目录 |
+| `MINIAGENT_KB_AUTO_MOUNT` | `1` | 自动挂载根目录下的知识库 |
+| `MINIAGENT_KB_MAX_CHARS` | `8000` | 跨知识库检索最大字符数 |
+
+## 12. CLI / 状态 / 调试 / MCP
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|

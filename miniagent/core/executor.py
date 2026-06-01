@@ -44,6 +44,7 @@ from miniagent.infrastructure.logger import append_log, get_logger, truncate
 from miniagent.infrastructure.loop_detector import LoopDetector
 from miniagent.infrastructure.timezone_config import format_agent_timezone_context
 from miniagent.infrastructure.tracing import emit_trace
+from miniagent.knowledge import get_kb_registry
 from miniagent.memory.context import ContextBudgetExceeded, DefaultContextManager
 from miniagent.memory.defaults import resolve_memory_dependencies
 from miniagent.memory.embedding_search import (
@@ -95,16 +96,20 @@ def _truncate_args_for_log(args: dict[str, Any] | str, max_len: int = _MAX_ARGS_
         max_len: 最大长度（字符）
 
     Returns:
-        截断后的 JSON 字符串
+        截断后的字符串（性能优化：直接截断避免双重序列化）
     """
+    # 性能优化：直接截断原始内容，避免不必要的 JSON 解析/序列化
+    if isinstance(args, str):
+        # 已经是字符串，直接截断
+        if len(args) <= max_len:
+            return args
+        return args[:max_len] + "...[截断]"
+
+    # 字典类型：简单序列化后截断
     try:
-        if isinstance(args, str):
-            args_dict = json.loads(args) if args else {}
-        else:
-            args_dict = args
-        # 移除可能的大字段（如 content、data）
+        # 移除可能的大字段
         cleaned = {}
-        for k, v in args_dict.items():
+        for k, v in args.items():
             if isinstance(v, str) and len(v) > 200:
                 cleaned[k] = v[:200] + "...[截断]"
             elif isinstance(v, (bytes, bytearray)):
@@ -112,9 +117,9 @@ def _truncate_args_for_log(args: dict[str, Any] | str, max_len: int = _MAX_ARGS_
             else:
                 cleaned[k] = v
         result = json.dumps(cleaned, ensure_ascii=False)
-        if len(result) > max_len:
-            return result[:max_len] + "...[截断]"
-        return result
+        if len(result) <= max_len:
+            return result
+        return result[:max_len] + "...[截断]"
     except Exception:
         return str(args)[:max_len]
 
@@ -193,15 +198,18 @@ def build_execution_system_prompt(
     caller_system_prompt: str | None,
     plan_summary: str,
     keyword_context: str | None,
+    kb_context: str | None = None,
     session_files_root: str | None = None,
 ) -> str:
-    """按约定拼接执行阶段 system：身份 → 调用方技能/指令 → 任务摘要 → 关键词检索上下文。"""
+    """按约定拼接执行阶段 system：身份 → 调用方技能/指令 → 任务摘要 → 关键词检索上下文 → 知识库上下文。"""
     parts: list[str] = [agent_identity.strip()]
     if caller_system_prompt and caller_system_prompt.strip():
         parts.append(caller_system_prompt.strip())
     parts.append(f"当前任务：{plan_summary.strip()}")
     if keyword_context and keyword_context.strip():
         parts.append(keyword_context.strip())
+    if kb_context and kb_context.strip():
+        parts.append(kb_context.strip())
     root = (session_files_root or "").strip()
     if root:
         abs_root = os.path.abspath(root)
@@ -491,11 +499,26 @@ async def execute_plan(
             if agent_config.debug:
                 _logger.debug("Layer 3 语义检索: %d 条相关记忆", len(relevant))
 
+        # ── 知识库检索 ──
+        kb_context: str | None = None
+        try:
+            registry = get_kb_registry()
+            kb_list = registry.list()
+            if kb_list:
+                kb_result = registry.search(user_input, top_k=3, max_chars=4000)
+                if kb_result:
+                    kb_context = f"## 相关知识库内容\n\n{kb_result}"
+                    if agent_config.debug:
+                        _logger.debug("知识库检索: %d 个KB, %d chars", len(kb_list), len(kb_result))
+        except Exception as e:
+            _logger.debug("知识库检索失败: %s", e)
+
         merged_system = build_execution_system_prompt(
             agent_identity=AGENT_IDENTITY,
             caller_system_prompt=system_prompt,
             plan_summary=plan.summary,
             keyword_context=keyword_context,
+            kb_context=kb_context,
             session_files_root=agent_config.session_workspace,
         )
         if agent_config.risk_level:
@@ -504,11 +527,26 @@ async def execute_plan(
         if memory:
             context_manager.inject_memory(memory)
     else:
+        # ── 知识库检索（无会话时也检索）──
+        kb_context: str | None = None
+        try:
+            registry = get_kb_registry()
+            kb_list = registry.list()
+            if kb_list:
+                kb_result = registry.search(user_input, top_k=3, max_chars=4000)
+                if kb_result:
+                    kb_context = f"## 相关知识库内容\n\n{kb_result}"
+                    if agent_config.debug:
+                        _logger.debug("知识库检索: %d 个KB, %d chars", len(kb_list), len(kb_result))
+        except Exception as e:
+            _logger.debug("知识库检索失败: %s", e)
+
         merged_system = build_execution_system_prompt(
             agent_identity=AGENT_IDENTITY,
             caller_system_prompt=system_prompt,
             plan_summary=plan.summary,
             keyword_context=None,
+            kb_context=kb_context,
             session_files_root=agent_config.session_workspace,
         )
         if agent_config.risk_level:

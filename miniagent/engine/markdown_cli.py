@@ -57,6 +57,22 @@ def render_markdown_to_ansi(markdown: str, *, width: int, justify: str = "left")
     lines = markdown.split("\n")
     output_parts: list[str] = []
 
+    # 性能优化：复用单个 Console 实例，避免重复创建
+    try:
+        from rich.console import Console
+        from rich.markdown import Markdown
+
+        # 创建单个 Console 实例（宽度预设置，避免每块重建）
+        shared_console = Console(
+            width=w,
+            force_terminal=True,
+            color_system="standard",
+            highlight=False,
+        )
+        original_file = shared_console.file  # 保存原始输出（用于恢复）
+    except ImportError:
+        return None
+
     i = 0
     while i < len(lines):
         line = lines[i]
@@ -81,17 +97,14 @@ def render_markdown_to_ansi(markdown: str, *, width: int, justify: str = "left")
 
             block = "\n".join(block_lines)
             if block.strip():
-                # 渲染非标题块（使用 Rich Markdown，传入 justify 参数）
+                # 渲染非标题块（复用 shared_console，性能优化）
                 buf = StringIO()
-                console = Console(
-                    file=buf,
-                    width=w,
-                    force_terminal=True,
-                    color_system="standard",
-                    highlight=False,
-                )
-                console.print(Markdown(block, justify=justify))
+                # 临时更改 console 的 file 输出到 buf
+                shared_console.file = buf
+                shared_console.print(Markdown(block, justify=justify))
                 output_parts.append(buf.getvalue())
+                # 恢复 console 的原始输出
+                shared_console.file = original_file
 
     return "".join(output_parts)
 

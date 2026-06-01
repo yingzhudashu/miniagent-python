@@ -213,19 +213,21 @@ class _SearchResult:
 # ============================================================================
 
 
-def extract_keywords(text: str) -> list[str]:
+def extract_keywords(text: str, max_keywords: int = 50) -> list[str]:
     """提取关键词（简化版中文分词 + 英文词元化）
 
     分词策略：
     - 英文：按空格和标点分词，去除停用词，过滤单字符
     - 中文：提取 2-gram 和 3-gram 字符组合
     - 混合：同时应用两种策略
+    - 性能优化：限制最大关键词数，避免索引膨胀
 
     Args:
         text: 要提取关键词的文本
+        max_keywords: 最大关键词数（性能优化，防止长文本生成过多 n-gram）
 
     Returns:
-        去重后的关键词列表
+        去重后的关键词列表（按长度优先排序，保留更有意义的词）
 
     Example:
         extract_keywords('我喜欢吃苹果 and AI is cool')
@@ -239,16 +241,26 @@ def extract_keywords(text: str) -> list[str]:
         if len(w) > 1 and w not in _STOP_WORDS:
             keywords.add(w)
 
-    # 中文 2-gram + 3-gram
+    # 中文 2-gram + 3-gram（限制数量）
     chinese_chars = _RE_CJK_ONLY.sub("", text)
-    for i in range(len(chinese_chars) - 1):
-        if i + 1 < len(chinese_chars):
+    chinese_len = len(chinese_chars)
+
+    # 限制 n-gram 数量：长文本时跳过部分位置
+    step = 1 if chinese_len <= 100 else max(1, chinese_len // max_keywords)
+
+    for i in range(0, chinese_len - 1, step):
+        if i + 1 < chinese_len:
             bigram = chinese_chars[i : i + 2]
             if bigram not in _STOP_WORDS:
                 keywords.add(bigram)
-        if i + 2 < len(chinese_chars):
+        if i + 2 < chinese_len:
             trigram = chinese_chars[i : i + 3]
             keywords.add(trigram)
+
+    # 限制总数，优先保留更长的关键词（更有意义）
+    if len(keywords) > max_keywords:
+        sorted_kw = sorted(keywords, key=lambda x: (-len(x), x))
+        return sorted_kw[:max_keywords]
 
     return list(keywords)
 

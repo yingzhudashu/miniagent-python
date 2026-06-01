@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 
 from openai.types.chat import (
     ChatCompletionMessageParam,
@@ -27,6 +28,9 @@ from openai.types.chat import (
 from miniagent.memory.store import format_memory_for_prompt
 from miniagent.types.memory import SessionMemory
 from miniagent.types.tool import ContextManagerProtocol, ContextState
+
+# 预编译正则：匹配非 ASCII 字符（中文等）
+_NON_ASCII_PATTERN = re.compile(r"[^\x00-\x7F]")
 
 
 class ContextBudgetExceeded(RuntimeError):
@@ -56,14 +60,9 @@ def estimate_tokens(text: str | None) -> int:
     if not text:
         return 0
 
-    chinese_chars = 0
-    ascii_chars = 0
-
-    for ch in text:
-        if ord(ch) > 127:
-            chinese_chars += 1
-        else:
-            ascii_chars += 1
+    # 使用预编译正则批量匹配非 ASCII 字符（性能优化）
+    chinese_chars = len(_NON_ASCII_PATTERN.findall(text))
+    ascii_chars = len(text) - chinese_chars
 
     # 中文 1.5 token/字，ASCII 4 字符/token
     return int(chinese_chars * 1.5 + ascii_chars / 4) + 1
@@ -207,7 +206,8 @@ class DefaultContextManager(ContextManagerProtocol):
             msg: 要追加的消息
         """
         self._messages.append(msg)
-        self._recalculate_tokens()
+        # 增量计算：仅计算新消息的 token（性能优化）
+        self._total_tokens_estimate += self._message_tokens(msg)
 
         if self.needs_compression():
             if self._overflow_strategy == "error":
@@ -295,9 +295,11 @@ class DefaultContextManager(ContextManagerProtocol):
         guard = 0
         while self.needs_compression() and len(self._messages) > 2 and guard < 2000:
             guard += 1
+            # 删除消息时同步更新 token 估算（性能优化：避免后续判断使用过期数值）
+            removed_msg = self._messages[2]
             del self._messages[2]
+            self._total_tokens_estimate -= self._message_tokens(removed_msg)
         self._compressed = True
-        self._recalculate_tokens()
 
     def inject_memory(self, memory: SessionMemory | None) -> None:
         """注入记忆摘要到 system prompt

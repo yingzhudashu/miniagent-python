@@ -270,6 +270,7 @@ LLM 可通过 function calling 调用的工具：
 | `vision.py` | 视觉理解 (analyze_image)：分析图片内容，生成描述 |
 | `skills.py` | 技能操作 (install/uninstall/list) |
 | `session_memory.py` | 会话级记忆辅助工具（由 `engine/init` 注册） |
+| `knowledge_tools.py` | 知识库检索 (search_knowledge/read_knowledge_file/kb_list)：检索已挂载的本地文档 |
 | `cli_dispatch_tools.py` | `run_dot_command`：经 [`command_dispatch.dispatch_command`](miniagent/engine/command_dispatch.py) 执行点命令（`capture=True`，与 CLI 同源） |
 | `schedule_tools.py` | `manage_scheduled_task`：定时任务结构化 CRUD |
 | `feishu_im_tools.py` | 可选飞书 IM/云文档工具（需 `pip install -e ".[feishu]"`） |
@@ -287,6 +288,22 @@ LLM 可通过 function calling 调用的工具：
 | `mcp/runtime.py` | stdio 连接、注册 `mcp_*` 工具；需 `pip install miniagent-python[mcp]` |
 
 环境变量 `MINIAGENT_MCP_STDIO`（JSON 数组）在 [`engine/init.py`](miniagent/engine/init.py) 启动时解析；详见上文「与 OpenClaw 的关系」中的 MCP 说明。
+
+### 8c. 知识库层 (Knowledge)
+
+挂载本地文档供 Agent 检索，详见 [KNOWLEDGE_BASE.md](KNOWLEDGE_BASE.md)。
+
+| 文件 | 职责 |
+|------|------|
+| `knowledge/base.py` | `KnowledgeBase`：单知识库加载、关键词索引构建、检索 |
+| `knowledge/registry.py` | `KnowledgeRegistry`：多知识库挂载/卸载/跨库检索、持久化 |
+| `tools/knowledge_tools.py` | Agent 工具：`search_knowledge`、`read_knowledge_file`、`kb_list` |
+
+**执行时注入**：[`executor.py`](miniagent/core/executor.py) 在构建 system prompt 时自动检索知识库，将 `kb_context` 注入上下文（与 `keyword_context` 类似）。
+
+**环境变量**：
+- `MINIAGENT_KB_ROOT`：知识库根目录（默认 `workspaces/knowledge`）
+- `MINIAGENT_KB_AUTO_MOUNT`：自动挂载根目录下知识库（默认 `1`）
 
 ### 9. 基础设施层 (Infrastructure)
 

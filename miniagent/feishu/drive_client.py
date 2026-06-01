@@ -92,104 +92,125 @@ def _parse_feishu_json_code(raw: Any) -> int | None:
         return None
 
 
+async def _async_http_request(
+    method: str,
+    url: str,
+    *,
+    payload: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """异步发送 JSON HTTP 请求并返回解析后的响应体。
+
+    Args:
+        method: HTTP 方法（GET / POST）
+        url: 请求 URL
+        payload: POST 请求体（仅 POST 时使用）
+        headers: 请求头
+
+    Returns:
+        解析后的 JSON 响应体
+
+    Raises:
+        RuntimeError: HTTP 错误、网络错误或 JSON 解析失败
+    """
+    client = _get_http_client()
+    h = {"Content-Type": "application/json; charset=utf-8"}
+    if headers:
+        h.update(headers)
+    try:
+        if method.upper() == "POST":
+            resp = await client.post(url, json=payload or {}, headers=h)
+        else:
+            resp = await client.get(url, headers=h)
+        resp.raise_for_status()
+        body = resp.text
+    except httpx.HTTPStatusError as e:
+        body = e.response.text
+        raise RuntimeError(f"HTTP {e.response.status_code}: {body[:500]}") from e
+    except httpx.RequestError as e:
+        raise RuntimeError(f"network error: {e}") from e
+    try:
+        out: dict[str, Any] = json.loads(body)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(
+            f"invalid JSON from Feishu {method} (len={len(body)}): {body[:300]!r}…"
+        ) from e
+    return out
+
+
 async def _async_http_post_json(
     url: str, payload: dict[str, Any], *, headers: dict[str, str] | None = None
 ) -> dict[str, Any]:
-    """异步发送 JSON POST 请求并返回解析后的响应体。"""
-    client = _get_http_client()
-    h = {"Content-Type": "application/json; charset=utf-8"}
-    if headers:
-        h.update(headers)
-    try:
-        resp = await client.post(url, json=payload, headers=h)
-        resp.raise_for_status()
-        body = resp.text
-    except httpx.HTTPStatusError as e:
-        body = e.response.text
-        raise RuntimeError(f"HTTP {e.response.status_code}: {body[:500]}") from e
-    except httpx.RequestError as e:
-        raise RuntimeError(f"network error: {e}") from e
-    try:
-        out: dict[str, Any] = json.loads(body)
-    except json.JSONDecodeError as e:
-        raise RuntimeError(
-            f"invalid JSON from Feishu POST (len={len(body)}): {body[:300]!r}…"
-        ) from e
-    return out
+    """异步发送 JSON POST 请求（兼容旧调用，委托给 _async_http_request）。"""
+    return await _async_http_request("POST", url, payload=payload, headers=headers)
 
 
 async def _async_http_get_json(url: str, *, headers: dict[str, str]) -> dict[str, Any]:
-    """异步发送 JSON GET 请求并返回解析后的响应体。"""
-    client = _get_http_client()
+    """异步发送 JSON GET 请求（兼容旧调用，委托给 _async_http_request）。"""
+    return await _async_http_request("GET", url, headers=headers)
+
+
+def _http_request(
+    method: str,
+    url: str,
+    *,
+    payload: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """同步发送 JSON HTTP 请求并返回解析后的响应体。
+
+    Args:
+        method: HTTP 方法（GET / POST）
+        url: 请求 URL
+        payload: POST 请求体（仅 POST 时使用）
+        headers: 请求头
+
+    Returns:
+        解析后的 JSON 响应体
+
+    Raises:
+        RuntimeError: HTTP 错误、网络错误或 JSON 解析失败
+    """
+    import urllib.error
+    import urllib.request
+
+    h = {"Content-Type": "application/json; charset=utf-8"}
+    if headers:
+        h.update(h)
+
+    if method.upper() == "POST":
+        data = json.dumps(payload or {}).encode("utf-8")
+        req = urllib.request.Request(url, data=data, method="POST", headers=h)
+    else:
+        req = urllib.request.Request(url, method="GET", headers=h)
+
     try:
-        resp = await client.get(url, headers=headers)
-        resp.raise_for_status()
-        body = resp.text
-    except httpx.HTTPStatusError as e:
-        body = e.response.text
-        raise RuntimeError(f"HTTP {e.response.status_code}: {body[:500]}") from e
-    except httpx.RequestError as e:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"HTTP {e.code}: {body[:500]}") from e
+    except urllib.error.URLError as e:
         raise RuntimeError(f"network error: {e}") from e
     try:
         out: dict[str, Any] = json.loads(body)
     except json.JSONDecodeError as e:
         raise RuntimeError(
-            f"invalid JSON from Feishu GET (len={len(body)}): {body[:300]!r}…"
+            f"invalid JSON from Feishu {method} (len={len(body)}): {body[:300]!r}…"
         ) from e
     return out
 
 
-# 保留同步版本用于快速初始化（兼容旧代码）
 def _http_post_json(
     url: str, payload: dict[str, Any], *, headers: dict[str, str] | None = None
 ) -> dict[str, Any]:
-    """同步发送 JSON POST 请求（兼容旧调用，建议改用异步版本）。"""
-    import urllib.error
-    import urllib.request
-
-    data = json.dumps(payload).encode("utf-8")
-    h = {"Content-Type": "application/json; charset=utf-8"}
-    if headers:
-        h.update(headers)
-    req = urllib.request.Request(url, data=data, method="POST", headers=h)
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            body = resp.read().decode("utf-8", errors="replace")
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"HTTP {e.code}: {body[:500]}") from e
-    except urllib.error.URLError as e:
-        raise RuntimeError(f"network error: {e}") from e
-    try:
-        out: dict[str, Any] = json.loads(body)
-    except json.JSONDecodeError as e:
-        raise RuntimeError(
-            f"invalid JSON from Feishu POST (len={len(body)}): {body[:300]!r}…"
-        ) from e
-    return out
+    """同步发送 JSON POST 请求（兼容旧调用，委托给 _http_request）。"""
+    return _http_request("POST", url, payload=payload, headers=headers)
 
 
 def _http_get_json(url: str, *, headers: dict[str, str]) -> dict[str, Any]:
-    """同步发送 JSON GET 请求（兼容旧调用，建议改用异步版本）。"""
-    import urllib.error
-    import urllib.request
-
-    req = urllib.request.Request(url, method="GET", headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            body = resp.read().decode("utf-8", errors="replace")
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"HTTP {e.code}: {body[:500]}") from e
-    except urllib.error.URLError as e:
-        raise RuntimeError(f"network error: {e}") from e
-    try:
-        out: dict[str, Any] = json.loads(body)
-    except json.JSONDecodeError as e:
-        raise RuntimeError(
-            f"invalid JSON from Feishu GET (len={len(body)}): {body[:300]!r}…"
-        ) from e
-    return out
+    """同步发送 JSON GET 请求（兼容旧调用，委托给 _http_request）。"""
+    return _http_request("GET", url, headers=headers)
 
 
 def _fetch_tenant_access_token_sync(config: FeishuConfig) -> str:

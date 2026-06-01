@@ -11,6 +11,7 @@
 - feishu_doc_tools: 飞书云文档 ``feishu_doc``
 - feishu_bitable_tools: 飞书多维表格 ``feishu_bitable``
 - vision_tools: 视觉理解（analyze_image）
+- knowledge_tools: 知识库检索（search_knowledge、read_knowledge_file、kb_list）
 
 另：``session_memory.session_memory_tools`` 在 ``engine.init_subsystems`` 中单独注册，不在 ``ALL_TOOLS`` 字典内。
 
@@ -31,6 +32,7 @@ from miniagent.tools.feishu_card_tools import feishu_card_tools
 from miniagent.tools.feishu_doc_tools import feishu_doc_tools
 from miniagent.tools.feishu_im_tools import feishu_im_tools
 from miniagent.tools.filesystem import filesystem_tools
+from miniagent.tools.knowledge_tools import knowledge_tools
 from miniagent.tools.schedule_tools import schedule_tools
 from miniagent.tools.skills import skills_tools
 from miniagent.tools.vision import vision_tools
@@ -50,6 +52,7 @@ ALL_TOOLS = {
     **feishu_card_tools,
     **data_tools,
     **vision_tools,
+    **knowledge_tools,
 }
 
 __all__ = [
@@ -65,5 +68,6 @@ __all__ = [
     "feishu_card_tools",
     "data_tools",
     "vision_tools",
+    "knowledge_tools",
     "ALL_TOOLS",
 ]

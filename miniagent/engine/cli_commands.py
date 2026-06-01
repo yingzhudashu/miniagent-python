@@ -62,6 +62,93 @@ def format_queue_command_usage(message_queue: Any) -> str:
     )
 
 
+def format_kb_command_usage() -> str:
+    """返回 `.kb` 知识库命令的用法说明。"""
+    return (
+        "知识库命令（挂载本地文档供 Agent 检索）：\n"
+        "  .kb list                        列出已挂载的知识库\n"
+        "  .kb mount <路径> [名称]         挂载知识库（目录或文件）\n"
+        "  .kb unmount <名称>              卸载知识库\n"
+        "  .kb search <关键词> [名称]      检索知识库内容\n"
+        "  .kb reload [名称]               重新加载知识库\n"
+        "  说明: 知识库目录应有 KB.yaml 或 files/ 子目录"
+    )
+
+
+def cmd_kb_list(*, markdown: bool = False) -> None:
+    """列出已挂载的知识库。"""
+    from miniagent.knowledge import get_kb_registry
+
+    registry = get_kb_registry()
+    kb_list = registry.list()
+
+    if not kb_list:
+        print("📭 当前未挂载任何知识库")
+        print("使用 `.kb mount <路径>` 挂载知识库")
+        return
+
+    if markdown:
+        lines = ["## 已挂载知识库", "", "| 名称 | 条目数 | 关键词数 | 路径 |", "| --- | --- | --- | --- |"]
+        for kb in kb_list:
+            lines.append(f"| {kb['name']} | {kb['entries']} | {kb['keywords']} | `{kb['path']}` |")
+        print("\n".join(lines))
+        print()
+        return
+
+    print("\n📚 已挂载知识库:")
+    for kb in kb_list:
+        print(f"  - {kb['name']}: {kb['entries']} 条目, {kb['keywords']} 关键词")
+        print(f"    路径: {kb['path']}")
+    print()
+
+
+def cmd_kb_mount(path: str, name: str | None = None) -> None:
+    """挂载知识库。"""
+    from miniagent.knowledge import mount_knowledge_base
+
+    result = mount_knowledge_base(path, name)
+    if result.get("success"):
+        stats = result.get("stats", {})
+        print(f"✅ 已挂载知识库: {result.get('kb_name')}")
+        print(f"   条目数: {stats.get('entries', 0)}, 关键词: {stats.get('keywords', 0)}")
+    else:
+        print(f"❌ {result.get('message')}")
+
+
+def cmd_kb_unmount(name: str) -> None:
+    """卸载知识库。"""
+    from miniagent.knowledge import unmount_knowledge_base
+
+    result = unmount_knowledge_base(name)
+    if result.get("success"):
+        print(f"✅ {result.get('message')}")
+    else:
+        print(f"❌ {result.get('message')}")
+
+
+def cmd_kb_search(query: str, kb_name: str | None = None) -> None:
+    """检索知识库内容。"""
+    from miniagent.knowledge import search_knowledge
+
+    result = search_knowledge(query, kb_name=kb_name)
+    if result:
+        print(result)
+    else:
+        print("⚠️ 未找到相关内容")
+
+
+def cmd_kb_reload(name: str | None = None) -> None:
+    """重新加载知识库。"""
+    from miniagent.knowledge import get_kb_registry
+
+    registry = get_kb_registry()
+    result = registry.reload(name)
+    if result.get("success"):
+        print(f"✅ {result.get('message')}")
+    else:
+        print(f"❌ {result.get('message')}")
+
+
 def format_test_command_usage() -> str:
     """返回 `.test` 自测命令的用法说明。"""
     return (
@@ -1304,6 +1391,17 @@ def format_help_markdown(
             ],
         ),
         _md_help_section(
+            "知识库",
+            "挂载本地文档供 Agent 检索；知识库目录应有 KB.yaml 或 files/ 子目录。",
+            [
+                ("`.kb list`", "列出已挂载的知识库"),
+                ("`.kb mount <路径> [名称]`", "挂载知识库（目录或文件）"),
+                ("`.kb unmount <名称>`", "卸载知识库"),
+                ("`.kb search <关键词> [名称]`", "检索知识库内容"),
+                ("`.kb reload [名称]`", "重新加载知识库"),
+            ],
+        ),
+        _md_help_section(
             "工具与统计",
             None,
             [
@@ -1444,6 +1542,12 @@ __all__ = [
     "format_queue_command_usage",
     "format_queue_abort_message",
     "format_test_command_usage",
+    "format_kb_command_usage",
+    "cmd_kb_list",
+    "cmd_kb_mount",
+    "cmd_kb_unmount",
+    "cmd_kb_search",
+    "cmd_kb_reload",
     "cmd_bind",
     "cmd_unbind",
     "cmd_instance_handler",

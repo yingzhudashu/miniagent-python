@@ -65,6 +65,12 @@ BUILTIN_TOOLBOXES: list[Toolbox] = [
         description="分析图片内容，生成图片描述（analyze_image）",
         keywords=["图片", "图像", "视觉", "vision", "看", "分析", "OCR"],
     ),
+    Toolbox(
+        id="knowledge",
+        name="知识库",
+        description="检索已挂载的知识库内容（search_knowledge、read_knowledge_file、kb_list）",
+        keywords=["知识库", "KB", "文档", "检索", "挂载"],
+    ),
 ]
 
 __all__ = ["BUILTIN_TOOLBOXES"]

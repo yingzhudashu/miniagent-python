@@ -75,6 +75,11 @@ async def dispatch_command(
         cmd_bind,
         cmd_help,
         cmd_instance_handler,
+        cmd_kb_list,
+        cmd_kb_mount,
+        cmd_kb_reload,
+        cmd_kb_search,
+        cmd_kb_unmount,
         cmd_queue_set,
         cmd_queue_status,
         cmd_session_create,
@@ -85,6 +90,7 @@ async def dispatch_command(
         cmd_unbind,
         feishu_dot_commands_full_enabled,
         feishu_markdown_commands_enabled,
+        format_kb_command_usage,
         format_queue_abort_message,
         format_queue_command_usage,
         format_session_command_usage,
@@ -386,6 +392,42 @@ async def dispatch_command(
         mutating = sub_s in ("add", "remove", "enable", "disable")
         allow_muts = not (block_remote and mutating)
         output = cmd_schedule(text, allow_mutations=allow_muts)
+        if capture:
+            return output
+        print(output)
+        return None
+
+    # ── .kb（知识库）──
+    if cmd == ".kb":
+        sub_cmd = parts[1].lower() if len(parts) > 1 else ""
+        md_kb = capture and feishu_markdown_commands_enabled()
+
+        if sub_cmd == "list" or sub_cmd == "":
+            output = _capture(lambda md=md_kb: cmd_kb_list(markdown=md))
+        elif sub_cmd == "mount" and len(parts) >= 3:
+            path = parts[2]
+            name = parts[3] if len(parts) > 3 else None
+            output = _capture(lambda: cmd_kb_mount(path, name))
+        elif sub_cmd == "unmount" and len(parts) >= 3:
+            output = _capture(lambda: cmd_kb_unmount(parts[2]))
+        elif sub_cmd == "search" and len(parts) >= 3:
+            query = " ".join(parts[2:])
+            kb_name = None
+            # 检查是否指定了知识库名称（最后一个参数如果是知识库名称）
+            from miniagent.knowledge import get_kb_registry
+            registry = get_kb_registry()
+            kb_list = registry.list()
+            kb_names = [kb["name"] for kb in kb_list]
+            if len(parts) >= 4 and parts[-1] in kb_names:
+                kb_name = parts[-1]
+                query = " ".join(parts[2:-1])
+            output = _capture(lambda: cmd_kb_search(query, kb_name))
+        elif sub_cmd == "reload":
+            name = parts[2] if len(parts) > 2 else None
+            output = _capture(lambda: cmd_kb_reload(name))
+        else:
+            output = format_kb_command_usage()
+
         if capture:
             return output
         print(output)
