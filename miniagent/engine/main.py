@@ -1137,6 +1137,33 @@ async def run_cli_loop(
         """回车提交输入"""
         text = input_buffer.text.strip()
         if text:
+            # 检测特殊前缀
+            if text.startswith("!"):
+                # !cmd: 直接执行Bash命令
+                bash_cmd = text[1:].strip()
+                if bash_cmd:
+                    # 执行命令并捕获输出
+                    import subprocess
+                    try:
+                        result = subprocess.run(
+                            bash_cmd,
+                            shell=True,
+                            capture_output=True,
+                            text=True,
+                            timeout=10
+                        )
+                        output = result.stdout if result.stdout else result.stderr
+                        if not output:
+                            output = f"命令执行完成（退出码: {result.returncode})"
+                        _transcript.append((("", ""), f"⚠️ Bash执行: {bash_cmd}\n{output}"))
+                        _stick_bottom[0] = True
+                    except subprocess.TimeoutExpired:
+                        _transcript.append((("", ""), f"❌ Bash超时: {bash_cmd}"))
+                    except Exception as e:
+                        _transcript.append((("", ""), f"❌ Bash错误: {e}"))
+                    event.app.invalidate()
+                input_buffer.reset(append_to_history=True)
+                return
             input_buffer.reset(append_to_history=True)
             event.app.exit(result=text)
 
@@ -1144,6 +1171,31 @@ async def run_cli_loop(
     def _on_ctrl_c(event):
         """Ctrl+C 退出"""
         event.app.exit(result="__exit__")
+
+    @kb.add("c-d", filter=has_focus(input_buffer))
+    def _on_ctrl_d(event):
+        """Ctrl+D 退出程序"""
+        event.app.exit(result="__exit__")
+
+    @kb.add("c-l", filter=has_focus(input_buffer))
+    def _on_ctrl_l(event):
+        """Ctrl+L 清屏重绘"""
+        # 清空transcript列表
+        _transcript.clear()
+        # 重置滚动位置到顶部
+        output_scroll.vertical_scroll = 0
+        output_scroll.horizontal_scroll = 0
+        _stick_bottom[0] = True
+        event.app.invalidate()
+
+    @kb.add("c-t", filter=has_focus(input_buffer))
+    def _on_ctrl_t(event):
+        """Ctrl+T 显示后台任务列表"""
+        # TODO: 显示后台任务列表（待实现后台任务系统后完善）
+        # 当前显示简单的提示
+        _transcript.append((("", ""), "📌 后台任务系统即将推出...（Ctrl+T）"))
+        _stick_bottom[0] = True
+        event.app.invalidate()
 
     def _scroll_step() -> int:
         """PageUp/PageDown 一次滚动的行数（约为半屏）。"""

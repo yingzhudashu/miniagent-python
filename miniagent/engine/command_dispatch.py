@@ -107,6 +107,7 @@ async def dispatch_command(
         format_test_command_usage,
     )
     from miniagent.engine.doctor import diagnose_environment
+    from miniagent.engine.model_cmd import format_model_info, switch_model
     from miniagent.engine.session_lock import (
         is_session_locked,
         release_session_lock,
@@ -356,6 +357,20 @@ async def dispatch_command(
             )
         except Exception as e:
             output = f"❌ 技能 reload 失败: {e}"
+        if capture:
+            return output
+        print(output)
+        return None
+
+    # ── model: 显示/切换模型 ──
+    if cmd in (".model", "/model"):
+        if len(parts) > 1:
+            # 切换模型
+            new_model = parts[1]
+            output = switch_model(new_model)
+        else:
+            # 显示当前模型
+            output = format_model_info()
         if capture:
             return output
         print(output)
