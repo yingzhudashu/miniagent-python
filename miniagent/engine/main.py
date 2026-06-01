@@ -361,6 +361,13 @@ async def run_cli_loop(
     _stick_bottom: list[bool] = [True]
     _last_md_width: list[int] = [0]  # 上次渲染 Markdown 的终端宽度
 
+    # ─── 复制模式状态 ─────────────────────────────────────────────
+    _copy_mode_active: list[bool] = [False]  # 复制模式激活状态
+    _selection_start: list[tuple[int, int] | None] = [None]  # (fragment索引, 字符偏移)
+    _selection_end: list[tuple[int, int] | None] = [None]  # (fragment索引, 字符偏移)
+    _selection_text: list[str] = [""]  # 选中内容缓存
+    _copy_mode_mouse_down: list[bool] = [False]  # 鼠标按下状态（用于拖动选择）
+
     # 历史记录渐进式加载状态
     _history_loaded_range: dict[str, Any] = {
         "total_messages": 0,
@@ -633,6 +640,131 @@ async def run_cli_loop(
             truncated = truncated.rstrip("\n") + "\n"
         return truncated
 
+    # ─── 复制模式选择辅助函数 ───────────────────────────────────────────
+    def _get_transcript_fragment_text(frag_idx: int) -> str:
+        """获取指定 transcript fragment 的纯文本（去除ANSI）。"""
+        if frag_idx < 0 or frag_idx >= len(_transcript):
+            return ""
+        frag = _transcript[frag_idx]
+        if isinstance(frag, tuple) and len(frag) >= 2:
+            return frag[1] or ""
+        try:
+            from prompt_toolkit.formatted_text.ansi import ANSI as PTANSI
+            if isinstance(frag, PTANSI):
+                # 使用 strip_ansi 获取纯文本
+                from miniagent.engine.markdown_cli import strip_ansi
+                return strip_ansi(frag.value) or ""
+        except Exception:
+            pass
+        return ""
+
+    def _get_transcript_char_count(frag_idx: int) -> int:
+        """获取指定 fragment 的字符数。"""
+        return len(_get_transcript_fragment_text(frag_idx))
+
+    def _total_transcript_chars() -> int:
+        """计算 transcript 总字符数。"""
+        total = 0
+        for i in range(len(_transcript)):
+            total += _get_transcript_char_count(i)
+        return total
+
+    def _extract_selection_text() -> str:
+        """根据选择范围提取纯文本。"""
+        start = _selection_start[0]
+        end = _selection_end[0]
+        if start is None or end is None:
+            return ""
+
+        # 确保起点 <= 终点（可能反向选择）
+        if start[0] > end[0] or (start[0] == end[0] and start[1] > end[1]):
+            start, end = end, start
+
+        result_parts: list[str] = []
+        for frag_idx in range(start[0], end[0] + 1):
+            frag_text = _get_transcript_fragment_text(frag_idx)
+            if frag_idx == start[0] and frag_idx == end[0]:
+                # 同一 fragment：截取范围
+                result_parts.append(frag_text[start[1]:end[1]])
+            elif frag_idx == start[0]:
+                # 起点 fragment：从起点截取到末尾
+                result_parts.append(frag_text[start[1]:])
+            elif frag_idx == end[0]:
+                # 终点 fragment：从开头截取到终点
+                result_parts.append(frag_text[:end[1]])
+            else:
+                # 中间 fragment：完整内容
+                result_parts.append(frag_text)
+
+        return "".join(result_parts)
+
+    def _clear_selection() -> None:
+        """清除选择状态。"""
+        _selection_start[0] = None
+        _selection_end[0] = None
+        _selection_text[0] = ""
+        _copy_mode_mouse_down[0] = False
+
+    def _toggle_copy_mode() -> None:
+        """切换复制模式。"""
+        _copy_mode_active[0] = not _copy_mode_active[0]
+        if not _copy_mode_active[0]:
+            # 退出复制模式时清除选择
+            _clear_selection()
+        try:
+            get_app().invalidate()
+        except Exception:
+            pass
+
+    def _apply_selection_highlight(frag_idx: int, text: str) -> list[tuple[str, str]]:
+        """将文本按选择范围分割并应用高亮样式。
+
+        Args:
+            frag_idx: transcript fragment 索引
+            text: 原始文本
+
+        Returns:
+            带样式的 (style, text) 元组列表
+        """
+        start = _selection_start[0]
+        end = _selection_end[0]
+
+        if start is None or end is None:
+            return [("class:cli-default", text)]
+
+        # 确保起点 <= 终点
+        if start[0] > end[0] or (start[0] == end[0] and start[1] > end[1]):
+            start, end = end, start
+
+        # 检查当前 fragment 是否在选择范围内
+        if frag_idx < start[0] or frag_idx > end[0]:
+            return [("class:cli-default", text)]
+
+        result: list[tuple[str, str]] = []
+
+        if frag_idx == start[0] and frag_idx == end[0]:
+            # 同一 fragment：前段普通 + 中段高亮 + 后段普通
+            if start[1] > 0:
+                result.append(("class:cli-default", text[:start[1]]))
+            result.append(("class:cli-selection", text[start[1]:end[1]]))
+            if end[1] < len(text):
+                result.append(("class:cli-default", text[end[1]:]))
+        elif frag_idx == start[0]:
+            # 起点 fragment：前段普通 + 后段高亮
+            if start[1] > 0:
+                result.append(("class:cli-default", text[:start[1]]))
+            result.append(("class:cli-selection", text[start[1]:]))
+        elif frag_idx == end[0]:
+            # 终点 fragment：前段高亮 + 后段普通
+            result.append(("class:cli-selection", text[:end[1]]))
+            if end[1] < len(text):
+                result.append(("class:cli-default", text[end[1]:]))
+        else:
+            # 中间 fragment：完整高亮
+            result.append(("class:cli-selection", text))
+
+        return result
+
     def _flatten_transcript_for_pt() -> list[Any]:
         """Expand stored ``ANSI(...)`` rows to plain (style, text) fragments.
 
@@ -640,6 +772,8 @@ async def run_cli_loop(
         not recurse into items, so a mix of tuples and ``ANSI`` breaks ``split_lines``.
 
         边框线（border）按视口宽度截断，不随 ``wrap_lines`` 折行。
+
+        **复制模式支持**：当复制模式激活且有选择范围时，对选中内容应用高亮样式。
         """
         _recheck_md_width()
         from prompt_toolkit.formatted_text.ansi import ANSI as PTANSI
@@ -647,18 +781,49 @@ async def run_cli_loop(
 
         vp = _viewport_cols()
         out: list[Any] = []
-        for frag in _transcript:
-            if isinstance(frag, tuple) and len(frag) >= 2:
-                style_cls, text = frag[0], frag[1]
-                if style_cls in _BORDER_CLASSES:
-                    text = _border_truncate(text, vp)
-                out.append((style_cls, text))
-            elif isinstance(frag, PTANSI):
-                ansi_list = to_formatted_text(frag)
-                out.extend(_truncate_hrule_in_ansi(ansi_list, vp))
+
+        for frag_idx, frag in enumerate(_transcript):
+            # 复制模式下应用选择高亮
+            if _copy_mode_active[0] and _selection_start[0] is not None:
+                if isinstance(frag, tuple) and len(frag) >= 2:
+                    style_cls, text = frag[0], frag[1]
+                    if style_cls in _BORDER_CLASSES:
+                        text = _border_truncate(text, vp)
+                    # 应用选择高亮
+                    highlighted = _apply_selection_highlight(frag_idx, text)
+                    # 保留原始样式前缀（如果不是选择区域）
+                    for h_style, h_text in highlighted:
+                        if h_style == "class:cli-selection":
+                            out.append((h_style, h_text))
+                        else:
+                            out.append((style_cls, h_text))
+                elif isinstance(frag, PTANSI):
+                    # ANSI 对象：获取纯文本并应用高亮
+                    from miniagent.engine.markdown_cli import strip_ansi
+                    plain_text = strip_ansi(frag.value)
+                    highlighted = _apply_selection_highlight(frag_idx, plain_text)
+                    for h_style, h_text in highlighted:
+                        out.append((h_style, h_text))
+                else:
+                    ansi_list = to_formatted_text(frag)
+                    # 对 ANSI 列表也应用选择处理
+                    plain_text = "".join(item[1] if isinstance(item, tuple) and len(item) >= 2 else "" for item in ansi_list)
+                    highlighted = _apply_selection_highlight(frag_idx, plain_text)
+                    for h_style, h_text in highlighted:
+                        out.append((h_style, h_text))
             else:
-                ansi_list = to_formatted_text(frag)
-                out.extend(_truncate_hrule_in_ansi(ansi_list, vp))
+                # 正常模式：原有渲染逻辑
+                if isinstance(frag, tuple) and len(frag) >= 2:
+                    style_cls, text = frag[0], frag[1]
+                    if style_cls in _BORDER_CLASSES:
+                        text = _border_truncate(text, vp)
+                    out.append((style_cls, text))
+                elif isinstance(frag, PTANSI):
+                    ansi_list = to_formatted_text(frag)
+                    out.extend(_truncate_hrule_in_ansi(ansi_list, vp))
+                else:
+                    ansi_list = to_formatted_text(frag)
+                    out.extend(_truncate_hrule_in_ansi(ansi_list, vp))
         return out
 
     _output_scroll_ref: list[Any] = [None]
@@ -829,7 +994,13 @@ async def run_cli_loop(
         def mouse_handler(self, mouse_event: MouseEvent) -> NotImplemented | None:
             """滚轮事件改为驱动 ScrollablePane 纵向滚动；
             滚动条区域支持点击/拖动；非折行模式支持水平拖动。
+
+            **复制模式支持**：复制模式下，鼠标事件用于选择文本。
             """
+            # ─── 复制模式处理 ───────────────────────────────────────────
+            if _copy_mode_active[0]:
+                return self._handle_copy_mode_mouse(mouse_event)
+
             # ─── 垂直滚轮 ───────────────────────────────────────────
             if mouse_event.event_type == MouseEventType.SCROLL_UP:
                 _apply_transcript_scroll(-_wheel_line_step(), "mouse.SCROLL_UP")
@@ -914,6 +1085,87 @@ async def run_cli_loop(
                 return None
 
             return self._inner.mouse_handler(mouse_event)
+
+        def _handle_copy_mode_mouse(self, mouse_event: MouseEvent) -> NotImplemented | None:
+            """复制模式下处理鼠标选择。
+
+            简化实现：基于屏幕坐标估算 transcript 位置。
+            完整实现需要精确的坐标到文本映射（复杂度较高）。
+            """
+            try:
+                click_y = getattr(mouse_event.position, "y", 0)
+                click_x = getattr(mouse_event.position, "x", 0)
+            except Exception:
+                return NotImplemented
+
+            sp = _sp()
+            if sp is None:
+                return NotImplemented
+
+            # 计算屏幕行到 transcript 内容的映射
+            # scroll_offset = sp.vertical_scroll（顶部隐藏的行数）
+            scroll_offset = sp.vertical_scroll
+
+            # 简化：假设每行对应一个 transcript fragment（不完全准确但实用）
+            # 使用字符计数估算实际位置
+            total_chars = _total_transcript_chars()
+            vp_rows = _viewport_rows()
+
+            # 估算全局字符位置（基于屏幕坐标比例）
+            if vp_rows > 0:
+                # 点击的绝对行位置（考虑滚动）
+                abs_line = scroll_offset + click_y
+                # 估算字符位置（假设平均行宽）
+                vp_cols = _viewport_cols()
+                approx_char_pos = abs_line * vp_cols + click_x
+            else:
+                approx_char_pos = click_x
+
+            # 将字符位置映射到 (fragment_idx, char_offset)
+            char_accum = 0
+            target_frag_idx = 0
+            target_char_offset = 0
+
+            for frag_idx in range(len(_transcript)):
+                frag_len = _get_transcript_char_count(frag_idx)
+                if char_accum + frag_len > approx_char_pos:
+                    target_frag_idx = frag_idx
+                    target_char_offset = max(0, min(frag_len, approx_char_pos - char_accum))
+                    break
+                char_accum += frag_len
+                # 如果超出范围，使用最后一个 fragment
+                if frag_idx == len(_transcript) - 1:
+                    target_frag_idx = frag_idx
+                    target_char_offset = frag_len
+
+            # 处理鼠标事件
+            if mouse_event.event_type == MouseEventType.MOUSE_DOWN:
+                # 开始选择：记录起点
+                _selection_start[0] = (target_frag_idx, target_char_offset)
+                _selection_end[0] = (target_frag_idx, target_char_offset)
+                _copy_mode_mouse_down[0] = True
+                get_app().invalidate()
+                return None
+
+            elif mouse_event.event_type == MouseEventType.MOUSE_MOVE:
+                # 拖动选择：更新终点
+                if _copy_mode_mouse_down[0]:
+                    _selection_end[0] = (target_frag_idx, target_char_offset)
+                    _selection_text[0] = _extract_selection_text()
+                    get_app().invalidate()
+                return None
+
+            elif mouse_event.event_type == MouseEventType.MOUSE_UP:
+                # 结束选择
+                _copy_mode_mouse_down[0] = False
+                # 确保终点有效
+                if _selection_start[0] is not None:
+                    _selection_end[0] = (target_frag_idx, target_char_offset)
+                    _selection_text[0] = _extract_selection_text()
+                get_app().invalidate()
+                return None
+
+            return NotImplemented
 
     transcript_inner = FormattedTextControl(
         text=_flatten_transcript_for_pt,
@@ -1132,6 +1384,73 @@ async def run_cli_loop(
 
     kb = KeyBindings()
 
+    # ─── 复制模式键绑定 ───────────────────────────────────────────
+    @kb.add("c-m")
+    def _on_ctrl_m(event):
+        """Ctrl+M 切换复制模式。"""
+        _toggle_copy_mode()
+        if _copy_mode_active[0]:
+            # 进入复制模式：显示提示
+            _append_transcript("class:cli-copy-mode-hint", "\n[复制模式] 拖动鼠标选择 · Ctrl+C复制 · Enter复制并退出 · Esc取消 · Ctrl+M退出\n")
+            _stick_bottom[0] = True
+        else:
+            # 退出复制模式：清除提示和选择
+            _clear_selection()
+
+    # 复制模式专用过滤器
+    def _in_copy_mode() -> bool:
+        return _copy_mode_active[0]
+
+    @kb.add("c-c", filter=Condition(_in_copy_mode))
+    def _on_copy_mode_ctrl_c(event):
+        """复制模式下 Ctrl+C 复制选中内容。"""
+        text = _selection_text[0]
+        if text:
+            if copy_text_to_system_clipboard(text):
+                _append_transcript("class:cli-ok", f"\n✅ 已复制 {len(text)} 字符\n")
+            else:
+                _append_transcript("class:cli-err", "\n❌ 复制失败（剪贴板不可用）\n")
+        else:
+            _append_transcript("class:cli-warn", "\n⚠️ 请先选择内容\n")
+        _stick_bottom[0] = True
+
+    @kb.add("enter", filter=Condition(_in_copy_mode))
+    def _on_copy_mode_enter(event):
+        """复制模式下 Enter 复制并退出。"""
+        text = _selection_text[0]
+        if text:
+            if copy_text_to_system_clipboard(text):
+                _append_transcript("class:cli-ok", f"\n✅ 已复制 {len(text)} 字符并退出复制模式\n")
+            else:
+                _append_transcript("class:cli-err", "\n❌ 复制失败\n")
+        _toggle_copy_mode()
+        _stick_bottom[0] = True
+
+    @kb.add("escape", filter=Condition(_in_copy_mode))
+    def _on_copy_mode_escape(event):
+        """复制模式下 Escape 取消选择或退出复制模式。"""
+        if _selection_start[0] is not None:
+            # 有选择：取消选择
+            _clear_selection()
+        else:
+            # 无选择：退出复制模式
+            _toggle_copy_mode()
+
+    @kb.add("a", filter=Condition(_in_copy_mode))
+    def _on_copy_mode_select_all(event):
+        """复制模式下 a 全选。"""
+        if len(_transcript) > 0:
+            # 起点：第一个 fragment 的开头
+            _selection_start[0] = (0, 0)
+            # 终点：最后一个 fragment 的末尾
+            last_idx = len(_transcript) - 1
+            last_len = _get_transcript_char_count(last_idx)
+            _selection_end[0] = (last_idx, last_len)
+            _selection_text[0] = _extract_selection_text()
+            _append_transcript("class:cli-ok", f"\n✅ 已全选 {len(_selection_text[0])} 字符\n")
+            _stick_bottom[0] = True
+
+    # ─── 正常模式键绑定 ───────────────────────────────────────────
     @kb.add("enter", filter=has_focus(input_buffer))
     def _on_enter(event):
         """回车提交输入"""
@@ -1291,6 +1610,9 @@ async def run_cli_loop(
         "cli-warn": "ansiyellow",
         "cli-hint": "ansibrightblack dim",
         "cli-spacer": "",
+        # ─── 复制模式样式 ───────────────────────────────────────────
+        "cli-selection": "bg:ansicyan fg:ansiblack bold",  # 选择高亮：青色背景 + 黑色文字
+        "cli-copy-mode-hint": "ansiyellow bold",  # 复制模式提示：黄色加粗
         # 滚动条样式增强（更醒目）
         "scrollbar.button": "ansicyan bold reverse",  # 滑块：青色反显
         "scrollbar.background": "ansibrightblack",    # 轨道：灰色背景
@@ -1312,6 +1634,7 @@ async def run_cli_loop(
                     HTML(
                         "<cli-hint>PgUp/PgDn · 滚轮 · Shift+←/→ 水平滚动 · "
                         "Ctrl+Home/End 移光标 · "
+                        "Ctrl+M 复制模式 · "
                         ".copy 复制全部对话 · "
                         "新消息时自动跟随输出</cli-hint>"
                     )
