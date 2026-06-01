@@ -1508,6 +1508,79 @@ def cmd_improve(
     return last_user, last_assistant, suggestions
 
 
+def cmd_copy_transcript(
+    session_manager: Any,
+    session_id: str,
+    n: int = 1,
+) -> str:
+    """复制最近第N条助手回复到剪贴板。
+
+    Args:
+        session_manager: 会话管理器
+        session_id: 当前会话ID
+        n: 复制最近第N条回复（默认1，负数表示倒数）
+
+    Returns:
+        操作结果消息
+    """
+    from miniagent.engine.clipboard import copy_text_to_system_clipboard
+
+    if session_manager is None:
+        return "⚠️ 会话管理器未初始化"
+
+    session = session_manager.get(session_id)
+    if session is None:
+        return f"❌ 会话 {session_id} 不存在"
+
+    # 获取历史文件路径
+    files_path = getattr(session, "workspace_path", None) or getattr(session, "files_path", None)
+    if not files_path:
+        return "❌ 无法定位会话工作空间"
+
+    history_path = os.path.join(os.path.dirname(files_path), "history.json")
+    if not os.path.isfile(history_path):
+        return "❌ 会话历史文件不存在"
+
+    try:
+        with open(history_path, encoding="utf-8-sig") as f:
+            messages = json.load(f)
+
+        # 提取所有助手消息
+        assistant_msgs = [m for m in messages if isinstance(m, dict) and m.get("role") == "assistant"]
+
+        if not assistant_msgs:
+            return "❌ 没有助手回复可复制"
+
+        # 计算索引（负数支持）
+        if n < 0:
+            idx = n  # 负数直接作为索引（-1 = 最后一条）
+        else:
+            idx = -n  # 正数转换为负索引（1 = -1 = 最后一条）
+
+        try:
+            msg = assistant_msgs[idx]
+        except IndexError:
+            return f"❌ 索引 {n} 超出范围（共 {len(assistant_msgs)} 条助手回复）"
+
+        content = msg.get("content", "")
+        if not content or not isinstance(content, str):
+            return "❌ 该助手回复内容为空"
+
+        # 复制到剪贴板
+        success = copy_text_to_system_clipboard(content)
+        if success:
+            preview_len = min(100, len(content))
+            preview = content[:preview_len].replace("\n", " ")
+            if len(content) > preview_len:
+                preview += "..."
+            return f"✅ 已复制第 {abs(idx)} 条助手回复（{len(content)} 字符）\n   预览: {preview}"
+        else:
+            return "❌ 复制到剪贴板失败"
+
+    except Exception as e:
+        return f"❌ 读取历史失败: {e}"
+
+
 def cmd_help(
     message_queue: Any,
     instance_id: int | None = None,

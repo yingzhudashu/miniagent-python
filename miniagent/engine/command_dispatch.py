@@ -82,6 +82,7 @@ async def dispatch_command(
 
     from miniagent.engine.cli_commands import (
         cmd_bind,
+        cmd_copy_transcript,
         cmd_help,
         cmd_instance_handler,
         cmd_kb_list,
@@ -105,6 +106,7 @@ async def dispatch_command(
         format_session_command_usage,
         format_test_command_usage,
     )
+    from miniagent.engine.doctor import diagnose_environment
     from miniagent.engine.session_lock import (
         is_session_locked,
         release_session_lock,
@@ -354,6 +356,40 @@ async def dispatch_command(
             )
         except Exception as e:
             output = f"❌ 技能 reload 失败: {e}"
+        if capture:
+            return output
+        print(output)
+        return None
+
+    # ── copy: 复制助手回复 ──
+    if cmd in (".copy", "/copy"):
+        sm = state.get("session_manager")
+        session_id = state.get("active_session_id", "")
+        # 解析参数
+        n = 1
+        if len(parts) > 1:
+            try:
+                n = int(parts[1])
+            except ValueError:
+                pass  # 无效参数，使用默认值
+
+        output = cmd_copy_transcript(sm, session_id, n)
+        if capture:
+            return output
+        print(output)
+        return None
+
+    # ── doctor: 环境诊断 ──
+    if cmd in (".doctor", "/doctor"):
+        output = diagnose_environment()
+        if capture:
+            return output
+        print(output)
+        return None
+
+    # ── query: 队列状态（合并.queue status） ──
+    if cmd in (".query", "/query"):
+        output = _capture(lambda md=md_cmds: cmd_queue_status(message_queue, markdown=md))
         if capture:
             return output
         print(output)
