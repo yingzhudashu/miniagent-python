@@ -476,8 +476,10 @@ async def run_cli_loop(
             # 无论是否有历史，都设置状态
             _history_loaded_range["total_messages"] = total
             _history_loaded_range["loaded_start"] = 0
-            _history_loaded_range["loaded_end"] = min(_initial_history_count, total)
-            _history_loaded_range["all_loaded"] = total <= _initial_history_count
+            # 使用实际加载的消息数量，而非请求的 count（修复后可能多1条）
+            _history_loaded_range["loaded_end"] = len(messages)
+            # 如果实际加载数量 >= total，则全部已加载
+            _history_loaded_range["all_loaded"] = len(messages) >= total
 
             if not messages:
                 _logger.info("历史加载: 无消息，跳过渲染")
@@ -490,7 +492,7 @@ async def run_cli_loop(
 
             # 如果有更多历史，添加提示
             if not _history_loaded_range["all_loaded"]:
-                remaining = total - _initial_history_count
+                remaining = total - len(messages)
                 _append_transcript(
                     "class:cli-hint",
                     f"\n[↑ 向上滚动加载更多历史 · 还有 {remaining} 条]\n"
