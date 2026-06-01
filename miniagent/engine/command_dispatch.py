@@ -23,6 +23,7 @@ from typing import Any
 
 from miniagent.engine.cli_state import CliLoopState
 from miniagent.infrastructure.logger import get_logger
+from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
 
 _logger = get_logger(__name__)
 
@@ -123,7 +124,7 @@ async def dispatch_command(
 
     rt = state.get("runtime_ctx")
     if rt is None:
-        msg = "⚠️ 运行时上下文未初始化（缺少 runtime_ctx）"
+        msg = f"{WARNING_PREFIX} 运行时上下文未初始化（缺少 runtime_ctx）"
         if capture:
             return msg
         print(msg)
@@ -150,7 +151,7 @@ async def dispatch_command(
     # ── .stop：飞书 capture 默认拒绝；MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1 时与 CLI 相同
     if cmd in (".stop", "/stop"):
         if capture and not feishu_dot_commands_full_enabled():
-            return "⚠️ .stop 命令只能在 CLI 使用（或设置 MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1）"
+            return f"{WARNING_PREFIX} .stop 命令只能在 CLI 使用（或设置 MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1）"
         from miniagent.engine.shutdown import shutdown_runtime
 
         await shutdown_runtime(
@@ -204,7 +205,7 @@ async def dispatch_command(
                     state["active_session_id"] = new_active
                     output = buf.getvalue().strip()
                 except Exception as e:
-                    output = f"❌ 命令执行失败: {e}"
+                    output = f"{ERROR_PREFIX} 命令执行失败: {e}"
         elif sub_cmd == "create" and len(parts) >= 3:
             if block_remote:
                 output = _REMOTE_SESSION_HINT
@@ -220,7 +221,7 @@ async def dispatch_command(
                         )
                     output = buf.getvalue().strip()
                 except Exception as e:
-                    output = f"❌ 命令执行失败: {e}"
+                    output = f"{ERROR_PREFIX} 命令执行失败: {e}"
         elif sub_cmd == "rename" and len(parts) >= 4:
             if block_remote:
                 output = _REMOTE_SESSION_HINT
@@ -241,7 +242,7 @@ async def dispatch_command(
                         )
                     output = buf.getvalue().strip()
                 except Exception as e:
-                    output = f"❌ 命令执行失败: {e}"
+                    output = f"{ERROR_PREFIX} 命令执行失败: {e}"
         else:
             output = format_session_command_usage()
 
@@ -266,7 +267,7 @@ async def dispatch_command(
 
         if text == ".feishu start":
             if factory is None:
-                output = "⚠️ 飞书处理器工厂未初始化"
+                output = f"{WARNING_PREFIX} 飞书处理器工厂未初始化"
             else:
                 us = _resolve_feishu_user_status()
 
@@ -338,7 +339,7 @@ async def dispatch_command(
         if monitor:
             output = _capture(lambda: print(f"\n{monitor.report()}"))
         else:
-            output = "⚠️ 监控器未初始化"
+            output = f"{WARNING_PREFIX} 监控器未初始化"
         if capture:
             return output
         print(output)
@@ -363,7 +364,7 @@ async def dispatch_command(
                 f"  移除工具: {len(fr.removed_tools)}"
             )
         except Exception as e:
-            output = f"❌ 技能 reload 失败: {e}"
+            output = f"{ERROR_PREFIX} 技能 reload 失败: {e}"
         if capture:
             return output
         print(output)
@@ -460,7 +461,7 @@ async def dispatch_command(
     # ── .bind ──
     if cmd in (".bind", "/bind"):
         if channel_router is None:
-            output = "⚠️ 通道路由器未初始化"
+            output = f"{WARNING_PREFIX} 通道路由器未初始化"
         else:
             args = parts[1:] if len(parts) > 1 else []
             output = cmd_bind(channel_router, args, state)
@@ -472,7 +473,7 @@ async def dispatch_command(
     # ── .unbind ──
     if cmd in (".unbind", "/unbind"):
         if channel_router is None:
-            output = "⚠️ 通道路由器未初始化"
+            output = f"{WARNING_PREFIX} 通道路由器未初始化"
         else:
             args = parts[1:] if len(parts) > 1 else []
             output = cmd_unbind(channel_router, args, state)
@@ -536,12 +537,12 @@ async def dispatch_command(
         sm = state.get("session_manager")
         session_id = state.get("active_session_id", "")
         if rt is None or sm is None or not session_id:
-            output = "⚠️ .review 需要会话上下文和会话管理器"
+            output = f"{WARNING_PREFIX} .review 需要会话上下文和会话管理器"
         else:
             # 获取最后一轮 Q&A
             user_msg, assistant_msg = _get_last_qa(sm, session_id)
             if not user_msg or not assistant_msg:
-                output = "⚠️ 当前会话无历史对话，无法审查"
+                output = f"{WARNING_PREFIX} 当前会话无历史对话，无法审查"
             else:
                 extra_feedback = " ".join(parts[1:]).strip() if len(parts) > 1 else ""
                 output = await _run_review(
@@ -563,7 +564,7 @@ async def dispatch_command(
         sm = state.get("session_manager")
         session_id = state.get("active_session_id", "")
         if rt is None or sm is None or not session_id:
-            output = "⚠️ .improve 需要会话上下文和会话管理器"
+            output = f"{WARNING_PREFIX} .improve 需要会话上下文和会话管理器"
         else:
             # 解析参数
             force = "--force" in parts
@@ -610,7 +611,7 @@ async def dispatch_command(
 
                     output = improved_answer if capture else None
                 else:
-                    output = "⚠️ 改进失败"
+                    output = f"{WARNING_PREFIX} 改进失败"
 
         if capture:
             return output
@@ -622,17 +623,17 @@ async def dispatch_command(
     if cmd in (".confirm", ".adjust", ".reject"):
         cc = getattr(engine, "confirmation_channel", None) if engine else None
         if cc is None or not cc.has_pending:
-            output = "⚠️ 当前无待确认的请求"
+            output = f"{WARNING_PREFIX} 当前无待确认的请求"
         elif cmd in (".confirm", "/confirm"):
             from miniagent.types.confirmation import ConfirmationResult
 
             cc.respond(ConfirmationResult(approved=True))
-            output = "✅ 已确认，继续执行"
+            output = f"{SUCCESS_PREFIX} 已确认，继续执行"
         elif cmd in (".reject", "/reject"):
             from miniagent.types.confirmation import ConfirmationResult
 
             cc.respond(ConfirmationResult(approved=False, rejected=True))
-            output = "⚠️ 已拒绝，取消当前操作"
+            output = f"{WARNING_PREFIX} 已拒绝，取消当前操作"
         else:
             # .adjust <新内容>
             adjustment = " ".join(parts[1:]).strip()
@@ -642,7 +643,7 @@ async def dispatch_command(
                 from miniagent.types.confirmation import ConfirmationResult
 
                 cc.respond(ConfirmationResult(approved=True, adjustment=adjustment))
-                output = f"✅ 已调整并确认：{adjustment[:60]}{'…' if len(adjustment) > 60 else ''}"
+                output = f"{SUCCESS_PREFIX} 已调整并确认：{adjustment[:60]}{'…' if len(adjustment) > 60 else ''}"
 
         if capture:
             return output
@@ -690,7 +691,7 @@ def _capture(fn: Callable[[], None]) -> str:
         with redirect_stdout(buf):
             fn()
     except Exception as e:
-        return f"❌ 命令执行失败: {e}"
+        return f"{ERROR_PREFIX} 命令执行失败: {e}"
     return buf.getvalue().strip()
 
 
@@ -810,7 +811,7 @@ async def _run_review(
 
     # 空结果说明 LLM 调用失败或无响应
     if not review_result:
-        _write("⚠️ 审查服务不可用（LLM 无响应）", "ansired")
+        _write(f"{WARNING_PREFIX} 审查服务不可用（LLM 无响应）", "ansired")
         return None
 
     has_issues = review_result.get("has_issues", False)
@@ -818,11 +819,11 @@ async def _run_review(
     improved = review_result.get("improved_answer")
 
     if not has_issues or not issues:
-        _write("✅ 未发现明显问题，答案质量良好。", "ansigreen")
+        _write(f"{SUCCESS_PREFIX} 未发现明显问题，答案质量良好。", "ansigreen")
         return None
 
     issue_summary = "；".join(i.get("description", "")[:60] for i in issues[:3])
-    _write(f"⚠️ 发现 {len(issues)} 个问题：{issue_summary}", "ansiyellow")
+    _write(f"{WARNING_PREFIX} 发现 {len(issues)} 个问题：{issue_summary}", "ansiyellow")
     _write("🔄 正在改进答案…", "ansicyan")
 
     current_answer = improved or assistant_msg
@@ -838,7 +839,7 @@ async def _run_review(
 
         # 空结果 → LLM 不可用
         if not review_result:
-            _write("⚠️ 审查服务不可用，返回当前最佳答案", "ansired")
+            _write(f"{WARNING_PREFIX} 审查服务不可用，返回当前最佳答案", "ansired")
             break
 
         has_issues = review_result.get("has_issues", False)
@@ -846,7 +847,7 @@ async def _run_review(
         new_improved = review_result.get("improved_answer")
 
         if not has_issues or not new_issues:
-            _write(f"✅ 第 {iteration + 1} 轮审查通过，无新问题。", "ansigreen")
+            _write(f"{SUCCESS_PREFIX} 第 {iteration + 1} 轮审查通过，无新问题。", "ansigreen")
             break
 
         prev_issue_count = len(new_issues)
@@ -855,10 +856,10 @@ async def _run_review(
             issue_summary = "；".join(i.get("description", "")[:60] for i in new_issues[:2])
             _write(f"🔄 第 {iteration + 1} 轮发现 {len(new_issues)} 个问题，继续改进：{issue_summary}", "ansiyellow")
         else:
-            _write(f"⚠️ 第 {iteration + 1} 轮发现 {len(new_issues)} 个问题，但无法生成改进答案", "ansired")
+            _write(f"{WARNING_PREFIX} 第 {iteration + 1} 轮发现 {len(new_issues)} 个问题，但无法生成改进答案", "ansired")
             break
     else:
-        _write(f"⚠️ 已达到最大迭代次数（{max_iterations} 轮），返回最新答案", "ansiyellow")
+        _write(f"{WARNING_PREFIX} 已达到最大迭代次数（{max_iterations} 轮），返回最新答案", "ansiyellow")
 
     # 输出最终答案
     _write("\n--- 优化后的答案 ---", "ansigreen")
@@ -949,10 +950,10 @@ async def _run_improve(
     improved_answer = result.get("improved_answer", "") if result else ""
 
     if not improved_answer:
-        _write("⚠️ 改进失败（LLM 无响应）", "ansired")
+        _write(f"{WARNING_PREFIX} 改进失败（LLM 无响应）", "ansired")
         return None
 
-    _write("✅ 答案已改进", "ansigreen")
+    _write(f"{SUCCESS_PREFIX} 答案已改进", "ansigreen")
 
     if capture:
         return f"🔄 改进完成\n\n{improved_answer[:2000]}"
@@ -967,7 +968,7 @@ def _format_status(state: CliLoopState | dict[str, Any]) -> str:
 
     rt = state.get("runtime_ctx")
     if rt is None:
-        return "⚠️ 运行时上下文未初始化（缺少 runtime_ctx）"
+        return f"{WARNING_PREFIX} 运行时上下文未初始化（缺少 runtime_ctx）"
 
     message_queue = rt.message_queue
     channel_router = rt.channel_router

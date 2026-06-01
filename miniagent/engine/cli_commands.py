@@ -22,7 +22,7 @@ import os
 import time
 from typing import Any
 
-from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX
+from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
 
 
 def feishu_markdown_commands_enabled() -> bool:
@@ -111,10 +111,10 @@ def cmd_kb_mount(path: str, name: str | None = None) -> None:
     result = mount_knowledge_base(path, name)
     if result.get("success"):
         stats = result.get("stats", {})
-        print(f"✅ 已挂载知识库: {result.get('kb_name')}")
+        print(f"{SUCCESS_PREFIX} 已挂载知识库: {result.get('kb_name')}")
         print(f"   条目数: {stats.get('entries', 0)}, 关键词: {stats.get('keywords', 0)}")
     else:
-        print(f"❌ {result.get('message')}")
+        print(f"{ERROR_PREFIX} {result.get('message')}")
 
 
 def cmd_kb_unmount(name: str) -> None:
@@ -123,9 +123,9 @@ def cmd_kb_unmount(name: str) -> None:
 
     result = unmount_knowledge_base(name)
     if result.get("success"):
-        print(f"✅ {result.get('message')}")
+        print(f"{SUCCESS_PREFIX} {result.get('message')}")
     else:
-        print(f"❌ {result.get('message')}")
+        print(f"{ERROR_PREFIX} {result.get('message')}")
 
 
 def cmd_kb_search(query: str, kb_name: str | None = None) -> None:
@@ -136,7 +136,7 @@ def cmd_kb_search(query: str, kb_name: str | None = None) -> None:
     if result:
         print(result)
     else:
-        print("⚠️ 未找到相关内容")
+        print(f"{WARNING_PREFIX} 未找到相关内容")
 
 
 def cmd_kb_reload(name: str | None = None) -> None:
@@ -146,9 +146,9 @@ def cmd_kb_reload(name: str | None = None) -> None:
     registry = get_kb_registry()
     result = registry.reload(name)
     if result.get("success"):
-        print(f"✅ {result.get('message')}")
+        print(f"{SUCCESS_PREFIX} {result.get('message')}")
     else:
-        print(f"❌ {result.get('message')}")
+        print(f"{ERROR_PREFIX} {result.get('message')}")
 
 
 def format_test_command_usage() -> str:
@@ -171,11 +171,11 @@ def format_queue_abort_message(result: dict[str, Any]) -> str:
     cdw = int(result.get("cancelled_dispatch_wait") or 0)
     if not cr and cp == 0 and not pr and cdw == 0:
         return (
-            "✅ 已处理：当前聊天队列无运行中或排队的任务（进程与实例仍在运行）。\n"
+            f"{SUCCESS_PREFIX} 已处理：当前聊天队列无运行中或排队的任务（进程与实例仍在运行）。\n"
             "提示：全屏 CLI 在 Agent 单轮执行期间无法再次输入点命令；飞书侧可随时发送 `.abort` / `.queue abort` 打断。"
         )
     lines: list[str] = [
-        "✅ 已中止本聊天消息队列上的任务（未调用 `.stop`，进程与实例仍在运行）。",
+        f"{SUCCESS_PREFIX} 已中止本聊天消息队列上的任务（未调用 `.stop`，进程与实例仍在运行）。",
     ]
     if pr:
         lines.append("  · 已取消打断（preemptive）模式下当前执行的任务。")
@@ -401,7 +401,7 @@ def cmd_session_list(
         markdown: True 时输出 GFM 表格（飞书 ``MINIAGENT_FEISHU_MARKDOWN_COMMANDS``）
     """
     if not session_manager:
-        print("⚠️ 会话管理器未初始化")
+        print(f"{WARNING_PREFIX} 会话管理器未初始化")
         return
 
     sessions = session_manager.list_all_sessions_with_info()
@@ -483,19 +483,19 @@ def cmd_instance_handler(
         try:
             instance_id = int(parts[2])
         except ValueError:
-            print(f"⚠️ 无效的实例 ID: {parts[2]}")
+            print(f"{WARNING_PREFIX} 无效的实例 ID: {parts[2]}")
             return
 
         my_instance_id = state.get("instance_id")
         if instance_id == my_instance_id:
-            print("⚠️ 不能停止当前实例，请使用 .stop")
+            print(f"{WARNING_PREFIX} 不能停止当前实例，请使用 .stop")
             return
 
         result = stop_instance_by_id(instance_id)
         if result.get("success"):
-            print(f"✅ 实例 #{instance_id} 已停止: {result.get('reason', '')}")
+            print(f"{SUCCESS_PREFIX} 实例 #{instance_id} 已停止: {result.get('reason', '')}")
         else:
-            print(f"❌ 停止失败: {result.get('reason', '')}")
+            print(f"{ERROR_PREFIX} 停止失败: {result.get('reason', '')}")
 
     else:
         # 显示用法帮助
@@ -536,13 +536,13 @@ async def cmd_session_switch(
         新的活跃会话 ID（切换失败则返回原 ID）
     """
     if not session_manager:
-        print("⚠️ 会话管理器未初始化")
+        print(f"{WARNING_PREFIX} 会话管理器未初始化")
         return active_session_id
 
     # 解析目标会话 ID
     session_id = _resolve_session(session_manager, id_or_number)
     if not session_id:
-        print(f"❌ 会话不存在: {id_or_number}")
+        print(f"{ERROR_PREFIX} 会话不存在: {id_or_number}")
         return active_session_id
 
     # 释放当前会话锁
@@ -565,7 +565,7 @@ async def cmd_session_switch(
         ]
         if locked_sessions:
             print(
-                f"⚠️ 会话 #{locked_sessions[0]['number']} "
+                f"{WARNING_PREFIX} 会话 #{locked_sessions[0]['number']} "
                 f"{locked_sessions[0]['title']} 被其他实例占用 (PID={lock_pid})"
             )
             # 重新锁定当前会话
@@ -581,7 +581,7 @@ async def cmd_session_switch(
     # 获取目标会话锁
     ok, reason = try_lock_session(session_id)
     if not ok:
-        print(f"❌ 无法切换: {reason}")
+        print(f"{ERROR_PREFIX} 无法切换: {reason}")
         try_lock_session(active_session_id)
         return active_session_id
 
@@ -609,7 +609,7 @@ async def cmd_session_create(
         try_lock_session: 尝试获取会话锁的函数
     """
     if not session_manager:
-        print("⚠️ 会话管理器未初始化")
+        print(f"{WARNING_PREFIX} 会话管理器未初始化")
         return
 
     from miniagent.session.manager import SessionOptions
@@ -625,7 +625,7 @@ async def cmd_session_create(
     try_lock_session(session_id)
 
     display = session_manager.get_session_display_name(session_id)
-    print(f"✅ 已创建会话: {display}")
+    print(f"{SUCCESS_PREFIX} 已创建会话: {display}")
 
 
 def cmd_session_rename(session_manager: Any, id_or_number: str, new_title: str) -> None:
@@ -637,20 +637,20 @@ def cmd_session_rename(session_manager: Any, id_or_number: str, new_title: str) 
         new_title: 新的会话标题
     """
     if not session_manager:
-        print("⚠️ 会话管理器未初始化")
+        print(f"{WARNING_PREFIX} 会话管理器未初始化")
         return
 
     session_id = _resolve_session(session_manager, id_or_number)
     if not session_id:
-        print(f"❌ 会话不存在: {id_or_number}")
+        print(f"{ERROR_PREFIX} 会话不存在: {id_or_number}")
         return
 
     ok = session_manager.rename_session(session_id, new_title)
     if ok:
         display = session_manager.get_session_display_name(session_id)
-        print(f"✅ 已重命名: {display}")
+        print(f"{SUCCESS_PREFIX} 已重命名: {display}")
     else:
-        print("❌ 重命名失败")
+        print(f"{ERROR_PREFIX} 重命名失败")
 
 
 def cmd_session_delete(
@@ -671,16 +671,16 @@ def cmd_session_delete(
         keep_files: 是否保留工作空间文件（默认 True）
     """
     if not session_manager:
-        print("⚠️ 会话管理器未初始化")
+        print(f"{WARNING_PREFIX} 会话管理器未初始化")
         return
 
     session_id = _resolve_session(session_manager, id_or_number)
     if not session_id:
-        print(f"❌ 会话不存在: {id_or_number}")
+        print(f"{ERROR_PREFIX} 会话不存在: {id_or_number}")
         return
 
     if session_id == active_session_id:
-        print("❌ 不能删除当前活跃会话，请先 .session switch 到其他会话")
+        print(f"{ERROR_PREFIX} 不能删除当前活跃会话，请先 .session switch 到其他会话")
         return
 
     display = session_manager.get_session_display_name(session_id)
@@ -694,9 +694,9 @@ def cmd_session_delete(
     ok = session_manager.destroy(session_id, keep_files=keep_files)
     if ok:
         action = "已删除（保留文件）" if keep_files else "已删除（清除文件）"
-        print(f"✅ {display} {action}")
+        print(f"{SUCCESS_PREFIX} {display} {action}")
     else:
-        print(f"❌ 删除失败: {display}")
+        print(f"{ERROR_PREFIX} 删除失败: {display}")
 
 
 def cmd_queue_status(message_queue: Any, *, markdown: bool = False) -> None:
@@ -756,12 +756,12 @@ async def cmd_queue_set(message_queue: Any, mode_str: str) -> None:
     mode_str = mode_str.lower()
     if mode_str == "queue":
         message_queue.mode = QueueMode.QUEUE
-        print("✅ 已切换到队列模式（消息按顺序处理）")
+        print(f"{SUCCESS_PREFIX} 已切换到队列模式（消息按顺序处理）")
     elif mode_str == "preemptive":
         message_queue.mode = QueueMode.PREEMPTIVE
-        print("✅ 已切换到打断模式（最新消息打断前面处理）")
+        print(f"{SUCCESS_PREFIX} 已切换到打断模式（最新消息打断前面处理）")
     else:
-        print(f"❌ 未知模式: {mode_str}")
+        print(f"{ERROR_PREFIX} 未知模式: {mode_str}")
         print("   可用: queue, preemptive")
 
 
@@ -1030,7 +1030,7 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
 
     if sub == "align-tz":
         if not allow_mutations:
-            return "❌ 飞书渠道不允许修改定时任务，请在本地 CLI 执行 .schedule align-tz"
+            return f"{ERROR_PREFIX} 飞书渠道不允许修改定时任务，请在本地 CLI 执行 .schedule align-tz"
         tasks = load_tasks()
         n, detail = align_task_timezones_to_env(tasks)
         if n == 0:
@@ -1044,7 +1044,7 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
 
     if not allow_mutations:
         if sub in ("add", "update", "remove", "enable", "disable", "align-tz"):
-            return "⚠️ 当前渠道不允许修改定时任务，请在本地 MiniAgent CLI 执行。"
+            return f"{WARNING_PREFIX} 当前渠道不允许修改定时任务，请在本地 MiniAgent CLI 执行。"
 
     if sub == "remove" and len(parts) >= 2:
         tid = parts[1]
@@ -1182,7 +1182,7 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
         tasks.append(task)
         save_tasks(tasks)
         return (
-            f"✅ 已添加任务 {tid}，timezone={task.schedule.timezone}"
+            f"{SUCCESS_PREFIX} 已添加任务 {tid}，timezone={task.schedule.timezone}"
             f"，next={format_next_run_display(task)}"
         )
 
@@ -1272,7 +1272,7 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
         repair_invalid_schedules(tasks)
         save_tasks(tasks)
         return (
-            f"✅ 已更新任务 {tid}，timezone={existing.schedule.timezone}"
+            f"{SUCCESS_PREFIX} 已更新任务 {tid}，timezone={existing.schedule.timezone}"
             f"，next={format_next_run_display(existing)}"
         )
 
@@ -1485,7 +1485,7 @@ def cmd_improve(
 
     # 2. 检查边界情况
     if not last_assistant:
-        return "⚠️ 当前会话无历史对话，无法改进", False
+        return f"{WARNING_PREFIX} 当前会话无历史对话，无法改进", False
 
     # 3. 提取质量评估建议
     suggestions = _extract_improve_suggestions(last_assistant)
@@ -1495,16 +1495,16 @@ def cmd_improve(
             if force:
                 # 强制改进模式：即使无建议也允许改进（返回空建议列表）
                 return last_user, last_assistant, []
-            return "✅ 上一轮质量评估已通过，无需改进（使用 `.improve --force` 强制改进）", False
+            return f"{SUCCESS_PREFIX} 上一轮质量评估已通过，无需改进（使用 `.improve --force` 强制改进）", False
         else:
-            return "⚠️ 上一轮未启用质量评估，无法改进", False
+            return f"{WARNING_PREFIX} 上一轮未启用质量评估，无法改进", False
 
     # 4. 检查是否已改进过（限制轮次）
     metadata = last_assistant.get("metadata", {})
     if metadata.get("improved") and not reset:
         improve_round = metadata.get("improve_round", 1)
         if improve_round >= 3:
-            return "⚠️ 已达到改进轮次上限（3轮），建议重新提问或使用 `.review`", False
+            return f"{WARNING_PREFIX} 已达到改进轮次上限（3轮），建议重新提问或使用 `.review`", False
 
     # 5. 返回改进所需的上下文
     return last_user, last_assistant, suggestions
@@ -1528,7 +1528,7 @@ def cmd_copy_transcript(
     from miniagent.engine.clipboard import copy_text_to_system_clipboard
 
     if session_manager is None:
-        return "⚠️ 会话管理器未初始化"
+        return f"{WARNING_PREFIX} 会话管理器未初始化"
 
     session = session_manager.get(session_id)
     if session is None:
@@ -1537,11 +1537,11 @@ def cmd_copy_transcript(
     # 获取历史文件路径
     files_path = getattr(session, "workspace_path", None) or getattr(session, "files_path", None)
     if not files_path:
-        return "❌ 无法定位会话工作空间"
+        return f"{ERROR_PREFIX} 无法定位会话工作空间"
 
     history_path = os.path.join(os.path.dirname(files_path), "history.json")
     if not os.path.isfile(history_path):
-        return "❌ 会话历史文件不存在"
+        return f"{ERROR_PREFIX} 会话历史文件不存在"
 
     try:
         with open(history_path, encoding="utf-8-sig") as f:
@@ -1551,7 +1551,7 @@ def cmd_copy_transcript(
         assistant_msgs = [m for m in messages if isinstance(m, dict) and m.get("role") == "assistant"]
 
         if not assistant_msgs:
-            return "❌ 没有助手回复可复制"
+            return f"{ERROR_PREFIX} 没有助手回复可复制"
 
         # 计算索引（负数支持）
         if n < 0:
@@ -1566,7 +1566,7 @@ def cmd_copy_transcript(
 
         content = msg.get("content", "")
         if not content or not isinstance(content, str):
-            return "❌ 该助手回复内容为空"
+            return f"{ERROR_PREFIX} 该助手回复内容为空"
 
         # 复制到剪贴板
         success = copy_text_to_system_clipboard(content)
@@ -1577,7 +1577,7 @@ def cmd_copy_transcript(
                 preview += "..."
             return f"{SUCCESS_PREFIX} 已复制第 {abs(idx)} 条助手回复（{len(content)} 字符）\n   预览: {preview}"
         else:
-            return "❌ 复制到剪贴板失败"
+            return f"{ERROR_PREFIX} 复制到剪贴板失败"
 
     except Exception as e:
         return f"{ERROR_PREFIX} 读取历史失败: {e}"
