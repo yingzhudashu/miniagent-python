@@ -370,7 +370,6 @@ async def run_agent(
             registry=registry,
             planner_model_overrides=planner_merge_for_difficulty(difficulty),
             default_step_thinking=default_step_thinking_for_difficulty(difficulty),
-            on_thinking=on_thinking,
         )
 
         # 合并规划器的建议配置（suggested_config）到运行配置

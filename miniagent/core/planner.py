@@ -82,7 +82,6 @@ async def generate_plan(
     registry: Any | None = None,
     planner_model_overrides: dict[str, Any] | None = None,
     default_step_thinking: str = "medium",
-    on_thinking: Any | None = None,
 ) -> StructuredPlan:
     """根据用户需求和可用工具箱生成结构化执行计划。
 
