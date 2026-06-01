@@ -22,6 +22,8 @@ import os
 import time
 from typing import Any
 
+from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX
+
 
 def feishu_markdown_commands_enabled() -> bool:
     """飞书 capture 路径下是否用 Markdown 表格输出部分 `.` 命令（会话列表、队列、实例列表）。"""
@@ -800,7 +802,7 @@ def cmd_bind(channel_router: Any, args: list[str], state: dict[str, Any] | None 
         old = channel_router.bind(ChannelRouter.CLI_CHANNEL, session_id)
         channel_router.set_primary(session_id)
         old_msg = f"（原绑定: {old}）" if old else ""
-        return f"✅ CLI 已绑定到会话: {session_id} {old_msg}"
+        return f"{SUCCESS_PREFIX} CLI 已绑定到会话: {session_id} {old_msg}"
 
     elif channel == "feishu":
         if len(args) < 3:
@@ -814,7 +816,7 @@ def cmd_bind(channel_router: Any, args: list[str], state: dict[str, Any] | None 
         session_id = normalize_bind_session_id("feishu", args[2])
         ok, err = p2p_bind_target_allowed(channel_router, session_id)
         if not ok:
-            return f"❌ {err}"
+            return f"{ERROR_PREFIX} {err}"
         channel_id = f"{ChannelRouter.FEISHU_P2P_PREFIX}{sender_id}"
         old = channel_router.bind(channel_id, session_id)
         old_msg = f"（原绑定: {old}）" if old else ""
@@ -822,9 +824,9 @@ def cmd_bind(channel_router: Any, args: list[str], state: dict[str, Any] | None 
             synced = state.setdefault("feishu_p2p_synced_senders", set())
             if isinstance(synced, set):
                 synced.discard(sender_id)
-        return f"✅ 飞书私聊 ({sender_id[:8]}...) 已绑定到: {session_id} {old_msg}"
+        return f"{SUCCESS_PREFIX} 飞书私聊 ({sender_id[:8]}...) 已绑定到: {session_id} {old_msg}"
 
-    return f"❌ 未知通道: {channel}"
+    return f"{ERROR_PREFIX} 未知通道: {channel}"
 
 
 def cmd_unbind(channel_router: Any, args: list[str], state: dict[str, Any] | None = None) -> str:
@@ -859,12 +861,12 @@ def cmd_unbind(channel_router: Any, args: list[str], state: dict[str, Any] | Non
             st = state["feishu_p2p_synced_senders"]
             if isinstance(st, set):
                 st.clear()
-        return f"✅ 已解除 {count} 个通道绑定"
+        return f"{SUCCESS_PREFIX} 已解除 {count} 个通道绑定"
 
     elif target == "cli":
         old = channel_router.unbind(ChannelRouter.CLI_CHANNEL)
         if old:
-            return f"✅ CLI 已解除绑定（原: {old}）"
+            return f"{SUCCESS_PREFIX} CLI 已解除绑定（原: {old}）"
         return "📭 CLI 未绑定任何会话"
 
     elif target == "feishu":
@@ -878,10 +880,10 @@ def cmd_unbind(channel_router: Any, args: list[str], state: dict[str, Any] | Non
             if isinstance(synced, set):
                 synced.discard(sender_id)
         if old:
-            return f"✅ 飞书私聊 ({sender_id[:8]}...) 已解除绑定（原: {old}）"
+            return f"{SUCCESS_PREFIX} 飞书私聊 ({sender_id[:8]}...) 已解除绑定（原: {old}）"
         return "📭 该飞书私聊未绑定任何会话"
 
-    return f"❌ 未知通道: {target}"
+    return f"{ERROR_PREFIX} 未知通道: {target}"
 
 
 def format_schedule_command_usage() -> str:
@@ -1038,7 +1040,7 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
             return msg
         repair_invalid_schedules(tasks)
         save_tasks(tasks)
-        return f"✅ 已对齐 {n} 个任务时区:\n" + "\n".join(detail)
+        return f"{SUCCESS_PREFIX} 已对齐 {n} 个任务时区:\n" + "\n".join(detail)
 
     if not allow_mutations:
         if sub in ("add", "update", "remove", "enable", "disable", "align-tz"):
@@ -1051,7 +1053,7 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
         if len(new) == len(tasks):
             return f"未找到任务: {tid}"
         save_tasks(new)
-        return f"✅ 已删除任务 {tid}"
+        return f"{SUCCESS_PREFIX} 已删除任务 {tid}"
 
     if sub == "enable" and len(parts) >= 2:
         tid = parts[1]
@@ -1063,7 +1065,7 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
                     t.next_run_at = compute_initial_next_run(t)
                 repair_invalid_schedules(tasks)
                 save_tasks(tasks)
-                return f"✅ 已启用 {tid}"
+                return f"{SUCCESS_PREFIX} 已启用 {tid}"
         return f"未找到任务: {tid}"
 
     if sub == "disable" and len(parts) >= 2:
@@ -1073,7 +1075,7 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
             if t.id == tid:
                 t.enabled = False
                 save_tasks(tasks)
-                return f"✅ 已禁用 {tid}"
+                return f"{SUCCESS_PREFIX} 已禁用 {tid}"
         return f"未找到任务: {tid}"
 
     if sub == "add":
@@ -1095,7 +1097,7 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
         try:
             hparts = shlex.split(head0)
         except ValueError as e:
-            return f"❌ 参数解析失败: {e}"
+            return f"{ERROR_PREFIX} 参数解析失败: {e}"
         hparts, tz_override, tz_explicit_flag = _schedule_head_strip_tz_tokens(hparts)
         tz_name, tz_explicit = _resolve_schedule_tz(tz_override, tz_explicit_flag)
         if len(hparts) < 4 or hparts[0].lower() != "add":
@@ -1172,7 +1174,7 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
             else:
                 return "调度类型须为 every、once 或 cron。\n" + format_schedule_command_usage()
         except ValueError as e:
-            return f"❌ {e}"
+            return f"{ERROR_PREFIX} {e}"
 
         tasks = load_tasks()
         if any(x.id == tid for x in tasks):
@@ -1200,7 +1202,7 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
         try:
             hparts = shlex.split(head0)
         except ValueError as e:
-            return f"❌ 参数解析失败: {e}"
+            return f"{ERROR_PREFIX} 参数解析失败: {e}"
         hparts, tz_override, tz_explicit_flag = _schedule_head_strip_tz_tokens(hparts)
         if len(hparts) < 4 or hparts[0].lower() != "update":
             return "参数不足。\n" + format_schedule_command_usage()
@@ -1259,7 +1261,7 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
             else:
                 return "调度类型须为 every、once 或 cron。\n" + format_schedule_command_usage()
         except ValueError as e:
-            return f"❌ {e}"
+            return f"{ERROR_PREFIX} {e}"
         existing.enabled = True
         existing.last_error = None
         existing.next_run_at = compute_initial_next_run(existing)
@@ -1530,7 +1532,7 @@ def cmd_copy_transcript(
 
     session = session_manager.get(session_id)
     if session is None:
-        return f"❌ 会话 {session_id} 不存在"
+        return f"{ERROR_PREFIX} 会话 {session_id} 不存在"
 
     # 获取历史文件路径
     files_path = getattr(session, "workspace_path", None) or getattr(session, "files_path", None)
@@ -1560,7 +1562,7 @@ def cmd_copy_transcript(
         try:
             msg = assistant_msgs[idx]
         except IndexError:
-            return f"❌ 索引 {n} 超出范围（共 {len(assistant_msgs)} 条助手回复）"
+            return f"{ERROR_PREFIX} 索引 {n} 超出范围（共 {len(assistant_msgs)} 条助手回复）"
 
         content = msg.get("content", "")
         if not content or not isinstance(content, str):
@@ -1573,12 +1575,12 @@ def cmd_copy_transcript(
             preview = content[:preview_len].replace("\n", " ")
             if len(content) > preview_len:
                 preview += "..."
-            return f"✅ 已复制第 {abs(idx)} 条助手回复（{len(content)} 字符）\n   预览: {preview}"
+            return f"{SUCCESS_PREFIX} 已复制第 {abs(idx)} 条助手回复（{len(content)} 字符）\n   预览: {preview}"
         else:
             return "❌ 复制到剪贴板失败"
 
     except Exception as e:
-        return f"❌ 读取历史失败: {e}"
+        return f"{ERROR_PREFIX} 读取历史失败: {e}"
 
 
 def cmd_help(
