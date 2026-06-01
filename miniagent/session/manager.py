@@ -172,6 +172,7 @@ class DefaultSessionManager(SessionManagerProtocol):
         main_skills: list[Skill] | None = None,
         *,
         clawhub: Any | None = None,
+        max_sessions: int = 50,  # 性能优化：内存中最多保持的会话数
     ) -> None:
         """创建会话管理器
 
@@ -180,8 +181,13 @@ class DefaultSessionManager(SessionManagerProtocol):
             main_toolboxes: 主空间工具箱列表
             main_skills: 主空间技能列表
             clawhub: ClawHub 客户端，注入到 :meth:`get_tool_context` 供技能类工具使用
+            max_sessions: 内存中最多保持的会话数（默认 50），超过时 LRU 驎出
         """
-        self._sessions: dict[str, dict] = {}  # sessionId -> context
+        # 性能优化：使用 OrderedDict 实现 LRU 驎出
+        from collections import OrderedDict
+
+        self._sessions: OrderedDict[str, dict] = OrderedDict()  # sessionId -> context (LRU)
+        self._max_sessions: int = max_sessions
         self._main_registry = main_registry
         self._main_toolboxes: list[Toolbox] = main_toolboxes or []
         self._main_skills: list[Skill] = main_skills or []
@@ -194,6 +200,41 @@ class DefaultSessionManager(SessionManagerProtocol):
     def _ensure_workspaces_dir(self) -> None:
         """确保工作空间目录存在"""
         os.makedirs(_get_workspaces_dir(), exist_ok=True)
+
+    def _evict_oldest_if_needed(self) -> None:
+        """性能优化：LRU 驎出最旧的会话，保持内存使用在 max_sessions 限制内。
+
+        驎出策略：
+        - 当内存中会话数超过 max_sessions 时，保存并移除最旧的会话
+        - 不影响活跃会话（active_session_id 不被驱逐）
+        - 驎出前保存会话历史到磁盘
+        """
+        while len(self._sessions) > self._max_sessions:
+            # 获取最旧的会话（OrderedDict 的第一个）
+            oldest_id = next(iter(self._sessions))
+            # 不驱逐活跃会话
+            if oldest_id == self._active_session_id:
+                # 如果最旧的是活跃会话，跳过它，找下一个
+                if len(self._sessions) > 1:
+                    # 移动活跃会话到末尾
+                    self._sessions.move_to_end(oldest_id)
+                    oldest_id = next(iter(self._sessions))
+                else:
+                    break  # 只有一个活跃会话，不驱逐
+            # 保存历史到磁盘
+            self.save_session_history(oldest_id)
+            # 移除内存中的会话
+            del self._sessions[oldest_id]
+            _logger.debug("LRU 驎出会话: %s (内存中剩余 %d)", oldest_id, len(self._sessions))
+
+    def _touch_session(self, session_id: str) -> None:
+        """性能优化：将指定会话移动到 OrderedDict 末尾（标记为最近使用）。
+
+        Args:
+            session_id: 会话 ID
+        """
+        if session_id in self._sessions:
+            self._sessions.move_to_end(session_id)
 
     def _clone_core_tools(self) -> tuple[DefaultToolRegistry, int]:
         """克隆主空间核心工具到新注册表。
@@ -452,6 +493,8 @@ class DefaultSessionManager(SessionManagerProtocol):
         """
         if id in self._sessions:
             ctx = self._sessions[id]
+            # 性能优化：标记为最近使用
+            self._touch_session(id)
             ctx["config"].last_active = datetime.now(timezone.utc).isoformat()
             return ctx["session"]
 
@@ -514,6 +557,8 @@ class DefaultSessionManager(SessionManagerProtocol):
             "conversation_history": history,
         }
         self._sessions[session_id] = ctx
+        # 性能优化：检查是否需要 LRU 驎出
+        self._evict_oldest_if_needed()
         return ctx, core_count
 
     def _restore(
