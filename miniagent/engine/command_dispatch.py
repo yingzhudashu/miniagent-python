@@ -80,6 +80,13 @@ async def dispatch_command(
     if text.startswith(".") and not capture:
         _logger.info("提示: 命令前缀正从 `.` 迁移到 `/`，建议使用 `/%s`", command)
 
+    from miniagent.engine.btw_cmd import (
+        cmd_btw_cancel,
+        cmd_btw_clear,
+        cmd_btw_result,
+        cmd_btw_start,
+        cmd_btw_status,
+    )
     from miniagent.engine.cli_commands import (
         cmd_bind,
         cmd_copy_transcript,
@@ -357,6 +364,36 @@ async def dispatch_command(
             )
         except Exception as e:
             output = f"❌ 技能 reload 失败: {e}"
+        if capture:
+            return output
+        print(output)
+        return None
+
+    # ── btw: 后台任务系统 ──
+    if cmd in (".btw", "/btw"):
+        sub_cmd = parts[1] if len(parts) > 1 else ""
+
+        if sub_cmd == "start" and len(parts) >= 3:
+            # 启动后台任务：/btw start <prompt>
+            prompt = " ".join(parts[2:])
+            output = await cmd_btw_start(engine, prompt, state)
+        elif sub_cmd == "status":
+            # 查看状态：/btw status [task_id]
+            task_id = parts[2] if len(parts) >= 3 else None
+            output = cmd_btw_status(task_id)
+        elif sub_cmd == "result" and len(parts) >= 3:
+            # 获取结果：/btw result <task_id>
+            output = await cmd_btw_result(parts[2])
+        elif sub_cmd == "cancel" and len(parts) >= 3:
+            # 取消任务：/btw cancel <task_id>
+            output = await cmd_btw_cancel(parts[2])
+        elif sub_cmd == "clear":
+            # 清理任务：/btw clear
+            output = cmd_btw_clear()
+        else:
+            # 默认显示帮助和任务列表
+            output = cmd_btw_status()  # 显示所有任务
+
         if capture:
             return output
         print(output)
