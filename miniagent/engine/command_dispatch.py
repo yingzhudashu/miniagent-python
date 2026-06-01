@@ -1,12 +1,13 @@
 """Engine — 统一命令调度器
 
-CLI 和飞书共享的命令路由，所有 `.命令` 都通过此模块处理。
+CLI 和飞书共享的命令路由，支持 `.` 和 `/` 两种前缀（推荐使用 `/`）。
 
 核心特性：
 - print 捕获：CLI 命令原本用 print()，飞书需要返回字符串
 - 不中断：`.status` 等检查命令不会打断正在运行的 agent
 - 远程约束：飞书侧 `capture=True` 时默认 `allow_session_mutations_when_capture=False`，
   阻止 `.session switch/create/rename` 与 `.schedule` 变异；`MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1` 时放开
+- 双前缀支持：同时支持 `.` 和 `/` 前缀，逐步迁移到 `/`（更符合CLI惯例）
 
 命令全集与用户说明见 ``docs/CLI.md``；飞书约束见 ``docs/FEISHU.md``。
 """
@@ -68,8 +69,16 @@ async def dispatch_command(
     Returns:
         capture=True 时返回输出字符串，capture=False 时返回 None
     """
-    if not text.startswith("."):
+    # 支持双前缀：.` 和 `/`（推荐使用 `/`）
+    if not (text.startswith(".") or text.startswith("/")):
         return None
+
+    # 提取命令（去掉前缀）
+    command = text[1:]
+
+    # 如果使用旧前缀 `.`，添加迁移提示（仅CLI模式）
+    if text.startswith(".") and not capture:
+        _logger.info("提示: 命令前缀正从 `.` 迁移到 `/`，建议使用 `/%s`", command)
 
     from miniagent.engine.cli_commands import (
         cmd_bind,
@@ -121,7 +130,7 @@ async def dispatch_command(
     cmd = parts[0].lower() if parts else ""
 
     # ── .status ──
-    if cmd == ".status":
+    if cmd in (".status", "/status"):
         output = _format_status(state)
         if capture:
             return output
@@ -129,7 +138,7 @@ async def dispatch_command(
         return None
 
     # ── .stop：飞书 capture 默认拒绝；MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1 时与 CLI 相同
-    if cmd == ".stop":
+    if cmd in (".stop", "/stop"):
         if capture and not feishu_dot_commands_full_enabled():
             return "⚠️ .stop 命令只能在 CLI 使用（或设置 MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1）"
         from miniagent.engine.shutdown import shutdown_runtime
@@ -143,8 +152,8 @@ async def dispatch_command(
         )
         return "__EXIT__"
 
-    # ── .instance ──
-    if cmd == ".instance":
+    # ── instance ──
+    if cmd in (".instance", "/instance"):
         sub_cmd = parts[1] if len(parts) > 1 else ""
         output = _capture(
             lambda md=md_cmds: cmd_instance_handler(parts, sub_cmd, state, markdown=md)
@@ -154,8 +163,8 @@ async def dispatch_command(
         print(output)
         return None
 
-    # ── .session ──
-    if cmd == ".session":
+    # ── session ──
+    if cmd in (".session", "/session"):
         sub_cmd = parts[1] if len(parts) > 1 else ""
         sm = state.get("session_manager")
         active = state.get("active_session_id", "")
@@ -232,7 +241,7 @@ async def dispatch_command(
         return None
 
     # ── .feishu ──
-    if cmd == ".feishu":
+    if cmd in (".feishu", "/feishu"):
         factory = rt.create_feishu_handler_factory
 
         def _resolve_feishu_user_status() -> Callable[[str], None] | None:
@@ -284,7 +293,7 @@ async def dispatch_command(
         return format_queue_abort_message(res)
 
     # ── .abort / .queue abort（不退出进程；飞书 handler 应传入当前 chat_id，缺省视为 CLI 队列）──
-    if cmd == ".abort":
+    if cmd in (".abort", "/abort"):
         output = _abort_queue_output()
         if capture:
             return output
@@ -292,7 +301,7 @@ async def dispatch_command(
         return None
 
     # ── .queue ──
-    if cmd == ".queue":
+    if cmd in (".queue", "/queue"):
         sub = parts[1] if len(parts) > 1 else ""
         if sub == "status":
             output = _capture(lambda md=md_cmds: cmd_queue_status(message_queue, markdown=md))
@@ -315,7 +324,7 @@ async def dispatch_command(
         return None
 
     # ── .stats ──
-    if cmd == ".stats":
+    if cmd in (".stats", "/stats"):
         if monitor:
             output = _capture(lambda: print(f"\n{monitor.report()}"))
         else:
@@ -351,7 +360,7 @@ async def dispatch_command(
         return None
 
     # ── .help ──
-    if cmd == ".help":
+    if cmd in (".help", "/help"):
         output = _capture(
             lambda: cmd_help(message_queue, state.get("instance_id"))
         )
@@ -361,7 +370,7 @@ async def dispatch_command(
         return None
 
     # ── .bind ──
-    if cmd == ".bind":
+    if cmd in (".bind", "/bind"):
         if channel_router is None:
             output = "⚠️ 通道路由器未初始化"
         else:
@@ -373,7 +382,7 @@ async def dispatch_command(
         return None
 
     # ── .unbind ──
-    if cmd == ".unbind":
+    if cmd in (".unbind", "/unbind"):
         if channel_router is None:
             output = "⚠️ 通道路由器未初始化"
         else:
@@ -385,7 +394,7 @@ async def dispatch_command(
         return None
 
     # ── .schedule（定时任务）──
-    if cmd == ".schedule":
+    if cmd in (".schedule", "/schedule"):
         from miniagent.engine.cli_commands import cmd_schedule
 
         sub_s = parts[1].lower() if len(parts) > 1 else ""
@@ -398,7 +407,7 @@ async def dispatch_command(
         return None
 
     # ── .kb（知识库）──
-    if cmd == ".kb":
+    if cmd in (".kb", "/kb"):
         sub_cmd = parts[1].lower() if len(parts) > 1 else ""
         md_kb = capture and feishu_markdown_commands_enabled()
 
@@ -434,7 +443,7 @@ async def dispatch_command(
         return None
 
     # ── .review（自我反驳式答案优化）──
-    if cmd == ".review":
+    if cmd in (".review", "/review"):
         rt = state.get("runtime_ctx")
         sm = state.get("session_manager")
         session_id = state.get("active_session_id", "")
@@ -461,7 +470,7 @@ async def dispatch_command(
         return None
 
     # ── .improve（根据质量评估建议改进答案）──
-    if cmd == ".improve":
+    if cmd in (".improve", "/improve"):
         rt = state.get("runtime_ctx")
         sm = state.get("session_manager")
         session_id = state.get("active_session_id", "")
@@ -526,12 +535,12 @@ async def dispatch_command(
         cc = getattr(engine, "confirmation_channel", None) if engine else None
         if cc is None or not cc.has_pending:
             output = "⚠️ 当前无待确认的请求"
-        elif cmd == ".confirm":
+        elif cmd in (".confirm", "/confirm"):
             from miniagent.types.confirmation import ConfirmationResult
 
             cc.respond(ConfirmationResult(approved=True))
             output = "✅ 已确认，继续执行"
-        elif cmd == ".reject":
+        elif cmd in (".reject", "/reject"):
             from miniagent.types.confirmation import ConfirmationResult
 
             cc.respond(ConfirmationResult(approved=False, rejected=True))
@@ -553,7 +562,7 @@ async def dispatch_command(
         return None
 
     # ── .test（自测命令）──
-    if cmd == ".test":
+    if cmd in (".test", "/test"):
         sub_cmd = parts[1].lower() if len(parts) > 1 else ""
 
         if sub_cmd == "run":
