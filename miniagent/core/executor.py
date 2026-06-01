@@ -27,6 +27,7 @@ import inspect
 import json
 import os
 import time
+import traceback
 from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any
@@ -79,6 +80,99 @@ _TOOL_INTENT_MAP: dict[str, str] = {
 }
 
 _logger = get_logger(__name__)
+
+# ─── 工具错误日志辅助 ────────────────────────────────────────────
+
+# 参数截断长度（避免日志膨胀）
+_MAX_ARGS_LOG_LEN = 500
+
+
+def _truncate_args_for_log(args: dict[str, Any] | str, max_len: int = _MAX_ARGS_LOG_LEN) -> str:
+    """截断工具参数用于日志输出，避免大内容导致日志膨胀。
+
+    Args:
+        args: 工具参数字典或 JSON 字符串
+        max_len: 最大长度（字符）
+
+    Returns:
+        截断后的 JSON 字符串
+    """
+    try:
+        if isinstance(args, str):
+            args_dict = json.loads(args) if args else {}
+        else:
+            args_dict = args
+        # 移除可能的大字段（如 content、data）
+        cleaned = {}
+        for k, v in args_dict.items():
+            if isinstance(v, str) and len(v) > 200:
+                cleaned[k] = v[:200] + "...[截断]"
+            elif isinstance(v, (bytes, bytearray)):
+                cleaned[k] = f"<binary {len(v)} bytes>"
+            else:
+                cleaned[k] = v
+        result = json.dumps(cleaned, ensure_ascii=False)
+        if len(result) > max_len:
+            return result[:max_len] + "...[截断]"
+        return result
+    except Exception:
+        return str(args)[:max_len]
+
+
+def _log_tool_error(
+    *,
+    tool_name: str,
+    tool_call_id: str | None,
+    args: dict[str, Any],
+    session_key: str | None,
+    error_type: str,
+    error_message: str,
+    is_user_error: bool = False,
+    traceback_str: str | None = None,
+) -> None:
+    """统一记录工具错误日志，区分用户误用与工具缺陷。
+
+    Args:
+        tool_name: 工具名称
+        tool_call_id: 工具调用 ID（LLM 返回的 tc.id）
+        args: 工具参数
+        session_key: 会话标识
+        error_type: 异常类型（如 "TimeoutError", "PermissionError"）
+        error_message: 错误消息
+        is_user_error: 是否为用户误用（如文件不存在、权限拒绝）；否则视为工具缺陷
+        traceback_str: 完整堆栈跟踪（可选，用于工具缺陷诊断）
+    """
+    args_str = _truncate_args_for_log(args)
+    log_prefix = f"[工具错误] {tool_name}"
+
+    # 结构化事件（供 APM 或调试分析）
+    emit_trace({
+        "type": "tool.error",
+        "tool": tool_name,
+        "tool_call_id": tool_call_id,
+        "args_truncated": args_str,
+        "session_key": session_key,
+        "error_type": error_type,
+        "error_message": error_message,
+        "is_user_error": is_user_error,
+    })
+
+    # 根据错误类型选择日志级别
+    if is_user_error:
+        # 用户误用：WARNING 级别，提供明确的用户操作建议
+        _logger.warning(
+            "%s | 类型: %s | 参数: %s | 消息: %s | 会话: %s",
+            log_prefix, error_type, args_str, error_message, session_key or "N/A",
+        )
+    else:
+        # 工具缺陷：ERROR 级别，包含完整堆栈（调试模式）
+        _logger.error(
+            "%s | 类型: %s | 参数: %s | 消息: %s | 会话: %s",
+            log_prefix, error_type, args_str, error_message, session_key or "N/A",
+        )
+        if traceback_str:
+            _logger.debug("%s | 堆栈:\n%s", log_prefix, traceback_str)
+
 
 # ─── Agent 身份 ────────────────────────────────────────────
 
@@ -743,6 +837,20 @@ async def execute_plan(
             tool = effective_registry.get(tc.function.name)
             if tool is None:
                 avail = ", ".join(effective_registry.list())
+                # 未知工具：LLM 调用了不存在的工具（通常是模型幻觉或工具注册问题）
+                try:
+                    args_unknown = json.loads(tc.function.arguments) if tc.function.arguments else {}
+                except json.JSONDecodeError:
+                    args_unknown = {"raw": tc.function.arguments}
+                _log_tool_error(
+                    tool_name=tc.function.name,
+                    tool_call_id=tc.id,
+                    args=args_unknown,
+                    session_key=session_key,
+                    error_type="UnknownTool",
+                    error_message=f"工具不存在，可用工具: {avail[:100]}",
+                    is_user_error=False,  # 这是 LLM 或工具注册问题，非用户误用
+                )
                 oob_u = _append_context_or_return(
                     context_manager,
                     {
@@ -821,32 +929,71 @@ async def execute_plan(
                     timeout=timeout_sec,
                 )
             except asyncio.TimeoutError:
-                # 超时：工具执行时间超过限制，不影响后续工具
+                # 超时：工具执行时间超过限制（可能是工具性能问题或参数导致的长操作）
                 result = ToolResult(
                     success=False,
                     content=f"{WARNING_PREFIX} 工具超时（{timeout_sec}s）: {tc.function.name}",
                 )
-                _logger.warning(
-                    "工具超时: %s (%.1fs)", tc.function.name, timeout_sec
+                _log_tool_error(
+                    tool_name=tc.function.name,
+                    tool_call_id=tc.id,
+                    args=args,
+                    session_key=session_key,
+                    error_type="TimeoutError",
+                    error_message=f"工具执行超过 {timeout_sec}s 超时限制",
+                    is_user_error=False,  # 超时可能是工具性能问题，也可能是用户请求导致
                 )
             except PermissionError as e:
-                # 权限拒绝：沙箱限制或文件权限不足
+                # 权限拒绝：沙箱限制或文件权限不足（用户误用）
                 result = ToolResult(
                     success=False,
                     content=f"{WARNING_PREFIX} 权限拒绝: {e}",
                 )
-                _logger.warning("工具权限拒绝: %s - %s", tc.function.name, e)
+                _log_tool_error(
+                    tool_name=tc.function.name,
+                    tool_call_id=tc.id,
+                    args=args,
+                    session_key=session_key,
+                    error_type="PermissionError",
+                    error_message=str(e),
+                    is_user_error=True,  # 权限问题通常是用户操作导致的
+                )
             except FileNotFoundError as e:
-                # 文件不存在：read_file 等工具的常见错误
+                # 文件不存在：read_file 等工具的常见错误（用户误用）
                 result = ToolResult(
                     success=False,
                     content=f"{WARNING_PREFIX} 文件不存在: {e}",
                 )
-                _logger.debug("工具文件不存在: %s - %s", tc.function.name, e)
+                _log_tool_error(
+                    tool_name=tc.function.name,
+                    tool_call_id=tc.id,
+                    args=args,
+                    session_key=session_key,
+                    error_type="FileNotFoundError",
+                    error_message=str(e),
+                    is_user_error=True,  # 文件不存在是用户操作导致的
+                )
             except Exception as e:
-                # 其他异常：参数错误、内部错误等，记录详情供调试
+                # 其他异常：参数错误、工具内部错误等，需要详细诊断
                 result = ToolResult(success=False, content=f"{WARNING_PREFIX} 执行异常: {e}")
-                _logger.warning("工具执行异常: %s - %s", tc.function.name, e)
+                tb_str = traceback.format_exc()
+                # 根据异常类型判断是用户误用还是工具缺陷
+                is_user_error = isinstance(e, (
+                    ValueError,  # 参数错误
+                    TypeError,   # 类型错误
+                    KeyError,    # 键错误
+                    json.JSONDecodeError,  # JSON 解析错误
+                ))
+                _log_tool_error(
+                    tool_name=tc.function.name,
+                    tool_call_id=tc.id,
+                    args=args,
+                    session_key=session_key,
+                    error_type=type(e).__name__,
+                    error_message=str(e),
+                    is_user_error=is_user_error,
+                    traceback_str=tb_str if not is_user_error else None,
+                )
             tool_elapsed = time.monotonic_ns() // 1_000_000 - tool_start
             emit_trace(
                 {
