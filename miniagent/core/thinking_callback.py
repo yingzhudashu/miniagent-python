@@ -5,6 +5,9 @@
 避免破坏仅接受三参的旧回调。
 
 参见 ``docs/ARCHITECTURE.md``（思考展示与历史）；``invoke_on_thinking`` 由 ``agent`` / ``executor`` 间接调用。
+
+**性能优化**：
+- 签名检查缓存（避免每次调用 inspect.signature）
 """
 
 from __future__ import annotations
@@ -18,6 +21,44 @@ from miniagent.infrastructure.logger import get_logger
 _logger = get_logger(__name__)
 
 __all__ = ["invoke_on_thinking"]
+
+# ── 性能优化：签名检查缓存 ──
+# 缓存函数签名检查结果，避免每次调用都执行 inspect.signature
+_sig_cache: dict[int, dict[str, bool]] = {}
+
+
+def _get_signature_info(cb: Callable[..., Awaitable[Any]]) -> dict[str, bool]:
+    """获取函数签名信息（带缓存）。
+
+    Args:
+        cb: 回调函数
+
+    Returns:
+        包含 has_fr, has_reset, has_last, has_varkw 的字典
+    """
+    func_id = id(cb)
+    if func_id in _sig_cache:
+        return _sig_cache[func_id]
+
+    try:
+        sig = inspect.signature(cb)
+        params = sig.parameters
+        info = {
+            "has_fr": "full_record" in params,
+            "has_reset": "reset" in params,
+            "has_last": "is_last_step" in params,
+            "has_varkw": any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()),
+        }
+        _sig_cache[func_id] = info
+        return info
+    except (ValueError, TypeError):
+        # 签名获取失败，返回默认值
+        return {
+            "has_fr": False,
+            "has_reset": False,
+            "has_last": False,
+            "has_varkw": False,
+        }
 
 
 async def invoke_on_thinking(
@@ -43,21 +84,24 @@ async def invoke_on_thinking(
     """
     if cb is None:
         return
+
+    # 性能优化：使用缓存的签名信息
+    sig_info = _get_signature_info(cb)
+    has_fr = sig_info["has_fr"]
+    has_reset = sig_info["has_reset"]
+    has_last = sig_info["has_last"]
+    has_varkw = sig_info["has_varkw"]
+
+    # 构建可选参数字典
+    extra_kwargs: dict[str, Any] = {}
+    if full_record is not None and (has_fr or has_varkw):
+        extra_kwargs["full_record"] = full_record
+    if reset and (has_reset or has_varkw):
+        extra_kwargs["reset"] = reset
+    if is_last_step and (has_last or has_varkw):
+        extra_kwargs["is_last_step"] = is_last_step
+
     try:
-        sig = inspect.signature(cb)
-        params = sig.parameters
-        has_fr = "full_record" in params
-        has_reset = "reset" in params
-        has_last = "is_last_step" in params
-        has_varkw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
-        # 构建可选参数字典
-        extra_kwargs: dict[str, Any] = {}
-        if full_record is not None and (has_fr or has_varkw):
-            extra_kwargs["full_record"] = full_record
-        if reset and (has_reset or has_varkw):
-            extra_kwargs["reset"] = reset
-        if is_last_step and (has_last or has_varkw):
-            extra_kwargs["is_last_step"] = is_last_step
         if extra_kwargs:
             try:
                 await cb(text, streaming, header, **extra_kwargs)

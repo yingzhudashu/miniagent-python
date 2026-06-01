@@ -134,11 +134,44 @@ async def _get_embedding(
 
 @dataclass
 class _EmbeddingEntry:
-    """嵌入索引中的一条记录（仅存储键和向量，文本从共享注册表获取）。"""
+    """嵌入索引中的一条记录（仅存储键和向量，文本从共享注册表获取）。
+
+    **性能优化**：
+    - 预计算 norm 值，避免每次搜索重复计算
+    """
 
     embedding: list[float]
     entry_key: str  # "session_id:timestamp"
     text_hash: str = ""  # 用于检测内容变更
+    norm: float = 0.0  # 性能优化：预计算的向量 norm
+
+
+def _compute_norm(embedding: list[float]) -> float:
+    """计算向量的 L2 norm（预计算用）。"""
+    return math.sqrt(sum(x * x for x in embedding)) if embedding else 0.0
+
+
+def _cosine_similarity_cached(
+    query_embedding: list[float],
+    query_norm: float,
+    entry: _EmbeddingEntry,
+) -> float:
+    """性能优化：使用预计算的 norm 计算余弦相似度。
+
+    Args:
+        query_embedding: 查询向量
+        query_norm: 查询向量的预计算 norm
+        entry: 存储的嵌入条目（含预计算 norm）
+
+    Returns:
+        余弦相似度
+    """
+    if not query_embedding or not entry.embedding:
+        return 0.0
+    if query_norm == 0 or entry.norm == 0:
+        return 0.0
+    dot = sum(x * y for x, y in zip(query_embedding, entry.embedding))
+    return dot / (query_norm * entry.norm)
 
 
 @dataclass
@@ -190,10 +223,12 @@ class EmbeddingIndex:
             self._dim = disk.get("dim", self._dim)
             self._entries.clear()
             for key, data in disk.get("entries", {}).items():
+                emb = data.get("embedding", [])
                 self._entries[key] = _EmbeddingEntry(
-                    embedding=data.get("embedding", []),
+                    embedding=emb,
                     entry_key=data.get("entry_key", key),
                     text_hash=data.get("text_hash", ""),
+                    norm=_compute_norm(emb),  # 性能优化：预计算 norm
                 )
 
             self._loaded = True
@@ -279,6 +314,7 @@ class EmbeddingIndex:
                 embedding=embedding,
                 entry_key=entry_key,
                 text_hash=text_hash,
+                norm=_compute_norm(embedding),  # 性能优化：预计算 norm
             )
             self._entries.move_to_end(entry_key)
             self._dirty = True
@@ -296,6 +332,10 @@ class EmbeddingIndex:
     ) -> list[EmbeddingSearchResult]:
         """基于预计算的查询向量检索相关记忆。
 
+        **性能优化**：
+        - 使用预计算的 norm 值
+        - 使用 heapq 实现 top-k 搜索，避免全量排序
+
         Args:
             query_embedding: 查询文本的嵌入向量
             limit: 最多返回条数
@@ -304,26 +344,36 @@ class EmbeddingIndex:
         Returns:
             按相关性排序的搜索结果
         """
+        import heapq
+
         self._ensure_loaded()
 
         if not query_embedding or not self._entries:
             return []
 
-        scored: list[EmbeddingSearchResult] = []
-        for entry in self._entries.values():
-            if not entry.embedding:
-                continue
-            sim = _cosine_similarity(query_embedding, entry.embedding)
-            if sim >= min_score:
-                scored.append(
-                    EmbeddingSearchResult(
-                        entry_key=entry.entry_key,
-                        score=sim,
-                    )
-                )
+        # 性能优化：预计算查询向量的 norm
+        query_norm = _compute_norm(query_embedding)
+        if query_norm == 0:
+            return []
 
-        scored.sort(key=lambda r: r.score, reverse=True)
-        return scored[:limit]
+        # 性能优化：使用 heapq 实现 top-k
+        heap: list[tuple[float, str]] = []  # (score, entry_key)
+
+        for entry in self._entries.values():
+            if not entry.embedding or entry.norm == 0:
+                continue
+            sim = _cosine_similarity_cached(query_embedding, query_norm, entry)
+            if sim >= min_score:
+                heapq.heappush(heap, (sim, entry.entry_key))
+                if len(heap) > limit:
+                    heapq.heappop(heap)
+
+        # heapq 是最小堆，结果需要反转排序
+        result = [
+            EmbeddingSearchResult(entry_key=entry_key, score=score)
+            for score, entry_key in sorted(heap, reverse=True)
+        ]
+        return result
 
     def get_stats(self) -> dict[str, Any]:
         self._ensure_loaded()

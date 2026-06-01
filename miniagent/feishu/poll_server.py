@@ -36,6 +36,19 @@ from miniagent.infrastructure.logger import get_logger
 
 _logger = get_logger(__name__)
 
+# ── 性能优化：预编译正则表达式 ──
+# 将常用的正则表达式预编译为模块级常量，避免每次调用都重新编译
+_RE_LONE_ASTERISK = re.compile(r"(?<!\*)\*(?!\*)")
+_RE_TRIPLE_NEWLINE = re.compile(r"\n{3,}")
+_RE_BR_TAG = re.compile(r"<br\s*/?>", re.IGNORECASE)
+_RE_FENCE_LINE = re.compile(r"^(`{3,})(.*)$")
+_RE_ATX_HEADING = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
+_RE_HORIZONTAL_RULE = re.compile(r"(?m)^[ \t]*(?:---+|\*{3,}|_{3,})[ \t]*$")
+_RE_CODE_FENCE = re.compile(r"```[^\n]*\n([\s\S]*?)```")
+_RE_INLINE_CODE = re.compile(r"`([^`]+)`")
+_RE_BOLD_STAR = re.compile(r"\*\*([^*]+)\*\*")
+_RE_BOLD_UNDERSCORE = re.compile(r"__([^_]+)__")
+
 # --- 出站：reply 参数、interactive/text（经 im_send）---
 # 入站文本 handler：单参数 ``FeishuInboundText``，返回回复正文。
 FeishuTextMessageHandler = Callable[[FeishuInboundText], Awaitable[str]]
@@ -999,14 +1012,14 @@ def _neutralize_lone_asterisks_for_lark(text: str) -> str:
             result.append(line)
             continue
         if not in_fence:
-            line = re.sub(r"(?<!\*)\*(?!\*)", "＊", line)
+            line = _RE_LONE_ASTERISK.sub("＊", line)  # 性能优化：预编译正则
         result.append(line)
     return "\n".join(result)
 
 
 def _collapse_excessive_blank_lines(text: str) -> str:
     """将连续三个及以上换行压成双换行，避免卡片正文过长空白。"""
-    return re.sub(r"\n{3,}", "\n\n", text or "")
+    return _RE_TRIPLE_NEWLINE.sub("\n\n", text or "")  # 性能优化：预编译正则
 
 
 def _normalize_lark_md(text: str) -> str:
@@ -1016,11 +1029,11 @@ def _normalize_lark_md(text: str) -> str:
     t = text.replace("\ufeff", "").replace("\u200b", "").replace("\u200c", "")
     t = _strip_unicode_replacement_chars(t)
     t = _neutralize_lone_asterisks_for_lark(t)
-    t = re.sub(r"<br\s*/?>", "\n", t, flags=re.IGNORECASE)
+    t = _RE_BR_TAG.sub("\n", t)  # 性能优化：预编译正则
 
     def _collapse_fence_line(line: str) -> str:
         """将过长反引号围栏起首统一为三个 ```，兼容飞书 lark_md。"""
-        m = re.match(r"^(`{3,})(.*)$", line)
+        m = _RE_FENCE_LINE.match(line)  # 性能优化：预编译正则
         if m and len(m.group(1)) > 3:
             return "```" + m.group(2)
         return line
@@ -1028,7 +1041,7 @@ def _normalize_lark_md(text: str) -> str:
     t = "\n".join(_collapse_fence_line(L) for L in t.split("\n"))
 
     # ATX 标题转为粗体（lark_md 不支持 ### 标题语法）
-    t = re.sub(r"^(#{1,6})\s+(.+)$", r"**\2**", t, flags=re.MULTILINE)
+    t = _RE_ATX_HEADING.sub(r"**\2**", t)  # 性能优化：预编译正则
 
     from miniagent.feishu.cards.gfm_table import (
         find_gfm_table_block,
@@ -1050,11 +1063,10 @@ def _normalize_lark_md(text: str) -> str:
         out.append(lines[i])
         i += 1
     joined = "\n".join(out)
-    joined = re.sub(
-        r"(?m)^[ \t]*(?:---+|\*{3,}|_{3,})[ \t]*$",
+    joined = _RE_HORIZONTAL_RULE.sub(
         "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
         joined,
-    )
+    )  # \u6027\u80fd\u4f18\u5316\uff1a\u9884\u7f16\u8bd1\u6b63\u5219
     return joined
 
 
@@ -1101,13 +1113,13 @@ def _feishu_reply_plain_enabled() -> bool:
 def _strip_light_markdown_for_feishu_plain(text: str) -> str:
     """弱化 Markdown 标记，减轻客户端对部分语法显示成「源码」时的观感（非完整解析器）。"""
     t = (text or "").replace("\r\n", "\n")
-    t = re.sub(r"```[^\n]*\n([\s\S]*?)```", r"\1", t)
-    t = re.sub(r"`([^`]+)`", r"\1", t)
+    t = _RE_CODE_FENCE.sub(r"\1", t)  # 性能优化：预编译正则
+    t = _RE_INLINE_CODE.sub(r"\1", t)  # 性能优化：预编译正则
     prev = None
     while prev != t:
         prev = t
-        t = re.sub(r"\*\*([^*]+)\*\*", r"\1", t)
-        t = re.sub(r"__([^_]+)__", r"\1", t)
+        t = _RE_BOLD_STAR.sub(r"\1", t)  # 性能优化：预编译正则
+        t = _RE_BOLD_UNDERSCORE.sub(r"\1", t)  # 性能优化：预编译正则
     return t
 
 
