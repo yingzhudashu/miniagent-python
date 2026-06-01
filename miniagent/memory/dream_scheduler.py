@@ -34,16 +34,30 @@ def _state_dir() -> str:
     return os.environ.get("MINI_AGENT_STATE", os.path.join(os.getcwd(), "workspaces"))
 
 
-# 默认周期（秒）
-DIARY_REFINE_SEC = int(os.environ.get("MINI_AGENT_DREAM_DIARY_SEC", str(7 * 86400)))
-SESSION_LT_REFINE_SEC = int(os.environ.get("MINI_AGENT_DREAM_SESSION_LT_SEC", str(30 * 86400)))
-AGENT_LT_REFINE_SEC = int(os.environ.get("MINI_AGENT_DREAM_AGENT_LT_SEC", str(365 * 86400)))
+# 默认周期（秒）- 使用安全解析函数避免环境变量格式错误导致导入崩溃
+def _safe_int_env(key: str, default: int) -> int:
+    """安全解析整数环境变量，失败时返回默认值。"""
+    try:
+        return int(os.environ.get(key, str(default)) or str(default))
+    except ValueError:
+        return default
+
+def _safe_float_env(key: str, default: float) -> float:
+    """安全解析浮点数环境变量，失败时返回默认值。"""
+    try:
+        return float(os.environ.get(key, str(default)) or str(default))
+    except ValueError:
+        return default
+
+DIARY_REFINE_SEC = _safe_int_env("MINI_AGENT_DREAM_DIARY_SEC", 7 * 86400)
+SESSION_LT_REFINE_SEC = _safe_int_env("MINI_AGENT_DREAM_SESSION_LT_SEC", 30 * 86400)
+AGENT_LT_REFINE_SEC = _safe_int_env("MINI_AGENT_DREAM_AGENT_LT_SEC", 365 * 86400)
 
 # 体量闸门：超过则忽略最小间隔立刻标记需要精炼（由后台任务合并去重）
-SIZE_FORCE_BYTES = int(os.environ.get("MINI_AGENT_DREAM_SIZE_BYTES", str(800_000)))
+SIZE_FORCE_BYTES = _safe_int_env("MINI_AGENT_DREAM_SIZE_BYTES", 800_000)
 
 # 两次调度之间的最短间隔（秒），减轻每回合 create_task 压力
-_MIN_SCHEDULE_INTERVAL = float(os.environ.get("MINI_AGENT_DREAM_MIN_INTERVAL_SEC", "60") or "60")
+_MIN_SCHEDULE_INTERVAL = _safe_float_env("MINI_AGENT_DREAM_MIN_INTERVAL_SEC", 60.0)
 _last_schedule_monotonic: float = 0.0
 
 # ``shutdown_runtime`` 会取消并等待这些 task，避免进程退出后仍短暂占用事件循环

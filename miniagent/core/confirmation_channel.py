@@ -21,6 +21,8 @@ class ConfirmationChannel:
     """确认侧通道。
 
     每个需要独立确认的场景（如不同 chat_id 的会话）应使用独立实例。
+
+    **并发保护**：使用 asyncio.Lock 防止并发请求互相干扰。
     """
 
     def __init__(self) -> None:
@@ -28,30 +30,47 @@ class ConfirmationChannel:
         self._event = asyncio.Event()
         self._event.set()  # 初始为已设置状态（无待确认请求）
         self._result: ConfirmationResult | None = None
+        self._lock = asyncio.Lock()  # 并发保护
 
     async def request_confirmation(self, req: ConfirmationRequest) -> ConfirmationResult:
         """发送确认请求并等待用户响应。
 
         调用方会在此阻塞，直到用户通过 ``respond()`` 提供响应。
 
+        **并发保护**：使用锁确保只有一个请求处于等待状态。
+
         Args:
             req: 确认请求
 
         Returns:
             用户的确认结果
+
+        Raises:
+            RuntimeError: 如果已有另一个请求正在等待
         """
-        _logger.info(
-            "request_confirmation(): 设置待确认请求 stage=%s",
-            getattr(req.stage, "value", req.stage),
-        )
-        self._pending = req
-        self._result = None
-        self._event.clear()
+        # 并发保护：检查是否已有等待中的请求
+        async with self._lock:
+            if self._pending is not None and not self._event.is_set():
+                raise RuntimeError("已有确认请求正在等待，无法并发处理多个请求")
+
+            _logger.info(
+                "request_confirmation(): 设置待确认请求 stage=%s",
+                getattr(req.stage, "value", req.stage),
+            )
+            self._pending = req
+            self._result = None
+            self._event.clear()
+
+        # 等待响应（锁已释放，允许 respond() 执行）
         await self._event.wait()
-        _logger.info("request_confirmation(): 已收到响应，恢复执行")
-        result = self._result
-        self._pending = None
-        return result  # type: ignore[return-value]
+
+        async with self._lock:
+            _logger.info("request_confirmation(): 已收到响应，恢复执行")
+            result = self._result
+            self._pending = None
+            if result is None:
+                raise RuntimeError("确认响应为 None，respond() 可能未被正确调用")
+            return result
 
     def respond(self, result: ConfirmationResult) -> None:
         """提交确认响应，恢复被暂停的 agent 线程。

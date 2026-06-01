@@ -271,9 +271,11 @@ class BackgroundTaskManager:
             if task.status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED):
                 return False
 
+            # 保存原状态，因为修改后无法检查
+            was_running = task.status == TaskStatus.RUNNING
             task.status = TaskStatus.CANCELLED
             task.completed_at = datetime.now(timezone.utc)
-            if task.status == TaskStatus.RUNNING:
+            if was_running:
                 self._running_count -= 1
 
             return True

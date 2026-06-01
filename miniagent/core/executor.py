@@ -1091,15 +1091,28 @@ async def execute_plan(
 
         if pending:
             if agent_config.allow_parallel_tools and len(pending) > 1:
+                # 使用 return_exceptions=True 确保单个工具失败不影响其他工具
                 outcomes = await asyncio.gather(
-                    *[_run_tool(tc, args, tool) for tc, args, tool in pending]
+                    *[_run_tool(tc, args, tool) for tc, args, tool in pending],
+                    return_exceptions=True
                 )
             else:
                 outcomes = []
                 for tc, args, tool in pending:
-                    outcomes.append(await _run_tool(tc, args, tool))
+                    try:
+                        outcomes.append(await _run_tool(tc, args, tool))
+                    except Exception as e:
+                        # 捕获单个工具异常，继续执行其他工具
+                        outcomes.append(e)
 
-            for tc, args, _tool, result, tool_elapsed in outcomes:
+            for idx, outcome in enumerate(outcomes):
+                tc, args, tool = pending[idx]
+                # 处理可能的异常结果
+                if isinstance(outcome, Exception):
+                    result = ToolResult(success=False, content=f"工具执行异常: {outcome}")
+                    tool_elapsed = 0
+                else:
+                    tc, args, _tool, result, tool_elapsed = outcome
                 turn_tool_calls.append(
                     {
                         "name": tc.function.name,

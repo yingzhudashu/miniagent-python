@@ -1539,7 +1539,6 @@ async def run_cli_loop(
 
     # ─── 水平滚动键盘绑定 ───────────────────────────────────────────
     @kb.add("s-left", filter=has_focus(input_buffer))
-    @kb.add("s-left", filter=has_focus(input_buffer))
     def _on_shift_left(event):
         """Shift+Left: 水平向左滚动（仅非折行模式）。"""
         if not _should_wrap_lines():
