@@ -1,8 +1,10 @@
 # CLI 命令手册
 
-> Mini Agent Python | 版本: 2.0.3 | 多数 `.` 命令在 CLI 与飞书均可使用；`.schedule` 的 add/update/remove/enable/disable 及部分 `.session` 变异仅允许在本机 CLI 执行
+> Mini Agent Python | 版本: 2.0.3 | 命令支持 `.` 和 `/` 双前缀（推荐使用 `/`）；多数命令在 CLI 与飞书均可使用
 
-在 **本地 CLI** 执行 `.session switch` 时，会同步更新 **CLI 通道绑定** 与已自动跟随的 **飞书私聊 sender**，使二者与 `active_session_id` 一致（在飞书内发 `.session switch` / `create` / `rename` 等变异子命令不会修改共享状态，见 [FEISHU.md](FEISHU.md)）。飞书多实例场景下，仅一个进程可持有入站连接（见 `feishu_inbound_owner.json`）。
+**命令前缀迁移**：系统支持双前缀（`.`和`/`），推荐使用 `/`（更符合CLI惯例）。例如：`/help`、`/status`、`/session list`。使用 `.` 前缀时会提示迁移。
+
+在 **本地 CLI** 执行 `/session switch` 时，会同步更新 **CLI 通道绑定** 与已自动跟随的 **飞书私聊 sender**，使二者与 `active_session_id` 一致（在飞书内发 `/session switch` / `create` / `rename` 等变异子命令不会修改共享状态，见 [FEISHU.md](FEISHU.md)）。飞书多实例场景下，仅一个进程可持有入站连接（见 `feishu_inbound_owner.json`）。
 
 ## 启动命令
 
@@ -29,6 +31,10 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 
 | 按键 | 功能 |
 |------|------|
+| `Ctrl+C` | 中断当前操作 / 退出程序 |
+| `Ctrl+D` | 退出程序（备选方式） |
+| `Ctrl+L` | 清屏重绘（清空transcript） |
+| `Ctrl+T` | 显示后台任务列表（预览） |
 | `PageUp` | 上翻输出区约半屏 |
 | `PageDown` | 下翻输出区约半屏 |
 | `Ctrl+Home` | 光标跳到输入开头 |
@@ -39,6 +45,8 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 | `Down` | 浏览下一条历史输入 |
 
 **水平滚动说明**：当终端宽度小于 60 列时，自动禁用折行，启用水平滚动。`Shift+Left/Right` 每步滚动约 10 字符。
+
+**退出说明**：Ctrl+C 和 Ctrl+D 都可退出程序，效果相同。Ctrl+C 也可用于中断正在运行的Agent操作。
 
 ## 鼠标交互
 
@@ -54,7 +62,42 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 
 **水平拖动**：当终端宽度小于 60 列时，可在内容区域拖动鼠标进行水平滚动。
 
-## 文件标记处理
+## 输入前缀
+
+MiniAgent 支持多种输入前缀，快速触发不同功能：
+
+| 前缀 | 功能 | 示例 |
+|------|------|------|
+| `/cmd` 或 `.cmd` | CLI命令（推荐使用`/`） | `/help`, `.status` |
+| `!cmd` | 直接执行Bash命令 | `!ls -la`, `!git status` |
+| `@file:<路径>` | 文件引用 | `@file:image.png` |
+
+### !cmd — Bash直接执行
+
+使用 `!` 前缀可直接执行Bash命令，无需经过Agent处理：
+
+```
+> !ls -la
+⚠️ Bash执行: ls -la
+total 32
+drwxr-xr-x  8 user  group  256 Jan 1 10:00 .
+...
+
+> !git status
+⚠️ Bash执行: git status
+On branch main
+...
+```
+
+**特点**：
+- 超时保护（10秒）
+- 输出直接显示在transcript
+- 不影响Agent上下文
+- 错误信息清晰展示
+
+**限制**：复杂交互命令（如vim、top）可能不适用。
+
+### @file — 文件引用
 
 在 CLI 中使用 `@file:<路径>` 或 `file:<路径>` 标记可上传文件：
 
