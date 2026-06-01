@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any
 
 from miniagent.engine.background_tasks import BackgroundTaskManager
+from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
 
 # 全局后台任务管理器（进程级单例）
 _bg_manager: BackgroundTaskManager | None = None
@@ -40,11 +41,11 @@ async def cmd_btw_start(
 
     try:
         task_id = await manager.start_task(engine, prompt, state)
-        return f"✅ 后台任务已启动: {task_id}\n   输入: {prompt[:50]}...\n   使用 /btw status {task_id} 查看进度"
+        return f"{SUCCESS_PREFIX} 后台任务已启动: {task_id}\n   输入: {prompt[:50]}...\n   使用 /btw status {task_id} 查看进度"
     except RuntimeError as e:
-        return f"⚠️ {e}"
+        return f"{WARNING_PREFIX} {e}"
     except Exception as e:
-        return f"❌ 启动失败: {e}"
+        return f"{ERROR_PREFIX} 启动失败: {e}"
 
 
 def cmd_btw_status(task_id: str | None = None) -> str:
@@ -61,7 +62,7 @@ def cmd_btw_status(task_id: str | None = None) -> str:
     if task_id:
         status = manager.get_status(task_id)
         if status is None:
-            return f"❌ 任务 {task_id} 不存在"
+            return f"{ERROR_PREFIX} 任务 {task_id} 不存在"
 
         lines = [
             f"## 任务 {task_id}",
@@ -128,11 +129,11 @@ async def cmd_btw_result(task_id: str) -> str:
     if result is None:
         status = manager.get_status(task_id)
         if status is None:
-            return f"❌ 任务 {task_id} 不存在"
+            return f"{ERROR_PREFIX} 任务 {task_id} 不存在"
         elif status['status'] == 'running':
             return f"⏳ 任务 {task_id} 仍在执行中，请稍后查询"
         else:
-            return f"❌ 任务 {task_id} 无结果"
+            return f"{ERROR_PREFIX} 任务 {task_id} 无结果"
 
     lines = [
         f"## 任务 {task_id} 结果",
@@ -155,13 +156,13 @@ async def cmd_btw_cancel(task_id: str) -> str:
 
     success = await manager.cancel_task(task_id)
     if success:
-        return f"✅ 任务 {task_id} 已取消"
+        return f"{SUCCESS_PREFIX} 任务 {task_id} 已取消"
     else:
         status = manager.get_status(task_id)
         if status is None:
-            return f"❌ 任务 {task_id} 不存在"
+            return f"{ERROR_PREFIX} 任务 {task_id} 不存在"
         else:
-            return f"⚠️ 任务 {task_id} 已完成或已取消，无法取消"
+            return f"{WARNING_PREFIX} 任务 {task_id} 已完成或已取消，无法取消"
 
 
 def cmd_btw_clear() -> str:
@@ -174,7 +175,7 @@ def cmd_btw_clear() -> str:
     count = manager.clear_completed()
 
     if count > 0:
-        return f"✅ 已清理 {count} 个已完成任务"
+        return f"{SUCCESS_PREFIX} 已清理 {count} 个已完成任务"
     else:
         return "📭 没有需要清理的任务"
 
