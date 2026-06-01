@@ -458,37 +458,45 @@ async def run_cli_loop(
         """加载最近几条历史到 transcript 显示区。"""
         sm = state.get("session_manager")
         if not sm:
+            _logger.warning("历史加载失败: session_manager 未设置")
             return
         session_id = state.get("active_session_id", "")
         if not session_id:
+            _logger.warning("历史加载失败: active_session_id 未设置")
             return
 
-        messages, total = sm.load_session_history_range(
-            session_id,
-            start_idx=0,
-            count=_initial_history_count,
-        )
-
-        # 无论是否有历史，都设置状态
-        _history_loaded_range["total_messages"] = total
-        _history_loaded_range["loaded_start"] = 0
-        _history_loaded_range["loaded_end"] = min(_initial_history_count, total)
-        _history_loaded_range["all_loaded"] = total <= _initial_history_count
-
-        if not messages:
-            return
-
-        # 渲染历史到 transcript（从旧到新）
-        for msg in messages:
-            _render_history_message_to_transcript(msg, prepend=False)
-
-        # 如果有更多历史，添加提示
-        if not _history_loaded_range["all_loaded"]:
-            remaining = total - _initial_history_count
-            _append_transcript(
-                "class:cli-hint",
-                f"\n[↑ 向上滚动加载更多历史 · 还有 {remaining} 条]\n"
+        try:
+            messages, total = sm.load_session_history_range(
+                session_id,
+                start_idx=0,
+                count=_initial_history_count,
             )
+            _logger.info(f"历史加载: session={session_id}, total={total}, loaded={len(messages)}")
+
+            # 无论是否有历史，都设置状态
+            _history_loaded_range["total_messages"] = total
+            _history_loaded_range["loaded_start"] = 0
+            _history_loaded_range["loaded_end"] = min(_initial_history_count, total)
+            _history_loaded_range["all_loaded"] = total <= _initial_history_count
+
+            if not messages:
+                _logger.info("历史加载: 无消息，跳过渲染")
+                return
+
+            # 渲染历史到 transcript（从旧到新）
+            for msg in messages:
+                _render_history_message_to_transcript(msg, prepend=False)
+            _logger.info(f"历史加载: 已渲染 {len(messages)} 条消息到 transcript")
+
+            # 如果有更多历史，添加提示
+            if not _history_loaded_range["all_loaded"]:
+                remaining = total - _initial_history_count
+                _append_transcript(
+                    "class:cli-hint",
+                    f"\n[↑ 向上滚动加载更多历史 · 还有 {remaining} 条]\n"
+                )
+        except Exception as e:
+            _logger.exception(f"历史加载异常: {e}")
 
     def _trigger_lazy_load_more_history() -> None:
         """触发懒加载更多历史（防重入）。"""
