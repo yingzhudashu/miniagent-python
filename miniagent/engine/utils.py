@@ -25,10 +25,30 @@ from miniagent.runtime.context import RuntimeContext
 
 # ─── 终端宽度计算 ───────────────────────────────────────────────
 
-# 渲染宽度范围常量
-MIN_RENDER_WIDTH = 40   # 最小宽度，确保基本可读
-MAX_RENDER_WIDTH = 500  # 最大宽度，适应宽屏显示器
-WIDTH_MARGIN = 4        # 边距（滚动条、边框等）
+from miniagent.infrastructure.json_config import get_config
+
+# 从JSON配置加载渲染宽度范围常量
+MIN_RENDER_WIDTH = get_config("render.min_width", 40)
+MAX_RENDER_WIDTH = get_config("render.max_width", 500)
+WIDTH_MARGIN = get_config("render.width_margin", 4)
+
+# 环境变量覆盖支持
+import os
+if os.environ.get("MINIAGENT_RENDER_MIN_WIDTH"):
+    try:
+        MIN_RENDER_WIDTH = int(os.environ.get("MINIAGENT_RENDER_MIN_WIDTH") or str(MIN_RENDER_WIDTH))
+    except ValueError:
+        pass
+if os.environ.get("MINIAGENT_RENDER_MAX_WIDTH"):
+    try:
+        MAX_RENDER_WIDTH = int(os.environ.get("MINIAGENT_RENDER_MAX_WIDTH") or str(MAX_RENDER_WIDTH))
+    except ValueError:
+        pass
+if os.environ.get("MINIAGENT_RENDER_WIDTH_MARGIN"):
+    try:
+        WIDTH_MARGIN = int(os.environ.get("MINIAGENT_RENDER_WIDTH_MARGIN") or str(WIDTH_MARGIN))
+    except ValueError:
+        pass
 
 
 def get_terminal_width(fallback_width: int = 80) -> int:

@@ -1,11 +1,19 @@
-"""进程级 IANA 时区 SSOT：Agent、工具与定时任务默认均由此解析。"""
+"""进程级 IANA 时区 SSOT：Agent、工具与定时任务默认均由此解析。
+
+**配置**：
+- 从JSON配置加载默认值，环境变量可覆盖
+"""
 
 from __future__ import annotations
 
 import os
 from datetime import datetime
 
-_DEFAULT_FALLBACK = "Asia/Shanghai"
+from miniagent.infrastructure.json_config import get_config
+
+# 从JSON配置加载默认值
+_DEFAULT_FALLBACK = get_config("timezone.default_fallback", "Asia/Shanghai")
+
 _WEEKDAYS_ZH = (
     "星期一",
     "星期二",
