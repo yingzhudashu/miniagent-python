@@ -83,7 +83,6 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 
 | 分类 | 命令 | 说明 |
 |------|------|------|
-| **状态** | `.status` | 检查 Agent 状态（不中断执行） |
 | **会话** | `.session list` | 列出所有会话 |
 | | `.session switch <编号/ID>` | 切换会话 |
 | | `.session create <ID> [标题]` | 创建新会话 |
@@ -109,6 +108,7 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 | | `.schedule add …` | 新增 interval / once / cron 任务（须含 ` -- ` 分隔 prompt） |
 | | `.schedule update <id> …` | 修改已有任务（语法同 add） |
 | | `.schedule remove|enable|disable <id>` | 删除 / 启用 / 禁用 |
+| | `.schedule align-tz` | 批量对齐时区（修复遗留 UTC） |
 | **确认** | `.confirm` | 确认待处理的确认请求 |
 | | `.adjust <内容>` | 调整并确认待处理请求 |
 | | `.reject` | 拒绝待处理请求 |
@@ -116,15 +116,16 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 | | `.improve --force` | 强制改进（即使质量已通过） |
 | | `.improve --reset` | 回退到原始答案重新改进 |
 | | `.review` | 自我反驳式审查答案（迭代最多3轮） |
-| **统计** | `.stats` | 工具调用统计 |
-| **自测** | `.test run` | 运行所有测试样本（默认 mock 模式） |
+| **工具与统计** | `.stats` | 工具调用统计 |
+| | `.status` | 查看系统运行状态 |
+| **自测命令** | `.test run` | 运行所有测试样本（默认 mock 模式） |
 | | `.test run <类别>` | 按类别过滤（security | prompt_injection | tool_selection | schema | regression | cost） |
 | | `.test list` | 列出所有测试样本 |
 | | `.test status` | 查看最近测试结果 |
-| **控制** | `.stop` | 停止当前实例并退出 |
-| | `.copy` | 复制上一轮 Assistant 回复到系统剪贴板 |
+| **实例控制** | `.stop` | 停止当前实例并退出 |
+| | `.copy` | 复制当前会话 transcript 到剪贴板（全屏 CLI） |
 | **技能** | `.reload-skills` | 从磁盘全量重新加载 `workspaces/skills`（`install_skill` 成功后通常已自动热加载） |
-| **帮助** | `.help` | 显示帮助信息 |
+| **其他** | `.help` | 显示帮助信息 |
 | | `quit` / `exit` | 退出程序 |
 
 ## 命令详解

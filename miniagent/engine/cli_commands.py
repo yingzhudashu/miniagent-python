@@ -1300,6 +1300,7 @@ def format_help_markdown(
                 ),
                 ("`.schedule update <id> …`", "修改任务（语法同 add）"),
                 ("`.schedule remove|enable|disable <id>`", "管理任务"),
+                ("`.schedule align-tz`", "批量对齐时区（修复遗留 UTC）"),
             ],
         ),
         _md_help_section(
