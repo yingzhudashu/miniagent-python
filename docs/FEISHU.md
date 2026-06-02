@@ -111,8 +111,6 @@ UnifiedEngine.run_agent_with_thinking()
 | 云盘列举 | `feishu_list_drive_files` + [`drive_client`](../miniagent/feishu/drive_client.py) |
 | 撤回机器人消息 | `feishu_recall_message` |
 
-模块 [`poll_server`](../miniagent/feishu/poll_server.py) 中的 `FEISHU_CARD_BODY_MAX` 仅为 **首次 import 时的快照**；运行时应使用 `feishu_card_body_max()` 读取当前环境。
-
 ### 开放平台权限（scope）
 
 下列为能力对应的**典型**权限名称；具体以飞书开放平台当前文档为准（[权限列表](https://open.feishu.cn/document/server-docs/docs/scope)）。
