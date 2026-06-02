@@ -12,7 +12,7 @@ export FEISHU_APP_SECRET="xxx"
 export FEISHU_VERIFICATION_TOKEN="xxx"
 ```
 
-或在 `.env` 文件中配置。
+或在 `config.user.json` 的 `secrets` 部分配置。
 
 ### 2. 启动
 
@@ -337,7 +337,7 @@ echo $FEISHU_APP_ID
 ## 相关文档
 
 - [ENGINEERING.md](ENGINEERING.md)：可选安装 `pip install -e ".[dev,feishu]"`、CI 飞书 job 说明。
-- [SECURITY.md](SECURITY.md)：飞书凭证与 `.env` 要求。
+- [SECURITY.md](SECURITY.md)：飞书凭证与配置要求。
 - [DEPLOYMENT.md](DEPLOYMENT.md)：部署与依赖。
 
 ---

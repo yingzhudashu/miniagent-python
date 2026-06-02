@@ -237,7 +237,7 @@ python -m miniagent --feishu           # 实例 #2 (CLI + 飞书)
 - **运维环境变量**：
   - `MINIAGENT_DISABLE_SCHEDULED_TASKS=1` — 关闭后台 ticker（不删除磁盘任务表）
   - `MINIAGENT_SCHEDULE_DISPATCH_BACKOFF` — dispatch 失败时推迟 `next_run_at` 的秒数（默认 60）
-  - `MINIAGENT_TIMEZONE` / `TZ` — 进程默认 IANA 时区（Agent、`get_time`、新建定时任务默认）；修改 `.env` 后须**重启进程**（Windows 上尤其重要）
+  - `MINIAGENT_TIMEZONE` / `TZ` — 进程默认 IANA 时区（Agent、`get_time`、新建定时任务默认）；修改 `config.user.json` 后须**重启进程**（Windows 上尤其重要）
 - **用户操作**：CLI `.schedule`（含 **`align-tz`** 将遗留 `timezone: UTC` 对齐到 env）、Agent 工具 `manage_scheduled_task`（`align_tz`）；飞书侧通常仅 `list` / `show`。详见 [USER_GUIDE.md](USER_GUIDE.md) §8、[ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」。
 
 ## 监控和日志
@@ -267,7 +267,7 @@ python -m miniagent --feishu           # 实例 #2 (CLI + 飞书)
 | `workspaces/scheduled_tasks/` | 定时任务表（含 prompt） | 与 sessions 同级敏感，定期备份 |
 | `workspaces/memory/` | 活动日志 | 按需备份 |
 | `workspaces/skills/` | 已安装技能 | 可重新安装 |
-| `.env` | 环境配置 | 必须备份（含密钥） |
+| `config.user.json` | 用户配置与密钥 | 必须备份（含密钥） |
 
 ## 故障排除
 

@@ -93,7 +93,7 @@ CI 说明：
 
 若历史上曾将上述路径纳入版本跟踪，可在确认无团队依赖后执行 `git rm --cached <路径>` 并保留 `.gitignore` 规则。需要随仓库携带的**非敏感**结构示例，请放在 `docs/examples/` 等显式文档化目录。日常开发仍建议使用 `MINI_AGENT_STATE` 将状态迁出仓库。
 
-**提交前建议再看一眼 `git status`**：不应把 `__pycache__/`、`.pytest_cache/`、`.ruff_cache/`、`.mypy_cache/`、`*.egg-info/` 等缓存或打包元数据加入版本库（勿对这类路径使用 `git add -f`）。`git clean -fdX` 会删除**所有**已忽略路径（含本地 **`.env`**），执行前请备份密钥；更稳妥做法是只手动删缓存目录。勿用小写 `git clean -fdx`，以免删掉未跟踪的源码。详见 [CONTRIBUTING.md](CONTRIBUTING.md)「提交前仓库卫生」。
+**提交前建议再看一眼 `git status`**：不应把 `__pycache__/`、`.pytest_cache/`、`.ruff_cache/`、`.mypy_cache/`、`*.egg-info/` 等缓存或打包元数据加入版本库（勿对这类路径使用 `git add -f`）。`git clean -fdX` 会删除**所有**已忽略路径（含本地 **`config.user.json`**），执行前请备份密钥；更稳妥做法是只手动删缓存目录。勿用小写 `git clean -fdx`，以免删掉未跟踪的源码。详见 [CONTRIBUTING.md](CONTRIBUTING.md)「提交前仓库卫生」。
 
 ### 3.2 可选离线测评产物
 
@@ -145,9 +145,9 @@ CI 说明：
 
 ## 4. 安全与密钥
 
-- 密钥优先通过环境变量或本地 `.env` 注入；代码库中不出现真实 token（含 **OpenAI**、**Tavily** (`TAVILY_API_KEY` / `WEB_SEARCH_API_KEY`)、飞书 Secret 等）。
+- 密钥优先通过环境变量或 `config.user.json` 的 `secrets` 部分注入；代码库中不出现真实 token（含 **OpenAI**、**Tavily** (`TAVILY_API_KEY` / `WEB_SEARCH_API_KEY`)、飞书 Secret 等）。
 - 工具执行与文件访问受 [SECURITY.md](SECURITY.md) 所述沙箱与策略约束；部署面见 [DEPLOYMENT.md](DEPLOYMENT.md)。
-- **推送前自检（建议）**：勿提交 `.env`；`git diff --cached` 抽查是否误入密钥；可用 `rg` 等搜索疑似模式（如 `tvly-`、`sk-[A-Za-z0-9]{20,}`）并与占位符区分。仓库可在 GitHub 开启 Secret scanning / Push protection（在网页端配置）。
+- **推送前自检（建议）**：勿提交 `config.user.json`；`git diff --cached` 抽查是否误入密钥；可用 `rg` 等搜索疑似模式（如 `tvly-`、`sk-[A-Za-z0-9]{20,}`）并与占位符区分。仓库可在 GitHub 开启 Secret scanning / Push protection（在网页端配置）。
 
 ---
 

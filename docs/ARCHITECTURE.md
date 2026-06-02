@@ -464,7 +464,7 @@ _format_status(state, message_queue)
 | `MINIAGENT_SCHEDULE_DISPATCH_BACKOFF` | dispatch 失败时推迟 `next_run_at` 的秒数（默认 60） |
 | `MINIAGENT_TIMEZONE` | 进程默认 IANA 时区（Agent system、`get_time`；优先级高于 `TZ`） |
 | `MINIAGENT_SCHEDULE_TIMEZONE` | 仅定时任务**新建**默认（`align-tz` 写盘亦用此链）；未设则 `MINIAGENT_TIMEZONE` / `TZ` |
-| `TZ` | 与上兼容的时区 env（`.env` 常见 `Asia/Shanghai`） |
+| `TZ` | 与上兼容的时区 env（`config.user.json` 常见 `Asia/Shanghai`） |
 | `MINIAGENT_SCHEDULE_FEISHU_MIRROR` | `0` 时关闭 primary→已绑定飞书的镜像投递（默认开启） |
 | `MINIAGENT_SCHEDULE_FEISHU_LAST_CHAT` | `1` 时无绑定时可回退到 `last_feishu_receive_chat_id`（默认关闭） |
 | `MINIAGENT_SCHEDULE_TOOLS` | 设为 `0` 等则不注册 `manage_scheduled_task` |
@@ -541,7 +541,7 @@ flowchart LR
 
 ## 运行时组合根
 
-启动时由 `compat.unified_entry`（或等价入口）实例化 `RuntimeContext`（见 `runtime/context.py`）；`unified_entry` 会先加载项目根 `.env`。仅嵌入 `unified_main(ctx)` 时，调用方须自行 `load_dotenv_from_project_root()` 或设置 env。字段包括 `registry`、`monitor`、`skill_registry`、`clawhub`、`engine`，以及 **`channel_router`**、**`message_queue`**、**`feishu`**（`FeishuRuntime`），以及 **`memory_store`**、**`activity_log`**、**`keyword_index`**，以及 **`openai_client`**（入口通常设为 `get_shared_async_openai()`；为 `None` 时执行链回落共享工厂）。`unified_main`、CLI 主循环与飞书消息处理器通过该对象（或由其闭包捕获）获取依赖，避免在 `compat`/`unified` 等模块上维护可变全局。
+启动时由 `compat.unified_entry`（或等价入口）实例化 `RuntimeContext`（见 `runtime/context.py`）；`unified_entry` 会先从 `config.user.json` 加载 secrets 到环境变量。仅嵌入 `unified_main(ctx)` 时，调用方须自行 `load_secrets_from_project_root()` 或设置 env。字段包括 `registry`、`monitor`、`skill_registry`、`clawhub`、`engine`，以及 **`channel_router`**、**`message_queue`**、**`feishu`**（`FeishuRuntime`），以及 **`memory_store`**、**`activity_log`**、**`keyword_index`**，以及 **`openai_client`**（入口通常设为 `get_shared_async_openai()`；为 `None` 时执行链回落共享工厂）。`unified_main`、CLI 主循环与飞书消息处理器通过该对象（或由其闭包捕获）获取依赖，避免在 `compat`/`unified` 等模块上维护可变全局。
 
 `clawhub` 由入口注入并写入 `ToolContext`，技能工具优先使用 `ToolContext.clawhub`；必要时仍可调用 `create_clawhub_client()` 作为回退。
 
@@ -575,5 +575,5 @@ flowchart LR
 - **Gating**：`get_all_toolboxes` / `get_system_prompts` 仅聚合 `get_eligible_skills`；全量 refresh 卸载主 registry 工具时遍历**全部**已注册技能（含被 gating 的），避免幽灵工具。
 - **子会话**：refresh 只更新主空间 `registry`；已创建子会话的克隆工具集不会自动同步，需新建会话或 promote。
 | 添加命令 | `command_dispatch.py` | 注册新路由 |
-| 自定义模型 | `.env` + `config.py` | 支持任何 OpenAI 兼容 API |
+| 自定义模型 | `config.user.json` | 支持任何 OpenAI 兼容 API |
 | 新通道 | 仿照 `feishu/` | 实现消息接收 + 回复发送 |

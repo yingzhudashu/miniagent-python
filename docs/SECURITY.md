@@ -126,9 +126,9 @@ release_session_lock("default")
 
 ### 凭证存储
 
-- **App ID / App Secret** 存储在 `.env` 文件中
-- `.env` 已加入 `.gitignore`，不会提交到版本控制
-- 运行时通过环境变量读取
+- **App ID / App Secret** 存储在 `config.user.json` 的 `secrets` 部分
+- `config.user.json` 已加入 `.gitignore`，不会提交到版本控制
+- 运行时自动加载到环境变量
 
 ### 消息安全
 
@@ -144,15 +144,15 @@ release_session_lock("default")
 | 会话隔离 | 每个 chat_id 独立队列和工作空间 |
 | 输入验证 | 路径解析前验证，防止注入 |
 | 输出截断 | LLM 响应和工具输出限制长度 |
-| 密钥不落库 | 仓库内不出现真实 token；`.env` 不入版本控制 |
+| 密钥不落库 | 仓库内不出现真实 token；`config.user.json` 不入版本控制 |
 | 错误隔离 | 单个工具异常不影响 Agent 主流程 |
 
-说明：密钥存在于**进程环境**或项目根 **`.env`** 中属预期行为；「不写入日志」依赖默认日志字段与关闭过度调试。
+说明：密钥存在于**进程环境**（由 `config.user.json` 的 `secrets` 部分自动注入）属预期行为；「不写入日志」依赖默认日志字段与关闭过度调试。
 
 ## 7. 安全配置检查清单
 
-- [ ] `.env` 文件权限设置为 600（仅所有者可读写）
-- [ ] `.env` 已加入 `.gitignore`
+- [ ] `config.user.json` 文件权限设置为 600（仅所有者可读写）
+- [ ] `config.user.json` 已加入 `.gitignore`
 - [ ] `AGENT_DEBUG=false`（生产环境）
 - [ ] 飞书应用已设置 IP 白名单（如适用）
 - [ ] 工作空间目录权限正确；共享机上前缀 `MINI_AGENT_STATE` 到用户私有目录
@@ -160,4 +160,4 @@ release_session_lock("default")
 
 ## 8. 相关文档
 
-- [ENGINEERING.md](ENGINEERING.md)：`.env` 与密钥不入库、CI 质量门禁、多实例与磁盘注册目录语义（§3.3）。
+- [ENGINEERING.md](ENGINEERING.md)：`config.user.json` 与密钥不入库、CI 质量门禁、多实例与磁盘注册目录语义（§3.3）。

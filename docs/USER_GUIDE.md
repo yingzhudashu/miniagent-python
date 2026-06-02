@@ -11,7 +11,7 @@
 1. [前言：本项目能做什么](#1-前言本项目能做什么)
 2. [开始前准备](#2-开始前准备)
 3. [获取代码与安装](#3-获取代码与安装)
-4. [首次配置（环境变量与 .env）](#4-首次配置环境变量与-env)
+4. [首次配置（JSON 配置文件）](#4-首次配置json-配置文件)
 5. [第一次启动与退出](#5-第一次启动与退出)
 6. [日常对话怎么用](#6-日常对话怎么用)
 7. [点命令（`.`）速查](#7-点命令速查)
@@ -148,9 +148,9 @@ miniagent
 
 ---
 
-## 4. 首次配置（环境变量与 .env）
+## 4. 首次配置（JSON 配置文件）
 
-**升级迁移提示**（详见 [CHANGELOG](../CHANGELOG.md) `[Unreleased]` Breaking）：飞书出站默认 `MINIAGENT_FEISHU_REPLY_TARGET=reply`；内置飞书工具默认由 `MINIAGENT_FEISHU_TOOLS_AUTO` 注册；已移除 `MINIAGENT_CONFIG` 外部 JSON，请用 `.env` 扁平变量；飞书请改用 `MINIAGENT_FEISHU_DOCX_URL_PREFIX`、`MINIAGENT_FEISHU_DOC_FOLDER_TOKEN`（旧名仍会读取并打弃用警告）。飞书细节见第 10 章。
+**升级迁移提示**（详见 [CHANGELOG](../CHANGELOG.md) `[Unreleased]` Breaking）：飞书出站默认 `MINIAGENT_FEISHU_REPLY_TARGET=reply`；内置飞书工具默认由 `MINIAGENT_FEISHU_TOOLS_AUTO` 注册；已迁移到 JSON 配置格式（`config.user.json`）；飞书请改用 `MINIAGENT_FEISHU_DOCX_URL_PREFIX`、`MINIAGENT_FEISHU_DOC_FOLDER_TOKEN`（旧名仍会读取并打弃用警告）。飞书细节见第 10 章。
 
 ### 4.1 创建配置文件
 
@@ -216,6 +216,7 @@ cp config.defaults.json config.user.json
 1. 将 `.env` 中的配置项映射到 `config.user.json` 的对应字段
 2. 敏感凭据（如 `OPENAI_API_KEY`）放入 `secrets` 部分
 3. 其他配置放入对应的配置节（如 `model`、`agent`、`feishu`）
+4. 删除旧的 `.env` 文件（可选，但建议保留备份）
 
 环境变量名到 JSON 路径的映射规则：
 - `MINIAGENT_MODEL_TEMPERATURE` → `model.temperature`
@@ -318,12 +319,12 @@ python -m miniagent --stop
 
 1. 安装依赖：`pip install -e ".[feishu]"`。  
 2. 在飞书开放平台创建企业自建应用，获取 **App ID**、**App Secret**、事件订阅与权限按 [FEISHU.md](FEISHU.md) 操作。  
-3. 将凭证填入 `.env`（勿泄露）。  
+3. 将凭证填入 `config.user.json` 的 `secrets` 部分（勿泄露）。  
 4. 启动 `python -m miniagent --feishu` 或在 CLI 中 `.feishu start`。  
 
 **入站锁**：同一状态根下通常只允许一个进程持有飞书入站连接，避免重复收消息；细节见 [FEISHU.md](FEISHU.md) 与 [SECURITY.md](SECURITY.md)。
 
-**可选内置工具**：`.env` 中 `MINIAGENT_FEISHU_TOOLS=1` 时注册发文件、撤回、建文档、读 Markdown、列云盘、追加文档正文等工具；或 **未设置** `MINIAGENT_FEISHU_TOOLS` 时默认由 `MINIAGENT_FEISHU_TOOLS_AUTO`（且已配置 `FEISHU_APP_ID`/`SECRET`）在进程启动阶段自动注册（**不**等待 `.feishu start`；详见 [FEISHU.md](FEISHU.md)）。显式 `MINIAGENT_FEISHU_TOOLS=0`/`false`/`off` 或 `MINIAGENT_FEISHU_TOOLS_AUTO=0` 可关闭。依赖开放平台权限与 [FEISHU.md](FEISHU.md) 自检清单（含 `receive_id_type`、默认 `folder_token`、可选 `MINIAGENT_FEISHU_DOCX_URL_PREFIX`）。
+**可选内置工具**：环境变量 `MINIAGENT_FEISHU_TOOLS=1` 时注册发文件、撤回、建文档、读 Markdown、列云盘、追加文档正文等工具；或 **未设置** `MINIAGENT_FEISHU_TOOLS` 时默认由 `MINIAGENT_FEISHU_TOOLS_AUTO`（且已配置飞书凭证）在进程启动阶段自动注册（**不**等待 `.feishu start`；详见 [FEISHU.md](FEISHU.md)）。显式 `MINIAGENT_FEISHU_TOOLS=0`/`false`/`off` 或 `MINIAGENT_FEISHU_TOOLS_AUTO=0` 可关闭。依赖开放平台权限与 [FEISHU.md](FEISHU.md) 自检清单（含 `receive_id_type`、默认 `folder_token`、可选 `MINIAGENT_FEISHU_DOCX_URL_PREFIX`）。
 
 **环境变量迁移**：见第 4 章「升级迁移提示」与 [CHANGELOG](../CHANGELOG.md) `[Unreleased]`。
 
@@ -378,7 +379,7 @@ python -m miniagent --stop
 
 | 现象 | 建议 |
 |------|------|
-| 启动报错与 API 密钥相关 | 检查 `.env` 是否在项目根、`OPENAI_API_KEY` 是否已填且无多余引号空格；勿把密钥发到公共论坛。 |
+| 启动报错与 API 密钥相关 | 检查 `config.user.json` 是否在项目根、`secrets.openai_api_key` 是否已填且无多余引号空格；勿把密钥发到公共论坛。 |
 | 无法联网查天气/新闻 | 配置 Tavily 相关变量；或接受「未配置则工具返回错误」的设计。 |
 | 飞书无响应 | 查 `.feishu status`、凭证、事件订阅、是否另一进程已占入站锁；见 [FEISHU.md](FEISHU.md)。 |
 | 磁盘里会话太多 | 用 `.session` 管理或迁移 `MINI_AGENT_STATE`；理解历史与归档见 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md)。 |
@@ -388,7 +389,7 @@ python -m miniagent --stop
 
 ## 16. 安全与隐私清单
 
-1. **`.env`** 仅本机保存，权限收紧；勿提交 Git。  
+1. **`config.user.json`** 仅本机保存，权限收紧；勿提交 Git。  
 2. **不要在截图、录屏、聊天里** 暴露完整密钥或企业内部令牌。  
 3. **共享电脑**：使用独立用户目录与独立 `MINI_AGENT_STATE`，用完可删除状态目录。  
 4. **工具能力**：文件与命令受沙箱等约束，见 [SECURITY.md](SECURITY.md)；不要给不可信人员开放你的运行环境。  
