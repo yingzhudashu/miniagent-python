@@ -114,6 +114,13 @@ async def shutdown_runtime(
 
     await cleanup_all_processes()
 
+    # 5b) 关闭 httpx 客户端（飞书 drive_client）
+    try:
+        from miniagent.feishu.drive_client import close_http_client
+        await close_http_client()
+    except Exception as e:
+        _logger.debug("shutdown_runtime: close_http_client: %s", e)
+
     if release_cli_session_lock:
         sid = (state.get("active_session_id") or "").strip()
         if sid:

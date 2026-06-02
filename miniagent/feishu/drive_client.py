@@ -47,6 +47,18 @@ def reset_http_client() -> None:
         _http_client = None
 
 
+async def close_http_client() -> None:
+    """关闭全局 httpx 客户端（shutdown 时调用）。
+
+    用于进程退出时正确关闭连接池，避免资源泄漏。
+    在 miniagent/engine/shutdown.py 的 shutdown_runtime() 中调用。
+    """
+    global _http_client
+    if _http_client is not None:
+        await _http_client.aclose()
+        _http_client = None
+
+
 def _get_cached_tenant_token(config: FeishuConfig) -> str:
     """获取缓存的 tenant_access_token（带 TTL）。
 
@@ -341,4 +353,5 @@ __all__ = [
     "clear_client_cache",
     "clear_token_cache",
     "reset_http_client",
+    "close_http_client",
 ]

@@ -114,6 +114,54 @@ CI **不**依赖基线文件是否存在；可选 workflow 仅上传当次脚本
 - **单次脚本 cProfile**：若不使用 `--inner-repeat`，top `cumtime` 多为导入链；见 §3.1。  
 - **Feishu `json.dumps`**：仍可能是线上热点；优化前应用 py-spy 对 `poll_server` 长驻路径采样确认；S5 仅覆盖 `_normalize_lark_md`，不替代整链 profiling。
 
+### 5.3 异步最佳实践（新增）
+
+为避免事件循环阻塞，在异步上下文中应使用异步版本函数：
+
+| 同步函数（阻塞） | 异步函数（推荐在 async 中使用） | 文件 |
+|-----------------|-------------------------------|------|
+| `is_process_running()` | `is_process_running_async()` | `infrastructure/instance.py` |
+| `InstanceRegistry.stop()` | `InstanceRegistry.stop_async()` | `infrastructure/instance.py` |
+| `save_tasks()` | `save_tasks_async()` | `scheduled_tasks/store.py` |
+| `is_in_git_repo()` | `is_in_git_repo_async()` | `core/self_opt/git_snapshot.py` |
+| `has_uncommitted_changes()` | `has_uncommitted_changes_async()` | `core/self_opt/git_snapshot.py` |
+| `create_snapshot()` | `create_snapshot_async()` | `core/self_opt/git_snapshot.py` |
+| `rollback_snapshot()` | `rollback_snapshot_async()` | `core/self_opt/git_snapshot.py` |
+
+**关键规则**：
+
+1. **禁止在 async 函数中使用 `time.sleep()`**：
+   - 使用 `await asyncio.sleep()` 替代
+   - 阻塞 sleep 会暂停整个事件循环
+
+2. **禁止在 async 函数中使用 `subprocess.run/check_output()`**：
+   - 使用 `asyncio.create_subprocess_exec()` 替代
+   - 同步 subprocess 会阻塞事件循环 5-60 秒
+
+3. **禁止在 async 函数中使用 `urllib.request.urlopen()`**：
+   - 使用 `httpx.AsyncClient` 或 `asyncio.to_thread()` 替代
+   - 同步 HTTP 会阻塞事件循环 30 秒+
+
+4. **跨进程锁无法改为 asyncio 锁**：
+   - `tasks_json_lock()` 使用 `threading.RLock` + 文件锁
+   - 解决方案：使用 `asyncio.to_thread()` 包装整个操作
+
+**示例**：
+
+```python
+# ❌ 错误：阻塞事件循环
+async def bad_example():
+    output = subprocess.check_output(["tasklist"], timeout=5)  # 阻塞 5s
+    time.sleep(0.1)  # 阻塞 0.1s
+    save_tasks(tasks)  # 可能阻塞 0.35s
+
+# ✅ 正确：不阻塞事件循环
+async def good_example():
+    running = await is_process_running_async(pid)
+    await asyncio.sleep(0.1)
+    await save_tasks_async(tasks)
+```
+
 ## 6. 相关文件
 
 | 文件 | 作用 |

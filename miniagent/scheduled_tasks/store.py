@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import secrets
@@ -114,6 +115,21 @@ def save_tasks(tasks: list[ScheduledTask]) -> None:
                 if attempt < len(delays) - 1 and sys.platform == "win32":
                     continue
                 raise last_err
+
+
+async def save_tasks_async(tasks: list[ScheduledTask]) -> None:
+    """异步保存任务列表（通过 to_thread 避免阻塞事件循环）。
+
+    用于异步上下文（如 ticker）中保存任务，
+    将 save_tasks 包装到独立线程执行，避免 time.sleep 阻塞主事件循环。
+
+    注意：tasks_json_lock() 使用 threading.RLock + 文件锁（跨进程），
+    无法改为 asyncio 锁，但整个 save 操作在线程中运行，不阻塞主循环。
+
+    Args:
+        tasks: 任务列表
+    """
+    await asyncio.to_thread(save_tasks, tasks)
 
 
 def effective_task_timezone(task: ScheduledTask) -> str:

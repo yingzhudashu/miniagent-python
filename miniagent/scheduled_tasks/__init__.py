@@ -4,7 +4,7 @@
 ``docs/USER_GUIDE.md`` 第 8 节。飞书侧仅允许部分 ``.schedule`` 子命令。"""
 
 from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec, SessionSpec
-from miniagent.scheduled_tasks.store import load_tasks, save_tasks, tasks_file_path
+from miniagent.scheduled_tasks.store import load_tasks, save_tasks, save_tasks_async, tasks_file_path
 from miniagent.scheduled_tasks.ticker import start_scheduled_tasks_ticker
 
 __all__ = [
@@ -13,6 +13,7 @@ __all__ = [
     "SessionSpec",
     "load_tasks",
     "save_tasks",
+    "save_tasks_async",
     "tasks_file_path",
     "start_scheduled_tasks_ticker",
 ]

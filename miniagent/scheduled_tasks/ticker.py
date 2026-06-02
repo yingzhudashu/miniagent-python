@@ -28,6 +28,7 @@ from miniagent.scheduled_tasks.store import (
     load_tasks,
     repair_invalid_schedules,
     save_tasks,
+    save_tasks_async,
 )
 
 _logger = get_logger(__name__)
@@ -74,7 +75,7 @@ async def tick_once(
     try:
         tasks = load_tasks()
         if repair_invalid_schedules(tasks):
-            save_tasks(tasks)
+            await save_tasks_async(tasks)
 
         now = time.time()
         due: list[ScheduledTask] = []
@@ -135,7 +136,7 @@ async def tick_once(
                                 outcome=outcome,
                                 agent_error=agent_error,
                             )
-                            save_tasks(tlist2)
+                            await save_tasks_async(tlist2)
                     except Exception:
                         _logger.exception("定时任务写回状态失败: %s", task_id)
                     _inflight.discard(task_id)

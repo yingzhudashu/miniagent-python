@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 import subprocess
@@ -45,6 +46,38 @@ def _is_process_running(pid: int) -> bool:
                 text=True,
             )
             return f'"{pid}"' in output
+        else:
+            os.kill(pid, 0)
+            return True
+    except Exception:
+        return False
+
+
+async def _is_process_running_async(pid: int) -> bool:
+    """异步检测 PID 是否存活（不阻塞事件循环）。
+
+    用于异步上下文中的锁检测，避免 subprocess.check_output 阻塞。
+
+    Args:
+        pid: 进程 ID
+
+    Returns:
+        进程是否仍在运行
+    """
+    try:
+        if sys.platform == "win32":
+            proc = await asyncio.create_subprocess_exec(
+                "tasklist",
+                "/FI",
+                f"PID eq {pid}",
+                "/NH",
+                "/FO",
+                "CSV",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            stdout, _ = await proc.communicate()
+            return f'"{pid}"' in stdout.decode("utf-8", errors="replace")
         else:
             os.kill(pid, 0)
             return True

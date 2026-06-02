@@ -41,6 +41,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import shutil
@@ -93,6 +94,38 @@ def is_process_running(pid: int) -> bool:
                 text=True,
             )
             return f'"{pid}"' in output
+        else:
+            os.kill(pid, 0)
+            return True
+    except Exception:
+        return False
+
+
+async def is_process_running_async(pid: int) -> bool:
+    """异步检测 PID 对应的进程是否仍在运行（不阻塞事件循环）。
+
+    用于异步上下文中的实例存活检查，避免 subprocess.check_output 阻塞。
+
+    Args:
+        pid: 进程 ID
+
+    Returns:
+        进程是否仍在运行
+    """
+    try:
+        if sys.platform == "win32":
+            proc = await asyncio.create_subprocess_exec(
+                "tasklist",
+                "/FI",
+                f"PID eq {pid}",
+                "/NH",
+                "/FO",
+                "CSV",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            stdout, _ = await proc.communicate()
+            return f'"{pid}"' in stdout.decode("utf-8", errors="replace")
         else:
             os.kill(pid, 0)
             return True
@@ -320,6 +353,73 @@ class InstanceRegistry:
         _logger.info("实例 #%d 已停止", instance_id)
         return {"success": True}
 
+    async def stop_async(self, instance_id: int) -> dict[str, Any]:
+        """异步停止指定实例（不阻塞事件循环）。
+
+        用于异步上下文（如 ticker、CLI 命令）中停止其他实例，
+        避免 subprocess.check_output 和 time.sleep 阻塞。
+
+        Args:
+            instance_id: 目标实例 ID
+
+        Returns:
+            {"success": True} 或 {"success": False, "reason": str}
+        """
+        inst_dir = self._inst_dir / str(instance_id)
+        meta_file = inst_dir / "meta.json"
+
+        if not meta_file.exists():
+            return {"success": False, "reason": f"实例 #{instance_id} 不存在"}
+
+        try:
+            with open(meta_file, encoding="utf-8") as f:
+                meta = json.load(f)
+        except Exception as e:
+            return {"success": False, "reason": f"读取元数据失败: {e}"}
+
+        pid = meta.get("pid", 0)
+        if not await is_process_running_async(pid):
+            # 进程已死亡，清理残留
+            try:
+                shutil.rmtree(inst_dir)
+            except Exception:
+                pass
+            return {
+                "success": True,
+                "reason": f"实例 #{instance_id} (PID={pid}) 已不存在，已清理",
+            }
+
+        # 终止进程
+        _logger.info("正在停止实例 #%d (PID=%d)...", instance_id, pid)
+        try:
+            if sys.platform == "win32":
+                proc = await asyncio.create_subprocess_exec(
+                    "taskkill",
+                    "/PID",
+                    str(pid),
+                    "/F",
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                await proc.wait()
+            else:
+                os.kill(pid, 15)
+                for _ in range(50):
+                    if not await is_process_running_async(pid):
+                        break
+                    await asyncio.sleep(0.1)
+        except Exception as e:
+            return {"success": False, "reason": f"无法终止 PID={pid}: {e}"}
+
+        # 清理注册表目录
+        try:
+            shutil.rmtree(inst_dir)
+        except Exception:
+            pass
+
+        _logger.info("实例 #%d 已停止", instance_id)
+        return {"success": True}
+
     def stop_current(self) -> dict[str, Any]:
         """停止当前实例（当前进程）。"""
         if self._my_id is None:
@@ -506,5 +606,6 @@ __all__ = [
     "format_instances_table",
     "format_instances_markdown",
     "is_process_running",
+    "is_process_running_async",
     "HEARTBEAT_TIMEOUT",
 ]

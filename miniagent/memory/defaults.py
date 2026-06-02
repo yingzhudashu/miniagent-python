@@ -66,16 +66,28 @@ def resolve_memory_dependencies(
 
 
 def _flush_process_keyword_index_at_exit() -> None:
-    """进程退出时尽力将进程级关键词索引和注册表落盘（静默吞异常）。"""
+    """进程退出时尽力将进程级关键词索引、注册表和嵌入索引落盘（静默吞异常）。"""
     if _bundle is None:
         return
     try:
-        _bundle[2].save()
+        _bundle[2].save()  # KeywordIndex
         # 同时保存共享注册表
         from miniagent.memory.shared_registry import get_registry, reset_registry
+
         registry = get_registry()
         registry.save()
         reset_registry()
+
+        # 保存嵌入索引（新增）
+        try:
+            from miniagent.memory.embedding_search import get_embed_provider, reset_embed_provider
+
+            provider = get_embed_provider()
+            if provider is not None:
+                provider.index.save()
+                reset_embed_provider()
+        except Exception:
+            pass
     except Exception:
         pass
 
