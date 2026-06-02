@@ -1,6 +1,6 @@
 """技能根目录解析（与引擎加载、ClawHub 安装共用）。
 
-旧版若将技能装在仓库根目录 ``skills/``，请整体移动到 ``workspaces/skills/``，
+迁移说明：若技能曾安装在仓库根目录 ``skills/``，请整体移动到 ``workspaces/skills/``，
 或设置配置 ``paths.skills_dir`` 指向原目录；引擎不会自动合并两处扫描。
 
 用户说明见根目录 ``README``「技能目录迁移」。

@@ -225,7 +225,7 @@ async def run_auto_optimization(
     auto_rollback: bool = True,
     dry_run: bool = False,
 ) -> OptimizationResult:
-    """运行自动优化（apply_proposal 的别名，保持向后兼容）。
+    """运行自动优化（apply_proposal 的别名）。
 
     Args:
         proposal: 优化提案

@@ -1,6 +1,6 @@
 """Engine — UnifiedEngine 核心引擎
 
-从旧版 ``unified`` 单文件拆分而来。**职责**：按 ``session_key`` 绑定 ``SessionManager`` 与会话历史；
+从原 ``unified`` 单文件拆分而来。**职责**：按 ``session_key`` 绑定 ``SessionManager`` 与会话历史；
 组装技能工具箱与系统提示片段；调用 :func:`miniagent.core.agent.run_agent` 并串联 ``ThinkingDisplay``
 （CLI 实时打印 / 飞书侧缓冲后卡片）；在适当时机解析 ``resolve_memory_dependencies`` 注入的
 ``memory_store`` / ``activity_log`` / ``keyword_index``。

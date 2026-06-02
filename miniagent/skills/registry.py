@@ -138,7 +138,7 @@ class DefaultSkillRegistry(SkillRegistryProtocol):
     def _get_matching_scopes(self, session_key: str | None = None) -> set[str]:
         """根据 session_key 解析需要查询的 scope 集合。
 
-        ``session_key=None`` → 返回所有 scope（向后兼容）；
+        ``session_key=None`` → 返回所有 scope；
         ``session_key="feishu:xxx"`` → 返回 ``{"global", "session:xxx"}``。
         """
         if session_key is None:
@@ -188,7 +188,7 @@ class DefaultSkillRegistry(SkillRegistryProtocol):
     ) -> list[Toolbox]:
         """获取可用技能贡献的工具箱（经 gating + scope 过滤，自动去重）。
 
-        ``session_key=None`` 时返回所有 scope 的工具箱（向后兼容）；
+        ``session_key=None`` 时返回所有 scope 的工具箱；
         ``session_key`` 非 None 时仅返回 global + 该会话 scope 的工具箱。
         """
         seen: set[str] = set()
@@ -218,7 +218,7 @@ class DefaultSkillRegistry(SkillRegistryProtocol):
     ) -> list[str]:
         """获取可用技能的系统提示词增强（经 gating + scope 过滤）。
 
-        ``session_key=None`` 时返回所有 scope 的提示词（向后兼容）；
+        ``session_key=None`` 时返回所有 scope 的提示词；
         ``session_key`` 非 None 时仅返回 global + 该会话 scope 的提示词。
         """
         prompts: list[str] = []

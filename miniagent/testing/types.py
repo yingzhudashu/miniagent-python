@@ -88,9 +88,6 @@ class SampleSpec:
         }
 
 
-__all__ = ["SampleSpec", "ResultRecord", "ReportSummary"]
-
-
 @dataclass
 class ResultRecord:
     """单条测试结果

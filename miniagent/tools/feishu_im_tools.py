@@ -26,7 +26,6 @@ FEISHU_IM_TOOL_NAMES = frozenset(
     }
 )
 
-
 async def _feishu_send_workspace_file(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     """将工作区内文件以 IM 文件/图片发到当前或指定会话。"""
     rel = str(args.get("relative_path") or "").strip()

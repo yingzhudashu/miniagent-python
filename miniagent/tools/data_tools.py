@@ -14,6 +14,7 @@ import json
 import os
 from typing import Any
 
+# 导入共享路径解析函数
 from miniagent.tools._path_utils import resolve_path_from_ctx
 from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult

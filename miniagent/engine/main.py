@@ -163,7 +163,7 @@ async def unified_main(ctx: RuntimeContext) -> None:
     signal.signal(signal.SIGTERM, _on_exit)
 
     # 初始化子系统
-    from miniagent.session.manager import DefaultSessionManager
+    from miniagent.session.manager import DefaultSessionManager as SessionManager
 
     (
         loaded_skills,
@@ -175,7 +175,7 @@ async def unified_main(ctx: RuntimeContext) -> None:
         registry,
         skill_registry,
         engine,
-        DefaultSessionManager,
+        SessionManager,
         ctx.channel_router,
         clawhub=ctx.clawhub,
         keyword_index=ctx.keyword_index,
@@ -243,7 +243,7 @@ async def run_cli_loop(
 ) -> None:
     """CLI 交互循环（使用 prompt_toolkit 实现固定输入区）。
 
-    ``skill_toolboxes`` / ``skill_prompts`` 参数保留兼容；实际从 ``state`` 读取以支持热加载。
+    ``skill_toolboxes`` / ``skill_prompts`` 参数作为 fallback；优先从 ``state`` 读取以支持热加载。
 
     界面布局：
     ─────────── 分隔线 ───────────

@@ -17,7 +17,7 @@ def build_skill_snapshots(
 ) -> tuple[list[Toolbox], list[str]]:
     """从技能注册表构建工具箱列表与系统提示词列表（含内置工具箱）。
 
-    ``session_key=None`` 时返回所有 scope（向后兼容）；
+    ``session_key=None`` 时返回所有 scope；
     ``session_key`` 非 None 时仅返回 global + 该会话 scope 的技能。
     """
     skill_toolboxes = skill_registry.get_all_toolboxes(config, session_key=session_key)
