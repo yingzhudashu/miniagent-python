@@ -26,9 +26,6 @@ FEISHU_IM_TOOL_NAMES = frozenset(
     }
 )
 
-# 保留原有函数名作为别名（向后兼容）
-_resolve_under_workspace = resolve_under_workspace
-
 
 async def _feishu_send_workspace_file(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     """将工作区内文件以 IM 文件/图片发到当前或指定会话。"""
@@ -50,7 +47,7 @@ async def _feishu_send_workspace_file(args: dict[str, Any], ctx: ToolContext) ->
     if not ws or not rel:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} 缺少工作区路径或 relative_path。")
     try:
-        path = _resolve_under_workspace(ws, rel)
+        path = resolve_under_workspace(ws, rel)
     except ValueError as e:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} {e}")
     if not os.path.isfile(path):

@@ -14,15 +14,9 @@ from miniagent.testing.types import (
     ReportSummary,
     ResultRecord,
     SampleSpec,
-    TestReport,
-    TestResult,
-    TestSample,
 )
 
 __all__ = [
-    "TestSample",
-    "TestResult",
-    "TestReport",
     "SampleSpec",
     "ResultRecord",
     "ReportSummary",

@@ -37,10 +37,6 @@ _SUPPORTED_ACTIONS = (
     "upload_attachment",
 )
 
-# 保留原有函数名作为别名（向后兼容）
-_fmt_json = fmt_json
-_resolve_under_workspace = resolve_under_workspace
-
 
 def _parse_fields_arg(raw: Any) -> dict[str, Any] | None:
     """解析 fields 参数（支持 dict、JSON 字符串、None）。"""
@@ -89,7 +85,7 @@ async def _feishu_bitable(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
             tables, nxt, has_more = list_tables(cfg, app_token)
             return ToolResult(
                 success=True,
-                content=_fmt_json(
+                content=fmt_json(
                     {"app": meta, "tables": tables, "has_more": has_more, "page_token": nxt}
                 ),
             )
@@ -107,7 +103,7 @@ async def _feishu_bitable(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
             )
             return ToolResult(
                 success=True,
-                content=_fmt_json({"fields": items, "has_more": has_more, "page_token": nxt}),
+                content=fmt_json({"fields": items, "has_more": has_more, "page_token": nxt}),
             )
         if action == "list_records":
             field_names = args.get("field_names")
@@ -130,14 +126,14 @@ async def _feishu_bitable(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
             )
             return ToolResult(
                 success=True,
-                content=_fmt_json({"records": items, "has_more": has_more, "page_token": nxt}),
+                content=fmt_json({"records": items, "has_more": has_more, "page_token": nxt}),
             )
         if action == "get_record":
             rid = str(args.get("record_id") or "").strip()
             if not rid:
                 return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 record_id。")
             return ToolResult(
-                success=True, content=_fmt_json(get_record(cfg, app_token, table_id, rid))
+                success=True, content=fmt_json(get_record(cfg, app_token, table_id, rid))
             )
         if action == "create_record":
             fields = _parse_fields_arg(args.get("fields"))
@@ -145,7 +141,7 @@ async def _feishu_bitable(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
                 return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 fields（对象或 JSON 字符串）。")
             return ToolResult(
                 success=True,
-                content=_fmt_json(create_record(cfg, app_token, table_id, fields)),
+                content=fmt_json(create_record(cfg, app_token, table_id, fields)),
             )
         if action == "update_record":
             rid = str(args.get("record_id") or "").strip()
@@ -156,7 +152,7 @@ async def _feishu_bitable(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
                 return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 fields。")
             return ToolResult(
                 success=True,
-                content=_fmt_json(update_record(cfg, app_token, table_id, rid, fields)),
+                content=fmt_json(update_record(cfg, app_token, table_id, rid, fields)),
             )
         if action == "delete_record":
             rid = str(args.get("record_id") or "").strip()
@@ -177,7 +173,7 @@ async def _feishu_bitable(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
                 return ToolResult(
                     success=False, content=f"{WARNING_PREFIX} 需要 record_id、field_name、relative_path。"
                 )
-            path = _resolve_under_workspace(ws, rel)
+            path = resolve_under_workspace(ws, rel)
             with open(path, "rb") as f:
                 data = f.read()
             out = upload_record_attachment(
@@ -189,7 +185,7 @@ async def _feishu_bitable(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
                 data,
                 file_name=os.path.basename(path),
             )
-            return ToolResult(success=True, content=_fmt_json(out))
+            return ToolResult(success=True, content=fmt_json(out))
     except json.JSONDecodeError as e:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} fields JSON 无效: {e}")
     except Exception as e:

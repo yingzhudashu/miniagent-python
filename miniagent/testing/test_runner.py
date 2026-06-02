@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from miniagent.infrastructure.logger import get_logger
-from miniagent.testing.types import ResultRecord, SampleSpec, TestReport, TestResult
+from miniagent.testing.types import ResultRecord, SampleSpec, ReportSummary
 
 _logger = get_logger(__name__)
 
@@ -120,7 +120,7 @@ class TestRunner:
         name_pattern: str | None = None,
         *,
         mock: bool = False,
-    ) -> TestReport:
+    ) -> ReportSummary:
         """运行测试
 
         Args:
@@ -133,7 +133,7 @@ class TestRunner:
         """
         samples = self.load_samples(category, name_pattern)
 
-        report = TestReport(total=len(samples))
+        report = ReportSummary(total=len(samples))
 
         if self._term_write:
             self._term_write(f"\n[cyan]开始运行 {len(samples)} 条测试...[/cyan]\n")
@@ -156,7 +156,7 @@ class TestRunner:
 
             except Exception as e:
                 report.skipped += 1
-                report.results.append(TestResult(
+                report.results.append(ResultRecord(
                     sample_name=sample.name,
                     passed=False,
                     error_message=str(e),
@@ -320,7 +320,7 @@ async def run_self_test(
     execute_agent: Callable | None = None,
     term_write: Callable | None = None,
     mock: bool = False,
-) -> TestReport:
+) -> ReportSummary:
     """便捷函数：运行自测
 
     Args:

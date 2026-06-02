@@ -14,13 +14,9 @@ import json
 import os
 from typing import Any
 
-# 导入共享路径解析函数（消除重复代码）
 from miniagent.tools._path_utils import resolve_path_from_ctx
 from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
-
-# 保留原有函数名作为别名（向后兼容）
-_resolve_path = resolve_path_from_ctx
 
 
 # ─── read_csv ────────────────────────────────────────────
@@ -58,7 +54,7 @@ async def _read_csv_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResul
     Returns:
         ToolResult: 成功时返回 CSV 内容，失败时返回错误信息
     """
-    path = _resolve_path(str(args["path"]), ctx)
+    path = resolve_path_from_ctx(str(args["path"]), ctx)
     if not os.path.isfile(path):
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 文件不存在: {path}")
     delimiter = str(args.get("delimiter", "")).strip()
@@ -127,7 +123,7 @@ async def _write_csv_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
     Returns:
         ToolResult: 成功时返回写入行数，失败时返回错误信息
     """
-    path = _resolve_path(str(args["path"]), ctx)
+    path = resolve_path_from_ctx(str(args["path"]), ctx)
     delimiter = str(args.get("delimiter", ",")).strip() or ","
     raw_data = str(args.get("data", ""))
     try:
@@ -188,7 +184,7 @@ async def _json_read_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
     Returns:
         ToolResult: 成功时返回格式化的 JSON 内容，失败时返回错误信息
     """
-    path = _resolve_path(str(args["path"]), ctx)
+    path = resolve_path_from_ctx(str(args["path"]), ctx)
     if not os.path.isfile(path):
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 文件不存在: {path}")
     encoding = str(args.get("encoding", "utf-8"))
@@ -246,7 +242,7 @@ async def _json_write_handler(args: dict[str, Any], ctx: ToolContext) -> ToolRes
     Returns:
         ToolResult: 成功时返回写入确认，失败时返回错误信息
     """
-    path = _resolve_path(str(args["path"]), ctx)
+    path = resolve_path_from_ctx(str(args["path"]), ctx)
     pretty = args.get("pretty", True) in (True, "true", "1")
     raw_data = str(args.get("data", ""))
     try:

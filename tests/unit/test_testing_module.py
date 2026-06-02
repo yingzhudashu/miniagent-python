@@ -11,9 +11,6 @@ from miniagent.testing.types import (
     ReportSummary,
     ResultRecord,
     SampleSpec,
-    TestReport,
-    TestResult,
-    TestSample,
 )
 
 
@@ -55,12 +52,12 @@ class TestTypes:
         assert data["category"] == "tool_selection"
         assert data["expected_tools"] == ["write_file"]
 
-    def test_backward_compat_aliases(self) -> None:
-        """向后兼容别名"""
-        # TestSample 应该是 SampleSpec 的别名
-        assert TestSample is SampleSpec
-        assert TestResult is ResultRecord
-        assert TestReport is ReportSummary
+    def test_backward_compat_aliases_removed(self) -> None:
+        """向后兼容别名已删除，确认新名称可用"""
+        # 新类型名称应该是正确的
+        assert SampleSpec is not None
+        assert ResultRecord is not None
+        assert ReportSummary is not None
 
     def test_result_to_dict_truncates_output(self) -> None:
         """ResultRecord.to_dict 截断输出"""

@@ -20,13 +20,9 @@ from miniagent.infrastructure.json_config import get_config
 
 from miniagent.core.openai_client import get_shared_async_openai
 
-# 导入共享路径解析函数（消除重复代码）
 from miniagent.tools._path_utils import resolve_path_from_ctx
 from miniagent.types.error_prefix import ERROR_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
-
-# 保留原有函数名作为别名（向后兼容）
-_resolve_image_path = resolve_path_from_ctx
 
 
 # ════════════════════════════════════════════════════════
@@ -68,7 +64,7 @@ async def _analyze_image_handler(args: dict[str, Any], ctx: ToolContext) -> Tool
     """
     # 1. 解析并验证路径（沙箱保护）
     try:
-        image_path = _resolve_image_path(str(args["path"]), ctx)
+        image_path = resolve_path_from_ctx(str(args["path"]), ctx)
     except ValueError as e:
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 路径越权: {e}")
 

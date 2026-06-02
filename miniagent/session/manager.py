@@ -1100,7 +1100,4 @@ def _get_session_lock_owner(workspace_path: str) -> int | None:
     return None
 
 
-__all__ = ["DefaultSessionManager", "SessionManager", "SessionConfig", "SessionInfo"]
-
-# Compatibility alias
-SessionManager = DefaultSessionManager
+__all__ = ["DefaultSessionManager", "SessionConfig", "SessionInfo"]

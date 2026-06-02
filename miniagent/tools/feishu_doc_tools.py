@@ -57,11 +57,6 @@ def _docx_open_url(document_id: str) -> str | None:
     return f"{prefix.rstrip('/')}/{did}" if did else None
 
 
-# 保留原有函数名作为别名（向后兼容）
-_resolve_under_workspace = resolve_under_workspace
-_fmt_json = fmt_json
-
-
 async def _feishu_doc(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     action = str(args.get("action") or "").strip().lower()
     if action not in _SUPPORTED_ACTIONS:
@@ -170,7 +165,7 @@ def _action_get(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
     url = _docx_open_url(doc_id)
     if url:
         meta["url"] = url
-    return ToolResult(success=True, content=_fmt_json(meta))
+    return ToolResult(success=True, content=fmt_json(meta))
 
 
 def _action_read(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
@@ -204,7 +199,7 @@ def _action_read(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
         "content": text or "",
         "hint": hint or None,
     }
-    return ToolResult(success=True, content=_fmt_json(payload))
+    return ToolResult(success=True, content=fmt_json(payload))
 
 
 def _action_append(args: dict[str, Any], cfg: FeishuConfig, *, full_write: bool) -> ToolResult:
@@ -264,7 +259,7 @@ def _action_list_blocks(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
     items, nxt, has_more = list_document_blocks(cfg, doc_id, page_token=page_token)
     return ToolResult(
         success=True,
-        content=_fmt_json({"items": items, "has_more": has_more, "page_token": nxt}),
+        content=fmt_json({"items": items, "has_more": has_more, "page_token": nxt}),
     )
 
 
@@ -276,7 +271,7 @@ def _action_get_block(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
     block_id = str(args.get("block_id") or "").strip()
     if not doc_id or not block_id:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token 与 block_id。")
-    return ToolResult(success=True, content=_fmt_json(get_block(cfg, doc_id, block_id)))
+    return ToolResult(success=True, content=fmt_json(get_block(cfg, doc_id, block_id)))
 
 
 def _action_update_block(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
@@ -324,7 +319,7 @@ def _action_batch_update(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
     if not isinstance(requests_payload, list):
         return ToolResult(success=False, content=f"{WARNING_PREFIX} requests 须为数组。")
     out = batch_update_blocks(cfg, doc_id, requests_payload)
-    return ToolResult(success=True, content=_fmt_json(out))
+    return ToolResult(success=True, content=fmt_json(out))
 
 
 def _action_export_raw(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig) -> ToolResult:
@@ -339,7 +334,7 @@ def _action_export_raw(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig
     if not ws or not rel:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要会话工作区与 relative_path。")
     try:
-        path = _resolve_under_workspace(ws, rel)
+        path = resolve_under_workspace(ws, rel)
     except ValueError as e:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} {e}")
     text = get_document_raw_content(cfg, doc_id)
@@ -362,7 +357,7 @@ def _action_import_raw(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig
     if not ws or not rel:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 relative_path。")
     try:
-        path = _resolve_under_workspace(ws, rel)
+        path = resolve_under_workspace(ws, rel)
     except ValueError as e:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} {e}")
     with open(path, encoding="utf-8") as f:
@@ -431,7 +426,7 @@ def _action_upload_image(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConf
     rel = str(args.get("relative_path") or args.get("file_path") or "").strip()
     if not doc_id or not rel:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token 与 relative_path。")
-    path = _resolve_under_workspace(ctx.cwd or "", rel)
+    path = resolve_under_workspace(ctx.cwd or "", rel)
     tok = upload_doc_image_from_path(cfg, doc_id, path)
     return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已插入图片，file_token={tok}")
 
@@ -444,7 +439,7 @@ def _action_upload_file(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfi
     rel = str(args.get("relative_path") or args.get("file_path") or "").strip()
     if not doc_id or not rel:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token 与 relative_path。")
-    path = _resolve_under_workspace(ctx.cwd or "", rel)
+    path = resolve_under_workspace(ctx.cwd or "", rel)
     tok = upload_doc_file_from_path(cfg, doc_id, path)
     return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已上传附件素材，file_token={tok}")
 
@@ -462,7 +457,7 @@ def _action_download_media(args: dict[str, Any], ctx: ToolContext, cfg: FeishuCo
     if not ws or not rel:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 relative_path 写入工作区。")
     try:
-        path = _resolve_under_workspace(ws, rel)
+        path = resolve_under_workspace(ws, rel)
     except ValueError as e:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} {e}")
     data = download_media_bytes(cfg, tok, extra=extra)
@@ -525,7 +520,7 @@ def _action_list_permissions(args: dict[str, Any], cfg: FeishuConfig) -> ToolRes
     if not doc_id:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token。")
     items = list_permissions(cfg, doc_id)
-    return ToolResult(success=True, content=_fmt_json({"permissions": items}))
+    return ToolResult(success=True, content=fmt_json({"permissions": items}))
 
 
 def _action_add_permission(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
@@ -541,7 +536,7 @@ def _action_add_permission(args: dict[str, Any], cfg: FeishuConfig) -> ToolResul
             success=False, content=f"{WARNING_PREFIX} 需要 doc_token、member_type、member_id（或 email/open_id）。"
         )
     out = add_permission(cfg, doc_id, member_type=member_type, member_id=member_id, perm=perm)
-    return ToolResult(success=True, content=_fmt_json(out))
+    return ToolResult(success=True, content=fmt_json(out))
 
 
 def _action_remove_permission(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
@@ -570,11 +565,11 @@ def _action_search(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 query。")
     try:
         items = search_docs(cfg, q)
-        return ToolResult(success=True, content=_fmt_json({"ok": True, "results": items}))
+        return ToolResult(success=True, content=fmt_json({"ok": True, "results": items}))
     except SearchRequiresUserTokenError as e:
-        return ToolResult(success=False, content=_fmt_json(e.to_payload()))
+        return ToolResult(success=False, content=fmt_json(e.to_payload()))
     except SearchApiError as e:
-        return ToolResult(success=False, content=_fmt_json(e.to_payload()))
+        return ToolResult(success=False, content=fmt_json(e.to_payload()))
 
 
 _feishu_doc_schema = {

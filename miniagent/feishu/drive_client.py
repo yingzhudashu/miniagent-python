@@ -150,18 +150,6 @@ async def _async_http_request(
     return out
 
 
-async def _async_http_post_json(
-    url: str, payload: dict[str, Any], *, headers: dict[str, str] | None = None
-) -> dict[str, Any]:
-    """异步发送 JSON POST 请求（兼容旧调用，委托给 _async_http_request）。"""
-    return await _async_http_request("POST", url, payload=payload, headers=headers)
-
-
-async def _async_http_get_json(url: str, *, headers: dict[str, str]) -> dict[str, Any]:
-    """异步发送 JSON GET 请求（兼容旧调用，委托给 _async_http_request）。"""
-    return await _async_http_request("GET", url, headers=headers)
-
-
 def _http_request(
     method: str,
     url: str,
@@ -213,23 +201,12 @@ def _http_request(
     return out
 
 
-def _http_post_json(
-    url: str, payload: dict[str, Any], *, headers: dict[str, str] | None = None
-) -> dict[str, Any]:
-    """同步发送 JSON POST 请求（兼容旧调用，委托给 _http_request）。"""
-    return _http_request("POST", url, payload=payload, headers=headers)
-
-
-def _http_get_json(url: str, *, headers: dict[str, str]) -> dict[str, Any]:
-    """同步发送 JSON GET 请求（兼容旧调用，委托给 _http_request）。"""
-    return _http_request("GET", url, headers=headers)
-
-
 def _fetch_tenant_access_token_sync(config: FeishuConfig) -> str:
     """获取飞书 tenant_access_token（同步版本，用于快速初始化）。"""
-    js = _http_post_json(
+    js = _http_request(
+        "POST",
         _TENANT_TOKEN_URL,
-        {"app_id": config.app_id, "app_secret": config.app_secret},
+        payload={"app_id": config.app_id, "app_secret": config.app_secret},
     )
     code = _parse_feishu_json_code(js.get("code"))
     if code is None or code != 0:
@@ -242,9 +219,10 @@ def _fetch_tenant_access_token_sync(config: FeishuConfig) -> str:
 
 async def _fetch_tenant_access_token_async(config: FeishuConfig) -> str:
     """获取飞书 tenant_access_token（异步版本）。"""
-    js = await _async_http_post_json(
+    js = await _async_http_request(
+        "POST",
         _TENANT_TOKEN_URL,
-        {"app_id": config.app_id, "app_secret": config.app_secret},
+        payload={"app_id": config.app_id, "app_secret": config.app_secret},
     )
     code = _parse_feishu_json_code(js.get("code"))
     if code is None or code != 0:
@@ -255,17 +233,14 @@ async def _fetch_tenant_access_token_async(config: FeishuConfig) -> str:
     return tok
 
 
-# 保留旧名称作为同步版本的别名（向后兼容）
-_fetch_tenant_access_token = _fetch_tenant_access_token_sync
-
-
 def get_root_folder_meta(config: FeishuConfig) -> str:
     """调用「获取根文件夹元数据」接口（同步版本）。
 
     返回根目录 ``folder_token``。
     """
     tenant = _get_cached_tenant_token(config)
-    js = _http_get_json(
+    js = _http_request(
+        "GET",
         _ROOT_FOLDER_META_URL,
         headers={"Authorization": f"Bearer {tenant}"},
     )
@@ -290,7 +265,8 @@ async def get_root_folder_meta_async(config: FeishuConfig) -> str:
     返回根目录 ``folder_token``。
     """
     tenant = await _get_cached_tenant_token_async(config)
-    js = await _async_http_get_json(
+    js = await _async_http_request(
+        "GET",
         _ROOT_FOLDER_META_URL,
         headers={"Authorization": f"Bearer {tenant}"},
     )

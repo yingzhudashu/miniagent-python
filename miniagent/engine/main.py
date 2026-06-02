@@ -163,7 +163,7 @@ async def unified_main(ctx: RuntimeContext) -> None:
     signal.signal(signal.SIGTERM, _on_exit)
 
     # 初始化子系统
-    from miniagent.session.manager import DefaultSessionManager as SessionManager
+    from miniagent.session.manager import DefaultSessionManager
 
     (
         loaded_skills,
@@ -175,7 +175,7 @@ async def unified_main(ctx: RuntimeContext) -> None:
         registry,
         skill_registry,
         engine,
-        SessionManager,
+        DefaultSessionManager,
         ctx.channel_router,
         clawhub=ctx.clawhub,
         keyword_index=ctx.keyword_index,

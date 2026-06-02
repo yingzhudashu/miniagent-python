@@ -85,20 +85,18 @@ def search_docs(
         raise SearchRequiresUserTokenError(
             "search 需要 MINIAGENT_FEISHU_USER_ACCESS_TOKEN（用户 OAuth token）"
         )
-    from miniagent.feishu.drive_client import _http_post_json
+    from miniagent.feishu.drive_client import _http_request
 
     body = {
         "search_key": query,
         "count": min(page_size, 50),
         "docs_types": ["doc", "docx", "sheet", "bitable"],
     }
-    raw = _http_post_json(
+    raw = _http_request(
+        "POST",
         "https://open.feishu.cn/open-apis/suite/docs-api/search/object",
-        body,
-        headers={
-            "Authorization": f"Bearer {ut}",
-            "Content-Type": "application/json; charset=utf-8",
-        },
+        payload=body,
+        headers={"Authorization": f"Bearer {ut}"},
     )
     code = raw.get("code")
     if code not in (0, None):

@@ -88,8 +88,7 @@ class SampleSpec:
         }
 
 
-# 别名：保持向后兼容（外部代码可能使用 TestSample）
-TestSample = SampleSpec
+__all__ = ["SampleSpec", "ResultRecord", "ReportSummary"]
 
 
 @dataclass
@@ -136,10 +135,6 @@ class ResultRecord:
         }
 
 
-# 别名：保持向后兼容
-TestResult = ResultRecord
-
-
 @dataclass
 class ReportSummary:
     """测试报告：汇总所有测试结果
@@ -182,8 +177,4 @@ class ReportSummary:
         return self.passed / self.total
 
 
-# 别名：保持向后兼容
-TestReport = ReportSummary
-
-
-__all__ = ["TestSample", "TestResult", "TestReport", "SampleSpec", "ResultRecord", "ReportSummary"]
+__all__ = ["SampleSpec", "ResultRecord", "ReportSummary"]

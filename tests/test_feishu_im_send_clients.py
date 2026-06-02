@@ -270,12 +270,12 @@ def test_get_root_folder_meta_returns_token() -> None:
     cfg = FeishuConfig(app_id="a", app_secret="b")
     with (
         patch(
-            "miniagent.feishu.drive_client._http_post_json",
-            return_value={"code": 0, "tenant_access_token": "t-abc"},
-        ),
-        patch(
-            "miniagent.feishu.drive_client._http_get_json",
-            return_value={"code": 0, "data": {"token": "fld_root_meta"}},
+            "miniagent.feishu.drive_client._http_request",
+            side_effect=lambda method, url, **kw: (
+                {"code": 0, "tenant_access_token": "t-abc"}
+                if "tenant_access_token" in url
+                else {"code": 0, "data": {"token": "fld_root_meta"}}
+            ),
         ),
     ):
         tok = get_root_folder_meta(cfg)
@@ -289,12 +289,12 @@ def test_get_root_folder_meta_raises_on_nonzero_code() -> None:
     cfg = FeishuConfig(app_id="a", app_secret="b")
     with (
         patch(
-            "miniagent.feishu.drive_client._http_post_json",
-            return_value={"code": 0, "tenant_access_token": "t-abc"},
-        ),
-        patch(
-            "miniagent.feishu.drive_client._http_get_json",
-            return_value={"code": 91204, "msg": "FORBIDDEN"},
+            "miniagent.feishu.drive_client._http_request",
+            side_effect=lambda method, url, **kw: (
+                {"code": 0, "tenant_access_token": "t-abc"}
+                if "tenant_access_token" in url
+                else {"code": 91204, "msg": "FORBIDDEN"}
+            ),
         ),
     ):
         with pytest.raises(RuntimeError, match="91204"):
