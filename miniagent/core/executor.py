@@ -18,6 +18,12 @@
 **不变量**：工具调用均在 :class:`miniagent.types.tool.ToolContext` 限定的 ``cwd`` / ``allowed_paths`` 内执行
 （通常由沙箱默认工作区推导）。上下文 token 超预算时抛出
 :class:`miniagent.memory.context.ContextBudgetExceeded`，由上层决定是否换会话或压缩。
+
+.. note::
+   本文件当前约 1400 行，未来重构建议拆分为：
+   - executor_core.py: ReAct 主循环逻辑、消息构建
+   - executor_tools.py: 工具调用处理、签名检查、缓存
+   - executor_context.py: 上下文管理、thinking 回调
 """
 
 from __future__ import annotations

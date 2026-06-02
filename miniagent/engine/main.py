@@ -14,6 +14,12 @@
 勿再依赖 ``unified`` 模块级全局。
 
 异步时序（队列 → Agent → 回复）见 ``docs/ARCHITECTURE.md``；点命令见 ``docs/CLI.md``。
+
+.. note::
+   本文件当前约 2500 行，未来重构建议拆分为：
+   - cli_loop.py: 主循环逻辑（输入处理、命令分发）
+   - cli_ui.py: prompt_toolkit UI 构建（补全、样式、键绑定）
+   - cli_history.py: 历史加载/渲染/复制模式
 """
 
 from __future__ import annotations

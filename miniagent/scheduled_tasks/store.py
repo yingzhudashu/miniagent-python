@@ -65,7 +65,8 @@ def load_tasks() -> list[ScheduledTask]:
         try:
             with open(p, encoding="utf-8") as f:
                 raw = json.load(f)
-        except (OSError, json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError) as e:
+            _logger.warning("读取任务文件失败: %s - %s", p, e)
             return []
         if not isinstance(raw, dict) or "tasks" not in raw:
             return []
@@ -74,7 +75,8 @@ def load_tasks() -> list[ScheduledTask]:
             if isinstance(item, dict):
                 try:
                     out.append(ScheduledTask.from_json(item))
-                except (KeyError, TypeError, ValueError):
+                except (KeyError, TypeError, ValueError) as e:
+                    _logger.debug("解析任务条目失败: %s - %s", item.get("id", "unknown"), e)
                     continue
         return out
 

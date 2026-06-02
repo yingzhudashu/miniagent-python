@@ -31,8 +31,11 @@ from miniagent.engine.utils import (
     feishu_user_status_fn,
 )
 from miniagent.infrastructure.json_config import get_config
+from miniagent.infrastructure.logger import get_logger
 from miniagent.runtime.context import RuntimeContext
 from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
+
+_logger = get_logger(__name__)
 
 # ─── 飞书处理器工厂 ───────────────────────────────────────────
 
@@ -168,6 +171,7 @@ def create_feishu_handler(
                     )
                     return reply
             except Exception as e:
+                _logger.exception("飞书命令执行失败: %s", content)
                 return f"{ERROR_PREFIX} 命令执行失败: {e}"
 
         _maybe_auto_bind_p2p(chat_type, sender_id, state)

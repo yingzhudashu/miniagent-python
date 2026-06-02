@@ -54,7 +54,7 @@ async def deregister_process(proc: asyncio.subprocess.Process) -> None:
         else:
             _tracked.remove(proc)
     except ValueError:
-        pass
+        _logger.debug("子进程已从追踪列表移除或不存在: PID=%d", proc.pid)
 
 
 def get_tracked_count() -> int:

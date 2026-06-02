@@ -279,11 +279,11 @@ class InstanceRegistry:
                 else:
                     try:
                         shutil.rmtree(entry)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        _logger.warning("清理失效实例目录失败: %s - %s", entry, e)
 
-            except Exception:
-                pass
+            except Exception as e:
+                _logger.warning("读取实例元数据失败: %s - %s", entry, e)
 
         return results
 
