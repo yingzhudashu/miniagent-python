@@ -5,10 +5,10 @@
 
 配置优先级（从低到高）：
 1. config.defaults.json - 默认配置（随代码发布）
-2. config.user.json - 用户配置（workspaces/）
+2. config.user.json - 用户配置
 3. 环境变量 - 最高优先级（运行时覆盖）
 
-敏感信息（API密钥等）保留在 .env.secrets 或环境变量中。
+敏感信息（API密钥等）放在config.user.json的secrets部分，由env_loader.py加载到环境变量。
 """
 
 from __future__ import annotations

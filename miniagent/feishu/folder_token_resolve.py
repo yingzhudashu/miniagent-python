@@ -1,11 +1,12 @@
-"""云盘父目录 ``folder_token`` 解析：工具参数（含飞书云盘链接）、环境变量、可选根目录 API。"""
+"""云盘父目录 ``folder_token`` 解析：工具参数（含飞书云盘链接）、JSON配置、可选根目录 API。"""
 
 from __future__ import annotations
 
 import re
 
 from miniagent.feishu.types import FeishuConfig
-from miniagent.infrastructure.env_parse import env_flag, env_str_legacy
+from miniagent.infrastructure.env_parse import env_flag
+from miniagent.infrastructure.json_config import get_config
 
 # 飞书云盘文件夹路径常见形态：.../folder/<token>、.../drive/folder/<token>、...#/folder/<token>
 _FOLDER_IN_PATH = re.compile(
@@ -66,12 +67,11 @@ def folder_token_from_tool_arg(raw: str | None) -> tuple[str, str | None]:
 
 
 def default_doc_folder_token_from_env() -> str:
-    """与 ``feishu_create_document`` 历史行为一致的环境变量默认父目录。"""
-    return env_str_legacy(
-        "MINIAGENT_FEISHU_DOC_FOLDER_TOKEN",
-        "FEISHU_DEFAULT_DOC_FOLDER_TOKEN",
-        deprecate_msg="FEISHU_DEFAULT_DOC_FOLDER_TOKEN 已弃用，请改用 MINIAGENT_FEISHU_DOC_FOLDER_TOKEN。",
-    )
+    """从JSON配置读取默认父目录folder_token。"""
+    token = get_config("feishu.doc.folder_token", None)
+    if token:
+        return str(token)
+    return ""
 
 
 def root_meta_fallback_enabled() -> bool:

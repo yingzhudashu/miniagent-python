@@ -56,22 +56,3 @@ def test_env_flag_strict_unknown_is_false(monkeypatch: pytest.MonkeyPatch) -> No
     assert env_flag_strict("MINIAGENT_TEST_FLAG", default=True) is True
     monkeypatch.setenv("MINIAGENT_TEST_FLAG", "maybe")
     assert env_flag_strict("MINIAGENT_TEST_FLAG", default=True) is False
-
-
-def test_env_str_legacy_fallback_and_warn_once(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from unittest.mock import patch
-
-    from miniagent.infrastructure.env_parse import (
-        env_str_legacy,
-        reset_env_legacy_warnings_for_tests,
-    )
-
-    reset_env_legacy_warnings_for_tests()
-    monkeypatch.delenv("MINIAGENT_TEST_NEW", raising=False)
-    monkeypatch.setenv("MINIAGENT_TEST_OLD", "legacy-val")
-    with patch("miniagent.infrastructure.env_parse._logger") as mock_log:
-        assert env_str_legacy("MINIAGENT_TEST_NEW", "MINIAGENT_TEST_OLD") == "legacy-val"
-        assert env_str_legacy("MINIAGENT_TEST_NEW", "MINIAGENT_TEST_OLD") == "legacy-val"
-        assert mock_log.warning.call_count == 1

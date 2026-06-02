@@ -12,7 +12,7 @@ from miniagent.feishu.folder_token_resolve import resolve_parent_folder_token
 from miniagent.feishu.lark_client import config_from_env, require_lark_oapi
 from miniagent.feishu.token_resolve import extract_doc_token
 from miniagent.feishu.types import FeishuConfig
-from miniagent.infrastructure.env_parse import env_str_legacy
+from miniagent.infrastructure.json_config import get_config
 from miniagent.types.error_prefix import SUCCESS_PREFIX, WARNING_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
@@ -49,12 +49,8 @@ _SUPPORTED_ACTIONS = (
 
 
 def _docx_open_url(document_id: str) -> str | None:
-    """构造云文档打开 URL（需配置 MINIAGENT_FEISHU_DOCX_URL_PREFIX）。"""
-    prefix = env_str_legacy(
-        "MINIAGENT_FEISHU_DOCX_URL_PREFIX",
-        "FEISHU_DOCX_URL_PREFIX",
-        deprecate_msg="FEISHU_DOCX_URL_PREFIX 已弃用，请改用 MINIAGENT_FEISHU_DOCX_URL_PREFIX。",
-    )
+    """构造云文档打开 URL（需配置 feishu.doc.docx_url_prefix）。"""
+    prefix = get_config("feishu.doc.docx_url_prefix", None)
     if not prefix:
         return None
     did = (document_id or "").strip()

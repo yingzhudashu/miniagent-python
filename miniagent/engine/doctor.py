@@ -107,8 +107,8 @@ def diagnose_environment() -> str:
             lines.append(f"  - {issue}")
         lines.append("")
         lines.append("建议操作:")
-        lines.append("1. 复制 .env.example 为 .env")
-        lines.append("2. 在 .env 中填写必要的配置")
+        lines.append("1. 复制 config.defaults.json 为 config.user.json")
+        lines.append("2. 在 config.user.json 的 secrets 部分填写必要的凭据")
         lines.append("3. 重启 MiniAgent")
     else:
         lines.append("✅ 环境配置完整，可正常使用")

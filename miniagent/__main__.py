@@ -25,7 +25,7 @@ import sys
 
 
 def _load_env():
-    """加载敏感凭据（.env.secrets）。"""
+    """加载敏感凭据（从config.user.json的secrets部分）。"""
     from miniagent.infrastructure.env_loader import load_secrets_from_project_root
 
     load_secrets_from_project_root()

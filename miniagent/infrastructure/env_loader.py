@@ -70,23 +70,9 @@ def load_secrets_from_config() -> None:
 def load_secrets_from_project_root() -> None:
     """加载项目根目录的敏感凭据。
 
-    优先从config.user.json的secrets部分读取，然后加载.env.secrets（兼容旧格式）。
+    从config.user.json的secrets部分读取凭据并设置到环境变量。
     """
-    # 1. 从config.user.json读取secrets
     load_secrets_from_config()
-
-    # 2. 兼容：加载.env.secrets（如果存在）
-    try:
-        from dotenv import load_dotenv
-
-        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        secrets_path = os.path.join(root, ".env.secrets")
-        if os.path.exists(secrets_path):
-            load_dotenv(secrets_path, override=False)
-            _logger.debug("已加载.env.secrets（兼容模式）")
-
-    except ImportError:
-        pass
 
 
 __all__ = ["load_secrets_from_project_root", "load_secrets_from_config"]

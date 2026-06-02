@@ -14,7 +14,6 @@
 
 | 依赖 | 用途 |
 |------|------|
-| python-dotenv | 加载仓库根 `.env` |
 | croniter / tzdata | 定时任务 cron 解析与时区（非 optional extra） |
 | openai / pydantic 等 | 见 `pyproject.toml` `[project]` |
 
@@ -54,28 +53,31 @@ pip install -e ".[feishu]"
 
 > 仓库 **不提供** 根目录 `requirements.txt`；依赖以 `pyproject.toml` 的 `[project]` / `[project.optional-dependencies]` 为准。
 
-### 3. 配置环境变量
+### 3. 配置
+
+复制默认配置并创建用户配置：
 
 ```bash
-cp .env.example .env
+cp config.defaults.json config.user.json
 ```
 
-编辑 `.env` 文件：
+编辑 `config.user.json` 文件，填写敏感凭据和个性化配置：
 
-```env
-# === LLM 配置（必需） ===
-OPENAI_API_KEY=sk-your-api-key
-OPENAI_BASE_URL=https://api.openai.com/v1    # 可选，兼容 API
-OPENAI_MODEL=gpt-4o-mini                      # 默认模型
-
-# === 飞书配置（可选） ===
-FEISHU_APP_ID=cli_xxxxxxxx
-FEISHU_APP_SECRET=your-app-secret
-
-# === 调试配置（可选） ===
-AGENT_DEBUG=false                             # 启用调试日志
-MODEL_PROFILE=balanced                        # 模型预设
+```json
+{
+  "model": {
+    "base_url": "https://api.openai.com/v1",
+    "model": "gpt-4o-mini"
+  },
+  "secrets": {
+    "openai_api_key": "sk-your-api-key",
+    "feishu_app_id": "cli_xxxxxxxx",
+    "feishu_app_secret": "your-app-secret"
+  }
+}
 ```
+
+> **注意**：`config.user.json` 已在 `.gitignore` 中，不会提交到 git。
 
 ## 启动模式
 

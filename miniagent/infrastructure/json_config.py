@@ -9,7 +9,7 @@
 优先级顺序（从低到高）：
 defaults → user → MINIAGENT_CONFIG(JSON) → 单项环境变量
 
-敏感信息（API密钥等）保留在.env.secrets文件中或环境变量中。
+敏感信息（API密钥等）放在config.user.json的secrets部分，由env_loader.py加载到环境变量。
 """
 
 from __future__ import annotations
@@ -112,7 +112,7 @@ class JsonConfigLoader:
         """
         # 确定配置文件路径
         if defaults_path is None:
-            # 使用项目根目录的默认配置（与.env同级）
+            # 使用项目根目录的默认配置
             self._defaults_path = str(
                 Path(__file__).parent.parent.parent / "config.defaults.json"
             )
@@ -120,7 +120,7 @@ class JsonConfigLoader:
             self._defaults_path = defaults_path
 
         if user_path is None:
-            # 使用项目根目录的用户配置（与.env同级）
+            # 使用项目根目录的用户配置
             self._user_path = str(Path(__file__).parent.parent.parent / "config.user.json")
         else:
             self._user_path = user_path
