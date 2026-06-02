@@ -10,19 +10,18 @@ from __future__ import annotations
 
 import json
 import os
-import re
 from datetime import datetime, timezone
 from typing import Any
 
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
+from miniagent.memory.history_archive import safe_session_id_for_memory
 
 _logger = get_logger(__name__)
 
 
-def _safe_session_id(session_key: str) -> str:
-    """文件名安全化（与 history_archive 规则一致）。"""
-    return re.sub(r"[^a-zA-Z0-9_-]", "_", session_key)
+# 使用 history_archive 提供的公共函数
+_safe_session_id = safe_session_id_for_memory
 
 
 def _state_dir() -> str:

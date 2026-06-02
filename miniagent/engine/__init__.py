@@ -27,6 +27,8 @@ from miniagent.engine.cli_commands import (
     cmd_session_rename,
     cmd_session_switch,
 )
+from miniagent.engine.cli_state import CliLoopState
+from miniagent.engine.command_dispatch import dispatch_command
 from miniagent.engine.engine import UnifiedEngine
 from miniagent.engine.feishu_state import FeishuRuntime
 from miniagent.engine.init import init_subsystems
@@ -69,4 +71,8 @@ __all__ = [
     "get_version",
     "get_session_display",
     "print_welcome",
+    # CLI 状态类型
+    "CliLoopState",
+    # 命令调度主入口
+    "dispatch_command",
 ]

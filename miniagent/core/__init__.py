@@ -18,7 +18,9 @@ from miniagent.core.config import (
     get_default_model_config,
     merge_agent_config,
 )
-from miniagent.core.executor import AGENT_IDENTITY
+from miniagent.core.executor import AGENT_IDENTITY, execute_plan
+from miniagent.core.planner import generate_plan
+from miniagent.core.task_classifier import TaskDifficulty
 
 __all__ = [
     "AGENT_NAME",
@@ -28,4 +30,9 @@ __all__ = [
     "merge_agent_config",
     "run_agent",
     "run_pipeline",
+    # 规划与执行主入口
+    "generate_plan",
+    "execute_plan",
+    # 任务难度分类
+    "TaskDifficulty",
 ]

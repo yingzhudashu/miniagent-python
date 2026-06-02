@@ -61,7 +61,7 @@
 | `MINIAGENT_THINKING_MERGE_TOOLS` | `1` | 合并相邻工具执行的 thinking 记录 |
 | `MINIAGENT_MEMORY_STORE_CACHE_MAX` | `50` | 记忆存储最大缓存条目数 |
 | `MINIAGENT_REGISTRY_MAX_ENTRIES` | `3000` | 共享注册表最大条目数 |
-| `MINIAGENT_KEYWORD_INDEX_MAX` | `20000` | 关键词索引最大条目数 |
+| `MINIAGENT_MEMORY_KEYWORD_INDEX_MAX` | `20000` | 关键词索引最大条目数 |
 | `MINI_AGENT_HISTORY_TAIL_MESSAGES` | `200` | 会话历史尾部消息保留数（LLM 上下文注入） |
 | `MINI_AGENT_DREAM_INTERVAL_SHORT` | `7d` | 短周期记忆整理间隔 |
 | `MINI_AGENT_DREAM_INTERVAL_LONG` | `30d` | 长周期记忆整理间隔 |
@@ -148,11 +148,11 @@
 | `MINIAGENT_EMBED_SEARCH` | `0` | `1`/`true` 开启嵌入搜索 |
 | `MINIAGENT_EMBED_BASE_URL` | *(空)* | 专用 embedding 服务 URL |
 | `MINIAGENT_EMBED_MODEL` | *(空)* | 专用 embedding 模型（如 `text-embedding-3-small`） |
-| `MINIAGENT_EMBED_DIM` | `1536` | 向量维度（通常无需手动设置） |
-| `MINIAGENT_EMBED_TOP_K` | `8` | 最多返回记忆条目数 |
-| `MINIAGENT_EMBED_MIN_SCORE` | `0.3` | 最低余弦相似度阈值 |
+| `MINIAGENT_EMBEDDING_DIMENSION` | `1536` | 向量维度（通常无需手动设置） |
+| `MINIAGENT_EMBEDDING_TOP_K` | `8` | 最多返回记忆条目数 |
+| `MINIAGENT_EMBEDDING_MIN_SCORE` | `0.3` | 最低余弦相似度阈值 |
 | `MINIAGENT_EMBED_API_KEY` | *(空)* | embedding 服务 API 密钥（使用专用服务时需要） |
-| `MINIAGENT_EMBED_MAX_ENTRIES` | `10000` | 向量存储最大条目数 |
+| `MINIAGENT_EMBEDDING_MAX_ENTRIES` | `2000` | 向量存储最大条目数 |
 
 ## 11. 知识库
 

@@ -188,7 +188,7 @@ def _http_request(
 
     h = {"Content-Type": "application/json; charset=utf-8"}
     if headers:
-        h.update(h)
+        h.update(headers)
 
     if method.upper() == "POST":
         data = json.dumps(payload or {}).encode("utf-8")

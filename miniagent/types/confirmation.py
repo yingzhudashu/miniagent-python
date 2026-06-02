@@ -43,3 +43,6 @@ class ConfirmationResult:
     approved: bool
     adjustment: str | None = None
     rejected: bool = False
+
+
+__all__ = ["ConfirmationStage", "ConfirmationRequest", "ConfirmationResult"]

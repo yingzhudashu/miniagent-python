@@ -26,4 +26,72 @@
 运维与安全清单见 ``docs/FEISHU.md``、``docs/SECURITY.md``；入站锁见 ``feishu_inbound_lock``。
 """
 
-__all__: list[str] = []
+# ── 核心客户端 ──
+from miniagent.feishu.lark_client import build_client, clear_client_cache, config_from_env
+
+# ── IM 发送 ──
+from miniagent.feishu.im_send import ImMsgType, post_im_message
+
+# ── 云盘 ──
+from miniagent.feishu.drive_client import (
+    LIST_FILE_PAGE_SIZE,
+    get_root_folder_meta,
+    list_folder_files_page,
+)
+
+# ── 卡片 ──
+from miniagent.feishu.cards import (
+    build_button,
+    build_interactive_card,
+    build_v2_table_card,
+    reply_card_dict,
+    thinking_card_dict,
+)
+
+# ── 文档 ──
+from miniagent.feishu.docx import (
+    DOCX_APPEND_MAX_BLOCKS,
+    DOCX_APPEND_MAX_CHARS,
+    append_plain_text_to_document,
+    create_document,
+    get_document,
+)
+
+# ── 多维表格 ──
+from miniagent.feishu.bitable import (
+    get_app_meta,
+    list_records,
+    create_record,
+    update_record,
+)
+
+__all__ = [
+    # 核心客户端
+    "build_client",
+    "clear_client_cache",
+    "config_from_env",
+    # IM
+    "ImMsgType",
+    "post_im_message",
+    # 云盘
+    "LIST_FILE_PAGE_SIZE",
+    "get_root_folder_meta",
+    "list_folder_files_page",
+    # 卡片
+    "build_button",
+    "build_interactive_card",
+    "build_v2_table_card",
+    "reply_card_dict",
+    "thinking_card_dict",
+    # 文档
+    "DOCX_APPEND_MAX_BLOCKS",
+    "DOCX_APPEND_MAX_CHARS",
+    "append_plain_text_to_document",
+    "create_document",
+    "get_document",
+    # 多维表格
+    "get_app_meta",
+    "list_records",
+    "create_record",
+    "update_record",
+]

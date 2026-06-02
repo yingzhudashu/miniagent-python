@@ -19,7 +19,7 @@ import builtins
 from abc import abstractmethod
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from openai.types.chat import ChatCompletionMessageParam, ChatCompletionToolParam
 
@@ -27,11 +27,11 @@ from openai.types.chat import ChatCompletionMessageParam, ChatCompletionToolPara
 # 权限与工具箱
 # ============================================================================
 
-# 工具权限级别（字符串别名，语义与沙箱/策略模块一致）：
+# 工具权限级别：
 # - sandbox：在 allowed_paths 内受沙箱约束
 # - allowlist：仅允许预置安全命令清单
 # - require-confirm：执行前需用户确认（若上层实现该流程）
-ToolPermission = str  # 约定 Literal["sandbox", "allowlist", "require-confirm"]
+ToolPermission = Literal["sandbox", "allowlist", "require-confirm"]
 
 
 @dataclass

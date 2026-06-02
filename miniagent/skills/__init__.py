@@ -12,8 +12,9 @@ ClawHub 客户端由 ``create_clawhub_client()`` 构造并注入 ``RuntimeContex
 目录迁移与 wheel 发行说明见根目录 ``README``；第三方清单见 ``workspaces/skills/THIRD_PARTY_SKILLS.md``。
 """
 
+from miniagent.skills.autovet import auto_vet_skill
 from miniagent.skills.clawhub_client import create_clawhub_client, search_local_skills
-from miniagent.skills.loader import discover_skill_packages, load_skill_package, parse_skill_md
+from miniagent.skills.loader import discover_skill_packages, evict_skill_modules, load_skill_package, parse_skill_md
 from miniagent.skills.paths import (
     get_all_skill_roots,
     get_session_skills_dir,
@@ -36,4 +37,8 @@ __all__ = [
     "get_session_skills_dir",
     "get_all_skill_roots",
     "resolve_scope_for_root",
+    # 模块清理（测试用）
+    "evict_skill_modules",
+    # 自动审查
+    "auto_vet_skill",
 ]

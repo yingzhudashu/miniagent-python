@@ -13,6 +13,7 @@
 - ``skill``: 技能包、ClawHub 协议
 - ``agent``: 运行结果、监控协议、循环检测配置、线性管线
 - ``planning``: Phase 1 结构化计划（``StructuredPlan`` 等）
+- ``protocols``: 运行时注入协议（ActivityLogProtocol、KeywordIndexProtocol）
 - ``feishu``: 自 ``miniagent.feishu.types`` 再导出，便于 ``from miniagent.types import …``
 """
 
@@ -51,6 +52,12 @@ from miniagent.types.planning import (
     PlanStep,
     StructuredPlan,
     SuggestedConfig,
+)
+from miniagent.types.protocols import (
+    ActivityLogProtocol,
+    KeywordIndexProtocol,
+    OnThinkingCallback,
+    OnToolFinishCallback,
 )
 from miniagent.types.skill import (
     ClawHubClientProtocol,
@@ -98,6 +105,11 @@ __all__ = [
     "SessionOptions",
     "Session",
     "SessionManagerProtocol",
+    # protocols (运行时注入)
+    "ActivityLogProtocol",
+    "KeywordIndexProtocol",
+    "OnThinkingCallback",
+    "OnToolFinishCallback",
     # skill
     "SkillMetadata",
     "SkillEntry",

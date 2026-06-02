@@ -15,12 +15,11 @@ import os
 from typing import Any
 
 # 导入共享路径解析函数（消除重复代码）
-from miniagent.tools._path_utils import allowed_dirs_from_ctx, resolve_path_from_ctx
+from miniagent.tools._path_utils import resolve_path_from_ctx
 from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 # 保留原有函数名作为别名（向后兼容）
-_allowed_dirs = allowed_dirs_from_ctx
 _resolve_path = resolve_path_from_ctx
 
 
@@ -46,6 +45,19 @@ _read_csv_schema = {
 
 
 async def _read_csv_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    """读取 CSV 文件内容。
+
+    Args:
+        args: 工具参数，包含:
+            - path: CSV 文件路径
+            - delimiter: 分隔符（可选，默认自动检测）
+            - encoding: 文件编码（可选，默认 utf-8）
+            - maxRows: 最大返回行数（可选，默认 100）
+        ctx: 工具上下文，提供路径解析和沙箱约束
+
+    Returns:
+        ToolResult: 成功时返回 CSV 内容，失败时返回错误信息
+    """
     path = _resolve_path(str(args["path"]), ctx)
     if not os.path.isfile(path):
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 文件不存在: {path}")
@@ -103,6 +115,18 @@ _write_csv_schema = {
 
 
 async def _write_csv_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    """将数据写入 CSV 文件。
+
+    Args:
+        args: 工具参数，包含:
+            - path: 输出文件路径
+            - data: JSON 格式的二维数组或对象数组
+            - delimiter: 分隔符（可选，默认逗号）
+        ctx: 工具上下文，提供路径解析和沙箱约束
+
+    Returns:
+        ToolResult: 成功时返回写入行数，失败时返回错误信息
+    """
     path = _resolve_path(str(args["path"]), ctx)
     delimiter = str(args.get("delimiter", ",")).strip() or ","
     raw_data = str(args.get("data", ""))
@@ -152,6 +176,18 @@ _json_read_schema = {
 
 
 async def _json_read_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    """读取 JSON 或 JSONL 文件内容。
+
+    Args:
+        args: 工具参数，包含:
+            - path: JSON/JSONL 文件路径
+            - encoding: 文件编码（可选，默认 utf-8）
+            - maxChars: 最大返回字符数（可选，默认 50000）
+        ctx: 工具上下文，提供路径解析和沙箱约束
+
+    Returns:
+        ToolResult: 成功时返回格式化的 JSON 内容，失败时返回错误信息
+    """
     path = _resolve_path(str(args["path"]), ctx)
     if not os.path.isfile(path):
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 文件不存在: {path}")
@@ -198,6 +234,18 @@ _json_write_schema = {
 
 
 async def _json_write_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    """将数据写入 JSON 文件。
+
+    Args:
+        args: 工具参数，包含:
+            - path: 输出文件路径
+            - data: 要写入的 JSON 字符串
+            - pretty: 是否美化输出（可选，默认 true）
+        ctx: 工具上下文，提供路径解析和沙箱约束
+
+    Returns:
+        ToolResult: 成功时返回写入确认，失败时返回错误信息
+    """
     path = _resolve_path(str(args["path"]), ctx)
     pretty = args.get("pretty", True) in (True, "true", "1")
     raw_data = str(args.get("data", ""))

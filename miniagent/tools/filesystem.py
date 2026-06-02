@@ -24,12 +24,11 @@ from pathlib import Path
 from typing import Any
 
 # 导入共享路径解析函数（消除重复代码）
-from miniagent.tools._path_utils import allowed_dirs_from_ctx, resolve_path_from_ctx
+from miniagent.tools._path_utils import resolve_path_from_ctx
 from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 # 保留原有函数名作为别名（向后兼容）
-_allowed_dirs = allowed_dirs_from_ctx
 _resolve_file_path = resolve_path_from_ctx
 
 

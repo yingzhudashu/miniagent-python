@@ -203,7 +203,7 @@ Layer 3 包含两个互补的检索后端：关键词索引（始终启用）和
 
 #### 上限与驱逐
 
-关键词索引有 **`max_entries`** 上限（默认 20000 关键词，`MINIAGENT_KEYWORD_INDEX_MAX`）。
+关键词索引有 **`max_entries`** 上限（默认 20000 关键词，`MINIAGENT_MEMORY_KEYWORD_INDEX_MAX`）。
 超限时自动驱逐最早的关键词（基于插入顺序），避免索引无限增长。
 
 #### API
@@ -228,20 +228,20 @@ Layer 3 包含两个互补的检索后端：关键词索引（始终启用）和
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `MINIAGENT_EMBED_SEARCH` | `0` | `1`/`true` 开启嵌入搜索 |
-| `MINIAGENT_EMBED_BASE_URL` | *(空)* | embedding 服务 URL |
-| `MINIAGENT_EMBED_MODEL` | *(空)* | embedding 模型 |
-| `MINIAGENT_EMBED_API_KEY` | *(空)* | embedding API 密钥 |
-| `MINIAGENT_EMBED_DIM` | `1536` | 向量维度 |
-| `MINIAGENT_EMBED_TOP_K` | `8` | 最多返回条目数 |
-| `MINIAGENT_EMBED_MIN_SCORE` | `0.3` | 最低余弦相似度阈值 |
-| `MINIAGENT_EMBED_MAX_ENTRIES` | `10000` | 嵌入索引上限 |
+| `MINIAGENT_EMBEDDING_SEARCH` | `0` | `1`/`true` 开启嵌入搜索 |
+| `MINIAGENT_EMBEDDING_BASE_URL` | *(空)* | embedding 服务 URL |
+| `MINIAGENT_EMBEDDING_MODEL` | *(空)* | embedding 模型 |
+| `MINIAGENT_EMBEDDING_API_KEY` | *(空)* | embedding API 密钥 |
+| `MINIAGENT_EMBEDDING_DIMENSION` | `1536` | 向量维度 |
+| `MINIAGENT_EMBEDDING_TOP_K` | `8` | 最多返回条目数 |
+| `MINIAGENT_EMBEDDING_MIN_SCORE` | `0.3` | 最低余弦相似度阈值 |
+| `MINIAGENT_EMBEDDING_MAX_ENTRIES` | `2000` | 嵌入索引上限 |
 
 #### 存储与驱逐
 
 - 索引文件：`<state_dir>/embedding-index.json`
 - 每条记忆缓存其 1536 维向量（约 12KB/条）
-- **上限**：10000 条（约 120MB），超限驱逐最早条目
+- **上限**：2000 条（约 24MB），超限驱逐最早条目
 - 使用内容 hash 检测重复，相同内容不重复索引
 
 #### 检索流程
@@ -315,9 +315,9 @@ messages = [
 |------|--------|----------|
 | `MINIAGENT_MEMORY_STORE_CACHE_MAX` | `50` | `store.py` LRU 缓存上限（会话数） |
 | `MINIAGENT_REGISTRY_MAX_ENTRIES` | `3000` | `shared_registry.py` 共享注册表上限 |
-| `MINIAGENT_KEYWORD_INDEX_MAX` | `20000` | `keyword_index.py` 关键词数上限 |
-| `MINIAGENT_EMBED_SEARCH` | `0` | `embedding_search.py` 是否启用嵌入搜索 |
-| `MINIAGENT_EMBED_MAX_ENTRIES` | `10000` | `embedding_search.py` 嵌入条目上限 |
+| `MINIAGENT_MEMORY_KEYWORD_INDEX_MAX` | `20000` | `keyword_index.py` 关键词数上限 |
+| `MINIAGENT_EMBEDDING_SEARCH` | `0` | `embedding_search.py` 是否启用嵌入搜索 |
+| `MINIAGENT_EMBEDDING_MAX_ENTRIES` | `2000` | `embedding_search.py` 嵌入条目上限 |
 | `MINI_AGENT_DREAM_*` | `7d/30d/365d` | `dream_scheduler.py` 维护周期 |
 | `MINI_AGENT_DREAM_SIZE_BYTES` | *(无)* | 体量闸门阈值 |
 | `MINI_AGENT_HISTORY_TAIL_MESSAGES` | `200` | 历史保留消息数 |

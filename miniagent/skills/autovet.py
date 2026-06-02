@@ -100,3 +100,6 @@ def _scan_content(filepath: str, content: str, warnings: list[str]) -> None:
     for pattern, desc in _DANGEROUS_SHELL + _HARDCODED_SECRETS + _DANGEROUS_PY:
         if re.search(pattern, content, re.IGNORECASE):
             warnings.append(f"  - [{desc}] in {rel}")
+
+
+__all__ = ["auto_vet_skill", "MAX_SCAN_FILE_SIZE"]
