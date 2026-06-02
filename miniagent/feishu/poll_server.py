@@ -961,10 +961,6 @@ def feishu_card_body_max() -> int:
     return max(1000, int(val)) if val else 48_000
 
 
-# 兼容旧导入：仅为进程首次 import 时的快照；运行时上限请以 feishu_card_body_max() 为准。
-FEISHU_CARD_BODY_MAX = feishu_card_body_max()
-
-
 def _strip_unicode_replacement_chars(text: str) -> str:
     """去掉 U+FFFD，减少工具输出乱码时的占位符刷屏。"""
     return (text or "").replace("\ufffd", "")

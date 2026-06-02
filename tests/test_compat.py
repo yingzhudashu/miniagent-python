@@ -1,6 +1,6 @@
 """miniagent/compat.py 的单元测试。
 
-compat 模块是向后兼容层，将已拆分的子包符号聚合为单一导入入口。
+compat 模块是聚合导出层，将已拆分的子包符号聚合为单一导入入口。
 本测试验证：
 - 所有 __all__ 导出符号均可 import
 - unified_entry() 能构造 RuntimeContext 而不崩溃（隔离网络/LLM）

@@ -52,9 +52,8 @@ class TestTypes:
         assert data["category"] == "tool_selection"
         assert data["expected_tools"] == ["write_file"]
 
-    def test_backward_compat_aliases_removed(self) -> None:
-        """向后兼容别名已删除，确认新名称可用"""
-        # 新类型名称应该是正确的
+    def test_types_available(self) -> None:
+        """确认类型定义可用"""
         assert SampleSpec is not None
         assert ResultRecord is not None
         assert ReportSummary is not None

@@ -237,33 +237,6 @@ def get_client() -> AsyncOpenAI:
     return get_shared_async_openai()
 
 
-# ─── 签名检查缓存（性能优化：避免重复 inspect.signature 调用）──
-
-# 缓存：function id -> 是否接受 thinking_header 参数
-_sig_accepts_header_cache: dict[int, bool] = {}
-
-
-def _check_sig_accepts_header(func: Callable[..., Any]) -> bool:
-    """检查函数签名是否接受 thinking_header 参数（带缓存）。"""
-    func_id = id(func)
-    if func_id in _sig_accepts_header_cache:
-        return _sig_accepts_header_cache[func_id]
-    try:
-        sig = inspect.signature(func)
-        accepts = "thinking_header" in sig.parameters or any(
-            p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
-        )
-        _sig_accepts_header_cache[func_id] = accepts
-        return accepts
-    except (ValueError, TypeError):
-        _sig_accepts_header_cache[func_id] = False
-        return False
-
-
-def clear_sig_cache() -> None:
-    """清除签名缓存（测试用）。"""
-    _sig_accepts_header_cache.clear()
-
 # 模块级缓存变量（None 表示未初始化）
 _PHASED_EXECUTION_ENABLED: bool | None = None
 _TOOL_INTENT_IN_THINKING_ENABLED: bool | None = None
@@ -273,16 +246,14 @@ _TOOL_INTENT_MAX_CHARS: int | None = None
 
 
 def _reset_env_caches_for_tests() -> None:
-    """重置环境变量缓存和签名缓存（仅供测试使用）。"""
+    """重置环境变量缓存（仅供测试使用）。"""
     global _PHASED_EXECUTION_ENABLED, _TOOL_INTENT_IN_THINKING_ENABLED
     global _STEP_MAX_TURNS_CAP, _THINKING_SEGMENT_SEPARATOR, _TOOL_INTENT_MAX_CHARS
-    global _sig_accepts_header_cache
     _PHASED_EXECUTION_ENABLED = None
     _TOOL_INTENT_IN_THINKING_ENABLED = None
     _STEP_MAX_TURNS_CAP = None
     _THINKING_SEGMENT_SEPARATOR = None
     _TOOL_INTENT_MAX_CHARS = None
-    _sig_accepts_header_cache.clear()
 
 
 def _env_phased_execution_enabled() -> bool:
@@ -866,20 +837,11 @@ async def execute_plan(
         success: bool,
         thinking_header: str,
     ) -> None:
-        """安全调用 ``on_tool_finish``，在签名支持时注入 ``thinking_header``。"""
+        """调用 ``on_tool_finish`` 回调。"""
         if on_tool_finish is None:
             return
         try:
-            kwargs: dict[str, Any] = {}
-            if _check_sig_accepts_header(on_tool_finish):
-                kwargs["thinking_header"] = thinking_header
-            await on_tool_finish(name, args_json, result, success, **kwargs)
-        except TypeError:
-            try:
-                await on_tool_finish(name, args_json, result, success)
-            except Exception as e:
-                if agent_config.debug:
-                    _logger.exception("on_tool_finish 回调失败（四参回退）: %s", e)
+            await on_tool_finish(name, args_json, result, success, thinking_header=thinking_header)
         except Exception as e:
             if agent_config.debug:
                 _logger.exception("on_tool_finish 回调失败: %s", e)

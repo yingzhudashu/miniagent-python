@@ -124,7 +124,7 @@ class UnifiedEngine:
             client: LLM 客户端（``None`` 时由 ``run_agent`` 回落到共享工厂）
             feishu_receive_chat_id: 飞书消息 API 用的会话 ID（如群聊 ``oc_xxx``）。
                 必须与 ``receive_id_type=chat_id`` 一致，**不得**传入内部路由键 ``feishu:oc_xxx``。
-                缺省时若 ``session_key`` 以 ``feishu:`` 开头则自动去掉前缀（兼容旧调用）。
+                缺省时若 ``session_key`` 以 ``feishu:`` 开头则自动去掉前缀。
             feishu_trigger_message_id: 入站飞书 ``message_id``（可选；供 AgentConfig 与 ``MINIAGENT_FEISHU_REPLY_TARGET=reply``）。
             feishu_root_id: 入站 ``root_id``（可选）。
             feishu_parent_id: 入站 ``parent_id``（可选）。
