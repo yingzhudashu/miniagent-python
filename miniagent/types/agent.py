@@ -11,9 +11,13 @@
 
 from __future__ import annotations
 
+import os as _os_for_agent
 from abc import abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
+
+# 配置默认值（支持环境变量覆盖）
+_HISTORY_SIZE_DEFAULT = int(_os_for_agent.environ.get("MINIAGENT_HISTORY_SIZE", "50"))
 
 
 @dataclass
@@ -73,14 +77,14 @@ class LoopDetectionConfig:
 
     Attributes:
         enabled: 是否启用循环检测
-        history_size: 保留的最近工具调用历史条数（默认 50）
+        history_size: 保留的最近工具调用历史条数（默认 50，可通过 MINIAGENT_HISTORY_SIZE 覆盖）
         warning_threshold: 警告阈值（默认 8）
         critical_threshold: 严重阈值（默认 12）
         detectors: 检测器开关
     """
 
     enabled: bool = True
-    history_size: int = 50
+    history_size: int = _HISTORY_SIZE_DEFAULT
     warning_threshold: int = 8
     critical_threshold: int = 12
     detectors: dict[str, bool] = field(

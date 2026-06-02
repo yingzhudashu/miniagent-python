@@ -9,7 +9,7 @@
 ``on_thinking`` / ``on_tool_call`` 等注入，由 :class:`miniagent.engine.engine.UnifiedEngine` 等上层接线。
 规划可见输出合并为 ``[评估与计划]`` 流式段；可选关键字参数 ``full_record`` 由引擎用于会话历史全量落盘（见 ``miniagent.core.thinking_callback.invoke_on_thinking``）。
 
-**轮数上限（与执行器一致）**：全局 ReAct 上限由环境变量 ``AGENT_MAX_TURNS`` 控制（默认见 ``docs/ARCHITECTURE.md``）；分步模式下单步上限为 ``MINIAGENT_STEP_MAX_TURNS``。规划器给出的建议轮数**不会**把上述硬上限压低。
+**轮数上限（与执行器一致）**：全局 ReAct 上限由环境变量 ``MINIAGENT_AGENT_MAX_TURNS`` 控制（默认见 ``docs/ARCHITECTURE.md``）；分步模式下单步上限为 ``MINIAGENT_STEP_MAX_TURNS``。规划器给出的建议轮数**不会**把上述硬上限压低。
 
 **导出**：``run_agent``、``run_pipeline``、常量 ``PLANNING_STREAM_HEADER``。
 

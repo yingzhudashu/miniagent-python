@@ -63,7 +63,7 @@ async def test_thinking_display_merge_two_tools_same_round_one_label():
 
 @pytest.mark.asyncio
 async def test_thinking_display_merge_disabled_extra_label(monkeypatch):
-    monkeypatch.setenv("MINIAGENT_THINKING_MERGE_TOOLS", "0")
+    monkeypatch.setenv("MINIAGENT_EXECUTION_THINKING_MERGE_TOOLS", "0")
     from miniagent.engine.thinking import ThinkingDisplay
 
     td = ThinkingDisplay()
@@ -339,7 +339,7 @@ async def test_cli_tools_merge_without_prior_streaming() -> None:
 async def test_cli_tools_no_merge_when_disabled_and_no_prior_streaming(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("MINIAGENT_THINKING_MERGE_TOOLS", "0")
+    monkeypatch.setenv("MINIAGENT_EXECUTION_THINKING_MERGE_TOOLS", "0")
     from miniagent.engine.thinking import ThinkingDisplay
 
     td = ThinkingDisplay()

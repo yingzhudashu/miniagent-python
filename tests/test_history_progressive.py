@@ -17,8 +17,8 @@ from tests.history_helpers import history_turn as _turn
 
 
 def test_maybe_archive_at_most_one_turn_per_call(tmp_path, monkeypatch):
-    monkeypatch.setenv("MINI_AGENT_STATE", str(tmp_path))
-    monkeypatch.setenv("MINI_AGENT_HISTORY_MAX_MESSAGES", "4")
+    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("MINIAGENT_MEMORY_HISTORY_MAX_MESSAGES", "4")
     hist = _turn("u1", "a1") + _turn("u2", "a2") + _turn("u3", "a3")
     assert len(hist) == 6
     assert maybe_archive_old_turns("sess", hist) is True
@@ -26,7 +26,7 @@ def test_maybe_archive_at_most_one_turn_per_call(tmp_path, monkeypatch):
 
 
 def test_trim_at_most_one_turn_per_call(tmp_path, monkeypatch):
-    monkeypatch.setenv("MINI_AGENT_STATE", str(tmp_path))
+    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
     hist: list[dict] = []
     for i in range(5):
         hist.extend(_turn(f"u{i}", f"a{i}"))
@@ -77,9 +77,9 @@ def test_apply_one_progressive_disk_step_on_history():
 
 
 def test_run_session_history_maintenance_respects_progressive_off(tmp_path, monkeypatch):
-    monkeypatch.setenv("MINI_AGENT_STATE", str(tmp_path))
-    monkeypatch.setenv("MINI_AGENT_HISTORY_MAX_MESSAGES", "4")
-    monkeypatch.setenv("MINI_AGENT_HISTORY_PROGRESSIVE", "0")
+    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("MINIAGENT_MEMORY_HISTORY_MAX_MESSAGES", "4")
+    monkeypatch.setenv("MINIAGENT_MEMORY_HISTORY_PROGRESSIVE", "0")
     hist = _turn("u1", "a1") + _turn("u2", "a2") + _turn("u3", "a3")
     run_session_history_maintenance("sk", hist, tail_cap=200, progressive_compression=False)
     assert len(hist) <= 4

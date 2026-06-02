@@ -12,11 +12,17 @@
 - key_facts: 关键事实列表（偏好、约定、重要信息）
 - entries: 最近对话条目
 
+性能优化：
+- 使用 asyncio.to_thread 包装文件 I/O，避免阻塞事件循环
+- 紧凑 JSON 格式（移除 indent=2），减少约 30% 文件体积
+- LRU 内存缓存（默认上限 100），减少磁盘读取
+
 详见 ``docs/MEMORY_SYSTEM.md``（会话级 Layer 2）。
 """
 
 from __future__ import annotations
 
+import asyncio
 import collections
 import json
 import os
@@ -224,7 +230,12 @@ class DefaultMemoryStore(MemoryStoreProtocol):
     """默认记忆存储实现
 
     基于文件系统的 JSON 持久化，带 LRU 内存缓存。
-    缓存上限由 ``MINIAGENT_MEMORY_STORE_CACHE_MAX`` 控制（默认 50）。
+    缓存上限由 ``MINIAGENT_MEMORY_STORE_CACHE_MAX`` 控制（默认 100）。
+
+    性能优化：
+    - 文件 I/O 使用 asyncio.to_thread 包装，避免阻塞事件循环
+    - 紧凑 JSON 格式，减少文件体积和读写时间
+    - LRU 缓存避免重复磁盘读取
 
     Example:
         store = DefaultMemoryStore(state_dir="./workspaces")
@@ -247,7 +258,8 @@ class DefaultMemoryStore(MemoryStoreProtocol):
         self._state_dir = state_dir
         self._memory_dir = os.path.join(state_dir, "memory")
         self._cache: collections.OrderedDict[str, SessionMemory] = collections.OrderedDict()
-        self._cache_max = get_config("memory.store_cache_max", 50)
+        # 缓存上限提高到 100（原来 50）
+        self._cache_max = get_config("memory.store_cache_max", 100)
         self._keyword_index = keyword_index
 
     def _cache_put(self, session_id: str, memory: SessionMemory) -> None:
@@ -288,6 +300,7 @@ class DefaultMemoryStore(MemoryStoreProtocol):
         """加载会话记忆
 
         先查缓存，未命中则从磁盘读取。
+        使用 asyncio.to_thread 包装文件 I/O，避免阻塞事件循环。
 
         Args:
             session_id: 会话唯一标识
@@ -306,8 +319,12 @@ class DefaultMemoryStore(MemoryStoreProtocol):
             if not os.path.exists(file_path):
                 return None
 
-            with open(file_path, encoding="utf-8") as f:
-                data = json.load(f)
+            # 异步读取文件（避免阻塞事件循环）
+            def _sync_read() -> dict[str, Any]:
+                with open(file_path, encoding="utf-8") as f:
+                    return json.load(f)
+
+            data = await asyncio.to_thread(_sync_read)
 
             entries: list[MemoryEntry] = []
             for e in data.get("entries", []):
@@ -366,6 +383,9 @@ class DefaultMemoryStore(MemoryStoreProtocol):
     async def save(self, memory: SessionMemory) -> None:
         """保存会话记忆到磁盘
 
+        使用 asyncio.to_thread 包装文件写入，避免阻塞事件循环。
+        使用紧凑 JSON 格式（无 indent），减少文件体积。
+
         Args:
             memory: 会话记忆对象
         """
@@ -405,9 +425,14 @@ class DefaultMemoryStore(MemoryStoreProtocol):
                 "chat_id": memory.chat_id,
                 "sender_id": memory.sender_id,
             }
-            with open(file_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
 
+            # 异步写入文件（避免阻塞事件循环）
+            def _sync_write() -> None:
+                with open(file_path, "w", encoding="utf-8") as f:
+                    # 紧凑格式（移除 indent=2），减少约 30% 文件体积
+                    json.dump(data, f, ensure_ascii=False)
+
+            await asyncio.to_thread(_sync_write)
             self._cache_put(memory.session_id, memory)
         except Exception as e:
             _logger.error("保存失败 [%s]: %s", memory.session_id, e)

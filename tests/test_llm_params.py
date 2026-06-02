@@ -26,7 +26,7 @@ def test_resolve_exec_dashscope_includes_thinking_extra_body(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv(
-        "OPENAI_BASE_URL",
+        "MINIAGENT_MODEL_BASE_URL",
         "https://dashscope.aliyuncs.com/compatible-mode/v1",
     )
     base = get_default_agent_config()

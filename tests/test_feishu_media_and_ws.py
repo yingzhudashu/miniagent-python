@@ -52,20 +52,20 @@ async def test_reset_feishu_ws_singleton_disconnects_and_clears():
 
 def test_abandon_processing_claim_allows_retry_release_writes_disk_dedup():
     """失败路径应 abandon：同一 message_id 可再次 try_begin；release 后写入磁盘去重。"""
-    import miniagent.feishu.poll_server as ps
+    import miniagent.feishu.feishu_dedup as dedup
 
     mid = f"dedup-test-{uuid.uuid4().hex}"
-    assert ps.try_begin_processing(mid)
-    key = ps._resolve_dedup_key(mid)
-    ps.abandon_processing_claim(mid)
-    assert key not in ps._disk_dedup
-    assert ps.try_begin_processing(mid)
+    assert dedup.try_begin_processing(mid)
+    key = dedup._resolve_dedup_key(mid)
+    dedup.abandon_processing_claim(mid)
+    assert key not in dedup._disk_dedup
+    assert dedup.try_begin_processing(mid)
 
-    ps.release_processing(mid)
-    assert key in ps._disk_dedup
-    assert not ps.try_begin_processing(mid)
+    dedup.release_processing(mid)
+    assert key in dedup._disk_dedup
+    assert not dedup.try_begin_processing(mid)
 
-    ps._disk_dedup.pop(key, None)
+    dedup._disk_dedup.pop(key, None)
 
 
 def test_extract_post_media_items_recurses_img_and_media():

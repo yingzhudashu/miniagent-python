@@ -88,7 +88,7 @@ def estimate_tool_tokens(tools: list[ChatCompletionToolParam]) -> int:
 # ContextManager 实现
 # ============================================================================
 
-# 与执行器 tool 消息 redact 一致；可经 MINI_AGENT_CONTEXT_TOOL_REDACT=0 关闭
+# 与执行器 tool 消息 redact 一致；可经 MINIAGENT_MEMORY_CONTEXT_TOOL_REDACT=0 关闭
 _TOOL_MESSAGE_REDACT_PLACEHOLDER = "（工具返回已压缩；若需细节请缩短对话或查阅活动日志。）"
 
 

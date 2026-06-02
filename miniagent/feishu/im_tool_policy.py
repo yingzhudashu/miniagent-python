@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 
-from miniagent.infrastructure.env_parse import env_flag
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 

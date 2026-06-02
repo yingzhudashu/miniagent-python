@@ -13,7 +13,7 @@ from tests.history_helpers import history_turn as _turn
 
 
 def test_trim_history_tail_by_turns_removes_whole_turns(tmp_path, monkeypatch):
-    monkeypatch.setenv("MINI_AGENT_STATE", str(tmp_path))
+    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
     hist: list[dict] = []
     for i in range(30):
         hist.extend(_turn(f"u{i}", f"a{i}"))
@@ -28,8 +28,8 @@ def test_trim_history_tail_by_turns_removes_whole_turns(tmp_path, monkeypatch):
 
 
 def test_archive_before_trim_preserves_chunks_in_diary(tmp_path, monkeypatch):
-    monkeypatch.setenv("MINI_AGENT_STATE", str(tmp_path))
-    monkeypatch.setenv("MINI_AGENT_HISTORY_MAX_MESSAGES", "8")
+    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("MINIAGENT_MEMORY_HISTORY_MAX_MESSAGES", "8")
 
     session_key = "test_sess"
     hist: list[dict] = []
@@ -56,8 +56,8 @@ def test_archive_before_trim_preserves_chunks_in_diary(tmp_path, monkeypatch):
 
 
 def test_archive_anchor_has_archive_ref(tmp_path, monkeypatch):
-    monkeypatch.setenv("MINI_AGENT_STATE", str(tmp_path))
-    monkeypatch.setenv("MINI_AGENT_HISTORY_MAX_MESSAGES", "4")
+    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("MINIAGENT_MEMORY_HISTORY_MAX_MESSAGES", "4")
 
     sk = "ref_sess"
     hist = _turn("a", "b") + _turn("c", "d") + _turn("e", "f")

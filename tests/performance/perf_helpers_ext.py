@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import gc
 import os
-import sys
 import time
 import tracemalloc
 from collections.abc import Callable, Coroutine

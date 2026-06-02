@@ -30,9 +30,14 @@ if TYPE_CHECKING:
     from miniagent.types.agent import ToolMonitorProtocol
     from miniagent.types.protocols import (
         ActivityLogProtocol,
+        ChannelRouterProtocol,
+        FeishuRuntimeProtocol,
         KeywordIndexProtocol,
         MemoryStoreProtocol,
+        MessageQueueProtocol,
+        UnifiedEngineProtocol,
     )
+    from miniagent.types.skill import ClawHubClientProtocol, SkillRegistryProtocol
     from miniagent.types.tool import ToolRegistryProtocol
 
 
@@ -64,12 +69,12 @@ class RuntimeContext:
 
     registry: ToolRegistryProtocol
     monitor: ToolMonitorProtocol
-    skill_registry: Any
-    clawhub: Any
-    engine: Any
-    channel_router: Any
-    message_queue: Any
-    feishu: Any
+    skill_registry: SkillRegistryProtocol
+    clawhub: ClawHubClientProtocol | None
+    engine: UnifiedEngineProtocol
+    channel_router: ChannelRouterProtocol
+    message_queue: MessageQueueProtocol
+    feishu: FeishuRuntimeProtocol | None
     memory_store: MemoryStoreProtocol
     activity_log: ActivityLogProtocol
     keyword_index: KeywordIndexProtocol

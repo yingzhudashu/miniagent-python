@@ -604,7 +604,7 @@ def test_repair_invalid_schedules_fills_missing_next_run(state_dir: str) -> None
 def test_dispatch_failure_backoff_seconds_from_env(
     state_dir: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("MINIAGENT_SCHEDULE_DISPATCH_BACKOFF", "120")
+    monkeypatch.setenv("MINIAGENT_SCHEDULED_TASKS_DISPATCH_BACKOFF", "120")
     assert dispatch_failure_backoff_seconds() == 120
 
 

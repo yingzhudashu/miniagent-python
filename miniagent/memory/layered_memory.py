@@ -1,7 +1,7 @@
 """分层长期记忆 JSON：会话 rollup（``session_lt``）与全局 Agent 摘要（``agent_lt``）。
 
 与 ``history_archive`` 写出的按日 ``diary`` Markdown 相配合：本模块负责结构化锚点与
-读写的稳定文件名（经 ``_safe_session_id`` 净化 ``session_key``）。
+读写的稳定文件名（经 ``safe_session_id`` 净化 ``session_key``）。
 
 Layer 3 摘要语义见 ``docs/MEMORY_SYSTEM.md``。
 """
@@ -15,13 +15,13 @@ from typing import Any
 
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
-from miniagent.memory.history_archive import safe_session_id_for_memory
+from miniagent.utils.session_id import safe_session_id
 
 _logger = get_logger(__name__)
 
 
-# 使用 history_archive 提供的公共函数
-_safe_session_id = safe_session_id_for_memory
+# 使用统一的 safe_session_id 函数
+_safe_session_id = safe_session_id
 
 
 def _state_dir() -> str:

@@ -30,14 +30,14 @@ class TestDefaultSessionManager:
     def setup(self):
         # Set a temp state dir for the test
         self.tmpdir = tempfile.TemporaryDirectory()
-        os.environ["MINI_AGENT_STATE"] = self.tmpdir.name
+        os.environ["MINIAGENT_PATHS_STATE_DIR"] = self.tmpdir.name
         self.main_registry = DefaultToolRegistry()
         self.manager = DefaultSessionManager(self.main_registry)
         yield
         self.tmpdir.cleanup()
         # Clean up env
-        if "MINI_AGENT_STATE" in os.environ:
-            del os.environ["MINI_AGENT_STATE"]
+        if "MINIAGENT_PATHS_STATE_DIR" in os.environ:
+            del os.environ["MINIAGENT_PATHS_STATE_DIR"]
 
     def test_create_session(self):
         session = self.manager.get_or_create("test-1")

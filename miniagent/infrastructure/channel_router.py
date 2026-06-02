@@ -260,7 +260,7 @@ class ChannelRouter:
         return get_config("paths.state_dir", "")
 
     def _state_file(self) -> str | None:
-        """返回持久化文件路径；未设置 MINI_AGENT_STATE 时返回 None。"""
+        """返回持久化文件路径；未设置 MINIAGENT_PATHS_STATE_DIR 时返回 None。"""
         d = self._state_dir()
         if not d:
             return None
@@ -276,7 +276,7 @@ class ChannelRouter:
         """将绑定状态写入磁盘 JSON 文件。
 
         Args:
-            path: 可选的完整路径；默认使用 MINI_AGENT_STATE/channel-router.json
+            path: 可选的完整路径；默认使用 MINIAGENT_PATHS_STATE_DIR/channel-router.json
 
         Returns:
             写入的文件路径
@@ -284,7 +284,7 @@ class ChannelRouter:
         if path is None:
             p = self._state_file()
             if p is None:
-                raise ValueError("未设置 MINI_AGENT_STATE 环境变量，需传入 path 参数")
+                raise ValueError("未设置 MINIAGENT_PATHS_STATE_DIR 环境变量，需传入 path 参数")
         else:
             p = path
 
@@ -297,7 +297,7 @@ class ChannelRouter:
         """从磁盘加载绑定状态。
 
         Args:
-            path: 可选的完整路径；默认使用 MINI_AGENT_STATE/channel-router.json
+            path: 可选的完整路径；默认使用 MINIAGENT_PATHS_STATE_DIR/channel-router.json
 
         Returns:
             True 如果成功加载，False 如果文件不存在

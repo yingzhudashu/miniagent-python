@@ -20,8 +20,8 @@
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `OPENAI_API_KEY` | *(空)* | LLM API 密钥，启动必须 |
-| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | API 基础 URL，可指向兼容 OpenAI 的第三方服务 |
-| `OPENAI_MODEL` | `gpt-4o-mini` | 主模型名称 |
+| `MINIAGENT_MODEL_BASE_URL` | `https://api.openai.com/v1` | API 基础 URL，可指向兼容 OpenAI 的第三方服务 |
+| `MINIAGENT_MODEL_MODEL` | `gpt-4o-mini` | 主模型名称 |
 | `TAVILY_API_KEY` | *(空)* | Web 搜索 API 密钥（`web_search` 技能工具需要） |
 | `FEISHU_APP_ID` | *(空)* | 飞书应用 ID（`--feishu` 启动时必须） |
 | `FEISHU_APP_SECRET` | *(空)* | 飞书应用 Secret |
@@ -32,24 +32,24 @@
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `AGENT_CONTEXT_WINDOW` | `128000` | 上下文窗口大小（token 数） |
-| `OPENAI_MAX_TOKENS` | *(空)* | 最大输出 token 数 |
-| `AGENT_THINKING_DEFAULT` | `medium` | 思考档位 |
-| `OPENAI_THINKING_BUDGET` | *(空)* | 思考预算 token（若与 AGENT_THINKING_DEFAULT 同设，以此为准） |
-| `MINIAGENT_ANNOUNCE_DIFFICULTY_AND_PLAN` | `1` | 是否向用户展示任务难度与规划摘要 |
+| `MINIAGENT_MODEL_CONTEXT_WINDOW` | `128000` | 上下文窗口大小（token 数） |
+| `MINIAGENT_MODEL_MAX_TOKENS` | *(空)* | 最大输出 token 数 |
+| `MINIAGENT_MODEL_THINKING_LEVEL` | `medium` | 思考档位 |
+| `MINIAGENT_MODEL_THINKING_BUDGET` | *(空)* | 思考预算 token |
+| `MINIAGENT_EXECUTION_ANNOUNCE_DIFFICULTY` | `1` | 是否向用户展示任务难度与规划摘要 |
 
 ## 3. Agent 执行
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `AGENT_MAX_TURNS` | `400` | Agent 最大对话轮次 |
+| `MINIAGENT_AGENT_MAX_TURNS` | `400` | Agent 最大对话轮次 |
 | `MINIAGENT_STEP_MAX_TURNS` | `48` | 分步执行时每步 ReAct 子循环上限 |
 | `MINIAGENT_THINKING_SEGMENT_SEPARATOR` | *(双换行)* | 同一步内多轮思考拼接符 |
 | `MINIAGENT_TOOL_INTENT_MAX_CHARS` | `4000` | 工具执行前意图行最大字符数 |
 | `MINIAGENT_TOOL_INTENT_IN_THINKING` | `0` | 是否在工具执行前推送意图行 |
 | `MINIAGENT_TOOL_FINISH_VERBOSE` | `0` | `1` 时 `on_tool_finish` 落盘含参数与输出 |
-| `AGENT_TOOL_TIMEOUT` | `60` | 单个工具超时秒数 |
-| `AGENT_HTTP_TIMEOUT` | `120` | HTTP 请求超时秒数 |
+| `MINIAGENT_AGENT_TOOL_TIMEOUT` | `60` | 单个工具超时秒数 |
+| `MINIAGENT_AGENT_HTTP_TIMEOUT` | `120` | HTTP 请求超时秒数 |
 | `AGENT_CONTEXT_RESERVE` | `0.15` | 上下文预留比例 |
 | `AGENT_CONTEXT_COMPRESS_THRESHOLD` | `0.6` | 上下文压缩阈值 |
 | `AGENT_DEBUG` | `false` | 调试模式 |
@@ -62,7 +62,7 @@
 | `MINIAGENT_MEMORY_STORE_CACHE_MAX` | `50` | 记忆存储最大缓存条目数 |
 | `MINIAGENT_REGISTRY_MAX_ENTRIES` | `3000` | 共享注册表最大条目数 |
 | `MINIAGENT_MEMORY_KEYWORD_INDEX_MAX` | `20000` | 关键词索引最大条目数 |
-| `MINI_AGENT_HISTORY_TAIL_MESSAGES` | `200` | 会话历史尾部消息保留数（LLM 上下文注入） |
+| `MINIAGENT_MEMORY_HISTORY_TAIL_MESSAGES` | `200` | 会话历史尾部消息保留数（LLM 上下文注入） |
 | `MINI_AGENT_DREAM_INTERVAL_SHORT` | `7d` | 短周期记忆整理间隔 |
 | `MINI_AGENT_DREAM_INTERVAL_LONG` | `30d` | 长周期记忆整理间隔 |
 | `MINI_AGENT_DREAM_INTERVAL_ARCHIVE` | `365d` | 归档周期记忆整理间隔 |
@@ -176,11 +176,11 @@
 | `MINIAGENT_WELCOME_CLI_HINT` | `1` | CLI 启动提示 |
 | `MINIAGENT_SKILLS_WATCH` | `0` | 监视技能目录变更并自动 refresh |
 | `MINIAGENT_ALLOWED_COMMANDS` | *(空)* | exec 工具命令白名单（逗号分隔） |
-| `MINI_AGENT_STATE` | `workspaces` | 运行时状态目录 |
-| `MINI_AGENT_WORKSPACE` | *(空)* | 工作区路径 |
-| `MINI_AGENT_SKILLS` | *(空)* | 技能包路径 |
-| `MINI_AGENT_CONTEXT_TOOL_REDACT` | `1` | 上下文工具脱敏 |
-| `MINI_AGENT_TUI_VERBOSE_LOG` | `0` | TUI 下允许 INFO/DEBUG 日志（默认提升至 WARNING） |
+| `MINIAGENT_PATHS_STATE_DIR` | `workspaces` | 运行时状态目录 |
+| `MINIAGENT_PATHS_WORKSPACE` | *(空)* | 工作区路径 |
+| `MINIAGENT_PATHS_SKILLS_DIR` | *(空)* | 技能包路径 |
+| `MINIAGENT_MEMORY_CONTEXT_TOOL_REDACT` | `1` | 上下文工具脱敏 |
+| `MINIAGENT_FEATURES_TUI_VERBOSE_LOG` | `0` | TUI 下允许 INFO/DEBUG 日志（默认提升至 WARNING） |
 | `MINIAGENT_DEBUG_SESSION_ID` | *(空)* | 设置后启用 NDJSON 调试日志 |
 | `MINIAGENT_DEBUG_LOG_PATH` | *(自动生成)* | 调试日志文件路径 |
 | `MINIAGENT_MCP_STDIO` | *(空)* | MCP stdio 服务器命令，JSON 数组字符串 |

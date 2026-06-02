@@ -321,7 +321,7 @@ On branch main
 
 ### /schedule — 定时任务
 
-任务持久化在 **`MINI_AGENT_STATE/scheduled_tasks/tasks.json`**（未设置环境变量时一般为仓库下 `workspaces/scheduled_tasks/`）。触发时与手动输入一样经 **消息队列** 跑一轮 Agent。详见 [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」与 [USER_GUIDE.md](USER_GUIDE.md) 第 8 章。
+任务持久化在 **`MINIAGENT_PATHS_STATE_DIR/scheduled_tasks/tasks.json`**（未设置环境变量时一般为仓库下 `workspaces/scheduled_tasks/`）。触发时与手动输入一样经 **消息队列** 跑一轮 Agent。详见 [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」与 [USER_GUIDE.md](USER_GUIDE.md) 第 8 章。
 
 **语法摘要**（与无参 `.schedule` 打印一致）：
 
@@ -530,7 +530,7 @@ file_patterns:         # 包含的文件模式
 
 ## 相关文档
 
-- [ENGINEERING.md](ENGINEERING.md)：本地与 CI 质量门禁、`MINI_AGENT_STATE`。
+- [ENGINEERING.md](ENGINEERING.md)：本地与 CI 质量门禁、`MINIAGENT_PATHS_STATE_DIR`。
 - [SECURITY.md](SECURITY.md)：沙箱与工具安全模型。
 - [CHANNEL_BINDING.md](CHANNEL_BINDING.md)：CLI 与飞书会话绑定。
 - [KNOWLEDGE_BASE.md](KNOWLEDGE_BASE.md)：知识库挂载与检索。

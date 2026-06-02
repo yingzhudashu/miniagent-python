@@ -27,7 +27,6 @@ from miniagent.scheduled_tasks.store import (
     finalize_task_after_run,
     load_tasks,
     repair_invalid_schedules,
-    save_tasks,
     save_tasks_async,
 )
 
@@ -59,7 +58,28 @@ async def tick_once(
     skill_toolboxes: list[Any] | None = None,
     skill_prompts: list[Any] | None = None,
 ) -> None:
-    """单次调度：加锁、选出到期任务、经 ``message_queue`` 异步投递 ``build_run_scheduled_job_coro``。"""
+    """单次调度：加锁、选出到期任务、经 message_queue 异步投递执行协程。
+
+    执行流程：
+    1. 获取调度锁（防止多进程并发调度）
+    2. 加载任务列表，修复无效 cron
+    3. 选出到期任务（next_run_at <= now）
+    4. 尝试获取任务级锁
+    5. 构建 job 协程并投递到 message_queue
+    6. 等待执行完成，更新任务状态
+
+    Args:
+        ctx: 运行时上下文（含 message_queue、engine 等）
+        state: CLI 循环状态（含技能快照）
+        skill_toolboxes: 技能工具箱列表（可选，优先从 state 读取）
+        skill_prompts: 技能提示列表（可选，优先从 state 读取）
+
+    Note:
+        - 调度锁是进程级的（tasks.json.lock）
+        - 任务锁是 job 级的（job_<id>.lock）
+        - 单次最多处理 _MAX_DUE_PER_TICK 个任务
+        - 执行完成后自动重算 next_run_at
+    """
     from miniagent.skills.snapshots import (
         get_skill_prompts_from_state,
         get_skill_toolboxes_from_state,

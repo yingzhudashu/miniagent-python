@@ -1683,7 +1683,7 @@ async def run_cli_loop(
     if not get_config("features.tui_verbose_log", False):
         set_console_log_threshold(logging.WARNING)
 
-    _LEGACY_COLOR_CLASS: dict[str, str] = {
+    _ANSI_COLOR_STYLE_MAP: dict[str, str] = {
         "ansiblue": "class:cli-border",
         "ansigreen": "class:cli-ok",
         "ansired": "class:cli-err",
@@ -1708,10 +1708,10 @@ async def run_cli_loop(
                 _attach_md_source(ansi_obj, text)
                 _append_transcript("", "", ansi=ansi_obj)
             else:
-                style = _LEGACY_COLOR_CLASS.get(color, "class:cli-default")
+                style = _ANSI_COLOR_STYLE_MAP.get(color, "class:cli-default")
                 _append_transcript(style, text)
         except Exception:
-            style = _LEGACY_COLOR_CLASS.get(color, "class:cli-default")
+            style = _ANSI_COLOR_STYLE_MAP.get(color, "class:cli-default")
             _append_transcript(style, text)
 
     def _thinking_sink(
@@ -2218,7 +2218,6 @@ async def _run_cli_loop_fallback(
     from miniagent.engine.session_lock import (
         is_session_locked,
         release_session_lock,
-        try_lock_session,
         try_lock_session_async,
     )
     from miniagent.skills.snapshots import (

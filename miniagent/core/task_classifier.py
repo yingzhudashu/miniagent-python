@@ -11,7 +11,7 @@ from typing import Any
 from miniagent.core._openai_compat import json_object_unsupported as _json_object_unsupported
 from miniagent.core.llm_json import parse_llm_json_response
 from miniagent.core.openai_client import get_shared_async_openai
-from miniagent.core.thinking_presets import map_business_depth, map_openclaw_thinking_to_model
+from miniagent.core.thinking_presets import map_business_depth, map_thinking_level_to_model
 from miniagent.infrastructure.debug_ndjson import safe_agent_debug_log
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
@@ -43,7 +43,7 @@ def planner_merge_for_difficulty(d: TaskDifficulty) -> dict[str, Any]:
     else:
         # NORMAL 和 SIMPLE 均使用 low
         key = "low"
-    tl, tb = map_openclaw_thinking_to_model(key)
+    tl, tb = map_thinking_level_to_model(key)
     return {"thinking_level": tl, "thinking_budget": tb}
 
 
@@ -69,7 +69,29 @@ async def classify_task_difficulty(
     client: Any | None = None,
     agent_config: AgentConfig | None = None,
 ) -> TaskDifficulty:
-    """一次低开销 LLM 调用；失败返回 NORMAL。"""
+    """使用低开销 LLM 调用估算任务难度，失败时降级为 NORMAL。
+
+    根据用户输入复杂度和可用工具箱，判断任务属于 simple/normal/medium/complex 四档。
+    简单任务可跳过规划阶段并降低 thinking 档位，以减少延迟和成本。
+
+    Args:
+        user_input: 用户原始输入文本
+        toolbox_ids: 可用工具箱 ID 列表（用于复杂度判断）
+        client: LLM 客户端（可选，默认使用共享实例）
+        agent_config: Agent 配置（可选，用于参数覆盖）
+
+    Returns:
+        TaskDifficulty: 任务难度枚举值
+        - SIMPLE: 单步可答，无需工具或极简单查询
+        - NORMAL: 常规多步但清晰，默认档位
+        - MEDIUM: 需多工具协作或中等推理
+        - COMPLEX: 长链路、强依赖工具或高风险
+
+    Note:
+        - 配置项 execution.task_classifier_enabled 控制是否启用
+        - 使用 planner 级参数（低温度、小 max_tokens）降低成本
+        - 解析失败或超时时默认返回 NORMAL
+    """
     from miniagent.core.llm_params import resolve_planner_completion_kwargs
 
     sys_prompt = (

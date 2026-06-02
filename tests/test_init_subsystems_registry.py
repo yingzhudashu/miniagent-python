@@ -13,8 +13,8 @@ from miniagent.skills.registry import DefaultSkillRegistry
 
 @pytest.mark.asyncio
 async def test_init_subsystems_registers_web_tools(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("MINI_AGENT_STATE", str(tmp_path))
-    monkeypatch.setenv("MINI_AGENT_SKILLS", str(tmp_path / "empty_skills"))
+    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("MINIAGENT_PATHS_SKILLS_DIR", str(tmp_path / "empty_skills"))
     (tmp_path / "empty_skills").mkdir(parents=True)
 
     registry = DefaultToolRegistry()

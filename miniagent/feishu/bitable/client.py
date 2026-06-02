@@ -1,14 +1,20 @@
-"""飞书 Bitable v1 API 封装（应用元数据、字段、记录 CRUD）。"""
+"""飞书 Bitable v1 API 封装（应用元数据、字段、记录 CRUD）。
+
+配置项可通过环境变量覆盖：
+- MINIAGENT_BITABLE_LIST_RECORDS_MAX: 记录列表最大条数
+"""
 
 from __future__ import annotations
 
+import os
 from typing import Any
+
+# 直接导入常量，避免触发 miniagent.core.__init__.py 的完整导入链
+_BITABLE_LIST_RECORDS_MAX = int(os.environ.get("MINIAGENT_BITABLE_LIST_RECORDS_MAX", "500"))
 
 from miniagent.feishu.lark_client import build_client
 from miniagent.feishu.lark_response import format_lark_response_error
 from miniagent.feishu.types import FeishuConfig
-
-_LIST_RECORDS_MAX = 500
 
 
 def _fields_to_dict(fields: Any) -> dict[str, Any]:
@@ -142,7 +148,7 @@ def list_records(
                 "fields": _fields_to_dict(getattr(rec, "fields", None)),
             }
         )
-        if len(items) >= _LIST_RECORDS_MAX:
+        if len(items) >= _BITABLE_LIST_RECORDS_MAX:
             break
     nxt = getattr(resp.data, "page_token", None)
     return items, str(nxt) if nxt else None, bool(getattr(resp.data, "has_more", False))

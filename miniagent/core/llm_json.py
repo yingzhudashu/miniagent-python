@@ -86,7 +86,7 @@ async def llm_json(
         prompt: 用户提示
         system: 系统提示
         client: LLM 客户端（None 时回落到共享工厂）
-        model: 模型名（None 时读取 ``OPENAI_MODEL`` 环境变量，回落到 ``gpt-4o-mini``）
+        model: 模型名（None 时读取 ``MINIAGENT_MODEL_MODEL`` 环境变量，回落到 ``gpt-4o-mini``）
 
     Returns:
         解析后的 JSON 字典；解析失败返回空字典。

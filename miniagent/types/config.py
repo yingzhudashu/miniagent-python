@@ -7,11 +7,16 @@
 
 from __future__ import annotations
 
+import os as _os_for_config
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from miniagent.types.tool import Toolbox, ToolRegistryProtocol
+
+# 配置默认值（支持环境变量覆盖）
+_MAX_TURNS_DEFAULT = int(_os_for_config.environ.get("MINIAGENT_AGENT_MAX_TURNS", "200"))
+_TOOL_TIMEOUT_DEFAULT = int(_os_for_config.environ.get("MINIAGENT_TOOL_TIMEOUT", "60"))
 
 # ============================================================================
 # ModelConfig — 模型层配置
@@ -99,8 +104,8 @@ class AgentConfig:
         history_progressive_compression: 是否启用磁盘会话历史的渐进式压缩（L1–L3）；关闭后仅归档/删轮
     """
 
-    max_turns: int = 200
-    tool_timeout: int = 60
+    max_turns: int = _MAX_TURNS_DEFAULT
+    tool_timeout: int = _TOOL_TIMEOUT_DEFAULT
     http_timeout: int = 120
     context_reserve_ratio: float = 0.15
     context_compress_threshold: float = 0.6

@@ -19,7 +19,6 @@ from miniagent.tools._path_utils import resolve_path_from_ctx
 from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
-
 # ─── read_csv ────────────────────────────────────────────
 
 _read_csv_schema = {

@@ -14,7 +14,6 @@
 from __future__ import annotations
 
 import json
-import os
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -142,7 +141,7 @@ class PerformanceMetrics:
             )
         )
 
-    def measure(self, name: str) -> "_MeasureContext":
+    def measure(self, name: str) -> _MeasureContext:
         """测量代码段延迟的上下文管理器
 
         Args:
@@ -266,7 +265,7 @@ class _MeasureContext:
         self._name = name
         self._start = 0.0
 
-    def __enter__(self) -> "_MeasureContext":
+    def __enter__(self) -> _MeasureContext:
         self._start = time.perf_counter()
         return self
 

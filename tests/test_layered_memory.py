@@ -18,8 +18,8 @@ from miniagent.memory.layered_memory import (
 
 @pytest.fixture(autouse=True)
 def isolate_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Redirect MINI_AGENT_STATE to tmp_path so tests don't touch real workspaces."""
-    monkeypatch.setenv("MINI_AGENT_STATE", str(tmp_path))
+    """Redirect MINIAGENT_PATHS_STATE_DIR to tmp_path so tests don't touch real workspaces."""
+    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
 
 
 # ─── session long-term ───

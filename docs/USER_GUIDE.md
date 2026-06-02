@@ -220,7 +220,7 @@ cp config.defaults.json config.user.json
 
 环境变量名到 JSON 路径的映射规则：
 - `MINIAGENT_MODEL_TEMPERATURE` → `model.temperature`
-- `AGENT_MAX_TURNS` → `agent.max_turns`
+- `MINIAGENT_AGENT_MAX_TURNS` → `agent.max_turns`
 - `MINIAGENT_FEISHU_REPLY_PLAIN` → `feishu.reply_plain`
 
 完整映射见 `config.defaults.json` 的字段结构。
@@ -293,7 +293,7 @@ python -m miniagent --stop
 
 ## 8. 定时任务
 
-在 **本地 CLI** 中可用点命令 **`.schedule`** 管理持久化定时任务：到达时间后，进程会像普通聊天一样把一轮 Agent 请求放进 **消息队列**，再进入与手动输入相同的执行路径。任务保存在 **`MINI_AGENT_STATE/scheduled_tasks/tasks.json`**（未设置 `MINI_AGENT_STATE` 时一般为仓库下 `workspaces/scheduled_tasks/`；该目录不宜提交到 Git，见 [ENGINEERING.md](ENGINEERING.md) §3.1）。
+在 **本地 CLI** 中可用点命令 **`.schedule`** 管理持久化定时任务：到达时间后，进程会像普通聊天一样把一轮 Agent 请求放进 **消息队列**，再进入与手动输入相同的执行路径。任务保存在 **`MINIAGENT_PATHS_STATE_DIR/scheduled_tasks/tasks.json`**（未设置 `MINIAGENT_PATHS_STATE_DIR` 时一般为仓库下 `workspaces/scheduled_tasks/`；该目录不宜提交到 Git，见 [ENGINEERING.md](ENGINEERING.md) §3.1）。
 
 **新手要点**：
 
@@ -311,7 +311,7 @@ python -m miniagent --stop
 - **会话**就像「不同的聊天窗口」，历史与部分配置相互隔离。  
 - 使用 `.session list` 查看列表；在 **本地 CLI** 用 `.session switch` 切换到工作上下文。  
 - **飞书里**（默认）发送 `.session switch` / `create` / `rename` 等变异子命令**不会**修改与 CLI 共享的 `active_session_id` 或会话存储，仅返回提示；请在本地终端执行，或设置 **`MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1`**（见 [FEISHU.md](FEISHU.md)、[CLI.md](CLI.md)）。  
-- 会话与记忆落盘位置受 **`MINI_AGENT_STATE`** 控制，详见第 14 章与 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md)。
+- 会话与记忆落盘位置受 **`MINIAGENT_PATHS_STATE_DIR`** 控制，详见第 14 章与 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md)。
 
 ---
 
@@ -341,7 +341,7 @@ python -m miniagent --stop
 
 ## 12. 技能与 ClawHub（可选）
 
-- 默认技能根目录为仓库下 **`workspaces/skills/`**（旧版若使用根目录 `skills/`，请迁移或设置 `MINI_AGENT_SKILLS`）。  
+- 默认技能根目录为仓库下 **`workspaces/skills/`**（旧版若使用根目录 `skills/`，请迁移或设置 `MINIAGENT_PATHS_SKILLS_DIR`）。  
 - **内置基线**：仓库预置 **`skill-creator`**（来自 [anthropics/skills](https://github.com/anthropics/skills)，含 `LICENSE.txt`）；**`skill-vetter`**（安全审查）位于 `miniagent/skills/templates/skill-vetter/`，首次使用时可通过 `miniagent install-skill skill-vetter` 或手动复制到 `workspaces/skills/` 加载。  
 - **仅从 PyPI 安装 wheel**（无完整仓库树）时，默认路径下可能没有预置技能文件；需要基线时请克隆仓库、editable 安装，或手动复制 `workspaces/skills/skill-creator`，详见 [README.md](../README.md)「技能目录迁移」。  
 - **扩展**：可从 ClawHub 安装更多技能包，引导脚本见 `scripts/bootstrap_clawhub_skills.py`（参数以官方技能页为准；脚本仅为额外安装，不替代内置基线）。  
@@ -363,7 +363,7 @@ python -m miniagent --stop
 
 ### 14.1 默认布局
 
-未设置 `MINI_AGENT_STATE` 时，进程常把状态写在项目下的 **`workspaces/`**（实例、会话、锁、飞书去重、记忆索引等）。可通过环境变量把整棵状态树迁到其它磁盘路径，便于备份或多副本隔离。
+未设置 `MINIAGENT_PATHS_STATE_DIR` 时，进程常把状态写在项目下的 **`workspaces/`**（实例、会话、锁、飞书去重、记忆索引等）。可通过环境变量把整棵状态树迁到其它磁盘路径，便于备份或多副本隔离。
 
 ### 14.2 哪些不应提交到 Git
 
@@ -371,7 +371,7 @@ python -m miniagent --stop
 
 ### 14.3 备份建议
 
-若 `MINI_AGENT_STATE` 指向重要数据目录，请用你自己的备份方案（加密盘、权限控制、定期拷贝）。详见 [DEPLOYMENT.md](DEPLOYMENT.md) 与 [SECURITY.md](SECURITY.md)。
+若 `MINIAGENT_PATHS_STATE_DIR` 指向重要数据目录，请用你自己的备份方案（加密盘、权限控制、定期拷贝）。详见 [DEPLOYMENT.md](DEPLOYMENT.md) 与 [SECURITY.md](SECURITY.md)。
 
 ---
 
@@ -382,7 +382,7 @@ python -m miniagent --stop
 | 启动报错与 API 密钥相关 | 检查 `config.user.json` 是否在项目根、`secrets.openai_api_key` 是否已填且无多余引号空格；勿把密钥发到公共论坛。 |
 | 无法联网查天气/新闻 | 配置 Tavily 相关变量；或接受「未配置则工具返回错误」的设计。 |
 | 飞书无响应 | 查 `.feishu status`、凭证、事件订阅、是否另一进程已占入站锁；见 [FEISHU.md](FEISHU.md)。 |
-| 磁盘里会话太多 | 用 `.session` 管理或迁移 `MINI_AGENT_STATE`；理解历史与归档见 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md)。 |
+| 磁盘里会话太多 | 用 `.session` 管理或迁移 `MINIAGENT_PATHS_STATE_DIR`；理解历史与归档见 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md)。 |
 | 怀疑卡住 | `.status`；必要时查看日志级别 `AGENT_DEBUG`。 |
 
 ---
@@ -391,7 +391,7 @@ python -m miniagent --stop
 
 1. **`config.user.json`** 仅本机保存，权限收紧；勿提交 Git。  
 2. **不要在截图、录屏、聊天里** 暴露完整密钥或企业内部令牌。  
-3. **共享电脑**：使用独立用户目录与独立 `MINI_AGENT_STATE`，用完可删除状态目录。  
+3. **共享电脑**：使用独立用户目录与独立 `MINIAGENT_PATHS_STATE_DIR`，用完可删除状态目录。  
 4. **工具能力**：文件与命令受沙箱等约束，见 [SECURITY.md](SECURITY.md)；不要给不可信人员开放你的运行环境。  
 5. **备份介质**：会话与记忆可能含敏感业务文本，备份同样需加密与访问控制。
 

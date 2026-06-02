@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os as _os_for_docx
 from typing import Any
 
 from miniagent.feishu.lark_client import build_client
@@ -10,11 +11,11 @@ from miniagent.feishu.lark_response import format_lark_response_error
 from miniagent.feishu.types import FeishuConfig
 
 DOCX_APPEND_MAX_CHARS = 12_000
-DOCX_APPEND_MAX_BLOCKS = 30
+DOCX_APPEND_MAX_BLOCKS = int(_os_for_docx.environ.get("MINIAGENT_DOCX_APPEND_MAX_BLOCKS", "30"))
 _TEXT_RUN_MAX = 1800
 _BLOCK_PAGE = 1
 _BLOCK_TEXT = 2
-_LIST_BLOCKS_MAX = 200
+_LIST_BLOCKS_MAX = int(_os_for_docx.environ.get("MINIAGENT_DOCX_LIST_BLOCKS_MAX", "200"))
 
 
 def _chunk_runs(line: str) -> list[str]:

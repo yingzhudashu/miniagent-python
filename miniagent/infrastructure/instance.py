@@ -54,13 +54,14 @@ from pathlib import Path
 from typing import Any
 
 from miniagent.infrastructure.json_config import get_config
-
 from miniagent.infrastructure.logger import get_logger
 
-_logger = get_logger(__name__)
+# 配置默认值（直接读取环境变量，避免循环导入）
+import os as _os_for_inst
+HEARTBEAT_TIMEOUT = int(_os_for_inst.environ.get("MINIAGENT_HEARTBEAT_TIMEOUT", "30"))
+INSTANCE_CACHE_TTL = float(_os_for_inst.environ.get("MINIAGENT_INSTANCE_CACHE_TTL", "30.0"))
 
-# 心跳写入间隔参考（秒）；存活判定以 PID 为准，心跳仅作运维观测
-HEARTBEAT_TIMEOUT = 30
+_logger = get_logger(__name__)
 
 # 实例 mode 仅两种：始终有 CLI 主循环；both 表示同进程已启用飞书连接
 _VALID_INSTANCE_MODES = frozenset({"cli", "both"})
@@ -169,7 +170,7 @@ class InstanceRegistry:
         pid_checker: Any = None,
     ) -> None:
         """Args:
-        state_dir: 状态根目录；默认 ``MINI_AGENT_STATE`` 或仓库下 ``workspaces``。
+        state_dir: 状态根目录；默认 ``MINIAGENT_PATHS_STATE_DIR`` 或仓库下 ``workspaces``。
         pid_checker: 可注入的 PID 存活探测（测试用）。
         """
         self._state_dir = _get_state_dir(state_dir)
@@ -493,7 +494,7 @@ _default_registry: InstanceRegistry | None = None
 
 # ── 性能优化：实例列表缓存 ──
 _instance_list_cache: tuple[float, list[dict[str, Any]]] | None = None
-_INSTANCE_CACHE_TTL = 5.0  # 5秒缓存
+# 使用 constants.py 中定义的 TTL
 
 
 def get_registry(state_dir: str | None = None) -> InstanceRegistry:
@@ -553,7 +554,7 @@ def list_instances_cached(state_dir: str | None = None) -> list[dict[str, Any]]:
     """
     global _instance_list_cache
     now = time.time()
-    if _instance_list_cache is not None and now - _instance_list_cache[0] < _INSTANCE_CACHE_TTL:
+    if _instance_list_cache is not None and now - _instance_list_cache[0] < INSTANCE_CACHE_TTL:
         return _instance_list_cache[1]
     result = list_instances(state_dir)
     _instance_list_cache = (now, result)

@@ -66,7 +66,7 @@ async def test_analyze_image_success(
         )
     )
 
-    monkeypatch.setenv("OPENAI_MODEL", "gpt-4o")
+    monkeypatch.setenv("MINIAGENT_MODEL_MODEL", "gpt-4o")
 
     with patch(
         "miniagent.tools.vision.get_shared_async_openai",
@@ -92,7 +92,7 @@ async def test_analyze_image_custom_prompt(
         )
     )
 
-    monkeypatch.setenv("OPENAI_MODEL", "gpt-4o")
+    monkeypatch.setenv("MINIAGENT_MODEL_MODEL", "gpt-4o")
 
     with patch(
         "miniagent.tools.vision.get_shared_async_openai",
@@ -114,7 +114,7 @@ async def test_analyze_image_model_unsupported_vision(
     img = tmp_path / "test.png"
     img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
 
-    monkeypatch.setenv("OPENAI_MODEL", "gpt-3.5-turbo")
+    monkeypatch.setenv("MINIAGENT_MODEL_MODEL", "gpt-3.5-turbo")
 
     mock_client = MagicMock()
 
@@ -146,7 +146,7 @@ async def test_analyze_image_no_api_key(
         "miniagent.tools.vision.get_shared_async_openai",
         side_effect=RuntimeError("OPENAI_API_KEY not set")
     ):
-        monkeypatch.setenv("OPENAI_MODEL", "gpt-4o")
+        monkeypatch.setenv("MINIAGENT_MODEL_MODEL", "gpt-4o")
         r = await _analyze_image_handler({"path": "test.png"}, ctx)
 
     assert not r.success
@@ -162,7 +162,7 @@ async def test_analyze_image_no_model(
 
     mock_client = MagicMock()
 
-    monkeypatch.delenv("OPENAI_MODEL", raising=False)
+    monkeypatch.delenv("MINIAGENT_MODEL_MODEL", raising=False)
     monkeypatch.delenv("MINIAGENT_MODEL_MODEL", raising=False)
     monkeypatch.delenv("MINIAGENT_CONFIG", raising=False)
 

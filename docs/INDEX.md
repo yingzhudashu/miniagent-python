@@ -30,12 +30,13 @@
 
 ```
 miniagent-python/
-├── miniagent/             # 核心源码（14 个子包）
+├── miniagent/             # 核心源码（17 个子包）
 │   ├── cli/               # CLI 入口
 │   ├── core/              # Agent 核心：任务分类、需求澄清、规划、执行、配置、LLM
 │   ├── engine/            # 运行时引擎：主循环、命令调度、会话锁
 │   ├── feishu/            # 飞书集成：IM、云文档、多维表格、卡片
 │   ├── infrastructure/    # 基础设施：注册表、消息队列、日志、实例
+│   ├── knowledge/         # 知识库管理：本地文档挂载与检索
 │   ├── mcp/               # MCP 桥接（可选）
 │   ├── memory/            # 三层记忆：会话、活动日志、语义检索
 │   ├── runtime/           # 运行时上下文（RuntimeContext 组合根）
@@ -43,14 +44,17 @@ miniagent-python/
 │   ├── security/          # 沙箱
 │   ├── session/           # 会话管理
 │   ├── skills/            # 技能加载、注册、ClawHub 客户端
+│   ├── testing/           # 测试工具：测试运行器、类型定义
 │   ├── tools/             # 工具实现：文件系统、网络、飞书、调度
-│   └── types/             # 类型定义（Pydantic / Protocol）
+│   ├── types/             # 类型定义（Pydantic / Protocol）
+│   └── utils/             # 共享工具函数：session_id 安全化等
 ├── docs/                  # 文档
 ├── tests/                 # pytest 测试
 ├── scripts/               # 维护脚本
 ├── workspaces/            # 运行时状态（不入库）
 │   └── skills/            # 技能包根（基线模板在 miniagent/skills/templates/）
 ├── pyproject.toml         # 项目配置
+├── .env.example           # 环境变量模板（见 docs/ENV_REFERENCE.md）
 └── README.md              # 项目介绍
 ```
 

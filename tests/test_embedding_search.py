@@ -182,11 +182,11 @@ class TestEmbeddingIndex:
 class TestEmbeddingSearchProvider:
     def test_no_providers_without_config(self, tmp_path, monkeypatch):
         """未配置 MINIAGENT_EMBED_* 时无 embedding 供应商，回退到关键词索引。"""
-        monkeypatch.delenv("MINIAGENT_EMBED_BASE_URL", raising=False)
-        monkeypatch.delenv("MINIAGENT_EMBED_MODEL", raising=False)
+        monkeypatch.delenv("MINIAGENT_EMBEDDING_BASE_URL", raising=False)
+        monkeypatch.delenv("MINIAGENT_EMBEDDING_MODEL", raising=False)
         monkeypatch.setenv("OPENAI_API_KEY", "key1")
-        monkeypatch.setenv("OPENAI_BASE_URL", "https://openai.example.com/v1")
-        monkeypatch.setenv("OPENAI_MODEL", "gpt-4o-mini")
+        monkeypatch.setenv("MINIAGENT_MODEL_BASE_URL", "https://openai.example.com/v1")
+        monkeypatch.setenv("MINIAGENT_MODEL_MODEL", "gpt-4o-mini")
         reset_embed_provider()
         reset_registry()
 
@@ -196,8 +196,8 @@ class TestEmbeddingSearchProvider:
 
     def test_embed_provider_only(self, tmp_path, monkeypatch):
         """仅配置 MINIAGENT_EMBED_* 时作为唯一供应商。"""
-        monkeypatch.setenv("MINIAGENT_EMBED_BASE_URL", "https://embed.example.com/v1")
-        monkeypatch.setenv("MINIAGENT_EMBED_MODEL", "embed-model-v1")
+        monkeypatch.setenv("MINIAGENT_EMBEDDING_BASE_URL", "https://embed.example.com/v1")
+        monkeypatch.setenv("MINIAGENT_EMBEDDING_MODEL", "embed-model-v1")
         monkeypatch.setenv("MINIAGENT_EMBED_API_KEY", "test-key")
         reset_embed_provider()
         reset_registry()
@@ -211,10 +211,10 @@ class TestEmbeddingSearchProvider:
     def test_no_openai_fallback(self, tmp_path, monkeypatch):
         """即使设置了 OPENAI_*，也不会将其作为 embedding 供应商。"""
         monkeypatch.setenv("OPENAI_API_KEY", "key1")
-        monkeypatch.setenv("OPENAI_BASE_URL", "https://openai.example.com/v1")
-        monkeypatch.setenv("OPENAI_MODEL", "gpt-4o-mini")
-        monkeypatch.delenv("MINIAGENT_EMBED_BASE_URL", raising=False)
-        monkeypatch.delenv("MINIAGENT_EMBED_MODEL", raising=False)
+        monkeypatch.setenv("MINIAGENT_MODEL_BASE_URL", "https://openai.example.com/v1")
+        monkeypatch.setenv("MINIAGENT_MODEL_MODEL", "gpt-4o-mini")
+        monkeypatch.delenv("MINIAGENT_EMBEDDING_BASE_URL", raising=False)
+        monkeypatch.delenv("MINIAGENT_EMBEDDING_MODEL", raising=False)
         reset_embed_provider()
         reset_registry()
 
@@ -230,15 +230,15 @@ class TestEmbeddingSearchProvider:
 
 class TestEmbeddingSearchEnabled:
     def test_default_disabled(self, monkeypatch):
-        monkeypatch.delenv("MINIAGENT_EMBED_SEARCH", raising=False)
+        monkeypatch.delenv("MINIAGENT_EMBEDDING_ENABLED", raising=False)
         assert embedding_search_enabled() is False
 
     def test_explicit_enabled(self, monkeypatch):
         for val in ("1", "true", "yes", "on"):
-            monkeypatch.setenv("MINIAGENT_EMBED_SEARCH", val)
+            monkeypatch.setenv("MINIAGENT_EMBEDDING_ENABLED", val)
             assert embedding_search_enabled() is True
 
     def test_disabled(self, monkeypatch):
         for val in ("0", "false", "no", "off"):
-            monkeypatch.setenv("MINIAGENT_EMBED_SEARCH", val)
+            monkeypatch.setenv("MINIAGENT_EMBEDDING_ENABLED", val)
             assert embedding_search_enabled() is False

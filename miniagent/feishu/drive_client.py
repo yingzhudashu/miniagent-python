@@ -15,8 +15,9 @@ from miniagent.feishu.lark_client import build_client, clear_client_cache
 from miniagent.feishu.lark_response import format_lark_response_error
 from miniagent.feishu.types import FeishuConfig
 
-# 单次列举上限（与工具层一致）
-LIST_FILE_PAGE_SIZE = 50
+import os as _os_for_drive
+# 单次列举上限（支持环境变量覆盖）
+LIST_FILE_PAGE_SIZE = int(_os_for_drive.environ.get("MINIAGENT_LIST_FILE_PAGE_SIZE", "50"))
 
 _TENANT_TOKEN_URL = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
 _ROOT_FOLDER_META_URL = "https://open.feishu.cn/open-apis/drive/explorer/v2/root_folder/meta"

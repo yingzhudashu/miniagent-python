@@ -2,15 +2,13 @@
 
 管理所有技能的生命周期：注册、注销、查询、合并、gating。
 
-Gating 机制（参考 OpenClaw metadata）：
+Gating 机制：
 - requires.bins: 系统必须存在的二进制文件
 - requires.com: 必须可创建的 Windows COM ProgID
 - requires.env: 必须存在的环境变量
 - requires.config: 必须为真的 AgentConfig 键
 - os: 适用的操作系统
 - always: 始终可用（跳过所有 gate）
-
-与 OpenClaw 元数据对齐；技能侧 ``SKILL.md`` 字段说明见仓库内技能模板文档。
 """
 
 from __future__ import annotations

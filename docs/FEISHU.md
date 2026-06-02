@@ -30,7 +30,7 @@ python -m miniagent --feishu
 
 `get_logger()` 的诊断输出写入 **stderr**（不再写 stdout）；飞书 WebSocket 客户端 SDK 日志级别为 **ERROR**，避免与全屏 UI 争用终端。
 
-全屏 CLI 运行时会暂时把 ``get_logger`` 控制台输出提高到 **WARNING**（集成终端里 stderr 仍会打乱备用屏）。调试若需要 INFO/DEBUG，可设置环境变量 **`MINI_AGENT_TUI_VERBOSE_LOG=1`**。
+全屏 CLI 运行时会暂时把 ``get_logger`` 控制台输出提高到 **WARNING**（集成终端里 stderr 仍会打乱备用屏）。调试若需要 INFO/DEBUG，可设置环境变量 **`MINIAGENT_FEATURES_TUI_VERBOSE_LOG=1`**。
 
 在飞书里发送以 ``.`` 开头的命令时，默认 `.session switch` / `create` / `rename` 以及 `.schedule` 的 `add`/`update`/`remove`/`enable`/`disable`/`align-tz` **不会**修改与本地 CLI 共享的 ``active_session_id`` 或 ``tasks.json``，仅返回提示；``.stop`` 亦默认拒绝（避免远程结束进程）。请在本地 MiniAgent 终端执行，或设置 **`MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1`** 放开全部点命令（启动时会打 WARNING；群聊误触风险需自行管控）。启用 FULL 后飞书侧 `.stop` 成功即进程退出，通常**不会**再收到第二条飞书确认消息。调试 HTTP 栈时请勿开启 ``HTTPX_LOG_LEVEL=debug`` 等会把第三方日志打到终端的配置，以免干扰全屏 UI。
 
@@ -190,7 +190,7 @@ UnifiedEngine.run_agent_with_thinking()
 | `group` | 独立会话，始终创建/使用 `feishu:<chat_id>` | `feishu:<chat_id>` |
 | `p2p` | 若尚未绑定，则自动 `bind(feishu_p2p:<sender>, active_session_id)`；已绑定则使用目标 session_key | 通常为当前 CLI 活跃会话 |
 
-**飞书入站独占**：同一 `MINI_AGENT_STATE` 下通过 `workspaces/feishu_inbound_owner.json`（或 `MINI_AGENT_STATE` 根目录下的 `feishu_inbound_owner.json`）保证**仅一个存活进程**可成功执行 `.feishu start` 并持有常驻重连任务。避免多开实例重复收消息。
+**飞书入站独占**：同一 `MINIAGENT_PATHS_STATE_DIR` 下通过 `workspaces/feishu_inbound_owner.json`（或 `MINIAGENT_PATHS_STATE_DIR` 根目录下的 `feishu_inbound_owner.json`）保证**仅一个存活进程**可成功执行 `.feishu start` 并持有常驻重连任务。避免多开实例重复收消息。
 
 **常驻与锁**：`FeishuRuntime` 在后台任务中循环调用 `start_feishu_poll_server`；单次 WebSocket 断线或启动失败会**指数退避后自动重连**，此期间**不释放入站锁**（其它进程仍无法抢占）。仅在执行 `.feishu stop`、任务被取消或进程退出路径上释放锁。
 

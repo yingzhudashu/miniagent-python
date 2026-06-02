@@ -16,7 +16,7 @@
 - **自我优化**: 代码检查 + 优化提案 + Git 快照
 - **沙箱安全**: 路径白名单 + 循环检测 + 权限控制
 
-**会话文件与管线**：`UnifiedEngine.run_agent_with_thinking` 会把当前会话的 `files` 目录注入执行阶段；若直接调用 `run_pipeline`，默认 `ToolContext` 仍为 `MINI_AGENT_WORKSPACE` / 进程 cwd，不会自动与会话 `files` 对齐，需要自行传入 `ToolContext`。
+**会话文件与管线**：`UnifiedEngine.run_agent_with_thinking` 会把当前会话的 `files` 目录注入执行阶段；若直接调用 `run_pipeline`，默认 `ToolContext` 仍为 `MINIAGENT_PATHS_WORKSPACE` / 进程 cwd，不会自动与会话 `files` 对齐，需要自行传入 `ToolContext`。
 
 **执行轮数**：`AGENT_MAX_TURNS` 默认 **400**；规划器建议的轮数不会把该上限压小。分步模式下单步上限见 `MINIAGENT_STEP_MAX_TURNS`（默认 **48**，见 `docs/ARCHITECTURE.md`）。
 
@@ -41,8 +41,8 @@ cp config.defaults.json config.user.json  # 编辑填入 secrets.openai_api_key
 # 内置基线技能：workspaces/skills/skill-creator（Apache-2.0，自 anthropics/skills）、skill-vetter（审查说明）；可选从 ClawHub 安装更多 — python scripts/bootstrap_clawhub_skills.py（`author/slug` 会装到 slug 最后一段目录；详情无 files 时会试 /download，仍失败则见 THIRD_PARTY_SKILLS.md）
 
 # 可选：将状态目录迁出仓库（测试 / 多副本部署）
-# PowerShell: $env:MINI_AGENT_STATE = "$env:TEMP\miniagent-state"
-# bash: export MINI_AGENT_STATE=/tmp/miniagent-state
+# PowerShell: $env:MINIAGENT_PATHS_STATE_DIR = "$env:TEMP\miniagent-state"
+# bash: export MINIAGENT_PATHS_STATE_DIR=/tmp/miniagent-state
 
 # 启动
 python -m miniagent                  # CLI 模式
@@ -54,7 +54,7 @@ README、[docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) 与 [docs/ENGINEERING.md](
 
 ### 定时任务
 
-- 任务表：`MINI_AGENT_STATE/scheduled_tasks/tasks.json`（默认 `workspaces/scheduled_tasks/`）。
+- 任务表：`MINIAGENT_PATHS_STATE_DIR/scheduled_tasks/tasks.json`（默认 `workspaces/scheduled_tasks/`）。
 - 本机 CLI 用 **`.schedule`** 管理（五段 cron / every / once）；飞书侧默认仅 **list** / **show**。
 - `primary` 任务在飞书私聊已绑定时可镜像推送（`MINIAGENT_SCHEDULE_FEISHU_MIRROR=0` 可关）。
 

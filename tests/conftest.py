@@ -13,9 +13,9 @@ sys.path.insert(0, PROJECT_ROOT)
 
 @pytest.fixture()
 def state_dir(monkeypatch: pytest.MonkeyPatch) -> str:
-    """Isolated MINI_AGENT_STATE directory for scheduled_tasks / store tests."""
+    """Isolated MINIAGENT_PATHS_STATE_DIR directory for scheduled_tasks / store tests."""
     d = tempfile.mkdtemp()
-    monkeypatch.setenv("MINI_AGENT_STATE", d)
+    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", d)
     return d
 
 

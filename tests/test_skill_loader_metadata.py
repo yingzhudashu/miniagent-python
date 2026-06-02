@@ -1,6 +1,6 @@
-"""OpenClaw SKILL.md 兼容性测试 — Phase 1 & Phase 3"""
+"""SKILL.md 元数据解析测试"""
 
-from miniagent.skills.loader import _map_oc_metadata, _resolve_base_dir, parse_skill_md
+from miniagent.skills.loader import _map_metadata, _resolve_base_dir, parse_skill_md
 
 
 class TestParseSkillMdMultilineYaml:
@@ -43,18 +43,16 @@ Body text.
         assert "multi-line" in meta["description"]
         assert meta["keywords"] == ["keyword1", "keyword2"]
 
-    def test_json_metadata_value(self):
+    def test_flat_metadata(self):
         content = """---
 name: json-meta-skill
 metadata:
-  clawdbot:
-    requires:
-      bins:
-        - node
-        - python
-      env:
-        - API_KEY
-    primaryEnv: API_KEY
+  bins:
+    - node
+    - python
+  env:
+    - API_KEY
+  primary_env: API_KEY
 ---
 
 Body.
@@ -62,7 +60,7 @@ Body.
         meta, body = parse_skill_md(content)
         assert meta["name"] == "json-meta-skill"
         assert isinstance(meta["metadata"], dict)
-        assert "clawdbot" in meta["metadata"]
+        assert meta["metadata"]["bins"] == ["node", "python"]
 
     def test_no_front_matter(self):
         content = "Just plain content, no YAML."
@@ -84,26 +82,8 @@ Body.
         assert "name" in meta or meta == {}
 
 
-class TestMapOcMetadata:
-    def test_opclaw_nested_format(self):
-        meta = {
-            "metadata": {
-                "clawdbot": {
-                    "requires": {
-                        "bins": ["node", "ffmpeg"],
-                        "env": ["TAVILY_API_KEY", "OPENAI_API_KEY"],
-                    },
-                    "primaryEnv": "TAVILY_API_KEY",
-                }
-            }
-        }
-        result = _map_oc_metadata(meta)
-        assert result is not None
-        assert result.bins == ["node", "ffmpeg"]
-        assert result.env == ["TAVILY_API_KEY", "OPENAI_API_KEY"]
-        assert result.primary_env == "TAVILY_API_KEY"
-
-    def test_flat_miniagent_format(self):
+class TestMapMetadata:
+    def test_flat_format(self):
         meta = {
             "metadata": {
                 "bins": ["python"],
@@ -112,7 +92,7 @@ class TestMapOcMetadata:
                 "os": ["linux", "darwin"],
             }
         }
-        result = _map_oc_metadata(meta)
+        result = _map_metadata(meta)
         assert result is not None
         assert result.bins == ["python"]
         assert result.env == ["MY_KEY"]
@@ -122,17 +102,31 @@ class TestMapOcMetadata:
 
     def test_no_metadata(self):
         meta = {"name": "simple-skill"}
-        result = _map_oc_metadata(meta)
+        result = _map_metadata(meta)
         assert result is None
 
     def test_string_json_metadata(self):
         import json
 
-        raw = {"clawdbot": {"requires": {"bins": ["node"]}}}
+        raw = {"bins": ["node"], "env": ["API_KEY"]}
         meta = {"metadata": json.dumps(raw)}
-        result = _map_oc_metadata(meta)
+        result = _map_metadata(meta)
         assert result is not None
         assert result.bins == ["node"]
+        assert result.env == ["API_KEY"]
+
+    def test_primary_env_both_formats(self):
+        # primary_env (下划线格式)
+        meta1 = {"metadata": {"primary_env": "KEY1"}}
+        result1 = _map_metadata(meta1)
+        assert result1 is not None
+        assert result1.primary_env == "KEY1"
+
+        # primaryEnv (驼峰格式)
+        meta2 = {"metadata": {"primaryEnv": "KEY2"}}
+        result2 = _map_metadata(meta2)
+        assert result2 is not None
+        assert result2.primary_env == "KEY2"
 
 
 class TestResolveBaseDir:

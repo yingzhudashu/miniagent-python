@@ -20,67 +20,6 @@ from pathlib import Path
 from typing import Any
 
 
-# 特殊环境变量别名映射（保留常用的老环境变量名）
-_SPECIAL_ENV_ALIASES = {
-    # 路径配置
-    "paths.state_dir": "MINI_AGENT_STATE",
-    "paths.skills_dir": "MINI_AGENT_SKILLS",
-    # 时区配置
-    "timezone.default": "MINIAGENT_TIMEZONE",
-    "scheduled_tasks.timezone": "MINIAGENT_SCHEDULE_TIMEZONE",
-    # embedding配置
-    "embedding.base_url": "MINIAGENT_EMBED_BASE_URL",
-    "embedding.model": "MINIAGENT_EMBED_MODEL",
-    "embedding.enabled": "MINIAGENT_EMBED_SEARCH",
-    # 定时任务配置
-    "scheduled_tasks.dispatch_backoff": "MINIAGENT_SCHEDULE_DISPATCH_BACKOFF",
-    "scheduled_tasks.feishu_mirror": "MINIAGENT_SCHEDULE_FEISHU_MIRROR",
-    "scheduled_tasks.feishu_last_chat": "MINIAGENT_SCHEDULE_FEISHU_LAST_CHAT",
-    "scheduled_tools.enabled": "MINIAGENT_SCHEDULE_TOOLS",
-    # 执行配置
-    "execution.thinking_separator": "MINIAGENT_THINKING_SEGMENT_SEPARATOR",
-    "execution.step_max_turns": "MINIAGENT_STEP_MAX_TURNS",
-    "execution.tool_intent_max_chars": "MINIAGENT_TOOL_INTENT_MAX_CHARS",
-    "execution.thinking_merge_tools": "MINIAGENT_THINKING_MERGE_TOOLS",
-    "execution.announce_difficulty": "MINIAGENT_ANNOUNCE_DIFFICULTY_AND_PLAN",
-    "execution.task_classifier_enabled": "MINIAGENT_TASK_CLASSIFIER",
-    # 飞书配置
-    "feishu.tools_explicit": "MINIAGENT_FEISHU_TOOLS",
-    "feishu.tools_auto": "MINIAGENT_FEISHU_TOOLS_AUTO",
-    "feishu.card.thinking_max_chars": "MINI_AGENT_THINKING_FOR_LLM_MAX_CHARS",
-    "feishu.card.body_max_chars": "MINI_AGENT_FEISHU_CARD_BODY_MAX",
-    "feishu.websocket.auto_reconnect": "MINIAGENT_FEISHU_WS_AUTO_RECONNECT",
-    "feishu.websocket.watchdog_interval": "MINIAGENT_FEISHU_WS_WATCHDOG_INTERVAL_S",
-    "feishu.websocket.dead_conn_grace": "MINIAGENT_FEISHU_WS_DEAD_CONN_GRACE_S",
-    "feishu.websocket.reconnect_grace": "MINIAGENT_FEISHU_WS_RECONNECT_GRACE_S",
-    "feishu.websocket.refresh_interval": "MINIAGENT_FEISHU_WS_REFRESH_INTERVAL_S",
-    "feishu.websocket.idle_refresh": "MINIAGENT_FEISHU_WS_IDLE_REFRESH_S",
-    # CLI配置
-    "cli.self_opt_tools": "MINIAGENT_SELF_OPT_TOOLS",
-    "cli.dot_tools_enabled": "MINIAGENT_CLI_DOT_TOOLS_ENABLED",
-    # 内存配置
-    "memory.history_max_messages": "MINI_AGENT_HISTORY_MAX_MESSAGES",
-    "memory.registry_max_entries": "MINIAGENT_REGISTRY_MAX_ENTRIES",
-    "memory.context_tool_redact": "MINI_AGENT_CONTEXT_TOOL_REDACT",
-    # 功能开关
-    "features.reflection": "MINIAGENT_REFLECTION",
-    "features.requirement_clarify": "MINIAGENT_REQUIREMENT_CLARIFY",
-    # 模型配置（OpenAI兼容端点常用名）
-    "model.base_url": "OPENAI_BASE_URL",
-    "model.model": "OPENAI_MODEL",
-    "model.max_tokens": "OPENAI_MAX_TOKENS",
-    "model.context_window": "AGENT_CONTEXT_WINDOW",
-    "model.thinking_level": "AGENT_THINKING_DEFAULT",
-    "model.thinking_budget": "OPENAI_THINKING_BUDGET",
-    "model.temperature": "AGENT_TEMPERATURE",
-    "model.top_p": "AGENT_TOP_P",
-    # Agent配置
-    "agent.max_turns": "AGENT_MAX_TURNS",
-    "agent.tool_timeout": "AGENT_TOOL_TIMEOUT",
-    "agent.http_timeout": "AGENT_HTTP_TIMEOUT",
-}
-
-
 class JsonConfigLoader:
     """JSON配置加载器。
 
@@ -206,6 +145,8 @@ class JsonConfigLoader:
         支持点路径访问，如 "model.temperature"。
         优先级：单项环境变量 > MINIAGENT_CONFIG > 用户配置 > 默认配置。
 
+        环境变量命名规则：MINIAGENT_<SECTION>_<KEY>，如 MINIAGENT_MODEL_TEMPERATURE。
+
         Args:
             key: 配置键（点路径格式）
             default: 默认值（未找到时返回）
@@ -216,14 +157,6 @@ class JsonConfigLoader:
         self._load()
 
         # 1. 检查单项环境变量（最高优先级）
-        # 先检查特殊别名
-        special_env_key = _SPECIAL_ENV_ALIASES.get(key)
-        if special_env_key:
-            env_value = os.environ.get(special_env_key)
-            if env_value is not None:
-                return self._parse_env_value(env_value, default)
-
-        # 再检查标准命名规则
         env_key = self._to_env_key(key)
         env_value = os.environ.get(env_key)
         if env_value is not None:

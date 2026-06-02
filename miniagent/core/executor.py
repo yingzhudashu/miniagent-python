@@ -10,7 +10,7 @@
 5. 循环直到：LLM 不再调用工具 / 达到 maxTurns / 循环检测拦截
 
 ``MINIAGENT_PHASED_EXECUTION`` 开启且 ``plan.steps`` 非空时，按步骤分子循环（每步独立 thinking 解析）；
-若最后一步单步子轮次用尽而全局 ``AGENT_MAX_TURNS`` 仍有余量，会追加一轮不传 tools 的收尾 synthesis。
+若最后一步单步子轮次用尽而全局 ``MINIAGENT_AGENT_MAX_TURNS`` 仍有余量，会追加一轮不传 tools 的收尾 synthesis。
 详见环境变量说明与 ``docs/ARCHITECTURE.md``。
 
 **工具结果回注**：每轮工具输出经 ``tool`` role 消息写回 ``DefaultContextManager``；同轮 ``merge_tools``（若配置开启）可在展示层合并多工具行，但**不影响**此处消息序列语义。
@@ -18,29 +18,23 @@
 **不变量**：工具调用均在 :class:`miniagent.types.tool.ToolContext` 限定的 ``cwd`` / ``allowed_paths`` 内执行
 （通常由沙箱默认工作区推导）。上下文 token 超预算时抛出
 :class:`miniagent.memory.context.ContextBudgetExceeded`，由上层决定是否换会话或压缩。
-
-.. note::
-   本文件当前约 1400 行，未来重构建议拆分为：
-   - executor_core.py: ReAct 主循环逻辑、消息构建
-   - executor_tools.py: 工具调用处理、签名检查、缓存
-   - executor_context.py: 上下文管理、thinking 回调
 """
 
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 import os
 import time
 import traceback
 from collections.abc import Callable
+from functools import lru_cache
 from types import SimpleNamespace
 from typing import Any
 
 from openai import AsyncOpenAI
 
-from miniagent.core.config import AGENT_NAME, get_default_model_config, get_default_agent_config
+from miniagent.core.config import AGENT_NAME, get_default_agent_config, get_default_model_config
 from miniagent.core.llm_params import resolve_exec_completion_kwargs
 from miniagent.core.openai_client import get_shared_async_openai
 from miniagent.core.openai_message_sanitize import strip_leading_underscore_keys_from_messages
@@ -65,9 +59,15 @@ from miniagent.security.sandbox import get_default_workspace
 from miniagent.types.agent import LoopDetectionConfig, ToolMonitorProtocol
 from miniagent.types.config import AgentConfig
 from miniagent.types.error_prefix import WARNING_PREFIX
-from miniagent.types.memory import MemoryEntryInput
+from miniagent.types.memory import MemoryEntryInput, MemoryStoreProtocol
 from miniagent.types.planning import PlanStep, StructuredPlan
-from miniagent.types.protocols import OnThinkingCallback, OnToolFinishCallback
+from miniagent.types.protocols import (
+    ActivityLogProtocol,
+    KeywordIndexProtocol,
+    OnThinkingCallback,
+    OnToolFinishCallback,
+)
+from miniagent.types.skill import ClawHubClientProtocol
 from miniagent.types.tool import ToolContext, ToolRegistryProtocol, ToolResult
 
 # ── 性能优化：工具意图映射改为模块级常量，避免每次调用重建 ──
@@ -91,14 +91,13 @@ _logger = get_logger(__name__)
 
 # ─── 工具错误日志辅助 ────────────────────────────────────────────
 
-# 参数截断长度（避免日志膨胀）
-_MAX_ARGS_LOG_LEN = 500
+# 参数截断长度（避免日志膨胀）- 支持环境变量覆盖
+import os as _os_for_log
+_MAX_ARGS_LOG_LEN = int(_os_for_log.environ.get("MINIAGENT_MAX_ARGS_LOG_LEN", "500"))
 
 
 def _truncate_args_for_log(args: dict[str, Any] | str, max_len: int = _MAX_ARGS_LOG_LEN) -> str:
     """截断工具参数用于日志输出，避免大内容导致日志膨胀。
-
-    性能优化：直接序列化并截断，避免构建新字典。
 
     Args:
         args: 工具参数字典或 JSON 字符串
@@ -107,13 +106,10 @@ def _truncate_args_for_log(args: dict[str, Any] | str, max_len: int = _MAX_ARGS_
     Returns:
         截断后的字符串
     """
-    # 已经是字符串，直接截断
     if isinstance(args, str):
         if len(args) <= max_len:
             return args
         return args[:max_len] + "...[截断]"
-
-    # 字典类型：直接序列化后截断（性能优化：避免构建新字典）
     try:
         result = json.dumps(args, ensure_ascii=False)
         if len(result) <= max_len:
@@ -134,22 +130,9 @@ def _log_tool_error(
     is_user_error: bool = False,
     traceback_str: str | None = None,
 ) -> None:
-    """统一记录工具错误日志，区分用户误用与工具缺陷。
-
-    Args:
-        tool_name: 工具名称
-        tool_call_id: 工具调用 ID（LLM 返回的 tc.id）
-        args: 工具参数
-        session_key: 会话标识
-        error_type: 异常类型（如 "TimeoutError", "PermissionError"）
-        error_message: 错误消息
-        is_user_error: 是否为用户误用（如文件不存在、权限拒绝）；否则视为工具缺陷
-        traceback_str: 完整堆栈跟踪（可选，用于工具缺陷诊断）
-    """
+    """统一记录工具错误日志，区分用户误用与工具缺陷。"""
     args_str = _truncate_args_for_log(args)
     log_prefix = f"[工具错误] {tool_name}"
-
-    # 结构化事件（供 APM 或调试分析）
     emit_trace({
         "type": "tool.error",
         "tool": tool_name,
@@ -160,16 +143,12 @@ def _log_tool_error(
         "error_message": error_message,
         "is_user_error": is_user_error,
     })
-
-    # 根据错误类型选择日志级别
     if is_user_error:
-        # 用户误用：WARNING 级别，提供明确的用户操作建议
         _logger.warning(
             "%s | 类型: %s | 参数: %s | 消息: %s | 会话: %s",
             log_prefix, error_type, args_str, error_message, session_key or "N/A",
         )
     else:
-        # 工具缺陷：ERROR 级别，包含完整堆栈（调试模式）
         _logger.error(
             "%s | 类型: %s | 参数: %s | 消息: %s | 会话: %s",
             log_prefix, error_type, args_str, error_message, session_key or "N/A",
@@ -200,7 +179,26 @@ def build_execution_system_prompt(
     kb_context: str | None = None,
     session_files_root: str | None = None,
 ) -> str:
-    """按约定拼接执行阶段 system：身份 → 调用方技能/指令 → 任务摘要 → 关键词检索上下文 → 知识库上下文。"""
+    """按约定拼接执行阶段 system prompt。
+
+    按顺序拼接：身份 → 调用方技能/指令 → 任务摘要 → 关键词检索上下文 → 知识库上下文 → 文件根目录 → 时区。
+
+    Args:
+        agent_identity: Agent 身份描述（如 "你是 MiniAgent..."）
+        caller_system_prompt: 调用方传入的系统指令（如技能合并文案）
+        plan_summary: 当前任务的执行计划摘要
+        keyword_context: 关键词检索返回的相关记忆上下文
+        kb_context: 知识库检索返回的相关文档上下文
+        session_files_root: 会话文件根目录（用于工具路径解析）
+
+    Returns:
+        str: 拼接后的完整 system prompt
+
+    Note:
+        - 各部分之间用双换行分隔
+        - 空内容会被跳过
+        - 自动注入当前时区信息
+    """
     parts: list[str] = [agent_identity.strip()]
     if caller_system_prompt and caller_system_prompt.strip():
         parts.append(caller_system_prompt.strip())
@@ -229,35 +227,15 @@ def get_client() -> AsyncOpenAI:
     return get_shared_async_openai()
 
 
-# 模块级缓存变量（None 表示未初始化）— 性能优化：改用 lru_cache 更简洁
-# 保留变量声明以兼容 _reset_env_caches_for_tests
+# ─── 环境变量缓存（性能优化）────────────────────────────────────
+
+# 模块级缓存变量（None 表示未初始化）— 兼容旧代码
 
 _PHASED_EXECUTION_ENABLED: bool | None = None
 _TOOL_INTENT_IN_THINKING_ENABLED: bool | None = None
 _STEP_MAX_TURNS_CAP: int | None = None
 _THINKING_SEGMENT_SEPARATOR: str | None = None
 _TOOL_INTENT_MAX_CHARS: int | None = None
-
-
-def _reset_env_caches_for_tests() -> None:
-    """重置环境变量缓存（仅供测试使用）。"""
-    # 性能优化：使用 lru_cache 的 cache_clear()
-    _env_phased_execution_enabled.cache_clear()
-    _tool_intent_in_thinking_enabled.cache_clear()
-    _step_max_turns_cap.cache_clear()
-    _thinking_segment_separator.cache_clear()
-    _tool_intent_max_chars.cache_clear()
-    # 同时清空旧变量（兼容性）
-    global _PHASED_EXECUTION_ENABLED, _TOOL_INTENT_IN_THINKING_ENABLED
-    global _STEP_MAX_TURNS_CAP, _THINKING_SEGMENT_SEPARATOR, _TOOL_INTENT_MAX_CHARS
-    _PHASED_EXECUTION_ENABLED = None
-    _TOOL_INTENT_IN_THINKING_ENABLED = None
-    _STEP_MAX_TURNS_CAP = None
-    _THINKING_SEGMENT_SEPARATOR = None
-    _TOOL_INTENT_MAX_CHARS = None
-
-
-from functools import lru_cache
 
 
 @lru_cache(maxsize=1)
@@ -285,6 +263,29 @@ def _thinking_segment_separator() -> str:
     if raw:
         return raw.replace("\\n", "\n")
     return "\n\n"
+
+
+@lru_cache(maxsize=1)
+def _tool_intent_max_chars() -> int:
+    """工具意图摘要写入思考流时的最大字符数。"""
+    return get_config("execution.tool_intent_max_chars", 4000)
+
+
+def _reset_env_caches_for_tests() -> None:
+    """重置环境变量缓存（仅供测试使用）。"""
+    _env_phased_execution_enabled.cache_clear()
+    _tool_intent_in_thinking_enabled.cache_clear()
+    _step_max_turns_cap.cache_clear()
+    _thinking_segment_separator.cache_clear()
+    _tool_intent_max_chars.cache_clear()
+    # 同时清空旧变量（兼容性）
+    global _PHASED_EXECUTION_ENABLED, _TOOL_INTENT_IN_THINKING_ENABLED
+    global _STEP_MAX_TURNS_CAP, _THINKING_SEGMENT_SEPARATOR, _TOOL_INTENT_MAX_CHARS
+    _PHASED_EXECUTION_ENABLED = None
+    _TOOL_INTENT_IN_THINKING_ENABLED = None
+    _STEP_MAX_TURNS_CAP = None
+    _THINKING_SEGMENT_SEPARATOR = None
+    _TOOL_INTENT_MAX_CHARS = None
 
 
 def _resolve_exec_tools(
@@ -352,10 +353,10 @@ async def execute_plan(
     *,
     on_tool_finish: OnToolFinish | None = None,
     system_prompt: str | None = None,
-    clawhub: Any | None = None,
-    memory_store: Any | None = None,
-    activity_log: Any | None = None,
-    keyword_index: Any | None = None,
+    clawhub: ClawHubClientProtocol | None = None,
+    memory_store: MemoryStoreProtocol | None = None,
+    activity_log: ActivityLogProtocol | None = None,
+    keyword_index: KeywordIndexProtocol | None = None,
     client: AsyncOpenAI | None = None,
 ) -> str:
     """执行结构化计划（ReAct 循环）。
@@ -369,7 +370,7 @@ async def execute_plan(
         on_tool_call: 工具调用回调（如未知工具等路径）
         on_tool_finish: 每个工具执行完成后异步回调（名称、参数 JSON 字符串、完整结果、是否成功）。
             若回调签名包含关键字参数 ``thinking_header``（或 ``**kwargs``），将传入当前 ReAct 轮标签（如 ``[第 1 轮]``）；否则仅按四参调用。
-        memory_store: 记忆存储（默认与 ``MINI_AGENT_STATE`` 进程 bundle 一致）
+        memory_store: 记忆存储（默认与 ``MINIAGENT_PATHS_STATE_DIR`` 进程 bundle 一致）
         activity_log: 活动日志（同上）
         keyword_index: 关键词索引（同上；缺省时优先使用 store 已绑定索引）
         client: LLM 客户端（默认进程内共享 AsyncOpenAI）
@@ -1251,7 +1252,7 @@ async def execute_plan(
                 return (
                     f"{WARNING_PREFIX} 最后一步在单步子轮次（MINIAGENT_STEP_MAX_TURNS）或总轮数限制内，"
                     "未以「无工具调用」形式结束。\n\n"
-                    "可提高 MINIAGENT_STEP_MAX_TURNS、AGENT_MAX_TURNS，"
+                    "可提高 MINIAGENT_STEP_MAX_TURNS、MINIAGENT_AGENT_MAX_TURNS，"
                     "或设置 MINIAGENT_PHASED_EXECUTION=0 退回单循环执行后重试。"
                 )
 
@@ -1285,13 +1286,7 @@ async def execute_plan(
     )
 
 
-# ─── 工具意图提取 ──────────────────────────────────────────
-
-
-@lru_cache(maxsize=1)
-def _tool_intent_max_chars() -> int:
-    """工具意图摘要写入思考流时的最大字符数。"""
-    return get_config("execution.tool_intent_max_chars", 4000)
+# ─── 工具意图提取 ────────────────────────────────────────────
 
 
 def _clip_intent_value(s: str) -> str:
@@ -1307,15 +1302,11 @@ def _clip_intent_value(s: str) -> str:
 def _extract_tool_intent(tool_name: str, args: dict[str, Any]) -> str:
     """从工具调用中提取简要意图描述。"""
     base_intent = _TOOL_INTENT_MAP.get(tool_name, f"调用 {tool_name}")
-
-    # 尝试从参数中提取关键信息
     if args:
-        # 优先取 path, query, command, content
         for key in ("path", "query", "command", "content", "url"):
             if key in args:
                 val = _clip_intent_value(str(args[key]))
                 return f"{base_intent}: {val}"
-
     return base_intent
 
 
@@ -1323,7 +1314,7 @@ def _extract_tool_intent(tool_name: str, args: dict[str, Any]) -> str:
 
 
 async def _save_session_memory(
-    memory_store: Any,
+    memory_store: MemoryStoreProtocol,
     session_key: str,
     user_input: str,
     final_reply: str,

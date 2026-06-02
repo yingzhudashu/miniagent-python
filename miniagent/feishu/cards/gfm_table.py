@@ -1,12 +1,22 @@
-"""GFM 管道表识别与解析（poll_server 与 CARD_V2 共用）。"""
+"""GFM 管道表识别与解析（poll_server 与 CARD_V2 共用）。
+
+性能优化：预编译表格分隔符正则，避免每次调用都重新编译。
+"""
 
 from __future__ import annotations
 
 import re
 
+# 性能优化：预编译正则表达式
+_RE_GFM_SEPARATOR = re.compile(r"^\s*\|?[\s\-:|]+\|?\s*$")
+
 
 def is_gfm_table_separator_line(line: str) -> bool:
-    return bool(re.match(r"^\s*\|?[\s\-:|]+\|?\s*$", line))
+    """检测是否为 GFM 表格分隔符行（如 ``| --- | --- |``）。
+
+    使用预编译正则，比 ``re.match`` 每次调用更快。
+    """
+    return bool(_RE_GFM_SEPARATOR.match(line))
 
 
 def parse_gfm_table_row_cells(line: str) -> list[str]:

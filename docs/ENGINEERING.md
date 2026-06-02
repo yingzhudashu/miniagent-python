@@ -39,13 +39,6 @@
 | `MINIAGENT_FEISHU_RECEIVE_ID_TYPE` | 内置工具发 IM 时的 `receive_id_type`（`chat_id` / `open_id` / `union_id`）；非 `chat_id` 时默认 `receive_id` 为入站发送者 ID（见 [FEISHU.md](FEISHU.md)）。 |
 | `MINIAGENT_FEISHU_DOC_FOLDER_TOKEN` | 创建/列举云盘时默认父文件夹 token。 |
 
-**遗留别名（仍会读取并打 Deprecation 警告，请迁移）**：
-
-| 旧名 | 新名 |
-|------|------|
-| `FEISHU_DOCX_URL_PREFIX` | `MINIAGENT_FEISHU_DOCX_URL_PREFIX` |
-| `FEISHU_DEFAULT_DOC_FOLDER_TOKEN` | `MINIAGENT_FEISHU_DOC_FOLDER_TOKEN` |
-
 ---
 
 ## 2. 质量门禁（本地与 CI）
@@ -84,14 +77,14 @@ CI 说明：
 ## 3. 状态目录与测试隔离
 
 - **默认**：Agent 将实例心跳、会话、锁等写入仓库下 `workspaces/`（部分路径见 `.gitignore`，如 `workspaces/sessions/`、`**/*.lock`）。
-- **推荐**：开发与 CI 设置 **`MINI_AGENT_STATE`** 指向临时目录，避免污染本机数据或与并行运行冲突（示例见 `CONTRIBUTING.md` 与 `config.defaults.json` 注释）。
+- **推荐**：开发与 CI 设置 **`MINIAGENT_PATHS_STATE_DIR`** 指向临时目录，避免污染本机数据或与并行运行冲突（示例见 `CONTRIBUTING.md` 与 `config.defaults.json` 注释）。
 - **语义**：多实例注册、PID 判定与清理规则见 §3.3。
 
 ### 3.1 `workspaces/` 与 Git 跟踪政策
 
-**运行时生成物默认不入库**：`.gitignore` 已排除 `workspaces/instances/`、`workspaces/sessions/`、`workspaces/memory/`、`workspaces/scheduled_tasks/`（定时任务表 `tasks.json`，与 README「`MINI_AGENT_STATE/scheduled_tasks/tasks.json`」一致；未设置 `MINI_AGENT_STATE` 时默认为仓库下 `workspaces/scheduled_tasks/`）、`workspaces/keyword-index.json`、`workspaces/perf*.jsonl`、`workspaces/feishu_inbound_owner.json`、`workspaces/feishu/`（含 WebSocket 去重等）、`**/*.lock`、`workspaces/cli/` 等，避免把本机 PID、会话历史、记忆索引、对话落盘、飞书去重状态提交到远程。
+**运行时生成物默认不入库**：`.gitignore` 已排除 `workspaces/instances/`、`workspaces/sessions/`、`workspaces/memory/`、`workspaces/scheduled_tasks/`（定时任务表 `tasks.json`，与 README「`MINIAGENT_PATHS_STATE_DIR/scheduled_tasks/tasks.json`」一致；未设置 `MINIAGENT_PATHS_STATE_DIR` 时默认为仓库下 `workspaces/scheduled_tasks/`）、`workspaces/keyword-index.json`、`workspaces/perf*.jsonl`、`workspaces/feishu_inbound_owner.json`、`workspaces/feishu/`（含 WebSocket 去重等）、`**/*.lock`、`workspaces/cli/` 等，避免把本机 PID、会话历史、记忆索引、对话落盘、飞书去重状态提交到远程。
 
-若历史上曾将上述路径纳入版本跟踪，可在确认无团队依赖后执行 `git rm --cached <路径>` 并保留 `.gitignore` 规则。需要随仓库携带的**非敏感**结构示例，请放在 `docs/examples/` 等显式文档化目录。日常开发仍建议使用 `MINI_AGENT_STATE` 将状态迁出仓库。
+若历史上曾将上述路径纳入版本跟踪，可在确认无团队依赖后执行 `git rm --cached <路径>` 并保留 `.gitignore` 规则。需要随仓库携带的**非敏感**结构示例，请放在 `docs/examples/` 等显式文档化目录。日常开发仍建议使用 `MINIAGENT_PATHS_STATE_DIR` 将状态迁出仓库。
 
 **提交前建议再看一眼 `git status`**：不应把 `__pycache__/`、`.pytest_cache/`、`.ruff_cache/`、`.mypy_cache/`、`*.egg-info/` 等缓存或打包元数据加入版本库（勿对这类路径使用 `git add -f`）。`git clean -fdX` 会删除**所有**已忽略路径（含本地 **`config.user.json`**），执行前请备份密钥；更稳妥做法是只手动删缓存目录。勿用小写 `git clean -fdx`，以免删掉未跟踪的源码。详见 [CONTRIBUTING.md](CONTRIBUTING.md)「提交前仓库卫生」。
 
@@ -139,7 +132,7 @@ CI 说明：
 - `tests/evaluation/**/evaluation_results.json` — 聚合评分
 - `docs/EVALUATION_REPORT.html`、`docs/evaluation_results.json` — 生成报告
 
-建议跑长时间评测时设置 `MINI_AGENT_STATE` 指向临时目录，避免与日常 `workspaces/` 会话干扰。
+建议跑长时间评测时设置 `MINIAGENT_PATHS_STATE_DIR` 指向临时目录，避免与日常 `workspaces/` 会话干扰。
 
 ---
 
@@ -165,7 +158,7 @@ CI 说明：
 4. README 中的命令与测试说明：若需核对用例数量，以本地或 CI 的 `pytest tests/ --collect-only -q` 输出为准（避免在 README 硬编码条数导致漂移）。
 5. 行为变更同步 `ARCHITECTURE.md` 或对应专题文档（如 `CHANNEL_BINDING.md`、`MEMORY_SYSTEM.md`）。
 6. **[architecture.drawio](architecture.drawio)** 与 `ARCHITECTURE.md` 分层与主数据流一致（入口 `compat`、组合根 `RuntimeContext`、通道路由、记忆注入方式、可选 MCP/定时任务）；`instance.py` 单元格为 **PID 存活** 语义（非心跳超时清理）；`scheduled_tasks` 含 `cron.py` / `file_lock.py`；发版或大架构变更时一并打开核对，页脚测试数以 `pytest tests/ --collect-only -q` 为准。
-7. **[DEPLOYMENT.md](DEPLOYMENT.md)**：定时任务路径/备份、`MINI_AGENT_STATE` 与多实例 PID 清理表述与 §3.3 一致。
+7. **[DEPLOYMENT.md](DEPLOYMENT.md)**：定时任务路径/备份、`MINIAGENT_PATHS_STATE_DIR` 与多实例 PID 清理表述与 §3.3 一致。
 8. **大批量增补或调整 docstring 后**：在本地执行 `python -m ruff check miniagent tests` 与 spot-check（避免行长、引号或无意改坏字符串）；风格约定见 [CONTRIBUTING.md](CONTRIBUTING.md)「文档字符串（docstring）规范」。
 9. **SSOT**：修改 env、点命令、定时任务、飞书出站时，以 [FEISHU.md](FEISHU.md) / [CLI.md](CLI.md) / [USER_GUIDE.md](USER_GUIDE.md) 之一为主文档撰写深度内容，其余文件只保留摘要并链入，避免三处全文复制。
 10. **禁止硬编码**：文档与 drawio 页脚勿写固定 pytest 用例数；以 `pytest tests/ --collect-only -q` 为准。

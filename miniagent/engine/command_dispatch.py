@@ -119,7 +119,6 @@ async def dispatch_command(
     from miniagent.engine.session_lock import (
         is_session_locked,
         release_session_lock,
-        try_lock_session,
         try_lock_session_async,
     )
 

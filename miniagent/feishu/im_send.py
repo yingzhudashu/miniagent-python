@@ -1,7 +1,14 @@
-"""飞书 IM 消息发送（create / reply）共用实现，供 ``poll_server`` 与 ``upload_io`` 调用。"""
+"""飞书 IM 消息发送（create / reply）共用实现，供 ``poll_server`` 与 ``upload_io`` 调用。
+
+性能优化：
+- 提供异步版本 ``post_im_message_async()`` 包装同步 SDK 调用，避免阻塞事件循环
+- 建议在异步上下文（async def）中使用异步版本
+"""
 
 from __future__ import annotations
 
+import asyncio
+import os as _os_for_im
 from typing import Literal
 
 from miniagent.feishu.lark_client import build_client, clear_client_cache
@@ -15,6 +22,9 @@ _logger = get_logger(__name__)
 ImMsgType = Literal["text", "file", "image", "interactive"]
 
 _VALID_RECEIVE_ID_TYPES = frozenset({"chat_id", "open_id", "union_id"})
+
+# 配置默认值（支持环境变量覆盖）
+_FEISHU_SEND_TIMEOUT_DEFAULT = float(_os_for_im.environ.get("MINIAGENT_FEISHU_SEND_TIMEOUT", "30.0"))
 
 
 def resolve_im_receive_id_type(explicit: str | None) -> str:
@@ -92,9 +102,71 @@ def post_im_message(
         return False, None, str(e)
 
 
+async def post_im_message_async(
+    config: FeishuConfig,
+    *,
+    receive_id: str,
+    msg_type: ImMsgType,
+    content_json: str,
+    reply_to_message_id: str | None = None,
+    reply_in_thread: bool = False,
+    receive_id_type: str | None = None,
+    timeout: float = _FEISHU_SEND_TIMEOUT_DEFAULT,
+) -> tuple[bool, str | None, str | None]:
+    """异步发送 IM 消息（不阻塞事件循环）。
+
+    使用 ``asyncio.to_thread()`` 包装同步 SDK 调用，
+    避免在异步上下文中阻塞事件循环。
+
+    Args:
+        config: 飞书配置
+        receive_id: 接收者 ID
+        msg_type: 消息类型
+        content_json: 消息内容 JSON
+        reply_to_message_id: 回复的消息 ID
+        reply_in_thread: 是否在话题内回复
+        receive_id_type: 接收者 ID 类型
+        timeout: 超时秒数（默认 30 秒）
+
+    Returns:
+        ``(success, message_id_or_None, error_detail_or_None)``；失败时 ``error_detail`` 含错误信息。
+
+    Example:
+        success, mid, err = await post_im_message_async(
+            config,
+            receive_id="oc_xxx",
+            msg_type="text",
+            content_json=json.dumps({"text": "Hello"}),
+        )
+    """
+    def _sync_send() -> tuple[bool, str | None, str | None]:
+        return post_im_message(
+            config,
+            receive_id=receive_id,
+            msg_type=msg_type,
+            content_json=content_json,
+            reply_to_message_id=reply_to_message_id,
+            reply_in_thread=reply_in_thread,
+            receive_id_type=receive_id_type,
+        )
+
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_sync_send),
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        _logger.warning("Feishu IM send timed out after %s seconds", timeout)
+        return False, None, f"timeout_{timeout}s"
+    except Exception as e:
+        _logger.warning("Feishu IM async send 异常: %s", e)
+        return False, None, str(e)
+
+
 __all__ = [
     "ImMsgType",
     "clear_client_cache",
     "resolve_im_receive_id_type",
     "post_im_message",
+    "post_im_message_async",
 ]

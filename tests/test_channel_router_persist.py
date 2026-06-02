@@ -8,7 +8,7 @@ from miniagent.infrastructure.channel_router import ChannelRouter
 
 def test_save_and_load_roundtrip(tmp_path, monkeypatch) -> None:
     """绑定保存到文件并从磁盘恢复。"""
-    monkeypatch.setenv("MINI_AGENT_STATE", str(tmp_path))
+    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
     router = ChannelRouter()
     router.bind("__cli__", "default")
     router.bind("feishu_p2p:ou_abc", "default")
@@ -28,14 +28,14 @@ def test_save_and_load_roundtrip(tmp_path, monkeypatch) -> None:
 
 def test_load_returns_false_when_no_file(tmp_path, monkeypatch) -> None:
     """无文件时 load() 返回 False。"""
-    monkeypatch.setenv("MINI_AGENT_STATE", str(tmp_path))
+    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
     router = ChannelRouter()
     assert router.load() is False
 
 
 def test_bind_auto_saves(tmp_path, monkeypatch) -> None:
     """bind() 调用后自动写入磁盘。"""
-    monkeypatch.setenv("MINI_AGENT_STATE", str(tmp_path))
+    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
     router = ChannelRouter()
     router.bind("__cli__", "session-1")
     path = os.path.join(str(tmp_path), "channel-router.json")
@@ -47,7 +47,7 @@ def test_bind_auto_saves(tmp_path, monkeypatch) -> None:
 
 def test_unbind_auto_saves(tmp_path, monkeypatch) -> None:
     """unbind() 调用后自动更新磁盘文件。"""
-    monkeypatch.setenv("MINI_AGENT_STATE", str(tmp_path))
+    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
     router = ChannelRouter()
     router.bind("ch1", "sess1")
     path = os.path.join(str(tmp_path), "channel-router.json")
@@ -61,7 +61,7 @@ def test_unbind_auto_saves(tmp_path, monkeypatch) -> None:
 def test_startup_load_restores_p2p_binding(tmp_path, monkeypatch) -> None:
     """模拟重启后 P2P 绑定恢复——这是修复的核心场景。"""
     # 第 1 次运行：创建绑定
-    monkeypatch.setenv("MINI_AGENT_STATE", str(tmp_path))
+    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
     router1 = ChannelRouter()
     router1.bind("__cli__", "default")
     router1.bind("feishu_p2p:ou_test123", "default")
@@ -79,7 +79,7 @@ def test_startup_load_restores_p2p_binding(tmp_path, monkeypatch) -> None:
 
 def test_set_primary_auto_saves(tmp_path, monkeypatch) -> None:
     """set_primary() 调用后自动写入磁盘。"""
-    monkeypatch.setenv("MINI_AGENT_STATE", str(tmp_path))
+    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
     router = ChannelRouter()
     router.bind("__cli__", "default")
     path = os.path.join(str(tmp_path), "channel-router.json")

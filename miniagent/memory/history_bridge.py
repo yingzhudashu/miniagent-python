@@ -30,8 +30,22 @@ def _truncate_thinking_for_llm(content: str, max_chars: int) -> str:
 def conversation_history_for_llm(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """将持久化历史转为 Chat Completions 可接受的消息列表。
 
-    - ``role=thinking`` → 合并为 assistant 文本块（标注为思考记录）
-    - 去掉以下划线开头的元数据键
+    处理规则：
+    - role=thinking → 合并为 assistant 文本块（标注为思考记录）
+    - role=system 且含 _history_archive_marker → 保留简短衔接说明
+    - 去掉以下划线开头的元数据键（如 _timestamp）
+    - 过滤非标准角色（仅保留 user/assistant/system/tool）
+
+    Args:
+        history: 持久化的会话历史消息列表（可能含 thinking、归档标记等）
+
+    Returns:
+        list[dict]: OpenAI Chat Completions API 兼容的消息列表
+
+    Note:
+        - thinking 消息会被截断到 _thinking_for_llm_max_chars()
+        - 归档标记的 system 消息仅保留 content 作为衔接说明
+        - dict/list 类型值会做浅拷贝（避免原地修改）
     """
     out: list[dict[str, Any]] = []
     for m in history:
@@ -61,10 +75,21 @@ def conversation_history_for_llm(history: list[dict[str, Any]]) -> list[dict[str
 
 
 def estimate_history_messages_tokens(history: list[dict[str, Any]]) -> int:
-    """粗略 token 估算（用于归档触发）。
+    """粗略估算历史消息的 token 数（用于归档触发阈值判断）。
 
-    ``role=thinking`` 按与 ``conversation_history_for_llm`` 相同的截断规则计长，
+    使用与 conversation_history_for_llm 相同的截断规则计长，
     使归档阈值与下游 LLM 上下文更一致。
+
+    Args:
+        history: 持久化的会话历史消息列表
+
+    Returns:
+        int: 估算的 token 总数
+
+    Note:
+        - thinking 消息按截断后的长度计算
+        - 每条消息额外加 5 tokens（role 开销）
+        - tool_calls 按 JSON 字符串估算
     """
     from miniagent.memory.context import estimate_tokens
 

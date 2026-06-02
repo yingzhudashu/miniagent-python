@@ -20,8 +20,8 @@ from __future__ import annotations
 
 import os
 
-from miniagent.infrastructure.logger import get_logger
 from miniagent.infrastructure.json_config import JsonConfigLoader
+from miniagent.infrastructure.logger import get_logger
 
 _logger = get_logger(__name__)
 

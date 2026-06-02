@@ -1,6 +1,6 @@
 """Mini Agent Python — 循环检测器
 
-防止 Agent 陷入无限循环，参考 OpenClaw 的 loop-detection 机制。
+防止 Agent 陷入无限循环的机制。
 
 检测器类型：
 1. generic_repeat — 检测相同工具 + 相同参数的重复调用
@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import json
+import os as _os_for_loop
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -31,7 +32,7 @@ from miniagent.types.agent import LoopDetectionConfig, LoopDetectionResult, Loop
 # ─── JSON 序列化缓存（性能优化：避免重复序列化相同参数）──
 
 _args_json_cache: OrderedDict[tuple, str] = OrderedDict()
-_ARGS_CACHE_MAX_SIZE = 100
+_ARGS_CACHE_MAX_SIZE = int(_os_for_loop.environ.get("MINIAGENT_ARGS_CACHE_MAX_SIZE", "100"))
 
 
 def _make_args_cache_key(args: dict[str, Any]) -> tuple:

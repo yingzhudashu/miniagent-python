@@ -44,7 +44,28 @@ def build_run_scheduled_job_coro(
     skill_toolboxes: list[Any],
     skill_prompts: list[Any],
 ) -> tuple[Any, str]:
-    """返回 (协程, message_queue 用的 chat_id)。协程执行完毕返回 ``None`` 或错误摘要字符串。"""
+    """将单条 ScheduledTask 编译为可 await 的协程及队列 chat_id。
+
+    构建执行协程，最终调用 UnifiedEngine.run_agent_with_thinking，
+    并在完成后可选向飞书镜像推送执行结果。
+
+    Args:
+        ctx: 运行时上下文（含 engine、channel_router、message_queue）
+        state: CLI 循环状态（含会话管理器）
+        task: 要执行的任务定义
+        skill_toolboxes: 技能工具箱列表（用于 Agent 执行）
+        skill_prompts: 技能提示列表（用于 Agent 执行）
+
+    Returns:
+        tuple[Any, str]: (执行协程, message_queue 用 chat_id)
+        - 协程执行完毕返回 None 或错误摘要字符串
+        - chat_id 用于队列投递
+
+    Note:
+        - 执行路径与会话人工消息共用队列模型
+        - 不负责持久化更新（由 ticker 写回 last_run_at/next_run_at）
+        - 错误文本会被截断到 MAX_ERROR_TEXT_LENGTH
+    """
     channel_router = ctx.channel_router
     session_key, feishu_recv, mq_chat = resolve_execution_target(
         task, channel_router=channel_router, state=state

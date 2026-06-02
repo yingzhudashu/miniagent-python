@@ -55,9 +55,9 @@ def diagnose_environment() -> str:
     lines.append("### 环境变量配置")
     env_vars = [
         ("OPENAI_API_KEY", "API密钥"),
-        ("OPENAI_BASE_URL", "API地址"),
-        ("OPENAI_MODEL", "模型名称"),
-        ("MINI_AGENT_STATE", "状态目录"),
+        ("MINIAGENT_MODEL_BASE_URL", "API地址"),
+        ("MINIAGENT_MODEL_MODEL", "模型名称"),
+        ("MINIAGENT_PATHS_STATE_DIR", "状态目录"),
         ("MINIAGENT_KB_ROOT", "知识库目录"),
     ]
 
@@ -98,8 +98,8 @@ def diagnose_environment() -> str:
     missing_critical = []
     if not os.environ.get("OPENAI_API_KEY"):
         missing_critical.append("OPENAI_API_KEY未设置")
-    if not os.environ.get("OPENAI_BASE_URL"):
-        missing_critical.append("OPENAI_BASE_URL未设置（使用默认OpenAI地址）")
+    if not os.environ.get("MINIAGENT_MODEL_BASE_URL"):
+        missing_critical.append("MINIAGENT_MODEL_BASE_URL未设置（使用默认OpenAI地址）")
 
     if missing_critical:
         lines.append("⚠️ 发现以下问题:")

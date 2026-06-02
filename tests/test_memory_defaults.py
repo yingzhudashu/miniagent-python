@@ -12,7 +12,7 @@ from miniagent.memory.defaults import (
 
 
 def test_bundle_respects_mini_agent_state(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("MINI_AGENT_STATE", str(tmp_path))
+    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
     reset_process_default_memory_bundle_for_tests()
     try:
         ms, al, ki = get_process_default_memory_bundle()

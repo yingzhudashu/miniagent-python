@@ -395,7 +395,7 @@ _manage_scheduled_task_schema = {
     "function": {
         "name": "manage_scheduled_task",
         "description": (
-            "以结构化参数管理持久化定时任务（MINI_AGENT_STATE/scheduled_tasks/tasks.json），"
+            "以结构化参数管理持久化定时任务（MINIAGENT_PATHS_STATE_DIR/scheduled_tasks/tasks.json），"
             "不依赖易碎的 .schedule 行格式。飞书默认仅 list/show；MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1 时与 CLI 可增删改。"
             "与 run_dot_command 的 .schedule 操作同一套存储。"
         ),

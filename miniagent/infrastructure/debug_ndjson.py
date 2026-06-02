@@ -9,7 +9,6 @@ The log file path can be overridden via debug.log_path.
 from __future__ import annotations
 
 import json
-import os
 import time
 from pathlib import Path
 

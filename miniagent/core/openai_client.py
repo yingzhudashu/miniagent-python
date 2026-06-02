@@ -19,7 +19,23 @@ _shared: AsyncOpenAI | None = None
 
 
 def get_shared_async_openai() -> AsyncOpenAI:
-    """进程内惰性单例；测试可改为注入 ``execute_plan(..., client=...)`` / ``generate_plan(..., client=...)``。"""
+    """获取进程内共享的 AsyncOpenAI 客户端（惰性单例）。
+
+    首次调用时从环境变量读取 API 密钥并初始化客户端，后续调用直接返回缓存实例。
+    测试场景可使用 ``execute_plan(..., client=...)`` 注入自定义客户端，或调用
+    ``reset_shared_async_openai_for_tests()`` 清空缓存。
+
+    Returns:
+        AsyncOpenAI: 共享的异步 OpenAI 客户端实例
+
+    Raises:
+        RuntimeError: 未配置 OPENAI_API_KEY 时抛出，提示用户设置凭据
+
+    Note:
+        - API 密钥优先从 ``OPENAI_API_KEY`` 环境变量读取
+        - base_url 从 ``config.user.json`` 或 ``MINIAGENT_MODEL_BASE_URL`` 读取
+        - 支持兼容 OpenAI API 的第三方服务（如 Azure、本地模型）
+    """
     global _shared
     if _shared is None:
         # API密钥必须从环境变量读取（敏感凭据）
@@ -33,7 +49,7 @@ def get_shared_async_openai() -> AsyncOpenAI:
             )
             raise RuntimeError(
                 "未配置 OPENAI_API_KEY，无法调用 LLM（任务分类、规划、对话均依赖）。"
-                "请在 config.user.json 的 secrets 部分或环境中设置 OPENAI_API_KEY；使用国内/自建兼容端点时请同时设置 OPENAI_BASE_URL。"
+                "请在 config.user.json 的 secrets 部分或环境中设置 OPENAI_API_KEY；使用国内/自建兼容端点时请同时设置 MINIAGENT_MODEL_BASE_URL。"
             ) from None
         # base_url从JSON配置读取（支持环境变量覆盖）
         base_url = get_config("model.base_url", None)

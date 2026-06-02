@@ -9,7 +9,7 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_reconnect_loop_holds_inbound_lock_until_stop(monkeypatch, tmp_path):
-    monkeypatch.setenv("MINI_AGENT_STATE", str(tmp_path))
+    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
     monkeypatch.setenv("FEISHU_APP_ID", "app_x")
     monkeypatch.setenv("FEISHU_APP_SECRET", "sec")
     monkeypatch.setenv("FEISHU_VERIFICATION_TOKEN", "tok")
@@ -85,7 +85,7 @@ async def test_reconnect_loop_holds_inbound_lock_until_stop(monkeypatch, tmp_pat
 @pytest.mark.asyncio
 async def test_first_connection_failure_skips_backoff_sleep(monkeypatch, tmp_path):
     """首次 await start 前不 sleep；失败后第二次迭代才执行退避 sleep。"""
-    monkeypatch.setenv("MINI_AGENT_STATE", str(tmp_path))
+    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
     monkeypatch.setenv("FEISHU_APP_ID", "app_y")
     monkeypatch.setenv("FEISHU_APP_SECRET", "sec")
     monkeypatch.setenv("FEISHU_VERIFICATION_TOKEN", "tok")

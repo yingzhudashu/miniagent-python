@@ -170,7 +170,7 @@ async def test_tick_once_job_registered_then_shutdown_cancels(
     """tick_once 派生的 _one_job 登记到 ctx 后，shutdown_runtime 可将其取消。"""
     from miniagent.scheduled_tasks import ticker as ticker_mod
 
-    monkeypatch.setenv("MINI_AGENT_STATE", str(tmp_path))
+    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
     monkeypatch.setenv("MINIAGENT_DISABLE_SCHEDULED_TASKS", "0")
     ticker_mod._inflight.clear()
 

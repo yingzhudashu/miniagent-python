@@ -14,21 +14,16 @@ from __future__ import annotations
 
 import asyncio
 import os
-import re
 import subprocess
 import sys
 
 from miniagent.session.manager import _get_workspaces_dir
-
-
-def _safe_session_id(session_id: str) -> str:
-    """将非法路径字符替换为安全字符，与 ``DefaultSessionManager._make_safe_id`` 一致。"""
-    return re.sub(r'[<>:"/\\|?*]', "_", session_id)
+from miniagent.utils.session_id import safe_session_id
 
 
 def _get_lock_path(session_id: str) -> str:
     """获取会话锁文件路径。"""
-    safe = _safe_session_id(session_id)
+    safe = safe_session_id(session_id)
     return os.path.join(_get_workspaces_dir(), safe, ".lock")
 
 

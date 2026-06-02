@@ -32,7 +32,7 @@ def switch_model(new_model: str) -> str:
         操作结果消息
     """
     old_model = get_current_model()
-    os.environ["OPENAI_MODEL"] = new_model
+    os.environ["MINIAGENT_MODEL_MODEL"] = new_model
     return f"✅ 模型已切换: {old_model} → {new_model}"
 
 

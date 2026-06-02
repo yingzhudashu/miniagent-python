@@ -16,15 +16,13 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from miniagent.infrastructure.json_config import get_config
-
 from miniagent.core.openai_client import get_shared_async_openai
+from miniagent.infrastructure.json_config import get_config
 
 # 导入共享路径解析函数
 from miniagent.tools._path_utils import resolve_path_from_ctx
 from miniagent.types.error_prefix import ERROR_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
-
 
 # ════════════════════════════════════════════════════════
 # analyze_image
@@ -110,7 +108,7 @@ async def _analyze_image_handler(args: dict[str, Any], ctx: ToolContext) -> Tool
         # describe_image 返回空字符串表示模型不支持视觉或调用失败
         return ToolResult(
             success=False,
-            content=f"{ERROR_PREFIX} 图片分析失败（可能是模型不支持视觉理解，请确认 OPENAI_MODEL 配置）",
+            content=f"{ERROR_PREFIX} 图片分析失败（可能是模型不支持视觉理解，请确认 MINIAGENT_MODEL_MODEL 配置）",
         )
 
     return ToolResult(

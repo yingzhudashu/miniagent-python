@@ -12,7 +12,7 @@ from miniagent.core.config import (
     get_default_model_config,
     merge_agent_config,
 )
-from miniagent.infrastructure.json_config import get_config_section, JsonConfigLoader
+from miniagent.infrastructure.json_config import JsonConfigLoader, get_config_section
 
 # 项目根目录（config.defaults.json所在位置）
 PROJECT_ROOT = pathlib.Path(__file__).parent.parent

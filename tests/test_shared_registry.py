@@ -118,7 +118,7 @@ class TestMemoryEntryRegistry:
     def test_eviction_on_max_entries(self, temp_state_dir):
         """Registry evicts oldest entries when exceeding max."""
         # Set small max for test
-        os.environ["MINIAGENT_REGISTRY_MAX_ENTRIES"] = "3"
+        os.environ["MINIAGENT_MEMORY_REGISTRY_MAX_ENTRIES"] = "3"
         registry = MemoryEntryRegistry(state_dir=temp_state_dir)
 
         for i in range(5):
@@ -138,7 +138,7 @@ class TestMemoryEntryRegistry:
         assert registry.get("session-1:2026-05-31T01:00:00Z") is None
         assert registry.get("session-1:2026-05-31T02:00:00Z") is not None
 
-        del os.environ["MINIAGENT_REGISTRY_MAX_ENTRIES"]
+        del os.environ["MINIAGENT_MEMORY_REGISTRY_MAX_ENTRIES"]
 
     def test_contains(self, registry):
         """Check if key exists in registry."""

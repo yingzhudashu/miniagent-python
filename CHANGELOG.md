@@ -2,15 +2,69 @@
 
 ## [Unreleased]
 
+### Refactoring
+
+- **消除飞书去重重复代码**：[`poll_server.py`](miniagent/feishu/poll_server.py) 中约 136 行重复的去重逻辑已删除，改为导入 [`feishu_dedup.py`](miniagent/feishu/feishu_dedup.py) 模块。文件从约 1706 行减少到约 1569 行，提升了代码可维护性。
+- **统一 Session ID 安全化**：新增 [`miniagent/utils/session_id.py`](miniagent/utils/session_id.py)，统一各模块的 session_id 安全化逻辑，消除 `session_lock.py`、`manager.py`、`history_archive.py` 中的重复实现。确保同一 session_key 在不同模块产生一致的安全化结果。
+- **CLI命令模块拆分**：[`cli_commands.py`](miniagent/engine/cli_commands.py) 从 1633 行减少到 1487 行，新增 [`miniagent/engine/commands/`](miniagent/engine/commands/) 子包：
+  - `kb_commands.py`：知识库命令（cmd_kb_*）
+  - `instance_commands.py`：实例管理（cmd_instance_handler）
+  - `config_commands.py`：配置检查（feishu_*_enabled）
+- **配置集中化扩展**：[`miniagent/core/constants.py`](miniagent/core/constants.py) 新增更多配置常量，包括：
+  - 飞书去重刷盘参数（`DEDUP_FLUSH_INTERVAL`、`DEDUP_FLUSH_THRESHOLD`）
+  - 云盘文件列表页大小（`LIST_FILE_PAGE_SIZE`）
+  - Docx块处理限制（`DOCX_APPEND_MAX_BLOCKS`、`DOCX_LIST_BLOCKS_MAX`）
+  - 实例心跳与缓存参数（`HEARTBEAT_TIMEOUT`、`INSTANCE_CACHE_TTL`）
+  - 循环检测缓存大小（`ARGS_CACHE_MAX_SIZE`）
+  - 关键词提取与清理参数（`KEYWORD_EXTRACT_MAX`、`KEYWORD_PRUNE_DAYS`）
+  - 会话管理器最大会话数（`SESSION_MANAGER_MAX_SESSIONS`）
+  - Agent配置默认值（`AGENT_HISTORY_SIZE`、`AGENT_TOOL_TIMEOUT`）
+  - 飞书消息发送超时（`FEISHU_SEND_TIMEOUT`）
+  所有参数均支持环境变量覆盖。
+- **类型注解增强**：
+  - [`types/tool.py`](miniagent/types/tool.py) 中 `ToolContext` 的 `clawhub` 和 `cli_loop_state` 字段从 `Any` 改为具体类型（`ClawHubClientProtocol` 和 `CliLoopState`）
+  - [`types/protocols.py`](miniagent/types/protocols.py) 新增 4 个 Protocol：`UnifiedEngineProtocol`、`ChannelRouterProtocol`、`MessageQueueProtocol`、`FeishuRuntimeProtocol`
+  - [`runtime/context.py`](miniagent/runtime/context.py) 中 `RuntimeContext` 的 `skill_registry`、`clawhub`、`engine`、`channel_router`、`message_queue`、`feishu` 字段从 `Any` 改为具体 Protocol 类型
+  - [`types/agent.py`](miniagent/types/agent.py) 中 `LoopDetectionConfig.history_size` 支持环境变量覆盖
+  - [`types/config.py`](miniagent/types/config.py) 中 `AgentConfig.max_turns`、`tool_timeout` 支持环境变量覆盖
+- **文档更新**：修正 [`INDEX.md`](docs/INDEX.md) 和 [`CONTRIBUTING.md`](docs/CONTRIBUTING.md) 的子包数量描述（14→17），添加 `utils/`、`knowledge/`、`testing/` 子包说明。
+
 ### Added
 
-- **飞书收尾**：`miniagent/feishu/cards/`（构建/入站抽取/按钮路由/可选 CARD_V2 宽表）；工具 `feishu_send_interactive_card`、`feishu_update_message_card`；`feishu_doc` 扩展表格/媒体/import_raw/copy/move/权限/search/`write mode=replace`；`feishu_bitable` + `upload_attachment`；`MINIAGENT_FEISHU_USER_ACCESS_TOKEN`。
+- **飞书去重模块拆分**：新增 [`miniagent/feishu/feishu_dedup.py`](miniagent/feishu/feishu_dedup.py)，独立封装内存+磁盘双重去重逻辑（`try_begin_processing`、`release_processing`、`abandon_processing_claim`），支持延迟刷盘和进程退出同步保存。
+- **环境变量模板**：新增 [`.env.example`](.env.example)，提供完整的环境变量配置模板，包含必填和可选配置项及说明。
+- **类型标注改进**：[`executor.py`](miniagent/core/executor.py) 使用 Protocol 类型替代 Any，包括 `MemoryStoreProtocol`、`ActivityLogProtocol`、`KeywordIndexProtocol`、`ClawHubClientProtocol`。
+
+### Documentation
+
+- **项目结构更新**：[`INDEX.md`](docs/INDEX.md) 补充 `miniagent/knowledge/` 和 `miniagent/testing/` 子包说明，修正子包数量为 16 个。
+- **类名引用修正**：[`ARCHITECTURE.md`](docs/ARCHITECTURE.md) 和 [`architecture.drawio`](docs/architecture.drawio) 中 `ToolRegistry` 改为 `DefaultToolRegistry`（实际实现类名）。
+- **Docstring 补充**：核心模块关键函数补充完整 Args/Returns/Note 文档：
+  - `build_execution_system_prompt()`、`get_shared_async_openai()`、`classify_task_difficulty()`
+  - `map_thinking_level_to_model()`、`map_business_depth()`、`_fence_tool_output()`
+  - `search_relevant_memory()`、`conversation_history_for_llm()`、`estimate_history_messages_tokens()`
+  - `tick_once()`、`build_run_scheduled_job_coro()`
+  - `_run_agent_with_thinking_locked()` 详细执行流程说明
+
+### 飞书收尾
 - **飞书收尾加固**：`cards/gfm_table` 共用宽表解析；`search` 结构化错误；`upload_drive_media` 公开 API；`write(replace)` 报告删除失败数；工具 schema / 通道提示同步。
 - **技能热加载**：`refresh_skills` / `.reload-skills`；`install_skill` 安装后自动加载；`MINIAGENT_SKILLS_WATCH` 可选监视技能目录；CLI/飞书/定时任务从 `state` 读取技能快照。
 - **飞书点命令**：环境变量 **`MINIAGENT_FEISHU_DOT_COMMANDS_FULL`**（默认关）使飞书点命令与 CLI 全量对齐（含 `.session`/`.schedule` 变异与 `.stop`）；`dispatch_command` 的 `block_remote` 与 env 一致（防御性）。
 - **定时任务**：标准 **5 段 Unix cron**（`croniter`）；CLI `.schedule add … cron "分 时 日 月 周"` 与工具 `add_cron` / **`update`**；`list` 显示本地化下次触发时间。
 - **定时任务可靠性**：跨进程 `job_<id>.lock`、`tasks.json.lock`；dispatch 失败退避（`MINIAGENT_SCHEDULE_DISPATCH_BACKOFF`，默认 60s）；非法 cron 写入 `last_error`；shutdown 取消 job 不再误退避。
 - **定时任务飞书与时区**：`primary` + 通道绑定时镜像推送最终回复到飞书（`MINIAGENT_SCHEDULE_FEISHU_MIRROR`）；新建任务默认时区链为 `MINIAGENT_SCHEDULE_TIMEZONE` → `MINIAGENT_TIMEZONE` → `TZ` → `Asia/Shanghai`（与 `.env` 一致）。
+
+### Performance
+
+- **飞书消息异步发送**：新增 [`post_im_message_async()`](miniagent/feishu/im_send.py)，使用 `asyncio.to_thread()` 包装同步 SDK 调用，避免阻塞事件循环；支持超时保护（默认 30 秒）。
+- **飞书消息回复异步化**：[`_send_reply()`](miniagent/feishu/poll_server.py) 及相关函数使用异步发送，不阻塞事件循环。
+- **飞书思考卡片异步化**：[`push_feishu_thinking_stream()`](miniagent/feishu/poll_server.py)、[`finalize_feishu_thinking_stream()`](miniagent/feishu/poll_server.py) 等流式思考处理函数全部使用异步发送和 PATCH，避免阻塞 WebSocket 主循环。
+- **飞书去重延迟刷盘**：[`poll_server.py`](miniagent/feishu/poll_server.py) 去重机制改为内存缓存 + 定期异步刷盘（每 60 秒或超过 1000 条），避免每次消息处理都写磁盘；进程退出时同步刷盘确保数据不丢失。
+- **记忆存储异步 I/O**：[`DefaultMemoryStore`](miniagent/memory/store.py) 的 `load()` 和 `save()` 使用 `asyncio.to_thread()` 包装文件读写，避免阻塞事件循环。
+- **紧凑 JSON 格式**：移除记忆文件和去重文件的 `indent=2` 美化格式，减少约 30% 文件体积和 20% 写入时间。
+- **LRU 缓存扩容**：`DefaultMemoryStore` 缓存上限从 50 提高到 100（可通过 `MINIAGENT_MEMORY_STORE_CACHE_MAX` 覆盖）。
+- **实例列表缓存延长**：缓存 TTL 从 5 秒提高到 30 秒，减少频繁目录遍历开销。
+- **正则预编译**：[`gfm_table.py`](miniagent/feishu/cards/gfm_table.py) 表格分隔符检测使用预编译正则 `_RE_GFM_SEPARATOR`。
 
 ### Breaking changes
 
@@ -20,7 +74,8 @@
 - **飞书体验**：`MINIAGENT_FEISHU_REPLY_PLAIN` 默认 **关**（设为 `1` 才开启纯文本模式）；`MINIAGENT_FEISHU_CARD_ACTION_ROUTER` 默认 **开**；无法识别的非空取值视为 **关**（`env_flag_strict`）。
 - **飞书工具**：`MINIAGENT_FEISHU_TOOLS_AUTO` 默认 **开**（仍需 `FEISHU_APP_ID`/`SECRET`）；显式 `MINIAGENT_FEISHU_TOOLS=0` 或 `MINIAGENT_FEISHU_TOOLS_AUTO=0` 可关闭。
 - **云盘回退**：`FEISHU_DOC_FOLDER_FALLBACK_ROOT_META` 默认 **开**；`0`/`false` 可关闭根目录元数据 API 回退。
-- **环境变量别名**：请改用 `MINIAGENT_FEISHU_DOCX_URL_PREFIX`、`MINIAGENT_FEISHU_DOC_FOLDER_TOKEN`；旧名 `FEISHU_DOCX_URL_PREFIX`、`FEISHU_DEFAULT_DOC_FOLDER_TOKEN` 仍会读取并打弃用警告（下一版本可能移除）。
+- **环境变量别名**：已移除 `_SPECIAL_ENV_ALIASES` 中所有旧环境变量名映射。请改用标准命名 `MINIAGENT_<SECTION>_<KEY>`，如 `MINI_AGENT_STATE` → `MINIAGENT_PATHS_STATE_DIR`、`OPENAI_BASE_URL` → `MINIAGENT_MODEL_BASE_URL`。完整迁移表见下方。
+- **OpenClaw 兼容代码**：已移除所有 OpenClaw 运行时兼容代码。技能元数据仅支持 miniagent 扁平格式；`OPENCLAW_TO_MODEL` 重命名为 `THINKING_LEVEL_PRESETS`；`map_openclaw_thinking_to_model` 重命名为 `map_thinking_level_to_model`。一次性迁移脚本 `scripts/user/migrate_openclaw_cron.py` 已删除。
 
 ### Changed
 
@@ -75,7 +130,7 @@
 
 - **目录树**：`docs/INDEX.md` 与 `docs/ARCHITECTURE.md` 同步 `mcp/`、`memory` 管线模块、`tools/git_readonly`、`session_memory`、`infrastructure/tracing` 等；README「项目结构」改为指向 INDEX。
 - **版本标语**：核心与专题文档页眉与 `miniagent.__version__`（**2.0.2**）对齐；完整清单见 [docs/ENGINEERING.md](docs/ENGINEERING.md) §5。补全 `CLI.md`、`FEISHU.md`、`SELF_OPT.md`、`CHANNEL_BINDING.md` 页眉。
-- **关键词索引**：`keyword_index` 模块说明标明索引路径相对 ``state_dir`` / ``MINI_AGENT_STATE``。
+- **关键词索引**：`keyword_index` 模块说明标明索引路径相对 ``state_dir`` / ``MINIAGENT_PATHS_STATE_DIR``。
 
 ### Fixes
 
@@ -93,7 +148,7 @@
 ### Documentation
 
 - **文档对齐**：`docs/INDEX.md`、`docs/DEPLOYMENT.md`、`docs/SECURITY.md` 等与 **`miniagent.__version__`（本版 2.0.1）** 一致；移除对已删除的 `unified.py` / `requirements.txt` 的过时描述。
-- **新增**：[docs/INSTANCE_REGISTRY.md](docs/INSTANCE_REGISTRY.md)（多实例注册表、PID 判定、`MINI_AGENT_STATE`）。
+- **新增**：[docs/INSTANCE_REGISTRY.md](docs/INSTANCE_REGISTRY.md)（多实例注册表、PID 判定、`MINIAGENT_PATHS_STATE_DIR`）。
 - **新增**：[docs/ENGINEERING.md](docs/ENGINEERING.md)（质量门禁、单一事实来源、文档维护清单）。
 - **索引**：`docs/INDEX.md` 目录树补充 `core/openai_client.py`、`memory/defaults.py` 与 `feishu_state` / `feishu_runtime` 关系说明。
 - **勘误**：`DEPLOYMENT.md` 中 Python 最低版本改为与 `pyproject.toml` 一致的 **3.10+**；`FEISHU.md` 更新运行时路径说明。
@@ -102,15 +157,15 @@
 
 - **`.gitignore`**：忽略根级别 `debug-*.log`。
 - **注释**：充实 `miniagent/__init__.py`、`compat.unified_entry`、`infrastructure/instance` 模块 docstring（注册清理语义与组合根职责）；校正 `core/agent` 模块说明；若干包 `__init__` 与入口注释与架构对齐。
-- **README**：补充 `MINI_AGENT_STATE`、实例注册清理说明、开发与静态检查命令；项目结构树补充 `cli/`、`runtime/`、`openai_client`、`defaults`；文档表增加 `ENGINEERING.md`。
+- **README**：补充 `MINIAGENT_PATHS_STATE_DIR`、实例注册清理说明、开发与静态检查命令；项目结构树补充 `cli/`、`runtime/`、`openai_client`、`defaults`；文档表增加 `ENGINEERING.md`。
 - **CI**：`.github/workflows/ci.yml` 增加 `python -m compileall -q miniagent`。
 - **配置**：`pyproject.toml` 中 Ruff 增加 `src = ["miniagent", "tests"]`。
-- **环境模板**：`.env.example` 增加 `MINI_AGENT_STATE` 说明与示例（默认注释掉）。
+- **环境模板**：`.env.example` 增加 `MINIAGENT_PATHS_STATE_DIR` 说明与示例（默认注释掉）。
 - **包结构**：为 `miniagent/feishu/` 补充 `__init__.py`（模块说明，与常规 Python 包布局一致）。
 
 ### 第二轮工程化（同 2.0.1 文档修订）
 
-- **workspaces 政策**：[docs/ENGINEERING.md](docs/ENGINEERING.md) §3.1 与 [docs/INDEX.md](docs/INDEX.md) 说明当前跟踪的示例文件与 `.gitignore` 边界；推荐 `MINI_AGENT_STATE`。
+- **workspaces 政策**：[docs/ENGINEERING.md](docs/ENGINEERING.md) §3.1 与 [docs/INDEX.md](docs/INDEX.md) 说明当前跟踪的示例文件与 `.gitignore` 边界；推荐 `MINIAGENT_PATHS_STATE_DIR`。
 - **文档交叉引用**：[docs/SECURITY.md](docs/SECURITY.md) §8；[docs/CLI.md](docs/CLI.md)、[docs/FEISHU.md](docs/FEISHU.md) 文末「相关文档」；README / CONTRIBUTING 中 `git clone <repo-url>` 占位说明。
 - **注释**：`engine/main.py`、`core/executor.py`、`core/planner.py`、`engine/command_dispatch.py`、`infrastructure/channel_router.py`、`feishu/poll_server.py`、`infrastructure/instance.py` 等关键分支补充「为何如此」说明；校正 executor/planner 模块标题中的阶段表述。
 - **CI**：[`.github/workflows/ci.yml`](.github/workflows/ci.yml) 新增 `test-feishu-extra` job（Python 3.12，`[dev,feishu]`）；[docs/ENGINEERING.md](docs/ENGINEERING.md) §2 同步描述。
@@ -137,9 +192,9 @@
 
 ### 注入与类型
 
-- **记忆默认 bundle**：新增 `miniagent.memory.defaults`（`get_process_default_memory_bundle`、`resolve_memory_dependencies`）。`unified_entry` 与 `execute_plan` / `UnifiedEngine` 在未注入记忆依赖时共用同一套惰性实例，根目录由 `MINI_AGENT_STATE` 决定，消除与旧「import 即构造」模块全局不一致的问题。`miniagent.memory.memory_store` / `activity_log`、子模块内同名导出及 `keyword_index._default_index` 改为惰性并发出 `DeprecationWarning`。
+- **记忆默认 bundle**：新增 `miniagent.memory.defaults`（`get_process_default_memory_bundle`、`resolve_memory_dependencies`）。`unified_entry` 与 `execute_plan` / `UnifiedEngine` 在未注入记忆依赖时共用同一套惰性实例，根目录由 `MINIAGENT_PATHS_STATE_DIR` 决定，消除与旧「import 即构造」模块全局不一致的问题。`miniagent.memory.memory_store` / `activity_log`、子模块内同名导出及 `keyword_index._default_index` 改为惰性并发出 `DeprecationWarning`。
 - **LLM 客户端**：`miniagent.core.openai_client.get_shared_async_openai()` 为进程内共享实例；`generate_plan` 与 `execute_plan` 支持可选关键字参数 `client=` 以便测试注入 stub。**RuntimeContext** 增加可选字段 `openai_client`（`unified_entry` 设为共享实例）；`UnifiedEngine.run_agent_with_thinking` 与 CLI / 飞书主路径传入 `client=`，与记忆/clawhub 一样走组合根。
-- **RuntimeContext** 增加 `memory_store`、`activity_log`、`keyword_index`；`unified_entry` 按 `MINI_AGENT_STATE` 下的 `workspaces` 根目录构造；`DefaultMemoryStore` 可绑定与之一致的 `KeywordIndex`（写入记忆时更新索引）。
+- **RuntimeContext** 增加 `memory_store`、`activity_log`、`keyword_index`；`unified_entry` 按 `MINIAGENT_PATHS_STATE_DIR` 下的 `workspaces` 根目录构造；`DefaultMemoryStore` 可绑定与之一致的 `KeywordIndex`（写入记忆时更新索引）。
 - **ClawHub**：`ToolContext.clawhub`；`SessionManager` 与 `execute_plan` / `run_agent` / `UnifiedEngine.run_agent_with_thinking` 链路注入；`tools/skills` 优先使用上下文客户端。
 - **CLI 状态**：新增 `CliLoopState`（`engine/cli_state.py`），`unified_main` 主循环状态与 `dispatch_command` 对齐类型。
 - **文档**：`MEMORY_SYSTEM.md`、`CHANGELOG` 已同步。

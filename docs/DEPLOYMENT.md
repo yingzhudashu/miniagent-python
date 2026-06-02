@@ -118,7 +118,7 @@ python -m miniagent --stop 1 2       # 停止指定实例 ID（非交互）
 ### 状态目录与多实例注册
 
 - 默认将运行时状态写入当前工作目录下的 **`workspaces/`**（含 `instances/`、`sessions/` 等）。
-- 设置 **`MINI_AGENT_STATE`** 可把整个状态根迁到其它路径（测试、多副本部署时常用）。
+- 设置 **`MINIAGENT_PATHS_STATE_DIR`** 可把整个状态根迁到其它路径（测试、多副本部署时常用）。
 - 每次 **新进程注册实例前** 会清理磁盘上 **PID 已不存在** 的旧实例目录，**不会**误杀仍在运行的其它 Agent 进程。细节见 [ENGINEERING.md](ENGINEERING.md) §3.3。
 
 对话历史、分层记忆、关键词索引、飞书去重状态等可能写入上述状态根下的子目录（含敏感业务内容）。
@@ -230,7 +230,7 @@ python -m miniagent --feishu           # 实例 #2 (CLI + 飞书)
 
 | 路径 | 说明 |
 |------|------|
-| `{MINI_AGENT_STATE}/scheduled_tasks/tasks.json` | 任务定义（含 **prompt**，可能含业务隐私） |
+| `{MINIAGENT_PATHS_STATE_DIR}/scheduled_tasks/tasks.json` | 任务定义（含 **prompt**，可能含业务隐私） |
 | `scheduled_tasks/*.lock` | 调度与单任务互斥锁（见 [ENGINEERING.md](ENGINEERING.md) §3.3） |
 
 - **依赖**：`croniter`、`tzdata` 已包含在主包 `[project]` 依赖中，无需单独 extra。
@@ -281,7 +281,7 @@ python -m miniagent --feishu           # 实例 #2 (CLI + 飞书)
 
 ## 相关文档
 
-- [ENGINEERING.md](ENGINEERING.md)：CI 与本地质量门禁、`MINI_AGENT_STATE` 与仓库卫生约定。
+- [ENGINEERING.md](ENGINEERING.md)：CI 与本地质量门禁、`MINIAGENT_PATHS_STATE_DIR` 与仓库卫生约定。
 - [SECURITY.md](SECURITY.md)：沙箱与密钥处理。
 - [ENGINEERING.md](ENGINEERING.md) §3.3：多实例与 `--stop` 行为。
 - [USER_GUIDE.md](USER_GUIDE.md) §8：定时任务用户说明。

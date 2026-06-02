@@ -205,8 +205,10 @@ class _IndexEntry:
 # 分词
 # ============================================================================
 
+import os as _os_for_kw
 
-def extract_keywords(text: str, max_keywords: int = 50) -> list[str]:
+
+def extract_keywords(text: str, max_keywords: int | None = None) -> list[str]:
     """提取关键词（简化版中文分词 + 英文词元化）
 
     分词策略：
@@ -218,6 +220,7 @@ def extract_keywords(text: str, max_keywords: int = 50) -> list[str]:
     Args:
         text: 要提取关键词的文本
         max_keywords: 最大关键词数（性能优化，防止长文本生成过多 n-gram）
+            未指定时使用环境变量 MINIAGENT_KEYWORD_EXTRACT_MAX，默认 50
 
     Returns:
         去重后的关键词列表（按长度优先排序，保留更有意义的词）
@@ -226,6 +229,8 @@ def extract_keywords(text: str, max_keywords: int = 50) -> list[str]:
         extract_keywords('我喜欢吃苹果 and AI is cool')
         # → ['喜欢', '欢吃', '吃苹', '苹果', 'ai', 'cool', ...]
     """
+    if max_keywords is None:
+        max_keywords = int(_os_for_kw.environ.get("MINIAGENT_KEYWORD_EXTRACT_MAX", "50"))
     keywords: set[str] = set()
 
     # 英文分词
@@ -512,15 +517,19 @@ class KeywordIndex:
             "top_keywords": keyword_counts[:20],
         }
 
-    def prune_expired(self, days_old: int = 30) -> int:
+    def prune_expired(self, days_old: int | None = None) -> int:
         """清理过期的索引条目
 
         Args:
             days_old: 保留天数，超过此天数的条目将被清理
+                未指定时使用环境变量 MINIAGENT_KEYWORD_PRUNE_DAYS，默认 30
 
         Returns:
             清理的条目数
         """
+        if days_old is None:
+            import os as _os
+            days_old = int(_os.environ.get("MINIAGENT_KEYWORD_PRUNE_DAYS", "30"))
         self._ensure_loaded()
 
         from datetime import timedelta
@@ -581,7 +590,26 @@ def search_relevant_with_index(
 
 
 def search_relevant_memory(query: str, top_k: int = 5, min_score: int = 0) -> list[dict[str, Any]]:
-    """搜索相关记忆（全局便捷函数）。"""
+    """搜索相关记忆（全局便捷函数）。
+
+    使用进程默认关键词索引检索与查询相关的记忆条目。
+
+    Args:
+        query: 搜索查询文本（会被自动提取关键词）
+        top_k: 返回的最大条目数（默认 5）
+        min_score: 最小匹配分数阈值（默认 0，即无过滤）
+
+    Returns:
+        list[dict]: 匹配的记忆条目列表，每个条目包含：
+            - session_id: 会话 ID
+            - timestamp: 时间戳
+            - summary: 摘要文本
+            - score: 匹配分数
+
+    Note:
+        - 使用 get_process_default_memory_bundle() 获取默认索引
+        - 若索引未初始化则返回空列表
+    """
     from miniagent.memory.defaults import get_process_default_memory_bundle
 
     idx = get_process_default_memory_bundle()[2]

@@ -73,14 +73,14 @@ def get_default_model_config() -> ModelConfig:
     Returns:
         默认的模型配置对象
     """
-    from miniagent.core.thinking_presets import map_openclaw_thinking_to_model
+    from miniagent.core.thinking_presets import map_thinking_level_to_model
 
     # 获取thinking配置
     thinking_level_raw = _cfg_str("model.thinking_level", "light")
 
     # 检查是否显式设置了thinking_budget（通过环境变量或MINIAGENT_CONFIG）
-    import os
     import json
+    import os
     explicit_budget = None
 
     # 检查单项环境变量
@@ -106,7 +106,7 @@ def get_default_model_config() -> ModelConfig:
 
     # 应用thinking_level映射
     if thinking_level_raw.lower() in ("low", "medium", "high"):
-        mapped_level, mapped_budget = map_openclaw_thinking_to_model(thinking_level_raw)
+        mapped_level, mapped_budget = map_thinking_level_to_model(thinking_level_raw)
         thinking_level = mapped_level
         thinking_budget = explicit_budget if explicit_budget is not None else mapped_budget
     else:

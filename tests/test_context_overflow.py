@@ -37,7 +37,7 @@ def test_overflow_summarize_inserts_placeholder_when_heavy_history() -> None:
 def test_append_redacts_multiple_tool_messages_in_one_pass(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("MINI_AGENT_CONTEXT_TOOL_REDACT", "1")
+    monkeypatch.setenv("MINIAGENT_MEMORY_CONTEXT_TOOL_REDACT", "1")
     cm = DefaultContextManager(18_000, 0.06, [], overflow_strategy="summarize")
     cm.init("s", "u")
     cm.append(
@@ -67,7 +67,7 @@ def test_append_redacts_multiple_tool_messages_in_one_pass(
 
 
 def test_tool_redact_runs_before_summarize(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MINI_AGENT_CONTEXT_TOOL_REDACT", "1")
+    monkeypatch.setenv("MINIAGENT_MEMORY_CONTEXT_TOOL_REDACT", "1")
     cm = DefaultContextManager(12_000, 0.15, [], overflow_strategy="summarize")
     cm.init("s", "u")
     cm.append(

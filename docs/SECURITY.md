@@ -155,7 +155,7 @@ release_session_lock("default")
 - [ ] `config.user.json` 已加入 `.gitignore`
 - [ ] `AGENT_DEBUG=false`（生产环境）
 - [ ] 飞书应用已设置 IP 白名单（如适用）
-- [ ] 工作空间目录权限正确；共享机上前缀 `MINI_AGENT_STATE` 到用户私有目录
+- [ ] 工作空间目录权限正确；共享机上前缀 `MINIAGENT_PATHS_STATE_DIR` 到用户私有目录
 - [ ] 定期检查 `workspaces/instances/` 无残留死实例
 
 ## 8. 相关文档

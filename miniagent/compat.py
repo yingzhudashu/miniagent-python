@@ -58,7 +58,7 @@ def unified_entry() -> None:
 
     流程概要：
 
-    1. 拉取进程级默认记忆三元组（与 ``MINI_AGENT_STATE`` / ``workspaces`` 根一致）。
+    1. 拉取进程级默认记忆三元组（与 ``MINIAGENT_PATHS_STATE_DIR`` / ``workspaces`` 根一致）。
     2. 构造通道无关的基础设施：消息队列、通道路由器、飞书运行时壳。
     3. 组装 :class:`RuntimeContext`（组合根）：工具注册表、监控、技能、ClawHub、引擎、
        记忆与共享 ``AsyncOpenAI`` 客户端等。

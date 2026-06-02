@@ -48,7 +48,7 @@ async def describe_image(
     Args:
         file_path: 图片文件路径
         client: OpenAI 异步客户端
-        model: 要使用的模型名（用户配置的 OPENAI_MODEL）
+        model: 要使用的模型名（用户配置的 MINIAGENT_MODEL_MODEL）
         prompt: 描述提示词
 
     Returns:

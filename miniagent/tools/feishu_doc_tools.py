@@ -1,4 +1,19 @@
-"""飞书云文档聚合工具 ``feishu_doc``（action 路由）。"""
+"""飞书云文档聚合工具 ``feishu_doc``（action 路由）。
+
+提供飞书云文档的多种操作，包括：
+- 文档管理：create、get、read、write、append、delete
+- 块操作：list_blocks、get_block、update_block、delete_block、batch_update
+- 导入导出：export_raw、import_raw
+- 表格操作：create_table、write_table_cells、create_table_with_values
+- 媒体操作：upload_image、upload_file、download_media、upload_image_from_message
+- 文件管理：copy、move
+- 权限管理：list_permissions、add_permission、remove_permission
+- 发现：search
+
+所有操作通过 ``action`` 参数路由，使用统一的 ``feishu_doc`` 工具名。
+
+相关文档：docs/FEISHU.md
+"""
 
 from __future__ import annotations
 
@@ -58,6 +73,26 @@ def _docx_open_url(document_id: str) -> str | None:
 
 
 async def _feishu_doc(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    """飞书云文档聚合工具处理函数。
+
+    根据 ``args["action"]`` 路由到具体的操作处理函数。支持 24 种操作。
+
+    Args:
+        args: 工具参数字典，必须包含 ``action`` 键指定操作类型
+            - action: 操作类型（create/read/write/append/delete 等）
+            - 其他参数由具体 action 处理函数定义
+        ctx: 工具上下文，提供 cwd（工作目录）等信息
+
+    Returns:
+        ToolResult: 操作结果，包含 success（成功/失败）和 content（结果内容）
+
+    Raises:
+        无直接抛出异常，所有错误通过 ToolResult(success=False) 返回
+
+    Example:
+        >>> await _feishu_doc({"action": "create", "title": "新文档"}, ctx)
+        ToolResult(success=True, content="已创建文档 doc_xxx")
+    """
     action = str(args.get("action") or "").strip().lower()
     if action not in _SUPPORTED_ACTIONS:
         return ToolResult(
@@ -133,6 +168,19 @@ async def _feishu_doc(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
 
 
 async def _action_create(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig) -> ToolResult:
+    """创建飞书云文档。
+
+    Args:
+        args: 参数字典
+            - title: 文档标题（默认"未命名文档"）
+            - folder_token: 父文件夹 token 或 URL（必填）
+            - owner_open_id: 文档所有者 open_id（可选）
+        ctx: 工具上下文
+        cfg: 飞书配置
+
+    Returns:
+        ToolResult: 包含 document_id、revision_id 和可选的 URL
+    """
     from miniagent.feishu.docx.client import create_document
 
     title = str(args.get("title") or "未命名文档").strip() or "未命名文档"
@@ -470,6 +518,19 @@ def _action_download_media(args: dict[str, Any], ctx: ToolContext, cfg: FeishuCo
 async def _action_upload_image_from_message(
     args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig
 ) -> ToolResult:
+    """从飞书消息中的图片上传到云文档。
+
+    Args:
+        args: 参数字典
+            - doc_token: 目标文档 token 或 URL（必填）
+            - message_id: 源消息 ID（必填）
+            - file_key: 图片 file_key（必填）
+        ctx: 工具上下文
+        cfg: 飞书配置
+
+    Returns:
+        ToolResult: 包含上传后的 file_token
+    """
     from miniagent.feishu.docx.media import upload_doc_image_from_bytes
     from miniagent.feishu.resource_io import download_message_resource
 

@@ -23,7 +23,7 @@ def get_state_root() -> str:
 
 
 def reset_process_default_memory_bundle_for_tests() -> None:
-    """清空缓存，仅供测试在更改 ``MINI_AGENT_STATE`` 等环境后重新构造 bundle。"""
+    """清空缓存，仅供测试在更改 ``MINIAGENT_PATHS_STATE_DIR`` 等环境后重新构造 bundle。"""
     global _bundle
     _bundle = None
     from miniagent.memory.shared_registry import reset_registry

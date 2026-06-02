@@ -75,7 +75,7 @@ def parse_skill_md(content: str) -> tuple[dict[str, Any], str]:
     except yaml.YAMLError:
         pass
 
-    # Fallback: 简单正则（兼容旧格式）
+    # Fallback: 简单正则（YAML 解析失败时的兜底）
     for line in front_matter.split("\n"):
         kv = re.match(r"^(\w+):\s*(.+)$", line)
         if kv:
@@ -84,7 +84,7 @@ def parse_skill_md(content: str) -> tuple[dict[str, Any], str]:
 
 
 def _resolve_base_dir(content: str, base_dir: str) -> str:
-    """将 OpenClaw 风格的 {baseDir} 占位符替换为实际路径。"""
+    """将 {baseDir} 占位符替换为技能目录路径。"""
     if not content or "{baseDir}" not in content:
         return content
     # 统一使用 POSIX 风格路径分隔符，避免 Windows 反斜杠问题
@@ -92,18 +92,15 @@ def _resolve_base_dir(content: str, base_dir: str) -> str:
     return content.replace("{baseDir}", posix_dir)
 
 
-def _map_oc_metadata(meta: dict[str, Any]) -> Any | None:
-    """将 OpenClaw metadata 映射为 miniagent SkillMetadata。
+def _map_metadata(meta: dict[str, Any]) -> Any | None:
+    """将 metadata 映射为 SkillMetadata。
 
-    OpenClaw 格式：
-        metadata: {"clawdbot":{"requires":{"bins":["node"],"env":["TAVILY_API_KEY"]}}}
-    miniagent 格式：
-        SkillMetadata(bins=["node"], env=["TAVILY_API_KEY"])
-
-    也支持原生 miniagent 扁平格式：
+    支持扁平格式：
         metadata:
           bins: [node]
           env: [TAVILY_API_KEY]
+          always: true
+          os: [linux, darwin]
 
     Returns:
         SkillMetadata 实例或 None（无 metadata 时）
@@ -114,44 +111,14 @@ def _map_oc_metadata(meta: dict[str, Any]) -> Any | None:
     if raw is None:
         return None
 
-    # OpenClaw JSON blob 格式（字符串形式的 JSON）
+    # JSON 字符串格式（字符串形式的 JSON）
     if isinstance(raw, str):
         try:
             raw = json.loads(raw)
         except (json.JSONDecodeError, ValueError):
             return None
 
-    bins: list[str] | None = None
-    com: list[str] | None = None
-    env: list[str] | None = None
-    config: list[str] | None = None
-    primary_env: str | None = None
-    os_list: list[str] | None = None
-    always: bool = False
-
-    # 路径 1: OpenClaw 嵌套格式 metadata.clawdbot.requires.*
-    if isinstance(raw, dict):
-        clawdbot = raw.get("clawdbot")
-        if isinstance(clawdbot, dict):
-            requires = clawdbot.get("requires")
-            if isinstance(requires, dict):
-                bins = requires.get("bins")
-                com = requires.get("com")
-                env = requires.get("env")
-                config = requires.get("config")
-            primary_env = clawdbot.get("primaryEnv")
-            os_list = raw.get("os")
-            always = raw.get("always", False)
-        else:
-            # 路径 2: 扁平 miniagent 格式
-            bins = raw.get("bins")
-            com = raw.get("com")
-            env = raw.get("env")
-            config = raw.get("config")
-            primary_env = raw.get("primary_env") or raw.get("primaryEnv")
-            os_list = raw.get("os")
-            always = raw.get("always", False)
-    else:
+    if not isinstance(raw, dict):
         return None
 
     # 类型安全转换
@@ -164,13 +131,13 @@ def _map_oc_metadata(meta: dict[str, Any]) -> Any | None:
         return [str(v)]
 
     return SkillMetadata(
-        bins=_to_str_list(bins),
-        com=_to_str_list(com),
-        env=_to_str_list(env),
-        config=_to_str_list(config),
-        primary_env=str(primary_env) if primary_env else None,
-        os=_to_str_list(os_list),
-        always=bool(always),
+        bins=_to_str_list(raw.get("bins")),
+        com=_to_str_list(raw.get("com")),
+        env=_to_str_list(raw.get("env")),
+        config=_to_str_list(raw.get("config")),
+        primary_env=str(raw.get("primary_env") or raw.get("primaryEnv") or "") or None,
+        os=_to_str_list(raw.get("os")),
+        always=bool(raw.get("always", False)),
     )
 
 
@@ -256,7 +223,7 @@ def _load_sub_skills(
                 keywords = [str(k).strip() for k in kw if str(k).strip()]
             else:
                 keywords = []
-            skill_metadata = _map_oc_metadata(meta)
+            skill_metadata = _map_metadata(meta)
             system_prompt = body if body.strip() else None
 
         # 加载工具定义
@@ -330,7 +297,7 @@ async def load_skill_package(package_dir: str) -> SkillPackage | None:
             if title_match:
                 name = title_match.group(1).strip()
         # 解析包级 metadata，用于继承到子技能
-        package_metadata = _map_oc_metadata(meta)
+        package_metadata = _map_metadata(meta)
     elif os.path.isfile(skill_yaml_path):
         # 备选格式：skill.yaml + instructions.md
         try:
@@ -351,7 +318,7 @@ async def load_skill_package(package_dir: str) -> SkillPackage | None:
                     skill_md = _resolve_base_dir(skill_md, package_dir)
         except Exception as e:
             _logger.warning("加载 skill.yaml 失败 %s: %s", package_dir, e)
-        package_metadata = _map_oc_metadata(meta if isinstance(meta, dict) else {})
+        package_metadata = _map_metadata(meta if isinstance(meta, dict) else {})
     else:
         package_metadata = None
 

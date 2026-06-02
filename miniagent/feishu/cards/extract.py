@@ -1,14 +1,21 @@
-"""从飞书 interactive 卡片 JSON 抽取可读文本。"""
+"""从飞书 interactive 卡片 JSON 抽取可读文本。
+
+配置项可通过环境变量覆盖：
+- MINIAGENT_CARD_EXTRACT_MAX_NODES: 最大遍历节点数
+- MINIAGENT_CARD_EXTRACT_MAX_DEPTH: 最大遍历深度
+"""
 
 from __future__ import annotations
 
 import json
+import os
 from typing import Any
 
-from miniagent.feishu.cards.sanitize import sanitize_card_text
+# 直接读取环境变量，避免触发循环导入
+_CARD_EXTRACT_MAX_NODES = int(os.environ.get("MINIAGENT_CARD_EXTRACT_MAX_NODES", "400"))
+_CARD_EXTRACT_MAX_DEPTH = int(os.environ.get("MINIAGENT_CARD_EXTRACT_MAX_DEPTH", "12"))
 
-_MAX_NODES = 400
-_MAX_DEPTH = 12
+from miniagent.feishu.cards.sanitize import sanitize_card_text
 
 
 def _text_from_obj(obj: Any) -> str:
@@ -40,7 +47,7 @@ def _text_from_obj(obj: Any) -> str:
 
 def _walk(node: Any, *, depth: int, budget: list[int], parts: list[str]) -> None:
     """递归遍历卡片 JSON 结构并收集文本片段。"""
-    if budget[0] <= 0 or depth > _MAX_DEPTH:
+    if budget[0] <= 0 or depth > _CARD_EXTRACT_MAX_DEPTH:
         return
     budget[0] -= 1
     if isinstance(node, dict):
@@ -73,7 +80,7 @@ def extract_text_from_interactive_content(content_str: str) -> str:
         return sanitize_card_text(raw)
 
     parts: list[str] = []
-    budget = [_MAX_NODES]
+    budget = [_CARD_EXTRACT_MAX_NODES]
     if isinstance(data, dict):
         _walk(data, depth=0, budget=budget, parts=parts)
         body = data.get("body")

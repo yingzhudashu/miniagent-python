@@ -11,8 +11,8 @@ from miniagent.memory import dream_scheduler
 
 @pytest.fixture(autouse=True)
 def isolate_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Redirect MINI_AGENT_STATE to tmp_path."""
-    monkeypatch.setenv("MINI_AGENT_STATE", str(tmp_path))
+    """Redirect MINIAGENT_PATHS_STATE_DIR to tmp_path."""
+    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
 
 
 def test_load_dream_state_missing() -> None:

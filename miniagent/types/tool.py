@@ -11,6 +11,10 @@
 mypy 会将 ``list`` 解析为该方法而非类型构造器并报 ``valid-type``。故协议中与 ``list`` 相邻的列表返回
 注解使用 ``typing.List[...]``（或 ``from __future__ import annotations`` 下仍须避免与方法名同形的
 ``list[...]`` 出现在该 Protocol 块内）。长期若重命名 API 为 ``list_tool_names`` 等，可再统一改为小写 ``list`` 泛型。
+
+**类型改进**：
+- clawhub 字段使用 ClawHubClientProtocol 替代 Any
+- cli_loop_state 字段使用 CliLoopState 替代 Any
 """
 
 from __future__ import annotations
@@ -19,7 +23,11 @@ import builtins
 from abc import abstractmethod
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
+
+if TYPE_CHECKING:
+    from miniagent.engine.cli_state import CliLoopState
+    from miniagent.types.skill import ClawHubClientProtocol
 
 from openai.types.chat import ChatCompletionMessageParam, ChatCompletionToolParam
 
@@ -76,9 +84,9 @@ class ToolContext:
     cwd: str
     allowed_paths: list[str] = field(default_factory=list)
     permission: ToolPermission = "sandbox"
-    clawhub: Any | None = None
+    clawhub: ClawHubClientProtocol | None = None  # 类型改进：使用 Protocol 替代 Any
     session_key: str | None = None
-    cli_loop_state: Any | None = None
+    cli_loop_state: CliLoopState | None = None  # 类型改进：使用具体类型替代 Any
     cli_dispatch_allow_mutations: bool = True
     message_queue_abort_chat_id: str | None = None
     feishu_im_receive_id_type: str | None = None

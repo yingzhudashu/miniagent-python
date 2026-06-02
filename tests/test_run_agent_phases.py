@@ -145,7 +145,7 @@ class TestClarificationMaxQuestionsByDifficulty:
         monkeypatch.setenv("MINIAGENT_TASK_CLASSIFIER", "1")
         monkeypatch.setenv("MINIAGENT_REQUIREMENT_CLARIFY", "1")
         monkeypatch.setenv("MINIAGENT_REFLECTION", "0")
-        monkeypatch.setenv("MINIAGENT_ANNOUNCE_DIFFICULTY_AND_PLAN", "0")
+        monkeypatch.setenv("MINIAGENT_EXECUTION_ANNOUNCE_DIFFICULTY", "0")
 
         tb = Toolbox(id="fs", name="fs", description="files", keywords=[])
 
@@ -175,7 +175,7 @@ class TestClarificationMaxQuestionsByDifficulty:
         monkeypatch.setenv("MINIAGENT_TASK_CLASSIFIER", "1")
         monkeypatch.setenv("MINIAGENT_REQUIREMENT_CLARIFY", "1")
         monkeypatch.setenv("MINIAGENT_REFLECTION", "0")
-        monkeypatch.setenv("MINIAGENT_ANNOUNCE_DIFFICULTY_AND_PLAN", "0")
+        monkeypatch.setenv("MINIAGENT_EXECUTION_ANNOUNCE_DIFFICULTY", "0")
 
         tb = Toolbox(id="fs", name="fs", description="files", keywords=[])
 
@@ -205,7 +205,7 @@ class TestClarificationMaxQuestionsByDifficulty:
         monkeypatch.setenv("MINIAGENT_TASK_CLASSIFIER", "1")
         monkeypatch.setenv("MINIAGENT_REQUIREMENT_CLARIFY", "1")
         monkeypatch.setenv("MINIAGENT_REFLECTION", "0")
-        monkeypatch.setenv("MINIAGENT_ANNOUNCE_DIFFICULTY_AND_PLAN", "0")
+        monkeypatch.setenv("MINIAGENT_EXECUTION_ANNOUNCE_DIFFICULTY", "0")
 
         tb = Toolbox(id="fs", name="fs", description="files", keywords=[])
 

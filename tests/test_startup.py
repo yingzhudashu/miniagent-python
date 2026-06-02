@@ -267,7 +267,7 @@ def test_feishu_user_status_fn_uses_cli_transcript_append():
 def test_feishu_start_user_status_avoids_print(monkeypatch):
     """有 user_status 时 start() 同步反馈不调用 builtins.print。"""
     state_dir = tempfile.mkdtemp(prefix="miniagent_feishu_start_")
-    monkeypatch.setenv("MINI_AGENT_STATE", state_dir)
+    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", state_dir)
     monkeypatch.setenv("FEISHU_APP_ID", "test_app")
     monkeypatch.setenv("FEISHU_APP_SECRET", "secret")
     monkeypatch.setenv("FEISHU_VERIFICATION_TOKEN", "token")
@@ -537,7 +537,7 @@ def test_actual_instance_startup():
     env["PYTHONIOENCODING"] = "utf-8"
     # 独立状态目录，避免使用仓库内可能损坏的 workspaces 数据
     state_dir = tempfile.mkdtemp(prefix="miniagent_test_state_")
-    env["MINI_AGENT_STATE"] = state_dir
+    env["MINIAGENT_PATHS_STATE_DIR"] = state_dir
 
     try:
         proc = subprocess.Popen(

@@ -7,6 +7,7 @@
 主要模块：
 
 - ``poll_server``：长连接、消息派发、去重与防抖、卡片渲染
+- ``feishu_dedup``：消息去重模块（内存+磁盘双重去重）
 - ``resource_io``：消息内 file/image 资源下载（依赖 lark-oapi）
 - ``upload_io``：IM 素材上传与 file/image 消息发送
 - ``im_send``：IM 创建/回复消息的统一发送入口
@@ -27,16 +28,12 @@
 """
 
 # ── 核心客户端 ──
-from miniagent.feishu.lark_client import build_client, clear_client_cache, config_from_env
-
-# ── IM 发送 ──
-from miniagent.feishu.im_send import ImMsgType, post_im_message
-
-# ── 云盘 ──
-from miniagent.feishu.drive_client import (
-    LIST_FILE_PAGE_SIZE,
-    get_root_folder_meta,
-    list_folder_files_page,
+# ── 多维表格 ──
+from miniagent.feishu.bitable import (
+    create_record,
+    get_app_meta,
+    list_records,
+    update_record,
 )
 
 # ── 卡片 ──
@@ -57,13 +54,23 @@ from miniagent.feishu.docx import (
     get_document,
 )
 
-# ── 多维表格 ──
-from miniagent.feishu.bitable import (
-    get_app_meta,
-    list_records,
-    create_record,
-    update_record,
+# ── 云盘 ──
+from miniagent.feishu.drive_client import (
+    LIST_FILE_PAGE_SIZE,
+    get_root_folder_meta,
+    list_folder_files_page,
 )
+
+# ── 去重 ──
+from miniagent.feishu.feishu_dedup import (
+    abandon_processing_claim,
+    release_processing,
+    try_begin_processing,
+)
+
+# ── IM 发送 ──
+from miniagent.feishu.im_send import ImMsgType, post_im_message
+from miniagent.feishu.lark_client import build_client, clear_client_cache, config_from_env
 
 __all__ = [
     # 核心客户端
@@ -83,6 +90,10 @@ __all__ = [
     "build_v2_table_card",
     "reply_card_dict",
     "thinking_card_dict",
+    # 去重
+    "try_begin_processing",
+    "release_processing",
+    "abandon_processing_claim",
     # 文档
     "DOCX_APPEND_MAX_BLOCKS",
     "DOCX_APPEND_MAX_CHARS",

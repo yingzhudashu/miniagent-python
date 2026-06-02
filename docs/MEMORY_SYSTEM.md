@@ -6,7 +6,7 @@
 
 Mini Agent 采用三层记忆架构，确保 Agent 既能记住近期对话，又能从长期经验中学习。
 
-**运行时注入（当前版本）**：`memory_store`、`activity_log` 与关键词索引实例由入口构造并放入 [`RuntimeContext`](../miniagent/runtime/context.py)；执行路径（`UnifiedEngine` / `execute_plan`）优先使用注入实例。未注入时回落到 **单一进程默认 bundle**（[`miniagent/memory/defaults.py`](../miniagent/memory/defaults.py) 的 `get_process_default_memory_bundle()`），根目录与 `unified_entry` 一致（`MINI_AGENT_STATE`，默认 `<cwd>/workspaces`）。自 **2.0.0** 起不再提供包级惰性别名 `miniagent.memory.memory_store` / `activity_log` 等；请使用 `get_process_default_memory_bundle()`、`resolve_memory_dependencies()` 或仅依赖 `RuntimeContext` 注入（见 [`ARCHITECTURE.md`](ARCHITECTURE.md)）。
+**运行时注入（当前版本）**：`memory_store`、`activity_log` 与关键词索引实例由入口构造并放入 [`RuntimeContext`](../miniagent/runtime/context.py)；执行路径（`UnifiedEngine` / `execute_plan`）优先使用注入实例。未注入时回落到 **单一进程默认 bundle**（[`miniagent/memory/defaults.py`](../miniagent/memory/defaults.py) 的 `get_process_default_memory_bundle()`），根目录与 `unified_entry` 一致（`MINIAGENT_PATHS_STATE_DIR`，默认 `<cwd>/workspaces`）。自 **2.0.0** 起不再提供包级惰性别名 `miniagent.memory.memory_store` / `activity_log` 等；请使用 `get_process_default_memory_bundle()`、`resolve_memory_dependencies()` 或仅依赖 `RuntimeContext` 注入（见 [`ARCHITECTURE.md`](ARCHITECTURE.md)）。
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -306,7 +306,7 @@ messages = [
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
 | `context_compress_threshold` | 0.8 | token 压缩阈值 (80% 窗口) |
-| `max_turns` | 400 | ReAct 最大轮数（与 `AGENT_MAX_TURNS` / `AgentConfig` 一致；可由环境变量覆盖） |
+| `max_turns` | 400 | ReAct 最大轮数（与 `MINIAGENT_AGENT_MAX_TURNS` / `AgentConfig` 一致；可由环境变量覆盖） |
 | 记忆检索 top_k | 8 | Layer 3 返回条目数 |
 
 ## 环境变量汇总
@@ -320,4 +320,4 @@ messages = [
 | `MINIAGENT_EMBEDDING_MAX_ENTRIES` | `2000` | `embedding_search.py` 嵌入条目上限 |
 | `MINI_AGENT_DREAM_*` | `7d/30d/365d` | `dream_scheduler.py` 维护周期 |
 | `MINI_AGENT_DREAM_SIZE_BYTES` | *(无)* | 体量闸门阈值 |
-| `MINI_AGENT_HISTORY_TAIL_MESSAGES` | `200` | 历史保留消息数 |
+| `MINIAGENT_MEMORY_HISTORY_TAIL_MESSAGES` | `200` | 历史保留消息数 |

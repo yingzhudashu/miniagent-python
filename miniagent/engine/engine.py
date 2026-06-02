@@ -33,7 +33,21 @@ _logger = get_logger(__name__)
 
 
 def _fence_tool_output(body: str) -> str:
-    """选用足够长的 Markdown fence，避免工具输出内含 ``` 时破坏渲染。"""
+    """选用足够长的 Markdown fence，避免工具输出内含 ``` 时破坏渲染。
+
+    从 3 个反引号开始尝试，逐步增加 fence 长度直到找到一个不会与输出内容冲突的长度。
+    最大尝试到 47 个反引号，超出则使用默认 3 个反引号。
+
+    Args:
+        body: 工具输出正文（可能包含 Markdown fence）
+
+    Returns:
+        str: 用合适长度 fence 包裹的 Markdown 代码块
+
+    Note:
+        - 用于 CLI 和飞书卡片中的工具输出显示
+        - 避免输出内容中的 ``` 序列与 fence 冲突导致渲染异常
+    """
     b = (body or "").strip()
     for width in range(3, 48):
         fence = "`" * width
@@ -45,7 +59,16 @@ def _fence_tool_output(body: str) -> str:
 
 
 def _tool_finish_verbose_history() -> bool:
-    """配置 execution.tool_finish_verbose=true 时 thinking 落盘含参数与输出；默认仅工具名与成败。"""
+    """检查是否在工具完成回调中记录详细历史。
+
+    Returns:
+        bool: True 时 on_tool_finish 落盘含参数与输出；
+              False（默认）时仅记录工具名与成败状态
+
+    Note:
+        - 配置项: execution.tool_finish_verbose
+        - 详细模式下会增加历史文件体积，用于调试或审计
+    """
     return get_config("execution.tool_finish_verbose", False)
 
 
@@ -118,7 +141,7 @@ class UnifiedEngine:
             feishu_config: 飞书配置（注入）
             channel_router: 通道路由器（飞书思考多通道回调时使用）
             clawhub: ClawHub 客户端（注入至工具上下文，技能搜索/安装复用）
-            memory_store: 记忆存储（默认与 ``MINI_AGENT_STATE`` 进程 bundle 一致）
+            memory_store: 记忆存储（默认与 ``MINIAGENT_PATHS_STATE_DIR`` 进程 bundle 一致）
             activity_log: 活动日志（同上）
             keyword_index: 关键词索引（同上）
             client: LLM 客户端（``None`` 时由 ``run_agent`` 回落到共享工厂）
@@ -190,10 +213,53 @@ class UnifiedEngine:
         agent_config_overrides: dict[str, Any] | None = None,
         feishu_mirror_cli: bool = True,
     ) -> str:
-        """已获取进程级锁后的实际执行逻辑。
+        """已获取进程级锁后的实际执行逻辑（内部方法）。
 
-        由 ``run_agent_with_thinking`` 在 ``async with self._exec_lock`` 内调用。
-        签名与外层方法一致。
+        由 run_agent_with_thinking 在 async with self._exec_lock 内调用。
+        执行流程：
+        1. 解析记忆依赖（memory_store/activity_log/keyword_index）
+        2. 获取或创建会话上下文（SessionManager）
+        3. 构建系统提示（技能 + 分层记忆摘要）
+        4. 注册飞书思考回调（如启用）
+        5. 注册 CLI 思考回调（如启用）
+        6. 调用 run_agent 执行 Agent
+        7. 更新会话历史和记忆
+        8. 发送飞书回复（如启用）
+
+        Args:
+            user_input: 用户输入文本
+            session_key: 会话标识（如 "default" 或 "feishu:oc_xxx"）
+            skill_toolboxes: 技能工具箱列表
+            skill_prompts: 技能系统提示
+            is_feishu: 是否为飞书通道
+            registry: 工具注册表
+            monitor: 性能监控器
+            session_manager: 会话管理器（必填）
+            feishu_config: 飞书配置（飞书通道必填）
+            channel_router: 通道路由器（飞书通道必填）
+            clawhub: ClawHub 客户端（可选）
+            memory_store: 记忆存储（可选）
+            activity_log: 活动日志（可选）
+            keyword_index: 关键词索引（可选）
+            client: LLM 客户端（可选）
+            feishu_receive_chat_id: 飞书接收消息的 chat_id
+            feishu_trigger_message_id: 飞书触发消息 ID
+            feishu_root_id: 飞书根消息 ID
+            feishu_parent_id: 飞书父消息 ID
+            feishu_thread_id: 飞书话题 ID
+            feishu_im_receive_id_type: 飞书接收 ID 类型
+            feishu_im_receive_id: 飞书接收者 ID
+            cli_loop_state: CLI 循环状态
+            agent_config_overrides: Agent 配置覆盖
+            feishu_mirror_cli: CLI 是否镜像到飞书
+
+        Returns:
+            str: Agent 的最终回复文本
+
+        Note:
+            - 进程级执行锁防止 CLI 和飞书并发调用
+            - 飞书思考使用流式卡片（PATCH 节流）
+            - 同轮工具调用合并到同一卡片
         """
         ms, al, ki = resolve_memory_dependencies(memory_store, activity_log, keyword_index)
 

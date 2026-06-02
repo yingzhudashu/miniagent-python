@@ -1,4 +1,4 @@
-"""ClawHub 技能市场 HTTP 客户端（与 OpenClaw 生态对齐的 clawhub.ai API）。
+"""ClawHub 技能市场 HTTP 客户端（clawhub.ai API）。
 
 提供：
 - 技能搜索（关键词/标签）

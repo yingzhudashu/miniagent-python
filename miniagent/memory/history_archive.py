@@ -7,24 +7,14 @@ from __future__ import annotations
 
 import json
 import os
-import re
 from datetime import datetime, timezone
 from typing import Any
 
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
+from miniagent.utils.session_id import safe_session_id
 
 _logger = get_logger(__name__)
-
-
-def _safe_session_id(session_key: str) -> str:
-    """将 ``session_key`` 净化为文件系统安全片段（与 diary/session_lt 一致）。"""
-    return re.sub(r"[^a-zA-Z0-9_-]", "_", session_key)
-
-
-def safe_session_id_for_memory(session_key: str) -> str:
-    """与日记 / session_lt 文件名一致的 session_key 安全化（供其它模块调用）。"""
-    return _safe_session_id(session_key)
 
 
 def _state_dir() -> str:
@@ -34,7 +24,7 @@ def _state_dir() -> str:
 
 def _diary_path(session_key: str, day: str) -> str:
     """某日日记 Markdown 绝对路径（确保目录存在）。"""
-    base = os.path.join(_state_dir(), "memory", "diary", _safe_session_id(session_key))
+    base = os.path.join(_state_dir(), "memory", "diary", safe_session_id(session_key))
     os.makedirs(base, exist_ok=True)
     return os.path.join(base, f"{day}.md")
 
@@ -204,6 +194,11 @@ def maybe_archive_old_turns(session_key: str, history: list[dict[str, Any]]) -> 
         },
     )
     return True
+
+
+# 向后兼容：safe_session_id_for_memory 是 safe_session_id 的别名
+# 新代码应直接使用 miniagent.utils.session_id.safe_session_id
+safe_session_id_for_memory = safe_session_id
 
 
 __all__ = [

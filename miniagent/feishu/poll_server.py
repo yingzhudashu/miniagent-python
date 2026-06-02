@@ -4,7 +4,7 @@
 
 核心机制（对齐 OpenClaw）：
 - 单客户端单例：防止多实例导致事件路由不确定
-- 内存+磁盘双重去重：防止重复处理同一消息
+- 内存+磁盘双重去重：防止重复处理同一消息（已拆分至 feishu_dedup.py）
 - 聊天室顺序队列：防止并发导致上下文混乱
 - 消息防抖：合并同一发送者短时内的连续消息
 - 优雅关闭：SIGINT/SIGTERM 信号处理
@@ -19,18 +19,16 @@
 ``MessageQueueManager``，由队列保证同聊天室与 CLI 侧约定的顺序/抢占语义；本文件不直接替代
 ``miniagent.infrastructure.message_queue``。
 
-.. note::
-   本文件当前约 1700 行，未来重构建议拆分为：
-   - feishu/dedup.py: 消息去重逻辑（内存+磁盘）
-   - feishu/media_handler.py: 媒体文件处理
-   - feishu/ws_client.py: WebSocket 连接管理
+**已拆分模块**：
+- feishu/feishu_dedup.py: 消息去重逻辑（内存+磁盘）— 本模块已导入使用
+- feishu/ws_client.py: WebSocket 连接管理
+- feishu/ws_health.py: WebSocket 健康监督
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
-import os
 import re
 import time
 from collections.abc import Awaitable, Callable
@@ -257,12 +255,17 @@ async def reset_feishu_ws_singleton() -> None:
         _logger.debug("reset_feishu_ws_singleton: %s", e)
 
 
-# --- 入站 message_id：内存 claim + 磁盘 JSON（防重复进队列；TTL 见下）---
-# 去重配置
-DEDUP_TTL_MS = 5 * 60 * 1000  # 5 分钟
-DEDUP_MAX_SIZE = 2000
+# --- 去重：使用 feishu_dedup 模块（已拆分为独立模块）---
+# 去重逻辑已迁移至 miniagent/feishu/feishu_dedup.py，此处仅导入公共函数
+from miniagent.feishu.feishu_dedup import (
+    try_begin_processing,
+    release_processing,
+    abandon_processing_claim,
+    DEDUP_TTL_MS,
+    DEDUP_MAX_SIZE,
+)
 
-# 单例状态（每进程一套 WS；防多客户端抢事件，与 OpenClaw 对齐）
+# --- WebSocket 单例状态（每进程一套 WS；防多客户端抢事件，与 OpenClaw 对齐）---
 _singleton_client: Any = None
 _singleton_app_id: str | None = None
 _ws_shutdown_event: asyncio.Event | None = None
@@ -275,150 +278,11 @@ def request_feishu_ws_shutdown() -> None:
         ev.set()
 
 
-# 内存去重
-_processing_claims: dict[str, float] = {}
-
-# 磁盘去重
-_state_dir = os.path.join(
-    get_config("paths.state_dir", os.path.join(os.getcwd(), "workspaces")),
-    "feishu",
-    "dedup",
-)
-_dedup_file = os.path.join(_state_dir, "processed.json")
-_disk_dedup: dict[str, float] = {}
-
-
-# ─── 去重管理 ───
-
-
-def _ensure_state_dir():
-    """确保状态目录存在。"""
-    os.makedirs(_state_dir, exist_ok=True)
-
-
-def _load_disk_dedup():
-    """加载磁盘去重数据。"""
-    global _disk_dedup
-    try:
-        _ensure_state_dir()
-        if os.path.isfile(_dedup_file):
-            with open(_dedup_file, encoding="utf-8") as f:
-                _disk_dedup = json.load(f)
-    except Exception:
-        _disk_dedup = {}
-
-
-def _save_disk_dedup():
-    """保存磁盘去重数据。"""
-    try:
-        _ensure_state_dir()
-        with open(_dedup_file, "w", encoding="utf-8") as f:
-            json.dump(_disk_dedup, f, indent=2)
-    except Exception:
-        pass
-
-
-def _resolve_dedup_key(message_id: str) -> str:
-    """解析去重键。"""
-    return f"mini-agent:{message_id.strip()}"
-
-
-def _prune_claims_if_needed():
-    """惰性清理过期去重条目（性能优化：仅在超过阈值时执行）。
-
-    仅当 _processing_claims 或 _disk_dedup 超过 80% 阈值时才执行清理，
-    避免每次消息处理都遍历整个字典。
-    """
-    # 性能优化：先检查是否需要清理（避免不必要的遍历）
-    threshold = int(DEDUP_MAX_SIZE * 0.8)
-    if len(_processing_claims) <= threshold and len(_disk_dedup) <= threshold:
-        return  # 未超过阈值，跳过清理
-
-    cutoff = time.time() - DEDUP_TTL_MS / 1000.0
-
-    if len(_processing_claims) > threshold:
-        to_remove = [k for k, v in _processing_claims.items() if v < cutoff]
-        for k in to_remove:
-            del _processing_claims[k]
-
-    if len(_disk_dedup) > threshold:
-        to_remove = [k for k, v in _disk_dedup.items() if v < cutoff]
-        for k in to_remove:
-            del _disk_dedup[k]
-
-    if len(_processing_claims) + len(_disk_dedup) > DEDUP_MAX_SIZE * 2:
-        _save_disk_dedup()
-
-
-def try_begin_processing(message_id: str) -> bool:
-    """尝试获取消息处理权。
-
-    Returns:
-        True = 首次处理，可以处理；False = 重复/处理中，跳过
-    """
-    key = _resolve_dedup_key(message_id)
-    if not key:
-        return True
-
-    now = time.time()
-    # 性能优化：惰性清理（仅在超过阈值时执行）
-    _prune_claims_if_needed()
-
-    # 1. 检查磁盘去重
-    if key in _disk_dedup:
-        return False
-
-    # 2. 检查内存处理中
-    if key in _processing_claims:
-        return False
-
-    # 获取处理权
-    _processing_claims[key] = now
-    return True
-
-
-def release_processing(message_id: str) -> None:
-    """释放处理权并记录到磁盘去重。
-
-    从内存处理权映射中移除该消息 ID，同时写入磁盘去重映射并
-    执行容量裁剪（超过 DEDUP_MAX_SIZE 时删除最老的 20%）。
-
-    Args:
-        message_id: 飞书消息 ID
-    """
-    key = _resolve_dedup_key(message_id)
-    if not key:
-        return
-
-    _processing_claims.pop(key, None)
-    _disk_dedup[key] = time.time()
-
-    # 限制磁盘去重大小
-    if len(_disk_dedup) > DEDUP_MAX_SIZE:
-        sorted_items = sorted(_disk_dedup.items(), key=lambda x: x[1])
-        to_remove = len(sorted_items) // 5  # 删除最老的 20%
-        for k, _ in sorted_items[:to_remove]:
-            del _disk_dedup[k]
-        _save_disk_dedup()
-
-
-def abandon_processing_claim(message_id: str) -> None:
-    """仅丢弃内存中的处理权，不写入磁盘去重（可恢复失败时调用，避免永久跳过）。"""
-    key = _resolve_dedup_key(message_id)
-    if not key:
-        return
-    _processing_claims.pop(key, None)
-
-
 def _feishu_media_reply_indicates_failure(reply: str | None) -> bool:
     """media_handler 用「⚠️」前缀表示不可落盘的失败类回复。"""
     if not reply:
         return False
     return reply.lstrip().startswith("\u26a0\ufe0f")
-
-
-# 初始化磁盘去重
-_load_disk_dedup()
 
 
 # ─── 长轮询入口：WSClient、事件回调、handler 内投递 message_queue ───

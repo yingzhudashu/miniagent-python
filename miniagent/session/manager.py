@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -38,6 +37,7 @@ from miniagent.infrastructure.logger import get_logger
 from miniagent.infrastructure.registry import DefaultToolRegistry
 from miniagent.types.config import normalize_conversation_history
 from miniagent.types.memory import Session, SessionManagerProtocol, SessionOptions
+from miniagent.utils.session_id import safe_session_id
 from miniagent.types.skill import Skill
 from miniagent.types.tool import Toolbox, ToolContext, ToolDefinition
 
@@ -173,7 +173,7 @@ class DefaultSessionManager(SessionManagerProtocol):
         main_skills: list[Skill] | None = None,
         *,
         clawhub: Any | None = None,
-        max_sessions: int = 50,  # 性能优化：内存中最多保持的会话数
+        max_sessions: int | None = None,  # 性能优化：内存中最多保持的会话数
     ) -> None:
         """创建会话管理器
 
@@ -182,8 +182,12 @@ class DefaultSessionManager(SessionManagerProtocol):
             main_toolboxes: 主空间工具箱列表
             main_skills: 主空间技能列表
             clawhub: ClawHub 客户端，注入到 :meth:`get_tool_context` 供技能类工具使用
-            max_sessions: 内存中最多保持的会话数（默认 50），超过时 LRU 驎出
+            max_sessions: 内存中最多保持的会话数，未指定时使用环境变量
+                MINIAGENT_SESSION_MANAGER_MAX_SESSIONS，默认 50，超过时 LRU 驎出
         """
+        if max_sessions is None:
+            import os as _os
+            max_sessions = int(_os.environ.get("MINIAGENT_SESSION_MANAGER_MAX_SESSIONS", "50"))
         # 性能优化：使用 OrderedDict 实现 LRU 驎出
         from collections import OrderedDict
 
@@ -307,7 +311,9 @@ class DefaultSessionManager(SessionManagerProtocol):
         self._next_number = max_num + 1
 
     def _make_safe_id(self, session_id: str) -> str:
-        """将非法路径字符替换为安全字符
+        """将非法路径字符替换为安全字符。
+
+        使用统一的 safe_session_id 函数，确保与其他模块一致。
 
         Args:
             session_id: 原始会话 ID
@@ -315,7 +321,7 @@ class DefaultSessionManager(SessionManagerProtocol):
         Returns:
             安全的会话 ID
         """
-        return re.sub(r'[<>:"/\\|?*]', "_", session_id)
+        return safe_session_id(session_id)
 
     def _save_config(self, config: SessionConfig) -> None:
         """保存会话配置到磁盘

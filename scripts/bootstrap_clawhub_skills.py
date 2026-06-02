@@ -66,7 +66,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(
         description=(
             "可选：从 ClawHub 额外安装技能（内置 skill-creator / skill-vetter 已在 workspaces/skills，无需本脚本）。"
-            "安装到 MINI_AGENT_SKILLS 或默认 workspaces/skills。"
+            "安装到 MINIAGENT_PATHS_SKILLS_DIR 或默认 workspaces/skills。"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=epilog,

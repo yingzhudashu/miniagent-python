@@ -225,7 +225,7 @@ async def test_run_dot_command_schedule_list_empty(
     import tempfile
 
     d = tempfile.mkdtemp()
-    monkeypatch.setenv("MINI_AGENT_STATE", d)
+    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", d)
     mq = SimpleNamespace(mode=SimpleNamespace(value="queue"))
     cr = MagicMock()
     cr.get_all_bindings = MagicMock(return_value={})

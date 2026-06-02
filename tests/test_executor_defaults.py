@@ -15,7 +15,7 @@ def test_step_max_turns_cap_default_48(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_thinking_segment_separator_default_double_newline(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("MINIAGENT_THINKING_SEGMENT_SEPARATOR", raising=False)
+    monkeypatch.delenv("MINIAGENT_EXECUTION_THINKING_SEPARATOR", raising=False)
     from miniagent.core import executor
 
     assert executor._thinking_segment_separator() == "\n\n"
@@ -24,7 +24,7 @@ def test_thinking_segment_separator_default_double_newline(
 def test_thinking_segment_separator_env_backslash_n(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("MINIAGENT_THINKING_SEGMENT_SEPARATOR", "\\n\\n---\\n\\n")
+    monkeypatch.setenv("MINIAGENT_EXECUTION_THINKING_SEPARATOR", "\\n\\n---\\n\\n")
     from miniagent.core import executor
 
     assert executor._thinking_segment_separator() == "\n\n---\n\n"

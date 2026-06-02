@@ -22,21 +22,21 @@ from miniagent.scheduled_tasks.timezone_util import default_schedule_timezone
 
 def test_process_timezone_priority(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MINIAGENT_TIMEZONE", "Europe/London")
-    monkeypatch.setenv("MINIAGENT_SCHEDULE_TIMEZONE", "America/New_York")
+    monkeypatch.setenv("MINIAGENT_SCHEDULED_TASKS_TIMEZONE", "America/New_York")
     monkeypatch.setenv("TZ", "Asia/Shanghai")
     assert process_timezone() == "Europe/London"
 
 
 def test_process_timezone_falls_back_to_tz(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("MINIAGENT_TIMEZONE", raising=False)
-    monkeypatch.delenv("MINIAGENT_SCHEDULE_TIMEZONE", raising=False)
+    monkeypatch.delenv("MINIAGENT_SCHEDULED_TASKS_TIMEZONE", raising=False)
     monkeypatch.setenv("TZ", "Asia/Shanghai")
     assert process_timezone() == "Asia/Shanghai"
 
 
 def test_process_timezone_ignores_schedule_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("MINIAGENT_TIMEZONE", raising=False)
-    monkeypatch.setenv("MINIAGENT_SCHEDULE_TIMEZONE", "America/New_York")
+    monkeypatch.setenv("MINIAGENT_SCHEDULED_TASKS_TIMEZONE", "America/New_York")
     monkeypatch.setenv("TZ", "Asia/Shanghai")
     assert process_timezone() == "Asia/Shanghai"
 
@@ -45,7 +45,7 @@ def test_default_schedule_timezone_uses_schedule_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("MINIAGENT_TIMEZONE", raising=False)
-    monkeypatch.setenv("MINIAGENT_SCHEDULE_TIMEZONE", "America/New_York")
+    monkeypatch.setenv("MINIAGENT_SCHEDULED_TASKS_TIMEZONE", "America/New_York")
     monkeypatch.setenv("TZ", "Asia/Shanghai")
     assert default_schedule_timezone() == "America/New_York"
 

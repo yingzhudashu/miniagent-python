@@ -10,7 +10,7 @@ import pytest
 def test_get_session_files_path_after_get_or_create(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("MINI_AGENT_STATE", str(tmp_path))
+    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
     from miniagent.infrastructure.registry import DefaultToolRegistry
     from miniagent.session.manager import DefaultSessionManager
 

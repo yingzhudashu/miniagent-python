@@ -12,16 +12,10 @@
 
 from __future__ import annotations
 
-import gc
-import json
 import math
-import os
 import time
-import tracemalloc
 from collections import OrderedDict
-from collections.abc import Callable
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -29,7 +23,6 @@ from tests.perf_helpers import (
     median_wall_seconds,
     tracemalloc_peak_diff_mb,
 )
-
 
 # =============================================================================
 # B1: 流式输出吞吐量测试
@@ -68,7 +61,7 @@ class TestStreamingThroughput:
         new_time = median_wall_seconds(5, new_pattern)
 
         # 记录结果
-        print(f"\n流式吞吐对比:")
+        print("\n流式吞吐对比:")
         print(f"  旧模式: {old_time*1000:.2f}ms ({100/old_time:.1f} chunks/s)")
         print(f"  新模式: {new_time*1000:.2f}ms ({100/new_time:.1f} chunks/s)")
         print(f"  提升: {(old_time/new_time):.2f}x")
@@ -99,7 +92,7 @@ class TestStreamingThroughput:
         old_mem = tracemalloc_peak_diff_mb(old_pattern)
         new_mem = tracemalloc_peak_diff_mb(new_pattern)
 
-        print(f"\n流式内存对比:")
+        print("\n流式内存对比:")
         print(f"  旧模式峰值: {old_mem:.2f}MB")
         print(f"  新模式峰值: {new_mem:.2f}MB")
 
@@ -142,7 +135,7 @@ class TestRenderPerformance:
         old_time = median_wall_seconds(100, old_pattern)
         new_time = median_wall_seconds(100, new_pattern)
 
-        print(f"\n渲染调度对比:")
+        print("\n渲染调度对比:")
         print(f"  旧模式: {old_time*1000:.3f}ms (无 debounce)")
         print(f"  新模式: {new_time*1000:.3f}ms (debounce)")
 
@@ -176,7 +169,7 @@ class TestRenderPerformance:
         no_cache_time = median_wall_seconds(5, no_cache)
         with_cache_time = median_wall_seconds(5, with_cache)
 
-        print(f"\n终端宽度缓存对比:")
+        print("\n终端宽度缓存对比:")
         print(f"  无缓存: {no_cache_time*1000:.2f}ms")
         print(f"  有缓存: {with_cache_time*1000:.2f}ms")
         print(f"  提升: {(no_cache_time/with_cache_time):.2f}x")
@@ -222,7 +215,7 @@ class TestMemoryGrowth:
         unbounded_mem = tracemalloc_peak_diff_mb(unbounded_growth)
         lru_mem = tracemalloc_peak_diff_mb(lambda: lru_eviction(50))
 
-        print(f"\n会话存储内存对比:")
+        print("\n会话存储内存对比:")
         print(f"  无界增长 (100会话): {unbounded_mem:.2f}MB")
         print(f"  LRU (50上限): {lru_mem:.2f}MB")
         print(f"  节省: {(unbounded_mem - lru_mem):.2f}MB")
@@ -251,7 +244,7 @@ class TestMemoryGrowth:
         list_mem = tracemalloc_peak_diff_mb(list_based)
         deque_mem = tracemalloc_peak_diff_mb(deque_based)
 
-        print(f"\n历史数据结构对比:")
+        print("\n历史数据结构对比:")
         print(f"  List: {list_mem:.2f}MB")
         print(f"  Deque: {deque_mem:.2f}MB")
 
@@ -291,7 +284,7 @@ class TestTokenCalculation:
         findall_time = median_wall_seconds(100, with_findall)
         sub_time = median_wall_seconds(100, with_sub)
 
-        print(f"\nToken 估算性能对比:")
+        print("\nToken 估算性能对比:")
         print(f"  findall: {findall_time*1000:.3f}ms")
         print(f"  sub: {sub_time*1000:.3f}ms")
 
@@ -323,7 +316,7 @@ class TestTokenCalculation:
         full_time = median_wall_seconds(5, full_recalc)
         inc_time = median_wall_seconds(5, incremental)
 
-        print(f"\nToken 计算对比:")
+        print("\nToken 计算对比:")
         print(f"  全量重算: {full_time*1000:.2f}ms")
         print(f"  增量计算: {inc_time*1000:.2f}ms")
         print(f"  提升: {(full_time/inc_time):.2f}x")
@@ -376,7 +369,7 @@ class TestEmbeddingSearch:
         no_cache_time = median_wall_seconds(3, no_norm_cache)
         cache_time = median_wall_seconds(3, with_norm_cache)
 
-        print(f"\nEmbedding 相似度计算对比:")
+        print("\nEmbedding 相似度计算对比:")
         print(f"  无缓存: {no_cache_time*1000:.2f}ms")
         print(f"  有缓存: {cache_time*1000:.2f}ms")
         print(f"  提升: {(no_cache_time/cache_time):.2f}x")
@@ -412,7 +405,7 @@ class TestEmbeddingSearch:
         if ratio >= 1:
             print(f"  提升: {ratio:.2f}x")
         else:
-            print(f"  heapq 略慢（小数据集下 heap 操作开销相对高）")
+            print("  heapq 略慢（小数据集下 heap 操作开销相对高）")
 
         # 对于 k << n，heapq 应该更快；但不强制要求（取决于具体实现）
 
@@ -448,7 +441,7 @@ class TestRegexPrecompile:
         no_pre_time = median_wall_seconds(5, no_precompile)
         pre_time = median_wall_seconds(5, with_precompile)
 
-        print(f"\n正则预编译对比:")
+        print("\n正则预编译对比:")
         print(f"  无预编译: {no_pre_time*1000:.2f}ms")
         print(f"  预编译: {pre_time*1000:.2f}ms")
         print(f"  提升: {(no_pre_time/pre_time):.2f}x")
@@ -494,7 +487,7 @@ class TestSignatureCache:
         no_cache_time = median_wall_seconds(10, no_cache)
         cache_time = median_wall_seconds(10, with_cache)
 
-        print(f"\n签名检查缓存对比:")
+        print("\n签名检查缓存对比:")
         print(f"  无缓存: {no_cache_time*1000:.2f}ms")
         print(f"  有缓存: {cache_time*1000:.2f}ms")
         print(f"  提升: {(no_cache_time/cache_time):.2f}x")

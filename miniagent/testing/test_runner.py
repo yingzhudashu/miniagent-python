@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from miniagent.infrastructure.logger import get_logger
-from miniagent.testing.types import ResultRecord, SampleSpec, ReportSummary
+from miniagent.testing.types import ReportSummary, ResultRecord, SampleSpec
 
 _logger = get_logger(__name__)
 

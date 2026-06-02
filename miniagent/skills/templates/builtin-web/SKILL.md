@@ -149,4 +149,4 @@ download_file(url="https://github.com/user/repo/archive/main.zip", filename="rep
 2. 用户 Chrome 开启远程调试
 3. 运行 CDP Proxy 脚本
 
-CDP 模式的详细使用方法见 OpenClaw `web-access` skill 的参考文档。
+CDP 模式的详细使用方法见 web-access skill 的参考文档。
