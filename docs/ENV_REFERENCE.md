@@ -2,7 +2,16 @@
 
 本文档列出所有影响 miniagent-python 运行时行为的环境变量。
 
-> 提示：复制 `.env.example` 为 `.env` 后填写；勿提交真实密钥。
+> 提示：环境变量可覆盖 JSON 配置。敏感凭据请放在 `config.user.json` 的 `secrets` 部分，系统会自动加载到环境变量。
+
+---
+
+## 配置优先级
+
+1. **单项环境变量** — 最高优先级（如 `MINIAGENT_MODEL_TEMPERATURE`）
+2. **MINIAGENT_CONFIG** — JSON 格式的运行时配置（CI/CD 场景）
+3. **config.user.json** — 用户配置（项目根目录）
+4. **config.defaults.json** — 默认配置（随代码发布）
 
 ---
 

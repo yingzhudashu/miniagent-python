@@ -58,10 +58,10 @@
 
 ### 2.2 你需要准备什么账号或密钥（概念层面）
 
-- **至少一种 LLM API**：程序通过 **OpenAI 兼容接口** 调用模型。你会有「API 地址」和「API 密钥」两个概念；密钥 **只应** 出现在本机 `.env` 或环境变量里，**不要** 写进聊天截图或发给陌生人。
+- **至少一种 LLM API**：程序通过 **OpenAI 兼容接口** 调用模型。你会有「API 地址」和「API 密钥」两个概念；密钥 **只应** 出现在本机 `config.user.json` 的 `secrets` 部分或环境变量里，**不要** 写进聊天截图或发给陌生人。
 - **可选**：飞书企业自建应用、Tavily 搜索密钥、Playwright 浏览器、MCP 服务等——用到再配置即可。
 
-具体变量名见下一章与仓库根目录的 [.env.example](../.env.example)。
+具体配置项见下一章与仓库根目录的 `config.defaults.json`。
 
 ### 2.3 厂商控制台与注册细节
 
@@ -152,57 +152,77 @@ miniagent
 
 **升级迁移提示**（详见 [CHANGELOG](../CHANGELOG.md) `[Unreleased]` Breaking）：飞书出站默认 `MINIAGENT_FEISHU_REPLY_TARGET=reply`；内置飞书工具默认由 `MINIAGENT_FEISHU_TOOLS_AUTO` 注册；已移除 `MINIAGENT_CONFIG` 外部 JSON，请用 `.env` 扁平变量；飞书请改用 `MINIAGENT_FEISHU_DOCX_URL_PREFIX`、`MINIAGENT_FEISHU_DOC_FOLDER_TOKEN`（旧名仍会读取并打弃用警告）。飞书细节见第 10 章。
 
-### 4.1 创建 .env
+### 4.1 创建配置文件
 
 在 **项目根目录**（与 `pyproject.toml` 同级）执行：
 
 ```bash
-cp .env.example .env
+cp config.defaults.json config.user.json
 ```
 
-Windows PowerShell 若无 `cp`，可用：
+用任意文本编辑器打开 `config.user.json`，填写敏感凭据和个性化配置。
 
-```powershell
-Copy-Item .env.example .env
-```
-
-用任意文本编辑器打开 `.env`，按需取消注释并填写。**不要** 把填好密钥的 `.env` 上传到公开仓库；仓库已默认在 `.gitignore` 中忽略 `.env`。
+**不要** 把填好密钥的 `config.user.json` 上传到公开仓库；仓库已默认在 `.gitignore` 中忽略此文件。
 
 ### 4.2 必填（最小可运行）
 
-至少需要能访问 LLM：
+在 `config.user.json` 的 `secrets` 部分填写 API 密钥：
 
-| 变量 | 含义 |
+```json
+{
+  "secrets": {
+    "openai_api_key": "sk-your-api-key"
+  },
+  "model": {
+    "base_url": "https://api.openai.com/v1",
+    "model": "gpt-4o-mini"
+  }
+}
+```
+
+| 字段 | 含义 |
 |------|------|
-| `OPENAI_API_KEY` | 你的 API 密钥（由服务商控制台生成；**勿**在文档或截图中泄露）。 |
-| `OPENAI_BASE_URL` | 可选。使用官方或兼容网关时按服务商说明填写。 |
-| `OPENAI_MODEL` | 可选。默认可用服务商推荐的模型 id。 |
+| `secrets.openai_api_key` | 你的 API 密钥（由服务商控制台生成；**勿**在文档或截图中泄露）。 |
+| `model.base_url` | 可选。使用官方或兼容网关时按服务商说明填写。 |
+| `model.model` | 可选。默认可用服务商推荐的模型 id。 |
 
-若暂时不理解 `BASE_URL`，可先只填密钥与模型，按服务商文档校对。
+### 4.3 常用可选配置（摘选）
 
-### 4.3 常用可选变量（摘选）
+完整配置项以 `config.defaults.json` 为准。下表仅列新手常问的项：
 
-完整注释以 [.env.example](../.env.example) 为准。下表仅列新手常问的项：
-
-| 变量 | 用途 |
+| 配置路径 | 用途 |
 |------|------|
-| `MODEL_PROFILE` | 模型行为预设：`creative` / `balanced` / `precise` / `code` / `fast` 等。 |
-| `AGENT_MAX_TURNS` | 单轮 ReAct 最大轮数，**默认 400**（见 `.env.example`）。结构化规划返回的 `maxTurns` **只会抬高不会压低**该上限。若开启分步执行（`MINIAGENT_PHASED_EXECUTION`）仍遇单步内用尽，需另调 **`MINIAGENT_STEP_MAX_TURNS`**（未设置时默认 **48**）。 |
-| `MINIAGENT_TOOL_INTENT_MAX_CHARS` | 工具意图预览（如 `exec_command` 的命令片段）最大字符数，默认 4000；`0` 表示不截断。 |
-| `AGENT_DEBUG` | `true` 时更啰嗦的日志；日常可 `false`。 |
-| `TAVILY_API_KEY` 或 `WEB_SEARCH_API_KEY` | 启用联网搜索（Tavily）时使用其一即可。 |
-| `FEISHU_APP_ID` / `FEISHU_APP_SECRET` / `FEISHU_VERIFICATION_TOKEN` | 飞书应用凭证；仅在使用飞书时填写。 |
-| `MINI_AGENT_STATE` | 状态根目录，见第 14 章。 |
-| `MINIAGENT_MCP_STDIO` | MCP stdio 启动命令的 JSON 数组字符串，见第 13 章。 |
-| `MINIAGENT_CLI_RAW_MARKDOWN` | 设为 `1`/`true` 时关闭全屏 CLI 下 **Assistant 最终回复** 的 Rich Markdown 渲染（便于复制）。 |
-| `MINIAGENT_CLI_THINKING_RICH` | 设为 `1`/`true` 且已 `pip install -e ".[cli]"` 时，对**非流式**思考片段尝试 Rich；**流式**规划/执行正文仍为纯文本；同轮 **merge_tools** 工具行仍为纯文本。 |
-| `MINIAGENT_WELCOME_CLI_HINT` | 未安装 Rich 时启动是否打印「建议 pip install .[cli]」；默认 `1`，设为 `0`/`false` 关闭。 |
-| `MINIAGENT_THINKING_SEGMENT_SEPARATOR` | 分步执行同一步内多段思考拼接符；留空为双换行，见 `.env.example`。 |
-| `MINIAGENT_TOOL_FINISH_VERBOSE` | `1` 时 `history.json` 中工具块含参数与输出；默认 `0` 仅名称与成败。 |
+| `model.temperature` | 模型温度，默认 0.7 |
+| `model.thinking_level` | 思考档位：`light` / `medium` / `heavy` |
+| `agent.max_turns` | 单轮 ReAct 最大轮数，**默认 400** |
+| `execution.step_max_turns` | 分步执行时每步上限，默认 **48** |
+| `agent.debug` | `true` 时更啰嗦的日志；日常可 `false` |
+| `secrets.tavily_api_key` | 启用联网搜索（Tavily） |
+| `secrets.feishu_app_id` / `secrets.feishu_app_secret` | 飞书应用凭证 |
+| `paths.state_dir` | 状态根目录，默认 `workspaces` |
 
-### 4.4 从 OpenClaw JSON 迁移
+### 4.4 环境变量覆盖
 
-若曾使用 OpenClaw 导出 JSON，请将字段写入 `.env`：`OPENAI_MODEL`、`OPENAI_BASE_URL`、`OPENAI_API_KEY`、`AGENT_CONTEXT_WINDOW`、`AGENT_THINKING_DEFAULT`、`OPENAI_THINKING_BUDGET`、`OPENAI_MAX_TOKENS`（映射见 [.env.example](../.env.example) §2）。
+所有 JSON 配置都可以通过环境变量覆盖，优先级：**环境变量 > config.user.json > config.defaults.json**。
+
+例如：
+- `MINIAGENT_MODEL_TEMPERATURE=0.5` 覆盖 `model.temperature`
+- `OPENAI_API_KEY=sk-xxx` 覆盖 `secrets.openai_api_key`
+
+### 4.5 从旧版本迁移
+
+如果你之前使用 `.env` 文件配置，需要迁移到 JSON 格式：
+
+1. 将 `.env` 中的配置项映射到 `config.user.json` 的对应字段
+2. 敏感凭据（如 `OPENAI_API_KEY`）放入 `secrets` 部分
+3. 其他配置放入对应的配置节（如 `model`、`agent`、`feishu`）
+
+环境变量名到 JSON 路径的映射规则：
+- `MINIAGENT_MODEL_TEMPERATURE` → `model.temperature`
+- `AGENT_MAX_TURNS` → `agent.max_turns`
+- `MINIAGENT_FEISHU_REPLY_PLAIN` → `feishu.reply_plain`
+
+完整映射见 `config.defaults.json` 的字段结构。
 
 ---
 
@@ -281,7 +301,7 @@ python -m miniagent --stop
 - **时区**：cron 墙钟以 `tasks.json` 的 `schedule.timezone` 为准；未写 `--tz` 时新建默认 **`MINIAGENT_SCHEDULE_TIMEZONE` → `MINIAGENT_TIMEZONE` → `TZ` → `Asia/Shanghai`**。**Agent 每轮本地时间**由 `process_timezone()` 注入（读 `MINIAGENT_TIMEZONE` / `TZ`，**不**读 `MINIAGENT_SCHEDULE_TIMEZONE`）。遗留 `timezone: UTC` 可用 **`.schedule align-tz`**。
 - **飞书**：默认仅 **list** / **show**；增删改须在本地 CLI。`primary` 任务在私聊已绑定时可镜像到飞书（`MINIAGENT_SCHEDULE_FEISHU_MIRROR=0` 可关）。
 
-退避、漏跑、工具接口与数据流 → [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」、[.env.example](../.env.example)。
+退避、漏跑、工具接口与数据流 → [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」、[ENV_REFERENCE.md](ENV_REFERENCE.md)。
 
 ---
 
@@ -311,10 +331,10 @@ python -m miniagent --stop
 
 ## 11. 联网搜索与浏览器工具（可选）
 
-- **联网搜索（Tavily）**：在 `.env` 配置 `TAVILY_API_KEY` 或 `WEB_SEARCH_API_KEY`。未配置时，若模型尝试调用搜索工具，会得到 **明确错误提示**，不影响其它工具。  
+- **联网搜索（Tavily）**：在 `config.user.json` 的 `secrets` 部分配置 `tavily_api_key` 或 `web_search_api_key`。未配置时，若模型尝试调用搜索工具，会得到 **明确错误提示**，不影响其它工具。  
 - **浏览器正文抽取**：需 `[browser]` 与 Playwright 浏览器安装；用于部分需渲染的网页。  
 
-超时等变量见 [.env.example](../.env.example)。
+超时等配置见 [ENV_REFERENCE.md](ENV_REFERENCE.md)。
 
 ---
 
@@ -331,10 +351,10 @@ python -m miniagent --stop
 ## 13. MCP 工具（可选）
 
 1. `pip install -e ".[mcp]"`。  
-2. 在 `.env` 中设置 `MINIAGENT_MCP_STDIO` 为 **JSON 数组** 形式的启动命令，例如文档中展示的 `["npx","-y","@组织/包名"]` 形态（请替换为你信任的 MCP 服务）。  
+2. 在 `config.user.json` 的 `mcp.stdio_command` 中设置 **JSON 数组** 形式的启动命令，例如文档中展示的 `["npx","-y","@组织/包名"]` 形态（请替换为你信任的 MCP 服务）。  
 3. 重启进程后，工具会注册进同一工具列表。  
 
-具体键名与注释见 [.env.example](../.env.example)。
+具体配置见 [ENV_REFERENCE.md](ENV_REFERENCE.md)。
 
 ---
 

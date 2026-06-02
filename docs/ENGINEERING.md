@@ -13,9 +13,8 @@
 | 可安装包名与源码布局 | `pyproject.toml` → `[tool.setuptools.packages.find]` | 仅打包 `miniagent*`；不再维护顶层 `src` 作为可导入包。 |
 | 版本号 | `miniagent/__init__.py` 中 `__version__` | `pyproject.toml` 通过 `dynamic.version` 读取；发版时与 `CHANGELOG.md`、本文档顶部标语一并更新。 |
 | 依赖声明 | `pyproject.toml` `[project]` / `optional-dependencies` | 不使用根目录 `requirements.txt`；运行时依赖与可选组（`dev`（含 `pytest-cov`）、`feishu`、`browser`、`mcp`、`cli`、`typing`（`mypy` 试点））集中在此。 |
-| 环境变量说明 | 仓库根 `.env.example` | 复制为 `.env` 后本地填写；**勿将含真实密钥的 `.env` 提交入库**（见 `.gitignore`）。 |
-| 环境变量遗留别名 | `.env.example` + 下表 | 读旧名会 Deprecation 警告；下一版本可能移除 |
-| 定时任务环境变量 | `.env.example` + [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」 | 用户面向摘要见 [USER_GUIDE.md](USER_GUIDE.md) §8；运维见 [DEPLOYMENT.md](DEPLOYMENT.md) |
+| 配置说明 | `config.defaults.json` + [ENV_REFERENCE.md](ENV_REFERENCE.md) | 复制为 `config.user.json` 后本地填写；**勿将含真实密钥的 `config.user.json` 提交入库**（见 `.gitignore`）。 |
+| 定时任务配置 | `config.defaults.json` + [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」 | 用户面向摘要见 [USER_GUIDE.md](USER_GUIDE.md) §8；运维见 [DEPLOYMENT.md](DEPLOYMENT.md) |
 | 架构与行为细节 | `docs/ARCHITECTURE.md` 及各专题文档 | README 只做索引与快速上手；深度说明以 `docs/` 为准。 |
 
 飞书媒体（与 [FEISHU.md](FEISHU.md) 正文一致，便于检索）：
@@ -85,7 +84,7 @@ CI 说明：
 ## 3. 状态目录与测试隔离
 
 - **默认**：Agent 将实例心跳、会话、锁等写入仓库下 `workspaces/`（部分路径见 `.gitignore`，如 `workspaces/sessions/`、`**/*.lock`）。
-- **推荐**：开发与 CI 设置 **`MINI_AGENT_STATE`** 指向临时目录，避免污染本机数据或与并行运行冲突（示例见 `CONTRIBUTING.md` 与 `.env.example` 注释）。
+- **推荐**：开发与 CI 设置 **`MINI_AGENT_STATE`** 指向临时目录，避免污染本机数据或与并行运行冲突（示例见 `CONTRIBUTING.md` 与 `config.defaults.json` 注释）。
 - **语义**：多实例注册、PID 判定与清理规则见 §3.3。
 
 ### 3.1 `workspaces/` 与 Git 跟踪政策

@@ -42,8 +42,8 @@ pip install -e ".[dev,typing]"
 # 完整本地门禁命令见 [ENGINEERING.md](ENGINEERING.md) §2
 
 # 4. 配置环境
-cp .env.example .env
-# 编辑 .env 填入 API Key
+cp config.defaults.json config.user.json
+# 编辑 config.user.json 填入 API Key（secrets 部分）
 
 # 5. 运行测试（与 CI 默认一致：排除 evaluation marker）
 python -m pytest tests/ -q -m "not evaluation"
@@ -68,12 +68,12 @@ python -m pytest tests/ -q -m "not evaluation"
 ### 提交前仓库卫生（缓存与构建产物）
 
 - 推送前执行 **`git status`**：索引与工作区中不应出现 **`__pycache__/`**、**`.pytest_cache/`**、**`.ruff_cache/`**、**`.mypy_cache/`**、**`*.egg-info/`** 等；这些路径已由根目录 [`.gitignore`](../.gitignore) 忽略，若仍出现在「待提交」列表中，说明曾用 **`git add -f`** 误加，应改为 `git rm --cached <路径>` 后仅提交源码。
-- 仅清理**已被 Git 忽略**的本地生成物（不删除未跟踪的源码与新文件）时，可在仓库根执行：`git clean -fdX`（PowerShell / bash 相同）。**注意**：根目录 `.gitignore` 中的 **`.env`** 也会被视作「已忽略文件」一并删除；执行前请备份密钥，或改用逐个删除缓存目录（如仅删 `**/__pycache__`）。**勿**使用 `git clean -fdx`（小写 `x` 会删除所有未跟踪文件，易误删未入库的新模块）。
+- 仅清理**已被 Git 忽略**的本地生成物（不删除未跟踪的源码与新文件）时，可在仓库根执行：`git clean -fdX`（PowerShell / bash 相同）。**注意**：根目录 `.gitignore` 中的 **`config.user.json`** 也会被视作「已忽略文件」一并删除；执行前请备份密钥，或改用逐个删除缓存目录（如仅删 `**/__pycache__`）。**勿**使用 `git clean -fdx`（小写 `x` 会删除所有未跟踪文件，易误删未入库的新模块）。
 - 与「运行时目录」一节配合：日常设置 **`MINI_AGENT_STATE`** 指向仓库外目录，可减少 `workspaces/**/*.lock`、定时任务表等个人状态出现在 `git status` 中。
 
 ### 推送前自检（密钥与轨迹）
 
-- **勿提交** `.env`、含真实 Key 的 JSON、评测轨迹目录（相关内容勿入库，见 [docs/ENGINEERING.md](ENGINEERING.md) §5）；即使 `.gitignore` 已排除，也不要对可疑路径使用 `git add -f`。
+- **勿提交** `config.user.json`（含真实 Key）、含真实 Key 的 JSON、评测轨迹目录（相关内容勿入库，见 [docs/ENGINEERING.md](ENGINEERING.md) §5）；即使 `.gitignore` 已排除，也不要对可疑路径使用 `git add -f`。
 - 推送前执行 `git diff --cached`，确认无意加入密钥或完整对话导出。
 - 可选：在仓库根执行检索，排查误粘贴（示例：`tvly-` 前缀、`sk-` 形态的长串需与文档占位符区分）。GitHub 侧建议开启 Secret scanning / Push protection。
 
@@ -370,8 +370,8 @@ refactor: 拆分 unified.py 为 engine/ 包
 |------|------|
 | **单一可安装包** | 开发与安装均以 ``miniagent`` 包为准；不再维护顶层 ``src`` 兼容包或根目录 ``requirements.txt``。依赖声明只在 ``pyproject.toml``。 |
 | **CI** | [``.github/workflows/ci.yml``](../.github/workflows/ci.yml) 在 push/PR 上对 Python 3.10 / 3.12 运行 ``compileall``、``ruff check miniagent tests`` 与 ``pytest``；合并前应在本地执行相同命令。 |
-| **状态目录** | 默认 ``workspaces/``；测试与并行运行请设置 ``MINI_AGENT_STATE``，避免污染本机数据（见上文「运行时目录与测试隔离」与根目录 ``.env.example`` 注释）。 |
-| **忽略规则** | ``.gitignore`` 已排除 ``__pycache__``、``.pytest_cache``、``.ruff_cache``、``*.egg-info``、本地 ``debug-*.log`` 及常见运行时产物；勿将含密钥的 ``.env`` 提交入库。 |
+| **状态目录** | 默认 ``workspaces/``；测试与并行运行请设置 ``MINI_AGENT_STATE``，避免污染本机数据（见上文「运行时目录与测试隔离」与 ``config.defaults.json`` 注释）。 |
+| **忽略规则** | ``.gitignore`` 已排除 ``__pycache__``、``.pytest_cache``、``.ruff_cache``、``*.egg-info``、本地 ``debug-*.log`` 及常见运行时产物；勿将含密钥的 ``config.user.json`` 提交入库。 |
 
 ### 文档与版本对齐清单（发版或大范围文档改动时）
 

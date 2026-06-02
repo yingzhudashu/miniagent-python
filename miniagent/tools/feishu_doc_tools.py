@@ -148,7 +148,7 @@ async def _action_create(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConf
     doc_id, rev = create_document(cfg, folder_token=folder, title=title)
     url = _docx_open_url(doc_id)
     url_line = f"\n- url: {url}" if url else ""
-    hint = "" if url else "\n（配置 MINIAGENT_FEISHU_DOCX_URL_PREFIX 可带可分享链接）"
+    hint = "" if url else "\n（配置 feishu.doc.docx_url_prefix 可带可分享链接）"
     owner = str(
         args.get("owner_open_id") or getattr(ctx, "feishu_im_receive_id", None) or ""
     ).strip()

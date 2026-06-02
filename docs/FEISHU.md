@@ -34,7 +34,7 @@ python -m miniagent --feishu
 
 在飞书里发送以 ``.`` 开头的命令时，默认 `.session switch` / `create` / `rename` 以及 `.schedule` 的 `add`/`update`/`remove`/`enable`/`disable`/`align-tz` **不会**修改与本地 CLI 共享的 ``active_session_id`` 或 ``tasks.json``，仅返回提示；``.stop`` 亦默认拒绝（避免远程结束进程）。请在本地 MiniAgent 终端执行，或设置 **`MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1`** 放开全部点命令（启动时会打 WARNING；群聊误触风险需自行管控）。启用 FULL 后飞书侧 `.stop` 成功即进程退出，通常**不会**再收到第二条飞书确认消息。调试 HTTP 栈时请勿开启 ``HTTPX_LOG_LEVEL=debug`` 等会把第三方日志打到终端的配置，以免干扰全屏 UI。
 
-Agent 在飞书会话中若通过内置工具 **`run_dot_command`** 调点命令，上述限制与直接发点命令一致（默认 `cli_dispatch_allow_mutations=False`；`MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1` 时为 True）。不需要该能力时可将 **`MINIAGENT_CLI_DOT_TOOLS=0`**，启动时不再注册该工具（见仓库根目录 `.env.example`）。
+Agent 在飞书会话中若通过内置工具 **`run_dot_command`** 调点命令，上述限制与直接发点命令一致（默认 `cli_dispatch_allow_mutations=False`；`MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1` 时为 True）。不需要该能力时可将 **`MINIAGENT_CLI_DOT_TOOLS=0`**，启动时不再注册该工具（见 [ENV_REFERENCE.md](ENV_REFERENCE.md)）。
 
 ## 运维速查（WebSocket）
 
