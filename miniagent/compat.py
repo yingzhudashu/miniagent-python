@@ -42,6 +42,7 @@ from miniagent.engine.session_lock import (
     is_session_locked,
     release_session_lock,
     try_lock_session,
+    try_lock_session_async,
 )
 
 # ── Thinking Display ──
@@ -108,6 +109,7 @@ __all__ = [
     "RuntimeContext",
     "FeishuRuntime",
     "try_lock_session",
+    "try_lock_session_async",
     "release_session_lock",
     "is_session_locked",
     "ThinkingDisplay",
