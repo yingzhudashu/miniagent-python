@@ -54,20 +54,46 @@ def _get_embed_config() -> dict[str, str | int]:
 
 
 # ============================================================================
-# 向量工具
+# 向量工具（性能优化：可选 numpy 加速）
 # ============================================================================
+
+# 尝试导入 numpy（可选加速）
+try:
+    import numpy as np
+    _numpy_available = True
+except ImportError:
+    _numpy_available = False
+
+
+def _dot_product(a: list[float], b: list[float]) -> float:
+    """计算两个向量的点积（性能优化：可选 numpy 加速）。"""
+    if not a or not b:
+        return 0.0
+    if _numpy_available:
+        # numpy 点积比 Python 循环快 5-10 倍
+        return float(np.dot(a, b))
+    return sum(x * y for x, y in zip(a, b))
+
+
+def _compute_norm(embedding: list[float]) -> float:
+    """计算向量的 L2 norm（性能优化：可选 numpy 加速）。"""
+    if not embedding:
+        return 0.0
+    if _numpy_available:
+        # numpy norm 计算更快
+        return float(np.linalg.norm(embedding))
+    return math.sqrt(sum(x * x for x in embedding))
 
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
-    """计算两个向量的余弦相似度。"""
+    """计算两个向量的余弦相似度（性能优化：可选 numpy 加速）。"""
     if not a or not b:
         return 0.0
-    dot = sum(x * y for x, y in zip(a, b))
-    norm_a = math.sqrt(sum(x * x for x in a))
-    norm_b = math.sqrt(sum(x * x for x in b))
+    norm_a = _compute_norm(a)
+    norm_b = _compute_norm(b)
     if norm_a == 0 or norm_b == 0:
         return 0.0
-    return dot / (norm_a * norm_b)
+    return _dot_product(a, b) / (norm_a * norm_b)
 
 
 def _text_hash(text: str) -> str:
@@ -127,11 +153,6 @@ class _EmbeddingEntry:
     entry_key: str  # "session_id:timestamp"
     text_hash: str = ""  # 用于检测内容变更
     norm: float = 0.0  # 性能优化：预计算的向量 norm
-
-
-def _compute_norm(embedding: list[float]) -> float:
-    """计算向量的 L2 norm（预计算用）。"""
-    return math.sqrt(sum(x * x for x in embedding)) if embedding else 0.0
 
 
 def _cosine_similarity_cached(

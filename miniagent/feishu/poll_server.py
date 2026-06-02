@@ -191,12 +191,25 @@ def _parse_feishu_media_payload(msg_type: str, content_str: str) -> tuple[str, s
 
 
 def _extract_post_media_items(content_str: str) -> list[tuple[str, str, str]]:
-    """从 post 富文本 JSON 中递归收集 (resource_type, file_key_or_image_key, suggested_name)。"""
+    """从 post 富文本 JSON 中收集 (resource_type, file_key_or_image_key, suggested_name)。
+
+    性能优化：迭代替代递归，限制遍历深度（防止恶意深层 JSON）。
+    """
     out: list[tuple[str, str, str]] = []
     seen: set[tuple[str, str]] = set()
+    max_depth = 10  # 限制遍历深度
 
-    def walk(node: Any) -> None:
-        """深度优先遍历 post JSON 子树，去重收集图片与附件 key。"""
+    try:
+        root = json.loads(content_str or "{}")
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+    # 性能优化：迭代遍历替代递归
+    stack: list[tuple[Any, int]] = [(root, 0)]  # (node, depth)
+    while stack:
+        node, depth = stack.pop()
+        if depth > max_depth:
+            continue  # 超过深度限制，跳过
         if isinstance(node, dict):
             tag = node.get("tag")
             if tag == "img":
@@ -210,17 +223,14 @@ def _extract_post_media_items(content_str: str) -> list[tuple[str, str, str]]:
                     seen.add(("file", str(fk)))
                     nm = node.get("file_name") or node.get("name") or "download"
                     out.append(("file", str(fk), str(nm)))
-            for v in node.values():
-                walk(v)
+            # 将子节点加入栈（反向顺序保持深度优先顺序）
+            for v in reversed(list(node.values())):
+                stack.append((v, depth + 1))
         elif isinstance(node, list):
-            for x in node:
-                walk(x)
+            # 反向顺序保持原始遍历顺序
+            for x in reversed(node):
+                stack.append((x, depth + 1))
 
-    try:
-        root = json.loads(content_str or "{}")
-    except (json.JSONDecodeError, TypeError):
-        return []
-    walk(root)
     return out
 
 

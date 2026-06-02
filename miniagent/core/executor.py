@@ -229,7 +229,9 @@ def get_client() -> AsyncOpenAI:
     return get_shared_async_openai()
 
 
-# 模块级缓存变量（None 表示未初始化）
+# 模块级缓存变量（None 表示未初始化）— 性能优化：改用 lru_cache 更简洁
+# 保留变量声明以兼容 _reset_env_caches_for_tests
+
 _PHASED_EXECUTION_ENABLED: bool | None = None
 _TOOL_INTENT_IN_THINKING_ENABLED: bool | None = None
 _STEP_MAX_TURNS_CAP: int | None = None
@@ -239,6 +241,13 @@ _TOOL_INTENT_MAX_CHARS: int | None = None
 
 def _reset_env_caches_for_tests() -> None:
     """重置环境变量缓存（仅供测试使用）。"""
+    # 性能优化：使用 lru_cache 的 cache_clear()
+    _env_phased_execution_enabled.cache_clear()
+    _tool_intent_in_thinking_enabled.cache_clear()
+    _step_max_turns_cap.cache_clear()
+    _thinking_segment_separator.cache_clear()
+    _tool_intent_max_chars.cache_clear()
+    # 同时清空旧变量（兼容性）
     global _PHASED_EXECUTION_ENABLED, _TOOL_INTENT_IN_THINKING_ENABLED
     global _STEP_MAX_TURNS_CAP, _THINKING_SEGMENT_SEPARATOR, _TOOL_INTENT_MAX_CHARS
     _PHASED_EXECUTION_ENABLED = None
@@ -248,40 +257,34 @@ def _reset_env_caches_for_tests() -> None:
     _TOOL_INTENT_MAX_CHARS = None
 
 
+from functools import lru_cache
+
+
+@lru_cache(maxsize=1)
 def _env_phased_execution_enabled() -> bool:
     """是否启用分阶段执行（工具批次与 LLM 轮次分段），默认开启。"""
-    global _PHASED_EXECUTION_ENABLED
-    if _PHASED_EXECUTION_ENABLED is None:
-        _PHASED_EXECUTION_ENABLED = get_config("execution.phased_enabled", True)
-    return _PHASED_EXECUTION_ENABLED
+    return get_config("execution.phased_enabled", True)
 
 
+@lru_cache(maxsize=1)
 def _tool_intent_in_thinking_enabled() -> bool:
     """是否在工具执行前向 on_thinking 推送 🔧 意图行。"""
-    global _TOOL_INTENT_IN_THINKING_ENABLED
-    if _TOOL_INTENT_IN_THINKING_ENABLED is None:
-        _TOOL_INTENT_IN_THINKING_ENABLED = get_config("execution.tool_intent_in_thinking", False)
-    return _TOOL_INTENT_IN_THINKING_ENABLED
+    return get_config("execution.tool_intent_in_thinking", False)
 
 
+@lru_cache(maxsize=1)
 def _step_max_turns_cap() -> int:
     """分步模式下单步内 ReAct 轮数上限（默认 48）。"""
-    global _STEP_MAX_TURNS_CAP
-    if _STEP_MAX_TURNS_CAP is None:
-        _STEP_MAX_TURNS_CAP = get_config("execution.step_max_turns", 48)
-    return _STEP_MAX_TURNS_CAP
+    return get_config("execution.step_max_turns", 48)
 
 
+@lru_cache(maxsize=1)
 def _thinking_segment_separator() -> str:
     """同一步内多轮 LLM 思考片段拼接符；默认双换行。"""
-    global _THINKING_SEGMENT_SEPARATOR
-    if _THINKING_SEGMENT_SEPARATOR is None:
-        raw = get_config("execution.thinking_separator", "")
-        if raw:
-            _THINKING_SEGMENT_SEPARATOR = raw.replace("\\n", "\n")
-        else:
-            _THINKING_SEGMENT_SEPARATOR = "\n\n"
-    return _THINKING_SEGMENT_SEPARATOR
+    raw = get_config("execution.thinking_separator", "")
+    if raw:
+        return raw.replace("\\n", "\n")
+    return "\n\n"
 
 
 def _resolve_exec_tools(
@@ -1285,12 +1288,10 @@ async def execute_plan(
 # ─── 工具意图提取 ──────────────────────────────────────────
 
 
+@lru_cache(maxsize=1)
 def _tool_intent_max_chars() -> int:
     """工具意图摘要写入思考流时的最大字符数。"""
-    global _TOOL_INTENT_MAX_CHARS
-    if _TOOL_INTENT_MAX_CHARS is None:
-        _TOOL_INTENT_MAX_CHARS = get_config("execution.tool_intent_max_chars", 4000)
-    return _TOOL_INTENT_MAX_CHARS
+    return get_config("execution.tool_intent_max_chars", 4000)
 
 
 def _clip_intent_value(s: str) -> str:
