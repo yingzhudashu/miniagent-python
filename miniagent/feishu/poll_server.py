@@ -18,6 +18,12 @@
 **与消息队列的边界**：本模块在事件回调中组包用户文本（及可选媒体路径）后，应通过路由层投递到
 ``MessageQueueManager``，由队列保证同聊天室与 CLI 侧约定的顺序/抢占语义；本文件不直接替代
 ``miniagent.infrastructure.message_queue``。
+
+.. note::
+   本文件当前约 1700 行，未来重构建议拆分为：
+   - feishu/dedup.py: 消息去重逻辑（内存+磁盘）
+   - feishu/media_handler.py: 媒体文件处理
+   - feishu/ws_client.py: WebSocket 连接管理
 """
 
 from __future__ import annotations
