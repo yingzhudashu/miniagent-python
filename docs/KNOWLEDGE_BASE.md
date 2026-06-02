@@ -32,22 +32,22 @@ miniagent/knowledge/
 
 ```bash
 # 列出已挂载的知识库
-.kb list
+/kb list
 
 # 挂载知识库
-.kb mount /path/to/docs
-.kb mount /path/to/docs my_kb_name
+/kb mount /path/to/docs
+/kb mount /path/to/docs my_kb_name
 
 # 检索知识库
-.kb search API 文档
-.kb search API 文档 my_kb_name
+/kb search API 文档
+/kb search API 文档 my_kb_name
 
 # 卸载知识库
-.kb unmount my_kb_name
+/kb unmount my_kb_name
 
 # 重新加载知识库
-.kb reload my_kb_name
-.kb reload  # 重载所有
+/kb reload my_kb_name
+/kb reload  # 重载所有
 ```
 
 ### Agent 工具
@@ -152,7 +152,7 @@ EOF
 python -m miniagent
 
 # Agent 中检索
-.kb search API 接口
+/kb search API 接口
 ```
 
 ### Agent 工具调用
@@ -250,5 +250,5 @@ class KnowledgeRegistry:
 1. **按主题分库**：不同项目/领域使用独立知识库
 2. **限制文件大小**：单文件不超过 50KB，避免截断
 3. **使用 KB.yaml**：配置合适的 file_patterns
-4. **定期重载**：文档更新后 `.kb reload`
+4. **定期重载**：文档更新后 `/kb reload`
 5. **精简检索词**：关键词越精确，匹配越准确

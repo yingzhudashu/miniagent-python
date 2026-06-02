@@ -6,8 +6,8 @@
 - 会话管理：列出、切换、创建、重命名、删除会话
 - 实例管理：列出运行中的实例、停止指定实例
 - 消息队列：查看队列状态、切换队列模式
-- 通道绑定：.bind / .unbind 子命令
-- 定时任务：.schedule add/list/remove/enable/disable
+- 通道绑定：/bind / /unbind 子命令
+- 定时任务：/schedule add/list/remove/enable/disable
 - 帮助显示：分类展示所有可用命令
 
 注意：所有会话命令同时支持**编号**（如 1）和**原始 ID**（如 default）。
@@ -50,11 +50,11 @@ def format_session_command_usage() -> str:
     """与 ``format_help_markdown`` 中会话小节一致的用法说明（CLI 提示与 dispatch 共用）。"""
     return (
         "用法:\n"
-        "  .session list                   列出所有会话\n"
-        "  .session switch <编号/ID>       切换到指定会话（飞书默认仅 list；MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1 时与 CLI 同等）\n"
-        "  .session create <ID> [标题]     创建新会话\n"
-        "  .session rename <编号/ID> <标题>  重命名会话\n"
-        "  .session delete <编号/ID>       删除指定会话（不能删除当前活跃会话）"
+        "  /session list                   列出所有会话\n"
+        "  /session switch <编号/ID>       切换到指定会话（飞书默认仅 list；MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1 时与 CLI 同等）\n"
+        "  /session create <ID> [标题]     创建新会话\n"
+        "  /session rename <编号/ID> <标题>  重命名会话\n"
+        "  /session delete <编号/ID>       删除指定会话（不能删除当前活跃会话）"
     )
 
 
@@ -63,10 +63,10 @@ def format_queue_command_usage(message_queue: Any) -> str:
     mode = message_queue.mode.value
     return (
         "用法:\n"
-        "  .queue status                   查看队列状态\n"
-        "  .queue set <模式>               切换 queue / preemptive\n"
-        "  .queue abort                    中止本通道队列（含 dispatch_wait 投递中的任务；不退出进程）\n"
-        "  .abort                          同上（短命令）\n"
+        "  /queue status                   查看队列状态\n"
+        "  /queue set <模式>               切换 queue / preemptive\n"
+        "  /queue abort                    中止本通道队列（含 dispatch_wait 投递中的任务；不退出进程）\n"
+        "  /abort                          同上（短命令）\n"
         f"  当前模式: {mode}"
     )
 
@@ -80,10 +80,10 @@ def format_queue_abort_message(result: dict[str, Any]) -> str:
     if not cr and cp == 0 and not pr and cdw == 0:
         return (
             f"{SUCCESS_PREFIX} 已处理：当前聊天队列无运行中或排队的任务（进程与实例仍在运行）。\n"
-            "提示：全屏 CLI 在 Agent 单轮执行期间无法再次输入点命令；飞书侧可随时发送 `.abort` / `.queue abort` 打断。"
+            "提示：全屏 CLI 在 Agent 单轮执行期间无法再次输入命令；飞书侧可随时发送 `/abort` / `/queue abort` 打断。"
         )
     lines: list[str] = [
-        f"{SUCCESS_PREFIX} 已中止本聊天消息队列上的任务（未调用 `.stop`，进程与实例仍在运行）。",
+        f"{SUCCESS_PREFIX} 已中止本聊天消息队列上的任务（未调用 `/stop`，进程与实例仍在运行）。",
     ]
     if pr:
         lines.append("  · 已取消打断（preemptive）模式下当前执行的任务。")
@@ -534,7 +534,7 @@ def cmd_session_delete(
         return
 
     if session_id == active_session_id:
-        print(f"{ERROR_PREFIX} 不能删除当前活跃会话，请先 .session switch 到其他会话")
+        print(f"{ERROR_PREFIX} 不能删除当前活跃会话，请先 /session switch 到其他会话")
         return
 
     display = session_manager.get_session_display_name(session_id)
@@ -623,9 +623,9 @@ def cmd_bind(channel_router: Any, args: list[str], state: dict[str, Any] | None 
     """绑定通道到指定会话。
 
     用法:
-        .bind cli <会话>      将 CLI 通道绑定到指定会话
-        .bind feishu <会话>   将飞书私聊绑定到指定会话（需 sender_id）
-        .bind status          查看所有绑定状态
+        /bind cli <会话>      将 CLI 通道绑定到指定会话
+        /bind feishu <会话>   将飞书私聊绑定到指定会话（需 sender_id）
+        /bind status          查看所有绑定状态
 
     Args:
         channel_router: ChannelRouter 实例
@@ -642,9 +642,9 @@ def cmd_bind(channel_router: Any, args: list[str], state: dict[str, Any] | None 
     if len(args) < 2:
         return (
             "用法:\n"
-            "  .bind status              查看绑定状态\n"
-            "  .bind cli <会话>          CLI 绑定到指定会话\n"
-            "  .bind feishu <sender> <会话>  飞书私聊绑定（需 sender_id）"
+            "  /bind status              查看绑定状态\n"
+            "  /bind cli <会话>          CLI 绑定到指定会话\n"
+            "  /bind feishu <sender> <会话>  飞书私聊绑定（需 sender_id）"
         )
 
     channel = args[0].lower()
@@ -660,7 +660,7 @@ def cmd_bind(channel_router: Any, args: list[str], state: dict[str, Any] | None 
 
     elif channel == "feishu":
         if len(args) < 3:
-            return "飞书私聊绑定需要 sender_id: .bind feishu <sender_id> <会话>"
+            return "飞书私聊绑定需要 sender_id: /bind feishu <sender_id> <会话>"
         from miniagent.infrastructure.cli_feishu_policy import (
             normalize_bind_session_id,
             p2p_bind_target_allowed,
@@ -687,9 +687,9 @@ def cmd_unbind(channel_router: Any, args: list[str], state: dict[str, Any] | Non
     """解除通道绑定。
 
     用法:
-        .unbind cli       解除 CLI 绑定
-        .unbind feishu <sender>  解除飞书私聊绑定
-        .unbind all       解除所有绑定
+        /unbind cli       解除 CLI 绑定
+        /unbind feishu <sender>  解除飞书私聊绑定
+        /unbind all       解除所有绑定
 
     Args:
         channel_router: ChannelRouter 实例
@@ -701,7 +701,7 @@ def cmd_unbind(channel_router: Any, args: list[str], state: dict[str, Any] | Non
     from miniagent.infrastructure.channel_router import ChannelRouter
 
     if not args or args[0] == "":
-        return "用法: .unbind cli | .unbind feishu <sender> | .unbind all"
+        return "用法: /unbind cli | /unbind feishu <sender> | /unbind all"
 
     target = args[0].lower()
 
@@ -725,7 +725,7 @@ def cmd_unbind(channel_router: Any, args: list[str], state: dict[str, Any] | Non
 
     elif target == "feishu":
         if len(args) < 2:
-            return "飞书私聊解绑需要 sender_id: .unbind feishu <sender_id>"
+            return "飞书私聊解绑需要 sender_id: /unbind feishu <sender_id>"
         sender_id = args[1]
         channel_id = f"{ChannelRouter.FEISHU_P2P_PREFIX}{sender_id}"
         old = channel_router.unbind(channel_id)
@@ -741,18 +741,18 @@ def cmd_unbind(channel_router: Any, args: list[str], state: dict[str, Any] | Non
 
 
 def format_schedule_command_usage() -> str:
-    """返回 ``.schedule`` 子命令的用法说明文本（终端与工具复用）。"""
+    """返回 ``/schedule`` 子命令的用法说明文本（终端与工具复用）。"""
     return (
         "定时任务（持久化在 MINIAGENT_PATHS_STATE_DIR/scheduled_tasks/，经消息队列跑 Agent）：\n"
-        "  .schedule list\n"
-        "  .schedule show <id>\n"
-        "  .schedule remove <id>\n"
-        "  .schedule enable <id>  |  .schedule disable <id>\n"
-        "  .schedule align-tz\n"
-        "  .schedule update <id> every|once|cron ...（语法同 add，不含新建 id） [--tz IANA] -- <prompt>\n"
-        "  .schedule add <id> every <秒> <primary|ephemeral|fixed:会话ID> [--tz IANA] -- <prompt>\n"
-        "  .schedule add <id> once <ISO8601> <primary|ephemeral|fixed:会话ID> [--tz IANA] -- <prompt>\n"
-        '  .schedule add <id> cron "<分> <时> <日> <月> <周>" <primary|...> [--tz IANA] -- <prompt>\n'
+        "  /schedule list\n"
+        "  /schedule show <id>\n"
+        "  /schedule remove <id>\n"
+        "  /schedule enable <id>  |  /schedule disable <id>\n"
+        "  /schedule align-tz\n"
+        "  /schedule update <id> every|once|cron ...（语法同 add，不含新建 id） [--tz IANA] -- <prompt>\n"
+        "  /schedule add <id> every <秒> <primary|ephemeral|fixed:会话ID> [--tz IANA] -- <prompt>\n"
+        "  /schedule add <id> once <ISO8601> <primary|ephemeral|fixed:会话ID> [--tz IANA] -- <prompt>\n"
+        '  /schedule add <id> cron "<分> <时> <日> <月> <周>" <primary|...> [--tz IANA] -- <prompt>\n'
         "  说明: 用 `` -- `` 分隔参数区与 prompt；cron 为标准 5 段 Unix 表达式（半角 *）。\n"
         "  关闭调度: 环境变量 MINIAGENT_DISABLE_SCHEDULED_TASKS=1"
     )
@@ -833,7 +833,7 @@ def _parse_schedule_session_spec(token: str) -> Any:
 
 
 def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
-    """处理 ``.schedule`` 点命令：列出/展示/增删改定时任务；飞书等非变异渠道受 ``allow_mutations`` 限制。"""
+    """处理 ``/schedule`` 命令：列出/展示/增删改定时任务；飞书等非变异渠道受 ``allow_mutations`` 限制。"""
     from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec
     from miniagent.scheduled_tasks.store import (
         align_task_timezones_to_env,
@@ -846,9 +846,9 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
     )
 
     raw = (text or "").strip()
-    if not raw.lower().startswith(".schedule"):
+    if not raw.lower().startswith("/schedule"):
         return format_schedule_command_usage()
-    rest = raw[9:].strip()  # len(".schedule")
+    rest = raw[9:].strip()  # len("/schedule")
     if not rest:
         return format_schedule_command_usage()
     parts = rest.split()
@@ -884,7 +884,7 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
 
     if sub == "align-tz":
         if not allow_mutations:
-            return f"{ERROR_PREFIX} 飞书渠道不允许修改定时任务，请在本地 CLI 执行 .schedule align-tz"
+            return f"{ERROR_PREFIX} 飞书渠道不允许修改定时任务，请在本地 CLI 执行 /schedule align-tz"
         tasks = load_tasks()
         n, detail = align_task_timezones_to_env(tasks)
         if n == 0:
@@ -946,7 +946,7 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
         if not prompt:
             return "prompt 不能为空"
         head0 = head.strip()
-        if head0.lower().startswith(".schedule"):
+        if head0.lower().startswith("/schedule"):
             head0 = head0[9:].strip()
         try:
             hparts = shlex.split(head0)
@@ -1051,7 +1051,7 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
         if not prompt:
             return "prompt 不能为空"
         head0 = head.strip()
-        if head0.lower().startswith(".schedule"):
+        if head0.lower().startswith("/schedule"):
             head0 = head0[9:].strip()
         try:
             hparts = shlex.split(head0)
@@ -1137,7 +1137,7 @@ def format_help_markdown(
     message_queue: Any,
     instance_id: int | None = None,
 ) -> str:
-    """生成 `.help` 的 Markdown 正文（表格分组），供 CLI 打印与飞书 capture 复用。"""
+    """生成 `/help` 的 Markdown 正文（表格分组），供 CLI 打印与飞书 capture 复用。"""
     mode = message_queue.mode.value
     inst_line = f"\n当前实例：**#{instance_id}**" if instance_id else ""
 
@@ -1166,114 +1166,114 @@ def format_help_markdown(
             "实例管理",
             None,
             [
-                ("`.instance list`", "列出所有运行实例"),
-                ("`.instance stop <id>`", "停止指定实例"),
+                ("`/instance list`", "列出所有运行实例"),
+                ("`/instance stop <id>`", "停止指定实例"),
             ],
         ),
         _md_help_section(
             "会话管理",
-            "编号与原始 ID 均可，例如 `.session switch 1` 或 `.session switch default`。",
+            "编号与原始 ID 均可，例如 `/session switch 1` 或 `/session switch default`。",
             [
-                ("`.session list`", "列出所有会话"),
-                ("`.session switch <编号/ID>`", "切换到指定会话"),
-                ("`.session create <ID> [标题]`", "创建新会话，可指定标题"),
-                ("`.session rename <编号/ID> <新标题>`", "重命名会话"),
-                ("`.session delete <编号/ID>`", "删除会话（不可删除当前活跃会话）"),
+                ("`/session list`", "列出所有会话"),
+                ("`/session switch <编号/ID>`", "切换到指定会话"),
+                ("`/session create <ID> [标题]`", "创建新会话，可指定标题"),
+                ("`/session rename <编号/ID> <新标题>`", "重命名会话"),
+                ("`/session delete <编号/ID>`", "删除会话（不可删除当前活跃会话）"),
             ],
         ),
         _md_help_section(
             "飞书控制",
             None,
             [
-                ("`.feishu start`", "启动飞书 WebSocket 连接"),
-                ("`.feishu stop`", "停止飞书连接"),
-                ("`.feishu status`", "查看飞书运行状态"),
+                ("`/feishu start`", "启动飞书 WebSocket 连接"),
+                ("`/feishu stop`", "停止飞书连接"),
+                ("`/feishu status`", "查看飞书运行状态"),
             ],
         ),
         _md_help_section(
             "通道绑定",
             "绑定后 CLI 与飞书共享同一会话，记忆、文件与工具互通。",
             [
-                ("`.bind status`", "查看通道绑定状态"),
-                ("`.bind cli <会话>`", "CLI 绑定到指定会话"),
-                ("`.bind feishu <sender> <会话>`", "飞书私聊绑定到指定会话"),
-                ("`.unbind cli`", "解除 CLI 绑定"),
-                ("`.unbind feishu <sender>`", "解除飞书私聊绑定"),
-                ("`.unbind all`", "解除所有绑定"),
+                ("`/bind status`", "查看通道绑定状态"),
+                ("`/bind cli <会话>`", "CLI 绑定到指定会话"),
+                ("`/bind feishu <sender> <会话>`", "飞书私聊绑定到指定会话"),
+                ("`/unbind cli`", "解除 CLI 绑定"),
+                ("`/unbind feishu <sender>`", "解除飞书私聊绑定"),
+                ("`/unbind all`", "解除所有绑定"),
             ],
         ),
         _md_help_section(
             "消息队列",
-            "`queue` 为默认；`preemptive` 允许新消息插队。`.queue abort` / `.abort` 取消本 `chat_id` 上经 `dispatch` / `dispatch_wait` 投递的任务，**不是** `.stop`（停实例）。飞书侧可随时发送以打断卡住的 Agent；全屏 CLI 在单轮 Agent 执行中无法再次输入点命令。",
+            "`queue` 为默认；`preemptive` 允许新消息插队。`/queue abort` / `/abort` 取消本 `chat_id` 上经 `dispatch` / `dispatch_wait` 投递的任务，**不是** `/stop`（停实例）。飞书侧可随时发送以打断卡住的 Agent；全屏 CLI 在单轮 Agent 执行中无法再次输入命令。",
             [
-                ("`.queue status`", "查看队列状态"),
-                ("`.queue set <模式>`", "切换 `queue` / `preemptive`"),
-                ("`.queue abort`", "中止本通道队列内运行中与排队的任务；不退出进程"),
-                ("`.abort`", "同上（短命令）"),
+                ("`/queue status`", "查看队列状态"),
+                ("`/queue set <模式>`", "切换 `queue` / `preemptive`"),
+                ("`/queue abort`", "中止本通道队列内运行中与排队的任务；不退出进程"),
+                ("`/abort`", "同上（短命令）"),
             ],
         ),
         _md_help_section(
             "确认控制",
             "规划器判定高风险操作时会暂停等待确认。以下命令不经过消息队列，直接响应暂停点。",
             [
-                ("`.confirm`", "批准当前待确认的规划，继续执行"),
-                ("`.adjust <内容>`", "调整内容并批准"),
-                ("`.reject`", "拒绝当前规划，取消操作"),
+                ("`/confirm`", "批准当前待确认的规划，继续执行"),
+                ("`/adjust <内容>`", "调整内容并批准"),
+                ("`/reject`", "拒绝当前规划，取消操作"),
             ],
         ),
         _md_help_section(
             "答案改进",
             "根据质量评估建议改进上一轮答案；支持多轮改进。",
             [
-                ("`.improve`", "根据质量评估建议改进上一轮答案"),
-                ("`.improve --force`", "强制改进（即使质量已通过）"),
-                ("`.improve --reset`", "回退到原始答案重新改进"),
-                ("`.review`", "自我反驳式审查答案（迭代最多3轮）"),
+                ("`/improve`", "根据质量评估建议改进上一轮答案"),
+                ("`/improve --force`", "强制改进（即使质量已通过）"),
+                ("`/improve --reset`", "回退到原始答案重新改进"),
+                ("`/review`", "自我反驳式审查答案（迭代最多3轮）"),
             ],
         ),
         _md_help_section(
             "定时任务",
             "用 `` -- `` 分隔参数与 prompt；once 可加 ``--tz``；飞书默认仅 list/show，MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1 时与 CLI 同等。",
             [
-                ("`.schedule list`", "列出任务"),
-                ("`.schedule show <id>`", "查看 JSON"),
+                ("`/schedule list`", "列出任务"),
+                ("`/schedule show <id>`", "查看 JSON"),
                 (
-                    "`.schedule add ...`",
-                    "interval/once（见无参 `.schedule`）；Agent 可用 manage_scheduled_task",
+                    "`/schedule add ...`",
+                    "interval/once（见无参 `/schedule`）；Agent 可用 manage_scheduled_task",
                 ),
-                ("`.schedule update <id> …`", "修改任务（语法同 add）"),
-                ("`.schedule remove|enable|disable <id>`", "管理任务"),
-                ("`.schedule align-tz`", "批量对齐时区（修复遗留 UTC）"),
+                ("`/schedule update <id> …`", "修改任务（语法同 add）"),
+                ("`/schedule remove|enable|disable <id>`", "管理任务"),
+                ("`/schedule align-tz`", "批量对齐时区（修复遗留 UTC）"),
             ],
         ),
         _md_help_section(
             "知识库",
             "挂载本地文档供 Agent 检索；知识库目录应有 KB.yaml 或 files/ 子目录。",
             [
-                ("`.kb list`", "列出已挂载的知识库"),
-                ("`.kb mount <路径> [名称]`", "挂载知识库（目录或文件）"),
-                ("`.kb unmount <名称>`", "卸载知识库"),
-                ("`.kb search <关键词> [名称]`", "检索知识库内容"),
-                ("`.kb reload [名称]`", "重新加载知识库"),
+                ("`/kb list`", "列出已挂载的知识库"),
+                ("`/kb mount <路径> [名称]`", "挂载知识库（目录或文件）"),
+                ("`/kb unmount <名称>`", "卸载知识库"),
+                ("`/kb search <关键词> [名称]`", "检索知识库内容"),
+                ("`/kb reload [名称]`", "重新加载知识库"),
             ],
         ),
         _md_help_section(
             "工具与统计",
             None,
             [
-                ("`.stats`", "查看工具调用统计"),
-                ("`.status`", "查看系统运行状态"),
+                ("`/stats`", "查看工具调用统计"),
+                ("`/status`", "查看系统运行状态"),
             ],
         ),
         _md_help_section(
             "自测命令",
             "测试样本位于 tests/evaluation/samples/；默认 mock 模式（不调用真实 LLM）。",
             [
-                ("`.test run`", "运行所有测试"),
-                ("`.test run <类别>`", "按类别过滤（security | prompt_injection | tool_selection | schema | regression | cost）"),
-                ("`.test run <类别> <名称>`", "进一步按名称过滤（正则）"),
-                ("`.test list`", "列出所有测试样本"),
-                ("`.test status`", "查看最近测试结果"),
+                ("`/test run`", "运行所有测试"),
+                ("`/test run <类别>`", "按类别过滤（security | prompt_injection | tool_selection | schema | regression | cost）"),
+                ("`/test run <类别> <名称>`", "进一步按名称过滤（正则）"),
+                ("`/test list`", "列出所有测试样本"),
+                ("`/test status`", "查看最近测试结果"),
             ],
         ),
         _md_help_section(
@@ -1281,7 +1281,7 @@ def format_help_markdown(
             None,
             [
                 (
-                    "`.stop`",
+                    "`/stop`",
                     (
                         f"停止当前实例并退出（实例 #{instance_id}）"
                         if instance_id
@@ -1291,12 +1291,34 @@ def format_help_markdown(
             ],
         ),
         _md_help_section(
+            "后台任务",
+            "并行执行子任务，不污染主对话历史。",
+            [
+                ("`/btw start <prompt>`", "启动后台任务"),
+                ("`/btw status`", "查看任务列表"),
+                ("`/btw result <id>`", "获取任务结果"),
+                ("`/btw cancel <id>`", "取消任务"),
+                ("`Ctrl+T`", "快捷键查看任务列表"),
+            ],
+        ),
+        _md_help_section(
+            "配置与诊断",
+            None,
+            [
+                ("`/config`", "查看配置概览"),
+                ("`/config <section>`", "查看特定配置部分"),
+                ("`/model`", "显示当前模型"),
+                ("`/model <model>`", "切换模型"),
+                ("`/doctor`", "诊断安装与配置"),
+            ],
+        ),
+        _md_help_section(
             "其他",
             None,
             [
-                ("`.help`", "显示本帮助"),
-                ("`.reload-skills`", "从磁盘重新加载技能（无需重启）"),
-                ("`.copy`", "复制当前会话 transcript 到剪贴板（全屏 CLI）"),
+                ("`/help`", "显示本帮助"),
+                ("`/reload-skills`", "从磁盘重新加载技能（无需重启）"),
+                ("`/copy [N]`", "复制最近第N条助手回复到剪贴板（全屏 CLI）"),
                 ("`quit` / `exit`", "退出程序"),
             ],
         ),

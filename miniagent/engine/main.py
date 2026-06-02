@@ -1468,25 +1468,33 @@ async def run_cli_loop(
                 # !cmd: 直接执行Bash命令
                 bash_cmd = text[1:].strip()
                 if bash_cmd:
-                    # 执行命令并捕获输出
                     import subprocess
+                    timeout = get_config("cli.bash_timeout", 60)
                     try:
                         result = subprocess.run(
                             bash_cmd,
                             shell=True,
                             capture_output=True,
                             text=True,
-                            timeout=10
+                            timeout=timeout
                         )
-                        output = result.stdout if result.stdout else result.stderr
-                        if not output:
-                            output = f"命令执行完成（退出码: {result.returncode})"
-                        _transcript.append((("", ""), f"⚠️ Bash执行: {bash_cmd}\n{output}"))
+                        # 格式化输出
+                        output_lines = [f"⚙️ Bash: {bash_cmd}"]
+                        if result.stdout:
+                            output_lines.append(result.stdout)
+                        if result.stderr:
+                            output_lines.append(f"❌ stderr: {result.stderr}")
+                        if result.returncode != 0:
+                            output_lines.append(f"退出码: {result.returncode}")
+                        # 写入transcript
+                        _append_transcript("class:cli-default", "\n".join(output_lines) + "\n")
                         _stick_bottom[0] = True
                     except subprocess.TimeoutExpired:
-                        _transcript.append((("", ""), f"❌ Bash超时: {bash_cmd}"))
+                        _append_transcript("class:cli-err", f"❌ Bash超时（{timeout}s）: {bash_cmd}\n")
+                        _stick_bottom[0] = True
                     except Exception as e:
-                        _transcript.append((("", ""), f"❌ Bash错误: {e}"))
+                        _append_transcript("class:cli-err", f"❌ Bash错误: {e}\n")
+                        _stick_bottom[0] = True
                     event.app.invalidate()
                 input_buffer.reset(append_to_history=True)
                 return
@@ -1517,9 +1525,10 @@ async def run_cli_loop(
     @kb.add("c-t", filter=has_focus(input_buffer))
     def _on_ctrl_t(event):
         """Ctrl+T 显示后台任务列表"""
-        # TODO: 显示后台任务列表（待实现后台任务系统后完善）
-        # 当前显示简单的提示
-        _transcript.append((("", ""), "📌 后台任务系统即将推出...（Ctrl+T）"))
+        from miniagent.engine.btw_cmd import cmd_btw_status
+        status_text = cmd_btw_status()
+        # 使用term_write显示到transcript
+        term_write(status_text + "\n", "ansicyan")
         _stick_bottom[0] = True
         event.app.invalidate()
 
@@ -1641,7 +1650,7 @@ async def run_cli_loop(
                         "<cli-hint>PgUp/PgDn · 滚轮 · Shift+←/→ 水平滚动 · "
                         "Ctrl+Home/End 移光标 · "
                         "Ctrl+M 复制模式 · "
-                        ".copy 复制全部对话 · "
+                        "/copy 复制全部对话 · "
                         "新消息时自动跟随输出</cli-hint>"
                     )
                 ),
@@ -2076,8 +2085,8 @@ async def run_cli_loop(
         if user_input.lower() in ("quit", "exit"):
             break
 
-        # ── .copy（全屏区为 FormattedText，终端一般无法框选复制）──
-        if user_input == ".copy":
+        # ── /copy（全屏区为 FormattedText，终端一般无法框选复制）──
+        if user_input == "/copy":
             plain = _transcript_plain()
             if copy_text_to_system_clipboard(plain):
                 term_write(
@@ -2092,8 +2101,8 @@ async def run_cli_loop(
                 )
             continue
 
-        # ── .stop ──
-        if user_input == ".stop":
+        # ── /stop ──
+        if user_input == "/stop":
             await shutdown_runtime(
                 ctx,
                 state,
@@ -2104,8 +2113,8 @@ async def run_cli_loop(
             term_write("✅ 当前实例已停止", "ansigreen")
             break
 
-        # ── 其余点命令：统一走 dispatch（capture → transcript，避免 print 破坏全屏）──
-        if user_input.startswith("."):
+        # ── 其余命令：统一走 dispatch（capture → transcript，避免 print 破坏全屏）──
+        if user_input.startswith("/"):
             from miniagent.engine.command_dispatch import dispatch_command
 
             reply = await dispatch_command(
@@ -2324,15 +2333,15 @@ async def _run_cli_loop_fallback(
         if user_input.lower() in ("quit", "exit"):
             break
 
-        if user_input == ".copy":
+        if user_input == "/copy":
             print(
                 "\n提示: 简易模式下输出在终端卷轴"
                 "，请用终端自身选择复制"
-                "；全屏 CLI 下输入 .copy 可复制 transcript。\n"
+                "；全屏 CLI 下输入 /copy 可复制 transcript。\n"
             )
             continue
 
-        if user_input == ".stop":
+        if user_input == "/stop":
             await shutdown_runtime(
                 ctx,
                 state,
@@ -2343,13 +2352,13 @@ async def _run_cli_loop_fallback(
             print("✅ 当前实例已停止")
             break
 
-        if user_input.startswith(".instance"):
+        if user_input.startswith("/instance"):
             parts = user_input.split()
             sub_cmd = parts[1] if len(parts) > 1 else ""
             cmd_instance_handler(parts, sub_cmd, state)
             continue
 
-        if user_input.startswith(".session "):
+        if user_input.startswith("/session "):
             parts = user_input.split()
             sub_cmd = parts[1] if len(parts) > 1 else ""
             if sub_cmd == "list":
@@ -2387,8 +2396,8 @@ async def _run_cli_loop_fallback(
                 print(format_session_command_usage() + "\n")
             continue
 
-        if user_input.startswith(".feishu"):
-            if user_input == ".feishu start":
+        if user_input.startswith("/feishu"):
+            if user_input == "/feishu start":
                 ctx.feishu.start(
                     _skill_tb(),
                     get_skill_prompts_from_state(state) or skill_prompts,
@@ -2396,13 +2405,13 @@ async def _run_cli_loop_fallback(
                     state,
                     user_status=_feishu_user_status_fn(ctx),
                 )
-            elif user_input == ".feishu stop":
+            elif user_input == "/feishu stop":
                 await ctx.feishu.stop_async()
             else:
                 ctx.feishu.status()
             continue
 
-        if user_input.startswith(".queue"):
+        if user_input.startswith("/queue"):
             parts = user_input.split()
             sub = parts[1] if len(parts) > 1 else ""
             if sub == "status":
@@ -2418,29 +2427,29 @@ async def _run_cli_loop_fallback(
                 print(format_queue_command_usage(message_queue) + "\n")
             continue
 
-        if user_input == ".abort":
+        if user_input == "/abort":
             from miniagent.engine.cli_commands import format_queue_abort_message
 
             res = message_queue.abort_chat(message_queue.CLI_CHAT_ID)
             print(format_queue_abort_message(res) + "\n")
             continue
 
-        if user_input == ".stats":
+        if user_input == "/stats":
             print(f"\n{monitor.report()}")
             continue
 
-        if user_input == ".status":
+        if user_input == "/status":
             from miniagent.engine.command_dispatch import _format_status as _fmt_status
 
             print(_fmt_status(state))
             continue
 
-        if user_input == ".help":
+        if user_input == "/help":
             cmd_help(message_queue, state.get("instance_id"))
             continue
 
-        # 统一分发：所有未被上述 if 捕获的 `.命令` 走 dispatch_command
-        if user_input.startswith("."):
+        # 统一分发：所有未被上述 if 捕获的 `/命令` 走 dispatch_command
+        if user_input.startswith("/"):
             from miniagent.engine.command_dispatch import dispatch_command as _dot_dispatch
 
             result = await _dot_dispatch(

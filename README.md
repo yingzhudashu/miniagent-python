@@ -72,15 +72,29 @@ README、[docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) 与 [docs/ENGINEERING.md](
 
 | 命令 | 说明 |
 |------|------|
-| `.status` | 检查 Agent 状态（不中断执行） |
-| `.session list` | 列出所有会话 |
-| `.session switch <id>` | 切换会话 |
-| `.instance list` | 列出运行实例 |
-| `.feishu start/stop` | 飞书控制 |
-| `.queue status` | 消息队列状态 |
-| `.help` | 显示完整帮助 |
+| `/status` | 检查 Agent 状态（不中断执行） |
+| `/session list` | 列出所有会话 |
+| `/session switch <id>` | 切换会话 |
+| `/instance list` | 列出运行实例 |
+| `/feishu start/stop` | 飞书控制 |
+| `/queue status` | 消息队列状态 |
+| `/help` | 显示完整帮助 |
+| `/btw start <prompt>` | 启动后台任务（并行执行） |
+| `/config` | 查看配置概览 |
+| `/model` | 显示/切换模型 |
 
-> 多数 `.` 命令在 CLI 与飞书均可使用；`.schedule` 的 add/update/remove/enable/disable 及部分 `.session` 变异仅允许在本机 CLI 执行（见 [docs/CLI.md](docs/CLI.md)）。
+> 多数 `/` 命令在 CLI 与飞书均可使用；`/schedule` 的 add/update/remove/enable/disable 及部分 `/session` 变异仅允许在本机 CLI 执行（见 [docs/CLI.md](docs/CLI.md)）。
+
+### 后台任务系统（并行执行）
+
+使用 `/btw` 命令启动后台任务，不污染主对话历史：
+
+```
+/btw start 分析这个文件        # 启动后台任务
+/btw status                    # 查看任务列表
+/btw result <task_id>          # 获取任务结果
+Ctrl+T                         # 快捷键查看任务列表
+```
 
 ## 项目结构
 

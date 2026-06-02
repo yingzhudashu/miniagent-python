@@ -87,7 +87,7 @@ cp config.defaults.json config.user.json
 python -m miniagent
 ```
 
-进入交互式命令行，输入文字与 Agent 对话，使用 `.` 前缀命令管理系统。
+进入交互式命令行，输入文字与 Agent 对话，使用 `/` 前缀命令管理系统。
 
 ### CLI + 飞书双通道
 
@@ -102,9 +102,9 @@ python -m miniagent --feishu
 在 CLI 中输入：
 
 ```
-.feishu start    # 启动飞书连接
-.feishu stop     # 停止飞书连接
-.feishu status   # 查看飞书状态
+/feishu start    # 启动飞书连接
+/feishu stop     # 停止飞书连接
+/feishu status   # 查看飞书状态
 ```
 
 ### 停止实例
@@ -220,8 +220,8 @@ python -m miniagent --feishu           # 实例 #2 (CLI + 飞书)
 管理实例：
 
 ```
-.instance list                   # 列出所有实例
-.instance stop 2                 # 停止实例 #2
+/instance list                   # 列出所有实例
+/instance stop 2                 # 停止实例 #2
 ```
 
 ## 定时任务与状态
@@ -252,9 +252,9 @@ python -m miniagent --feishu           # 实例 #2 (CLI + 飞书)
 ### Agent 状态检查
 
 ```
-.status                          # 检查 Agent 是否卡死
-.stats                           # 工具调用统计
-.queue status                    # 消息队列状态
+/status                          # 检查 Agent 是否卡死
+/stats                           # 工具调用统计
+/queue status                    # 消息队列状态
 ```
 
 ## 备份
@@ -276,7 +276,7 @@ python -m miniagent --feishu           # 实例 #2 (CLI + 飞书)
 | 飞书连接失败 | 检查 `FEISHU_APP_ID` 和 `FEISHU_APP_SECRET` |
 | LLM 调用超时 | 检查 `OPENAI_API_KEY` 和网络连接 |
 | 会话锁冲突 | 运行 `python -m miniagent --stop` 清理 |
-| Agent 卡死 | 使用 `.status` 检查，或 `.stop` 重启 |
+| Agent 卡死 | 使用 `/status` 检查，或 `/stop` 重启 |
 | 编码问题 | 确保 `PYTHONIOENCODING=utf-8` |
 
 ## 相关文档

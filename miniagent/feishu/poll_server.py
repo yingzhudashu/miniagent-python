@@ -461,8 +461,8 @@ async def start_feishu_poll_server(
                         else:
                             abandon_processing_claim(message_id)
 
-                # 点命令走控制面：不得与 Agent 同锁排队，否则卡死时无法在飞书侧下发 `.abort` 等。
-                if text.lstrip().startswith("."):
+                # 命令走控制面：不得与 Agent 同锁排队，否则卡死时无法在飞书侧下发 `/abort` 等。
+                if text.lstrip().startswith("/"):
                     asyncio.create_task(_handle())
                 else:
                     # 需求澄清追问拦截：普通消息自动注入为回答
@@ -644,21 +644,21 @@ async def start_feishu_poll_server(
                 return resp
 
             # 拦截确认命令：直接响应确认通道，不经消息队列
-            if text in (".confirm", ".reject") or text.startswith(".adjust "):
+            if text in ("/confirm", "/reject") or text.startswith("/adjust "):
                 engine = _feishu_confirmation_engine
                 if engine is not None:
                     cc = getattr(engine, "confirmation_channel", None)
                     if cc is not None and cc.has_pending:
                         from miniagent.types.confirmation import ConfirmationResult
 
-                        if text == ".confirm":
+                        if text == "/confirm":
                             cc.respond(ConfirmationResult(approved=True))
                             ok = CallBackToast()
                             ok.type = "success"
                             ok.content = "✅ 已确认，继续执行"
                             resp.toast = ok
                             return resp
-                        elif text == ".reject":
+                        elif text == "/reject":
                             cc.respond(ConfirmationResult(approved=False, rejected=True))
                             ok = CallBackToast()
                             ok.type = "warning"
@@ -666,7 +666,7 @@ async def start_feishu_poll_server(
                             resp.toast = ok
                             return resp
                         else:
-                            adjustment = text[len(".adjust "):].strip()
+                            adjustment = text[len("/adjust "):].strip()
                             if adjustment:
                                 cc.respond(ConfirmationResult(approved=True, adjustment=adjustment))
                                 ok = CallBackToast()

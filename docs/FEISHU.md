@@ -20,19 +20,19 @@ export FEISHU_VERIFICATION_TOKEN="xxx"
 python -m miniagent --feishu
 ```
 
-或在 CLI 中运行：`.feishu start`
+或在 CLI 中运行：`/feishu start`
 
 **启动形态**：进程始终以 **CLI 主循环** 为主；上述两种方式均为 **CLI + 飞书**（同进程内附加飞书 WebSocket 长连接），不存在无 CLI 的独立飞书进程入口。
 
 在全屏 prompt_toolkit CLI 下，飞书启动提示、以及**策略允许**的入站横幅与思考镜像，会写入上方 **transcript**（`RuntimeContext.cli_transcript_append`），而不再向裸 stdout `print`，避免与备用屏输入行互相覆盖。
 
-**CLI 显示隔离**（详见 [CHANNEL_BINDING.md](CHANNEL_BINDING.md) §CLI 显示策略）：默认 CLI 在 `default` 等一般会话时，**群聊**消息仅在飞书侧处理与回复，**不会**刷屏到 CLI；仅与 CLI 同会话的**私聊**会显示预览。`.bind cli feishu:oc_xxx`（或 `oc_xxx`，自动规范化）进入群聊聚焦后，CLI 只显示该群内容，私聊不再接入或显示。
+**CLI 显示隔离**（详见 [CHANNEL_BINDING.md](CHANNEL_BINDING.md) §CLI 显示策略）：默认 CLI 在 `default` 等一般会话时，**群聊**消息仅在飞书侧处理与回复，**不会**刷屏到 CLI；仅与 CLI 同会话的**私聊**会显示预览。`/bind cli feishu:oc_xxx`（或 `oc_xxx`，自动规范化）进入群聊聚焦后，CLI 只显示该群内容，私聊不再接入或显示。
 
 `get_logger()` 的诊断输出写入 **stderr**（不再写 stdout）；飞书 WebSocket 客户端 SDK 日志级别为 **ERROR**，避免与全屏 UI 争用终端。
 
 全屏 CLI 运行时会暂时把 ``get_logger`` 控制台输出提高到 **WARNING**（集成终端里 stderr 仍会打乱备用屏）。调试若需要 INFO/DEBUG，可设置环境变量 **`MINIAGENT_FEATURES_TUI_VERBOSE_LOG=1`**。
 
-在飞书里发送以 ``.`` 开头的命令时，默认 `.session switch` / `create` / `rename` 以及 `.schedule` 的 `add`/`update`/`remove`/`enable`/`disable`/`align-tz` **不会**修改与本地 CLI 共享的 ``active_session_id`` 或 ``tasks.json``，仅返回提示；``.stop`` 亦默认拒绝（避免远程结束进程）。请在本地 MiniAgent 终端执行，或设置 **`MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1`** 放开全部点命令（启动时会打 WARNING；群聊误触风险需自行管控）。启用 FULL 后飞书侧 `.stop` 成功即进程退出，通常**不会**再收到第二条飞书确认消息。调试 HTTP 栈时请勿开启 ``HTTPX_LOG_LEVEL=debug`` 等会把第三方日志打到终端的配置，以免干扰全屏 UI。
+在飞书里发送以 ``/`` 开头的命令时，默认 `/session switch` / `create` / `rename` 以及 `/schedule` 的 `add`/`update`/`remove`/`enable`/`disable`/`align-tz` **不会**修改与本地 CLI 共享的 ``active_session_id`` 或 ``tasks.json``，仅返回提示；``/stop`` 亦默认拒绝（避免远程结束进程）。请在本地 MiniAgent 终端执行，或设置 **`MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1`** 放开全部点命令（启动时会打 WARNING；群聊误触风险需自行管控）。启用 FULL 后飞书侧 `/stop` 成功即进程退出，通常**不会**再收到第二条飞书确认消息。调试 HTTP 栈时请勿开启 ``HTTPX_LOG_LEVEL=debug`` 等会把第三方日志打到终端的配置，以免干扰全屏 UI。
 
 Agent 在飞书会话中若通过内置工具 **`run_dot_command`** 调点命令，上述限制与直接发点命令一致（默认 `cli_dispatch_allow_mutations=False`；`MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1` 时为 True）。不需要该能力时可将 **`MINIAGENT_CLI_DOT_TOOLS=0`**，启动时不再注册该工具（见 [ENV_REFERENCE.md](ENV_REFERENCE.md)）。
 
@@ -81,8 +81,8 @@ UnifiedEngine.run_agent_with_thinking()
 |------|------|
 | `MINI_AGENT_FEISHU_CARD_BODY_MAX` | 单张交互卡片正文近似上限；过低易增加分片条数。流式思考 PATCH 与每次 `append_feishu_thinking_same_card` 会对**当前累积正文整体**做规范化并可能截断为 `…`；单卡极长时较早内容可能不再显示（完整文本仍在会话 **history.json**） |
 | `MINI_AGENT_THINKING_FOR_LLM_MAX_CHARS` | 仅影响 `conversation_history_for_llm()` 对 `thinking` 的映射，不影响飞书 |
-| `MINIAGENT_FEISHU_MARKDOWN_COMMANDS` | `1` 时飞书侧 `.session list` / `.queue status` / `.instance list` 使用 Markdown 表格（与 `.help` 同为 lark_md 子集；默认 `0`） |
-| `MINIAGENT_FEISHU_DOT_COMMANDS_FULL` | `1`/`true`/`yes`/`on` 时飞书点命令与 CLI 同等（含会话/定时任务变异与 `.stop`；默认 `0`） |
+| `MINIAGENT_FEISHU_MARKDOWN_COMMANDS` | `1` 时飞书侧 `/session list` / `/queue status` / `/instance list` 使用 Markdown 表格（与 `/help` 同为 lark_md 子集；默认 `0`） |
+| `MINIAGENT_FEISHU_DOT_COMMANDS_FULL` | `1`/`true`/`yes`/`on` 时飞书点命令与 CLI 同等（含会话/定时任务变异与 `/stop`；默认 `0`） |
 | `MINIAGENT_TOOL_INTENT_IN_THINKING` | `0`/`false` 关闭工具执行前的 🔧 意图行（仍保留工具结果全文块） |
 | `MINIAGENT_CLI_DOT_TOOLS` | 默认 `1`；`0`/`false`/`off` 时不注册 `run_dot_command`（Agent 无法经工具调点命令） |
 | `MINIAGENT_FEISHU_REPLY_PLAIN` | 默认 **关**（设为 `1`/`true`/`on` 时开启）：开启时最终回复会弱化 Markdown；**仍为 `interactive` + `lark_md`**；无法识别的非空取值视为 **关** |
@@ -190,11 +190,11 @@ UnifiedEngine.run_agent_with_thinking()
 | `group` | 独立会话，始终创建/使用 `feishu:<chat_id>` | `feishu:<chat_id>` |
 | `p2p` | 若尚未绑定，则自动 `bind(feishu_p2p:<sender>, active_session_id)`；已绑定则使用目标 session_key | 通常为当前 CLI 活跃会话 |
 
-**飞书入站独占**：同一 `MINIAGENT_PATHS_STATE_DIR` 下通过 `workspaces/feishu_inbound_owner.json`（或 `MINIAGENT_PATHS_STATE_DIR` 根目录下的 `feishu_inbound_owner.json`）保证**仅一个存活进程**可成功执行 `.feishu start` 并持有常驻重连任务。避免多开实例重复收消息。
+**飞书入站独占**：同一 `MINIAGENT_PATHS_STATE_DIR` 下通过 `workspaces/feishu_inbound_owner.json`（或 `MINIAGENT_PATHS_STATE_DIR` 根目录下的 `feishu_inbound_owner.json`）保证**仅一个存活进程**可成功执行 `/feishu start` 并持有常驻重连任务。避免多开实例重复收消息。
 
-**常驻与锁**：`FeishuRuntime` 在后台任务中循环调用 `start_feishu_poll_server`；单次 WebSocket 断线或启动失败会**指数退避后自动重连**，此期间**不释放入站锁**（其它进程仍无法抢占）。仅在执行 `.feishu stop`、任务被取消或进程退出路径上释放锁。
+**常驻与锁**：`FeishuRuntime` 在后台任务中循环调用 `start_feishu_poll_server`；单次 WebSocket 断线或启动失败会**指数退避后自动重连**，此期间**不释放入站锁**（其它进程仍无法抢占）。仅在执行 `/feishu stop`、任务被取消或进程退出路径上释放锁。
 
-**WebSocket 会话监督**（`miniagent/feishu/ws_health.py`）：连接成功后由看门狗监督收包任务与连接状态；收包循环退出、连接长时间为空、或达到定期刷新间隔时，会结束当前会话并由 `FeishuRuntime` 外层退避重建。默认**关闭** SDK 内建 `auto_reconnect`，避免与外层重连脱节导致「进程显示运行中但收不到消息」。`.feishu status` 可查看上次会话结束原因与最后入站时间。
+**WebSocket 会话监督**（`miniagent/feishu/ws_health.py`）：连接成功后由看门狗监督收包任务与连接状态；收包循环退出、连接长时间为空、或达到定期刷新间隔时，会结束当前会话并由 `FeishuRuntime` 外层退避重建。默认**关闭** SDK 内建 `auto_reconnect`，避免与外层重连脱节导致「进程显示运行中但收不到消息」。`/feishu status` 可查看上次会话结束原因与最后入站时间。
 
 ### Windows / 长连接
 
@@ -202,7 +202,7 @@ Windows 上可能出现 `OSError: [WinError 121]` 或日志 `receive message loo
 
 运维建议：电源计划中避免网卡「允许计算机关闭此设备以节约电源」；不稳定网络可设 `MINIAGENT_FEISHU_WS_REFRESH_INTERVAL_S=3600`。
 
-**私聊绑定**：手动 `.bind feishu` 仍可用；自动绑定的 sender 会随 `.session switch` 与 CLI 一起切会话，手动绑定过的 sender 不再参与自动重绑。
+**私聊绑定**：手动 `/bind feishu` 仍可用；自动绑定的 sender 会随 `/session switch` 与 CLI 一起切会话，手动绑定过的 sender 不再参与自动重绑。
 
 ## 消息处理流程
 
@@ -210,7 +210,7 @@ Windows 上可能出现 `OSError: [WinError 121]` 或日志 `receive message loo
 
 1. **接收消息** — WebSocket 长连接接收事件
 2. **提取内容** — 解析 `chat_id`、`sender_id`、`chat_type`、消息文本，以及开放平台事件中的 **`message_id`**、**`root_id`**、**`parent_id`**、**`thread_id`**（后三者可能为空；用于话题上下文与 `MINIAGENT_FEISHU_REPLY_TARGET=reply` 时的默认话题内回复策略）
-3. **命令拦截** — 以 `.` 开头的消息路由到 `dispatch_command()`（默认拒绝会话/定时任务变异与 `.stop`；``MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1`` 时与 CLI 同等）。例如 `.help` 与可选 ``MINIAGENT_FEISHU_MARKDOWN_COMMANDS=1`` 下的 `.session list` 等返回 Markdown **表格**，依赖客户端对 GFM / `lark_md` 子集的支持；若表格显示异常可改用本地 CLI 或关闭该变量
+3. **命令拦截** — 以 `/` 开头的消息路由到 `dispatch_command()`（默认拒绝会话/定时任务变异与 `/stop`；``MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1`` 时与 CLI 同等）。例如 `/help` 与可选 ``MINIAGENT_FEISHU_MARKDOWN_COMMANDS=1`` 下的 `/session list` 等返回 Markdown **表格**，依赖客户端对 GFM / `lark_md` 子集的支持；若表格显示异常可改用本地 CLI 或关闭该变量
 4. **解析 session_key** — 通过 `ChannelRouter.resolve_feishu_message()`
 5. **运行 Agent** — `run_agent_with_thinking(session_key, ...)`
 6. **发送思考** — 与 CLI 一致由 `ThinkingDisplay` 驱动：`push_feishu_thinking_stream()` 对同一逻辑段 PATCH 节流更新；规划阶段为单 header ``[评估与计划]`` 的流式卡；执行阶段为 ``[执行]`` 或分步时的 ``[步骤 i/n] …``；同段内工具结果走 `append_feishu_thinking_same_card()`；阶段切换时仅 `finalize_feishu_thinking_stream()` 收尾当前卡（不另发空思考卡）；**finalize 与 PATCH 共用 `_prepare_thinking_body_for_card`**（折叠空行与 `lark_md` 规范化一致，正文顶格无额外段首/列表缩进）。非流式结论块仍为 `finalize` + `_send_thinking()`。详见 `miniagent/feishu/poll_server.py` 顶部常量（PATCH 频率与单条可 PATCH 次数上限）
@@ -266,7 +266,7 @@ reply = await engine.run_agent_with_thinking(content, active_session_id, ...)
 | `p2p` | 检查绑定映射 | `feishu_p2p:<sender_id>` | 是 |
 
 - **群聊**：每个群自动创建独立会话，多群完全隔离
-- **私聊**：默认独立，可通过 `.bind feishu <sender_id> <会话>` 绑定到其他会话
+- **私聊**：默认独立，可通过 `/bind feishu <sender_id> <会话>` 绑定到其他会话
 - **绑定效果**：私聊消息使用绑定会话的上下文；CLI 终端实时打印预览
 
 **Agent 配置字段**：`AgentConfig` 中的 **`feishu_root_id`** / **`feishu_parent_id`** / **`feishu_thread_id`** 对应入站事件的 `root_id` / `parent_id` / `thread_id`；其中 `feishu_root_id` 与历史方案里口头说的「reply_root / feishu_reply_root_id」语境一致（话题根消息 id）。
@@ -318,9 +318,9 @@ echo $FEISHU_APP_ID
 
 | 命令 | 说明 |
 |------|------|
-| `.feishu start` | 启动飞书连接 |
-| `.feishu stop` | 停止飞书连接 |
-| `.feishu status` | 查看状态 |
+| `/feishu start` | 启动飞书连接 |
+| `/feishu stop` | 停止飞书连接 |
+| `/feishu status` | 查看状态 |
 
 ## 架构说明
 

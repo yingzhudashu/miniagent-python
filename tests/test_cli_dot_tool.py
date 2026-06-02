@@ -39,18 +39,18 @@ async def test_run_dot_command_requires_dot_prefix() -> None:
     ctx = ToolContext(cwd="/tmp", cli_loop_state=st)
     r = await _run_dot_command_handler({"line": "help"}, ctx)
     assert r.success is False
-    assert "." in r.content
+    assert "/" in r.content
 
 
 @pytest.mark.asyncio
 async def test_run_dot_command_no_runtime_ctx_fails() -> None:
     ctx = ToolContext(cwd="/tmp", cli_loop_state=None)
-    r = await _run_dot_command_handler({"line": ".help"}, ctx)
+    r = await _run_dot_command_handler({"line": "/help"}, ctx)
     assert r.success is False
     assert "runtime_ctx" in r.content
 
     ctx2 = ToolContext(cwd="/tmp", cli_loop_state={})
-    r2 = await _run_dot_command_handler({"line": ".help"}, ctx2)
+    r2 = await _run_dot_command_handler({"line": "/help"}, ctx2)
     assert r2.success is False
 
 
@@ -102,10 +102,10 @@ async def test_run_dot_command_dispatches_capture_and_allow_flag(
         cli_dispatch_allow_mutations=False,
         message_queue_abort_chat_id="oc_tool_room",
     )
-    r = await _run_dot_command_handler({"line": "  .status  "}, ctx)
+    r = await _run_dot_command_handler({"line": "  /status  "}, ctx)
     assert r.success is True
     assert r.content == "mocked"
-    assert captured["text"] == ".status"
+    assert captured["text"] == "/status"
     assert captured["state"] is st
     assert captured["capture"] is True
     assert captured["allow"] is False
@@ -127,14 +127,14 @@ async def test_run_dot_command_empty_capture_becomes_placeholder(
     rt = MagicMock()
     st = {"runtime_ctx": rt}
     ctx = ToolContext(cwd="/tmp", cli_loop_state=st)
-    r = await _run_dot_command_handler({"line": ".noop"}, ctx)
+    r = await _run_dot_command_handler({"line": "/noop"}, ctx)
     assert r.success is True
     assert "无文本输出" in r.content
 
 
 @pytest.mark.asyncio
 async def test_run_dot_command_status_real_dispatch_minimal_state() -> None:
-    """不 patch dispatch_command：仅 .status 所需字段为 MagicMock。"""
+    """不 patch dispatch_command：仅 /status 所需字段为 MagicMock。"""
     mq = MagicMock()
     mq.get_status = MagicMock(return_value={"mode": "queue", "chats": {}})
     cr = MagicMock()
@@ -158,7 +158,7 @@ async def test_run_dot_command_status_real_dispatch_minimal_state() -> None:
         "session_manager": None,
     }
     ctx = ToolContext(cwd="/tmp", cli_loop_state=st, cli_dispatch_allow_mutations=True)
-    r = await _run_dot_command_handler({"line": ".status"}, ctx)
+    r = await _run_dot_command_handler({"line": "/status"}, ctx)
     assert r.success is True
     assert "消息队列" in r.content
     assert "飞书" in r.content
@@ -180,7 +180,7 @@ async def test_run_dot_command_max_chars_truncates(
     rt = MagicMock()
     st = {"runtime_ctx": rt}
     ctx = ToolContext(cwd="/tmp", cli_loop_state=st)
-    r = await _run_dot_command_handler({"line": ".x", "max_chars": 100}, ctx)
+    r = await _run_dot_command_handler({"line": "/x", "max_chars": 100}, ctx)
     assert r.success is True
     assert len(r.content) < len(long)
     assert "截断" in r.content
@@ -190,7 +190,7 @@ async def test_run_dot_command_max_chars_truncates(
 @pytest.mark.asyncio
 @pytest.mark.dot_help_dispatch
 async def test_run_dot_command_help_real_dispatch_minimal_state() -> None:
-    """不 patch dispatch_command：.help 需 message_queue.mode.value。"""
+    """不 patch dispatch_command：/help 需 message_queue.mode.value。"""
     mq = SimpleNamespace(mode=SimpleNamespace(value="queue"))
     cr = MagicMock()
     cr.get_all_bindings = MagicMock(return_value={})
@@ -213,7 +213,7 @@ async def test_run_dot_command_help_real_dispatch_minimal_state() -> None:
         "session_manager": None,
     }
     ctx = ToolContext(cwd="/tmp", cli_loop_state=st, cli_dispatch_allow_mutations=True)
-    r = await _run_dot_command_handler({"line": ".help"}, ctx)
+    r = await _run_dot_command_handler({"line": "/help"}, ctx)
     assert r.success is True
     assert "Mini Agent" in r.content or "命令" in r.content
 
@@ -248,7 +248,7 @@ async def test_run_dot_command_schedule_list_empty(
         "session_manager": None,
     }
     ctx = ToolContext(cwd="/tmp", cli_loop_state=st, cli_dispatch_allow_mutations=True)
-    r = await _run_dot_command_handler({"line": ".schedule list"}, ctx)
+    r = await _run_dot_command_handler({"line": "/schedule list"}, ctx)
     assert r.success is True
     assert "暂无" in r.content or "定时任务" in r.content
 

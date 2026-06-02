@@ -143,7 +143,7 @@ def create_feishu_handler(
             return f"{WARNING_PREFIX} 引擎未初始化"
 
         # ── 命令拦截 ──
-        if content.startswith("."):
+        if content.startswith("/"):
             try:
                 reply = await dispatch_command(
                     content.strip(),
@@ -158,7 +158,7 @@ def create_feishu_handler(
                     message_queue_abort_chat_id=chat_id,
                 )
                 if reply == "__EXIT__":
-                    return ""  # .stop 已通过 shutdown_runtime 清理，无需回复
+                    return ""  # /stop 已通过 shutdown_runtime 清理，无需回复
                 if reply is not None:
                     _maybe_auto_bind_p2p(chat_type, sender_id, state)
                     cmd_sk = channel_router.resolve_feishu_message(chat_id, sender_id, chat_type)

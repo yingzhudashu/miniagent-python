@@ -352,7 +352,7 @@ python scripts/docstring_inventory.py --write docs/docstring_inventory.md
 
 示例:
 ```
-feat: 添加 .status 命令支持飞书和 CLI
+feat: 添加 /status 命令支持飞书和 CLI
 fix: 修复 session_manager 磁盘会话解析
 docs: 补全三层记忆系统文档
 refactor: 拆分 unified.py 为 engine/ 包

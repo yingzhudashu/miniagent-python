@@ -14,8 +14,8 @@
 4. [首次配置（JSON 配置文件）](#4-首次配置json-配置文件)
 5. [第一次启动与退出](#5-第一次启动与退出)
 6. [日常对话怎么用](#6-日常对话怎么用)
-7. [点命令（`.`）速查](#7-点命令速查)
-8. [定时任务（.schedule）](#8-定时任务)
+7. [点命令（`/`）速查](#7-点命令速查)
+8. [定时任务（/schedule）](#8-定时任务)
 9. [会话与多会话](#9-会话与多会话)
 10. [飞书（可选）](#10-飞书可选)
 11. [联网搜索与浏览器工具（可选）](#11-联网搜索与浏览器工具可选)
@@ -267,39 +267,39 @@ python -m miniagent --stop
 
 ---
 
-## 7. 点命令（`.`）速查
+## 7. 点命令（`/`）速查
 
-多数以下命令在 **CLI 与飞书** 中均可使用（前缀为英文句点 `.`）。**`.schedule` 的 add/update/remove/enable/disable** 及部分 **`.session` 变异** 仅允许在本机 CLI 执行（见第 8 章）。**完整说明、示例输出与边界情况** 见 [CLI.md](CLI.md)。
+多数以下命令在 **CLI 与飞书** 中均可使用（前缀为斜杠 `/`）。**`/schedule` 的 add/update/remove/enable/disable** 及部分 **`/session` 变异** 仅允许在本机 CLI 执行（见第 8 章）。**完整说明、示例输出与边界情况** 见 [CLI.md](CLI.md)。
 
 ### 7.1 最常用命令（速查）
 
 | 命令 | 作用 |
 |------|------|
-| `.help` | 显示帮助 |
-| `.status` | 查看运行状态（不中断当前执行） |
-| `.session list` / `.session switch <id>` | 列出 / 切换会话 |
-| `.feishu start` / `.feishu stop` / `.feishu status` | 飞书 WebSocket 长连接控制 |
-| `.schedule list` | 查看定时任务（增删改见第 8 章，须在本地 CLI） |
-| `.bind status` | 通道绑定状态，见 [CHANNEL_BINDING.md](CHANNEL_BINDING.md) |
+| `/help` | 显示帮助 |
+| `/status` | 查看运行状态（不中断当前执行） |
+| `/session list` / `/session switch <id>` | 列出 / 切换会话 |
+| `/feishu start` / `/feishu stop` / `/feishu status` | 飞书 WebSocket 长连接控制 |
+| `/schedule list` | 查看定时任务（增删改见第 8 章，须在本地 CLI） |
+| `/bind status` | 通道绑定状态，见 [CHANNEL_BINDING.md](CHANNEL_BINDING.md) |
 
 **完整命令表、示例输出与边界情况** → [CLI.md](CLI.md)。
 
 ### 7.2 使用提示
 
-- 命令前必须是 **`.`**（句点），后面跟子命令与参数，中间空格按 [CLI.md](CLI.md) 示例。  
-- 不确定时先 `.help` 或 `.status`。
+- 命令前必须是 **`/`**（斜杠），后面跟子命令与参数，中间空格按 [CLI.md](CLI.md) 示例。
+- 不确定时先 `/help` 或 `/status`。
 
 ---
 
 ## 8. 定时任务
 
-在 **本地 CLI** 中可用点命令 **`.schedule`** 管理持久化定时任务：到达时间后，进程会像普通聊天一样把一轮 Agent 请求放进 **消息队列**，再进入与手动输入相同的执行路径。任务保存在 **`MINIAGENT_PATHS_STATE_DIR/scheduled_tasks/tasks.json`**（未设置 `MINIAGENT_PATHS_STATE_DIR` 时一般为仓库下 `workspaces/scheduled_tasks/`；该目录不宜提交到 Git，见 [ENGINEERING.md](ENGINEERING.md) §3.1）。
+在 **本地 CLI** 中可用点命令 **`/schedule`** 管理持久化定时任务：到达时间后，进程会像普通聊天一样把一轮 Agent 请求放进 **消息队列**，再进入与手动输入相同的执行路径。任务保存在 **`MINIAGENT_PATHS_STATE_DIR/scheduled_tasks/tasks.json`**（未设置 `MINIAGENT_PATHS_STATE_DIR` 时一般为仓库下 `workspaces/scheduled_tasks/`；该目录不宜提交到 Git，见 [ENGINEERING.md](ENGINEERING.md) §3.1）。
 
 **新手要点**：
 
-- 先 **`.schedule`** 或 **`.schedule list`** 查看子命令；语法与示例 → [CLI.md](CLI.md)。
+- 先 **`/schedule`** 或 **`/schedule list`** 查看子命令；语法与示例 → [CLI.md](CLI.md)。
 - **调度**：`every <秒>`、`once <ISO8601>`、五段 **`cron "分 时 日 月 周"`**；`add` 的长 prompt 须用 **` -- `** 与选项分隔。
-- **时区**：cron 墙钟以 `tasks.json` 的 `schedule.timezone` 为准；未写 `--tz` 时新建默认 **`MINIAGENT_SCHEDULE_TIMEZONE` → `MINIAGENT_TIMEZONE` → `TZ` → `Asia/Shanghai`**。**Agent 每轮本地时间**由 `process_timezone()` 注入（读 `MINIAGENT_TIMEZONE` / `TZ`，**不**读 `MINIAGENT_SCHEDULE_TIMEZONE`）。遗留 `timezone: UTC` 可用 **`.schedule align-tz`**。
+- **时区**：cron 墙钟以 `tasks.json` 的 `schedule.timezone` 为准；未写 `--tz` 时新建默认 **`MINIAGENT_SCHEDULE_TIMEZONE` → `MINIAGENT_TIMEZONE` → `TZ` → `Asia/Shanghai`**。**Agent 每轮本地时间**由 `process_timezone()` 注入（读 `MINIAGENT_TIMEZONE` / `TZ`，**不**读 `MINIAGENT_SCHEDULE_TIMEZONE`）。遗留 `timezone: UTC` 可用 **`/schedule align-tz`**。
 - **飞书**：默认仅 **list** / **show**；增删改须在本地 CLI。`primary` 任务在私聊已绑定时可镜像到飞书（`MINIAGENT_SCHEDULE_FEISHU_MIRROR=0` 可关）。
 
 退避、漏跑、工具接口与数据流 → [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」、[ENV_REFERENCE.md](ENV_REFERENCE.md)。
@@ -309,8 +309,8 @@ python -m miniagent --stop
 ## 9. 会话与多会话
 
 - **会话**就像「不同的聊天窗口」，历史与部分配置相互隔离。  
-- 使用 `.session list` 查看列表；在 **本地 CLI** 用 `.session switch` 切换到工作上下文。  
-- **飞书里**（默认）发送 `.session switch` / `create` / `rename` 等变异子命令**不会**修改与 CLI 共享的 `active_session_id` 或会话存储，仅返回提示；请在本地终端执行，或设置 **`MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1`**（见 [FEISHU.md](FEISHU.md)、[CLI.md](CLI.md)）。  
+- 使用 `/session list` 查看列表；在 **本地 CLI** 用 `/session switch` 切换到工作上下文。  
+- **飞书里**（默认）发送 `/session switch` / `create` / `rename` 等变异子命令**不会**修改与 CLI 共享的 `active_session_id` 或会话存储，仅返回提示；请在本地终端执行，或设置 **`MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1`**（见 [FEISHU.md](FEISHU.md)、[CLI.md](CLI.md)）。  
 - 会话与记忆落盘位置受 **`MINIAGENT_PATHS_STATE_DIR`** 控制，详见第 14 章与 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md)。
 
 ---
@@ -320,11 +320,11 @@ python -m miniagent --stop
 1. 安装依赖：`pip install -e ".[feishu]"`。  
 2. 在飞书开放平台创建企业自建应用，获取 **App ID**、**App Secret**、事件订阅与权限按 [FEISHU.md](FEISHU.md) 操作。  
 3. 将凭证填入 `config.user.json` 的 `secrets` 部分（勿泄露）。  
-4. 启动 `python -m miniagent --feishu` 或在 CLI 中 `.feishu start`。  
+4. 启动 `python -m miniagent --feishu` 或在 CLI 中 `/feishu start`。  
 
 **入站锁**：同一状态根下通常只允许一个进程持有飞书入站连接，避免重复收消息；细节见 [FEISHU.md](FEISHU.md) 与 [SECURITY.md](SECURITY.md)。
 
-**可选内置工具**：环境变量 `MINIAGENT_FEISHU_TOOLS=1` 时注册发文件、撤回、建文档、读 Markdown、列云盘、追加文档正文等工具；或 **未设置** `MINIAGENT_FEISHU_TOOLS` 时默认由 `MINIAGENT_FEISHU_TOOLS_AUTO`（且已配置飞书凭证）在进程启动阶段自动注册（**不**等待 `.feishu start`；详见 [FEISHU.md](FEISHU.md)）。显式 `MINIAGENT_FEISHU_TOOLS=0`/`false`/`off` 或 `MINIAGENT_FEISHU_TOOLS_AUTO=0` 可关闭。依赖开放平台权限与 [FEISHU.md](FEISHU.md) 自检清单（含 `receive_id_type`、默认 `folder_token`、可选 `MINIAGENT_FEISHU_DOCX_URL_PREFIX`）。
+**可选内置工具**：环境变量 `MINIAGENT_FEISHU_TOOLS=1` 时注册发文件、撤回、建文档、读 Markdown、列云盘、追加文档正文等工具；或 **未设置** `MINIAGENT_FEISHU_TOOLS` 时默认由 `MINIAGENT_FEISHU_TOOLS_AUTO`（且已配置飞书凭证）在进程启动阶段自动注册（**不**等待 `/feishu start`；详见 [FEISHU.md](FEISHU.md)）。显式 `MINIAGENT_FEISHU_TOOLS=0`/`false`/`off` 或 `MINIAGENT_FEISHU_TOOLS_AUTO=0` 可关闭。依赖开放平台权限与 [FEISHU.md](FEISHU.md) 自检清单（含 `receive_id_type`、默认 `folder_token`、可选 `MINIAGENT_FEISHU_DOCX_URL_PREFIX`）。
 
 **环境变量迁移**：见第 4 章「升级迁移提示」与 [CHANGELOG](../CHANGELOG.md) `[Unreleased]`。
 
@@ -381,9 +381,9 @@ python -m miniagent --stop
 |------|------|
 | 启动报错与 API 密钥相关 | 检查 `config.user.json` 是否在项目根、`secrets.openai_api_key` 是否已填且无多余引号空格；勿把密钥发到公共论坛。 |
 | 无法联网查天气/新闻 | 配置 Tavily 相关变量；或接受「未配置则工具返回错误」的设计。 |
-| 飞书无响应 | 查 `.feishu status`、凭证、事件订阅、是否另一进程已占入站锁；见 [FEISHU.md](FEISHU.md)。 |
-| 磁盘里会话太多 | 用 `.session` 管理或迁移 `MINIAGENT_PATHS_STATE_DIR`；理解历史与归档见 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md)。 |
-| 怀疑卡住 | `.status`；必要时查看日志级别 `AGENT_DEBUG`。 |
+| 飞书无响应 | 查 `/feishu status`、凭证、事件订阅、是否另一进程已占入站锁；见 [FEISHU.md](FEISHU.md)。 |
+| 磁盘里会话太多 | 用 `/session` 管理或迁移 `MINIAGENT_PATHS_STATE_DIR`；理解历史与归档见 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md)。 |
+| 怀疑卡住 | `/status`；必要时查看日志级别 `AGENT_DEBUG`。 |
 
 ---
 
@@ -440,4 +440,4 @@ python -m miniagent --stop
 
 ---
 
-**结语**：按第 3～5 章完成安装与启动后，建议先熟悉 **自然语言提问** 与 **`.help` / `.status` / `.session list`**，再按需打开飞书、搜索与技能。遇到问题优先查第 15 章 FAQ 与对应专题文档。
+**结语**：按第 3～5 章完成安装与启动后，建议先熟悉 **自然语言提问** 与 **`/help` / `/status` / `/session list`**，再按需打开飞书、搜索与技能。遇到问题优先查第 15 章 FAQ 与对应专题文档。

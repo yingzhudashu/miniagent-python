@@ -248,8 +248,8 @@ class FeishuRuntime:
 
             if feishu_dot_commands_full_enabled():
                 _logger.warning(
-                    "已启用 MINIAGENT_FEISHU_DOT_COMMANDS_FULL：飞书可使用全部点命令"
-                    "（含 .session/.schedule 变异与 .stop，会修改与 CLI 共享的状态）"
+                    "已启用 MINIAGENT_FEISHU_DOT_COMMANDS_FULL：飞书可使用全部命令"
+                    "（含 /session/.schedule 变异与 /stop，会修改与 CLI 共享的状态）"
                 )
         except Exception:
             pass

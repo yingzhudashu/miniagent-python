@@ -1,6 +1,6 @@
 """统一运行时关闭：定时任务、飞书 WS、消息队列、子进程、实例注册。
 
-供 ``unified_main`` 正常返回、``.stop``、SIGINT/SIGTERM 等路径复用，避免仅 ``cancel`` 不 ``await``
+供 ``unified_main`` 正常返回、``/stop``、SIGINT/SIGTERM 等路径复用，避免仅 ``cancel`` 不 ``await``
 导致飞书 ``finally`` / ``reset_feishu_ws_singleton`` 未执行。
 """
 

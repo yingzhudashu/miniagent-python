@@ -26,7 +26,7 @@
 6. `cleanup_all_processes()`；按需 `release_session_lock`；按需 `unregister_instance()`。
 7. 可选：`loop.shutdown_default_executor()`（短超时）。**信号路径**（`SIGINT`/`SIGTERM`）当前在 [miniagent/engine/main.py](../miniagent/engine/main.py) 传入 `shutdown_default_executor=False`，以降低与全屏 CLI / 线程池的竞态。
 
-**与 `run_cli_loop` 的关系**：用户正常 `quit` 时，循环末尾通常会先 `release_session_lock` + `unregister_instance()`，随后 `unified_main` 再调用 `shutdown_runtime(..., release_cli_session_lock=False, call_unregister=False)`，避免重复；`.stop` 与信号路径则传 `True` 以覆盖未走循环清理即退出的情况。
+**与 `run_cli_loop` 的关系**：用户正常 `quit` 时，循环末尾通常会先 `release_session_lock` + `unregister_instance()`，随后 `unified_main` 再调用 `shutdown_runtime(..., release_cli_session_lock=False, call_unregister=False)`，避免重复；`/stop` 与信号路径则传 `True` 以覆盖未走循环清理即退出的情况。
 
 ## 2. 场景矩阵（合成）
 

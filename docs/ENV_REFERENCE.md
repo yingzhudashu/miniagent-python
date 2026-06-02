@@ -83,7 +83,7 @@
 | `MINIAGENT_FEISHU_DOT_COMMANDS_FULL` | `0` | `1`=飞书点命令与 CLI 同等功能 |
 | `MINIAGENT_FEISHU_USER_ACCESS_TOKEN` | *(空)* | OAuth token；`feishu_doc action=search` 需要 |
 | `MINIAGENT_FEISHU_CARD_EXTRACT_INBOUND` | `1` | `1`=入站 interactive 消息抽取可读文本 |
-| `MINIAGENT_FEISHU_MARKDOWN_COMMANDS` | `0` | `1`=飞书 `.session` 等命令输出 Markdown 表格 |
+| `MINIAGENT_FEISHU_MARKDOWN_COMMANDS` | `0` | `1`=飞书 `/session` 等命令输出 Markdown 表格 |
 | `MINIAGENT_FEISHU_REPLY_IN_THREAD` | `0` | 与 `REPLY_TARGET=reply` 联用，话题内回复 |
 | `MINIAGENT_FEISHU_TABLE_FALLBACK` | `both` | 宽 GFM 表格回退策略：`both`=双模式，`hint`=提示切换，`unicode`=纯 Unicode |
 

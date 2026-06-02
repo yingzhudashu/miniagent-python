@@ -55,7 +55,7 @@ def cmd_instance_handler(
 
         my_instance_id = state.get("instance_id")
         if instance_id == my_instance_id:
-            print(f"{WARNING_PREFIX} 不能停止当前实例，请使用 .stop")
+            print(f"{WARNING_PREFIX} 不能停止当前实例，请使用 /stop")
             return
 
         result = stop_instance_by_id(instance_id)
@@ -66,7 +66,7 @@ def cmd_instance_handler(
 
     else:
         print(f"{WARNING_PREFIX} 未知的子命令: {sub_cmd}")
-        print("用法: .instance list | .instance stop <ID>")
+        print("用法: /instance list | /instance stop <ID>")
 
 
 __all__ = ["cmd_instance_handler"]

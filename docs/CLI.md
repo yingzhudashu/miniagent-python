@@ -1,8 +1,8 @@
 # CLI 命令手册
 
-> Mini Agent Python | 版本: 2.0.3 | 命令支持 `.` 和 `/` 双前缀（推荐使用 `/`）；多数命令在 CLI 与飞书均可使用
+> Mini Agent Python | 版本: 2.0.3 | 命令使用 `/` 前缀；多数命令在 CLI 与飞书均可使用
 
-**命令前缀迁移**：系统支持双前缀（`.`和`/`），推荐使用 `/`（更符合CLI惯例）。例如：`/help`、`/status`、`/session list`。使用 `.` 前缀时会提示迁移。
+**命令前缀**：系统统一使用 `/` 前缀（更符合CLI惯例）。例如：`/help`、`/status`、`/session list`。
 
 在 **本地 CLI** 执行 `/session switch` 时，会同步更新 **CLI 通道绑定** 与已自动跟随的 **飞书私聊 sender**，使二者与 `active_session_id` 一致（在飞书内发 `/session switch` / `create` / `rename` 等变异子命令不会修改共享状态，见 [FEISHU.md](FEISHU.md)）。飞书多实例场景下，仅一个进程可持有入站连接（见 `feishu_inbound_owner.json`）。
 
@@ -18,7 +18,7 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 
 ## 终端 Markdown（Rich，可选）
 
-全屏 CLI（prompt_toolkit TUI）下，上方 transcript 中的 **Assistant 最终回复、dot 命令输出、思考过程正文** 在已安装 **`pip install -e ".[cli]"`** 时由 Rich 将 Markdown（含常见表格）渲染为彩色 ANSI。未安装则显示原始 Markdown 文本。
+全屏 CLI（prompt_toolkit TUI）下，上方 transcript 中的 **Assistant 最终回复、命令输出、思考过程正文** 在已安装 **`pip install -e ".[cli]"`** 时由 Rich 将 Markdown（含常见表格）渲染为彩色 ANSI。未安装则显示原始 Markdown 文本。
 
 - **`MINIAGENT_CLI_RAW_MARKDOWN=1`**：强制关闭回复区 Rich。
 - **`MINIAGENT_CLI_THINKING_RICH=1`**：对**非流式**思考块尝试 Rich；**流式**输出的规划/执行过程仍为纯文本；与工具行合并（`merge_tools`）的短行仍为纯文本。
@@ -68,7 +68,7 @@ MiniAgent 支持多种输入前缀，快速触发不同功能：
 
 | 前缀 | 功能 | 示例 |
 |------|------|------|
-| `/cmd` 或 `.cmd` | CLI命令（推荐使用`/`） | `/help`, `.status` |
+| `/cmd` | CLI命令 | `/help`, `/status` |
 | `!cmd` | 直接执行Bash命令 | `!ls -la`, `!git status` |
 | `@file:<路径>` | 文件引用 | `@file:image.png` |
 
@@ -255,7 +255,7 @@ On branch main
 ✅ 已切换到 打断模式（最新消息打断前面处理）
 ```
 
-**中止队列：**`.queue abort` 与短命令 `.abort` 会取消当前聊天室（飞书为当前群/私聊 `chat_id`，CLI 为内部 `__cli__`）上排队与执行中的任务，包括经 `dispatch_wait` 投递的回合（如部分定时任务）。不会退出进程；与 `.stop`（停实例）不同。
+**中止队列：**`/queue abort` 与短命令 `/abort` 会取消当前聊天室（飞书为当前群/私聊 `chat_id`，CLI 为内部 `__cli__`）上排队与执行中的任务，包括经 `dispatch_wait` 投递的回合（如部分定时任务）。不会退出进程；与 `/stop`（停实例）不同。
 
 **两种模式：**
 - `queue`（默认）：消息按顺序处理
@@ -323,17 +323,17 @@ On branch main
 
 任务持久化在 **`MINIAGENT_PATHS_STATE_DIR/scheduled_tasks/tasks.json`**（未设置环境变量时一般为仓库下 `workspaces/scheduled_tasks/`）。触发时与手动输入一样经 **消息队列** 跑一轮 Agent。详见 [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」与 [USER_GUIDE.md](USER_GUIDE.md) 第 8 章。
 
-**语法摘要**（与无参 `.schedule` 打印一致）：
+**语法摘要**（与无参 `/schedule` 打印一致）：
 
 ```
-.schedule list
-.schedule show <id>
-.schedule remove <id>
-.schedule enable <id>   |   .schedule disable <id>
-.schedule align-tz
-.schedule add <id> every <秒> <primary|ephemeral|fixed:会话ID> [--tz IANA] -- <prompt>
-.schedule add <id> once <ISO8601> <primary|ephemeral|fixed:会话ID> [--tz IANA] -- <prompt>
-.schedule add <id> cron "<分> <时> <日> <月> <周>" <primary|ephemeral|fixed:会话ID> [--tz IANA] -- <prompt>
+/schedule list
+/schedule show <id>
+/schedule remove <id>
+/schedule enable <id>   |   /schedule disable <id>
+/schedule align-tz
+/schedule add <id> every <秒> <primary|ephemeral|fixed:会话ID> [--tz IANA] -- <prompt>
+/schedule add <id> once <ISO8601> <primary|ephemeral|fixed:会话ID> [--tz IANA] -- <prompt>
+/schedule add <id> cron "<分> <时> <日> <月> <周>" <primary|ephemeral|fixed:会话ID> [--tz IANA] -- <prompt>
 ```
 
 **要点**：
@@ -342,23 +342,23 @@ On branch main
 - **`every`**：间隔秒数为正整数；**`once`**：时间为 ISO8601（可含 `Z` 或 `+08:00`）；未带时区的 naive 时间由 **`--tz`** 解释（未写时读 `MINIAGENT_SCHEDULE_TIMEZONE` → `MINIAGENT_TIMEZONE` → `TZ`，见 [ENV_REFERENCE.md](ENV_REFERENCE.md)）。
 - **飞书收结果**：飞书 WebSocket 已连接且任务为 **`primary`** 且已与飞书私聊绑定时，定时任务会镜像思考流与最终回复到飞书（`MINIAGENT_SCHEDULE_FEISHU_MIRROR=0` 关闭）；详见 [USER_GUIDE.md](USER_GUIDE.md) §8。
 - **会话**：`primary` 使用当前路由的主会话 / 活跃会话；`ephemeral` 每次新建临时会话键；`fixed:会话ID` 固定到某会话（如 `fixed:default` 或 `fixed:feishu:oc_xxx`，后者可用于飞书群任务）。
-- **时区**：cron 墙钟以 `tasks.json` 内 `schedule.timezone` 为准；未写 `--tz` 时新建任务默认时区为 `MINIAGENT_SCHEDULE_TIMEZONE` → `MINIAGENT_TIMEZONE` → `TZ` → `Asia/Shanghai`。遗留 `timezone: UTC` 请 **`update --tz`** 或 **`.schedule align-tz`**（批量写盘并重算 `next_run_at`）。
+- **时区**：cron 墙钟以 `tasks.json` 内 `schedule.timezone` 为准；未写 `--tz` 时新建任务默认时区为 `MINIAGENT_SCHEDULE_TIMEZONE` → `MINIAGENT_TIMEZONE` → `TZ` → `Asia/Shanghai`。遗留 `timezone: UTC` 请 **`update --tz`** 或 **`/schedule align-tz`**（批量写盘并重算 `next_run_at`）。
 - **关闭调度循环**（不删任务表）：`MINIAGENT_DISABLE_SCHEDULED_TASKS=1`；dispatch 失败退避秒数：`MINIAGENT_SCHEDULE_DISPATCH_BACKOFF`（默认 60，见 [ENV_REFERENCE.md](ENV_REFERENCE.md)）。
 
-**飞书渠道**：在飞书里发 `.schedule` 时，通常 **仅允许** `list` / `show`；`add` / `remove` / `enable` / `disable` 须在 **本机 CLI** 执行（与 `.session` 变异限制类似）。
+**飞书渠道**：在飞书里发 `/schedule` 时，通常 **仅允许** `list` / `show`；`add` / `remove` / `enable` / `disable` 须在 **本机 CLI** 执行（与 `/session` 变异限制类似）。
 
-**Agent 工具**（可选，由环境变量控制注册）：`run_dot_command` 可执行与上文相同的点命令行；`manage_scheduled_task` 以 JSON 维护任务。见 [ENV_REFERENCE.md](ENV_REFERENCE.md) 中 `MINIAGENT_CLI_DOT_TOOLS`、`MINIAGENT_SCHEDULE_TOOLS`。
+**Agent 工具**（可选，由环境变量控制注册）：`run_command` 可执行与上文相同的命令行；`manage_scheduled_task` 以 JSON 维护任务。见 [ENV_REFERENCE.md](ENV_REFERENCE.md) 中 `MINIAGENT_CLI_DOT_TOOLS`、`MINIAGENT_SCHEDULE_TOOLS`。
 
-### /bind / .unbind — 通道绑定
+### /bind / /unbind — 通道绑定
 
 将 CLI 或飞书私聊绑定到同一会话，共享记忆与上下文；**飞书群聊不参与绑定**。
 
-- `.bind status` — 查看绑定
-- `.bind cli <会话>` — CLI 绑定（编号或 ID）
-- `.bind feishu <sender_id> <会话>` — 飞书私聊绑定
-- `.unbind cli` / `.unbind feishu <sender_id>` / `.unbind all` — 解除绑定
+- `/bind status` — 查看绑定
+- `/bind cli <会话>` — CLI 绑定（编号或 ID）
+- `/bind feishu <sender_id> <会话>` — 飞书私聊绑定
+- `/unbind cli` / `/unbind feishu <sender_id>` / `/unbind all` — 解除绑定
 
-示例输出、自动跟随 `.session switch` 与私聊首条自动绑定等见 **[CHANNEL_BINDING.md](CHANNEL_BINDING.md)**。
+示例输出、自动跟随 `/session switch` 与私聊首条自动绑定等见 **[CHANNEL_BINDING.md](CHANNEL_BINDING.md)**。
 
 ### /feishu — 飞书控制
 
@@ -477,7 +477,7 @@ file_patterns:         # 包含的文件模式
 
 测试样本位于 `tests/evaluation/samples/`。
 
-### /confirm / .adjust / .reject — 确认侧通道
+### /confirm / /adjust / /reject — 确认侧通道
 
 当 Agent 通过确认通道（`ConfirmationChannel`）发起待确认请求时，可用以下命令响应：
 
@@ -492,21 +492,21 @@ file_patterns:         # 包含的文件模式
 ✅ 已拒绝
 ```
 
-`.confirm` 直接通过；`.adjust` 携带调整内容作为回答注入；`.reject` 拒绝请求。
+`/confirm` 直接通过；`/adjust` 携带调整内容作为回答注入；`/reject` 拒绝请求。
 
 ## 飞书中使用命令
 
-飞书消息以 `.` 开头时，自动路由到命令调度器而非 Agent：
+飞书消息以 `/` 开头时，自动路由到命令调度器而非 Agent：
 
-- **多数**点命令（如 `.status`、`.help`、`.queue status`）可在飞书使用。
-- **默认仅本机 CLI**：`.schedule` 的 `add` / `update` / `remove` / `enable` / `disable` / `align-tz`；`.session` 的 `switch` / `create` / `rename`；`.stop`（与 [USER_GUIDE.md](USER_GUIDE.md) 第 8、9 章一致）。
-- **全开**：设置 `MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1` 后飞书与 CLI 点命令能力相同（见 [FEISHU.md](FEISHU.md)）。
+- **多数**命令（如 `/status`、`/help`、`/queue status`）可在飞书使用。
+- **默认仅本机 CLI**：`/schedule` 的 `add` / `update` / `remove` / `enable` / `disable` / `align-tz`；`/session` 的 `switch` / `create` / `rename`；`/stop`（与 [USER_GUIDE.md](USER_GUIDE.md) 第 8、9 章一致）。
+- **全开**：设置 `MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1` 后飞书与 CLI 命令能力相同（见 [FEISHU.md](FEISHU.md)）。
 
 ```
-飞书发送: .status
+飞书发送: /status
 飞书回复: 🏭 实例: #1 ...
 
-飞书发送: .help
+飞书发送: /help
 飞书回复: (完整帮助信息)
 
 飞书发送: 今天天气怎么样

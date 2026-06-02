@@ -1,13 +1,12 @@
 """Engine — 统一命令调度器
 
-CLI 和飞书共享的命令路由，支持 `.` 和 `/` 两种前缀（推荐使用 `/`）。
+CLI 和飞书共享的命令路由，使用 `/` 前缀。
 
 核心特性：
 - print 捕获：CLI 命令原本用 print()，飞书需要返回字符串
-- 不中断：`.status` 等检查命令不会打断正在运行的 agent
+- 不中断：`/status` 等检查命令不会打断正在运行的 agent
 - 远程约束：飞书侧 `capture=True` 时默认 `allow_session_mutations_when_capture=False`，
-  阻止 `.session switch/create/rename` 与 `.schedule` 变异；`MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1` 时放开
-- 双前缀支持：同时支持 `.` 和 `/` 前缀，逐步迁移到 `/`（更符合CLI惯例）
+  阻止 `/session switch/create/rename` 与 `/schedule` 变异；`MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1` 时放开
 
 命令全集与用户说明见 ``docs/CLI.md``；飞书约束见 ``docs/FEISHU.md``。
 """
@@ -30,7 +29,7 @@ _logger = get_logger(__name__)
 
 _REMOTE_SESSION_HINT = (
     "⚠️ 该命令会修改与 CLI 共享的会话状态，请在本地 MiniAgent 终端执行。\n"
-    "飞书上可使用 .session list 查看会话列表。"
+    "飞书上可使用 /session list 查看会话列表。"
 )
 
 
@@ -59,27 +58,23 @@ async def dispatch_command(
         skill_toolboxes: 技能工具箱
         skill_prompts: 技能提示词
         capture: True = 捕获 print 输出并返回（飞书用），False = 直接 print（CLI 用）
-        allow_session_mutations_when_capture: capture=True 时是否允许执行 .session
+        allow_session_mutations_when_capture: capture=True 时是否允许执行 /session
             switch/create/rename（飞书应传 False，避免改 CLI 共享 state）
-        feishu_user_status: capture=True 时若传入，则 .feishu start 用其写入全屏 transcript；
+        feishu_user_status: capture=True 时若传入，则 /feishu start 用其写入全屏 transcript；
             为 None 且 capture=True 时用 print 捕获（飞书）；capture=False 时默认
             使用 ``_feishu_user_status_fn(runtime_ctx)``
-        message_queue_abort_chat_id: 飞书入站 ``chat_id``（集成侧应传入）；供 ``.queue abort`` / ``.abort``
+        message_queue_abort_chat_id: 飞书入站 ``chat_id``（集成侧应传入）；供 ``/queue abort`` / ``/abort``
             定位要中止的 per-chat 队列。缺省为 CLI 专用 ``__cli__``。
 
     Returns:
         capture=True 时返回输出字符串，capture=False 时返回 None
     """
-    # 支持双前缀：.` 和 `/`（推荐使用 `/`）
-    if not (text.startswith(".") or text.startswith("/")):
+    # 仅支持 / 前缀（统一命令格式）
+    if not text.startswith("/"):
         return None
 
     # 提取命令（去掉前缀）
     command = text[1:]
-
-    # 如果使用旧前缀 `.`，添加迁移提示（仅CLI模式）
-    if text.startswith(".") and not capture:
-        _logger.info("提示: 命令前缀正从 `.` 迁移到 `/`，建议使用 `/%s`", command)
 
     from miniagent.engine.btw_cmd import (
         cmd_btw_cancel,
@@ -140,18 +135,18 @@ async def dispatch_command(
     parts = text.split()
     cmd = parts[0].lower() if parts else ""
 
-    # ── .status ──
-    if cmd in (".status", "/status"):
+    # ── /status ──
+    if cmd == "/status":
         output = _format_status(state)
         if capture:
             return output
         print(output)
         return None
 
-    # ── .stop：飞书 capture 默认拒绝；MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1 时与 CLI 相同
-    if cmd in (".stop", "/stop"):
+    # ── /stop：飞书 capture 默认拒绝；MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1 时与 CLI 相同
+    if cmd == "/stop":
         if capture and not feishu_dot_commands_full_enabled():
-            return f"{WARNING_PREFIX} .stop 命令只能在 CLI 使用（或设置 MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1）"
+            return f"{WARNING_PREFIX} /stop 命令只能在 CLI 使用（或设置 MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1）"
         from miniagent.engine.shutdown import shutdown_runtime
 
         await shutdown_runtime(
@@ -164,7 +159,7 @@ async def dispatch_command(
         return "__EXIT__"
 
     # ── instance ──
-    if cmd in (".instance", "/instance"):
+    if cmd == "/instance":
         sub_cmd = parts[1] if len(parts) > 1 else ""
         output = _capture(
             lambda md=md_cmds: cmd_instance_handler(parts, sub_cmd, state, markdown=md)
@@ -175,7 +170,7 @@ async def dispatch_command(
         return None
 
     # ── session ──
-    if cmd in (".session", "/session"):
+    if cmd == "/session":
         sub_cmd = parts[1] if len(parts) > 1 else ""
         sm = state.get("session_manager")
         active = state.get("active_session_id", "")
@@ -251,8 +246,8 @@ async def dispatch_command(
         print(output)
         return None
 
-    # ── .feishu ──
-    if cmd in (".feishu", "/feishu"):
+    # ── /feishu ──
+    if cmd == "/feishu":
         factory = rt.create_feishu_handler_factory
 
         def _resolve_feishu_user_status() -> Callable[[str], None] | None:
@@ -265,7 +260,7 @@ async def dispatch_command(
 
             return feishu_user_status_fn(rt)
 
-        if text == ".feishu start":
+        if text == "/feishu start":
             if factory is None:
                 output = f"{WARNING_PREFIX} 飞书处理器工厂未初始化"
             else:
@@ -287,7 +282,7 @@ async def dispatch_command(
                     )
 
                 output = _capture(_start)
-        elif text == ".feishu stop":
+        elif text == "/feishu stop":
             output = _capture(feishu_rt.stop)
         else:
             output = _capture(feishu_rt.status)
@@ -303,16 +298,16 @@ async def dispatch_command(
         res = message_queue.abort_chat(tid)
         return format_queue_abort_message(res)
 
-    # ── .abort / .queue abort（不退出进程；飞书 handler 应传入当前 chat_id，缺省视为 CLI 队列）──
-    if cmd in (".abort", "/abort"):
+    # ── /abort / /queue abort（不退出进程；飞书 handler 应传入当前 chat_id，缺省视为 CLI 队列）──
+    if cmd == "/abort":
         output = _abort_queue_output()
         if capture:
             return output
         print(output)
         return None
 
-    # ── .queue ──
-    if cmd in (".queue", "/queue"):
+    # ── /queue ──
+    if cmd == "/queue":
         sub = parts[1] if len(parts) > 1 else ""
         if sub == "status":
             output = _capture(lambda md=md_cmds: cmd_queue_status(message_queue, markdown=md))
@@ -334,8 +329,8 @@ async def dispatch_command(
         print(output)
         return None
 
-    # ── .stats ──
-    if cmd in (".stats", "/stats"):
+    # ── /stats ──
+    if cmd == "/stats":
         if monitor:
             output = _capture(lambda: print(f"\n{monitor.report()}"))
         else:
@@ -371,7 +366,7 @@ async def dispatch_command(
         return None
 
     # ── btw: 后台任务系统 ──
-    if cmd in (".btw", "/btw"):
+    if cmd == "/btw":
         sub_cmd = parts[1] if len(parts) > 1 else ""
 
         if sub_cmd == "start" and len(parts) >= 3:
@@ -401,7 +396,7 @@ async def dispatch_command(
         return None
 
     # ── model: 显示/切换模型 ──
-    if cmd in (".model", "/model"):
+    if cmd == "/model":
         if len(parts) > 1:
             # 切换模型
             new_model = parts[1]
@@ -415,7 +410,7 @@ async def dispatch_command(
         return None
 
     # ── copy: 复制助手回复 ──
-    if cmd in (".copy", "/copy"):
+    if cmd == "/copy":
         sm = state.get("session_manager")
         session_id = state.get("active_session_id", "")
         # 解析参数
@@ -433,23 +428,34 @@ async def dispatch_command(
         return None
 
     # ── doctor: 环境诊断 ──
-    if cmd in (".doctor", "/doctor"):
+    if cmd == "/doctor":
         output = diagnose_environment()
         if capture:
             return output
         print(output)
         return None
 
-    # ── query: 队列状态（合并.queue status） ──
-    if cmd in (".query", "/query"):
+    # ── query: 队列状态（合并/queue status） ──
+    if cmd == "/query":
         output = _capture(lambda md=md_cmds: cmd_queue_status(message_queue, markdown=md))
         if capture:
             return output
         print(output)
         return None
 
-    # ── .help ──
-    if cmd in (".help", "/help"):
+    # ── /config（配置查看）──
+    if cmd == "/config":
+        from miniagent.engine.config_cmd import format_config_info
+
+        section = parts[1] if len(parts) > 1 else None
+        output = format_config_info(section)
+        if capture:
+            return output
+        print(output)
+        return None
+
+    # ── /help ──
+    if cmd == "/help":
         output = _capture(
             lambda: cmd_help(message_queue, state.get("instance_id"))
         )
@@ -458,8 +464,8 @@ async def dispatch_command(
         print(output)
         return None
 
-    # ── .bind ──
-    if cmd in (".bind", "/bind"):
+    # ── /bind ──
+    if cmd == "/bind":
         if channel_router is None:
             output = f"{WARNING_PREFIX} 通道路由器未初始化"
         else:
@@ -470,8 +476,8 @@ async def dispatch_command(
         print(output)
         return None
 
-    # ── .unbind ──
-    if cmd in (".unbind", "/unbind"):
+    # ── /unbind ──
+    if cmd == "/unbind":
         if channel_router is None:
             output = f"{WARNING_PREFIX} 通道路由器未初始化"
         else:
@@ -482,8 +488,8 @@ async def dispatch_command(
         print(output)
         return None
 
-    # ── .schedule（定时任务）──
-    if cmd in (".schedule", "/schedule"):
+    # ── /schedule（定时任务）──
+    if cmd == "/schedule":
         from miniagent.engine.cli_commands import cmd_schedule
 
         sub_s = parts[1].lower() if len(parts) > 1 else ""
@@ -495,8 +501,8 @@ async def dispatch_command(
         print(output)
         return None
 
-    # ── .kb（知识库）──
-    if cmd in (".kb", "/kb"):
+    # ── /kb（知识库）──
+    if cmd == "/kb":
         sub_cmd = parts[1].lower() if len(parts) > 1 else ""
         md_kb = capture and feishu_markdown_commands_enabled()
 
@@ -531,13 +537,13 @@ async def dispatch_command(
         print(output)
         return None
 
-    # ── .review（自我反驳式答案优化）──
-    if cmd in (".review", "/review"):
+    # ── /review（自我反驳式答案优化）──
+    if cmd == "/review":
         rt = state.get("runtime_ctx")
         sm = state.get("session_manager")
         session_id = state.get("active_session_id", "")
         if rt is None or sm is None or not session_id:
-            output = f"{WARNING_PREFIX} .review 需要会话上下文和会话管理器"
+            output = f"{WARNING_PREFIX} /review 需要会话上下文和会话管理器"
         else:
             # 获取最后一轮 Q&A
             user_msg, assistant_msg = _get_last_qa(sm, session_id)
@@ -558,13 +564,13 @@ async def dispatch_command(
             print(output)
         return None
 
-    # ── .improve（根据质量评估建议改进答案）──
-    if cmd in (".improve", "/improve"):
+    # ── /improve（根据质量评估建议改进答案）──
+    if cmd == "/improve":
         rt = state.get("runtime_ctx")
         sm = state.get("session_manager")
         session_id = state.get("active_session_id", "")
         if rt is None or sm is None or not session_id:
-            output = f"{WARNING_PREFIX} .improve 需要会话上下文和会话管理器"
+            output = f"{WARNING_PREFIX} /improve 需要会话上下文和会话管理器"
         else:
             # 解析参数
             force = "--force" in parts
@@ -619,26 +625,26 @@ async def dispatch_command(
             print(output)
         return None
 
-    # ── .confirm / .adjust / .reject（确认侧通道）──
-    if cmd in (".confirm", ".adjust", ".reject"):
+    # ── /confirm / /adjust / /reject（确认侧通道）──
+    if cmd in ("/confirm", "/adjust", "/reject"):
         cc = getattr(engine, "confirmation_channel", None) if engine else None
         if cc is None or not cc.has_pending:
             output = f"{WARNING_PREFIX} 当前无待确认的请求"
-        elif cmd in (".confirm", "/confirm"):
+        elif cmd == "/confirm":
             from miniagent.types.confirmation import ConfirmationResult
 
             cc.respond(ConfirmationResult(approved=True))
             output = f"{SUCCESS_PREFIX} 已确认，继续执行"
-        elif cmd in (".reject", "/reject"):
+        elif cmd == "/reject":
             from miniagent.types.confirmation import ConfirmationResult
 
             cc.respond(ConfirmationResult(approved=False, rejected=True))
             output = f"{WARNING_PREFIX} 已拒绝，取消当前操作"
         else:
-            # .adjust <新内容>
+            # /adjust <新内容>
             adjustment = " ".join(parts[1:]).strip()
             if not adjustment:
-                output = "用法：.adjust <调整后的内容>"
+                output = "用法：/adjust <调整后的内容>"
             else:
                 from miniagent.types.confirmation import ConfirmationResult
 
@@ -650,8 +656,8 @@ async def dispatch_command(
         print(output)
         return None
 
-    # ── .test（自测命令）──
-    if cmd in (".test", "/test"):
+    # ── /test（自测命令）──
+    if cmd == "/test":
         sub_cmd = parts[1].lower() if len(parts) > 1 else ""
 
         if sub_cmd == "run":
@@ -695,7 +701,7 @@ def _capture(fn: Callable[[], None]) -> str:
     return buf.getvalue().strip()
 
 
-# ─── .review 辅助函数 ───────────────────────────────
+# ─── /review 辅助函数 ───────────────────────────────
 
 _REVIEW_SYSTEM = """你是一个严格的自我批判专家。请审查以下问答中的知识错误、逻辑错误、表述不清等。
 
@@ -869,7 +875,7 @@ async def _run_review(
     return None
 
 
-# ─── .improve 辅助函数 ───────────────────────────────
+# ─── /improve 辅助函数 ───────────────────────────────
 
 _IMPROVE_SYSTEM = """你是一个答案优化专家。根据质量评估建议改进答案。
 返回 JSON 格式 {"improved_answer": "改进后的完整答案"}，不要包含其他文字。"""
@@ -963,7 +969,7 @@ async def _run_improve(
 
 
 def _format_status(state: CliLoopState | dict[str, Any]) -> str:
-    """格式化 .status 输出。"""
+    """格式化 /status 输出。"""
     lines = []
 
     rt = state.get("runtime_ctx")
@@ -1022,7 +1028,7 @@ def _format_status(state: CliLoopState | dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-# ─── .test 辅助函数 ───────────────────────────────
+# ─── /test 辅助函数 ───────────────────────────────
 
 async def _run_test(
     category: str | None = None,

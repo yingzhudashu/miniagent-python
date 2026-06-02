@@ -4,9 +4,9 @@
 
 ## 设计原理
 
-- **CLI**：启动时由 `init_subsystems` 将 `__cli__` 绑定到本实例的默认会话（`default` 或 `default-xxxx`），并 `set_primary`；执行 `.session switch` 成功后会**同步** `__cli__` 与「自动跟随」的飞书私聊 sender 到同一目标会话。
+- **CLI**：启动时由 `init_subsystems` 将 `__cli__` 绑定到本实例的默认会话（`default` 或 `default-xxxx`），并 `set_primary`；执行 `/session switch` 成功后会**同步** `__cli__` 与「自动跟随」的飞书私聊 sender 到同一目标会话。
 - **飞书群聊**：始终独立会话 `feishu:<chat_id>`，不参与「随 CLI 切换」的自动绑定。
-- **飞书私聊**：首条私聊消息到达时，若该 `feishu_p2p:<sender_id>` 尚未绑定，则**自动绑定**到当前 `active_session_id`（与 CLI 同一工作会话）；sender 记入 `feishu_p2p_synced_senders`，之后随 `.session switch` 一起重绑。若你使用 `.bind feishu <sender> <会话>` 手动绑定，该 sender 会从自动同步集合中移除，以免切换会话时覆盖你的手动映射。
+- **飞书私聊**：首条私聊消息到达时，若该 `feishu_p2p:<sender_id>` 尚未绑定，则**自动绑定**到当前 `active_session_id`（与 CLI 同一工作会话）；sender 记入 `feishu_p2p_synced_senders`，之后随 `/session switch` 一起重绑。若你使用 `/bind feishu <sender> <会话>` 手动绑定，该 sender 会从自动同步集合中移除，以免切换会话时覆盖你的手动映射。
 
 通道绑定通过 `ChannelRouter` 将多个通道映射到**同一个主会话**，实现：
 - **记忆共享**：跨通道的对话历史、事实提取、摘要全部互通
@@ -44,7 +44,7 @@
 
 ```bash
 # 1. CLI 中绑定飞书私聊到你的主会话
-> .bind feishu ou_xxxxxxxxxxxxx default
+> /bind feishu ou_xxxxxxxxxxxxx default
 
 ✅ 飞书私聊 (ou_xxxxxx...) 已绑定到: default
 
@@ -64,7 +64,7 @@
 
 ```bash
 # 1. CLI 绑定到飞书群聊会话（oc_ 会自动规范为 feishu:oc_xxx）
-> .bind cli oc_xxxxxxxxxxxxx
+> /bind cli oc_xxxxxxxxxxxxx
 
 ✅ CLI 已绑定到会话: feishu:oc_xxxxxxxxxxxxx
 
@@ -74,25 +74,25 @@
 
 **典型工作流**：
 - 飞书群聊是日常工作界面
-- CLI 用于 `.stats`、`.status` 等诊断命令
+- CLI 用于 `/stats`、`/status` 等诊断命令
 - 通过 CLI 发送消息时，使用飞书群的记忆和文件
-- **CLI 聚焦为飞书群聊**时：终端仅显示该群的入站预览与思考镜像；其它群聊仍在后台处理但不写入 CLI；飞书私聊不会自动接入该群会话（`.bind feishu` 绑到群会话会被拒绝）
+- **CLI 聚焦为飞书群聊**时：终端仅显示该群的入站预览与思考镜像；其它群聊仍在后台处理但不写入 CLI；飞书私聊不会自动接入该群会话（`/bind feishu` 绑到群会话会被拒绝）
 
 ### 场景 3：解除绑定
 
 ```bash
 # 解除 CLI 绑定
-> .unbind cli
+> /unbind cli
 
 ✅ CLI 已解除绑定（原: oc_xxxxxx）
 
 # 解除飞书私聊绑定
-> .unbind feishu ou_xxxxxxxxxxxxx
+> /unbind feishu ou_xxxxxxxxxxxxx
 
 ✅ 飞书私聊 (ou_xxxxxx...) 已解除绑定（原: default）
 
 # 解除所有绑定
-> .unbind all
+> /unbind all
 
 ✅ 已解除 2 个通道绑定
 ```
@@ -101,12 +101,12 @@
 
 | 命令 | 说明 |
 |------|------|
-| `.bind status` | 查看所有通道绑定状态 |
-| `.bind cli <会话>` | CLI 绑定到指定会话 |
-| `.bind feishu <sender_id> <会话>` | 飞书私聊绑定到指定会话 |
-| `.unbind cli` | 解除 CLI 绑定 |
-| `.unbind feishu <sender_id>` | 解除飞书私聊绑定 |
-| `.unbind all` | 解除所有绑定 |
+| `/bind status` | 查看所有通道绑定状态 |
+| `/bind cli <会话>` | CLI 绑定到指定会话 |
+| `/bind feishu <sender_id> <会话>` | 飞书私聊绑定到指定会话 |
+| `/unbind cli` | 解除 CLI 绑定 |
+| `/unbind feishu <sender_id>` | 解除飞书私聊绑定 |
+| `/unbind all` | 解除所有绑定 |
 
 **会话标识**：支持编号（`1`）和原始 ID（`default`、`oc_xxx`）。
 
@@ -165,9 +165,9 @@ channel_router.from_dict(data)      # 恢复绑定状态
 | **一般模式** | CLI 绑定 `default`、`__cli__` 等非 `feishu:oc_*` 会话 | 否（后台仍回复飞书） | 是（当私聊已绑定到与 CLI 相同会话） |
 | **飞书群聊聚焦** | CLI 绑定 `feishu:<chat_id>` | 是（仅当前绑定群） | 否 |
 
-- `.bind status` 末尾会打印当前聚焦模式说明。
-- `.bind cli <会话>` 会同步 `ChannelRouter.primary`（与 `.session switch` 一致），私聊预览标签 `[飞书私聊→…]` 与门控会话一致。
-- `.bind cli` / `.bind feishu` 的目标会话：裸 `oc_*` 规范为 `feishu:oc_*`；`ou_*` 为用户 ID，不自动加 `feishu:` 前缀。
+- `/bind status` 末尾会打印当前聚焦模式说明。
+- `/bind cli <会话>` 会同步 `ChannelRouter.primary`（与 `/session switch` 一致），私聊预览标签 `[飞书私聊→…]` 与门控会话一致。
+- `/bind cli` / `/bind feishu` 的目标会话：裸 `oc_*` 规范为 `feishu:oc_*`；`ou_*` 为用户 ID，不自动加 `feishu:` 前缀。
 - 飞书侧以 `.` 开头的命令在镜像前也会执行私聊自动绑定（与正文消息顺序一致）。
 - 实现见 `miniagent/infrastructure/cli_feishu_policy.py`，飞书 handler 在 `miniagent/engine/main.py` 中调用 `should_mirror_feishu_to_cli`。
 
