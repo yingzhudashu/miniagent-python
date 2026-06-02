@@ -119,7 +119,7 @@ my_kb/
 
 ### 可选增强
 
-环境变量 `MINIAGENT_EMBED_SEARCH=1` 启用向量检索（需要嵌入模型）。
+环境变量 `MINIAGENT_EMBEDDING_ENABLED=1` 启用向量检索（需要嵌入模型）。
 
 ## 配置选项
 

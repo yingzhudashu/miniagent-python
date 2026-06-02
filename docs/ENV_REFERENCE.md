@@ -140,14 +140,14 @@
 
 ## 10. 嵌入搜索（语义记忆）
 
-> 使用 `MINIAGENT_EMBED_BASE_URL` / `MINIAGENT_EMBED_MODEL` 配置专用的 embedding 服务。
+> 使用 `MINIAGENT_EMBEDDING_BASE_URL` / `MINIAGENT_EMBEDDING_MODEL` 配置专用的 embedding 服务。
 > 未配置时不进行向量搜索，仅用关键词倒排索引。
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `MINIAGENT_EMBED_SEARCH` | `0` | `1`/`true` 开启嵌入搜索 |
-| `MINIAGENT_EMBED_BASE_URL` | *(空)* | 专用 embedding 服务 URL |
-| `MINIAGENT_EMBED_MODEL` | *(空)* | 专用 embedding 模型（如 `text-embedding-3-small`） |
+| `MINIAGENT_EMBEDDING_ENABLED` | `0` | `1`/`true` 开启嵌入搜索 |
+| `MINIAGENT_EMBEDDING_BASE_URL` | *(空)* | 专用 embedding 服务 URL |
+| `MINIAGENT_EMBEDDING_MODEL` | *(空)* | 专用 embedding 模型（如 `text-embedding-3-small`） |
 | `MINIAGENT_EMBEDDING_DIMENSION` | `1536` | 向量维度（通常无需手动设置） |
 | `MINIAGENT_EMBEDDING_TOP_K` | `8` | 最多返回记忆条目数 |
 | `MINIAGENT_EMBEDDING_MIN_SCORE` | `0.3` | 最低余弦相似度阈值 |

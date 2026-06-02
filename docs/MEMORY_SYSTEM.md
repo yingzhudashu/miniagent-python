@@ -228,7 +228,7 @@ Layer 3 包含两个互补的检索后端：关键词索引（始终启用）和
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `MINIAGENT_EMBEDDING_SEARCH` | `0` | `1`/`true` 开启嵌入搜索 |
+| `MINIAGENT_EMBEDDING_ENABLED` | `0` | `1`/`true` 开启嵌入搜索 |
 | `MINIAGENT_EMBEDDING_BASE_URL` | *(空)* | embedding 服务 URL |
 | `MINIAGENT_EMBEDDING_MODEL` | *(空)* | embedding 模型 |
 | `MINIAGENT_EMBEDDING_API_KEY` | *(空)* | embedding API 密钥 |
@@ -316,7 +316,7 @@ messages = [
 | `MINIAGENT_MEMORY_STORE_CACHE_MAX` | `50` | `store.py` LRU 缓存上限（会话数） |
 | `MINIAGENT_REGISTRY_MAX_ENTRIES` | `3000` | `shared_registry.py` 共享注册表上限 |
 | `MINIAGENT_MEMORY_KEYWORD_INDEX_MAX` | `20000` | `keyword_index.py` 关键词数上限 |
-| `MINIAGENT_EMBEDDING_SEARCH` | `0` | `embedding_search.py` 是否启用嵌入搜索 |
+| `MINIAGENT_EMBEDDING_ENABLED` | `0` | `embedding_search.py` 是否启用嵌入搜索 |
 | `MINIAGENT_EMBEDDING_MAX_ENTRIES` | `2000` | `embedding_search.py` 嵌入条目上限 |
 | `MINI_AGENT_DREAM_*` | `7d/30d/365d` | `dream_scheduler.py` 维护周期 |
 | `MINI_AGENT_DREAM_SIZE_BYTES` | *(无)* | 体量闸门阈值 |

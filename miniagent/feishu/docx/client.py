@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from miniagent.feishu.lark_client import build_client
 from miniagent.feishu.lark_response import format_lark_response_error
 from miniagent.feishu.types import FeishuConfig
@@ -51,7 +53,6 @@ def get_document(config: FeishuConfig, document_id: str) -> dict[str, Any]:
     Raises:
         RuntimeError: 获取失败或返回数据为空
     """
-    from typing import Any
     from lark_oapi.api.docx.v1 import GetDocumentRequest
 
     client = build_client(config)
