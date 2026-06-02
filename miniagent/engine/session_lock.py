@@ -118,6 +118,42 @@ def try_lock_session(session_id: str) -> tuple[bool, str]:
     return True, ""
 
 
+async def try_lock_session_async(session_id: str) -> tuple[bool, str]:
+    """异步尝试获取会话锁（不阻塞事件循环）。
+
+    用于异步上下文（如 CLI 命令处理）中获取锁，
+    避免 subprocess.check_output 阻塞事件循环。
+
+    Returns:
+        (success, reason) — success=True 表示锁获取成功
+    """
+    lock_path = _get_lock_path(session_id)
+    my_pid = os.getpid()
+    os.makedirs(os.path.dirname(lock_path), exist_ok=True)
+
+    if os.path.exists(lock_path):
+        try:
+            with open(lock_path) as f:
+                locked_pid = int(f.read().strip())
+            if locked_pid == my_pid:
+                return True, ""  # 我自己锁的，幂等
+            if await _is_process_running_async(locked_pid):
+                return False, f"被其他实例占用 (PID={locked_pid})"
+            try:
+                os.unlink(lock_path)
+            except OSError:
+                pass
+        except (ValueError, OSError):
+            try:
+                os.unlink(lock_path)
+            except OSError:
+                pass
+
+    with open(lock_path, "w") as f:
+        f.write(str(my_pid))
+    return True, ""
+
+
 def release_session_lock(session_id: str) -> None:
     """释放会话锁（仅释放当前进程的锁）。"""
     lock_path = _get_lock_path(session_id)
@@ -152,4 +188,4 @@ def is_session_locked(session_id: str) -> int | None:
     return None
 
 
-__all__ = ["try_lock_session", "release_session_lock", "is_session_locked"]
+__all__ = ["try_lock_session", "try_lock_session_async", "release_session_lock", "is_session_locked"]

@@ -509,7 +509,7 @@ async def cmd_session_switch(
     session_manager: Any,
     active_session_id: str,
     id_or_number: str,
-    try_lock_session: Any,
+    try_lock_session_async: Any,
     release_session_lock: Any,
     is_session_locked: Any,
     channel_router: Any | None = None,
@@ -528,7 +528,7 @@ async def cmd_session_switch(
         session_manager: 会话管理器实例
         active_session_id: 当前活跃会话 ID
         id_or_number: 目标会话编号（如 1）或原始 ID
-        try_lock_session: 尝试获取会话锁的函数
+        try_lock_session_async: 异步尝试获取会话锁的函数
         release_session_lock: 释放会话锁的函数
         is_session_locked: 检查会话是否被锁定的函数
 
@@ -569,7 +569,7 @@ async def cmd_session_switch(
                 f"{locked_sessions[0]['title']} 被其他实例占用 (PID={lock_pid})"
             )
             # 重新锁定当前会话
-            try_lock_session(active_session_id)
+            await try_lock_session_async(active_session_id)
             return active_session_id
 
     # 确保目标会话已加载
@@ -579,10 +579,10 @@ async def cmd_session_switch(
         pass
 
     # 获取目标会话锁
-    ok, reason = try_lock_session(session_id)
+    ok, reason = await try_lock_session_async(session_id)
     if not ok:
         print(f"{ERROR_PREFIX} 无法切换: {reason}")
-        try_lock_session(active_session_id)
+        await try_lock_session_async(active_session_id)
         return active_session_id
 
     # 切换成功：CLI 与自动同步的飞书私聊跟到同一 session_key
@@ -598,7 +598,7 @@ async def cmd_session_switch(
 
 
 async def cmd_session_create(
-    session_manager: Any, session_id: str, title: str | None, try_lock_session: Any
+    session_manager: Any, session_id: str, title: str | None, try_lock_session_async: Any
 ) -> None:
     """创建新会话并自动获取锁。
 
@@ -606,7 +606,7 @@ async def cmd_session_create(
         session_manager: 会话管理器实例
         session_id: 新会话的唯一标识
         title: 会话标题（可选，默认为空）
-        try_lock_session: 尝试获取会话锁的函数
+        try_lock_session_async: 异步尝试获取会话锁的函数
     """
     if not session_manager:
         print(f"{WARNING_PREFIX} 会话管理器未初始化")
@@ -622,7 +622,7 @@ async def cmd_session_create(
     session_manager.get_or_create(session_id, session_opts)
 
     # 获取新会话的锁
-    try_lock_session(session_id)
+    await try_lock_session_async(session_id)
 
     display = session_manager.get_session_display_name(session_id)
     print(f"{SUCCESS_PREFIX} 已创建会话: {display}")

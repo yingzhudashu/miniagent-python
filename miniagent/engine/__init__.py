@@ -31,7 +31,12 @@ from miniagent.engine.engine import UnifiedEngine
 from miniagent.engine.feishu_state import FeishuRuntime
 from miniagent.engine.init import init_subsystems
 from miniagent.engine.main import run_cli_loop, unified_main
-from miniagent.engine.session_lock import is_session_locked, release_session_lock, try_lock_session
+from miniagent.engine.session_lock import (
+    is_session_locked,
+    release_session_lock,
+    try_lock_session,
+    try_lock_session_async,
+)
 from miniagent.engine.shutdown import shutdown_runtime
 from miniagent.engine.welcome import get_session_display, get_version, print_welcome
 
@@ -43,6 +48,7 @@ except ImportError:
 
 __all__ = [
     "try_lock_session",
+    "try_lock_session_async",
     "release_session_lock",
     "is_session_locked",
     "ThinkingDisplay",

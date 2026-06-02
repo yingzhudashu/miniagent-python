@@ -2213,6 +2213,7 @@ async def _run_cli_loop_fallback(
         is_session_locked,
         release_session_lock,
         try_lock_session,
+        try_lock_session_async,
     )
     from miniagent.skills.snapshots import (
         get_skill_prompts_from_state,
@@ -2353,7 +2354,7 @@ async def _run_cli_loop_fallback(
                     state.get("session_manager"),
                     state["active_session_id"],
                     parts[2],
-                    try_lock_session,
+                    try_lock_session_async,
                     release_session_lock,
                     is_session_locked,
                     channel_router,
@@ -2366,7 +2367,7 @@ async def _run_cli_loop_fallback(
                     state.get("session_manager"),
                     parts[2],
                     parts[3] if len(parts) > 3 else None,
-                    try_lock_session,
+                    try_lock_session_async,
                 )
             elif sub_cmd == "rename" and len(parts) >= 4:
                 cmd_session_rename(state.get("session_manager"), parts[2], " ".join(parts[3:]))

@@ -120,6 +120,7 @@ async def dispatch_command(
         is_session_locked,
         release_session_lock,
         try_lock_session,
+        try_lock_session_async,
     )
 
     rt = state.get("runtime_ctx")
@@ -194,7 +195,7 @@ async def dispatch_command(
                             sm,
                             active,
                             parts[2],
-                            try_lock_session,
+                            try_lock_session_async,
                             release_session_lock,
                             is_session_locked,
                             channel_router,
@@ -217,7 +218,7 @@ async def dispatch_command(
                             sm,
                             parts[2],
                             parts[3] if len(parts) > 3 else None,
-                            try_lock_session,
+                            try_lock_session_async,
                         )
                     output = buf.getvalue().strip()
                 except Exception as e:
