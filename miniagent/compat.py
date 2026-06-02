@@ -1,6 +1,6 @@
-"""兼容与聚合导出层
+"""聚合导出层 — 统一入口点
 
-历史上为单文件 ``unified.py``；逻辑已拆入 ``miniagent.engine`` 等子包。
+历史：原为单文件 ``unified.py``，逻辑已拆入 ``miniagent.engine`` 等子包。
 本模块保留常用符号的单一导入入口；**新代码优先**：
 
 - 运行时：``from miniagent.runtime import RuntimeContext``
