@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 
 from miniagent.core.self_opt.git_snapshot import (
@@ -87,7 +88,7 @@ async def _apply_file_change(change: FileChange, root: str = "") -> bool:
 
 
 async def _run_validation_tests(proposal: OptimizationProposal) -> OptTestSummary:
-    """运行验证测试。
+    """运行验证测试（异步版本，不阻塞事件循环）。
 
     Args:
         proposal: 优化提案
@@ -95,25 +96,29 @@ async def _run_validation_tests(proposal: OptimizationProposal) -> OptTestSummar
     Returns:
         测试摘要
     """
-    import subprocess
-
     summary = OptTestSummary()
 
     for tc in proposal.test_cases:
         summary.total += 1
         try:
-            result = subprocess.run(
-                tc.command.split(),
-                capture_output=True,
-                text=True,
-                timeout=60,
+            # 使用 asyncio.create_subprocess_exec 避免阻塞事件循环
+            proc = await asyncio.create_subprocess_exec(
+                *tc.command.split(),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
-            if result.returncode == 0:
+            stdout, stderr = await proc.communicate()
+
+            if proc.returncode == 0:
                 summary.passed += 1
             else:
                 summary.failed += 1
-                _logger.warning("测试失败 [%s]: %s", tc.id, result.stderr.strip())
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+                _logger.warning(
+                    "测试失败 [%s]: %s",
+                    tc.id,
+                    stderr.decode("utf-8", errors="replace").strip(),
+                )
+        except Exception as e:
             summary.failed += 1
             _logger.error("测试执行失败 [%s]: %s", tc.id, e)
 
