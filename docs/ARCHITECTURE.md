@@ -341,7 +341,7 @@ LLM 可通过 function calling 调用的工具：
 | `feishu_bitable_tools.py` | 飞书多维表格操作（get_meta/list_fields/list_records/create_record 等） |
 | `feishu_card_tools.py` | 飞书卡片消息更新（update_message_card） |
 
-**run_dot_command 与进程状态**：[`UnifiedEngine.run_agent_with_thinking`](miniagent/engine/engine.py) 将共享 [`CliLoopState`](miniagent/engine/cli_state.py) 写入 `AgentConfig.cli_loop_state`，[`execute_plan`](miniagent/core/executor.py) 再注入 `ToolContext`。飞书入站路径下默认 `cli_dispatch_allow_mutations=False`（与飞书里直接发 `.session` / `.schedule` 变异一致）；**`MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1`** 时为 True，与 CLI 同等。若嵌入代码只调用 [`run_agent`](miniagent/core/agent.py) 而不经 `run_agent_with_thinking`，需在 `agent_config` 中自行传入 `cli_loop_state`（及按需的 `cli_dispatch_allow_mutations`），否则工具会返回不可用说明。注册开关：环境变量 **`MINIAGENT_CLI_DOT_TOOLS`**（默认开启，`0`/`false`/`off` 跳过注册，见 `.env.example`）。
+**run_dot_command 与进程状态**：[`UnifiedEngine.run_agent_with_thinking`](miniagent/engine/engine.py) 将共享 [`CliLoopState`](miniagent/engine/cli_state.py) 写入 `AgentConfig.cli_loop_state`，[`execute_plan`](miniagent/core/executor.py) 再注入 `ToolContext`。飞书入站路径下默认 `cli_dispatch_allow_mutations=False`（与飞书里直接发 `.session` / `.schedule` 变异一致）；**`MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1`** 时为 True，与 CLI 同等。若嵌入代码只调用 [`run_agent`](miniagent/core/agent.py) 而不经 `run_agent_with_thinking`，需在 `agent_config` 中自行传入 `cli_loop_state`（及按需的 `cli_dispatch_allow_mutations`），否则工具会返回不可用说明。注册开关：环境变量 **`MINIAGENT_CLI_DOT_TOOLS`**（默认开启，`0`/`false`/`off` 跳过注册，见 [ENV_REFERENCE.md](ENV_REFERENCE.md)）。
 
 ### 8b. MCP（可选）
 
@@ -454,7 +454,7 @@ _format_status(state, message_queue)
 2. **Ticker**：[`tick_once`](../miniagent/scheduled_tasks/ticker.py) 在取得 `scheduler.lock` 后 `load_tasks()`，经 `repair_invalid_schedules` 补齐/校验 cron；对到期任务先取 `job_<id>.lock` 再投递协程；同进程 `_inflight` 防重入；每 tick 最多 `_MAX_DUE_PER_TICK` 条。
 3. **Runner**：[`build_run_scheduled_job_coro`](../miniagent/scheduled_tasks/runner.py) 经 [`resolve_execution_target`](../miniagent/scheduled_tasks/resolve.py) 与 [`resolve_feishu_delivery`](../miniagent/scheduled_tasks/feishu_delivery.py) 解析 `session_key`、消息队列 `chat_id`（与入站 `poll_server.dispatch(chat_id)` 对齐）及飞书 `receive_id`；合成 prompt 后调用 `UnifiedEngine.run_agent_with_thinking`（`is_feishu=True` 时推送思考卡）；最终回复由 runner 调用 `_send_reply`（与入站 handler 对称）。默认时区见 [`timezone_util.py`](../miniagent/scheduled_tasks/timezone_util.py)。
 4. **用户入口**：终端与 CLI 侧 **`.schedule`** 子命令（`every` / `once` / **`cron`** 五段表达式，实现见 [`cli_commands.py`](../miniagent/engine/cli_commands.py)）；Agent 可选 **`manage_scheduled_task`**（含 `add_cron`，[`schedule_tools.py`](../miniagent/tools/schedule_tools.py)）；下一触发时间由 [`cron.py`](../miniagent/scheduled_tasks/cron.py) + **croniter** 计算。
-5. **并发**：`scheduler.lock`（tick）+ `job_<id>.lock`（执行）+ `tasks.json.lock`（读写）；dispatch 失败时 `next_run_at` 默认退避 60s，可由 **`MINIAGENT_SCHEDULE_DISPATCH_BACKOFF`** 覆盖（见 [`store.py`](../miniagent/scheduled_tasks/store.py) 与 `.env.example`）。
+5. **并发**：`scheduler.lock`（tick）+ `job_<id>.lock`（执行）+ `tasks.json.lock`（读写）；dispatch 失败时 `next_run_at` 默认退避 60s，可由 **`MINIAGENT_SCHEDULE_DISPATCH_BACKOFF`** 覆盖（见 [`store.py`](../miniagent/scheduled_tasks/store.py) 与 [ENV_REFERENCE.md](ENV_REFERENCE.md)）。
 
 ### 环境变量
 
