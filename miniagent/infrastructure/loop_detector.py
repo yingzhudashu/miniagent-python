@@ -30,14 +30,53 @@ from miniagent.types.agent import LoopDetectionConfig, LoopDetectionResult, Loop
 
 # ─── JSON 序列化缓存（性能优化：避免重复序列化相同参数）──
 
-_args_json_cache: OrderedDict[str, str] = OrderedDict()
+_args_json_cache: OrderedDict[tuple, str] = OrderedDict()
 _ARGS_CACHE_MAX_SIZE = 100
 
 
+def _make_args_cache_key(args: dict[str, Any]) -> tuple:
+    """为参数字典生成确定性缓存键（性能优化）。
+
+    使用 tuple 替代 repr 作为缓存键，避免字符串序列化开销。
+    对于常见参数类型（str, int, float, bool, None），直接使用值；
+    对于复杂类型（dict, list），使用其内容的 tuple 表示。
+
+    Args:
+        args: 工具参数字典
+
+    Returns:
+        可哈希的 tuple 缓存键
+    """
+    items: list[tuple[str, Any]] = []
+    for k, v in args.items():
+        if isinstance(v, (str, int, float, bool, type(None))):
+            items.append((k, v))
+        elif isinstance(v, dict):
+            # 递归处理嵌套字典
+            items.append((k, _make_args_cache_key(v)))
+        elif isinstance(v, (list, tuple)):
+            # 列表/元组转为 tuple（元素需可哈希）
+            try:
+                items.append((k, tuple(
+                    _make_args_cache_key(i) if isinstance(i, dict) else i
+                    if isinstance(i, (str, int, float, bool, type(None)))
+                    else repr(i)
+                    for i in v
+                )))
+            except TypeError:
+                items.append((k, repr(v)))
+        else:
+            items.append((k, repr(v)))
+    # 按键排序确保确定性（字典顺序不确定）
+    return tuple(sorted(items))
+
+
 def _serialize_args(args: dict[str, Any]) -> str:
-    """序列化参数为 JSON，使用缓存避免重复计算。"""
-    # 使用参数的 repr 作为缓存键（比完整 hash 更快）
-    cache_key = repr(args)
+    """序列化参数为 JSON，使用缓存避免重复计算。
+
+    性能优化：使用 tuple 缓存键替代 repr，减少序列化开销。
+    """
+    cache_key = _make_args_cache_key(args)
     if cache_key in _args_json_cache:
         # LRU：移动到末尾
         _args_json_cache.move_to_end(cache_key)

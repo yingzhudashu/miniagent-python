@@ -50,6 +50,7 @@ def estimate_tokens(text: str | None) -> int:
     - ASCII 字符：~4 字符/token
 
     这是一个近似值，但足够用于判断是否需要压缩。
+    性能优化：使用字符遍历替代正则匹配。
 
     Args:
         text: 要估算的文本
@@ -60,8 +61,8 @@ def estimate_tokens(text: str | None) -> int:
     if not text:
         return 0
 
-    # 使用预编译正则批量匹配非 ASCII 字符（性能优化）
-    chinese_chars = len(_NON_ASCII_PATTERN.findall(text))
+    # 性能优化：字符遍历替代正则匹配（避免 findall 的列表构建开销）
+    chinese_chars = sum(1 for c in text if ord(c) > 127)
     ascii_chars = len(text) - chinese_chars
 
     # 中文 1.5 token/字，ASCII 4 字符/token
@@ -368,6 +369,8 @@ class DefaultContextManager(ContextManagerProtocol):
     def _message_tokens(self, msg: ChatCompletionMessageParam) -> int:
         """估算单条消息的 token 数
 
+        性能优化：缓存 tool_calls 的 token 估算，避免重复 JSON 序列化。
+
         Args:
             msg: 消息对象
 
@@ -377,7 +380,14 @@ class DefaultContextManager(ContextManagerProtocol):
         tokens = estimate_tokens(msg.get("content"))  # type: ignore
 
         if msg.get("role") == "assistant" and msg.get("tool_calls"):
-            tokens += estimate_tokens(json.dumps(msg["tool_calls"]))
+            # 性能优化：使用缓存的 tool_calls token 估算
+            cached = msg.get("_tool_calls_tokens")
+            if cached is not None:
+                tokens += cached
+            else:
+                tool_calls_tokens = estimate_tokens(json.dumps(msg["tool_calls"]))
+                msg["_tool_calls_tokens"] = tool_calls_tokens  # 缓存到消息对象
+                tokens += tool_calls_tokens
 
         # 角色标记额外开销
         tokens += 5

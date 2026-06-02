@@ -307,16 +307,28 @@ def _resolve_dedup_key(message_id: str) -> str:
     return f"mini-agent:{message_id.strip()}"
 
 
-def _prune_claims():
-    """清理过期去重条目。"""
-    cutoff = time.time() - DEDUP_TTL_MS / 1000.0
-    to_remove = [k for k, v in _processing_claims.items() if v < cutoff]
-    for k in to_remove:
-        del _processing_claims[k]
+def _prune_claims_if_needed():
+    """惰性清理过期去重条目（性能优化：仅在超过阈值时执行）。
 
-    to_remove = [k for k, v in _disk_dedup.items() if v < cutoff]
-    for k in to_remove:
-        del _disk_dedup[k]
+    仅当 _processing_claims 或 _disk_dedup 超过 80% 阈值时才执行清理，
+    避免每次消息处理都遍历整个字典。
+    """
+    # 性能优化：先检查是否需要清理（避免不必要的遍历）
+    threshold = int(DEDUP_MAX_SIZE * 0.8)
+    if len(_processing_claims) <= threshold and len(_disk_dedup) <= threshold:
+        return  # 未超过阈值，跳过清理
+
+    cutoff = time.time() - DEDUP_TTL_MS / 1000.0
+
+    if len(_processing_claims) > threshold:
+        to_remove = [k for k, v in _processing_claims.items() if v < cutoff]
+        for k in to_remove:
+            del _processing_claims[k]
+
+    if len(_disk_dedup) > threshold:
+        to_remove = [k for k, v in _disk_dedup.items() if v < cutoff]
+        for k in to_remove:
+            del _disk_dedup[k]
 
     if len(_processing_claims) + len(_disk_dedup) > DEDUP_MAX_SIZE * 2:
         _save_disk_dedup()
@@ -333,7 +345,8 @@ def try_begin_processing(message_id: str) -> bool:
         return True
 
     now = time.time()
-    _prune_claims()
+    # 性能优化：惰性清理（仅在超过阈值时执行）
+    _prune_claims_if_needed()
 
     # 1. 检查磁盘去重
     if key in _disk_dedup:

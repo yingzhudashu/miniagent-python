@@ -121,11 +121,26 @@ def format_memory_for_prompt(memory: SessionMemory | None) -> str:
     return "【历史记忆】\n\n" + "\n\n".join(parts) + "\n\n【记忆结束】"
 
 
+# 性能优化：预编译事实提取正则（合并多个模式，单次遍历全文）
+_COMPILED_FACTS_PATTERN = re.compile(
+    r"记住[：:，,。]\s*(.+)|"
+    r"以后[都]?[要]?[：:，,。]\s*(.+)|"
+    r"偏好[是]?[：:，,。]\s*(.+)|"
+    r"默认[是]?[：:，,。]\s*(.+)|"
+    r"不[要喜欢]([^.。]+)|"
+    r"喜[欢好]([^.。]+)",
+    re.UNICODE
+)
+
+
 def extract_facts(text: str) -> list[str]:
     """从对话中提取关键事实（简单启发式）
 
     识别包含记忆性关键词（"记住"、"以后"、"偏好"、"默认"、"喜欢"等）的句子，
     提取其内容作为关键事实存储。
+
+    性能优化：使用预编译正则 + finditer，单次遍历全文，
+    避免多个正则各自搜索导致的重复遍历。
 
     Args:
         text: 要分析的对话文本
@@ -139,22 +154,16 @@ def extract_facts(text: str) -> list[str]:
     """
     facts: list[str] = []
 
-    # 匹配模式：包含记忆性关键词的句子
-    patterns = [
-        r"记住[：:，,。]\s*(.+)",
-        r"以后[都]?[要]?[：:，,。]\s*(.+)",
-        r"偏好[是]?[：:，,。]\s*(.+)",
-        r"默认[是]?[：:，,。]\s*(.+)",
-        r"不[要喜欢]([^.。]+)",
-        r"喜[欢好]([^.。]+)",
-    ]
-
-    for pattern in patterns:
-        match = re.search(pattern, text)
-        if match and match.group(1):
-            fact = match.group(1).strip()[:200]
-            if len(fact) > 2:
-                facts.append(fact)
+    # 性能优化：单次 finditer 遍历，替代多个 search 各自遍历
+    for match in _COMPILED_FACTS_PATTERN.finditer(text):
+        # 检查哪个分组匹配成功（group(1)到group(6)）
+        for i in range(1, 7):
+            group_val = match.group(i)
+            if group_val:
+                fact = group_val.strip()[:200]
+                if len(fact) > 2:
+                    facts.append(fact)
+                    break
 
     return facts
 

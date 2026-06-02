@@ -98,32 +98,24 @@ _MAX_ARGS_LOG_LEN = 500
 def _truncate_args_for_log(args: dict[str, Any] | str, max_len: int = _MAX_ARGS_LOG_LEN) -> str:
     """截断工具参数用于日志输出，避免大内容导致日志膨胀。
 
+    性能优化：直接序列化并截断，避免构建新字典。
+
     Args:
         args: 工具参数字典或 JSON 字符串
         max_len: 最大长度（字符）
 
     Returns:
-        截断后的字符串（性能优化：直接截断避免双重序列化）
+        截断后的字符串
     """
-    # 性能优化：直接截断原始内容，避免不必要的 JSON 解析/序列化
+    # 已经是字符串，直接截断
     if isinstance(args, str):
-        # 已经是字符串，直接截断
         if len(args) <= max_len:
             return args
         return args[:max_len] + "...[截断]"
 
-    # 字典类型：简单序列化后截断
+    # 字典类型：直接序列化后截断（性能优化：避免构建新字典）
     try:
-        # 移除可能的大字段
-        cleaned = {}
-        for k, v in args.items():
-            if isinstance(v, str) and len(v) > 200:
-                cleaned[k] = v[:200] + "...[截断]"
-            elif isinstance(v, (bytes, bytearray)):
-                cleaned[k] = f"<binary {len(v)} bytes>"
-            else:
-                cleaned[k] = v
-        result = json.dumps(cleaned, ensure_ascii=False)
+        result = json.dumps(args, ensure_ascii=False)
         if len(result) <= max_len:
             return result
         return result[:max_len] + "...[截断]"

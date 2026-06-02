@@ -180,28 +180,25 @@ _RE_CJK_ONLY = re.compile(r"[^一-鿿]")
 
 
 @dataclass
-class _IndexReference:
-    """索引中的记忆引用（仅存储键，文本从共享注册表获取）。"""
-
-    entry_key: str  # "session_id:timestamp"
-    weight: float = 1.0
-
-
-@dataclass
-class _IndexEntry:
-    """关键词索引条目"""
-
-    keyword: str
-    references: list[_IndexReference] = field(default_factory=list)
-    seen: set[tuple[str, str]] = field(default_factory=set)  # (session_id, timestamp) 去重
-
-
-@dataclass
 class _SearchResult:
     """检索结果（文本从共享注册表获取）。"""
 
     entry_key: str  # "session_id:timestamp"
     score: float = 0.0
+
+
+@dataclass
+class _IndexEntry:
+    """关键词索引条目（性能优化：单一 dict 存储引用，消除双重存储）。
+
+    使用 dict[str, float] 存储 entry_key -> weight 映射：
+    - 自动去重（dict 键唯一）
+    - 避免额外的 seen set 存储
+    - 权重信息直接嵌入 value
+    """
+
+    keyword: str
+    references: dict[str, float] = field(default_factory=dict)  # entry_key -> weight
 
 
 # ============================================================================
@@ -314,15 +311,14 @@ class KeywordIndex:
 
             self._index.clear()
             for keyword, data in disk.get("index", {}).items():
-                refs = [
-                    _IndexReference(
-                        entry_key=r["entry_key"],
-                        weight=r.get("weight", 1.0),
-                    )
-                    for r in data.get("references", [])
-                ]
-                self._index[keyword] = _IndexEntry(keyword=keyword, references=refs)
-                self._index[keyword].seen = {(r.entry_key) for r in refs}
+                # 性能优化：直接使用 dict 存储 entry_key -> weight
+                refs_dict: dict[str, float] = {}
+                for r in data.get("references", []):
+                    entry_key = r.get("entry_key", "")
+                    weight = r.get("weight", 1.0)
+                    if entry_key:
+                        refs_dict[entry_key] = weight
+                self._index[keyword] = _IndexEntry(keyword=keyword, references=refs_dict)
 
             self._loaded = True
             self._dirty = False
@@ -399,15 +395,9 @@ class KeywordIndex:
 
             idx_entry = self._index[keyword]
 
-            # 检查是否已存在相同键的引用
-            if entry_key not in idx_entry.seen:
-                idx_entry.references.append(
-                    _IndexReference(
-                        entry_key=entry_key,
-                        weight=1.0,
-                    )
-                )
-                idx_entry.seen.add(entry_key)
+            # 性能优化：使用 dict 自动去重，无需额外 seen set
+            if entry_key not in idx_entry.references:
+                idx_entry.references[entry_key] = 1.0  # weight
                 self._dirty = True
 
         # 超过上限时驱逐最早关键词
@@ -450,25 +440,25 @@ class KeywordIndex:
             if not idx_entry:
                 continue
 
-            for ref in idx_entry.references:
+            # 性能优化：遍历 dict 的键（entry_key）
+            for entry_key in idx_entry.references.keys():
                 # 从注册表获取时间戳用于过滤
-                shared_entry = self._registry.get(ref.entry_key)
+                shared_entry = self._registry.get(entry_key)
                 if shared_entry is None:
                     continue
 
                 if cutoff_time and shared_entry.timestamp < cutoff_time:
                     continue
 
-                key = ref.entry_key
-                if key not in scores:
-                    scores[key] = _SearchResult(
-                        entry_key=key,
+                if entry_key not in scores:
+                    scores[entry_key] = _SearchResult(
+                        entry_key=entry_key,
                         score=0.0,
                     )
 
                 # 分数 = 匹配关键词数 + 3-gram 权重更高
                 weight = 1.5 if len(keyword) >= 3 else 1.0
-                scores[key].score += weight
+                scores[entry_key].score += weight
 
         # 排序：先按分数
         results = sorted(scores.values(), key=lambda r: r.score, reverse=True)
@@ -540,12 +530,13 @@ class KeywordIndex:
 
         for entry in self._index.values():
             before = len(entry.references)
-            # 过滤：从注册表获取时间戳判断（单次获取避免重复调用）
-            entry.references = [
-                r for r in entry.references
-                if (shared := self._registry.get(r.entry_key)) is not None
-                and shared.timestamp >= cutoff
-            ]
+            # 性能优化：过滤 dict，构建新 dict
+            new_refs: dict[str, float] = {}
+            for entry_key in entry.references.keys():
+                shared = self._registry.get(entry_key)
+                if shared is not None and shared.timestamp >= cutoff:
+                    new_refs[entry_key] = entry.references[entry_key]
+            entry.references = new_refs
             removed_count += before - len(entry.references)
 
         # 清空关键词

@@ -491,6 +491,10 @@ class InstanceRegistry:
 
 _default_registry: InstanceRegistry | None = None
 
+# ── 性能优化：实例列表缓存 ──
+_instance_list_cache: tuple[float, list[dict[str, Any]]] | None = None
+_INSTANCE_CACHE_TTL = 5.0  # 5秒缓存
+
 
 def get_registry(state_dir: str | None = None) -> InstanceRegistry:
     """获取或创建默认实例注册表。"""
@@ -506,6 +510,9 @@ def register_instance(
     state_dir: str | None = None,
 ) -> dict[str, Any]:
     """注册当前实例。mode 仅 ``cli`` 或 ``both``（CLI + 飞书）。"""
+    # 清除缓存（注册后列表会变化）
+    global _instance_list_cache
+    _instance_list_cache = None
     return get_registry(state_dir).register(mode, active_sessions)
 
 
@@ -521,6 +528,9 @@ def heartbeat(state_dir: str | None = None) -> None:
 
 def unregister_instance(state_dir: str | None = None) -> None:
     """注销当前实例。"""
+    # 清除缓存（注销后列表会变化）
+    global _instance_list_cache
+    _instance_list_cache = None
     get_registry(state_dir).unregister()
 
 
@@ -529,8 +539,32 @@ def list_instances(state_dir: str | None = None) -> list[dict[str, Any]]:
     return get_registry(state_dir).list_all()
 
 
+def list_instances_cached(state_dir: str | None = None) -> list[dict[str, Any]]:
+    """列出所有存活实例（带缓存，性能优化）。
+
+    缓存 5 秒有效，避免频繁调用时的目录遍历开销。
+    注册/注销操作会自动清除缓存。
+
+    Args:
+        state_dir: 状态目录
+
+    Returns:
+        存活实例列表
+    """
+    global _instance_list_cache
+    now = time.time()
+    if _instance_list_cache is not None and now - _instance_list_cache[0] < _INSTANCE_CACHE_TTL:
+        return _instance_list_cache[1]
+    result = list_instances(state_dir)
+    _instance_list_cache = (now, result)
+    return result
+
+
 def stop_instance_by_id(instance_id: int, state_dir: str | None = None) -> dict[str, Any]:
     """停止指定实例。"""
+    # 清除缓存（停止后列表会变化）
+    global _instance_list_cache
+    _instance_list_cache = None
     return get_registry(state_dir).stop(instance_id)
 
 
@@ -602,6 +636,7 @@ __all__ = [
     "heartbeat",
     "unregister_instance",
     "list_instances",
+    "list_instances_cached",
     "stop_instance_by_id",
     "format_instances_table",
     "format_instances_markdown",
