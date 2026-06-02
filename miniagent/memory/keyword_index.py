@@ -355,10 +355,10 @@ class KeywordIndex:
                     k: {
                         "references": [
                             {
-                                "entry_key": r.entry_key,
-                                "weight": r.weight,
+                                "entry_key": entry_key,
+                                "weight": weight,
                             }
-                            for r in v.references
+                            for entry_key, weight in v.references.items()
                         ]
                     }
                     for k, v in self._index.items()
