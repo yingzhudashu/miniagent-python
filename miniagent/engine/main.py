@@ -465,9 +465,11 @@ async def run_cli_loop(
             if prepend:
                 # prepend=True: 插入到顶部，顺序：标题 → 内容 → 分隔线
                 if ansi:
-                    ansi_obj = ANSI(ansi)
-                    _attach_md_source(ansi_obj, content)
-                    _transcript.insert(0, ansi_obj)
+                    # 使用安全的 ANSI 处理
+                    safe_ft = _safe_ansi(ansi)
+                    # 反向插入（prepend）
+                    for style, txt in reversed(safe_ft):
+                        _transcript.insert(0, (style, txt))
                 else:
                     for line in content.splitlines():
                         _transcript.insert(0, ("class:cli-reply-body", line + "\n"))
@@ -1890,8 +1892,6 @@ async def run_cli_loop(
 
     def _cli_block_reply(text: str) -> None:
         """最终回复区块（可选 Rich → ANSI，经 prompt_toolkit 解析）。"""
-        from prompt_toolkit.formatted_text import ANSI
-
         from miniagent.engine.markdown_cli import render_markdown_to_ansi
 
         _append_transcript("class:cli-spacer", "\n")
@@ -1905,11 +1905,11 @@ async def run_cli_loop(
             at_bottom = _output_at_bottom()
             body_lines = ansi_body.rstrip("\n").split("\n")
             transcript_body = "\n".join(ln if ln else "" for ln in body_lines) + "\n"
-            ansi_obj = ANSI(transcript_body)
-            _attach_md_source(ansi_obj, text or "")
-            _transcript.append(ansi_obj)
-            # 性能优化：更新累计长度计数器
-            _transcript_total_len[0] += len(transcript_body)
+            # 使用安全的 ANSI 处理
+            safe_ft = _safe_ansi(transcript_body)
+            for style, txt in safe_ft:
+                _transcript.append((style, txt))
+                _transcript_total_len[0] += len(txt)
             _trim_transcript()
             try:
                 get_app().invalidate()
