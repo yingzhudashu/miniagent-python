@@ -40,7 +40,7 @@ def get_compiled_pattern(pattern: str, flags: int = 0) -> re.Pattern:
         预编译的 re.Pattern 对象
 
     Example:
-        >>> pat = get_compiled_pattern(r"@file:([^\s]+)")
+        >>> pat = get_compiled_pattern(r"@file:(\\S+)")  # 使用原始字符串
         >>> matches = pat.findall(text)
     """
     cache_key = f"{pattern}:{flags}"
