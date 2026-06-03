@@ -27,6 +27,24 @@ from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_P
 _logger = get_logger(__name__)
 
 
+# ─── ANSI 颜色到 CLI 样式类的映射 ────────────────────────────────────────────
+# 用于 _write 函数将 ANSI 颜色名转换为 cli_transcript_append 所需的样式类
+_ANSI_COLOR_TO_STYLE = {
+    "ansicyan": "class:cli-user-title",
+    "ansigreen": "class:cli-ok",
+    "ansired": "class:cli-err",
+    "ansiyellow": "class:cli-warn",
+    "ansiblue": "class:cli-default",
+    "ansimagenta": "class:cli-default",
+    "ansiwhite": "class:cli-default",
+    "ansibrightcyan": "class:cli-user-title",
+    "ansibrightgreen": "class:cli-ok",
+    "ansibrightred": "class:cli-err",
+    "ansibrightyellow": "class:cli-warn",
+    "": "class:cli-default",
+}
+
+
 _REMOTE_SESSION_HINT = (
     "⚠️ 该命令会修改与 CLI 共享的会话状态，请在本地 MiniAgent 终端执行。\n"
     "飞书上可使用 /session list 查看会话列表。"
@@ -790,12 +808,19 @@ async def _run_review(
     from miniagent.core.llm_json import llm_json
 
     def _write(text: str, color: str = "") -> None:
-        """输出文本：优先走 term_write（全屏 CLI），无 capture 时 fallback 到 print。"""
+        """输出文本：优先走 term_write（全屏 CLI），无 capture 时 fallback 到 print。
+
+        **注意**：term_write 实际是 cli_transcript_append，签名是 (style_cls, text)，
+        不是 (text, color)。需要将 ANSI 颜色转换为样式类并调整参数顺序。
+        """
         if term_write and callable(term_write):
             try:
-                term_write(text, color)
-            except Exception:
-                pass
+                # 将 ANSI 颜色转换为样式类
+                style_cls = _ANSI_COLOR_TO_STYLE.get(color, "class:cli-default")
+                # cli_transcript_append 签名是 (style_cls, text)，需要反转参数
+                term_write(style_cls, text)
+            except Exception as e:
+                _logger.warning("_write 调用 term_write 失败: %s (text=%s)", e, text[:50])
         if not capture:
             print(text)
 
@@ -926,12 +951,19 @@ async def _run_improve(
     from miniagent.core.llm_json import llm_json
 
     def _write(text: str, color: str = "") -> None:
-        """输出文本：优先走 term_write（全屏 CLI），无 capture 时 fallback 到 print。"""
+        """输出文本：优先走 term_write（全屏 CLI），无 capture 时 fallback 到 print。
+
+        **注意**：term_write 实际是 cli_transcript_append，签名是 (style_cls, text)，
+        不是 (text, color)。需要将 ANSI 颜色转换为样式类并调整参数顺序。
+        """
         if term_write and callable(term_write):
             try:
-                term_write(text, color)
-            except Exception:
-                pass
+                # 将 ANSI 颜色转换为样式类
+                style_cls = _ANSI_COLOR_TO_STYLE.get(color, "class:cli-default")
+                # cli_transcript_append 签名是 (style_cls, text)，需要反转参数
+                term_write(style_cls, text)
+            except Exception as e:
+                _logger.warning("_write 调用 term_write 失败: %s (text=%s)", e, text[:50])
         if not capture:
             print(text)
 
@@ -1041,15 +1073,19 @@ async def _run_test(
     from miniagent.testing.test_runner import run_self_test
 
     def _write(text: str, color: str = "") -> None:
-        """输出文本：优先走 term_write（全屏 CLI），无 capture 时 fallback 到 print。"""
+        """输出文本：优先走 term_write（全屏 CLI），无 capture 时 fallback 到 print。
+
+        **注意**：term_write 实际是 cli_transcript_append，签名是 (style_cls, text)，
+        不是 (text, color)。需要将 ANSI 颜色转换为样式类并调整参数顺序。
+        """
         if term_write and callable(term_write):
             try:
-                # term_write 签名是 (text, color)
-                # 将 ansicyan 等转换为 class:ansicyan 格式
-                style = f"class:{color}" if color else ""
-                term_write(text, style)
-            except Exception:
-                pass
+                # 将 ANSI 颜色转换为样式类
+                style_cls = _ANSI_COLOR_TO_STYLE.get(color, "class:cli-default")
+                # cli_transcript_append 签名是 (style_cls, text)，需要反转参数
+                term_write(style_cls, text)
+            except Exception as e:
+                _logger.warning("_write 调用 term_write 失败: %s (text=%s)", e, text[:50])
         if not capture:
             print(text)
 
