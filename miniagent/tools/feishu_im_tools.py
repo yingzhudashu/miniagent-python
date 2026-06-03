@@ -1,6 +1,8 @@
 """飞书 IM / 云盘内置工具（可选；由 ``MINIAGENT_FEISHU_TOOLS`` / ``MINIAGENT_FEISHU_TOOLS_AUTO`` 控制注册）。
 
 云文档与多维表格请使用 ``feishu_doc`` / ``feishu_bitable``。
+
+**重构说明**：配置检查使用 miniagent/tools/_feishu_utils.py 的共享函数。
 """
 
 from __future__ import annotations

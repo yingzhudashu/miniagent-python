@@ -39,6 +39,7 @@ from miniagent.types.confirmation import (
     ConfirmationStage,
 )
 from miniagent.types.memory import (
+    FileMetadata,
     MemoryEntry,
     MemoryEntryInput,
     MemoryStoreProtocol,
@@ -48,6 +49,11 @@ from miniagent.types.memory import (
     SessionOptions,
 )
 from miniagent.types.planning import (
+    ContextStrategy,
+    EstimatedCost,
+    EstimatedTokens,
+    FallbackPlan,
+    OutputSpec,
     PlanChunk,
     PlanStep,
     StructuredPlan,
@@ -77,6 +83,7 @@ from miniagent.types.tool import (
     Toolbox,
     ToolContext,
     ToolDefinition,
+    ToolHandler,
     ToolPermission,
     ToolRegistryProtocol,
     ToolResult,
@@ -88,6 +95,7 @@ __all__ = [
     "Toolbox",
     "ToolContext",
     "ToolResult",
+    "ToolHandler",
     "ToolDefinition",
     "RegisteredTool",
     "ToolRegistryProtocol",
@@ -98,6 +106,7 @@ __all__ = [
     "ModelConfig",
     "AgentConfig",
     # memory
+    "FileMetadata",
     "MemoryEntry",
     "MemoryEntryInput",
     "SessionMemory",
@@ -138,6 +147,11 @@ __all__ = [
     "PlanChunk",
     "SuggestedConfig",
     "StructuredPlan",
+    "ContextStrategy",
+    "EstimatedTokens",
+    "EstimatedCost",
+    "OutputSpec",
+    "FallbackPlan",
     # feishu
     "FeishuInboundText",
     "FeishuMessageEvent",

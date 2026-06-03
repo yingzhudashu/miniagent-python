@@ -12,6 +12,10 @@ mypy 会将 ``list`` 解析为该方法而非类型构造器并报 ``valid-type`
 注解使用 ``typing.List[...]``（或 ``from __future__ import annotations`` 下仍须避免与方法名同形的
 ``list[...]`` 出现在该 Protocol 块内）。长期若重命名 API 为 ``list_tool_names`` 等，可再统一改为小写 ``list`` 泛型。
 
+**Protocol 最佳实践**：
+- Protocol 不使用 @abstractmethod（Python Protocol 仅定义方法签名）
+- 使用 @runtime_checkable 支持 isinstance() 检查
+
 **类型改进**：
 - clawhub 字段使用 ClawHubClientProtocol 替代 Any
 - cli_loop_state 字段使用 CliLoopState 替代 Any
@@ -20,10 +24,9 @@ mypy 会将 ``list`` 解析为该方法而非类型构造器并报 ``valid-type`
 from __future__ import annotations
 
 import builtins
-from abc import abstractmethod
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from miniagent.engine.cli_state import CliLoopState
@@ -153,52 +156,93 @@ class RegisteredTool(ToolDefinition):
     name: str = ""
 
 
+@runtime_checkable
 class ToolRegistryProtocol(Protocol):
-    """工具注册表接口
+    """工具注册表接口协议
 
     管理工具的注册、注销、查询和按工具箱筛选。
+
+    该 Protocol 用于 ``miniagent.runtime.context.RuntimeContext`` 的
+    registry 字段类型，支持依赖注入模式。
     """
 
-    @abstractmethod
     def register(self, name: str, tool: ToolDefinition) -> None:
-        """注册一个工具"""
+        """注册一个工具
+
+        Args:
+            name: 工具名称
+            tool: 工具定义
+        """
         ...
 
-    @abstractmethod
     def unregister(self, name: str) -> bool:
-        """注销一个工具"""
+        """注销一个工具
+
+        Args:
+            name: 工具名称
+
+        Returns:
+            是否成功注销
+        """
         ...
 
-    @abstractmethod
     def get(self, name: str) -> RegisteredTool | None:
-        """查询单个工具"""
+        """查询单个工具
+
+        Args:
+            name: 工具名称
+
+        Returns:
+            已注册的工具，若不存在则返回 None
+        """
         ...
 
-    @abstractmethod
     def get_all(self) -> dict[str, RegisteredTool]:
-        """获取所有工具"""
+        """获取所有工具
+
+        Returns:
+            工具名称到工具对象的映射
+        """
         ...
 
-    @abstractmethod
     def get_schemas(self) -> builtins.list[ChatCompletionToolParam]:
-        """获取所有工具的 OpenAI schema"""
+        """获取所有工具的 OpenAI schema
+
+        Returns:
+            OpenAI tool schema 列表
+        """
         ...
 
-    @abstractmethod
     def list(self) -> builtins.list[str]:
-        """获取所有工具名称"""
+        """获取所有工具名称
+
+        Returns:
+            工具名称列表
+        """
         ...
 
-    @abstractmethod
     def get_schemas_by_toolboxes(
         self, ids: Sequence[str]
     ) -> builtins.list[ChatCompletionToolParam]:
-        """按工具箱筛选，返回 schema 列表"""
+        """按工具箱筛选，返回 schema 列表
+
+        Args:
+            ids: 工具箱 ID 列表
+
+        Returns:
+            匹配的工具 schema 列表
+        """
         ...
 
-    @abstractmethod
     def get_by_toolboxes(self, ids: Sequence[str]) -> dict[str, RegisteredTool]:
-        """按工具箱筛选，返回完整工具对象"""
+        """按工具箱筛选，返回完整工具对象
+
+        Args:
+            ids: 工具箱 ID 列表
+
+        Returns:
+            匹配的工具名称到工具对象的映射
+        """
         ...
 
 
@@ -235,50 +279,75 @@ class ContextState:
     compressed: bool
 
 
+@runtime_checkable
 class ContextManagerProtocol(Protocol):
-    """上下文管理器接口
+    """上下文管理器接口协议
 
     负责 Token 估算、上下文压缩、记忆注入。
+
+    该 Protocol 用于管理对话上下文的 token 使用量，
+    并在超过阈值时执行压缩策略。
     """
 
-    @abstractmethod
     def get_state(self) -> ContextState:
-        """获取当前上下文状态"""
+        """获取当前上下文状态
+
+        Returns:
+            上下文状态对象
+        """
         ...
 
-    @abstractmethod
     def init(self, system_prompt: str, user_input: str) -> None:
-        """初始化消息（system + user）"""
+        """初始化消息（system + user）
+
+        Args:
+            system_prompt: 系统提示词
+            user_input: 用户输入
+        """
         ...
 
-    @abstractmethod
     def append(self, msg: ChatCompletionMessageParam) -> None:
-        """追加消息并检查是否需要压缩"""
+        """追加消息并检查是否需要压缩
+
+        Args:
+            msg: 消息对象
+        """
         ...
 
-    @abstractmethod
     def needs_compression(self) -> bool:
-        """检查是否需要压缩"""
+        """检查是否需要压缩
+
+        Returns:
+            是否需要压缩
+        """
         ...
 
-    @abstractmethod
     def compress(self) -> None:
         """执行压缩（保留首尾，中间摘要）"""
         ...
 
-    @abstractmethod
     def inject_memory(self, memory: SessionMemory | None) -> None:
-        """注入记忆摘要到 system prompt"""
+        """注入记忆摘要到 system prompt
+
+        Args:
+            memory: 会话记忆对象（可选）
+        """
         ...
 
-    @abstractmethod
     def get_token_report(self) -> str:
-        """获取当前 token 使用报告"""
+        """获取当前 token 使用报告
+
+        Returns:
+            Token 使用报告字符串
+        """
         ...
 
-    @abstractmethod
     def get_messages(self) -> list[ChatCompletionMessageParam]:
-        """获取当前消息列表"""
+        """获取当前消息列表
+
+        Returns:
+            消息列表
+        """
         ...
 
 

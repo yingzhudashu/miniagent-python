@@ -7,14 +7,17 @@
   ``miniagent.infrastructure.monitor``）
 - ``LoopDetection*``：执行器内循环检测配置与结果（检测器见 ``loop_detector``）
 - ``PipelineStep`` / ``PipelineResult``：无 LLM 循环的线性 ``run_pipeline`` 模式
+
+**Protocol 最佳实践**：
+- Protocol 不使用 @abstractmethod（Python Protocol 仅定义方法签名）
+- 使用 @runtime_checkable 支持 isinstance() 检查
 """
 
 from __future__ import annotations
 
 import os as _os_for_agent
-from abc import abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, runtime_checkable
 
 # 配置默认值（支持环境变量覆盖）
 _HISTORY_SIZE_DEFAULT = int(_os_for_agent.environ.get("MINIAGENT_HISTORY_SIZE", "50"))
@@ -161,28 +164,49 @@ __all__ = [
 # ============================================================================
 
 
+@runtime_checkable
 class ToolMonitorProtocol(Protocol):
-    """工具监控器接口
+    """工具监控器接口协议
 
     记录工具调用统计，生成性能报告。
+
+    该 Protocol 用于 ``miniagent.runtime.context.RuntimeContext`` 的
+    monitor 字段类型，支持依赖注入模式。
     """
 
-    @abstractmethod
     def record(self, tool: str, duration_ms: int, success: bool) -> None:
-        """记录一次工具调用"""
+        """记录一次工具调用
+
+        Args:
+            tool: 工具名称
+            duration_ms: 耗时（毫秒）
+            success: 是否成功
+        """
         ...
 
-    @abstractmethod
     def get_stats(self, tool: str) -> ToolStats | None:
-        """获取单个工具的统计"""
+        """获取单个工具的统计
+
+        Args:
+            tool: 工具名称
+
+        Returns:
+            工具统计对象，若不存在则返回 None
+        """
         ...
 
-    @abstractmethod
     def get_all_stats(self) -> dict[str, ToolStats]:
-        """获取所有工具的统计"""
+        """获取所有工具的统计
+
+        Returns:
+            工具名称到统计对象的映射
+        """
         ...
 
-    @abstractmethod
     def report(self) -> str:
-        """生成统计报告（可读文本）"""
+        """生成统计报告（可读文本）
+
+        Returns:
+            统计报告字符串
+        """
         ...

@@ -9,38 +9,22 @@
 
 注意：Protocol 仅用于类型检查，不影响运行时行为。
 
-**注意**：ToolRegistryProtocol 和 ToolMonitorProtocol 已在各自模块定义：
-- ToolRegistryProtocol: miniagent/types/tool.py
-- ToolMonitorProtocol: miniagent/types/agent.py
-本模块仅定义运行时注入相关的 Protocol。
+**Protocol 定义位置**：
+- MemoryStoreProtocol: ``miniagent/types/memory.py``（本模块再导出以便于导入）
+- SessionManagerProtocol: ``miniagent/types/memory.py``
+- ToolRegistryProtocol: ``miniagent/types/tool.py``
+- ToolMonitorProtocol: ``miniagent/types/agent.py``
+- SkillRegistryProtocol: ``miniagent/types/skill.py``
+- ClawHubClientProtocol: ``miniagent/types/skill.py``
+- 本模块仅定义运行时注入特有的 Protocol（ActivityLog、KeywordIndex、回调等）
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
-if TYPE_CHECKING:
-    from miniagent.types.memory import SessionMemory
-    from miniagent.types.skill import ClawHubClientProtocol
-
-
-@runtime_checkable
-class MemoryStoreProtocol(Protocol):
-    """记忆存储接口协议。
-
-    定义核心记忆操作方法，供 RuntimeContext 和 agent 参数使用。
-    """
-
-    _state_dir: str
-
-    async def load(self, session_key: str) -> SessionMemory | None: ...
-    async def update_summary(
-        self, session_key: str, summary: str, facts: list[str]
-    ) -> None: ...
-    async def update_user_snippet(self, session_key: str, snippet: str) -> None: ...
-    async def append_message(
-        self, session_key: str, role: str, content: str
-    ) -> None: ...
+# 从 memory.py 再导出 MemoryStoreProtocol，便于统一导入
+from miniagent.types.memory import MemoryStoreProtocol
 
 
 @runtime_checkable

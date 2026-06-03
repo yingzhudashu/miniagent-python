@@ -8,7 +8,7 @@
 - ``register()`` 在分配新 ``instance_id`` **之前** 会扫描并删除 PID 已失效的目录；**不会**向其它进程发送终止信号。
 - ``heartbeat`` 文件仍会更新，便于人工排查；**不参与**「是否存活」的权威判定，避免心跳写入滞后导致误删仍在运行的实例注册信息。
 
-运维向说明见 ``docs/INSTANCE_REGISTRY.md``。
+运维向说明见 ``docs/ENGINEERING.md`` §3.3。
 
 实例注册表结构：
     workspaces/
@@ -37,6 +37,10 @@
     # ... 运行期间定期 mgr.heartbeat() ...
     instances = mgr.list_all()
     mgr.unregister()  # 退出时调用
+
+**重构说明**：
+- PID 检测函数已提取到公共模块 ``miniagent/infrastructure/process_utils.py``
+- 本模块导入并再导出以保持 API 兼容性
 """
 
 from __future__ import annotations
@@ -59,6 +63,10 @@ from typing import Any
 
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
+from miniagent.infrastructure.process_utils import (
+    is_process_running,
+    is_process_running_async,
+)
 
 HEARTBEAT_TIMEOUT = int(_os_for_inst.environ.get("MINIAGENT_HEARTBEAT_TIMEOUT", "30"))
 INSTANCE_CACHE_TTL = float(_os_for_inst.environ.get("MINIAGENT_INSTANCE_CACHE_TTL", "30.0"))
@@ -87,53 +95,9 @@ def _get_state_dir(state_dir: str | None = None) -> str:
     return state_dir or get_config("paths.state_dir", os.path.join(os.getcwd(), "workspaces"))
 
 
-def is_process_running(pid: int) -> bool:
-    """检测 PID 对应的进程是否仍在运行。"""
-    try:
-        if sys.platform == "win32":
-            output = subprocess.check_output(
-                ["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
-                timeout=5,
-                text=True,
-            )
-            return f'"{pid}"' in output
-        else:
-            os.kill(pid, 0)
-            return True
-    except Exception:
-        return False
-
-
-async def is_process_running_async(pid: int) -> bool:
-    """异步检测 PID 对应的进程是否仍在运行（不阻塞事件循环）。
-
-    用于异步上下文中的实例存活检查，避免 subprocess.check_output 阻塞。
-
-    Args:
-        pid: 进程 ID
-
-    Returns:
-        进程是否仍在运行
-    """
-    try:
-        if sys.platform == "win32":
-            proc = await asyncio.create_subprocess_exec(
-                "tasklist",
-                "/FI",
-                f"PID eq {pid}",
-                "/NH",
-                "/FO",
-                "CSV",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            stdout, _ = await proc.communicate()
-            return f'"{pid}"' in stdout.decode("utf-8", errors="replace")
-        else:
-            os.kill(pid, 0)
-            return True
-    except Exception:
-        return False
+# PID 检测函数已移至 miniagent.infrastructure.process_utils
+# 以下为再导出，保持 API 兼容性
+# is_process_running 和 is_process_running_async 从 process_utils 导入
 
 
 def _next_instance_id(inst_dir: Path) -> int:

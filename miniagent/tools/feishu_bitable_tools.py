@@ -1,4 +1,7 @@
-"""飞书多维表格聚合工具 ``feishu_bitable``（7 种 action）。"""
+"""飞书多维表格聚合工具 ``feishu_bitable``（7 种 action）。
+
+**重构说明**：配置检查使用 miniagent/tools/_feishu_utils.py 的共享函数。
+"""
 
 from __future__ import annotations
 
@@ -19,8 +22,9 @@ from miniagent.feishu.bitable.client import (
     update_record,
     upload_record_attachment,
 )
-from miniagent.feishu.lark_client import config_from_env, require_lark_oapi
+from miniagent.feishu.lark_client import config_from_env
 from miniagent.feishu.token_resolve import extract_bitable_app_token, extract_table_id
+from miniagent.tools._feishu_utils import check_lark_oapi
 from miniagent.types.error_prefix import SUCCESS_PREFIX, WARNING_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
@@ -64,12 +68,9 @@ async def _feishu_bitable(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     cfg = config_from_env()
     if cfg is None:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} 未配置 FEISHU_APP_ID / FEISHU_APP_SECRET。")
-    try:
-        require_lark_oapi()
-    except ImportError:
-        return ToolResult(
-            success=False, content=f"{WARNING_PREFIX} 请安装 lark-oapi（pip install miniagent-python[feishu]）。"
-        )
+    dep_err = check_lark_oapi()
+    if dep_err:
+        return dep_err
 
     app_token = extract_bitable_app_token(str(args.get("app_token") or ""))
     url_hint = str(args.get("app_url") or args.get("url") or "")

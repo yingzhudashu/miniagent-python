@@ -5,13 +5,16 @@
 - SkillPackage: 一组相关技能的集合
 - SkillRegistryProtocol: 技能注册表
 - ClawHub: 技能市场（搜索/下载）
+
+**Protocol 最佳实践**：
+- Protocol 不使用 @abstractmethod（Python Protocol 仅定义方法签名）
+- 使用 @runtime_checkable 支持 isinstance() 检查
 """
 
 from __future__ import annotations
 
-from abc import abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 from miniagent.types.config import AgentConfig
 from miniagent.types.tool import Toolbox, ToolDefinition
@@ -114,80 +117,153 @@ class SkillPackage:
     scope: str = "global"  # "global" | "session:<session_id>"
 
 
+@runtime_checkable
 class SkillRegistryProtocol(Protocol):
-    """技能注册表接口
+    """技能注册表接口协议
 
     管理技能的注册、注销、查询、技能包管理、贡献合并。
+
+    该 Protocol 用于 ``miniagent.runtime.context.RuntimeContext`` 的
+    skill_registry 字段类型，支持依赖注入模式。
     """
 
-    @abstractmethod
     def register(self, skill: Skill) -> None:
-        """注册一个技能"""
+        """注册一个技能
+
+        Args:
+            skill: 技能对象
+        """
         ...
 
-    @abstractmethod
     def unregister(self, skill_id: str) -> bool:
-        """注销一个技能"""
+        """注销一个技能
+
+        Args:
+            skill_id: 技能 ID
+
+        Returns:
+            是否成功注销
+        """
         ...
 
-    @abstractmethod
     def get(self, skill_id: str) -> Skill | None:
-        """查询单个技能"""
+        """查询单个技能
+
+        Args:
+            skill_id: 技能 ID
+
+        Returns:
+            技能对象，若不存在则返回 None
+        """
         ...
 
-    @abstractmethod
     def get_all(self) -> list[Skill]:
-        """获取所有技能"""
+        """获取所有技能
+
+        Returns:
+            技能列表
+        """
         ...
 
-    @abstractmethod
     def get_packages(self) -> list[SkillPackage]:
-        """获取所有技能包"""
+        """获取所有技能包
+
+        Returns:
+            技能包列表
+        """
         ...
 
-    @abstractmethod
     def register_package(self, pkg: SkillPackage) -> None:
-        """注册一个技能包"""
+        """注册一个技能包
+
+        Args:
+            pkg: 技能包对象
+        """
         ...
 
-    @abstractmethod
     def get_package(self, package_id: str) -> SkillPackage | None:
-        """按包 ID 查询技能包"""
+        """按包 ID 查询技能包
+
+        Args:
+            package_id: 技能包 ID
+
+        Returns:
+            技能包对象，若不存在则返回 None
+        """
         ...
 
-    @abstractmethod
     def unregister_package(self, package_id: str) -> tuple[list[str], list[str]]:
-        """注销技能包，返回 (removed_skill_ids, removed_tool_names)"""
+        """注销技能包
+
+        Args:
+            package_id: 技能包 ID
+
+        Returns:
+            (移除的技能 ID 列表, 移除的工具名称列表)
+        """
         ...
 
-    @abstractmethod
     def clear_packages(self) -> tuple[list[str], list[str]]:
-        """清空所有技能包，返回 (removed_skill_ids, removed_tool_names)"""
+        """清空所有技能包
+
+        Returns:
+            (移除的技能 ID 列表, 移除的工具名称列表)
+        """
         ...
 
-    @abstractmethod
     def get_all_toolboxes(self, config: AgentConfig | None = None) -> list[Toolbox]:
-        """获取可用技能贡献的工具箱（经 gating 过滤）"""
+        """获取可用技能贡献的工具箱（经 gating 过滤）
+
+        Args:
+            config: Agent 配置（可选）
+
+        Returns:
+            工具箱列表
+        """
         ...
 
-    @abstractmethod
     def get_all_tools(self, config: AgentConfig | None = None) -> dict[str, ToolDefinition]:
-        """获取可用技能贡献的工具（经 gating 过滤）"""
+        """获取可用技能贡献的工具（经 gating 过滤）
+
+        Args:
+            config: Agent 配置（可选）
+
+        Returns:
+            工具名称到工具定义的映射
+        """
         ...
 
-    @abstractmethod
     def get_system_prompts(self, config: AgentConfig | None = None) -> list[str]:
-        """获取可用技能的 system prompt 增强（经 gating 过滤）"""
+        """获取可用技能的 system prompt 增强（经 gating 过滤）
+
+        Args:
+            config: Agent 配置（可选）
+
+        Returns:
+            system prompt 片段列表
+        """
         ...
 
-    @abstractmethod
     def get_eligible_skills(self, config: AgentConfig | None = None) -> list[Skill]:
-        """根据配置过滤后的可用技能"""
+        """根据配置过滤后的可用技能
+
+        Args:
+            config: Agent 配置（可选）
+
+        Returns:
+            可用技能列表
+        """
         ...
 
-    @abstractmethod
     def get_skill_entry(self, skill_id: str) -> SkillEntry | None:
-        """获取技能配置覆盖"""
+        """获取技能配置覆盖
+
+        Args:
+            skill_id: 技能 ID
+
+        Returns:
+            技能配置覆盖，若不存在则返回 None
+        """
         ...
 
 
@@ -239,20 +315,39 @@ class ClawHubSkillDetail:
     files: list[dict[str, str]] = field(default_factory=list)
 
 
+@runtime_checkable
 class ClawHubClientProtocol(Protocol):
-    """ClawHub 客户端接口"""
+    """ClawHub 客户端接口协议
 
-    @abstractmethod
+    提供技能市场的搜索、详情查询、下载功能。
+
+    该 Protocol 用于 ``miniagent.runtime.context.RuntimeContext`` 的
+    clawhub 字段类型，支持依赖注入模式。
+    """
+
     async def search(self, query: str, limit: int = 10) -> list[ClawHubSearchResult]:
-        """搜索技能"""
+        """搜索技能
+
+        Args:
+            query: 搜索关键词
+            limit: 返回结果数量上限
+
+        Returns:
+            搜索结果列表
+        """
         ...
 
-    @abstractmethod
     async def get_detail(self, slug: str) -> ClawHubSkillDetail:
-        """获取技能详情"""
+        """获取技能详情
+
+        Args:
+            slug: 技能 slug
+
+        Returns:
+            技能详情
+        """
         ...
 
-    @abstractmethod
     async def download(
         self,
         slug: str,
@@ -262,8 +357,13 @@ class ClawHubClientProtocol(Protocol):
     ) -> dict[str, Any]:
         """下载技能包
 
+        Args:
+            slug: 技能 slug
+            version: 版本号（可选）
+            skills_root: 技能根目录（可选）
+
         Returns:
-            dict with 'path' and 'files' keys
+            包含 'path' 和 'files' 键的字典
         """
         ...
 

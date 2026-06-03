@@ -1,0 +1,40 @@
+{
+  "secrets": {
+    "openai_api_key": "sk-xxx-your-api-key-here",
+    "tavily_api_key": "tvly-xxx-your-tavily-key-here"
+  },
+  "model": {
+    "model": "gpt-4o-mini",
+    "base_url": "https://api.openai.com/v1",
+    "context_window": 128000,
+    "thinking_level": "medium"
+  },
+  "agent": {
+    "max_turns": 400,
+    "tool_timeout": 60,
+    "http_timeout": 120
+  },
+  "paths": {
+    "state_dir": "workspaces",
+    "workspace": "",
+    "skills_dir": ""
+  },
+  "memory": {
+    "history_max_messages": 120,
+    "store_cache_max": 50
+  },
+  "feishu": {
+    "reply_target": "reply",
+    "reply_plain": false,
+    "card_action_router": true,
+    "tools_auto": true
+  },
+  "ui": {
+    "error_prefix": "❌",
+    "warning_prefix": "⚠️",
+    "success_prefix": "✅"
+  },
+  "debug": {
+    "perf_metrics": false
+  }
+}

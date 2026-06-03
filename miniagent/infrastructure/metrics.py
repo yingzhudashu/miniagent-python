@@ -9,11 +9,16 @@
 - 低开销：采集逻辑本身不影响性能
 - 可选：默认关闭，通过配置启用
 - 轻量：不依赖外部库，纯 Python 实现
+
+**并发安全**：
+- 全局单例 get_global_metrics() 使用线程锁保护创建过程
+- 采集器本身的记录操作不是线程安全的，但通常在单线程中使用
 """
 
 from __future__ import annotations
 
 import json
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -277,21 +282,30 @@ class _MeasureContext:
 
 # 进程级全局指标实例（可选使用）
 _global_metrics: PerformanceMetrics | None = None
+_global_metrics_lock = threading.Lock()
 
 
 def get_global_metrics() -> PerformanceMetrics:
-    """获取全局性能指标实例"""
+    """获取全局性能指标实例（线程安全）
+
+    使用线程锁保护单例创建过程，确保多线程环境下只创建一个实例。
+
+    Returns:
+        全局 PerformanceMetrics 实例
+    """
     global _global_metrics
-    if _global_metrics is None:
-        _global_metrics = PerformanceMetrics()
-    return _global_metrics
+    with _global_metrics_lock:
+        if _global_metrics is None:
+            _global_metrics = PerformanceMetrics()
+        return _global_metrics
 
 
 def reset_global_metrics() -> None:
-    """重置全局性能指标实例"""
+    """重置全局性能指标实例（线程安全）"""
     global _global_metrics
-    if _global_metrics is not None:
-        _global_metrics.reset()
+    with _global_metrics_lock:
+        if _global_metrics is not None:
+            _global_metrics.reset()
 
 
 __all__ = [

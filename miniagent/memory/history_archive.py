@@ -1,6 +1,8 @@
 """会话历史过长时，将最早若干完整轮次原样写入按会话隔离的日记并插入衔接锚点。
 
 与 ``read_session_diary`` / ``search_session_diary`` 工具读路径一致；背景见 ``docs/MEMORY_SYSTEM.md``。
+
+**重构说明**：状态根目录获取已统一到 ``miniagent/memory/defaults.py`` 的 ``get_state_root()``。
 """
 
 from __future__ import annotations
@@ -12,19 +14,18 @@ from typing import Any
 
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
+from miniagent.memory.defaults import get_state_root
 from miniagent.utils.session_id import safe_session_id
 
 _logger = get_logger(__name__)
 
 
-def _state_dir() -> str:
-    """状态根目录：配置 paths.state_dir 或仓库下 ``workspaces``。"""
-    return get_config("paths.state_dir", os.path.join(os.getcwd(), "workspaces"))
+# 使用统一的 get_state_root() 函数获取状态根目录
 
 
 def _diary_path(session_key: str, day: str) -> str:
     """某日日记 Markdown 绝对路径（确保目录存在）。"""
-    base = os.path.join(_state_dir(), "memory", "diary", safe_session_id(session_key))
+    base = os.path.join(get_state_root(), "memory", "diary", safe_session_id(session_key))
     os.makedirs(base, exist_ok=True)
     return os.path.join(base, f"{day}.md")
 

@@ -8,13 +8,16 @@
 - Layer 1: 当前对话窗口（与 ``miniagent.memory.context`` 协同）
 - Layer 2: 会话级持久记忆（如 ``DefaultMemoryStore``）
 - Layer 3: 跨会话检索（如 ``KeywordIndex``）
+
+**Protocol 最佳实践**：
+- Protocol 不使用 @abstractmethod（Python Protocol 仅定义方法签名，实现类自行提供）
+- 使用 @runtime_checkable 支持 isinstance() 检查
 """
 
 from __future__ import annotations
 
-from abc import abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 
 @dataclass
@@ -105,30 +108,85 @@ class SessionMemory:
     sender_id: str | None = None
 
 
+@runtime_checkable
 class MemoryStoreProtocol(Protocol):
-    """记忆存储接口
+    """记忆存储接口协议
 
     负责会话记忆的加载、保存、更新和添加条目。
+
+    该 Protocol 同时满足以下两处使用的需求：
+    - ``miniagent.runtime.context.RuntimeContext.memory_store``
+    - ``miniagent.types.protocols`` 中的运行时注入
+
+    Methods:
+        load: 加载会话记忆
+        save: 保存会话记忆
+        update_summary: 更新摘要和事实
+        update_user_snippet: 更新用户消息摘要
+        append_message: 追加消息到记忆
+        add_entry: 添加记忆条目
+
+    Attributes:
+        _state_dir: 状态目录路径（可选属性，某些实现可能不提供）
     """
 
-    @abstractmethod
+    _state_dir: str
+
     async def load(self, session_key: str) -> SessionMemory | None:
-        """加载会话记忆"""
+        """加载会话记忆
+
+        Args:
+            session_key: 会话唯一标识
+
+        Returns:
+            会话记忆对象，若不存在则返回 None
+        """
         ...
 
-    @abstractmethod
     async def save(self, memory: SessionMemory) -> None:
-        """保存会话记忆"""
+        """保存会话记忆
+
+        Args:
+            memory: 会话记忆对象
+        """
         ...
 
-    @abstractmethod
     async def update_summary(self, session_key: str, summary: str, facts: list[str]) -> None:
-        """更新摘要和事实"""
+        """更新摘要和关键事实
+
+        Args:
+            session_key: 会话唯一标识
+            summary: 运行累计摘要
+            facts: 关键事实列表
+        """
         ...
 
-    @abstractmethod
+    async def update_user_snippet(self, session_key: str, snippet: str) -> None:
+        """更新用户消息摘要
+
+        Args:
+            session_key: 会话唯一标识
+            snippet: 用户消息摘要（前 100 字符）
+        """
+        ...
+
+    async def append_message(self, session_key: str, role: str, content: str) -> None:
+        """追加消息到记忆
+
+        Args:
+            session_key: 会话唯一标识
+            role: 消息角色（user/assistant）
+            content: 消息内容
+        """
+        ...
+
     async def add_entry(self, session_key: str, entry: MemoryEntryInput | dict[str, Any]) -> None:
-        """添加条目（实现类可将 dict 规范为 MemoryEntryInput）。"""
+        """添加记忆条目
+
+        Args:
+            session_key: 会话唯一标识
+            entry: 记忆条目输入（实现类可将 dict 规范为 MemoryEntryInput）
+        """
         ...
 
 
@@ -185,50 +243,99 @@ class Session:
         return self.workspace_path
 
 
+@runtime_checkable
 class SessionManagerProtocol(Protocol):
-    """会话管理器接口
+    """会话管理器接口协议
 
     管理会话的创建、获取、列表、销毁、切换，以及工具升降维。
+
+    该 Protocol 用于 ``miniagent.runtime.context.RuntimeContext`` 的
+    session_manager 字段类型，支持依赖注入模式。
     """
 
-    @abstractmethod
     def get_or_create(self, id: str, options: SessionOptions | None = None) -> Session:
-        """创建或获取会话"""
+        """创建或获取会话
+
+        Args:
+            id: 会话唯一标识
+            options: 会话配置选项
+
+        Returns:
+            会话对象
+        """
         ...
 
-    @abstractmethod
     def get(self, id: str) -> Session | None:
-        """获取会话"""
+        """获取会话
+
+        Args:
+            id: 会话唯一标识
+
+        Returns:
+            会话对象，若不存在则返回 None
+        """
         ...
 
-    @abstractmethod
     def list(self) -> list[Session]:
-        """列出所有活跃会话"""
+        """列出所有活跃会话
+
+        Returns:
+            会话列表
+        """
         ...
 
-    @abstractmethod
     def destroy(self, id: str) -> bool:
-        """销毁会话"""
+        """销毁会话
+
+        Args:
+            id: 会话唯一标识
+
+        Returns:
+            是否成功销毁
+        """
         ...
 
-    @abstractmethod
     def get_active_id(self) -> str:
-        """获取当前活跃会话 ID"""
+        """获取当前活跃会话 ID
+
+        Returns:
+            活跃会话 ID
+        """
         ...
 
-    @abstractmethod
     def set_active(self, id: str) -> bool:
-        """切换活跃会话"""
+        """切换活跃会话
+
+        Args:
+            id: 目标会话 ID
+
+        Returns:
+            是否成功切换
+        """
         ...
 
-    @abstractmethod
     def promote_tool(self, session_id: str, tool_name: str) -> bool:
-        """工具升维"""
+        """工具升维（添加到会话工具白名单）
+
+        Args:
+            session_id: 会话 ID
+            tool_name: 工具名称
+
+        Returns:
+            是否成功升维
+        """
         ...
 
-    @abstractmethod
     def demote_tool(self, session_id: str, tool_name: str) -> bool:
-        """工具降维"""
+        """工具降维（从会话工具白名单移除）
+
+        Args:
+            session_id: 会话 ID
+            tool_name: 工具名称
+
+        Returns:
+            是否成功降维
+        """
         ...
 
 

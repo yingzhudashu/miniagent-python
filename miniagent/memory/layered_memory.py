@@ -4,6 +4,8 @@
 读写的稳定文件名（经 ``safe_session_id`` 净化 ``session_key``）。
 
 Layer 3 摘要语义见 ``docs/MEMORY_SYSTEM.md``。
+
+**重构说明**：状态根目录获取已统一到 ``miniagent/memory/defaults.py`` 的 ``get_state_root()``。
 """
 
 from __future__ import annotations
@@ -13,8 +15,8 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 
-from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
+from miniagent.memory.defaults import get_state_root
 from miniagent.utils.session_id import safe_session_id
 
 _logger = get_logger(__name__)
@@ -24,21 +26,19 @@ _logger = get_logger(__name__)
 _safe_session_id = safe_session_id
 
 
-def _state_dir() -> str:
-    """长期记忆 JSON 所在状态根目录。"""
-    return get_config("paths.state_dir", os.path.join(os.getcwd(), "workspaces"))
+# 使用统一的 get_state_root() 函数获取状态根目录
 
 
 def _session_lt_path(session_key: str) -> str:
     """``memory/session_lt/<safe>.json`` 路径。"""
-    d = os.path.join(_state_dir(), "memory", "session_lt")
+    d = os.path.join(get_state_root(), "memory", "session_lt")
     os.makedirs(d, exist_ok=True)
     return os.path.join(d, f"{_safe_session_id(session_key)}.json")
 
 
 def _agent_lt_path() -> str:
     """全局 Agent 长期记忆 ``memory/agent_lt/global.json`` 路径。"""
-    d = os.path.join(_state_dir(), "memory", "agent_lt")
+    d = os.path.join(get_state_root(), "memory", "agent_lt")
     os.makedirs(d, exist_ok=True)
     return os.path.join(d, "global.json")
 

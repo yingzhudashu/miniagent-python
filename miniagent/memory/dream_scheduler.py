@@ -4,6 +4,8 @@
 跨进程精炼互斥使用 ``memory/dream.lock``。
 
 与三层记忆中「夜间精炼」叙事对应，见 ``docs/MEMORY_SYSTEM.md``。
+
+**重构说明**：状态根目录获取已统一到 ``miniagent/memory/defaults.py`` 的 ``get_state_root()``。
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ from typing import Any
 
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
+from miniagent.memory.defaults import get_state_root
 from miniagent.memory.layered_memory import (
     append_session_day_rollup,
     load_agent_longterm,
@@ -30,9 +33,7 @@ _logger = get_logger(__name__)
 _STATE_NAME = "dream_state.json"
 
 
-def _state_dir() -> str:
-    """Dream 调度读写所在状态根目录。"""
-    return get_config("paths.state_dir", os.path.join(os.getcwd(), "workspaces"))
+# 使用统一的 get_state_root() 函数获取状态根目录
 
 
 # 从JSON配置获取默认值（环境变量覆盖由JsonConfigLoader自动处理）
@@ -54,7 +55,7 @@ _pending_dream_tasks: set[asyncio.Task[Any]] = set()
 
 def _state_path() -> str:
     """``memory/dream_state.json`` 绝对路径（确保 ``memory`` 目录存在）。"""
-    root = _state_dir()
+    root = get_state_root()
     d = os.path.join(root, "memory")
     os.makedirs(d, exist_ok=True)
     return os.path.join(d, _STATE_NAME)
@@ -86,7 +87,7 @@ def _diary_dir_size(session_key: str) -> int:
     from miniagent.memory.history_archive import safe_session_id_for_memory
 
     root = os.path.join(
-        _state_dir(),
+        get_state_root(),
         "memory",
         "diary",
         safe_session_id_for_memory(session_key),
@@ -108,7 +109,7 @@ def _try_file_lock() -> bool:
     """跨进程互斥：独占文件 + PID（不保证崩溃后强一致，与实例注册表策略一致）。"""
     from miniagent.infrastructure.instance import is_process_running
 
-    lock = os.path.join(_state_dir(), "memory", "dream.lock")
+    lock = os.path.join(get_state_root(), "memory", "dream.lock")
     os.makedirs(os.path.dirname(lock), exist_ok=True)
     for _ in range(3):
         try:
@@ -133,7 +134,7 @@ def _try_file_lock() -> bool:
 
 def _release_file_lock() -> None:
     """若锁文件由本 PID 持有则删除，释放跨进程 dream 互斥。"""
-    lock = os.path.join(_state_dir(), "memory", "dream.lock")
+    lock = os.path.join(get_state_root(), "memory", "dream.lock")
     try:
         if os.path.isfile(lock):
             with open(lock, encoding="utf-8") as f:
@@ -164,7 +165,7 @@ async def _refine_session(session_key: str) -> None:
 
         abs_d = diary_file_path(session_key, day)
         try:
-            rel = os.path.relpath(abs_d, _state_dir()).replace("\\", "/")
+            rel = os.path.relpath(abs_d, get_state_root()).replace("\\", "/")
         except ValueError:
             rel = abs_d.replace("\\", "/")
         append_session_day_rollup(

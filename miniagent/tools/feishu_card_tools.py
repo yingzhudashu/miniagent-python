@@ -1,4 +1,7 @@
-"""飞书互动卡片工具：发送与更新 interactive 消息。"""
+"""飞书互动卡片工具：发送与更新 interactive 消息。
+
+**重构说明**：配置检查使用 miniagent/tools/_feishu_utils.py 的共享函数。
+"""
 
 from __future__ import annotations
 
@@ -6,8 +9,9 @@ import json
 from typing import Any
 
 from miniagent.feishu.cards.builder import build_button, build_interactive_card
-from miniagent.feishu.lark_client import config_from_env, require_lark_oapi
+from miniagent.feishu.lark_client import config_from_env
 from miniagent.feishu.receive_id import default_receive_id_for_send, effective_receive_id_type
+from miniagent.tools._feishu_utils import check_lark_oapi
 from miniagent.types.error_prefix import SUCCESS_PREFIX, WARNING_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
@@ -23,10 +27,9 @@ async def _feishu_send_interactive_card(args: dict[str, Any], ctx: ToolContext) 
     cfg = config_from_env()
     if cfg is None:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} 未配置 FEISHU_APP_ID / FEISHU_APP_SECRET。")
-    try:
-        require_lark_oapi()
-    except ImportError:
-        return ToolResult(success=False, content=f"{WARNING_PREFIX} 请安装 lark-oapi。")
+    dep_err = check_lark_oapi()
+    if dep_err:
+        return dep_err
 
     receive_id, recv_err = default_receive_id_for_send(args, ctx)
     if recv_err:
@@ -104,10 +107,9 @@ async def _feishu_update_message_card(args: dict[str, Any], ctx: ToolContext) ->
     cfg = config_from_env()
     if cfg is None:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} 未配置 FEISHU_APP_ID / FEISHU_APP_SECRET。")
-    try:
-        require_lark_oapi()
-    except ImportError:
-        return ToolResult(success=False, content=f"{WARNING_PREFIX} 请安装 lark-oapi。")
+    dep_err = check_lark_oapi()
+    if dep_err:
+        return dep_err
 
     mid = str(args.get("message_id") or "").strip()
     if not mid:

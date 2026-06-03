@@ -2,6 +2,9 @@
 
 用于多开 CLI 时避免多个进程同时连接同一飞书应用导致事件重复或状态错乱。
 死亡 PID 的锁文件会被后续 ``try_acquire`` 覆盖。
+
+**重构说明**：
+- PID 检测函数已提取到公共模块 ``miniagent/infrastructure/process_utils.py``
 """
 
 from __future__ import annotations
@@ -14,6 +17,7 @@ from typing import Any
 
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
+from miniagent.infrastructure.process_utils import is_process_running
 
 _logger = get_logger(__name__)
 
@@ -26,25 +30,8 @@ def _state_root(state_dir: str | None) -> Path:
     return Path(root)
 
 
-def _is_pid_alive(pid: int) -> bool:
-    """跨平台探测进程是否仍存活（Windows 使用 tasklist，POSIX 使用 ``os.kill(..., 0)``）。"""
-    if pid <= 0:
-        return False
-    try:
-        if os.name == "nt":
-            import subprocess
-
-            out = subprocess.check_output(
-                ["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
-                timeout=5,
-                text=True,
-                stderr=subprocess.DEVNULL,
-            )
-            return f'"{pid}"' in out
-        os.kill(pid, 0)
-        return True
-    except Exception:
-        return False
+# PID 检测函数已移至 miniagent.infrastructure.process_utils
+# is_process_running 从 process_utils 导入
 
 
 def try_acquire_feishu_inbound_owner(
@@ -72,7 +59,7 @@ def try_acquire_feishu_inbound_owner(
         except Exception:
             raw = {}
         old_pid = int(raw.get("pid") or 0)
-        if old_pid and old_pid != me and _is_pid_alive(old_pid):
+        if old_pid and old_pid != me and is_process_running(old_pid):
             oid = raw.get("instance_id", "?")
             return (
                 False,
@@ -99,7 +86,7 @@ def read_feishu_inbound_owner(
     except Exception:
         return None
     pid = int(raw.get("pid") or 0)
-    raw["alive"] = bool(pid and _is_pid_alive(pid))
+    raw["alive"] = bool(pid and is_process_running(pid))
     return raw
 
 

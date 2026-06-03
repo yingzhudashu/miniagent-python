@@ -13,6 +13,8 @@
 所有操作通过 ``action`` 参数路由，使用统一的 ``feishu_doc`` 工具名。
 
 相关文档：docs/FEISHU.md
+
+**重构说明**：配置检查使用 miniagent/tools/_feishu_utils.py 的共享函数。
 """
 
 from __future__ import annotations
@@ -24,10 +26,11 @@ from typing import Any
 
 from miniagent.feishu._utils import fmt_json, resolve_under_workspace
 from miniagent.feishu.folder_token_resolve import resolve_parent_folder_token
-from miniagent.feishu.lark_client import config_from_env, require_lark_oapi
+from miniagent.feishu.lark_client import config_from_env
 from miniagent.feishu.token_resolve import extract_doc_token
 from miniagent.feishu.types import FeishuConfig
 from miniagent.infrastructure.json_config import get_config
+from miniagent.tools._feishu_utils import check_lark_oapi
 from miniagent.types.error_prefix import SUCCESS_PREFIX, WARNING_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
@@ -103,12 +106,9 @@ async def _feishu_doc(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     cfg = config_from_env()
     if cfg is None:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} 未配置 FEISHU_APP_ID / FEISHU_APP_SECRET。")
-    try:
-        require_lark_oapi()
-    except ImportError:
-        return ToolResult(
-            success=False, content=f"{WARNING_PREFIX} 请安装 lark-oapi（pip install miniagent-python[feishu]）。"
-        )
+    dep_err = check_lark_oapi()
+    if dep_err:
+        return dep_err
 
     try:
         if action == "create":
