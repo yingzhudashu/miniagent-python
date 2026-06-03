@@ -291,6 +291,8 @@ class KeywordIndex:
             state_dir: 状态存储目录
             registry: 共享注册表实例（None 时使用全局默认）
         """
+        import threading
+
         self._state_dir = state_dir
         self._registry = registry or get_registry(state_dir)
         self._index: collections.OrderedDict[str, _IndexEntry] = collections.OrderedDict()
@@ -298,6 +300,7 @@ class KeywordIndex:
         self._loaded = False
         self._dirty = False
         self._index_file = os.path.join(state_dir, "keyword-index.json")
+        self._index_lock = threading.Lock()
 
     def _ensure_loaded(self) -> None:
         """确保索引已从磁盘加载（线程安全）。"""
