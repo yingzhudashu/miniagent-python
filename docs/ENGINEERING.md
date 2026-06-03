@@ -134,6 +134,43 @@ CI 说明：
 
 建议跑长时间评测时设置 `MINIAGENT_PATHS_STATE_DIR` 指向临时目录，避免与日常 `workspaces/` 会话干扰。
 
+### 3.5 测试覆盖率报告
+
+生成覆盖率报告命令：
+
+```bash
+# 生成 HTML 报告（推荐）
+python -m pytest tests/ -q -m "not evaluation" \
+  --cov=miniagent --cov-report=html --cov-report=term
+
+# 打开 HTML 报告
+# Windows: start htmlcov/index.html
+# macOS: open htmlcov/index.html
+# Linux: xdg-open htmlcov/index.html
+```
+
+**覆盖率目标**：
+- 核心模块 (`miniagent/core/`): 95%+
+- 类型定义 (`miniagent/types/`): 95%+
+- 整体项目: 80%+
+
+**覆盖率配置**: `.coveragerc` 文件定义分支覆盖、忽略规则与报告格式。
+
+**新增模块测试要求**: 新增模块应达到 100% 函数覆盖，重点路径 90% 分支覆盖。
+
+**关键模块测试状态**（截至 2026-06-03）：
+
+| 模块 | 测试文件 | 覆盖状态 |
+|------|----------|----------|
+| `miniagent/types/tool.py` | `test_types_tool.py` | ✅ 完整 |
+| `miniagent/types/memory.py` | `test_types_memory.py` | ✅ 完整 |
+| `miniagent/memory/keyword_index.py` | `test_keyword_index.py` | ✅ 完整 |
+| `miniagent/core/executor.py` | `test_executor_*.py` | ✅ 完整 |
+| `miniagent/core/planner.py` | `test_planner_*.py` | ✅ 完整 |
+| `miniagent/feishu/cards/` | `test_feishu_cards_*.py` | ✅ 完整 |
+| `miniagent/scheduled_tasks/` | `test_scheduled_tasks*.py` | ✅ 完整 |
+| `miniagent/types/protocols.py` | 待添加 | ⚠️ 部分 |
+
 ---
 
 ## 4. 安全与密钥

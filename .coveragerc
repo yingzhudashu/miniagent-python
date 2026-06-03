@@ -1,0 +1,30 @@
+# MiniAgent 测试覆盖率配置
+# 运行：pytest tests/ --cov=miniagent --cov-report=html
+
+[run]
+source = miniagent
+branch = True
+omit =
+    miniagent/__pycache__/*
+    miniagent/*/__pycache__/*
+    miniagent/*/vendor/*
+    miniagent/testing/*
+    miniagent/cli/cli.py  # 入口脚本
+
+[report]
+precision = 2
+show_missing = True
+skip_covered = False
+exclude_lines =
+    pragma: no cover
+    if TYPE_CHECKING:
+    raise NotImplementedError
+    @abstractmethod
+    pass
+
+[html]
+directory = htmlcov
+title = MiniAgent Test Coverage Report
+
+[xml]
+output = coverage.xml
