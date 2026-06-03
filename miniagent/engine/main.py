@@ -1394,9 +1394,15 @@ async def run_cli_loop(
         """向 transcript 追加样式化文本；同样式尾部合并；维护粘底与长度裁剪。
 
         性能优化：维护累计长度计数器，避免每次遍历计算。
+
+        **安全验证**：样式在存储前经过 _is_valid_pt_style 验证，
+        无效样式替换为空字符串，防止后续渲染错误。
         """
         if not text and ansi is None:
             return
+        # 安全验证样式
+        if not _is_valid_pt_style(style_cls):
+            style_cls = ""
         at_bottom = _output_at_bottom()
         if (
             _transcript
