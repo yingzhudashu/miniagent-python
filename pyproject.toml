@@ -63,9 +63,10 @@ include = ["miniagent*"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [
-    "dot_help_dispatch: real dispatch_command path for .help (filter with -m 'not dot_help_dispatch' to skip)",
-    "evaluation: tests under tests/evaluation (often network/API; default CI uses -m 'not evaluation')",
-    "perf: synthetic local performance smoke (see docs/PERFORMANCE.md)",
+    "dot_help_dispatch: real dispatch_command path for .help",
+    "evaluation: tests under tests/evaluation (often network/API)",
+    "perf: synthetic local performance smoke",
+    "slow: tests taking >5 seconds",
 ]
 filterwarnings = [
     "ignore::RuntimeWarning",
