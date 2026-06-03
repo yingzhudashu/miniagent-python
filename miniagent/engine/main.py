@@ -643,17 +643,50 @@ async def run_cli_loop(
         hrule_count = sum(1 for ch in text if ch in _HRULE_CHARS)
         return hrule_count >= len(text) * 0.8
 
+    def _is_valid_pt_style(style: str) -> bool:
+        """判断样式字符串是否有效（防止 emoji 等被解析为 color）。
+
+        prompt_toolkit 的 _parse_style_str 会将样式字符串解析为颜色，
+        如果样式字符串包含 emoji 等无效字符，会抛出 'Wrong color format' 错误。
+
+        有效样式格式：
+        - 空字符串
+        - 'ansi*' 开头（ANSI 颜色名）
+        - '#' 开头（十六进制颜色）
+        - 'class:' 开头（样式类名）
+        - 'bg:*'（背景色）
+        - 'fg:*'（前景色，已弃用但仍支持）
+        """
+        if not style:
+            return True
+        # 允许的标准样式前缀
+        valid_prefixes = ("ansi", "#", "class:", "bg:", "fg:", "noinherit")
+        # 检查是否为单个 ANSI 颜色名（如 'ansired'）
+        if style in ("ansidefault", "ansiblack", "ansired", "ansigreen", "ansiyellow",
+                     "ansiblue", "ansimagenta", "ansicyan", "ansiwhite",
+                     "ansibrightblack", "ansibrightred", "ansibrightgreen", "ansibrightyellow",
+                     "ansibrightblue", "ansibrightmagenta", "ansibrightcyan", "ansibrightwhite"):
+            return True
+        return any(style.startswith(p) for p in valid_prefixes)
+
     def _truncate_hrule_in_ansi(ansi_list: list[Any], vp: int) -> list[Any]:
-        """截断 ANSI 输出中的水平分割线。
+        """截断 ANSI 输出中的水平分割线，同时过滤无效样式（防止 emoji 解析错误）。
 
         ``to_formatted_text(ANSI(...))`` 返回的列表可能包含长分割线，
         使用 vp // 2 截断（与 _border_truncate 一致）。
+
+        **安全过滤**：prompt_toolkit ANSI 解析器可能将某些字符错误解析为样式字符串，
+        导致 emoji 等字符被当作颜色值，引发 'Wrong color format' 错误。
+        此函数对所有 fragment 的样式进行验证，无效样式替换为空字符串。
         """
         safe = max(1, vp // 2)  # 与 _border_truncate 保持一致
         result: list[Any] = []
         for item in ansi_list:
             if isinstance(item, tuple) and len(item) >= 2:
                 style, text = item[0], item[1]
+                # 安全过滤：验证样式有效性
+                if not _is_valid_pt_style(style):
+                    style = ""  # 无效样式替换为空
                 if _is_hrule_line(text.rstrip("\n")):
                     # 截断分割线
                     truncated = text[:safe]
@@ -661,7 +694,7 @@ async def run_cli_loop(
                         truncated = truncated.rstrip("\n") + "\n"
                     result.append((style, truncated))
                 else:
-                    result.append(item)
+                    result.append((style, text))
             else:
                 result.append(item)
         return result
@@ -809,6 +842,9 @@ async def run_cli_loop(
         边框线（border）按视口宽度截断，不随 ``wrap_lines`` 折行。
 
         **复制模式支持**：当复制模式激活且有选择范围时，对选中内容应用高亮样式。
+
+        **安全过滤**：所有样式在输出前都经过 _is_valid_pt_style 验证，
+        防止 emoji 等无效字符被 prompt_toolkit 解析为颜色值。
         """
         _recheck_md_width()
         from prompt_toolkit.formatted_text.ansi import ANSI as PTANSI
@@ -822,6 +858,9 @@ async def run_cli_loop(
             if _copy_mode_active[0] and _selection_start[0] is not None:
                 if isinstance(frag, tuple) and len(frag) >= 2:
                     style_cls, text = frag[0], frag[1]
+                    # 安全验证样式
+                    if not _is_valid_pt_style(style_cls):
+                        style_cls = ""
                     if style_cls in _BORDER_CLASSES:
                         text = _border_truncate(text, vp)
                     # 应用选择高亮
@@ -841,8 +880,10 @@ async def run_cli_loop(
                         out.append((h_style, h_text))
                 else:
                     ansi_list = to_formatted_text(frag)
+                    # 安全过滤 + 截断
+                    safe_list = _truncate_hrule_in_ansi(ansi_list, vp)
                     # 对 ANSI 列表也应用选择处理
-                    plain_text = "".join(item[1] if isinstance(item, tuple) and len(item) >= 2 else "" for item in ansi_list)
+                    plain_text = "".join(item[1] if isinstance(item, tuple) and len(item) >= 2 else "" for item in safe_list)
                     highlighted = _apply_selection_highlight(frag_idx, plain_text)
                     for h_style, h_text in highlighted:
                         out.append((h_style, h_text))
@@ -850,6 +891,9 @@ async def run_cli_loop(
                 # 正常模式：原有渲染逻辑
                 if isinstance(frag, tuple) and len(frag) >= 2:
                     style_cls, text = frag[0], frag[1]
+                    # 安全验证样式
+                    if not _is_valid_pt_style(style_cls):
+                        style_cls = ""
                     if style_cls in _BORDER_CLASSES:
                         text = _border_truncate(text, vp)
                     out.append((style_cls, text))
@@ -1757,6 +1801,7 @@ async def run_cli_loop(
 
             prompt_toolkit 的 ANSI 解析器可能将某些 ANSI 序列错误解析，
             导致 emoji 等字符被当作样式字符串，引发 'Wrong color format' 错误。
+            使用 _is_valid_pt_style 验证每个 fragment 的样式。
             """
             from prompt_toolkit.formatted_text import ANSI, to_formatted_text
 
@@ -1765,8 +1810,8 @@ async def run_cli_loop(
             ft = list(to_formatted_text(ansi_obj))
             safe_fragments = []
             for style, text in ft:
-                # 检查样式是否有效：必须为空字符串或以 'ansi' 或 '#' 开头
-                if style == "" or style.startswith("ansi") or style.startswith("#") or style.startswith("class:"):
+                # 使用统一的样式验证函数
+                if _is_valid_pt_style(style):
                     safe_fragments.append((style, text))
                 else:
                     # 无效样式，使用空样式（纯文本）
