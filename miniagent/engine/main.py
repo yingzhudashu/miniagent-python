@@ -1750,14 +1750,37 @@ async def run_cli_loop(
             # 只允许 ansi* 或 class:* 格式
             color = ""
 
+        def _safe_ansi(ansi_body: str) -> Any:
+            """安全创建 ANSI 对象，过滤可能导致渲染错误的样式字符串。
+
+            prompt_toolkit 的 ANSI 解析器可能将某些 ANSI 序列错误解析，
+            导致 emoji 等字符被当作样式字符串，引发 'Wrong color format' 错误。
+            """
+            from prompt_toolkit.formatted_text import ANSI, to_formatted_text
+
+            ansi_obj = ANSI(ansi_body)
+            # 获取解析后的 fragments 并过滤样式
+            ft = list(to_formatted_text(ansi_obj))
+            safe_fragments = []
+            for style, text in ft:
+                # 检查样式是否有效：必须为空字符串或以 'ansi' 或 '#' 开头
+                if style == "" or style.startswith("ansi") or style.startswith("#") or style.startswith("class:"):
+                    safe_fragments.append((style, text))
+                else:
+                    # 无效样式，使用空样式（纯文本）
+                    safe_fragments.append("", text)
+            return safe_fragments
+
         try:
             md_w = _markdown_render_width()  # 统一使用更宽的渲染宽度
             ansi_body = render_markdown_to_ansi(text, width=md_w, justify="left")
             if ansi_body is not None:
-                from prompt_toolkit.formatted_text import ANSI
-                ansi_obj = ANSI(ansi_body)
-                _attach_md_source(ansi_obj, text)
-                _append_transcript("", "", ansi=ansi_obj)
+                safe_ft = _safe_ansi(ansi_body)
+                # 直接使用过滤后的 fragments，不创建 ANSI 对象
+                for style, txt in safe_ft:
+                    _transcript.append((style, txt))
+                    _transcript_total_len[0] += len(txt)
+                _trim_transcript()
             else:
                 style = _ANSI_COLOR_STYLE_MAP.get(color, "class:cli-default")
                 _append_transcript(style, text)
@@ -1773,15 +1796,14 @@ async def run_cli_loop(
     ) -> None:
         """``ThinkingDisplay`` 输出槽：写入思考标签/正文或整段 Rich 渲染后的 ANSI。"""
         if ansi_markdown is not None:
-            from prompt_toolkit.formatted_text import ANSI
-
             body_lines = ansi_markdown.rstrip("\n").split("\n")
             transcript_body = "\n".join(ln if ln else "" for ln in body_lines) + "\n"
             at_bottom = _output_at_bottom()
-            ansi_obj = ANSI(transcript_body)
-            _transcript.append(ansi_obj)
-            # 性能优化：更新累计长度计数器
-            _transcript_total_len[0] += len(transcript_body)
+            # 使用安全的 ANSI 处理
+            safe_ft = _safe_ansi(transcript_body)
+            for style, txt in safe_ft:
+                _transcript.append((style, txt))
+                _transcript_total_len[0] += len(txt)
             _trim_transcript()
             try:
                 get_app().invalidate()
@@ -1800,44 +1822,34 @@ async def run_cli_loop(
         else:
             # 正文：流式增量 ANSI 渲染优化
             # 关键修复：检测是否正在进行流式 ANSI 输出，合并连续 ANSI 对象避免换行不正确
-            from prompt_toolkit.formatted_text import ANSI
-            from prompt_toolkit.formatted_text.ansi import ANSI as PTANSI
-
             from miniagent.engine.markdown_cli import render_markdown_to_ansi
 
             try:
                 md_w = _markdown_render_width()
-                # 检查最后一个元素是否是 ANSI 对象（正在进行流式输出）
-                # 关键：只有当 _source_md 属性存在时才合并（确保内容不丢失）
-                if _transcript and isinstance(_transcript[-1], PTANSI):
-                    prev_text = getattr(_transcript[-1], "_source_md", None)
-                    if prev_text is not None:
-                        # 流式输出：合并新内容，渲染完整文本（换行计算基于整体内容）
-                        full_text = prev_text + fragment
-                        ansi_body = render_markdown_to_ansi(full_text, width=md_w, justify="left")
-                        # 替换最后一个 ANSI 对象（而非追加新的）
-                        _transcript[-1] = ANSI(ansi_body)
-                        # 性能优化：更新累计长度（差值）
-                        new_len = len(ansi_body)
-                        old_len = len(_transcript[-1].value) if hasattr(_transcript[-1], 'value') else 0
-                        _transcript_total_len[0] += new_len - old_len
-                        _attach_md_source(_transcript[-1], full_text)
-                    else:
-                        # 没有 _source_md（非流式创建的 ANSI 对象），不合并，正常追加
-                        ansi_body = render_markdown_to_ansi(fragment, width=md_w, justify="left")
-                        ansi_obj = ANSI(ansi_body)
-                        _attach_md_source(ansi_obj, fragment)
-                        _transcript.append(ansi_obj)
-                        # 性能优化：更新累计长度计数器
-                        _transcript_total_len[0] += _transcript_fragment_len(ansi_obj)
+                # 检查最后一个元素是否是 tuple（正在进行流式输出）
+                # 检查是否有 _source_md 属性（通过特殊标记）
+                prev_source = None
+                if _transcript and isinstance(_transcript[-1], tuple):
+                    # 检查是否有附加的 source_md（通过特殊标记）
+                    prev_source = getattr(_transcript[-1], "_source_md", None) if hasattr(_transcript[-1], "_source_md") else None
+
+                if prev_source is not None:
+                    # 流式输出：合并新内容，渲染完整文本（换行计算基于整体内容）
+                    full_text = prev_source + fragment
+                    ansi_body = render_markdown_to_ansi(full_text, width=md_w, justify="left")
+                    # 使用安全的 ANSI 处理
+                    safe_ft = _safe_ansi(ansi_body)
+                    # 替换最后一个元素（而非追加新的）
+                    _transcript[-1:] = safe_ft
+                    # 性能优化：更新累计长度（差值）
+                    _transcript_total_len[0] += len(fragment)
                 else:
                     # 非流式输出或首个 chunk：正常 ANSI 渲染并追加
                     ansi_body = render_markdown_to_ansi(fragment, width=md_w, justify="left")
-                    ansi_obj = ANSI(ansi_body)
-                    _attach_md_source(ansi_obj, fragment)
-                    _transcript.append(ansi_obj)
-                    # 性能优化：更新累计长度计数器
-                    _transcript_total_len[0] += _transcript_fragment_len(ansi_obj)
+                    safe_ft = _safe_ansi(ansi_body)
+                    for style, txt in safe_ft:
+                        _transcript.append((style, txt))
+                        _transcript_total_len[0] += len(txt)
                 _trim_transcript()
                 try:
                     get_app().invalidate()
