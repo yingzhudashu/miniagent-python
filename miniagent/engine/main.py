@@ -1744,6 +1744,12 @@ async def run_cli_loop(
             return
         if not text.endswith("\n"):
             text = text + "\n"
+
+        # 安全检查：确保 color 不包含 emoji 或无效字符（防止 prompt_toolkit 解析错误）
+        if color and not color.startswith("class:") and not color.startswith("ansi"):
+            # 只允许 ansi* 或 class:* 格式
+            color = ""
+
         try:
             md_w = _markdown_render_width()  # 统一使用更宽的渲染宽度
             ansi_body = render_markdown_to_ansi(text, width=md_w, justify="left")
