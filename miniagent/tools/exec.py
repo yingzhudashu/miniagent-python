@@ -49,30 +49,46 @@ _exec_schema = {
 }
 
 # 危险命令黑名单（沙箱模式下生效）
+# 扩展覆盖：Unix + Windows 危险命令
 _BLOCKED_PATTERNS = [
+    # Unix 危险命令
     "rm -rf /",
     "rm -rf ~",
     "sudo rm",
     "mkfs",
     "dd if=",
     "> /dev/",
+    ":(){ :|:& };:",  # fork bomb
+    "chmod -R 777",
+    "> /etc/",
+    "crontab",
+    # Windows 危险命令
+    "del /s /q",
+    "format ",
+    "chkdsk /f",
+    "bootsect",
+    "bcdedit",
+    "reg delete",
 ]
 
 # Shell 注入检测正则（沙箱模式下生效）
+# 增强检测：覆盖算术扩展、重定向、更多注入模式
 _SHELL_INJECTION_RE = re.compile(
     r"(\|\s*\w|"  # pipe to command: | ls
     r";\s*\w|"  # semicolon command: ; ls
     r"`[^`]+`|"  # backtick substitution
     r"\$\([^)]+\)|"  # $(command) substitution
     r"\$\{[^}]+\}|"  # ${var} substitution
+    r"\$\(\(|"  # arithmetic expansion: $((expr))
     r"eval\s|"  # eval command
     r"exec\s|"  # exec command
     r"curl\s.*\|\s*(bash|sh)|"  # curl pipe shell
     r"wget\s.*\|\s*(bash|sh)|"  # wget pipe shell
     r"chmod\s+777|"  # chmod 777
     r"nc\s+-e|"  # netcat reverse shell
-    r"base64\s+-d\s*\|"  # base64 decode pipe
-    r")"
+    r"base64\s+-d\s*\||"  # base64 decode pipe
+    r"<>|"  # read-write redirect
+    r"<\s*>)"  # additional patterns
 )
 
 # 沙箱模式下允许的命令基础名
