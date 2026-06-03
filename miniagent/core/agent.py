@@ -340,8 +340,8 @@ async def run_agent(
                             "[需求澄清]",
                             full_record=prompt,
                         )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        _logger.debug("澄清结果推送失败（非关键）: %s", e)
         except Exception as e:
             _logger.warning("需求澄清失败: %s", e)
 
@@ -428,8 +428,8 @@ async def run_agent(
                         True,
                         "[等待确认]",
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    _logger.debug("等待确认推送失败（非关键）: %s", e)
             approved = await on_plan(plan)
             if not approved:
                 return f"{WARNING_PREFIX} 操作已取消"

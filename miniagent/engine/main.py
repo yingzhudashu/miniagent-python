@@ -100,8 +100,8 @@ async def unified_main(ctx: RuntimeContext) -> None:
             if ctypes.windll.kernel32.GetConsoleMode(_h, ctypes.byref(_mode)):
                 _new_mode = _mode.value | 0x0004
                 ctypes.windll.kernel32.SetConsoleMode(_h, _new_mode)
-    except Exception:
-        pass  # VT 模式不可用，降级到 prompt_toolkit 颜色
+    except Exception as e:
+        _logger.debug("Windows VT模式设置失败（降级到prompt_toolkit）: %s", e)  # VT 模式不可用，降级到 prompt_toolkit 颜色
 
     MODEL = get_config("model.model", "gpt-4o-mini")
     from miniagent.engine.init import init_subsystems
@@ -152,8 +152,8 @@ async def unified_main(ctx: RuntimeContext) -> None:
                 reason=f"signal:{signum}",
                 call_unregister=True,
             )
-        except Exception:
-            pass  # 关闭过程中的异常不影响最终退出
+        except Exception as e:
+            _logger.debug("信号关闭过程中异常（不影响退出）: %s", e)  # 关闭过程中的异常不影响最终退出
         # 使用 os._exit 直接终止进程，避免 SystemExit 异常
         os._exit(0)
 
@@ -366,8 +366,8 @@ async def run_cli_loop(
                     content = (msg.get("content") or "").strip()
                     if content:
                         buf.history.append_string(content)
-        except Exception:
-            pass  # 历史加载失败不影响启动
+        except Exception as e:
+            _logger.warning("历史加载失败，继续启动: %s", e)  # 历史加载失败不影响启动
 
     input_buffer = Buffer(history=FileHistory(history_file))
 
@@ -408,8 +408,8 @@ async def run_cli_loop(
 
             if isinstance(frag, PTANSI):
                 return len(frag.value)
-        except Exception:
-            pass
+        except Exception as e:
+            _logger.debug("transcript片段长度计算失败: %s", e)
         return 0
 
     def _trim_transcript() -> None:

@@ -93,6 +93,7 @@ _logger = get_logger(__name__)
 
 # 参数截断长度（避免日志膨胀）- 支持环境变量覆盖
 import os as _os_for_log
+
 _MAX_ARGS_LOG_LEN = int(_os_for_log.environ.get("MINIAGENT_MAX_ARGS_LOG_LEN", "500"))
 
 
@@ -681,8 +682,8 @@ async def execute_plan(
                     )
                     _phase_header_sent.add(thinking_phase_label)
                 _thinking_started = True
-            except Exception:
-                pass
+            except Exception as e:
+                _logger.debug("思考状态推送失败（非关键）: %s", e)
 
         exec_kw = resolve_exec_completion_kwargs(
             agent_config, stream=True, merge_overrides=merge_overrides
@@ -780,8 +781,8 @@ async def execute_plan(
                         thinking_phase_label,
                         full_record=line,
                     )
-            except Exception:
-                pass
+            except Exception as e:
+                _logger.debug("思考状态推送失败（非关键）: %s", e)
 
         emit_trace(
             {
