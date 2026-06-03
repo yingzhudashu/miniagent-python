@@ -158,6 +158,77 @@ def _log_tool_error(
             _logger.debug("%s | 堆栈:\n%s", log_prefix, traceback_str)
 
 
+# ─── 流式输出优化：增量 buffer（性能优化）──
+
+
+class StreamingBuffer:
+    """高效的流式内容缓冲器，避免 O(n²) 字符拼接。
+
+    性能优化：降低合并阈值从100到50，减少内存占用和getvalue复杂度。
+
+    设计原理：
+    - 维护一个增长的 chunk 列表
+    - 当列表过长时（>50），合并为单个字符串（降低阈值）
+    - 提供 getvalue() 获取当前内容
+
+    Example:
+        >>> buffer = StreamingBuffer()
+        >>> for chunk in stream:
+        >>>     buffer.append(chunk)
+        >>> content = buffer.getvalue()
+    """
+
+    __slots__ = ("_chunks", "_length", "_consolidated")
+
+    def __init__(self) -> None:
+        """初始化空缓冲器。"""
+        self._chunks: list[str] = []
+        self._length: int = 0
+        self._consolidated: str | None = None
+
+    def append(self, chunk: str) -> None:
+        """追加一个 chunk。
+
+        Args:
+            chunk: 要追加的文本块
+        """
+        self._chunks.append(chunk)
+        self._length += len(chunk)
+        # 性能优化：降低合并阈值从100到50，减少内存占用
+        if len(self._chunks) > 50:
+            self._consolidated = "".join(self._chunks)
+            self._chunks = [self._consolidated]
+
+    def getvalue(self) -> str:
+        """性能优化：简化逻辑，快速返回当前内容。
+
+        Returns:
+            缓冲器中的完整文本内容
+        """
+        if self._consolidated is not None:
+            # 已合并过，直接返回或追加新 chunks
+            if len(self._chunks) == 1:
+                return self._consolidated
+            # 合并后又有新追加（简化拼接）
+            return self._consolidated + "".join(self._chunks[1:])
+        # 未合并过，直接拼接
+        return "".join(self._chunks)
+
+    def __len__(self) -> int:
+        """返回当前内容长度。
+
+        Returns:
+            缓冲内容的字符数
+        """
+        return self._length
+
+    def clear(self) -> None:
+        """清空缓冲器。"""
+        self._chunks.clear()
+        self._length = 0
+        self._consolidated = None
+
+
 # ─── Agent 身份 ────────────────────────────────────────────
 
 AGENT_IDENTITY = (
@@ -565,55 +636,6 @@ async def execute_plan(
 
     sep = _thinking_segment_separator()
 
-    # ── 流式输出优化：增量 buffer（性能优化）──
-    class _StreamingBuffer:
-        """高效的流式内容缓冲器，避免 O(n²) 字符拼接。
-
-        性能优化：降低合并阈值从100到50，减少内存占用和getvalue复杂度。
-
-        设计原理：
-        - 维护一个增长的 chunk 列表
-        - 当列表过长时（>50），合并为单个字符串（降低阈值）
-        - 提供 getvalue() 获取当前内容
-        """
-
-        __slots__ = ("_chunks", "_length", "_consolidated")
-
-        def __init__(self) -> None:
-            self._chunks: list[str] = []
-            self._length: int = 0
-            self._consolidated: str | None = None
-
-        def append(self, chunk: str) -> None:
-            """追加一个 chunk"""
-            self._chunks.append(chunk)
-            self._length += len(chunk)
-            # 性能优化：降低合并阈值从100到50，减少内存占用
-            if len(self._chunks) > 50:
-                self._consolidated = "".join(self._chunks)
-                self._chunks = [self._consolidated]
-
-        def getvalue(self) -> str:
-            """性能优化：简化逻辑，快速返回."""
-            if self._consolidated is not None:
-                # 已合并过，直接返回或追加新 chunks
-                if len(self._chunks) == 1:
-                    return self._consolidated
-                # 合并后又有新追加（简化拼接）
-                return self._consolidated + "".join(self._chunks[1:])
-            # 未合并过，直接拼接
-            return "".join(self._chunks)
-
-        def __len__(self) -> int:
-            """返回当前内容长度"""
-            return self._length
-
-        def clear(self) -> None:
-            """清空缓冲"""
-            self._chunks.clear()
-            self._length = 0
-            self._consolidated = None
-
     def _joined_phase_cumulative(label: str, current_body: str) -> str:
         """将同一 ``label`` 下历史执行轮正文与 ``current_body`` 用分段符拼接，供思考流 cumulative 展示。
 
@@ -662,7 +684,7 @@ async def execute_plan(
                 len(tools_arg),
             )
 
-        full_content_parts = _StreamingBuffer()
+        full_content_parts = StreamingBuffer()
         full_tool_calls: list[Any] = []
         thinking_header = thinking_phase_label
         _thinking_started = False
