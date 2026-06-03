@@ -1042,13 +1042,12 @@ async def _run_test(
 
     def _write(text: str, color: str = "") -> None:
         """输出文本：优先走 term_write（全屏 CLI），无 capture 时 fallback 到 print。"""
-        """适配 cli_transcript_append 的签名 (style, text) -> None"""
         if term_write and callable(term_write):
             try:
-                # cli_transcript_append 签名是 (style_cls, text)
+                # term_write 签名是 (text, color)
                 # 将 ansicyan 等转换为 class:ansicyan 格式
                 style = f"class:{color}" if color else ""
-                term_write(style, text)
+                term_write(text, style)
             except Exception:
                 pass
         if not capture:
