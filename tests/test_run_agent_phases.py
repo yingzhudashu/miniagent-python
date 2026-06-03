@@ -68,7 +68,7 @@ class TestRunAgentClarification:
                         registry.get_all.return_value = {}
                         registry.list.return_value = []
 
-                        with patch.dict(os.environ, {"MINIAGENT_REQUIREMENT_CLARIFY": "1", "MINIAGENT_REFLECTION": "0"}):
+                        with patch.dict(os.environ, {"MINIAGENT_FEATURES_REQUIREMENT_CLARIFY": "1", "MINIAGENT_FEATURES_REFLECTION": "0"}):
                             from miniagent.core import run_agent
 
                             reply = await run_agent(
@@ -86,7 +86,7 @@ class TestRunAgentClarification:
 
     @pytest.mark.asyncio
     async def test_env_disable_clarify(self):
-        """MINIAGENT_REQUIREMENT_CLARIFY=0 时不执行澄清。"""
+        """MINIAGENT_FEATURES_REQUIREMENT_CLARIFY=0 时不执行澄清。"""
         clarifier = MagicMock()
         clarifier.clarify = AsyncMock()
 
@@ -101,7 +101,7 @@ class TestRunAgentClarification:
                         registry.get_all.return_value = {}
                         registry.list.return_value = []
 
-                        with patch.dict(os.environ, {"MINIAGENT_REQUIREMENT_CLARIFY": "0", "MINIAGENT_REFLECTION": "0"}):
+                        with patch.dict(os.environ, {"MINIAGENT_FEATURES_REQUIREMENT_CLARIFY": "0", "MINIAGENT_FEATURES_REFLECTION": "0"}):
                             from miniagent.core import run_agent
 
                             reply = await run_agent(
@@ -128,7 +128,7 @@ class TestRunAgentClarification:
                         registry.get_all.return_value = {}
                         registry.list.return_value = []
 
-                        with patch.dict(os.environ, {"MINIAGENT_REFLECTION": "0"}):
+                        with patch.dict(os.environ, {"MINIAGENT_FEATURES_REFLECTION": "0"}):
                             from miniagent.core import run_agent
 
                             reply = await run_agent("test", registry=registry)
@@ -143,8 +143,8 @@ class TestClarificationMaxQuestionsByDifficulty:
     async def test_normal_difficulty_max_1_question(self, monkeypatch: pytest.MonkeyPatch):
         """NORMAL（一般）难度最多问 1 个问题。"""
         monkeypatch.setenv("MINIAGENT_TASK_CLASSIFIER", "1")
-        monkeypatch.setenv("MINIAGENT_REQUIREMENT_CLARIFY", "1")
-        monkeypatch.setenv("MINIAGENT_REFLECTION", "0")
+        monkeypatch.setenv("MINIAGENT_FEATURES_REQUIREMENT_CLARIFY", "1")
+        monkeypatch.setenv("MINIAGENT_FEATURES_REFLECTION", "0")
         monkeypatch.setenv("MINIAGENT_EXECUTION_ANNOUNCE_DIFFICULTY", "0")
 
         tb = Toolbox(id="fs", name="fs", description="files", keywords=[])
@@ -173,8 +173,8 @@ class TestClarificationMaxQuestionsByDifficulty:
     async def test_medium_difficulty_max_2_questions(self, monkeypatch: pytest.MonkeyPatch):
         """MEDIUM（中等）难度最多问 2 个问题。"""
         monkeypatch.setenv("MINIAGENT_TASK_CLASSIFIER", "1")
-        monkeypatch.setenv("MINIAGENT_REQUIREMENT_CLARIFY", "1")
-        monkeypatch.setenv("MINIAGENT_REFLECTION", "0")
+        monkeypatch.setenv("MINIAGENT_FEATURES_REQUIREMENT_CLARIFY", "1")
+        monkeypatch.setenv("MINIAGENT_FEATURES_REFLECTION", "0")
         monkeypatch.setenv("MINIAGENT_EXECUTION_ANNOUNCE_DIFFICULTY", "0")
 
         tb = Toolbox(id="fs", name="fs", description="files", keywords=[])
@@ -203,8 +203,8 @@ class TestClarificationMaxQuestionsByDifficulty:
     async def test_complex_difficulty_max_3_questions(self, monkeypatch: pytest.MonkeyPatch):
         """COMPLEX（复杂）难度最多问 3 个问题。"""
         monkeypatch.setenv("MINIAGENT_TASK_CLASSIFIER", "1")
-        monkeypatch.setenv("MINIAGENT_REQUIREMENT_CLARIFY", "1")
-        monkeypatch.setenv("MINIAGENT_REFLECTION", "0")
+        monkeypatch.setenv("MINIAGENT_FEATURES_REQUIREMENT_CLARIFY", "1")
+        monkeypatch.setenv("MINIAGENT_FEATURES_REFLECTION", "0")
         monkeypatch.setenv("MINIAGENT_EXECUTION_ANNOUNCE_DIFFICULTY", "0")
 
         tb = Toolbox(id="fs", name="fs", description="files", keywords=[])
@@ -262,7 +262,7 @@ class TestRunAgentReflection:
                             registry.get_all.return_value = {}
                             registry.list.return_value = []
 
-                            with patch.dict(os.environ, {"MINIAGENT_REFLECTION": "1"}):
+                            with patch.dict(os.environ, {"MINIAGENT_FEATURES_REFLECTION": "1"}):
                                 from miniagent.core import run_agent
 
                                 reply = await run_agent(
@@ -278,7 +278,7 @@ class TestRunAgentReflection:
 
     @pytest.mark.asyncio
     async def test_reflection_explicitly_disabled(self):
-        """MINIAGENT_REFLECTION=0 时不执行反思。"""
+        """MINIAGENT_FEATURES_REFLECTION=0 时不执行反思。"""
         with patch("miniagent.core.agent.get_default_agent_config", return_value=_make_agent_config()):
             with patch("miniagent.core.agent.merge_agent_config", side_effect=lambda a, b: a):
                 with patch(_TC_PATH, return_value=False):
@@ -290,7 +290,7 @@ class TestRunAgentReflection:
                         registry.get_all.return_value = {}
                         registry.list.return_value = []
 
-                        with patch.dict(os.environ, {"MINIAGENT_REFLECTION": "0"}):
+                        with patch.dict(os.environ, {"MINIAGENT_FEATURES_REFLECTION": "0"}):
                             with patch(_REFLECT_PATH, new_callable=AsyncMock) as mock_reflect:
                                 from miniagent.core import run_agent
 

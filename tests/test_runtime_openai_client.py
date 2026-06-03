@@ -75,7 +75,7 @@ async def test_run_agent_forwards_client_to_execute_plan() -> None:
         return "done"
 
     fake = MagicMock(name="llm")
-    with patch.dict(os.environ, {"MINIAGENT_REFLECTION": "0"}):
+    with patch.dict(os.environ, {"MINIAGENT_FEATURES_REFLECTION": "0"}):
         with patch("miniagent.core.agent.execute_plan", new=fake_execute_plan):
             reg = DefaultToolRegistry()
             mon = DefaultToolMonitor()
