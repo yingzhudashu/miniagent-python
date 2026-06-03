@@ -1,4 +1,4 @@
-"""`.help` Markdown 表格输出。"""
+"""`/help` Markdown 列表输出（飞书 lark_md 友好）。"""
 
 from __future__ import annotations
 
@@ -17,22 +17,26 @@ from miniagent.skills import DefaultSkillRegistry, create_clawhub_client
 from tests.test_startup import _make_memory_bundle
 
 
-def test_format_help_markdown_has_tables_and_commands() -> None:
+def test_format_help_markdown_has_sections_and_commands() -> None:
+    """测试帮助文档包含分节和命令（列表格式）。"""
     mq = MessageQueueManager()
     md = format_help_markdown(mq, instance_id=7)
 
+    # 标题
     assert "## Mini Agent" in md
-    assert "| 命令 | 说明 |" in md
-    assert "| --- | --- |" in md
+    # 分节标题
     assert "### 会话管理" in md
-    assert "`.session list`" in md
+    # 列表格式（粗体命令）
+    assert "**`/session list`**" in md
     assert "### 飞书控制" in md
-    assert "`.feishu start`" in md
+    assert "**`/feishu start`**" in md
+    # 实例信息
     assert "当前实例：**#7**" in md
 
 
 @pytest.mark.asyncio
-async def test_dispatch_help_capture_contains_table() -> None:
+async def test_dispatch_help_capture_contains_list() -> None:
+    """测试通过命令调度器调用 /help 返回列表格式。"""
     mq = MessageQueueManager()
     ms, al, ki = _make_memory_bundle()
     ctx = RuntimeContext(
@@ -61,13 +65,16 @@ async def test_dispatch_help_capture_contains_table() -> None:
         "feishu_p2p_synced_senders": set(),
     }
 
-    out = await dispatch_command(".help", state=state, capture=True)
+    out = await dispatch_command("/help", state=state, capture=True)
     assert out is not None
-    assert "| 命令 | 说明 |" in out
-    assert "`.help`" in out
+    # 列表格式（粗体命令）
+    assert "**`/help`**" in out
+    # 分节标题
+    assert "###" in out
 
 
 def test_md_escape_cell_escapes_pipe() -> None:
+    """测试表格单元格转义（仍用于 /session list 和 /queue status 的表格）。"""
     from miniagent.engine.cli_commands import _md_escape_cell
 
     assert _md_escape_cell("a|b") == r"a\|b"
