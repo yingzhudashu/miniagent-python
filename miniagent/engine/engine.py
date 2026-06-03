@@ -334,6 +334,9 @@ class UnifiedEngine:
                 )
 
                 st_local = self.thinking.thinking_state(session_key)
+                if st_local is None:
+                    _logger.warning("思考状态无效，跳过飞书发送")
+                    return
                 if finalize_only:
                     await finalize_feishu_thinking_stream(
                         feishu_config, chat_id, template, st_local

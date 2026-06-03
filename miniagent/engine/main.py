@@ -414,10 +414,16 @@ async def run_cli_loop(
 
     def _trim_transcript() -> None:
         """性能优化：使用累计长度计数器，避免每次遍历（O(1)而非O(n))。"""
-        # 使用累计长度而非遍历计算
-        while _transcript_total_len[0] > _MAX_TRANSCRIPT_CHARS and len(_transcript) > 16:
+        # 边界检查：确保计数器不为负数，防止无限循环
+        while (
+            _transcript_total_len[0] > _MAX_TRANSCRIPT_CHARS
+            and len(_transcript) > 16
+            and _transcript_total_len[0] >= 0
+        ):
             old = _transcript.pop(0)
-            _transcript_total_len[0] -= _transcript_fragment_len(old)
+            frag_len = _transcript_fragment_len(old)
+            # 防止计数器减到负数
+            _transcript_total_len[0] = max(0, _transcript_total_len[0] - frag_len)
 
     def _render_history_message_to_transcript(msg: dict, prepend: bool = False) -> None:
         """将历史消息渲染到 transcript。
