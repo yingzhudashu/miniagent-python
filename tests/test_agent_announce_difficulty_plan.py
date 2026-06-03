@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+import contextlib
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -16,6 +17,34 @@ from miniagent.core.task_classifier import TaskDifficulty
 from miniagent.infrastructure.registry import DefaultToolRegistry
 from miniagent.types.planning import PlanStep, StructuredPlan
 from miniagent.types.tool import Toolbox
+
+
+def _make_mock_llm_client() -> MagicMock:
+    """创建 mock LLM client，避免需要真实 API key。"""
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock()
+    return mock_client
+
+
+@contextlib.contextmanager
+def _mock_all_llm_clients():
+    """Mock 所有模块中的 get_shared_async_openai 引用。"""
+    mock_client = _make_mock_llm_client()
+    # Mock 源函数（延迟导入的模块会使用这个）
+    # Mock 直接导入的模块
+    patches = [
+        patch("miniagent.core.openai_client.get_shared_async_openai", return_value=mock_client),
+        patch("miniagent.core.task_classifier.get_shared_async_openai", return_value=mock_client),
+        patch("miniagent.core.planner.get_shared_async_openai", return_value=mock_client),
+        patch("miniagent.core.executor.get_shared_async_openai", return_value=mock_client),
+    ]
+    for p in patches:
+        p.start()
+    try:
+        yield mock_client
+    finally:
+        for p in patches:
+            p.stop()
 
 
 def test_format_task_difficulty() -> None:
@@ -81,7 +110,7 @@ async def test_plan_announce_before_execute_when_classifier_off(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("MINIAGENT_TASK_CLASSIFIER", "0")
-    monkeypatch.setenv("MINIAGENT_REFLECTION", "0")
+    monkeypatch.setenv("MINIAGENT_FEATURES_REFLECTION", "0")
     monkeypatch.setenv("MINIAGENT_EXECUTION_ANNOUNCE_DIFFICULTY", "1")
     tb = Toolbox(id="fs", name="fs", description="files", keywords=[])
     fake_plan = StructuredPlan(
@@ -98,16 +127,17 @@ async def test_plan_announce_before_execute_when_classifier_off(
         sequence.append("execute_plan")
         return "ok"
 
-    with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
-        gp.return_value = fake_plan
-        with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
-            ex.side_effect = fake_exec
-            await run_agent(
-                "task",
-                registry=DefaultToolRegistry(),
-                toolboxes=[tb],
-                on_thinking=ot,
-            )
+    with _mock_all_llm_clients():
+        with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
+            gp.return_value = fake_plan
+            with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
+                ex.side_effect = fake_exec
+                await run_agent(
+                    "task",
+                    registry=DefaultToolRegistry(),
+                    toolboxes=[tb],
+                    on_thinking=ot,
+                )
 
     assert sequence[0].startswith(f"ot:{PLANNING_STREAM_HEADER}:True:")
     joined = "".join(sequence)
@@ -120,7 +150,7 @@ async def test_difficulty_announced_when_classifier_runs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("MINIAGENT_TASK_CLASSIFIER", "1")
-    monkeypatch.setenv("MINIAGENT_REFLECTION", "0")
+    monkeypatch.setenv("MINIAGENT_FEATURES_REFLECTION", "0")
     monkeypatch.setenv("MINIAGENT_EXECUTION_ANNOUNCE_DIFFICULTY", "1")
     tb = Toolbox(id="fs", name="fs", description="files", keywords=[])
 
@@ -129,21 +159,22 @@ async def test_difficulty_announced_when_classifier_runs(
     async def ot(text: str, streaming: bool, header: str) -> None:
         captured.append((header, text))
 
-    with patch(
-        "miniagent.core.agent.classify_task_difficulty",
-        new_callable=AsyncMock,
-    ) as clf:
-        clf.return_value = TaskDifficulty.NORMAL
-        with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
-            gp.return_value = StructuredPlan(summary="s", steps=[], required_toolboxes=[])
-            with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
-                ex.return_value = "done"
-                await run_agent(
-                    "x",
-                    registry=DefaultToolRegistry(),
-                    toolboxes=[tb],
-                    on_thinking=ot,
-                )
+    with _mock_all_llm_clients():
+        with patch(
+            "miniagent.core.agent.classify_task_difficulty",
+            new_callable=AsyncMock,
+        ) as clf:
+            clf.return_value = TaskDifficulty.NORMAL
+            with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
+                gp.return_value = StructuredPlan(summary="s", steps=[], required_toolboxes=[])
+                with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
+                    ex.return_value = "done"
+                    await run_agent(
+                        "x",
+                        registry=DefaultToolRegistry(),
+                        toolboxes=[tb],
+                        on_thinking=ot,
+                    )
 
     headers = [h for h, _ in captured]
     assert all(h == PLANNING_STREAM_HEADER for h in headers)
@@ -176,16 +207,17 @@ async def test_on_plan_reject_skips_plan_announce_and_execute(
     async def fake_on_plan(_plan: object) -> bool:
         return False
 
-    with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
-        gp.return_value = risky
-        with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
-            out = await run_agent(
-                "x",
-                registry=DefaultToolRegistry(),
-                toolboxes=[tb],
-                on_thinking=ot,
-                on_plan=fake_on_plan,
-            )
+    with _mock_all_llm_clients():
+        with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
+            gp.return_value = risky
+            with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
+                out = await run_agent(
+                    "x",
+                    registry=DefaultToolRegistry(),
+                    toolboxes=[tb],
+                    on_thinking=ot,
+                    on_plan=fake_on_plan,
+                )
 
     assert "取消" in out or "取消" in str(out)
     # 当计划被拒绝时，不应发送计划相关内容
@@ -198,7 +230,7 @@ async def test_skip_planning_announces_user_skip_not_simple(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("MINIAGENT_TASK_CLASSIFIER", "1")
-    monkeypatch.setenv("MINIAGENT_REFLECTION", "0")
+    monkeypatch.setenv("MINIAGENT_FEATURES_REFLECTION", "0")
     monkeypatch.setenv("MINIAGENT_EXECUTION_ANNOUNCE_DIFFICULTY", "1")
     tb = Toolbox(id="fs", name="fs", description="files", keywords=[])
 
@@ -207,15 +239,21 @@ async def test_skip_planning_announces_user_skip_not_simple(
     async def ot(text: str, _stream: bool, _header: str) -> None:
         captured.append(text)
 
-    with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
-        ex.return_value = "ok"
-        await run_agent(
-            "task",
-            registry=DefaultToolRegistry(),
-            toolboxes=[tb],
-            skip_planning=True,
-            on_thinking=ot,
-        )
+    with _mock_all_llm_clients():
+        with patch(
+            "miniagent.core.agent.classify_task_difficulty",
+            new_callable=AsyncMock,
+        ) as clf:
+            clf.return_value = TaskDifficulty.NORMAL
+            with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
+                ex.return_value = "ok"
+                await run_agent(
+                    "task",
+                    registry=DefaultToolRegistry(),
+                    toolboxes=[tb],
+                    skip_planning=True,
+                    on_thinking=ot,
+                )
 
     blob = "\n".join(captured)
     assert "显式跳过规划" in blob
@@ -228,7 +266,7 @@ async def test_announce_disabled_skips_extra_on_thinking(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("MINIAGENT_TASK_CLASSIFIER", "0")
-    monkeypatch.setenv("MINIAGENT_REFLECTION", "0")
+    monkeypatch.setenv("MINIAGENT_FEATURES_REFLECTION", "0")
     monkeypatch.setenv("MINIAGENT_EXECUTION_ANNOUNCE_DIFFICULTY", "0")
     tb = Toolbox(id="fs", name="fs", description="files", keywords=[])
 
@@ -237,15 +275,16 @@ async def test_announce_disabled_skips_extra_on_thinking(
     async def ot(text: str, streaming: bool, _header: str) -> None:
         captured.append(text[:80])
 
-    with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
-        gp.return_value = StructuredPlan(summary="s", steps=[], required_toolboxes=[])
-        with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock):
-            await run_agent(
-                "x",
-                registry=DefaultToolRegistry(),
-                toolboxes=[tb],
-                on_thinking=ot,
-            )
+    with _mock_all_llm_clients():
+        with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
+            gp.return_value = StructuredPlan(summary="s", steps=[], required_toolboxes=[])
+            with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock):
+                await run_agent(
+                    "x",
+                    registry=DefaultToolRegistry(),
+                    toolboxes=[tb],
+                    on_thinking=ot,
+                )
 
     assert not any("执行计划" in x for x in captured)  # 新格式不含方括号标签
     assert not any("任务难度" in x for x in captured)
