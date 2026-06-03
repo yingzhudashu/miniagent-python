@@ -275,13 +275,13 @@ async def test_reconnect_loop_holds_lock_after_supervised_return(monkeypatch, tm
     mq = MessageQueueManager()
     rt = FeishuRuntime(mq)
 
-    def factory(_tb, _tp, _st):
+    def factory(_st):
         async def h(_c, _cid, _sid, _ct="group"):
             return ""
 
         return h
 
-    rt.start([], [], factory, {"instance_id": 7})
+    rt.start(factory, {"instance_id": 7})
 
     try:
         await asyncio.wait_for(second_started.wait(), timeout=3.0)

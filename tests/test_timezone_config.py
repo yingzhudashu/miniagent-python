@@ -13,10 +13,7 @@ from miniagent.infrastructure.timezone_config import (
 )
 from miniagent.scheduled_tasks.cron import cron_next_run_epoch
 from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec, SessionSpec
-from miniagent.scheduled_tasks.store import (
-    align_task_timezones_to_env,
-    effective_task_timezone,
-)
+from miniagent.scheduled_tasks.store import effective_task_timezone
 from miniagent.scheduled_tasks.timezone_util import default_schedule_timezone
 
 
@@ -87,26 +84,6 @@ def test_cron_20h_shanghai_wall_clock(monkeypatch: pytest.MonkeyPatch) -> None:
     local = datetime.fromtimestamp(nxt, tz=tz)
     assert local.hour == 20
     assert local.minute == 0
-
-
-def test_align_task_timezones_to_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("TZ", "Asia/Shanghai")
-    task = ScheduledTask(
-        id="daily",
-        name="daily",
-        prompt="p",
-        enabled=True,
-        schedule=ScheduleSpec(kind="cron", cron_expr="0 20 * * *", timezone="UTC"),
-        session=SessionSpec(mode="primary"),
-    )
-    tz = ZoneInfo("Asia/Shanghai")
-    task.next_run_at = datetime(2026, 5, 17, 20, 0, 0, tzinfo=ZoneInfo("UTC")).timestamp()
-    n, lines = align_task_timezones_to_env([task])
-    assert n == 1
-    assert task.schedule.timezone == "Asia/Shanghai"
-    assert task.next_run_at is not None
-    local = datetime.fromtimestamp(task.next_run_at, tz=tz)
-    assert local.hour == 20
 
 
 def test_format_agent_timezone_context_contains_tz(monkeypatch: pytest.MonkeyPatch) -> None:

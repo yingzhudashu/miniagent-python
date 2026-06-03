@@ -301,7 +301,7 @@ def test_feishu_start_user_status_avoids_print(monkeypatch):
     with monkeypatch.context() as m:
         m.setattr("asyncio.create_task", _fake_create_task)
 
-        def _make_handler(tb, tp, st):
+        def _make_handler(st):
             async def _handler(content, chat_id, sender_id, chat_type="group"):
                 return ""
 
@@ -309,8 +309,6 @@ def test_feishu_start_user_status_avoids_print(monkeypatch):
 
         try:
             rt.start(
-                [],
-                [],
                 _make_handler,
                 {"runtime_ctx": None},
                 user_status=user_status,

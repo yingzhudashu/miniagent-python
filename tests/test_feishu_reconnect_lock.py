@@ -57,13 +57,13 @@ async def test_reconnect_loop_holds_inbound_lock_until_stop(monkeypatch, tmp_pat
     mq = MessageQueueManager()
     rt = FeishuRuntime(mq)
 
-    def factory(_tb, _tp, _st):
+    def factory(_st):
         async def h(_c, _cid, _sid, _ct="group"):
             return ""
 
         return h
 
-    rt.start([], [], factory, {"runtime_ctx": None, "instance_id": 42})
+    rt.start(factory, {"runtime_ctx": None, "instance_id": 42})
 
     try:
         await asyncio.wait_for(first_fail.wait(), timeout=3.0)
@@ -125,13 +125,13 @@ async def test_first_connection_failure_skips_backoff_sleep(monkeypatch, tmp_pat
     mq = MessageQueueManager()
     rt = FeishuRuntime(mq)
 
-    def factory(_tb, _tp, _st):
+    def factory(_st):
         async def h(_c, _cid, _sid, _ct="group"):
             return ""
 
         return h
 
-    rt.start([], [], factory, {"runtime_ctx": None, "instance_id": 1})
+    rt.start(factory, {"runtime_ctx": None, "instance_id": 1})
     t = rt.get_task()
     assert t is not None
     try:

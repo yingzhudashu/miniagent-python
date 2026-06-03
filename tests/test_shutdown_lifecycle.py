@@ -106,8 +106,6 @@ async def test_feishu_stop_async_awaits_cancelled_poll_task() -> None:
         ),
     ):
         fe.start(
-            [],
-            [],
             lambda *_a, **_k: (AsyncMock(), None),
             {"instance_id": 1},
         )
