@@ -32,6 +32,7 @@ import re
 import signal
 import sys
 import threading
+from collections import deque  # 性能优化：deque的popleft()为O(1)
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -374,9 +375,9 @@ async def run_cli_loop(
     # 加载当前会话的对话历史到输入缓冲，使上下键可回顾已发送的用户消息
     _load_session_history_to_input(state, input_buffer)
 
-    # 性能优化：降低transcript上限并维护累计长度（避免每次遍历）
+    # 性能优化：使用deque替代list，降低transcript上限并维护累计长度（避免每次遍历）
     _MAX_TRANSCRIPT_CHARS = 200_000  # 从400KB降低到200KB（内存优化）
-    _transcript: list[Any] = []
+    _transcript: deque[Any] = deque(maxlen=1000)  # 性能优化：deque的popleft()为O(1)
     _transcript_total_len: list[int] = [0]  # 累计长度计数器（性能优化）
     _stick_bottom: list[bool] = [True]
     _last_md_width: list[int] = [0]  # 上次渲染 Markdown 的终端宽度
@@ -413,14 +414,17 @@ async def run_cli_loop(
         return 0
 
     def _trim_transcript() -> None:
-        """性能优化：使用累计长度计数器，避免每次遍历（O(1)而非O(n))。"""
+        """性能优化：使用累计长度计数器，避免每次遍历（O(1)而非O(n))。
+
+        使用deque的popleft()操作，性能从O(n)提升到O(1)。
+        """
         # 边界检查：确保计数器不为负数，防止无限循环
         while (
             _transcript_total_len[0] > _MAX_TRANSCRIPT_CHARS
             and len(_transcript) > 16
             and _transcript_total_len[0] >= 0
         ):
-            old = _transcript.pop(0)
+            old = _transcript.popleft()  # O(1)操作（deque性能优化）
             frag_len = _transcript_fragment_len(old)
             # 防止计数器减到负数
             _transcript_total_len[0] = max(0, _transcript_total_len[0] - frag_len)
@@ -558,7 +562,7 @@ async def run_cli_loop(
             if _transcript and isinstance(_transcript[0], tuple):
                 first_text = _transcript[0][1] if len(_transcript[0]) >= 2 else ""
                 if "加载更多历史" in first_text:
-                    old = _transcript.pop(0)
+                    old = _transcript.popleft()  # O(1)操作（deque性能优化）
                     # 性能优化：更新累计长度计数器
                     _transcript_total_len[0] -= _transcript_fragment_len(old)
 
