@@ -552,7 +552,9 @@ async def run_cli_loop(
             if _transcript and isinstance(_transcript[0], tuple):
                 first_text = _transcript[0][1] if len(_transcript[0]) >= 2 else ""
                 if "加载更多历史" in first_text:
-                    _transcript.pop(0)
+                    old = _transcript.pop(0)
+                    # 性能优化：更新累计长度计数器
+                    _transcript_total_len[0] -= _transcript_fragment_len(old)
 
             # 在顶部插入新加载的历史（从旧到新遍历，使旧消息在最上方）
             for msg in messages:
@@ -1391,9 +1393,14 @@ async def run_cli_loop(
         return "".join(parts)
 
     def _append_ansi_transcript(ansi_obj: Any) -> None:
-        """向 transcript 直接追加 ANSI 对象，含 trim/scroll 管理。"""
+        """向 transcript 直接追加 ANSI 对象，含 trim/scroll 管理。
+
+        性能优化：更新累计长度计数器。
+        """
         at_bottom = _output_at_bottom()
         _transcript.append(ansi_obj)
+        # 性能优化：更新累计长度
+        _transcript_total_len[0] += _transcript_fragment_len(ansi_obj)
         _trim_transcript()
         try:
             get_app().invalidate()
@@ -1757,7 +1764,10 @@ async def run_cli_loop(
             body_lines = ansi_markdown.rstrip("\n").split("\n")
             transcript_body = "\n".join(ln if ln else "" for ln in body_lines) + "\n"
             at_bottom = _output_at_bottom()
-            _transcript.append(ANSI(transcript_body))
+            ansi_obj = ANSI(transcript_body)
+            _transcript.append(ansi_obj)
+            # 性能优化：更新累计长度计数器
+            _transcript_total_len[0] += len(transcript_body)
             _trim_transcript()
             try:
                 get_app().invalidate()
@@ -1793,6 +1803,10 @@ async def run_cli_loop(
                         ansi_body = render_markdown_to_ansi(full_text, width=md_w, justify="left")
                         # 替换最后一个 ANSI 对象（而非追加新的）
                         _transcript[-1] = ANSI(ansi_body)
+                        # 性能优化：更新累计长度（差值）
+                        new_len = len(ansi_body)
+                        old_len = len(_transcript[-1].value) if hasattr(_transcript[-1], 'value') else 0
+                        _transcript_total_len[0] += new_len - old_len
                         _attach_md_source(_transcript[-1], full_text)
                     else:
                         # 没有 _source_md（非流式创建的 ANSI 对象），不合并，正常追加
@@ -1800,12 +1814,16 @@ async def run_cli_loop(
                         ansi_obj = ANSI(ansi_body)
                         _attach_md_source(ansi_obj, fragment)
                         _transcript.append(ansi_obj)
+                        # 性能优化：更新累计长度计数器
+                        _transcript_total_len[0] += _transcript_fragment_len(ansi_obj)
                 else:
                     # 非流式输出或首个 chunk：正常 ANSI 渲染并追加
                     ansi_body = render_markdown_to_ansi(fragment, width=md_w, justify="left")
                     ansi_obj = ANSI(ansi_body)
                     _attach_md_source(ansi_obj, fragment)
                     _transcript.append(ansi_obj)
+                    # 性能优化：更新累计长度计数器
+                    _transcript_total_len[0] += _transcript_fragment_len(ansi_obj)
                 _trim_transcript()
                 try:
                     get_app().invalidate()
@@ -1864,6 +1882,8 @@ async def run_cli_loop(
             ansi_obj = ANSI(transcript_body)
             _attach_md_source(ansi_obj, text or "")
             _transcript.append(ansi_obj)
+            # 性能优化：更新累计长度计数器
+            _transcript_total_len[0] += len(transcript_body)
             _trim_transcript()
             try:
                 get_app().invalidate()
