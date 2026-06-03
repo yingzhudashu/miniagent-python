@@ -52,13 +52,11 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
     """``manage_scheduled_task``：JSON 驱动定时任务 CRUD；飞书等非 CLI 渠道禁止写操作。"""
     from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec
     from miniagent.scheduled_tasks.store import (
-        align_task_timezones_to_env,
         compute_initial_next_run,
         format_next_run_display,
         load_tasks,
         repair_invalid_schedules,
         save_tasks,
-        task_timezone_list_hint,
     )
 
     action = (args.get("action") or "").strip().lower()
@@ -83,32 +81,11 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
             kind = t.schedule.kind
             if kind == "cron" and t.schedule.cron_expr:
                 kind = f'cron "{t.schedule.cron_expr}"'
-            hint = task_timezone_list_hint(t)
             lines.append(
                 f"  • {t.id}  ({t.name})  enabled={t.enabled}  "
-                f"{kind}  next={nxt_s}  runs={t.run_count}{hint}"
+                f"{kind}  next={nxt_s}  runs={t.run_count}"
             )
         return ToolResult(success=True, content="\n".join(lines))
-
-    if action == "align_tz":
-        if not ctx.cli_dispatch_allow_mutations:
-            return ToolResult(
-                success=False,
-                content=f"{WARNING_PREFIX} 当前渠道不允许修改定时任务；请在本地 CLI 执行 align_tz。",
-            )
-        tasks = load_tasks()
-        n, detail = align_task_timezones_to_env(tasks)
-        if n == 0:
-            body = "无需对齐时区的任务。"
-            if detail:
-                body += "\n" + "\n".join(detail)
-            return ToolResult(success=True, content=body)
-        repair_invalid_schedules(tasks)
-        save_tasks(tasks)
-        return ToolResult(
-            success=True,
-            content=f"{SUCCESS_PREFIX} 已对齐 {n} 个任务时区:\n" + "\n".join(detail),
-        )
 
     if action == "show":
         tid = (args.get("task_id") or "").strip()

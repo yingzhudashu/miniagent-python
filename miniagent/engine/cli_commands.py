@@ -756,7 +756,6 @@ def format_schedule_command_usage() -> str:
         "  /schedule show <id>\n"
         "  /schedule remove <id>\n"
         "  /schedule enable <id>  |  /schedule disable <id>\n"
-        "  /schedule align-tz\n"
         "  /schedule update <id> every|once|cron ...（语法同 add，不含新建 id） [--tz IANA] -- <prompt>\n"
         "  /schedule add <id> every <秒> <primary|ephemeral|fixed:会话ID> [--tz IANA] -- <prompt>\n"
         "  /schedule add <id> once <ISO8601> <primary|ephemeral|fixed:会话ID> [--tz IANA] -- <prompt>\n"
@@ -844,13 +843,11 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
     """处理 ``/schedule`` 命令：列出/展示/增删改定时任务；飞书等非变异渠道受 ``allow_mutations`` 限制。"""
     from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec
     from miniagent.scheduled_tasks.store import (
-        align_task_timezones_to_env,
         compute_initial_next_run,
         format_next_run_display,
         load_tasks,
         repair_invalid_schedules,
         save_tasks,
-        task_timezone_list_hint,
     )
 
     raw = (text or "").strip()
@@ -873,10 +870,9 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
             kind = t.schedule.kind
             if kind == "cron" and t.schedule.cron_expr:
                 kind = f'cron "{t.schedule.cron_expr}"'
-            hint = task_timezone_list_hint(t)
             lines.append(
                 f"  • {t.id}  ({t.name})  enabled={t.enabled}  "
-                f"{kind}  next={nxt_s}  runs={t.run_count}{hint}"
+                f"{kind}  next={nxt_s}  runs={t.run_count}"
             )
             if t.last_error:
                 err = t.last_error.replace("\n", " ")[:160]
@@ -890,22 +886,8 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
                 return json.dumps(t.to_json(), ensure_ascii=False, indent=2)
         return f"未找到任务: {tid}"
 
-    if sub == "align-tz":
-        if not allow_mutations:
-            return f"{ERROR_PREFIX} 飞书渠道不允许修改定时任务，请在本地 CLI 执行 /schedule align-tz"
-        tasks = load_tasks()
-        n, detail = align_task_timezones_to_env(tasks)
-        if n == 0:
-            msg = "无需对齐时区的任务。"
-            if detail:
-                msg += "\n" + "\n".join(detail)
-            return msg
-        repair_invalid_schedules(tasks)
-        save_tasks(tasks)
-        return f"{SUCCESS_PREFIX} 已对齐 {n} 个任务时区:\n" + "\n".join(detail)
-
     if not allow_mutations:
-        if sub in ("add", "update", "remove", "enable", "disable", "align-tz"):
+        if sub in ("add", "update", "remove", "enable", "disable"):
             return f"{WARNING_PREFIX} 当前渠道不允许修改定时任务，请在本地 MiniAgent CLI 执行。"
 
     if sub == "remove" and len(parts) >= 2:
@@ -1252,7 +1234,6 @@ def format_help_markdown(
                 ),
                 ("`/schedule update <id> …`", "修改任务（语法同 add）"),
                 ("`/schedule remove|enable|disable <id>`", "管理任务"),
-                ("`/schedule align-tz`", "批量对齐时区（修复遗留 UTC）"),
             ],
         ),
         _md_help_section(

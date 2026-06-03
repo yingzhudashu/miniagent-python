@@ -464,7 +464,7 @@ _format_status(state, message_queue)
 | `MINIAGENT_DISABLE_SCHEDULED_TASKS` | 为真时 ticker 早退，不调度定时任务 |
 | `MINIAGENT_SCHEDULE_DISPATCH_BACKOFF` | dispatch 失败时推迟 `next_run_at` 的秒数（默认 60） |
 | `MINIAGENT_TIMEZONE` | 进程默认 IANA 时区（Agent system、`get_time`；优先级高于 `TZ`） |
-| `MINIAGENT_SCHEDULE_TIMEZONE` | 仅定时任务**新建**默认（`align-tz` 写盘亦用此链）；未设则 `MINIAGENT_TIMEZONE` / `TZ` |
+| `MINIAGENT_SCHEDULE_TIMEZONE` | 仅定时任务**新建**默认时区；未设则 `MINIAGENT_TIMEZONE` / `TZ` |
 | `TZ` | 与上兼容的时区 env（`config.user.json` 常见 `Asia/Shanghai`） |
 | `MINIAGENT_SCHEDULE_FEISHU_MIRROR` | `0` 时关闭 primary→已绑定飞书的镜像投递（默认开启） |
 | `MINIAGENT_SCHEDULE_FEISHU_LAST_CHAT` | `1` 时无绑定时可回退到 `last_feishu_receive_chat_id`（默认关闭） |

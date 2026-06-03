@@ -299,7 +299,7 @@ python -m miniagent --stop
 
 - 先 **`/schedule`** 或 **`/schedule list`** 查看子命令；语法与示例 → [CLI.md](CLI.md)。
 - **调度**：`every <秒>`、`once <ISO8601>`、五段 **`cron "分 时 日 月 周"`**；`add` 的长 prompt 须用 **` -- `** 与选项分隔。
-- **时区**：cron 墙钟以 `tasks.json` 的 `schedule.timezone` 为准；未写 `--tz` 时新建默认 **`MINIAGENT_SCHEDULE_TIMEZONE` → `MINIAGENT_TIMEZONE` → `TZ` → `Asia/Shanghai`**。**Agent 每轮本地时间**由 `process_timezone()` 注入（读 `MINIAGENT_TIMEZONE` / `TZ`，**不**读 `MINIAGENT_SCHEDULE_TIMEZONE`）。遗留 `timezone: UTC` 可用 **`/schedule align-tz`**。
+- **时区**：cron 墙钟以 `tasks.json` 的 `schedule.timezone` 为准；未写 `--tz` 时新建默认 **`MINIAGENT_SCHEDULE_TIMEZONE` → `MINIAGENT_TIMEZONE` → `TZ` → `Asia/Shanghai`**。**Agent 每轮本地时间**由 `process_timezone()` 注入（读 `MINIAGENT_TIMEZONE` / `TZ`，**不**读 `MINIAGENT_SCHEDULE_TIMEZONE`）。
 - **飞书**：默认仅 **list** / **show**；增删改须在本地 CLI。`primary` 任务在私聊已绑定时可镜像到飞书（`MINIAGENT_SCHEDULE_FEISHU_MIRROR=0` 可关）。
 
 退避、漏跑、工具接口与数据流 → [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」、[ENV_REFERENCE.md](ENV_REFERENCE.md)。

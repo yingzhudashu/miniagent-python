@@ -144,53 +144,6 @@ def effective_task_timezone(task: ScheduledTask) -> str:
     return tz
 
 
-def task_timezone_list_hint(task: ScheduledTask) -> str:
-    """``list`` 行尾：遗留 UTC 与 env 不一致时的提示。"""
-    if task.schedule.timezone_explicit:
-        return ""
-    disk = (task.schedule.timezone or "").strip() or "UTC"
-    env = process_timezone()
-    if disk == "UTC" and env != "UTC":
-        return f" [tz=UTC，建议 .schedule align-tz 或 --tz {env}]"
-    eff = effective_task_timezone(task)
-    if disk != eff:
-        return f" [计算用 {eff}]"
-    return ""
-
-
-def align_task_timezones_to_env(
-    tasks: list[ScheduledTask],
-    *,
-    dry_run: bool = False,
-    now_ts: float | None = None,
-) -> tuple[int, list[str]]:
-    """将遗留 ``timezone=UTC``（非显式）的任务对齐到调度默认时区并重算 ``next_run_at``。"""
-    from miniagent.scheduled_tasks.timezone_util import default_schedule_timezone
-
-    env_tz = default_schedule_timezone()
-    now = now_ts if now_ts is not None else time.time()
-    lines: list[str] = []
-    count = 0
-    if env_tz == "UTC":
-        return 0, ["进程默认时区为 UTC，无需 align-tz。"]
-    for t in tasks:
-        if t.schedule.timezone_explicit:
-            continue
-        if (t.schedule.timezone or "").strip() != "UTC":
-            continue
-        if dry_run:
-            lines.append(f"  • {t.id} → {env_tz}")
-            count += 1
-            continue
-        t.schedule.timezone = env_tz
-        n = compute_initial_next_run(t, now)
-        if n is not None:
-            t.next_run_at = n
-        lines.append(f"  • {t.id} → tz={env_tz} next={format_next_run_display(t, now_ts=now)}")
-        count += 1
-    return count, lines
-
-
 def _parse_once_utc_epoch(
     spec: ScheduleSpec,
     now_ts: float,

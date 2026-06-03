@@ -156,7 +156,6 @@ On branch main
 | | `/schedule add …` | 新增 interval / once / cron 任务（须含 ` -- ` 分隔 prompt） |
 | | `/schedule update <id> …` | 修改已有任务（语法同 add） |
 | | `/schedule remove|enable|disable <id>` | 删除 / 启用 / 禁用 |
-| | `/schedule align-tz` | 批量对齐时区（修复遗留 UTC） |
 | **知识库** | `/kb list` | 列出已挂载的知识库 |
 | | `/kb mount <路径> [名称]` | 挂载知识库（目录或文件） |
 | | `/kb unmount <名称>` | 卸载知识库 |
@@ -330,7 +329,6 @@ On branch main
 /schedule show <id>
 /schedule remove <id>
 /schedule enable <id>   |   /schedule disable <id>
-/schedule align-tz
 /schedule add <id> every <秒> <primary|ephemeral|fixed:会话ID> [--tz IANA] -- <prompt>
 /schedule add <id> once <ISO8601> <primary|ephemeral|fixed:会话ID> [--tz IANA] -- <prompt>
 /schedule add <id> cron "<分> <时> <日> <月> <周>" <primary|ephemeral|fixed:会话ID> [--tz IANA] -- <prompt>
@@ -342,7 +340,7 @@ On branch main
 - **`every`**：间隔秒数为正整数；**`once`**：时间为 ISO8601（可含 `Z` 或 `+08:00`）；未带时区的 naive 时间由 **`--tz`** 解释（未写时读 `MINIAGENT_SCHEDULE_TIMEZONE` → `MINIAGENT_TIMEZONE` → `TZ`，见 [ENV_REFERENCE.md](ENV_REFERENCE.md)）。
 - **飞书收结果**：飞书 WebSocket 已连接且任务为 **`primary`** 且已与飞书私聊绑定时，定时任务会镜像思考流与最终回复到飞书（`MINIAGENT_SCHEDULE_FEISHU_MIRROR=0` 关闭）；详见 [USER_GUIDE.md](USER_GUIDE.md) §8。
 - **会话**：`primary` 使用当前路由的主会话 / 活跃会话；`ephemeral` 每次新建临时会话键；`fixed:会话ID` 固定到某会话（如 `fixed:default` 或 `fixed:feishu:oc_xxx`，后者可用于飞书群任务）。
-- **时区**：cron 墙钟以 `tasks.json` 内 `schedule.timezone` 为准；未写 `--tz` 时新建任务默认时区为 `MINIAGENT_SCHEDULE_TIMEZONE` → `MINIAGENT_TIMEZONE` → `TZ` → `Asia/Shanghai`。遗留 `timezone: UTC` 请 **`update --tz`** 或 **`/schedule align-tz`**（批量写盘并重算 `next_run_at`）。
+- **时区**：cron 墙钟以 `tasks.json` 内 `schedule.timezone` 为准；未写 `--tz` 时新建任务默认时区为 `MINIAGENT_SCHEDULE_TIMEZONE` → `MINIAGENT_TIMEZONE` → `TZ` → `Asia/Shanghai`。
 - **关闭调度循环**（不删任务表）：`MINIAGENT_DISABLE_SCHEDULED_TASKS=1`；dispatch 失败退避秒数：`MINIAGENT_SCHEDULE_DISPATCH_BACKOFF`（默认 60，见 [ENV_REFERENCE.md](ENV_REFERENCE.md)）。
 
 **飞书渠道**：在飞书里发 `/schedule` 时，通常 **仅允许** `list` / `show`；`add` / `remove` / `enable` / `disable` 须在 **本机 CLI** 执行（与 `/session` 变异限制类似）。
@@ -499,7 +497,7 @@ file_patterns:         # 包含的文件模式
 飞书消息以 `/` 开头时，自动路由到命令调度器而非 Agent：
 
 - **多数**命令（如 `/status`、`/help`、`/queue status`）可在飞书使用。
-- **默认仅本机 CLI**：`/schedule` 的 `add` / `update` / `remove` / `enable` / `disable` / `align-tz`；`/session` 的 `switch` / `create` / `rename`；`/stop`（与 [USER_GUIDE.md](USER_GUIDE.md) 第 8、9 章一致）。
+- **默认仅本机 CLI**：`/schedule` 的 `add` / `update` / `remove` / `enable` / `disable`；`/session` 的 `switch` / `create` / `rename`；`/stop`（与 [USER_GUIDE.md](USER_GUIDE.md) 第 8、9 章一致）。
 - **全开**：设置 `MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1` 后飞书与 CLI 命令能力相同（见 [FEISHU.md](FEISHU.md)）。
 
 ```

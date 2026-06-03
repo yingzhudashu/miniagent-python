@@ -20,9 +20,6 @@ import os
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-if TYPE_CHECKING:
-    pass
-
 from miniagent.engine.cli_format import format_cli_reply_block, format_cli_user_block
 from miniagent.engine.cli_state import CliLoopState
 from miniagent.engine.utils import (
@@ -41,8 +38,6 @@ _logger = get_logger(__name__)
 
 
 def create_feishu_handler(
-    _skill_toolboxes,  # ignored, read from state
-    _skill_prompts,  # ignored, read from state
     state: CliLoopState,
     ctx: RuntimeContext,
     stick_bottom: list[bool],
@@ -57,8 +52,6 @@ def create_feishu_handler(
     技能工具箱/提示词从 ``state`` 读取，支持 ``refresh_skills`` 后无需重启飞书 handler。
 
     Args:
-        _skill_toolboxes: 已弃用，技能工具箱从 state 快照读取
-        _skill_prompts: 已弃用，技能提示词从 state 快照读取
         state: CLI 循环状态（含技能快照、session_manager 等）
         ctx: 运行时上下文（engine、registry、monitor 等）
         stick_bottom: 底部粘滞状态（用于 CLI 显示）

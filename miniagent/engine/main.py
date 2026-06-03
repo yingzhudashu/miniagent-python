@@ -134,7 +134,7 @@ async def unified_main(ctx: RuntimeContext) -> None:
         "feishu_p2p_synced_senders": set(),
     }
     _dummy_stick: list[bool] = [True]
-    ctx.create_feishu_handler_factory = lambda tb, tp, st: create_feishu_handler(tb, tp, st, ctx, _dummy_stick)
+    ctx.create_feishu_handler_factory = lambda st: create_feishu_handler(st, ctx, _dummy_stick)
 
     # 信号：在事件循环线程内 await 统一关停（飞书 WS reset、子进程、实例注销）
     main_loop = asyncio.get_running_loop()
@@ -1725,7 +1725,7 @@ async def run_cli_loop(
     _last_md_width[0] = _viewport_cols()  # 记录初始终端宽度
     ctx.cli_transcript_append = _append_transcript
     ctx.cli_transcript_append_ansi = _append_ansi_transcript
-    ctx.create_feishu_handler_factory = lambda tb, tp, st: create_feishu_handler(tb, tp, st, ctx, _stick_bottom)
+    ctx.create_feishu_handler_factory = lambda st: create_feishu_handler(st, ctx, _stick_bottom)
     # stderr 日志仍会打乱 VS Code 等与 PT 共用的终端画布；TUI 期间默认只打 WARNING+
     if not get_config("features.tui_verbose_log", False):
         set_console_log_threshold(logging.WARNING)

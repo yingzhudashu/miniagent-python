@@ -301,15 +301,6 @@ def get_client() -> AsyncOpenAI:
 
 # ─── 环境变量缓存（性能优化）────────────────────────────────────
 
-# 模块级缓存变量（None 表示未初始化）— 兼容旧代码
-
-_PHASED_EXECUTION_ENABLED: bool | None = None
-_TOOL_INTENT_IN_THINKING_ENABLED: bool | None = None
-_STEP_MAX_TURNS_CAP: int | None = None
-_THINKING_SEGMENT_SEPARATOR: str | None = None
-_TOOL_INTENT_MAX_CHARS: int | None = None
-
-
 @lru_cache(maxsize=1)
 def _env_phased_execution_enabled() -> bool:
     """是否启用分阶段执行（工具批次与 LLM 轮次分段），默认开启。"""
@@ -350,14 +341,6 @@ def _reset_env_caches_for_tests() -> None:
     _step_max_turns_cap.cache_clear()
     _thinking_segment_separator.cache_clear()
     _tool_intent_max_chars.cache_clear()
-    # 同时清空旧变量（兼容性）
-    global _PHASED_EXECUTION_ENABLED, _TOOL_INTENT_IN_THINKING_ENABLED
-    global _STEP_MAX_TURNS_CAP, _THINKING_SEGMENT_SEPARATOR, _TOOL_INTENT_MAX_CHARS
-    _PHASED_EXECUTION_ENABLED = None
-    _TOOL_INTENT_IN_THINKING_ENABLED = None
-    _STEP_MAX_TURNS_CAP = None
-    _THINKING_SEGMENT_SEPARATOR = None
-    _TOOL_INTENT_MAX_CHARS = None
 
 
 def _resolve_exec_tools(
