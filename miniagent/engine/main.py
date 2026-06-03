@@ -1770,7 +1770,7 @@ async def run_cli_loop(
                     safe_fragments.append((style, text))
                 else:
                     # 无效样式，使用空样式（纯文本）
-                    safe_fragments.append("", text)
+                    safe_fragments.append(("", text))
             return safe_fragments
 
         try:
