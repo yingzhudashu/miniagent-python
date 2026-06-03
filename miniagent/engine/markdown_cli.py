@@ -29,7 +29,8 @@ _shared_console_cache: dict[int, Any] = {}  # width -> Console
 _shared_console_original_file: dict[int, Any] = {}  # width -> original file
 
 # ── 性能优化：渲染结果缓存 ──
-_RENDER_CACHE_MAX_SIZE = 100
+# 性能优化：增加缓存大小从100到200，提升命中率
+_RENDER_CACHE_MAX_SIZE = 200
 _render_cache: OrderedDict[tuple[int, str, int, str], str] = OrderedDict()  # (len, prefix, width, justify) -> rendered
 
 

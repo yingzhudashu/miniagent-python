@@ -24,8 +24,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from typing import Any
+
+# 性能优化：预编译高频正则表达式
+_QUALITY_EVAL_SUGGESTIONS_PATTERN = re.compile(
+    r"---\n🤖 .*?质量评分.*?\n\n建议：\n((?:- .+\n?)+)"
+)
 
 # 从拆分模块导入（向后兼容）
 from miniagent.engine.commands.config_commands import (
@@ -232,15 +238,12 @@ def _extract_improve_suggestions(assistant_msg: dict) -> list[str]:
     Returns:
         建议列表（每条建议为字符串），无建议时返回空列表
     """
-    import re
-
     content = assistant_msg.get("content", "")
     if not content:
         return []
 
-    # 正则匹配质量评估尾部的建议部分
-    pattern = r"---\n🤖 .*?质量评分.*?\n\n建议：\n((?:- .+\n?)+)"
-    match = re.search(pattern, content)
+    # 性能优化：使用预编译正则（避免每次都编译）
+    match = _QUALITY_EVAL_SUGGESTIONS_PATTERN.search(content)
 
     if not match:
         return []

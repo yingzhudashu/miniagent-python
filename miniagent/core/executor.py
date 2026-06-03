@@ -564,13 +564,15 @@ async def execute_plan(
 
     sep = _thinking_segment_separator()
 
-    # ── 流式输出优化：增量 buffer ──
+    # ── 流式输出优化：增量 buffer（性能优化）──
     class _StreamingBuffer:
         """高效的流式内容缓冲器，避免 O(n²) 字符拼接。
 
+        性能优化：降低合并阈值从100到50，减少内存占用和getvalue复杂度。
+
         设计原理：
         - 维护一个增长的 chunk 列表
-        - 当列表过长时（>100），合并为单个字符串
+        - 当列表过长时（>50），合并为单个字符串（降低阈值）
         - 提供 getvalue() 获取当前内容
         """
 
@@ -585,18 +587,20 @@ async def execute_plan(
             """追加一个 chunk"""
             self._chunks.append(chunk)
             self._length += len(chunk)
-            # 当 chunk 数过多时合并，避免列表过大
-            if len(self._chunks) > 100:
+            # 性能优化：降低合并阈值从100到50，减少内存占用
+            if len(self._chunks) > 50:
                 self._consolidated = "".join(self._chunks)
                 self._chunks = [self._consolidated]
 
         def getvalue(self) -> str:
-            """获取当前完整内容"""
+            """性能优化：简化逻辑，快速返回."""
             if self._consolidated is not None:
-                # 如果已经合并，直接返回或追加新 chunks
+                # 已合并过，直接返回或追加新 chunks
                 if len(self._chunks) == 1:
                     return self._consolidated
+                # 合并后又有新追加（简化拼接）
                 return self._consolidated + "".join(self._chunks[1:])
+            # 未合并过，直接拼接
             return "".join(self._chunks)
 
         def __len__(self) -> int:

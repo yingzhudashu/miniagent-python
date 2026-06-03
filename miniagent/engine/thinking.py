@@ -23,8 +23,9 @@ from collections.abc import Awaitable, Callable
 from miniagent.infrastructure.json_config import get_config
 
 # ── 性能优化：缓存终端宽度，避免频繁调用 get_terminal_size ──
-# TTL 从JSON配置读取（秒），默认 2.0
-_TERMINAL_WIDTH_CACHE_TTL: float = max(0.0, float(get_config("execution.terminal_width_cache_ttl", 2.0)))
+# 性能优化：增加默认TTL从2秒到5秒（用户很少改变窗口大小）
+# TTL 从JSON配置读取（秒），默认 5.0
+_TERMINAL_WIDTH_CACHE_TTL: float = max(0.0, float(get_config("execution.terminal_width_cache_ttl", 5.0)))
 _TERMINAL_WIDTH_CACHE: int = 0
 _TERMINAL_WIDTH_CACHE_TIME: float = 0.0
 
@@ -243,10 +244,15 @@ class ThinkingDisplay:
     """
 
     def __init__(self) -> None:
-        """构造显示协调器：按 ``session_key`` 分桶状态，并保留无会话时的默认桶。"""
+        """构造显示协调器：按 ``session_key`` 分桶状态，并保留无会话时的默认桶。
+
+        性能优化：Session状态LRU驱逐，防止无限累积（最大50个会话状态）。
+        """
         self._states: dict[str, _SessionThinkingState] = {}
         self._default: _SessionThinkingState = _SessionThinkingState()
         self._buffer_enabled: bool = False
+        # 性能优化：Session状态最大数量（防止内存泄漏）
+        self._max_session_states: int = 50
         # Application 输出缓冲区回调（用于全屏模式）
         self._output_sink: Callable[..., None] | None = None
         self._sink_has_kind: bool = False
@@ -313,9 +319,17 @@ class ThinkingDisplay:
             sys.stdout.flush()
 
     def _get_state(self, session_key: str) -> _SessionThinkingState:
-        """懒创建并返回某会话的思考状态对象。"""
+        """懒创建并返回某会话的思考状态对象。
+
+        性能优化：LRU驱逐机制，防止Session状态无限累积。
+        """
         if session_key not in self._states:
             self._states[session_key] = _SessionThinkingState()
+            # 性能优化：LRU驱逐（超过上限时删除最旧的）
+            while len(self._states) > self._max_session_states:
+                # 删除第一个（最旧的）会话状态
+                oldest_key = next(iter(self._states))
+                self._states.pop(oldest_key)
         return self._states[session_key]
 
     def reset_counter(self, session_key: str = "") -> None:

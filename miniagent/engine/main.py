@@ -374,8 +374,10 @@ async def run_cli_loop(
     # 加载当前会话的对话历史到输入缓冲，使上下键可回顾已发送的用户消息
     _load_session_history_to_input(state, input_buffer)
 
-    _MAX_TRANSCRIPT_CHARS = 400_000
+    # 性能优化：降低transcript上限并维护累计长度（避免每次遍历）
+    _MAX_TRANSCRIPT_CHARS = 200_000  # 从400KB降低到200KB（内存优化）
     _transcript: list[Any] = []
+    _transcript_total_len: list[int] = [0]  # 累计长度计数器（性能优化）
     _stick_bottom: list[bool] = [True]
     _last_md_width: list[int] = [0]  # 上次渲染 Markdown 的终端宽度
 
@@ -411,11 +413,11 @@ async def run_cli_loop(
         return 0
 
     def _trim_transcript() -> None:
-        """当总字符数超过上限时从头部丢弃片段，保留最近内容。"""
-        total = sum(_transcript_fragment_len(f) for f in _transcript)
-        while total > _MAX_TRANSCRIPT_CHARS and len(_transcript) > 16:
+        """性能优化：使用累计长度计数器，避免每次遍历（O(1)而非O(n))。"""
+        # 使用累计长度而非遍历计算
+        while _transcript_total_len[0] > _MAX_TRANSCRIPT_CHARS and len(_transcript) > 16:
             old = _transcript.pop(0)
-            total -= _transcript_fragment_len(old)
+            _transcript_total_len[0] -= _transcript_fragment_len(old)
 
     def _render_history_message_to_transcript(msg: dict, prepend: bool = False) -> None:
         """将历史消息渲染到 transcript。
@@ -1333,7 +1335,10 @@ async def run_cli_loop(
     )
 
     def _append_transcript(style_cls: str, text: str = "", *, ansi: Any = None) -> None:
-        """向 transcript 追加样式化文本；同样式尾部合并；维护粘底与长度裁剪。"""
+        """向 transcript 追加样式化文本；同样式尾部合并；维护粘底与长度裁剪。
+
+        性能优化：维护累计长度计数器，避免每次遍历计算。
+        """
         if not text and ansi is None:
             return
         at_bottom = _output_at_bottom()
@@ -1344,12 +1349,17 @@ async def run_cli_loop(
             and _transcript[-1][0] == style_cls
         ):
             st, prev = _transcript[-1]
-            _transcript[-1] = (st, prev + text)
+            # 性能优化：更新累计长度（差值而非遍历）
+            new_text = prev + text
+            _transcript_total_len[0] += len(text)  # 增加新增文本长度
+            _transcript[-1] = (st, new_text)
         else:
             if ansi is not None:
                 _transcript.append(ansi)
+                _transcript_total_len[0] += _transcript_fragment_len(ansi)
             else:
                 _transcript.append((style_cls, text))
+                _transcript_total_len[0] += len(text)  # 性能优化：直接累加
         _trim_transcript()
         try:
             get_app().invalidate()
