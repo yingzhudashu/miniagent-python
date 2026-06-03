@@ -41,8 +41,6 @@ class FeishuRuntime:
 
     def start(
         self,
-        skill_toolboxes: list,
-        skill_prompts: list,
         create_handler: Callable,
         state: dict | None = None,
         *,
@@ -51,6 +49,8 @@ class FeishuRuntime:
         """启动飞书 WebSocket 长轮询。
 
         Args:
+            create_handler: 创建飞书 handler 的工厂函数
+            state: CLI 循环状态（含技能快照等）
             user_status: 可选 ``(msg: str) -> None``，由全屏 CLI 注册为写入 transcript；
                 未提供时使用 ``print``，避免与 prompt_toolkit 备用屏混写时丢失信息。
         """
@@ -138,11 +138,7 @@ class FeishuRuntime:
 
         try:
             self._config = config
-            h = (
-                create_handler(skill_toolboxes, skill_prompts, state)
-                if state is not None
-                else create_handler(skill_toolboxes, skill_prompts)
-            )
+            h = create_handler(state)
         except Exception as e:
             release_feishu_inbound_owner()
             self._emit_user_line(f"\u274c \u98de\u4e66\u542f\u52a8\u5931\u8d25: {e}")

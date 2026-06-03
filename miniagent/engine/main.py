@@ -200,8 +200,6 @@ async def unified_main(ctx: RuntimeContext) -> None:
     # 飞书与 CLI 共进程：先起 WS 长轮询任务，再进入同一 stdin 主循环（无单独纯飞书入口）
     if state["feishu_enabled"]:
         ctx.feishu.start(
-            skill_toolboxes,
-            skill_prompts,
             ctx.create_feishu_handler_factory,
             state,
             user_status=_feishu_user_status_fn(ctx),
@@ -2447,8 +2445,6 @@ async def _run_cli_loop_fallback(
         if user_input.startswith("/feishu"):
             if user_input == "/feishu start":
                 ctx.feishu.start(
-                    _skill_tb(),
-                    get_skill_prompts_from_state(state) or skill_prompts,
                     ctx.create_feishu_handler_factory,
                     state,
                     user_status=_feishu_user_status_fn(ctx),
