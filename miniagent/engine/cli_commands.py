@@ -104,14 +104,19 @@ def _md_escape_cell(text: str) -> str:
 
 
 def _md_help_section(title: str, hint: str | None, rows: list[tuple[str, str]]) -> str:
-    """生成分组 Markdown：可选引用提示 + GFM 表格。"""
+    """生成分组 Markdown：可选引用提示 + 粗体命令列表（飞书 lark_md 友好）。
+
+    避免使用 GFM 表格（飞书不支持），改用粗体 + 列表格式，
+    使 CLI Markdown 渲染和飞书 lark_md 都能正常显示。
+    """
     lines: list[str] = [f"### {title}", ""]
     if hint:
         lines.append(f"> {hint}")
         lines.append("")
-    lines.extend(["| 命令 | 说明 |", "| --- | --- |"])
+    # 使用列表格式，命令用粗体，说明紧跟其后（飞书和 CLI 都友好）
     for cmd, desc in rows:
-        lines.append(f"| {_md_escape_cell(cmd)} | {_md_escape_cell(desc)} |")
+        # 粗体命令 + 分隔符 + 说明
+        lines.append(f"- **{cmd}** — {desc}")
     lines.append("")
     return "\n".join(lines)
 
@@ -1207,6 +1212,7 @@ def format_help_markdown(
             "`queue` 为默认；`preemptive` 允许新消息插队。`/queue abort` / `/abort` 取消本 `chat_id` 上经 `dispatch` / `dispatch_wait` 投递的任务，**不是** `/stop`（停实例）。飞书侧可随时发送以打断卡住的 Agent；全屏 CLI 在单轮 Agent 执行中无法再次输入命令。",
             [
                 ("`/queue status`", "查看队列状态"),
+                ("`/query`", "同上（短命令）"),
                 ("`/queue set <模式>`", "切换 `queue` / `preemptive`"),
                 ("`/queue abort`", "中止本通道队列内运行中与排队的任务；不退出进程"),
                 ("`/abort`", "同上（短命令）"),
