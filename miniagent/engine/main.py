@@ -137,14 +137,21 @@ async def unified_main(ctx: RuntimeContext) -> None:
     _sig_armed: dict[str, bool] = {"v": False}
 
     async def _shutdown_after_signal(signum: int) -> None:
-        """信号触发后在事件循环内执行 ``shutdown_runtime`` 并退出进程。"""
-        await shutdown_runtime(
-            ctx,
-            state,
-            reason=f"signal:{signum}",
-            call_unregister=True,
-        )
-        sys.exit(0)
+        """信号触发后在事件循环内执行 ``shutdown_runtime`` 并退出进程。
+
+        使用 os._exit(0) 而非 sys.exit(0) 以避免 SystemExit 异常未被捕获。
+        """
+        try:
+            await shutdown_runtime(
+                ctx,
+                state,
+                reason=f"signal:{signum}",
+                call_unregister=True,
+            )
+        except Exception:
+            pass  # 关闭过程中的异常不影响最终退出
+        # 使用 os._exit 直接终止进程，避免 SystemExit 异常
+        os._exit(0)
 
     def _on_exit(signum: int, *_: Any) -> None:
         """信号处理器：防重入后把关停协程投递回主循环线程。"""

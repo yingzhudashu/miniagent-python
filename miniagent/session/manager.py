@@ -396,6 +396,8 @@ class DefaultSessionManager(SessionManagerProtocol):
             history = _truncate_history(history)
             ctx["conversation_history"] = history  # 更新内存中的历史
             path = os.path.join(ctx["config"].workspace_path, "history.json")
+            # 确保目录存在（防止首次保存时目录未创建）
+            os.makedirs(ctx["config"].workspace_path, exist_ok=True)
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(history, f, ensure_ascii=False, indent=2)
         except Exception as e:
