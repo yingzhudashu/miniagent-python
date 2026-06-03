@@ -28,11 +28,15 @@ import asyncio
 import json
 import logging
 import os
+import re
 import signal
 import sys
 import threading
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
+
+# 性能优化：预编译高频正则表达式
+_FILE_MARKER_PATTERN = re.compile(r"@file:([^\s]+)|file:([^\s]+)")
 
 if TYPE_CHECKING:
     # prompt_toolkit≥3.0.50 仅在类型检查块中定义该别名，运行时 key_bindings 无此名（勿在运行中 from … import）。
@@ -1884,13 +1888,10 @@ async def run_cli_loop(
         Returns:
             (处理后的输入, 文件信息列表)
         """
-        import re
-
         files_info: list[dict] = []
 
-        # 匹配 @file:path 或 file:path 标记
-        pattern = r"@file:([^\s]+)|file:([^\s]+)"
-        matches = re.findall(pattern, user_input)
+        # 性能优化：使用预编译正则（避免每次都编译）
+        matches = _FILE_MARKER_PATTERN.findall(user_input)
 
         if not matches:
             return user_input, files_info

@@ -22,6 +22,10 @@ import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+# 性能优化：预编译高频正则表达式
+_STEP_NUMBER_PATTERN = re.compile(r"\[步骤\s*(\d+)\s*/\s*(\d+)\s*\]")
+_ROUND_NUMBER_PATTERN = re.compile(r"第\s*(\d+)\s*轮")
+
 from miniagent.core.agent import run_agent
 from miniagent.engine.cli_commands import feishu_dot_commands_full_enabled
 from miniagent.infrastructure.json_config import get_config
@@ -571,14 +575,16 @@ class UnifiedEngine:
         def _turn_label_sort_key(item: tuple[str, str]) -> tuple[int, int, str]:
             """将思考区块标签排序：规划步骤 → 评估 → 执行 → 第 n 轮 → 其它。"""
             lab = item[0]
-            m = re.search(r"\[步骤\s*(\d+)\s*/\s*(\d+)\s*\]", lab)
+            # 性能优化：使用预编译正则
+            m = _STEP_NUMBER_PATTERN.search(lab)
             if m:
                 return (0, int(m.group(1)), lab)
             if lab.startswith("[评估与计划]"):
                 return (1, 0, lab)
             if lab.startswith("[执行]"):
                 return (2, 0, lab)
-            m = re.search(r"第\s*(\d+)\s*轮", lab)
+            # 性能优化：使用预编译正则
+            m = _ROUND_NUMBER_PATTERN.search(lab)
             if m:
                 return (3, int(m.group(1)), lab)
             return (4, 0, lab)
