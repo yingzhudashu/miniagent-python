@@ -1,6 +1,6 @@
 # Mini Agent Python — 文档索引
 
-> 📅 最后更新: 2026-05-23 | 版本: 2.0.3（与 `miniagent.__version__` 对齐；未发版行为以 [CHANGELOG](../CHANGELOG.md) `[Unreleased]` 为准）
+> 📅 最后更新: 2026-06-03 | 版本: 2.0.3（与 `miniagent.__version__` 对齐；未发版行为以 [CHANGELOG](../CHANGELOG.md) `[Unreleased]` 为准）
 
 ---
 
