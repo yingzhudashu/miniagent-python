@@ -300,12 +300,13 @@ class KeywordIndex:
         self._index_file = os.path.join(state_dir, "keyword-index.json")
 
     def _ensure_loaded(self) -> None:
-        """确保索引已从磁盘加载"""
-        if not self._loaded:
-            self._load()
+        """确保索引已从磁盘加载（线程安全）。"""
+        with self._index_lock:
+            if not self._loaded:
+                self._load()
 
     def _load(self) -> None:
-        """从磁盘加载索引"""
+        """从磁盘加载索引（内部方法，需在锁内调用）。"""
         try:
             if not os.path.exists(self._index_file):
                 self._loaded = True

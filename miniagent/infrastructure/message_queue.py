@@ -12,13 +12,21 @@
 解析 ``session_key`` 后，应将「跑一轮 Agent」的协程投递到本管理器的 ``enqueue``，由 ``chat_id``（或
 路由键）保证同一聊天室内顺序或抢占语义；切勿在路由层再开无队列保护的并行 ``create_task`` 调用引擎，
 否则可能打乱会话历史与锁语义。
+
+**队列上限**：为防止内存溢出，每个聊天室队列有上限（默认100），超出时拒绝入队。
 """
 
 from __future__ import annotations
 
 import asyncio
 import enum
+import logging
 from typing import Any
+
+_logger = logging.getLogger(__name__)
+
+# 队列上限配置（防止内存溢出）
+_MAX_QUEUE_SIZE = 100
 
 
 class QueueMode(str, enum.Enum):
@@ -134,6 +142,16 @@ class _ChatQueue:
                     self._manager.exec_lock.release()
         else:
             # 队列模式：创建包装任务加入队列，由 _run_sequential 保证串行
+            # 检查队列上限，防止内存溢出
+            if len(self._queue) >= _MAX_QUEUE_SIZE:
+                _logger.warning(
+                    "队列已满（%d/%d），拒绝新消息入队",
+                    len(self._queue), _MAX_QUEUE_SIZE
+                )
+                # 取消协程，避免泄漏
+                if asyncio.iscoroutine(coro):
+                    coro.close()
+                return
             task = asyncio.create_task(self._run_sequential(coro, on_start, on_done))
             self._queue.append(task)
 

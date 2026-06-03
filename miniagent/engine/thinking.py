@@ -17,6 +17,7 @@ import inspect
 import logging
 import shutil
 import sys
+import threading
 import time
 from collections.abc import Awaitable, Callable
 
@@ -28,6 +29,7 @@ from miniagent.infrastructure.json_config import get_config
 _TERMINAL_WIDTH_CACHE_TTL: float = max(0.0, float(get_config("execution.terminal_width_cache_ttl", 5.0)))
 _TERMINAL_WIDTH_CACHE: int = 0
 _TERMINAL_WIDTH_CACHE_TIME: float = 0.0
+_TERMINAL_WIDTH_CACHE_LOCK = threading.Lock()  # 并发安全：保护缓存访问
 
 # prompt_toolkit 是可选依赖（cli extra），未安装时提供 placeholder
 try:
@@ -57,20 +59,24 @@ def _cli_thinking_rich_enabled() -> bool:
 
 
 def _cli_thinking_render_width() -> int:
-    """无注入宽度回调时，用终端列宽推导 Rich 渲染宽度（带 TTL 缓存）。"""
+    """无注入宽度回调时，用终端列宽推导 Rich 渲染宽度（带 TTL 缓存）。
+
+    并发安全：使用锁保护缓存访问，避免多线程竞争。
+    """
     global _TERMINAL_WIDTH_CACHE, _TERMINAL_WIDTH_CACHE_TIME
-    now = time.time()
-    if _TERMINAL_WIDTH_CACHE > 0 and (now - _TERMINAL_WIDTH_CACHE_TIME) < _TERMINAL_WIDTH_CACHE_TTL:
-        return _TERMINAL_WIDTH_CACHE
-    try:
-        terminal_width = shutil.get_terminal_size(fallback=(80, 24)).columns
-        # 最大500适应宽屏显示器，确保表格完整显示
-        width = max(40, min(500, terminal_width - 4))
-        _TERMINAL_WIDTH_CACHE = width
-        _TERMINAL_WIDTH_CACHE_TIME = now
-        return width
-    except Exception:
-        return 76  # 80 - 4
+    with _TERMINAL_WIDTH_CACHE_LOCK:
+        now = time.time()
+        if _TERMINAL_WIDTH_CACHE > 0 and (now - _TERMINAL_WIDTH_CACHE_TIME) < _TERMINAL_WIDTH_CACHE_TTL:
+            return _TERMINAL_WIDTH_CACHE
+        try:
+            terminal_width = shutil.get_terminal_size(fallback=(80, 24)).columns
+            # 最大500适应宽屏显示器，确保表格完整显示
+            width = max(40, min(500, terminal_width - 4))
+            _TERMINAL_WIDTH_CACHE = width
+            _TERMINAL_WIDTH_CACHE_TIME = now
+            return width
+        except Exception:
+            return 76  # 80 - 4
 
 
 def indent_stream_thinking_suffix(full_text: str, prev_printed: int, *, indent: str = "") -> str:
@@ -759,8 +765,11 @@ class ThinkingDisplay:
                     self._emit(body + "\n")
 
     def end_thinking(self) -> None:
-        """结束当前流式显示块。"""
-        for state in self._states.values():
+        """结束当前流式显示块。
+
+        并发安全：使用list()包装遍历，防止修改期间RuntimeError。
+        """
+        for state in list(self._states.values()):  # 防止遍历期间修改
             if state.stream_step is not None and not state.stream_done:
                 if self._should_emit_cli(state):
                     self._emit("\n\n\n")  # 思考结束空行（2行空白）

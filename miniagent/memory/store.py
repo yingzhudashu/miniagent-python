@@ -27,6 +27,7 @@ import collections
 import json
 import os
 import re
+import threading
 from datetime import datetime, timezone
 from typing import Any
 
@@ -261,13 +262,16 @@ class DefaultMemoryStore(MemoryStoreProtocol):
         # 缓存上限提高到 100（原来 50）
         self._cache_max = get_config("memory.store_cache_max", 100)
         self._keyword_index = keyword_index
+        # 并发安全：缓存操作锁（保护LRU更新）
+        self._cache_lock = threading.Lock()
 
     def _cache_put(self, session_id: str, memory: SessionMemory) -> None:
-        """将记忆放入 LRU 缓存，超过上限时驱逐最旧条目。"""
-        self._cache[session_id] = memory
-        self._cache.move_to_end(session_id)
-        while len(self._cache) > self._cache_max:
-            self._cache.popitem(last=False)
+        """将记忆放入 LRU 缓存，超过上限时驱逐最旧条目（线程安全）。"""
+        with self._cache_lock:
+            self._cache[session_id] = memory
+            self._cache.move_to_end(session_id)
+            while len(self._cache) > self._cache_max:
+                self._cache.popitem(last=False)
 
     def flush_keyword_index(self) -> None:
         """将 Layer 3 关键词索引的挂起变更写入磁盘。"""

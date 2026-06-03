@@ -44,10 +44,14 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+
+# 配置默认值（直接读取环境变量，避免循环导入）
+import os as _os_for_inst
 import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -56,8 +60,6 @@ from typing import Any
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 
-# 配置默认值（直接读取环境变量，避免循环导入）
-import os as _os_for_inst
 HEARTBEAT_TIMEOUT = int(_os_for_inst.environ.get("MINIAGENT_HEARTBEAT_TIMEOUT", "30"))
 INSTANCE_CACHE_TTL = float(_os_for_inst.environ.get("MINIAGENT_INSTANCE_CACHE_TTL", "30.0"))
 
@@ -496,13 +498,20 @@ _default_registry: InstanceRegistry | None = None
 _instance_list_cache: tuple[float, list[dict[str, Any]]] | None = None
 # 使用 constants.py 中定义的 TTL
 
+# 并发安全：全局单例创建锁
+_instance_registry_lock = threading.Lock()
+
 
 def get_registry(state_dir: str | None = None) -> InstanceRegistry:
-    """获取或创建默认实例注册表。"""
+    """获取或创建默认实例注册表（线程安全）。
+
+    使用锁保护单例创建，避免多线程首次调用时创建多个实例。
+    """
     global _default_registry
-    if _default_registry is None:
-        _default_registry = InstanceRegistry(state_dir)
-    return _default_registry
+    with _instance_registry_lock:
+        if _default_registry is None:
+            _default_registry = InstanceRegistry(state_dir)
+        return _default_registry
 
 
 def register_instance(
