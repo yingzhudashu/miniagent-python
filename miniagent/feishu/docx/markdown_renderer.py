@@ -445,10 +445,15 @@ def build_lark_blocks_from_intermediate(blocks: list[FeishuBlock]) -> list[Any]:
     Note:
         表格块 (TABLE) 需要特殊处理，不能直接转为 Block 对象。
         图片块 (IMAGE) 如果没有 token 也需要特殊处理。
+
+        飞书 API 对不同块类型有特殊要求：
+        - 代码块：需要 style.language 属性
+        - 列表块：需要 style.indentation_level 属性
     """
     from lark_oapi.api.docx.v1 import (
         BlockBuilder,
         Text,
+        TextStyle,
         TextElement,
         TextElementStyle,
         TextRun,
@@ -531,24 +536,33 @@ def build_lark_blocks_from_intermediate(blocks: list[FeishuBlock]) -> list[Any]:
                 )
 
             elif block.block_type == BlockType.BULLET:
+                # 列表块需要 indentation_level
+                indent_level = min(block.indent_level, 8)  # 飞书最多支持 8 层
+                style = TextStyle.builder().indentation_level(indent_level).build()
+                bullet_text = Text.builder().elements(elements).style(style).build()
                 lark_block = (
                     BlockBuilder()
                     .block_type(9)
-                    .bullet(text_obj)
+                    .bullet(bullet_text)
                     .build()
                 )
 
             elif block.block_type == BlockType.ORDERED:
+                # 有序列表也需要 indentation_level
+                indent_level = min(block.indent_level, 8)
+                style = TextStyle.builder().indentation_level(indent_level).build()
+                ordered_text = Text.builder().elements(elements).style(style).build()
                 lark_block = (
                     BlockBuilder()
                     .block_type(10)
-                    .ordered(text_obj)
+                    .ordered(ordered_text)
                     .build()
                 )
 
             elif block.block_type == BlockType.CODE:
-                # 代码块：text 内容 + 可选语言
-                code_text = Text.builder().elements(elements).build()
+                # 代码块需要 language 属性
+                style = TextStyle.builder().language(block.code_language or "").build()
+                code_text = Text.builder().elements(elements).style(style).build()
                 lark_block = (
                     BlockBuilder()
                     .block_type(11)
