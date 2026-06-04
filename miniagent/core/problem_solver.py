@@ -66,9 +66,10 @@ async def reflect_on_result(
     if kb_standard:
         prompt = prompt + kb_standard + "\n\n若知识库有更准确的说法，请在 suggestions 中指出。"
 
+    # 使用优化后的 XML 结构化提示词
     result = await llm_json(
         prompt=prompt,
-        system="你是一个结果评估专家。请评估任务完成质量。只返回 JSON。",
+        system=REFLECTOR_PROMPT,
         client=client,
     )
 
@@ -91,4 +92,4 @@ async def reflect_on_result(
     return reflection
 
 
-__all__ = ["ReflectionResult", "reflect_on_result", "REFLECTION_PROMPT"]
+__all__ = ["ReflectionResult", "reflect_on_result", "REFLECTOR_PROMPT"]

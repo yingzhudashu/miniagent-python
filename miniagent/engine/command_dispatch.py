@@ -991,8 +991,8 @@ async def _run_review(
 
 # ─── /improve 辅助函数 ───────────────────────────────
 
-_IMPROVE_SYSTEM = """你是一个答案优化专家。根据质量评估建议改进答案。
-返回 JSON 格式 {{\"improved_answer\": \"改进后的完整答案\"}}，不要包含其他文字。"""
+# IMPROVE_PROMPT 现在从 miniagent.core.prompts.improver 导入
+_IMPROVE_SYSTEM = IMPROVE_PROMPT
 
 _IMPROVE_PROMPT = """请根据质量评估建议改进以下答案。
 
