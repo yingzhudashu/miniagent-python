@@ -266,7 +266,7 @@ def test_cmd_schedule_add_uses_tz_env(monkeypatch: pytest.MonkeyPatch, tmp_path)
     from miniagent.scheduled_tasks.store import load_tasks
 
     msg = cmd_schedule(
-        '.schedule add tzenv cron "0 12 * * *" primary -- test',
+        '/schedule add tzenv cron "0 12 * * *" primary -- test',
         allow_mutations=True,
     )
     assert "已添加" in msg

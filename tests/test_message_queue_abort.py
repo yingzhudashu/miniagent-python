@@ -103,7 +103,7 @@ async def test_dispatch_abort_respects_message_queue_abort_chat_id():
     }
 
     out = await dispatch_command(
-        ".abort",
+        "/abort",
         state=state,
         capture=True,
         message_queue_abort_chat_id="oc_feishu_room",
@@ -113,7 +113,7 @@ async def test_dispatch_abort_respects_message_queue_abort_chat_id():
     assert "队列" in out or "进程" in out
 
     seen.clear()
-    out2 = await dispatch_command(".queue abort", state=state, capture=True)
+    out2 = await dispatch_command("/queue abort", state=state, capture=True)
     assert seen == [mq.CLI_CHAT_ID]
     assert out2 is not None
 

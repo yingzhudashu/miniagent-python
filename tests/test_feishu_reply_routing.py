@@ -64,8 +64,12 @@ def test_feishu_outbound_reply_params_explicit_off_overrides_thread(
 
 
 def test_send_interactive_reply_cards_uses_reply_api_when_configured() -> None:
+    from miniagent.feishu.lark_client import clear_client_cache
     from miniagent.feishu.poll_server import _send_interactive_reply_cards
     from miniagent.feishu.types import FeishuConfig
+
+    # 清除客户端缓存，确保 mock 生效
+    clear_client_cache()
 
     cfg = FeishuConfig(app_id="a", app_secret="b", verification_token="t")
     client = MagicMock()
@@ -75,12 +79,8 @@ def test_send_interactive_reply_cards_uses_reply_api_when_configured() -> None:
     ok.data.message_id = "new_mid"
     client.im.v1.message.reply.return_value = ok
 
-    mock_builder = MagicMock()
-    mock_builder.app_id.return_value = mock_builder
-    mock_builder.app_secret.return_value = mock_builder
-    mock_builder.build.return_value = client
-
-    with patch("lark_oapi.Client.builder", return_value=mock_builder):
+    # mock miniagent.feishu.im_send 模块中的 build_client
+    with patch("miniagent.feishu.im_send.build_client", return_value=client):
         sent, total = _send_interactive_reply_cards(
             cfg,
             "oc_test",

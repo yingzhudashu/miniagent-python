@@ -171,11 +171,11 @@ async def test_append_feishu_with_message_id_patches(
     st.feishu_tool_section_started = False
     patched: list[str] = []
 
-    def _patch(_c: Any, mid: str, card_json: str) -> bool:
+    async def _patch_async(_c: Any, mid: str, card_json: str, timeout: float = 10.0) -> bool:
         patched.append(card_json)
         return True
 
-    monkeypatch.setattr(ps, "_patch_interactive_thinking_message", _patch)
+    monkeypatch.setattr(ps, "_patch_interactive_thinking_message_async", _patch_async)
 
     cfg = FeishuConfig(app_id="a", app_secret="b")
     await append_feishu_thinking_same_card(cfg, "oc_x", "🔧 x — y", "gray", st)
