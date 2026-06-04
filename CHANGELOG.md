@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### New Features
+
+- **飞书文档 Markdown 富文本渲染**：新增 [`markdown_renderer.py`](miniagent/feishu/docx/markdown_renderer.py)，支持将 Markdown 内容转换为飞书文档富文本块。
+  - 支持块类型：标题（heading1-6）、段落、列表（有序/无序）、代码块、引用块、表格
+  - 支持内联样式：粗体、斜体、删除线、链接、内联代码
+  - 新增 `feishu_doc` 工具参数 `render_mode`：`rich`=富文本渲染，`plain`=纯文本（向后兼容）
+  - 表格自动转换为飞书表格块（使用 `create_table_with_values` API）
+  - 新增导出：`append_markdown_to_document`, `markdown_to_feishu_blocks`, `BlockType`, `FeishuBlock`, `TextRun`, `TextStyle`
+
 ### Refactoring
 
 - **消除飞书去重重复代码**：[`poll_server.py`](miniagent/feishu/poll_server.py) 中约 136 行重复的去重逻辑已删除，改为导入 [`feishu_dedup.py`](miniagent/feishu/feishu_dedup.py) 模块。文件从约 1706 行减少到约 1569 行，提升了代码可维护性。

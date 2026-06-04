@@ -251,10 +251,16 @@ def _action_read(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
 
 
 def _action_append(args: dict[str, Any], cfg: FeishuConfig, *, full_write: bool) -> ToolResult:
-    """追加文本到云文档；mode=replace 时先清空再写入。"""
+    """追加文本到云文档；mode=replace 时先清空再写入。
+
+    支持两种渲染模式：
+    - render_mode="rich": 富文本渲染（标题、粗体、列表、代码块等）
+    - render_mode="plain": 纯文本（旧实现，向后兼容）
+    """
     from miniagent.feishu.docx.blocks import (
         DOCX_APPEND_MAX_CHARS,
         append_plain_text_to_document,
+        append_markdown_to_document,
         clear_document_content_blocks,
     )
     from miniagent.feishu.docx.markdown import markdown_to_plain_text
@@ -262,27 +268,60 @@ def _action_append(args: dict[str, Any], cfg: FeishuConfig, *, full_write: bool)
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
     content = str(args.get("content") or args.get("text") or "")
     mode = str(args.get("mode") or "").strip().lower()
+    render_mode = str(args.get("render_mode") or "rich").strip().lower()
+
     if not doc_id:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token 或 document_id。")
     if not content.strip():
         return ToolResult(success=False, content=f"{WARNING_PREFIX} content 为空。")
+
+    # 确定渲染模式
+    use_rich = render_mode == "rich"
+
     if full_write and mode == "replace":
         removed, failed = clear_document_content_blocks(cfg, doc_id)
-        plain = markdown_to_plain_text(content)
-        n = append_plain_text_to_document(cfg, doc_id, plain)
-        warn = f"（{failed} 个块删除失败，可能残留旧内容）" if failed else ""
+
+        if use_rich:
+            # 富文本渲染
+            n, warnings = append_markdown_to_document(cfg, doc_id, content, use_renderer=True)
+            warn_text = "\n⚠️ " + "\n".join(warnings) if warnings else ""
+            fail_warn = f"（{failed} 个块删除失败）" if failed else ""
+            return ToolResult(
+                success=True,
+                content=f"{SUCCESS_PREFIX} write(replace)富文本：已清除 {removed} 个块并写入 {n} 个新块（标题/列表/代码等）。{fail_warn}{warn_text}",
+            )
+        else:
+            # 纯文本（旧实现）
+            plain = markdown_to_plain_text(content)
+            n = append_plain_text_to_document(cfg, doc_id, plain)
+            warn = f"（{failed} 个块删除失败）" if failed else ""
+            return ToolResult(
+                success=True,
+                content=f"{SUCCESS_PREFIX} write(replace)纯文本：已清除 {removed} 个块并写入 {n} 个新段落。{warn}",
+            )
+
+    # append 模式
+    if use_rich:
+        # 富文本渲染
+        n, warnings = append_markdown_to_document(cfg, doc_id, content, use_renderer=True)
+        warn_text = "\n⚠️ " + "\n".join(warnings) if warnings else ""
+        stats_hint = ""
+        if n > 0:
+            stats_hint = "（包含标题、列表、代码块、表格等富文本结构）"
         return ToolResult(
             success=True,
-            content=f"{SUCCESS_PREFIX} write(replace)：已清除 {removed} 个块并写入 {n} 个新段落。{warn}",
+            content=f"{SUCCESS_PREFIX} 已追加 {n} 个富文本块{stats_hint}。{warn_text}",
         )
-    n = append_plain_text_to_document(cfg, doc_id, content)
-    note = ""
-    if full_write and mode != "replace":
-        note = "\n提示：write 默认 append；整篇替换请设 mode=replace。"
-    return ToolResult(
-        success=True,
-        content=f"{SUCCESS_PREFIX} 已追加 {n} 个文本块（单次约 {DOCX_APPEND_MAX_CHARS} 字符上限）。{note}",
-    )
+    else:
+        # 纯文本（旧实现）
+        n = append_plain_text_to_document(cfg, doc_id, content)
+        note = ""
+        if full_write and mode != "replace":
+            note = "\n提示：write 默认 append；整篇替换请设 mode=replace。"
+        return ToolResult(
+            success=True,
+            content=f"{SUCCESS_PREFIX} 已追加 {n} 个纯文本块（单次约 {DOCX_APPEND_MAX_CHARS} 字符上限）。{note}",
+        )
 
 
 def _action_delete(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
@@ -660,6 +699,12 @@ _feishu_doc_schema = {
                 "owner_open_id": {"type": "string", "description": "创建时建议传入用户 open_id"},
                 "content": {"type": "string", "description": "write/append/update_block 正文"},
                 "text": {"type": "string", "description": "append 别名"},
+                "render_mode": {
+                    "type": "string",
+                    "enum": ["rich", "plain"],
+                    "default": "rich",
+                    "description": "渲染模式：rich=富文本渲染（标题、粗体、列表、代码块），plain=纯文本（向后兼容）",
+                },
                 "block_id": {"type": "string"},
                 "page_token": {"type": "string"},
                 "requests": {

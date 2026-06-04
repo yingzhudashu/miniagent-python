@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os as _os_for_docx
 from typing import Any
 
@@ -258,3 +259,162 @@ def batch_update_blocks(
     if not resp.success():
         raise RuntimeError(f"Feishu batch_update failed: {format_lark_response_error(resp)}")
     return {"ok": True, "data": json.loads(resp.raw.content) if getattr(resp, "raw", None) else {}}
+
+
+def append_markdown_to_document(
+    config: FeishuConfig,
+    document_id: str,
+    markdown: str,
+    *,
+    use_renderer: bool = True,
+    handle_images: bool = False,
+    max_blocks: int = 30,
+) -> tuple[int, list[str]]:
+    """将 Markdown 内容追加到飞书文档（支持富文本渲染）。
+
+    Args:
+        config: 飞书配置
+        document_id: 文档 ID
+        markdown: Markdown 文本
+        use_renderer: True 使用新渲染器（富文本），False 使用旧纯文本剥离
+        handle_images: 是否处理图片（需要上传逻辑）
+        max_blocks: 最大块数限制（默认 30）
+
+    Returns:
+        (成功追加的块数, 警告列表)
+
+    Example:
+        >>> n, warnings = append_markdown_to_document(cfg, doc_id, "# Title")
+        >>> print(f"追加 {n} 个块，警告: {warnings}")
+
+    Note:
+        - 新渲染器支持：标题、粗体、斜体、链接、代码块、列表、引用、表格
+        - 旧渲染器（use_renderer=False）仅剥离标记，输出纯文本
+        - 表格块需要额外的 API 调用（使用 tables.py 的 create_table_with_values）
+    """
+    if not markdown or not markdown.strip():
+        return 0, ["空内容"]
+
+    if use_renderer:
+        from miniagent.feishu.docx.markdown_renderer import (
+            BlockType,
+            FeishuBlock,
+            markdown_to_feishu_blocks,
+            build_lark_blocks_from_intermediate,
+        )
+        from miniagent.feishu.docx.tables import create_table_with_values
+
+        # 1. 解析 Markdown 为中间表示
+        result = markdown_to_feishu_blocks(markdown, max_blocks=max_blocks, handle_images=handle_images)
+
+        # 2. 分离表格块（需要特殊处理）
+        table_blocks = [b for b in result.blocks if b.block_type == BlockType.TABLE]
+        non_table_blocks = [b for b in result.blocks if b.block_type != BlockType.TABLE]
+
+        # 3. 处理表格（使用专门 API）
+        table_count = 0
+        for tb in table_blocks:
+            if tb.table_data and len(tb.table_data) > 0:
+                try:
+                    rows = len(tb.table_data)
+                    cols = max(len(row) for row in tb.table_data) if rows > 0 else 0
+                    if rows > 0 and cols > 0:
+                        # 转换为纯文本（飞书表格不支持富文本样式）
+                        values = []
+                        for row in tb.table_data:
+                            row_text = [run.content for run in row] if row else []
+                            # 补齐列数
+                            while len(row_text) < cols:
+                                row_text.append("")
+                            values.append(row_text)
+                        create_table_with_values(
+                            config, document_id,
+                            row_size=rows, column_size=cols,
+                            values=values,
+                        )
+                        table_count += 1
+                except Exception as e:
+                    result.warnings.append(f"表格创建失败: {e}")
+
+        # 4. 批量创建非表格块
+        non_table_count = 0
+        if non_table_blocks:
+            try:
+                lark_blocks = build_lark_blocks_from_intermediate(non_table_blocks)
+                if lark_blocks:
+                    non_table_count = _batch_create_blocks(config, document_id, lark_blocks)
+            except Exception as e:
+                result.warnings.append(f"块创建失败: {e}")
+                # 回退：使用旧纯文本方式
+                try:
+                    from miniagent.feishu.docx.markdown import markdown_to_plain_text
+                    n = append_plain_text_to_document(config, document_id, markdown_to_plain_text(markdown))
+                    return n, result.warnings + ["富文本渲染失败，已回退到纯文本"]
+                except Exception:
+                    return 0, result.warnings + ["块创建失败"]
+
+        total = non_table_count + table_count
+        return total, result.warnings
+
+    else:
+        # 向后兼容：使用旧实现
+        from miniagent.feishu.docx.markdown import markdown_to_plain_text
+        n = append_plain_text_to_document(config, document_id, markdown_to_plain_text(markdown))
+        return n, []
+
+
+def _batch_create_blocks(
+    config: FeishuConfig,
+    document_id: str,
+    blocks: list[Any],
+) -> int:
+    """批量创建文档块（内部函数）。
+
+    Args:
+        config: 飞书配置
+        document_id: 文档 ID
+        blocks: lark-oapi Block 对象列表
+
+    Returns:
+        成功创建的块数
+    """
+    from lark_oapi.api.docx.v1 import (
+        CreateDocumentBlockChildrenRequest,
+        CreateDocumentBlockChildrenRequestBody,
+    )
+
+    if not blocks:
+        return 0
+
+    client = build_client(config)
+    page_id = _find_page_block_id(client, document_id)
+    idx = _count_children(client, document_id, page_id)
+
+    # 飞书单次最多创建 DOCX_APPEND_MAX_BLOCKS 个块
+    max_per_request = DOCX_APPEND_MAX_BLOCKS
+    total_created = 0
+
+    # 分批创建
+    for i in range(0, len(blocks), max_per_request):
+        batch = blocks[i:i + max_per_request]
+        try:
+            body = CreateDocumentBlockChildrenRequestBody.builder().children(batch).index(idx + i).build()
+            req = (
+                CreateDocumentBlockChildrenRequest.builder()
+                .document_id(document_id)
+                .block_id(page_id)
+                .request_body(body)
+                .build()
+            )
+            resp = client.docx.v1.document_block_children.create(req)
+            if resp.success():
+                total_created += len(batch)
+            else:
+                _logger.warning(f"批量创建块失败: {format_lark_response_error(resp)}")
+        except Exception as e:
+            _logger.warning(f"批量创建块异常: {e}")
+
+    return total_created
+
+
+_logger = logging.getLogger("miniagent.feishu.docx.blocks")
