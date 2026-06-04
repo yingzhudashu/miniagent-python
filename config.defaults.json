@@ -253,7 +253,8 @@
     "requirement_clarify": true,
     "reflection": false,
     "skills_watch": false,
-    "tui_verbose_log": false
+    "tui_verbose_log": false,
+    "config_hot_reload": false
   },
 
   "instance": {

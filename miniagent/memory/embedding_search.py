@@ -133,7 +133,7 @@ async def _get_embedding(
     api_key: str,
     timeout: float = 15.0,
 ) -> list[float]:
-    """调用 OpenAI 兼容的 embedding 端点（性能优化：复用 HTTP 客户端）。"""
+    """调用 OpenAI 兼容的 embedding 端点（带重试机制）。"""
     if not base_url or not model or not api_key:
         raise ValueError("嵌入配置不完整：需要 base_url、model 和 api_key")
 
@@ -149,8 +149,20 @@ async def _get_embedding(
 
     # 性能优化：使用全局客户端复用连接池
     client = await _get_embed_http_client(timeout)
-    resp = await client.post(url, json=payload, headers=headers)
-    resp.raise_for_status()
+
+    # 网络可靠性：使用重试机制
+    from miniagent.infrastructure.http_retry import async_http_request_with_retry
+
+    resp = await async_http_request_with_retry(
+        client,
+        "POST",
+        url,
+        payload=payload,
+        headers=headers,
+        max_retries=3,
+        backoff_factor=1.0,
+    )
+
     data = resp.json()
     embedding = data["data"][0]["embedding"]
     return embedding

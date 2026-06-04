@@ -121,6 +121,27 @@ async def shutdown_runtime(
     except Exception as e:
         _logger.debug("shutdown_runtime: close_http_client: %s", e)
 
+    # 5c) 关闭 embedding HTTP 客户端（网络可靠性）
+    try:
+        from miniagent.memory.embedding_search import close_embed_http_client
+        await close_embed_http_client()
+    except Exception as e:
+        _logger.debug("shutdown_runtime: close_embed_http_client: %s", e)
+
+    # 5d) 关闭 ClawHub HTTP 客户端（网络可靠性）
+    try:
+        from miniagent.skills.clawhub_client import close_clawhub_client
+        await close_clawhub_client()
+    except Exception as e:
+        _logger.debug("shutdown_runtime: close_clawhub_client: %s", e)
+
+    # 5e) 停止配置热更新监听（用户体验增强）
+    try:
+        from miniagent.infrastructure.config_watch import stop_config_watch
+        stop_config_watch(ctx)
+    except Exception as e:
+        _logger.debug("shutdown_runtime: stop_config_watch: %s", e)
+
     if release_cli_session_lock:
         sid = (state.get("active_session_id") or "").strip()
         if sid:

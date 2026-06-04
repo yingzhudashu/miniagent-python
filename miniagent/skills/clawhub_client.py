@@ -63,6 +63,33 @@ class ClawHubClient(Protocol):
 # ─── 客户端实现 ──────────────────────────────────────────
 
 
+# 网络可靠性：全局 HTTP 客户端复用（连接池）
+_CLAWHUB_HTTP_CLIENT: Any = None  # httpx.AsyncClient | None
+
+
+async def _get_clawhub_client(timeout: float = 15.0) -> Any:
+    """获取全局 ClawHub HTTP 客户端（复用连接池）。"""
+    global _CLAWHUB_HTTP_CLIENT
+    if _CLAWHUB_HTTP_CLIENT is None:
+        try:
+            import httpx
+            _CLAWHUB_HTTP_CLIENT = httpx.AsyncClient(timeout=timeout)
+        except ImportError:
+            pass  # 回退到 urllib
+    return _CLAWHUB_HTTP_CLIENT
+
+
+async def close_clawhub_client() -> None:
+    """关闭全局 ClawHub HTTP 客户端（进程退出时调用）。"""
+    global _CLAWHUB_HTTP_CLIENT
+    if _CLAWHUB_HTTP_CLIENT is not None:
+        try:
+            await _CLAWHUB_HTTP_CLIENT.aclose()
+        except Exception:
+            pass
+        _CLAWHUB_HTTP_CLIENT = None
+
+
 class _ClawHubClientImpl:
     """ClawHub 客户端实现。"""
 
@@ -73,19 +100,39 @@ class _ClawHubClientImpl:
         self._base_url = base_url
 
     async def _fetch_json(self, url: str) -> Any:
-        """发起 HTTP GET 请求。"""
+        """发起 HTTP GET 请求（带重试机制）。"""
+        # 网络可靠性：优先使用 httpx + 重试
         try:
             import httpx
 
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.get(
+            from miniagent.infrastructure.http_retry import async_http_request_with_retry
+
+            client = await _get_clawhub_client()
+            if client is not None:
+                resp = await async_http_request_with_retry(
+                    client,
+                    "GET",
                     url,
                     headers={"User-Agent": "mini-agent-clawhub/1.0"},
+                    max_retries=3,
+                    backoff_factor=1.0,
                 )
-                resp.raise_for_status()
                 return resp.json()
+
+            # 回退：无全局客户端时创建临时客户端（带重试）
+            async with httpx.AsyncClient(timeout=15.0) as temp_client:
+                resp = await async_http_request_with_retry(
+                    temp_client,
+                    "GET",
+                    url,
+                    headers={"User-Agent": "mini-agent-clawhub/1.0"},
+                    max_retries=3,
+                    backoff_factor=1.0,
+                )
+                return resp.json()
+
         except ImportError:
-            # 回退到 urllib
+            # 回退到 urllib（无重试）
             import asyncio
             from urllib.request import Request, urlopen
 

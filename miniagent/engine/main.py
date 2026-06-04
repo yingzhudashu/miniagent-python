@@ -91,6 +91,15 @@ async def unified_main(ctx: RuntimeContext) -> None:
     skill_registry = ctx.skill_registry
     engine = ctx.engine
     _configure_console_encoding()
+
+    # ── 用户体验增强：首次配置引导 ──
+    from miniagent.engine.setup_wizard import run_interactive_setup
+    run_interactive_setup()
+
+    # ── 用户体验增强：配置热更新 ──
+    from miniagent.infrastructure.config_watch import start_config_watch
+    start_config_watch(ctx)
+
     # 尝试启用 Windows VT 模式（某些终端可能不支持）
     try:
         import ctypes
@@ -288,6 +297,9 @@ async def run_cli_loop(
         from prompt_toolkit.formatted_text import HTML
         from prompt_toolkit.history import FileHistory
         from prompt_toolkit.styles import Style
+        # 用户体验增强：Tab 自动补全
+        from prompt_toolkit.completion import Completer, Completion, merge_completers
+        from prompt_toolkit.completion import PathCompleter as PTPathCompleter
     except ImportError:
         await _run_cli_loop_fallback(
             ctx,
@@ -325,6 +337,61 @@ async def run_cli_loop(
     )
     os.makedirs(history_dir, exist_ok=True)
     history_file = os.path.join(history_dir, "history.txt")
+
+    # ── 用户体验增强：Tab 自动补全 ──
+    class CommandCompleter(Completer):
+        """斜杠命令补全器（用户体验增强）。"""
+
+        def get_completions(self, document, complete_event):
+            text = document.text_before_cursor
+            # 仅在以 "/" 开头时补全命令
+            if text.startswith("/") and len(text) >= 1:
+                # 获取输入的命令部分（不含参数）
+                parts = text.split()
+                if parts:
+                    cmd_prefix = parts[0].lower()
+                    # 从 command_dispatch 获取已注册命令列表
+                    from miniagent.engine.command_dispatch import _REGISTERED_COMMANDS
+                    for cmd in _REGISTERED_COMMANDS:
+                        if cmd.lower().startswith(cmd_prefix):
+                            # 计算需要替换的位置
+                            yield Completion(
+                                cmd,
+                                start_position=-len(cmd_prefix),
+                                display=cmd,
+                                display_meta="命令",
+                            )
+
+    class FilePathCompleter(Completer):
+        """@file: 标记的文件路径补全器（用户体验增强）。"""
+
+        def get_completions(self, document, complete_event):
+            text = document.text_before_cursor
+            # 检测 @file: 或 file: 标记
+            import re
+            match = re.search(r'(@file:|file:)([^\s]*)$', text)
+            if match:
+                marker = match.group(1)
+                partial_path = match.group(2)
+                # 使用 PathCompleter 补全路径
+                try:
+                    path_completer = PTPathCompleter()
+                    # 创建一个临时 document 来补全路径部分
+                    for completion in path_completer.get_completions(document, complete_event):
+                        # 调整补全位置
+                        yield Completion(
+                            completion.text,
+                            start_position=-len(partial_path),
+                            display=completion.display,
+                            display_meta="文件",
+                        )
+                except Exception:
+                    pass
+
+    # 创建合并补全器
+    command_completer = CommandCompleter()
+    file_completer = FilePathCompleter()
+    merged_completer = merge_completers([command_completer, file_completer])
 
     # ── CLI 界面：底部固定输入框（类似 Claude Code） ──
     from prompt_toolkit.application import Application, get_app
@@ -379,7 +446,11 @@ async def run_cli_loop(
         except Exception as e:
             _logger.warning("历史加载失败，继续启动: %s", e)  # 历史加载失败不影响启动
 
-    input_buffer = Buffer(history=FileHistory(history_file))
+    input_buffer = Buffer(
+        history=FileHistory(history_file),
+        completer=merged_completer,  # 用户体验增强：Tab 自动补全
+        complete_while_typing=False,  # 仅在 Tab 键触发补全
+    )
 
     # 加载当前会话的对话历史到输入缓冲，使上下键可回顾已发送的用户消息
     _load_session_history_to_input(state, input_buffer)
@@ -1485,6 +1556,19 @@ async def run_cli_loop(
             _stick_bottom[0] = False
 
     kb = KeyBindings()
+
+    # ─── Tab 自动补全（用户体验增强）──────────────────────────────────────
+    @kb.add("tab", filter=has_focus(input_buffer))
+    def _on_tab(event):
+        """Tab 键触发自动补全（命令或文件路径）。"""
+        # prompt_toolkit 的 BufferControl 会自动处理补全
+        # 当 completer 设置后，start_completion() 会显示补全菜单
+        event.app.current_buffer.start_completion()
+
+    @kb.add("s-tab", filter=has_focus(input_buffer))  # Shift+Tab
+    def _on_shift_tab(event):
+        """Shift+Tab 向前循环补全选项。"""
+        event.app.current_buffer.complete_previous()
 
     # ─── 复制模式键绑定（eager=True 确保优先级高于正常模式）───────────────────
     @kb.add("c-m")

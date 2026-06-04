@@ -35,6 +35,7 @@ def get_shared_async_openai() -> AsyncOpenAI:
         - API 密钥优先从 ``OPENAI_API_KEY`` 环境变量读取
         - base_url 从 ``config.user.json`` 或 ``MINIAGENT_MODEL_BASE_URL`` 读取
         - 支持兼容 OpenAI API 的第三方服务（如 Azure、本地模型）
+        - 网络可靠性：添加超时配置和重试机制
     """
     global _shared
     if _shared is None:
@@ -53,9 +54,18 @@ def get_shared_async_openai() -> AsyncOpenAI:
             ) from None
         # base_url从JSON配置读取（支持环境变量覆盖）
         base_url = get_config("model.base_url", None)
+
+        # 网络可靠性：从配置读取超时和重试参数
+        http_timeout = float(get_config("agent.http_timeout", 120.0))
+        retry_count = int(get_config("model.retry_count", 2))
+
+        # OpenAI SDK 原生支持 timeout 和 max_retries
+        import httpx
         _shared = AsyncOpenAI(
             api_key=key,
             base_url=base_url,
+            timeout=httpx.Timeout(http_timeout, connect=30.0),
+            max_retries=retry_count,
         )
         bu = (base_url or "").strip()
         host = ""

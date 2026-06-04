@@ -7,12 +7,14 @@ CLI 和飞书共享的命令路由，使用 `/` 前缀。
 - 不中断：`/status` 等检查命令不会打断正在运行的 agent
 - 远程约束：飞书侧 `capture=True` 时默认 `allow_session_mutations_when_capture=False`，
   阻止 `/session switch/create/rename` 与 `/schedule` 变异；`MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1` 时放开
+- 模糊匹配：未知命令会提示最接近的有效命令（用户体验增强）
 
 命令全集与用户说明见 ``docs/CLI.md``；飞书约束见 ``docs/FEISHU.md``。
 """
 
 from __future__ import annotations
 
+import difflib
 import io
 import json
 import os
@@ -25,6 +27,79 @@ from miniagent.infrastructure.logger import get_logger
 from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
 
 _logger = get_logger(__name__)
+
+
+# ─── 已注册命令列表（用于模糊匹配）────────────────────────────────────────────
+_REGISTERED_COMMANDS = [
+    "/help",
+    "/session",
+    "/instance",
+    "/feishu",
+    "/bind",
+    "/unbind",
+    "/queue",
+    "/abort",
+    "/btw",
+    "/schedule",
+    "/kb",
+    "/model",
+    "/config",
+    "/doctor",
+    "/copy",
+    "/stats",
+    "/status",
+    "/stop",
+    "/confirm",
+    "/adjust",
+    "/reject",
+    "/review",
+    "/improve",
+    "/test",
+    "/reload-skills",
+    "/reload-config",  # 新增：配置热更新命令
+]
+
+
+def _find_closest_command(input_cmd: str, threshold: float = 0.6) -> str | None:
+    """使用模糊匹配查找最接近的命令。
+
+    Args:
+        input_cmd: 用户输入的命令（如 "/sttatus"）
+        threshold: 最小相似度阈值（0.6 = 60%匹配）
+
+    Returns:
+        最接近的命令，或 None（无匹配）
+    """
+    matches = difflib.get_close_matches(
+        input_cmd.lower(),
+        [cmd.lower() for cmd in _REGISTERED_COMMANDS],
+        n=1,
+        cutoff=threshold,
+    )
+    if matches:
+        # 返回原始大小写的命令
+        for cmd in _REGISTERED_COMMANDS:
+            if cmd.lower() == matches[0]:
+                return cmd
+    return None
+
+
+def _find_command_by_prefix(input_cmd: str) -> str | None:
+    """前缀匹配（至少3字符）。
+
+    Args:
+        input_cmd: 用户输入的命令前缀（如 "/sta")
+
+    Returns:
+        匹配的完整命令，或 None
+    """
+    input_lower = input_cmd.lower()
+    if len(input_lower) < 4:  # "/" + 至少3字符
+        return None
+    for cmd in _REGISTERED_COMMANDS:
+        if cmd.lower().startswith(input_lower):
+            return cmd
+    return None
 
 
 # ─── ANSI 颜色到 CLI 样式类的映射 ────────────────────────────────────────────
@@ -703,6 +778,36 @@ async def dispatch_command(
             return output
         print(output)
         return None
+
+    # ── /reload-config（配置热更新）──
+    if cmd == "/reload-config":
+        from miniagent.infrastructure.json_config import reload_config
+
+        try:
+            reload_config()
+            output = f"{SUCCESS_PREFIX} 配置已重新加载"
+        except Exception as e:
+            output = f"{ERROR_PREFIX} 配置加载失败: {e}"
+
+        if capture:
+            return output
+        print(output)
+        return None
+
+    # ── 未知命令：尝试模糊匹配 ──
+    if cmd.startswith("/"):
+        # 优先前缀匹配（如 "/sta" → "/status"）
+        closest = _find_command_by_prefix(cmd)
+        # 其次模糊匹配（如 "/sttatus" → "/status"）
+        if not closest:
+            closest = _find_closest_command(cmd)
+
+        if closest and closest.lower() != cmd.lower():
+            suggestion = f"{WARNING_PREFIX} 未找到命令 '{cmd}'，您是否想输入 '{closest}'？"
+            if capture:
+                return suggestion
+            print(suggestion)
+            return None
 
     # 不是已知命令，返回 None 让调用者交给 agent 处理
     return None
