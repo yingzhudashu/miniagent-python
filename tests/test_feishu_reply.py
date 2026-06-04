@@ -1,0 +1,206 @@
+"""Tests for Feishu Reply - Merged from multiple test files.
+
+Covers:
+- Reply chunking (card markdown splitting)
+- Reply routing (MINIAGENT_FEISHU_REPLY_TARGET)
+- Send reply policy (failure handling, multiple chunks)
+
+Original files merged:
+- test_feishu_reply_chunking.py
+- test_feishu_reply_routing.py
+- test_feishu_send_reply_policy.py
+"""
+
+from __future__ import annotations
+
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+pytest.importorskip("lark_oapi")
+
+
+# ============================================================================
+# Reply Chunking Tests
+# ============================================================================
+
+
+class TestFeishuReplyChunking:
+    """飞书回复按卡片正文上限分片。"""
+
+    def test_chunk_concat_roundtrip(self) -> None:
+        from miniagent.feishu.poll_server import _chunk_feishu_card_markdown
+
+        s = "a" * 35
+        parts = _chunk_feishu_card_markdown(s, max_len=12)
+        assert "".join(parts) == s
+        assert all(len(p) <= 12 for p in parts)
+
+    def test_chunk_multiline_produces_multiple_segments(self) -> None:
+        from miniagent.feishu.poll_server import _chunk_feishu_card_markdown
+
+        s = "para1\n\npara2\n\npara3\nextra-long-tail-xxxxx"
+        parts = _chunk_feishu_card_markdown(s, max_len=18)
+        assert len(parts) >= 2
+        assert all(len(p) <= 18 for p in parts)
+
+    def test_single_chunk_when_under_cap(self) -> None:
+        from miniagent.feishu.poll_server import _chunk_feishu_card_markdown
+
+        assert _chunk_feishu_card_markdown("hello", max_len=1000) == ["hello"]
+
+
+# ============================================================================
+# Reply Routing Tests
+# ============================================================================
+
+
+class TestFeishuReplyRouting:
+    """飞书回复路由与环境变量 MINIAGENT_FEISHU_REPLY_TARGET 相关。"""
+
+    def test_feishu_outbound_reply_params_default_reply(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from miniagent.feishu.poll_server import feishu_outbound_reply_params
+
+        monkeypatch.delenv("MINIAGENT_FEISHU_REPLY_TARGET", raising=False)
+        monkeypatch.delenv("MINIAGENT_FEISHU_REPLY_IN_THREAD", raising=False)
+        assert feishu_outbound_reply_params("om_123") == ("om_123", False)
+
+    def test_feishu_outbound_reply_params_explicit_create(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from miniagent.feishu.poll_server import feishu_outbound_reply_params
+
+        monkeypatch.setenv("MINIAGENT_FEISHU_REPLY_TARGET", "create")
+        monkeypatch.delenv("MINIAGENT_FEISHU_REPLY_IN_THREAD", raising=False)
+        assert feishu_outbound_reply_params("om_123") == (None, False)
+
+    def test_feishu_outbound_reply_params_reply_mode(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from miniagent.feishu.poll_server import feishu_outbound_reply_params
+
+        monkeypatch.setenv("MINIAGENT_FEISHU_REPLY_TARGET", "reply")
+        monkeypatch.setenv("MINIAGENT_FEISHU_REPLY_IN_THREAD", "1")
+        assert feishu_outbound_reply_params("om_abc") == ("om_abc", True)
+
+    def test_feishu_outbound_reply_params_invalid_target_falls_back(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from miniagent.feishu.poll_server import feishu_outbound_reply_params
+
+        monkeypatch.setenv("MINIAGENT_FEISHU_REPLY_TARGET", "typo")
+        assert feishu_outbound_reply_params("om_123") == (None, False)
+
+    def test_feishu_outbound_reply_params_thread_id_default_in_thread(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """未设置时，thread_id 非空则默认话题内回复。"""
+        from miniagent.feishu.poll_server import feishu_outbound_reply_params
+
+        monkeypatch.setenv("MINIAGENT_FEISHU_REPLY_TARGET", "reply")
+        monkeypatch.delenv("MINIAGENT_FEISHU_REPLY_IN_THREAD", raising=False)
+        assert feishu_outbound_reply_params("om_x", "t_thread_1") == ("om_x", True)
+
+    def test_feishu_outbound_reply_params_explicit_off_overrides_thread(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from miniagent.feishu.poll_server import feishu_outbound_reply_params
+
+        monkeypatch.setenv("MINIAGENT_FEISHU_REPLY_TARGET", "reply")
+        monkeypatch.setenv("MINIAGENT_FEISHU_REPLY_IN_THREAD", "0")
+        assert feishu_outbound_reply_params("om_x", "t_thread_1") == ("om_x", False)
+
+    def test_send_interactive_reply_cards_uses_reply_api_when_configured(self) -> None:
+        from miniagent.feishu.poll_server import _send_interactive_reply_cards
+        from miniagent.feishu.types import FeishuConfig
+
+        cfg = FeishuConfig(app_id="a", app_secret="b", verification_token="t")
+        client = MagicMock()
+        ok = MagicMock()
+        ok.success.return_value = True
+        ok.data = MagicMock()
+        ok.data.message_id = "new_mid"
+        client.im.v1.message.reply.return_value = ok
+
+        mock_builder = MagicMock()
+        mock_builder.app_id.return_value = mock_builder
+        mock_builder.app_secret.return_value = mock_builder
+        mock_builder.build.return_value = client
+
+        with patch("lark_oapi.Client.builder", return_value=mock_builder):
+            sent, total = _send_interactive_reply_cards(
+                cfg,
+                "oc_test",
+                ["only"],
+                reply_to_message_id="om_parent",
+                reply_in_thread=True,
+            )
+
+        assert sent == 1 and total == 1
+        client.im.v1.message.reply.assert_called_once()
+        client.im.v1.message.create.assert_not_called()
+
+
+# ============================================================================
+# Send Reply Policy Tests
+# ============================================================================
+
+
+class TestFeishuSendReplyPolicy:
+    """飞书回复分片发送策略。"""
+
+    @pytest.fixture(autouse=True)
+    def _clear_lark_client_cache(self):
+        from miniagent.feishu import im_send
+
+        im_send.clear_client_cache()
+
+    def test_send_interactive_reply_cards_stops_after_failed_shard(self) -> None:
+        from miniagent.feishu.poll_server import _send_interactive_reply_cards
+        from miniagent.feishu.types import FeishuConfig
+
+        cfg = FeishuConfig(app_id="a", app_secret="b", verification_token="t")
+        client = MagicMock()
+        ok = MagicMock()
+        ok.success.return_value = True
+        bad = MagicMock()
+        bad.success.return_value = False
+        client.im.v1.message.create.side_effect = [ok, bad, ok]
+
+        mock_builder = MagicMock()
+        mock_builder.app_id.return_value = mock_builder
+        mock_builder.app_secret.return_value = mock_builder
+        mock_builder.build.return_value = client
+
+        with patch("lark_oapi.Client.builder", return_value=mock_builder):
+            sent, total = _send_interactive_reply_cards(cfg, "oc_test", ["part1", "part2", "part3"])
+
+        assert total == 3
+        assert sent == 1
+        assert client.im.v1.message.create.call_count == 2
+
+    def test_send_plain_text_chunks_sends_multiple(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import miniagent.feishu.poll_server as ps
+
+        monkeypatch.setattr(ps, "feishu_card_body_max", lambda: 8)
+        from miniagent.feishu.poll_server import _send_plain_text_chunks
+        from miniagent.feishu.types import FeishuConfig
+
+        cfg = FeishuConfig(app_id="a", app_secret="b", verification_token="t")
+        client = MagicMock()
+        ok = MagicMock()
+        ok.success.return_value = True
+        client.im.v1.message.create.return_value = ok
+
+        mock_builder = MagicMock()
+        mock_builder.app_id.return_value = mock_builder
+        mock_builder.app_secret.return_value = mock_builder
+        mock_builder.build.return_value = client
+
+        with patch("lark_oapi.Client.builder", return_value=mock_builder):
+            _send_plain_text_chunks(cfg, "oc_test", "abcdefghijklmnop")
+
+        assert client.im.v1.message.create.call_count >= 2
+
+
+__all__ = [
+    "TestFeishuReplyChunking",
+    "TestFeishuReplyRouting",
+    "TestFeishuSendReplyPolicy",
+]

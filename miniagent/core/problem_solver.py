@@ -66,12 +66,25 @@ async def reflect_on_result(
 
     Returns:
         反思评估结果
+
+    RAG 增强：反思阶段会检索知识库（可选），参考标准评估回答质量。
     """
     if on_thinking:
         await invoke_on_thinking(on_thinking, "评估结果质量...", True, "[反思评估]")
 
+    # ── RAG 增强：知识库检索（使用公共函数）──
+    from miniagent.knowledge import retrieve_knowledge_context
+    kb_standard = retrieve_knowledge_context(
+        user_input, phase="reflector", default_top_k=2, default_max_chars=1500
+    )
+
+    # 构建 prompt
+    prompt = REFLECTION_PROMPT.format(user_input=user_input, reply=reply)
+    if kb_standard:
+        prompt = prompt + kb_standard + "\n\n若知识库有更准确的说法，请在 suggestions 中指出。"
+
     result = await llm_json(
-        prompt=REFLECTION_PROMPT.format(user_input=user_input, reply=reply),
+        prompt=prompt,
         system="你是一个结果评估专家。请评估任务完成质量。只返回 JSON。",
         client=client,
     )

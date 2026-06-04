@@ -363,11 +363,25 @@ LLM 可通过 function calling 调用的工具：
 | `knowledge/registry.py` | `KnowledgeRegistry`：多知识库挂载/卸载/跨库检索、持久化 |
 | `tools/knowledge_tools.py` | Agent 工具：`search_knowledge`、`read_knowledge_file`、`kb_list` |
 
-**执行时注入**：[`executor.py`](miniagent/core/executor.py) 在构建 system prompt 时自动检索知识库，将 `kb_context` 注入上下文（与 `keyword_context` 类似）。
+**RAG 全面集成**（v2.0.3 新增）：
+
+知识库现已内化到 Agent 的所有核心阶段，实现"主动检索 + 自动注入"双模式：
+
+| 阶段 | RAG 集成方式 | 配置开关 | 检索参数 |
+|------|-------------|----------|---------|
+| **工具层** | knowledge 工具作为核心工具箱（toolbox=None），始终可用 | `MINIAGENT_KNOWLEDGE_AS_CORE=0` 可降级 | - |
+| **执行阶段** | 自动检索知识库，注入 system prompt（原有功能） | - | top_k=3, max_chars=4000 |
+| **规划阶段** | 检索知识库摘要，辅助判断是否需要 knowledge 工具箱 | `knowledge.planner_enabled` | top_k=2, max_chars=2000 |
+| **需求澄清** | 检索知识库内容，避免询问已有答案的问题 | `knowledge.clarifier_enabled` | top_k=3, max_chars=3000 |
+| **任务分类** | 检索知识库摘要，辅助判断任务难度（有答案→simple） | `knowledge.classifier_enabled` | top_k=2, max_chars=1500 |
+| **反思评估** | 检索知识库标准，参考标准评估回答质量 | `knowledge.reflector_enabled` | top_k=2, max_chars=1500 |
 
 **环境变量**：
 - `MINIAGENT_KB_ROOT`：知识库根目录（默认 `workspaces/knowledge`）
 - `MINIAGENT_KB_AUTO_MOUNT`：自动挂载根目录下知识库（默认 `1`）
+- `MINIAGENT_KNOWLEDGE_AS_CORE`：将 knowledge 工具作为核心工具箱（默认 `1`）
+
+详细集成方案见 [RAG_ENHANCEMENT_PLAN.md](RAG_ENHANCEMENT_PLAN.md)。
 
 ### 9. 基础设施层 (Infrastructure)
 

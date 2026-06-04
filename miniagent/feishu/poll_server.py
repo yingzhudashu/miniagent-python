@@ -132,6 +132,40 @@ def _post_interactive_message(
     return True, mid
 
 
+async def _post_interactive_message_async(
+    config: FeishuConfig,
+    *,
+    receive_id: str,
+    card_json: str,
+    reply_to_message_id: str | None = None,
+    reply_in_thread: bool = False,
+    timeout: float = 30.0,
+) -> tuple[bool, str | None]:
+    """异步发送一条 ``msg_type=interactive``；成功返回 ``(True, message_id)``。
+
+    使用 asyncio.to_thread 包装同步 SDK 调用，避免阻塞事件循环。
+    这是流式输出丝滑的关键：创建思考卡片时不阻塞 LLM 流式处理。
+    """
+    from miniagent.feishu.im_send import post_im_message_async
+
+    ok, mid, err = await post_im_message_async(
+        config,
+        receive_id=receive_id,
+        msg_type="interactive",
+        content_json=card_json,
+        reply_to_message_id=reply_to_message_id,
+        reply_in_thread=reply_in_thread,
+        timeout=timeout,
+    )
+    if not ok:
+        _logger.warning("发送 interactive 失败: %s", err or "?")
+        return False, None
+    if not mid:
+        _logger.warning("发送 interactive 成功但未返回 message_id")
+        return False, None
+    return True, mid
+
+
 def _post_text_message(
     config: FeishuConfig,
     *,
@@ -848,6 +882,71 @@ FEISHU_THINKING_PATCH_MIN_CHAR_DELTA = int(get_config("feishu.patch.char_delta",
 FEISHU_THINKING_PATCH_BUDGET = int(get_config("feishu.patch.budget", 40))
 
 
+def _is_important_content_for_immediate_patch(text: str) -> bool:
+    """判断内容是否重要，需要立即 PATCH（智能节流优化）。
+
+    重要内容包括：
+    - 代码块开始（```）：用户想立即看到代码
+    - 表格结构：表格渲染需要完整结构
+    - Markdown 标题：章节标题应该及时显示
+    - 列表结构开始：列表需要及时显示
+
+    Args:
+        text: 待发送的文本内容
+
+    Returns:
+        bool: 需要立即 PATCH 返回 True
+    """
+    if not text:
+        return False
+
+    # 检查是否启用重要内容立即 PATCH
+    enabled = get_config("feishu.patch.important_content_immediate", True)
+    if not enabled:
+        return False
+
+    stripped = text.strip()
+
+    # 代码块开始（未闭合的 ```）
+    fence_count = text.count("```")
+    if fence_count > 0 and fence_count % 2 == 1:
+        return True
+
+    # Markdown 标题
+    if stripped.startswith("#") and len(stripped) > 1 and stripped[1] in (" ", "#"):
+        return True
+
+    # 表格行（包含 | 分隔符）
+    if "|" in stripped and stripped.startswith("|"):
+        return True
+
+    # 列表开始
+    if stripped.startswith("- ") or stripped.startswith("* ") or stripped.startswith("1. "):
+        return True
+
+    return False
+
+
+def _adjust_patch_budget_dynamically(text_len: int, current_budget: int) -> int:
+    """根据文本长度动态调整 PATCH 预算。
+
+    长文本需要更多 PATCH 次数，动态增加预算避免中途停止更新。
+
+    Args:
+        text_len: 当前累积文本长度
+        current_budget: 当前剩余预算
+
+    Returns:
+        int: 调整后的预算
+    """
+    # 长文本增加预算（先检查更长的条件）
+    if text_len > 10000 and current_budget < FEISHU_THINKING_PATCH_BUDGET + 40:
+        return FEISHU_THINKING_PATCH_BUDGET + 40
+    if text_len > 5000 and current_budget < FEISHU_THINKING_PATCH_BUDGET + 20:
+        return FEISHU_THINKING_PATCH_BUDGET + 20
+    return current_budget
+
+
 def feishu_card_body_max() -> int:
     """单张交互卡片 lark_md 正文上限（字符近似）。"""
     val = get_config("feishu.card.body_max_chars", 48000)
@@ -1092,6 +1191,33 @@ def _create_interactive_thinking_message(
     return None
 
 
+async def _create_interactive_thinking_message_async(
+    config: FeishuConfig,
+    chat_id: str,
+    card_json: str,
+    *,
+    reply_to_message_id: str | None = None,
+    reply_in_thread: bool = False,
+    timeout: float = 30.0,
+) -> str | None:
+    """异步创建交互式思考卡片，成功返回 message_id。
+
+    使用 asyncio.to_thread 包装同步 SDK 调用，避免阻塞事件循环。
+    这是流式输出丝滑的关键：创建思考卡片时不阻塞 LLM 流式处理。
+    """
+    ok, mid = await _post_interactive_message_async(
+        config,
+        receive_id=chat_id,
+        card_json=card_json,
+        reply_to_message_id=reply_to_message_id,
+        reply_in_thread=reply_in_thread,
+        timeout=timeout,
+    )
+    if ok and mid:
+        return mid
+    return None
+
+
 def _patch_interactive_thinking_message(
     config: FeishuConfig, message_id: str, card_json: str
 ) -> bool:
@@ -1112,6 +1238,41 @@ def _patch_interactive_thinking_message(
     except Exception as e:
         _logger.debug("更新思考消息异常: %s", e)
     return False
+
+
+async def _patch_interactive_thinking_message_async(
+    config: FeishuConfig,
+    message_id: str,
+    card_json: str,
+    timeout: float = 10.0,
+) -> bool:
+    """异步 PATCH 更新已有交互卡片内容。
+
+    使用 asyncio.to_thread 包装同步 SDK 调用，避免阻塞事件循环。
+    这是流式输出丝滑的关键：PATCH 更新飞书思考卡片时，
+    不会阻塞 LLM 流式处理，用户感知卡片实时更新。
+
+    Args:
+        config: 飞书配置
+        message_id: 要更新的消息 ID
+        card_json: 新卡片内容 JSON
+        timeout: 超时秒数（默认 10 秒，比发送更短）
+
+    Returns:
+        bool: 更新成功返回 True
+    """
+    from miniagent.feishu.im_send import patch_im_message_async
+
+    ok, err = await patch_im_message_async(
+        config,
+        message_id=message_id,
+        content_json=card_json,
+        timeout=timeout,
+    )
+    if not ok:
+        _logger.warning("更新思考消息失败: %s", err or "unknown")
+        return False
+    return True
 
 
 async def push_feishu_thinking_stream(
@@ -1186,7 +1347,8 @@ async def push_feishu_thinking_stream(
     if not st.feishu_thinking_message_id:
         r_mid = getattr(st, "feishu_reply_to_message_id", None)
         r_thr = bool(getattr(st, "feishu_reply_in_thread", False))
-        mid = _create_interactive_thinking_message(
+        # ✅ 使用异步版本：创建卡片时不阻塞事件循环
+        mid = await _create_interactive_thinking_message_async(
             config,
             chat_id,
             card_json,
@@ -1202,12 +1364,22 @@ async def push_feishu_thinking_stream(
     now = time.monotonic()
     delta_t = now - st.feishu_last_patch_monotonic
     delta_c = len(markdown) - st.feishu_last_patched_char_len
+
+    # ✅ 智能节流：重要内容立即 PATCH，长文本动态增加预算
     need_patch = (
         delta_t >= FEISHU_THINKING_PATCH_MIN_INTERVAL_S
         or delta_c >= FEISHU_THINKING_PATCH_MIN_CHAR_DELTA
+        or _is_important_content_for_immediate_patch(markdown)  # 重要内容立即更新
     )
+
+    # 动态调整预算：长文本增加 PATCH 次数
+    st.feishu_patch_budget = _adjust_patch_budget_dynamically(
+        len(st.feishu_stream_accumulated), st.feishu_patch_budget
+    )
+
     if need_patch and st.feishu_patch_budget > 0:
-        if _patch_interactive_thinking_message(config, st.feishu_thinking_message_id, card_json):
+        # ✅ 使用异步版本：PATCH 更新时不阻塞事件循环
+        if await _patch_interactive_thinking_message_async(config, st.feishu_thinking_message_id, card_json):
             st.feishu_patch_budget -= 1
             st.feishu_last_patch_monotonic = now
             st.feishu_last_patched_char_len = len(markdown)
@@ -1250,7 +1422,8 @@ async def finalize_feishu_thinking_stream(
     card_json = json.dumps(
         _thinking_interactive_card_dict(first_body, template), ensure_ascii=False,
     )
-    patched = _patch_interactive_thinking_message(config, mid, card_json)
+    # ✅ 使用异步版本：PATCH 收尾时不阻塞事件循环
+    patched = await _patch_interactive_thinking_message_async(config, mid, card_json)
     if not patched:
         _logger.warning("finalize 思考 PATCH 失败 message_id=%s", mid)
     if nch > 1:
@@ -1261,7 +1434,8 @@ async def finalize_feishu_thinking_stream(
             title = f"💭 思考中 ({j + 1}/{nch})"
             card = _feishu_interactive_card_dict(title, body, template)
             req_json = json.dumps(card, ensure_ascii=False)
-            ok, _ = _post_interactive_message(
+            # ✅ 使用异步版本：发送续页时不阻塞事件循环
+            ok, _ = await _post_interactive_message_async(
                 config,
                 receive_id=chat_id,
                 card_json=req_json,
@@ -1309,7 +1483,8 @@ async def append_feishu_thinking_same_card(
     card_json = json.dumps(_thinking_interactive_card_dict(cleaned, template), ensure_ascii=False)
 
     if mid:
-        if not _patch_interactive_thinking_message(config, mid, card_json):
+        # ✅ 使用异步版本：追加工具后 PATCH 不阻塞事件循环
+        if not await _patch_interactive_thinking_message_async(config, mid, card_json):
             _logger.warning(
                 "飞书思考卡片追加工具后 PATCH 失败 message_id=%s（正文已累积，客户端可能未刷新）",
                 mid,

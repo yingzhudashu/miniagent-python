@@ -168,10 +168,11 @@ class ActivityLogger:
         result: str,
         duration_ms: int,
         success: bool,
+        error_type: str | None = None,
     ) -> None:
         """记录工具调用详情。
 
-        记录工具名、意图、参数、结果（截断 500 字）、耗时和成功状态。
+        记录工具名、意图、参数、结果（截断 500 字）、耗时、成功状态和错误类型（可选）。
         注意：会话标识由 ``log_session_start`` 写入，此方法仅追加调用详情。
 
         Args:
@@ -182,6 +183,7 @@ class ActivityLogger:
             result: 工具执行结果
             duration_ms: 执行耗时（毫秒）
             success: 是否成功
+            error_type: 错误类型（失败时可选，如 "TimeoutError"、"PermissionError"）
         """
         status = "ok" if success else "fail"
         lines = [f"### 工具调用: {tool_name} [{status}]\n"]
@@ -193,6 +195,9 @@ class ActivityLogger:
             preview += f"\n... (共 {len(result)} 字)"
         lines.append(f"- result: {preview}")
         lines.append(f"- duration: {duration_ms}ms")
+        # 新增：记录错误类型（失败时）
+        if not success and error_type:
+            lines.append(f"- error_type: {error_type}")
         lines.append("")
         self._append("\n".join(lines))
 

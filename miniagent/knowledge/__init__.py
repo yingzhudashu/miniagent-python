@@ -11,11 +11,16 @@
 2. kb_context 注入 system prompt
 3. LLM 调用 → 带知识上下文生成回复
 
+RAG 增强（v2.0.3）：
+提供 `retrieve_knowledge_context` 公共函数，供各阶段统一使用，避免代码重复。
+
 详见 docs/KNOWLEDGE_BASE.md。
 """
 
 from __future__ import annotations
 
+from miniagent.infrastructure.json_config import get_config
+from miniagent.infrastructure.logger import get_logger
 from miniagent.knowledge.registry import (
     KnowledgeRegistry,
     get_kb_registry,
@@ -24,10 +29,63 @@ from miniagent.knowledge.registry import (
     unmount_knowledge_base,
 )
 
+_logger = get_logger(__name__)
+
+
+def retrieve_knowledge_context(
+    query: str,
+    phase: str = "executor",
+    default_top_k: int = 3,
+    default_max_chars: int = 4000,
+) -> str:
+    """知识库检索辅助函数（RAG 增强公共函数）。
+
+    统一的知识库检索接口，供规划、澄清、分类、反思、执行各阶段使用。
+    配置项命名规则：`knowledge.{phase}_enabled/top_k/max_chars`。
+
+    Args:
+        query: 检索关键词或用户输入
+        phase: 阶段名称（planner/clarifier/classifier/reflector/executor）
+        default_top_k: 默认返回条目数
+        default_max_chars: 默认最大字符数
+
+    Returns:
+        格式化的知识库上下文字符串（含 Markdown 标题），失败或禁用时返回空字符串
+
+    Example:
+        >>> kb_context = retrieve_knowledge_context(user_input, phase="planner")
+        >>> if kb_context:
+        >>>     user_parts.append(kb_context)
+    """
+    kb_enabled = get_config(f"knowledge.{phase}_enabled", True)
+    if not kb_enabled:
+        return ""
+
+    try:
+        registry = get_kb_registry()
+        kb_list = registry.list()
+        if not kb_list:
+            return ""
+
+        top_k = get_config(f"knowledge.{phase}_top_k", default_top_k)
+        max_chars = get_config(f"knowledge.{phase}_max_chars", default_max_chars)
+        result = registry.search(query, top_k=top_k, max_chars=max_chars)
+
+        if result:
+            _logger.debug("%s阶段知识库检索: %d chars", phase.capitalize(), len(result))
+            # 各阶段标题略有不同，统一使用"相关知识库摘要"
+            return f"\n\n## 相关知识库摘要\n\n{result}"
+    except Exception as e:
+        _logger.debug("%s阶段知识库检索失败（非关键）: %s", phase.capitalize(), e)
+
+    return ""
+
+
 __all__ = [
     "KnowledgeRegistry",
     "get_kb_registry",
     "mount_knowledge_base",
     "unmount_knowledge_base",
     "search_knowledge",
+    "retrieve_knowledge_context",
 ]

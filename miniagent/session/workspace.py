@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import shutil
 
@@ -112,6 +113,81 @@ class WorkspaceManager:
                 shutil.copytree(s, d, dirs_exist_ok=True)
             else:
                 shutil.copy2(s, d)
+
+    @staticmethod
+    async def _copy_tree_async(src: str, dst: str) -> None:
+        """异步复制目录树（性能优化：不阻塞事件循环）。
+
+        大工作空间复制可能耗时数秒，使用 asyncio.to_thread 包装，
+        避免 LLM 流式处理被阻塞。
+
+        Args:
+            src: 源目录
+            dst: 目标目录
+        """
+        def _sync_copy() -> None:
+            for item in os.listdir(src):
+                s = os.path.join(src, item)
+                d = os.path.join(dst, item)
+                if os.path.isdir(s):
+                    shutil.copytree(s, d, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(s, d)
+
+        await asyncio.to_thread(_sync_copy)
+
+    async def create_workspace_async(
+        self,
+        session_id: str,
+        parent_path: str | None = None,
+        files_dir: str = "files",
+        skills_dir: str = "skills",
+    ) -> dict[str, str]:
+        """异步创建工作空间（性能优化：复制文件不阻塞）。
+
+        Args:
+            session_id: 会话 ID
+            parent_path: 父工作空间路径（可选，用于继承文件）
+            files_dir: 文件子目录名
+            skills_dir: 技能子目录名
+
+        Returns:
+            包含 workspace_path, files_path, skills_path 的字典
+        """
+        workspace_path = os.path.join(self._base_dir, session_id)
+        fp = os.path.join(workspace_path, files_dir)
+        sp = os.path.join(workspace_path, skills_dir)
+
+        # 目录创建使用同步（快速操作，不阻塞）
+        os.makedirs(fp, exist_ok=True)
+        os.makedirs(sp, exist_ok=True)
+
+        # 如果有父工作空间，异步复制文件
+        if parent_path and os.path.exists(parent_path):
+            await self._copy_tree_async(parent_path, fp)
+
+        return {
+            "workspace_path": workspace_path,
+            "files_path": fp,
+            "skills_path": sp,
+        }
+
+    async def destroy_workspace_async(self, session_id: str) -> bool:
+        """异步销毁工作空间（性能优化：大目录删除不阻塞）。
+
+        Args:
+            session_id: 会话 ID
+
+        Returns:
+            成功返回 True
+        """
+        workspace_path = os.path.join(self._base_dir, session_id)
+        if os.path.exists(workspace_path):
+            await asyncio.to_thread(
+                shutil.rmtree, workspace_path, ignore_errors=True
+            )
+            return True
+        return False
 
 
 __all__ = ["WorkspaceManager"]

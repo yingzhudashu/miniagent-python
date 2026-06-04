@@ -105,6 +105,25 @@ def _text_hash(text: str) -> str:
 # 嵌入 API 调用
 # ============================================================================
 
+# 性能优化：全局 HTTP 客户端复用（避免每次创建新客户端）
+_EMBED_HTTP_CLIENT: httpx.AsyncClient | None = None
+
+
+async def _get_embed_http_client(timeout: float = 15.0) -> httpx.AsyncClient:
+    """获取全局嵌入 HTTP 客户端（性能优化：复用连接池）。"""
+    global _EMBED_HTTP_CLIENT
+    if _EMBED_HTTP_CLIENT is None:
+        _EMBED_HTTP_CLIENT = httpx.AsyncClient(timeout=timeout)
+    return _EMBED_HTTP_CLIENT
+
+
+async def close_embed_http_client() -> None:
+    """关闭全局嵌入 HTTP 客户端（进程退出时调用）。"""
+    global _EMBED_HTTP_CLIENT
+    if _EMBED_HTTP_CLIENT is not None:
+        await _EMBED_HTTP_CLIENT.aclose()
+        _EMBED_HTTP_CLIENT = None
+
 
 async def _get_embedding(
     text: str,
@@ -114,7 +133,7 @@ async def _get_embedding(
     api_key: str,
     timeout: float = 15.0,
 ) -> list[float]:
-    """调用 OpenAI 兼容的 embedding 端点。"""
+    """调用 OpenAI 兼容的 embedding 端点（性能优化：复用 HTTP 客户端）。"""
     if not base_url or not model or not api_key:
         raise ValueError("嵌入配置不完整：需要 base_url、model 和 api_key")
 
@@ -128,12 +147,13 @@ async def _get_embedding(
         "input": text,
     }
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        resp = await client.post(url, json=payload, headers=headers)
-        resp.raise_for_status()
-        data = resp.json()
-        embedding = data["data"][0]["embedding"]
-        return embedding
+    # 性能优化：使用全局客户端复用连接池
+    client = await _get_embed_http_client(timeout)
+    resp = await client.post(url, json=payload, headers=headers)
+    resp.raise_for_status()
+    data = resp.json()
+    embedding = data["data"][0]["embedding"]
+    return embedding
 
 
 # ============================================================================

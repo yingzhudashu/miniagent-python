@@ -111,14 +111,18 @@ async def _async_http_request(
     *,
     payload: dict[str, Any] | None = None,
     headers: dict[str, str] | None = None,
+    max_retries: int = 3,
+    backoff_factor: float = 1.0,
 ) -> dict[str, Any]:
-    """异步发送 JSON HTTP 请求并返回解析后的响应体。
+    """异步发送 JSON HTTP 请求并返回解析后的响应体（性能优化：带重试）。
 
     Args:
         method: HTTP 方法（GET / POST）
         url: 请求 URL
         payload: POST 请求体（仅 POST 时使用）
         headers: 请求头
+        max_retries: 最大重试次数（默认 3）
+        backoff_factor: 退避因子（默认 1.0，指数退避）
 
     Returns:
         解析后的 JSON 响应体
@@ -130,18 +134,34 @@ async def _async_http_request(
     h = {"Content-Type": "application/json; charset=utf-8"}
     if headers:
         h.update(headers)
-    try:
-        if method.upper() == "POST":
-            resp = await client.post(url, json=payload or {}, headers=h)
-        else:
-            resp = await client.get(url, headers=h)
-        resp.raise_for_status()
-        body = resp.text
-    except httpx.HTTPStatusError as e:
-        body = e.response.text
-        raise RuntimeError(f"HTTP {e.response.status_code}: {body[:500]}") from e
-    except httpx.RequestError as e:
-        raise RuntimeError(f"network error: {e}") from e
+
+    for attempt in range(max_retries):
+        try:
+            if method.upper() == "POST":
+                resp = await client.post(url, json=payload or {}, headers=h)
+            else:
+                resp = await client.get(url, headers=h)
+            resp.raise_for_status()
+            body = resp.text
+            break  # 成功，跳出重试循环
+        except httpx.HTTPStatusError as e:
+            # 4xx 错误不重试（客户端错误）
+            if e.response.status_code < 500:
+                body = e.response.text
+                raise RuntimeError(f"HTTP {e.response.status_code}: {body[:500]}") from e
+            # 5xx 错误重试
+            if attempt < max_retries - 1:
+                await asyncio.sleep(backoff_factor * (2 ** attempt))
+                continue
+            body = e.response.text
+            raise RuntimeError(f"HTTP {e.response.status_code}: {body[:500]}") from e
+        except httpx.RequestError as e:
+            # 网络错误重试
+            if attempt < max_retries - 1:
+                await asyncio.sleep(backoff_factor * (2 ** attempt))
+                continue
+            raise RuntimeError(f"network error: {e}") from e
+
     try:
         out: dict[str, Any] = json.loads(body)
     except json.JSONDecodeError as e:

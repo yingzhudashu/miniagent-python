@@ -26,6 +26,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from dataclasses import dataclass
@@ -427,6 +428,61 @@ class DefaultSessionManager(SessionManagerProtocol):
         except Exception:
             pass
         return []
+
+    async def save_session_history_async(self, session_id: str) -> None:
+        """异步持久化会话历史到磁盘（性能优化：不阻塞事件循环）。
+
+        大历史文件写入可能耗时数十毫秒，使用 asyncio.to_thread 包装，
+        避免 LLM 流式处理被阻塞。
+
+        Args:
+            session_id: 会话 ID
+
+        Note:
+            异步版本，在异步上下文中使用，不阻塞主事件循环。
+        """
+        ctx = self._sessions.get(session_id)
+        if not ctx:
+            return
+
+        def _sync_save() -> None:
+            try:
+                history = ctx.get("conversation_history", [])
+                history = _truncate_history(history)
+                ctx["conversation_history"] = history
+                path = os.path.join(ctx["config"].workspace_path, "history.json")
+                os.makedirs(ctx["config"].workspace_path, exist_ok=True)
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(history, f, ensure_ascii=False, indent=2)
+            except Exception as e:
+                _logger.warning("保存会话历史失败 (session=%s): %s", session_id, e)
+
+        await asyncio.to_thread(_sync_save)
+
+    async def load_session_history_async(self, session_id: str) -> list:
+        """异步从磁盘加载会话历史（性能优化：不阻塞事件循环）。
+
+        Args:
+            session_id: 会话 ID
+
+        Returns:
+            历史消息列表，如果文件不存在或解析失败，返回空列表。
+        """
+        ctx = self._sessions.get(session_id)
+        if not ctx:
+            return []
+
+        def _sync_load() -> list:
+            try:
+                path = os.path.join(ctx["config"].workspace_path, "history.json")
+                if os.path.isfile(path):
+                    with open(path, encoding="utf-8-sig") as f:
+                        return normalize_conversation_history(json.load(f))
+            except Exception:
+                pass
+            return []
+
+        return await asyncio.to_thread(_sync_load)
 
     def load_session_history_range(
         self,

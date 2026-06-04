@@ -100,3 +100,35 @@ class RuntimeContext:
             self.shutdown_tracked_tasks.discard(t)
 
         task.add_done_callback(_done)
+
+
+# ============================================================================
+# 测试辅助函数
+# ============================================================================
+
+_default_context: RuntimeContext | None = None
+
+
+def get_runtime_context() -> RuntimeContext | None:
+    """获取进程级 RuntimeContext 单例（如果已初始化）。"""
+    return _default_context
+
+
+def set_runtime_context(ctx: RuntimeContext) -> None:
+    """设置进程级 RuntimeContext 单例。"""
+    global _default_context
+    _default_context = ctx
+
+
+def reset_runtime_context_for_tests() -> None:
+    """清空 RuntimeContext 缓存，仅供测试使用。"""
+    global _default_context
+    _default_context = None
+
+
+__all__ = [
+    "RuntimeContext",
+    "get_runtime_context",
+    "set_runtime_context",
+    "reset_runtime_context_for_tests",
+]

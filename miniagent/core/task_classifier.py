@@ -91,17 +91,30 @@ async def classify_task_difficulty(
         - 配置项 execution.task_classifier_enabled 控制是否启用
         - 使用 planner 级参数（低温度、小 max_tokens）降低成本
         - 解析失败或超时时默认返回 NORMAL
+
+    RAG 增强：分类阶段会检索知识库（可选），辅助判断任务难度。
+        若知识库有直接答案，建议分类为 simple。
     """
     from miniagent.core.llm_params import resolve_planner_completion_kwargs
+    from miniagent.knowledge import retrieve_knowledge_context
+
+    # ── RAG 增强：知识库检索（使用公共函数）──
+    kb_hint = retrieve_knowledge_context(
+        user_input, phase="classifier", default_top_k=2, default_max_chars=1500
+    )
 
     sys_prompt = (
         "你是任务难度分类器。根据用户诉求与可用工具箱 id 列表，判断复杂度。\n"
         '只返回 JSON 对象：{"difficulty":"simple|normal|medium|complex"}\n'
         "simple：单步可答、无需工具或极简单查询；normal：常规多步但清晰；"
-        "medium：需多工具协作或中等推理；complex：长链路、强依赖工具或高风险。"
+        "medium：需多工具协作或中等推理；complex：长链路、强依赖工具或高风险。\n"
+        "若知识库摘要中有直接答案或充分参考，建议分类为 simple。"
     )
     tb_line = ", ".join(toolbox_ids[:32]) if toolbox_ids else "(无)"
     user_msg = f"用户诉求:\n{user_input}\n\n工具箱 id: {tb_line}"
+    # 注入知识库检索结果
+    if kb_hint:
+        user_msg += kb_hint
 
     llm = client if client is not None else get_shared_async_openai()
     kw = resolve_planner_completion_kwargs(

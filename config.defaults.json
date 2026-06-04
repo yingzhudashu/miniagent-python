@@ -121,10 +121,14 @@
       "body_max_chars": 48000
     },
     "patch": {
-      "description": "飞书思考卡片流式节流参数",
-      "interval": 0.12,
-      "char_delta": 30,
-      "budget": 40
+      "description": "飞书思考卡片流式节流参数（优化版：更快响应、更长文本支持）",
+      "interval": 0.08,
+      "char_delta": 20,
+      "budget": 60,
+      "timeout": 10,
+      "queue_enabled": false,
+      "queue_max_size": 10,
+      "important_content_immediate": true
     },
     "api_urls": {
       "tenant_token": "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
@@ -247,7 +251,7 @@
   "features": {
     "description": "功能开关",
     "requirement_clarify": true,
-    "reflection": true,
+    "reflection": false,
     "skills_watch": false,
     "tui_verbose_log": false
   },

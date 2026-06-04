@@ -1,6 +1,11 @@
 """Mini Agent Python — 知识库工具
 
 提供知识库检索和文件读取工具，供 Agent 调用。
+
+RAG 增强说明：
+- 默认情况下，knowledge 工具箱作为核心工具箱（toolbox=None），始终可用
+- Agent 能主动调用 search_knowledge、read_knowledge_file、kb_list
+- 可通过环境变量 MINIAGENT_KNOWLEDGE_AS_CORE=0 或配置 knowledge.as_core=false 降级为普通工具箱
 """
 
 from __future__ import annotations
@@ -8,11 +13,35 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.knowledge import get_kb_registry, search_knowledge
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 _logger = get_logger(__name__)
+
+# ════════════════════════════════════════════════════════
+# 配置：是否将 knowledge 工具箱作为核心工具箱（始终可用）
+# ════════════════════════════════════════════════════════
+
+def _get_knowledge_toolbox() -> str | None:
+    """获取 knowledge 工具箱的 toolbox 标记。
+
+    默认为核心工具箱（toolbox=None），始终可用。
+    可通过配置降级为普通工具箱。
+
+    Returns:
+        None（核心工具箱）或 "knowledge"（普通工具箱）
+    """
+    # 环境变量优先
+    env_val = os.environ.get("MINIAGENT_KNOWLEDGE_AS_CORE", "")
+    if env_val.lower() in ("0", "false", "no"):
+        return "knowledge"
+    # JSON 配置次之
+    if not get_config("knowledge.as_core", True):
+        return "knowledge"
+    # 默认为核心工具箱
+    return None
 
 # ════════════════════════════════════════════════════════
 # search_knowledge
@@ -183,27 +212,30 @@ async def _kb_list_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolResul
 # 导出工具字典
 # ════════════════════════════════════════════════════════
 
+# 获取 toolbox 标记（核心工具箱或普通工具箱）
+_knowledge_toolbox = _get_knowledge_toolbox()
+
 knowledge_tools: dict[str, ToolDefinition] = {
     "search_knowledge": ToolDefinition(
         schema=_search_knowledge_schema,
         handler=_search_knowledge_handler,
         permission="sandbox",
         help_text="检索已挂载的知识库内容",
-        toolbox="knowledge",
+        toolbox=_knowledge_toolbox,  # 默认为核心工具箱（None），始终可用
     ),
     "read_knowledge_file": ToolDefinition(
         schema=_read_knowledge_file_schema,
         handler=_read_knowledge_file_handler,
         permission="sandbox",
         help_text="读取知识库文件完整内容",
-        toolbox="knowledge",
+        toolbox=_knowledge_toolbox,  # 默认为核心工具箱（None），始终可用
     ),
     "kb_list": ToolDefinition(
         schema=_kb_list_schema,
         handler=_kb_list_handler,
         permission="sandbox",
         help_text="列出已挂载的知识库",
-        toolbox="knowledge",
+        toolbox=_knowledge_toolbox,  # 默认为核心工具箱（None），始终可用
     ),
 }
 

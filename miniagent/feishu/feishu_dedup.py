@@ -48,8 +48,8 @@ DEDUP_MAX_SIZE = 2000  # 最大条目数
 
 # 性能优化：刷盘配置（支持环境变量覆盖）
 import os as _os_for_dedup
-DEDUP_FLUSH_INTERVAL = int(_os_for_dedup.environ.get("MINIAGENT_DEDUP_FLUSH_INTERVAL", "60"))
-DEDUP_FLUSH_THRESHOLD = int(_os_for_dedup.environ.get("MINIAGENT_DEDUP_FLUSH_THRESHOLD", "1000"))
+DEDUP_FLUSH_INTERVAL = int(_os_for_dedup.environ.get("MINIAGENT_DEDUP_FLUSH_INTERVAL", "30"))  # 降低到30秒
+DEDUP_FLUSH_THRESHOLD = int(_os_for_dedup.environ.get("MINIAGENT_DEDUP_FLUSH_THRESHOLD", "500"))  # 降低到500条
 
 # ─── 状态目录 ───
 

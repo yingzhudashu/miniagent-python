@@ -245,6 +245,52 @@ class KnowledgeRegistry:
 
 知识库内容不写入记忆系统，仅作为临时上下文注入。
 
+## Agent 如何使用知识库（RAG 全面集成）
+
+MiniAgent v2.0.3 实现了知识库的全面内化，Agent 在所有核心阶段都能使用 RAG：
+
+### 主动检索模式（工具层）
+
+knowledge 工具箱已提升为**核心工具箱**（toolbox=None），始终可用：
+
+- **search_knowledge**：Agent 可主动检索知识库，深入查找内容
+- **read_knowledge_file**：Agent 可读取完整文件（不只是检索片段）
+- **kb_list**：Agent 可查看已挂载的知识库列表
+
+**配置**：环境变量 `MINIAGENT_KNOWLEDGE_AS_CORE=0` 可降级为普通工具箱
+
+### 自动注入模式（各阶段）
+
+| 阶段 | RAG 增强方式 | 效果 |
+|------|-------------|------|
+| **执行阶段** | 自动检索知识库，注入 system prompt | Agent 能看到相关知识库内容 |
+| **规划阶段** | 检索知识库摘要，辅助判断是否需要 knowledge 工具箱 | 规划器能判断是否需要让 Agent 深入检索 |
+| **需求澄清** | 检索知识库内容，避免询问已有答案的问题 | 澄清质量提升，不重复询问 |
+| **任务分类** | 检索知识库摘要，辅助判断任务难度 | 有答案→simple，需整合→normal |
+| **反思评估** | 检索知识库标准，参考标准评估回答质量 | 反思准确性提升 |
+
+### 双模式协同
+
+**自动注入（被动）+ 主动检索（主动）**：
+
+1. **自动注入**：每个阶段自动检索 top_k=2-3 条目，注入到上下文
+2. **主动检索**：如果规划器判断需要深入，Agent 可调用 search_knowledge 进一步检索
+3. **文件读取**：如果检索片段不够，Agent 可调用 read_knowledge_file 读取完整文档
+
+### 配置开关
+
+所有阶段的 RAG 增强都可通过配置关闭（回退到原有行为）：
+
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `knowledge.as_core` | knowledge 工具作为核心工具箱 | `true` |
+| `knowledge.planner_enabled` | 规划阶段 RAG 增强 | `true` |
+| `knowledge.clarifier_enabled` | 澄清阶段 RAG 增强 | `true` |
+| `knowledge.classifier_enabled` | 分类阶段 RAG 增强 | `true` |
+| `knowledge.reflector_enabled` | 反思阶段 RAG 增强 | `true` |
+
+详细集成方案见 [RAG_ENHANCEMENT_PLAN.md](RAG_ENHANCEMENT_PLAN.md)。
+
 ## 最佳实践
 
 1. **按主题分库**：不同项目/领域使用独立知识库

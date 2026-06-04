@@ -297,6 +297,17 @@ async def run_cli_loop(
         )
         return
 
+    # Linux 兼容性：环境变量强制使用 fallback CLI（测试或简单终端场景）
+    # MINIAGENT_FORCE_FALLBACK_CLI=1 时跳过全屏模式，直接使用 input() 循环
+    if get_config("cli.force_fallback", False) or os.environ.get("MINIAGENT_FORCE_FALLBACK_CLI", "").strip() in ("1", "true", "yes"):
+        await _run_cli_loop_fallback(
+            ctx,
+            state,
+            skill_toolboxes,
+            skill_prompts,
+        )
+        return
+
     # 无 TTY（如 pytest 子进程重定向 stdin/stdout）时全屏 Application 无法初始化，回退到 input() 循环
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         await _run_cli_loop_fallback(
@@ -2316,7 +2327,12 @@ async def _run_cli_loop_fallback(
     skill_toolboxes: list,
     skill_prompts: list,
 ) -> None:
-    """简易 CLI 循环（prompt_toolkit 不可用时回退）。"""
+    """简易 CLI 循环（prompt_toolkit 不可用时回退）。
+
+    **Linux 兼容性**：在 fallback 模式下也显示思考过程，
+    通过 ThinkingDisplay.set_output_sink 设置回调，
+    确保终端不支持全屏时也能看到 Agent 的思考内容。
+    """
     engine = ctx.engine
     registry = ctx.registry
     monitor = ctx.monitor
@@ -2371,6 +2387,48 @@ async def _run_cli_loop_fallback(
         """非全屏 CLI 下的细分隔线（stdout）- 动态宽度。"""
         w = _fb_get_width()
         print("─" * w)
+
+    # ── Linux 兼容性：fallback 模式下的思考显示 ──
+    # 设置 ThinkingDisplay 的 output_sink，使思考过程能在终端显示
+    def _fallback_thinking_sink(text: str, kind: str = "chunk", **kwargs: Any) -> None:
+        """Fallback CLI 的思考输出回调（直接 print 到 stdout）。
+
+        Args:
+            text: 思考文本内容
+            kind: 输出类型（"label" 或 "chunk"）
+            **kwargs: 额外参数（如 ansi_markdown，fallback 模式暂不支持）
+
+        Note:
+            - 此函数签名匹配 ThinkingDisplay._emit 的调用方式
+            - fallback 模式不支持 ANSI Markdown 渲染，直接 print
+        """
+        if text:
+            # fallback 模式直接 print，不支持颜色渲染
+            print(text, end="" if kind == "chunk" else "\n")
+            sys.stdout.flush()
+
+    # 设置思考显示器回调（用于 ThinkingDisplay._emit）
+    engine.thinking.set_output_sink(_fallback_thinking_sink)
+
+    # ── fallback CLI 的 transcript 回调（用于飞书镜像等）──
+    # 注意：此回调签名是 (style_cls, text)，与 ThinkingDisplay 不同
+    def _fallback_transcript_append(style_cls: str, text: str = "") -> None:
+        """Fallback CLI 的 transcript 回调（用于飞书镜像到 CLI）。
+
+        Args:
+            style_cls: 样式类名（fallback 模式忽略样式）
+            text: 文本内容
+
+        Note:
+            - 签名匹配 cli_transcript_append 的预期：(style_cls, text)
+            - 用于飞书消息镜像、点命令输出等场景
+            - fallback 模式忽略样式，直接 print
+        """
+        if text:
+            print(text)
+            sys.stdout.flush()
+
+    ctx.cli_transcript_append = _fallback_transcript_append
 
 
     # readline 支持：使 fallback CLI 的 input() 支持上下键浏览历史
@@ -2604,6 +2662,10 @@ async def _run_cli_loop_fallback(
 
     # 保存 CLI 上次会话状态（--continue 功能）
     _save_cli_session_state(ctx, state)
+
+    # 清理思考显示回调（Linux 兼容性）
+    engine.thinking.set_output_sink(None)
+    ctx.cli_transcript_append = None
 
     release_session_lock(state["active_session_id"])
     try:

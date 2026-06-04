@@ -50,6 +50,9 @@
 | `MINIAGENT_TOOL_FINISH_VERBOSE` | `0` | `1` 时 `on_tool_finish` 落盘含参数与输出 |
 | `MINIAGENT_AGENT_TOOL_TIMEOUT` | `60` | 单个工具超时秒数 |
 | `MINIAGENT_AGENT_HTTP_TIMEOUT` | `120` | HTTP 请求超时秒数 |
+| `MINIAGENT_MAX_ARGS_LOG_LEN` | `500` | 工具参数日志截断长度（字符） |
+| `MINIAGENT_TRACE_LOG_FILE` | *(空)* | trace 事件持久化文件路径（JSONL 格式） |
+| `MINIAGENT_FORCE_FALLBACK_CLI` | `0` | `1` 时强制使用简易 CLI（跳过全屏 prompt_toolkit，用于 Linux 测试或简单终端） |
 | `AGENT_CONTEXT_RESERVE` | `0.15` | 上下文预留比例 |
 | `AGENT_CONTEXT_COMPRESS_THRESHOLD` | `0.6` | 上下文压缩阈值 |
 | `AGENT_DEBUG` | `false` | 调试模式 |

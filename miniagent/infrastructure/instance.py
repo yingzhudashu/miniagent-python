@@ -603,6 +603,13 @@ def format_instances_table(instances: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def reset_instance_registry_for_tests() -> None:
+    """清空 InstanceRegistry 缓存，仅供测试使用。"""
+    global _default_registry, _instance_list_cache
+    _default_registry = None
+    _instance_list_cache = None
+
+
 __all__ = [
     "InstanceRegistry",
     "register_instance",
@@ -617,4 +624,5 @@ __all__ = [
     "is_process_running",
     "is_process_running_async",
     "HEARTBEAT_TIMEOUT",
+    "reset_instance_registry_for_tests",
 ]

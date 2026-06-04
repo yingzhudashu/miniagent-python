@@ -116,6 +116,8 @@ class RequirementClarifier:
 
         Returns:
             澄清后的需求规格
+
+        RAG 增强：澄清阶段会检索知识库（可选），避免询问知识库已有答案的问题。
         """
         # 加载会话记忆（让需求分析看到历史上下文）
         memory_context = ""
@@ -128,9 +130,23 @@ class RequirementClarifier:
             except Exception:
                 pass
 
-        system = CLARIFY_PROMPT
+        # ── RAG 增强：知识库检索（使用公共函数）──
+        from miniagent.knowledge import retrieve_knowledge_context
+        kb_context = retrieve_knowledge_context(
+            user_input, phase="clarifier", default_top_k=3, default_max_chars=3000
+        )
+
+        # 合并上下文：记忆 + 知识库
+        context_parts = []
         if memory_context:
-            system = f"{memory_context}\n\n{CLARIFY_PROMPT}"
+            context_parts.append(memory_context)
+        if kb_context:
+            context_parts.append(kb_context)
+        full_context = "\n\n".join(context_parts) if context_parts else ""
+
+        system = CLARIFY_PROMPT
+        if full_context:
+            system = f"{full_context}\n\n{CLARIFY_PROMPT}"
 
         # agent.py 已在 LLM 调用前发送"正在分析需求…"提示，此处不再重复发送。
 

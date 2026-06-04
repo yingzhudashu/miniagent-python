@@ -25,6 +25,7 @@ _VALID_RECEIVE_ID_TYPES = frozenset({"chat_id", "open_id", "union_id"})
 
 # 配置默认值（支持环境变量覆盖）
 _FEISHU_SEND_TIMEOUT_DEFAULT = float(_os_for_im.environ.get("MINIAGENT_FEISHU_SEND_TIMEOUT", "30.0"))
+_FEISHU_PATCH_TIMEOUT_DEFAULT = float(_os_for_im.environ.get("MINIAGENT_FEISHU_PATCH_TIMEOUT", "10.0"))
 
 
 def resolve_im_receive_id_type(explicit: str | None) -> str:
@@ -163,10 +164,100 @@ async def post_im_message_async(
         return False, None, str(e)
 
 
+def patch_im_message(
+    config: FeishuConfig,
+    *,
+    message_id: str,
+    content_json: str,
+) -> tuple[bool, str | None]:
+    """PATCH 更新已有 IM 消息内容（同步版本）。
+
+    Args:
+        config: 飞书配置
+        message_id: 要更新的消息 ID
+        content_json: 新消息内容 JSON
+
+    Returns:
+        ``(success, error_detail_or_None)``；失败时 ``error_detail`` 含错误信息。
+    """
+    try:
+        import lark_oapi as lark
+        from lark_oapi.api.im.v1 import PatchMessageRequest, PatchMessageRequestBody
+
+        client = lark.Client.builder().app_id(config.app_id).app_secret(config.app_secret).build()
+        body = PatchMessageRequestBody.builder().content(content_json).build()
+        request = PatchMessageRequest.builder().message_id(message_id).request_body(body).build()
+        response = client.im.v1.message.patch(request)
+        if response.success():
+            return True, None
+        err = format_lark_response_error(response)
+        _logger.warning("Feishu IM PATCH failed: %s", err)
+        return False, err
+    except ImportError:
+        _logger.error("请安装 lark-oapi: pip install lark-oapi")
+        return False, "missing_lark_oapi"
+    except Exception as e:
+        _logger.warning("Feishu IM PATCH 异常: %s", e)
+        return False, str(e)
+
+
+async def patch_im_message_async(
+    config: FeishuConfig,
+    *,
+    message_id: str,
+    content_json: str,
+    timeout: float = _FEISHU_PATCH_TIMEOUT_DEFAULT,
+) -> tuple[bool, str | None]:
+    """异步 PATCH 更新 IM 消息（不阻塞事件循环）。
+
+    使用 ``asyncio.to_thread()`` 包装同步 SDK 调用，
+    避免在异步上下文中阻塞事件循环。
+
+    这是流式输出丝滑的关键：PATCH 更新飞书思考卡片时，
+    不会阻塞 LLM 流式处理，用户感知卡片实时更新。
+
+    Args:
+        config: 飞书配置
+        message_id: 要更新的消息 ID
+        content_json: 新消息内容 JSON
+        timeout: 超时秒数（默认 10 秒，比发送更短）
+
+    Returns:
+        ``(success, error_detail_or_None)``；失败时 ``error_detail`` 含错误信息。
+
+    Example:
+        ok, err = await patch_im_message_async(
+            config,
+            message_id="om_xxx",
+            content_json=json.dumps(card_dict),
+        )
+    """
+    def _sync_patch() -> tuple[bool, str | None]:
+        return patch_im_message(
+            config,
+            message_id=message_id,
+            content_json=content_json,
+        )
+
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_sync_patch),
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        _logger.warning("Feishu IM PATCH timed out after %s seconds", timeout)
+        return False, f"timeout_{timeout}s"
+    except Exception as e:
+        _logger.warning("Feishu IM async PATCH 异常: %s", e)
+        return False, str(e)
+
+
 __all__ = [
     "ImMsgType",
     "clear_client_cache",
     "resolve_im_receive_id_type",
     "post_im_message",
     "post_im_message_async",
+    "patch_im_message",
+    "patch_im_message_async",
 ]

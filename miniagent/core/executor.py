@@ -490,50 +490,75 @@ async def execute_plan(
     if agent_config.session_key:
         memory = await ms.load(agent_config.session_key)
 
-        # Layer 3: 语义检索（嵌入搜索 + 关键词索引回退）
+        # ── 性能优化：并行执行嵌入搜索和关键词索引 ──
         relevant: list[dict[str, Any]] = []
+
+        # 并行执行嵌入搜索和关键词索引
+        embed_task = None
+        kw_task = None
+
         if embedding_search_enabled():
             try:
                 provider = get_embed_provider(
                     state_dir=ms._state_dir if hasattr(ms, "_state_dir") else "workspaces"
                 )
-                embed_results = await provider.search(user_input, limit=8, min_score=0.3)
-                if embed_results:
-                    relevant = provider.expand_results(embed_results)
-                    # 未缓存向量的新查询：将查询向量写入索引供后续索引
-                    if agent_config.debug:
-                        _logger.debug("嵌入搜索: %d 条相关记忆", len(relevant))
+                embed_task = asyncio.create_task(
+                    provider.search(user_input, limit=8, min_score=0.3)
+                )
             except Exception as e:
-                _logger.debug("嵌入搜索失败 (%s)，回退到关键词索引", e)
+                _logger.debug("嵌入搜索初始化失败 (%s)", e)
 
-        # 关键词索引补充（嵌入搜索未返回足够结果时）
-        if len(relevant) < 5:
-            kw_results = search_relevant_with_index(ki, user_input, top_k=8, min_score=0)
-            seen = {(r["session_id"], r["timestamp"]) for r in relevant}
-            for kw in kw_results:
-                key = (kw["session_id"], kw["timestamp"])
-                if key not in seen and len(relevant) < 8:
-                    relevant.append(kw)
-                    seen.add(key)
+        # 关键词索引并行搜索
+        kw_task = asyncio.create_task(
+            asyncio.to_thread(
+                search_relevant_with_index, ki, user_input, 8, 0
+            )
+        )
+
+        # 并行等待结果
+        embed_results = None
+        kw_results = []
+
+        if embed_task and kw_task:
+            results = await asyncio.gather(
+                embed_task, kw_task, return_exceptions=True
+            )
+            if not isinstance(results[0], Exception):
+                embed_results = results[0]
+            if not isinstance(results[1], Exception):
+                kw_results = results[1]
+        elif kw_task:
+            kw_results = await kw_task
+
+        # 合并结果（嵌入搜索优先）
+        seen: set[tuple[str, str]] = set()
+        if embed_results:
+            relevant = provider.expand_results(embed_results)
+            for r in relevant:
+                seen.add((r["session_id"], r["timestamp"]))
+            if agent_config.debug:
+                _logger.debug("嵌入搜索: %d 条相关记忆", len(relevant))
+
+        # 关键词索引补充
+        for kw in kw_results:
+            key = (kw["session_id"], kw["timestamp"])
+            if key not in seen and len(relevant) < 8:
+                relevant.append(kw)
+                seen.add(key)
+
         search_text = format_search_results(relevant)
         if search_text:
             keyword_context = search_text
             if agent_config.debug:
-                _logger.debug("Layer 3 语义检索: %d 条相关记忆", len(relevant))
+                _logger.debug("Layer 3 语义检索: %d 条相关记忆（并行优化）", len(relevant))
 
-        # ── 知识库检索 ──
-        kb_context: str | None = None
-        try:
-            registry = get_kb_registry()
-            kb_list = registry.list()
-            if kb_list:
-                kb_result = registry.search(user_input, top_k=3, max_chars=4000)
-                if kb_result:
-                    kb_context = f"## 相关知识库内容\n\n{kb_result}"
-                    if agent_config.debug:
-                        _logger.debug("知识库检索: %d 个KB, %d chars", len(kb_list), len(kb_result))
-        except Exception as e:
-            _logger.debug("知识库检索失败: %s", e)
+        # ── 知识库检索（使用公共函数，支持配置）──
+        from miniagent.knowledge import retrieve_knowledge_context
+        kb_context_str = retrieve_knowledge_context(
+            user_input, phase="executor", default_top_k=3, default_max_chars=4000
+        )
+        # 公共函数返回的字符串已有标题，直接使用
+        kb_context: str | None = kb_context_str if kb_context_str else None
 
         merged_system = build_execution_system_prompt(
             agent_identity=AGENT_IDENTITY,
@@ -549,19 +574,12 @@ async def execute_plan(
         if memory:
             context_manager.inject_memory(memory)
     else:
-        # ── 知识库检索（无会话时也检索）──
-        kb_context: str | None = None
-        try:
-            registry = get_kb_registry()
-            kb_list = registry.list()
-            if kb_list:
-                kb_result = registry.search(user_input, top_k=3, max_chars=4000)
-                if kb_result:
-                    kb_context = f"## 相关知识库内容\n\n{kb_result}"
-                    if agent_config.debug:
-                        _logger.debug("知识库检索: %d 个KB, %d chars", len(kb_list), len(kb_result))
-        except Exception as e:
-            _logger.debug("知识库检索失败: %s", e)
+        # ── 知识库检索（无会话时也检索，使用公共函数）──
+        from miniagent.knowledge import retrieve_knowledge_context
+        kb_context_str = retrieve_knowledge_context(
+            user_input, phase="executor", default_top_k=3, default_max_chars=4000
+        )
+        kb_context: str | None = kb_context_str if kb_context_str else None
 
         merged_system = build_execution_system_prompt(
             agent_identity=AGENT_IDENTITY,
@@ -984,6 +1002,7 @@ async def execute_plan(
                 result = ToolResult(
                     success=False,
                     content=f"{WARNING_PREFIX} 工具超时（{timeout_sec}s）: {tc.function.name}",
+                    meta={"error_type": "TimeoutError"},
                 )
                 _log_tool_error(
                     tool_name=tc.function.name,
@@ -999,6 +1018,7 @@ async def execute_plan(
                 result = ToolResult(
                     success=False,
                     content=f"{WARNING_PREFIX} 权限拒绝: {e}",
+                    meta={"error_type": "PermissionError"},
                 )
                 _log_tool_error(
                     tool_name=tc.function.name,
@@ -1014,6 +1034,7 @@ async def execute_plan(
                 result = ToolResult(
                     success=False,
                     content=f"{WARNING_PREFIX} 文件不存在: {e}",
+                    meta={"error_type": "FileNotFoundError"},
                 )
                 _log_tool_error(
                     tool_name=tc.function.name,
@@ -1026,7 +1047,12 @@ async def execute_plan(
                 )
             except Exception as e:
                 # 其他异常：参数错误、工具内部错误等，需要详细诊断
-                result = ToolResult(success=False, content=f"{WARNING_PREFIX} 执行异常: {e}")
+                error_type_name = type(e).__name__
+                result = ToolResult(
+                    success=False,
+                    content=f"{WARNING_PREFIX} 执行异常: {e}",
+                    meta={"error_type": error_type_name},
+                )
                 tb_str = traceback.format_exc()
                 # 根据异常类型判断是用户误用还是工具缺陷
                 is_user_error = isinstance(e, (
@@ -1040,7 +1066,7 @@ async def execute_plan(
                     tool_call_id=tc.id,
                     args=args,
                     session_key=session_key,
-                    error_type=type(e).__name__,
+                    error_type=error_type_name,
                     error_message=str(e),
                     is_user_error=is_user_error,
                     traceback_str=tb_str if not is_user_error else None,
@@ -1101,6 +1127,8 @@ async def execute_plan(
                     },
                 )
                 intent = _extract_tool_intent(tc.function.name, args)
+                # 从 result.meta 中提取 error_type（如果失败）
+                error_type = result.meta.get("error_type") if not result.success else None
                 al.log_tool_call(
                     session_key=session_key,
                     tool_name=tc.function.name,
@@ -1109,6 +1137,7 @@ async def execute_plan(
                     result=result.content,
                     duration_ms=tool_elapsed,
                     success=result.success,
+                    error_type=error_type,
                 )
                 await _invoke_on_tool_finish(
                     tc.function.name,
