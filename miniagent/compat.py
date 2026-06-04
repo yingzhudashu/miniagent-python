@@ -75,7 +75,8 @@ def unified_entry() -> None:
 
     from miniagent.core.openai_client import get_shared_async_openai
     from miniagent.infrastructure.channel_router import ChannelRouter
-    from miniagent.infrastructure.message_queue import MessageQueueManager
+    from miniagent.infrastructure.json_config import get_config
+    from miniagent.infrastructure.message_queue import MessageQueueManager, QueueMode
     from miniagent.infrastructure.monitor import DefaultToolMonitor
     from miniagent.infrastructure.registry import DefaultToolRegistry
     from miniagent.memory.defaults import get_process_default_memory_bundle
@@ -85,6 +86,13 @@ def unified_entry() -> None:
     memory_store, activity_log, keyword_index = get_process_default_memory_bundle()
 
     mq = MessageQueueManager()
+    # 从配置文件读取队列模式
+    queue_mode_str = get_config("agent.queue_mode", "queue").lower()
+    if queue_mode_str == "preemptive":
+        mq.mode = QueueMode.PREEMPTIVE
+    else:
+        mq.mode = QueueMode.QUEUE
+
     router = ChannelRouter()
     feishu_rt = FeishuRuntime(mq)
 

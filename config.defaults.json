@@ -28,6 +28,7 @@
     "max_questions": 3,
     "debug": false,
     "log_token_usage": true,
+    "queue_mode": "queue",
     "loop_detection": {
       "enabled": true,
       "history_size": 50,
