@@ -277,7 +277,7 @@ ClarifiedRequirement（澄清后的需求规格）
 | `im_send.py` | IM 发送客户端封装 |
 | `im_tool_policy.py` | 内置飞书工具策略 |
 | `lark_response.py` | 飞书响应构建 |
-| `docx/` | 云文档：`client`（元数据/raw）、`blocks`（块 CRUD/batch）、`tables`、`media`、`markdown` |
+| `docx/` | 云文档：`client`（元数据/raw）、`blocks`（块 CRUD/batch + `append_markdown_to_document`）、`tables`、`media`、`markdown`、`markdown_renderer`（Markdown 富文本渲染） |
 | `bitable/` | 多维表格记录与 `upload_record_attachment` |
 | `cards/` | 互动卡片构建、入站抽取、按钮路由、可选 v2 宽表 |
 | `drive_extra.py` | 云盘搜索（User Token）、权限、copy/move |

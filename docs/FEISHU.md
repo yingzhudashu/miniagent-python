@@ -353,9 +353,20 @@ echo $FEISHU_APP_ID
 | `create` | `title`, `folder_token`(可选), `folder_share_url`(可选) | 需创建权限 |
 | `get` | `document_id` | 需访问权限 |
 | `read` | `document_id` | 需读取权限 |
-| `write` | `document_id`, `text`, `mode`(append/replace) | 需编辑权限 |
-| `append` | `document_id`, `text` | 需编辑权限 |
+| `write` | `document_id`, `text`, `mode`(append/replace), `render_mode`(rich/plain) | 需编辑权限 |
+| `append` | `document_id`, `text`, `render_mode`(rich/plain) | 需编辑权限 |
 | `delete` | `document_id` | 需管理权限 |
+
+**渲染模式说明（render_mode）**
+
+| 模式 | 说明 | 适用场景 |
+|------|------|---------|
+| `rich`（默认） | Markdown 富文本渲染：标题、粗体、列表、代码块、表格等 | 大多数场景，需要格式化内容 |
+| `plain` | 纯文本模式：仅移除 `#`、`>` 等标记 | 向后兼容、简单文本追加 |
+
+支持的 Markdown 元素（`render_mode=rich`）：
+- 块级：标题（#~######）、段落、列表（有序/无序）、代码块（带语言标记）、引用、表格、分隔线
+- 内联：粗体（`**text**`）、斜体（`*text*`）、删除线（`~~text~~`）、链接（`[text](url)`）、内联代码（`` `code` ``）
 
 **Block 操作**
 
