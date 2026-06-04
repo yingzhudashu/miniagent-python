@@ -189,6 +189,64 @@ Agent 的大脑，采用 **多阶段架构**（Phase 0.5 需求澄清 → Phase 
 | `task_classifier.py` | 任务难度预分类（简单任务可跳过结构化规划） |
 | `vendor/qwen_extra.py` | 兼容 Qwen/DashScope 时在 `extra_body` 注入 thinking 字段 |
 | `self_opt/` | 自我优化子系统（详见 [SELF_OPT.md](SELF_OPT.md)） |
+| `prompts/` | 系统提示词模块（详见下方 §提示词模块） |
+
+#### 提示词模块 (prompts/)
+
+基于 Claude 最佳实践，所有系统提示词统一管理在 `miniagent/core/prompts/` 目录下：
+
+| 文件 | 提示词 | 用途 |
+|------|--------|------|
+| `identity.py` | `AGENT_IDENTITY` | Agent 核心身份、角色定位、行为规范 |
+| `planner.py` | `PLAN_SYSTEM_PROMPT` | Phase 1 规划阶段：任务分解、工具箱选择 |
+| `classifier.py` | `CLASSIFIER_PROMPT` | Phase 0 任务难度分类（simple/normal/medium/complex） |
+| `clarifier.py` | `CLARIFIER_PROMPT` | Phase 0.5 需求澄清（三步法） |
+| `reflector.py` | `REFLECTOR_PROMPT` | Phase 3 反思评估：结果质量检测 |
+| `reviewer.py` | `REVIEW_PROMPT` | `/review` 命令：答案审查 |
+| `improver.py` | `IMPROVE_PROMPT` | `/improve` 命令：答案改进 |
+| `feishu_channel.py` | `FEISHU_CHANNEL_HINT_*` | 飞书通道工具说明 |
+
+**结构规范**（遵循 Claude 最佳实践）：
+
+每个提示词使用 XML 标签结构化：
+
+```text
+<role>        角色定位：专业身份 + 职责边界
+<context>     上下文动机：为什么这样要求，背景说明
+<instructions> 明确指令：要做什么，按顺序列出
+<examples>    多样化示例：3-5 个不同场景示例
+<json_schema> 输出格式：JSON schema 定义
+<validation>  自我检查：完成后验证什么
+```
+
+**示例**：
+
+```text
+<role>
+你是 MiniAgent 的任务规划专家。你负责将用户需求分解为结构化执行计划。
+</role>
+
+<context>
+良好的规划能够：
+- 让执行器按步骤完成复杂任务，减少迷失
+- 减少不必要的工具调用和迭代次数
+</context>
+
+<instructions>
+分析用户需求后：
+1. 判断任务复杂度（单步/多步/需要工具协作）
+2. 将复杂任务分解为独立步骤
+...
+</instructions>
+
+<examples>
+<example index="1" type="simple">
+用户输入："读取 config.json 的内容"
+输出计划：{...}
+</example>
+...
+</examples>
+```
 
 #### Phase 0.5: 需求澄清（三步法）
 
