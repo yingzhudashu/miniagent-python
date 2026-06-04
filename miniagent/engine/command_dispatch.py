@@ -22,6 +22,8 @@ from collections.abc import Callable
 from contextlib import redirect_stdout
 from typing import Any
 
+from miniagent.core.prompts.reviewer import REVIEW_PROMPT, REVIEW_ITERATION_PROMPT
+from miniagent.core.prompts.improver import IMPROVE_PROMPT
 from miniagent.engine.cli_state import CliLoopState
 from miniagent.infrastructure.logger import get_logger
 from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
@@ -826,29 +828,11 @@ def _capture(fn: Callable[[], None]) -> str:
 
 # ─── /review 辅助函数 ───────────────────────────────
 
-_REVIEW_SYSTEM = """你是一个严格的自我批判专家。请审查以下问答中的知识错误、逻辑错误、表述不清等。
+# REVIEW_PROMPT 和 REVIEW_ITERATION_PROMPT 现在从 miniagent.core.prompts.reviewer 导入
+# 使用 XML 标签结构化，遵循 Claude 最佳实践
+_REVIEW_SYSTEM = REVIEW_PROMPT
 
-审查要求：
-1. 检查事实性错误（知识错误）
-2. 检查逻辑谬误（因果倒置、循环论证等）
-3. 检查遗漏的关键信息
-4. 检查表述是否清晰准确
-5. 检查是否有更好的表达方式
-
-如果没有任何问题，返回 {"has_issues": false, "issues": [], "improved_answer": null}
-
-如果发现问题，返回：
-{"has_issues": true, "issues": [{"type": "knowledge_error|logic_error|clarity|omission", "description": "具体描述"}], "improved_answer": "改进后的完整答案"}
-
-只返回 JSON，不要其他文字。"""
-
-_REVIEW_ITERATION_SYSTEM = """你是一个严格的自我批判专家。以下是一份经过一轮审查的答案，请再次检查是否还有遗漏的问题。
-
-特别注意：上次审查发现的 {prev_issue_count} 个问题应该已经修复，请确认是否确实修复，并查找其他可能的问题。
-
-审查要求同上。如果没有任何问题，返回 {"has_issues": false, "issues": [], "improved_answer": null}。
-
-只返回 JSON，不要其他文字。"""
+_REVIEW_ITERATION_SYSTEM = REVIEW_ITERATION_PROMPT
 
 
 def _get_last_qa(session_manager, session_id: str) -> tuple[str | None, str | None]:

@@ -13,31 +13,13 @@ if TYPE_CHECKING:
     from openai import AsyncOpenAI
 
 from miniagent.core.llm_json import llm_json
+from miniagent.core.prompts.reflector import REFLECTOR_PROMPT
 from miniagent.core.thinking_callback import invoke_on_thinking
 
-REFLECTION_PROMPT = """你是一个结果评估专家。请评估以下任务的完成质量。
+# REFLECTOR_PROMPT_TEMPLATE 用于构建带有用户输入的完整提示词
+# REFLECTOR_PROMPT 是优化后的 XML 结构化提示词（不包含用户输入）
 
-用户原始输入：
-{user_input}
-
-Agent 执行结果：
-{reply}
-
-评估要求：
-1. 如果结果不可接受（acceptable=false），必须给出至少 3 条具体、可操作的改进建议
-2. 如果结果可接受但有不足（quality_score<0.8），也应给出改进建议
-3. 改进建议应具体指出哪里可以做得更好、更准确、更完整
-4. 建议条数最多 5 条
-
-请以 JSON 格式返回评估：
-{{
-  "acceptable": true/false,
-  "quality_score": 0.0-1.0,
-  "issues": ["问题1", "问题2"],
-  "suggestions": ["建议1", "建议2"]
-}}
-
-只返回 JSON，不要其他文字。"""
+# REFLECTION_PROMPT 现在从 miniagent.core.prompts.reflector 导入
 
 
 @dataclass
@@ -79,7 +61,8 @@ async def reflect_on_result(
     )
 
     # 构建 prompt
-    prompt = REFLECTION_PROMPT.format(user_input=user_input, reply=reply)
+    # 构建评估提示：使用优化的 XML 结构化提示词
+    prompt = f"用户原始输入：\n{user_input}\n\nAgent 执行结果：\n{reply}"
     if kb_standard:
         prompt = prompt + kb_standard + "\n\n若知识库有更准确的说法，请在 suggestions 中指出。"
 

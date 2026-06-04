@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from openai import AsyncOpenAI
 
 from miniagent.core.llm_json import llm_json
+from miniagent.core.prompts.clarifier import CLARIFIER_PROMPT
 from miniagent.core.thinking_callback import invoke_on_thinking
 
 
@@ -53,25 +54,7 @@ class ClarifiedRequirement:
     ambiguity_report: list[str] = field(default_factory=list)  # 模糊表述列表
 
 
-CLARIFY_PROMPT = """你是一个需求分析专家。请按以下步骤分析用户需求：
-
-Step 1 (Wittgenstein - 语言边界)：识别模糊表述、未定义概念、歧义词。
-Step 2 (Socrates - 反向追问)：推断隐含约束（专业度、格式、时间、范围）。
-Step 3 (Polanyi - 示例传递)：提供正向和反向示例来传递隐性知识。
-
-重要：如果提供了「历史会话记忆」，请先仔细阅读记忆内容，不要重复询问历史中已经回答过的问题。只在记忆确实无法覆盖的模糊点上追问。
-
-请以 JSON 格式返回：
-{
-  "clarified_goal": "澄清后的目标描述",
-  "boundary_conditions": ["约束1", "约束2"],
-  "output_spec": "输出规格说明",
-  "examples": ["正向示例1"],
-  "anti_examples": ["反向示例1"],
-  "ambiguity_report": ["模糊点1", "模糊点2"]
-}
-
-只返回 JSON，不要其他文字。"""
+# CLARIFY_PROMPT 现在从 miniagent.core.prompts.clarifier 导入
 
 
 @dataclass
@@ -144,9 +127,9 @@ class RequirementClarifier:
             context_parts.append(kb_context)
         full_context = "\n\n".join(context_parts) if context_parts else ""
 
-        system = CLARIFY_PROMPT
+        system = CLARIFIER_PROMPT
         if full_context:
-            system = f"{full_context}\n\n{CLARIFY_PROMPT}"
+            system = f"{full_context}\n\n{CLARIFIER_PROMPT}"
 
         # agent.py 已在 LLM 调用前发送"正在分析需求…"提示，此处不再重复发送。
 

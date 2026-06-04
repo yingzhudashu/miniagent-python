@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from miniagent.core.prompts.feishu_channel import (
+    FEISHU_CHANNEL_HINT_WITH_TOOLS,
+    FEISHU_CHANNEL_HINT_WITHOUT_TOOLS,
+)
 from miniagent.feishu.feishu_tool_policy import FEISHU_EXT_TOOL_NAMES
 from miniagent.feishu.im_tool_policy import feishu_credentials_configured
 

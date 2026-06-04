@@ -19,6 +19,7 @@ from typing import Any
 from miniagent.core.config import AGENT_NAME
 from miniagent.core.llm_json import parse_llm_json_response
 from miniagent.core.openai_client import get_shared_async_openai
+from miniagent.core.prompts.planner import PLAN_SYSTEM_PROMPT
 from miniagent.infrastructure.debug_ndjson import safe_agent_debug_log
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import append_log, get_logger, truncate
@@ -40,33 +41,8 @@ from miniagent.core._openai_compat import json_object_unsupported as _json_objec
 
 # ─── 常量 ───────────────────────────────────────────────
 
-PLAN_SYSTEM_PROMPT = f"""你是 {AGENT_NAME} 的规划器。你是一个任务规划专家，负责分析用户需求并生成结构化的执行计划。
-
-请以 JSON 格式返回计划，包含以下字段：
-{{
-  "summary": "计划摘要",
-  "steps": [{{
-      "stepNumber": 1, "description": "", "requiredToolboxes": [],
-      "expectedInput": "", "expectedOutput": "", "dependsOn": null,
-      "thinkingLevel": "medium"
-  }}],
-  "requiredToolboxes": [],
-  "defaultStepThinkingLevel": "medium",
-  "suggestedConfig": {{"maxTurns":5,"toolTimeout":30,"riskLevel":"low","contextOverflowStrategy":"summarize","toolSelectionStrategy":"toolbox","modelOverrides":{{}},"parallelism":"safe-parallel"}},
-  "estimatedTokens": {{"promptTokens":500,"completionTokens":500,"toolResultTokens":200,"total":1200}},
-  "contextStrategy": {{"mode":"normal","reason":""}},
-  "requiresConfirmation": false,
-  "riskLevel": "low",
-  "estimatedCost": {{"inputTokens":0,"outputTokens":0,"totalUSD":0}},
-  "outputSpec": {{"language":"zh-CN","format":"markdown","expectedDeliverable":""}},
-  "fallbackPlan": {{"degradeToSimple":true,"degradedMaxTurns":5}}
-}}
-
-只返回 JSON，不要包含其他文字。
-若 API 使用 json_object 模式，响应体须为单个 JSON 对象（即上述结构本身，不要数组或额外键）。
-每个步骤必须包含 thinkingLevel，取值 low / medium / high（与任务该步所需推理深度一致）。
-涉及时效数据、客观事实或天气等问题时，顶层 requiredToolboxes 应包含 \"web\"（内含 web_search、browser_extract_text、fetch_url）。
-涉及专业知识、内部文档、历史案例或需要检索知识库时，顶层 requiredToolboxes 应包含 \"knowledge\"（内含 search_knowledge、read_knowledge_file、kb_list）。"""
+# PLAN_SYSTEM_PROMPT 现在从 miniagent.core.prompts.planner 导入
+# 使用 XML 标签结构化，遵循 Claude 最佳实践
 
 MAX_RETRIES = 3
 

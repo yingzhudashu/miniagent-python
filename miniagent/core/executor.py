@@ -34,10 +34,11 @@ from typing import Any
 
 from openai import AsyncOpenAI
 
-from miniagent.core.config import AGENT_NAME, get_default_agent_config, get_default_model_config
+from miniagent.core.config import get_default_agent_config, get_default_model_config
 from miniagent.core.llm_params import resolve_exec_completion_kwargs
 from miniagent.core.openai_client import get_shared_async_openai
 from miniagent.core.openai_message_sanitize import strip_leading_underscore_keys_from_messages
+from miniagent.core.prompts.identity import AGENT_IDENTITY
 from miniagent.core.thinking_callback import invoke_on_thinking
 from miniagent.core.thinking_presets import map_business_depth
 from miniagent.infrastructure.json_config import get_config
@@ -229,17 +230,10 @@ class StreamingBuffer:
         self._consolidated = None
 
 
-# ─── Agent 身份 ────────────────────────────────────────────
+# ─── Agent 身份（从 prompts 模块导入）────────────────────────────
 
-AGENT_IDENTITY = (
-    f"你是 {AGENT_NAME}，一个基于 Python 的轻量级 LLM Agent。"
-    "你具备两阶段规划（Plan → Execute）、ReAct 循环执行、"
-    "工具箱调用、技能加载和自我优化能力。"
-    "涉及时效性或客观事实的问题（天气、股价、新闻等）：应先使用 web_search（Tavily）检索；"
-    "若页面依赖前端渲染再使用 browser_extract_text；静态 HTML 可优先 fetch_url；"
-    "需要「今天/明天」等日期请先调用 get_time。"
-    "回答时保持专业、简洁、高效。"
-)
+# AGENT_IDENTITY 现在从 miniagent.core.prompts.identity 导入
+# 使用 XML 标签结构化，遵循 Claude 最佳实践
 
 
 def build_execution_system_prompt(

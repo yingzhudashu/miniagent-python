@@ -11,6 +11,7 @@ from typing import Any
 from miniagent.core._openai_compat import json_object_unsupported as _json_object_unsupported
 from miniagent.core.llm_json import parse_llm_json_response
 from miniagent.core.openai_client import get_shared_async_openai
+from miniagent.core.prompts.classifier import CLASSIFIER_PROMPT
 from miniagent.core.thinking_presets import map_business_depth, map_thinking_level_to_model
 from miniagent.infrastructure.debug_ndjson import safe_agent_debug_log
 from miniagent.infrastructure.json_config import get_config
@@ -103,13 +104,8 @@ async def classify_task_difficulty(
         user_input, phase="classifier", default_top_k=2, default_max_chars=1500
     )
 
-    sys_prompt = (
-        "你是任务难度分类器。根据用户诉求与可用工具箱 id 列表，判断复杂度。\n"
-        '只返回 JSON 对象：{"difficulty":"simple|normal|medium|complex"}\n'
-        "simple：单步可答、无需工具或极简单查询；normal：常规多步但清晰；"
-        "medium：需多工具协作或中等推理；complex：长链路、强依赖工具或高风险。\n"
-        "若知识库摘要中有直接答案或充分参考，建议分类为 simple。"
-    )
+    # 使用优化后的分类器提示词（XML 结构化，包含示例）
+    sys_prompt = CLASSIFIER_PROMPT
     tb_line = ", ".join(toolbox_ids[:32]) if toolbox_ids else "(无)"
     user_msg = f"用户诉求:\n{user_input}\n\n工具箱 id: {tb_line}"
     # 注入知识库检索结果
