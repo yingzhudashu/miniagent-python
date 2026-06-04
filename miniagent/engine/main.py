@@ -1791,14 +1791,16 @@ async def run_cli_loop(
         event.app.invalidate()
 
     # PT 的 _parse_style_str 只认属性词 "dim"，不认 "ansidim"（后者会走 parse_color → ValueError）。
+    # ── CLI 样式配置（思考颜色可配置）──
     _cli_style_dict = {
         "prompt-prefix": "bold ansigreen",
         "cli-border-strong": "ansibrightblue bold",
         "cli-border": "ansiblue dim",
         "cli-user-title": "bold ansicyan",
         "cli-user-body": "ansicyan",
-        "cli-think-head": "bold ansibrightblack",
-        "cli-think-body": "ansibrightblack dim",
+        # 思考样式：从配置读取，默认亮蓝色（醒目可读，与边框风格一致）
+        "cli-think-head": get_config("cli.styles.think_head", "bold ansibrightblue"),
+        "cli-think-body": get_config("cli.styles.think_body", "ansibrightblue"),
         "cli-assistant-title": "bold ansigreen",
         "cli-assistant-body": "ansigreen",
         "cli-default": "",

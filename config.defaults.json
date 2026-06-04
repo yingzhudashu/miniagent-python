@@ -79,7 +79,12 @@
     "file_vision_desc": true,
     "welcome_hint": true,
     "self_opt_tools": true,
-    "render_cache_max_size": 100
+    "render_cache_max_size": 100,
+    "styles": {
+      "description": "CLI样式配置（prompt_toolkit ANSI样式）",
+      "think_head": "bold ansibrightblue",
+      "think_body": "ansibrightblue"
+    }
   },
 
   "feishu": {

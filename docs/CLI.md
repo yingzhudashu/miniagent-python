@@ -520,6 +520,78 @@ file_patterns:         # 包含的文件模式
 
 MiniAgent 提供多项用户体验增强功能，提升交互效率与稳定性。
 
+### 自定义思考颜色
+
+CLI 思考过程的显示颜色可通过配置文件自定义。默认使用亮蓝色（`ansibrightblue`），醒目可读。
+
+**配置方式**：
+
+在 `config.user.json` 中添加样式配置：
+
+```json
+{
+  "cli": {
+    "styles": {
+      "think_head": "bold ansibrightblue",
+      "think_body": "ansibrightblue"
+    }
+  }
+}
+```
+
+**支持的颜色**：
+
+prompt_toolkit ANSI 颜色系列：
+
+| 颜色名 | 说明 |
+|--------|------|
+| `ansiblack` | 黑色 |
+| `ansired` | 红色 |
+| `ansigreen` | 绿色 |
+| `ansiyellow` | 黄色 |
+| `ansiblue` | 蓝色 |
+| `ansimagenta` | 紫色 |
+| `ansicyan` | 青色 |
+| `ansiwhite` | 白色 |
+| `ansibrightblack` | 亮黑（灰色） |
+| `ansibrightred` | 亮红 |
+| `ansibrightgreen` | 亮绿 |
+| `ansibrightyellow` | 亮黄 |
+| `ansibrightblue` | 亮蓝（默认） |
+| `ansibrightmagenta` | 亮紫 |
+| `ansibrightcyan` | 亮青 |
+| `ansibrightwhite` | 亮白 |
+
+**样式属性**：
+
+- `bold`：加粗
+- `dim`：变暗（降低亮度，不推荐与 `ansibrightblack` 同时使用）
+- `italic`：斜体
+- `underline`：下划线
+- `reverse`：反显（交换前景色和背景色）
+
+**示例配置**：
+
+```json
+{
+  "cli": {
+    "styles": {
+      "think_head": "bold ansicyan",
+      "think_body": "ansicyan"
+    }
+  }
+}
+```
+
+**环境变量覆盖**：
+
+也可通过环境变量设置（优先级高于配置文件）：
+
+```bash
+MINIAGENT_CLI_STYLES_THINK_HEAD="bold ansigreen"
+MINIAGENT_CLI_STYLES_THINK_BODY="ansigreen"
+```
+
 ### 命令模糊匹配
 
 输入 `/` 命令时自动检测错别字并提供建议：
