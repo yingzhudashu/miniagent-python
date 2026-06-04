@@ -767,6 +767,28 @@ async def run_cli_loop(
             return True
         return any(style.startswith(p) for p in valid_prefixes)
 
+    def _safe_ansi(ansi_body: str) -> Any:
+        """安全创建 ANSI 对象，过滤可能导致渲染错误的样式字符串。
+
+        prompt_toolkit 的 ANSI 解析器可能将某些 ANSI 序列错误解析，
+        导致 emoji 等字符被当作样式字符串，引发 'Wrong color format' 错误。
+        使用 _is_valid_pt_style 验证每个 fragment 的样式。
+        """
+        from prompt_toolkit.formatted_text import ANSI, to_formatted_text
+
+        ansi_obj = ANSI(ansi_body)
+        # 获取解析后的 fragments 并过滤样式
+        ft = list(to_formatted_text(ansi_obj))
+        safe_fragments = []
+        for style, text in ft:
+            # 使用统一的样式验证函数
+            if _is_valid_pt_style(style):
+                safe_fragments.append((style, text))
+            else:
+                # 无效样式，使用空样式（纯文本）
+                safe_fragments.append(("", text))
+        return safe_fragments
+
     def _truncate_hrule_in_ansi(ansi_list: list[Any], vp: int) -> list[Any]:
         """截断 ANSI 输出中的水平分割线，同时过滤无效样式（防止 emoji 解析错误）。
 
@@ -1914,28 +1936,6 @@ async def run_cli_loop(
         if color and not color.startswith("class:") and not color.startswith("ansi"):
             # 只允许 ansi* 或 class:* 格式
             color = ""
-
-        def _safe_ansi(ansi_body: str) -> Any:
-            """安全创建 ANSI 对象，过滤可能导致渲染错误的样式字符串。
-
-            prompt_toolkit 的 ANSI 解析器可能将某些 ANSI 序列错误解析，
-            导致 emoji 等字符被当作样式字符串，引发 'Wrong color format' 错误。
-            使用 _is_valid_pt_style 验证每个 fragment 的样式。
-            """
-            from prompt_toolkit.formatted_text import ANSI, to_formatted_text
-
-            ansi_obj = ANSI(ansi_body)
-            # 获取解析后的 fragments 并过滤样式
-            ft = list(to_formatted_text(ansi_obj))
-            safe_fragments = []
-            for style, text in ft:
-                # 使用统一的样式验证函数
-                if _is_valid_pt_style(style):
-                    safe_fragments.append((style, text))
-                else:
-                    # 无效样式，使用空样式（纯文本）
-                    safe_fragments.append(("", text))
-            return safe_fragments
 
         try:
             md_w = _markdown_render_width()  # 统一使用更宽的渲染宽度
