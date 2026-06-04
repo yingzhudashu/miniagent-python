@@ -15,6 +15,10 @@ mistune 3.x API 说明：
 - mistune.create_markdown(renderer=None) 返回 token AST（dict 列表）
 - 每个 token 包含 'type', 'attrs', 'children' 等字段
 - 需要遍历 AST 并手动转换为 FeishuBlock
+
+依赖说明：
+- mistune>=3.0.0 是可选依赖（feishu extra）
+- 未安装时，富文本渲染会回退到纯文本模式
 """
 
 from __future__ import annotations
@@ -24,7 +28,13 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Any
 
-import mistune
+# 可选导入：mistune 是 feishu extra 的可选依赖
+try:
+    import mistune
+    _HAS_MISTUNE = True
+except ImportError:
+    mistune = None  # type: ignore
+    _HAS_MISTUNE = False
 
 _logger = logging.getLogger("miniagent.feishu.markdown_renderer")
 
@@ -387,6 +397,15 @@ def markdown_to_feishu_blocks(
     """
     if not md or not md.strip():
         return MarkdownConversionResult(blocks=[], warnings=["空内容"])
+
+    # 检查 mistune 是否可用
+    if not _HAS_MISTUNE:
+        _logger.warning("mistune 未安装，回退到纯文本模式")
+        return MarkdownConversionResult(
+            blocks=[FeishuBlock(BlockType.TEXT, text_runs=[TextRun(md)])],
+            warnings=["mistune 未安装，无法进行富文本渲染。请安装: pip install 'miniagent-python[feishu]'"],
+            stats={"total_blocks": 1},
+        )
 
     # 使用 mistune 解析为 AST，启用 GFM 插件
     md_parser = mistune.create_markdown(

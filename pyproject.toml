@@ -29,9 +29,11 @@ dependencies = [
 [project.optional-dependencies]
 cli = [
     "rich>=13.0.0",
+    "prompt-toolkit>=3.0.0",
 ]
 feishu = [
     "lark-oapi>=1.4.0",
+    "mistune>=3.0.0",
 ]
 browser = [
     "playwright>=1.40.0",
