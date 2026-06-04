@@ -338,6 +338,22 @@ async def run_cli_loop(
     os.makedirs(history_dir, exist_ok=True)
     history_file = os.path.join(history_dir, "history.txt")
 
+    # ── 历史记录安全写入：确保每次保存时目录存在 ──
+    class SafeFileHistory(FileHistory):
+        """FileHistory 的安全版本，每次写入前确保父目录存在。
+
+        解决 Windows 文件系统竞态条件导致的 "No such file or directory" 错误。
+        在某些情况下（如并发清理、文件系统延迟），history_dir 可能被意外删除，
+        此类在 store_string 被调用时自动重建目录。
+        """
+
+        def store_string(self, string: str) -> None:
+            # 每次写入前确保父目录存在
+            parent_dir = os.path.dirname(self.filename)
+            if parent_dir:
+                os.makedirs(parent_dir, exist_ok=True)
+            super().store_string(string)
+
     # ── 用户体验增强：Tab 自动补全 ──
     class CommandCompleter(Completer):
         """斜杠命令补全器（用户体验增强）。"""
@@ -447,7 +463,7 @@ async def run_cli_loop(
             _logger.warning("历史加载失败，继续启动: %s", e)  # 历史加载失败不影响启动
 
     input_buffer = Buffer(
-        history=FileHistory(history_file),
+        history=SafeFileHistory(history_file),
         completer=merged_completer,  # 用户体验增强：Tab 自动补全
         complete_while_typing=False,  # 仅在 Tab 键触发补全
     )
