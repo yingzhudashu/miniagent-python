@@ -1814,9 +1814,9 @@ async def run_cli_loop(
         "cli-border": "ansiblue dim",
         "cli-user-title": "bold ansicyan",
         "cli-user-body": "ansicyan",
-        # 思考样式：从配置读取，默认亮蓝色（醒目可读，与边框风格一致）
-        "cli-think-head": get_config("cli.styles.think_head", "bold ansibrightblue"),
-        "cli-think-body": get_config("cli.styles.think_body", "ansibrightblue"),
+        # 思考样式：从配置读取，默认亮青色（淡雅清新，不扎眼）
+        "cli-think-head": get_config("cli.styles.think_head", "ansibrightcyan"),
+        "cli-think-body": get_config("cli.styles.think_body", "ansibrightcyan"),
         "cli-assistant-title": "bold ansigreen",
         "cli-assistant-body": "ansigreen",
         "cli-default": "",

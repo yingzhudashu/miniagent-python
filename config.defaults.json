@@ -82,8 +82,8 @@
     "render_cache_max_size": 100,
     "styles": {
       "description": "CLI样式配置（prompt_toolkit ANSI样式）",
-      "think_head": "bold ansibrightblue",
-      "think_body": "ansibrightblue"
+      "think_head": "ansibrightcyan",
+      "think_body": "ansibrightcyan"
     }
   },
 
@@ -256,7 +256,7 @@
   "features": {
     "description": "功能开关",
     "requirement_clarify": true,
-    "reflection": false,
+    "reflection": true,
     "skills_watch": false,
     "tui_verbose_log": false,
     "config_hot_reload": false

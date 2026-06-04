@@ -327,18 +327,21 @@ async def run_agent(
                 session_key=session_key,
                 max_questions=max_questions,
             )
+            # 构建完整的澄清信息传递给规划器和执行器
+            # 使用 to_system_prompt 生成包含目标、约束、输出规格、示例的完整提示词
             clarified_text = getattr(clarified, "clarified_goal", "") or ""
-            if clarified_text:
-                user_input = f"{user_input}\n\n澄清后的目标：{clarified_text}"
+            if clarified:
+                # 将完整澄清结果注入到 user_input，确保用户补充、输出规格等生效
+                full_clarification = clarifier.to_system_prompt(clarified)
+                user_input = f"{user_input}\n\n{full_clarification}"
                 if _announce_difficulty_and_plan_enabled() and on_thinking:
                     try:
-                        prompt = clarifier.to_system_prompt(clarified)
                         await invoke_on_thinking(
                             on_thinking,
                             f"需求已澄清：{clarified_text[:80]}",
                             True,
                             "[需求澄清]",
-                            full_record=prompt,
+                            full_record=full_clarification,
                         )
                     except Exception as e:
                         _logger.debug("澄清结果推送失败（非关键）: %s", e)

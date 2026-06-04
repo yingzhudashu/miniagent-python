@@ -80,9 +80,11 @@ class TestRunAgentClarification:
                         assert reply == "天气预报结果"
                         clarifier.clarify.assert_called_once()
                         mock_exec.assert_called_once()
-                        # 验证 user_input 被增强
+                        # 验证 user_input 被增强（使用完整的 to_system_prompt 格式）
                         call_args = mock_exec.call_args
-                        assert "澄清后的目标" in call_args[0][1]
+                        # 新格式使用 "## 需求规格" 和 "目标：" 标签
+                        assert "## 需求规格" in call_args[0][1]
+                        assert "目标：" in call_args[0][1]
 
     @pytest.mark.asyncio
     async def test_env_disable_clarify(self):
