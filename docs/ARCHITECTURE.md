@@ -402,6 +402,25 @@ LLM 可通过 function calling 调用的工具：
 | `loop_detector.py` | 循环检测器：相似度检测、warning/critical 分级 |
 | `process.py` | 进程管理：子进程追踪、孤儿进程清理 |
 | `debug_ndjson.py` | 可选 NDJSON 调试落盘 |
+| `http_retry.py` | HTTP 重试工具：指数退避、5xx 重试、网络错误重试 |
+| `config_watch.py` | 配置热更新：监听文件 mtime、防抖触发 reload |
+
+### 用户体验增强层
+
+位于 `miniagent/engine/` 和 `miniagent/infrastructure/`，提供交互体验优化：
+
+| 模块 | 功能 |
+|------|------|
+| `command_dispatch.py` | 模糊匹配：`difflib.get_close_matches()`、前缀匹配、建议提示 |
+| `main.py` | Tab 补全：`CommandCompleter`（命令）、`FilePathCompleter`（路径） |
+| `setup_wizard.py` | 首次配置引导：交互式 API 密钥、模型、端点配置 |
+| `openai_client.py` | 超时配置：SDK 原生 `timeout`、`max_retries` 参数 |
+
+**增强功能**：
+- **命令模糊匹配**：错别字检测（如 `/sttatus` → `/status`）、相似度阈值 0.6、建议而非自动执行
+- **Tab 自动补全**：命令补全（`/` 开头）、文件路径补全（`@file:` 开头）、Tab/Shift+Tab 循环
+- **网络可靠性**：HTTP 重试（3 次、指数退避）、连接池复用、超时配置（120 秒）
+- **配置热更新**：文件监听（5 秒检查）、防抖（2 秒）、`/reload-config` 命令
 
 ### 10. 安全层 + 类型层
 

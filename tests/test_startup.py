@@ -391,14 +391,14 @@ def test_command_dispatch_all_commands():
 
     async def run_all():
         cmds = [
-            ".help",
-            ".status",
-            ".bind status",
-            ".unbind all",
-            ".feishu status",
-            ".queue status",
-            ".queue abort",
-            ".abort",
+            "/help",
+            "/status",
+            "/bind status",
+            "/unbind all",
+            "/feishu status",
+            "/queue status",
+            "/queue abort",
+            "/abort",
         ]
         for cmd in cmds:
             result = await dispatch_command(cmd, state=state, capture=True)
@@ -448,7 +448,7 @@ def test_dispatch_queue_set_async_capture():
 
     async def run():
         mq.mode = QueueMode.PREEMPTIVE
-        out = await dispatch_command(".queue set queue", state=state, capture=True)
+        out = await dispatch_command("/queue set queue", state=state, capture=True)
         assert out is not None
         assert "队列" in out or "queue" in out.lower()
         assert mq.mode == QueueMode.QUEUE
@@ -496,7 +496,7 @@ def test_dispatch_feishu_blocks_session_mutations():
 
     async def run():
         out = await dispatch_command(
-            ".session switch 1",
+            "/session switch 1",
             state=state,
             capture=True,
             allow_session_mutations_when_capture=False,
@@ -563,7 +563,7 @@ def test_actual_instance_startup():
 
         # 发送 .stop 命令优雅关闭
         try:
-            proc.stdin.write(".stop\n")
+            proc.stdin.write("/stop\n")
             proc.stdin.flush()
         except Exception:
             pass

@@ -31,6 +31,11 @@
 
 ### Added
 
+- **用户体验增强**（4项核心功能）：
+  - **命令模糊匹配**：[`command_dispatch.py`](miniagent/engine/command_dispatch.py) 添加 `difflib.get_close_matches()` 模糊匹配，错别字自动提示（如 `/sttatus` → `/status`）
+  - **Tab 自动补全**：[`main.py`](miniagent/engine/main.py) 添加 `CommandCompleter`（命令补全）和 `FilePathCompleter`（路径补全），Tab/Shift+Tab 循环选项
+  - **网络可靠性增强**：新增 [`http_retry.py`](miniagent/infrastructure/http_retry.py) 统一重试工具（指数退避、5xx 重试）；[`openai_client.py`](miniagent/core/openai_client.py) 添加 `timeout` 和 `max_retries` 配置
+  - **配置热更新**：新增 [`config_watch.py`](miniagent/infrastructure/config_watch.py) 监听配置文件修改；新增 [`setup_wizard.py`](miniagent/engine/setup_wizard.py) 首次配置引导；新增 `/reload-config` 命令
 - **飞书去重模块拆分**：新增 [`miniagent/feishu/feishu_dedup.py`](miniagent/feishu/feishu_dedup.py)，独立封装内存+磁盘双重去重逻辑（`try_begin_processing`、`release_processing`、`abandon_processing_claim`），支持延迟刷盘和进程退出同步保存。
 - **环境变量模板**：新增 [`.env.example`](.env.example)，提供完整的环境变量配置模板，包含必填和可选配置项及说明。
 - **类型标注改进**：[`executor.py`](miniagent/core/executor.py) 使用 Protocol 类型替代 Any，包括 `MemoryStoreProtocol`、`ActivityLogProtocol`、`KeywordIndexProtocol`、`ClawHubClientProtocol`。

@@ -43,10 +43,17 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 | `Shift+Right` | 水平向右滚动（仅窄终端时生效） |
 | `Up` | 浏览上一条历史输入 |
 | `Down` | 浏览下一条历史输入 |
+| `Tab` | 自动补全命令或文件路径 |
+| `Shift+Tab` | 向前循环补全选项 |
 
 **水平滚动说明**：当终端宽度小于 60 列时，自动禁用折行，启用水平滚动。`Shift+Left/Right` 每步滚动约 10 字符。
 
 **退出说明**：Ctrl+C 和 Ctrl+D 都可退出程序，效果相同。Ctrl+C 也可用于中断正在运行的Agent操作。
+
+**Tab 补全说明**：
+- 输入 `/` 开头时补全命令（如 `/st` → `/status`）
+- 输入 `@file:` 或 `file:` 后补全文件路径
+- 按 `Tab` 向后循环选项，`Shift+Tab` 向前循环
 
 ## 鼠标交互
 
@@ -177,6 +184,7 @@ On branch main
 | **实例控制** | `/stop` | 停止当前实例并退出 |
 | | `/copy` | 复制当前会话 transcript 到剪贴板（全屏 CLI） |
 | **技能** | `/reload-skills` | 从磁盘全量重新加载 `workspaces/skills`（`install_skill` 成功后通常已自动热加载） |
+| **配置** | `/reload-config` | 重新加载 config.user.json（配置热更新） |
 | **其他** | `/help` | 显示帮助信息 |
 | | `quit` / `exit` | 退出程序 |
 
@@ -475,6 +483,22 @@ file_patterns:         # 包含的文件模式
 
 测试样本位于 `tests/evaluation/samples/`。
 
+### /reload-config — 配置热更新
+
+重新加载 `config.user.json`，使配置修改立即生效无需重启：
+
+```
+> /reload-config
+✅ 配置已重新加载
+```
+
+**自动热更新**：设置 `features.config_hot_reload=true` 后，修改配置文件会自动触发重载（每5秒检查，2秒防抖）。
+
+**配置监听**：
+- 监听文件：项目根目录的 `config.user.json`
+- 检查间隔：5秒
+- 防抖延迟：2秒（避免部分写入）
+
 ### /confirm / /adjust / /reject — 确认侧通道
 
 当 Agent 通过确认通道（`ConfirmationChannel`）发起待确认请求时，可用以下命令响应：
@@ -491,6 +515,93 @@ file_patterns:         # 包含的文件模式
 ```
 
 `/confirm` 直接通过；`/adjust` 携带调整内容作为回答注入；`/reject` 拒绝请求。
+
+## 用户体验增强
+
+MiniAgent 提供多项用户体验增强功能，提升交互效率与稳定性。
+
+### 命令模糊匹配
+
+输入 `/` 命令时自动检测错别字并提供建议：
+
+```
+> /sttatus
+⚠️ 未找到命令 '/sttatus'，您是否想输入 '/status'？
+
+> /hlep
+⚠️ 未找到命令 '/hlep'，您是否想输入 '/help'？
+
+> /sesion list
+⚠️ 未找到命令 '/sesion'，您是否想输入 '/session'？
+```
+
+**匹配策略**：
+- **前缀匹配**：输入至少3字符时优先匹配前缀（如 `/sta` → `/stats`）
+- **模糊匹配**：相似度阈值 0.6，使用 `difflib.get_close_matches()`
+- **建议而非自动执行**：用户需手动确认后重新输入
+
+### Tab 自动补全
+
+按 `Tab` 键自动补全命令和文件路径：
+
+**命令补全**：
+```
+输入 /st + Tab → 显示选项：
+  /stats   /status   /stop   /stop-instance
+```
+
+**文件路径补全**：
+```
+输入 @file:D:/AI + Tab → 显示匹配路径：
+  D:/AIhub/   D:/AIProjects/
+```
+
+**操作方式**：
+- `Tab`：向后循环选项
+- `Shift+Tab`：向前循环选项
+- 选择后自动插入完整内容
+
+### 网络连接可靠性
+
+HTTP 请求自动重试，提升网络稳定性：
+
+**重试策略**：
+- **5xx 错误**：重试（服务器错误）
+- **4xx 错误**：不重试（客户端错误）
+- **网络错误**：重试（连接失败）
+
+**参数配置**：
+- `max_retries`：默认 3 次
+- `backoff_factor`：指数退避因子 1.0（间隔：1s → 2s → 4s）
+- `http_timeout`：默认 120 秒（`config.defaults.json`）
+
+**覆盖模块**：
+- OpenAI API 调用（SDK 原生 `max_retries=2`）
+- Embedding 搜索
+- ClawHub 客户端
+- 飞书 Drive API
+
+### 配置热更新
+
+配置文件修改后立即生效，无需重启：
+
+**手动触发**：
+```
+> /reload-config
+✅ 配置已重新加载
+```
+
+**自动监听**（需启用）：
+1. 设置 `features.config_hot_reload=true`
+2. 监听 `config.user.json` 文件修改
+3. 每 5 秒检查文件 mtime
+4. 检测到修改后等待 2 秒（防抖）
+5. 自动调用 `reload_config()`
+
+**首次配置引导**：
+- 首次运行时检测无 `config.user.json`
+- 交互式提示配置 API 密钥、模型、端点
+- 自动生成配置文件
 
 ## 飞书中使用命令
 

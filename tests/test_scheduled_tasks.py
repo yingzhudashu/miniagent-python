@@ -87,7 +87,7 @@ def test_cmd_schedule_remote_blocks_mutations() -> None:
     from miniagent.engine.cli_commands import cmd_schedule
 
     out = cmd_schedule(
-        ".schedule add x every 60 primary -- hello",
+        "/schedule add x every 60 primary -- hello",
         allow_mutations=False,
     )
     assert "不允许修改定时任务" in out
@@ -97,7 +97,7 @@ def test_cmd_schedule_once_insufficient_args(state_dir: str) -> None:
     from miniagent.engine.cli_commands import cmd_schedule
 
     out = cmd_schedule(
-        ".schedule add bad once 2030-01-01 -- oops",
+        "/schedule add bad once 2030-01-01 -- oops",
         allow_mutations=True,
     )
     assert "参数不足" in out or "用法" in out
@@ -106,7 +106,7 @@ def test_cmd_schedule_once_insufficient_args(state_dir: str) -> None:
 def test_cmd_schedule_add_parses(state_dir: str) -> None:
     from miniagent.engine.cli_commands import cmd_schedule
 
-    line = ".schedule add t99 every 5 primary -- integration test prompt"
+    line = "/schedule add t99 every 5 primary -- integration test prompt"
     msg = cmd_schedule(line, allow_mutations=True)
     assert "已添加" in msg
     tasks = load_tasks()
@@ -117,7 +117,7 @@ def test_cmd_schedule_add_parses(state_dir: str) -> None:
 def test_cmd_schedule_add_once_with_tz_naive(state_dir: str) -> None:
     from miniagent.engine.cli_commands import cmd_schedule
 
-    line = ".schedule add tz1 once 2030-06-15T08:00:00 primary --tz Asia/Shanghai -- remind me"
+    line = "/schedule add tz1 once 2030-06-15T08:00:00 primary --tz Asia/Shanghai -- remind me"
     msg = cmd_schedule(line, allow_mutations=True)
     assert "已添加" in msg
     tasks = load_tasks()
@@ -296,7 +296,7 @@ def test_repair_invalid_cron_sets_error(state_dir: str) -> None:
 def test_cmd_schedule_add_cron(state_dir: str) -> None:
     from miniagent.engine.cli_commands import cmd_schedule
 
-    line = '.schedule add cron1 cron "10 8 * * *" primary --tz Asia/Shanghai -- daily job'
+    line = '/schedule add cron1 cron "10 8 * * *" primary --tz Asia/Shanghai -- daily job'
     msg = cmd_schedule(line, allow_mutations=True)
     assert "已添加" in msg
     tasks = load_tasks()
@@ -475,10 +475,10 @@ def test_cmd_schedule_list_and_show(state_dir: str) -> None:
             )
         ]
     )
-    listed = cmd_schedule(".schedule list", allow_mutations=True)
+    listed = cmd_schedule("/schedule list", allow_mutations=True)
     assert "ls1" in listed
     assert "定时任务" in listed
-    shown = cmd_schedule(".schedule show ls1", allow_mutations=True)
+    shown = cmd_schedule("/schedule show ls1", allow_mutations=True)
     assert '"id": "ls1"' in shown
 
 
@@ -498,13 +498,13 @@ def test_cmd_schedule_remove_enable_disable(state_dir: str) -> None:
             )
         ]
     )
-    out = cmd_schedule(".schedule disable rm1", allow_mutations=True)
+    out = cmd_schedule("/schedule disable rm1", allow_mutations=True)
     assert "已禁用" in out
     assert load_tasks()[0].enabled is False
-    out2 = cmd_schedule(".schedule enable rm1", allow_mutations=True)
+    out2 = cmd_schedule("/schedule enable rm1", allow_mutations=True)
     assert "已启用" in out2
     assert load_tasks()[0].enabled is True
-    out3 = cmd_schedule(".schedule remove rm1", allow_mutations=True)
+    out3 = cmd_schedule("/schedule remove rm1", allow_mutations=True)
     assert "已删除" in out3
     assert load_tasks() == []
 
@@ -612,12 +612,12 @@ def test_cmd_schedule_update_interval(state_dir: str) -> None:
     from miniagent.engine.cli_commands import cmd_schedule
 
     add = cmd_schedule(
-        ".schedule add upd_cli every 60 primary -- old prompt",
+        "/schedule add upd_cli every 60 primary -- old prompt",
         allow_mutations=True,
     )
     assert "已添加" in add
     out = cmd_schedule(
-        ".schedule update upd_cli every 120 primary -- new prompt text",
+        "/schedule update upd_cli every 120 primary -- new prompt text",
         allow_mutations=True,
     )
     assert "已更新" in out

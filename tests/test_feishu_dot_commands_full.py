@@ -93,7 +93,7 @@ async def test_capture_stop_blocked_by_default() -> None:
     old = os.environ.pop(key, None)
     try:
         state = _minimal_dispatch_state()
-        out = await dispatch_command(".stop", state=state, capture=True)
+        out = await dispatch_command("/stop", state=state, capture=True)
         assert out is not None
         assert "CLI" in out or "MINIAGENT_FEISHU_DOT_COMMANDS_FULL" in out
     finally:
@@ -112,7 +112,7 @@ async def test_capture_stop_allowed_when_full_enabled() -> None:
             "miniagent.engine.shutdown.shutdown_runtime",
             new_callable=AsyncMock,
         ) as mock_shutdown:
-            result = await dispatch_command(".stop", state=state, capture=True)
+            result = await dispatch_command("/stop", state=state, capture=True)
         mock_shutdown.assert_awaited_once()
         assert result == "__EXIT__"
     finally:
@@ -130,7 +130,7 @@ async def test_capture_schedule_mutations_blocked_by_default(
     state = _minimal_dispatch_state()
     task_id = f"t_{uuid.uuid4().hex[:8]}"
     out = await dispatch_command(
-        f".schedule add {task_id} every 60 primary -- hello",
+        f"/schedule add {task_id} every 60 primary -- hello",
         state=state,
         capture=True,
         allow_session_mutations_when_capture=False,
@@ -147,7 +147,7 @@ async def test_capture_schedule_mutations_allowed_when_flag_true(
     from miniagent.scheduled_tasks.store import load_tasks, save_tasks
 
     out = await dispatch_command(
-        ".schedule add feishu_full_test every 3600 primary -- probe",
+        "/schedule add feishu_full_test every 3600 primary -- probe",
         state=_minimal_dispatch_state(),
         capture=True,
         allow_session_mutations_when_capture=True,
@@ -157,7 +157,7 @@ async def test_capture_schedule_mutations_allowed_when_flag_true(
     assert any(t.id == "feishu_full_test" for t in load_tasks())
     save_tasks([t for t in load_tasks() if t.id != "feishu_full_test"])
     cleanup = cmd_schedule(
-        ".schedule remove feishu_full_test",
+        "/schedule remove feishu_full_test",
         allow_mutations=True,
     )
     assert "未找到" in cleanup
@@ -175,7 +175,7 @@ async def test_capture_schedule_unblocked_when_full_env_only(
     os.environ[key] = "1"
     try:
         out = await dispatch_command(
-            ".schedule add env_only_full every 3600 primary -- probe",
+            "/schedule add env_only_full every 3600 primary -- probe",
             state=_minimal_dispatch_state(),
             capture=True,
             allow_session_mutations_when_capture=False,
@@ -198,7 +198,7 @@ async def test_capture_session_not_blocked_when_full_env_only() -> None:
     os.environ[key] = "1"
     try:
         out = await dispatch_command(
-            ".session switch 1",
+            "/session switch 1",
             state=_minimal_dispatch_state(),
             capture=True,
             allow_session_mutations_when_capture=False,

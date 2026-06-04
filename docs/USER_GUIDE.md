@@ -164,6 +164,21 @@ cp config.defaults.json config.user.json
 
 **不要** 把填好密钥的 `config.user.json` 上传到公开仓库；仓库已默认在 `.gitignore` 中忽略此文件。
 
+**首次配置引导**：如果首次启动时检测到无 `config.user.json`，CLI 会自动进入交互式配置引导：
+
+```
+🚀 MiniAgent 首次配置
+
+请输入 OpenAI API 密钥: sk-xxxxx
+请输入模型名称 (默认 gpt-4o-mini): 
+请输入 API 端点 (默认 https://api.openai.com/v1): 
+请输入工作目录 (默认 workspaces): 
+
+✅ 配置已保存到 config.user.json
+```
+
+配置完成后会自动生成 `config.user.json`，无需手动复制模板。
+
 ### 4.2 必填（最小可运行）
 
 在 `config.user.json` 的 `secrets` 部分填写 API 密钥：
@@ -280,6 +295,7 @@ python -m miniagent --stop
 | `/session list` / `/session switch <id>` | 列出 / 切换会话 |
 | `/feishu start` / `/feishu stop` / `/feishu status` | 飞书 WebSocket 长连接控制 |
 | `/schedule list` | 查看定时任务（增删改见第 8 章，须在本地 CLI） |
+| `/reload-config` | 重新加载配置文件（热更新） |
 | `/bind status` | 通道绑定状态，见 [CHANNEL_BINDING.md](CHANNEL_BINDING.md) |
 
 **完整命令表、示例输出与边界情况** → [CLI.md](CLI.md)。
@@ -288,6 +304,8 @@ python -m miniagent --stop
 
 - 命令前必须是 **`/`**（斜杠），后面跟子命令与参数，中间空格按 [CLI.md](CLI.md) 示例。
 - 不确定时先 `/help` 或 `/status`。
+- **模糊匹配**：输入错别字时系统会提示"您是否想输入 xxx？"，如 `/sttatus` → 提示 `/status`。
+- **Tab 补全**：输入 `/` 命令或 `@file:` 文件路径时按 `Tab` 键自动补全。
 
 ---
 
