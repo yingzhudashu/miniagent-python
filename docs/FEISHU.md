@@ -161,6 +161,60 @@ UnifiedEngine.run_agent_with_thinking()
 | 协作 | `list_permissions`, `add_permission`, `remove_permission` |
 | 发现 | `search`（需 User Token） |
 
+### Markdown 写入与渲染说明
+
+飞书云文档使用 **Block-based 结构**，不是直接写入 Markdown 文本。MiniAgent 提供两种渲染模式：
+
+#### 1. 富文本渲染模式 (`render_mode="rich"`)
+
+**默认模式**，将 Markdown 自动转换为飞书文档块结构，保留格式：
+
+| Markdown 元素 | 飞书 Block 类型 |
+|---------------|-----------------|
+| `# 标题` | HEADING1-6 |
+| `**粗体**` | TextRun + bold 样式 |
+| `*斜体*` | TextRun + italic 样式 |
+| `[链接](url)` | TextRun + link 样式 |
+| `` `代码` `` | TextRun + inline_code 样式 |
+| ``` 代码块 ``` | CODE 块 + language 属性 |
+| `- 列表项` | BULLET 块 |
+| `1. 列表项` | ORDERED 块 |
+| `> 引用` | QUOTE 块 |
+| `| 表格 |` | TABLE 块 |
+
+**使用示例**：
+
+```json
+{
+  "action": "write",
+  "doc_token": "doc_xxx",
+  "content": "# 报告标题\n\n**要点：**\n- 第一项\n- 第二项\n\n```python\nprint('示例代码')\n```",
+  "render_mode": "rich"
+}
+```
+
+#### 2. 纯文本模式 (`render_mode="plain"`)
+
+向后兼容模式，剥离 Markdown 标记，仅保留纯文本内容。
+
+#### 3. 导入 Markdown 文件 (`import_raw`)
+
+从工作区 Markdown 文件导入到云文档，默认使用富文本渲染：
+
+```json
+{
+  "action": "import_raw",
+  "doc_token": "doc_xxx",
+  "relative_path": "files/report.md",
+  "render_mode": "rich"
+}
+```
+
+**最佳实践**：
+- 写入 Markdown 内容时使用 `render_mode="rich"`（默认）
+- 导入 Markdown 文件时使用 `import_raw` + `render_mode="rich"`
+- 需要纯文本时可设置 `render_mode="plain"`（向后兼容）
+
 ### 互动卡片按钮 `action.value` 示例
 
 ```json

@@ -432,12 +432,24 @@ def _action_export_raw(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig
 
 
 def _action_import_raw(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig) -> ToolResult:
-    """从本地文件导入 Markdown 内容到云文档。"""
-    from miniagent.feishu.docx.blocks import append_plain_text_to_document
+    """从本地文件导入 Markdown 内容到云文档（支持富文本渲染）。
+
+    支持两种渲染模式：
+    - render_mode="rich": 富文本渲染（标题、粗体、列表、代码块等）【默认】
+    - render_mode="plain": 纯文本（向后兼容）
+
+    Markdown 文件将自动转换为飞书文档的 Block 结构，保留格式信息。
+    """
+    from miniagent.feishu.docx.blocks import (
+        append_plain_text_to_document,
+        append_markdown_to_document,
+    )
     from miniagent.feishu.docx.markdown import markdown_to_plain_text
 
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
     rel = str(args.get("relative_path") or args.get("path") or "").strip()
+    render_mode = str(args.get("render_mode") or "rich").strip().lower()
+
     if not doc_id:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token。")
     ws = (ctx.cwd or "").strip()
@@ -447,10 +459,26 @@ def _action_import_raw(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig
         path = resolve_under_workspace(ws, rel)
     except ValueError as e:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} {e}")
+
     with open(path, encoding="utf-8") as f:
         md = f.read()
-    n = append_plain_text_to_document(cfg, doc_id, markdown_to_plain_text(md))
-    return ToolResult(success=True, content=f"{SUCCESS_PREFIX} import_raw：已追加 {n} 段（不含 MD 表格）。")
+
+    # 根据渲染模式选择写入方式
+    use_rich = render_mode == "rich"
+
+    if use_rich:
+        # 富文本渲染：保留 Markdown 格式（标题、列表、代码块等）
+        n, warnings = append_markdown_to_document(cfg, doc_id, md, use_renderer=True)
+        warn_text = "\n⚠️ " + "\n".join(warnings) if warnings else ""
+        stats_hint = "（包含标题、列表、代码块、表格等富文本结构）" if n > 0 else ""
+        return ToolResult(
+            success=True,
+            content=f"{SUCCESS_PREFIX} import_raw 富文本：已追加 {n} 个块{stats_hint}。{warn_text}",
+        )
+    else:
+        # 纯文本模式（向后兼容）
+        n = append_plain_text_to_document(cfg, doc_id, markdown_to_plain_text(md))
+        return ToolResult(success=True, content=f"{SUCCESS_PREFIX} import_raw 纯文本：已追加 {n} 段。")
 
 
 def _action_create_table(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
