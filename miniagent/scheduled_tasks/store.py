@@ -16,6 +16,7 @@ from typing import Literal
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.infrastructure.timezone_config import process_timezone
+from miniagent.memory.defaults import get_state_root
 from miniagent.scheduled_tasks.file_lock import tasks_json_lock
 from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec
 
@@ -39,14 +40,9 @@ def dispatch_failure_backoff_seconds() -> int:
     return max(1, int(sec))
 
 
-def _state_root() -> str:
-    """与引擎/记忆共用的状态根。"""
-    return get_config("paths.state_dir", os.path.join(os.getcwd(), "workspaces"))
-
-
 def tasks_dir() -> str:
     """``scheduled_tasks`` 目录路径（不存在则创建）。"""
-    d = os.path.join(_state_root(), "scheduled_tasks")
+    d = os.path.join(get_state_root(), "scheduled_tasks")
     os.makedirs(d, exist_ok=True)
     return d
 

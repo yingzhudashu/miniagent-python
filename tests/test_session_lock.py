@@ -9,11 +9,11 @@ from unittest.mock import patch
 import pytest
 
 from miniagent.engine.session_lock import (
-    _is_process_running,
     is_session_locked,
     release_session_lock,
     try_lock_session,
 )
+from miniagent.infrastructure.process_utils import is_process_running
 
 
 @pytest.fixture
@@ -45,7 +45,7 @@ def test_try_lock_session_conflict(mock_workspaces: Path) -> None:
     lock_file = lock_dir / ".lock"
     lock_file.write_text("999999", encoding="utf-8")
 
-    with patch("miniagent.engine.session_lock._is_process_running", return_value=True):
+    with patch("miniagent.engine.session_lock.is_process_running", return_value=True):
         ok, reason = try_lock_session("sess-conflict")
     assert not ok
     assert "999999" in reason
@@ -57,7 +57,7 @@ def test_try_lock_stale_pid(mock_workspaces: Path) -> None:
     lock_file = lock_dir / ".lock"
     lock_file.write_text("1", encoding="utf-8")
 
-    with patch("miniagent.engine.session_lock._is_process_running", return_value=False):
+    with patch("miniagent.engine.session_lock.is_process_running", return_value=False):
         ok, reason = try_lock_session("sess-stale")
     assert ok
     assert lock_file.read_text(encoding="utf-8") == str(os.getpid())
@@ -91,14 +91,14 @@ def test_is_session_locked_by_other(mock_workspaces: Path) -> None:
     lock_file = lock_dir / ".lock"
     lock_file.write_text("999999", encoding="utf-8")
 
-    with patch("miniagent.engine.session_lock._is_process_running", return_value=True):
+    with patch("miniagent.engine.session_lock.is_process_running", return_value=True):
         pid = is_session_locked("sess-other2")
     assert pid == 999999
 
 
 def test_is_process_running_current() -> None:
-    assert _is_process_running(os.getpid())
+    assert is_process_running(os.getpid())
 
 
 def test_is_process_running_fake() -> None:
-    assert not _is_process_running(999999999)
+    assert not is_process_running(999999999)

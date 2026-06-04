@@ -14,9 +14,8 @@ from __future__ import annotations
 
 import asyncio
 import os
-import subprocess
-import sys
 
+from miniagent.infrastructure.process_utils import is_process_running, is_process_running_async
 from miniagent.session.manager import _get_workspaces_dir
 from miniagent.utils.session_id import safe_session_id
 
@@ -25,59 +24,6 @@ def _get_lock_path(session_id: str) -> str:
     """获取会话锁文件路径。"""
     safe = safe_session_id(session_id)
     return os.path.join(_get_workspaces_dir(), safe, ".lock")
-
-
-def _is_process_running(pid: int) -> bool:
-    """检测 PID 是否存活。
-
-    Windows: 通过 tasklist 查询
-    POSIX: 通过 os.kill(pid, 0) 查询
-    """
-    try:
-        if sys.platform == "win32":
-            output = subprocess.check_output(
-                ["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
-                timeout=5,
-                text=True,
-            )
-            return f'"{pid}"' in output
-        else:
-            os.kill(pid, 0)
-            return True
-    except Exception:
-        return False
-
-
-async def _is_process_running_async(pid: int) -> bool:
-    """异步检测 PID 是否存活（不阻塞事件循环）。
-
-    用于异步上下文中的锁检测，避免 subprocess.check_output 阻塞。
-
-    Args:
-        pid: 进程 ID
-
-    Returns:
-        进程是否仍在运行
-    """
-    try:
-        if sys.platform == "win32":
-            proc = await asyncio.create_subprocess_exec(
-                "tasklist",
-                "/FI",
-                f"PID eq {pid}",
-                "/NH",
-                "/FO",
-                "CSV",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            stdout, _ = await proc.communicate()
-            return f'"{pid}"' in stdout.decode("utf-8", errors="replace")
-        else:
-            os.kill(pid, 0)
-            return True
-    except Exception:
-        return False
 
 
 def try_lock_session(session_id: str) -> tuple[bool, str]:
@@ -96,7 +42,7 @@ def try_lock_session(session_id: str) -> tuple[bool, str]:
                 locked_pid = int(f.read().strip())
             if locked_pid == my_pid:
                 return True, ""  # 我自己锁的，幂等
-            if _is_process_running(locked_pid):
+            if is_process_running(locked_pid):
                 return False, f"被其他实例占用 (PID={locked_pid})"
             try:
                 os.unlink(lock_path)
@@ -132,7 +78,7 @@ async def try_lock_session_async(session_id: str) -> tuple[bool, str]:
                 locked_pid = int(f.read().strip())
             if locked_pid == my_pid:
                 return True, ""  # 我自己锁的，幂等
-            if await _is_process_running_async(locked_pid):
+            if await is_process_running_async(locked_pid):
                 return False, f"被其他实例占用 (PID={locked_pid})"
             try:
                 os.unlink(lock_path)
@@ -176,7 +122,7 @@ def is_session_locked(session_id: str) -> int | None:
             locked_pid = int(f.read().strip())
         if locked_pid == os.getpid():
             return None
-        if _is_process_running(locked_pid):
+        if is_process_running(locked_pid):
             return locked_pid
     except Exception:
         pass
