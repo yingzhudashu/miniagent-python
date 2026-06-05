@@ -114,6 +114,24 @@
       "elapsed_ms": 28864.489200000207,
       "timestamp": "2026-06-05T20:29:02.867447",
       "success": true
+    },
+    {
+      "test": "llm_streaming_latency",
+      "elapsed_ms": 35824.53329999953,
+      "timestamp": "2026-06-05T23:31:59.397013",
+      "success": true
+    },
+    {
+      "test": "llm_streaming_latency",
+      "elapsed_ms": 31811.857200000304,
+      "timestamp": "2026-06-05T23:33:09.527950",
+      "success": true
+    },
+    {
+      "test": "llm_streaming_latency",
+      "elapsed_ms": 32092.42489999997,
+      "timestamp": "2026-06-05T23:35:31.889354",
+      "success": true
     }
   ]
 }
