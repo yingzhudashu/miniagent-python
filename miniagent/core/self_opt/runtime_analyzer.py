@@ -36,21 +36,17 @@
 from __future__ import annotations
 
 import json
-import os
 import re
-from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
-from miniagent.infrastructure.trace_events import EVENT_ERROR_COLLECT
 from miniagent.infrastructure.trace_stats import (
     compute_error_stats,
     compute_llm_stats,
     compute_tool_stats,
-    get_trace_file,
     load_trace_events,
 )
 

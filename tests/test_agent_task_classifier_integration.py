@@ -6,10 +6,10 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from tests.llm_helpers import mock_all_llm_clients
 from miniagent.core.agent import run_agent
 from miniagent.infrastructure.registry import DefaultToolRegistry
 from miniagent.types.tool import Toolbox
+from tests.llm_helpers import mock_all_llm_clients
 
 
 @pytest.mark.asyncio

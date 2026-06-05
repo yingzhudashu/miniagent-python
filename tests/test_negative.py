@@ -13,9 +13,9 @@ Covers:
 from __future__ import annotations
 
 import asyncio
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 
 # ============================================================================
 # Executor Negative Tests
@@ -48,10 +48,10 @@ class TestExecutorNegative:
     @pytest.mark.asyncio
     async def test_executor_handles_tool_execution_error(self) -> None:
         """工具执行错误应被正确处理。"""
-        from miniagent.types.tool import ToolContext, ToolResult
+        from miniagent.types.tool import ToolContext
 
         # 模拟工具执行失败
-        ctx = ToolContext(cwd="/tmp", permission="sandbox")
+        ToolContext(cwd="/tmp", permission="sandbox")
 
         # 工具应能处理各种错误类型
         error_types = [
@@ -132,9 +132,8 @@ class TestSessionManagerNegative:
 
     def test_session_manager_handles_corrupted_history(self) -> None:
         """损坏的历史文件应被正确处理。"""
-        from miniagent.session.manager import DefaultSessionManager
 
-        sm = MagicMock()
+        MagicMock()
 
         # 模拟损坏的历史数据
         corrupted_history = [{"role": "invalid_role", "content": None}]
@@ -169,7 +168,6 @@ class TestMemoryNegative:
 
     def test_keyword_index_handles_empty_query(self) -> None:
         """空查询应返回空结果。"""
-        from miniagent.memory.keyword_index import KeywordIndex
 
         ki = MagicMock()
 
@@ -317,9 +315,8 @@ class TestBackgroundTaskNegative:
     @pytest.mark.asyncio
     async def test_background_task_handles_failure(self) -> None:
         """后台任务失败应被正确处理。"""
-        from miniagent.engine.background_tasks import BackgroundTaskManager
 
-        manager = MagicMock()
+        MagicMock()
 
         # 模拟失败任务
         failed_task = MagicMock()

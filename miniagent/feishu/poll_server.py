@@ -292,11 +292,9 @@ async def reset_feishu_ws_singleton() -> None:
 # --- 去重：使用 feishu_dedup 模块（已拆分为独立模块）---
 # 去重逻辑已迁移至 miniagent/feishu/feishu_dedup.py，此处仅导入公共函数
 from miniagent.feishu.feishu_dedup import (
-    try_begin_processing,
-    release_processing,
     abandon_processing_claim,
-    DEDUP_TTL_MS,
-    DEDUP_MAX_SIZE,
+    release_processing,
+    try_begin_processing,
 )
 
 # --- WebSocket 单例状态（每进程一套 WS；防多客户端抢事件，与 OpenClaw 对齐）---

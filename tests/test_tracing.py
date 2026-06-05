@@ -7,8 +7,6 @@ import os
 import tempfile
 from pathlib import Path
 
-import pytest
-
 from miniagent.infrastructure.tracing import (
     auto_register_trace_file_hook,
     clear_trace_hooks,
@@ -121,7 +119,7 @@ class TestTraceFilePersistence:
         actual_file = expected_file if expected_file.exists() else Path(tmpfile.name)
 
         # 验证文件内容
-        with open(actual_file, "r", encoding="utf-8") as f:
+        with open(actual_file, encoding="utf-8") as f:
             content = f.read()
             assert "file_test" in content
             assert "ts" in content  # 时间戳自动添加
@@ -159,7 +157,7 @@ class TestTraceFilePersistence:
 
         # 没有事件被写入（因为 clear 已重置且无环境变量）
         emit_trace({"type": "after_clear"})
-        with open(tmpfile.name, "r", encoding="utf-8") as f:
+        with open(tmpfile.name, encoding="utf-8") as f:
             content = f.read()
             # 文件应该是空的（clear 后没有写入）
             assert "after_clear" not in content

@@ -10,13 +10,11 @@
 
 from __future__ import annotations
 
-import asyncio
-import json
 import os
 import tempfile
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 
 # ============================================================================
 # 异步工作空间测试
@@ -151,7 +149,7 @@ class TestHttpRetry:
         from miniagent.feishu.drive_client import _async_http_request
         from miniagent.feishu.types import FeishuConfig
 
-        cfg = FeishuConfig(app_id="test", app_secret="test", verification_token="test")
+        FeishuConfig(app_id="test", app_secret="test", verification_token="test")
 
         # Mock 两次失败后成功
         call_count = 0
@@ -171,7 +169,7 @@ class TestHttpRetry:
 
             # 应在第三次成功
             try:
-                result = await _async_http_request(
+                await _async_http_request(
                     "POST", "http://test.url",
                     max_retries=3,
                     backoff_factor=0.1,
@@ -191,7 +189,7 @@ class TestDedupFlushThreshold:
 
     def test_dedup_threshold_reduced(self) -> None:
         """验证刷盘阈值已降低。"""
-        from miniagent.feishu.feishu_dedup import DEDUP_FLUSH_THRESHOLD, DEDUP_FLUSH_INTERVAL
+        from miniagent.feishu.feishu_dedup import DEDUP_FLUSH_INTERVAL, DEDUP_FLUSH_THRESHOLD
 
         # 阈值应低于原来的1000
         assert DEDUP_FLUSH_THRESHOLD <= 500
@@ -233,12 +231,12 @@ class TestPerformanceBenchmarks:
             # 同步复制计时
             start_sync = time.perf_counter()
             wm._copy_tree(src, dst_sync)
-            sync_time = time.perf_counter() - start_sync
+            time.perf_counter() - start_sync
 
             # 异步复制计时（包装在to_thread中）
             start_async = time.perf_counter()
             await wm._copy_tree_async(src, dst_async)
-            async_time = time.perf_counter() - start_async
+            time.perf_counter() - start_async
 
             # 验证两者结果相同
             assert os.path.isfile(os.path.join(dst_sync, "dir0", "file0.txt"))

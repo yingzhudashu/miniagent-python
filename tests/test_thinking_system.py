@@ -20,6 +20,7 @@ Original files merged:
 from __future__ import annotations
 
 import importlib.util
+
 import pytest
 
 from miniagent.core.executor import _step_thinking_header

@@ -13,11 +13,11 @@ Tests cover main commands:
 
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from miniagent.engine.command_dispatch import dispatch_command, _format_status
+import pytest
 
+from miniagent.engine.command_dispatch import _format_status, dispatch_command
 
 # ============================================================================
 # Helper Functions
@@ -122,7 +122,7 @@ class TestSessionCommand:
         with patch("miniagent.engine.cli_commands.cmd_session_list") as mock_list:
             mock_list.return_value = "Sessions: default, test"
 
-            result = await dispatch_command("/session list", state=state, capture=True)
+            await dispatch_command("/session list", state=state, capture=True)
 
             mock_list.assert_called_once()
 
@@ -149,7 +149,7 @@ class TestSessionCommand:
             with patch("miniagent.engine.cli_commands.cmd_session_switch", new_callable=AsyncMock) as mock_switch:
                 mock_switch.return_value = "test_session"
 
-                result = await dispatch_command(
+                await dispatch_command(
                     "/session switch test",
                     state=state,
                     capture=True,
@@ -177,7 +177,7 @@ class TestFeishuCommand:
     async def test_feishu_start_calls_start_method(self) -> None:
         """/feishu start 应调用 feishu.start。"""
         state = _create_mock_state()
-        feishu_rt = state["runtime_ctx"].feishu
+        state["runtime_ctx"].feishu
 
         result = await dispatch_command("/feishu start", state=state, capture=True)
 
@@ -189,7 +189,7 @@ class TestFeishuCommand:
         """/feishu stop 应调用 feishu.stop。"""
         state = _create_mock_state()
 
-        result = await dispatch_command("/feishu stop", state=state, capture=True)
+        await dispatch_command("/feishu stop", state=state, capture=True)
 
         state["runtime_ctx"].feishu.stop.assert_called_once()
 
@@ -205,7 +205,7 @@ class TestQueueCommand:
         with patch("miniagent.engine.cli_commands.cmd_queue_status") as mock_status:
             mock_status.return_value = "Queue: preemptive"
 
-            result = await dispatch_command("/queue status", state=state, capture=True)
+            await dispatch_command("/queue status", state=state, capture=True)
 
             mock_status.assert_called_once()
 
@@ -215,7 +215,7 @@ class TestQueueCommand:
         state = _create_mock_state()
         state["runtime_ctx"].message_queue.abort_chat.return_value = {"aborted": True}
 
-        result = await dispatch_command("/queue abort", state=state, capture=True)
+        await dispatch_command("/queue abort", state=state, capture=True)
 
         state["runtime_ctx"].message_queue.abort_chat.assert_called_once()
 
@@ -225,8 +225,8 @@ class TestQueueCommand:
         state = _create_mock_state()
         state["runtime_ctx"].message_queue.abort_chat.return_value = {"aborted": True}
 
-        result1 = await dispatch_command("/abort", state=state, capture=True)
-        result2 = await dispatch_command("/queue abort", state=state, capture=True)
+        await dispatch_command("/abort", state=state, capture=True)
+        await dispatch_command("/queue abort", state=state, capture=True)
 
         # 两者应调用相同方法
         assert state["runtime_ctx"].message_queue.abort_chat.call_count == 2
@@ -253,7 +253,7 @@ class TestBindCommand:
         with patch("miniagent.engine.cli_commands.cmd_bind") as mock_bind:
             mock_bind.return_value = "No bindings"
 
-            result = await dispatch_command("/bind status", state=state, capture=True)
+            await dispatch_command("/bind status", state=state, capture=True)
 
             mock_bind.assert_called_once()
 
@@ -269,7 +269,7 @@ class TestHelpCommand:
         with patch("miniagent.engine.cli_commands.cmd_help") as mock_help:
             mock_help.return_value = "Help: available commands..."
 
-            result = await dispatch_command("/help", state=state, capture=True)
+            await dispatch_command("/help", state=state, capture=True)
 
             mock_help.assert_called_once()
 
@@ -309,7 +309,7 @@ class TestModelCommand:
         with patch("miniagent.engine.model_cmd.format_model_info") as mock_info:
             mock_info.return_value = "Current model: gpt-4"
 
-            result = await dispatch_command("/model", state=state, capture=True)
+            await dispatch_command("/model", state=state, capture=True)
 
             mock_info.assert_called_once()
 
@@ -321,7 +321,7 @@ class TestModelCommand:
         with patch("miniagent.engine.model_cmd.switch_model") as mock_switch:
             mock_switch.return_value = "Model switched to gpt-4o"
 
-            result = await dispatch_command("/model gpt-4o", state=state, capture=True)
+            await dispatch_command("/model gpt-4o", state=state, capture=True)
 
             mock_switch.assert_called_once_with("gpt-4o")
 
@@ -337,7 +337,7 @@ class TestBtwCommand:
         with patch("miniagent.engine.btw_cmd.cmd_btw_status") as mock_status:
             mock_status.return_value = "Background tasks: 0"
 
-            result = await dispatch_command("/btw status", state=state, capture=True)
+            await dispatch_command("/btw status", state=state, capture=True)
 
             mock_status.assert_called_once()
 
@@ -353,7 +353,7 @@ class TestKbCommand:
         with patch("miniagent.engine.cli_commands.cmd_kb_list") as mock_list:
             mock_list.return_value = "Knowledge bases: docs, api"
 
-            result = await dispatch_command("/kb list", state=state, capture=True)
+            await dispatch_command("/kb list", state=state, capture=True)
 
             mock_list.assert_called_once()
 

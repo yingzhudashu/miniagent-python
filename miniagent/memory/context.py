@@ -21,7 +21,6 @@ import json
 import re
 import time
 from hashlib import md5
-from typing import TYPE_CHECKING
 
 from openai.types.chat import (
     ChatCompletionMessageParam,
@@ -311,8 +310,8 @@ class DefaultContextManager(ContextManagerProtocol):
 
         性能优化：添加trace记录压缩时间和效果。
         """
-        from miniagent.infrastructure.tracing import emit_trace
         from miniagent.infrastructure.trace_events import EVENT_CONTEXT_COMPRESS
+        from miniagent.infrastructure.tracing import emit_trace
 
         if len(self._messages) <= 4:
             return  # 消息太少，不需要压缩

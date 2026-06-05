@@ -14,6 +14,14 @@ Agent 若需自优化能力，可由调用方自行封装工具。
 配置开关见 ``config.defaults.json``（self_optimization 配置节）。
 类型模型见下方导出；用户文档见 ``docs/SELF_OPT.md``。"""
 
+from miniagent.core.self_opt.proposal_generator import ProposalGenerator
+from miniagent.core.self_opt.proposal_store import (
+    ProposalStore,
+    get_proposal_file,
+    get_proposal_output_dir,
+    get_reports_dir,
+)
+from miniagent.core.self_opt.runtime_analyzer import RuntimeAnalyzer
 from miniagent.core.self_opt.types import (
     CodeQualityMetric,
     FileChange,
@@ -25,14 +33,6 @@ from miniagent.core.self_opt.types import (
     OptTestSummary,
     PainPoint,
 )
-from miniagent.core.self_opt.proposal_store import (
-    ProposalStore,
-    get_proposal_output_dir,
-    get_proposal_file,
-    get_reports_dir,
-)
-from miniagent.core.self_opt.runtime_analyzer import RuntimeAnalyzer
-from miniagent.core.self_opt.proposal_generator import ProposalGenerator
 
 __all__ = [
     # 类型模型

@@ -22,8 +22,8 @@ from collections.abc import Callable
 from contextlib import redirect_stdout
 from typing import Any
 
-from miniagent.core.prompts.reviewer import REVIEW_PROMPT, REVIEW_ITERATION_PROMPT
 from miniagent.core.prompts.improver import IMPROVE_PROMPT
+from miniagent.core.prompts.reviewer import REVIEW_ITERATION_PROMPT, REVIEW_PROMPT
 from miniagent.engine.cli_state import CliLoopState
 from miniagent.infrastructure.logger import get_logger
 from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
@@ -170,7 +170,7 @@ async def dispatch_command(
         return None
 
     # 提取命令（去掉前缀）
-    command = text[1:]
+    text[1:]
 
     from miniagent.engine.btw_cmd import (
         cmd_btw_cancel,
@@ -191,21 +191,21 @@ async def dispatch_command(
         cmd_kb_unmount,
         cmd_queue_set,
         cmd_queue_status,
+        cmd_self_opt_analyze,
+        cmd_self_opt_apply,
+        cmd_self_opt_approve,
+        cmd_self_opt_proposals,
+        cmd_self_opt_reject,
+        cmd_self_opt_report,
+        cmd_self_opt_show,
+        # 自我优化命令
+        cmd_self_opt_status,
         cmd_session_create,
         cmd_session_delete,
         cmd_session_list,
         cmd_session_rename,
         cmd_session_switch,
         cmd_unbind,
-        # 自我优化命令
-        cmd_self_opt_status,
-        cmd_self_opt_proposals,
-        cmd_self_opt_show,
-        cmd_self_opt_approve,
-        cmd_self_opt_reject,
-        cmd_self_opt_apply,
-        cmd_self_opt_analyze,
-        cmd_self_opt_report,
         feishu_dot_commands_full_enabled,
         feishu_markdown_commands_enabled,
         format_kb_command_usage,
@@ -624,7 +624,6 @@ async def dispatch_command(
             cmd_self_opt_reject(parts[2])
         elif sub_cmd == "apply" and len(parts) >= 3:
             # 异步执行
-            import asyncio
 
             proposal_id = parts[2]
             root = parts[3] if len(parts) > 3 else ""

@@ -12,38 +12,37 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from miniagent.core.self_opt.proposal_generator import ProposalGenerator
+from miniagent.core.self_opt.proposal_store import ProposalStore
+from miniagent.core.self_opt.runtime_analyzer import RuntimeAnalyzer
+from miniagent.core.self_opt.types import OptimizationProposal
+from miniagent.infrastructure.trace_events import (
+    EVENT_ERROR_COLLECT,
+    EVENT_LLM_REQUEST,
+    EVENT_LLM_RESPONSE,
+    EVENT_TOOL_END,
+    EVENT_TOOL_ERROR,
+    EVENT_TOOL_START,
+    make_error_event,
+)
+from miniagent.infrastructure.trace_stats import (
+    compute_error_stats,
+    compute_llm_stats,
+    compute_tool_stats,
+    generate_daily_report,
+    load_trace_events,
+)
 from miniagent.infrastructure.tracing import (
     clear_trace_hooks,
     emit_trace,
     register_trace_hook,
 )
-from miniagent.infrastructure.trace_events import (
-    EVENT_LLM_REQUEST,
-    EVENT_LLM_RESPONSE,
-    EVENT_TOOL_START,
-    EVENT_TOOL_END,
-    EVENT_TOOL_ERROR,
-    EVENT_ERROR_COLLECT,
-    make_error_event,
-)
-from miniagent.infrastructure.trace_stats import (
-    load_trace_events,
-    compute_tool_stats,
-    compute_llm_stats,
-    compute_error_stats,
-    generate_daily_report,
-)
-from miniagent.core.self_opt.runtime_analyzer import RuntimeAnalyzer
-from miniagent.core.self_opt.proposal_generator import ProposalGenerator
-from miniagent.core.self_opt.proposal_store import ProposalStore
-from miniagent.core.self_opt.types import OptimizationProposal
 
 
 @pytest.fixture
@@ -65,7 +64,7 @@ def proposal_output_dir(tmp_path: Path) -> Path:
 @pytest.fixture
 def trace_events() -> list[dict[str, Any]]:
     """Generate sample trace events for testing."""
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    datetime.now(timezone.utc).strftime("%Y-%m-%d")
     session_key = "test-session-1"
 
     return [
@@ -363,7 +362,7 @@ class TestRuntimeAnalyzer:
 
         # Check for error issues
         issues = report.get("issues", [])
-        error_issues = [i for i in issues if i.get("type") == "high_frequency_error"]
+        [i for i in issues if i.get("type") == "high_frequency_error"]
 
         # At least one error should be detected
         assert isinstance(issues, list)

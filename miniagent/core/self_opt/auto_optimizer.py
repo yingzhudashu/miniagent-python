@@ -23,13 +23,9 @@ import asyncio
 import os
 
 from miniagent.core.self_opt.git_snapshot import (
-    create_snapshot,
     create_snapshot_async,
-    has_uncommitted_changes,
     has_uncommitted_changes_async,
-    is_in_git_repo,
     is_in_git_repo_async,
-    rollback_snapshot,
     rollback_snapshot_async,
 )
 from miniagent.core.self_opt.types import (

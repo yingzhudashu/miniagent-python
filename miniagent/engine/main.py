@@ -294,12 +294,12 @@ async def run_cli_loop(
         return join_skill_prompts(get_skill_prompts_from_state(state) or skill_prompts)
 
     try:
-        from prompt_toolkit.formatted_text import HTML
-        from prompt_toolkit.history import FileHistory
-        from prompt_toolkit.styles import Style
         # 用户体验增强：Tab 自动补全
         from prompt_toolkit.completion import Completer, Completion, merge_completers
         from prompt_toolkit.completion import PathCompleter as PTPathCompleter
+        from prompt_toolkit.formatted_text import HTML
+        from prompt_toolkit.history import FileHistory
+        from prompt_toolkit.styles import Style
     except ImportError:
         await _run_cli_loop_fallback(
             ctx,
@@ -387,7 +387,7 @@ async def run_cli_loop(
             import re
             match = re.search(r'(@file:|file:)([^\s]*)$', text)
             if match:
-                marker = match.group(1)
+                match.group(1)
                 partial_path = match.group(2)
                 # 使用 PathCompleter 补全路径
                 try:
@@ -539,7 +539,6 @@ async def run_cli_loop(
             msg: 历史消息字典，包含 role 和 content
             prepend: True 时插入到顶部（加载更旧历史），False 时追加到底部（初始加载）
         """
-        from prompt_toolkit.formatted_text import ANSI
 
         from miniagent.engine.markdown_cli import render_markdown_to_ansi
 

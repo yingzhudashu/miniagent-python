@@ -9,19 +9,19 @@
     from miniagent.engine.commands import cmd_kb_list, cmd_instance_handler
 """
 
+from miniagent.engine.commands.config_commands import (
+    feishu_dot_commands_full_enabled,
+    feishu_markdown_commands_enabled,
+    format_test_command_usage,
+)
+from miniagent.engine.commands.instance_commands import cmd_instance_handler
 from miniagent.engine.commands.kb_commands import (
     cmd_kb_list,
     cmd_kb_mount,
-    cmd_kb_unmount,
-    cmd_kb_search,
     cmd_kb_reload,
+    cmd_kb_search,
+    cmd_kb_unmount,
     format_kb_command_usage,
-)
-from miniagent.engine.commands.instance_commands import cmd_instance_handler
-from miniagent.engine.commands.config_commands import (
-    feishu_markdown_commands_enabled,
-    feishu_dot_commands_full_enabled,
-    format_test_command_usage,
 )
 
 __all__ = [

@@ -12,7 +12,7 @@ from miniagent.infrastructure.timezone_config import (
     process_timezone,
 )
 from miniagent.scheduled_tasks.cron import cron_next_run_epoch
-from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec, SessionSpec
+from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec
 from miniagent.scheduled_tasks.store import effective_task_timezone
 from miniagent.scheduled_tasks.timezone_util import default_schedule_timezone
 

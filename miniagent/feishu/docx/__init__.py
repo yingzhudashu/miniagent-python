@@ -13,8 +13,8 @@
 from miniagent.feishu.docx.blocks import (
     DOCX_APPEND_MAX_BLOCKS,
     DOCX_APPEND_MAX_CHARS,
-    append_plain_text_to_document,
     append_markdown_to_document,
+    append_plain_text_to_document,
     batch_update_blocks,
     delete_block,
     get_block,
@@ -30,11 +30,11 @@ from miniagent.feishu.docx.client import (
 from miniagent.feishu.docx.markdown_renderer import (
     BlockType,
     FeishuBlock,
+    MarkdownConversionResult,
     TextRun,
     TextStyle,
-    MarkdownConversionResult,
-    markdown_to_feishu_blocks,
     build_lark_blocks_from_intermediate,
+    markdown_to_feishu_blocks,
 )
 
 __all__ = [

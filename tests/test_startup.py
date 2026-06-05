@@ -235,6 +235,7 @@ def test_feishu_user_status_fn_uses_cli_transcript_append():
     """全屏注册 cli_transcript_append 时，飞书状态行走 transcript 而非裸 print。"""
     from miniagent.engine.engine import UnifiedEngine
     from miniagent.engine.feishu_state import FeishuRuntime
+
     # 修复：函数已重命名并移动到utils.py
     from miniagent.engine.utils import feishu_user_status_fn
     from miniagent.infrastructure.channel_router import ChannelRouter

@@ -51,7 +51,6 @@ from miniagent.engine.commands.kb_commands import (
     cmd_kb_unmount,
     format_kb_command_usage,
 )
-
 from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
 
 
@@ -1478,11 +1477,11 @@ def cmd_self_opt_status() -> None:
     - 提案存储路径
     - 今日提案数量
     """
-    from miniagent.infrastructure.json_config import get_config
     from miniagent.core.self_opt.proposal_store import (
         ProposalStore,
         get_proposal_output_dir,
     )
+    from miniagent.infrastructure.json_config import get_config
 
     enabled = get_config("self_optimization.enabled", True)
     auto_apply = get_config("self_optimization.auto_apply", False)
@@ -1533,7 +1532,6 @@ def cmd_self_opt_proposals(status: str | None = None) -> None:
         "completed": "🎉",
         "failed": "⚠️",
     }
-    risk_colors = {"low": "", "medium": "", "high": ""}
 
     for p in proposals:
         icon = status_icons.get(p.get("status", "pending"), "❓")
@@ -1726,6 +1724,7 @@ def cmd_self_opt_report(date: str | None = None) -> None:
     """
     import json
     from datetime import datetime, timezone
+
     from miniagent.core.self_opt.proposal_store import get_reports_dir
 
     if date is None:

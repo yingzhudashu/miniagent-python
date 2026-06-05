@@ -14,6 +14,7 @@ Original files merged:
 from __future__ import annotations
 
 import os
+
 import pytest
 
 from miniagent.core.config import get_default_agent_config, merge_agent_config
@@ -32,7 +33,6 @@ from miniagent.memory.history_progressive import (
     strip_thinking_to_turn_summary,
 )
 from tests.history_helpers import history_turn as _turn
-
 
 # ============================================================================
 # History Bridge Tests

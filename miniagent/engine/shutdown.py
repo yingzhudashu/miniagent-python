@@ -151,8 +151,8 @@ async def shutdown_runtime(
 
     # 5g) 清理过期trace文件（可选）
     try:
-        from miniagent.infrastructure.trace_stats import cleanup_old_traces
         from miniagent.infrastructure.json_config import get_config
+        from miniagent.infrastructure.trace_stats import cleanup_old_traces
 
         if get_config("trace.auto_cleanup", True):
             retention_days = get_config("trace.retention_days", 7)

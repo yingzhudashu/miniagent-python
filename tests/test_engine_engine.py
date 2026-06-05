@@ -12,11 +12,11 @@ Tests cover:
 
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from miniagent.engine.engine import UnifiedEngine
+import pytest
 
+from miniagent.engine.engine import UnifiedEngine
 
 # ============================================================================
 # Helper Function

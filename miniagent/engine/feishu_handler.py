@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from miniagent.engine.cli_format import format_cli_reply_block, format_cli_user_block
 from miniagent.engine.cli_state import CliLoopState

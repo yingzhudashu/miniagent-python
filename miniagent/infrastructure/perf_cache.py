@@ -18,9 +18,9 @@ import functools
 import json
 import re
 from collections import OrderedDict
+from collections.abc import Callable
 from threading import Lock
-from typing import Any, Callable
-
+from typing import Any
 
 # ─── 正则表达式预编译缓存 ────────────────────────────────────────
 

@@ -332,8 +332,8 @@ class DefaultMemoryStore(MemoryStoreProtocol):
         Returns:
             会话记忆对象，不存在返回 None
         """
-        from miniagent.infrastructure.tracing import emit_trace
         from miniagent.infrastructure.trace_events import EVENT_MEMORY_READ
+        from miniagent.infrastructure.tracing import emit_trace
 
         # Trace: 开始加载
         emit_trace({

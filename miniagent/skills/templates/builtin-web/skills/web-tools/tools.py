@@ -15,12 +15,12 @@ from typing import Any
 from urllib.parse import urlparse
 
 from miniagent.infrastructure.json_config import get_config
-from miniagent.infrastructure.tracing import emit_trace
 from miniagent.infrastructure.trace_events import (
+    EVENT_BROWSER_CLOSE,
     EVENT_BROWSER_CREATE,
     EVENT_BROWSER_REUSE,
-    EVENT_BROWSER_CLOSE,
 )
+from miniagent.infrastructure.tracing import emit_trace
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 _logger = logging.getLogger(__name__)

@@ -14,19 +14,19 @@ Tests cover:
 
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from miniagent.types.tool import ToolContext, ToolResult
+import pytest
+
 from miniagent.tools.exec import (
-    exec_tools,
-    _exec_handler,
-    _deny,
-    _get_allowed_commands,
     _BLOCKED_PATTERNS,
     _DEFAULT_ALLOWED_COMMANDS,
+    _deny,
+    _exec_handler,
+    _get_allowed_commands,
+    exec_tools,
 )
-
+from miniagent.types.tool import ToolContext
 
 # ============================================================================
 # Helper Functions
@@ -268,7 +268,7 @@ class TestExecSandboxSecurity:
 
             with patch("miniagent.tools.exec.deregister_process", new_callable=AsyncMock):
                 # full 权限下危险命令仍会执行（不检查）
-                result = await _exec_handler({"command": "some_command"}, ctx)
+                await _exec_handler({"command": "some_command"}, ctx)
 
                 # 应创建子进程
                 mock_create.assert_called_once()

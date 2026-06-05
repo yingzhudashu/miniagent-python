@@ -43,8 +43,8 @@ from miniagent.core.self_opt.types import OptimizationProposal, OptimizationResu
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.infrastructure.trace_events import (
-    EVENT_PROPOSAL_APPROVE,
     EVENT_PROPOSAL_APPLY,
+    EVENT_PROPOSAL_APPROVE,
     EVENT_PROPOSAL_CREATE,
     EVENT_PROPOSAL_REJECT,
     ProposalSource,

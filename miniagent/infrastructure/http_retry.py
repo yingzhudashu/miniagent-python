@@ -18,8 +18,9 @@
 from __future__ import annotations
 
 import asyncio
-import httpx
 from typing import Any
+
+import httpx
 
 
 async def async_http_request_with_retry(

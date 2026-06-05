@@ -298,9 +298,8 @@ def append_markdown_to_document(
     if use_renderer:
         from miniagent.feishu.docx.markdown_renderer import (
             BlockType,
-            FeishuBlock,
-            markdown_to_feishu_blocks,
             build_lark_blocks_from_intermediate,
+            markdown_to_feishu_blocks,
         )
         from miniagent.feishu.docx.tables import create_table_with_values
 

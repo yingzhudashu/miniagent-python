@@ -53,12 +53,12 @@ async def init_subsystems(
         (loaded_skills, skill_toolboxes, skill_prompts, active_session_id, session_manager)
     """
     from miniagent.engine.builtin_tools import register_builtin_tools
-    from miniagent.skills.load_runtime import bootstrap_skill_packages
-    from miniagent.skills.snapshots import build_skill_snapshots
-    from miniagent.tools.session_memory import session_memory_tools
 
     # 0. 自动注册 trace 持久化钩子（如果设置了 MINIAGENT_TRACE_LOG_FILE）
     from miniagent.infrastructure.tracing import auto_register_trace_file_hook
+    from miniagent.skills.load_runtime import bootstrap_skill_packages
+    from miniagent.skills.snapshots import build_skill_snapshots
+    from miniagent.tools.session_memory import session_memory_tools
     auto_register_trace_file_hook()
 
     # 0.5. 检查并恢复 baseline skills（skill-vetter / skill-creator）

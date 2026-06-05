@@ -25,17 +25,17 @@
 4. 包含输出格式和验证要求
 """
 
-from miniagent.core.prompts.identity import AGENT_IDENTITY
-from miniagent.core.prompts.planner import PLAN_SYSTEM_PROMPT
-from miniagent.core.prompts.classifier import CLASSIFIER_PROMPT
 from miniagent.core.prompts.clarifier import CLARIFIER_PROMPT
-from miniagent.core.prompts.reflector import REFLECTOR_PROMPT
-from miniagent.core.prompts.reviewer import REVIEW_PROMPT, REVIEW_ITERATION_PROMPT
-from miniagent.core.prompts.improver import IMPROVE_PROMPT
+from miniagent.core.prompts.classifier import CLASSIFIER_PROMPT
 from miniagent.core.prompts.feishu_channel import (
     FEISHU_CHANNEL_HINT_WITH_TOOLS,
     FEISHU_CHANNEL_HINT_WITHOUT_TOOLS,
 )
+from miniagent.core.prompts.identity import AGENT_IDENTITY
+from miniagent.core.prompts.improver import IMPROVE_PROMPT
+from miniagent.core.prompts.planner import PLAN_SYSTEM_PROMPT
+from miniagent.core.prompts.reflector import REFLECTOR_PROMPT
+from miniagent.core.prompts.reviewer import REVIEW_ITERATION_PROMPT, REVIEW_PROMPT
 
 __all__ = [
     # 核心身份

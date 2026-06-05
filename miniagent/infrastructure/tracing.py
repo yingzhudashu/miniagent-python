@@ -40,6 +40,7 @@ _auto_initialized = False
 
 # Logger
 from miniagent.infrastructure.logger import get_logger
+
 _logger = get_logger(__name__)
 
 

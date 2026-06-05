@@ -82,9 +82,9 @@ class TestHttpRetry:
     def test_http_retry_import(self) -> None:
         """验证 HTTP 重试工具可导入。"""
         from miniagent.infrastructure.http_retry import (
-            async_http_request_with_retry,
             async_http_get_json_with_retry,
             async_http_post_json_with_retry,
+            async_http_request_with_retry,
         )
 
         assert callable(async_http_request_with_retry)
@@ -95,8 +95,9 @@ class TestHttpRetry:
     async def test_http_retry_on_network_error(self) -> None:
         """测试网络错误时的重试逻辑。"""
         from unittest.mock import AsyncMock, patch
-        from miniagent.infrastructure.http_retry import async_http_request_with_retry
+
         import httpx
+
 
         # 创建 mock 客户端
         client = AsyncMock()
@@ -153,8 +154,9 @@ class TestSetupWizard:
 
     def test_detect_first_time_setup(self) -> None:
         """测试首次运行检测。"""
-        from miniagent.engine.setup_wizard import detect_first_time_setup
         from pathlib import Path
+
+        from miniagent.engine.setup_wizard import detect_first_time_setup
 
         # 如果 config.user.json 存在，返回 False
         project_root = Path(__file__).parent.parent.parent
@@ -170,7 +172,6 @@ class TestOpenAiClientTimeout:
 
     def test_openai_client_timeout_config(self) -> None:
         """验证 OpenAI 客户端添加了超时配置。"""
-        from miniagent.core.openai_client import get_shared_async_openai
         from miniagent.infrastructure.json_config import get_config
 
         # 验证配置值被读取

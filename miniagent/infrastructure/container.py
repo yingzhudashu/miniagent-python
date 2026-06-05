@@ -16,15 +16,16 @@ Phase 3重构：替代miniagent/__init__.py、miniagent/session/__init__.py等�
 from __future__ import annotations
 
 import threading
-from typing import Any, TypeVar, Callable
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 from miniagent.types.protocols import (
-    ToolRegistryProtocol,
-    SessionManagerProtocol,
-    MemoryStoreProtocol,
     ActivityLogProtocol,
     KeywordIndexProtocol,
+    MemoryStoreProtocol,
+    SessionManagerProtocol,
     ToolMonitorProtocol,
+    ToolRegistryProtocol,
 )
 
 _logger = __import__("miniagent.infrastructure.logger", fromlist=["get_logger"]).get_logger(__name__)

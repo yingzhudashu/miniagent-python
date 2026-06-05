@@ -38,9 +38,9 @@ from miniagent.infrastructure.logger import get_logger
 from miniagent.infrastructure.registry import DefaultToolRegistry
 from miniagent.types.config import normalize_conversation_history
 from miniagent.types.memory import Session, SessionManagerProtocol, SessionOptions
-from miniagent.utils.session_id import safe_session_id
 from miniagent.types.skill import Skill
 from miniagent.types.tool import Toolbox, ToolContext, ToolDefinition
+from miniagent.utils.session_id import safe_session_id
 
 _logger = get_logger(__name__)
 

@@ -44,16 +44,16 @@ from typing import Any
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.infrastructure.trace_events import (
+    EVENT_CONTEXT_COMPRESS,
+    EVENT_EMBEDDING_API_CALL,
+    EVENT_EMBEDDING_CACHE_HIT,
     EVENT_ERROR_COLLECT,
     EVENT_LLM_REQUEST,
     EVENT_LLM_RESPONSE,
-    EVENT_TOOL_END,
-    EVENT_TOOL_START,
-    EVENT_TOOL_ERROR,
     EVENT_MEMORY_READ,
-    EVENT_CONTEXT_COMPRESS,
-    EVENT_EMBEDDING_CACHE_HIT,
-    EVENT_EMBEDDING_API_CALL,
+    EVENT_TOOL_END,
+    EVENT_TOOL_ERROR,
+    EVENT_TOOL_START,
 )
 
 _logger = get_logger(__name__)

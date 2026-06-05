@@ -16,12 +16,10 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from miniagent.core.config import AGENT_NAME
 from miniagent.core.llm_json import parse_llm_json_response
 from miniagent.core.openai_client import get_shared_async_openai
 from miniagent.core.prompts.planner import PLAN_SYSTEM_PROMPT
 from miniagent.infrastructure.debug_ndjson import safe_agent_debug_log
-from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import append_log, get_logger, truncate
 from miniagent.types.planning import (
     ContextStrategy,

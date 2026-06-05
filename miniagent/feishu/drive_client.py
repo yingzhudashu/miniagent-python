@@ -6,6 +6,7 @@ HTTP 调用使用 httpx 异步客户端，避免阻塞事件循环。
 from __future__ import annotations
 
 import json
+import os as _os_for_drive
 import time
 from typing import Any
 
@@ -15,7 +16,6 @@ from miniagent.feishu.lark_client import build_client, clear_client_cache
 from miniagent.feishu.lark_response import format_lark_response_error
 from miniagent.feishu.types import FeishuConfig
 
-import os as _os_for_drive
 # 单次列举上限（支持环境变量覆盖）
 LIST_FILE_PAGE_SIZE = int(_os_for_drive.environ.get("MINIAGENT_LIST_FILE_PAGE_SIZE", "50"))
 

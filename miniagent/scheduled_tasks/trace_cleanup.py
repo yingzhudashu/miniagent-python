@@ -18,8 +18,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from miniagent.infrastructure.trace_stats import cleanup_old_traces, generate_daily_report, save_report
 from miniagent.infrastructure.json_config import get_config
+from miniagent.infrastructure.trace_stats import (
+    cleanup_old_traces,
+    generate_daily_report,
+    save_report,
+)
 
 _logger = logging.getLogger(__name__)
 

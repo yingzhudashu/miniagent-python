@@ -12,9 +12,9 @@
 from __future__ import annotations
 
 import asyncio
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
+import pytest
 
 # ============================================================================
 # 异步 PATCH 函数测试
@@ -241,14 +241,20 @@ class TestDynamicBudgetAdjustment:
 
     def test_budget_adjustment_short_text(self) -> None:
         """短文本不调整预算。"""
-        from miniagent.feishu.poll_server import _adjust_patch_budget_dynamically, FEISHU_THINKING_PATCH_BUDGET
+        from miniagent.feishu.poll_server import (
+            FEISHU_THINKING_PATCH_BUDGET,
+            _adjust_patch_budget_dynamically,
+        )
 
         budget = _adjust_patch_budget_dynamically(1000, FEISHU_THINKING_PATCH_BUDGET)
         assert budget == FEISHU_THINKING_PATCH_BUDGET
 
     def test_budget_adjustment_medium_text(self) -> None:
         """中等长度文本增加预算。"""
-        from miniagent.feishu.poll_server import _adjust_patch_budget_dynamically, FEISHU_THINKING_PATCH_BUDGET
+        from miniagent.feishu.poll_server import (
+            FEISHU_THINKING_PATCH_BUDGET,
+            _adjust_patch_budget_dynamically,
+        )
 
         # 使用当前配置的预算值进行测试
         base_budget = FEISHU_THINKING_PATCH_BUDGET
@@ -257,7 +263,10 @@ class TestDynamicBudgetAdjustment:
 
     def test_budget_adjustment_long_text(self) -> None:
         """长文本大幅增加预算。"""
-        from miniagent.feishu.poll_server import _adjust_patch_budget_dynamically, FEISHU_THINKING_PATCH_BUDGET
+        from miniagent.feishu.poll_server import (
+            FEISHU_THINKING_PATCH_BUDGET,
+            _adjust_patch_budget_dynamically,
+        )
 
         # 使用当前配置的预算值进行测试
         base_budget = FEISHU_THINKING_PATCH_BUDGET
@@ -266,7 +275,10 @@ class TestDynamicBudgetAdjustment:
 
     def test_budget_adjustment_preserves_higher_budget(self) -> None:
         """已有更高预算时保持不变。"""
-        from miniagent.feishu.poll_server import _adjust_patch_budget_dynamically, FEISHU_THINKING_PATCH_BUDGET
+        from miniagent.feishu.poll_server import (
+            FEISHU_THINKING_PATCH_BUDGET,
+            _adjust_patch_budget_dynamically,
+        )
 
         # 使用当前配置的预算值进行测试
         base_budget = FEISHU_THINKING_PATCH_BUDGET

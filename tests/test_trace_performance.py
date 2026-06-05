@@ -8,14 +8,14 @@
 from __future__ import annotations
 
 import os
-import time
 import tempfile
+import time
 from pathlib import Path
+
 from miniagent.infrastructure.tracing import (
     AsyncTraceWriter,
-    emit_trace,
     clear_trace_hooks,
-    shutdown_trace_writer,
+    emit_trace,
 )
 
 

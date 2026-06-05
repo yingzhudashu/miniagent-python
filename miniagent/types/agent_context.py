@@ -13,18 +13,18 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from openai import AsyncOpenAI
 
 from miniagent.types.agent import ToolMonitorProtocol
 from miniagent.types.protocols import (
-    ToolRegistryProtocol,
-    OnToolCall,
-    OnToolFinish,
     OnPlan,
     OnThinking,
+    OnToolCall,
+    OnToolFinish,
+    ToolRegistryProtocol,
 )
 
 

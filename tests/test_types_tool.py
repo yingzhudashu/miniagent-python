@@ -13,17 +13,15 @@
 
 from __future__ import annotations
 
-import pytest
-
 from miniagent.types.tool import (
     ContextState,
     RegisteredTool,
     TokenEstimate,
+    Toolbox,
     ToolContext,
     ToolDefinition,
     ToolPermission,
     ToolResult,
-    Toolbox,
 )
 
 

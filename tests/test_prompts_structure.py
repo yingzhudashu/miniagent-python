@@ -7,19 +7,16 @@
 - 包含验证要求
 """
 
-import pytest
 
 from miniagent.core.prompts import (
     AGENT_IDENTITY,
-    PLAN_SYSTEM_PROMPT,
-    CLASSIFIER_PROMPT,
     CLARIFIER_PROMPT,
+    CLASSIFIER_PROMPT,
+    FEISHU_CHANNEL_HINT_WITH_TOOLS,
+    IMPROVE_PROMPT,
+    PLAN_SYSTEM_PROMPT,
     REFLECTOR_PROMPT,
     REVIEW_PROMPT,
-    REVIEW_ITERATION_PROMPT,
-    IMPROVE_PROMPT,
-    FEISHU_CHANNEL_HINT_WITH_TOOLS,
-    FEISHU_CHANNEL_HINT_WITHOUT_TOOLS,
 )
 
 
@@ -235,7 +232,7 @@ class TestPromptContent:
         for prompt in prompts:
             # 简单检查：每个开始标签应该有对应的结束标签
             for tag in ["role", "context", "instructions"]:
-                open_count = prompt.count(f"<{tag}>")
+                prompt.count(f"<{tag}>")
                 close_count = prompt.count(f"</{tag}>")
                 # 注意：有些标签可能有属性，使用宽松匹配
                 open_pattern_count = prompt.count(f"<{tag}")

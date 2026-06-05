@@ -10,21 +10,21 @@ Tests cover:
 from __future__ import annotations
 
 import asyncio
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from miniagent.feishu.ws_health import (
     FeishuWsHealthConfig,
-    get_ws_last_inbound_monotonic,
-    get_last_ws_session_end,
-    read_feishu_ws_health_config,
-    touch_ws_inbound_activity,
     _receive_loop_exit_reason,
     _record_session_end,
-    supervise_feishu_ws_session,
     _watchdog_loop,
+    get_last_ws_session_end,
+    get_ws_last_inbound_monotonic,
+    read_feishu_ws_health_config,
+    supervise_feishu_ws_session,
+    touch_ws_inbound_activity,
 )
-
 
 # ============================================================================
 # Test Health Config
@@ -74,7 +74,6 @@ class TestActivityTracking:
 
     def test_touch_updates_timestamp(self) -> None:
         """touch_ws_inbound_activity 应更新时间戳。"""
-        import time
 
         # 初始状态
         before = get_ws_last_inbound_monotonic()

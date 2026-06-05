@@ -9,8 +9,6 @@
 
 from __future__ import annotations
 
-import json
-import os
 import tempfile
 
 import pytest
@@ -19,8 +17,6 @@ from miniagent.memory.keyword_index import (
     KeywordIndex,
     extract_keywords,
     format_search_results,
-    get_index_stats,
-    search_relevant_memory,
     search_relevant_with_index,
 )
 from miniagent.memory.shared_registry import reset_registry

@@ -18,7 +18,6 @@ import json
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -31,7 +30,6 @@ from miniagent.infrastructure.tracing import emit_trace, shutdown_trace_writer
 def real_api_config():
     """验证API配置存在并加载到环境变量。"""
     from miniagent.infrastructure.env_loader import load_secrets_from_project_root
-    from miniagent.infrastructure.json_config import get_config
 
     # 加载secrets到环境变量
     load_secrets_from_project_root()
@@ -61,8 +59,8 @@ class TestRealAPIPerformance:
     @pytest.mark.asyncio
     async def test_llm_streaming_latency(self, real_api_config, baseline_dir):
         """测量真实LLM流式响应延迟。"""
-        from miniagent.infrastructure.registry import DefaultToolRegistry
         from miniagent.infrastructure.monitor import DefaultToolMonitor
+        from miniagent.infrastructure.registry import DefaultToolRegistry
         from miniagent.types.config import AgentConfig  # 修复导入路径
         from miniagent.types.planning import StructuredPlan
 
@@ -128,8 +126,8 @@ class TestRealAPIPerformance:
     @pytest.mark.asyncio
     async def test_tool_execution_with_real_api(self, real_api_config):
         """测量真实工具执行延迟（带LLM）。"""
-        from miniagent.infrastructure.registry import DefaultToolRegistry
         from miniagent.infrastructure.monitor import DefaultToolMonitor
+        from miniagent.infrastructure.registry import DefaultToolRegistry
         from miniagent.types.config import AgentConfig  # 修复导入路径
         from miniagent.types.planning import StructuredPlan
 
@@ -187,8 +185,8 @@ class TestRealAPIPerformance:
     @pytest.mark.asyncio
     async def test_concurrent_requests_throughput(self, real_api_config, baseline_dir):
         """测量并发请求吞吐量。"""
-        from miniagent.infrastructure.registry import DefaultToolRegistry
         from miniagent.infrastructure.monitor import DefaultToolMonitor
+        from miniagent.infrastructure.registry import DefaultToolRegistry
         from miniagent.types.config import AgentConfig  # 修复导入路径
         from miniagent.types.planning import StructuredPlan
 

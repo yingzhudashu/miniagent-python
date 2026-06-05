@@ -473,10 +473,6 @@ def build_lark_blocks_from_intermediate(blocks: list[FeishuBlock]) -> list[Any]:
         BlockBuilder,
         Text,
         TextStyle,
-        TextElement,
-        TextElementStyle,
-        TextRun,
-        Link,
     )
 
     result: list[Any] = []
@@ -630,7 +626,7 @@ def build_lark_blocks_from_intermediate(blocks: list[FeishuBlock]) -> list[Any]:
                 )
                 result.append(fallback)
             except Exception:
-                _logger.error(f"回退 Block 也失败，跳过此块")
+                _logger.error("回退 Block 也失败，跳过此块")
                 continue
 
     return result
@@ -644,10 +640,10 @@ def _build_text_elements(runs: list[TextRun]) -> list[Any]:
     - 样式应用（bold, italic, link 等）
     """
     from lark_oapi.api.docx.v1 import (
+        Link,
         TextElement,
         TextElementStyle,
         TextRun,
-        Link,
     )
 
     elements: list[Any] = []
@@ -684,7 +680,7 @@ def _build_text_elements(runs: list[TextRun]) -> list[Any]:
                     plain_run = TextRun.builder().content(chunk).build()
                     elements.append(TextElement.builder().text_run(plain_run).build())
                 except Exception:
-                    _logger.error(f"回退 TextElement 也失败，跳过")
+                    _logger.error("回退 TextElement 也失败，跳过")
                     continue
 
     return elements

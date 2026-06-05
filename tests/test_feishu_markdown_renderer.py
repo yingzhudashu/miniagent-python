@@ -13,18 +13,16 @@
 
 from __future__ import annotations
 
-import pytest
-
 from miniagent.feishu.docx.markdown_renderer import (
     BlockType,
     FeishuBlock,
+    MarkdownConversionResult,
     TextRun,
     TextStyle,
-    MarkdownConversionResult,
-    markdown_to_feishu_blocks,
+    _chunk_text,
     build_lark_blocks_from_intermediate,
     estimate_block_count,
-    _chunk_text,
+    markdown_to_feishu_blocks,
 )
 
 

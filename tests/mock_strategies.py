@@ -17,7 +17,6 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
-
 # ============================================================================
 # LLM Response Mocker
 # ============================================================================
@@ -201,7 +200,7 @@ class LLMResponseMocker:
         Returns:
             配置后的客户端
         """
-        from openai import APIError, APIConnectionError, RateLimitError
+        from openai import APIConnectionError, APIError, RateLimitError
 
         error_map = {
             "api_error": APIError(error_message),

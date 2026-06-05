@@ -34,11 +34,11 @@ except ImportError:
 
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
-from miniagent.infrastructure.tracing import emit_trace
 from miniagent.infrastructure.trace_events import (
-    EVENT_EMBEDDING_CACHE_HIT,
     EVENT_EMBEDDING_API_CALL,
+    EVENT_EMBEDDING_CACHE_HIT,
 )
+from miniagent.infrastructure.tracing import emit_trace
 from miniagent.memory.shared_registry import MemoryEntryRegistry, get_registry
 from miniagent.types.memory import MemoryEntry, MemoryEntryInput
 

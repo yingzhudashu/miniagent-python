@@ -46,7 +46,6 @@ from miniagent.infrastructure.logger import append_log, get_logger, truncate
 from miniagent.infrastructure.loop_detector import LoopDetector
 from miniagent.infrastructure.timezone_config import format_agent_timezone_context
 from miniagent.infrastructure.tracing import emit_trace
-from miniagent.knowledge import get_kb_registry
 from miniagent.memory.context import ContextBudgetExceeded, DefaultContextManager
 from miniagent.memory.defaults import resolve_memory_dependencies
 from miniagent.memory.embedding_search import (

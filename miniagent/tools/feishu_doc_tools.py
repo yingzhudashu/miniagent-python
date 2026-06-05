@@ -259,8 +259,8 @@ def _action_append(args: dict[str, Any], cfg: FeishuConfig, *, full_write: bool)
     """
     from miniagent.feishu.docx.blocks import (
         DOCX_APPEND_MAX_CHARS,
-        append_plain_text_to_document,
         append_markdown_to_document,
+        append_plain_text_to_document,
         clear_document_content_blocks,
     )
     from miniagent.feishu.docx.markdown import markdown_to_plain_text
@@ -441,8 +441,8 @@ def _action_import_raw(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig
     Markdown 文件将自动转换为飞书文档的 Block 结构，保留格式信息。
     """
     from miniagent.feishu.docx.blocks import (
-        append_plain_text_to_document,
         append_markdown_to_document,
+        append_plain_text_to_document,
     )
     from miniagent.feishu.docx.markdown import markdown_to_plain_text
 
