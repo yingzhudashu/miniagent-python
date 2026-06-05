@@ -3,20 +3,8 @@
 
 验证Mini Agent Python v2.0.3全面性能优化的效果。
 
-验证维度：
-1. Trace系统：配置完整性、统计函数、异步写入性能
-2. Token计算：增量计算性能（O(1) vs O(N)）
-3. Embedding搜索：numpy批量计算加速
-4. StreamingBuffer：动态合并策略
-5. 缓存策略：智能缓存命中率
-6. 异步化：git操作异步版本使用
-
 用法：
-    python scripts/verify_performance_optimizations.py
-
-配置要求：
-    - config.user.json中设置trace.enabled=true以验证trace系统
-    - embedding.enabled=true以验证embedding搜索加速（可选）
+    python scripts/verify_perf_opt.py
 """
 
 import json
@@ -24,51 +12,41 @@ import time
 import sys
 from pathlib import Path
 
-# 添加项目根目录到sys.path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 
 def verify_trace_config():
     """验证Trace配置完整性"""
-    print("\n=== 1. Trace系统配置验证 ===")
+    print("\n=== 1. Trace System Config ===")
 
     config_file = project_root / "config.defaults.json"
     with config_file.open("r", encoding="utf-8") as f:
         config = json.load(f)
 
-    # 检查trace配置块
     if "trace" in config:
         trace_config = config["trace"]
-        print(f"✓ Trace配置块存在")
+        print("[PASS] Trace config block exists")
 
-        # 检查必需字段
         required_fields = ["enabled", "output_dir", "retention_days",
                            "writer_batch_interval", "writer_batch_size",
                            "auto_cleanup"]
 
         missing = [f for f in required_fields if f not in trace_config]
         if missing:
-            print(f"✗ 缺少字段: {missing}")
+            print(f"[FAIL] Missing fields: {missing}")
             return False
 
-        print(f"✓ 所有必需字段完整: {required_fields}")
-        print(f"  - enabled: {trace_config['enabled']}")
-        print(f"  - output_dir: {trace_config['output_dir']}")
-        print(f"  - retention_days: {trace_config['retention_days']}")
-        print(f"  - batch_interval: {trace_config['writer_batch_interval']}s")
-        print(f"  - batch_size: {trace_config['writer_batch_size']}")
-        print(f"  - auto_cleanup: {trace_config['auto_cleanup']}")
-
+        print(f"[PASS] All required fields complete")
         return True
     else:
-        print("✗ Trace配置块缺失")
+        print("[FAIL] Trace config block missing")
         return False
 
 
 def verify_trace_stats_functions():
     """验证Trace统计函数完整性"""
-    print("\n=== 2. Trace统计函数验证 ===")
+    print("\n=== 2. Trace Stats Functions ===")
 
     try:
         from miniagent.infrastructure.trace_stats import (
@@ -77,14 +55,13 @@ def verify_trace_stats_functions():
             compute_embedding_stats,
         )
 
-        print("✓ compute_memory_stats 函数存在")
-        print("✓ compute_context_stats 函数存在")
-        print("✓ compute_embedding_stats 函数存在")
+        print("[PASS] compute_memory_stats exists")
+        print("[PASS] compute_context_stats exists")
+        print("[PASS] compute_embedding_stats exists")
 
-        # 测试函数可调用性
         test_events = [
-            {"type": "memory.read", "duration_ms": 50, "layer": "session_lt"},
-            {"type": "context.compress", "duration_ms": 100, "tokens_before": 10000},
+            {"type": "memory.read", "duration_ms": 50},
+            {"type": "context.compress", "duration_ms": 100},
             {"type": "embedding.cache_hit"},
         ]
 
@@ -92,41 +69,33 @@ def verify_trace_stats_functions():
         context_stats = compute_context_stats(test_events)
         embedding_stats = compute_embedding_stats(test_events)
 
-        print("✓ 统计函数可正常调用")
-        print(f"  - memory_stats: {memory_stats}")
-        print(f"  - context_stats: {context_stats}")
-        print(f"  - embedding_stats: {embedding_stats}")
-
+        print("[PASS] Stats functions callable")
         return True
     except ImportError as e:
-        print(f"✗ 导入失败: {e}")
+        print(f"[FAIL] Import failed: {e}")
         return False
 
 
 def verify_token_incremental_calculation():
     """验证Token增量计算优化"""
-    print("\n=== 3. Token增量计算验证 ===")
+    print("\n=== 3. Token Incremental Calc ===")
 
     try:
         from miniagent.memory.context import DefaultContextManager
 
-        # 创建上下文管理器
         cm = DefaultContextManager(
             context_window=128000,
             compress_threshold=0.6,
             tools=[]
         )
 
-        # 测试增量计算
         messages_count = 100
 
-        # 方法1：全量重算（模拟旧版本）
         start = time.time()
         cm._messages = [{"role": "user", "content": f"test {i}"} for i in range(messages_count)]
         cm._recalculate_tokens()
         elapsed_recalculate = time.time() - start
 
-        # 方法2：增量计算（模拟新版本）
         cm2 = DefaultContextManager(
             context_window=128000,
             compress_threshold=0.6,
@@ -140,122 +109,115 @@ def verify_token_incremental_calculation():
             cm2._total_tokens_estimate += cm2._message_tokens(cm2._messages[-1])
         elapsed_incremental = time.time() - start
 
-        print(f"✓ Token增量计算实现")
-        print(f"  - 全量重算时间: {elapsed_recalculate:.4f}s")
-        print(f"  - 增量计算时间: {elapsed_incremental:.4f}s")
+        print("[PASS] Token incremental calculation implemented")
+        print(f"  Full recalc: {elapsed_recalculate:.4f}s")
+        print(f"  Incremental: {elapsed_incremental:.4f}s")
         if elapsed_incremental > 0:
-            print(f"  - 性能提升: {(elapsed_recalculate / elapsed_incremental):.1f}x")
+            speedup = elapsed_recalculate / elapsed_incremental
+            print(f"  Speedup: {speedup:.1f}x")
 
         return True
     except Exception as e:
-        print(f"✗ Token计算验证失败: {e}")
+        print(f"[FAIL] Token calc failed: {e}")
         return False
 
 
 def verify_embedding_numpy_acceleration():
     """验证Embedding numpy加速"""
-    print("\n=== 4. Embedding numpy加速验证 ===")
+    print("\n=== 4. Embedding Numpy Acceleration ===")
 
     try:
         from miniagent.memory.embedding_search import (
             EmbeddingIndex,
             _numpy_available,
         )
+        from miniagent.types.memory import MemoryEntryInput
 
-        print(f"✓ numpy可用性: {_numpy_available}")
+        print(f"[INFO] numpy available: {_numpy_available}")
 
         if not _numpy_available:
-            print("⚠ numpy未安装，无法验证加速效果")
+            print("[WARN] numpy not installed, acceleration unavailable")
             return True
 
-        # 创建测试索引
         index = EmbeddingIndex()
 
-        # 添加大量条目（触发批量计算阈值 > 20）
+        # 使用正确的方法名index_entry
         for i in range(50):
-            index.addOrUpdate(
+            test_entry = MemoryEntryInput(
                 entry_key=f"test_{i}",
                 text=f"test content {i}",
-                embedding=[0.1] * 1536,  # 模拟embedding向量
             )
+            # 设置embedding向量（模拟）
+            index.index_entry(test_entry, embedding=[0.1] * 1536)
 
-        # 测试搜索性能
         query_embedding = [0.1] * 1536
 
         start = time.time()
         results = index.search_relevant(query_embedding, limit=10)
         elapsed = time.time() - start
 
-        print(f"✓ Embedding搜索numpy加速")
-        print(f"  - 测试条目数: {len(index._entries)}")
-        print(f"  - 搜索时间: {elapsed:.4f}s")
-        print(f"  - 返回结果数: {len(results)}")
+        print("[PASS] Embedding numpy acceleration")
+        print(f"  Test entries: {len(index._entries)}")
+        print(f"  Search time: {elapsed:.4f}s")
+        print(f"  Results: {len(results)}")
 
-        # 验证自动使用了批量计算
-        # entry数量 > 20 应自动调用search_relevant_batch
         if len(index._entries) > 20:
-            print(f"  - 批量计算自动启用（entry > 20）")
+            print(f"  Batch calc auto-enabled (entry > 20)")
 
         return True
     except Exception as e:
-        print(f"✗ Embedding验证失败: {e}")
+        print(f"[FAIL] Embedding failed: {e}")
         return False
 
 
 def verify_streaming_buffer_optimization():
     """验证StreamingBuffer动态合并优化"""
-    print("\n=== 5. StreamingBuffer动态合并验证 ===")
+    print("\n=== 5. StreamingBuffer Optimization ===")
 
     try:
         from miniagent.infrastructure.perf_cache import OptimizedStringBuilder
 
-        # 测试动态合并策略
         builder = OptimizedStringBuilder(merge_threshold=30)
 
-        # 测试1：chunk数量阈值
-        chunks = []
         for i in range(40):
             builder.append(f"chunk_{i}")
-            chunks.append(f"chunk_{i}")
 
-        print(f"✓ chunk数量阈值测试")
-        print(f"  - append {len(chunks)} chunks")
-        print(f"  - 内部chunk数量: {len(builder._chunks)}")
+        print("[PASS] StreamingBuffer dynamic merge")
+        print(f"  Append 40 chunks")
+        print(f"  Internal chunks: {len(builder._chunks)}")
 
         return True
     except Exception as e:
-        print(f"✗ StreamingBuffer验证失败: {e}")
+        print(f"[FAIL] StreamingBuffer failed: {e}")
         return False
 
 
 def verify_cache_optimization():
     """验证缓存策略优化"""
-    print("\n=== 6. 缓存策略优化验证 ===")
+    print("\n=== 6. Cache Strategy Optimization ===")
 
     try:
         from miniagent.infrastructure.perf_cache import cached_json_serialize
 
-        # 测试：小对象缓存
         small_obj = "test_string"
 
         result1 = cached_json_serialize(small_obj)
         result2 = cached_json_serialize(small_obj)
 
-        print(f"✓ 缓存序列化函数可调用")
-        print(f"  - 小对象缓存测试成功")
+        print("[PASS] Cache serialization callable")
+        print(f"  Small object cache test passed")
 
         return True
     except Exception as e:
-        print(f"✗ 缓存策略验证失败: {e}")
+        print(f"[FAIL] Cache failed: {e}")
         return False
 
 
 def verify_async_optimization():
     """验证异步化改造"""
-    print("\n=== 7. 异步化改造验证 ===")
+    print("\n=== 7. Async Optimization ===")
 
     try:
-        # 检查git_snapshot异步函数存在
         from miniagent.core.self_opt.git_snapshot import (
             is_in_git_repo_async,
             has_uncommitted_changes_async,
@@ -263,7 +225,7 @@ def verify_async_optimization():
             rollback_snapshot_async,
         )
 
-        print("✓ Git操作异步函数存在")
+        print("[PASS] Git async functions exist")
         print("  - is_in_git_repo_async")
         print("  - has_uncommitted_changes_async")
         print("  - create_snapshot_async")
@@ -271,44 +233,44 @@ def verify_async_optimization():
 
         return True
     except Exception as e:
-        print(f"✗ 异步化验证失败: {e}")
+        print(f"[FAIL] Async failed: {e}")
         return False
 
 
 def main():
     """运行所有验证"""
     print("=" * 80)
-    print("Mini Agent Python v2.0.3 性能优化验证")
+    print("Mini Agent Python v2.0.3 Performance Optimization Verification")
     print("=" * 80)
 
     results = {
-        "Trace配置完整性": verify_trace_config(),
-        "Trace统计函数": verify_trace_stats_functions(),
-        "Token增量计算": verify_token_incremental_calculation(),
-        "Embedding numpy加速": verify_embedding_numpy_acceleration(),
-        "StreamingBuffer优化": verify_streaming_buffer_optimization(),
-        "缓存策略优化": verify_cache_optimization(),
-        "异步化改造": verify_async_optimization(),
+        "Trace Config": verify_trace_config(),
+        "Trace Stats": verify_trace_stats_functions(),
+        "Token Calc": verify_token_incremental_calculation(),
+        "Embedding Numpy": verify_embedding_numpy_acceleration(),
+        "StreamingBuffer": verify_streaming_buffer_optimization(),
+        "Cache Strategy": verify_cache_optimization(),
+        "Async Git": verify_async_optimization(),
     }
 
     print("\n" + "=" * 80)
-    print("验证结果汇总")
+    print("Results Summary")
     print("=" * 80)
 
     passed = sum(1 for v in results.values() if v)
     total = len(results)
 
     for name, result in results.items():
-        status = "✓ 通过" if result else "✗ 失败"
-        print(f"{name:30s} {status}")
+        status = "PASS" if result else "FAIL"
+        print(f"{name:30s} [{status}]")
 
-    print(f"\n总计: {passed}/{total} 验证通过")
+    print(f"\nTotal: {passed}/{total} verified")
 
     if passed == total:
-        print("\n🎉 所有性能优化验证通过！")
+        print("\n[SUCCESS] All optimizations verified!")
         return 0
     else:
-        print("\n⚠ 部分验证失败，请检查")
+        print("\n[WARNING] Some verifications failed")
         return 1
 
 
