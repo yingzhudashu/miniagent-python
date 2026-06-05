@@ -11,21 +11,22 @@
 1. [前言：本项目能做什么](#1-前言本项目能做什么)
 2. [开始前准备](#2-开始前准备)
 3. [获取代码与安装](#3-获取代码与安装)
-4. [首次配置（JSON 配置文件）](#4-首次配置json-配置文件)
-5. [第一次启动与退出](#5-第一次启动与退出)
-6. [日常对话怎么用](#6-日常对话怎么用)
-7. [点命令（`/`）速查](#7-点命令速查)
-8. [定时任务（/schedule）](#8-定时任务)
-9. [会话与多会话](#9-会话与多会话)
-10. [飞书（可选）](#10-飞书可选)
-11. [联网搜索与浏览器工具（可选）](#11-联网搜索与浏览器工具可选)
-12. [技能与 ClawHub（可选）](#12-技能与-clawhub可选)
-13. [MCP 工具（可选）](#13-mcp-工具可选)
-14. [状态目录、备份与 Git](#14-状态目录备份与-git)
-15. [常见问题（FAQ）](#15-常见问题faq)
-16. [安全与隐私清单](#16-安全与隐私清单)
-17. [进阶阅读与开发](#17-进阶阅读与开发)
-18. [文档索引](#18-文档索引)（含 [进阶与维护](#user-guide-sec18-advanced) 专题链）
+4. [快速入门（5分钟体验）](#4-快速入门5分钟体验)
+5. [首次配置（JSON 配置文件）](#5-首次配置json-配置文件)
+6. [第一次启动与退出](#6-第一次启动与退出)
+7. [日常对话怎么用](#7-日常对话怎么用)
+8. [点命令（`/`）速查](#8-点命令速查)
+9. [定时任务（/schedule）](#9-定时任务)
+10. [会话与多会话](#10-会话与多会话)
+11. [飞书（可选）](#11-飞书可选)
+12. [联网搜索与浏览器工具（可选）](#12-联网搜索与浏览器工具可选)
+13. [技能与 ClawHub（可选）](#13-技能与-clawhub可选)
+14. [MCP 工具（可选）](#14-mcp-工具可选)
+15. [状态目录、备份与 Git](#15-状态目录备份与-git)
+16. [常见问题（FAQ）](#16-常见问题faq)
+17. [安全与隐私清单](#17-安全与隐私清单)
+18. [进阶阅读与开发](#18-进阶阅读与开发)
+19. [文档索引](#19-文档索引)（含 [进阶与维护](#user-guide-sec19-advanced) 专题链）
 
 ---
 
@@ -148,11 +149,64 @@ miniagent
 
 ---
 
-## 4. 首次配置（JSON 配置文件）
+## 4. 快速入门（5分钟体验）
+
+> 如果你已经完成安装，想先快速体验再细读配置章节，按以下步骤操作即可。
+
+### 4.1 最小配置
+
+1. 复制配置模板：
+
+   ```bash
+   cp config.defaults.json config.user.json
+   ```
+
+2. 编辑 `config.user.json`，填入必要的 API 密钥：
+
+   ```json
+   {
+     "secrets": {
+       "openai_api_key": "你的密钥"
+     }
+   }
+   ```
+
+### 4.2 启动并对话
+
+```bash
+python -m miniagent
+```
+
+看到 `>>>` 提示符后，输入：
+
+```
+帮我列出当前目录的文件
+```
+
+Agent 会自动调用文件工具完成任务。
+
+### 4.3 常用操作
+
+| 操作 | 命令/方法 |
+|------|----------|
+| 查看状态 | `/status` |
+| 切换会话 | `/session switch <id>` |
+| 退出程序 | `/exit` 或 `Ctrl+D` |
+| 查看帮助 | `/help` |
+
+### 4.4 下一步
+
+- 详细配置选项见 [第5章：首次配置](#5-首次配置json-配置文件)
+- CLI 命令全集见 [CLI.md](CLI.md)
+- 飞书集成见 [第10章：飞书](#10-飞书可选)
+
+---
+
+## 5. 首次配置（JSON 配置文件）
 
 **升级迁移提示**（详见 [CHANGELOG](../CHANGELOG.md) `[Unreleased]` Breaking）：飞书出站默认 `MINIAGENT_FEISHU_REPLY_TARGET=reply`；内置飞书工具默认由 `MINIAGENT_FEISHU_TOOLS_AUTO` 注册；已迁移到 JSON 配置格式（`config.user.json`）；飞书请改用 `MINIAGENT_FEISHU_DOCX_URL_PREFIX`、`MINIAGENT_FEISHU_DOC_FOLDER_TOKEN`（旧名仍会读取并打弃用警告）。飞书细节见第 10 章。
 
-### 4.1 创建配置文件
+### 5.1 创建配置文件
 
 在 **项目根目录**（与 `pyproject.toml` 同级）执行：
 
@@ -179,7 +233,7 @@ cp config.defaults.json config.user.json
 
 配置完成后会自动生成 `config.user.json`，无需手动复制模板。
 
-### 4.2 必填（最小可运行）
+### 5.2 必填（最小可运行）
 
 在 `config.user.json` 的 `secrets` 部分填写 API 密钥：
 
@@ -242,7 +296,7 @@ cp config.defaults.json config.user.json
 
 ---
 
-## 5. 第一次启动与退出
+## 6. 第一次启动与退出
 
 ### 5.1 仅终端（CLI）
 
@@ -273,7 +327,7 @@ python -m miniagent --stop
 
 ---
 
-## 6. 日常对话怎么用
+## 7. 日常对话怎么用
 
 1. 启动后，在提示处 **直接输入中文或英文需求** 即可。  
 2. 若任务需要工具，界面可能出现 **思考过程** 或 **工具调用提示**（取决于通道与配置），等待结束即可。  
@@ -282,7 +336,7 @@ python -m miniagent --stop
 
 ---
 
-## 7. 点命令（`/`）速查
+## 8. 点命令（`/`）速查
 
 多数以下命令在 **CLI 与飞书** 中均可使用（前缀为斜杠 `/`）。**`/schedule` 的 add/update/remove/enable/disable** 及部分 **`/session` 变异** 仅允许在本机 CLI 执行（见第 8 章）。**完整说明、示例输出与边界情况** 见 [CLI.md](CLI.md)。
 
@@ -309,7 +363,7 @@ python -m miniagent --stop
 
 ---
 
-## 8. 定时任务
+## 9. 定时任务
 
 在 **本地 CLI** 中可用点命令 **`/schedule`** 管理持久化定时任务：到达时间后，进程会像普通聊天一样把一轮 Agent 请求放进 **消息队列**，再进入与手动输入相同的执行路径。任务保存在 **`MINIAGENT_PATHS_STATE_DIR/scheduled_tasks/tasks.json`**（未设置 `MINIAGENT_PATHS_STATE_DIR` 时一般为仓库下 `workspaces/scheduled_tasks/`；该目录不宜提交到 Git，见 [ENGINEERING.md](ENGINEERING.md) §3.1）。
 
@@ -324,7 +378,7 @@ python -m miniagent --stop
 
 ---
 
-## 9. 会话与多会话
+## 10. 会话与多会话
 
 - **会话**就像「不同的聊天窗口」，历史与部分配置相互隔离。  
 - 使用 `/session list` 查看列表；在 **本地 CLI** 用 `/session switch` 切换到工作上下文。  
@@ -333,7 +387,7 @@ python -m miniagent --stop
 
 ---
 
-## 10. 飞书（可选）
+## 11. 飞书（可选）
 
 1. 安装依赖：`pip install -e ".[feishu]"`。  
 2. 在飞书开放平台创建企业自建应用，获取 **App ID**、**App Secret**、事件订阅与权限按 [FEISHU.md](FEISHU.md) 操作。  
@@ -348,7 +402,7 @@ python -m miniagent --stop
 
 **工作区路径**：通过飞书发附件时，工具只能访问当前会话 **`files/`** 目录下的相对路径；飞书入站附件保存在 `files/feishu_incoming/`，详见 [FEISHU.md](FEISHU.md)「飞书与会话工作区文件」。
 
-## 11. 联网搜索与浏览器工具（可选）
+## 12. 联网搜索与浏览器工具（可选）
 
 - **联网搜索（Tavily）**：在 `config.user.json` 的 `secrets` 部分配置 `tavily_api_key` 或 `web_search_api_key`。未配置时，若模型尝试调用搜索工具，会得到 **明确错误提示**，不影响其它工具。  
 - **浏览器正文抽取**：需 `[browser]` 与 Playwright 浏览器安装；用于部分需渲染的网页。  
@@ -357,7 +411,7 @@ python -m miniagent --stop
 
 ---
 
-## 12. 技能与 ClawHub（可选）
+## 13. 技能与 ClawHub（可选）
 
 - 默认技能根目录为仓库下 **`workspaces/skills/`**（旧版若使用根目录 `skills/`，请迁移或设置 `MINIAGENT_PATHS_SKILLS_DIR`）。  
 - **内置基线**：仓库预置 **`skill-creator`**（来自 [anthropics/skills](https://github.com/anthropics/skills)，含 `LICENSE.txt`）；**`skill-vetter`**（安全审查）位于 `miniagent/skills/templates/skill-vetter/`，首次使用时可通过 `miniagent install-skill skill-vetter` 或手动复制到 `workspaces/skills/` 加载。  
@@ -367,7 +421,7 @@ python -m miniagent --stop
 
 ---
 
-## 13. MCP 工具（可选）
+## 14. MCP 工具（可选）
 
 1. `pip install -e ".[mcp]"`。  
 2. 在 `config.user.json` 的 `mcp.stdio_command` 中设置 **JSON 数组** 形式的启动命令，例如文档中展示的 `["npx","-y","@组织/包名"]` 形态（请替换为你信任的 MCP 服务）。  
@@ -377,7 +431,7 @@ python -m miniagent --stop
 
 ---
 
-## 14. 状态目录、备份与 Git
+## 15. 状态目录、备份与 Git
 
 ### 14.1 默认布局
 
@@ -393,7 +447,7 @@ python -m miniagent --stop
 
 ---
 
-## 15. 常见问题（FAQ）
+## 16. 常见问题（FAQ）
 
 | 现象 | 建议 |
 |------|------|
@@ -405,7 +459,7 @@ python -m miniagent --stop
 
 ---
 
-## 16. 安全与隐私清单
+## 17. 安全与隐私清单
 
 1. **`config.user.json`** 仅本机保存，权限收紧；勿提交 Git。  
 2. **不要在截图、录屏、聊天里** 暴露完整密钥或企业内部令牌。  
@@ -415,7 +469,7 @@ python -m miniagent --stop
 
 ---
 
-## 17. 进阶阅读与开发
+## 18. 进阶阅读与开发
 
 - 参与开发与代码规范：[CONTRIBUTING.md](CONTRIBUTING.md)  
 - 仓库卫生、CI、单一事实来源：[ENGINEERING.md](ENGINEERING.md)  
@@ -426,7 +480,7 @@ python -m miniagent --stop
 
 ---
 
-## 18. 文档索引
+## 19. 文档索引
 
 **完整专题列表与目录树**以 [INDEX.md](INDEX.md) 为准；下表为常用入口。
 
