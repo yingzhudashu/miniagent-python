@@ -2,7 +2,7 @@
   "test": "concurrent_throughput",
   "num_requests": 3,
   "success_count": 3,
-  "elapsed_s": 21.833476200001314,
-  "throughput_req_per_s": 0.1374036810501032,
-  "timestamp": "2026-06-05T23:38:03.924951"
+  "elapsed_s": 21.79606690000037,
+  "throughput_req_per_s": 0.13763951146616957,
+  "timestamp": "2026-06-06T00:16:44.427756"
 }
