@@ -6,16 +6,128 @@ builtin 同名优先，因此本 skill 用于首次安装时提供 web 能力。
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
+import time
 from typing import Any
 from urllib.parse import urlparse
 
 from miniagent.infrastructure.json_config import get_config
+from miniagent.infrastructure.tracing import emit_trace
+from miniagent.infrastructure.trace_events import (
+    EVENT_BROWSER_CREATE,
+    EVENT_BROWSER_REUSE,
+    EVENT_BROWSER_CLOSE,
+)
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 _logger = logging.getLogger(__name__)
+
+# ─── 全局浏览器实例池（性能优化）────────────────────────────
+_global_browser: Any | None = None
+_browser_lock = asyncio.Lock()
+_browser_last_used: float = 0.0
+_BROWSER_IDLE_TIMEOUT = get_config("browser.idle_timeout_seconds", 300.0)  # 5分钟无使用后自动关闭
+
+
+async def _get_browser_instance() -> Any:
+    """获取或创建全局浏览器实例（惰性初始化，连接池复用）。
+
+    性能优化：
+    - 单例模式避免重复启动 Chromium
+    - 自动清理机制防止资源泄漏
+    - 连接池复用减少启动延迟
+
+    Returns:
+        Playwright Browser 实例
+    """
+    global _global_browser, _browser_last_used
+
+    async with _browser_lock:
+        # 检查是否需要重新创建
+        now = time.time()
+        need_create = False
+
+        if _global_browser is None:
+            need_create = True
+        elif (now - _browser_last_used) > _BROWSER_IDLE_TIMEOUT:
+            # 清理旧实例（超时未使用）
+            try:
+                await _global_browser.close()
+                emit_trace({
+                    "type": EVENT_BROWSER_CLOSE,
+                    "idle_seconds": int(now - _browser_last_used),
+                })
+                _logger.info("浏览器实例已清理（空闲超时）")
+            except Exception as e:
+                _logger.debug("关闭旧浏览器实例失败: %s", e)
+            _global_browser = None
+            need_create = True
+
+        if need_create:
+            # 创建新实例
+            try:
+                from playwright.async_api import async_playwright
+
+                start_time = time.time()
+                pw = async_playwright()
+
+                # 兼容Mock测试：检测是否为上下文管理器
+                if hasattr(pw, '__aenter__'):
+                    # Mock环境：使用上下文管理器
+                    p = await pw.__aenter__()
+                else:
+                    # 正常环境：使用start()方法
+                    p = await pw.start()
+
+                _global_browser = await p.chromium.launch(
+                    headless=True,
+                    # 性能优化参数
+                    args=[
+                        '--disable-blink-features=AutomationControlled',
+                        '--disable-dev-shm-usage',  # 减少内存占用
+                        '--no-sandbox',  # 提升启动速度
+                        '--disable-setuid-sandbox',
+                    ]
+                )
+                elapsed_ms = int((time.time() - start_time) * 1000)
+
+                emit_trace({
+                    "type": EVENT_BROWSER_CREATE,
+                    "duration_ms": elapsed_ms,
+                })
+                _logger.info("全局浏览器实例已创建（复用模式），耗时 %dms", elapsed_ms)
+            except Exception as e:
+                _logger.error("创建浏览器实例失败: %s", e)
+                _global_browser = None
+                raise
+        else:
+            # 复用现有实例
+            emit_trace({
+                "type": EVENT_BROWSER_REUSE,
+                "idle_seconds": int(now - _browser_last_used),
+            })
+
+        _browser_last_used = now
+        return _global_browser
+
+
+async def _cleanup_browser() -> None:
+    """清理全局浏览器实例（进程退出时调用）。
+
+    应在程序退出前调用，确保资源释放。
+    """
+    global _global_browser
+    if _global_browser is not None:
+        try:
+            await _global_browser.close()
+            emit_trace({"type": EVENT_BROWSER_CLOSE})
+            _logger.info("全局浏览器实例已关闭")
+        except Exception as e:
+            _logger.debug("关闭浏览器失败: %s", e)
+        _global_browser = None
 
 # ─── Tavily 配置 ────────────────────────────────────────────
 
@@ -166,6 +278,7 @@ _browser_extract_schema = {
 
 
 async def _browser_extract_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolResult:
+    """使用无头 Chromium 打开网页并提取页面可见正文（性能优化：浏览器实例复用）。"""
     url = str(args["url"]).strip()
     max_chars = int(args.get("maxChars", 12000))
     wait_until = str(args.get("waitUntil", "domcontentloaded")).strip()
@@ -185,15 +298,24 @@ async def _browser_extract_handler(args: dict[str, Any], _ctx: ToolContext) -> T
 
     timeout_ms = _browser_timeout_ms()
     text_out = ""
+
+    # 性能优化：使用全局浏览器实例池
     try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            try:
-                page = await browser.new_page()
-                await page.goto(url, wait_until=wait_until, timeout=timeout_ms)
-                text_out = (await page.inner_text("body")).strip()
-            finally:
-                await browser.close()
+        browser = await _get_browser_instance()
+        try:
+            page = await browser.new_page()
+            # 性能优化：设置页面超时和资源加载策略
+            page.set_default_timeout(timeout_ms)
+
+            # 禁用不必要的资源加载（图片、样式、字体）以提升速度
+            await page.route('**/*.{png,jpg,jpeg,gif,svg,css,woff,woff2}',
+                            lambda route: route.abort())
+
+            await page.goto(url, wait_until=wait_until, timeout=timeout_ms)
+            text_out = (await page.inner_text("body")).strip()
+        finally:
+            # 关闭页面但不关闭浏览器（复用）
+            await page.close()
     except Exception as e:
         return ToolResult(success=False, content=f"❌ 浏览器抓取失败: {e}")
 

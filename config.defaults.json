@@ -52,7 +52,10 @@
     "tool_intent_in_thinking": false,
     "tool_finish_verbose": false,
     "thinking_merge_tools": true,
-    "terminal_width_cache_ttl": 2.0
+    "terminal_width_cache_ttl": 2.0,
+    "max_concurrent_tools": 5,
+    "callback_min_interval_ms": 50,
+    "callback_min_chars": 100
   },
 
   "ui": {
@@ -169,7 +172,9 @@
     "dimension": 1536,
     "top_k": 8,
     "min_score": 0.3,
-    "max_entries": 2000
+    "max_entries": 2000,
+    "cache_max_size": 1000,
+    "cache_ttl_seconds": 3600
   },
 
   "memory": {
@@ -182,9 +187,11 @@
     "history_max_messages": 120,
     "archive_token_hint": null,
     "max_history_messages": 200,
-    "store_cache_max": 50,
+    "store_cache_max": 200,
+    "store_cache_ttl_seconds": 1800,
     "registry_max_entries": 3000,
     "keyword_index_max": 20000,
+    "keyword_prune_interval": 86400,
     "context_tool_redact": true,
     "layered_inject": true,
     "layered_max_chars": 12000,
@@ -241,7 +248,18 @@
     "description": "Web搜索配置",
     "tavily_url": "https://api.tavily.com/search",
     "tavily_timeout": 45,
-    "browser_timeout": 60
+    "browser_timeout": 60,
+    "browser_idle_timeout_seconds": 300,
+    "browser_disable_images": true,
+    "browser_disable_styles": true
+  },
+
+  "browser": {
+    "description": "浏览器实例池配置（性能优化）",
+    "idle_timeout_seconds": 300,
+    "max_instances": 1,
+    "disable_images": true,
+    "disable_styles": true
   },
 
   "clawhub": {

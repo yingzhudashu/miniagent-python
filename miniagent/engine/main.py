@@ -471,12 +471,19 @@ async def run_cli_loop(
     # 加载当前会话的对话历史到输入缓冲，使上下键可回顾已发送的用户消息
     _load_session_history_to_input(state, input_buffer)
 
-    # 性能优化：使用deque替代list，降低transcript上限并维护累计长度（避免每次遍历）
-    _MAX_TRANSCRIPT_CHARS = 200_000  # 从400KB降低到200KB（内存优化）
-    _transcript: deque[Any] = deque(maxlen=1000)  # 性能优化：deque的popleft()为O(1)
+    # 使用 constants.py 的裁剪阈值，避免硬编码导致阈值过低
+    from miniagent.core.constants import MAX_TRANSCRIPT_CHARS
+    _MAX_TRANSCRIPT_CHARS = MAX_TRANSCRIPT_CHARS  # 400KB（可通过环境变量设置）
+    _transcript: deque[Any] = deque(maxlen=5000)  # 增加片段数上限到 5000，避免自动裁剪
     _transcript_total_len: list[int] = [0]  # 累计长度计数器（性能优化）
     _stick_bottom: list[bool] = [True]
     _last_md_width: list[int] = [0]  # 上次渲染 Markdown 的终端宽度
+
+    # ─── 流式思考输出累加器 ───────────────────────────────────────────
+    # 用于正确合并流式思考内容，避免碎片化导致的显示问题
+    _streaming_think_text: list[str] = [""]  # 累积的 Markdown 文本
+    _streaming_think_active: list[bool] = [False]  # 是否正在流式输出思考内容
+    _streaming_think_start_idx: list[int] = [-1]  # 流式块在 transcript 的起始索引
 
     # ─── 复制模式状态 ─────────────────────────────────────────────
     _copy_mode_active: list[bool] = [False]  # 复制模式激活状态
@@ -1109,7 +1116,11 @@ async def run_cli_loop(
             return False
 
     def _content_preferred_height() -> int:
-        """transcript 内容理想高度（用于计算最大滚动偏移）。"""
+        """transcript 内容理想高度（用于计算最大滚动偏移）。
+
+        注意：依赖 ScrollablePane 的内置高度计算，不添加额外估算逻辑。
+        估算逻辑可能导致滚动范围被错误限制。
+        """
         try:
             sp = _sp()
             if sp is None:
@@ -1143,10 +1154,22 @@ async def run_cli_loop(
         return max(1, _viewport_rows() // 6)
 
     def _apply_transcript_scroll(signed_step: int, src: str) -> None:
-        """signed_step<0: older; >0: newer. Drives ScrollablePane.vertical_scroll."""
+        """signed_step<0: older; >0: newer. Drives ScrollablePane.vertical_scroll.
+
+        增强版本：添加调试日志，便于验证滚动功能工作正常。
+        """
         sp = _sp()
         if sp is None:
+            _logger.debug(f"滚动失败: ScrollablePane 引用为 None (source={src})")
             return
+
+        # 调试日志：记录滚动请求
+        if _logger.isEnabledFor(logging.DEBUG):
+            _logger.debug(
+                f"滚动请求: source={src}, step={signed_step}, "
+                f"current={sp.vertical_scroll}, max={_max_output_scroll()}"
+            )
+
         _stick_bottom[0] = False
         step = max(1, abs(signed_step))
         before = sp.vertical_scroll
@@ -1155,6 +1178,13 @@ async def run_cli_loop(
             sp.vertical_scroll = max(0, before - step)
         else:
             sp.vertical_scroll = min(mx, before + step)
+
+        # 调试日志：记录滚动结果
+        if _logger.isEnabledFor(logging.DEBUG):
+            _logger.debug(
+                f"滚动结果: new_position={sp.vertical_scroll}, "
+                f"viewport_rows={_viewport_rows()}, content_height={_content_preferred_height()}"
+            )
 
         # 检测是否接近顶部，触发加载更多历史
         if sp.vertical_scroll < 5 and signed_step < 0:
@@ -1506,8 +1536,8 @@ async def run_cli_loop(
 
     h_scrollbar_window = Window(
         _HorizontalScrollbarControl(),
-        height=D.exact(1),
         dont_extend_width=True,
+        dont_extend_height=True,  # 让控件动态决定高度，避免强制占用空间
     )
 
     def _append_transcript(style_cls: str, text: str = "", *, ansi: Any = None) -> None:
@@ -1734,12 +1764,36 @@ async def run_cli_loop(
 
     @kb.add("c-l", filter=has_focus(input_buffer))
     def _on_ctrl_l(event):
-        """Ctrl+L 清屏重绘"""
+        """Ctrl+L 清屏重绘
+
+        完整清屏流程：
+        1. 清空 transcript 列表
+        2. 重置所有状态计数器
+        3. 重置滚动位置
+        4. 重置历史加载状态
+        5. 重新加载初始历史（保持用户体验）
+        """
         # 清空transcript列表
         _transcript.clear()
+        # 性能优化：重置累计长度计数器
+        _transcript_total_len[0] = 0
         # 重置滚动位置到顶部
-        output_scroll.vertical_scroll = 0
-        output_scroll.horizontal_scroll = 0
+        sp = _sp()
+        if sp is not None:
+            sp.vertical_scroll = 0
+        # 重置水平滚动（使用正确的方法）
+        _reset_horizontal_scroll()
+
+        # 重置历史加载状态，以便重新加载
+        _history_loaded_range["total_messages"] = 0
+        _history_loaded_range["loaded_start"] = 0
+        _history_loaded_range["loaded_end"] = 0
+        _history_loaded_range["all_loaded"] = False
+        _history_loaded_range["loading"] = False
+
+        # 重新加载初始历史（保持用户体验）
+        _load_initial_history_to_transcript()
+
         _stick_bottom[0] = True
         event.app.invalidate()
 
@@ -1760,17 +1814,13 @@ async def run_cli_loop(
     @kb.add("pageup", filter=has_focus(input_buffer))
     def _on_pageup(event):
         """上翻输出区约半屏。"""
-        _stick_bottom[0] = False
-        output_scroll.vertical_scroll = max(0, output_scroll.vertical_scroll - _scroll_step())
+        _apply_transcript_scroll(-_scroll_step(), "pageup")
         event.app.invalidate()
 
     @kb.add("pagedown", filter=has_focus(input_buffer))
     def _on_pagedown(event):
         """下翻输出区约半屏。"""
-        _stick_bottom[0] = False
-        output_scroll.vertical_scroll = min(
-            _max_output_scroll(), output_scroll.vertical_scroll + _scroll_step()
-        )
+        _apply_transcript_scroll(_scroll_step(), "pagedown")
         event.app.invalidate()
 
     # ─── 水平滚动键盘绑定 ───────────────────────────────────────────
@@ -1851,15 +1901,15 @@ async def run_cli_loop(
         # ─── 复制模式样式 ───────────────────────────────────────────
         "cli-selection": "bg:ansicyan fg:ansiblack bold",  # 选择高亮：青色背景 + 黑色文字
         "cli-copy-mode-hint": "ansiyellow bold",  # 复制模式提示：黄色加粗
-        # 滚动条样式增强（更醒目）
-        "scrollbar.button": "ansicyan bold reverse",  # 滑块：青色反显
-        "scrollbar.background": "ansibrightblack",    # 轨道：灰色背景
-        "scrollbar.arrow": "ansibrightblack bold",    # 箭头：加粗
+        # 滚动条样式增强（高对比度，确保在不同终端配色下可见）
+        "scrollbar.button": "bg:ansibrightcyan fg:ansiblack",  # 滑块：亮青色背景 + 黑色文字（高对比）
+        "scrollbar.background": "bg:ansibrightblack",          # 轨道：亮黑色背景
+        "scrollbar.arrow": "ansiwhite bold",             # 箭头：白色加粗（更醒目）
         # 水平滚动条样式
-        "hsb-thumb": "ansicyan bold reverse",
-        "hsb-track": "ansibrightblack",
-        "hsb-arrow": "ansibrightblack bold",
-        "hsb-arrow-disabled": "ansibrightblack dim",
+        "hsb-thumb": "bg:ansibrightcyan fg:ansiblack",  # 滑块：亮青色背景 + 黑色文字
+        "hsb-track": "bg:ansibrightblack",              # 轨道：亮黑色背景
+        "hsb-arrow": "ansiwhite bold",            # 箭头：白色加粗
+        "hsb-arrow-disabled": "ansibrightblack dim",    # 禁用箭头：灰色暗淡
     }
     cli_style = Style.from_dict(_cli_style_dict)
 
@@ -1960,8 +2010,12 @@ async def run_cli_loop(
         *,
         ansi_markdown: str | None = None,
     ) -> None:
-        """``ThinkingDisplay`` 输出槽：写入思考标签/正文或整段 Rich 渲染后的 ANSI。"""
+        """``ThinkingDisplay`` 输出槽：写入思考标签/正文或整段 Rich 渲染后的 ANSI。
+
+        流式合并逻辑改进：使用累加器变量替代 _source_md 属性检测。
+        """
         if ansi_markdown is not None:
+            # 处理完整的 ANSI Markdown 内容
             body_lines = ansi_markdown.rstrip("\n").split("\n")
             transcript_body = "\n".join(ln if ln else "" for ln in body_lines) + "\n"
             at_bottom = _output_at_bottom()
@@ -1982,41 +2036,71 @@ async def run_cli_loop(
             else:
                 _stick_bottom[0] = False
             return
+
         style = "class:cli-think-head" if kind == "label" else "class:cli-think-body"
+
         if kind == "label":
+            # 标签：重置流式状态，准备开始新的思考块
+            _streaming_think_active[0] = False
+            _streaming_think_text[0] = ""
+            _streaming_think_start_idx[0] = -1
             _append_transcript(style, fragment)
         else:
             # 正文：流式增量 ANSI 渲染优化
-            # 关键修复：检测是否正在进行流式 ANSI 输出，合并连续 ANSI 对象避免换行不正确
+            # 使用累加器变量实现正确的流式合并
             from miniagent.engine.markdown_cli import render_markdown_to_ansi
 
             try:
                 md_w = _markdown_render_width()
-                # 检查最后一个元素是否是 tuple（正在进行流式输出）
-                # 检查是否有 _source_md 属性（通过特殊标记）
-                prev_source = None
-                if _transcript and isinstance(_transcript[-1], tuple):
-                    # 检查是否有附加的 source_md（通过特殊标记）
-                    prev_source = getattr(_transcript[-1], "_source_md", None) if hasattr(_transcript[-1], "_source_md") else None
 
-                if prev_source is not None:
-                    # 流式输出：合并新内容，渲染完整文本（换行计算基于整体内容）
-                    full_text = prev_source + fragment
+                # 新的流式合并检测逻辑：使用累加器而非 _source_md 属性
+                if _streaming_think_active[0] and _streaming_think_start_idx[0] >= 0:
+                    # 流式输出：合并新内容到累积文本
+                    full_text = _streaming_think_text[0] + fragment
+                    _streaming_think_text[0] = full_text  # 更新累加器
+
+                    # 重新渲染完整文本
                     ansi_body = render_markdown_to_ansi(full_text, width=md_w, justify="left")
-                    # 使用安全的 ANSI 处理
                     safe_ft = _safe_ansi(ansi_body)
-                    # 替换最后一个元素（而非追加新的）
-                    _transcript[-1:] = safe_ft
-                    # 性能优化：更新累计长度（差值）
-                    _transcript_total_len[0] += len(fragment)
+
+                    # 替换流式块（从起始索引到末尾）
+                    start_idx = _streaming_think_start_idx[0]
+
+                    # 计算长度差值，更新累计长度计数器
+                    old_len = 0
+                    for i in range(start_idx, len(_transcript)):
+                        frag = _transcript[i]
+                        if isinstance(frag, tuple) and len(frag) >= 2:
+                            old_len += len(frag[1])
+                    new_len = sum(len(txt) for _, txt in safe_ft)
+                    _transcript_total_len[0] += (new_len - old_len)
+
+                    # 执行替换操作
+                    # 先删除旧内容，再添加新内容（deque 不支持切片替换）
+                    while len(_transcript) > start_idx:
+                        _transcript.pop()
+                    _transcript.extend(safe_ft)
+                    # 注意：流式输出过程中不调用 _trim_transcript()，避免频繁裁剪
+                    # 裁剪将在流式结束后统一进行
+
                 else:
-                    # 非流式输出或首个 chunk：正常 ANSI 渲染并追加
+                    # 首个 chunk：启动流式状态
                     ansi_body = render_markdown_to_ansi(fragment, width=md_w, justify="left")
                     safe_ft = _safe_ansi(ansi_body)
-                    for style, txt in safe_ft:
-                        _transcript.append((style, txt))
+
+                    # 记录起始位置
+                    start_idx = len(_transcript)
+                    _streaming_think_start_idx[0] = start_idx
+                    _streaming_think_text[0] = fragment  # 初始化累加器
+                    _streaming_think_active[0] = True
+
+                    # 追加新的 fragments
+                    for st, txt in safe_ft:
+                        _transcript.append((st, txt))
                         _transcript_total_len[0] += len(txt)
-                _trim_transcript()
+                    # 注意：流式输出过程中不调用 _trim_transcript()，避免频繁裁剪
+                    # 裁剪将在流式结束后统一进行
+
                 try:
                     get_app().invalidate()
                 except Exception:
@@ -2024,6 +2108,10 @@ async def run_cli_loop(
                 if _output_at_bottom() or _stick_bottom[0]:
                     _snap_output_bottom()
             except Exception:
+                # 异常处理：降级为普通追加，重置流式状态
+                _streaming_think_active[0] = False
+                _streaming_think_text[0] = ""
+                _streaming_think_start_idx[0] = -1
                 _append_transcript(style, fragment)
 
     engine.thinking.set_output_sink(_thinking_sink)

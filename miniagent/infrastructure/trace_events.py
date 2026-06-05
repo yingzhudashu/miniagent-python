@@ -54,6 +54,15 @@ EVENT_PROPOSAL_APPLY = "proposal.apply"
 # 新增事件类型 - 错误收集（已使用）
 EVENT_ERROR_COLLECT = "error.collect"
 
+# 新增事件类型 - 浏览器实例管理（性能优化）
+EVENT_BROWSER_CREATE = "browser.create"
+EVENT_BROWSER_REUSE = "browser.reuse"
+EVENT_BROWSER_CLOSE = "browser.close"
+
+# 新增事件类型 - Embedding缓存（性能优化）
+EVENT_EMBEDDING_CACHE_HIT = "embedding.cache_hit"
+EVENT_EMBEDDING_API_CALL = "embedding.api_call"
+
 # ============================================================================
 # 执行阶段常量
 # ============================================================================
@@ -170,6 +179,12 @@ __all__ = [
     "EVENT_PROPOSAL_REJECT",
     "EVENT_PROPOSAL_APPLY",
     "EVENT_ERROR_COLLECT",
+    # 新增性能优化事件类型
+    "EVENT_BROWSER_CREATE",
+    "EVENT_BROWSER_REUSE",
+    "EVENT_BROWSER_CLOSE",
+    "EVENT_EMBEDDING_CACHE_HIT",
+    "EVENT_EMBEDDING_API_CALL",
     # 类型常量
     "PhaseType",
     "ProposalStatus",

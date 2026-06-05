@@ -88,6 +88,27 @@ _TOOL_INTENT_MAP: dict[str, str] = {
     "git_diff": "Git 差异",
 }
 
+# ── 性能优化：工具并发限制（避免资源耗尽）──
+_tool_semaphore: asyncio.Semaphore | None = None
+
+def _get_tool_semaphore() -> asyncio.Semaphore:
+    """获取全局工具并发限制信号量（惰性初始化）。
+
+    性能优化：
+    - 控制并发工具数，避免API限流
+    - 防止资源耗尽（内存、CPU、网络）
+    - 可配置并发上限
+
+    Returns:
+        asyncio.Semaphore 实例
+    """
+    global _tool_semaphore
+    if _tool_semaphore is None:
+        max_concurrent = max(1, min(20, int(get_config("execution.max_concurrent_tools", 5))))
+        _tool_semaphore = asyncio.Semaphore(max_concurrent)
+        _logger.debug("工具并发限制已初始化: %d", max_concurrent)
+    return _tool_semaphore
+
 _logger = get_logger(__name__)
 
 # ─── 工具错误日志辅助 ────────────────────────────────────────────
@@ -686,6 +707,12 @@ async def execute_plan(
         _tool_call_accum: dict[int, dict[str, str]] = {}
         _usage = None
 
+        # 性能优化：回调频率控制
+        _last_callback_time = time.monotonic_ns() // 1_000_000
+        _callback_min_interval_ms = get_config("execution.callback_min_interval_ms", 50)  # 50ms最小间隔
+        _callback_min_chars = get_config("execution.callback_min_chars", 100)  # 100字符阈值
+        _chars_since_last_callback = 0
+
         if on_thinking and not _thinking_started:
             try:
                 if thinking_phase_label not in _phase_header_sent:
@@ -730,19 +757,34 @@ async def execute_plan(
                 _usage = chunk.usage
             if delta.content:
                 full_content_parts.append(delta.content)
+                _chars_since_last_callback += len(delta.content)
+
                 if on_thinking:
-                    cum = _joined_phase_cumulative(thinking_phase_label, full_content_parts.getvalue())
-                    try:
-                        await invoke_on_thinking(
-                            on_thinking,
-                            cum,
-                            True,
-                            thinking_phase_label,
-                            full_record=cum,
-                            is_last_step=is_last_step,
-                        )
-                    except Exception:
-                        pass
+                    # 性能优化：频率控制（避免高频回调）
+                    now_ms = time.monotonic_ns() // 1_000_000
+                    time_elapsed = now_ms - _last_callback_time
+
+                    # 触发条件：时间间隔 > 50ms 或 字符数 > 100
+                    should_callback = (
+                        time_elapsed >= _callback_min_interval_ms or
+                        _chars_since_last_callback >= _callback_min_chars
+                    )
+
+                    if should_callback:
+                        cum = _joined_phase_cumulative(thinking_phase_label, full_content_parts.getvalue())
+                        try:
+                            await invoke_on_thinking(
+                                on_thinking,
+                                cum,
+                                True,
+                                thinking_phase_label,
+                                full_record=cum,
+                                is_last_step=is_last_step,
+                            )
+                            _last_callback_time = now_ms  # 更新最后回调时间
+                            _chars_since_last_callback = 0  # 重置字符计数
+                        except Exception:
+                            pass
             if delta.tool_calls:
                 for tc_delta in delta.tool_calls:
                     idx = tc_delta.index
@@ -761,6 +803,21 @@ async def execute_plan(
                             _tool_call_accum[idx]["arguments"] += tc_delta.function.arguments
 
         full_content = full_content_parts.getvalue()
+
+        # 性能优化：确保最后回调发送（完整内容）
+        if on_thinking and full_content and _chars_since_last_callback > 0:
+            try:
+                cum = _joined_phase_cumulative(thinking_phase_label, full_content)
+                await invoke_on_thinking(
+                    on_thinking,
+                    cum,
+                    True,
+                    thinking_phase_label,
+                    full_record=cum,
+                    is_last_step=is_last_step,
+                )
+            except Exception:
+                pass
 
         if _tool_call_accum:
             full_tool_calls = []
@@ -978,104 +1035,109 @@ async def execute_plan(
             - Exception: 其他异常（权限拒绝、参数错误、内部错误等），返回错误信息
             无论成功与否，都会记录 trace 和 monitor，不影响其他工具执行。
             """
-            tool_start = time.monotonic_ns() // 1_000_000
-            emit_trace(
-                {
-                    "type": "tool.start",
-                    "session_key": session_key,
-                    "tool": tc.function.name,
-                }
-            )
-            try:
-                result = await asyncio.wait_for(
-                    tool.handler(args, ctx),
-                    timeout=timeout_sec,
+            # 性能优化：获取并发限制信号量
+            semaphore = _get_tool_semaphore()
+
+            async with semaphore:  # 限制并发数
+                tool_start = time.monotonic_ns() // 1_000_000
+                emit_trace(
+                    {
+                        "type": "tool.start",
+                        "session_key": session_key,
+                        "tool": tc.function.name,
+                        "concurrent_slots_available": semaphore._value,  # Trace并发槽位
+                    }
                 )
-            except asyncio.TimeoutError:
-                # 超时：工具执行时间超过限制（可能是工具性能问题或参数导致的长操作）
-                result = ToolResult(
-                    success=False,
-                    content=f"{WARNING_PREFIX} 工具超时（{timeout_sec}s）: {tc.function.name}",
-                    meta={"error_type": "TimeoutError"},
+                try:
+                    result = await asyncio.wait_for(
+                        tool.handler(args, ctx),
+                        timeout=timeout_sec,
+                    )
+                except asyncio.TimeoutError:
+                    # 超时：工具执行时间超过限制（可能是工具性能问题或参数导致的长操作）
+                    result = ToolResult(
+                        success=False,
+                        content=f"{WARNING_PREFIX} 工具超时（{timeout_sec}s）: {tc.function.name}",
+                        meta={"error_type": "TimeoutError"},
+                    )
+                    _log_tool_error(
+                        tool_name=tc.function.name,
+                        tool_call_id=tc.id,
+                        args=args,
+                        session_key=session_key,
+                        error_type="TimeoutError",
+                        error_message=f"工具执行超过 {timeout_sec}s 超时限制",
+                        is_user_error=False,  # 超时可能是工具性能问题，也可能是用户请求导致
+                    )
+                except PermissionError as e:
+                    # 权限拒绝：沙箱限制或文件权限不足（用户误用）
+                    result = ToolResult(
+                        success=False,
+                        content=f"{WARNING_PREFIX} 权限拒绝: {e}",
+                        meta={"error_type": "PermissionError"},
+                    )
+                    _log_tool_error(
+                        tool_name=tc.function.name,
+                        tool_call_id=tc.id,
+                        args=args,
+                        session_key=session_key,
+                        error_type="PermissionError",
+                        error_message=str(e),
+                        is_user_error=True,  # 权限问题通常是用户操作导致的
+                    )
+                except FileNotFoundError as e:
+                    # 文件不存在：read_file 等工具的常见错误（用户误用）
+                    result = ToolResult(
+                        success=False,
+                        content=f"{WARNING_PREFIX} 文件不存在: {e}",
+                        meta={"error_type": "FileNotFoundError"},
+                    )
+                    _log_tool_error(
+                        tool_name=tc.function.name,
+                        tool_call_id=tc.id,
+                        args=args,
+                        session_key=session_key,
+                        error_type="FileNotFoundError",
+                        error_message=str(e),
+                        is_user_error=True,  # 文件不存在是用户操作导致的
+                    )
+                except Exception as e:
+                    # 其他异常：参数错误、工具内部错误等，需要详细诊断
+                    error_type_name = type(e).__name__
+                    result = ToolResult(
+                        success=False,
+                        content=f"{WARNING_PREFIX} 执行异常: {e}",
+                        meta={"error_type": error_type_name},
+                    )
+                    tb_str = traceback.format_exc()
+                    # 根据异常类型判断是用户误用还是工具缺陷
+                    is_user_error = isinstance(e, (
+                        ValueError,  # 参数错误
+                        TypeError,   # 类型错误
+                        KeyError,    # 键错误
+                        json.JSONDecodeError,  # JSON 解析错误
+                    ))
+                    _log_tool_error(
+                        tool_name=tc.function.name,
+                        tool_call_id=tc.id,
+                        args=args,
+                        session_key=session_key,
+                        error_type=error_type_name,
+                        error_message=str(e),
+                        is_user_error=is_user_error,
+                        traceback_str=tb_str if not is_user_error else None,
+                    )
+                tool_elapsed = time.monotonic_ns() // 1_000_000 - tool_start
+                emit_trace(
+                    {
+                        "type": "tool.end",
+                        "session_key": session_key,
+                        "tool": tc.function.name,
+                        "duration_ms": tool_elapsed,
+                        "success": result.success,
+                    }
                 )
-                _log_tool_error(
-                    tool_name=tc.function.name,
-                    tool_call_id=tc.id,
-                    args=args,
-                    session_key=session_key,
-                    error_type="TimeoutError",
-                    error_message=f"工具执行超过 {timeout_sec}s 超时限制",
-                    is_user_error=False,  # 超时可能是工具性能问题，也可能是用户请求导致
-                )
-            except PermissionError as e:
-                # 权限拒绝：沙箱限制或文件权限不足（用户误用）
-                result = ToolResult(
-                    success=False,
-                    content=f"{WARNING_PREFIX} 权限拒绝: {e}",
-                    meta={"error_type": "PermissionError"},
-                )
-                _log_tool_error(
-                    tool_name=tc.function.name,
-                    tool_call_id=tc.id,
-                    args=args,
-                    session_key=session_key,
-                    error_type="PermissionError",
-                    error_message=str(e),
-                    is_user_error=True,  # 权限问题通常是用户操作导致的
-                )
-            except FileNotFoundError as e:
-                # 文件不存在：read_file 等工具的常见错误（用户误用）
-                result = ToolResult(
-                    success=False,
-                    content=f"{WARNING_PREFIX} 文件不存在: {e}",
-                    meta={"error_type": "FileNotFoundError"},
-                )
-                _log_tool_error(
-                    tool_name=tc.function.name,
-                    tool_call_id=tc.id,
-                    args=args,
-                    session_key=session_key,
-                    error_type="FileNotFoundError",
-                    error_message=str(e),
-                    is_user_error=True,  # 文件不存在是用户操作导致的
-                )
-            except Exception as e:
-                # 其他异常：参数错误、工具内部错误等，需要详细诊断
-                error_type_name = type(e).__name__
-                result = ToolResult(
-                    success=False,
-                    content=f"{WARNING_PREFIX} 执行异常: {e}",
-                    meta={"error_type": error_type_name},
-                )
-                tb_str = traceback.format_exc()
-                # 根据异常类型判断是用户误用还是工具缺陷
-                is_user_error = isinstance(e, (
-                    ValueError,  # 参数错误
-                    TypeError,   # 类型错误
-                    KeyError,    # 键错误
-                    json.JSONDecodeError,  # JSON 解析错误
-                ))
-                _log_tool_error(
-                    tool_name=tc.function.name,
-                    tool_call_id=tc.id,
-                    args=args,
-                    session_key=session_key,
-                    error_type=error_type_name,
-                    error_message=str(e),
-                    is_user_error=is_user_error,
-                    traceback_str=tb_str if not is_user_error else None,
-                )
-            tool_elapsed = time.monotonic_ns() // 1_000_000 - tool_start
-            emit_trace(
-                {
-                    "type": "tool.end",
-                    "session_key": session_key,
-                    "tool": tc.function.name,
-                    "duration_ms": tool_elapsed,
-                    "success": result.success,
-                }
-            )
-            return tc, args, tool, result, tool_elapsed
+                return tc, args, tool, result, tool_elapsed
 
         if pending:
             if agent_config.allow_parallel_tools and len(pending) > 1:

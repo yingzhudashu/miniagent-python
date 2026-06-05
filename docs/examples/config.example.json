@@ -21,7 +21,9 @@
   },
   "memory": {
     "history_max_messages": 120,
-    "store_cache_max": 50
+    "store_cache_max": 200,
+    "store_cache_ttl_seconds": 1800,
+    "keyword_prune_interval": 86400
   },
   "feishu": {
     "reply_target": "reply",

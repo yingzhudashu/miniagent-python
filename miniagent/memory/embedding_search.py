@@ -34,10 +34,79 @@ except ImportError:
 
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
+from miniagent.infrastructure.tracing import emit_trace
+from miniagent.infrastructure.trace_events import (
+    EVENT_EMBEDDING_CACHE_HIT,
+    EVENT_EMBEDDING_API_CALL,
+)
 from miniagent.memory.shared_registry import MemoryEntryRegistry, get_registry
 from miniagent.types.memory import MemoryEntry, MemoryEntryInput
 
 _logger = get_logger(__name__)
+
+# ── 性能优化：Embedding API缓存（避免重复调用）──
+import time
+
+# 全局embedding缓存（LRU + TTL）
+_EMBEDDING_CACHE: collections.OrderedDict[str, tuple[list[float], float]] = collections.OrderedDict()
+_EMBEDDING_CACHE_MAX_SIZE = get_config("embedding.cache_max_size", 1000)
+_EMBEDDING_CACHE_TTL_SECONDS = get_config("embedding.cache_ttl_seconds", 3600)  # 1小时TTL
+
+
+def _get_cached_embedding(text: str) -> list[float] | None:
+    """从缓存获取embedding（LRU + TTL）。
+
+    性能优化：
+    - 减少API调用频率
+    - 节省成本和延迟
+    - TTL防止过期数据
+
+    Args:
+        text: 输入文本
+
+    Returns:
+        嵌入向量（缓存命中时），None（缓存未命中）
+    """
+    if not text:
+        return None
+
+    cache_key = hashlib.md5(text.encode()).hexdigest()[:16]
+
+    if cache_key in _EMBEDDING_CACHE:
+        embedding, timestamp = _EMBEDDING_CACHE[cache_key]
+
+        # 检查TTL
+        now = time.time()
+        if now - timestamp < _EMBEDDING_CACHE_TTL_SECONDS:
+            # LRU: 移到最后（最近使用）
+            _EMBEDDING_CACHE.move_to_end(cache_key)
+            return embedding
+        else:
+            # TTL过期，删除
+            _EMBEDDING_CACHE.pop(cache_key)
+
+    return None
+
+
+def _cache_embedding(text: str, embedding: list[float]) -> None:
+    """缓存embedding向量。
+
+    Args:
+        text: 输入文本
+        embedding: 嵌入向量
+    """
+    if not text or not embedding:
+        return
+
+    cache_key = hashlib.md5(text.encode()).hexdigest()[:16]
+    now = time.time()
+
+    _EMBEDDING_CACHE[cache_key] = (embedding, now)
+    _EMBEDDING_CACHE.move_to_end(cache_key)  # LRU
+
+    # 驱逐旧条目
+    while len(_EMBEDDING_CACHE) > _EMBEDDING_CACHE_MAX_SIZE:
+        _EMBEDDING_CACHE.popitem(last=False)
 
 
 # ============================================================================
@@ -549,19 +618,54 @@ class EmbeddingSearchProvider:
         return self._index
 
     async def get_embedding(self, text: str) -> list[float] | None:
-        """获取文本的嵌入向量。"""
+        """获取文本的嵌入向量（带缓存）。
+
+        性能优化：
+        - 缓存命中：减少200-500ms延迟
+        - 缓存未命中：调用API并缓存结果
+
+        Args:
+            text: 输入文本
+
+        Returns:
+            嵌入向量（成功时），None（失败时）
+        """
         clean = re.sub(r"\s+", " ", text).strip()
         if not clean:
             return None
 
+        # 性能优化：先检查缓存
+        cached = _get_cached_embedding(clean)
+        if cached is not None:
+            emit_trace({
+                "type": EVENT_EMBEDDING_CACHE_HIT,
+                "text_length": len(clean),
+                "cache_size": len(_EMBEDDING_CACHE),
+            })
+            return cached
+
+        # 缓存未命中，调用API
         for provider in self._providers:
             try:
+                start_time = time.time()
                 embedding = await _get_embedding(
                     clean,
                     base_url=str(provider["base_url"]),
                     model=str(provider["model"]),
                     api_key=str(provider["api_key"]),
                 )
+
+                # 性能优化：缓存结果
+                _cache_embedding(clean, embedding)
+
+                elapsed_ms = int((time.time() - start_time) * 1000)
+                emit_trace({
+                    "type": EVENT_EMBEDDING_API_CALL,
+                    "text_length": len(clean),
+                    "duration_ms": elapsed_ms,
+                    "cache_size": len(_EMBEDDING_CACHE),
+                })
+
                 return embedding
             except Exception as e:
                 _logger.warning("嵌入供应商失败: %s", e)

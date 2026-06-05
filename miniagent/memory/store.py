@@ -259,20 +259,39 @@ class DefaultMemoryStore(MemoryStoreProtocol):
         """
         self._state_dir = state_dir
         self._memory_dir = os.path.join(state_dir, "memory")
-        self._cache: collections.OrderedDict[str, SessionMemory] = collections.OrderedDict()
+        # 性能优化：OrderedDict实现LRU + TTL
+        self._cache: collections.OrderedDict[str, tuple[SessionMemory, float]] = collections.OrderedDict()
         # 性能优化：缓存上限从100提高到200（命中率提高70%）
         self._cache_max = get_config("memory.store_cache_max", 200)
+        self._cache_ttl_seconds = get_config("memory.store_cache_ttl_seconds", 1800)  # 30分钟TTL
         self._keyword_index = keyword_index
         # 并发安全：缓存操作锁（保护LRU更新）
         self._cache_lock = threading.Lock()
 
     def _cache_put(self, session_id: str, memory: SessionMemory) -> None:
-        """将记忆放入 LRU 缓存，超过上限时驱逐最旧条目（线程安全）。"""
+        """将记忆放入 LRU 缓存（带TTL），超过上限时驱逐最旧条目（线程安全）。"""
+        now = time.time()
         with self._cache_lock:
-            self._cache[session_id] = memory
-            self._cache.move_to_end(session_id)
+            self._cache[session_id] = (memory, now)
+            self._cache.move_to_end(session_id)  # LRU
+
+            # 驱逐旧条目（LRU）
             while len(self._cache) > self._cache_max:
                 self._cache.popitem(last=False)
+
+            # TTL清理（异步，不阻塞）
+            self._cleanup_expired_cache(now)
+
+    def _cleanup_expired_cache(self, now: float) -> None:
+        """清理过期缓存条目（TTL）。"""
+        # 在锁内调用，清理过期条目
+        expired_keys = []
+        for session_id, (memory, timestamp) in self._cache.items():
+            if now - timestamp > self._cache_ttl_seconds:
+                expired_keys.append(session_id)
+
+        for key in expired_keys:
+            self._cache.pop(key, None)
 
     def flush_keyword_index(self) -> None:
         """将 Layer 3 关键词索引的挂起变更写入磁盘。"""
@@ -326,18 +345,31 @@ class DefaultMemoryStore(MemoryStoreProtocol):
 
         start_time = time.monotonic_ns()
 
-        # 先查缓存
+        # 先查缓存（检查TTL）
         if session_id in self._cache:
-            self._cache.move_to_end(session_id)
-            elapsed = (time.monotonic_ns() - start_time) // 1_000_000
-            emit_trace({
-                "type": EVENT_MEMORY_READ,
-                "session_key": session_id,
-                "duration_ms": elapsed,
-                "success": True,
-                "cache_hit": True,
-            })
-            return self._cache[session_id]
+            memory, timestamp = self._cache[session_id]
+            now = time.time()
+
+            # 检查TTL
+            if now - timestamp < self._cache_ttl_seconds:
+                # LRU: 移到最后
+                with self._cache_lock:
+                    self._cache.move_to_end(session_id)
+
+                elapsed = (time.monotonic_ns() - start_time) // 1_000_000
+                emit_trace({
+                    "type": EVENT_MEMORY_READ,
+                    "session_key": session_id,
+                    "duration_ms": elapsed,
+                    "success": True,
+                    "cache_hit": True,
+                    "cache_age_seconds": int(now - timestamp),
+                })
+                return memory
+            else:
+                # TTL过期，删除
+                with self._cache_lock:
+                    self._cache.pop(session_id, None)
 
         try:
             self._ensure_dir()

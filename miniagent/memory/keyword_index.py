@@ -23,8 +23,10 @@ from __future__ import annotations
 
 import collections
 import json
+import logging
 import os
 import re
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -301,12 +303,33 @@ class KeywordIndex:
         self._dirty = False
         self._index_file = os.path.join(state_dir, "keyword-index.json")
         self._index_lock = threading.Lock()
+        # 性能优化：自动清理过期索引
+        self._last_prune_time: float = time.time()
+        self._prune_interval_seconds = get_config("memory.keyword_prune_interval", 86400)  # 24小时
 
     def _ensure_loaded(self) -> None:
         """确保索引已从磁盘加载（线程安全）。"""
         with self._index_lock:
             if not self._loaded:
                 self._load()
+
+    def _auto_prune_if_needed(self) -> None:
+        """自动清理过期索引（定期执行）。
+
+        性能优化：
+        - 每24小时自动清理
+        - 避免手动调用遗漏
+        - 保持索引新鲜度
+        """
+        now = time.time()
+        if now - self._last_prune_time > self._prune_interval_seconds:
+            try:
+                pruned_count = self.prune_expired()
+                if pruned_count > 0:
+                    _logger.info("自动清理过期关键词索引: %d 条", pruned_count)
+                self._last_prune_time = now
+            except Exception as e:
+                _logger.debug("自动清理失败: %s", e)
 
     def _load(self) -> None:
         """从磁盘加载索引（内部方法，需在锁内调用）。"""
@@ -428,6 +451,9 @@ class KeywordIndex:
             按相关性排序的搜索结果
         """
         self._ensure_loaded()
+
+        # 性能优化：自动清理过期索引
+        self._auto_prune_if_needed()
 
         query_keywords = extract_keywords(query)
         if not query_keywords:
