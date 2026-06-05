@@ -100,8 +100,8 @@ def _diary_dir_size(session_key: str) -> int:
         if os.path.isfile(fp):
             try:
                 total += os.path.getsize(fp)
-            except OSError:
-                pass
+            except OSError as e:
+                _logger.debug("获取文件大小失败: %s", e)
     return total
 
 
@@ -140,8 +140,8 @@ def _release_file_lock() -> None:
             with open(lock, encoding="utf-8") as f:
                 if f.read().strip() == str(os.getpid()):
                     os.unlink(lock)
-    except OSError:
-        pass
+    except OSError as e:
+        _logger.debug("释放锁文件失败: %s", e)
 
 
 async def _refine_session(session_key: str) -> None:

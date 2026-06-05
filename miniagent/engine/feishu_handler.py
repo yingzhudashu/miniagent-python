@@ -230,8 +230,8 @@ def create_feishu_handler(
                         reply_to_message_id=inbound.message_id or None,
                         reply_in_thread=bool((inbound.thread_id or "").strip()),
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    _logger.debug("发送回复卡片失败: %s", e)
             # 清理 engine._last_reflection（不再发送独立卡片）
             if getattr(engine, "_last_reflection", None):
                 engine._last_reflection = None
@@ -339,8 +339,8 @@ def create_feishu_handler(
             # 图片描述：如果有视觉模型描述，稍后更新
             # 先添加基础信息
             await add_file_to_memory(session_key, file_meta, ctx.memory_store)
-        except Exception:
-            pass  # 记忆存储失败不影响主流程
+        except Exception as e:
+            _logger.debug("记忆存储失败: %s", e)
 
         _emit_feishu_preview(
             chat_type=chat_type,

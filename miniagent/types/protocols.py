@@ -23,8 +23,11 @@ from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
 
-# 从 memory.py 再导出 MemoryStoreProtocol，便于统一导入
+# 从其他模块再导出Protocol，便于统一导入
 from miniagent.types.memory import MemoryStoreProtocol
+from miniagent.types.tool import ToolRegistryProtocol
+from miniagent.types.agent import ToolMonitorProtocol
+from miniagent.types.memory import SessionManagerProtocol
 
 
 @runtime_checkable
@@ -202,6 +205,9 @@ class FeishuRuntimeProtocol(Protocol):
 
 __all__ = [
     "MemoryStoreProtocol",
+    "SessionManagerProtocol",
+    "ToolRegistryProtocol",
+    "ToolMonitorProtocol",
     "ActivityLogProtocol",
     "KeywordIndexProtocol",
     "OnThinkingCallback",

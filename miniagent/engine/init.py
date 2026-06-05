@@ -74,8 +74,8 @@ async def init_subsystems(
     for name, tool in session_memory_tools.items():
         try:
             registry.register(name, tool)
-        except ValueError:
-            pass
+        except ValueError as e:
+            _logger.debug("工具已注册，跳过: %s", e)
 
     mcp_raw = get_config("mcp.stdio_command", "")
     if mcp_raw:
@@ -118,8 +118,8 @@ async def init_subsystems(
         ki = keyword_index if keyword_index is not None else KeywordIndex()
         ki.load()
         ki.prune_expired(30)
-    except Exception:
-        pass
+    except Exception as e:
+        _logger.debug("关键词索引初始化失败: %s", e)
 
     return loaded_skills, skill_toolboxes, skill_prompts, active_session_id, session_manager
 

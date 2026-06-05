@@ -99,8 +99,8 @@ def save_tasks(tasks: list[ScheduledTask]) -> None:
                     f.flush()
                     try:
                         os.fsync(f.fileno())
-                    except OSError:
-                        pass
+                    except OSError as e:
+                        _logger.debug("fsync失败: %s", e)
                 os.replace(tmp, p)
                 return
             except OSError as e:
@@ -108,8 +108,8 @@ def save_tasks(tasks: list[ScheduledTask]) -> None:
                 try:
                     if os.path.isfile(tmp):
                         os.unlink(tmp)
-                except OSError:
-                    pass
+                except OSError as e:
+                    _logger.debug("删除临时文件失败: %s", e)
                 if attempt < len(delays) - 1 and sys.platform == "win32":
                     continue
                 raise last_err

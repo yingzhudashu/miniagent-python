@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 import sys
 import threading
 from collections.abc import Iterator
 
 from miniagent.infrastructure.json_config import get_config
+
+_logger = logging.getLogger(__name__)
 
 # 平台相关文件锁模块
 if sys.platform == "win32":
@@ -44,10 +47,10 @@ def tasks_json_lock() -> Iterator[None]:
                     try:
                         lock_f.seek(0)
                         msvcrt.locking(lock_f.fileno(), msvcrt.LK_UNLCK, 1)
-                    except OSError:
-                        pass
+                    except OSError as e:
+                        _logger.debug("Windows解锁失败: %s", e)
                 else:
                     try:
                         fcntl.flock(lock_f.fileno(), fcntl.LOCK_UN)
-                    except OSError:
-                        pass
+                    except OSError as e:
+                        _logger.debug("Unix解锁失败: %s", e)

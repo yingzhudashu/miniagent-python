@@ -9,10 +9,13 @@
 from __future__ import annotations
 
 import atexit
+import logging
 import os
 from typing import Any
 
 from miniagent.infrastructure.json_config import get_config
+
+_logger = logging.getLogger(__name__)
 
 _bundle: tuple[Any, Any, Any] | None = None
 
@@ -86,10 +89,10 @@ def _flush_process_keyword_index_at_exit() -> None:
             if provider is not None:
                 provider.index.save()
                 reset_embed_provider()
-        except Exception:
-            pass
-    except Exception:
-        pass
+        except Exception as e:
+            _logger.debug("保存嵌入索引失败: %s", e)
+    except Exception as e:
+        _logger.debug("保存关键词索引失败: %s", e)
 
 
 atexit.register(_flush_process_keyword_index_at_exit)

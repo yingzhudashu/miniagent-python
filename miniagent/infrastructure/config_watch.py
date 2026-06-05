@@ -50,8 +50,8 @@ async def _config_watch_loop(stop_event: asyncio.Event) -> None:
     if config_path.exists():
         try:
             prev_mtime = config_path.stat().st_mtime
-        except Exception:
-            pass
+        except Exception as e:
+            _logger.debug("获取配置文件mtime失败: %s", e)
 
     while not stop_event.is_set():
         # 等待检查间隔或停止信号
@@ -60,7 +60,7 @@ async def _config_watch_loop(stop_event: asyncio.Event) -> None:
             if stop_event.is_set():
                 break
         except asyncio.TimeoutError:
-            pass  # 继续检查
+            _logger.debug("配置监控等待超时，继续检查")
 
         if stop_event.is_set():
             break

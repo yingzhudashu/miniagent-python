@@ -56,7 +56,7 @@ async def _watch_loop(
             if stop_event.is_set():
                 break
         except asyncio.TimeoutError:
-            pass
+            _logger.debug("技能监控等待超时")
         if stop_event.is_set():
             break
         cur = _scan_mtimes(root)

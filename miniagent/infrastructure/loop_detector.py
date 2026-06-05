@@ -32,7 +32,7 @@ from miniagent.types.agent import LoopDetectionConfig, LoopDetectionResult, Loop
 # ─── JSON 序列化缓存（性能优化：避免重复序列化相同参数）──
 
 _args_json_cache: OrderedDict[tuple, str] = OrderedDict()
-_ARGS_CACHE_MAX_SIZE = int(_os_for_loop.environ.get("MINIAGENT_ARGS_CACHE_MAX_SIZE", "100"))
+_ARGS_CACHE_MAX_SIZE = int(_os_for_loop.environ.get("MINIAGENT_ARGS_CACHE_MAX_SIZE", "500"))  # 性能优化：从100提高到500
 
 
 def _make_args_cache_key(args: dict[str, Any]) -> tuple:

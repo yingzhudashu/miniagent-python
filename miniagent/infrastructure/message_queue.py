@@ -133,8 +133,8 @@ class _ChatQueue:
                     await self._current_task
                     if on_done:
                         on_done()
-                except asyncio.CancelledError:
-                    pass  # 被新任务打断，静默忽略
+                except asyncio.CancelledError as e:
+                    _logger.debug("任务被取消: %s", e)
                 finally:
                     self._current_task = None
             finally:

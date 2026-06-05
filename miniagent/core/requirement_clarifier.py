@@ -29,6 +29,10 @@
 
 from __future__ import annotations
 
+import logging
+
+_logger = logging.getLogger(__name__)
+
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -110,8 +114,8 @@ class RequirementClarifier:
 
                 memory = await memory_store.load(session_key)
                 memory_context = format_memory_for_prompt(memory)
-            except Exception:
-                pass
+            except Exception as e:
+                _logger.debug("加载记忆失败: %s", e)
 
         # ── RAG 增强：知识库检索（使用公共函数）──
         from miniagent.knowledge import retrieve_knowledge_context

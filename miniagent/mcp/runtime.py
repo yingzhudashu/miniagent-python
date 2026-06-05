@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import atexit
 import json
+import logging
 from typing import Any
+
+_logger = logging.getLogger(__name__)
 
 # 持有 stdio / session 上下文，防止被 GC 关闭
 _holder: list[Any] = []
@@ -112,8 +115,8 @@ async def register_mcp_stdio_tools(
                 ),
             )
             n += 1
-        except ValueError:
-            pass
+        except ValueError as e:
+            _logger.debug("MCP工具已注册，跳过: %s", e)
     return n
 
 

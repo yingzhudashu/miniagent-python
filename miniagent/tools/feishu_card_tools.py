@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from miniagent.feishu.cards.builder import build_button, build_interactive_card
@@ -14,6 +15,8 @@ from miniagent.feishu.receive_id import default_receive_id_for_send, effective_r
 from miniagent.tools._feishu_utils import check_lark_oapi
 from miniagent.types.error_prefix import SUCCESS_PREFIX, WARNING_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
+
+_logger = logging.getLogger(__name__)
 
 FEISHU_CARD_TOOL_NAMES = frozenset(
     {
@@ -75,8 +78,8 @@ async def _feishu_send_interactive_card(args: dict[str, Any], ctx: ToolContext) 
             parsed = json.loads(raw_extra)
             if isinstance(parsed, list):
                 extra_elements = [x for x in parsed if isinstance(x, dict)]
-        except json.JSONDecodeError:
-            pass
+        except json.JSONDecodeError as e:
+            _logger.debug("解析extra_elements失败: %s", e)
 
     card = build_interactive_card(
         header, body, template, buttons=buttons or None, extra_elements=extra_elements

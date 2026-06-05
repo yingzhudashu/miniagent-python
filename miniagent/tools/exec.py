@@ -215,8 +215,8 @@ async def _exec_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         except asyncio.TimeoutError:
             try:
                 proc.kill()
-            except ProcessLookupError:
-                pass
+            except ProcessLookupError as e:
+                _logger.debug("进程已不存在: %s", e)
             await proc.wait()
             # 从追踪列表移除
             await deregister_process(proc)

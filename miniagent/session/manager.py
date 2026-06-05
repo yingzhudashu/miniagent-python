@@ -266,8 +266,8 @@ class DefaultSessionManager(SessionManagerProtocol):
                         ),
                     )
                     core_count += 1
-                except ValueError:
-                    pass  # 已存在，跳过
+                except ValueError as e:
+                    _logger.debug("工具已存在，跳过: %s", e)
         return registry, core_count
 
     def _scan_disk_configs(self) -> list[dict]:
@@ -298,8 +298,8 @@ class DefaultSessionManager(SessionManagerProtocol):
                             "raw": raw,
                         }
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    _logger.debug("扫描磁盘配置失败: %s", e)
         return result
 
     def _scan_existing_numbers(self) -> None:
@@ -425,8 +425,8 @@ class DefaultSessionManager(SessionManagerProtocol):
             if os.path.isfile(path):
                 with open(path, encoding="utf-8-sig") as f:
                     return normalize_conversation_history(json.load(f))
-        except Exception:
-            pass
+        except Exception as e:
+            _logger.debug("加载会话历史失败: %s", e)
         return []
 
     async def save_session_history_async(self, session_id: str) -> None:
@@ -478,8 +478,8 @@ class DefaultSessionManager(SessionManagerProtocol):
                 if os.path.isfile(path):
                     with open(path, encoding="utf-8-sig") as f:
                         return normalize_conversation_history(json.load(f))
-            except Exception:
-                pass
+            except Exception as e:
+                _logger.debug("异步加载会话历史失败: %s", e)
             return []
 
         return await asyncio.to_thread(_sync_load)
@@ -782,8 +782,8 @@ class DefaultSessionManager(SessionManagerProtocol):
                 import shutil
 
                 shutil.rmtree(ctx["config"].workspace_path, ignore_errors=True)
-            except Exception:
-                pass
+            except Exception as e:
+                _logger.debug("删除会话文件失败: %s", e)
 
         _logger.info("会话已销毁: %s", id)
         return True
@@ -969,8 +969,8 @@ class DefaultSessionManager(SessionManagerProtocol):
                         "lock_pid": lock_owner,
                     }
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                _logger.debug("扫描会话信息失败: %s", e)
 
         return sorted(result, key=lambda x: x["number"])
 
@@ -1159,8 +1159,8 @@ def _get_session_lock_owner(workspace_path: str) -> int | None:
         try:
             with open(lock_file) as f:
                 return int(f.read().strip())
-        except Exception:
-            pass
+        except Exception as e:
+            _logger.debug("读取锁文件失败: %s", e)
     return None
 
 

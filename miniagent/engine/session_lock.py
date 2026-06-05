@@ -13,11 +13,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 
 from miniagent.infrastructure.process_utils import is_process_running, is_process_running_async
 from miniagent.session.manager import _get_workspaces_dir
 from miniagent.utils.session_id import safe_session_id
+
+_logger = logging.getLogger(__name__)
 
 
 def _get_lock_path(session_id: str) -> str:
@@ -46,13 +49,13 @@ def try_lock_session(session_id: str) -> tuple[bool, str]:
                 return False, f"被其他实例占用 (PID={locked_pid})"
             try:
                 os.unlink(lock_path)
-            except OSError:
-                pass
+            except OSError as e:
+                _logger.debug("清理过期锁文件失败: %s", e)
         except (ValueError, OSError):
             try:
                 os.unlink(lock_path)
-            except OSError:
-                pass
+            except OSError as e:
+                _logger.debug("清理损坏锁文件失败: %s", e)
 
     with open(lock_path, "w") as f:
         f.write(str(my_pid))
@@ -82,13 +85,13 @@ async def try_lock_session_async(session_id: str) -> tuple[bool, str]:
                 return False, f"被其他实例占用 (PID={locked_pid})"
             try:
                 os.unlink(lock_path)
-            except OSError:
-                pass
+            except OSError as e:
+                _logger.debug("清理过期锁文件失败: %s", e)
         except (ValueError, OSError):
             try:
                 os.unlink(lock_path)
-            except OSError:
-                pass
+            except OSError as e:
+                _logger.debug("清理损坏锁文件失败: %s", e)
 
     with open(lock_path, "w") as f:
         f.write(str(my_pid))
@@ -104,8 +107,8 @@ def release_session_lock(session_id: str) -> None:
                 locked_pid = int(f.read().strip())
             if locked_pid == os.getpid():
                 os.unlink(lock_path)
-    except Exception:
-        pass
+    except Exception as e:
+        _logger.debug("释放会话锁失败: %s", e)
 
 
 def is_session_locked(session_id: str) -> int | None:
@@ -124,8 +127,8 @@ def is_session_locked(session_id: str) -> int | None:
             return None
         if is_process_running(locked_pid):
             return locked_pid
-    except Exception:
-        pass
+    except Exception as e:
+        _logger.debug("检查会话锁状态失败: %s", e)
     return None
 
 

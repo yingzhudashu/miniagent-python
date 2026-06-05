@@ -90,7 +90,7 @@ async def _watchdog_loop(
             )
             return
         except asyncio.TimeoutError:
-            pass
+            _logger.debug("看门狗等待超时，继续检查")
 
         if shutdown_event.is_set() or exit_event.is_set():
             return
@@ -175,16 +175,16 @@ async def supervise_feishu_ws_session(
             t.cancel()
             try:
                 await t
-            except asyncio.CancelledError:
-                pass
+            except asyncio.CancelledError as e:
+                _logger.debug("任务取消: %s", e)
 
         # 显式检索 receive_task 异常（可能是正常关闭的
         # ConnectionClosedOK），避免 "Task exception was never retrieved"。
         if receive_task.done():
             try:
                 receive_task.exception()
-            except (asyncio.CancelledError, Exception):
-                pass
+            except (asyncio.CancelledError, Exception) as e:
+                _logger.debug("接收任务异常: %s", e)
 
         if shutdown_event.is_set():
             reason = "shutdown"
@@ -208,17 +208,17 @@ async def supervise_feishu_ws_session(
         if receive_task.done():
             try:
                 receive_task.exception()
-            except (asyncio.CancelledError, Exception):
-                pass
+            except (asyncio.CancelledError, Exception) as e:
+                _logger.debug("接收任务异常: %s", e)
         raise
     finally:
         watchdog_task.cancel()
         try:
             await watchdog_task
-        except asyncio.CancelledError:
-            pass
-        except Exception:
-            pass
+        except asyncio.CancelledError as e:
+            _logger.debug("看门狗任务取消: %s", e)
+        except Exception as e:
+            _logger.debug("看门狗任务异常: %s", e)
 
 
 __all__ = [

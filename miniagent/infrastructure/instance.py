@@ -287,8 +287,8 @@ class InstanceRegistry:
             # 进程已死亡，清理残留
             try:
                 shutil.rmtree(inst_dir)
-            except Exception:
-                pass
+            except Exception as e:
+                _logger.debug("清理失效实例目录失败: %s", e)
             return {
                 "success": True,
                 "reason": f"实例 #{instance_id} (PID={pid}) 已不存在，已清理",
@@ -314,8 +314,8 @@ class InstanceRegistry:
         # 清理注册表目录
         try:
             shutil.rmtree(inst_dir)
-        except Exception:
-            pass
+        except Exception as e:
+            _logger.debug("清理实例注册目录失败: %s", e)
 
         _logger.info("实例 #%d 已停止", instance_id)
         return {"success": True}
@@ -349,8 +349,8 @@ class InstanceRegistry:
             # 进程已死亡，清理残留
             try:
                 shutil.rmtree(inst_dir)
-            except Exception:
-                pass
+            except Exception as e:
+                _logger.debug("清理失效实例目录失败: %s", e)
             return {
                 "success": True,
                 "reason": f"实例 #{instance_id} (PID={pid}) 已不存在，已清理",
@@ -381,8 +381,8 @@ class InstanceRegistry:
         # 清理注册表目录
         try:
             shutil.rmtree(inst_dir)
-        except Exception:
-            pass
+        except Exception as e:
+            _logger.debug("清理实例注册目录失败: %s", e)
 
         _logger.info("实例 #%d 已停止", instance_id)
         return {"success": True}
@@ -451,8 +451,8 @@ class InstanceRegistry:
                 if self._is_pid_alive(meta):
                     continue
                 shutil.rmtree(entry)
-            except Exception:
-                pass
+            except Exception as e:
+                _logger.debug("清理失效实例目录失败: %s", e)
 
 # ─── 模块级便捷函数 ───
 

@@ -15,6 +15,8 @@
 | 依赖声明 | `pyproject.toml` `[project]` / `optional-dependencies` | 不使用根目录 `requirements.txt`；运行时依赖与可选组（`dev`（含 `pytest-cov`）、`feishu`、`browser`、`mcp`、`cli`、`typing`（`mypy` 试点））集中在此。 |
 | 配置说明 | `config.defaults.json` + [ENV_REFERENCE.md](ENV_REFERENCE.md) | 复制为 `config.user.json` 后本地填写；**勿将含真实密钥的 `config.user.json` 提交入库**（见 `.gitignore`）。 |
 | 定时任务配置 | `config.defaults.json` + [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」 | 用户面向摘要见 [USER_GUIDE.md](USER_GUIDE.md) §8；运维见 [DEPLOYMENT.md](DEPLOYMENT.md) |
+| 自我优化配置 | `config.defaults.json` → `self_optimization` 配置节 | 提案持久化路径、自动执行开关、风险等级上限等；详见 [SELF_OPT.md](SELF_OPT.md) |
+| Trace 系统配置 | `config.defaults.json` → `trace` 配置节 | 持久化开关、输出目录、保留天数等；详见下文 §5 |
 | 架构与行为细节 | `docs/ARCHITECTURE.md` 及各专题文档 | README 只做索引与快速上手；深度说明以 `docs/` 为准。 |
 
 飞书媒体（与 [FEISHU.md](FEISHU.md) 正文一致，便于检索）：
@@ -82,7 +84,7 @@ CI 说明：
 
 ### 3.1 `workspaces/` 与 Git 跟踪政策
 
-**运行时生成物默认不入库**：`.gitignore` 已排除 `workspaces/instances/`、`workspaces/sessions/`、`workspaces/memory/`、`workspaces/scheduled_tasks/`（定时任务表 `tasks.json`，与 README「`MINIAGENT_PATHS_STATE_DIR/scheduled_tasks/tasks.json`」一致；未设置 `MINIAGENT_PATHS_STATE_DIR` 时默认为仓库下 `workspaces/scheduled_tasks/`）、`workspaces/keyword-index.json`、`workspaces/perf*.jsonl`、`workspaces/feishu_inbound_owner.json`、`workspaces/feishu/`（含 WebSocket 去重等）、`**/*.lock`、`workspaces/cli/` 等，避免把本机 PID、会话历史、记忆索引、对话落盘、飞书去重状态提交到远程。
+**运行时生成物默认不入库**：`.gitignore` 已排除 `workspaces/instances/`、`workspaces/sessions/`、`workspaces/memory/`、`workspaces/scheduled_tasks/`（定时任务表 `tasks.json`，与 README「`MINIAGENT_PATHS_STATE_DIR/scheduled_tasks/tasks.json`」一致；未设置 `MINIAGENT_PATHS_STATE_DIR` 时默认为仓库下 `workspaces/scheduled_tasks/`）、`workspaces/self_opt/`（自我优化提案与分析报告）、`workspaces/logs/`（Trace 日志）、`workspaces/keyword-index.json`、`workspaces/perf*.jsonl`、`workspaces/feishu_inbound_owner.json`、`workspaces/feishu/`（含 WebSocket 去重等）、`**/*.lock`、`workspaces/cli/` 等，避免把本机 PID、会话历史、记忆索引、对话落盘、飞书去重状态提交到远程。
 
 若历史上曾将上述路径纳入版本跟踪，可在确认无团队依赖后执行 `git rm --cached <路径>` 并保留 `.gitignore` 规则。需要随仓库携带的**非敏感**结构示例，请放在 `docs/examples/` 等显式文档化目录。日常开发仍建议使用 `MINIAGENT_PATHS_STATE_DIR` 将状态迁出仓库。
 
@@ -99,117 +101,200 @@ CI 说明：
 
 **轨迹 JSON、聚合评分与 HTML 报告**体积大且环境相关；对话片段中还可能误粘贴 **API Key**，即使已在 `.gitignore` 中列出，也**不要**使用 `git add -f` 强行入库。根目录 `.gitignore` 已忽略 `tests/evaluation/runners/trajectories/`、`tests/evaluation/**/evaluation_results.json`、`docs/EVALUATION_REPORT.html`、`docs/evaluation_results.json` 等。
 
-### 3.3 多实例注册表
+---
 
-模块: `miniagent/infrastructure/instance.py`。**语义**：多实例注册、PID 判定与清理规则（原 INSTANCE_REGISTRY.md 内容合并于此）。
+## 4. 自我优化子系统
 
-- **注册**：CLI 主流程启动时调用 `register_instance()` → `InstanceRegistry.register()`。
-- **启动前清理**：分配新 `instance_id` 前扫描已有数字子目录；若 `meta.json` 中 PID 已不存在，则仅删除该注册目录。
-- **存活判定**：`meta.json` 中 `pid` 为正整数且 `_is_process_running(pid)` 为真 → 存活（Windows：`tasklist`；POSIX：`os.kill(pid, 0)`）。心跳仅作观测。
-- **实例目录**：`<状态根>/instances/<数字ID>/`，含 `meta.json`（PID、instance_id、mode、start_time 等）与可选 `heartbeat` 文件。
-- **清理原则**：仅清理僵尸目录，不会 `taskkill`/`kill` 运行中的进程；PID 复用场景下属于「宁可少删、避免误删」的权衡。
+自我优化系统基于运行日志和代码分析生成优化提案，详见 [SELF_OPT.md](SELF_OPT.md)。
 
-**定时任务锁**（路径 `<状态根>/scheduled_tasks/`）：
+### 4.1 运行日志驱动提案
 
-| 文件 | 作用 |
-|------|------|
-| `scheduler.lock` | 单次 `tick_once` 互斥 |
-| `job_<task_id>.lock` | 单条任务执行期互斥 |
-| `tasks.json.lock` | `tasks.json` 读写互斥 |
+通过 Trace 系统采集运行指标，识别性能瓶颈、高频错误、异常行为：
 
-崩溃后残留锁文件，下一进程发现锁内 PID 已不存在时会删除并重试。
+- **慢工具识别**：平均时延超过阈值（`min_duration_ms_threshold: 2000`）
+- **失败率统计**：成功率低于阈值（`min_failure_rate_threshold: 0.05`）
+- **错误聚合**：按类型/工具分组，标记用户误用 vs 工具缺陷
+- **Token 消耗分析**：总 token > 100000 时生成优化提案
 
-### 3.4 离线测评
+### 4.2 提案持久化
 
-`tests/evaluation/` 用于离线轨迹录制、工具选择准确率、对抗用例等实验。**评测源码（`.py`、`conftest`、小体积 `test_cases/*.json`）应纳入 Git**；运行产物不入库。
+提案存储在 `workspaces/self_opt/proposals/`（或配置的 `proposal_output_dir`）：
 
-- **默认 CI**：`pytest tests/ -q -m "not evaluation"`（排除评测）
-- **仅评测**：`pytest tests/ -m evaluation -v --tb=short`
-- **跑全量**：`pytest tests/ -q`
+- `proposals-{YYYY-MM-DD}.jsonl`：每日提案追加写入
+- `reports/runtime-{YYYY-MM-DD}.json`：运行分析报告
+- `reports/trace-report-{YYYY-MM-DD}.json`：Trace 统计报告
 
-产物约定（已在 `.gitignore` 忽略，请勿 `git add -f`）：
-- `tests/evaluation/runners/trajectories/` — 轨迹 JSON（可能含密钥）
-- `tests/evaluation/**/evaluation_results.json` — 聚合评分
-- `docs/EVALUATION_REPORT.html`、`docs/evaluation_results.json` — 生成报告
+### 4.3 自动执行控制
 
-建议跑长时间评测时设置 `MINIAGENT_PATHS_STATE_DIR` 指向临时目录，避免与日常 `workspaces/` 会话干扰。
+- **默认仅生成提案**（`auto_apply: false`），需人工批准执行
+- **开启自动执行**（`auto_apply: true`）时仅执行低风险提案
+- **风险等级上限**（`auto_apply_max_risk: "low"`）可配置为 `medium` 或 `high`
 
-### 3.5 测试覆盖率报告
+---
 
-生成覆盖率报告命令：
+## 5. Trace 系统（全链路监控）
 
-```bash
-# 生成 HTML 报告（推荐）
-python -m pytest tests/ -q -m "not evaluation" \
-  --cov=miniagent --cov-report=html --cov-report=term
+Trace 系统为自我优化提供运行数据源，同时支持外部 APM 接入。
 
-# 打开 HTML 报告
-# Windows: start htmlcov/index.html
-# macOS: open htmlcov/index.html
-# Linux: xdg-open htmlcov/index.html
+### 5.1 架构设计
+
+```
+miniagent.infrastructure.tracing
+├── emit_trace(event)              # 派发事件到钩子列表
+├── register_trace_hook(hook)      # 注册回调钩子
+├── clear_trace_hooks()            # 清空钩子（测试隔离）
+├── auto_register_trace_file_hook() # 自动注册文件持久化钩子
+└── get_trace_file()               # 获取当前 trace 文件路径
+
+miniagent.infrastructure.trace_events
+├── 事件类型常量（EVENT_LLM_REQUEST 等）
+└── 事件构建函数（make_error_event 等）
+
+miniagent.infrastructure.trace_stats
+├── load_trace_events()            # 加载事件
+├── compute_tool_stats()           # 工具统计
+├── compute_llm_stats()            # LLM 统计
+├── compute_error_stats()          # 错误统计
+└── generate_daily_report()        # 每日报告
 ```
 
-**覆盖率目标**：
-- 核心模块 (`miniagent/core/`): 95%+
-- 类型定义 (`miniagent/types/`): 95%+
-- 整体项目: 80%+
+### 5.2 事件类型规范
 
-**覆盖率配置**: `.coveragerc` 文件定义分支覆盖、忽略规则与报告格式。
+| 常量 | 类型字符串 | 用途 |
+|------|-----------|------|
+| `EVENT_LLM_REQUEST` | `llm.request` | LLM 请求开始（model、message_count、tool_count） |
+| `EVENT_LLM_RESPONSE` | `llm.response` | LLM 响应结束（usage、has_tool_calls） |
+| `EVENT_TOOL_START` | `tool.start` | 工具执行开始 |
+| `EVENT_TOOL_END` | `tool.end` | 工具执行结束（duration_ms、success） |
+| `EVENT_TOOL_ERROR` | `tool.error` | 工具错误（error_type、is_user_error） |
+| `EVENT_ERROR_COLLECT` | `error.collect` | 错误收集（统一错误事件） |
+| `EVENT_SESSION_START` | `session.start` | 会话开始 |
+| `EVENT_SESSION_END` | `session.end` | 会话结束 |
+| `EVENT_PROPOSAL_*` | `proposal.*` | 自我优化提案生命周期 |
 
-**新增模块测试要求**: 新增模块应达到 100% 函数覆盖，重点路径 90% 分支覆盖。
+### 5.3 标准事件字段
 
-**关键模块测试状态**（截至 2026-06-03）：
+所有事件建议包含以下标准字段：
 
-| 模块 | 测试文件 | 覆盖状态 |
-|------|----------|----------|
-| `miniagent/types/tool.py` | `test_types_tool.py` | ✅ 完整 |
-| `miniagent/types/memory.py` | `test_types_memory.py` | ✅ 完整 |
-| `miniagent/memory/keyword_index.py` | `test_keyword_index.py` | ✅ 完整 |
-| `miniagent/core/executor.py` | `test_executor_*.py` | ✅ 完整 |
-| `miniagent/core/planner.py` | `test_planner_*.py` | ✅ 完整 |
-| `miniagent/feishu/cards/` | `test_feishu_cards_*.py` | ✅ 完整 |
-| `miniagent/scheduled_tasks/` | `test_scheduled_tasks*.py` | ✅ 完整 |
-| `miniagent/types/protocols.py` | 待添加 | ⚠️ 部分 |
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `type` | string | 事件类型（必填） |
+| `ts` | string ISO 8601 | 时间戳（由 `emit_trace` 自动添加） |
+| `session_key` | string | 会话标识 |
+| `phase` | "plan" / "exec" | 执行阶段 |
+| `duration_ms` | int | 时延（毫秒） |
+| `success` | bool | 是否成功 |
+| `error_type` | string | 错误类型（可选） |
+| `is_user_error` | bool | 是否用户误用 |
+
+### 5.4 自动持久化
+
+配置 `config.defaults.json`：
+
+```json
+{
+  "trace": {
+    "enabled": true,
+    "output_dir": "workspaces/logs",
+    "include_memory_ops": true,
+    "include_context_ops": true,
+    "retention_days": 7
+  }
+}
+```
+
+或使用环境变量：
+
+```bash
+MINIAGENT_TRACE_LOG_FILE=workspaces/logs/trace.jsonl
+```
+
+文件命名：`trace-{YYYY-MM-DD}.jsonl`（每日一个文件）。
+
+### 5.5 统计分析
+
+运行分析器从 Trace 文件提取指标：
+
+```python
+from miniagent.infrastructure.trace_stats import generate_daily_report
+
+report = generate_daily_report(date="2026-06-05")
+
+# report 结构：
+{
+  "date": "2026-06-05",
+  "total_events": 1234,
+  "sessions": 10,
+  "llm": {
+    "request_count": 10,
+    "total_tokens": {"prompt": 5000, "completion": 2000},
+  },
+  "tools": {
+    "tools": {"read_file": {"count": 10, "avg_ms": 50, "success_rate": 1.0}},
+    "slow_tools": [{"name": "web_search", "avg_ms": 2000}],
+    "failed_tools": [{"name": "read_file", "success_rate": 0.95}],
+  },
+  "errors": [{"type": "TimeoutError", "count": 3, "tools": ["web_search"]}],
+}
+```
+
+### 5.6 测试隔离
+
+测试用例中可清空钩子避免污染：
+
+```python
+from miniagent.infrastructure.tracing import clear_trace_hooks
+
+def test_trace():
+    clear_trace_hooks()
+    # ... 测试逻辑 ...
+```
+
+### 5.7 与自我优化集成
+
+Trace 事件作为自我优化数据源：
+
+```python
+from miniagent.core.self_opt import RuntimeAnalyzer
+
+analyzer = RuntimeAnalyzer()
+report = analyzer.analyze(date="2026-06-05")
+
+# report 从 trace-stats 和 activity-log 合并数据
+# tools：工具性能指标
+# llm：LLM 调用统计
+# errors：错误汇总
+# issues：问题标记（慢工具、高失败率、高频错误）
+```
 
 ---
 
-## 4. 安全与密钥
+## 6. 状态清理与保留
 
-- 密钥优先通过环境变量或 `config.user.json` 的 `secrets` 部分注入；代码库中不出现真实 token（含 **OpenAI**、**Tavily** (`TAVILY_API_KEY` / `WEB_SEARCH_API_KEY`)、飞书 Secret 等）。
-- 工具执行与文件访问受 [SECURITY.md](SECURITY.md) 所述沙箱与策略约束；部署面见 [DEPLOYMENT.md](DEPLOYMENT.md)。
-- **推送前自检（建议）**：勿提交 `config.user.json`；`git diff --cached` 抽查是否误入密钥；可用 `rg` 等搜索疑似模式（如 `tvly-`、`sk-[A-Za-z0-9]{20,}`）并与占位符区分。仓库可在 GitHub 开启 Secret scanning / Push protection（在网页端配置）。
+### 6.1 Trace 文件清理
 
----
+```python
+from miniagent.infrastructure.trace_stats import cleanup_old_traces
 
-## 5. 文档维护清单
+# 删除超过 7 天的 trace 文件
+deleted = cleanup_old_traces(retention_days=7)
+```
 
-大范围重构或发版时建议核对：
+### 6.2 提案文件清理
 
-1. `miniagent/__init__.py` 的 `__version__` 与 `CHANGELOG.md`、下列 **带版本标语** 的 `docs/*.md` 一致（标语格式建议：`> Mini Agent Python | 版本: x.y.z | …` 或 INDEX 的「与 `miniagent.__version__` 对齐」行；若页眉仅写「与 `miniagent.__version__` 对齐」而无具体 semver，发版时核对语义一致即可）：
-   - [ARCHITECTURE.md](ARCHITECTURE.md)、[INDEX.md](INDEX.md)、[ENGINEERING.md](ENGINEERING.md)、[CONTRIBUTING.md](CONTRIBUTING.md)
-   - [DEPLOYMENT.md](DEPLOYMENT.md)、[MEMORY_SYSTEM.md](MEMORY_SYSTEM.md)、[SECURITY.md](SECURITY.md)
-   - [CLI.md](CLI.md)、[FEISHU.md](FEISHU.md)、[SELF_OPT.md](SELF_OPT.md)、[CHANNEL_BINDING.md](CHANNEL_BINDING.md)、[USER_GUIDE.md](USER_GUIDE.md)（若文内写明版本号须与 `__version__` 一致）
-   - [PERFORMANCE.md](PERFORMANCE.md)（页眉与版本对齐语义时一并核对）
-2. 欢迎界面：`miniagent.engine.welcome.get_version()` 必须与 `miniagent.__version__` 同源（勿依赖 `pyproject.toml` 静态 `version` 字段）。
-3. [INDEX.md](INDEX.md) 中目录树与仓库实际文件一致（含 `core/openai_client.py`、`memory/defaults.py` 等）。
-4. README 中的命令与测试说明：若需核对用例数量，以本地或 CI 的 `pytest tests/ --collect-only -q` 输出为准（避免在 README 硬编码条数导致漂移）。
-5. 行为变更同步 `ARCHITECTURE.md` 或对应专题文档（如 `CHANNEL_BINDING.md`、`MEMORY_SYSTEM.md`）。
-6. **[architecture.drawio](architecture.drawio)** 与 `ARCHITECTURE.md` 分层与主数据流一致（入口 `compat`、组合根 `RuntimeContext`、通道路由、记忆注入方式、可选 MCP/定时任务）；`instance.py` 单元格为 **PID 存活** 语义（非心跳超时清理）；`scheduled_tasks` 含 `cron.py` / `file_lock.py`；发版或大架构变更时一并打开核对，页脚测试数以 `pytest tests/ --collect-only -q` 为准。
-7. **[DEPLOYMENT.md](DEPLOYMENT.md)**：定时任务路径/备份、`MINIAGENT_PATHS_STATE_DIR` 与多实例 PID 清理表述与 §3.3 一致。
-8. **大批量增补或调整 docstring 后**：在本地执行 `python -m ruff check miniagent tests` 与 spot-check（避免行长、引号或无意改坏字符串）；风格约定见 [CONTRIBUTING.md](CONTRIBUTING.md)「文档字符串（docstring）规范」。
-9. **SSOT**：修改 env、点命令、定时任务、飞书出站时，以 [FEISHU.md](FEISHU.md) / [CLI.md](CLI.md) / [USER_GUIDE.md](USER_GUIDE.md) 之一为主文档撰写深度内容，其余文件只保留摘要并链入，避免三处全文复制。
-10. **禁止硬编码**：文档与 drawio 页脚勿写固定 pytest 用例数；以 `pytest tests/ --collect-only -q` 为准。
-11. **未发版行为**：若 `__version__` 未 bump 但 [CHANGELOG.md](../CHANGELOG.md) 有 `[Unreleased]` Breaking/默认变更，INDEX 页眉应注明「行为以 Unreleased 为准」，并同步 README 特性段与 USER_GUIDE 迁移提示。
+```python
+from miniagent.core.self_opt.proposal_store import ProposalStore
+
+# 删除超过 30 天的提案文件
+deleted = ProposalStore.cleanup_old_proposals(retention_days=30)
+```
 
 ---
 
-## 6. 相关链接
+## 7. 相关文档
 
-| 文档 | 用途 |
-|------|------|
-| [CONTRIBUTING.md](CONTRIBUTING.md) | 开发环境、编码规范、测试约定 |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | 分层架构与数据流 |
-| [INDEX.md](INDEX.md) | 全部文档索引 |
-| [USER_GUIDE.md](USER_GUIDE.md) | 零基础使用指南 |
-| [CHANGELOG.md](../CHANGELOG.md) | 版本历史 |
-| [PERFORMANCE.md](PERFORMANCE.md) | 性能 KPI、合成冒烟与基线 |
+- [SELF_OPT.md](SELF_OPT.md) — 自我优化系统详解
+- [CLI.md](CLI.md) — CLI 命令手册（自我优化命令）
+- [ARCHITECTURE.md](ARCHITECTURE.md) — 系统架构
+- [CONTRIBUTING.md](CONTRIBUTING.md) — 代码规范
+- [PERFORMANCE.md](PERFORMANCE.md) — 性能分析流程

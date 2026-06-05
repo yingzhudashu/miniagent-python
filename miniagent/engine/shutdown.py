@@ -68,8 +68,8 @@ async def shutdown_runtime(
         st_ticker.cancel()
         try:
             await st_ticker
-        except asyncio.CancelledError:
-            pass
+        except asyncio.CancelledError as e:
+            _logger.debug("飞书任务取消: %s", e)
 
     # 3b) 技能目录监视
     sw_ev = ctx.skills_watch_stop_event
@@ -80,8 +80,8 @@ async def shutdown_runtime(
         sw_task.cancel()
         try:
             await sw_task
-        except asyncio.CancelledError:
-            pass
+        except asyncio.CancelledError as e:
+            _logger.debug("飞书任务取消: %s", e)
 
     # 4) 飞书（await 取消以跑 poll_server / runtime 的 finally）
     fe = ctx.feishu
@@ -94,9 +94,9 @@ async def shutdown_runtime(
             task.cancel()
             try:
                 await task
-            except asyncio.CancelledError:
-                pass
-            fe.set_task(None)
+            except asyncio.CancelledError as e:
+                _logger.debug("任务取消: %s", e)
+                fe.set_task(None)
 
     try:
         from miniagent.feishu.poll_server import reset_feishu_ws_singleton
@@ -141,6 +141,13 @@ async def shutdown_runtime(
         stop_config_watch(ctx)
     except Exception as e:
         _logger.debug("shutdown_runtime: stop_config_watch: %s", e)
+
+    # 5f) 关闭trace异步写入器（确保trace事件不丢失）
+    try:
+        from miniagent.infrastructure.tracing import shutdown_trace_writer
+        shutdown_trace_writer()
+    except Exception as e:
+        _logger.debug("shutdown_runtime: shutdown_trace_writer: %s", e)
 
     if release_cli_session_lock:
         sid = (state.get("active_session_id") or "").strip()

@@ -15,9 +15,12 @@ defaults → user → MINIAGENT_CONFIG(JSON) → 单项环境变量
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Any
+
+_logger = logging.getLogger(__name__)
 
 
 class JsonConfigLoader:
@@ -205,8 +208,8 @@ class JsonConfigLoader:
         if value.startswith("{") or value.startswith("["):
             try:
                 return json.loads(value)
-            except json.JSONDecodeError:
-                pass
+            except json.JSONDecodeError as e:
+                _logger.debug("环境变量JSON解析失败: %s", e)
 
         # 根据默认值类型推断
         if isinstance(default, bool):
@@ -232,13 +235,13 @@ class JsonConfigLoader:
             # 整数推断
             try:
                 return int(value)
-            except ValueError:
-                pass
+            except ValueError as e:
+                _logger.debug("整数推断失败: %s", e)
             # 浮点数推断
             try:
                 return float(value)
-            except ValueError:
-                pass
+            except ValueError as e:
+                _logger.debug("浮点数推断失败: %s", e)
 
         # 字符串或其他类型
         return value

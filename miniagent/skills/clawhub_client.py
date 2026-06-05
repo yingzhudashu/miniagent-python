@@ -18,10 +18,13 @@ ClawHub API 约定：
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from pathlib import Path
 from typing import Any, Protocol
+
+_logger = logging.getLogger(__name__)
 
 CLAWHUB_API = "https://clawhub.ai/api/v1"
 
@@ -74,8 +77,8 @@ async def _get_clawhub_client(timeout: float = 15.0) -> Any:
         try:
             import httpx
             _CLAWHUB_HTTP_CLIENT = httpx.AsyncClient(timeout=timeout)
-        except ImportError:
-            pass  # 回退到 urllib
+        except ImportError as e:
+            _logger.debug("httpx未安装，回退到urllib: %s", e)
     return _CLAWHUB_HTTP_CLIENT
 
 
@@ -85,8 +88,8 @@ async def close_clawhub_client() -> None:
     if _CLAWHUB_HTTP_CLIENT is not None:
         try:
             await _CLAWHUB_HTTP_CLIENT.aclose()
-        except Exception:
-            pass
+        except Exception as e:
+            _logger.debug("关闭HTTP客户端失败: %s", e)
         _CLAWHUB_HTTP_CLIENT = None
 
 

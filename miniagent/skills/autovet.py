@@ -11,9 +11,12 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from pathlib import Path
+
+_logger = logging.getLogger(__name__)
 
 # 扫描文件大小上限（跳过超大文件）
 MAX_SCAN_FILE_SIZE = 1_000_000  # 1MB
@@ -82,8 +85,8 @@ def auto_vet_skill(skill_dir: str) -> str:
                 try:
                     fcontent = Path(fpath).read_text(encoding="utf-8", errors="replace")
                     _scan_content(fpath, fcontent, warnings)
-                except Exception:
-                    pass
+                except Exception as e:
+                    _logger.debug("读取技能文件失败: %s", e)
 
     # 3. 检查元数据权限
     if warnings:

@@ -89,8 +89,8 @@ async def _kill_tree_windows(pid: int) -> None:
             timeout=10,
         )
         _logger.debug("已终止进程树 PID=%d", pid)
-    except subprocess.CalledProcessError:
-        pass  # 进程可能已自行退出
+    except subprocess.CalledProcessError as e:
+        _logger.debug("进程可能已自行退出: %s", e)
     except subprocess.TimeoutExpired:
         _logger.warning("终止进程 PID=%d 超时", pid)
     except FileNotFoundError:
@@ -103,8 +103,8 @@ async def _kill_tree_windows(pid: int) -> None:
                 stderr=subprocess.DEVNULL,
                 timeout=5,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            _logger.debug("终止进程回退失败: %s", e)
 
 
 async def _kill_unix(proc: asyncio.subprocess.Process) -> None:
@@ -113,16 +113,15 @@ async def _kill_unix(proc: asyncio.subprocess.Process) -> None:
         pgid = os.getpgid(proc.pid)
         os.killpg(pgid, 15)  # SIGTERM
         await asyncio.wait_for(proc.wait(), timeout=3.0)
-    except (ProcessLookupError, OSError):
-        # 进程已退出或进程组不存在
-        pass
+    except (ProcessLookupError, OSError) as e:
+        _logger.debug("进程已退出或进程组不存在: %s", e)
     except asyncio.TimeoutError:
         try:
             pgid = os.getpgid(proc.pid)
             os.killpg(pgid, 9)  # SIGKILL
             await asyncio.wait_for(proc.wait(), timeout=2.0)
-        except (ProcessLookupError, OSError, asyncio.TimeoutError):
-            pass
+        except (ProcessLookupError, OSError, asyncio.TimeoutError) as e:
+            _logger.debug("强制终止进程失败: %s", e)
 
 
 async def cleanup_all_processes() -> None:
@@ -151,10 +150,9 @@ async def cleanup_all_processes() -> None:
             # communicate() 会关闭 stdin/stdout/stderr 管道
             await asyncio.wait_for(proc.communicate(), timeout=0.5)
         except asyncio.TimeoutError:
-            # 进程未响应，继续后续 kill 逻辑
-            pass
-        except Exception:
-            pass
+            _logger.debug("关闭管道超时，继续 kill 逻辑")
+        except Exception as e:
+            _logger.debug("终止进程回退失败: %s", e)
 
     await asyncio.gather(*[_close_pipes(p) for p in to_clean], return_exceptions=True)
 
@@ -202,10 +200,10 @@ def _sync_cleanup():
             else:
                 pgid = os.getpgid(proc.pid)
                 os.killpg(pgid, 9)  # SIGKILL
-        except (ProcessLookupError, OSError):
-            pass  # 进程已退出或进程组不存在
-        except Exception:
-            pass
+        except (ProcessLookupError, OSError) as e:
+            _logger.debug("进程已退出或进程组不存在: %s", e)
+        except Exception as e:
+            _logger.debug("终止进程回退失败: %s", e)
 
     _tracked.clear()
 

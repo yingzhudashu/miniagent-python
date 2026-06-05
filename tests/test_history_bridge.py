@@ -8,7 +8,7 @@ from miniagent.memory import history_bridge as hb
 
 
 def test_thinking_passed_through_when_under_cap(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MINIAGENT_FEISHU_CARD_THINKING_MAX_CHARS", "10000")
+    monkeypatch.setenv("MINIAGENT_MEMORY_THINKING_FOR_LLM_MAX_CHARS", "10000")
     hist = [{"role": "thinking", "content": "short"}]
     out = hb.conversation_history_for_llm(hist)
     assert len(out) == 1
@@ -17,7 +17,7 @@ def test_thinking_passed_through_when_under_cap(monkeypatch: pytest.MonkeyPatch)
 
 
 def test_thinking_truncated_for_llm_only(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MINIAGENT_FEISHU_CARD_THINKING_MAX_CHARS", "20")
+    monkeypatch.setenv("MINIAGENT_MEMORY_THINKING_FOR_LLM_MAX_CHARS", "20")
     long_body = "a" * 50
     hist = [{"role": "thinking", "content": long_body}]
     raw_copy = hist[0]["content"]
@@ -28,7 +28,7 @@ def test_thinking_truncated_for_llm_only(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def test_thinking_zero_means_no_truncation(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MINIAGENT_FEISHU_CARD_THINKING_MAX_CHARS", "0")
+    monkeypatch.setenv("MINIAGENT_MEMORY_THINKING_FOR_LLM_MAX_CHARS", "0")
     long_body = "x" * 5000
     hist = [{"role": "thinking", "content": long_body}]
     out = hb.conversation_history_for_llm(hist)
@@ -36,7 +36,7 @@ def test_thinking_zero_means_no_truncation(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_estimate_tokens_for_thinking_uses_same_cap_as_llm(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MINIAGENT_FEISHU_CARD_THINKING_MAX_CHARS", "50")
+    monkeypatch.setenv("MINIAGENT_MEMORY_THINKING_FOR_LLM_MAX_CHARS", "50")
     long_body = "b" * 200
     hist = [{"role": "thinking", "content": long_body}]
     t_est = hb.estimate_history_messages_tokens(hist)

@@ -23,10 +23,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import time
 from typing import Any
+
+_logger = logging.getLogger(__name__)
 
 # 性能优化：预编译高频正则表达式
 _QUALITY_EVAL_SUGGESTIONS_PATTERN = re.compile(
@@ -170,8 +173,8 @@ def _save_cli_session_state_on_switch(
                     session_title,
                 )
                 return
-    except Exception:
-        pass
+    except Exception as e:
+        _logger.debug("同步会话状态到通道失败: %s", e)
 
 
 def _get_last_qa_with_metadata(
@@ -416,8 +419,8 @@ async def cmd_session_switch(
         # 尝试恢复会话（如果尚未加载）
         try:
             session_manager.get_or_create(session_id)
-        except Exception:
-            pass
+        except Exception as e:
+            _logger.debug("恢复会话失败: %s", e)
 
         # 确认是否真的被锁定
         locked_sessions = [
@@ -437,8 +440,8 @@ async def cmd_session_switch(
     # 确保目标会话已加载
     try:
         session_manager.get_or_create(session_id)
-    except Exception:
-        pass
+    except Exception as e:
+        _logger.debug("同步会话状态到通道失败: %s", e)
 
     # 获取目标会话锁
     ok, reason = await try_lock_session_async(session_id)
@@ -550,8 +553,8 @@ def cmd_session_delete(
     # 释放锁（如果当前进程持有）
     try:
         release_session_lock(session_id)
-    except Exception:
-        pass
+    except Exception as e:
+        _logger.debug("同步会话状态到通道失败: %s", e)
 
     ok = session_manager.destroy(session_id, keep_files=keep_files)
     if ok:
@@ -1237,6 +1240,20 @@ def format_help_markdown(
             ],
         ),
         _md_help_section(
+            "自我优化",
+            "基于运行日志和代码分析生成优化提案，默认仅生成不执行。配置 auto_apply:true 可自动执行低风险提案。",
+            [
+                ("`/self-opt status`", "查看自我优化系统状态"),
+                ("`/self-opt proposals`", "列出待执行提案"),
+                ("`/self-opt show <id>`", "查看提案详情"),
+                ("`/self-opt approve <id>`", "批准提案"),
+                ("`/self-opt reject <id>`", "拒绝提案"),
+                ("`/self-opt apply <id>`", "执行已批准的提案"),
+                ("`/self-opt analyze`", "触发运行分析"),
+                ("`/self-opt report`", "查看分析报告"),
+            ],
+        ),
+        _md_help_section(
             "知识库",
             "挂载本地文档供 Agent 检索；知识库目录应有 KB.yaml 或 files/ 子目录。",
             [
@@ -1449,6 +1466,336 @@ def cmd_copy_transcript(
         return f"{ERROR_PREFIX} 读取历史失败: {e}"
 
 
+# ─── 自我优化命令 ────────────────────────────────────────
+
+
+def cmd_self_opt_status() -> None:
+    """显示自我优化系统状态。
+
+    输出：
+    - 系统启用状态
+    - auto_apply 配置
+    - 提案存储路径
+    - 今日提案数量
+    """
+    from miniagent.infrastructure.json_config import get_config
+    from miniagent.core.self_opt.proposal_store import (
+        ProposalStore,
+        get_proposal_output_dir,
+    )
+
+    enabled = get_config("self_optimization.enabled", True)
+    auto_apply = get_config("self_optimization.auto_apply", False)
+    max_risk = get_config("self_optimization.auto_apply_max_risk", "low")
+    output_dir = get_proposal_output_dir()
+    runtime_enabled = get_config("self_optimization.runtime_analysis_enabled", True)
+    code_enabled = get_config("self_optimization.code_analysis_enabled", True)
+
+    # 统计今日提案
+    store = ProposalStore()
+    proposals = store.load_proposals()
+    pending_count = len([p for p in proposals if p.get("status") == "pending"])
+
+    print("\n🔧 自我优化系统状态:")
+    print(f"  系统启用: {'✅ 是' if enabled else '❌ 否'}")
+    print(f"  自动执行: {'✅ 是' if auto_apply else '❌ 否（仅生成提案）'}")
+    print(f"  自动执行风险上限: {max_risk}")
+    print(f"  运行日志分析: {'✅ 启用' if runtime_enabled else '❌ 禁用'}")
+    print(f"  代码静态分析: {'✅ 启用' if code_enabled else '❌ 禁用'}")
+    print(f"  提案存储路径: {output_dir}")
+    print(f"  今日待执行提案: {pending_count} 个")
+    print()
+
+
+def cmd_self_opt_proposals(status: str | None = None) -> None:
+    """列出提案。
+
+    Args:
+        status: 状态过滤（pending/approved/rejected/completed/executing/failed）
+    """
+    from miniagent.core.self_opt.proposal_store import ProposalStore
+
+    store = ProposalStore()
+    proposals = store.load_proposals(status=status)
+
+    if not proposals:
+        status_label = status or "全部"
+        print(f"\n📭 {status_label}提案: 暂无\n")
+        return
+
+    print(f"\n📋 提案列表 ({status or '全部'}):\n")
+
+    status_icons = {
+        "pending": "⏳",
+        "approved": "✅",
+        "rejected": "❌",
+        "executing": "🔄",
+        "completed": "🎉",
+        "failed": "⚠️",
+    }
+    risk_colors = {"low": "", "medium": "", "high": ""}
+
+    for p in proposals:
+        icon = status_icons.get(p.get("status", "pending"), "❓")
+        proposal_data = p.get("proposal", {})
+        risk = proposal_data.get("risk_level", "low")
+        source = p.get("source", "?")
+        desc_preview = proposal_data.get("description", "")[:50]
+
+        print(f"  {icon} {p.get('id', '?')}")
+        print(f"     来源: {source}, 风险: {risk}")
+        print(f"     描述: {desc_preview}...")
+        print(f"     状态: {p.get('status', 'pending')}, 工时: {proposal_data.get('estimated_effort', 0)}min")
+        print()
+
+    print(f"总计: {len(proposals)} 个提案\n")
+
+
+def cmd_self_opt_show(proposal_id: str) -> None:
+    """显示提案详情。
+
+    Args:
+        proposal_id: 提案 ID
+    """
+    from miniagent.core.self_opt.proposal_store import ProposalStore
+
+    store = ProposalStore()
+    record = store.get_proposal(proposal_id)
+
+    if not record:
+        print(f"\n{ERROR_PREFIX} 提案 {proposal_id} 不存在\n")
+        return
+
+    proposal = record.get("proposal", {})
+
+    print(f"\n📄 提案详情: {proposal_id}\n")
+    print(f"  状态: {record.get('status', 'pending')}")
+    print(f"  来源: {record.get('source', '?')}")
+    print(f"  创建时间: {record.get('created_at', '?')}")
+    print(f"  更新时间: {record.get('updated_at', '?')}")
+    print()
+    print(f"  类型: {proposal.get('type', '?')}")
+    print(f"  风险等级: {proposal.get('risk_level', 'low')}")
+    print(f"  目标: {proposal.get('target', '')}")
+    print(f"  描述: {proposal.get('description', '')}")
+    print()
+    print(f"  理由: {proposal.get('rationale', '')}")
+    print(f"  预期收益: {proposal.get('expected_benefit', '')}")
+    print(f"  预估工时: {proposal.get('estimated_effort', 0)} 分钟")
+    print()
+
+    # 文件变更
+    files = proposal.get("files", [])
+    if files:
+        print("  文件变更:")
+        for f in files:
+            print(f"    - {f.get('action', '?')}: {f.get('path', '')}")
+            if f.get("reason"):
+                print(f"      原因: {f.get('reason')}")
+        print()
+
+    # 测试用例
+    test_cases = proposal.get("test_cases", [])
+    if test_cases:
+        print("  测试用例:")
+        for tc in test_cases:
+            print(f"    - {tc.get('id', '?')}: {tc.get('description', '')}")
+        print()
+
+
+def cmd_self_opt_approve(proposal_id: str) -> None:
+    """批准提案。
+
+    Args:
+        proposal_id: 提案 ID
+    """
+    from miniagent.core.self_opt.proposal_store import ProposalStore
+
+    store = ProposalStore()
+    record = store.get_proposal(proposal_id)
+
+    if not record:
+        print(f"\n{ERROR_PREFIX} 提案 {proposal_id} 不存在\n")
+        return
+
+    current_status = record.get("status", "pending")
+    if current_status != "pending":
+        print(f"\n{WARNING_PREFIX} 提案当前状态为 {current_status}，无法批准\n")
+        return
+
+    success = store.update_status(proposal_id, "approved")
+    if success:
+        print(f"\n{SUCCESS_PREFIX} 提案 {proposal_id} 已批准\n")
+    else:
+        print(f"\n{ERROR_PREFIX} 批准失败\n")
+
+
+def cmd_self_opt_reject(proposal_id: str) -> None:
+    """拒绝提案。
+
+    Args:
+        proposal_id: 提案 ID
+    """
+    from miniagent.core.self_opt.proposal_store import ProposalStore
+
+    store = ProposalStore()
+    record = store.get_proposal(proposal_id)
+
+    if not record:
+        print(f"\n{ERROR_PREFIX} 提案 {proposal_id} 不存在\n")
+        return
+
+    current_status = record.get("status", "pending")
+    if current_status != "pending":
+        print(f"\n{WARNING_PREFIX} 提案当前状态为 {current_status}，无法拒绝\n")
+        return
+
+    success = store.update_status(proposal_id, "rejected")
+    if success:
+        print(f"\n{SUCCESS_PREFIX} 提案 {proposal_id} 已拒绝\n")
+    else:
+        print(f"\n{ERROR_PREFIX} 拒绝失败\n")
+
+
+async def cmd_self_opt_apply(proposal_id: str, root: str = "") -> None:
+    """执行提案。
+
+    Args:
+        proposal_id: 提案 ID
+        root: 项目根目录
+    """
+    from miniagent.core.self_opt.proposal_store import ProposalStore
+
+    store = ProposalStore()
+    record = store.get_proposal(proposal_id)
+
+    if not record:
+        print(f"\n{ERROR_PREFIX} 提案 {proposal_id} 不存在\n")
+        return
+
+    current_status = record.get("status", "pending")
+    if current_status not in ("pending", "approved"):
+        print(f"\n{WARNING_PREFIX} 提案当前状态为 {current_status}，无法执行\n")
+        return
+
+    # 检查风险等级
+    proposal = record.get("proposal", {})
+    risk = proposal.get("risk_level", "low")
+
+    if risk == "high":
+        print(f"\n{WARNING_PREFIX} 高风险提案需人工确认后再执行")
+        print(f"  请先批准: /self-opt approve {proposal_id}\n")
+        return
+
+    print(f"\n🔄 正在执行提案 {proposal_id}...\n")
+
+    result = await store.apply_proposal_async(proposal_id, root=root)
+
+    if result.status == "success":
+        print(f"{SUCCESS_PREFIX} 提案执行成功")
+        print(f"  应用变更: {result.changes_applied} 个\n")
+    elif result.status == "skipped":
+        print(f"{WARNING_PREFIX} 提案跳过执行: {result.error}\n")
+    else:
+        print(f"{ERROR_PREFIX} 提案执行失败: {result.error}\n")
+
+
+def cmd_self_opt_analyze() -> None:
+    """触发运行分析并生成提案。"""
+    from miniagent.core.self_opt.proposal_generator import ProposalGenerator
+
+    print("\n🔍 正在分析运行日志...\n")
+
+    generator = ProposalGenerator()
+    saved_ids = generator.generate_and_save()
+
+    if saved_ids:
+        print(f"{SUCCESS_PREFIX} 生成 {len(saved_ids)} 个优化提案:\n")
+        for pid in saved_ids:
+            print(f"  - {pid}")
+        print()
+    else:
+        print("📭 未发现问题，无需生成提案\n")
+
+
+def cmd_self_opt_report(date: str | None = None) -> None:
+    """查看运行分析报告。
+
+    Args:
+        date: 日期（默认今天）
+    """
+    import json
+    from datetime import datetime, timezone
+    from miniagent.core.self_opt.proposal_store import get_reports_dir
+
+    if date is None:
+        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    reports_dir = get_reports_dir()
+    report_file = reports_dir / f"runtime-{date}.json"
+
+    if not report_file.exists():
+        print(f"\n{WARNING_PREFIX} 报告不存在: {date}\n")
+        return
+
+    try:
+        with report_file.open("r", encoding="utf-8") as f:
+            report = json.load(f)
+
+        print(f"\n📊 运行分析报告: {date}\n")
+        print(f"  摘要: {report.get('summary', '无')}")
+        print(f"  Trace 事件数: {report.get('trace_events_count', 0)}")
+        print(f"  会话数: {report.get('sessions_count', 0)}")
+        print()
+
+        # 工具统计
+        tools = report.get("tools", {})
+        tool_stats = tools.get("tools", {})
+        if tool_stats:
+            print("  工具统计:")
+            for name, stats in sorted(tool_stats.items(), key=lambda x: x[1].get("avg_ms", 0), reverse=True)[:5]:
+                print(f"    - {name}: {stats.get('count', 0)}次, 平均{stats.get('avg_ms', 0)}ms, 成功率{stats.get('success_rate', 1):.1%}")
+            print()
+
+        # 慢工具
+        slow_tools = tools.get("slow_tools", [])
+        if slow_tools:
+            print("  ⚠️ 慢工具:")
+            for t in slow_tools:
+                print(f"    - {t.get('name')}: 平均 {t.get('avg_ms')}ms")
+            print()
+
+        # 失败工具
+        failed_tools = tools.get("failed_tools", [])
+        if failed_tools:
+            print("  ❌ 失败率高工具:")
+            for t in failed_tools:
+                print(f"    - {t.get('name')}: 成功率 {t.get('success_rate', 0):.1%}")
+            print()
+
+        # LLM 统计
+        llm = report.get("llm", {})
+        if llm.get("request_count"):
+            tokens = llm.get("total_tokens", {})
+            print("  LLM 统计:")
+            print(f"    - 请求次数: {llm.get('request_count', 0)}")
+            print(f"    - 总 tokens: prompt={tokens.get('prompt', 0)}, completion={tokens.get('completion', 0)}")
+            print()
+
+        # 问题标记
+        issues = report.get("issues", [])
+        if issues:
+            print("  🔧 发现问题:")
+            for issue in issues:
+                severity = issue.get("severity", 1)
+                icon = "🔴" if severity >= 3 else "🟡"
+                print(f"    {icon} [{issue.get('type')}] {issue.get('tool') or issue.get('error_type') or ''}")
+            print()
+
+    except Exception as e:
+        print(f"\n{ERROR_PREFIX} 读取报告失败: {e}\n")
+
+
 def cmd_help(
     message_queue: Any,
     instance_id: int | None = None,
@@ -1496,4 +1843,13 @@ __all__ = [
     "_get_last_qa_with_metadata",
     "_extract_improve_suggestions",
     "_has_quality_evaluation",
+    # 自我优化命令
+    "cmd_self_opt_status",
+    "cmd_self_opt_proposals",
+    "cmd_self_opt_show",
+    "cmd_self_opt_approve",
+    "cmd_self_opt_reject",
+    "cmd_self_opt_apply",
+    "cmd_self_opt_analyze",
+    "cmd_self_opt_report",
 ]

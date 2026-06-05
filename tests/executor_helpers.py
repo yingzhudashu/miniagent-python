@@ -52,6 +52,7 @@ def agent_config_with_session(
     sess: DefaultToolRegistry,
     *,
     max_turns: int = 3,
+    debug: bool = False,
 ) -> AgentConfig:
     return AgentConfig(
         max_turns=max_turns,
@@ -59,6 +60,7 @@ def agent_config_with_session(
         allow_parallel_tools=True,
         tool_selection_strategy="all",
         session_registry=sess,
+        debug=debug,
     )
 
 

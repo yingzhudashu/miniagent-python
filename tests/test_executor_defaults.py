@@ -6,7 +6,7 @@ import pytest
 
 
 def test_step_max_turns_cap_default_48(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("MINIAGENT_STEP_MAX_TURNS", raising=False)
+    monkeypatch.delenv("MINIAGENT_EXECUTION_STEP_MAX_TURNS", raising=False)
     from miniagent.core import executor
 
     assert executor._step_max_turns_cap() == 48

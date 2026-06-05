@@ -14,6 +14,7 @@ from miniagent.infrastructure.tracing import (
     clear_trace_hooks,
     emit_trace,
     register_trace_hook,
+    shutdown_trace_writer,
     unregister_trace_hook,
 )
 
@@ -108,6 +109,9 @@ class TestTraceFilePersistence:
 
         emit_trace({"type": "file_test", "data": "persisted"})
 
+        # 关闭异步写入器，确保事件已写入（优雅等待）
+        shutdown_trace_writer()
+
         # 验证文件内容
         with open(tmpfile.name, "r", encoding="utf-8") as f:
             content = f.read()
@@ -161,6 +165,9 @@ class TestTraceFilePersistence:
         auto_register_trace_file_hook()
 
         emit_trace({"type": "dir_test"})
+
+        # 关闭异步写入器（释放文件句柄）
+        shutdown_trace_writer()
 
         # 目录应该被创建
         assert os.path.isdir(os.path.dirname(log_path))

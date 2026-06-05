@@ -43,7 +43,7 @@ class TestHistoryBridge:
     """conversation_history_for_llm：thinking 映射给 LLM 时的长度上限。"""
 
     def test_thinking_passed_through_when_under_cap(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("MINI_AGENT_THINKING_FOR_LLM_MAX_CHARS", "10000")
+        monkeypatch.setenv("MINIAGENT_MEMORY_THINKING_FOR_LLM_MAX_CHARS", "10000")
         hist = [{"role": "thinking", "content": "short"}]
         out = hb.conversation_history_for_llm(hist)
         assert len(out) == 1
@@ -55,14 +55,14 @@ class TestHistoryBridge:
         pass
 
     def test_thinking_zero_means_no_truncation(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("MINI_AGENT_THINKING_FOR_LLM_MAX_CHARS", "0")
+        monkeypatch.setenv("MINIAGENT_MEMORY_THINKING_FOR_LLM_MAX_CHARS", "0")
         long_body = "x" * 5000
         hist = [{"role": "thinking", "content": long_body}]
         out = hb.conversation_history_for_llm(hist)
         assert long_body in out[0]["content"]
 
     def test_estimate_tokens_for_thinking_uses_same_cap_as_llm(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("MINI_AGENT_THINKING_FOR_LLM_MAX_CHARS", "50")
+        monkeypatch.setenv("MINIAGENT_MEMORY_THINKING_FOR_LLM_MAX_CHARS", "50")
         long_body = "b" * 200
         hist = [{"role": "thinking", "content": long_body}]
         t_est = hb.estimate_history_messages_tokens(hist)

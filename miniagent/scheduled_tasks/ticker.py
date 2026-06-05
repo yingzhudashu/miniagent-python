@@ -186,7 +186,7 @@ async def scheduled_tasks_loop(
             if stop_event.is_set():
                 break
         except asyncio.TimeoutError:
-            pass
+            _logger.debug("等待超时，继续检查")
         if stop_event.is_set():
             break
         try:

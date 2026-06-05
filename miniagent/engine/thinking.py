@@ -275,8 +275,8 @@ class ThinkingDisplay:
         if self._cli_markdown_width_fn is not None:
             try:
                 return max(40, int(self._cli_markdown_width_fn()))
-            except Exception:
-                pass
+            except Exception as e:
+                _logger.debug("获取markdown宽度失败: %s", e)
         return _cli_thinking_render_width()
 
     def set_output_sink(self, sink: Callable[..., None] | None) -> None:
@@ -680,8 +680,8 @@ class ThinkingDisplay:
                             merge_tools=False,
                             finalize_only=True,
                         )
-                    except TypeError:
-                        pass
+                    except TypeError as e:
+                        _logger.debug("流合并参数不匹配: %s", e)
                 state.stream_done = True
                 saved_header = state.stream_header
 

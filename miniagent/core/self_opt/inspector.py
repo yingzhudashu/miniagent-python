@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
@@ -22,6 +23,8 @@ from miniagent.core.self_opt.types import (
     ModuleAnalysis,
     PainPoint,
 )
+
+_logger = logging.getLogger(__name__)
 
 
 def _count_python_files(root: str) -> int:
@@ -36,8 +39,8 @@ def _count_lines(root: str) -> int:
         try:
             with open(f, encoding="utf-8", errors="ignore") as fh:
                 total += sum(1 for _ in fh)
-        except (OSError, PermissionError):
-            pass
+        except (OSError, PermissionError) as e:
+            _logger.debug("读取文件失败: %s", e)
     return total
 
 
@@ -138,8 +141,8 @@ def _identify_pain_points(root: str) -> list[PainPoint]:
                         suggestion="考虑拆分为多个模块",
                     )
                 )
-        except OSError:
-            pass
+        except OSError as e:
+            _logger.debug("检查文件大小失败: %s", e)
 
     # 检查是否有文档
     doc_files = list(Path(root).glob("*.md")) + list(Path(root).glob("*.rst"))

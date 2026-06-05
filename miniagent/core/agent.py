@@ -310,8 +310,8 @@ async def run_agent(
                     True,
                     "[需求澄清]",
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                _logger.debug("调用thinking回调失败: %s", e)
         try:
             # 一般任务最多 1 问；中等任务最多 2 问；复杂任务最多 3 问
             if difficulty == TaskDifficulty.NORMAL:

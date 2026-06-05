@@ -109,8 +109,8 @@ def _save_disk_dedup() -> None:
         with open(_dedup_file, "w", encoding="utf-8") as f:
             json.dump(_disk_dedup, f)  # 紧凑格式
         _disk_dedup_dirty = False
-    except Exception:
-        pass
+    except Exception as e:
+        _logger.debug("同步保存去重数据失败: %s", e)
 
 
 async def _save_disk_dedup_async() -> None:
@@ -127,14 +127,14 @@ async def _save_disk_dedup_async() -> None:
             _ensure_state_dir()
             with open(_dedup_file, "w", encoding="utf-8") as f:
                 json.dump(_disk_dedup, f)
-        except Exception:
-            pass
+        except Exception as e:
+            _logger.debug("保存去重数据失败: %s", e)
 
     try:
         await asyncio.to_thread(_sync_save)
         _disk_dedup_dirty = False
-    except Exception:
-        pass
+    except Exception as e:
+        _logger.debug("同步保存去重数据失败: %s", e)
 
 
 def _maybe_trigger_flush() -> None:
@@ -156,8 +156,8 @@ def _maybe_trigger_flush() -> None:
             loop = asyncio.get_event_loop()
             if loop.is_running():
                 asyncio.create_task(_save_disk_dedup_async())
-        except Exception:
-            pass
+        except Exception as e:
+            _logger.debug("触发异步刷盘失败: %s", e)
 
 
 def _prune_claims_if_needed() -> None:

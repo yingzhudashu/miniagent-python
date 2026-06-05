@@ -6,8 +6,11 @@
 
 from __future__ import annotations
 
+import logging
 import subprocess
 import sys
+
+_logger = logging.getLogger(__name__)
 
 
 def copy_text_to_system_clipboard(text: str) -> bool:
@@ -35,8 +38,8 @@ def copy_text_to_system_clipboard(text: str) -> bool:
                 )
                 if r.returncode == 0:
                     return True
-            except Exception:
-                pass
+            except Exception as e:
+                _logger.debug("clip命令失败: %s", e)
             import ctypes
 
             GMEM_MOVEABLE = 0x0002

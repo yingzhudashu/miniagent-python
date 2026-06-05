@@ -13,6 +13,7 @@ Gating 机制：
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import sys
@@ -25,6 +26,8 @@ from miniagent.types.skill import (
     SkillRegistryProtocol,
 )
 from miniagent.types.tool import Toolbox, ToolDefinition
+
+_logger = logging.getLogger(__name__)
 
 
 class DefaultSkillRegistry(SkillRegistryProtocol):
@@ -310,8 +313,8 @@ def _is_com_available(progid: str) -> bool:
         # 尝试安全退出（部分 COM 对象不支持 Quit）
         try:
             getattr(app, "Quit", lambda: None)()
-        except Exception:
-            pass
+        except Exception as e:
+            _logger.debug("COM应用退出失败: %s", e)
         return True
     except Exception:
         return False

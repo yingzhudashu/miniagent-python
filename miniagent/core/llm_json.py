@@ -68,8 +68,8 @@ def parse_llm_json_response(content: str, *, strip_fence: bool = True) -> dict[s
         if start >= 0 and end > start:
             try:
                 return json.loads(text[start : end + 1])
-            except json.JSONDecodeError:
-                pass
+            except json.JSONDecodeError as e:
+                _logger.debug("JSON修复失败: %s", e)
         # 无法修复，重新抛出原始异常
         raise
 

@@ -43,6 +43,7 @@ _REGISTERED_COMMANDS = [
     "/abort",
     "/btw",
     "/schedule",
+    "/self-opt",  # 新增：自我优化命令
     "/kb",
     "/model",
     "/config",
@@ -196,6 +197,15 @@ async def dispatch_command(
         cmd_session_rename,
         cmd_session_switch,
         cmd_unbind,
+        # 自我优化命令
+        cmd_self_opt_status,
+        cmd_self_opt_proposals,
+        cmd_self_opt_show,
+        cmd_self_opt_approve,
+        cmd_self_opt_reject,
+        cmd_self_opt_apply,
+        cmd_self_opt_analyze,
+        cmd_self_opt_report,
         feishu_dot_commands_full_enabled,
         feishu_markdown_commands_enabled,
         format_kb_command_usage,
@@ -513,8 +523,8 @@ async def dispatch_command(
         if len(parts) > 1:
             try:
                 n = int(parts[1])
-            except ValueError:
-                pass  # 无效参数，使用默认值
+            except ValueError as e:
+                _logger.debug("无效参数，使用默认值: %s", e)
 
         output = cmd_copy_transcript(sm, session_id, n)
         if capture:
@@ -594,6 +604,39 @@ async def dispatch_command(
         if capture:
             return output
         print(output)
+        return None
+
+    # ── /self-opt（自我优化）──
+    if cmd == "/self-opt":
+        sub_cmd = parts[1].lower() if len(parts) > 1 else ""
+
+        # self-opt 命令不通过消息队列，直接执行
+        if sub_cmd == "status" or sub_cmd == "":
+            cmd_self_opt_status()
+        elif sub_cmd == "proposals":
+            status_filter = parts[2] if len(parts) > 2 else None
+            cmd_self_opt_proposals(status=status_filter)
+        elif sub_cmd == "show" and len(parts) >= 3:
+            cmd_self_opt_show(parts[2])
+        elif sub_cmd == "approve" and len(parts) >= 3:
+            cmd_self_opt_approve(parts[2])
+        elif sub_cmd == "reject" and len(parts) >= 3:
+            cmd_self_opt_reject(parts[2])
+        elif sub_cmd == "apply" and len(parts) >= 3:
+            # 异步执行
+            import asyncio
+
+            proposal_id = parts[2]
+            root = parts[3] if len(parts) > 3 else ""
+            await cmd_self_opt_apply(proposal_id, root=root)
+        elif sub_cmd == "analyze":
+            cmd_self_opt_analyze()
+        elif sub_cmd == "report":
+            date = parts[2] if len(parts) > 2 else None
+            cmd_self_opt_report(date=date)
+        else:
+            print(f"{WARNING_PREFIX} 未知的子命令: {sub_cmd}")
+            print("用法: /self-opt status|proposals|show|approve|reject|apply|analyze|report")
         return None
 
     # ── /kb（知识库）──

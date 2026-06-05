@@ -5,10 +5,13 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 
 from miniagent.scheduled_tasks.store import tasks_dir
+
+_logger = logging.getLogger(__name__)
 
 # 锁文件重试次数
 LOCK_RETRY_COUNT = 3
@@ -54,8 +57,8 @@ def _release_lock_file(lock: str) -> None:
             with open(lock, encoding="utf-8") as f:
                 if f.read().strip() == str(os.getpid()):
                     os.unlink(lock)
-    except OSError:
-        pass
+    except OSError as e:
+        _logger.debug("释放锁文件失败: %s", e)
 
 
 def try_acquire_job_lock(task_id: str) -> bool:

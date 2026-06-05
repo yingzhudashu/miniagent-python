@@ -90,8 +90,8 @@ class KnowledgeRegistry:
         if kb_dir and not os.path.isdir(kb_dir):
             try:
                 os.makedirs(kb_dir, exist_ok=True)
-            except Exception:
-                pass
+            except Exception as e:
+                _logger.debug("创建知识库目录失败: %s", e)
 
         data = {
             "mounted": [

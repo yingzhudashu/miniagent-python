@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-06-05T00:00:00Z",
+  "note": "真实API性能基线（初始值）",
+  "scenarios": [
+    {
+      "id": "llm_streaming_latency",
+      "median_ms": 3500,
+      "notes": "真实LLM流式响应延迟（初始估计）"
+    },
+    {
+      "id": "tool_execution_latency",
+      "median_ms": 5000,
+      "notes": "LLM + 工具执行延迟（初始估计）"
+    },
+    {
+      "id": "concurrent_throughput",
+      "median_req_per_s": 0.5,
+      "notes": "并发吞吐量基线（初始估计）"
+    }
+  ]
+}

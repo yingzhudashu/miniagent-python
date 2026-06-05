@@ -77,12 +77,8 @@ async def test_execute_plan_calls_on_tool_finish() -> None:
 async def test_execute_plan_phased_last_step_grace_synthesis(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from miniagent.core.executor import _reset_env_caches_for_tests
-
-    monkeypatch.setenv("MINIAGENT_EXECUTION_PHASED_ENABLED", "1")
+    monkeypatch.setenv("MINIAGENT_PHASED_EXECUTION", "1")
     monkeypatch.setenv("MINIAGENT_EXECUTION_STEP_MAX_TURNS", "1")
-    _reset_env_caches_for_tests()  # 清除缓存使新配置生效
-
     main, sess = make_ping_tool_registry()
     plan = StructuredPlan(
         summary="s",
@@ -114,21 +110,15 @@ async def test_execute_plan_phased_last_step_grace_synthesis(
     assert "未以无工具调用形式结束" not in out
     assert len(create_kwargs) == 2
     assert create_kwargs[0].get("tools") is not None
-    # 第二次调用应为 synthesis（无工具），传入空列表而非 None
-    second_tools = create_kwargs[1].get("tools")
-    assert second_tools is None or second_tools == []
+    assert create_kwargs[1].get("tools") is None
 
 
 @pytest.mark.asyncio
 async def test_execute_plan_phased_last_step_no_turns_left_still_warns(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from miniagent.core.executor import _reset_env_caches_for_tests
-
-    monkeypatch.setenv("MINIAGENT_EXECUTION_PHASED_ENABLED", "1")
+    monkeypatch.setenv("MINIAGENT_PHASED_EXECUTION", "1")
     monkeypatch.setenv("MINIAGENT_EXECUTION_STEP_MAX_TURNS", "1")
-    _reset_env_caches_for_tests()
-
     main, sess = make_ping_tool_registry()
     plan = StructuredPlan(
         summary="s",
@@ -176,12 +166,8 @@ async def test_execute_plan_phased_last_step_no_turns_left_still_warns(
 async def test_execute_plan_phased_grace_still_tool_calls_warns(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from miniagent.core.executor import _reset_env_caches_for_tests
-
-    monkeypatch.setenv("MINIAGENT_EXECUTION_PHASED_ENABLED", "1")
+    monkeypatch.setenv("MINIAGENT_PHASED_EXECUTION", "1")
     monkeypatch.setenv("MINIAGENT_EXECUTION_STEP_MAX_TURNS", "1")
-    _reset_env_caches_for_tests()
-
     main, sess = make_ping_tool_registry()
     plan = StructuredPlan(
         summary="s",

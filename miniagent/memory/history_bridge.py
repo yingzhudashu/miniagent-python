@@ -15,7 +15,7 @@ from miniagent.infrastructure.json_config import get_config
 
 def _thinking_for_llm_max_chars() -> int:
     """注入 API 前允许保留的思考文本最大字符数。"""
-    return max(0, get_config("feishu.card.thinking_max_chars", 10_000))
+    return max(0, get_config("memory.thinking_for_llm_max_chars", 10_000))
 
 
 def _truncate_thinking_for_llm(content: str, max_chars: int) -> str:

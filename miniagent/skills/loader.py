@@ -72,8 +72,8 @@ def parse_skill_md(content: str) -> tuple[dict[str, Any], str]:
         parsed = yaml.safe_load(front_matter)
         if isinstance(parsed, dict):
             return parsed, body
-    except yaml.YAMLError:
-        pass
+    except yaml.YAMLError as e:
+        _logger.debug("YAML解析失败，使用正则回退: %s", e)
 
     # Fallback: 简单正则（YAML 解析失败时的兜底）
     for line in front_matter.split("\n"):

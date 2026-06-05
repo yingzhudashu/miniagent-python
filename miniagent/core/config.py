@@ -88,8 +88,8 @@ def get_default_model_config() -> ModelConfig:
     if budget_env is not None:
         try:
             explicit_budget = int(budget_env)
-        except ValueError:
-            pass
+        except ValueError as e:
+            _logger.debug("解析thinking_budget环境变量失败: %s", e)
 
     # 检查MINIAGENT_CONFIG中的thinking_budget
     if explicit_budget is None:
@@ -101,8 +101,8 @@ def get_default_model_config() -> ModelConfig:
                     model_config = config_json.get("model", {})
                     if isinstance(model_config, dict) and "thinking_budget" in model_config:
                         explicit_budget = int(model_config["thinking_budget"])
-            except (json.JSONDecodeError, ValueError, TypeError):
-                pass
+            except (json.JSONDecodeError, ValueError, TypeError) as e:
+                _logger.debug("解析MINIAGENT_CONFIG中的thinking_budget失败: %s", e)
 
     # 应用thinking_level映射
     if thinking_level_raw.lower() in ("low", "medium", "high"):

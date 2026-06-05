@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 from datetime import datetime, timedelta, timezone
@@ -13,6 +14,8 @@ from typing import Any
 
 from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
+
+_logger = logging.getLogger(__name__)
 
 # ════════════════════════════════════════════════════════
 # get_time
@@ -113,12 +116,12 @@ def _check_com(name: str) -> dict[str, Any]:
                 val = getattr(app, attr, None)
                 if val is not None:
                     info[attr.lower()] = str(val)
-            except Exception:
-                pass
+            except Exception as e:
+                    _logger.debug("获取COM属性失败: %s", e)
         try:
             getattr(app, "Quit", lambda: None)()
-        except Exception:
-            pass
+        except Exception as e:
+            _logger.debug("关闭COM应用失败: %s", e)
         return info
     except Exception as e:
         return {"available": False, "error": str(e)}

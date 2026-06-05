@@ -106,8 +106,8 @@ async def invoke_on_thinking(
             try:
                 await cb(text, streaming, header, **extra_kwargs)
                 return
-            except TypeError:
-                pass
+            except TypeError as e:
+                _logger.debug("回调参数不匹配，尝试回退: %s", e)
         await cb(text, streaming, header)
     except TypeError:
         try:

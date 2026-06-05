@@ -354,8 +354,8 @@ async def start_feishu_poll_server(
             message="poll_server_entry",
             data={"app_id_len": len((config.app_id or "").strip())},
         )
-    except Exception:
-        pass
+    except Exception as e:
+        _logger.debug("Agent debug log 记录失败（非关键）: %s", e)
     # #endregion
 
     # 任何残留单例一律关闭后重建，避免「同 appId 直接 return」导致外层重连误判为断线空转。
@@ -382,8 +382,8 @@ async def start_feishu_poll_server(
                 message="lark_oapi_import_failed",
                 data={"exc_type": "ImportError", "exc_msg": str(e)[:300]},
             )
-        except Exception:
-            pass
+        except Exception as e:
+            _logger.debug("Agent debug log 记录失败（导入错误）: %s", e)
         # #endregion
         _logger.error("请安装 lark-oapi: pip install lark-oapi (%s)", e)
         raise
@@ -825,10 +825,10 @@ async def start_feishu_poll_server(
             ping_task.cancel()
             try:
                 await ping_task
-            except asyncio.CancelledError:
-                pass
-            except Exception:
-                pass
+            except asyncio.CancelledError as e:
+                _logger.debug("Ping任务取消（清理路径）: %s", e)
+            except Exception as e:
+                _logger.debug("Ping任务清理失败（非关键）: %s", e)
         # SDK 内部 _receive_message_loop 在 WebSocket 正常关闭时会抛出
         # ConnectionClosedOK，若该任务未被 await 则会产生 "Task exception was never
         # retrieved" 警告。此处显式消费该异常。
@@ -843,18 +843,18 @@ async def start_feishu_poll_server(
                 recv_task.cancel()
                 try:
                     await recv_task
-                except (asyncio.CancelledError, ConnectionClosedOK):
-                    pass
-                except Exception:
-                    pass
+                except (asyncio.CancelledError, ConnectionClosedOK) as e:
+                    _logger.debug("接收任务取消或关闭（清理路径）: %s", e)
+                except Exception as e:
+                    _logger.debug("接收任务清理失败（非关键）: %s", e)
             elif recv_task is not None:
                 # 已完成的任务显式读取结果，清除未检索异常
                 try:
                     recv_task.result()
-                except (ConnectionClosedOK, Exception):
-                    pass
-        except Exception:
-            pass
+                except (ConnectionClosedOK, Exception) as e:
+                    _logger.debug("读取接收任务结果失败（清理路径）: %s", e)
+        except Exception as e:
+            _logger.debug("清理接收任务失败（清理路径）: %s", e)
         await reset_feishu_ws_singleton()
 
 
@@ -1233,8 +1233,8 @@ def _patch_interactive_thinking_message(
         if response.success():
             return True
         _logger.warning("更新思考消息失败: %s %s", response.code, response.msg)
-    except ImportError:
-        pass
+    except ImportError as e:
+        _logger.debug("lark-oapi未安装，跳过思考消息更新: %s", e)
     except Exception as e:
         _logger.debug("更新思考消息异常: %s", e)
     return False

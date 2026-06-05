@@ -8,10 +8,13 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
 from miniagent.infrastructure.json_config import get_config
+
+_logger = logging.getLogger(__name__)
 
 
 def get_skills_root() -> str:
@@ -92,8 +95,8 @@ def resolve_scope_for_root(root: str) -> str:
             sessions_idx = parts.index("sessions")
             if sessions_idx + 1 < len(parts):
                 return f"session:{parts[sessions_idx + 1]}"
-        except ValueError:
-            pass
+        except ValueError as e:
+            _logger.debug("路径不含sessions目录: %s", e)
     return "global"
 
 
