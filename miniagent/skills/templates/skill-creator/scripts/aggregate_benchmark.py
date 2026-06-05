@@ -36,10 +36,13 @@ The script supports two directory layouts:
 
 import argparse
 import json
+import logging
 import math
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+_logger = logging.getLogger(__name__)
 
 
 def calculate_stats(values: list[float]) -> dict:
@@ -143,8 +146,8 @@ def load_run_results(benchmark_dir: Path) -> dict:
                             timing_data = json.load(tf)
                         result["time_seconds"] = timing_data.get("total_duration_seconds", 0.0)
                         result["tokens"] = timing_data.get("total_tokens", 0)
-                    except json.JSONDecodeError:
-                        pass
+                    except json.JSONDecodeError as e:
+                        _logger.debug("解析timing文件失败: %s", e)
 
                 # Extract metrics if available
                 metrics = grading.get("execution_metrics", {})

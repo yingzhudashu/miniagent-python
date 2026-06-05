@@ -100,8 +100,8 @@ def release_feishu_inbound_owner(state_dir: str | None = None) -> None:
         if int(raw.get("pid") or 0) == os.getpid():
             try:
                 path.unlink()
-            except FileNotFoundError:
-                pass
+            except FileNotFoundError as e:
+                _logger.debug("锁文件已不存在: %s", e)
     except FileNotFoundError:
         return
     except Exception as e:

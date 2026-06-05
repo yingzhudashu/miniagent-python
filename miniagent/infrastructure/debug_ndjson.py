@@ -60,8 +60,8 @@ def agent_debug_log(
         )
         with _LOG.open("a", encoding="utf-8") as f:
             f.write(line + "\n")
-    except Exception:
-        pass
+    except Exception as e:
+        _logger.debug("写入调试日志失败: %s", e)
 
 
 def safe_agent_debug_log(
@@ -100,8 +100,8 @@ def safe_agent_debug_log(
             data=data or {},
             run_id=run_id,
         )
-    except Exception:
-        pass
+    except Exception as e:
+        _logger.debug("安全调试日志调用失败: %s", e)
 
 
 __all__ = ["agent_debug_log", "safe_agent_debug_log"]

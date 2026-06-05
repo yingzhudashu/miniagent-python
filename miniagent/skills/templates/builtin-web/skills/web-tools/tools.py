@@ -6,6 +6,7 @@ builtin 同名优先，因此本 skill 用于首次安装时提供 web 能力。
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from typing import Any
@@ -13,6 +14,8 @@ from urllib.parse import urlparse
 
 from miniagent.infrastructure.json_config import get_config
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
+
+_logger = logging.getLogger(__name__)
 
 # ─── Tavily 配置 ────────────────────────────────────────────
 
@@ -379,8 +382,8 @@ async def _download_file_handler(args: dict[str, Any], ctx: ToolContext) -> Tool
                 if os.path.exists(save_path):
                     try:
                         os.remove(save_path)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        _logger.debug("清理下载文件失败: %s", e)
                 return ToolResult(success=False, content=f"❌ 下载失败: {e}")
 
     except ImportError:

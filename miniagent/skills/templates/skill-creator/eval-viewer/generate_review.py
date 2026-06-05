@@ -15,6 +15,7 @@ No dependencies beyond the Python stdlib are required.
 import argparse
 import base64
 import json
+import logging
 import mimetypes
 import os
 import re
@@ -26,6 +27,8 @@ import webbrowser
 from functools import partial
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+
+_logger = logging.getLogger(__name__)
 
 # Files to exclude from output listings
 METADATA_FILES = {"transcript.md", "user_notes.md", "metrics.json"}
@@ -118,8 +121,8 @@ def build_run(root: Path, run_dir: Path) -> dict | None:
                 metadata = json.loads(candidate.read_text())
                 prompt = metadata.get("prompt", "")
                 eval_id = metadata.get("eval_id")
-            except (json.JSONDecodeError, OSError):
-                pass
+            except (json.JSONDecodeError, OSError) as e:
+                _logger.debug("读取 eval_metadata.json 失败: %s", e)
             if prompt:
                 break
 
@@ -132,8 +135,8 @@ def build_run(root: Path, run_dir: Path) -> dict | None:
                     match = re.search(r"## Eval Prompt\n\n([\s\S]*?)(?=\n##|$)", text)
                     if match:
                         prompt = match.group(1).strip()
-                except OSError:
-                    pass
+                except OSError as e:
+                    _logger.debug("读取 transcript.md 失败: %s", e)
                 if prompt:
                     break
 
@@ -156,8 +159,8 @@ def build_run(root: Path, run_dir: Path) -> dict | None:
         if candidate.exists():
             try:
                 grading = json.loads(candidate.read_text())
-            except (json.JSONDecodeError, OSError):
-                pass
+            except (json.JSONDecodeError, OSError) as e:
+                _logger.debug("读取 eval_metadata.json 失败: %s", e)
             if grading:
                 break
 
@@ -252,8 +255,8 @@ def load_previous_iteration(workspace: Path) -> dict[str, dict]:
                 for r in data.get("reviews", [])
                 if r.get("feedback", "").strip()
             }
-        except (json.JSONDecodeError, OSError, KeyError):
-            pass
+        except (json.JSONDecodeError, OSError, KeyError) as e:
+            _logger.debug("加载 feedback.json 失败: %s", e)
 
     # Load runs (to get outputs)
     prev_runs = find_runs(workspace)
@@ -323,12 +326,12 @@ def _kill_port(port: int) -> None:
             if pid_str.strip():
                 try:
                     os.kill(int(pid_str.strip()), signal.SIGTERM)
-                except (ProcessLookupError, ValueError):
-                    pass
+                except (ProcessLookupError, ValueError) as e:
+                    _logger.debug("终止进程失败: %s", e)
         if result.stdout.strip():
             time.sleep(0.5)
-    except subprocess.TimeoutExpired:
-        pass
+    except subprocess.TimeoutExpired as e:
+        _logger.debug("lsof 命令超时: %s", e)
     except FileNotFoundError:
         print("Note: lsof not found, cannot check if port is in use", file=sys.stderr)
 
@@ -365,8 +368,8 @@ class ReviewHandler(BaseHTTPRequestHandler):
             if self.benchmark_path and self.benchmark_path.exists():
                 try:
                     benchmark = json.loads(self.benchmark_path.read_text())
-                except (json.JSONDecodeError, OSError):
-                    pass
+                except (json.JSONDecodeError, OSError) as e:
+                    _logger.debug("读取 benchmark.json 失败: %s", e)
             html = generate_html(runs, self.skill_name, self.previous, benchmark)
             content = html.encode("utf-8")
             self.send_response(200)
@@ -460,8 +463,8 @@ def main() -> None:
     if benchmark_path and benchmark_path.exists():
         try:
             benchmark = json.loads(benchmark_path.read_text())
-        except (json.JSONDecodeError, OSError):
-            pass
+        except (json.JSONDecodeError, OSError) as e:
+            _logger.debug("加载 benchmark.json 失败: %s", e)
 
     if args.static:
         html = generate_html(runs, skill_name, previous, benchmark)
