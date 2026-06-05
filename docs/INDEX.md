@@ -4,6 +4,16 @@
 
 ---
 
+## 🚀 新手快速路径
+
+**5分钟快速体验**：[USER_GUIDE.md §4 快速入门](USER_GUIDE.md#4-快速入门5分钟体验)
+
+**第一次配置**：[USER_GUIDE.md §5 首次配置](USER_GUIDE.md#5-首次配置json-配置文件)
+
+**CLI 命令速查**：[CLI.md](CLI.md)
+
+---
+
 ## 📖 快速开始
 
 | 角色 | 建议路径 |
@@ -11,6 +21,59 @@
 | 新用户 | [USER_GUIDE.md](USER_GUIDE.md) → [README](../README.md) 快速上手 → [CLI.md](CLI.md) |
 | 开发者 | [ARCHITECTURE.md](ARCHITECTURE.md) → 专题文档 |
 | 维护者 | [ENGINEERING.md](ENGINEERING.md) §5 文档维护清单 → [CHANGELOG](../CHANGELOG.md) |
+
+---
+
+## 📋 功能清单
+
+### 核心能力
+- ✅ 多阶段智能（Phase 0-3）
+- ✅ 三步需求澄清（Wittgenstein→Socrates→Polanyi）
+- ✅ ReAct 循环（Think→Act→Observe）
+- ✅ 三层记忆（短期/活动日志/语义检索）
+- ✅ 双通道接入（CLI + 飞书）
+- ✅ 定时任务（持久化 + 进程内调度）
+- ✅ 多实例支持（注册表 + PID 清理）
+- ✅ 自我优化（代码检查 + 优化提案）
+- ✅ 沙箱安全（路径白名单 + 循环检测）
+
+### 可选能力
+- 🔌 技能系统（动态加载 + ClawHub 市场）
+- 🔌 MCP 工具（Model Context Protocol）
+- 🔌 联网搜索（Tavily API）
+- 🔌 无头浏览器（Playwright）
+- 🔌 飞书集成（IM + 云文档 + 多维表格）
+
+---
+
+## 🔧 配置速查
+
+| 配置项 | 说明 | 文档链接 |
+|--------|------|----------|
+| `secrets.openai_api_key` | LLM API 密钥 | [ENV_REFERENCE.md](ENV_REFERENCE.md) |
+| `secrets.tavily_api_key` | 联网搜索 | [USER_GUIDE.md §12](USER_GUIDE.md#12-联网搜索与浏览器工具可选) |
+| `feishu.*` | 飞书配置 | [FEISHU.md](FEISHU.md) |
+| `execution.max_turns` | 执行轮数上限 | [ARCHITECTURE.md](ARCHITECTURE.md) |
+
+---
+
+## 📊 测试与质量
+
+- **测试文件**：160+
+- **测试用例**：1246+
+- **核心覆盖率**：95%+
+- **测试矩阵**：[TEST_COVERAGE_MATRIX.md](TEST_COVERAGE_MATRIX.md)
+
+运行测试：
+```bash
+# 快速测试
+pytest tests/ -q -m "not evaluation"
+
+# 覆盖率报告
+pytest tests/ --cov=miniagent --cov-report=html
+```
+
+---
 
 ## 📚 文档分类
 
