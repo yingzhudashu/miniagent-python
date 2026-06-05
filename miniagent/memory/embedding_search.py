@@ -546,7 +546,15 @@ class EmbeddingIndex:
             if not embeddings:
                 return []
 
-            # 批量转换为numpy数组
+            # 性能优化：检查embedding维度一致性
+            # numpy要求所有向量维度相同，否则会报错
+            embedding_dims = [len(e) for e in embeddings]
+            if len(set(embedding_dims)) > 1:
+                # 维度不一致，回退到普通版本
+                _logger.debug("Embedding维度不一致，回退到普通版本: dims=%s", set(embedding_dims))
+                return self.search_relevant(query_embedding, limit=limit, min_score=min_score)
+
+            # 批量转换为numpy数组（维度一致性已验证）
             entry_vecs = np.array(embeddings, dtype=np.float32)
             norm_vecs = np.array(norms, dtype=np.float32)
 

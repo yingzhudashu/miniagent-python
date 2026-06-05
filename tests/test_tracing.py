@@ -112,13 +112,23 @@ class TestTraceFilePersistence:
         # 关闭异步写入器，确保事件已写入（优雅等待）
         shutdown_trace_writer()
 
+        # 进程隔离优化：文件名添加pid后缀
+        # 实际文件名 = tmpfile.name + "-pid{pid}"
+        pid_suffix = f"-pid{os.getpid()}"
+        expected_file = Path(tmpfile.name.replace(".jsonl", f"{pid_suffix}.jsonl"))
+
+        # 如果pid后缀文件不存在，尝试原始文件名（兼容旧版本）
+        actual_file = expected_file if expected_file.exists() else Path(tmpfile.name)
+
         # 验证文件内容
-        with open(tmpfile.name, "r", encoding="utf-8") as f:
+        with open(actual_file, "r", encoding="utf-8") as f:
             content = f.read()
             assert "file_test" in content
             assert "ts" in content  # 时间戳自动添加
 
-        Path(tmpfile.name).unlink()
+        # 清理文件（包括pid后缀版本）
+        Path(tmpfile.name).unlink(missing_ok=True)
+        expected_file.unlink(missing_ok=True)
 
     def test_auto_register_skips_without_env(self) -> None:
         """测试无环境变量时不注册"""
@@ -171,9 +181,17 @@ class TestTraceFilePersistence:
 
         # 目录应该被创建
         assert os.path.isdir(os.path.dirname(log_path))
-        # 文件应该存在
-        assert os.path.isfile(log_path)
 
-        Path(log_path).unlink()
+        # 进程隔离优化：文件名添加pid后缀
+        pid_suffix = f"-pid{os.getpid()}"
+        expected_file = log_path.replace(".jsonl", f"{pid_suffix}.jsonl")
+
+        # 文件应该存在（考虑pid后缀）
+        # 如果pid后缀文件不存在，尝试原始文件名（兼容旧版本）
+        assert os.path.isfile(expected_file) or os.path.isfile(log_path)
+
+        # 清理文件和目录
+        Path(expected_file).unlink(missing_ok=True)
+        Path(log_path).unlink(missing_ok=True)
         os.rmdir(os.path.dirname(log_path))
         os.rmdir(tmpdir)

@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import os
 import time
 import tempfile
 from pathlib import Path
@@ -71,7 +72,14 @@ def test_batch_write_integrity():
     writer.shutdown()
 
     # 验证：文件应包含 100 条记录
-    with test_file.open(encoding="utf-8") as f:
+    # 进程隔离优化：文件名添加pid后缀
+    pid_suffix = f"-pid{os.getpid()}"
+    expected_file = Path(str(test_file).replace(".jsonl", f"{pid_suffix}.jsonl"))
+
+    # 如果pid后缀文件不存在，尝试原始文件名（兼容旧版本）
+    actual_file = expected_file if expected_file.exists() else test_file
+
+    with actual_file.open(encoding="utf-8") as f:
         lines = f.readlines()
 
     assert len(lines) == 100, f"数据丢失：写入 {len(lines)} 条（预期 100 条）"
@@ -82,8 +90,9 @@ def test_batch_write_integrity():
         record = json.loads(line)
         assert record.get("index") == i, f"记录顺序错误：第 {i} 行 index={record.get('index')}"
 
-    # 清理
-    test_file.unlink()
+    # 清理（包括pid后缀版本）
+    test_file.unlink(missing_ok=True)
+    expected_file.unlink(missing_ok=True)
 
 
 def test_graceful_shutdown():
@@ -114,13 +123,21 @@ def test_graceful_shutdown():
     assert shutdown_elapsed < 5.0, f"关闭过慢: {shutdown_elapsed}s（预期 <5s）"
 
     # 验证所有事件都已写入
-    with test_file.open(encoding="utf-8") as f:
+    # 进程隔离优化：文件名添加pid后缀
+    pid_suffix = f"-pid{os.getpid()}"
+    expected_file = Path(str(test_file).replace(".jsonl", f"{pid_suffix}.jsonl"))
+
+    # 如果pid后缀文件不存在，尝试原始文件名（兼容旧版本）
+    actual_file = expected_file if expected_file.exists() else test_file
+
+    with actual_file.open(encoding="utf-8") as f:
         lines = f.readlines()
 
     assert len(lines) == 150, f"关闭后数据丢失：写入 {len(lines)} 条（预期 150 条）"
 
-    # 清理
-    test_file.unlink()
+    # 清理（包括pid后缀版本）
+    test_file.unlink(missing_ok=True)
+    expected_file.unlink(missing_ok=True)
 
 
 def test_emit_trace_performance():
@@ -161,7 +178,12 @@ def test_emit_trace_performance():
 
     # 清理
     writer.shutdown()
-    test_file.unlink()
+
+    # 进程隔离优化：清理pid后缀版本文件
+    pid_suffix = f"-pid{os.getpid()}"
+    expected_file = Path(str(test_file).replace(".jsonl", f"{pid_suffix}.jsonl"))
+    test_file.unlink(missing_ok=True)
+    expected_file.unlink(missing_ok=True)
 
 
 def test_concurrent_emit():
@@ -200,10 +222,18 @@ def test_concurrent_emit():
     writer.shutdown()
 
     # 验证：文件应包含 250 条记录（5 × 50）
-    with test_file.open(encoding="utf-8") as f:
+    # 进程隔离优化：文件名添加pid后缀
+    pid_suffix = f"-pid{os.getpid()}"
+    expected_file = Path(str(test_file).replace(".jsonl", f"{pid_suffix}.jsonl"))
+
+    # 如果pid后缀文件不存在，尝试原始文件名（兼容旧版本）
+    actual_file = expected_file if expected_file.exists() else test_file
+
+    with actual_file.open(encoding="utf-8") as f:
         lines = f.readlines()
 
     assert len(lines) == 250, f"并发数据丢失：写入 {len(lines)} 条（预期 250 条）"
 
-    # 清理
-    test_file.unlink()
+    # 清理（包括pid后缀版本）
+    test_file.unlink(missing_ok=True)
+    expected_file.unlink(missing_ok=True)
