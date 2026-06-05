@@ -52,6 +52,7 @@ class AsyncTraceWriter:
     - 批处理间隔可配置（默认 100ms）
     - 批量大小可配置（默认 50 事件）
     - 优雅关闭机制确保不丢数据
+    - 进程隔离：每个进程写入独立文件（避免多进程冲突）
 
     性能优化：
     - 单事件延迟从 3-11ms 降到 <0.1ms
@@ -72,6 +73,7 @@ class AsyncTraceWriter:
         self._shutdown = False
         self._file_handle: Any = None
         self._file_path: Path | None = None
+        self._process_id = os.getpid()  # 进程ID（进程隔离）
 
     def start(self, file_path: Path) -> None:
         """启动后台写入线程。
@@ -79,12 +81,22 @@ class AsyncTraceWriter:
         Args:
             file_path: trace 文件路径
         """
-        self._file_path = file_path
+        # 进程隔离：添加进程ID后缀避免多进程写入冲突
+        # 文件名格式：trace-YYYY-MM-DD-pid{process_id}.jsonl
+        file_path_str = str(file_path)
+        if ".jsonl" in file_path_str:
+            # 在.jsonl之前插入pid后缀
+            pid_suffix = f"-pid{self._process_id}"
+            self._file_path = Path(file_path_str.replace(".jsonl", f"{pid_suffix}.jsonl"))
+        else:
+            # 其他情况：直接添加后缀
+            self._file_path = Path(f"{file_path_str}-pid{self._process_id}")
+
         # 确保目录存在
-        file_path.parent.mkdir(parents=True, exist_ok=True)
+        self._file_path.parent.mkdir(parents=True, exist_ok=True)
 
         # 打开文件（追加模式）
-        self._file_handle = file_path.open("a", encoding="utf-8")
+        self._file_handle = self._file_path.open("a", encoding="utf-8")
 
         # 启动后台线程
         self._writer_thread = threading.Thread(

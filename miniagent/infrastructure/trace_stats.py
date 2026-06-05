@@ -50,6 +50,10 @@ from miniagent.infrastructure.trace_events import (
     EVENT_TOOL_END,
     EVENT_TOOL_START,
     EVENT_TOOL_ERROR,
+    EVENT_MEMORY_READ,
+    EVENT_CONTEXT_COMPRESS,
+    EVENT_EMBEDDING_CACHE_HIT,
+    EVENT_EMBEDDING_API_CALL,
 )
 
 _logger = get_logger(__name__)
@@ -306,6 +310,150 @@ def compute_error_stats(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return result
 
 
+def compute_memory_stats(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """计算记忆操作统计。
+
+    Args:
+        events: 包含 memory.read 的事件列表
+
+    Returns:
+        统计结果：
+        {
+          "read_count": 10,
+          "avg_duration_ms": 50,
+          "layer_distribution": {"session_lt": 5, "agent_lt": 3},
+          "avg_chars_loaded": 2000,
+          "cache_hit_rate": 0.8
+        }
+    """
+    read_count = 0
+    total_duration = 0
+    layer_counts: dict[str, int] = defaultdict(int)
+    total_chars = 0
+    cache_hits = 0
+
+    for event in events:
+        if event.get("type") == EVENT_MEMORY_READ:
+            read_count += 1
+            total_duration += event.get("duration_ms", 0)
+
+            # 统计各层读取分布
+            layer = event.get("layer", "unknown")
+            layer_counts[layer] += 1
+
+            # 统计加载字符数
+            total_chars += event.get("chars_loaded", 0)
+
+            # 统计缓存命中
+            if event.get("cache_hit", False):
+                cache_hits += 1
+
+    result = {"read_count": read_count}
+
+    if read_count > 0:
+        result["avg_duration_ms"] = round(total_duration / read_count, 1)
+        result["layer_distribution"] = dict(layer_counts)
+        result["avg_chars_loaded"] = round(total_chars / read_count)
+        result["cache_hit_rate"] = round(cache_hits / read_count, 3)
+
+    return result
+
+
+def compute_context_stats(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """计算上下文管理统计。
+
+    Args:
+        events: 包含 context.compress 的事件列表
+
+    Returns:
+        统计结果：
+        {
+          "compress_count": 5,
+          "avg_duration_ms": 100,
+          "avg_tokens_before": 10000,
+          "avg_tokens_after": 3000,
+          "compress_ratio": 0.3,
+          "total_tokens_saved": 35000
+        }
+    """
+    compress_count = 0
+    total_duration = 0
+    total_tokens_before = 0
+    total_tokens_after = 0
+
+    for event in events:
+        if event.get("type") == EVENT_CONTEXT_COMPRESS:
+            compress_count += 1
+            total_duration += event.get("duration_ms", 0)
+            total_tokens_before += event.get("tokens_before", 0)
+            total_tokens_after += event.get("tokens_after", 0)
+
+    result = {"compress_count": compress_count}
+
+    if compress_count > 0:
+        result["avg_duration_ms"] = round(total_duration / compress_count, 1)
+        result["avg_tokens_before"] = round(total_tokens_before / compress_count)
+        result["avg_tokens_after"] = round(total_tokens_after / compress_count)
+
+        if total_tokens_before > 0:
+            result["compress_ratio"] = round(total_tokens_after / total_tokens_before, 3)
+
+        # 计算节省的token总数
+        result["total_tokens_saved"] = total_tokens_before - total_tokens_after
+
+    return result
+
+
+def compute_embedding_stats(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """计算Embedding缓存统计。
+
+    Args:
+        events: 包含 embedding.cache_hit/embedding.api_call 的事件列表
+
+    Returns:
+        统计结果：
+        {
+          "cache_hit_count": 50,
+          "cache_hit_rate": 0.8,
+          "api_call_count": 10,
+          "avg_api_latency_ms": 150,
+          "estimated_cost_saved": "$0.0050"
+        }
+    """
+    cache_hit_count = 0
+    api_call_count = 0
+    total_api_latency = 0
+
+    for event in events:
+        event_type = event.get("type")
+
+        if event_type == EVENT_EMBEDDING_CACHE_HIT:
+            cache_hit_count += 1
+
+        elif event_type == EVENT_EMBEDDING_API_CALL:
+            api_call_count += 1
+            total_api_latency += event.get("duration_ms", 0)
+
+    total_requests = cache_hit_count + api_call_count
+    result = {
+        "cache_hit_count": cache_hit_count,
+        "api_call_count": api_call_count
+    }
+
+    if total_requests > 0:
+        result["cache_hit_rate"] = round(cache_hit_count / total_requests, 3)
+
+    if api_call_count > 0:
+        result["avg_api_latency_ms"] = round(total_api_latency / api_call_count, 1)
+
+        # 成本估算：假设每次API调用成本 $0.0001
+        # 根据 OpenAI text-embedding-3-small 价格：$0.00002 per 1K tokens
+        # 平均每次调用约 500 tokens，成本约 $0.0001
+        result["estimated_cost_saved"] = f"${cache_hit_count * 0.0001:.4f}"
+
+    return result
+
+
 def generate_daily_report(date: str | None = None) -> dict[str, Any]:
     """生成每日 Trace 统计报告。
 
@@ -345,14 +493,20 @@ def generate_daily_report(date: str | None = None) -> dict[str, Any]:
     report["llm"] = compute_llm_stats(events)
     report["tools"] = compute_tool_stats(events)
     report["errors"] = compute_error_stats(events)
+    report["memory"] = compute_memory_stats(events)
+    report["context"] = compute_context_stats(events)
+    report["embedding"] = compute_embedding_stats(events)
 
     # 摘要文本
     llm_count = report["llm"].get("request_count", 0)
     tool_count = sum(t.get("count", 0) for t in report["tools"].get("tools", {}).values())
     error_count = sum(e.get("count", 0) for e in report["errors"])
+    memory_count = report["memory"].get("read_count", 0)
+    context_count = report["context"].get("compress_count", 0)
 
     report["summary"] = (
         f"LLM调用 {llm_count} 次，工具调用 {tool_count} 次，"
+        f"记忆读取 {memory_count} 次，上下文压缩 {context_count} 次，"
         f"错误 {error_count} 次，会话 {len(sessions)} 个"
     )
 
@@ -424,6 +578,9 @@ __all__ = [
     "compute_tool_stats",
     "compute_llm_stats",
     "compute_error_stats",
+    "compute_memory_stats",
+    "compute_context_stats",
+    "compute_embedding_stats",
     "generate_daily_report",
     "save_report",
     "cleanup_old_traces",

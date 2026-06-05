@@ -353,10 +353,15 @@ class DefaultContextManager(ContextManagerProtocol):
             summary += f"。用户询问了：{'；'.join(user_msgs)}"
 
         # 替换中间消息
-        self._messages[middle_start:middle_end] = [{"role": "system", "content": summary}]
+        summary_msg = {"role": "system", "content": summary}
+        self._messages[middle_start:middle_end] = [summary_msg]
+
+        # 性能优化：增量更新token估算（避免全量重算）
+        # before_tokens已记录，removed_tokens已计算
+        summary_tokens = self._message_tokens(summary_msg)
+        self._total_tokens_estimate = before_tokens - removed_tokens + summary_tokens
 
         self._compressed = True
-        self._recalculate_tokens()
 
         # Trace: 压缩完成
         elapsed = (time.monotonic_ns() - start_time) // 1_000_000
@@ -389,6 +394,9 @@ class DefaultContextManager(ContextManagerProtocol):
         Args:
             memory: 会话记忆对象
         """
+        # 性能优化：增量计算token差异
+        old_system_tokens = estimate_tokens_cached(self._system_prompt)
+
         memory_text = format_memory_for_prompt(memory)
         if not memory_text:
             return
@@ -396,11 +404,15 @@ class DefaultContextManager(ContextManagerProtocol):
         # 在 base system prompt 后面追加记忆
         self._system_prompt = f"{self._base_system_prompt}\n\n{memory_text}"
 
+        # 计算新system prompt的token
+        new_system_tokens = estimate_tokens_cached(self._system_prompt)
+
         # 更新 messages 中的 system prompt
         if self._messages and self._messages[0].get("role") == "system":
             self._messages[0]["content"] = self._system_prompt  # type: ignore
 
-        self._recalculate_tokens()
+        # 性能优化：增量更新token估算（避免全量重算）
+        self._total_tokens_estimate += (new_system_tokens - old_system_tokens)
 
     def get_token_report(self) -> str:
         """获取 token 使用报告

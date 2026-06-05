@@ -235,6 +235,17 @@
     "perf_metrics": false
   },
 
+  "trace": {
+    "description": "Trace系统配置",
+    "enabled": false,
+    "output_dir": "workspaces/logs",
+    "retention_days": 7,
+    "writer_batch_interval": 0.1,
+    "writer_batch_size": 50,
+    "auto_cleanup": true,
+    "stats_report_interval": 3600
+  },
+
   "knowledge": {
     "description": "知识库配置",
     "default_root": "workspaces/knowledge",

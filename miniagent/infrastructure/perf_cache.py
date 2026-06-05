@@ -64,13 +64,20 @@ def get_compiled_pattern(pattern: str, flags: int = 0) -> re.Pattern:
 
 # ─── JSON 序列化/解析缓存 ──────────────────────────────────────────
 
-_JSON_SERIALIZE_CACHE_MAX_SIZE = 100
+# 性能优化：提高上限并配置化（从100提高到500）
+_JSON_SERIALIZE_CACHE_MAX_SIZE = 500  # 配置化上限
 _json_serialize_cache: OrderedDict[str, str] = OrderedDict()
 _json_serialize_lock = Lock()
 
 
 def cached_json_serialize(obj: Any, max_len: int | None = None) -> str:
-    """缓存 JSON 序列化结果（用于高频重复对象）。
+    """智能 JSON 序列化缓存（性能优化增强版）。
+
+    性能优化：
+    - 提高上限并配置化（从100提高到500）
+    - 大对象（>1000字符）直接序列化不缓存
+    - 小对象优先缓存（高频重复对象）
+    - 配置项：perf.json_cache_max_size
 
     Args:
         obj: 要序列化的对象
@@ -82,9 +89,19 @@ def cached_json_serialize(obj: Any, max_len: int | None = None) -> str:
     Note:
         仅用于高频重复对象（如工具 schema），不适合动态数据。
     """
-    # 对不可哈希对象直接序列化（不缓存）
+    # 性能优化：预判对象大小，大对象不缓存
+    # 对不可哈希对象，先估算大小
     if not isinstance(obj, (str, int, float, bool, tuple, frozenset)):
         try:
+            # 大对象（>1000字符）：直接序列化，不缓存
+            obj_str = str(obj)
+            if len(obj_str) > 1000:
+                result = json.dumps(obj, ensure_ascii=False)
+                if max_len and len(result) > max_len:
+                    return result[:max_len] + "...[截断]"
+                return result
+
+            # 小对象：直接序列化（不缓存不可哈希对象）
             result = json.dumps(obj, ensure_ascii=False)
             if max_len and len(result) > max_len:
                 return result[:max_len] + "...[截断]"
@@ -92,7 +109,19 @@ def cached_json_serialize(obj: Any, max_len: int | None = None) -> str:
         except Exception:
             return str(obj)[:max_len or 1000]
 
-    # 可哈希对象使用缓存
+    # 可哈希对象：判断大小
+    try:
+        obj_str = str(obj)
+        # 大对象（>1000字符）：直接序列化，不缓存
+        if len(obj_str) > 1000:
+            result = json.dumps(obj, ensure_ascii=False)
+            if max_len and len(result) > max_len:
+                return result[:max_len] + "...[截断]"
+            return result
+    except Exception:
+        pass
+
+    # 小对象：使用缓存
     cache_key = f"{obj}:{max_len}"
 
     with _json_serialize_lock:
@@ -107,10 +136,20 @@ def cached_json_serialize(obj: Any, max_len: int | None = None) -> str:
         except Exception:
             result = str(obj)[:max_len or 1000]
 
-        _json_serialize_cache[cache_key] = result
+        # 性能优化：小对象才缓存
+        if len(result) <= 1000:
+            _json_serialize_cache[cache_key] = result
 
-        while len(_json_serialize_cache) > _JSON_SERIALIZE_CACHE_MAX_SIZE:
-            _json_serialize_cache.popitem(last=False)
+            # 动态调整缓存上限（配置化）
+            # 优先从配置读取，否则使用默认值500
+            try:
+                from miniagent.infrastructure.json_config import get_config
+                cache_max_size = get_config("perf.json_cache_max_size", 500)
+            except Exception:
+                cache_max_size = 500
+
+            while len(_json_serialize_cache) > cache_max_size:
+                _json_serialize_cache.popitem(last=False)
 
         return result
 
@@ -123,6 +162,12 @@ class OptimizedStringBuilder:
 
     相比直接使用 += 或 join()，在大量拼接时内存效率更高。
 
+    性能优化（增强版）：
+    - 动态合并策略：根据chunk大小智能调整
+    - 总长度超过10KB时提前合并（避免内存峰值）
+    - 单个chunk超大（>5KB）时立即合并
+    - 默认阈值降低到30（更激进的合并）
+
     Example:
         >>> builder = OptimizedStringBuilder()
         >>> for chunk in chunks:
@@ -130,23 +175,46 @@ class OptimizedStringBuilder:
         >>> result = builder.build()
     """
 
-    __slots__ = ("_chunks", "_total_len", "_consolidated")
+    __slots__ = ("_chunks", "_total_len", "_consolidated", "_merge_threshold")
 
-    def __init__(self, initial_chunks: list[str] | None = None):
+    def __init__(self, initial_chunks: list[str] | None = None, merge_threshold: int = 30):
+        """初始化字符串构建器。
+
+        Args:
+            initial_chunks: 初始chunk列表
+            merge_threshold: chunk数量阈值（默认30，比之前的50更激进）
+        """
         self._chunks: list[str] = initial_chunks or []
         self._total_len: int = sum(len(c) for c in self._chunks)
         self._consolidated: str | None = None
+        self._merge_threshold = merge_threshold
 
     def append(self, chunk: str) -> None:
-        """追加字符串块（自动合并策略）."""
+        """智能追加字符串块（动态合并策略）。
+
+        性能优化：
+        - chunk数量超过阈值时合并
+        - 总长度超过10KB时提前合并
+        - 单个chunk超大（>5KB）时立即合并
+
+        Args:
+            chunk: 要追加的字符串块
+        """
         if not chunk:
             return
 
+        chunk_len = len(chunk)
         self._chunks.append(chunk)
-        self._total_len += len(chunk)
+        self._total_len += chunk_len
 
-        # 每50个chunk合并一次（比之前的100更激进）
-        if len(self._chunks) > 50:
+        # 动态合并策略
+        should_merge = (
+            len(self._chunks) > self._merge_threshold or  # chunk数量超过阈值
+            self._total_len > 10240 or  # 总长度超过10KB（提前合并）
+            chunk_len > 5000  # 单个chunk超大（>5KB）立即合并
+        )
+
+        if should_merge:
             self._consolidated = "".join(self._chunks)
             self._chunks = [self._consolidated]
             self._total_len = len(self._consolidated)

@@ -149,6 +149,19 @@ async def shutdown_runtime(
     except Exception as e:
         _logger.debug("shutdown_runtime: shutdown_trace_writer: %s", e)
 
+    # 5g) 清理过期trace文件（可选）
+    try:
+        from miniagent.infrastructure.trace_stats import cleanup_old_traces
+        from miniagent.infrastructure.json_config import get_config
+
+        if get_config("trace.auto_cleanup", True):
+            retention_days = get_config("trace.retention_days", 7)
+            deleted_count = cleanup_old_traces(retention_days)
+            if deleted_count > 0:
+                _logger.info("shutdown: 清理过期trace文件 %d 个", deleted_count)
+    except Exception as e:
+        _logger.debug("shutdown_runtime: cleanup_old_traces: %s", e)
+
     if release_cli_session_lock:
         sid = (state.get("active_session_id") or "").strip()
         if sid:

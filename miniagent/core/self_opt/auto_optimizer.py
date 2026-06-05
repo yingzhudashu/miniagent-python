@@ -24,9 +24,13 @@ import os
 
 from miniagent.core.self_opt.git_snapshot import (
     create_snapshot,
+    create_snapshot_async,
     has_uncommitted_changes,
+    has_uncommitted_changes_async,
     is_in_git_repo,
+    is_in_git_repo_async,
     rollback_snapshot,
+    rollback_snapshot_async,
 )
 from miniagent.core.self_opt.types import (
     FileChange,
@@ -151,14 +155,14 @@ async def apply_proposal(
         result.error = "高风险提案需要人工确认"
         return result
 
-    # 检查 Git 仓库
-    if not is_in_git_repo(root):
+    # 检查 Git 仓库（性能优化：使用异步版本避免阻塞）
+    if not await is_in_git_repo_async(root):
         _logger.warning("不在 Git 仓库中，无法创建快照")
 
-    # 创建快照（执行前）
+    # 创建快照（执行前）- 性能优化：使用异步版本
     snapshot_ref = ""
-    if not dry_run and is_in_git_repo(root) and has_uncommitted_changes(root):
-        snap_result = create_snapshot(f"before-{proposal.id}", path=root)
+    if not dry_run and await is_in_git_repo_async(root) and await has_uncommitted_changes_async(root):
+        snap_result = await create_snapshot_async(f"before-{proposal.id}", path=root)
         if snap_result["success"]:
             snapshot_ref = snap_result["ref"]
             _logger.info("创建前置快照: %s", snapshot_ref)
@@ -180,10 +184,10 @@ async def apply_proposal(
             result.status = "failed"
             result.error = f"变更失败: {change.path}"
 
-            # 自动回滚
+            # 自动回滚（性能优化：使用异步版本）
             if auto_rollback and snapshot_ref:
                 _logger.info("自动回滚到快照: %s", snapshot_ref)
-                rollback_result = rollback_snapshot(snapshot_ref, path=root)
+                rollback_result = await rollback_snapshot_async(snapshot_ref, path=root)
                 if rollback_result["success"]:
                     result.error += " (已回滚)"
                 else:
@@ -202,10 +206,10 @@ async def apply_proposal(
             result.status = "failed"
             result.error = f"{test_summary.failed}/{test_summary.total} 测试失败"
 
-            # 自动回滚
+            # 自动回滚（性能优化：使用异步版本）
             if auto_rollback and snapshot_ref:
                 _logger.info("测试失败，自动回滚到快照: %s", snapshot_ref)
-                rollback_result = rollback_snapshot(snapshot_ref, path=root)
+                rollback_result = await rollback_snapshot_async(snapshot_ref, path=root)
                 if rollback_result["success"]:
                     result.error += " (已回滚)"
                 else:

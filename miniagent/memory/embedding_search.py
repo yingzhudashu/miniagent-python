@@ -464,6 +464,11 @@ class EmbeddingIndex:
         if not query_embedding or not self._entries:
             return []
 
+        # 性能优化：numpy可用且entry数量多时，自动使用批量计算（5-10倍加速）
+        if _numpy_available and len(self._entries) > 20:
+            return self.search_relevant_batch(query_embedding, limit=limit, min_score=min_score)
+
+        # numpy不可用或entry数量少时，使用普通版本
         # 性能优化：预计算查询向量的 norm
         query_norm = _compute_norm(query_embedding)
         if query_norm == 0:
