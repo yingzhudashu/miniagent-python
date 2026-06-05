@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import Any
 
 from miniagent.infrastructure.json_config import get_config, reload_config
 from miniagent.infrastructure.logger import get_logger

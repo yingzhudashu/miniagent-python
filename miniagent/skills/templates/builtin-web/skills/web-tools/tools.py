@@ -288,9 +288,9 @@ async def _browser_extract_handler(args: dict[str, Any], _ctx: ToolContext) -> T
     if not _allowed_http_url(url, https_only=False):
         return ToolResult(success=False, content="❌ 仅允许 http/https URL，且须包含主机名")
 
-    try:
-        from playwright.async_api import async_playwright
-    except ImportError:
+    # 检查 Playwright 是否可用（不直接导入）
+    import importlib.util
+    if not importlib.util.find_spec("playwright"):
         return ToolResult(
             success=False,
             content="❌ 未安装 Playwright。请执行：pip install miniagent-python[browser]\n然后：playwright install chromium",

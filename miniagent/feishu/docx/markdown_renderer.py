@@ -694,7 +694,7 @@ def estimate_block_count(md: str) -> int:
     if not md:
         return 0
     # 简单估算：行数（不含空行）
-    lines = [l for l in md.splitlines() if l.strip()]
+    lines = [line for line in md.splitlines() if line.strip()]
     return len(lines)
 
 

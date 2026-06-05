@@ -155,6 +155,7 @@ class TestHttpRetry:
         call_count = 0
 
         async def mock_request(*args, **kwargs):
+            nonlocal call_count
             call_count += 1
             if call_count < 3:
                 raise Exception("network error")

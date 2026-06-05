@@ -22,6 +22,8 @@ from typing import TYPE_CHECKING, Any
 
 from miniagent.infrastructure.json_config import get_config
 
+_logger = logging.getLogger(__name__)
+
 if TYPE_CHECKING:
     from openai import AsyncOpenAI
 

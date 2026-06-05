@@ -13,6 +13,9 @@ import time
 from pathlib import Path
 
 from miniagent.infrastructure.json_config import get_config
+from miniagent.infrastructure.logger import get_logger
+
+_logger = get_logger(__name__)
 
 _SESSION = get_config("debug.session_id", "")
 if _SESSION:

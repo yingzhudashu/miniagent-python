@@ -5,6 +5,7 @@ HTTP 调用使用 httpx 异步客户端，避免阻塞事件循环。
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os as _os_for_drive
 import time
