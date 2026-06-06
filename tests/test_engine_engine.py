@@ -59,7 +59,8 @@ class TestUnifiedEngineInit:
         assert hasattr(engine.thinking, "show")
         assert hasattr(engine.thinking, "reset_counter")
         assert engine._clarifier is None
-        assert engine._exec_lock is not None
+        assert engine._session_exec is not None
+        assert engine._session_exec.parallel_sessions is True
 
     def test_engine_has_run_method(self) -> None:
         """引擎应有 run_agent_with_thinking 方法。"""
@@ -298,8 +299,8 @@ class TestUnifiedEngineExecLock:
     """测试执行锁机制。"""
 
     @pytest.mark.asyncio
-    async def test_exec_lock_prevents_concurrent_calls(self) -> None:
-        """执行锁应防止并发调用。"""
+    async def test_same_session_serial(self) -> None:
+        """同 session_key 应串行执行。"""
         engine = UnifiedEngine()
         _mock_engine_thinking(engine)
         mock_session_manager, _ = _create_mock_session_manager()
@@ -321,12 +322,45 @@ class TestUnifiedEngineExecLock:
                 "test1", "s1", [], None, session_manager=mock_session_manager
             ))
             t2 = asyncio.create_task(engine.run_agent_with_thinking(
+                "test2", "s1", [], None, session_manager=mock_session_manager
+            ))
+            await asyncio.gather(t1, t2)
+
+            assert call_order == ["start", "end", "start", "end"]
+
+    @pytest.mark.asyncio
+    async def test_different_sessions_can_overlap(self) -> None:
+        """不同 session_key 在 parallel_sessions 开启时可并行。"""
+        engine = UnifiedEngine()
+        _mock_engine_thinking(engine)
+        mock_session_manager, _ = _create_mock_session_manager()
+
+        in_flight = 0
+        overlap = False
+
+        async def slow_run(*args, **kwargs):
+            nonlocal in_flight, overlap
+            in_flight += 1
+            if in_flight >= 2:
+                overlap = True
+            import asyncio
+            await asyncio.sleep(0.08)
+            in_flight -= 1
+            return "Reply"
+
+        with patch("miniagent.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
+            mock_run.side_effect = slow_run
+
+            import asyncio
+            t1 = asyncio.create_task(engine.run_agent_with_thinking(
+                "test1", "s1", [], None, session_manager=mock_session_manager
+            ))
+            t2 = asyncio.create_task(engine.run_agent_with_thinking(
                 "test2", "s2", [], None, session_manager=mock_session_manager
             ))
             await asyncio.gather(t1, t2)
 
-            # 串行执行: start -> end -> start -> end
-            assert call_order == ["start", "end", "start", "end"]
+            assert overlap is True
 
 
 class TestUnifiedEngineClarifier:
@@ -356,16 +390,18 @@ class TestUnifiedEngineConfirmationChannel:
     def test_confirmation_channel_lazy_created(self) -> None:
         """确认通道应懒加载创建。"""
         engine = UnifiedEngine()
-        assert engine._confirmation_channel is None
-        channel = engine._get_confirmation_channel()
+        assert engine._confirmation_channels == {}
+        channel = engine._get_confirmation_channel("s1")
         assert channel is not None
 
-    def test_confirmation_channel_singleton(self) -> None:
-        """确认通道应为单例。"""
+    def test_confirmation_channel_per_session(self) -> None:
+        """不同 session_key 应有独立确认通道。"""
         engine = UnifiedEngine()
-        c1 = engine._get_confirmation_channel()
-        c2 = engine._get_confirmation_channel()
-        assert c1 is c2
+        c1 = engine._get_confirmation_channel("s1")
+        c2 = engine._get_confirmation_channel("s2")
+        c1_again = engine._get_confirmation_channel("s1")
+        assert c1 is c1_again
+        assert c1 is not c2
 
 
 class TestUnifiedEngineIntegration:

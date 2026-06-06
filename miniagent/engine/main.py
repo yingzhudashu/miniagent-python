@@ -207,6 +207,11 @@ async def unified_main(ctx: RuntimeContext) -> None:
     state["skill_prompts"] = skill_prompts
     state["session_manager"] = session_manager
 
+    from miniagent.engine.parallel_config import configure_message_queue_for_parallel
+
+    configure_message_queue_for_parallel(ctx.message_queue)
+    engine.set_active_session_key(active_session_id)
+
     # 飞书与 CLI 共进程：先起 WS 长轮询任务，再进入同一 stdin 主循环（无单独纯飞书入口）
     if state["feishu_enabled"]:
         ctx.feishu.start(
@@ -277,8 +282,10 @@ async def run_cli_loop(
     channel_router = ctx.channel_router
     message_queue = ctx.message_queue
 
-    # 初始化跨队列执行排序锁（保证 CLI 与飞书消息跨队列 FIFO）
-    message_queue.ensure_exec_lock()
+    # 根据 parallel_sessions 配置消息队列（跨队列串行或 per-session 并行）
+    from miniagent.engine.parallel_config import configure_message_queue_for_parallel
+
+    configure_message_queue_for_parallel(message_queue)
 
     from miniagent.skills.snapshots import (
         get_skill_prompts_from_state,
@@ -479,11 +486,22 @@ async def run_cli_loop(
     _stick_bottom: list[bool] = [True]
     _last_md_width: list[int] = [0]  # 上次渲染 Markdown 的终端宽度
 
-    # ─── 流式思考输出累加器 ───────────────────────────────────────────
-    # 用于正确合并流式思考内容，避免碎片化导致的显示问题
-    _streaming_think_text: list[str] = [""]  # 累积的 Markdown 文本
-    _streaming_think_active: list[bool] = [False]  # 是否正在流式输出思考内容
-    _streaming_think_start_idx: list[int] = [-1]  # 流式块在 transcript 的起始索引
+    # ─── 流式思考输出累加器（按 session_key 隔离）────────────────
+    from dataclasses import dataclass
+
+    @dataclass
+    class _StreamingThinkState:
+        active: bool = False
+        text: str = ""
+        start_idx: int = -1
+
+    _streaming_think_by_session: dict[str, _StreamingThinkState] = {}
+
+    def _stream_state(session_key: str = "") -> _StreamingThinkState:
+        sk = (session_key or "").strip() or "default"
+        if sk not in _streaming_think_by_session:
+            _streaming_think_by_session[sk] = _StreamingThinkState()
+        return _streaming_think_by_session[sk]
 
     # ─── 复制模式状态 ─────────────────────────────────────────────
     _copy_mode_active: list[bool] = [False]  # 复制模式激活状态
@@ -1973,6 +1991,17 @@ async def run_cli_loop(
     _last_md_width[0] = _viewport_cols()  # 记录初始终端宽度
     ctx.cli_transcript_append = _append_transcript
     ctx.cli_transcript_append_ansi = _append_ansi_transcript
+    from miniagent.infrastructure.cli_transcript_coordinator import CliTranscriptCoordinator
+
+    def _clear_stream_state(sk: str) -> None:
+        _streaming_think_by_session.pop(sk, None)
+
+    _transcript_coordinator = CliTranscriptCoordinator(
+        _append_transcript,
+        _append_ansi_transcript,
+        on_turn_end=_clear_stream_state,
+    )
+    ctx.cli_transcript_coordinator = _transcript_coordinator
     ctx.create_feishu_handler_factory = lambda st: create_feishu_handler(st, ctx, _stick_bottom)
     # stderr 日志仍会打乱 VS Code 等与 PT 共用的终端画布；TUI 期间默认只打 WARNING+
     if not get_config("features.tui_verbose_log", False):
@@ -2017,22 +2046,21 @@ async def run_cli_loop(
             style = _ANSI_COLOR_STYLE_MAP.get(color, "class:cli-default")
             _append_transcript(style, text)
 
-    def _thinking_sink(
+    def _thinking_sink_inner(
         fragment: str,
         kind: str = "chunk",
         *,
+        session_key: str = "",
         ansi_markdown: str | None = None,
     ) -> None:
-        """``ThinkingDisplay`` 输出槽：写入思考标签/正文或整段 Rich 渲染后的 ANSI。
+        """思考输出核心逻辑（按 session 隔离流式状态）。"""
+        sk = (session_key or "").strip() or "default"
+        stream = _stream_state(sk)
 
-        流式合并逻辑改进：使用累加器变量替代 _source_md 属性检测。
-        """
         if ansi_markdown is not None:
-            # 处理完整的 ANSI Markdown 内容
             body_lines = ansi_markdown.rstrip("\n").split("\n")
             transcript_body = "\n".join(ln if ln else "" for ln in body_lines) + "\n"
             at_bottom = _output_at_bottom()
-            # 使用安全的 ANSI 处理
             safe_ft = _safe_ansi(transcript_body)
             for style, txt in safe_ft:
                 _transcript.append((style, txt))
@@ -2053,66 +2081,49 @@ async def run_cli_loop(
         style = "class:cli-think-head" if kind == "label" else "class:cli-think-body"
 
         if kind == "label":
-            # 标签：重置流式状态，准备开始新的思考块
-            _streaming_think_active[0] = False
-            _streaming_think_text[0] = ""
-            _streaming_think_start_idx[0] = -1
+            stream.active = False
+            stream.text = ""
+            stream.start_idx = -1
             _append_transcript(style, fragment)
         else:
-            # 正文：流式增量 ANSI 渲染优化
-            # 使用累加器变量实现正确的流式合并
             from miniagent.engine.markdown_cli import render_markdown_to_ansi
 
             try:
                 md_w = _markdown_render_width()
 
-                # 新的流式合并检测逻辑：使用累加器而非 _source_md 属性
-                if _streaming_think_active[0] and _streaming_think_start_idx[0] >= 0:
-                    # 流式输出：合并新内容到累积文本
-                    full_text = _streaming_think_text[0] + fragment
-                    _streaming_think_text[0] = full_text  # 更新累加器
+                if stream.active and stream.start_idx >= 0:
+                    full_text = stream.text + fragment
+                    stream.text = full_text
 
-                    # 重新渲染完整文本
                     ansi_body = render_markdown_to_ansi(full_text, width=md_w, justify="left")
                     safe_ft = _safe_ansi(ansi_body)
 
-                    # 替换流式块（从起始索引到末尾）
-                    start_idx = _streaming_think_start_idx[0]
+                    start_idx = stream.start_idx
 
-                    # 计算长度差值，更新累计长度计数器
                     old_len = 0
                     for i in range(start_idx, len(_transcript)):
                         frag = _transcript[i]
                         if isinstance(frag, tuple) and len(frag) >= 2:
                             old_len += len(frag[1])
                     new_len = sum(len(txt) for _, txt in safe_ft)
-                    _transcript_total_len[0] += (new_len - old_len)
+                    _transcript_total_len[0] += new_len - old_len
 
-                    # 执行替换操作
-                    # 先删除旧内容，再添加新内容（deque 不支持切片替换）
                     while len(_transcript) > start_idx:
                         _transcript.pop()
                     _transcript.extend(safe_ft)
-                    # 注意：流式输出过程中不调用 _trim_transcript()，避免频繁裁剪
-                    # 裁剪将在流式结束后统一进行
 
                 else:
-                    # 首个 chunk：启动流式状态
                     ansi_body = render_markdown_to_ansi(fragment, width=md_w, justify="left")
                     safe_ft = _safe_ansi(ansi_body)
 
-                    # 记录起始位置
                     start_idx = len(_transcript)
-                    _streaming_think_start_idx[0] = start_idx
-                    _streaming_think_text[0] = fragment  # 初始化累加器
-                    _streaming_think_active[0] = True
+                    stream.start_idx = start_idx
+                    stream.text = fragment
+                    stream.active = True
 
-                    # 追加新的 fragments
                     for st, txt in safe_ft:
                         _transcript.append((st, txt))
                         _transcript_total_len[0] += len(txt)
-                    # 注意：流式输出过程中不调用 _trim_transcript()，避免频繁裁剪
-                    # 裁剪将在流式结束后统一进行
 
                 try:
                     get_app().invalidate()
@@ -2121,11 +2132,29 @@ async def run_cli_loop(
                 if _output_at_bottom() or _stick_bottom[0]:
                     _snap_output_bottom()
             except Exception:
-                # 异常处理：降级为普通追加，重置流式状态
-                _streaming_think_active[0] = False
-                _streaming_think_text[0] = ""
-                _streaming_think_start_idx[0] = -1
+                stream.active = False
+                stream.text = ""
+                stream.start_idx = -1
                 _append_transcript(style, fragment)
+
+    def _thinking_sink(
+        fragment: str,
+        kind: str = "chunk",
+        *,
+        session_key: str = "",
+        ansi_markdown: str | None = None,
+    ) -> None:
+        """``ThinkingDisplay`` 输出槽：经 coordinator 路由，缓冲轮次整轮 flush。"""
+        sk = (session_key or "").strip() or "default"
+        if _transcript_coordinator.is_live(sk):
+            _thinking_sink_inner(fragment, kind, session_key=sk, ansi_markdown=ansi_markdown)
+        else:
+            _transcript_coordinator.defer(
+                sk,
+                lambda: _thinking_sink_inner(
+                    fragment, kind, session_key=sk, ansi_markdown=ansi_markdown
+                ),
+            )
 
     engine.thinking.set_output_sink(_thinking_sink)
     engine.thinking.set_cli_markdown_width(_markdown_render_width)  # 统一使用 _markdown_render_width
@@ -2334,49 +2363,56 @@ async def run_cli_loop(
 
     async def _process_input(user_input: str) -> None:
         """处理用户输入并打印回复。"""
-        try:
-            session_key = channel_router.resolve("__cli__")
+        from miniagent.engine.cli_format import format_cli_reply_block, format_cli_user_block
 
+        session_key = channel_router.resolve("__cli__")
+        try:
             # 检测并处理文件标记 @file:
             user_input, files_info = await _detect_and_process_file_markers(
                 user_input, session_key, state.get("session_manager"), ctx
             )
 
-            # 新输入开始：先画轮次分隔线，再贴上一轮底部、画本轮 You 块
-            _cli_rule_heavy()
-            _was_at_bottom = _output_at_bottom()
-            _stick_bottom[0] = True
+            _transcript_coordinator.begin_turn(session_key, source="cli")
+            cli_append = _transcript_coordinator.make_session_append(session_key)
+            cli_append_ansi = _transcript_coordinator.make_session_append_ansi(session_key)
             try:
-                _snap_output_bottom()
-                get_app().invalidate()
-            except Exception:
-                pass
-            _cli_block_user(user_input)
-            try:
-                await asyncio.sleep(0)
-                if _was_at_bottom:
-                    _stick_bottom[0] = True
+                _cli_rule_heavy()
+                _was_at_bottom = _output_at_bottom()
+                _stick_bottom[0] = True
+                try:
                     _snap_output_bottom()
                     get_app().invalidate()
-            except Exception:
-                pass
-            reply = await engine.run_agent_with_thinking(
-                user_input,
-                session_key,
-                _skill_tb(),
-                _skill_sp(),
-                registry=registry,
-                monitor=monitor,
-                session_manager=state.get("session_manager"),
-                channel_router=channel_router,
-                clawhub=ctx.clawhub,
-                memory_store=ctx.memory_store,
-                activity_log=ctx.activity_log,
-                keyword_index=ctx.keyword_index,
-                client=ctx.openai_client,
-                cli_loop_state=state,
-            )
-            _cli_block_reply(reply)
+                except Exception:
+                    pass
+                format_cli_user_block(cli_append, user_input, _stick_bottom)
+                try:
+                    await asyncio.sleep(0)
+                    if _was_at_bottom:
+                        _stick_bottom[0] = True
+                        _snap_output_bottom()
+                        get_app().invalidate()
+                except Exception:
+                    pass
+                reply = await engine.run_agent_with_thinking(
+                    user_input,
+                    session_key,
+                    _skill_tb(),
+                    _skill_sp(),
+                    registry=registry,
+                    monitor=monitor,
+                    session_manager=state.get("session_manager"),
+                    channel_router=channel_router,
+                    clawhub=ctx.clawhub,
+                    memory_store=ctx.memory_store,
+                    activity_log=ctx.activity_log,
+                    keyword_index=ctx.keyword_index,
+                    client=ctx.openai_client,
+                    cli_loop_state=state,
+                )
+                if reply and reply.strip():
+                    format_cli_reply_block(cli_append, cli_append_ansi, (reply or "").strip())
+            finally:
+                _transcript_coordinator.end_turn(session_key)
         except Exception as e:
             _append_transcript("class:cli-err", f"❌ 错误: {e}\n")
 
@@ -2468,7 +2504,13 @@ async def run_cli_loop(
                 continue
 
         # ── 需求澄清追问拦截：普通消息自动注入为回答 ──
-        cc = getattr(engine, "confirmation_channel", None)
+        from miniagent.engine.parallel_config import resolve_active_session_key
+
+        active_sk = resolve_active_session_key(
+            channel_router, state.get("active_session_id") or "default"
+        )
+        engine.set_active_session_key(active_sk)
+        cc = engine.get_confirmation_channel(active_sk)
         if cc and cc.has_pending:
             from miniagent.types.confirmation import ConfirmationResult, ConfirmationStage
 
@@ -2590,8 +2632,10 @@ async def _run_cli_loop_fallback(
     channel_router = ctx.channel_router
     message_queue = ctx.message_queue
 
-    # 初始化跨队列执行排序锁（与主循环一致）
-    message_queue.ensure_exec_lock()
+    # 根据 parallel_sessions 配置消息队列（与主循环一致）
+    from miniagent.engine.parallel_config import configure_message_queue_for_parallel
+
+    configure_message_queue_for_parallel(message_queue)
 
     from miniagent.engine.cli_commands import (
         cmd_help,
@@ -2651,46 +2695,57 @@ async def _run_cli_loop_fallback(
         )
 
     # ── Linux 兼容性：fallback 模式下的思考显示 ──
-    # 设置 ThinkingDisplay 的 output_sink，使思考过程能在终端显示
-    def _fallback_thinking_sink(text: str, kind: str = "chunk", **kwargs: Any) -> None:
-        """Fallback CLI 的思考输出回调（直接 print 到 stdout）。
+    import threading
 
-        Args:
-            text: 思考文本内容
-            kind: 输出类型（"label" 或 "chunk"）
-            **kwargs: 额外参数（如 ansi_markdown，fallback 模式暂不支持）
+    _fallback_print_lock = threading.Lock()
 
-        Note:
-            - 此函数签名匹配 ThinkingDisplay._emit 的调用方式
-            - fallback 模式不支持 ANSI Markdown 渲染，直接 print
-        """
-        if text:
-            # fallback 模式直接 print，不支持颜色渲染
-            print(text, end="" if kind == "chunk" else "\n")
+    def _fallback_print_locked(text: str, *, end: str = "\n") -> None:
+        with _fallback_print_lock:
+            print(text, end=end)
             sys.stdout.flush()
 
-    # 设置思考显示器回调（用于 ThinkingDisplay._emit）
-    engine.thinking.set_output_sink(_fallback_thinking_sink)
-
-    # ── fallback CLI 的 transcript 回调（用于飞书镜像等）──
-    # 注意：此回调签名是 (style_cls, text)，与 ThinkingDisplay 不同
     def _fallback_transcript_append(style_cls: str, text: str = "") -> None:
-        """Fallback CLI 的 transcript 回调（用于飞书镜像到 CLI）。
-
-        Args:
-            style_cls: 样式类名（fallback 模式忽略样式）
-            text: 文本内容
-
-        Note:
-            - 签名匹配 cli_transcript_append 的预期：(style_cls, text)
-            - 用于飞书消息镜像、点命令输出等场景
-            - fallback 模式忽略样式，直接 print
-        """
+        """Fallback CLI 的 transcript 回调（用于飞书镜像到 CLI）。"""
         if text:
-            print(text)
-            sys.stdout.flush()
+            _fallback_print_locked(text)
 
+    from miniagent.infrastructure.cli_transcript_coordinator import CliTranscriptCoordinator
+
+    _fb_coordinator = CliTranscriptCoordinator(
+        _fallback_transcript_append,
+        None,
+        parallel_sessions=True,
+    )
+    ctx.cli_transcript_coordinator = _fb_coordinator
     ctx.cli_transcript_append = _fallback_transcript_append
+
+    def _fallback_thinking_sink_inner(
+        text: str,
+        kind: str = "chunk",
+        *,
+        session_key: str = "",
+    ) -> None:
+        if text:
+            _fallback_print_locked(text, end="" if kind == "chunk" else "\n")
+
+    def _fallback_thinking_sink(
+        text: str,
+        kind: str = "chunk",
+        *,
+        session_key: str = "",
+        **kwargs: Any,
+    ) -> None:
+        """Fallback CLI 的思考输出（经 coordinator 路由，print 锁防交错）。"""
+        sk = (session_key or "").strip() or "default"
+        if _fb_coordinator.is_live(sk):
+            _fallback_thinking_sink_inner(text, kind, session_key=sk)
+        else:
+            _fb_coordinator.defer(
+                sk,
+                lambda: _fallback_thinking_sink_inner(text, kind, session_key=sk),
+            )
+
+    engine.thinking.set_output_sink(_fallback_thinking_sink)
 
 
     # readline 支持：使 fallback CLI 的 input() 支持上下键浏览历史
@@ -2708,55 +2763,40 @@ async def _run_cli_loop_fallback(
 
     async def _process_input(user_input: str) -> None:
         """备用终端：打印 You/Assistant 区块并调用 ``run_agent_with_thinking``。"""
+        from miniagent.engine.cli_format import format_cli_reply_block, format_cli_user_block
+
+        session_key = channel_router.resolve("__cli__")
+        stick = [False]
         try:
-            session_key = channel_router.resolve("__cli__")
-            print()
-            print()
-            _fb_rule_heavy()
-            print("You")
-            _fb_rule_light()
-            for line in (user_input or "").splitlines() or [""]:
-                print(line)
-            print()
-            reply = await engine.run_agent_with_thinking(
-                user_input,
-                session_key,
-                _skill_tb(),
-                _skill_sp(),
-                registry=registry,
-                monitor=monitor,
-                session_manager=state.get("session_manager"),
-                channel_router=channel_router,
-                clawhub=ctx.clawhub,
-                memory_store=ctx.memory_store,
-                activity_log=ctx.activity_log,
-                keyword_index=ctx.keyword_index,
-                client=ctx.openai_client,
-                cli_loop_state=state,
-            )
-            print()
-            _fb_rule_light()
-            print("Assistant")
-            _fb_rule_light()
-            from miniagent.engine.markdown_cli import cli_raw_markdown_enabled
-
-            fb_w = _fb_get_width()
-            if cli_raw_markdown_enabled():
-                for line in (reply or "").splitlines() or [""]:
-                    print(line)
-            else:
-                try:
-                    from rich.console import Console
-                    from rich.markdown import Markdown
-
-                    Console(width=fb_w).print(Markdown(reply or ""))
-                except ImportError:
-                    for line in (reply or "").splitlines() or [""]:
-                        print(line)
-            print()
-            _fb_rule_heavy()
+            _fb_coordinator.begin_turn(session_key, source="cli")
+            cli_append = _fb_coordinator.make_session_append(session_key)
+            cli_append_ansi = _fb_coordinator.make_session_append_ansi(session_key)
+            try:
+                _fallback_print_locked("\n\n")
+                _fb_rule_heavy()
+                format_cli_user_block(cli_append, user_input, stick)
+                reply = await engine.run_agent_with_thinking(
+                    user_input,
+                    session_key,
+                    _skill_tb(),
+                    _skill_sp(),
+                    registry=registry,
+                    monitor=monitor,
+                    session_manager=state.get("session_manager"),
+                    channel_router=channel_router,
+                    clawhub=ctx.clawhub,
+                    memory_store=ctx.memory_store,
+                    activity_log=ctx.activity_log,
+                    keyword_index=ctx.keyword_index,
+                    client=ctx.openai_client,
+                    cli_loop_state=state,
+                )
+                if reply and reply.strip():
+                    format_cli_reply_block(cli_append, cli_append_ansi, (reply or "").strip())
+            finally:
+                _fb_coordinator.end_turn(session_key)
         except Exception as e:
-            print(f"\n❌ 错误: {e}")
+            _fallback_print_locked(f"❌ 错误: {e}\n")
 
     while True:
         try:
@@ -2913,7 +2953,13 @@ async def _run_cli_loop_fallback(
             continue
 
         # ── 需求澄清追问拦截：普通消息自动注入为回答 ──
-        cc = getattr(engine, "confirmation_channel", None)
+        from miniagent.engine.parallel_config import resolve_active_session_key
+
+        active_sk = resolve_active_session_key(
+            channel_router, state.get("active_session_id") or "default"
+        )
+        engine.set_active_session_key(active_sk)
+        cc = engine.get_confirmation_channel(active_sk)
         if cc and cc.has_pending:
             from miniagent.types.confirmation import ConfirmationResult, ConfirmationStage
 

@@ -79,9 +79,9 @@ class TestBackgroundTaskManager:
         assert len(manager._tasks) == 0
 
     def test_manager_creation_custom_concurrency(self):
-        """Manager creation with custom concurrency."""
+        """显式 max_concurrent 仍受 agent.max_parallel_sessions 上限约束。"""
         manager = BackgroundTaskManager(max_concurrent=8)
-        assert manager._max_concurrent == 8
+        assert manager._max_concurrent == 4
 
     def test_get_status_nonexistent(self):
         """get_status returns None for nonexistent task."""

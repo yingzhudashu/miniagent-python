@@ -22,6 +22,7 @@ from miniagent.core.constants import (
     BACKGROUND_TASKS_MAX_CONCURRENT,
     BACKGROUND_TASKS_TASK_TTL_SECONDS,
 )
+from miniagent.infrastructure.json_config import get_config
 
 DEFAULT_TASK_TTL_SECONDS = BACKGROUND_TASKS_TASK_TTL_SECONDS
 DEFAULT_MAX_CONCURRENT = BACKGROUND_TASKS_MAX_CONCURRENT
@@ -77,7 +78,9 @@ class BackgroundTaskManager:
             ttl_seconds: 已完成任务 TTL（秒，None时从配置加载）
         """
         self._tasks: dict[str, BackgroundTask] = {}
-        self._max_concurrent = max_concurrent if max_concurrent is not None else DEFAULT_MAX_CONCURRENT
+        cfg_parallel_cap = int(get_config("agent.max_parallel_sessions", 4))
+        base_max = max_concurrent if max_concurrent is not None else DEFAULT_MAX_CONCURRENT
+        self._max_concurrent = max(1, min(base_max, cfg_parallel_cap))
         self._running_count = 0
         self._lock = asyncio.Lock()
         self._ttl_seconds = ttl_seconds if ttl_seconds is not None else DEFAULT_TASK_TTL_SECONDS

@@ -267,6 +267,16 @@ class DefaultMemoryStore(MemoryStoreProtocol):
         self._keyword_index = keyword_index
         # 并发安全：缓存操作锁（保护LRU更新）
         self._cache_lock = threading.Lock()
+        self._session_locks: dict[str, asyncio.Lock] = {}
+        self._session_locks_meta = asyncio.Lock()
+
+    async def _get_session_lock(self, session_id: str) -> asyncio.Lock:
+        async with self._session_locks_meta:
+            lock = self._session_locks.get(session_id)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._session_locks[session_id] = lock
+            return lock
 
     def _cache_put(self, session_id: str, memory: SessionMemory) -> None:
         """将记忆放入 LRU 缓存（带TTL），超过上限时驱逐最旧条目（线程安全）。"""
@@ -476,6 +486,10 @@ class DefaultMemoryStore(MemoryStoreProtocol):
         Args:
             memory: 会话记忆对象
         """
+        async with await self._get_session_lock(memory.session_id):
+            await self._save_unlocked(memory)
+
+    async def _save_unlocked(self, memory: SessionMemory) -> None:
         try:
             self._ensure_dir()
             file_path = self._file_path(memory.session_id)
@@ -513,10 +527,8 @@ class DefaultMemoryStore(MemoryStoreProtocol):
                 "sender_id": memory.sender_id,
             }
 
-            # 异步写入文件（避免阻塞事件循环）
             def _sync_write() -> None:
                 with open(file_path, "w", encoding="utf-8") as f:
-                    # 紧凑格式（移除 indent=2），减少约 30% 文件体积
                     json.dump(data, f, ensure_ascii=False)
 
             await asyncio.to_thread(_sync_write)
@@ -532,42 +544,40 @@ class DefaultMemoryStore(MemoryStoreProtocol):
             summary: 新的对话摘要
             facts: 关键事实列表
         """
-        memory = await self.load(session_id)
-        if not memory:
-            # 自动创建新会话记忆
-            now = datetime.now(timezone.utc).isoformat()
-            memory = SessionMemory(
-                session_id=session_id,
-                cumulative_summary=summary[-2000:] if summary else "",
-                key_facts=list(facts),
-                total_turns=0,
-                first_seen=now,
-                last_active=now,
-            )
-            await self.save(memory)
-            return
+        async with await self._get_session_lock(session_id):
+            memory = await self.load(session_id)
+            if not memory:
+                now = datetime.now(timezone.utc).isoformat()
+                memory = SessionMemory(
+                    session_id=session_id,
+                    cumulative_summary=summary[-2000:] if summary else "",
+                    key_facts=list(facts),
+                    total_turns=0,
+                    first_seen=now,
+                    last_active=now,
+                )
+                await self._save_unlocked(memory)
+                return
 
-        # 更新累计摘要（保留最近 2000 字符）
-        if summary:
-            new_summary = (
-                f"{memory.cumulative_summary}\n- {summary}"
-                if memory.cumulative_summary
-                else summary
-            )
-            memory.cumulative_summary = new_summary[-2000:]
+            if summary:
+                new_summary = (
+                    f"{memory.cumulative_summary}\n- {summary}"
+                    if memory.cumulative_summary
+                    else summary
+                )
+                memory.cumulative_summary = new_summary[-2000:]
 
-        # 更新关键事实（去重，最多保留 20 条）
-        existing = {f.lower().strip() for f in memory.key_facts}
-        for fact in facts:
-            normalized = fact.lower().strip()
-            if normalized not in existing:
-                memory.key_facts.append(fact)
-                existing.add(normalized)
-        if len(memory.key_facts) > 20:
-            memory.key_facts = memory.key_facts[-20:]
+            existing = {f.lower().strip() for f in memory.key_facts}
+            for fact in facts:
+                normalized = fact.lower().strip()
+                if normalized not in existing:
+                    memory.key_facts.append(fact)
+                    existing.add(normalized)
+            if len(memory.key_facts) > 20:
+                memory.key_facts = memory.key_facts[-20:]
 
-        memory.last_active = datetime.now(timezone.utc).isoformat()
-        await self.save(memory)
+            memory.last_active = datetime.now(timezone.utc).isoformat()
+            await self._save_unlocked(memory)
 
     async def add_entry(self, session_id: str, entry: MemoryEntryInput | dict[str, Any]) -> None:
         """添加对话条目
@@ -584,32 +594,31 @@ class DefaultMemoryStore(MemoryStoreProtocol):
                 facts=list(entry.get("facts") or []) if entry.get("facts") is not None else None,
             )
 
-        memory = await self.load(session_id)
-        if not memory:
-            # 自动创建新会话记忆
-            now = datetime.now(timezone.utc).isoformat()
-            memory = SessionMemory(
-                session_id=session_id,
-                total_turns=0,
-                first_seen=now,
-                last_active=now,
+        async with await self._get_session_lock(session_id):
+            memory = await self.load(session_id)
+            if not memory:
+                now = datetime.now(timezone.utc).isoformat()
+                memory = SessionMemory(
+                    session_id=session_id,
+                    total_turns=0,
+                    first_seen=now,
+                    last_active=now,
+                )
+
+            full_entry = MemoryEntry(
+                timestamp=entry.timestamp,
+                user_snippet=entry.user_snippet,
+                summary=entry.summary,
+                facts=entry.facts or [],
             )
+            memory.entries.append(full_entry)
+            memory.total_turns += 1
 
-        full_entry = MemoryEntry(
-            timestamp=entry.timestamp,
-            user_snippet=entry.user_snippet,
-            summary=entry.summary,
-            facts=entry.facts or [],
-        )
-        memory.entries.append(full_entry)
-        memory.total_turns += 1
+            if len(memory.entries) > 20:
+                memory.entries = memory.entries[-20:]
 
-        # 只保留最近 20 条
-        if len(memory.entries) > 20:
-            memory.entries = memory.entries[-20:]
-
-        memory.last_active = datetime.now(timezone.utc).isoformat()
-        await self.save(memory)
+            memory.last_active = datetime.now(timezone.utc).isoformat()
+            await self._save_unlocked(memory)
 
         # Layer 3: 索引到关键词倒排索引（与进程默认 bundle 同源）
         try:

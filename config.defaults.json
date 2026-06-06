@@ -155,6 +155,8 @@
     "context_reserve_ratio": 0.15,
     "context_compress_threshold": 0.6,
     "allow_parallel_tools": true,
+    "parallel_sessions": true,
+    "max_parallel_sessions": 4,
     "max_questions": 3,
     "queue_mode": "queue",
     "log_token_usage": true,

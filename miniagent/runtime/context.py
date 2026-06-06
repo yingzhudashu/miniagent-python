@@ -82,6 +82,7 @@ class RuntimeContext:
     create_feishu_handler_factory: Callable[..., Any] | None = field(default=None, repr=False)
     cli_transcript_append_ansi: Callable[[Any], None] | None = field(default=None, repr=False)
     cli_transcript_append: Callable[[str, str], None] | None = field(default=None, repr=False)
+    cli_transcript_coordinator: Any | None = field(default=None, repr=False)
     #: 定时任务后台循环（``miniagent.scheduled_tasks``）；可选便于退出时 cancel
     scheduled_tasks_ticker: asyncio.Task[Any] | None = field(default=None, repr=False)
     scheduled_tasks_stop_event: asyncio.Event | None = field(default=None, repr=False)

@@ -658,6 +658,15 @@ HTTP 请求自动重试，提升网络稳定性：
 - ClawHub 客户端
 - 飞书 Drive API
 
+### 多会话并行（Agent）
+
+| JSON 路径 | 默认 | 说明 |
+|-----------|------|------|
+| `agent.parallel_sessions` | `true` | 不同 `session_key` 可并行跑 Agent；`false` 时全局串行（旧行为） |
+| `agent.max_parallel_sessions` | `4` | 进程内同时运行的 Agent 会话上限（含飞书多群与 `/btw` 后台任务） |
+
+同一飞书群内消息仍按 `chat_id` 队列顺序处理；不同群在默认配置下可同时执行。
+
 ### 配置热更新
 
 配置文件修改后立即生效，无需重启：

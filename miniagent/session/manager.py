@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -253,8 +254,19 @@ class DefaultSessionManager(SessionManagerProtocol):
         self._clawhub = clawhub
         self._active_session_id: str | None = None
         self._next_number: int = 1  # 下一个会话编号
+        self._session_locks: dict[str, threading.RLock] = {}
+        self._session_locks_meta = threading.Lock()
         self._ensure_workspaces_dir()
         self._scan_existing_numbers()
+
+    def _get_session_lock(self, session_id: str) -> threading.RLock:
+        """每 session 一把 RLock，保护 history RMW 与 LRU 驱逐。"""
+        with self._session_locks_meta:
+            lock = self._session_locks.get(session_id)
+            if lock is None:
+                lock = threading.RLock()
+                self._session_locks[session_id] = lock
+            return lock
 
     def _ensure_workspaces_dir(self) -> None:
         """确保工作空间目录存在"""
@@ -441,21 +453,22 @@ class DefaultSessionManager(SessionManagerProtocol):
             静默失败（try/except pass），不影响主流程。
             历史持久化是增强功能，不是关键路径。
         """
-        ctx = self._sessions.get(session_id)
-        if not ctx:
-            return
-        try:
-            history = _get_history(ctx)
-            # 截断历史防止内存膨胀
-            history = _truncate_history(history)
-            _set_history(ctx, history)
-            path = os.path.join(ctx["config"].workspace_path, "history.json")
-            # 确保目录存在（防止首次保存时目录未创建）
-            os.makedirs(ctx["config"].workspace_path, exist_ok=True)
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(history, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            _logger.warning("保存会话历史失败 (session=%s): %s", session_id, e)
+        with self._get_session_lock(session_id):
+            ctx = self._sessions.get(session_id)
+            if not ctx:
+                return
+            try:
+                history = _get_history(ctx)
+                # 截断历史防止内存膨胀
+                history = _truncate_history(history)
+                _set_history(ctx, history)
+                path = os.path.join(ctx["config"].workspace_path, "history.json")
+                # 确保目录存在（防止首次保存时目录未创建）
+                os.makedirs(ctx["config"].workspace_path, exist_ok=True)
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(history, f, ensure_ascii=False, indent=2)
+            except Exception as e:
+                _logger.warning("保存会话历史失败 (session=%s): %s", session_id, e)
 
     def load_session_history(self, session_id: str) -> list:
         """从磁盘加载会话历史
@@ -487,23 +500,7 @@ class DefaultSessionManager(SessionManagerProtocol):
         Note:
             异步版本，在异步上下文中使用，不阻塞主事件循环。
         """
-        ctx = self._sessions.get(session_id)
-        if not ctx:
-            return
-
-        def _sync_save() -> None:
-            try:
-                history = _get_history(ctx)
-                history = _truncate_history(history)
-                _set_history(ctx, history)
-                path = os.path.join(ctx["config"].workspace_path, "history.json")
-                os.makedirs(ctx["config"].workspace_path, exist_ok=True)
-                with open(path, "w", encoding="utf-8") as f:
-                    json.dump(history, f, ensure_ascii=False, indent=2)
-            except Exception as e:
-                _logger.warning("保存会话历史失败 (session=%s): %s", session_id, e)
-
-        await asyncio.to_thread(_sync_save)
+        await asyncio.to_thread(self.save_session_history, session_id)
 
     async def load_session_history_async(self, session_id: str) -> list:
         """异步从磁盘加载会话历史（性能优化：不阻塞事件循环）。
@@ -600,21 +597,22 @@ class DefaultSessionManager(SessionManagerProtocol):
         Returns:
             会话对象
         """
-        if id in self._sessions:
-            ctx = self._sessions[id]
-            # 性能优化：标记为最近使用
-            self._touch_session(id)
-            ctx["config"].last_active = datetime.now(timezone.utc).isoformat()
-            return ctx["session"]
+        with self._get_session_lock(id):
+            if id in self._sessions:
+                ctx = self._sessions[id]
+                # 性能优化：标记为最近使用
+                self._touch_session(id)
+                ctx["config"].last_active = datetime.now(timezone.utc).isoformat()
+                return ctx["session"]
 
-        # 检查是否有持久化的工作空间（重启后恢复）
-        safe_id = self._make_safe_id(id)
-        workspace_path = os.path.join(_get_workspaces_dir(), safe_id)
-        config_path = os.path.join(workspace_path, "config.json")
-        if os.path.isfile(config_path):
-            return self._restore(id, workspace_path, options)
+            # 检查是否有持久化的工作空间（重启后恢复）
+            safe_id = self._make_safe_id(id)
+            workspace_path = os.path.join(_get_workspaces_dir(), safe_id)
+            config_path = os.path.join(workspace_path, "config.json")
+            if os.path.isfile(config_path):
+                return self._restore(id, workspace_path, options)
 
-        return self._create(id, options)
+            return self._create(id, options)
 
     def _build_session_ctx(
         self,

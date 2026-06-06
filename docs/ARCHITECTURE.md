@@ -605,26 +605,29 @@ flowchart LR
 
 ### 多会话并发安全
 
-系统支持多会话并发运行，关键安全机制如下：
+系统支持多会话并行运行（`agent.parallel_sessions`，默认开启），关键安全机制如下：
 
-1. **按 chat_id 隔离队列**：`MessageQueueManager` 为每个 `chat_id` 维护独立队列，
-   CLI 使用专用 `__cli__` 通道，飞书群/私聊各自隔离，消息互不干扰。
+1. **按 chat_id 隔离队列**：`MessageQueueManager` 为每个 `chat_id` 维护独立队列；
+   `parallel_sessions=true` 时不做跨队列全局 FIFO，不同飞书群/通道可同时进入 Agent。
 
-2. **思考计数器隔离**：`ThinkingDisplay` 为每个 `session_key` 独立维护思考计数器，
-   多群并发发送消息时，各群的思考推送互不覆盖。
+2. **按 session_key 执行锁**：`SessionExecCoordinator` 保证同一 `session_key` 串行、
+   不同 `session_key` 可并行；`agent.max_parallel_sessions`（默认 4）限制进程内同时运行的 Agent 数。
 
-3. **通道绑定的双向回调**：当 CLI 绑定到飞书会话时，思考内容通过 `_dual_send`
-   回调同时发送到终端和飞书，确保 CLI 用户能实时看到飞书会话的思考过程。
+3. **思考计数器隔离**：`ThinkingDisplay` 为每个 `session_key` 独立维护思考状态；
+   CLI 输出经 `_cli_display_lock` 防止 chunk 级交错；`_thinking_sink` 按 `session_key` 隔离流式替换状态。
 
-4. **SessionManager 会话锁**：每个会话工作空间有 `.lock` 文件记录持有者 PID，
-   跨实例切换会话时自动检测锁冲突。
+4. **CLI 镜像门控与轮次协调**：飞书入站（含 `media_handler`）经 `should_mirror_feishu_to_cli` 统一控制 user/thinking/reply 是否写入 CLI；
+   `CliTranscriptCoordinator` 在 agent 轮次间 `begin_turn`/`end_turn`，单 turn live 流式，多 turn 并存时后续 turn 整轮缓冲并按 FIFO flush；未登记 turn 在有其他 active turn 时丢弃 CLI 输出。Fallback CLI 使用 print 锁与同一协调器。
 
-5. **session_manager 为唯一数据源**：`UnifiedEngine` 不再维护冗余的 `_feishu_sessions`
-   字典，所有会话历史统一通过 `SessionManager` 管理，避免多源不一致。
+5. **Per-session 确认通道**：`ConfirmationChannel` 按 `session_key` 实例化，澄清/计划确认互不干扰。
 
-6. **飞书私聊与 CLI 同会话**：首条私聊自动 `bind` 到 `active_session_id`；`/session switch` 通过 `sync_channel_router_to_session()` 同步 CLI 与已登记的私聊 sender。飞书 WebSocket 入站由 `feishu_inbound_owner.json` 做跨进程独占。
+6. **SessionManager / 记忆写锁**：进程内 per-session 锁保护 history RMW 与 `DefaultMemoryStore` 写入。
 
-7. **分层记忆管线**：`history_archive` 归档、`memory_pipeline` 注入、`dream_scheduler` 周期/体量触发的轻量精炼与 `session_lt` / `agent_lt` 更新（详见 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md)）。
+7. **跨实例会话锁**：每个会话工作空间 `.lock` 文件（PID）防止多实例抢同一 session。
+
+8. **飞书私聊与 CLI 同会话**：首条私聊自动 `bind` 到 `active_session_id`；飞书 WebSocket 入站由 `feishu_inbound_owner.json` 做跨进程独占。
+
+9. **回退**：`agent.parallel_sessions: false` 恢复全局串行（`MessageQueueManager.exec_lock` + 单全局 Lock），协调器退化为直写。
 
 ## 运行时组合根
 

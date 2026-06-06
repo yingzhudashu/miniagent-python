@@ -63,20 +63,45 @@ _RE_BOLD_UNDERSCORE = re.compile(r"__([^_]+)__")
 # 入站文本 handler：单参数 ``FeishuInboundText``，返回回复正文。
 FeishuTextMessageHandler = Callable[[FeishuInboundText], Awaitable[str]]
 
-# 引擎引用（供确认侧通道使用，卡片按钮回调中直接响应）
+# 引擎与通道路由引用（供确认侧通道、澄清拦截使用）
 _feishu_confirmation_engine: Any | None = None
+_feishu_channel_router: Any | None = None
 
 
-def set_feishu_confirmation_engine(engine: Any) -> None:
-    """设置飞书侧可访问的引擎引用，供卡片确认按钮使用。"""
-    global _feishu_confirmation_engine
+def set_feishu_confirmation_engine(engine: Any, *, channel_router: Any | None = None) -> None:
+    """设置飞书侧可访问的引擎引用，供卡片确认按钮与澄清拦截使用。"""
+    global _feishu_confirmation_engine, _feishu_channel_router
     _feishu_confirmation_engine = engine
+    if channel_router is not None:
+        _feishu_channel_router = channel_router
     cc = getattr(engine, "confirmation_channel", None) if engine else None
     _logger.info(
         "set_feishu_confirmation_engine: engine=%s, confirmation_channel=%s",
         engine is not None,
         cc is not None,
     )
+
+
+def _resolve_feishu_confirmation_channel(
+    chat_id: str,
+    sender_id: str,
+    chat_type: str | None = None,
+) -> Any | None:
+    """按飞书入站上下文解析 per-session ConfirmationChannel。"""
+    eng = _feishu_confirmation_engine
+    if eng is None:
+        return None
+    session_key: str | None = None
+    if _feishu_channel_router is not None:
+        try:
+            session_key = _feishu_channel_router.resolve_feishu_message(
+                chat_id, sender_id, chat_type or "group"
+            )
+        except Exception as e:
+            _logger.debug("resolve_feishu_message 失败: %s", e)
+    if session_key and hasattr(eng, "get_confirmation_channel"):
+        return eng.get_confirmation_channel(session_key)
+    return getattr(eng, "confirmation_channel", None)
 
 
 def feishu_outbound_reply_params(
@@ -499,8 +524,9 @@ async def start_feishu_poll_server(
                     asyncio.create_task(_handle())
                 else:
                     # 需求澄清追问拦截：普通消息自动注入为回答
-                    _cc_eng = _feishu_confirmation_engine
-                    _cc = getattr(_cc_eng, "confirmation_channel", None) if _cc_eng else None
+                    _cc = _resolve_feishu_confirmation_channel(
+                        chat_id, sender_id, chat_type or "group"
+                    )
                     if _cc and _cc.has_pending:
                         from miniagent.types.confirmation import (
                             ConfirmationResult,
@@ -678,35 +704,33 @@ async def start_feishu_poll_server(
 
             # 拦截确认命令：直接响应确认通道，不经消息队列
             if text in ("/confirm", "/reject") or text.startswith("/adjust "):
-                engine = _feishu_confirmation_engine
-                if engine is not None:
-                    cc = getattr(engine, "confirmation_channel", None)
-                    if cc is not None and cc.has_pending:
-                        from miniagent.types.confirmation import ConfirmationResult
+                cc = _resolve_feishu_confirmation_channel(chat_id, sender_id, "group")
+                if cc is not None and cc.has_pending:
+                    from miniagent.types.confirmation import ConfirmationResult
 
-                        if text == "/confirm":
-                            cc.respond(ConfirmationResult(approved=True))
+                    if text == "/confirm":
+                        cc.respond(ConfirmationResult(approved=True))
+                        ok = CallBackToast()
+                        ok.type = "success"
+                        ok.content = "✅ 已确认，继续执行"
+                        resp.toast = ok
+                        return resp
+                    elif text == "/reject":
+                        cc.respond(ConfirmationResult(approved=False, rejected=True))
+                        ok = CallBackToast()
+                        ok.type = "warning"
+                        ok.content = "⚠️ 已拒绝，取消当前操作"
+                        resp.toast = ok
+                        return resp
+                    else:
+                        adjustment = text[len("/adjust "):].strip()
+                        if adjustment:
+                            cc.respond(ConfirmationResult(approved=True, adjustment=adjustment))
                             ok = CallBackToast()
                             ok.type = "success"
-                            ok.content = "✅ 已确认，继续执行"
+                            ok.content = f"✅ 已调整：{adjustment[:40]}{'…' if len(adjustment) > 40 else ''}"
                             resp.toast = ok
                             return resp
-                        elif text == "/reject":
-                            cc.respond(ConfirmationResult(approved=False, rejected=True))
-                            ok = CallBackToast()
-                            ok.type = "warning"
-                            ok.content = "⚠️ 已拒绝，取消当前操作"
-                            resp.toast = ok
-                            return resp
-                        else:
-                            adjustment = text[len("/adjust "):].strip()
-                            if adjustment:
-                                cc.respond(ConfirmationResult(approved=True, adjustment=adjustment))
-                                ok = CallBackToast()
-                                ok.type = "success"
-                                ok.content = f"✅ 已调整：{adjustment[:40]}{'…' if len(adjustment) > 40 else ''}"
-                                resp.toast = ok
-                                return resp
                 # 无待确认请求或无引擎，继续走消息队列
             inbound = FeishuInboundText(
                 text=text,
@@ -1162,15 +1186,23 @@ def _feishu_interactive_card_dict(
     return build_interactive_card(header_title, body_markdown, template)
 
 
-def _thinking_interactive_card_dict(cleaned_markdown: str, template: str) -> dict[str, Any]:
+def _thinking_interactive_card_dict(
+    cleaned_markdown: str,
+    template: str,
+    *,
+    session_key: str | None = None,
+) -> dict[str, Any]:
     """构造思考内容交互卡片（可能包含确认按钮）。"""
     from miniagent.feishu.cards.builder import confirmation_buttons, thinking_card_dict
 
-    # 检查是否有待确认请求，有则附加按钮
     buttons = None
-    cc = _feishu_confirmation_engine
-    if cc is not None:
-        cc_obj = getattr(cc, "confirmation_channel", None)
+    eng = _feishu_confirmation_engine
+    if eng is not None and session_key:
+        cc_obj = (
+            eng.get_confirmation_channel(session_key)
+            if hasattr(eng, "get_confirmation_channel")
+            else getattr(eng, "confirmation_channel", None)
+        )
         if cc_obj is not None and cc_obj.has_pending:
             buttons = confirmation_buttons()
 
@@ -1349,7 +1381,10 @@ async def push_feishu_thinking_stream(
         st.feishu_tool_section_started = True
 
     cleaned = _prepare_thinking_markdown(st.feishu_stream_accumulated)
-    card_json = json.dumps(_thinking_interactive_card_dict(cleaned, template), ensure_ascii=False)
+    _sk = getattr(st, "feishu_session_key", None) or None
+    card_json = json.dumps(
+        _thinking_interactive_card_dict(cleaned, template, session_key=_sk), ensure_ascii=False
+    )
 
     if not st.feishu_thinking_message_id:
         r_mid = getattr(st, "feishu_reply_to_message_id", None)
@@ -1426,8 +1461,9 @@ async def finalize_feishu_thinking_stream(
         return
     nch = len(chunks)
     first_body = _prepare_card_markdown(chunks[0], normalize=False)
+    _sk = getattr(st, "feishu_session_key", None) or None
     card_json = json.dumps(
-        _thinking_interactive_card_dict(first_body, template), ensure_ascii=False,
+        _thinking_interactive_card_dict(first_body, template, session_key=_sk), ensure_ascii=False,
     )
     # ✅ 使用异步版本：PATCH 收尾时不阻塞事件循环
     patched = await _patch_interactive_thinking_message_async(config, mid, card_json)
@@ -1487,7 +1523,10 @@ async def append_feishu_thinking_same_card(
     acc2 = acc + addition
     st.feishu_stream_accumulated = acc2
     cleaned = _prepare_thinking_markdown(acc2)
-    card_json = json.dumps(_thinking_interactive_card_dict(cleaned, template), ensure_ascii=False)
+    _sk = getattr(st, "feishu_session_key", None) or None
+    card_json = json.dumps(
+        _thinking_interactive_card_dict(cleaned, template, session_key=_sk), ensure_ascii=False
+    )
 
     if mid:
         # ✅ 使用异步版本：追加工具后 PATCH 不阻塞事件循环

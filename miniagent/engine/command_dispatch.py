@@ -140,6 +140,7 @@ async def dispatch_command(
     allow_session_mutations_when_capture: bool = True,
     feishu_user_status: Callable[[str], None] | None = None,
     message_queue_abort_chat_id: str | None = None,
+    confirmation_session_key: str | None = None,
 ) -> str | None:
     """统一命令调度。
 
@@ -159,6 +160,7 @@ async def dispatch_command(
             使用 ``_feishu_user_status_fn(runtime_ctx)``
         message_queue_abort_chat_id: 飞书入站 ``chat_id``（集成侧应传入）；供 ``/queue abort`` / ``/abort``
             定位要中止的 per-chat 队列。缺省为 CLI 专用 ``__cli__``。
+        confirmation_session_key: 飞书入站时传入的 ``session_key``，供 ``/confirm`` 等确认命令路由。
 
     Returns:
         capture=True 时返回输出字符串，capture=False 时返回 None
@@ -573,32 +575,54 @@ async def dispatch_command(
 
         sub_cmd = parts[1].lower() if len(parts) > 1 else ""
 
-        # self-opt 命令不通过消息队列，直接执行
+        # self-opt 不经过消息队列；输出须走 _capture，供全屏 CLI / 飞书 capture 路径消费
         if sub_cmd == "status" or sub_cmd == "":
-            cmd_self_opt_status()
+            output = _capture(cmd_self_opt_status)
         elif sub_cmd == "proposals":
             status_filter = parts[2] if len(parts) > 2 else None
-            cmd_self_opt_proposals(status=status_filter)
-        elif sub_cmd == "show" and len(parts) >= 3:
-            cmd_self_opt_show(parts[2])
-        elif sub_cmd == "approve" and len(parts) >= 3:
-            cmd_self_opt_approve(parts[2])
-        elif sub_cmd == "reject" and len(parts) >= 3:
-            cmd_self_opt_reject(parts[2])
-        elif sub_cmd == "apply" and len(parts) >= 3:
-            # 异步执行
-
-            proposal_id = parts[2]
-            root = parts[3] if len(parts) > 3 else ""
-            await cmd_self_opt_apply(proposal_id, root=root)
+            output = _capture(lambda: cmd_self_opt_proposals(status=status_filter))
+        elif sub_cmd == "show":
+            if len(parts) >= 3:
+                output = _capture(lambda: cmd_self_opt_show(parts[2]))
+            else:
+                output = "用法: /self-opt show <id>"
+        elif sub_cmd == "approve":
+            if len(parts) >= 3:
+                output = _capture(lambda: cmd_self_opt_approve(parts[2]))
+            else:
+                output = "用法: /self-opt approve <id>"
+        elif sub_cmd == "reject":
+            if len(parts) >= 3:
+                output = _capture(lambda: cmd_self_opt_reject(parts[2]))
+            else:
+                output = "用法: /self-opt reject <id>"
+        elif sub_cmd == "apply":
+            if len(parts) >= 3:
+                proposal_id = parts[2]
+                root = parts[3] if len(parts) > 3 else ""
+                buf = io.StringIO()
+                try:
+                    with redirect_stdout(buf):
+                        await cmd_self_opt_apply(proposal_id, root=root)
+                    output = buf.getvalue().strip()
+                except Exception as e:
+                    output = f"{ERROR_PREFIX} 命令执行失败: {e}"
+            else:
+                output = "用法: /self-opt apply <id> [root]"
         elif sub_cmd == "analyze":
-            cmd_self_opt_analyze()
+            output = _capture(cmd_self_opt_analyze)
         elif sub_cmd == "report":
             date = parts[2] if len(parts) > 2 else None
-            cmd_self_opt_report(date=date)
+            output = _capture(lambda: cmd_self_opt_report(date=date))
         else:
-            print(f"{WARNING_PREFIX} 未知的子命令: {sub_cmd}")
-            print("用法: /self-opt status|proposals|show|approve|reject|apply|analyze|report")
+            output = (
+                f"{WARNING_PREFIX} 未知的子命令: {sub_cmd}\n"
+                "用法: /self-opt status|proposals|show|approve|reject|apply|analyze|report"
+            )
+
+        if capture:
+            return output
+        print(output)
         return None
 
     # ── /kb（知识库）──
@@ -727,7 +751,15 @@ async def dispatch_command(
 
     # ── /confirm / /adjust / /reject（确认侧通道）──
     if cmd in ("/confirm", "/adjust", "/reject"):
-        cc = getattr(engine, "confirmation_channel", None) if engine else None
+        from miniagent.engine.parallel_config import resolve_active_session_key
+
+        sk = confirmation_session_key or resolve_active_session_key(
+            channel_router, state.get("active_session_id") or "default"
+        )
+        cc = None
+        if engine is not None:
+            engine.set_active_session_key(sk)
+            cc = engine.get_confirmation_channel(sk)
         if cc is None or not cc.has_pending:
             output = f"{WARNING_PREFIX} 当前无待确认的请求"
         elif cmd == "/confirm":

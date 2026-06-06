@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -59,6 +60,7 @@ class ActivityLogger:
         self._read_cache: str | None = None
         self._cache_path: str = ""
         self._cache_expiry: float = 0.0
+        self._io_lock = threading.Lock()
 
     def _get_today_path(self) -> str:
         """获取今日日志文件路径。
@@ -78,21 +80,22 @@ class ActivityLogger:
         Returns:
             日志内容，文件不存在时返回空字符串
         """
-        path = self._get_today_path()
-        now = time.monotonic()
-        if self._read_cache is not None and self._cache_path == path and now < self._cache_expiry:
-            return self._read_cache
+        with self._io_lock:
+            path = self._get_today_path()
+            now = time.monotonic()
+            if self._read_cache is not None and self._cache_path == path and now < self._cache_expiry:
+                return self._read_cache
 
-        if os.path.exists(path):
-            with open(path, encoding="utf-8") as f:
-                content = f.read()
-        else:
-            content = ""
+            if os.path.exists(path):
+                with open(path, encoding="utf-8") as f:
+                    content = f.read()
+            else:
+                content = ""
 
-        self._read_cache = content
-        self._cache_path = path
-        self._cache_expiry = now + 30.0
-        return content
+            self._read_cache = content
+            self._cache_path = path
+            self._cache_expiry = now + 30.0
+            return content
 
     async def _append_async(self, content: str) -> None:
         """异步追加内容到今日日志文件。
@@ -105,17 +108,7 @@ class ActivityLogger:
         Args:
             content: 要追加的 Markdown 内容
         """
-        path = self._get_today_path()
-
-        def _sync_write() -> None:
-            with open(path, "a", encoding="utf-8") as f:
-                f.write(content)
-
-        # 性能优化：异步写入，不阻塞事件循环
-        await asyncio.to_thread(_sync_write)
-
-        # 写入后失效缓存，确保下次读取拿到最新内容
-        self._read_cache = None
+        await asyncio.to_thread(self._append, content)
 
     def _append(self, content: str) -> None:
         """同步追加内容到今日日志文件（向后兼容）。
@@ -123,11 +116,11 @@ class ActivityLogger:
         Args:
             content: 要追加的 Markdown 内容
         """
-        path = self._get_today_path()
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(content)
-        # 写入后失效缓存，确保下次读取拿到最新内容
-        self._read_cache = None
+        with self._io_lock:
+            path = self._get_today_path()
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(content)
+            self._read_cache = None
 
     def log_session_start(self, session_key: str, user_input: str, source: str = "cli") -> None:
         """记录会话开始（同步版本，向后兼容）。

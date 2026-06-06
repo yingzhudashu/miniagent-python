@@ -54,7 +54,10 @@ def _minimal_dispatch_state() -> dict:
         (False, False),
     ],
 )
-def test_feishu_dot_commands_full_enabled(tmp_path, value: bool, expected: bool) -> None:
+def test_feishu_dot_commands_full_enabled(
+    tmp_path, value: bool, expected: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MINIAGENT_FEISHU_DOT_COMMANDS_FULL", raising=False)
     install_test_config(tmp_path, {"feishu": {"dot_commands_full": value}})
     assert feishu_dot_commands_full_enabled() is expected
 
@@ -62,6 +65,13 @@ def test_feishu_dot_commands_full_enabled(tmp_path, value: bool, expected: bool)
 def test_feishu_dot_commands_full_default_off(tmp_path) -> None:
     install_test_config(tmp_path)
     assert feishu_dot_commands_full_enabled() is False
+
+
+def test_feishu_dot_commands_full_env_var(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1 且无 config 时应为 True。"""
+    install_test_config(tmp_path, {"feishu": {"dot_commands_full": False}})
+    monkeypatch.setenv("MINIAGENT_FEISHU_DOT_COMMANDS_FULL", "1")
+    assert feishu_dot_commands_full_enabled() is True
 
 
 @pytest.mark.asyncio
@@ -76,6 +86,23 @@ async def test_capture_stop_blocked_by_default(tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_capture_stop_allowed_when_full_enabled(tmp_path) -> None:
     install_test_config(tmp_path, {"feishu": {"dot_commands_full": True}})
+    state = _minimal_dispatch_state()
+    with patch(
+        "miniagent.engine.shutdown.shutdown_runtime",
+        new_callable=AsyncMock,
+    ) as mock_shutdown:
+        result = await dispatch_command("/stop", state=state, capture=True)
+    mock_shutdown.assert_awaited_once()
+    assert result == "__EXIT__"
+
+
+@pytest.mark.asyncio
+async def test_capture_stop_allowed_via_env_only(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """仅 MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1、config=false 时 /stop 可执行。"""
+    install_test_config(tmp_path, {"feishu": {"dot_commands_full": False}})
+    monkeypatch.setenv("MINIAGENT_FEISHU_DOT_COMMANDS_FULL", "1")
     state = _minimal_dispatch_state()
     with patch(
         "miniagent.engine.shutdown.shutdown_runtime",

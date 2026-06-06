@@ -67,8 +67,9 @@ class FeishuRuntime:
         if state is not None and isinstance(state, dict):
             rt = state.get("runtime_ctx")
             engine = getattr(rt, "engine", None) if rt else None
+            router = getattr(rt, "channel_router", None) if rt else None
             if engine is not None:
-                set_feishu_confirmation_engine(engine)
+                set_feishu_confirmation_engine(engine, channel_router=router)
 
         config = FeishuConfig(
             app_id=os.environ.get("FEISHU_APP_ID", ""),

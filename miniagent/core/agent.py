@@ -496,7 +496,10 @@ async def run_agent(
         reflection = await reflect_on_result(user_input, reply, client=client, on_thinking=None)
         # 存储到引擎供飞书发送独立质量卡片
         if engine is not None:
-            engine._last_reflection = reflection
+            sk = session_key or "default"
+            if not hasattr(engine, "_last_reflection") or not isinstance(engine._last_reflection, dict):
+                engine._last_reflection = {}
+            engine._last_reflection[sk] = reflection
         # CLI 侧：在回复末尾追加质量评估尾部（飞书侧会发送独立卡片，不再依赖此处）
         status = "质量评估通过" if reflection.acceptable else "质量评估需改进"
         reflection_footer = f"\n\n---\n🤖 {status} | 质量评分 {reflection.quality_score:.1f}"

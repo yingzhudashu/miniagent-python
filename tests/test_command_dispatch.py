@@ -431,6 +431,82 @@ class TestUnknownCommand:
         assert result is None
 
 
+class TestSelfOptCommand:
+    """测试 /self-opt capture 路径（全屏 CLI / 飞书）。"""
+
+    @pytest.mark.asyncio
+    async def test_self_opt_status_capture_returns_text(self) -> None:
+        """capture=True 时 /self-opt status 应返回非 None 字符串。"""
+        state = _create_mock_state()
+
+        with patch(
+            "miniagent.engine.cli_commands.cmd_self_opt_status",
+            side_effect=lambda: print("自我优化状态 OK"),
+        ):
+            result = await dispatch_command("/self-opt status", state=state, capture=True)
+
+        assert result is not None
+        assert isinstance(result, str)
+        assert "自我优化状态 OK" in result
+
+    @pytest.mark.asyncio
+    async def test_self_opt_unknown_subcommand_capture(self) -> None:
+        """未知子命令应返回用法提示，而非 None。"""
+        state = _create_mock_state()
+
+        result = await dispatch_command("/self-opt bogus", state=state, capture=True)
+
+        assert result is not None
+        assert "未知的子命令" in result
+        assert "status|proposals" in result
+
+    @pytest.mark.asyncio
+    async def test_self_opt_disabled_capture(self) -> None:
+        """功能关闭时 capture 应返回关闭提示。"""
+        state = _create_mock_state()
+
+        with patch(
+            "miniagent.infrastructure.json_config.get_config",
+            return_value=False,
+        ):
+            result = await dispatch_command("/self-opt status", state=state, capture=True)
+
+        assert result is not None
+        assert "自我优化功能已关闭" in result
+
+    @pytest.mark.asyncio
+    async def test_self_opt_show_missing_id_capture(self) -> None:
+        """缺参时应返回用法提示，而非「未知子命令」。"""
+        state = _create_mock_state()
+
+        result = await dispatch_command("/self-opt show", state=state, capture=True)
+
+        assert result is not None
+        assert "用法: /self-opt show <id>" in result
+        assert "未知的子命令" not in result
+
+    @pytest.mark.asyncio
+    async def test_self_opt_apply_capture_returns_text(self) -> None:
+        """apply 异步子命令在 capture=True 时应返回捕获文本。"""
+        state = _create_mock_state()
+
+        async def _fake_apply(proposal_id: str, root: str = "") -> None:
+            print(f"已执行提案 {proposal_id} root={root}")
+
+        with patch(
+            "miniagent.engine.cli_commands.cmd_self_opt_apply",
+            side_effect=_fake_apply,
+        ):
+            result = await dispatch_command(
+                "/self-opt apply pid-1 /tmp/root",
+                state=state,
+                capture=True,
+            )
+
+        assert result is not None
+        assert "已执行提案 pid-1" in result
+
+
 __all__ = [
     "TestDispatchCommandBasics",
     "TestStatusCommand",
@@ -446,4 +522,5 @@ __all__ = [
     "TestFormatStatus",
     "TestCaptureMode",
     "TestUnknownCommand",
+    "TestSelfOptCommand",
 ]

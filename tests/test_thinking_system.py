@@ -20,6 +20,7 @@ Original files merged:
 from __future__ import annotations
 
 import importlib.util
+from unittest.mock import patch
 
 import pytest
 
@@ -170,6 +171,21 @@ class TestThinkingNumbering:
         td.reset_counter("")
         state = td._get_state("")
         assert state.turn_number == 2
+
+    def test_end_thinking_scoped_to_session(self) -> None:
+        """end_thinking(session_key) 不应收尾其他 session 的流式状态。"""
+        td = ThinkingDisplay()
+        sa = td._get_state("session_a")
+        sb = td._get_state("session_b")
+        sa.stream_step = 1
+        sa.stream_done = False
+        sb.stream_step = 2
+        sb.stream_done = False
+        with patch.object(td, "_should_emit_cli", return_value=False):
+            td.end_thinking("session_a")
+        assert sa.stream_done is True
+        assert sb.stream_done is False
+        assert sb.stream_step == 2
 
 
 # ============================================================================
@@ -428,6 +444,50 @@ class TestThinkingCLIWidth:
         assert seen == [99]
 
 
+class TestThinkingSessionKeySink:
+    """sink 接收 session_key；并行两 session 流式状态互不干扰。"""
+
+    @pytest.mark.asyncio
+    async def test_sink_receives_session_key(self) -> None:
+        td = ThinkingDisplay()
+        received: list[tuple[str, str]] = []
+
+        def sink(text: str, kind: str = "chunk", *, session_key: str = "") -> None:
+            received.append((session_key, text))
+
+        td.set_output_sink(sink)
+        await td.show("hello", session_key="sk_a", streaming=False)
+        assert received
+        assert all(sk == "sk_a" for sk, _ in received)
+
+    @pytest.mark.asyncio
+    async def test_parallel_sessions_isolated_streaming(self) -> None:
+        td = ThinkingDisplay()
+        by_session: dict[str, list[str]] = {}
+
+        def sink(text: str, kind: str = "chunk", *, session_key: str = "") -> None:
+            by_session.setdefault(session_key, []).append(text)
+
+        td.set_output_sink(sink)
+
+        async def run_a() -> None:
+            await td.show("alpha", session_key="A", streaming=True, header="[规划]")
+            await td.show(" more", session_key="A", streaming=True, header="[规划]")
+
+        async def run_b() -> None:
+            await td.show("beta", session_key="B", streaming=True, header="[规划]")
+            await td.show(" extra", session_key="B", streaming=True, header="[规划]")
+
+        import asyncio
+
+        await asyncio.gather(run_a(), run_b())
+        assert "A" in by_session and "B" in by_session
+        assert "alpha" in "".join(by_session["A"])
+        assert "beta" in "".join(by_session["B"])
+        assert "alpha" not in "".join(by_session["B"])
+        assert "beta" not in "".join(by_session["A"])
+
+
 __all__ = [
     "TestMapThinkingLevelToModel",
     "TestMapBusinessDepth",
@@ -437,4 +497,5 @@ __all__ = [
     "TestThinkingCallback",
     "TestThinkingStreamIndent",
     "TestThinkingCLIWidth",
+    "TestThinkingSessionKeySink",
 ]

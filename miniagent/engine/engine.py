@@ -17,7 +17,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import re
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -92,14 +91,16 @@ class UnifiedEngine:
     """
 
     def __init__(self) -> None:
-        """初始化引擎：创建思考显示器、懒加载澄清器、进程级执行锁。"""
+        """初始化引擎：创建思考显示器、懒加载澄清器、会话级执行协调器。"""
+        from miniagent.engine.session_exec import SessionExecCoordinator
         from miniagent.engine.thinking import ThinkingDisplay
 
         self.thinking = ThinkingDisplay()
         self._clarifier: Any | None = None
-        self._exec_lock = asyncio.Lock()
-        self._confirmation_channel: Any | None = None
-        self._last_reflection: Any | None = None
+        self._session_exec = SessionExecCoordinator()
+        self._confirmation_channels: dict[str, Any] = {}
+        self._last_reflection: dict[str, Any] = {}
+        self._active_session_key: str | None = None
 
     async def run_agent_with_thinking(
         self,
@@ -169,9 +170,8 @@ class UnifiedEngine:
                 "run_agent_with_thinking 需要注入 session_manager（会话历史与工作区依赖 SessionManager）"
             )
 
-        # 获取进程级执行锁：防止 CLI 和飞书（或不同飞书群）的并发调用导致
-        # 终端输出穿插、ThinkingDisplay 状态混乱、会话历史竞争
-        async with self._exec_lock:
+        # 会话级执行锁：同 session_key 串行；parallel_sessions 开启时不同 session 可并行
+        async with self._session_exec.acquire(session_key):
             return await self._run_agent_with_thinking_locked(
                 user_input, session_key, skill_toolboxes, skill_prompts,
                 is_feishu=is_feishu, registry=registry, monitor=monitor,
@@ -221,7 +221,7 @@ class UnifiedEngine:
     ) -> str:
         """已获取进程级锁后的实际执行逻辑（内部方法）。
 
-        由 run_agent_with_thinking 在 async with self._exec_lock 内调用。
+        由 run_agent_with_thinking 在 SessionExecCoordinator.acquire 内调用。
         执行流程：
         1. 解析记忆依赖（memory_store/activity_log/keyword_index）
         2. 获取或创建会话上下文（SessionManager）
@@ -263,7 +263,7 @@ class UnifiedEngine:
             str: Agent 的最终回复文本
 
         Note:
-            - 进程级执行锁防止 CLI 和飞书并发调用
+            - 会话级执行锁防止同 session 并发；parallel 模式下不同 session 可并行
             - 飞书思考使用流式卡片（PATCH 节流）
             - 同轮工具调用合并到同一卡片
         """
@@ -559,7 +559,7 @@ class UnifiedEngine:
             client=client,
             clarifier=self._get_clarifier(),
             session_key=session_key,
-            confirmation_channel=self._get_confirmation_channel(),
+            confirmation_channel=self._get_confirmation_channel(session_key),
             engine=self,
         )
         # 无工具调用等场景：最后一轮 LLM 流结束后无 streaming=False，需在此 PATCH 落盘全文
@@ -570,7 +570,7 @@ class UnifiedEngine:
                 feishu_config, im_recv, "gray", self.thinking.thinking_state(session_key),
             )
         # 流式思考最后一 chunk 往往不以换行结束；否则下一区块（分隔线/回复）会黏在同一行。
-        self.thinking.end_thinking()
+        self.thinking.end_thinking(session_key)
 
         # 7. 飞书：思考已实时发送，清理该会话的思考状态
         if is_feishu:
@@ -657,7 +657,7 @@ class UnifiedEngine:
         返回一个 async callable，通过确认侧通道暂停 agent 执行并等待用户确认。
         此回调仅在 ``plan.requires_confirmation`` 为 True 时被调用。
         """
-        channel = self._get_confirmation_channel()
+        channel = self._get_confirmation_channel(session_key)
 
         async def handler(plan) -> bool:
             if channel is None:
@@ -681,22 +681,37 @@ class UnifiedEngine:
 
         return handler
 
-    def _get_confirmation_channel(self) -> Any:
-        """获取或创建进程级确认侧通道。
-
-        返回 ConfirmationChannel 实例，所有会话共享同一实例。
-        实际的会话隔离由 channel 内部的 asyncio.Event 管理。
-        """
-        if self._confirmation_channel is None:
+    def _get_confirmation_channel(self, session_key: str | None = None) -> Any:
+        """获取或创建指定会话的确认侧通道（每 session_key 独立实例）。"""
+        key = (session_key or self._active_session_key or "default").strip() or "default"
+        channel = self._confirmation_channels.get(key)
+        if channel is None:
             from miniagent.core.confirmation_channel import ConfirmationChannel
 
-            self._confirmation_channel = ConfirmationChannel()
-        return self._confirmation_channel
+            channel = ConfirmationChannel()
+            self._confirmation_channels[key] = channel
+        return channel
+
+    def get_confirmation_channel(self, session_key: str) -> Any:
+        """公开访问指定会话的确认通道。"""
+        return self._get_confirmation_channel(session_key)
+
+    def set_active_session_key(self, session_key: str | None) -> None:
+        """CLI 主循环切换活跃会话时更新，供 ``confirmation_channel`` 属性路由。"""
+        self._active_session_key = session_key
 
     @property
     def confirmation_channel(self) -> Any:
-        """公开访问确认通道，供 CLI 循环和飞书 handler 调用 ``respond()``。"""
-        return self._get_confirmation_channel()
+        """当前活跃会话的确认通道（CLI 路径）；飞书入站应使用 ``get_confirmation_channel``。"""
+        return self._get_confirmation_channel(self._active_session_key)
+
+    def get_last_reflection(self, session_key: str) -> Any | None:
+        """获取指定会话最近一次反思评估结果。"""
+        return self._last_reflection.get(session_key)
+
+    def clear_last_reflection(self, session_key: str) -> None:
+        """清除指定会话的反思评估缓存。"""
+        self._last_reflection.pop(session_key, None)
 
     def inject_message(self, session_key: str, content: str, *, session_manager: Any) -> None:
         """向指定会话注入消息。

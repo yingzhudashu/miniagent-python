@@ -1281,7 +1281,7 @@ def cmd_improve(
             if force:
                 # 强制改进模式：即使无建议也允许改进（返回空建议列表）
                 return last_user, last_assistant, []
-            return f"{SUCCESS_PREFIX} 上一轮质量评估已通过，无需改进（使用 `.improve --force` 强制改进）", False
+            return f"{SUCCESS_PREFIX} 上一轮质量评估已通过，无需改进（使用 `/improve --force` 强制改进）", False
         else:
             return f"{WARNING_PREFIX} 上一轮未启用质量评估，无法改进", False
 
@@ -1290,7 +1290,7 @@ def cmd_improve(
     if metadata.get("improved") and not reset:
         improve_round = metadata.get("improve_round", 1)
         if improve_round >= 3:
-            return f"{WARNING_PREFIX} 已达到改进轮次上限（3轮），建议重新提问或使用 `.review`", False
+            return f"{WARNING_PREFIX} 已达到改进轮次上限（3轮），建议重新提问或使用 `/review`", False
 
     # 5. 返回改进所需的上下文
     return last_user, last_assistant, suggestions

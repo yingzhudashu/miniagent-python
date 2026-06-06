@@ -20,6 +20,7 @@ import sys
 import threading
 import time
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 from miniagent.core.constants import (
     CLI_THINKING_RICH,
@@ -175,6 +176,7 @@ class _SessionThinkingState:
         "buffer",
         "feishu_send",
         "feishu_chat_id",
+        "feishu_session_key",
         "feishu_reply_to_message_id",
         "feishu_reply_in_thread",
         "feishu_mirror_cli",
@@ -199,6 +201,7 @@ class _SessionThinkingState:
     buffer: list[str]
     feishu_send: OnFeishuSend | None
     feishu_chat_id: str
+    feishu_session_key: str
     feishu_reply_to_message_id: str | None
     feishu_reply_in_thread: bool
     feishu_mirror_cli: bool
@@ -224,6 +227,7 @@ class _SessionThinkingState:
         self.buffer = []
         self.feishu_send = None
         self.feishu_chat_id = ""
+        self.feishu_session_key = ""
         self.feishu_reply_to_message_id = None
         self.feishu_reply_in_thread = False
         self.feishu_mirror_cli = True
@@ -265,8 +269,10 @@ class ThinkingDisplay:
         self._output_sink: Callable[..., None] | None = None
         self._sink_has_kind: bool = False
         self._sink_accepts_ansi_markdown: bool = False
+        self._sink_accepts_session_key: bool = False
         # 全屏 TUI 下与 Assistant 回复区 Rich 宽度对齐（见 main.run_cli_loop）
         self._cli_markdown_width_fn: Callable[[], int] | None = None
+        self._cli_display_lock = threading.Lock()
 
     def set_cli_markdown_width(self, fn: Callable[[], int] | None) -> None:
         """设置 Rich 思考块渲染宽度；与 ``_cli_block_reply`` 的 ``md_w`` 一致时换行对齐。"""
@@ -290,6 +296,7 @@ class ThinkingDisplay:
         self._output_sink = sink
         self._sink_has_kind = False
         self._sink_accepts_ansi_markdown = False
+        self._sink_accepts_session_key = False
         if sink is not None:
             try:
                 sig = inspect.signature(sink)
@@ -298,33 +305,59 @@ class ThinkingDisplay:
                 self._sink_accepts_ansi_markdown = "ansi_markdown" in params or any(
                     p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
                 )
+                self._sink_accepts_session_key = "session_key" in params or any(
+                    p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+                )
             except (TypeError, ValueError):
                 self._sink_has_kind = False
                 self._sink_accepts_ansi_markdown = False
+                self._sink_accepts_session_key = False
 
-    def _emit(self, text: str, color: str = "ansigray") -> None:
-        """统一输出入口。"""
-        if self._output_sink:
-            if self._sink_has_kind:
-                self._output_sink(text, "chunk")
+    def _call_sink(
+        self,
+        text: str,
+        *,
+        kind: str | None = None,
+        session_key: str = "",
+        ansi_markdown: str | None = None,
+    ) -> None:
+        """调用 output_sink，按 sink 签名传递 kind / session_key / ansi_markdown。"""
+        if not self._output_sink:
+            return
+        kwargs: dict[str, Any] = {}
+        if self._sink_accepts_session_key:
+            kwargs["session_key"] = session_key
+        if ansi_markdown is not None and self._sink_accepts_ansi_markdown:
+            kwargs["ansi_markdown"] = ansi_markdown
+        if kind is not None and self._sink_has_kind:
+            if kwargs:
+                self._output_sink(text, kind, **kwargs)
             else:
-                self._output_sink(text)
+                self._output_sink(text, kind)
+        elif kwargs:
+            self._output_sink(text, **kwargs)
         else:
-            ft = FormattedText([(f"ansi{color}", text)])
-            print_formatted_text(ft, end="")
-            sys.stdout.flush()
+            self._output_sink(text)
 
-    def _emit_line(self, text: str, color: str = "ansigray") -> None:
+    def _emit(self, text: str, color: str = "ansigray", *, session_key: str = "") -> None:
+        """统一输出入口（CLI display lock 防止多 session mirror 交错）。"""
+        with self._cli_display_lock:
+            if self._output_sink:
+                self._call_sink(text, kind="chunk", session_key=session_key)
+            else:
+                ft = FormattedText([(f"ansi{color}", text)])
+                print_formatted_text(ft, end="")
+                sys.stdout.flush()
+
+    def _emit_line(self, text: str, color: str = "ansigray", *, session_key: str = "") -> None:
         """统一换行输出入口。"""
-        if self._output_sink:
-            if self._sink_has_kind:
-                self._output_sink(text + "\n", "label")
+        with self._cli_display_lock:
+            if self._output_sink:
+                self._call_sink(text + "\n", kind="label", session_key=session_key)
             else:
-                self._output_sink(text + "\n")
-        else:
-            ft = FormattedText([(f"ansi{color}", text + "\n")])
-            print_formatted_text(ft)
-            sys.stdout.flush()
+                ft = FormattedText([(f"ansi{color}", text + "\n")])
+                print_formatted_text(ft)
+                sys.stdout.flush()
 
     def _get_state(self, session_key: str) -> _SessionThinkingState:
         """懒创建并返回某会话的思考状态对象。
@@ -391,6 +424,7 @@ class ThinkingDisplay:
         """
         state = self._get_state(session_key)
         state.feishu_chat_id = chat_id
+        state.feishu_session_key = session_key
         state.feishu_send = send_callback
         state.feishu_reply_to_message_id = (reply_to_message_id or "").strip() or None
         state.feishu_reply_in_thread = bool(reply_in_thread)
@@ -441,7 +475,7 @@ class ThinkingDisplay:
             return False
         return True
 
-    def _show_streaming(self, state: _SessionThinkingState, text: str) -> None:
+    def _show_streaming(self, state: _SessionThinkingState, text: str, *, session_key: str = "") -> None:
         """流式思考正文增量输出（带内容连续性校验，防止丢字）。"""
         full = text.replace("\r\n", "\n")
 
@@ -467,7 +501,7 @@ class ThinkingDisplay:
 
         new_text = indent_stream_thinking_suffix(full, state.stream_printed)
         if new_text and self._should_emit_cli(state):
-            self._emit(new_text)
+            self._emit(new_text, session_key=session_key)
         state.stream_printed = len(full)
         state._last_stream_full = full  # 保存本次全文供下次校验
 
@@ -590,15 +624,12 @@ class ThinkingDisplay:
                     _logger.warning("飞书思考发送失败: %s", e)
                     err = f"⚠️ 飞书发送失败: {e}\n"
                     if self._output_sink:
-                        if self._sink_has_kind:
-                            self._output_sink(err, "label")
-                        else:
-                            self._output_sink(err)
+                        self._call_sink(err, kind="label", session_key=session_key)
 
         if merge_tools:
             if state.stream_step is not None and not state.stream_done:
                 if self._should_emit_cli(state):
-                    self._emit("\n")
+                    self._emit("\n", session_key=session_key)
                 state.stream_done = True
             lines = (text or "").splitlines() or [""]
             if self._buffer_enabled:
@@ -624,10 +655,10 @@ class ThinkingDisplay:
                     and self._output_sink
                     and self._sink_accepts_ansi_markdown
                 ):
-                    self._output_sink("", "chunk", ansi_markdown=ansi_body)
-                    self._emit("\n")
+                    self._call_sink("", kind="chunk", session_key=session_key, ansi_markdown=ansi_body)
+                    self._emit("\n", session_key=session_key)
                 else:
-                    self._emit(body_md + "\n")
+                    self._emit(body_md + "\n", session_key=session_key)
             # 保留 stream_step / stream_printed / stream_header：同一步内工具后继续流式不新开 CLI 标签、不重复打印已输出正文
             state.stream_done = False
             return
@@ -648,7 +679,7 @@ class ThinkingDisplay:
                 # 前一个流式阶段已结束（非流式调用结束或 end_thinking），先补空行
                 if state.stream_done:
                     if self._should_emit_cli(state):
-                        self._emit("\n\n")  # 阶段间空行：结束上一阶段 + 留一行间隔
+                        self._emit("\n\n", session_key=session_key)  # 阶段间空行：结束上一阶段 + 留一行间隔
                 state.stream_step = self._next_step(session_key)
                 state.stream_header = header or ""
                 state.stream_printed = 0
@@ -656,9 +687,9 @@ class ThinkingDisplay:
                 state._last_stream_full = ""
                 label = f"\U0001f4ad [{state.stream_step}] {state.stream_header}"
                 if self._should_emit_cli(state):
-                    self._emit_line(label, "gray")
+                    self._emit_line(label, "gray", session_key=session_key)
 
-            self._show_streaming(state, text)
+            self._show_streaming(state, text, session_key=session_key)
         else:
             # 非流式：结束之前的流式
             # 最后一步的阶段开始提示（如 "[步骤 X/Y] 开始"）不在思考区显示
@@ -669,7 +700,7 @@ class ThinkingDisplay:
             saved_header = ""
             if state.stream_step is not None and not state.stream_done:
                 if self._should_emit_cli(state):
-                    self._emit("\n\n")  # 阶段间空行：结束流式 + 留一行间隔
+                    self._emit("\n\n", session_key=session_key)  # 阶段间空行：结束流式 + 留一行间隔
                 # 飞书侧也需收尾当前流式卡片
                 if state.feishu_send and state.feishu_chat_id:
                     try:
@@ -707,9 +738,9 @@ class ThinkingDisplay:
                 state.feishu_pending_header = hdr
                 if self._should_emit_cli(state):
                     if _is_transition:
-                        self._emit("\n\n")  # 阶段间空行：规划与执行之间留一行间隔
+                        self._emit("\n\n", session_key=session_key)  # 阶段间空行：规划与执行之间留一行间隔
                     label = f"\U0001f4ad [{state.stream_step}] {state.stream_header}"
-                    self._emit_line(label, "gray")
+                    self._emit_line(label, "gray", session_key=session_key)
                 if self._should_emit_cli(state):
                     # 与非 merge_tools 路径保持一致的 Rich Markdown 渲染
                     body_md = "\n".join(lines)
@@ -731,16 +762,16 @@ class ThinkingDisplay:
                         and self._output_sink
                         and self._sink_accepts_ansi_markdown
                     ):
-                        self._output_sink("", "chunk", ansi_markdown=ansi_body)
-                        self._emit("\n")
+                        self._call_sink("", kind="chunk", session_key=session_key, ansi_markdown=ansi_body)
+                        self._emit("\n", session_key=session_key)
                     else:
-                        self._emit(body_md + "\n")
+                        self._emit(body_md + "\n", session_key=session_key)
                 state.stream_done = False
                 return
 
             if self._should_emit_cli(state):
                 hdr_part = f" {saved_header}" if saved_header else ""
-                self._emit_line(f"\U0001f4ad [{step}]{hdr_part}", "gray")
+                self._emit_line(f"\U0001f4ad [{step}]{hdr_part}", "gray", session_key=session_key)
                 body_md = text or ""
                 ansi_body: str | None = None
                 if (
@@ -760,29 +791,38 @@ class ThinkingDisplay:
                     and self._output_sink
                     and self._sink_accepts_ansi_markdown
                 ):
-                    self._output_sink("", "chunk", ansi_markdown=ansi_body)
-                    self._emit("\n")  # 非流式正文后补换行，避免与下一区块黏连
+                    self._call_sink("", kind="chunk", session_key=session_key, ansi_markdown=ansi_body)
+                    self._emit("\n", session_key=session_key)  # 非流式正文后补换行，避免与下一区块黏连
                 else:
                     body = "\n".join(lines)
-                    self._emit(body + "\n")
+                    self._emit(body + "\n", session_key=session_key)
 
-    def end_thinking(self) -> None:
-        """结束当前流式显示块。
+    def end_thinking(self, session_key: str | None = None) -> None:
+        """结束流式显示块。
 
-        并发安全：使用list()包装遍历，防止修改期间RuntimeError。
+        ``session_key`` 指定时仅收尾该会话；``None`` 时收尾全部（兼容旧行为）。
         """
-        for state in list(self._states.values()):  # 防止遍历期间修改
+        if session_key is not None:
+            sk = (session_key or "").strip()
+            target_keys = [sk] if sk in self._states else []
+        else:
+            target_keys = list(self._states.keys())
+
+        def _finalize(sk: str, state: _SessionThinkingState) -> None:
             if state.stream_step is not None and not state.stream_done:
                 if self._should_emit_cli(state):
-                    self._emit("\n\n\n")  # 思考结束空行（2行空白）
+                    self._emit("\n\n\n", session_key=sk)
                 state.stream_done = True
                 state.stream_step = None
                 state.stream_header = ""
                 state.stream_printed = 0
                 state._last_stream_full = ""
-        if self._default.stream_step is not None and not self._default.stream_done:
+
+        for sk in target_keys:
+            _finalize(sk, self._states[sk])
+        if session_key is None and self._default.stream_step is not None and not self._default.stream_done:
             if self._should_emit_cli(self._default):
-                self._emit("\n\n\n")  # 思考结束空行（2行空白）
+                self._emit("\n\n\n", session_key="")
             self._default.stream_done = True
             self._default.stream_step = None
             self._default.stream_header = ""

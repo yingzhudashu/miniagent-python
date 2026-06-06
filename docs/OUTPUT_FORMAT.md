@@ -169,7 +169,13 @@ Assistant
 
 ### 3.4 跨通道隔离
 
-CLI 与飞书共进程时，通过 `UnifiedEngine._exec_lock`（`asyncio.Lock`）确保同一时刻只有一个通道在处理 Agent 请求，避免输出交叉。
+CLI 与飞书共进程时：
+
+- **Agent 执行**：`SessionExecCoordinator` 按 `session_key` 加锁；不同 session 可并行（`agent.parallel_sessions`，默认开启），同一 session 串行。
+- **CLI 镜像门控**：`should_mirror_feishu_to_cli` 统一控制 user / thinking / reply 全链路是否写入 CLI transcript；一般模式下后台群仅 Agent 处理、不入 CLI。
+- **CLI 轮次协调**：`CliTranscriptCoordinator` 在 agent 轮次间登记 `begin_turn` / `end_turn`；单 turn live 流式，多 turn 并存时后续 turn 整轮缓冲并按 FIFO flush；未登记 turn 在有其他 active turn 时不写 CLI。飞书 `media_handler` 与 fallback CLI（print 锁 + coordinator）同样接入。
+- **CLI 展示**：`ThinkingDisplay._cli_display_lock` 防止 chunk 级字符交错；`_thinking_sink` 按 `session_key` 隔离流式替换状态。
+- **回退**：`agent.parallel_sessions: false` 时协调器退化为直写，并恢复全局单飞 + 跨队列 FIFO。
 
 ## 4. 流式输出机制
 

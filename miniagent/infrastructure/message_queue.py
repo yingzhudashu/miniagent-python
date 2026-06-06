@@ -122,8 +122,12 @@ class _ChatQueue:
             if self._current_task and not self._current_task.done():
                 self._current_task.cancel()
             self._queue.clear()
-            # 直接执行新任务（不走队列），但仍需获取全局执行锁
-            if self._manager is not None and self._manager.exec_lock is not None:
+            # 直接执行新任务（不走队列），跨队列串行时获取全局执行锁
+            if (
+                self._manager is not None
+                and self._manager.cross_queue_serial
+                and self._manager.exec_lock is not None
+            ):
                 await self._manager.exec_lock.acquire()
             try:
                 self._current_task = asyncio.create_task(coro)
@@ -138,7 +142,11 @@ class _ChatQueue:
                 finally:
                     self._current_task = None
             finally:
-                if self._manager is not None and self._manager.exec_lock is not None:
+                if (
+                    self._manager is not None
+                    and self._manager.cross_queue_serial
+                    and self._manager.exec_lock is not None
+                ):
                     self._manager.exec_lock.release()
         else:
             # 队列模式：创建包装任务加入队列，由 _run_sequential 保证串行
@@ -184,8 +192,12 @@ class _ChatQueue:
             async with self._lock:
                 self._processing = True
                 self.mark_task_start()
-                # 跨队列执行锁：在持有队列锁时获取，保证全局 FIFO
-                if self._manager is not None and self._manager.exec_lock is not None:
+                # 跨队列执行锁：parallel_sessions 关闭时在持有队列锁时获取，保证全局 FIFO
+                if (
+                    self._manager is not None
+                    and self._manager.cross_queue_serial
+                    and self._manager.exec_lock is not None
+                ):
                     await self._manager.exec_lock.acquire()
                 try:
                     if on_start:
@@ -195,7 +207,11 @@ class _ChatQueue:
                     if on_done:
                         on_done()
                 finally:
-                    if self._manager is not None and self._manager.exec_lock is not None:
+                    if (
+                        self._manager is not None
+                        and self._manager.cross_queue_serial
+                        and self._manager.exec_lock is not None
+                    ):
                         self._manager.exec_lock.release()
                     self._processing = False
                     self.mark_task_end()
@@ -298,10 +314,21 @@ class MessageQueueManager:
         """
         self._mode = QueueMode.QUEUE
         self._queues: dict[str, _ChatQueue] = {}
-        # 跨队列执行排序锁：各 _ChatQueue._run_sequential 在运行协程前必须获取此锁，
+        # parallel_sessions=true 时 cross_queue_serial=false，不同 chat_id 可并行到引擎
+        self._cross_queue_serial = True
+        # 跨队列执行排序锁：各 _ChatQueue._run_sequential 在 cross_queue_serial 时运行协程前必须获取此锁，
         # 保证 CLI 与飞书等不同通道的消息按入队顺序全局 FIFO 执行。
-        # 注意：此锁与 engine._exec_lock **不同**，避免同一任务重复获取同一 asyncio.Lock 导致死锁。
+        # 注意：此锁与 SessionExecCoordinator **不同**，避免同一任务重复获取同一 asyncio.Lock 导致死锁。
         self.exec_lock: asyncio.Lock | None = None
+
+    @property
+    def cross_queue_serial(self) -> bool:
+        """是否跨 chat_id 全局 FIFO（parallel_sessions=false 时为 True）。"""
+        return self._cross_queue_serial
+
+    @cross_queue_serial.setter
+    def cross_queue_serial(self, value: bool) -> None:
+        self._cross_queue_serial = bool(value)
 
     def ensure_exec_lock(self) -> asyncio.Lock:
         """获取或创建跨队列执行排序锁。
@@ -348,7 +375,8 @@ class MessageQueueManager:
         各队列的 ``_run_sequential`` 在运行协程前必须先获取此锁，
         从而保证跨队列的 FIFO 执行顺序（CLI 与飞书消息的全局排序）。
 
-        **注意**：此锁**不能**是 ``engine._exec_lock``（同一任务重复获取同一
+        **注意**：此锁**不能**与 ``SessionExecCoordinator`` 使用同一
+        ``asyncio.Lock`` 实例（同一任务重复获取同一
         ``asyncio.Lock`` 会死锁）。应使用 ``MessageQueueManager.ensure_exec_lock()``
         创建独立的锁实例。
 
