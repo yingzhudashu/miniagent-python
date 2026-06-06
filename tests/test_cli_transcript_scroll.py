@@ -19,6 +19,12 @@ def _ctrl_l_handler_block(source: str) -> str:
     return source[start:end]
 
 
+def _reset_and_reload_transcript_block(source: str) -> str:
+    start = source.index("def _reset_and_reload_transcript(")
+    end = source.index("def _trigger_lazy_load_more_history(", start)
+    return source[start:end]
+
+
 def test_pageup_pagedown_use_apply_transcript_scroll() -> None:
     source = _main_source()
     assert re.search(
@@ -31,9 +37,9 @@ def test_pageup_pagedown_use_apply_transcript_scroll() -> None:
     )
 
 
-def test_ctrl_l_uses_reset_horizontal_scroll() -> None:
+def test_ctrl_l_uses_reset_and_reload_transcript() -> None:
     block = _ctrl_l_handler_block(_main_source())
-    assert "_reset_horizontal_scroll()" in block
+    assert "_reset_and_reload_transcript(reset_scroll_to_top=True)" in block
 
 
 def test_ctrl_l_no_invalid_output_scroll_assignment() -> None:
@@ -46,6 +52,9 @@ def test_scrollbar_style_high_contrast() -> None:
     assert re.search(r'"scrollbar\.button":\s*"bg:ansibrightcyan', source)
 
 
-def test_ctrl_l_uses_sp_helper() -> None:
-    block = _ctrl_l_handler_block(_main_source())
+def test_reset_and_reload_transcript_resets_scroll_when_requested() -> None:
+    block = _reset_and_reload_transcript_block(_main_source())
+    assert "if reset_scroll_to_top:" in block
     assert re.search(r"sp\s*=\s*_sp\(\)", block)
+    assert "sp.vertical_scroll = 0" in block
+    assert "_reset_horizontal_scroll()" in block

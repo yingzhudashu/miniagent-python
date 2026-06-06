@@ -513,7 +513,6 @@ __all__ = [
     "TestSessionCommand",
     "TestFeishuCommand",
     "TestQueueCommand",
-    "TestBindCommand",
     "TestHelpCommand",
     "TestStatsCommand",
     "TestModelCommand",

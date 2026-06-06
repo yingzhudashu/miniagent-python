@@ -271,10 +271,12 @@ async def test_runner_sends_feishu_reply_on_mirror(tmp_path) -> None:
 def test_cmd_schedule_add_uses_tz_fallback(
     monkeypatch: pytest.MonkeyPatch, tmp_path,
 ) -> None:
+    state_dir = str(tmp_path)
+    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", state_dir)
     install_test_config(
         tmp_path,
         {
-            "paths": {"state_dir": str(tmp_path)},
+            "paths": {"state_dir": state_dir},
             "timezone": {"default": ""},
         },
     )

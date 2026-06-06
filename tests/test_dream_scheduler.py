@@ -11,9 +11,11 @@ from tests.config_helpers import install_test_config
 
 
 @pytest.fixture(autouse=True)
-def isolate_state(tmp_path: Path) -> None:
+def isolate_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Redirect paths.state_dir to tmp_path."""
-    install_test_config(tmp_path, {"paths": {"state_dir": str(tmp_path)}})
+    state_dir = str(tmp_path)
+    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", state_dir)
+    install_test_config(tmp_path, {"paths": {"state_dir": state_dir}})
 
 
 def test_load_dream_state_missing() -> None:

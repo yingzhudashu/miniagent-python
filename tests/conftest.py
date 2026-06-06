@@ -25,19 +25,13 @@ sys.path.insert(0, PROJECT_ROOT)
 
 
 @pytest.fixture()
-def state_dir(tmp_path) -> str:
-    """Isolated state directory via config.user.json paths.state_dir."""
-    import json
+def state_dir(tmp_path, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Isolated state directory via MINIAGENT_PATHS_STATE_DIR env override.
 
-    from miniagent.infrastructure.json_config import JsonConfigLoader
-
+    使用环境变量而非配置文件，避免 resolve_state_dir() 添加 projects/{key} 后缀。
+    """
     d = str(tmp_path / "state")
-    user_path = tmp_path / "config.user.json"
-    user_path.write_text(json.dumps({"paths": {"state_dir": d}}), encoding="utf-8")
-    JsonConfigLoader._instance = JsonConfigLoader(
-        defaults_path=os.path.join(PROJECT_ROOT, "config.defaults.json"),
-        user_path=str(user_path),
-    )
+    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", d)
     return d
 
 
