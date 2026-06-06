@@ -550,6 +550,20 @@ async def run_cli_loop(
             # 防止计数器减到负数
             _transcript_total_len[0] = max(0, _transcript_total_len[0] - frag_len)
 
+    def _transcript_prepend(style: Any, text: str) -> None:
+        """安全地在 transcript 顶部插入内容，处理 deque 已满的情况。
+
+        当 deque 达到 maxlen 上限时，先从右侧（最新内容）移除一个元素，
+        然后再插入到左侧（历史内容）。这确保加载历史时不会崩溃。
+        """
+        if len(_transcript) >= _transcript.maxlen:
+            # deque 已满，从右侧移除最新内容以腾出空间
+            old = _transcript.pop()
+            frag_len = _transcript_fragment_len(old)
+            _transcript_total_len[0] = max(0, _transcript_total_len[0] - frag_len)
+        _transcript.insert(0, (style, text))
+        _transcript_total_len[0] += len(text)
+
     def _render_history_message_to_transcript(msg: dict, prepend: bool = False) -> None:
         """将历史消息渲染到 transcript。
 
@@ -574,11 +588,11 @@ async def run_cli_loop(
                 # insert(0) 后插入的在上面，所以要：先插内容，再插标题分隔线
                 # 最终显示：spacer → 上分隔线 → 标题 → 内容 → 下分隔线
                 for line in content.splitlines():
-                    _transcript.insert(0, ("class:cli-user-body", line + "\n"))
-                _transcript.insert(0, ("class:cli-user-title", "You\n"))
-                _transcript.insert(0, ("class:cli-border", "─" * rule_w + "\n"))
-                _transcript.insert(0, ("class:cli-border-strong", "═" * rule_w + "\n"))
-                _transcript.insert(0, ("class:cli-spacer", "\n"))
+                    _transcript_prepend("class:cli-user-body", line + "\n")
+                _transcript_prepend("class:cli-user-title", "You\n")
+                _transcript_prepend("class:cli-border", "─" * rule_w + "\n")
+                _transcript_prepend("class:cli-border-strong", "═" * rule_w + "\n")
+                _transcript_prepend("class:cli-spacer", "\n")
             else:
                 _cli_block_user(content)
         elif role == "assistant":
@@ -591,18 +605,18 @@ async def run_cli_loop(
                     safe_ft = _safe_ansi(ansi)
                     # 反向插入（prepend）
                     for style, txt in reversed(safe_ft):
-                        _transcript.insert(0, (style, txt))
+                        _transcript_prepend(style, txt)
                 else:
                     for line in content.splitlines():
-                        _transcript.insert(0, ("class:cli-reply-body", line + "\n"))
-                _transcript.insert(0, ("class:cli-reply-title", "Agent\n"))
-                _transcript.insert(0, ("class:cli-border", "─" * rule_w + "\n"))
+                        _transcript_prepend("class:cli-reply-body", line + "\n")
+                _transcript_prepend("class:cli-reply-title", "Agent\n")
+                _transcript_prepend("class:cli-border", "─" * rule_w + "\n")
             else:
                 _cli_block_reply(content)
         elif role == "thinking":
             if prepend:
-                _transcript.insert(0, ("class:cli-think-head", "💭 Thinking\n"))
-                _transcript.insert(0, ("class:cli-spacer", "\n"))
+                _transcript_prepend("class:cli-think-head", "💭 Thinking\n")
+                _transcript_prepend("class:cli-spacer", "\n")
             else:
                 _append_transcript("class:cli-think-head", "💭 Thinking\n")
 
@@ -727,9 +741,8 @@ async def run_cli_loop(
             # 如果仍有更多，恢复提示
             if not _history_loaded_range["all_loaded"]:
                 remaining = total - _history_loaded_range["loaded_end"]
-                _transcript.insert(
-                    0,
-                    ("class:cli-hint", f"\n[↑ 加载更多历史 · 还有 {remaining} 条]\n")
+                _transcript_prepend(
+                    "class:cli-hint", f"\n[↑ 加载更多历史 · 还有 {remaining} 条]\n"
                 )
 
             # 刷新显示
