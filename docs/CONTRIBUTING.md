@@ -1,6 +1,6 @@
 # 贡献指南
 
-> Mini Agent Python | 版本: 2.0.3
+> Mini Agent Python | 版本: 2.1.0
 
 ## 项目架构
 

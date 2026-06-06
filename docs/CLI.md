@@ -1,6 +1,6 @@
 # CLI 命令手册
 
-> Mini Agent Python | 版本: 2.0.3 | 命令使用 `/` 前缀；多数命令在 CLI 与飞书均可使用
+> Mini Agent Python | 版本: 2.1.0 | 命令使用 `/` 前缀；多数命令在 CLI 与飞书均可使用
 
 **命令前缀**：系统统一使用 `/` 前缀（更符合CLI惯例）。例如：`/help`、`/status`、`/session list`。
 

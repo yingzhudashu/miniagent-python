@@ -1,6 +1,6 @@
 # 软件工程实践与仓库卫生
 
-> Mini Agent Python | 版本: 2.0.3 | 与 `miniagent.__version__` 对齐 | 未发版行为见 [CHANGELOG](../CHANGELOG.md) `[Unreleased]`
+> Mini Agent Python | 版本: 2.1.0 | 与 `miniagent.__version__` 对齐 | 未发版行为见 [CHANGELOG](../CHANGELOG.md) `[Unreleased]`
 
 本文档汇总本仓库在**可维护性、可重复构建、安全与协作**上的约定，作为 [CONTRIBUTING.md](CONTRIBUTING.md) 的补充：后者偏「如何写代码」，本文偏「仓库与发布如何保持健康」。
 
@@ -86,7 +86,7 @@ CI 说明：
 
 - 性能合成与剖析流程见 [PERFORMANCE.md](PERFORMANCE.md)；可选 workflow **Perf smoke**（`workflow_dispatch` / 定时）跑 `pytest -m perf` 与 `scripts/perf_profile_tracemalloc.py` 并上传带 commit SHA 的 artifact；离线对比两次 JSON 可用 `scripts/compare_perf_snapshots.py`。
 - **可选 pre-commit**：仓库根 [`.pre-commit-config.yaml`](../.pre-commit-config.yaml) 提供 `ruff` hook（路径 `miniagent`、`tests`）；本地执行 `pip install pre-commit && pre-commit install` 后随 commit 检查。
-- **维护脚本清单**见 [scripts/README.md](../scripts/README.md)；v2.0.3 手工 verify 脚本已移除，性能回归用 `pytest -m perf` 与 `scripts/perf_profile_tracemalloc.py`。
+- **维护脚本清单**见 [scripts/README.md](../scripts/README.md)；自 v2.0.3 起，手工 verify 脚本已移除，性能回归用 `pytest -m perf` 与 `scripts/perf_profile_tracemalloc.py`。
 
 ---
 

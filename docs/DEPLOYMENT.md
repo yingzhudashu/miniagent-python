@@ -1,6 +1,6 @@
 # 部署指南
 
-> 模块: Mini Agent Python | 版本: 2.0.3（权威版本号见 `miniagent/__init__.py`）
+> 模块: Mini Agent Python | 版本: 2.1.0（权威版本号见 `miniagent/__init__.py`）
 
 ## 环境要求
 

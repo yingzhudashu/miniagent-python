@@ -1,6 +1,6 @@
 # 系统架构
 
-> Mini Agent Python | 版本: 2.0.3 | 架构图: [architecture.drawio](architecture.drawio)
+> Mini Agent Python | 版本: 2.1.0 | 架构图: [architecture.drawio](architecture.drawio)
 
 ## 架构总览
 
@@ -417,7 +417,7 @@ LLM 可通过 function calling 调用的工具：
 | `knowledge/registry.py` | `KnowledgeRegistry`：多知识库挂载/卸载/跨库检索、持久化 |
 | `tools/knowledge_tools.py` | Agent 工具：`search_knowledge`、`read_knowledge_file`、`kb_list` |
 
-**RAG 全面集成**（v2.0.3 新增）：
+**RAG 全面集成**（自 v2.0.3 起）：
 
 知识库现已内化到 Agent 的所有核心阶段，实现"主动检索 + 自动注入"双模式：
 

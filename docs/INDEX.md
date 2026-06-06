@@ -1,6 +1,6 @@
 # Mini Agent Python — 文档索引
 
-> 📅 最后更新: 2026-06-03 | 版本: 2.0.3（与 `miniagent.__version__` 对齐；未发版行为以 [CHANGELOG](../CHANGELOG.md) `[Unreleased]` 为准）
+> 📅 最后更新: 2026-06-03 | 版本: 2.1.0（与 `miniagent.__version__` 对齐；未发版行为以 [CHANGELOG](../CHANGELOG.md) `[Unreleased]` 为准）
 
 ---
 
@@ -59,8 +59,7 @@
 
 ## 📊 测试与质量
 
-- **测试文件**：160+
-- **测试用例**：1246+
+- **测试数量**：以 `pytest tests/ --collect-only -q` 收集结果为准
 - **核心覆盖率**：95%+
 - **测试矩阵**：[TEST_COVERAGE_MATRIX.md](TEST_COVERAGE_MATRIX.md)
 

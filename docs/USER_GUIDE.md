@@ -255,7 +255,7 @@ cp config.defaults.json config.user.json
 | `model.base_url` | 可选。使用官方或兼容网关时按服务商说明填写。 |
 | `model.model` | 可选。默认可用服务商推荐的模型 id。 |
 
-### 4.3 常用可选配置（摘选）
+### 5.3 常用可选配置（摘选）
 
 完整配置项以 `config.defaults.json` 为准。下表仅列新手常问的项：
 
@@ -269,13 +269,13 @@ cp config.defaults.json config.user.json
 | `secrets.feishu_app_id` / `secrets.feishu_app_secret` | 飞书应用凭证 |
 | `paths.state_dir` | 状态根目录，默认 `workspaces` |
 
-### 4.4 配置分层说明
+### 5.4 配置分层说明
 
 `config.defaults.json` 顶部 `_config_guide` 列出 **User 层**与 **Advanced 层**节名。普通用户只需在 `config.user.json` 覆盖 User 层键；Advanced 节（`memory`、`trace`、`dream`、`self_optimization`）一般保持默认。
 
 运行时优先级：**config.user.json > config.defaults.json**（不支持 `MINIAGENT_*` 环境变量覆盖）。
 
-### 4.5 从旧版本迁移
+### 5.5 从旧版本迁移
 
 若曾使用 `.env` 或 `MINIAGENT_*` 环境变量：
 
@@ -288,7 +288,7 @@ cp config.defaults.json config.user.json
 
 ## 6. 第一次启动与退出
 
-### 5.1 仅终端（CLI）
+### 6.1 仅终端（CLI）
 
 ```bash
 python -m miniagent
@@ -308,7 +308,7 @@ python -m miniagent --session <会话ID>
 
 看到欢迎信息后，可直接用 **自然语言** 输入需求。部分环境也可用 `quit` / `exit` 退出（与 [CLI.md](CLI.md) 一致）。
 
-### 5.2 终端 + 飞书同时启动
+### 6.2 终端 + 飞书同时启动
 
 需已安装 `[feishu]` 并配置飞书环境变量：
 
@@ -319,7 +319,7 @@ python -m miniagent --feishu --continue   # 同时恢复上次 CLI 会话
 
 飞书 **不会** 单独占一个无终端的进程；始终与 CLI 主循环一起。更多见第 10 章与 [FEISHU.md](FEISHU.md)。
 
-### 5.3 多实例与停止其它进程
+### 6.3 多实例与停止其它进程
 
 ```bash
 python -m miniagent --stop
@@ -344,7 +344,7 @@ python -m miniagent --stop
 
 多数以下命令在 **CLI 与飞书** 中均可使用（前缀为斜杠 `/`）。**`/schedule` 的 add/update/remove/enable/disable** 及部分 **`/session` 变异** 仅允许在本机 CLI 执行（见第 8 章）。**完整说明、示例输出与边界情况** 见 [CLI.md](CLI.md)。
 
-### 7.1 最常用命令（速查）
+### 8.1 最常用命令（速查）
 
 | 命令 | 作用 |
 |------|------|
@@ -360,7 +360,7 @@ python -m miniagent --stop
 
 **完整命令表、示例输出与边界情况** → [CLI.md](CLI.md)。
 
-### 7.2 使用提示
+### 8.2 使用提示
 
 - 命令前必须是 **`/`**（斜杠），后面跟子命令与参数，中间空格按 [CLI.md](CLI.md) 示例。
 - 不确定时先 `/help` 或 `/status`。
@@ -439,15 +439,15 @@ python -m miniagent --stop
 
 ## 15. 状态目录、备份与 Git
 
-### 14.1 默认布局
+### 15.1 默认布局
 
 默认布局下，**项目业务状态**（会话、锁、飞书去重、记忆索引等）写入 miniagent 安装/源码根下的 **`workspaces/projects/{project_key}/`**（按启动 cwd 自动区分）；**实例注册表** 仍在 `workspaces/instances/`。若 cwd 下存在旧版 `{cwd}/workspaces/` 数据，legacy 回退会继续使用该路径。可在 `config.user.json` 设置绝对 `paths.state_dir` 或通过 `MINIAGENT_PATHS_STATE_DIR` 将项目数据迁到其它磁盘路径，便于备份或多副本隔离。
 
-### 14.2 哪些不应提交到 Git
+### 15.2 哪些不应提交到 Git
 
 根目录 `.gitignore` 已忽略多数运行时目录与文件（如 `workspaces/sessions/`、`workspaces/scheduled_tasks/`、`workspaces/memory/`、`workspaces/feishu/`、`keyword-index.json` 等）。**不要** 强行把含隐私对话或密钥的文件 `git add` 进去。政策说明见 [ENGINEERING.md](ENGINEERING.md) §3.1。
 
-### 14.3 备份建议
+### 15.3 备份建议
 
 若 `paths.state_dir` 指向重要数据目录，请用你自己的备份方案（加密盘、权限控制、定期拷贝）。详见 [DEPLOYMENT.md](DEPLOYMENT.md) 与 [SECURITY.md](SECURITY.md)。
 

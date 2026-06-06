@@ -26,9 +26,15 @@ perf.out
 # 测试覆盖率产物
 .coverage
 .coverage.*
+htmlcov/
 
 # Claude Code session 目录
 .claude/
+
+# IDE和编辑器
+.vscode/
+.idea/
+.cursor/plans/
 
 # 运行时工作目录（全部忽略，但保留示例文件）
 workspaces/*

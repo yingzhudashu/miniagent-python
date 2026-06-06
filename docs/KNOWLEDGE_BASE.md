@@ -247,7 +247,7 @@ class KnowledgeRegistry:
 
 ## Agent 如何使用知识库（RAG 全面集成）
 
-MiniAgent v2.0.3 实现了知识库的全面内化，Agent 在所有核心阶段都能使用 RAG：
+MiniAgent v2.1.0 实现了知识库的全面内化，Agent 在所有核心阶段都能使用 RAG：
 
 ### 主动检索模式（工具层）
 

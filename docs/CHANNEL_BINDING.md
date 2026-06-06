@@ -1,6 +1,6 @@
 # 通道绑定 (Channel Binding)
 
-> Mini Agent Python | 版本: 2.0.3 | CLI 与飞书通道如何映射到同一会话
+> Mini Agent Python | 版本: 2.1.0 | CLI 与飞书通道如何映射到同一会话
 
 ## 设计原理
 
