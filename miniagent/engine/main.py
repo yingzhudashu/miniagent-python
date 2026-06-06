@@ -51,6 +51,8 @@ from miniagent.engine.shutdown import shutdown_runtime
 from miniagent.engine.utils import detect_mime_from_magic, get_render_width
 from miniagent.engine.utils import feishu_user_status_fn as _feishu_user_status_fn
 from miniagent.infrastructure.instance import (
+    ProjectDirConflictError,
+    format_project_conflict_message,
     heartbeat,
     register_instance,
     unregister_instance,
@@ -120,15 +122,14 @@ async def unified_main(ctx: RuntimeContext) -> None:
     # 磁盘注册：分配 instance_id 前会清扫 PID 已失效的目录（不 kill 其它进程）
     feishu_mode = "--feishu" in sys.argv
 
-    # 解析 --session <name> 启动参数
-    _si = sys.argv.index("--session") if "--session" in sys.argv else -1
-    if _si >= 0 and _si + 1 < len(sys.argv):
-        os.environ["MINIAGENT_SESSION_NAME"] = sys.argv[_si + 1]
-
-    reg_result = register_instance(
-        mode="both" if feishu_mode else "cli",
-        active_sessions=[],
-    )
+    try:
+        reg_result = register_instance(
+            mode="both" if feishu_mode else "cli",
+            active_sessions=[],
+        )
+    except ProjectDirConflictError as e:
+        print(format_project_conflict_message(e.existing_meta))
+        raise SystemExit(2) from e
     instance_id = reg_result.get("instance_id", 0)
 
     # 全局状态（通过闭包传递）
@@ -632,6 +633,32 @@ async def run_cli_loop(
                 )
         except Exception as e:
             _logger.exception(f"历史加载异常: {e}")
+
+    def _reset_and_reload_transcript(*, reset_scroll_to_top: bool = False) -> None:
+        """清空 transcript 并重新加载当前会话历史（启动 / 切换会话 / Ctrl+L）。"""
+        _transcript.clear()
+        _transcript_total_len[0] = 0
+        _history_loaded_range["total_messages"] = 0
+        _history_loaded_range["loaded_start"] = 0
+        _history_loaded_range["loaded_end"] = 0
+        _history_loaded_range["all_loaded"] = False
+        _history_loaded_range["loading"] = False
+
+        if reset_scroll_to_top:
+            sp = _sp()
+            if sp is not None:
+                sp.vertical_scroll = 0
+            _reset_horizontal_scroll()
+
+        input_buffer.history = SafeFileHistory(history_file)
+        _load_session_history_to_input(state, input_buffer)
+        _load_initial_history_to_transcript()
+        _stick_bottom[0] = True
+        try:
+            _snap_output_bottom()
+            get_app().invalidate()
+        except Exception:
+            pass
 
     def _trigger_lazy_load_more_history() -> None:
         """触发懒加载更多历史（防重入）。"""
@@ -1778,28 +1805,7 @@ async def run_cli_loop(
         4. 重置历史加载状态
         5. 重新加载初始历史（保持用户体验）
         """
-        # 清空transcript列表
-        _transcript.clear()
-        # 性能优化：重置累计长度计数器
-        _transcript_total_len[0] = 0
-        # 重置滚动位置到顶部
-        sp = _sp()
-        if sp is not None:
-            sp.vertical_scroll = 0
-        # 重置水平滚动（使用正确的方法）
-        _reset_horizontal_scroll()
-
-        # 重置历史加载状态，以便重新加载
-        _history_loaded_range["total_messages"] = 0
-        _history_loaded_range["loaded_start"] = 0
-        _history_loaded_range["loaded_end"] = 0
-        _history_loaded_range["all_loaded"] = False
-        _history_loaded_range["loading"] = False
-
-        # 重新加载初始历史（保持用户体验）
-        _load_initial_history_to_transcript()
-
-        _stick_bottom[0] = True
+        _reset_and_reload_transcript(reset_scroll_to_top=True)
         event.app.invalidate()
 
     @kb.add("c-t", filter=has_focus(input_buffer))
@@ -2375,7 +2381,7 @@ async def run_cli_loop(
             _append_transcript("class:cli-err", f"❌ 错误: {e}\n")
 
     # 加载初始历史到 transcript
-    _load_initial_history_to_transcript()
+    _reset_and_reload_transcript()
 
     while True:
         try:
@@ -2440,6 +2446,7 @@ async def run_cli_loop(
         if user_input.startswith("/"):
             from miniagent.engine.command_dispatch import dispatch_command
 
+            prev_session_id = state["active_session_id"]
             reply = await dispatch_command(
                 user_input,
                 state=state,
@@ -2452,6 +2459,8 @@ async def run_cli_loop(
                 allow_session_mutations_when_capture=True,
                 feishu_user_status=_feishu_user_status_fn(ctx),
             )
+            if state["active_session_id"] != prev_session_id:
+                _reset_and_reload_transcript(reset_scroll_to_top=True)
             if reply == "__EXIT__":
                 break
             if reply is not None:
@@ -2479,8 +2488,10 @@ async def run_cli_loop(
     set_console_log_threshold(logging.INFO)
     ctx.cli_transcript_append = None
 
+    from miniagent.engine.session_continue import save_cli_session_state
+
     # 保存 CLI 上次会话状态（--continue 功能）
-    _save_cli_session_state(ctx, state)
+    save_cli_session_state(ctx, state)
 
     release_session_lock(state["active_session_id"])
     try:
@@ -2491,31 +2502,74 @@ async def run_cli_loop(
     print("\n\U0001f44b bye\n", file=sys.stdout, flush=True)
 
 
-def _save_cli_session_state(ctx: RuntimeContext, state: CliLoopState) -> None:
-    """保存 CLI 上次会话状态到持久化（--continue 功能）。"""
+def _print_history_summary_fallback(
+    session_manager: Any,
+    session_id: str,
+    *,
+    rule_heavy: Any,
+    rule_light: Any,
+    get_width: Any,
+    header: str | None = None,
+) -> None:
+    """简易 CLI：将最近会话历史打印到 stdout（启动或切换会话后）。"""
+    if not session_manager or not session_id:
+        return
+
+    initial_count = int(get_config("memory.initial_history_count", 5))
     try:
-        session_id = state.get("active_session_id", "")
-        if not session_id:
-            return
+        messages, total = session_manager.load_session_history_range(
+            session_id,
+            start_idx=0,
+            count=initial_count,
+        )
+    except Exception as e:
+        _logger.debug("fallback 历史加载失败: %s", e)
+        return
 
-        session_manager = state.get("session_manager")
-        if not session_manager:
-            return
+    if not messages:
+        return
 
-        # 获取会话信息
-        sessions = session_manager.list_all_sessions_with_info()
-        for s in sessions:
-            if s.get("session_id") == session_id:
-                session_number = s.get("session_number", 0)
-                session_title = s.get("title", "")
-                ctx.channel_router.save_cli_session_state(
-                    session_id,
-                    session_number,
-                    session_title,
-                )
-                return
-    except Exception:
-        pass
+    if header:
+        print(header)
+
+    from miniagent.engine.markdown_cli import cli_raw_markdown_enabled
+
+    fb_w = get_width()
+    for msg in messages:
+        role = msg.get("role", "")
+        content = (msg.get("content") or "").strip()
+        if not content:
+            continue
+        if role == "user":
+            print()
+            rule_heavy()
+            print("You")
+            rule_light()
+            for line in content.splitlines():
+                print(line)
+            print()
+        elif role == "assistant":
+            print()
+            rule_light()
+            print("Assistant")
+            rule_light()
+            if cli_raw_markdown_enabled():
+                for line in content.splitlines():
+                    print(line)
+            else:
+                try:
+                    from rich.console import Console
+                    from rich.markdown import Markdown
+
+                    Console(width=fb_w).print(Markdown(content))
+                except ImportError:
+                    for line in content.splitlines():
+                        print(line)
+            print()
+
+    if total > len(messages):
+        remaining = total - len(messages)
+        print(f"\n[… 还有 {remaining} 条更早历史]\n")
 
 
 async def _run_cli_loop_fallback(
@@ -2585,6 +2639,17 @@ async def _run_cli_loop_fallback(
         w = _fb_get_width()
         print("─" * w)
 
+    def _fb_show_session_history(header: str | None = None) -> None:
+        """打印当前活跃会话的最近历史（启动或切换后）。"""
+        _print_history_summary_fallback(
+            state.get("session_manager"),
+            state.get("active_session_id", ""),
+            rule_heavy=_fb_rule_heavy,
+            rule_light=_fb_rule_light,
+            get_width=_fb_get_width,
+            header=header,
+        )
+
     # ── Linux 兼容性：fallback 模式下的思考显示 ──
     # 设置 ThinkingDisplay 的 output_sink，使思考过程能在终端显示
     def _fallback_thinking_sink(text: str, kind: str = "chunk", **kwargs: Any) -> None:
@@ -2638,6 +2703,8 @@ async def _run_cli_loop_fallback(
             readline.read_history_file(history_file)
     except ImportError:
         readline = None  # Windows 可能无 readline
+
+    _fb_show_session_history()
 
     async def _process_input(user_input: str) -> None:
         """备用终端：打印 You/Assistant 区块并调用 ``run_agent_with_thinking``。"""
@@ -2704,11 +2771,20 @@ async def _run_cli_loop_fallback(
             break
 
         if user_input == "/copy":
-            print(
-                "\n提示: 简易模式下输出在终端卷轴"
-                "，请用终端自身选择复制"
-                "；全屏 CLI 下输入 /copy 可复制 transcript。\n"
+            from miniagent.engine.cli_commands import build_session_history_plaintext
+
+            plain = build_session_history_plaintext(
+                state.get("session_manager"),
+                state.get("active_session_id", ""),
             )
+            if plain and copy_text_to_system_clipboard(plain):
+                print(f"\n✅ 已复制 {len(plain)} 字符到剪贴板\n")
+            elif plain:
+                print("\n❌ 复制失败（无剪贴板或缺少 wl-copy / xclip / pbcopy / clip）\n")
+            else:
+                print(
+                    "\n提示: 当前会话无历史可复制；全屏 CLI 下 /copy 复制 transcript。\n"
+                )
             continue
 
         if user_input == "/stop":
@@ -2746,6 +2822,7 @@ async def _run_cli_loop_fallback(
                 )
                 if new_session_id != state["active_session_id"]:
                     state["active_session_id"] = new_session_id
+                    _fb_show_session_history("\n📜 已切换会话，最近历史如下：\n")
             elif sub_cmd == "create" and len(parts) >= 3:
                 await cmd_session_create(
                     state.get("session_manager"),
@@ -2857,8 +2934,10 @@ async def _run_cli_loop_fallback(
         except Exception:
             pass
 
+    from miniagent.engine.session_continue import save_cli_session_state
+
     # 保存 CLI 上次会话状态（--continue 功能）
-    _save_cli_session_state(ctx, state)
+    save_cli_session_state(ctx, state)
 
     # 清理思考显示回调（Linux 兼容性）
     engine.thinking.set_output_sink(None)

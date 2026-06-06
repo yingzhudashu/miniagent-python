@@ -30,6 +30,12 @@ def test_format_help_markdown_has_sections_and_commands() -> None:
     assert "**`/session list`**" in md
     assert "### 飞书控制" in md
     assert "**`/feishu start`**" in md
+    # 配置与诊断：可选参数单行描述（非重复命令行）
+    assert "**`/config [section]`**" in md
+    assert "**`/model [name]`**" in md
+    assert "**`/config <section>`**" not in md
+    assert "**`/model <model>`**" not in md
+    assert "### 配置与诊断" in md
     # 实例信息
     assert "当前实例：**#7**" in md
 
@@ -40,6 +46,18 @@ def test_help_covers_all_registered_commands() -> None:
     for cmd in _REGISTERED_COMMANDS:
         assert cmd in md, f"{cmd} missing from /help"
     assert "/btw clear" in md, "/btw clear missing from /help"
+
+
+def test_md_help_header_separated_from_first_section() -> None:
+    """元信息（当前实例）与首个分节标题之间应有可见空行（飞书 lark_md）。"""
+    from miniagent.feishu.poll_server import _normalize_lark_md
+
+    md = format_help_markdown(MessageQueueManager(), instance_id=1)
+    norm = _normalize_lark_md(md)
+    gap = norm.split("当前实例：**#1**", 1)[1]
+    assert gap.startswith("\n\n**启动命令（在操作系统终端执行）**") or gap.startswith(
+        "\n\n\n**启动命令（在操作系统终端执行）**"
+    )
 
 
 def test_md_help_section_title_adjacent_to_list() -> None:

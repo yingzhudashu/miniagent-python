@@ -92,9 +92,32 @@ CI 说明：
 
 ## 3. 状态目录与测试隔离
 
-- **默认**：Agent 将实例心跳、会话、锁等写入仓库下 `workspaces/`（部分路径见 `.gitignore`，如 `workspaces/sessions/`、`**/*.lock`）。
-- **推荐**：在 `config.user.json` 设置 `paths.state_dir` 指向临时目录，避免污染本机数据或与并行运行冲突（示例见 `CONTRIBUTING.md`）。
-- **语义**：多实例注册、PID 判定与清理规则见 §3.3。
+**双路径模型**（`miniagent/infrastructure/paths.py`）：
+
+| 路径 | 解析函数 | 默认位置 | 用途 |
+|------|----------|----------|------|
+| 项目 workspace | `resolve_state_dir()` / `resolve_project_state_dir()` | `{miniagent 包根}/workspaces/projects/{project_key}/` | 会话、路由、飞书锁、定时任务等业务状态（按 cwd 自动区分） |
+| 全局实例注册表 | `resolve_registry_state_dir()` | `{miniagent 包根}/workspaces` | `instances/<id>/meta.json` + `heartbeat` |
+
+- **启动时**：`python -m miniagent` 入口会将 `MINIAGENT_PROJECT_DIR` 设为启动时 cwd，并在未显式设置时写入 `MINIAGENT_PATHS_STATE_DIR`（项目 workspace 根，位于共用 `workspaces/projects/{project_key}/`）。
+- **Legacy 回退**：若 `{cwd}/workspaces/` 或（cwd 为 miniagent 源码根时）`{registry}/` 已有 `sessions/` 或 `channel-router.json`，仍使用旧路径直至手动迁移。
+- **推荐**：测试或并行部署时用 `MINIAGENT_PATHS_STATE_DIR` 将项目数据迁出仓库；注册表不受该变量影响（测试可用 `MINIAGENT_REGISTRY_STATE_DIR` 覆盖）。
+- **一目录一实例**：同一 `project_dir`（cwd）仅允许一个存活 Agent；冲突时启动失败并提示 `--stop`。不同 cwd 可并行，各自独立 workspace。
+- 部分路径见 `.gitignore`，如 `workspaces/sessions/`、`**/*.lock`。
+
+### 3.3 多实例注册表
+
+磁盘布局：`{registry}/instances/<id>/meta.json` + `heartbeat`（心跳仅观测，**不参与**存活判定）。`meta.json` 含 `project_dir`、`project_key` 与 `project_state_dir`。
+
+| 行为 | 规则 |
+|------|------|
+| 注册 | 新进程 `register()` 前删除 PID 已失效的目录；分配 ID 时持有 `{registry}/instances/.registry.lock`；同 `project_dir` 存活实例存在则拒绝 |
+| 存活 | `list_all()` / `--stop` 仅以 OS PID 是否存在为准（Windows: `tasklist`；POSIX: `kill(pid, 0)`） |
+| 列表 | `list_instances()` 扫描注册表根；过渡期若 legacy cwd 根与注册表不同，一并聚合 |
+| 停止 | `stop_instance_by_id(id)`；多注册表根同 ID 时需 `state_dir=` 或 `--stop --state-dir <路径> <id>` |
+| 注销 | 进程正常退出时 `unregister()` 删除 `{id}/` 目录 |
+
+实例 `mode` 仅两种：`cli`（飞书未启用）与 `both`（CLI + 飞书）。同一会话跨实例互斥见会话 `.lock` 与 [ARCHITECTURE.md](ARCHITECTURE.md)「多实例设计」。
 
 ### 3.1 `workspaces/` 与 Git 跟踪政策
 

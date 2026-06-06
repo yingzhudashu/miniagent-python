@@ -48,10 +48,8 @@ def test_import_smoke():
         unified_main,
     )
     from miniagent.engine.cli_commands import (
-        cmd_bind,
         cmd_help,
         cmd_session_list,
-        cmd_unbind,
     )
     from miniagent.engine.command_dispatch import dispatch_command
     from miniagent.engine.engine import UnifiedEngine
@@ -75,8 +73,6 @@ def test_import_smoke():
             UnifiedEngine,
             ThinkingDisplay,
             dispatch_command,
-            cmd_bind,
-            cmd_unbind,
             cmd_session_list,
             cmd_help,
             ChannelRouter,
@@ -395,8 +391,6 @@ def test_command_dispatch_all_commands():
         cmds = [
             "/help",
             "/status",
-            "/bind status",
-            "/unbind all",
             "/feishu status",
             "/queue status",
             "/queue abort",

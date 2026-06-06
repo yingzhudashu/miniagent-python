@@ -16,8 +16,11 @@
 - **文档索引**：``docs/INDEX.md``；架构总览 ``docs/ARCHITECTURE.md``。
 
 启动方式：
-    python -m miniagent          # 仅 CLI（默认）
-    python -m miniagent --feishu # CLI + 飞书同时启动（飞书侧为 WebSocket 长轮询）
+    python -m miniagent              # 仅 CLI（默认）
+    python -m miniagent --continue   # 继续上次 CLI 会话
+    python -m miniagent --session <ID>  # 启动并绑定到指定会话
+    python -m miniagent --feishu     # CLI + 飞书同时启动（飞书侧为 WebSocket 长轮询）
+    python -m miniagent --feishu --continue  # CLI + 飞书，并继续上次会话
 """
 
 __version__ = "2.0.3"

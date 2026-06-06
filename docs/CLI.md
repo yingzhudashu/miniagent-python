@@ -9,12 +9,23 @@
 ## 启动命令
 
 ```bash
-python -m miniagent                     # CLI 模式（默认）
+python -m miniagent                     # CLI 模式（默认）；无冲突时隐式等价 --continue
+python -m miniagent --continue          # 继续上次 CLI 活跃会话（存于 channel-router.json）
+python -m miniagent --no-continue       # 禁用隐式继续，使用 default 会话
+python -m miniagent --session <ID>      # 启动并绑定到指定会话
 python -m miniagent --feishu            # CLI + 飞书同时启动
+python -m miniagent --feishu --continue # CLI + 飞书，并继续上次会话
 python -m miniagent --stop              # 列出运行中实例；交互选择停止
 python -m miniagent --stop --all        # 停止全部
 python -m miniagent --stop 1 2          # 停止指定 ID
+python -m miniagent --stop --state-dir <路径> 1  # 多注册表根时指定实例注册表目录
 ```
+
+**一目录一实例**：同一工作目录（cwd）仅允许一个存活 Agent。若已有实例在运行，再次启动会报错并提示先 `--stop`。不同 cwd 可并行，各自 workspace 位于 `{miniagent}/workspaces/projects/<project_key>/`（由 cwd 路径 hash 生成，如 `myapp-a1b2c3d4`）。
+
+**`--stop --state-dir`**：参数指向**实例注册表根**（含 `instances/` 子目录的目录），默认 `{miniagent}/workspaces`；**不是**项目会话数据目录（`projects/<key>/`）。当 canonical 注册表与 legacy `{cwd}/workspaces/instances/` 同时存在且实例 ID 冲突时，需用此参数指定要操作哪一个注册表根。
+
+`--continue` / 隐式继续：将 `last_cli_session` 写入项目 workspace 的 `channel-router.json`（默认 `{miniagent}/workspaces/projects/<key>/channel-router.json`）；在退出（含 `quit`/`exit`、Ctrl+C、SIGTERM）、`/session switch` 时更新。下次启动会恢复该会话 ID；**全屏 CLI** 在 transcript 区加载最近历史，**简易 CLI**（无 TUI）启动时也会打印最近历史摘要；`/session switch` 后会重载对应会话历史。使用 `--no-continue` 可强制从 `default` 会话开始。若 cwd 下仍有旧版 `{cwd}/workspaces/` 数据，legacy 回退会继续使用该路径。
 
 ## 终端 Markdown（Rich，可选）
 
@@ -131,7 +142,7 @@ On branch main
 | 分类 | 命令 | 说明 |
 |------|------|------|
 | **会话** | `/session list` | 列出所有会话 |
-| | `/session switch <编号/ID>` | 切换会话 |
+| | `/session switch <编号/ID>` | 切换会话（含 `oc_xxx` 飞书群聚焦；同步 CLI/自动私聊绑定） |
 | | `/session create <ID> [标题]` | 创建新会话 |
 | | `/session rename <编号/ID> <新标题>` | 重命名会话 |
 | | `/session delete <编号/ID>` | 删除会话 |
@@ -140,12 +151,6 @@ On branch main
 | **飞书** | `/feishu start` | 启动飞书连接 |
 | | `/feishu stop` | 停止飞书连接 |
 | | `/feishu status` | 查看飞书状态 |
-| **绑定** | `/bind status` | 查看通道绑定状态 |
-| | `/bind cli <会话>` | CLI 绑定到指定会话 |
-| | `/bind feishu <sender> <会话>` | 飞书私聊绑定到指定会话 |
-| | `/unbind cli` | 解除 CLI 绑定 |
-| | `/unbind feishu <sender>` | 解除飞书私聊绑定 |
-| | `/unbind all` | 解除所有绑定 |
 | **队列** | `/queue status` | 查看消息队列状态 |
 | | `/query` | 同上（`/queue status` 短命令） |
 | | `/queue set <模式>` | 切换 queue / preemptive |
@@ -180,9 +185,12 @@ On branch main
 | | `/test list` | 列出所有测试样本 |
 | | `/test status` | 查看最近测试结果 |
 | **实例控制** | `/stop` | 停止当前实例并退出 |
-| | `/copy` | 复制当前会话 transcript 到剪贴板（全屏 CLI） |
+| | `/copy` | 复制当前会话全文到剪贴板（全屏 transcript / 简易 history） |
 | **技能** | `/reload-skills` | 从磁盘全量重新加载 `workspaces/skills`（`install_skill` 成功后通常已自动热加载） |
-| **配置** | `/reload-config` | 重新加载 config.user.json（配置热更新） |
+| **配置** | `/config [section]` | 查看配置概览；指定 section 时查看该部分（如 model、paths、feishu） |
+| | `/model [name]` | 显示当前模型；指定 name 时切换模型 |
+| | `/reload-config` | 重新加载 config.user.json（配置热更新） |
+| | `/doctor` | 诊断安装与配置 |
 | **其他** | `/help` | 显示帮助信息 |
 | | `quit` / `exit` | 退出程序 |
 
@@ -353,16 +361,16 @@ On branch main
 
 **Agent 工具**（可选）：`run_dot_command` 由 `cli.dot_tools_enabled` 控制；`manage_scheduled_task` 由 `scheduled_tools.enabled` 控制。见 `config.defaults.json`。
 
-### /bind / /unbind — 通道绑定
+### 通道路由（无 `/bind` 命令）
 
-将 CLI 或飞书私聊绑定到同一会话，共享记忆与上下文；**飞书群聊不参与绑定**。
+CLI 与飞书私聊的会话映射由运行时自动维护：
 
-- `/bind status` — 查看绑定
-- `/bind cli <会话>` — CLI 绑定（编号或 ID）
-- `/bind feishu <sender_id> <会话>` — 飞书私聊绑定
-- `/unbind cli` / `/unbind feishu <sender_id>` / `/unbind all` — 解除绑定
+- 启动与 **`/session switch`** 会同步 `__cli__` 与已自动跟随的飞书私聊 sender
+- 飞书私聊**首条消息**自动绑定到当前 `active_session_id`
+- 飞书群聚焦：`/session switch oc_xxx`（或 `feishu:oc_xxx`）
+- 查看绑定与聚焦模式：**`/status`**
 
-示例输出、自动跟随 `/session switch` 与私聊首条自动绑定等见 **[CHANNEL_BINDING.md](CHANNEL_BINDING.md)**。
+详见 **[CHANNEL_BINDING.md](CHANNEL_BINDING.md)**。
 
 ### /feishu — 飞书控制
 

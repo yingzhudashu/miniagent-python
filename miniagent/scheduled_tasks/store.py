@@ -1,6 +1,6 @@
 """定时任务持久化：``tasks.json`` 的读写、下次触发时间计算与运行后重算。
 
-路径根由 JSON配置 ``paths.state_dir`` 或当前工作目录下 ``workspaces`` 决定。"""
+路径根由 ``resolve_state_dir()`` 决定（见 ``miniagent.infrastructure.paths``）。"""
 
 from __future__ import annotations
 

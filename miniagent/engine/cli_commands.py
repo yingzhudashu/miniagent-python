@@ -6,7 +6,7 @@
 - 会话管理：列出、切换、创建、重命名、删除会话
 - 实例管理：列出运行中的实例、停止指定实例
 - 消息队列：查看队列状态、切换队列模式
-- 通道绑定：/bind / /unbind 子命令
+- 通道路由：/session switch 同步 CLI 与自动私聊绑定
 - 定时任务：/schedule add/list/remove/enable/disable
 - 帮助显示：分类展示所有可用命令
 
@@ -59,7 +59,7 @@ def format_session_command_usage() -> str:
     return (
         "用法:\n"
         "  /session list                   列出所有会话\n"
-        "  /session switch <编号/ID>       切换到指定会话（飞书默认仅 list；MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1 时与 CLI 同等）\n"
+        "  /session switch <编号/ID>       切换到指定会话（含 oc_xxx 飞书群；飞书默认仅 list）\n"
         "  /session create <ID> [标题]     创建新会话\n"
         "  /session rename <编号/ID> <标题>  重命名会话\n"
         "  /session delete <编号/ID>       删除指定会话（不能删除当前活跃会话）"
@@ -160,10 +160,12 @@ def _save_cli_session_state_on_switch(
     if not channel_router:
         return
     try:
+        from miniagent.session.manager import session_info_id, session_info_number
+
         sessions = session_manager.list_all_sessions_with_info()
         for s in sessions:
-            if s.get("session_id") == session_id or s.get("id") == session_id:
-                session_number = s.get("session_number", 0)
+            if session_info_id(s) == session_id:
+                session_number = session_info_number(s)
                 session_title = s.get("title", "")
                 channel_router.save_cli_session_state(
                     session_id,
@@ -276,8 +278,9 @@ def _resolve_session(session_manager: Any, id_or_number: str) -> str | None:
     """解析用户输入的会话标识（编号或原始 ID）。
 
     优先使用 SessionManager 内置的 resolve_session_id 方法，
-    该方法支持内存和磁盘双重查找。如果不可用，则降级为
-    手动遍历查找。
+    该方法支持内存和磁盘双重查找。非数字 ID 会经 ``normalize_bind_session_id``
+    规范化（``oc_*`` → ``feishu:oc_*``）；飞书群会话在尚未落盘时也可解析，
+    供 ``/session switch`` 创建占位会话并聚焦 CLI。
 
     Args:
         session_manager: 会话管理器实例
@@ -286,20 +289,44 @@ def _resolve_session(session_manager: Any, id_or_number: str) -> str | None:
     Returns:
         解析后的 session_id，找不到返回 None
     """
-    # 优先使用 SessionManager 的内置解析方法
-    if hasattr(session_manager, "resolve_session_id"):
-        return session_manager.resolve_session_id(id_or_number)
+    from miniagent.infrastructure.cli_feishu_policy import (
+        is_feishu_group_session,
+        normalize_bind_session_id,
+    )
 
-    # 降级方案：纯数字按编号遍历查找
-    if id_or_number.isdigit():
-        num = int(id_or_number)
+    raw = (id_or_number or "").strip()
+    if not raw:
+        return None
+
+    def _lookup(candidate: str) -> str | None:
+        if hasattr(session_manager, "resolve_session_id"):
+            sid = session_manager.resolve_session_id(candidate)
+            if sid:
+                return sid
+        if session_manager.get(candidate):
+            return candidate
+        return None
+
+    if raw.isdigit():
+        found = _lookup(raw)
+        if found:
+            return found
+        num = int(raw)
         for s in session_manager.list_all_sessions_with_info():
-            if s["number"] == num:
-                return s["id"]
+            if s.get("number") == num:
+                return s.get("id") or s.get("session_id")
+        return None
 
-    # 直接匹配 session_id
-    if session_manager.get(id_or_number):
-        return id_or_number
+    normalized = normalize_bind_session_id("cli", raw)
+    for candidate in (normalized, raw):
+        if not candidate:
+            continue
+        found = _lookup(candidate)
+        if found:
+            return found
+
+    if is_feishu_group_session(normalized):
+        return normalized
 
     return None
 
@@ -626,127 +653,6 @@ async def cmd_queue_set(message_queue: Any, mode_str: str) -> None:
     else:
         print(f"{ERROR_PREFIX} 未知模式: {mode_str}")
         print("   可用: queue, preemptive")
-
-
-def cmd_bind(channel_router: Any, args: list[str], state: dict[str, Any] | None = None) -> str:
-    """绑定通道到指定会话。
-
-    用法:
-        /bind cli <会话>      将 CLI 通道绑定到指定会话
-        /bind feishu <会话>   将飞书私聊绑定到指定会话（需 sender_id）
-        /bind status          查看所有绑定状态
-
-    Args:
-        channel_router: ChannelRouter 实例
-        args: 命令参数（如 ["cli", "oc_xxx"]）
-
-    Returns:
-        结果消息
-    """
-    from miniagent.infrastructure.channel_router import ChannelRouter
-
-    if not args or args[0] == "status" or args[0] == "":
-        return channel_router.status()
-
-    if len(args) < 2:
-        return (
-            "用法:\n"
-            "  /bind status              查看绑定状态\n"
-            "  /bind cli <会话>          CLI 绑定到指定会话\n"
-            "  /bind feishu <sender> <会话>  飞书私聊绑定（需 sender_id）"
-        )
-
-    channel = args[0].lower()
-
-    if channel == "cli":
-        from miniagent.infrastructure.cli_feishu_policy import normalize_bind_session_id
-
-        session_id = normalize_bind_session_id("cli", args[1])
-        old = channel_router.bind(ChannelRouter.CLI_CHANNEL, session_id)
-        channel_router.set_primary(session_id)
-        old_msg = f"（原绑定: {old}）" if old else ""
-        return f"{SUCCESS_PREFIX} CLI 已绑定到会话: {session_id} {old_msg}"
-
-    elif channel == "feishu":
-        if len(args) < 3:
-            return "飞书私聊绑定需要 sender_id: /bind feishu <sender_id> <会话>"
-        from miniagent.infrastructure.cli_feishu_policy import (
-            normalize_bind_session_id,
-            p2p_bind_target_allowed,
-        )
-
-        sender_id = args[1]
-        session_id = normalize_bind_session_id("feishu", args[2])
-        ok, err = p2p_bind_target_allowed(channel_router, session_id)
-        if not ok:
-            return f"{ERROR_PREFIX} {err}"
-        channel_id = f"{ChannelRouter.FEISHU_P2P_PREFIX}{sender_id}"
-        old = channel_router.bind(channel_id, session_id)
-        old_msg = f"（原绑定: {old}）" if old else ""
-        if state is not None:
-            synced = state.setdefault("feishu_p2p_synced_senders", set())
-            if isinstance(synced, set):
-                synced.discard(sender_id)
-        return f"{SUCCESS_PREFIX} 飞书私聊 ({sender_id[:8]}...) 已绑定到: {session_id} {old_msg}"
-
-    return f"{ERROR_PREFIX} 未知通道: {channel}"
-
-
-def cmd_unbind(channel_router: Any, args: list[str], state: dict[str, Any] | None = None) -> str:
-    """解除通道绑定。
-
-    用法:
-        /unbind cli       解除 CLI 绑定
-        /unbind feishu <sender>  解除飞书私聊绑定
-        /unbind all       解除所有绑定
-
-    Args:
-        channel_router: ChannelRouter 实例
-        args: 命令参数
-
-    Returns:
-        结果消息
-    """
-    from miniagent.infrastructure.channel_router import ChannelRouter
-
-    if not args or args[0] == "":
-        return "用法: /unbind cli | /unbind feishu <sender> | /unbind all"
-
-    target = args[0].lower()
-
-    if target == "all":
-        bindings = channel_router.get_all_bindings()
-        if not bindings:
-            return "📭 没有已绑定的通道"
-        count = len(bindings)
-        channel_router.unbind_all()
-        if state is not None and "feishu_p2p_synced_senders" in state:
-            st = state["feishu_p2p_synced_senders"]
-            if isinstance(st, set):
-                st.clear()
-        return f"{SUCCESS_PREFIX} 已解除 {count} 个通道绑定"
-
-    elif target == "cli":
-        old = channel_router.unbind(ChannelRouter.CLI_CHANNEL)
-        if old:
-            return f"{SUCCESS_PREFIX} CLI 已解除绑定（原: {old}）"
-        return "📭 CLI 未绑定任何会话"
-
-    elif target == "feishu":
-        if len(args) < 2:
-            return "飞书私聊解绑需要 sender_id: /unbind feishu <sender_id>"
-        sender_id = args[1]
-        channel_id = f"{ChannelRouter.FEISHU_P2P_PREFIX}{sender_id}"
-        old = channel_router.unbind(channel_id)
-        if state is not None:
-            synced = state.get("feishu_p2p_synced_senders")
-            if isinstance(synced, set):
-                synced.discard(sender_id)
-        if old:
-            return f"{SUCCESS_PREFIX} 飞书私聊 ({sender_id[:8]}...) 已解除绑定（原: {old}）"
-        return "📭 该飞书私聊未绑定任何会话"
-
-    return f"{ERROR_PREFIX} 未知通道: {target}"
 
 
 def format_schedule_command_usage() -> str:
@@ -1130,16 +1036,16 @@ def format_help_markdown(
 ) -> str:
     """生成 `/help` 的 Markdown 正文（表格分组），供 CLI 打印与飞书 capture 复用。"""
     mode = message_queue.mode.value
-    inst_line = f"\n当前实例：**#{instance_id}**" if instance_id else ""
-
-    header = "\n".join(
-        [
-            "## Mini Agent 命令",
-            "",
-            f"消息队列模式：**{mode}**{inst_line}",
-            "",
-        ]
-    )
+    header_lines: list[str] = [
+        "## Mini Agent 命令",
+        "",
+        f"消息队列模式：**{mode}**",
+    ]
+    if instance_id is not None:
+        header_lines.append(f"当前实例：**#{instance_id}**")
+    # 元信息与首个分节标题之间留双空行（飞书 lark_md 单空行易被吞）
+    header_lines.extend(["", ""])
+    header = "\n".join(header_lines)
 
     sections: list[str] = [
         _md_help_section(
@@ -1147,10 +1053,14 @@ def format_help_markdown(
             None,
             [
                 ("`python -m miniagent`", "启动 CLI 模式"),
+                ("`python -m miniagent --continue`", "继续上次 CLI 活跃会话"),
+                ("`python -m miniagent --session <ID>`", "启动并绑定到指定会话"),
                 ("`python -m miniagent --feishu`", "启动 CLI + 飞书"),
+                ("`python -m miniagent --feishu --continue`", "CLI + 飞书，并继续上次会话"),
                 ("`python -m miniagent --stop`", "列出实例；交互选择停止"),
                 ("`python -m miniagent --stop --all`", "停止全部实例"),
                 ("`python -m miniagent --stop <id>...`", "停止指定实例 ID"),
+                ("`python -m miniagent --stop --state-dir <路径> <id>...`", "多状态根时指定目录后停止"),
             ],
         ),
         _md_help_section(
@@ -1163,10 +1073,11 @@ def format_help_markdown(
         ),
         _md_help_section(
             "会话管理",
-            "编号与原始 ID 均可，例如 `/session switch 1` 或 `/session switch default`。",
+            "编号与原始 ID 均可；切换会话会同步 CLI 与已自动跟随的飞书私聊绑定。"
+            "飞书群可用 `/session switch oc_xxx` 聚焦群聊会话。",
             [
                 ("`/session list`", "列出所有会话"),
-                ("`/session switch <编号/ID>`", "切换到指定会话"),
+                ("`/session switch <编号/ID>`", "切换到指定会话（含飞书群 oc_xxx）"),
                 ("`/session create <ID> [标题]`", "创建新会话，可指定标题"),
                 ("`/session rename <编号/ID> <新标题>`", "重命名会话"),
                 ("`/session delete <编号/ID>`", "删除会话（不可删除当前活跃会话）"),
@@ -1179,18 +1090,6 @@ def format_help_markdown(
                 ("`/feishu start`", "启动飞书 WebSocket 连接"),
                 ("`/feishu stop`", "停止飞书连接"),
                 ("`/feishu status`", "查看飞书运行状态"),
-            ],
-        ),
-        _md_help_section(
-            "通道绑定",
-            "绑定后 CLI 与飞书共享同一会话，记忆、文件与工具互通。",
-            [
-                ("`/bind status`", "查看通道绑定状态"),
-                ("`/bind cli <会话>`", "CLI 绑定到指定会话"),
-                ("`/bind feishu <sender> <会话>`", "飞书私聊绑定到指定会话"),
-                ("`/unbind cli`", "解除 CLI 绑定"),
-                ("`/unbind feishu <sender>`", "解除飞书私聊绑定"),
-                ("`/unbind all`", "解除所有绑定"),
             ],
         ),
         _md_help_section(
@@ -1311,11 +1210,15 @@ def format_help_markdown(
             "配置与诊断",
             None,
             [
-                ("`/config`", "查看配置概览"),
-                ("`/config <section>`", "查看特定配置部分"),
+                (
+                    "`/config [section]`",
+                    "查看配置概览；指定 section 时查看该部分（如 model、paths、feishu）",
+                ),
                 ("`/reload-config`", "重新加载 config.user.json（配置热更新）"),
-                ("`/model`", "显示当前模型"),
-                ("`/model <model>`", "切换模型"),
+                (
+                    "`/model [name]`",
+                    "显示当前模型；指定 name 时切换模型",
+                ),
                 ("`/doctor`", "诊断安装与配置"),
             ],
         ),
@@ -1325,7 +1228,7 @@ def format_help_markdown(
             [
                 ("`/help`", "显示本帮助"),
                 ("`/reload-skills`", "从磁盘重新加载技能（无需重启）"),
-                ("`/copy [N]`", "复制最近第N条助手回复到剪贴板（全屏 CLI）"),
+                ("`/copy`", "复制当前会话全文到剪贴板（全屏 transcript / 简易 history）"),
                 ("`quit` / `exit`", "退出程序"),
             ],
         ),
@@ -1338,7 +1241,7 @@ def format_help_markdown(
         ]
     )
 
-    return header + "".join(sections) + footer
+    return header + "\n" + "".join(sections) + footer
 
 
 def cmd_improve(
@@ -1393,77 +1296,41 @@ def cmd_improve(
     return last_user, last_assistant, suggestions
 
 
-def cmd_copy_transcript(
-    session_manager: Any,
-    session_id: str,
-    n: int = 1,
-) -> str:
-    """复制最近第N条助手回复到剪贴板。
-
-    Args:
-        session_manager: 会话管理器
-        session_id: 当前会话ID
-        n: 复制最近第N条回复（默认1，负数表示倒数）
-
-    Returns:
-        操作结果消息
-    """
-    from miniagent.engine.clipboard import copy_text_to_system_clipboard
-
-    if session_manager is None:
-        return f"{WARNING_PREFIX} 会话管理器未初始化"
+def build_session_history_plaintext(session_manager: Any, session_id: str) -> str:
+    """从 history.json 拼接 user/assistant 纯文本（简易 CLI ``/copy`` 用）。"""
+    if not session_manager or not session_id:
+        return ""
 
     session = session_manager.get(session_id)
     if session is None:
-        return f"{ERROR_PREFIX} 会话 {session_id} 不存在"
+        return ""
 
-    # 获取历史文件路径
     files_path = getattr(session, "workspace_path", None) or getattr(session, "files_path", None)
     if not files_path:
-        return f"{ERROR_PREFIX} 无法定位会话工作空间"
+        return ""
 
     history_path = os.path.join(os.path.dirname(files_path), "history.json")
     if not os.path.isfile(history_path):
-        return f"{ERROR_PREFIX} 会话历史文件不存在"
+        return ""
 
     try:
         with open(history_path, encoding="utf-8-sig") as f:
             messages = json.load(f)
+    except Exception:
+        return ""
 
-        # 提取所有助手消息
-        assistant_msgs = [m for m in messages if isinstance(m, dict) and m.get("role") == "assistant"]
+    parts: list[str] = []
+    for msg in messages:
+        if not isinstance(msg, dict):
+            continue
+        role = msg.get("role", "")
+        content = (msg.get("content") or "").strip()
+        if not content or role not in ("user", "assistant"):
+            continue
+        label = "You" if role == "user" else "Assistant"
+        parts.append(f"{label}\n{content}")
 
-        if not assistant_msgs:
-            return f"{ERROR_PREFIX} 没有助手回复可复制"
-
-        # 计算索引（负数支持）
-        if n < 0:
-            idx = n  # 负数直接作为索引（-1 = 最后一条）
-        else:
-            idx = -n  # 正数转换为负索引（1 = -1 = 最后一条）
-
-        try:
-            msg = assistant_msgs[idx]
-        except IndexError:
-            return f"{ERROR_PREFIX} 索引 {n} 超出范围（共 {len(assistant_msgs)} 条助手回复）"
-
-        content = msg.get("content", "")
-        if not content or not isinstance(content, str):
-            return f"{ERROR_PREFIX} 该助手回复内容为空"
-
-        # 复制到剪贴板
-        success = copy_text_to_system_clipboard(content)
-        if success:
-            preview_len = min(100, len(content))
-            preview = content[:preview_len].replace("\n", " ")
-            if len(content) > preview_len:
-                preview += "..."
-            return f"{SUCCESS_PREFIX} 已复制第 {abs(idx)} 条助手回复（{len(content)} 字符）\n   预览: {preview}"
-        else:
-            return f"{ERROR_PREFIX} 复制到剪贴板失败"
-
-    except Exception as e:
-        return f"{ERROR_PREFIX} 读取历史失败: {e}"
+    return "\n\n".join(parts)
 
 
 # ─── 自我优化命令 ────────────────────────────────────────
@@ -1836,8 +1703,7 @@ __all__ = [
     "cmd_kb_unmount",
     "cmd_kb_search",
     "cmd_kb_reload",
-    "cmd_bind",
-    "cmd_unbind",
+    "build_session_history_plaintext",
     "cmd_instance_handler",
     "cmd_improve",
     "_get_last_qa_with_metadata",

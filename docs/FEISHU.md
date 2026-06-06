@@ -32,7 +32,7 @@ python -m miniagent --feishu
 
 在全屏 prompt_toolkit CLI 下，飞书启动提示、以及**策略允许**的入站横幅与思考镜像，会写入上方 **transcript**（`RuntimeContext.cli_transcript_append`），而不再向裸 stdout `print`，避免与备用屏输入行互相覆盖。
 
-**CLI 显示隔离**（详见 [CHANNEL_BINDING.md](CHANNEL_BINDING.md) §CLI 显示策略）：默认 CLI 在 `default` 等一般会话时，**群聊**消息仅在飞书侧处理与回复，**不会**刷屏到 CLI；仅与 CLI 同会话的**私聊**会显示预览。`/bind cli feishu:oc_xxx`（或 `oc_xxx`，自动规范化）进入群聊聚焦后，CLI 只显示该群内容，私聊不再接入或显示。
+**CLI 显示隔离**（详见 [CHANNEL_BINDING.md](CHANNEL_BINDING.md) §CLI 显示策略）：默认 CLI 在 `default` 等一般会话时，**群聊**消息仅在飞书侧处理与回复，**不会**刷屏到 CLI；仅与 CLI 同会话的**私聊**会显示预览。使用 **`/session switch oc_xxx`**（或 `feishu:oc_xxx`）进入群聊聚焦后，CLI 只显示该群内容，私聊不再接入或显示。
 
 `get_logger()` 的诊断输出写入 **stderr**（不再写 stdout）；飞书 WebSocket 客户端 SDK 日志级别为 **ERROR**，避免与全屏 UI 争用终端。
 
@@ -261,7 +261,7 @@ Windows 上可能出现 `OSError: [WinError 121]` 或日志 `receive message loo
 
 运维建议：电源计划中避免网卡「允许计算机关闭此设备以节约电源」；不稳定网络可设 `feishu.websocket.refresh_interval=3600`。
 
-**私聊绑定**：手动 `/bind feishu` 仍可用；自动绑定的 sender 会随 `/session switch` 与 CLI 一起切会话，手动绑定过的 sender 不再参与自动重绑。
+**私聊绑定**：首条私聊消息**自动绑定**到当前 `active_session_id`；已跟随的 sender 会随 **`/session switch`** 与 CLI 一起重绑。查看映射与聚焦模式请用 **`/status`**（见 [CHANNEL_BINDING.md](CHANNEL_BINDING.md)）。
 
 ## 消息处理流程
 
@@ -325,8 +325,8 @@ reply = await engine.run_agent_with_thinking(content, active_session_id, ...)
 | `p2p` | 检查绑定映射 | `feishu_p2p:<sender_id>` | 是 |
 
 - **群聊**：每个群自动创建独立会话，多群完全隔离
-- **私聊**：默认独立，可通过 `/bind feishu <sender_id> <会话>` 绑定到其他会话
-- **绑定效果**：私聊消息使用绑定会话的上下文；CLI 终端实时打印预览
+- **私聊**：首条消息自动绑定到当前 `active_session_id`；`/session switch` 后已跟随 sender 同步重绑
+- **绑定效果**：私聊消息使用绑定会话的上下文；CLI 终端实时打印预览（诊断见 `/status`）
 
 **Agent 配置字段**：`AgentConfig` 中的 **`feishu_root_id`** / **`feishu_parent_id`** / **`feishu_thread_id`** 对应入站事件的 `root_id` / `parent_id` / `thread_id`；其中 `feishu_root_id` 与历史方案里口头说的「reply_root / feishu_reply_root_id」语境一致（话题根消息 id）。
 

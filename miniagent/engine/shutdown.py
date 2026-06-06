@@ -43,11 +43,15 @@ async def shutdown_runtime(
         release_cli_session_lock: 是否 ``release_session_lock(active_session_id)``
         call_unregister: 是否 ``unregister_instance()``（若已在 ``run_cli_loop`` 末尾注销可传 False）
     """
-    from miniagent.engine.session_lock import release_session_lock
-    from miniagent.memory import dream_scheduler
-
     if reason:
         _logger.info("shutdown_runtime: begin (%s)", reason)
+
+    from miniagent.engine.session_continue import save_cli_session_state
+
+    save_cli_session_state(ctx, state)
+
+    from miniagent.engine.session_lock import release_session_lock
+    from miniagent.memory import dream_scheduler
 
     # 1) tick_once / 其它登记在 ctx 上的 fire-and-forget
     snap_tracked = [t for t in ctx.shutdown_tracked_tasks if not t.done()]

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from miniagent.engine.cli_commands import cmd_bind, sync_channel_router_to_session
+from miniagent.engine.cli_commands import _resolve_session, sync_channel_router_to_session
 from miniagent.infrastructure.channel_router import ChannelRouter
 from miniagent.infrastructure.cli_feishu_policy import (
     get_cli_focus_mode,
@@ -84,9 +84,22 @@ def test_group_focus_blocks_p2p_auto_bind_and_sync(router: ChannelRouter) -> Non
     assert should_sync_p2p_on_session_switch(router, "default")
 
 
-def test_cmd_bind_cli_normalizes_oc_id(router: ChannelRouter) -> None:
-    out = cmd_bind(router, ["cli", "oc_mygroup"])
-    assert "feishu:oc_mygroup" in out
+class _StubSessionManager:
+    def resolve_session_id(self, candidate: str) -> str | None:
+        return None
+
+    def get(self, _session_id: str) -> None:
+        return None
+
+
+def test_resolve_session_normalizes_feishu_group_oc_id() -> None:
+    sm = _StubSessionManager()
+    assert _resolve_session(sm, "oc_mygroup") == "feishu:oc_mygroup"
+    assert _resolve_session(sm, "feishu:oc_mygroup") == "feishu:oc_mygroup"
+
+
+def test_session_switch_sync_normalizes_oc_id(router: ChannelRouter) -> None:
+    sync_channel_router_to_session(router, "feishu:oc_mygroup", None)
     assert router.resolve(ChannelRouter.CLI_CHANNEL) == "feishu:oc_mygroup"
     assert router.primary == "feishu:oc_mygroup"
     assert router.resolve_feishu_message("oc_mygroup", "ou_x", "group") == "feishu:oc_mygroup"
@@ -106,13 +119,6 @@ def test_p2p_mirror_after_auto_bind_resolve(router: ChannelRouter) -> None:
         sender_id="ou_new",
         session_key="default",
     )
-
-
-def test_cmd_bind_feishu_rejected_in_group_focus(router: ChannelRouter) -> None:
-    router.bind(ChannelRouter.CLI_CHANNEL, "feishu:oc_g")
-    out = cmd_bind(router, ["feishu", "ou_user", "feishu:oc_g"])
-    assert "❌" in out
-    assert "群聊聚焦" in out
 
 
 def test_sync_channel_router_skips_p2p_on_group_switch(router: ChannelRouter) -> None:

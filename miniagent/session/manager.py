@@ -66,6 +66,57 @@ def _truncate_history(history: list[dict[str, Any]], max_messages: int = MAX_HIS
     return history[-max_messages:]
 
 
+def _get_history(ctx: dict[str, Any]) -> list[dict[str, Any]]:
+    """以 Session.conversation_history 为真相源，并确保 ctx 引用一致。"""
+    session: Session = ctx["session"]
+    history = session.conversation_history
+    if ctx.get("conversation_history") is not history:
+        ctx["conversation_history"] = history
+    return history
+
+
+def _set_history(ctx: dict[str, Any], history: list[dict[str, Any]]) -> None:
+    """同步 Session 与 ctx 的 conversation_history 引用。"""
+    ctx["session"].conversation_history = history
+    ctx["conversation_history"] = history
+
+
+def _load_history_from_disk(ctx: dict[str, Any]) -> list[dict[str, Any]]:
+    """从磁盘读取 history.json（不修改内存）。"""
+    try:
+        path = os.path.join(ctx["config"].workspace_path, "history.json")
+        if os.path.isfile(path):
+            with open(path, encoding="utf-8-sig") as f:
+                return normalize_conversation_history(json.load(f))
+    except Exception as e:
+        _logger.debug("加载会话历史失败: %s", e)
+    return []
+
+
+# ============================================================================
+# 会话列表字段（list_all_sessions_with_info 返回 id/number，兼容旧 session_id）
+# ============================================================================
+
+
+def session_info_id(entry: dict) -> str:
+    """从 ``list_all_sessions_with_info`` 条目解析会话 ID。"""
+    return str(entry.get("id") or entry.get("session_id") or "")
+
+
+def session_info_number(entry: dict) -> int:
+    """从 ``list_all_sessions_with_info`` 条目解析会话编号。"""
+    if "number" in entry:
+        n = entry["number"]
+    elif "session_number" in entry:
+        n = entry["session_number"]
+    else:
+        n = 0
+    try:
+        return int(n)
+    except (TypeError, ValueError):
+        return 0
+
+
 # ============================================================================
 # 路径
 # ============================================================================
@@ -394,10 +445,10 @@ class DefaultSessionManager(SessionManagerProtocol):
         if not ctx:
             return
         try:
-            history = ctx.get("conversation_history", [])
+            history = _get_history(ctx)
             # 截断历史防止内存膨胀
             history = _truncate_history(history)
-            ctx["conversation_history"] = history  # 更新内存中的历史
+            _set_history(ctx, history)
             path = os.path.join(ctx["config"].workspace_path, "history.json")
             # 确保目录存在（防止首次保存时目录未创建）
             os.makedirs(ctx["config"].workspace_path, exist_ok=True)
@@ -422,14 +473,7 @@ class DefaultSessionManager(SessionManagerProtocol):
         ctx = self._sessions.get(session_id)
         if not ctx:
             return []
-        try:
-            path = os.path.join(ctx["config"].workspace_path, "history.json")
-            if os.path.isfile(path):
-                with open(path, encoding="utf-8-sig") as f:
-                    return normalize_conversation_history(json.load(f))
-        except Exception as e:
-            _logger.debug("加载会话历史失败: %s", e)
-        return []
+        return _load_history_from_disk(ctx)
 
     async def save_session_history_async(self, session_id: str) -> None:
         """异步持久化会话历史到磁盘（性能优化：不阻塞事件循环）。
@@ -449,9 +493,9 @@ class DefaultSessionManager(SessionManagerProtocol):
 
         def _sync_save() -> None:
             try:
-                history = ctx.get("conversation_history", [])
+                history = _get_history(ctx)
                 history = _truncate_history(history)
-                ctx["conversation_history"] = history
+                _set_history(ctx, history)
                 path = os.path.join(ctx["config"].workspace_path, "history.json")
                 os.makedirs(ctx["config"].workspace_path, exist_ok=True)
                 with open(path, "w", encoding="utf-8") as f:
@@ -474,17 +518,7 @@ class DefaultSessionManager(SessionManagerProtocol):
         if not ctx:
             return []
 
-        def _sync_load() -> list:
-            try:
-                path = os.path.join(ctx["config"].workspace_path, "history.json")
-                if os.path.isfile(path):
-                    with open(path, encoding="utf-8-sig") as f:
-                        return normalize_conversation_history(json.load(f))
-            except Exception as e:
-                _logger.debug("异步加载会话历史失败: %s", e)
-            return []
-
-        return await asyncio.to_thread(_sync_load)
+        return await asyncio.to_thread(_load_history_from_disk, ctx)
 
     def load_session_history_range(
         self,
@@ -509,12 +543,12 @@ class DefaultSessionManager(SessionManagerProtocol):
         if not ctx:
             return [], 0
 
-        # 优先从内存读取
-        history = ctx.get("conversation_history", [])
-        if not history:
-            # 从磁盘加载完整历史
-            history = self.load_session_history(session_id)
-            ctx["conversation_history"] = history
+        history = _get_history(ctx)
+        if len(history) == 0:
+            disk_history = _load_history_from_disk(ctx)
+            if disk_history:
+                _set_history(ctx, disk_history)
+                history = disk_history
 
         total = len(history)
         if total == 0:
@@ -1166,4 +1200,10 @@ def _get_session_lock_owner(workspace_path: str) -> int | None:
     return None
 
 
-__all__ = ["DefaultSessionManager", "SessionConfig", "SessionInfo"]
+__all__ = [
+    "DefaultSessionManager",
+    "SessionConfig",
+    "SessionInfo",
+    "session_info_id",
+    "session_info_number",
+]

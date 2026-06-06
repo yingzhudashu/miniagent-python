@@ -5,7 +5,6 @@ Tests cover main commands:
 - /session (list, switch, create, rename, delete)
 - /feishu (start, stop, status)
 - /queue (status, set, abort)
-- /bind / /unbind
 - /help
 - /stats
 - /model
@@ -17,7 +16,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.engine.command_dispatch import _format_status, dispatch_command
+from miniagent.engine.command_dispatch import (
+    _REGISTERED_COMMANDS,
+    _format_status,
+    dispatch_command,
+)
 
 # ============================================================================
 # Helper Functions
@@ -236,30 +239,35 @@ class TestQueueCommand:
         assert state["runtime_ctx"].message_queue.abort_chat.call_count == 2
 
 
-class TestBindCommand:
-    """测试 /bind 命令。"""
+class TestRemovedCommands:
+    """已移除的命令不应再经 dispatch 处理。"""
+
+    def test_bind_unbind_copy_not_registered(self) -> None:
+        assert "/bind" not in _REGISTERED_COMMANDS
+        assert "/unbind" not in _REGISTERED_COMMANDS
+        assert "/copy" not in _REGISTERED_COMMANDS
 
     @pytest.mark.asyncio
-    async def test_bind_requires_channel_router(self) -> None:
-        """/bind 需要 channel_router。"""
+    async def test_bind_not_handled_by_dispatch(self) -> None:
         state = _create_mock_state()
-        state["runtime_ctx"].channel_router = None
-
         result = await dispatch_command("/bind status", state=state, capture=True)
+        assert result is None
 
-        assert "通道路由器" in result
 
+class TestStatusFocusLine:
     @pytest.mark.asyncio
-    async def test_bind_status_returns_bindings(self) -> None:
-        """/bind status 应返回绑定状态。"""
+    async def test_status_includes_cli_focus_mode(self) -> None:
+        from miniagent.infrastructure.channel_router import ChannelRouter
+
         state = _create_mock_state()
+        router = ChannelRouter()
+        router.bind(ChannelRouter.CLI_CHANNEL, "feishu:oc_focus")
+        router.set_primary("feishu:oc_focus")
+        state["runtime_ctx"].channel_router = router
 
-        with patch("miniagent.engine.cli_commands.cmd_bind") as mock_bind:
-            mock_bind.return_value = "No bindings"
-
-            await dispatch_command("/bind status", state=state, capture=True)
-
-            mock_bind.assert_called_once()
+        result = await dispatch_command("/status", state=state, capture=True)
+        assert result is not None
+        assert "飞书群聊" in result or "聚焦" in result
 
 
 class TestHelpCommand:

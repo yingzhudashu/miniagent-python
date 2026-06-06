@@ -294,6 +294,18 @@ cp config.defaults.json config.user.json
 python -m miniagent
 ```
 
+继续上次 CLI 会话（状态存于 `channel-router.json`）：
+
+```bash
+python -m miniagent --continue
+```
+
+指定会话启动：
+
+```bash
+python -m miniagent --session <会话ID>
+```
+
 看到欢迎信息后，可直接用 **自然语言** 输入需求。部分环境也可用 `quit` / `exit` 退出（与 [CLI.md](CLI.md) 一致）。
 
 ### 5.2 终端 + 飞书同时启动
@@ -302,6 +314,7 @@ python -m miniagent
 
 ```bash
 python -m miniagent --feishu
+python -m miniagent --feishu --continue   # 同时恢复上次 CLI 会话
 ```
 
 飞书 **不会** 单独占一个无终端的进程；始终与 CLI 主循环一起。更多见第 10 章与 [FEISHU.md](FEISHU.md)。
@@ -313,6 +326,7 @@ python -m miniagent --stop
 ```
 
 用于列出本机已注册实例并交互停止；`--stop --all` 或 `--stop 1 2` 等用法见 [README.md](../README.md) 与 [ENGINEERING.md](ENGINEERING.md) §3.3。  
+若从不同目录启动过旧实例，`--stop` 会聚合列出多个状态根（表格含「状态目录」列）；同 ID 跨根时需 `--stop --state-dir <路径> <id>`。  
 说明：清理的是 **注册信息** 与 **你选择的进程**；不要随意结束他人机器上的进程。
 
 ---
@@ -335,12 +349,14 @@ python -m miniagent --stop
 | 命令 | 作用 |
 |------|------|
 | `/help` | 显示帮助 |
-| `/status` | 查看运行状态（不中断当前执行） |
-| `/session list` / `/session switch <id>` | 列出 / 切换会话 |
+| `/status` | 查看运行状态（含通道绑定与 CLI 聚焦模式，见 [CHANNEL_BINDING.md](CHANNEL_BINDING.md)；不中断当前执行） |
+| `/session list` / `/session switch <id>` | 列出 / 切换会话（切换会同步 CLI 与自动私聊绑定） |
 | `/feishu start` / `/feishu stop` / `/feishu status` | 飞书 WebSocket 长连接控制 |
 | `/schedule list` | 查看定时任务（增删改见第 8 章，须在本地 CLI） |
 | `/reload-config` | 重新加载配置文件（热更新） |
-| `/bind status` | 通道绑定状态，见 [CHANNEL_BINDING.md](CHANNEL_BINDING.md) |
+| `/config [section]` | 查看配置概览；指定 section 时查看该部分 |
+| `/model [name]` | 显示当前模型；指定 name 时切换模型 |
+| `/doctor` | 诊断安装与配置 |
 
 **完整命令表、示例输出与边界情况** → [CLI.md](CLI.md)。
 
@@ -425,7 +441,7 @@ python -m miniagent --stop
 
 ### 14.1 默认布局
 
-默认 `paths.state_dir` 为 **`workspaces/`** 时，进程常把状态写在项目下（实例、会话、锁、飞书去重、记忆索引等）。可在 `config.user.json` 把整棵状态树迁到其它磁盘路径，便于备份或多副本隔离。
+默认布局下，**项目业务状态**（会话、锁、飞书去重、记忆索引等）写入 miniagent 安装/源码根下的 **`workspaces/projects/{project_key}/`**（按启动 cwd 自动区分）；**实例注册表** 仍在 `workspaces/instances/`。若 cwd 下存在旧版 `{cwd}/workspaces/` 数据，legacy 回退会继续使用该路径。可在 `config.user.json` 设置绝对 `paths.state_dir` 或通过 `MINIAGENT_PATHS_STATE_DIR` 将项目数据迁到其它磁盘路径，便于备份或多副本隔离。
 
 ### 14.2 哪些不应提交到 Git
 

@@ -6,7 +6,7 @@
 
 Mini Agent 采用三层记忆架构，确保 Agent 既能记住近期对话，又能从长期经验中学习。
 
-**运行时注入（当前版本）**：`memory_store`、`activity_log` 与关键词索引实例由入口构造并放入 [`RuntimeContext`](../miniagent/runtime/context.py)；执行路径（`UnifiedEngine` / `execute_plan`）优先使用注入实例。未注入时回落到 **单一进程默认 bundle**（[`miniagent/memory/defaults.py`](../miniagent/memory/defaults.py) 的 `get_process_default_memory_bundle()`），根目录与 `unified_entry` 一致（`MINIAGENT_PATHS_STATE_DIR`，默认 `<cwd>/workspaces`）。自 **2.0.0** 起不再提供包级惰性别名 `miniagent.memory.memory_store` / `activity_log` 等；请使用 `get_process_default_memory_bundle()`、`resolve_memory_dependencies()` 或仅依赖 `RuntimeContext` 注入（见 [`ARCHITECTURE.md`](ARCHITECTURE.md)）。
+**运行时注入（当前版本）**：`memory_store`、`activity_log` 与关键词索引实例由入口构造并放入 [`RuntimeContext`](../miniagent/runtime/context.py)；执行路径（`UnifiedEngine` / `execute_plan`）优先使用注入实例。未注入时回落到 **单一进程默认 bundle**（[`miniagent/memory/defaults.py`](../miniagent/memory/defaults.py) 的 `get_process_default_memory_bundle()`），根目录与 `unified_entry` 一致（`MINIAGENT_PATHS_STATE_DIR` / `resolve_project_state_dir()`，默认 `{miniagent}/workspaces/projects/{project_key}/`）。自 **2.0.0** 起不再提供包级惰性别名 `miniagent.memory.memory_store` / `activity_log` 等；请使用 `get_process_default_memory_bundle()`、`resolve_memory_dependencies()` 或仅依赖 `RuntimeContext` 注入（见 [`ARCHITECTURE.md`](ARCHITECTURE.md)）。
 
 ```
 ┌─────────────────────────────────────────────────┐

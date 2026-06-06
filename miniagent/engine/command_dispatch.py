@@ -37,8 +37,6 @@ _REGISTERED_COMMANDS = [
     "/session",
     "/instance",
     "/feishu",
-    "/bind",
-    "/unbind",
     "/queue",
     "/abort",
     "/query",
@@ -49,7 +47,6 @@ _REGISTERED_COMMANDS = [
     "/model",
     "/config",
     "/doctor",
-    "/copy",
     "/stats",
     "/status",
     "/stop",
@@ -181,8 +178,6 @@ async def dispatch_command(
         cmd_btw_status,
     )
     from miniagent.engine.cli_commands import (
-        cmd_bind,
-        cmd_copy_transcript,
         cmd_help,
         cmd_instance_handler,
         cmd_kb_list,
@@ -206,7 +201,6 @@ async def dispatch_command(
         cmd_session_list,
         cmd_session_rename,
         cmd_session_switch,
-        cmd_unbind,
         feishu_dot_commands_full_enabled,
         feishu_markdown_commands_enabled,
         format_kb_command_usage,
@@ -515,24 +509,6 @@ async def dispatch_command(
         print(output)
         return None
 
-    # ── copy: 复制助手回复 ──
-    if cmd == "/copy":
-        sm = state.get("session_manager")
-        session_id = state.get("active_session_id", "")
-        # 解析参数
-        n = 1
-        if len(parts) > 1:
-            try:
-                n = int(parts[1])
-            except ValueError as e:
-                _logger.debug("无效参数，使用默认值: %s", e)
-
-        output = cmd_copy_transcript(sm, session_id, n)
-        if capture:
-            return output
-        print(output)
-        return None
-
     # ── doctor: 环境诊断 ──
     if cmd == "/doctor":
         output = diagnose_environment()
@@ -565,30 +541,6 @@ async def dispatch_command(
         output = _capture(
             lambda: cmd_help(message_queue, state.get("instance_id"))
         )
-        if capture:
-            return output
-        print(output)
-        return None
-
-    # ── /bind ──
-    if cmd == "/bind":
-        if channel_router is None:
-            output = f"{WARNING_PREFIX} 通道路由器未初始化"
-        else:
-            args = parts[1:] if len(parts) > 1 else []
-            output = cmd_bind(channel_router, args, state)
-        if capture:
-            return output
-        print(output)
-        return None
-
-    # ── /unbind ──
-    if cmd == "/unbind":
-        if channel_router is None:
-            output = f"{WARNING_PREFIX} 通道路由器未初始化"
-        else:
-            args = parts[1:] if len(parts) > 1 else []
-            output = cmd_unbind(channel_router, args, state)
         if capture:
             return output
         print(output)
@@ -1181,6 +1133,11 @@ def _format_status(state: CliLoopState | dict[str, Any]) -> str:
             lines.append(f"📡 通道绑定: {len(bindings)} 个通道已绑定")
             for ch, sess in bindings.items():
                 lines.append(f"   {str(ch)[:20]} → {sess}")
+        from miniagent.infrastructure.cli_feishu_policy import focus_mode_status_line
+
+        focus = focus_mode_status_line(channel_router).strip()
+        if focus:
+            lines.append(focus)
 
     # 消息队列状态
     lines.append("")

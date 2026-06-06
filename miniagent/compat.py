@@ -94,6 +94,7 @@ def unified_entry() -> None:
         mq.mode = QueueMode.QUEUE
 
     router = ChannelRouter()
+    router.load()
     feishu_rt = FeishuRuntime(mq)
 
     ctx = RuntimeContext(

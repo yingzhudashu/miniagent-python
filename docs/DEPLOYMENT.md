@@ -117,9 +117,13 @@ python -m miniagent --stop 1 2       # 停止指定实例 ID（非交互）
 
 ### 状态目录与多实例注册
 
-- 默认将运行时状态写入当前工作目录下的 **`workspaces/`**（含 `instances/`、`sessions/` 等）。
-- 设置 **`MINIAGENT_PATHS_STATE_DIR`** 可把整个状态根迁到其它路径（测试、多副本部署时常用）。
-- 每次 **新进程注册实例前** 会清理磁盘上 **PID 已不存在** 的旧实例目录，**不会**误杀仍在运行的其它 Agent 进程。细节见 [ENGINEERING.md](ENGINEERING.md) §3.3。
+- **项目数据**（会话、记忆、路由等）默认写入 miniagent 安装/源码根下的 **`workspaces/projects/{project_key}/`**（`project_key` 由启动时 cwd 路径 hash 生成，如 `myapp-a1b2c3d4`）。若 cwd 下仍有旧版 `{cwd}/workspaces/` 数据，或从 miniagent 仓库根启动且 `workspaces/sessions/` 已存在，会 legacy 回退至旧路径。
+- **实例注册表** 固定在 miniagent 安装/源码根的 `workspaces/instances/`（`resolve_registry_state_dir()`），与项目 cwd 无关。
+- **`MINIAGENT_PATHS_STATE_DIR`** 覆盖项目 workspace 根；**不**改变注册表位置，**不**跳过「一目录一实例」限制。
+- **多项目并行**：在不同项目目录分别启动即可；同一 cwd 第二次启动会被拒绝，需先 `python -m miniagent --stop`。
+- **`python -m miniagent --stop`** 列出全局注册表中的存活实例（含「项目目录」「Workspace」列）；多注册表根时表格标注「状态目录」列。
+- 多注册表根下存在相同实例 ID 时，停止需指定目录：`python -m miniagent --stop --state-dir <路径> <id>`。
+- 每次 **新进程注册前** 会清理 PID 已失效的旧目录；注册时使用跨进程文件锁。细节见 [ENGINEERING.md](ENGINEERING.md) §3.3。
 
 对话历史、分层记忆、关键词索引、飞书去重状态等可能写入上述状态根下的子目录（含敏感业务内容）。
 备份介质权限、共享主机上的路径隔离，见 [SECURITY.md](SECURITY.md)。

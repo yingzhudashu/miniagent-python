@@ -58,7 +58,21 @@ def cmd_instance_handler(
             print(f"{WARNING_PREFIX} 不能停止当前实例，请使用 /stop")
             return
 
-        result = stop_instance_by_id(instance_id)
+        matches = [
+            i
+            for i in list_instances()
+            if int(i.get("instance_id") or 0) == instance_id
+        ]
+        if not matches:
+            print(f"{ERROR_PREFIX} 实例 #{instance_id} 不存在")
+            return
+        if len(matches) > 1:
+            print(f"{ERROR_PREFIX} 实例 #{instance_id} 存在于多个状态目录，无法唯一定位")
+            for m in matches:
+                print(f"  - {m.get('state_dir', '?')}")
+            return
+
+        result = stop_instance_by_id(instance_id, state_dir=str(matches[0].get("state_dir")))
         if result.get("success"):
             print(f"{SUCCESS_PREFIX} 实例 #{instance_id} 已停止: {result.get('reason', '')}")
         else:

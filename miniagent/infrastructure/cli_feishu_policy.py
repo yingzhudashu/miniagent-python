@@ -69,21 +69,6 @@ def should_sync_p2p_on_session_switch(router: ChannelRouter, target_session_id: 
     return not is_feishu_group_session((target_session_id or "").strip())
 
 
-def p2p_bind_target_allowed(router: ChannelRouter, target_session_id: str) -> tuple[bool, str]:
-    """群聊聚焦下拒绝将私聊绑定到任意飞书群会话。"""
-    target = (target_session_id or "").strip()
-    if not target:
-        return False, "会话 ID 不能为空"
-    if get_cli_focus_mode(router) != "feishu_group":
-        return True, ""
-    if is_feishu_group_session(target):
-        return (
-            False,
-            "当前为飞书群聊聚焦模式：不允许将飞书私聊绑定到飞书群会话；请切换 CLI 到一般会话后再绑定私聊",
-        )
-    return True, ""
-
-
 def should_mirror_feishu_to_cli(
     router: ChannelRouter,
     *,

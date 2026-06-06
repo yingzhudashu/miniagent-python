@@ -23,6 +23,7 @@ import random
 import shutil
 from typing import Any
 
+from miniagent.infrastructure.env_parse import env_flag, env_str
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 
@@ -108,7 +109,7 @@ async def init_subsystems(
     session_manager = SessionManager(registry, skill_toolboxes, loaded_skills, clawhub=clawhub)
 
     # 4. 创建默认会话并加锁
-    session_name = get_config("session.default_name", None)
+    session_name = env_str("MINIAGENT_SESSION_NAME") or get_config("session.default_name", None)
     active_session_id = _init_default_session(session_manager, channel_router, session_name=session_name)
 
     # 5. 清理过期关键词索引
@@ -122,6 +123,32 @@ async def init_subsystems(
         _logger.debug("关键词索引初始化失败: %s", e)
 
     return loaded_skills, skill_toolboxes, skill_prompts, active_session_id, session_manager
+
+
+def _resolve_continue_session_id(session_manager: Any, channel_router: Any) -> str:
+    """在 ``--continue`` 模式下解析应恢复的会话 ID。"""
+    from miniagent.session.manager import session_info_id
+
+    existing_sessions = session_manager.list_all_sessions_with_info()
+    existing_ids = {session_info_id(s) for s in existing_sessions if session_info_id(s)}
+
+    last_state = channel_router.load_cli_session_state()
+    if last_state:
+        last_session_id = last_state.get("last_cli_session")
+        if last_session_id:
+            if last_session_id in existing_ids:
+                return last_session_id
+            _logger.info("上次会话 %s 已删除，尝试其它回退", last_session_id)
+
+    primary = channel_router.primary
+    if primary and primary in existing_ids:
+        return primary
+
+    cli_bound = channel_router.resolve("__cli__")
+    if cli_bound != "__cli__" and cli_bound in existing_ids:
+        return cli_bound
+
+    return "default"
 
 
 def _init_default_session(session_manager: Any, channel_router: Any, *, session_name: str | None = None) -> str:
@@ -142,27 +169,12 @@ def _init_default_session(session_manager: Any, channel_router: Any, *, session_
     from miniagent.session.manager import SessionOptions
 
     # --continue 参数支持：优先恢复上次会话
-    continue_mode = get_config("session.continue_mode", False)
+    continue_mode = get_config("session.continue_mode", False) or env_flag(
+        "MINIAGENT_CONTINUE_SESSION"
+    )
 
     if continue_mode and not session_name:
-        # 从持久化记录加载上次会话
-        last_state = channel_router.load_cli_session_state()
-        if last_state:
-            last_session_id = last_state.get("last_cli_session")
-            if last_session_id:
-                # 检查会话是否仍然存在
-                existing_sessions = session_manager.list_all_sessions_with_info()
-                existing_ids = {s.get("session_id") for s in existing_sessions}
-                if last_session_id in existing_ids:
-                    session_id = last_session_id
-                else:
-                    # 上次会话已删除，回退到 default
-                    _logger.info("上次会话 %s 已删除，回退到 default", last_session_id)
-                    session_id = "default"
-            else:
-                session_id = "default"
-        else:
-            session_id = "default"
+        session_id = _resolve_continue_session_id(session_manager, channel_router)
     elif session_name:
         session_id = session_name
     else:

@@ -44,7 +44,10 @@ cp config.defaults.json config.user.json  # 编辑填入 secrets.openai_api_key
 
 # 启动
 python -m miniagent                  # CLI 模式
+python -m miniagent --continue     # 继续上次 CLI 会话
+python -m miniagent --session <ID> # 启动并绑定到指定会话
 python -m miniagent --feishu         # CLI + 飞书
+python -m miniagent --feishu --continue  # CLI + 飞书，并继续上次会话
 python -m miniagent --stop           # 列出实例；交互停止 / --stop --all / --stop <id>...
 ```
 
@@ -78,8 +81,8 @@ README、[docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) 与 [docs/ENGINEERING.md](
 | `/queue status` | 消息队列状态 |
 | `/help` | 显示完整帮助 |
 | `/btw start <prompt>` | 启动后台任务（并行执行） |
-| `/config` | 查看配置概览 |
-| `/model` | 显示/切换模型 |
+| `/config [section]` | 查看配置概览；指定 section 时查看该部分 |
+| `/model [name]` | 显示当前模型；指定 name 时切换模型 |
 
 > 多数 `/` 命令在 CLI 与飞书均可使用；`/schedule` 的 add/update/remove/enable/disable 及部分 `/session` 变异仅允许在本机 CLI 执行（见 [docs/CLI.md](docs/CLI.md)）。
 

@@ -101,7 +101,7 @@ def format_config_info(section: str | None = None) -> str:
         lines.append("")
 
     lines.append("### 查看完整配置")
-    lines.append("使用 `/config <section>` 查看特定配置部分，例如：")
+    lines.append("使用 `/config [section]` 查看特定配置部分，例如：")
     lines.append("- `/config model` - 模型配置")
     lines.append("- `/config paths` - 路径配置")
     lines.append("- `/config feishu` - 飞书渠道")
