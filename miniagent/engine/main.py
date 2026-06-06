@@ -421,7 +421,8 @@ async def run_cli_loop(
     from prompt_toolkit.filters import Condition, has_focus
     from prompt_toolkit.key_binding import KeyBindings
     from prompt_toolkit.keys import Keys
-    from prompt_toolkit.layout import HSplit, Layout, VSplit, Window
+    from prompt_toolkit.layout import Float, FloatContainer, HSplit, Layout, VSplit, Window
+    from prompt_toolkit.layout.menus import CompletionsMenu
     from prompt_toolkit.layout.controls import (
         BufferControl,
         FormattedTextControl,
@@ -1954,40 +1955,55 @@ async def run_cli_loop(
         "hsb-track": "bg:ansibrightblack",              # 轨道：亮黑色背景
         "hsb-arrow": "ansiwhite bold",            # 箭头：白色加粗
         "hsb-arrow-disabled": "ansibrightblack dim",    # 禁用箭头：灰色暗淡
+        # ─── 补全菜单样式 ───────────────────────────────────────────
+        "completion-menu": "bg:ansibrightblack fg:ansiwhite",
+        "completion-menu.completion": "bg:ansibrightblack fg:ansiwhite",
+        "completion-menu.completion.current": "bg:ansicyan fg:ansiblack bold",
+        "completion-menu.meta": "bg:ansibrightblack fg:ansibrightblack dim",
+        "completion-menu.meta.current": "bg:ansicyan fg:ansiblack dim",
     }
     cli_style = Style.from_dict(_cli_style_dict)
 
-    body = HSplit(
-        [
-            output_scroll,
-            h_scrollbar_window,  # 水平滚动条（仅在窄窗口时显示）
-            Window(
-                FormattedTextControl(
-                    HTML(
-                        "<cli-hint>PgUp/PgDn · 滚轮 · Shift+←/→ 水平滚动 · "
-                        "Ctrl+Home/End 移光标 · "
-                        "Ctrl+M 复制模式 · "
-                        "/copy 复制全部对话 · "
-                        "新消息时自动跟随输出</cli-hint>"
-                    )
+    body = FloatContainer(
+        HSplit(
+            [
+                output_scroll,
+                h_scrollbar_window,  # 水平滚动条（仅在窄窗口时显示）
+                Window(
+                    FormattedTextControl(
+                        HTML(
+                            "<cli-hint>PgUp/PgDn · 滚轮 · Shift+←/→ 水平滚动 · "
+                            "Ctrl+Home/End 移光标 · "
+                            "Ctrl+M 复制模式 · "
+                            "/copy 复制全部对话 · "
+                            "新消息时自动跟随输出</cli-hint>"
+                        )
+                    ),
+                    height=D.exact(1),
                 ),
-                height=D.exact(1),
-            ),
-            Window(height=1, char="─", style="class:cli-border"),
-            VSplit(
-                [
-                    Window(
-                        FormattedTextControl(HTML("<prompt-prefix>❯ </prompt-prefix><cli-muted>↑↓历史</cli-muted>")),
-                        width=D.exact(4),
-                        height=D.exact(1),
-                    ),
-                    Window(
-                        BufferControl(buffer=input_buffer),
-                        height=D.exact(1),
-                        wrap_lines=False,
-                    ),
-                ],
-                height=D.exact(1),
+                Window(height=1, char="─", style="class:cli-border"),
+                VSplit(
+                    [
+                        Window(
+                            FormattedTextControl(HTML("<prompt-prefix>❯ </prompt-prefix><cli-muted>↑↓历史</cli-muted>")),
+                            width=D.exact(4),
+                            height=D.exact(1),
+                        ),
+                        Window(
+                            BufferControl(buffer=input_buffer),
+                            height=D.exact(1),
+                            wrap_lines=False,
+                        ),
+                    ],
+                    height=D.exact(1),
+                ),
+            ],
+        ),
+        floats=[
+            Float(
+                xcursor=True,  # 水平位置跟随光标
+                ycursor=True,  # 垂直位置在光标下方（补全菜单通常显示在光标下方）
+                content=CompletionsMenu(max_height=10),
             ),
         ],
     )
