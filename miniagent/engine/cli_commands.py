@@ -117,15 +117,14 @@ def _md_help_section(title: str, hint: str | None, rows: list[tuple[str, str]]) 
     避免使用 GFM 表格（飞书不支持），改用粗体 + 列表格式，
     使 CLI Markdown 渲染和飞书 lark_md 都能正常显示。
     """
-    lines: list[str] = [f"### {title}", ""]
+    lines: list[str] = [f"### {title}"]
     if hint:
         lines.append(f"> {hint}")
-        lines.append("")
     # 使用列表格式，命令用粗体，说明紧跟其后（飞书和 CLI 都友好）
     for cmd, desc in rows:
         # 粗体命令 + 分隔符 + 说明
         lines.append(f"- **{cmd}** — {desc}")
-    lines.append("")
+    lines.extend(["", ""])
     return "\n".join(lines)
 
 
@@ -1243,13 +1242,13 @@ def format_help_markdown(
             "基于运行日志和代码分析生成优化提案，默认仅生成不执行。配置 auto_apply:true 可自动执行低风险提案。",
             [
                 ("`/self-opt status`", "查看自我优化系统状态"),
-                ("`/self-opt proposals`", "列出待执行提案"),
+                ("`/self-opt proposals [status]`", "列出待执行提案（可按状态过滤）"),
                 ("`/self-opt show <id>`", "查看提案详情"),
                 ("`/self-opt approve <id>`", "批准提案"),
                 ("`/self-opt reject <id>`", "拒绝提案"),
-                ("`/self-opt apply <id>`", "执行已批准的提案"),
+                ("`/self-opt apply <id> [root]`", "执行已批准的提案（可选指定根目录）"),
                 ("`/self-opt analyze`", "触发运行分析"),
-                ("`/self-opt report`", "查看分析报告"),
+                ("`/self-opt report [date]`", "查看分析报告（可选指定日期）"),
             ],
         ),
         _md_help_section(
@@ -1301,9 +1300,10 @@ def format_help_markdown(
             "并行执行子任务，不污染主对话历史。",
             [
                 ("`/btw start <prompt>`", "启动后台任务"),
-                ("`/btw status`", "查看任务列表"),
+                ("`/btw status [任务ID]`", "查看任务列表或指定任务状态"),
                 ("`/btw result <id>`", "获取任务结果"),
                 ("`/btw cancel <id>`", "取消任务"),
+                ("`/btw clear`", "清理已完成/失败/取消的任务"),
                 ("`Ctrl+T`", "快捷键查看任务列表"),
             ],
         ),
@@ -1313,6 +1313,7 @@ def format_help_markdown(
             [
                 ("`/config`", "查看配置概览"),
                 ("`/config <section>`", "查看特定配置部分"),
+                ("`/reload-config`", "重新加载 config.user.json（配置热更新）"),
                 ("`/model`", "显示当前模型"),
                 ("`/model <model>`", "切换模型"),
                 ("`/doctor`", "诊断安装与配置"),

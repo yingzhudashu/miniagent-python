@@ -63,7 +63,8 @@ class TestFuzzyCommandMatching:
         assert "/session" in _REGISTERED_COMMANDS
         assert "/status" in _REGISTERED_COMMANDS
         assert "/stop" in _REGISTERED_COMMANDS
-        assert "/reload-config" in _REGISTERED_COMMANDS  # 新增
+        assert "/reload-config" in _REGISTERED_COMMANDS
+        assert "/query" in _REGISTERED_COMMANDS
 
 
 class TestReloadConfigCommand:

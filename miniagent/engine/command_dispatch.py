@@ -41,6 +41,7 @@ _REGISTERED_COMMANDS = [
     "/unbind",
     "/queue",
     "/abort",
+    "/query",
     "/btw",
     "/schedule",
     "/self-opt",  # 新增：自我优化命令
@@ -445,8 +446,8 @@ async def dispatch_command(
         print(output)
         return None
 
-    # ── .reload-skills ──
-    if cmd in (".reload-skills", ".reload_skills"):
+    # ── /reload-skills（兼容旧 .reload-skills）──
+    if cmd in ("/reload-skills", ".reload-skills", ".reload_skills"):
         try:
             from miniagent.skills.refresh import refresh_skills
 

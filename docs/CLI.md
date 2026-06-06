@@ -147,6 +147,7 @@ On branch main
 | | `/unbind feishu <sender>` | 解除飞书私聊绑定 |
 | | `/unbind all` | 解除所有绑定 |
 | **队列** | `/queue status` | 查看消息队列状态 |
+| | `/query` | 同上（`/queue status` 短命令） |
 | | `/queue set <模式>` | 切换 queue / preemptive |
 | | `/queue abort` / `/abort` | 中止本 `chat_id` 上 `dispatch` / `dispatch_wait` 投递的任务（非 `/stop`） |
 | **后台任务** | `/btw start <提示词>` | 启动后台任务（子session并行执行） |
