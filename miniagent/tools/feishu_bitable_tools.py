@@ -1,6 +1,6 @@
 """飞书多维表格聚合工具 ``feishu_bitable``（7 种 action）。
 
-**重构说明**：配置检查使用 miniagent/tools/_feishu_utils.py 的共享函数。
+**重构说明**：配置检查使用 miniagent/tools/feishu_utils.py 的共享函数。
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from miniagent.feishu.bitable.client import (
 )
 from miniagent.feishu.lark_client import config_from_env
 from miniagent.feishu.token_resolve import extract_bitable_app_token, extract_table_id
-from miniagent.tools._feishu_utils import check_lark_oapi
+from miniagent.tools.feishu_utils import check_lark_oapi
 from miniagent.types.error_prefix import SUCCESS_PREFIX, WARNING_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 

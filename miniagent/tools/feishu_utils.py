@@ -5,7 +5,7 @@
 
 使用方式：
 
-    from miniagent.tools._feishu_utils import check_feishu_config, check_lark_oapi
+    from miniagent.tools.feishu_utils import check_feishu_config, check_lark_oapi
 
     async def _some_feishu_tool(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         cfg, err = check_feishu_config()
@@ -16,7 +16,7 @@
             return dep_err
         # 继续处理...
 
-**重构说明**：错误消息使用 miniagent/types/error_messages.py 中的统一常量。
+重命名说明：从 _feishu_utils.py 重命名为 feishu_utils.py（规范化）。
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ def check_feishu_config() -> tuple[FeishuConfig | None, ToolResult | None]:
     if cfg is None:
         return None, ToolResult(
             success=False,
-            content=f"{WARNING_PREFIX} {FEISHU_CONFIG_MISSING}。"
+            content=f"{WARNING_PREFIX} {FEISHU_CONFIG_MISSING}。",
         )
     return cfg, None
 
@@ -62,7 +62,7 @@ def check_lark_oapi() -> ToolResult | None:
     except ImportError:
         return ToolResult(
             success=False,
-            content=f"{WARNING_PREFIX} {DEPENDENCY_LARK_OAPI_MISSING}。"
+            content=f"{WARNING_PREFIX} {DEPENDENCY_LARK_OAPI_MISSING}。",
         )
     return None
 

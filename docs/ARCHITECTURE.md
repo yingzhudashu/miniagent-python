@@ -383,11 +383,11 @@ LLM 可通过 function calling 调用的工具：
 |------|------|
 | `exec.py` | 命令执行 (subprocess) |
 | `filesystem.py` | 文件操作 (read/write/list/edit) |
-| `web.py` | 时间查询 (get_time)、依赖检查 (check_app_availability) |
+| `core_tools.py` | 时间查询 (get_time) - 从 web.py 重命名 |
 | `data_tools.py` | 数据处理 (read_csv/write_csv/json_read/json_write) |
 | `vision.py` | 视觉理解 (analyze_image)：分析图片内容，生成描述 |
-| `skills.py` | 技能操作 (install/uninstall/list) |
-| `session_memory.py` | 会话级记忆辅助工具（由 `engine/init` 注册） |
+| `skills.py` | 技能操作 (install/uninstall/list) + 依赖检查 (check_app_availability) |
+| `session_memory.py` | 会话级记忆辅助工具（已统一注册到 ALL_TOOLS） |
 | `knowledge_tools.py` | 知识库检索 (search_knowledge/read_knowledge_file/kb_list)：检索已挂载的本地文档 |
 | `cli_dispatch_tools.py` | `run_dot_command`：经 [`command_dispatch.dispatch_command`](miniagent/engine/command_dispatch.py) 执行斜杠命令（`capture=True`，与 CLI 同源） |
 | `schedule_tools.py` | `manage_scheduled_task`：定时任务结构化 CRUD |

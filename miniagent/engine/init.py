@@ -5,11 +5,10 @@
 
 顺序要点（与注册覆盖语义一致）：
 
-1. ``register_builtin_tools``：内置 ``ALL_TOOLS``
+1. ``register_builtin_tools``：内置 ``ALL_TOOLS``（含 session_memory_tools）
 2. 磁盘技能包发现并注册工具（同名冲突时跳过技能侧）
-3. ``session_memory_tools``：会话级记忆工具
-4. 可选 ``mcp.stdio_command``：stdio MCP 工具（未安装 ``mcp`` 包则打日志跳过）
-5. 合并 ``BUILTIN_TOOLBOXES`` 与技能工具箱；创建 ``SessionManager``；默认会话加锁；
+3. 可选 ``mcp.stdio_command``：stdio MCP 工具（未安装 ``mcp`` 包则打日志跳过）
+4. 合并 ``BUILTIN_TOOLBOXES`` 与技能工具箱；创建 ``SessionManager``；默认会话加锁；
    ``KeywordIndex.prune_expired`` 清理过期索引项
 
 配置见 config.defaults.json；架构见 ``docs/ARCHITECTURE.md``。
@@ -59,24 +58,18 @@ async def init_subsystems(
     from miniagent.infrastructure.tracing import auto_register_trace_file_hook
     from miniagent.skills.load_runtime import bootstrap_skill_packages
     from miniagent.skills.snapshots import build_skill_snapshots
-    from miniagent.tools.session_memory import session_memory_tools
     auto_register_trace_file_hook()
 
     # 0.5. 检查并恢复 baseline skills（skill-vetter / skill-creator）
     _ensure_baseline_skills()
 
-    # 0. 内置工具（ALL_TOOLS）先于技能包；同名时内置优先（技能注册遇 ValueError 则跳过）
+    # 1. 内置工具（ALL_TOOLS）先于技能包；同名时内置优先（技能注册遇 ValueError 则跳过）
+    # session_memory_tools 已在 ALL_TOOLS 中统一注册
     reg_n = register_builtin_tools(registry)
     if reg_n:
         _logger.info("已注册 %d 个内置工具（ALL_TOOLS）", reg_n)
 
     loaded_skills, _added, _removed = await bootstrap_skill_packages(registry, skill_registry)
-
-    for name, tool in session_memory_tools.items():
-        try:
-            registry.register(name, tool)
-        except ValueError as e:
-            _logger.debug("工具已注册，跳过: %s", e)
 
     mcp_raw = get_config("mcp.stdio_command", "")
     if mcp_raw:

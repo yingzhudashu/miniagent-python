@@ -1,4 +1,4 @@
-"""Mini Agent Python — 命令执行工具 (Phase 5)
+"""Mini Agent Python — 命令执行工具
 
 提供 exec_command 工具，在宿主机上执行 shell 命令。
 
@@ -9,6 +9,8 @@
 - 安全过滤（沙箱模式下阻止危险命令）
 
 命令允许清单与威胁模型见 ``docs/SECURITY.md``；子进程由 ``process`` 模块追踪以便退出时清理。
+
+重构说明：使用 ToolBuilder 简化工具定义。
 """
 
 from __future__ import annotations
@@ -24,129 +26,36 @@ from miniagent.infrastructure.process import (
     create_tracked_subprocess,
     deregister_process,
 )
+from miniagent.tools.base import tool
 from miniagent.types.error_prefix import ERROR_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 _logger = get_logger(__name__)
 
-# ─── Schema ──────────────────────────────────────────────
-
-_exec_schema = {
-    "type": "function",
-    "function": {
-        "name": "exec_command",
-        "description": "执行 shell 命令",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "command": {"type": "string", "description": "要执行的 shell 命令"},
-                "cwd": {"type": "string", "description": "工作目录（可选）"},
-                "timeout": {"type": "number", "description": "超时时间（秒），默认 30"},
-            },
-            "required": ["command"],
-        },
-    },
-}
+# ─── 安全配置 ────────────────────────────────────────────────
 
 # 危险命令黑名单（沙箱模式下生效）
-# 扩展覆盖：Unix + Windows 危险命令
 _BLOCKED_PATTERNS = [
-    # Unix 危险命令
-    "rm -rf /",
-    "rm -rf ~",
-    "sudo rm",
-    "mkfs",
-    "dd if=",
-    "> /dev/",
-    ":(){ :|:& };:",  # fork bomb
-    "chmod -R 777",
-    "> /etc/",
-    "crontab",
-    # Windows 危险命令
-    "del /s /q",
-    "format ",
-    "chkdsk /f",
-    "bootsect",
-    "bcdedit",
-    "reg delete",
+    "rm -rf /", "rm -rf ~", "sudo rm", "mkfs", "dd if=", "> /dev/",
+    ":(){ :|:& };:", "chmod -R 777", "> /etc/", "crontab",
+    "del /s /q", "format ", "chkdsk /f", "bootsect", "bcdedit", "reg delete",
 ]
 
-# Shell 注入检测正则（沙箱模式下生效）
-# 增强检测：覆盖算术扩展、重定向、更多注入模式
+# Shell 注入检测正则
 _SHELL_INJECTION_RE = re.compile(
-    r"(\|\s*\w|"  # pipe to command: | ls
-    r";\s*\w|"  # semicolon command: ; ls
-    r"`[^`]+`|"  # backtick substitution
-    r"\$\([^)]+\)|"  # $(command) substitution
-    r"\$\{[^}]+\}|"  # ${var} substitution
-    r"\$\(\(|"  # arithmetic expansion: $((expr))
-    r"eval\s|"  # eval command
-    r"exec\s|"  # exec command
-    r"curl\s.*\|\s*(bash|sh)|"  # curl pipe shell
-    r"wget\s.*\|\s*(bash|sh)|"  # wget pipe shell
-    r"chmod\s+777|"  # chmod 777
-    r"nc\s+-e|"  # netcat reverse shell
-    r"base64\s+-d\s*\||"  # base64 decode pipe
-    r"<>|"  # read-write redirect
-    r"<\s*>)"  # additional patterns
+    r"(\|\s*\w|;\s*\w|`[^`]+`|\$\([^)]+\)|\$\{[^}]+\}|\$\(\(|eval\s|exec\s|"
+    r"curl\s.*\|\s*(bash|sh)|wget\s.*\|\s*(bash|sh)|chmod\s+777|nc\s+-e|base64\s+-d\s*\||<>|<\s*>)"
 )
 
 # 沙箱模式下允许的命令基础名
-_DEFAULT_ALLOWED_COMMANDS = frozenset(
-    {
-        "ls",
-        "cat",
-        "head",
-        "tail",
-        "grep",
-        "find",
-        "wc",
-        "pwd",
-        "echo",
-        "date",
-        "whoami",
-        "uname",
-        "df",
-        "du",
-        "ps",
-        "uptime",
-        "free",
-        "top",
-        "python",
-        "python3",
-        "pip",
-        "pip3",
-        "npm",
-        "yarn",
-        "pnpm",
-        "node",
-        "git",
-        "curl",
-        "wget",
-        "mkdir",
-        "touch",
-        "cp",
-        "mv",
-        "chmod",
-        "chown",
-        "sed",
-        "awk",
-        "sort",
-        "uniq",
-        "tee",
-        "zip",
-        "unzip",
-        "tar",
-        "sha256sum",
-        "md5sum",
-        "ping",
-        "nslookup",
-        "dig",
-        "tree",
-        "file",
-        "stat",
-    }
-)
+_DEFAULT_ALLOWED_COMMANDS = frozenset({
+    "ls", "cat", "head", "tail", "grep", "find", "wc", "pwd", "echo", "date",
+    "whoami", "uname", "df", "du", "ps", "uptime", "free", "top",
+    "python", "python3", "pip", "pip3", "npm", "yarn", "pnpm", "node", "git",
+    "curl", "wget", "mkdir", "touch", "cp", "mv", "chmod", "chown",
+    "sed", "awk", "sort", "uniq", "tee", "zip", "unzip", "tar",
+    "sha256sum", "md5sum", "ping", "nslookup", "dig", "tree", "file", "stat",
+})
 
 
 def _get_allowed_commands() -> frozenset[str]:
@@ -162,6 +71,8 @@ def _deny(command: str, reason: str) -> ToolResult:
     _logger.warning("命令被拒绝: command=%s reason=%s", command, reason)
     return ToolResult(success=False, content=f"{ERROR_PREFIX} 命令被拒绝: {reason}")
 
+
+# ─── Handler ───────────────────────────────────────────────────
 
 async def _exec_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     """exec_command 处理器。
@@ -190,7 +101,6 @@ async def _exec_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         allowed = _get_allowed_commands()
         try:
             import shlex
-
             parts = shlex.split(command)
         except ValueError:
             return _deny(command, "命令语法无效")
@@ -218,12 +128,8 @@ async def _exec_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
             except ProcessLookupError as e:
                 _logger.debug("进程已不存在: %s", e)
             await proc.wait()
-            # 从追踪列表移除
             await deregister_process(proc)
-            return ToolResult(
-                success=False,
-                content=f"{ERROR_PREFIX} 命令执行超时 ({timeout}s)",
-            )
+            return ToolResult(success=False, content=f"{ERROR_PREFIX} 命令执行超时 ({timeout}s)")
 
         stdout = stdout_bytes.decode("utf-8", errors="replace").strip() if stdout_bytes else ""
         stderr = stderr_bytes.decode("utf-8", errors="replace").strip() if stderr_bytes else ""
@@ -239,7 +145,6 @@ async def _exec_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
             content = "(无输出)"
         content += f"\n\n[exit code: {code}]"
 
-        # 从追踪列表移除（已完成）
         await deregister_process(proc)
         return ToolResult(success=(code == 0), content=content)
 
@@ -247,16 +152,17 @@ async def _exec_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 执行失败: {e}")
 
 
-# ─── 导出 ────────────────────────────────────────────────
+# ─── Tool Definition ───────────────────────────────────────────
 
 exec_tools: dict[str, ToolDefinition] = {
-    "exec_command": ToolDefinition(
-        schema=_exec_schema,
-        handler=_exec_handler,
-        permission="allowlist",
-        help_text="执行 shell 命令",
-        toolbox="exec",
-    ),
+    "exec_command": tool("exec_command", "执行 shell 命令")
+        .param("command", "string", "要执行的 shell 命令")
+        .optional("cwd", "string", "工作目录（可选）")
+        .optional("timeout", "number", "超时时间（秒），默认 30")
+        .allowlist()
+        .toolbox("exec")
+        .handler(_exec_handler)
+        .build(),
 }
 
 __all__ = ["exec_tools"]

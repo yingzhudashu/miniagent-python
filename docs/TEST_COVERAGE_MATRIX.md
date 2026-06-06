@@ -58,10 +58,10 @@
 |------|------|----------|----------|
 | 文件系统 | filesystem.py | test_tools_filesystem.py | ✅ 充足 |
 | 命令执行 | exec.py | test_tools_exec.py | ✅ 新增 |
-| 网络工具 | web.py | test_web_search_browser.py | ⚠️ 部分 |
+| 核心工具 | core_tools.py | test_web_error_handling.py | ✅ 充足 |
+| 技能工具 | skills.py (含 check_app) | test_tools_skills_clawhub.py | ✅ 充足 |
 | 数据处理 | data_tools.py | test_data_tools_edge_cases.py | ✅ 充足 |
 | 知识库 | knowledge_tools.py | test_knowledge.py | ✅ 充足 |
-| 技能工具 | skills.py | test_tools_skills_clawhub.py | ✅ 充足 |
 | 定时任务 | schedule_tools.py | test_schedule_tools.py | ✅ 充足 |
 | 飞书IM | feishu_im_tools.py | test_feishu_im_tools_handlers.py | ✅ 充足 |
 | 飞书文档 | feishu_doc_tools.py | test_feishu_doc_tools.py | ✅ 充足 |

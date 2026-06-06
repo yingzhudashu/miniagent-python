@@ -4,6 +4,8 @@
 - ``write_csv``: 将列表数据写入 CSV 文件
 - ``json_read``: 读取 JSON/JSONL 文件
 - ``json_write``: 写入 JSON 文件（支持 pretty/compact 格式）
+
+重构说明：使用 ToolBuilder 简化工具定义。
 """
 
 from __future__ import annotations
@@ -14,49 +16,22 @@ import json
 import os
 from typing import Any
 
-# 导入共享路径解析函数
-from miniagent.tools._path_utils import resolve_path_from_ctx
+from miniagent.tools.base import tool
+from miniagent.tools.path_utils import resolve_path_from_ctx
 from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
-# ─── read_csv ────────────────────────────────────────────
-
-_read_csv_schema = {
-    "type": "function",
-    "function": {
-        "name": "read_csv",
-        "description": "读取 CSV/TSV 文件，返回前 N 行数据",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "CSV 文件路径"},
-                "delimiter": {"type": "string", "description": "分隔符（默认自动检测 , 或 \\t）"},
-                "encoding": {"type": "string", "description": "文件编码（默认 utf-8）"},
-                "maxRows": {"type": "number", "description": "最大返回行数（默认 100）"},
-            },
-            "required": ["path"],
-        },
-    },
-}
+# ════════════════════════════════════════════════════════
+# Handlers
+# ════════════════════════════════════════════════════════
 
 
 async def _read_csv_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-    """读取 CSV 文件内容。
-
-    Args:
-        args: 工具参数，包含:
-            - path: CSV 文件路径
-            - delimiter: 分隔符（可选，默认自动检测）
-            - encoding: 文件编码（可选，默认 utf-8）
-            - maxRows: 最大返回行数（可选，默认 100）
-        ctx: 工具上下文，提供路径解析和沙箱约束
-
-    Returns:
-        ToolResult: 成功时返回 CSV 内容，失败时返回错误信息
-    """
+    """读取 CSV 文件内容。自动检测分隔符。"""
     path = resolve_path_from_ctx(str(args["path"]), ctx)
     if not os.path.isfile(path):
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 文件不存在: {path}")
+
     delimiter = str(args.get("delimiter", "")).strip()
     encoding = str(args.get("encoding", "utf-8"))
     max_rows = int(args.get("maxRows", 100))
@@ -87,45 +62,12 @@ async def _read_csv_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResul
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 读取失败: {e}")
 
 
-# ─── write_csv ───────────────────────────────────────────
-
-_write_csv_schema = {
-    "type": "function",
-    "function": {
-        "name": "write_csv",
-        "description": "将数据写入 CSV 文件",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "输出文件路径"},
-                "data": {
-                    "type": "string",
-                    "description": "JSON 格式的二维数组或对象数组，如 [{\"name\":\"a\"},{\"name\":\"b\"}] 或 [[\"a\",1],[\"b\",2]]",
-                },
-                "delimiter": {"type": "string", "description": "分隔符（默认 ,）"},
-            },
-            "required": ["path", "data"],
-        },
-    },
-}
-
-
 async def _write_csv_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-    """将数据写入 CSV 文件。
-
-    Args:
-        args: 工具参数，包含:
-            - path: 输出文件路径
-            - data: JSON 格式的二维数组或对象数组
-            - delimiter: 分隔符（可选，默认逗号）
-        ctx: 工具上下文，提供路径解析和沙箱约束
-
-    Returns:
-        ToolResult: 成功时返回写入行数，失败时返回错误信息
-    """
+    """将数据写入 CSV 文件。支持对象数组或二维数组。"""
     path = resolve_path_from_ctx(str(args["path"]), ctx)
     delimiter = str(args.get("delimiter", ",")).strip() or ","
     raw_data = str(args.get("data", ""))
+
     try:
         data = json.loads(raw_data)
     except json.JSONDecodeError as e:
@@ -151,42 +93,12 @@ async def _write_csv_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 写入失败: {e}")
 
 
-# ─── json_read ───────────────────────────────────────────
-
-_json_read_schema = {
-    "type": "function",
-    "function": {
-        "name": "json_read",
-        "description": "读取 JSON 或 JSONL 文件内容",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "JSON/JSONL 文件路径"},
-                "encoding": {"type": "string", "description": "文件编码（默认 utf-8）"},
-                "maxChars": {"type": "number", "description": "最大返回字符数（默认 50000）"},
-            },
-            "required": ["path"],
-        },
-    },
-}
-
-
 async def _json_read_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-    """读取 JSON 或 JSONL 文件内容。
-
-    Args:
-        args: 工具参数，包含:
-            - path: JSON/JSONL 文件路径
-            - encoding: 文件编码（可选，默认 utf-8）
-            - maxChars: 最大返回字符数（可选，默认 50000）
-        ctx: 工具上下文，提供路径解析和沙箱约束
-
-    Returns:
-        ToolResult: 成功时返回格式化的 JSON 内容，失败时返回错误信息
-    """
+    """读取 JSON 或 JSONL 文件内容。自动格式化。"""
     path = resolve_path_from_ctx(str(args["path"]), ctx)
     if not os.path.isfile(path):
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 文件不存在: {path}")
+
     encoding = str(args.get("encoding", "utf-8"))
     max_chars = int(args.get("maxChars", 50000))
 
@@ -209,42 +121,12 @@ async def _json_read_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 读取失败: {e}")
 
 
-# ─── json_write ──────────────────────────────────────────
-
-_json_write_schema = {
-    "type": "function",
-    "function": {
-        "name": "json_write",
-        "description": "将数据写入 JSON 文件",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "输出文件路径"},
-                "data": {"type": "string", "description": "要写入的 JSON 字符串"},
-                "pretty": {"type": "boolean", "description": "是否美化输出（缩进 2 空格，默认 true）"},
-            },
-            "required": ["path", "data"],
-        },
-    },
-}
-
-
 async def _json_write_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-    """将数据写入 JSON 文件。
-
-    Args:
-        args: 工具参数，包含:
-            - path: 输出文件路径
-            - data: 要写入的 JSON 字符串
-            - pretty: 是否美化输出（可选，默认 true）
-        ctx: 工具上下文，提供路径解析和沙箱约束
-
-    Returns:
-        ToolResult: 成功时返回写入确认，失败时返回错误信息
-    """
+    """将数据写入 JSON 文件。支持美化输出。"""
     path = resolve_path_from_ctx(str(args["path"]), ctx)
     pretty = args.get("pretty", True) in (True, "true", "1")
     raw_data = str(args.get("data", ""))
+
     try:
         parsed = json.loads(raw_data)
     except json.JSONDecodeError as e:
@@ -261,37 +143,44 @@ async def _json_write_handler(args: dict[str, Any], ctx: ToolContext) -> ToolRes
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 写入失败: {e}")
 
 
-# ─── 导出 ────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════
+# Tool Definitions (使用 ToolBuilder)
+# ════════════════════════════════════════════════════════
 
 data_tools: dict[str, ToolDefinition] = {
-    "read_csv": ToolDefinition(
-        schema=_read_csv_schema,
-        handler=_read_csv_handler,
-        permission="sandbox",
-        help_text="读取 CSV/TSV 文件",
-        toolbox="file_read",
-    ),
-    "write_csv": ToolDefinition(
-        schema=_write_csv_schema,
-        handler=_write_csv_handler,
-        permission="sandbox",
-        help_text="将数据写入 CSV 文件",
-        toolbox="file_write",
-    ),
-    "json_read": ToolDefinition(
-        schema=_json_read_schema,
-        handler=_json_read_handler,
-        permission="sandbox",
-        help_text="读取 JSON/JSONL 文件",
-        toolbox="file_read",
-    ),
-    "json_write": ToolDefinition(
-        schema=_json_write_schema,
-        handler=_json_write_handler,
-        permission="sandbox",
-        help_text="写入 JSON 文件",
-        toolbox="file_write",
-    ),
+    "read_csv": tool("read_csv", "读取 CSV/TSV 文件，返回前 N 行数据")
+        .param("path", "string", "CSV 文件路径")
+        .optional("delimiter", "string", "分隔符（默认自动检测 , 或 \\t）")
+        .optional("encoding", "string", "文件编码（默认 utf-8）")
+        .optional("maxRows", "number", "最大返回行数（默认 100）")
+        .sandbox()
+        .toolbox("file_read")
+        .handler(_read_csv_handler)
+        .build(),
+    "write_csv": tool("write_csv", "将数据写入 CSV 文件")
+        .param("path", "string", "输出文件路径")
+        .param("data", "string", "JSON 格式的二维数组或对象数组")
+        .optional("delimiter", "string", "分隔符（默认 ,）")
+        .sandbox()
+        .toolbox("file_write")
+        .handler(_write_csv_handler)
+        .build(),
+    "json_read": tool("json_read", "读取 JSON 或 JSONL 文件内容")
+        .param("path", "string", "JSON/JSONL 文件路径")
+        .optional("encoding", "string", "文件编码（默认 utf-8）")
+        .optional("maxChars", "number", "最大返回字符数（默认 50000）")
+        .sandbox()
+        .toolbox("file_read")
+        .handler(_json_read_handler)
+        .build(),
+    "json_write": tool("json_write", "将数据写入 JSON 文件")
+        .param("path", "string", "输出文件路径")
+        .param("data", "string", "要写入的 JSON 字符串")
+        .optional("pretty", "boolean", "是否美化输出（缩进 2 空格，默认 true）")
+        .sandbox()
+        .toolbox("file_write")
+        .handler(_json_write_handler)
+        .build(),
 }
 
 __all__ = ["data_tools"]

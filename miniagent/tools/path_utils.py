@@ -1,6 +1,8 @@
 """Tools — 共享路径解析辅助函数
 
 消除 filesystem.py、vision.py、data_tools.py 中的重复代码。
+
+重命名说明：从 _path_utils.py 重命名为 path_utils.py（规范化）。
 """
 
 from __future__ import annotations
@@ -91,3 +93,11 @@ def resolve_path_simple(
 
     dirs = allowed or allowed_dirs_simple(cwd)
     return resolve_sandbox_path(input_path, dirs)
+
+
+__all__ = [
+    "allowed_dirs_from_ctx",
+    "resolve_path_from_ctx",
+    "allowed_dirs_simple",
+    "resolve_path_simple",
+]

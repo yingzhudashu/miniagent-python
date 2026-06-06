@@ -2,70 +2,30 @@
 
 ``ToolContext.cli_loop_state`` 须由 ``unified_main`` 注入；飞书变异命令拦截规则见
 ``docs/FEISHU.md``、``docs/CLI.md``。
+
+重构说明：使用 ToolBuilder 简化工具定义。
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+from miniagent.tools.base import tool
 from miniagent.types.error_prefix import SUCCESS_PREFIX, WARNING_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
-_run_dot_command_schema = {
-    "type": "function",
-    "function": {
-        "name": "run_dot_command",
-        "description": (
-            "执行与终端一致的 MiniAgent 命令，返回捕获的文本输出。"
-            "支持：/help、/status、/session list、/queue status、/queue abort、/abort、"
-            "/schedule list | /schedule show <id> | /schedule add | /schedule remove | "
-            "/schedule enable | /schedule disable。"
-            "其中 /schedule add 必须使用「空格双连字符空格」分隔参数区与 prompt，"
-            "示例：/schedule add myid every 300 primary -- 请每5分钟总结当前会话。"
-            "飞书场景下默认：/session 的切换/创建等、以及 /schedule 的 add/remove/enable/disable 会被拒绝"
-            "（仅允许 /schedule list/show）；设置 MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1 时飞书与 CLI 同等。"
-            "本地 CLI 对话中 Agent 始终可执行上述变异命令。"
-            "飞书且已注入 receive_chat_id 时，/abort / /queue abort 作用于当前群/私聊的消息队列；否则作用于 CLI 队列。"
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "line": {
-                    "type": "string",
-                    "description": (
-                        "完整一行，必须以 / 开头；例如 /session list、/schedule list、"
-                        "/schedule add job1 every 60 primary -- 你的 prompt"
-                    ),
-                },
-                "max_chars": {
-                    "type": "integer",
-                    "description": (
-                        "可选。限制返回正文最大 Unicode 字符数；超出则截断并追加省略提示。"
-                        "省略则不截断。"
-                    ),
-                },
-            },
-            "required": ["line"],
-        },
-    },
-}
+CLI_DOT_TOOL_NAMES = frozenset({"run_dot_command"})
 
 
 async def _run_dot_command_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     """执行 ``run_dot_command``：转调 ``dispatch_command`` 并返回捕获输出。"""
     line = (args.get("line") or "").strip()
     if not line.startswith("/"):
-        return ToolResult(
-            success=False,
-            content=f"{WARNING_PREFIX} 参数 line 必须以 / 开头（与终端命令一致）。",
-        )
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 参数 line 必须以 / 开头（与终端命令一致）。")
 
     st = ctx.cli_loop_state
     if not isinstance(st, dict) or st.get("runtime_ctx") is None:
-        return ToolResult(
-            success=False,
-            content=f"{WARNING_PREFIX} 命令工具仅在完整进程集成（含 runtime_ctx）中可用。",
-        )
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 命令工具仅在完整进程集成（含 runtime_ctx）中可用。")
 
     rt = st["runtime_ctx"]
     from miniagent.engine.command_dispatch import dispatch_command
@@ -84,21 +44,13 @@ async def _run_dot_command_handler(args: dict[str, Any], ctx: ToolContext) -> To
         message_queue_abort_chat_id=ctx.message_queue_abort_chat_id,
     )
     if out is None:
-        return ToolResult(
-            success=False,
-            content=f"{WARNING_PREFIX} 未识别的命令；请使用 /help 查看列表。",
-        )
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 未识别的命令；请使用 /help 查看列表。")
     if out == "__EXIT__":
-        return ToolResult(
-            success=True,
-            content=f"{SUCCESS_PREFIX} 实例已停止",
-        )
+        return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 实例已停止")
+
     stripped = (out or "").strip()
     if not stripped:
-        return ToolResult(
-            success=True,
-            content="（命令执行成功，无文本输出）",
-        )
+        return ToolResult(success=True, content="（命令执行成功，无文本输出）")
 
     text = out
     raw_mc = args.get("max_chars")
@@ -113,16 +65,18 @@ async def _run_dot_command_handler(args: dict[str, Any], ctx: ToolContext) -> To
     return ToolResult(success=True, content=text)
 
 
-cli_dispatch_tools: dict[str, ToolDefinition] = {
-    "run_dot_command": ToolDefinition(
-        schema=_run_dot_command_schema,
-        handler=_run_dot_command_handler,
-        permission="allowlist",
-        help_text="执行进程内点命令（含 .schedule 定时任务；飞书下部分子命令受限）",
-        toolbox="miniagent_shell",
-    ),
-}
+# ════════════════════════════════════════════════════════
+# Tool Definition (使用 ToolBuilder)
+# ════════════════════════════════════════════════════════
 
-CLI_DOT_TOOL_NAMES = frozenset(cli_dispatch_tools.keys())
+cli_dispatch_tools: dict[str, ToolDefinition] = {
+    "run_dot_command": tool("run_dot_command", "执行与终端一致的 MiniAgent 命令，返回捕获的文本输出。支持：/help、/status、/session list、/queue status、/queue abort、/abort、/schedule list/show/add/remove/enable/disable。")
+        .param("line", "string", "完整一行，必须以 / 开头")
+        .optional("max_chars", "integer", "限制返回正文最大 Unicode 字符数")
+        .allowlist()
+        .toolbox("miniagent_shell")
+        .handler(_run_dot_command_handler)
+        .build(),
+}
 
 __all__ = ["cli_dispatch_tools", "CLI_DOT_TOOL_NAMES"]

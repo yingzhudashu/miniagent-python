@@ -1,55 +1,37 @@
-"""Mini Agent Python — 技能管理工具 (Phase 5)
+"""Mini Agent Python — 技能管理工具
 
-提供技能搜索、安装、列表工具，让 Agent 能自主管理技能扩展。
+提供技能搜索、安装、列表、卸载工具，让 Agent 能自主管理技能扩展。
 - search_skills: 搜索 ClawHub 或本地技能
 - install_skill: 从 ClawHub 下载并安装技能
 - uninstall_skill: 卸载已安装技能
 - list_skills: 列出已安装技能
+- check_app_availability: 检查依赖可用性（从 web.py 合入）
 
 技能目录与第三方许可见 ``workspaces/skills/THIRD_PARTY_SKILLS.md``；市场 API 见 ``clawhub_client``。
+
+重构说明：
+- 使用 ToolBuilder 简化工具定义
+- 合入 check_app_availability 工具（原 web.py）
 """
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 from typing import Any
 
+from miniagent.tools.base import tool
 from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
+_logger = logging.getLogger(__name__)
+
 
 def _get_skills_root() -> str:
-    """与引擎、ClawHub 安装共用技能根目录（见 :func:`miniagent.skills.paths.get_skills_root`）。"""
+    """与引擎、ClawHub 安装共用技能根目录。"""
     from miniagent.skills.paths import get_skills_root
-
     return get_skills_root()
-
-
-# ════════════════════════════════════════════════════════
-# search_skills
-# ════════════════════════════════════════════════════════
-
-_search_schema = {
-    "type": "function",
-    "function": {
-        "name": "search_skills",
-        "description": "搜索 ClawHub 技能市场或本地已安装的技能",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "搜索关键词"},
-                "source": {
-                    "type": "string",
-                    "enum": ["clawhub", "local", "all"],
-                    "description": "搜索来源",
-                },
-                "limit": {"type": "number", "description": "最大返回结果数（默认 10）"},
-            },
-            "required": ["query"],
-        },
-    },
-}
 
 
 def _resolve_clawhub(ctx: ToolContext) -> Any:
@@ -57,23 +39,16 @@ def _resolve_clawhub(ctx: ToolContext) -> Any:
     if ctx.clawhub is not None:
         return ctx.clawhub
     from miniagent.skills.clawhub_client import create_clawhub_client
-
     return create_clawhub_client()
 
 
+# ════════════════════════════════════════════════════════
+# Skills Handlers
+# ════════════════════════════════════════════════════════
+
+
 async def _search_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-    """搜索 ClawHub 技能市场或本地已安装的技能。
-
-    支持三种搜索来源：local（仅本地）、clawhub（仅在线）、all（同时搜索）。
-    本地搜索通过匹配 SKILL.md 中的名称和描述实现，ClawHub 搜索调用远程 API。
-
-    Args:
-        args: 包含 query（搜索关键词）、source（可选，默认 'all'）、limit（可选，默认 10）
-        ctx: 工具执行上下文（可选注入 clawhub）
-
-    Returns:
-        ToolResult: 搜索结果列表，包含名称、描述、星级和下载量
-    """
+    """搜索 ClawHub 技能市场或本地已安装的技能。"""
     query = str(args["query"])
     source = str(args.get("source", "all"))
     limit = int(args.get("limit", 10))
@@ -116,40 +91,8 @@ async def _search_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     return ToolResult(success=True, content="\n".join(results) or "未找到任何结果")
 
 
-# ════════════════════════════════════════════════════════
-# install_skill
-# ════════════════════════════════════════════════════════
-
-_install_schema = {
-    "type": "function",
-    "function": {
-        "name": "install_skill",
-        "description": "从 ClawHub 技能市场下载并安装一个技能",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "slug": {"type": "string", "description": "技能的 slug（唯一标识符）"},
-                "version": {"type": "string", "description": "版本号（可选）"},
-            },
-            "required": ["slug"],
-        },
-    },
-}
-
-
 async def _install_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-    """从 ClawHub 技能市场下载并安装一个技能。
-
-    此工具标记为 require-confirm 权限，安装前需用户确认。
-    安装前检查是否已存在同名技能，防止覆盖。
-
-    Args:
-        args: 包含 slug（技能唯一标识）、version（可选，指定版本）
-        ctx: 工具执行上下文（可选注入 clawhub）
-
-    Returns:
-        ToolResult: 成功时返回安装路径、版本号和文件数；失败时提示原因
-    """
+    """从 ClawHub 技能市场下载并安装一个技能。"""
     slug = str(args["slug"])
     version = args.get("version")
 
@@ -175,7 +118,6 @@ async def _install_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult
         vet_report = ""
         if os.path.isdir(install_path):
             from miniagent.skills.autovet import auto_vet_skill
-
             vet_report = auto_vet_skill(install_path)
 
         refresh_note = ""
@@ -184,24 +126,14 @@ async def _install_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult
             rt = st.get("runtime_ctx")
             if rt is not None:
                 from miniagent.skills.refresh import refresh_skills
-
                 try:
                     fr = await refresh_skills(
-                        rt.registry,
-                        rt.skill_registry,
-                        package_dir=install_path,
-                        state=st,
-                        session_manager=st.get("session_manager"),
+                        rt.registry, rt.skill_registry, package_dir=install_path,
+                        state=st, session_manager=st.get("session_manager"),
                     )
-                    refresh_note = (
-                        f"\n\n🔄 已热加载到当前 Agent"
-                        f"（{len(fr.loaded_skills)} 个技能，"
-                        f"新增工具 {len(fr.added_tools)} 个）"
-                    )
+                    refresh_note = f"\n\n🔄 已热加载到当前 Agent（{len(fr.loaded_skills)} 个技能，新增工具 {len(fr.added_tools)} 个）"
                 except Exception as ex:
-                    refresh_note = (
-                        f"\n\n{WARNING_PREFIX} 安装成功但热加载失败: {ex}\n请执行 `.reload-skills` 或重启 Agent"
-                    )
+                    refresh_note = f"\n\n{WARNING_PREFIX} 安装成功但热加载失败: {ex}\n请执行 `.reload-skills` 或重启 Agent"
             else:
                 refresh_note = "\n\n💡 提示：执行 `.reload-skills` 或重启 Agent 后加载"
         else:
@@ -214,8 +146,7 @@ async def _install_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult
                 f"📁 安装路径: {install_path}\n"
                 f"📦 版本: {detail.get('version', 'unknown')}\n"
                 f"📄 文件数: {len(result.get('files', []))}"
-                f"{vet_report}"
-                f"{refresh_note}"
+                f"{vet_report}{refresh_note}"
             ),
         )
     except Exception as e:
@@ -225,38 +156,8 @@ async def _install_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult
         )
 
 
-# ════════════════════════════════════════════════════════
-# list_skills
-# ════════════════════════════════════════════════════════
-
-_list_schema = {
-    "type": "function",
-    "function": {
-        "name": "list_skills",
-        "description": "列出所有已安装的本地技能",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "verbose": {"type": "boolean", "description": "是否显示详细信息"},
-            },
-        },
-    },
-}
-
-
 async def _list_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolResult:
-    """列出所有已安装的本地技能。
-
-    通过扫描所有技能根目录（主根 + 会话技能目录）下的 SKILL.md 文件实现。
-    verbose 模式下额外显示版本、作者和安装路径信息。
-
-    Args:
-        args: 包含 verbose（可选，是否显示详细信息）
-        _ctx: 工具执行上下文（此工具不使用）
-
-    Returns:
-        ToolResult: 已安装技能列表，或提示使用 search_skills 安装新技能
-    """
+    """列出所有已安装的本地技能。"""
     verbose = bool(args.get("verbose", False))
     from miniagent.skills.clawhub_client import search_local_skills
     from miniagent.skills.paths import get_all_skill_roots, get_skills_root
@@ -276,47 +177,15 @@ async def _list_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolResult:
         lines.append(f"  - [{s['slug']}] {s['name']}")
         lines.append(f"    {s['description']}")
         if verbose:
-            lines.append(
-                f"    版本: {s.get('version', 'local')} | 作者: {s.get('author', 'local')}"
-            )
+            lines.append(f"    版本: {s.get('version', 'local')} | 作者: {s.get('author', 'local')}")
             lines.append(f"    路径: {os.path.join(skills_root, s['slug'])}")
         lines.append("")
 
     return ToolResult(success=True, content="\n".join(lines))
 
 
-# ════════════════════════════════════════════════════════
-# uninstall_skill
-# ════════════════════════════════════════════════════════
-
-_uninstall_schema = {
-    "type": "function",
-    "function": {
-        "name": "uninstall_skill",
-        "description": "卸载一个已安装的技能（删除目录并从当前 Agent 中移除）",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "slug": {"type": "string", "description": "要卸载的技能 slug（唯一标识符）"},
-            },
-            "required": ["slug"],
-        },
-    },
-}
-
-
 async def _uninstall_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-    """卸载一个已安装的技能，包括删除磁盘目录和热移除工具。
-
-    此工具标记为 require-confirm 权限，卸载前需用户确认。
-
-    Args:
-        args: 包含 slug（技能唯一标识）
-        ctx: 工具执行上下文
-
-    Returns:
-        ToolResult: 成功时返回卸载信息；失败时提示原因
-    """
+    """卸载一个已安装的技能，包括删除磁盘目录和热移除工具。"""
     slug = str(args["slug"])
 
     try:
@@ -341,22 +210,14 @@ async def _uninstall_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
             rt = st.get("runtime_ctx")
             if rt is not None:
                 from miniagent.skills.refresh import refresh_skills
-
                 try:
                     fr = await refresh_skills(
-                        rt.registry,
-                        rt.skill_registry,
-                        skills_root=skills_root,
-                        state=st,
-                        session_manager=st.get("session_manager"),
+                        rt.registry, rt.skill_registry, skills_root=skills_root,
+                        state=st, session_manager=st.get("session_manager"),
                     )
-                    refresh_note = (
-                        f"\n\n🔄 已从当前 Agent 中移除（移除工具 {len(fr.removed_tools)} 个）"
-                    )
+                    refresh_note = f"\n\n🔄 已从当前 Agent 中移除（移除工具 {len(fr.removed_tools)} 个）"
                 except Exception as ex:
-                    refresh_note = (
-                        f"\n\n{WARNING_PREFIX} 已删除目录但热移除失败: {ex}\n请执行 `.reload-skills` 或重启 Agent"
-                    )
+                    refresh_note = f"\n\n{WARNING_PREFIX} 已删除目录但热移除失败: {ex}\n请执行 `.reload-skills` 或重启 Agent"
             else:
                 refresh_note = "\n\n💡 提示：执行 `.reload-skills` 或重启 Agent 后生效"
         else:
@@ -364,46 +225,147 @@ async def _uninstall_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
 
         return ToolResult(
             success=True,
-            content=(f'{SUCCESS_PREFIX} 技能 "{slug}" 已卸载\n\n📁 已删除: {install_dir}{refresh_note}'),
+            content=f'{SUCCESS_PREFIX} 技能 "{slug}" 已卸载\n\n📁 已删除: {install_dir}{refresh_note}',
         )
     except Exception as e:
-        return ToolResult(
-            success=False,
-            content=f'{ERROR_PREFIX} 卸载技能 "{slug}" 失败: {e}',
-        )
+        return ToolResult(success=False, content=f'{ERROR_PREFIX} 卸载技能 "{slug}" 失败: {e}')
 
 
-# ─── 导出 ────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════
+# check_app_availability Handler (从 web.py 合入)
+# ════════════════════════════════════════════════════════
+
+
+def _check_binary(name: str) -> dict[str, Any]:
+    """检查命令行工具是否可用。"""
+    import shutil
+    path = shutil.which(name)
+    if path:
+        return {"available": True, "path": path}
+    return {"available": False, "error": f"未找到可执行文件: {name}"}
+
+
+def _check_com(name: str) -> dict[str, Any]:
+    """检查 Windows COM ProgID 是否可用。"""
+    if os.name != "nt":
+        return {"available": False, "error": "COM 检查仅支持 Windows 平台"}
+    try:
+        import win32com.client
+        app = win32com.client.Dispatch(name)
+        info: dict[str, Any] = {"available": True, "progid": name}
+        for attr in ("Version", "Path", "FullName"):
+            try:
+                val = getattr(app, attr, None)
+                if val is not None:
+                    info[attr.lower()] = str(val)
+            except Exception:
+                pass
+        try:
+            getattr(app, "Quit", lambda: None)()
+        except Exception:
+            pass
+        return info
+    except Exception as e:
+        return {"available": False, "error": str(e)}
+
+
+def _check_env(name: str) -> dict[str, Any]:
+    """检查环境变量是否已设置。"""
+    import os
+    value = os.environ.get(name)
+    if value:
+        return {"available": True, "set": True, "masked": value[:4] + "..." + value[-2:] if len(value) > 6 else "***"}
+    return {"available": False, "error": f"环境变量未设置: {name}"}
+
+
+def _check_python(name: str) -> dict[str, Any]:
+    """检查 Python 包是否已安装。"""
+    import importlib.metadata
+    try:
+        version = importlib.metadata.version(name)
+        return {"available": True, "version": version}
+    except importlib.metadata.PackageNotFoundError:
+        try:
+            importlib.import_module(name)
+            return {"available": True, "version": "unknown"}
+        except ImportError:
+            return {"available": False, "error": f"Python 包未安装: {name}"}
+
+
+_CHECKERS = {
+    "binary": _check_binary,
+    "com": _check_com,
+    "env": _check_env,
+    "python": _check_python,
+}
+
+
+async def _app_avail_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolResult:
+    """检查指定类型的软件/依赖是否可用。"""
+    check_type = str(args.get("type", ""))
+    name = str(args.get("name", "")).strip()
+
+    if not name:
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} name 参数不能为空")
+
+    checker = _CHECKERS.get(check_type)
+    if not checker:
+        types_str = ", ".join(_CHECKERS.keys())
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 不支持的检查类型: {check_type}（支持: {types_str}）")
+
+    result = checker(name)
+
+    if result.get("available"):
+        lines = [f"{SUCCESS_PREFIX} {check_type}: {name} 可用"]
+        for key in ("path", "progid", "version", "set", "masked"):
+            if key in result:
+                label = {"path": "路径", "progid": "ProgID", "version": "版本", "set": "已设置", "masked": "值"}[key]
+                lines.append(f"   {label}: {result[key]}")
+        return ToolResult(success=True, content="\n".join(lines))
+    else:
+        error = result.get("error", "未知原因不可用")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} {check_type}: {name} 不可用 — {error}")
+
+
+# ════════════════════════════════════════════════════════
+# Tool Definitions (使用 ToolBuilder)
+# ════════════════════════════════════════════════════════
 
 skills_tools: dict[str, ToolDefinition] = {
-    "search_skills": ToolDefinition(
-        schema=_search_schema,
-        handler=_search_handler,
-        permission="sandbox",
-        help_text="搜索技能市场",
-        toolbox="skills_management",
-    ),
-    "install_skill": ToolDefinition(
-        schema=_install_schema,
-        handler=_install_handler,
-        permission="require-confirm",
-        help_text="安装技能",
-        toolbox="skills_management",
-    ),
-    "list_skills": ToolDefinition(
-        schema=_list_schema,
-        handler=_list_handler,
-        permission="sandbox",
-        help_text="列出已安装技能",
-        toolbox="skills_management",
-    ),
-    "uninstall_skill": ToolDefinition(
-        schema=_uninstall_schema,
-        handler=_uninstall_handler,
-        permission="require-confirm",
-        help_text="卸载技能",
-        toolbox="skills_management",
-    ),
+    "search_skills": tool("search_skills", "搜索 ClawHub 技能市场或本地已安装的技能")
+        .param("query", "string", "搜索关键词")
+        .enum_param("source", "搜索来源", ["clawhub", "local", "all"])
+        .optional("limit", "number", "最大返回结果数（默认 10）")
+        .sandbox()
+        .toolbox("skills_management")
+        .handler(_search_handler)
+        .build(),
+    "install_skill": tool("install_skill", "从 ClawHub 技能市场下载并安装一个技能")
+        .param("slug", "string", "技能的 slug（唯一标识符）")
+        .optional("version", "string", "版本号（可选）")
+        .require_confirm()
+        .toolbox("skills_management")
+        .handler(_install_handler)
+        .build(),
+    "list_skills": tool("list_skills", "列出所有已安装的本地技能")
+        .optional("verbose", "boolean", "是否显示详细信息")
+        .sandbox()
+        .toolbox("skills_management")
+        .handler(_list_handler)
+        .build(),
+    "uninstall_skill": tool("uninstall_skill", "卸载一个已安装的技能（删除目录并从当前 Agent 中移除）")
+        .param("slug", "string", "要卸载的技能 slug（唯一标识符）")
+        .require_confirm()
+        .toolbox("skills_management")
+        .handler(_uninstall_handler)
+        .build(),
+    "check_app_availability": tool("check_app_availability", "检查指定类型的软件/依赖是否可用。支持四种检查类型：binary、com、env、python。")
+        .enum_param("type", "检查类型：binary=命令行工具，com=Windows COM ProgID，env=环境变量，python=Python 包", ["binary", "com", "env", "python"])
+        .param("name", "string", "检查目标的名称")
+        .sandbox()
+        .toolbox("skills_management")
+        .handler(_app_avail_handler)
+        .build(),
 }
 
 __all__ = ["skills_tools"]
