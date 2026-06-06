@@ -48,9 +48,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-
-# 配置默认值（直接读取环境变量，避免循环导入）
-import os as _os_for_inst
 import shutil
 import socket
 import subprocess
@@ -61,15 +58,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from miniagent.infrastructure.json_config import get_config
+from miniagent.core.constants import INSTANCE_CACHE_TTL, INSTANCE_HEARTBEAT_TIMEOUT
 from miniagent.infrastructure.logger import get_logger
 from miniagent.infrastructure.process_utils import (
     is_process_running,
     is_process_running_async,
 )
 
-HEARTBEAT_TIMEOUT = int(_os_for_inst.environ.get("MINIAGENT_HEARTBEAT_TIMEOUT", "30"))
-INSTANCE_CACHE_TTL = float(_os_for_inst.environ.get("MINIAGENT_INSTANCE_CACHE_TTL", "30.0"))
+HEARTBEAT_TIMEOUT = INSTANCE_HEARTBEAT_TIMEOUT
 
 _logger = get_logger(__name__)
 
@@ -92,7 +88,9 @@ def _ensure_instances_dir(state_dir: str) -> Path:
 
 def _get_state_dir(state_dir: str | None = None) -> str:
     """获取状态目录。"""
-    return state_dir or get_config("paths.state_dir", os.path.join(os.getcwd(), "workspaces"))
+    from miniagent.infrastructure.paths import resolve_state_dir
+
+    return state_dir or resolve_state_dir()
 
 
 # PID 检测函数已移至 miniagent.infrastructure.process_utils

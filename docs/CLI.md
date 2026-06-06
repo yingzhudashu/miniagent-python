@@ -20,10 +20,7 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 
 全屏 CLI（prompt_toolkit TUI）下，上方 transcript 中的 **Assistant 最终回复、命令输出、思考过程正文** 在已安装 **`pip install -e ".[cli]"`** 时由 Rich 将 Markdown（含常见表格）渲染为彩色 ANSI。未安装则显示原始 Markdown 文本。
 
-- **`MINIAGENT_CLI_RAW_MARKDOWN=1`**：强制关闭回复区 Rich。
-- **`MINIAGENT_CLI_THINKING_RICH=1`**：对**非流式**思考块尝试 Rich；**流式**输出的规划/执行过程仍为纯文本；与工具行合并（`merge_tools`）的短行仍为纯文本。
-- 默认 **`MINIAGENT_THINKING_MERGE_TOOLS`**（非 `0` 即开启）时，同一 `thinking_header`（如 `[步骤 i/n]`、`[执行]`）内：工具意图行会接在当前流式块后，**不另起新的「步骤」标签**，且继续流式时不会整段重打上一子轮正文（与飞书同卡 PATCH 语义一致）。关闭合并则工具行单独成块。流式 **header 切换**（如规划 → 执行）时无论是否启用飞书都会收尾并重置流式状态。
-- 渲染宽度与滚动条占用与主循环一致，便于表格与回复区对齐。
+CLI 渲染细节（Rich、思考块合并等）为 Internal 常量（见 `miniagent/core/constants.py`），一般无需修改。未安装 `[cli]` 时显示原始 Markdown 文本。
 
 详见 [README.md](../README.md) 与 [USER_GUIDE.md](USER_GUIDE.md) §4.3。
 
@@ -115,7 +112,7 @@ On branch main
 ```
 
 **图片视觉描述**：
-- 默认启用 `MINIAGENT_CLI_FILE_VISION_DESC=1`
+- 默认启用 `cli.file_vision_desc`（见 `config.defaults.json`）
 - 图片会调用配置的视觉模型生成描述，并注入到对话历史
 - 设为 `0` 可禁用此功能
 
@@ -328,7 +325,7 @@ On branch main
 
 ### /schedule — 定时任务
 
-任务持久化在 **`MINIAGENT_PATHS_STATE_DIR/scheduled_tasks/tasks.json`**（未设置环境变量时一般为仓库下 `workspaces/scheduled_tasks/`）。触发时与手动输入一样经 **消息队列** 跑一轮 Agent。详见 [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」与 [USER_GUIDE.md](USER_GUIDE.md) 第 8 章。
+任务持久化在 **`{paths.state_dir}/scheduled_tasks/tasks.json`**（默认 `workspaces/scheduled_tasks/`）。触发时与手动输入一样经 **消息队列** 跑一轮 Agent。详见 [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」与 [USER_GUIDE.md](USER_GUIDE.md) 第 8 章。
 
 **语法摘要**（与无参 `/schedule` 打印一致）：
 
@@ -345,15 +342,15 @@ On branch main
 **要点**：
 
 - **`add` 必须包含 ` -- `**（空格、两个连字符、空格）：前面为调度与会话参数，后面为交给模型的 **prompt**；缺少分隔符会报错。
-- **`every`**：间隔秒数为正整数；**`once`**：时间为 ISO8601（可含 `Z` 或 `+08:00`）；未带时区的 naive 时间由 **`--tz`** 解释（未写时读 `MINIAGENT_SCHEDULE_TIMEZONE` → `MINIAGENT_TIMEZONE` → `TZ`，见 [ENV_REFERENCE.md](ENV_REFERENCE.md)）。
-- **飞书收结果**：飞书 WebSocket 已连接且任务为 **`primary`** 且已与飞书私聊绑定时，定时任务会镜像思考流与最终回复到飞书（`MINIAGENT_SCHEDULE_FEISHU_MIRROR=0` 关闭）；详见 [USER_GUIDE.md](USER_GUIDE.md) §8。
+- **`every`**：间隔秒数为正整数；**`once`**：时间为 ISO8601（可含 `Z` 或 `+08:00`）；未带时区的 naive 时间由 **`--tz`** 解释（未写时读 `scheduled_tasks.timezone` → `timezone.default` → `TZ`）。
+- **飞书收结果**：飞书 WebSocket 已连接且任务为 **`primary`** 且已与飞书私聊绑定时，定时任务会镜像思考流与最终回复到飞书（`scheduled_tasks.feishu_mirror=false` 关闭）；详见 [USER_GUIDE.md](USER_GUIDE.md) §8。
 - **会话**：`primary` 使用当前路由的主会话 / 活跃会话；`ephemeral` 每次新建临时会话键；`fixed:会话ID` 固定到某会话（如 `fixed:default` 或 `fixed:feishu:oc_xxx`，后者可用于飞书群任务）。
-- **时区**：cron 墙钟以 `tasks.json` 内 `schedule.timezone` 为准；未写 `--tz` 时新建任务默认时区为 `MINIAGENT_SCHEDULE_TIMEZONE` → `MINIAGENT_TIMEZONE` → `TZ` → `Asia/Shanghai`。
-- **关闭调度循环**（不删任务表）：`MINIAGENT_DISABLE_SCHEDULED_TASKS=1`；dispatch 失败退避秒数：`MINIAGENT_SCHEDULE_DISPATCH_BACKOFF`（默认 60，见 [ENV_REFERENCE.md](ENV_REFERENCE.md)）。
+- **时区**：cron 墙钟以 `tasks.json` 内 `schedule.timezone` 为准；未写 `--tz` 时新建任务默认时区为 `scheduled_tasks.timezone` → `timezone.default` → `TZ` → `Asia/Shanghai`。
+- **关闭调度循环**（不删任务表）：`scheduled_tasks.disabled=true`；dispatch 失败退避秒数：`scheduled_tasks.dispatch_backoff`（默认 60，见 `config.defaults.json`）。
 
 **飞书渠道**：在飞书里发 `/schedule` 时，通常 **仅允许** `list` / `show`；`add` / `remove` / `enable` / `disable` 须在 **本机 CLI** 执行（与 `/session` 变异限制类似）。
 
-**Agent 工具**（可选，由环境变量控制注册）：`run_command` 可执行与上文相同的命令行；`manage_scheduled_task` 以 JSON 维护任务。见 [ENV_REFERENCE.md](ENV_REFERENCE.md) 中 `MINIAGENT_CLI_DOT_TOOLS`、`MINIAGENT_SCHEDULE_TOOLS`。
+**Agent 工具**（可选）：`run_dot_command` 由 `cli.dot_tools_enabled` 控制；`manage_scheduled_task` 由 `scheduled_tools.enabled` 控制。见 `config.defaults.json`。
 
 ### /bind / /unbind — 通道绑定
 
@@ -588,8 +585,7 @@ prompt_toolkit ANSI 颜色系列：
 也可通过环境变量设置（优先级高于配置文件）：
 
 ```bash
-MINIAGENT_CLI_STYLES_THINK_HEAD="bold ansigreen"
-MINIAGENT_CLI_STYLES_THINK_BODY="ansigreen"
+CLI 样式（思考块颜色等）为 Internal 常量，见 `miniagent/core/constants.py`。
 ```
 
 ### 命令模糊匹配
@@ -681,7 +677,7 @@ HTTP 请求自动重试，提升网络稳定性：
 
 - **多数**命令（如 `/status`、`/help`、`/queue status`）可在飞书使用。
 - **默认仅本机 CLI**：`/schedule` 的 `add` / `update` / `remove` / `enable` / `disable`；`/session` 的 `switch` / `create` / `rename`；`/stop`（与 [USER_GUIDE.md](USER_GUIDE.md) 第 8、9 章一致）。
-- **全开**：设置 `MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1` 后飞书与 CLI 命令能力相同（见 [FEISHU.md](FEISHU.md)）。
+- **全开**：设置 `feishu.dot_commands_full=true` 后飞书与 CLI 命令能力相同（见 [FEISHU.md](FEISHU.md)）。
 
 ```
 飞书发送: /status
@@ -711,7 +707,7 @@ HTTP 请求自动重试，提升网络稳定性：
 
 ## 相关文档
 
-- [ENGINEERING.md](ENGINEERING.md)：本地与 CI 质量门禁、`MINIAGENT_PATHS_STATE_DIR`。
+- [ENGINEERING.md](ENGINEERING.md)：本地与 CI 质量门禁、`paths.state_dir`。
 - [SECURITY.md](SECURITY.md)：沙箱与工具安全模型。
 - [CHANNEL_BINDING.md](CHANNEL_BINDING.md)：CLI 与飞书会话绑定。
 - [KNOWLEDGE_BASE.md](KNOWLEDGE_BASE.md)：知识库挂载与检索。

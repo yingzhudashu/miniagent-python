@@ -44,7 +44,9 @@ def _read_identity(system_prompt: str | None = None) -> str:
     """
     from pathlib import Path
 
-    base = get_config("paths.state_dir", os.path.join(os.getcwd(), "workspaces"))
+    from miniagent.infrastructure.paths import resolve_state_dir
+
+    base = resolve_state_dir()
     identity_path = os.path.join(base, "identity.md")
     if not os.path.isfile(identity_path):
         return ""

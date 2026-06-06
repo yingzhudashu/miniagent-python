@@ -5,15 +5,16 @@ from __future__ import annotations
 from pathlib import Path
 
 from miniagent.skills.paths import get_skills_root
+from tests.config_helpers import install_test_config
 
 
-def test_get_skills_root_env_override(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("MINIAGENT_PATHS_SKILLS_DIR", str(tmp_path))
+def test_get_skills_root_config_override(tmp_path) -> None:
+    install_test_config(tmp_path, {"paths": {"skills_dir": str(tmp_path)}})
     assert get_skills_root() == str(tmp_path)
 
 
-def test_get_skills_root_default_under_repo(monkeypatch) -> None:
-    monkeypatch.delenv("MINIAGENT_PATHS_SKILLS_DIR", raising=False)
+def test_get_skills_root_default_under_repo(tmp_path) -> None:
+    install_test_config(tmp_path, {})
     root = Path(__file__).resolve().parent.parent
     expected = root / "workspaces" / "skills"
     assert Path(get_skills_root()) == expected

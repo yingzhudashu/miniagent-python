@@ -76,7 +76,12 @@ def default_doc_folder_token_from_env() -> str:
 
 def root_meta_fallback_enabled() -> bool:
     """是否启用「根文件夹元数据」API 作为最后回退（默认开启）。"""
-    return env_flag("FEISHU_DOC_FOLDER_FALLBACK_ROOT_META", default=True)
+    import os
+
+    legacy = os.environ.get("FEISHU_DOC_FOLDER_FALLBACK_ROOT_META")
+    if legacy is not None:
+        return env_flag("FEISHU_DOC_FOLDER_FALLBACK_ROOT_META", default=True)
+    return bool(get_config("feishu.doc.folder_fallback_root_meta", True))
 
 
 def format_missing_folder_token_message(
@@ -88,7 +93,7 @@ def format_missing_folder_token_message(
         "⚠️ 需要云盘父目录 folder_token。",
         f"已尝试：{tried_s}。",
         "请任选其一：在工具参数中传入文件夹 token 或飞书云盘文件夹完整链接；",
-        "或配置环境变量 MINIAGENT_FEISHU_DOC_FOLDER_TOKEN；",
+        "或在 config.user.json 配置 feishu.doc.folder_token；",
         "或设置 FEISHU_DOC_FOLDER_FALLBACK_ROOT_META=1 并确保应用具备云盘根元数据权限（见 docs/FEISHU.md）。",
     ]
     if root_meta_error:

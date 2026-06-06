@@ -8,7 +8,7 @@
 - **三步需求澄清**: Wittgenstein（语言边界）→ Socrates（反向追问）→ Polanyi（示例传递）
 - **ReAct 循环**: Think → Act → Observe，多轮推理直到任务完成
 - **三层记忆**: 短期记忆 / 活动日志 / 语义检索
-- **双通道接入**: 同一进程内 CLI 主循环 + 可选飞书 WebSocket 长连接（无单独「纯飞书」入口）；出站默认 **`reply`**（`MINIAGENT_FEISHU_REPLY_TARGET`）；内置飞书工具默认由 `MINIAGENT_FEISHU_TOOLS_AUTO` 注册（`MINIAGENT_FEISHU_TOOLS=0` 可关）。详见 [docs/FEISHU.md](docs/FEISHU.md)、[CHANGELOG.md](CHANGELOG.md) `[Unreleased]`
+- **双通道接入**: 同一进程内 CLI 主循环 + 可选飞书 WebSocket 长连接（无单独「纯飞书」入口）；出站默认 `feishu.reply_target=reply`；内置飞书工具默认由 `feishu.tools_auto` 注册。详见 [docs/FEISHU.md](docs/FEISHU.md)
 - **消息队列**: queue（按序）/ preemptive（打断）双模式
 - **定时任务**: 持久化任务表 + 进程内调度，经与聊天相同的消息队列执行 Agent 回合；CLI 下可用 `run_dot_command`（`.schedule …`）或 `manage_scheduled_task` 结构化接口
 - **多实例**: 注册表 + PID 存活清理（心跳仅观测），支持多终端并行；详见 [docs/ENGINEERING.md](docs/ENGINEERING.md) §3.3
@@ -18,9 +18,9 @@
 
 **会话文件与管线**：`UnifiedEngine.run_agent_with_thinking` 会把当前会话的 `files` 目录注入执行阶段；若直接调用 `run_pipeline`，默认 `ToolContext` 仍为 `MINIAGENT_PATHS_WORKSPACE` / 进程 cwd，不会自动与会话 `files` 对齐，需要自行传入 `ToolContext`。
 
-**执行轮数**：`AGENT_MAX_TURNS` 默认 **400**；规划器建议的轮数不会把该上限压小。分步模式下单步上限见 `MINIAGENT_STEP_MAX_TURNS`（默认 **48**，见 `docs/ARCHITECTURE.md`）。
+**执行轮数**：`agent.max_turns` 默认 **400**；分步子循环上限为内置常量（默认 **48**，见 `docs/ARCHITECTURE.md`）。
 
-**终端 Markdown 渲染**：全屏 CLI 下 **Assistant 最终回复** 在已安装可选依赖 `pip install -e ".[cli]"`（Rich）时，会将 Markdown（含常见 GFM 表格）渲染为彩色 ANSI；未安装则回退为原始文本。设置 **`MINIAGENT_CLI_RAW_MARKDOWN=1`** 可强制关闭回复区 Rich。思考过程在设置 **`MINIAGENT_CLI_THINKING_RICH=1`** 且 transcript sink 支持 ANSI 块时，仅对**非流式**思考片段尝试 Rich：**流式**规划/执行正文仍为纯文本；默认开启的同轮 **merge_tools** 工具行仍为纯文本。全屏 TUI 下思考 Rich 宽度与回复区对齐。Rich 思考块在 transcript 中为裸 ANSI，与周边 `cli-think-body` 样式可能略有差异。未安装 Rich 时启动可打印安装提示，**`MINIAGENT_WELCOME_CLI_HINT=0`** 可关闭。
+**终端 Markdown 渲染**：全屏 CLI 下安装 `pip install -e ".[cli]"`（Rich）可将 Assistant 回复渲染为彩色 ANSI；`cli.welcome_hint` 控制欢迎安装提示。
 
 ## 快速开始
 
@@ -40,9 +40,7 @@ cp config.defaults.json config.user.json  # 编辑填入 secrets.openai_api_key
 # 可选：MCP stdio 工具 — pip install -e ".[mcp]"，并在 config.user.json 配置 mcp.stdio_command（见 config.defaults.json）
 # 内置基线技能：workspaces/skills/skill-creator（Apache-2.0，自 anthropics/skills）、skill-vetter（审查说明）；可选从 ClawHub 安装更多 — python scripts/bootstrap_clawhub_skills.py（`author/slug` 会装到 slug 最后一段目录；详情无 files 时会试 /download，仍失败则见 THIRD_PARTY_SKILLS.md）
 
-# 可选：将状态目录迁出仓库（测试 / 多副本部署）
-# PowerShell: $env:MINIAGENT_PATHS_STATE_DIR = "$env:TEMP\miniagent-state"
-# bash: export MINIAGENT_PATHS_STATE_DIR=/tmp/miniagent-state
+# 可选：在 config.user.json 设置 paths.state_dir 将状态目录迁出仓库
 
 # 启动
 python -m miniagent                  # CLI 模式
@@ -54,9 +52,9 @@ README、[docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) 与 [docs/ENGINEERING.md](
 
 ### 定时任务
 
-- 任务表：`MINIAGENT_PATHS_STATE_DIR/scheduled_tasks/tasks.json`（默认 `workspaces/scheduled_tasks/`）。
+- 任务表：`{paths.state_dir}/scheduled_tasks/tasks.json`（默认 `workspaces/scheduled_tasks/`）。
 - 本机 CLI 用 **`.schedule`** 管理（五段 cron / every / once）；飞书侧默认仅 **list** / **show**。
-- `primary` 任务在飞书私聊已绑定时可镜像推送（`MINIAGENT_SCHEDULE_FEISHU_MIRROR=0` 可关）。
+- `primary` 任务在飞书私聊已绑定时可镜像推送（`scheduled_tasks.feishu_mirror=false` 可关）。
 
 操作细节见 [docs/USER_GUIDE.md](docs/USER_GUIDE.md) §8、[docs/CLI.md](docs/CLI.md)。
 
@@ -64,8 +62,8 @@ README、[docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) 与 [docs/ENGINEERING.md](
 
 ### 联网、点命令与技能（要点）
 
-- **联网**：`web_search` 需 Tavily Key（未配置时调用返回明确错误）；`browser_extract_text` 需 `[browser]`。见 [docs/ENV_REFERENCE.md](docs/ENV_REFERENCE.md)、[docs/USER_GUIDE.md](docs/USER_GUIDE.md) §11。
-- **自我优化 / 点命令工具**：默认注册；可用 `MINIAGENT_SELF_OPT_TOOLS=0`、`MINIAGENT_CLI_DOT_TOOLS=0` 关闭。飞书侧点命令限制见 [docs/CLI.md](docs/CLI.md)、[docs/FEISHU.md](docs/FEISHU.md)。
+- **联网**：`web_search` 需 `secrets.tavily_api_key`；`browser_extract_text` 需 `[browser]`。见 [docs/USER_GUIDE.md](docs/USER_GUIDE.md) §11。
+- **自我优化 / 点命令工具**：默认注册；`cli.dot_tools_enabled=false` 可关闭点命令。飞书侧限制见 [docs/CLI.md](docs/CLI.md)、[docs/FEISHU.md](docs/FEISHU.md)。
 - **技能目录**：内置 `workspaces/skills/skill-creator`、`skill-vetter`；wheel 不含技能包时需克隆或 editable 安装。迁移与 ClawHub 见 [docs/USER_GUIDE.md](docs/USER_GUIDE.md) §12。
 
 ## 常用命令
@@ -121,7 +119,7 @@ Ctrl+T                         # 快捷键查看任务列表
 | [docs/SELF_OPT.md](docs/SELF_OPT.md) | 自我优化 |
 | [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | 性能 KPI、合成冒烟、基线与剖析 |
 | [docs/CHANNEL_BINDING.md](docs/CHANNEL_BINDING.md) | 通道绑定 |
-| [docs/examples/](docs/examples/) | 脱敏外部配置片段（见 examples/README.md） |
+| `config.defaults.json` | 默认配置（含 User/Advanced 分层 `_config_guide`） |
 
 **完整专题列表与目录树**以 [docs/INDEX.md](docs/INDEX.md) 为准。飞书卡片 JSON v2 调研见 [docs/FEISHU.md](docs/FEISHU.md)「调研与路线图」。
 

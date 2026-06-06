@@ -13,7 +13,6 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import Any
 
@@ -45,31 +44,26 @@ def run_setup_wizard() -> dict[str, Any]:
 
     config: dict[str, Any] = {}
 
-    # 1. 检查 API 密钥
-    api_key = os.environ.get("OPENAI_API_KEY", "")
-    if not api_key:
-        print("⚠️  OPENAI_API_KEY 未设置")
-        print("\n请选择配置方式：")
-        print("  1. 现在输入 API 密钥")
-        print("  2. 稍后手动配置")
-        print("  3. 跳过（使用默认配置）")
+    # 1. API 密钥（写入 config.user.json secrets）
+    print("🔑 API 凭据")
+    print("\n请选择配置方式：")
+    print("  1. 现在输入 API 密钥")
+    print("  2. 稍后手动配置")
+    print("  3. 跳过（使用默认配置）")
 
-        choice = input("\n请选择 [1/2/3]: ").strip()
+    choice = input("\n请选择 [1/2/3]: ").strip()
 
-        if choice == "1":
-            key = input("请输入 OpenAI API 密钥: ").strip()
-            if key:
-                config["secrets"] = {"openai_api_key": key}
-                print("✅ API 密钥已保存")
-        elif choice == "2":
-            print("\n请稍后手动创建 config.user.json：")
-            print("  {")
-            print("    \"secrets\": {")
-            print("      \"openai_api_key\": \"your-key-here\"")
-            print("    }")
-            print("  }")
-        else:
-            print("⚠️  未配置 API 密钥，LLM 功能将无法使用")
+    if choice == "1":
+        key = input("请输入 OpenAI API 密钥: ").strip()
+        if key:
+            config["secrets"] = {"openai_api_key": key}
+            print("✅ API 密钥已保存")
+    elif choice == "2":
+        print("\n请稍后手动创建 config.user.json：")
+        print("  cp config.defaults.json config.user.json")
+        print("  然后在 secrets 中填写 openai_api_key")
+    else:
+        print("⚠️  未配置 API 密钥，LLM 功能将无法使用")
 
     # 2. 模型选择
     print("\n📝 模型配置")

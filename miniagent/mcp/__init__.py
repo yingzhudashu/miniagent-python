@@ -5,7 +5,7 @@
 
 未安装 ``mcp`` 包时，导入子模块仍可用，但 ``is_mcp_available()`` 为 False。
 
-环境变量 ``MINIAGENT_MCP_STDIO`` 格式见 ``config.defaults.json`` 的 ``mcp.stdio_command``；CI 说明见 ``docs/ENGINEERING.md`` §2。
+``config.user.json`` 的 ``mcp.stdio_command`` 格式见 ``config.defaults.json``；CI 说明见 ``docs/ENGINEERING.md`` §2。
 """
 
 from miniagent.mcp.bridge import is_mcp_available, mcp_tool_to_openai_param

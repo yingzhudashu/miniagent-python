@@ -13,20 +13,26 @@ from miniagent.memory.history_progressive import (
     run_session_history_maintenance,
     strip_thinking_to_turn_summary,
 )
+from tests.config_helpers import install_test_config
 from tests.history_helpers import history_turn as _turn
 
 
-def test_maybe_archive_at_most_one_turn_per_call(tmp_path, monkeypatch):
-    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
-    monkeypatch.setenv("MINIAGENT_MEMORY_HISTORY_MAX_MESSAGES", "4")
+def test_maybe_archive_at_most_one_turn_per_call(tmp_path):
+    install_test_config(
+        tmp_path,
+        {
+            "paths": {"state_dir": str(tmp_path)},
+            "memory": {"history_max_messages": 4},
+        },
+    )
     hist = _turn("u1", "a1") + _turn("u2", "a2") + _turn("u3", "a3")
     assert len(hist) == 6
     assert maybe_archive_old_turns("sess", hist) is True
     assert len(hist) == 5  # 一轮 2 条换 1 条锚点
 
 
-def test_trim_at_most_one_turn_per_call(tmp_path, monkeypatch):
-    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
+def test_trim_at_most_one_turn_per_call(tmp_path):
+    install_test_config(tmp_path, {"paths": {"state_dir": str(tmp_path)}})
     hist: list[dict] = []
     for i in range(5):
         hist.extend(_turn(f"u{i}", f"a{i}"))
@@ -76,10 +82,14 @@ def test_apply_one_progressive_disk_step_on_history():
     assert TOOL_OUTPUT_REDACTED_PLACEHOLDER in hist[1]["content"]
 
 
-def test_run_session_history_maintenance_respects_progressive_off(tmp_path, monkeypatch):
-    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
-    monkeypatch.setenv("MINIAGENT_MEMORY_HISTORY_MAX_MESSAGES", "4")
-    monkeypatch.setenv("MINIAGENT_MEMORY_HISTORY_PROGRESSIVE", "0")
+def test_run_session_history_maintenance_respects_progressive_off(tmp_path):
+    install_test_config(
+        tmp_path,
+        {
+            "paths": {"state_dir": str(tmp_path)},
+            "memory": {"history_max_messages": 4, "history_progressive": False},
+        },
+    )
     hist = _turn("u1", "a1") + _turn("u2", "a2") + _turn("u3", "a3")
     run_session_history_maintenance("sk", hist, tail_cap=200, progressive_compression=False)
     assert len(hist) <= 4

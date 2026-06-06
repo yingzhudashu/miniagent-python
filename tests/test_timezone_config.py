@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -15,40 +16,63 @@ from miniagent.scheduled_tasks.cron import cron_next_run_epoch
 from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec
 from miniagent.scheduled_tasks.store import effective_task_timezone
 from miniagent.scheduled_tasks.timezone_util import default_schedule_timezone
+from tests.config_helpers import install_test_config
 
 
-def test_process_timezone_priority(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MINIAGENT_TIMEZONE", "Europe/London")
-    monkeypatch.setenv("MINIAGENT_SCHEDULED_TASKS_TIMEZONE", "America/New_York")
+def test_process_timezone_priority(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    install_test_config(
+        tmp_path,
+        {
+            "timezone": {"default": "Europe/London"},
+            "scheduled_tasks": {"timezone": "America/New_York"},
+        },
+    )
     monkeypatch.setenv("TZ", "Asia/Shanghai")
     assert process_timezone() == "Europe/London"
 
 
-def test_process_timezone_falls_back_to_tz(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("MINIAGENT_TIMEZONE", raising=False)
-    monkeypatch.delenv("MINIAGENT_SCHEDULED_TASKS_TIMEZONE", raising=False)
+def test_process_timezone_falls_back_to_tz(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    install_test_config(tmp_path, {"timezone": {"default": ""}})
     monkeypatch.setenv("TZ", "Asia/Shanghai")
     assert process_timezone() == "Asia/Shanghai"
 
 
-def test_process_timezone_ignores_schedule_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("MINIAGENT_TIMEZONE", raising=False)
-    monkeypatch.setenv("MINIAGENT_SCHEDULED_TASKS_TIMEZONE", "America/New_York")
+def test_process_timezone_ignores_schedule_env(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    install_test_config(
+        tmp_path,
+        {
+            "timezone": {"default": ""},
+            "scheduled_tasks": {"timezone": "America/New_York"},
+        },
+    )
     monkeypatch.setenv("TZ", "Asia/Shanghai")
     assert process_timezone() == "Asia/Shanghai"
 
 
 def test_default_schedule_timezone_uses_schedule_env(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
-    monkeypatch.delenv("MINIAGENT_TIMEZONE", raising=False)
-    monkeypatch.setenv("MINIAGENT_SCHEDULED_TASKS_TIMEZONE", "America/New_York")
+    install_test_config(
+        tmp_path,
+        {
+            "timezone": {"default": ""},
+            "scheduled_tasks": {"timezone": "America/New_York"},
+        },
+    )
     monkeypatch.setenv("TZ", "Asia/Shanghai")
     assert default_schedule_timezone() == "America/New_York"
 
 
-def test_effective_task_timezone_legacy_utc(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("MINIAGENT_TIMEZONE", raising=False)
+def test_effective_task_timezone_legacy_utc(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    install_test_config(tmp_path, {"timezone": {"default": ""}})
     monkeypatch.setenv("TZ", "Asia/Shanghai")
     task = ScheduledTask(
         id="t",
@@ -59,7 +83,10 @@ def test_effective_task_timezone_legacy_utc(monkeypatch: pytest.MonkeyPatch) -> 
     assert effective_task_timezone(task) == "Asia/Shanghai"
 
 
-def test_effective_task_timezone_explicit_utc(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_effective_task_timezone_explicit_utc(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    install_test_config(tmp_path, {"timezone": {"default": ""}})
     monkeypatch.setenv("TZ", "Asia/Shanghai")
     task = ScheduledTask(
         id="t",
@@ -75,7 +102,10 @@ def test_effective_task_timezone_explicit_utc(monkeypatch: pytest.MonkeyPatch) -
     assert effective_task_timezone(task) == "UTC"
 
 
-def test_cron_20h_shanghai_wall_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cron_20h_shanghai_wall_clock(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    install_test_config(tmp_path, {"timezone": {"default": ""}})
     monkeypatch.setenv("TZ", "Asia/Shanghai")
     tz = ZoneInfo("Asia/Shanghai")
     # 2026-05-17 10:00 Shanghai
@@ -86,7 +116,10 @@ def test_cron_20h_shanghai_wall_clock(monkeypatch: pytest.MonkeyPatch) -> None:
     assert local.minute == 0
 
 
-def test_format_agent_timezone_context_contains_tz(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_format_agent_timezone_context_contains_tz(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    install_test_config(tmp_path, {"timezone": {"default": ""}})
     monkeypatch.setenv("TZ", "Asia/Shanghai")
     ctx = format_agent_timezone_context()
     assert "Asia/Shanghai" in ctx

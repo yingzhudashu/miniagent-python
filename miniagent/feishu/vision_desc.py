@@ -8,10 +8,13 @@ import os
 
 from openai import AsyncOpenAI
 
+from miniagent.core.constants import FEISHU_VISION_MAX_BYTES
+
 _logger = logging.getLogger(__name__)
 
-# 图片大小上限（20MB）
-_MAX_BYTES = 20 * 1024 * 1024
+
+def _max_image_bytes() -> int:
+    return FEISHU_VISION_MAX_BYTES
 
 # 模型不支持视觉理解时的典型错误关键词
 _VISION_UNSUPPORTED_KEYWORDS = (
@@ -56,7 +59,7 @@ async def describe_image(
     """
     try:
         size = os.path.getsize(file_path)
-        if size > _MAX_BYTES:
+        if size > _max_image_bytes():
             _logger.debug("跳过图片描述：文件过大 %s (%d bytes)", file_path, size)
             return ""
 

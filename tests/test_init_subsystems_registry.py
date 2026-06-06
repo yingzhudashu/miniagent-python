@@ -9,13 +9,22 @@ import pytest
 from miniagent.engine.init import init_subsystems
 from miniagent.infrastructure.registry import DefaultToolRegistry
 from miniagent.skills.registry import DefaultSkillRegistry
+from tests.config_helpers import install_test_config
 
 
 @pytest.mark.asyncio
-async def test_init_subsystems_registers_web_tools(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
-    monkeypatch.setenv("MINIAGENT_PATHS_SKILLS_DIR", str(tmp_path / "empty_skills"))
-    (tmp_path / "empty_skills").mkdir(parents=True)
+async def test_init_subsystems_registers_web_tools(tmp_path) -> None:
+    skills_dir = tmp_path / "empty_skills"
+    skills_dir.mkdir(parents=True)
+    install_test_config(
+        tmp_path,
+        {
+            "paths": {
+                "state_dir": str(tmp_path),
+                "skills_dir": str(skills_dir),
+            },
+        },
+    )
 
     registry = DefaultToolRegistry()
     skill_registry = DefaultSkillRegistry()

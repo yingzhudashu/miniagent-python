@@ -6,7 +6,7 @@ CLI 和飞书共享的命令路由，使用 `/` 前缀。
 - print 捕获：CLI 命令原本用 print()，飞书需要返回字符串
 - 不中断：`/status` 等检查命令不会打断正在运行的 agent
 - 远程约束：飞书侧 `capture=True` 时默认 `allow_session_mutations_when_capture=False`，
-  阻止 `/session switch/create/rename` 与 `/schedule` 变异；`MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1` 时放开
+  阻止 `/session switch/create/rename` 与 `/schedule` 变异；`feishu.dot_commands_full=true` 时放开
 - 模糊匹配：未知命令会提示最接近的有效命令（用户体验增强）
 
 命令全集与用户说明见 ``docs/CLI.md``；飞书约束见 ``docs/FEISHU.md``。
@@ -248,10 +248,10 @@ async def dispatch_command(
         print(output)
         return None
 
-    # ── /stop：飞书 capture 默认拒绝；MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1 时与 CLI 相同
+    # ── /stop：飞书 capture 默认拒绝；feishu.dot_commands_full=true 时与 CLI 相同
     if cmd == "/stop":
         if capture and not feishu_dot_commands_full_enabled():
-            return f"{WARNING_PREFIX} /stop 命令只能在 CLI 使用（或设置 MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1）"
+            return f"{WARNING_PREFIX} /stop 命令只能在 CLI 使用（或设置 feishu.dot_commands_full=true）"
         from miniagent.engine.shutdown import shutdown_runtime
 
         await shutdown_runtime(
@@ -608,6 +608,16 @@ async def dispatch_command(
 
     # ── /self-opt（自我优化）──
     if cmd == "/self-opt":
+        from miniagent.core.constants import CLI_SELF_OPT_TOOLS
+        from miniagent.infrastructure.json_config import get_config
+
+        if not CLI_SELF_OPT_TOOLS or not get_config("self_optimization.enabled", True):
+            msg = f"{WARNING_PREFIX} 自我优化功能已关闭（self_optimization.enabled）"
+            if capture:
+                return msg
+            print(msg)
+            return None
+
         sub_cmd = parts[1].lower() if len(parts) > 1 else ""
 
         # self-opt 命令不通过消息队列，直接执行

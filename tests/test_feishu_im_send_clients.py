@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from tests.config_helpers import install_test_config
+
 pytest.importorskip("lark_oapi")
 
 
@@ -18,13 +20,13 @@ def _clear_lark_client_cache():
     lark_client.clear_client_cache()
 
 
-def test_resolve_im_receive_id_type_env_and_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_resolve_im_receive_id_type_env_and_explicit(tmp_path) -> None:
     from miniagent.feishu.im_send import resolve_im_receive_id_type
 
     assert resolve_im_receive_id_type("open_id") == "open_id"
-    monkeypatch.setenv("MINIAGENT_FEISHU_RECEIVE_ID_TYPE", "union_id")
+    install_test_config(tmp_path, {"feishu": {"receive_id_type": "union_id"}})
     assert resolve_im_receive_id_type(None) == "union_id"
-    monkeypatch.delenv("MINIAGENT_FEISHU_RECEIVE_ID_TYPE", raising=False)
+    install_test_config(tmp_path)
     assert resolve_im_receive_id_type(None) == "chat_id"
 
 

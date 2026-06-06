@@ -15,7 +15,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.infrastructure.process_utils import is_process_running
 
@@ -26,7 +25,9 @@ _LOCK_FILENAME = "feishu_inbound_owner.json"
 
 def _state_root(state_dir: str | None) -> Path:
     """解析状态根路径（显式参数优先，否则从配置读取）。"""
-    root = state_dir or get_config("paths.state_dir", os.path.join(os.getcwd(), "workspaces"))
+    from miniagent.infrastructure.paths import resolve_state_dir
+
+    root = state_dir or resolve_state_dir()
     return Path(root)
 
 

@@ -73,7 +73,9 @@ def _tool_finish_verbose_history() -> bool:
         - 配置项: execution.tool_finish_verbose
         - 详细模式下会增加历史文件体积，用于调试或审计
     """
-    return get_config("execution.tool_finish_verbose", False)
+    from miniagent.core.constants import EXECUTION_TOOL_FINISH_VERBOSE
+
+    return EXECUTION_TOOL_FINISH_VERBOSE
 
 
 class UnifiedEngine:

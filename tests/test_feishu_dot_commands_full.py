@@ -1,8 +1,7 @@
-"""MINIAGENT_FEISHU_DOT_COMMANDS_FULL 环境变量与 dispatch 行为。"""
+"""``feishu.dot_commands_full`` 配置与 dispatch 行为。"""
 
 from __future__ import annotations
 
-import os
 import uuid
 from unittest.mock import AsyncMock, patch
 
@@ -18,6 +17,7 @@ from miniagent.infrastructure.monitor import DefaultToolMonitor
 from miniagent.infrastructure.registry import DefaultToolRegistry
 from miniagent.runtime.context import RuntimeContext
 from miniagent.skills import DefaultSkillRegistry, create_clawhub_client
+from tests.config_helpers import install_test_config
 
 
 def _minimal_dispatch_state() -> dict:
@@ -50,83 +50,45 @@ def _minimal_dispatch_state() -> dict:
 @pytest.mark.parametrize(
     "value,expected",
     [
-        ("1", True),
-        ("true", True),
-        ("TRUE", True),
-        ("yes", True),
-        ("on", True),
-        ("0", False),
-        ("false", False),
-        ("", False),
-        ("no", False),
+        (True, True),
+        (False, False),
     ],
 )
-def test_feishu_dot_commands_full_enabled(value: str, expected: bool) -> None:
-    key = "MINIAGENT_FEISHU_DOT_COMMANDS_FULL"
-    old = os.environ.get(key)
-    try:
-        if value == "":
-            os.environ.pop(key, None)
-        else:
-            os.environ[key] = value
-        assert feishu_dot_commands_full_enabled() is expected
-    finally:
-        if old is None:
-            os.environ.pop(key, None)
-        else:
-            os.environ[key] = old
+def test_feishu_dot_commands_full_enabled(tmp_path, value: bool, expected: bool) -> None:
+    install_test_config(tmp_path, {"feishu": {"dot_commands_full": value}})
+    assert feishu_dot_commands_full_enabled() is expected
 
 
-def test_feishu_dot_commands_full_default_off() -> None:
-    key = "MINIAGENT_FEISHU_DOT_COMMANDS_FULL"
-    old = os.environ.pop(key, None)
-    try:
-        assert feishu_dot_commands_full_enabled() is False
-    finally:
-        if old is not None:
-            os.environ[key] = old
+def test_feishu_dot_commands_full_default_off(tmp_path) -> None:
+    install_test_config(tmp_path)
+    assert feishu_dot_commands_full_enabled() is False
 
 
 @pytest.mark.asyncio
-async def test_capture_stop_blocked_by_default() -> None:
-    key = "MINIAGENT_FEISHU_DOT_COMMANDS_FULL"
-    old = os.environ.pop(key, None)
-    try:
-        state = _minimal_dispatch_state()
-        out = await dispatch_command("/stop", state=state, capture=True)
-        assert out is not None
-        assert "CLI" in out or "MINIAGENT_FEISHU_DOT_COMMANDS_FULL" in out
-    finally:
-        if old is not None:
-            os.environ[key] = old
-
-
-@pytest.mark.asyncio
-async def test_capture_stop_allowed_when_full_enabled() -> None:
-    key = "MINIAGENT_FEISHU_DOT_COMMANDS_FULL"
-    old = os.environ.get(key)
-    os.environ[key] = "1"
+async def test_capture_stop_blocked_by_default(tmp_path) -> None:
+    install_test_config(tmp_path)
     state = _minimal_dispatch_state()
-    try:
-        with patch(
-            "miniagent.engine.shutdown.shutdown_runtime",
-            new_callable=AsyncMock,
-        ) as mock_shutdown:
-            result = await dispatch_command("/stop", state=state, capture=True)
-        mock_shutdown.assert_awaited_once()
-        assert result == "__EXIT__"
-    finally:
-        if old is None:
-            os.environ.pop(key, None)
-        else:
-            os.environ[key] = old
+    out = await dispatch_command("/stop", state=state, capture=True)
+    assert out is not None
+    assert "CLI" in out or "MINIAGENT_FEISHU_DOT_COMMANDS_FULL" in out
 
 
 @pytest.mark.asyncio
-async def test_capture_schedule_mutations_blocked_by_default(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("MINIAGENT_FEISHU_DOT_COMMANDS_FULL", "0")
+async def test_capture_stop_allowed_when_full_enabled(tmp_path) -> None:
+    install_test_config(tmp_path, {"feishu": {"dot_commands_full": True}})
+    state = _minimal_dispatch_state()
+    with patch(
+        "miniagent.engine.shutdown.shutdown_runtime",
+        new_callable=AsyncMock,
+    ) as mock_shutdown:
+        result = await dispatch_command("/stop", state=state, capture=True)
+    mock_shutdown.assert_awaited_once()
+    assert result == "__EXIT__"
+
+
+@pytest.mark.asyncio
+async def test_capture_schedule_mutations_blocked_by_default(tmp_path) -> None:
+    install_test_config(tmp_path, {"feishu": {"dot_commands_full": False}})
     state = _minimal_dispatch_state()
     task_id = f"t_{uuid.uuid4().hex[:8]}"
     out = await dispatch_command(
@@ -165,58 +127,43 @@ async def test_capture_schedule_mutations_allowed_when_flag_true(
 
 @pytest.mark.asyncio
 async def test_capture_schedule_unblocked_when_full_env_only(
+    tmp_path,
     state_dir: str,
 ) -> None:
-    """仅 env FULL=1、显式 allow=False 时仍放行 schedule 变异（block_remote 读 env）。"""
+    """仅配置 dot_commands_full=true、显式 allow=False 时仍放行 schedule 变异。"""
     from miniagent.scheduled_tasks.store import load_tasks, save_tasks
 
-    key = "MINIAGENT_FEISHU_DOT_COMMANDS_FULL"
-    old = os.environ.get(key)
-    os.environ[key] = "1"
-    try:
-        out = await dispatch_command(
-            "/schedule add env_only_full every 3600 primary -- probe",
-            state=_minimal_dispatch_state(),
-            capture=True,
-            allow_session_mutations_when_capture=False,
-        )
-        assert out is not None
-        assert "不允许修改" not in out
-        save_tasks([t for t in load_tasks() if t.id != "env_only_full"])
-    finally:
-        if old is None:
-            os.environ.pop(key, None)
-        else:
-            os.environ[key] = old
+    install_test_config(tmp_path, {"feishu": {"dot_commands_full": True}})
+    out = await dispatch_command(
+        "/schedule add env_only_full every 3600 primary -- probe",
+        state=_minimal_dispatch_state(),
+        capture=True,
+        allow_session_mutations_when_capture=False,
+    )
+    assert out is not None
+    assert "不允许修改" not in out
+    save_tasks([t for t in load_tasks() if t.id != "env_only_full"])
 
 
 @pytest.mark.asyncio
-async def test_capture_session_not_blocked_when_full_env_only() -> None:
-    """仅 env FULL=1、allow=False 时不返回远程会话提示。"""
-    key = "MINIAGENT_FEISHU_DOT_COMMANDS_FULL"
-    old = os.environ.get(key)
-    os.environ[key] = "1"
-    try:
-        out = await dispatch_command(
-            "/session switch 1",
-            state=_minimal_dispatch_state(),
-            capture=True,
-            allow_session_mutations_when_capture=False,
-        )
-        assert out is not None
-        assert "共享" not in out
-        assert "本地 MiniAgent 终端" not in out
-    finally:
-        if old is None:
-            os.environ.pop(key, None)
-        else:
-            os.environ[key] = old
+async def test_capture_session_not_blocked_when_full_env_only(tmp_path) -> None:
+    """仅配置 dot_commands_full=true、allow=False 时不返回远程会话提示。"""
+    install_test_config(tmp_path, {"feishu": {"dot_commands_full": True}})
+    out = await dispatch_command(
+        "/session switch 1",
+        state=_minimal_dispatch_state(),
+        capture=True,
+        allow_session_mutations_when_capture=False,
+    )
+    assert out is not None
+    assert "共享" not in out
+    assert "本地 MiniAgent 终端" not in out
 
 
-def test_engine_feishu_mutations_follow_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_engine_feishu_mutations_follow_env(tmp_path) -> None:
     from miniagent.core.config import get_default_agent_config, merge_agent_config
 
-    monkeypatch.setenv("MINIAGENT_FEISHU_DOT_COMMANDS_FULL", "1")
+    install_test_config(tmp_path, {"feishu": {"dot_commands_full": True}})
     base = get_default_agent_config()
     merged = merge_agent_config(
         base,
@@ -224,7 +171,7 @@ def test_engine_feishu_mutations_follow_env(monkeypatch: pytest.MonkeyPatch) -> 
     )
     assert merged.cli_dispatch_allow_mutations is True
 
-    monkeypatch.delenv("MINIAGENT_FEISHU_DOT_COMMANDS_FULL", raising=False)
+    install_test_config(tmp_path)
     merged_off = merge_agent_config(
         base,
         {"cli_dispatch_allow_mutations": feishu_dot_commands_full_enabled()},

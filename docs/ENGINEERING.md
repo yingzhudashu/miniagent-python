@@ -13,33 +13,46 @@
 | 可安装包名与源码布局 | `pyproject.toml` → `[tool.setuptools.packages.find]` | 仅打包 `miniagent*`；不再维护顶层 `src` 作为可导入包。 |
 | 版本号 | `miniagent/__init__.py` 中 `__version__` | `pyproject.toml` 通过 `dynamic.version` 读取；发版时与 `CHANGELOG.md`、本文档顶部标语一并更新。 |
 | 依赖声明 | `pyproject.toml` `[project]` / `optional-dependencies` | 不使用根目录 `requirements.txt`；运行时依赖与可选组（`dev`（含 `pytest-cov`）、`feishu`、`browser`、`mcp`、`cli`、`typing`（`mypy` 试点））集中在此。 |
-| 配置说明 | `config.defaults.json` + [ENV_REFERENCE.md](ENV_REFERENCE.md) | 复制为 `config.user.json` 后本地填写；**勿将含真实密钥的 `config.user.json` 提交入库**（见 `.gitignore`）。 |
+| 配置说明 | [`config.defaults.json`](../config.defaults.json) + `config.user.json` | 复制 defaults 为 user 后本地填写；`_config_guide` 标明 User/Advanced 分层；**勿提交含真实密钥的 user 文件**（见 `.gitignore`）。 |
 | 定时任务配置 | `config.defaults.json` + [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」 | 用户面向摘要见 [USER_GUIDE.md](USER_GUIDE.md) §8；运维见 [DEPLOYMENT.md](DEPLOYMENT.md) |
 | 自我优化配置 | `config.defaults.json` → `self_optimization` 配置节 | 提案持久化路径、自动执行开关、风险等级上限等；详见 [SELF_OPT.md](SELF_OPT.md) |
 | Trace 系统配置 | `config.defaults.json` → `trace` 配置节 | 持久化开关、输出目录、保留天数等；详见下文 §5 |
 | 架构与行为细节 | `docs/ARCHITECTURE.md` 及各专题文档 | README 只做索引与快速上手；深度说明以 `docs/` 为准。 |
 
-飞书媒体（与 [FEISHU.md](FEISHU.md) 正文一致，便于检索）：
+飞书媒体与出站（JSON 键见 [`config.defaults.json`](../config.defaults.json) `feishu` 节；完整说明见 [FEISHU.md](FEISHU.md)）：
 
-| 变量 | 作用 |
-|------|------|
-| `MINIAGENT_FEISHU_MEDIA_RUN_AGENT` | 为真时，file/image/post 落盘后追加合成用户消息并跑 Agent。 |
-| `MINIAGENT_FEISHU_MEDIA_SILENT_REPLY` | 为真时，落盘成功不向飞书发 `_send_reply`（CLI 镜像不受影响）。 |
+| JSON 路径 | 作用 |
+|-----------|------|
+| `feishu.media.run_agent` | 为真时，file/image/post 落盘后追加合成用户消息并跑 Agent。 |
+| `feishu.media.silent_reply` | 为真时，落盘成功不向飞书发 `_send_reply`（CLI 镜像不受影响）。 |
+| `feishu.reply_plain` | 默认 **关**；设为 `true` 时弱化 Markdown（仍为 `lark_md`）。 |
+| `feishu.reply_target` | 默认 **`reply`**；`create` 为会话内新建消息。 |
+| `feishu.reply_in_thread` | 与 `reply` 联用；未设置且入站 `thread_id` 非空时默认话题内回复。 |
+| `feishu.card_action_router` | 默认 **开**；处理 `p2.card.action.trigger` 并将按钮 payload 投递到消息队列。 |
+| `feishu.tools_explicit` / `feishu.tools_auto` | 显式 `true` 注册内置飞书工具；未设 `tools_explicit` 时由 `tools_auto`（默认开）且已配置 `secrets.feishu_*` 时在 init 自动注册。 |
+| `feishu.doc.docx_url_prefix` | 创建云文档工具输出中带可分享 Web 链接的前缀。 |
+| `feishu.receive_id_type` | 内置工具发 IM 时的 `receive_id_type`（`chat_id` / `open_id` / `union_id`）。 |
+| `feishu.doc.folder_token` | 创建/列举云盘时默认父文件夹 token。 |
 
-飞书出站、卡片与可选工具（完整说明见 [FEISHU.md](FEISHU.md) 环境变量表与架构节）：
+### 1.1 配置分层（User / Advanced / Internal）
 
-| 变量 | 摘要 |
-|------|------|
-| `MINIAGENT_FEISHU_REPLY_PLAIN` | 默认 **关**（设为 `1`/`true` 时开启纯文本模式）；无法识别的非空取值视为关。 |
-| `MINIAGENT_FEISHU_REPLY_TARGET` | 默认 **`reply`**；`create` 为会话内新建消息；非法值按 `create` 处理。 |
-| `MINIAGENT_FEISHU_REPLY_IN_THREAD` | 与 `reply` 联用；未设置且入站 `thread_id` 非空时默认话题内回复（见 FEISHU）。 |
-| `MINIAGENT_FEISHU_CARD_ACTION_ROUTER` | 默认 **开**；处理 `p2.card.action.trigger` 并将按钮 payload 投递到同一消息队列；无法识别的非空取值视为关。 |
-| `MINIAGENT_FEISHU_TOOLS` | 为真时注册内置飞书 IM/Doc 工具；已设置但取值无法识别时**关闭**（不落入 AUTO）。 |
-| `MINIAGENT_FEISHU_TOOLS_AUTO` | 默认 **开**：未设置 `MINIAGENT_FEISHU_TOOLS` 且已配置 App ID/Secret 时在进程 init 自动注册；不等待 WebSocket。 |
-| `FEISHU_DOC_FOLDER_FALLBACK_ROOT_META` | 默认 **开**；无 `folder_token` 时尝试根目录元数据 API（`0`/`false` 关闭）。 |
-| `MINIAGENT_FEISHU_DOCX_URL_PREFIX` | 创建云文档工具输出中带可分享 Web 链接的前缀（租户域名须与飞书控制台一致）。 |
-| `MINIAGENT_FEISHU_RECEIVE_ID_TYPE` | 内置工具发 IM 时的 `receive_id_type`（`chat_id` / `open_id` / `union_id`）；非 `chat_id` 时默认 `receive_id` 为入站发送者 ID（见 [FEISHU.md](FEISHU.md)）。 |
-| `MINIAGENT_FEISHU_DOC_FOLDER_TOKEN` | 创建/列举云盘时默认父文件夹 token。 |
+[`config.defaults.json`](../config.defaults.json) 在本仓库中承担 **「开发者默认值仓库 + 可选用户覆盖面」** 双重角色，**并非**每一项都是用户应理解的旋钮。文档与示例按三层划分：
+
+| 层级 | 含义 | 文档位置 | 用户是否需了解 |
+|------|------|----------|----------------|
+| **User-facing** | 模型、凭据、路径、渠道行为、功能开关 | [USER_GUIDE.md](USER_GUIDE.md) §5、`config.defaults.json` 顶部 User 层节 | 是 |
+| **Advanced / Operator** | 超时、并发、记忆容量、飞书运维、Trace 保留 | 本文 §5、 [DEPLOYMENT.md](DEPLOYMENT.md)、各专题文档 | 按需 |
+| **Internal** | 第三方 API 端点、节流毫秒、渲染边距、算法阈值 | 代码常量或 defaults 中的 dev 默认；**不**写入 user 示例 | 否 |
+
+**典型 User-facing 节**：`secrets`、`model`、`paths`、`features`、以及 `feishu` / `agent` / `execution` 中的行为边界项。
+
+**典型 Advanced 节**：`memory.*`、`dream.*`、`trace.*`、`feishu.websocket.*`、`feishu.patch.*`、`agent.loop_detection.*`、`background_tasks.*`。
+
+**典型 Internal（写入 [`core/constants.py`](../miniagent/core/constants.py)，不可通过 JSON 覆盖）**：`feishu.api_urls`、`feishu.patch.*`、`clawhub.api_url`、`web_search.tavily_url`、`execution.*`、`render.*`、`cli` 实现细节、`browser.*`、`keyword_index.*` 等。输出前缀 emoji 见 [`types/error_prefix.py`](../miniagent/types/error_prefix.py)。
+
+**加载机制**（见 [`json_config.py`](../miniagent/infrastructure/json_config.py)）：`defaults → user`（仅两层 JSON）。`secrets` 经 [`env_loader.py`](../miniagent/infrastructure/env_loader.py) 桥接到 `OPENAI_API_KEY` 等 SDK 变量，**不是**用户配置入口。`/config` 命令与 USER_GUIDE 仅展示 User 层子集。
+
+**凭据桥接**（Internal，非用户旋钮）：`config.user.json` → `secrets.*` → `OPENAI_API_KEY` / `FEISHU_APP_ID` 等，供第三方 SDK 读取。
 
 ---
 
@@ -73,20 +86,21 @@ CI 说明：
 
 - 性能合成与剖析流程见 [PERFORMANCE.md](PERFORMANCE.md)；可选 workflow **Perf smoke**（`workflow_dispatch` / 定时）跑 `pytest -m perf` 与 `scripts/perf_profile_tracemalloc.py` 并上传带 commit SHA 的 artifact；离线对比两次 JSON 可用 `scripts/compare_perf_snapshots.py`。
 - **可选 pre-commit**：仓库根 [`.pre-commit-config.yaml`](../.pre-commit-config.yaml) 提供 `ruff` hook（路径 `miniagent`、`tests`）；本地执行 `pip install pre-commit && pre-commit install` 后随 commit 检查。
+- **维护脚本清单**见 [scripts/README.md](../scripts/README.md)；v2.0.3 手工 verify 脚本已移除，性能回归用 `pytest -m perf` 与 `scripts/perf_profile_tracemalloc.py`。
 
 ---
 
 ## 3. 状态目录与测试隔离
 
 - **默认**：Agent 将实例心跳、会话、锁等写入仓库下 `workspaces/`（部分路径见 `.gitignore`，如 `workspaces/sessions/`、`**/*.lock`）。
-- **推荐**：开发与 CI 设置 **`MINIAGENT_PATHS_STATE_DIR`** 指向临时目录，避免污染本机数据或与并行运行冲突（示例见 `CONTRIBUTING.md` 与 `config.defaults.json` 注释）。
+- **推荐**：在 `config.user.json` 设置 `paths.state_dir` 指向临时目录，避免污染本机数据或与并行运行冲突（示例见 `CONTRIBUTING.md`）。
 - **语义**：多实例注册、PID 判定与清理规则见 §3.3。
 
 ### 3.1 `workspaces/` 与 Git 跟踪政策
 
-**运行时生成物默认不入库**：`.gitignore` 已排除 `workspaces/instances/`、`workspaces/sessions/`、`workspaces/memory/`、`workspaces/scheduled_tasks/`（定时任务表 `tasks.json`，与 README「`MINIAGENT_PATHS_STATE_DIR/scheduled_tasks/tasks.json`」一致；未设置 `MINIAGENT_PATHS_STATE_DIR` 时默认为仓库下 `workspaces/scheduled_tasks/`）、`workspaces/self_opt/`（自我优化提案与分析报告）、`workspaces/logs/`（Trace 日志）、`workspaces/keyword-index.json`、`workspaces/perf*.jsonl`、`workspaces/feishu_inbound_owner.json`、`workspaces/feishu/`（含 WebSocket 去重等）、`**/*.lock`、`workspaces/cli/` 等，避免把本机 PID、会话历史、记忆索引、对话落盘、飞书去重状态提交到远程。
+**运行时生成物默认不入库**：`.gitignore` 已排除 `workspaces/instances/`、`workspaces/sessions/`、`workspaces/memory/`、`workspaces/scheduled_tasks/`（定时任务表 `tasks.json`，路径为 `{paths.state_dir}/scheduled_tasks/tasks.json`，默认 `workspaces/scheduled_tasks/`）、`workspaces/self_opt/`（自我优化提案与分析报告）、`workspaces/logs/`（Trace 日志）、`workspaces/keyword-index.json`、`workspaces/perf*.jsonl`、`workspaces/feishu_inbound_owner.json`、`workspaces/feishu/`（含 WebSocket 去重等）、`**/*.lock`、`workspaces/cli/` 等，避免把本机 PID、会话历史、记忆索引、对话落盘、飞书去重状态提交到远程。
 
-若历史上曾将上述路径纳入版本跟踪，可在确认无团队依赖后执行 `git rm --cached <路径>` 并保留 `.gitignore` 规则。需要随仓库携带的**非敏感**结构示例，请放在 `docs/examples/` 等显式文档化目录。日常开发仍建议使用 `MINIAGENT_PATHS_STATE_DIR` 将状态迁出仓库。
+若历史上曾将上述路径纳入版本跟踪，可在确认无团队依赖后执行 `git rm --cached <路径>` 并保留 `.gitignore` 规则。配置形状以 `config.defaults.json` 的 `_config_guide` 与分层节为准；日常开发建议在 `config.user.json` 将 `paths.state_dir` 迁出仓库。
 
 **提交前建议再看一眼 `git status`**：不应把 `__pycache__/`、`.pytest_cache/`、`.ruff_cache/`、`.mypy_cache/`、`*.egg-info/` 等缓存或打包元数据加入版本库（勿对这类路径使用 `git add -f`）。`git clean -fdX` 会删除**所有**已忽略路径（含本地 **`config.user.json`**），执行前请备份密钥；更稳妥做法是只手动删缓存目录。勿用小写 `git clean -fdx`，以免删掉未跟踪的源码。详见 [CONTRIBUTING.md](CONTRIBUTING.md)「提交前仓库卫生」。
 
@@ -203,10 +217,15 @@ miniagent.infrastructure.trace_stats
 }
 ```
 
-或使用环境变量：
+或在 `config.user.json` 中启用 Trace 持久化：
 
-```bash
-MINIAGENT_TRACE_LOG_FILE=workspaces/logs/trace.jsonl
+```json
+{
+  "trace": {
+    "enabled": true,
+    "output_dir": "workspaces/logs"
+  }
+}
 ```
 
 文件命名：`trace-{YYYY-MM-DD}.jsonl`（每日一个文件）。

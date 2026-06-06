@@ -37,7 +37,7 @@ def agent_debug_log(
     data: dict | None = None,
     run_id: str = "pre",
 ) -> None:
-    """追加一行 NDJSON 调试日志（仅当设置了 MINIAGENT_DEBUG_SESSION_ID 时生效）。
+    """追加一行 NDJSON 调试日志（仅当设置了 debug.session_id 时生效）。
 
     Args:
         hypothesis_id: 假设/提案 ID

@@ -21,15 +21,14 @@ import shutil
 from collections.abc import Callable
 from typing import Any
 
-from miniagent.infrastructure.json_config import get_config
+from miniagent.core.constants import RENDER_MAX_WIDTH, RENDER_MIN_WIDTH, RENDER_WIDTH_MARGIN
 from miniagent.runtime.context import RuntimeContext
 
 # ─── 终端宽度计算 ───────────────────────────────────────────────
 
-# 从JSON配置加载渲染宽度范围常量（环境变量覆盖由JsonConfigLoader自动处理）
-MIN_RENDER_WIDTH = get_config("render.min_width", 40)
-MAX_RENDER_WIDTH = get_config("render.max_width", 500)
-WIDTH_MARGIN = get_config("render.width_margin", 4)
+MIN_RENDER_WIDTH = RENDER_MIN_WIDTH
+MAX_RENDER_WIDTH = RENDER_MAX_WIDTH
+WIDTH_MARGIN = RENDER_WIDTH_MARGIN
 
 
 def get_terminal_width(fallback_width: int = 80) -> int:

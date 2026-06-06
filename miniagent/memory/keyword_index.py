@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from miniagent.core.constants import KEYWORD_INDEX_MAX_KEYWORDS, KEYWORD_INDEX_MIN_KEYWORD_LEN
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.memory.shared_registry import MemoryEntryRegistry, get_registry
@@ -206,7 +207,13 @@ class _IndexEntry:
 # 分词
 # ============================================================================
 
-import os as _os_for_kw
+
+def _default_max_keywords() -> int:
+    return KEYWORD_INDEX_MAX_KEYWORDS
+
+
+def _min_keyword_len() -> int:
+    return max(1, KEYWORD_INDEX_MIN_KEYWORD_LEN)
 
 
 def extract_keywords(text: str, max_keywords: int | None = None) -> list[str]:
@@ -220,8 +227,7 @@ def extract_keywords(text: str, max_keywords: int | None = None) -> list[str]:
 
     Args:
         text: 要提取关键词的文本
-        max_keywords: 最大关键词数（性能优化，防止长文本生成过多 n-gram）
-            未指定时使用环境变量 MINIAGENT_KEYWORD_EXTRACT_MAX，默认 50
+        max_keywords: 最大关键词数（未指定时读 ``keyword_index.max_keywords``）
 
     Returns:
         去重后的关键词列表（按长度优先排序，保留更有意义的词）
@@ -231,13 +237,14 @@ def extract_keywords(text: str, max_keywords: int | None = None) -> list[str]:
         # → ['喜欢', '欢吃', '吃苹', '苹果', 'ai', 'cool', ...]
     """
     if max_keywords is None:
-        max_keywords = int(_os_for_kw.environ.get("MINIAGENT_KEYWORD_EXTRACT_MAX", "50"))
+        max_keywords = _default_max_keywords()
+    min_len = _min_keyword_len()
     keywords: set[str] = set()
 
     # 英文分词
     english_words = _RE_NON_ALNUM_CJK.sub(" ", text.lower()).split()
     for w in english_words:
-        if len(w) > 1 and w not in _STOP_WORDS:
+        if len(w) >= min_len and w not in _STOP_WORDS:
             keywords.add(w)
 
     # 中文 2-gram + 3-gram（限制数量）
@@ -250,11 +257,12 @@ def extract_keywords(text: str, max_keywords: int | None = None) -> list[str]:
     for i in range(0, chinese_len - 1, step):
         if i + 1 < chinese_len:
             bigram = chinese_chars[i : i + 2]
-            if bigram not in _STOP_WORDS:
+            if len(bigram) >= min_len and bigram not in _STOP_WORDS:
                 keywords.add(bigram)
         if i + 2 < chinese_len:
             trigram = chinese_chars[i : i + 3]
-            keywords.add(trigram)
+            if len(trigram) >= min_len:
+                keywords.add(trigram)
 
     # 限制总数，优先保留更长的关键词（更有意义）
     if len(keywords) > max_keywords:
@@ -551,14 +559,15 @@ class KeywordIndex:
 
         Args:
             days_old: 保留天数，超过此天数的条目将被清理
-                未指定时使用环境变量 MINIAGENT_KEYWORD_PRUNE_DAYS，默认 30
+                未指定时使用内置常量 KEYWORD_PRUNE_DAYS，默认 30
 
         Returns:
             清理的条目数
         """
         if days_old is None:
-            import os as _os
-            days_old = int(_os.environ.get("MINIAGENT_KEYWORD_PRUNE_DAYS", "30"))
+            from miniagent.core.constants import KEYWORD_PRUNE_DAYS
+
+            days_old = KEYWORD_PRUNE_DAYS
         self._ensure_loaded()
 
         from datetime import timedelta

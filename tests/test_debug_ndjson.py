@@ -2,34 +2,29 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 from pathlib import Path
 
-import pytest
-
 from miniagent.infrastructure import debug_ndjson
+from tests.config_helpers import install_test_config
 
 
-def test_disabled_without_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """When MINIAGENT_DEBUG_SESSION_ID is not set, agent_debug_log is a no-op."""
-    monkeypatch.delenv("MINIAGENT_DEBUG_SESSION_ID", raising=False)
-    monkeypatch.delenv("MINIAGENT_DEBUG_LOG_PATH", raising=False)
-    # Re-read module state — _SESSION is module-level, so we test the public API
-    # Since the module was already imported, _SESSION is fixed at import time.
-    # We can only verify the function doesn't raise when session is empty.
+def test_disabled_without_session_id(tmp_path: Path) -> None:
+    """When debug.session_id is not set, agent_debug_log is a no-op."""
+    install_test_config(tmp_path, {})
+    importlib.reload(debug_ndjson)
     debug_ndjson.agent_debug_log(hypothesis_id="H1", location="test", message="noop")
     # No exception means success (no-op path)
 
 
-def test_writes_when_enabled(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_writes_when_enabled(tmp_path: Path) -> None:
     """When session is set, log entries are written."""
     log_file = tmp_path / "debug-test.log"
-    monkeypatch.setenv("MINIAGENT_DEBUG_SESSION_ID", "test123")
-    monkeypatch.setenv("MINIAGENT_DEBUG_LOG_PATH", str(log_file))
-
-    # Force re-evaluation of module-level vars by reloading
-    import importlib
-
+    install_test_config(
+        tmp_path,
+        {"debug": {"session_id": "test123", "log_path": str(log_file)}},
+    )
     importlib.reload(debug_ndjson)
 
     debug_ndjson.agent_debug_log(

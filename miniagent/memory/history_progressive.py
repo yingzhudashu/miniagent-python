@@ -9,6 +9,7 @@ import re
 from enum import Enum
 from typing import Any
 
+from miniagent.core.constants import MEMORY_MAINTENANCE_MAX_ITERS
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 
@@ -39,7 +40,7 @@ def _progressive_enabled(explicit: bool | None) -> bool:
 
 def _maintenance_max_iters() -> int:
     """单轮历史维护循环最大迭代次数。"""
-    return max(1, get_config("memory.maintenance_max_iters", 500))
+    return max(1, get_config("memory.maintenance_max_iters", MEMORY_MAINTENANCE_MAX_ITERS))
 
 
 def _over_archive_limits(history: list[dict[str, Any]]) -> bool:

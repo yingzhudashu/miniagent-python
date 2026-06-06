@@ -142,11 +142,9 @@ def cached_json_serialize(obj: Any, max_len: int | None = None) -> str:
 
             # 动态调整缓存上限（配置化）
             # 优先从配置读取，否则使用默认值500
-            try:
-                from miniagent.infrastructure.json_config import get_config
-                cache_max_size = get_config("perf.json_cache_max_size", 500)
-            except Exception:
-                cache_max_size = 500
+            from miniagent.core.constants import PERF_JSON_CACHE_MAX_SIZE
+
+            cache_max_size = PERF_JSON_CACHE_MAX_SIZE
 
             while len(_json_serialize_cache) > cache_max_size:
                 _json_serialize_cache.popitem(last=False)

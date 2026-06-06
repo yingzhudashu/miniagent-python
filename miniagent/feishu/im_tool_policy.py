@@ -46,8 +46,7 @@ def log_feishu_im_tools_startup_hint_once() -> None:
         return
     _logger.info(
         "飞书扩展内置工具未注册：Agent 无法使用 feishu_doc / feishu_bitable / 发文件等内置工具。"
-        " 请设置 MINIAGENT_FEISHU_TOOLS=1，或不要设置 MINIAGENT_FEISHU_TOOLS 且设置 "
-        "MINIAGENT_FEISHU_TOOLS_AUTO=1（并已配置 FEISHU_APP_ID/SECRET）；并参阅 docs/FEISHU.md"
+        " 请设置 feishu.tools_explicit=true，或保持 feishu.tools_auto=true（并已配置 secrets.feishu_*）；并参阅 docs/FEISHU.md"
         "「飞书工具与 IM 自检清单」。"
     )
 

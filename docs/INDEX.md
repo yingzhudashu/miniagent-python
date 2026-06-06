@@ -50,10 +50,10 @@
 
 | 配置项 | 说明 | 文档链接 |
 |--------|------|----------|
-| `secrets.openai_api_key` | LLM API 密钥 | [ENV_REFERENCE.md](ENV_REFERENCE.md) |
+| `secrets.openai_api_key` | LLM API 密钥 | [USER_GUIDE.md §5](USER_GUIDE.md) |
 | `secrets.tavily_api_key` | 联网搜索 | [USER_GUIDE.md §12](USER_GUIDE.md#12-联网搜索与浏览器工具可选) |
 | `feishu.*` | 飞书配置 | [FEISHU.md](FEISHU.md) |
-| `execution.max_turns` | 执行轮数上限 | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| `agent.max_turns` | 执行轮数上限 | [ARCHITECTURE.md](ARCHITECTURE.md) |
 
 ---
 
@@ -83,7 +83,7 @@ pytest tests/ --cov=miniagent --cov-report=html
 
 **功能指南**：[CLI.md](CLI.md) · [FEISHU.md](FEISHU.md) · [CHANNEL_BINDING.md](CHANNEL_BINDING.md) · [SELF_OPT.md](SELF_OPT.md)
 
-**运维**：[DEPLOYMENT.md](DEPLOYMENT.md) · [ENV_REFERENCE.md](ENV_REFERENCE.md) · [PERFORMANCE.md](PERFORMANCE.md)
+**运维**：[DEPLOYMENT.md](DEPLOYMENT.md) · [PERFORMANCE.md](PERFORMANCE.md) · [ENGINEERING.md](ENGINEERING.md) §1.1
 
 **开发**：[CONTRIBUTING.md](CONTRIBUTING.md) · [ENGINEERING.md](ENGINEERING.md)（含多实例注册表、离线测评）
 
@@ -113,11 +113,11 @@ miniagent-python/
 │   └── utils/             # 共享工具函数：session_id 安全化等
 ├── docs/                  # 文档
 ├── tests/                 # pytest 测试
-├── scripts/               # 维护脚本
+├── scripts/               # 维护脚本（见 scripts/README.md）
 ├── workspaces/            # 运行时状态（不入库）
 │   └── skills/            # 技能包根（基线模板在 miniagent/skills/templates/）
 ├── pyproject.toml         # 项目配置
-├── .env.example           # 环境变量模板（见 docs/ENV_REFERENCE.md）
+├── config.defaults.json   # 默认配置（User/Advanced 分层）
 └── README.md              # 项目介绍
 ```
 

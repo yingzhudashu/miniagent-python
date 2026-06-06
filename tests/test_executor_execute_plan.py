@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -74,11 +74,7 @@ async def test_execute_plan_calls_on_tool_finish() -> None:
 
 
 @pytest.mark.asyncio
-async def test_execute_plan_phased_last_step_grace_synthesis(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("MINIAGENT_PHASED_EXECUTION", "1")
-    monkeypatch.setenv("MINIAGENT_EXECUTION_STEP_MAX_TURNS", "1")
+async def test_execute_plan_phased_last_step_grace_synthesis() -> None:
     main, sess = make_ping_tool_registry()
     plan = StructuredPlan(
         summary="s",
@@ -95,17 +91,21 @@ async def test_execute_plan_phased_last_step_grace_synthesis(
 
     mock_client.chat.completions.create = AsyncMock(side_effect=capture_kwargs)
     ms, al, ki = mock_memory_bundle()
-    out = await execute_plan(
-        plan,
-        "hi",
-        main,
-        MagicMock(),
-        agent_config_with_session(sess, max_turns=5),
-        client=mock_client,
-        memory_store=ms,
-        activity_log=al,
-        keyword_index=ki,
-    )
+    with (
+        patch("miniagent.core.executor._env_phased_execution_enabled", return_value=True),
+        patch("miniagent.core.executor.EXECUTION_STEP_MAX_TURNS", 1),
+    ):
+        out = await execute_plan(
+            plan,
+            "hi",
+            main,
+            MagicMock(),
+            agent_config_with_session(sess, max_turns=5),
+            client=mock_client,
+            memory_store=ms,
+            activity_log=al,
+            keyword_index=ki,
+        )
     assert "wrapped_up" in out
     assert "未以无工具调用形式结束" not in out
     assert len(create_kwargs) == 2
@@ -114,11 +114,7 @@ async def test_execute_plan_phased_last_step_grace_synthesis(
 
 
 @pytest.mark.asyncio
-async def test_execute_plan_phased_last_step_no_turns_left_still_warns(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("MINIAGENT_PHASED_EXECUTION", "1")
-    monkeypatch.setenv("MINIAGENT_EXECUTION_STEP_MAX_TURNS", "1")
+async def test_execute_plan_phased_last_step_no_turns_left_still_warns() -> None:
     main, sess = make_ping_tool_registry()
     plan = StructuredPlan(
         summary="s",
@@ -148,26 +144,26 @@ async def test_execute_plan_phased_last_step_no_turns_left_still_warns(
         side_effect=lambda *_a, **_k: only_tool_stream()
     )
     ms, al, ki = mock_memory_bundle()
-    out = await execute_plan(
-        plan,
-        "hi",
-        main,
-        MagicMock(),
-        agent_config_with_session(sess, max_turns=1),
-        client=mock_client,
-        memory_store=ms,
-        activity_log=al,
-        keyword_index=ki,
-    )
+    with (
+        patch("miniagent.core.executor._env_phased_execution_enabled", return_value=True),
+        patch("miniagent.core.executor.EXECUTION_STEP_MAX_TURNS", 1),
+    ):
+        out = await execute_plan(
+            plan,
+            "hi",
+            main,
+            MagicMock(),
+            agent_config_with_session(sess, max_turns=1),
+            client=mock_client,
+            memory_store=ms,
+            activity_log=al,
+            keyword_index=ki,
+        )
     assert "「无工具调用」形式结束" in out
 
 
 @pytest.mark.asyncio
-async def test_execute_plan_phased_grace_still_tool_calls_warns(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("MINIAGENT_PHASED_EXECUTION", "1")
-    monkeypatch.setenv("MINIAGENT_EXECUTION_STEP_MAX_TURNS", "1")
+async def test_execute_plan_phased_grace_still_tool_calls_warns() -> None:
     main, sess = make_ping_tool_registry()
     plan = StructuredPlan(
         summary="s",
@@ -194,16 +190,20 @@ async def test_execute_plan_phased_grace_still_tool_calls_warns(
 
     mock_client = mock_streaming_client(extra_streams=[tool_stream, tool_stream])
     ms, al, ki = mock_memory_bundle()
-    out = await execute_plan(
-        plan,
-        "hi",
-        main,
-        MagicMock(),
-        agent_config_with_session(sess, max_turns=2),
-        client=mock_client,
-        memory_store=ms,
-        activity_log=al,
-        keyword_index=ki,
-    )
+    with (
+        patch("miniagent.core.executor._env_phased_execution_enabled", return_value=True),
+        patch("miniagent.core.executor.EXECUTION_STEP_MAX_TURNS", 1),
+    ):
+        out = await execute_plan(
+            plan,
+            "hi",
+            main,
+            MagicMock(),
+            agent_config_with_session(sess, max_turns=2),
+            client=mock_client,
+            memory_store=ms,
+            activity_log=al,
+            keyword_index=ki,
+        )
     assert "「无工具调用」形式结束" in out
     assert mock_client._call_count["n"] == 2

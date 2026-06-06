@@ -21,12 +21,14 @@ import threading
 import time
 from collections.abc import Awaitable, Callable
 
-from miniagent.infrastructure.json_config import get_config
+from miniagent.core.constants import (
+    CLI_THINKING_RICH,
+    EXECUTION_THINKING_MERGE_TOOLS,
+    TERMINAL_WIDTH_CACHE_TTL,
+)
 
 # ── 性能优化：缓存终端宽度，避免频繁调用 get_terminal_size ──
-# 性能优化：增加默认TTL从2秒到5秒（用户很少改变窗口大小）
-# TTL 从JSON配置读取（秒），默认 5.0
-_TERMINAL_WIDTH_CACHE_TTL: float = max(0.0, float(get_config("execution.terminal_width_cache_ttl", 5.0)))
+_TERMINAL_WIDTH_CACHE_TTL: float = max(0.0, float(TERMINAL_WIDTH_CACHE_TTL))
 _TERMINAL_WIDTH_CACHE: int = 0
 _TERMINAL_WIDTH_CACHE_TIME: float = 0.0
 _TERMINAL_WIDTH_CACHE_LOCK = threading.Lock()  # 并发安全：保护缓存访问
@@ -50,12 +52,12 @@ def _merge_tools_enabled() -> bool:
 
     合并路径依赖保留 ``stream_header`` 直至新一轮流式或 ``end_thinking``，以便同一轮多次工具连续追加。
     """
-    return get_config("execution.thinking_merge_tools", True)
+    return EXECUTION_THINKING_MERGE_TOOLS
 
 
 def _cli_thinking_rich_enabled() -> bool:
     """全屏 CLI 下是否对非流式思考正文尝试 Rich→ANSI。"""
-    return get_config("cli.thinking_rich", False)
+    return CLI_THINKING_RICH
 
 
 def _cli_thinking_render_width() -> int:

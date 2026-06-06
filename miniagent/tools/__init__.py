@@ -15,9 +15,9 @@
 
 另：``session_memory.session_memory_tools`` 在 ``engine.init_subsystems`` 中单独注册，不在 ``ALL_TOOLS`` 字典内。
 
-``cli_dispatch_tools``（``run_dot_command``）可由环境变量 ``MINIAGENT_CLI_DOT_TOOLS=0`` 在注册阶段关闭；工具参数 ``max_chars`` 可限制返回长度。
+``cli_dispatch_tools``（``run_dot_command``）由 ``cli.dot_tools_enabled`` 控制注册；工具参数 ``max_chars`` 可限制返回长度。
 
-``schedule_tools``（``manage_scheduled_task``）可由 ``MINIAGENT_SCHEDULE_TOOLS=0`` 关闭注册。
+``schedule_tools``（``manage_scheduled_task``）由 ``scheduled_tools.enabled`` 控制注册。
 
 ALL_TOOLS 汇总上述内置工具子集；启动时由 ``register_builtin_tools`` 写入主注册表。
 

@@ -6,7 +6,7 @@ import pytest
 
 
 def test_render_markdown_respects_raw_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MINIAGENT_CLI_RAW_MARKDOWN", "1")
+    monkeypatch.setattr("miniagent.engine.markdown_cli.CLI_RAW_MARKDOWN", True)
     from miniagent.engine.markdown_cli import render_markdown_to_ansi
 
     assert render_markdown_to_ansi("# Title\n\nbody", width=50) is None

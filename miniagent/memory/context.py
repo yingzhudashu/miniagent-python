@@ -183,6 +183,7 @@ class DefaultContextManager(ContextManagerProtocol):
         tools: list[ChatCompletionToolParam] | None = None,
         *,
         overflow_strategy: str = "summarize",
+        reserve_ratio: float = 0.15,
     ) -> None:
         """创建上下文管理器
 
@@ -191,6 +192,7 @@ class DefaultContextManager(ContextManagerProtocol):
             compress_threshold: 压缩触发阈值（0.0-1.0）
             tools: 工具 schema 列表（可选）
             overflow_strategy: summarize | truncate | error（见 AgentConfig.context_overflow_strategy）
+            reserve_ratio: 为模型输出预留的上下文比例（见 agent.context_reserve_ratio）
         """
         self._messages: list[ChatCompletionMessageParam] = []
         self._system_prompt: str = ""
@@ -199,6 +201,7 @@ class DefaultContextManager(ContextManagerProtocol):
         self._tools: list[ChatCompletionToolParam] = tools or []
         self._compress_threshold = compress_threshold
         self._overflow_strategy = overflow_strategy
+        self._reserve_ratio = max(0.0, min(1.0, reserve_ratio))
         self._compressed = False
         self._total_tokens_estimate = 0
         # 工具 schema 不变时缓存其 token 估算，避免 needs_compression / get_token_report 反复 json.dumps
@@ -456,8 +459,8 @@ class DefaultContextManager(ContextManagerProtocol):
         """
         tool_tokens = self._get_tool_tokens_estimate()
         system_tokens = estimate_tokens_cached(self._system_prompt)
-        # 预留 10% 给输出
-        output_reserve = int(self._context_window * 0.1)
+        # 预留比例给输出（默认 agent.context_reserve_ratio）
+        output_reserve = int(self._context_window * self._reserve_ratio)
 
         return max(0, self._context_window - tool_tokens - system_tokens - output_reserve)
 

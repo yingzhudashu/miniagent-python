@@ -225,15 +225,13 @@ class TestSmartThrottling:
         assert _is_important_content_for_immediate_patch("1. Numbered item") is True
         assert _is_important_content_for_immediate_patch("Not a list") is False
 
-    def test_important_content_disabled(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_important_content_disabled(self) -> None:
         """禁用重要内容立即 PATCH 时返回 False。"""
         from miniagent.feishu.poll_server import _is_important_content_for_immediate_patch
 
-        monkeypatch.setenv("MINIAGENT_FEISHU_PATCH_IMPORTANT_CONTENT_IMMEDIATE", "0")
-
-        # 即使是代码块，禁用后也不立即 PATCH
-        text = "```python\ndef hello():"
-        assert _is_important_content_for_immediate_patch(text) is False
+        with patch("miniagent.feishu.poll_server.FEISHU_PATCH_IMPORTANT_CONTENT_IMMEDIATE", False):
+            text = "```python\ndef hello():"
+            assert _is_important_content_for_immediate_patch(text) is False
 
 
 class TestDynamicBudgetAdjustment:

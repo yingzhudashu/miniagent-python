@@ -232,7 +232,7 @@ class DefaultMemoryStore(MemoryStoreProtocol):
     """默认记忆存储实现
 
     基于文件系统的 JSON 持久化，带 LRU 内存缓存。
-    缓存上限由 ``MINIAGENT_MEMORY_STORE_CACHE_MAX`` 控制（默认 100）。
+    缓存上限由 ``memory.store_cache_max`` 控制（默认 200）。
 
     性能优化：
     - 文件 I/O 使用 asyncio.to_thread 包装，避免阻塞事件循环

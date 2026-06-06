@@ -7,21 +7,27 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os as _os_for_drive
 import time
 from typing import Any
 
 import httpx
 
+from miniagent.core.constants import (
+    FEISHU_API_URL_ROOT_FOLDER_META,
+    FEISHU_API_URL_TENANT_TOKEN,
+    LIST_FILE_PAGE_SIZE,
+)
 from miniagent.feishu.lark_client import build_client, clear_client_cache
 from miniagent.feishu.lark_response import format_lark_response_error
 from miniagent.feishu.types import FeishuConfig
 
-# 单次列举上限（支持环境变量覆盖）
-LIST_FILE_PAGE_SIZE = int(_os_for_drive.environ.get("MINIAGENT_LIST_FILE_PAGE_SIZE", "50"))
 
-_TENANT_TOKEN_URL = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
-_ROOT_FOLDER_META_URL = "https://open.feishu.cn/open-apis/drive/explorer/v2/root_folder/meta"
+def _tenant_token_url() -> str:
+    return FEISHU_API_URL_TENANT_TOKEN
+
+
+def _root_folder_meta_url() -> str:
+    return FEISHU_API_URL_ROOT_FOLDER_META
 
 # ─── Token 缓存（性能优化）──
 
@@ -227,7 +233,7 @@ def _fetch_tenant_access_token_sync(config: FeishuConfig) -> str:
     """获取飞书 tenant_access_token（同步版本，用于快速初始化）。"""
     js = _http_request(
         "POST",
-        _TENANT_TOKEN_URL,
+        _tenant_token_url(),
         payload={"app_id": config.app_id, "app_secret": config.app_secret},
     )
     code = _parse_feishu_json_code(js.get("code"))
@@ -243,7 +249,7 @@ async def _fetch_tenant_access_token_async(config: FeishuConfig) -> str:
     """获取飞书 tenant_access_token（异步版本）。"""
     js = await _async_http_request(
         "POST",
-        _TENANT_TOKEN_URL,
+        _tenant_token_url(),
         payload={"app_id": config.app_id, "app_secret": config.app_secret},
     )
     code = _parse_feishu_json_code(js.get("code"))
@@ -263,7 +269,7 @@ def get_root_folder_meta(config: FeishuConfig) -> str:
     tenant = _get_cached_tenant_token(config)
     js = _http_request(
         "GET",
-        _ROOT_FOLDER_META_URL,
+        _root_folder_meta_url(),
         headers={"Authorization": f"Bearer {tenant}"},
     )
     code = _parse_feishu_json_code(js.get("code"))
@@ -289,7 +295,7 @@ async def get_root_folder_meta_async(config: FeishuConfig) -> str:
     tenant = await _get_cached_tenant_token_async(config)
     js = await _async_http_request(
         "GET",
-        _ROOT_FOLDER_META_URL,
+        _root_folder_meta_url(),
         headers={"Authorization": f"Bearer {tenant}"},
     )
     code = _parse_feishu_json_code(js.get("code"))

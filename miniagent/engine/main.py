@@ -309,9 +309,8 @@ async def run_cli_loop(
         )
         return
 
-    # Linux 兼容性：环境变量强制使用 fallback CLI（测试或简单终端场景）
-    # MINIAGENT_FORCE_FALLBACK_CLI=1 时跳过全屏模式，直接使用 input() 循环
-    if get_config("cli.force_fallback", False) or os.environ.get("MINIAGENT_FORCE_FALLBACK_CLI", "").strip() in ("1", "true", "yes"):
+    # Linux 兼容性：cli.force_fallback=true 时跳过全屏模式，直接使用 input() 循环
+    if get_config("cli.force_fallback", False):
         await _run_cli_loop_fallback(
             ctx,
             state,
@@ -331,10 +330,9 @@ async def run_cli_loop(
         return
 
     # 历史记录文件
-    history_dir = os.path.join(
-        get_config("paths.state_dir", os.path.join(os.getcwd(), "workspaces")),
-        "cli",
-    )
+    from miniagent.infrastructure.paths import resolve_state_dir
+
+    history_dir = os.path.join(resolve_state_dir(), "cli")
     os.makedirs(history_dir, exist_ok=True)
     history_file = os.path.join(history_dir, "history.txt")
 
@@ -473,7 +471,8 @@ async def run_cli_loop(
 
     # 使用 constants.py 的裁剪阈值，避免硬编码导致阈值过低
     from miniagent.core.constants import MAX_TRANSCRIPT_CHARS
-    _MAX_TRANSCRIPT_CHARS = MAX_TRANSCRIPT_CHARS  # 400KB（可通过环境变量设置）
+
+    _MAX_TRANSCRIPT_CHARS = int(get_config("memory.max_transcript_chars", MAX_TRANSCRIPT_CHARS))
     _transcript: deque[Any] = deque(maxlen=5000)  # 增加片段数上限到 5000，避免自动裁剪
     _transcript_total_len: list[int] = [0]  # 累计长度计数器（性能优化）
     _stick_bottom: list[bool] = [True]
@@ -501,7 +500,7 @@ async def run_cli_loop(
         "all_loaded": False,
         "loading": False,
     }
-    _initial_history_count: int = 5  # 启动时加载 5 条
+    _initial_history_count: int = int(get_config("memory.initial_history_count", 5))
 
     def _transcript_fragment_len(frag: Any) -> int:
         """估算单条 transcript 片段的字符长度（tuple 文本或 ``ANSI`` 包裹串）。"""
@@ -1064,11 +1063,15 @@ async def run_cli_loop(
         仅扣除最小边距（1列），滚动条已在 _viewport_cols 中扣除。
         """
         vp = _viewport_cols()
-        margin = get_config("cli.width_margin", 1)
+        from miniagent.core.constants import CLI_WIDTH_MARGIN
+
+        margin = CLI_WIDTH_MARGIN
         return max(40, vp - int(margin))
 
     # ─── 水平滚动控制 ───────────────────────────────────────────────
-    _WRAP_LINES_THRESHOLD = get_config("cli.wrap_threshold", 40)  # 宽度小于此值时禁用折行，启用水平滚动
+    from miniagent.core.constants import CLI_WRAP_THRESHOLD
+
+    _WRAP_LINES_THRESHOLD = CLI_WRAP_THRESHOLD
     _horizontal_scroll = [0]  # 水平滚动偏移（可变）
     _drag_start_x = [None]  # 水平拖动起始 X 坐标
     _dragging_scrollbar = [False]  # 正在拖动垂直滚动条
@@ -1719,7 +1722,10 @@ async def run_cli_loop(
                 bash_cmd = text[1:].strip()
                 if bash_cmd:
                     import subprocess
-                    timeout = get_config("cli.bash_timeout", 60)
+
+                    from miniagent.core.constants import CLI_BASH_TIMEOUT
+
+                    timeout = CLI_BASH_TIMEOUT
                     try:
                         result = subprocess.run(
                             bash_cmd,
@@ -1878,6 +1884,8 @@ async def run_cli_loop(
         event.app.invalidate()
 
     # PT 的 _parse_style_str 只认属性词 "dim"，不认 "ansidim"（后者会走 parse_color → ValueError）。
+    from miniagent.core.constants import CLI_STYLE_THINK_BODY, CLI_STYLE_THINK_HEAD
+
     # ── CLI 样式配置（思考颜色可配置）──
     _cli_style_dict = {
         "prompt-prefix": "bold ansigreen",
@@ -1886,8 +1894,8 @@ async def run_cli_loop(
         "cli-user-title": "bold ansicyan",
         "cli-user-body": "ansicyan",
         # 思考样式：从配置读取，默认亮青色（淡雅清新，不扎眼）
-        "cli-think-head": get_config("cli.styles.think_head", "ansibrightcyan"),
-        "cli-think-body": get_config("cli.styles.think_body", "ansibrightcyan"),
+        "cli-think-head": CLI_STYLE_THINK_HEAD,
+        "cli-think-body": CLI_STYLE_THINK_BODY,
         "cli-assistant-title": "bold ansigreen",
         "cli-assistant-body": "ansigreen",
         "cli-default": "",

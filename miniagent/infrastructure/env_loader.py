@@ -13,7 +13,7 @@
 - MINIAGENT_FEISHU_USER_ACCESS_TOKEN
 - GITHUB_TOKEN
 
-配置优先级：环境变量已有值 > config.user.json secrets
+凭据来源：config.user.json secrets → 桥接到 SDK 所需环境变量
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ _SECRETS_TO_ENV = {
 def load_secrets_from_config() -> None:
     """从config.user.json的secrets部分读取凭据并设置环境变量。
 
-    只在环境变量未设置时才设置（环境变量优先级更高）。
+    从 JSON secrets 设置环境变量，供 OpenAI/飞书等 SDK 读取。
     """
     try:
         config = JsonConfigLoader.get_instance()
@@ -54,12 +54,10 @@ def load_secrets_from_config() -> None:
             return
 
         for secret_key, env_name in _SECRETS_TO_ENV.items():
-            # 只在环境变量未设置时才设置
-            if env_name not in os.environ or not os.environ[env_name]:
-                value = secrets.get(secret_key)
-                if value and isinstance(value, str) and value.strip():
-                    os.environ[env_name] = value.strip()
-                    _logger.debug(f"从config.user.json设置环境变量: {env_name}")
+            value = secrets.get(secret_key)
+            if value and isinstance(value, str) and value.strip():
+                os.environ[env_name] = value.strip()
+                _logger.debug(f"从config.user.json设置环境变量: {env_name}")
 
         _logger.debug("已从config.user.json加载secrets部分")
 

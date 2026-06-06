@@ -14,7 +14,6 @@ from miniagent.core.openai_client import get_shared_async_openai
 from miniagent.core.prompts.classifier import CLASSIFIER_PROMPT
 from miniagent.core.thinking_presets import map_business_depth, map_thinking_level_to_model
 from miniagent.infrastructure.debug_ndjson import safe_agent_debug_log
-from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.types.config import AgentConfig
 
@@ -32,7 +31,9 @@ class TaskDifficulty(str, Enum):
 
 def task_classifier_enabled() -> bool:
     """是否启用规划前难度分类（默认开启）。"""
-    return get_config("execution.task_classifier_enabled", True)
+    from miniagent.core.constants import EXECUTION_TASK_CLASSIFIER_ENABLED
+
+    return EXECUTION_TASK_CLASSIFIER_ENABLED
 
 
 def planner_merge_for_difficulty(d: TaskDifficulty) -> dict[str, Any]:

@@ -34,8 +34,13 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
+from miniagent.core.constants import (
+    FEISHU_PATCH_BUDGET,
+    FEISHU_PATCH_CHAR_DELTA,
+    FEISHU_PATCH_IMPORTANT_CONTENT_IMMEDIATE,
+    FEISHU_PATCH_INTERVAL_S,
+)
 from miniagent.feishu.types import FeishuConfig, FeishuInboundText
-from miniagent.infrastructure.env_parse import TRUTHY, env_flag, env_flag_strict, env_str
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 
@@ -88,19 +93,17 @@ def feishu_outbound_reply_params(
     Returns:
         ``(reply_parent_message_id_or_None, reply_in_thread)``
     """
-    mode = env_str("MINIAGENT_FEISHU_REPLY_TARGET", "reply").lower()
+    mode = str(get_config("feishu.reply_target", "reply")).lower()
     if mode != "reply":
         return None, False
     mid = (trigger_message_id or "").strip()
     if not mid:
         return None, False
-    raw_thr = env_str("MINIAGENT_FEISHU_REPLY_IN_THREAD").lower()
-    if raw_thr in ("0", "false", "no", "off"):
-        thr = False
-    elif raw_thr in TRUTHY:
-        thr = True
-    else:
+    thr_cfg = get_config("feishu.reply_in_thread", None)
+    if thr_cfg is None:
         thr = bool((thread_id or "").strip())
+    else:
+        thr = bool(thr_cfg)
     return mid, thr
 
 
@@ -436,9 +439,7 @@ async def start_feishu_poll_server(
                 from miniagent.feishu.cards.extract import inbound_text_from_message
 
                 text = ""
-                if msg_type == "interactive" and env_flag(
-                    "MINIAGENT_FEISHU_CARD_EXTRACT_INBOUND", default=True
-                ):
+                if msg_type == "interactive" and get_config("feishu.card_extract_inbound", True):
                     text = inbound_text_from_message(msg_type, content_str) or ""
                 if not text and msg_type == "text":
                     try:
@@ -547,7 +548,7 @@ async def start_feishu_poll_server(
                         if _feishu_media_reply_indicates_failure(reply):
                             finalized = False
                         else:
-                            silent = env_flag("MINIAGENT_FEISHU_MEDIA_SILENT_REPLY", default=False)
+                            silent = bool(get_config("feishu.media.silent_reply", False))
                             if reply and not silent:
                                 r_mid, r_thr = feishu_outbound_reply_params(
                                     message_id, thread_id_media or None
@@ -578,7 +579,7 @@ async def start_feishu_poll_server(
 
                 async def _handle_post_media():
                     finalized = False
-                    silent = env_flag("MINIAGENT_FEISHU_MEDIA_SILENT_REPLY", default=False)
+                    silent = bool(get_config("feishu.media.silent_reply", False))
                     combined: list[str] = []
                     try:
                         for res_type, fk, suggested in post_items:
@@ -629,7 +630,7 @@ async def start_feishu_poll_server(
 
     def _feishu_card_action_router_enabled() -> bool:
         """是否将卡片按钮事件经路由投递到消息队列（环境变量开关）。"""
-        return env_flag_strict("MINIAGENT_FEISHU_CARD_ACTION_ROUTER", default=True)
+        return bool(get_config("feishu.card_action_router", True))
 
     def _on_card_action_trigger(event: Any) -> Any:
         """同步回调：将卡片 ``action.value`` 中的文本投递给同一 ``message_handler``。"""
@@ -875,9 +876,9 @@ def _is_valid_im_receive_id(chat_id: str) -> bool:
 # 节流参数从JSON配置读取，默认值已优化为更流畅的流式体验（间隔更短、字符增量更小）
 
 # 默认值：间隔 0.12s（比之前 0.35s 更快）、字符增量 30（比之前 450 更小）、预算 40（比之前 12 更多）
-FEISHU_THINKING_PATCH_MIN_INTERVAL_S = float(get_config("feishu.patch.interval", 0.12))
-FEISHU_THINKING_PATCH_MIN_CHAR_DELTA = int(get_config("feishu.patch.char_delta", 30))
-FEISHU_THINKING_PATCH_BUDGET = int(get_config("feishu.patch.budget", 40))
+FEISHU_THINKING_PATCH_MIN_INTERVAL_S = float(FEISHU_PATCH_INTERVAL_S)
+FEISHU_THINKING_PATCH_MIN_CHAR_DELTA = int(FEISHU_PATCH_CHAR_DELTA)
+FEISHU_THINKING_PATCH_BUDGET = int(FEISHU_PATCH_BUDGET)
 
 
 def _is_important_content_for_immediate_patch(text: str) -> bool:
@@ -899,7 +900,7 @@ def _is_important_content_for_immediate_patch(text: str) -> bool:
         return False
 
     # 检查是否启用重要内容立即 PATCH
-    enabled = get_config("feishu.patch.important_content_immediate", True)
+    enabled = FEISHU_PATCH_IMPORTANT_CONTENT_IMMEDIATE
     if not enabled:
         return False
 
@@ -949,6 +950,14 @@ def feishu_card_body_max() -> int:
     """单张交互卡片 lark_md 正文上限（字符近似）。"""
     val = get_config("feishu.card.body_max_chars", 48000)
     return max(1000, int(val)) if val else 48_000
+
+
+def feishu_card_thinking_max() -> int:
+    """思考流卡片正文上限；未单独配置时与 body_max_chars 相同。"""
+    val = get_config("feishu.card.thinking_max_chars", None)
+    if val is not None:
+        return max(1000, int(val))
+    return feishu_card_body_max()
 
 
 def _strip_unicode_replacement_chars(text: str) -> str:
@@ -1061,12 +1070,12 @@ def _prepare_card_markdown(
 
 def _prepare_thinking_markdown(raw: str) -> str:
     """思考流卡片专用：等同 ``_prepare_thinking_body_for_card`` 且启用长度帽。"""
-    return _prepare_thinking_body_for_card(raw, apply_cap=True)
+    return _prepare_thinking_body_for_card(raw, apply_cap=True, max_len=feishu_card_thinking_max())
 
 
 def _feishu_reply_plain_enabled() -> bool:
     """``MINIAGENT_FEISHU_REPLY_PLAIN``：默认渲染富文本 Markdown；设为 ``1`` 时去掉常见 Markdown 标记（仍为 ``lark_md``）。"""
-    return env_flag_strict("MINIAGENT_FEISHU_REPLY_PLAIN", default=False)
+    return bool(get_config("feishu.reply_plain", False))
 
 
 def _strip_light_markdown_for_feishu_plain(text: str) -> str:

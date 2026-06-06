@@ -22,6 +22,7 @@ from miniagent.scheduled_tasks.store import (
     save_tasks,
 )
 from miniagent.scheduled_tasks.ticker import tick_once
+from tests.config_helpers import install_test_config
 from tests.scheduled_tasks_helpers import (
     minimal_cli_state,
     minimal_tick_ctx,
@@ -169,9 +170,12 @@ def test_resolve_primary_and_fixed_feishu(state_dir: str) -> None:
 
 @pytest.mark.asyncio
 async def test_tick_once_dispatches_and_updates(
-    state_dir: str, monkeypatch: pytest.MonkeyPatch
+    state_dir: str, tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("MINIAGENT_DISABLE_SCHEDULED_TASKS", "0")
+    install_test_config(
+        tmp_path,
+        {"paths": {"state_dir": state_dir}, "scheduled_tasks": {"disabled": False}},
+    )
     t = ScheduledTask(
         id="run1",
         name="run1",
@@ -217,9 +221,12 @@ def test_apply_dispatch_failure_backoff(state_dir: str) -> None:
 
 @pytest.mark.asyncio
 async def test_tick_once_dispatch_failure_backoff(
-    state_dir: str, monkeypatch: pytest.MonkeyPatch
+    state_dir: str, tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("MINIAGENT_DISABLE_SCHEDULED_TASKS", "0")
+    install_test_config(
+        tmp_path,
+        {"paths": {"state_dir": state_dir}, "scheduled_tasks": {"disabled": False}},
+    )
     t = ScheduledTask(
         id="fail1",
         name="fail1",
@@ -510,10 +517,13 @@ def test_cmd_schedule_remove_enable_disable(state_dir: str) -> None:
 
 
 @pytest.mark.asyncio
-async def test_tick_once_respects_disable_env(
-    state_dir: str, monkeypatch: pytest.MonkeyPatch
+async def test_tick_once_respects_disable_config(
+    state_dir: str, tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("MINIAGENT_DISABLE_SCHEDULED_TASKS", "1")
+    install_test_config(
+        tmp_path,
+        {"paths": {"state_dir": state_dir}, "scheduled_tasks": {"disabled": True}},
+    )
     save_tasks(
         [
             ScheduledTask(
@@ -538,9 +548,12 @@ async def test_tick_once_respects_disable_env(
 
 @pytest.mark.asyncio
 async def test_tick_once_skips_when_scheduler_lock_held(
-    state_dir: str, monkeypatch: pytest.MonkeyPatch
+    state_dir: str, tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("MINIAGENT_DISABLE_SCHEDULED_TASKS", "0")
+    install_test_config(
+        tmp_path,
+        {"paths": {"state_dir": state_dir}, "scheduled_tasks": {"disabled": False}},
+    )
     save_tasks(
         [
             ScheduledTask(
@@ -601,10 +614,8 @@ def test_repair_invalid_schedules_fills_missing_next_run(state_dir: str) -> None
     assert t.next_run_at > 0
 
 
-def test_dispatch_failure_backoff_seconds_from_env(
-    state_dir: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("MINIAGENT_SCHEDULED_TASKS_DISPATCH_BACKOFF", "120")
+def test_dispatch_failure_backoff_seconds_from_config(tmp_path) -> None:
+    install_test_config(tmp_path, {"scheduled_tasks": {"dispatch_backoff": 120}})
     assert dispatch_failure_backoff_seconds() == 120
 
 

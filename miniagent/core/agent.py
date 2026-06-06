@@ -9,7 +9,7 @@
 ``on_thinking`` / ``on_tool_call`` 等注入，由 :class:`miniagent.engine.engine.UnifiedEngine` 等上层接线。
 规划可见输出合并为 ``[评估与计划]`` 流式段；可选关键字参数 ``full_record`` 由引擎用于会话历史全量落盘（见 ``miniagent.core.thinking_callback.invoke_on_thinking``）。
 
-**轮数上限（与执行器一致）**：全局 ReAct 上限由环境变量 ``MINIAGENT_AGENT_MAX_TURNS`` 控制（默认见 ``docs/ARCHITECTURE.md``）；分步模式下单步上限为 ``MINIAGENT_STEP_MAX_TURNS``。规划器给出的建议轮数**不会**把上述硬上限压低。
+**轮数上限（与执行器一致）**：全局 ReAct 上限由 ``agent.max_turns``（默认 400）控制；分步模式下单步上限为 Internal 常量 ``STEP_MAX_TURNS``。规划器给出的建议轮数**不会**把上述硬上限压低。
 
 **导出**：``run_agent``、``run_pipeline``、常量 ``PLANNING_STREAM_HEADER``。
 
@@ -60,7 +60,9 @@ _logger = get_logger(__name__)
 
 def _announce_difficulty_and_plan_enabled() -> bool:
     """是否向用户展示任务难度与规划摘要（默认开启）。"""
-    return get_config("execution.announce_difficulty", True)
+    from miniagent.core.constants import EXECUTION_ANNOUNCE_DIFFICULTY
+
+    return EXECUTION_ANNOUNCE_DIFFICULTY
 
 
 _DIFFICULTY_LABELS = {
@@ -210,7 +212,7 @@ async def run_agent(
     Phase 1: 规划（可跳过）
     Phase 2: ReAct 循环执行
 
-    当提供 ``on_thinking`` 且 ``MINIAGENT_ANNOUNCE_DIFFICULTY_AND_PLAN`` 非 ``0``/``false``（默认开启）时，
+    当提供 ``on_thinking`` 且 Internal 常量 ``EXECUTION_ANNOUNCE_DIFFICULTY`` 为真（默认开启）时，
     将「评估任务难度 → 难度结论 → 执行计划」合并为同一条流式思考（header ``[评估与计划]``）；展示为精简文案，
     完整 Markdown 通过可选关键字 ``full_record`` 写入会话历史（由 :class:`~miniagent.engine.engine.UnifiedEngine` 接线）。
     设为 ``0`` 可关闭上述推送。
@@ -315,11 +317,12 @@ async def run_agent(
         try:
             # 一般任务最多 1 问；中等任务最多 2 问；复杂任务最多 3 问
             if difficulty == TaskDifficulty.NORMAL:
-                max_questions = 1
+                base_questions = 1
             elif difficulty == TaskDifficulty.MEDIUM:
-                max_questions = 2
+                base_questions = 2
             else:
-                max_questions = 3
+                base_questions = 3
+            max_questions = min(base_questions, int(get_config("agent.max_questions", 3)))
             clarified = await clarifier.clarify(
                 user_input,
                 ask_user=_ask_user_for_clarification,

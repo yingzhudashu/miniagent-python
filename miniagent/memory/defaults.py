@@ -13,8 +13,6 @@ import logging
 import os
 from typing import Any
 
-from miniagent.infrastructure.json_config import get_config
-
 _logger = logging.getLogger(__name__)
 
 _bundle: tuple[Any, Any, Any] | None = None
@@ -22,11 +20,13 @@ _bundle: tuple[Any, Any, Any] | None = None
 
 def get_state_root() -> str:
     """与配置一致的状态根目录。"""
-    return get_config("paths.state_dir", os.path.join(os.getcwd(), "workspaces"))
+    from miniagent.infrastructure.paths import resolve_state_dir
+
+    return resolve_state_dir()
 
 
 def reset_process_default_memory_bundle_for_tests() -> None:
-    """清空缓存，仅供测试在更改 ``MINIAGENT_PATHS_STATE_DIR`` 等环境后重新构造 bundle。"""
+    """清空缓存，仅供测试在更改配置后重新构造 bundle。"""
     global _bundle
     _bundle = None
     from miniagent.memory.shared_registry import reset_registry

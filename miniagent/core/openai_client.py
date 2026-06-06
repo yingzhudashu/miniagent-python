@@ -33,7 +33,7 @@ def get_shared_async_openai() -> AsyncOpenAI:
 
     Note:
         - API 密钥优先从 ``OPENAI_API_KEY`` 环境变量读取
-        - base_url 从 ``config.user.json`` 或 ``MINIAGENT_MODEL_BASE_URL`` 读取
+        - base_url 从 ``config.user.json`` 的 ``model.base_url`` 读取
         - 支持兼容 OpenAI API 的第三方服务（如 Azure、本地模型）
         - 网络可靠性：添加超时配置和重试机制
     """
@@ -50,7 +50,7 @@ def get_shared_async_openai() -> AsyncOpenAI:
             )
             raise RuntimeError(
                 "未配置 OPENAI_API_KEY，无法调用 LLM（任务分类、规划、对话均依赖）。"
-                "请在 config.user.json 的 secrets 部分或环境中设置 OPENAI_API_KEY；使用国内/自建兼容端点时请同时设置 MINIAGENT_MODEL_BASE_URL。"
+                "请在 config.user.json 的 secrets.openai_api_key 填写 API 密钥；使用国内/自建兼容端点时请同时设置 model.base_url。"
             ) from None
         # base_url从JSON配置读取（支持环境变量覆盖）
         base_url = get_config("model.base_url", None)

@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from miniagent.feishu.lark_client import build_client
 from miniagent.feishu.lark_response import format_lark_response_error
 from miniagent.feishu.types import FeishuConfig
+from miniagent.infrastructure.json_config import get_config
 
 
 def user_access_token_from_env() -> str | None:
-    tok = (os.environ.get("MINIAGENT_FEISHU_USER_ACCESS_TOKEN") or "").strip()
+    tok = (get_config("secrets.feishu_user_access_token", "") or "").strip()
     return tok or None
 
 
@@ -37,7 +37,7 @@ class SearchRequiresUserTokenError(Exception):
         return {
             "ok": False,
             "requires_user_token": True,
-            "hint": "配置环境变量 MINIAGENT_FEISHU_USER_ACCESS_TOKEN（用户 OAuth access token）",
+            "hint": "在 config.user.json 的 secrets.feishu_user_access_token 配置用户 OAuth access token",
             "message": str(self),
             "code": self.code,
             "msg": self.api_msg,
@@ -83,7 +83,7 @@ def search_docs(
     ut = user_token or user_access_token_from_env()
     if not ut:
         raise SearchRequiresUserTokenError(
-            "search 需要 MINIAGENT_FEISHU_USER_ACCESS_TOKEN（用户 OAuth token）"
+            "search 需要 secrets.feishu_user_access_token（用户 OAuth token）"
         )
     from miniagent.feishu.drive_client import _http_request
 

@@ -8,9 +8,9 @@
 from __future__ import annotations
 
 import asyncio
-import os as _os_for_im
 from typing import Literal
 
+from miniagent.core.constants import FEISHU_PATCH_TIMEOUT_S
 from miniagent.feishu.lark_client import build_client, clear_client_cache
 from miniagent.feishu.lark_response import format_lark_response_error
 from miniagent.feishu.types import FeishuConfig
@@ -23,9 +23,13 @@ ImMsgType = Literal["text", "file", "image", "interactive"]
 
 _VALID_RECEIVE_ID_TYPES = frozenset({"chat_id", "open_id", "union_id"})
 
-# 配置默认值（支持环境变量覆盖）
-_FEISHU_SEND_TIMEOUT_DEFAULT = float(_os_for_im.environ.get("MINIAGENT_FEISHU_SEND_TIMEOUT", "30.0"))
-_FEISHU_PATCH_TIMEOUT_DEFAULT = float(_os_for_im.environ.get("MINIAGENT_FEISHU_PATCH_TIMEOUT", "10.0"))
+from miniagent.core.constants import FEISHU_SEND_TIMEOUT
+
+_FEISHU_SEND_TIMEOUT_DEFAULT = FEISHU_SEND_TIMEOUT
+
+
+def _feishu_patch_timeout_default() -> float:
+    return float(FEISHU_PATCH_TIMEOUT_S)
 
 
 def resolve_im_receive_id_type(explicit: str | None) -> str:
@@ -206,7 +210,7 @@ async def patch_im_message_async(
     *,
     message_id: str,
     content_json: str,
-    timeout: float = _FEISHU_PATCH_TIMEOUT_DEFAULT,
+    timeout: float | None = None,
 ) -> tuple[bool, str | None]:
     """异步 PATCH 更新 IM 消息（不阻塞事件循环）。
 
@@ -232,6 +236,9 @@ async def patch_im_message_async(
             content_json=json.dumps(card_dict),
         )
     """
+    if timeout is None:
+        timeout = _feishu_patch_timeout_default()
+
     def _sync_patch() -> tuple[bool, str | None]:
         return patch_im_message(
             config,

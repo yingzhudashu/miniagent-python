@@ -73,7 +73,9 @@ def _truncate_history(history: list[dict[str, Any]], max_messages: int = MAX_HIS
 
 def _get_state_dir() -> str:
     """获取状态目录"""
-    return get_config("paths.state_dir", os.path.join(os.getcwd(), "workspaces"))
+    from miniagent.infrastructure.paths import resolve_state_dir
+
+    return resolve_state_dir()
 
 
 def _get_workspaces_dir() -> str:
@@ -183,12 +185,12 @@ class DefaultSessionManager(SessionManagerProtocol):
             main_toolboxes: 主空间工具箱列表
             main_skills: 主空间技能列表
             clawhub: ClawHub 客户端，注入到 :meth:`get_tool_context` 供技能类工具使用
-            max_sessions: 内存中最多保持的会话数，未指定时使用环境变量
-                MINIAGENT_SESSION_MANAGER_MAX_SESSIONS，默认 50，超过时 LRU 驎出
+            max_sessions: 内存中最多保持的会话数，默认 50，超过时 LRU 驎出
         """
         if max_sessions is None:
-            import os as _os
-            max_sessions = int(_os.environ.get("MINIAGENT_SESSION_MANAGER_MAX_SESSIONS", "50"))
+            from miniagent.core.constants import SESSION_MANAGER_MAX_SESSIONS
+
+            max_sessions = SESSION_MANAGER_MAX_SESSIONS
         # 性能优化：使用 OrderedDict 实现 LRU 驎出
         from collections import OrderedDict
 

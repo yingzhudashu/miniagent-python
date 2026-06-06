@@ -34,7 +34,6 @@
 from __future__ import annotations
 
 import json
-import os
 import time
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -64,16 +63,11 @@ def get_trace_output_dir() -> Path:
 
     优先级：
     1. 配置 trace.output_dir
-    2. 环境变量 MINIAGENT_TRACE_LOG_FILE 的目录
-    3. 默认 workspaces/logs
+    2. 默认 workspaces/logs
     """
     config_dir = get_config("trace.output_dir", None)
     if config_dir:
         return Path(config_dir)
-
-    env_file = os.environ.get("MINIAGENT_TRACE_LOG_FILE", "").strip()
-    if env_file:
-        return Path(env_file).parent
 
     return Path("workspaces/logs")
 

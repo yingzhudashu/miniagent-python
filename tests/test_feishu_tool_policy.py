@@ -7,33 +7,39 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from tests.config_helpers import install_test_config
+
 # Check if lark-oapi is available
 _HAS_LARK_OAPI = importlib.util.find_spec("lark_oapi") is not None
 
 
-def test_feishu_im_tools_explicit_on(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MINIAGENT_FEISHU_TOOLS_EXPLICIT", "1")
-    monkeypatch.delenv("MINIAGENT_FEISHU_TOOLS_AUTO", raising=False)
+def test_feishu_im_tools_explicit_on(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    install_test_config(tmp_path, {"feishu": {"tools_explicit": True, "tools_auto": False}})
     from miniagent.feishu.im_tool_policy import feishu_im_tools_should_register
 
     assert feishu_im_tools_should_register() is True
 
 
-def test_feishu_im_tools_explicit_off_overrides_auto(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_feishu_im_tools_explicit_off_overrides_auto(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("FEISHU_APP_ID", "a")
     monkeypatch.setenv("FEISHU_APP_SECRET", "b")
-    monkeypatch.setenv("MINIAGENT_FEISHU_TOOLS_EXPLICIT", "0")
-    monkeypatch.setenv("MINIAGENT_FEISHU_TOOLS_AUTO", "1")
+    install_test_config(
+        tmp_path,
+        {"feishu": {"tools_explicit": False, "tools_auto": True}},
+    )
     from miniagent.feishu.im_tool_policy import feishu_im_tools_should_register
 
     assert feishu_im_tools_should_register() is False
 
 
-def test_feishu_im_tools_auto_when_unset_tools_and_creds(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("MINIAGENT_FEISHU_TOOLS_EXPLICIT", raising=False)
-    monkeypatch.setenv("MINIAGENT_FEISHU_TOOLS_AUTO", "1")
+def test_feishu_im_tools_auto_when_unset_tools_and_creds(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("FEISHU_APP_ID", "a")
     monkeypatch.setenv("FEISHU_APP_SECRET", "b")
+    install_test_config(tmp_path, {"feishu": {"tools_auto": True}})
     from miniagent.feishu.im_tool_policy import feishu_im_tools_should_register
 
     assert feishu_im_tools_should_register() is True
@@ -74,17 +80,20 @@ def test_append_feishu_channel_without_tools_when_creds(monkeypatch: pytest.Monk
 
     out = append_feishu_channel_system(None, is_feishu=True, registry=reg)
     assert out is not None
-    # 实际提示文本使用的是 MINIAGENT_FEISHU_TOOLS，不是 MINIAGENT_FEISHU_TOOLS_EXPLICIT
-    assert "MINIAGENT_FEISHU_TOOLS" in out
+    assert "feishu.tools_explicit" in out
 
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(not _HAS_LARK_OAPI, reason="lark-oapi not installed (feishu extra)")
-async def test_feishu_doc_create_accepts_folder_share_url(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_feishu_doc_create_accepts_folder_share_url(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("FEISHU_APP_ID", "a")
     monkeypatch.setenv("FEISHU_APP_SECRET", "b")
-    monkeypatch.delenv("MINIAGENT_FEISHU_DOC_FOLDER_TOKEN", raising=False)
-    monkeypatch.setenv("FEISHU_DOC_FOLDER_FALLBACK_ROOT_META", "0")
+    install_test_config(
+        tmp_path,
+        {"feishu": {"doc": {"folder_token": None, "folder_fallback_root_meta": False}}},
+    )
     url = "https://tenant.feishu.cn/drive/folder/fldcnFromShare"
 
     with patch("miniagent.feishu.docx.client.create_document", return_value=("doc_y", 1)):

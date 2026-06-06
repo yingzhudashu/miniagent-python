@@ -17,7 +17,7 @@ from collections import OrderedDict
 from io import StringIO
 from typing import Any
 
-from miniagent.infrastructure.json_config import get_config
+from miniagent.core.constants import CLI_RAW_MARKDOWN, CLI_RENDER_CACHE_MAX_SIZE
 
 _STRIP_ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -29,8 +29,7 @@ _shared_console_cache: dict[int, Any] = {}  # width -> Console
 _shared_console_original_file: dict[int, Any] = {}  # width -> original file
 
 # ── 性能优化：渲染结果缓存 ──
-# 性能优化：增加缓存大小从100到200，提升命中率
-_RENDER_CACHE_MAX_SIZE = 200
+_RENDER_CACHE_MAX_SIZE = CLI_RENDER_CACHE_MAX_SIZE
 _render_cache: OrderedDict[tuple[int, str, int, str], str] = OrderedDict()  # (len, prefix, width, justify) -> rendered
 
 
@@ -90,7 +89,7 @@ def _cache_render(cache_key: tuple[str, int, str], result: str) -> None:
 
 def cli_raw_markdown_enabled() -> bool:
     """配置 cli.raw_markdown=true 时关闭渲染，保留原始 Markdown（便于复制或调试）。"""
-    return get_config("cli.raw_markdown", False)
+    return CLI_RAW_MARKDOWN
 
 
 def render_markdown_to_ansi(markdown: str, *, width: int, justify: str = "left") -> str | None:

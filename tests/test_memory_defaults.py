@@ -9,10 +9,11 @@ from miniagent.memory.defaults import (
     reset_process_default_memory_bundle_for_tests,
     resolve_memory_dependencies,
 )
+from tests.config_helpers import install_test_config
 
 
-def test_bundle_respects_mini_agent_state(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
+def test_bundle_respects_state_dir_config(tmp_path) -> None:
+    install_test_config(tmp_path, {"paths": {"state_dir": str(tmp_path)}})
     reset_process_default_memory_bundle_for_tests()
     try:
         ms, al, ki = get_process_default_memory_bundle()

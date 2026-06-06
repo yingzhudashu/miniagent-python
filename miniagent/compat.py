@@ -7,7 +7,7 @@
 - 引擎：``from miniagent.engine import ...``
 
 ``unified_entry`` 内会先 ``load_secrets_from_project_root()`` 再构造 ``RuntimeContext``。
-配置通过JSON格式传递（config.defaults.json / config.user.json / MINIAGENT_CONFIG环境变量）。
+配置通过 JSON 传递（``config.defaults.json`` / ``config.user.json``）。
 
 启动编排与异步主流程见 ``docs/ARCHITECTURE.md``（``unified_entry`` → ``unified_main``）。
 """

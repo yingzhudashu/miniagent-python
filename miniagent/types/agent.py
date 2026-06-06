@@ -15,12 +15,12 @@
 
 from __future__ import annotations
 
-import os as _os_for_agent
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, runtime_checkable
 
-# 配置默认值（支持环境变量覆盖）
-_HISTORY_SIZE_DEFAULT = int(_os_for_agent.environ.get("MINIAGENT_HISTORY_SIZE", "50"))
+from miniagent.core.constants import AGENT_HISTORY_SIZE
+
+_HISTORY_SIZE_DEFAULT = AGENT_HISTORY_SIZE
 
 
 @dataclass

@@ -14,6 +14,7 @@ from typing import Any
 
 import yaml
 
+from miniagent.core.constants import KNOWLEDGE_MAX_FILE_CHARS
 from miniagent.infrastructure.logger import get_logger
 from miniagent.memory.keyword_index import extract_keywords
 
@@ -22,8 +23,11 @@ _logger = get_logger(__name__)
 # 默认知识库根目录
 _DEFAULT_KB_ROOT = "workspaces/knowledge"
 
-# 单文件最大字符数（避免加载过大文件）
-_MAX_FILE_CHARS = 50000
+
+def _max_file_chars() -> int:
+    from miniagent.infrastructure.json_config import get_config
+
+    return int(get_config("knowledge.max_file_chars", KNOWLEDGE_MAX_FILE_CHARS))
 
 
 @dataclass
@@ -212,8 +216,9 @@ class KnowledgeBase:
                 return None
 
         # 截断大文件
-        if len(content) > _MAX_FILE_CHARS:
-            content = content[:_MAX_FILE_CHARS] + "\n...[已截断]"
+        max_chars = _max_file_chars()
+        if len(content) > max_chars:
+            content = content[:max_chars] + "\n...[已截断]"
 
         # 计算相对路径
         if os.path.isdir(self._path):

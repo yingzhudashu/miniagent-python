@@ -1,19 +1,14 @@
-"""从飞书 interactive 卡片 JSON 抽取可读文本。
-
-配置项可通过环境变量覆盖：
-- MINIAGENT_CARD_EXTRACT_MAX_NODES: 最大遍历节点数
-- MINIAGENT_CARD_EXTRACT_MAX_DEPTH: 最大遍历深度
-"""
+"""从飞书 interactive 卡片 JSON 抽取可读文本。"""
 
 from __future__ import annotations
 
 import json
-import os
 from typing import Any
 
-# 直接读取环境变量，避免触发循环导入
-_CARD_EXTRACT_MAX_NODES = int(os.environ.get("MINIAGENT_CARD_EXTRACT_MAX_NODES", "400"))
-_CARD_EXTRACT_MAX_DEPTH = int(os.environ.get("MINIAGENT_CARD_EXTRACT_MAX_DEPTH", "12"))
+from miniagent.core.constants import CARD_EXTRACT_MAX_DEPTH, CARD_EXTRACT_MAX_NODES
+
+_CARD_EXTRACT_MAX_NODES = CARD_EXTRACT_MAX_NODES
+_CARD_EXTRACT_MAX_DEPTH = CARD_EXTRACT_MAX_DEPTH
 
 from miniagent.feishu.cards.sanitize import sanitize_card_text
 

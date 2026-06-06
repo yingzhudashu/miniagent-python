@@ -227,7 +227,7 @@ class TestThinkingMergeTools:
 
     @pytest.mark.asyncio
     async def test_thinking_display_merge_disabled_extra_label(self, monkeypatch):
-        monkeypatch.setenv("MINIAGENT_EXECUTION_THINKING_MERGE_TOOLS", "0")
+        monkeypatch.setattr("miniagent.engine.thinking.EXECUTION_THINKING_MERGE_TOOLS", False)
         td = ThinkingDisplay()
         sink: list[tuple[str, str]] = []
 
@@ -400,7 +400,7 @@ class TestThinkingCLIWidth:
     async def test_set_cli_markdown_width_used_for_thinking_rich(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv("MINIAGENT_CLI_THINKING_RICH", "1")
+        monkeypatch.setattr("miniagent.engine.thinking.CLI_THINKING_RICH", True)
         seen: list[int] = []
 
         def fake_render(markdown: str, *, width: int) -> str:

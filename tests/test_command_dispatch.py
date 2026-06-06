@@ -131,12 +131,16 @@ class TestSessionCommand:
         """飞书 capture 模式下 /session switch 应被阻止。"""
         state = _create_mock_state()
 
-        result = await dispatch_command(
-            "/session switch test",
-            state=state,
-            capture=True,
-            allow_session_mutations_when_capture=False,
-        )
+        with patch(
+            "miniagent.engine.cli_commands.feishu_dot_commands_full_enabled",
+            return_value=False,
+        ):
+            result = await dispatch_command(
+                "/session switch test",
+                state=state,
+                capture=True,
+                allow_session_mutations_when_capture=False,
+            )
 
         assert "飞书" in result or "本地" in result
 

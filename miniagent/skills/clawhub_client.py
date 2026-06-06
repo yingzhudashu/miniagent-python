@@ -24,9 +24,15 @@ import re
 from pathlib import Path
 from typing import Any, Protocol
 
+from miniagent.core.constants import CLAWHUB_API_URL
+
 _logger = logging.getLogger(__name__)
 
-CLAWHUB_API = "https://clawhub.ai/api/v1"
+CLAWHUB_API = CLAWHUB_API_URL
+
+
+def _clawhub_base_url() -> str:
+    return CLAWHUB_API_URL
 
 
 def skill_install_dir_name(slug: str) -> str:
@@ -256,8 +262,10 @@ class _ClawHubClientImpl:
         return {"path": skills_dir, "files": files}
 
 
-def create_clawhub_client(base_url: str = CLAWHUB_API) -> _ClawHubClientImpl:
+def create_clawhub_client(base_url: str | None = None) -> _ClawHubClientImpl:
     """创建 ClawHub 客户端。"""
+    if base_url is None:
+        base_url = _clawhub_base_url()
     return _ClawHubClientImpl(base_url)
 
 

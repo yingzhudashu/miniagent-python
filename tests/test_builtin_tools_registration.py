@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 
 from miniagent.engine.builtin_tools import register_builtin_tools
-from miniagent.infrastructure.json_config import JsonConfigLoader
 from miniagent.infrastructure.registry import DefaultToolRegistry
 from miniagent.types.tool import ToolDefinition
+from tests.config_helpers import install_test_config
 
 
 def test_register_builtin_tools_populates_registry() -> None:
@@ -26,21 +28,18 @@ def test_register_builtin_tools_populates_registry() -> None:
     assert "read_csv" in names
 
 
-def test_register_builtin_tools_skips_self_opt_when_disabled(monkeypatch) -> None:
-    monkeypatch.setenv("MINIAGENT_CLI_SELF_OPT_TOOLS", "0")
-    monkeypatch.delenv("MINIAGENT_CONFIG", raising=False)
-    JsonConfigLoader.get_instance().reload()
+def test_register_builtin_tools_skips_self_opt_when_disabled(tmp_path) -> None:
+    install_test_config(tmp_path, {"self_optimization": {"enabled": True}})
     reg = DefaultToolRegistry()
-    register_builtin_tools(reg)
+    with patch("miniagent.core.constants.CLI_SELF_OPT_TOOLS", False):
+        register_builtin_tools(reg)
     names = reg.list()
     assert "self_inspect" not in names
     assert "read_file" in names
 
 
-def test_register_builtin_tools_skips_cli_dot_when_disabled(monkeypatch) -> None:
-    monkeypatch.setenv("MINIAGENT_CLI_DOT_TOOLS_ENABLED", "0")
-    monkeypatch.delenv("MINIAGENT_CONFIG", raising=False)
-    JsonConfigLoader.get_instance().reload()
+def test_register_builtin_tools_skips_cli_dot_when_disabled(tmp_path) -> None:
+    install_test_config(tmp_path, {"cli": {"dot_tools_enabled": False}})
     reg = DefaultToolRegistry()
     register_builtin_tools(reg)
     names = reg.list()
@@ -48,10 +47,8 @@ def test_register_builtin_tools_skips_cli_dot_when_disabled(monkeypatch) -> None
     assert "read_file" in names
 
 
-def test_register_builtin_tools_skips_schedule_tools_when_disabled(monkeypatch) -> None:
-    monkeypatch.setenv("MINIAGENT_SCHEDULED_TOOLS_ENABLED", "0")
-    monkeypatch.delenv("MINIAGENT_CONFIG", raising=False)
-    JsonConfigLoader.get_instance().reload()
+def test_register_builtin_tools_skips_schedule_tools_when_disabled(tmp_path) -> None:
+    install_test_config(tmp_path, {"scheduled_tools": {"enabled": False}})
     reg = DefaultToolRegistry()
     register_builtin_tools(reg)
     names = reg.list()

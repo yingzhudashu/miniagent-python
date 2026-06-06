@@ -1,15 +1,12 @@
-"""卡片按钮回调幂等去重（进程内 LRU）。
-
-配置项可通过环境变量 MINIAGENT_CARD_DEDUPE_MAX_SIZE 覆盖。
-"""
+"""卡片按钮回调幂等去重（进程内 LRU）。"""
 
 from __future__ import annotations
 
-import os
 from collections import OrderedDict
 
-# 直接读取环境变量，避免触发循环导入
-_CARD_DEDUPE_MAX_SIZE = int(os.environ.get("MINIAGENT_CARD_DEDUPE_MAX_SIZE", "256"))
+from miniagent.core.constants import CARD_DEDUPE_MAX_SIZE
+
+_CARD_DEDUPE_MAX_SIZE = CARD_DEDUPE_MAX_SIZE
 
 _seen: OrderedDict[str, float] = OrderedDict()
 

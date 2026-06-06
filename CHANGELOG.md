@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Breaking
+
+- **配置入口收敛为双 JSON**：仅 `config.defaults.json` → `config.user.json` 两层合并；移除 `MINIAGENT_*` / `MINIAGENT_CONFIG` 运行时覆盖。
+- **Internal 层迁入 `constants.py`**：`execution`、`render`、`browser`、`feishu.patch/api_urls` 等 ~50 键不再出现在 defaults JSON。
+- **删除 `docs/examples/` 与 `docs/ENV_REFERENCE.md`**：配置说明统一见 `config.defaults.json` 的 `_config_guide` 与 [ENGINEERING.md](docs/ENGINEERING.md) §1.1。
+
+### Added
+
+- **`config.defaults.json` `_config_guide`**：标明 User / Advanced 分层与节顺序。
+- **`miniagent/infrastructure/paths.py`**：`resolve_state_dir()` 统一状态目录解析。
+- **`scripts/README.md`**：维护脚本索引；**`tests/test_cli_transcript_scroll.py`**：CLI transcript 滚动源码回归（自 `verify_scroll_fix.py` 迁移）。
+
+### Removed
+
+- **`scripts/verify_perf_opt.py`**、**`scripts/verify_performance_optimizations.py`**、**`scripts/verify_optimizations_simple.py`**、**`scripts/verify_scroll_fix.py`**：v2.0.3 发版手工验收与一次性滚动检查脚本；性能回归改用 `pytest -m perf` 与 `scripts/perf_profile_tracemalloc.py`。
+
 ### New Features
 
 - **飞书文档 Markdown 富文本渲染**：新增 [`markdown_renderer.py`](miniagent/feishu/docx/markdown_renderer.py)，支持将 Markdown 内容转换为飞书文档富文本块。
@@ -13,6 +29,8 @@
 
 ### Refactoring
 
+- **配置覆盖完整性（Phase 2）**：补全 `self_optimization` / `perf` / 知识库分阶段键等 defaults 缺失项；统一 `get_config` fallback 与 JSON；飞书 `feishu.*` 改由 JsonConfigLoader 优先（保留 `FEISHU_DOC_FOLDER_FALLBACK_ROOT_META` 等遗留 env）；接线 `instance`、`keyword_index`、`browser.disable_*`、`cli.render_cache_max_size`、记忆/vision 等原 dead 键；`get_config_section` 过滤 `description` 元数据。
+- **配置分层与 defaults 瘦身**：[`docs/ENGINEERING.md`](docs/ENGINEERING.md) 新增 §1.1（User / Advanced / Internal）；`browser.*` 为 Playwright 实例池唯一配置节（`timeout_seconds` 等），`web_search.*` 仅保留 Tavily；`feishu.api_urls`、`clawhub.api_url`、`web_search.tavily_url` 接入 `get_config`；`AgentConfig` / `get_default_agent_config()` 默认值与 `config.defaults.json` 对齐（`max_turns=400`）。
 - **消除飞书去重重复代码**：[`poll_server.py`](miniagent/feishu/poll_server.py) 中约 136 行重复的去重逻辑已删除，改为导入 [`feishu_dedup.py`](miniagent/feishu/feishu_dedup.py) 模块。文件从约 1706 行减少到约 1569 行，提升了代码可维护性。
 - **统一 Session ID 安全化**：新增 [`miniagent/utils/session_id.py`](miniagent/utils/session_id.py)，统一各模块的 session_id 安全化逻辑，消除 `session_lock.py`、`manager.py`、`history_archive.py` 中的重复实现。确保同一 session_key 在不同模块产生一致的安全化结果。
 - **CLI命令模块拆分**：[`cli_commands.py`](miniagent/engine/cli_commands.py) 从 1633 行减少到 1487 行，新增 [`miniagent/engine/commands/`](miniagent/engine/commands/) 子包：

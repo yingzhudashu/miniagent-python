@@ -9,8 +9,6 @@ import sys
 import threading
 from collections.abc import Iterator
 
-from miniagent.infrastructure.json_config import get_config
-
 _logger = logging.getLogger(__name__)
 
 # 平台相关文件锁模块
@@ -24,7 +22,9 @@ _thread_lock = threading.RLock()
 
 def _tasks_json_lock_path() -> str:
     """构造 tasks.json 文件锁路径。"""
-    root = get_config("paths.state_dir", os.path.join(os.getcwd(), "workspaces"))
+    from miniagent.infrastructure.paths import resolve_state_dir
+
+    root = resolve_state_dir()
     return os.path.join(root, "scheduled_tasks", "tasks.json.lock")
 
 

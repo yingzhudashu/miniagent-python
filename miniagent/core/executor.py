@@ -9,9 +9,9 @@
 4. ReAct 循环：LLM 调用 → 工具执行 → 结果反馈
 5. 循环直到：LLM 不再调用工具 / 达到 maxTurns / 循环检测拦截
 
-``MINIAGENT_PHASED_EXECUTION`` 开启且 ``plan.steps`` 非空时，按步骤分子循环（每步独立 thinking 解析）；
-若最后一步单步子轮次用尽而全局 ``MINIAGENT_AGENT_MAX_TURNS`` 仍有余量，会追加一轮不传 tools 的收尾 synthesis。
-详见环境变量说明与 ``docs/ARCHITECTURE.md``。
+Internal 常量 ``PHASED_EXECUTION`` 开启且 ``plan.steps`` 非空时，按步骤分子循环（每步独立 thinking 解析）；
+若最后一步单步子轮次用尽而全局 ``agent.max_turns`` 仍有余量，会追加一轮不传 tools 的收尾 synthesis。
+详见 ``docs/ARCHITECTURE.md``。
 
 **工具结果回注**：每轮工具输出经 ``tool`` role 消息写回 ``DefaultContextManager``；同轮 ``merge_tools``（若配置开启）可在展示层合并多工具行，但**不影响**此处消息序列语义。
 
@@ -35,6 +35,17 @@ from typing import Any
 from openai import AsyncOpenAI
 
 from miniagent.core.config import get_default_agent_config, get_default_model_config
+from miniagent.core.constants import (
+    EXECUTION_CALLBACK_MIN_CHARS,
+    EXECUTION_CALLBACK_MIN_INTERVAL_MS,
+    EXECUTION_MAX_CONCURRENT_TOOLS,
+    EXECUTION_PHASED_ENABLED,
+    EXECUTION_STEP_MAX_TURNS,
+    EXECUTION_THINKING_SEPARATOR,
+    EXECUTION_TOOL_INTENT_IN_THINKING,
+    EXECUTION_TOOL_INTENT_MAX_CHARS,
+    MAX_ARGS_LOG_LEN,
+)
 from miniagent.core.llm_params import resolve_exec_completion_kwargs
 from miniagent.core.openai_client import get_shared_async_openai
 from miniagent.core.openai_message_sanitize import strip_leading_underscore_keys_from_messages
@@ -103,7 +114,7 @@ def _get_tool_semaphore() -> asyncio.Semaphore:
     """
     global _tool_semaphore
     if _tool_semaphore is None:
-        max_concurrent = max(1, min(20, int(get_config("execution.max_concurrent_tools", 5))))
+        max_concurrent = max(1, min(20, EXECUTION_MAX_CONCURRENT_TOOLS))
         _tool_semaphore = asyncio.Semaphore(max_concurrent)
         _logger.debug("工具并发限制已初始化: %d", max_concurrent)
     return _tool_semaphore
@@ -112,10 +123,7 @@ _logger = get_logger(__name__)
 
 # ─── 工具错误日志辅助 ────────────────────────────────────────────
 
-# 参数截断长度（避免日志膨胀）- 支持环境变量覆盖
-import os as _os_for_log
-
-_MAX_ARGS_LOG_LEN = int(_os_for_log.environ.get("MINIAGENT_MAX_ARGS_LOG_LEN", "500"))
+_MAX_ARGS_LOG_LEN = MAX_ARGS_LOG_LEN
 
 
 def _truncate_args_for_log(args: dict[str, Any] | str, max_len: int = _MAX_ARGS_LOG_LEN) -> str:
@@ -318,25 +326,25 @@ def get_client() -> AsyncOpenAI:
 @lru_cache(maxsize=1)
 def _env_phased_execution_enabled() -> bool:
     """是否启用分阶段执行（工具批次与 LLM 轮次分段），默认开启。"""
-    return get_config("execution.phased_enabled", True)
+    return EXECUTION_PHASED_ENABLED
 
 
 @lru_cache(maxsize=1)
 def _tool_intent_in_thinking_enabled() -> bool:
     """是否在工具执行前向 on_thinking 推送 🔧 意图行。"""
-    return get_config("execution.tool_intent_in_thinking", False)
+    return EXECUTION_TOOL_INTENT_IN_THINKING
 
 
 @lru_cache(maxsize=1)
 def _step_max_turns_cap() -> int:
     """分步模式下单步内 ReAct 轮数上限（默认 48）。"""
-    return get_config("execution.step_max_turns", 48)
+    return EXECUTION_STEP_MAX_TURNS
 
 
 @lru_cache(maxsize=1)
 def _thinking_segment_separator() -> str:
     """同一步内多轮 LLM 思考片段拼接符；默认双换行。"""
-    raw = get_config("execution.thinking_separator", "")
+    raw = EXECUTION_THINKING_SEPARATOR
     if raw:
         return raw.replace("\\n", "\n")
     return "\n\n"
@@ -345,7 +353,7 @@ def _thinking_segment_separator() -> str:
 @lru_cache(maxsize=1)
 def _tool_intent_max_chars() -> int:
     """工具意图摘要写入思考流时的最大字符数。"""
-    return get_config("execution.tool_intent_max_chars", 4000)
+    return EXECUTION_TOOL_INTENT_MAX_CHARS
 
 
 def _reset_env_caches_for_tests() -> None:
@@ -439,7 +447,7 @@ async def execute_plan(
         on_tool_call: 工具调用回调（如未知工具等路径）
         on_tool_finish: 每个工具执行完成后异步回调（名称、参数 JSON 字符串、完整结果、是否成功）。
             若回调签名包含关键字参数 ``thinking_header``（或 ``**kwargs``），将传入当前 ReAct 轮标签（如 ``[第 1 轮]``）；否则仅按四参调用。
-        memory_store: 记忆存储（默认与 ``MINIAGENT_PATHS_STATE_DIR`` 进程 bundle 一致）
+        memory_store: 记忆存储（默认与 ``paths.state_dir`` 进程 bundle 一致）
         activity_log: 活动日志（同上）
         keyword_index: 关键词索引（同上；缺省时优先使用 store 已绑定索引）
         client: LLM 客户端（默认进程内共享 AsyncOpenAI）
@@ -497,6 +505,7 @@ async def execute_plan(
         compress_threshold=agent_config.context_compress_threshold,
         tools=tools,
         overflow_strategy=agent_config.context_overflow_strategy,
+        reserve_ratio=agent_config.context_reserve_ratio,
     )
 
     # ── System prompt + 记忆注入 ──
@@ -708,8 +717,8 @@ async def execute_plan(
 
         # 性能优化：回调频率控制
         _last_callback_time = time.monotonic_ns() // 1_000_000
-        _callback_min_interval_ms = get_config("execution.callback_min_interval_ms", 50)  # 50ms最小间隔
-        _callback_min_chars = get_config("execution.callback_min_chars", 100)  # 100字符阈值
+        _callback_min_interval_ms = EXECUTION_CALLBACK_MIN_INTERVAL_MS
+        _callback_min_chars = EXECUTION_CALLBACK_MIN_CHARS
         _chars_since_last_callback = 0
 
         if on_thinking and not _thinking_started:
@@ -898,7 +907,7 @@ async def execute_plan(
             message_count=len(messages),
             tool_count=len(tools_arg),
             thinking=full_content,
-            token_usage=_usage.model_dump() if _usage else None,
+            token_usage=_usage.model_dump() if (_usage and agent_config.log_token_usage) else None,
         )
         if (full_content or "").strip():
             _exec_hist_segments.setdefault(thinking_phase_label, []).append(full_content)
@@ -1344,10 +1353,10 @@ async def execute_plan(
                             return oob_txt
                         return final_reply
                 return (
-                    f"{WARNING_PREFIX} 最后一步在单步子轮次（MINIAGENT_STEP_MAX_TURNS）或总轮数限制内，"
+                    f"{WARNING_PREFIX} 最后一步在单步子轮次（Internal STEP_MAX_TURNS）或总轮数限制内，"
                     "未以「无工具调用」形式结束。\n\n"
-                    "可提高 MINIAGENT_STEP_MAX_TURNS、MINIAGENT_AGENT_MAX_TURNS，"
-                    "或设置 MINIAGENT_PHASED_EXECUTION=0 退回单循环执行后重试。"
+                    "可在 config.user.json 提高 agent.max_turns，"
+                    "或联系维护者调整 Internal 分步执行常量（PHASED_EXECUTION / STEP_MAX_TURNS）后重试。"
                 )
 
             if not is_last and not step_resolved and turns_left > 0:
@@ -1357,7 +1366,7 @@ async def execute_plan(
                         "role": "user",
                         "content": (
                             "（系统提示：上一步在单步子轮次内未结束，以下继续下一步；"
-                            "若结果不理想可适当提高 MINIAGENT_STEP_MAX_TURNS。）"
+                            "若结果不理想可适当提高 agent.max_turns 或 Internal STEP_MAX_TURNS。）"
                         ),
                     },
                 )

@@ -5,8 +5,7 @@
 
 进程内全局钩子列表；测试或子进程隔离场景可 ``clear_trace_hooks()``。
 
-**可选持久化**：设置环境变量 ``MINIAGENT_TRACE_LOG_FILE`` 后，自动注册钩子将事件写入 JSONL 文件。
-也可在 JSON 配置中设置 ``trace.enabled: true``，自动启用默认文件路径（workspaces/logs/trace-YYYY-MM-DD.jsonl）。
+**可选持久化**：在 JSON 配置中设置 ``trace.enabled: true`` 与 ``trace.output_dir``，自动注册钩子将事件写入 JSONL 文件（``workspaces/logs/trace-YYYY-MM-DD.jsonl``）。
 
 **事件类型规范**：见 ``miniagent.infrastructure.trace_events`` 模块。
 
@@ -212,12 +211,13 @@ def _get_default_trace_file() -> Path:
 
 
 def _init_trace_log_file() -> None:
-    """初始化 trace 日志文件路径（从环境变量读取）。"""
+    """初始化 trace 日志文件路径（从 JSON 配置 debug.log_path 读取）。"""
     global _TRACE_LOG_FILE
-    log_path = os.environ.get("MINIAGENT_TRACE_LOG_FILE", "").strip()
+    from miniagent.infrastructure.json_config import get_config
+
+    log_path = str(get_config("debug.log_path", "") or "").strip()
     if log_path:
         _TRACE_LOG_FILE = Path(log_path)
-        # 确保目录存在
         _TRACE_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 
@@ -286,12 +286,12 @@ def auto_register_trace_file_hook() -> None:
     """自动注册 trace 文件持久化钩子（使用异步写入器）。
 
     启用条件（任一满足）：
-    1. 环境变量 MINIAGENT_TRACE_LOG_FILE 已设置
+    1. JSON 配置 debug.log_path 已设置
     2. JSON 配置 trace.enabled: true
 
     文件路径：
-    1. 环境变量指定路径（MINIAGENT_TRACE_LOG_FILE）
-    2. 默认路径（workspaces/logs/trace-YYYY-MM-DD.jsonl）
+    1. debug.log_path 指定路径
+    2. 默认路径（trace.output_dir/trace-YYYY-MM-DD.jsonl）
 
     在进程启动时调用一次（通常在 engine.main.unified_main）。
 
@@ -301,10 +301,6 @@ def auto_register_trace_file_hook() -> None:
     - 非阻塞写入，消除 3-11ms 延迟
 
     示例配置：
-        # 环境变量方式
-        MINIAGENT_TRACE_LOG_FILE=workspaces/logs/trace.jsonl
-
-        # JSON 配置方式
         {"trace": {"enabled": true, "output_dir": "workspaces/logs"}}
     """
     global _auto_initialized, _TRACE_LOG_FILE, _trace_writer
@@ -314,17 +310,13 @@ def auto_register_trace_file_hook() -> None:
 
     _auto_initialized = True
 
-    # 优先使用环境变量
-    log_path = os.environ.get("MINIAGENT_TRACE_LOG_FILE", "").strip()
+    from miniagent.infrastructure.json_config import get_config
+
+    log_path = str(get_config("debug.log_path", "") or "").strip()
     if log_path:
         _TRACE_LOG_FILE = Path(log_path)
-    else:
-        # 检查 JSON 配置
-        from miniagent.infrastructure.json_config import get_config
-
-        enabled = get_config("trace.enabled", False)
-        if enabled:
-            _TRACE_LOG_FILE = _get_default_trace_file()
+    elif get_config("trace.enabled", False):
+        _TRACE_LOG_FILE = _get_default_trace_file()
 
     # 启动异步写入器（替代同步文件 hook）
     if _TRACE_LOG_FILE is not None:

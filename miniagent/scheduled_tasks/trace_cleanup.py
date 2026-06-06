@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from miniagent.infrastructure.json_config import get_config
@@ -100,7 +101,24 @@ def scheduled_trace_stats_report() -> dict[str, Any]:
         return {"success": False, "error": str(e)}
 
 
+_last_stats_report_at: float = 0.0
+
+
+def maybe_scheduled_trace_stats_report() -> dict[str, Any] | None:
+    """按 ``trace.stats_report_interval`` 节流生成统计报告（供定时 tick / shutdown 调用）。"""
+    global _last_stats_report_at
+    if not get_config("trace.enabled", False):
+        return None
+    interval = max(60.0, float(get_config("trace.stats_report_interval", 3600)))
+    now = time.time()
+    if _last_stats_report_at and (now - _last_stats_report_at) < interval:
+        return None
+    _last_stats_report_at = now
+    return scheduled_trace_stats_report()
+
+
 __all__ = [
     "scheduled_cleanup_traces",
     "scheduled_trace_stats_report",
+    "maybe_scheduled_trace_stats_report",
 ]

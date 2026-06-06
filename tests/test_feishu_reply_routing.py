@@ -1,4 +1,4 @@
-"""飞书回复路由与环境变量 ``MINIAGENT_FEISHU_REPLY_TARGET`` 相关单测。"""
+"""飞书回复路由与 ``feishu.reply_target`` 配置相关单测。"""
 
 from __future__ import annotations
 
@@ -6,60 +6,57 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from tests.config_helpers import install_test_config
+
 pytest.importorskip("lark_oapi")
 
 
-def test_feishu_outbound_reply_params_default_reply(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_feishu_outbound_reply_params_default_reply(tmp_path) -> None:
     from miniagent.feishu.poll_server import feishu_outbound_reply_params
 
-    monkeypatch.delenv("MINIAGENT_FEISHU_REPLY_TARGET", raising=False)
-    monkeypatch.delenv("MINIAGENT_FEISHU_REPLY_IN_THREAD", raising=False)
+    install_test_config(tmp_path)
     assert feishu_outbound_reply_params("om_123") == ("om_123", False)
 
 
-def test_feishu_outbound_reply_params_explicit_create(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_feishu_outbound_reply_params_explicit_create(tmp_path) -> None:
     from miniagent.feishu.poll_server import feishu_outbound_reply_params
 
-    monkeypatch.setenv("MINIAGENT_FEISHU_REPLY_TARGET", "create")
-    monkeypatch.delenv("MINIAGENT_FEISHU_REPLY_IN_THREAD", raising=False)
+    install_test_config(tmp_path, {"feishu": {"reply_target": "create"}})
     assert feishu_outbound_reply_params("om_123") == (None, False)
 
 
-def test_feishu_outbound_reply_params_reply_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_feishu_outbound_reply_params_reply_mode(tmp_path) -> None:
     from miniagent.feishu.poll_server import feishu_outbound_reply_params
 
-    monkeypatch.setenv("MINIAGENT_FEISHU_REPLY_TARGET", "reply")
-    monkeypatch.setenv("MINIAGENT_FEISHU_REPLY_IN_THREAD", "1")
+    install_test_config(
+        tmp_path,
+        {"feishu": {"reply_target": "reply", "reply_in_thread": True}},
+    )
     assert feishu_outbound_reply_params("om_abc") == ("om_abc", True)
 
 
-def test_feishu_outbound_reply_params_invalid_target_falls_back(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_feishu_outbound_reply_params_invalid_target_falls_back(tmp_path) -> None:
     from miniagent.feishu.poll_server import feishu_outbound_reply_params
 
-    monkeypatch.setenv("MINIAGENT_FEISHU_REPLY_TARGET", "typo")
+    install_test_config(tmp_path, {"feishu": {"reply_target": "typo"}})
     assert feishu_outbound_reply_params("om_123") == (None, False)
 
 
-def test_feishu_outbound_reply_params_thread_id_default_in_thread(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """未设置 ``MINIAGENT_FEISHU_REPLY_IN_THREAD`` 时，``thread_id`` 非空则默认话题内回复。"""
+def test_feishu_outbound_reply_params_thread_id_default_in_thread(tmp_path) -> None:
+    """未设置 ``feishu.reply_in_thread`` 时，``thread_id`` 非空则默认话题内回复。"""
     from miniagent.feishu.poll_server import feishu_outbound_reply_params
 
-    monkeypatch.setenv("MINIAGENT_FEISHU_REPLY_TARGET", "reply")
-    monkeypatch.delenv("MINIAGENT_FEISHU_REPLY_IN_THREAD", raising=False)
+    install_test_config(tmp_path, {"feishu": {"reply_target": "reply"}})
     assert feishu_outbound_reply_params("om_x", "t_thread_1") == ("om_x", True)
 
 
-def test_feishu_outbound_reply_params_explicit_off_overrides_thread(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_feishu_outbound_reply_params_explicit_off_overrides_thread(tmp_path) -> None:
     from miniagent.feishu.poll_server import feishu_outbound_reply_params
 
-    monkeypatch.setenv("MINIAGENT_FEISHU_REPLY_TARGET", "reply")
-    monkeypatch.setenv("MINIAGENT_FEISHU_REPLY_IN_THREAD", "0")
+    install_test_config(
+        tmp_path,
+        {"feishu": {"reply_target": "reply", "reply_in_thread": False}},
+    )
     assert feishu_outbound_reply_params("om_x", "t_thread_1") == ("om_x", False)
 
 

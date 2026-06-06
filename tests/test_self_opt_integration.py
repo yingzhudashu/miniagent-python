@@ -11,7 +11,6 @@ This test module validates the entire self-optimization flow:
 from __future__ import annotations
 
 import json
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -43,6 +42,7 @@ from miniagent.infrastructure.tracing import (
     emit_trace,
     register_trace_hook,
 )
+from tests.config_helpers import install_test_config
 
 
 @pytest.fixture
@@ -209,10 +209,14 @@ class TestTraceSystem:
 class TestTraceStats:
     """Test trace statistics generation."""
 
-    def test_load_trace_events(self, trace_output_dir: Path, trace_events: list[dict[str, Any]]) -> None:
+    def test_load_trace_events(
+        self,
+        tmp_path: Path,
+        trace_output_dir: Path,
+        trace_events: list[dict[str, Any]],
+    ) -> None:
         """Test loading trace events from file."""
-        # Override config
-        os.environ["MINIAGENT_TRACE_OUTPUT_DIR"] = str(trace_output_dir)
+        install_test_config(tmp_path, {"trace": {"output_dir": str(trace_output_dir)}})
 
         # Write events to file
         trace_file = trace_output_dir / f"trace-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.jsonl"
@@ -226,10 +230,6 @@ class TestTraceStats:
         assert len(events) > 0
         assert any(e["type"] == EVENT_LLM_REQUEST for e in events)  # 使用LLM事件替代SESSION事件
         assert any(e["type"] == EVENT_LLM_RESPONSE for e in events)
-
-        # Clean up
-        if "MINIAGENT_TRACE_OUTPUT_DIR" in os.environ:
-            del os.environ["MINIAGENT_TRACE_OUTPUT_DIR"]
 
     def test_compute_tool_stats(self, trace_events: list[dict[str, Any]]) -> None:
         """Test tool statistics computation."""
@@ -271,10 +271,14 @@ class TestTraceStats:
             error_types = [e["type"] for e in stats]
             assert "PermissionError" in error_types or "TimeoutError" in error_types
 
-    def test_generate_daily_report(self, trace_events: list[dict[str, Any]], trace_output_dir: Path) -> None:
+    def test_generate_daily_report(
+        self,
+        tmp_path: Path,
+        trace_events: list[dict[str, Any]],
+        trace_output_dir: Path,
+    ) -> None:
         """Test daily report generation."""
-        # Override config
-        os.environ["MINIAGENT_TRACE_OUTPUT_DIR"] = str(trace_output_dir)
+        install_test_config(tmp_path, {"trace": {"output_dir": str(trace_output_dir)}})
 
         # Write events to file
         trace_file = trace_output_dir / f"trace-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.jsonl"
@@ -293,18 +297,18 @@ class TestTraceStats:
             assert "tools" in report
             assert "errors" in report
 
-        # Clean up
-        if "MINIAGENT_TRACE_OUTPUT_DIR" in os.environ:
-            del os.environ["MINIAGENT_TRACE_OUTPUT_DIR"]
-
 
 class TestRuntimeAnalyzer:
     """Test runtime analysis."""
 
-    def test_analyze_trace_data(self, trace_events: list[dict[str, Any]], trace_output_dir: Path) -> None:
+    def test_analyze_trace_data(
+        self,
+        tmp_path: Path,
+        trace_events: list[dict[str, Any]],
+        trace_output_dir: Path,
+    ) -> None:
         """Test analyzing trace data."""
-        # Override config
-        os.environ["MINIAGENT_TRACE_OUTPUT_DIR"] = str(trace_output_dir)
+        install_test_config(tmp_path, {"trace": {"output_dir": str(trace_output_dir)}})
 
         # Write events
         trace_file = trace_output_dir / f"trace-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.jsonl"
@@ -323,12 +327,15 @@ class TestRuntimeAnalyzer:
         assert "errors" in report
         assert "issues" in report
 
-        # Clean up
-        if "MINIAGENT_TRACE_OUTPUT_DIR" in os.environ:
-            del os.environ["MINIAGENT_TRACE_OUTPUT_DIR"]
-
-    def test_detect_slow_tools(self, trace_events: list[dict[str, Any]], trace_output_dir: Path) -> None:
+    def test_detect_slow_tools(
+        self,
+        tmp_path: Path,
+        trace_events: list[dict[str, Any]],
+        trace_output_dir: Path,
+    ) -> None:
         """Test detecting slow tools issues."""
+        install_test_config(tmp_path, {"trace": {"output_dir": str(trace_output_dir)}})
+
         # Write events
         trace_file = trace_output_dir / f"trace-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.jsonl"
         with trace_file.open("w", encoding="utf-8") as f:
@@ -346,10 +353,14 @@ class TestRuntimeAnalyzer:
         if slow_tool_issues:
             assert any(i["tool"] == "web_search" for i in slow_tool_issues)
 
-    def test_detect_high_frequency_errors(self, trace_events: list[dict[str, Any]], trace_output_dir: Path) -> None:
+    def test_detect_high_frequency_errors(
+        self,
+        tmp_path: Path,
+        trace_events: list[dict[str, Any]],
+        trace_output_dir: Path,
+    ) -> None:
         """Test detecting high-frequency error issues."""
-        # Override config
-        os.environ["MINIAGENT_TRACE_OUTPUT_DIR"] = str(trace_output_dir)
+        install_test_config(tmp_path, {"trace": {"output_dir": str(trace_output_dir)}})
 
         # Write events
         trace_file = trace_output_dir / f"trace-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.jsonl"
@@ -366,10 +377,6 @@ class TestRuntimeAnalyzer:
 
         # At least one error should be detected
         assert isinstance(issues, list)
-
-        # Clean up
-        if "MINIAGENT_TRACE_OUTPUT_DIR" in os.environ:
-            del os.environ["MINIAGENT_TRACE_OUTPUT_DIR"]
 
 
 class TestProposalGenerator:
@@ -453,10 +460,12 @@ class TestProposalGenerator:
 class TestProposalStore:
     """Test proposal persistence and state management."""
 
-    def test_save_proposal(self, proposal_output_dir: Path) -> None:
+    def test_save_proposal(self, tmp_path: Path, proposal_output_dir: Path) -> None:
         """Test saving proposal to store."""
-        # Override config
-        os.environ["MINIAGENT_SELF_OPTIMIZATION_PROPOSAL_OUTPUT_DIR"] = str(proposal_output_dir)
+        install_test_config(
+            tmp_path,
+            {"self_optimization": {"proposal_output_dir": str(proposal_output_dir)}},
+        )
 
         store = ProposalStore()
         proposal = OptimizationProposal(
@@ -478,14 +487,12 @@ class TestProposalStore:
         proposal_file = proposal_output_dir / f"proposals-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.jsonl"
         assert proposal_file.exists()
 
-        # Clean up
-        if "MINIAGENT_SELF_OPTIMIZATION_PROPOSAL_OUTPUT_DIR" in os.environ:
-            del os.environ["MINIAGENT_SELF_OPTIMIZATION_PROPOSAL_OUTPUT_DIR"]
-
-    def test_load_proposals(self, proposal_output_dir: Path) -> None:
+    def test_load_proposals(self, tmp_path: Path, proposal_output_dir: Path) -> None:
         """Test loading proposals from store."""
-        # Override config
-        os.environ["MINIAGENT_SELF_OPTIMIZATION_PROPOSAL_OUTPUT_DIR"] = str(proposal_output_dir)
+        install_test_config(
+            tmp_path,
+            {"self_optimization": {"proposal_output_dir": str(proposal_output_dir)}},
+        )
 
         store = ProposalStore()
 
@@ -514,14 +521,12 @@ class TestProposalStore:
         assert "status" in record
         assert "proposal" in record
 
-        # Clean up
-        if "MINIAGENT_SELF_OPTIMIZATION_PROPOSAL_OUTPUT_DIR" in os.environ:
-            del os.environ["MINIAGENT_SELF_OPTIMIZATION_PROPOSAL_OUTPUT_DIR"]
-
-    def test_update_proposal_status(self, proposal_output_dir: Path) -> None:
+    def test_update_proposal_status(self, tmp_path: Path, proposal_output_dir: Path) -> None:
         """Test updating proposal status."""
-        # Override config
-        os.environ["MINIAGENT_SELF_OPTIMIZATION_PROPOSAL_OUTPUT_DIR"] = str(proposal_output_dir)
+        install_test_config(
+            tmp_path,
+            {"self_optimization": {"proposal_output_dir": str(proposal_output_dir)}},
+        )
 
         store = ProposalStore()
 
@@ -549,10 +554,6 @@ class TestProposalStore:
 
         assert len(approved) > 0
 
-        # Clean up
-        if "MINIAGENT_SELF_OPTIMIZATION_PROPOSAL_OUTPUT_DIR" in os.environ:
-            del os.environ["MINIAGENT_SELF_OPTIMIZATION_PROPOSAL_OUTPUT_DIR"]
-
 
 class TestCLICommands:
     """Test self-optimization CLI commands."""
@@ -567,12 +568,14 @@ class TestCLICommands:
         # Command should not raise exception
         # Output is printed to stdout
 
-    def test_cmd_self_opt_proposals(self, proposal_output_dir: Path) -> None:
+    def test_cmd_self_opt_proposals(self, tmp_path: Path, proposal_output_dir: Path) -> None:
         """Test /self-opt proposals command."""
         from miniagent.engine.cli_commands import cmd_self_opt_proposals
 
-        # Override config
-        os.environ["MINIAGENT_SELF_OPTIMIZATION_PROPOSAL_OUTPUT_DIR"] = str(proposal_output_dir)
+        install_test_config(
+            tmp_path,
+            {"self_optimization": {"proposal_output_dir": str(proposal_output_dir)}},
+        )
 
         store = ProposalStore()
         proposal = OptimizationProposal(
@@ -590,16 +593,14 @@ class TestCLICommands:
         # Execute command
         cmd_self_opt_proposals()
 
-        # Clean up
-        if "MINIAGENT_SELF_OPTIMIZATION_PROPOSAL_OUTPUT_DIR" in os.environ:
-            del os.environ["MINIAGENT_SELF_OPTIMIZATION_PROPOSAL_OUTPUT_DIR"]
-
-    def test_cmd_self_opt_show(self, proposal_output_dir: Path) -> None:
+    def test_cmd_self_opt_show(self, tmp_path: Path, proposal_output_dir: Path) -> None:
         """Test /self-opt show command."""
         from miniagent.engine.cli_commands import cmd_self_opt_show
 
-        # Override config
-        os.environ["MINIAGENT_SELF_OPTIMIZATION_PROPOSAL_OUTPUT_DIR"] = str(proposal_output_dir)
+        install_test_config(
+            tmp_path,
+            {"self_optimization": {"proposal_output_dir": str(proposal_output_dir)}},
+        )
 
         store = ProposalStore()
         proposal = OptimizationProposal(
@@ -616,10 +617,6 @@ class TestCLICommands:
 
         # Execute command
         cmd_self_opt_show("test-cli-002")
-
-        # Clean up
-        if "MINIAGENT_SELF_OPTIMIZATION_PROPOSAL_OUTPUT_DIR" in os.environ:
-            del os.environ["MINIAGENT_SELF_OPTIMIZATION_PROPOSAL_OUTPUT_DIR"]
 
 
 if __name__ == "__main__":

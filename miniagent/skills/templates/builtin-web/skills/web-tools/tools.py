@@ -14,7 +14,14 @@ import time
 from typing import Any
 from urllib.parse import urlparse
 
-from miniagent.infrastructure.json_config import get_config
+from miniagent.core.constants import (
+    BROWSER_DISABLE_IMAGES,
+    BROWSER_DISABLE_STYLES,
+    BROWSER_IDLE_TIMEOUT_SECONDS,
+    BROWSER_TIMEOUT_SECONDS,
+    WEB_SEARCH_TAVILY_TIMEOUT,
+    WEB_SEARCH_TAVILY_URL,
+)
 from miniagent.infrastructure.trace_events import (
     EVENT_BROWSER_CLOSE,
     EVENT_BROWSER_CREATE,
@@ -29,7 +36,30 @@ _logger = logging.getLogger(__name__)
 _global_browser: Any | None = None
 _browser_lock = asyncio.Lock()
 _browser_last_used: float = 0.0
-_BROWSER_IDLE_TIMEOUT = get_config("browser.idle_timeout_seconds", 300.0)  # 5分钟无使用后自动关闭
+
+
+def _browser_resource_route_handler():
+    """按 ``browser.disable_images`` / ``browser.disable_styles`` 构建 Playwright 路由拦截。"""
+    disable_images = BROWSER_DISABLE_IMAGES
+    disable_styles = BROWSER_DISABLE_STYLES
+    exts: list[str] = []
+    if disable_images:
+        exts.extend(["png", "jpg", "jpeg", "gif", "svg"])
+    if disable_styles:
+        exts.extend(["css", "woff", "woff2"])
+    if not exts:
+        return None
+    pattern = "**/*.{" + ",".join(exts) + "}"
+
+    async def _handler(route: Any) -> None:
+        await route.abort()
+
+    return pattern, _handler
+
+
+def _browser_idle_timeout_seconds() -> float:
+    """浏览器实例空闲回收时间（秒）。"""
+    return float(BROWSER_IDLE_TIMEOUT_SECONDS)
 
 
 async def _get_browser_instance() -> Any:
@@ -52,7 +82,7 @@ async def _get_browser_instance() -> Any:
 
         if _global_browser is None:
             need_create = True
-        elif (now - _browser_last_used) > _BROWSER_IDLE_TIMEOUT:
+        elif (now - _browser_last_used) > _browser_idle_timeout_seconds():
             # 清理旧实例（超时未使用）
             try:
                 await _global_browser.close()
@@ -131,7 +161,11 @@ async def _cleanup_browser() -> None:
 
 # ─── Tavily 配置 ────────────────────────────────────────────
 
-_TAVILY_URL = "https://api.tavily.com/search"
+_DEFAULT_TAVILY_URL = "https://api.tavily.com/search"
+
+
+def _tavily_url() -> str:
+    return WEB_SEARCH_TAVILY_URL
 
 
 def _tavily_api_key() -> str:
@@ -142,12 +176,12 @@ def _tavily_api_key() -> str:
 
 def _tavily_timeout_sec() -> float:
     """获取 Tavily 请求超时时间（秒）。"""
-    return float(get_config("web_search.tavily_timeout", 45))
+    return WEB_SEARCH_TAVILY_TIMEOUT
 
 
 def _browser_timeout_ms() -> int:
     """获取浏览器工具超时时间（毫秒）。"""
-    return int(float(get_config("web_search.browser_timeout", 60)) * 1000)
+    return int(float(BROWSER_TIMEOUT_SECONDS) * 1000)
 
 
 def _allowed_http_url(url: str, *, https_only: bool = False) -> bool:
@@ -210,7 +244,7 @@ async def _web_search_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolRe
 
         async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(
-                _TAVILY_URL,
+                _tavily_url(),
                 json=payload,
                 headers={"Content-Type": "application/json"},
             )
@@ -307,9 +341,10 @@ async def _browser_extract_handler(args: dict[str, Any], _ctx: ToolContext) -> T
             # 性能优化：设置页面超时和资源加载策略
             page.set_default_timeout(timeout_ms)
 
-            # 禁用不必要的资源加载（图片、样式、字体）以提升速度
-            await page.route('**/*.{png,jpg,jpeg,gif,svg,css,woff,woff2}',
-                            lambda route: route.abort())
+            route_cfg = _browser_resource_route_handler()
+            if route_cfg is not None:
+                pattern, handler = route_cfg
+                await page.route(pattern, handler)
 
             await page.goto(url, wait_until=wait_until, timeout=timeout_ms)
             text_out = (await page.inner_text("body")).strip()

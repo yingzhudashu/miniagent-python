@@ -13,6 +13,7 @@ from miniagent.feishu.ws_health import (
     supervise_feishu_ws_session,
     touch_ws_inbound_activity,
 )
+from tests.config_helpers import install_test_config
 
 
 def _mock_ws_client(
@@ -44,12 +45,21 @@ async def test_supervise_returns_on_receive_task_done():
 
 
 @pytest.mark.asyncio
-async def test_watchdog_reconnect_grace_sdk_auto(monkeypatch):
-    monkeypatch.setenv("MINIAGENT_FEISHU_WEBSOCKET_AUTO_RECONNECT", "1")
-    monkeypatch.setenv("MINIAGENT_FEISHU_WEBSOCKET_WATCHDOG_INTERVAL", "0.05")
-    monkeypatch.setenv("MINIAGENT_FEISHU_WEBSOCKET_RECONNECT_GRACE", "0.15")
-    monkeypatch.setenv("MINIAGENT_FEISHU_WEBSOCKET_DEAD_CONN_GRACE", "0.05")
-    monkeypatch.setenv("MINIAGENT_FEISHU_WEBSOCKET_REFRESH_INTERVAL", "0")
+async def test_watchdog_reconnect_grace_sdk_auto(tmp_path):
+    install_test_config(
+        tmp_path,
+        {
+            "feishu": {
+                "websocket": {
+                    "auto_reconnect": True,
+                    "watchdog_interval": 0.05,
+                    "reconnect_grace": 0.15,
+                    "dead_conn_grace": 0.05,
+                    "refresh_interval": 0,
+                }
+            }
+        },
+    )
 
     async def never_end():
         await asyncio.Event().wait()
@@ -72,11 +82,20 @@ async def test_watchdog_reconnect_grace_sdk_auto(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_watchdog_dead_conn(monkeypatch):
-    monkeypatch.setenv("MINIAGENT_FEISHU_WEBSOCKET_AUTO_RECONNECT", "0")
-    monkeypatch.setenv("MINIAGENT_FEISHU_WEBSOCKET_WATCHDOG_INTERVAL", "0.05")
-    monkeypatch.setenv("MINIAGENT_FEISHU_WEBSOCKET_DEAD_CONN_GRACE", "0.1")
-    monkeypatch.setenv("MINIAGENT_FEISHU_WEBSOCKET_REFRESH_INTERVAL", "0")
+async def test_watchdog_dead_conn(tmp_path):
+    install_test_config(
+        tmp_path,
+        {
+            "feishu": {
+                "websocket": {
+                    "auto_reconnect": False,
+                    "watchdog_interval": 0.05,
+                    "dead_conn_grace": 0.1,
+                    "refresh_interval": 0,
+                }
+            }
+        },
+    )
 
     async def never_end():
         await asyncio.Event().wait()
@@ -99,10 +118,19 @@ async def test_watchdog_dead_conn(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_watchdog_refresh_interval(monkeypatch):
-    monkeypatch.setenv("MINIAGENT_FEISHU_WEBSOCKET_WATCHDOG_INTERVAL", "0.05")
-    monkeypatch.setenv("MINIAGENT_FEISHU_WEBSOCKET_REFRESH_INTERVAL", "0.15")
-    monkeypatch.setenv("MINIAGENT_FEISHU_WEBSOCKET_DEAD_CONN_GRACE", "999")
+async def test_watchdog_refresh_interval(tmp_path):
+    install_test_config(
+        tmp_path,
+        {
+            "feishu": {
+                "websocket": {
+                    "watchdog_interval": 0.05,
+                    "refresh_interval": 0.15,
+                    "dead_conn_grace": 999,
+                }
+            }
+        },
+    )
 
     async def never_end():
         await asyncio.Event().wait()
@@ -125,11 +153,20 @@ async def test_watchdog_refresh_interval(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_watchdog_idle_refresh(monkeypatch):
-    monkeypatch.setenv("MINIAGENT_FEISHU_WEBSOCKET_WATCHDOG_INTERVAL", "0.05")
-    monkeypatch.setenv("MINIAGENT_FEISHU_WEBSOCKET_IDLE_REFRESH", "0.1")
-    monkeypatch.setenv("MINIAGENT_FEISHU_WEBSOCKET_REFRESH_INTERVAL", "0")
-    monkeypatch.setenv("MINIAGENT_FEISHU_WEBSOCKET_DEAD_CONN_GRACE", "999")
+async def test_watchdog_idle_refresh(tmp_path):
+    install_test_config(
+        tmp_path,
+        {
+            "feishu": {
+                "websocket": {
+                    "watchdog_interval": 0.05,
+                    "idle_refresh": 0.1,
+                    "refresh_interval": 0,
+                    "dead_conn_grace": 999,
+                }
+            }
+        },
+    )
 
     touch_ws_inbound_activity()
     # 模拟入站发生在很久以前
@@ -156,11 +193,20 @@ async def test_watchdog_idle_refresh(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_request_feishu_ws_shutdown_sets_reason(monkeypatch):
+async def test_request_feishu_ws_shutdown_sets_reason(tmp_path):
     from miniagent.feishu import poll_server as ps
 
-    monkeypatch.setenv("MINIAGENT_FEISHU_WEBSOCKET_WATCHDOG_INTERVAL", "3600")
-    monkeypatch.setenv("MINIAGENT_FEISHU_WEBSOCKET_REFRESH_INTERVAL", "0")
+    install_test_config(
+        tmp_path,
+        {
+            "feishu": {
+                "websocket": {
+                    "watchdog_interval": 3600,
+                    "refresh_interval": 0,
+                }
+            }
+        },
+    )
 
     async def never_end():
         await asyncio.Event().wait()
@@ -207,27 +253,27 @@ async def test_supervise_shutdown_event():
     assert reason == "shutdown"
 
 
-def test_read_feishu_ws_health_config_defaults(monkeypatch):
-    monkeypatch.delenv("MINIAGENT_FEISHU_WEBSOCKET_WATCHDOG_INTERVAL", raising=False)
+def test_read_feishu_ws_health_config_defaults(tmp_path):
+    install_test_config(tmp_path)
     cfg = read_feishu_ws_health_config()
     assert cfg.watchdog_interval_s == 30.0
     assert cfg.dead_conn_grace_s == 90.0
     assert cfg.refresh_interval_s == 0.0
 
 
-def test_feishu_ws_auto_reconnect_default(monkeypatch):
+def test_feishu_ws_auto_reconnect_default(tmp_path):
     from miniagent.feishu.ws_client import feishu_ws_auto_reconnect_enabled
 
-    monkeypatch.delenv("MINIAGENT_FEISHU_WEBSOCKET_AUTO_RECONNECT", raising=False)
+    install_test_config(tmp_path)
     assert feishu_ws_auto_reconnect_enabled() is False
-    monkeypatch.setenv("MINIAGENT_FEISHU_WEBSOCKET_AUTO_RECONNECT", "1")
+    install_test_config(tmp_path, {"feishu": {"websocket": {"auto_reconnect": True}}})
     assert feishu_ws_auto_reconnect_enabled() is True
 
 
 @pytest.mark.asyncio
 async def test_reconnect_loop_holds_lock_after_supervised_return(monkeypatch, tmp_path):
     """会话监督正常 return 后外层重连，入站锁仍持有直至 stop。"""
-    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
+    install_test_config(tmp_path, {"paths": {"state_dir": str(tmp_path)}})
     monkeypatch.setenv("FEISHU_APP_ID", "app_z")
     monkeypatch.setenv("FEISHU_APP_SECRET", "sec")
     monkeypatch.setenv("FEISHU_VERIFICATION_TOKEN", "tok")

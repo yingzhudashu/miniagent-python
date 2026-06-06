@@ -41,7 +41,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.infrastructure.trace_stats import (
     compute_error_stats,
@@ -58,7 +57,9 @@ def get_activity_log_dir() -> Path:
 
     默认：workspaces/memory
     """
-    return Path(get_config("paths.state_dir", "workspaces") + "/memory")
+    from miniagent.infrastructure.paths import resolve_state_dir
+
+    return Path(resolve_state_dir()) / "memory"
 
 
 def get_activity_log_file(date: str | None = None) -> Path:

@@ -56,13 +56,14 @@ async def test_run_agent_with_thinking_requires_session_manager() -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_agent_forwards_client_to_execute_plan() -> None:
+async def test_run_agent_forwards_client_to_execute_plan(tmp_path) -> None:
     """run_agent 传入的 client 应传入 execute_plan（空 toolboxes 走默认计划，不调用规划 LLM）。"""
-    import os
-
     from miniagent.core.agent import run_agent
     from miniagent.infrastructure.monitor import DefaultToolMonitor
     from miniagent.infrastructure.registry import DefaultToolRegistry
+    from tests.config_helpers import install_test_config
+
+    install_test_config(tmp_path, {"features": {"reflection": False}})
 
     called: dict = {}
 
@@ -75,17 +76,16 @@ async def test_run_agent_forwards_client_to_execute_plan() -> None:
         return "done"
 
     fake = MagicMock(name="llm")
-    with patch.dict(os.environ, {"MINIAGENT_FEATURES_REFLECTION": "0"}):
-        with patch("miniagent.core.agent.execute_plan", new=fake_execute_plan):
-            reg = DefaultToolRegistry()
-            mon = DefaultToolMonitor()
-            await run_agent(
-                "u",
-                registry=reg,
-                monitor=mon,
-                toolboxes=[],
-                client=fake,
-                agent_config={"session_key": "k", "max_turns": 1, "debug": False},
-            )
+    with patch("miniagent.core.agent.execute_plan", new=fake_execute_plan):
+        reg = DefaultToolRegistry()
+        mon = DefaultToolMonitor()
+        await run_agent(
+            "u",
+            registry=reg,
+            monitor=mon,
+            toolboxes=[],
+            client=fake,
+            agent_config={"session_key": "k", "max_turns": 1, "debug": False},
+        )
 
     assert called.get("client") is fake

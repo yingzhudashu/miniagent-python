@@ -36,8 +36,9 @@ import os
 import time
 from typing import Any
 
-from miniagent.infrastructure.json_config import get_config
+from miniagent.core.constants import DEDUP_FLUSH_INTERVAL, DEDUP_FLUSH_THRESHOLD
 from miniagent.infrastructure.logger import get_logger
+from miniagent.infrastructure.paths import resolve_state_dir
 
 _logger = get_logger(__name__)
 
@@ -46,19 +47,9 @@ _logger = get_logger(__name__)
 DEDUP_TTL_MS = 5 * 60 * 1000  # 5 分钟有效期
 DEDUP_MAX_SIZE = 2000  # 最大条目数
 
-# 性能优化：刷盘配置（支持环境变量覆盖）
-import os as _os_for_dedup
-
-DEDUP_FLUSH_INTERVAL = int(_os_for_dedup.environ.get("MINIAGENT_DEDUP_FLUSH_INTERVAL", "30"))  # 降低到30秒
-DEDUP_FLUSH_THRESHOLD = int(_os_for_dedup.environ.get("MINIAGENT_DEDUP_FLUSH_THRESHOLD", "500"))  # 降低到500条
-
 # ─── 状态目录 ───
 
-_state_dir = os.path.join(
-    get_config("paths.state_dir", os.path.join(os.getcwd(), "workspaces")),
-    "feishu",
-    "dedup",
-)
+_state_dir = os.path.join(resolve_state_dir(), "feishu", "dedup")
 _dedup_file = os.path.join(_state_dir, "processed.json")
 
 # ─── 内存状态 ───

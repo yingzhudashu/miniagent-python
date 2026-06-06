@@ -60,19 +60,21 @@ python -m pytest tests/ -q -m "not evaluation"
 
 本地开发时，Agent 默认把状态写在仓库下的 `workspaces/`（实例心跳、会话历史、锁文件等）。**默认不应把这些当作必须提交的源码**：仓库根 `.gitignore` 已忽略 `workspaces/instances/`、锁文件、`workspaces/sessions/` 等路径；若团队需要提交示例配置，可个案取消跟踪。
 
-自动化测试与 CI 推荐设置 **`MINIAGENT_PATHS_STATE_DIR`** 指向临时目录（与 `tests/test_startup.py` 等一致），避免测试污染本机 `workspaces/` 或与并行运行冲突，例如：
+自动化测试与 CI 使用 [`tests/config_helpers.py`](../tests/config_helpers.py) 的 `install_test_config` 写入隔离的 `config.user.json`（设置 `paths.state_dir` 等），避免测试污染本机 `workspaces/` 或与并行运行冲突。`tests/conftest.py` 已提供 `isolated_config_loader` fixture；新用例优先使用该方式，而非环境变量覆盖。
 
-```bash
-# PowerShell 示例（单次会话）
-$env:MINIAGENT_PATHS_STATE_DIR = "$env:TEMP\miniagent-test-state"
-python -m pytest tests/ -q -m "not evaluation"
+```python
+from tests.config_helpers import install_test_config
+
+def test_example(tmp_path):
+    install_test_config(tmp_path, {"paths": {"state_dir": str(tmp_path)}})
+    ...
 ```
 
 ### 提交前仓库卫生（缓存与构建产物）
 
 - 推送前执行 **`git status`**：索引与工作区中不应出现 **`__pycache__/`**、**`.pytest_cache/`**、**`.ruff_cache/`**、**`.mypy_cache/`**、**`*.egg-info/`** 等；这些路径已由根目录 [`.gitignore`](../.gitignore) 忽略，若仍出现在「待提交」列表中，说明曾用 **`git add -f`** 误加，应改为 `git rm --cached <路径>` 后仅提交源码。
 - 仅清理**已被 Git 忽略**的本地生成物（不删除未跟踪的源码与新文件）时，可在仓库根执行：`git clean -fdX`（PowerShell / bash 相同）。**注意**：根目录 `.gitignore` 中的 **`config.user.json`** 也会被视作「已忽略文件」一并删除；执行前请备份密钥，或改用逐个删除缓存目录（如仅删 `**/__pycache__`）。**勿**使用 `git clean -fdx`（小写 `x` 会删除所有未跟踪文件，易误删未入库的新模块）。
-- 与「运行时目录」一节配合：日常设置 **`MINIAGENT_PATHS_STATE_DIR`** 指向仓库外目录，可减少 `workspaces/**/*.lock`、定时任务表等个人状态出现在 `git status` 中。
+- 与「运行时目录」一节配合：日常在 `config.user.json` 设置 **`paths.state_dir`** 指向仓库外目录，可减少 `workspaces/**/*.lock`、定时任务表等个人状态出现在 `git status` 中。
 
 ### 推送前自检（密钥与轨迹）
 
@@ -254,7 +256,7 @@ async def my_tool_handler(args: dict, ctx: ToolContext) -> ToolResult:
 
 1. **一句话职责**（本文件解决什么问题）。
 2. **与架构的对应关系**（可写「详见 ARCHITECTURE.md §…」或链到具体子系统名，如消息队列、多阶段架构）。
-3. **依赖与边界**：主要 import、是否仅主线程、是否假设已有 ``RuntimeContext``、是否读写 ``MINIAGENT_PATHS_STATE_DIR`` 等。
+3. **依赖与边界**：主要 import、是否仅主线程、是否假设已有 ``RuntimeContext``、是否读写 ``paths.state_dir`` 等。
 4. **非显而易见的行为**：例如懒加载、与飞书/CLI 共用路径、默认环境变量开关。
 
 ### 函数级模板
@@ -318,7 +320,7 @@ python scripts/docstring_inventory.py --write docs/docstring_inventory.md
 
 **模块首行约定**：模块 docstring 须为文件**首条**语句（须写在 ``from __future__ import annotations`` 之前），否则 CPython 不将其视为 ``__doc__``，脚本也会判为「模块 docstring 缺失」。
 
-报告文件按需生成：``docs/docstring_inventory.md``（不提交到仓库；查看运行 ``python scripts/docstring_inventory.py`` 即可）。
+报告文件按需生成：``docs/docstring_inventory.md``（不提交到仓库；查看运行 ``python scripts/docstring_inventory.py`` 即可）。完整 scripts 索引见 [scripts/README.md](../scripts/README.md)。
 
 ### 注释与文档（分层约定）
 
@@ -373,7 +375,7 @@ refactor: 拆分 unified.py 为 engine/ 包
 |------|------|
 | **单一可安装包** | 开发与安装均以 ``miniagent`` 包为准；不再维护顶层 ``src`` 兼容包或根目录 ``requirements.txt``。依赖声明只在 ``pyproject.toml``。 |
 | **CI** | [``.github/workflows/ci.yml``](../.github/workflows/ci.yml) 在 push/PR 上对 Python 3.10 / 3.12 运行 ``compileall``、``ruff check miniagent tests`` 与 ``pytest``；合并前应在本地执行相同命令。 |
-| **状态目录** | 默认 ``workspaces/``；测试与并行运行请设置 ``MINIAGENT_PATHS_STATE_DIR``，避免污染本机数据（见上文「运行时目录与测试隔离」与 ``config.defaults.json`` 注释）。 |
+| **状态目录** | 默认 ``workspaces/``；测试与并行运行请在 `config.user.json` 设置 ``paths.state_dir`` 或使用 ``install_test_config``（见上文「运行时目录与测试隔离」与 ``config.defaults.json``）。 |
 | **忽略规则** | ``.gitignore`` 已排除 ``__pycache__``、``.pytest_cache``、``.ruff_cache``、``*.egg-info``、本地 ``debug-*.log`` 及常见运行时产物；勿将含密钥的 ``config.user.json`` 提交入库。 |
 
 ### 文档与版本对齐清单（发版或大范围文档改动时）

@@ -204,7 +204,7 @@ Agent 会自动调用文件工具完成任务。
 
 ## 5. 首次配置（JSON 配置文件）
 
-**升级迁移提示**（详见 [CHANGELOG](../CHANGELOG.md) `[Unreleased]` Breaking）：飞书出站默认 `MINIAGENT_FEISHU_REPLY_TARGET=reply`；内置飞书工具默认由 `MINIAGENT_FEISHU_TOOLS_AUTO` 注册；已迁移到 JSON 配置格式（`config.user.json`）；飞书请改用 `MINIAGENT_FEISHU_DOCX_URL_PREFIX`、`MINIAGENT_FEISHU_DOC_FOLDER_TOKEN`（旧名仍会读取并打弃用警告）。飞书细节见第 10 章。
+**升级迁移提示**（详见 [CHANGELOG](../CHANGELOG.md) `[Unreleased]` Breaking）：飞书出站默认 `feishu.reply_target=reply`；内置飞书工具默认由 `feishu.tools_auto` 注册；配置已全部迁移到 JSON（`config.user.json`）；云文档链接与文件夹见 `feishu.doc.docx_url_prefix`、`feishu.doc.folder_token`。飞书细节见第 10 章。
 
 ### 5.1 创建配置文件
 
@@ -264,35 +264,25 @@ cp config.defaults.json config.user.json
 | `model.temperature` | 模型温度，默认 0.7 |
 | `model.thinking_level` | 思考档位：`light` / `medium` / `heavy` |
 | `agent.max_turns` | 单轮 ReAct 最大轮数，**默认 400** |
-| `execution.step_max_turns` | 分步执行时每步上限，默认 **48** |
 | `agent.debug` | `true` 时更啰嗦的日志；日常可 `false` |
 | `secrets.tavily_api_key` | 启用联网搜索（Tavily） |
 | `secrets.feishu_app_id` / `secrets.feishu_app_secret` | 飞书应用凭证 |
 | `paths.state_dir` | 状态根目录，默认 `workspaces` |
 
-### 4.4 环境变量覆盖
+### 4.4 配置分层说明
 
-所有 JSON 配置都可以通过环境变量覆盖，优先级：**环境变量 > config.user.json > config.defaults.json**。
+`config.defaults.json` 顶部 `_config_guide` 列出 **User 层**与 **Advanced 层**节名。普通用户只需在 `config.user.json` 覆盖 User 层键；Advanced 节（`memory`、`trace`、`dream`、`self_optimization`）一般保持默认。
 
-例如：
-- `MINIAGENT_MODEL_TEMPERATURE=0.5` 覆盖 `model.temperature`
-- `OPENAI_API_KEY=sk-xxx` 覆盖 `secrets.openai_api_key`
+运行时优先级：**config.user.json > config.defaults.json**（不支持 `MINIAGENT_*` 环境变量覆盖）。
 
 ### 4.5 从旧版本迁移
 
-如果你之前使用 `.env` 文件配置，需要迁移到 JSON 格式：
+若曾使用 `.env` 或 `MINIAGENT_*` 环境变量：
 
-1. 将 `.env` 中的配置项映射到 `config.user.json` 的对应字段
-2. 敏感凭据（如 `OPENAI_API_KEY`）放入 `secrets` 部分
-3. 其他配置放入对应的配置节（如 `model`、`agent`、`feishu`）
-4. 删除旧的 `.env` 文件（可选，但建议保留备份）
-
-环境变量名到 JSON 路径的映射规则：
-- `MINIAGENT_MODEL_TEMPERATURE` → `model.temperature`
-- `MINIAGENT_AGENT_MAX_TURNS` → `agent.max_turns`
-- `MINIAGENT_FEISHU_REPLY_PLAIN` → `feishu.reply_plain`
-
-完整映射见 `config.defaults.json` 的字段结构。
+1. `cp config.defaults.json config.user.json`
+2. 将凭据写入 `secrets`（如原 `OPENAI_API_KEY` → `secrets.openai_api_key`）
+3. 将其余项映射到对应 JSON 节（见 `config.defaults.json` 字段结构）
+4. 删除或归档旧 `.env` 文件
 
 ---
 
@@ -365,16 +355,16 @@ python -m miniagent --stop
 
 ## 9. 定时任务
 
-在 **本地 CLI** 中可用点命令 **`/schedule`** 管理持久化定时任务：到达时间后，进程会像普通聊天一样把一轮 Agent 请求放进 **消息队列**，再进入与手动输入相同的执行路径。任务保存在 **`MINIAGENT_PATHS_STATE_DIR/scheduled_tasks/tasks.json`**（未设置 `MINIAGENT_PATHS_STATE_DIR` 时一般为仓库下 `workspaces/scheduled_tasks/`；该目录不宜提交到 Git，见 [ENGINEERING.md](ENGINEERING.md) §3.1）。
+在 **本地 CLI** 中可用点命令 **`/schedule`** 管理持久化定时任务：到达时间后，进程会像普通聊天一样把一轮 Agent 请求放进 **消息队列**，再进入与手动输入相同的执行路径。任务保存在 **`{paths.state_dir}/scheduled_tasks/tasks.json`**（默认 `workspaces/scheduled_tasks/`；该目录不宜提交到 Git，见 [ENGINEERING.md](ENGINEERING.md) §3.1）。
 
 **新手要点**：
 
 - 先 **`/schedule`** 或 **`/schedule list`** 查看子命令；语法与示例 → [CLI.md](CLI.md)。
 - **调度**：`every <秒>`、`once <ISO8601>`、五段 **`cron "分 时 日 月 周"`**；`add` 的长 prompt 须用 **` -- `** 与选项分隔。
-- **时区**：cron 墙钟以 `tasks.json` 的 `schedule.timezone` 为准；未写 `--tz` 时新建默认 **`MINIAGENT_SCHEDULE_TIMEZONE` → `MINIAGENT_TIMEZONE` → `TZ` → `Asia/Shanghai`**。**Agent 每轮本地时间**由 `process_timezone()` 注入（读 `MINIAGENT_TIMEZONE` / `TZ`，**不**读 `MINIAGENT_SCHEDULE_TIMEZONE`）。
-- **飞书**：默认仅 **list** / **show**；增删改须在本地 CLI。`primary` 任务在私聊已绑定时可镜像到飞书（`MINIAGENT_SCHEDULE_FEISHU_MIRROR=0` 可关）。
+- **时区**：cron 墙钟以 `tasks.json` 的 `schedule.timezone` 为准；未写 `--tz` 时新建默认 **`scheduled_tasks.timezone` → `timezone.default` → `TZ` → `Asia/Shanghai`**。**Agent 每轮本地时间**由 `process_timezone()` 注入（读 `timezone.default` / `TZ`）。
+- **飞书**：默认仅 **list** / **show**；增删改须在本地 CLI。`primary` 任务在私聊已绑定时可镜像到飞书（`scheduled_tasks.feishu_mirror=false` 可关）。
 
-退避、漏跑、工具接口与数据流 → [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」、[ENV_REFERENCE.md](ENV_REFERENCE.md)。
+退避、漏跑、工具接口与数据流 → [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」、`config.defaults.json` 的 `scheduled_tasks` 节。
 
 ---
 
@@ -382,8 +372,8 @@ python -m miniagent --stop
 
 - **会话**就像「不同的聊天窗口」，历史与部分配置相互隔离。  
 - 使用 `/session list` 查看列表；在 **本地 CLI** 用 `/session switch` 切换到工作上下文。  
-- **飞书里**（默认）发送 `/session switch` / `create` / `rename` 等变异子命令**不会**修改与 CLI 共享的 `active_session_id` 或会话存储，仅返回提示；请在本地终端执行，或设置 **`MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1`**（见 [FEISHU.md](FEISHU.md)、[CLI.md](CLI.md)）。  
-- 会话与记忆落盘位置受 **`MINIAGENT_PATHS_STATE_DIR`** 控制，详见第 14 章与 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md)。
+- **飞书里**（默认）发送 `/session switch` / `create` / `rename` 等变异子命令**不会**修改与 CLI 共享的 `active_session_id` 或会话存储，仅返回提示；请在本地终端执行，或设置 **`feishu.dot_commands_full=true`**（见 [FEISHU.md](FEISHU.md)、[CLI.md](CLI.md)）。  
+- 会话与记忆落盘位置由 **`paths.state_dir`** 控制，详见第 14 章与 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md)。
 
 ---
 
@@ -396,7 +386,7 @@ python -m miniagent --stop
 
 **入站锁**：同一状态根下通常只允许一个进程持有飞书入站连接，避免重复收消息；细节见 [FEISHU.md](FEISHU.md) 与 [SECURITY.md](SECURITY.md)。
 
-**可选内置工具**：环境变量 `MINIAGENT_FEISHU_TOOLS=1` 时注册发文件、撤回、建文档、读 Markdown、列云盘、追加文档正文等工具；或 **未设置** `MINIAGENT_FEISHU_TOOLS` 时默认由 `MINIAGENT_FEISHU_TOOLS_AUTO`（且已配置飞书凭证）在进程启动阶段自动注册（**不**等待 `/feishu start`；详见 [FEISHU.md](FEISHU.md)）。显式 `MINIAGENT_FEISHU_TOOLS=0`/`false`/`off` 或 `MINIAGENT_FEISHU_TOOLS_AUTO=0` 可关闭。依赖开放平台权限与 [FEISHU.md](FEISHU.md) 自检清单（含 `receive_id_type`、默认 `folder_token`、可选 `MINIAGENT_FEISHU_DOCX_URL_PREFIX`）。
+**可选内置工具**：`feishu.tools_explicit=true` 时注册发文件、撤回、建文档等工具；或 **未设置** `feishu.tools_explicit` 时默认由 `feishu.tools_auto`（且已配置 `secrets.feishu_*`）在进程启动阶段自动注册（**不**等待 `/feishu start`；详见 [FEISHU.md](FEISHU.md)）。设为 `false` 可关闭。依赖开放平台权限与 [FEISHU.md](FEISHU.md) 自检清单（含 `feishu.receive_id_type`、默认 `feishu.doc.folder_token`、可选 `feishu.doc.docx_url_prefix`）。
 
 **环境变量迁移**：见第 4 章「升级迁移提示」与 [CHANGELOG](../CHANGELOG.md) `[Unreleased]`。
 
@@ -407,13 +397,13 @@ python -m miniagent --stop
 - **联网搜索（Tavily）**：在 `config.user.json` 的 `secrets` 部分配置 `tavily_api_key` 或 `web_search_api_key`。未配置时，若模型尝试调用搜索工具，会得到 **明确错误提示**，不影响其它工具。  
 - **浏览器正文抽取**：需 `[browser]` 与 Playwright 浏览器安装；用于部分需渲染的网页。  
 
-超时等配置见 [ENV_REFERENCE.md](ENV_REFERENCE.md)。
+超时等见 `config.defaults.json` 的 `agent` 节（如 `agent.tool_timeout`）。
 
 ---
 
 ## 13. 技能与 ClawHub（可选）
 
-- 默认技能根目录为仓库下 **`workspaces/skills/`**（旧版若使用根目录 `skills/`，请迁移或设置 `MINIAGENT_PATHS_SKILLS_DIR`）。  
+- 默认技能根目录为仓库下 **`workspaces/skills/`**（可在 `config.user.json` 设置 `paths.skills_dir`）。  
 - **内置基线**：仓库预置 **`skill-creator`**（来自 [anthropics/skills](https://github.com/anthropics/skills)，含 `LICENSE.txt`）；**`skill-vetter`**（安全审查）位于 `miniagent/skills/templates/skill-vetter/`，首次使用时可通过 `miniagent install-skill skill-vetter` 或手动复制到 `workspaces/skills/` 加载。  
 - **仅从 PyPI 安装 wheel**（无完整仓库树）时，默认路径下可能没有预置技能文件；需要基线时请克隆仓库、editable 安装，或手动复制 `workspaces/skills/skill-creator`，详见 [README.md](../README.md)「技能目录迁移」。  
 - **扩展**：可从 ClawHub 安装更多技能包，引导脚本见 `scripts/bootstrap_clawhub_skills.py`（参数以官方技能页为准；脚本仅为额外安装，不替代内置基线）。  
@@ -427,7 +417,7 @@ python -m miniagent --stop
 2. 在 `config.user.json` 的 `mcp.stdio_command` 中设置 **JSON 数组** 形式的启动命令，例如文档中展示的 `["npx","-y","@组织/包名"]` 形态（请替换为你信任的 MCP 服务）。  
 3. 重启进程后，工具会注册进同一工具列表。  
 
-具体配置见 [ENV_REFERENCE.md](ENV_REFERENCE.md)。
+具体配置见 `config.defaults.json` 的 `mcp` 节与 [ENGINEERING.md](ENGINEERING.md) §1。
 
 ---
 
@@ -435,7 +425,7 @@ python -m miniagent --stop
 
 ### 14.1 默认布局
 
-未设置 `MINIAGENT_PATHS_STATE_DIR` 时，进程常把状态写在项目下的 **`workspaces/`**（实例、会话、锁、飞书去重、记忆索引等）。可通过环境变量把整棵状态树迁到其它磁盘路径，便于备份或多副本隔离。
+默认 `paths.state_dir` 为 **`workspaces/`** 时，进程常把状态写在项目下（实例、会话、锁、飞书去重、记忆索引等）。可在 `config.user.json` 把整棵状态树迁到其它磁盘路径，便于备份或多副本隔离。
 
 ### 14.2 哪些不应提交到 Git
 
@@ -443,7 +433,7 @@ python -m miniagent --stop
 
 ### 14.3 备份建议
 
-若 `MINIAGENT_PATHS_STATE_DIR` 指向重要数据目录，请用你自己的备份方案（加密盘、权限控制、定期拷贝）。详见 [DEPLOYMENT.md](DEPLOYMENT.md) 与 [SECURITY.md](SECURITY.md)。
+若 `paths.state_dir` 指向重要数据目录，请用你自己的备份方案（加密盘、权限控制、定期拷贝）。详见 [DEPLOYMENT.md](DEPLOYMENT.md) 与 [SECURITY.md](SECURITY.md)。
 
 ---
 
@@ -454,7 +444,7 @@ python -m miniagent --stop
 | 启动报错与 API 密钥相关 | 检查 `config.user.json` 是否在项目根、`secrets.openai_api_key` 是否已填且无多余引号空格；勿把密钥发到公共论坛。 |
 | 无法联网查天气/新闻 | 配置 Tavily 相关变量；或接受「未配置则工具返回错误」的设计。 |
 | 飞书无响应 | 查 `/feishu status`、凭证、事件订阅、是否另一进程已占入站锁；见 [FEISHU.md](FEISHU.md)。 |
-| 磁盘里会话太多 | 用 `/session` 管理或迁移 `MINIAGENT_PATHS_STATE_DIR`；理解历史与归档见 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md)。 |
+| 磁盘里会话太多 | 用 `/session` 管理或调整 `paths.state_dir`；理解历史与归档见 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md)。 |
 | 怀疑卡住 | `/status`；必要时查看日志级别 `AGENT_DEBUG`。 |
 
 ---
@@ -463,7 +453,7 @@ python -m miniagent --stop
 
 1. **`config.user.json`** 仅本机保存，权限收紧；勿提交 Git。  
 2. **不要在截图、录屏、聊天里** 暴露完整密钥或企业内部令牌。  
-3. **共享电脑**：使用独立用户目录与独立 `MINIAGENT_PATHS_STATE_DIR`，用完可删除状态目录。  
+3. **共享电脑**：使用独立用户目录与独立 `paths.state_dir`，用完可删除状态目录。  
 4. **工具能力**：文件与命令受沙箱等约束，见 [SECURITY.md](SECURITY.md)；不要给不可信人员开放你的运行环境。  
 5. **备份介质**：会话与记忆可能含敏感业务文本，备份同样需加密与访问控制。
 

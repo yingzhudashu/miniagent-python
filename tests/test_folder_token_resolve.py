@@ -13,6 +13,7 @@ from miniagent.feishu.folder_token_resolve import (
     root_meta_fallback_enabled,
 )
 from miniagent.feishu.types import FeishuConfig
+from tests.config_helpers import install_test_config
 
 
 @pytest.mark.parametrize(
@@ -55,36 +56,39 @@ def test_folder_token_from_tool_arg_bad_url() -> None:
     assert tok == "" and err is not None
 
 
-def test_resolve_parent_folder_token_arg_wins_over_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MINIAGENT_FEISHU_DOC_FOLDER_TOKEN", "fld_env")
-    monkeypatch.setenv("FEISHU_DOC_FOLDER_FALLBACK_ROOT_META", "0")
+def test_resolve_parent_folder_token_arg_wins_over_env(tmp_path) -> None:
+    install_test_config(
+        tmp_path,
+        {"feishu": {"doc": {"folder_token": "fld_env", "folder_fallback_root_meta": False}}},
+    )
     cfg = FeishuConfig(app_id="a", app_secret="b")
     tok, err = resolve_parent_folder_token("fld_arg", cfg=cfg)
     assert err is None and tok == "fld_arg"
 
 
-def test_resolve_parent_folder_token_env_when_arg_empty(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MINIAGENT_FEISHU_DOC_FOLDER_TOKEN", "fld_env")
-    monkeypatch.setenv("FEISHU_DOC_FOLDER_FALLBACK_ROOT_META", "0")
+def test_resolve_parent_folder_token_env_when_arg_empty(tmp_path) -> None:
+    install_test_config(
+        tmp_path,
+        {"feishu": {"doc": {"folder_token": "fld_env", "folder_fallback_root_meta": False}}},
+    )
     cfg = FeishuConfig(app_id="a", app_secret="b")
     tok, err = resolve_parent_folder_token("", cfg=cfg)
     assert err is None and tok == "fld_env"
 
 
-def test_resolve_parent_folder_token_url(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("MINIAGENT_FEISHU_DOC_FOLDER_TOKEN", raising=False)
-    monkeypatch.setenv("FEISHU_DOC_FOLDER_FALLBACK_ROOT_META", "0")
+def test_resolve_parent_folder_token_url(tmp_path) -> None:
+    install_test_config(
+        tmp_path,
+        {"feishu": {"doc": {"folder_fallback_root_meta": False}}},
+    )
     cfg = FeishuConfig(app_id="a", app_secret="b")
     u = "https://t.feishu.cn/drive/folder/fldcnFromUrl"
     tok, err = resolve_parent_folder_token(u, cfg=cfg)
     assert err is None and tok == "fldcnFromUrl"
 
 
-def test_resolve_parent_folder_token_root_meta_fallback(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("MINIAGENT_FEISHU_DOC_FOLDER_TOKEN", raising=False)
-    monkeypatch.delenv("FEISHU_DOC_FOLDER_FALLBACK_ROOT_META", raising=False)
+def test_resolve_parent_folder_token_root_meta_fallback(tmp_path) -> None:
+    install_test_config(tmp_path)
     cfg = FeishuConfig(app_id="a", app_secret="b")
     with patch(
         "miniagent.feishu.drive_client.get_root_folder_meta",
@@ -94,18 +98,17 @@ def test_resolve_parent_folder_token_root_meta_fallback(
     assert err is None and tok == "fld_root"
 
 
-def test_resolve_parent_folder_token_root_meta_cfg_none(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("MINIAGENT_FEISHU_DOC_FOLDER_TOKEN", raising=False)
-    monkeypatch.delenv("FEISHU_DOC_FOLDER_FALLBACK_ROOT_META", raising=False)
+def test_resolve_parent_folder_token_root_meta_cfg_none(tmp_path) -> None:
+    install_test_config(tmp_path)
     tok, err = resolve_parent_folder_token("", cfg=None)
     assert tok is None and err is not None
     assert "FeishuConfig" in err
 
 
-def test_root_meta_fallback_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("FEISHU_DOC_FOLDER_FALLBACK_ROOT_META", raising=False)
+def test_root_meta_fallback_enabled(tmp_path) -> None:
+    install_test_config(tmp_path)
     assert root_meta_fallback_enabled() is True
-    monkeypatch.setenv("FEISHU_DOC_FOLDER_FALLBACK_ROOT_META", "true")
+    install_test_config(tmp_path, {"feishu": {"doc": {"folder_fallback_root_meta": True}}})
     assert root_meta_fallback_enabled() is True
-    monkeypatch.setenv("FEISHU_DOC_FOLDER_FALLBACK_ROOT_META", "0")
+    install_test_config(tmp_path, {"feishu": {"doc": {"folder_fallback_root_meta": False}}})
     assert root_meta_fallback_enabled() is False

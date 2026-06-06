@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import pytest
-
 from miniagent.memory import history_bridge as hb
+from tests.config_helpers import install_test_config
 
 
-def test_thinking_passed_through_when_under_cap(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MINIAGENT_MEMORY_THINKING_FOR_LLM_MAX_CHARS", "10000")
+def test_thinking_passed_through_when_under_cap(tmp_path) -> None:
+    install_test_config(tmp_path, {"memory": {"thinking_for_llm_max_chars": 10000}})
     hist = [{"role": "thinking", "content": "short"}]
     out = hb.conversation_history_for_llm(hist)
     assert len(out) == 1
@@ -16,8 +15,8 @@ def test_thinking_passed_through_when_under_cap(monkeypatch: pytest.MonkeyPatch)
     assert "截断" not in out[0]["content"]
 
 
-def test_thinking_truncated_for_llm_only(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MINIAGENT_MEMORY_THINKING_FOR_LLM_MAX_CHARS", "20")
+def test_thinking_truncated_for_llm_only(tmp_path) -> None:
+    install_test_config(tmp_path, {"memory": {"thinking_for_llm_max_chars": 20}})
     long_body = "a" * 50
     hist = [{"role": "thinking", "content": long_body}]
     raw_copy = hist[0]["content"]
@@ -27,16 +26,16 @@ def test_thinking_truncated_for_llm_only(monkeypatch: pytest.MonkeyPatch) -> Non
     assert long_body not in out[0]["content"]
 
 
-def test_thinking_zero_means_no_truncation(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MINIAGENT_MEMORY_THINKING_FOR_LLM_MAX_CHARS", "0")
+def test_thinking_zero_means_no_truncation(tmp_path) -> None:
+    install_test_config(tmp_path, {"memory": {"thinking_for_llm_max_chars": 0}})
     long_body = "x" * 5000
     hist = [{"role": "thinking", "content": long_body}]
     out = hb.conversation_history_for_llm(hist)
     assert long_body in out[0]["content"]
 
 
-def test_estimate_tokens_for_thinking_uses_same_cap_as_llm(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MINIAGENT_MEMORY_THINKING_FOR_LLM_MAX_CHARS", "50")
+def test_estimate_tokens_for_thinking_uses_same_cap_as_llm(tmp_path) -> None:
+    install_test_config(tmp_path, {"memory": {"thinking_for_llm_max_chars": 50}})
     long_body = "b" * 200
     hist = [{"role": "thinking", "content": long_body}]
     t_est = hb.estimate_history_messages_tokens(hist)

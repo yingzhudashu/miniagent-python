@@ -15,28 +15,38 @@ from miniagent.scheduled_tasks.feishu_delivery import (
 )
 from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec, SessionSpec
 from miniagent.scheduled_tasks.timezone_util import default_schedule_timezone
+from tests.config_helpers import install_test_config
 
 
-def test_default_schedule_timezone_from_tz(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("MINIAGENT_SCHEDULED_TASKS_TIMEZONE", raising=False)
+def test_default_schedule_timezone_from_tz(
+    monkeypatch: pytest.MonkeyPatch, tmp_path,
+) -> None:
+    install_test_config(tmp_path, {"timezone": {"default": ""}})
     monkeypatch.setenv("TZ", "Asia/Shanghai")
     assert default_schedule_timezone() == "Asia/Shanghai"
 
 
 def test_default_schedule_timezone_schedule_overrides_tz(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path,
 ) -> None:
-    monkeypatch.setenv("MINIAGENT_SCHEDULED_TASKS_TIMEZONE", "Europe/London")
+    install_test_config(
+        tmp_path,
+        {
+            "timezone": {"default": ""},
+            "scheduled_tasks": {"timezone": "Europe/London"},
+        },
+    )
     monkeypatch.setenv("TZ", "Asia/Shanghai")
     assert default_schedule_timezone() == "Europe/London"
 
 
-def test_schedule_feishu_mirror_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MINIAGENT_SCHEDULED_TASKS_FEISHU_MIRROR", "0")
+def test_schedule_feishu_mirror_disabled(tmp_path) -> None:
+    install_test_config(tmp_path, {"scheduled_tasks": {"feishu_mirror": False}})
     assert schedule_feishu_mirror_enabled() is False
 
 
-def test_resolve_feishu_delivery_from_bound_p2p_uses_last_chat_mq() -> None:
+def test_resolve_feishu_delivery_from_bound_p2p_uses_last_chat_mq(tmp_path) -> None:
+    install_test_config(tmp_path, {})
     router = ChannelRouter()
     router.bind(router.CLI_CHANNEL, "default")
     router.set_primary("default")
@@ -68,7 +78,8 @@ def test_resolve_feishu_delivery_from_bound_p2p_uses_last_chat_mq() -> None:
     assert target.receive_chat_id == "oc_p2p_chat_99"
 
 
-def test_resolve_feishu_delivery_p2p_falls_back_to_ou_without_last_chat() -> None:
+def test_resolve_feishu_delivery_p2p_falls_back_to_ou_without_last_chat(tmp_path) -> None:
+    install_test_config(tmp_path, {})
     router = ChannelRouter()
     router.bind("feishu_p2p:ou_only", "default")
     task = ScheduledTask(id="t", name="t", prompt="p", session=SessionSpec(mode="primary"))
@@ -88,26 +99,27 @@ def test_resolve_feishu_delivery_p2p_falls_back_to_ou_without_last_chat() -> Non
     assert target.receive_chat_id == "ou_only"
 
 
-def test_resolve_feishu_delivery_mirror_off() -> None:
+def test_resolve_feishu_delivery_mirror_off(tmp_path) -> None:
+    install_test_config(tmp_path, {"scheduled_tasks": {"feishu_mirror": False}})
     router = ChannelRouter()
     router.bind("feishu_p2p:ou_x", "default")
     task = ScheduledTask(id="t", name="t", prompt="p", session=SessionSpec(mode="primary"))
     feishu_rt = MagicMock()
     feishu_rt.is_running.return_value = True
-    with patch.dict("os.environ", {"MINIAGENT_SCHEDULED_TASKS_FEISHU_MIRROR": "0"}):
-        target = resolve_feishu_delivery(
-            task,
-            session_key="default",
-            feishu_recv=None,
-            mq_chat="__cli__",
-            channel_router=router,
-            state={"feishu_enabled": True},  # type: ignore[arg-type]
-            feishu_runtime=feishu_rt,
-        )
+    target = resolve_feishu_delivery(
+        task,
+        session_key="default",
+        feishu_recv=None,
+        mq_chat="__cli__",
+        channel_router=router,
+        state={"feishu_enabled": True},  # type: ignore[arg-type]
+        feishu_runtime=feishu_rt,
+    )
     assert target is None
 
 
-def test_resolve_feishu_delivery_not_running() -> None:
+def test_resolve_feishu_delivery_not_running(tmp_path) -> None:
+    install_test_config(tmp_path, {})
     router = ChannelRouter()
     router.bind("feishu_p2p:ou_x", "default")
     task = ScheduledTask(id="t", name="t", prompt="p", session=SessionSpec(mode="primary"))
@@ -125,7 +137,8 @@ def test_resolve_feishu_delivery_not_running() -> None:
     assert target is None
 
 
-def test_resolve_feishu_delivery_feishu_disabled() -> None:
+def test_resolve_feishu_delivery_feishu_disabled(tmp_path) -> None:
+    install_test_config(tmp_path, {})
     router = ChannelRouter()
     router.bind("feishu_p2p:ou_x", "default")
     task = ScheduledTask(id="t", name="t", prompt="p", session=SessionSpec(mode="primary"))
@@ -143,8 +156,8 @@ def test_resolve_feishu_delivery_feishu_disabled() -> None:
     assert target is None
 
 
-def test_resolve_feishu_last_chat_requires_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("MINIAGENT_SCHEDULED_TASKS_FEISHU_LAST_CHAT", raising=False)
+def test_resolve_feishu_last_chat_requires_config(tmp_path) -> None:
+    install_test_config(tmp_path, {"scheduled_tasks": {"feishu_last_chat": False}})
     assert schedule_feishu_last_chat_enabled() is False
     router = ChannelRouter()
     task = ScheduledTask(id="t", name="t", prompt="p", session=SessionSpec(mode="primary"))
@@ -165,8 +178,8 @@ def test_resolve_feishu_last_chat_requires_env(monkeypatch: pytest.MonkeyPatch) 
     assert target is None
 
 
-def test_resolve_feishu_last_chat_with_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MINIAGENT_SCHEDULED_TASKS_FEISHU_LAST_CHAT", "1")
+def test_resolve_feishu_last_chat_with_config(tmp_path) -> None:
+    install_test_config(tmp_path, {"scheduled_tasks": {"feishu_last_chat": True}})
     router = ChannelRouter()
     task = ScheduledTask(id="t", name="t", prompt="p", session=SessionSpec(mode="primary"))
     feishu_rt = MagicMock()
@@ -188,11 +201,8 @@ def test_resolve_feishu_last_chat_with_env(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 @pytest.mark.asyncio
-async def test_runner_sends_feishu_reply_on_mirror(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path,
-) -> None:
-    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
+async def test_runner_sends_feishu_reply_on_mirror(tmp_path) -> None:
+    install_test_config(tmp_path, {"paths": {"state_dir": str(tmp_path)}})
     from miniagent.scheduled_tasks.runner import build_run_scheduled_job_coro
     from miniagent.scheduled_tasks.store import save_tasks
 
@@ -258,9 +268,16 @@ async def test_runner_sends_feishu_reply_on_mirror(
         assert "定时任务结果正文" in args[0][3]
 
 
-def test_cmd_schedule_add_uses_tz_env(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
-    monkeypatch.delenv("MINIAGENT_SCHEDULED_TASKS_TIMEZONE", raising=False)
+def test_cmd_schedule_add_uses_tz_fallback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path,
+) -> None:
+    install_test_config(
+        tmp_path,
+        {
+            "paths": {"state_dir": str(tmp_path)},
+            "timezone": {"default": ""},
+        },
+    )
     monkeypatch.setenv("TZ", "Asia/Shanghai")
     from miniagent.engine.cli_commands import cmd_schedule
     from miniagent.scheduled_tasks.store import load_tasks

@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from miniagent.core.constants import FEISHU_VISION_MAX_BYTES
 from miniagent.core.openai_client import get_shared_async_openai
 from miniagent.infrastructure.json_config import get_config
 
@@ -73,7 +74,7 @@ async def _analyze_image_handler(args: dict[str, Any], ctx: ToolContext) -> Tool
 
     # 3. 检查文件大小（复用 vision_desc 的限制）
     size = os.path.getsize(image_path)
-    max_bytes = 20 * 1024 * 1024
+    max_bytes = FEISHU_VISION_MAX_BYTES
     if size > max_bytes:
         return ToolResult(
             success=False,
@@ -108,7 +109,7 @@ async def _analyze_image_handler(args: dict[str, Any], ctx: ToolContext) -> Tool
         # describe_image 返回空字符串表示模型不支持视觉或调用失败
         return ToolResult(
             success=False,
-            content=f"{ERROR_PREFIX} 图片分析失败（可能是模型不支持视觉理解，请确认 MINIAGENT_MODEL_MODEL 配置）",
+            content=f"{ERROR_PREFIX} 图片分析失败（可能是模型不支持视觉理解，请确认 model.model 配置）",
         )
 
     return ToolResult(

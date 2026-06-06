@@ -10,19 +10,17 @@
 
 from __future__ import annotations
 
+from miniagent.infrastructure.json_config import get_config
+
 
 def feishu_markdown_commands_enabled() -> bool:
     """飞书 capture 路径下是否用 Markdown 表格输出部分 `.` 命令（会话列表、队列、实例列表）。"""
-    from miniagent.infrastructure.env_parse import env_flag
-
-    return env_flag("MINIAGENT_FEISHU_MARKDOWN_COMMANDS", default=False)
+    return bool(get_config("feishu.markdown_commands", False))
 
 
 def feishu_dot_commands_full_enabled() -> bool:
     """飞书是否允许与 CLI 相同的命令（含 /session/.schedule 变异与 /stop）。"""
-    from miniagent.infrastructure.env_parse import env_flag
-
-    return env_flag("MINIAGENT_FEISHU_DOT_COMMANDS_FULL", default=False)
+    return bool(get_config("feishu.dot_commands_full", False))
 
 
 def format_test_command_usage() -> str:

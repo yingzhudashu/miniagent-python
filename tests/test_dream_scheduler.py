@@ -7,12 +7,13 @@ from pathlib import Path
 import pytest
 
 from miniagent.memory import dream_scheduler
+from tests.config_helpers import install_test_config
 
 
 @pytest.fixture(autouse=True)
-def isolate_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Redirect MINIAGENT_PATHS_STATE_DIR to tmp_path."""
-    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
+def isolate_state(tmp_path: Path) -> None:
+    """Redirect paths.state_dir to tmp_path."""
+    install_test_config(tmp_path, {"paths": {"state_dir": str(tmp_path)}})
 
 
 def test_load_dream_state_missing() -> None:
@@ -34,9 +35,7 @@ def test_state_path_creates_memory_dir(tmp_path: Path) -> None:
 
 def test_schedule_throttle() -> None:
     """schedule_memory_maintenance should not raise even when throttled."""
-    # First call may schedule; second call within MIN_INTERVAL should be throttled
     dream_scheduler.schedule_memory_maintenance("test-session")
-    # Should not raise
     dream_scheduler.schedule_memory_maintenance("test-session")
 
 

@@ -9,16 +9,19 @@ import pytest
 from miniagent.core.agent import run_agent
 from miniagent.infrastructure.registry import DefaultToolRegistry
 from miniagent.types.tool import Toolbox
+from tests.config_helpers import install_test_config
 from tests.llm_helpers import mock_all_llm_clients
 
 
 @pytest.mark.asyncio
-async def test_simple_difficulty_skips_planner(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MINIAGENT_TASK_CLASSIFIER", "1")
-    monkeypatch.setenv("MINIAGENT_FEATURES_REFLECTION", "0")
+async def test_simple_difficulty_skips_planner(tmp_path) -> None:
+    install_test_config(tmp_path, {"features": {"reflection": False}})
     tb = Toolbox(id="fs", name="fs", description="files", keywords=[])
 
-    with mock_all_llm_clients():
+    with (
+        patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", True),
+        mock_all_llm_clients(),
+    ):
         with patch(
             "miniagent.core.agent.classify_task_difficulty",
             new_callable=AsyncMock,
@@ -40,16 +43,18 @@ async def test_simple_difficulty_skips_planner(monkeypatch: pytest.MonkeyPatch) 
 
 
 @pytest.mark.asyncio
-async def test_classifier_off_always_plans(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MINIAGENT_TASK_CLASSIFIER", "0")
-    monkeypatch.setenv("MINIAGENT_FEATURES_REFLECTION", "0")
+async def test_classifier_off_always_plans(tmp_path) -> None:
+    install_test_config(tmp_path, {"features": {"reflection": False}})
     tb = Toolbox(id="fs", name="fs", description="files", keywords=[])
 
     from miniagent.types.planning import StructuredPlan
 
     fake_plan = StructuredPlan(summary="x", steps=[], required_toolboxes=[])
 
-    with mock_all_llm_clients():
+    with (
+        patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False),
+        mock_all_llm_clients(),
+    ):
         with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
             gp.return_value = fake_plan
             with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
@@ -60,11 +65,8 @@ async def test_classifier_off_always_plans(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 @pytest.mark.asyncio
-async def test_suggested_thinking_level_merges_into_model_overrides(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("MINIAGENT_TASK_CLASSIFIER", "0")
-    monkeypatch.setenv("MINIAGENT_FEATURES_REFLECTION", "0")
+async def test_suggested_thinking_level_merges_into_model_overrides(tmp_path) -> None:
+    install_test_config(tmp_path, {"features": {"reflection": False}})
     tb = Toolbox(id="fs", name="fs", description="files", keywords=[])
 
     from miniagent.types.planning import StructuredPlan, SuggestedConfig
@@ -95,7 +97,10 @@ async def test_suggested_thinking_level_merges_into_model_overrides(
         )
         return "ok"
 
-    with mock_all_llm_clients():
+    with (
+        patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False),
+        mock_all_llm_clients(),
+    ):
         with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
             gp.return_value = fake_plan
             with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:

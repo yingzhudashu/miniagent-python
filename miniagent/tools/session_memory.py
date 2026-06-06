@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from miniagent.infrastructure.json_config import get_config
+from miniagent.infrastructure.paths import resolve_state_dir
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 _read_session_diary_schema = {
@@ -114,7 +114,7 @@ async def _search_session_diary_handler(args: dict[str, Any], ctx: ToolContext) 
     ctx_chars = max(20, min(ctx_chars, 2000))
 
     root = os.path.join(
-        get_config("paths.state_dir", os.path.join(os.getcwd(), "workspaces")),
+        resolve_state_dir(),
         "memory",
         "diary",
         safe_session_id_for_memory(sk),

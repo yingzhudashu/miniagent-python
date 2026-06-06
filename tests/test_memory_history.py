@@ -32,6 +32,7 @@ from miniagent.memory.history_progressive import (
     run_session_history_maintenance,
     strip_thinking_to_turn_summary,
 )
+from tests.config_helpers import install_test_config
 from tests.history_helpers import history_turn as _turn
 
 # ============================================================================
@@ -42,8 +43,8 @@ from tests.history_helpers import history_turn as _turn
 class TestHistoryBridge:
     """conversation_history_for_llm：thinking 映射给 LLM 时的长度上限。"""
 
-    def test_thinking_passed_through_when_under_cap(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("MINIAGENT_MEMORY_THINKING_FOR_LLM_MAX_CHARS", "10000")
+    def test_thinking_passed_through_when_under_cap(self, tmp_path) -> None:
+        install_test_config(tmp_path, {"memory": {"thinking_for_llm_max_chars": 10000}})
         hist = [{"role": "thinking", "content": "short"}]
         out = hb.conversation_history_for_llm(hist)
         assert len(out) == 1
@@ -54,15 +55,15 @@ class TestHistoryBridge:
     def test_thinking_truncated_for_llm_only(self, monkeypatch: pytest.MonkeyPatch) -> None:
         pass
 
-    def test_thinking_zero_means_no_truncation(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("MINIAGENT_MEMORY_THINKING_FOR_LLM_MAX_CHARS", "0")
+    def test_thinking_zero_means_no_truncation(self, tmp_path) -> None:
+        install_test_config(tmp_path, {"memory": {"thinking_for_llm_max_chars": 0}})
         long_body = "x" * 5000
         hist = [{"role": "thinking", "content": long_body}]
         out = hb.conversation_history_for_llm(hist)
         assert long_body in out[0]["content"]
 
-    def test_estimate_tokens_for_thinking_uses_same_cap_as_llm(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("MINIAGENT_MEMORY_THINKING_FOR_LLM_MAX_CHARS", "50")
+    def test_estimate_tokens_for_thinking_uses_same_cap_as_llm(self, tmp_path) -> None:
+        install_test_config(tmp_path, {"memory": {"thinking_for_llm_max_chars": 50}})
         long_body = "b" * 200
         hist = [{"role": "thinking", "content": long_body}]
         t_est = hb.estimate_history_messages_tokens(hist)
@@ -81,8 +82,8 @@ class TestHistoryBridge:
 class TestHistoryArchive:
     """history 归档与整轮尾部截断顺序。"""
 
-    def test_trim_history_tail_by_turns_removes_whole_turns(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
+    def test_trim_history_tail_by_turns_removes_whole_turns(self, tmp_path):
+        install_test_config(tmp_path, {"paths": {"state_dir": str(tmp_path)}})
         hist: list[dict] = []
         for i in range(30):
             hist.extend(_turn(f"u{i}", f"a{i}"))
@@ -95,9 +96,14 @@ class TestHistoryArchive:
         assert hist[0]["role"] == "user"
         assert "u" in hist[0]["content"]
 
-    def test_archive_before_trim_preserves_chunks_in_diary(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
-        monkeypatch.setenv("MINIAGENT_MEMORY_HISTORY_MAX_MESSAGES", "8")
+    def test_archive_before_trim_preserves_chunks_in_diary(self, tmp_path):
+        install_test_config(
+            tmp_path,
+            {
+                "paths": {"state_dir": str(tmp_path)},
+                "memory": {"history_max_messages": 8},
+            },
+        )
 
         session_key = "test_sess"
         hist: list[dict] = []
@@ -122,9 +128,14 @@ class TestHistoryArchive:
             g += 1
         assert len(hist) <= 6
 
-    def test_archive_anchor_has_archive_ref(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
-        monkeypatch.setenv("MINIAGENT_MEMORY_HISTORY_MAX_MESSAGES", "4")
+    def test_archive_anchor_has_archive_ref(self, tmp_path):
+        install_test_config(
+            tmp_path,
+            {
+                "paths": {"state_dir": str(tmp_path)},
+                "memory": {"history_max_messages": 4},
+            },
+        )
 
         sk = "ref_sess"
         hist = _turn("a", "b") + _turn("c", "d") + _turn("e", "f")
@@ -147,16 +158,21 @@ class TestHistoryArchive:
 class TestHistoryProgressive:
     """渐进式会话历史压缩与单次归档/trim 语义。"""
 
-    def test_maybe_archive_at_most_one_turn_per_call(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
-        monkeypatch.setenv("MINIAGENT_MEMORY_HISTORY_MAX_MESSAGES", "4")
+    def test_maybe_archive_at_most_one_turn_per_call(self, tmp_path):
+        install_test_config(
+            tmp_path,
+            {
+                "paths": {"state_dir": str(tmp_path)},
+                "memory": {"history_max_messages": 4},
+            },
+        )
         hist = _turn("u1", "a1") + _turn("u2", "a2") + _turn("u3", "a3")
         assert len(hist) == 6
         assert maybe_archive_old_turns("sess", hist) is True
         assert len(hist) == 5  # 一轮 2 条换 1 条锚点
 
-    def test_trim_at_most_one_turn_per_call(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
+    def test_trim_at_most_one_turn_per_call(self, tmp_path):
+        install_test_config(tmp_path, {"paths": {"state_dir": str(tmp_path)}})
         hist: list[dict] = []
         for i in range(5):
             hist.extend(_turn(f"u{i}", f"a{i}"))
@@ -201,10 +217,14 @@ class TestHistoryProgressive:
         assert action is not None
         assert TOOL_OUTPUT_REDACTED_PLACEHOLDER in hist[1]["content"]
 
-    def test_run_session_history_maintenance_respects_progressive_off(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
-        monkeypatch.setenv("MINIAGENT_MEMORY_HISTORY_MAX_MESSAGES", "4")
-        monkeypatch.setenv("MINIAGENT_MEMORY_HISTORY_PROGRESSIVE", "0")
+    def test_run_session_history_maintenance_respects_progressive_off(self, tmp_path):
+        install_test_config(
+            tmp_path,
+            {
+                "paths": {"state_dir": str(tmp_path)},
+                "memory": {"history_max_messages": 4, "history_progressive": False},
+            },
+        )
         hist = _turn("u1", "a1") + _turn("u2", "a2") + _turn("u3", "a3")
         run_session_history_maintenance("sk", hist, tail_cap=200, progressive_compression=False)
         assert len(hist) <= 4

@@ -11,29 +11,17 @@ from miniagent.infrastructure.json_config import get_config
 
 
 def diagnose_environment() -> str:
-    """诊断安装与配置环境。
-
-    检查项目：
-    - Python版本和平台
-    - 核心依赖安装状态
-    - 环境变量配置
-    - 网络连接状态
-    - 文件权限
-
-    Returns:
-        格式化的诊断报告
-    """
+    """诊断安装与配置环境。"""
     import os
+
     lines = ["## MiniAgent 环境诊断", ""]
 
-    # 1. Python环境
     lines.append("### Python 环境")
     lines.append(f"- 版本: {sys.version}")
     lines.append(f"- 平台: {sys.platform}")
     lines.append(f"- 可执行文件: {sys.executable}")
     lines.append("")
 
-    # 2. 核心依赖检查
     lines.append("### 核心依赖")
     dependencies = [
         ("openai", "OpenAI SDK"),
@@ -51,37 +39,25 @@ def diagnose_environment() -> str:
             lines.append(f"- ❌ {display_name}: 未安装")
     lines.append("")
 
-    # 3. 环境变量配置
-    lines.append("### 环境变量配置")
-    env_vars = [
-        ("OPENAI_API_KEY", "API密钥"),
-        ("MINIAGENT_MODEL_BASE_URL", "API地址"),
-        ("MINIAGENT_MODEL_MODEL", "模型名称"),
-        ("MINIAGENT_PATHS_STATE_DIR", "状态目录"),
-        ("MINIAGENT_KB_ROOT", "知识库目录"),
-    ]
+    lines.append("### JSON 配置（config.user.json）")
+    api_key = get_config("secrets.openai_api_key", "")
+    if api_key:
+        display_value = str(api_key)[:8] + "..." if len(str(api_key)) > 8 else "***"
+        lines.append(f"- ✅ API 密钥: {display_value}")
+    else:
+        lines.append("- ⚠️ secrets.openai_api_key: 未设置")
 
-    for var_name, display_name in env_vars:
-        value = os.environ.get(var_name)
-        if value:
-            # 隐藏敏感信息
-            if "KEY" in var_name or "SECRET" in var_name:
-                display_value = value[:8] + "..." if len(value) > 8 else "***"
-            else:
-                display_value = value
-            lines.append(f"- ✅ {display_name}: {display_value}")
-        else:
-            lines.append(f"- ⚠️ {display_name}: 未设置")
+    lines.append(f"- 模型: {get_config('model.model', 'gpt-4o-mini')}")
+    lines.append(f"- API 地址: {get_config('model.base_url', 'https://api.openai.com/v1')}")
     lines.append("")
 
-    # 4. 状态目录检查（从JSON配置读取）
     lines.append("### 状态目录")
-    state_dir = get_config("paths.state_dir", "workspaces")
+    from miniagent.infrastructure.paths import resolve_state_dir
+
+    state_dir = resolve_state_dir()
     if os.path.exists(state_dir):
         lines.append(f"- ✅ 状态目录存在: {state_dir}")
-        # 检查子目录
-        subdirs = ["sessions", "memory", "knowledge"]
-        for subdir in subdirs:
+        for subdir in ("sessions", "memory", "knowledge"):
             path = os.path.join(state_dir, subdir)
             if os.path.exists(path):
                 lines.append(f"  - ✅ {subdir}/")
@@ -91,15 +67,10 @@ def diagnose_environment() -> str:
         lines.append(f"- ❌ 状态目录不存在: {state_dir}")
     lines.append("")
 
-    # 5. 总结和建议
     lines.append("### 建议")
-
-    # 检查是否缺少关键配置
     missing_critical = []
-    if not os.environ.get("OPENAI_API_KEY"):
-        missing_critical.append("OPENAI_API_KEY未设置")
-    if not os.environ.get("MINIAGENT_MODEL_BASE_URL"):
-        missing_critical.append("MINIAGENT_MODEL_BASE_URL未设置（使用默认OpenAI地址）")
+    if not api_key:
+        missing_critical.append("secrets.openai_api_key 未设置")
 
     if missing_critical:
         lines.append("⚠️ 发现以下问题:")
@@ -108,10 +79,9 @@ def diagnose_environment() -> str:
         lines.append("")
         lines.append("建议操作:")
         lines.append("1. 复制 config.defaults.json 为 config.user.json")
-        lines.append("2. 在 config.user.json 的 secrets 部分填写必要的凭据")
-        lines.append("3. 重启 MiniAgent")
+        lines.append("2. 在 secrets 中填写 openai_api_key")
     else:
-        lines.append("✅ 环境配置完整，可正常使用")
+        lines.append("✅ 基本配置检查通过")
 
     return "\n".join(lines)
 

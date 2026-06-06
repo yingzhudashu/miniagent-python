@@ -5,7 +5,7 @@
 RAG 增强说明：
 - 默认情况下，knowledge 工具箱作为核心工具箱（toolbox=None），始终可用
 - Agent 能主动调用 search_knowledge、read_knowledge_file、kb_list
-- 可通过环境变量 MINIAGENT_KNOWLEDGE_AS_CORE=0 或配置 knowledge.as_core=false 降级为普通工具箱
+- 可通过配置 knowledge.as_core=false 降级为普通工具箱
 """
 
 from __future__ import annotations
@@ -33,11 +33,6 @@ def _get_knowledge_toolbox() -> str | None:
     Returns:
         None（核心工具箱）或 "knowledge"（普通工具箱）
     """
-    # 环境变量优先
-    env_val = os.environ.get("MINIAGENT_KNOWLEDGE_AS_CORE", "")
-    if env_val.lower() in ("0", "false", "no"):
-        return "knowledge"
-    # JSON 配置次之
     if not get_config("knowledge.as_core", True):
         return "knowledge"
     # 默认为核心工具箱
@@ -157,7 +152,10 @@ async def _read_knowledge_file_handler(args: dict[str, Any], _ctx: ToolContext) 
                 content = f.read()
 
         # 截断大文件
-        max_chars = 50000
+        from miniagent.core.constants import KNOWLEDGE_MAX_FILE_CHARS
+        from miniagent.infrastructure.json_config import get_config
+
+        max_chars = int(get_config("knowledge.max_file_chars", KNOWLEDGE_MAX_FILE_CHARS))
         if len(content) > max_chars:
             content = content[:max_chars] + "\n...[已截断]"
 

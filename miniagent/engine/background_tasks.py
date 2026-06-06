@@ -18,11 +18,13 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
-from miniagent.infrastructure.json_config import get_config
+from miniagent.core.constants import (
+    BACKGROUND_TASKS_MAX_CONCURRENT,
+    BACKGROUND_TASKS_TASK_TTL_SECONDS,
+)
 
-# 从JSON配置加载默认值（环境变量覆盖由JsonConfigLoader自动处理）
-DEFAULT_TASK_TTL_SECONDS = get_config("background_tasks.task_ttl_seconds", 3600)
-DEFAULT_MAX_CONCURRENT = get_config("background_tasks.max_concurrent", 4)
+DEFAULT_TASK_TTL_SECONDS = BACKGROUND_TASKS_TASK_TTL_SECONDS
+DEFAULT_MAX_CONCURRENT = BACKGROUND_TASKS_MAX_CONCURRENT
 
 
 class TaskStatus(str, Enum):

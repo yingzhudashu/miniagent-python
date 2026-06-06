@@ -4,19 +4,17 @@ from __future__ import annotations
 
 import json
 import logging
-import os as _os_for_docx
 from typing import Any
 
+from miniagent.core.constants import DOCX_APPEND_MAX_BLOCKS, DOCX_LIST_BLOCKS_MAX
 from miniagent.feishu.lark_client import build_client
 from miniagent.feishu.lark_response import format_lark_response_error
 from miniagent.feishu.types import FeishuConfig
 
 DOCX_APPEND_MAX_CHARS = 12_000
-DOCX_APPEND_MAX_BLOCKS = int(_os_for_docx.environ.get("MINIAGENT_DOCX_APPEND_MAX_BLOCKS", "30"))
 _TEXT_RUN_MAX = 1800
 _BLOCK_PAGE = 1
 _BLOCK_TEXT = 2
-_LIST_BLOCKS_MAX = int(_os_for_docx.environ.get("MINIAGENT_DOCX_LIST_BLOCKS_MAX", "200"))
 
 
 def _chunk_runs(line: str) -> list[str]:
@@ -154,8 +152,8 @@ def list_document_blocks(
     if not resp.success() or not resp.data:
         raise RuntimeError(f"Feishu list blocks failed: {format_lark_response_error(resp)}")
     items = [_block_summary(x) for x in (getattr(resp.data, "items", None) or [])]
-    if len(items) > _LIST_BLOCKS_MAX:
-        items = items[:_LIST_BLOCKS_MAX]
+    if len(items) > DOCX_LIST_BLOCKS_MAX:
+        items = items[:DOCX_LIST_BLOCKS_MAX]
     nxt = getattr(resp.data, "page_token", None)
     return items, str(nxt) if nxt else None, bool(getattr(resp.data, "has_more", False))
 

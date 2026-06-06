@@ -193,6 +193,12 @@ async def scheduled_tasks_loop(
             await tick_once(ctx, state, skill_toolboxes, skill_prompts)
         except Exception:
             _logger.exception("scheduled_tasks tick 异常")
+        try:
+            from miniagent.scheduled_tasks.trace_cleanup import maybe_scheduled_trace_stats_report
+
+            maybe_scheduled_trace_stats_report()
+        except Exception:
+            _logger.debug("trace stats report tick skipped", exc_info=True)
 
 
 def start_scheduled_tasks_ticker(

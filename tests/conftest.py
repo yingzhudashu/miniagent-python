@@ -25,11 +25,40 @@ sys.path.insert(0, PROJECT_ROOT)
 
 
 @pytest.fixture()
-def state_dir(monkeypatch: pytest.MonkeyPatch) -> str:
-    """Isolated MINIAGENT_PATHS_STATE_DIR directory for scheduled_tasks / store tests."""
-    d = tempfile.mkdtemp()
-    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", d)
+def state_dir(tmp_path) -> str:
+    """Isolated state directory via config.user.json paths.state_dir."""
+    import json
+
+    from miniagent.infrastructure.json_config import JsonConfigLoader
+
+    d = str(tmp_path / "state")
+    user_path = tmp_path / "config.user.json"
+    user_path.write_text(json.dumps({"paths": {"state_dir": d}}), encoding="utf-8")
+    JsonConfigLoader._instance = JsonConfigLoader(
+        defaults_path=os.path.join(PROJECT_ROOT, "config.defaults.json"),
+        user_path=str(user_path),
+    )
     return d
+
+
+@pytest.fixture()
+def isolated_config_loader(tmp_path):
+    """Factory: build JsonConfigLoader with optional user overrides dict."""
+    import json
+
+    from miniagent.infrastructure.json_config import JsonConfigLoader
+
+    def _factory(user_overrides: dict | None = None) -> JsonConfigLoader:
+        user_path = tmp_path / "config.user.json"
+        user_path.write_text(json.dumps(user_overrides or {}), encoding="utf-8")
+        loader = JsonConfigLoader(
+            defaults_path=os.path.join(PROJECT_ROOT, "config.defaults.json"),
+            user_path=str(user_path),
+        )
+        JsonConfigLoader._instance = loader
+        return loader
+
+    return _factory
 
 
 # ============================================================================

@@ -124,7 +124,7 @@ def _get_embed_config() -> dict[str, str | int]:
     return {
         "base_url": get_config("embedding.base_url", ""),
         "model": get_config("embedding.model", ""),
-        "api_key": os.environ.get("MINIAGENT_EMBED_API_KEY", ""),  # API密钥保留环境变量
+        "api_key": get_config("secrets.embed_api_key", ""),
         "top_k": get_config("embedding.top_k", 8),
         "min_score": get_config("embedding.min_score", 0.3),
     }
@@ -607,7 +607,7 @@ class EmbeddingIndex:
 
 
 class EmbeddingSearchProvider:
-    """使用 ``MINIAGENT_EMBED_BASE_URL`` / ``MINIAGENT_EMBED_MODEL`` 配置专用 embedding 服务。"""
+    """使用 ``embedding.base_url`` / ``embedding.model`` / ``secrets.embed_api_key`` 配置专用 embedding 服务。"""
 
     def __init__(
         self,
@@ -620,7 +620,7 @@ class EmbeddingSearchProvider:
         self._init_providers()
 
     def _init_providers(self) -> None:
-        """仅使用 MINIAGENT_EMBED_* 专用配置；未配置时无 embedding，
+        """仅使用 embedding.* / secrets.embed_api_key 配置；未配置时无 embedding，
         由调用方回退到关键词索引。"""
         embed = _get_embed_config()
         if embed["base_url"] and embed["model"] and embed["api_key"]:

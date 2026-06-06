@@ -23,7 +23,6 @@ import asyncio
 from collections import deque
 from typing import Any
 
-from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 
 _logger = get_logger(__name__)
@@ -131,12 +130,13 @@ def get_patch_queue_manager() -> PatchQueueManager | None:
     """
     global _global_manager
 
-    enabled = get_config("feishu.patch.queue_enabled", False)
-    if not enabled:
+    from miniagent.core.constants import FEISHU_PATCH_QUEUE_ENABLED, FEISHU_PATCH_QUEUE_MAX_SIZE
+
+    if not FEISHU_PATCH_QUEUE_ENABLED:
         return None
 
     if _global_manager is None:
-        max_size = int(get_config("feishu.patch.queue_max_size", 10))
+        max_size = FEISHU_PATCH_QUEUE_MAX_SIZE
         _global_manager = PatchQueueManager(max_queue_size=max_size)
 
     return _global_manager

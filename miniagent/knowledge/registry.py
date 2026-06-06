@@ -46,12 +46,14 @@ class KnowledgeRegistry:
             state_dir: 状态存储目录（默认 paths.state_dir/knowledge）
         """
         if state_dir is None:
-            state_dir = get_config(
-                "paths.state_dir",
-                os.path.join(os.getcwd(), "workspaces"),
-            )
+            from miniagent.infrastructure.paths import resolve_state_dir
+
+            state_dir = resolve_state_dir()
         self._state_dir = state_dir
-        self._kb_dir = get_config("knowledge.root", _DEFAULT_KB_ROOT)
+        self._kb_dir = get_config(
+            "knowledge.root",
+            get_config("knowledge.default_root", _DEFAULT_KB_ROOT),
+        )
 
         # 已挂载的知识库：name -> KnowledgeBase
         self._mounted: dict[str, KnowledgeBase] = {}

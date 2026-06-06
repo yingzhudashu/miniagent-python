@@ -4,7 +4,6 @@
 """
 
 import os
-import tempfile
 from pathlib import Path
 
 from miniagent.infrastructure.tracing import (
@@ -15,6 +14,7 @@ from miniagent.infrastructure.tracing import (
     shutdown_trace_writer,
     unregister_trace_hook,
 )
+from tests.config_helpers import install_test_config
 
 
 class TestTraceHooks:
@@ -86,23 +86,17 @@ class TestTraceFilePersistence:
     """测试 trace 事件持久化到文件"""
 
     def setup_method(self) -> None:
-        """每个测试前清空钩子和环境变量"""
+        """每个测试前清空钩子"""
         clear_trace_hooks()
-        if "MINIAGENT_TRACE_LOG_FILE" in os.environ:
-            del os.environ["MINIAGENT_TRACE_LOG_FILE"]
 
     def teardown_method(self) -> None:
         """每个测试后清理"""
         clear_trace_hooks()
-        if "MINIAGENT_TRACE_LOG_FILE" in os.environ:
-            del os.environ["MINIAGENT_TRACE_LOG_FILE"]
 
-    def test_auto_register_creates_file(self) -> None:
+    def test_auto_register_creates_file(self, tmp_path: Path) -> None:
         """测试自动注册创建日志文件"""
-        tmpfile = tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False)
-        tmpfile.close()
-
-        os.environ["MINIAGENT_TRACE_LOG_FILE"] = tmpfile.name
+        log_path = tmp_path / "trace.jsonl"
+        install_test_config(tmp_path, {"debug": {"log_path": str(log_path)}})
         auto_register_trace_file_hook()
 
         emit_trace({"type": "file_test", "data": "persisted"})
@@ -111,12 +105,11 @@ class TestTraceFilePersistence:
         shutdown_trace_writer()
 
         # 进程隔离优化：文件名添加pid后缀
-        # 实际文件名 = tmpfile.name + "-pid{pid}"
         pid_suffix = f"-pid{os.getpid()}"
-        expected_file = Path(tmpfile.name.replace(".jsonl", f"{pid_suffix}.jsonl"))
+        expected_file = Path(str(log_path).replace(".jsonl", f"{pid_suffix}.jsonl"))
 
         # 如果pid后缀文件不存在，尝试原始文件名（兼容旧版本）
-        actual_file = expected_file if expected_file.exists() else Path(tmpfile.name)
+        actual_file = expected_file if expected_file.exists() else log_path
 
         # 验证文件内容
         with open(actual_file, encoding="utf-8") as f:
@@ -124,12 +117,12 @@ class TestTraceFilePersistence:
             assert "file_test" in content
             assert "ts" in content  # 时间戳自动添加
 
-        # 清理文件（包括pid后缀版本）
-        Path(tmpfile.name).unlink(missing_ok=True)
+        log_path.unlink(missing_ok=True)
         expected_file.unlink(missing_ok=True)
 
-    def test_auto_register_skips_without_env(self) -> None:
-        """测试无环境变量时不注册"""
+    def test_auto_register_skips_without_config(self, tmp_path: Path) -> None:
+        """测试无配置时不注册文件持久化"""
+        install_test_config(tmp_path, {})
         auto_register_trace_file_hook()
         # 没有钩子被注册
         events: list[dict] = []
@@ -138,38 +131,29 @@ class TestTraceFilePersistence:
         # 只有手动注册的钩子被调用
         assert len(events) == 1
 
-    def test_clear_hooks_reset_file_config(self) -> None:
+    def test_clear_hooks_reset_file_config(self, tmp_path: Path) -> None:
         """测试 clear_trace_hooks 同时清除文件配置"""
-        tmpfile = tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False)
-        tmpfile.close()
-
-        os.environ["MINIAGENT_TRACE_LOG_FILE"] = tmpfile.name
+        log_path = tmp_path / "trace.jsonl"
+        install_test_config(tmp_path, {"debug": {"log_path": str(log_path)}})
         auto_register_trace_file_hook()
 
         # 清空后，文件配置也应被清除
         clear_trace_hooks()
 
-        # 清除环境变量，防止 auto_register 重新注册
-        del os.environ["MINIAGENT_TRACE_LOG_FILE"]
-
-        # 再次调用 auto_register（无环境变量，不会注册）
+        # 再次调用 auto_register（无配置，不会注册）
+        install_test_config(tmp_path, {})
         auto_register_trace_file_hook()
 
-        # 没有事件被写入（因为 clear 已重置且无环境变量）
+        # 没有事件被写入（因为 clear 已重置且无配置）
         emit_trace({"type": "after_clear"})
-        with open(tmpfile.name, encoding="utf-8") as f:
-            content = f.read()
-            # 文件应该是空的（clear 后没有写入）
+        if log_path.exists():
+            content = log_path.read_text(encoding="utf-8")
             assert "after_clear" not in content
 
-        Path(tmpfile.name).unlink()
-
-    def test_creates_directory_if_missing(self) -> None:
+    def test_creates_directory_if_missing(self, tmp_path: Path) -> None:
         """测试自动创建目录"""
-        tmpdir = tempfile.mkdtemp()
-        log_path = os.path.join(tmpdir, "subdir", "trace.jsonl")
-
-        os.environ["MINIAGENT_TRACE_LOG_FILE"] = log_path
+        log_path = tmp_path / "subdir" / "trace.jsonl"
+        install_test_config(tmp_path, {"debug": {"log_path": str(log_path)}})
         auto_register_trace_file_hook()
 
         emit_trace({"type": "dir_test"})
@@ -178,18 +162,14 @@ class TestTraceFilePersistence:
         shutdown_trace_writer()
 
         # 目录应该被创建
-        assert os.path.isdir(os.path.dirname(log_path))
+        assert log_path.parent.is_dir()
 
         # 进程隔离优化：文件名添加pid后缀
         pid_suffix = f"-pid{os.getpid()}"
-        expected_file = log_path.replace(".jsonl", f"{pid_suffix}.jsonl")
+        expected_file = Path(str(log_path).replace(".jsonl", f"{pid_suffix}.jsonl"))
 
         # 文件应该存在（考虑pid后缀）
-        # 如果pid后缀文件不存在，尝试原始文件名（兼容旧版本）
-        assert os.path.isfile(expected_file) or os.path.isfile(log_path)
+        assert expected_file.is_file() or log_path.is_file()
 
-        # 清理文件和目录
-        Path(expected_file).unlink(missing_ok=True)
-        Path(log_path).unlink(missing_ok=True)
-        os.rmdir(os.path.dirname(log_path))
-        os.rmdir(tmpdir)
+        expected_file.unlink(missing_ok=True)
+        log_path.unlink(missing_ok=True)

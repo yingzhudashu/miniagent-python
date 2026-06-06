@@ -21,18 +21,18 @@
 from __future__ import annotations
 
 import json
-import os as _os_for_loop
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any
 
+from miniagent.core.constants import ARGS_CACHE_MAX_SIZE
 from miniagent.types.agent import LoopDetectionConfig, LoopDetectionResult, LoopLevel
 
 # ─── JSON 序列化缓存（性能优化：避免重复序列化相同参数）──
 
 _args_json_cache: OrderedDict[tuple, str] = OrderedDict()
-_ARGS_CACHE_MAX_SIZE = int(_os_for_loop.environ.get("MINIAGENT_ARGS_CACHE_MAX_SIZE", "500"))  # 性能优化：从100提高到500
+_ARGS_CACHE_MAX_SIZE = ARGS_CACHE_MAX_SIZE
 
 
 def _make_args_cache_key(args: dict[str, Any]) -> tuple:

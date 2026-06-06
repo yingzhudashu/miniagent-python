@@ -14,12 +14,13 @@ from miniagent.memory.layered_memory import (
     save_agent_longterm,
     save_session_longterm,
 )
+from tests.config_helpers import install_test_config
 
 
 @pytest.fixture(autouse=True)
-def isolate_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Redirect MINIAGENT_PATHS_STATE_DIR to tmp_path so tests don't touch real workspaces."""
-    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
+def isolate_state(tmp_path: Path) -> None:
+    """Redirect paths.state_dir to tmp_path so tests don't touch real workspaces."""
+    install_test_config(tmp_path, {"paths": {"state_dir": str(tmp_path)}})
 
 
 # ─── session long-term ───

@@ -162,6 +162,18 @@ async def shutdown_runtime(
     except Exception as e:
         _logger.debug("shutdown_runtime: cleanup_old_traces: %s", e)
 
+    # 5h) 清理过期自我优化提案
+    try:
+        from miniagent.core.self_opt.proposal_store import ProposalStore
+        from miniagent.infrastructure.json_config import get_config
+
+        retention_days = int(get_config("self_optimization.proposal_retention_days", 30))
+        deleted_proposals = ProposalStore.cleanup_old_proposals(retention_days)
+        if deleted_proposals > 0:
+            _logger.info("shutdown: 清理过期提案文件 %d 个", deleted_proposals)
+    except Exception as e:
+        _logger.debug("shutdown_runtime: cleanup_old_proposals: %s", e)
+
     if release_cli_session_lock:
         sid = (state.get("active_session_id") or "").strip()
         if sid:

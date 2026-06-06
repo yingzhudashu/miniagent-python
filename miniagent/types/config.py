@@ -7,16 +7,15 @@
 
 from __future__ import annotations
 
-import os as _os_for_config
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from miniagent.types.tool import Toolbox, ToolRegistryProtocol
 
-# 配置默认值（支持环境变量覆盖）
-_MAX_TURNS_DEFAULT = int(_os_for_config.environ.get("MINIAGENT_AGENT_MAX_TURNS", "200"))
-_TOOL_TIMEOUT_DEFAULT = int(_os_for_config.environ.get("MINIAGENT_TOOL_TIMEOUT", "60"))
+# 数据类占位默认值（与 config.defaults.json 对齐；运行时请用 get_default_*_config()）
+_MAX_TURNS_DEFAULT = 400
+_TOOL_TIMEOUT_DEFAULT = 60
 
 # ============================================================================
 # ModelConfig — 模型层配置
@@ -27,7 +26,8 @@ _TOOL_TIMEOUT_DEFAULT = int(_os_for_config.environ.get("MINIAGENT_TOOL_TIMEOUT",
 class ModelConfig:
     """模型配置
 
-    各参数通过环境变量直接设置，无预设层级。
+    运行时默认值由 ``get_default_model_config()`` 从 ``config.defaults.json`` 加载；
+    下列字段仅为直接构造 ``ModelConfig()`` 时的占位，勿与 JSON / 环境变量混为一谈。
 
     Attributes:
         base_url: API 端点
@@ -38,7 +38,6 @@ class ModelConfig:
         thinking_level: thinking 级别
         thinking_budget: thinking token 预算
         context_window: 上下文窗口大小（token）
-        stream: 是否使用流式输出
         retry_count: API 调用重试次数
     """
 
@@ -50,7 +49,6 @@ class ModelConfig:
     thinking_level: str = "light"
     thinking_budget: int = 1024
     context_window: int = 128000
-    stream: bool = False
     retry_count: int = 2
 
 
@@ -69,7 +67,7 @@ class AgentConfig:
     3. plan.suggested_config — 规划器推荐
 
     Attributes:
-        max_turns: 最大轮数（ReAct loop 迭代次数，数据类默认 200，运行时由 get_default_agent_config() 返回 400）
+        max_turns: 最大轮数（ReAct loop 迭代次数；运行时由 get_default_agent_config() 从 JSON 加载，默认 400）
         tool_timeout: 工具超时（秒，默认 60）
         http_timeout: HTTP 超时（秒，默认 120）
         context_reserve_ratio: 上下文保留比例（默认 0.15）

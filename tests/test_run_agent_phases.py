@@ -1,6 +1,5 @@
 """四阶段求解集成测试 — 验证 run_agent() 中澄清→规划→执行→反思链路。"""
 
-import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -8,6 +7,8 @@ import pytest
 from miniagent.core.task_classifier import TaskDifficulty
 from miniagent.types.planning import StructuredPlan
 from miniagent.types.tool import Toolbox
+from tests.config_helpers import install_test_config
+from tests.llm_helpers import mock_all_llm_clients
 
 
 def _make_agent_config():
@@ -43,9 +44,14 @@ class TestRunAgentClarification:
     """测试 Phase 0 需求澄清。"""
 
     @pytest.mark.asyncio
-    async def test_clarifier_enhances_input(self):
+    async def test_clarifier_enhances_input(self, tmp_path):
         """传入 clarifier 时，clarify 被调用且澄清结果注入。"""
         from miniagent.core.requirement_clarifier import ClarifiedRequirement
+
+        install_test_config(
+            tmp_path,
+            {"features": {"requirement_clarify": True, "reflection": False}},
+        )
 
         clarified = ClarifiedRequirement(
             original="查天气",
@@ -68,27 +74,29 @@ class TestRunAgentClarification:
                         registry.get_all.return_value = {}
                         registry.list.return_value = []
 
-                        with patch.dict(os.environ, {"MINIAGENT_FEATURES_REQUIREMENT_CLARIFY": "1", "MINIAGENT_FEATURES_REFLECTION": "0"}):
-                            from miniagent.core import run_agent
+                        from miniagent.core import run_agent
 
-                            reply = await run_agent(
-                                "查天气",
-                                registry=registry,
-                                clarifier=clarifier,
-                            )
+                        reply = await run_agent(
+                            "查天气",
+                            registry=registry,
+                            clarifier=clarifier,
+                        )
 
                         assert reply == "天气预报结果"
                         clarifier.clarify.assert_called_once()
                         mock_exec.assert_called_once()
-                        # 验证 user_input 被增强（使用完整的 to_system_prompt 格式）
                         call_args = mock_exec.call_args
-                        # 新格式使用 "## 需求规格" 和 "目标：" 标签
                         assert "## 需求规格" in call_args[0][1]
                         assert "目标：" in call_args[0][1]
 
     @pytest.mark.asyncio
-    async def test_env_disable_clarify(self):
-        """MINIAGENT_FEATURES_REQUIREMENT_CLARIFY=0 时不执行澄清。"""
+    async def test_env_disable_clarify(self, tmp_path):
+        """features.requirement_clarify=false 时不执行澄清。"""
+        install_test_config(
+            tmp_path,
+            {"features": {"requirement_clarify": False, "reflection": False}},
+        )
+
         clarifier = MagicMock()
         clarifier.clarify = AsyncMock()
 
@@ -103,22 +111,22 @@ class TestRunAgentClarification:
                         registry.get_all.return_value = {}
                         registry.list.return_value = []
 
-                        with patch.dict(os.environ, {"MINIAGENT_FEATURES_REQUIREMENT_CLARIFY": "0", "MINIAGENT_FEATURES_REFLECTION": "0"}):
-                            from miniagent.core import run_agent
+                        from miniagent.core import run_agent
 
-                            reply = await run_agent(
-                                "查天气",
-                                registry=registry,
-                                clarifier=clarifier,
-                            )
+                        reply = await run_agent(
+                            "查天气",
+                            registry=registry,
+                            clarifier=clarifier,
+                        )
 
-                        # clarifier 不应被调用
                         clarifier.clarify.assert_not_called()
                         assert reply == "结果"
 
     @pytest.mark.asyncio
-    async def test_no_clarifier_no_error(self):
+    async def test_no_clarifier_no_error(self, tmp_path):
         """不传入 clarifier 时正常运行。"""
+        install_test_config(tmp_path, {"features": {"reflection": False}})
+
         with patch("miniagent.core.agent.get_default_agent_config", return_value=_make_agent_config()):
             with patch("miniagent.core.agent.merge_agent_config", side_effect=lambda a, b: a):
                 with patch(_TC_PATH, return_value=False):
@@ -130,10 +138,9 @@ class TestRunAgentClarification:
                         registry.get_all.return_value = {}
                         registry.list.return_value = []
 
-                        with patch.dict(os.environ, {"MINIAGENT_FEATURES_REFLECTION": "0"}):
-                            from miniagent.core import run_agent
+                        from miniagent.core import run_agent
 
-                            reply = await run_agent("test", registry=registry)
+                        reply = await run_agent("test", registry=registry)
 
                         assert reply == "结果"
 
@@ -142,91 +149,103 @@ class TestClarificationMaxQuestionsByDifficulty:
     """测试不同难度级别的澄清追问数量限制。"""
 
     @pytest.mark.asyncio
-    async def test_normal_difficulty_max_1_question(self, monkeypatch: pytest.MonkeyPatch):
+    async def test_normal_difficulty_max_1_question(self, tmp_path):
         """NORMAL（一般）难度最多问 1 个问题。"""
-        monkeypatch.setenv("MINIAGENT_TASK_CLASSIFIER", "1")
-        monkeypatch.setenv("MINIAGENT_FEATURES_REQUIREMENT_CLARIFY", "1")
-        monkeypatch.setenv("MINIAGENT_FEATURES_REFLECTION", "0")
-        monkeypatch.setenv("MINIAGENT_EXECUTION_ANNOUNCE_DIFFICULTY", "0")
-
+        install_test_config(
+            tmp_path,
+            {"features": {"requirement_clarify": True, "reflection": False}},
+        )
         tb = Toolbox(id="fs", name="fs", description="files", keywords=[])
 
         clarifier = MagicMock()
         clarifier.clarify = AsyncMock()
         clarifier.clarify.return_value = MagicMock(clarified_goal="")
 
-        with patch("miniagent.core.agent.classify_task_difficulty", new_callable=AsyncMock) as clf:
-            clf.return_value = TaskDifficulty.NORMAL
-            with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
-                gp.return_value = StructuredPlan(summary="s", steps=[], required_toolboxes=[])
-                with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
-                    ex.return_value = "ok"
+        with (
+            patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", True),
+            patch("miniagent.core.constants.EXECUTION_ANNOUNCE_DIFFICULTY", False),
+            mock_all_llm_clients(),
+        ):
+            with patch("miniagent.core.agent.classify_task_difficulty", new_callable=AsyncMock) as clf:
+                clf.return_value = TaskDifficulty.NORMAL
+                with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
+                    gp.return_value = StructuredPlan(summary="s", steps=[], required_toolboxes=[])
+                    with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
+                        ex.return_value = "ok"
 
-                    from miniagent.core.agent import run_agent
-                    from miniagent.infrastructure.registry import DefaultToolRegistry
-                    await run_agent("task", registry=DefaultToolRegistry(), toolboxes=[tb], clarifier=clarifier)
+                        from miniagent.core.agent import run_agent
+                        from miniagent.infrastructure.registry import DefaultToolRegistry
 
-        # 验证 max_questions=1 传给了 clarifier
+                        await run_agent("task", registry=DefaultToolRegistry(), toolboxes=[tb], clarifier=clarifier)
+
         clarifier.clarify.assert_called_once()
         call_kwargs = clarifier.clarify.call_args.kwargs
         assert call_kwargs.get("max_questions") == 1
 
     @pytest.mark.asyncio
-    async def test_medium_difficulty_max_2_questions(self, monkeypatch: pytest.MonkeyPatch):
+    async def test_medium_difficulty_max_2_questions(self, tmp_path):
         """MEDIUM（中等）难度最多问 2 个问题。"""
-        monkeypatch.setenv("MINIAGENT_TASK_CLASSIFIER", "1")
-        monkeypatch.setenv("MINIAGENT_FEATURES_REQUIREMENT_CLARIFY", "1")
-        monkeypatch.setenv("MINIAGENT_FEATURES_REFLECTION", "0")
-        monkeypatch.setenv("MINIAGENT_EXECUTION_ANNOUNCE_DIFFICULTY", "0")
-
+        install_test_config(
+            tmp_path,
+            {"features": {"requirement_clarify": True, "reflection": False}},
+        )
         tb = Toolbox(id="fs", name="fs", description="files", keywords=[])
 
         clarifier = MagicMock()
         clarifier.clarify = AsyncMock()
         clarifier.clarify.return_value = MagicMock(clarified_goal="")
 
-        with patch("miniagent.core.agent.classify_task_difficulty", new_callable=AsyncMock) as clf:
-            clf.return_value = TaskDifficulty.MEDIUM
-            with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
-                gp.return_value = StructuredPlan(summary="s", steps=[], required_toolboxes=[])
-                with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
-                    ex.return_value = "ok"
+        with (
+            patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", True),
+            patch("miniagent.core.constants.EXECUTION_ANNOUNCE_DIFFICULTY", False),
+            mock_all_llm_clients(),
+        ):
+            with patch("miniagent.core.agent.classify_task_difficulty", new_callable=AsyncMock) as clf:
+                clf.return_value = TaskDifficulty.MEDIUM
+                with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
+                    gp.return_value = StructuredPlan(summary="s", steps=[], required_toolboxes=[])
+                    with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
+                        ex.return_value = "ok"
 
-                    from miniagent.core.agent import run_agent
-                    from miniagent.infrastructure.registry import DefaultToolRegistry
-                    await run_agent("task", registry=DefaultToolRegistry(), toolboxes=[tb], clarifier=clarifier)
+                        from miniagent.core.agent import run_agent
+                        from miniagent.infrastructure.registry import DefaultToolRegistry
 
-        # 验证 max_questions=2 传给了 clarifier
+                        await run_agent("task", registry=DefaultToolRegistry(), toolboxes=[tb], clarifier=clarifier)
+
         clarifier.clarify.assert_called_once()
         call_kwargs = clarifier.clarify.call_args.kwargs
         assert call_kwargs.get("max_questions") == 2
 
     @pytest.mark.asyncio
-    async def test_complex_difficulty_max_3_questions(self, monkeypatch: pytest.MonkeyPatch):
+    async def test_complex_difficulty_max_3_questions(self, tmp_path):
         """COMPLEX（复杂）难度最多问 3 个问题。"""
-        monkeypatch.setenv("MINIAGENT_TASK_CLASSIFIER", "1")
-        monkeypatch.setenv("MINIAGENT_FEATURES_REQUIREMENT_CLARIFY", "1")
-        monkeypatch.setenv("MINIAGENT_FEATURES_REFLECTION", "0")
-        monkeypatch.setenv("MINIAGENT_EXECUTION_ANNOUNCE_DIFFICULTY", "0")
-
+        install_test_config(
+            tmp_path,
+            {"features": {"requirement_clarify": True, "reflection": False}},
+        )
         tb = Toolbox(id="fs", name="fs", description="files", keywords=[])
 
         clarifier = MagicMock()
         clarifier.clarify = AsyncMock()
         clarifier.clarify.return_value = MagicMock(clarified_goal="")
 
-        with patch("miniagent.core.agent.classify_task_difficulty", new_callable=AsyncMock) as clf:
-            clf.return_value = TaskDifficulty.COMPLEX
-            with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
-                gp.return_value = StructuredPlan(summary="s", steps=[], required_toolboxes=[])
-                with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
-                    ex.return_value = "ok"
+        with (
+            patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", True),
+            patch("miniagent.core.constants.EXECUTION_ANNOUNCE_DIFFICULTY", False),
+            mock_all_llm_clients(),
+        ):
+            with patch("miniagent.core.agent.classify_task_difficulty", new_callable=AsyncMock) as clf:
+                clf.return_value = TaskDifficulty.COMPLEX
+                with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
+                    gp.return_value = StructuredPlan(summary="s", steps=[], required_toolboxes=[])
+                    with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
+                        ex.return_value = "ok"
 
-                    from miniagent.core.agent import run_agent
-                    from miniagent.infrastructure.registry import DefaultToolRegistry
-                    await run_agent("task", registry=DefaultToolRegistry(), toolboxes=[tb], clarifier=clarifier)
+                        from miniagent.core.agent import run_agent
+                        from miniagent.infrastructure.registry import DefaultToolRegistry
 
-        # 验证 max_questions=3 传给了 clarifier
+                        await run_agent("task", registry=DefaultToolRegistry(), toolboxes=[tb], clarifier=clarifier)
+
         clarifier.clarify.assert_called_once()
         call_kwargs = clarifier.clarify.call_args.kwargs
         assert call_kwargs.get("max_questions") == 3
@@ -236,9 +255,11 @@ class TestRunAgentReflection:
     """测试 Phase 3 反思评估。"""
 
     @pytest.mark.asyncio
-    async def test_reflection_when_enabled(self):
+    async def test_reflection_when_enabled(self, tmp_path):
         """默认开启反思评估。"""
         from miniagent.core.problem_solver import ReflectionResult
+
+        install_test_config(tmp_path, {"features": {"reflection": True}})
 
         cfg = _make_agent_config()
         cfg.session_key = "test_session"
@@ -264,23 +285,23 @@ class TestRunAgentReflection:
                             registry.get_all.return_value = {}
                             registry.list.return_value = []
 
-                            with patch.dict(os.environ, {"MINIAGENT_FEATURES_REFLECTION": "1"}):
-                                from miniagent.core import run_agent
+                            from miniagent.core import run_agent
 
-                                reply = await run_agent(
-                                    "test input",
-                                    registry=registry,
-                                    on_thinking=on_thinking,
-                                )
+                            reply = await run_agent(
+                                "test input",
+                                registry=registry,
+                                on_thinking=on_thinking,
+                            )
 
-                            # 验证反思被调用
                             mock_reflect.assert_called_once()
                             assert "Agent 回复结果" in reply
                             assert "质量评估" in reply
 
     @pytest.mark.asyncio
-    async def test_reflection_explicitly_disabled(self):
-        """MINIAGENT_FEATURES_REFLECTION=0 时不执行反思。"""
+    async def test_reflection_explicitly_disabled(self, tmp_path):
+        """features.reflection=false 时不执行反思。"""
+        install_test_config(tmp_path, {"features": {"reflection": False}})
+
         with patch("miniagent.core.agent.get_default_agent_config", return_value=_make_agent_config()):
             with patch("miniagent.core.agent.merge_agent_config", side_effect=lambda a, b: a):
                 with patch(_TC_PATH, return_value=False):
@@ -292,11 +313,10 @@ class TestRunAgentReflection:
                         registry.get_all.return_value = {}
                         registry.list.return_value = []
 
-                        with patch.dict(os.environ, {"MINIAGENT_FEATURES_REFLECTION": "0"}):
-                            with patch(_REFLECT_PATH, new_callable=AsyncMock) as mock_reflect:
-                                from miniagent.core import run_agent
+                        with patch(_REFLECT_PATH, new_callable=AsyncMock) as mock_reflect:
+                            from miniagent.core import run_agent
 
-                                reply = await run_agent("test", registry=registry)
+                            reply = await run_agent("test", registry=registry)
 
-                                mock_reflect.assert_not_called()
-                                assert reply == "结果"
+                            mock_reflect.assert_not_called()
+                            assert reply == "结果"

@@ -1,12 +1,12 @@
 """LLM 参数解析。"""
 
-import pytest
 
 from miniagent.core.config import get_default_agent_config, merge_agent_config
 from miniagent.core.llm_params import (
     resolve_exec_completion_kwargs,
     resolve_planner_completion_kwargs,
 )
+from tests.config_helpers import install_test_config
 
 
 def test_resolve_exec_uses_model_overrides() -> None:
@@ -22,12 +22,10 @@ def test_resolve_exec_uses_model_overrides() -> None:
     assert kw["stream"] is True
 
 
-def test_resolve_exec_dashscope_includes_thinking_extra_body(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv(
-        "MINIAGENT_MODEL_BASE_URL",
-        "https://dashscope.aliyuncs.com/compatible-mode/v1",
+def test_resolve_exec_dashscope_includes_thinking_extra_body(tmp_path) -> None:
+    install_test_config(
+        tmp_path,
+        {"model": {"base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1"}},
     )
     base = get_default_agent_config()
     cfg = merge_agent_config(

@@ -12,6 +12,13 @@ from miniagent.memory.shared_registry import (
     reset_registry,
 )
 from miniagent.types.memory import MemoryEntryInput
+from tests.config_helpers import install_test_config
+
+
+@pytest.fixture(autouse=True)
+def _isolated_registry_config(tmp_path):
+    """Reset JsonConfigLoader so registry_max_entries tests don't leak."""
+    install_test_config(tmp_path, {})
 
 
 @pytest.fixture
@@ -115,10 +122,11 @@ class TestMemoryEntryRegistry:
 
         assert registry.get_stats()["total_entries"] == 1
 
-    def test_eviction_on_max_entries(self, temp_state_dir):
+    def test_eviction_on_max_entries(self, temp_state_dir, tmp_path):
         """Registry evicts oldest entries when exceeding max."""
-        # Set small max for test
-        os.environ["MINIAGENT_MEMORY_REGISTRY_MAX_ENTRIES"] = "3"
+        from tests.config_helpers import install_test_config
+
+        install_test_config(tmp_path, {"memory": {"registry_max_entries": 3}})
         registry = MemoryEntryRegistry(state_dir=temp_state_dir)
 
         for i in range(5):
@@ -137,8 +145,6 @@ class TestMemoryEntryRegistry:
         assert registry.get("session-1:2026-05-31T00:00:00Z") is None
         assert registry.get("session-1:2026-05-31T01:00:00Z") is None
         assert registry.get("session-1:2026-05-31T02:00:00Z") is not None
-
-        del os.environ["MINIAGENT_MEMORY_REGISTRY_MAX_ENTRIES"]
 
     def test_contains(self, registry):
         """Check if key exists in registry."""
