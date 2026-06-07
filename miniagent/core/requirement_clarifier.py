@@ -30,6 +30,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 _logger = logging.getLogger(__name__)
 
@@ -56,6 +57,12 @@ class ClarifiedRequirement:
     examples: list[str] = field(default_factory=list)     # 正向示例
     anti_examples: list[str] = field(default_factory=list) # 反向示例
     ambiguity_report: list[str] = field(default_factory=list)  # 模糊表述列表
+    resolved_assumptions: list[str] = field(default_factory=list)  # 已通过上下文或默认值自澄清
+    memory_resolved_facts: list[str] = field(default_factory=list)  # 由长期记忆解答的模糊点
+    knowledge_resolved_facts: list[str] = field(default_factory=list)  # 由知识库解答的模糊点
+    default_resolved_assumptions: list[str] = field(default_factory=list)  # 安全默认值
+    unresolved_questions: list[str] = field(default_factory=list)  # 仍需用户或后续阶段注意的问题
+    clarification_needed: bool = False  # 本次是否实际需要向用户追问
 
 
 # CLARIFY_PROMPT 现在从 miniagent.core.prompts.clarifier 导入
@@ -106,8 +113,11 @@ class RequirementClarifier:
 
         RAG 增强：澄清阶段会检索知识库（可选），避免询问知识库已有答案的问题。
         """
+        start_time = time.monotonic_ns()
+
         # 加载会话记忆（让需求分析看到历史上下文）
         memory_context = ""
+        memory = None
         if memory_store and session_key:
             try:
                 from miniagent.memory.store import format_memory_for_prompt
@@ -151,7 +161,37 @@ class RequirementClarifier:
             examples=result.get("examples", []),
             anti_examples=result.get("anti_examples", []),
             ambiguity_report=result.get("ambiguity_report", []),
+            resolved_assumptions=result.get("resolved_assumptions", []),
+            memory_resolved_facts=result.get("memory_resolved_facts", []),
+            knowledge_resolved_facts=result.get("knowledge_resolved_facts", []),
+            default_resolved_assumptions=result.get("default_resolved_assumptions", []),
+            unresolved_questions=result.get("unresolved_questions", []),
+            clarification_needed=bool(result.get("clarification_needed", False)),
         )
+
+        if clarified.ambiguity_report:
+            from miniagent.memory.ground_truth import (
+                prioritize_clarification_questions,
+                resolve_ambiguities_from_ground_truth,
+            )
+
+            (
+                memory_resolved,
+                knowledge_resolved,
+                default_resolved,
+                unresolved,
+            ) = resolve_ambiguities_from_ground_truth(
+                clarified.ambiguity_report,
+                memory,
+                knowledge_context=kb_context,
+                user_input=user_input,
+            )
+            clarified.memory_resolved_facts.extend(memory_resolved)
+            clarified.knowledge_resolved_facts.extend(knowledge_resolved)
+            clarified.default_resolved_assumptions.extend(default_resolved)
+            clarified.resolved_assumptions.extend(memory_resolved + knowledge_resolved + default_resolved)
+            clarified.unresolved_questions.extend(prioritize_clarification_questions(unresolved))
+            clarified.clarification_needed = bool(clarified.unresolved_questions)
 
         # 输出澄清结果摘要
         parts: list[str] = []
@@ -169,12 +209,39 @@ class RequirementClarifier:
             "[需求澄清]",
         )
 
-        # 交互模式：针对模糊点追问
-        if self.interactive and ask_user and clarified.ambiguity_report:
-            for ambiguity in clarified.ambiguity_report[:max_questions]:
+        asked_count = 0
+        # 交互模式：只针对无法由记忆/知识库/安全默认值解答的高影响问题追问。
+        if self.interactive and ask_user and clarified.unresolved_questions:
+            questions_to_ask = clarified.unresolved_questions[: max(0, max_questions)]
+            remaining_unasked = clarified.unresolved_questions[len(questions_to_ask):]
+            clarified.unresolved_questions = list(remaining_unasked)
+            for ambiguity in questions_to_ask:
                 answer = await ask_user(f"关于「{ambiguity}」，您能补充说明吗？")
+                asked_count += 1
                 if answer and answer.strip():
                     clarified.boundary_conditions.append(f"用户补充：{answer.strip()}")
+                else:
+                    clarified.unresolved_questions.append(ambiguity)
+            clarified.clarification_needed = asked_count > 0
+
+        try:
+            from miniagent.infrastructure.trace_events import EVENT_REQUIREMENT_CLARIFY
+            from miniagent.infrastructure.tracing import emit_trace
+
+            emit_trace({
+                "type": EVENT_REQUIREMENT_CLARIFY,
+                "session_key": session_key or "",
+                "duration_ms": (time.monotonic_ns() - start_time) // 1_000_000,
+                "success": True,
+                "ambiguity_count": len(clarified.ambiguity_report),
+                "asked_count": asked_count,
+                "memory_resolved_count": len(clarified.memory_resolved_facts),
+                "knowledge_resolved_count": len(clarified.knowledge_resolved_facts),
+                "default_resolved_count": len(clarified.default_resolved_assumptions),
+                "unresolved_count": len(clarified.unresolved_questions),
+            })
+        except Exception as e:
+            _logger.debug("需求澄清 trace 发送失败: %s", e)
 
         return clarified
 
@@ -192,6 +259,14 @@ class RequirementClarifier:
             parts.append("正向示例：\n" + "\n".join(f"- {e}" for e in clarified.examples))
         if clarified.anti_examples:
             parts.append("避免以下：\n" + "\n".join(f"- {e}" for e in clarified.anti_examples))
+        if clarified.memory_resolved_facts:
+            parts.append("记忆已解答：\n" + "\n".join(f"- {f}" for f in clarified.memory_resolved_facts))
+        if clarified.knowledge_resolved_facts:
+            parts.append("知识库已解答：\n" + "\n".join(f"- {f}" for f in clarified.knowledge_resolved_facts))
+        if clarified.default_resolved_assumptions:
+            parts.append("默认假设：\n" + "\n".join(f"- {f}" for f in clarified.default_resolved_assumptions))
+        if clarified.unresolved_questions:
+            parts.append("仍需注意的未解问题：\n" + "\n".join(f"- {q}" for q in clarified.unresolved_questions))
         return "\n\n".join(parts)
 
 

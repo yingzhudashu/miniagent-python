@@ -240,6 +240,22 @@ class KnowledgeRegistry:
         """获取指定知识库实例。"""
         return self._mounted.get(name)
 
+    def refresh_auto_file_kb(self, path: str, name: str) -> dict[str, Any]:
+        """Mount or reload the project-level auto-ingested file knowledge base."""
+        path = os.path.abspath(path)
+        kb = self._mounted.get(name)
+        if kb and kb.path == path:
+            kb.reload()
+            self._save_registry()
+            return {"success": True, "message": f"已刷新知识库: {name}", "kb_name": name}
+        result = self.mount(path, name)
+        if result.get("success") and name not in self._mounted:
+            # ``mount`` may use the KB.yaml name; keep the requested stable alias too.
+            self._mounted[name] = KnowledgeBase(path)
+            self._mounted[name].load()
+            self._save_registry()
+        return result
+
     def reload(self, name: str | None = None) -> dict[str, Any]:
         """重新加载知识库。
 

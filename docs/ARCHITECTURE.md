@@ -176,7 +176,7 @@ Agent 的大脑，采用 **多阶段架构**（Phase 0.5 需求澄清 → Phase 
 |------|------|
 | `agent.py` | 多阶段主入口：`run_agent()` (Clarify→Plan→Execute), `run_pipeline()` (线性管线) |
 | `requirement_clarifier.py` | Phase 0.5 需求澄清器：三步法（Wittgenstein→Socrates→Polanyi）将模糊输入转化为结构化需求 |
-| `planner.py` | Phase 1 规划器：LLM 分析需求 → 生成 `StructuredPlan` → 选择工具箱 → 估算 tokens |
+| `planner.py` | Phase 1 规划器：LLM 分析需求 → 生成 `StructuredPlan` → 本地最小路径 normalization → 选择工具箱 → 估算 tokens |
 | `executor.py` | Phase 2 执行器：ReAct 循环；在 `plan.steps` 非空且 Internal 常量 `PHASED_EXECUTION` 开启时按步骤分子循环，每步单独解析 `thinking_level`/`thinking_budget` |
 | `config.py` | 配置管理：`MODEL_PROFILES`, `AgentConfig` 合并, 循环检测默认值 |
 | `openai_client.py` | 进程内共享 `AsyncOpenAI` 工厂；测试可 `reset_shared_async_openai_for_tests()` |
@@ -246,7 +246,7 @@ Agent 的大脑，采用 **多阶段架构**（Phase 0.5 需求澄清 → Phase 
 
 #### Phase 0.5: 需求澄清（三步法）
 
-当任务难度为 **普通或复杂**（非简单）时，`requirement_clarifier.py` 在规划之前执行三步需求澄清：
+当任务难度为 **普通 / 中等 / 复杂**（非简单）时，`requirement_clarifier.py` 在规划之前执行三步需求澄清。澄清器并不默认打断用户：普通 / 中等 / 复杂任务分别最多追问 1 / 2 / 3 个问题，且会先从当前请求、会话记忆、知识库和安全默认值自澄清；如果这些依据已经足够，则本轮可以追问 0 个问题。
 
 ```
 用户输入 "帮我查一下天气"
@@ -261,6 +261,9 @@ ClarifiedRequirement（澄清后的需求规格）
   - clarified_goal: "获取指定城市的实时天气信息"
   - boundary_conditions: ["需明确城市名称", "返回温度、天气状况"]
   - output_spec: "简洁文本，含温度和天气状况"
+  - memory_resolved_facts: ["输出语言是什么 -> output.language: 默认用中文"]
+  - default_resolved_assumptions: ["输出格式是什么 -> 未指定输出格式时默认使用清晰的 Markdown"]
+  - unresolved_questions: ["城市名称是哪一个"]
   - examples: ["北京今天天气怎么样"]
   - anti_examples: ["天气"]（过于模糊）
 ```
@@ -275,9 +278,9 @@ ClarifiedRequirement（澄清后的需求规格）
 
 **两种模式**：
 - **自动推断**：LLM 一次性分析，零交互，适合非交互场景
-- **交互追问**：针对 LLM 识别的模糊点实时向用户追问（需 `ask_user` 回调）
+- **交互追问**：只针对无法由记忆、知识库、当前请求或安全默认值解答的关键模糊点实时追问（需 `ask_user` 回调）
 
-**与记忆层联动**：交互模式下，澄清前会加载会话历史记忆，避免重复追问已回答的问题。
+**与记忆层联动**：澄清前会加载会话历史记忆，优先使用 `ground_truth_facts` 中 active 且高置信的长期确定事实，避免重复追问已回答的问题。用户纠正会将旧事实标记为 superseded，新事实作为 active 事实参与后续自澄清。
 
 #### ReAct 循环详解（多阶段流程）
 
@@ -285,17 +288,17 @@ ClarifiedRequirement（澄清后的需求规格）
 用户输入
     ↓
 ┌─ Phase 0: 任务分类 ─────────┐
-│  task_classifier.py         │ → 简单 / 普通 / 复杂
+│  task_classifier.py         │ → 简单 / 普通 / 中等 / 复杂
 └─────────────┬──────────────┘
               ↓
-┌─ Phase 0.5: 需求澄清 ───────┐  ← 仅普通/复杂任务
+┌─ Phase 0.5: 需求澄清 ───────┐  ← 普通/中等/复杂任务；最多 N 问且允许 0 问
 │  requirement_clarifier.py   │ → ClarifiedRequirement
 │  （三步法：语言边界→追问→示例）│
 └─────────────┬──────────────┘
               ↓
 ┌─ Phase 1: 规划 ─────────────┐
 │  planner.py                 │ → StructuredPlan
-│  生成步骤、选工具箱、估 tokens│
+│  生成步骤、去重最小路径、选工具箱、估 tokens│
 └─────────────┬──────────────┘
               ↓
 ┌─ Phase 2: 执行 ─────────────┐
@@ -315,6 +318,8 @@ ClarifiedRequirement（澄清后的需求规格）
 ```
 
 **简单任务优化**：当 `task_classifier.py` 判断任务为「简单」时，跳过 Phase 0.5 和 Phase 1，直接进入 Phase 2 执行（低思考档位），节省 LLM 调用开销。
+
+**规划最小路径**：Phase 1 在 LLM 返回后会做本地 normalization，删除空步骤、合并重复读取/扫描/分析同一对象的步骤、重编号并修正 `dependsOn`。规划提示也会携带最近已完成工作摘要，要求复用已读取、已分析、已测试或已入库的结果，避免把同一工作重复规划给执行器。
 
 ### 4. 飞书层 (Feishu)
 
@@ -415,6 +420,7 @@ LLM 可通过 function calling 调用的工具：
 |------|------|
 | `knowledge/base.py` | `KnowledgeBase`：单知识库加载、关键词索引构建、检索 |
 | `knowledge/registry.py` | `KnowledgeRegistry`：多知识库挂载/卸载/跨库检索、持久化 |
+| `knowledge/file_ingest.py` | 文件分析自动入库：将已读取文本文件写入项目级 `_auto_file_analysis` 知识库并记录源路径/hash |
 | `tools/knowledge_tools.py` | Agent 工具：`search_knowledge`、`read_knowledge_file`、`kb_list` |
 
 **RAG 全面集成**（自 v2.0.3 起）：
@@ -434,6 +440,10 @@ LLM 可通过 function calling 调用的工具：
 - `knowledge.root` / `knowledge.default_root`：知识库根目录（默认 `workspaces/knowledge`）
 - `knowledge.auto_mount`：自动挂载根目录下知识库（默认 `true`）
 - `knowledge.as_core`：将 knowledge 工具作为核心工具箱（默认 `true`）
+- `knowledge.auto_ingest_analyzed_files`：`read_file` 成功读取文本文件后自动写入项目级分析知识库（默认 `true`）
+- `knowledge.auto_ingest_kb_name`：自动分析知识库名称（默认 `_auto_file_analysis`）
+
+自动入库结果使用普通 `KnowledgeBase` 目录结构，并在检索片段中展示原始 `source_path`、hash 摘要和 size。RAG 未命中或源文件 hash/mtime 变化时，规划器仍应安排 `read_file` / `list_dir` 二次确认，避免把过期索引当作真实源文件。
 
 详细集成方案见 [RAG_ENHANCEMENT_PLAN.md](RAG_ENHANCEMENT_PLAN.md)。
 

@@ -1,5 +1,6 @@
 """Tests for memory store (async)."""
 
+import json
 import tempfile
 from pathlib import Path
 
@@ -7,7 +8,7 @@ import pytest
 
 from miniagent.infrastructure.tracing import clear_trace_hooks, register_trace_hook
 from miniagent.memory.store import DefaultMemoryStore
-from miniagent.types.memory import MemoryEntryInput
+from miniagent.types.memory import GroundTruthFact, MemoryEntryInput
 
 
 @pytest.mark.asyncio
@@ -170,3 +171,67 @@ class TestMemoryStore:
         assert loaded is not None
         assert loaded.session_id == sid
         assert loaded.key_facts == ["fact"]
+
+    async def test_load_old_schema_without_ground_truth(self):
+        sid = "session-old-schema"
+        memory_dir = Path(self.tmpdir.name, "memory")
+        memory_dir.mkdir(parents=True)
+        Path(memory_dir, f"{sid}.json").write_text(
+            json.dumps(
+                {
+                    "session_id": sid,
+                    "cumulative_summary": "",
+                    "key_facts": ["legacy fact"],
+                    "entries": [],
+                    "uploaded_files": [],
+                    "total_turns": 0,
+                    "first_seen": "",
+                    "last_active": "",
+                    "chat_id": None,
+                    "sender_id": None,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        loaded = await self.store.load(sid)
+
+        assert loaded is not None
+        assert loaded.key_facts == ["legacy fact"]
+        assert loaded.ground_truth_facts == []
+
+    async def test_save_and_load_ground_truth_facts(self):
+        sid = "session-ground-truth"
+        from miniagent.types.memory import SessionMemory
+
+        memory = SessionMemory(
+            session_id=sid,
+            ground_truth_facts=[
+                GroundTruthFact(
+                    key="output.language",
+                    value="默认用中文",
+                    category="output_format",
+                    evidence="记住以后回复都用中文",
+                )
+            ],
+        )
+
+        await self.store.save(memory)
+        loaded = await self.store.load(sid)
+
+        assert loaded is not None
+        assert loaded.ground_truth_facts[0].key == "output.language"
+        assert loaded.ground_truth_facts[0].value == "默认用中文"
+
+    async def test_update_summary_supersedes_ground_truth_fact(self):
+        sid = "session-ground-truth-update"
+
+        await self.store.update_summary(sid, "记住以后回复都用中文", ["以后回复都用中文"])
+        await self.store.update_summary(sid, "纠正一下，以后回复都用英文", ["以后回复都用英文"])
+
+        loaded = await self.store.load(sid)
+        assert loaded is not None
+        active = [f for f in loaded.ground_truth_facts if f.status == "active"]
+        assert len(active) == 1
+        assert "英文" in active[0].value
+        assert any(f.status == "superseded" for f in loaded.ground_truth_facts)

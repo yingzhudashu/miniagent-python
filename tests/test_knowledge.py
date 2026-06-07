@@ -60,6 +60,35 @@ class TestKnowledgeBase:
         finally:
             os.unlink(f.name)
 
+    def test_knowledge_base_search_shows_source_metadata(self):
+        """Auto-ingested KB search results should expose the original source path."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            files_dir = os.path.join(tmpdir, "files")
+            os.makedirs(files_dir)
+            with open(os.path.join(tmpdir, "KB.yaml"), "w", encoding="utf-8") as f:
+                f.write("name: auto\nfile_patterns:\n  - '*.md'\n")
+            with open(os.path.join(files_dir, "abc.md"), "w", encoding="utf-8") as f:
+                f.write("Alpha source marker")
+            metadata = {
+                "/source/abc.md": {
+                    "source_path": "/source/abc.md",
+                    "file_path": "abc.md",
+                    "source_hash": "abcdef1234567890",
+                    "size": 19,
+                    "ingested_at": 123.0,
+                }
+            }
+            with open(os.path.join(tmpdir, "source-metadata.json"), "w", encoding="utf-8") as f:
+                import json
+
+                json.dump(metadata, f)
+
+            kb = KnowledgeBase(tmpdir)
+            result = kb.search("Alpha")
+
+            assert "/source/abc.md" in result
+            assert "abcdef123456" in result
+
 
 class TestKnowledgeRegistry:
     """Test KnowledgeRegistry class."""

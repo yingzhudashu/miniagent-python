@@ -44,6 +44,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from miniagent.knowledge.file_ingest import ingest_file_for_analysis
 from miniagent.tools.base import tool
 from miniagent.tools.path_utils import resolve_path_from_ctx
 from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX
@@ -81,7 +82,20 @@ async def _read_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
     if len(sliced) < total:
         result += f"\n... (共 {total} 行，仅显示 {len(sliced)} 行，使用 offset/limit 翻页)"
 
-    return ToolResult(success=True, content=result, meta={"totalLines": total, "readLines": len(sliced)})
+    meta: dict[str, Any] = {"totalLines": total, "readLines": len(sliced)}
+    ingest = ingest_file_for_analysis(file_path, content=content)
+    meta.update(
+        {
+            "rag_ingested": bool(ingest.success and not ingest.skipped),
+            "rag_ingest_skipped": bool(ingest.skipped),
+            "rag_ingest_reason": ingest.reason,
+            "rag_kb_name": ingest.kb_name,
+            "source_path": ingest.source_path,
+            "source_hash": ingest.source_hash,
+        }
+    )
+
+    return ToolResult(success=True, content=result, meta=meta)
 
 
 async def _write_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:

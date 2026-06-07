@@ -10,9 +10,11 @@
 |------|------|----------|----------|
 | Agent编排 | agent.py | test_engine_engine.py, test_run_agent_phases.py | ✅ 充足 |
 | 执行器 | executor.py | test_executor_execute_plan.py, test_executor_system_prompt.py | ✅ 充足 |
-| 规划器 | planner.py | test_planner_thinking_step.py | ⚠️ 部分 |
+| 规划器 | planner.py | test_planner_thinking_step.py, test_planner_full_flow.py | ✅ 充足 |
+| 规划最小路径 | planner.py | test_planner_normalization.py | ✅ 充足 |
 | 任务分类 | task_classifier.py | test_task_classifier_unit.py | ✅ 充足 |
 | 需求澄清 | requirement_clarifier.py | test_requirement_clarifier.py | ✅ 充足 |
+| 需求自澄清 | requirement_clarifier.py, memory/ground_truth.py | test_requirement_clarifier.py, test_memory_ground_truth.py | ✅ 充足 |
 | 反思评估 | problem_solver.py | 间接测试 | ⚠️ 部分 |
 | 配置管理 | config.py | test_merge_agent_config.py | ✅ 充足 |
 | OpenAI客户端 | openai_client.py | test_openai_client.py | ✅ 充足 |
@@ -48,6 +50,7 @@
 | 工具类型 | tool.py | test_types_tool.py | ✅ 充足 |
 | 配置类型 | config.py | test_merge_agent_config.py | ✅ 充足 |
 | 记忆类型 | memory.py | test_types_memory.py | ✅ 充足 |
+| 确定事实类型 | memory.py | test_types_memory.py | ✅ 充足 |
 | 规划类型 | planning.py | test_planner_thinking_step.py | ✅ 充足 |
 | 确认类型 | confirmation.py | 间接测试 | ⚠️ 部分 |
 
@@ -58,6 +61,7 @@
 | 模块 | 文件 | 测试文件 | 覆盖状态 |
 |------|------|----------|----------|
 | 文件系统 | filesystem.py | test_tools_filesystem.py | ✅ 充足 |
+| 文件分析 RAG 入库 | filesystem.py, knowledge/file_ingest.py | test_tools_filesystem.py, test_knowledge_file_ingest.py | ✅ 充足 |
 | 命令执行 | exec.py | test_tools_exec.py | ✅ 新增 |
 | 核心工具 | core_tools.py | test_web_error_handling.py | ✅ 充足 |
 | 技能工具 | skills.py (含 check_app) | test_tools_skills_clawhub.py | ✅ 充足 |
@@ -165,6 +169,7 @@
 |------|------|----------|----------|
 | 基础 | base.py | test_knowledge.py | ✅ 充足 |
 | 注册表 | registry.py | test_knowledge.py | ✅ 充足 |
+| 自动文件入库 | file_ingest.py | test_knowledge_file_ingest.py | ✅ 充足 |
 
 ---
 

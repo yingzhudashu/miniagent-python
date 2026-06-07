@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from miniagent.core.llm_json import parse_llm_json_response
@@ -100,6 +101,9 @@ async def generate_plan(
     # 注入知识库检索结果
     if kb_context_planner:
         user_parts.append(kb_context_planner)
+    completed_context = _completed_work_context(ac)
+    if completed_context:
+        user_parts.append(completed_context)
 
     messages: list[dict[str, str]] = [
         {"role": "system", "content": PLAN_SYSTEM_PROMPT},
@@ -236,6 +240,24 @@ def _format_toolbox_tool_names(registry: Any, toolbox_ids: list[str]) -> str:
     return "\n".join(lines)
 
 
+def _completed_work_context(agent_config: Any | None) -> str:
+    """Summarize recent completed work so the planner can reuse it."""
+    history = getattr(agent_config, "conversation_history", None) if agent_config is not None else None
+    if not history:
+        return ""
+    lines: list[str] = []
+    for msg in history[-20:]:
+        content = str(msg.get("content", "")) if isinstance(msg, dict) else ""
+        if not content:
+            continue
+        low = content.lower()
+        if any(term in low for term in ("read_file", "已读取", "分析", "测试", "pytest", "已完成", "rag", "知识库")):
+            lines.append(f"- {content[:180]}")
+    if not lines:
+        return ""
+    return "## 最近已完成工作（规划时应复用，避免重复步骤）\n" + "\n".join(lines[-8:])
+
+
 def _dict_to_plan(data: dict[str, Any], *, default_step_thinking: str = "medium") -> StructuredPlan:
     """将 LLM 返回的 dict 转为 StructuredPlan。
 
@@ -305,6 +327,7 @@ def _dict_to_plan(data: dict[str, Any], *, default_step_thinking: str = "medium"
         for i, raw in enumerate(raw_steps, start=1)
         for s in (_step_as_dict(raw, i),)
     ]
+    steps = _normalize_plan_steps(steps)
 
     # ── 嵌套配置解析（安全提取，空值回退）───────────────────────────────
     # suggestedConfig: 执行建议（轮数、超时、风险等级、策略等）
@@ -323,7 +346,7 @@ def _dict_to_plan(data: dict[str, Any], *, default_step_thinking: str = "medium"
     return StructuredPlan(
         summary=data.get("summary", ""),
         steps=steps,
-        required_toolboxes=data.get("requiredToolboxes", []),
+        required_toolboxes=_dedupe_toolboxes(data.get("requiredToolboxes", []), steps),
         suggested_config=SuggestedConfig(
             max_turns=sc.get("maxTurns"),
             tool_timeout=sc.get("toolTimeout"),
@@ -368,6 +391,96 @@ def _dict_to_plan(data: dict[str, Any], *, default_step_thinking: str = "medium"
     )
 
 
+def _normalize_plan_steps(steps: list[PlanStep]) -> list[PlanStep]:
+    """Remove duplicate/empty plan steps and repair numbering/dependencies."""
+    kept: list[PlanStep] = []
+    old_to_new: dict[int, int] = {}
+    fingerprint_to_new: dict[str, int] = {}
+
+    for original_index, step in enumerate(steps, start=1):
+        original_number = int(step.step_number or original_index)
+        step.description = str(step.description or "").strip()
+        step.expected_input = str(step.expected_input or "").strip()
+        step.expected_output = str(step.expected_output or "").strip()
+        step.required_toolboxes = _unique_strings(step.required_toolboxes)
+        if not step.description and not step.expected_output:
+            continue
+        fingerprint = _step_fingerprint(step)
+        duplicate_new = fingerprint_to_new.get(fingerprint)
+        if duplicate_new is not None:
+            old_to_new[original_number] = duplicate_new
+            continue
+        new_number = len(kept) + 1
+        old_to_new[original_number] = new_number
+        fingerprint_to_new[fingerprint] = new_number
+        step.step_number = new_number
+        kept.append(step)
+
+    for step in kept:
+        if step.depends_on is None:
+            continue
+        try:
+            dep = int(step.depends_on)
+        except (TypeError, ValueError):
+            step.depends_on = None
+            continue
+        mapped = old_to_new.get(dep)
+        step.depends_on = mapped if mapped and mapped != step.step_number else None
+    return kept
+
+
+def _dedupe_toolboxes(raw_toolboxes: Any, steps: list[PlanStep]) -> list[str]:
+    values: list[str] = []
+    if isinstance(raw_toolboxes, list):
+        values.extend(str(item) for item in raw_toolboxes if str(item).strip())
+    for step in steps:
+        values.extend(step.required_toolboxes)
+    return _unique_strings(values)
+
+
+def _unique_strings(values: Any) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in values:
+        item = str(value).strip()
+        if item and item not in seen:
+            seen.add(item)
+            out.append(item)
+    return out
+
+
+def _step_fingerprint(step: PlanStep) -> str:
+    text = " ".join([step.description, step.expected_input, step.expected_output]).lower()
+    path = _first_path_like(text)
+    action = _action_bucket(text)
+    toolboxes = ",".join(sorted(step.required_toolboxes))
+    if path:
+        return f"{action}|{path}|{toolboxes}"
+    normalized = re.sub(r"\s+", "", text)
+    return f"{action}|{normalized[:80]}|{toolboxes}"
+
+
+def _first_path_like(text: str) -> str:
+    match = re.search(r"([a-zA-Z0-9_.\\/-]+\.(?:py|md|txt|json|ya?ml|toml|ini|csv|html|css|js|ts))", text)
+    if match:
+        return match.group(1).replace("\\", "/").lower()
+    return ""
+
+
+def _action_bucket(text: str) -> str:
+    if any(term in text for term in ("读取", "read", "查看", "打开")):
+        return "read"
+    if any(term in text for term in ("扫描", "查找", "list", "搜索")):
+        return "discover"
+    if any(term in text for term in ("分析", "审查", "总结", "解释", "review", "analy")):
+        return "analyze"
+    if any(term in text for term in ("测试", "验证", "pytest", "compile", "ruff")):
+        return "verify"
+    return "work"
+
+
 def _fallback_plan(user_input: str) -> StructuredPlan:
     """回退计划：跳过详细规划，直接执行。"""
     return StructuredPlan(
@@ -398,4 +511,4 @@ def _fallback_plan(user_input: str) -> StructuredPlan:
     )
 
 
-__all__ = ["generate_plan"]
+__all__ = ["generate_plan", "_normalize_plan_steps"]

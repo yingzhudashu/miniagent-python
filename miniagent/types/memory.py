@@ -21,6 +21,27 @@ from typing import Any, Protocol, runtime_checkable
 
 
 @dataclass
+class GroundTruthFact:
+    """可追溯的长期确定事实。
+
+    ``key_facts`` 保留为兼容性的字符串摘要；本类型用于保存可更新、可纠正、
+    可作为后续需求自澄清依据的稳定事实。``supersedes`` 记录被当前事实替换的
+    旧值，避免在用户纠正偏好或约束后继续使用过期信息。
+    """
+
+    key: str
+    value: str
+    category: str = "preference"
+    confidence: float = 1.0
+    source: str = "user"
+    status: str = "active"
+    created_at: str = ""
+    updated_at: str = ""
+    supersedes: str | None = None
+    evidence: str = ""
+
+
+@dataclass
 class MemoryEntry:
     """记忆条目：从单轮对话中提取的信息
 
@@ -87,6 +108,7 @@ class SessionMemory:
         session_id: 会话唯一标识
         cumulative_summary: 运行累计摘要
         key_facts: 关键事实列表
+        ground_truth_facts: 可追溯、可纠正的长期确定事实
         entries: 历史条目列表
         uploaded_files: 上传的文件列表
         total_turns: 累计对话轮数
@@ -99,6 +121,7 @@ class SessionMemory:
     session_id: str
     cumulative_summary: str = ""
     key_facts: list[str] = field(default_factory=list)
+    ground_truth_facts: list[GroundTruthFact] = field(default_factory=list)
     entries: list[MemoryEntry] = field(default_factory=list)
     uploaded_files: list[FileMetadata] = field(default_factory=list)
     total_turns: int = 0
@@ -340,6 +363,7 @@ class SessionManagerProtocol(Protocol):
 
 
 __all__ = [
+    "GroundTruthFact",
     "MemoryEntry",
     "MemoryEntryInput",
     "FileMetadata",

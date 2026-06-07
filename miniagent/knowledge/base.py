@@ -16,6 +16,7 @@ import yaml
 
 from miniagent.core.constants import KNOWLEDGE_MAX_FILE_CHARS
 from miniagent.infrastructure.logger import get_logger
+from miniagent.knowledge.file_ingest import load_auto_file_metadata
 from miniagent.memory.keyword_index import extract_keywords
 
 _logger = get_logger(__name__)
@@ -124,6 +125,7 @@ class KnowledgeBase:
         # 索引数据
         self._entries: list[KnowledgeEntry] = []
         self._index: dict[str, list[int]] = {}  # keyword -> [entry indices]
+        self._source_metadata: dict[str, dict[str, Any]] = {}
         self._loaded = False
         self._load_time: float = 0
 
@@ -166,6 +168,7 @@ class KnowledgeBase:
         if os.path.isfile(self._path):
             files = [self._path]
         elif os.path.isdir(self._path):
+            self._source_metadata = load_auto_file_metadata(self._path)
             files_dir = os.path.join(self._path, "files")
             if os.path.isdir(files_dir):
                 # 优先使用 files/ 子目录
@@ -233,11 +236,16 @@ class KnowledgeBase:
         # 提取关键词
         keywords = extract_keywords(content)
 
+        metadata = {"source": file_path, "size": len(content)}
+        source_meta = self._source_metadata_for_rel_path(rel_path)
+        if source_meta:
+            metadata.update(source_meta)
+
         return KnowledgeEntry(
             file_path=rel_path,
             content=content,
             keywords=keywords,
-            metadata={"source": file_path, "size": len(content)},
+            metadata=metadata,
         )
 
     def _build_index(self) -> None:
@@ -298,6 +306,9 @@ class KnowledgeBase:
                 snippet += "..."
 
             text = f"### {entry.file_path}\n{snippet}\n"
+            source_line = self._format_source_metadata(entry)
+            if source_line:
+                text = f"### {entry.file_path}\n{source_line}\n{snippet}\n"
             if total_chars + len(text) > max_chars:
                 break
             results.append(text)
@@ -313,8 +324,28 @@ class KnowledgeBase:
         """重新加载知识库。"""
         self._entries.clear()
         self._index.clear()
+        self._source_metadata = {}
         self._loaded = False
         self.load()
+
+    def _source_metadata_for_rel_path(self, rel_path: str) -> dict[str, Any]:
+        for meta in self._source_metadata.values():
+            if meta.get("file_path") == rel_path:
+                return dict(meta)
+        return {}
+
+    def _format_source_metadata(self, entry: KnowledgeEntry) -> str:
+        source_path = entry.metadata.get("source_path") or entry.metadata.get("source")
+        if not source_path:
+            return ""
+        parts = [f"来源: `{source_path}`"]
+        if entry.metadata.get("source_hash"):
+            parts.append(f"hash: `{str(entry.metadata['source_hash'])[:12]}`")
+        if entry.metadata.get("size") is not None:
+            parts.append(f"size: {entry.metadata['size']}")
+        if entry.metadata.get("ingested_at"):
+            parts.append(f"ingested_at: {entry.metadata['ingested_at']}")
+        return " | ".join(parts)
 
 
 __all__ = ["KnowledgeBase", "KnowledgeEntry", "KBConfig", "load_kb_config"]

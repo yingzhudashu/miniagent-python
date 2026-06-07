@@ -34,8 +34,13 @@ from typing import Any
 
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
+from miniagent.memory.ground_truth import (
+    apply_ground_truth_updates,
+    format_ground_truth_for_prompt,
+)
 from miniagent.types.memory import (
     FileMetadata,
+    GroundTruthFact,
     MemoryEntry,
     MemoryEntryInput,
     MemoryStoreProtocol,
@@ -92,10 +97,19 @@ def format_memory_for_prompt(memory: SessionMemory | None) -> str:
 
     parts: list[str] = []
 
-    # 关键事实（最重要的信息）
+    ground_truth_lines = format_ground_truth_for_prompt(memory)
+    if ground_truth_lines:
+        parts.append("## 确定事实")
+        for fact in ground_truth_lines:
+            parts.append(f"- {fact}")
+
+    # 关键事实（兼容旧记忆；与确定事实重复的内容会跳过）
     if memory.key_facts:
         parts.append("## 关键记忆")
+        seen_ground_truth = {line.lower().strip() for line in ground_truth_lines}
         for fact in memory.key_facts[-10:]:
+            if any(fact.lower().strip() in line for line in seen_ground_truth):
+                continue
             parts.append(f"- {fact}")
 
     # 上传的文件（新增）
@@ -386,10 +400,38 @@ class DefaultMemoryStore(MemoryStoreProtocol):
             except Exception:
                 continue
 
+        ground_truth_facts: list[GroundTruthFact] = []
+        for fact in data.get("ground_truth_facts", []):
+            if isinstance(fact, GroundTruthFact):
+                ground_truth_facts.append(fact)
+            elif isinstance(fact, dict):
+                try:
+                    ground_truth_facts.append(
+                        GroundTruthFact(
+                            key=str(fact.get("key", "")),
+                            value=str(fact.get("value", "")),
+                            category=str(fact.get("category", "preference")),
+                            confidence=float(fact.get("confidence", 1.0)),
+                            source=str(fact.get("source", "user")),
+                            status=str(fact.get("status", "active")),
+                            created_at=str(fact.get("created_at", "")),
+                            updated_at=str(fact.get("updated_at", "")),
+                            supersedes=(
+                                str(fact.get("supersedes"))
+                                if fact.get("supersedes") is not None
+                                else None
+                            ),
+                            evidence=str(fact.get("evidence", "")),
+                        )
+                    )
+                except Exception:
+                    continue
+
         return SessionMemory(
             session_id=data["session_id"],
             cumulative_summary=data.get("cumulative_summary", ""),
             key_facts=data.get("key_facts", []),
+            ground_truth_facts=ground_truth_facts,
             entries=entries,
             uploaded_files=uploaded_files,
             total_turns=data.get("total_turns", 0),
@@ -523,6 +565,21 @@ class DefaultMemoryStore(MemoryStoreProtocol):
                 "session_id": memory.session_id,
                 "cumulative_summary": memory.cumulative_summary,
                 "key_facts": memory.key_facts,
+                "ground_truth_facts": [
+                    {
+                        "key": f.key,
+                        "value": f.value,
+                        "category": f.category,
+                        "confidence": f.confidence,
+                        "source": f.source,
+                        "status": f.status,
+                        "created_at": f.created_at,
+                        "updated_at": f.updated_at,
+                        "supersedes": f.supersedes,
+                        "evidence": f.evidence,
+                    }
+                    for f in memory.ground_truth_facts
+                ],
                 "entries": [
                     {
                         "timestamp": e.timestamp,
@@ -581,6 +638,7 @@ class DefaultMemoryStore(MemoryStoreProtocol):
                     first_seen=now,
                     last_active=now,
                 )
+                apply_ground_truth_updates(memory, "。".join([summary, *facts]), source="summary", now=now)
                 await self._save_unlocked(memory)
                 return
 
@@ -601,7 +659,9 @@ class DefaultMemoryStore(MemoryStoreProtocol):
             if len(memory.key_facts) > 20:
                 memory.key_facts = memory.key_facts[-20:]
 
-            memory.last_active = datetime.now(timezone.utc).isoformat()
+            now = datetime.now(timezone.utc).isoformat()
+            apply_ground_truth_updates(memory, "。".join([summary, *facts]), source="summary", now=now)
+            memory.last_active = now
             await self._save_unlocked(memory)
 
     async def add_entry(self, session_id: str, entry: MemoryEntryInput | dict[str, Any]) -> None:
@@ -642,7 +702,14 @@ class DefaultMemoryStore(MemoryStoreProtocol):
             if len(memory.entries) > 20:
                 memory.entries = memory.entries[-20:]
 
-            memory.last_active = datetime.now(timezone.utc).isoformat()
+            now = datetime.now(timezone.utc).isoformat()
+            apply_ground_truth_updates(
+                memory,
+                "。".join([entry.user_snippet, entry.summary, *(entry.facts or [])]),
+                source="entry",
+                now=now,
+            )
+            memory.last_active = now
             await self._save_unlocked(memory)
 
         # Layer 3: 索引到关键词倒排索引（与进程默认 bundle 同源）
@@ -702,6 +769,7 @@ class DefaultMemoryStore(MemoryStoreProtocol):
             existing = {f.lower().strip() for f in memory.key_facts}
             if fact.lower().strip() not in existing and len(memory.key_facts) < 20:
                 memory.key_facts.append(fact)
+            apply_ground_truth_updates(memory, fact, source="file", now=datetime.now(timezone.utc).isoformat())
 
         memory.last_active = datetime.now(timezone.utc).isoformat()
         await self.save(memory)

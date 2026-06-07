@@ -10,6 +10,15 @@ from miniagent.core.requirement_clarifier import (
     ClarifiedRequirement,
     RequirementClarifier,
 )
+from miniagent.types.memory import GroundTruthFact, SessionMemory
+
+
+class FakeMemoryStore:
+    def __init__(self, memory: SessionMemory | None) -> None:
+        self.memory = memory
+
+    async def load(self, session_key: str) -> SessionMemory | None:
+        return self.memory
 
 
 class TestRequirementClarifier:
@@ -23,6 +32,9 @@ class TestRequirementClarifier:
         assert cr.boundary_conditions == []
         assert cr.examples == []
         assert cr.anti_examples == []
+        assert cr.resolved_assumptions == []
+        assert cr.unresolved_questions == []
+        assert cr.clarification_needed is False
 
     def test_to_system_prompt_basic(self) -> None:
         """to_system_prompt 应包含目标和约束。"""
@@ -49,6 +61,21 @@ class TestRequirementClarifier:
         prompt = clarifier.to_system_prompt(cr)
         assert "Use type hints" in prompt
         assert "No global variables" in prompt
+
+    def test_to_system_prompt_with_self_clarification(self) -> None:
+        """to_system_prompt 应包含自澄清依据。"""
+        cr = ClarifiedRequirement(
+            original="write docs",
+            clarified_goal="Write docs",
+            memory_resolved_facts=["输出语言是什么 -> output.language: 默认用中文"],
+            default_resolved_assumptions=["输出格式是什么 -> 未指定输出格式时默认使用清晰的 Markdown"],
+            unresolved_questions=["目标目录是哪一个"],
+        )
+        prompt = RequirementClarifier().to_system_prompt(cr)
+
+        assert "记忆已解答" in prompt
+        assert "默认假设" in prompt
+        assert "仍需注意的未解问题" in prompt
 
     @pytest.mark.asyncio
     async def test_clarify_auto_mode(self) -> None:
@@ -126,3 +153,132 @@ class TestRequirementClarifier:
         with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
             await clarifier.clarify("clear input", ask_user=mock_ask_user)
             assert asked is False  # 没有模糊点，不应追问
+
+    @pytest.mark.asyncio
+    async def test_memory_resolved_ambiguity_asks_zero_questions(self) -> None:
+        """记忆可解答的模糊点不应继续追问。"""
+        clarifier = RequirementClarifier(interactive=True)
+        asked_questions: list[str] = []
+        memory = SessionMemory(
+            session_id="s",
+            ground_truth_facts=[
+                GroundTruthFact(
+                    key="output.language",
+                    value="默认用中文回答",
+                    category="output_format",
+                    confidence=0.95,
+                )
+            ],
+        )
+
+        async def mock_ask_user(question: str) -> str:
+            asked_questions.append(question)
+            return "answer"
+
+        async def mock_llm(*args, **kwargs):
+            return {
+                "clarified_goal": "write report",
+                "ambiguity_report": ["输出语言是什么"],
+            }
+
+        with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
+            result = await clarifier.clarify(
+                "写报告",
+                ask_user=mock_ask_user,
+                memory_store=FakeMemoryStore(memory),
+                session_key="s",
+                max_questions=1,
+            )
+
+        assert asked_questions == []
+        assert result.memory_resolved_facts
+        assert result.clarification_needed is False
+
+    @pytest.mark.asyncio
+    async def test_safe_default_asks_zero_questions(self) -> None:
+        """可用安全默认值处理的模糊点应写入默认假设而不追问。"""
+        clarifier = RequirementClarifier(interactive=True)
+        asked = False
+
+        async def mock_ask_user(question: str) -> str:
+            nonlocal asked
+            asked = True
+            return "answer"
+
+        async def mock_llm(*args, **kwargs):
+            return {
+                "clarified_goal": "write summary",
+                "ambiguity_report": ["输出格式是什么", "回答语言是什么"],
+            }
+
+        with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
+            result = await clarifier.clarify("总结一下", ask_user=mock_ask_user, max_questions=3)
+
+        assert asked is False
+        assert len(result.default_resolved_assumptions) == 2
+
+    @pytest.mark.asyncio
+    async def test_unresolved_questions_respect_max_questions(self) -> None:
+        """不同难度传入的 max_questions 上限应限制实际追问数量。"""
+        clarifier = RequirementClarifier(interactive=True)
+        asked_questions: list[str] = []
+
+        async def mock_ask_user(question: str) -> str:
+            asked_questions.append(question)
+            return "answer"
+
+        async def mock_llm(*args, **kwargs):
+            return {
+                "clarified_goal": "change project",
+                "ambiguity_report": ["目标目录是哪一个", "要覆盖哪些文件", "迁移范围是什么"],
+            }
+
+        with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
+            result = await clarifier.clarify(
+                "调整项目",
+                ask_user=mock_ask_user,
+                max_questions=2,
+            )
+
+        assert len(asked_questions) == 2
+        assert len(result.unresolved_questions) == 1
+        assert result.clarification_needed is True
+
+    @pytest.mark.asyncio
+    async def test_low_confidence_fact_does_not_self_clarify(self) -> None:
+        """低置信事实不能静默用于自澄清。"""
+        clarifier = RequirementClarifier(interactive=True)
+        asked_questions: list[str] = []
+        memory = SessionMemory(
+            session_id="s",
+            ground_truth_facts=[
+                GroundTruthFact(
+                    key="environment.path",
+                    value="目标目录可能是 docs",
+                    category="environment",
+                    confidence=0.4,
+                )
+            ],
+        )
+
+        async def mock_ask_user(question: str) -> str:
+            asked_questions.append(question)
+            return ""
+
+        async def mock_llm(*args, **kwargs):
+            return {
+                "clarified_goal": "write files",
+                "ambiguity_report": ["目标目录是哪一个"],
+            }
+
+        with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
+            result = await clarifier.clarify(
+                "写文件",
+                ask_user=mock_ask_user,
+                memory_store=FakeMemoryStore(memory),
+                session_key="s",
+                max_questions=1,
+            )
+
+        assert len(asked_questions) == 1
+        assert result.memory_resolved_facts == []

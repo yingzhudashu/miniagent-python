@@ -13,12 +13,38 @@ from __future__ import annotations
 
 from miniagent.types.memory import (
     FileMetadata,
+    GroundTruthFact,
     MemoryEntry,
     MemoryEntryInput,
     Session,
     SessionMemory,
     SessionOptions,
 )
+
+
+class TestGroundTruthFact:
+    """测试可追溯的长期确定事实。"""
+
+    def test_ground_truth_fact_defaults(self) -> None:
+        fact = GroundTruthFact(key="output.language", value="默认用中文")
+
+        assert fact.category == "preference"
+        assert fact.confidence == 1.0
+        assert fact.source == "user"
+        assert fact.status == "active"
+        assert fact.supersedes is None
+
+    def test_ground_truth_fact_superseded_metadata(self) -> None:
+        fact = GroundTruthFact(
+            key="output.language",
+            value="默认用英文",
+            status="active",
+            supersedes="默认用中文",
+            evidence="纠正一下，以后回复都用英文",
+        )
+
+        assert fact.supersedes == "默认用中文"
+        assert "英文" in fact.evidence
 
 
 class TestMemoryEntry:
@@ -171,6 +197,7 @@ class TestSessionMemory:
         memory = SessionMemory(session_id="test")
         assert memory.cumulative_summary == ""
         assert memory.key_facts == []
+        assert memory.ground_truth_facts == []
         assert memory.entries == []
         assert memory.uploaded_files == []
         assert memory.total_turns == 0
@@ -178,6 +205,13 @@ class TestSessionMemory:
         assert memory.last_active == ""
         assert memory.chat_id is None
         assert memory.sender_id is None
+
+    def test_session_memory_ground_truth_facts(self) -> None:
+        """会话记忆可保存确定事实列表。"""
+        fact = GroundTruthFact(key="output.language", value="默认用中文")
+        memory = SessionMemory(session_id="test", ground_truth_facts=[fact])
+
+        assert memory.ground_truth_facts[0].key == "output.language"
 
     def test_session_memory_entries(self) -> None:
         """记忆条目列表"""

@@ -141,6 +141,9 @@
     "reflector_enabled": true,
     "reflector_top_k": 3,
     "reflector_max_chars": 4000,
+    "auto_ingest_analyzed_files": true,
+    "auto_ingest_kb_name": "_auto_file_analysis",
+    "auto_ingest_max_file_chars": null,
     "executor_enabled": true,
     "executor_top_k": 3,
     "executor_max_chars": 4000

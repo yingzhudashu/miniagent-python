@@ -42,6 +42,12 @@ EVENT_TOOL_ERROR = "tool.error"
 # 新增事件类型 - 记忆操作（已使用）
 EVENT_MEMORY_READ = "memory.read"
 
+# 新增事件类型 - 需求澄清（已使用）
+EVENT_REQUIREMENT_CLARIFY = "requirement.clarify"
+
+# 新增事件类型 - 知识库文件入库（已使用）
+EVENT_KNOWLEDGE_FILE_INGEST = "knowledge.file_ingest"
+
 # 新增事件类型 - 上下文管理（已使用）
 EVENT_CONTEXT_COMPRESS = "context.compress"
 
@@ -173,6 +179,8 @@ __all__ = [
     "EVENT_TOOL_END",
     "EVENT_TOOL_ERROR",
     "EVENT_MEMORY_READ",
+    "EVENT_REQUIREMENT_CLARIFY",
+    "EVENT_KNOWLEDGE_FILE_INGEST",
     "EVENT_CONTEXT_COMPRESS",
     "EVENT_PROPOSAL_CREATE",
     "EVENT_PROPOSAL_APPROVE",

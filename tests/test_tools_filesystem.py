@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -36,6 +37,8 @@ async def test_read_file_basic(tmp_path: Path, ctx: ToolContext) -> None:
     assert r.success
     assert "line1" in r.content
     assert r.meta["totalLines"] == 4
+    assert "rag_ingested" in r.meta
+    assert r.meta["source_path"] == str(f.resolve())
 
 
 async def test_read_file_pagination(tmp_path: Path, ctx: ToolContext) -> None:
@@ -47,6 +50,24 @@ async def test_read_file_pagination(tmp_path: Path, ctx: ToolContext) -> None:
     assert r.meta["totalLines"] == 21
     assert r.meta["readLines"] == 5
     assert "仅显示 5 行" in r.content
+
+
+async def test_read_file_rag_ingest_can_be_disabled(tmp_path: Path, ctx: ToolContext) -> None:
+    f = tmp_path / "disabled.txt"
+    f.write_text("content", encoding="utf-8")
+
+    def _get_config(key: str, default=None):
+        if key == "knowledge.auto_ingest_analyzed_files":
+            return False
+        return default
+
+    with patch("miniagent.knowledge.file_ingest.get_config", side_effect=_get_config):
+        r = await _read_file_handler({"path": "disabled.txt"}, ctx)
+
+    assert r.success
+    assert r.meta["rag_ingested"] is False
+    assert r.meta["rag_ingest_skipped"] is True
+    assert r.meta["rag_ingest_reason"] == "disabled"
 
 
 # ─── write_file ───
