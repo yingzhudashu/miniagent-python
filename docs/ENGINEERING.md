@@ -181,14 +181,17 @@ miniagent.infrastructure.tracing
 ├── register_trace_hook(hook)      # 注册回调钩子
 ├── clear_trace_hooks()            # 清空钩子（测试隔离）
 ├── auto_register_trace_file_hook() # 自动注册文件持久化钩子
-└── get_trace_file()               # 获取当前 trace 文件路径
+├── get_trace_file()               # 获取基础 trace 路径（兼容旧调用方）
+├── get_actual_trace_file()        # 获取当前进程实际写入文件
+└── get_trace_writer_stats()       # 获取队列深度、写入/丢弃计数等 writer 指标
 
 miniagent.infrastructure.trace_events
 ├── 事件类型常量（EVENT_LLM_REQUEST 等）
 └── 事件构建函数（make_error_event 等）
 
 miniagent.infrastructure.trace_stats
-├── load_trace_events()            # 加载事件
+├── get_trace_files()              # 枚举当天基础文件与 pid 分片
+├── load_trace_events()            # 加载并过滤事件
 ├── compute_tool_stats()           # 工具统计
 ├── compute_llm_stats()            # LLM 统计
 ├── compute_error_stats()          # 错误统计
@@ -205,8 +208,6 @@ miniagent.infrastructure.trace_stats
 | `EVENT_TOOL_END` | `tool.end` | 工具执行结束（duration_ms、success） |
 | `EVENT_TOOL_ERROR` | `tool.error` | 工具错误（error_type、is_user_error） |
 | `EVENT_ERROR_COLLECT` | `error.collect` | 错误收集（统一错误事件） |
-| `EVENT_SESSION_START` | `session.start` | 会话开始 |
-| `EVENT_SESSION_END` | `session.end` | 会话结束 |
 | `EVENT_PROPOSAL_*` | `proposal.*` | 自我优化提案生命周期 |
 
 ### 5.3 标准事件字段
@@ -233,9 +234,12 @@ miniagent.infrastructure.trace_stats
   "trace": {
     "enabled": true,
     "output_dir": "workspaces/logs",
-    "include_memory_ops": true,
-    "include_context_ops": true,
-    "retention_days": 7
+    "retention_days": 7,
+    "writer_batch_interval": 0.1,
+    "writer_batch_size": 50,
+    "writer_queue_max_size": 10000,
+    "writer_overflow_policy": "drop_oldest",
+    "record_payload": "metrics_only"
   }
 }
 ```
@@ -251,7 +255,11 @@ miniagent.infrastructure.trace_stats
 }
 ```
 
-文件命名：`trace-{YYYY-MM-DD}.jsonl`（每日一个文件）。
+`get_trace_file()` 返回兼容旧调用方的基础路径 `trace-{YYYY-MM-DD}.jsonl`；异步 writer 实际写入 `trace-{YYYY-MM-DD}-pid{pid}.jsonl`，避免多进程同时追加同一文件。`trace_stats.get_trace_files(date)` 和 `load_trace_events(date)` 会聚合同一天的基础文件与全部 pid 分片，日报和自我优化分析不会漏读真实运行数据。
+
+writer 使用有界队列保护内存。默认 `writer_queue_max_size=10000`、`writer_overflow_policy=drop_oldest`；队列满时不阻塞主流程，而是丢弃事件并在 `get_trace_writer_stats()` 的 `dropped_count` 中暴露。该指标是 writer 内部状态，不通过 `emit_trace()` 递归上报。
+
+真实 API 压测和默认 trace 策略采用 `record_payload: "metrics_only"`：trace 只应保存模型、时延、token、状态、会话/请求关联 ID、错误类型等指标，不落完整 prompt、response 或 API key。
 
 ### 5.5 统计分析
 
@@ -318,7 +326,7 @@ report = analyzer.analyze(date="2026-06-05")
 ```python
 from miniagent.infrastructure.trace_stats import cleanup_old_traces
 
-# 删除超过 7 天的 trace 文件
+# 删除超过 7 天的 trace 文件；兼容 trace-YYYY-MM-DD.jsonl 与 trace-YYYY-MM-DD-pid*.jsonl
 deleted = cleanup_old_traces(retention_days=7)
 ```
 

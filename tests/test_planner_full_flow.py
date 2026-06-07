@@ -3,11 +3,12 @@
 覆盖规划生成、错误处理、fallback 机制等。
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from miniagent.core.planner import generate_plan
-from miniagent.types.planning import StructuredPlan, PlanStep
+from miniagent.types.planning import PlanStep, StructuredPlan
 from miniagent.types.tool import Toolbox
 
 

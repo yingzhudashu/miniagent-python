@@ -10,7 +10,7 @@
 |------|------|------|
 | **L1 本地** | `wall_local`（秒）、`alloc_delta`（字节，可选 tracemalloc）、**关键词索引写盘次数**、上下文 `json.dumps` 相关耗时 | 使用 **Mock LLM**，不访问外网；见 `tests/test_perf_synthetic.py` |
 | **L2 剖析** | cProfile 累计时间、py-spy 火焰图、RSS | 开发机按需运行，见 §3 |
-| **L3 端到端** | 单用例 wall time、token usage | 依赖 API，见 `tests/evaluation/`、[docs/ENGINEERING.md](ENGINEERING.md) §5；飞书路径另计 PATCH/轮询 |
+| **L3 端到端** | 单用例 wall time、p50/p95、token usage、错误率、trace 写入开销 | 依赖 API，必须显式设置 `MINIAGENT_REAL_API_STRESS=1`；见 `tests/evaluation/`、[docs/ENGINEERING.md](ENGINEERING.md) §5 |
 
 **注意**：线上感知的 p95 延迟通常由 **LLM/HTTP** 主导；L1 回归用于防止 Python 侧退化，不替代端到端评测。
 
@@ -80,17 +80,29 @@ python scripts/compare_perf_snapshots.py tests/perf_baselines/my-baseline.json p
 
 对比 **tracemalloc_peak_mib** 时，请使两侧 JSON 的 **`inner_repeat` 与是否 `--no-tracemalloc`** 一致；否则脚本会打印 WARN，峰值可能不可比。`compare_perf_snapshots.py` 仅接受根为 **JSON 对象** 的文件（与 `perf_profile` 输出一致），勿将 `example.json` 的 `scenarios` 数组根文件误作输入。
 
+### 3.5 真实 API 压测（显式门禁）
+
+真实 API 压测默认不会运行；即使存在 API key，也必须显式打开门禁，避免 CI 或本地全量测试意外产生费用：
+
+```bash
+set MINIAGENT_REAL_API_STRESS=1
+set MINIAGENT_REAL_API_PERF_DIR=workspaces/logs/perf
+python -m pytest tests/evaluation/test_perf_real_api.py -v -s
+```
+
+压测使用当前 OpenAI-compatible 配置（`model.base_url`、`model.model`、`OPENAI_API_KEY`）。产物默认写入 `workspaces/logs/perf/`，属于过程性文件，不提交到仓库。Trace 内容策略为 `metrics_only`：只记录模型、耗时、token、状态、会话/请求关联 ID、错误类型等指标，不记录完整 prompt、response 或密钥。
+
 ## 4. 基线文件格式（`tests/perf_baselines/`）
 
 用于人工或离线对比（**勿提交密钥**）。基线文件位于 `tests/perf_baselines/` 目录；首次使用请运行 `mkdir -p tests/perf_baselines` 创建。
 
 字段建议：
 
-- `schema_version`：整数，格式变更时递增  
-- `commit`：可选，Git SHA  
-- `generated_at`：ISO8601 UTC  
-- `environment`：`python`, `platform`  
-- `scenarios`：数组，元素含 `id`, `median_ms`, `notes`（与 L1 合成用例 id 对齐，便于 PR 描述引用）  
+- `schema_version`：整数，格式变更时递增
+- `commit`：可选，Git SHA
+- `generated_at`：ISO8601 UTC
+- `environment`：`python`, `platform`
+- `scenarios`：数组，元素含 `id`, `median_ms`, `notes`（与 L1 合成用例 id 对齐，便于 PR 描述引用）
 
 另可将 `scripts/perf_profile_tracemalloc.py --json-out` 的产出 **复制** 为 `perf_baselines/tracemalloc_*.json`，供 `compare_perf_snapshots.py` 使用（该脚本读取的是脚本 JSON 格式，与 `example.json` 的 `scenarios` 数组可并存为不同文件）。
 
@@ -113,13 +125,39 @@ CI **不**依赖基线文件是否存在；可选 workflow 仅上传当次脚本
 - **历史消息浅拷贝**：[`miniagent/memory/history_bridge.py`](../miniagent/memory/history_bridge.py) 的 `conversation_history_for_llm()` 用 `v.copy()` 替代 `copy.deepcopy(v)`，对简单 `{role, content}` 消息快 5-10 倍。
 - **预编译分词正则**：[`miniagent/memory/keyword_index.py`](../miniagent/memory/keyword_index.py) 的 `extract_keywords()` 使用模块级预编译 `_RE_NON_ALNUM_CJK` / `_RE_CJK_ONLY`，避免每次 `re.sub` 重新编译。
 - **执行器 import 提升**：[`miniagent/core/executor.py`](../miniagent/core/executor.py) 的 `ToolResult` import 从 `_run_tool` 内部移到模块顶部，节省每次工具调用的 import 开销。
+- **Trace writer 背压与统计真实性**：[`miniagent/infrastructure/tracing.py`](../miniagent/infrastructure/tracing.py) 的 `AsyncTraceWriter` 使用可配置有界队列，队列满时非阻塞丢弃并暴露 `dropped_count`；[`miniagent/infrastructure/trace_stats.py`](../miniagent/infrastructure/trace_stats.py) 聚合 `trace-YYYY-MM-DD.jsonl` 与 `trace-YYYY-MM-DD-pid*.jsonl`，日报不会漏读真实运行分片。
 
-### 5.2 待验证 / 剖析指引
+### 5.2 2026-06-07 业务热路径优化
 
-- **单次脚本 cProfile**：若不使用 `--inner-repeat`，top `cumtime` 多为导入链；见 §3.1。  
+本轮在保留功能、文件 schema 与用户可见效果不变的前提下，针对合成 perf 中最慢的记忆/索引路径和 Feishu thinking stream 重复渲染做代码级优化：
+
+- [`DefaultMemoryStore`](../miniagent/memory/store.py)：`add_entry()` / `update_summary()` 在已持有 session lock 时走私有 `_load_unlocked()`，避免重复 public `load()` trace 与缓存路径；缓存命中、TTL 检查和 LRU 更新统一在 `_cache_lock` 下完成，减少竞态和重复时间戳读取。
+- 记忆文件写盘改为紧凑 JSON（`separators=(",", ":")`）。字段含义、路径和可读性均保持兼容，只移除空白，降低批量 `add_entry()` 的写盘字节数。
+- [`KeywordIndex`](../miniagent/memory/keyword_index.py)：索引文件改为紧凑 JSON；长中文文本关键词提取增加扫描预算上限，短文本仍保持全量 n-gram；多关键词搜索复用同一 `entry_key` 的 registry lookup；候选集较大时用 Top-K 选择避免全量排序。
+- [`poll_server`](../miniagent/feishu/poll_server.py)：同一轮 Feishu thinking stream 缓存已规范化正文和 card JSON，正文或模板未变化时跳过重复 `_normalize_lark_md()` 与 `json.dumps()`；最终回复卡片对已分片、已规范化正文避免二次 normalize。
+
+验证结果（Windows 本机，Python 3.12，2026-06-07）：
+
+```text
+python -m pytest tests/test_perf_synthetic.py -q -m perf --durations=13
+13 passed in 9.15s
+S6  memory batch + tracemalloc: 3.20s
+S11 memory add_entry batch:      2.88s
+S2  keyword batch save:          1.10s (本地运行有波动)
+S13 Feishu thinking cache:       0.23s
+S12 keyword multi-hit search:    0.04s
+```
+
+`python scripts/perf_profile_tracemalloc.py --inner-repeat 20 --json-out workspaces/logs/perf/perf-snapshot-business-hotpaths.json` 通过，tracemalloc peak 约 `41.74 MiB`。该输出位于 `workspaces/logs/perf/`，属于过程性文件，不提交。
+
+残余风险：S2 在本机仍受临时目录 I/O 和 Python 冷启动影响有波动；Feishu 真实长驻路径仍建议用真实租户流量或 py-spy 采样确认 PATCH 节流、SDK 网络等待和 card JSON 序列化占比。
+
+### 5.3 待验证 / 剖析指引
+
+- **单次脚本 cProfile**：若不使用 `--inner-repeat`，top `cumtime` 多为导入链；见 §3.1。
 - **Feishu `json.dumps`**：仍可能是线上热点；优化前应用 py-spy 对 `poll_server` 长驻路径采样确认；S5 仅覆盖 `_normalize_lark_md`，不替代整链 profiling。
 
-### 5.3 异步最佳实践（新增）
+### 5.4 异步最佳实践（新增）
 
 为避免事件循环阻塞，在异步上下文中应使用异步版本函数：
 

@@ -265,6 +265,9 @@
     "retention_days": 7,
     "writer_batch_interval": 0.1,
     "writer_batch_size": 50,
+    "writer_queue_max_size": 10000,
+    "writer_overflow_policy": "drop_oldest",
+    "record_payload": "metrics_only",
     "auto_cleanup": true,
     "stats_report_interval": 3600
   },

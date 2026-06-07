@@ -109,6 +109,7 @@ def main() -> int:
         "no_tracemalloc": bool(args.no_tracemalloc),
     }
     if args.json_out:
+        os.makedirs(os.path.dirname(os.path.abspath(args.json_out)), exist_ok=True)
         with open(args.json_out, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2)
         print(f"Wrote {args.json_out}")

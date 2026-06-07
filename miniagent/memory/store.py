@@ -292,6 +292,25 @@ class DefaultMemoryStore(MemoryStoreProtocol):
             # TTL清理（异步，不阻塞）
             self._cleanup_expired_cache(now)
 
+    def _cache_get(self, session_id: str, now: float | None = None) -> tuple[SessionMemory | None, int | None]:
+        """从 LRU 缓存读取记忆。
+
+        返回 ``(memory, age_seconds)``。缓存读取、TTL 检查与 LRU 更新在同一把锁内完成，
+        避免并发读写 `_cache` 时出现竞态，也减少调用方重复获取时间戳。
+        """
+        now = time.time() if now is None else now
+        with self._cache_lock:
+            cached = self._cache.get(session_id)
+            if cached is None:
+                return None, None
+            memory, timestamp = cached
+            age = now - timestamp
+            if age >= self._cache_ttl_seconds:
+                self._cache.pop(session_id, None)
+                return None, None
+            self._cache.move_to_end(session_id)
+            return memory, int(age)
+
     def _cleanup_expired_cache(self, now: float) -> None:
         """清理过期缓存条目（TTL）。"""
         # 在锁内调用，清理过期条目
@@ -330,6 +349,80 @@ class DefaultMemoryStore(MemoryStoreProtocol):
         """
         return _memory_file_path(self._state_dir, session_id)
 
+    def _memory_from_dict(self, data: dict[str, Any]) -> SessionMemory:
+        """将磁盘 JSON 数据转换为 SessionMemory。"""
+        entries: list[MemoryEntry] = []
+        for e in data.get("entries", []):
+            if isinstance(e, MemoryEntry):
+                entries.append(e)
+            elif isinstance(e, dict):
+                try:
+                    entries.append(
+                        MemoryEntry(
+                            timestamp=str(e.get("timestamp", "")),
+                            user_snippet=str(e.get("user_snippet", "")),
+                            summary=str(e.get("summary", "")),
+                            facts=list(e.get("facts") or []),
+                        )
+                    )
+                except Exception:
+                    continue
+
+        uploaded_files: list[FileMetadata] = []
+        for f in data.get("uploaded_files", []):
+            try:
+                uploaded_files.append(
+                    FileMetadata(
+                        name=str(f.get("name", "")),
+                        path=str(f.get("path", "")),
+                        size=int(f.get("size", 0)),
+                        mime_type=str(f.get("mime_type", "")),
+                        type=str(f.get("type", "binary")),
+                        description=str(f.get("description", "")),
+                        timestamp=str(f.get("timestamp", "")),
+                        source=str(f.get("source", "cli")),
+                    )
+                )
+            except Exception:
+                continue
+
+        return SessionMemory(
+            session_id=data["session_id"],
+            cumulative_summary=data.get("cumulative_summary", ""),
+            key_facts=data.get("key_facts", []),
+            entries=entries,
+            uploaded_files=uploaded_files,
+            total_turns=data.get("total_turns", 0),
+            first_seen=data.get("first_seen", ""),
+            last_active=data.get("last_active", ""),
+            chat_id=data.get("chat_id"),
+            sender_id=data.get("sender_id"),
+        )
+
+    async def _load_unlocked(self, session_id: str) -> SessionMemory | None:
+        """在调用方已持有 session lock 时加载记忆，不额外发 trace。"""
+        try:
+            memory, _age = self._cache_get(session_id)
+            if memory is not None:
+                return memory
+
+            self._ensure_dir()
+            file_path = self._file_path(session_id)
+            if not os.path.exists(file_path):
+                return None
+
+            def _sync_read() -> dict[str, Any]:
+                with open(file_path, encoding="utf-8") as f:
+                    return json.load(f)
+
+            data = await asyncio.to_thread(_sync_read)
+            memory = self._memory_from_dict(data)
+            self._cache_put(session_id, memory)
+            return memory
+        except Exception as e:
+            _logger.debug("锁内加载记忆失败 [%s]: %s", session_id, e)
+            return None
+
     async def load(self, session_id: str) -> SessionMemory | None:
         """加载会话记忆（带trace）。
 
@@ -345,41 +438,21 @@ class DefaultMemoryStore(MemoryStoreProtocol):
         from miniagent.infrastructure.trace_events import EVENT_MEMORY_READ
         from miniagent.infrastructure.tracing import emit_trace
 
-        # Trace: 开始加载
-        emit_trace({
-            "type": EVENT_MEMORY_READ,
-            "session_key": session_id,
-            "phase": "memory",
-            "cache_hit": session_id in self._cache,
-        })
-
         start_time = time.monotonic_ns()
 
         # 先查缓存（检查TTL）
-        if session_id in self._cache:
-            memory, timestamp = self._cache[session_id]
-            now = time.time()
-
-            # 检查TTL
-            if now - timestamp < self._cache_ttl_seconds:
-                # LRU: 移到最后
-                with self._cache_lock:
-                    self._cache.move_to_end(session_id)
-
-                elapsed = (time.monotonic_ns() - start_time) // 1_000_000
-                emit_trace({
-                    "type": EVENT_MEMORY_READ,
-                    "session_key": session_id,
-                    "duration_ms": elapsed,
-                    "success": True,
-                    "cache_hit": True,
-                    "cache_age_seconds": int(now - timestamp),
-                })
-                return memory
-            else:
-                # TTL过期，删除
-                with self._cache_lock:
-                    self._cache.pop(session_id, None)
+        memory, cache_age = self._cache_get(session_id)
+        if memory is not None:
+            elapsed = (time.monotonic_ns() - start_time) // 1_000_000
+            emit_trace({
+                "type": EVENT_MEMORY_READ,
+                "session_key": session_id,
+                "duration_ms": elapsed,
+                "success": True,
+                "cache_hit": True,
+                "cache_age_seconds": cache_age or 0,
+            })
+            return memory
 
         try:
             self._ensure_dir()
@@ -401,55 +474,7 @@ class DefaultMemoryStore(MemoryStoreProtocol):
                     return json.load(f)
 
             data = await asyncio.to_thread(_sync_read)
-
-            entries: list[MemoryEntry] = []
-            for e in data.get("entries", []):
-                if isinstance(e, MemoryEntry):
-                    entries.append(e)
-                elif isinstance(e, dict):
-                    try:
-                        entries.append(
-                            MemoryEntry(
-                                timestamp=str(e.get("timestamp", "")),
-                                user_snippet=str(e.get("user_snippet", "")),
-                                summary=str(e.get("summary", "")),
-                                facts=list(e.get("facts") or []),
-                            )
-                        )
-                    except Exception:
-                        continue
-
-            # 加载上传的文件
-            uploaded_files: list[FileMetadata] = []
-            for f in data.get("uploaded_files", []):
-                try:
-                    uploaded_files.append(
-                        FileMetadata(
-                            name=str(f.get("name", "")),
-                            path=str(f.get("path", "")),
-                            size=int(f.get("size", 0)),
-                            mime_type=str(f.get("mime_type", "")),
-                            type=str(f.get("type", "binary")),
-                            description=str(f.get("description", "")),
-                            timestamp=str(f.get("timestamp", "")),
-                            source=str(f.get("source", "cli")),
-                        )
-                    )
-                except Exception:
-                    continue
-
-            memory = SessionMemory(
-                session_id=data["session_id"],
-                cumulative_summary=data.get("cumulative_summary", ""),
-                key_facts=data.get("key_facts", []),
-                entries=entries,
-                uploaded_files=uploaded_files,
-                total_turns=data.get("total_turns", 0),
-                first_seen=data.get("first_seen", ""),
-                last_active=data.get("last_active", ""),
-                chat_id=data.get("chat_id"),
-                sender_id=data.get("sender_id"),
-            )
+            memory = self._memory_from_dict(data)
             self._cache_put(session_id, memory)
 
             # Trace: 加载成功
@@ -460,7 +485,7 @@ class DefaultMemoryStore(MemoryStoreProtocol):
                 "duration_ms": elapsed,
                 "success": True,
                 "cache_hit": False,
-                "entries_count": len(entries),
+                "entries_count": len(memory.entries),
             })
 
             return memory
@@ -529,7 +554,7 @@ class DefaultMemoryStore(MemoryStoreProtocol):
 
             def _sync_write() -> None:
                 with open(file_path, "w", encoding="utf-8") as f:
-                    json.dump(data, f, ensure_ascii=False)
+                    json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
 
             await asyncio.to_thread(_sync_write)
             self._cache_put(memory.session_id, memory)
@@ -545,7 +570,7 @@ class DefaultMemoryStore(MemoryStoreProtocol):
             facts: 关键事实列表
         """
         async with await self._get_session_lock(session_id):
-            memory = await self.load(session_id)
+            memory = await self._load_unlocked(session_id)
             if not memory:
                 now = datetime.now(timezone.utc).isoformat()
                 memory = SessionMemory(
@@ -595,7 +620,7 @@ class DefaultMemoryStore(MemoryStoreProtocol):
             )
 
         async with await self._get_session_lock(session_id):
-            memory = await self.load(session_id)
+            memory = await self._load_unlocked(session_id)
             if not memory:
                 now = datetime.now(timezone.utc).isoformat()
                 memory = SessionMemory(

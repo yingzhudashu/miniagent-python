@@ -21,12 +21,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import Any, Protocol, runtime_checkable
 
 from miniagent.types.agent import ToolMonitorProtocol
 
 # 从其他模块再导出Protocol，便于统一导入
 from miniagent.types.memory import MemoryStoreProtocol, SessionManagerProtocol
+from miniagent.types.planning import StructuredPlan
 from miniagent.types.tool import ToolRegistryProtocol
 
 
@@ -165,6 +167,12 @@ class OnToolFinishCallback(Protocol):
         *,
         thinking_header: str | None = None,
     ) -> None: ...
+
+
+OnToolCall = Callable[[str, str, str], None]
+OnPlan = Callable[[StructuredPlan], Awaitable[bool]]
+OnThinking = OnThinkingCallback
+OnToolFinish = OnToolFinishCallback
 
 
 # ============================================================================
@@ -322,6 +330,10 @@ __all__ = [
     "KeywordIndexProtocol",
     "OnThinkingCallback",
     "OnToolFinishCallback",
+    "OnToolCall",
+    "OnPlan",
+    "OnThinking",
+    "OnToolFinish",
     "UnifiedEngineProtocol",
     "ChannelRouterProtocol",
     "MessageQueueProtocol",

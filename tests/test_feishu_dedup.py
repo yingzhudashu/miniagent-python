@@ -9,9 +9,7 @@
 设计背景见 docs/FEISHU.md § 消息去重。
 """
 
-import pytest
 import time
-from unittest.mock import patch, MagicMock
 
 
 class TestFeishuDedupBasic:
@@ -20,10 +18,9 @@ class TestFeishuDedupBasic:
     def test_try_begin_processing_first_time(self):
         """首次消息应返回 True"""
         from miniagent.feishu.feishu_dedup import (
-            try_begin_processing,
-            release_processing,
             _disk_dedup,
             _processing_claims,
+            try_begin_processing,
         )
 
         message_id = "test_msg_001_unique"
@@ -43,10 +40,10 @@ class TestFeishuDedupBasic:
     def test_try_begin_processing_duplicate(self):
         """重复消息应返回 False"""
         from miniagent.feishu.feishu_dedup import (
-            try_begin_processing,
-            release_processing,
             _disk_dedup,
             _processing_claims,
+            release_processing,
+            try_begin_processing,
         )
 
         message_id = "test_msg_002"
@@ -76,11 +73,9 @@ class TestFeishuDedupExpiry:
     def test_expiry_cleanup(self):
         """过期条目应被清理"""
         from miniagent.feishu.feishu_dedup import (
-            try_begin_processing,
-            release_processing,
-            _processing_claims,
-            _disk_dedup,
             DEDUP_TTL_MS,
+            _disk_dedup,
+            _processing_claims,
         )
 
         message_id = "test_msg_old"
@@ -123,10 +118,10 @@ class TestFeishuDedupFlush:
     def test_abandon_processing_claim(self):
         """放弃处理权应仅清理内存"""
         from miniagent.feishu.feishu_dedup import (
-            try_begin_processing,
-            abandon_processing_claim,
-            _processing_claims,
             _disk_dedup,
+            _processing_claims,
+            abandon_processing_claim,
+            try_begin_processing,
         )
 
         message_id = "test_msg_abandon"
@@ -160,8 +155,8 @@ class TestFeishuDedupThreshold:
     def test_threshold_constants(self):
         """验证阈值常量存在"""
         from miniagent.feishu.feishu_dedup import (
-            DEDUP_FLUSH_THRESHOLD,
             DEDUP_FLUSH_INTERVAL,
+            DEDUP_FLUSH_THRESHOLD,
         )
 
         assert DEDUP_FLUSH_THRESHOLD > 0
@@ -190,11 +185,11 @@ class TestFeishuDedupEdgeCases:
     def test_whitespace_message_id(self):
         """空白消息 ID 去重键不为空，会被记录"""
         from miniagent.feishu.feishu_dedup import (
-            try_begin_processing,
-            release_processing,
-            _resolve_dedup_key,
             _disk_dedup,
             _processing_claims,
+            _resolve_dedup_key,
+            release_processing,
+            try_begin_processing,
         )
 
         # 空白字符串去重键为 mini-agent:
@@ -218,10 +213,10 @@ class TestFeishuDedupEdgeCases:
     def test_special_characters_message_id(self):
         """特殊字符消息 ID 应正常处理"""
         from miniagent.feishu.feishu_dedup import (
-            try_begin_processing,
-            release_processing,
             _disk_dedup,
             _processing_claims,
+            release_processing,
+            try_begin_processing,
         )
 
         message_id = "msg_with_special_chars!@#$%^&*()"
@@ -246,10 +241,10 @@ class TestFeishuDedupConcurrency:
     def test_concurrent_processing_same_message(self):
         """同一消息并发处理应只有一个成功"""
         from miniagent.feishu.feishu_dedup import (
-            try_begin_processing,
-            release_processing,
-            _processing_claims,
             _disk_dedup,
+            _processing_claims,
+            release_processing,
+            try_begin_processing,
         )
 
         message_id = "test_concurrent_msg"

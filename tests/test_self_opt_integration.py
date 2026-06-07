@@ -31,10 +31,12 @@ from miniagent.infrastructure.trace_events import (
     make_error_event,
 )
 from miniagent.infrastructure.trace_stats import (
+    cleanup_old_traces,
     compute_error_stats,
     compute_llm_stats,
     compute_tool_stats,
     generate_daily_report,
+    get_trace_files,
     load_trace_events,
 )
 from miniagent.infrastructure.tracing import (
@@ -230,6 +232,56 @@ class TestTraceStats:
         assert len(events) > 0
         assert any(e["type"] == EVENT_LLM_REQUEST for e in events)  # 使用LLM事件替代SESSION事件
         assert any(e["type"] == EVENT_LLM_RESPONSE for e in events)
+
+    def test_load_trace_events_aggregates_pid_shards(
+        self,
+        tmp_path: Path,
+        trace_output_dir: Path,
+    ) -> None:
+        """Trace 统计应聚合同一天的基础文件和 pid 分片。"""
+        install_test_config(tmp_path, {"trace": {"output_dir": str(trace_output_dir)}})
+        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        base_file = trace_output_dir / f"trace-{date}.jsonl"
+        pid_file = trace_output_dir / f"trace-{date}-pid123.jsonl"
+
+        base_file.write_text(
+            json.dumps({"type": EVENT_LLM_REQUEST, "session_key": "s1"}, ensure_ascii=False)
+            + "\n",
+            encoding="utf-8",
+        )
+        pid_file.write_text(
+            json.dumps({"type": EVENT_LLM_RESPONSE, "session_key": "s1"}, ensure_ascii=False)
+            + "\n",
+            encoding="utf-8",
+        )
+
+        files = get_trace_files(date)
+        events = load_trace_events(date, session_key="s1")
+        report = generate_daily_report(date)
+
+        assert base_file in files
+        assert pid_file in files
+        assert [event["type"] for event in events] == [EVENT_LLM_REQUEST, EVENT_LLM_RESPONSE]
+        assert report["total_events"] == 2
+
+    def test_cleanup_old_traces_handles_pid_suffix(
+        self,
+        tmp_path: Path,
+        trace_output_dir: Path,
+    ) -> None:
+        """过期清理应识别 trace-YYYY-MM-DD-pid*.jsonl 文件名。"""
+        install_test_config(tmp_path, {"trace": {"output_dir": str(trace_output_dir)}})
+        old_file = trace_output_dir / "trace-2000-01-01-pid123.jsonl"
+        new_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        new_file = trace_output_dir / f"trace-{new_date}-pid123.jsonl"
+        old_file.write_text('{"type":"old"}\n', encoding="utf-8")
+        new_file.write_text('{"type":"new"}\n', encoding="utf-8")
+
+        deleted = cleanup_old_traces(retention_days=7)
+
+        assert deleted == 1
+        assert not old_file.exists()
+        assert new_file.exists()
 
     def test_compute_tool_stats(self, trace_events: list[dict[str, Any]]) -> None:
         """Test tool statistics computation."""

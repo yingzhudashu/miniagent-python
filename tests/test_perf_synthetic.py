@@ -396,3 +396,85 @@ def test_s10_keyword_index_bounded() -> None:
         assert len(ki._index) <= ki._max_entries, (
             f"KeywordIndex exceeded max_entries: {len(ki._index)} > {ki._max_entries}"
         )
+
+
+@pytest.mark.perf
+def test_s11_memory_store_add_entry_batch_median_under_cap() -> None:
+    """S11：同会话连续 add_entry 的锁内加载与缓存路径不应退化。"""
+    from datetime import datetime, timezone
+
+    def once() -> None:
+        async def body() -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                ki = KeywordIndex(state_dir=tmp)
+                store = DefaultMemoryStore(state_dir=tmp, keyword_index=ki)
+                sid = "s11-perf"
+                now = datetime.now(timezone.utc).isoformat()
+                mem = SessionMemory(
+                    session_id=sid,
+                    cumulative_summary="",
+                    key_facts=[],
+                    entries=[],
+                    total_turns=0,
+                    first_seen=now,
+                    last_active=now,
+                )
+                await store.save(mem)
+                for i in range(20):
+                    await store.add_entry(
+                        sid,
+                        MemoryEntryInput(
+                            timestamp=now,
+                            user_snippet=f"用户片段{i} 性能 优化",
+                            summary=f"摘要{i}",
+                            facts=[f"事实{i}"],
+                        ),
+                    )
+
+        asyncio.run(body())
+
+    med = median_wall_seconds(3, once)
+    assert med < 5.0, f"S11 add_entry batch too slow: {med:.3f}s"
+
+
+@pytest.mark.perf
+def test_s12_keyword_index_search_multi_hit_median_under_cap() -> None:
+    """S12：多关键词命中同一条目时 registry lookup 复用，搜索成本受控。"""
+    from datetime import datetime, timezone
+
+    def once() -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            idx = KeywordIndex(state_dir=tmp)
+            now = datetime.now(timezone.utc).isoformat()
+            for i in range(120):
+                entry = MemoryEntryInput(
+                    timestamp=now,
+                    user_snippet=f"Python 性能 优化 记忆 索引 {i}",
+                    summary=f"Python 性能 优化 摘要 {i}",
+                    facts=[f"关键词 检索 {i}"],
+                )
+                idx.index_entry(f"sess-{i}", entry)
+            results = idx.search_relevant("Python 性能 优化 记忆 索引", limit=10)
+            assert results
+
+    med = median_wall_seconds(5, once)
+    assert med < 3.0, f"S12 keyword search too slow: {med:.3f}s"
+
+
+@pytest.mark.perf
+def test_s13_feishu_thinking_card_cache_median_under_cap() -> None:
+    """S13：重复 thinking card 渲染应复用 normalized body/card JSON。"""
+    from miniagent.engine.thinking import ThinkingDisplay
+    from miniagent.feishu.poll_server import _thinking_card_json_cached
+
+    body = "\n\n".join(["### 标题", "**bold**", "a * b", "| A | B |", "|---|---|", "| 1 | 2 |"] * 80)
+
+    def once() -> None:
+        td = ThinkingDisplay()
+        st = td.thinking_state("s13")
+        first = _thinking_card_json_cached(st, body, "gray", "s13")
+        for _ in range(80):
+            assert _thinking_card_json_cached(st, body, "gray", "s13") == first
+
+    med = median_wall_seconds(5, once)
+    assert med < 2.0, f"S13 thinking card cache too slow: {med:.3f}s"

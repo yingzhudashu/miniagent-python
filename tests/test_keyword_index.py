@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import tempfile
+from pathlib import Path
 
 import pytest
 
@@ -83,6 +84,20 @@ class TestExtractKeywords:
         keywords = extract_keywords(long_text, max_keywords=10)
         assert len(keywords) <= 10
 
+    def test_extract_short_chinese_text_still_full_scan(self) -> None:
+        """短中文文本保持原有全量 n-gram 行为。"""
+        text = "我喜欢编写Python代码"
+        keywords = extract_keywords(text, max_keywords=100)
+        assert "喜欢" in keywords
+        assert "编写" in keywords
+        assert "代码" in keywords
+
+    def test_extract_long_chinese_text_is_bounded(self) -> None:
+        """超长中文文本提词受 max_keywords 约束，避免线性膨胀。"""
+        text = "性能优化记忆索引关键词提取" * 500
+        keywords = extract_keywords(text, max_keywords=20)
+        assert 0 < len(keywords) <= 20
+
     def test_extract_single_char_filtered(self) -> None:
         """单字符英文应被过滤"""
         text = "a b c d Python"
@@ -153,6 +168,23 @@ class TestKeywordIndex:
             top_result = results[0]
             assert top_result.score > 0
 
+    def test_search_relevant_top_k_matches_full_sort(self) -> None:
+        """候选较多时的 Top-K 优化必须保持与全量排序一致的分数序列。"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            idx = KeywordIndex(state_dir=tmpdir)
+            for i in range(80):
+                entry = MemoryEntryInput(
+                    timestamp=f"2026-06-03T12:{i % 60:02d}:00Z",
+                    user_snippet=f"Python 性能 记忆 检索 {i}",
+                    summary=f"Python 性能 优化 {i % 7}",
+                    facts=[f"索引 热路径 {i % 5}"],
+                )
+                idx.index_entry(f"session-{i}", entry)
+
+            optimized = idx.search_relevant("Python 性能 记忆 检索 索引 热路径", limit=7)
+            all_sorted = idx.search_relevant("Python 性能 记忆 检索 索引 热路径", limit=100)
+            assert [r.score for r in optimized] == [r.score for r in all_sorted[:7]]
+
     def test_search_empty_query(self) -> None:
         """空查询返回空结果"""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -193,6 +225,8 @@ class TestKeywordIndex:
             )
             idx1.index_entry("session-1", entry)
             idx1.save()
+            index_text = Path(tmpdir, "keyword-index.json").read_text(encoding="utf-8")
+            assert "\n  " not in index_text
 
             # 加载新索引
             idx2 = KeywordIndex(state_dir=tmpdir)

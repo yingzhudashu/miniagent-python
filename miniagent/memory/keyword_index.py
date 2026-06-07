@@ -22,6 +22,7 @@ Layer 3 检索与注入顺序见 ``docs/MEMORY_SYSTEM.md``。
 from __future__ import annotations
 
 import collections
+import heapq
 import json
 import os
 import re
@@ -174,6 +175,8 @@ _STOP_WORDS = frozenset(
 # 预编译分词正则（避免每次调用 re.compile）
 _RE_NON_ALNUM_CJK = re.compile(r"[^a-z0-9一-鿿\s]")
 _RE_CJK_ONLY = re.compile(r"[^一-鿿]")
+_CJK_FULL_SCAN_LIMIT = 100
+_CJK_SCAN_MULTIPLIER = 4
 
 
 # ============================================================================
@@ -251,8 +254,10 @@ def extract_keywords(text: str, max_keywords: int | None = None) -> list[str]:
     chinese_chars = _RE_CJK_ONLY.sub("", text)
     chinese_len = len(chinese_chars)
 
-    # 限制 n-gram 数量：长文本时跳过部分位置
-    step = 1 if chinese_len <= 100 else max(1, chinese_len // max_keywords)
+    # 限制 n-gram 数量：短文本保持全量扫描；长文本按 max_keywords 的倍数抽样，
+    # 避免超长回复/工具输出进入记忆时在关键词提取上消耗过多 CPU。
+    scan_budget = max(max_keywords * _CJK_SCAN_MULTIPLIER, _CJK_FULL_SCAN_LIMIT)
+    step = 1 if chinese_len <= _CJK_FULL_SCAN_LIMIT else max(1, chinese_len // scan_budget)
 
     for i in range(0, chinese_len - 1, step):
         if i + 1 < chinese_len:
@@ -399,7 +404,7 @@ class KeywordIndex:
                 },
             }
             with open(self._index_file, "w", encoding="utf-8") as f:
-                json.dump(disk, f, indent=2, ensure_ascii=False)
+                json.dump(disk, f, ensure_ascii=False, separators=(",", ":"))
             self._dirty = False
         except Exception as e:
             _logger.error("保存索引失败: %s", e)
@@ -476,16 +481,19 @@ class KeywordIndex:
 
         # 为每个候选条目计算相关性分数
         scores: dict[str, _SearchResult] = {}
+        shared_cache: dict[str, Any] = {}
 
         for keyword in query_keywords:
             idx_entry = self._index.get(keyword)
             if not idx_entry:
                 continue
 
-            # 性能优化：遍历 dict 的键（entry_key）
-            for entry_key in idx_entry.references.keys():
+            for entry_key in idx_entry.references:
                 # 从注册表获取时间戳用于过滤
-                shared_entry = self._registry.get(entry_key)
+                shared_entry = shared_cache.get(entry_key)
+                if shared_entry is None and entry_key not in shared_cache:
+                    shared_entry = self._registry.get(entry_key)
+                    shared_cache[entry_key] = shared_entry
                 if shared_entry is None:
                     continue
 
@@ -502,9 +510,15 @@ class KeywordIndex:
                 weight = 1.5 if len(keyword) >= 3 else 1.0
                 scores[entry_key].score += weight
 
-        # 排序：先按分数
-        results = sorted(scores.values(), key=lambda r: r.score, reverse=True)
-        return results[:limit]
+        if limit <= 0:
+            return []
+
+        # 候选集很大时避免全量排序，只取 Top-K 后再做稳定降序输出。
+        if len(scores) > limit * 4:
+            results = heapq.nlargest(limit, scores.values(), key=lambda r: r.score)
+        else:
+            results = sorted(scores.values(), key=lambda r: r.score, reverse=True)[:limit]
+        return results
 
     def format_results(self, results: list[_SearchResult]) -> str:
         """格式化检索结果为可注入 system prompt 的文本
@@ -579,10 +593,10 @@ class KeywordIndex:
             before = len(entry.references)
             # 性能优化：过滤 dict，构建新 dict
             new_refs: dict[str, float] = {}
-            for entry_key in entry.references.keys():
+            for entry_key, weight in entry.references.items():
                 shared = self._registry.get(entry_key)
                 if shared is not None and shared.timestamp >= cutoff:
-                    new_refs[entry_key] = entry.references[entry_key]
+                    new_refs[entry_key] = weight
             entry.references = new_refs
             removed_count += before - len(entry.references)
 

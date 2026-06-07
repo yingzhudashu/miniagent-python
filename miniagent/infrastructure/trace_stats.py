@@ -34,9 +34,10 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +57,8 @@ from miniagent.infrastructure.trace_events import (
 )
 
 _logger = get_logger(__name__)
+
+_TRACE_FILE_RE = re.compile(r"^trace-(\d{4}-\d{2}-\d{2})(?:-pid\d+)?\.jsonl$")
 
 
 def get_trace_output_dir() -> Path:
@@ -86,6 +89,31 @@ def get_trace_file(date: str | None = None) -> Path:
     return get_trace_output_dir() / f"trace-{date}.jsonl"
 
 
+def get_trace_files(date: str | None = None) -> list[Path]:
+    """获取指定日期的所有 trace 文件分片。
+
+    异步写入器会为每个进程写入 ``trace-YYYY-MM-DD-pid{pid}.jsonl``，
+    统计侧必须同时读取基础文件和 pid 分片，避免日报漏掉真实运行数据。
+    """
+    if date is None:
+        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    trace_dir = get_trace_output_dir()
+    base_file = trace_dir / f"trace-{date}.jsonl"
+    candidates = [base_file]
+    if trace_dir.exists():
+        candidates.extend(sorted(trace_dir.glob(f"trace-{date}-pid*.jsonl"), key=lambda p: p.name))
+
+    seen: set[Path] = set()
+    result: list[Path] = []
+    for path in candidates:
+        if path in seen or not path.exists():
+            continue
+        seen.add(path)
+        result.append(path)
+    return result
+
+
 def load_trace_events(
     date: str | None = None,
     session_key: str | None = None,
@@ -101,31 +129,40 @@ def load_trace_events(
     Returns:
         事件列表
     """
-    trace_file = get_trace_file(date)
-    if not trace_file.exists():
+    trace_files = get_trace_files(date)
+    if not trace_files:
         return []
 
     events = []
-    try:
-        with trace_file.open("r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    event = json.loads(line)
-                    # 过滤条件
-                    if session_key and event.get("session_key") != session_key:
+    for trace_file in trace_files:
+        try:
+            with trace_file.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
                         continue
-                    if event_type and event.get("type") != event_type:
+                    try:
+                        event = json.loads(line)
+                        # 过滤条件
+                        if session_key and event.get("session_key") != session_key:
+                            continue
+                        if event_type and event.get("type") != event_type:
+                            continue
+                        events.append(event)
+                    except json.JSONDecodeError:
                         continue
-                    events.append(event)
-                except json.JSONDecodeError:
-                    continue
-    except OSError:
-        return []
+        except OSError:
+            continue
 
     return events
+
+
+def _trace_file_date(trace_file: Path) -> str | None:
+    """从基础文件或 pid 分片文件名中解析 YYYY-MM-DD。"""
+    match = _TRACE_FILE_RE.match(trace_file.name)
+    if not match:
+        return None
+    return match.group(1)
 
 
 def compute_tool_stats(events: list[dict[str, Any]]) -> dict[str, Any]:
@@ -545,13 +582,14 @@ def cleanup_old_traces(retention_days: int = 7) -> int:
     if not trace_dir.exists():
         return 0
 
-    cutoff_date = datetime.now(timezone.utc) - time.timedelta(days=retention_days)
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=retention_days)
     deleted = 0
 
     for trace_file in trace_dir.glob("trace-*.jsonl"):
         try:
-            # 从文件名提取日期
-            date_str = trace_file.stem.replace("trace-", "")
+            date_str = _trace_file_date(trace_file)
+            if date_str is None:
+                continue
             file_date = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
             if file_date < cutoff_date:
                 trace_file.unlink()
@@ -568,6 +606,7 @@ def cleanup_old_traces(retention_days: int = 7) -> int:
 __all__ = [
     "get_trace_output_dir",
     "get_trace_file",
+    "get_trace_files",
     "load_trace_events",
     "compute_tool_stats",
     "compute_llm_stats",

@@ -17,7 +17,7 @@
 
 from __future__ import annotations
 
+from miniagent.utils.error_handling import log_exception, safe_execute, safe_execute_sync
 from miniagent.utils.session_id import safe_session_id
-from miniagent.utils.error_handling import safe_execute, safe_execute_sync, log_exception
 
 __all__ = ["safe_session_id", "safe_execute", "safe_execute_sync", "log_exception"]

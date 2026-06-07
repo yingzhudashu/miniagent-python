@@ -21,9 +21,9 @@ from miniagent.infrastructure.json_config import get_config, get_config_section
 from miniagent.infrastructure.logger import get_logger
 from miniagent.types.config import (
     AgentConfig,
+    FeishuChannelConfig,
     ModelConfig,
     SessionBindingConfig,
-    FeishuChannelConfig,
     normalize_conversation_history,
 )
 

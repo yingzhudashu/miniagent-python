@@ -8,13 +8,14 @@
 
 注意：
 - 需配置API Key（config.user.json）
-- 不在默认CI运行（需单独触发）
-- 结果写入tests/perf_baselines/
+- 不在默认CI运行；必须显式设置 MINIAGENT_REAL_API_STRESS=1
+- 结果默认写入 workspaces/logs/perf/，避免提交过程性压测产物
 """
 from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 from datetime import datetime
 from pathlib import Path
@@ -31,11 +32,13 @@ def real_api_config():
     """验证API配置存在并加载到环境变量。"""
     from miniagent.infrastructure.env_loader import load_secrets_from_project_root
 
+    if os.environ.get("MINIAGENT_REAL_API_STRESS") != "1":
+        pytest.skip("真实 API 压测需显式设置 MINIAGENT_REAL_API_STRESS=1")
+
     # 加载secrets到环境变量
     load_secrets_from_project_root()
 
     # 验证API Key已加载
-    import os
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key or api_key == "your-api-key-here":
         pytest.skip("需要配置真实API Key（在config.user.json的secrets.openai_api_key或环境变量OPENAI_API_KEY）")
@@ -49,8 +52,11 @@ def real_api_config():
 
 @pytest.fixture
 def baseline_dir():
-    """性能基线目录。"""
-    return Path("tests/perf_baselines")
+    """真实 API 压测输出目录。"""
+    path = Path(os.environ.get("MINIAGENT_REAL_API_PERF_DIR", "workspaces/logs/perf"))
+    if os.environ.get("MINIAGENT_REAL_API_STRESS") == "1":
+        path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 class TestRealAPIPerformance:
@@ -271,6 +277,8 @@ class TestRealAPIPerformance:
 
 def test_baseline_files_exist(baseline_dir):
     """验证性能基线目录存在。"""
+    if os.environ.get("MINIAGENT_REAL_API_STRESS") != "1":
+        pytest.skip("真实 API 压测需显式设置 MINIAGENT_REAL_API_STRESS=1")
     assert baseline_dir.exists(), "性能基线目录不存在"
     assert baseline_dir.is_dir(), "性能基线目录不是目录"
 

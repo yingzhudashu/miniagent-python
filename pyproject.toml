@@ -94,5 +94,6 @@ known-first-party = ["miniagent"]
 python_version = "3.10"
 warn_unused_configs = true
 ignore_missing_imports = true
+follow_imports = "skip"
 explicit_package_bases = true
 show_error_codes = true

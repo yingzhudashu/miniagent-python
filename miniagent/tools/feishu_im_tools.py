@@ -57,7 +57,10 @@ async def _feishu_send_workspace_file(args: dict[str, Any], ctx: ToolContext) ->
 
     try:
         from miniagent.feishu.upload_io import (
-            send_im_file_message, send_im_image_message, upload_im_file, upload_im_image,
+            send_im_file_message,
+            send_im_image_message,
+            upload_im_file,
+            upload_im_image,
         )
     except ImportError:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} 请安装 lark-oapi（pip install miniagent-python[feishu]）。")

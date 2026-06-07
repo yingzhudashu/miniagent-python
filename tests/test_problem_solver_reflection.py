@@ -3,8 +3,9 @@
 覆盖反思评估的基本功能、结果解析、质量评分等。
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from miniagent.core.problem_solver import (
     ReflectionResult,
@@ -87,7 +88,7 @@ async def test_reflect_on_result_with_thinking_callback():
     async def mock_thinking(text, is_thinking, prefix):
         thinking_chunks.append((text, is_thinking, prefix))
 
-    result = await reflect_on_result(
+    await reflect_on_result(
         user_input="测试输入",
         reply="测试回复",
         client=mock_client,

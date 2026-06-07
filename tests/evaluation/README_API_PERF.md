@@ -1,62 +1,50 @@
-# 真实API性能测试配置指南
+# Real API Performance Smoke
 
-## 1. 配置API Key
+These tests exercise the configured OpenAI-compatible API and are intentionally excluded from
+default CI. They can incur API cost and require an explicit opt-in.
 
-复制`config.defaults.json`为`config.user.json`并填写：
+## Configuration
+
+Use `config.user.json` or environment variables. Do not commit secrets.
 
 ```json
 {
-  "llm": {
-    "provider": "openai",
-    "api_key": "your-real-api-key",
-    "model": "gpt-4-turbo"
+  "model": {
+    "base_url": "https://api.openai.com/v1",
+    "model": "gpt-4o-mini"
+  },
+  "secrets": {
+    "openai_api_key": "your-real-api-key"
   }
 }
 ```
 
-## 2. 运行真实API测试
+`OPENAI_API_KEY` in the environment also works. Test output uses metrics only and must not include
+full prompts, responses, or API keys.
 
-```bash
-# 运行真实API性能测试（单独触发）
-pytest tests/evaluation/test_perf_real_api.py -v -s
+## Run
 
-# 生成性能报告
+```powershell
+$env:MINIAGENT_REAL_API_STRESS = "1"
+$env:MINIAGENT_REAL_API_PERF_DIR = "workspaces/logs/perf"
+python -m pytest tests/evaluation/test_perf_real_api.py -q
+Remove-Item Env:MINIAGENT_REAL_API_STRESS
+Remove-Item Env:MINIAGENT_REAL_API_PERF_DIR
+```
+
+`MINIAGENT_REAL_API_PERF_DIR` defaults to `workspaces/logs/perf`, which is ignored by Git. Keep
+generated `real-api-test-results.json`, `concurrent-test-results.json`, trace files, and snapshots
+out of `tests/perf_baselines/`.
+
+## Optional Local Comparison
+
+`tests/perf_baselines/real-api-baseline.json` is a small, hand-maintained reference baseline. It is
+not a raw test output file.
+
+```powershell
 python scripts/perf_profile_tracemalloc.py --inner-repeat 10 --json-out real-api-snapshot.json
+python scripts/compare_perf_snapshots.py tests/perf_baselines/real-api-baseline.json real-api-snapshot.json
 ```
 
-## 3. 性能指标测量
-
-- **延迟**：LLM响应时间、工具执行时间
-- **Token usage**：prompt/completion token统计
-- **内存**：tracemalloc峰值测量
-- **CPU**：使用py-spy采样
-
-## 4. 基准对比
-
-```bash
-# 对比两次测试结果
-python scripts/compare_perf_snapshots.py \
-    tests/perf_baselines/real-api-baseline.json \
-    real-api-snapshot.json
-```
-
-## 5. 注意事项
-
-- 真实API测试需要网络连接和有效API密钥
-- 测试可能产生API调用费用
-- 不在默认CI运行（需单独触发）
-- 测试结果写入`tests/perf_baselines/`供后续对比
-
-## 6. 性能基线目录结构
-
-```
-tests/perf_baselines/
-├── real-api-baseline.json      # 真实API性能基线
-├── synthetic-baseline.json     # 合成测试基线
-└── baseline-history.json       # 历史基线对比
-```
-
-## 7. 相关文档
-
-- [PERFORMANCE.md](../../docs/PERFORMANCE.md) - 性能分析方法
-- [ENGINEERING.md](../../docs/ENGINEERING.md) - Trace系统详解
+For the full performance workflow and trace policy, see
+[docs/PERFORMANCE.md](../../docs/PERFORMANCE.md) and [docs/ENGINEERING.md](../../docs/ENGINEERING.md).

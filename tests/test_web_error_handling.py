@@ -5,9 +5,9 @@
 重构说明：web.py 已重命名为 core_tools.py，check_app_availability 已合并到 skills.py。
 """
 
-import pytest
 from unittest.mock import patch
-import asyncio
+
+import pytest
 
 from miniagent.tools.core_tools import core_tools
 from miniagent.tools.skills import skills_tools

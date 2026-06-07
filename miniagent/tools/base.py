@@ -24,7 +24,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from miniagent.types.tool import ToolContext, ToolResult
@@ -97,7 +98,7 @@ class ToolBuilder:
         self._help_text: str = description
         self._handler: ToolHandler | None = None
 
-    def param(self, name: str, type: str, desc: str, required: bool = True) -> "ToolBuilder":
+    def param(self, name: str, type: str, desc: str, required: bool = True) -> ToolBuilder:
         """添加参数。
 
         Args:
@@ -114,7 +115,7 @@ class ToolBuilder:
             self._required.append(name)
         return self
 
-    def optional(self, name: str, type: str, desc: str) -> "ToolBuilder":
+    def optional(self, name: str, type: str, desc: str) -> ToolBuilder:
         """添加可选参数（required=False 的快捷方式）。
 
         Args:
@@ -133,7 +134,7 @@ class ToolBuilder:
         desc: str,
         values: list[str],
         required: bool = True
-    ) -> "ToolBuilder":
+    ) -> ToolBuilder:
         """添加枚举参数。
 
         Args:
@@ -160,7 +161,7 @@ class ToolBuilder:
         desc: str,
         item_type: str = "string",
         required: bool = True
-    ) -> "ToolBuilder":
+    ) -> ToolBuilder:
         """添加数组参数。
 
         Args:
@@ -187,7 +188,7 @@ class ToolBuilder:
         desc: str,
         properties: dict[str, Any] | None = None,
         required: bool = True
-    ) -> "ToolBuilder":
+    ) -> ToolBuilder:
         """添加对象参数。
 
         Args:
@@ -207,7 +208,7 @@ class ToolBuilder:
             self._required.append(name)
         return self
 
-    def any_param(self, name: str, desc: str, required: bool = True) -> "ToolBuilder":
+    def any_param(self, name: str, desc: str, required: bool = True) -> ToolBuilder:
         """添加任意类型参数（不指定 type，用于 JSON 字符串等）。
 
         Args:
@@ -223,7 +224,7 @@ class ToolBuilder:
             self._required.append(name)
         return self
 
-    def sandbox(self) -> "ToolBuilder":
+    def sandbox(self) -> ToolBuilder:
         """设置为 sandbox 权限（默认）。
 
         sandbox 权限：在 allowed_paths 内受沙箱约束。
@@ -234,7 +235,7 @@ class ToolBuilder:
         self._permission = "sandbox"
         return self
 
-    def allowlist(self) -> "ToolBuilder":
+    def allowlist(self) -> ToolBuilder:
         """设置为 allowlist 权限。
 
         allowlist 权限：仅允许预置安全命令清单。
@@ -245,7 +246,7 @@ class ToolBuilder:
         self._permission = "allowlist"
         return self
 
-    def require_confirm(self) -> "ToolBuilder":
+    def require_confirm(self) -> ToolBuilder:
         """设置为 require-confirm 权限。
 
         require-confirm 权限：执行前需用户确认。
@@ -256,7 +257,7 @@ class ToolBuilder:
         self._permission = "require-confirm"
         return self
 
-    def toolbox(self, toolbox_id: str) -> "ToolBuilder":
+    def toolbox(self, toolbox_id: str) -> ToolBuilder:
         """设置工具箱 ID。
 
         Args:
@@ -268,7 +269,7 @@ class ToolBuilder:
         self._toolbox = toolbox_id
         return self
 
-    def core(self) -> "ToolBuilder":
+    def core(self) -> ToolBuilder:
         """设置为核心工具箱（toolbox=None，始终可用）。
 
         Returns:
@@ -277,7 +278,7 @@ class ToolBuilder:
         self._toolbox = None
         return self
 
-    def help(self, text: str) -> "ToolBuilder":
+    def help(self, text: str) -> ToolBuilder:
         """设置帮助文本。
 
         Args:
@@ -289,7 +290,7 @@ class ToolBuilder:
         self._help_text = text
         return self
 
-    def handler(self, fn: ToolHandler) -> "ToolBuilder":
+    def handler(self, fn: ToolHandler) -> ToolBuilder:
         """设置工具处理器函数。
 
         Args:

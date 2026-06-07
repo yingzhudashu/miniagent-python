@@ -183,3 +183,26 @@ async def test_append_feishu_with_message_id_patches(
     assert len(patched) == 1
     assert "🔧 x — y" in st.feishu_stream_accumulated
     assert st.feishu_thinking_message_id == "mid-1"
+
+
+def test_thinking_card_json_cache_reuses_same_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    import miniagent.feishu.poll_server as ps
+    from miniagent.engine.thinking import ThinkingDisplay
+
+    td = ThinkingDisplay()
+    st = td.thinking_state("sk-cache")
+    calls = {"n": 0}
+
+    def fake_prepare(raw: str) -> str:
+        calls["n"] += 1
+        return f"clean:{raw}"
+
+    monkeypatch.setattr(ps, "_prepare_thinking_markdown", fake_prepare)
+
+    first = ps._thinking_card_json_cached(st, "body", "gray", "sk-cache")
+    second = ps._thinking_card_json_cached(st, "body", "gray", "sk-cache")
+    third = ps._thinking_card_json_cached(st, "body2", "gray", "sk-cache")
+
+    assert first == second
+    assert first != third
+    assert calls["n"] == 2

@@ -5,7 +5,7 @@
 
 进程内全局钩子列表；测试或子进程隔离场景可 ``clear_trace_hooks()``。
 
-**可选持久化**：在 JSON 配置中设置 ``trace.enabled: true`` 与 ``trace.output_dir``，自动注册钩子将事件写入 JSONL 文件（``workspaces/logs/trace-YYYY-MM-DD.jsonl``）。
+**可选持久化**：在 JSON 配置中设置 ``trace.enabled: true`` 与 ``trace.output_dir``，自动注册钩子将事件写入 JSONL 文件（``workspaces/logs/trace-YYYY-MM-DD-pid{pid}.jsonl``）。
 
 **事件类型规范**：见 ``miniagent.infrastructure.trace_events`` 模块。
 
@@ -30,6 +30,7 @@ _hooks: list[TraceHook] = []
 
 # 可选持久化配置
 _TRACE_LOG_FILE: Path | None = None
+_TRACE_RECORD_PAYLOAD = "metrics_only"
 
 # 异步写入器实例
 _trace_writer: AsyncTraceWriter | None = None
@@ -42,16 +43,47 @@ from miniagent.infrastructure.logger import get_logger
 
 _logger = get_logger(__name__)
 
+TRACE_OVERFLOW_DROP_NEWEST = "drop_newest"
+TRACE_OVERFLOW_DROP_OLDEST = "drop_oldest"
+TRACE_RECORD_PAYLOAD_METRICS_ONLY = "metrics_only"
+
+_PERSISTENCE_DROP_KEYS = {
+    "api_key",
+    "args",
+    "args_truncated",
+    "arguments",
+    "authorization",
+    "body",
+    "content",
+    "full_content",
+    "messages",
+    "prompt",
+    "raw",
+    "request",
+    "response",
+    "result",
+    "text",
+    "thinking",
+    "token",
+}
+_PERSISTENCE_PREVIEW_KEYS = {
+    "description_preview",
+    "error_message",
+    "error_preview",
+    "location",
+}
+
 
 class AsyncTraceWriter:
     """异步背景写入器，批处理 trace 事件。
 
     设计原理：
-    - 主线程将事件推入队列（O(1)，无锁）
+    - 主线程将事件推入有界队列（O(1)，非阻塞）
     - 后台线程批量写入文件（减少 I/O 次数）
     - 批处理间隔可配置（默认 100ms）
     - 批量大小可配置（默认 50 事件）
-    - 优雅关闭机制确保不丢数据
+    - 优雅关闭机制尽量写完已入队数据
+    - 背压保护：高频 trace 超过队列上限时丢弃事件并记录计数，避免内存无限增长
     - 进程隔离：每个进程写入独立文件（避免多进程冲突）
 
     性能优化：
@@ -59,21 +91,36 @@ class AsyncTraceWriter:
     - 文件 I/O 次数减少 50 倍
     """
 
-    def __init__(self, batch_interval: float = 0.1, batch_size: int = 50):
+    def __init__(
+        self,
+        batch_interval: float = 0.1,
+        batch_size: int = 50,
+        queue_max_size: int = 10000,
+        overflow_policy: str = TRACE_OVERFLOW_DROP_OLDEST,
+    ):
         """初始化异步写入器。
 
         Args:
             batch_interval: 批处理间隔（秒）
             batch_size: 批量大小（事件数）
+            queue_max_size: 等待写入的最大事件数；小于等于 0 表示无界队列
+            overflow_policy: 队列满时的策略，支持 ``drop_oldest`` / ``drop_newest``
         """
         self.batch_interval = batch_interval
         self.batch_size = batch_size
-        self._queue: queue.Queue[dict[str, Any] | None] = queue.Queue()
+        self.queue_max_size = max(0, int(queue_max_size))
+        if overflow_policy not in {TRACE_OVERFLOW_DROP_OLDEST, TRACE_OVERFLOW_DROP_NEWEST}:
+            overflow_policy = TRACE_OVERFLOW_DROP_OLDEST
+        self.overflow_policy = overflow_policy
+        self._queue: queue.Queue[dict[str, Any] | None] = queue.Queue(maxsize=self.queue_max_size)
         self._writer_thread: threading.Thread | None = None
         self._shutdown = False
         self._file_handle: Any = None
         self._file_path: Path | None = None
         self._process_id = os.getpid()  # 进程ID（进程隔离）
+        self._emitted_count = 0
+        self._written_count = 0
+        self._dropped_count = 0
 
     def start(self, file_path: Path) -> None:
         """启动后台写入线程。
@@ -113,7 +160,21 @@ class AsyncTraceWriter:
             event: trace 事件字典
         """
         if not self._shutdown:
-            self._queue.put(event)
+            self._emitted_count += 1
+            try:
+                self._queue.put_nowait(event)
+            except queue.Full:
+                self._dropped_count += 1
+                if self.overflow_policy != TRACE_OVERFLOW_DROP_OLDEST:
+                    return
+                try:
+                    self._queue.get_nowait()
+                except queue.Empty:
+                    pass
+                try:
+                    self._queue.put_nowait(event)
+                except queue.Full:
+                    pass
 
     def _writer_loop(self) -> None:
         """后台线程：批量写入循环。"""
@@ -141,6 +202,7 @@ class AsyncTraceWriter:
                     try:
                         self._file_handle.writelines(buffer)
                         self._file_handle.flush()
+                        self._written_count += len(buffer)
                         buffer.clear()
                     except Exception as e:
                         _logger.debug("Trace batch write failed: %s", e)
@@ -168,13 +230,25 @@ class AsyncTraceWriter:
             try:
                 self._file_handle.writelines(buffer)
                 self._file_handle.flush()
+                self._written_count += len(buffer)
             except Exception as e:
                 _logger.debug("Trace final flush failed: %s", e)
 
     def shutdown(self) -> None:
         """优雅关闭：等待队列清空。"""
         self._shutdown = True
-        self._queue.put(None)  # 发送关闭信号
+        try:
+            self._queue.put_nowait(None)  # 发送关闭信号
+        except queue.Full:
+            try:
+                self._queue.get_nowait()
+                self._dropped_count += 1
+            except queue.Empty:
+                pass
+            try:
+                self._queue.put_nowait(None)
+            except queue.Full:
+                pass
 
         if self._writer_thread:
             self._writer_thread.join(timeout=5.0)
@@ -187,6 +261,55 @@ class AsyncTraceWriter:
 
         self._file_handle = None
         self._writer_thread = None
+
+    @property
+    def file_path(self) -> Path | None:
+        """实际写入的 pid 后缀 trace 文件路径。"""
+        return self._file_path
+
+    @property
+    def dropped_count(self) -> int:
+        """因队列背压被丢弃的事件数量。"""
+        return self._dropped_count
+
+    def stats(self) -> dict[str, Any]:
+        """返回 writer 内部指标；不通过 trace 递归上报。"""
+        return {
+            "file_path": str(self._file_path) if self._file_path else None,
+            "queue_depth": self._queue.qsize(),
+            "queue_max_size": self.queue_max_size,
+            "overflow_policy": self.overflow_policy,
+            "emitted_count": self._emitted_count,
+            "written_count": self._written_count,
+            "dropped_count": self._dropped_count,
+            "shutdown": self._shutdown,
+        }
+
+
+def _sanitize_trace_event_for_persistence(event: dict[str, Any]) -> dict[str, Any]:
+    """Return a metrics-only event for JSONL persistence.
+
+    Process-local hooks still receive the original event. The persisted file is
+    the long-lived artifact, so it must not store prompts, responses, tool args,
+    API keys, or other bulky/sensitive payloads.
+    """
+    sanitized: dict[str, Any] = {}
+    for key, value in event.items():
+        key_lower = key.lower()
+        if key_lower in _PERSISTENCE_DROP_KEYS:
+            continue
+        if key_lower in _PERSISTENCE_PREVIEW_KEYS:
+            sanitized[key] = str(value)[:200]
+            continue
+        if isinstance(value, str | int | float | bool) or value is None:
+            sanitized[key] = value
+        elif key_lower == "usage" and isinstance(value, dict):
+            sanitized[key] = {
+                usage_key: usage_value
+                for usage_key, usage_value in value.items()
+                if isinstance(usage_value, int | float | str | bool) or usage_value is None
+            }
+    return sanitized
 
 
 def _get_default_trace_file() -> Path:
@@ -271,7 +394,7 @@ def clear_trace_hooks() -> None:
     同时关闭异步写入器，清除 trace 日志文件配置和自动初始化标志，确保完全重置。
     """
     _hooks.clear()
-    global _TRACE_LOG_FILE, _auto_initialized, _trace_writer
+    global _TRACE_LOG_FILE, _TRACE_RECORD_PAYLOAD, _auto_initialized, _trace_writer
 
     # 关闭异步写入器
     if _trace_writer:
@@ -279,6 +402,7 @@ def clear_trace_hooks() -> None:
         _trace_writer = None
 
     _TRACE_LOG_FILE = None
+    _TRACE_RECORD_PAYLOAD = TRACE_RECORD_PAYLOAD_METRICS_ONLY
     _auto_initialized = False
 
 
@@ -303,7 +427,7 @@ def auto_register_trace_file_hook() -> None:
     示例配置：
         {"trace": {"enabled": true, "output_dir": "workspaces/logs"}}
     """
-    global _auto_initialized, _TRACE_LOG_FILE, _trace_writer
+    global _auto_initialized, _TRACE_LOG_FILE, _TRACE_RECORD_PAYLOAD, _trace_writer
 
     if _auto_initialized:
         return
@@ -325,14 +449,25 @@ def auto_register_trace_file_hook() -> None:
 
         batch_interval = get_config("trace.writer_batch_interval", 0.1)
         batch_size = get_config("trace.writer_batch_size", 50)
+        queue_max_size = get_config("trace.writer_queue_max_size", 10000)
+        overflow_policy = get_config("trace.writer_overflow_policy", TRACE_OVERFLOW_DROP_OLDEST)
+        _TRACE_RECORD_PAYLOAD = get_config("trace.record_payload", TRACE_RECORD_PAYLOAD_METRICS_ONLY)
 
         _trace_writer = AsyncTraceWriter(
             batch_interval=batch_interval,
-            batch_size=batch_size
+            batch_size=batch_size,
+            queue_max_size=queue_max_size,
+            overflow_policy=overflow_policy,
         )
         _trace_writer.start(_TRACE_LOG_FILE)
-        _logger.info("Trace异步写入器已启动: %s (batch_interval=%ss, batch_size=%d)",
-                     _TRACE_LOG_FILE, batch_interval, batch_size)
+        _logger.info(
+            "Trace异步写入器已启动: %s (actual=%s, batch_interval=%ss, batch_size=%d, queue_max=%s)",
+            _TRACE_LOG_FILE,
+            _trace_writer.file_path,
+            batch_interval,
+            batch_size,
+            queue_max_size,
+        )
 
 
 def get_trace_file() -> Path | None:
@@ -342,6 +477,20 @@ def get_trace_file() -> Path | None:
         当前 trace 文件路径，未启用持久化时返回 None
     """
     return _TRACE_LOG_FILE
+
+
+def get_actual_trace_file() -> Path | None:
+    """获取当前进程实际写入的 trace 文件路径。"""
+    if _trace_writer is not None:
+        return _trace_writer.file_path
+    return _TRACE_LOG_FILE
+
+
+def get_trace_writer_stats() -> dict[str, Any] | None:
+    """获取异步 trace writer 指标；未启用持久化时返回 None。"""
+    if _trace_writer is None:
+        return None
+    return _trace_writer.stats()
 
 
 def emit_trace(event: dict[str, Any]) -> None:
@@ -364,7 +513,10 @@ def emit_trace(event: dict[str, Any]) -> None:
 
     # 异步文件写入（非阻塞）
     if _trace_writer:
-        _trace_writer.emit(event_with_ts)
+        if _TRACE_RECORD_PAYLOAD == TRACE_RECORD_PAYLOAD_METRICS_ONLY:
+            _trace_writer.emit(_sanitize_trace_event_for_persistence(event_with_ts))
+        else:
+            _trace_writer.emit(event_with_ts)
 
     # 钩子同步调用（保持向后兼容）
     for h in _hooks:  # 避免 list copy 开销
@@ -399,5 +551,7 @@ __all__ = [
     "emit_trace",
     "auto_register_trace_file_hook",
     "get_trace_file",
+    "get_actual_trace_file",
+    "get_trace_writer_stats",
     "shutdown_trace_writer",  # 新增：关闭异步写入器
 ]

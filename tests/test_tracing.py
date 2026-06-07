@@ -4,12 +4,16 @@
 """
 
 import os
+import time
 from pathlib import Path
 
 from miniagent.infrastructure.tracing import (
+    AsyncTraceWriter,
     auto_register_trace_file_hook,
     clear_trace_hooks,
     emit_trace,
+    get_actual_trace_file,
+    get_trace_writer_stats,
     register_trace_hook,
     shutdown_trace_writer,
     unregister_trace_hook,
@@ -173,3 +177,82 @@ class TestTraceFilePersistence:
 
         expected_file.unlink(missing_ok=True)
         log_path.unlink(missing_ok=True)
+
+    def test_actual_trace_file_and_writer_stats(self, tmp_path: Path) -> None:
+        """持久化启动后可查询实际 pid 分片路径和 writer 指标。"""
+        log_path = tmp_path / "trace.jsonl"
+        install_test_config(tmp_path, {"debug": {"log_path": str(log_path)}})
+        auto_register_trace_file_hook()
+
+        actual_path = get_actual_trace_file()
+        assert actual_path is not None
+        assert f"-pid{os.getpid()}" in actual_path.name
+
+        emit_trace({"type": "stats_test"})
+        stats = get_trace_writer_stats()
+        assert stats is not None
+        assert stats["file_path"] == str(actual_path)
+        assert stats["emitted_count"] >= 1
+
+        shutdown_trace_writer()
+        actual_path.unlink(missing_ok=True)
+
+    def test_async_writer_bounded_queue_drops_without_blocking(self, tmp_path: Path) -> None:
+        """队列满时 writer 必须非阻塞丢弃事件，防止 trace 高峰撑爆内存。"""
+        log_path = tmp_path / "trace.jsonl"
+        writer = AsyncTraceWriter(
+            batch_interval=10.0,
+            batch_size=1000,
+            queue_max_size=2,
+            overflow_policy="drop_oldest",
+        )
+        writer.start(log_path)
+
+        start = time.perf_counter()
+        for i in range(50):
+            writer.emit({"type": "overflow_test", "index": i})
+        elapsed = time.perf_counter() - start
+        stats = writer.stats()
+
+        writer.shutdown()
+        assert elapsed < 0.1
+        assert stats["dropped_count"] > 0
+        assert stats["queue_max_size"] == 2
+        assert writer.file_path is not None
+        writer.file_path.unlink(missing_ok=True)
+        log_path.unlink(missing_ok=True)
+
+    def test_metrics_only_persistence_drops_payload_fields(self, tmp_path: Path) -> None:
+        """metrics_only 持久化不应落 prompt/response/tool args 等正文负载。"""
+        log_path = tmp_path / "trace.jsonl"
+        install_test_config(
+            tmp_path,
+            {
+                "debug": {"log_path": str(log_path)},
+                "trace": {"record_payload": "metrics_only"},
+            },
+        )
+        auto_register_trace_file_hook()
+
+        emit_trace(
+            {
+                "type": "llm.response",
+                "model": "test-model",
+                "content": "SECRET_RESPONSE_BODY",
+                "messages": [{"role": "user", "content": "SECRET_PROMPT"}],
+                "args_truncated": "SECRET_ARGS",
+                "usage": {"prompt_tokens": 1, "completion_tokens": 2},
+                "duration_ms": 123,
+            }
+        )
+        actual_path = get_actual_trace_file()
+        shutdown_trace_writer()
+
+        assert actual_path is not None
+        content = actual_path.read_text(encoding="utf-8")
+        assert "SECRET_RESPONSE_BODY" not in content
+        assert "SECRET_PROMPT" not in content
+        assert "SECRET_ARGS" not in content
+        assert "duration_ms" in content
+        assert "prompt_tokens" in content
+        actual_path.unlink(missing_ok=True)

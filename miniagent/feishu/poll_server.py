@@ -1097,6 +1097,33 @@ def _prepare_thinking_markdown(raw: str) -> str:
     return _prepare_thinking_body_for_card(raw, apply_cap=True, max_len=feishu_card_thinking_max())
 
 
+def _thinking_card_json_cached(st: Any, raw: str, template: str, session_key: str | None) -> str:
+    """为同一轮思考流缓存 normalized body 与 card JSON。
+
+    流式 PATCH 会频繁检查是否需要更新卡片；当累计正文未变化时复用结果，避免重复
+    `_normalize_lark_md()` 和 `json.dumps()`。
+    """
+    cache_key = (raw, template, session_key)
+    if getattr(st, "feishu_cached_card_key", None) == cache_key:
+        cached = getattr(st, "feishu_cached_card_json", None)
+        if isinstance(cached, str):
+            return cached
+    cleaned = _prepare_thinking_markdown(raw)
+    card_json = json.dumps(
+        _thinking_interactive_card_dict(cleaned, template, session_key=session_key),
+        ensure_ascii=False,
+    )
+    st.feishu_cached_card_key = cache_key
+    st.feishu_cached_card_json = card_json
+    return card_json
+
+
+def _reset_feishu_thinking_cache(st: Any) -> None:
+    """清理思考卡片渲染缓存。"""
+    st.feishu_cached_card_key = None
+    st.feishu_cached_card_json = None
+
+
 def _feishu_reply_plain_enabled() -> bool:
     """``MINIAGENT_FEISHU_REPLY_PLAIN``：默认渲染富文本 Markdown；设为 ``1`` 时去掉常见 Markdown 标记（仍为 ``lark_md``）。"""
     return bool(get_config("feishu.reply_plain", False))
@@ -1354,6 +1381,7 @@ async def push_feishu_thinking_stream(
         st.feishu_tool_section_started = False
         st.feishu_stream_llm_len = 0
         st.feishu_pending_header = ""
+        _reset_feishu_thinking_cache(st)
     else:
         _round_separator = False
 
@@ -1380,11 +1408,8 @@ async def push_feishu_thinking_stream(
         st.feishu_pending_tool_lines = []
         st.feishu_tool_section_started = True
 
-    cleaned = _prepare_thinking_markdown(st.feishu_stream_accumulated)
     _sk = getattr(st, "feishu_session_key", None) or None
-    card_json = json.dumps(
-        _thinking_interactive_card_dict(cleaned, template, session_key=_sk), ensure_ascii=False
-    )
+    card_json = _thinking_card_json_cached(st, st.feishu_stream_accumulated, template, _sk)
 
     if not st.feishu_thinking_message_id:
         r_mid = getattr(st, "feishu_reply_to_message_id", None)
@@ -1445,6 +1470,7 @@ async def finalize_feishu_thinking_stream(
         st.feishu_tool_section_started = False
         st.feishu_pending_tool_lines = []
         st.feishu_stream_llm_len = 0
+        _reset_feishu_thinking_cache(st)
         return
     if not acc.strip():
         # 无累积内容，直接清理状态
@@ -1454,6 +1480,7 @@ async def finalize_feishu_thinking_stream(
         st.feishu_tool_section_started = False
         st.feishu_pending_tool_lines = []
         st.feishu_stream_llm_len = 0
+        _reset_feishu_thinking_cache(st)
         return
     prep = _prepare_thinking_body_for_card(acc, apply_cap=False)
     chunks = _chunk_feishu_card_markdown(prep, already_normalized=True)
@@ -1495,6 +1522,7 @@ async def finalize_feishu_thinking_stream(
         st.feishu_tool_section_started = False
         st.feishu_pending_tool_lines = []
         st.feishu_stream_llm_len = 0
+        _reset_feishu_thinking_cache(st)
 
 
 async def append_feishu_thinking_same_card(
@@ -1522,11 +1550,8 @@ async def append_feishu_thinking_same_card(
 
     acc2 = acc + addition
     st.feishu_stream_accumulated = acc2
-    cleaned = _prepare_thinking_markdown(acc2)
     _sk = getattr(st, "feishu_session_key", None) or None
-    card_json = json.dumps(
-        _thinking_interactive_card_dict(cleaned, template, session_key=_sk), ensure_ascii=False
-    )
+    card_json = _thinking_card_json_cached(st, acc2, template, _sk)
 
     if mid:
         # ✅ 使用异步版本：追加工具后 PATCH 不阻塞事件循环
@@ -1642,6 +1667,7 @@ def _send_interactive_reply_cards(
     *,
     reply_to_message_id: str | None = None,
     reply_in_thread: bool = False,
+    already_normalized: bool = False,
 ) -> tuple[int, int]:
     """发送多条交互卡片回复。返回 (已成功条数, 总条数)；任一分片失败即中止后续分片。"""
     n = len(parts)
@@ -1649,7 +1675,7 @@ def _send_interactive_reply_cards(
         return (0, 0)
     sent = 0
     for i, part in enumerate(parts):
-        body = _prepare_card_markdown(part)
+        body = _prepare_card_markdown(part, normalize=not already_normalized)
         title = "🤖 Mini Agent" if n == 1 else f"🤖 Mini Agent ({i + 1}/{n})"
         card = _feishu_interactive_card_dict(title, body, "blue")
         card_json = json.dumps(card, ensure_ascii=False)
@@ -1730,6 +1756,7 @@ async def _send_reply(
             parts,
             reply_to_message_id=reply_to_message_id,
             reply_in_thread=reply_in_thread,
+            already_normalized=True,
         )
     except ImportError:
         _logger.error("请安装 lark-oapi: pip install lark-oapi")

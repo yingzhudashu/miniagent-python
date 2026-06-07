@@ -187,6 +187,8 @@ class _SessionThinkingState:
         "feishu_thinking_message_id",
         "feishu_stream_accumulated",
         "feishu_stream_llm_len",
+        "feishu_cached_card_key",
+        "feishu_cached_card_json",
         "feishu_last_patch_monotonic",
         "feishu_last_patched_char_len",
         "feishu_patch_budget",
@@ -212,6 +214,8 @@ class _SessionThinkingState:
     feishu_thinking_message_id: str | None
     feishu_stream_accumulated: str
     feishu_stream_llm_len: int  # LLM 正文字符数，用于工具段保留时的前缀计算
+    feishu_cached_card_key: tuple[str, str, str | None] | None
+    feishu_cached_card_json: str | None
     feishu_last_patch_monotonic: float
     feishu_last_patched_char_len: int
     feishu_patch_budget: int
@@ -238,6 +242,8 @@ class _SessionThinkingState:
         self.feishu_thinking_message_id = None
         self.feishu_stream_accumulated = ""
         self.feishu_stream_llm_len = 0
+        self.feishu_cached_card_key = None
+        self.feishu_cached_card_json = None
         self.feishu_last_patch_monotonic = 0.0
         self.feishu_last_patched_char_len = -1
         self.feishu_patch_budget = 0

@@ -93,6 +93,7 @@
 | 存储器 | store.py | test_memory_store.py | ✅ 充足 |
 | 上下文管理 | context.py | test_context_overflow.py | ✅ 充足 |
 | 关键词索引 | keyword_index.py | test_keyword_index.py | ✅ 充足 |
+| 记忆热路径性能 | store.py, keyword_index.py | test_perf_synthetic.py::S2/S6/S11/S12 | ✅ 充足 |
 | 活动日志 | activity_log.py | test_activity_log.py | ✅ 充足 |
 | 分层记忆 | layered_memory.py | test_layered_memory.py | ✅ 充足 |
 | 历史归档 | history_archive.py | test_memory_history.py | ✅ 合并 |
@@ -111,6 +112,8 @@
 | 实例管理 | instance.py | test_instance_manager.py | ✅ 充足 |
 | 消息队列 | message_queue.py | test_message_queue_abort.py | ✅ 充足 |
 | 通道路由 | channel_router.py | test_channel_router_persist.py | ✅ 充足 |
+| Trace钩子/写入 | tracing.py | test_tracing.py, test_trace_performance.py | ✅ 充足 |
+| Trace统计/清理 | trace_stats.py | test_self_opt_integration.py | ✅ 充足 |
 
 ---
 
@@ -209,6 +212,17 @@ pytest tests/test_engine_engine.py tests/test_command_dispatch.py \
 # CLI transcript / 历史加载回归
 pytest tests/test_cli_transcript.py tests/test_cli_transcript_scroll.py \
   tests/test_session_history_sync.py -v
+
+# Trace / 性能回归
+pytest tests/test_tracing.py tests/test_trace_performance.py \
+  tests/test_self_opt_integration.py::TestTraceStats tests/test_perf_synthetic.py -v
+
+# 业务热路径性能回归
+pytest tests/test_memory_store.py tests/test_keyword_index.py tests/test_perf_synthetic.py -q -m perf --durations=13
+
+# 真实 API 压测（显式门禁，默认不联网）
+set MINIAGENT_REAL_API_STRESS=1
+pytest tests/evaluation/test_perf_real_api.py -v -s
 ```
 
 ---
