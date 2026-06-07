@@ -306,6 +306,7 @@ upload_html_tool: ToolDefinition = (
     tool("upload_html", "上传 HTML 内容并获取可访问 URL，用于在线文档/演示展示")
     .param("html", "string", "HTML 内容字符串", required=True)
     .param("filename", "string", "自定义文件名（可选，仅作参考）")
+    .toolbox("html_upload")
     .handler(_upload_html_handler)
     .build()
 )
@@ -313,6 +314,7 @@ upload_html_tool: ToolDefinition = (
 # list_html_files 工具
 list_html_files_tool: ToolDefinition = (
     tool("list_html_files", "列出已上传的 HTML 文件")
+    .toolbox("html_upload")
     .handler(_list_html_files_handler)
     .build()
 )
@@ -321,6 +323,7 @@ list_html_files_tool: ToolDefinition = (
 cleanup_html_files_tool: ToolDefinition = (
     tool("cleanup_html_files", "清理过期的 HTML 文件")
     .param("days", "number", "删除超过 N 天的文件（默认 7）")
+    .toolbox("html_upload")
     .handler(_cleanup_html_files_handler)
     .build()
 )

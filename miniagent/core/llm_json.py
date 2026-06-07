@@ -92,16 +92,33 @@ async def llm_json(
 
     Returns:
         解析后的 JSON 字典；解析失败返回空字典。
+
+    Note:
+        OpenAI API 要求：使用 response_format=json_object 时，
+        消息中必须包含 "json" 这个词（不区分大小写）。
+        本函数会自动检查并添加必要的提示。
     """
     from miniagent.core.openai_client import get_shared_async_openai
 
     llm = client or get_shared_async_openai()
     if model is None:
         model = get_config("model.model", "gpt-4o-mini")
+
+    # OpenAI API 要求：使用 json_object 模式时，消息中必须包含 "json" 这个词
+    # 检查 system + prompt 中是否有 "json"（不区分大小写）
+    combined = (system + prompt).lower()
+    use_json_object = "json" in combined
+
+    # 如果没有 "json" 这个词，在 system 提示中添加 JSON 输出要求
+    actual_system = system
+    if not use_json_object:
+        actual_system = system + "\n\n请以 JSON 格式返回结果。"
+        use_json_object = True  # 现在消息中包含了 "json"
+
     resp = await llm.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": system},
+            {"role": "system", "content": actual_system},
             {"role": "user", "content": prompt},
         ],
         response_format={"type": "json_object"},

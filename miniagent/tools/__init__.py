@@ -37,11 +37,23 @@ from miniagent.tools.feishu_card_tools import feishu_card_tools
 from miniagent.tools.feishu_doc_tools import feishu_doc_tools
 from miniagent.tools.feishu_im_tools import feishu_im_tools
 from miniagent.tools.filesystem import filesystem_tools
+from miniagent.tools.html_upload import (
+    cleanup_html_files_tool,
+    list_html_files_tool,
+    upload_html_tool,
+)
 from miniagent.tools.knowledge_tools import knowledge_tools
 from miniagent.tools.schedule_tools import schedule_tools
 from miniagent.tools.session_memory import session_memory_tools
 from miniagent.tools.skills import skills_tools
 from miniagent.tools.vision import vision_tools
+
+# HTML 上传工具集合
+html_upload_tools = {
+    "upload_html": upload_html_tool,
+    "list_html_files": list_html_files_tool,
+    "cleanup_html_files": cleanup_html_files_tool,
+}
 
 # 汇总所有内置工具
 ALL_TOOLS = {
@@ -59,6 +71,7 @@ ALL_TOOLS = {
     **vision_tools,
     **knowledge_tools,
     **session_memory_tools,
+    **html_upload_tools,
 }
 
 __all__ = [
@@ -76,5 +89,6 @@ __all__ = [
     "vision_tools",
     "knowledge_tools",
     "session_memory_tools",
+    "html_upload_tools",
     "ALL_TOOLS",
 ]

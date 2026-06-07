@@ -71,6 +71,12 @@ BUILTIN_TOOLBOXES: list[Toolbox] = [
         description="检索已挂载的知识库内容（search_knowledge、read_knowledge_file、kb_list）",
         keywords=["知识库", "KB", "文档", "检索", "挂载"],
     ),
+    Toolbox(
+        id="html_upload",
+        name="HTML 上传",
+        description="上传 HTML 内容获取公开访问 URL，用于在线文档/演示展示（upload_html、list_html_files、cleanup_html_files）",
+        keywords=["HTML", "上传", "URL", "在线展示", "文档", "演示"],
+    ),
 ]
 
 __all__ = ["BUILTIN_TOOLBOXES"]
