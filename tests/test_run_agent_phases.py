@@ -8,7 +8,7 @@ from miniagent.core.task_classifier import TaskDifficulty
 from miniagent.types.planning import StructuredPlan
 from miniagent.types.tool import Toolbox
 from tests.config_helpers import install_test_config
-from tests.llm_helpers import mock_all_llm_clients
+from tests.mock_strategies import mock_all_llm_clients
 
 
 def _make_agent_config():

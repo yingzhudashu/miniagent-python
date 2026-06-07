@@ -423,7 +423,7 @@ python -m miniagent --stop
 - **内置基线**：仓库预置 **`skill-creator`**（来自 [anthropics/skills](https://github.com/anthropics/skills)，含 `LICENSE.txt`）；**`skill-vetter`**（安全审查）位于 `miniagent/skills/templates/skill-vetter/`，首次使用时可通过 `miniagent install-skill skill-vetter` 或手动复制到 `workspaces/skills/` 加载。  
 - **仅从 PyPI 安装 wheel**（无完整仓库树）时，默认路径下可能没有预置技能文件；需要基线时请克隆仓库、editable 安装，或手动复制 `workspaces/skills/skill-creator`，详见 [README.md](../README.md)「技能目录迁移」。  
 - **扩展**：可从 ClawHub 安装更多技能包，引导脚本见 `scripts/bootstrap_clawhub_skills.py`（参数以官方技能页为准；脚本仅为额外安装，不替代内置基线）。  
-- 目录说明见 [workspaces/skills/README.md](../workspaces/skills/README.md)；深入说明见 [README.md](../README.md) 技能章节与 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md) 中与技能相关的部分。
+- 目录结构与内置基线见 `workspaces/skills/` 目录；深入说明见 [README.md](../README.md) 技能章节与 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md) 中与技能相关的部分。
 
 ---
 
@@ -502,7 +502,6 @@ python -m miniagent --stop
 | [ENGINEERING.md](ENGINEERING.md) | 多实例与注册表（§3.3）、质量门禁 |
 | [SELF_OPT.md](SELF_OPT.md) | 自我优化 |
 | [CHANNEL_BINDING.md](CHANNEL_BINDING.md) | 通道绑定 |
-| [examples/README.md](examples/README.md) | 脱敏配置示例说明 |
 
 <a id="user-guide-sec18-advanced"></a>
 

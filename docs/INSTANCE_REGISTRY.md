@@ -2,125 +2,108 @@
 
 ## 概述
 
-实例注册表管理MiniAgent的全局实例，包括：
-- 工具注册表（ToolRegistry）
-- 会话管理器（SessionManager）
-- 配置管理器（ConfigManager）
-- 知识库注册表（KnowledgeBaseRegistry）
+MiniAgent 使用 **RuntimeContext 组合根** 模式管理进程级实例，而非传统的全局变量散布。实例注册表是 RuntimeContext 的核心组件之一，负责：
 
-## 设计目标
+- **多实例管理**：支持多进程部署，每个实例有独立 ID 和心跳
+- **PID 存活检测**：权威判定实例存活状态
+- **项目目录冲突检测**：防止同一项目目录被多实例抢占
+- **跨进程文件锁保护**：确保注册表操作安全
 
-1. 避免全局变量散布
-2. 提供统一的实例获取接口
-3. 支持依赖注入和测试mock
-4. 单例模式管理共享实例
+## 当前架构
 
-## 核心API
+### RuntimeContext 组合根
 
-### get_global_tool_registry()
-
-获取全局工具注册表。
+所有进程级依赖通过 `RuntimeContext` 聚合，在 `miniagent/compat.py` 的 `unified_entry()` 中构造：
 
 ```python
-from miniagent import get_global_tool_registry
-
-registry = get_global_tool_registry()
-read_tool = registry.get("read_file")
+# miniagent/runtime/context.py
+class RuntimeContext:
+    registry: ToolRegistryProtocol      # 工具注册表
+    monitor: ToolMonitorProtocol        # 工具监控器
+    engine: UnifiedEngine | None        # 主引擎（可选）
+    message_queue: MessageQueueManager  # 消息队列
+    channel_router: ChannelRouter       # 通道路由
+    feishu: FeishuRuntime | None        # 飞书运行时（可选）
+    memory_store: MemoryStoreProtocol   # 记忆存储
+    activity_log: ActivityLogProtocol   # 活动日志
+    keyword_index: KeywordIndexProtocol # 关键词索引
+    ...
 ```
 
-### get_session_manager()
+### InstanceRegistry 实现
 
-获取会话管理器。
+位置：`miniagent/infrastructure/instance.py`
 
-```python
-from miniagent.session import get_session_manager
+**核心功能**：
+- `register_instance()`：注册新实例，返回自增 ID
+- `heartbeat()`：更新实例心跳时间戳
+- `stop_instance()`：注销实例，清理目录
+- `list_instances()`：列出所有实例（Markdown/表格格式）
+- `check_alive()`：PID 存活检测（跨平台）
 
-manager = get_session_manager()
-session = manager.get_or_create("test-session")
-```
+**设计特点**：
+- 线程安全（`threading.Lock`）
+- 跨进程文件锁（`fcntl.flock` / Windows 等效）
+- PID 存活检测作为权威判定
+- 僵尸目录清理（非心跳超时）
 
-### get_kb_registry()
-
-获取知识库注册表。
-
-```python
-from miniagent.knowledge import get_kb_registry
-
-kb_registry = get_kb_registry()
-kb = kb_registry.get("default")
-```
-
-## 实现细节
-
-详见 `miniagent/__init__.py`、`miniagent/infrastructure/__init__.py`、`miniagent/session/__init__.py`。
-
-## 使用指南
+## 使用方式
 
 ### 正常使用
 
-直接调用get_*函数获取实例：
+实例注册通过 Engine 初始化自动完成：
 
 ```python
-from miniagent import get_global_tool_registry
-from miniagent.session import get_session_manager
+# miniagent/engine/main.py
+def main():
+    ctx = RuntimeContext(...)
+    ctx.instance_id = register_instance(
+        ctx.state_dir,
+        project_dir=ctx.project_dir,
+    )
+    ...
+```
 
-registry = get_global_tool_registry()
-manager = get_session_manager()
+### CLI 查看
+
+```bash
+miniagent /instance
+```
+
+输出示例：
+```
+🏭 实例: #42
+📁 项目: D:\AIhub\miniagent-python
+💓 心跳: 2026-06-07 14:30:00
+🟢 状态: alive
 ```
 
 ### 测试场景
 
-使用依赖注入替代全局实例：
+使用 `conftest.py` 提供的 fixture 重置进程单例：
 
 ```python
-# 测试代码
-from unittest.mock import Mock
-from miniagent import set_global_tool_registry
-
-# 创建mock工具注册表
-mock_registry = MockToolRegistry()
-set_global_tool_registry(mock_registry)
-
-# 现在get_global_tool_registry()返回mock实例
-registry = get_global_tool_registry()
-assert registry == mock_registry
+# tests/conftest.py
+@pytest.fixture(autouse=True)
+def _reset_process_singletons_after_test():
+    yield
+    reset_instance_registry_for_tests()
 ```
 
-## 设计原则
+## 配置项
 
-1. **单例模式**：全局实例使用单例模式避免重复创建
-2. **线程安全**：使用线程锁保护全局实例初始化
-3. **延迟初始化**：实例在首次访问时初始化（lazy load）
-4. **可替换**：支持set_*函数替换全局实例（用于测试）
-
-## 架构重构进展
-
-根据2026-06-05的重构计划，实例注册表正在向依赖注入系统迁移：
-
-### 当前状态（传统模式）
-
-- 全局变量：`miniagent/__init__.py`中的`_global_tool_registry`
-- 全局变量：`miniagent/session/__init__.py`中的`_session_manager`
-
-### 目标状态（依赖注入）
-
-详见Phase 3计划 - 使用`DependencyContainer`替代全局状态：
-
-```python
-# 目标架构
-from miniagent.infrastructure.container import get_tool_registry
-
-# 依赖注入获取实例
-registry = get_tool_registry(ToolRegistryProtocol)
-```
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `paths.state_dir` | 状态目录（实例注册表存储位置） | `workspaces` |
+| `agent.parallel_sessions` | 并行会话上限 | 10 |
 
 ## 相关文档
 
-- docs/ARCHITECTURE.md - 系统架构设计
-- miniagent/types/protocols.py - Protocol接口定义（Phase 3新增）
-- miniagent/infrastructure/container.py - 依赖注入容器（Phase 3新增）
+- [ARCHITECTURE.md](ARCHITECTURE.md) - 系统架构设计（§4 RuntimeContext）
+- [ENGINEERING.md](ENGINEERING.md) - 多实例与质量门禁
+- [CHANNEL_BINDING.md](CHANNEL_BINDING.md) - 通道绑定
 
 ## 变更历史
 
-- 2026-06-05: 创建文档（Phase 2任务）
-- 待定: Phase 3完成依赖注入系统迁移
+- 2026-06-05: 创建文档（Phase 2 任务）
+- 2026-06-07: 更新为 RuntimeContext 组合根架构（Phase 3 完成）

@@ -705,6 +705,107 @@ def mock_memory_bundle() -> tuple[MagicMock, MagicMock, MagicMock]:
     return ms, al, ki
 
 
+def agent_config_with_session(
+    sess: Any,
+    *,
+    max_turns: int = 3,
+    debug: bool = False,
+) -> Any:
+    """创建带 session_registry 的 AgentConfig（便捷函数）。
+
+    Args:
+        sess: session 工具注册表
+        max_turns: 最大轮数
+        debug: 是否调试模式
+
+    Returns:
+        AgentConfig 对象
+    """
+    from miniagent.types.config import AgentConfig
+
+    return AgentConfig(
+        max_turns=max_turns,
+        session_key=None,
+        allow_parallel_tools=True,
+        tool_selection_strategy="all",
+        session_registry=sess,
+        debug=debug,
+    )
+
+
+def empty_plan() -> Any:
+    """创建空 StructuredPlan（便捷函数）。
+
+    Returns:
+        StructuredPlan 对象
+    """
+    from miniagent.types.planning import StructuredPlan
+
+    return StructuredPlan(summary="s", steps=[], required_toolboxes=[])
+
+
+def mock_streaming_client(
+    *,
+    tool_name: str = "ping_tool",
+    tool_args: str = "{}",
+    final_text: str = "done",
+    extra_streams: list[Any] | None = None,
+) -> MagicMock:
+    """创建流式响应 mock 客户端（便捷函数，保持与 executor_helpers.py 兼容）。
+
+    Args:
+        tool_name: 工具名称
+        tool_args: 工具参数 JSON
+        final_text: 最终文本
+        extra_streams: 额外流列表
+
+    Returns:
+        mock 客户端
+    """
+    from types import SimpleNamespace
+
+    mock_client = MagicMock()
+
+    class _Chunk:
+        def __init__(self, delta: Any, usage: Any = None) -> None:
+            self.choices = [SimpleNamespace(delta=delta)]
+            self.usage = usage
+
+    streams = list(extra_streams or [])
+
+    async def default_tool_stream():
+        delta = SimpleNamespace(
+            content=None,
+            tool_calls=[
+                SimpleNamespace(
+                    index=0,
+                    id="call_1",
+                    function=SimpleNamespace(name=tool_name, arguments=tool_args),
+                )
+            ],
+        )
+        yield _Chunk(delta)
+
+    async def default_text_stream():
+        yield _Chunk(SimpleNamespace(content=final_text, tool_calls=None))
+
+    if not streams:
+        streams = [default_tool_stream, default_text_stream]
+
+    call_count = {"n": 0}
+
+    async def create_side_effect(*_a: object, **_k: object) -> Any:
+        idx = call_count["n"]
+        call_count["n"] += 1
+        if idx < len(streams):
+            return streams[idx]()
+        return default_text_stream()
+
+    mock_client.chat.completions.create = AsyncMock(side_effect=create_side_effect)
+    mock_client._call_count = call_count  # type: ignore[attr-defined]
+    return mock_client
+
+
 __all__ = [
     # Mocker classes
     "LLMResponseMocker",
@@ -715,4 +816,7 @@ __all__ = [
     "mock_all_llm_clients",
     "make_ping_tool_registry",
     "mock_memory_bundle",
+    "agent_config_with_session",
+    "empty_plan",
+    "mock_streaming_client",
 ]

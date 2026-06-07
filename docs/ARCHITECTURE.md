@@ -445,7 +445,7 @@ LLM 可通过 function calling 调用的工具：
 
 自动入库结果使用普通 `KnowledgeBase` 目录结构，并在检索片段中展示原始 `source_path`、hash 摘要和 size。RAG 未命中或源文件 hash/mtime 变化时，规划器仍应安排 `read_file` / `list_dir` 二次确认，避免把过期索引当作真实源文件。
 
-详细集成方案见 [RAG_ENHANCEMENT_PLAN.md](RAG_ENHANCEMENT_PLAN.md)。
+RAG 已在规划、澄清、分类、反思阶段全面集成，详见 [KNOWLEDGE_BASE.md](KNOWLEDGE_BASE.md)。
 
 ### 9. 基础设施层 (Infrastructure)
 

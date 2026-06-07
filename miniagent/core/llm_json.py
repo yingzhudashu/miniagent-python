@@ -81,6 +81,7 @@ async def llm_json(
     system: str,
     client: AsyncOpenAI | None = None,
     model: str | None = None,
+    raise_on_error: bool = False,
 ) -> dict[str, Any]:
     """调用 LLM 并解析 JSON 回复。
 
@@ -89,9 +90,15 @@ async def llm_json(
         system: 系统提示
         client: LLM 客户端（None 时回落到共享工厂）
         model: 模型名（None 时读取 ``MINIAGENT_MODEL_MODEL`` 环境变量，回落到 ``gpt-4o-mini``）
+        raise_on_error: 解析失败时是否抛出异常（默认 False，返回空字典）
 
     Returns:
-        解析后的 JSON 字典；解析失败返回空字典。
+        解析后的 JSON 字典；解析失败时：
+        - raise_on_error=False：返回空字典 {}
+        - raise_on_error=True：抛出 json.JSONDecodeError
+
+    Raises:
+        json.JSONDecodeError: 当 raise_on_error=True 且解析失败时抛出
 
     Note:
         OpenAI API 要求：使用 response_format=json_object 时，
@@ -126,8 +133,10 @@ async def llm_json(
     text = resp.choices[0].message.content or "{}"
     try:
         return json.loads(text)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
         logging.getLogger(__name__).warning("LLM 返回的 JSON 解析失败: %s", text[:200])
+        if raise_on_error:
+            raise
         return {}
 
 

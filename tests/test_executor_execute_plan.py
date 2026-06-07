@@ -9,7 +9,7 @@ import pytest
 
 from miniagent.core.executor import execute_plan
 from miniagent.types.planning import PlanStep, StructuredPlan
-from tests.executor_helpers import (
+from tests.mock_strategies import (
     agent_config_with_session,
     empty_plan,
     make_ping_tool_registry,

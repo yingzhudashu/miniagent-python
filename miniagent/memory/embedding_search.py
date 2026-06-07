@@ -134,13 +134,6 @@ def _get_embed_config() -> dict[str, str | int]:
 # 向量工具（性能优化：可选 numpy 加速）
 # ============================================================================
 
-# 尝试导入 numpy（可选加速）
-try:
-    import numpy as np
-    _numpy_available = True
-except ImportError:
-    _numpy_available = False
-
 
 def _dot_product(a: list[float], b: list[float]) -> float:
     """计算两个向量的点积（性能优化：可选 numpy 加速）。"""

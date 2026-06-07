@@ -564,8 +564,8 @@ result = await run_agent(
 
 - docs/ARCHITECTURE.md - 系统架构设计
 - docs/MEMORY_SYSTEM.md - 记忆系统使用指南
+- docs/KNOWLEDGE_BASE.md - 知识库与 RAG 集成（已全面集成）
 - docs/INSTANCE_REGISTRY.md - 实例注册表文档
-- docs/RAG_ENHANCEMENT_PLAN.md - RAG增强计划
 
 ## 变更历史
 

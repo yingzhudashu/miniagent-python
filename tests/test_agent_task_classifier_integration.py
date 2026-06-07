@@ -10,7 +10,7 @@ from miniagent.core.agent import run_agent
 from miniagent.infrastructure.registry import DefaultToolRegistry
 from miniagent.types.tool import Toolbox
 from tests.config_helpers import install_test_config
-from tests.llm_helpers import mock_all_llm_clients
+from tests.mock_strategies import mock_all_llm_clients
 
 
 @pytest.mark.asyncio

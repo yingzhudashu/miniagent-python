@@ -212,6 +212,15 @@ class MemoryStoreProtocol(Protocol):
         """
         ...
 
+    async def add_file(self, session_key: str, file_meta: FileMetadata) -> None:
+        """添加上传文件到记忆
+
+        Args:
+            session_key: 会话唯一标识
+            file_meta: 文件元数据
+        """
+        ...
+
 
 @dataclass
 class SessionOptions:

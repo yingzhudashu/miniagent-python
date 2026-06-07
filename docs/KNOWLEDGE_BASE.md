@@ -324,7 +324,7 @@ knowledge 工具箱已提升为**核心工具箱**（toolbox=None），始终可
 | `knowledge.auto_ingest_kb_name` | 自动入库知识库名称 | `_auto_file_analysis` |
 | `knowledge.auto_ingest_max_file_chars` | 自动入库单文件字符上限；为空时沿用 `knowledge.max_file_chars` | `null` |
 
-详细集成方案见 [RAG_ENHANCEMENT_PLAN.md](RAG_ENHANCEMENT_PLAN.md)。
+RAG 增强已全面集成到 Agent 各阶段，无需单独计划文档。
 
 ## 最佳实践
 
