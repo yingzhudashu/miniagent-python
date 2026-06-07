@@ -85,6 +85,7 @@ def get_default_model_config() -> ModelConfig:
         thinking_budget=thinking_budget,
         context_window=_cfg_int("model.context_window", 128000),
         retry_count=_cfg_int("model.retry_count", 2),
+        service_tier=get_config("model.service_tier", None),
     )
 
 

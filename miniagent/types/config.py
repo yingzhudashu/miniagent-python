@@ -51,6 +51,7 @@ class ModelConfig:
         thinking_budget: thinking token 预算
         context_window: 上下文窗口大小（token）
         retry_count: API 调用重试次数
+        service_tier: 服务层级（auto/default/flex）
 
     Example:
         >>> config = ModelConfig(model="gpt-4o", temperature=0.7)
@@ -60,6 +61,7 @@ class ModelConfig:
         - 运行时推荐使用 get_default_model_config() 获取完整配置
         - thinking_level 控制模型思考深度
         - thinking_budget 仅在 thinking_level 非 none 时生效
+        - service_tier 控制请求的服务层级和延迟优先级
     """
 
     base_url: str = "https://api.openai.com/v1"
@@ -71,6 +73,7 @@ class ModelConfig:
     thinking_budget: int = 1024
     context_window: int = 128000
     retry_count: int = 2
+    service_tier: str | None = None  # auto/default/flex
 
 
 # ============================================================================

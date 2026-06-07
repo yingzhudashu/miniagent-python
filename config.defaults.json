@@ -55,7 +55,11 @@
     "thinking_level": "light",
     "thinking_budget": 1024,
     "context_window": 128000,
-    "retry_count": 2
+    "retry_count": 2,
+    "service_tier": null,
+    "_guide": {
+      "service_tier": "服务层级：auto(自动选择)、default(标准)、flex(灵活/低成本)"
+    }
   },
 
   "paths": {

@@ -48,6 +48,11 @@ def resolve_exec_completion_kwargs(
         "stream": stream,
     }
 
+    # service_tier: 服务层级（auto/default/flex），控制延迟优先级
+    service_tier = ov.get("service_tier", mc.service_tier)
+    if service_tier:
+        kw["service_tier"] = service_tier
+
     extra = build_thinking_extra_body(
         mc.base_url,
         tl,
@@ -91,6 +96,12 @@ def resolve_planner_completion_kwargs(
         "top_p": float(ov.get("top_p", mc.top_p)),
         "stream": False,
     }
+
+    # service_tier: 服务层级（auto/default/flex）
+    service_tier = ov.get("service_tier", mc.service_tier)
+    if service_tier:
+        kw["service_tier"] = service_tier
+
     extra = build_thinking_extra_body(
         mc.base_url,
         tl,
