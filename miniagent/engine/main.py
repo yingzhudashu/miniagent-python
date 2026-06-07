@@ -422,7 +422,6 @@ async def run_cli_loop(
     from prompt_toolkit.key_binding import KeyBindings
     from prompt_toolkit.keys import Keys
     from prompt_toolkit.layout import Float, FloatContainer, HSplit, Layout, VSplit, Window
-    from prompt_toolkit.layout.menus import CompletionsMenu
     from prompt_toolkit.layout.controls import (
         BufferControl,
         FormattedTextControl,
@@ -430,6 +429,7 @@ async def run_cli_loop(
         UIControl,
     )
     from prompt_toolkit.layout.dimension import LayoutDimension as D
+    from prompt_toolkit.layout.menus import CompletionsMenu
     from prompt_toolkit.layout.scrollable_pane import ScrollablePane
     from prompt_toolkit.mouse_events import MouseEvent, MouseEventType
 
@@ -482,7 +482,7 @@ async def run_cli_loop(
     from miniagent.core.constants import MAX_TRANSCRIPT_CHARS
 
     _MAX_TRANSCRIPT_CHARS = int(get_config("memory.max_transcript_chars", MAX_TRANSCRIPT_CHARS))
-    _transcript: deque[Any] = deque(maxlen=5000)  # 增加片段数上限到 5000，避免自动裁剪
+    _transcript: deque[Any] = deque()  # 仅由 _MAX_TRANSCRIPT_CHARS 显式控制裁剪
     _transcript_total_len: list[int] = [0]  # 累计长度计数器（性能优化）
     _stick_bottom: list[bool] = [True]
     _last_md_width: list[int] = [0]  # 上次渲染 Markdown 的终端宽度
@@ -524,16 +524,9 @@ async def run_cli_loop(
 
     def _transcript_fragment_len(frag: Any) -> int:
         """估算单条 transcript 片段的字符长度（tuple 文本或 ``ANSI`` 包裹串）。"""
-        if isinstance(frag, tuple) and len(frag) >= 2:
-            return len(frag[1])
-        try:
-            from prompt_toolkit.formatted_text.ansi import ANSI as PTANSI
+        from miniagent.engine.cli_transcript import transcript_fragment_len
 
-            if isinstance(frag, PTANSI):
-                return len(frag.value)
-        except Exception as e:
-            _logger.debug("transcript片段长度计算失败: %s", e)
-        return 0
+        return transcript_fragment_len(frag)
 
     def _trim_transcript() -> None:
         """性能优化：使用累计长度计数器，避免每次遍历（O(1)而非O(n))。
@@ -557,13 +550,14 @@ async def run_cli_loop(
         当 deque 达到 maxlen 上限时，先从右侧（最新内容）移除一个元素，
         然后再插入到左侧（历史内容）。这确保加载历史时不会崩溃。
         """
-        if len(_transcript) >= _transcript.maxlen:
+        if _transcript.maxlen is not None and len(_transcript) >= _transcript.maxlen:
             # deque 已满，从右侧移除最新内容以腾出空间
             old = _transcript.pop()
             frag_len = _transcript_fragment_len(old)
             _transcript_total_len[0] = max(0, _transcript_total_len[0] - frag_len)
         _transcript.insert(0, (style, text))
         _transcript_total_len[0] += len(text)
+        _trim_transcript()
 
     def _render_history_message_to_transcript(msg: dict, prepend: bool = False) -> None:
         """将历史消息渲染到 transcript。
@@ -579,6 +573,7 @@ async def run_cli_loop(
         content = msg.get("content", "")
         if not content:
             return
+        from miniagent.engine.cli_transcript import lines_for_prepend
 
         vp = _viewport_cols()
         rule_w = max(10, vp // 2)  # 边框线宽度（与 _border_truncate 一致）
@@ -588,7 +583,7 @@ async def run_cli_loop(
                 # prepend=True: 插入到顶部，每条消息内部按正确顺序插入
                 # insert(0) 后插入的在上面，所以要：先插内容，再插标题分隔线
                 # 最终显示：spacer → 上分隔线 → 标题 → 内容 → 下分隔线
-                for line in content.splitlines():
+                for line in lines_for_prepend(content):
                     _transcript_prepend("class:cli-user-body", line + "\n")
                 _transcript_prepend("class:cli-user-title", "You\n")
                 _transcript_prepend("class:cli-border", "─" * rule_w + "\n")
@@ -608,7 +603,7 @@ async def run_cli_loop(
                     for style, txt in reversed(safe_ft):
                         _transcript_prepend(style, txt)
                 else:
-                    for line in content.splitlines():
+                    for line in lines_for_prepend(content):
                         _transcript_prepend("class:cli-reply-body", line + "\n")
                 _transcript_prepend("class:cli-reply-title", "Agent\n")
                 _transcript_prepend("class:cli-border", "─" * rule_w + "\n")
@@ -644,9 +639,14 @@ async def run_cli_loop(
             _history_loaded_range["total_messages"] = total
             _history_loaded_range["loaded_start"] = 0
             # 使用实际加载的消息数量，而非请求的 count（修复后可能多1条）
-            _history_loaded_range["loaded_end"] = len(messages)
+            from miniagent.engine.cli_transcript import history_all_loaded, history_loaded_end
+
+            _history_loaded_range["loaded_end"] = history_loaded_end(0, len(messages), total)
             # 如果实际加载数量 >= total，则全部已加载
-            _history_loaded_range["all_loaded"] = len(messages) >= total
+            _history_loaded_range["all_loaded"] = history_all_loaded(
+                total,
+                _history_loaded_range["loaded_end"],
+            )
 
             if not messages:
                 _logger.info("历史加载: 无消息，跳过渲染")
@@ -659,11 +659,14 @@ async def run_cli_loop(
 
             # 如果有更多历史，添加提示
             if not _history_loaded_range["all_loaded"]:
-                remaining = total - len(messages)
-                _append_transcript(
-                    "class:cli-hint",
-                    f"\n[↑ 向上滚动加载更多历史 · 还有 {remaining} 条]\n"
+                from miniagent.engine.cli_transcript import (
+                    HISTORY_HINT_STYLE,
+                    history_load_hint,
+                    history_remaining,
                 )
+
+                remaining = history_remaining(total, _history_loaded_range["loaded_end"])
+                _transcript_prepend(HISTORY_HINT_STYLE, history_load_hint(remaining))
         except Exception as e:
             _logger.exception(f"历史加载异常: {e}")
 
@@ -729,21 +732,37 @@ async def run_cli_loop(
                     # 性能优化：更新累计长度计数器
                     _transcript_total_len[0] -= _transcript_fragment_len(old)
 
-            # 在顶部插入新加载的历史（从旧到新遍历，使旧消息在最上方）
-            for msg in messages:
+            from miniagent.engine.cli_transcript import (
+                HISTORY_HINT_STYLE,
+                history_all_loaded,
+                history_load_hint,
+                history_loaded_end,
+                history_remaining,
+                messages_for_prepend,
+            )
+
+            # 在顶部插入新加载的历史。每个消息渲染函数都会多次 left-prepend，
+            # 因此批次本身也要倒序遍历，最终屏幕顺序才保持从旧到新。
+            for msg in messages_for_prepend(messages):
                 _render_history_message_to_transcript(msg, prepend=True)
 
             # 更新加载范围
-            _history_loaded_range["loaded_end"] = next_start + len(messages)
-            _history_loaded_range["all_loaded"] = (
-                _history_loaded_range["loaded_end"] >= total
+            _history_loaded_range["loaded_end"] = history_loaded_end(
+                next_start,
+                len(messages),
+                total,
+            )
+            _history_loaded_range["all_loaded"] = history_all_loaded(
+                total,
+                _history_loaded_range["loaded_end"],
             )
 
             # 如果仍有更多，恢复提示
             if not _history_loaded_range["all_loaded"]:
-                remaining = total - _history_loaded_range["loaded_end"]
+                remaining = history_remaining(total, _history_loaded_range["loaded_end"])
                 _transcript_prepend(
-                    "class:cli-hint", f"\n[↑ 加载更多历史 · 还有 {remaining} 条]\n"
+                    HISTORY_HINT_STYLE,
+                    history_load_hint(remaining),
                 )
 
             # 刷新显示
@@ -904,18 +923,9 @@ async def run_cli_loop(
         """获取指定 transcript fragment 的纯文本（去除ANSI）。"""
         if frag_idx < 0 or frag_idx >= len(_transcript):
             return ""
-        frag = _transcript[frag_idx]
-        if isinstance(frag, tuple) and len(frag) >= 2:
-            return frag[1] or ""
-        try:
-            from prompt_toolkit.formatted_text.ansi import ANSI as PTANSI
-            if isinstance(frag, PTANSI):
-                # 使用 strip_ansi 获取纯文本
-                from miniagent.engine.markdown_cli import strip_ansi
-                return strip_ansi(frag.value) or ""
-        except Exception:
-            pass
-        return ""
+        from miniagent.engine.cli_transcript import transcript_fragment_text
+
+        return transcript_fragment_text(_transcript[frag_idx])
 
     def _get_transcript_char_count(frag_idx: int) -> int:
         """获取指定 fragment 的字符数。"""
@@ -1647,21 +1657,9 @@ async def run_cli_loop(
 
     def _transcript_plain() -> str:
         """将当前 transcript 转为纯文本（剥离 ANSI，用于复制等）。"""
-        from miniagent.engine.markdown_cli import strip_ansi
+        from miniagent.engine.cli_transcript import transcript_plain
 
-        parts: list[str] = []
-        for frag in _transcript:
-            if isinstance(frag, tuple) and len(frag) >= 2:
-                parts.append(frag[1])
-            else:
-                try:
-                    from prompt_toolkit.formatted_text.ansi import ANSI as PTANSI
-
-                    if isinstance(frag, PTANSI):
-                        parts.append(strip_ansi(frag.value))
-                except Exception:
-                    pass
-        return "".join(parts)
+        return transcript_plain(list(_transcript))
 
     def _append_ansi_transcript(ansi_obj: Any) -> None:
         """向 transcript 直接追加 ANSI 对象，含 trim/scroll 管理。

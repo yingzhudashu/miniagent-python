@@ -27,6 +27,12 @@ python -m miniagent --stop --state-dir <路径> 1  # 多注册表根时指定实
 
 `--continue` / 隐式继续：将 `last_cli_session` 写入项目 workspace 的 `channel-router.json`（默认 `{miniagent}/workspaces/projects/<key>/channel-router.json`）；在退出（含 `quit`/`exit`、Ctrl+C、SIGTERM）、`/session switch` 时更新。下次启动会恢复该会话 ID；**全屏 CLI** 在 transcript 区加载最近历史，**简易 CLI**（无 TUI）启动时也会打印最近历史摘要；`/session switch` 后会重载对应会话历史。使用 `--no-continue` 可强制从 `default` 会话开始。若 cwd 下仍有旧版 `{cwd}/workspaces/` 数据，legacy 回退会继续使用该路径。
 
+## 全屏 transcript 历史加载
+
+全屏 CLI 启动或 `/session switch` 后，transcript 先加载最近 `memory.initial_history_count` 条会话消息；如果磁盘历史更多，顶部会显示“向上滚动加载更多历史”的提示。继续向上滚动时会按批次加载更早消息，并保持 user/assistant 轮次顺序，避免只显示答案或把问答插反。
+
+transcript 是显示缓冲，不是历史真相源。会话历史仍保存在当前会话 workspace 的 `history.json`；显示缓冲只按 `memory.max_transcript_chars` 做字符级保护，防止长时间运行后 TUI 占用过多内存。`/copy` 在全屏 CLI 中复制当前 transcript 已加载内容；若需要完整磁盘历史，应从会话 `history.json` 或后续专门导出命令读取。
+
 ## 终端 Markdown（Rich，可选）
 
 全屏 CLI（prompt_toolkit TUI）下，上方 transcript 中的 **Assistant 最终回复、命令输出、思考过程正文** 在已安装 **`pip install -e ".[cli]"`** 时由 Rich 将 Markdown（含常见表格）渲染为彩色 ANSI。未安装则显示原始 Markdown 文本。

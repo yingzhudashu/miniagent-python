@@ -29,10 +29,11 @@
 | 模块 | 文件 | 测试文件 | 覆盖状态 |
 |------|------|----------|----------|
 | 统一引擎 | engine.py | test_engine_engine.py | ✅ 新增 |
-| 主入口 | main.py | test_startup.py, test_main_stop_args.py | ✅ 充足 |
+| 主入口 | main.py | test_startup.py, test_main_stop_args.py, test_cli_transcript_scroll.py | ✅ 充足 |
 | 子系统初始化 | init.py | test_init_subsystems_registry.py | ✅ 充足 |
 | 命令调度 | command_dispatch.py | test_command_dispatch.py | ✅ 新增 |
 | CLI命令 | cli_commands.py | test_command_dispatch.py | ✅ 充足 |
+| CLI transcript | cli_transcript.py | test_cli_transcript.py, test_cli_transcript_scroll.py | ✅ 充足 |
 | Thinking显示 | thinking.py | test_thinking_system.py | ✅ 合并 |
 | 后台任务 | background_tasks.py | test_background_tasks.py, test_btw_cmd.py | ✅ 充足 |
 | 会话锁 | session_lock.py | test_session_lock.py | ✅ 充足 |
@@ -150,7 +151,7 @@
 
 | 模块 | 文件 | 测试文件 | 覆盖状态 |
 |------|------|----------|----------|
-| 管理器 | manager.py | test_session.py | ✅ 充足 |
+| 管理器 | manager.py | test_session.py, test_session_history_sync.py | ✅ 充足 |
 | 工作空间 | workspace.py | test_session_workspace_wiring.py | ✅ 充足 |
 
 ---
@@ -183,30 +184,11 @@
 
 ---
 
-## 新增/合并测试文件
+## 维护说明
 
-### 本次新增
-- test_conftest.py（fixture增强）
-- test_mock_strategies.py（统一Mock策略）
-- test_engine_engine.py（UnifiedEngine测试）
-- test_command_dispatch.py（命令调度测试）
-- test_feishu_ws_client.py（飞书WebSocket测试）
-- test_tools_exec.py（命令执行工具测试）
+本矩阵只记录当前仓库真实存在的测试文件与主要覆盖关系，不保留某次重构过程中的“新增/合并”流水账。删除、重命名或合并测试文件时，应同步更新本页。
 
-### 本次合并
-- test_thinking_system.py（合并6个思考测试）
-- test_feishu_reply.py（合并3个飞书回复测试）
-- test_memory_history.py（合并3个历史测试）
-
----
-
-## 测试覆盖率改进点
-
-1. **核心模块**: 新增 UnifiedEngine 和 command_dispatch 测试
-2. **飞书模块**: 新增 WebSocket 客户端和健康监控测试
-3. **工具模块**: 新增 exec 工具测试
-4. **测试组织**: 合并分散的测试文件，减少冗余
-5. **测试基础设施**: 增强 conftest.py fixture，创建统一 mock 策略
+覆盖状态是人工维护的质量索引，不替代实时覆盖率报告。需要精确覆盖率时，以 `pytest --cov=miniagent` 输出为准。
 
 ---
 
@@ -220,15 +202,15 @@ pytest tests/ -q -m "not evaluation"
 pytest tests/ -q -m "not evaluation" \
   --cov=miniagent --cov-report=html --cov-report=term-missing
 
-# 新增测试
+# 重点子集示例
 pytest tests/test_engine_engine.py tests/test_command_dispatch.py \
   tests/test_feishu_ws_client.py tests/test_tools_exec.py -v
 
-# 合并后的测试
-pytest tests/test_thinking_system.py tests/test_feishu_reply.py \
-  tests/test_memory_history.py -v
+# CLI transcript / 历史加载回归
+pytest tests/test_cli_transcript.py tests/test_cli_transcript_scroll.py \
+  tests/test_session_history_sync.py -v
 ```
 
 ---
 
-*最后更新: 2026-06-04*
+*最后更新: 2026-06-07*

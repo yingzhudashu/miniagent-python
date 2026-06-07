@@ -25,6 +25,18 @@ def _reset_and_reload_transcript_block(source: str) -> str:
     return source[start:end]
 
 
+def _load_initial_history_block(source: str) -> str:
+    start = source.index("def _load_initial_history_to_transcript(")
+    end = source.index("def _reset_and_reload_transcript(", start)
+    return source[start:end]
+
+
+def _lazy_load_history_block(source: str) -> str:
+    start = source.index("def _trigger_lazy_load_more_history(")
+    end = source.index("def _attach_md_source(", start)
+    return source[start:end]
+
+
 def test_pageup_pagedown_use_apply_transcript_scroll() -> None:
     source = _main_source()
     assert re.search(
@@ -58,3 +70,31 @@ def test_reset_and_reload_transcript_resets_scroll_when_requested() -> None:
     assert re.search(r"sp\s*=\s*_sp\(\)", block)
     assert "sp.vertical_scroll = 0" in block
     assert "_reset_horizontal_scroll()" in block
+
+
+def test_transcript_uses_explicit_character_limit_instead_of_fixed_deque_maxlen() -> None:
+    source = _main_source()
+    assert "_transcript: deque[Any] = deque()" in source
+    assert "deque(maxlen=5000)" not in source
+
+
+def test_transcript_prepend_handles_unbounded_deque_and_trims_by_chars() -> None:
+    source = _main_source()
+    start = source.index("def _transcript_prepend(")
+    end = source.index("def _render_history_message_to_transcript(", start)
+    block = source[start:end]
+
+    assert "_transcript.maxlen is not None" in block
+    assert "_trim_transcript()" in block
+
+
+def test_initial_history_hint_is_prepended_above_loaded_messages() -> None:
+    block = _load_initial_history_block(_main_source())
+    assert "_transcript_prepend(HISTORY_HINT_STYLE, history_load_hint(remaining))" in block
+    assert "history_remaining(total, _history_loaded_range[\"loaded_end\"])" in block
+
+
+def test_lazy_history_prepend_reverses_loaded_batch_before_rendering() -> None:
+    block = _lazy_load_history_block(_main_source())
+    assert "for msg in messages_for_prepend(messages):" in block
+    assert "history_loaded_end(" in block
