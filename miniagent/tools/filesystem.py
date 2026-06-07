@@ -1,20 +1,39 @@
 """Mini Agent Python — 文件系统工具
 
-提供 8 个文件操作工具：
-- read_file: 读取文件（支持分页）
-- write_file: 写入/创建文件
-- edit_file: 精确替换文本（要求唯一匹配）
-- list_dir: 列出目录内容（支持递归）
-- create_dir: 创建目录
-- move_file: 移动/重命名
-- copy_file: 复制文件
-- delete_file: 删除文件/目录（require-confirm）
+提供安全的文件操作工具，支持沙箱路径验证。
 
-所有操作受路径沙箱保护（:func:`miniagent.security.sandbox.resolve_sandbox_path`）。
+工具列表：
+- read_file: 读取文件内容，支持分页和 UTF-8 编码
+- write_file: 写入文件，自动创建父目录
+- edit_file: 行级编辑，要求唯一匹配替换
+- list_dir: 列出目录内容，支持递归和详情模式
+- create_dir: 创建目录，支持递归创建
+- move_file: 移动/重命名文件或目录
+- copy_file: 复制文件，保留元数据
+- delete_file: 删除文件/目录，需要权限确认（require-confirm）
 
-越权路径拒绝行为见 ``docs/SECURITY.md``。
+安全机制：
+- 所有路径必须通过 resolve_path_from_ctx 验证
+- 路径必须在 allowed_paths 沙箱范围内
+- 禁止访问系统关键目录（通过沙箱配置）
+- 自动规范化路径防止路径逃逸攻击
 
-重构说明：使用 ToolBuilder 简化工具定义，代码量减少约 67%。
+使用示例：
+    >>> ctx = ToolContext(cwd="/workspace", allowed_paths=["/workspace"])
+    >>> result = await _read_file_handler({"path": "data.txt"}, ctx)
+    >>> print(result.content)
+
+性能优化：
+- 使用 asyncio.to_thread 包装阻塞 I/O
+- 分页读取避免大文件过载上下文
+- 目录列表支持深度限制防止递归爆炸
+
+重构说明：
+- 使用 ToolBuilder 链式调用简化工具定义
+- 相比原始实现代码量减少约 67%
+- 所有 handler 独立定义便于测试
+
+设计背景见 docs/ARCHITECTURE.md § 工具层，安全边界见 docs/SECURITY.md。
 """
 
 from __future__ import annotations

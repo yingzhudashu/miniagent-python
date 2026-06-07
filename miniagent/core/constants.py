@@ -1,7 +1,31 @@
 """MiniAgent Internal 层配置常量（写死，不可通过 JSON/ENV 覆盖）
 
-User / Advanced 层见 ``config.defaults.json`` + ``config.user.json``。
-配置分层说明见 ``docs/ENGINEERING.md`` §1.1。
+本模块定义系统内部常量，这些值在运行时不可更改，用于：
+- 性能优化参数（缓存大小、回调频率等）
+- 安全边界（并发上限、超时底线等）
+- UI 渲染参数（终端宽度、边距等）
+
+配置分层说明：
+┌─────────────────────────────────────────────────────────────┐
+│ Internal 层（本模块）— 写死常量，不可覆盖                      │
+│ ├── 性能：回调频率、缓存大小、并发上限                         │
+│ ├── 安全：超时底线、最大轮数限制                               │
+│ └── 渲染：终端宽度范围、边距                                   │
+├─────────────────────────────────────────────────────────────┤
+│ Advanced 层（config.defaults.json）— 运维参数，可 JSON 覆盖   │
+│ ├── 超时：http_timeout、tool_timeout                          │
+│ ├── 并发：max_concurrent_tools                                │
+│ └── 记忆：max_history_messages                                │
+├─────────────────────────────────────────────────────────────┤
+│ User 层（config.user.json）— 用户可见配置                      │
+│ ├── 模型：model、temperature、thinking_level                   │
+│ ├── Agent：max_turns、context_reserve_ratio                   │
+│ └── 路径：state_dir、allowed_paths                            │
+└─────────────────────────────────────────────────────────────┘
+
+修改 Internal 常量的唯一方式是修改本模块源码并重新部署。
+
+设计背景见 docs/ENGINEERING.md §1.1 配置分层。
 """
 
 from __future__ import annotations

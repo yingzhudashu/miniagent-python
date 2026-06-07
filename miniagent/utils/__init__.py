@@ -4,10 +4,20 @@
 
 模块列表：
 - session_id: Session ID 安全化处理（统一各模块的安全化逻辑）
+- error_handling: 统一错误处理装饰器（safe_execute、log_exception）
+
+使用示例：
+    >>> from miniagent.utils import safe_session_id, safe_execute
+    >>> safe_id = safe_session_id("user@example.com")
+    >>> @safe_execute(default_return=None)
+    >>> async def load_file(path: str) -> str:
+    >>>     with open(path) as f:
+    >>>         return f.read()
 """
 
 from __future__ import annotations
 
 from miniagent.utils.session_id import safe_session_id
+from miniagent.utils.error_handling import safe_execute, safe_execute_sync, log_exception
 
-__all__ = ["safe_session_id"]
+__all__ = ["safe_session_id", "safe_execute", "safe_execute_sync", "log_exception"]

@@ -32,9 +32,31 @@ from miniagent.types.tool import ToolRegistryProtocol
 
 @runtime_checkable
 class ActivityLogProtocol(Protocol):
-    """活动日志接口协议。
+    """活动日志接口协议
 
     定义日志记录方法，用于追踪会话活动。
+
+    Methods:
+        log_session_start: 记录会话开始
+        log_llm_call: 记录 LLM 调用
+        log_tool_call: 记录工具调用
+        log_final_reply: 记录最终回复
+        get_stats: 获取活动统计（新增）
+        clear_old_entries: 清理旧条目（新增）
+
+    Example:
+        >>> log: ActivityLogProtocol = get_activity_log()
+        >>> log.log_session_start("session-1", "你好", "cli")
+        >>> stats = log.get_stats()
+
+    Note:
+        - 所有日志方法为同步调用
+        - get_stats() 返回字典，包含日志条目数量等统计
+        - clear_old_entries() 用于定期清理过期日志
+
+    See Also:
+        - miniagent.memory.activity_log: ActivityLog 实现
+        - docs/MEMORY_SYSTEM.md: 三层记忆架构
     """
 
     def log_session_start(
@@ -61,6 +83,38 @@ class ActivityLogProtocol(Protocol):
         success: bool,
     ) -> None: ...
     def log_final_reply(self, session_key: str, reply: str) -> None: ...
+
+    # ── 新增方法 ──
+    def get_stats(self) -> dict[str, Any]:
+        """获取活动日志统计信息
+
+        Returns:
+            dict: 包含以下键的统计字典：
+                - total_entries: 总条目数
+                - sessions: 会话数量
+                - date_range: 日志日期范围
+                - last_updated: 最后更新时间
+
+        Example:
+            >>> stats = log.get_stats()
+            >>> print(stats["total_entries"])
+        """
+        ...
+
+    def clear_old_entries(self, days: int = 30) -> int:
+        """清理超过指定天数的旧条目
+
+        Args:
+            days: 保留天数，默认 30 天
+
+        Returns:
+            int: 清理的条目数量
+
+        Example:
+            >>> removed = log.clear_old_entries(days=7)
+            >>> print(f"清理了 {removed} 条旧日志")
+        """
+        ...
 
 
 @runtime_checkable
@@ -119,9 +173,28 @@ class OnToolFinishCallback(Protocol):
 
 
 class UnifiedEngineProtocol(Protocol):
-    """统一引擎接口协议。
+    """统一引擎接口协议
 
     定义引擎核心方法，用于 RuntimeContext.engine 字段类型。
+
+    Methods:
+        run_agent_with_thinking: 运行 Agent 并处理思考输出
+        inject_message: 注入消息到会话
+        run_pipeline: 运行完整管线（新增）
+        get_thinking_display: 获取思考显示器（新增）
+
+    Example:
+        >>> engine: UnifiedEngineProtocol = ctx.engine
+        >>> result = await engine.run_agent_with_thinking("你好", registry, monitor, session_manager)
+
+    Note:
+        - run_agent_with_thinking 是主入口，用于对话交互
+        - run_pipeline 用于嵌入调用场景
+        - get_thinking_display 返回 ThinkingDisplay 实例
+
+    See Also:
+        - miniagent.engine.engine: UnifiedEngine 实现
+        - docs/ARCHITECTURE.md: 引擎层架构
     """
 
     async def run_agent_with_thinking(
@@ -142,6 +215,43 @@ class UnifiedEngineProtocol(Protocol):
         *args: Any,
         **kwargs: Any,
     ) -> None: ...
+
+    # ── 新增方法 ──
+    async def run_pipeline(
+        self,
+        user_input: str,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        """运行完整管线（嵌入调用入口）
+
+        与 run_agent_with_thinking 不同，此方法用于嵌入调用场景，
+        不处理思考显示，直接返回 Agent 结果。
+
+        Args:
+            user_input: 用户输入
+            *args: 可变参数
+            **kwargs: 关键字参数（可含 registry、monitor 等）
+
+        Returns:
+            Agent 执行结果
+
+        Example:
+            >>> result = await engine.run_pipeline("帮我整理文件")
+        """
+        ...
+
+    def get_thinking_display(self) -> Any:
+        """获取思考显示器实例
+
+        Returns:
+            ThinkingDisplay 实例，用于控制思考输出显示
+
+        Example:
+            >>> thinking = engine.get_thinking_display()
+            >>> thinking.clear()
+        """
+        ...
 
 
 class ChannelRouterProtocol(Protocol):

@@ -1,11 +1,15 @@
 """模型与 Agent 配置管理（JSON 配置）
 
+三层配置体系：
 - **模型层** ``ModelConfig``：端点、温度、``max_tokens``、thinking 等。
 - **Agent 层** ``AgentConfig``：``max_turns``、工具超时、上下文压缩阈值、循环检测等。
+- **分组层** ``SessionBindingConfig`` / ``FeishuChannelConfig``：按职责分组的嵌套配置。
 
 配置优先级：config.defaults.json → config.user.json
 
 敏感信息（API 密钥等）放在 config.user.json 的 secrets 部分，由 env_loader.py 加载到环境变量。
+
+设计背景见 docs/ARCHITECTURE.md § 配置层。
 """
 
 from __future__ import annotations
@@ -18,6 +22,8 @@ from miniagent.infrastructure.logger import get_logger
 from miniagent.types.config import (
     AgentConfig,
     ModelConfig,
+    SessionBindingConfig,
+    FeishuChannelConfig,
     normalize_conversation_history,
 )
 
@@ -109,31 +115,109 @@ def get_default_agent_config() -> AgentConfig:
 
 
 def merge_agent_config(base: AgentConfig, overrides: dict[str, Any]) -> AgentConfig:
-    """合并 Agent 配置。"""
+    """合并 Agent 配置
+
+    支持新旧两种格式：
+    - 新格式（分组结构）：{session_config: {...}, feishu_config: {...}}
+    - 旧格式（平铺结构）：{session_key: "...", feishu_receive_chat_id: "..."}
+
+    向后兼容：自动检测格式并正确处理，优先使用分组结构。
+
+    Args:
+        base: 基础 AgentConfig 对象
+        overrides: 覆盖配置字典
+
+    Returns:
+        合并后的 AgentConfig 对象
+
+    Example:
+        >>> # 分组结构（推荐）
+        >>> config = merge_agent_config(base, {
+        >>>     "session_config": {"session_key": "session-1"},
+        >>>     "feishu_config": {"receive_chat_id": "oc_abc"}
+        >>> })
+        >>>
+        >>> # 平铺结构（向后兼容）
+        >>> config = merge_agent_config(base, {
+        >>>     "session_key": "session-1",
+        >>>     "feishu_receive_chat_id": "oc_abc"
+        >>> })
+    """
+    # ── 处理分组配置 ──
+    session_config_dict: dict[str, Any] = {}
+    feishu_config_dict: dict[str, Any] = {}
+
+    # 从 overrides 中提取分组配置
+    if "session_config" in overrides and isinstance(overrides["session_config"], dict):
+        session_config_dict = dict(overrides["session_config"])
+        # 移除分组键，避免后续重复处理
+        overrides_processed = {k: v for k, v in overrides.items() if k != "session_config"}
+    else:
+        overrides_processed = overrides
+
+    if "feishu_config" in overrides_processed and isinstance(overrides_processed["feishu_config"], dict):
+        feishu_config_dict = dict(overrides_processed["feishu_config"])
+        overrides_processed = {k: v for k, v in overrides_processed.items() if k != "feishu_config"}
+
+    # ── 处理平铺字段（向后兼容）──
+    # 平铺字段映射到分组结构
+    flat_to_session_keys = [
+        "session_key", "session_workspace", "session_registry",
+        "session_toolboxes", "conversation_history"
+    ]
+    flat_to_feishu_keys = [
+        "feishu_receive_chat_id", "feishu_trigger_message_id", "feishu_root_id",
+        "feishu_parent_id", "feishu_thread_id", "feishu_im_receive_id_type",
+        "feishu_im_receive_id", "cli_loop_state", "cli_dispatch_allow_mutations"
+    ]
+
+    # 从平铺字段构建分组配置
+    for key in flat_to_session_keys:
+        if key in overrides_processed:
+            # session 字段无需映射，直接使用原键名
+            session_config_dict[key] = overrides_processed[key]
+
+    for key in flat_to_feishu_keys:
+        if key in overrides_processed:
+            # 映射键名：去掉 feishu_ 前缀，保留 cli_loop_state 等原键名
+            mapped_key = key[7:] if key.startswith("feishu_") else key
+            feishu_config_dict[mapped_key] = overrides_processed[key]
+
+    # ── 构建合并字典 ──
     merged_dict = {
+        # 核心配置
         "max_turns": base.max_turns,
         "tool_timeout": base.tool_timeout,
         "http_timeout": base.http_timeout,
+        "allow_parallel_tools": base.allow_parallel_tools,
+        "auto_execute_confirmed": base.auto_execute_confirmed,
+        # 上下文配置
         "context_reserve_ratio": base.context_reserve_ratio,
         "context_compress_threshold": base.context_compress_threshold,
         "context_overflow_strategy": base.context_overflow_strategy,
         "compress_messages": base.compress_messages,
-        "tool_selection_strategy": base.tool_selection_strategy,
-        "auto_execute_confirmed": base.auto_execute_confirmed,
-        "allow_parallel_tools": base.allow_parallel_tools,
+        # 输出配置
         "response_language": base.response_language,
         "response_format": base.response_format,
+        # 调试配置
         "debug": base.debug,
         "log_token_usage": base.log_token_usage,
         "log_file": base.log_file,
+        # 高级配置
+        "tool_selection_strategy": base.tool_selection_strategy,
         "loop_detection": dict(base.loop_detection),
         "model_overrides": dict(base.model_overrides) if base.model_overrides else {},
+        "risk_level": base.risk_level,
+        "history_progressive_compression": base.history_progressive_compression,
+        # 分组配置
+        "session_config": None,
+        "feishu_config": None,
+        # 平铺字段（向后兼容）
         "session_key": base.session_key,
         "session_workspace": base.session_workspace,
         "session_registry": base.session_registry,
         "session_toolboxes": list(base.session_toolboxes) if base.session_toolboxes else [],
         "conversation_history": list(base.conversation_history),
-        "risk_level": base.risk_level,
         "cli_loop_state": base.cli_loop_state,
         "cli_dispatch_allow_mutations": base.cli_dispatch_allow_mutations,
         "feishu_receive_chat_id": base.feishu_receive_chat_id,
@@ -143,10 +227,16 @@ def merge_agent_config(base: AgentConfig, overrides: dict[str, Any]) -> AgentCon
         "feishu_thread_id": base.feishu_thread_id,
         "feishu_im_receive_id_type": base.feishu_im_receive_id_type,
         "feishu_im_receive_id": base.feishu_im_receive_id,
-        "history_progressive_compression": base.history_progressive_compression,
     }
 
-    for key, value in overrides.items():
+    # ── 应用非分组覆盖 ──
+    for key, value in overrides_processed.items():
+        # 跳过已处理的分组和平铺字段
+        if key in ("session_config", "feishu_config"):
+            continue
+        if key in flat_to_session_keys or key in flat_to_feishu_keys:
+            continue
+
         if key == "loop_detection" and isinstance(value, dict):
             merged_dict["loop_detection"].update(value)
         elif key == "model_overrides" and isinstance(value, dict):
@@ -156,6 +246,71 @@ def merge_agent_config(base: AgentConfig, overrides: dict[str, Any]) -> AgentCon
                 merged_dict[key] = normalize_conversation_history(value)
             else:
                 merged_dict[key] = value
+
+    # ── 处理平铺字段传入后的同步 ──
+    # 如果有平铺字段传入，同步更新合并字典中的平铺字段值
+    for key in flat_to_session_keys:
+        if key in overrides_processed:
+            merged_dict[key] = overrides_processed[key]
+            # 同时更新分组配置字典（session 字段键名不变）
+            session_config_dict[key] = overrides_processed[key]
+
+    for key in flat_to_feishu_keys:
+        if key in overrides_processed:
+            mapped_key = key[7:] if key.startswith("feishu_") else key
+            merged_dict[key] = overrides_processed[key]
+            feishu_config_dict[mapped_key] = overrides_processed[key]
+
+    # ── 构建分组配置对象 ──
+    if session_config_dict:
+        # 合并基础配置中的会话字段
+        base_session = {
+            "session_key": base.session_key,
+            "session_workspace": base.session_workspace,
+            "session_registry": base.session_registry,
+            "session_toolboxes": list(base.session_toolboxes) if base.session_toolboxes else [],
+            "conversation_history": list(base.conversation_history),
+        }
+        for k, v in base_session.items():
+            if k not in session_config_dict:
+                session_config_dict[k] = v
+        merged_dict["session_config"] = SessionBindingConfig(**session_config_dict)
+
+        # ── 向后兼容：同步更新平铺字段 ──
+        merged_dict["session_key"] = session_config_dict.get("session_key")
+        merged_dict["session_workspace"] = session_config_dict.get("session_workspace")
+        merged_dict["session_registry"] = session_config_dict.get("session_registry")
+        merged_dict["session_toolboxes"] = session_config_dict.get("session_toolboxes", [])
+        merged_dict["conversation_history"] = session_config_dict.get("conversation_history", [])
+
+    if feishu_config_dict:
+        # 合并基础配置中的飞书字段
+        base_feishu = {
+            "receive_chat_id": base.feishu_receive_chat_id,
+            "trigger_message_id": base.feishu_trigger_message_id,
+            "root_id": base.feishu_root_id,
+            "parent_id": base.feishu_parent_id,
+            "thread_id": base.feishu_thread_id,
+            "im_receive_id_type": base.feishu_im_receive_id_type,
+            "im_receive_id": base.feishu_im_receive_id,
+            "cli_loop_state": base.cli_loop_state,
+            "cli_dispatch_allow_mutations": base.cli_dispatch_allow_mutations,
+        }
+        for k, v in base_feishu.items():
+            if k not in feishu_config_dict:
+                feishu_config_dict[k] = v
+        merged_dict["feishu_config"] = FeishuChannelConfig(**feishu_config_dict)
+
+        # ── 向后兼容：同步更新平铺字段 ──
+        merged_dict["feishu_receive_chat_id"] = feishu_config_dict.get("receive_chat_id")
+        merged_dict["feishu_trigger_message_id"] = feishu_config_dict.get("trigger_message_id")
+        merged_dict["feishu_root_id"] = feishu_config_dict.get("root_id")
+        merged_dict["feishu_parent_id"] = feishu_config_dict.get("parent_id")
+        merged_dict["feishu_thread_id"] = feishu_config_dict.get("thread_id")
+        merged_dict["feishu_im_receive_id_type"] = feishu_config_dict.get("im_receive_id_type")
+        merged_dict["feishu_im_receive_id"] = feishu_config_dict.get("im_receive_id")
+        merged_dict["cli_loop_state"] = feishu_config_dict.get("cli_loop_state")
+        merged_dict["cli_dispatch_allow_mutations"] = feishu_config_dict.get("cli_dispatch_allow_mutations", True)
 
     return AgentConfig(**merged_dict)
 
