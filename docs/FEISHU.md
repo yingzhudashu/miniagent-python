@@ -222,6 +222,20 @@ UnifiedEngine.run_agent_with_thinking()
 - 导入 Markdown 文件时使用 `import_raw` + `render_mode="rich"`
 - 需要纯文本时可设置 `render_mode="plain"`（向后兼容）
 
+#### Docx validation fallback
+
+`code=1770001 msg=invalid param` and `code=99992402 msg=field validation failed`
+mean Feishu rejected a rich Docx block payload. MiniAgent treats both as rich
+render validation failures, records a warning with the code/msg/log_id when
+available, and retries the same Markdown as readable plain text if no rich
+block has been written yet.
+
+If an earlier rich block batch already succeeded, MiniAgent stops the remaining
+rich writes and returns the partial success count plus warnings. It does not
+write the full plain-text document again, because that would duplicate content.
+The `feishu_doc` result includes `meta.render_stats.written_blocks`,
+`meta.render_stats.fallback_count`, and `meta.warnings` for diagnostics.
+
 ### 互动卡片按钮 `action.value` 示例
 
 ```json

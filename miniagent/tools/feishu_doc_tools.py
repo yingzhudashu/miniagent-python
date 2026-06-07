@@ -75,6 +75,33 @@ def _docx_open_url(document_id: str) -> str | None:
     return f"{prefix.rstrip('/')}/{did}" if did else None
 
 
+def _trace_docx_render(
+    action: str, render_mode: str, stats: dict[str, Any], warnings: list[str]
+) -> None:
+    """Emit metrics-only Docx render diagnostics without document body or tokens."""
+    from miniagent.infrastructure.trace_events import EVENT_FEISHU_DOCX_RENDER
+    from miniagent.infrastructure.tracing import emit_trace
+
+    joined = "\n".join(warnings)
+    emit_trace(
+        {
+            "type": EVENT_FEISHU_DOCX_RENDER,
+            "action": action,
+            "render_mode": render_mode,
+            "written_blocks": int(stats.get("written_blocks") or 0),
+            "fallback_count": int(stats.get("fallback_count") or 0),
+            "warning_count": len(warnings),
+            "validation_error": (
+                "1770001" in joined
+                or "99992402" in joined
+                or "field validation failed" in joined
+                or "invalid param" in joined
+            ),
+            "success": True,
+        }
+    )
+
+
 async def _feishu_doc(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     """飞书云文档聚合工具处理函数。
 
@@ -251,15 +278,10 @@ def _action_read(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
 
 
 def _action_append(args: dict[str, Any], cfg: FeishuConfig, *, full_write: bool) -> ToolResult:
-    """追加文本到云文档；mode=replace 时先清空再写入。
-
-    支持两种渲染模式：
-    - render_mode="rich": 富文本渲染（标题、粗体、列表、代码块等）
-    - render_mode="plain": 纯文本（旧实现，向后兼容）
-    """
+    """Append or replace Docx content with diagnostics for rich-render fallback."""
     from miniagent.feishu.docx.blocks import (
         DOCX_APPEND_MAX_CHARS,
-        append_markdown_to_document,
+        append_markdown_to_document_with_stats,
         append_plain_text_to_document,
         clear_document_content_blocks,
     )
@@ -271,58 +293,56 @@ def _action_append(args: dict[str, Any], cfg: FeishuConfig, *, full_write: bool)
     render_mode = str(args.get("render_mode") or "rich").strip().lower()
 
     if not doc_id:
-        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token 或 document_id。")
+        return ToolResult(
+            success=False, content=f"{WARNING_PREFIX} requires doc_token or document_id."
+        )
     if not content.strip():
-        return ToolResult(success=False, content=f"{WARNING_PREFIX} content 为空。")
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} content is empty.")
 
-    # 确定渲染模式
     use_rich = render_mode == "rich"
-
+    removed = failed = 0
     if full_write and mode == "replace":
         removed, failed = clear_document_content_blocks(cfg, doc_id)
 
-        if use_rich:
-            # 富文本渲染
-            n, warnings = append_markdown_to_document(cfg, doc_id, content, use_renderer=True)
-            warn_text = "\n⚠️ " + "\n".join(warnings) if warnings else ""
-            fail_warn = f"（{failed} 个块删除失败）" if failed else ""
-            return ToolResult(
-                success=True,
-                content=f"{SUCCESS_PREFIX} write(replace)富文本：已清除 {removed} 个块并写入 {n} 个新块（标题/列表/代码等）。{fail_warn}{warn_text}",
-            )
-        else:
-            # 纯文本（旧实现）
-            plain = markdown_to_plain_text(content)
-            n = append_plain_text_to_document(cfg, doc_id, plain)
-            warn = f"（{failed} 个块删除失败）" if failed else ""
-            return ToolResult(
-                success=True,
-                content=f"{SUCCESS_PREFIX} write(replace)纯文本：已清除 {removed} 个块并写入 {n} 个新段落。{warn}",
-            )
-
-    # append 模式
+    op = "write(replace)" if full_write and mode == "replace" else "append"
     if use_rich:
-        # 富文本渲染
-        n, warnings = append_markdown_to_document(cfg, doc_id, content, use_renderer=True)
-        warn_text = "\n⚠️ " + "\n".join(warnings) if warnings else ""
-        stats_hint = ""
-        if n > 0:
-            stats_hint = "（包含标题、列表、代码块、表格等富文本结构）"
-        return ToolResult(
-            success=True,
-            content=f"{SUCCESS_PREFIX} 已追加 {n} 个富文本块{stats_hint}。{warn_text}",
+        n, warnings, stats = append_markdown_to_document_with_stats(
+            cfg, doc_id, content, use_renderer=True
         )
-    else:
-        # 纯文本（旧实现）
-        n = append_plain_text_to_document(cfg, doc_id, content)
-        note = ""
-        if full_write and mode != "replace":
-            note = "\n提示：write 默认 append；整篇替换请设 mode=replace。"
+        _trace_docx_render(op, render_mode, stats, warnings)
+        warn_text = "\nWARNING: " + "\n".join(warnings) if warnings else ""
+        clear_text = (
+            f" cleared={removed} delete_failed={failed};"
+            if full_write and mode == "replace"
+            else ""
+        )
+        delete_warn = f" ({failed} 个块删除失败; {failed} delete failed)" if failed else ""
         return ToolResult(
             success=True,
-            content=f"{SUCCESS_PREFIX} 已追加 {n} 个纯文本块（单次约 {DOCX_APPEND_MAX_CHARS} 字符上限）。{note}",
+            content=(
+                f"{SUCCESS_PREFIX} {op} rich Markdown;{clear_text} written_blocks={n}; "
+                f"fallback_count={stats.get('fallback_count', 0)}.{delete_warn}{warn_text}"
+            ),
+            meta={"render_mode": render_mode, "render_stats": stats, "warnings": warnings},
         )
 
+    plain = markdown_to_plain_text(content) if full_write and mode == "replace" else content
+    n = append_plain_text_to_document(cfg, doc_id, plain)
+    stats = {"written_blocks": n, "fallback_count": 0}
+    _trace_docx_render(op, render_mode, stats, [])
+    note = ""
+    if full_write and mode != "replace":
+        note = "\nNote: write defaults to append; use mode=replace to replace the document body."
+    if full_write and mode == "replace":
+        note = f"\nCleared {removed} existing blocks; delete_failed={failed}."
+    return ToolResult(
+        success=True,
+        content=(
+            f"{SUCCESS_PREFIX} appended {n} plain-text blocks "
+            f"(limit {DOCX_APPEND_MAX_CHARS} chars).{note}"
+        ),
+        meta={"render_mode": render_mode, "render_stats": stats, "warnings": []},
+    )
 
 def _action_delete(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
     """删除云文档。"""
@@ -441,7 +461,7 @@ def _action_import_raw(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig
     Markdown 文件将自动转换为飞书文档的 Block 结构，保留格式信息。
     """
     from miniagent.feishu.docx.blocks import (
-        append_markdown_to_document,
+        append_markdown_to_document_with_stats,
         append_plain_text_to_document,
     )
     from miniagent.feishu.docx.markdown import markdown_to_plain_text
@@ -467,18 +487,27 @@ def _action_import_raw(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig
     use_rich = render_mode == "rich"
 
     if use_rich:
-        # 富文本渲染：保留 Markdown 格式（标题、列表、代码块等）
-        n, warnings = append_markdown_to_document(cfg, doc_id, md, use_renderer=True)
-        warn_text = "\n⚠️ " + "\n".join(warnings) if warnings else ""
-        stats_hint = "（包含标题、列表、代码块、表格等富文本结构）" if n > 0 else ""
+        n, warnings, stats = append_markdown_to_document_with_stats(
+            cfg, doc_id, md, use_renderer=True
+        )
+        _trace_docx_render("import_raw", render_mode, stats, warnings)
+        warn_text = "\nWARNING: " + "\n".join(warnings) if warnings else ""
         return ToolResult(
             success=True,
-            content=f"{SUCCESS_PREFIX} import_raw 富文本：已追加 {n} 个块{stats_hint}。{warn_text}",
+            content=(
+                f"{SUCCESS_PREFIX} import_raw rich Markdown; written_blocks={n}; "
+                f"fallback_count={stats.get('fallback_count', 0)}.{warn_text}"
+            ),
+            meta={"render_mode": render_mode, "render_stats": stats, "warnings": warnings},
         )
-    else:
-        # 纯文本模式（向后兼容）
-        n = append_plain_text_to_document(cfg, doc_id, markdown_to_plain_text(md))
-        return ToolResult(success=True, content=f"{SUCCESS_PREFIX} import_raw 纯文本：已追加 {n} 段。")
+    n = append_plain_text_to_document(cfg, doc_id, markdown_to_plain_text(md))
+    stats = {"written_blocks": n, "fallback_count": 0}
+    _trace_docx_render("import_raw", render_mode, stats, [])
+    return ToolResult(
+        success=True,
+        content=f"{SUCCESS_PREFIX} import_raw plain text; written_blocks={n}.",
+        meta={"render_mode": render_mode, "render_stats": stats, "warnings": []},
+    )
 
 
 def _action_create_table(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:

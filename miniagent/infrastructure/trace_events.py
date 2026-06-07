@@ -68,6 +68,7 @@ EVENT_BROWSER_CLOSE = "browser.close"
 # 新增事件类型 - Embedding缓存（性能优化）
 EVENT_EMBEDDING_CACHE_HIT = "embedding.cache_hit"
 EVENT_EMBEDDING_API_CALL = "embedding.api_call"
+EVENT_FEISHU_DOCX_RENDER = "feishu.docx_render"
 
 # ============================================================================
 # 执行阶段常量
@@ -193,6 +194,7 @@ __all__ = [
     "EVENT_BROWSER_CLOSE",
     "EVENT_EMBEDDING_CACHE_HIT",
     "EVENT_EMBEDDING_API_CALL",
+    "EVENT_FEISHU_DOCX_RENDER",
     # 类型常量
     "PhaseType",
     "ProposalStatus",

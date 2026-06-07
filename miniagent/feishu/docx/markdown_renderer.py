@@ -126,6 +126,12 @@ def _runs_to_text(runs: list[TextRun]) -> str:
     return "".join(r.content for r in runs)
 
 
+def _plain_runs(runs: list[TextRun], *, prefix: str = "") -> list[TextRun]:
+    """Drop inline SDK styles that are frequently rejected by Docx validation."""
+    text = prefix + _runs_to_text(runs)
+    return [TextRun(text or "\u200b")]
+
+
 def _merge_runs_with_style(runs: list[TextRun]) -> list[TextRun]:
     """合并相同样式的连续 TextRun（优化）"""
     if not runs:
@@ -472,7 +478,6 @@ def build_lark_blocks_from_intermediate(blocks: list[FeishuBlock]) -> list[Any]:
     from lark_oapi.api.docx.v1 import (
         BlockBuilder,
         Text,
-        TextStyle,
     )
 
     result: list[Any] = []
@@ -551,37 +556,32 @@ def build_lark_blocks_from_intermediate(blocks: list[FeishuBlock]) -> list[Any]:
                 )
 
             elif block.block_type == BlockType.BULLET:
-                # 列表块需要 indentation_level
-                indent_level = min(block.indent_level, 8)  # 飞书最多支持 8 层
-                style = TextStyle.builder().indentation_level(indent_level).build()
-                bullet_text = Text.builder().elements(elements).style(style).build()
+                bullet_elements = _build_text_elements(_plain_runs(block.text_runs, prefix="- "))
+                bullet_text = Text.builder().elements(bullet_elements).build()
                 lark_block = (
                     BlockBuilder()
-                    .block_type(9)
-                    .bullet(bullet_text)
+                    .block_type(2)
+                    .text(bullet_text)
                     .build()
                 )
 
             elif block.block_type == BlockType.ORDERED:
-                # 有序列表也需要 indentation_level
-                indent_level = min(block.indent_level, 8)
-                style = TextStyle.builder().indentation_level(indent_level).build()
-                ordered_text = Text.builder().elements(elements).style(style).build()
+                ordered_elements = _build_text_elements(_plain_runs(block.text_runs, prefix="1. "))
+                ordered_text = Text.builder().elements(ordered_elements).build()
                 lark_block = (
                     BlockBuilder()
-                    .block_type(10)
-                    .ordered(ordered_text)
+                    .block_type(2)
+                    .text(ordered_text)
                     .build()
                 )
 
             elif block.block_type == BlockType.CODE:
-                # 代码块需要 language 属性
-                style = TextStyle.builder().language(block.code_language or "").build()
-                code_text = Text.builder().elements(elements).style(style).build()
+                code_elements = _build_text_elements(_plain_runs(block.text_runs))
+                code_text = Text.builder().elements(code_elements).build()
                 lark_block = (
                     BlockBuilder()
-                    .block_type(11)
-                    .code(code_text)
+                    .block_type(2)
+                    .text(code_text)
                     .build()
                 )
 
@@ -640,7 +640,6 @@ def _build_text_elements(runs: list[TextRun]) -> list[Any]:
     - 样式应用（bold, italic, link 等）
     """
     from lark_oapi.api.docx.v1 import (
-        Link,
         TextElement,
         TextElementStyle,
         TextRun,
@@ -657,16 +656,12 @@ def _build_text_elements(runs: list[TextRun]) -> list[Any]:
                 text_run_builder = TextRun.builder().content(chunk)
 
                 # 应用样式
-                if run.style.bold or run.style.italic or run.style.inline_code or run.style.link:
+                if run.style.bold or run.style.italic:
                     style_builder = TextElementStyle.builder()
                     if run.style.bold:
                         style_builder.bold(True)
                     if run.style.italic:
                         style_builder.italic(True)
-                    if run.style.inline_code:
-                        style_builder.inline_code(True)
-                    if run.style.link:
-                        style_builder.link(Link.builder().url(run.style.link).build())
                     text_run_builder.text_element_style(style_builder.build())
 
                 text_run = text_run_builder.build()

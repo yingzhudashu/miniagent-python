@@ -17,6 +17,37 @@ _BLOCK_PAGE = 1
 _BLOCK_TEXT = 2
 
 
+class DocxBlockCreateError(RuntimeError):
+    """Feishu rejected rich Docx block creation before a safe fallback point."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        created_count: int = 0,
+        batch_index: int = 0,
+        block_types: list[int] | None = None,
+    ):
+        super().__init__(message)
+        self.created_count = created_count
+        self.batch_index = batch_index
+        self.block_types = block_types or []
+
+
+def _block_type_summary(blocks: list[Any]) -> list[int]:
+    """Return only block_type values for diagnostics; never include payload/body text."""
+    out: list[int] = []
+    for block in blocks:
+        raw = getattr(block, "block_type", None)
+        if raw is None and isinstance(block, dict):
+            raw = block.get("block_type")
+        try:
+            out.append(int(raw or 0))
+        except (TypeError, ValueError):
+            out.append(0)
+    return out
+
+
 def _chunk_runs(line: str) -> list[str]:
     """将长文本行切分为不超过 _TEXT_RUN_MAX 的片段（飞书 API 单次限制）。"""
     if not line:
@@ -310,6 +341,7 @@ def append_markdown_to_document(
 
         # 3. 处理表格（使用专门 API）
         table_count = 0
+        table_failures = 0
         for tb in table_blocks:
             if tb.table_data and len(tb.table_data) > 0:
                 try:
@@ -331,7 +363,8 @@ def append_markdown_to_document(
                         )
                         table_count += 1
                 except Exception as e:
-                    result.warnings.append(f"表格创建失败: {e}")
+                    table_failures += 1
+                    result.warnings.append(f"rich table creation failed: {e}")
 
         # 4. 批量创建非表格块
         non_table_count = 0
@@ -339,18 +372,31 @@ def append_markdown_to_document(
             try:
                 lark_blocks = build_lark_blocks_from_intermediate(non_table_blocks)
                 if lark_blocks:
-                    non_table_count = _batch_create_blocks(config, document_id, lark_blocks)
+                    non_table_count, block_warnings = _batch_create_blocks(
+                        config, document_id, lark_blocks
+                    )
+                    result.warnings.extend(block_warnings)
             except Exception as e:
-                result.warnings.append(f"块创建失败: {e}")
-                # 回退：使用旧纯文本方式
+                result.warnings.append(f"rich block creation failed: {e}")
                 try:
                     from miniagent.feishu.docx.markdown import markdown_to_plain_text
                     n = append_plain_text_to_document(config, document_id, markdown_to_plain_text(markdown))
-                    return n, result.warnings + ["富文本渲染失败，已回退到纯文本"]
-                except Exception:
-                    return 0, result.warnings + ["块创建失败"]
+                    return n, result.warnings + ["rich Markdown rendering failed; fallback to plain text"]
+                except Exception as fallback_error:
+                    return 0, result.warnings + [
+                        f"rich Markdown rendering failed; plain-text fallback also failed: {fallback_error}"
+                    ]
 
         total = non_table_count + table_count
+        if total == 0 and table_failures:
+            try:
+                from miniagent.feishu.docx.markdown import markdown_to_plain_text
+                n = append_plain_text_to_document(config, document_id, markdown_to_plain_text(markdown))
+                return n, result.warnings + ["rich table creation failed; fallback to plain text"]
+            except Exception as fallback_error:
+                return 0, result.warnings + [
+                    f"rich table creation failed; plain-text fallback also failed: {fallback_error}"
+                ]
         return total, result.warnings
 
     else:
@@ -360,42 +406,80 @@ def append_markdown_to_document(
         return n, []
 
 
+def append_markdown_to_document_with_stats(
+    config: FeishuConfig,
+    document_id: str,
+    markdown: str,
+    *,
+    use_renderer: bool = True,
+    handle_images: bool = False,
+    max_blocks: int = 30,
+) -> tuple[int, list[str], dict[str, int]]:
+    """Append Markdown and return metrics useful for tool diagnostics."""
+    if use_renderer:
+        try:
+            from miniagent.feishu.docx.markdown_renderer import markdown_to_feishu_blocks
+
+            preview = markdown_to_feishu_blocks(
+                markdown,
+                max_blocks=max_blocks,
+                handle_images=handle_images,
+            )
+            stats = dict(preview.stats)
+        except Exception:
+            stats = {"total_blocks": 0}
+    else:
+        stats = {"total_blocks": 0}
+
+    n, warnings = append_markdown_to_document(
+        config,
+        document_id,
+        markdown,
+        use_renderer=use_renderer,
+        handle_images=handle_images,
+        max_blocks=max_blocks,
+    )
+    stats["written_blocks"] = n
+    stats["warnings"] = len(warnings)
+    stats["fallback_count"] = sum(
+        1 for w in warnings if "fallback" in w.lower() or "fell back" in w.lower()
+    )
+    return n, warnings, stats
+
+
 def _batch_create_blocks(
     config: FeishuConfig,
     document_id: str,
     blocks: list[Any],
-) -> int:
-    """批量创建文档块（内部函数）。
-
-    Args:
-        config: 飞书配置
-        document_id: 文档 ID
-        blocks: lark-oapi Block 对象列表
-
-    Returns:
-        成功创建的块数
-    """
+) -> tuple[int, list[str]]:
+    """Batch-create rich Docx blocks and fail loudly before any block is written."""
     from lark_oapi.api.docx.v1 import (
         CreateDocumentBlockChildrenRequest,
         CreateDocumentBlockChildrenRequestBody,
     )
 
     if not blocks:
-        return 0
+        return 0, []
 
     client = build_client(config)
     page_id = _find_page_block_id(client, document_id)
     idx = _count_children(client, document_id, page_id)
 
-    # 飞书单次最多创建 DOCX_APPEND_MAX_BLOCKS 个块
     max_per_request = DOCX_APPEND_MAX_BLOCKS
     total_created = 0
+    warnings: list[str] = []
 
-    # 分批创建
     for i in range(0, len(blocks), max_per_request):
         batch = blocks[i:i + max_per_request]
+        batch_index = i // max_per_request
+        block_types = _block_type_summary(batch)
         try:
-            body = CreateDocumentBlockChildrenRequestBody.builder().children(batch).index(idx + i).build()
+            body = (
+                CreateDocumentBlockChildrenRequestBody.builder()
+                .children(batch)
+                .index(idx + i)
+                .build()
+            )
             req = (
                 CreateDocumentBlockChildrenRequest.builder()
                 .document_id(document_id)
@@ -406,12 +490,47 @@ def _batch_create_blocks(
             resp = client.docx.v1.document_block_children.create(req)
             if resp.success():
                 total_created += len(batch)
-            else:
-                _logger.warning(f"批量创建块失败: {format_lark_response_error(resp)}")
+                continue
+            err = format_lark_response_error(resp)
+            _logger.warning("Feishu create block children failed: %s", err)
+            if total_created == 0:
+                raise DocxBlockCreateError(
+                    (
+                        f"Feishu create block children failed: {err}; "
+                        f"batch_index={batch_index}; block_types={block_types}"
+                    ),
+                    created_count=0,
+                    batch_index=batch_index,
+                    block_types=block_types,
+                )
+            warnings.append(
+                "rich block creation partially failed after "
+                f"{total_created} blocks: {err}; batch_index={batch_index}; "
+                f"block_types={block_types}"
+            )
+            break
         except Exception as e:
-            _logger.warning(f"批量创建块异常: {e}")
+            if isinstance(e, DocxBlockCreateError):
+                raise
+            _logger.warning("Feishu create block children raised: %s", e)
+            if total_created == 0:
+                raise DocxBlockCreateError(
+                    (
+                        f"Feishu create block children raised: {e}; "
+                        f"batch_index={batch_index}; block_types={block_types}"
+                    ),
+                    created_count=0,
+                    batch_index=batch_index,
+                    block_types=block_types,
+                ) from e
+            warnings.append(
+                "rich block creation partially failed after "
+                f"{total_created} blocks: {e}; batch_index={batch_index}; "
+                f"block_types={block_types}"
+            )
+            break
 
-    return total_created
+    return total_created, warnings
 
 
 _logger = logging.getLogger("miniagent.feishu.docx.blocks")
