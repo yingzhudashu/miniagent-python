@@ -430,7 +430,7 @@ async def run_agent(
                 try:
                     await invoke_on_thinking(
                         on_thinking,
-                        f"{WARNING_PREFIX} 高风险操作，请确认执行计划。输入 .confirm 同意，.reject 拒绝，.adjust 调整。",
+                        f"{WARNING_PREFIX} 高风险操作，请确认执行计划。输入 /confirm 同意，/reject 拒绝，/adjust 调整。",
                         True,
                         "[等待确认]",
                     )

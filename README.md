@@ -16,7 +16,7 @@
 - **三层记忆**: 短期记忆 / 活动日志 / 语义检索
 - **双通道接入**: 同一进程内 CLI 主循环 + 可选飞书 WebSocket 长连接（无单独「纯飞书」入口）；出站默认 `feishu.reply_target=reply`；内置飞书工具默认由 `feishu.tools_auto` 注册。详见 [docs/FEISHU.md](docs/FEISHU.md)
 - **消息队列**: queue（按序）/ preemptive（打断）双模式
-- **定时任务**: 持久化任务表 + 进程内调度，经与聊天相同的消息队列执行 Agent 回合；CLI 下可用 `run_dot_command`（`.schedule …`）或 `manage_scheduled_task` 结构化接口
+- **定时任务**: 持久化任务表 + 进程内调度，经与聊天相同的消息队列执行 Agent 回合；CLI 下可用 `run_dot_command`（`/schedule …`）或 `manage_scheduled_task` 结构化接口
 - **多实例**: 注册表 + PID 存活清理（心跳仅观测），支持多终端并行；详见 [docs/ENGINEERING.md](docs/ENGINEERING.md) §3.3
 - **可插拔技能**: 动态加载，ClawHub 技能市场
 - **自我优化**: 代码检查 + 优化提案 + Git 快照
@@ -62,7 +62,7 @@ README、[docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) 与 [docs/ENGINEERING.md](
 ### 定时任务
 
 - 任务表：`{paths.state_dir}/scheduled_tasks/tasks.json`（默认 `workspaces/scheduled_tasks/`）。
-- 本机 CLI 用 **`.schedule`** 管理（五段 cron / every / once）；飞书侧默认仅 **list** / **show**。
+- 本机 CLI 用 **`/schedule`** 管理（五段 cron / every / once）；飞书侧默认仅 **list** / **show**。
 - `primary` 任务在飞书私聊已绑定时可镜像推送（`scheduled_tasks.feishu_mirror=false` 可关）。
 
 操作细节见 [docs/USER_GUIDE.md](docs/USER_GUIDE.md) §8、[docs/CLI.md](docs/CLI.md)。

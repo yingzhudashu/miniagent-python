@@ -49,3 +49,6 @@ tests/evaluation/**/evaluation_results.json
 docs/EVALUATION_REPORT.html
 docs/evaluation_results.json
 workspaces/skills/
+
+# 个人文档（简历与面试准备）
+docs/RESUME_INTERVIEW_GUIDE.md

@@ -93,17 +93,17 @@ def confirmation_buttons() -> list[dict[str, Any]]:
     return [
         build_button(
             "✅ 确认",
-            miniagent_text=".confirm",
+            miniagent_text="/confirm",
             action_id="confirm",
         ),
         build_button(
             "✏️ 调整",
-            miniagent_text=".adjust ",
+            miniagent_text="/adjust ",
             action_id="adjust",
         ),
         build_button(
             "❌ 拒绝",
-            miniagent_text=".reject",
+            miniagent_text="/reject",
             action_id="reject",
             type="danger",
         ),

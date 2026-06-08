@@ -78,10 +78,10 @@
         <mxCell id="123" value="&lt;b&gt;init.py&lt;/b&gt;&lt;br&gt;子系统初始化&lt;br&gt;技能加载&lt;br&gt;SessionManager&lt;br&gt;默认会话加锁" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="120">
           <mxGeometry x="370" y="35" width="145" height="70" as="geometry"/>
         </mxCell>
-        <mxCell id="124" value="&lt;b&gt;command_dispatch.py&lt;/b&gt;&lt;br&gt;统一命令调度器&lt;br&gt;CLI + 飞书共享&lt;br&gt;.status / .help / ...&lt;br&gt;输出捕获 (StringIO)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="120">
+        <mxCell id="124" value="&lt;b&gt;command_dispatch.py&lt;/b&gt;&lt;br&gt;统一命令调度器&lt;br&gt;CLI + 飞书共享&lt;br&gt;/status / /help / ...&lt;br&gt;输出捕获 (StringIO)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="120">
           <mxGeometry x="530" y="35" width="165" height="70" as="geometry"/>
         </mxCell>
-        <mxCell id="125" value="&lt;b&gt;cli_commands.py&lt;/b&gt;&lt;br&gt;CLI 命令&lt;br&gt;.session / .bind&lt;br&gt;.queue / .help" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="120">
+        <mxCell id="125" value="&lt;b&gt;cli_commands.py&lt;/b&gt;&lt;br&gt;CLI 命令&lt;br&gt;/session / /bind&lt;br&gt;/queue / /help" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="120">
           <mxGeometry x="710" y="35" width="130" height="70" as="geometry"/>
         </mxCell>
         <mxCell id="126" value="&lt;b&gt;feishu_state.py&lt;/b&gt;&lt;br&gt;FeishuRuntime&lt;br&gt;start/stop/status&lt;br&gt;&lt;i&gt;feishu_runtime 重导出&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="120">
