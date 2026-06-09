@@ -427,6 +427,59 @@ async def execute_plan(
     agent_config: AgentConfig,
     on_tool_call: OnToolCall | None = None,
     on_thinking: OnThinking | None = None,
+) -> str:
+    """执行结构化计划（ReAct 循环主入口）
+
+    核心执行器，实现 Phase 2 的 ReAct 循环（Think → Act → Observe）：
+    1. 根据计划筛选可用工具（tool_selection_strategy: all/auto/manual）
+    2. 初始化上下文管理器、循环检测器、Token 统计
+    3. 注入三层记忆到消息序列
+    4. ReAct 循环：LLM 调用 → 工具执行 → 结果反馈 → 循环检测
+    5. 循环终止条件：无工具调用 / max_turns / 循环检测拦截 / 上下文超预算
+
+    **分步模式**（PHASED_EXECUTION=True 且 plan.steps 非空）：
+    - 每步独立子循环，显示 "[步骤 i/n]" 思考 header
+    - 最后一步用尽单步轮次但全局仍有余量时，追加无 tools 的 synthesis 收尾
+    - 避免分步过多导致 token 预算分散（见 STEP_MAX_TURNS）
+
+    **流式处理**（agent_config.streaming=True）：
+    - 通过 on_thinking 回调实时推送思考内容
+    - 工具调用合并展示（merge_tools 配置）
+    - 避免同轮重复推送（stream_first_body_chunk 控制）
+
+    **错误处理**：
+    - 上下文超预算：ContextBudgetExceeded → 返回 WARNING_PREFIX 提示
+    - 工具执行失败：记录错误日志，继续执行（除非沙箱拒绝）
+    - 循环检测拦截：返回 WARNING_PREFIX + 循环提示
+
+    Args:
+        plan: Phase 1 产出的结构化计划（含 summary、steps、required_toolboxes）
+        user_input: 用户的原始需求文本
+        registry: 工具注册表（实现 ToolRegistryProtocol）
+        monitor: 工具监控器（实现 ToolMonitorProtocol）
+        agent_config: Agent 配置（含 streaming、debug、max_turns等）
+        on_tool_call: 工具调用回调（可选，用于飞书卡片按钮）
+        on_thinking: 思考流回调（可选，用于实时展示）
+
+    Returns:
+        str: Agent 最终回复文本（含 WARNING_PREFIX 若有拦截）
+
+    Raises:
+        ContextBudgetExceeded: 上下文 token 超预算时（由 context_manager.append 抛出）
+        RuntimeError: LLM API 调用失败或工具执行异常（debug=True 时记录栈）
+
+    Examples:
+        >>> from miniagent.core.executor import execute_plan
+        >>> from miniagent.core.planner import generate_plan
+        >>> plan = await generate_plan(user_input, registry, ...)
+        >>> reply = await execute_plan(plan, user_input, registry, monitor, config)
+        >>> print(reply)  # "任务已完成..."
+
+    Note:
+        - 内部依赖 memory 模块通过 RuntimeContext 注入（见架构重构计划）
+        - 循环检测阈值见 config.defaults.json 的 loop_detector 配置
+        - 工具并发上限见 EXECUTION_MAX_CONCURRENT_TOOLS（Internal 常量）
+    """
     *,
     on_tool_finish: OnToolFinish | None = None,
     system_prompt: str | None = None,
