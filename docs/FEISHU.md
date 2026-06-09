@@ -329,7 +329,7 @@ reply = await engine.run_agent_with_thinking(content, active_session_id, ...)
 ### 会话隔离
 
 - **群聊**（`chat_type=group`）：每个 `chat_id` 使用独立会话 `feishu:<chat_id>`。
-- **私聊**（`p2p`）：未绑定时可自动绑到 CLI 活跃会话，与 CLI **共享**同一 `session_key`；已手动绑定或 `.session switch` 后行为见 [CHANNEL_BINDING.md](CHANNEL_BINDING.md)。
+- **私聊**（`p2p`）：未绑定时可自动绑到 CLI 活跃会话，与 CLI **共享**同一 `session_key`；已手动绑定或 `/session switch` 后行为见 [CHANNEL_BINDING.md](CHANNEL_BINDING.md)。
 
 ### chat_type 支持（私聊 vs 群聊）
 

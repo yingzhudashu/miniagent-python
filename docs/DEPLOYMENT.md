@@ -242,7 +242,7 @@ python -m miniagent --feishu           # 实例 #2 (CLI + 飞书)
   - `MINIAGENT_DISABLE_SCHEDULED_TASKS=1` — 关闭后台 ticker（不删除磁盘任务表）
   - `MINIAGENT_SCHEDULE_DISPATCH_BACKOFF` — dispatch 失败时推迟 `next_run_at` 的秒数（默认 60）
   - `MINIAGENT_TIMEZONE` / `TZ` — 进程默认 IANA 时区（Agent、`get_time`、新建定时任务默认）；修改 `config.user.json` 后须**重启进程**（Windows 上尤其重要）
-- **用户操作**：CLI `.schedule`（`add`/`update`/`remove`/`enable`/`disable`）、Agent 工具 `manage_scheduled_task`（`list`/`show`/`add`/`update`/`remove`/`enable`/`disable`）；飞书侧通常仅 `list` / `show`。详见 [USER_GUIDE.md](USER_GUIDE.md) §8、[ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」。
+- **用户操作**：CLI `/schedule`（`add`/`update`/`remove`/`enable`/`disable`）、Agent 工具 `manage_scheduled_task`（`list`/`show`/`add`/`update`/`remove`/`enable`/`disable`）；飞书侧通常仅 `list` / `show`。详见 [USER_GUIDE.md](USER_GUIDE.md) §8、[ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」。
 
 ## 监控和日志
 

@@ -344,13 +344,25 @@ messages = [
 
 ## 环境变量汇总
 
-| 变量 | 默认值 | 影响模块 |
-|------|--------|----------|
-| `MINIAGENT_MEMORY_STORE_CACHE_MAX` | `50` | `store.py` LRU 缓存上限（会话数） |
-| `MINIAGENT_REGISTRY_MAX_ENTRIES` | `3000` | `shared_registry.py` 共享注册表上限 |
-| `MINIAGENT_MEMORY_KEYWORD_INDEX_MAX` | `20000` | `keyword_index.py` 关键词数上限 |
-| `MINIAGENT_EMBEDDING_ENABLED` | `0` | `embedding_search.py` 是否启用嵌入搜索 |
-| `MINIAGENT_EMBEDDING_MAX_ENTRIES` | `2000` | `embedding_search.py` 嵌入条目上限 |
-| `MINI_AGENT_DREAM_*` | `7d/30d/365d` | `dream_scheduler.py` 维护周期 |
-| `MINI_AGENT_DREAM_SIZE_BYTES` | *(无)* | 体量闸门阈值 |
-| `MINIAGENT_MEMORY_HISTORY_TAIL_MESSAGES` | `200` | 历史保留消息数 |
+> ⚠️ **已废弃**：自 v2.0.0 起，项目已移除 `MINIAGENT_*` 环境变量配置支持，仅支持 JSON 配置（`config.defaults.json` → `config.user.json`）。
+>
+> 以下环境变量列表仅用于历史参考，**不再生效**。请使用 `config.user.json` 中对应的配置项替代。
+>
+> **迁移指南**：
+> - `MINIAGENT_MEMORY_STORE_CACHE_MAX` → `memory.store_cache_max`（JSON 配置）
+> - `MINIAGENT_REGISTRY_MAX_ENTRIES` → `memory.registry_max_entries`
+> - `MINIAGENT_MEMORY_KEYWORD_INDEX_MAX` → `memory.keyword_index_max`
+> - 其他变量请参考 `config.defaults.json` 的 `memory` 节
+>
+> 详细迁移说明见 [CHANGELOG.md](CHANGELOG.md) Breaking changes 章节。
+
+| 变量 | 默认值 | 影响模块 | JSON 替代配置 |
+|------|--------|----------|---------------|
+| `MINIAGENT_MEMORY_STORE_CACHE_MAX` | `50` | `store.py` LRU 缓存上限（会话数） | `memory.store_cache_max` |
+| `MINIAGENT_REGISTRY_MAX_ENTRIES` | `3000` | `shared_registry.py` 共享注册表上限 | `memory.registry_max_entries` |
+| `MINIAGENT_MEMORY_KEYWORD_INDEX_MAX` | `20000` | `keyword_index.py` 关键词数上限 | `memory.keyword_index_max` |
+| `MINIAGENT_EMBEDDING_ENABLED` | `0` | `embedding_search.py` 是否启用嵌入搜索 | `memory.embedding_enabled` |
+| `MINIAGENT_EMBEDDING_MAX_ENTRIES` | `2000` | `embedding_search.py` 嵌入条目上限 | `memory.embedding_max_entries` |
+| `MINI_AGENT_DREAM_*` | `7d/30d/365d` | `dream_scheduler.py` 维护周期 | `memory.dream_*` |
+| `MINI_AGENT_DREAM_SIZE_BYTES` | *(无)* | 体量闸门阈值 | `memory.dream_size_bytes` |
+| `MINIAGENT_MEMORY_HISTORY_TAIL_MESSAGES` | `200` | 历史保留消息数 | `memory.history_tail_messages` |
