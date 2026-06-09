@@ -209,30 +209,101 @@ async def run_agent(
 ) -> str:
     """运行 Agent（两阶段模式）。
 
-    Phase 1: 规划（可跳过）
-    Phase 2: ReAct 循环执行
+    **核心架构**（Phase 0-2 多阶段智能）：
+    - Phase 0: 任务难度分类（simple/normal/medium/complex）
+    - Phase 0.5: 需求澄清（三步法：Wittgenstein → Socrates → Polya）
+    - Phase 1: 结构化规划（LLM生成 StructuredPlan）
+    - Phase 2: ReAct 循环执行（Think → Act → Observe）
 
-    当提供 ``on_thinking`` 且 Internal 常量 ``EXECUTION_ANNOUNCE_DIFFICULTY`` 为真（默认开启）时，
-    将「评估任务难度 → 难度结论 → 执行计划」合并为同一条流式思考（header ``[评估与计划]``）；展示为精简文案，
-    完整 Markdown 通过可选关键字 ``full_record`` 写入会话历史（由 :class:`~miniagent.engine.engine.UnifiedEngine` 接线）。
-    设为 ``0`` 可关闭上述推送。
+    **Phase 0 分类器**（task_classifier_enabled=True）：
+    - 简单任务：跳过规划，直接执行（降低延迟和成本）
+    - 一般/中等/复杂任务：调用结构化规划器
+    - 可通过 agent.skip_task_classification=True 强制关闭
+
+    **Phase 0.5 需求澄清**（clarifier提供时）：
+    - Wittgenstein：语言边界检查（是否存在歧义）
+    - Socrates：反向追问（通过反例澄清边界）
+    - Polya：示例传递（提供具体场景）
+    - 澄清轮次最多3轮，避免过度追问
+
+    **Phase 1 规划**（skip_planning=False 且有toolboxes）：
+    - LLM分析需求，生成 StructuredPlan（summary、steps、required_toolboxes）
+    - 工具箱选择：auto/manual/all 三种策略
+    - Token估算：预估上下文消耗，避免超预算
+    - 风险评估：高风险操作需用户确认（on_plan回调）
+
+    **Phase 2 执行**（ReAct循环）：
+    - 执行器调用 execute_plan，实现 Think → Act → Observe
+    - 循环检测：防止无限循环（相似度阈值配置）
+    - 三层记忆注入：短期记忆 + 活动日志 + 关键词索引
+    - 流式输出：通过 on_thinking 实时推送思考过程
+
+    **思考展示策略**（on_thinking回调）：
+    - EXECUTION_ANNOUNCE_DIFFICULTY=True：合并难度评估和规划展示
+    - 分段显示：[评估与计划] → [执行] → [等待确认]
+    - 全量记录：full_record参数写入会话历史（飞书/CLI双通道）
+
+    **高风险确认流程**（plan.requires_confirmation=True）：
+    - 显示警告提示："⚠️ 高风险操作，请确认执行计划"
+    - 调用 on_plan回调等待用户确认
+    - 用户可通过 /confirm /reject /adjust 命令响应
 
     Args:
-        user_input: 用户的原始需求
-        registry: 工具注册表
-        monitor: 性能监控器（默认创建新实例）
-        toolboxes: 可用工具箱列表（空则跳过规划）
-        agent_config: Agent 配置覆盖
-        system_prompt: 自定义系统提示词
-        skip_planning: 跳过规划阶段
-        on_tool_call: 工具调用回调
-        on_tool_finish: 每个工具执行后的异步回调（名称、参数 JSON、完整输出、是否成功）。
-            执行器在签名支持时会额外传入 ``thinking_header``（当前执行阶段标签，如 ``[执行]`` 或 ``[步骤 1/3] …``），供飞书等同段合并展示。
-            会话 ``history.json`` 中的工具全文块依赖此回调；不传则不会落盘工具输出。
-            ``UnifiedEngine.run_agent_with_thinking`` 已默认传入。
-        on_plan: 计划确认回调（返回 True 批准执行）
-        on_thinking: 思考过程回调（含难度/规划可见输出与执行阶段流式思考）
-        session_key: 会话标识符（用于记忆加载）
+        user_input: 用户的原始需求文本
+        registry: 工具注册表（实现 ToolRegistryProtocol）
+        monitor: 性能监控器（默认创建 DefaultToolMonitor）
+        toolboxes: 可用工具箱列表（空则跳过规划阶段）
+        agent_config: Agent 配置覆盖（如 streaming、debug、max_turns）
+        system_prompt: 自定义系统提示词（覆盖默认身份提示）
+        skip_planning: 强制跳过规划阶段（直接进入执行）
+        on_tool_call: 工具调用回调（用于飞书卡片按钮交互）
+        on_tool_finish: 工具执行完成回调（用于历史记录落盘）
+        on_plan: 规划确认回调（高风险操作时等待用户批准）
+        on_thinking: 思考流回调（实时展示思考过程）
+        clawhub: ClawHub客户端实例（用于技能市场交互）
+        memory_store: 记忆存储实例（默认使用进程bundle）
+        activity_log: 活动日志实例（记录会话活动）
+        keyword_index: 关键词索引实例（语义检索）
+        client: AsyncOpenAI客户端（默认使用进程共享实例）
+        clarifier: 需求澄清器实例（实现三步澄清）
+        session_key: 会话标识符（用于记忆加载和历史保存）
+        confirmation_channel: 确认通道实例（飞书卡片确认）
+        engine: UnifiedEngine实例（用于状态访问）
+
+    Returns:
+        str: Agent 最终回复文本
+            - 正常完成：返回回复内容
+            - 操作取消：返回 WARNING_PREFIX + "操作已取消"
+            - 循环拦截：返回 WARNING_PREFIX + 循环提示
+
+    Raises:
+        ValueError: 配置参数无效（如 max_turns<1）
+        RuntimeError: LLM API调用失败或规划器异常
+        ContextBudgetExceeded: 上下文token超预算（由执行器抛出）
+
+    Examples:
+        >>> from miniagent.core.agent import run_agent
+        >>> from miniagent.infrastructure.registry import DefaultToolRegistry
+        >>> registry = DefaultToolRegistry()
+        >>> reply = await run_agent(
+        ...     "帮我分析当前目录的文件结构",
+        ...     registry=registry,
+        ...     session_key="session_001",
+        ... )
+        >>> print(reply)  # "已分析完成，当前目录包含..."
+
+    Note:
+        - Phase 0 分类器默认开启，简单任务自动跳过规划
+        - Phase 0.5 澄清需提供 clarifier 实例（见 requirement_clarifier.py）
+        - Phase 1 规划器会估算token，避免超 budget
+        - Phase 2 执行器最多400轮（见 agent.max_turns）
+        - 飞书/CLI双通道通过 engine 统一接线（见 UnifiedEngine）
+
+    See Also:
+        - miniagent/core/executor.execute_plan: Phase 2 执行器实现
+        - miniagent/core/planner.generate_plan: Phase 1 规划器实现
+        - miniagent/core/task_classifier.classify_task_difficulty: Phase 0 分类器
+        - miniagent/core/requirement_clarifier.RequirementClarifier: Phase 0.5 澄清器
 
     Returns:
         Agent 的最终回复文本
