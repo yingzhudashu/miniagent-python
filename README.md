@@ -3,7 +3,8 @@
 ![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Version](https://img.shields.io/badge/version-2.1.0-blue)
-![Tests](https://img.shields.io/badge/tests-1408-green)
+![Tests](https://img.shields.io/badge/tests-dynamic-blue)
+> **测试数量**：以 `pytest --collect-only -q` 为准，不硬编码以避免漂移（见 [ENGINEERING.md](docs/ENGINEERING.md) §5）
 ![Coverage](https://img.shields.io/badge/coverage-85%25-yellow)
 
 基于 LLM 的多阶段智能代理系统。支持 CLI 和飞书双通道接入。

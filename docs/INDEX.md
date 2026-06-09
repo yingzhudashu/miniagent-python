@@ -108,7 +108,7 @@ miniagent-python/
 │   ├── skills/            # 技能加载、注册、ClawHub 客户端
 │   ├── testing/           # 测试工具：测试运行器、类型定义
 │   ├── tools/             # 工具实现：文件系统、网络、飞书、调度
-│   ├── types/             # 类型定义（Pydantic / Protocol）
+│   ├── types/             # 类型定义（Pydantic / Protocol）+ 抽象接口层（memory_context.py）
 │   └── utils/             # 共享工具函数：session_id 安全化等
 ├── docs/                  # 文档
 ├── tests/                 # pytest 测试

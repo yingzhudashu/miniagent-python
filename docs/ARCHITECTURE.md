@@ -489,7 +489,10 @@ RAG 已在规划、澄清、分类、反思阶段全面集成，详见 [KNOWLEDG
 ### 10. 安全层 + 类型层
 
 - **安全层** (`security/sandbox.py`): 路径白名单、父目录遍历拦截、权限策略
-- **类型层** (`types/`): 7 个类型模块，定义 Agent、Config、Plan、Tool、Skill、Memory、Feishu 类型
+- **类型层** (`types/`): 8 个类型模块，定义 Agent、Config、Plan、Tool、Skill、Memory、Feishu 类型
+  - 新增 `memory_context.py`: 记忆上下文抽象接口层，用于解除核心层对记忆层的直接依赖
+  - 包含 `MemoryContextProtocol`、`MemorySearchProtocol`、`MemoryHistoryProtocol` 等接口定义
+  - 遵循依赖倒置原则（DIP），核心层通过 Protocol 接口与记忆系统交互，具体实现由 RuntimeContext 注入
 
 ## 数据流
 
