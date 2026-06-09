@@ -427,10 +427,19 @@ async def execute_plan(
     agent_config: AgentConfig,
     on_tool_call: OnToolCall | None = None,
     on_thinking: OnThinking | None = None,
+    *,
+    on_tool_finish: OnToolFinish | None = None,
+    system_prompt: str | None = None,
+    clawhub: ClawHubClientProtocol | None = None,
+    memory_store: MemoryStoreProtocol | None = None,
+    activity_log: ActivityLogProtocol | None = None,
+    keyword_index: KeywordIndexProtocol | None = None,
+    client: AsyncOpenAI | None = None,
 ) -> str:
-    """执行结构化计划（ReAct 循环主入口）
+    """执行结构化计划（ReAct 循环）。
 
-    核心执行器，实现 Phase 2 的 ReAct 循环（Think → Act → Observe）：
+    **核心执行流程**：
+    Phase 2 的 ReAct 循环（Think → Act → Observe）：
     1. 根据计划筛选可用工具（tool_selection_strategy: all/auto/manual）
     2. 初始化上下文管理器、循环检测器、Token 统计
     3. 注入三层记忆到消息序列
@@ -453,53 +462,19 @@ async def execute_plan(
     - 循环检测拦截：返回 WARNING_PREFIX + 循环提示
 
     Args:
-        plan: Phase 1 产出的结构化计划（含 summary、steps、required_toolboxes）
-        user_input: 用户的原始需求文本
-        registry: 工具注册表（实现 ToolRegistryProtocol）
-        monitor: 工具监控器（实现 ToolMonitorProtocol）
-        agent_config: Agent 配置（含 streaming、debug、max_turns等）
-        on_tool_call: 工具调用回调（可选，用于飞书卡片按钮）
-        on_thinking: 思考流回调（可选，用于实时展示）
-
-    Returns:
-        str: Agent 最终回复文本（含 WARNING_PREFIX 若有拦截）
-
-    Raises:
-        ContextBudgetExceeded: 上下文 token 超预算时（由 context_manager.append 抛出）
-        RuntimeError: LLM API 调用失败或工具执行异常（debug=True 时记录栈）
-
-    Examples:
-        >>> from miniagent.core.executor import execute_plan
-        >>> from miniagent.core.planner import generate_plan
-        >>> plan = await generate_plan(user_input, registry, ...)
-        >>> reply = await execute_plan(plan, user_input, registry, monitor, config)
-        >>> print(reply)  # "任务已完成..."
-
-    Note:
-        - 内部依赖 memory 模块通过 RuntimeContext 注入（见架构重构计划）
-        - 循环检测阈值见 config.defaults.json 的 loop_detector 配置
-        - 工具并发上限见 EXECUTION_MAX_CONCURRENT_TOOLS（Internal 常量）
-    """
-    *,
-    on_tool_finish: OnToolFinish | None = None,
-    system_prompt: str | None = None,
-    clawhub: ClawHubClientProtocol | None = None,
-    memory_store: MemoryStoreProtocol | None = None,
-    activity_log: ActivityLogProtocol | None = None,
-    keyword_index: KeywordIndexProtocol | None = None,
-    client: AsyncOpenAI | None = None,
-) -> str:
-    """执行结构化计划（ReAct 循环）。
-
-    Args:
         plan: 来自 Phase 1 的结构化执行计划
         user_input: 用户原始需求
         registry: 工具注册表
         monitor: 性能监控器
         agent_config: 合并后的 Agent 配置
         on_tool_call: 工具调用回调（如未知工具等路径）
+        on_thinking: 思考过程回调（含难度/规划可见输出与执行阶段流式思考）
         on_tool_finish: 每个工具执行完成后异步回调（名称、参数 JSON 字符串、完整结果、是否成功）。
             若回调签名包含关键字参数 ``thinking_header``（或 ``**kwargs``），将传入当前 ReAct 轮标签（如 ``[第 1 轮]``）；否则仅按四参调用。
+            会话 ``history.json`` 中的工具全文块依赖此回调；不传则不会落盘工具输出。
+            ``UnifiedEngine.run_agent_with_thinking`` 已默认传入。
+        system_prompt: 自定义系统提示词（覆盖默认）
+        clawhub: ClawHub 客户端实例
         memory_store: 记忆存储（默认与 ``paths.state_dir`` 进程 bundle 一致）
         activity_log: 活动日志（同上）
         keyword_index: 关键词索引（同上；缺省时优先使用 store 已绑定索引）
