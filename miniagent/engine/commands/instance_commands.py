@@ -37,7 +37,7 @@ def cmd_instance_handler(
         stop_instance_by_id,
     )
 
-    if sub_cmd == "list" or sub_cmd == "":
+    if sub_cmd in ("list", ""):
         # 列出所有运行中的实例
         instances = list_instances()
         if markdown:
@@ -58,11 +58,7 @@ def cmd_instance_handler(
             print(f"{WARNING_PREFIX} 不能停止当前实例，请使用 /stop")
             return
 
-        matches = [
-            i
-            for i in list_instances()
-            if int(i.get("instance_id") or 0) == instance_id
-        ]
+        matches = [i for i in list_instances() if int(i.get("instance_id") or 0) == instance_id]
         if not matches:
             print(f"{ERROR_PREFIX} 实例 #{instance_id} 不存在")
             return

@@ -85,33 +85,32 @@ def cmd_btw_status(task_id: str | None = None) -> str:
 
         return "\n".join(lines)
 
-    else:
-        # 显示所有任务
-        tasks = manager.list_tasks()
+    # 显示所有任务
+    tasks = manager.list_tasks()
 
-        if not tasks:
-            return "📭 当前没有后台任务"
+    if not tasks:
+        return "📭 当前没有后台任务"
 
-        lines = ["## 后台任务列表", ""]
-        for task in tasks:
-            status_icon = {
-                "pending": "⏳",
-                "running": "🔄",
-                "completed": "✅",
-                "failed": "❌",
-                "cancelled": "🚫",
-            }.get(task['status'], "?")
+    lines = ["## 后台任务列表", ""]
+    for task in tasks:
+        status_icon = {
+            "pending": "⏳",
+            "running": "🔄",
+            "completed": "✅",
+            "failed": "❌",
+            "cancelled": "🚫",
+        }.get(task['status'], "?")
 
-            lines.append(
-                f"{status_icon} **{task['task_id']}**: {task['status']} - {task['prompt'][:40]}..."
-            )
+        lines.append(
+            f"{status_icon} **{task['task_id']}**: {task['status']} - {task['prompt'][:40]}..."
+        )
 
-        lines.append("")
-        lines.append(f"统计: {len(tasks)} 个任务")
-        stats = manager.get_stats()
-        lines.append(f"并行上限: {stats['max_concurrent']}，当前运行: {stats['running_tasks']}")
+    lines.append("")
+    lines.append(f"统计: {len(tasks)} 个任务")
+    stats = manager.get_stats()
+    lines.append(f"并行上限: {stats['max_concurrent']}，当前运行: {stats['running_tasks']}")
 
-        return "\n".join(lines)
+    return "\n".join(lines)
 
 
 async def cmd_btw_result(task_id: str) -> str:
@@ -130,10 +129,9 @@ async def cmd_btw_result(task_id: str) -> str:
         status = manager.get_status(task_id)
         if status is None:
             return f"{ERROR_PREFIX} 任务 {task_id} 不存在"
-        elif status['status'] == 'running':
+        if status['status'] == 'running':
             return f"⏳ 任务 {task_id} 仍在执行中，请稍后查询"
-        else:
-            return f"{ERROR_PREFIX} 任务 {task_id} 无结果"
+        return f"{ERROR_PREFIX} 任务 {task_id} 无结果"
 
     lines = [
         f"## 任务 {task_id} 结果",
@@ -157,12 +155,11 @@ async def cmd_btw_cancel(task_id: str) -> str:
     success = await manager.cancel_task(task_id)
     if success:
         return f"{SUCCESS_PREFIX} 任务 {task_id} 已取消"
-    else:
-        status = manager.get_status(task_id)
-        if status is None:
-            return f"{ERROR_PREFIX} 任务 {task_id} 不存在"
-        else:
-            return f"{WARNING_PREFIX} 任务 {task_id} 已完成或已取消，无法取消"
+
+    status = manager.get_status(task_id)
+    if status is None:
+        return f"{ERROR_PREFIX} 任务 {task_id} 不存在"
+    return f"{WARNING_PREFIX} 任务 {task_id} 已完成或已取消，无法取消"
 
 
 def cmd_btw_clear() -> str:
@@ -176,8 +173,7 @@ def cmd_btw_clear() -> str:
 
     if count > 0:
         return f"{SUCCESS_PREFIX} 已清理 {count} 个已完成任务"
-    else:
-        return "📭 没有需要清理的任务"
+    return "📭 没有需要清理的任务"
 
 
 __all__ = [

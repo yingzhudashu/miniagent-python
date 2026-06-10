@@ -297,7 +297,7 @@ class BackgroundTaskManager:
         Returns:
             任务状态列表
         """
-        return [self.get_status(task_id) for task_id in self._tasks.keys()]
+        return [self.get_status(task_id) for task_id in self._tasks]
 
     def clear_completed(self) -> int:
         """清理已完成的任务
@@ -318,11 +318,10 @@ class BackgroundTaskManager:
         Returns:
             统计字典
         """
-        status_counts = {}
-        for status in TaskStatus:
-            status_counts[status.value] = sum(
-                1 for t in self._tasks.values() if t.status == status
-            )
+        status_counts = {
+            status.value: sum(1 for t in self._tasks.values() if t.status == status)
+            for status in TaskStatus
+        }
 
         return {
             "total_tasks": len(self._tasks),

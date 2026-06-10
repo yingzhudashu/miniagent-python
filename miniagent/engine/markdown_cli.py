@@ -71,7 +71,7 @@ def _get_render_cache_key(markdown: str, width: int, justify: str) -> tuple[int,
     return (len(markdown), prefix, width, justify)
 
 
-def _get_cached_render(cache_key: tuple[str, int, str]) -> str | None:
+def _get_cached_render(cache_key: tuple[int, str, int, str]) -> str | None:
     """从缓存获取渲染结果。"""
     if cache_key in _render_cache:
         _render_cache.move_to_end(cache_key)  # LRU
@@ -79,10 +79,10 @@ def _get_cached_render(cache_key: tuple[str, int, str]) -> str | None:
     return None
 
 
-def _cache_render(cache_key: tuple[str, int, str], result: str) -> None:
+def _cache_render(cache_key: tuple[int, str, int, str], result: str) -> None:
     """缓存渲染结果。"""
     _render_cache[cache_key] = result
-    # LRU 驎出
+    # LRU 逐出
     while len(_render_cache) > _RENDER_CACHE_MAX_SIZE:
         _render_cache.popitem(last=False)
 

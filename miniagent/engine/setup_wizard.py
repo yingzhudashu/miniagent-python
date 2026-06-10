@@ -72,8 +72,7 @@ def run_setup_wizard() -> dict[str, Any]:
 
     model = input("模型名称 (或按 Enter 使用默认): ").strip()
     if model:
-        if "model" not in config:
-            config["model"] = {}
+        config.setdefault("model", {})
         config["model"]["model"] = model
         print(f"✅ 模型设置为: {model}")
 
@@ -86,8 +85,7 @@ def run_setup_wizard() -> dict[str, Any]:
 
     base_url = input("自定义端点 (或按 Enter 使用默认): ").strip()
     if base_url:
-        if "model" not in config:
-            config["model"] = {}
+        config.setdefault("model", {})
         config["model"]["base_url"] = base_url
         print(f"✅ API 端点设置为: {base_url}")
 
