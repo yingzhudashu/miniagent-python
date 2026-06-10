@@ -31,6 +31,7 @@
 from __future__ import annotations
 
 import asyncio
+import atexit
 import json
 import os
 import time
@@ -263,8 +264,6 @@ def get_dedup_stats() -> dict[str, Any]:
 
 
 # ─── 初始化 ───
-
-import atexit
 
 atexit.register(_flush_dedup_at_exit)
 _load_disk_dedup()

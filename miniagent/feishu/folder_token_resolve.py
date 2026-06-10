@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 
 from miniagent.feishu.types import FeishuConfig
@@ -33,15 +34,14 @@ def extract_folder_token_from_url(s: str) -> str | None:
 def _looks_like_url_or_drive_link(s: str) -> bool:
     """判断字符串是否为 URL 或飞书/Lark 云盘链接格式。"""
     sl = s.lower()
-    if s.strip().startswith("http://") or s.strip().startswith("https://"):
+    stripped = s.strip()
+    if stripped.startswith("http://") or stripped.startswith("https://"):
         return True
     if "feishu.cn" in sl or "feishu.com" in sl:
         return True
     if "larksuite.com" in sl or "larkoffice.com" in sl or "larkoffice.cn" in sl:
         return True
-    if "/folder/" in sl:
-        return True
-    return False
+    return "/folder/" in sl
 
 
 def folder_token_from_tool_arg(raw: str | None) -> tuple[str, str | None]:
@@ -76,8 +76,6 @@ def default_doc_folder_token_from_env() -> str:
 
 def root_meta_fallback_enabled() -> bool:
     """是否启用「根文件夹元数据」API 作为最后回退（默认开启）。"""
-    import os
-
     legacy = os.environ.get("FEISHU_DOC_FOLDER_FALLBACK_ROOT_META")
     if legacy is not None:
         return env_flag("FEISHU_DOC_FOLDER_FALLBACK_ROOT_META", default=True)
@@ -112,7 +110,7 @@ def resolve_parent_folder_token(
         ``(token, error_message)``；成功时 ``error_message`` 为 ``None``。
     """
     tried: list[str] = []
-    raw = (folder_arg or "").strip() if folder_arg is not None else ""
+    raw = (folder_arg or "").strip()
     token, url_err = folder_token_from_tool_arg(raw if raw else None)
     if url_err:
         return None, f"⚠️ {url_err}"
@@ -151,7 +149,7 @@ async def resolve_parent_folder_token_async(
         ``(token, error_message)``；成功时 ``error_message`` 为 ``None``。
     """
     tried: list[str] = []
-    raw = (folder_arg or "").strip() if folder_arg is not None else ""
+    raw = (folder_arg or "").strip()
     token, url_err = folder_token_from_tool_arg(raw if raw else None)
     if url_err:
         return None, f"⚠️ {url_err}"

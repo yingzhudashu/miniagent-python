@@ -28,6 +28,23 @@ def parse_gfm_table_row_cells(line: str) -> list[str]:
     return [c.strip() for c in s.split("|")]
 
 
+def _rows_from_block_lines(block_lines: list[str]) -> list[list[str]]:
+    """跳过空行与分隔符行，将表格块的每一行解析为单元格列表。"""
+    rows: list[list[str]] = []
+    for line in block_lines:
+        if not line.strip() or is_gfm_table_separator_line(line):
+            continue
+        rows.append(parse_gfm_table_row_cells(line))
+    return rows
+
+
+def _is_table_block_head(lines: list[str], start: int) -> bool:
+    """判断 ``start`` 处是否为 GFM 表头：当前行含管道符且下一行为分隔符行。"""
+    if start + 1 >= len(lines):
+        return False
+    return "|" in lines[start] and is_gfm_table_separator_line(lines[start + 1])
+
+
 def find_gfm_table_block(
     lines: list[str],
     start: int,
@@ -36,10 +53,7 @@ def find_gfm_table_block(
 
     不依赖管道符数量阈值，任何 GFM 管道符表格都检测。
     """
-    if start + 1 >= len(lines):
-        return None
-    row0 = lines[start]
-    if "|" not in row0 or not is_gfm_table_separator_line(lines[start + 1]):
+    if not _is_table_block_head(lines, start):
         return None
     j = start + 2
     while j < len(lines) and lines[j].strip() and "|" in lines[j]:
@@ -54,10 +68,7 @@ def find_wide_gfm_table_block(
     max_pipes: int,
 ) -> tuple[int, int, int] | None:
     """从 ``start`` 起若存在宽 GFM 表，返回 ``(block_start, block_end, pipe_peak)``。"""
-    if start + 1 >= len(lines):
-        return None
-    row0 = lines[start]
-    if "|" not in row0 or not is_gfm_table_separator_line(lines[start + 1]):
+    if not _is_table_block_head(lines, start):
         return None
     j = start
     pipe_peak = 0
@@ -83,11 +94,7 @@ def extract_wide_gfm_table_rows(
             i += 1
             continue
         bi, bj, _ = found
-        rows: list[list[str]] = []
-        for line in lines[bi:bj]:
-            if not line.strip() or is_gfm_table_separator_line(line):
-                continue
-            rows.append(parse_gfm_table_row_cells(line))
+        rows = _rows_from_block_lines(lines[bi:bj])
         return rows if rows else None
     return None
 
@@ -102,11 +109,7 @@ def gfm_table_block_to_bullet_list(
     列数 <= key_value_threshold 时用简洁格式：``- 值1 | 值2 | 值3``
     列数 > key_value_threshold 时用 key-value 格式：``- **表头1** → 值1, **表头2** → 值2``
     """
-    rows: list[list[str]] = []
-    for line in block_lines:
-        if not line.strip() or is_gfm_table_separator_line(line):
-            continue
-        rows.append(parse_gfm_table_row_cells(line))
+    rows = _rows_from_block_lines(block_lines)
     if not rows:
         return ""
     ncols = max(len(r) for r in rows)
@@ -146,11 +149,7 @@ def gfm_table_block_to_text_table(
     max_cell_width: int = 28,
 ) -> str:
     """将 GFM 管道表转为等宽文本表（单元格截断）。"""
-    rows: list[list[str]] = []
-    for line in block_lines:
-        if not line.strip() or is_gfm_table_separator_line(line):
-            continue
-        rows.append(parse_gfm_table_row_cells(line))
+    rows = _rows_from_block_lines(block_lines)
     if not rows:
         return ""
     ncols = max(len(r) for r in rows)

@@ -1124,6 +1124,17 @@ def _reset_feishu_thinking_cache(st: Any) -> None:
     st.feishu_cached_card_json = None
 
 
+def _reset_feishu_thinking_state(st: Any) -> None:
+    """清理一轮思考流的全部累积状态（卡片 id、正文、节流计数、工具段、渲染缓存）。"""
+    st.feishu_thinking_message_id = None
+    st.feishu_stream_accumulated = ""
+    st.feishu_last_patched_char_len = -1
+    st.feishu_tool_section_started = False
+    st.feishu_pending_tool_lines = []
+    st.feishu_stream_llm_len = 0
+    _reset_feishu_thinking_cache(st)
+
+
 def _feishu_reply_plain_enabled() -> bool:
     """``MINIAGENT_FEISHU_REPLY_PLAIN``：默认渲染富文本 Markdown；设为 ``1`` 时去掉常见 Markdown 标记（仍为 ``lark_md``）。"""
     return bool(get_config("feishu.reply_plain", False))
@@ -1464,23 +1475,11 @@ async def finalize_feishu_thinking_stream(
     acc = getattr(st, "feishu_stream_accumulated", "") or ""
     if not chat_id or not mid:
         # 无卡片可 finalize，仍清理状态
-        st.feishu_thinking_message_id = None
-        st.feishu_stream_accumulated = ""
-        st.feishu_last_patched_char_len = -1
-        st.feishu_tool_section_started = False
-        st.feishu_pending_tool_lines = []
-        st.feishu_stream_llm_len = 0
-        _reset_feishu_thinking_cache(st)
+        _reset_feishu_thinking_state(st)
         return
     if not acc.strip():
         # 无累积内容，直接清理状态
-        st.feishu_thinking_message_id = None
-        st.feishu_stream_accumulated = ""
-        st.feishu_last_patched_char_len = -1
-        st.feishu_tool_section_started = False
-        st.feishu_pending_tool_lines = []
-        st.feishu_stream_llm_len = 0
-        _reset_feishu_thinking_cache(st)
+        _reset_feishu_thinking_state(st)
         return
     prep = _prepare_thinking_body_for_card(acc, apply_cap=False)
     chunks = _chunk_feishu_card_markdown(prep, already_normalized=True)
@@ -1516,13 +1515,7 @@ async def finalize_feishu_thinking_stream(
                 _logger.warning("思考续页发送失败 (%s/%s)", j + 1, nch)
                 break
     if patched:
-        st.feishu_thinking_message_id = None
-        st.feishu_stream_accumulated = ""
-        st.feishu_last_patched_char_len = -1
-        st.feishu_tool_section_started = False
-        st.feishu_pending_tool_lines = []
-        st.feishu_stream_llm_len = 0
-        _reset_feishu_thinking_cache(st)
+        _reset_feishu_thinking_state(st)
 
 
 async def append_feishu_thinking_same_card(

@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 from typing import Literal
 
-from miniagent.core.constants import FEISHU_PATCH_TIMEOUT_S
+from miniagent.core.constants import FEISHU_PATCH_TIMEOUT_S, FEISHU_SEND_TIMEOUT
 from miniagent.feishu.lark_client import build_client, clear_client_cache
 from miniagent.feishu.lark_response import format_lark_response_error
 from miniagent.feishu.types import FeishuConfig
@@ -22,8 +22,6 @@ _logger = get_logger(__name__)
 ImMsgType = Literal["text", "file", "image", "interactive"]
 
 _VALID_RECEIVE_ID_TYPES = frozenset({"chat_id", "open_id", "union_id"})
-
-from miniagent.core.constants import FEISHU_SEND_TIMEOUT
 
 _FEISHU_SEND_TIMEOUT_DEFAULT = FEISHU_SEND_TIMEOUT
 

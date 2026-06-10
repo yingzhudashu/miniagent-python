@@ -114,14 +114,15 @@ def search_docs(
     items = data.get("docs_entities") or data.get("items") or []
     out: list[dict[str, Any]] = []
     for item in items:
-        if isinstance(item, dict):
-            out.append(
-                {
-                    "title": str(item.get("title") or ""),
-                    "url": str(item.get("url") or ""),
-                    "token": str(item.get("docs_token") or item.get("token") or ""),
-                }
-            )
+        if not isinstance(item, dict):
+            continue
+        out.append(
+            {
+                "title": str(item.get("title") or ""),
+                "url": str(item.get("url") or ""),
+                "token": str(item.get("docs_token") or item.get("token") or ""),
+            }
+        )
     return out
 
 
@@ -145,7 +146,6 @@ def list_permissions(
             }
         )
     return items
-
 
 def copy_file(
     config: FeishuConfig, file_token: str, *, name: str, folder_token: str, doc_type: str = "docx"

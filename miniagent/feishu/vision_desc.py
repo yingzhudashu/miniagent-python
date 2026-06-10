@@ -24,19 +24,21 @@ _VISION_UNSUPPORTED_KEYWORDS = (
     "modality",
 )
 
+# 扩展名 → MIME 类型映射（未命中时降级为 jpeg）
+_MIME_BY_EXT = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".bmp": "image/bmp",
+}
+
 
 def _image_mime_hint(file_path: str) -> str:
     """根据扩展名猜测 MIME 类型，降级为 jpeg。"""
     ext = os.path.splitext(file_path)[1].lower()
-    _MAP = {
-        ".png": "image/png",
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".gif": "image/gif",
-        ".webp": "image/webp",
-        ".bmp": "image/bmp",
-    }
-    return _MAP.get(ext, "image/jpeg")
+    return _MIME_BY_EXT.get(ext, "image/jpeg")
 
 
 async def describe_image(
@@ -86,8 +88,7 @@ async def describe_image(
             ],
             max_tokens=500,
         )
-        text = (resp.choices[0].message.content or "").strip()
-        return text
+        return (resp.choices[0].message.content or "").strip()
     except Exception as e:
         err_str = str(e).lower()
         if any(kw in err_str for kw in _VISION_UNSUPPORTED_KEYWORDS):

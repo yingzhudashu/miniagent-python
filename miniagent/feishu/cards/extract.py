@@ -6,11 +6,10 @@ import json
 from typing import Any
 
 from miniagent.core.constants import CARD_EXTRACT_MAX_DEPTH, CARD_EXTRACT_MAX_NODES
+from miniagent.feishu.cards.sanitize import sanitize_card_text
 
 _CARD_EXTRACT_MAX_NODES = CARD_EXTRACT_MAX_NODES
 _CARD_EXTRACT_MAX_DEPTH = CARD_EXTRACT_MAX_DEPTH
-
-from miniagent.feishu.cards.sanitize import sanitize_card_text
 
 
 def _text_from_obj(obj: Any) -> str:
@@ -89,12 +88,7 @@ def extract_text_from_interactive_content(content_str: str) -> str:
             else:
                 _walk(row, depth=0, budget=budget, parts=parts)
 
-    seen: set[str] = set()
-    uniq: list[str] = []
-    for p in parts:
-        if p not in seen:
-            seen.add(p)
-            uniq.append(p)
+    uniq = list(dict.fromkeys(parts))
     return sanitize_card_text("\n".join(uniq))
 
 

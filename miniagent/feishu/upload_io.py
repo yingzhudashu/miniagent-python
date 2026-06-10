@@ -17,7 +17,7 @@ _logger = get_logger(__name__)
 def _guess_im_file_type(file_name: str) -> str:
     """飞书 ``im/v1/files`` 的 ``file_type`` 粗分类；未知时用 ``stream``。"""
     ext = (os.path.splitext(file_name)[1] or "").lower().lstrip(".")
-    if ext in ("pdf",):
+    if ext == "pdf":
         return "pdf"
     if ext in ("doc", "docx"):
         return "doc"
@@ -25,8 +25,7 @@ def _guess_im_file_type(file_name: str) -> str:
         return "xls"
     if ext in ("ppt", "pptx"):
         return "ppt"
-    if ext in ("png", "jpg", "jpeg", "gif", "webp", "bmp"):
-        return "stream"
+    # 图片及其他未知类型统一走 stream
     return "stream"
 
 

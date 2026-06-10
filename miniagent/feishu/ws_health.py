@@ -107,7 +107,6 @@ async def _watchdog_loop(
                 reason_holder[0] = "watchdog_idle_refresh"
                 exit_event.set()
                 return
-
         receive_task = ws_client.receive_task
         if receive_task is not None and receive_task.done():
             reason_holder[0] = _receive_loop_exit_reason(receive_task)
