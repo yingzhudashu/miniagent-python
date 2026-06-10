@@ -120,22 +120,18 @@ async def _install_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult
             from miniagent.skills.autovet import auto_vet_skill
             vet_report = auto_vet_skill(install_path)
 
-        refresh_note = ""
         st = ctx.cli_loop_state
-        if isinstance(st, dict):
-            rt = st.get("runtime_ctx")
-            if rt is not None:
-                from miniagent.skills.refresh import refresh_skills
-                try:
-                    fr = await refresh_skills(
-                        rt.registry, rt.skill_registry, package_dir=install_path,
-                        state=st, session_manager=st.get("session_manager"),
-                    )
-                    refresh_note = f"\n\n🔄 已热加载到当前 Agent（{len(fr.loaded_skills)} 个技能，新增工具 {len(fr.added_tools)} 个）"
-                except Exception as ex:
-                    refresh_note = f"\n\n{WARNING_PREFIX} 安装成功但热加载失败: {ex}\n请执行 `.reload-skills` 或重启 Agent"
-            else:
-                refresh_note = "\n\n💡 提示：执行 `.reload-skills` 或重启 Agent 后加载"
+        rt = st.get("runtime_ctx") if isinstance(st, dict) else None
+        if rt is not None:
+            from miniagent.skills.refresh import refresh_skills
+            try:
+                fr = await refresh_skills(
+                    rt.registry, rt.skill_registry, package_dir=install_path,
+                    state=st, session_manager=st.get("session_manager"),
+                )
+                refresh_note = f"\n\n🔄 已热加载到当前 Agent（{len(fr.loaded_skills)} 个技能，新增工具 {len(fr.added_tools)} 个）"
+            except Exception as ex:
+                refresh_note = f"\n\n{WARNING_PREFIX} 安装成功但热加载失败: {ex}\n请执行 `.reload-skills` 或重启 Agent"
         else:
             refresh_note = "\n\n💡 提示：执行 `.reload-skills` 或重启 Agent 后加载"
 
@@ -204,22 +200,18 @@ async def _uninstall_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
         shutil.rmtree(install_dir)
 
         # 热移除
-        refresh_note = ""
         st = ctx.cli_loop_state
-        if isinstance(st, dict):
-            rt = st.get("runtime_ctx")
-            if rt is not None:
-                from miniagent.skills.refresh import refresh_skills
-                try:
-                    fr = await refresh_skills(
-                        rt.registry, rt.skill_registry, skills_root=skills_root,
-                        state=st, session_manager=st.get("session_manager"),
-                    )
-                    refresh_note = f"\n\n🔄 已从当前 Agent 中移除（移除工具 {len(fr.removed_tools)} 个）"
-                except Exception as ex:
-                    refresh_note = f"\n\n{WARNING_PREFIX} 已删除目录但热移除失败: {ex}\n请执行 `.reload-skills` 或重启 Agent"
-            else:
-                refresh_note = "\n\n💡 提示：执行 `.reload-skills` 或重启 Agent 后生效"
+        rt = st.get("runtime_ctx") if isinstance(st, dict) else None
+        if rt is not None:
+            from miniagent.skills.refresh import refresh_skills
+            try:
+                fr = await refresh_skills(
+                    rt.registry, rt.skill_registry, skills_root=skills_root,
+                    state=st, session_manager=st.get("session_manager"),
+                )
+                refresh_note = f"\n\n🔄 已从当前 Agent 中移除（移除工具 {len(fr.removed_tools)} 个）"
+            except Exception as ex:
+                refresh_note = f"\n\n{WARNING_PREFIX} 已删除目录但热移除失败: {ex}\n请执行 `.reload-skills` 或重启 Agent"
         else:
             refresh_note = "\n\n💡 提示：执行 `.reload-skills` 或重启 Agent 后生效"
 
@@ -238,7 +230,6 @@ async def _uninstall_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
 
 def _check_binary(name: str) -> dict[str, Any]:
     """检查命令行工具是否可用。"""
-    import shutil
     path = shutil.which(name)
     if path:
         return {"available": True, "path": path}
@@ -271,7 +262,6 @@ def _check_com(name: str) -> dict[str, Any]:
 
 def _check_env(name: str) -> dict[str, Any]:
     """检查环境变量是否已设置。"""
-    import os
     value = os.environ.get(name)
     if value:
         return {"available": True, "set": True, "masked": value[:4] + "..." + value[-2:] if len(value) > 6 else "***"}
@@ -322,9 +312,9 @@ async def _app_avail_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolRes
                 label = {"path": "路径", "progid": "ProgID", "version": "版本", "set": "已设置", "masked": "值"}[key]
                 lines.append(f"   {label}: {result[key]}")
         return ToolResult(success=True, content="\n".join(lines))
-    else:
-        error = result.get("error", "未知原因不可用")
-        return ToolResult(success=False, content=f"{ERROR_PREFIX} {check_type}: {name} 不可用 — {error}")
+
+    error = result.get("error", "未知原因不可用")
+    return ToolResult(success=False, content=f"{ERROR_PREFIX} {check_type}: {name} 不可用 — {error}")
 
 
 # ════════════════════════════════════════════════════════

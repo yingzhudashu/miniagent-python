@@ -108,10 +108,9 @@ async def _json_read_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
         if path.endswith(".jsonl"):
             lines = content.strip().split("\n")
             parsed = [json.loads(line) for line in lines if line.strip()]
-            formatted = json.dumps(parsed, ensure_ascii=False, indent=2)
         else:
             parsed = json.loads(content)
-            formatted = json.dumps(parsed, ensure_ascii=False, indent=2)
+        formatted = json.dumps(parsed, ensure_ascii=False, indent=2)
         if len(formatted) > max_chars:
             formatted = formatted[:max_chars] + "\n... (已截断)"
         return ToolResult(success=True, content=formatted)

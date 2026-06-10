@@ -48,6 +48,14 @@ def _session_from_tool(
     raise ValueError(f"未知 session_mode: {session_mode!r}")
 
 
+def _coerce_interval_seconds(raw: Any) -> int:
+    """将 interval_seconds 原始值转为正整数；无法解析时返回 0。"""
+    try:
+        return int(raw) if raw is not None else 0
+    except (TypeError, ValueError):
+        return 0
+
+
 async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     """``manage_scheduled_task``：JSON 驱动定时任务 CRUD；飞书等非 CLI 渠道禁止写操作。"""
     from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec
@@ -131,11 +139,7 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
     if action == "add_interval":
         tid = (args.get("task_id") or "").strip()
         prompt = (args.get("prompt") or "").strip()
-        raw_sec = args.get("interval_seconds")
-        try:
-            sec = int(raw_sec) if raw_sec is not None else 0
-        except (TypeError, ValueError):
-            sec = 0
+        sec = _coerce_interval_seconds(args.get("interval_seconds"))
         if not tid or not prompt or sec <= 0:
             return ToolResult(
                 success=False,
@@ -299,10 +303,7 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
             not schedule_kind and existing.schedule.kind == "interval"
         ):
             raw_sec = args.get("interval_seconds", existing.schedule.interval_seconds)
-            try:
-                sec = int(raw_sec) if raw_sec is not None else 0
-            except (TypeError, ValueError):
-                sec = 0
+            sec = _coerce_interval_seconds(raw_sec)
             if sec <= 0:
                 return ToolResult(
                     success=False, content="interval 更新需要 interval_seconds（正整数）"
