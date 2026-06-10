@@ -133,7 +133,7 @@ async def llm_json(
     text = resp.choices[0].message.content or "{}"
     try:
         return json.loads(text)
-    except json.JSONDecodeError as e:
+    except json.JSONDecodeError:
         logging.getLogger(__name__).warning("LLM 返回的 JSON 解析失败: %s", text[:200])
         if raise_on_error:
             raise

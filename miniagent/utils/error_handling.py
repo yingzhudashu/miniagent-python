@@ -30,6 +30,16 @@ def _get_logger(module_name: str) -> Logger:
     return get_logger(module_name)
 
 
+def _log_failure(
+    logger: Logger, level: str, message: str, include_trace: bool
+) -> None:
+    """按指定级别记录失败消息，include_trace 为真时附带异常追踪信息。"""
+    if include_trace:
+        logger.log(getattr(logger, level, logger.warning), message, exc_info=True)
+    else:
+        logger.log(getattr(logger, level, logger.warning), message)
+
+
 def safe_execute(
     default_return: Any = None,
     log_level: str = "warning",
@@ -82,17 +92,9 @@ def safe_execute(
                     return await func(*args, **kwargs)  # type: ignore
                 except Exception as e:
                     logger = _get_logger(func.__module__)
-                    if log_exception_trace:
-                        logger.log(
-                            getattr(logger, log_level, logger.warning),
-                            f"{func.__name__} 失败: {e}",
-                            exc_info=True
-                        )
-                    else:
-                        logger.log(
-                            getattr(logger, log_level, logger.warning),
-                            f"{func.__name__} 失败: {e}"
-                        )
+                    _log_failure(
+                        logger, log_level, f"{func.__name__} 失败: {e}", log_exception_trace
+                    )
                     if reraise:
                         raise
                     return default_return  # type: ignore
@@ -104,17 +106,9 @@ def safe_execute(
                     return func(*args, **kwargs)
                 except Exception as e:
                     logger = _get_logger(func.__module__)
-                    if log_exception_trace:
-                        logger.log(
-                            getattr(logger, log_level, logger.warning),
-                            f"{func.__name__} 失败: {e}",
-                            exc_info=True
-                        )
-                    else:
-                        logger.log(
-                            getattr(logger, log_level, logger.warning),
-                            f"{func.__name__} 失败: {e}"
-                        )
+                    _log_failure(
+                        logger, log_level, f"{func.__name__} 失败: {e}", log_exception_trace
+                    )
                     if reraise:
                         raise
                     return default_return  # type: ignore
@@ -152,10 +146,7 @@ def safe_execute_sync(
                 return func(*args, **kwargs)
             except Exception as e:
                 logger = _get_logger(func.__module__)
-                logger.log(
-                    getattr(logger, log_level, logger.warning),
-                    f"{func.__name__} 失败: {e}"
-                )
+                _log_failure(logger, log_level, f"{func.__name__} 失败: {e}", False)
                 if reraise:
                     raise
                 return default_return  # type: ignore
@@ -189,17 +180,7 @@ def log_exception(
         >>>     log_exception("risky_operation", e, __name__, level="error")
     """
     logger = _get_logger(module_name)
-    if include_trace:
-        logger.log(
-            getattr(logger, level, logger.warning),
-            f"{func_name} 失败: {exception}",
-            exc_info=True
-        )
-    else:
-        logger.log(
-            getattr(logger, level, logger.warning),
-            f"{func_name} 失败: {exception}"
-        )
+    _log_failure(logger, level, f"{func_name} 失败: {exception}", include_trace)
 
 
 __all__ = [
