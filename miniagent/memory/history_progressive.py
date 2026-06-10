@@ -282,23 +282,21 @@ def run_session_history_maintenance(
             if progressed:
                 continue
 
-        if over_a:
-            if maybe_archive_old_turns(session_key, history):
-                _logger.debug(
-                    "history_progressive action=%s session_key=%s",
-                    CompressionLevel.TURN_REMOVE_ARCHIVE.value,
-                    session_key,
-                )
-                continue
+        if over_a and maybe_archive_old_turns(session_key, history):
+            _logger.debug(
+                "history_progressive action=%s session_key=%s",
+                CompressionLevel.TURN_REMOVE_ARCHIVE.value,
+                session_key,
+            )
+            continue
 
-        if over_t:
-            if trim_history_tail_by_turns(history, tail_cap):
-                _logger.debug(
-                    "history_progressive action=%s session_key=%s",
-                    CompressionLevel.TURN_REMOVE_TRIM.value,
-                    session_key,
-                )
-                continue
+        if over_t and trim_history_tail_by_turns(history, tail_cap):
+            _logger.debug(
+                "history_progressive action=%s session_key=%s",
+                CompressionLevel.TURN_REMOVE_TRIM.value,
+                session_key,
+            )
+            continue
 
         if not progressed:
             break

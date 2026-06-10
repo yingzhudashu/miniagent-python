@@ -103,9 +103,7 @@ def normalize_fact_key(value: str, category: str) -> str:
             return "output.format.json"
         if "表格" in text:
             return "output.format.table"
-        if "英文" in text:
-            return "output.language"
-        if "中文" in text:
+        if "英文" in text or "中文" in text:
             return "output.language"
         if "详细" in text or "简洁" in text:
             return "output.detail"

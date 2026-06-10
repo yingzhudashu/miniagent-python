@@ -109,9 +109,8 @@ def estimate_tokens_cached(text: str | None) -> int:
             # LRU: 移到最后（最近使用）
             _TOKEN_ESTIMATE_CACHE.move_to_end(cache_key)
             return cached_tokens
-        else:
-            # TTL过期，删除
-            _TOKEN_ESTIMATE_CACHE.pop(cache_key)
+        # TTL过期，删除
+        _TOKEN_ESTIMATE_CACHE.pop(cache_key)
 
     # 计算并缓存（性能优化：字符遍历替代正则）
     chinese_chars = sum(1 for c in text if ord(c) > 127)

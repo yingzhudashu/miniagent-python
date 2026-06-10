@@ -156,31 +156,28 @@ async def _refine_session(session_key: str) -> None:
 
     last_d = float(ent.get("last_diary_refine", 0) or 0)
     day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    if not force and now - last_d < DIARY_REFINE_SEC:
-        pass
-    elif ent.get("last_rollup_day") == day:
-        ent["last_diary_refine"] = now
-    else:
-        from miniagent.memory.history_archive import diary_file_path
+    if force or now - last_d >= DIARY_REFINE_SEC:
+        if ent.get("last_rollup_day") == day:
+            ent["last_diary_refine"] = now
+        else:
+            from miniagent.memory.history_archive import diary_file_path
 
-        abs_d = diary_file_path(session_key, day)
-        try:
-            rel = os.path.relpath(abs_d, get_state_root()).replace("\\", "/")
-        except ValueError:
-            rel = abs_d.replace("\\", "/")
-        append_session_day_rollup(
-            session_key,
-            day=day,
-            diary_relative=rel,
-            summary=f"日记体量约 {diary_sz} 字节，已登记索引（精炼占位）。",
-        )
-        ent["last_diary_refine"] = now
-        ent["last_rollup_day"] = day
+            abs_d = diary_file_path(session_key, day)
+            try:
+                rel = os.path.relpath(abs_d, get_state_root()).replace("\\", "/")
+            except ValueError:
+                rel = abs_d.replace("\\", "/")
+            append_session_day_rollup(
+                session_key,
+                day=day,
+                diary_relative=rel,
+                summary=f"日记体量约 {diary_sz} 字节，已登记索引（精炼占位）。",
+            )
+            ent["last_diary_refine"] = now
+            ent["last_rollup_day"] = day
 
     last_s = float(ent.get("last_session_lt_refine", 0) or 0)
-    if not force and now - last_s < SESSION_LT_REFINE_SEC:
-        pass
-    else:
+    if force or now - last_s >= SESSION_LT_REFINE_SEC:
         doc = load_session_longterm(session_key)
         days = doc.get("day_entries") or []
         if len(days) > 200:
@@ -189,9 +186,7 @@ async def _refine_session(session_key: str) -> None:
         ent["last_session_lt_refine"] = now
 
     last_a = float(st.get("last_agent_lt_refine", 0) or 0)
-    if not force and now - last_a < AGENT_LT_REFINE_SEC:
-        pass
-    else:
+    if force or now - last_a >= AGENT_LT_REFINE_SEC:
         ag = load_agent_longterm()
         items = ag.get("entries") or []
         if len(items) > 500:

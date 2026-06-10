@@ -81,9 +81,8 @@ def _get_cached_embedding(text: str) -> list[float] | None:
             # LRU: 移到最后（最近使用）
             _EMBEDDING_CACHE.move_to_end(cache_key)
             return embedding
-        else:
-            # TTL过期，删除
-            _EMBEDDING_CACHE.pop(cache_key)
+        # TTL过期，删除
+        _EMBEDDING_CACHE.pop(cache_key)
 
     return None
 
@@ -234,8 +233,7 @@ async def _get_embedding(
     )
 
     data = resp.json()
-    embedding = data["data"][0]["embedding"]
-    return embedding
+    return data["data"][0]["embedding"]
 
 
 # ============================================================================

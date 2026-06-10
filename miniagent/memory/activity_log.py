@@ -180,16 +180,7 @@ class ActivityLogger:
             thinking: LLM 思考内容
             token_usage: token 使用量（含 prompt_tokens、completion_tokens）
         """
-        lines = [f"### LLM 调用 (第 {turn} 轮)\n"]
-        lines.append(f"- model: {model}")
-        lines.append(f"- messages: {message_count}, tools: {tool_count}")
-        if token_usage:
-            lines.append(
-                f"- tokens: prompt={token_usage.get('prompt_tokens', '?')}, completion={token_usage.get('completion_tokens', '?')}"
-            )
-        if thinking:
-            lines.append(f"- thinking: {thinking[:500]}")
-        lines.append("")
+        lines = _format_llm_call_lines(turn, model, message_count, tool_count, thinking, token_usage)
         self._append("\n".join(lines))
 
     async def log_llm_call_async(
@@ -215,16 +206,7 @@ class ActivityLogger:
             thinking: LLM 思考内容
             token_usage: token 使用量
         """
-        lines = [f"### LLM 调用 (第 {turn} 轮)\n"]
-        lines.append(f"- model: {model}")
-        lines.append(f"- messages: {message_count}, tools: {tool_count}")
-        if token_usage:
-            lines.append(
-                f"- tokens: prompt={token_usage.get('prompt_tokens', '?')}, completion={token_usage.get('completion_tokens', '?')}"
-            )
-        if thinking:
-            lines.append(f"- thinking: {thinking[:500]}")
-        lines.append("")
+        lines = _format_llm_call_lines(turn, model, message_count, tool_count, thinking, token_usage)
         await self._append_async("\n".join(lines))
 
     def log_tool_call(
@@ -253,20 +235,9 @@ class ActivityLogger:
             success: 是否成功
             error_type: 错误类型（失败时可选，如 "TimeoutError"、"PermissionError"）
         """
-        status = "ok" if success else "fail"
-        lines = [f"### 工具调用: {tool_name} [{status}]\n"]
-        lines.append(f"- intent: {intent}")
-        lines.append(f"- args: {_short_json(args)}")
-        # 结果截断到 500 字，避免日志过大
-        preview = result[:500]
-        if len(result) > 500:
-            preview += f"\n... (共 {len(result)} 字)"
-        lines.append(f"- result: {preview}")
-        lines.append(f"- duration: {duration_ms}ms")
-        # 新增：记录错误类型（失败时）
-        if not success and error_type:
-            lines.append(f"- error_type: {error_type}")
-        lines.append("")
+        lines = _format_tool_call_lines(
+            tool_name, intent, args, result, duration_ms, success, error_type
+        )
         self._append("\n".join(lines))
 
     async def log_tool_call_async(
@@ -294,20 +265,9 @@ class ActivityLogger:
             success: 是否成功
             error_type: 错误类型（失败时可选）
         """
-        status = "ok" if success else "fail"
-        lines = [f"### 工具调用: {tool_name} [{status}]\n"]
-        lines.append(f"- intent: {intent}")
-        lines.append(f"- args: {_short_json(args)}")
-        # 结果截断到 500 字，避免日志过大
-        preview = result[:500]
-        if len(result) > 500:
-            preview += f"\n... (共 {len(result)} 字)"
-        lines.append(f"- result: {preview}")
-        lines.append(f"- duration: {duration_ms}ms")
-        # 新增：记录错误类型（失败时）
-        if not success and error_type:
-            lines.append(f"- error_type: {error_type}")
-        lines.append("")
+        lines = _format_tool_call_lines(
+            tool_name, intent, args, result, duration_ms, success, error_type
+        )
         await self._append_async("\n".join(lines))
 
     def log_final_reply(self, session_key: str, reply: str) -> None:
@@ -351,6 +311,55 @@ class ActivityLogger:
             reason: 未完成原因
         """
         await self._append_async(f"### 未完成\n\n{reason}\n\n")
+
+
+def _format_llm_call_lines(
+    turn: int,
+    model: str,
+    message_count: int,
+    tool_count: int,
+    thinking: str | None,
+    token_usage: dict | None,
+) -> list[str]:
+    """构造 LLM 调用日志的 Markdown 行（同步/异步共用）。"""
+    lines = [f"### LLM 调用 (第 {turn} 轮)\n"]
+    lines.append(f"- model: {model}")
+    lines.append(f"- messages: {message_count}, tools: {tool_count}")
+    if token_usage:
+        lines.append(
+            f"- tokens: prompt={token_usage.get('prompt_tokens', '?')}, completion={token_usage.get('completion_tokens', '?')}"
+        )
+    if thinking:
+        lines.append(f"- thinking: {thinking[:500]}")
+    lines.append("")
+    return lines
+
+
+def _format_tool_call_lines(
+    tool_name: str,
+    intent: str,
+    args: dict[str, Any],
+    result: str,
+    duration_ms: int,
+    success: bool,
+    error_type: str | None,
+) -> list[str]:
+    """构造工具调用日志的 Markdown 行（同步/异步共用）。"""
+    status = "ok" if success else "fail"
+    lines = [f"### 工具调用: {tool_name} [{status}]\n"]
+    lines.append(f"- intent: {intent}")
+    lines.append(f"- args: {_short_json(args)}")
+    # 结果截断到 500 字，避免日志过大
+    preview = result[:500]
+    if len(result) > 500:
+        preview += f"\n... (共 {len(result)} 字)"
+    lines.append(f"- result: {preview}")
+    lines.append(f"- duration: {duration_ms}ms")
+    # 新增：记录错误类型（失败时）
+    if not success and error_type:
+        lines.append(f"- error_type: {error_type}")
+    lines.append("")
+    return lines
 
 
 def _short_json(data: Any, max_len: int = 200) -> str:
