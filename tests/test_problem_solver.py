@@ -3,8 +3,10 @@
 测试 miniagent/core/problem_solver.py 的反思评估功能。
 """
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+
 from miniagent.core.problem_solver import ReflectionResult, reflect_on_result
 
 
@@ -108,7 +110,7 @@ class TestReflectOnResult:
         with patch("miniagent.core.problem_solver.llm_json", new_callable=AsyncMock) as mock_llm:
             mock_llm.return_value = mock_response
 
-            result = await reflect_on_result(
+            await reflect_on_result(
                 user_input="测试输入",
                 reply="测试回复",
                 client=None,
@@ -134,7 +136,7 @@ class TestReflectOnResult:
                 mock_llm.return_value = mock_response
                 mock_kb.return_value = mock_kb_context
 
-                result = await reflect_on_result(
+                await reflect_on_result(
                     user_input="如何编写高质量代码",
                     reply="建议...",
                     client=None,

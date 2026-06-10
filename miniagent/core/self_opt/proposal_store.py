@@ -443,6 +443,7 @@ class ProposalStore:
 
         return result
 
+    @staticmethod
     def cleanup_old_proposals(retention_days: int = 30) -> int:
         """清理过期提案文件。
 

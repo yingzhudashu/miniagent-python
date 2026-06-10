@@ -9,8 +9,9 @@
 设计背景见 docs/ARCHITECTURE.md § 工具层。
 """
 
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
 
 
 class TestUploadHtmlHandler:
@@ -129,7 +130,7 @@ class TestConfigFunctions:
 
     def test_get_base_url_returns_config_value(self):
         """返回配置值或默认值"""
-        from miniagent.tools.html_upload import _get_base_url, DEFAULT_BASE_URL
+        from miniagent.tools.html_upload import DEFAULT_BASE_URL, _get_base_url
 
         # 测试默认值
         with patch("miniagent.tools.html_upload.get_config", side_effect=lambda k, d: d):
@@ -138,7 +139,7 @@ class TestConfigFunctions:
 
     def test_get_max_size_returns_config_value(self):
         """返回配置值或默认值"""
-        from miniagent.tools.html_upload import _get_max_size, DEFAULT_MAX_SIZE
+        from miniagent.tools.html_upload import DEFAULT_MAX_SIZE, _get_max_size
 
         # 测试默认值
         with patch("miniagent.tools.html_upload.get_config", side_effect=lambda k, d: d):

@@ -4,10 +4,11 @@
 """
 
 import pytest
+
 from miniagent.types.confirmation import (
-    ConfirmationStage,
     ConfirmationRequest,
     ConfirmationResult,
+    ConfirmationStage,
 )
 
 
