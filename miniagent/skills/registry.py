@@ -175,10 +175,11 @@ class DefaultSkillRegistry(SkillRegistryProtocol):
                 if pkg:
                     allowed_skill_ids.update(s.id for s in pkg.skills)
 
-        eligible: list[Skill] = []
-        for skill in self.get_eligible_skills(config):
-            if skill.id in allowed_skill_ids:
-                eligible.append(skill)
+        eligible = [
+            skill
+            for skill in self.get_eligible_skills(config)
+            if skill.id in allowed_skill_ids
+        ]
         return eligible
 
     def get_all_toolboxes(
@@ -262,29 +263,25 @@ class DefaultSkillRegistry(SkillRegistryProtocol):
                 continue
 
             # 操作系统检查
-            if meta.os and len(meta.os) > 0:
-                current_os = sys.platform
-                if current_os not in meta.os:
-                    continue
+            if meta.os and sys.platform not in meta.os:
+                continue
 
             # 二进制文件检查
-            if meta.bins and len(meta.bins) > 0:
-                if not all(_is_bin_available(b) for b in meta.bins):
-                    continue
+            if meta.bins and not all(_is_bin_available(b) for b in meta.bins):
+                continue
 
             # Windows COM 对象检查
-            if meta.com and len(meta.com) > 0:
-                if not all(_is_com_available(c) for c in meta.com):
-                    continue
+            if meta.com and not all(_is_com_available(c) for c in meta.com):
+                continue
 
             # 环境变量检查
-            if meta.env and len(meta.env) > 0:
+            if meta.env:
                 env_map = entry.env if entry and entry.env else {}
                 if not all(os.environ.get(k) or k in env_map for k in meta.env):
                     continue
 
             # config 键检查
-            if meta.config and len(meta.config) > 0 and config:
+            if meta.config and config:
                 config_dict = config.__dict__ if hasattr(config, "__dict__") else {}
                 if not all(config_dict.get(k) for k in meta.config):
                     continue

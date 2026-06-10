@@ -17,6 +17,11 @@ from miniagent.infrastructure.json_config import get_config
 _logger = logging.getLogger(__name__)
 
 
+def _repo_root() -> Path:
+    """相对 ``miniagent/skills/paths.py`` 定位仓库根目录。"""
+    return Path(__file__).resolve().parent.parent.parent
+
+
 def get_skills_root() -> str:
     """返回技能包根目录。
 
@@ -28,9 +33,7 @@ def get_skills_root() -> str:
     if env:
         return env
 
-    here = Path(__file__).resolve().parent
-    repo_root = here.parent.parent
-    return str(repo_root / "workspaces" / "skills")
+    return str(_repo_root() / "workspaces" / "skills")
 
 
 def get_session_skills_dir(session_id: str) -> str:
@@ -42,9 +45,7 @@ def get_session_skills_dir(session_id: str) -> str:
     Returns:
         会话技能目录路径，格式为 ``workspaces/sessions/<id>/skills/``
     """
-    here = Path(__file__).resolve().parent
-    repo_root = here.parent.parent
-    return str(repo_root / "workspaces" / "sessions" / session_id / "skills")
+    return str(_repo_root() / "workspaces" / "sessions" / session_id / "skills")
 
 
 def get_all_skill_roots(*, include_sessions: bool = True) -> list[str]:
@@ -73,9 +74,7 @@ def get_all_skill_roots(*, include_sessions: bool = True) -> list[str]:
 
 def _get_sessions_dir() -> str:
     """返回会话根目录路径。"""
-    here = Path(__file__).resolve().parent
-    repo_root = here.parent.parent
-    return str(repo_root / "workspaces" / "sessions")
+    return str(_repo_root() / "workspaces" / "sessions")
 
 
 def resolve_scope_for_root(root: str) -> str:

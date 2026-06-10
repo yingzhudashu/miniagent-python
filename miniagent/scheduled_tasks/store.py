@@ -305,10 +305,7 @@ def compute_initial_next_run(task: ScheduledTask, now_ts: float | None = None) -
             return None
         return now + sec
     if spec.kind == "once":
-        t = _parse_once_utc_epoch(spec, now, tz_name=effective_task_timezone(task))
-        if t is None:
-            return None
-        return t
+        return _parse_once_utc_epoch(spec, now, tz_name=effective_task_timezone(task))
     if spec.kind == "cron":
         return _cron_next(task, now)
     return None

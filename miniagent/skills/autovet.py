@@ -89,20 +89,17 @@ def auto_vet_skill(skill_dir: str) -> str:
                     _logger.debug("读取技能文件失败: %s", e)
 
     # 3. 检查元数据权限
-    if warnings:
-        header = f"\n自动审查 [{skill_name}] — 发现 {len(warnings)} 项警告:"
-    else:
-        header = f"\n自动审查 [{skill_name}] — 通过，无警告"
-
-    return header + "\n" + "\n".join(warnings) if warnings else header
+    if not warnings:
+        return f"\n自动审查 [{skill_name}] — 通过，无警告"
+    header = f"\n自动审查 [{skill_name}] — 发现 {len(warnings)} 项警告:"
+    return header + "\n" + "\n".join(warnings)
 
 
 def _scan_content(filepath: str, content: str, warnings: list[str]) -> None:
     """扫描文件内容中的危险模式。"""
-    rel = filepath
     for pattern, desc in _DANGEROUS_SHELL + _HARDCODED_SECRETS + _DANGEROUS_PY:
         if re.search(pattern, content, re.IGNORECASE):
-            warnings.append(f"  - [{desc}] in {rel}")
+            warnings.append(f"  - [{desc}] in {filepath}")
 
 
 __all__ = ["auto_vet_skill", "MAX_SCAN_FILE_SIZE"]

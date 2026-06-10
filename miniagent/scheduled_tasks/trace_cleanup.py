@@ -94,8 +94,7 @@ def scheduled_trace_stats_report() -> dict[str, Any]:
                 "report_saved": True,
                 "total_events": report.get("total_events", 0),
             }
-        else:
-            return {"success": True, "reason": "no events today"}
+        return {"success": True, "reason": "no events today"}
     except Exception as e:
         _logger.error("scheduled_trace_stats_report failed: %s", e)
         return {"success": False, "error": str(e)}

@@ -39,13 +39,9 @@ _MAX_DUE_PER_TICK = 5
 def _sleep_seconds_until(tasks: list[ScheduledTask]) -> float:
     """根据已启用任务的 ``next_run_at`` 计算下一次唤醒前的睡眠秒数（有界 0.5～60s）。"""
     now = time.time()
-    candidates: list[float] = []
-    for t in tasks:
-        if not t.enabled:
-            continue
-        n = t.next_run_at
-        if n is not None:
-            candidates.append(float(n))
+    candidates = [
+        float(t.next_run_at) for t in tasks if t.enabled and t.next_run_at is not None
+    ]
     if not candidates:
         return 60.0
     nxt = min(candidates)
@@ -102,10 +98,11 @@ async def tick_once(
         for t in tasks:
             if not t.enabled or t.id in _inflight:
                 continue
-            if t.next_run_at is not None and t.next_run_at <= now:
-                if not try_acquire_job_lock(t.id):
-                    continue
-                due.append(t)
+            if t.next_run_at is None or t.next_run_at > now:
+                continue
+            if not try_acquire_job_lock(t.id):
+                continue
+            due.append(t)
         due.sort(key=lambda x: float(x.next_run_at or 0))
         due = due[:_MAX_DUE_PER_TICK]
 

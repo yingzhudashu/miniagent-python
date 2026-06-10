@@ -116,8 +116,7 @@ class _ClawHubClientImpl:
 
             from miniagent.infrastructure.http_retry import async_http_request_with_retry
 
-            client = await _get_clawhub_client()
-            if client is not None:
+            async def _request(client: Any) -> Any:
                 resp = await async_http_request_with_retry(
                     client,
                     "GET",
@@ -128,17 +127,13 @@ class _ClawHubClientImpl:
                 )
                 return resp.json()
 
+            client = await _get_clawhub_client()
+            if client is not None:
+                return await _request(client)
+
             # 回退：无全局客户端时创建临时客户端（带重试）
             async with httpx.AsyncClient(timeout=15.0) as temp_client:
-                resp = await async_http_request_with_retry(
-                    temp_client,
-                    "GET",
-                    url,
-                    headers={"User-Agent": "mini-agent-clawhub/1.0"},
-                    max_retries=3,
-                    backoff_factor=1.0,
-                )
-                return resp.json()
+                return await _request(temp_client)
 
         except ImportError:
             # 回退到 urllib（无重试）
