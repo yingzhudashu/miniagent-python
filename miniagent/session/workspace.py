@@ -125,16 +125,8 @@ class WorkspaceManager:
             src: 源目录
             dst: 目标目录
         """
-        def _sync_copy() -> None:
-            for item in os.listdir(src):
-                s = os.path.join(src, item)
-                d = os.path.join(dst, item)
-                if os.path.isdir(s):
-                    shutil.copytree(s, d, dirs_exist_ok=True)
-                else:
-                    shutil.copy2(s, d)
-
-        await asyncio.to_thread(_sync_copy)
+        # 复用同步实现，仅用 to_thread 包装以避免阻塞事件循环
+        await asyncio.to_thread(WorkspaceManager._copy_tree, src, dst)
 
     async def create_workspace_async(
         self,

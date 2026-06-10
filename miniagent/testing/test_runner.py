@@ -71,13 +71,9 @@ class TestRunner:
                     data = json.load(f)
 
                 # 支持单条或多条样本
-                if isinstance(data, list):
-                    for item in data:
-                        sample = SampleSpec.from_dict(item)
-                        self._samples.append(sample)
-                else:
-                    sample = SampleSpec.from_dict(data)
-                    self._samples.append(sample)
+                items = data if isinstance(data, list) else [data]
+                for item in items:
+                    self._samples.append(SampleSpec.from_dict(item))
 
             except Exception as e:
                 _logger.error("加载测试样本失败: %s (%s)", json_file, e)
@@ -218,9 +214,10 @@ class TestRunner:
                     violations.append(f"禁止调用 {tool} 但已调用")
 
             # 验证输出模式
-            if sample.expected_output_pattern:
-                if not re.search(sample.expected_output_pattern, output_text):
-                    violations.append(f"输出不符合模式 {sample.expected_output_pattern}")
+            if sample.expected_output_pattern and not re.search(
+                sample.expected_output_pattern, output_text
+            ):
+                violations.append(f"输出不符合模式 {sample.expected_output_pattern}")
 
             # 验证 token 预算
             if sample.max_tokens and token_count > sample.max_tokens:

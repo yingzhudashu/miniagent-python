@@ -61,8 +61,7 @@ def _truncate_history(history: list[dict[str, Any]], max_messages: int = MAX_HIS
         # 保留首条用户消息 + 最后剩余消息
         first_user = next((m for m in other_msgs if m.get("role") == "user"), None)
         remaining = other_msgs[-(max_messages - len(system_msgs) - (1 if first_user else 0)):]
-        result = system_msgs + ([first_user] if first_user else []) + remaining
-        return result
+        return system_msgs + ([first_user] if first_user else []) + remaining
     # 简单截断：保留最后 max_messages 条
     return history[-max_messages:]
 
@@ -106,12 +105,7 @@ def session_info_id(entry: dict) -> str:
 
 def session_info_number(entry: dict) -> int:
     """从 ``list_all_sessions_with_info`` 条目解析会话编号。"""
-    if "number" in entry:
-        n = entry["number"]
-    elif "session_number" in entry:
-        n = entry["session_number"]
-    else:
-        n = 0
+    n = entry.get("number", entry.get("session_number", 0))
     try:
         return int(n)
     except (TypeError, ValueError):

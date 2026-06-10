@@ -253,9 +253,7 @@ class KnowledgeBase:
         self._index.clear()
         for i, entry in enumerate(self._entries):
             for kw in entry.keywords:
-                if kw not in self._index:
-                    self._index[kw] = []
-                self._index[kw].append(i)
+                self._index.setdefault(kw, []).append(i)
 
     def search(self, query: str, top_k: int | None = None, max_chars: int | None = None) -> str:
         """检索知识库内容。
@@ -305,10 +303,11 @@ class KnowledgeBase:
             if len(entry.content) > 500:
                 snippet += "..."
 
-            text = f"### {entry.file_path}\n{snippet}\n"
             source_line = self._format_source_metadata(entry)
             if source_line:
                 text = f"### {entry.file_path}\n{source_line}\n{snippet}\n"
+            else:
+                text = f"### {entry.file_path}\n{snippet}\n"
             if total_chars + len(text) > max_chars:
                 break
             results.append(text)
