@@ -83,7 +83,7 @@ def _analyze_module(filepath: str) -> ModuleAnalysis:
                 stripped = line.strip()
                 if stripped.startswith(("if ", "elif ", "for ", "while ", "except ", "with ")):
                     complexity += 1.0
-                elif stripped.startswith("def ") or stripped.startswith("class "):
+                elif stripped.startswith(("def ", "class ")):
                     complexity += 0.5
             analysis.complexity = round(complexity, 1)
 

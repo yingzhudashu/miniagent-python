@@ -17,6 +17,7 @@ import json
 import re
 from typing import Any
 
+from miniagent.core._openai_compat import json_object_unsupported as _json_object_unsupported
 from miniagent.core.llm_json import parse_llm_json_response
 from miniagent.core.openai_client import get_shared_async_openai
 from miniagent.core.prompts.planner import PLAN_SYSTEM_PROMPT
@@ -35,8 +36,6 @@ from miniagent.types.planning import (
 from miniagent.types.tool import Toolbox
 
 _logger = get_logger(__name__)
-
-from miniagent.core._openai_compat import json_object_unsupported as _json_object_unsupported
 
 # ─── 常量 ───────────────────────────────────────────────
 
@@ -284,16 +283,7 @@ def _dict_to_plan(data: dict[str, Any], *, default_step_thinking: str = "medium"
         """
         if isinstance(s, dict):
             return s
-        if isinstance(s, str):
-            return {
-                "stepNumber": idx,
-                "description": s,
-                "requiredToolboxes": [],
-                "expectedInput": "",
-                "expectedOutput": "",
-                "dependsOn": None,
-                "thinkingLevel": None,
-            }
+        # str 或其它类型：统一转为描述文本（str 本身 str() 不变），填充默认字段
         return {
             "stepNumber": idx,
             "description": str(s),
@@ -314,19 +304,20 @@ def _dict_to_plan(data: dict[str, Any], *, default_step_thinking: str = "medium"
             return step_fallback
         return str(tl)
 
-    steps = [
-        PlanStep(
-            step_number=s.get("stepNumber", 0),
-            description=s.get("description", ""),
-            required_toolboxes=s.get("requiredToolboxes", []),
-            expected_input=s.get("expectedInput", ""),
-            expected_output=s.get("expectedOutput", ""),
-            depends_on=s.get("dependsOn"),
-            thinking_level=_step_thinking_level(s),
+    steps: list[PlanStep] = []
+    for i, raw in enumerate(raw_steps, start=1):
+        s = _step_as_dict(raw, i)
+        steps.append(
+            PlanStep(
+                step_number=s.get("stepNumber", 0),
+                description=s.get("description", ""),
+                required_toolboxes=s.get("requiredToolboxes", []),
+                expected_input=s.get("expectedInput", ""),
+                expected_output=s.get("expectedOutput", ""),
+                depends_on=s.get("dependsOn"),
+                thinking_level=_step_thinking_level(s),
+            )
         )
-        for i, raw in enumerate(raw_steps, start=1)
-        for s in (_step_as_dict(raw, i),)
-    ]
     steps = _normalize_plan_steps(steps)
 
     # ── 嵌套配置解析（安全提取，空值回退）───────────────────────────────

@@ -288,6 +288,8 @@ class ProposalGenerator:
         Returns:
             合并后的提案列表
         """
+        risk_order = {"low": 0, "medium": 1, "high": 2}
+
         # 按 target 去重
         seen_targets: dict[str, OptimizationProposal] = {}
 
@@ -296,7 +298,6 @@ class ProposalGenerator:
             if target in seen_targets:
                 # 合并：保留风险更高的
                 existing = seen_targets[target]
-                risk_order = {"low": 0, "medium": 1, "high": 2}
                 if risk_order.get(proposal.risk_level, 0) > risk_order.get(
                     existing.risk_level, 0
                 ):
@@ -306,7 +307,6 @@ class ProposalGenerator:
 
         # 排序
         proposals = list(seen_targets.values())
-        risk_order = {"low": 0, "medium": 1, "high": 2}
         proposals.sort(
             key=lambda p: (risk_order.get(p.risk_level, 1), p.estimated_effort)
         )

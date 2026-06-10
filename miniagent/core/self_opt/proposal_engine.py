@@ -42,10 +42,17 @@ def _pain_point_to_proposal(pain: PainPoint, root: str = "") -> OptimizationProp
     Returns:
         优化提案（如果可生成）
     """
+    if pain.severity <= 2:
+        risk_level = "low"
+    elif pain.severity <= 3:
+        risk_level = "medium"
+    else:
+        risk_level = "high"
+
     proposal = OptimizationProposal(
         id=_generate_proposal_id(),
         type="refactor",
-        risk_level="low" if pain.severity <= 2 else ("medium" if pain.severity <= 3 else "high"),
+        risk_level=risk_level,
         target=pain.description,
         description=f"解决痛点: {pain.description}",
         rationale=pain.suggestion,
