@@ -70,6 +70,14 @@ _json_serialize_cache: OrderedDict[str, str] = OrderedDict()
 _json_serialize_lock = Lock()
 
 
+def _dumps_with_limit(obj: Any, max_len: int | None) -> str:
+    """序列化为 JSON 字符串，超过 max_len 时截断（不缓存、不吞异常）。"""
+    result = json.dumps(obj, ensure_ascii=False)
+    if max_len and len(result) > max_len:
+        return result[:max_len] + "...[截断]"
+    return result
+
+
 def cached_json_serialize(obj: Any, max_len: int | None = None) -> str:
     """智能 JSON 序列化缓存（性能优化增强版）。
 
@@ -92,32 +100,17 @@ def cached_json_serialize(obj: Any, max_len: int | None = None) -> str:
     # 性能优化：预判对象大小，大对象不缓存
     # 对不可哈希对象，先估算大小
     if not isinstance(obj, (str, int, float, bool, tuple, frozenset)):
+        # 不可哈希对象一律不缓存，直接序列化
         try:
-            # 大对象（>1000字符）：直接序列化，不缓存
-            obj_str = str(obj)
-            if len(obj_str) > 1000:
-                result = json.dumps(obj, ensure_ascii=False)
-                if max_len and len(result) > max_len:
-                    return result[:max_len] + "...[截断]"
-                return result
-
-            # 小对象：直接序列化（不缓存不可哈希对象）
-            result = json.dumps(obj, ensure_ascii=False)
-            if max_len and len(result) > max_len:
-                return result[:max_len] + "...[截断]"
-            return result
+            return _dumps_with_limit(obj, max_len)
         except Exception:
             return str(obj)[:max_len or 1000]
 
     # 可哈希对象：判断大小
     try:
-        obj_str = str(obj)
         # 大对象（>1000字符）：直接序列化，不缓存
-        if len(obj_str) > 1000:
-            result = json.dumps(obj, ensure_ascii=False)
-            if max_len and len(result) > max_len:
-                return result[:max_len] + "...[截断]"
-            return result
+        if len(str(obj)) > 1000:
+            return _dumps_with_limit(obj, max_len)
     except Exception:
         pass
 
@@ -130,9 +123,7 @@ def cached_json_serialize(obj: Any, max_len: int | None = None) -> str:
             return _json_serialize_cache[cache_key]
 
         try:
-            result = json.dumps(obj, ensure_ascii=False)
-            if max_len and len(result) > max_len:
-                result = result[:max_len] + "...[截断]"
+            result = _dumps_with_limit(obj, max_len)
         except Exception:
             result = str(obj)[:max_len or 1000]
 

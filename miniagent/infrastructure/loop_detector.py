@@ -35,6 +35,20 @@ _args_json_cache: OrderedDict[tuple, str] = OrderedDict()
 _ARGS_CACHE_MAX_SIZE = ARGS_CACHE_MAX_SIZE
 
 
+def _normalize_cache_element(value: Any) -> Any:
+    """归一化序列元素为可哈希的缓存键片段。
+
+    - dict：递归生成确定性键
+    - 简单标量（str/int/float/bool/None）：原样保留
+    - 其他类型：退化为 repr
+    """
+    if isinstance(value, dict):
+        return _make_args_cache_key(value)
+    if isinstance(value, (str, int, float, bool, type(None))):
+        return value
+    return repr(value)
+
+
 def _make_args_cache_key(args: dict[str, Any]) -> tuple:
     """为参数字典生成确定性缓存键（性能优化）。
 
@@ -58,12 +72,7 @@ def _make_args_cache_key(args: dict[str, Any]) -> tuple:
         elif isinstance(v, (list, tuple)):
             # 列表/元组转为 tuple（元素需可哈希）
             try:
-                items.append((k, tuple(
-                    _make_args_cache_key(i) if isinstance(i, dict) else i
-                    if isinstance(i, (str, int, float, bool, type(None)))
-                    else repr(i)
-                    for i in v
-                )))
+                items.append((k, tuple(_normalize_cache_element(i) for i in v)))
             except TypeError:
                 items.append((k, repr(v)))
         else:

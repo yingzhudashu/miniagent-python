@@ -129,7 +129,8 @@ def make_proposal_event(
         "risk_level": risk_level,
     }
     if description:
-        event["description_preview"] = description[:200] if len(description) > 200 else description
+        # 切片超出长度时返回完整字符串，无需额外的长度判断
+        event["description_preview"] = description[:200]
     if duration_ms is not None:
         event["duration_ms"] = duration_ms
     if result:
@@ -162,7 +163,7 @@ def make_error_event(
         "type": EVENT_ERROR_COLLECT,
         "session_key": session_key,
         "error_type": error_type,
-        "error_message": error_message[:500] if len(error_message) > 500 else error_message,
+        "error_message": error_message[:500],
         "is_user_error": is_user_error,
     }
     if location:

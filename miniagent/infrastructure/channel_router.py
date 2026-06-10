@@ -55,6 +55,15 @@ class ChannelRouter:
     # 绑定/解绑
     # -----------------------------------------------------------------------
 
+    def _detach_reverse(self, channel_id: str, session_id: str | None) -> None:
+        """从反向索引中移除 channel_id → session_id 绑定，并清理空条目。"""
+        if not session_id or session_id not in self._reverse:
+            return
+        if channel_id in self._reverse[session_id]:
+            self._reverse[session_id].remove(channel_id)
+        if not self._reverse[session_id]:
+            del self._reverse[session_id]
+
     def bind(self, channel_id: str, session_id: str) -> str:
         """绑定通道到指定会话。
 
@@ -68,11 +77,7 @@ class ChannelRouter:
         old = self._bindings.get(channel_id)
 
         # 从反向索引中移除旧绑定
-        if old and old in self._reverse:
-            if channel_id in self._reverse[old]:
-                self._reverse[old].remove(channel_id)
-            if not self._reverse[old]:
-                del self._reverse[old]
+        self._detach_reverse(channel_id, old)
 
         # 添加新绑定
         self._bindings[channel_id] = session_id
@@ -99,11 +104,7 @@ class ChannelRouter:
         """
         old = self._bindings.pop(channel_id, "")
 
-        if old and old in self._reverse:
-            if channel_id in self._reverse[old]:
-                self._reverse[old].remove(channel_id)
-            if not self._reverse[old]:
-                del self._reverse[old]
+        self._detach_reverse(channel_id, old)
 
         # 如果没有更多绑定了，清除主会话
         if not self._bindings:
@@ -152,9 +153,8 @@ class ChannelRouter:
         if chat_type == "p2p":
             channel_id = f"{self.FEISHU_P2P_PREFIX}{sender_id}"
             return self.resolve(channel_id)
-        else:
-            # 群聊：固定 feishu:<chat_id>，不查 _bindings（与 CHANNEL_BINDING 文档一致）
-            return f"{self.FEISHU_GROUP_PREFIX}{chat_id}"
+        # 群聊：固定 feishu:<chat_id>，不查 _bindings（与 CHANNEL_BINDING 文档一致）
+        return f"{self.FEISHU_GROUP_PREFIX}{chat_id}"
 
     # -----------------------------------------------------------------------
     # 主会话
@@ -216,9 +216,7 @@ class ChannelRouter:
         Returns:
             状态字符串
         """
-        lines = []
-        lines.append("📡 通道绑定状态")
-        lines.append("=" * 30)
+        lines = ["📡 通道绑定状态", "=" * 30]
 
         if not self._bindings:
             lines.append("  未绑定任何通道，各通道独立会话")
@@ -241,10 +239,10 @@ class ChannelRouter:
         """格式化通道标识为可读文本。"""
         if channel_id == ChannelRouter.CLI_CHANNEL:
             return "💻 CLI"
-        elif channel_id.startswith("feishu_p2p:"):
+        if channel_id.startswith("feishu_p2p:"):
             sender = channel_id.split(":", 1)[1]
             return f"💬 飞书私聊 ({sender[:8]}...)"
-        elif channel_id.startswith("feishu:"):
+        if channel_id.startswith("feishu:"):
             chat = channel_id.split(":", 1)[1]
             return f"💬 飞书群聊 ({chat[:8]}...)"
         return channel_id
