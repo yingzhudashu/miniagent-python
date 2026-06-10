@@ -252,13 +252,11 @@ def _extract_improve_suggestions(assistant_msg: dict) -> list[str]:
         return []
 
     suggestions_block = match.group(1)
-    suggestions = []
-
-    for line in suggestions_block.strip().split("\n"):
-        if line.startswith("- "):
-            suggestions.append(line[2:].strip())
-
-    return suggestions
+    return [
+        line[2:].strip()
+        for line in suggestions_block.strip().split("\n")
+        if line.startswith("- ")
+    ]
 
 
 def _has_quality_evaluation(assistant_msg: dict) -> bool:
@@ -1277,13 +1275,12 @@ def cmd_improve(
     suggestions = _extract_improve_suggestions(last_assistant)
 
     if not suggestions:
-        if _has_quality_evaluation(last_assistant):
-            if force:
-                # 强制改进模式：即使无建议也允许改进（返回空建议列表）
-                return last_user, last_assistant, []
-            return f"{SUCCESS_PREFIX} 上一轮质量评估已通过，无需改进（使用 `/improve --force` 强制改进）", False
-        else:
+        if not _has_quality_evaluation(last_assistant):
             return f"{WARNING_PREFIX} 上一轮未启用质量评估，无法改进", False
+        if force:
+            # 强制改进模式：即使无建议也允许改进（返回空建议列表）
+            return last_user, last_assistant, []
+        return f"{SUCCESS_PREFIX} 上一轮质量评估已通过，无需改进（使用 `/improve --force` 强制改进）", False
 
     # 4. 检查是否已改进过（限制轮次）
     metadata = last_assistant.get("metadata", {})

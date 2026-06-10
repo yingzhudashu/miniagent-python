@@ -169,9 +169,6 @@ async def dispatch_command(
     if not text.startswith("/"):
         return None
 
-    # 提取命令（去掉前缀）
-    text[1:]
-
     from miniagent.engine.btw_cmd import (
         cmd_btw_cancel,
         cmd_btw_clear,
@@ -576,7 +573,7 @@ async def dispatch_command(
         sub_cmd = parts[1].lower() if len(parts) > 1 else ""
 
         # self-opt 不经过消息队列；输出须走 _capture，供全屏 CLI / 飞书 capture 路径消费
-        if sub_cmd == "status" or sub_cmd == "":
+        if sub_cmd in ("status", ""):
             output = _capture(cmd_self_opt_status)
         elif sub_cmd == "proposals":
             status_filter = parts[2] if len(parts) > 2 else None
@@ -630,7 +627,7 @@ async def dispatch_command(
         sub_cmd = parts[1].lower() if len(parts) > 1 else ""
         md_kb = capture and feishu_markdown_commands_enabled()
 
-        if sub_cmd == "list" or sub_cmd == "":
+        if sub_cmd in ("list", ""):
             output = _capture(lambda md=md_kb: cmd_kb_list(markdown=md))
         elif sub_cmd == "mount" and len(parts) >= 3:
             path = parts[2]
@@ -643,8 +640,8 @@ async def dispatch_command(
             kb_name = None
             # 检查是否指定了知识库名称（最后一个参数如果是知识库名称）
             from miniagent.knowledge import get_kb_registry
-            registry = get_kb_registry()
-            kb_list = registry.list()
+            kb_registry = get_kb_registry()
+            kb_list = kb_registry.list()
             kb_names = [kb["name"] for kb in kb_list]
             if len(parts) >= 4 and parts[-1] in kb_names:
                 kb_name = parts[-1]

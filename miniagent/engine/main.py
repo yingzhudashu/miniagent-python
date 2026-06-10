@@ -390,10 +390,8 @@ async def run_cli_loop(
         def get_completions(self, document, complete_event):
             text = document.text_before_cursor
             # 检测 @file: 或 file: 标记
-            import re
             match = re.search(r'(@file:|file:)([^\s]*)$', text)
             if match:
-                match.group(1)
                 partial_path = match.group(2)
                 # 使用 PathCompleter 补全路径
                 try:
@@ -2308,7 +2306,12 @@ async def run_cli_loop(
                             except Exception:
                                 mime_type = "application/octet-stream"
 
-                            file_type = "image" if mime_type.startswith("image/") else ("text" if mime_type.startswith("text/") else "binary")
+                            if mime_type.startswith("image/"):
+                                file_type = "image"
+                            elif mime_type.startswith("text/"):
+                                file_type = "text"
+                            else:
+                                file_type = "binary"
 
                             # 图片描述（如果有视觉模型，可通过配置禁用）
                             description = ""
@@ -2722,8 +2725,6 @@ async def _run_cli_loop_fallback(
         )
 
     # ── Linux 兼容性：fallback 模式下的思考显示 ──
-    import threading
-
     _fallback_print_lock = threading.Lock()
 
     def _fallback_print_locked(text: str, *, end: str = "\n") -> None:
