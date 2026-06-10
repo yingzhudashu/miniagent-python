@@ -345,7 +345,7 @@ class ThinkingDisplay:
         else:
             self._output_sink(text)
 
-    def _emit(self, text: str, color: str = "ansigray", *, session_key: str = "") -> None:
+    def _emit(self, text: str, color: str = "gray", *, session_key: str = "") -> None:
         """统一输出入口（CLI display lock 防止多 session mirror 交错）。"""
         with self._cli_display_lock:
             if self._output_sink:
@@ -355,7 +355,7 @@ class ThinkingDisplay:
                 print_formatted_text(ft, end="")
                 sys.stdout.flush()
 
-    def _emit_line(self, text: str, color: str = "ansigray", *, session_key: str = "") -> None:
+    def _emit_line(self, text: str, color: str = "gray", *, session_key: str = "") -> None:
         """统一换行输出入口。"""
         with self._cli_display_lock:
             if self._output_sink:

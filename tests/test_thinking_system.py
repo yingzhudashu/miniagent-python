@@ -189,6 +189,51 @@ class TestThinkingNumbering:
 
 
 # ============================================================================
+# Emit Color Format Regression Tests
+# ============================================================================
+
+
+@pytest.mark.skipif(not _HAS_PROMPT_TOOLKIT, reason="需要 prompt_toolkit")
+class TestEmitColorFormat:
+    """_emit / _emit_line 颜色格式回归测试。
+
+    回归：默认 color 曾误设为 'ansigray'，而方法体又拼 f'ansi{color}'，
+    产生非法的 'ansiansigray'，触发 prompt_toolkit 'Wrong color format' 错误。
+    默认值应为 'gray'，最终格式为合法的 'ansigray'。
+    """
+
+    def _captured_colors(self, call_fn) -> list[str]:
+        """执行 call_fn 并返回 print_formatted_text 收到的所有颜色串。"""
+        captured: list[str] = []
+
+        def fake_print(ft, *args, **kwargs):
+            # FormattedText 是 (style, text) 元组列表
+            captured.extend(style for style, _ in ft)
+
+        # 无 output_sink 时才走 print_formatted_text 分支
+        with patch("miniagent.engine.thinking.print_formatted_text", fake_print):
+            call_fn()
+        return captured
+
+    def test_emit_default_color_is_valid_ansigray(self) -> None:
+        td = ThinkingDisplay()
+        colors = self._captured_colors(lambda: td._emit("hello"))
+        assert colors == ["ansigray"]
+        assert "ansiansi" not in colors[0]
+
+    def test_emit_line_default_color_is_valid_ansigray(self) -> None:
+        td = ThinkingDisplay()
+        colors = self._captured_colors(lambda: td._emit_line("hello"))
+        assert colors == ["ansigray"]
+        assert "ansiansi" not in colors[0]
+
+    def test_emit_explicit_color_keeps_single_ansi_prefix(self) -> None:
+        td = ThinkingDisplay()
+        colors = self._captured_colors(lambda: td._emit("hi", "gray"))
+        assert colors == ["ansigray"]
+
+
+# ============================================================================
 # Thinking Merge Tools Tests
 # ============================================================================
 
