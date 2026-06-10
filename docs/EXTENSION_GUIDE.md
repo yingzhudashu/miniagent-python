@@ -169,7 +169,7 @@ toolbox.add_tool(...).param("options", "object", "配置选项", required=False)
 ```
 workspaces/skills/my_skill/
 ├── skill.yaml          # 技能元数据
-├── instructions.md     # 技能指令（注入到 Agent）
+├── instructions.md     # 技能指令（作为 stable system augment）
 ├── tools.py            # 技能工具实现（可选）
 └── README.md           # 技能说明文档
 ```
@@ -231,8 +231,10 @@ Usage: [provide usage examples]
 ```
 
 **注入位置**：
-- 指令内容会注入到 Agent 的 system prompt 中
+- 指令内容会作为 stable system augment 放入 Agent 的第一条 `system` 消息
 - 格式：`[SKILL: my_skill]\n{instructions.md content}`
+- skill prompt 属于低频动态前缀：安装、刷新、切换 session、gating/config/env 变化后会形成新的 stable system 版本
+- 不要把本轮用户任务、记忆检索结果、知识库结果、当前时间或文件根目录写入 skill prompt；这些动态资料由执行器放入 current turn user context
 
 ---
 

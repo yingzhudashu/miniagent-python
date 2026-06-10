@@ -1,6 +1,6 @@
 # MiniAgent 知识库系统
 
-MiniAgent 支持快速挂载本地知识库、文档、资料，通过关键词索引检索并注入到 Agent 上下文。
+MiniAgent 支持快速挂载本地知识库、文档、资料，通过关键词索引检索并拼入 Agent 上下文。
 
 ## 概述
 
@@ -25,7 +25,7 @@ miniagent/knowledge/
 ### 数据流
 
 ```
-用户输入 → 知识库检索 → kb_context → 注入 system prompt → LLM 调用
+用户输入 → 知识库检索 → kb_context → current turn user context → LLM 调用
 ```
 
 ## 使用方式
@@ -151,15 +151,17 @@ workspaces/knowledge/_auto_file_analysis/
 
 ### 可选增强
 
-环境变量 `MINIAGENT_EMBEDDING_ENABLED=1` 启用向量检索（需要嵌入模型）。
+JSON 配置 `embedding.enabled=true` 可启用向量检索（需要配置 `embedding.base_url`、`embedding.model` 和 `secrets.openai_api_key`）。
 
 ## 配置选项
 
-| 环境变量 | 说明 | 默认值 |
+| JSON 路径 | 说明 | 默认值 |
 |----------|------|--------|
-| `MINIAGENT_KB_ROOT` | 知识库根目录 | `workspaces/knowledge` |
-| `MINIAGENT_KB_AUTO_MOUNT` | 自动挂载根目录下的知识库 | `1` |
-| `MINIAGENT_KB_MAX_CHARS` | 跨知识库检索最大字符数 | `8000` |
+| `knowledge.root` / `knowledge.default_root` | 知识库根目录 | `workspaces/knowledge` |
+| `knowledge.auto_mount` | 自动挂载根目录下的知识库 | `true` |
+| `knowledge.max_chars` | 跨知识库检索最大字符数 | `8000` |
+| `knowledge.executor_enabled` | 执行阶段是否自动检索知识库 | `true` |
+| `knowledge.executor_top_k` / `knowledge.executor_max_chars` | 执行阶段检索条数与字符上限 | `3` / `4000` |
 
 ## 示例
 
@@ -275,7 +277,7 @@ class KnowledgeRegistry:
 | Activity Log | 操作记录 | 关键词 | 行为追溯 |
 | Knowledge Base | 外部文档 | 关键词 | 知识注入 |
 
-知识库内容不写入记忆系统，仅作为临时上下文注入。
+知识库内容不写入记忆系统，仅作为临时上下文拼入当前轮 prompt。
 
 ## Agent 如何使用知识库（RAG 全面集成）
 
@@ -289,13 +291,13 @@ knowledge 工具箱已提升为**核心工具箱**（toolbox=None），始终可
 - **read_knowledge_file**：Agent 可读取完整文件（不只是检索片段）
 - **kb_list**：Agent 可查看已挂载的知识库列表
 
-**配置**：环境变量 `MINIAGENT_KNOWLEDGE_AS_CORE=0` 可降级为普通工具箱
+**配置**：JSON 配置 `knowledge.as_core=false` 可降级为普通工具箱。
 
 ### 自动注入模式（各阶段）
 
 | 阶段 | RAG 增强方式 | 效果 |
 |------|-------------|------|
-| **执行阶段** | 自动检索知识库，注入 system prompt | Agent 能看到相关知识库内容 |
+| **执行阶段** | 自动检索知识库，放入 current turn user context | Agent 能看到相关知识库内容，同时不污染稳定 system 前缀 |
 | **规划阶段** | 检索知识库摘要，辅助判断是否需要 knowledge 工具箱 | 规划器能判断是否需要让 Agent 深入检索 |
 | **需求澄清** | 检索知识库内容，避免询问已有答案的问题 | 澄清质量提升，不重复询问 |
 | **任务分类** | 检索知识库摘要，辅助判断任务难度 | 有答案→simple，需整合→normal |

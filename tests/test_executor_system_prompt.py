@@ -2,45 +2,122 @@
 
 from __future__ import annotations
 
-from miniagent.core.executor import build_execution_system_prompt
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from miniagent.core.executor import (
+    build_current_turn_user_context,
+    build_execution_system_prompt,
+    build_stable_execution_system_prompt,
+    execute_plan,
+)
 from miniagent.core.llm_json import parse_llm_json_response
 from miniagent.core.planner import _format_toolbox_tool_names
 from miniagent.infrastructure.registry import DefaultToolRegistry
+from miniagent.types.planning import StructuredPlan
 from miniagent.types.tool import ToolDefinition
+from tests.mock_strategies import (
+    agent_config_with_session,
+    make_ping_tool_registry,
+    mock_memory_bundle,
+    mock_streaming_client,
+)
 
 
-def test_build_execution_system_prompt_order() -> None:
+def test_build_stable_execution_system_prompt_cache_prefix() -> None:
+    s = build_stable_execution_system_prompt(
+        agent_identity="ID",
+        caller_system_prompt="SKILL",
+    )
+    assert s.index("ID") < s.index("SKILL")
+    assert "文件与工具路径规则" in s
+    assert "当前进程时区" in s
+    assert "TASK" not in s
+    assert "KW" not in s
+    assert "KB" not in s
+    assert "本地时间" not in s
+
+
+def test_build_current_turn_user_context_contains_volatile_parts(tmp_path) -> None:
+    root = str(tmp_path / "files")
+    s = build_current_turn_user_context(
+        user_input="USER",
+        plan_summary="TASK",
+        keyword_context="KW",
+        kb_context="KB",
+        session_files_root=root,
+        risk_level="high",
+        current_time_context="NOW",
+    )
+    assert "用户请求：\nUSER" in s
+    assert "执行计划摘要：\nTASK" in s
+    assert "相关记忆：\nKW" in s
+    assert "相关知识库：\nKB" in s
+    assert "本任务风险等级：\nhigh" in s
+    assert "当前时间上下文：\nNOW" in s
+    assert str(tmp_path) in s
+
+
+def test_build_execution_system_prompt_compat_wrapper() -> None:
     s = build_execution_system_prompt(
         agent_identity="ID",
         caller_system_prompt="SKILL",
         plan_summary="TASK",
         keyword_context="KW",
     )
-    assert s.index("ID") < s.index("SKILL") < s.index("当前任务：TASK") < s.index("KW")
+    assert s.index("ID") < s.index("SKILL") < s.index("执行计划摘要：\nTASK") < s.index("KW")
 
 
-def test_build_execution_system_prompt_skips_empty_caller() -> None:
-    s = build_execution_system_prompt(
-        agent_identity="ID",
-        caller_system_prompt=None,
-        plan_summary="T",
-        keyword_context=None,
-    )
-    assert "ID" in s
-    assert "当前任务：T" in s
-    assert s.count("\n\n") >= 1
-    assert "默认文件根目录" not in s
+@pytest.mark.asyncio
+async def test_execute_plan_messages_are_cache_friendly(tmp_path) -> None:
+    main, sess = make_ping_tool_registry()
+    mock_client = mock_streaming_client(final_text="done")
+    captured: list[dict] = []
+    orig = mock_client.chat.completions.create
 
+    async def capture_kwargs(*args, **kwargs):
+        captured.append(kwargs)
+        return await orig(*args, **kwargs)
 
-def test_build_execution_system_prompt_session_files_root_blank_ignored() -> None:
-    s = build_execution_system_prompt(
-        agent_identity="ID",
-        caller_system_prompt=None,
-        plan_summary="T",
-        keyword_context=None,
-        session_files_root="   ",
-    )
-    assert "默认文件根目录" not in s
+    mock_client.chat.completions.create = AsyncMock(side_effect=capture_kwargs)
+    ms, al, ki = mock_memory_bundle()
+    cfg = agent_config_with_session(sess, max_turns=1)
+    cfg.session_key = None
+    cfg.conversation_history = [{"role": "assistant", "content": "OLD"}]
+    cfg.session_workspace = str(tmp_path / "files")
+    cfg.risk_level = "medium"
+    plan = StructuredPlan(summary="PLAN_SUMMARY", steps=[], required_toolboxes=[])
+
+    with patch("miniagent.knowledge.retrieve_knowledge_context", return_value="KB_CTX"):
+        await execute_plan(
+            plan,
+            "USER_INPUT",
+            main,
+            MagicMock(),
+            cfg,
+            system_prompt="SKILL_PROMPT",
+            client=mock_client,
+            memory_store=ms,
+            activity_log=al,
+            keyword_index=ki,
+        )
+
+    messages = captured[0]["messages"]
+    assert [m["role"] for m in messages[:3]] == ["system", "assistant", "user"]
+    system_content = messages[0]["content"]
+    current_user = messages[-1]["content"]
+    assert "SKILL_PROMPT" in system_content
+    assert "PLAN_SUMMARY" not in system_content
+    assert "KB_CTX" not in system_content
+    assert "medium" not in system_content
+    assert "本地时间" not in system_content
+    assert "OLD" in messages[1]["content"]
+    assert "USER_INPUT" in current_user
+    assert "PLAN_SUMMARY" in current_user
+    assert "KB_CTX" in current_user
+    assert "medium" in current_user
+    assert "本地时间" in current_user
 
 
 def test_parse_llm_json_response_brace_slice() -> None:

@@ -134,7 +134,7 @@
         <mxCell id="142" value="&lt;b&gt;planner.py&lt;/b&gt;&lt;br&gt;Phase 1: 规划&lt;br&gt;&lt;hr&gt;LLM 分析需求&lt;br&gt;生成 StructuredPlan&lt;br&gt;选择工具箱&lt;br&gt;估算 tokens" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=10;" vertex="1" parent="140">
           <mxGeometry x="200" y="35" width="155" height="100" as="geometry"/>
         </mxCell>
-        <mxCell id="143" value="&lt;b&gt;executor.py&lt;/b&gt;&lt;br&gt;Phase 2: ReAct 循环&lt;br&gt;&lt;hr&gt;Think → Act → Observe&lt;br&gt;工具筛选 / 循环检测&lt;br&gt;三层记忆注入&lt;br&gt;对话历史恢复&lt;br&gt;活动日志记录" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=10;" vertex="1" parent="140">
+        <mxCell id="143" value="&lt;b&gt;executor.py&lt;/b&gt;&lt;br&gt;Phase 2: ReAct 循环&lt;br&gt;&lt;hr&gt;Think → Act → Observe&lt;br&gt;工具筛选 / 循环检测&lt;br&gt;Prompt 分层&lt;br&gt;对话历史恢复&lt;br&gt;活动日志记录" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=10;" vertex="1" parent="140">
           <mxGeometry x="370" y="35" width="170" height="100" as="geometry"/>
         </mxCell>
         <mxCell id="144" value="&lt;b&gt;config.py&lt;/b&gt;&lt;br&gt;AgentConfig&lt;br&gt;MODEL_PROFILES" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=10;" vertex="1" parent="140">
@@ -465,7 +465,7 @@
         <mxCell id="308" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#d6b656;strokeWidth=1.5;exitX=0.2;exitY=1;entryX=0.5;entryY=0;" edge="1" source="140" target="180" parent="1">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="308L" value="三层记忆注入" style="edgeLabel;html=1;align=center;verticalAlign=middle;fontSize=9;fontColor=#d6b656;" vertex="1" connectable="0" parent="308">
+        <mxCell id="308L" value="记忆上下文" style="edgeLabel;html=1;align=center;verticalAlign=middle;fontSize=9;fontColor=#d6b656;" vertex="1" connectable="0" parent="308">
           <mxGeometry x="-0.2" relative="1" as="geometry"><mxPoint as="offset"/></mxGeometry>
         </mxCell>
 

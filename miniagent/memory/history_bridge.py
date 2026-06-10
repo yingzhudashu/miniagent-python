@@ -14,8 +14,26 @@ from miniagent.infrastructure.json_config import get_config
 
 
 def _thinking_for_llm_max_chars() -> int:
-    """注入 API 前允许保留的思考文本最大字符数。"""
+    """full 模式下注入 API 前允许保留的思考文本最大字符数。"""
     return max(0, get_config("memory.thinking_for_llm_max_chars", 10_000))
+
+
+def _thinking_for_llm_compact_max_chars() -> int:
+    """compact 模式下注入 API 前保留的思考摘要最大字符数。"""
+    return max(0, get_config("memory.thinking_for_llm_compact_max_chars", 1_200))
+
+
+def _thinking_for_llm_mode() -> str:
+    """思考记录回灌给 LLM 的模式。
+
+    - ``off``：不把内部 thinking 记录放入历史上下文。
+    - ``compact``：默认模式，仅保留较短摘要，减少 history 波动和上下文膨胀。
+    - ``full``：兼容旧行为，按 ``memory.thinking_for_llm_max_chars`` 保留更长正文。
+    """
+    mode = str(get_config("memory.thinking_for_llm_mode", "compact") or "").strip().lower()
+    if mode not in {"off", "compact", "full"}:
+        return "compact"
+    return mode
 
 
 def _truncate_thinking_for_llm(content: str, max_chars: int) -> str:
@@ -27,11 +45,26 @@ def _truncate_thinking_for_llm(content: str, max_chars: int) -> str:
     return tail + note
 
 
+def _map_thinking_for_llm(content: str) -> str | None:
+    """按配置将内部 thinking 记录映射为可发送给 LLM 的 assistant 文本。"""
+    body = content.strip()
+    if not body:
+        return None
+    mode = _thinking_for_llm_mode()
+    if mode == "off":
+        return None
+    if mode == "full":
+        capped = _truncate_thinking_for_llm(body, _thinking_for_llm_max_chars())
+        return f"（思考过程）\n{capped}"
+    capped = _truncate_thinking_for_llm(body, _thinking_for_llm_compact_max_chars())
+    return f"（思考过程摘要）\n{capped}"
+
+
 def conversation_history_for_llm(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """将持久化历史转为 Chat Completions 可接受的消息列表。
 
     处理规则：
-    - role=thinking → 合并为 assistant 文本块（标注为思考记录）
+    - role=thinking → 按 memory.thinking_for_llm_mode 映射或跳过（默认 compact）
     - role=system 且含 _history_archive_marker → 保留简短衔接说明
     - 去掉以下划线开头的元数据键（如 _timestamp）
     - 过滤非标准角色（仅保留 user/assistant/system/tool）
@@ -43,7 +76,7 @@ def conversation_history_for_llm(history: list[dict[str, Any]]) -> list[dict[str
         list[dict]: OpenAI Chat Completions API 兼容的消息列表
 
     Note:
-        - thinking 消息会被截断到 _thinking_for_llm_max_chars()
+        - thinking 消息会按 off/compact/full 模式处理
         - 归档标记的 system 消息仅保留 content 作为衔接说明
         - dict/list 类型值会做浅拷贝（避免原地修改）
     """
@@ -53,10 +86,10 @@ def conversation_history_for_llm(history: list[dict[str, Any]]) -> list[dict[str
             continue
         role = m.get("role")
         if role == "thinking":
-            c = (m.get("content") or "").strip()
-            if c:
-                capped = _truncate_thinking_for_llm(c, _thinking_for_llm_max_chars())
-                out.append({"role": "assistant", "content": f"（思考过程）\n{capped}"})
+            c = m.get("content") or ""
+            mapped = _map_thinking_for_llm(str(c))
+            if mapped:
+                out.append({"role": "assistant", "content": mapped})
             continue
         if role == "system" and m.get("_history_archive_marker"):
             brief = (m.get("content") or "").strip()
@@ -87,7 +120,7 @@ def estimate_history_messages_tokens(history: list[dict[str, Any]]) -> int:
         int: 估算的 token 总数
 
     Note:
-        - thinking 消息按截断后的长度计算
+        - thinking 消息按 off/compact/full 映射后的长度计算
         - 每条消息额外加 5 tokens（role 开销）
         - tool_calls 按 JSON 字符串估算
     """
@@ -100,9 +133,10 @@ def estimate_history_messages_tokens(history: list[dict[str, Any]]) -> int:
         role = m.get("role")
         c = m.get("content")
         if role == "thinking":
-            if isinstance(c, str) and c.strip():
-                cap = _thinking_for_llm_max_chars()
-                mapped = f"（思考过程）\n{_truncate_thinking_for_llm(c.strip(), cap)}"
+            if isinstance(c, str):
+                mapped = _map_thinking_for_llm(c)
+                if not mapped:
+                    continue
                 n += estimate_tokens(mapped)
                 n += 5
             continue

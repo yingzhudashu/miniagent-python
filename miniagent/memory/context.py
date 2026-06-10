@@ -4,7 +4,8 @@
 1. Token 估算：基于字符类型的启发式估算（中文 ~1.5 token/字，英文 ~4 字符/token）
 2. 上下文预算：总窗口 - 工具 schema - 系统 prompt - 输出预留
 3. 智能压缩：保留 system + 首条用户消息 + 最近 2 轮对话，中间历史做摘要
-4. 记忆注入：加载跨会话记忆后，注入到 system prompt
+4. 记忆上下文：当前执行主路径将动态记忆放入 current turn user context；旧
+   ``inject_memory`` 方法仅保留兼容
 
 压缩策略：
 - 当 token 使用 > compress_threshold 时触发
@@ -160,7 +161,12 @@ def _context_tool_redact_enabled() -> bool:
 class DefaultContextManager(ContextManagerProtocol):
     """默认上下文管理器
 
-    管理 LLM 对话的上下文消息列表，提供 token 估算、上下文压缩、记忆注入。
+    管理 LLM 对话的上下文消息列表，提供 token 估算、上下文压缩与消息窗口维护。
+
+    执行阶段当前主路径由 ``executor`` 先构造 ``stable_system`` 与
+    ``current_turn_context``，再调用 ``init(system, user)``；结构化会话记忆、
+    keyword_context 与 kb_context 已经在 ``current_turn_context`` 中，避免频繁变化的
+    内容进入 system 前缀。``inject_memory`` 仍存在，但仅用于旧调用兼容。
 
     工具 schema 的 token 估算带缓存：若运行时修改可见工具列表或其内容，请通过
     ``set_tools`` 更新，勿仅原地修改内部列表后仍期望预算立即刷新。
@@ -391,7 +397,11 @@ class DefaultContextManager(ContextManagerProtocol):
         self._compressed = True
 
     def inject_memory(self, memory: SessionMemory | None) -> None:
-        """注入记忆摘要到 system prompt
+        """兼容旧路径：把记忆摘要追加到 system prompt。
+
+        当前执行主路径不会调用本方法；动态记忆会由 ``executor`` 合并进最后一条
+        current turn user context，以保持 ``system -> history -> current user`` 的
+        cache-friendly 消息结构。
 
         Args:
             memory: 会话记忆对象
@@ -403,7 +413,7 @@ class DefaultContextManager(ContextManagerProtocol):
         if not memory_text:
             return
 
-        # 在 base system prompt 后面追加记忆
+        # 旧兼容行为：在 base system prompt 后面追加记忆。
         self._system_prompt = f"{self._base_system_prompt}\n\n{memory_text}"
 
         # 计算新system prompt的token

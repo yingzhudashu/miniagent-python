@@ -321,6 +321,8 @@ ClarifiedRequirement（澄清后的需求规格）
 
 **规划最小路径**：Phase 1 在 LLM 返回后会做本地 normalization，删除空步骤、合并重复读取/扫描/分析同一对象的步骤、重编号并修正 `dependsOn`。规划提示也会携带最近已完成工作摘要，要求复用已读取、已分析、已测试或已入库的结果，避免把同一工作重复规划给执行器。
 
+**执行阶段 prompt 分层**：Phase 2 的执行请求固定采用 `stable system -> history -> current turn user context` 顺序。第一条 `system` 只放 Agent 身份、技能/通道级稳定规则、工具/文件访问稳定规则和不含当前秒级时间的时区解释；历史消息位于其后；最后一条 `user` 放本轮用户请求、`plan.summary`、结构化会话记忆、`keyword_context`、`kb_context`、当前时间、会话文件根目录和风险等级。`history` 不前置到 `system` 前面，因为历史高频变化会破坏缓存前缀，并且会降低 system 指令优先级。
+
 ### 4. 飞书层 (Feishu)
 
 | 文件 | 职责 |
@@ -354,9 +356,9 @@ ClarifiedRequirement（澄清后的需求规格）
 | Layer 1 | `store.py` | 短期记忆：会话级记忆存储、事实提取、摘要生成 |
 | Layer 2 | `activity_log.py` | 活动日志：详细操作流水，写入 `memory/YYYY-MM-DD.md` |
 | Layer 3 | `keyword_index.py` | 语义检索：TF-IDF 加权关键词索引，跨会话搜索 |
-| 管理 | `context.py` | 上下文管理：Token 计数、自动压缩、记忆注入、消息窗口 |
+| 管理 | `context.py` | 上下文管理：Token 计数、自动压缩、消息窗口；`inject_memory()` 仅保留旧调用兼容 |
 | 进程默认 | `defaults.py` | `paths.state_dir`、进程级默认记忆 bundle |
-| 管线 | `memory_pipeline.py` | 将记忆/摘要注入对话上下文的管线步骤 |
+| 管线 | `memory_pipeline.py` | 将低频分层摘要拼入执行器稳定 system augment 的管线步骤 |
 | 归档 | `history_archive.py` | 历史归档与裁剪策略 |
 | 桥接 | `history_bridge.py` | 会话历史与记忆层之间的衔接 |
 | 渐进式 | `history_progressive.py` | 渐进式历史披露与按需加载 |
@@ -430,13 +432,13 @@ LLM 可通过 function calling 调用的工具：
 | 阶段 | RAG 集成方式 | 配置开关 | 检索参数 |
 |------|-------------|----------|---------|
 | **工具层** | knowledge 工具作为核心工具箱（toolbox=None），始终可用 | `knowledge.as_core=false` 可降级 | - |
-| **执行阶段** | 自动检索知识库，注入 system prompt（原有功能） | - | top_k=3, max_chars=4000 |
+| **执行阶段** | 自动检索知识库，放入 current turn user context | `knowledge.executor_enabled` | top_k=3, max_chars=4000 |
 | **规划阶段** | 检索知识库摘要，辅助判断是否需要 knowledge 工具箱 | `knowledge.planner_enabled` | top_k=2, max_chars=2000 |
 | **需求澄清** | 检索知识库内容，避免询问已有答案的问题 | `knowledge.clarifier_enabled` | top_k=3, max_chars=3000 |
 | **任务分类** | 检索知识库摘要，辅助判断任务难度（有答案→simple） | `knowledge.classifier_enabled` | top_k=2, max_chars=1500 |
 | **反思评估** | 检索知识库标准，参考标准评估回答质量 | `knowledge.reflector_enabled` | top_k=2, max_chars=1500 |
 
-**环境变量**：
+**JSON 配置**：
 - `knowledge.root` / `knowledge.default_root`：知识库根目录（默认 `workspaces/knowledge`）
 - `knowledge.auto_mount`：自动挂载根目录下知识库（默认 `true`）
 - `knowledge.as_core`：将 knowledge 工具作为核心工具箱（默认 `true`）
@@ -458,7 +460,7 @@ RAG 已在规划、澄清、分类、反思阶段全面集成，详见 [KNOWLEDG
 | `instance.py` | 多实例注册表：自增 ID、心跳（观测）、PID 僵尸目录清理（非心跳超时） |
 | `feishu_inbound_lock.py` | 飞书 WebSocket 入站跨进程独占（磁盘锁） |
 | `env_loader.py` | 加载 `config.user.json` 的 `secrets` 部分到环境变量 |
-| `json_config.py` | JSON配置加载器：分层配置、点路径访问、环境变量覆盖 |
+| `json_config.py` | JSON 配置加载器：`config.defaults.json` → `config.user.json` 两层合并、点路径访问 |
 | `env_parse.py` | `env_flag` / `env_flag_strict` 环境变量解析 |
 | `timezone_config.py` | `process_timezone()`（`timezone.default` / `TZ`） |
 | `tracing.py` | 轻量追踪/跨度钩子（与日志配合） |

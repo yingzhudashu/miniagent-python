@@ -5,7 +5,7 @@
 工作流程：
 1. 根据 plan.requiredToolboxes 筛选工具
 2. 初始化循环检测器 / 上下文管理器
-3. 注入三层记忆
+3. 构建 prompt 分层：stable system → history → current turn user context
 4. ReAct 循环：LLM 调用 → 工具执行 → 结果反馈
 5. 循环直到：LLM 不再调用工具 / 达到 maxTurns / 循环检测拦截
 
@@ -55,7 +55,10 @@ from miniagent.core.thinking_presets import map_business_depth
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import append_log, get_logger, truncate
 from miniagent.infrastructure.loop_detector import LoopDetector
-from miniagent.infrastructure.timezone_config import format_agent_timezone_context
+from miniagent.infrastructure.timezone_config import (
+    format_agent_timezone_context,
+    format_agent_timezone_rule_context,
+)
 from miniagent.infrastructure.tracing import emit_trace
 from miniagent.memory.context import ContextBudgetExceeded, DefaultContextManager
 from miniagent.memory.defaults import resolve_memory_dependencies
@@ -65,7 +68,7 @@ from miniagent.memory.embedding_search import (
 )
 from miniagent.memory.history_bridge import conversation_history_for_llm
 from miniagent.memory.keyword_index import format_search_results, search_relevant_with_index
-from miniagent.memory.store import extract_facts, generate_turn_summary
+from miniagent.memory.store import extract_facts, format_memory_for_prompt, generate_turn_summary
 from miniagent.security.sandbox import get_default_workspace
 from miniagent.types.agent import LoopDetectionConfig, ToolMonitorProtocol
 from miniagent.types.config import AgentConfig
@@ -264,6 +267,83 @@ class StreamingBuffer:
 # 使用 XML 标签结构化，遵循 Claude 最佳实践
 
 
+def build_stable_execution_system_prompt(
+    *,
+    agent_identity: str,
+    caller_system_prompt: str | None,
+) -> str:
+    """构建执行阶段可复用的稳定 system prompt。
+
+    该段会成为最终消息数组的第一条消息，并尽量在同一 channel/session 下保持稳定，
+    以便 OpenAI-compatible / Anthropic-compatible provider 的前缀缓存自然命中。允许放入
+    低频变化的信息，例如：
+    - Agent 身份与全局行为约束（``agent_identity``）。
+    - 调用方稳定系统补充（技能 prompt、通道级固定规则、分层长期摘要等）。
+    - 工具/文件访问的稳定解释规则。
+    - 只描述时区解释规则、不包含当前秒级时间的时区说明。
+
+    不要在这里放入本轮动态资料，例如用户当前请求、plan.summary、keyword_context、
+    kb_context、当前时间、风险等级或具体文件根目录；这些内容应进入
+    ``build_current_turn_user_context``，并作为最后一条 user 消息发送。
+    """
+    parts: list[str] = [agent_identity.strip()]
+    if caller_system_prompt and caller_system_prompt.strip():
+        parts.append(caller_system_prompt.strip())
+    parts.append(
+        "## 文件与工具路径规则\n"
+        "当本轮用户上下文提供默认文件根目录时，read_file、write_file、list_dir、"
+        "edit_file 等工具的相对路径参数均相对于该目录；不要使用 `../` 等方式"
+        "逃逸到该目录之外。如需参考会话上传文件，可使用 read_file 等工具读取。"
+    )
+    parts.append(format_agent_timezone_rule_context())
+    return "\n\n".join(p for p in parts if p and p.strip())
+
+
+def build_current_turn_user_context(
+    *,
+    user_input: str,
+    plan_summary: str,
+    keyword_context: str | None,
+    kb_context: str | None = None,
+    session_files_root: str | None = None,
+    risk_level: str | None = None,
+    current_time_context: str | None = None,
+) -> str:
+    """构建执行阶段每轮动态 user context。
+
+    该段承载所有会随用户输入或运行时状态频繁变化的资料，并在有历史时作为最终消息数组
+    的最后一条 user 消息：``[system] + history + [current_turn_context]``。
+    这样既保留了历史语义顺序，也避免动态检索结果污染稳定 system 前缀。
+
+    应放入本函数的内容包括：
+    - 本轮用户请求与计划摘要。
+    - 结构化会话记忆、keyword_context、kb_context 等按 query 检索出的上下文。
+    - 当前默认文件根目录、风险等级与当前时间上下文。
+    """
+    parts: list[str] = [f"用户请求：\n{user_input.strip()}"]
+    summary = (plan_summary or "").strip()
+    if summary:
+        parts.append(f"执行计划摘要：\n{summary}")
+    if keyword_context and keyword_context.strip():
+        parts.append(f"相关记忆：\n{keyword_context.strip()}")
+    if kb_context and kb_context.strip():
+        parts.append(f"相关知识库：\n{kb_context.strip()}")
+    root = (session_files_root or "").strip()
+    if root:
+        parts.append(
+            "当前默认文件根目录：\n"
+            f"{os.path.abspath(root)}\n\n"
+            "工具路径参数若为相对路径，均相对于该目录。"
+        )
+    risk = (risk_level or "").strip()
+    if risk:
+        parts.append(f"本任务风险等级：\n{risk}")
+    time_ctx = (current_time_context or "").strip()
+    if time_ctx:
+        parts.append(f"当前时间上下文：\n{time_ctx}")
+    return "\n\n".join(parts)
+
+
 def build_execution_system_prompt(
     *,
     agent_identity: str,
@@ -273,47 +353,29 @@ def build_execution_system_prompt(
     kb_context: str | None = None,
     session_files_root: str | None = None,
 ) -> str:
-    """按约定拼接执行阶段 system prompt。
+    """Compatibility wrapper for the legacy combined execution prompt.
 
-    按顺序拼接：身份 → 调用方技能/指令 → 任务摘要 → 关键词检索上下文 → 知识库上下文 → 文件根目录 → 时区。
-
-    Args:
-        agent_identity: Agent 身份描述（如 "你是 MiniAgent..."）
-        caller_system_prompt: 调用方传入的系统指令（如技能合并文案）
-        plan_summary: 当前任务的执行计划摘要
-        keyword_context: 关键词检索返回的相关记忆上下文
-        kb_context: 知识库检索返回的相关文档上下文
-        session_files_root: 会话文件根目录（用于工具路径解析）
-
-    Returns:
-        str: 拼接后的完整 system prompt
-
-    Note:
-        - 各部分之间用双换行分隔
-        - 空内容会被跳过
-        - 自动注入当前时区信息
+    New execution paths use ``build_stable_execution_system_prompt`` plus
+    ``build_current_turn_user_context`` so volatile context does not pollute the
+    cache-friendly system prefix. This wrapper deliberately keeps the old single
+    string shape for tests or external callers that still import it directly; it
+    should not be used as the primary execution assembly path because it combines
+    stable and volatile sections in one string.
     """
-    parts: list[str] = [agent_identity.strip()]
-    if caller_system_prompt and caller_system_prompt.strip():
-        parts.append(caller_system_prompt.strip())
-    parts.append(f"当前任务：{plan_summary.strip()}")
-    if keyword_context and keyword_context.strip():
-        parts.append(keyword_context.strip())
-    if kb_context and kb_context.strip():
-        parts.append(kb_context.strip())
-    root = (session_files_root or "").strip()
-    if root:
-        abs_root = os.path.abspath(root)
-        parts.append(
-            "本回合默认文件根目录："
-            f"{abs_root}。read_file、write_file、list_dir、edit_file 等工具的路径参数若为相对路径，"
-            "均相对于该目录；不要使用 `../` 等方式逃逸到该目录之外。"
-            "\n\n## 会话文件\n"
-            "用户在对话中上传过文件到 feishu_incoming/ 子目录。"
-            "如需参考文件内容，可使用 read_file 等工具读取。"
-        )
-    parts.append(format_agent_timezone_context())
-    return "\n\n".join(parts)
+    stable = build_stable_execution_system_prompt(
+        agent_identity=agent_identity,
+        caller_system_prompt=caller_system_prompt,
+    )
+    volatile = build_current_turn_user_context(
+        user_input="",
+        plan_summary=plan_summary,
+        keyword_context=keyword_context,
+        kb_context=kb_context,
+        session_files_root=session_files_root,
+        risk_level=None,
+        current_time_context=format_agent_timezone_context(),
+    )
+    return f"{stable}\n\n{volatile}".strip()
 
 
 def get_client() -> AsyncOpenAI:
@@ -442,7 +504,7 @@ async def execute_plan(
     Phase 2 的 ReAct 循环（Think → Act → Observe）：
     1. 根据计划筛选可用工具（tool_selection_strategy: all/auto/manual）
     2. 初始化上下文管理器、循环检测器、Token 统计
-    3. 注入三层记忆到消息序列
+    3. 组装 cache-friendly prompt：stable system → history → current turn user context
     4. ReAct 循环：LLM 调用 → 工具执行 → 结果反馈 → 循环检测
     5. 循环终止条件：无工具调用 / max_turns / 循环检测拦截 / 上下文超预算
 
@@ -473,13 +535,12 @@ async def execute_plan(
             若回调签名包含关键字参数 ``thinking_header``（或 ``**kwargs``），将传入当前 ReAct 轮标签（如 ``[第 1 轮]``）；否则仅按四参调用。
             会话 ``history.json`` 中的工具全文块依赖此回调；不传则不会落盘工具输出。
             ``UnifiedEngine.run_agent_with_thinking`` 已默认传入。
-        system_prompt: 自定义系统提示词（覆盖默认）
+        system_prompt: 调用方注入的稳定系统补充（如 skill prompts、通道级稳定规则）
         clawhub: ClawHub 客户端实例
         memory_store: 记忆存储（默认与 ``paths.state_dir`` 进程 bundle 一致）
         activity_log: 活动日志（同上）
         keyword_index: 关键词索引（同上；缺省时优先使用 store 已绑定索引）
         client: LLM 客户端（默认进程内共享 AsyncOpenAI）
-        system_prompt: 调用方注入的系统指令（如技能合并文案）；与身份、任务摘要等按序合并
 
     Returns:
         LLM 的最终回复文本
@@ -536,10 +597,17 @@ async def execute_plan(
         reserve_ratio=agent_config.context_reserve_ratio,
     )
 
-    # ── System prompt + 记忆注入 ──
+    # ── Stable system + 本轮动态上下文 ──
+    # 结构化会话记忆、关键词检索和知识库检索都跟随 user_input 高频变化，
+    # 因此只放入 current_turn_context；stable_system 仅保留身份、技能/通道规则
+    # 与不含当前时间戳的稳定说明，方便 provider 复用前缀缓存。
     keyword_context: str | None = None
+    memory_context: str | None = None
     if agent_config.session_key:
         memory = await ms.load(agent_config.session_key)
+        memory_text = format_memory_for_prompt(memory)
+        if memory_text:
+            memory_context = memory_text
 
         # ── 性能优化：并行执行嵌入搜索和关键词索引 ──
         relevant: list[dict[str, Any]] = []
@@ -611,19 +679,23 @@ async def execute_plan(
         # 公共函数返回的字符串已有标题，直接使用
         kb_context: str | None = kb_context_str if kb_context_str else None
 
-        merged_system = build_execution_system_prompt(
+        stable_system = build_stable_execution_system_prompt(
             agent_identity=AGENT_IDENTITY,
             caller_system_prompt=system_prompt,
+        )
+        turn_keyword_context = "\n\n".join(
+            p for p in (memory_context, keyword_context) if p and p.strip()
+        ) or None
+        current_turn_context = build_current_turn_user_context(
+            user_input=user_input,
             plan_summary=plan.summary,
-            keyword_context=keyword_context,
+            keyword_context=turn_keyword_context,
             kb_context=kb_context,
             session_files_root=agent_config.session_workspace,
+            risk_level=agent_config.risk_level,
+            current_time_context=format_agent_timezone_context(),
         )
-        if agent_config.risk_level:
-            merged_system += f"\n\n（本任务风险等级：{agent_config.risk_level}）"
-        context_manager.init(merged_system, user_input)
-        if memory:
-            context_manager.inject_memory(memory)
+        context_manager.init(stable_system, current_turn_context)
     else:
         # ── 知识库检索（无会话时也检索，使用公共函数）──
         from miniagent.knowledge import retrieve_knowledge_context
@@ -632,24 +704,29 @@ async def execute_plan(
         )
         kb_context: str | None = kb_context_str if kb_context_str else None
 
-        merged_system = build_execution_system_prompt(
+        stable_system = build_stable_execution_system_prompt(
             agent_identity=AGENT_IDENTITY,
             caller_system_prompt=system_prompt,
+        )
+        current_turn_context = build_current_turn_user_context(
+            user_input=user_input,
             plan_summary=plan.summary,
             keyword_context=None,
             kb_context=kb_context,
             session_files_root=agent_config.session_workspace,
+            risk_level=agent_config.risk_level,
+            current_time_context=format_agent_timezone_context(),
         )
-        if agent_config.risk_level:
-            merged_system += f"\n\n（本任务风险等级：{agent_config.risk_level}）"
-        context_manager.init(merged_system, user_input)
+        context_manager.init(stable_system, current_turn_context)
 
     # ── 恢复对话历史（在当前输入之前） ──
     if agent_config.conversation_history:
-        # 先保存当前 user_input
-        current_user_msg = {"role": "user", "content": user_input}
+        # 先保存当前 user 上下文（包含本轮动态检索与时间信息）。
+        # 最终顺序必须保持 system → history → current user context：
+        # history 放到 system 前面会破坏稳定前缀，也会改变 system 指令优先级。
+        current_user_msg = {"role": "user", "content": current_turn_context}
         hist_api = conversation_history_for_llm(agent_config.conversation_history)
-        # 重建消息：system + 历史 + 当前输入
+        # 重建消息：system + 历史 + 当前输入。
         context_manager._messages = [
             context_manager._messages[0],  # system prompt
             *hist_api,  # 历史消息（含 thinking → assistant 映射）
@@ -1478,4 +1555,6 @@ __all__ = [
     "get_client",
     "AGENT_IDENTITY",
     "build_execution_system_prompt",
+    "build_stable_execution_system_prompt",
+    "build_current_turn_user_context",
 ]

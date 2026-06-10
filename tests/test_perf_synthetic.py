@@ -328,7 +328,7 @@ def test_s8_memory_store_lru_cache_bounded() -> None:
         ki = KeywordIndex(state_dir=tmp)
         store = DefaultMemoryStore(state_dir=tmp, keyword_index=ki)
 
-        num_sessions = 60  # 超过默认 cache_max=50
+        num_sessions = store._cache_max + 10  # 明确超过当前 JSON 配置的 LRU 上限
         now = datetime.now(timezone.utc).isoformat()
 
         async def load_many() -> None:
@@ -347,7 +347,7 @@ def test_s8_memory_store_lru_cache_bounded() -> None:
 
         asyncio.run(load_many())
 
-        # LRU 驱逐后 cache 大小应等于 cache_max（50）
+        # LRU 驱逐后 cache 大小不应超过当前配置的 cache_max。
         assert len(store._cache) <= store._cache_max, (
             f"LRU cache exceeded: {len(store._cache)} > {store._cache_max}"
         )

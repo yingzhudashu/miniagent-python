@@ -286,7 +286,9 @@ class UnifiedEngine:
                 getattr(ctx, "files_path", None) or getattr(ctx, "workspace_path", None) or None
             )
 
-        # 2. 技能与分层摘要进入 execute_plan 的 system（会话记忆由执行器 inject_memory 注入，避免重复）
+        # 2. 技能与分层摘要作为低频 system augment 传给 execute_plan。
+        #    结构化会话记忆、关键词检索与知识库检索由执行器按本轮 user_input
+        #    放入 current turn user context，不再走 inject_memory 主路径，避免动态内容污染稳定前缀。
         from miniagent.memory.memory_pipeline import build_layered_memory_augmentation
 
         layered_augment = build_layered_memory_augmentation(session_key, user_input=user_input)

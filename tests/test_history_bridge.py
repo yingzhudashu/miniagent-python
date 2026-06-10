@@ -7,16 +7,23 @@ from tests.config_helpers import install_test_config
 
 
 def test_thinking_passed_through_when_under_cap(tmp_path) -> None:
-    install_test_config(tmp_path, {"memory": {"thinking_for_llm_max_chars": 10000}})
+    install_test_config(
+        tmp_path,
+        {"memory": {"thinking_for_llm_mode": "compact", "thinking_for_llm_compact_max_chars": 10000}},
+    )
     hist = [{"role": "thinking", "content": "short"}]
     out = hb.conversation_history_for_llm(hist)
     assert len(out) == 1
+    assert "思考过程摘要" in out[0]["content"]
     assert "short" in out[0]["content"]
     assert "截断" not in out[0]["content"]
 
 
-def test_thinking_truncated_for_llm_only(tmp_path) -> None:
-    install_test_config(tmp_path, {"memory": {"thinking_for_llm_max_chars": 20}})
+def test_thinking_compact_truncated_for_llm_only(tmp_path) -> None:
+    install_test_config(
+        tmp_path,
+        {"memory": {"thinking_for_llm_mode": "compact", "thinking_for_llm_compact_max_chars": 20}},
+    )
     long_body = "a" * 50
     hist = [{"role": "thinking", "content": long_body}]
     raw_copy = hist[0]["content"]
@@ -26,16 +33,50 @@ def test_thinking_truncated_for_llm_only(tmp_path) -> None:
     assert long_body not in out[0]["content"]
 
 
-def test_thinking_zero_means_no_truncation(tmp_path) -> None:
-    install_test_config(tmp_path, {"memory": {"thinking_for_llm_max_chars": 0}})
+def test_thinking_full_zero_means_no_truncation(tmp_path) -> None:
+    install_test_config(
+        tmp_path,
+        {"memory": {"thinking_for_llm_mode": "full", "thinking_for_llm_max_chars": 0}},
+    )
     long_body = "x" * 5000
     hist = [{"role": "thinking", "content": long_body}]
     out = hb.conversation_history_for_llm(hist)
     assert long_body in out[0]["content"]
 
 
+def test_thinking_off_skips_thinking(tmp_path) -> None:
+    install_test_config(tmp_path, {"memory": {"thinking_for_llm_mode": "off"}})
+    hist = [
+        {"role": "thinking", "content": "hidden"},
+        {"role": "assistant", "content": "visible"},
+    ]
+    out = hb.conversation_history_for_llm(hist)
+    assert out == [{"role": "assistant", "content": "visible"}]
+
+
+def test_thinking_full_uses_full_cap(tmp_path) -> None:
+    install_test_config(
+        tmp_path,
+        {
+            "memory": {
+                "thinking_for_llm_mode": "full",
+                "thinking_for_llm_max_chars": 20,
+                "thinking_for_llm_compact_max_chars": 10000,
+            }
+        },
+    )
+    long_body = "z" * 50
+    out = hb.conversation_history_for_llm([{"role": "thinking", "content": long_body}])
+    assert "思考过程）" in out[0]["content"]
+    assert "history.json" in out[0]["content"]
+    assert long_body not in out[0]["content"]
+
+
 def test_estimate_tokens_for_thinking_uses_same_cap_as_llm(tmp_path) -> None:
-    install_test_config(tmp_path, {"memory": {"thinking_for_llm_max_chars": 50}})
+    install_test_config(
+        tmp_path,
+        {"memory": {"thinking_for_llm_mode": "compact", "thinking_for_llm_compact_max_chars": 50}},
+    )
     long_body = "b" * 200
     hist = [{"role": "thinking", "content": long_body}]
     t_est = hb.estimate_history_messages_tokens(hist)

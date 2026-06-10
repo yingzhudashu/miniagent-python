@@ -235,7 +235,7 @@ async def run_agent(
     **Phase 2 执行**（ReAct循环）：
     - 执行器调用 execute_plan，实现 Think → Act → Observe
     - 循环检测：防止无限循环（相似度阈值配置）
-    - 三层记忆注入：短期记忆 + 活动日志 + 关键词索引
+    - 记忆上下文分层：结构化会话记忆与关键词检索由执行器放入本轮 user context
     - 流式输出：通过 on_thinking 实时推送思考过程
 
     **思考展示策略**（on_thinking回调）：

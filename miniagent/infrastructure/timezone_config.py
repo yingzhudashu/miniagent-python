@@ -68,6 +68,22 @@ def format_process_local(epoch: float, *, tz_name: str | None = None) -> str:
     return datetime.fromtimestamp(float(epoch), tz=tz).strftime("%Y-%m-%d %H:%M %Z")
 
 
+def format_agent_timezone_rule_context() -> str:
+    """返回不含当前时间戳的稳定时区规则。
+
+    执行阶段的 stable system prompt 会调用本函数：它只说明进程采用哪个 IANA 时区、
+    如何解释「今天/明天」与 cron 墙钟时间，不包含秒级当前时间。当前具体时间由
+    ``format_agent_timezone_context`` 生成，并放入每轮动态 user context，避免 stable
+    system prefix 因时间变化而失去 prompt cache 命中机会。
+    """
+    tz_name = process_timezone()
+    return (
+        f"当前进程时区：{tz_name}。"
+        "涉及「今天/明天」、cron 墙钟或定时任务说明时，以该时区为准；"
+        "磁盘上的 UTC 时间戳仅作存储。当前具体时间由本轮用户上下文提供。"
+    )
+
+
 def format_agent_timezone_context() -> str:
     tz_name = process_timezone()
     now = now_in_process_tz()

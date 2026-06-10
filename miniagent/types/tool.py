@@ -283,7 +283,7 @@ class ContextState:
 class ContextManagerProtocol(Protocol):
     """上下文管理器接口协议
 
-    负责 Token 估算、上下文压缩、记忆注入。
+    负责 Token 估算、上下文压缩和消息窗口维护。
 
     该 Protocol 用于管理对话上下文的 token 使用量，
     并在超过阈值时执行压缩策略。
@@ -327,7 +327,10 @@ class ContextManagerProtocol(Protocol):
         ...
 
     def inject_memory(self, memory: SessionMemory | None) -> None:
-        """注入记忆摘要到 system prompt
+        """兼容旧路径：将记忆摘要追加到当前上下文。
+
+        执行阶段主路径已改为由 executor 把动态记忆放入 current turn user
+        context；实现类保留该方法仅用于旧调用兼容。
 
         Args:
             memory: 会话记忆对象（可选）

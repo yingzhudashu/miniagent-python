@@ -267,6 +267,8 @@
     "diary_preview_chars": 2000,
     "layered_session_lt": true,
     "layered_agent_lt": true,
+    "thinking_for_llm_mode": "compact",
+    "thinking_for_llm_compact_max_chars": 1200,
     "thinking_for_llm_max_chars": 10000
   },
 

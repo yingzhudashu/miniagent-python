@@ -233,6 +233,8 @@ result = await run_agent(
 )
 ```
 
+当前执行阶段会把调用方 `system_prompt` 作为 stable system augment，与 Agent 身份、skill prompts 和通道级稳定规则一起放在第一条 `system` 消息中。这里适合放长期稳定的角色、输出约束和工具使用原则；不要把本轮检索结果、当前时间、文件根目录、风险等级、`keyword_context` 或 `kb_context` 放进 `system_prompt`，这些动态资料会由执行器放入最后一条 current turn user context。
+
 ### 8. 配置文件管理
 
 使用配置文件管理全局配置：

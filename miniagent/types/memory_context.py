@@ -1,6 +1,6 @@
 """Mini Agent Python — 记忆上下文抽象接口
 
-本模块定义记忆注入和管理的抽象接口，用于解除核心层（core）对记忆层（memory）的直接依赖，
+本模块定义记忆上下文处理和管理的抽象接口，用于解除核心层（core）对记忆层（memory）的直接依赖，
 遵循依赖倒置原则（DIP）。
 
 核心层通过这些 Protocol 接口与记忆系统交互，具体实现由 RuntimeContext 注入，
@@ -44,7 +44,7 @@ if TYPE_CHECKING:
 
 
 class MemoryInjectionResult(dict):
-    """记忆注入结果（继承 dict 以兼容现有代码）"""
+    """记忆上下文处理结果（继承 dict 以兼容现有代码）"""
 
     def __init__(
         self,
@@ -58,13 +58,15 @@ class MemoryInjectionResult(dict):
 
 
 class MemoryContextProtocol(Protocol):
-    """记忆注入接口抽象
+    """记忆上下文接口抽象
 
     定义核心层与记忆系统的交互接口，用于：
-    - 向 LLM 消息序列注入三层记忆
+    - 向 LLM 消息序列添加/合并记忆上下文
     - 在执行后保存新的记忆
 
-    实现类：miniagent.memory.context.DefaultContextManager
+    当前执行主路径已由 executor 直接构建 ``stable system -> history ->
+    current turn user context``，结构化会话记忆和检索上下文位于最后一条
+    user 消息；本 Protocol 保留给旧集成或替代实现使用。
     """
 
     async def inject_memory_to_messages(
@@ -78,7 +80,7 @@ class MemoryContextProtocol(Protocol):
         activity_log: Any | None = None,
         keyword_index: Any | None = None,
     ) -> tuple[list[dict], dict[str, Any]]:
-        """注入三层记忆到消息序列
+        """将记忆上下文合并到消息序列
 
         Args:
             messages: 原始消息序列
@@ -91,7 +93,7 @@ class MemoryContextProtocol(Protocol):
 
         Returns:
             tuple[list[dict], dict[str, Any]]:
-                - messages: 注入记忆后的消息序列
+                - messages: 合并记忆后的消息序列
                 - memory_metadata: 记忆元数据（用于后续处理）
         """
         ...

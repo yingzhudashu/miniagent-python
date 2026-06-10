@@ -521,7 +521,10 @@ class KeywordIndex:
         return results
 
     def format_results(self, results: list[_SearchResult]) -> str:
-        """格式化检索结果为可注入 system prompt 的文本
+        """格式化检索结果为可拼入 prompt 的文本。
+
+        执行阶段主路径会把该文本放入 current turn user context 的「相关记忆」
+        段，而不是追加到 stable system prompt。
 
         Args:
             results: 搜索结果列表

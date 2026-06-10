@@ -1,6 +1,6 @@
 """Mini Agent Python — 知识库挂载系统
 
-提供快速挂载本地知识库、文档、资料的能力，通过关键词索引检索并注入到 Agent 上下文。
+提供快速挂载本地知识库、文档、资料的能力，通过关键词索引检索并拼入 Agent 上下文。
 
 架构：
 - KnowledgeBase：单个知识库（目录/文件集合 + 索引）
@@ -8,7 +8,7 @@
 
 检索流程：
 1. 用户输入 → 知识库检索 → kb_context
-2. kb_context 注入 system prompt
+2. 执行阶段将 kb_context 放入 current turn user context（规划等阶段放入对应动态 user 上下文）
 3. LLM 调用 → 带知识上下文生成回复
 
 RAG 增强（v2.0.3）：

@@ -13,6 +13,7 @@
 - **`config.defaults.json` `_config_guide`**：标明 User / Advanced 分层与节顺序。
 - **`miniagent/infrastructure/paths.py`**：`resolve_state_dir()` 统一状态目录解析。
 - **`scripts/README.md`**：维护脚本索引；**`tests/test_cli_transcript_scroll.py`**：CLI transcript 滚动源码回归（自 `verify_scroll_fix.py` 迁移）。
+- **Prompt cache 友好执行分层**：执行阶段请求固定为 `stable system -> history -> current turn user context`；新增稳定 system / 当前轮 user context 构建 helper，并默认以 `memory.thinking_for_llm_mode=compact` 回灌短 thinking 摘要，降低动态检索、时间、文件根目录和 thinking 全量回灌造成的前缀波动。
 
 ### Removed
 
@@ -47,13 +48,13 @@
   - 会话管理器最大会话数（`SESSION_MANAGER_MAX_SESSIONS`）
   - Agent配置默认值（`AGENT_HISTORY_SIZE`、`AGENT_TOOL_TIMEOUT`）
   - 飞书消息发送超时（`FEISHU_SEND_TIMEOUT`）
-  所有参数均支持环境变量覆盖。
+  这些属于 Internal 层常量；用户/高级配置仍以 `config.defaults.json` → `config.user.json` 为准。
 - **类型注解增强**：
   - [`types/tool.py`](miniagent/types/tool.py) 中 `ToolContext` 的 `clawhub` 和 `cli_loop_state` 字段从 `Any` 改为具体类型（`ClawHubClientProtocol` 和 `CliLoopState`）
   - [`types/protocols.py`](miniagent/types/protocols.py) 新增 4 个 Protocol：`UnifiedEngineProtocol`、`ChannelRouterProtocol`、`MessageQueueProtocol`、`FeishuRuntimeProtocol`
   - [`runtime/context.py`](miniagent/runtime/context.py) 中 `RuntimeContext` 的 `skill_registry`、`clawhub`、`engine`、`channel_router`、`message_queue`、`feishu` 字段从 `Any` 改为具体 Protocol 类型
-  - [`types/agent.py`](miniagent/types/agent.py) 中 `LoopDetectionConfig.history_size` 支持环境变量覆盖
-  - [`types/config.py`](miniagent/types/config.py) 中 `AgentConfig.max_turns`、`tool_timeout` 支持环境变量覆盖
+  - [`types/agent.py`](miniagent/types/agent.py) 中 `LoopDetectionConfig.history_size` 与 defaults/常量对齐
+  - [`types/config.py`](miniagent/types/config.py) 中 `AgentConfig.max_turns`、`tool_timeout` 与 JSON 配置入口对齐
 - **文档更新**：修正 [`INDEX.md`](docs/INDEX.md) 和 [`CONTRIBUTING.md`](docs/CONTRIBUTING.md) 的子包数量描述（14→17），添加 `utils/`、`knowledge/`、`testing/` 子包说明。
 
 ### Added
@@ -71,6 +72,7 @@
 
 - **项目结构更新**：[`INDEX.md`](docs/INDEX.md) 补充 `miniagent/knowledge/` 和 `miniagent/testing/` 子包说明，修正子包数量为 16 个。
 - **类名引用修正**：[`ARCHITECTURE.md`](docs/ARCHITECTURE.md) 和 [`architecture.drawio`](docs/architecture.drawio) 中 `ToolRegistry` 改为 `DefaultToolRegistry`（实际实现类名）。
+- **Prompt 分层文档同步**：[`ARCHITECTURE.md`](docs/ARCHITECTURE.md)、[`MEMORY_SYSTEM.md`](docs/MEMORY_SYSTEM.md)、[`KNOWLEDGE_BASE.md`](docs/KNOWLEDGE_BASE.md)、[`FEISHU.md`](docs/FEISHU.md)、[`API_USAGE.md`](docs/API_USAGE.md)、[`EXTENSION_GUIDE.md`](docs/EXTENSION_GUIDE.md)、[`PERFORMANCE.md`](docs/PERFORMANCE.md) 同步当前 `stable system -> history -> current turn user context` 结构，明确 `keyword_context` / `kb_context` 属于本轮动态上下文。
 - **Docstring 补充**：核心模块关键函数补充完整 Args/Returns/Note 文档：
   - `build_execution_system_prompt()`、`get_shared_async_openai()`、`classify_task_difficulty()`
   - `map_thinking_level_to_model()`、`map_business_depth()`、`_fence_tool_output()`
@@ -94,7 +96,7 @@
 - **飞书去重延迟刷盘**：[`poll_server.py`](miniagent/feishu/poll_server.py) 去重机制改为内存缓存 + 定期异步刷盘（每 60 秒或超过 1000 条），避免每次消息处理都写磁盘；进程退出时同步刷盘确保数据不丢失。
 - **记忆存储异步 I/O**：[`DefaultMemoryStore`](miniagent/memory/store.py) 的 `load()` 和 `save()` 使用 `asyncio.to_thread()` 包装文件读写，避免阻塞事件循环。
 - **紧凑 JSON 格式**：移除记忆文件和去重文件的 `indent=2` 美化格式，减少约 30% 文件体积和 20% 写入时间。
-- **LRU 缓存扩容**：`DefaultMemoryStore` 缓存上限从 50 提高到 100（可通过 `MINIAGENT_MEMORY_STORE_CACHE_MAX` 覆盖）。
+- **LRU 缓存扩容**：`DefaultMemoryStore` 缓存上限提高到 200（可通过 `memory.store_cache_max` 调整）。
 - **实例列表缓存延长**：缓存 TTL 从 5 秒提高到 30 秒，减少频繁目录遍历开销。
 - **正则预编译**：[`gfm_table.py`](miniagent/feishu/cards/gfm_table.py) 表格分隔符检测使用预编译正则 `_RE_GFM_SEPARATOR`。
 

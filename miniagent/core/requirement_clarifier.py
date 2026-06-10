@@ -20,10 +20,10 @@
     >>> clarifier = RequirementClarifier(interactive=True)
     >>> result = await clarifier.clarify("帮我查一下天气", ask_user=..., memory_store=..., session_key="...")
     >>> print(result.clarified_goal)  # "获取指定城市的天气预报"
-    >>> print(clarifier.to_system_prompt(result))  # 注入 system prompt
+    >>> print(clarifier.to_system_prompt(result))  # 生成后续阶段可拼接的澄清片段
 
 与 Agent 的集成：
-澄清结果可通过 ``to_system_prompt()`` 转为 system prompt 片段注入后续 LLM 调用。
+澄清结果可通过 ``to_system_prompt()`` 转为结构化提示片段，供后续规划/执行阶段拼接。
 交互模式下，澄清后还需经用户确认才进入规划阶段。
 """
 

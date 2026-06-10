@@ -56,7 +56,7 @@
 
 **优化方案**：
 1. **短期记忆**：
-   - 自动保存最近50条（见 `store_cache_max`）
+   - 缓存最多 `memory.store_cache_max` 个会话（默认 200）
    - 超过限制自动清理
 
 2. **活动日志**：
@@ -339,7 +339,7 @@ rm -f workspaces/memory/*.md  # 手动清理超过180天的记忆
     "history_tail_messages": 100,
     "archive_enabled": true,
     "archive_after_days": 30,
-    "store_cache_max": 50,
+    "store_cache_max": 200,
     "keyword_index_max": 15000
   },
   "agent": {

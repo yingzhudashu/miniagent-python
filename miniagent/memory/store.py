@@ -5,7 +5,7 @@
 存储结构：
 - workspaces/memory/<sessionId>.json
 - 每次对话结束后自动保存
-- 下次对话启动时自动加载并注入到 system prompt
+- 下次执行时自动加载，当前主路径会放入 current turn user context
 
 记忆内容：
 - cumulative_summary: 累计对话摘要
@@ -77,10 +77,13 @@ def _memory_file_path(state_dir: str, session_id: str) -> str:
 
 
 def format_memory_for_prompt(memory: SessionMemory | None) -> str:
-    """将记忆格式化为可注入 system prompt 的文本
+    """将结构化会话记忆格式化为可拼入 prompt 的文本。
 
     从 SessionMemory 提取关键事实、上传文件、累计摘要和最近对话条目，
-    格式化为 Markdown 文本，可直接拼接到 system prompt 中。
+    格式化为 Markdown 文本。执行阶段主路径会把返回值合并到
+    ``build_current_turn_user_context`` 的「相关记忆」段，避免本轮动态记忆污染
+    stable system prompt；旧的 ``DefaultContextManager.inject_memory`` 兼容路径仍可
+    直接使用该文本。
 
     Args:
         memory: 会话记忆对象（None 时返回空字符串）
@@ -90,7 +93,7 @@ def format_memory_for_prompt(memory: SessionMemory | None) -> str:
 
     Example:
         memory_text = format_memory_for_prompt(session_memory)
-        system_prompt += f"\n\n{memory_text}"
+        current_turn_parts.append(memory_text)
     """
     if not memory:
         return ""
