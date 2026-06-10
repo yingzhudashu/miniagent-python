@@ -271,32 +271,31 @@ class FeishuASTRenderer:
     def _render_table(self, token: dict) -> FeishuBlock:
         """渲染表格"""
         cells: list[list[TextRun]] = []
-        children = token.get("children", [])
 
-        for part in children:
-            # part 可能是 table_head 或 table_body
+        for part in token.get("children", []):
+            # part 可能是 table_head、table_body 或直接的 table_row
             part_type = part.get("type", "")
             if part_type in ("table_head", "table_body"):
-                for row in part.get("children", []):
-                    if row.get("type") == "table_row":
-                        row_cells: list[TextRun] = []
-                        for cell in row.get("children", []):
-                            if cell.get("type") == "table_cell":
-                                cell_runs = self._render_children(cell.get("children", []))
-                                row_cells.extend(cell_runs)
-                        if row_cells:
-                            cells.append(row_cells)
+                rows = part.get("children", [])
             elif part_type == "table_row":
-                # 直接的 table_row
-                row_cells: list[TextRun] = []
-                for cell in part.get("children", []):
-                    if cell.get("type") == "table_cell":
-                        cell_runs = self._render_children(cell.get("children", []))
-                        row_cells.extend(cell_runs)
-                if row_cells:
-                    cells.append(row_cells)
+                rows = [part]
+            else:
+                continue
+            for row in rows:
+                if row.get("type") == "table_row":
+                    row_cells = self._render_table_row(row)
+                    if row_cells:
+                        cells.append(row_cells)
 
         return FeishuBlock(BlockType.TABLE, text_runs=[], table_data=cells)
+
+    def _render_table_row(self, row: dict) -> list[TextRun]:
+        """渲染单个表格行的所有单元格内容"""
+        row_cells: list[TextRun] = []
+        for cell in row.get("children", []):
+            if cell.get("type") == "table_cell":
+                row_cells.extend(self._render_children(cell.get("children", [])))
+        return row_cells
 
     def _render_thematic_break(self, token: dict) -> FeishuBlock:
         """渲染分隔线"""
@@ -333,20 +332,15 @@ class FeishuASTRenderer:
             raw = token.get("raw", "")
             return TextRun(raw)
 
-        elif token_type == "strong":
+        elif token_type in ("strong", "emphasis", "strikethrough"):
             runs = self._render_children(token.get("children", []))
             text = _runs_to_text(runs)
-            return TextRun(text, TextStyle(bold=True))
-
-        elif token_type == "emphasis":
-            runs = self._render_children(token.get("children", []))
-            text = _runs_to_text(runs)
-            return TextRun(text, TextStyle(italic=True))
-
-        elif token_type == "strikethrough":
-            runs = self._render_children(token.get("children", []))
-            text = _runs_to_text(runs)
-            return TextRun(text, TextStyle(strikethrough=True))
+            style = TextStyle(
+                bold=token_type == "strong",
+                italic=token_type == "emphasis",
+                strikethrough=token_type == "strikethrough",
+            )
+            return TextRun(text, style)
 
         elif token_type == "link":
             attrs = token.get("attrs", {})
@@ -363,10 +357,7 @@ class FeishuASTRenderer:
             # 内联图片
             return None  # 图片作为块处理，内联中跳过
 
-        elif token_type == "softbreak":
-            return TextRun("\n")
-
-        elif token_type == "hardbreak":
+        elif token_type in ("softbreak", "hardbreak"):
             return TextRun("\n")
 
         else:
@@ -555,33 +546,20 @@ def build_lark_blocks_from_intermediate(blocks: list[FeishuBlock]) -> list[Any]:
                     .build()
                 )
 
-            elif block.block_type == BlockType.BULLET:
-                bullet_elements = _build_text_elements(_plain_runs(block.text_runs, prefix="- "))
-                bullet_text = Text.builder().elements(bullet_elements).build()
+            elif block.block_type in (BlockType.BULLET, BlockType.ORDERED, BlockType.CODE):
+                # 列表项/代码块统一降级为带前缀的纯文本块（去除内联样式）
+                if block.block_type == BlockType.BULLET:
+                    prefix = "- "
+                elif block.block_type == BlockType.ORDERED:
+                    prefix = "1. "
+                else:
+                    prefix = ""
+                plain_elements = _build_text_elements(_plain_runs(block.text_runs, prefix=prefix))
+                plain_text = Text.builder().elements(plain_elements).build()
                 lark_block = (
                     BlockBuilder()
                     .block_type(2)
-                    .text(bullet_text)
-                    .build()
-                )
-
-            elif block.block_type == BlockType.ORDERED:
-                ordered_elements = _build_text_elements(_plain_runs(block.text_runs, prefix="1. "))
-                ordered_text = Text.builder().elements(ordered_elements).build()
-                lark_block = (
-                    BlockBuilder()
-                    .block_type(2)
-                    .text(ordered_text)
-                    .build()
-                )
-
-            elif block.block_type == BlockType.CODE:
-                code_elements = _build_text_elements(_plain_runs(block.text_runs))
-                code_text = Text.builder().elements(code_elements).build()
-                lark_block = (
-                    BlockBuilder()
-                    .block_type(2)
-                    .text(code_text)
+                    .text(plain_text)
                     .build()
                 )
 

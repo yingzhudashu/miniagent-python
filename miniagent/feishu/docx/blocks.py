@@ -290,6 +290,26 @@ def batch_update_blocks(
     return {"ok": True, "data": json.loads(resp.raw.content) if getattr(resp, "raw", None) else {}}
 
 
+def _append_plain_text_fallback(
+    config: FeishuConfig,
+    document_id: str,
+    markdown: str,
+    warnings: list[str],
+    *,
+    reason: str,
+) -> tuple[int, list[str]]:
+    """富文本渲染失败时回退为纯文本追加，并附加相应警告。"""
+    from miniagent.feishu.docx.markdown import markdown_to_plain_text
+
+    try:
+        n = append_plain_text_to_document(config, document_id, markdown_to_plain_text(markdown))
+        return n, warnings + [f"{reason}; fallback to plain text"]
+    except Exception as fallback_error:
+        return 0, warnings + [
+            f"{reason}; plain-text fallback also failed: {fallback_error}"
+        ]
+
+
 def append_markdown_to_document(
     config: FeishuConfig,
     document_id: str,
@@ -378,25 +398,17 @@ def append_markdown_to_document(
                     result.warnings.extend(block_warnings)
             except Exception as e:
                 result.warnings.append(f"rich block creation failed: {e}")
-                try:
-                    from miniagent.feishu.docx.markdown import markdown_to_plain_text
-                    n = append_plain_text_to_document(config, document_id, markdown_to_plain_text(markdown))
-                    return n, result.warnings + ["rich Markdown rendering failed; fallback to plain text"]
-                except Exception as fallback_error:
-                    return 0, result.warnings + [
-                        f"rich Markdown rendering failed; plain-text fallback also failed: {fallback_error}"
-                    ]
+                return _append_plain_text_fallback(
+                    config, document_id, markdown, result.warnings,
+                    reason="rich Markdown rendering failed",
+                )
 
         total = non_table_count + table_count
         if total == 0 and table_failures:
-            try:
-                from miniagent.feishu.docx.markdown import markdown_to_plain_text
-                n = append_plain_text_to_document(config, document_id, markdown_to_plain_text(markdown))
-                return n, result.warnings + ["rich table creation failed; fallback to plain text"]
-            except Exception as fallback_error:
-                return 0, result.warnings + [
-                    f"rich table creation failed; plain-text fallback also failed: {fallback_error}"
-                ]
+            return _append_plain_text_fallback(
+                config, document_id, markdown, result.warnings,
+                reason="rich table creation failed",
+            )
         return total, result.warnings
 
     else:

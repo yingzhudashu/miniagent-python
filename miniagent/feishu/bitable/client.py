@@ -5,12 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 from miniagent.core.constants import BITABLE_LIST_RECORDS_MAX
-
-_BITABLE_LIST_RECORDS_MAX = BITABLE_LIST_RECORDS_MAX
-
 from miniagent.feishu.lark_client import build_client
 from miniagent.feishu.lark_response import format_lark_response_error
 from miniagent.feishu.types import FeishuConfig
+
+_BITABLE_LIST_RECORDS_MAX = BITABLE_LIST_RECORDS_MAX
 
 
 def _fields_to_dict(fields: Any) -> dict[str, Any]:
