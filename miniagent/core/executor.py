@@ -1135,8 +1135,8 @@ async def execute_plan(
                 args: 解析后的工具参数字典
                 tool: ToolDefinition 对象（含 handler 与权限信息）
 
-        Returns:
-            tuple: (tc, args, result, tool, elapsed_ms)
+            Returns:
+                tuple: (tc, args, result, tool, elapsed_ms)
                 - tc: 原 tool_call 对象
                 - args: 解析后的参数
                 - result: ToolResult（success/content/meta）

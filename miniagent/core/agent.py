@@ -512,23 +512,23 @@ async def run_agent(
                 return f"{WARNING_PREFIX} 操作已取消"
 
     if _announce_difficulty_and_plan_enabled() and on_thinking:
+        no_toolboxes_flag = len(toolboxes) == 0
+        simple_classified_flag = (
+            bool(toolboxes) and not skip_planning and difficulty == TaskDifficulty.SIMPLE
+        )
         plan_msg = _format_plan_message(
             plan,
             from_llm_planner=from_llm_planner,
-            no_toolboxes=len(toolboxes) == 0,
+            no_toolboxes=no_toolboxes_flag,
             user_skip_planning=skip_planning,
-            simple_classified=(
-                bool(toolboxes) and not skip_planning and difficulty == TaskDifficulty.SIMPLE
-            ),
+            simple_classified=simple_classified_flag,
         )
         plan_disp = _format_plan_display_short(
             plan,
             from_llm_planner=from_llm_planner,
-            no_toolboxes=len(toolboxes) == 0,
+            no_toolboxes=no_toolboxes_flag,
             user_skip_planning=skip_planning,
-            simple_classified=(
-                bool(toolboxes) and not skip_planning and difficulty == TaskDifficulty.SIMPLE
-            ),
+            simple_classified=simple_classified_flag,
         )
         # 关键修复：使用 reset=True 清除已有难度内容，避免重复显示
         # 需求澄清后的第二次 [评估与计划] 应只显示规划概要
