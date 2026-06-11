@@ -564,7 +564,9 @@ async def run_agent(
     # ── Phase 3: 反思评估 ──
     reflection_enabled = get_config("features.reflection", True)
     if reflection_enabled:
-        reflection = await reflect_on_result(user_input, reply, client=client, on_thinking=None)
+        reflection = await reflect_on_result(
+            user_input, reply, client=client, on_thinking=None, session_key=session_key
+        )
         # 存储到引擎供飞书发送独立质量卡片
         if engine is not None:
             sk = session_key or "default"

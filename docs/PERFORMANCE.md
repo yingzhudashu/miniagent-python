@@ -153,6 +153,21 @@ S12 keyword multi-hit search:    0.04s
 
 残余风险：S2 在本机仍受临时目录 I/O 和 Python 冷启动影响有波动；Feishu 真实长驻路径仍建议用真实租户流量或 py-spy 采样确认 PATCH 节流、SDK 网络等待和 card JSON 序列化占比。
 
+### 5.2.1 2026-06-11 Trace 完整性 + 阶段延迟优化
+
+用真实 API（trace 持久化开启）+ `scripts/perf_trace_real_api.py` 跑通完整管线取得基线后，针对**串行 LLM 阶段的 trace 盲区**与**反思阶段延迟**做修复，全程保留功能与效果：
+
+- **Trace 盲区补齐**：`classify` / `reflect` / `clarify` 阶段此前不发 trace 事件（实测各 ~5s 无任何记录）。现统一发出 `llm.request` / `llm.response`（含 `phase`、`session_key`、token usage）；planner 事件补 `session_key`；`compute_llm_stats` 新增 `by_phase` 分阶段聚合，可定位各阶段调用数与 token。
+- **压缩事件归属修复**：[`DefaultContextManager`](../miniagent/memory/context.py) 新增 `session_key` 构造参数（executor 传入），`context.compress` 事件不再永远 `'unknown'`。
+- **工具配对修复**：executor 的 `tool.start` / `tool.end` 补 `tool_call_id`，并发同名工具不再错配；移除不安全的 `semaphore._value` 私有属性访问；[`trace_stats`](../miniagent/infrastructure/trace_stats.py) 删除从不读取的 `tool_starts` 死字典。
+- **死代码清理**：[`tracing.py`](../miniagent/infrastructure/tracing.py) 删除从未注册的 `_trace_file_hook` / `_init_trace_log_file`。
+- **AsyncTraceWriter 健壮性**：`start()` 重复调用/线程创建失败时回收旧句柄与线程，避免 FD/线程泄漏；队列首次背压丢弃时打一次 warning（之后仅累计 `dropped_count`），避免静默丢数据；`metrics_only` 持久化保留**纯数值/布尔数组**（如时延分布），字符串数组仍按策略丢弃以不落模型文本。
+- **反思阶段延迟**：反思是结构化 JSON 评分，无需深度思考与大输出。`llm_json()` 新增可选 `max_tokens` / `thinking_*` / `trace_*` 参数（默认行为不变）；`reflect_on_result` 施加 bounded 思考 + `features.reflection_max_tokens`（默认 512）。**实测单次 6.06s → 3.98s（-34%）**，可接受性判定与评分语义不变。
+
+其他热路径（保留效果）：[`store.py`](../miniagent/memory/store.py) 缓存 TTL 清理从「每次 put 全表扫描持锁」改为按间隔惰性清理，`_session_locks` 加上限清理；[`keyword_index.py`](../miniagent/memory/keyword_index.py) 驱逐循环后只置一次 `_dirty`；[`embedding_search.py`](../miniagent/memory/embedding_search.py) 批量回退加 `_allow_batch` 守卫，消除维度不一致时的潜在无限递归；[`background_tasks.py`](../miniagent/engine/background_tasks.py) `create_task` 改为跟踪引用 + `add_done_callback`，不再静默丢异常。
+
+验证：`ruff` 干净；trace 测试 16 passed；全量回归 1490 passed（唯一失败 `test_footer_survives_history_for_llm` 经 `git stash` 确认为干净树上的既存过期测试，与本轮无关）。
+
 ### 5.3 待验证 / 剖析指引
 
 - **单次脚本 cProfile**：若不使用 `--inner-repeat`，top `cumtime` 多为导入链；见 §3.1。

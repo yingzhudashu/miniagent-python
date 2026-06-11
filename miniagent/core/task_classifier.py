@@ -98,7 +98,12 @@ async def classify_task_difficulty(
         若知识库有直接答案，建议分类为 simple。
     """
     from miniagent.core.llm_params import resolve_planner_completion_kwargs
+    from miniagent.infrastructure.tracing import emit_trace
     from miniagent.knowledge import retrieve_knowledge_context
+
+    classify_session_key = (
+        agent_config.session_key if agent_config and agent_config.session_key else "default"
+    )
 
     # ── RAG 增强：知识库检索（使用公共函数）──
     kb_hint = retrieve_knowledge_context(
@@ -145,7 +150,30 @@ async def classify_task_difficulty(
                         "json_object": use_json_object,
                     },
                 )
+                emit_trace(
+                    {
+                        "type": "llm.request",
+                        "phase": "classify",
+                        "session_key": classify_session_key,
+                        "attempt": _attempt + 1,
+                        "model": kw.get("model"),
+                        "json_object": use_json_object,
+                    }
+                )
                 resp = await llm.chat.completions.create(**create_args)
+                _resp_usage = getattr(resp, "usage", None)
+                emit_trace(
+                    {
+                        "type": "llm.response",
+                        "phase": "classify",
+                        "session_key": classify_session_key,
+                        "attempt": _attempt + 1,
+                        "model": kw.get("model"),
+                        "usage": _resp_usage.model_dump()
+                        if _resp_usage is not None and hasattr(_resp_usage, "model_dump")
+                        else None,
+                    }
+                )
                 break
             except Exception as api_err:
                 if use_json_object and _json_object_unsupported(api_err):

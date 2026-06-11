@@ -82,6 +82,12 @@ async def llm_json(
     client: AsyncOpenAI | None = None,
     model: str | None = None,
     raise_on_error: bool = False,
+    *,
+    max_tokens: int | None = None,
+    thinking_level: str | None = None,
+    thinking_budget: int | None = None,
+    trace_phase: str | None = None,
+    trace_session_key: str | None = None,
 ) -> dict[str, Any]:
     """调用 LLM 并解析 JSON 回复。
 
@@ -91,6 +97,14 @@ async def llm_json(
         client: LLM 客户端（None 时回落到共享工厂）
         model: 模型名（None 时读取 ``MINIAGENT_MODEL_MODEL`` 环境变量，回落到 ``gpt-4o-mini``）
         raise_on_error: 解析失败时是否抛出异常（默认 False，返回空字典）
+        max_tokens: 可选输出 token 上限。结构化 JSON 评估/分类类调用通常不需要大输出，
+            限制后可显著降低延迟（实测 reflect -34%）。None 时不传，沿用服务端默认。
+        thinking_level: 可选思考档位（如 ``"low"`` / ``"disabled"``）。JSON 评分类任务无需深度思考；
+            提供时经 ``build_thinking_extra_body`` 注入 ``extra_body``，对不支持的端点自动无副作用。
+        thinking_budget: 与 ``thinking_level`` 配套的思考预算（token）。
+        trace_phase: 可选 trace 阶段标签（如 ``"reflect"`` / ``"clarify"``）；提供时发出
+            ``llm.request`` / ``llm.response`` 事件，消除该阶段的 trace 盲区。
+        trace_session_key: trace 事件归属的会话标识。
 
     Returns:
         解析后的 JSON 字典；解析失败时：
@@ -122,14 +136,61 @@ async def llm_json(
         actual_system = system + "\n\n请以 JSON 格式返回结果。"
         use_json_object = True  # 现在消息中包含了 "json"
 
-    resp = await llm.chat.completions.create(
-        model=model,
-        messages=[
+    create_kwargs: dict[str, Any] = {
+        "model": model,
+        "messages": [
             {"role": "system", "content": actual_system},
             {"role": "user", "content": prompt},
         ],
-        response_format={"type": "json_object"},
-    )
+        "response_format": {"type": "json_object"},
+    }
+    if max_tokens is not None:
+        create_kwargs["max_tokens"] = int(max_tokens)
+    if thinking_level is not None:
+        # 经 vendor 助手按端点能力注入；不支持的端点返回空 dict，无副作用。
+        from miniagent.core.vendor.qwen_extra import build_thinking_extra_body
+
+        base_url = get_config("model.base_url", None)
+        extra = build_thinking_extra_body(
+            base_url,
+            thinking_level,
+            int(thinking_budget or 0),
+            model_overrides_extra={},
+        )
+        if extra:
+            create_kwargs["extra_body"] = extra
+
+    if trace_phase:
+        from miniagent.infrastructure.tracing import emit_trace
+
+        emit_trace(
+            {
+                "type": "llm.request",
+                "phase": trace_phase,
+                "session_key": trace_session_key or "default",
+                "model": model,
+                "json_object": True,
+            }
+        )
+
+    resp = await llm.chat.completions.create(**create_kwargs)
+
+    if trace_phase:
+        from miniagent.infrastructure.tracing import emit_trace
+
+        _usage = getattr(resp, "usage", None)
+        emit_trace(
+            {
+                "type": "llm.response",
+                "phase": trace_phase,
+                "session_key": trace_session_key or "default",
+                "model": model,
+                "usage": _usage.model_dump()
+                if _usage is not None and hasattr(_usage, "model_dump")
+                else None,
+            }
+        )
+
     text = resp.choices[0].message.content or "{}"
     try:
         return json.loads(text)

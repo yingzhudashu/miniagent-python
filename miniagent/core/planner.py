@@ -73,6 +73,7 @@ async def generate_plan(
 
     ac: AgentConfig | None = agent_config if isinstance(agent_config, AgentConfig) else None
     planner_kw = resolve_planner_completion_kwargs(ac, merge_overrides=planner_model_overrides)
+    plan_session_key = ac.session_key if ac and ac.session_key else "default"
 
     # ── RAG 增强：知识库检索（使用公共函数）──
     kb_context_planner = retrieve_knowledge_context(
@@ -125,6 +126,7 @@ async def generate_plan(
                 {
                     "type": "llm.request",
                     "phase": "plan",
+                    "session_key": plan_session_key,
                     "attempt": attempt + 1,
                     "model": planner_kw["model"],
                     "json_object": use_json_object,
@@ -156,13 +158,17 @@ async def generate_plan(
             if not content:
                 raise ValueError("Empty response from planner")
 
+            _plan_usage = getattr(response, "usage", None)
             emit_trace(
                 {
                     "type": "llm.response",
                     "phase": "plan",
+                    "session_key": plan_session_key,
                     "attempt": attempt + 1,
                     "model": planner_kw["model"],
-                    "usage": response.usage.model_dump() if response.usage else None,
+                    "usage": _plan_usage.model_dump()
+                    if _plan_usage is not None and hasattr(_plan_usage, "model_dump")
+                    else None,
                 }
             )
 

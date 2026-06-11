@@ -286,11 +286,24 @@ class DefaultMemoryStore(MemoryStoreProtocol):
         self._cache_lock = threading.Lock()
         self._session_locks: dict[str, asyncio.Lock] = {}
         self._session_locks_meta = asyncio.Lock()
+        # 上限保护：避免长生命周期进程中 session lock 字典无界增长。
+        self._session_locks_max = get_config("memory.session_locks_max", 2048)
+        # 惰性 TTL 清理节流：避免每次 put 都全表扫描（O(n) 持锁）。
+        self._last_cache_cleanup = 0.0
+        self._cache_cleanup_interval = get_config("memory.store_cache_cleanup_interval_s", 60)
 
     async def _get_session_lock(self, session_id: str) -> asyncio.Lock:
         async with self._session_locks_meta:
             lock = self._session_locks.get(session_id)
             if lock is None:
+                # 有界清理：超过上限时丢弃当前未被占用的旧锁（不影响正在等待的协程，
+                # 因为持有/等待该锁的协程仍各自持有对象引用；这里仅停止缓存复用）。
+                if len(self._session_locks) >= self._session_locks_max:
+                    for old_key, old_lock in list(self._session_locks.items()):
+                        if not old_lock.locked():
+                            del self._session_locks[old_key]
+                        if len(self._session_locks) < self._session_locks_max:
+                            break
                 lock = asyncio.Lock()
                 self._session_locks[session_id] = lock
             return lock
@@ -306,8 +319,10 @@ class DefaultMemoryStore(MemoryStoreProtocol):
             while len(self._cache) > self._cache_max:
                 self._cache.popitem(last=False)
 
-            # TTL清理（异步，不阻塞）
-            self._cleanup_expired_cache(now)
+            # TTL 清理节流：仅每隔 interval 秒做一次全表扫描，避免每次 put 都 O(n)。
+            if now - self._last_cache_cleanup >= self._cache_cleanup_interval:
+                self._cleanup_expired_cache(now)
+                self._last_cache_cleanup = now
 
     def _cache_get(self, session_id: str, now: float | None = None) -> tuple[SessionMemory | None, int | None]:
         """从 LRU 缓存读取记忆。

@@ -433,6 +433,7 @@ class EmbeddingIndex:
         *,
         limit: int = 8,
         min_score: float = 0.3,
+        _allow_batch: bool = True,
     ) -> list[EmbeddingSearchResult]:
         """基于预计算的查询向量检索相关记忆。
 
@@ -444,6 +445,8 @@ class EmbeddingIndex:
             query_embedding: 查询文本的嵌入向量
             limit: 最多返回条数
             min_score: 最低余弦相似度阈值
+            _allow_batch: 内部递归守卫。批量路径遇维度不一致回退到本函数时置 False，
+                避免再次进入批量路径造成无限递归。
 
         Returns:
             按相关性排序的搜索结果
@@ -456,7 +459,7 @@ class EmbeddingIndex:
             return []
 
         # 性能优化：numpy可用且entry数量多时，自动使用批量计算（5-10倍加速）
-        if _numpy_available and len(self._entries) > 20:
+        if _allow_batch and _numpy_available and len(self._entries) > 20:
             return self.search_relevant_batch(query_embedding, limit=limit, min_score=min_score)
 
         # numpy不可用或entry数量少时，使用普通版本
@@ -508,7 +511,9 @@ class EmbeddingIndex:
         """
         # numpy不可用时回退到普通版本
         if not _numpy_available:
-            return self.search_relevant(query_embedding, limit=limit, min_score=min_score)
+            return self.search_relevant(
+                query_embedding, limit=limit, min_score=min_score, _allow_batch=False
+            )
 
         self._ensure_loaded()
 
@@ -543,7 +548,9 @@ class EmbeddingIndex:
             if len(set(embedding_dims)) > 1:
                 # 维度不一致，回退到普通版本
                 _logger.debug("Embedding维度不一致，回退到普通版本: dims=%s", set(embedding_dims))
-                return self.search_relevant(query_embedding, limit=limit, min_score=min_score)
+                return self.search_relevant(
+                    query_embedding, limit=limit, min_score=min_score, _allow_batch=False
+                )
 
             # 批量转换为numpy数组（维度一致性已验证）
             entry_vecs = np.array(embeddings, dtype=np.float32)
@@ -582,7 +589,9 @@ class EmbeddingIndex:
         except Exception as e:
             # numpy计算失败时回退到普通版本
             _logger.debug("numpy批量计算失败，回退到普通版本: %s", e)
-            return self.search_relevant(query_embedding, limit=limit, min_score=min_score)
+            return self.search_relevant(
+                query_embedding, limit=limit, min_score=min_score, _allow_batch=False
+            )
 
     def get_stats(self) -> dict[str, Any]:
         self._ensure_loaded()

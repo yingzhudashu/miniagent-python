@@ -595,6 +595,7 @@ async def execute_plan(
         tools=tools,
         overflow_strategy=agent_config.context_overflow_strategy,
         reserve_ratio=agent_config.context_reserve_ratio,
+        session_key=agent_config.session_key,
     )
 
     # ── Stable system + 本轮动态上下文 ──
@@ -1158,7 +1159,7 @@ async def execute_plan(
                         "type": "tool.start",
                         "session_key": session_key,
                         "tool": tc.function.name,
-                        "concurrent_slots_available": semaphore._value,  # Trace并发槽位
+                        "tool_call_id": tc.id,
                     }
                 )
                 try:
@@ -1246,6 +1247,7 @@ async def execute_plan(
                         "type": "tool.end",
                         "session_key": session_key,
                         "tool": tc.function.name,
+                        "tool_call_id": tc.id,
                         "duration_ms": tool_elapsed,
                         "success": result.success,
                     }

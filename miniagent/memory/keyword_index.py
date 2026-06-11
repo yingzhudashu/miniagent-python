@@ -444,9 +444,10 @@ class KeywordIndex:
                 idx_entry.references[entry_key] = 1.0  # weight
                 self._dirty = True
 
-        # 超过上限时驱逐最早关键词
-        while len(self._index) > self._max_entries:
-            self._index.popitem(last=False)
+        # 超过上限时驱逐最早关键词（驱逐后统一置 dirty 一次，避免循环内重复赋值）
+        if len(self._index) > self._max_entries:
+            while len(self._index) > self._max_entries:
+                self._index.popitem(last=False)
             self._dirty = True
 
     def search_relevant(

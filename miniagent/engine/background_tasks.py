@@ -23,6 +23,9 @@ from miniagent.core.constants import (
     BACKGROUND_TASKS_TASK_TTL_SECONDS,
 )
 from miniagent.infrastructure.json_config import get_config
+from miniagent.infrastructure.logger import get_logger
+
+_logger = get_logger(__name__)
 
 DEFAULT_TASK_TTL_SECONDS = BACKGROUND_TASKS_TASK_TTL_SECONDS
 DEFAULT_MAX_CONCURRENT = BACKGROUND_TASKS_MAX_CONCURRENT
@@ -78,6 +81,8 @@ class BackgroundTaskManager:
             ttl_seconds: 已完成任务 TTL（秒，None时从配置加载）
         """
         self._tasks: dict[str, BackgroundTask] = {}
+        # 跟踪 in-flight 执行 task，防止 fire-and-forget 丢失异常（"Task exception never retrieved"）。
+        self._exec_tasks: set[asyncio.Task] = set()
         cfg_parallel_cap = int(get_config("agent.max_parallel_sessions", 4))
         base_max = max_concurrent if max_concurrent is not None else DEFAULT_MAX_CONCURRENT
         self._max_concurrent = max(1, min(base_max, cfg_parallel_cap))
@@ -168,10 +173,21 @@ class BackgroundTaskManager:
             )
             self._tasks[task_id] = task
 
-            # 启动异步执行
-            asyncio.create_task(self._execute_task(engine, task, state, kwargs))
+            # 启动异步执行（跟踪 task 引用并在完成时记录异常，避免静默丢失）
+            exec_task = asyncio.create_task(self._execute_task(engine, task, state, kwargs))
+            self._exec_tasks.add(exec_task)
+            exec_task.add_done_callback(self._on_exec_task_done)
 
             return task_id
+
+    def _on_exec_task_done(self, task: asyncio.Task) -> None:
+        """后台执行 task 完成回调：从跟踪集合移除并记录未捕获异常。"""
+        self._exec_tasks.discard(task)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            _logger.error("后台任务执行异常: %s", exc, exc_info=exc)
 
     async def _execute_task(
         self,

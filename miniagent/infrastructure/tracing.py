@@ -121,13 +121,22 @@ class AsyncTraceWriter:
         self._emitted_count = 0
         self._written_count = 0
         self._dropped_count = 0
+        self._drop_warned = False
 
     def start(self, file_path: Path) -> None:
         """启动后台写入线程。
 
+        幂等保护：若已有打开的文件句柄/线程（重复调用 ``start``），先优雅关闭旧实例，
+        避免文件描述符与线程泄漏。
+
         Args:
             file_path: trace 文件路径
         """
+        # 幂等：重复 start 前回收旧句柄/线程，防止泄漏。
+        if self._file_handle is not None or self._writer_thread is not None:
+            self.shutdown()
+            self._shutdown = False
+
         # 进程隔离：添加进程ID后缀避免多进程写入冲突
         # 文件名格式：trace-YYYY-MM-DD-pid{process_id}.jsonl
         file_path_str = str(file_path)
@@ -142,16 +151,22 @@ class AsyncTraceWriter:
         # 确保目录存在
         self._file_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # 打开文件（追加模式）
+        # 打开文件（追加模式）；线程创建失败时回收句柄避免泄漏。
         self._file_handle = self._file_path.open("a", encoding="utf-8")
-
-        # 启动后台线程
-        self._writer_thread = threading.Thread(
-            target=self._writer_loop,
-            daemon=True,
-            name="trace-writer"
-        )
-        self._writer_thread.start()
+        try:
+            self._writer_thread = threading.Thread(
+                target=self._writer_loop,
+                daemon=True,
+                name="trace-writer"
+            )
+            self._writer_thread.start()
+        except Exception:
+            try:
+                self._file_handle.close()
+            finally:
+                self._file_handle = None
+                self._writer_thread = None
+            raise
 
     def emit(self, event: dict[str, Any]) -> None:
         """非阻塞发送事件（主线程调用）。
@@ -165,6 +180,15 @@ class AsyncTraceWriter:
                 self._queue.put_nowait(event)
             except queue.Full:
                 self._dropped_count += 1
+                # 首次发生背压丢弃时记一次 warning（之后仅累计计数），避免静默数据丢失难以排查。
+                if not self._drop_warned:
+                    self._drop_warned = True
+                    _logger.warning(
+                        "Trace 队列已满，开始丢弃事件（queue_max=%s, policy=%s）；"
+                        "可调高 trace.writer_queue_max_size 或降低事件量。后续丢弃仅累计 dropped_count。",
+                        self.queue_max_size,
+                        self.overflow_policy,
+                    )
                 if self.overflow_policy != TRACE_OVERFLOW_DROP_OLDEST:
                     return
                 try:
@@ -309,6 +333,12 @@ def _sanitize_trace_event_for_persistence(event: dict[str, Any]) -> dict[str, An
                 for usage_key, usage_value in value.items()
                 if isinstance(usage_value, int | float | str | bool) or usage_value is None
             }
+        elif isinstance(value, list) and all(
+            isinstance(item, int | float | bool) for item in value
+        ):
+            # 仅保留纯数值/布尔数组（安全 metrics，如时延分布）；
+            # 字符串列表可能含模型生成文本，按 metrics_only 策略丢弃。
+            sanitized[key] = list(value[:50])
     return sanitized
 
 
@@ -331,43 +361,6 @@ def _get_default_trace_file() -> Path:
     # 日期命名
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     return trace_dir / f"trace-{today}.jsonl"
-
-
-def _init_trace_log_file() -> None:
-    """初始化 trace 日志文件路径（从 JSON 配置 debug.log_path 读取）。"""
-    global _TRACE_LOG_FILE
-    from miniagent.infrastructure.json_config import get_config
-
-    log_path = str(get_config("debug.log_path", "") or "").strip()
-    if log_path:
-        _TRACE_LOG_FILE = Path(log_path)
-        _TRACE_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-
-
-def _trace_file_hook(event: dict[str, Any]) -> None:
-    """将 trace 事件写入 JSONL 文件的钩子。
-
-    自动添加时间戳，异步写入失败时记录日志（不影响主流程）。
-
-    Args:
-        event: 结构化事件负载
-    """
-    if _TRACE_LOG_FILE is None:
-        return
-    try:
-        # 添加时间戳
-        event_with_ts = {
-            "ts": datetime.now(timezone.utc).isoformat(),
-            **event,
-        }
-        line = json.dumps(event_with_ts, ensure_ascii=False)
-        with _TRACE_LOG_FILE.open("a", encoding="utf-8") as f:
-            f.write(line + "\n")
-    except Exception as e:
-        # 钩子异常不应影响主流程，但应记录日志
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.debug("Trace file hook write failed: %s", e)
 
 
 def register_trace_hook(hook: TraceHook) -> None:

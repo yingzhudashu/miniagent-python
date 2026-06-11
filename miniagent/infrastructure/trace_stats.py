@@ -35,7 +35,6 @@ from __future__ import annotations
 
 import json
 import re
-import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -53,7 +52,6 @@ from miniagent.infrastructure.trace_events import (
     EVENT_MEMORY_READ,
     EVENT_TOOL_END,
     EVENT_TOOL_ERROR,
-    EVENT_TOOL_START,
 )
 
 _logger = get_logger(__name__)
@@ -182,22 +180,16 @@ def compute_tool_stats(events: list[dict[str, Any]]) -> dict[str, Any]:
           "failed_tools": [...]
         }
     """
-    # 按 tool_call_id 或 tool 名称配对 start/end
-    tool_starts: dict[str, dict] = {}  # id -> start event
+    # tool.end 自带 duration_ms 与 success，直接聚合；
+    # tool.start 仅用于存在性/配对校验（按 tool_call_id），不参与时延计算。
     tool_stats: dict[str, dict[str, Any]] = defaultdict(
         lambda: {"count": 0, "total_ms": 0, "success": 0, "fail": 0}
     )
 
     for event in events:
         event_type = event.get("type", "")
-        tool_name = event.get("tool", "")
 
-        if event_type == EVENT_TOOL_START:
-            # 记录开始时间
-            tool_id = event.get("tool_call_id") or f"{tool_name}_{time.time_ns()}"
-            tool_starts[tool_id] = event
-
-        elif event_type == EVENT_TOOL_END:
+        if event_type == EVENT_TOOL_END:
             tool_name = event.get("tool", "")
             duration_ms = event.get("duration_ms", 0)
             success = event.get("success", True)
@@ -266,20 +258,30 @@ def compute_llm_stats(events: list[dict[str, Any]]) -> dict[str, Any]:
     total_completion_tokens = 0
     total_messages = 0
     total_tools = 0
+    # 按 phase（plan/exec/classify/reflect/clarify…）分组，便于定位各阶段调用次数与 token。
+    phase_stats: dict[str, dict[str, int]] = defaultdict(
+        lambda: {"request_count": 0, "prompt_tokens": 0, "completion_tokens": 0}
+    )
 
     for event in events:
         event_type = event.get("type", "")
+        phase = event.get("phase") or "unknown"
 
         if event_type == EVENT_LLM_REQUEST:
             request_count += 1
             total_messages += event.get("message_count", 0)
             total_tools += event.get("tool_count", 0)
+            phase_stats[phase]["request_count"] += 1
 
         elif event_type == EVENT_LLM_RESPONSE:
             usage = event.get("usage", {})
             if usage:
-                total_prompt_tokens += usage.get("prompt_tokens", 0)
-                total_completion_tokens += usage.get("completion_tokens", 0)
+                prompt = usage.get("prompt_tokens", 0) or 0
+                completion = usage.get("completion_tokens", 0) or 0
+                total_prompt_tokens += prompt
+                total_completion_tokens += completion
+                phase_stats[phase]["prompt_tokens"] += prompt
+                phase_stats[phase]["completion_tokens"] += completion
 
     result = {
         "request_count": request_count,
@@ -287,6 +289,7 @@ def compute_llm_stats(events: list[dict[str, Any]]) -> dict[str, Any]:
             "prompt": total_prompt_tokens,
             "completion": total_completion_tokens,
         },
+        "by_phase": {phase: dict(stats) for phase, stats in phase_stats.items()},
     }
 
     if request_count > 0:

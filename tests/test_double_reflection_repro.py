@@ -125,7 +125,9 @@ class TestHypothesisB_ReflectThinkingSink:
 
         captured = {}
 
-        async def _capture_reflect(user_input, reply, *, client=None, on_thinking="MISSING"):
+        async def _capture_reflect(
+            user_input, reply, *, client=None, on_thinking="MISSING", session_key=None
+        ):
             captured["on_thinking"] = on_thinking
             return ReflectionResult(acceptable=True, quality_score=0.8)
 

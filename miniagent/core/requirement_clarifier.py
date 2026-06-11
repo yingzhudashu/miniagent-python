@@ -151,6 +151,8 @@ class RequirementClarifier:
             prompt=user_input,
             system=system,
             client=client,
+            trace_phase="clarify",
+            trace_session_key=session_key,
         )
 
         clarified = ClarifiedRequirement(

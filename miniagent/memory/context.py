@@ -189,6 +189,7 @@ class DefaultContextManager(ContextManagerProtocol):
         *,
         overflow_strategy: str = "summarize",
         reserve_ratio: float = 0.15,
+        session_key: str | None = None,
     ) -> None:
         """创建上下文管理器
 
@@ -198,6 +199,7 @@ class DefaultContextManager(ContextManagerProtocol):
             tools: 工具 schema 列表（可选）
             overflow_strategy: summarize | truncate | error（见 AgentConfig.context_overflow_strategy）
             reserve_ratio: 为模型输出预留的上下文比例（见 agent.context_reserve_ratio）
+            session_key: 会话标识；用于压缩等事件的 trace 归属（缺省 None 即 'unknown'）
         """
         self._messages: list[ChatCompletionMessageParam] = []
         self._system_prompt: str = ""
@@ -209,6 +211,7 @@ class DefaultContextManager(ContextManagerProtocol):
         self._reserve_ratio = max(0.0, min(1.0, reserve_ratio))
         self._compressed = False
         self._total_tokens_estimate = 0
+        self._session_key = session_key
         # 工具 schema 不变时缓存其 token 估算，避免 needs_compression / get_token_report 反复 json.dumps
         self._cached_tool_tokens: int = 0
         self._tool_tokens_dirty = True
@@ -375,7 +378,7 @@ class DefaultContextManager(ContextManagerProtocol):
         after_tokens = self._total_tokens_estimate
         emit_trace({
             "type": EVENT_CONTEXT_COMPRESS,
-            "session_key": getattr(self, '_session_key', 'unknown'),  # 安全获取session_key
+            "session_key": self._session_key or "unknown",
             "duration_ms": elapsed,
             "before_tokens": before_tokens,
             "after_tokens": after_tokens,
