@@ -32,15 +32,17 @@
    }
    ```
 
-2. **启用自动归档**：
+2. **配置历史归档**：
    ```json
    {
      "memory": {
-       "archive_enabled": true,
-       "archive_after_days": 30  // 30天后自动归档
+       "history_tail_messages": 100,  // 保留最近消息数
+       "max_transcript_chars": 500000  // transcript 显示上限
      }
    }
    ```
+   
+   注：自动归档功能见 `memory/history_archive.py`，通过代码逻辑控制
 
 3. **定期清理**：
    ```bash
@@ -170,14 +172,17 @@
    }
    ```
 
-3. **预压缩策略**：
+3. **上下文管理**：
    ```json
    {
      "memory": {
-       "compression_threshold": 0.8  // 80%时开始压缩
+       "context_window_reserve": 2000,  // 预留 token 空间
+       "max_context_messages": 100  // 最大上下文消息数
      }
    }
    ```
+   
+   注：压缩策略在 `memory/context.py` 中自动触发，无需配置
 
 ---
 
@@ -191,11 +196,13 @@
 1. **调整超时时间**：
    ```json
    {
-     "model": {
-       "api_timeout": 60  // 从30秒增加到60秒
+     "agent": {
+       "http_timeout": 120  // HTTP 请求超时（秒）
      }
    }
    ```
+   
+   注：OpenAI SDK 的超时在 `core/openai_client.py` 中配置为 120 秒
 
 2. **启用重试**：
    ```json
@@ -337,20 +344,21 @@ rm -f workspaces/memory/*.md  # 手动清理超过180天的记忆
 {
   "memory": {
     "history_tail_messages": 100,
-    "archive_enabled": true,
-    "archive_after_days": 30,
     "store_cache_max": 200,
-    "keyword_index_max": 15000
+    "initial_history_count": 20,
+    "max_transcript_chars": 500000
   },
   "agent": {
     "streaming": true,
-    "allow_parallel_tools": true,
-    "tool_call_timeout": 60
+    "parallel_sessions": true,
+    "max_parallel_sessions": 4,
+    "tool_timeout": 60,
+    "http_timeout": 120
   },
   "model": {
     "model": "gpt-4o-mini",
-    "api_timeout": 60,
-    "max_retries": 3
+    "retry_count": 2,
+    "max_tokens": 4096
   }
 }
 ```

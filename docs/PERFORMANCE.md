@@ -1,6 +1,6 @@
 # 性能测试与优化
 
-> Mini Agent Python | 与 `miniagent.__version__` 对齐 | 补充 [ENGINEERING.md](ENGINEERING.md)
+> Mini Agent Python | 版本: 2.1.0 | 补充 [ENGINEERING.md](ENGINEERING.md)
 
 本文说明如何度量 **进程内** 开销（CPU、内存、本地 I/O），如何与 **端到端（含 LLM 网络）** 指标区分，以及如何维护基线与可选 CI。
 

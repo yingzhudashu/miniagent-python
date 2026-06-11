@@ -1,5 +1,7 @@
 # 实例注册表（Instance Registry）
 
+> Mini Agent Python | 版本: 2.1.0
+
 ## 概述
 
 MiniAgent 使用 **RuntimeContext 组合根** 模式管理进程级实例，而非传统的全局变量散布。实例注册表是 RuntimeContext 的核心组件之一，负责：
