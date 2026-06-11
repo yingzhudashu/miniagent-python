@@ -30,7 +30,7 @@ import traceback
 from collections.abc import Callable
 from functools import lru_cache
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, TypeAlias
 
 from openai import AsyncOpenAI
 
@@ -163,7 +163,25 @@ def _log_tool_error(
     is_user_error: bool = False,
     traceback_str: str | None = None,
 ) -> None:
-    """统一记录工具错误日志，区分用户误用与工具缺陷。"""
+    """统一记录工具错误日志，区分用户误用与工具缺陷。
+
+    对工具执行错误进行分类记录和 trace 发射，帮助诊断问题根源：
+    - 用户误用：权限错误、文件不存在、参数错误等 → WARNING 级别
+    - 工具缺陷：内部错误、未捕获异常等 → ERROR 级别，附带堆栈
+
+    Args:
+        tool_name: 工具名称
+        tool_call_id: LLM 生成的 tool_call ID（可为 None）
+        args: 工具参数字典（会被截断以避免日志膨胀）
+        session_key: 会话标识符（用于关联会话日志）
+        error_type: 异常类型名称（如 "PermissionError"）
+        error_message: 错误消息文本
+        is_user_error: 是否为用户误用（True=WARNING，False=ERROR）
+        traceback_str: 完整堆栈信息（仅非用户错误时记录）
+
+    Note:
+        所有错误都会发射 tool.error trace 事件，供监控系统收集。
+    """
     args_str = _truncate_args_for_log(args)
     log_prefix = f"[工具错误] {tool_name}"
     emit_trace({
@@ -274,17 +292,31 @@ def build_stable_execution_system_prompt(
 ) -> str:
     """构建执行阶段可复用的稳定 system prompt。
 
-    该段会成为最终消息数组的第一条消息，并尽量在同一 channel/session 下保持稳定，
-    以便 OpenAI-compatible / Anthropic-compatible provider 的前缀缓存自然命中。允许放入
-    低频变化的信息，例如：
-    - Agent 身份与全局行为约束（``agent_identity``）。
-    - 调用方稳定系统补充（技能 prompt、通道级固定规则、分层长期摘要等）。
-    - 工具/文件访问的稳定解释规则。
-    - 只描述时区解释规则、不包含当前秒级时间的时区说明。
+    该函数生成消息数组的第一条 system 消息，设计为在同一 session/channel 下
+    尽量保持稳定，以便 OpenAI/Anthropic 的前缀缓存机制自然命中，降低成本。
 
-    不要在这里放入本轮动态资料，例如用户当前请求、plan.summary、keyword_context、
-    kb_context、当前时间、风险等级或具体文件根目录；这些内容应进入
-    ``build_current_turn_user_context``，并作为最后一条 user 消息发送。
+    **应包含的内容**（低频变化）：
+    - Agent 身份与全局行为约束（AGENT_IDENTITY）
+    - 调用方稳定系统补充（技能 prompt、通道级规则、长期摘要等）
+    - 工具/文件访问的稳定解释规则
+    - 时区解释规则（不含当前具体时间）
+
+    **不应包含的内容**（高频变化，应放入 current_turn_user_context）：
+    - 用户当前请求
+    - plan.summary
+    - keyword_context / kb_context
+    - 当前时间
+    - 风险等级、具体文件根目录
+
+    Args:
+        agent_identity: Agent 身份描述文本（如 AGENT_IDENTITY）
+        caller_system_prompt: 调用方注入的稳定系统补充（如 skill prompts）
+
+    Returns:
+        str: 稳定的 system prompt 文本
+
+    Note:
+        与 build_current_turn_user_context 配合使用，实现缓存友好的 prompt 分层。
     """
     parts: list[str] = [agent_identity.strip()]
     if caller_system_prompt and caller_system_prompt.strip():
@@ -311,14 +343,32 @@ def build_current_turn_user_context(
 ) -> str:
     """构建执行阶段每轮动态 user context。
 
-    该段承载所有会随用户输入或运行时状态频繁变化的资料，并在有历史时作为最终消息数组
-    的最后一条 user 消息：``[system] + history + [current_turn_context]``。
-    这样既保留了历史语义顺序，也避免动态检索结果污染稳定 system 前缀。
+    该函数生成包含所有高频变化资料的 user 消息，在有历史时作为消息数组的
+    最后一条 user 消息：``[system] + history + [current_turn_context]``。
+    既保留了历史语义顺序，也避免动态检索结果污染稳定 system 前缀。
 
-    应放入本函数的内容包括：
-    - 本轮用户请求与计划摘要。
-    - 结构化会话记忆、keyword_context、kb_context 等按 query 检索出的上下文。
-    - 当前默认文件根目录、风险等级与当前时间上下文。
+    **应包含的内容**（高频变化）：
+    - 本轮用户请求与计划摘要
+    - 结构化会话记忆（memory_context）
+    - 关键词检索上下文（keyword_context）
+    - 知识库检索上下文（kb_context）
+    - 当前默认文件根目录
+    - 风险等级与当前时间上下文
+
+    Args:
+        user_input: 用户原始需求文本
+        plan_summary: 执行计划摘要
+        keyword_context: 关键词检索结果（可含结构化记忆）
+        kb_context: 知识库检索结果
+        session_files_root: 会话文件根目录（工具相对路径基准）
+        risk_level: 任务风险等级（low/medium/high）
+        current_time_context: 当前时间上下文（含时区信息）
+
+    Returns:
+        str: 动态 user context 文本
+
+    Note:
+        与 build_stable_execution_system_prompt 配合使用，实现缓存友好的 prompt 分层。
     """
     parts: list[str] = [f"用户请求：\n{user_input.strip()}"]
     summary = (plan_summary or "").strip()
@@ -433,7 +483,30 @@ def _resolve_exec_tools(
     plan: StructuredPlan,
     step: PlanStep | None,
 ) -> list[Any]:
-    """与主流程一致的工具筛选；``step`` 非空且含 required_toolboxes 时按步骤覆盖。"""
+    """根据工具选择策略筛选本轮可用工具定义列表。
+
+    工具筛选遵循三级优先级：
+    1. 步骤级工具箱（step.required_toolboxes）：分步执行时按步骤覆盖
+    2. 计划级工具箱（plan.required_toolboxes）：规划器指定的工具箱
+    3. 策略回退（tool_selection_strategy）：all/auto/manual 三种模式
+
+    **策略说明**：
+    - "all": 所有已注册工具（无筛选）
+    - "auto": 有工具箱时按工具箱筛选，否则返回核心工具（toolbox=None）
+    - "manual": 严格按工具箱筛选（plan/step 指定的工具箱）
+
+    Args:
+        effective_registry: 工具注册表（可能是会话级覆盖注册表）
+        agent_config: Agent 配置（含 tool_selection_strategy）
+        plan: 结构化执行计划
+        step: 当前执行步骤（None 表示非分步模式）
+
+    Returns:
+        list[Any]: 工具定义 schema 列表（传递给 LLM tools 参数）
+
+    Note:
+        分步模式下每步可使用不同工具集，提升安全性和 token 效率。
+    """
     step_tbs = list(step.required_toolboxes) if step and step.required_toolboxes else None
     plan_tbs = plan.required_toolboxes
 
@@ -450,7 +523,22 @@ def _resolve_exec_tools(
 
 
 def _step_thinking_header(si: int, n_steps: int, step: PlanStep) -> str:
-    """分步执行时用于思考展示/合并的步骤级 header。"""
+    """生成分步执行时的步骤级思考展示 header。
+
+    用于分步模式（PHASED_EXECUTION）的思考流分段标题，格式：
+    "[步骤 {step_number}/{total_steps}] {description}"
+
+    Args:
+        si: 步骤索引（从 0 开始）
+        n_steps: 总步骤数
+        step: 当前步骤对象
+
+    Returns:
+        str: 步骤 header 文本（用于 on_thinking 的 header 参数）
+
+    Note:
+        描述超过 72 字符时自动截断并添加省略号。
+    """
     sn = int(step.step_number) if step.step_number is not None else si + 1
     desc = (step.description or "").strip().replace("\n", " ")
     if len(desc) > 72:
@@ -462,7 +550,21 @@ def _append_context_or_return(
     context_manager: DefaultContextManager,
     msg: dict[str, Any],
 ) -> str | None:
-    """追加消息；若 overflow_strategy=error 且超预算则返回错误文案。"""
+    """安全地向上下文管理器追加消息，处理超预算错误。
+
+    尝试将消息追加到上下文管理器，若 overflow_strategy="error" 且超出
+    token 预算，则捕获 ContextBudgetExceeded 异常并返回警告文案。
+
+    Args:
+        context_manager: 上下文管理器实例
+        msg: 要追加的消息字典（含 role 和 content）
+
+    Returns:
+        str | None: 超预算时返回 WARNING_PREFIX 错误提示，正常则返回 None
+
+    Note:
+        调用方应检查返回值，非 None 时立即终止执行并返回错误文案。
+    """
     try:
         context_manager.append(msg)
     except ContextBudgetExceeded as e:
@@ -474,8 +576,8 @@ def _append_context_or_return(
 
 OnToolCall = Callable[[str, str, str], None]  # (name, args_json, result)
 # 使用 Protocol 类型替代 Callable[..., Any]，详见 miniagent/types/protocols.py
-OnThinking = OnThinkingCallback  # (text, streaming, header, *, full_record=..., reset=...)
-OnToolFinish = OnToolFinishCallback  # (name, args_json, result, success, *, thinking_header=...)
+OnThinking: TypeAlias = OnThinkingCallback  # (text, streaming, header, *, full_record=..., reset=...)
+OnToolFinish: TypeAlias = OnToolFinishCallback  # (name, args_json, result, success, *, thinking_header=...)
 
 
 # ─── 核心：execute_plan（ReAct 主循环；可选分步子循环 + 无 tools 收尾 synthesis）──
@@ -1510,7 +1612,26 @@ def _clip_intent_value(s: str) -> str:
 
 
 def _extract_tool_intent(tool_name: str, args: dict[str, Any]) -> str:
-    """从工具调用中提取简要意图描述。"""
+    """从工具调用中提取简要意图描述。
+
+    生成工具调用的用户可读摘要，用于活动日志和思考流展示。
+    优先显示关键参数值（如文件路径、搜索查询、命令等）。
+
+    **提取优先级**：
+    1. 查找常见参数名（path、query、command、content、url）
+    2. 显示参数值（截断至 TOOL_INTENT_MAX_CHARS）
+    3. 回退到工具名称映射（_TOOL_INTENT_MAP）
+
+    Args:
+        tool_name: 工具名称
+        args: 工具参数字典
+
+    Returns:
+        str: 工具意图简要描述（如 "读取文件: /path/to/file"）
+
+    Note:
+        参数值会被 _clip_intent_value 截断以避免日志膨胀。
+    """
     base_intent = _TOOL_INTENT_MAP.get(tool_name, f"调用 {tool_name}")
     if args:
         for key in ("path", "query", "command", "content", "url"):
@@ -1530,7 +1651,28 @@ async def _save_session_memory(
     final_reply: str,
     turn_tool_calls: list[dict[str, Any]],
 ) -> None:
-    """保存会话记忆：提取事实、生成摘要、写入存储。"""
+    """保存会话记忆：提取事实、生成摘要、写入存储。
+
+    在 ReAct 循环完成后调用，将本轮对话的关键信息持久化到记忆存储，
+    用于后续会话的上下文检索。
+
+    **处理流程**：
+    1. 提取事实信息（extract_facts）：从对话中识别关键事实
+    2. 生成摘要（generate_turn_summary）：基于工具调用和回复生成概要
+    3. 更新会话摘要（update_summary）：更新长期摘要和事实列表
+    4. 添加条目（add_entry）：写入新的记忆条目（含时间戳和摘要）
+    5. 刷新索引（flush_keyword_index）：更新关键词索引供检索
+
+    Args:
+        memory_store: 记忆存储实例
+        session_key: 会话标识符
+        user_input: 用户原始输入
+        final_reply: Agent 最终回复
+        turn_tool_calls: 本轮工具调用列表（名称、参数、结果）
+
+    Note:
+        该函数仅在成功完成（无工具调用）时被调用，循环拦截不会触发记忆保存。
+    """
     from datetime import datetime, timezone
 
     facts = extract_facts(user_input + " " + final_reply)

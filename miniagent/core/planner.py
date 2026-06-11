@@ -221,7 +221,28 @@ async def generate_plan(
 
 
 def _format_toolbox_tool_names(registry: Any, toolbox_ids: list[str]) -> str:
-    """按工具箱 id 列出注册表中的工具名（无注册表或为空则返回空串）。"""
+    """按工具箱 ID 列出注册表中的工具名称映射。
+
+    生成工具箱到工具名称的映射文本，用于规划器上下文。帮助 LLM 规划器
+    了解每个工具箱包含哪些具体工具，从而在 requiredToolboxes 中做出准确选择。
+
+    **输出格式**：
+    ```
+    __core__（无工具箱绑定的核心工具）: read_file, write_file, exec_command
+    filesystem: list_dir, watch_file
+    web: web_search, fetch_url
+    ```
+
+    Args:
+        registry: 工具注册表实例（需实现 get_all 方法）
+        toolbox_ids: 可用工具箱 ID 列表
+
+    Returns:
+        str: 工具箱到工具名称的映射文本，无注册表或为空则返回空串
+
+    Note:
+        核心工具（toolbox=None）会被单独列为 __core__ 组。
+    """
     if registry is None or not toolbox_ids:
         return ""
     try:
@@ -246,7 +267,27 @@ def _format_toolbox_tool_names(registry: Any, toolbox_ids: list[str]) -> str:
 
 
 def _completed_work_context(agent_config: Any | None) -> str:
-    """Summarize recent completed work so the planner can reuse it."""
+    """从对话历史中提取已完成工作的摘要，供规划器复用。
+
+    扫描最近 20 条对话历史消息，识别包含关键工作标记的条目（如"已读取"、
+    "分析"、"测试"、"已完成"等），生成简洁摘要。帮助规划器避免重复步骤，
+    直接利用已有结果。
+
+    **识别的关键词**：
+    - 文件操作：read_file、已读取
+    - 分析工作：分析、review、解释
+    - 测试验证：测试、pytest、已完成
+    - 知识检索：rag、知识库
+
+    Args:
+        agent_config: Agent 配置对象（需包含 conversation_history 属性）
+
+    Returns:
+        str: 已完成工作摘要文本（含标题），无相关历史则返回空串
+
+    Note:
+        最多返回最近 8 条相关记录，每条截断至 180 字符。
+    """
     history = getattr(agent_config, "conversation_history", None) if agent_config is not None else None
     if not history:
         return ""
@@ -389,7 +430,29 @@ def _dict_to_plan(data: dict[str, Any], *, default_step_thinking: str = "medium"
 
 
 def _normalize_plan_steps(steps: list[PlanStep]) -> list[PlanStep]:
-    """Remove duplicate/empty plan steps and repair numbering/dependencies."""
+    """规范化计划步骤列表：去重、清理空步骤、修复编号和依赖关系。
+
+    对 LLM 返回的原始步骤列表进行后处理，确保步骤的有效性和一致性：
+    1. 移除空步骤（description 和 expected_output 均为空）
+    2. 去除重复步骤（基于指纹相似度）
+    3. 重新编号（从 1 开始连续）
+    4. 修复依赖关系（depends_on 映射到新编号）
+    5. 去除工具箱列表中的重复项
+
+    **指纹生成规则**（_step_fingerprint）：
+    - 优先提取文件路径（如 "config.py"）
+    - 识别动作类型（read/discover/analyze/verify/work）
+    - 结合工具箱列表生成唯一标识
+
+    Args:
+        steps: 原始步骤列表
+
+    Returns:
+        list[PlanStep]: 规范化后的步骤列表
+
+    Note:
+        该函数是幂等的，多次调用结果相同。
+    """
     kept: list[PlanStep] = []
     old_to_new: dict[int, int] = {}
     fingerprint_to_new: dict[str, int] = {}
@@ -427,6 +490,21 @@ def _normalize_plan_steps(steps: list[PlanStep]) -> list[PlanStep]:
 
 
 def _dedupe_toolboxes(raw_toolboxes: Any, steps: list[PlanStep]) -> list[str]:
+    """合并并去重计划级和步骤级工具箱列表。
+
+    从计划的 requiredToolboxes 和各步骤的 required_toolboxes 中收集所有
+    工具箱 ID，去除重复项并保持顺序。
+
+    Args:
+        raw_toolboxes: 计划级工具箱列表（可能为非列表类型）
+        steps: 步骤列表
+
+    Returns:
+        list[str]: 去重后的工具箱 ID 列表
+
+    Note:
+        空字符串和 None 值会被过滤掉。
+    """
     values: list[str] = []
     if isinstance(raw_toolboxes, list):
         values.extend(str(item) for item in raw_toolboxes if str(item).strip())
@@ -449,6 +527,26 @@ def _unique_strings(values: Any) -> list[str]:
 
 
 def _step_fingerprint(step: PlanStep) -> str:
+    """生成步骤的唯一指纹，用于去重判断。
+
+    指纹由三部分组成：动作类型 | 目标标识 | 工具箱列表
+    - 动作类型：read/discover/analyze/verify/work（_action_bucket）
+    - 目标标识：优先使用文件路径，否则使用规范化文本前 80 字符
+    - 工具箱列表：排序后的工具箱 ID 逗号分隔
+
+    **示例**：
+    - "read|config.py|filesystem" — 读取配置文件
+    - "analyze|测试覆盖率报告|testing" — 分析测试覆盖率
+
+    Args:
+        step: 计划步骤对象
+
+    Returns:
+        str: 步骤指纹字符串
+
+    Note:
+        指纹相同的步骤会被 _normalize_plan_steps 视为重复并去除。
+    """
     text = " ".join([step.description, step.expected_input, step.expected_output]).lower()
     path = _first_path_like(text)
     action = _action_bucket(text)
@@ -479,7 +577,27 @@ def _action_bucket(text: str) -> str:
 
 
 def _fallback_plan(user_input: str) -> StructuredPlan:
-    """回退计划：跳过详细规划，直接执行。"""
+    """生成回退计划：当规划器调用全部失败时的兜底方案。
+
+    在以下场景触发：
+    - LLM 规划器连续失败 MAX_RETRIES 次（网络错误、解析错误等）
+    - 规划器返回无效 JSON（缺少 steps/requiredToolboxes 字段）
+
+    **回退策略**：
+    - 单步直接执行（无详细规划）
+    - 低风险等级（risk_level="low"）
+    - 较短轮数限制（max_turns=5）
+    - 低思考深度（thinking_level="low"）
+
+    Args:
+        user_input: 用户原始需求
+
+    Returns:
+        StructuredPlan: 回退计划对象
+
+    Note:
+        回退计划确保系统在规划器故障时仍能继续执行，避免完全失败。
+    """
     return StructuredPlan(
         summary="直接执行模式：跳过详细规划",
         steps=[

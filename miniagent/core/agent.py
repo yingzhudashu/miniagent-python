@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 if TYPE_CHECKING:
     from openai import AsyncOpenAI
@@ -59,7 +59,17 @@ _logger = get_logger(__name__)
 
 
 def _announce_difficulty_and_plan_enabled() -> bool:
-    """是否向用户展示任务难度与规划摘要（默认开启）。"""
+    """检查是否向用户展示任务难度与规划摘要。
+
+    从常量 EXECUTION_ANNOUNCE_DIFFICULTY 读取配置，用于控制 [评估与计划] 段
+    是否在思考流中可见。关闭后规划过程对用户透明，可减少信息过载。
+
+    Returns:
+        bool: True 表示展示难度与规划，False 表示静默执行。
+
+    Note:
+        该配置影响 on_thinking 回调的 PLANNING_STREAM_HEADER 段推送。
+    """
     from miniagent.core.constants import EXECUTION_ANNOUNCE_DIFFICULTY
 
     return EXECUTION_ANNOUNCE_DIFFICULTY
@@ -74,7 +84,22 @@ _DIFFICULTY_LABELS = {
 
 
 def _format_task_difficulty(difficulty: Any, *, display: bool = False) -> str:
-    """Format task difficulty; *display=True* returns the short CLI/Feishu card line."""
+    """格式化任务难度为可读文本。
+
+    根据 display 参数返回不同格式：
+    - display=False: 完整说明（含思考深度调整提示），用于会话历史全量记录
+    - display=True: 精简卡片格式（CLI/飞书卡片），仅显示难度标签
+
+    Args:
+        difficulty: TaskDifficulty 枚举值或字符串（simple/normal/medium/complex）
+        display: 是否返回精简展示格式（默认 False）
+
+    Returns:
+        str: 格式化后的难度文本
+
+    Note:
+        中文标签映射见 _DIFFICULTY_LABELS 字典。
+    """
     key = getattr(difficulty, "value", str(difficulty))
     zh = _DIFFICULTY_LABELS.get(key, key)
     if display:
@@ -90,7 +115,22 @@ def _skip_structured_plan_reason(
     user_skip_planning: bool,
     simple_classified: bool,
 ) -> str:
-    """Human-readable single reason; callers ensure mutually exclusive typical paths."""
+    """生成跳过结构化规划的原因说明。
+
+    根据跳过原因返回用户可读的中文解释，用于展示在 [评估与计划] 段。
+    调用方应确保三个布尔标志互斥（仅一个为 True）。
+
+    Args:
+        no_toolboxes: 无可用工具箱（纯对话模式）
+        user_skip_planning: 用户显式设置 skip_planning=True
+        simple_classified: 任务分类器判定为简单任务
+
+    Returns:
+        str: 跳过原因的中文说明文本
+
+    Note:
+        按优先级检查：no_toolboxes > user_skip_planning > simple_classified。
+    """
     if no_toolboxes:
         return "原因：无可用工具箱，未调用结构化规划器。"
     if user_skip_planning:
@@ -111,7 +151,27 @@ def _format_plan_display_short(
     user_skip_planning: bool = False,
     simple_classified: bool = False,
 ) -> str:
-    """执行计划展示用精简 Markdown（无逐步预期输入/产出长段）。"""
+    """格式化执行计划为精简 Markdown（CLI/飞书卡片展示用）。
+
+    根据计划来源（LLM规划器 vs 默认计划）生成不同格式：
+    - LLM规划：显示摘要、步骤列表、工具箱
+    - 默认计划：显示跳过原因和摘要
+
+    与 _format_plan_message 的区别：此函数省略预期输入/产出细节，适合即时展示。
+
+    Args:
+        plan: 结构化执行计划
+        from_llm_planner: 是否来自 LLM 规划器（False 表示默认计划）
+        no_toolboxes: 是否因无工具箱跳过规划
+        user_skip_planning: 是否用户显式跳过规划
+        simple_classified: 是否因简单任务跳过规划
+
+    Returns:
+        str: 精简格式的计划 Markdown 文本
+
+    Note:
+        飞书卡片有字符数限制，此格式确保关键信息可见。
+    """
     if not from_llm_planner:
         reason = _skip_structured_plan_reason(
             no_toolboxes=no_toolboxes,
@@ -143,7 +203,24 @@ def _format_plan_message(
     user_skip_planning: bool = False,
     simple_classified: bool = False,
 ) -> str:
-    """Full plan markdown for on_thinking / session history; Feishu caps apply in poll_server."""
+    """格式化执行计划为完整 Markdown（会话历史全量记录用）。
+
+    生成包含所有细节的计划文本，用于 on_thinking 回调的 full_record 参数
+    和会话历史存储。包含预期输入/产出等完整信息。
+
+    Args:
+        plan: 结构化执行计划
+        from_llm_planner: 是否来自 LLM 规划器（False 表示默认计划）
+        no_toolboxes: 是否因无工具箱跳过规划
+        user_skip_planning: 是否用户显式跳过规划
+        simple_classified: 是否因简单任务跳过规划
+
+    Returns:
+        str: 完整格式的计划 Markdown 文本
+
+    Note:
+        飞书通道在 poll_server 中应用字符数限制，此函数不负责截断。
+    """
     if not from_llm_planner:
         reason = _skip_structured_plan_reason(
             no_toolboxes=no_toolboxes,
@@ -175,10 +252,10 @@ def _format_plan_message(
 
 # ─── 回调类型 ────────────────────────────────────────────
 
-OnToolCall = Callable[[str, str, str], None]
-OnToolFinish = OnToolFinishCallback
-OnPlan = Callable[[StructuredPlan], Awaitable[bool]]
-OnThinking = OnThinkingCallback
+OnToolCall: TypeAlias = Callable[[str, str, str], None]
+OnToolFinish: TypeAlias = OnToolFinishCallback
+OnPlan: TypeAlias = Callable[[StructuredPlan], Awaitable[bool]]
+OnThinking: TypeAlias = OnThinkingCallback
 
 
 # ─── 主入口 ──────────────────────────────────────────────
@@ -639,7 +716,24 @@ async def run_pipeline(
 
 
 def _create_default_plan() -> StructuredPlan:
-    """创建默认计划（直接执行模式）。"""
+    """创建默认计划（直接执行模式）。
+
+    用于以下场景：
+    - 无可用工具箱（纯对话模式）
+    - 用户显式跳过规划（skip_planning=True）
+    - 简单任务自动跳过规划（TaskDifficulty.SIMPLE）
+
+    Returns:
+        StructuredPlan: 包含默认配置的结构化计划
+            - summary: "直接执行模式"
+            - steps: 空列表（无分步执行）
+            - required_toolboxes: 空列表
+            - risk_level: "low"
+            - max_turns: None（使用全局默认值）
+
+    Note:
+        该计划会被传递给执行器，触发单阶段 ReAct 循环（非分步模式）。
+    """
     return StructuredPlan(
         summary="直接执行模式",
         steps=[],
