@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 from miniagent.core.config import get_default_agent_config, merge_agent_config
 from miniagent.core.executor import execute_plan
 from miniagent.core.planner import generate_plan
-from miniagent.core.problem_solver import reflect_on_result
+from miniagent.core.problem_solver import build_reflection_footer, reflect_on_result
 from miniagent.core.task_classifier import (
     TaskDifficulty,
     classify_task_difficulty,
@@ -571,14 +571,10 @@ async def run_agent(
             if not hasattr(engine, "_last_reflection") or not isinstance(engine._last_reflection, dict):
                 engine._last_reflection = {}
             engine._last_reflection[sk] = reflection
-        # CLI 侧：在回复末尾追加质量评估尾部（飞书侧会发送独立卡片，不再依赖此处）
-        status = "质量评估通过" if reflection.acceptable else "质量评估需改进"
-        reflection_footer = f"\n\n---\n🤖 {status} | 质量评分 {reflection.quality_score:.1f}"
-        if reflection.suggestions:
-            reflection_footer += "\n\n建议：\n" + "\n".join(
-                f"- {s}" for s in reflection.suggestions[:5]
-            )
-        reply = reply + reflection_footer
+        # 展示层：在回复末尾追加质量评估尾部（CLI 终端 / 飞书卡片）。
+        # 注意：footer 仅用于展示，落入会话历史后由 history_bridge 在回灌 LLM 前
+        # 剥离（见 strip_reflection_footer），避免下一轮被模型复述导致重复评估。
+        reply = reply + build_reflection_footer(reflection)
 
     return reply
 
