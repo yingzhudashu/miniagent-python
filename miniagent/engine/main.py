@@ -2405,44 +2405,49 @@ async def run_cli_loop(
             _transcript_coordinator.begin_turn(session_key, source="cli")
             cli_append = _transcript_coordinator.make_session_append(session_key)
             cli_append_ansi = _transcript_coordinator.make_session_append_ansi(session_key)
-            try:
-                _cli_rule_heavy()
-                _was_at_bottom = _output_at_bottom()
-                _stick_bottom[0] = True
+            # 整轮 turn（You 块 + 执行 + 答案块）纳入会话级串行边界：
+            # 同一 session_key 的 CLI 与飞书 turn 严格排队、原子呈现，不交错；
+            # 不同 session_key 仍可并行。锁内 run_agent 须传 _hold_session_lock=True。
+            async with engine.session_turn(session_key):
                 try:
-                    _snap_output_bottom()
-                    get_app().invalidate()
-                except Exception:
-                    pass
-                format_cli_user_block(cli_append, user_input, _stick_bottom)
-                try:
-                    await asyncio.sleep(0)
-                    if _was_at_bottom:
-                        _stick_bottom[0] = True
+                    _cli_rule_heavy()
+                    _was_at_bottom = _output_at_bottom()
+                    _stick_bottom[0] = True
+                    try:
                         _snap_output_bottom()
                         get_app().invalidate()
-                except Exception:
-                    pass
-                reply = await engine.run_agent_with_thinking(
-                    user_input,
-                    session_key,
-                    _skill_tb(),
-                    _skill_sp(),
-                    registry=registry,
-                    monitor=monitor,
-                    session_manager=state.get("session_manager"),
-                    channel_router=channel_router,
-                    clawhub=ctx.clawhub,
-                    memory_store=ctx.memory_store,
-                    activity_log=ctx.activity_log,
-                    keyword_index=ctx.keyword_index,
-                    client=ctx.openai_client,
-                    cli_loop_state=state,
-                )
-                if reply and reply.strip():
-                    format_cli_reply_block(cli_append, cli_append_ansi, (reply or "").strip())
-            finally:
-                _transcript_coordinator.end_turn(session_key)
+                    except Exception:
+                        pass
+                    format_cli_user_block(cli_append, user_input, _stick_bottom)
+                    try:
+                        await asyncio.sleep(0)
+                        if _was_at_bottom:
+                            _stick_bottom[0] = True
+                            _snap_output_bottom()
+                            get_app().invalidate()
+                    except Exception:
+                        pass
+                    reply = await engine.run_agent_with_thinking(
+                        user_input,
+                        session_key,
+                        _skill_tb(),
+                        _skill_sp(),
+                        registry=registry,
+                        monitor=monitor,
+                        session_manager=state.get("session_manager"),
+                        channel_router=channel_router,
+                        clawhub=ctx.clawhub,
+                        memory_store=ctx.memory_store,
+                        activity_log=ctx.activity_log,
+                        keyword_index=ctx.keyword_index,
+                        client=ctx.openai_client,
+                        cli_loop_state=state,
+                        _hold_session_lock=True,
+                    )
+                    if reply and reply.strip():
+                        format_cli_reply_block(cli_append, cli_append_ansi, (reply or "").strip())
+                finally:
+                    _transcript_coordinator.end_turn(session_key)
         except Exception as e:
             _append_transcript("class:cli-err", f"❌ 错误: {e}\n")
 
@@ -2799,30 +2804,33 @@ async def _run_cli_loop_fallback(
             _fb_coordinator.begin_turn(session_key, source="cli")
             cli_append = _fb_coordinator.make_session_append(session_key)
             cli_append_ansi = _fb_coordinator.make_session_append_ansi(session_key)
-            try:
-                _fallback_print_locked("\n\n")
-                _fb_rule_heavy()
-                format_cli_user_block(cli_append, user_input, stick)
-                reply = await engine.run_agent_with_thinking(
-                    user_input,
-                    session_key,
-                    _skill_tb(),
-                    _skill_sp(),
-                    registry=registry,
-                    monitor=monitor,
-                    session_manager=state.get("session_manager"),
-                    channel_router=channel_router,
-                    clawhub=ctx.clawhub,
-                    memory_store=ctx.memory_store,
-                    activity_log=ctx.activity_log,
-                    keyword_index=ctx.keyword_index,
-                    client=ctx.openai_client,
-                    cli_loop_state=state,
-                )
-                if reply and reply.strip():
-                    format_cli_reply_block(cli_append, cli_append_ansi, (reply or "").strip())
-            finally:
-                _fb_coordinator.end_turn(session_key)
+            # 整轮 turn 纳入会话级串行边界（见主终端 _process_input 说明）。
+            async with engine.session_turn(session_key):
+                try:
+                    _fallback_print_locked("\n\n")
+                    _fb_rule_heavy()
+                    format_cli_user_block(cli_append, user_input, stick)
+                    reply = await engine.run_agent_with_thinking(
+                        user_input,
+                        session_key,
+                        _skill_tb(),
+                        _skill_sp(),
+                        registry=registry,
+                        monitor=monitor,
+                        session_manager=state.get("session_manager"),
+                        channel_router=channel_router,
+                        clawhub=ctx.clawhub,
+                        memory_store=ctx.memory_store,
+                        activity_log=ctx.activity_log,
+                        keyword_index=ctx.keyword_index,
+                        client=ctx.openai_client,
+                        cli_loop_state=state,
+                        _hold_session_lock=True,
+                    )
+                    if reply and reply.strip():
+                        format_cli_reply_block(cli_append, cli_append_ansi, (reply or "").strip())
+                finally:
+                    _fb_coordinator.end_turn(session_key)
         except Exception as e:
             _fallback_print_locked(f"❌ 错误: {e}\n")
 

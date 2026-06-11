@@ -18,7 +18,8 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from typing import Any
 
 # 性能优化：预编译高频正则表达式
@@ -130,6 +131,7 @@ class UnifiedEngine:
         cli_loop_state: Any | None = None,
         agent_config_overrides: dict[str, Any] | None = None,
         feishu_mirror_cli: bool = True,
+        _hold_session_lock: bool = False,
     ) -> str:
         """运行 agent 并显示思考过程。
 
@@ -170,7 +172,29 @@ class UnifiedEngine:
                 "run_agent_with_thinking 需要注入 session_manager（会话历史与工作区依赖 SessionManager）"
             )
 
-        # 会话级执行锁：同 session_key 串行；parallel_sessions 开启时不同 session 可并行
+        # 会话级执行锁：同 session_key 串行；parallel_sessions 开启时不同 session 可并行。
+        # _hold_session_lock=True 表示调用方已通过 ``session_turn`` 持有该会话锁
+        # （把 You 问题块/答案块打印与执行纳入同一原子边界），此处必须跳过再次 acquire，
+        # 否则 asyncio.Lock 不可重入会死锁。
+        if _hold_session_lock:
+            return await self._run_agent_with_thinking_locked(
+                user_input, session_key, skill_toolboxes, skill_prompts,
+                is_feishu=is_feishu, registry=registry, monitor=monitor,
+                session_manager=session_manager, feishu_config=feishu_config,
+                channel_router=channel_router, clawhub=clawhub,
+                memory_store=memory_store, activity_log=activity_log,
+                keyword_index=keyword_index, client=client,
+                feishu_receive_chat_id=feishu_receive_chat_id,
+                feishu_trigger_message_id=feishu_trigger_message_id,
+                feishu_root_id=feishu_root_id, feishu_parent_id=feishu_parent_id,
+                feishu_thread_id=feishu_thread_id,
+                feishu_im_receive_id_type=feishu_im_receive_id_type,
+                feishu_im_receive_id=feishu_im_receive_id,
+                cli_loop_state=cli_loop_state,
+                agent_config_overrides=agent_config_overrides,
+                feishu_mirror_cli=feishu_mirror_cli,
+            )
+
         async with self._session_exec.acquire(session_key):
             return await self._run_agent_with_thinking_locked(
                 user_input, session_key, skill_toolboxes, skill_prompts,
@@ -189,6 +213,20 @@ class UnifiedEngine:
                 agent_config_overrides=agent_config_overrides,
                 feishu_mirror_cli=feishu_mirror_cli,
             )
+
+    @asynccontextmanager
+    async def session_turn(self, session_key: str) -> AsyncIterator[None]:
+        """以 ``session_key`` 为粒度持有会话执行锁，覆盖一整轮 turn。
+
+        用于把「打印 You 问题块 → 执行 Agent → 打印答案块」整段纳入同一串行边界，
+        使同一会话的 CLI 与飞书 turn 严格排队、原子呈现（不交错、不重复驱动），
+        不同 ``session_key`` 仍可并行（受 ``max_parallel_sessions`` 限流）。
+
+        锁内调用 :meth:`run_agent_with_thinking` 时务必传 ``_hold_session_lock=True``，
+        否则会二次 acquire 同一 asyncio.Lock 而死锁。
+        """
+        async with self._session_exec.acquire(session_key):
+            yield
 
     async def _run_agent_with_thinking_locked(
         self,
@@ -543,6 +581,11 @@ class UnifiedEngine:
                 system_prompt, is_feishu=True, registry=effective_registry
             )
 
+        # 诊断：记录每次 run_agent 的会话与来源，便于确认同一答案是否被多次驱动。
+        _logger.debug(
+            "run_agent 调度: session_key=%s source=%s input=%.40s",
+            session_key, "feishu" if is_feishu else "cli", (user_input or "").replace("\n", " "),
+        )
         reply = await run_agent(
             user_input,
             registry=registry,

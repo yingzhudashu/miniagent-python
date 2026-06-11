@@ -238,65 +238,70 @@ def create_feishu_handler(
         )
         cli_turn = _begin_feishu_cli_turn(ctx, session_key, mirror_cli=mirror_cli)
 
-        try:
-            # CLI 侧：仅 mirror 会话以与纯 CLI 一致的格式展示用户问题
-            if cli_turn.mirror_cli and cli_turn.cli_append:
-                channel_label = "飞书私聊" if chat_type == "p2p" else f"飞书 {chat_id[:8]}"
-                format_cli_user_block(
-                    cli_turn.cli_append, content, stick_bottom, channel_label=channel_label
-                )
-
-            reply = await engine.run_agent_with_thinking(
-                content,
-                session_key,
-                _skill_tb(),
-                _skill_sp(),
-                is_feishu=True,
-                registry=registry,
-                monitor=monitor,
-                session_manager=state.get("session_manager"),
-                feishu_config=ctx.feishu.get_config(),
-                channel_router=channel_router,
-                clawhub=ctx.clawhub,
-                memory_store=ctx.memory_store,
-                activity_log=ctx.activity_log,
-                keyword_index=ctx.keyword_index,
-                client=ctx.openai_client,
-                feishu_receive_chat_id=chat_id,
-                feishu_trigger_message_id=inbound.message_id or None,
-                feishu_root_id=inbound.root_id,
-                feishu_parent_id=inbound.parent_id,
-                feishu_thread_id=inbound.thread_id,
-                feishu_im_receive_id=(inbound.sender_id or "").strip() or None,
-                cli_loop_state=state,
-                feishu_mirror_cli=mirror_cli,
-            )
-            # 结论卡片（含质量评估尾部，与 .help 卡片一致格式）
-            if reply and reply.strip():
-                try:
-                    from miniagent.feishu.poll_server import _send_interactive_reply_cards
-                    cfg = ctx.feishu.get_config()
-                    _send_interactive_reply_cards(
-                        cfg, chat_id, [(reply or "").strip()],
-                        reply_to_message_id=inbound.message_id or None,
-                        reply_in_thread=bool((inbound.thread_id or "").strip()),
+        # 整轮 turn（You 块 + 执行 + 回复卡片 + CLI 镜像答案块）纳入会话级串行边界：
+        # 同一 session_key 的飞书与 CLI turn 严格排队、原子呈现，不交错、不重复驱动；
+        # 不同 session_key 仍可并行。锁内 run_agent 须传 _hold_session_lock=True。
+        async with engine.session_turn(session_key):
+            try:
+                # CLI 侧：仅 mirror 会话以与纯 CLI 一致的格式展示用户问题
+                if cli_turn.mirror_cli and cli_turn.cli_append:
+                    channel_label = "飞书私聊" if chat_type == "p2p" else f"飞书 {chat_id[:8]}"
+                    format_cli_user_block(
+                        cli_turn.cli_append, content, stick_bottom, channel_label=channel_label
                     )
-                except Exception as e:
-                    _logger.debug("发送回复卡片失败: %s", e)
-            # 清理 engine 反思缓存（不再发送独立卡片）
-            engine.clear_last_reflection(session_key)
 
-            # CLI 侧：仅 mirror 会话展示完整回复
-            if cli_turn.mirror_cli and cli_turn.cli_append and reply and reply.strip():
-                format_cli_reply_block(
-                    cli_turn.cli_append, cli_turn.cli_append_ansi, (reply or "").strip()
+                reply = await engine.run_agent_with_thinking(
+                    content,
+                    session_key,
+                    _skill_tb(),
+                    _skill_sp(),
+                    is_feishu=True,
+                    registry=registry,
+                    monitor=monitor,
+                    session_manager=state.get("session_manager"),
+                    feishu_config=ctx.feishu.get_config(),
+                    channel_router=channel_router,
+                    clawhub=ctx.clawhub,
+                    memory_store=ctx.memory_store,
+                    activity_log=ctx.activity_log,
+                    keyword_index=ctx.keyword_index,
+                    client=ctx.openai_client,
+                    feishu_receive_chat_id=chat_id,
+                    feishu_trigger_message_id=inbound.message_id or None,
+                    feishu_root_id=inbound.root_id,
+                    feishu_parent_id=inbound.parent_id,
+                    feishu_thread_id=inbound.thread_id,
+                    feishu_im_receive_id=(inbound.sender_id or "").strip() or None,
+                    cli_loop_state=state,
+                    feishu_mirror_cli=mirror_cli,
+                    _hold_session_lock=True,
                 )
-            # 飞书单消息：思考 + 工具均在思考卡中展示，结论通过回复卡片输出。
-            return ""
-        except Exception as e:
-            return f"{WARNING_PREFIX} 处理失败: {e}"
-        finally:
-            _end_feishu_cli_turn(cli_turn, session_key)
+                # 结论卡片（含质量评估尾部，与 .help 卡片一致格式）
+                if reply and reply.strip():
+                    try:
+                        from miniagent.feishu.poll_server import _send_interactive_reply_cards
+                        cfg = ctx.feishu.get_config()
+                        _send_interactive_reply_cards(
+                            cfg, chat_id, [(reply or "").strip()],
+                            reply_to_message_id=inbound.message_id or None,
+                            reply_in_thread=bool((inbound.thread_id or "").strip()),
+                        )
+                    except Exception as e:
+                        _logger.debug("发送回复卡片失败: %s", e)
+                # 清理 engine 反思缓存（不再发送独立卡片）
+                engine.clear_last_reflection(session_key)
+
+                # CLI 侧：仅 mirror 会话展示完整回复
+                if cli_turn.mirror_cli and cli_turn.cli_append and reply and reply.strip():
+                    format_cli_reply_block(
+                        cli_turn.cli_append, cli_turn.cli_append_ansi, (reply or "").strip()
+                    )
+                # 飞书单消息：思考 + 工具均在思考卡中展示，结论通过回复卡片输出。
+                return ""
+            except Exception as e:
+                return f"{WARNING_PREFIX} 处理失败: {e}"
+            finally:
+                _end_feishu_cli_turn(cli_turn, session_key)
 
 
     async def media_handler(
@@ -437,43 +442,46 @@ def create_feishu_handler(
         channel_label = (
             "飞书私聊媒体" if chat_type == "p2p" else f"飞书媒体 {chat_id[:8]}"
         )
-        try:
-            if cli_turn.mirror_cli and cli_turn.cli_append:
-                format_cli_user_block(
-                    cli_turn.cli_append, user_line, stick_bottom, channel_label=channel_label
+        # 整轮 turn 纳入会话级串行边界（与文本 handler 一致）。
+        async with engine.session_turn(session_key):
+            try:
+                if cli_turn.mirror_cli and cli_turn.cli_append:
+                    format_cli_user_block(
+                        cli_turn.cli_append, user_line, stick_bottom, channel_label=channel_label
+                    )
+                reply = await engine.run_agent_with_thinking(
+                    user_line,
+                    session_key,
+                    _skill_tb(),
+                    _skill_sp(),
+                    is_feishu=True,
+                    registry=registry,
+                    monitor=monitor,
+                    session_manager=sm,
+                    feishu_config=ctx.feishu.get_config(),
+                    channel_router=channel_router,
+                    clawhub=ctx.clawhub,
+                    memory_store=ctx.memory_store,
+                    activity_log=ctx.activity_log,
+                    keyword_index=ctx.keyword_index,
+                    client=ctx.openai_client,
+                    feishu_receive_chat_id=chat_id,
+                    feishu_trigger_message_id=message_id or None,
+                    feishu_thread_id=(thread_id or "").strip() or None,
+                    feishu_im_receive_id=(sender_id or "").strip() or None,
+                    cli_loop_state=state,
+                    feishu_mirror_cli=media_mirror_cli,
+                    _hold_session_lock=True,
                 )
-            reply = await engine.run_agent_with_thinking(
-                user_line,
-                session_key,
-                _skill_tb(),
-                _skill_sp(),
-                is_feishu=True,
-                registry=registry,
-                monitor=monitor,
-                session_manager=sm,
-                feishu_config=ctx.feishu.get_config(),
-                channel_router=channel_router,
-                clawhub=ctx.clawhub,
-                memory_store=ctx.memory_store,
-                activity_log=ctx.activity_log,
-                keyword_index=ctx.keyword_index,
-                client=ctx.openai_client,
-                feishu_receive_chat_id=chat_id,
-                feishu_trigger_message_id=message_id or None,
-                feishu_thread_id=(thread_id or "").strip() or None,
-                feishu_im_receive_id=(sender_id or "").strip() or None,
-                cli_loop_state=state,
-                feishu_mirror_cli=media_mirror_cli,
-            )
-            if cli_turn.mirror_cli and cli_turn.cli_append and reply and reply.strip():
-                format_cli_reply_block(
-                    cli_turn.cli_append, cli_turn.cli_append_ansi, (reply or "").strip()
-                )
-            return ""
-        except Exception as e:
-            return f"{SUCCESS_PREFIX} 已保存 {rel}（Agent 处理失败: {e}）"
-        finally:
-            _end_feishu_cli_turn(cli_turn, session_key)
+                if cli_turn.mirror_cli and cli_turn.cli_append and reply and reply.strip():
+                    format_cli_reply_block(
+                        cli_turn.cli_append, cli_turn.cli_append_ansi, (reply or "").strip()
+                    )
+                return ""
+            except Exception as e:
+                return f"{SUCCESS_PREFIX} 已保存 {rel}（Agent 处理失败: {e}）"
+            finally:
+                _end_feishu_cli_turn(cli_turn, session_key)
 
     return handler, media_handler
 
