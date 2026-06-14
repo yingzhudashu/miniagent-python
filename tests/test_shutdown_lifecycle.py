@@ -232,6 +232,85 @@ async def test_tick_once_job_registered_then_shutdown_cancels(
 
 
 @pytest.mark.asyncio
+async def test_shutdown_runtime_aborts_message_queues() -> None:
+    ctx = _minimal_ctx()
+    state: dict = {"active_session_id": ""}
+    ctx.message_queue.abort_all_chats = MagicMock(return_value={"chats": {}})
+
+    await shutdown_runtime(
+        ctx,
+        state,  # type: ignore[arg-type]
+        reason="test_abort_mq",
+        abort_message_queues=True,
+        release_cli_session_lock=False,
+        call_unregister=False,
+    )
+    ctx.message_queue.abort_all_chats.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_runtime_continues_after_cleanup_processes_failure() -> None:
+    ctx = _minimal_ctx()
+    state: dict = {"active_session_id": ""}
+    trace_called: list[str] = []
+
+    async def _boom() -> None:
+        raise RuntimeError("cleanup failed")
+
+    with (
+        patch("miniagent.engine.shutdown.cleanup_all_processes", new=_boom),
+        patch(
+            "miniagent.infrastructure.tracing.shutdown_trace_writer",
+            side_effect=lambda: trace_called.append("trace"),
+        ),
+    ):
+        await shutdown_runtime(
+            ctx,
+            state,  # type: ignore[arg-type]
+            reason="test_cleanup_fail",
+            abort_message_queues=False,
+            release_cli_session_lock=False,
+            call_unregister=False,
+        )
+
+    assert trace_called == ["trace"]
+
+
+@pytest.mark.asyncio
+async def test_shutdown_runtime_invokes_resource_teardown() -> None:
+    ctx = _minimal_ctx()
+    state: dict = {"active_session_id": ""}
+
+    drive_mock = AsyncMock()
+    embed_mock = AsyncMock()
+    clawhub_mock = AsyncMock()
+    config_mock = MagicMock()
+    trace_mock = MagicMock()
+
+    with (
+        patch("miniagent.feishu.drive_client.close_http_client", drive_mock),
+        patch("miniagent.memory.embedding_search.close_embed_http_client", embed_mock),
+        patch("miniagent.skills.clawhub_client.close_clawhub_client", clawhub_mock),
+        patch("miniagent.infrastructure.config_watch.stop_config_watch", config_mock),
+        patch("miniagent.infrastructure.tracing.shutdown_trace_writer", trace_mock),
+    ):
+        await shutdown_runtime(
+            ctx,
+            state,  # type: ignore[arg-type]
+            reason="test_resource_teardown",
+            abort_message_queues=False,
+            release_cli_session_lock=False,
+            call_unregister=False,
+        )
+
+    drive_mock.assert_awaited_once()
+    embed_mock.assert_awaited_once()
+    clawhub_mock.assert_awaited_once()
+    config_mock.assert_called_once_with(ctx)
+    trace_mock.assert_called_once()
+
+
+@pytest.mark.asyncio
 @pytest.mark.skipif(sys.platform == "win32", reason="tracked child kill path flaky on Windows CI")
 async def test_cleanup_all_processes_kills_long_running_tracked_child() -> None:
     from miniagent.infrastructure.process import create_tracked_subprocess, get_tracked_count

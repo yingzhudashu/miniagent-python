@@ -2,11 +2,16 @@
 
 支持在主session中启动子session并行执行任务，不污染主对话历史。
 
+**生命周期**：
+- 子 session 执行完成后，结果缓存在内存中供 ``/btw result`` 查询
+- 子 session 的磁盘痕迹（工作区、记忆、日记、trace 等）在回合结束后自动清除
+
 **性能优化**：
-- TTL 自动清理：已完成任务默认 3600 秒后自动清理
+- TTL 自动清理：已完成任务默认 3600 秒后自动清理内存条目
 
 **配置**：
-- 从JSON配置加载默认值，环境变量自动覆盖（JsonConfigLoader内置支持）
+- 并行上限受 ``agent.max_parallel_sessions`` 与常量 ``BACKGROUND_TASKS_MAX_CONCURRENT`` 约束
+- TTL 默认见 ``BACKGROUND_TASKS_TASK_TTL_SECONDS``（constants.py）
 """
 
 from __future__ import annotations
@@ -22,6 +27,7 @@ from miniagent.core.constants import (
     BACKGROUND_TASKS_MAX_CONCURRENT,
     BACKGROUND_TASKS_TASK_TTL_SECONDS,
 )
+from miniagent.engine.bg_session_cleanup import cleanup_background_session_artifacts
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 
@@ -83,6 +89,7 @@ class BackgroundTaskManager:
         self._tasks: dict[str, BackgroundTask] = {}
         # 跟踪 in-flight 执行 task，防止 fire-and-forget 丢失异常（"Task exception never retrieved"）。
         self._exec_tasks: set[asyncio.Task] = set()
+        self._exec_by_id: dict[str, asyncio.Task] = {}
         cfg_parallel_cap = int(get_config("agent.max_parallel_sessions", 4))
         base_max = max_concurrent if max_concurrent is not None else DEFAULT_MAX_CONCURRENT
         self._max_concurrent = max(1, min(base_max, cfg_parallel_cap))
@@ -90,17 +97,21 @@ class BackgroundTaskManager:
         self._lock = asyncio.Lock()
         self._ttl_seconds = ttl_seconds if ttl_seconds is not None else DEFAULT_TASK_TTL_SECONDS
         self._cleanup_task: asyncio.Task | None = None
-        # 启动自动清理任务
         self._start_cleanup_loop()
 
-    def _start_cleanup_loop(self) -> None:
-        """启动 TTL 自动清理循环（后台任务）"""
+    def _ensure_cleanup_loop(self) -> None:
+        """在有事件循环时启动 TTL 自动清理循环（幂等）。"""
+        if self._cleanup_task is not None and not self._cleanup_task.done():
+            return
         try:
             loop = asyncio.get_running_loop()
-            self._cleanup_task = loop.create_task(self._cleanup_loop())
         except RuntimeError:
-            # 没有运行的事件循环，稍后在首次使用时启动
-            pass
+            return
+        self._cleanup_task = loop.create_task(self._cleanup_loop())
+
+    def _start_cleanup_loop(self) -> None:
+        """启动 TTL 自动清理循环（构造时尽力启动；无 loop 时由 start_task 补启）。"""
+        self._ensure_cleanup_loop()
 
     async def _cleanup_loop(self) -> None:
         """TTL 自动清理循环"""
@@ -155,6 +166,8 @@ class BackgroundTaskManager:
         Returns:
             任务ID（用于后续查询）
         """
+        self._ensure_cleanup_loop()
+
         async with self._lock:
             # 检查并行限制
             if self._running_count >= self._max_concurrent:
@@ -176,6 +189,7 @@ class BackgroundTaskManager:
             # 启动异步执行（跟踪 task 引用并在完成时记录异常，避免静默丢失）
             exec_task = asyncio.create_task(self._execute_task(engine, task, state, kwargs))
             self._exec_tasks.add(exec_task)
+            self._exec_by_id[task_id] = exec_task
             exec_task.add_done_callback(self._on_exec_task_done)
 
             return task_id
@@ -188,6 +202,25 @@ class BackgroundTaskManager:
         exc = task.exception()
         if exc is not None:
             _logger.error("后台任务执行异常: %s", exc, exc_info=exc)
+
+    @staticmethod
+    def _resolve_runtime_deps(state: dict[str, Any]) -> dict[str, Any]:
+        """从 CLI 状态解析子 session 清理与引擎调用所需的运行时依赖。"""
+        runtime_ctx = state.get("runtime_ctx")
+        session_manager = state.get("session_manager")
+        memory_store = None
+        activity_log = None
+        keyword_index = None
+        if runtime_ctx is not None:
+            memory_store = getattr(runtime_ctx, "memory_store", None)
+            activity_log = getattr(runtime_ctx, "activity_log", None)
+            keyword_index = getattr(runtime_ctx, "keyword_index", None)
+        return {
+            "session_manager": session_manager,
+            "memory_store": memory_store,
+            "activity_log": activity_log,
+            "keyword_index": keyword_index,
+        }
 
     async def _execute_task(
         self,
@@ -204,36 +237,63 @@ class BackgroundTaskManager:
             state: 主session状态
             kwargs: 其他参数
         """
-        async with self._lock:
-            self._running_count += 1
-            task.status = TaskStatus.RUNNING
-            task.started_at = datetime.now(timezone.utc)
-
+        runtime_deps = self._resolve_runtime_deps(state)
+        should_run = False
         try:
-            # 执行Agent
-            result = await engine.run_agent_with_thinking(
-                user_input=task.prompt,
-                session_key=task.session_key,
-                skill_toolboxes=state.get("skill_toolboxes", []),
-                skill_prompts=state.get("skill_prompts"),
-                is_feishu=False,
-                **kwargs,
+            should_run = True
+            async with self._lock:
+                if task.status == TaskStatus.CANCELLED:
+                    should_run = False
+                else:
+                    self._running_count += 1
+                    task.status = TaskStatus.RUNNING
+                    task.started_at = datetime.now(timezone.utc)
+
+            if should_run:
+                try:
+                    result = await engine.run_agent_with_thinking(
+                        user_input=task.prompt,
+                        session_key=task.session_key,
+                        skill_toolboxes=state.get("skill_toolboxes", []),
+                        skill_prompts=state.get("skill_prompts"),
+                        is_feishu=False,
+                        session_manager=runtime_deps["session_manager"],
+                        memory_store=runtime_deps["memory_store"],
+                        activity_log=runtime_deps["activity_log"],
+                        keyword_index=runtime_deps["keyword_index"],
+                        **kwargs,
+                    )
+
+                    async with self._lock:
+                        if task.status != TaskStatus.CANCELLED:
+                            task.status = TaskStatus.COMPLETED
+                            task.completed_at = datetime.now(timezone.utc)
+                            task.result = result
+
+                except asyncio.CancelledError:
+                    async with self._lock:
+                        if task.status != TaskStatus.CANCELLED:
+                            task.status = TaskStatus.CANCELLED
+                            task.completed_at = datetime.now(timezone.utc)
+                    raise
+
+                except Exception as e:
+                    async with self._lock:
+                        if task.status != TaskStatus.CANCELLED:
+                            task.status = TaskStatus.FAILED
+                            task.completed_at = datetime.now(timezone.utc)
+                            task.error = str(e)
+
+        finally:
+            self._exec_by_id.pop(task.task_id, None)
+            if should_run:
+                async with self._lock:
+                    if self._running_count > 0:
+                        self._running_count -= 1
+            await cleanup_background_session_artifacts(
+                task.session_key,
+                **runtime_deps,
             )
-
-            # 保存结果
-            async with self._lock:
-                task.status = TaskStatus.COMPLETED
-                task.completed_at = datetime.now(timezone.utc)
-                task.result = result
-                self._running_count -= 1
-
-        except Exception as e:
-            # 记录错误
-            async with self._lock:
-                task.status = TaskStatus.FAILED
-                task.completed_at = datetime.now(timezone.utc)
-                task.error = str(e)
-                self._running_count -= 1
 
     def get_status(self, task_id: str) -> dict[str, Any] | None:
         """获取任务状态
@@ -259,36 +319,58 @@ class BackgroundTaskManager:
             "has_error": task.error is not None,
         }
 
+    async def _wait_for_task_settled(self, task: BackgroundTask) -> None:
+        """等待任务离开 pending/running（最多 30 秒）。"""
+        if task.status in (TaskStatus.RUNNING, TaskStatus.PENDING):
+            for _ in range(30):
+                await asyncio.sleep(1)
+                if task.status not in (TaskStatus.RUNNING, TaskStatus.PENDING):
+                    break
+
     async def get_result(self, task_id: str) -> str | None:
-        """获取任务结果
+        """获取任务成功结果
 
         Args:
             task_id: 任务ID
 
         Returns:
-            任务结果，或None（任务不存在或未完成）
+            成功时的结果文本；任务不存在、未完成、失败或已取消时返回 ``None``。
+            失败详情请用 :meth:`get_error`。
         """
         task = self._tasks.get(task_id)
         if task is None:
             return None
 
-        # 等待任务完成（最多30秒）
-        if task.status == TaskStatus.RUNNING:
-            for _ in range(30):
-                await asyncio.sleep(1)
-                if task.status != TaskStatus.RUNNING:
-                    break
-
+        await self._wait_for_task_settled(task)
         return task.result
 
-    async def cancel_task(self, task_id: str) -> bool:
-        """取消任务
+    async def get_error(self, task_id: str) -> str | None:
+        """获取任务错误信息
 
         Args:
             task_id: 任务ID
 
         Returns:
-            True如果取消成功，False如果任务不存在或已完成
+            错误信息，或None（任务不存在、未完成或无错误）
+        """
+        task = self._tasks.get(task_id)
+        if task is None:
+            return None
+
+        await self._wait_for_task_settled(task)
+        return task.error
+
+    async def cancel_task(self, task_id: str) -> bool:
+        """取消任务（标记状态并 cancel 底层 asyncio.Task）
+
+        若 Agent 已在运行，会在其下一个 ``await`` 点收到 ``CancelledError`` 并中止；
+        子 session 磁盘痕迹在 :meth:`_execute_task` 的 ``finally`` 中清理。
+
+        Args:
+            task_id: 任务ID
+
+        Returns:
+            True 如果取消成功，False 如果任务不存在或已终态
         """
         async with self._lock:
             task = self._tasks.get(task_id)
@@ -298,12 +380,12 @@ class BackgroundTaskManager:
             if task.status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED):
                 return False
 
-            # 保存原状态，因为修改后无法检查
-            was_running = task.status == TaskStatus.RUNNING
             task.status = TaskStatus.CANCELLED
             task.completed_at = datetime.now(timezone.utc)
-            if was_running:
-                self._running_count -= 1
+
+            exec_task = self._exec_by_id.get(task_id)
+            if exec_task is not None and not exec_task.done():
+                exec_task.cancel()
 
             return True
 

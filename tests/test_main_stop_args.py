@@ -97,6 +97,13 @@ def test_parse_stop_with_state_dir_filter():
     assert ids == [(1, "/a/ws")]
 
 
+def test_parse_stop_all_with_state_dir_filter():
+    targets = [(1, "/a/ws"), (1, "/b/ws"), (2, "/a/ws")]
+    ids, err = _parse_stop_target_ids(["all"], targets, filter_state_dir="/a/ws")
+    assert err is None
+    assert ids == [(1, "/a/ws"), (2, "/a/ws")]
+
+
 def test_parse_stop_with_state_dir_normcase():
     targets = [(1, r"C:\Users\test\workspaces")]
     ids, err = _parse_stop_target_ids(

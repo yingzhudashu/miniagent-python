@@ -5,11 +5,14 @@
 职责：
 - 创建飞书文本消息处理器（handler）
 - 创建飞书媒体消息处理器（media_handler）
-- 处理飞书点命令路由
+- 处理飞书 ``/`` 命令路由（与 CLI 共享 ``dispatch_command``）
 - 处理飞书私聊自动绑定
 - 处理飞书媒体文件下载与处理
 
 依赖：
+- command_dispatch: dispatch_command
+- channel_router / cli_feishu_policy: 会话解析与 CLI 镜像策略
+- poll_server._send_reply: 结论卡片发送与 text 回退
 - utils.py: detect_ext_from_magic, detect_mime_from_magic, feishu_user_status_fn
 - cli_format.py: format_cli_user_block, format_cli_reply_block
 """
@@ -22,7 +25,11 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from miniagent.engine.cli_format import format_cli_reply_block, format_cli_user_block
+from miniagent.engine.cli_format import (
+    format_cli_reply_block,
+    format_cli_user_block,
+    get_cli_format_widths,
+)
 from miniagent.engine.cli_state import CliLoopState
 from miniagent.engine.utils import (
     detect_ext_from_magic,
@@ -53,6 +60,11 @@ def _begin_feishu_cli_turn(
     *,
     mirror_cli: bool,
 ) -> _FeishuCliTurn:
+    """开启飞书轮次的 CLI transcript 上下文。
+
+    ``mirror_cli=True`` 且存在 coordinator 时，调用 ``begin_turn`` 并绑定
+    会话级 ``cli_append``；否则回退到 ``RuntimeContext`` 全局 append。
+    """
     coordinator = ctx.cli_transcript_coordinator
     if mirror_cli and coordinator is not None:
         coordinator.begin_turn(session_key, source="feishu")
@@ -75,8 +87,39 @@ def _begin_feishu_cli_turn(
 
 
 def _end_feishu_cli_turn(turn: _FeishuCliTurn, session_key: str) -> None:
+    """结束由 :func:`_begin_feishu_cli_turn` 开启的 CLI transcript turn。"""
     if turn.mirror_cli and turn.coordinator is not None:
         turn.coordinator.end_turn(session_key)
+
+
+async def _send_feishu_agent_reply(
+    cfg: Any,
+    chat_id: str,
+    reply: str,
+    *,
+    reply_to_message_id: str | None = None,
+    reply_in_thread: bool = False,
+) -> None:
+    """发送 Agent 结论到飞书（交互卡片 + 失败时 text 回退）。
+
+    委托 ``poll_server._send_reply``，与 poll_server 出站路径行为一致。
+    """
+    from miniagent.feishu.poll_server import _send_reply
+
+    body = (reply or "").strip()
+    if not body:
+        return
+    try:
+        await _send_reply(
+            cfg,
+            chat_id,
+            body,
+            reply_to_message_id=reply_to_message_id,
+            reply_in_thread=reply_in_thread,
+        )
+    except Exception as e:
+        _logger.warning("发送飞书 Agent 结论失败，将由 handler 返回文本: %s", e)
+        raise
 
 
 # ─── 飞书处理器工厂 ───────────────────────────────────────────
@@ -89,10 +132,13 @@ def create_feishu_handler(
 ) -> tuple[Any, Any]:
     """创建飞书消息处理器（文本/媒体）。
 
-    飞书消息以 `.` 开头时，路由到统一命令调度器（与 CLI 共享）。
+    飞书消息以 ``/`` 开头时，路由到统一命令调度器（与 CLI 共享）。
     通过 ChannelRouter 解析 session_key：
     - 群聊消息: 始终独立会话
     - 私聊消息: 检查是否绑定到 CLI 会话（支持干预）
+
+    普通 Agent 轮次成功后 handler 通常返回空串（结论经交互卡片或 text 回退发出）；
+    命令路径与异常路径返回非空字符串，由 ``poll_server`` 作 text 回复。
 
     技能工具箱/提示词从 ``state`` 读取，支持 ``refresh_skills`` 后无需重启飞书 handler。
 
@@ -102,7 +148,7 @@ def create_feishu_handler(
         stick_bottom: 底部粘滞状态（用于 CLI 显示）
 
     Returns:
-        (handler, media_handler) 元组
+        ``(handler, media_handler)`` 元组
     """
     engine = ctx.engine
     registry = ctx.registry
@@ -124,7 +170,10 @@ def create_feishu_handler(
     )
 
     def _maybe_auto_bind_p2p(chat_type: str, sender_id: str, loop_state: CliLoopState) -> None:
-        """私聊首条消息自动绑定到当前活跃会话。"""
+        """私聊首条消息自动绑定到当前 ``active_session_id``。
+
+        群聊聚焦模式下由 ``should_allow_p2p_auto_bind`` 禁止；无活跃会话时不绑定。
+        """
         if (chat_type or "").strip().lower() != "p2p":
             return
         if not should_allow_p2p_auto_bind(channel_router):
@@ -169,8 +218,9 @@ def create_feishu_handler(
     async def handler(inbound: FeishuInboundText) -> str:
         """处理单条飞书消息（:class:`~miniagent.feishu.types.FeishuInboundText`）。
 
-        以 `.` 开头的消息路由到统一命令调度器（与 CLI 共享）。
-        普通消息通过 ChannelRouter 解析 session_key 后交给 Agent 处理。
+        以 ``/`` 开头的消息路由到 ``dispatch_command``（与 CLI 共享）。
+        普通消息通过 ChannelRouter 解析 session_key 后交给 Agent；成功时常返回 ``""``
+        （结论由 :func:`_send_feishu_agent_reply` 发出）。
         """
         content = inbound.text
         chat_id = inbound.chat_id
@@ -246,8 +296,13 @@ def create_feishu_handler(
                 # CLI 侧：仅 mirror 会话以与纯 CLI 一致的格式展示用户问题
                 if cli_turn.mirror_cli and cli_turn.cli_append:
                     channel_label = "飞书私聊" if chat_type == "p2p" else f"飞书 {chat_id[:8]}"
+                    _rw, _mdw = get_cli_format_widths(state)
                     format_cli_user_block(
-                        cli_turn.cli_append, content, stick_bottom, channel_label=channel_label
+                        cli_turn.cli_append,
+                        content,
+                        stick_bottom,
+                        channel_label=channel_label,
+                        render_width=_rw,
                     )
 
                 reply = await engine.run_agent_with_thinking(
@@ -276,27 +331,36 @@ def create_feishu_handler(
                     feishu_mirror_cli=mirror_cli,
                     _hold_session_lock=True,
                 )
-                # 结论卡片（含质量评估尾部，与 .help 卡片一致格式）
-                if reply and reply.strip():
+                # 结论卡片（含质量评估尾部，与 /help 交互卡片同格式；失败时 text 回退）
+                reply_body = (reply or "").strip()
+                send_failed = False
+                if reply_body:
                     try:
-                        from miniagent.feishu.poll_server import _send_interactive_reply_cards
-                        cfg = ctx.feishu.get_config()
-                        _send_interactive_reply_cards(
-                            cfg, chat_id, [(reply or "").strip()],
+                        await _send_feishu_agent_reply(
+                            ctx.feishu.get_config(),
+                            chat_id,
+                            reply_body,
                             reply_to_message_id=inbound.message_id or None,
                             reply_in_thread=bool((inbound.thread_id or "").strip()),
                         )
-                    except Exception as e:
-                        _logger.debug("发送回复卡片失败: %s", e)
+                    except Exception:
+                        send_failed = True
                 # 清理 engine 反思缓存（不再发送独立卡片）
                 engine.clear_last_reflection(session_key)
 
                 # CLI 侧：仅 mirror 会话展示完整回复
-                if cli_turn.mirror_cli and cli_turn.cli_append and reply and reply.strip():
+                if cli_turn.mirror_cli and cli_turn.cli_append and reply_body:
+                    _rw, _mdw = get_cli_format_widths(state)
                     format_cli_reply_block(
-                        cli_turn.cli_append, cli_turn.cli_append_ansi, (reply or "").strip()
+                        cli_turn.cli_append,
+                        cli_turn.cli_append_ansi,
+                        reply_body,
+                        render_width=_rw,
+                        markdown_width=_mdw,
                     )
-                # 飞书单消息：思考 + 工具均在思考卡中展示，结论通过回复卡片输出。
+                # 飞书单消息：思考 + 工具均在思考卡中展示，结论经卡片或 text 回退输出。
+                if send_failed:
+                    return reply_body
                 return ""
             except Exception as e:
                 return f"{WARNING_PREFIX} 处理失败: {e}"
@@ -316,7 +380,11 @@ def create_feishu_handler(
         resource_type: str,
         thread_id: str | None = None,
     ) -> str | None:
-        """下载飞书 file/image 到当前会话 workspace/files/feishu_incoming/。"""
+        """下载飞书 file/image 到会话文件区 ``feishu_incoming/``。
+
+        ``Session.workspace_path`` 即工具沙箱根（``…/sessions/<id>/files``）。
+        ``feishu.media.run_agent`` 为真时可选触发 Agent 轮次。
+        """
         from miniagent.feishu.resource_io import download_message_resource, sanitize_filename
         from miniagent.types.memory import SessionOptions
 
@@ -422,7 +490,7 @@ def create_feishu_handler(
             return f"{SUCCESS_PREFIX} 已保存到会话文件区: {rel}"
 
         user_line = (
-            f"[飞书入站] 已保存媒体到会话目录（相对 files ）: {rel}\n"
+            f"[飞书入站] 已保存媒体到会话文件区: {rel}\n"
             f"请查看该文件并说明你可以如何协助处理。"
         )
         # 图片入站：自动调用视观模型生成描述，注入对话历史
@@ -446,8 +514,13 @@ def create_feishu_handler(
         async with engine.session_turn(session_key):
             try:
                 if cli_turn.mirror_cli and cli_turn.cli_append:
+                    _rw, _mdw = get_cli_format_widths(state)
                     format_cli_user_block(
-                        cli_turn.cli_append, user_line, stick_bottom, channel_label=channel_label
+                        cli_turn.cli_append,
+                        user_line,
+                        stick_bottom,
+                        channel_label=channel_label,
+                        render_width=_rw,
                     )
                 reply = await engine.run_agent_with_thinking(
                     user_line,
@@ -473,10 +546,31 @@ def create_feishu_handler(
                     feishu_mirror_cli=media_mirror_cli,
                     _hold_session_lock=True,
                 )
-                if cli_turn.mirror_cli and cli_turn.cli_append and reply and reply.strip():
+                reply_body = (reply or "").strip()
+                send_failed = False
+                if reply_body:
+                    try:
+                        await _send_feishu_agent_reply(
+                            ctx.feishu.get_config(),
+                            chat_id,
+                            reply_body,
+                            reply_to_message_id=message_id or None,
+                            reply_in_thread=bool((thread_id or "").strip()),
+                        )
+                    except Exception:
+                        send_failed = True
+                engine.clear_last_reflection(session_key)
+                if cli_turn.mirror_cli and cli_turn.cli_append and reply_body:
+                    _rw, _mdw = get_cli_format_widths(state)
                     format_cli_reply_block(
-                        cli_turn.cli_append, cli_turn.cli_append_ansi, (reply or "").strip()
+                        cli_turn.cli_append,
+                        cli_turn.cli_append_ansi,
+                        reply_body,
+                        render_width=_rw,
+                        markdown_width=_mdw,
                     )
+                if send_failed:
+                    return f"{SUCCESS_PREFIX} 已保存 {rel}\n\n{reply_body}"
                 return ""
             except Exception as e:
                 return f"{SUCCESS_PREFIX} 已保存 {rel}（Agent 处理失败: {e}）"

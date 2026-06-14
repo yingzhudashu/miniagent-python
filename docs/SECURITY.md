@@ -91,8 +91,10 @@ ctx = ToolContext(
 ### 会话锁
 
 - 每个会话使用 `.lock` 文件互斥
-- 锁文件记录 PID，支持死锁检测
-- 防止多个实例同时修改同一会话
+- 锁文件记录 PID，支持过期锁检测（进程退出后自动清理）
+- 防止多个实例同时修改同一会话（**尽力互斥**，非 flock 级严格锁；极端并发下可能短暂双占）
+- 同步 API（`try_lock_session`）在 Windows 上会阻塞线程；asyncio 上下文请用 `try_lock_session_async`
+- `is_session_locked` 对陈旧锁返回 `None`（视为未占用），实际加锁时由 `try_lock_session*` 清理文件
 
 ```python
 # 加锁

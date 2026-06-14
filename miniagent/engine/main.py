@@ -16,7 +16,7 @@
 异步时序（队列 → Agent → 回复）见 ``docs/ARCHITECTURE.md``；点命令见 ``docs/CLI.md``。
 
 .. note::
-   本文件当前约 2500 行，未来重构建议拆分为：
+   本文件当前约 3000 行，未来重构建议拆分为：
    - cli_loop.py: 主循环逻辑（输入处理、命令分发）
    - cli_ui.py: prompt_toolkit UI 构建（补全、样式、键绑定）
    - cli_history.py: 历史加载/渲染/复制模式
@@ -33,6 +33,7 @@ import signal
 import sys
 import threading
 from collections import deque  # 性能优化：deque的popleft()为O(1)
+from collections.abc import Callable, Iterable
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -74,6 +75,285 @@ def _configure_console_encoding() -> None:
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 
+def _resolve_cli_history_file() -> str:
+    """CLI 输入历史文件路径（全屏 TUI 的 FileHistory 与 fallback readline 共用）。"""
+    from miniagent.infrastructure.paths import resolve_state_dir
+
+    history_dir = os.path.join(resolve_state_dir(), "cli")
+    os.makedirs(history_dir, exist_ok=True)
+    path = os.path.join(history_dir, "history.txt")
+    legacy = os.path.join(os.path.expanduser("~"), ".miniagent_cli_history")
+    if not os.path.isfile(path) and os.path.isfile(legacy):
+        try:
+            import shutil
+
+            shutil.copy2(legacy, path)
+        except Exception as e:
+            _logger.debug("迁移旧 CLI 历史 (%s → %s) 失败: %s", legacy, path, e)
+    return path
+
+
+def _create_cli_file_history(filename: str) -> Any:
+    """创建 CLI 输入历史后端（``FileHistory`` 子类，写入前确保目录存在）。"""
+    from prompt_toolkit.history import FileHistory
+
+    class SafeFileHistory(FileHistory):
+        """FileHistory 的安全版本，每次写入前确保父目录存在。"""
+
+        def store_string(self, string: str) -> None:
+            parent_dir = os.path.dirname(self.filename)
+            if parent_dir:
+                os.makedirs(parent_dir, exist_ok=True)
+            super().store_string(string)
+
+        def merge_strings_memory_only(self, strings: Iterable[str]) -> None:
+            """将字符串并入上下键导航历史，不写入 ``history.txt``。"""
+            if not self._loaded:
+                self._loaded_strings = list(self.load_history_strings())
+                self._loaded = True
+            known = {(x or "").strip() for x in self._loaded_strings if (x or "").strip()}
+            for raw in reversed(list(strings)):
+                s = (raw or "").strip()
+                if not s or s in known:
+                    continue
+                self._loaded_strings.insert(0, s)
+                known.add(s)
+
+    return SafeFileHistory(filename)
+
+
+def _session_user_inputs_for_cli_history(state: dict) -> list[str]:
+    """收集当前会话中可用于 CLI 输入回顾的 user 消息（时间正序）。"""
+    sm = state.get("session_manager")
+    if sm is None:
+        return []
+    session_id = state.get("active_session_id", "")
+    if not session_id:
+        return []
+    session = sm.get(session_id)
+    if session is None:
+        return []
+
+    from miniagent.engine.cli_commands import _load_session_history_messages
+
+    messages = _load_session_history_messages(session)
+    result: list[str] = []
+    for msg in messages:
+        if isinstance(msg, dict) and msg.get("role") == "user":
+            content = (msg.get("content") or "").strip()
+            if content:
+                result.append(content)
+    return result
+
+
+def _prime_cli_input_history_from_session(state: dict, buf: Any) -> None:
+    """启动时将当前会话 user 消息并入内存输入历史（不污染 ``history.txt``）。"""
+    hist = getattr(buf, "history", None)
+    merge = getattr(hist, "merge_strings_memory_only", None)
+    if merge is None:
+        return
+    strings = _session_user_inputs_for_cli_history(state)
+    if not strings:
+        return
+    try:
+        merge(strings)
+    except Exception as e:
+        _logger.warning("历史加载失败，继续启动: %s", e)
+
+
+_FileNotifyFn = Callable[[str, str], None]
+
+
+async def detect_and_process_file_markers(
+    user_input: str,
+    session_key: str,
+    session_manager: Any,
+    runtime_ctx: Any,
+    *,
+    notify: _FileNotifyFn | None = None,
+) -> tuple[str, list[dict]]:
+    """检测用户输入中的 ``@file:`` / ``file:`` 标记，处理文件并写入记忆。
+
+    Args:
+        user_input: 用户原始输入
+        session_key: 会话 ID
+        session_manager: 会话管理器（可为 None，此时仅按 cwd 解析路径）
+        runtime_ctx: 运行时上下文
+        notify: 可选 ``(message, color)`` 回调；color 为 ``ansicyan`` / ``ansiyellow`` 等
+
+    Returns:
+        (替换标记后的输入, 已处理文件信息列表)
+    """
+    files_info: list[dict] = []
+
+    matches = _FILE_MARKER_PATTERN.findall(user_input)
+    if not matches:
+        return user_input, files_info
+
+    for match in matches:
+        file_path = match[0] or match[1]
+        if not file_path:
+            continue
+
+        try:
+            base_path = ""
+            if session_manager:
+                session = session_manager.get(session_key)
+                if session:
+                    base_path = session.workspace_path or ""
+
+            if not os.path.isabs(file_path):
+                if os.path.exists(file_path):
+                    resolved = file_path
+                elif base_path and os.path.exists(os.path.join(base_path, file_path)):
+                    resolved = os.path.join(base_path, file_path)
+                else:
+                    resolved = file_path
+            else:
+                resolved = file_path
+
+            if not os.path.isfile(resolved):
+                if notify:
+                    notify(f"⚠️ 文件不存在: {file_path}\n", "ansiyellow")
+                continue
+
+            file_name = os.path.basename(resolved)
+            file_size = os.path.getsize(resolved)
+
+            try:
+                with open(resolved, "rb") as f:
+                    header = f.read(32)
+                mime_type = detect_mime_from_magic(header) or "application/octet-stream"
+            except Exception as e:
+                _logger.debug("读取文件 MIME 失败 (%s): %s", resolved, e)
+                mime_type = "application/octet-stream"
+
+            if mime_type.startswith("image/"):
+                file_type = "image"
+            elif mime_type.startswith("text/"):
+                file_type = "text"
+            else:
+                file_type = "binary"
+
+            description = ""
+            vision_desc_enabled = get_config("cli.file_vision_desc", True)
+            if file_type == "image" and runtime_ctx and vision_desc_enabled:
+                try:
+                    from miniagent.feishu.vision_desc import describe_image
+
+                    client = getattr(runtime_ctx, "openai_client", None)
+                    model = get_config("model.model", "gpt-4o-mini")
+                    if client:
+                        description = await describe_image(resolved, client, model)
+                except Exception as e:
+                    _logger.debug("图片描述生成失败 (%s): %s", resolved, e)
+            elif file_type == "text":
+                try:
+                    with open(resolved, encoding="utf-8", errors="ignore") as f:
+                        preview = f.read(500)
+                    description = preview[:200]
+                except Exception as e:
+                    _logger.debug("文本文件预览失败 (%s): %s", resolved, e)
+
+            try:
+                from miniagent.memory.store import add_file_to_memory
+                from miniagent.types.memory import FileMetadata
+
+                rel_path = file_path if not os.path.isabs(file_path) else os.path.basename(resolved)
+
+                file_meta = FileMetadata(
+                    name=file_name,
+                    path=rel_path,
+                    size=file_size,
+                    mime_type=mime_type,
+                    type=file_type,
+                    description=description,
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    source="cli",
+                )
+
+                await add_file_to_memory(
+                    session_key,
+                    file_meta,
+                    getattr(runtime_ctx, "memory_store", None),
+                )
+
+                files_info.append({
+                    "name": file_name,
+                    "type": file_type,
+                    "size": file_size,
+                    "description": description[:100] if description else "",
+                })
+
+                marker = f"@file:{file_path}" if match[0] else f"file:{file_path}"
+                type_label = {"image": "图片", "text": "文本文件", "binary": "文件"}.get(
+                    file_type, "文件"
+                )
+                max_desc_len = 150 if file_type == "image" else 100
+                if description:
+                    truncated_desc = description[:max_desc_len]
+                    content_label = "图片内容" if file_type == "image" else "内容预览"
+                    replacement = f"[{type_label}: {file_name}]\n{content_label}：{truncated_desc}"
+                else:
+                    replacement = f"[{type_label}: {file_name}]"
+                user_input = user_input.replace(marker, replacement)
+
+                if notify:
+                    size_kb = file_size // 1024 if file_size >= 1024 else file_size
+                    size_label = f"{size_kb}KB" if file_size >= 1024 else f"{size_kb}B"
+                    notify(f"📎 已处理文件: {file_name} ({size_label})\n", "ansicyan")
+                    if description:
+                        suffix = "..." if len(description) > 100 else ""
+                        notify(
+                            f"   内容摘要: {description[:100]}{suffix}\n",
+                            "ansicyan",
+                        )
+            except Exception as e:
+                _logger.warning("文件标记写入记忆失败 (%s): %s", file_path, e)
+                if notify:
+                    notify(f"⚠️ 无法保存文件到记忆: {file_name}\n", "ansiyellow")
+        except Exception as e:
+            _logger.warning("处理文件标记失败 (%s): %s", file_path, e)
+            if notify:
+                notify(f"⚠️ 处理文件失败: {e}\n", "ansiyellow")
+
+    return user_input, files_info
+
+
+def run_cli_bash_command(bash_cmd: str) -> tuple[bool, str]:
+    """执行 ``!`` 前缀 Bash 命令。
+
+    Returns:
+        ``(ok, 格式化输出)``。``ok`` 为 True 仅当子进程退出码为 0；
+        超时或启动/执行异常时 ``ok`` 为 False（输出仍含 stderr/退出码说明）。
+    """
+    import subprocess
+
+    from miniagent.core.constants import CLI_BASH_TIMEOUT
+
+    timeout = CLI_BASH_TIMEOUT
+    try:
+        result = subprocess.run(
+            bash_cmd,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        output_lines = [f"⚙️ Bash: {bash_cmd}"]
+        if result.stdout:
+            output_lines.append(result.stdout)
+        if result.stderr:
+            output_lines.append(f"❌ stderr: {result.stderr}")
+        if result.returncode != 0:
+            output_lines.append(f"退出码: {result.returncode}")
+        return result.returncode == 0, "\n".join(output_lines) + "\n"
+    except subprocess.TimeoutExpired:
+        return False, f"❌ Bash超时（{timeout}s）: {bash_cmd}\n"
+    except Exception as e:
+        return False, f"❌ Bash错误: {e}\n"
+
+
 # ─── unified_main：RuntimeContext 注入后的进程主流程（init → 信号/实例 → CLI 循环 / 飞书任务）──
 
 
@@ -93,10 +373,6 @@ async def unified_main(ctx: RuntimeContext) -> None:
     skill_registry = ctx.skill_registry
     engine = ctx.engine
     _configure_console_encoding()
-
-    # ── 用户体验增强：首次配置引导 ──
-    from miniagent.engine.setup_wizard import run_interactive_setup
-    run_interactive_setup()
 
     # ── 用户体验增强：配置热更新 ──
     from miniagent.infrastructure.config_watch import start_config_watch
@@ -282,11 +558,6 @@ async def run_cli_loop(
     channel_router = ctx.channel_router
     message_queue = ctx.message_queue
 
-    # 根据 parallel_sessions 配置消息队列（跨队列串行或 per-session 并行）
-    from miniagent.engine.parallel_config import configure_message_queue_for_parallel
-
-    configure_message_queue_for_parallel(message_queue)
-
     from miniagent.skills.snapshots import (
         get_skill_prompts_from_state,
         get_skill_toolboxes_from_state,
@@ -306,7 +577,6 @@ async def run_cli_loop(
         from prompt_toolkit.completion import Completer, Completion, merge_completers
         from prompt_toolkit.completion import PathCompleter as PTPathCompleter
         from prompt_toolkit.formatted_text import HTML
-        from prompt_toolkit.history import FileHistory
         from prompt_toolkit.styles import Style
     except ImportError:
         await _run_cli_loop_fallback(
@@ -337,36 +607,16 @@ async def run_cli_loop(
         )
         return
 
-    # 历史记录文件
-    from miniagent.infrastructure.paths import resolve_state_dir
-
-    history_dir = os.path.join(resolve_state_dir(), "cli")
-    os.makedirs(history_dir, exist_ok=True)
-    history_file = os.path.join(history_dir, "history.txt")
-
-    # ── 历史记录安全写入：确保每次保存时目录存在 ──
-    class SafeFileHistory(FileHistory):
-        """FileHistory 的安全版本，每次写入前确保父目录存在。
-
-        解决 Windows 文件系统竞态条件导致的 "No such file or directory" 错误。
-        在某些情况下（如并发清理、文件系统延迟），history_dir 可能被意外删除，
-        此类在 store_string 被调用时自动重建目录。
-        """
-
-        def store_string(self, string: str) -> None:
-            # 每次写入前确保父目录存在
-            parent_dir = os.path.dirname(self.filename)
-            if parent_dir:
-                os.makedirs(parent_dir, exist_ok=True)
-            super().store_string(string)
+    # 历史记录文件（与 fallback readline 共用路径）
+    history_file = _resolve_cli_history_file()
 
     # ── 用户体验增强：Tab 自动补全 ──
     class CommandCompleter(Completer):
         """斜杠命令补全器（用户体验增强）。"""
 
         def get_completions(self, document, complete_event):
+            """在 ``/`` 前缀输入时补全已注册点命令。"""
             text = document.text_before_cursor
-            # 仅在以 "/" 开头时补全命令
             if text.startswith("/") and len(text) >= 1:
                 # 获取输入的命令部分（不含参数）
                 parts = text.split()
@@ -388,25 +638,26 @@ async def run_cli_loop(
         """@file: 标记的文件路径补全器（用户体验增强）。"""
 
         def get_completions(self, document, complete_event):
+            """在 ``@file:`` / ``file:`` 前缀后补全文件路径。"""
             text = document.text_before_cursor
-            # 检测 @file: 或 file: 标记
-            match = re.search(r'(@file:|file:)([^\s]*)$', text)
-            if match:
-                partial_path = match.group(2)
-                # 使用 PathCompleter 补全路径
-                try:
-                    path_completer = PTPathCompleter()
-                    # 创建一个临时 document 来补全路径部分
-                    for completion in path_completer.get_completions(document, complete_event):
-                        # 调整补全位置
-                        yield Completion(
-                            completion.text,
-                            start_position=-len(partial_path),
-                            display=completion.display,
-                            display_meta="文件",
-                        )
-                except Exception:
-                    pass
+            match = re.search(r"(@file:|file:)([^\s]*)$", text)
+            if not match:
+                return
+            partial_path = match.group(2)
+            try:
+                from prompt_toolkit.document import Document
+
+                path_completer = PTPathCompleter()
+                path_doc = Document(partial_path, cursor_position=len(partial_path))
+                for completion in path_completer.get_completions(path_doc, complete_event):
+                    yield Completion(
+                        completion.text,
+                        start_position=-len(partial_path),
+                        display=completion.display,
+                        display_meta="文件",
+                    )
+            except Exception as e:
+                _logger.debug("文件路径补全失败: %s", e)
 
     # 创建合并补全器
     command_completer = CommandCompleter()
@@ -433,48 +684,14 @@ async def run_cli_loop(
 
     from miniagent.engine.session_lock import release_session_lock
 
-    def _load_session_history_to_input(state: dict, buf: Buffer) -> None:
-        """将当前会话的用户消息注入 prompt_toolkit 输入历史，使上下键可回顾。
-
-        加载所有用户消息（普通对话 + 点命令），使上下键可回顾已发送的输入。
-        FileHistory 已保存交互输入到 history.txt，但此函数确保会话级历史
-        在进程重启或切换会话时也能被恢复。
-        """
-        sm = state.get("session_manager")
-        if sm is None:
-            return
-        session_id = state.get("active_session_id", "")
-        if not session_id:
-            return
-        session = sm.get(session_id)
-        if session is None:
-            return
-        # workspace_path 实际指向 files/ 目录，history.json 在其父目录
-        files_path = getattr(session, "workspace_path", None) or getattr(session, "files_path", None)
-        if not files_path:
-            return
-        history_path = os.path.join(os.path.dirname(files_path), "history.json")
-        if not os.path.isfile(history_path):
-            return
-        try:
-            with open(history_path, encoding="utf-8-sig") as f:
-                messages = json.load(f)
-            for msg in messages:
-                if isinstance(msg, dict) and msg.get("role") == "user":
-                    content = (msg.get("content") or "").strip()
-                    if content:
-                        buf.history.append_string(content)
-        except Exception as e:
-            _logger.warning("历史加载失败，继续启动: %s", e)  # 历史加载失败不影响启动
-
     input_buffer = Buffer(
-        history=SafeFileHistory(history_file),
+        history=_create_cli_file_history(history_file),
         completer=merged_completer,  # 用户体验增强：Tab 自动补全
         complete_while_typing=False,  # 仅在 Tab 键触发补全
     )
 
-    # 加载当前会话的对话历史到输入缓冲，使上下键可回顾已发送的用户消息
-    _load_session_history_to_input(state, input_buffer)
+    # 启动时合并会话 user 消息到内存导航历史（不写入 history.txt）
+    _prime_cli_input_history_from_session(state, input_buffer)
 
     # 使用 constants.py 的裁剪阈值，避免硬编码导致阈值过低
     from miniagent.core.constants import MAX_TRANSCRIPT_CHARS
@@ -497,6 +714,7 @@ async def run_cli_loop(
     _streaming_think_by_session: dict[str, _StreamingThinkState] = {}
 
     def _stream_state(session_key: str = "") -> _StreamingThinkState:
+        """按 session_key 获取或创建流式思考渲染状态。"""
         sk = (session_key or "").strip() or "default"
         if sk not in _streaming_think_by_session:
             _streaming_think_by_session[sk] = _StreamingThinkState()
@@ -519,6 +737,13 @@ async def run_cli_loop(
         "loading": False,
     }
     _initial_history_count: int = int(get_config("memory.initial_history_count", 5))
+
+    from miniagent.engine.cli_transcript import (
+        is_valid_pt_style as _is_valid_pt_style,
+        markdown_render_width as _markdown_render_width_for_vp,
+        rule_line_width as _rule_line_width_for_vp,
+        safe_ansi_fragments as _safe_ansi,
+    )
 
     def _transcript_fragment_len(frag: Any) -> int:
         """估算单条 transcript 片段的字符长度（tuple 文本或 ``ANSI`` 包裹串）。"""
@@ -543,16 +768,7 @@ async def run_cli_loop(
             _transcript_total_len[0] = max(0, _transcript_total_len[0] - frag_len)
 
     def _transcript_prepend(style: Any, text: str) -> None:
-        """安全地在 transcript 顶部插入内容，处理 deque 已满的情况。
-
-        当 deque 达到 maxlen 上限时，先从右侧（最新内容）移除一个元素，
-        然后再插入到左侧（历史内容）。这确保加载历史时不会崩溃。
-        """
-        if _transcript.maxlen is not None and len(_transcript) >= _transcript.maxlen:
-            # deque 已满，从右侧移除最新内容以腾出空间
-            old = _transcript.pop()
-            frag_len = _transcript_fragment_len(old)
-            _transcript_total_len[0] = max(0, _transcript_total_len[0] - frag_len)
+        """在 transcript 顶部插入内容，并维护字符长度裁剪。"""
         _transcript.insert(0, (style, text))
         _transcript_total_len[0] += len(text)
         _trim_transcript()
@@ -571,10 +787,10 @@ async def run_cli_loop(
         content = msg.get("content", "")
         if not content:
             return
-        from miniagent.engine.cli_transcript import lines_for_prepend
+        from miniagent.engine.cli_transcript import lines_for_prepend, rule_line_width
 
         vp = _viewport_cols()
-        rule_w = max(10, vp // 2)  # 边框线宽度（与 _border_truncate 一致）
+        rule_w = rule_line_width(vp)
 
         if role == "user":
             if prepend:
@@ -602,8 +818,8 @@ async def run_cli_loop(
                         _transcript_prepend(style, txt)
                 else:
                     for line in lines_for_prepend(content):
-                        _transcript_prepend("class:cli-reply-body", line + "\n")
-                _transcript_prepend("class:cli-reply-title", "Agent\n")
+                        _transcript_prepend("class:cli-assistant-body", line + "\n")
+                _transcript_prepend("class:cli-assistant-title", "Assistant\n")
                 _transcript_prepend("class:cli-border", "─" * rule_w + "\n")
             else:
                 _cli_block_reply(content)
@@ -684,8 +900,6 @@ async def run_cli_loop(
                 sp.vertical_scroll = 0
             _reset_horizontal_scroll()
 
-        input_buffer.history = SafeFileHistory(history_file)
-        _load_session_history_to_input(state, input_buffer)
         _load_initial_history_to_transcript()
         _stick_bottom[0] = True
         try:
@@ -821,54 +1035,6 @@ async def run_cli_loop(
             return False
         hrule_count = sum(1 for ch in text if ch in _HRULE_CHARS)
         return hrule_count >= len(text) * 0.8
-
-    def _is_valid_pt_style(style: str) -> bool:
-        """判断样式字符串是否有效（防止 emoji 等被解析为 color）。
-
-        prompt_toolkit 的 _parse_style_str 会将样式字符串解析为颜色，
-        如果样式字符串包含 emoji 等无效字符，会抛出 'Wrong color format' 错误。
-
-        有效样式格式：
-        - 空字符串
-        - 'ansi*' 开头（ANSI 颜色名）
-        - '#' 开头（十六进制颜色）
-        - 'class:' 开头（样式类名）
-        - 'bg:*'（背景色）
-        - 'fg:*'（前景色，已弃用但仍支持）
-        """
-        if not style:
-            return True
-        # 允许的标准样式前缀
-        valid_prefixes = ("ansi", "#", "class:", "bg:", "fg:", "noinherit")
-        # 检查是否为单个 ANSI 颜色名（如 'ansired'）
-        if style in ("ansidefault", "ansiblack", "ansired", "ansigreen", "ansiyellow",
-                     "ansiblue", "ansimagenta", "ansicyan", "ansiwhite",
-                     "ansibrightblack", "ansibrightred", "ansibrightgreen", "ansibrightyellow",
-                     "ansibrightblue", "ansibrightmagenta", "ansibrightcyan", "ansibrightwhite"):
-            return True
-        return any(style.startswith(p) for p in valid_prefixes)
-
-    def _safe_ansi(ansi_body: str) -> Any:
-        """安全创建 ANSI 对象，过滤可能导致渲染错误的样式字符串。
-
-        prompt_toolkit 的 ANSI 解析器可能将某些 ANSI 序列错误解析，
-        导致 emoji 等字符被当作样式字符串，引发 'Wrong color format' 错误。
-        使用 _is_valid_pt_style 验证每个 fragment 的样式。
-        """
-        from prompt_toolkit.formatted_text import ANSI, to_formatted_text
-
-        ansi_obj = ANSI(ansi_body)
-        # 获取解析后的 fragments 并过滤样式
-        ft = list(to_formatted_text(ansi_obj))
-        safe_fragments = []
-        for style, text in ft:
-            # 使用统一的样式验证函数
-            if _is_valid_pt_style(style):
-                safe_fragments.append((style, text))
-            else:
-                # 无效样式，使用空样式（纯文本）
-                safe_fragments.append(("", text))
-        return safe_fragments
 
     def _truncate_hrule_in_ansi(ansi_list: list[Any], vp: int) -> list[Any]:
         """截断 ANSI 输出中的水平分割线，同时过滤无效样式（防止 emoji 解析错误）。
@@ -1129,11 +1295,9 @@ async def run_cli_loop(
 
         仅扣除最小边距（1列），滚动条已在 _viewport_cols 中扣除。
         """
-        vp = _viewport_cols()
         from miniagent.core.constants import CLI_WIDTH_MARGIN
 
-        margin = CLI_WIDTH_MARGIN
-        return max(40, vp - int(margin))
+        return _markdown_render_width_for_vp(_viewport_cols(), CLI_WIDTH_MARGIN)
 
     # ─── 水平滚动控制 ───────────────────────────────────────────────
     from miniagent.core.constants import CLI_WRAP_THRESHOLD
@@ -1710,6 +1874,7 @@ async def run_cli_loop(
 
     # 复制模式专用过滤器
     def _in_copy_mode() -> bool:
+        """prompt_toolkit 过滤器：是否处于 transcript 复制模式。"""
         return _copy_mode_active[0]
 
     # 使用 eager=True 确保复制模式下这些键优先处理，不传递给正常模式
@@ -1773,39 +1938,12 @@ async def run_cli_loop(
         if text:
             # 检测特殊前缀
             if text.startswith("!"):
-                # !cmd: 直接执行Bash命令
                 bash_cmd = text[1:].strip()
                 if bash_cmd:
-                    import subprocess
-
-                    from miniagent.core.constants import CLI_BASH_TIMEOUT
-
-                    timeout = CLI_BASH_TIMEOUT
-                    try:
-                        result = subprocess.run(
-                            bash_cmd,
-                            shell=True,
-                            capture_output=True,
-                            text=True,
-                            timeout=timeout
-                        )
-                        # 格式化输出
-                        output_lines = [f"⚙️ Bash: {bash_cmd}"]
-                        if result.stdout:
-                            output_lines.append(result.stdout)
-                        if result.stderr:
-                            output_lines.append(f"❌ stderr: {result.stderr}")
-                        if result.returncode != 0:
-                            output_lines.append(f"退出码: {result.returncode}")
-                        # 写入transcript
-                        _append_transcript("class:cli-default", "\n".join(output_lines) + "\n")
-                        _stick_bottom[0] = True
-                    except subprocess.TimeoutExpired:
-                        _append_transcript("class:cli-err", f"❌ Bash超时（{timeout}s）: {bash_cmd}\n")
-                        _stick_bottom[0] = True
-                    except Exception as e:
-                        _append_transcript("class:cli-err", f"❌ Bash错误: {e}\n")
-                        _stick_bottom[0] = True
+                    ok, output = run_cli_bash_command(bash_cmd)
+                    style = "class:cli-default" if ok else "class:cli-err"
+                    _append_transcript(style, output)
+                    _stick_bottom[0] = True
                     event.app.invalidate()
                 input_buffer.reset(append_to_history=True)
                 return
@@ -1905,14 +2043,14 @@ async def run_cli_loop(
     # 显式绑定上下方向键到输入历史导航（不依赖 BufferControl 默认行为）
     @kb.add("up", filter=has_focus(input_buffer))
     def _on_up(event):
-        """上方向键：浏览上一条历史消息。"""
+        """上方向键：浏览持久化输入历史（``history.txt`` + 启动时并入的会话 user 消息）。"""
         input_buffer.load_history_if_not_yet_loaded()
         input_buffer.history_backward()
         event.app.invalidate()
 
     @kb.add("down", filter=has_focus(input_buffer))
     def _on_down(event):
-        """下方向键：浏览下一条历史消息。"""
+        """下方向键：浏览持久化输入历史（``history.txt`` + 启动时并入的会话 user 消息）。"""
         input_buffer.load_history_if_not_yet_loaded()
         input_buffer.history_forward()
         event.app.invalidate()
@@ -2019,6 +2157,7 @@ async def run_cli_loop(
     from miniagent.infrastructure.cli_transcript_coordinator import CliTranscriptCoordinator
 
     def _clear_stream_state(sk: str) -> None:
+        """turn 结束时清除指定 session 的流式思考累加器。"""
         _streaming_think_by_session.pop(sk, None)
 
     _transcript_coordinator = CliTranscriptCoordinator(
@@ -2186,12 +2325,19 @@ async def run_cli_loop(
 
     def _rule_line_width() -> int:
         """与 Markdown 渲染宽度同源，避免分隔线与正文视觉错位。"""
-        return max(40, _viewport_cols())
+        return _rule_line_width_for_vp(_viewport_cols())
+
+    state["cli_render_width"] = _rule_line_width
+    state["cli_markdown_width"] = _markdown_render_width
+
+    def _clear_cli_format_widths() -> None:
+        state.pop("cli_render_width", None)
+        state.pop("cli_markdown_width", None)
 
     def _cli_rule_heavy() -> None:
         """在 transcript 中画粗分隔线（双线条字符）。"""
         w = _rule_line_width()
-        _append_transcript("class:cli-border-strong", "╸" * w + "\n")
+        _append_transcript("class:cli-border-strong", "\u2550" * w + "\n")
 
     def _cli_rule_light() -> None:
         """在 transcript 中画细分隔线。"""
@@ -2199,207 +2345,43 @@ async def run_cli_loop(
         _append_transcript("class:cli-border", "─" * w + "\n")
 
     def _cli_block_user(prompt: str) -> None:
-        """本轮提问区块。"""
-        _stick_bottom[0] = True
-        _append_transcript("class:cli-spacer", "\n")
-        _cli_rule_heavy()
-        _append_transcript("class:cli-user-title", "You\n")
-        _cli_rule_light()
-        for line in (prompt or "").splitlines() or [""]:
-            _append_transcript("class:cli-user-body", line + "\n")
-        _append_transcript("class:cli-spacer", "\n")
+        """本轮提问区块（委托 ``cli_format``，与实时轮次样式一致）。"""
+        from miniagent.engine.cli_format import format_cli_user_block
+
+        format_cli_user_block(
+            _append_transcript,
+            prompt,
+            _stick_bottom,
+            render_width=_rule_line_width(),
+        )
 
     def _cli_block_reply(text: str) -> None:
-        """最终回复区块（可选 Rich → ANSI，经 prompt_toolkit 解析）。"""
-        from miniagent.engine.markdown_cli import render_markdown_to_ansi
+        """最终回复区块（委托 ``cli_format``，含安全 ANSI 与粘底滚动）。"""
+        from miniagent.engine.cli_format import format_cli_reply_block
 
-        _append_transcript("class:cli-spacer", "\n")
-        _cli_rule_light()
-        _append_transcript("class:cli-assistant-title", "Assistant\n")
-        _cli_rule_light()
-        # Markdown 渲染宽度：统一使用 _markdown_render_width
-        md_w = _markdown_render_width()
-        ansi_body = render_markdown_to_ansi(text or "", width=md_w)
-        if ansi_body and ansi_body.strip():
-            at_bottom = _output_at_bottom()
-            body_lines = ansi_body.rstrip("\n").split("\n")
-            transcript_body = "\n".join(ln if ln else "" for ln in body_lines) + "\n"
-            # 使用安全的 ANSI 处理
-            safe_ft = _safe_ansi(transcript_body)
-            for style, txt in safe_ft:
-                _transcript.append((style, txt))
-                _transcript_total_len[0] += len(txt)
-            _trim_transcript()
-            try:
-                get_app().invalidate()
-            except Exception:
-                pass
-            if at_bottom or _stick_bottom[0]:
-                _snap_output_bottom()
-                if at_bottom:
-                    _stick_bottom[0] = True
-            else:
-                _stick_bottom[0] = False
-        else:
-            for line in (text or "").splitlines() or [""]:
-                _append_transcript("class:cli-assistant-body", line + "\n")
-        _append_transcript("class:cli-spacer", "\n")
-        _cli_rule_heavy()
-
-    async def _detect_and_process_file_markers(
-        user_input: str,
-        session_key: str,
-        session_manager: Any,
-        runtime_ctx: Any,
-    ) -> tuple[str, list[dict]]:
-        """检测用户输入中的 @file: 标记，处理文件并存储到记忆。
-
-        Args:
-            user_input: 用户原始输入
-            session_key: 会话 ID
-            session_manager: 会话管理器
-            runtime_ctx: 运行时上下文
-
-        Returns:
-            (处理后的输入, 文件信息列表)
-        """
-        files_info: list[dict] = []
-
-        # 性能优化：使用预编译正则（避免每次都编译）
-        matches = _FILE_MARKER_PATTERN.findall(user_input)
-
-        if not matches:
-            return user_input, files_info
-
-        for match in matches:
-            file_path = match[0] or match[1]
-            if not file_path:
-                continue
-
-            # 解析路径
-            try:
-                if session_manager:
-                    session = session_manager.get(session_key)
-                    if session:
-                        base_path = session.workspace_path or ""
-                        if not os.path.isabs(file_path):
-                            # 相对路径：相对于会话 files 目录或当前目录
-                            if os.path.exists(file_path):
-                                resolved = file_path
-                            elif base_path and os.path.exists(os.path.join(base_path, file_path)):
-                                resolved = os.path.join(base_path, file_path)
-                            else:
-                                resolved = file_path
-                        else:
-                            resolved = file_path
-
-                        if os.path.isfile(resolved):
-                            # 读取文件元数据
-                            file_name = os.path.basename(resolved)
-                            file_size = os.path.getsize(resolved)
-
-                            # 检测 MIME 类型
-                            try:
-                                with open(resolved, "rb") as f:
-                                    header = f.read(32)
-                                mime_type = detect_mime_from_magic(header) or "application/octet-stream"
-                            except Exception:
-                                mime_type = "application/octet-stream"
-
-                            if mime_type.startswith("image/"):
-                                file_type = "image"
-                            elif mime_type.startswith("text/"):
-                                file_type = "text"
-                            else:
-                                file_type = "binary"
-
-                            # 图片描述（如果有视觉模型，可通过配置禁用）
-                            description = ""
-                            vision_desc_enabled = get_config("cli.file_vision_desc", True)
-                            if file_type == "image" and runtime_ctx and vision_desc_enabled:
-                                try:
-                                    from miniagent.feishu.vision_desc import describe_image
-                                    client = getattr(runtime_ctx, "openai_client", None)
-                                    model = get_config("model.model", "gpt-4o-mini")
-                                    if client:
-                                        description = await describe_image(resolved, client, model)
-                                except Exception:
-                                    pass
-
-                            # 文本文件预览
-                            elif file_type == "text":
-                                try:
-                                    with open(resolved, encoding="utf-8", errors="ignore") as f:
-                                        preview = f.read(500)
-                                    description = preview[:200]
-                                except Exception:
-                                    pass
-
-                            # 存储到记忆
-                            try:
-                                from miniagent.memory.store import add_file_to_memory
-                                from miniagent.types.memory import FileMetadata
-
-                                rel_path = file_path if not os.path.isabs(file_path) else os.path.basename(resolved)
-
-                                file_meta = FileMetadata(
-                                    name=file_name,
-                                    path=rel_path,
-                                    size=file_size,
-                                    mime_type=mime_type,
-                                    type=file_type,
-                                    description=description,
-                                    timestamp=datetime.now(timezone.utc).isoformat(),
-                                    source="cli",
-                                )
-
-                                await add_file_to_memory(session_key, file_meta, getattr(runtime_ctx, "memory_store", None))
-
-                                files_info.append({
-                                    "name": file_name,
-                                    "type": file_type,
-                                    "size": file_size,
-                                    "description": description[:100] if description else "",
-                                })
-
-                                # 替换标记为描述（包含图片/文本内容摘要，以便 Agent 理解）
-                                marker = f"@file:{file_path}" if match[0] else f"file:{file_path}"
-                                type_label = {"image": "图片", "text": "文本文件", "binary": "文件"}.get(file_type, "文件")
-                                # 注入内容描述（限制长度避免 token 过长）
-                                max_desc_len = 150 if file_type == "image" else 100
-                                if description:
-                                    truncated_desc = description[:max_desc_len]
-                                    content_label = "图片内容" if file_type == "image" else "内容预览"
-                                    replacement = f"[{type_label}: {file_name}]\n{content_label}：{truncated_desc}"
-                                else:
-                                    replacement = f"[{type_label}: {file_name}]"
-                                user_input = user_input.replace(marker, replacement)
-
-                                # 提示用户
-                                size_kb = file_size // 1024 if file_size >= 1024 else file_size
-                                size_label = f"{size_kb}KB" if file_size >= 1024 else f"{size_kb}B"
-                                term_write(f"📎 已处理文件: {file_name} ({size_label})\n", "ansicyan")
-                                if description:
-                                    term_write(f"   内容摘要: {description[:100]}{'...' if len(description) > 100 else ''}\n", "ansicyan")
-                            except Exception:
-                                pass
-
-                        else:
-                            term_write(f"⚠️ 文件不存在: {file_path}\n", "ansiyellow")
-            except Exception as e:
-                term_write(f"⚠️ 处理文件失败: {e}\n", "ansiyellow")
-
-        return user_input, files_info
+        format_cli_reply_block(
+            _append_transcript,
+            _append_ansi_transcript,
+            text,
+            render_width=_rule_line_width(),
+            markdown_width=_markdown_render_width(),
+        )
 
     async def _process_input(user_input: str) -> None:
-        """处理用户输入并打印回复。"""
+        """处理用户输入并打印回复（含 ``@file:`` 标记与 Agent 调用）。"""
         from miniagent.engine.cli_format import format_cli_reply_block, format_cli_user_block
+        from miniagent.engine.parallel_config import resolve_active_session_key
 
-        session_key = channel_router.resolve("__cli__")
+        session_key = resolve_active_session_key(
+            channel_router, state.get("active_session_id") or "default"
+        )
         try:
-            # 检测并处理文件标记 @file:
-            user_input, files_info = await _detect_and_process_file_markers(
-                user_input, session_key, state.get("session_manager"), ctx
+            user_input, _files_info = await detect_and_process_file_markers(
+                user_input,
+                session_key,
+                state.get("session_manager"),
+                ctx,
+                notify=term_write,
             )
 
             _transcript_coordinator.begin_turn(session_key, source="cli")
@@ -2418,7 +2400,12 @@ async def run_cli_loop(
                         get_app().invalidate()
                     except Exception:
                         pass
-                    format_cli_user_block(cli_append, user_input, _stick_bottom)
+                    format_cli_user_block(
+                        cli_append,
+                        user_input,
+                        _stick_bottom,
+                        render_width=_rule_line_width(),
+                    )
                     try:
                         await asyncio.sleep(0)
                         if _was_at_bottom:
@@ -2445,7 +2432,13 @@ async def run_cli_loop(
                         _hold_session_lock=True,
                     )
                     if reply and reply.strip():
-                        format_cli_reply_block(cli_append, cli_append_ansi, (reply or "").strip())
+                        format_cli_reply_block(
+                            cli_append,
+                            cli_append_ansi,
+                            (reply or "").strip(),
+                            render_width=_rule_line_width(),
+                            markdown_width=_markdown_render_width(),
+                        )
                 finally:
                     _transcript_coordinator.end_turn(session_key)
         except Exception as e:
@@ -2467,6 +2460,7 @@ async def run_cli_loop(
             )
             set_console_log_threshold(logging.INFO)
             ctx.cli_transcript_append = None
+            _clear_cli_format_widths()
             await _run_cli_loop_fallback(
                 ctx,
                 state,
@@ -2562,6 +2556,7 @@ async def run_cli_loop(
             pass
 
     # 清理
+    _clear_cli_format_widths()
     set_console_log_threshold(logging.INFO)
     ctx.cli_transcript_append = None
 
@@ -2660,6 +2655,9 @@ async def _run_cli_loop_fallback(
     **Linux 兼容性**：在 fallback 模式下也显示思考过程，
     通过 ThinkingDisplay.set_output_sink 设置回调，
     确保终端不支持全屏时也能看到 Agent 的思考内容。
+
+    点命令与全屏 TUI 一致经 ``dispatch_command`` 分发（stdout 输出）；
+    ``/copy`` 与 ``/stop`` 因输出语义不同仍在此单独处理。
     """
     engine = ctx.engine
     registry = ctx.registry
@@ -2667,29 +2665,7 @@ async def _run_cli_loop_fallback(
     channel_router = ctx.channel_router
     message_queue = ctx.message_queue
 
-    # 根据 parallel_sessions 配置消息队列（与主循环一致）
-    from miniagent.engine.parallel_config import configure_message_queue_for_parallel
-
-    configure_message_queue_for_parallel(message_queue)
-
-    from miniagent.engine.cli_commands import (
-        cmd_help,
-        cmd_instance_handler,
-        cmd_queue_set,
-        cmd_queue_status,
-        cmd_session_create,
-        cmd_session_delete,
-        cmd_session_list,
-        cmd_session_rename,
-        cmd_session_switch,
-        format_queue_command_usage,
-        format_session_command_usage,
-    )
-    from miniagent.engine.session_lock import (
-        is_session_locked,
-        release_session_lock,
-        try_lock_session_async,
-    )
+    from miniagent.engine.session_lock import release_session_lock
     from miniagent.skills.snapshots import (
         get_skill_prompts_from_state,
         get_skill_toolboxes_from_state,
@@ -2733,6 +2709,7 @@ async def _run_cli_loop_fallback(
     _fallback_print_lock = threading.Lock()
 
     def _fallback_print_locked(text: str, *, end: str = "\n") -> None:
+        """线程安全地向 stdout 打印（fallback 模式无 TUI transcript）。"""
         with _fallback_print_lock:
             print(text, end=end)
             sys.stdout.flush()
@@ -2758,6 +2735,7 @@ async def _run_cli_loop_fallback(
         *,
         session_key: str = "",
     ) -> None:
+        """Fallback CLI 思考输出核心逻辑（print 到 stdout）。"""
         if text:
             _fallback_print_locked(text, end="" if kind == "chunk" else "\n")
 
@@ -2778,11 +2756,15 @@ async def _run_cli_loop_fallback(
                 lambda: _fallback_thinking_sink_inner(text, kind, session_key=sk),
             )
 
+    def _fb_file_notify(msg: str, _color: str = "") -> None:
+        """Fallback 模式下 ``@file:`` 处理的用户提示（stdout，无颜色）。"""
+        _fallback_print_locked(msg if msg.endswith("\n") else msg + "\n")
+
     engine.thinking.set_output_sink(_fallback_thinking_sink)
 
 
-    # readline 支持：使 fallback CLI 的 input() 支持上下键浏览历史
-    history_file = os.path.join(os.path.expanduser("~"), ".miniagent_cli_history")
+    # readline 支持：与全屏 TUI 共用 ``{state_dir}/cli/history.txt``
+    history_file = _resolve_cli_history_file()
     try:
         import readline
 
@@ -2797,10 +2779,21 @@ async def _run_cli_loop_fallback(
     async def _process_input(user_input: str) -> None:
         """备用终端：打印 You/Assistant 区块并调用 ``run_agent_with_thinking``。"""
         from miniagent.engine.cli_format import format_cli_reply_block, format_cli_user_block
+        from miniagent.engine.parallel_config import resolve_active_session_key
 
-        session_key = channel_router.resolve("__cli__")
+        session_key = resolve_active_session_key(
+            channel_router, state.get("active_session_id") or "default"
+        )
         stick = [False]
         try:
+            user_input, _files_info = await detect_and_process_file_markers(
+                user_input,
+                session_key,
+                state.get("session_manager"),
+                ctx,
+                notify=_fb_file_notify,
+            )
+
             _fb_coordinator.begin_turn(session_key, source="cli")
             cli_append = _fb_coordinator.make_session_append(session_key)
             cli_append_ansi = _fb_coordinator.make_session_append_ansi(session_key)
@@ -2846,6 +2839,13 @@ async def _run_cli_loop_fallback(
         if user_input.lower() in ("quit", "exit"):
             break
 
+        if user_input.startswith("!"):
+            bash_cmd = user_input[1:].strip()
+            if bash_cmd:
+                _ok, output = run_cli_bash_command(bash_cmd)
+                _fallback_print_locked(output)
+            continue
+
         if user_input == "/copy":
             from miniagent.engine.cli_commands import build_session_history_plaintext
 
@@ -2874,114 +2874,25 @@ async def _run_cli_loop_fallback(
             print("✅ 当前实例已停止")
             break
 
-        if user_input.startswith("/instance"):
-            parts = user_input.split()
-            sub_cmd = parts[1] if len(parts) > 1 else ""
-            cmd_instance_handler(parts, sub_cmd, state)
-            continue
-
-        if user_input.startswith("/session "):
-            parts = user_input.split()
-            sub_cmd = parts[1] if len(parts) > 1 else ""
-            if sub_cmd == "list":
-                cmd_session_list(state.get("session_manager"), state["active_session_id"])
-            elif sub_cmd == "switch" and len(parts) >= 3:
-                new_session_id = await cmd_session_switch(
-                    state.get("session_manager"),
-                    state["active_session_id"],
-                    parts[2],
-                    try_lock_session_async,
-                    release_session_lock,
-                    is_session_locked,
-                    channel_router,
-                    state.get("feishu_p2p_synced_senders"),
-                )
-                if new_session_id != state["active_session_id"]:
-                    state["active_session_id"] = new_session_id
-                    _fb_show_session_history("\n📜 已切换会话，最近历史如下：\n")
-            elif sub_cmd == "create" and len(parts) >= 3:
-                await cmd_session_create(
-                    state.get("session_manager"),
-                    parts[2],
-                    parts[3] if len(parts) > 3 else None,
-                    try_lock_session_async,
-                )
-            elif sub_cmd == "rename" and len(parts) >= 4:
-                cmd_session_rename(state.get("session_manager"), parts[2], " ".join(parts[3:]))
-            elif sub_cmd == "delete" and len(parts) >= 3:
-                cmd_session_delete(
-                    state.get("session_manager"),
-                    state["active_session_id"],
-                    parts[2],
-                    release_session_lock,
-                )
-            else:
-                print(format_session_command_usage() + "\n")
-            continue
-
-        if user_input.startswith("/feishu"):
-            if user_input == "/feishu start":
-                ctx.feishu.start(
-                    ctx.create_feishu_handler_factory,
-                    state,
-                    user_status=_feishu_user_status_fn(ctx),
-                )
-            elif user_input == "/feishu stop":
-                await ctx.feishu.stop_async()
-            else:
-                ctx.feishu.status()
-            continue
-
-        if user_input.startswith("/queue"):
-            parts = user_input.split()
-            sub = parts[1] if len(parts) > 1 else ""
-            if sub == "status":
-                cmd_queue_status(message_queue)
-            elif sub == "set" and len(parts) >= 3:
-                await cmd_queue_set(message_queue, parts[2])
-            elif sub == "abort":
-                from miniagent.engine.cli_commands import format_queue_abort_message
-
-                res = message_queue.abort_chat(message_queue.CLI_CHAT_ID)
-                print(format_queue_abort_message(res) + "\n")
-            else:
-                print(format_queue_command_usage(message_queue) + "\n")
-            continue
-
-        if user_input == "/abort":
-            from miniagent.engine.cli_commands import format_queue_abort_message
-
-            res = message_queue.abort_chat(message_queue.CLI_CHAT_ID)
-            print(format_queue_abort_message(res) + "\n")
-            continue
-
-        if user_input == "/stats":
-            print(f"\n{monitor.report()}")
-            continue
-
-        if user_input == "/status":
-            from miniagent.engine.command_dispatch import _format_status as _fmt_status
-
-            print(_fmt_status(state))
-            continue
-
-        if user_input == "/help":
-            cmd_help(message_queue, state.get("instance_id"))
-            continue
-
-        # 统一分发：所有未被上述 if 捕获的 `/命令` 走 dispatch_command
+        # 其余 ``/`` 命令：与全屏 TUI 一致走 ``dispatch_command``（stdout 输出）
         if user_input.startswith("/"):
-            from miniagent.engine.command_dispatch import dispatch_command as _dot_dispatch
+            from miniagent.engine.command_dispatch import dispatch_command
 
-            result = await _dot_dispatch(
+            prev_session_id = state["active_session_id"]
+            result = await dispatch_command(
                 user_input,
                 state=state,
-                engine=ctx.engine,
-                registry=ctx.registry,
-                monitor=ctx.monitor,
-                feishu_user_status=_feishu_user_status_fn(ctx),
+                engine=engine,
+                registry=registry,
+                monitor=monitor,
+                skill_toolboxes=_skill_tb(),
+                skill_prompts=get_skill_prompts_from_state(state) or skill_prompts,
                 capture=False,
+                allow_session_mutations_when_capture=True,
+                feishu_user_status=_feishu_user_status_fn(ctx),
             )
+            if state["active_session_id"] != prev_session_id:
+                _fb_show_session_history("\n📜 已切换会话，最近历史如下：\n")
             if result == "__EXIT__":
                 break
             if result is not None:

@@ -66,7 +66,7 @@ Agent 在飞书会话中若通过内置工具 **`run_dot_command`** 调点命令
 miniagent/feishu/poll_server.py
     │
     ▼
-engine.main._create_feishu_handler() → (text_handler, media_handler)
+miniagent/engine/feishu_handler.create_feishu_handler() → (text_handler, media_handler)
     │                                      （text 以 ``FeishuInboundText`` 调 Agent；file/image 走 media_handler）
     ▼
 ChannelRouter.resolve_feishu_message(chat_id, sender_id, chat_type)
@@ -78,7 +78,7 @@ ChannelRouter.resolve_feishu_message(chat_id, sender_id, chat_type)
 UnifiedEngine.run_agent_with_thinking()
     │
     ├── CLI: 终端流式打印思考过程
-    └── 飞书（群聊与私聊）: 每轮 LLM 思考 **一条交互卡片**（流式 PATCH 节流；`finalize` 时若超长则 **首张 PATCH + 后续多张「思考中 (k/n)」续页**）；同轮工具意图默认 **追加到该卡片**（Internal 常量 `EXECUTION_THINKING_MERGE_TOOLS`）。最终回复按 `feishu.card.body_max_chars`（默认约 48k 字符）**分片多张卡片**；任一分片发送失败则 **中止后续分片**，已发部分不再用整条 `text` 重复回退；仅当交互消息 **一条都未成功** 时才按同上限 **分条 text** 回退全文。**Phase 3 反思评估**（`features.reflection` 默认开启）完成后，若该会话存在反思结果，则发送独立**质量评估卡片**（含评分、是否通过、最多 5 条改进建议），不再混入最终回复正文。
+    └── 飞书（群聊与私聊）: 每轮 LLM 思考 **一条交互卡片**（流式 PATCH 节流；`finalize` 时若超长则 **首张 PATCH + 后续多张「思考中 (k/n)」续页**）；同轮工具意图默认 **追加到该卡片**（Internal 常量 `EXECUTION_THINKING_MERGE_TOOLS`）。最终回复按 `feishu.card.body_max_chars`（默认约 48k 字符）**分片多张卡片**；任一分片发送失败则 **中止后续分片**，已发部分不再用整条 `text` 重复回退；仅当交互消息 **一条都未成功** 时才按同上限 **分条 text** 回退全文（由 ``feishu_handler`` 委托 ``poll_server._send_reply``）。**Phase 3 反思评估**（`features.reflection` 默认开启）完成后，评估结果以 **尾部文本** 并入最终回复卡片/正文，**不再**单独发送质量评估卡片。
 ```
 
 **多群并行**（默认开启）：不同飞书群映射到独立 `session_key`（`feishu:<chat_id>`），在 `agent.parallel_sessions=true` 时可**同时**运行 Agent（进程内默认最多 4 路，见 `agent.max_parallel_sessions`）。同一群内消息仍按 `chat_id` 队列串行。设 `agent.parallel_sessions: false` 可回退为全局串行。

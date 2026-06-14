@@ -194,6 +194,28 @@ class MemoryEntryRegistry:
             return True
         return False
 
+    def remove_session_entries(self, session_id: str) -> list[str]:
+        """移除指定会话的全部注册条目并持久化。
+
+        Args:
+            session_id: 会话 ID
+
+        Returns:
+            被移除的 entry_key 列表
+        """
+        self._ensure_loaded()
+        prefix = f"{session_id}:"
+        removed: list[str] = []
+        for key in list(self._entries.keys()):
+            entry = self._entries[key]
+            if key.startswith(prefix) or entry.session_id == session_id:
+                del self._entries[key]
+                removed.append(key)
+        if removed:
+            self._dirty = True
+            self.save()
+        return removed
+
     def get_stats(self) -> dict[str, Any]:
         """获取统计信息。"""
         self._ensure_loaded()

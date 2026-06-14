@@ -79,3 +79,43 @@ async def test_max_parallel_sessions_limit() -> None:
 
     await asyncio.gather(work("a"), work("b"), work("c"))
     assert max_seen <= 2
+
+
+@pytest.mark.asyncio
+async def test_queued_same_session_does_not_block_other_sessions() -> None:
+    """同 session 排队任务不占 Semaphore 名额，其他 session 仍可并行启动。"""
+    coord = SessionExecCoordinator(parallel_sessions=True, max_parallel_sessions=1)
+    gate = asyncio.Event()
+    other_started = asyncio.Event()
+
+    async def hold_same_session() -> None:
+        async with coord.acquire("same"):
+            gate.set()
+            await asyncio.sleep(0.2)
+
+    async def queue_same_session() -> None:
+        await gate.wait()
+        async with coord.acquire("same"):
+            pass
+
+    async def other_session() -> None:
+        await gate.wait()
+        async with coord.acquire("other"):
+            other_started.set()
+
+    await asyncio.gather(hold_same_session(), queue_same_session(), other_session())
+    assert other_started.is_set()
+
+
+@pytest.mark.asyncio
+async def test_serial_mode_ignores_session_key() -> None:
+    """parallel_sessions=false 时不同 session_key 仍全局串行。"""
+    coord = SessionExecCoordinator(parallel_sessions=False, max_parallel_sessions=4)
+    order: list[str] = []
+
+    async def work(key: str, tag: str) -> None:
+        async with coord.acquire(key):
+            order.append(tag)
+
+    await asyncio.gather(work("x", "first"), work("y", "second"))
+    assert order == ["first", "second"]

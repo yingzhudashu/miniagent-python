@@ -31,7 +31,9 @@ from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_P
 _logger = get_logger(__name__)
 
 
-# ─── 已注册命令列表（用于模糊匹配）────────────────────────────────────────────
+# ─── 已注册命令列表（用于模糊匹配与 CLI 补全）────────────────────────────────
+# 顺序影响 _find_command_by_prefix：同前缀时返回列表中先出现的项
+# （例如 "/sta" 会匹配 "/stats" 而非 "/status"，因 "/stats" 更靠前）。
 _REGISTERED_COMMANDS = [
     "/help",
     "/session",
@@ -88,6 +90,9 @@ def _find_closest_command(input_cmd: str, threshold: float = 0.6) -> str | None:
 def _find_command_by_prefix(input_cmd: str) -> str | None:
     """前缀匹配（至少3字符）。
 
+    多个命令共享同一前缀时，返回 ``_REGISTERED_COMMANDS`` 中**最先**匹配的一项，
+    而非语义上「最可能」的命令。
+
     Args:
         input_cmd: 用户输入的命令前缀（如 "/sta")
 
@@ -126,6 +131,29 @@ _REMOTE_SESSION_HINT = (
     "飞书上可使用 /session list 查看会话列表。"
 )
 
+# 旧版 ``.reload-skills`` 别名 → 统一 ``/`` 前缀
+_LEGACY_COMMAND_ALIASES: dict[str, str] = {
+    ".reload-skills": "/reload-skills",
+    ".reload_skills": "/reload-skills",
+}
+
+
+def _normalize_command_text(text: str) -> str | None:
+    """规范化命令文本；非命令输入返回 None。"""
+    stripped = text.strip()
+    if not stripped:
+        return None
+    parts = stripped.split()
+    first = parts[0].lower()
+    if first in _LEGACY_COMMAND_ALIASES:
+        normalized = _LEGACY_COMMAND_ALIASES[first]
+        if len(parts) > 1:
+            normalized += " " + " ".join(parts[1:])
+        return normalized
+    if stripped.startswith("/"):
+        return stripped
+    return None
+
 
 async def dispatch_command(
     text: str,
@@ -163,11 +191,13 @@ async def dispatch_command(
         confirmation_session_key: 飞书入站时传入的 ``session_key``，供 ``/confirm`` 等确认命令路由。
 
     Returns:
-        capture=True 时返回输出字符串，capture=False 时返回 None
+        capture=True 时返回输出字符串（无文本时可能为 ``""``，表示命令已处理），
+        capture=False 时返回 None；``/stop`` 成功时返回 ``"__EXIT__"``。
     """
-    # 仅支持 / 前缀（统一命令格式）
-    if not text.startswith("/"):
+    normalized = _normalize_command_text(text)
+    if normalized is None:
         return None
+    text = normalized
 
     from miniagent.engine.btw_cmd import (
         cmd_btw_cancel,
@@ -366,23 +396,19 @@ async def dispatch_command(
                 us = _resolve_feishu_user_status()
 
                 def _start() -> None:
-                    """启动飞书长轮询任务（动态获取当前技能配置）。"""
-                    from miniagent.skills.snapshots import (
-                        get_skill_prompts_from_state,
-                        get_skill_toolboxes_from_state,
-                    )
-
-                    feishu_rt.start(
-                        get_skill_toolboxes_from_state(state) or skill_toolboxes or [],
-                        get_skill_prompts_from_state(state) or skill_prompts or [],
-                        factory,
-                        state,
-                        user_status=us,
-                    )
+                    """启动飞书长轮询任务。"""
+                    feishu_rt.start(factory, state, user_status=us)
 
                 output = _capture(_start)
         elif text == "/feishu stop":
-            output = _capture(feishu_rt.stop)
+            buf = io.StringIO()
+            try:
+                with redirect_stdout(buf):
+                    await feishu_rt.stop_async()
+            except Exception as e:
+                output = f"{ERROR_PREFIX} 命令执行失败: {e}"
+            else:
+                output = buf.getvalue().strip()
         else:
             output = _capture(feishu_rt.status)
 
@@ -417,7 +443,7 @@ async def dispatch_command(
                     await cmd_queue_set(message_queue, parts[2])
                 output = buf.getvalue().strip()
             except Exception as e:
-                output = f"❌ 命令执行失败: {e}"
+                output = f"{ERROR_PREFIX} 命令执行失败: {e}"
         elif sub == "abort":
             output = _abort_queue_output()
         else:
@@ -680,7 +706,8 @@ async def dispatch_command(
                     capture=capture,
                 )
         if capture:
-            return output
+            # 进度已由 term_write 写入 transcript；空串表示已处理，避免 fallthrough
+            return output if output is not None else ""
         if output:
             print(output)
         return None
@@ -817,10 +844,10 @@ async def dispatch_command(
 
     # ── /reload-config（配置热更新）──
     if cmd == "/reload-config":
-        from miniagent.infrastructure.json_config import reload_config
+        from miniagent.infrastructure.json_config import reload_runtime_config
 
         try:
-            reload_config()
+            reload_runtime_config()
             output = f"{SUCCESS_PREFIX} 配置已重新加载"
         except Exception as e:
             output = f"{ERROR_PREFIX} 配置加载失败: {e}"
@@ -870,7 +897,7 @@ _REVIEW_ITERATION_SYSTEM = REVIEW_ITERATION_PROMPT
 
 
 def _get_last_qa(session_manager, session_id: str) -> tuple[str | None, str | None]:
-    """获取当前会话的最后一轮 Q&A。"""
+    """获取当前会话的最后一轮 Q&A（连续 user → assistant 对）。"""
     session = session_manager.get(session_id)
     if session is None:
         return None, None
@@ -889,18 +916,25 @@ def _get_last_qa(session_manager, session_id: str) -> tuple[str | None, str | No
                 except Exception:
                     history = []
 
-    last_user = None
-    last_assistant = None
-    for msg in reversed(history):
-        if isinstance(msg, dict):
-            role = msg.get("role", "")
-            content = msg.get("content", "")
-            if role == "user" and content and last_user is None:
-                last_user = content
-            elif role == "assistant" and content and last_assistant is None:
-                last_assistant = content
-            if last_user and last_assistant:
-                break
+    assistant_idx = -1
+    last_assistant: str | None = None
+    for i in range(len(history) - 1, -1, -1):
+        msg = history[i]
+        if isinstance(msg, dict) and msg.get("role") == "assistant" and msg.get("content"):
+            last_assistant = msg["content"]
+            assistant_idx = i
+            break
+
+    if last_assistant is None:
+        return None, None
+
+    last_user: str | None = None
+    for i in range(assistant_idx - 1, -1, -1):
+        msg = history[i]
+        if isinstance(msg, dict) and msg.get("role") == "user" and msg.get("content"):
+            last_user = msg["content"]
+            break
+
     return last_user, last_assistant
 
 
@@ -1277,7 +1311,7 @@ def _get_test_status() -> str:
     report = runner.get_last_report()
 
     if not report:
-        return "📭 暂无测试记录，请先运行 `.test run`"
+        return "📭 暂无测试记录，请先运行 `/test run`"
 
     lines = [
         "🧪 最近测试报告：",

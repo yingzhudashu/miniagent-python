@@ -404,6 +404,54 @@ class TestUnifiedEngineConfirmationChannel:
         assert c1 is not c2
 
 
+class TestUnifiedEngineReflectionCache:
+    """测试反思评估缓存。"""
+
+    def test_get_and_clear_last_reflection(self) -> None:
+        engine = UnifiedEngine()
+        engine._last_reflection["s1"] = {"score": 0.9}
+        assert engine.get_last_reflection("s1") == {"score": 0.9}
+        assert engine.get_last_reflection("missing") is None
+        engine.clear_last_reflection("s1")
+        assert engine.get_last_reflection("s1") is None
+
+
+class TestUnifiedEngineActiveSessionRouting:
+    """测试 CLI 活跃会话与确认通道路由。"""
+
+    def test_set_active_session_key_routes_confirmation_channel(self) -> None:
+        engine = UnifiedEngine()
+        c_default = engine.get_confirmation_channel("default")
+        c_other = engine.get_confirmation_channel("other")
+        engine.set_active_session_key("other")
+        assert engine.confirmation_channel is c_other
+        assert engine.confirmation_channel is not c_default
+
+
+class TestUnifiedEnginePlanHandler:
+    """测试计划确认回调。"""
+
+    @pytest.mark.asyncio
+    async def test_on_plan_handler_uses_confirmation_channel(self) -> None:
+        from miniagent.types.confirmation import ConfirmationResult
+
+        engine = UnifiedEngine()
+        channel = engine.get_confirmation_channel("plan_session")
+        channel.request_confirmation = AsyncMock(
+            return_value=ConfirmationResult(approved=False)
+        )
+
+        handler = engine._on_plan_handler("plan_session")
+        plan = MagicMock(requires_confirmation=True)
+
+        with patch("miniagent.core.agent._format_plan_display_short", return_value="summary"):
+            with patch("miniagent.core.agent._format_plan_message", return_value="full"):
+                approved = await handler(plan)
+
+        assert approved is False
+        channel.request_confirmation.assert_awaited_once()
+
+
 class TestUnifiedEngineIntegration:
     """集成测试。"""
 
@@ -472,5 +520,8 @@ __all__ = [
     "TestUnifiedEngineExecLock",
     "TestUnifiedEngineClarifier",
     "TestUnifiedEngineConfirmationChannel",
+    "TestUnifiedEngineReflectionCache",
+    "TestUnifiedEngineActiveSessionRouting",
+    "TestUnifiedEnginePlanHandler",
     "TestUnifiedEngineIntegration",
 ]

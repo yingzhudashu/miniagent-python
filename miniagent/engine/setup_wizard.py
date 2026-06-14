@@ -7,14 +7,25 @@
 1. 检测首次运行
 2. 提示是否运行引导
 3. 询问 API 密钥、模型、端点等
-4. 保存到 config.user.json
+4. 保存到 config.user.json 并热加载到内存/环境变量
+
+须在 ``compat.unified_entry`` 加载凭据与 LLM 客户端之前调用。
 """
 
 from __future__ import annotations
 
 import json
-from pathlib import Path
+import sys
 from typing import Any
+
+from miniagent.infrastructure.json_config import get_user_config_path, reload_runtime_config
+
+
+def _copy_defaults_hint() -> str:
+    """返回当前平台适用的 config 模板复制命令。"""
+    if sys.platform == "win32":
+        return "copy config.defaults.json config.user.json"
+    return "cp config.defaults.json config.user.json"
 
 
 def detect_first_time_setup() -> bool:
@@ -23,19 +34,23 @@ def detect_first_time_setup() -> bool:
     Returns:
         True 如果需要首次配置
     """
-    project_root = Path(__file__).parent.parent.parent
-    config_path = project_root / "config.user.json"
-    return not config_path.exists()
+    return not get_user_config_path().exists()
 
 
 def run_setup_wizard() -> dict[str, Any]:
     """运行交互式配置引导。
 
     Returns:
-        配置字典（用于保存到 config.user.json）
+        配置字典（用于保存到 config.user.json）。结构示例::
+
+            {
+                "secrets": {"openai_api_key": "sk-..."},
+                "model": {"model": "gpt-4o", "base_url": "https://..."},
+                "paths": {"state_dir": "workspaces"},
+            }
 
     Note:
-        此函数会与用户交互（input()），仅在 CLI 模式下调用
+        此函数会与用户交互（``input()``），仅在 CLI 模式下调用。
     """
     print("\n🚀 MiniAgent 首次配置")
     print("=" * 50)
@@ -57,10 +72,13 @@ def run_setup_wizard() -> dict[str, Any]:
         key = input("请输入 OpenAI API 密钥: ").strip()
         if key:
             config["secrets"] = {"openai_api_key": key}
-            print("✅ API 密钥已保存")
+            print("✅ API 密钥已记录，将在保存后加载")
+        else:
+            print("⚠️  未输入 API 密钥，LLM 功能将无法使用")
     elif choice == "2":
+        copy_cmd = _copy_defaults_hint()
         print("\n请稍后手动创建 config.user.json：")
-        print("  cp config.defaults.json config.user.json")
+        print(f"  {copy_cmd}")
         print("  然后在 secrets 中填写 openai_api_key")
     else:
         print("⚠️  未配置 API 密钥，LLM 功能将无法使用")
@@ -102,9 +120,9 @@ def run_setup_wizard() -> dict[str, Any]:
     print("\n📱 飞书集成（可选）")
     print("如需飞书集成，请稍后在 config.user.json 配置:")
     print("  {")
-    print("    \"secrets\": {")
-    print("      \"feishu_app_id\": \"your-app-id\",")
-    print("      \"feishu_app_secret\": \"your-app-secret\"")
+    print('    "secrets": {')
+    print('      "feishu_app_id": "your-app-id",')
+    print('      "feishu_app_secret": "your-app-secret"')
     print("    }")
     print("  }")
 
@@ -115,6 +133,11 @@ def run_setup_wizard() -> dict[str, Any]:
     return config
 
 
+def _apply_saved_config() -> None:
+    """将磁盘上的 config.user.json 同步到内存配置与环境变量。"""
+    reload_runtime_config()
+
+
 def save_setup_config(config: dict[str, Any]) -> None:
     """保存配置到 config.user.json。
 
@@ -122,17 +145,18 @@ def save_setup_config(config: dict[str, Any]) -> None:
         config: 配置字典
 
     Note:
-        如果文件已存在，会合并配置（保留现有内容）
+        如果文件已存在，会合并配置（保留现有内容）。
+        写入后会调用 ``reload_config()`` 与 ``load_secrets_from_project_root()``，
+        并丢弃已缓存的 AsyncOpenAI 客户端以便后续按新配置重建。
     """
-    project_root = Path(__file__).parent.parent.parent
-    config_path = project_root / "config.user.json"
+    config_path = get_user_config_path()
 
     # 加载现有配置（如果存在）
     existing: dict[str, Any] = {}
     if config_path.exists():
         try:
             existing = json.loads(config_path.read_text(encoding="utf-8"))
-        except Exception:
+        except json.JSONDecodeError:
             existing = {}
 
     # 合并配置
@@ -140,16 +164,16 @@ def save_setup_config(config: dict[str, Any]) -> None:
 
     for key, value in config.items():
         if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
-            # 合并字典
             merged[key] = {**merged[key], **value}
         else:
             merged[key] = value
 
-    # 写入文件
     config_path.write_text(
         json.dumps(merged, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
+
+    _apply_saved_config()
 
     print(f"\n✅ 配置已保存到: {config_path}")
     print("   您可以随时编辑此文件来调整设置")
@@ -159,12 +183,14 @@ def run_interactive_setup() -> bool:
     """运行首次配置引导（如果需要）。
 
     Returns:
-        True 如果运行了引导，False 否则
+        True 如果用户确认并完成了引导流程（含跳过所有可选项），
+        False 如果无需引导或用户在入口处选择跳过。
 
     Note:
-        - 仅在首次运行时触发
-        - 用户可以选择跳过
-        - 非阻塞式，不影响正常启动流程
+        - 仅在首次运行时触发（无 config.user.json）
+        - 用户可以在入口处选择跳过整个引导
+        - 须在 ``load_secrets_from_project_root()`` 与 ``get_shared_async_openai()``
+          之前调用，以便向导中填写的 API 密钥在本进程内生效
     """
     if not detect_first_time_setup():
         return False
@@ -178,17 +204,19 @@ def run_interactive_setup() -> bool:
     response = input("\n运行配置引导? [Y/n]: ").strip().lower()
 
     if response in ("n", "no", "否"):
+        copy_cmd = _copy_defaults_hint()
         print("\n跳过配置。您可以稍后手动创建 config.user.json")
+        print(f"  {copy_cmd}")
         print("参考 config.defaults.json 了解可用配置项")
         return False
 
-    # 运行引导
     config = run_setup_wizard()
 
     if config:
         save_setup_config(config)
-        print("\n💡 提示：配置文件修改后无需重启")
-        print("   设置 features.config_hot_reload=true 可自动加载更改")
+        print("\n💡 提示：配置已写入并在本进程继续启动时生效。")
+        print("   运行中修改 config.user.json 可使用 /reload-config，")
+        print("   或设置 features.config_hot_reload=true 自动监听变更。")
 
     return True
 

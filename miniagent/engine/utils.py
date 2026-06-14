@@ -35,7 +35,7 @@ def get_terminal_width(fallback_width: int = 80) -> int:
     """获取终端列宽（自适应宽屏显示器）。
 
     Args:
-        fallback_width: 获取失败时的默认宽度
+        fallback_width: ``shutil.get_terminal_size`` 失败时的默认宽度
 
     Returns:
         终端列宽（原始值，未限制范围）
@@ -50,10 +50,10 @@ def get_render_width(fallback_width: int = 80) -> int:
     """获取 CLI 渲染宽度（减去边距，限制范围）。
 
     用于 Markdown 渲染、表格显示等需要固定宽度的场景。
-    计算公式：max(40, min(500, terminal_width - 4))
+    计算公式：``max(40, min(500, terminal_width - 4))``
 
     Args:
-        fallback_width: 获取失败时的默认宽度
+        fallback_width: 终端宽度检测失败时传给 ``get_terminal_width`` 的回退值
 
     Returns:
         渲染宽度（最小 40，最大 500）
@@ -68,11 +68,12 @@ def format_duration_seconds(seconds: float) -> str:
     """格式化秒数为人类可读形式。
 
     Args:
-        seconds: 秒数
+        seconds: 非负秒数（负值按 0 处理）
 
     Returns:
-        格式化字符串，如 "45.2s" 或 "2m30s"
+        格式化字符串，如 ``"45.2s"`` 或 ``"2m30s"``
     """
+    seconds = max(0.0, seconds)
     if seconds < 60:
         return f"{seconds:.1f}s"
     minutes = int(seconds // 60)
@@ -88,11 +89,12 @@ def format_file_size(size_bytes: int) -> str:
     """格式化文件大小为人类可读形式。
 
     Args:
-        size_bytes: 字节数
+        size_bytes: 非负字节数（负值按 0 处理）
 
     Returns:
-        格式化字符串，如 "150KB" 或 "2.5MB"
+        格式化字符串，如 ``"150KB"`` 或 ``"2.5MB"``
     """
+    size_bytes = max(0, size_bytes)
     if size_bytes < 1024:
         return f"{size_bytes}B"
     kb = size_bytes / 1024
@@ -106,46 +108,73 @@ def format_file_size(size_bytes: int) -> str:
 
 
 def truncate_text(text: str, max_length: int, suffix: str = "...") -> str:
-    """截断文本到指定长度。
+    """截断文本到指定长度（含后缀）。
 
     Args:
         text: 原始文本
-        max_length: 最大长度
-        suffix: 截断后缀
+        max_length: 结果字符串的最大长度（须 ``>= 0``）
+        suffix: 截断后缀；当 ``max_length`` 小于后缀长度时，仅保留后缀的前
+            ``max_length`` 个字符
 
     Returns:
-        截断后的文本
+        截断后的文本，长度不超过 ``max_length``
     """
+    if max_length <= 0:
+        return ""
     if len(text) <= max_length:
         return text
-    return text[:max_length - len(suffix)] + suffix
+    if max_length <= len(suffix):
+        return suffix[:max_length]
+    return text[: max_length - len(suffix)] + suffix
 
 
 # ─── 会话历史辅助 ───────────────────────────────────────────────
 
+def _message_content_to_str(content: Any) -> str:
+    """将消息 ``content`` 归一化为纯文本（支持多模态 list 结构）。"""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                text = item.get("text") if item.get("text") is not None else item.get("content")
+                if text is not None:
+                    parts.append(str(text))
+        return "\n".join(parts)
+    return str(content)
+
+
 def extract_last_qa_from_history(history: list[dict[str, Any]]) -> tuple[str, str] | None:
     """从历史记录中提取最后一轮问答。
 
+    配对规则：取**最后一条** ``assistant`` 消息，以及其时间线上**之前最近的一条**
+    ``user`` 消息；中间的 ``system`` / ``tool`` 等角色会被跳过。
+    ``content`` 可为字符串或多模态 list（提取其中的 ``text`` / ``content`` 字段）。
+
     Args:
-        history: 历史消息列表
+        history: OpenAI 风格历史消息列表（``role`` + ``content``）
 
     Returns:
-        (用户问题, Agent回复) 元组，或 None
+        ``(用户问题, Agent 回复)`` 元组；缺任一角色或归一化后为空则 ``None``
     """
     if not history:
         return None
 
-    user_msg = None
-    assistant_msg = None
+    user_msg: str | None = None
+    assistant_msg: str | None = None
 
-    # 从后向前查找
     for msg in reversed(history):
         role = msg.get("role", "")
         if role == "assistant" and assistant_msg is None:
-            assistant_msg = msg.get("content", "")
+            assistant_msg = _message_content_to_str(msg.get("content", ""))
         elif role == "user" and user_msg is None:
-            user_msg = msg.get("content", "")
-            break  # 找到用户消息后停止
+            user_msg = _message_content_to_str(msg.get("content", ""))
+            break
 
     if user_msg and assistant_msg:
         return (user_msg, assistant_msg)
@@ -154,6 +183,8 @@ def extract_last_qa_from_history(history: list[dict[str, Any]]) -> tuple[str, st
 
 # ─── 文件 magic bytes 检测 ───────────────────────────────────────────────
 
+# 轻量级前缀表；复杂格式（WebP）在 detect_ext_from_magic 中单独校验。
+# 局限：ZIP 含 Office 文档、MKV 与 WebM 共用 magic、BMP 仅两字节前缀。
 _MAGIC_TABLE: list[tuple[bytes, str]] = [
     (b"\x89PNG\r\n\x1a\n", ".png"),
     (b"\xff\xd8\xff", ".jpg"),
@@ -161,7 +192,6 @@ _MAGIC_TABLE: list[tuple[bytes, str]] = [
     (b"GIF89a", ".gif"),
     (b"BM", ".bmp"),
     (b"\x00\x00\x01\x00", ".ico"),
-    (b"RIFF", ".webp"),  # WebP 以 RIFF 开头
     (b"\x1a\x45\xdf\xa3", ".webm"),  # WebM/MKV
     (b"\x00\x00\x00\x1cftyp", ".mp4"),  # MP4 (ftyp 后通常为 isom/avc1 等)
     (b"\x00\x00\x00\x20ftyp", ".mp4"),
@@ -173,28 +203,36 @@ _MAGIC_TABLE: list[tuple[bytes, str]] = [
 def detect_ext_from_magic(data: bytes) -> str | None:
     """根据文件头 magic bytes 检测扩展名。
 
+    按前缀匹配，无需完整文件头；数据越短，可识别类型越少。
+    WebP 需 ``RIFF....WEBP`` 完整标记，避免将 WAV/AVI 等 RIFF 容器误判。
+
     Args:
-        data: 文件二进制数据（至少前 16 字节）
+        data: 文件二进制数据（任意长度，通常读取文件前几字节即可）
 
     Returns:
-        检测到的扩展名（如 ".png"），或 None
+        检测到的扩展名（如 ``".png"``），或 ``None``
     """
     if not data:
         return None
     for magic, ext in _MAGIC_TABLE:
         if data[: len(magic)] == magic:
             return ext
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return ".webp"
     return None
 
 
 def detect_mime_from_magic(data: bytes) -> str | None:
     """根据文件头 magic bytes 检测 MIME 类型。
 
+    基于 ``detect_ext_from_magic``；Office 文档（docx/xlsx 等）会映射为
+    ``application/zip``，未知扩展名回退 ``application/octet-stream``。
+
     Args:
         data: 文件二进制数据
 
     Returns:
-        MIME 类型字符串，或 None
+        MIME 类型字符串，或 ``None``（无法识别时）
     """
     ext = detect_ext_from_magic(data)
     if not ext:
@@ -219,8 +257,8 @@ def detect_mime_from_magic(data: bytes) -> str | None:
 def feishu_user_status_fn(ctx: RuntimeContext) -> Callable[[str], None]:
     """飞书状态行输出函数工厂。
 
-    全屏 CLI 已注册 ``cli_transcript_append`` 时写入 transcript，否则 print。
-    用于飞书消息、命令等状态行的统一输出。
+    全屏 CLI 已注册 ``cli_transcript_append`` 时写入 transcript，否则 ``print``。
+    ``cli_transcript_append`` 抛异常时同样退回 ``print``。
 
     Args:
         ctx: 运行时上下文

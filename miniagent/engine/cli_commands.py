@@ -1,23 +1,23 @@
 """CLI 命令处理模块
 
-本模块包含所有 CLI 交互命令的实现，从 unified.py 拆分而来。
+本模块包含 CLI 斜杠命令的核心实现，从 unified.py 拆分而来。
 
-功能包括：
+本模块直接实现：
 - 会话管理：列出、切换、创建、重命名、删除会话
-- 实例管理：列出运行中的实例、停止指定实例
 - 消息队列：查看队列状态、切换队列模式
 - 通道路由：/session switch 同步 CLI 与自动私聊绑定
 - 定时任务：/schedule add/list/remove/enable/disable
 - 帮助显示：分类展示所有可用命令
+- 答案改进与自我优化相关命令
 
-注意：所有会话命令同时支持**编号**（如 1）和**原始 ID**（如 default）。
-
-终端帮助正文与表格格式维护请与 ``docs/CLI.md`` 对齐。
-
-**模块拆分**：以下命令已拆分到 ``miniagent/engine/commands/`` 子包：
+以下命令在 ``miniagent/engine/commands/`` 子包实现，本模块 re-export 以保持兼容：
 - kb_commands: 知识库命令（cmd_kb_*）
 - instance_commands: 实例管理（cmd_instance_handler）
 - config_commands: 配置检查（feishu_*_enabled）
+
+注意：所有会话命令同时支持**编号**（如 1）和**原始 ID**（如 default）。
+
+终端帮助正文与列表格式维护请与 ``docs/CLI.md`` 对齐。
 """
 
 from __future__ import annotations
@@ -105,7 +105,7 @@ def format_queue_abort_message(result: dict[str, Any]) -> str:
 
 
 def _md_escape_cell(text: str) -> str:
-    """表格单元格：去掉换行并转义管道符。"""
+    """Markdown 单元格文本：去掉换行并转义管道符（``cmd_session_list`` 等 GFM 表格用）。"""
     s = (text or "").replace("\r\n", "\n").replace("\r", "\n")
     s = s.replace("|", "\\|").replace("\n", " ").strip()
     return s
@@ -157,31 +157,39 @@ def _save_cli_session_state_on_switch(
     channel_router: Any | None,
 ) -> None:
     """保存 CLI 上次会话状态到持久化（切换会话时调用）。"""
-    if not channel_router:
-        return
-    try:
-        from miniagent.session.manager import session_info_id, session_info_number
+    from miniagent.engine.session_continue import persist_cli_session_state
 
-        sessions = session_manager.list_all_sessions_with_info()
-        for s in sessions:
-            if session_info_id(s) == session_id:
-                session_number = session_info_number(s)
-                session_title = s.get("title", "")
-                channel_router.save_cli_session_state(
-                    session_id,
-                    session_number,
-                    session_title,
-                )
-                return
-    except Exception as e:
-        _logger.debug("同步会话状态到通道失败: %s", e)
+    persist_cli_session_state(session_manager, session_id, channel_router)
+
+
+def _load_session_history_messages(session: Any) -> list[Any]:
+    """从会话对象加载对话历史（内存 ``conversation_history`` 优先，回退 ``history.json``）。"""
+    history = getattr(session, "conversation_history", None) or []
+    if history:
+        return history
+
+    files_path = getattr(session, "workspace_path", None) or getattr(session, "files_path", None)
+    if not files_path:
+        return []
+
+    history_path = os.path.join(os.path.dirname(files_path), "history.json")
+    if not os.path.isfile(history_path):
+        return []
+
+    try:
+        with open(history_path, encoding="utf-8-sig") as f:
+            loaded = json.load(f)
+    except Exception:
+        return []
+
+    return loaded if isinstance(loaded, list) else []
 
 
 def _get_last_qa_with_metadata(
     session_manager: Any,
     session_id: str,
 ) -> tuple[dict | None, dict | None]:
-    """获取当前会话的最后一轮 Q&A（带 metadata）。
+    """获取当前会话的最后一轮 Q&A（连续 user → assistant 对，带 metadata）。
 
     用于 .improve 和 .review 命令获取上一轮对话上下文。
 
@@ -193,39 +201,30 @@ def _get_last_qa_with_metadata(
         (user_msg_dict, assistant_msg_dict)
         消息字典包含 role、content、metadata 等字段。
     """
-    import json
-    import os
-
     session = session_manager.get(session_id)
     if session is None:
         return None, None
 
-    # 优先从内存中的 conversation_history 读取
-    history = getattr(session, "conversation_history", None) or []
-    if not history:
-        # 回退到 history.json
-        files_path = getattr(session, "workspace_path", None) or getattr(session, "files_path", None)
-        if files_path:
-            hp = os.path.join(os.path.dirname(files_path), "history.json")
-            if os.path.isfile(hp):
-                try:
-                    with open(hp, encoding="utf-8-sig") as f:
-                        history = json.load(f)
-                except Exception:
-                    history = []
+    history = _load_session_history_messages(session)
 
-    last_user = None
-    last_assistant = None
+    assistant_idx = -1
+    last_assistant: dict | None = None
+    for i in range(len(history) - 1, -1, -1):
+        msg = history[i]
+        if isinstance(msg, dict) and msg.get("role") == "assistant" and msg.get("content"):
+            last_assistant = msg
+            assistant_idx = i
+            break
 
-    for msg in reversed(history):
-        if isinstance(msg, dict):
-            role = msg.get("role", "")
-            if role == "user" and last_user is None:
-                last_user = msg
-            elif role == "assistant" and last_assistant is None:
-                last_assistant = msg
-            if last_user and last_assistant:
-                break
+    if last_assistant is None:
+        return None, None
+
+    last_user: dict | None = None
+    for i in range(assistant_idx - 1, -1, -1):
+        msg = history[i]
+        if isinstance(msg, dict) and msg.get("role") == "user" and msg.get("content"):
+            last_user = msg
+            break
 
     return last_user, last_assistant
 
@@ -410,7 +409,7 @@ async def cmd_session_switch(
     2. 释放当前会话锁
     3. 检查目标会话是否被其他实例占用
     4. 获取目标会话锁
-    5. 更新活跃会话 ID
+    5. 更新活跃会话 ID 并同步通道路由
 
     Args:
         session_manager: 会话管理器实例
@@ -419,6 +418,8 @@ async def cmd_session_switch(
         try_lock_session_async: 异步尝试获取会话锁的函数
         release_session_lock: 释放会话锁的函数
         is_session_locked: 检查会话是否被锁定的函数
+        channel_router: 通道路由器（可选，用于 CLI/飞书私聊绑定同步）
+        feishu_p2p_synced_senders: 已自动跟随 CLI 的飞书私聊 sender 集合（可选）
 
     Returns:
         新的活跃会话 ID（切换失败则返回原 ID）
@@ -464,7 +465,7 @@ async def cmd_session_switch(
     try:
         session_manager.get_or_create(session_id)
     except Exception as e:
-        _logger.debug("同步会话状态到通道失败: %s", e)
+        _logger.debug("加载目标会话失败: %s", e)
 
     # 获取目标会话锁
     ok, reason = await try_lock_session_async(session_id)
@@ -509,8 +510,10 @@ async def cmd_session_create(
     )
     session_manager.get_or_create(session_id, session_opts)
 
-    # 获取新会话的锁
-    await try_lock_session_async(session_id)
+    ok, reason = await try_lock_session_async(session_id)
+    if not ok:
+        print(f"{ERROR_PREFIX} 会话已创建但加锁失败: {reason}")
+        return
 
     display = session_manager.get_session_display_name(session_id)
     print(f"{SUCCESS_PREFIX} 已创建会话: {display}")
@@ -577,7 +580,7 @@ def cmd_session_delete(
     try:
         release_session_lock(session_id)
     except Exception as e:
-        _logger.debug("同步会话状态到通道失败: %s", e)
+        _logger.debug("释放会话锁失败: %s", e)
 
     ok = session_manager.destroy(session_id, keep_files=keep_files)
     if ok:
@@ -1032,7 +1035,7 @@ def format_help_markdown(
     message_queue: Any,
     instance_id: int | None = None,
 ) -> str:
-    """生成 `/help` 的 Markdown 正文（表格分组），供 CLI 打印与飞书 capture 复用。"""
+    """生成 `/help` 的 Markdown 正文（列表分组），供 CLI 打印与飞书 capture 复用。"""
     mode = message_queue.mode.value
     header_lines: list[str] = [
         "## Mini Agent 命令",
@@ -1294,7 +1297,10 @@ def cmd_improve(
 
 
 def build_session_history_plaintext(session_manager: Any, session_id: str) -> str:
-    """从 history.json 拼接 user/assistant 纯文本（简易 CLI ``/copy`` 用）。"""
+    """拼接 user/assistant 纯文本（简易 CLI ``/copy`` 用）。
+
+    优先使用内存 ``conversation_history``，否则回退 ``history.json``。
+    """
     if not session_manager or not session_id:
         return ""
 
@@ -1302,18 +1308,8 @@ def build_session_history_plaintext(session_manager: Any, session_id: str) -> st
     if session is None:
         return ""
 
-    files_path = getattr(session, "workspace_path", None) or getattr(session, "files_path", None)
-    if not files_path:
-        return ""
-
-    history_path = os.path.join(os.path.dirname(files_path), "history.json")
-    if not os.path.isfile(history_path):
-        return ""
-
-    try:
-        with open(history_path, encoding="utf-8-sig") as f:
-            messages = json.load(f)
-    except Exception:
+    messages = _load_session_history_messages(session)
+    if not messages:
         return ""
 
     parts: list[str] = []
@@ -1340,7 +1336,7 @@ def cmd_self_opt_status() -> None:
     - 系统启用状态
     - auto_apply 配置
     - 提案存储路径
-    - 今日提案数量
+    - 待执行（pending）提案数量
     """
     from miniagent.core.self_opt.proposal_store import (
         ProposalStore,
@@ -1355,7 +1351,7 @@ def cmd_self_opt_status() -> None:
     runtime_enabled = get_config("self_optimization.runtime_analysis_enabled", True)
     code_enabled = get_config("self_optimization.code_analysis_enabled", True)
 
-    # 统计今日提案
+    # 统计待执行提案
     store = ProposalStore()
     proposals = store.load_proposals()
     pending_count = len([p for p in proposals if p.get("status") == "pending"])
@@ -1367,7 +1363,7 @@ def cmd_self_opt_status() -> None:
     print(f"  运行日志分析: {'✅ 启用' if runtime_enabled else '❌ 禁用'}")
     print(f"  代码静态分析: {'✅ 启用' if code_enabled else '❌ 禁用'}")
     print(f"  提案存储路径: {output_dir}")
-    print(f"  今日待执行提案: {pending_count} 个")
+    print(f"  待执行提案: {pending_count} 个")
     print()
 
 
@@ -1666,7 +1662,7 @@ def cmd_help(
 ) -> None:
     """显示分类帮助信息。
 
-    按功能分组展示所有可用命令（Markdown 表格，便于飞书 lark_md 渲染）。
+    按功能分组展示所有可用命令（Markdown 列表，便于飞书 lark_md 渲染）。
 
     Args:
         message_queue: 消息队列管理器实例
@@ -1675,6 +1671,7 @@ def cmd_help(
     print(format_help_markdown(message_queue, instance_id))
 
 
+# improve 辅助函数对外导出，供 command_dispatch 与测试复用
 __all__ = [
     "cmd_schedule",
     "format_schedule_command_usage",

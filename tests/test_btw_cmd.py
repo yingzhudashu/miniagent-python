@@ -91,6 +91,19 @@ class TestCmdBtwStart:
         assert "Test prompt" in result
 
     @pytest.mark.asyncio
+    async def test_start_short_prompt_no_ellipsis(self):
+        """Short prompts are not truncated with ellipsis."""
+        from miniagent.engine.btw_cmd import cmd_btw_start
+
+        class MockEngine:
+            async def run_agent_with_thinking(self, **kwargs):
+                return "ok"
+
+        result = await cmd_btw_start(MockEngine(), "hi", {"skill_toolboxes": []})
+        assert "输入: hi" in result
+        assert "hi..." not in result
+
+    @pytest.mark.asyncio
     async def test_start_at_concurrent_limit(self):
         """cmd_btw_start fails when concurrent limit reached."""
         import asyncio
@@ -123,6 +136,31 @@ class TestCmdBtwResult:
     """Tests for cmd_btw_result async function."""
 
     @pytest.mark.asyncio
+    async def test_result_failed_task(self):
+        """cmd_btw_result returns error for failed tasks."""
+        import asyncio
+
+        from miniagent.engine.btw_cmd import cmd_btw_result, cmd_btw_start
+
+        class FailingEngine:
+            async def run_agent_with_thinking(self, **kwargs):
+                raise RuntimeError("expected failure")
+
+        engine = FailingEngine()
+        state = {"skill_toolboxes": [], "skill_prompts": None}
+
+        start_result = await cmd_btw_start(engine, "fail me", state)
+        import re
+        match = re.search(r"已启动: ([a-f0-9]+)", start_result)
+        task_id = match.group(1)
+
+        await asyncio.sleep(0.2)
+
+        result = await cmd_btw_result(task_id)
+        assert "错误" in result
+        assert "expected failure" in result
+
+    @pytest.mark.asyncio
     async def test_result_nonexistent_task(self):
         """cmd_btw_result returns error for nonexistent task."""
         from miniagent.engine.btw_cmd import cmd_btw_result
@@ -134,6 +172,33 @@ class TestCmdBtwResult:
 
 class TestCmdBtwCancel:
     """Tests for cmd_btw_cancel async function."""
+
+    @pytest.mark.asyncio
+    async def test_cancel_running_task_stays_cancelled(self):
+        """Cancelled running task remains cancelled after asyncio task ends."""
+        import asyncio
+
+        from miniagent.engine.btw_cmd import cmd_btw_cancel, cmd_btw_start, cmd_btw_status
+
+        class SlowEngine:
+            async def run_agent_with_thinking(self, **kwargs):
+                await asyncio.sleep(10)
+
+        engine = SlowEngine()
+        state = {"skill_toolboxes": [], "skill_prompts": None}
+
+        start_result = await cmd_btw_start(engine, "slow", state)
+        import re
+        match = re.search(r"已启动: ([a-f0-9]+)", start_result)
+        task_id = match.group(1)
+
+        await asyncio.sleep(0.05)
+        cancel_result = await cmd_btw_cancel(task_id)
+        assert "已取消" in cancel_result
+
+        await asyncio.sleep(0.2)
+        status_result = cmd_btw_status(task_id)
+        assert "cancelled" in status_result
 
     @pytest.mark.asyncio
     async def test_cancel_nonexistent_task(self):

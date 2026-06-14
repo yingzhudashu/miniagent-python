@@ -18,7 +18,10 @@ import pytest
 
 from miniagent.engine.command_dispatch import (
     _REGISTERED_COMMANDS,
+    _find_command_by_prefix,
     _format_status,
+    _get_last_qa,
+    _normalize_command_text,
     dispatch_command,
 )
 
@@ -182,23 +185,28 @@ class TestFeishuCommand:
 
     @pytest.mark.asyncio
     async def test_feishu_start_calls_start_method(self) -> None:
-        """/feishu start 应调用 feishu.start。"""
+        """/feishu start 应调用 feishu.start（factory + state）。"""
         state = _create_mock_state()
-        state["runtime_ctx"].feishu
+        factory = state["runtime_ctx"].create_feishu_handler_factory
 
         result = await dispatch_command("/feishu start", state=state, capture=True)
 
-        # 验证 start 被调用（通过捕获输出）
+        state["runtime_ctx"].feishu.start.assert_called_once_with(
+            factory,
+            state,
+            user_status=None,
+        )
         assert result is not None
 
     @pytest.mark.asyncio
-    async def test_feishu_stop_calls_stop_method(self) -> None:
-        """/feishu stop 应调用 feishu.stop。"""
+    async def test_feishu_stop_calls_stop_async(self) -> None:
+        """/feishu stop 应 await feishu.stop_async。"""
         state = _create_mock_state()
+        state["runtime_ctx"].feishu.stop_async = AsyncMock(return_value=None)
 
         await dispatch_command("/feishu stop", state=state, capture=True)
 
-        state["runtime_ctx"].feishu.stop.assert_called_once()
+        state["runtime_ctx"].feishu.stop_async.assert_awaited_once()
 
 
 class TestQueueCommand:
@@ -507,6 +515,82 @@ class TestSelfOptCommand:
         assert "已执行提案 pid-1" in result
 
 
+class TestLegacyReloadSkills:
+    """旧版 ``.reload-skills`` 别名。"""
+
+    def test_normalize_legacy_dot_prefix(self) -> None:
+        assert _normalize_command_text(".reload-skills") == "/reload-skills"
+        assert _normalize_command_text(".reload_skills") == "/reload-skills"
+        assert _normalize_command_text("hello") is None
+
+    @pytest.mark.asyncio
+    async def test_legacy_reload_skills_dispatches(self) -> None:
+        state = _create_mock_state()
+
+        with patch("miniagent.skills.refresh.refresh_skills", new_callable=AsyncMock) as mock_refresh:
+            from miniagent.skills.refresh import RefreshResult
+
+            mock_refresh.return_value = RefreshResult(
+                package_ids=["pkg"],
+                loaded_skills=[],
+                added_tools=[],
+                removed_tools=[],
+            )
+
+            result = await dispatch_command(".reload-skills", state=state, capture=True)
+
+        assert result is not None
+        assert "技能已重新加载" in result
+        mock_refresh.assert_awaited_once()
+
+
+class TestReviewCommand:
+    """测试 /review capture 路径。"""
+
+    @pytest.mark.asyncio
+    async def test_review_capture_empty_when_handled_via_term_write(self) -> None:
+        """capture=True 且 _run_review 返回 None 时应返回空串，避免 fallthrough。"""
+        state = _create_mock_state()
+        session = MagicMock()
+        session.conversation_history = [
+            {"role": "user", "content": "Q"},
+            {"role": "assistant", "content": "A"},
+        ]
+        state["session_manager"].get.return_value = session
+
+        with patch(
+            "miniagent.engine.command_dispatch._run_review",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            result = await dispatch_command("/review", state=state, capture=True)
+
+        assert result == ""
+
+    def test_get_last_qa_pairs_consecutive_messages(self) -> None:
+        """未回复的 user 消息不应与更早的 assistant 错配。"""
+        sm = MagicMock()
+        session = MagicMock()
+        session.conversation_history = [
+            {"role": "user", "content": "old Q"},
+            {"role": "assistant", "content": "old A"},
+            {"role": "user", "content": "new Q without reply"},
+        ]
+        sm.get.return_value = session
+
+        user, assistant = _get_last_qa(sm, "sid")
+
+        assert user == "old Q"
+        assert assistant == "old A"
+
+
+class TestPrefixMatchAmbiguity:
+    """前缀匹配歧义（文档化行为）。"""
+
+    def test_sta_matches_stats_first_in_registry(self) -> None:
+        assert _find_command_by_prefix("/sta") == "/stats"
+
+
 __all__ = [
     "TestDispatchCommandBasics",
     "TestStatusCommand",
@@ -522,4 +606,7 @@ __all__ = [
     "TestCaptureMode",
     "TestUnknownCommand",
     "TestSelfOptCommand",
+    "TestLegacyReloadSkills",
+    "TestReviewCommand",
+    "TestPrefixMatchAmbiguity",
 ]

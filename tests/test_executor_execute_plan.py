@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -207,3 +208,74 @@ async def test_execute_plan_phased_grace_still_tool_calls_warns() -> None:
         )
     assert "「无工具调用」形式结束" in out
     assert mock_client._call_count["n"] == 2
+
+
+@pytest.mark.asyncio
+async def test_execute_plan_ephemeral_session_skips_activity_log(state_dir) -> None:
+    """后台子 session 不在 activity log 中落盘。"""
+    from miniagent.types.config import AgentConfig
+
+    main, sess = make_ping_tool_registry()
+    mock_client = mock_streaming_client()
+    ms, al, ki = mock_memory_bundle()
+    session_key = "__bg__ephemeral"
+    cfg = AgentConfig(
+        max_turns=3,
+        session_key=session_key,
+        allow_parallel_tools=True,
+        tool_selection_strategy="all",
+        session_registry=sess,
+        debug=False,
+    )
+
+    out = await execute_plan(
+        empty_plan(),
+        "hi",
+        main,
+        MagicMock(),
+        cfg,
+        client=mock_client,
+        memory_store=ms,
+        activity_log=al,
+        keyword_index=ki,
+    )
+    assert "done" in out
+
+    today = al._get_today_path()
+    if os.path.isfile(today):
+        assert session_key not in open(today, encoding="utf-8").read()
+
+
+@pytest.mark.asyncio
+async def test_execute_plan_respects_asyncio_cancel() -> None:
+    """ReAct 循环在 asyncio 任务取消时抛出 CancelledError。"""
+    import asyncio
+
+    main, sess = make_ping_tool_registry()
+
+    async def slow_stream(*args, **kwargs):
+        await asyncio.sleep(30)
+        return mock_streaming_client()  # unreachable
+
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(side_effect=slow_stream)
+    ms, al, ki = mock_memory_bundle()
+
+    task = asyncio.create_task(
+        execute_plan(
+            empty_plan(),
+            "hi",
+            main,
+            MagicMock(),
+            agent_config_with_session(sess),
+            client=mock_client,
+            memory_store=ms,
+            activity_log=al,
+            keyword_index=ki,
+        )
+    )
+    await asyncio.sleep(0.05)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+

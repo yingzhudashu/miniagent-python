@@ -409,6 +409,35 @@ class KeywordIndex:
         except Exception as e:
             _logger.error("保存索引失败: %s", e)
 
+    def remove_entry_keys(self, entry_keys: list[str]) -> int:
+        """从索引中移除指定 entry_key 的全部引用。
+
+        Args:
+            entry_keys: 注册表键列表（``session_id:timestamp``）
+
+        Returns:
+            移除的引用数量
+        """
+        if not entry_keys:
+            return 0
+        self._ensure_loaded()
+        keys_set = set(entry_keys)
+        removed = 0
+        with self._index_lock:
+            for keyword in list(self._index.keys()):
+                idx_entry = self._index[keyword]
+                for entry_key in list(idx_entry.references.keys()):
+                    if entry_key in keys_set:
+                        del idx_entry.references[entry_key]
+                        removed += 1
+                if not idx_entry.references:
+                    del self._index[keyword]
+            if removed:
+                self._dirty = True
+        if removed:
+            self.save()
+        return removed
+
     def index_entry(self, session_id: str, entry: MemoryEntryInput | MemoryEntry) -> None:
         """索引一条记忆条目
 

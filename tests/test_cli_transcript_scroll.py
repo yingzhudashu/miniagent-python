@@ -84,7 +84,7 @@ def test_transcript_prepend_handles_unbounded_deque_and_trims_by_chars() -> None
     end = source.index("def _render_history_message_to_transcript(", start)
     block = source[start:end]
 
-    assert "_transcript.maxlen is not None" in block
+    assert "_transcript.insert(0," in block
     assert "_trim_transcript()" in block
 
 

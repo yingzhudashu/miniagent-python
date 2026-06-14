@@ -135,6 +135,27 @@ def promote_to_agent_longterm(
     save_agent_longterm(doc)
 
 
+def remove_agent_longterm_entries_for_session(source_session: str) -> int:
+    """从全局 agent_lt 中移除指定来源会话的条目。
+
+    Args:
+        source_session: 来源 session_key（如 ``__bg__<task_id>``）
+
+    Returns:
+        移除的条目数量
+    """
+    if not source_session:
+        return 0
+    doc = load_agent_longterm()
+    entries = list(doc.get("entries") or [])
+    kept = [e for e in entries if e.get("source_session") != source_session]
+    removed = len(entries) - len(kept)
+    if removed:
+        doc["entries"] = kept
+        save_agent_longterm(doc)
+    return removed
+
+
 __all__ = [
     "load_session_longterm",
     "save_session_longterm",
@@ -142,4 +163,5 @@ __all__ = [
     "load_agent_longterm",
     "save_agent_longterm",
     "promote_to_agent_longterm",
+    "remove_agent_longterm_entries_for_session",
 ]

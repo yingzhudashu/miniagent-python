@@ -606,6 +606,54 @@ def cleanup_old_traces(retention_days: int = 7) -> int:
     return deleted
 
 
+def remove_session_from_trace_files(session_key: str) -> int:
+    """从 trace 目录下所有 jsonl 分片中移除指定 session 的事件行。
+
+    Args:
+        session_key: 会话标识
+
+    Returns:
+        移除的事件行总数
+    """
+    trace_dir = get_trace_output_dir()
+    if not trace_dir.exists():
+        return 0
+
+    removed_total = 0
+    for trace_file in sorted(trace_dir.glob("trace-*.jsonl")):
+        if not _TRACE_FILE_RE.match(trace_file.name):
+            continue
+        kept: list[str] = []
+        removed = 0
+        try:
+            with open(trace_file, encoding="utf-8") as f:
+                for line in f:
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    try:
+                        event = json.loads(stripped)
+                        if event.get("session_key") == session_key:
+                            removed += 1
+                            continue
+                    except json.JSONDecodeError:
+                        pass
+                    kept.append(stripped)
+            if removed:
+                if kept:
+                    with open(trace_file, "w", encoding="utf-8") as f:
+                        f.write("\n".join(kept) + "\n")
+                else:
+                    trace_file.unlink(missing_ok=True)
+                removed_total += removed
+        except OSError:
+            continue
+
+    if removed_total > 0:
+        _logger.debug("已从 trace 文件移除 session %s 的 %d 条事件", session_key, removed_total)
+    return removed_total
+
+
 __all__ = [
     "get_trace_output_dir",
     "get_trace_file",
@@ -620,4 +668,5 @@ __all__ = [
     "generate_daily_report",
     "save_report",
     "cleanup_old_traces",
+    "remove_session_from_trace_files",
 ]

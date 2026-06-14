@@ -369,6 +369,21 @@ class EmbeddingIndex:
         except Exception as e:
             _logger.error("保存嵌入索引失败: %s", e)
 
+    def remove_entry_keys(self, entry_keys: list[str]) -> int:
+        """从嵌入索引中移除指定 entry_key。"""
+        if not entry_keys:
+            return 0
+        self._ensure_loaded()
+        removed = 0
+        for entry_key in entry_keys:
+            if entry_key in self._entries:
+                del self._entries[entry_key]
+                removed += 1
+        if removed:
+            self._dirty = True
+            self.save()
+        return removed
+
     def _make_key(self, session_id: str, timestamp: str) -> str:
         """构造索引条目的唯一键（session_id:timestamp）。"""
         return f"{session_id}:{timestamp}"

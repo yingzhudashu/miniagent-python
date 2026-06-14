@@ -11,16 +11,26 @@ import asyncio
 import os
 import random
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from miniagent.infrastructure.logger import get_logger
 
 _logger = get_logger(__name__)
 
+# ``create_handler(state)`` 返回文本 handler，或 ``(text_handler, media_handler)`` 元组。
+FeishuHandlerFactory = Callable[
+    [dict[str, Any] | None],
+    Callable[..., Awaitable[Any]] | tuple[Any, Any],
+]
+
 
 class FeishuRuntime:
-    """飞书 WebSocket 长轮询生命周期（绑定到特定 :class:`~miniagent.infrastructure.message_queue.MessageQueueManager`）。"""
+    """飞书 WebSocket 长轮询生命周期（绑定到特定 :class:`~miniagent.infrastructure.message_queue.MessageQueueManager`）。
+
+    **关停**：优先 ``await stop_async()``（``shutdown_runtime``、CLI ``/feishu stop``）；
+    同步 ``stop()`` 仅 ``cancel`` 后台 task，入站锁与 WS 单例在 task ``finally`` 中释放。
+    """
 
     def __init__(self, message_queue: Any) -> None:
         """Args:
@@ -41,16 +51,27 @@ class FeishuRuntime:
 
     def start(
         self,
-        create_handler: Callable,
+        create_handler: FeishuHandlerFactory,
         state: dict | None = None,
         *,
         user_status: Callable[[str], None] | None = None,
     ) -> None:
-        """启动飞书 WebSocket 长轮询。
+        """启动飞书 WebSocket 长轮询后台任务。
+
+        读取环境变量 ``FEISHU_APP_ID``、``FEISHU_APP_SECRET``、``FEISHU_VERIFICATION_TOKEN``
+        构造配置；无 ``FEISHU_APP_ID`` 时跳过启动。
+
+        用户可见的「✅ 飞书已启动」表示后台 :class:`asyncio.Task` 已创建，**不表示**
+        WebSocket 已连通；连接进度由 ``_run`` 内后续状态行反馈。
 
         Args:
-            create_handler: 创建飞书 handler 的工厂函数
-            state: CLI 循环状态（含技能快照等）
+            create_handler: ``(state) -> handler`` 或 ``(state) -> (text_h, media_h)``；
+                典型为 ``RuntimeContext.create_feishu_handler_factory``。
+            state: CLI 循环状态；``start`` 会读取：
+
+                - ``runtime_ctx``：绑定确认引擎（``set_feishu_confirmation_engine``）
+                - ``instance_id``：写入飞书入站独占锁
+
             user_status: 可选 ``(msg: str) -> None``，由全屏 CLI 注册为写入 transcript；
                 未提供时使用 ``print``，避免与 prompt_toolkit 备用屏混写时丢失信息。
         """
@@ -127,7 +148,7 @@ class FeishuRuntime:
                 },
             )
         except Exception as e:
-            _logger.debug("获取飞书入站锁状态失败（非关键）: %s", e)
+            _logger.debug("Agent debug log 记录失败（非关键）: %s", e)
         # #endregion
         if not ok:
             self._emit_user_line(lock_msg)
@@ -237,7 +258,7 @@ class FeishuRuntime:
                 },
             )
         except Exception as e:
-            _logger.debug("获取飞书入站锁状态失败（非关键）: %s", e)
+            _logger.debug("Agent debug log 记录失败（非关键）: %s", e)
         # #endregion
         self._emit_user_line("\u2705 \u98de\u4e66\u5df2\u542f\u52a8")
         try:
@@ -258,7 +279,11 @@ class FeishuRuntime:
             _logger.debug("更新实例模式失败（非关键）: %s", e)
 
     async def stop_async(self) -> None:
-        """异步停止：等待后台 task 完成取消链，以便 ``reset`` / 入站锁在 ``finally`` 中执行。"""
+        """异步停止（推荐）：等待后台 task 完成取消链。
+
+        顺序：``request_feishu_ws_shutdown`` → 等待 task（最多 3s，超时 ``cancel``）
+        → task ``finally`` 内 ``reset_feishu_ws_singleton`` / ``release_feishu_inbound_owner``。
+        """
         t = self._task
         if not self._running and not (t and not t.done()):
             try:
@@ -300,7 +325,11 @@ class FeishuRuntime:
             _logger.debug("\u66f4\u65b0\u5b9e\u4f8b\u6a21\u5f0f\u5931\u8d25\uff08\u505c\u6b62\u8def\u5f84\uff09: %s", e)
 
     def stop(self) -> None:
-        """停止飞书连接（同步路径：仅 ``cancel``，清理在 task ``finally`` 与 ``stop_async`` 中完成）。"""
+        """同步停止（fire-and-forget）：``cancel`` 后台 task，不 ``await``。
+
+        入站锁与 WS 单例在 task ``finally`` 中释放；无法等待清理完成时请用 ``stop_async``。
+        未运行时会防御性尝试释放本进程持有的入站锁。
+        """
         if not self._running:
             self._emit_user_line("\u2139\ufe0f \u98de\u4e66\u672a\u8fd0\u884c")
             try:
@@ -332,14 +361,6 @@ class FeishuRuntime:
             t.add_done_callback(_clear)
         else:
             self._task = None
-        try:
-            from miniagent.infrastructure.feishu_inbound_lock import (
-                release_feishu_inbound_owner,
-            )
-
-            release_feishu_inbound_owner()
-        except Exception as e:
-            _logger.debug("\u91ca\u653e\u9501\u5931\u8d25\uff08\u505c\u6b62\u8def\u5f84\uff09: %s", e)
         self._emit_user_line("\u2705 \u98de\u4e66\u5df2\u505c\u6b62")
         try:
             from miniagent.infrastructure.instance import update_instance_mode
@@ -376,7 +397,7 @@ class FeishuRuntime:
                     f"\U0001f4ca \u98de\u4e66 WS: \u6700\u540e\u5165\u7ad9\u7ea6 {ago:.0f}s \u524d"
                 )
         except Exception as e:
-            _logger.debug("获取飞书入站锁状态失败（非关键）: %s", e)
+            _logger.debug("读取飞书 WS 健康状态失败（非关键）: %s", e)
         try:
             from miniagent.infrastructure.feishu_inbound_lock import (
                 read_feishu_inbound_owner,
@@ -397,7 +418,7 @@ class FeishuRuntime:
                     "\U0001f513 \u98de\u4e66\u5165\u7ad9\u9501: \u672a\u5360\u7528"
                 )
         except Exception as e:
-            _logger.debug("获取飞书入站锁状态失败（非关键）: %s", e)
+            _logger.debug("读取飞书入站锁状态失败（非关键）: %s", e)
 
     def is_running(self) -> bool:
         """是否标记为运行中（与底层 task 是否存活可能短暂不一致）。"""
@@ -424,4 +445,4 @@ class FeishuRuntime:
         self._config = config
 
 
-__all__ = ["FeishuRuntime"]
+__all__ = ["FeishuHandlerFactory", "FeishuRuntime"]

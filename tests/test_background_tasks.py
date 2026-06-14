@@ -181,6 +181,45 @@ class TestBackgroundTaskManagerAsync:
         assert result == "Mock result"
 
     @pytest.mark.asyncio
+    async def test_get_error_failed_task(self):
+        """get_error returns error message for failed tasks."""
+        manager = BackgroundTaskManager()
+
+        class FailingEngine:
+            async def run_agent_with_thinking(self, **kwargs):
+                raise RuntimeError("boom")
+
+        engine = FailingEngine()
+        state = {"skill_toolboxes": [], "skill_prompts": None}
+
+        task_id = await manager.start_task(engine, "Fail task", state)
+        await asyncio.sleep(0.2)
+
+        error = await manager.get_error(task_id)
+        assert error == "boom"
+
+    @pytest.mark.asyncio
+    async def test_task_failure_lifecycle(self):
+        """Failed task has failed status and no result."""
+        manager = BackgroundTaskManager()
+
+        class FailingEngine:
+            async def run_agent_with_thinking(self, **kwargs):
+                raise ValueError("task failed")
+
+        engine = FailingEngine()
+        state = {"skill_toolboxes": [], "skill_prompts": None}
+
+        task_id = await manager.start_task(engine, "Fail", state)
+        await asyncio.sleep(0.2)
+
+        status = manager.get_status(task_id)
+        assert status["status"] == "failed"
+        assert status["has_error"] is True
+        assert status["has_result"] is False
+        assert await manager.get_result(task_id) is None
+
+    @pytest.mark.asyncio
     async def test_clear_completed_with_tasks(self):
         """clear_completed removes completed tasks."""
         manager = BackgroundTaskManager()
@@ -210,25 +249,58 @@ class TestBackgroundTaskManagerCancel:
 
     @pytest.mark.asyncio
     async def test_cancel_running_task(self):
-        """Cancel a running task."""
+        """Cancel a running task and keep cancelled status after execution ends."""
         manager = BackgroundTaskManager()
 
         class SlowEngine:
             async def run_agent_with_thinking(self, **kwargs):
-                await asyncio.sleep(10)  # Will be cancelled
+                await asyncio.sleep(10)
 
         engine = SlowEngine()
         state = {"skill_toolboxes": [], "skill_prompts": None}
 
         task_id = await manager.start_task(engine, "Slow task", state)
+        await asyncio.sleep(0.05)
 
-        # Cancel immediately
         result = await manager.cancel_task(task_id)
         assert result is True
 
-        # Check status
+        await asyncio.sleep(0.2)
+
         status = manager.get_status(task_id)
         assert status["status"] == "cancelled"
+
+    @pytest.mark.asyncio
+    async def test_cancel_pending_task(self):
+        """Cancel a pending task before execution transitions to running."""
+        manager = BackgroundTaskManager()
+
+        task = BackgroundTask(
+            task_id="pending01",
+            session_key="__bg__pending01",
+            prompt="Pending",
+            status=TaskStatus.PENDING,
+        )
+        manager._tasks["pending01"] = task
+
+        class SlowEngine:
+            async def run_agent_with_thinking(self, **kwargs):
+                await asyncio.sleep(10)
+
+        state = {"skill_toolboxes": [], "skill_prompts": None}
+        exec_task = asyncio.create_task(
+            manager._execute_task(SlowEngine(), task, state, {})
+        )
+        manager._exec_by_id["pending01"] = exec_task
+
+        result = await manager.cancel_task("pending01")
+        assert result is True
+        assert manager.get_status("pending01")["status"] == "cancelled"
+
+        try:
+            await exec_task
+        except asyncio.CancelledError:
+            pass
 
     @pytest.mark.asyncio
     async def test_cancel_completed_task_fails(self):
@@ -276,3 +348,44 @@ class TestBackgroundTaskManagerStats:
         assert stats["total_tasks"] == 2
         assert stats["running_tasks"] == 2
         assert stats["max_concurrent"] == 2
+
+    def test_cleanup_loop_deferred_without_running_loop(self):
+        """无事件循环时构造管理器不会启动 TTL 循环。"""
+        manager = BackgroundTaskManager()
+        assert manager._cleanup_task is None
+
+    @pytest.mark.asyncio
+    async def test_cleanup_loop_starts_on_start_task(self):
+        """首次 start_task 时补启 TTL 清理循环。"""
+        manager = BackgroundTaskManager()
+        manager._cleanup_task = None
+
+        class FastEngine:
+            async def run_agent_with_thinking(self, **kwargs):
+                return "ok"
+
+        await manager.start_task(
+            FastEngine(), "ttl", {"skill_toolboxes": [], "skill_prompts": None}
+        )
+        assert manager._cleanup_task is not None
+        assert not manager._cleanup_task.done()
+
+    @pytest.mark.asyncio
+    async def test_running_count_not_negative_after_cancel(self):
+        """取消运行中任务后 running_count 不应为负。"""
+        manager = BackgroundTaskManager(max_concurrent=2)
+
+        class SlowEngine:
+            async def run_agent_with_thinking(self, **kwargs):
+                await asyncio.sleep(10)
+
+        engine = SlowEngine()
+        state = {"skill_toolboxes": [], "skill_prompts": None}
+
+        task_id = await manager.start_task(engine, "slow", state)
+        await asyncio.sleep(0.05)
+        await manager.cancel_task(task_id)
+        await asyncio.sleep(0.2)
+
+        assert manager._running_count == 0
+        assert manager.get_stats()["running_tasks"] == 0

@@ -188,7 +188,8 @@
     "dot_tools_enabled": true,
     "welcome_hint": true,
     "file_vision_desc": true,
-    "force_fallback": false
+    "force_fallback": false,
+    "raw_markdown": false
   },
 
   "feishu": {

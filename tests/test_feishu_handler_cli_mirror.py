@@ -121,7 +121,7 @@ async def test_bound_group_mirrors_user_and_reply(loop_state: dict) -> None:
     with patch("miniagent.engine.feishu_handler.format_cli_user_block") as mock_user, patch(
         "miniagent.engine.feishu_handler.format_cli_reply_block"
     ) as mock_reply, patch(
-        "miniagent.feishu.poll_server._send_interactive_reply_cards"
+        "miniagent.engine.feishu_handler._send_feishu_agent_reply", new_callable=AsyncMock
     ):
         await handler(inbound)
         mock_user.assert_called_once()

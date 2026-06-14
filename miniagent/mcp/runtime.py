@@ -1,6 +1,7 @@
 """可选：通过 stdio 连接 MCP 服务端并将工具注册到 ``ToolRegistry``（进程内长连接）。
 
-由 ``MINIAGENT_MCP_STDIO`` 触发，在 ``engine.init_subsystems`` 中调用。stdio/session 上下文挂在
+由 ``config.user.json`` 的 ``mcp.stdio_command`` 触发，在 ``engine.init_subsystems`` 中调用。
+stdio/session 上下文挂在
 模块级 ``_holder`` 以防被 GC 关闭。需已安装 ``mcp``（``pip install miniagent-python[mcp]``）。
 
 工具名前缀 ``mcp_`` 与内置工具并存；同名冲突由注册顺序决定，应避免与内置名重复。

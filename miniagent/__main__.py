@@ -14,9 +14,12 @@
     python -m miniagent --stop --all # 停止全部运行中实例
     python -m miniagent --stop 1 2   # 停止指定实例 ID（可多个）
     python -m miniagent --stop --state-dir <路径> 1  # 多状态根时指定目录
+    python -m miniagent --stop --state-dir <路径>  # 交互选择，仅列该状态根下的实例
+    python -m miniagent --doctor     # 环境诊断（安装、依赖、配置、状态目录）
 
 架构（组合根）:
-- 进程级依赖由 ``engine.main.unified_main`` 构造 ``RuntimeContext``（registry、monitor、engine、队列、路由等）
+- 进程级依赖由 ``compat.unified_entry`` 构造 ``RuntimeContext``，再 ``asyncio.run(unified_main(ctx))``
+- ``--feishu`` 等运行时开关由 ``engine.main`` 读取 ``sys.argv``（本模块不解析）
 - CLI 经 ``run_cli_loop``；飞书经 ``FeishuRuntime`` + ``poll_server``（同进程可插拔）
 - ``UnifiedEngine`` 编排 ``run_agent`` 与思考回调；会话由 ``SessionManager`` 单一数据源
 
@@ -29,8 +32,11 @@ import sys
 from typing import Any
 
 
-def _load_env():
-    """加载敏感凭据（从config.user.json的secrets部分）。"""
+def _load_env() -> None:
+    """加载敏感凭据（``config.user.json`` 的 secrets 段）。
+
+    幂等；``unified_entry`` 启动前会再次加载，重复调用无害。
+    """
     from miniagent.infrastructure.env_loader import load_secrets_from_project_root
 
     load_secrets_from_project_root()
@@ -130,7 +136,10 @@ def _parse_stop_target_ids(
 
 
 def _run_stop_command() -> int:
-    """处理 ``--stop``：列出实例，按交互或非交互停止指定或全部实例。"""
+    """处理 ``--stop``：列出实例，按交互或非交互停止指定或全部实例。
+
+    退出码：0 成功或无可停实例；1 非 TTY 未指定目标或部分停止失败；2 参数错误。
+    """
     from miniagent.infrastructure.instance import (
         format_instances_table,
         list_instances,
@@ -194,13 +203,18 @@ def _run_stop_command() -> int:
             return 0
         normalized = line.replace("，", ",").replace("*", "all")
         if normalized.lower() in ("all",):
-            stop_targets = sorted(targets, key=lambda x: (x[1], x[0]))
+            stop_targets, err = _parse_stop_target_ids(
+                ["all"], targets, filter_state_dir=filter_state_dir
+            )
+            assert err is None
         else:
             raw_parts = [p.strip() for p in normalized.split(",") if p.strip()]
             if not raw_parts:
                 print("未输入任何 ID，已取消。")
                 return 0
-            stop_targets, err = _parse_stop_target_ids(raw_parts, targets)
+            stop_targets, err = _parse_stop_target_ids(
+                raw_parts, targets, filter_state_dir=filter_state_dir
+            )
             if err:
                 print(f"❌ {err}")
                 return 2
@@ -269,8 +283,12 @@ def _consume_session_arg() -> None:
     del sys.argv[i : i + 2]
 
 
-def main():
-    """统一入口 — 委托 ``compat.unified_entry`` 构造 RuntimeContext 后启动 ``unified_main``。"""
+def main() -> None:
+    """统一入口：解析 CLI 开关后委托 ``compat.unified_entry``。
+
+    处理顺序：加载凭据 → ``--no-continue`` / ``--continue`` → ``--session``
+    → ``--stop`` / ``--doctor``（早退）→ 绑定项目路径 → ``unified_entry()``。
+    """
     import os
 
     _load_env()
@@ -294,6 +312,14 @@ def main():
             print(f"❌ 停止失败: {e}")
             code = 1
         raise SystemExit(code)
+
+    if "--doctor" in sys.argv:
+        sys.argv.remove("--doctor")
+        _bootstrap_project_paths(for_stop=True)
+        from miniagent.engine.doctor import print_diagnose_report
+
+        print_diagnose_report()
+        raise SystemExit(0)
 
     _bootstrap_project_paths(
         skip_continue=(

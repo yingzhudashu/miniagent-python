@@ -70,7 +70,7 @@ def _tool_finish_verbose_history() -> bool:
               False（默认）时仅记录工具名与成败状态
 
     Note:
-        - 配置项: execution.tool_finish_verbose
+        - 读取 ``miniagent.core.constants.EXECUTION_TOOL_FINISH_VERBOSE``（模块常量，默认 False）
         - 详细模式下会增加历史文件体积，用于调试或审计
     """
     from miniagent.core.constants import EXECUTION_TOOL_FINISH_VERBOSE
@@ -166,6 +166,9 @@ class UnifiedEngine:
             feishu_im_receive_id: 非 ``chat_id`` 时作为默认 ``receive_id``（通常为入站发送者 ``open_id``）。
             cli_loop_state: 与 CLI/飞书主循环共享的 ``CliLoopState``；注入后工具 ``run_dot_command`` 可调度点命令。
             agent_config_overrides: 合并进 ``run_agent`` 的 ``agent_config``（如 ``history_progressive_compression``）。
+            feishu_mirror_cli: 飞书会话绑定 CLI 通道时，是否将思考/输出镜像到终端（默认 True）。
+            _hold_session_lock: 调用方已通过 :meth:`session_turn` 持有会话锁时为 True，跳过二次
+                ``acquire``，避免 ``asyncio.Lock`` 不可重入死锁。
         """
         if session_manager is None:
             raise ValueError(
@@ -264,11 +267,14 @@ class UnifiedEngine:
         1. 解析记忆依赖（memory_store/activity_log/keyword_index）
         2. 获取或创建会话上下文（SessionManager）
         3. 构建系统提示（技能 + 分层记忆摘要）
-        4. 注册飞书思考回调（如启用）
-        5. 注册 CLI 思考回调（如启用）
-        6. 调用 run_agent 执行 Agent
-        7. 更新会话历史和记忆
-        8. 发送飞书回复（如启用）
+        4. 注册飞书思考流回调（``is_feishu`` 且提供 ``feishu_config`` 时）
+        5. 注册 ``on_thinking`` / ``on_tool_finish`` 并驱动 ``ThinkingDisplay``
+        6. 调用 ``run_agent`` 执行 Agent
+        7. 收尾思考流（``finalize_feishu_thinking_stream``、``end_thinking``）
+        8. 写入会话历史并触发持久化、活动日志与记忆更新
+
+        最终飞书**结论卡片**由 :mod:`miniagent.engine.feishu_handler` 在
+        :meth:`run_agent_with_thinking` 返回后发送，本方法不负责。
 
         Args:
             user_input: 用户输入文本
@@ -654,27 +660,31 @@ class UnifiedEngine:
         history.append({"role": "assistant", "content": reply})
         cap = get_config("memory.history_tail_messages", 200)
 
+        from miniagent.engine.bg_session_cleanup import is_background_session_key
         from miniagent.memory.history_progressive import run_session_history_maintenance
 
+        bg_ephemeral = is_background_session_key(session_key)
+
         # 渐进 L1–L3 后单次归档/删轮循环，避免一次调用内多轮硬切
-        run_session_history_maintenance(
-            session_key,
-            history,
-            tail_cap=cap,
-            progressive_compression=merged_for_prog.history_progressive_compression,
-        )
+        if not bg_ephemeral:
+            run_session_history_maintenance(
+                session_key,
+                history,
+                tail_cap=cap,
+                progressive_compression=merged_for_prog.history_progressive_compression,
+            )
 
         # 9. 活动日志
-        if al:
+        if al and not bg_ephemeral:
             al.log_session_start(session_key, user_input, source="feishu" if is_feishu else "cli")
             al.log_final_reply(session_key, reply)
 
         # 10. 持久化
-        if session_manager:
+        if session_manager and not bg_ephemeral:
             session_manager.save_session_history(session_key)
 
         # 11. 更新记忆存储（使用本轮实际工具调用数据）
-        if ms is not None:
+        if ms is not None and not bg_ephemeral:
             try:
                 from miniagent.memory.store import extract_facts, generate_turn_summary
 
@@ -687,12 +697,13 @@ class UnifiedEngine:
             except Exception as e:
                 _logger.warning("Memory summary update failed: %s", e)
 
-        try:
-            from miniagent.memory.dream_scheduler import schedule_memory_maintenance
+        if not bg_ephemeral:
+            try:
+                from miniagent.memory.dream_scheduler import schedule_memory_maintenance
 
-            schedule_memory_maintenance(session_key)
-        except Exception as e:
-            _logger.warning("Dream scheduler scheduling failed: %s", e)
+                schedule_memory_maintenance(session_key)
+            except Exception as e:
+                _logger.warning("Dream scheduler scheduling failed: %s", e)
 
         return reply
 
@@ -705,8 +716,6 @@ class UnifiedEngine:
         channel = self._get_confirmation_channel(session_key)
 
         async def handler(plan) -> bool:
-            if channel is None:
-                return True
             from miniagent.core.agent import (
                 _format_plan_display_short,
                 _format_plan_message,
@@ -751,7 +760,11 @@ class UnifiedEngine:
         return self._get_confirmation_channel(self._active_session_key)
 
     def get_last_reflection(self, session_key: str) -> Any | None:
-        """获取指定会话最近一次反思评估结果。"""
+        """获取指定会话最近一次反思评估结果（由 ``run_agent`` Phase 3 写入）。
+
+        反思正文已并入 assistant 回复 footer 供展示；本缓存供外部按需读取。
+        飞书 handler 在发送结论卡片后通常调用 :meth:`clear_last_reflection` 清理。
+        """
         return self._last_reflection.get(session_key)
 
     def clear_last_reflection(self, session_key: str) -> None:
@@ -759,12 +772,16 @@ class UnifiedEngine:
         self._last_reflection.pop(session_key, None)
 
     def inject_message(self, session_key: str, content: str, *, session_manager: Any) -> None:
-        """向指定会话注入消息。
+        """向指定会话的内存历史注入一条用户消息。
+
+        仅 append 到 ``conversation_history``，**不**调用 ``save_session_history``；
+        调用方需自行持久化。消息带 ``_injected: True`` 标记以区别于真实用户输入。
 
         Args:
             session_key: 会话标识符
             content: 消息内容
-            session_manager: 当前进程的会话管理器（由 ``RuntimeContext`` / 启动流程持有）
+            session_manager: 当前进程的会话管理器（由 ``RuntimeContext`` / 启动流程持有；
+                为 ``None`` 时静默跳过）
         """
         if session_manager:
             ctx = session_manager.get_or_create(session_key)
@@ -773,7 +790,7 @@ class UnifiedEngine:
     def _get_clarifier(self) -> Any | None:
         """懒加载需求澄清器。
 
-        受 ``MINIAGENT_REQUIREMENT_CLARIFY`` 环境变量控制（默认 ``1`` 开启）。
+        受 ``get_config("features.requirement_clarify", True)`` 控制（见 ``config.defaults.json``）。
         首次调用时创建并缓存实例，后续调用直接返回。
         交互模式：通过确认侧通道等待用户确认/调整，而非全自动 LLM 推断。
         """

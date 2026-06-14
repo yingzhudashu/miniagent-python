@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import threading
 import time
 from datetime import datetime, timezone
@@ -311,6 +312,34 @@ class ActivityLogger:
             reason: 未完成原因
         """
         await self._append_async(f"### 未完成\n\n{reason}\n\n")
+
+    def remove_session(self, session_key: str) -> None:
+        """从活动日志（全部按日 Markdown 文件）中移除指定 session 的段落。"""
+        header = re.escape(session_key)
+        pattern = (
+            rf"(?:\n---\n|^---\n|^)## {header}(?: \([^)]+\))?\n"
+            rf".*?(?=(?:\n---\n## |^---\n## |\Z))"
+        )
+        with self._io_lock:
+            if not os.path.isdir(self._base_dir):
+                return
+            for name in os.listdir(self._base_dir):
+                if not name.endswith(".md"):
+                    continue
+                path = os.path.join(self._base_dir, name)
+                if not os.path.isfile(path):
+                    continue
+                with open(path, encoding="utf-8") as f:
+                    content = f.read()
+                new_content = re.sub(pattern, "", content, flags=re.DOTALL).lstrip("\n")
+                if new_content == content:
+                    continue
+                if new_content.strip():
+                    with open(path, "w", encoding="utf-8") as f:
+                        f.write(new_content)
+                else:
+                    os.remove(path)
+            self._read_cache = None
 
 
 def _format_llm_call_lines(

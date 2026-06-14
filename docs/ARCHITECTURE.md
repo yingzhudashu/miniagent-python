@@ -623,7 +623,9 @@ flowchart LR
 系统支持多会话并行运行（`agent.parallel_sessions`，默认开启），关键安全机制如下：
 
 1. **按 chat_id 隔离队列**：`MessageQueueManager` 为每个 `chat_id` 维护独立队列；
-   `parallel_sessions=true` 时不做跨队列全局 FIFO，不同飞书群/通道可同时进入 Agent。
+   启动时由 `engine/parallel_config.py` 的 `configure_message_queue_for_parallel` 根据
+   `agent.parallel_sessions` 设置跨队列串行；`parallel_sessions=true` 时不做跨队列全局 FIFO，
+   不同飞书群/通道可同时进入 Agent。
 
 2. **按 session_key 执行锁**：`SessionExecCoordinator` 保证同一 `session_key` 串行、
    不同 `session_key` 可并行；`agent.max_parallel_sessions`（默认 4）限制进程内同时运行的 Agent 数。

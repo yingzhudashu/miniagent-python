@@ -343,6 +343,12 @@ class DefaultMemoryStore(MemoryStoreProtocol):
             self._cache.move_to_end(session_id)
             return memory, int(age)
 
+    def evict_session(self, session_id: str) -> None:
+        """从内存缓存与锁表中移除指定会话（不删磁盘文件）。"""
+        with self._cache_lock:
+            self._cache.pop(session_id, None)
+        self._session_locks.pop(session_id, None)
+
     def _cleanup_expired_cache(self, now: float) -> None:
         """清理过期缓存条目（TTL）。"""
         # 在锁内调用，清理过期条目

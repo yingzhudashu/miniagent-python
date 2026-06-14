@@ -124,6 +124,20 @@ def _get_tool_semaphore() -> asyncio.Semaphore:
 
 _logger = get_logger(__name__)
 
+
+def _raise_if_task_cancelled() -> None:
+    """在 ReAct 循环内协作式响应 asyncio 任务取消。"""
+    task = asyncio.current_task()
+    if task is not None and task.cancelled():
+        raise asyncio.CancelledError()
+
+
+def _is_ephemeral_session(session_key: str | None) -> bool:
+    """后台子 session（``__bg__*``）不落盘记忆/活动日志。"""
+    from miniagent.engine.bg_session_cleanup import is_background_session_key
+
+    return is_background_session_key(session_key or "")
+
 # ─── 工具错误日志辅助 ────────────────────────────────────────────
 
 _MAX_ARGS_LOG_LEN = MAX_ARGS_LOG_LEN
@@ -706,7 +720,8 @@ async def execute_plan(
     # 与不含当前时间戳的稳定说明，方便 provider 复用前缀缓存。
     keyword_context: str | None = None
     memory_context: str | None = None
-    if agent_config.session_key:
+    bg_ephemeral = _is_ephemeral_session(agent_config.session_key)
+    if agent_config.session_key and not bg_ephemeral:
         memory = await ms.load(agent_config.session_key)
         memory_text = format_memory_for_prompt(memory)
         if memory_text:
@@ -846,10 +861,11 @@ async def execute_plan(
     # 跟踪工具调用
     turn_tool_calls: list[dict[str, Any]] = []
 
-    # 活动日志 — 记录会话开始
+    # 活动日志 — 记录会话开始（后台子 session 不落盘）
     session_key = agent_config.session_key or "default"
     source = "cli"  # 默认 CLI，飞书调用方会设置 session_key
-    al.log_session_start(session_key, user_input, source)
+    if not bg_ephemeral:
+        al.log_session_start(session_key, user_input, source)
 
     if agent_config.debug:
         idx_stats = ki.get_stats()
@@ -903,6 +919,7 @@ async def execute_plan(
                 - thinking_header: 当前思考分段标题（供工具回调）
         """
         nonlocal exec_turn_no
+        _raise_if_task_cancelled()
         exec_turn_no += 1
         start_ms = time.monotonic_ns() // 1_000_000
         messages = strip_leading_underscore_keys_from_messages(list(context_manager.get_messages()))
@@ -1108,15 +1125,16 @@ async def execute_plan(
                 },
             )
 
-        al.log_llm_call(
-            session_key=session_key,
-            turn=turn_display,
-            model=exec_kw["model"],
-            message_count=len(messages),
-            tool_count=len(tools_arg),
-            thinking=full_content,
-            token_usage=_usage.model_dump() if (_usage and agent_config.log_token_usage) else None,
-        )
+        if not bg_ephemeral:
+            al.log_llm_call(
+                session_key=session_key,
+                turn=turn_display,
+                model=exec_kw["model"],
+                message_count=len(messages),
+                tool_count=len(tools_arg),
+                thinking=full_content,
+                token_usage=_usage.model_dump() if (_usage and agent_config.log_token_usage) else None,
+            )
         if (full_content or "").strip():
             _exec_hist_segments.setdefault(thinking_phase_label, []).append(full_content)
         return msg, exec_kw, start_ms, _usage, full_content, thinking_header
@@ -1149,6 +1167,7 @@ async def execute_plan(
             str | None: 上下文超预算时返回错误消息；正常完成返回 None
         """
         nonlocal loop_warning_shown
+        _raise_if_task_cancelled()
         assistant_msg = {"role": "assistant", "content": msg.content or ""}
         if msg.tool_calls:
             assistant_msg["tool_calls"] = [
@@ -1255,6 +1274,7 @@ async def execute_plan(
             semaphore = _get_tool_semaphore()
 
             async with semaphore:  # 限制并发数
+                _raise_if_task_cancelled()
                 tool_start = time.monotonic_ns() // 1_000_000
                 emit_trace(
                     {
@@ -1402,16 +1422,17 @@ async def execute_plan(
                 intent = _extract_tool_intent(tc.function.name, args)
                 # 从 result.meta 中提取 error_type（如果失败）
                 error_type = result.meta.get("error_type") if not result.success else None
-                al.log_tool_call(
-                    session_key=session_key,
-                    tool_name=tc.function.name,
-                    intent=intent,
-                    args=args,
-                    result=result.content,
-                    duration_ms=tool_elapsed,
-                    success=result.success,
-                    error_type=error_type,
-                )
+                if not bg_ephemeral:
+                    al.log_tool_call(
+                        session_key=session_key,
+                        tool_name=tc.function.name,
+                        intent=intent,
+                        args=args,
+                        result=result.content,
+                        duration_ms=tool_elapsed,
+                        success=result.success,
+                        error_type=error_type,
+                    )
                 await _invoke_on_tool_finish(
                     tc.function.name,
                     tc.function.arguments,
@@ -1427,6 +1448,7 @@ async def execute_plan(
 
     if not use_phased:
         while turns_left > 0:
+            _raise_if_task_cancelled()
             turns_left -= 1
             msg, _exec_kw, start_ms, _usage, _full_content, turn_label = await _stream_exec_turn(
                 None, tools, "[执行]", is_last_step=True
@@ -1443,14 +1465,15 @@ async def execute_plan(
                     return oob
 
                 if agent_config.session_key and final_reply:
-                    await _save_session_memory(
-                        ms,
-                        agent_config.session_key,
-                        user_input,
-                        final_reply,
-                        turn_tool_calls,
-                    )
-                    al.log_final_reply(session_key, final_reply)
+                    if not bg_ephemeral:
+                        await _save_session_memory(
+                            ms,
+                            agent_config.session_key,
+                            user_input,
+                            final_reply,
+                            turn_tool_calls,
+                        )
+                        al.log_final_reply(session_key, final_reply)
 
                 if agent_config.debug:
                     _logger.debug(context_manager.get_token_report())
@@ -1475,14 +1498,15 @@ async def execute_plan(
             if oob_txt:
                 return oob_txt
             if save_memory and agent_config.session_key and final_reply:
-                await _save_session_memory(
-                    ms,
-                    agent_config.session_key,
-                    user_input,
-                    final_reply,
-                    turn_tool_calls,
-                )
-                al.log_final_reply(session_key, final_reply)
+                if not bg_ephemeral:
+                    await _save_session_memory(
+                        ms,
+                        agent_config.session_key,
+                        user_input,
+                        final_reply,
+                        turn_tool_calls,
+                    )
+                    al.log_final_reply(session_key, final_reply)
             if agent_config.debug:
                 _logger.debug(context_manager.get_token_report())
             return None
@@ -1512,6 +1536,7 @@ async def execute_plan(
 
             step_resolved = False
             while sub_left > 0 and turns_left > 0:
+                _raise_if_task_cancelled()
                 turns_left -= 1
                 sub_left -= 1
                 msg, _ek, start_ms, _u, _fc, turn_label = await _stream_exec_turn(
@@ -1585,7 +1610,7 @@ async def execute_plan(
     # ── 达到最大轮数 ──
     loop_stats = loop_detector.get_stats()
 
-    if agent_config.session_key:
+    if agent_config.session_key and not bg_ephemeral:
         al.log_incomplete(session_key, f"达到最大轮数 {max_turns}")
 
     if agent_config.debug:
@@ -1672,7 +1697,11 @@ async def _save_session_memory(
 
     Note:
         该函数仅在成功完成（无工具调用）时被调用，循环拦截不会触发记忆保存。
+        后台子 session（``__bg__*``）跳过持久化。
     """
+    if _is_ephemeral_session(session_key):
+        return
+
     from datetime import datetime, timezone
 
     facts = extract_facts(user_input + " " + final_reply)

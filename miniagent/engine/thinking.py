@@ -19,8 +19,9 @@ import shutil
 import sys
 import threading
 import time
-from collections.abc import Awaitable, Callable
-from typing import Any
+from collections import OrderedDict
+from collections.abc import Callable
+from typing import Any, Protocol
 
 from miniagent.core.constants import (
     CLI_THINKING_RICH,
@@ -125,23 +126,30 @@ def indent_stream_thinking_suffix(full_text: str, prev_printed: int, *, indent: 
     return "".join(out)
 
 
-def _thinking_body_looks_like_markdown(text: str) -> bool:
-    """启发式判断正文是否像 Markdown（代码围栏、表格、标题、强调等）。
+def _cli_thinking_use_rich_render(text: str) -> bool:
+    """非空思考正文是否走 Rich→ANSI 渲染（含纯文本，以保证换行宽度一致）。"""
+    return bool((text or "").strip())
 
-    注意：为确保显示宽度一致，普通文本也应通过 Rich 渲染以获得正确的换行处理。
-    仅在文本为空时返回 False。
+
+class OnFeishuSend(Protocol):
+    """飞书思考卡片发送回调。
+
+    - ``streaming=True``：流式 PATCH 节流更新
+    - ``streaming=False``：finalize 后另发独立卡，或 ``merge_tools=True`` 时追加同卡
+    - ``finalize_only=True``：仅 PATCH 收尾当前流式卡，不另发独立卡（阶段切换用）
     """
-    s = text or ""
-    if not s.strip():
-        return False
-    # 移除旧的条件判断，始终返回 True 以确保宽度一致性
-    # Rich Markdown 会正确处理普通文本的换行
-    return True
 
-
-# 飞书发送回调：streaming=True 走 PATCH 节流；False 时 finalize+新卡，或 merge_tools 时追加同卡；
-# finalize_only=True 时仅 PATCH 收尾当前流式卡并清空状态，不另发独立卡（阶段切换用）。
-OnFeishuSend = Callable[..., Awaitable[None]]
+    async def __call__(
+        self,
+        chat_id: str,
+        text: str,
+        template: str,
+        *,
+        is_new_round: bool = False,
+        streaming: bool = True,
+        merge_tools: bool = False,
+        finalize_only: bool = False,
+    ) -> None: ...
 
 
 class _SessionThinkingState:
@@ -254,6 +262,21 @@ class _SessionThinkingState:
         self._last_stream_full = ""
 
 
+def _clear_feishu_stream_fields(state: _SessionThinkingState) -> None:
+    """清零单会话飞书流式/PATCH 字段（与 ``poll_server._reset_feishu_thinking_state`` 对齐）。"""
+    state.feishu_thinking_message_id = None
+    state.feishu_stream_accumulated = ""
+    state.feishu_stream_llm_len = 0
+    state.feishu_cached_card_key = None
+    state.feishu_cached_card_json = None
+    state.feishu_last_patch_monotonic = 0.0
+    state.feishu_last_patched_char_len = -1
+    state.feishu_patch_budget = 0
+    state.feishu_tool_section_started = False
+    state.feishu_pending_tool_lines = []
+    state.feishu_pending_header = ""
+
+
 class ThinkingDisplay:
     """思考过程显示（CLI 终端 + 飞书实时发送）
 
@@ -262,12 +285,11 @@ class ThinkingDisplay:
     """
 
     def __init__(self) -> None:
-        """构造显示协调器：按 ``session_key`` 分桶状态，并保留无会话时的默认桶。
+        """构造显示协调器：按 ``session_key`` 分桶状态（含空字符串默认键）。
 
-        性能优化：Session状态LRU驱逐，防止无限累积（最大50个会话状态）。
+        性能优化：Session 状态 LRU 驱逐，防止无限累积（最大 50 个会话状态）。
         """
-        self._states: dict[str, _SessionThinkingState] = {}
-        self._default: _SessionThinkingState = _SessionThinkingState()
+        self._states: OrderedDict[str, _SessionThinkingState] = OrderedDict()
         self._buffer_enabled: bool = False
         # 性能优化：Session状态最大数量（防止内存泄漏）
         self._max_session_states: int = 50
@@ -346,37 +368,42 @@ class ThinkingDisplay:
             self._output_sink(text)
 
     def _emit(self, text: str, color: str = "gray", *, session_key: str = "") -> None:
-        """统一输出入口（CLI display lock 防止多 session mirror 交错）。"""
+        """统一输出入口（CLI display lock 防止多 session mirror 交错）。
+
+        无 ``output_sink`` 时依赖 ``prompt_toolkit``（cli extra）；未安装则回退纯文本 stdout。
+        """
         with self._cli_display_lock:
             if self._output_sink:
                 self._call_sink(text, kind="chunk", session_key=session_key)
+            elif not _HAS_PROMPT_TOOLKIT:
+                sys.stdout.write(text)
+                sys.stdout.flush()
             else:
                 ft = FormattedText([(f"ansi{color}", text)])
                 print_formatted_text(ft, end="")
                 sys.stdout.flush()
 
     def _emit_line(self, text: str, color: str = "gray", *, session_key: str = "") -> None:
-        """统一换行输出入口。"""
+        """统一换行输出入口（无 prompt_toolkit 时回退纯文本 stdout）。"""
         with self._cli_display_lock:
             if self._output_sink:
                 self._call_sink(text + "\n", kind="label", session_key=session_key)
+            elif not _HAS_PROMPT_TOOLKIT:
+                sys.stdout.write(text + "\n")
+                sys.stdout.flush()
             else:
                 ft = FormattedText([(f"ansi{color}", text + "\n")])
                 print_formatted_text(ft)
                 sys.stdout.flush()
 
     def _get_state(self, session_key: str) -> _SessionThinkingState:
-        """懒创建并返回某会话的思考状态对象。
-
-        性能优化：LRU驱逐机制，防止Session状态无限累积。
-        """
-        if session_key not in self._states:
-            self._states[session_key] = _SessionThinkingState()
-            # 性能优化：LRU驱逐（超过上限时删除最旧的）
-            while len(self._states) > self._max_session_states:
-                # 删除第一个（最旧的）会话状态
-                oldest_key = next(iter(self._states))
-                self._states.pop(oldest_key)
+        """懒创建并返回某会话的思考状态；访问时刷新 LRU 顺序。"""
+        if session_key in self._states:
+            self._states.move_to_end(session_key)
+            return self._states[session_key]
+        self._states[session_key] = _SessionThinkingState()
+        while len(self._states) > self._max_session_states:
+            self._states.popitem(last=False)
         return self._states[session_key]
 
     def reset_counter(self, session_key: str = "") -> None:
@@ -393,14 +420,7 @@ class ThinkingDisplay:
         state.stream_header = ""
         state.stream_done = False
         state.stream_printed = 0
-        state.feishu_thinking_message_id = None
-        state.feishu_stream_accumulated = ""
-        state.feishu_last_patch_monotonic = 0.0
-        state.feishu_last_patched_char_len = -1
-        state.feishu_patch_budget = 0
-        state.feishu_tool_section_started = False
-        state.feishu_pending_tool_lines = []
-        state.feishu_pending_header = ""
+        _clear_feishu_stream_fields(state)
         state._last_stream_full = ""
 
     def next_turn(self, session_key: str = "") -> int:
@@ -410,7 +430,10 @@ class ThinkingDisplay:
         return state.turn_number
 
     def thinking_state(self, session_key: str) -> _SessionThinkingState:
-        """返回会话级思考状态（供引擎 finalize 飞书流式卡片）。"""
+        """返回会话级思考状态（供引擎 finalize 飞书流式卡片）。
+
+        仅供 ``poll_server`` / Engine 读写飞书 PATCH 字段；业务层勿直接改 CLI 流式字段。
+        """
         return self._get_state(session_key)
 
     def enable_feishu(
@@ -436,14 +459,18 @@ class ThinkingDisplay:
         state.feishu_reply_in_thread = bool(reply_in_thread)
         state.feishu_mirror_cli = mirror_cli
 
-    def enable_buffer(self) -> None:
-        """打开默认桶缓冲（不落盘终端），用于仅需收集思考文本的场景。"""
+    def enable_buffer(self, session_key: str = "") -> None:
+        """打开缓冲模式：``show`` 仅写入 ``session_key`` 对应 bucket，不输出终端/飞书。
+
+        测试或仅需收集思考文本时使用；生产 Engine 路径默认不走缓冲。
+        """
         self._buffer_enabled = True
-        self._default.buffer.clear()
-        self._default.feishu_send = None
+        state = self._get_state(session_key)
+        state.buffer.clear()
+        state.feishu_send = None
 
     def disable_buffer(self, session_key: str = "") -> None:
-        """关闭缓冲并清空指定会话或全局默认桶的飞书句柄。"""
+        """关闭缓冲并清空指定会话（或全部会话）的缓冲与飞书句柄。"""
         if session_key:
             state = self._get_state(session_key)
             state.buffer.clear()
@@ -453,14 +480,15 @@ class ThinkingDisplay:
             state.feishu_reply_in_thread = False
         else:
             self._buffer_enabled = False
-            self._default.buffer.clear()
-            self._default.feishu_send = None
-            self._default.feishu_chat_id = ""
-            self._default.feishu_reply_to_message_id = None
-            self._default.feishu_reply_in_thread = False
+            for state in self._states.values():
+                state.buffer.clear()
+                state.feishu_send = None
+                state.feishu_chat_id = ""
+                state.feishu_reply_to_message_id = None
+                state.feishu_reply_in_thread = False
 
     def get_buffered(self, session_key: str = "") -> str:
-        """返回缓冲中的思考行拼接文本（换行连接）。"""
+        """返回 ``session_key`` 缓冲中的思考行（换行连接）。需先 ``enable_buffer``。"""
         state = self._get_state(session_key)
         return "\n".join(state.buffer)
 
@@ -648,7 +676,7 @@ class ThinkingDisplay:
                     _cli_thinking_rich_enabled()
                     and self._sink_accepts_ansi_markdown
                     and self._output_sink
-                    and _thinking_body_looks_like_markdown(body_md)
+                    and _cli_thinking_use_rich_render(body_md)
                 ):
                     from miniagent.engine.markdown_cli import render_markdown_to_ansi
 
@@ -755,7 +783,7 @@ class ThinkingDisplay:
                         _cli_thinking_rich_enabled()
                         and self._sink_accepts_ansi_markdown
                         and self._output_sink
-                        and _thinking_body_looks_like_markdown(body_md)
+                        and _cli_thinking_use_rich_render(body_md)
                     ):
                         from miniagent.engine.markdown_cli import render_markdown_to_ansi
 
@@ -784,7 +812,7 @@ class ThinkingDisplay:
                     _cli_thinking_rich_enabled()
                     and self._sink_accepts_ansi_markdown
                     and self._output_sink
-                    and _thinking_body_looks_like_markdown(body_md)
+                    and _cli_thinking_use_rich_render(body_md)
                 ):
                     from miniagent.engine.markdown_cli import render_markdown_to_ansi
 
@@ -826,14 +854,6 @@ class ThinkingDisplay:
 
         for sk in target_keys:
             _finalize(sk, self._states[sk])
-        if session_key is None and self._default.stream_step is not None and not self._default.stream_done:
-            if self._should_emit_cli(self._default):
-                self._emit("\n\n\n", session_key="")
-            self._default.stream_done = True
-            self._default.stream_step = None
-            self._default.stream_header = ""
-            self._default.stream_printed = 0
-            self._default._last_stream_full = ""
 
 
-__all__ = ["ThinkingDisplay", "indent_stream_thinking_suffix"]
+__all__ = ["ThinkingDisplay", "OnFeishuSend", "indent_stream_thinking_suffix"]

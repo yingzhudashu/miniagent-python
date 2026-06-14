@@ -1,6 +1,17 @@
 """Mini Agent Python — 后台任务命令
 
-CLI命令实现：启动、查询、取消后台任务。
+CLI 命令实现：启动、查询、取消后台任务。
+
+对应子命令（由 ``command_dispatch`` 路由）：
+
+- ``/btw start <prompt>`` → ``cmd_btw_start``
+- ``/btw status [task_id]`` → ``cmd_btw_status``
+- ``/btw result <task_id>`` → ``cmd_btw_result``
+- ``/btw cancel <task_id>`` → ``cmd_btw_cancel``
+- ``/btw clear`` → ``cmd_btw_clear``
+
+进程内使用 ``get_background_task_manager()`` 单例；并行上限由
+``BackgroundTaskManager`` 与配置 ``agent.max_parallel_sessions`` 共同决定。
 """
 
 from __future__ import annotations
@@ -14,11 +25,22 @@ from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_P
 _bg_manager: BackgroundTaskManager | None = None
 
 
+def _truncate_preview(text: str, max_len: int) -> str:
+    """截断预览文本，仅在超长时追加省略号。"""
+    if len(text) <= max_len:
+        return text
+    return text[:max_len] + "..."
+
+
 def get_background_task_manager() -> BackgroundTaskManager:
-    """获取全局后台任务管理器实例"""
+    """获取全局后台任务管理器实例（进程级单例）。
+
+    首次调用时创建 ``BackgroundTaskManager``，并行上限从配置加载。
+    测试或 CLI 会话间会共享同一实例。
+    """
     global _bg_manager
     if _bg_manager is None:
-        _bg_manager = BackgroundTaskManager(max_concurrent=4)
+        _bg_manager = BackgroundTaskManager()
     return _bg_manager
 
 
@@ -27,21 +49,26 @@ async def cmd_btw_start(
     prompt: str,
     state: dict[str, Any],
 ) -> str:
-    """启动后台任务
+    """启动后台任务。
 
     Args:
-        engine: UnifiedEngine实例
+        engine: 需实现 ``run_agent_with_thinking`` 的引擎实例（如 UnifiedEngine）
         prompt: 用户输入
-        state: 主session状态
+        state: 主 session 状态（含 skill_toolboxes、runtime_ctx 等）
 
     Returns:
-        操作结果消息
+        操作结果消息（成功、并行上限警告或错误）
     """
     manager = get_background_task_manager()
 
     try:
         task_id = await manager.start_task(engine, prompt, state)
-        return f"{SUCCESS_PREFIX} 后台任务已启动: {task_id}\n   输入: {prompt[:50]}...\n   使用 /btw status {task_id} 查看进度"
+        preview = _truncate_preview(prompt, 50)
+        return (
+            f"{SUCCESS_PREFIX} 后台任务已启动: {task_id}\n"
+            f"   输入: {preview}\n"
+            f"   使用 /btw status {task_id} 查看进度"
+        )
     except RuntimeError as e:
         return f"{WARNING_PREFIX} {e}"
     except Exception as e:
@@ -49,13 +76,13 @@ async def cmd_btw_start(
 
 
 def cmd_btw_status(task_id: str | None = None) -> str:
-    """查看后台任务状态
+    """查看后台任务状态。
 
     Args:
-        task_id: 任务ID（None时显示所有任务）
+        task_id: 任务 ID；为 None 时列出全部任务
 
     Returns:
-        状态信息
+        Markdown 格式的状态信息
     """
     manager = get_background_task_manager()
 
@@ -68,24 +95,23 @@ def cmd_btw_status(task_id: str | None = None) -> str:
             f"## 任务 {task_id}",
             "",
             f"**状态**: {status['status']}",
-            f"**输入**: {status['prompt'][:100]}...",
+            f"**输入**: {_truncate_preview(status['prompt'], 100)}",
             f"**创建时间**: {status['created_at'][:16]}",
         ]
 
-        if status['started_at']:
+        if status["started_at"]:
             lines.append(f"**开始时间**: {status['started_at'][:16]}")
-        if status['completed_at']:
+        if status["completed_at"]:
             lines.append(f"**完成时间**: {status['completed_at'][:16]}")
-        if status['has_result']:
+        if status["has_result"]:
             lines.append("")
-            lines.append("**✅ 有结果可用**，使用 `/btw result {task_id}` 获取")
-        if status['has_error']:
+            lines.append(f"**✅ 有结果可用**，使用 `/btw result {task_id}` 获取")
+        if status["has_error"]:
             lines.append("")
-            lines.append("**⚠️ 执行出错**，使用 `/btw result {task_id}` 查看错误")
+            lines.append(f"**⚠️ 执行出错**，使用 `/btw result {task_id}` 查看错误")
 
         return "\n".join(lines)
 
-    # 显示所有任务
     tasks = manager.list_tasks()
 
     if not tasks:
@@ -99,53 +125,69 @@ def cmd_btw_status(task_id: str | None = None) -> str:
             "completed": "✅",
             "failed": "❌",
             "cancelled": "🚫",
-        }.get(task['status'], "?")
+        }.get(task["status"], "?")
 
+        preview = _truncate_preview(task["prompt"], 40)
         lines.append(
-            f"{status_icon} **{task['task_id']}**: {task['status']} - {task['prompt'][:40]}..."
+            f"{status_icon} **{task['task_id']}**: {task['status']} - {preview}"
         )
 
     lines.append("")
     lines.append(f"统计: {len(tasks)} 个任务")
     stats = manager.get_stats()
-    lines.append(f"并行上限: {stats['max_concurrent']}，当前运行: {stats['running_tasks']}")
+    lines.append(
+        f"并行上限: {stats['max_concurrent']}，当前运行: {stats['running_tasks']}"
+    )
 
     return "\n".join(lines)
 
 
 async def cmd_btw_result(task_id: str) -> str:
-    """获取后台任务结果
+    """获取后台任务结果或错误信息。
 
     Args:
-        task_id: 任务ID
+        task_id: 任务 ID
 
     Returns:
-        任务结果或错误信息
+        任务结果、错误信息或状态提示
     """
     manager = get_background_task_manager()
 
+    status = manager.get_status(task_id)
+    if status is None:
+        return f"{ERROR_PREFIX} 任务 {task_id} 不存在"
+
+    if status["status"] in ("running", "pending"):
+        return f"⏳ 任务 {task_id} 仍在执行中，请稍后查询"
+
+    error = await manager.get_error(task_id)
+    if error is not None:
+        return "\n".join(
+            [
+                f"## 任务 {task_id} 错误",
+                "",
+                f"{ERROR_PREFIX} {error}",
+            ]
+        )
+
     result = await manager.get_result(task_id)
     if result is None:
-        status = manager.get_status(task_id)
-        if status is None:
-            return f"{ERROR_PREFIX} 任务 {task_id} 不存在"
-        if status['status'] == 'running':
-            return f"⏳ 任务 {task_id} 仍在执行中，请稍后查询"
         return f"{ERROR_PREFIX} 任务 {task_id} 无结果"
 
-    lines = [
-        f"## 任务 {task_id} 结果",
-        "",
-        result,
-    ]
-    return "\n".join(lines)
+    return "\n".join(
+        [
+            f"## 任务 {task_id} 结果",
+            "",
+            result,
+        ]
+    )
 
 
 async def cmd_btw_cancel(task_id: str) -> str:
-    """取消后台任务
+    """取消后台任务（中止 asyncio 执行并标记为 cancelled）。
 
     Args:
-        task_id: 任务ID
+        task_id: 任务 ID
 
     Returns:
         操作结果消息
@@ -163,7 +205,7 @@ async def cmd_btw_cancel(task_id: str) -> str:
 
 
 def cmd_btw_clear() -> str:
-    """清理已完成的任务
+    """清理已完成、失败或已取消的任务。
 
     Returns:
         清理结果消息

@@ -8,7 +8,7 @@
 1. ``register_builtin_tools``：内置 ``ALL_TOOLS``（含 session_memory_tools）
 2. 磁盘技能包发现并注册工具（同名冲突时跳过技能侧）
 3. 可选 ``mcp.stdio_command``：stdio MCP 工具（未安装 ``mcp`` 包则打日志跳过）
-4. 合并 ``BUILTIN_TOOLBOXES`` 与技能工具箱；创建 ``SessionManager``；默认会话加锁；
+4. ``build_skill_snapshots``（内含 ``BUILTIN_TOOLBOXES`` 合并）；创建 ``SessionManager``；默认会话加锁；
    ``KeywordIndex.prune_expired`` 清理过期索引项
 
 配置见 config.defaults.json；架构见 ``docs/ARCHITECTURE.md``。
@@ -43,7 +43,7 @@ async def init_subsystems(
     Args:
         registry: 工具注册表
         skill_registry: 技能注册表
-        engine: UnifiedEngine 实例
+        engine: 保留以兼容旧调用方，当前未使用
         SessionManager: SessionManager 类
         channel_router: 本进程的 :class:`~miniagent.infrastructure.channel_router.ChannelRouter` 实例
         clawhub: ClawHub 客户端，传入 :class:`~miniagent.session.manager.DefaultSessionManager`
@@ -58,6 +58,8 @@ async def init_subsystems(
     from miniagent.infrastructure.tracing import auto_register_trace_file_hook
     from miniagent.skills.load_runtime import bootstrap_skill_packages
     from miniagent.skills.snapshots import build_skill_snapshots
+
+    _ = engine  # API 兼容占位
     auto_register_trace_file_hook()
 
     # 0.5. 检查并恢复 baseline skills（skill-vetter / skill-creator）
@@ -71,23 +73,7 @@ async def init_subsystems(
 
     loaded_skills, _added, _removed = await bootstrap_skill_packages(registry, skill_registry)
 
-    mcp_raw = get_config("mcp.stdio_command", "")
-    if mcp_raw:
-        try:
-            spec = json.loads(mcp_raw)
-            if isinstance(spec, list) and len(spec) >= 1:
-                from miniagent.mcp.runtime import register_mcp_stdio_tools
-
-                mcp_n = await register_mcp_stdio_tools(
-                    registry, str(spec[0]), [str(x) for x in spec[1:]]
-                )
-                _logger.info("MINIAGENT_MCP_STDIO: 已注册 %d 个 MCP 工具", mcp_n)
-        except ImportError:
-            _logger.warning(
-                "MINIAGENT_MCP_STDIO: 未安装 mcp 包，跳过（pip install miniagent-python[mcp]）"
-            )
-        except Exception as e:
-            _logger.warning("MINIAGENT_MCP_STDIO: %s", e)
+    await _register_mcp_tools_from_config(registry)
 
     # 2. 获取工具箱和系统提示（含 gating）
     from miniagent.core.config import get_default_agent_config
@@ -111,7 +97,7 @@ async def init_subsystems(
 
         ki = keyword_index if keyword_index is not None else KeywordIndex()
         ki.load()
-        ki.prune_expired(30)
+        ki.prune_expired()
     except Exception as e:
         _logger.debug("关键词索引初始化失败: %s", e)
 
@@ -183,10 +169,18 @@ def _init_default_session(session_manager: Any, channel_router: Any, *, session_
 
     # 被其他实例占用，自动回退
     fallback = f"{session_id}-{random.randint(1000, 9999)}"
+    _logger.info(
+        "会话 %s 加锁失败%s，回退到 %s",
+        session_id,
+        f" ({reason})" if reason else "",
+        fallback,
+    )
     session_manager.get_or_create(fallback, SessionOptions(description="默认会话（回退）"))
     channel_router.bind("__cli__", fallback)
     channel_router.set_primary(fallback)
-    try_lock_session(fallback)
+    fb_ok, fb_reason = try_lock_session(fallback)
+    if not fb_ok:
+        _logger.warning("回退会话 %s 加锁失败: %s", fallback, fb_reason)
     return fallback
 
 
@@ -215,8 +209,56 @@ def _ensure_baseline_skills() -> None:
         if not os.path.isdir(target):
             src = os.path.join(templates_dir, name)
             if os.path.isdir(src):
-                shutil.copytree(src, target)
-                _logger.info("已恢复 baseline skill: %s", name)
+                try:
+                    shutil.copytree(src, target)
+                    _logger.info("已恢复 baseline skill: %s", name)
+                except OSError as e:
+                    _logger.warning("恢复 baseline skill %s 失败: %s", name, e)
+
+
+def _parse_mcp_stdio_command(raw: Any) -> list[str] | None:
+    """解析 ``mcp.stdio_command``（config.user.json 原生数组或 JSON 字符串）。"""
+    if not raw:
+        return None
+    spec: Any
+    if isinstance(raw, list):
+        spec = raw
+    elif isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return None
+        spec = json.loads(text)
+    else:
+        return None
+    if isinstance(spec, list) and len(spec) >= 1:
+        return [str(x) for x in spec]
+    return None
+
+
+async def _register_mcp_tools_from_config(registry: Any) -> None:
+    """若配置了 ``mcp.stdio_command``，连接 MCP stdio 并注册工具。"""
+    mcp_raw = get_config("mcp.stdio_command", "")
+    if not mcp_raw:
+        return
+    try:
+        spec = _parse_mcp_stdio_command(mcp_raw)
+        if not spec:
+            _logger.warning(
+                "mcp.stdio_command: 无效格式，需为非空 JSON 数组 [command, arg1, ...]"
+            )
+            return
+        from miniagent.mcp.runtime import register_mcp_stdio_tools
+
+        mcp_n = await register_mcp_stdio_tools(registry, spec[0], spec[1:])
+        _logger.info("mcp.stdio_command: 已注册 %d 个 MCP 工具", mcp_n)
+    except ImportError:
+        _logger.warning(
+            "mcp.stdio_command: 未安装 mcp 包，跳过（pip install miniagent-python[mcp]）"
+        )
+    except json.JSONDecodeError as e:
+        _logger.warning("mcp.stdio_command: JSON 解析失败: %s", e)
+    except Exception as e:
+        _logger.warning("mcp.stdio_command: %s", e)
 
 
 def _get_skills_root_for_baseline() -> str | None:
@@ -225,7 +267,8 @@ def _get_skills_root_for_baseline() -> str | None:
         from miniagent.skills.paths import get_skills_root
 
         return get_skills_root()
-    except Exception:
+    except Exception as e:
+        _logger.debug("无法解析技能根目录（跳过 baseline 恢复）: %s", e)
         return None
 
 

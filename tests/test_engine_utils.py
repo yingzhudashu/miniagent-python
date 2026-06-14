@@ -1,12 +1,12 @@
 """Tests for miniagent/engine/utils.py."""
 
-
 from miniagent.engine.utils import (
     MAX_RENDER_WIDTH,
     MIN_RENDER_WIDTH,
     detect_ext_from_magic,
     detect_mime_from_magic,
     extract_last_qa_from_history,
+    feishu_user_status_fn,
     format_duration_seconds,
     format_file_size,
     get_render_width,
@@ -18,28 +18,39 @@ from miniagent.engine.utils import (
 class TestTerminalWidth:
     """Tests for terminal width functions."""
 
-    def test_get_terminal_width_fallback(self):
+    def test_get_terminal_width_fallback(self, monkeypatch):
         """Fallback value when terminal size unavailable."""
-        # In test environment, should return fallback
-        width = get_terminal_width(fallback_width=100)
-        assert width >= 1
+        monkeypatch.setattr(
+            "miniagent.engine.utils.shutil.get_terminal_size",
+            lambda fallback: (_ for _ in ()).throw(OSError("no tty")),
+        )
+        assert get_terminal_width(fallback_width=100) == 100
 
-    def test_get_render_width_bounds(self):
+    def test_get_render_width_bounds(self, monkeypatch):
         """Render width respects min/max bounds."""
+        monkeypatch.setattr(
+            "miniagent.engine.utils.shutil.get_terminal_size",
+            lambda fallback: type("Size", (), {"columns": 80})(),
+        )
         width = get_render_width(fallback_width=80)
         assert width >= MIN_RENDER_WIDTH
         assert width <= MAX_RENDER_WIDTH
 
-    def test_get_render_width_small_terminal(self):
+    def test_get_render_width_small_terminal(self, monkeypatch):
         """Small terminal returns minimum width."""
-        # Even with tiny fallback, should return minimum
-        width = get_render_width(fallback_width=20)
-        assert width == MIN_RENDER_WIDTH
+        monkeypatch.setattr(
+            "miniagent.engine.utils.shutil.get_terminal_size",
+            lambda fallback: type("Size", (), {"columns": 20})(),
+        )
+        assert get_render_width(fallback_width=20) == MIN_RENDER_WIDTH
 
-    def test_get_render_width_large_terminal(self):
+    def test_get_render_width_large_terminal(self, monkeypatch):
         """Large terminal returns capped width."""
-        width = get_render_width(fallback_width=1000)
-        assert width == MAX_RENDER_WIDTH
+        monkeypatch.setattr(
+            "miniagent.engine.utils.shutil.get_terminal_size",
+            lambda fallback: type("Size", (), {"columns": 1000})(),
+        )
+        assert get_render_width(fallback_width=1000) == MAX_RENDER_WIDTH
 
 
 class TestFormatDuration:
@@ -59,6 +70,11 @@ class TestFormatDuration:
         """Format hours and minutes."""
         assert format_duration_seconds(3661) == "1h1m"
         assert format_duration_seconds(7200) == "2h0m"
+
+    def test_zero_and_negative(self):
+        """Zero and negative values clamp to zero."""
+        assert format_duration_seconds(0) == "0.0s"
+        assert format_duration_seconds(-5) == "0.0s"
 
 
 class TestFormatFileSize:
@@ -85,6 +101,11 @@ class TestFormatFileSize:
         assert format_file_size(1024 * 1024 * 1024) == "1.00GB"
         assert format_file_size(2.5 * 1024 * 1024 * 1024) == "2.50GB"
 
+    def test_zero_and_negative(self):
+        """Zero and negative values clamp to zero."""
+        assert format_file_size(0) == "0B"
+        assert format_file_size(-100) == "0B"
+
 
 class TestTruncateText:
     """Tests for truncate_text."""
@@ -104,6 +125,16 @@ class TestTruncateText:
     def test_exact_length(self):
         """Text exactly at max_length unchanged."""
         assert truncate_text("exact", 5) == "exact"
+
+    def test_max_length_shorter_than_suffix(self):
+        """Result never exceeds max_length when suffix is longer."""
+        assert truncate_text("hello", 2, suffix="...") == ".."
+        assert truncate_text("hello", 3, suffix="...") == "..."
+        assert len(truncate_text("hello", 10)) <= 10
+
+    def test_zero_max_length(self):
+        """Zero max_length returns empty string."""
+        assert truncate_text("hello", 0) == ""
 
 
 class TestMagicDetection:
@@ -132,6 +163,12 @@ class TestMagicDetection:
         data = b"RIFF\x00\x00\x00\x00WEBP"
         assert detect_ext_from_magic(data) == ".webp"
         assert detect_mime_from_magic(data) == "image/webp"
+
+    def test_riff_wav_not_webp(self):
+        """RIFF/WAV containers must not be misidentified as WebP."""
+        data = b"RIFF\x00\x00\x00\x00WAVE"
+        assert detect_ext_from_magic(data) is None
+        assert detect_mime_from_magic(data) is None
 
     def test_mp4_detection(self):
         """Detect MP4 magic bytes."""
@@ -212,3 +249,41 @@ class TestExtractLastQA:
         ]
         result = extract_last_qa_from_history(history)
         assert result == ("Q2", "A2")
+
+    def test_multimodal_content(self):
+        """List-shaped content is normalized to text."""
+        history = [
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": "Question with image"}],
+            },
+            {"role": "assistant", "content": "Answer"},
+        ]
+        assert extract_last_qa_from_history(history) == ("Question with image", "Answer")
+
+    def test_consecutive_user_messages(self):
+        """Uses last user message before the final assistant reply."""
+        history = [
+            {"role": "user", "content": "q1"},
+            {"role": "user", "content": "q2"},
+            {"role": "assistant", "content": "a"},
+        ]
+        assert extract_last_qa_from_history(history) == ("q2", "a")
+
+
+class TestFeishuUserStatusFn:
+    """Tests for feishu_user_status_fn."""
+
+    def test_append_exception_falls_back_to_print(self, capsys):
+        """Transcript append errors fall back to print."""
+        from miniagent.runtime.context import RuntimeContext
+
+        ctx = RuntimeContext.__new__(RuntimeContext)
+
+        def _boom(_style: str, _line: str) -> None:
+            raise RuntimeError("transcript unavailable")
+
+        ctx.cli_transcript_append = _boom
+        feishu_user_status_fn(ctx)("fallback line")
+        captured = capsys.readouterr()
+        assert "fallback line" in captured.out

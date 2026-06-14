@@ -73,6 +73,15 @@ def test_transcript_fragment_len_counts_tuple_text_without_preview_truncation() 
     assert transcript_fragment_len(object()) == 0
 
 
+def test_transcript_fragment_len_strips_ansi_for_visible_length() -> None:
+    """Visible length for ANSI fragments matches stripped plain text."""
+    from prompt_toolkit.formatted_text.ansi import ANSI
+
+    ansi = ANSI("\x1b[32mok\x1b[0m")
+    assert transcript_fragment_len(ansi) == 2
+    assert transcript_fragment_len(ansi) == len(transcript_fragment_text(ansi))
+
+
 def test_transcript_fragment_text_reads_tuple_and_ansi_text() -> None:
     """Plain-text extraction supports tuple fragments and prompt-toolkit ANSI."""
     from prompt_toolkit.formatted_text.ansi import ANSI

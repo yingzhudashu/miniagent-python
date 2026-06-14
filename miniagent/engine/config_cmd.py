@@ -10,40 +10,177 @@ import json
 from pathlib import Path
 from typing import Any
 
-_USER_SECTIONS = frozenset({
+# guide 不可读时的兜底；正常以 config.defaults.json `_config_guide` 为准
+_USER_SECTIONS_FALLBACK = frozenset({
     "secrets", "model", "paths", "features", "embedding", "timezone",
     "session", "mcp", "security", "scheduled_tasks", "scheduled_tools",
-    "knowledge", "agent", "cli", "feishu", "debug",
+    "knowledge", "agent", "cli", "feishu", "debug", "agent_html",
 })
 
-_ADVANCED_SECTIONS = frozenset({"memory", "dream", "trace", "self_optimization"})
+_ADVANCED_SECTIONS_FALLBACK = frozenset({"memory", "dream", "trace", "self_optimization"})
+
+_SENSITIVE_KEYS = frozenset({
+    "api_key", "secret", "password", "token", "credential",
+    "openai_api_key", "tavily_api_key", "feishu_app_secret",
+})
+
+_SENSITIVE_PARTS = frozenset({"key", "secret", "password", "token", "credential"})
+
+_MAX_NEST_DEPTH = 6
+_MAX_LIST_ITEMS = 8
+_OVERVIEW_MAX_KEYS = 4
+_OVERVIEW_LIST_PREVIEW = 3
+
+_EMPTY_SECTION_HINT = "- _（当前无配置项，使用默认或未覆盖）_"
 
 
 def _load_config_guide() -> dict[str, Any]:
+    """读取 ``config.defaults.json`` 中的 ``_config_guide``；失败时返回空 dict。"""
     try:
         defaults_path = Path(__file__).parent.parent.parent / "config.defaults.json"
         data = json.loads(defaults_path.read_text(encoding="utf-8"))
         guide = data.get("_config_guide", {})
         return guide if isinstance(guide, dict) else {}
-    except Exception:
+    except (OSError, json.JSONDecodeError, TypeError):
         return {}
 
 
+def _user_sections(guide: dict[str, Any] | None = None) -> frozenset[str]:
+    """User 层 section 集合；优先 ``_config_guide.user_sections``。"""
+    g = guide if guide is not None else _load_config_guide()
+    raw = g.get("user_sections")
+    if isinstance(raw, list) and raw:
+        return frozenset(str(s) for s in raw)
+    return _USER_SECTIONS_FALLBACK
+
+
+def _advanced_sections(guide: dict[str, Any] | None = None) -> frozenset[str]:
+    """Advanced 层 section 集合；优先 ``_config_guide.advanced_sections``。"""
+    g = guide if guide is not None else _load_config_guide()
+    raw = g.get("advanced_sections")
+    if isinstance(raw, list) and raw:
+        return frozenset(str(s) for s in raw)
+    return _ADVANCED_SECTIONS_FALLBACK
+
+
+def _is_sensitive_key(key: str) -> bool:
+    """判断配置键是否应按敏感信息脱敏（按 ``_`` 分段匹配，避免误伤 ``keyword_*``）。"""
+    lowered = key.lower()
+    if lowered in _SENSITIVE_KEYS:
+        return True
+    return any(part in _SENSITIVE_PARTS for part in lowered.split("_"))
+
+
+def _mask_sensitive(key: str, value: Any) -> str:
+    """将敏感配置值脱敏为前缀或 ``***``。"""
+    if _is_sensitive_key(key):
+        if isinstance(value, str) and len(value) > 8:
+            return value[:8] + "..."
+        return "***"
+    return str(value)
+
+
+def _indent_prefix(indent: int) -> str:
+    return "  " * indent
+
+
+def _append_value_lines(
+    lines: list[str],
+    key: str,
+    value: Any,
+    *,
+    indent: int = 0,
+    depth: int = 0,
+    max_list_items: int = _MAX_LIST_ITEMS,
+) -> None:
+    """将单个配置项递归格式化为 Markdown 列表行（详情模式）。"""
+    prefix = _indent_prefix(indent)
+
+    if isinstance(value, dict):
+        lines.append(f"{prefix}- `{key}`:")
+        if not value:
+            lines.append(f"{prefix}  - _（空）_")
+            return
+        if depth >= _MAX_NEST_DEPTH:
+            lines.append(f"{prefix}  - `{len(value)} 子项`")
+            return
+        for sub_k, sub_v in sorted(value.items()):
+            _append_value_lines(
+                lines,
+                sub_k,
+                sub_v,
+                indent=indent + 1,
+                depth=depth + 1,
+                max_list_items=max_list_items,
+            )
+        return
+
+    if isinstance(value, list):
+        if not value:
+            lines.append(f"{prefix}- `{key}`: `0 项`")
+            return
+        lines.append(f"{prefix}- `{key}`: `{len(value)} 项`")
+        for index, item in enumerate(value):
+            if index >= max_list_items:
+                lines.append(f"{prefix}  - ... (共 {len(value)} 项)")
+                break
+            item_prefix = f"{prefix}  "
+            if isinstance(item, dict):
+                lines.append(f"{item_prefix}- `[{index}]`:")
+                if not item:
+                    lines.append(f"{item_prefix}  - _（空）_")
+                elif depth >= _MAX_NEST_DEPTH:
+                    lines.append(f"{item_prefix}  - `{len(item)} 子项`")
+                else:
+                    for sub_k, sub_v in sorted(item.items()):
+                        _append_value_lines(
+                            lines,
+                            sub_k,
+                            sub_v,
+                            indent=indent + 2,
+                            depth=depth + 1,
+                            max_list_items=max_list_items,
+                        )
+            elif isinstance(item, list):
+                lines.append(f"{item_prefix}- `[{index}]`: `{len(item)} 项`")
+            else:
+                lines.append(f"{item_prefix}- `[{index}]`: `{item}`")
+        return
+
+    lines.append(f"{prefix}- `{key}`: `{_mask_sensitive(key, value)}`")
+
+
+def _summarize_value(key: str, value: Any, *, max_list_preview: int = _OVERVIEW_LIST_PREVIEW) -> str:
+    """概览模式下对配置值做简短摘要。"""
+    if isinstance(value, dict):
+        return f"{len(value)} 子项"
+    if isinstance(value, list):
+        if not value:
+            return "0 项"
+        if (
+            len(value) <= max_list_preview
+            and all(not isinstance(item, (dict, list)) for item in value)
+        ):
+            preview = ", ".join(str(item) for item in value)
+            return f"{len(value)} 项: {preview}"
+        return f"{len(value)} 项"
+    return _mask_sensitive(key, value)
+
+
 def format_config_info(section: str | None = None) -> str:
-    """格式化配置信息显示。"""
+    """格式化配置信息为 Markdown 文本。
+
+    Args:
+        section: 配置节名（如 ``model``、``memory``）。为 ``None`` 时返回 User 层概览。
+
+    Returns:
+        供 CLI / 飞书展示的 Markdown 字符串；未知或空节返回警告文案。
+    """
     from miniagent.infrastructure.json_config import get_config_section
 
-    SENSITIVE_KEYS = frozenset([
-        "api_key", "secret", "password", "token", "credential",
-        "openai_api_key", "tavily_api_key", "feishu_app_secret",
-    ])
-
-    def _mask_sensitive(key: str, value: Any) -> str:
-        if key.lower() in SENSITIVE_KEYS or any(s in key.lower() for s in ["key", "secret", "password", "token"]):
-            if isinstance(value, str) and len(value) > 8:
-                return value[:8] + "..."
-            return "***"
-        return str(value)
+    guide = _load_config_guide()
+    user_layer = _user_sections(guide)
+    advanced_layer = _advanced_sections(guide)
 
     if section:
         data = get_config_section(section)
@@ -51,52 +188,38 @@ def format_config_info(section: str | None = None) -> str:
             return f"⚠️ 配置部分 `{section}` 不存在或为空"
 
         layer_hint = ""
-        if section in _ADVANCED_SECTIONS:
+        if section in advanced_layer:
             layer_hint = "（Advanced 运维默认值，一般无需写入 config.user.json）"
-        elif section in _USER_SECTIONS:
+        elif section in user_layer:
             layer_hint = "（User 层，可在 config.user.json 中覆盖）"
 
         lines = [f"## 配置: {section}{layer_hint}", ""]
         for k, v in sorted(data.items()):
-            masked_value = _mask_sensitive(k, v)
-            if isinstance(v, dict):
-                lines.append(f"- `{k}`:")
-                for sub_k, sub_v in sorted(v.items()):
-                    masked_sub = _mask_sensitive(sub_k, sub_v)
-                    lines.append(f"  - `{sub_k}`: `{masked_sub}`")
-            elif isinstance(v, list):
-                lines.append(f"- `{k}`: `{len(v)} 项`")
-            else:
-                lines.append(f"- `{k}`: `{masked_value}`")
+            _append_value_lines(lines, k, v)
 
         lines.append("")
         lines.append("💡 修改配置请编辑 `config.user.json`（参考 `config.defaults.json` 分层结构）")
         return "\n".join(lines)
 
-    guide = _load_config_guide()
-    user_sections = guide.get("user_sections") or sorted(_USER_SECTIONS)
+    user_sections = guide.get("user_sections") or sorted(_USER_SECTIONS_FALLBACK)
 
     lines = ["## MiniAgent 配置概览", "", "### User 层（常用）", ""]
 
     for sec in user_sections:
-        if sec not in _USER_SECTIONS:
+        if sec not in user_layer:
             continue
         data = get_config_section(sec)
-        if not data:
-            continue
         lines.append(f"#### {sec}")
+        if not data:
+            lines.append(_EMPTY_SECTION_HINT)
+            lines.append("")
+            continue
         count = 0
         for k, v in sorted(data.items()):
-            if count >= 4:
+            if count >= _OVERVIEW_MAX_KEYS:
                 lines.append(f"- ... (共 {len(data)} 项)")
                 break
-            masked_value = _mask_sensitive(k, v)
-            if isinstance(v, dict):
-                lines.append(f"- `{k}`: `{len(v)} 子项`")
-            elif isinstance(v, list):
-                lines.append(f"- `{k}`: `{len(v)} 项`")
-            else:
-                lines.append(f"- `{k}`: `{masked_value}`")
+            lines.append(f"- `{k}`: `{_summarize_value(k, v)}`")
             count += 1
         lines.append("")
 

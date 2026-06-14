@@ -86,10 +86,19 @@ def get_shared_async_openai() -> AsyncOpenAI:
     return _shared
 
 
-def reset_shared_async_openai_for_tests() -> None:
-    """清空缓存，仅供测试。"""
+def invalidate_shared_async_openai() -> None:
+    """丢弃已缓存的 AsyncOpenAI 客户端，下次调用时按当前环境变量与配置重建。"""
     global _shared
     _shared = None
 
 
-__all__ = ["get_shared_async_openai", "reset_shared_async_openai_for_tests"]
+def reset_shared_async_openai_for_tests() -> None:
+    """清空缓存，仅供测试。"""
+    invalidate_shared_async_openai()
+
+
+__all__ = [
+    "get_shared_async_openai",
+    "invalidate_shared_async_openai",
+    "reset_shared_async_openai_for_tests",
+]

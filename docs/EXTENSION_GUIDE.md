@@ -119,18 +119,17 @@ def register_my_toolbox(registry: DefaultToolRegistry):
 ---
 
 **步骤 3：注册工具箱**：
+
+内置工具箱由 ``build_skill_snapshots`` 自动合并；自定义工具应通过 **技能包** 或
+在 ``register_builtin_tools`` 之后向 ``registry`` 注册。勿直接修改 ``init_subsystems``，
+除非你在维护引擎本身：
+
 ```python
-# 在 miniagent/engine/init.py 中
-from miniagent.tools.my_tools import register_my_toolbox
+# 扩展方式示例：在技能包 tools.py 中注册，或由 /reload-skills 热加载
+from miniagent.tools.my_tools import MY_CUSTOM_TOOL
 
-async def init_subsystems(ctx: RuntimeContext):
-    registry = ctx.registry
-
-    # 注册内置工具箱
-    register_builtin_toolboxes(registry)
-
-    # 注册自定义工具箱
-    register_my_toolbox(registry)
+def register_my_tool(registry):
+    registry.register("my_tool", MY_CUSTOM_TOOL)
 ```
 
 ---

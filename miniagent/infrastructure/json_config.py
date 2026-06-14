@@ -18,6 +18,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from miniagent.infrastructure.env_parse import FALSY, TRUTHY
+
 _logger = logging.getLogger(__name__)
 
 _METADATA_KEYS = frozenset({"version", "description"})
@@ -141,6 +143,25 @@ def get_config(key: str, default: Any = None) -> Any:
     return JsonConfigLoader.get_instance().get(key, default)
 
 
+def get_config_bool(key: str, default: bool = False) -> bool:
+    """读取布尔配置项，兼容 JSON bool、数字及常见字符串真值/假值。"""
+    value = get_config(key, default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        s = value.strip().lower()
+        if s in TRUTHY:
+            return True
+        if s in FALSY:
+            return False
+        return default
+    if value is None:
+        return default
+    return default
+
+
 def get_config_section(section: str) -> dict[str, Any]:
     return JsonConfigLoader.get_instance().get_section(section)
 
@@ -149,9 +170,28 @@ def reload_config() -> None:
     JsonConfigLoader.get_instance().reload()
 
 
+def reload_runtime_config() -> None:
+    """重新加载 JSON 配置，并同步 secrets 环境变量与 LLM 客户端缓存。"""
+    reload_config()
+    from miniagent.core.openai_client import invalidate_shared_async_openai
+    from miniagent.infrastructure.env_loader import load_secrets_from_project_root
+
+    load_secrets_from_project_root()
+    invalidate_shared_async_openai()
+
+
+def get_user_config_path() -> Path:
+    """返回当前 ``config.user.json`` 路径（与 :class:`JsonConfigLoader` 一致）。"""
+    loader = JsonConfigLoader.get_instance()
+    return Path(loader._user_path)
+
+
 __all__ = [
     "JsonConfigLoader",
     "get_config",
+    "get_config_bool",
     "get_config_section",
+    "get_user_config_path",
     "reload_config",
+    "reload_runtime_config",
 ]

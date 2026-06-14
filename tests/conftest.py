@@ -14,6 +14,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from miniagent.engine.cli_state import CliLoopState
+
 # Add project root to path
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
@@ -493,20 +495,20 @@ def mock_streaming_client_factory():
 
 
 @pytest.fixture
-def mock_cli_state() -> dict[str, Any]:
-    """CLI 循环状态 mock。
-
-    返回 CliLoopState TypedDict 的字典形式。
-    """
+def mock_cli_state() -> CliLoopState:
+    """CLI 循环状态 mock（与 ``CliLoopState`` 键对齐）。"""
+    ctx = MagicMock()
+    ctx.message_queue = MagicMock()
+    ctx.channel_router = MagicMock()
     return {
-        "current_session_id": "test_session",
-        "session_list": [],
-        "instance_id": 1,
+        "active_session_id": "test_session",
+        "skill_toolboxes": [],
+        "skill_prompts": [],
         "feishu_enabled": False,
-        "queue_mode": "preemptive",
-        "background_tasks": {},
-        "scheduled_tasks": {},
-        "channel_bindings": {},
+        "session_manager": None,
+        "instance_id": 1,
+        "runtime_ctx": ctx,
+        "feishu_p2p_synced_senders": set(),
     }
 
 
