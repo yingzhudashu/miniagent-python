@@ -32,8 +32,15 @@ from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.memory.defaults import resolve_memory_dependencies
 from miniagent.session.manager import SessionOptions
+from miniagent.types.agent import AgentRunResult
+from miniagent.types.confirmation import ConfirmationResult
 
 _logger = get_logger(__name__)
+
+
+def _reply_from_run_agent_result(result: AgentRunResult | str) -> str:
+    """从 ``run_agent`` 返回值提取最终回复（兼容测试 mock 仍返回 ``str``）。"""
+    return result.reply if isinstance(result, AgentRunResult) else result
 
 
 def _fence_tool_output(body: str) -> str:
@@ -592,7 +599,8 @@ class UnifiedEngine:
             "run_agent 调度: session_key=%s source=%s input=%.40s",
             session_key, "feishu" if is_feishu else "cli", (user_input or "").replace("\n", " "),
         )
-        reply = await run_agent(
+        reply = _reply_from_run_agent_result(
+            await run_agent(
             user_input,
             registry=registry,
             monitor=monitor,
@@ -612,6 +620,7 @@ class UnifiedEngine:
             session_key=session_key,
             confirmation_channel=self._get_confirmation_channel(session_key),
             engine=self,
+            )
         )
         # 无工具调用等场景：最后一轮 LLM 流结束后无 streaming=False，需在此 PATCH 落盘全文
         if is_feishu and feishu_config:
@@ -707,7 +716,7 @@ class UnifiedEngine:
 
         return reply
 
-    def _on_plan_handler(self, session_key: str) -> Callable[[Any], Awaitable[bool]]:
+    def _on_plan_handler(self, session_key: str) -> Callable[[Any], Awaitable[ConfirmationResult]]:
         """创建计划确认回调。
 
         返回一个 async callable，通过确认侧通道暂停 agent 执行并等待用户确认。
@@ -715,23 +724,26 @@ class UnifiedEngine:
         """
         channel = self._get_confirmation_channel(session_key)
 
-        async def handler(plan) -> bool:
+        async def handler(plan) -> ConfirmationResult:
             from miniagent.core.agent import (
                 _format_plan_display_short,
                 _format_plan_message,
             )
-            plan_summary = _format_plan_display_short(plan, from_llm_planner=True)
-            plan_full = _format_plan_message(plan, from_llm_planner=True)
             from miniagent.types.confirmation import ConfirmationRequest, ConfirmationStage
 
+            plan_summary = _format_plan_display_short(plan, from_llm_planner=True)
+            plan_full = _format_plan_message(plan, from_llm_planner=True)
             req = ConfirmationRequest(
                 stage=ConfirmationStage.PLAN,
                 content=plan_summary,
                 full_content=plan_full,
-                context={"plan": True},
+                context={
+                    "plan_summary": getattr(plan, "summary", "") or "",
+                    "risk_level": getattr(plan, "risk_level", None) or "",
+                    "requires_confirmation": bool(getattr(plan, "requires_confirmation", False)),
+                },
             )
-            result = await channel.request_confirmation(req)
-            return result.approved
+            return await channel.request_confirmation(req)
 
         return handler
 

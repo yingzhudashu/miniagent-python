@@ -94,7 +94,14 @@ class DefaultToolMonitor(ToolMonitorProtocol):
         # 保护字典本身的全局锁（用于新工具创建）
         self._dict_lock = threading.Lock()
 
-    def record(self, tool: str, duration_ms: int, success: bool) -> None:
+    def record(
+        self,
+        tool: str,
+        duration_ms: int,
+        success: bool,
+        *,
+        error: str | None = None,
+    ) -> None:
         """记录一次工具调用（线程安全）
 
         更新逻辑：
@@ -107,6 +114,7 @@ class DefaultToolMonitor(ToolMonitorProtocol):
             tool: 工具名称
             duration_ms: 本次调用耗时（毫秒）
             success: 是否成功
+            error: 失败时的错误摘要（可选）
         """
         # 获取或创建统计对象（需锁保护字典）
         with self._dict_lock:
@@ -115,7 +123,7 @@ class DefaultToolMonitor(ToolMonitorProtocol):
             ts = self._stats[tool]
 
         # 记录调用（对象内部有锁保护）
-        ts.record_call(duration_ms, success)
+        ts.record_call(duration_ms, success, error_msg=error)
 
     def get_stats(self, tool: str) -> ToolStats | None:
         """获取单个工具的统计数据（线程安全）

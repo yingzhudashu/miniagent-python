@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from miniagent.types.error_prefix import WARNING_PREFIX
 from miniagent.engine.command_dispatch import (
     _REGISTERED_COMMANDS,
     _find_command_by_prefix,
@@ -88,7 +89,7 @@ class TestDispatchCommandBasics:
 
         result = await dispatch_command("/status", state=state, capture=True)
         assert "运行时上下文" in result
-        assert "⚠️" in result or "WARNING_PREFIX" in result
+        assert WARNING_PREFIX in result or "WARNING_PREFIX" in result
 
 
 class TestStatusCommand:

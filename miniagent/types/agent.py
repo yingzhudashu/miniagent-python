@@ -2,7 +2,7 @@
 
 包含：
 
-- ``AgentRunResult`` / ``AgentRunOptions``：单次 ``run_agent`` 或管线执行的输出与覆盖项
+- ``AgentRunResult`` / ``AgentRunOptions``：单次 ``run_agent`` 的输出与运行覆盖项
 - ``ToolStats``、``ToolMonitorProtocol``：工具耗时与成功率统计（默认实现见
   ``miniagent.infrastructure.monitor``）
 - ``LoopDetection*``：执行器内循环检测配置与结果（检测器见 ``loop_detector``）
@@ -16,22 +16,37 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, TypedDict, runtime_checkable
 
 from miniagent.core.constants import AGENT_HISTORY_SIZE
 
 _HISTORY_SIZE_DEFAULT = AGENT_HISTORY_SIZE
 
 
+class ToolCallResult(TypedDict):
+    """单步工具调用的结果摘要（用于 ``PipelineResult.steps`` 等元素）。"""
+
+    success: bool
+    content: str
+
+
+class PipelineStepRecord(TypedDict):
+    """``run_pipeline`` 每一步的执行记录。"""
+
+    tool: str
+    args: dict[str, Any]
+    result: ToolCallResult
+
+
 @dataclass
 class AgentRunResult:
-    """Agent 运行结果
+    """Agent 运行结果（``run_agent`` 返回值）
 
     Attributes:
-        reply: 最终回复
-        total_tool_calls: 工具调用总次数
+        reply: 最终回复（含可选反思 footer）
+        total_tool_calls: 工具调用总次数（不含 ``llm_response`` 监控项）
         tool_stats: 各工具的详细统计
-        used_tools: 本轮使用过的工具名称列表
+        used_tools: 本轮调用过的工具名称（去重，不含 ``llm_response``）
     """
 
     reply: str = ""
@@ -42,12 +57,19 @@ class AgentRunResult:
 
 @dataclass
 class AgentRunOptions:
-    """Agent 运行选项
+    """Agent 运行选项（合并进 ``run_agent`` 的同名参数）
+
+    优先级（高覆盖低）：
+    1. ``run_agent`` 直接传入的 ``system_prompt`` / ``agent_config``
+    2. 本对象中的对应字段（若不为 ``None``）
+
+    ``model_config`` 会合并进 ``agent_config["model_overrides"]``，
+    由 :func:`miniagent.core.llm_params.resolve_completion_kwargs` 消费。
 
     Attributes:
         system_prompt: 系统提示词覆盖
         agent_config: Agent 层配置覆盖
-        model_config: 模型层配置覆盖
+        model_config: 模型层配置覆盖（写入 ``model_overrides``）
     """
 
     system_prompt: str | None = None
@@ -64,7 +86,7 @@ class ToolStats:
         total_ms: 总耗时（毫秒）
         success_count: 成功次数
         fail_count: 失败次数
-        errors: 错误信息列表
+        errors: 失败时的错误摘要列表（由 ``ToolMonitorProtocol.record`` 的 ``error`` 参数写入）
     """
 
     calls: int = 0
@@ -80,10 +102,14 @@ class LoopDetectionConfig:
 
     Attributes:
         enabled: 是否启用循环检测
-        history_size: 保留的最近工具调用历史条数（默认 50，可通过 MINIAGENT_HISTORY_SIZE 覆盖）
+        history_size: 保留的最近工具调用历史条数（默认与 ``AGENT_HISTORY_SIZE`` 一致；
+            运行时通常来自 ``config.defaults.json`` 的 ``agent.loop_detection.history_size``）
         warning_threshold: 警告阈值（默认 8）
         critical_threshold: 严重阈值（默认 12）
-        detectors: 检测器开关
+        detectors: 检测器开关，键名：
+            - ``generic_repeat``：相同工具 + 相同参数重复调用
+            - ``known_poll_no_progress``：轮询但结果无变化
+            - ``ping_pong``：A→B→A→B 交替模式
     """
 
     enabled: bool = True
@@ -136,32 +162,14 @@ class PipelineResult:
     """管线执行结果
 
     Attributes:
-        steps: 每个步骤的执行结果
-        final_content: 最终累积内容
-        success: 是否全部成功
+        steps: 每步记录，元素为 ``PipelineStepRecord``（``tool`` / ``args`` / ``result``）
+        final_content: 已成功步骤输出内容的累积（失败时含失败步内容）
+        success: 是否全部步骤成功
     """
 
-    steps: list[dict[str, Any]] = field(default_factory=list)
-    final_content: str = ""
+    steps: list[PipelineStepRecord] = field(default_factory=list)
     success: bool = False
-
-
-__all__ = [
-    "AgentRunResult",
-    "AgentRunOptions",
-    "ToolStats",
-    "ToolMonitorProtocol",
-    "LoopDetectionConfig",
-    "LoopLevel",
-    "LoopDetectionResult",
-    "PipelineStep",
-    "PipelineResult",
-]
-
-
-# ============================================================================
-# ToolMonitor Protocol
-# ============================================================================
+    final_content: str = ""
 
 
 @runtime_checkable
@@ -174,13 +182,21 @@ class ToolMonitorProtocol(Protocol):
     monitor 字段类型，支持依赖注入模式。
     """
 
-    def record(self, tool: str, duration_ms: int, success: bool) -> None:
+    def record(
+        self,
+        tool: str,
+        duration_ms: int,
+        success: bool,
+        *,
+        error: str | None = None,
+    ) -> None:
         """记录一次工具调用
 
         Args:
             tool: 工具名称
             duration_ms: 耗时（毫秒）
             success: 是否成功
+            error: 失败时的错误摘要（可选；写入 ``ToolStats.errors``）
         """
         ...
 
@@ -210,3 +226,18 @@ class ToolMonitorProtocol(Protocol):
             统计报告字符串
         """
         ...
+
+
+__all__ = [
+    "AgentRunResult",
+    "AgentRunOptions",
+    "ToolStats",
+    "ToolMonitorProtocol",
+    "LoopDetectionConfig",
+    "LoopLevel",
+    "LoopDetectionResult",
+    "PipelineStep",
+    "PipelineStepRecord",
+    "PipelineResult",
+    "ToolCallResult",
+]

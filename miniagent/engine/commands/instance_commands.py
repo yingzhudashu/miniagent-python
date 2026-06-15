@@ -1,6 +1,6 @@
 """实例管理命令模块
 
-提供 `.instance` 相关命令的实现：
+提供 `/instance` 相关命令的实现：
 - list: 列出所有运行中的实例
 - stop: 停止指定实例
 
@@ -15,20 +15,38 @@ from typing import Any
 from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
 
 
+def format_instance_command_usage() -> str:
+    """返回 `/instance` 命令的用法说明。"""
+    return (
+        "实例管理命令：\n"
+        "  /instance list              列出所有运行中的实例\n"
+        "  /instance stop <ID>         停止指定实例（不可停止当前实例）\n"
+        "  说明: 多注册表根下同 ID 冲突时，请使用 "
+        "python -m miniagent --stop --state-dir <路径> <ID>"
+    )
+
+
 def cmd_instance_handler(
     parts: list[str], sub_cmd: str, state: dict[str, Any], *, markdown: bool = False
 ) -> None:
-    """处理 .instance 命令及其子命令。
+    """处理 `/instance` 命令及其子命令。
 
     支持两个子命令：
     - list: 列出所有运行中的实例
     - stop <id>: 停止指定实例（不能停止当前实例）
 
+    通过 ``print`` 输出到 stdout；无返回值。飞书 capture 路径会捕获该输出。
+
     Args:
-        parts: 命令分割后的参数列表
-        sub_cmd: 子命令名称（list / stop）
-        state: 运行时状态字典，包含 instance_id 等信息
-        markdown: True 时实例列表为 GFM 表格（飞书 ``MINIAGENT_FEISHU_MARKDOWN_COMMANDS``）
+        parts: 命令分割后的参数列表（如 ``["/instance", "stop", "2"]``）
+        sub_cmd: 子命令名称（``list`` / ``stop`` / 空字符串视为 list）
+        state: 运行时状态字典，需含 ``instance_id``（int）以禁止停止自身
+        markdown: True 时实例列表为 GFM 表格（由 ``feishu.markdown_commands`` 或
+            ``MINIAGENT_FEISHU_MARKDOWN_COMMANDS=1`` 启用）
+
+    Note:
+        ``stop`` 在 canonical 与 legacy 注册表根同时存在且实例 ID 重复时，
+        会列出各 ``state_dir`` 并提示使用 ``--stop --state-dir``。
     """
     from miniagent.infrastructure.instance import (
         format_instances_markdown,
@@ -38,7 +56,6 @@ def cmd_instance_handler(
     )
 
     if sub_cmd in ("list", ""):
-        # 列出所有运行中的实例
         instances = list_instances()
         if markdown:
             print(format_instances_markdown(instances))
@@ -46,7 +63,6 @@ def cmd_instance_handler(
             print(format_instances_table(instances))
 
     elif sub_cmd == "stop" and len(parts) >= 3:
-        # 停止指定实例
         try:
             instance_id = int(parts[2])
         except ValueError:
@@ -70,13 +86,22 @@ def cmd_instance_handler(
 
         result = stop_instance_by_id(instance_id, state_dir=str(matches[0].get("state_dir")))
         if result.get("success"):
-            print(f"{SUCCESS_PREFIX} 实例 #{instance_id} 已停止: {result.get('reason', '')}")
+            reason = result.get("reason") or ""
+            if reason:
+                print(f"{SUCCESS_PREFIX} 实例 #{instance_id} 已停止: {reason}")
+            else:
+                print(f"{SUCCESS_PREFIX} 实例 #{instance_id} 已停止")
         else:
-            print(f"{ERROR_PREFIX} {result.get('message', '停止失败')}")
+            print(f"{ERROR_PREFIX} {result.get('reason', '停止失败')}")
+
+    elif sub_cmd == "stop":
+        print(f"{WARNING_PREFIX} 缺少实例 ID")
+        print(format_instance_command_usage())
 
     else:
-        print(f"{WARNING_PREFIX} 未知的子命令: {sub_cmd}")
-        print("用法: /instance list | /instance stop <ID>")
+        if sub_cmd:
+            print(f"{WARNING_PREFIX} 未知的子命令: {sub_cmd}")
+        print(format_instance_command_usage())
 
 
-__all__ = ["cmd_instance_handler"]
+__all__ = ["cmd_instance_handler", "format_instance_command_usage"]

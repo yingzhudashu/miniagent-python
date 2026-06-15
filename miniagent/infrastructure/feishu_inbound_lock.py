@@ -17,6 +17,7 @@ from typing import Any
 
 from miniagent.infrastructure.logger import get_logger
 from miniagent.infrastructure.process_utils import is_process_running
+from miniagent.types.error_prefix import ERROR_PREFIX
 
 _logger = get_logger(__name__)
 
@@ -64,13 +65,13 @@ def try_acquire_feishu_inbound_owner(
             oid = raw.get("instance_id", "?")
             return (
                 False,
-                f"❌ 飞书入站已被实例 #{oid}（PID={old_pid}）占用；"
+                f"{ERROR_PREFIX} 飞书入站已被实例 #{oid}（PID={old_pid}）占用；"
                 "请在该实例执行 `.feishu stop` 或停止该进程后再试。",
             )
     try:
         path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     except OSError as e:
-        return False, f"❌ 无法写入飞书锁文件: {e}"
+        return False, f"{ERROR_PREFIX} 无法写入飞书锁文件: {e}"
     _logger.info("已获取飞书入站独占锁 (PID=%s)", me)
     return True, ""
 

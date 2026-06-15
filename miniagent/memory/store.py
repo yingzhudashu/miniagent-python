@@ -46,6 +46,7 @@ from miniagent.types.memory import (
     MemoryStoreProtocol,
     SessionMemory,
 )
+from miniagent.utils.session_id import safe_session_id
 
 _logger = get_logger(__name__)
 
@@ -67,7 +68,7 @@ def _memory_file_path(state_dir: str, session_id: str) -> str:
     Returns:
         记忆文件的完整路径
     """
-    safe = re.sub(r"[^a-zA-Z0-9_-]", "_", session_id)
+    safe = safe_session_id(session_id)
     return os.path.join(state_dir, "memory", f"{safe}.json")
 
 

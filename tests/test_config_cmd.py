@@ -9,6 +9,7 @@ from miniagent.engine.config_cmd import (
     _summarize_value,
     format_config_info,
 )
+from miniagent.types.error_prefix import WARNING_PREFIX
 
 
 def test_is_sensitive_key_does_not_match_keyword_prefix() -> None:
@@ -137,7 +138,7 @@ def test_format_config_info_memory_shows_advanced_layer_hint(isolated_config_loa
 def test_format_config_info_unknown_section(isolated_config_loader) -> None:
     isolated_config_loader()
     out = format_config_info("totally_fake_section")
-    assert "⚠️ 配置部分 `totally_fake_section` 不存在或为空" in out
+    assert f"{WARNING_PREFIX} 配置部分 `totally_fake_section` 不存在或为空" in out
 
 
 def test_format_config_info_masks_secrets(isolated_config_loader) -> None:

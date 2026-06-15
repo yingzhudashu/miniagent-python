@@ -4,6 +4,8 @@
 运行时可通过 `/feishu start` 动态启用飞书连接。
 
 用法:
+    python -m miniagent --help       # 显示命令行用法
+    python -m miniagent -h           # 同上
     python -m miniagent              # CLI 模式（默认）
     python -m miniagent --continue   # 继续上次会话（而非默认会话）
     python -m miniagent --no-continue  # 禁用隐式继续，使用 default 会话
@@ -30,6 +32,27 @@ from __future__ import annotations
 
 import sys
 from typing import Any
+
+from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX
+
+
+def _wants_help(argv: list[str]) -> bool:
+    """是否请求打印命令行用法（``--help`` / ``-h``）。"""
+    return any(flag in argv for flag in ("--help", "-h"))
+
+
+def _print_cli_help() -> None:
+    """打印命令行用法（取自本模块文档字符串中的「用法」段）。"""
+    doc = __doc__ or ""
+    start = doc.find("用法:")
+    end = doc.find("架构（组合根）:")
+    usage = doc[start:end].strip() if start >= 0 and end > start else doc.strip()
+    print("Mini Agent Python\n")
+    print(usage)
+    print("\n亦可通过以下方式启动（等价）:")
+    print("    miniagent                  # pip 安装后的命令")
+    print("    python -m miniagent.cli.cli")
+    print("\n文档索引见 docs/INDEX.md；架构详见 docs/ARCHITECTURE.md。")
 
 
 def _load_env() -> None:
@@ -158,7 +181,7 @@ def _run_stop_command() -> int:
     try:
         filter_state_dir, tokens = _extract_stop_state_dir(raw_tokens)
     except ValueError as e:
-        print(f"❌ {e}")
+        print(f"{ERROR_PREFIX} {e}")
         return 2
 
     if tokens:
@@ -166,7 +189,7 @@ def _run_stop_command() -> int:
             tokens, targets, filter_state_dir=filter_state_dir
         )
         if err:
-            print(f"❌ {err}")
+            print(f"{ERROR_PREFIX} {err}")
             print(
                 "\n用法:\n"
                 "  python -m miniagent --stop                    交互选择（需在终端中运行）\n"
@@ -216,7 +239,7 @@ def _run_stop_command() -> int:
                 raw_parts, targets, filter_state_dir=filter_state_dir
             )
             if err:
-                print(f"❌ {err}")
+                print(f"{ERROR_PREFIX} {err}")
                 return 2
             assert stop_targets is not None
 
@@ -224,7 +247,7 @@ def _run_stop_command() -> int:
     for iid, sd in stop_targets:
         result = stop_instance_by_id(iid, state_dir=sd)
         if result.get("success"):
-            print(f"✅ 实例 #{iid} 已停止 ({sd})")
+            print(f"{SUCCESS_PREFIX} 实例 #{iid} 已停止 ({sd})")
         else:
             print(f"ℹ️ 实例 #{iid}: {result.get('reason', '停止失败')}")
             exit_code = 1
@@ -275,7 +298,7 @@ def _consume_session_arg() -> None:
     i = sys.argv.index("--session")
     if i + 1 >= len(sys.argv) or sys.argv[i + 1].startswith("-"):
         print(
-            "❌ --session 需要会话 ID 参数\n\n"
+            f"{ERROR_PREFIX} --session 需要会话 ID 参数\n\n"
             "用法: python -m miniagent --session <ID>\n"
         )
         raise SystemExit(2)
@@ -286,10 +309,14 @@ def _consume_session_arg() -> None:
 def main() -> None:
     """统一入口：解析 CLI 开关后委托 ``compat.unified_entry``。
 
-    处理顺序：加载凭据 → ``--no-continue`` / ``--continue`` → ``--session``
-    → ``--stop`` / ``--doctor``（早退）→ 绑定项目路径 → ``unified_entry()``。
+    处理顺序：``--help`` / ``-h``（早退）→ 加载凭据 → ``--no-continue`` / ``--continue``
+    → ``--session`` → ``--stop`` / ``--doctor``（早退）→ 绑定项目路径 → ``unified_entry()``。
     """
     import os
+
+    if _wants_help(sys.argv):
+        _print_cli_help()
+        raise SystemExit(0)
 
     _load_env()
 
@@ -309,7 +336,7 @@ def main() -> None:
         try:
             code = _run_stop_command()
         except Exception as e:
-            print(f"❌ 停止失败: {e}")
+            print(f"{ERROR_PREFIX} 停止失败: {e}")
             code = 1
         raise SystemExit(code)
 

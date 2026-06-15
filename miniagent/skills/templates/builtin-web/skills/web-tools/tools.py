@@ -28,6 +28,7 @@ from miniagent.infrastructure.trace_events import (
     EVENT_BROWSER_REUSE,
 )
 from miniagent.infrastructure.tracing import emit_trace
+from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 _logger = logging.getLogger(__name__)
@@ -225,10 +226,10 @@ async def _web_search_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolRe
     if not key:
         return ToolResult(
             success=False,
-            content="❌ 未配置 TAVILY_API_KEY（或 WEB_SEARCH_API_KEY）。请在环境变量中设置 Tavily API Key。",
+            content=f"{ERROR_PREFIX} 未配置 TAVILY_API_KEY（或 WEB_SEARCH_API_KEY）。请在环境变量中设置 Tavily API Key。",
         )
     if not query:
-        return ToolResult(success=False, content="❌ query 不能为空")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} query 不能为空")
 
     payload = {
         "api_key": key,
@@ -251,7 +252,7 @@ async def _web_search_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolRe
             resp.raise_for_status()
             data = resp.json()
     except Exception as e:
-        return ToolResult(success=False, content=f"❌ Tavily 搜索失败: {e}")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} Tavily 搜索失败: {e}")
 
     lines: list[str] = [f"🔎 Tavily 搜索: {query}\n"]
     ans = data.get("answer")
@@ -320,14 +321,14 @@ async def _browser_extract_handler(args: dict[str, Any], _ctx: ToolContext) -> T
         wait_until = "domcontentloaded"
 
     if not _allowed_http_url(url, https_only=False):
-        return ToolResult(success=False, content="❌ 仅允许 http/https URL，且须包含主机名")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 仅允许 http/https URL，且须包含主机名")
 
     # 检查 Playwright 是否可用（不直接导入）
     import importlib.util
     if not importlib.util.find_spec("playwright"):
         return ToolResult(
             success=False,
-            content="❌ 未安装 Playwright。请执行：pip install miniagent-python[browser]\n然后：playwright install chromium",
+            content=f"{ERROR_PREFIX} 未安装 Playwright。请执行：pip install miniagent-python[browser]\n然后：playwright install chromium",
         )
 
     timeout_ms = _browser_timeout_ms()
@@ -352,7 +353,7 @@ async def _browser_extract_handler(args: dict[str, Any], _ctx: ToolContext) -> T
             # 关闭页面但不关闭浏览器（复用）
             await page.close()
     except Exception as e:
-        return ToolResult(success=False, content=f"❌ 浏览器抓取失败: {e}")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 浏览器抓取失败: {e}")
 
     text_out = re.sub(r"\n{3,}", "\n\n", text_out)
     if len(text_out) > max_chars:
@@ -416,7 +417,7 @@ async def _fetch_url_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolRes
         return ToolResult(success=True, content=clean)
 
     except Exception as e:
-        return ToolResult(success=False, content=f"❌ 抓取失败: {e}")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 抓取失败: {e}")
 
 
 # ════════════════════════════════════════════════════════
@@ -463,7 +464,7 @@ async def _download_file_handler(args: dict[str, Any], ctx: ToolContext) -> Tool
     max_size_bytes = max_size_mb * 1024 * 1024
 
     if not _allowed_http_url(url, https_only=False):
-        return ToolResult(success=False, content="❌ 仅允许 http/https URL，且须包含主机名")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 仅允许 http/https URL，且须包含主机名")
 
     # 解析默认文件名
     parsed = urlparse(url)
@@ -508,7 +509,7 @@ async def _download_file_handler(args: dict[str, Any], ctx: ToolContext) -> Tool
                 if content_length > max_size_bytes:
                     return ToolResult(
                         success=False,
-                        content=f"❌ 文件过大: {content_length / 1024 / 1024:.1f}MB > {max_size_mb}MB 限制",
+                        content=f"{ERROR_PREFIX} 文件过大: {content_length / 1024 / 1024:.1f}MB > {max_size_mb}MB 限制",
                     )
             except Exception:
                 content_length = 0
@@ -531,7 +532,7 @@ async def _download_file_handler(args: dict[str, Any], ctx: ToolContext) -> Tool
                                 os.remove(save_path)
                                 return ToolResult(
                                     success=False,
-                                    content=f"❌ 下载超过限制: {total / 1024 / 1024:.1f}MB > {max_size_mb}MB",
+                                    content=f"{ERROR_PREFIX} 下载超过限制: {total / 1024 / 1024:.1f}MB > {max_size_mb}MB",
                                 )
                             f.write(chunk)
             except Exception as e:
@@ -541,7 +542,7 @@ async def _download_file_handler(args: dict[str, Any], ctx: ToolContext) -> Tool
                         os.remove(save_path)
                     except Exception as e:
                         _logger.debug("清理下载文件失败: %s", e)
-                return ToolResult(success=False, content=f"❌ 下载失败: {e}")
+                return ToolResult(success=False, content=f"{ERROR_PREFIX} 下载失败: {e}")
 
     except ImportError:
         # 无 httpx，使用 urllib 回退
@@ -555,13 +556,13 @@ async def _download_file_handler(args: dict[str, Any], ctx: ToolContext) -> Tool
             if len(data) > max_size_bytes:
                 return ToolResult(
                     success=False,
-                    content=f"❌ 文件过大: {len(data) / 1024 / 1024:.1f}MB > {max_size_mb}MB",
+                    content=f"{ERROR_PREFIX} 文件过大: {len(data) / 1024 / 1024:.1f}MB > {max_size_mb}MB",
                 )
             with open(save_path, "wb") as f:
                 f.write(data)
             total = len(data)
         except Exception as e:
-            return ToolResult(success=False, content=f"❌ 下载失败: {e}")
+            return ToolResult(success=False, content=f"{ERROR_PREFIX} 下载失败: {e}")
 
     # 格式化大小
     size_str = f"{total / 1024:.1f}KB" if total < 1024 * 1024 else f"{total / 1024 / 1024:.2f}MB"
@@ -574,7 +575,7 @@ async def _download_file_handler(args: dict[str, Any], ctx: ToolContext) -> Tool
 
     return ToolResult(
         success=True,
-        content=f"✅ 下载完成\n文件: {rel_path}\n大小: {size_str}\n类型: {content_type}",
+        content=f"{SUCCESS_PREFIX} 下载完成\n文件: {rel_path}\n大小: {size_str}\n类型: {content_type}",
         meta={
             "path": save_path,
             "filename": filename,

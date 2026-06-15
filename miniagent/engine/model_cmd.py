@@ -13,7 +13,7 @@ from miniagent.infrastructure.json_config import (
     get_user_config_path,
     reload_config,
 )
-from miniagent.types.error_prefix import ERROR_PREFIX
+from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX
 
 
 def get_current_model() -> str:
@@ -89,7 +89,7 @@ def switch_model(new_model: str) -> str:
         return f"{ERROR_PREFIX} 无法写入 config.user.json: {exc}"
 
     reload_config()
-    return f"✅ 模型已切换: {old_model} → {candidate}（已写入 config.user.json）"
+    return f"{SUCCESS_PREFIX} 模型已切换: {old_model} → {candidate}（已写入 config.user.json）"
 
 
 def format_model_info() -> str:

@@ -20,6 +20,7 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
+from miniagent.core._openai_compat import ensure_json_object_user_message
 from miniagent.infrastructure.json_config import get_config
 
 _logger = logging.getLogger(__name__)
@@ -125,23 +126,17 @@ async def llm_json(
     if model is None:
         model = get_config("model.model", "gpt-4o-mini")
 
-    # OpenAI API 要求：使用 json_object 模式时，消息中必须包含 "json" 这个词
-    # 检查 system + prompt 中是否有 "json"（不区分大小写）
-    combined = (system + prompt).lower()
-    use_json_object = "json" in combined
-
-    # 如果没有 "json" 这个词，在 system 提示中添加 JSON 输出要求
-    actual_system = system
-    if not use_json_object:
-        actual_system = system + "\n\n请以 JSON 格式返回结果。"
-        use_json_object = True  # 现在消息中包含了 "json"
+    # Some compatible endpoints require a user/input message to mention "json".
+    messages = ensure_json_object_user_message(
+        [
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt},
+        ]
+    )
 
     create_kwargs: dict[str, Any] = {
         "model": model,
-        "messages": [
-            {"role": "system", "content": actual_system},
-            {"role": "user", "content": prompt},
-        ],
+        "messages": messages,
         "response_format": {"type": "json_object"},
     }
     if max_tokens is not None:

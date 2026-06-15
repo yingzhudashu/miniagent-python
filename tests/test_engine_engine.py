@@ -446,10 +446,14 @@ class TestUnifiedEnginePlanHandler:
 
         with patch("miniagent.core.agent._format_plan_display_short", return_value="summary"):
             with patch("miniagent.core.agent._format_plan_message", return_value="full"):
-                approved = await handler(plan)
+                result = await handler(plan)
 
-        assert approved is False
+        assert result.approved is False
+        assert result.rejected is False
         channel.request_confirmation.assert_awaited_once()
+        req = channel.request_confirmation.await_args.args[0]
+        assert req.full_content == "full"
+        assert req.context.get("requires_confirmation") is True
 
 
 class TestUnifiedEngineIntegration:

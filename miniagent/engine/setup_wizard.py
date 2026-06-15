@@ -19,6 +19,7 @@ import sys
 from typing import Any
 
 from miniagent.infrastructure.json_config import get_user_config_path, reload_runtime_config
+from miniagent.types.error_prefix import SUCCESS_PREFIX
 
 
 def _copy_defaults_hint() -> str:
@@ -92,7 +93,7 @@ def run_setup_wizard() -> dict[str, Any]:
     if model:
         config.setdefault("model", {})
         config["model"]["model"] = model
-        print(f"✅ 模型设置为: {model}")
+        print(f"{SUCCESS_PREFIX} 模型设置为: {model}")
 
     # 3. API 端点（用于第三方服务）
     print("\n🌐 API 端点")
@@ -105,7 +106,7 @@ def run_setup_wizard() -> dict[str, Any]:
     if base_url:
         config.setdefault("model", {})
         config["model"]["base_url"] = base_url
-        print(f"✅ API 端点设置为: {base_url}")
+        print(f"{SUCCESS_PREFIX} API 端点设置为: {base_url}")
 
     # 4. 工作目录
     print("\n📁 工作目录")
@@ -114,7 +115,7 @@ def run_setup_wizard() -> dict[str, Any]:
     state_dir = input("自定义工作目录 (或按 Enter 使用默认): ").strip()
     if state_dir:
         config["paths"] = {"state_dir": state_dir}
-        print(f"✅ 工作目录设置为: {state_dir}")
+        print(f"{SUCCESS_PREFIX} 工作目录设置为: {state_dir}")
 
     # 5. 飞书配置（可选）
     print("\n📱 飞书集成（可选）")

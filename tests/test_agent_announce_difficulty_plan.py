@@ -202,8 +202,10 @@ async def test_on_plan_reject_skips_plan_announce_and_execute(tmp_path) -> None:
     async def ot(text: str, _stream: bool, _header: str) -> None:
         captured.append(text)
 
-    async def fake_on_plan(_plan: object) -> bool:
-        return False
+    async def fake_on_plan(_plan: object) -> ConfirmationResult:
+        from miniagent.types.confirmation import ConfirmationResult
+
+        return ConfirmationResult.reject()
 
     with (
         patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False),
@@ -221,7 +223,7 @@ async def test_on_plan_reject_skips_plan_announce_and_execute(tmp_path) -> None:
                     on_plan=fake_on_plan,
                 )
 
-    assert "取消" in out or "取消" in str(out)
+    assert "取消" in out.reply or "取消" in str(out.reply)
     # 当计划被拒绝时，不应发送计划相关内容
     assert not any("跳过结构化规划" in x or "摘要" in x for x in captured)
     ex.assert_not_called()

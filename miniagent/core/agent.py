@@ -43,8 +43,18 @@ from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.infrastructure.monitor import DefaultToolMonitor
 from miniagent.security.sandbox import get_default_workspace
-from miniagent.types.agent import PipelineResult, PipelineStep, ToolMonitorProtocol
-from miniagent.types.confirmation import ConfirmationRequest, ConfirmationStage
+from miniagent.types.agent import (
+    AgentRunOptions,
+    AgentRunResult,
+    PipelineResult,
+    PipelineStep,
+    PipelineStepRecord,
+    ToolCallResult,
+    ToolMonitorProtocol,
+    ToolStats,
+)
+from miniagent.types.confirmation import ConfirmationRequest, ConfirmationResult, ConfirmationStage
+from miniagent.types.config import AgentConfig
 from miniagent.types.error_prefix import WARNING_PREFIX
 from miniagent.types.planning import (
     ContextStrategy,
@@ -250,12 +260,69 @@ def _format_plan_message(
     return "\n".join(lines)
 
 
+def _merge_plan_suggested_config(plan: StructuredPlan, merged_config: AgentConfig) -> AgentConfig:
+    """合并规划器建议配置与计划风险等级到运行配置。"""
+    config = merged_config
+    if plan.suggested_config:
+        sc = plan.suggested_config
+        overrides: dict[str, Any] = {}
+        if sc.max_turns is not None:
+            overrides["max_turns"] = max(config.max_turns, sc.max_turns)
+        if sc.tool_timeout is not None:
+            overrides["tool_timeout"] = sc.tool_timeout
+        if sc.risk_level is not None:
+            overrides["risk_level"] = sc.risk_level
+        if sc.context_overflow_strategy is not None:
+            overrides["context_overflow_strategy"] = sc.context_overflow_strategy
+        if sc.tool_selection_strategy is not None:
+            overrides["tool_selection_strategy"] = sc.tool_selection_strategy
+        mo: dict[str, Any] = {}
+        if sc.thinking_level:
+            tl, tb = map_business_depth(sc.thinking_level)
+            mo["thinking_level"] = tl
+            mo["thinking_budget"] = tb
+        if sc.model_overrides:
+            mo.update(sc.model_overrides)
+        if mo:
+            overrides["model_overrides"] = mo
+        if sc.parallelism == "sequential":
+            overrides["allow_parallel_tools"] = False
+        elif sc.parallelism in ("safe-parallel", "full-parallel"):
+            overrides["allow_parallel_tools"] = True
+        if overrides:
+            config = merge_agent_config(config, overrides)
+
+    if config.risk_level is None and plan.risk_level:
+        config = merge_agent_config(config, {"risk_level": plan.risk_level})
+    return config
+
+
 # ─── 回调类型 ────────────────────────────────────────────
 
 OnToolCall: TypeAlias = Callable[[str, str, str], None]
 OnToolFinish: TypeAlias = OnToolFinishCallback
-OnPlan: TypeAlias = Callable[[StructuredPlan], Awaitable[bool]]
+OnPlan: TypeAlias = Callable[[StructuredPlan], Awaitable[ConfirmationResult]]
 OnThinking: TypeAlias = OnThinkingCallback
+
+
+# 监控项中不计入 AgentRunResult.total_tool_calls / used_tools
+_MONITOR_NON_TOOL_NAMES = frozenset({"llm_response"})
+
+
+def _build_agent_run_result(reply: str, monitor: ToolMonitorProtocol) -> AgentRunResult:
+    """从 monitor 汇总工具统计，构建 ``AgentRunResult``。"""
+    all_stats = monitor.get_all_stats()
+    tool_stats: dict[str, ToolStats] = {
+        name: stats for name, stats in all_stats.items() if name not in _MONITOR_NON_TOOL_NAMES
+    }
+    used_tools = list(tool_stats.keys())
+    total_tool_calls = sum(stats.calls for stats in tool_stats.values())
+    return AgentRunResult(
+        reply=reply,
+        total_tool_calls=total_tool_calls,
+        tool_stats=tool_stats,
+        used_tools=used_tools,
+    )
 
 
 # ─── 主入口 ──────────────────────────────────────────────
@@ -268,6 +335,7 @@ async def run_agent(
     monitor: ToolMonitorProtocol | None = None,
     toolboxes: list[Toolbox] | None = None,
     agent_config: dict[str, Any] | None = None,
+    options: AgentRunOptions | None = None,
     system_prompt: str | None = None,
     skip_planning: bool = False,
     on_tool_call: OnToolCall | None = None,
@@ -283,7 +351,7 @@ async def run_agent(
     session_key: str | None = None,
     confirmation_channel: Any | None = None,
     engine: Any | None = None,
-) -> str:
+) -> AgentRunResult:
     """运行 Agent（两阶段模式）。
 
     **核心架构**（Phase 0-2 多阶段智能）：
@@ -330,12 +398,13 @@ async def run_agent(
         registry: 工具注册表（实现 ToolRegistryProtocol）
         monitor: 性能监控器（默认创建 DefaultToolMonitor）
         toolboxes: 可用工具箱列表（空则跳过规划阶段）
-        agent_config: Agent 配置覆盖（如 streaming、debug、max_turns）
-        system_prompt: 自定义系统提示词（覆盖默认身份提示）
+        agent_config: Agent 配置覆盖（如 streaming、debug、max_turns）；优先于 ``options.agent_config``
+        options: 运行选项（``system_prompt`` / ``agent_config`` / ``model_config`` 批量注入）
+        system_prompt: 自定义系统提示词（覆盖 ``options.system_prompt``）
         skip_planning: 强制跳过规划阶段（直接进入执行）
         on_tool_call: 工具调用回调（用于飞书卡片按钮交互）
         on_tool_finish: 工具执行完成回调（用于历史记录落盘）
-        on_plan: 规划确认回调（高风险操作时等待用户批准）
+        on_plan: 规划确认回调（高风险操作时等待用户响应，返回 :class:`ConfirmationResult`）
         on_thinking: 思考流回调（实时展示思考过程）
         clawhub: ClawHub客户端实例（用于技能市场交互）
         memory_store: 记忆存储实例（默认使用进程bundle）
@@ -348,10 +417,10 @@ async def run_agent(
         engine: UnifiedEngine实例（用于状态访问）
 
     Returns:
-        str: Agent 最终回复文本
-            - 正常完成：返回回复内容
-            - 操作取消：返回 WARNING_PREFIX + "操作已取消"
-            - 循环拦截：返回 WARNING_PREFIX + 循环提示
+        AgentRunResult: 含 ``reply`` 与工具调用统计
+            - 正常完成：``reply`` 为最终回复（可含反思 footer）
+            - 操作取消：``reply`` 为 WARNING_PREFIX + "操作已取消"
+            - 循环拦截：``reply`` 为 WARNING_PREFIX + 循环提示
 
     Raises:
         ValueError: 配置参数无效（如 max_turns<1）
@@ -362,12 +431,12 @@ async def run_agent(
         >>> from miniagent.core.agent import run_agent
         >>> from miniagent.infrastructure.registry import DefaultToolRegistry
         >>> registry = DefaultToolRegistry()
-        >>> reply = await run_agent(
+        >>> result = await run_agent(
         ...     "帮我分析当前目录的文件结构",
         ...     registry=registry,
         ...     session_key="session_001",
         ... )
-        >>> print(reply)  # "已分析完成，当前目录包含..."
+        >>> print(result.reply)  # "已分析完成，当前目录包含..."
 
     Note:
         - Phase 0 分类器默认开启，简单任务自动跳过规划
@@ -383,15 +452,28 @@ async def run_agent(
         - miniagent/core/requirement_clarifier.RequirementClarifier: Phase 0.5 澄清器
 
     Returns:
-        Agent 的最终回复文本
+        AgentRunResult（含最终回复与工具统计）
     """
     if monitor is None:
         monitor = DefaultToolMonitor()
     if toolboxes is None:
         toolboxes = []
 
-    # ── 合并配置 ──
+    effective_system_prompt = (
+        system_prompt if system_prompt is not None else (options.system_prompt if options else None)
+    )
+
+    # ── 合并配置（options 先合并，agent_config 覆盖）──
     base_config = get_default_agent_config()
+    options_overlay: dict[str, Any] = {}
+    if options is not None and options.agent_config:
+        options_overlay.update(options.agent_config)
+    if options is not None and options.model_config:
+        model_overrides = dict(options_overlay.get("model_overrides") or {})
+        model_overrides.update(options.model_config)
+        options_overlay["model_overrides"] = model_overrides
+    if options_overlay:
+        base_config = merge_agent_config(base_config, options_overlay)
     merged_config = merge_agent_config(base_config, agent_config or {})
 
     # ── Phase 0: 任务难度分类 ──
@@ -439,7 +521,9 @@ async def run_agent(
             req = ConfirmationRequest(stage=ConfirmationStage.CLARIFICATION, content=question)
             _logger.info("需求澄清: 已发送 ConfirmationRequest，等待用户回复...")
             result = await confirmation_channel.request_confirmation(req)
-            answer = (result.adjustment or "").strip() if result else ""
+            if result.rejected:
+                return ""
+            answer = (result.adjustment or "").strip()
             _logger.info("需求澄清: 收到用户回复: %s", answer[:80] if answer else "(空)")
             # 将用户回复展示到 CLI/飞书，保持上下文完整
             if answer and on_thinking:
@@ -514,66 +598,31 @@ async def run_agent(
     else:
         # ── Phase 1: 规划 ──
         from_llm_planner = True
-        plan = await generate_plan(
-            user_input,
-            toolboxes,
-            merged_config.log_file,
-            client=client,
-            agent_config=merged_config,
-            registry=registry,
-            planner_model_overrides=planner_merge_for_difficulty(difficulty),
-            default_step_thinking=default_step_thinking_for_difficulty(difficulty),
-        )
+        plan_input = user_input
+        replan_attempts_left = max(1, int(get_config("agent.max_plan_confirm_rounds", 3)))
 
-        # 合并规划器的建议配置（suggested_config）到运行配置
-        # 规划器根据任务复杂度生成建议值，Agent 只会"抬高"下限，不会压低用户硬上限
-        if plan.suggested_config:
-            sc = plan.suggested_config
-            overrides: dict[str, Any] = {}
-            # max_turns: 取用户设置与规划建议的较大值（保证规划器建议不压低上限）
-            if sc.max_turns is not None:
-                overrides["max_turns"] = max(merged_config.max_turns, sc.max_turns)
-            # tool_timeout: 规划器可调整单工具超时
-            if sc.tool_timeout is not None:
-                overrides["tool_timeout"] = sc.tool_timeout
-            # risk_level: 规划器可调整风险等级
-            if sc.risk_level is not None:
-                overrides["risk_level"] = sc.risk_level
-            # context_overflow_strategy: 上下文溢出处理策略
-            if sc.context_overflow_strategy is not None:
-                overrides["context_overflow_strategy"] = sc.context_overflow_strategy
-            # tool_selection_strategy: 工具选择策略
-            if sc.tool_selection_strategy is not None:
-                overrides["tool_selection_strategy"] = sc.tool_selection_strategy
-            # thinking 参数：从业务档位映射到模型参数
-            mo: dict[str, Any] = {}
-            if sc.thinking_level:
-                tl, tb = map_business_depth(sc.thinking_level)
-                mo["thinking_level"] = tl  # 模型参数名
-                mo["thinking_budget"] = tb  # token 预算
-            if sc.model_overrides:
-                mo.update(sc.model_overrides)  # 合规划器额外模型参数
-            if mo:
-                overrides["model_overrides"] = mo
-            # parallelism: 并行策略（sequential=禁用并行，safe-parallel/full-parallel=启用）
-            if sc.parallelism == "sequential":
-                overrides["allow_parallel_tools"] = False
-            elif sc.parallelism in ("safe-parallel", "full-parallel"):
-                overrides["allow_parallel_tools"] = True
-            if overrides:
-                merged_config = merge_agent_config(merged_config, overrides)
+        while True:
+            plan = await generate_plan(
+                plan_input,
+                toolboxes,
+                merged_config.log_file,
+                client=client,
+                agent_config=merged_config,
+                registry=registry,
+                planner_model_overrides=planner_merge_for_difficulty(difficulty),
+                default_step_thinking=default_step_thinking_for_difficulty(difficulty),
+            )
+            merged_config = _merge_plan_suggested_config(plan, merged_config)
 
-        if merged_config.risk_level is None and plan.risk_level:
-            merged_config = merge_agent_config(merged_config, {"risk_level": plan.risk_level})
+            if merged_config.debug:
+                _logger.info("规划结果: %s", plan.summary)
+                _logger.debug("工具箱: %s", ", ".join(plan.required_toolboxes))
+                _logger.debug("预估 token: %d", plan.estimated_tokens.total)
+                _logger.debug("风险等级: %s", plan.risk_level)
 
-        if merged_config.debug:
-            _logger.info("规划结果: %s", plan.summary)
-            _logger.debug("工具箱: %s", ", ".join(plan.required_toolboxes))
-            _logger.debug("预估 token: %d", plan.estimated_tokens.total)
-            _logger.debug("风险等级: %s", plan.risk_level)
+            if not plan.requires_confirmation or not on_plan:
+                break
 
-        # 高风险操作需要用户确认（on_plan 回调或确认侧通道）
-        if plan.requires_confirmation and on_plan:
             if on_thinking:
                 try:
                     await invoke_on_thinking(
@@ -584,9 +633,22 @@ async def run_agent(
                     )
                 except Exception as e:
                     _logger.debug("等待确认推送失败（非关键）: %s", e)
-            approved = await on_plan(plan)
-            if not approved:
-                return f"{WARNING_PREFIX} 操作已取消"
+
+            result = await on_plan(plan)
+            action, adjustment = result.plan_action()
+            if action == "cancel":
+                return _build_agent_run_result(f"{WARNING_PREFIX} 操作已取消", monitor)
+            if action == "replan":
+                replan_attempts_left -= 1
+                if replan_attempts_left <= 0:
+                    return _build_agent_run_result(
+                        f"{WARNING_PREFIX} 计划调整次数过多，已取消",
+                        monitor,
+                    )
+                if adjustment:
+                    plan_input = f"{plan_input}\n\n[用户计划调整] {adjustment}"
+                continue
+            break
 
     if _announce_difficulty_and_plan_enabled() and on_thinking:
         no_toolboxes_flag = len(toolboxes) == 0
@@ -630,7 +692,7 @@ async def run_agent(
         on_tool_call,
         on_thinking,
         on_tool_finish=on_tool_finish,
-        system_prompt=system_prompt,
+        system_prompt=effective_system_prompt,
         clawhub=clawhub,
         memory_store=memory_store,
         activity_log=activity_log,
@@ -655,7 +717,7 @@ async def run_agent(
         # 剥离（见 strip_reflection_footer），避免下一轮被模型复述导致重复评估。
         reply = reply + build_reflection_footer(reflection)
 
-    return reply
+    return _build_agent_run_result(reply, monitor)
 
 
 # ─── 线性管线执行器 ─────────────────────────────────────
@@ -677,8 +739,9 @@ async def run_pipeline(
 
     适用场景：预定义自动化流程、确定性操作、批量文件处理。
     """
-    results: list[dict[str, Any]] = []
+    results: list[PipelineStepRecord] = []
     pipeline_content = ""
+    pipeline_success = True
 
     if context is None:
         workspace = get_default_workspace()
@@ -692,24 +755,38 @@ async def run_pipeline(
     for step in steps:
         tool = registry.get(step.tool)
         if tool is None:
-            err_result = {"success": False, "content": f"{WARNING_PREFIX} 未知工具: {step.tool}"}
+            err_result: ToolCallResult = {
+                "success": False,
+                "content": f"{WARNING_PREFIX} 未知工具: {step.tool}",
+            }
             results.append({"tool": step.tool, "args": step.args, "result": err_result})
-            return PipelineResult(steps=results, final_content=err_result["content"], success=False)
+            return PipelineResult(
+                steps=results,
+                final_content=err_result["content"],
+                success=False,
+            )
 
         result = await tool.handler(step.args, context)
-        results.append(
-            {
-                "tool": step.tool,
-                "args": step.args,
-                "result": {"success": result.success, "content": result.content},
-            }
-        )
+        step_record: PipelineStepRecord = {
+            "tool": step.tool,
+            "args": step.args,
+            "result": {"success": result.success, "content": result.content},
+        }
+        results.append(step_record)
         pipeline_content += result.content + "\n"
 
         if on_tool_call:
             on_tool_call(step.tool, json.dumps(step.args), result.content)
 
-    return PipelineResult(steps=results, final_content=pipeline_content.strip(), success=True)
+        if not result.success:
+            pipeline_success = False
+            break
+
+    return PipelineResult(
+        steps=results,
+        final_content=pipeline_content.strip(),
+        success=pipeline_success,
+    )
 
 
 # ─── 内部辅助 ────────────────────────────────────────────

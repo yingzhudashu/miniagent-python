@@ -12,12 +12,15 @@
 - ``memory``: 记忆与会话的 **类型**；持久化实现见 ``miniagent.memory``
 - ``skill``: 技能包、ClawHub 协议
 - ``agent``: 运行结果、监控协议、循环检测配置、线性管线
+- ``confirmation``: 澄清/计划确认请求与结果（``ConfirmationRequest`` / ``ConfirmationResult``）
 - ``planning``: Phase 1 结构化计划（``StructuredPlan`` 等）
 - ``protocols``: 运行时注入协议（ActivityLogProtocol、KeywordIndexProtocol）
 - ``feishu``: 自 ``miniagent.feishu.types`` 再导出，便于 ``from miniagent.types import …``
+- ``error_prefix`` / ``error_messages``: 工具与 CLI 的统一输出前缀与用户可见消息常量
 """
 
 from miniagent.feishu.types import FeishuConfig, FeishuInboundText, FeishuMessageEvent, FeishuReply
+from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
 from miniagent.types.agent import (
     AgentRunOptions,
     AgentRunResult,
@@ -26,6 +29,8 @@ from miniagent.types.agent import (
     LoopLevel,
     PipelineResult,
     PipelineStep,
+    PipelineStepRecord,
+    ToolCallResult,
     ToolMonitorProtocol,
     ToolStats,
 )
@@ -37,6 +42,7 @@ from miniagent.types.confirmation import (
     ConfirmationRequest,
     ConfirmationResult,
     ConfirmationStage,
+    PlanConfirmationAction,
 )
 from miniagent.types.memory import (
     FileMetadata,
@@ -137,11 +143,14 @@ __all__ = [
     "LoopLevel",
     "LoopDetectionResult",
     "PipelineStep",
+    "PipelineStepRecord",
     "PipelineResult",
+    "ToolCallResult",
     # confirmation
     "ConfirmationStage",
     "ConfirmationRequest",
     "ConfirmationResult",
+    "PlanConfirmationAction",
     # planning
     "PlanStep",
     "PlanChunk",
@@ -157,4 +166,8 @@ __all__ = [
     "FeishuMessageEvent",
     "FeishuConfig",
     "FeishuReply",
+    # output prefixes
+    "ERROR_PREFIX",
+    "WARNING_PREFIX",
+    "SUCCESS_PREFIX",
 ]

@@ -11,7 +11,7 @@
     >>>     with open(path) as f:
     >>>         return json.load(f)
 
-设计背景见 docs/ENGINEERING.md § 代码质量标准。
+设计背景见 docs/ENGINEERING.md § 质量门禁。
 """
 
 from __future__ import annotations
@@ -27,17 +27,23 @@ T = TypeVar("T")
 def _get_logger(module_name: str) -> Logger:
     """延迟获取 logger，避免循环导入"""
     from miniagent.infrastructure.logger import get_logger
+
     return get_logger(module_name)
 
 
 def _log_failure(
     logger: Logger, level: str, message: str, include_trace: bool
 ) -> None:
-    """按指定级别记录失败消息，include_trace 为真时附带异常追踪信息。"""
+    """按指定级别记录失败消息，include_trace 为真时附带异常追踪信息。
+
+    level 应为 Logger 的方法名（debug/info/warning/error/critical）；
+    无法识别时回退为 warning。
+    """
+    log_fn = getattr(logger, level, logger.warning)
     if include_trace:
-        logger.log(getattr(logger, level, logger.warning), message, exc_info=True)
+        log_fn(message, exc_info=True)
     else:
-        logger.log(getattr(logger, level, logger.warning), message)
+        log_fn(message)
 
 
 def safe_execute(
@@ -53,7 +59,7 @@ def safe_execute(
 
     Args:
         default_return: 失败时的默认返回值
-        log_level: 日志级别（debug/info/warning/error/critical）
+        log_level: 日志级别（debug/info/warning/error/critical）；无效值回退为 warning
         reraise: 是否重新抛出异常
         log_exception_trace: 是否记录异常完整追踪信息
 
@@ -73,19 +79,23 @@ def safe_execute(
 
     Note:
         - 异步函数自动检测并正确处理
+        - 仅捕获 Exception 子类，不拦截 KeyboardInterrupt、SystemExit 等 BaseException
         - 日志记录包含函数名和异常信息
         - 使用 lazy logger 获取避免循环导入
 
     See Also:
         - miniagent.infrastructure.logger: 日志系统
-        - docs/ENGINEERING.md: 代码质量标准
+        - docs/ENGINEERING.md: 质量门禁
     """
+
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
         # 判断是否为异步函数
         import asyncio
+
         is_async = asyncio.iscoroutinefunction(func)
 
         if is_async:
+
             @wraps(func)
             async def async_wrapper(*args: Any, **kwargs: Any) -> T:
                 try:
@@ -93,26 +103,34 @@ def safe_execute(
                 except Exception as e:
                     logger = _get_logger(func.__module__)
                     _log_failure(
-                        logger, log_level, f"{func.__name__} 失败: {e}", log_exception_trace
+                        logger,
+                        log_level,
+                        f"{func.__name__} 失败: {e}",
+                        log_exception_trace,
                     )
                     if reraise:
                         raise
                     return default_return  # type: ignore
+
             return async_wrapper  # type: ignore
-        else:
-            @wraps(func)
-            def sync_wrapper(*args: Any, **kwargs: Any) -> T:
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    logger = _get_logger(func.__module__)
-                    _log_failure(
-                        logger, log_level, f"{func.__name__} 失败: {e}", log_exception_trace
-                    )
-                    if reraise:
-                        raise
-                    return default_return  # type: ignore
-            return sync_wrapper  # type: ignore
+
+        @wraps(func)
+        def sync_wrapper(*args: Any, **kwargs: Any) -> T:
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                logger = _get_logger(func.__module__)
+                _log_failure(
+                    logger,
+                    log_level,
+                    f"{func.__name__} 失败: {e}",
+                    log_exception_trace,
+                )
+                if reraise:
+                    raise
+                return default_return  # type: ignore
+
+        return sync_wrapper  # type: ignore
 
     return decorator
 
@@ -125,10 +143,11 @@ def safe_execute_sync(
     """同步函数专用错误处理装饰器
 
     与 safe_execute 相同，但明确用于同步函数，避免异步检测开销。
+    不支持 log_exception_trace（异常堆栈始终不写入日志）。
 
     Args:
         default_return: 失败时的默认返回值
-        log_level: 日志级别（debug/info/warning/error/critical）
+        log_level: 日志级别（debug/info/warning/error/critical）；无效值回退为 warning
         reraise: 是否重新抛出异常
 
     Returns:
@@ -138,7 +157,11 @@ def safe_execute_sync(
         >>> @safe_execute_sync(default_return=None)
         >>> def parse_config(content: str) -> dict:
         >>>     return json.loads(content)
+
+    Note:
+        仅捕获 Exception 子类，不拦截 KeyboardInterrupt、SystemExit 等 BaseException。
     """
+
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
         @wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> T:
@@ -150,6 +173,7 @@ def safe_execute_sync(
                 if reraise:
                     raise
                 return default_return  # type: ignore
+
         return wrapper  # type: ignore
 
     return decorator
@@ -170,7 +194,7 @@ def log_exception(
         func_name: 函数名
         exception: 异常对象
         module_name: 模块名
-        level: 日志级别
+        level: 日志级别（debug/info/warning/error/critical）；无效值回退为 warning
         include_trace: 是否包含追踪信息
 
     Example:

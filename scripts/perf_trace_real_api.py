@@ -59,13 +59,13 @@ async def _one_run(prompt: str, run_idx: int) -> dict[str, Any]:
             "session_key": session_key,
             "run": run_idx,
             "duration_ms": int(elapsed * 1000),
-            "reply_len": len(reply or ""),
+            "reply_len": len(reply.reply or ""),
         }
     )
     return {
         "session_key": session_key,
         "elapsed_s": elapsed,
-        "reply_len": len(reply or ""),
+        "reply_len": len(reply.reply or ""),
         "writer_stats": get_trace_writer_stats(),
     }
 

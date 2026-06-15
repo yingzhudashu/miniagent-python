@@ -61,6 +61,7 @@ from miniagent.infrastructure.instance import (
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import set_console_log_threshold
 from miniagent.runtime.context import RuntimeContext
+from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
 
 _logger = logging.getLogger(__name__)
 
@@ -214,7 +215,7 @@ async def detect_and_process_file_markers(
 
             if not os.path.isfile(resolved):
                 if notify:
-                    notify(f"⚠️ 文件不存在: {file_path}\n", "ansiyellow")
+                    notify(f"{WARNING_PREFIX} 文件不存在: {file_path}\n", "ansiyellow")
                 continue
 
             file_name = os.path.basename(resolved)
@@ -311,11 +312,11 @@ async def detect_and_process_file_markers(
             except Exception as e:
                 _logger.warning("文件标记写入记忆失败 (%s): %s", file_path, e)
                 if notify:
-                    notify(f"⚠️ 无法保存文件到记忆: {file_name}\n", "ansiyellow")
+                    notify(f"{WARNING_PREFIX} 无法保存文件到记忆: {file_name}\n", "ansiyellow")
         except Exception as e:
             _logger.warning("处理文件标记失败 (%s): %s", file_path, e)
             if notify:
-                notify(f"⚠️ 处理文件失败: {e}\n", "ansiyellow")
+                notify(f"{WARNING_PREFIX} 处理文件失败: {e}\n", "ansiyellow")
 
     return user_input, files_info
 
@@ -344,14 +345,14 @@ def run_cli_bash_command(bash_cmd: str) -> tuple[bool, str]:
         if result.stdout:
             output_lines.append(result.stdout)
         if result.stderr:
-            output_lines.append(f"❌ stderr: {result.stderr}")
+            output_lines.append(f"{ERROR_PREFIX} stderr: {result.stderr}")
         if result.returncode != 0:
             output_lines.append(f"退出码: {result.returncode}")
         return result.returncode == 0, "\n".join(output_lines) + "\n"
     except subprocess.TimeoutExpired:
-        return False, f"❌ Bash超时（{timeout}s）: {bash_cmd}\n"
+        return False, f"{ERROR_PREFIX} Bash超时（{timeout}s）: {bash_cmd}\n"
     except Exception as e:
-        return False, f"❌ Bash错误: {e}\n"
+        return False, f"{ERROR_PREFIX} Bash错误: {e}\n"
 
 
 # ─── unified_main：RuntimeContext 注入后的进程主流程（init → 信号/实例 → CLI 循环 / 飞书任务）──
@@ -1884,11 +1885,11 @@ async def run_cli_loop(
         text = _selection_text[0]
         if text:
             if copy_text_to_system_clipboard(text):
-                _append_transcript("class:cli-ok", f"\n✅ 已复制 {len(text)} 字符\n")
+                _append_transcript("class:cli-ok", f"\n{SUCCESS_PREFIX} 已复制 {len(text)} 字符\n")
             else:
-                _append_transcript("class:cli-err", "\n❌ 复制失败（剪贴板不可用）\n")
+                _append_transcript("class:cli-err", f"\n{ERROR_PREFIX} 复制失败（剪贴板不可用）\n")
         else:
-            _append_transcript("class:cli-warn", "\n⚠️ 请先选择内容\n")
+            _append_transcript("class:cli-warn", f"\n{WARNING_PREFIX} 请先选择内容\n")
         _stick_bottom[0] = True
 
     @kb.add("enter", eager=True, filter=Condition(_in_copy_mode))
@@ -1897,9 +1898,9 @@ async def run_cli_loop(
         text = _selection_text[0]
         if text:
             if copy_text_to_system_clipboard(text):
-                _append_transcript("class:cli-ok", f"\n✅ 已复制 {len(text)} 字符并退出复制模式\n")
+                _append_transcript("class:cli-ok", f"\n{SUCCESS_PREFIX} 已复制 {len(text)} 字符并退出复制模式\n")
             else:
-                _append_transcript("class:cli-err", "\n❌ 复制失败\n")
+                _append_transcript("class:cli-err", f"\n{ERROR_PREFIX} 复制失败\n")
         _toggle_copy_mode()
         _stick_bottom[0] = True
 
@@ -1925,9 +1926,9 @@ async def run_cli_loop(
             if last_len > 0:
                 _selection_end[0] = (last_idx, last_len)
                 _selection_text[0] = _extract_selection_text()
-                _append_transcript("class:cli-ok", f"\n✅ 已全选 {len(_selection_text[0])} 字符\n")
+                _append_transcript("class:cli-ok", f"\n{SUCCESS_PREFIX} 已全选 {len(_selection_text[0])} 字符\n")
             else:
-                _append_transcript("class:cli-warn", "\n⚠️ 内容为空\n")
+                _append_transcript("class:cli-warn", f"\n{WARNING_PREFIX} 内容为空\n")
             _stick_bottom[0] = True
 
     # ─── 正常模式键绑定 ───────────────────────────────────────────
@@ -2442,7 +2443,7 @@ async def run_cli_loop(
                 finally:
                     _transcript_coordinator.end_turn(session_key)
         except Exception as e:
-            _append_transcript("class:cli-err", f"❌ 错误: {e}\n")
+            _append_transcript("class:cli-err", f"{ERROR_PREFIX} 错误: {e}\n")
 
     # 加载初始历史到 transcript
     _reset_and_reload_transcript()
@@ -2484,12 +2485,12 @@ async def run_cli_loop(
             plain = _transcript_plain()
             if copy_text_to_system_clipboard(plain):
                 term_write(
-                    f"✅ 已复制 {len(plain)} 字符到剪贴板\n",
+                    f"{SUCCESS_PREFIX} 已复制 {len(plain)} 字符到剪贴板\n",
                     "ansigreen",
                 )
             else:
                 term_write(
-                    "❌ 复制失败（无剪贴板或缺少 "
+                    f"{ERROR_PREFIX} 复制失败（无剪贴板或缺少 "
                     "wl-copy / xclip / pbcopy / clip）\n",
                     "ansired",
                 )
@@ -2504,7 +2505,7 @@ async def run_cli_loop(
                 release_cli_session_lock=True,
                 call_unregister=True,
             )
-            term_write("✅ 当前实例已停止", "ansigreen")
+            term_write(f"{SUCCESS_PREFIX} 当前实例已停止", "ansigreen")
             break
 
         # ── 其余命令：统一走 dispatch（capture → transcript，避免 print 破坏全屏）──
@@ -2544,7 +2545,7 @@ async def run_cli_loop(
             from miniagent.types.confirmation import ConfirmationResult, ConfirmationStage
 
             if cc.pending.stage == ConfirmationStage.CLARIFICATION:
-                cc.respond(ConfirmationResult(approved=True, adjustment=user_input))
+                cc.respond(ConfirmationResult.clarification_reply(user_input))
                 continue
 
         # ── Agent 执行 ──
@@ -2825,7 +2826,7 @@ async def _run_cli_loop_fallback(
                 finally:
                     _fb_coordinator.end_turn(session_key)
         except Exception as e:
-            _fallback_print_locked(f"❌ 错误: {e}\n")
+            _fallback_print_locked(f"{ERROR_PREFIX} 错误: {e}\n")
 
     while True:
         try:
@@ -2854,9 +2855,9 @@ async def _run_cli_loop_fallback(
                 state.get("active_session_id", ""),
             )
             if plain and copy_text_to_system_clipboard(plain):
-                print(f"\n✅ 已复制 {len(plain)} 字符到剪贴板\n")
+                print(f"\n{SUCCESS_PREFIX} 已复制 {len(plain)} 字符到剪贴板\n")
             elif plain:
-                print("\n❌ 复制失败（无剪贴板或缺少 wl-copy / xclip / pbcopy / clip）\n")
+                print(f"\n{ERROR_PREFIX} 复制失败（无剪贴板或缺少 wl-copy / xclip / pbcopy / clip）\n")
             else:
                 print(
                     "\n提示: 当前会话无历史可复制；全屏 CLI 下 /copy 复制 transcript。\n"
@@ -2871,7 +2872,7 @@ async def _run_cli_loop_fallback(
                 release_cli_session_lock=True,
                 call_unregister=True,
             )
-            print("✅ 当前实例已停止")
+            print(f"{SUCCESS_PREFIX} 当前实例已停止")
             break
 
         # 其余 ``/`` 命令：与全屏 TUI 一致走 ``dispatch_command``（stdout 输出）
@@ -2911,7 +2912,7 @@ async def _run_cli_loop_fallback(
             from miniagent.types.confirmation import ConfirmationResult, ConfirmationStage
 
             if cc.pending.stage == ConfirmationStage.CLARIFICATION:
-                cc.respond(ConfirmationResult(approved=True, adjustment=user_input))
+                cc.respond(ConfirmationResult.clarification_reply(user_input))
                 continue
 
         await message_queue.dispatch_cli(_process_input(user_input))

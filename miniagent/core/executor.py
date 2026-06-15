@@ -1233,7 +1233,12 @@ async def execute_plan(
 
                 if loop_check.level == "critical":
                     elapsed = time.monotonic_ns() // 1_000_000 - start_ms
-                    monitor.record(tc.function.name, elapsed, False)
+                    monitor.record(
+                        tc.function.name,
+                        elapsed,
+                        False,
+                        error=loop_check.message,
+                    )
                     _logger.warning("循环检测拦截: %s", loop_check.message)
                     return (
                         f"{WARNING_PREFIX} 任务执行被终止：{loop_check.message}\n\n建议：简化请求或明确具体目标。"
@@ -1410,7 +1415,12 @@ async def execute_plan(
                     }
                 )
                 loop_detector.record(tc.function.name, args, result.content)
-                monitor.record(tc.function.name, tool_elapsed, result.success)
+                monitor.record(
+                    tc.function.name,
+                    tool_elapsed,
+                    result.success,
+                    error=result.content if not result.success else None,
+                )
                 oob_t = _append_context_or_return(
                     context_manager,
                     {

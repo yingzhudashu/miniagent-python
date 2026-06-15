@@ -266,6 +266,39 @@ class TestConfirmationIntegration:
         assert request.context["session_key"] == "default"
 
 
+class TestConfirmationResultSemantics:
+    """ConfirmationResult 语义与工厂方法。"""
+
+    def test_confirm_factory(self):
+        result = ConfirmationResult.confirm()
+        assert result.plan_action() == ("proceed", None)
+
+    def test_reject_factory(self):
+        result = ConfirmationResult.reject()
+        assert result.approved is False
+        assert result.rejected is True
+        assert result.plan_action() == ("cancel", None)
+
+    def test_adjust_factory(self):
+        result = ConfirmationResult.adjust("修改步骤 2")
+        assert result.plan_action() == ("replan", "修改步骤 2")
+
+    def test_clarification_reply_factory(self):
+        result = ConfirmationResult.clarification_reply("  补充需求  ")
+        assert result.approved is True
+        assert result.adjustment == "补充需求"
+        assert result.rejected is False
+
+    def test_plan_action_replan_without_approval(self):
+        result = ConfirmationResult(approved=False, adjustment="重新规划", rejected=False)
+        assert result.plan_action() == ("replan", "重新规划")
+
+    def test_rejected_normalizes_approved(self):
+        result = ConfirmationResult(approved=True, rejected=True)
+        assert result.approved is False
+        assert result.rejected is True
+
+
 class TestConfirmationStageUsage:
     """ConfirmationStage 使用场景测试"""
 

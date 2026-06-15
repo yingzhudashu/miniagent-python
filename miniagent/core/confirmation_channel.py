@@ -82,9 +82,10 @@ class ConfirmationChannel:
             _logger.debug("respond(): 无待确认请求，跳过")
             return
         _logger.info(
-            "respond(): 设置确认结果 approved=%s, adjustment=%s",
+            "respond(): 设置确认结果 approved=%s, rejected=%s, adjustment=%s",
             result.approved,
-            (result.adjustment or "")[:60] if hasattr(result, "adjustment") else "N/A",
+            result.rejected,
+            (result.adjustment or "")[:60],
         )
         self._result = result
         self._event.set()

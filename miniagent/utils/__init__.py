@@ -8,7 +8,7 @@
 
 使用示例：
     >>> from miniagent.utils import safe_session_id, safe_execute
-    >>> safe_id = safe_session_id("user@example.com")
+    >>> safe_id = safe_session_id("user@example.com")  # -> "user_example_com"
     >>> @safe_execute(default_return=None)
     >>> async def load_file(path: str) -> str:
     >>>     with open(path) as f:

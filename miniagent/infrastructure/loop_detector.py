@@ -115,18 +115,8 @@ class _CallRecord:
     timestamp: float
 
 
-# 默认配置
-_DEFAULT_CONFIG = LoopDetectionConfig(
-    enabled=True,
-    history_size=30,
-    warning_threshold=5,
-    critical_threshold=8,
-    detectors={
-        "generic_repeat": True,
-        "known_poll_no_progress": True,
-        "ping_pong": True,
-    },
-)
+# 默认配置（与 LoopDetectionConfig dataclass / config.defaults.json 对齐）
+_DEFAULT_CONFIG = LoopDetectionConfig()
 
 
 class LoopDetector:

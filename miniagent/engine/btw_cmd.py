@@ -122,8 +122,8 @@ def cmd_btw_status(task_id: str | None = None) -> str:
         status_icon = {
             "pending": "⏳",
             "running": "🔄",
-            "completed": "✅",
-            "failed": "❌",
+            "completed": SUCCESS_PREFIX,
+            "failed": ERROR_PREFIX,
             "cancelled": "🚫",
         }.get(task["status"], "?")
 

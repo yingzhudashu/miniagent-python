@@ -7,6 +7,7 @@ from miniagent.engine.btw_cmd import (
     cmd_btw_status,
     get_background_task_manager,
 )
+from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
 
 
 class TestGetBackgroundTaskManager:
@@ -33,7 +34,7 @@ class TestCmdBtwStatus:
         """cmd_btw_status returns error for nonexistent task."""
         result = cmd_btw_status("nonexistent123")
         assert "不存在" in result
-        assert "❌" in result
+        assert ERROR_PREFIX in result
 
     def test_status_empty_list(self):
         """cmd_btw_status without ID shows empty list message."""
@@ -86,7 +87,7 @@ class TestCmdBtwStart:
         result = await cmd_btw_start(engine, "Test prompt", state)
 
         # Should contain task ID and success message
-        assert "✅" in result
+        assert SUCCESS_PREFIX in result
         assert "已启动" in result
         assert "Test prompt" in result
 
@@ -125,7 +126,7 @@ class TestCmdBtwStart:
         result = await cmd_btw_start(engine, "Should fail", state)
 
         # Should contain warning or error
-        assert "⚠️" in result or "并行上限" in result
+        assert WARNING_PREFIX in result or "并行上限" in result
 
         # Restore
         manager._max_concurrent = original_max
@@ -167,7 +168,7 @@ class TestCmdBtwResult:
 
         result = await cmd_btw_result("nonexistent")
         assert "不存在" in result
-        assert "❌" in result
+        assert ERROR_PREFIX in result
 
 
 class TestCmdBtwCancel:
@@ -207,7 +208,7 @@ class TestCmdBtwCancel:
 
         result = await cmd_btw_cancel("nonexistent")
         assert "不存在" in result
-        assert "❌" in result
+        assert ERROR_PREFIX in result
 
 
 class TestIntegration:

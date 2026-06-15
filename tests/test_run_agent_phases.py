@@ -82,7 +82,7 @@ class TestRunAgentClarification:
                             clarifier=clarifier,
                         )
 
-                        assert reply == "天气预报结果"
+                        assert reply.reply == "天气预报结果"
                         clarifier.clarify.assert_called_once()
                         mock_exec.assert_called_once()
                         call_args = mock_exec.call_args
@@ -120,7 +120,7 @@ class TestRunAgentClarification:
                         )
 
                         clarifier.clarify.assert_not_called()
-                        assert reply == "结果"
+                        assert reply.reply == "结果"
 
     @pytest.mark.asyncio
     async def test_no_clarifier_no_error(self, tmp_path):
@@ -142,7 +142,7 @@ class TestRunAgentClarification:
 
                         reply = await run_agent("test", registry=registry)
 
-                        assert reply == "结果"
+                        assert reply.reply == "结果"
 
 
 class TestClarificationMaxQuestionsByDifficulty:
@@ -294,8 +294,8 @@ class TestRunAgentReflection:
                             )
 
                             mock_reflect.assert_called_once()
-                            assert "Agent 回复结果" in reply
-                            assert "质量评估" in reply
+                            assert "Agent 回复结果" in reply.reply
+                            assert "质量评估" in reply.reply
 
     @pytest.mark.asyncio
     async def test_reflection_explicitly_disabled(self, tmp_path):
@@ -319,4 +319,4 @@ class TestRunAgentReflection:
                             reply = await run_agent("test", registry=registry)
 
                             mock_reflect.assert_not_called()
-                            assert reply == "结果"
+                            assert reply.reply == "结果"

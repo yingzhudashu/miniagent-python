@@ -37,6 +37,31 @@ class TestLlmJson:
         assert result == {"key": "value", "num": 42}
 
     @pytest.mark.asyncio
+    async def test_json_object_request_mentions_json_in_user_message(self) -> None:
+        """json_object requests must also mention json in a user/input message."""
+        captured: dict[str, object] = {}
+        mock_choice = MagicMock()
+        mock_choice.message.content = "{}"
+        mock_response = MagicMock()
+        mock_response.choices = [mock_choice]
+
+        async def fake_create(**kw):
+            captured.update(kw)
+            return mock_response
+
+        client = MagicMock()
+        client.chat.completions.create = fake_create
+
+        await llm_json("hello", "system", client=client)
+
+        assert captured["response_format"] == {"type": "json_object"}
+        messages = captured["messages"]
+        assert isinstance(messages, list)
+        user_messages = [m for m in messages if m.get("role") == "user"]
+        assert any("json" in str(m.get("content", "")).lower() for m in user_messages)
+        assert str(user_messages[-1]["content"]).startswith("hello")
+
+    @pytest.mark.asyncio
     async def test_invalid_json_returns_empty_dict(self) -> None:
         """无效 JSON 应回退为空字典。"""
         client = self._make_mock_client("not valid json {{{")

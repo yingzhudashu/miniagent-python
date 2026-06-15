@@ -13,7 +13,7 @@
 以下命令在 ``miniagent/engine/commands/`` 子包实现，本模块 re-export 以保持兼容：
 - kb_commands: 知识库命令（cmd_kb_*）
 - instance_commands: 实例管理（cmd_instance_handler）
-- config_commands: 配置检查（feishu_*_enabled）
+- config_commands: 配置检查与用法辅助（feishu_*_enabled、format_test_command_usage）
 
 注意：所有会话命令同时支持**编号**（如 1）和**原始 ID**（如 default）。
 
@@ -339,7 +339,8 @@ def cmd_session_list(
     Args:
         session_manager: 会话管理器实例
         active_session_id: 当前活跃会话 ID
-        markdown: True 时输出 GFM 表格（飞书 ``MINIAGENT_FEISHU_MARKDOWN_COMMANDS``）
+        markdown: True 时输出 GFM 表格（由 ``feishu.markdown_commands`` 或
+            ``MINIAGENT_FEISHU_MARKDOWN_COMMANDS=1`` 启用）
     """
     if not session_manager:
         print(f"{WARNING_PREFIX} 会话管理器未初始化")
@@ -598,7 +599,8 @@ def cmd_queue_status(message_queue: Any, *, markdown: bool = False) -> None:
 
     Args:
         message_queue: 消息队列管理器实例
-        markdown: True 时输出 GFM 表格（飞书 ``MINIAGENT_FEISHU_MARKDOWN_COMMANDS``）
+        markdown: True 时输出 GFM 表格（由 ``feishu.markdown_commands`` 或
+            ``MINIAGENT_FEISHU_MARKDOWN_COMMANDS=1`` 启用）
     """
     status = message_queue.get_status()
     mode_label = "🟢 队列模式" if status["mode"] == "queue" else "🔴 打断模式"
@@ -1387,11 +1389,11 @@ def cmd_self_opt_proposals(status: str | None = None) -> None:
 
     status_icons = {
         "pending": "⏳",
-        "approved": "✅",
-        "rejected": "❌",
+        "approved": SUCCESS_PREFIX,
+        "rejected": ERROR_PREFIX,
         "executing": "🔄",
         "completed": "🎉",
-        "failed": "⚠️",
+        "failed": WARNING_PREFIX,
     }
 
     for p in proposals:

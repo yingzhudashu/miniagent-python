@@ -91,7 +91,7 @@ UnifiedEngine.run_agent_with_thinking()
 | `memory.thinking_for_llm_mode` | `thinking` 历史回灌给 LLM 的模式：`off` / `compact` / `full`；默认 `compact` |
 | `memory.thinking_for_llm_compact_max_chars` | `compact` 模式下 thinking 摘要最大字符数，默认 1200 |
 | `memory.thinking_for_llm_max_chars` | 仅 `full` 模式使用，控制完整 thinking 正文回灌上限 |
-| `feishu.markdown_commands` | `true` 时飞书侧部分命令使用 Markdown 表格（默认 `false`） |
+| `feishu.markdown_commands` | `true` 时飞书侧部分命令使用 Markdown 表格（默认 `false`）；或环境变量 **`MINIAGENT_FEISHU_MARKDOWN_COMMANDS=1`** |
 | `feishu.dot_commands_full` | `true` 时飞书点命令与 CLI 同等（含 `/stop`；默认 `false`） |
 | `cli.dot_tools_enabled` | `false` 时不注册 `run_dot_command` |
 | `feishu.reply_plain` | `true` 时弱化最终回复 Markdown |

@@ -17,6 +17,7 @@ from miniagent.scheduled_tasks.feishu_delivery import (
     send_scheduled_reply_to_feishu,
 )
 from miniagent.scheduled_tasks.models import ScheduledTask
+from miniagent.types.error_prefix import ERROR_PREFIX
 from miniagent.scheduled_tasks.resolve import resolve_execution_target, should_run_feishu
 
 _logger = get_logger(__name__)
@@ -137,7 +138,7 @@ def build_run_scheduled_job_coro(
             return None
         except Exception as e:
             _logger.exception("定时任务执行失败: %s", task.id)
-            _emit_cli(ctx, f"❌ 定时任务失败 {task.id}: {e}")
+            _emit_cli(ctx, f"{ERROR_PREFIX} 定时任务失败 {task.id}: {e}")
             err_text = f"{e!s}\n{traceback.format_exc()}"[:MAX_ERROR_TEXT_LENGTH]
             if delivery is not None and feishu_cfg:
                 try:

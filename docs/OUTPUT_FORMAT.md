@@ -8,7 +8,7 @@
 
 ## 输出前缀规范
 
-工具返回、CLI提示、飞书回复等场景统一使用以下 emoji 前缀（定义于 `miniagent/types/error_prefix.py`）：
+工具返回、CLI提示、飞书回复等场景统一使用以下 emoji 前缀（定义于 `miniagent/types/error_prefix.py`，亦可 `from miniagent.types import ERROR_PREFIX, WARNING_PREFIX, SUCCESS_PREFIX`）：
 
 | 前缀 | 常量 | 含义 | 使用场景 |
 |------|------|------|----------|
@@ -16,10 +16,16 @@
 | ⚠️ | `WARNING_PREFIX` | 提示/警告 | 配置缺失、建议、需确认、非致命错误 |
 | ✅ | `SUCCESS_PREFIX` | 操作成功 | 文件写入、发送完成、创建成功 |
 
+**消息常量**（`miniagent/types/error_messages.py`）：
+
+- **简单常量**：纯文本，无前缀（如 `FILE_NOT_FOUND`），用于 CLI 打印或内部异常文案。
+- **模板常量**：已含上述前缀，占位符为 `{key}`；通过 `format_message(template, key=value)` 填充后写入 `ToolResult.content` 或回复用户。
+- 新代码应优先从 `error_messages` 导入，避免在各工具中重复拼接 f-string。
+
 **约定**：
 - `ToolResult(success=False, content=...)` 应使用 `ERROR_PREFIX` 或 `WARNING_PREFIX`
 - 飞书消息去重机制：`⚠️` 前缀的回复不入磁盘去重（`poll_server.py`）
-- 逐步迁移：新模块使用常量导入，旧模块逐步替换硬编码 emoji
+- 逐步迁移：新模块使用 `error_prefix` / `error_messages` 常量，旧模块逐步替换硬编码 emoji 与内联文案
 
 ## 1. CLI 全屏模式（prompt_toolkit TUI）
 

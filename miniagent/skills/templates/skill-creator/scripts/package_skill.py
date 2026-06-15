@@ -15,6 +15,8 @@ import sys
 import zipfile
 from pathlib import Path
 
+from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX
+
 from scripts.quick_validate import validate_skill
 
 # Patterns to exclude when packaging skills.
@@ -55,27 +57,27 @@ def package_skill(skill_path, output_dir=None):
 
     # Validate skill folder exists
     if not skill_path.exists():
-        print(f"❌ Error: Skill folder not found: {skill_path}")
+        print(f"{ERROR_PREFIX} Error: Skill folder not found: {skill_path}")
         return None
 
     if not skill_path.is_dir():
-        print(f"❌ Error: Path is not a directory: {skill_path}")
+        print(f"{ERROR_PREFIX} Error: Path is not a directory: {skill_path}")
         return None
 
     # Validate SKILL.md exists
     skill_md = skill_path / "SKILL.md"
     if not skill_md.exists():
-        print(f"❌ Error: SKILL.md not found in {skill_path}")
+        print(f"{ERROR_PREFIX} Error: SKILL.md not found in {skill_path}")
         return None
 
     # Run validation before packaging
     print("🔍 Validating skill...")
     valid, message = validate_skill(skill_path)
     if not valid:
-        print(f"❌ Validation failed: {message}")
+        print(f"{ERROR_PREFIX} Validation failed: {message}")
         print("   Please fix the validation errors before packaging.")
         return None
-    print(f"✅ {message}\n")
+    print(f"{SUCCESS_PREFIX} {message}\n")
 
     # Determine output location
     skill_name = skill_path.name
@@ -105,7 +107,7 @@ def package_skill(skill_path, output_dir=None):
         return skill_filename
 
     except Exception as e:
-        print(f"❌ Error creating .skill file: {e}")
+        print(f"{ERROR_PREFIX} Error creating .skill file: {e}")
         return None
 
 

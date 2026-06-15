@@ -12,8 +12,15 @@
 
 from __future__ import annotations
 
-ERROR_PREFIX = "❌"
-WARNING_PREFIX = "⚠️"
-SUCCESS_PREFIX = "✅"
+from typing import Final
+
+ERROR_PREFIX: Final[str] = "❌"
+"""操作失败前缀（权限拒绝、文件不存在、API 错误等）。"""
+
+WARNING_PREFIX: Final[str] = "⚠️"
+"""提示/警告前缀（配置缺失、建议、需确认等非致命情况）。"""
+
+SUCCESS_PREFIX: Final[str] = "✅"
+"""操作成功前缀（文件写入、发送完成等）。"""
 
 __all__ = ["ERROR_PREFIX", "WARNING_PREFIX", "SUCCESS_PREFIX"]

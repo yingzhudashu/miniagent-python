@@ -43,6 +43,7 @@ from miniagent.core.constants import (
 from miniagent.feishu.types import FeishuConfig, FeishuInboundText
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
+from miniagent.types.error_prefix import SUCCESS_PREFIX
 
 _logger = get_logger(__name__)
 
@@ -535,7 +536,7 @@ async def start_feishu_poll_server(
 
                         if _cc.pending.stage == ConfirmationStage.CLARIFICATION:
                             _logger.info("飞书澄清拦截: chat_id=%s, text=%s", chat_id[:12], text[:60])
-                            _cc.respond(ConfirmationResult(approved=True, adjustment=text))
+                            _cc.respond(ConfirmationResult.clarification_reply(text))
                             release_processing(message_id)
                             _logger.info("飞书澄清已响应: confirmation_channel.respond() 已调用")
                         else:
@@ -709,14 +710,14 @@ async def start_feishu_poll_server(
                     from miniagent.types.confirmation import ConfirmationResult
 
                     if text == "/confirm":
-                        cc.respond(ConfirmationResult(approved=True))
+                        cc.respond(ConfirmationResult.confirm())
                         ok = CallBackToast()
                         ok.type = "success"
                         ok.content = "✅ 已确认，继续执行"
                         resp.toast = ok
                         return resp
                     elif text == "/reject":
-                        cc.respond(ConfirmationResult(approved=False, rejected=True))
+                        cc.respond(ConfirmationResult.reject())
                         ok = CallBackToast()
                         ok.type = "warning"
                         ok.content = "⚠️ 已拒绝，取消当前操作"
@@ -725,10 +726,10 @@ async def start_feishu_poll_server(
                     else:
                         adjustment = text[len("/adjust "):].strip()
                         if adjustment:
-                            cc.respond(ConfirmationResult(approved=True, adjustment=adjustment))
+                            cc.respond(ConfirmationResult.adjust(adjustment))
                             ok = CallBackToast()
                             ok.type = "success"
-                            ok.content = f"✅ 已调整：{adjustment[:40]}{'…' if len(adjustment) > 40 else ''}"
+                            ok.content = f"{SUCCESS_PREFIX} 已调整：{adjustment[:40]}{'…' if len(adjustment) > 40 else ''}"
                             resp.toast = ok
                             return resp
                 # 无待确认请求或无引擎，继续走消息队列

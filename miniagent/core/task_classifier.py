@@ -8,7 +8,10 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any
 
-from miniagent.core._openai_compat import json_object_unsupported as _json_object_unsupported
+from miniagent.core._openai_compat import (
+    ensure_json_object_user_message,
+    json_object_unsupported as _json_object_unsupported,
+)
 from miniagent.core.llm_json import parse_llm_json_response
 from miniagent.core.openai_client import get_shared_async_openai
 from miniagent.core.prompts.classifier import CLASSIFIER_PROMPT
@@ -133,12 +136,16 @@ async def classify_task_difficulty(
         {"role": "system", "content": sys_prompt},
         {"role": "user", "content": user_msg},
     ]
+    json_object_messages = ensure_json_object_user_message(messages)
     use_json_object = True
     resp = None
     try:
         for _attempt in range(2):
             try:
-                create_args: dict[str, Any] = {**kw, "messages": messages}  # type: ignore[typeddict-item]
+                create_args: dict[str, Any] = {
+                    **kw,
+                    "messages": json_object_messages if use_json_object else messages,
+                }  # type: ignore[typeddict-item]
                 if use_json_object:
                     create_args["response_format"] = {"type": "json_object"}
                 safe_agent_debug_log(

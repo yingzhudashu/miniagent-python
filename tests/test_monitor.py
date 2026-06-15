@@ -13,12 +13,13 @@ class TestDefaultToolMonitor:
         assert stats.success_count == 1
         assert stats.fail_count == 0
 
-    def test_record_error(self):
+    def test_record_error_message(self):
         monitor = DefaultToolMonitor()
-        monitor.record("bad_tool", 500, success=False)
+        monitor.record("bad_tool", 500, success=False, error="permission denied")
         stats = monitor.get_stats("bad_tool")
         assert stats is not None
         assert stats.fail_count == 1
+        assert stats.errors == ["permission denied"]
 
     def test_total_calls(self):
         monitor = DefaultToolMonitor()

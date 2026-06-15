@@ -789,22 +789,30 @@ async def dispatch_command(
         elif cmd == "/confirm":
             from miniagent.types.confirmation import ConfirmationResult
 
-            cc.respond(ConfirmationResult(approved=True))
+            cc.respond(ConfirmationResult.confirm())
             output = f"{SUCCESS_PREFIX} 已确认，继续执行"
         elif cmd == "/reject":
             from miniagent.types.confirmation import ConfirmationResult
 
-            cc.respond(ConfirmationResult(approved=False, rejected=True))
+            cc.respond(ConfirmationResult.reject())
             output = f"{WARNING_PREFIX} 已拒绝，取消当前操作"
         else:
             # /adjust <新内容>
             adjustment = " ".join(parts[1:]).strip()
             if not adjustment:
+                from miniagent.types.confirmation import ConfirmationStage
+
                 output = "用法：/adjust <调整后的内容>"
+                pending = cc.pending
+                if pending and pending.stage == ConfirmationStage.PLAN:
+                    ref = (pending.full_content or pending.content or "").strip()
+                    if ref:
+                        preview = ref if len(ref) <= 2000 else f"{ref[:2000]}…"
+                        output = f"{output}\n\n当前完整计划：\n{preview}"
             else:
                 from miniagent.types.confirmation import ConfirmationResult
 
-                cc.respond(ConfirmationResult(approved=True, adjustment=adjustment))
+                cc.respond(ConfirmationResult.adjust(adjustment))
                 output = f"{SUCCESS_PREFIX} 已调整并确认：{adjustment[:60]}{'…' if len(adjustment) > 60 else ''}"
 
         if capture:

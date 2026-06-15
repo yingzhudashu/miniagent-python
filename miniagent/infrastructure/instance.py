@@ -67,6 +67,7 @@ else:
 
 from miniagent.core.constants import INSTANCE_CACHE_TTL, INSTANCE_HEARTBEAT_TIMEOUT
 from miniagent.infrastructure.logger import get_logger
+from miniagent.types.error_prefix import ERROR_PREFIX
 from miniagent.infrastructure.process_utils import (
     is_process_running,
     is_process_running_async,
@@ -104,7 +105,7 @@ def format_project_conflict_message(meta: dict[str, Any]) -> str:
         key = meta.get("project_key") or resolve_project_key(str(project_dir))
         state_dir = os.path.join(resolve_registry_state_dir(), "projects", key)
     msg = (
-        f"❌ 项目目录 {project_dir!r} 已有运行中的实例 #{iid} (PID={pid})。"
+        f"{ERROR_PREFIX} 项目目录 {project_dir!r} 已有运行中的实例 #{iid} (PID={pid})。"
         "请先执行 `python -m miniagent --stop` 停止后再启动。"
     )
     if state_dir:

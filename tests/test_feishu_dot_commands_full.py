@@ -74,6 +74,15 @@ def test_feishu_dot_commands_full_env_var(tmp_path, monkeypatch: pytest.MonkeyPa
     assert feishu_dot_commands_full_enabled() is True
 
 
+def test_feishu_dot_commands_full_string_false(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """字符串 ``\"false\"`` 应解析为关，避免 bool(\"false\") 误判。"""
+    monkeypatch.delenv("MINIAGENT_FEISHU_DOT_COMMANDS_FULL", raising=False)
+    install_test_config(tmp_path, {"feishu": {"dot_commands_full": "false"}})
+    assert feishu_dot_commands_full_enabled() is False
+
+
 @pytest.mark.asyncio
 async def test_capture_stop_blocked_by_default(tmp_path) -> None:
     install_test_config(tmp_path)

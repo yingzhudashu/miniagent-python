@@ -28,6 +28,7 @@ from miniagent.core.constants import (
     EXECUTION_THINKING_MERGE_TOOLS,
     TERMINAL_WIDTH_CACHE_TTL,
 )
+from miniagent.types.error_prefix import WARNING_PREFIX
 
 # ── 性能优化：缓存终端宽度，避免频繁调用 get_terminal_size ──
 _TERMINAL_WIDTH_CACHE_TTL: float = max(0.0, float(TERMINAL_WIDTH_CACHE_TTL))
@@ -656,7 +657,7 @@ class ThinkingDisplay:
                     )
                 except Exception as e:
                     _logger.warning("飞书思考发送失败: %s", e)
-                    err = f"⚠️ 飞书发送失败: {e}\n"
+                    err = f"{WARNING_PREFIX} 飞书发送失败: {e}\n"
                     if self._output_sink:
                         self._call_sink(err, kind="label", session_key=session_key)
 

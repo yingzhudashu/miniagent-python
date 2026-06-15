@@ -273,7 +273,7 @@ def create_feishu_handler(
             from miniagent.types.confirmation import ConfirmationResult, ConfirmationStage
 
             if cc.pending.stage == ConfirmationStage.CLARIFICATION:
-                cc.respond(ConfirmationResult(approved=True, adjustment=content))
+                cc.respond(ConfirmationResult.clarification_reply(content))
                 return ""  # 已回复，不启动新 agent 会话
 
         if (chat_id or "").strip():

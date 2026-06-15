@@ -10,6 +10,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from miniagent.types.error_prefix import WARNING_PREFIX
+
 # guide 不可读时的兜底；正常以 config.defaults.json `_config_guide` 为准
 _USER_SECTIONS_FALLBACK = frozenset({
     "secrets", "model", "paths", "features", "embedding", "timezone",
@@ -185,7 +187,7 @@ def format_config_info(section: str | None = None) -> str:
     if section:
         data = get_config_section(section)
         if not data:
-            return f"⚠️ 配置部分 `{section}` 不存在或为空"
+            return f"{WARNING_PREFIX} 配置部分 `{section}` 不存在或为空"
 
         layer_hint = ""
         if section in advanced_layer:

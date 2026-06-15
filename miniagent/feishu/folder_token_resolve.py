@@ -8,6 +8,7 @@ import re
 from miniagent.feishu.types import FeishuConfig
 from miniagent.infrastructure.env_parse import env_flag
 from miniagent.infrastructure.json_config import get_config
+from miniagent.types.error_prefix import WARNING_PREFIX
 
 # 飞书云盘文件夹路径常见形态：.../folder/<token>、.../drive/folder/<token>、...#/folder/<token>
 _FOLDER_IN_PATH = re.compile(
@@ -113,7 +114,7 @@ def resolve_parent_folder_token(
     raw = (folder_arg or "").strip()
     token, url_err = folder_token_from_tool_arg(raw if raw else None)
     if url_err:
-        return None, f"⚠️ {url_err}"
+        return None, f"{WARNING_PREFIX} {url_err}"
     if token:
         return token, None
 
@@ -152,7 +153,7 @@ async def resolve_parent_folder_token_async(
     raw = (folder_arg or "").strip()
     token, url_err = folder_token_from_tool_arg(raw if raw else None)
     if url_err:
-        return None, f"⚠️ {url_err}"
+        return None, f"{WARNING_PREFIX} {url_err}"
     if token:
         return token, None
 

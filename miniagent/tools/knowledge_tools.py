@@ -104,7 +104,7 @@ async def _kb_list_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolResul
         if not kb_list:
             return ToolResult(
                 success=True,
-                content="当前未挂载任何知识库。\n使用 `.kb mount <path>` 挂载知识库。",
+                content="当前未挂载任何知识库。\n使用 `/kb mount <路径>` 挂载知识库。",
             )
 
         lines = ["## 已挂载知识库\n\n"]

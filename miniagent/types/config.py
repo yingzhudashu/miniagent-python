@@ -12,6 +12,7 @@
 向后兼容：
 - AgentConfig 同时支持分组结构和平铺字段
 - 旧的平铺字段输入仍可使用，但推荐使用分组结构
+- ``AgentConfig.__post_init__`` 会在构造后同步分组 ↔ 平铺字段（分组优先）
 
 设计背景见 docs/ARCHITECTURE.md § 配置层。
 """
@@ -55,7 +56,8 @@ class ModelConfig:
 
     Example:
         >>> config = ModelConfig(model="gpt-4o", temperature=0.7)
-        >>> config.model  # "gpt-4o"
+        >>> config.model
+        'gpt-4o'
 
     Note:
         - 运行时推荐使用 get_default_model_config() 获取完整配置
@@ -96,9 +98,11 @@ class SessionBindingConfig:
 
     Example:
         >>> session_cfg = SessionBindingConfig(
-        >>>     session_key="session-123",
-        >>>     session_workspace="/workspaces/sessions/session-123/files"
-        >>> )
+        ...     session_key="session-123",
+        ...     session_workspace="/workspaces/sessions/session-123/files",
+        ... )
+        >>> session_cfg.session_key
+        'session-123'
 
     Note:
         - session_key 与磁盘存储路径关联
@@ -115,7 +119,7 @@ class SessionBindingConfig:
     session_workspace: str | None = None
     session_registry: ToolRegistryProtocol | None = None
     session_toolboxes: list[Toolbox] = field(default_factory=list)
-    conversation_history: list[dict[str, str]] = field(default_factory=list)
+    conversation_history: list[dict[str, Any]] = field(default_factory=list)
 
 
 # ============================================================================
@@ -142,14 +146,17 @@ class FeishuChannelConfig:
 
     Example:
         >>> feishu_cfg = FeishuChannelConfig(
-        >>>     receive_chat_id="oc_abc123",
-        >>>     trigger_message_id="om_xyz789"
-        >>> )
+        ...     receive_chat_id="oc_abc123",
+        ...     trigger_message_id="om_xyz789",
+        ... )
+        >>> feishu_cfg.receive_chat_id
+        'oc_abc123'
 
     Note:
         - receive_chat_id 注入工具上下文，使 .abort 等命令作用于当前群队列
-        - cli_dispatch_allow_mutations 飞书默认 False，避免意外修改状态
-        - MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1 时 cli_dispatch_allow_mutations 为 True
+        - 本 dataclass 字段 ``cli_dispatch_allow_mutations`` 默认 ``True``（CLI 友好）
+        - 飞书入站路径由 ``UnifiedEngine.run_agent_with_thinking`` 在 merge 前注入
+          ``False``（或 ``feishu.dot_commands_full=true`` 时为 ``True``），见 ``docs/FEISHU.md``
 
     See Also:
         - AgentConfig: Agent 主配置
@@ -173,11 +180,95 @@ class FeishuChannelConfig:
 # ============================================================================
 
 
+def _session_binding_from_flat(
+    session_key: str | None,
+    session_workspace: str | None,
+    session_registry: ToolRegistryProtocol | None,
+    session_toolboxes: list[Toolbox],
+    conversation_history: list[dict[str, Any]],
+) -> SessionBindingConfig:
+    return SessionBindingConfig(
+        session_key=session_key,
+        session_workspace=session_workspace,
+        session_registry=session_registry,
+        session_toolboxes=list(session_toolboxes),
+        conversation_history=list(conversation_history),
+    )
+
+
+def _feishu_channel_from_flat(
+    feishu_receive_chat_id: str | None,
+    feishu_trigger_message_id: str | None,
+    feishu_root_id: str | None,
+    feishu_parent_id: str | None,
+    feishu_thread_id: str | None,
+    feishu_im_receive_id_type: str | None,
+    feishu_im_receive_id: str | None,
+    cli_loop_state: Any | None,
+    cli_dispatch_allow_mutations: bool,
+) -> FeishuChannelConfig:
+    return FeishuChannelConfig(
+        receive_chat_id=feishu_receive_chat_id,
+        trigger_message_id=feishu_trigger_message_id,
+        root_id=feishu_root_id,
+        parent_id=feishu_parent_id,
+        thread_id=feishu_thread_id,
+        im_receive_id_type=feishu_im_receive_id_type,
+        im_receive_id=feishu_im_receive_id,
+        cli_loop_state=cli_loop_state,
+        cli_dispatch_allow_mutations=cli_dispatch_allow_mutations,
+    )
+
+
+def _has_session_flat_values(
+    session_key: str | None,
+    session_workspace: str | None,
+    session_registry: ToolRegistryProtocol | None,
+    session_toolboxes: list[Toolbox],
+    conversation_history: list[dict[str, Any]],
+) -> bool:
+    return any(
+        [
+            session_key is not None,
+            session_workspace is not None,
+            session_registry is not None,
+            bool(session_toolboxes),
+            bool(conversation_history),
+        ]
+    )
+
+
+def _has_feishu_flat_values(
+    feishu_receive_chat_id: str | None,
+    feishu_trigger_message_id: str | None,
+    feishu_root_id: str | None,
+    feishu_parent_id: str | None,
+    feishu_thread_id: str | None,
+    feishu_im_receive_id_type: str | None,
+    feishu_im_receive_id: str | None,
+    cli_loop_state: Any | None,
+    cli_dispatch_allow_mutations: bool,
+) -> bool:
+    return any(
+        [
+            feishu_receive_chat_id is not None,
+            feishu_trigger_message_id is not None,
+            feishu_root_id is not None,
+            feishu_parent_id is not None,
+            feishu_thread_id is not None,
+            feishu_im_receive_id_type is not None,
+            feishu_im_receive_id is not None,
+            cli_loop_state is not None,
+            not cli_dispatch_allow_mutations,
+        ]
+    )
+
+
 @dataclass
 class AgentConfig:
     """Agent 配置（分组版）
 
-    配置合并优先级（从低到高）：
+    配置合并优先级（从低到高，实现见 ``miniagent.core.config`` / ``miniagent.core.agent``）：
     1. get_default_agent_config() — 默认值
     2. run_agent(options.agent_config) — 用户传入
     3. plan.suggested_config — 规划器推荐
@@ -195,6 +286,11 @@ class AgentConfig:
     - 旧的平铺字段仍可使用（session_key、feishu_receive_chat_id 等）
     - 新的分组结构（session_config、feishu_config）提供更好的组织性
     - 推荐使用分组结构，平铺字段将在未来版本逐步弃用
+
+    构造与合并：
+    - 直接 ``AgentConfig(...)`` 时，``__post_init__`` 会同步分组 ↔ 平铺（**分组优先**）
+    - 生产路径仍推荐 ``merge_agent_config(get_default_agent_config(), overrides)``
+      以叠加 JSON 默认值与用户覆盖；``executor`` 等模块读取平铺字段
 
     Attributes:
         max_turns: 最大轮数（ReAct loop 迭代次数；默认 400）
@@ -236,22 +332,20 @@ class AgentConfig:
         feishu_im_receive_id: 飞书 receive_id（推荐使用 feishu_config.im_receive_id）
 
     Example:
-        >>> # 推荐的分组结构
         >>> config = AgentConfig(
-        >>>     max_turns=400,
-        >>>     session_config=SessionBindingConfig(session_key="session-1"),
-        >>>     feishu_config=FeishuChannelConfig(receive_chat_id="oc_abc")
-        >>> )
-        >>>
-        >>> # 向后兼容的平铺结构（仍可使用）
-        >>> config = AgentConfig(
-        >>>     max_turns=400,
-        >>>     session_key="session-1",
-        >>>     feishu_receive_chat_id="oc_abc"
-        >>> )
+        ...     max_turns=400,
+        ...     session_config=SessionBindingConfig(session_key="session-1"),
+        ...     feishu_config=FeishuChannelConfig(receive_chat_id="oc_abc"),
+        ... )
+        >>> config.session_key
+        'session-1'
+        >>> config.feishu_receive_chat_id
+        'oc_abc'
+        >>> flat = AgentConfig(max_turns=400, session_key="session-1", feishu_receive_chat_id="oc_abc")
+        >>> flat.session_config.session_key
+        'session-1'
 
     Note:
-        - 核心模块覆盖率目标 ≥95%，整体 ≥85%
         - 分组结构使配置更清晰，降低维护复杂度
         - 平铺字段将在未来版本标记为 deprecated
 
@@ -303,7 +397,7 @@ class AgentConfig:
     session_workspace: str | None = None
     session_registry: ToolRegistryProtocol | None = None
     session_toolboxes: list[Toolbox] = field(default_factory=list)
-    conversation_history: list[dict[str, str]] = field(default_factory=list)
+    conversation_history: list[dict[str, Any]] = field(default_factory=list)
     cli_loop_state: Any | None = None
     cli_dispatch_allow_mutations: bool = True
     feishu_receive_chat_id: str | None = None
@@ -314,6 +408,64 @@ class AgentConfig:
     feishu_im_receive_id_type: str | None = None
     feishu_im_receive_id: str | None = None
 
+    def __post_init__(self) -> None:
+        """构造后同步分组 ↔ 平铺字段；若同时传入则分组优先。"""
+        if self.session_config is not None:
+            sc = self.session_config
+            self.session_key = sc.session_key
+            self.session_workspace = sc.session_workspace
+            self.session_registry = sc.session_registry
+            self.session_toolboxes = list(sc.session_toolboxes)
+            self.conversation_history = list(sc.conversation_history)
+        elif _has_session_flat_values(
+            self.session_key,
+            self.session_workspace,
+            self.session_registry,
+            self.session_toolboxes,
+            self.conversation_history,
+        ):
+            self.session_config = _session_binding_from_flat(
+                self.session_key,
+                self.session_workspace,
+                self.session_registry,
+                self.session_toolboxes,
+                self.conversation_history,
+            )
+
+        if self.feishu_config is not None:
+            fc = self.feishu_config
+            self.feishu_receive_chat_id = fc.receive_chat_id
+            self.feishu_trigger_message_id = fc.trigger_message_id
+            self.feishu_root_id = fc.root_id
+            self.feishu_parent_id = fc.parent_id
+            self.feishu_thread_id = fc.thread_id
+            self.feishu_im_receive_id_type = fc.im_receive_id_type
+            self.feishu_im_receive_id = fc.im_receive_id
+            self.cli_loop_state = fc.cli_loop_state
+            self.cli_dispatch_allow_mutations = fc.cli_dispatch_allow_mutations
+        elif _has_feishu_flat_values(
+            self.feishu_receive_chat_id,
+            self.feishu_trigger_message_id,
+            self.feishu_root_id,
+            self.feishu_parent_id,
+            self.feishu_thread_id,
+            self.feishu_im_receive_id_type,
+            self.feishu_im_receive_id,
+            self.cli_loop_state,
+            self.cli_dispatch_allow_mutations,
+        ):
+            self.feishu_config = _feishu_channel_from_flat(
+                self.feishu_receive_chat_id,
+                self.feishu_trigger_message_id,
+                self.feishu_root_id,
+                self.feishu_parent_id,
+                self.feishu_thread_id,
+                self.feishu_im_receive_id_type,
+                self.feishu_im_receive_id,
+                self.cli_loop_state,
+                self.cli_dispatch_allow_mutations,
+            )
+
 
 def normalize_conversation_history(value: Any) -> list[dict[str, Any]]:
     """将 history.json 或调用方传入的值规范为 Chat API 消息 dict 列表。
@@ -322,6 +474,11 @@ def normalize_conversation_history(value: Any) -> list[dict[str, Any]]:
     - 标准列表：[{"role":"user","content":"..."}, ...]
     - 包装对象：{"messages":[...], "session_id":...}（否则 ``*history`` 会展开 dict 的键名，
       得到 str，随后在 ``msg.get`` 处报错）
+
+    边界行为：
+    - ``None``、非 list、无 ``messages`` 键的 dict → 返回 ``[]``
+    - 列表中非 dict 元素、缺少 ``role`` 或 ``role`` 非 str 的 dict → 丢弃
+    - 不校验 ``content`` 是否存在；``role`` 为空字符串 ``""`` 仍会保留
     """
     if isinstance(value, dict) and isinstance(value.get("messages"), list):
         value = value["messages"]

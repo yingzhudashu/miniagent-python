@@ -37,7 +37,7 @@ async def test_simple_difficulty_skips_planner(tmp_path) -> None:
                         registry=DefaultToolRegistry(),
                         toolboxes=[tb],
                     )
-    assert out == "ok"
+    assert out.reply == "ok"
     gp.assert_not_called()
     ex.assert_called_once()
 

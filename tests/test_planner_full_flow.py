@@ -58,6 +58,45 @@ async def test_generate_plan_basic_call():
     assert isinstance(plan.steps, list)
 
 
+@pytest.mark.asyncio
+async def test_generate_plan_json_object_user_message_mentions_json():
+    """Planner json_object requests must mention json in a user/input message."""
+    captured: dict[str, object] = {}
+    mock_client = AsyncMock()
+    mock_response = MagicMock(
+        choices=[
+            MagicMock(
+                message=MagicMock(
+                    content=(
+                        '{"summary":"t","steps":[],"requiredToolboxes":[],'
+                        '"suggestedConfig":{},"estimatedTokens":{},'
+                        '"contextStrategy":{},"requiresConfirmation":false,'
+                        '"riskLevel":"low","estimatedCost":{},'
+                        '"outputSpec":{},"fallbackPlan":{}}'
+                    )
+                )
+            )
+        ]
+    )
+    mock_response.usage = None
+
+    async def fake_create(**kw):
+        captured.update(kw)
+        return mock_response
+
+    mock_client.chat.completions.create = AsyncMock(side_effect=fake_create)
+    toolbox = Toolbox(id="test", name="test", description="test", keywords=["test"])
+
+    plan = await generate_plan("hello", [toolbox], client=mock_client)
+
+    assert plan.summary == "t"
+    assert captured["response_format"] == {"type": "json_object"}
+    messages = captured["messages"]
+    assert isinstance(messages, list)
+    user_messages = [m for m in messages if m.get("role") == "user"]
+    assert any("json" in str(m.get("content", "")).lower() for m in user_messages)
+
+
 def test_plan_step_dataclass():
     """测试规划步骤数据类。"""
     step = PlanStep(

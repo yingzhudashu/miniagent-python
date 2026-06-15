@@ -84,8 +84,8 @@ class TestHypothesisA_DoubleCall:
                             reply = await run_agent("问题", registry=_make_registry())
 
         assert mock_reflect.call_count == 1, "单次 run_agent 内 reflect 被调用次数应为 1"
-        assert _count_footers(reply) == 1, (
-            f"单次 run_agent 的 reply 应只含 1 个 footer，实际 {_count_footers(reply)} 个"
+        assert _count_footers(reply.reply) == 1, (
+            f"单次 run_agent 的 reply 应只含 1 个 footer，实际 {_count_footers(reply.reply)} 个"
         )
 
     @pytest.mark.asyncio
@@ -154,8 +154,8 @@ class TestHypothesisB_ReflectThinkingSink:
 # 假设 D：footer 进入会话历史，回灌 LLM 时未被剥离 → 下一轮 LLM 复述 + reflect 追加
 # ──────────────────────────────────────────────────────────────────────
 class TestHypothesisD_FooterAccumulatesInHistory:
-    def test_footer_survives_history_for_llm(self):
-        """conversation_history_for_llm 不剥离 footer：footer 会原样回灌给 LLM。"""
+    def test_footer_stripped_before_llm_context(self):
+        """conversation_history_for_llm 会剥离反思 footer，避免回灌 LLM 后复述。"""
         from miniagent.memory.history_bridge import conversation_history_for_llm
 
         prior_reply = "上一轮答案。\n\n---\n🤖 质量评估通过 | 质量评分 0.8"
@@ -166,9 +166,10 @@ class TestHypothesisD_FooterAccumulatesInHistory:
         out = conversation_history_for_llm(history)
         asst = [m for m in out if m["role"] == "assistant"]
         assert len(asst) == 1
-        assert _SCORE_MARK in asst[0]["content"], (
-            "footer 未被剥离，会原样进入 LLM 上下文（假设 D 的前提成立）"
+        assert _SCORE_MARK not in asst[0]["content"], (
+            "footer 应在回灌 LLM 前被 strip_reflection_footer 剥离"
         )
+        assert asst[0]["content"] == "上一轮答案。"
 
     @pytest.mark.asyncio
     async def test_llm_echoes_prior_footer_then_reflect_appends_second(self, tmp_path):
@@ -203,7 +204,7 @@ class TestHypothesisD_FooterAccumulatesInHistory:
 
                             reply = await run_agent("本轮问题", registry=_make_registry())
 
-        n = _count_footers(reply)
+        n = _count_footers(reply.reply)
         assert n == 2, (
             f"复现双重质量评估：当 LLM 从历史复述 footer 后，最终 reply 含 {n} 个 footer"
         )

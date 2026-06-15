@@ -17,7 +17,10 @@ import json
 import re
 from typing import Any
 
-from miniagent.core._openai_compat import json_object_unsupported as _json_object_unsupported
+from miniagent.core._openai_compat import (
+    ensure_json_object_user_message,
+    json_object_unsupported as _json_object_unsupported,
+)
 from miniagent.core.llm_json import parse_llm_json_response
 from miniagent.core.openai_client import get_shared_async_openai
 from miniagent.core.prompts.planner import PLAN_SYSTEM_PROMPT
@@ -109,6 +112,7 @@ async def generate_plan(
         {"role": "system", "content": PLAN_SYSTEM_PROMPT},
         {"role": "user", "content": "\n\n".join(user_parts)},
     ]
+    json_object_messages = ensure_json_object_user_message(messages)
 
     llm_client = client if client is not None else get_shared_async_openai()
     use_json_object = True
@@ -116,7 +120,7 @@ async def generate_plan(
     for attempt in range(MAX_RETRIES):
         try:
             create_args: dict[str, Any] = {
-                "messages": messages,  # type: ignore[arg-type]
+                "messages": json_object_messages if use_json_object else messages,  # type: ignore[arg-type]
                 **planner_kw,
             }
             if use_json_object:
