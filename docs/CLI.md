@@ -33,6 +33,20 @@ python -m miniagent --stop --state-dir <路径> 1  # 多注册表根时指定实
 
 transcript 是显示缓冲，不是历史真相源。会话历史仍保存在当前会话 workspace 的 `history.json`；显示缓冲只按 `memory.max_transcript_chars` 做字符级保护，防止长时间运行后 TUI 占用过多内存。`/copy` 在全屏 CLI 中复制当前 transcript 已加载内容；若需要完整磁盘历史，应从会话 `history.json` 或后续专门导出命令读取。
 
+## 输入框历史（↑↓）与 transcript 滚动的区别
+
+这是两套独立机制，不要混淆：
+
+| 操作 | 作用对象 | 说明 |
+|------|----------|------|
+| `Up` / `Down` | 底部 `❯` **输入框** | 回顾已发送的命令/问题（`{state_dir}/cli/history.txt` + 当前会话最近 user 消息，条数上限 `cli.input_history_max`，默认 100） |
+| `PageUp` / `PageDown`、滚轮 | 上方 **transcript 输出区** | 滚动已渲染的会话消息；滚到顶可懒加载更早 transcript |
+| `Ctrl+L` | transcript 输出区 | 清空并重载最近 transcript；**不会**刷新输入框 ↑↓ 历史 |
+
+全屏 CLI 启动或 `/session switch` 后会**刷新输入框 ↑↓ 历史**（载入新会话的 user 消息）；`Ctrl+L` 不会。启动时 transcript 初始批次使用纯文本快速渲染以加速显示；向上懒加载更早消息时仍可使用 Markdown 渲染。
+
+简易 CLI（无 TUI / fallback）在已安装 `readline`（Windows 可选 `pyreadline3`）时支持 ↑↓ 回顾 `history.txt`。
+
 ## 终端 Markdown（Rich，可选）
 
 全屏 CLI（prompt_toolkit TUI）下，上方 transcript 中的 **Assistant 最终回复、命令输出、思考过程正文** 在已安装 **`pip install -e ".[cli]"`** 时由 Rich 将 Markdown（含常见表格）渲染为彩色 ANSI。未安装则显示原始 Markdown 文本。
@@ -55,8 +69,8 @@ CLI 渲染细节（Rich、思考块合并等）为 Internal 常量（见 `miniag
 | `Ctrl+End` | 光标跳到输入末尾 |
 | `Shift+Left` | 水平向左滚动（仅窄终端时生效） |
 | `Shift+Right` | 水平向右滚动（仅窄终端时生效） |
-| `Up` | 浏览上一条历史输入 |
-| `Down` | 浏览下一条历史输入 |
+| `Up` | 浏览上一条**输入框**历史（已发送命令/问题；非 transcript 滚动） |
+| `Down` | 浏览下一条**输入框**历史 |
 | `Tab` | 自动补全命令或文件路径 |
 | `Shift+Tab` | 向前循环补全选项 |
 

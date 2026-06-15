@@ -123,8 +123,13 @@ def _create_cli_file_history(filename: str) -> Any:
     return SafeFileHistory(filename)
 
 
-def _session_user_inputs_for_cli_history(state: dict) -> list[str]:
-    """收集当前会话中可用于 CLI 输入回顾的 user 消息（时间正序）。"""
+def _cli_input_history_max() -> int:
+    """CLI 输入框 ↑↓ 回顾的会话 user 消息条数上限。"""
+    return max(1, int(get_config("cli.input_history_max", 100)))
+
+
+def _session_user_inputs_for_cli_history(state: dict, *, limit: int | None = None) -> list[str]:
+    """收集当前会话中可用于 CLI 输入回顾的 user 消息（时间正序，可限条数）。"""
     sm = state.get("session_manager")
     if sm is None:
         return []
@@ -144,22 +149,98 @@ def _session_user_inputs_for_cli_history(state: dict) -> list[str]:
             content = (msg.get("content") or "").strip()
             if content:
                 result.append(content)
+    max_items = limit if limit is not None else _cli_input_history_max()
+    if len(result) > max_items:
+        result = result[-max_items:]
     return result
 
 
-def _prime_cli_input_history_from_session(state: dict, buf: Any) -> None:
-    """启动时将当前会话 user 消息并入内存输入历史（不污染 ``history.txt``）。"""
+def _prime_cli_input_history_from_session(state: dict, buf: Any, *, limit: int | None = None) -> None:
+    """将当前会话 user 消息并入内存输入历史（不污染 ``history.txt``）。"""
     hist = getattr(buf, "history", None)
     merge = getattr(hist, "merge_strings_memory_only", None)
     if merge is None:
         return
-    strings = _session_user_inputs_for_cli_history(state)
+    strings = _session_user_inputs_for_cli_history(state, limit=limit)
     if not strings:
         return
     try:
         merge(strings)
     except Exception as e:
         _logger.warning("历史加载失败，继续启动: %s", e)
+
+
+class _HistoryLoadDone:
+    """无运行中事件循环时，代替已完成 asyncio.Task 的占位。"""
+
+    def done(self) -> bool:
+        return True
+
+    def result(self) -> None:
+        return None
+
+
+def _mark_buffer_history_preloaded(buf: Any) -> None:
+    """标记 Buffer 历史已同步加载，避免 prompt_toolkit 重复启动异步 load 任务。"""
+    if getattr(buf, "_load_history_task", None) is not None:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        buf._load_history_task = _HistoryLoadDone()  # type: ignore[assignment]
+        return
+    fut = loop.create_future()
+    fut.set_result(None)
+    buf._load_history_task = fut
+
+
+def _sync_preload_buffer_working_lines(buf: Any) -> None:
+    """同步将 FileHistory 条目填入 Buffer._working_lines（修复首次按 ↑ 无反应）。"""
+    hist = getattr(buf, "history", None)
+    if hist is None or not hasattr(hist, "get_strings"):
+        return
+    strings = list(hist.get_strings())
+    current = buf.text
+    buf._working_lines.clear()
+    for s in strings:
+        buf._working_lines.append(s)
+    buf._working_lines.append(current)
+    buf.working_index = len(buf._working_lines) - 1
+    _mark_buffer_history_preloaded(buf)
+
+
+def _reload_cli_input_history(
+    state: dict,
+    buf: Any,
+    history_file: str,
+    *,
+    limit: int | None = None,
+) -> None:
+    """重建输入历史后端、合并会话 user 消息并同步预填充 Buffer。"""
+    buf.history = _create_cli_file_history(history_file)
+    _prime_cli_input_history_from_session(state, buf, limit=limit)
+    _sync_preload_buffer_working_lines(buf)
+
+
+def _prime_fallback_readline_history(history_file: str) -> None:
+    """Fallback 模式：将 history.txt 最近条目写入 readline（若可用）。"""
+    try:
+        import readline
+    except ImportError:
+        return
+    if not os.path.isfile(history_file):
+        return
+    try:
+        lines: list[str] = []
+        with open(history_file, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("+") and len(line) > 1:
+                    lines.append(line[1:])
+        for entry in lines[-_cli_input_history_max() :]:
+            readline.add_history(entry)
+    except Exception as e:
+        _logger.debug("fallback readline 历史预填充失败: %s", e)
 
 
 _FileNotifyFn = Callable[[str, str], None]
@@ -692,7 +773,7 @@ async def run_cli_loop(
     )
 
     # 启动时合并会话 user 消息到内存导航历史（不写入 history.txt）
-    _prime_cli_input_history_from_session(state, input_buffer)
+    _reload_cli_input_history(state, input_buffer, history_file)
 
     # 使用 constants.py 的裁剪阈值，避免硬编码导致阈值过低
     from miniagent.core.constants import MAX_TRANSCRIPT_CHARS
@@ -774,12 +855,18 @@ async def run_cli_loop(
         _transcript_total_len[0] += len(text)
         _trim_transcript()
 
-    def _render_history_message_to_transcript(msg: dict, prepend: bool = False) -> None:
+    def _render_history_message_to_transcript(
+        msg: dict,
+        prepend: bool = False,
+        *,
+        plain_text: bool = False,
+    ) -> None:
         """将历史消息渲染到 transcript。
 
         Args:
             msg: 历史消息字典，包含 role 和 content
             prepend: True 时插入到顶部（加载更旧历史），False 时追加到底部（初始加载）
+            plain_text: True 时 assistant 跳过 Markdown 渲染（启动加速）
         """
 
         from miniagent.engine.markdown_cli import render_markdown_to_ansi
@@ -807,9 +894,14 @@ async def run_cli_loop(
             else:
                 _cli_block_user(content)
         elif role == "assistant":
-            md_w = _markdown_render_width()
-            ansi = render_markdown_to_ansi(content, width=md_w, justify="left")
-            if prepend:
+            if plain_text and not prepend:
+                _append_transcript("class:cli-assistant-title", "Assistant\n")
+                for line in (content or "").splitlines() or [content]:
+                    _append_transcript("class:cli-assistant-body", line + "\n")
+                _append_transcript("class:cli-border", "─" * rule_w + "\n")
+            elif prepend:
+                md_w = _markdown_render_width()
+                ansi = render_markdown_to_ansi(content, width=md_w, justify="left")
                 # prepend=True: 插入到顶部，顺序：标题 → 内容 → 分隔线
                 if ansi:
                     # 使用安全的 ANSI 处理
@@ -867,9 +959,9 @@ async def run_cli_loop(
                 _logger.info("历史加载: 无消息，跳过渲染")
                 return
 
-            # 渲染历史到 transcript（从旧到新）
+            # 渲染历史到 transcript（从旧到新；启动批次用纯文本加速）
             for msg in messages:
-                _render_history_message_to_transcript(msg, prepend=False)
+                _render_history_message_to_transcript(msg, prepend=False, plain_text=True)
             _logger.info(f"历史加载: 已渲染 {len(messages)} 条消息到 transcript")
 
             # 如果有更多历史，添加提示
@@ -905,7 +997,11 @@ async def run_cli_loop(
         _stick_bottom[0] = True
         try:
             _snap_output_bottom()
-            get_app().invalidate()
+            from prompt_toolkit.application import get_app
+
+            app = get_app()
+            if getattr(app, "is_running", False):
+                app.invalidate()
         except Exception:
             pass
 
@@ -2041,19 +2137,38 @@ async def run_cli_loop(
         _apply_transcript_scroll(_wheel_line_step(), "keys.ScrollDown")
         event.app.invalidate()
 
+    def _ensure_input_history_ready_for_nav() -> None:
+        """在 ↑↓ 导航前确保 working_lines 已同步填充。"""
+        hist = getattr(input_buffer, "history", None)
+        if hist is None:
+            return
+        get_strings = getattr(hist, "get_strings", None)
+        if get_strings is None:
+            return
+        if len(input_buffer._working_lines) <= 1 and get_strings():
+            _sync_preload_buffer_working_lines(input_buffer)
+
     # 显式绑定上下方向键到输入历史导航（不依赖 BufferControl 默认行为）
     @kb.add("up", filter=has_focus(input_buffer))
     def _on_up(event):
         """上方向键：浏览持久化输入历史（``history.txt`` + 启动时并入的会话 user 消息）。"""
-        input_buffer.load_history_if_not_yet_loaded()
-        input_buffer.history_backward()
+        if input_buffer.complete_state:
+            input_buffer.complete_previous()
+        else:
+            input_buffer.load_history_if_not_yet_loaded()
+            _ensure_input_history_ready_for_nav()
+            input_buffer.history_backward()
         event.app.invalidate()
 
     @kb.add("down", filter=has_focus(input_buffer))
     def _on_down(event):
         """下方向键：浏览持久化输入历史（``history.txt`` + 启动时并入的会话 user 消息）。"""
-        input_buffer.load_history_if_not_yet_loaded()
-        input_buffer.history_forward()
+        if input_buffer.complete_state:
+            input_buffer.complete_next()
+        else:
+            input_buffer.load_history_if_not_yet_loaded()
+            _ensure_input_history_ready_for_nav()
+            input_buffer.history_forward()
         event.app.invalidate()
 
     # PT 的 _parse_style_str 只认属性词 "dim"，不认 "ansidim"（后者会走 parse_color → ValueError）。
@@ -2528,6 +2643,7 @@ async def run_cli_loop(
             )
             if state["active_session_id"] != prev_session_id:
                 _reset_and_reload_transcript(reset_scroll_to_top=True)
+                _reload_cli_input_history(state, input_buffer, history_file)
             if reply == "__EXIT__":
                 break
             if reply is not None:
@@ -2773,6 +2889,7 @@ async def _run_cli_loop_fallback(
         readline.set_history_length(1000)
         if os.path.isfile(history_file):
             readline.read_history_file(history_file)
+        _prime_fallback_readline_history(history_file)
     except ImportError:
         readline = None  # Windows 可能无 readline
 
@@ -2896,6 +3013,7 @@ async def _run_cli_loop_fallback(
             )
             if state["active_session_id"] != prev_session_id:
                 _fb_show_session_history("\n📜 已切换会话，最近历史如下：\n")
+                _prime_fallback_readline_history(history_file)
             if result == "__EXIT__":
                 break
             if result is not None:

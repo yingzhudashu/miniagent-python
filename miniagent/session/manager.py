@@ -81,16 +81,46 @@ def _set_history(ctx: dict[str, Any], history: list[dict[str, Any]]) -> None:
     ctx["conversation_history"] = history
 
 
+def _load_history_json_file(path: str) -> list[dict[str, Any]]:
+    """从 ``history.json`` 路径读取、规范化并截断历史（不修改会话内存）。"""
+    if not os.path.isfile(path):
+        return []
+    try:
+        file_size = os.path.getsize(path)
+        with open(path, encoding="utf-8-sig") as f:
+            raw = json.load(f)
+        history = normalize_conversation_history(raw)
+        original_count = len(history)
+        max_msgs = int(get_config("memory.max_history_messages", MAX_HISTORY_MESSAGES))
+        history = _truncate_history(history, max_messages=max_msgs)
+        if original_count > len(history):
+            _logger.info(
+                "history.json 已截断加载: %s (%d → %d 条)",
+                path,
+                original_count,
+                len(history),
+            )
+        elif file_size > 5 * 1024 * 1024:
+            _logger.info(
+                "history.json 较大 (%d MB)，已加载最近 %d 条: %s",
+                file_size // (1024 * 1024),
+                len(history),
+                path,
+            )
+        return history
+    except json.JSONDecodeError as e:
+        _logger.warning("history.json JSON 格式无效，将使用空历史: %s → %s", path, e)
+    except OSError as e:
+        _logger.warning("history.json 读取失败，将使用空历史: %s → %s", path, e)
+    except Exception as e:
+        _logger.warning("history.json 加载失败，将使用空历史: %s → %s", path, e)
+    return []
+
+
 def _load_history_from_disk(ctx: dict[str, Any]) -> list[dict[str, Any]]:
     """从磁盘读取 history.json（不修改内存）。"""
-    try:
-        path = os.path.join(ctx["config"].workspace_path, "history.json")
-        if os.path.isfile(path):
-            with open(path, encoding="utf-8-sig") as f:
-                return normalize_conversation_history(json.load(f))
-    except Exception as e:
-        _logger.debug("加载会话历史失败: %s", e)
-    return []
+    path = os.path.join(ctx["config"].workspace_path, "history.json")
+    return _load_history_json_file(path)
 
 
 # ============================================================================
@@ -705,16 +735,9 @@ class DefaultSessionManager:
             sender_id=raw.get("sender_id"),
         )
 
-        # 2. 加载历史
+        # 2. 加载历史（截断至 max_history_messages，避免大文件拖慢启动）
         history_path = os.path.join(workspace_path, "history.json")
-        if os.path.isfile(history_path):
-            try:
-                with open(history_path, encoding="utf-8-sig") as f:
-                    conversation_history = normalize_conversation_history(json.load(f))
-            except Exception:
-                conversation_history = []
-        else:
-            conversation_history = []
+        conversation_history = _load_history_json_file(history_path)
 
         # 3. 统一构建上下文
         ctx, core_count = self._build_session_ctx(session_id, config, conversation_history)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 
 import pytest
 
@@ -182,3 +183,41 @@ def test_load_range_preserves_long_assistant_content_on_disk(
     with open(_history_path(session_manager, session_id), encoding="utf-8") as f:
         saved = json.load(f)
     assert saved[-1]["content"] == long_answer
+
+
+def test_restore_truncates_large_disk_history(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """磁盘 history.json 超过 max_history_messages 时，恢复后内存应截断。"""
+    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
+
+    def _cfg(key: str, default=None):
+        if key == "memory.max_history_messages":
+            return 50
+        from miniagent.infrastructure.json_config import get_config as real_get_config
+
+        return real_get_config(key, default)
+
+    monkeypatch.setattr("miniagent.session.manager.get_config", _cfg)
+
+    sm = DefaultSessionManager(DefaultToolRegistry())
+    session_id = "big-history"
+    sm.get_or_create(session_id, SessionOptions(description="seed"))
+    ctx = sm._sessions[session_id]
+    workspace = ctx["config"].workspace_path
+
+    disk_data: list[dict[str, str]] = []
+    for i in range(120):
+        disk_data.append({"role": "user", "content": f"u-{i}"})
+        disk_data.append({"role": "assistant", "content": f"a-{i}"})
+
+    path = os.path.join(workspace, "history.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(disk_data, f)
+
+    # 驱逐内存后从磁盘恢复
+    del sm._sessions[session_id]
+    restored = sm.get_or_create(session_id, SessionOptions(description="restore"))
+    assert len(restored.conversation_history) <= 50
+    assert restored.conversation_history[-1]["content"] == "a-119"

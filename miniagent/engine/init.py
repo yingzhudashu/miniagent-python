@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import random
@@ -95,7 +96,9 @@ async def init_subsystems(
 
     # 4. 创建默认会话并加锁
     session_name = env_str("MINIAGENT_SESSION_NAME") or get_config("session.default_name", None)
-    active_session_id = _init_default_session(session_manager, channel_router, session_name=session_name)
+    active_session_id = await _init_default_session_async(
+        session_manager, channel_router, session_name=session_name
+    )
 
     # 5. 清理过期关键词索引
     try:
@@ -136,34 +139,78 @@ def _resolve_continue_session_id(session_manager: Any, channel_router: Any) -> s
     return "default"
 
 
-def _init_default_session(session_manager: Any, channel_router: Any, *, session_name: str | None = None) -> str:
-    """创建默认会话并加锁。
-
-    同时将 CLI 通道绑定到默认会话，确保 CLI 和初始化使用同一会话。
-
-    Args:
-        session_manager: 会话管理器实例
-        channel_router: 通道路由器，用于加载上次会话状态（--continue 功能）和绑定 CLI 通道
-        session_name: 可选的会话名称（由 ``MINIAGENT_SESSION_NAME`` 传入）。
-            若不传，则使用 ``"default"`` 或上次会话（--continue 模式）。
-
-    Returns:
-        active_session_id
-    """
-    from miniagent.engine.session_lock import try_lock_session
-    from miniagent.session.manager import SessionOptions
-
-    # --continue 参数支持：优先恢复上次会话
+def _resolve_startup_session_id(
+    session_manager: Any,
+    channel_router: Any,
+    *,
+    session_name: str | None = None,
+) -> str:
+    """解析启动时应使用的会话 ID（不含 get_or_create / 加锁）。"""
     continue_mode = get_config("session.continue_mode", False) or env_flag(
         "MINIAGENT_CONTINUE_SESSION"
     )
 
     if continue_mode and not session_name:
-        session_id = _resolve_continue_session_id(session_manager, channel_router)
-    elif session_name:
-        session_id = session_name
-    else:
-        session_id = "default"
+        return _resolve_continue_session_id(session_manager, channel_router)
+    if session_name:
+        return session_name
+    return "default"
+
+
+async def _init_default_session_async(
+    session_manager: Any,
+    channel_router: Any,
+    *,
+    session_name: str | None = None,
+) -> str:
+    """创建默认会话并加锁（磁盘恢复在后台线程执行，避免阻塞事件循环）。"""
+    from miniagent.engine.session_lock import try_lock_session
+    from miniagent.session.manager import SessionOptions
+
+    session_id = _resolve_startup_session_id(
+        session_manager, channel_router, session_name=session_name
+    )
+
+    await asyncio.to_thread(
+        session_manager.get_or_create,
+        session_id,
+        SessionOptions(description="默认会话"),
+    )
+    channel_router.bind("__cli__", session_id)
+    channel_router.set_primary(session_id)
+
+    ok, reason = try_lock_session(session_id)
+    if ok:
+        return session_id
+
+    fallback = f"{session_id}-{random.randint(1000, 9999)}"
+    _logger.info(
+        "会话 %s 加锁失败%s，回退到 %s",
+        session_id,
+        f" ({reason})" if reason else "",
+        fallback,
+    )
+    await asyncio.to_thread(
+        session_manager.get_or_create,
+        fallback,
+        SessionOptions(description="默认会话（回退）"),
+    )
+    channel_router.bind("__cli__", fallback)
+    channel_router.set_primary(fallback)
+    fb_ok, fb_reason = try_lock_session(fallback)
+    if not fb_ok:
+        _logger.warning("回退会话 %s 加锁失败: %s", fallback, fb_reason)
+    return fallback
+
+
+def _init_default_session(session_manager: Any, channel_router: Any, *, session_name: str | None = None) -> str:
+    """创建默认会话并加锁（同步；供测试与非 async 调用方）。"""
+    from miniagent.engine.session_lock import try_lock_session
+    from miniagent.session.manager import SessionOptions
+
+    session_id = _resolve_startup_session_id(
+        session_manager, channel_router, session_name=session_name
+    )
 
     session_manager.get_or_create(session_id, SessionOptions(description="默认会话"))
     channel_router.bind("__cli__", session_id)
@@ -173,7 +220,6 @@ def _init_default_session(session_manager: Any, channel_router: Any, *, session_
     if ok:
         return session_id
 
-    # 被其他实例占用，自动回退
     fallback = f"{session_id}-{random.randint(1000, 9999)}"
     _logger.info(
         "会话 %s 加锁失败%s，回退到 %s",

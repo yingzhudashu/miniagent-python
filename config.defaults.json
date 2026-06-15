@@ -190,6 +190,7 @@
     "dot_tools_enabled": true,
     "welcome_hint": true,
     "file_vision_desc": true,
+    "input_history_max": 100,
     "force_fallback": false,
     "raw_markdown": false,
     "thinking_rich": false
