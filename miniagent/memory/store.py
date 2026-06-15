@@ -43,12 +43,24 @@ from miniagent.types.memory import (
     GroundTruthFact,
     MemoryEntry,
     MemoryEntryInput,
-    MemoryStoreProtocol,
     SessionMemory,
 )
 from miniagent.utils.session_id import safe_session_id
 
 _logger = get_logger(__name__)
+
+_SNIPPET_MAX_LEN = 100
+_SUMMARY_MAX_LEN = 2000
+_MAX_ENTRIES = 20
+
+
+def _truncate_text(text: str, max_len: int) -> str:
+    return text[:max_len] if text else ""
+
+
+def _is_in_progress_entry(entry: MemoryEntry) -> bool:
+    """条目尚未由 ``add_entry`` 完成（仅 user_snippet 或 assistant 增量写入）。"""
+    return not entry.summary and not entry.facts
 
 
 # ============================================================================
@@ -246,7 +258,7 @@ def generate_turn_summary(
 # ============================================================================
 
 
-class DefaultMemoryStore(MemoryStoreProtocol):
+class DefaultMemoryStore:
     """默认记忆存储实现
 
     基于文件系统的 JSON 持久化，带 LRU 内存缓存。
@@ -490,14 +502,14 @@ class DefaultMemoryStore(MemoryStoreProtocol):
             _logger.debug("锁内加载记忆失败 [%s]: %s", session_id, e)
             return None
 
-    async def load(self, session_id: str) -> SessionMemory | None:
+    async def load(self, session_key: str) -> SessionMemory | None:
         """加载会话记忆（带trace）。
 
         先查缓存，未命中则从磁盘读取。
         使用 asyncio.to_thread 包装文件 I/O，避免阻塞事件循环。
 
         Args:
-            session_id: 会话唯一标识
+            session_key: 会话唯一标识
 
         Returns:
             会话记忆对象，不存在返回 None
@@ -508,12 +520,12 @@ class DefaultMemoryStore(MemoryStoreProtocol):
         start_time = time.monotonic_ns()
 
         # 先查缓存（检查TTL）
-        memory, cache_age = self._cache_get(session_id)
+        memory, cache_age = self._cache_get(session_key)
         if memory is not None:
             elapsed = (time.monotonic_ns() - start_time) // 1_000_000
             emit_trace({
                 "type": EVENT_MEMORY_READ,
-                "session_key": session_id,
+                "session_key": session_key,
                 "duration_ms": elapsed,
                 "success": True,
                 "cache_hit": True,
@@ -523,12 +535,12 @@ class DefaultMemoryStore(MemoryStoreProtocol):
 
         try:
             self._ensure_dir()
-            file_path = self._file_path(session_id)
+            file_path = self._file_path(session_key)
             if not os.path.exists(file_path):
                 elapsed = (time.monotonic_ns() - start_time) // 1_000_000
                 emit_trace({
                     "type": EVENT_MEMORY_READ,
-                    "session_key": session_id,
+                    "session_key": session_key,
                     "duration_ms": elapsed,
                     "success": False,
                     "reason": "file_not_found",
@@ -542,13 +554,13 @@ class DefaultMemoryStore(MemoryStoreProtocol):
 
             data = await asyncio.to_thread(_sync_read)
             memory = self._memory_from_dict(data)
-            self._cache_put(session_id, memory)
+            self._cache_put(session_key, memory)
 
             # Trace: 加载成功
             elapsed = (time.monotonic_ns() - start_time) // 1_000_000
             emit_trace({
                 "type": EVENT_MEMORY_READ,
-                "session_key": session_id,
+                "session_key": session_key,
                 "duration_ms": elapsed,
                 "success": True,
                 "cache_hit": False,
@@ -562,7 +574,7 @@ class DefaultMemoryStore(MemoryStoreProtocol):
             elapsed = (time.monotonic_ns() - start_time) // 1_000_000
             emit_trace({
                 "type": EVENT_MEMORY_READ,
-                "session_key": session_id,
+                "session_key": session_key,
                 "duration_ms": elapsed,
                 "success": False,
                 "error": str(e),
@@ -643,20 +655,93 @@ class DefaultMemoryStore(MemoryStoreProtocol):
         except Exception as e:
             _logger.error("保存失败 [%s]: %s", memory.session_id, e)
 
-    async def update_summary(self, session_id: str, summary: str, facts: list[str]) -> None:
+    async def update_user_snippet(self, session_key: str, snippet: str) -> None:
+        """更新当前轮用户消息摘要（轮次尚未 ``add_entry`` 完成时）。"""
+        snippet = _truncate_text(snippet, _SNIPPET_MAX_LEN)
+        if not snippet:
+            return
+
+        async with await self._get_session_lock(session_key):
+            memory = await self._load_unlocked(session_key)
+            now = datetime.now(timezone.utc).isoformat()
+            if not memory:
+                memory = SessionMemory(
+                    session_id=session_key,
+                    total_turns=0,
+                    first_seen=now,
+                    last_active=now,
+                )
+            if memory.entries and _is_in_progress_entry(memory.entries[-1]):
+                memory.entries[-1].user_snippet = snippet
+            else:
+                memory.entries.append(
+                    MemoryEntry(timestamp=now, user_snippet=snippet, summary="")
+                )
+            if len(memory.entries) > _MAX_ENTRIES:
+                memory.entries = memory.entries[-_MAX_ENTRIES:]
+            memory.last_active = now
+            await self._save_unlocked(memory)
+
+    async def append_message(self, session_key: str, role: str, content: str) -> None:
+        """追加单条 user/assistant 消息到记忆（轮次进行中增量写入）。"""
+        if not content:
+            return
+
+        role = role.strip().lower()
+        async with await self._get_session_lock(session_key):
+            memory = await self._load_unlocked(session_key)
+            now = datetime.now(timezone.utc).isoformat()
+            if not memory:
+                memory = SessionMemory(
+                    session_id=session_key,
+                    total_turns=0,
+                    first_seen=now,
+                    last_active=now,
+                )
+
+            if role == "user":
+                snippet = _truncate_text(content, _SNIPPET_MAX_LEN)
+                if memory.entries and _is_in_progress_entry(memory.entries[-1]):
+                    memory.entries[-1].user_snippet = snippet
+                else:
+                    memory.entries.append(
+                        MemoryEntry(timestamp=now, user_snippet=snippet, summary="")
+                    )
+            elif role == "assistant":
+                summary = _truncate_text(content, _SUMMARY_MAX_LEN)
+                if memory.entries and _is_in_progress_entry(memory.entries[-1]):
+                    memory.entries[-1].summary = summary
+                else:
+                    memory.entries.append(
+                        MemoryEntry(timestamp=now, user_snippet="", summary=summary)
+                    )
+            else:
+                line = f"- [{role}] {_truncate_text(content, 500)}"
+                memory.cumulative_summary = (
+                    f"{memory.cumulative_summary}\n{line}"
+                    if memory.cumulative_summary
+                    else line
+                )[-_SUMMARY_MAX_LEN:]
+
+            if len(memory.entries) > _MAX_ENTRIES:
+                memory.entries = memory.entries[-_MAX_ENTRIES:]
+            memory.last_active = now
+            await self._save_unlocked(memory)
+
+    async def update_summary(self, session_key: str, summary: str, facts: list[str]) -> None:
         """更新摘要和事实
 
         Args:
-            session_id: 会话唯一标识
+            session_key: 会话唯一标识
             summary: 新的对话摘要
             facts: 关键事实列表
         """
-        async with await self._get_session_lock(session_id):
-            memory = await self._load_unlocked(session_id)
+        async with await self._get_session_lock(session_key):
+            memory = await self._load_unlocked(session_key)
             if not memory:
                 now = datetime.now(timezone.utc).isoformat()
                 memory = SessionMemory(
-                    session_id=session_id,
+                    session_id=session_key,
                     cumulative_summary=summary[-2000:] if summary else "",
                     key_facts=list(facts),
                     total_turns=0,
@@ -689,11 +774,11 @@ class DefaultMemoryStore(MemoryStoreProtocol):
             memory.last_active = now
             await self._save_unlocked(memory)
 
-    async def add_entry(self, session_id: str, entry: MemoryEntryInput | dict[str, Any]) -> None:
+    async def add_entry(self, session_key: str, entry: MemoryEntryInput | dict[str, Any]) -> None:
         """添加对话条目
 
         Args:
-            session_id: 会话唯一标识
+            session_key: 会话唯一标识
             entry: 记忆条目输入（或兼容的 dict，与 executor 传入格式一致）
         """
         if isinstance(entry, dict):
@@ -704,12 +789,12 @@ class DefaultMemoryStore(MemoryStoreProtocol):
                 facts=list(entry.get("facts") or []) if entry.get("facts") is not None else None,
             )
 
-        async with await self._get_session_lock(session_id):
-            memory = await self._load_unlocked(session_id)
+        async with await self._get_session_lock(session_key):
+            memory = await self._load_unlocked(session_key)
             if not memory:
                 now = datetime.now(timezone.utc).isoformat()
                 memory = SessionMemory(
-                    session_id=session_id,
+                    session_id=session_key,
                     total_turns=0,
                     first_seen=now,
                     last_active=now,
@@ -721,11 +806,19 @@ class DefaultMemoryStore(MemoryStoreProtocol):
                 summary=entry.summary,
                 facts=entry.facts or [],
             )
-            memory.entries.append(full_entry)
+            if memory.entries and _is_in_progress_entry(memory.entries[-1]):
+                in_progress = memory.entries[-1]
+                in_progress.timestamp = full_entry.timestamp or in_progress.timestamp
+                in_progress.user_snippet = full_entry.user_snippet or in_progress.user_snippet
+                in_progress.summary = full_entry.summary
+                in_progress.facts = full_entry.facts
+                full_entry = in_progress
+            else:
+                memory.entries.append(full_entry)
             memory.total_turns += 1
 
-            if len(memory.entries) > 20:
-                memory.entries = memory.entries[-20:]
+            if len(memory.entries) > _MAX_ENTRIES:
+                memory.entries = memory.entries[-_MAX_ENTRIES:]
 
             now = datetime.now(timezone.utc).isoformat()
             apply_ground_truth_updates(
@@ -744,7 +837,7 @@ class DefaultMemoryStore(MemoryStoreProtocol):
                 from miniagent.memory.defaults import get_process_default_memory_bundle
 
                 idx = get_process_default_memory_bundle()[2]
-            idx.index_entry(session_id, full_entry)
+            idx.index_entry(session_key, full_entry)
         except Exception as e:
             _logger.debug("关键词索引失败: %s", e)
 
@@ -760,22 +853,22 @@ class DefaultMemoryStore(MemoryStoreProtocol):
                 text = " ".join([entry.user_snippet, entry.summary, *(entry.facts or [])])
                 emb = await provider.get_embedding(text)
                 if emb is not None:
-                    provider.index.index_entry(session_id, full_entry, embedding=emb)
+                    provider.index.index_entry(session_key, full_entry, embedding=emb)
         except Exception as e:
             _logger.debug("嵌入索引失败: %s", e)
 
-    async def add_file(self, session_id: str, file_meta: FileMetadata) -> None:
+    async def add_file(self, session_key: str, file_meta: FileMetadata) -> None:
         """添加上传文件到记忆
 
         Args:
-            session_id: 会话唯一标识
+            session_key: 会话唯一标识
             file_meta: 文件元数据
         """
-        memory = await self.load(session_id)
+        memory = await self.load(session_key)
         if not memory:
             now = datetime.now(timezone.utc).isoformat()
             memory = SessionMemory(
-                session_id=session_id,
+                session_id=session_key,
                 total_turns=0,
                 first_seen=now,
                 last_active=now,

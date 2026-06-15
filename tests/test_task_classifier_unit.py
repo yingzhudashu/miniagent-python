@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -14,7 +14,16 @@ from miniagent.core.task_classifier import (
     default_step_thinking_for_difficulty,
     exec_merge_for_simple_path,
     planner_merge_for_difficulty,
+    task_classifier_enabled,
 )
+from miniagent.core.thinking_presets import THINKING_LEVEL_PRESETS
+
+
+def test_task_classifier_enabled_reads_internal_constant() -> None:
+    with patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", True):
+        assert task_classifier_enabled() is True
+    with patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False):
+        assert task_classifier_enabled() is False
 
 
 def test_planner_merge_scales_with_difficulty() -> None:
@@ -25,15 +34,24 @@ def test_planner_merge_scales_with_difficulty() -> None:
     assert mid["thinking_budget"] <= high["thinking_budget"]
 
 
+def test_planner_merge_simple_matches_normal() -> None:
+    normal = planner_merge_for_difficulty(TaskDifficulty.NORMAL)
+    simple = planner_merge_for_difficulty(TaskDifficulty.SIMPLE)
+    assert simple == normal
+
+
 def test_default_step_thinking_mapping() -> None:
     assert default_step_thinking_for_difficulty(TaskDifficulty.NORMAL) == "low"
+    assert default_step_thinking_for_difficulty(TaskDifficulty.SIMPLE) == "low"
     assert default_step_thinking_for_difficulty(TaskDifficulty.MEDIUM) == "medium"
     assert default_step_thinking_for_difficulty(TaskDifficulty.COMPLEX) == "high"
 
 
-def test_exec_merge_simple_path() -> None:
+def test_exec_merge_simple_path_matches_low_preset() -> None:
     m = exec_merge_for_simple_path()
-    assert "thinking_level" in m and "thinking_budget" in m
+    tl, tb = THINKING_LEVEL_PRESETS["low"]
+    assert m == {"thinking_level": tl, "thinking_budget": tb}
+    assert m == planner_merge_for_difficulty(TaskDifficulty.NORMAL)
 
 
 def test_json_object_unsupported_ignores_missing_json_keyword() -> None:
@@ -42,6 +60,16 @@ def test_json_object_unsupported_ignores_missing_json_keyword() -> None:
         "to use 'response.format' of type 'json_object'."
     )
     assert not json_object_unsupported(err)
+
+
+def _mock_client(content: str) -> MagicMock:
+    ok = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content=content))],
+        usage=None,
+    )
+    client = MagicMock()
+    client.chat.completions.create = AsyncMock(return_value=ok)
+    return client
 
 
 @pytest.mark.asyncio
@@ -89,3 +117,47 @@ async def test_classifier_json_object_user_message_mentions_json() -> None:
     assert isinstance(messages, list)
     user_messages = [m for m in messages if m.get("role") == "user"]
     assert any("json" in str(m.get("content", "")).lower() for m in user_messages)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        ('{"difficulty":"simple"}', TaskDifficulty.SIMPLE),
+        ('{"difficulty":"复杂"}', TaskDifficulty.COMPLEX),
+        ('{"difficulty":"中等"}', TaskDifficulty.MEDIUM),
+        ('{"difficulty":"一般"}', TaskDifficulty.NORMAL),
+    ],
+)
+async def test_classifier_difficulty_parsing(payload: str, expected: TaskDifficulty) -> None:
+    d = await classify_task_difficulty("hello", ["tb1"], client=_mock_client(payload))
+    assert d == expected
+
+
+@pytest.mark.asyncio
+async def test_classifier_unknown_difficulty_fallback() -> None:
+    d = await classify_task_difficulty(
+        "hello",
+        ["tb1"],
+        client=_mock_client('{"difficulty":"unknown"}'),
+    )
+    assert d == TaskDifficulty.NORMAL
+
+
+@pytest.mark.asyncio
+async def test_classifier_malformed_json_fallback() -> None:
+    d = await classify_task_difficulty(
+        "hello",
+        ["tb1"],
+        client=_mock_client("not json at all"),
+    )
+    assert d == TaskDifficulty.NORMAL
+
+
+@pytest.mark.asyncio
+async def test_classifier_api_failure_fallback() -> None:
+    client = MagicMock()
+    client.chat.completions.create = AsyncMock(side_effect=RuntimeError("network down"))
+
+    d = await classify_task_difficulty("hello", ["tb1"], client=client, agent_config=None)
+    assert d == TaskDifficulty.NORMAL

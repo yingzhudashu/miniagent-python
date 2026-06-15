@@ -5,7 +5,7 @@
 
 文件结构：
 - proposals-{YYYY-MM-DD}.jsonl：每日提案追加写入
-- history.json：历史提案汇总（可选）
+- history.json：提案索引（id、状态、来源、时间戳）
 
 提案状态流转：
 pending -> approved -> executing -> completed/failed
@@ -19,13 +19,13 @@ pending -> rejected
     store.save_proposal(proposal)
 
     # 查询待执行提案
-    pending = store.list_proposals(status="pending")
+    pending = store.load_proposals(status="pending")
 
     # 批准提案
     store.update_status(proposal.id, "approved")
 
-    # 执行提案
-    result = store.apply_proposal(proposal.id, auto_rollback=True)
+    # 手动执行提案（manual=True 绕过 auto_apply 配置）
+    result = await store.apply_proposal_async(proposal.id, manual=True)
 
 详见 docs/SELF_OPT.md。
 """
@@ -33,8 +33,7 @@ pending -> rejected
 from __future__ import annotations
 
 import json
-import time as _time_module
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -86,6 +85,11 @@ def get_proposal_file(date: str | None = None) -> Path:
     return output_dir / f"proposals-{date}.jsonl"
 
 
+def get_history_file() -> Path:
+    """获取提案索引文件路径（history.json）。"""
+    return get_proposal_output_dir() / "history.json"
+
+
 def get_reports_dir() -> Path:
     """获取分析报告目录。
 
@@ -95,6 +99,41 @@ def get_reports_dir() -> Path:
     output_dir = get_proposal_output_dir().parent / "reports"
     output_dir.mkdir(parents=True, exist_ok=True)
     return output_dir
+
+
+def _update_history_index(record: dict[str, Any]) -> None:
+    """更新 history.json 提案索引（按 id 去重，保留最新状态）。"""
+    history_file = get_history_file()
+    index: list[dict[str, Any]] = []
+    if history_file.exists():
+        try:
+            with history_file.open("r", encoding="utf-8") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, list):
+                index = loaded
+        except (OSError, json.JSONDecodeError):
+            index = []
+
+    proposal_data = record.get("proposal", {})
+    entry = {
+        "id": record.get("id"),
+        "status": record.get("status"),
+        "source": record.get("source"),
+        "target": proposal_data.get("target", ""),
+        "risk_level": proposal_data.get("risk_level", "low"),
+        "created_at": record.get("created_at"),
+        "updated_at": record.get("updated_at"),
+    }
+
+    index = [e for e in index if e.get("id") != entry["id"]]
+    index.append(entry)
+    index.sort(key=lambda e: e.get("updated_at", ""), reverse=True)
+
+    try:
+        with history_file.open("w", encoding="utf-8") as f:
+            json.dump(index, f, indent=2, ensure_ascii=False)
+    except OSError as e:
+        _logger.warning("更新提案索引失败: %s", e)
 
 
 class ProposalStore:
@@ -115,6 +154,33 @@ class ProposalStore:
         """
         self._output_dir = output_dir or get_proposal_output_dir()
         self._output_dir.mkdir(parents=True, exist_ok=True)
+
+    def _iter_proposal_files(self, date: str | None = None) -> list[Path]:
+        """列出要读取的提案 JSONL 文件（date 为 None 时读取全部历史）。"""
+        if date is not None:
+            proposal_file = get_proposal_file(date)
+            return [proposal_file] if proposal_file.exists() else []
+        files = sorted(self._output_dir.glob("proposals-*.jsonl"), reverse=True)
+        return files
+
+    def _find_proposal_file(self, proposal_id: str) -> Path | None:
+        """定位包含指定提案 ID 的 JSONL 文件。"""
+        for proposal_file in self._iter_proposal_files():
+            try:
+                with proposal_file.open("r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            record = json.loads(line)
+                            if record.get("id") == proposal_id:
+                                return proposal_file
+                        except json.JSONDecodeError:
+                            continue
+            except OSError:
+                continue
+        return None
 
     def save_proposal(
         self,
@@ -176,6 +242,8 @@ class ProposalStore:
         with proposal_file.open("a", encoding="utf-8") as f:
             f.write(line + "\n")
 
+        _update_history_index(record)
+
         # 发出 trace 事件
         emit_trace(
             make_proposal_event(
@@ -203,37 +271,41 @@ class ProposalStore:
             status: 按状态过滤
             source: 按来源过滤
             risk_level: 按风险等级过滤
-            date: 日期（默认今天）
+            date: 限定单日；None 表示加载全部历史文件
 
         Returns:
-            提案记录列表
+            提案记录列表（按 updated_at 降序）
         """
-        proposal_file = get_proposal_file(date)
-        if not proposal_file.exists():
-            return []
+        proposals: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
 
-        proposals = []
-        try:
-            with proposal_file.open("r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        record = json.loads(line)
-                        # 过滤条件
-                        if status and record.get("status") != status:
+        for proposal_file in self._iter_proposal_files(date):
+            try:
+                with proposal_file.open("r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
                             continue
-                        if source and record.get("source") != source:
+                        try:
+                            record = json.loads(line)
+                            record_id = record.get("id", "")
+                            if record_id in seen_ids:
+                                continue
+                            # 过滤条件
+                            if status and record.get("status") != status:
+                                continue
+                            if source and record.get("source") != source:
+                                continue
+                            if risk_level and record.get("proposal", {}).get("risk_level") != risk_level:
+                                continue
+                            seen_ids.add(record_id)
+                            proposals.append(record)
+                        except json.JSONDecodeError:
                             continue
-                        if risk_level and record.get("proposal", {}).get("risk_level") != risk_level:
-                            continue
-                        proposals.append(record)
-                    except json.JSONDecodeError:
-                        continue
-        except OSError:
-            return []
+            except OSError:
+                continue
 
+        proposals.sort(key=lambda r: r.get("updated_at", ""), reverse=True)
         return proposals
 
     def get_proposal(self, proposal_id: str) -> dict[str, Any] | None:
@@ -245,29 +317,9 @@ class ProposalStore:
         Returns:
             提案记录（如果存在）
         """
-        # 搜索今天的文件
-        proposals = self.load_proposals()
-        for record in proposals:
+        for record in self.load_proposals():
             if record.get("id") == proposal_id:
                 return record
-
-        # 搜索历史文件（可选）
-        for proposal_file in self._output_dir.glob("proposals-*.jsonl"):
-            try:
-                with proposal_file.open("r", encoding="utf-8") as f:
-                    for line in f:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            record = json.loads(line)
-                            if record.get("id") == proposal_id:
-                                return record
-                        except json.JSONDecodeError:
-                            continue
-            except OSError:
-                continue
-
         return None
 
     def update_status(
@@ -286,13 +338,13 @@ class ProposalStore:
         Returns:
             是否成功更新
         """
-        # 找到提案所在文件
-        proposal_file = get_proposal_file()
-        if not proposal_file.exists():
+        proposal_file = self._find_proposal_file(proposal_id)
+        if proposal_file is None:
             return False
 
         updated = False
-        lines = []
+        lines: list[str] = []
+        updated_record: dict[str, Any] | None = None
 
         try:
             with proposal_file.open("r", encoding="utf-8") as f:
@@ -308,6 +360,7 @@ class ProposalStore:
                             if result:
                                 record["result"] = result
                             updated = True
+                            updated_record = record
 
                             # 发出 trace 事件
                             event_type = {
@@ -331,9 +384,10 @@ class ProposalStore:
                         continue
 
             if updated:
-                # 重写文件
                 with proposal_file.open("w", encoding="utf-8") as f:
                     f.write("\n".join(lines) + "\n")
+                if updated_record:
+                    _update_history_index(updated_record)
                 _logger.info("提案状态已更新: %s -> %s", proposal_id, new_status)
 
         except OSError as e:
@@ -348,6 +402,7 @@ class ProposalStore:
         root: str = "",
         auto_rollback: bool = True,
         dry_run: bool = False,
+        manual: bool = False,
     ) -> OptimizationResult:
         """异步执行提案。
 
@@ -356,6 +411,7 @@ class ProposalStore:
             root: 项目根目录
             auto_rollback: 失败时自动回滚
             dry_run: 仅模拟执行
+            manual: 手动执行（CLI /self-opt apply），绕过 auto_apply 配置
 
         Returns:
             执行结果
@@ -368,26 +424,30 @@ class ProposalStore:
                 error="提案不存在",
             )
 
-        # 检查配置是否允许自动执行
         auto_apply_enabled = get_config("self_optimization.auto_apply", False)
         max_risk = get_config("self_optimization.auto_apply_max_risk", "low")
         proposal_risk = record.get("proposal", {}).get("risk_level", "low")
-
-        if not auto_apply_enabled and not dry_run:
-            return OptimizationResult(
-                proposal_id=proposal_id,
-                status="skipped",
-                error="auto_apply 未启用，需手动批准",
-            )
-
-        # 风险等级检查
+        current_status = record.get("status", "pending")
         risk_order = {"low": 0, "medium": 1, "high": 2}
-        if risk_order.get(proposal_risk, 0) > risk_order.get(max_risk, 0):
-            return OptimizationResult(
-                proposal_id=proposal_id,
-                status="skipped",
-                error=f"风险等级 {proposal_risk} 超过配置上限 {max_risk}",
-            )
+
+        if not dry_run:
+            if manual:
+                pass  # CLI 已校验状态与风险
+            elif auto_apply_enabled:
+                if risk_order.get(proposal_risk, 0) > risk_order.get(max_risk, 0):
+                    return OptimizationResult(
+                        proposal_id=proposal_id,
+                        status="skipped",
+                        error=f"风险等级 {proposal_risk} 超过配置上限 {max_risk}",
+                    )
+            else:
+                return OptimizationResult(
+                    proposal_id=proposal_id,
+                    status="skipped",
+                    error="auto_apply 未启用，请使用 /self-opt apply 手动执行",
+                )
+
+        allow_high_risk = manual and current_status == "approved"
 
         # 更新状态为 executing
         self.update_status(proposal_id, "executing")
@@ -431,15 +491,23 @@ class ProposalStore:
             root=root,
             auto_rollback=auto_rollback,
             dry_run=dry_run,
+            allow_high_risk=allow_high_risk,
         )
 
         # 更新最终状态
-        final_status = "completed" if result.status == "success" else "failed"
-        self.update_status(
-            proposal_id,
-            final_status,
-            result=result.error or "成功",
-        )
+        if result.status == "success":
+            final_status = "completed"
+        elif result.status == "skipped":
+            final_status = current_status if current_status in ("pending", "approved") else "failed"
+        else:
+            final_status = "failed"
+
+        if result.status != "skipped":
+            self.update_status(
+                proposal_id,
+                final_status,
+                result=result.error or "成功",
+            )
 
         return result
 
@@ -453,7 +521,7 @@ class ProposalStore:
         Returns:
             删除的文件数
         """
-        cutoff_date = datetime.now(timezone.utc) - _time_module.timedelta(days=retention_days)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=retention_days)
         deleted = 0
 
         for proposal_file in get_proposal_output_dir().glob("proposals-*.jsonl"):
@@ -475,6 +543,7 @@ class ProposalStore:
 __all__ = [
     "get_proposal_output_dir",
     "get_proposal_file",
+    "get_history_file",
     "get_reports_dir",
     "ProposalStore",
 ]

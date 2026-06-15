@@ -74,13 +74,27 @@ def get_trace_output_dir() -> Path:
 
 
 def get_trace_file(date: str | None = None) -> Path:
-    """获取指定日期的 trace 文件路径。
+    """获取指定日期的 trace 文件路径（统计/报告侧）。
+
+    .. note::
+        写入侧请使用 :func:`miniagent.infrastructure.tracing.get_trace_file` 或
+        :func:`miniagent.infrastructure.tracing.get_actual_trace_file`。
+        推荐新代码对本函数使用别名 :func:`get_daily_trace_file_path`。
 
     Args:
         date: 日期字符串（YYYY-MM-DD），默认今天
 
     Returns:
         Trace 文件路径（trace-YYYY-MM-DD.jsonl）
+    """
+    return get_daily_trace_file_path(date)
+
+
+def get_daily_trace_file_path(date: str | None = None) -> Path:
+    """按日期返回 trace JSONL 路径（统计/报告用，不含 pid 分片）。
+
+    异步写入器可能额外产生 ``trace-YYYY-MM-DD-pid{pid}.jsonl``；
+    聚合读取请用 :func:`get_trace_files`。
     """
     if date is None:
         date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -657,6 +671,7 @@ def remove_session_from_trace_files(session_key: str) -> int:
 __all__ = [
     "get_trace_output_dir",
     "get_trace_file",
+    "get_daily_trace_file_path",
     "get_trace_files",
     "load_trace_events",
     "compute_tool_stats",

@@ -15,6 +15,8 @@ from typing import Any
 # OpenAI function schema 描述字段最大长度
 MAX_DESCRIPTION_LENGTH = 4096
 
+_MCP_MISSING_MSG = "未安装 mcp 包，请执行: pip install miniagent-python[mcp]"
+
 try:
     import mcp  # noqa: F401
 
@@ -53,9 +55,24 @@ async def list_mcp_tools_openai(
     *,
     env: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
-    """连接 stdio MCP 服务端并列出工具，返回 OpenAI 形参列表（需已安装 mcp）。"""
+    """连接 stdio MCP 服务端并列出工具，返回 OpenAI 形参列表（需已安装 mcp）。
+
+    与 ``register_mcp_stdio_tools`` 不同，本函数使用临时连接，列出后即断开，
+    适合探测/调试，不适合生产常驻调用。
+
+    Args:
+        command: stdio 子进程可执行文件路径或命令名
+        args: 传给子进程的参数列表
+        env: 可选环境变量覆盖（``None`` 表示继承当前进程环境）
+
+    Returns:
+        OpenAI Chat Completions ``tools`` 形参列表（``type=function``）
+
+    Raises:
+        RuntimeError: 未安装官方 ``mcp`` 包
+    """
     if not _MCP_INSTALLED:
-        raise RuntimeError("未安装 mcp 包，请执行: pip install miniagent-python[mcp]")
+        raise RuntimeError(_MCP_MISSING_MSG)
 
     from mcp.client.stdio import stdio_client
 

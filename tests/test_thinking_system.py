@@ -63,10 +63,14 @@ class TestMapThinkingLevelToModel:
         assert map_thinking_level_to_model("unknown") == ("medium", 8192)
 
     def test_none_defaults_to_medium(self):
-        assert map_thinking_level_to_model(None) == ("medium", 8192)  # type: ignore[arg-type]
+        assert map_thinking_level_to_model(None) == ("medium", 8192)
 
     def test_empty_string_defaults_to_medium(self):
         assert map_thinking_level_to_model("") == ("medium", 8192)
+
+    def test_chinese_not_supported_defaults_to_medium(self):
+        assert map_thinking_level_to_model("低") == ("medium", 8192)
+        assert map_thinking_level_to_model("复杂") == ("medium", 8192)
 
 
 class TestMapBusinessDepth:
@@ -95,6 +99,17 @@ class TestMapBusinessDepth:
 
     def test_whitespace_stripped(self):
         assert map_business_depth("  LOW  ") == ("light", 1024)
+
+    @pytest.mark.parametrize(
+        "inp,expected",
+        [
+            ("light", ("light", 1024)),
+            ("heavy", ("heavy", 81920)),
+            ("  LIGHT  ", ("light", 1024)),
+        ],
+    )
+    def test_model_tier_passthrough(self, inp, expected):
+        assert map_business_depth(inp) == expected
 
 
 class TestThinkingLevelPresetsConstant:
@@ -461,7 +476,7 @@ class TestThinkingCLIWidth:
     async def test_set_cli_markdown_width_used_for_thinking_rich(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr("miniagent.engine.thinking.CLI_THINKING_RICH", True)
+        monkeypatch.setattr("miniagent.engine.thinking._cli_thinking_rich_enabled", lambda: True)
         seen: list[int] = []
 
         def fake_render(markdown: str, *, width: int) -> str:

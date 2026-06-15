@@ -14,6 +14,8 @@ Tests cover:
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -371,9 +373,15 @@ class TestWorkingDirectory:
     """测试工作目录处理。"""
 
     @pytest.mark.asyncio
-    async def test_custom_cwd_is_used(self) -> None:
-        """自定义工作目录应被使用。"""
-        ctx = _create_context(permission="full", cwd="/default")
+    async def test_custom_cwd_is_used(self, tmp_path: Path) -> None:
+        """自定义工作目录须在 allowed_paths 内且会被使用。"""
+        sub = tmp_path / "subdir"
+        sub.mkdir()
+        ctx = ToolContext(
+            cwd=str(tmp_path),
+            allowed_paths=[str(tmp_path)],
+            permission="allowlist",
+        )
 
         mock_proc = MagicMock()
         mock_proc.communicate = AsyncMock(return_value=(b"", b""))
@@ -383,16 +391,19 @@ class TestWorkingDirectory:
             mock_create.return_value = mock_proc
 
             with patch("miniagent.tools.exec.deregister_process", new_callable=AsyncMock):
-                await _exec_handler({"command": "ls", "cwd": "/custom"}, ctx)
+                await _exec_handler({"command": "echo hello", "cwd": str(sub)}, ctx)
 
-                # 验证 cwd 参数传递
                 call_kwargs = mock_create.call_args[1]
-                assert call_kwargs["cwd"] == "/custom"
+                assert os.path.normcase(call_kwargs["cwd"]) == os.path.normcase(str(sub.resolve()))
 
     @pytest.mark.asyncio
-    async def test_default_cwd_from_context(self) -> None:
-        """无自定义 cwd 时应使用上下文 cwd。"""
-        ctx = _create_context(permission="full", cwd="/context_dir")
+    async def test_default_cwd_from_context(self, tmp_path: Path) -> None:
+        """无自定义 cwd 时应使用上下文 cwd（须在 allowed_paths 内）。"""
+        ctx = ToolContext(
+            cwd=str(tmp_path),
+            allowed_paths=[str(tmp_path)],
+            permission="allowlist",
+        )
 
         mock_proc = MagicMock()
         mock_proc.communicate = AsyncMock(return_value=(b"", b""))
@@ -402,10 +413,42 @@ class TestWorkingDirectory:
             mock_create.return_value = mock_proc
 
             with patch("miniagent.tools.exec.deregister_process", new_callable=AsyncMock):
-                await _exec_handler({"command": "ls"}, ctx)
+                await _exec_handler({"command": "echo hello"}, ctx)
 
                 call_kwargs = mock_create.call_args[1]
-                assert call_kwargs["cwd"] == "/context_dir"
+                assert os.path.normcase(call_kwargs["cwd"]) == os.path.normcase(str(tmp_path.resolve()))
+
+    @pytest.mark.asyncio
+    async def test_cwd_outside_sandbox_rejected(self, tmp_path: Path) -> None:
+        """工作目录越权应被拒绝。"""
+        outside = tmp_path.parent / "exec_outside_sandbox"
+        outside.mkdir(exist_ok=True)
+        ctx = ToolContext(
+            cwd=str(tmp_path),
+            allowed_paths=[str(tmp_path)],
+            permission="allowlist",
+        )
+        r = await _exec_handler({"command": "echo hello", "cwd": str(outside)}, ctx)
+        assert not r.success
+        assert "越权" in r.content or "超出" in r.content
+
+
+class TestAllowlistProductionPath:
+    """生产路径 permission=allowlist 仍应启用命令安全检查。"""
+
+    @pytest.mark.asyncio
+    async def test_allowlist_blocks_dangerous_command(self) -> None:
+        ctx = _create_context(permission="allowlist")
+        result = await _exec_handler({"command": "rm -rf /"}, ctx)
+        assert not result.success
+        assert "拒绝" in result.content
+
+    @pytest.mark.asyncio
+    async def test_command_security_enabled_for_allowlist(self) -> None:
+        from miniagent.tools.exec import _command_security_enabled
+
+        ctx = _create_context(permission="allowlist")
+        assert _command_security_enabled(ctx) is True
 
 
 # ============================================================================

@@ -1,4 +1,4 @@
-"""Feishu docx v1 document API."""
+"""飞书云文档（Docx）文档级 API：创建、获取、删除、导出 raw 内容。"""
 
 from __future__ import annotations
 

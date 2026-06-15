@@ -83,7 +83,7 @@ def test_md_help_section_list_separated_from_next_title() -> None:
 async def test_dispatch_help_capture_contains_list() -> None:
     """测试通过命令调度器调用 /help 返回列表格式。"""
     mq = MessageQueueManager()
-    ms, al, ki = _make_memory_bundle()
+    ms, al, ki, mc = _make_memory_bundle()
     ctx = RuntimeContext(
         registry=DefaultToolRegistry(),
         monitor=DefaultToolMonitor(),
@@ -96,6 +96,7 @@ async def test_dispatch_help_capture_contains_list() -> None:
         memory_store=ms,
         activity_log=al,
         keyword_index=ki,
+        memory_context=mc,
     )
     ctx.create_feishu_handler_factory = lambda tb, tp, st: lambda *a, **k: None
 
@@ -122,7 +123,7 @@ async def test_dispatch_reload_skills_slash_prefix() -> None:
     from unittest.mock import AsyncMock, MagicMock, patch
 
     mq = MessageQueueManager()
-    ms, al, ki = _make_memory_bundle()
+    ms, al, ki, mc = _make_memory_bundle()
     ctx = RuntimeContext(
         registry=DefaultToolRegistry(),
         monitor=DefaultToolMonitor(),
@@ -135,6 +136,7 @@ async def test_dispatch_reload_skills_slash_prefix() -> None:
         memory_store=ms,
         activity_log=al,
         keyword_index=ki,
+        memory_context=mc,
     )
     state = {
         "active_session_id": "default",

@@ -131,6 +131,7 @@ def test_shutdown_saves_last_cli_with_real_list_format(tmp_path) -> None:
         memory_store=MagicMock(),
         activity_log=MagicMock(),
         keyword_index=MagicMock(),
+        memory_context=MagicMock(),
         openai_client=None,
     )
     sm = _RealFormatFakeSessionManager(
@@ -284,6 +285,7 @@ def test_shutdown_runtime_saves_last_cli_session(tmp_path) -> None:
         memory_store=MagicMock(),
         activity_log=MagicMock(),
         keyword_index=MagicMock(),
+        memory_context=MagicMock(),
         openai_client=None,
     )
     sm = _FakeSessionManager(["work-a"])

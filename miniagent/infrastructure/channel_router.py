@@ -176,6 +176,10 @@ class ChannelRouter:
         """当前主会话 ID。"""
         return self._primary
 
+    def get_primary(self) -> str | None:
+        """返回当前主会话 ID（:class:`ChannelRouterProtocol` 兼容方法）。"""
+        return self._primary
+
     # -----------------------------------------------------------------------
     # 查询
     # -----------------------------------------------------------------------

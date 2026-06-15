@@ -19,6 +19,7 @@ def upload_drive_media(
     parent_type: str,
     parent_node: str,
 ) -> str:
+    """上传素材到云盘/文档上下文，返回 file_token 或 image_key。"""
     from lark_oapi.api.drive.v1 import UploadAllMediaRequest, UploadAllMediaRequestBody
 
     client = build_client(config)
@@ -51,6 +52,7 @@ def insert_image_block(
     parent_block_id: str | None = None,
     index: int | None = None,
 ) -> None:
+    """在文档中插入图片块。"""
     client = build_client(config)
     parent = parent_block_id or _find_page_block_id(client, document_id)
     req_body: dict[str, Any] = {
@@ -71,6 +73,7 @@ def upload_doc_image_from_bytes(
     parent_block_id: str | None = None,
     index: int | None = None,
 ) -> str:
+    """上传图片字节并插入文档，返回 image_token。"""
     token = upload_drive_media(
         config,
         data,
@@ -88,6 +91,7 @@ def upload_doc_image_from_path(
     path: str,
     **kwargs: Any,
 ) -> str:
+    """从本地路径读取图片并插入文档。"""
     with open(path, "rb") as f:
         data = f.read()
     name = os.path.basename(path) or "image.png"
@@ -100,6 +104,7 @@ def download_media_bytes(
     *,
     extra: str | None = None,
 ) -> bytes:
+    """按 file_token 下载云盘/文档素材二进制内容。"""
     from lark_oapi.api.drive.v1 import DownloadMediaRequest
 
     client = build_client(config)
@@ -126,6 +131,7 @@ def upload_doc_file_from_path(
     *,
     filename: str | None = None,
 ) -> str:
+    """从本地路径上传文件到文档上下文，返回 file_token。"""
     with open(path, "rb") as f:
         data = f.read()
     name = filename or os.path.basename(path) or "file.bin"

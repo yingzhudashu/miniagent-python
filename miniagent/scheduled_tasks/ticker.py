@@ -32,6 +32,7 @@ from miniagent.scheduled_tasks.store import (
 
 _logger = get_logger(__name__)
 
+# 同进程内已投递、尚未写完状态的 task id；与 job_<id>.lock 互补防重复触发
 _inflight: set[str] = set()
 _MAX_DUE_PER_TICK = 5
 
@@ -191,11 +192,15 @@ async def scheduled_tasks_loop(
         except Exception:
             _logger.exception("scheduled_tasks tick 异常")
         try:
-            from miniagent.scheduled_tasks.trace_cleanup import maybe_scheduled_trace_stats_report
+            from miniagent.scheduled_tasks.trace_cleanup import (
+                maybe_scheduled_cleanup_traces,
+                maybe_scheduled_trace_stats_report,
+            )
 
+            maybe_scheduled_cleanup_traces()
             maybe_scheduled_trace_stats_report()
         except Exception:
-            _logger.debug("trace stats report tick skipped", exc_info=True)
+            _logger.debug("trace housekeeping tick skipped", exc_info=True)
 
 
 def start_scheduled_tasks_ticker(

@@ -44,6 +44,35 @@ class TestBuildThinkingExtraBody:
         )
         assert result.get("enable_thinking") is False
 
+    def test_none_thinking_level(self):
+        """none level disables thinking (ModelConfig semantics)."""
+        result = build_thinking_extra_body(
+            "https://dashscope.aliyuncs.com/v1",
+            "none",
+            1024,
+        )
+        assert result.get("enable_thinking") is False
+
+    def test_non_qwen_endpoint_with_user_extra_body(self):
+        """Non-Qwen endpoints pass through user extra_body unchanged."""
+        result = build_thinking_extra_body(
+            "https://api.openai.com/v1",
+            "medium",
+            1024,
+            model_overrides_extra={"extra_body": {"custom_field": "value"}},
+        )
+        assert result == {"custom_field": "value"}
+
+    def test_zero_budget_overrides_user_enable_thinking(self):
+        """Zero budget forces thinking off even if user extra_body enabled it."""
+        result = build_thinking_extra_body(
+            "https://dashscope.aliyuncs.com/v1",
+            "medium",
+            0,
+            model_overrides_extra={"extra_body": {"enable_thinking": True}},
+        )
+        assert result.get("enable_thinking") is False
+
     def test_aliyuncs_endpoint(self):
         """aliyuncs.com endpoint recognized."""
         result = build_thinking_extra_body(

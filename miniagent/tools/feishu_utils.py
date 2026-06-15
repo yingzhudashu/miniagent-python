@@ -16,6 +16,9 @@
             return dep_err
         # 继续处理...
 
+非工具代码可直接使用 ``require_feishu_config`` / ``require_lark_oapi_installed``，
+在缺失配置或依赖时抛出 ``FeishuConfigMissingError`` / ``LarkOapiMissingError``。
+
 重命名说明：从 _feishu_utils.py 重命名为 feishu_utils.py（规范化）。
 """
 
@@ -25,7 +28,26 @@ from miniagent.feishu.lark_client import config_from_env
 from miniagent.feishu.types import FeishuConfig
 from miniagent.types.error_messages import DEPENDENCY_LARK_OAPI_MISSING, FEISHU_CONFIG_MISSING
 from miniagent.types.error_prefix import WARNING_PREFIX
+from miniagent.types.errors import FeishuConfigMissingError, LarkOapiMissingError
 from miniagent.types.tool import ToolResult
+
+
+def require_feishu_config() -> FeishuConfig:
+    """读取飞书配置；缺失必要环境变量时抛出 ``FeishuConfigMissingError``。"""
+    cfg = config_from_env()
+    if cfg is None:
+        raise FeishuConfigMissingError()
+    return cfg
+
+
+def require_lark_oapi_installed() -> None:
+    """确认 lark-oapi 已安装；缺失时抛出 ``LarkOapiMissingError``。"""
+    try:
+        import miniagent.feishu.lark_client as _lc
+
+        _lc.require_lark_oapi()
+    except ImportError as e:
+        raise LarkOapiMissingError() from e
 
 
 def check_feishu_config() -> tuple[FeishuConfig | None, ToolResult | None]:
@@ -37,13 +59,13 @@ def check_feishu_config() -> tuple[FeishuConfig | None, ToolResult | None]:
         (FeishuConfig, None): 配置成功，返回配置对象
         (None, ToolResult): 配置失败，返回错误 ToolResult
     """
-    cfg = config_from_env()
-    if cfg is None:
+    try:
+        return require_feishu_config(), None
+    except FeishuConfigMissingError:
         return None, ToolResult(
             success=False,
             content=f"{WARNING_PREFIX} {FEISHU_CONFIG_MISSING}。",
         )
-    return cfg, None
 
 
 def check_lark_oapi() -> ToolResult | None:
@@ -56,10 +78,8 @@ def check_lark_oapi() -> ToolResult | None:
         ToolResult: 依赖缺失，返回错误 ToolResult
     """
     try:
-        import miniagent.feishu.lark_client as _lc
-        # 尝试导入 lark.oapi，触发 ImportError 如果不存在
-        _lc.require_lark_oapi()
-    except ImportError:
+        require_lark_oapi_installed()
+    except LarkOapiMissingError:
         return ToolResult(
             success=False,
             content=f"{WARNING_PREFIX} {DEPENDENCY_LARK_OAPI_MISSING}。",
@@ -86,6 +106,8 @@ def check_feishu_config_and_lark_oapi() -> tuple[FeishuConfig | None, ToolResult
 
 
 __all__ = [
+    "require_feishu_config",
+    "require_lark_oapi_installed",
     "check_feishu_config",
     "check_lark_oapi",
     "check_feishu_config_and_lark_oapi",

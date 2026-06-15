@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.core.planner import generate_plan
+from miniagent.core.planner import _fallback_plan, generate_plan
 from miniagent.types.planning import PlanStep, StructuredPlan
 from miniagent.types.tool import Toolbox
 
@@ -31,7 +31,12 @@ async def test_generate_plan_fallback():
 
     # 应返回fallback计划
     assert isinstance(plan, StructuredPlan)
-    assert plan.summary is not None  # fallback应包含基本summary
+    assert plan.summary == "直接执行模式：跳过详细规划"
+    assert len(plan.steps) == 1
+    assert plan.steps[0].expected_input == "失败测试"
+    assert plan.risk_level == "low"
+    assert plan.suggested_config.max_turns == 5
+    assert plan.fallback_plan.degrade_to_simple is False
 
 
 @pytest.mark.asyncio
@@ -95,6 +100,61 @@ async def test_generate_plan_json_object_user_message_mentions_json():
     assert isinstance(messages, list)
     user_messages = [m for m in messages if m.get("role") == "user"]
     assert any("json" in str(m.get("content", "")).lower() for m in user_messages)
+
+
+@pytest.mark.asyncio
+async def test_generate_plan_json_object_unsupported_downgrades_in_same_attempt():
+    """API 不支持 json_object 时，同一次 attempt 内降级并重试。"""
+    calls: list[dict] = []
+    mock_client = AsyncMock()
+    mock_response = MagicMock(
+        choices=[
+            MagicMock(
+                message=MagicMock(
+                    content=(
+                        '{"summary":"downgraded","steps":[],"requiredToolboxes":[],'
+                        '"suggestedConfig":{},"estimatedTokens":{},'
+                        '"contextStrategy":{},"requiresConfirmation":false,'
+                        '"riskLevel":"low","estimatedCost":{},'
+                        '"outputSpec":{},"fallbackPlan":{}}'
+                    )
+                )
+            )
+        ]
+    )
+    mock_response.usage = None
+
+    async def fake_create(**kw):
+        calls.append(dict(kw))
+        if kw.get("response_format"):
+            raise Exception("response_format json_object is not supported on this model")
+        return mock_response
+
+    mock_client.chat.completions.create = AsyncMock(side_effect=fake_create)
+    toolbox = Toolbox(id="test", name="test", description="test", keywords=["test"])
+
+    plan = await generate_plan("hello", [toolbox], client=mock_client)
+
+    assert plan.summary == "downgraded"
+    assert len(calls) == 2
+    assert calls[0].get("response_format") == {"type": "json_object"}
+    assert "response_format" not in calls[1]
+
+
+def test_fallback_plan_fields() -> None:
+    """直接验证 fallback 计划的字段与策略。"""
+    plan = _fallback_plan("用户原始问题")
+
+    assert plan.summary == "直接执行模式：跳过详细规划"
+    assert len(plan.steps) == 1
+    assert plan.steps[0].description == "根据用户需求直接处理"
+    assert plan.steps[0].expected_input == "用户原始问题"
+    assert plan.steps[0].thinking_level == "low"
+    assert plan.risk_level == "low"
+    assert plan.suggested_config.max_turns == 5
+    assert plan.suggested_config.risk_level == "low"
+    assert plan.fallback_plan.degrade_to_simple is False
+    assert plan.fallback_plan.degraded_max_turns == 5
 
 
 def test_plan_step_dataclass():

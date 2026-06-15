@@ -11,6 +11,7 @@ from miniagent.infrastructure.json_config import get_config
 
 
 def user_access_token_from_env() -> str | None:
+    """从配置 ``secrets.feishu_user_access_token`` 读取用户 OAuth access token。"""
     tok = (get_config("secrets.feishu_user_access_token", "") or "").strip()
     return tok or None
 
@@ -129,6 +130,7 @@ def search_docs(
 def list_permissions(
     config: FeishuConfig, file_token: str, *, doc_type: str = "docx"
 ) -> list[dict]:
+    """列举云文档/文件协作者权限。"""
     from lark_oapi.api.drive.v1 import ListPermissionMemberRequest
 
     client = build_client(config)
@@ -150,6 +152,7 @@ def list_permissions(
 def copy_file(
     config: FeishuConfig, file_token: str, *, name: str, folder_token: str, doc_type: str = "docx"
 ) -> str:
+    """复制云文件到目标文件夹，返回新 file token。"""
     from lark_oapi.api.drive.v1 import CopyFileRequest, CopyFileRequestBody
 
     client = build_client(config)
@@ -174,6 +177,7 @@ def add_permission(
     doc_type: str = "docx",
     need_notification: bool = False,
 ) -> dict[str, Any]:
+    """为云文件添加协作者权限。"""
     from lark_oapi.api.drive.v1 import BaseMember, CreatePermissionMemberRequest
 
     client = build_client(config)
@@ -205,6 +209,7 @@ def remove_permission(
     member_id: str,
     doc_type: str = "docx",
 ) -> None:
+    """移除云文件协作者权限。"""
     from lark_oapi.api.drive.v1 import DeletePermissionMemberRequest
 
     client = build_client(config)
@@ -224,6 +229,7 @@ def remove_permission(
 def move_file(
     config: FeishuConfig, file_token: str, *, folder_token: str, doc_type: str = "docx"
 ) -> None:
+    """将云文件移动到目标文件夹。"""
     from lark_oapi.api.drive.v1 import MoveFileRequest, MoveFileRequestBody
 
     client = build_client(config)

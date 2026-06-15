@@ -1,9 +1,12 @@
 """Mini Agent Python — Agent 编排层（两阶段主入口）
 
-两阶段架构的主入口：
+**对外两阶段**（本模块核心职责）：
 - **Phase 1（Planning）**：调用 :mod:`miniagent.core.planner`，产出 ``StructuredPlan``；在
   ``skip_planning``、无工具箱、或任务分类为「简单」时可跳过并回落默认计划。
 - **Phase 2（Execution）**：调用 :mod:`miniagent.core.executor` 的 ReAct 循环直至无工具调用或达上限。
+
+**可选编排步骤**（由 ``run_agent`` 串联，不改变上述两阶段定义）：
+- 任务分类（Phase 0）、需求澄清（Phase 0.5）、执行后反思（Phase 3）。
 
 **边界**：本模块不处理 stdin/stdout、消息队列或飞书 HTTP；仅编排 LLM 与工具。通道相关回调通过
 ``on_thinking`` / ``on_tool_call`` 等注入，由 :class:`miniagent.engine.engine.UnifiedEngine` 等上层接线。
@@ -26,7 +29,18 @@ if TYPE_CHECKING:
     from openai import AsyncOpenAI
 
 from miniagent.core.config import get_default_agent_config, merge_agent_config
+from miniagent.core.constants import (
+    CLARIFIER_MAX_QUESTIONS_COMPLEX,
+    CLARIFIER_MAX_QUESTIONS_MEDIUM,
+    CLARIFIER_MAX_QUESTIONS_NORMAL,
+    CLARIFIER_MAX_QUESTIONS_SIMPLE,
+)
 from miniagent.core.executor import execute_plan
+from miniagent.core.plan_utils import (
+    format_estimated_cost_block,
+    format_output_spec_block,
+    resolve_effective_overflow_strategy,
+)
 from miniagent.core.planner import generate_plan
 from miniagent.core.problem_solver import build_reflection_footer, reflect_on_result
 from miniagent.core.task_classifier import (
@@ -53,8 +67,8 @@ from miniagent.types.agent import (
     ToolMonitorProtocol,
     ToolStats,
 )
-from miniagent.types.confirmation import ConfirmationRequest, ConfirmationResult, ConfirmationStage
 from miniagent.types.config import AgentConfig
+from miniagent.types.confirmation import ConfirmationRequest, ConfirmationResult, ConfirmationStage
 from miniagent.types.error_prefix import WARNING_PREFIX
 from miniagent.types.planning import (
     ContextStrategy,
@@ -91,6 +105,17 @@ _DIFFICULTY_LABELS = {
     "medium": "中等",
     "complex": "复杂",
 }
+
+
+def _clarifier_max_questions_for_difficulty(difficulty: TaskDifficulty) -> int:
+    """按任务难度返回澄清追问上限（见 ``core.constants`` CLARIFIER_MAX_QUESTIONS_*）。"""
+    if difficulty == TaskDifficulty.SIMPLE:
+        return CLARIFIER_MAX_QUESTIONS_SIMPLE
+    if difficulty == TaskDifficulty.NORMAL:
+        return CLARIFIER_MAX_QUESTIONS_NORMAL
+    if difficulty == TaskDifficulty.MEDIUM:
+        return CLARIFIER_MAX_QUESTIONS_MEDIUM
+    return CLARIFIER_MAX_QUESTIONS_COMPLEX
 
 
 def _format_task_difficulty(difficulty: Any, *, display: bool = False) -> str:
@@ -202,6 +227,9 @@ def _format_plan_display_short(
     if plan.required_toolboxes:
         lines.append("")
         lines.append(f"工具箱：`{', '.join(plan.required_toolboxes)}`")
+    if plan.estimated_cost.total_usd > 0:
+        lines.append("")
+        lines.append(f"预估成本约 ${plan.estimated_cost.total_usd:.4f}")
     return "\n".join(lines)
 
 
@@ -257,11 +285,32 @@ def _format_plan_message(
     if plan.required_toolboxes:
         lines.append("")
         lines.append(f"涉及工具箱：{', '.join(plan.required_toolboxes)}")
+    cost_block = format_estimated_cost_block(plan.estimated_cost)
+    if cost_block:
+        lines.append("")
+        lines.append(cost_block)
+    out_block = format_output_spec_block(plan.output_spec)
+    if out_block:
+        lines.append("")
+        lines.append(out_block)
+    cs = plan.context_strategy
+    if cs and (cs.reason or cs.chunks):
+        lines.append("")
+        lines.append("上下文策略：")
+        if cs.reason:
+            lines.append(cs.reason)
+        if cs.chunks:
+            lines.append(f"分 {len(cs.chunks)} 块执行")
     return "\n".join(lines)
 
 
 def _merge_plan_suggested_config(plan: StructuredPlan, merged_config: AgentConfig) -> AgentConfig:
-    """合并规划器建议配置与计划风险等级到运行配置。"""
+    """合并规划器建议配置与计划风险等级到运行配置。
+
+    ``suggested_config.max_turns`` 仅抬高基线、不压低；``parallelism`` 映射为
+    ``allow_parallel_tools``；``context_overflow_strategy`` 可来自 suggested_config 或
+    :func:`miniagent.core.plan_utils.resolve_effective_overflow_strategy`。
+    """
     config = merged_config
     if plan.suggested_config:
         sc = plan.suggested_config
@@ -274,6 +323,9 @@ def _merge_plan_suggested_config(plan: StructuredPlan, merged_config: AgentConfi
             overrides["risk_level"] = sc.risk_level
         if sc.context_overflow_strategy is not None:
             overrides["context_overflow_strategy"] = sc.context_overflow_strategy
+        elif plan.context_strategy:
+            overflow = resolve_effective_overflow_strategy(plan, config.context_overflow_strategy)
+            overrides["context_overflow_strategy"] = overflow
         if sc.tool_selection_strategy is not None:
             overrides["tool_selection_strategy"] = sc.tool_selection_strategy
         mo: dict[str, Any] = {}
@@ -346,52 +398,44 @@ async def run_agent(
     memory_store: Any | None = None,
     activity_log: Any | None = None,
     keyword_index: Any | None = None,
+    memory_context: Any | None = None,
     client: AsyncOpenAI | None = None,
     clarifier: Any | None = None,
     session_key: str | None = None,
     confirmation_channel: Any | None = None,
     engine: Any | None = None,
 ) -> AgentRunResult:
-    """运行 Agent（两阶段模式）。
+    """运行 Agent（两阶段主入口 + 可选前置/后置步骤）。
 
-    **核心架构**（Phase 0-2 多阶段智能）：
-    - Phase 0: 任务难度分类（simple/normal/medium/complex）
-    - Phase 0.5: 需求澄清（三步法：Wittgenstein → Socrates → Polya）
-    - Phase 1: 结构化规划（LLM生成 StructuredPlan）
-    - Phase 2: ReAct 循环执行（Think → Act → Observe）
+    **对外两阶段**（本函数核心职责）：
+    - **Phase 1 — Planning**：``generate_plan`` 产出 :class:`~miniagent.types.planning.StructuredPlan`；
+      在 ``skip_planning``、无 ``toolboxes``、或分类为「简单」时跳过并回落默认计划。
+    - **Phase 2 — Execution**：``execute_plan`` 实现 ReAct（Think → Act → Observe）。
 
-    **Phase 0 分类器**（task_classifier_enabled=True）：
-    - 简单任务：跳过规划，直接执行（降低延迟和成本）
-    - 一般/中等/复杂任务：调用结构化规划器
-    - 可通过 agent.skip_task_classification=True 强制关闭
+    **可选编排步骤**（仍在 ``run_agent`` 内串联）：
+    - **Phase 0 — 任务分类**：``classify_task_difficulty``；简单任务可跳过 Phase 1。
+      可通过 ``agent.skip_task_classification=True`` 关闭分类器。
+    - **Phase 0.5 — 需求澄清**：需传入 ``clarifier`` 与 ``confirmation_channel``；
+      追问算法与轮次策略见
+      :class:`~miniagent.core.requirement_clarifier.RequirementClarifier`（本模块仅编排调用）。
+    - **Phase 3 — 结果反思**：``features.reflection=True`` 时在回复末尾追加展示用 footer；
+      完整评估逻辑见 :mod:`miniagent.core.problem_solver`。
 
-    **Phase 0.5 需求澄清**（clarifier提供时）：
-    - Wittgenstein：语言边界检查（是否存在歧义）
-    - Socrates：反向追问（通过反例澄清边界）
-    - Polya：示例传递（提供具体场景）
-    - 澄清轮次最多3轮，避免过度追问
+    **思考展示**（``on_thinking``）：
+    - ``EXECUTION_ANNOUNCE_DIFFICULTY=True`` 时合并难度与规划为 ``[评估与计划]`` 段。
+    - 分段标签示例：``[评估与计划]`` → ``[需求澄清]`` → ``[等待确认]`` → 执行器内 ``[执行]``。
+    - ``full_record`` 写入会话历史全量文本；``reset=True`` 避免澄清后重复展示难度。
 
-    **Phase 1 规划**（skip_planning=False 且有toolboxes）：
-    - LLM分析需求，生成 StructuredPlan（summary、steps、required_toolboxes）
-    - 工具箱选择：auto/manual/all 三种策略
-    - Token估算：预估上下文消耗，避免超预算
-    - 风险评估：高风险操作需用户确认（on_plan回调）
+    **高风险计划确认**（``plan.requires_confirmation=True``）：
+    - 已提供 ``on_plan``：推送 ``[等待确认]``，阻塞等待
+      :class:`~miniagent.types.confirmation.ConfirmationResult`（``/confirm`` / ``/reject`` / ``/adjust``）。
+    - **未提供 ``on_plan``**：无法阻塞，**直接进入 Phase 2**（无确认通道时的降级行为）。
 
-    **Phase 2 执行**（ReAct循环）：
-    - 执行器调用 execute_plan，实现 Think → Act → Observe
-    - 循环检测：防止无限循环（相似度阈值配置）
-    - 记忆上下文分层：结构化会话记忆与关键词检索由执行器放入本轮 user context
-    - 流式输出：通过 on_thinking 实时推送思考过程
+    **执行失败降级**：Phase 2 返回带 ``WARNING_PREFIX`` 且 ``plan.fallback_plan.degrade_to_simple``
+    为真时，以 ``degraded_max_turns`` 清空 ``steps`` 后再执行一次 ReAct。
 
-    **思考展示策略**（on_thinking回调）：
-    - EXECUTION_ANNOUNCE_DIFFICULTY=True：合并难度评估和规划展示
-    - 分段显示：[评估与计划] → [执行] → [等待确认]
-    - 全量记录：full_record参数写入会话历史（飞书/CLI双通道）
-
-    **高风险确认流程**（plan.requires_confirmation=True）：
-    - 显示警告提示："⚠️ 高风险操作，请确认执行计划"
-    - 调用 on_plan回调等待用户确认
-    - 用户可通过 /confirm /reject /adjust 命令响应
+    **副作用**：反思开启且传入 ``engine`` 时，结果写入 ``engine._last_reflection[session_key]``，
+    供飞书质量卡片读取（动态属性，非公开 API 契约）。
 
     Args:
         user_input: 用户的原始需求文本
@@ -411,21 +455,20 @@ async def run_agent(
         activity_log: 活动日志实例（记录会话活动）
         keyword_index: 关键词索引实例（语义检索）
         client: AsyncOpenAI客户端（默认使用进程共享实例）
-        clarifier: 需求澄清器实例（实现三步澄清）
+        clarifier: 需求澄清器（见 ``requirement_clarifier`` 模块）
         session_key: 会话标识符（用于记忆加载和历史保存）
-        confirmation_channel: 确认通道实例（飞书卡片确认）
-        engine: UnifiedEngine实例（用于状态访问）
+        confirmation_channel: 确认通道（澄清追问与计划/工具确认）
+        engine: UnifiedEngine 实例；反思结果可写入 ``_last_reflection``
 
     Returns:
-        AgentRunResult: 含 ``reply`` 与工具调用统计
-            - 正常完成：``reply`` 为最终回复（可含反思 footer）
-            - 操作取消：``reply`` 为 WARNING_PREFIX + "操作已取消"
-            - 循环拦截：``reply`` 为 WARNING_PREFIX + 循环提示
+        AgentRunResult: 含 ``reply`` 与工具调用统计。
+        正常完成时 ``reply`` 为最终回复（可含反思 footer）；取消或拦截时为
+        ``WARNING_PREFIX`` 前缀的中文提示。
 
     Raises:
-        ValueError: 配置参数无效（如 max_turns<1）
-        RuntimeError: LLM API调用失败或规划器异常
-        ContextBudgetExceeded: 上下文token超预算（由执行器抛出）
+        以下由下游模块抛出，本函数不主动校验后抛出：
+        ``ValueError``（配置无效）、``RuntimeError``（LLM/规划器失败）、
+        ``ContextBudgetExceeded``（执行器上下文超预算）。
 
     Examples:
         >>> from miniagent.core.agent import run_agent
@@ -438,21 +481,11 @@ async def run_agent(
         ... )
         >>> print(result.reply)  # "已分析完成，当前目录包含..."
 
-    Note:
-        - Phase 0 分类器默认开启，简单任务自动跳过规划
-        - Phase 0.5 澄清需提供 clarifier 实例（见 requirement_clarifier.py）
-        - Phase 1 规划器会估算token，避免超 budget
-        - Phase 2 执行器最多400轮（见 agent.max_turns）
-        - 飞书/CLI双通道通过 engine 统一接线（见 UnifiedEngine）
-
     See Also:
-        - miniagent/core/executor.execute_plan: Phase 2 执行器实现
-        - miniagent/core/planner.generate_plan: Phase 1 规划器实现
-        - miniagent/core/task_classifier.classify_task_difficulty: Phase 0 分类器
-        - miniagent/core/requirement_clarifier.RequirementClarifier: Phase 0.5 澄清器
-
-    Returns:
-        AgentRunResult（含最终回复与工具统计）
+        - :func:`miniagent.core.executor.execute_plan`
+        - :func:`miniagent.core.planner.generate_plan`
+        - :func:`miniagent.core.task_classifier.classify_task_difficulty`
+        - :class:`miniagent.core.requirement_clarifier.RequirementClarifier`
     """
     if monitor is None:
         monitor = DefaultToolMonitor()
@@ -547,17 +580,16 @@ async def run_agent(
             except Exception as e:
                 _logger.debug("调用thinking回调失败: %s", e)
         try:
-            # 一般任务最多 1 问；中等任务最多 2 问；复杂任务最多 3 问
-            if difficulty == TaskDifficulty.NORMAL:
-                base_questions = 1
-            elif difficulty == TaskDifficulty.MEDIUM:
-                base_questions = 2
-            else:
-                base_questions = 3
-            max_questions = min(base_questions, int(get_config("agent.max_questions", 3)))
+            base_questions = _clarifier_max_questions_for_difficulty(difficulty)
+            max_questions = min(
+                base_questions,
+                int(get_config("agent.max_questions", CLARIFIER_MAX_QUESTIONS_COMPLEX)),
+            )
             clarified = await clarifier.clarify(
                 user_input,
                 ask_user=_ask_user_for_clarification,
+                client=client,
+                on_thinking=on_thinking,
                 memory_store=memory_store,
                 session_key=session_key,
                 max_questions=max_questions,
@@ -619,7 +651,12 @@ async def run_agent(
                 _logger.debug("工具箱: %s", ", ".join(plan.required_toolboxes))
                 _logger.debug("预估 token: %d", plan.estimated_tokens.total)
                 _logger.debug("风险等级: %s", plan.risk_level)
+                if plan.estimated_cost.total_usd > 0:
+                    _logger.debug("预估成本: $%.4f", plan.estimated_cost.total_usd)
+                if plan.context_strategy.chunks:
+                    _logger.debug("分块执行: %d 块", len(plan.context_strategy.chunks))
 
+            # 无 on_plan 时无法阻塞确认，直接进入 Phase 2（见本函数 docstring）
             if not plan.requires_confirmation or not on_plan:
                 break
 
@@ -697,8 +734,52 @@ async def run_agent(
         memory_store=memory_store,
         activity_log=activity_log,
         keyword_index=keyword_index,
+        memory_context=memory_context,
         client=client,
+        confirmation_channel=confirmation_channel,
     )
+
+    if (
+        reply.startswith(WARNING_PREFIX)
+        and plan.fallback_plan.degrade_to_simple
+        and plan.steps
+    ):
+        _logger.info("执行失败，启用 fallback_plan 降级重试（max_turns=%d）", plan.fallback_plan.degraded_max_turns)
+        fallback_config = merge_agent_config(
+            merged_config,
+            {"max_turns": plan.fallback_plan.degraded_max_turns},
+        )
+        simple_plan = StructuredPlan(
+            summary=plan.summary,
+            steps=[],
+            required_toolboxes=plan.required_toolboxes,
+            suggested_config=SuggestedConfig(max_turns=plan.fallback_plan.degraded_max_turns),
+            estimated_tokens=plan.estimated_tokens,
+            context_strategy=ContextStrategy(mode="normal", reason="fallback 降级"),
+            risk_level=plan.risk_level,
+            output_spec=plan.output_spec,
+            fallback_plan=plan.fallback_plan,
+        )
+        fallback_reply = await execute_plan(
+            simple_plan,
+            user_input,
+            registry,
+            monitor,
+            fallback_config,
+            on_tool_call,
+            on_thinking,
+            on_tool_finish=on_tool_finish,
+            system_prompt=effective_system_prompt,
+            clawhub=clawhub,
+            memory_store=memory_store,
+            activity_log=activity_log,
+            keyword_index=keyword_index,
+            memory_context=memory_context,
+            client=client,
+            confirmation_channel=confirmation_channel,
+        )
+        if not fallback_reply.startswith(WARNING_PREFIX):
+            reply = fallback_reply
 
     # ── Phase 3: 反思评估 ──
     reflection_enabled = get_config("features.reflection", True)
@@ -706,7 +787,7 @@ async def run_agent(
         reflection = await reflect_on_result(
             user_input, reply, client=client, on_thinking=None, session_key=session_key
         )
-        # 存储到引擎供飞书发送独立质量卡片
+        # 动态属性：供飞书质量卡片读取（非 engine 公开契约）
         if engine is not None:
             sk = session_key or "default"
             if not hasattr(engine, "_last_reflection") or not isinstance(engine._last_reflection, dict):

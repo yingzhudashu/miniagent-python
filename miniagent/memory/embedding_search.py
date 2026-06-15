@@ -299,6 +299,7 @@ class EmbeddingIndex:
         state_dir: str = "workspaces",
         registry: MemoryEntryRegistry | None = None,
     ) -> None:
+        """创建嵌入索引；``registry`` 缺省时使用 ``state_dir`` 下的共享注册表。"""
         self._state_dir = state_dir
         self._registry = registry or get_registry(state_dir)
         self._entries: collections.OrderedDict[str, _EmbeddingEntry] = collections.OrderedDict()
@@ -609,6 +610,7 @@ class EmbeddingIndex:
             )
 
     def get_stats(self) -> dict[str, Any]:
+        """返回索引条目数与向量维度等统计信息。"""
         self._ensure_loaded()
         return {
             "total_embeddings": len(self._entries),
@@ -629,6 +631,7 @@ class EmbeddingSearchProvider:
         state_dir: str = "workspaces",
         registry: MemoryEntryRegistry | None = None,
     ) -> None:
+        """创建嵌入搜索提供者；未配置 ``embedding.*`` 时 ``get_embedding`` 返回 None。"""
         self._registry = registry or get_registry(state_dir)
         self._index = EmbeddingIndex(state_dir=state_dir, registry=self._registry)
         self._providers: list[dict[str, str | int]] = []
@@ -643,6 +646,7 @@ class EmbeddingSearchProvider:
 
     @property
     def index(self) -> EmbeddingIndex:
+        """底层 ``EmbeddingIndex`` 实例（持久化与 ``index_entry`` 入口）。"""
         return self._index
 
     async def get_embedding(self, text: str) -> list[float] | None:

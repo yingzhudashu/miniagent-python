@@ -40,3 +40,22 @@ def test_writes_when_enabled(tmp_path: Path) -> None:
     assert entry["message"] == "hello"
     assert entry["data"] == {"k": 1}
     assert "timestamp" in entry
+
+
+def test_enables_after_reload_config_without_module_reload(tmp_path: Path) -> None:
+    """reload_config() alone toggles debug logging (no importlib.reload)."""
+    install_test_config(tmp_path, {})
+    importlib.reload(debug_ndjson)
+    log_file = tmp_path / "debug-reload.log"
+    debug_ndjson.agent_debug_log(hypothesis_id="H", location="x", message="noop")
+    assert not log_file.exists()
+
+    install_test_config(
+        tmp_path,
+        {"debug": {"session_id": "r1", "log_path": str(log_file)}},
+    )
+    from miniagent.infrastructure.json_config import reload_config
+
+    reload_config()
+    debug_ndjson.agent_debug_log(hypothesis_id="H", location="x", message="ok")
+    assert json.loads(log_file.read_text(encoding="utf-8").strip())["message"] == "ok"

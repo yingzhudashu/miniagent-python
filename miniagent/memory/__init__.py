@@ -22,6 +22,7 @@ from miniagent.memory.context import DefaultContextManager
 from miniagent.memory.defaults import (
     get_process_default_memory_bundle,
     get_state_root,
+    resolve_memory_context,
     resolve_memory_dependencies,
 )
 from miniagent.memory.embedding_search import (
@@ -37,6 +38,12 @@ from miniagent.memory.keyword_index import (
     get_index_stats,
     search_relevant_memory,
 )
+from miniagent.memory.memory_context_service import (
+    DefaultMemoryContext,
+    DefaultMemoryHistory,
+    DefaultMemorySearch,
+    create_default_memory_context,
+)
 from miniagent.memory.store import (
     DefaultMemoryStore,
     extract_facts,
@@ -47,6 +54,10 @@ from miniagent.memory.store import (
 __all__ = [
     "DefaultContextManager",
     "DefaultMemoryStore",
+    "DefaultMemoryContext",
+    "DefaultMemoryHistory",
+    "DefaultMemorySearch",
+    "create_default_memory_context",
     "extract_facts",
     "generate_turn_summary",
     "format_memory_for_prompt",
@@ -59,6 +70,7 @@ __all__ = [
     "get_state_root",
     "get_process_default_memory_bundle",
     "resolve_memory_dependencies",
+    "resolve_memory_context",
     "EmbeddingIndex",
     "EmbeddingSearchProvider",
     "embedding_search_enabled",

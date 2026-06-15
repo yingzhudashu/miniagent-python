@@ -341,6 +341,92 @@ class ActivityLogger:
                     os.remove(path)
             self._read_cache = None
 
+    def get_stats(self) -> dict[str, Any]:
+        """获取活动日志统计信息。
+
+        Returns:
+            包含 ``total_entries``、``sessions``、``date_range``、``last_updated`` 的字典。
+        """
+        with self._io_lock:
+            if not os.path.isdir(self._base_dir):
+                return {
+                    "total_entries": 0,
+                    "sessions": 0,
+                    "date_range": None,
+                    "last_updated": None,
+                }
+
+            total_entries = 0
+            session_keys: set[str] = set()
+            dates: list[str] = []
+            last_updated: str | None = None
+            last_mtime = 0.0
+
+            for name in sorted(os.listdir(self._base_dir)):
+                if not name.endswith(".md"):
+                    continue
+                date_part = name[:-3]
+                if len(date_part) == 10 and date_part[4] == "-" and date_part[7] == "-":
+                    dates.append(date_part)
+
+                path = os.path.join(self._base_dir, name)
+                mtime = os.path.getmtime(path)
+                if mtime > last_mtime:
+                    last_mtime = mtime
+                    last_updated = datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
+
+                with open(path, encoding="utf-8") as f:
+                    content = f.read()
+
+                total_entries += len(re.findall(r"^### ", content, re.MULTILINE))
+                for match in re.finditer(r"^## ([^\s(]+)", content, re.MULTILINE):
+                    session_keys.add(match.group(1))
+
+            date_range = None
+            if dates:
+                dates.sort()
+                date_range = {"start": dates[0], "end": dates[-1]}
+
+            return {
+                "total_entries": total_entries,
+                "sessions": len(session_keys),
+                "date_range": date_range,
+                "last_updated": last_updated,
+            }
+
+    def clear_old_entries(self, days: int = 30) -> int:
+        """删除超过指定天数的按日 Markdown 日志文件。
+
+        Args:
+            days: 保留天数，默认 30 天
+
+        Returns:
+            删除的文件数量
+        """
+        from datetime import timedelta
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        removed = 0
+        with self._io_lock:
+            if not os.path.isdir(self._base_dir):
+                return 0
+            for name in list(os.listdir(self._base_dir)):
+                if not name.endswith(".md"):
+                    continue
+                path = os.path.join(self._base_dir, name)
+                date_part = name[:-3]
+                try:
+                    file_date = datetime.strptime(date_part, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                    is_old = file_date < cutoff
+                except ValueError:
+                    mtime = datetime.fromtimestamp(os.path.getmtime(path), tz=timezone.utc)
+                    is_old = mtime < cutoff
+                if is_old:
+                    os.remove(path)
+                    removed += 1
+            self._read_cache = None
+        return removed
+
 
 def _format_llm_call_lines(
     turn: int,

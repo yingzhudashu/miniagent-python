@@ -50,8 +50,24 @@ async def _read_session_diary_handler(args: dict[str, Any], ctx: ToolContext) ->
     return ToolResult(success=True, content=raw, meta={"path": path})
 
 
+def _diary_query_positions(text: str, query: str, max_hits: int) -> list[int]:
+    """返回 query 在 text 中所有命中起始位置（至多 max_hits 处）。"""
+    if not query or max_hits < 1:
+        return []
+    positions: list[int] = []
+    start = 0
+    step = max(1, len(query))
+    while len(positions) < max_hits:
+        pos = text.find(query, start)
+        if pos < 0:
+            break
+        positions.append(pos)
+        start = pos + step
+    return positions
+
+
 async def _search_session_diary_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-    """在会话 diary 目录内做子串扫描，返回带上下文的命中片段。"""
+    """在会话 diary 目录内做子串扫描，返回带上下文的命中片段（每文件可多命中）。"""
     sk = (ctx.session_key or "").strip()
     q = str(args.get("query") or "")
     if not sk:
@@ -67,8 +83,13 @@ async def _search_session_diary_handler(args: dict[str, Any], ctx: ToolContext) 
         ctx_chars = int(args.get("context_chars", 120))
     except (TypeError, ValueError):
         ctx_chars = 120
+    try:
+        max_hits_per_file = int(args.get("max_hits_per_file", 5))
+    except (TypeError, ValueError):
+        max_hits_per_file = 5
     max_files = max(1, min(max_files, 100))
     ctx_chars = max(20, min(ctx_chars, 2000))
+    max_hits_per_file = max(1, min(max_hits_per_file, 50))
 
     root = os.path.join(resolve_state_dir(), "memory", "diary", safe_session_id_for_memory(sk))
     if not os.path.isdir(root):
@@ -83,13 +104,15 @@ async def _search_session_diary_handler(args: dict[str, Any], ctx: ToolContext) 
                 text = f.read()
         except OSError:
             continue
-        pos = text.find(q)
-        if pos < 0:
+        positions = _diary_query_positions(text, q, max_hits_per_file)
+        if not positions:
             continue
-        lo = max(0, pos - ctx_chars)
-        hi = min(len(text), pos + len(q) + ctx_chars)
-        snippet = text[lo:hi].replace("\n", " ")
-        hits.append(f"--- {name} ---\n…{snippet}…")
+        for idx, pos in enumerate(positions, start=1):
+            lo = max(0, pos - ctx_chars)
+            hi = min(len(text), pos + len(q) + ctx_chars)
+            snippet = text[lo:hi].replace("\n", " ")
+            label = f"--- {name} (#{idx}) ---" if len(positions) > 1 else f"--- {name} ---"
+            hits.append(f"{label}\n…{snippet}…")
 
     if not hits:
         return ToolResult(success=True, content=f"未在日记目录中找到 {q!r}。")
@@ -109,10 +132,11 @@ session_memory_tools: dict[str, ToolDefinition] = {
         .core()  # 核心工具箱，始终可用
         .handler(_read_session_diary_handler)
         .build(),
-    "search_session_diary": tool("search_session_diary", "在当前会话的 diary 目录下的文件中搜索子串，返回匹配片段（只读）。")
+    "search_session_diary": tool("search_session_diary", "在当前会话的 diary 目录下的文件中搜索子串，返回匹配片段（只读，每文件可返回多处命中）。")
         .param("query", "string", "搜索子串")
         .optional("max_files", "integer", "最多扫描文件数，默认 14")
         .optional("context_chars", "integer", "命中处前后各保留字符数，默认 120")
+        .optional("max_hits_per_file", "integer", "每个文件最多返回命中数，默认 5")
         .sandbox()
         .core()  # 核心工具箱，始终可用
         .handler(_search_session_diary_handler)

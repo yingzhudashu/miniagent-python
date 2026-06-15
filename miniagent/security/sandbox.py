@@ -16,8 +16,9 @@
 
 边界情况处理：
 - 符号链接（symlink）：os.path.realpath() 会解析到真实路径，防止 symlink 逃逸
-- 相对路径（如 "../../etc/passwd"）：解析后会被 os.path.abspath() 转为绝对路径，
-  然后检查是否在允许范围内
+- 相对路径（如 "../../etc/passwd"）：基于**进程当前工作目录**解析（``os.getcwd()``），
+  再检查是否在允许范围内；工具层应通过 ``path_utils.resolve_path_from_ctx`` 先相对
+  ``ToolContext.cwd`` 拼接，再调用本模块
 - 空路径：os.path.abspath("") 返回 cwd，需要在 allowed_dirs 中包含 cwd
 """
 
@@ -26,6 +27,7 @@ from __future__ import annotations
 import os
 
 from miniagent.infrastructure.json_config import get_config
+from miniagent.types.errors import SandboxViolationError
 
 
 def resolve_sandbox_path(input_path: str, allowed_dirs: list[str]) -> str:
@@ -38,28 +40,32 @@ def resolve_sandbox_path(input_path: str, allowed_dirs: list[str]) -> str:
     3. 遍历 allowed_dirs，检查 resolved 路径是否与某个目录匹配
     4. 匹配规则：路径等于目录本身，或以 "目录 + 分隔符" 开头
 
+    Note:
+        相对路径以进程 ``os.getcwd()`` 为基准，而非会话 workspace。
+        文件工具应使用 ``path_utils.resolve_path_from_ctx``，它会先 ``join(ctx.cwd, path)``。
+
     Args:
         input_path: 用户提供的文件路径（可以是相对路径或绝对路径）
-        allowed_dirs: 允许访问的目录列表（绝对路径）
+        allowed_dirs: 允许访问的目录列表（建议使用绝对路径）
 
     Returns:
-        解析后的绝对路径
+        解析后的绝对路径（已 ``realpath``）
 
     Raises:
-        ValueError: 如果路径超出允许的范围
+        SandboxViolationError: 如果路径超出允许的范围
 
     Example:
-        # 通过
-        resolve_sandbox_path("src/index.ts", ["/workspace"])
+        # 通过（绝对路径）
+        resolve_sandbox_path("/workspace/src/index.ts", ["/workspace"])
         # → "/workspace/src/index.ts"
 
         # 拒绝
         resolve_sandbox_path("/etc/passwd", ["/workspace"])
-        # → ValueError: 路径 "/etc/passwd" 超出允许的范围: /workspace
+        # → SandboxViolationError
 
-        # 拒绝（相对路径逃逸尝试）
+        # 拒绝（相对路径逃逸；cwd 不在白名单内时同样拒绝）
         resolve_sandbox_path("../../etc/passwd", ["/workspace"])
-        # → 如果解析后不在 /workspace 下 → ValueError
+        # → SandboxViolationError
     """
     # 将输入路径解析为绝对路径（处理相对路径、. 和 ..）
     resolved = os.path.realpath(os.path.abspath(input_path))
@@ -78,13 +84,13 @@ def resolve_sandbox_path(input_path: str, allowed_dirs: list[str]) -> str:
             return resolved
 
     # 路径不在任何允许的目录范围内，抛出错误
-    raise ValueError(f'路径 "{input_path}" 超出允许的范围: {", ".join(allowed_dirs)}')
+    raise SandboxViolationError(input_path, allowed_dirs)
 
 
 def is_path_allowed(input_path: str, allowed_dirs: list[str]) -> bool:
     """检查路径是否在允许的目录范围内
 
-    这是 resolve_sandbox_path 的"安全版"：不抛出错误，而是返回布尔值。
+    与 :func:`resolve_sandbox_path` 逻辑相同，但不抛异常，返回布尔值。
     适用于需要预判路径合法性但不想捕获异常的场景。
 
     Args:
@@ -97,7 +103,7 @@ def is_path_allowed(input_path: str, allowed_dirs: list[str]) -> bool:
     try:
         resolve_sandbox_path(input_path, allowed_dirs)
         return True
-    except ValueError:
+    except SandboxViolationError:
         return False
 
 
@@ -105,10 +111,21 @@ def get_default_workspace() -> str:
     """获取默认工作空间路径。
 
     优先级：
-    1. 配置 paths.workspace
-    2. 当前工作目录
+    1. 配置 ``paths.workspace``（非空字符串）
+    2. 当前工作目录（``os.getcwd()``）
+
+    Returns:
+        工作空间路径字符串。配置缺失、为空或仅空白时回退到进程 cwd。
+
+    Example:
+        >>> ws = get_default_workspace()
+        >>> bool(ws)
+        True
     """
-    return get_config("paths.workspace", os.getcwd())
+    configured = get_config("paths.workspace", None)
+    if isinstance(configured, str) and configured.strip():
+        return configured.strip()
+    return os.getcwd()
 
 
 __all__ = ["resolve_sandbox_path", "is_path_allowed", "get_default_workspace"]

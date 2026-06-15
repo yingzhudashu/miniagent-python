@@ -1,7 +1,10 @@
 """Session-scoped NDJSON append for DEBUG_MODE (Cursor). Do not log secrets.
 
-Debug logging is disabled unless debug.session_id is set in JSON config.
-The log file path can be overridden via debug.log_path.
+Debug logging is disabled unless ``debug.session_id`` is set in JSON config.
+The log file path can be overridden via ``debug.log_path``.
+
+每次写入时从 :func:`get_config` 读取开关与路径，因此 ``reload_config()`` /
+``reload_runtime_config()`` 后无需 ``importlib.reload`` 本模块即可生效。
 
 **注意**：本模块仅用于开发调试，日志可能包含工具参数与输出，请勿在生产环境启用。
 """
@@ -17,16 +20,15 @@ from miniagent.infrastructure.logger import get_logger
 
 _logger = get_logger(__name__)
 
-_SESSION = get_config("debug.session_id", "")
-if _SESSION:
-    _LOG = Path(
-        get_config(
-            "debug.log_path",
-            str(Path(__file__).resolve().parents[2] / f"debug-{_SESSION}.log"),
-        )
-    )
-else:
-    _LOG = None
+
+def _resolve_debug_targets() -> tuple[str, Path | None]:
+    """读取当前 debug 配置；未启用时返回 ``("", None)``。"""
+    session = str(get_config("debug.session_id", "") or "").strip()
+    if not session:
+        return "", None
+    default_log = Path(__file__).resolve().parents[2] / f"debug-{session}.log"
+    log_path = get_config("debug.log_path", str(default_log))
+    return session, Path(str(log_path))
 
 
 def agent_debug_log(
@@ -37,7 +39,7 @@ def agent_debug_log(
     data: dict | None = None,
     run_id: str = "pre",
 ) -> None:
-    """追加一行 NDJSON 调试日志（仅当设置了 debug.session_id 时生效）。
+    """追加一行 NDJSON 调试日志（仅当设置了 ``debug.session_id`` 时生效）。
 
     Args:
         hypothesis_id: 假设/提案 ID
@@ -46,12 +48,13 @@ def agent_debug_log(
         data: 附加数据（字典）
         run_id: 运行阶段标识，默认 "pre"
     """
-    if not _SESSION:
+    session, log_path = _resolve_debug_targets()
+    if not session or log_path is None:
         return
     try:
         line = json.dumps(
             {
-                "sessionId": _SESSION,
+                "sessionId": session,
                 "runId": run_id,
                 "hypothesisId": hypothesis_id,
                 "location": location,
@@ -61,7 +64,7 @@ def agent_debug_log(
             },
             ensure_ascii=False,
         )
-        with _LOG.open("a", encoding="utf-8") as f:
+        with log_path.open("a", encoding="utf-8") as f:
             f.write(line + "\n")
     except Exception as e:
         _logger.debug("写入调试日志失败: %s", e)
@@ -75,12 +78,11 @@ def safe_agent_debug_log(
     hypothesis_id: str = "B",
     run_id: str = "pre",
 ) -> None:
-    """安全调用 agent_debug_log，自动填充常用参数，异常时静默。
+    """安全调用 :func:`agent_debug_log`，自动填充常用参数，异常时静默。
 
     相比 ``agent_debug_log``，此函数：
     - 默认 hypothesis_id="B"（Agent 核心流程）
     - 内置 try-except，调用方无需嵌套处理
-    - 调用前检查 _SESSION，避免无效调用
 
     Args:
         location: 调用位置标识（如 "planner.request"）
@@ -90,11 +92,8 @@ def safe_agent_debug_log(
         run_id: 运行阶段标识（默认 "pre"）
 
     Example:
-        # 替换原有重复模式
         safe_agent_debug_log(location="planner.request", message="LLM调用", data={"model": model})
     """
-    if not _SESSION:
-        return
     try:
         agent_debug_log(
             hypothesis_id=hypothesis_id,

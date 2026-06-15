@@ -10,6 +10,7 @@
 - ``tool``: 工具定义、``ToolContext``、注册表协议、上下文压缩相关类型
 - ``config``: ``ModelConfig`` / ``AgentConfig`` 等双层配置
 - ``memory``: 记忆与会话的 **类型**；持久化实现见 ``miniagent.memory``
+- ``memory_context``: 记忆上下文 Protocol（注入/检索/历史）
 - ``skill``: 技能包、ClawHub 协议
 - ``agent``: 运行结果、监控协议、循环检测配置、线性管线
 - ``confirmation``: 澄清/计划确认请求与结果（``ConfirmationRequest`` / ``ConfirmationResult``）
@@ -17,6 +18,7 @@
 - ``protocols``: 运行时注入协议（ActivityLogProtocol、KeywordIndexProtocol）
 - ``feishu``: 自 ``miniagent.feishu.types`` 再导出，便于 ``from miniagent.types import …``
 - ``error_prefix`` / ``error_messages``: 工具与 CLI 的统一输出前缀与用户可见消息常量
+- ``errors``: 项目自定义异常类型（沙箱、飞书配置/依赖等）
 """
 
 from miniagent.feishu.types import FeishuConfig, FeishuInboundText, FeishuMessageEvent, FeishuReply
@@ -44,8 +46,14 @@ from miniagent.types.confirmation import (
     ConfirmationStage,
     PlanConfirmationAction,
 )
+from miniagent.types.errors import (
+    FeishuConfigMissingError,
+    LarkOapiMissingError,
+    SandboxViolationError,
+)
 from miniagent.types.memory import (
     FileMetadata,
+    GroundTruthFact,
     MemoryEntry,
     MemoryEntryInput,
     MemoryStoreProtocol,
@@ -53,6 +61,12 @@ from miniagent.types.memory import (
     SessionManagerProtocol,
     SessionMemory,
     SessionOptions,
+)
+from miniagent.types.memory_context import (
+    MemoryContextProtocol,
+    MemoryHistoryProtocol,
+    MemoryInjectionResult,
+    MemorySearchProtocol,
 )
 from miniagent.types.planning import (
     ContextStrategy,
@@ -67,9 +81,17 @@ from miniagent.types.planning import (
 )
 from miniagent.types.protocols import (
     ActivityLogProtocol,
+    ChannelRouterProtocol,
+    FeishuRuntimeProtocol,
     KeywordIndexProtocol,
+    MessageQueueProtocol,
+    OnPlan,
+    OnThinking,
     OnThinkingCallback,
+    OnToolCall,
+    OnToolFinish,
     OnToolFinishCallback,
+    UnifiedEngineProtocol,
 )
 from miniagent.types.skill import (
     ClawHubClientProtocol,
@@ -93,11 +115,13 @@ from miniagent.types.tool import (
     ToolPermission,
     ToolRegistryProtocol,
     ToolResult,
+    ToolRuntimePermission,
 )
 
 __all__ = [
     # tool
     "ToolPermission",
+    "ToolRuntimePermission",
     "Toolbox",
     "ToolContext",
     "ToolResult",
@@ -120,11 +144,24 @@ __all__ = [
     "SessionOptions",
     "Session",
     "SessionManagerProtocol",
+    # memory_context
+    "MemoryInjectionResult",
+    "MemoryContextProtocol",
+    "MemorySearchProtocol",
+    "MemoryHistoryProtocol",
     # protocols (运行时注入)
     "ActivityLogProtocol",
     "KeywordIndexProtocol",
+    "UnifiedEngineProtocol",
+    "ChannelRouterProtocol",
+    "MessageQueueProtocol",
+    "FeishuRuntimeProtocol",
     "OnThinkingCallback",
     "OnToolFinishCallback",
+    "OnToolCall",
+    "OnPlan",
+    "OnThinking",
+    "OnToolFinish",
     # skill
     "SkillMetadata",
     "SkillEntry",
@@ -170,4 +207,8 @@ __all__ = [
     "ERROR_PREFIX",
     "WARNING_PREFIX",
     "SUCCESS_PREFIX",
+    # errors
+    "SandboxViolationError",
+    "FeishuConfigMissingError",
+    "LarkOapiMissingError",
 ]

@@ -10,6 +10,9 @@
 
 Phase 3重构：替代miniagent/__init__.py、miniagent/session/__init__.py等全局状态。
 
+进程入口应调用 :func:`bootstrap_default_factories` 注册默认工厂后再 ``get_*`` 获取实例。
+会话级 ``DefaultToolRegistry`` 克隆仍由 ``SessionManager`` 管理，与容器单例并存。
+
 详见 docs/ARCHITECTURE.md（依赖注入架构）。
 """
 
@@ -135,6 +138,31 @@ class DependencyContainer:
 
 
 _container = DependencyContainer()
+_bootstrapped = False
+
+
+def bootstrap_default_factories() -> None:
+    """注册进程级默认 DI 工厂（幂等，由 ``unified_entry`` 调用）。
+
+    当前注册：``ToolRegistryProtocol``、``ToolMonitorProtocol``。
+    记忆/会话等仍由 ``RuntimeContext`` 显式构造，避免与状态目录生命周期耦合。
+    """
+    global _bootstrapped
+    if _bootstrapped:
+        return
+    from miniagent.infrastructure.monitor import DefaultToolMonitor
+    from miniagent.infrastructure.registry import DefaultToolRegistry
+
+    register_tool_registry_factory(lambda: DefaultToolRegistry())
+    register_tool_monitor_factory(lambda: DefaultToolMonitor())
+    _bootstrapped = True
+
+
+def reset_bootstrap_for_tests() -> None:
+    """清空容器与 bootstrap 标记（仅供测试）。"""
+    global _bootstrapped
+    clear_container()
+    _bootstrapped = False
 
 
 # ============================================================================
@@ -370,4 +398,6 @@ __all__ = [
     "set_tool_monitor",
     # 清理函数
     "clear_container",
+    "bootstrap_default_factories",
+    "reset_bootstrap_for_tests",
 ]

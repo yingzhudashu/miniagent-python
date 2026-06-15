@@ -1,6 +1,7 @@
 """Mini Agent Python — 工具注册表
 
 ToolRegistry 是 Mini Agent 的核心子系统之一，负责管理所有工具的生命周期。
+实现 :class:`miniagent.types.tool.ToolRegistryProtocol`。
 
 架构设计：
     register()   → 添加工具

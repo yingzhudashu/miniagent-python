@@ -2,10 +2,17 @@
 
 import os
 import tempfile
+from unittest.mock import patch
 
 import pytest
 
-from miniagent.security.sandbox import is_path_allowed, resolve_sandbox_path
+import miniagent.security as security_pkg
+from miniagent.security.sandbox import (
+    get_default_workspace,
+    is_path_allowed,
+    resolve_sandbox_path,
+)
+from miniagent.types.errors import SandboxViolationError
 
 
 class TestResolveSandboxPath:
@@ -29,8 +36,21 @@ class TestResolveSandboxPath:
 
     def test_parent_traversal_blocked(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            with pytest.raises(ValueError):
+            with pytest.raises(SandboxViolationError):
                 resolve_sandbox_path("../../etc/passwd", [tmpdir])
+
+    def test_relative_path_blocked_when_cwd_outside_allowed(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with pytest.raises(SandboxViolationError):
+                resolve_sandbox_path("sub/file.txt", [tmpdir])
+
+    def test_prefix_collision_blocked(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sibling = tmpdir + "extra"
+            os.makedirs(sibling, exist_ok=True)
+            outside_file = os.path.join(sibling, "secret.txt")
+            with pytest.raises(SandboxViolationError):
+                resolve_sandbox_path(outside_file, [tmpdir])
 
     def test_empty_path_returns_cwd(self):
         # Empty path resolves to cwd, which may or may not be in allowed_dirs
@@ -66,3 +86,30 @@ class TestIsPathAllowed:
 
     def test_empty_allowed_dirs(self):
         assert is_path_allowed("/tmp/file", []) is False
+
+
+class TestGetDefaultWorkspace:
+    def test_returns_cwd_when_config_missing(self):
+        with patch("miniagent.security.sandbox.get_config", return_value=None):
+            assert get_default_workspace() == os.getcwd()
+
+    def test_returns_cwd_when_config_empty(self):
+        with patch("miniagent.security.sandbox.get_config", return_value=""):
+            assert get_default_workspace() == os.getcwd()
+
+    def test_returns_cwd_when_config_whitespace(self):
+        with patch("miniagent.security.sandbox.get_config", return_value="   "):
+            assert get_default_workspace() == os.getcwd()
+
+    def test_returns_configured_path(self):
+        with patch("miniagent.security.sandbox.get_config", return_value="/custom/workspace"):
+            assert get_default_workspace() == "/custom/workspace"
+
+    def test_strips_configured_path(self):
+        with patch("miniagent.security.sandbox.get_config", return_value="  /custom/ws  "):
+            assert get_default_workspace() == "/custom/ws"
+
+
+class TestSecurityPackageExports:
+    def test_is_path_allowed_exported_from_package(self):
+        assert security_pkg.is_path_allowed is is_path_allowed

@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 
 from miniagent.core.self_opt.types import (
@@ -63,14 +64,18 @@ def _pain_point_to_proposal(pain: PainPoint, root: str = "") -> OptimizationProp
     # 根据痛点类型添加文件变更
     if "缺少 __init__.py" in pain.description:
         proposal.type = "add"
-        proposal.files.append(
-            FileChange(
-                path=pain.description.split("目录 ")[1].split(" 包含")[0] + "/__init__.py",
-                action="create",
-                content='"""模块文档字符串"""\n',
-                reason="添加包标识文件",
+        match = re.search(r"目录\s+(\S+)\s+包含", pain.description)
+        if match:
+            rel_dir = match.group(1).replace("\\", "/")
+            init_path = f"{rel_dir}/__init__.py"
+            proposal.files.append(
+                FileChange(
+                    path=init_path,
+                    action="create",
+                    content='"""包模块"""\n',
+                    reason="添加包标识文件",
+                )
             )
-        )
     elif "文件过大" in pain.description:
         proposal.type = "refactor"
         proposal.risk_level = "medium"

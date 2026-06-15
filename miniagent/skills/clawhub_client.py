@@ -6,11 +6,11 @@
 - 技能下载和安装
 - 本地技能搜索（降级模式）
 
-ClawHub API 约定：
+ClawHub API 约定（实现会按顺序尝试兼容端点）：
 - 基础 URL: https://clawhub.ai/api/v1
-- 搜索: GET /v1/skills/search?q=<query>&limit=<n>
-- 详情: GET /v1/skills/<slug>
-- 下载: GET /v1/skills/<slug>/download?version=<ver>
+- 搜索: GET /skills?query=<q>&limit=<n>，失败时回退 GET /search?q=<q>
+- 详情: GET /skills/<slug>
+- 下载: GET /skills/<slug>/download?version=<ver>（JSON 文件列表）
 
 联网失败时的降级行为见 ``search_local_skills``；合规使用见 ``workspaces/skills/THIRD_PARTY_SKILLS.md``。
 """
@@ -20,11 +20,15 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
 from miniagent.core.constants import CLAWHUB_API_URL
+from miniagent.types.skill import (
+    ClawHubClientProtocol,
+    ClawHubSearchResult,
+    ClawHubSkillDetail,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -44,29 +48,59 @@ def skill_install_dir_name(slug: str) -> str:
     return slug.replace("\\", "/").rstrip("/").split("/")[-1]
 
 
-# ─── 客户端接口 ──────────────────────────────────────────
+def _to_search_result(item: dict[str, Any]) -> ClawHubSearchResult:
+    """将 ClawHub API item 映射为 ``ClawHubSearchResult``。"""
+    version = str(item.get("version") or "")
+    latest = item.get("latestVersion")
+    if not version and isinstance(latest, dict):
+        version = str(latest.get("version") or "")
+    return ClawHubSearchResult(
+        slug=str(item.get("slug") or ""),
+        name=str(item.get("name") or ""),
+        description=str(item.get("description") or ""),
+        version=version,
+        tags=[str(t) for t in (item.get("tags") or [])],
+        downloads=int(item.get("downloads") or 0),
+        stars=int(item.get("stars") or 0),
+        author=str(item.get("author") or ""),
+    )
 
 
-class ClawHubClient(Protocol):
-    """ClawHub 客户端接口。"""
+def _extract_files(data: dict[str, Any]) -> list[dict[str, str]]:
+    """从详情响应中提取文件列表。"""
+    files: list[dict[str, str]] = []
+    latest = data.get("latestVersion")
+    if isinstance(latest, dict):
+        raw = latest.get("files") or []
+        if isinstance(raw, list):
+            files = [f for f in raw if isinstance(f, dict)]
+    if not files:
+        raw = data.get("files") or []
+        if isinstance(raw, list):
+            files = [f for f in raw if isinstance(f, dict)]
+    return files
 
-    async def search(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
-        """按关键词搜索技能，返回 API 原始 item 列表。"""
-        ...
 
-    async def get_detail(self, slug: str) -> dict[str, Any]:
-        """拉取指定 slug 的技能元数据与文件清单。"""
-        ...
-
-    async def download(
-        self,
-        slug: str,
-        version: str | None = None,
-        *,
-        skills_root: str | None = None,
-    ) -> dict[str, Any]:
-        """下载并解压技能包到 ``skills_root``，返回结果摘要 dict。"""
-        ...
+def _to_skill_detail(data: dict[str, Any], slug: str) -> ClawHubSkillDetail:
+    """将 ClawHub API 详情映射为 ``ClawHubSkillDetail``。"""
+    skill_md = ""
+    latest = data.get("latestVersion")
+    if isinstance(latest, dict):
+        skill_md = str(latest.get("skillMd") or latest.get("skill_md") or "")
+    if not skill_md:
+        skill_md = str(data.get("skillMd") or data.get("skill_md") or "")
+    version = str(data.get("version") or "")
+    if not version and isinstance(latest, dict):
+        version = str(latest.get("version") or "")
+    return ClawHubSkillDetail(
+        slug=str(data.get("slug") or slug),
+        name=str(data.get("name") or ""),
+        description=str(data.get("description") or ""),
+        version=version,
+        tags=[str(t) for t in (data.get("tags") or [])],
+        skill_md=skill_md,
+        files=_extract_files(data),
+    )
 
 
 # ─── 客户端实现 ──────────────────────────────────────────
@@ -100,7 +134,7 @@ async def close_clawhub_client() -> None:
 
 
 class _ClawHubClientImpl:
-    """ClawHub 客户端实现。"""
+    """ClawHub 客户端实现（符合 ``ClawHubClientProtocol``）。"""
 
     def __init__(self, base_url: str = CLAWHUB_API) -> None:
         """Args:
@@ -144,7 +178,7 @@ class _ClawHubClientImpl:
             resp = await asyncio.to_thread(urlopen, req, timeout=15)
             return json.loads(resp.read().decode("utf-8"))
 
-    async def search(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
+    async def search(self, query: str, limit: int = 10) -> list[ClawHubSearchResult]:
         """搜索技能。
 
         ClawHub API 端点:
@@ -153,23 +187,27 @@ class _ClawHubClientImpl:
         """
         from urllib.parse import quote
 
-        # 优先尝试 /api/v1/skills?query= （官方端点）
         url = f"{self._base_url}/skills?query={quote(query)}&limit={limit}"
         data = await self._fetch_json(url)
-        # 响应格式: {items: [...], nextCursor: ...}
         if isinstance(data, dict) and "items" in data:
-            return data["items"]
-        # 回退到 /api/v1/search
+            items = data["items"]
+            if isinstance(items, list):
+                return [_to_search_result(i) for i in items if isinstance(i, dict)]
         url2 = f"{self._base_url}/search?q={quote(query)}&limit={limit}"
         data2 = await self._fetch_json(url2)
         if isinstance(data2, dict) and "results" in data2:
-            return data2["results"]
+            results = data2["results"]
+            if isinstance(results, list):
+                return [_to_search_result(i) for i in results if isinstance(i, dict)]
         return []
 
-    async def get_detail(self, slug: str) -> dict[str, Any]:
+    async def get_detail(self, slug: str) -> ClawHubSkillDetail:
         """获取技能详情。"""
         url = f"{self._base_url}/skills/{slug}"
-        return await self._fetch_json(url)
+        data = await self._fetch_json(url)
+        if not isinstance(data, dict):
+            return ClawHubSkillDetail(slug=slug, name="", description="", version="")
+        return _to_skill_detail(data, slug)
 
     async def _files_from_download_endpoint(
         self, slug: str, version: str | None
@@ -205,9 +243,7 @@ class _ClawHubClientImpl:
         from miniagent.skills.paths import get_skills_root as _default_skills_root
 
         detail = await self.get_detail(slug)
-        files = detail.get("files") or []
-        if not files and isinstance(detail.get("latestVersion"), dict):
-            files = detail["latestVersion"].get("files") or []
+        files = list(detail.files)
         if not files:
             files = await self._files_from_download_endpoint(slug, version)
 
@@ -244,8 +280,8 @@ class _ClawHubClientImpl:
         Path(meta_path).write_text(
             json.dumps(
                 {
-                    "slug": detail.get("slug", slug),
-                    "version": detail.get("version", "unknown"),
+                    "slug": detail.slug,
+                    "version": detail.version or "unknown",
                     "installedAt": datetime.now(timezone.utc).isoformat(),
                     "source": "clawhub",
                 },
@@ -257,7 +293,7 @@ class _ClawHubClientImpl:
         return {"path": skills_dir, "files": files}
 
 
-def create_clawhub_client(base_url: str | None = None) -> _ClawHubClientImpl:
+def create_clawhub_client(base_url: str | None = None) -> ClawHubClientProtocol:
     """创建 ClawHub 客户端。"""
     if base_url is None:
         base_url = _clawhub_base_url()
@@ -276,6 +312,7 @@ def search_local_skills(
     """本地技能搜索（不依赖网络）。
 
     读取每个技能目录下的 SKILL.md，匹配名称、描述和内容。
+    使用 ``parse_skill_md`` 解析 front matter（支持多行 description）。
 
     Args:
         skills_root: 技能根目录路径（主根）
@@ -285,6 +322,8 @@ def search_local_skills(
     Returns:
         匹配的本地技能列表（按根顺序去重，同 slug 以首次出现为准）
     """
+    from miniagent.skills.loader import _description_from_meta, parse_skill_md
+
     all_roots = [skills_root]
     if extra_roots:
         all_roots.extend(extra_roots)
@@ -307,24 +346,13 @@ def search_local_skills(
                 continue
 
             content = Path(skill_md_path).read_text(encoding="utf-8")
+            meta, body = parse_skill_md(content)
+            name = str(meta.get("name") or entry)
+            description = _description_from_meta(meta, body)
 
-            # 解析 front matter
-            meta_match = re.match(r"^---\n([\s\S]*?)\n---", content)
-            frontmatter = meta_match.group(1) if meta_match else ""
-
-            name_match = re.search(r"name:\s*(.+)", frontmatter)
-            name = name_match.group(1).strip() if name_match else entry
-
-            desc_match = re.search(r"description:\s*(.+)", frontmatter)
-            description = desc_match.group(1).strip() if desc_match else ""
-
-            # 匹配
             if query_lower := query.lower():
-                if not (
-                    query_lower in name.lower()
-                    or query_lower in description.lower()
-                    or query_lower in content.lower()
-                ):
+                haystack = "\n".join([name, description, body, content]).lower()
+                if query_lower not in haystack:
                     continue
 
             seen_slugs.add(entry)
@@ -344,4 +372,9 @@ def search_local_skills(
     return results
 
 
-__all__ = ["create_clawhub_client", "search_local_skills", "skill_install_dir_name"]
+__all__ = [
+    "create_clawhub_client",
+    "close_clawhub_client",
+    "search_local_skills",
+    "skill_install_dir_name",
+]

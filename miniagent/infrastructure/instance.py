@@ -86,6 +86,9 @@ class ProjectDirConflictError(Exception):
     """同一项目目录已有存活实例时抛出。"""
 
     def __init__(self, existing_meta: dict[str, Any]) -> None:
+        """Args:
+            existing_meta: 冲突实例的 ``meta.json`` 内容（用于格式化提示）。
+        """
         self.existing_meta = existing_meta
         super().__init__(format_project_conflict_message(existing_meta))
 

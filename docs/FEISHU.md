@@ -54,6 +54,8 @@ Agent 在飞书会话中若通过内置工具 **`run_dot_command`** 调点命令
 | `feishu.websocket.reconnect_grace` | `300` | 仅 `auto_reconnect=true` 时生效 |
 | `feishu.websocket.refresh_interval` | `0` | 定期主动刷新；不稳定网络可设 `3600` |
 | `feishu.websocket.idle_refresh` | `0` | 无入站超过 N 秒刷新（默认关） |
+| `feishu.message_debounce_ms` | `800` | 同一发送者在同话题内连续文本的合并窗口（毫秒）；`0` 关闭 |
+| `feishu.max_message_age` | `600` | 跳过超过该秒数的过期入站消息 |
 
 私聊绑定与排障见 [CHANNEL_BINDING.md](CHANNEL_BINDING.md)；Windows 专项见下文「Windows / 长连接」。
 

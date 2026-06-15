@@ -22,7 +22,7 @@ from tests.test_startup import _make_memory_bundle
 
 def _make_ctx(router: ChannelRouter) -> RuntimeContext:
     mq = MessageQueueManager()
-    ms, al, ki = _make_memory_bundle()
+    ms, al, ki, mc = _make_memory_bundle()
     return RuntimeContext(
         registry=DefaultToolRegistry(),
         monitor=DefaultToolMonitor(),
@@ -35,6 +35,7 @@ def _make_ctx(router: ChannelRouter) -> RuntimeContext:
         memory_store=ms,
         activity_log=al,
         keyword_index=ki,
+        memory_context=mc,
     )
 
 

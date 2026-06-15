@@ -28,6 +28,13 @@ from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 _logger = logging.getLogger(__name__)
 
 
+def _clawhub_field(item: Any, key: str, default: Any = "") -> Any:
+    """从 ClawHub 搜索结果（dataclass 或 dict）读取字段。"""
+    if isinstance(item, dict):
+        return item.get(key, default)
+    return getattr(item, key, default)
+
+
 def _get_skills_root() -> str:
     """与引擎、ClawHub 安装共用技能根目录。"""
     from miniagent.skills.paths import get_skills_root
@@ -79,9 +86,14 @@ async def _search_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
             if clawhub_results:
                 results.append("🌐 ClawHub 技能:")
                 for s in clawhub_results:
+                    slug = _clawhub_field(s, "slug")
+                    name = _clawhub_field(s, "name")
+                    desc = _clawhub_field(s, "description")
+                    stars = _clawhub_field(s, "stars", 0)
+                    downloads = _clawhub_field(s, "downloads", 0)
                     results.append(
-                        f"  - [{s['slug']}] {s['name']}: {s['description']} "
-                        f"⭐{s.get('stars', 0)} ⬇{s.get('downloads', 0)}"
+                        f"  - [{slug}] {name}: {desc} "
+                        f"⭐{stars} ⬇{downloads}"
                     )
             elif source == "clawhub":
                 results.append("  未找到匹配的在线技能")
@@ -140,7 +152,7 @@ async def _install_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult
             content=(
                 f'{SUCCESS_PREFIX} 技能 "{slug}" 安装成功！\n\n'
                 f"📁 安装路径: {install_path}\n"
-                f"📦 版本: {detail.get('version', 'unknown')}\n"
+                f"📦 版本: {detail.version or 'unknown'}\n"
                 f"📄 文件数: {len(result.get('files', []))}"
                 f"{vet_report}{refresh_note}"
             ),

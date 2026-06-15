@@ -9,7 +9,9 @@ import pytest
 from miniagent.engine.init import (
     _ensure_baseline_skills,
     _init_default_session,
+    _is_mcp_missing_error,
     _parse_mcp_stdio_command,
+    _parse_mcp_stdio_env,
     _register_mcp_tools_from_config,
 )
 from tests.config_helpers import install_test_config
@@ -72,9 +74,47 @@ async def test_register_mcp_tools_from_native_json_array(tmp_path) -> None:
     registry = MagicMock()
     mock_register = AsyncMock(return_value=2)
     with patch("miniagent.mcp.runtime.register_mcp_stdio_tools", mock_register):
-        await _register_mcp_tools_from_config(registry)
+        n = await _register_mcp_tools_from_config(registry)
 
-    mock_register.assert_awaited_once_with(registry, "echo", ["hello"])
+    mock_register.assert_awaited_once_with(registry, "echo", ["hello"], env=None)
+    assert n == 2
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ({"API_KEY": "x"}, {"API_KEY": "x"}),
+        ('{"FOO": "bar"}', {"FOO": "bar"}),
+        ("", None),
+        ([], None),
+        ({"n": 1}, {"n": "1"}),
+    ],
+)
+def test_parse_mcp_stdio_env(raw, expected) -> None:
+    assert _parse_mcp_stdio_env(raw) == expected
+
+
+def test_is_mcp_missing_error() -> None:
+    assert _is_mcp_missing_error(ImportError("mcp")) is True
+    assert _is_mcp_missing_error(RuntimeError("未安装 mcp 包: pip install")) is True
+    assert _is_mcp_missing_error(RuntimeError("连接失败")) is False
+
+
+@pytest.mark.asyncio
+async def test_register_mcp_tools_missing_package_logs_warning(
+    tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_test_config(
+        tmp_path,
+        {"mcp": {"stdio_command": ["echo", "hello"]}},
+    )
+
+    async def _raise_missing(*_a, **_kw) -> int:
+        raise RuntimeError("未安装 mcp 包: pip install miniagent-python[mcp]")
+
+    with patch("miniagent.mcp.runtime.register_mcp_stdio_tools", _raise_missing):
+        n = await _register_mcp_tools_from_config(MagicMock())
+    assert n == 0
 
 
 def test_ensure_baseline_skills_restores_missing(tmp_path, monkeypatch) -> None:

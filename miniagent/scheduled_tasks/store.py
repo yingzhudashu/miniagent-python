@@ -296,7 +296,11 @@ def format_next_run_display(task: ScheduledTask, *, now_ts: float | None = None)
 
 
 def compute_initial_next_run(task: ScheduledTask, now_ts: float | None = None) -> float | None:
-    """新建或加载后补齐 next_run_at。"""
+    """新建或加载后补齐 next_run_at。
+
+    ``once`` 模式：若 ``once_at_iso`` 已早于 ``now_ts``，仍返回该时刻戳，
+    调度器会在下一次 tick 立即触发（执行后由 ``recompute_next_after_run`` 禁用任务）。
+    """
     now = now_ts if now_ts is not None else time.time()
     spec = task.schedule
     if spec.kind == "interval":

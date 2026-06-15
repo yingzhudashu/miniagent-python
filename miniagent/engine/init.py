@@ -7,8 +7,8 @@
 
 1. ``register_builtin_tools``：内置 ``ALL_TOOLS``（含 session_memory_tools）
 2. 磁盘技能包发现并注册工具（同名冲突时跳过技能侧）
-3. 可选 ``mcp.stdio_command``：stdio MCP 工具（未安装 ``mcp`` 包则打日志跳过）
-4. ``build_skill_snapshots``（内含 ``BUILTIN_TOOLBOXES`` 合并）；创建 ``SessionManager``；默认会话加锁；
+3. 可选 ``mcp.stdio_command`` / ``mcp.stdio_env``：stdio MCP 工具（未安装 ``mcp`` 包则打日志跳过）
+4. ``build_skill_snapshots``（内含 ``BUILTIN_TOOLBOXES`` 合并）；若已注册 MCP 工具则追加 ``mcp`` 工具箱；创建 ``SessionManager``；默认会话加锁；
    ``KeywordIndex.prune_expired`` 清理过期索引项
 
 配置见 config.defaults.json；架构见 ``docs/ARCHITECTURE.md``。
@@ -71,18 +71,24 @@ async def init_subsystems(
     if reg_n:
         _logger.info("已注册 %d 个内置工具（ALL_TOOLS）", reg_n)
 
-    loaded_skills, _added, _removed = await bootstrap_skill_packages(registry, skill_registry)
-
-    await _register_mcp_tools_from_config(registry)
-
-    # 2. 获取工具箱和系统提示（含 gating）
     from miniagent.core.config import get_default_agent_config
 
     try:
         agent_cfg = get_default_agent_config()
     except Exception:
         agent_cfg = None
+
+    loaded_skills, _added, _removed = await bootstrap_skill_packages(
+        registry, skill_registry, config=agent_cfg,
+    )
+
+    await _register_mcp_tools_from_config(registry)
+
+    # 2. 获取工具箱和系统提示（含 gating）；MCP 工具注册后追加 mcp 工具箱供规划器选用
     skill_toolboxes, skill_prompts = build_skill_snapshots(skill_registry, agent_cfg)
+    from miniagent.mcp.toolbox import ensure_mcp_toolbox
+
+    skill_toolboxes = ensure_mcp_toolbox(skill_toolboxes, registry)
 
     # 3. 创建 SessionManager
     session_manager = SessionManager(registry, skill_toolboxes, loaded_skills, clawhub=clawhub)
@@ -235,30 +241,77 @@ def _parse_mcp_stdio_command(raw: Any) -> list[str] | None:
     return None
 
 
-async def _register_mcp_tools_from_config(registry: Any) -> None:
-    """若配置了 ``mcp.stdio_command``，连接 MCP stdio 并注册工具。"""
+def _parse_mcp_stdio_env(raw: Any) -> dict[str, str] | None:
+    """解析 ``mcp.stdio_env``（原生对象或 JSON 字符串）为 ``str -> str`` 环境变量表。"""
+    if not raw:
+        return None
+    spec: Any
+    if isinstance(raw, dict):
+        spec = raw
+    elif isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return None
+        spec = json.loads(text)
+    else:
+        return None
+    if not isinstance(spec, dict):
+        return None
+    return {str(k): str(v) for k, v in spec.items()}
+
+
+def _is_mcp_missing_error(exc: BaseException) -> bool:
+    """是否为「未安装 mcp 包」类错误（``ImportError`` 或包装的 ``RuntimeError``）。"""
+    if isinstance(exc, ImportError):
+        return True
+    return isinstance(exc, RuntimeError) and "未安装 mcp" in str(exc)
+
+
+async def _register_mcp_tools_from_config(registry: Any) -> int:
+    """若配置了 ``mcp.stdio_command``，连接 MCP stdio 并注册工具。
+
+    Returns:
+        成功注册的 MCP 工具数量（未配置或失败时为 0）
+    """
     mcp_raw = get_config("mcp.stdio_command", "")
     if not mcp_raw:
-        return
+        return 0
     try:
         spec = _parse_mcp_stdio_command(mcp_raw)
         if not spec:
             _logger.warning(
                 "mcp.stdio_command: 无效格式，需为非空 JSON 数组 [command, arg1, ...]"
             )
-            return
+            return 0
+        env_raw = get_config("mcp.stdio_env", None)
+        try:
+            stdio_env = _parse_mcp_stdio_env(env_raw)
+        except json.JSONDecodeError as e:
+            _logger.warning("mcp.stdio_env: JSON 解析失败: %s", e)
+            return 0
+        if env_raw and stdio_env is None:
+            _logger.warning("mcp.stdio_env: 无效格式，需为 JSON 对象 {\"KEY\": \"value\", ...}")
+            return 0
+
         from miniagent.mcp.runtime import register_mcp_stdio_tools
 
-        mcp_n = await register_mcp_stdio_tools(registry, spec[0], spec[1:])
-        _logger.info("mcp.stdio_command: 已注册 %d 个 MCP 工具", mcp_n)
-    except ImportError:
-        _logger.warning(
-            "mcp.stdio_command: 未安装 mcp 包，跳过（pip install miniagent-python[mcp]）"
+        mcp_n = await register_mcp_stdio_tools(
+            registry, spec[0], spec[1:], env=stdio_env,
         )
+        _logger.info("mcp.stdio_command: 已注册 %d 个 MCP 工具", mcp_n)
+        return mcp_n
     except json.JSONDecodeError as e:
         _logger.warning("mcp.stdio_command: JSON 解析失败: %s", e)
+    except RuntimeError as e:
+        if _is_mcp_missing_error(e):
+            _logger.warning(
+                "mcp.stdio_command: 未安装 mcp 包，跳过（pip install miniagent-python[mcp]）"
+            )
+        else:
+            _logger.warning("mcp.stdio_command: %s", e)
     except Exception as e:
         _logger.warning("mcp.stdio_command: %s", e)
+    return 0
 
 
 def _get_skills_root_for_baseline() -> str | None:

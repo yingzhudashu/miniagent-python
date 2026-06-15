@@ -1,4 +1,4 @@
-"""飞书通道适配层（WebSocket 长连接、消息类型、可选 HTTP Webhook）。
+"""飞书通道适配层（WebSocket 长连接、消息类型）。
 
 运行时任务封装在 ``miniagent.engine.feishu_state.FeishuRuntime``；本包提供与飞书 API 交互的
 实现模块，由引擎在启动或 ``.feishu start`` 时加载。底层 SDK 为可选依赖：需
@@ -7,6 +7,7 @@
 主要模块：
 
 - ``poll_server``：长连接、消息派发、去重与防抖、卡片渲染
+- ``message_debounce``：入站文本防抖合并（``feishu.message_debounce_ms``）
 - ``feishu_dedup``：消息去重模块（内存+磁盘双重去重）
 - ``resource_io``：消息内 file/image 资源下载（依赖 lark-oapi）
 - ``upload_io``：IM 素材上传与 file/image 消息发送

@@ -14,9 +14,13 @@ Agent 若需自优化能力，可由调用方自行封装工具。
 配置开关见 ``config.defaults.json``（self_optimization 配置节）。
 类型模型见下方导出；用户文档见 ``docs/SELF_OPT.md``。"""
 
+from miniagent.core.self_opt.auto_optimizer import apply_proposal, run_auto_optimization
+from miniagent.core.self_opt.inspector import inspect_project
+from miniagent.core.self_opt.proposal_engine import generate_proposals
 from miniagent.core.self_opt.proposal_generator import ProposalGenerator
 from miniagent.core.self_opt.proposal_store import (
     ProposalStore,
+    get_history_file,
     get_proposal_file,
     get_proposal_output_dir,
     get_reports_dir,
@@ -45,10 +49,16 @@ __all__ = [
     "InspectionReport",
     "OptimizationResult",
     "OptTestSummary",
+    # 分析与提案
+    "inspect_project",
+    "generate_proposals",
+    "apply_proposal",
+    "run_auto_optimization",
     # 提案存储
     "ProposalStore",
     "get_proposal_output_dir",
     "get_proposal_file",
+    "get_history_file",
     "get_reports_dir",
     # 运行分析
     "RuntimeAnalyzer",

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from miniagent.core.constants import BITABLE_LIST_RECORDS_MAX
+from miniagent.core.constants import BITABLE_DEFAULT_PAGE_SIZE, BITABLE_LIST_RECORDS_MAX
 from miniagent.feishu.lark_client import build_client
 from miniagent.feishu.lark_response import format_lark_response_error
 from miniagent.feishu.types import FeishuConfig
@@ -28,6 +28,7 @@ def _fields_to_dict(fields: Any) -> dict[str, Any]:
 
 
 def get_app_meta(config: FeishuConfig, app_token: str) -> dict[str, Any]:
+    """获取多维表格应用元数据（名称、URL 等）。"""
     from lark_oapi.api.bitable.v1 import GetAppRequest
 
     client = build_client(config)
@@ -45,10 +46,11 @@ def get_app_meta(config: FeishuConfig, app_token: str) -> dict[str, Any]:
 def list_tables(
     config: FeishuConfig, app_token: str, *, page_token: str | None = None
 ) -> tuple[list[dict], str | None, bool]:
+    """分页列举多维表格中的数据表。"""
     from lark_oapi.api.bitable.v1 import ListAppTableRequest
 
     client = build_client(config)
-    b = ListAppTableRequest.builder().app_token(app_token).page_size(100)
+    b = ListAppTableRequest.builder().app_token(app_token).page_size(BITABLE_DEFAULT_PAGE_SIZE)
     if page_token:
         b = b.page_token(page_token)
     resp = client.bitable.v1.app_table.list(b.build())
@@ -70,10 +72,13 @@ def list_tables(
 def list_fields(
     config: FeishuConfig, app_token: str, table_id: str, *, page_token: str | None = None
 ) -> tuple[list[dict], str | None, bool]:
+    """分页列举指定数据表的字段定义。"""
     from lark_oapi.api.bitable.v1 import ListAppTableFieldRequest
 
     client = build_client(config)
-    b = ListAppTableFieldRequest.builder().app_token(app_token).table_id(table_id).page_size(100)
+    b = ListAppTableFieldRequest.builder().app_token(app_token).table_id(table_id).page_size(
+        BITABLE_DEFAULT_PAGE_SIZE
+    )
     if page_token:
         b = b.page_token(page_token)
     resp = client.bitable.v1.app_table_field.list(b.build())
@@ -99,12 +104,13 @@ def list_records(
     table_id: str,
     *,
     page_token: str | None = None,
-    page_size: int = 100,
+    page_size: int = BITABLE_DEFAULT_PAGE_SIZE,
     view_id: str | None = None,
     field_names: list[str] | None = None,
     filter_expr: str | None = None,
     sort: list[str] | None = None,
 ) -> tuple[list[dict], str | None, bool]:
+    """搜索/分页列举记录（支持 view、filter、sort）。"""
     from lark_oapi.api.bitable.v1 import (
         SearchAppTableRecordRequest,
         SearchAppTableRecordRequestBody,
@@ -152,6 +158,7 @@ def list_records(
 def get_record(
     config: FeishuConfig, app_token: str, table_id: str, record_id: str
 ) -> dict[str, Any]:
+    """按 record_id 获取单条记录。"""
     from lark_oapi.api.bitable.v1 import GetAppTableRecordRequest
 
     client = build_client(config)
@@ -174,6 +181,7 @@ def get_record(
 def create_record(
     config: FeishuConfig, app_token: str, table_id: str, fields: dict[str, Any]
 ) -> dict[str, Any]:
+    """在指定表中创建一条记录。"""
     from lark_oapi.api.bitable.v1 import AppTableRecord, CreateAppTableRecordRequest
 
     client = build_client(config)
@@ -199,6 +207,7 @@ def create_record(
 def update_record(
     config: FeishuConfig, app_token: str, table_id: str, record_id: str, fields: dict[str, Any]
 ) -> dict[str, Any]:
+    """更新指定记录的字段值。"""
     from lark_oapi.api.bitable.v1 import AppTableRecord, UpdateAppTableRecordRequest
 
     client = build_client(config)
@@ -223,6 +232,7 @@ def update_record(
 
 
 def delete_record(config: FeishuConfig, app_token: str, table_id: str, record_id: str) -> None:
+    """删除单条记录。"""
     from lark_oapi.api.bitable.v1 import DeleteAppTableRecordRequest
 
     client = build_client(config)
@@ -271,6 +281,7 @@ def upload_record_attachment(
 def delete_records_batch(
     config: FeishuConfig, app_token: str, table_id: str, record_ids: list[str]
 ) -> int:
+    """批量删除记录（最多 500 条），返回实际提交的删除数量。"""
     from lark_oapi.api.bitable.v1 import (
         BatchDeleteAppTableRecordRequest,
         BatchDeleteAppTableRecordRequestBody,

@@ -37,12 +37,15 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from miniagent.infrastructure.logger import get_logger
+from miniagent.infrastructure.trace_events import EVENT_TOOL_END
 from miniagent.infrastructure.trace_stats import (
+    compute_context_stats,
     compute_error_stats,
     compute_llm_stats,
     compute_tool_stats,
@@ -171,6 +174,47 @@ def parse_activity_log(date: str | None = None) -> dict[str, Any]:
     return result
 
 
+def _detect_loop_patterns(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """从 trace 事件检测重复调用与 ping-pong 模式。"""
+    loops: list[dict[str, Any]] = []
+    by_session: dict[str, list[str]] = defaultdict(list)
+
+    for event in events:
+        if event.get("type") == EVENT_TOOL_END:
+            session = event.get("session_key", "unknown")
+            tool = event.get("tool", "")
+            if tool:
+                by_session[session].append(tool)
+
+    repeat_threshold = 5
+    for session, tools in by_session.items():
+        for tool, count in Counter(tools).items():
+            if count >= repeat_threshold:
+                loops.append({
+                    "type": "repeated_tool",
+                    "session": session,
+                    "tool": tool,
+                    "count": count,
+                    "severity": 2,
+                })
+
+        if len(tools) >= 6:
+            a, b = tools[0], tools[1]
+            if a != b:
+                is_ping_pong = all(
+                    t == (a if i % 2 == 0 else b) for i, t in enumerate(tools[:6])
+                )
+                if is_ping_pong:
+                    loops.append({
+                        "type": "ping_pong",
+                        "session": session,
+                        "tools": [a, b],
+                        "severity": 3,
+                    })
+
+    return loops
+
+
 class RuntimeAnalyzer:
     """运行日志分析器。
 
@@ -215,6 +259,14 @@ class RuntimeAnalyzer:
         error_stats = compute_error_stats(trace_events)
         report["errors"] = error_stats
 
+        # 上下文压缩统计
+        context_stats = compute_context_stats(trace_events)
+        report["context"] = context_stats
+
+        # 循环检测
+        loop_patterns = _detect_loop_patterns(trace_events)
+        report["loops"] = loop_patterns
+
         # 2. 活动日志分析
         activity_data = parse_activity_log(date)
         report["sessions_count"] = len(activity_data["sessions"])
@@ -235,11 +287,15 @@ class RuntimeAnalyzer:
         )
         error_count = sum(e.get("count", 0) for e in error_stats)
         session_count = len(activity_data["sessions"])
+        compress_count = context_stats.get("compress_count", 0)
+        loop_count = len(loop_patterns)
 
         report["summary"] = (
             f"会话 {session_count} 个，"
             f"LLM 调用 {llm_count} 次，"
             f"工具调用 {tool_count} 次，"
+            f"上下文压缩 {compress_count} 次，"
+            f"循环模式 {loop_count} 个，"
             f"错误 {error_count} 次"
         )
 
@@ -271,8 +327,35 @@ class RuntimeAnalyzer:
                     "type": "high_frequency_error",
                     "error_type": error["type"],
                     "count": error["count"],
+                    "is_user_error": error.get("is_user_error", False),
                     "severity": 2 if error.get("is_user_error") else 3,
                 })
+
+        # 循环模式问题
+        for loop in loop_patterns:
+            if loop.get("type") == "repeated_tool":
+                issues.append({
+                    "type": "tool_loop",
+                    "tool": loop["tool"],
+                    "count": loop["count"],
+                    "session": loop.get("session", ""),
+                    "severity": loop.get("severity", 2),
+                })
+            elif loop.get("type") == "ping_pong":
+                issues.append({
+                    "type": "ping_pong",
+                    "tools": loop.get("tools", []),
+                    "session": loop.get("session", ""),
+                    "severity": loop.get("severity", 3),
+                })
+
+        # 高频上下文压缩
+        if context_stats.get("compress_count", 0) >= 5:
+            issues.append({
+                "type": "context_pressure",
+                "compress_count": context_stats["compress_count"],
+                "severity": 2,
+            })
 
         report["issues"] = issues
 

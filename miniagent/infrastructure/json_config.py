@@ -48,6 +48,7 @@ class JsonConfigLoader:
         defaults_path: str | None = None,
         user_path: str | None = None,
     ) -> None:
+        """创建加载器；路径省略时使用仓库根目录下的默认/用户配置文件。"""
         if defaults_path is None:
             self._defaults_path = str(
                 Path(__file__).parent.parent.parent / "config.defaults.json"
@@ -129,17 +130,20 @@ class JsonConfigLoader:
         return self.get_section(section)
 
     def reload(self) -> None:
+        """丢弃内存缓存并从磁盘重新加载 defaults 与 user 配置。"""
         self._loaded = False
         self._load()
 
     @classmethod
     def get_instance(cls) -> JsonConfigLoader:
+        """返回进程级单例加载器（懒创建）。"""
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
 
 
 def get_config(key: str, default: Any = None) -> Any:
+    """读取配置项；支持 ``section.key`` 点路径，user 覆盖 defaults。"""
     return JsonConfigLoader.get_instance().get(key, default)
 
 
@@ -163,21 +167,23 @@ def get_config_bool(key: str, default: bool = False) -> bool:
 
 
 def get_config_section(section: str) -> dict[str, Any]:
+    """读取顶层配置节（defaults 与 user 浅合并）。"""
     return JsonConfigLoader.get_instance().get_section(section)
 
 
 def reload_config() -> None:
+    """重新加载 JSON 配置（不刷新 secrets 环境变量或 LLM 客户端）。"""
     JsonConfigLoader.get_instance().reload()
 
 
 def reload_runtime_config() -> None:
     """重新加载 JSON 配置，并同步 secrets 环境变量与 LLM 客户端缓存。"""
     reload_config()
-    from miniagent.core.openai_client import invalidate_shared_async_openai
+    from miniagent.core.openai_client import sync_runtime_context_openai_client
     from miniagent.infrastructure.env_loader import load_secrets_from_project_root
 
     load_secrets_from_project_root()
-    invalidate_shared_async_openai()
+    sync_runtime_context_openai_client()
 
 
 def get_user_config_path() -> Path:

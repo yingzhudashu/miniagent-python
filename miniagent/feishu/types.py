@@ -4,6 +4,9 @@
 网络与 SDK 细节仍在各调用模块内处理，本文件保持无 I/O 纯数据。
 
 亦通过 ``miniagent.types`` 再导出，便于 ``from miniagent.types import FeishuConfig``。
+
+**运行时入站类型**：请使用 :class:`FeishuInboundText`。
+:class:`FeishuMessageEvent` / :class:`FeishuReply` 为历史兼容别名，新代码勿依赖。
 """
 
 from __future__ import annotations
@@ -13,14 +16,14 @@ from dataclasses import dataclass
 
 @dataclass
 class FeishuConfig:
-    """飞书应用配置
+    """飞书应用配置（WebSocket 长连接模式）。
 
     Attributes:
         app_id: 飞书开放平台应用 App ID
         app_secret: 飞书开放平台应用 Secret
-        port: HTTP 服务监听端口（Webhook 模式）
-        encrypt_key: 事件加密密钥（可选）
-        verification_token: 事件验证 Token（可选）
+        port: 预留字段；当前实现仅 WebSocket 入站，不使用 HTTP 监听端口
+        encrypt_key: 事件加密密钥（WS 事件分发，可选）
+        verification_token: 事件验证 Token（WS 事件分发，可选）
     """
 
     app_id: str
@@ -47,7 +50,7 @@ class FeishuInboundText:
 
 @dataclass
 class FeishuMessageEvent:
-    """飞书消息事件
+    """飞书消息事件（legacy：保留类型再导出；运行时使用 :class:`FeishuInboundText`）。
 
     Attributes:
         message_id: 消息唯一 ID（用于去重）
@@ -68,7 +71,7 @@ class FeishuMessageEvent:
 
 @dataclass
 class FeishuReply:
-    """飞书回复
+    """飞书回复（legacy：保留类型再导出；出站由 ``poll_server._send_reply`` / ``im_send`` 处理）。
 
     Attributes:
         content: 回复内容

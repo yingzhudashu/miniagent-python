@@ -8,8 +8,19 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from miniagent.infrastructure.registry import DefaultToolRegistry
 from miniagent.mcp.bridge import is_mcp_available, mcp_tool_to_openai_param
-from miniagent.mcp.runtime import _tool_result_text
+from miniagent.mcp.runtime import (
+    _call_tool_to_result,
+    _is_mcp_tool_error,
+    _tool_result_text,
+    register_mcp_stdio_tools,
+)
+from miniagent.types.tool import ToolResult
+
+
+async def _h(args: dict, ctx) -> ToolResult:
+    return ToolResult(True, "")
 
 
 def test_mcp_tool_to_openai_param_shape() -> None:
@@ -31,6 +42,39 @@ def test_tool_result_text_joins_blocks() -> None:
     assert _tool_result_text(res) == "line1"
 
 
+def test_tool_result_text_joins_multiple_blocks() -> None:
+    res = SimpleNamespace(
+        content=[
+            SimpleNamespace(text="a"),
+            {"text": "b"},
+            SimpleNamespace(image=b"ignored"),
+        ]
+    )
+    assert _tool_result_text(res) == "a\nb"
+
+
+def test_tool_result_text_json_fallback_when_no_text() -> None:
+    res = SimpleNamespace(content=[SimpleNamespace(image=b"x")], model_dump=lambda: {"k": 1})
+    out = _tool_result_text(res)
+    assert '"k": 1' in out
+
+
+def test_is_mcp_tool_error_variants() -> None:
+    assert _is_mcp_tool_error(SimpleNamespace(isError=True)) is True
+    assert _is_mcp_tool_error({"isError": True}) is True
+    assert _is_mcp_tool_error(SimpleNamespace(is_error=True)) is True
+    assert _is_mcp_tool_error(SimpleNamespace(isError=False)) is False
+
+
+def test_call_tool_to_result_success_and_error() -> None:
+    ok = SimpleNamespace(isError=False, content=[SimpleNamespace(text="ok")])
+    err = SimpleNamespace(isError=True, content=[SimpleNamespace(text="bad")])
+    assert _call_tool_to_result(ok).success is True
+    assert _call_tool_to_result(ok).content == "ok"
+    assert _call_tool_to_result(err).success is False
+    assert _call_tool_to_result(err).content == "bad"
+
+
 def test_is_mcp_available_is_bool() -> None:
     assert isinstance(is_mcp_available(), bool)
 
@@ -40,9 +84,6 @@ async def test_register_mcp_stdio_tools_raises_when_mcp_import_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """强制 mcp 导入失败时抛出 RuntimeError（不依赖环境是否已装 mcp extra）。"""
-    from miniagent.infrastructure.registry import DefaultToolRegistry
-    from miniagent.mcp.runtime import register_mcp_stdio_tools
-
     real_import = builtins.__import__
 
     def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
@@ -64,9 +105,6 @@ async def test_register_mcp_stdio_tools_registers_prefixed_names(
     """mock stdio/session，无需真实 MCP 子进程。"""
     import sys
     import types
-
-    from miniagent.infrastructure.registry import DefaultToolRegistry
-    from miniagent.mcp.runtime import register_mcp_stdio_tools
 
     fake_tool = SimpleNamespace(
         name="echo",
@@ -111,3 +149,65 @@ async def test_register_mcp_stdio_tools_registers_prefixed_names(
     n = await register_mcp_stdio_tools(reg, "echo", [])
     assert n == 1
     assert "mcp_echo" in reg.list()
+
+
+@pytest.mark.asyncio
+async def test_register_mcp_handler_returns_failure_on_is_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """handler 应识别 MCP CallToolResult.isError。"""
+    import sys
+    import types
+
+    fake_tool = SimpleNamespace(
+        name="fail",
+        description="fail tool",
+        inputSchema={"type": "object", "properties": {}},
+    )
+
+    class _FakeSession:
+        async def initialize(self) -> None:
+            return None
+
+        async def list_tools(self):
+            return SimpleNamespace(tools=[fake_tool])
+
+        async def call_tool(self, _name: str, _args: dict) -> SimpleNamespace:
+            return SimpleNamespace(
+                isError=True,
+                content=[SimpleNamespace(text="tool failed")],
+            )
+
+    class _FakeClientSession:
+        def __init__(self, _r: object, _w: object) -> None:
+            self._inner = _FakeSession()
+
+        async def __aenter__(self) -> _FakeSession:
+            return self._inner
+
+        async def __aexit__(self, *_a: object) -> None:
+            return None
+
+    def _fake_stdio_client(_params: object):
+        cm = MagicMock()
+        cm.__aenter__ = AsyncMock(return_value=(MagicMock(), MagicMock()))
+        cm.__aexit__ = AsyncMock(return_value=None)
+        return cm
+
+    mcp_pkg = types.ModuleType("mcp")
+    mcp_pkg.ClientSession = _FakeClientSession
+    mcp_pkg.StdioServerParameters = lambda **kw: kw
+    mcp_client = types.ModuleType("mcp.client")
+    mcp_stdio = types.ModuleType("mcp.client.stdio")
+    mcp_stdio.stdio_client = _fake_stdio_client
+    monkeypatch.setitem(sys.modules, "mcp", mcp_pkg)
+    monkeypatch.setitem(sys.modules, "mcp.client", mcp_client)
+    monkeypatch.setitem(sys.modules, "mcp.client.stdio", mcp_stdio)
+
+    reg = DefaultToolRegistry()
+    await register_mcp_stdio_tools(reg, "echo", [])
+    tool = reg.get("mcp_fail")
+    assert tool is not None
+    result = await tool.handler({}, None)
+    assert result.success is False
+    assert result.content == "tool failed"

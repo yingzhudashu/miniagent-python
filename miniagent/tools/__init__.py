@@ -20,7 +20,20 @@
 
 ``schedule_tools``（``manage_scheduled_task``）由 ``scheduled_tools.enabled`` 控制注册。
 
-ALL_TOOLS 汇总上述内置工具；启动时由 ``register_builtin_tools`` 写入主注册表。
+ALL_TOOLS 汇总上述内置工具（约 40+ 个）；启动时由 ``register_builtin_tools`` 写入主注册表。
+
+**权限与注册开关**：
+
++-------------------------------+------------------------------------------+
+| 配置键                        | 影响                                     |
++===============================+==========================================+
+| ``cli.dot_tools_enabled``     | ``run_dot_command``                      |
+| ``scheduled_tools.enabled``   | ``manage_scheduled_task``                |
+| ``feishu.tools_explicit/auto``| 飞书扩展工具（IM/文档/多维表格/卡片）    |
++-------------------------------+------------------------------------------+
+
+``ToolDefinition.permission=require-confirm`` 的工具在 executor 中经 ``ConfirmationChannel`` 确认后执行。
+路径类工具不受 ``ToolContext.permission`` 影响，统一走 ``path_utils.resolve_path_for_tool``。
 
 重构说明：
 - web.py 重命名为 core_tools.py（仅保留 get_time）

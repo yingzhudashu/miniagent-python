@@ -56,12 +56,14 @@ def process_timezone() -> str:
 
 
 def now_in_process_tz() -> datetime:
+    """当前时刻，带进程默认 IANA 时区（见 :func:`process_timezone`）。"""
     from zoneinfo import ZoneInfo
 
     return datetime.now(ZoneInfo(process_timezone()))
 
 
 def format_process_local(epoch: float, *, tz_name: str | None = None) -> str:
+    """将 Unix 时间戳格式化为本地墙钟字符串（默认进程时区）。"""
     from zoneinfo import ZoneInfo
 
     tz = ZoneInfo((tz_name or "").strip() or process_timezone())
@@ -85,6 +87,7 @@ def format_agent_timezone_rule_context() -> str:
 
 
 def format_agent_timezone_context() -> str:
+    """返回含当前本地时间的动态时区上下文（注入每轮 user context）。"""
     tz_name = process_timezone()
     now = now_in_process_tz()
     weekday = _WEEKDAYS_ZH[now.weekday()]

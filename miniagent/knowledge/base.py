@@ -21,9 +21,6 @@ from miniagent.memory.keyword_index import extract_keywords
 
 _logger = get_logger(__name__)
 
-# 默认知识库根目录
-_DEFAULT_KB_ROOT = "workspaces/knowledge"
-
 
 def _max_file_chars() -> int:
     from miniagent.infrastructure.json_config import get_config
@@ -55,7 +52,7 @@ class KBConfig:
     Attributes:
         name: 知识库名称（用于显示和引用）
         description: 知识库描述
-        retriever: 检索策略（keyword / fulltext）
+        retriever: 检索策略（``keyword`` 关键词倒排；``fulltext`` 子串匹配）
         max_chars: 单次检索最大字符
         top_k: 返回条目数
         file_patterns: 包含的文件模式
@@ -197,13 +194,13 @@ class KnowledgeBase:
         )
 
     def _scan_files(self, directory: str, patterns: list[str]) -> list[str]:
-        """扫描目录中匹配模式的文件。"""
-        files: list[str] = []
+        """扫描目录中匹配模式的文件（去重）。"""
+        seen: dict[str, None] = {}
         for pattern in patterns:
             for fp in Path(directory).glob(pattern):
                 if fp.is_file():
-                    files.append(str(fp))
-        return sorted(files)
+                    seen[str(fp.resolve())] = None
+        return sorted(seen.keys())
 
     def _load_file(self, file_path: str) -> KnowledgeEntry | None:
         """加载单个文件为 KnowledgeEntry。"""
@@ -255,6 +252,40 @@ class KnowledgeBase:
             for kw in entry.keywords:
                 self._index.setdefault(kw, []).append(i)
 
+    def rank_entries(self, query: str) -> list[tuple[int, float]]:
+        """按相关性对条目打分并排序。
+
+        Args:
+            query: 搜索关键词或问题
+
+        Returns:
+            ``(entry_index, score)`` 列表，按分数降序
+        """
+        self.load()
+        if not self._entries or not query.strip():
+            return []
+
+        retriever = (self._config.retriever or "keyword").lower()
+        if retriever == "fulltext":
+            return self._rank_fulltext(query)
+        return self._rank_keyword(query)
+
+    def format_ranked_entry(self, index: int, *, kb_label: str | None = None) -> str:
+        """格式化单条检索结果。"""
+        entry = self._entries[index]
+        snippet = entry.content[:500]
+        if len(entry.content) > 500:
+            snippet += "..."
+
+        title = entry.file_path
+        if kb_label:
+            title = f"[{kb_label}] {title}"
+
+        source_line = self._format_source_metadata(entry)
+        if source_line:
+            return f"### {title}\n{source_line}\n{snippet}\n"
+        return f"### {title}\n{snippet}\n"
+
     def search(self, query: str, top_k: int | None = None, max_chars: int | None = None) -> str:
         """检索知识库内容。
 
@@ -266,48 +297,63 @@ class KnowledgeBase:
         Returns:
             格式化的检索结果文本
         """
-        self.load()  # 确保已加载
+        self.load()
 
         if not self._entries:
             return ""
 
         top_k = top_k or self._config.top_k
         max_chars = max_chars or self._config.max_chars
+        scores = self.rank_entries(query)
+        return self._build_search_output(scores, top_k, max_chars)
 
-        # 提取查询关键词
+    def _rank_keyword(self, query: str) -> list[tuple[int, float]]:
         query_keywords = extract_keywords(query)
-
-        # 计算每个条目的匹配分数
         scores: list[tuple[int, float]] = []
         for i, entry in enumerate(self._entries):
             score = 0.0
             for kw in query_keywords:
                 if kw in entry.keywords:
-                    # 3-gram 权重更高（与 keyword_index 一致）
                     weight = 1.5 if len(kw) == 3 else 1.0
                     score += weight
             if score > 0:
                 scores.append((i, score))
-
-        # 按分数排序
         scores.sort(key=lambda x: x[1], reverse=True)
+        return scores
 
-        # 构建结果文本
+    def _rank_fulltext(self, query: str) -> list[tuple[int, float]]:
+        query_lower = query.lower().strip()
+        terms = extract_keywords(query)
+        if not terms and query_lower:
+            terms = [query_lower]
+
+        scores: list[tuple[int, float]] = []
+        for i, entry in enumerate(self._entries):
+            haystack = entry.content.lower()
+            score = 0.0
+            if query_lower and query_lower in haystack:
+                score += 2.0
+            for term in terms:
+                term_lower = term.lower()
+                if term_lower in haystack:
+                    weight = 1.5 if len(term_lower) == 3 else 1.0
+                    score += weight
+            if score > 0:
+                scores.append((i, score))
+        scores.sort(key=lambda x: x[1], reverse=True)
+        return scores
+
+    def _build_search_output(
+        self,
+        scores: list[tuple[int, float]],
+        top_k: int,
+        max_chars: int,
+    ) -> str:
         results: list[str] = []
         total_chars = 0
 
-        for i, score in scores[:top_k]:
-            entry = self._entries[i]
-            # 格式化单个条目
-            snippet = entry.content[:500]
-            if len(entry.content) > 500:
-                snippet += "..."
-
-            source_line = self._format_source_metadata(entry)
-            if source_line:
-                text = f"### {entry.file_path}\n{source_line}\n{snippet}\n"
-            else:
-                text = f"### {entry.file_path}\n{snippet}\n"
+        for i, _score in scores[:top_k]:
+            text = self.format_ranked_entry(i)
             if total_chars + len(text) > max_chars:
                 break
             results.append(text)
@@ -347,4 +393,39 @@ class KnowledgeBase:
         return " | ".join(parts)
 
 
-__all__ = ["KnowledgeBase", "KnowledgeEntry", "KBConfig", "load_kb_config"]
+def resolve_kb_file_path(kb_root: str, file_path: str) -> str | None:
+    """解析知识库内文件路径，拒绝目录穿越。
+
+    依次尝试 ``files/<file_path>`` 与 ``<file_path>``（均相对于知识库根目录）。
+
+    Args:
+        kb_root: 知识库根目录
+        file_path: 相对路径
+
+    Returns:
+        绝对路径；无法安全解析或文件不存在时返回 ``None``
+    """
+    kb_root = os.path.abspath(kb_root)
+    normalized = file_path.replace("\\", "/").strip().lstrip("/")
+    if not normalized or ".." in Path(normalized).parts:
+        return None
+
+    for rel in (os.path.join("files", normalized), normalized):
+        candidate = os.path.abspath(os.path.join(kb_root, rel))
+        try:
+            if os.path.commonpath([kb_root, candidate]) != kb_root:
+                continue
+        except ValueError:
+            continue
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
+__all__ = [
+    "KnowledgeBase",
+    "KnowledgeEntry",
+    "KBConfig",
+    "load_kb_config",
+    "resolve_kb_file_path",
+]

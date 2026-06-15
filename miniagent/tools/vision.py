@@ -22,7 +22,7 @@ from miniagent.core.constants import FEISHU_VISION_MAX_BYTES
 from miniagent.core.openai_client import get_shared_async_openai
 from miniagent.infrastructure.json_config import get_config
 from miniagent.tools.base import tool
-from miniagent.tools.path_utils import resolve_path_from_ctx
+from miniagent.tools.path_utils import resolve_path_for_tool
 from miniagent.types.error_prefix import ERROR_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
@@ -36,10 +36,9 @@ async def _analyze_image_handler(args: dict[str, Any], ctx: ToolContext) -> Tool
 
     使用 LLM 视觉能力分析图片，生成描述文本。
     """
-    try:
-        image_path = resolve_path_from_ctx(str(args["path"]), ctx)
-    except ValueError as e:
-        return ToolResult(success=False, content=f"{ERROR_PREFIX} 路径越权: {e}")
+    image_path, path_err = resolve_path_for_tool(str(args["path"]), ctx)
+    if path_err:
+        return path_err
 
     if not os.path.isfile(image_path):
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 图片文件不存在: {args['path']}")

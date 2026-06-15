@@ -31,7 +31,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from miniagent.core.constants import KEYWORD_INDEX_MAX_KEYWORDS, KEYWORD_INDEX_MIN_KEYWORD_LEN
+from miniagent.core.constants import (
+    KEYWORD_EXTRACT_MAX,
+    KEYWORD_INDEX_MAX_KEYWORDS,
+    KEYWORD_INDEX_MIN_KEYWORD_LEN,
+)
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.memory.shared_registry import MemoryEntryRegistry, get_registry
@@ -212,7 +216,7 @@ class _IndexEntry:
 
 
 def _default_max_keywords() -> int:
-    return KEYWORD_INDEX_MAX_KEYWORDS
+    return KEYWORD_EXTRACT_MAX
 
 
 def _min_keyword_len() -> int:
@@ -230,7 +234,7 @@ def extract_keywords(text: str, max_keywords: int | None = None) -> list[str]:
 
     Args:
         text: 要提取关键词的文本
-        max_keywords: 最大关键词数（未指定时读 ``keyword_index.max_keywords``）
+        max_keywords: 最大关键词数（未指定时使用 ``KEYWORD_EXTRACT_MAX``）
 
     Returns:
         去重后的关键词列表（按长度优先排序，保留更有意义的词）
@@ -460,7 +464,7 @@ class KeywordIndex:
             ]
         )
 
-        keywords = extract_keywords(full_text)
+        keywords = extract_keywords(full_text, max_keywords=KEYWORD_INDEX_MAX_KEYWORDS)
 
         for keyword in keywords:
             if keyword not in self._index:
@@ -674,7 +678,7 @@ def search_relevant_with_index(
     return output
 
 
-def search_relevant_memory(query: str, top_k: int = 5, min_score: int = 0) -> list[dict[str, Any]]:
+def search_relevant_memory(query: str, top_k: int = 5, min_score: float = 0.0) -> list[dict[str, Any]]:
     """搜索相关记忆（全局便捷函数）。
 
     使用进程默认关键词索引检索与查询相关的记忆条目。
@@ -716,14 +720,26 @@ def search_relevant_memory(query: str, top_k: int = 5, min_score: int = 0) -> li
     return output
 
 
-def format_search_results(results: list[dict[str, Any]]) -> str:
-    """将搜索结果格式化为可注入 prompt 的文本。"""
+def format_search_results(
+    results: list[dict[str, Any]],
+    *,
+    max_length: int | None = None,
+) -> str:
+    """将搜索结果格式化为可注入 prompt 的文本。
+
+    Args:
+        results: 检索条目列表
+        max_length: 输出全文最大字符数（可选；超出时截断并附加省略提示）
+    """
     if not results:
         return ""
     lines = ["相关记忆："]
     for r in results:
         lines.append(f"- [{r.get('session_id', '?')}] {r.get('summary', '')[:100]}")
-    return "\n".join(lines)
+    text = "\n".join(lines)
+    if max_length is not None and max_length > 0 and len(text) > max_length:
+        return text[: max_length - 12].rstrip() + "\n…（已截断）"
+    return text
 
 
 def get_index_stats() -> dict[str, Any]:

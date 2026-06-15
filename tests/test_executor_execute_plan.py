@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -278,4 +279,212 @@ async def test_execute_plan_respects_asyncio_cancel() -> None:
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
+
+
+def _confirm_tool_schema(name: str = "danger_tool") -> dict:
+    return {
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": "danger",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    }
+
+
+def _make_confirm_registry(*, handler=None) -> tuple[Any, list[int]]:
+    from miniagent.infrastructure.registry import DefaultToolRegistry
+    from miniagent.types.tool import ToolDefinition, ToolResult
+
+    calls: list[int] = []
+
+    async def _default_handler(args: dict, ctx) -> ToolResult:
+        calls.append(1)
+        return ToolResult(True, "executed")
+
+    reg = DefaultToolRegistry()
+    reg.register(
+        "danger_tool",
+        ToolDefinition(
+            schema=_confirm_tool_schema(),
+            handler=handler or _default_handler,
+            permission="require-confirm",
+            help_text="危险操作",
+        ),
+    )
+    return reg, calls
+
+
+@pytest.mark.asyncio
+async def test_execute_plan_require_confirm_without_channel_denies() -> None:
+    reg, calls = _make_confirm_registry()
+    mock_client = mock_streaming_client(tool_name="danger_tool")
+    ms, al, ki = mock_memory_bundle()
+    finishes: list[tuple[str, str, bool]] = []
+
+    async def on_finish(
+        name: str,
+        args_json: str,
+        result: str,
+        success: bool,
+        *,
+        thinking_header: str = "",
+    ) -> None:
+        finishes.append((name, result, success))
+
+    await execute_plan(
+        empty_plan(),
+        "hi",
+        reg,
+        MagicMock(),
+        agent_config_with_session(reg),
+        client=mock_client,
+        memory_store=ms,
+        activity_log=al,
+        keyword_index=ki,
+        on_tool_finish=on_finish,
+    )
+    assert calls == []
+    assert len(finishes) == 1
+    assert finishes[0][0] == "danger_tool"
+    assert finishes[0][2] is False
+    assert "需要用户确认" in finishes[0][1]
+
+
+@pytest.mark.asyncio
+async def test_execute_plan_require_confirm_user_rejects() -> None:
+    from miniagent.types.confirmation import ConfirmationResult
+
+    reg, calls = _make_confirm_registry()
+    channel = MagicMock()
+    channel.request_confirmation = AsyncMock(return_value=ConfirmationResult.reject())
+    mock_client = mock_streaming_client(tool_name="danger_tool")
+    ms, al, ki = mock_memory_bundle()
+    finishes: list[tuple[str, str, bool]] = []
+
+    async def on_finish(
+        name: str,
+        args_json: str,
+        result: str,
+        success: bool,
+        *,
+        thinking_header: str = "",
+    ) -> None:
+        finishes.append((name, result, success))
+
+    await execute_plan(
+        empty_plan(),
+        "hi",
+        reg,
+        MagicMock(),
+        agent_config_with_session(reg),
+        client=mock_client,
+        memory_store=ms,
+        activity_log=al,
+        keyword_index=ki,
+        confirmation_channel=channel,
+        on_tool_finish=on_finish,
+    )
+    assert calls == []
+    assert len(finishes) == 1
+    assert "拒绝执行工具" in finishes[0][1]
+    channel.request_confirmation.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_execute_plan_require_confirm_auto_execute_skips() -> None:
+    from miniagent.types.config import AgentConfig
+
+    reg, calls = _make_confirm_registry()
+    mock_client = mock_streaming_client(tool_name="danger_tool")
+    ms, al, ki = mock_memory_bundle()
+    cfg = AgentConfig(
+        max_turns=3,
+        session_key=None,
+        allow_parallel_tools=True,
+        tool_selection_strategy="all",
+        session_registry=reg,
+        auto_execute_confirmed=True,
+    )
+    out = await execute_plan(
+        empty_plan(),
+        "hi",
+        reg,
+        MagicMock(),
+        cfg,
+        client=mock_client,
+        memory_store=ms,
+        activity_log=al,
+        keyword_index=ki,
+    )
+    assert "done" in out
+    assert calls == [1]
+
+
+@pytest.mark.asyncio
+async def test_execute_plan_require_confirm_user_approves() -> None:
+    from miniagent.types.confirmation import ConfirmationResult
+
+    reg, calls = _make_confirm_registry()
+    channel = MagicMock()
+    channel.request_confirmation = AsyncMock(return_value=ConfirmationResult.confirm())
+    mock_client = mock_streaming_client(tool_name="danger_tool")
+    ms, al, ki = mock_memory_bundle()
+    out = await execute_plan(
+        empty_plan(),
+        "hi",
+        reg,
+        MagicMock(),
+        agent_config_with_session(reg),
+        client=mock_client,
+        memory_store=ms,
+        activity_log=al,
+        keyword_index=ki,
+        confirmation_channel=channel,
+    )
+    assert "done" in out
+    assert calls == [1]
+    channel.request_confirmation.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_execute_plan_phased_last_step_persists_session_memory() -> None:
+    """分步模式最后一步完成时应落盘会话记忆（回归：曾调用未定义的 _save_session_memory）。"""
+    from miniagent.types.config import AgentConfig
+
+    main, sess = make_ping_tool_registry()
+    plan = StructuredPlan(
+        summary="s",
+        steps=[PlanStep(step_number=1, description="一步", expected_input="", expected_output="")],
+        required_toolboxes=[],
+    )
+    mock_client = mock_streaming_client(final_text="wrapped_up")
+    ms, al, ki = mock_memory_bundle()
+    mc = MagicMock()
+    mc.inject_memory_to_messages = AsyncMock(return_value=([], {}))
+    mc.save_memory_after_turn = AsyncMock()
+    cfg = AgentConfig(
+        max_turns=5,
+        session_key="test-session",
+        allow_parallel_tools=True,
+        tool_selection_strategy="all",
+        session_registry=sess,
+        debug=False,
+    )
+    with patch("miniagent.core.executor._env_phased_execution_enabled", return_value=True):
+        out = await execute_plan(
+            plan,
+            "hi",
+            main,
+            MagicMock(),
+            cfg,
+            client=mock_client,
+            memory_store=ms,
+            activity_log=al,
+            keyword_index=ki,
+            memory_context=mc,
+        )
+    assert "wrapped_up" in out
+    mc.save_memory_after_turn.assert_awaited_once()
+    al.log_final_reply.assert_called_once_with("test-session", "wrapped_up")
 

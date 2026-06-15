@@ -14,9 +14,9 @@ from typing import Any
 
 from miniagent.feishu._utils import resolve_under_workspace
 from miniagent.feishu.folder_token_resolve import resolve_parent_folder_token_async
-from miniagent.feishu.lark_client import config_from_env
 from miniagent.feishu.receive_id import default_receive_id_for_send, effective_receive_id_type
 from miniagent.tools.base import tool
+from miniagent.tools.feishu_utils import check_feishu_config_and_lark_oapi
 from miniagent.types.error_prefix import SUCCESS_PREFIX, WARNING_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
@@ -37,9 +37,9 @@ async def _feishu_send_workspace_file(args: dict[str, Any], ctx: ToolContext) ->
     receive_id, recv_err = default_receive_id_for_send(args, ctx)
     receive_id_type = effective_receive_id_type(args, ctx)
 
-    cfg = config_from_env()
-    if cfg is None:
-        return ToolResult(success=False, content=f"{WARNING_PREFIX} 未配置 FEISHU_APP_ID / FEISHU_APP_SECRET。")
+    cfg, cfg_err = check_feishu_config_and_lark_oapi()
+    if cfg_err:
+        return cfg_err
     if recv_err:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} {recv_err}")
     if not receive_id:
@@ -93,14 +93,11 @@ async def _feishu_recall_message(args: dict[str, Any], ctx: ToolContext) -> Tool
     if not mid:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 message_id。")
 
-    cfg = config_from_env()
-    if cfg is None:
-        return ToolResult(success=False, content=f"{WARNING_PREFIX} 未配置 FEISHU_APP_ID / FEISHU_APP_SECRET。")
+    cfg, cfg_err = check_feishu_config_and_lark_oapi()
+    if cfg_err:
+        return cfg_err
 
-    try:
-        from miniagent.feishu.upload_io import delete_im_message
-    except ImportError:
-        return ToolResult(success=False, content=f"{WARNING_PREFIX} 请安装 lark-oapi。")
+    from miniagent.feishu.upload_io import delete_im_message
 
     try:
         ok, err = delete_im_message(cfg, mid)
@@ -115,9 +112,9 @@ async def _feishu_list_drive_files(args: dict[str, Any], ctx: ToolContext) -> To
     """列举云盘文件夹条目。"""
     _ = ctx
     folder_arg = str(args.get("folder_token") or "").strip()
-    cfg = config_from_env()
-    if cfg is None:
-        return ToolResult(success=False, content=f"{WARNING_PREFIX} 未配置 FEISHU_APP_ID / FEISHU_APP_SECRET。")
+    cfg, cfg_err = check_feishu_config_and_lark_oapi()
+    if cfg_err:
+        return cfg_err
 
     folder, folder_err = await resolve_parent_folder_token_async(folder_arg, cfg=cfg)
     if folder_err or not folder:

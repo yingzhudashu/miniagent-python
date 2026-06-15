@@ -1,21 +1,79 @@
 """共享 AsyncOpenAI 客户端 — 进程内惰性单例。
 
-供 ``generate_plan`` / ``execute_plan`` / ``run_agent`` 在调用方未传入 ``client=`` 时回落使用；
-``RuntimeContext.openai_client`` 在 ``engine.main.unified_main`` 中通常设为同一实例，保证全链路一致。
+供 ``generate_plan`` / ``execute_plan`` / ``UnifiedEngine`` 等在调用方未传入 ``client=`` 时回落使用；
+``RuntimeContext.openai_client`` 在 ``compat.unified_entry`` 中通常设为同一实例，保证全链路一致。
+
+配置热更新：``reload_runtime_config()`` 会调用 :func:`sync_runtime_context_openai_client` 重建客户端并同步
+已登记的 ``RuntimeContext.openai_client``。
 
 **测试**：调用 ``reset_shared_async_openai_for_tests()`` 可清空缓存，便于注入 stub 或避免用例间泄漏。
 """
 
 from __future__ import annotations
 
+import asyncio
 import os
 
+import httpx
 from openai import AsyncOpenAI
 
 from miniagent.infrastructure.debug_ndjson import safe_agent_debug_log
 from miniagent.infrastructure.json_config import get_config
 
 _shared: AsyncOpenAI | None = None
+
+_CONNECT_TIMEOUT_SEC = 30.0
+
+
+def _read_http_timeout() -> float:
+    raw = get_config("agent.http_timeout", 120.0)
+    try:
+        timeout = float(raw)
+    except (TypeError, ValueError):
+        raise RuntimeError(
+            f"agent.http_timeout 配置无效（{raw!r}），需要数字（秒）。"
+        ) from None
+    if timeout <= 0:
+        raise RuntimeError("agent.http_timeout 必须大于 0。")
+    return timeout
+
+
+def _read_retry_count() -> int:
+    raw = get_config("model.retry_count", 2)
+    try:
+        count = int(raw)
+    except (TypeError, ValueError):
+        raise RuntimeError(
+            f"model.retry_count 配置无效（{raw!r}），需要整数。"
+        ) from None
+    if count < 0:
+        raise RuntimeError("model.retry_count 不能为负数。")
+    return count
+
+
+def _schedule_client_close(client: AsyncOpenAI) -> None:
+    """尽力关闭旧客户端底层 HTTP 连接（无运行中事件循环时依赖 GC）。"""
+    close = getattr(client, "close", None)
+    if not callable(close):
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    if loop.is_running():
+        loop.create_task(close())
+
+
+def _build_async_openai(api_key: str) -> AsyncOpenAI:
+    base_url = get_config("model.base_url", None)
+    http_timeout = _read_http_timeout()
+    retry_count = _read_retry_count()
+    return AsyncOpenAI(
+        api_key=api_key,
+        base_url=base_url,
+        timeout=httpx.Timeout(http_timeout, connect=_CONNECT_TIMEOUT_SEC),
+        max_retries=retry_count,
+    )
 
 
 def get_shared_async_openai() -> AsyncOpenAI:
@@ -29,17 +87,20 @@ def get_shared_async_openai() -> AsyncOpenAI:
         AsyncOpenAI: 共享的异步 OpenAI 客户端实例
 
     Raises:
-        RuntimeError: 未配置 OPENAI_API_KEY 时抛出，提示用户设置凭据
+        RuntimeError: 未配置 ``OPENAI_API_KEY``，或 ``agent.http_timeout`` /
+            ``model.retry_count`` 配置无效时抛出
 
     Note:
-        - API 密钥优先从 ``OPENAI_API_KEY`` 环境变量读取
-        - base_url 从 ``config.user.json`` 的 ``model.base_url`` 读取
+        - API 密钥**仅**从 ``OPENAI_API_KEY`` 环境变量读取；入口须先调用
+          ``load_secrets_from_project_root()`` 将 ``config.user.json`` 的
+          ``secrets.openai_api_key`` 桥接到该变量
+        - ``model.base_url`` 从 JSON 配置读取（``config.user.json`` 覆盖
+          ``config.defaults.json``；不支持 ``MINIAGENT_*`` 环境变量覆盖）
         - 支持兼容 OpenAI API 的第三方服务（如 Azure、本地模型）
-        - 网络可靠性：添加超时配置和重试机制
+        - 超时与重试：``agent.http_timeout``、``model.retry_count``
     """
     global _shared
     if _shared is None:
-        # API密钥必须从环境变量读取（敏感凭据）
         key = (os.environ.get("OPENAI_API_KEY") or "").strip()
         if not key:
             safe_agent_debug_log(
@@ -50,23 +111,12 @@ def get_shared_async_openai() -> AsyncOpenAI:
             )
             raise RuntimeError(
                 "未配置 OPENAI_API_KEY，无法调用 LLM（任务分类、规划、对话均依赖）。"
-                "请在 config.user.json 的 secrets.openai_api_key 填写 API 密钥；使用国内/自建兼容端点时请同时设置 model.base_url。"
+                "请在 config.user.json 的 secrets.openai_api_key 填写 API 密钥；"
+                "使用国内/自建兼容端点时请同时设置 model.base_url。"
             ) from None
-        # base_url从JSON配置读取（支持环境变量覆盖）
+
+        _shared = _build_async_openai(key)
         base_url = get_config("model.base_url", None)
-
-        # 网络可靠性：从配置读取超时和重试参数
-        http_timeout = float(get_config("agent.http_timeout", 120.0))
-        retry_count = int(get_config("model.retry_count", 2))
-
-        # OpenAI SDK 原生支持 timeout 和 max_retries
-        import httpx
-        _shared = AsyncOpenAI(
-            api_key=key,
-            base_url=base_url,
-            timeout=httpx.Timeout(http_timeout, connect=30.0),
-            max_retries=retry_count,
-        )
         bu = (base_url or "").strip()
         host = ""
         if bu and "//" in bu:
@@ -87,18 +137,40 @@ def get_shared_async_openai() -> AsyncOpenAI:
 
 
 def invalidate_shared_async_openai() -> None:
-    """丢弃已缓存的 AsyncOpenAI 客户端，下次调用时按当前环境变量与配置重建。"""
+    """丢弃已缓存的 AsyncOpenAI 客户端，下次调用时按当前环境变量与配置重建。
+
+    会尽力在事件循环中 ``close()`` 旧客户端以释放连接。不会自动更新
+    ``RuntimeContext.openai_client``；配置热更新请使用
+    :func:`sync_runtime_context_openai_client` 或 ``reload_runtime_config()``。
+    """
     global _shared
+    if _shared is not None:
+        _schedule_client_close(_shared)
     _shared = None
 
 
+def sync_runtime_context_openai_client() -> None:
+    """清空客户端缓存并按当前配置重建，同步刷新已登记的 ``RuntimeContext``。"""
+    invalidate_shared_async_openai()
+    from miniagent.runtime.context import get_runtime_context
+
+    ctx = get_runtime_context()
+    if ctx is None:
+        return
+    try:
+        ctx.openai_client = get_shared_async_openai()
+    except RuntimeError:
+        ctx.openai_client = None
+
+
 def reset_shared_async_openai_for_tests() -> None:
-    """清空缓存，仅供测试。"""
+    """清空缓存（与 :func:`invalidate_shared_async_openai` 相同），供测试 teardown 使用。"""
     invalidate_shared_async_openai()
 
 
 __all__ = [
     "get_shared_async_openai",
     "invalidate_shared_async_openai",
+    "sync_runtime_context_openai_client",
     "reset_shared_async_openai_for_tests",
 ]

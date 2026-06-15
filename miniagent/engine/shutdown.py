@@ -18,7 +18,7 @@ import logging
 from miniagent.engine.cli_state import CliLoopState
 from miniagent.infrastructure.instance import unregister_instance
 from miniagent.infrastructure.process import cleanup_all_processes
-from miniagent.runtime.context import RuntimeContext
+from miniagent.runtime.context import RuntimeContext, reset_runtime_context_for_tests
 
 _logger = logging.getLogger(__name__)
 
@@ -230,6 +230,8 @@ async def shutdown_runtime(
     # 6) 默认线程池：不再主动关闭。prompt_toolkit 的 in_terminal() 异步上下文退出时
     # 仍会通过 run_in_executor 使用默认线程池，此处提前关闭会导致
     # "Executor shutdown has been called"。由进程退出时自动清理即可。
+
+    reset_runtime_context_for_tests()
 
     if reason:
         _logger.info("shutdown_runtime: done (%s)", reason)

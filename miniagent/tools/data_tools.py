@@ -17,7 +17,7 @@ import os
 from typing import Any
 
 from miniagent.tools.base import tool
-from miniagent.tools.path_utils import resolve_path_from_ctx
+from miniagent.tools.path_utils import resolve_path_for_tool
 from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
@@ -28,7 +28,9 @@ from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 async def _read_csv_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     """读取 CSV 文件内容。自动检测分隔符。"""
-    path = resolve_path_from_ctx(str(args["path"]), ctx)
+    path, path_err = resolve_path_for_tool(str(args["path"]), ctx)
+    if path_err:
+        return path_err
     if not os.path.isfile(path):
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 文件不存在: {path}")
 
@@ -38,10 +40,10 @@ async def _read_csv_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResul
 
     try:
         with open(path, encoding=encoding, newline="") as f:
-            raw = f.read(8192)
             if not delimiter:
-                delimiter = "\t" if raw.count("\t") > raw.count(",") else ","
-            f.seek(0)
+                sample = f.read(65536)
+                delimiter = "\t" if sample.count("\t") > sample.count(",") else ","
+                f.seek(0)
             reader = csv.DictReader(f, delimiter=delimiter)
             rows = []
             for i, row in enumerate(reader):
@@ -64,7 +66,9 @@ async def _read_csv_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResul
 
 async def _write_csv_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     """将数据写入 CSV 文件。支持对象数组或二维数组。"""
-    path = resolve_path_from_ctx(str(args["path"]), ctx)
+    path, path_err = resolve_path_for_tool(str(args["path"]), ctx)
+    if path_err:
+        return path_err
     delimiter = str(args.get("delimiter", ",")).strip() or ","
     raw_data = str(args.get("data", ""))
 
@@ -95,7 +99,9 @@ async def _write_csv_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
 
 async def _json_read_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     """读取 JSON 或 JSONL 文件内容。自动格式化。"""
-    path = resolve_path_from_ctx(str(args["path"]), ctx)
+    path, path_err = resolve_path_for_tool(str(args["path"]), ctx)
+    if path_err:
+        return path_err
     if not os.path.isfile(path):
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 文件不存在: {path}")
 
@@ -122,7 +128,9 @@ async def _json_read_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
 
 async def _json_write_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     """将数据写入 JSON 文件。支持美化输出。"""
-    path = resolve_path_from_ctx(str(args["path"]), ctx)
+    path, path_err = resolve_path_for_tool(str(args["path"]), ctx)
+    if path_err:
+        return path_err
     pretty = args.get("pretty", True) in (True, "true", "1")
     raw_data = str(args.get("data", ""))
 

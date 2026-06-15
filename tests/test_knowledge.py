@@ -2,15 +2,29 @@
 
 from __future__ import annotations
 
+import json
 import os
 import tempfile
+from unittest.mock import patch
 
 import pytest
 
 from miniagent.knowledge import (
     KnowledgeRegistry,
+    retrieve_knowledge_context,
 )
-from miniagent.knowledge.base import KBConfig, KnowledgeBase, load_kb_config
+from miniagent.knowledge.base import (
+    KBConfig,
+    KnowledgeBase,
+    load_kb_config,
+    resolve_kb_file_path,
+)
+from miniagent.tools.knowledge_tools import (
+    KNOWLEDGE_TOOLBOX,
+    apply_knowledge_toolbox_policy,
+    knowledge_tools,
+)
+from miniagent.types.tool import ToolContext
 
 
 class TestKnowledgeBase:
@@ -161,3 +175,174 @@ class TestKnowledgeTools:
         tool = knowledge_tools.get("read_knowledge_file")
         assert tool is not None
         assert tool.schema["function"]["name"] == "read_knowledge_file"
+
+
+class TestKnowledgeBaseExtended:
+    def test_scan_files_deduplicates_overlapping_patterns(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "doc.md")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("overlap")
+            kb = KnowledgeBase(tmpdir, config=KBConfig(file_patterns=["*.md", "*.*"]))
+            kb.load()
+            assert len(kb._entries) == 1
+
+    def test_fulltext_retriever_matches_substrings(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            files_dir = os.path.join(tmpdir, "files")
+            os.makedirs(files_dir)
+            with open(os.path.join(files_dir, "a.md"), "w", encoding="utf-8") as f:
+                f.write("UniquePhraseOnlyHere")
+            kb = KnowledgeBase(tmpdir, config=KBConfig(name="ft", retriever="fulltext"))
+            result = kb.search("UniquePhraseOnlyHere")
+            assert "UniquePhraseOnlyHere" in result
+
+    def test_resolve_kb_file_path_rejects_traversal(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            files_dir = os.path.join(tmpdir, "files")
+            os.makedirs(files_dir)
+            safe = os.path.join(files_dir, "safe.md")
+            with open(safe, "w", encoding="utf-8") as f:
+                f.write("ok")
+            resolved = resolve_kb_file_path(tmpdir, "safe.md")
+            assert resolved == os.path.abspath(safe)
+            assert resolve_kb_file_path(tmpdir, "../../../etc/passwd") is None
+
+
+class TestKnowledgeRegistryExtended:
+    def test_cross_kb_search_uses_global_top_k(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            registry = KnowledgeRegistry(state_dir=tmpdir)
+            registry._mounted.clear()
+
+            for label, keyword in (("kb_a", "alpha"), ("kb_b", "beta")):
+                kb_dir = os.path.join(tmpdir, label)
+                files_dir = os.path.join(kb_dir, "files")
+                os.makedirs(files_dir)
+                with open(os.path.join(files_dir, "doc.md"), "w", encoding="utf-8") as f:
+                    f.write(f"content about {keyword}")
+                registry.mount(kb_dir, label)
+
+            result = registry.search("alpha beta", top_k=1)
+            assert result.count("###") == 1
+
+    def test_mount_custom_name_persisted_in_registry_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            kb_root = os.path.join(tmpdir, "kb_root")
+            os.makedirs(kb_root)
+            kb_dir = os.path.join(kb_root, "docs")
+            files_dir = os.path.join(kb_dir, "files")
+            os.makedirs(files_dir)
+            with open(os.path.join(files_dir, "x.md"), "w", encoding="utf-8") as f:
+                f.write("hello")
+
+            with patch("miniagent.knowledge.registry.get_config", return_value=kb_root):
+                registry = KnowledgeRegistry(state_dir=tmpdir)
+                registry._mounted.clear()
+                registry.mount(kb_dir, "alias_name")
+
+                registry_path = os.path.join(kb_root, "kb_registry.json")
+                data = json.loads(open(registry_path, encoding="utf-8").read())
+                assert data["mounted"][0]["name"] == "alias_name"
+
+                registry2 = KnowledgeRegistry(state_dir=tmpdir)
+                assert "alias_name" in registry2._mounted
+
+    def test_refresh_auto_file_kb_reloads_existing_mount(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            kb_dir = os.path.join(tmpdir, "auto")
+            files_dir = os.path.join(kb_dir, "files")
+            os.makedirs(files_dir)
+            doc = os.path.join(files_dir, "a.md")
+            with open(doc, "w", encoding="utf-8") as f:
+                f.write("version-one")
+
+            registry = KnowledgeRegistry(state_dir=tmpdir)
+            registry._mounted.clear()
+            registry.mount(kb_dir, "_auto_file_analysis")
+
+            with open(doc, "w", encoding="utf-8") as f:
+                f.write("version-two keyword")
+
+            result = registry.refresh_auto_file_kb(kb_dir, "_auto_file_analysis")
+            assert result["success"]
+            search = registry.search("version-two", kb_name="_auto_file_analysis")
+            assert "version-two" in search
+
+
+class TestRetrieveKnowledgeContext:
+    def test_returns_empty_when_disabled(self):
+        with patch("miniagent.knowledge.get_config", return_value=False):
+            assert retrieve_knowledge_context("query", phase="executor") == ""
+
+    def test_returns_markdown_when_results_exist(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            registry = KnowledgeRegistry(state_dir=tmpdir)
+            registry._mounted.clear()
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8") as f:
+                f.write("# Doc\n\nAPI endpoint guide")
+                f.close()
+                try:
+                    registry.mount(f.name, "doc_kb")
+                    with patch("miniagent.knowledge.get_kb_registry", return_value=registry):
+                        with patch("miniagent.knowledge.get_config") as mock_cfg:
+                            mock_cfg.side_effect = lambda key, default=None: {
+                                "knowledge.executor_enabled": True,
+                                "knowledge.executor_top_k": 3,
+                                "knowledge.executor_max_chars": 4000,
+                            }.get(key, default)
+                            out = retrieve_knowledge_context("API", phase="executor")
+                    assert "## 相关知识库摘要" in out
+                    assert "API" in out
+                finally:
+                    os.unlink(f.name)
+
+
+class TestKnowledgeToolHandlers:
+    @pytest.mark.asyncio
+    async def test_search_knowledge_handler_empty_query(self):
+        handler = knowledge_tools["search_knowledge"].handler
+        result = await handler({}, ToolContext(cwd=os.getcwd()))
+        assert not result.success
+
+    @pytest.mark.asyncio
+    async def test_read_knowledge_file_handler_blocks_traversal(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            files_dir = os.path.join(tmpdir, "files")
+            os.makedirs(files_dir)
+            with open(os.path.join(files_dir, "inside.md"), "w", encoding="utf-8") as f:
+                f.write("secret")
+
+            registry = KnowledgeRegistry(state_dir=tmpdir)
+            registry._mounted.clear()
+            registry.mount(tmpdir, "kb")
+
+            handler = knowledge_tools["read_knowledge_file"].handler
+            ctx = ToolContext(cwd=tmpdir)
+            with patch("miniagent.tools.knowledge_tools.get_kb_registry", return_value=registry):
+                bad = await handler({"kb_name": "kb", "file_path": "../outside.md"}, ctx)
+                good = await handler({"kb_name": "kb", "file_path": "inside.md"}, ctx)
+
+            assert not bad.success
+            assert good.success
+            assert "secret" in good.content
+
+    @pytest.mark.asyncio
+    async def test_kb_list_handler_empty(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            registry = KnowledgeRegistry(state_dir=tmpdir)
+            registry._mounted.clear()
+            handler = knowledge_tools["kb_list"].handler
+            with patch("miniagent.tools.knowledge_tools.get_kb_registry", return_value=registry):
+                result = await handler({}, ToolContext(cwd=tmpdir))
+            assert result.success
+            assert "未挂载" in result.content
+
+
+class TestKnowledgeToolboxPolicy:
+    def test_apply_knowledge_toolbox_policy_respects_as_core(self):
+        tool = knowledge_tools["search_knowledge"]
+        with patch("miniagent.tools.knowledge_tools.get_config", return_value=True):
+            assert apply_knowledge_toolbox_policy(tool).toolbox is None
+        with patch("miniagent.tools.knowledge_tools.get_config", return_value=False):
+            assert apply_knowledge_toolbox_policy(tool).toolbox == KNOWLEDGE_TOOLBOX

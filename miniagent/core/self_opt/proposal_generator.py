@@ -31,6 +31,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import os
 import uuid
 from typing import Any
 
@@ -94,6 +96,21 @@ class ProposalGenerator:
                 if proposal:
                     proposals.append(proposal)
 
+            elif issue.get("type") == "tool_loop":
+                proposal = self._make_tool_loop_proposal(issue)
+                if proposal:
+                    proposals.append(proposal)
+
+            elif issue.get("type") == "ping_pong":
+                proposal = self._make_ping_pong_proposal(issue)
+                if proposal:
+                    proposals.append(proposal)
+
+            elif issue.get("type") == "context_pressure":
+                proposal = self._make_context_pressure_proposal(issue)
+                if proposal:
+                    proposals.append(proposal)
+
         # 2. LLM token 消耗提案
         llm_stats = report.get("llm", {})
         if llm_stats.get("request_count", 0) > 10:
@@ -125,12 +142,12 @@ class ProposalGenerator:
         tool_name = issue.get("tool", "")
         avg_ms = issue.get("avg_ms", 0)
 
-        if not tool_name or avg_ms < 1000:
-            return None
-
         threshold = get_config(
             "self_optimization.min_duration_ms_threshold", 2000
         )
+
+        if not tool_name or avg_ms < threshold:
+            return None
 
         return OptimizationProposal(
             id=_generate_proposal_id(),
@@ -270,6 +287,68 @@ class ProposalGenerator:
             estimated_effort=20,
         )
 
+    def _make_tool_loop_proposal(
+        self,
+        issue: dict[str, Any],
+    ) -> OptimizationProposal | None:
+        """生成工具重复调用循环提案。"""
+        tool_name = issue.get("tool", "")
+        count = issue.get("count", 0)
+        if not tool_name or count < 5:
+            return None
+
+        return OptimizationProposal(
+            id=_generate_proposal_id(),
+            type="optimize",
+            risk_level="medium",
+            target=f"行为: {tool_name} 重复调用",
+            description=f"工具 {tool_name} 在同一会话中被调用 {count} 次，可能存在无效循环",
+            rationale="重复调用浪费 token 与时间，应检查 Agent 提示词或工具返回是否导致反复调用。",
+            expected_benefit="减少无效工具调用，提升响应效率",
+            estimated_effort=25,
+        )
+
+    def _make_ping_pong_proposal(
+        self,
+        issue: dict[str, Any],
+    ) -> OptimizationProposal | None:
+        """生成 ping-pong 交替调用提案。"""
+        tools = issue.get("tools", [])
+        if len(tools) < 2:
+            return None
+
+        a, b = tools[0], tools[1]
+        return OptimizationProposal(
+            id=_generate_proposal_id(),
+            type="optimize",
+            risk_level="medium",
+            target=f"行为: {a} ↔ {b} ping-pong",
+            description=f"检测到 {a} 与 {b} 交替调用模式",
+            rationale="Ping-pong 模式通常表示 Agent 在两个工具间反复切换无法收敛，需优化策略或错误处理。",
+            expected_benefit="打破无效循环，减少 token 消耗",
+            estimated_effort=30,
+        )
+
+    def _make_context_pressure_proposal(
+        self,
+        issue: dict[str, Any],
+    ) -> OptimizationProposal | None:
+        """生成上下文压缩压力提案。"""
+        compress_count = issue.get("compress_count", 0)
+        if compress_count < 5:
+            return None
+
+        return OptimizationProposal(
+            id=_generate_proposal_id(),
+            type="optimize",
+            risk_level="low",
+            target="上下文压缩频率",
+            description=f"上下文压缩触发 {compress_count} 次，上下文压力较大",
+            rationale="频繁压缩说明对话上下文接近窗口上限，可精简系统提示或启用更积极的截断策略。",
+            expected_benefit="降低压缩频率，保留更多有效上下文",
+            estimated_effort=20,
+        )
+
     def merge_proposals(
         self,
         runtime_proposals: list[OptimizationProposal],
@@ -317,35 +396,76 @@ class ProposalGenerator:
         self,
         date: str | None = None,
         max_proposals: int = 10,
+        root: str | None = None,
     ) -> list[str]:
         """生成提案并保存到存储。
+
+        当 ``code_analysis_enabled`` 为 true 时，同时运行代码静态分析并合并提案。
 
         Args:
             date: 分析日期，默认今天
             max_proposals: 最大提案数量
+            root: 代码分析项目根目录（默认 cwd）
 
         Returns:
             保存的提案 ID 列表
         """
-        # 生成运行分析报告
-        analyzer = RuntimeAnalyzer()
-        report = analyzer.analyze(date)
-        analyzer.save_report(report)
+        project_root = root or os.getcwd()
 
-        # 从报告生成提案
-        proposals = self.generate_from_runtime_report(report, max_proposals)
+        runtime_proposals: list[OptimizationProposal] = []
+        if get_config("self_optimization.runtime_analysis_enabled", True):
+            analyzer = RuntimeAnalyzer()
+            report = analyzer.analyze(date)
+            analyzer.save_report(report)
+            runtime_proposals = self.generate_from_runtime_report(report, max_proposals)
 
-        # 保存提案
+        code_proposals: list[OptimizationProposal] = []
+        if get_config("self_optimization.code_analysis_enabled", True):
+            try:
+                from miniagent.core.self_opt.inspector import inspect_project
+                from miniagent.core.self_opt.proposal_engine import generate_proposals
+
+                inspection = asyncio.run(inspect_project(project_root))
+                code_proposals = asyncio.run(
+                    generate_proposals(
+                        inspection,
+                        root=project_root,
+                        max_proposals=max_proposals,
+                    )
+                )
+            except Exception as e:
+                _logger.warning("代码静态分析失败: %s", e)
+
+        # 按 target 去重后保存（运行分析优先）
+        saved_ids: list[str] = []
+        seen_targets: set[str] = set()
         store = ProposalStore()
-        saved_ids = []
-        for proposal in proposals:
+
+        for proposal in runtime_proposals:
+            if proposal.target in seen_targets:
+                continue
+            if len(saved_ids) >= max_proposals:
+                break
             try:
                 proposal_id = store.save_proposal(proposal, source="runtime_analysis")
                 saved_ids.append(proposal_id)
+                seen_targets.add(proposal.target)
             except Exception as e:
                 _logger.warning("保存提案失败: %s", e)
 
-        _logger.info("生成并保存 %d 个运行分析提案", len(saved_ids))
+        for proposal in code_proposals:
+            if proposal.target in seen_targets:
+                continue
+            if len(saved_ids) >= max_proposals:
+                break
+            try:
+                proposal_id = store.save_proposal(proposal, source="code_analysis")
+                saved_ids.append(proposal_id)
+                seen_targets.add(proposal.target)
+            except Exception as e:
+                _logger.warning("保存代码分析提案失败: %s", e)
+
+        _logger.info("生成并保存 %d 个优化提案", len(saved_ids))
         return saved_ids
 
 

@@ -46,9 +46,9 @@
 
 **典型 User-facing 节**：`secrets`、`model`、`paths`、`features`、以及 `feishu` / `agent` / `execution` 中的行为边界项。
 
-**典型 Advanced 节**：`memory.*`、`dream.*`、`trace.*`、`feishu.websocket.*`、`feishu.patch.*`、`agent.loop_detection.*`、`background_tasks.*`。
+**典型 Advanced 节**：`memory.*`、`dream.*`、`trace.*`、`feishu.websocket.*`、`feishu.card.*`、`agent.loop_detection.*`、`background_tasks.*`。
 
-**典型 Internal（写入 [`core/constants.py`](../miniagent/core/constants.py)，不可通过 JSON 覆盖）**：`feishu.api_urls`、`feishu.patch.*`、`clawhub.api_url`、`web_search.tavily_url`、`execution.*`、`render.*`、`cli` 实现细节、`browser.*`、`keyword_index.*` 等。输出前缀 emoji 见 [`types/error_prefix.py`](../miniagent/types/error_prefix.py)。
+**典型 Internal（写入 [`core/constants.py`](../miniagent/core/constants.py)，不可通过 JSON 覆盖）**：`feishu.api_urls`、`feishu.patch.*`（流式卡片节流）、`clawhub.api_url`、`web_search.tavily_url`、`execution.*`（含 `EXECUTION_MAX_CONCURRENT_TOOLS` 工具并发硬上限）、`render.*`、`cli` 实现细节（`CLI_RAW_MARKDOWN` / `CLI_THINKING_RICH` 可被 ENV 或 `cli.*` 覆盖）、`browser.*`、`keyword_index.*` 算法阈值等。JSON 默认值种子（如 `DEFAULT_AGENT_MAX_TURNS`、`HISTORY_ARCHIVE_MAX_MESSAGES`）与本文件及 `config.defaults.json` 同步，用户 JSON 可覆盖对应键。输出前缀 emoji 见 [`types/error_prefix.py`](../miniagent/types/error_prefix.py)。
 
 **加载机制**（见 [`json_config.py`](../miniagent/infrastructure/json_config.py)）：`defaults → user`（仅两层 JSON）。`secrets` 经 [`env_loader.py`](../miniagent/infrastructure/env_loader.py) 桥接到 `OPENAI_API_KEY` 等 SDK 变量，**不是**用户配置入口。`/config` 命令与 USER_GUIDE 仅展示 User 层子集。
 

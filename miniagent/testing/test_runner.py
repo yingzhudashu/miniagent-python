@@ -1,6 +1,12 @@
 """Mini Agent Python — 自测执行器
 
 执行测试样本并生成报告。
+
+**运行模式**：
+
+- ``mock=True``（默认）：校验样本 JSON 自洽，并用理想化模拟输出验证约束是否可满足。
+  不调用 LLM，适合 CI 与 ``/test run`` 快速检查。
+- ``mock=False`` 且注入 ``execute_agent``：调用真实 Agent，全面评估行为。
 """
 
 from __future__ import annotations
@@ -13,9 +19,24 @@ from pathlib import Path
 from typing import Any
 
 from miniagent.infrastructure.logger import get_logger
-from miniagent.testing.types import ReportSummary, ResultRecord, SampleSpec
+from miniagent.testing.types import (
+    DEFAULT_REPORT_PATH,
+    DEFAULT_SAMPLES_DIR,
+    ExecuteAgentFn,
+    ReportSummary,
+    ResultRecord,
+    SampleSpec,
+)
+from miniagent.testing.validation import (
+    evaluate_sample_result,
+    generate_mock_output,
+    mock_tools_for_sample,
+    validate_sample_schema,
+)
 
 _logger = get_logger(__name__)
+
+TermWriteFn = Callable[[str, str], None]
 
 
 class TestRunner:
@@ -25,30 +46,39 @@ class TestRunner:
 
     Example:
         runner = TestRunner(samples_dir="tests/evaluation/samples")
-        report = await runner.run_tests(category="security")
+        report = await runner.run_tests(category="security", mock=True)
+        report = await runner.run_tests(mock=False, execute_agent=my_fn)
     """
 
     def __init__(
         self,
-        samples_dir: str = "tests/evaluation/samples",
+        samples_dir: str = DEFAULT_SAMPLES_DIR,
         *,
-        execute_agent: Callable | None = None,
-        term_write: Callable | None = None,
+        report_path: str = DEFAULT_REPORT_PATH,
+        execute_agent: ExecuteAgentFn | None = None,
+        term_write: TermWriteFn | None = None,
     ) -> None:
         """创建测试执行器
 
         Args:
             samples_dir: 测试样本目录
-            execute_agent: Agent 执行函数（None 时使用 mock）
-            term_write: 输出函数（用于 CLI 显示）
+            report_path: 报告 JSON 写入路径
+            execute_agent: 真实 Agent 执行函数（``mock=False`` 时必填）
+            term_write: CLI 输出 ``(text, ansi_color) -> None``
         """
         self._samples_dir = Path(samples_dir)
+        self._report_path = Path(report_path)
         self._execute_agent = execute_agent
         self._term_write = term_write
         self._samples: list[SampleSpec] = []
         self._loaded = False
+        self._last_report: ReportSummary | None = None
 
-    def load_samples(self, category: str | None = None, name_pattern: str | None = None) -> list[SampleSpec]:
+    def load_samples(
+        self,
+        category: str | None = None,
+        name_pattern: str | None = None,
+    ) -> list[SampleSpec]:
         """加载测试样本
 
         Args:
@@ -56,7 +86,7 @@ class TestRunner:
             name_pattern: 按名称过滤（正则）
 
         Returns:
-            匹配的测试样本列表
+            匹配的测试样本列表（按 priority 升序）
         """
         self._samples = []
 
@@ -64,22 +94,31 @@ class TestRunner:
             _logger.warning("测试样本目录不存在: %s", self._samples_dir)
             return []
 
-        # 遍历所有 JSON 文件
         for json_file in self._samples_dir.rglob("*.json"):
             try:
                 with open(json_file, encoding="utf-8") as f:
                     data = json.load(f)
 
-                # 支持单条或多条样本
                 items = data if isinstance(data, list) else [data]
                 for item in items:
-                    self._samples.append(SampleSpec.from_dict(item))
+                    if not isinstance(item, dict):
+                        _logger.warning("跳过非对象样本: %s", json_file)
+                        continue
+                    sample = SampleSpec.from_dict(item)
+                    schema_errors = validate_sample_schema(sample)
+                    if schema_errors:
+                        _logger.warning(
+                            "样本 %s (%s) 字段校验失败: %s",
+                            sample.name or json_file,
+                            json_file,
+                            "; ".join(schema_errors),
+                        )
+                    self._samples.append(sample)
 
             except Exception as e:
                 _logger.error("加载测试样本失败: %s (%s)", json_file, e)
 
-        # 过滤
-        filtered = []
+        filtered: list[SampleSpec] = []
         name_re = re.compile(name_pattern) if name_pattern else None
 
         for sample in self._samples:
@@ -89,14 +128,12 @@ class TestRunner:
                 continue
             filtered.append(sample)
 
-        # 按优先级排序
         filtered.sort(key=lambda s: s.priority)
-
         self._loaded = True
         return filtered
 
     def list_samples(self) -> list[dict[str, Any]]:
-        """列出所有测试样本（摘要形式）"""
+        """列出所有已加载测试样本（摘要形式）"""
         if not self._loaded:
             self.load_samples()
 
@@ -116,23 +153,28 @@ class TestRunner:
         name_pattern: str | None = None,
         *,
         mock: bool = False,
+        save_report: bool = False,
     ) -> ReportSummary:
         """运行测试
 
         Args:
             category: 按类别过滤
             name_pattern: 按名称过滤
-            mock: 是否使用 mock 模式（不调用真实 Agent）
+            mock: True = 样本 lint + 模拟评估；False = 真实 Agent（需 ``execute_agent``）
+            save_report: 是否写入 ``report_path``
 
         Returns:
             测试报告
         """
         samples = self.load_samples(category, name_pattern)
-
         report = ReportSummary(total=len(samples))
 
+        if mock is False and self._execute_agent is None:
+            raise ValueError("真实模式需要注入 execute_agent，或使用 mock=True")
+
+        mode_label = "mock（样本校验）" if mock else "real（真实 Agent）"
         if self._term_write:
-            self._term_write(f"\n[cyan]开始运行 {len(samples)} 条测试...[/cyan]\n")
+            self._term_write(f"\n[cyan]开始运行 {len(samples)} 条测试 [{mode_label}]...[/cyan]\n", "ansicyan")
 
         start_time = time.time()
 
@@ -144,94 +186,84 @@ class TestRunner:
                 if result.passed:
                     report.passed += 1
                     if self._term_write:
-                        self._term_write(f"[green]✓[/green] {sample.name}\n")
+                        self._term_write(f"[green]✓[/green] {sample.name}\n", "ansigreen")
+                elif result.error_message.startswith("跳过:"):
+                    report.skipped += 1
+                    if self._term_write:
+                        self._term_write(f"[yellow]⊘[/yellow] {sample.name}: {result.error_message}\n", "ansiyellow")
                 else:
                     report.failed += 1
                     if self._term_write:
-                        self._term_write(f"[red]✗[/red] {sample.name}: {result.error_message}\n")
+                        self._term_write(
+                            f"[red]✗[/red] {sample.name}: {result.error_message}\n",
+                            "ansired",
+                        )
 
             except Exception as e:
                 report.skipped += 1
-                report.results.append(ResultRecord(
-                    sample_name=sample.name,
-                    passed=False,
-                    error_message=str(e),
-                ))
+                report.results.append(
+                    ResultRecord(
+                        sample_name=sample.name,
+                        passed=False,
+                        error_message=f"跳过: {e}",
+                    )
+                )
                 if self._term_write:
-                    self._term_write(f"[yellow]⊗[/yellow] {sample.name}: {e}\n")
+                    self._term_write(f"[yellow]⊗[/yellow] {sample.name}: {e}\n", "ansiyellow")
 
         report.duration_seconds = time.time() - start_time
+        self._last_report = report
 
         if self._term_write:
             self._term_write(
-                f"\n[cyan]测试完成: {report.passed}/{report.total} 通过 "
-                f"({report.pass_rate:.1%}, {report.duration_seconds:.1f}s)[/cyan]\n"
+                f"\n[cyan]测试完成: {report.passed}/{report.total} 通过, "
+                f"{report.failed} 失败, {report.skipped} 跳过 "
+                f"({report.pass_rate:.1%}, {report.duration_seconds:.1f}s)[/cyan]\n",
+                "ansicyan",
             )
+
+        if save_report:
+            self.save_report(report)
 
         return report
 
+    def save_report(self, report: ReportSummary | None = None) -> Path:
+        """将报告写入 ``report_path``。"""
+        data = (report or self._last_report)
+        if data is None:
+            raise ValueError("无报告可保存")
+
+        self._report_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self._report_path, "w", encoding="utf-8") as f:
+            json.dump(data.to_dict(), f, indent=2, ensure_ascii=False)
+        return self._report_path
+
     async def _run_single(self, sample: SampleSpec, mock: bool = False) -> ResultRecord:
         """执行单条测试"""
-        violations: list[str] = []
-
-        # Mock 模式：使用预设结果
         if mock or self._execute_agent is None:
-            return await self._mock_run(sample)
+            return self._run_mock_evaluation(sample)
 
-        # 真实执行
         try:
-            # 捕获 Agent 执行结果
-            tool_calls: list[dict[str, Any]] = []
-            output_text: str = ""
-            token_count: int = 0
-            action: str = "execute"
-
-            # 调用 Agent（需要适配 executor 的接口）
             result = await self._execute_agent(sample.input, capture_tools=True)
-
-            if result:
-                tool_calls = result.get("tool_calls", [])
-                output_text = result.get("output", "")
-                token_count = result.get("tokens", 0)
-                action = result.get("action", "execute")
-
-            # 提取实际调用的工具名
-            actual_tools = [tc.get("name", "") for tc in tool_calls]
+            tool_calls = result.get("tool_calls", [])
+            output_text = result.get("output", "")
+            token_count = int(result.get("tokens", 0))
+            action = result.get("action", "execute")
+            actual_tools = [tc.get("name", "") for tc in tool_calls if tc.get("name")]
             tool_call_count = len(tool_calls)
 
-            # 验证预期行为
-            if sample.expected_action and action != sample.expected_action:
-                violations.append(f"预期行为 {sample.expected_action}，实际 {action}")
-
-            # 验证必须调用的工具
-            for tool in sample.must_call_tools:
-                if tool not in actual_tools:
-                    violations.append(f"必须调用 {tool} 但未调用")
-
-            # 验证禁止调用的工具
-            for tool in sample.must_not_call_tools:
-                if tool in actual_tools:
-                    violations.append(f"禁止调用 {tool} 但已调用")
-
-            # 验证输出模式
-            if sample.expected_output_pattern and not re.search(
-                sample.expected_output_pattern, output_text
-            ):
-                violations.append(f"输出不符合模式 {sample.expected_output_pattern}")
-
-            # 验证 token 预算
-            if sample.max_tokens and token_count > sample.max_tokens:
-                violations.append(f"Token 超限: {token_count} > {sample.max_tokens}")
-
-            # 验证工具调用上限
-            if sample.max_tool_calls and tool_call_count > sample.max_tool_calls:
-                violations.append(f"工具调用超限: {tool_call_count} > {sample.max_tool_calls}")
-
-            passed = len(violations) == 0
+            violations = evaluate_sample_result(
+                sample,
+                actual_action=action,
+                actual_tools=actual_tools,
+                output_text=output_text,
+                token_count=token_count,
+                tool_call_count=tool_call_count,
+            )
 
             return ResultRecord(
                 sample_name=sample.name,
-                passed=passed,
+                passed=len(violations) == 0,
                 actual_action=action,
                 actual_tools=actual_tools,
                 actual_output=output_text,
@@ -248,62 +280,50 @@ class TestRunner:
                 error_message=str(e),
             )
 
-    async def _mock_run(self, sample: SampleSpec) -> ResultRecord:
-        """Mock 执行（用于测试框架本身）
+    def _run_mock_evaluation(self, sample: SampleSpec) -> ResultRecord:
+        """mock 模式：校验样本定义，并用理想化输出验证约束是否可满足。"""
+        violations = validate_sample_schema(sample)
 
-        模拟执行结果并验证约束，用于测试测试框架的正确性。
-        """
-        # 根据预期行为生成模拟结果
         action = sample.expected_action
-        tools = sample.expected_tools[:]
+        actual_tools = mock_tools_for_sample(sample)
+        output_text = generate_mock_output(sample)
+        tool_call_count = len(actual_tools)
+        token_count = max(1, len(output_text) // 4 + tool_call_count * 50)
 
-        # 模拟输出
-        if sample.expected_action == "reject":
-            output = "抱歉，我不能执行这个请求。"
-        elif sample.expected_action == "ask_human":
-            output = "这个操作需要您的确认。请确认是否继续？"
-        else:
-            output = f"已处理: {sample.input[:50]}"
-
-        # 验证约束（mock 模式也应该验证）
-        violations: list[str] = []
-
-        # 检查 must_call_tools 是否在 expected_tools 中
-        for tool in sample.must_call_tools:
-            if tool not in sample.expected_tools:
-                violations.append(f"Mock 配置错误: must_call_tools 包含 {tool} 但 expected_tools 不包含")
-
-        # 检查 must_not_call_tools 是否在 expected_tools 中（不应该）
-        for tool in sample.must_not_call_tools:
-            if tool in sample.expected_tools:
-                violations.append(f"Mock 配置错误: must_not_call_tools 包含 {tool} 但 expected_tools 也包含")
-
-        # 检查 max_tool_calls 约束
-        if sample.max_tool_calls is not None and len(sample.expected_tools) > sample.max_tool_calls:
-            violations.append(f"Mock 配置错误: expected_tools 数量 {len(sample.expected_tools)} > max_tool_calls {sample.max_tool_calls}")
+        violations.extend(
+            evaluate_sample_result(
+                sample,
+                actual_action=action,
+                actual_tools=actual_tools,
+                output_text=output_text,
+                token_count=token_count,
+                tool_call_count=tool_call_count,
+            )
+        )
 
         passed = len(violations) == 0
-
         return ResultRecord(
             sample_name=sample.name,
             passed=passed,
             actual_action=action,
-            actual_tools=tools,
-            actual_output=output,
-            token_count=50,
-            tool_call_count=len(tools),
+            actual_tools=actual_tools,
+            actual_output=output_text,
+            token_count=token_count,
+            tool_call_count=tool_call_count,
             violations=violations,
             error_message="; ".join(violations) if violations else "",
         )
 
     def get_last_report(self) -> dict[str, Any] | None:
-        """获取最近一次测试报告（保存的）"""
-        report_path = Path("workspaces/test_report.json")
-        if not report_path.exists():
+        """获取最近一次测试报告（内存优先，其次读 ``report_path``）。"""
+        if self._last_report is not None:
+            return self._last_report.to_dict()
+
+        if not self._report_path.exists():
             return None
 
         try:
-            with open(report_path, encoding="utf-8") as f:
+            with open(self._report_path, encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             return None
@@ -313,38 +333,33 @@ async def run_self_test(
     category: str | None = None,
     name_pattern: str | None = None,
     *,
-    samples_dir: str = "tests/evaluation/samples",
-    execute_agent: Callable | None = None,
-    term_write: Callable | None = None,
-    mock: bool = False,
+    samples_dir: str = DEFAULT_SAMPLES_DIR,
+    report_path: str = DEFAULT_REPORT_PATH,
+    execute_agent: ExecuteAgentFn | None = None,
+    term_write: TermWriteFn | None = None,
+    mock: bool = True,
 ) -> ReportSummary:
-    """便捷函数：运行自测
+    """便捷函数：运行自测并保存报告
 
     Args:
         category: 按类别过滤
         name_pattern: 按名称过滤
         samples_dir: 测试样本目录
-        execute_agent: Agent 执行函数
-        term_write: 输出函数
-        mock: 是否使用 mock 模式
+        report_path: 报告输出路径
+        execute_agent: 真实 Agent 执行函数（``mock=False`` 时必填）
+        term_write: CLI 输出 ``(text, color) -> None``
+        mock: True = 不调用 LLM，仅校验样本与约束自洽；False = 真实评估
 
     Returns:
         测试报告
     """
     runner = TestRunner(
         samples_dir=samples_dir,
+        report_path=report_path,
         execute_agent=execute_agent,
         term_write=term_write,
     )
-    report = await runner.run_tests(category, name_pattern, mock=mock)
-
-    # 保存报告
-    report_path = Path("workspaces/test_report.json")
-    report_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(report_path, "w", encoding="utf-8") as f:
-        json.dump(report.to_dict(), f, indent=2, ensure_ascii=False)
-
-    return report
+    return await runner.run_tests(category, name_pattern, mock=mock, save_report=True)
 
 
 __all__ = ["TestRunner", "run_self_test"]

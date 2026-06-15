@@ -145,6 +145,23 @@ async def test_list_dir_not_a_dir(ctx: ToolContext, tmp_path: Path) -> None:
     assert "目录不存在" in r.content
 
 
+async def test_list_dir_detail_mode(ctx: ToolContext, tmp_path: Path) -> None:
+    f = tmp_path / "a.txt"
+    f.write_text("hello", encoding="utf-8")
+    r = await _list_dir_handler({"path": ".", "detail": True}, ctx)
+    assert r.success
+    assert "a.txt" in r.content
+    assert "B" in r.content or "mtime" in r.content
+
+
+async def test_list_dir_max_entries_truncation(ctx: ToolContext, tmp_path: Path) -> None:
+    for i in range(5):
+        (tmp_path / f"f{i}.txt").write_text("x", encoding="utf-8")
+    r = await _list_dir_handler({"path": ".", "recursive": True, "max_entries": 3}, ctx)
+    assert r.success
+    assert "已截断" in r.content
+
+
 # ─── create_dir ───
 
 

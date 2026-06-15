@@ -1,4 +1,4 @@
-"""Feishu docx v1 block operations."""
+"""飞书云文档（Docx）块级操作：列举、更新、Markdown 追加等。"""
 
 from __future__ import annotations
 
@@ -134,6 +134,7 @@ def _count_children(client, document_id: str, page_block_id: str) -> int:
 
 
 def append_plain_text_to_document(config: FeishuConfig, document_id: str, text: str) -> int:
+    """向文档末尾追加纯文本段落，返回创建的块数量。"""
     from lark_oapi.api.docx.v1 import (
         CreateDocumentBlockChildrenRequest,
         CreateDocumentBlockChildrenRequestBody,
@@ -173,6 +174,7 @@ def _block_summary(blk: Any) -> dict:
 def list_document_blocks(
     config: FeishuConfig, document_id: str, *, page_token: str | None = None, page_size: int = 50
 ) -> tuple[list[dict], str | None, bool]:
+    """分页列举文档块，返回 (块摘要列表, next_page_token, has_more)。"""
     from lark_oapi.api.docx.v1 import ListDocumentBlockRequest
 
     client = build_client(config)
@@ -190,6 +192,7 @@ def list_document_blocks(
 
 
 def get_block(config: FeishuConfig, document_id: str, block_id: str) -> dict:
+    """获取单个块的元数据摘要。"""
     from lark_oapi.api.docx.v1 import GetDocumentBlockRequest
 
     client = build_client(config)
@@ -212,6 +215,7 @@ def get_block(config: FeishuConfig, document_id: str, block_id: str) -> dict:
 
 
 def update_block_text(config: FeishuConfig, document_id: str, block_id: str, content: str) -> None:
+    """将文本块内容替换为给定纯文本。"""
     from lark_oapi.api.docx.v1 import (
         BlockBuilder,
         PatchDocumentBlockRequest,
@@ -244,6 +248,7 @@ def update_block_text(config: FeishuConfig, document_id: str, block_id: str, con
 
 
 def delete_block(config: FeishuConfig, document_id: str, block_id: str) -> None:
+    """删除指定块（经 batch_update）。"""
     batch_update_blocks(config, document_id, [{"block_id": block_id, "delete_block": {}}])
 
 
@@ -272,6 +277,7 @@ def clear_document_content_blocks(config: FeishuConfig, document_id: str) -> tup
 def batch_update_blocks(
     config: FeishuConfig, document_id: str, requests_payload: list[dict]
 ) -> dict:
+    """执行 docx batch_update 请求，返回 ``{ok, data}`` 字典。"""
     from lark_oapi.api.docx.v1 import (
         BatchUpdateDocumentBlockRequest,
         BatchUpdateDocumentBlockRequestBody,

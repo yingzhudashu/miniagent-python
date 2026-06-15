@@ -25,6 +25,7 @@ async def test_shutdown_stops_skills_watch() -> None:
         memory_store=MagicMock(),
         activity_log=MagicMock(),
         keyword_index=MagicMock(),
+        memory_context=MagicMock(),
     )
     stop_event = asyncio.Event()
     ctx.skills_watch_stop_event = stop_event

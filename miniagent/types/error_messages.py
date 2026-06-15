@@ -102,6 +102,7 @@ TOOL_PERMISSION_DENIED = "工具操作权限不足"
 # ============================================================================
 
 SANDBOX_PATH_VIOLATION = "路径超出沙箱允许范围"
+SANDBOX_PATH_VIOLATION_DETAIL = '路径越权: "{path}" 超出允许的范围: {allowed_dirs}'
 SANDBOX_COMMAND_BLOCKED = "命令不在白名单中"
 
 # ============================================================================
@@ -292,6 +293,24 @@ def format_message(template: str, **kwargs: str | int | float | bool) -> str:
         result = result.replace("{" + key + "}", str(value))
     return result
 
+
+def format_sandbox_path_violation(path: str, allowed_dirs: list[str]) -> str:
+    """生成沙箱路径越界的详细错误消息。
+
+    Args:
+        path: 尝试访问的路径。
+        allowed_dirs: 允许的目录列表。
+
+    Returns:
+        与 ``SandboxViolationError`` 及 ``resolve_sandbox_path`` 一致的消息文本。
+    """
+    return format_message(
+        SANDBOX_PATH_VIOLATION_DETAIL,
+        path=path,
+        allowed_dirs=", ".join(allowed_dirs),
+    )
+
+
 __all__ = [
     # 配置
     "CONFIG_ENV_MISSING",
@@ -329,6 +348,7 @@ __all__ = [
     "TOOL_PERMISSION_DENIED",
     # 沙箱
     "SANDBOX_PATH_VIOLATION",
+    "SANDBOX_PATH_VIOLATION_DETAIL",
     "SANDBOX_COMMAND_BLOCKED",
     # 文件操作（模板）
     "FILE_NOT_FOUND_WITH_PATH",
@@ -443,4 +463,5 @@ __all__ = [
     "DOT_COMMAND_EXIT",
     # 辅助函数
     "format_message",
+    "format_sandbox_path_violation",
 ]

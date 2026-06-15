@@ -11,6 +11,7 @@ import pytest
 from miniagent.infrastructure.registry import DefaultToolRegistry
 from miniagent.skills.registry import DefaultSkillRegistry
 from miniagent.tools import skills as skills_module
+from miniagent.types.skill import ClawHubSkillDetail
 from miniagent.types.tool import ToolContext
 
 
@@ -52,7 +53,14 @@ async def test_install_skill_hot_loads_without_restart() -> None:
 
         fake = MagicMock()
         fake.download = AsyncMock(side_effect=_fake_download)
-        fake.get_detail = AsyncMock(return_value={"version": "1.0.0"})
+        fake.get_detail = AsyncMock(
+            return_value=ClawHubSkillDetail(
+                slug="hot-skill",
+                name="hot-skill",
+                description="hot",
+                version="1.0.0",
+            )
+        )
 
         ctx = ToolContext(
             cwd=".",
@@ -91,7 +99,14 @@ async def test_install_skill_nested_slug_uses_flat_dir() -> None:
 
         fake = MagicMock()
         fake.download = AsyncMock(return_value={"path": flat_dir, "files": []})
-        fake.get_detail = AsyncMock(return_value={"version": "1"})
+        fake.get_detail = AsyncMock(
+            return_value=ClawHubSkillDetail(
+                slug="org/pkg-only",
+                name="pkg-only",
+                description="",
+                version="1",
+            )
+        )
 
         ctx = ToolContext(
             cwd=".",

@@ -12,6 +12,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 
+from miniagent.core.constants import HISTORY_ARCHIVE_MAX_MESSAGES
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.memory.defaults import get_state_root
@@ -38,7 +39,7 @@ def diary_file_path(session_key: str, day: str | None = None) -> str:
 
 def history_archive_max_messages() -> int:
     """归档消息数阈值（至少 1）；供渐进压缩等模块复用。"""
-    return max(1, get_config("memory.history_max_messages", 120))
+    return max(1, get_config("memory.history_max_messages", HISTORY_ARCHIVE_MAX_MESSAGES))
 
 
 def history_archive_token_hint() -> int | None:

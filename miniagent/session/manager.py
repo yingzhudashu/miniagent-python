@@ -38,7 +38,7 @@ from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.infrastructure.registry import DefaultToolRegistry
 from miniagent.types.config import normalize_conversation_history
-from miniagent.types.memory import Session, SessionManagerProtocol, SessionOptions
+from miniagent.types.memory import Session, SessionOptions
 from miniagent.types.skill import Skill
 from miniagent.types.tool import Toolbox, ToolContext, ToolDefinition
 from miniagent.utils.session_id import safe_session_id
@@ -199,7 +199,7 @@ class SessionInfo:
 # ============================================================================
 
 
-class DefaultSessionManager(SessionManagerProtocol):
+class DefaultSessionManager:
     """多会话管理器
 
     职责：

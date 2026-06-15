@@ -124,6 +124,7 @@ def build_run_scheduled_job_coro(
                 memory_store=ctx.memory_store,
                 activity_log=ctx.activity_log,
                 keyword_index=ctx.keyword_index,
+                memory_context=ctx.memory_context,
                 client=ctx.openai_client,
                 feishu_receive_chat_id=feishu_recv,
                 cli_loop_state=state,

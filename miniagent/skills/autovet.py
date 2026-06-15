@@ -3,7 +3,7 @@
 检查项：
 1. SKILL.md 存在且非空
 2. scripts/ 中的危险模式（rm -rf、curl | bash、硬编码密钥等）
-3. metadata 中的权限要求（bins/env）
+3. metadata 中的权限要求（bins/env/os）在当前环境是否满足
 4. 可疑导入（os.system、subprocess.call、eval/exec）
 
 返回审查报告字符串（警告但不阻断安装）。
@@ -14,7 +14,11 @@ from __future__ import annotations
 import logging
 import os
 import re
+import shutil
+import sys
 from pathlib import Path
+
+from miniagent.skills.loader import _map_metadata, parse_skill_md
 
 _logger = logging.getLogger(__name__)
 
@@ -64,14 +68,15 @@ def auto_vet_skill(skill_dir: str) -> str:
 
     # 1. 检查 SKILL.md
     skill_md_path = os.path.join(skill_dir, "SKILL.md")
+    skill_md_content = ""
     if not os.path.isfile(skill_md_path):
         warnings.append("  - SKILL.md 不存在")
     else:
-        content = Path(skill_md_path).read_text(encoding="utf-8", errors="replace")
-        if not content.strip():
+        skill_md_content = Path(skill_md_path).read_text(encoding="utf-8", errors="replace")
+        if not skill_md_content.strip():
             warnings.append("  - SKILL.md 为空")
         else:
-            _scan_content(skill_md_path, content, warnings)
+            _scan_content(skill_md_path, skill_md_content, warnings)
 
     # 2. 扫描 scripts/ 目录
     scripts_dir = os.path.join(skill_dir, "scripts")
@@ -88,11 +93,39 @@ def auto_vet_skill(skill_dir: str) -> str:
                 except Exception as e:
                     _logger.debug("读取技能文件失败: %s", e)
 
-    # 3. 检查元数据权限
+    # 3. 检查 metadata 权限要求（bins/env/os）
+    if skill_md_content.strip():
+        _check_metadata_requirements(skill_md_content, warnings)
+
     if not warnings:
         return f"\n自动审查 [{skill_name}] — 通过，无警告"
     header = f"\n自动审查 [{skill_name}] — 发现 {len(warnings)} 项警告:"
     return header + "\n" + "\n".join(warnings)
+
+
+def _check_metadata_requirements(content: str, warnings: list[str]) -> None:
+    """检查 SKILL.md metadata 中的 gate 在当前环境是否满足。"""
+    meta, _ = parse_skill_md(content)
+    skill_meta = _map_metadata(meta)
+    if not skill_meta or skill_meta.always:
+        return
+
+    if skill_meta.os and sys.platform not in skill_meta.os:
+        warnings.append(
+            f"  - metadata.os 要求 {skill_meta.os}，当前平台为 {sys.platform!r}"
+        )
+
+    if skill_meta.bins:
+        missing_bins = [b for b in skill_meta.bins if not shutil.which(b)]
+        if missing_bins:
+            warnings.append(f"  - 当前环境缺少必需二进制: {', '.join(missing_bins)}")
+
+    if skill_meta.env:
+        missing_env = [e for e in skill_meta.env if not os.environ.get(e)]
+        if missing_env:
+            warnings.append(
+                f"  - 当前环境缺少必需环境变量: {', '.join(missing_env)}"
+            )
 
 
 def _scan_content(filepath: str, content: str, warnings: list[str]) -> None:

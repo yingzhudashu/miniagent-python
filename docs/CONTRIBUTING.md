@@ -24,7 +24,7 @@
 | `types/` | 共享类型定义 | agent.py, config.py, tool.py, planning.py, memory.py, skill.py |
 | `utils/` | 共享工具函数（session_id 安全化等） | session_id.py |
 | `runtime/` | 进程级组合根 | `context.py`（`RuntimeContext`） |
-| `mcp/` | 可选 stdio MCP → `mcp_*` 工具 | `bridge.py`, `runtime.py`（需 `pip install -e ".[mcp]"`） |
+| `mcp/` | 可选 stdio MCP → `mcp_*` 工具 | `bridge.py`, `runtime.py`, `toolbox.py`（需 `pip install -e ".[mcp]"`） |
 
 **版本号**：以 `miniagent.__version__`（`miniagent/__init__.py`）为权威；`pyproject.toml` 通过 `tool.setuptools.dynamic` 读取该属性。
 

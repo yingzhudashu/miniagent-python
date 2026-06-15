@@ -228,20 +228,11 @@ async def test_runner_sends_feishu_reply_on_mirror(tmp_path) -> None:
     feishu_rt.is_running.return_value = True
     feishu_rt.get_config.return_value = SimpleNamespace(app_id="x", app_secret="y")
 
-    ctx = SimpleNamespace(
-        message_queue=MagicMock(),
-        channel_router=router,
-        engine=engine,
-        registry=None,
-        monitor=None,
-        clawhub=None,
-        memory_store=None,
-        activity_log=None,
-        keyword_index=None,
-        openai_client=None,
-        cli_transcript_append=None,
-        feishu=feishu_rt,
-    )
+    from tests.scheduled_tasks_helpers import minimal_tick_ctx
+
+    ctx = minimal_tick_ctx(engine=engine)
+    ctx.channel_router = router
+    ctx.feishu = feishu_rt
     st = {
         "active_session_id": "default",
         "skill_toolboxes": [],

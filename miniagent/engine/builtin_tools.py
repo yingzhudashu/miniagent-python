@@ -31,6 +31,7 @@ from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.tools import ALL_TOOLS
 from miniagent.tools.cli_dispatch_tools import CLI_DOT_TOOL_NAMES
+from miniagent.tools.knowledge_tools import KNOWLEDGE_TOOL_NAMES, apply_knowledge_toolbox_policy
 from miniagent.tools.schedule_tools import SCHEDULE_TOOL_NAMES
 from miniagent.types.tool import ToolRegistryProtocol
 
@@ -83,6 +84,8 @@ def register_builtin_tools(registry: ToolRegistryProtocol) -> int:
         if skip_feishu_im and name in FEISHU_EXT_TOOL_NAMES:
             continue
         try:
+            if name in KNOWLEDGE_TOOL_NAMES:
+                tool = apply_knowledge_toolbox_policy(tool)
             registry.register(name, tool)
             n += 1
         except ValueError:

@@ -77,7 +77,7 @@ async def test_dispatch_abort_respects_message_queue_abort_chat_id():
 
     mq.abort_chat = wrapped_abort  # type: ignore[method-assign]
 
-    ms, al, ki = _make_memory_bundle()
+    ms, al, ki, mc = _make_memory_bundle()
     ctx = RuntimeContext(
         registry=DefaultToolRegistry(),
         monitor=DefaultToolMonitor(),
@@ -90,6 +90,7 @@ async def test_dispatch_abort_respects_message_queue_abort_chat_id():
         memory_store=ms,
         activity_log=al,
         keyword_index=ki,
+        memory_context=mc,
     )
     state = {
         "active_session_id": "default",

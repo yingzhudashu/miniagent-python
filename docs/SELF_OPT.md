@@ -96,11 +96,11 @@ Self-Opt 是 Mini Agent 的自我优化机制，包含两个核心能力：
 /self-opt apply <proposal_id> [root]
 ```
 
-执行已批准的提案：
-- 检查风险等级（高风险需人工批准）
-- 应用文件变更
-- 运行验证测试
-- 自动回滚失败变更
+执行已批准或待执行的提案（**不依赖** `auto_apply` 配置）：
+- 低风险/中风险：`pending` 或 `approved` 状态均可执行
+- 高风险：须先 `/self-opt approve` 变为 `approved` 后再执行
+- 无可执行内容（无 files 且无 test_cases）的提案会跳过
+- 应用文件变更、运行验证测试、失败时自动回滚（Git stash 或文件级备份）
 
 ### 触发分析
 
@@ -108,10 +108,10 @@ Self-Opt 是 Mini Agent 的自我优化机制，包含两个核心能力：
 /self-opt analyze
 ```
 
-手动触发运行日志分析：
-- 加载今天的 Trace 事件
-- 计算 LLM/工具/错误统计
-- 生成优化提案并保存
+手动触发分析（受 `runtime_analysis_enabled` / `code_analysis_enabled` 控制）：
+- 运行日志：Trace 事件、循环检测、上下文压缩、LLM/工具/错误统计
+- 代码静态：项目结构扫描（`code_analysis_enabled: true` 时）
+- 合并去重后生成优化提案并保存；更新 `history.json` 索引
 
 ### 查看报告
 
@@ -320,7 +320,7 @@ proposal = OptimizationProposal(
 ```
 workspaces/self_opt/proposals/
 ├── proposals-{YYYY-MM-DD}.jsonl    # 每日提案追加写入
-├── history.json                     # 历史提案汇总（可选）
+├── history.json            # 提案索引（id、状态、来源、时间戳）
 └── reports/
     ├── runtime-{YYYY-MM-DD}.json   # 运行分析报告
     └── trace-report-{YYYY-MM-DD}.json # Trace 统计报告

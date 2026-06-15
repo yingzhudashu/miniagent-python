@@ -111,16 +111,21 @@ def _identify_pain_points(root: str) -> list[PainPoint]:
         痛点列表
     """
     pains: list[PainPoint] = []
+    root_path = Path(root)
 
     # 检查无 __init__.py 的包
     for d in Path(root).rglob("*"):
         if d.is_dir() and any(f.suffix == ".py" for f in d.iterdir() if f.is_file()):
             init_file = d / "__init__.py"
             if not init_file.exists():
+                try:
+                    rel = str(d.relative_to(root_path))
+                except ValueError:
+                    rel = d.name
                 pains.append(
                     PainPoint(
                         category="architecture",
-                        description=f"目录 {d.name} 包含 Python 文件但缺少 __init__.py",
+                        description=f"目录 {rel} 包含 Python 文件但缺少 __init__.py",
                         severity=2,
                         frequency=1,
                         suggestion="添加 __init__.py 以明确包结构",
@@ -190,6 +195,7 @@ async def inspect_project(
     )
 
     # 基础统计
+    all_complexities: list[float] = []
     if include_metrics:
         py_files = _count_python_files(root)
         total_lines = _count_lines(root)
@@ -210,22 +216,35 @@ async def inspect_project(
                 status="good" if total_lines < 5000 else "warning",
             )
         )
-        report.metrics.append(
-            CodeQualityMetric(
-                name="avg_complexity",
-                value=5.0,  # 默认值，实际应计算
-                threshold=10.0,
-                status="good",
-            )
-        )
 
     # 模块分析
     if include_modules:
         for f in sorted(Path(root).rglob("*.py")):
             if "test" not in str(f) and "__pycache__" not in str(f):
                 analysis = _analyze_module(str(f))
+                all_complexities.append(analysis.complexity)
                 if analysis.issues:
                     report.modules.append(analysis)
+
+    if include_metrics and all_complexities:
+        avg_complexity = round(sum(all_complexities) / len(all_complexities), 1)
+        report.metrics.append(
+            CodeQualityMetric(
+                name="avg_complexity",
+                value=avg_complexity,
+                threshold=10.0,
+                status="good" if avg_complexity < 10 else "warning",
+            )
+        )
+    elif include_metrics:
+        report.metrics.append(
+            CodeQualityMetric(
+                name="avg_complexity",
+                value=0.0,
+                threshold=10.0,
+                status="good",
+            )
+        )
 
     # 测试覆盖率
     report.test_coverage = _estimate_test_coverage(root)

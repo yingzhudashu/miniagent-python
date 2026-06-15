@@ -77,8 +77,8 @@ Assistant
 - 不使用居中对齐，便于阅读和层次区分
 
 **环境变量控制**：
-- `MINIAGENT_CLI_RAW_MARKDOWN=1`：关闭 Rich 渲染，显示原始 Markdown
-- `MINIAGENT_CLI_THINKING_RICH=1`：对非流式思考正文使用 Rich 渲染
+- `MINIAGENT_CLI_RAW_MARKDOWN=1`：关闭 Rich 渲染，显示原始 Markdown（也可通过 `cli.raw_markdown` 配置）
+- `MINIAGENT_CLI_THINKING_RICH=1`：对非流式思考正文使用 Rich 渲染（也可通过 `cli.thinking_rich` 配置）
 
 ### 1.3 水平滚动与折行策略
 
@@ -206,7 +206,7 @@ CLI 与飞书共进程时：
 | 变量 | 默认 | 说明 |
 |------|------|------|
 | `MINIAGENT_THINKING_MERGE_TOOLS` | `1` | 同阶段工具意图行是否合并到思考卡片 |
-| `MINIAGENT_CLI_THINKING_RICH` | 关 | 是否对思考正文使用 Rich→ANSI 渲染 |
+| `MINIAGENT_CLI_THINKING_RICH` | 关 | 是否对思考正文使用 Rich→ANSI 渲染（亦可设 `cli.thinking_rich`） |
 | `MINIAGENT_ANNOUNCE_DIFFICULTY_AND_PLAN` | `1` | 是否推送难度评估与计划到思考流 |
 
 ## 5. 会话历史中的思考块

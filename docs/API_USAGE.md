@@ -66,15 +66,19 @@ print(result2)
 ```python
 async def my_thinking_callback(
     text: str,
-    is_streaming: bool,
-    phase_label: str,
-    **kwargs,
+    streaming: bool,
+    header: str,
+    *,
+    full_record: str | None = None,
+    reset: bool = False,
+    is_last_step: bool = False,
 ) -> None:
-    """实时显示Agent思考过程。"""
-    if is_streaming:
-        print(f"[{phase_label}] {text}")
+    """实时显示 Agent 思考过程（扩展参数可选，三参旧签名仍兼容）。"""
+    if streaming:
+        print(f"[{header}] {text}")
     else:
-        print(f"[{phase_label}] 开始...")
+        print(f"[{header}] 开始...")
+    # full_record 可用于写入会话 thinking 历史（引擎内置回调已处理）
 
 result = await run_agent(
     user_input="分析代码性能",

@@ -43,7 +43,7 @@ class KnowledgeRegistry:
         """创建知识库注册表。
 
         Args:
-            state_dir: 状态存储目录（默认 paths.state_dir/knowledge）
+            state_dir: 保留供测试与扩展；知识库根目录由 ``knowledge.root`` 配置决定。
         """
         if state_dir is None:
             from miniagent.infrastructure.paths import resolve_state_dir
@@ -55,15 +55,17 @@ class KnowledgeRegistry:
             get_config("knowledge.default_root", _DEFAULT_KB_ROOT),
         )
 
-        # 已挂载的知识库：name -> KnowledgeBase
+        # 已挂载的知识库：mount_name -> KnowledgeBase
         self._mounted: dict[str, KnowledgeBase] = {}
 
-        # 加载已保存的挂载状态
         self._load_registry()
 
-        # 自动挂载默认知识库
         if get_config("knowledge.auto_mount", True):
             self._auto_mount()
+
+    def _is_path_mounted(self, path: str) -> bool:
+        abs_path = os.path.abspath(path)
+        return any(os.path.abspath(kb.path) == abs_path for kb in self._mounted.values())
 
     def _load_registry(self) -> None:
         """从磁盘加载挂载状态。"""
@@ -76,10 +78,15 @@ class KnowledgeRegistry:
                 data = json.load(f)
             for item in data.get("mounted", []):
                 path = item.get("path", "")
-                if path and os.path.exists(path):
-                    kb = KnowledgeBase(path)
-                    kb.load()
-                    self._mounted[kb.name] = kb
+                if not path or not os.path.exists(path):
+                    continue
+                abs_path = os.path.abspath(path)
+                if self._is_path_mounted(abs_path):
+                    continue
+                kb = KnowledgeBase(abs_path)
+                kb.load()
+                mount_name = item.get("name") or kb.name
+                self._mounted[mount_name] = kb
         except Exception as e:
             _logger.warning("加载知识库注册表失败: %s", e)
 
@@ -97,8 +104,8 @@ class KnowledgeRegistry:
 
         data = {
             "mounted": [
-                {"name": kb.name, "path": kb.path, "mounted_at": time.time()}
-                for kb in self._mounted.values()
+                {"name": mount_name, "path": kb.path, "mounted_at": time.time()}
+                for mount_name, kb in self._mounted.items()
             ],
             "updated_at": time.time(),
         }
@@ -115,21 +122,25 @@ class KnowledgeRegistry:
         if not os.path.isdir(kb_root):
             return
 
-        # 扫描知识库目录
         for name in os.listdir(kb_root):
             kb_path = os.path.join(kb_root, name)
-            if os.path.isdir(kb_path) and name not in self._mounted:
-                # 检查是否有 KB.yaml 或 files 目录
-                config_path = os.path.join(kb_path, "KB.yaml")
-                files_dir = os.path.join(kb_path, "files")
-                if os.path.isfile(config_path) or os.path.isdir(files_dir):
-                    try:
-                        kb = KnowledgeBase(kb_path)
-                        kb.load()
-                        self._mounted[kb.name] = kb
-                        _logger.info("自动挂载知识库: %s", kb.name)
-                    except Exception as e:
-                        _logger.warning("自动挂载失败: %s - %s", name, e)
+            if not os.path.isdir(kb_path):
+                continue
+            if self._is_path_mounted(kb_path):
+                continue
+            config_path = os.path.join(kb_path, "KB.yaml")
+            files_dir = os.path.join(kb_path, "files")
+            if os.path.isfile(config_path) or os.path.isdir(files_dir):
+                try:
+                    kb = KnowledgeBase(kb_path)
+                    kb.load()
+                    if kb.name in self._mounted:
+                        _logger.debug("跳过自动挂载（名称已占用）: %s", kb.name)
+                        continue
+                    self._mounted[kb.name] = kb
+                    _logger.info("自动挂载知识库: %s", kb.name)
+                except Exception as e:
+                    _logger.warning("自动挂载失败: %s - %s", name, e)
 
     def mount(self, path: str, name: str | None = None) -> dict[str, Any]:
         """挂载知识库。
@@ -218,18 +229,31 @@ class KnowledgeRegistry:
                 return f"{WARNING_PREFIX} 知识库 '{kb_name}' 未挂载"
             return self._mounted[kb_name].search(query, top_k, max_chars)
 
-        # 跨知识库检索
+        # 跨知识库检索：合并打分后取全局 top_k
+        merged: list[tuple[KnowledgeBase, int, float]] = []
+        effective_top_k = top_k
+        if effective_top_k is None:
+            effective_top_k = int(get_config("knowledge.top_k", 5))
+
+        for kb in self._mounted.values():
+            for idx, score in kb.rank_entries(query):
+                merged.append((kb, idx, score))
+
+        merged.sort(key=lambda x: x[2], reverse=True)
+        merged = merged[:effective_top_k]
+
         results: list[str] = []
         total_chars = 0
         max_chars = max_chars or get_config("knowledge.max_chars", 8000)
+        multi_kb = len(self._mounted) > 1
 
-        for kb in self._mounted.values():
-            result = kb.search(query, top_k)
-            if result:
-                if total_chars + len(result) > max_chars:
-                    break
-                results.append(result)
-                total_chars += len(result)
+        for kb, idx, _score in merged:
+            label = kb.name if multi_kb else None
+            text = kb.format_ranked_entry(idx, kb_label=label)
+            if total_chars + len(text) > max_chars:
+                break
+            results.append(text)
+            total_chars += len(text)
 
         if not results:
             return ""
@@ -241,20 +265,26 @@ class KnowledgeRegistry:
         return self._mounted.get(name)
 
     def refresh_auto_file_kb(self, path: str, name: str) -> dict[str, Any]:
-        """Mount or reload the project-level auto-ingested file knowledge base."""
+        """挂载或重载项目级自动入库知识库。
+
+        Args:
+            path: 知识库目录绝对路径
+            name: 注册表中的稳定挂载名称（如 ``_auto_file_analysis``）
+
+        Returns:
+            操作结果（success, message, kb_name）
+        """
         path = os.path.abspath(path)
         kb = self._mounted.get(name)
-        if kb and kb.path == path:
+        if kb and os.path.abspath(kb.path) == path:
             kb.reload()
             self._save_registry()
             return {"success": True, "message": f"已刷新知识库: {name}", "kb_name": name}
-        result = self.mount(path, name)
-        if result.get("success") and name not in self._mounted:
-            # ``mount`` may use the KB.yaml name; keep the requested stable alias too.
-            self._mounted[name] = KnowledgeBase(path)
-            self._mounted[name].load()
-            self._save_registry()
-        return result
+
+        if kb and os.path.abspath(kb.path) != path:
+            del self._mounted[name]
+
+        return self.mount(path, name)
 
     def reload(self, name: str | None = None) -> dict[str, Any]:
         """重新加载知识库。
@@ -283,7 +313,11 @@ _GLOBAL_REGISTRY: KnowledgeRegistry | None = None
 
 
 def get_kb_registry(state_dir: str | None = None) -> KnowledgeRegistry:
-    """获取知识库注册表实例（进程级单例）。"""
+    """获取知识库注册表实例（进程级单例）。
+
+    Args:
+        state_dir: 仅首次创建时生效；后续调用忽略该参数。
+    """
     global _GLOBAL_REGISTRY
     if _GLOBAL_REGISTRY is None:
         _GLOBAL_REGISTRY = KnowledgeRegistry(state_dir)

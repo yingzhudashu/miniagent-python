@@ -10,13 +10,12 @@
 注意：Protocol 仅用于类型检查，不影响运行时行为。
 
 **Protocol 定义位置**：
-- MemoryStoreProtocol: ``miniagent/types/memory.py``（本模块再导出以便于导入）
-- SessionManagerProtocol: ``miniagent/types/memory.py``
+- MemoryStoreProtocol / SessionManagerProtocol: ``miniagent/types/memory.py``
 - ToolRegistryProtocol: ``miniagent/types/tool.py``
 - ToolMonitorProtocol: ``miniagent/types/agent.py``
-- SkillRegistryProtocol: ``miniagent/types/skill.py``
-- ClawHubClientProtocol: ``miniagent/types/skill.py``
-- 本模块仅定义运行时注入特有的 Protocol（ActivityLog、KeywordIndex、回调等）
+- SkillRegistryProtocol / ClawHubClientProtocol: ``miniagent/types/skill.py``
+- MemoryContextProtocol 等: ``miniagent/types/memory_context.py``
+- 本模块定义运行时注入特有的 Protocol（ActivityLog、KeywordIndex、回调、引擎、队列等）
 """
 
 from __future__ import annotations
@@ -26,7 +25,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from miniagent.types.agent import ToolMonitorProtocol
 
-# 从其他模块再导出Protocol，便于统一导入
+# 从其他模块再导出 Protocol，便于统一导入
 from miniagent.types.memory import MemoryStoreProtocol, SessionManagerProtocol
 from miniagent.types.confirmation import ConfirmationResult
 from miniagent.types.planning import StructuredPlan
@@ -35,30 +34,26 @@ from miniagent.types.tool import ToolRegistryProtocol
 
 @runtime_checkable
 class ActivityLogProtocol(Protocol):
-    """活动日志接口协议
+    """活动日志接口协议。
 
-    定义日志记录方法，用于追踪会话活动。
+    定义日志记录与维护方法，用于追踪会话活动（Layer 2 流水账）。
+
+    实现类：``miniagent.memory.activity_log.ActivityLogger``
 
     Methods:
         log_session_start: 记录会话开始
         log_llm_call: 记录 LLM 调用
         log_tool_call: 记录工具调用
         log_final_reply: 记录最终回复
-        get_stats: 获取活动统计（新增）
-        clear_old_entries: 清理旧条目（新增）
-
-    Example:
-        >>> log: ActivityLogProtocol = get_activity_log()
-        >>> log.log_session_start("session-1", "你好", "cli")
-        >>> stats = log.get_stats()
+        get_stats: 统计日志条目与会话数
+        clear_old_entries: 删除过期按日 Markdown 文件
 
     Note:
         - 所有日志方法为同步调用
-        - get_stats() 返回字典，包含日志条目数量等统计
-        - clear_old_entries() 用于定期清理过期日志
+        - ``get_stats()`` 扫描 ``base_dir`` 下 ``YYYY-MM-DD.md`` 文件
+        - ``clear_old_entries()`` 按文件名日期（或 mtime）删除整文件
 
     See Also:
-        - miniagent.memory.activity_log: ActivityLog 实现
         - docs/MEMORY_SYSTEM.md: 三层记忆架构
     """
 
@@ -72,7 +67,7 @@ class ActivityLogProtocol(Protocol):
         model: str,
         message_count: int,
         tool_count: int,
-        thinking: str,
+        thinking: str | None,
         token_usage: dict[str, Any] | None,
     ) -> None: ...
     def log_tool_call(
@@ -86,45 +81,26 @@ class ActivityLogProtocol(Protocol):
         success: bool,
     ) -> None: ...
     def log_final_reply(self, session_key: str, reply: str) -> None: ...
-
-    # ── 新增方法 ──
-    def get_stats(self) -> dict[str, Any]:
-        """获取活动日志统计信息
-
-        Returns:
-            dict: 包含以下键的统计字典：
-                - total_entries: 总条目数
-                - sessions: 会话数量
-                - date_range: 日志日期范围
-                - last_updated: 最后更新时间
-
-        Example:
-            >>> stats = log.get_stats()
-            >>> print(stats["total_entries"])
-        """
-        ...
-
-    def clear_old_entries(self, days: int = 30) -> int:
-        """清理超过指定天数的旧条目
-
-        Args:
-            days: 保留天数，默认 30 天
-
-        Returns:
-            int: 清理的条目数量
-
-        Example:
-            >>> removed = log.clear_old_entries(days=7)
-            >>> print(f"清理了 {removed} 条旧日志")
-        """
-        ...
+    def get_stats(self) -> dict[str, Any]: ...
+    def clear_old_entries(self, days: int = 30) -> int: ...
 
 
 @runtime_checkable
 class KeywordIndexProtocol(Protocol):
     """关键词索引接口协议。
 
-    定义语义检索方法。
+    定义记忆关键词检索与持久化方法。
+
+    实现类：``miniagent.memory.keyword_index.KeywordIndex``
+
+    Methods:
+        search_relevant: 按查询关键词检索相关记忆（返回 ``_SearchResult`` 或兼容结构）
+        index_entry: 为一条记忆建立索引
+        save: 持久化索引到磁盘
+        get_stats: 返回 ``total_keywords``、``total_references``、``top_keywords`` 等
+
+    Note:
+        过期清理在实现侧通过 ``prune_expired()`` 完成，不在本 Protocol 中声明。
     """
 
     def search_relevant(
@@ -136,9 +112,10 @@ class KeywordIndexProtocol(Protocol):
 
 
 class OnThinkingCallback(Protocol):
-    """思考回调接口协议。
+    """思考流式输出回调。
 
-    定义流式思考输出回调签名。
+    由 ``miniagent.core.thinking_callback.invoke_on_thinking`` 调用；
+    若签名含 ``full_record`` / ``reset`` / ``is_last_step`` 或 ``**kwargs``，会按需传入。
     """
 
     async def __call__(
@@ -154,9 +131,9 @@ class OnThinkingCallback(Protocol):
 
 
 class OnToolFinishCallback(Protocol):
-    """工具完成回调接口协议。
+    """工具执行完成回调。
 
-    定义工具执行完成回调签名。
+    参数：工具名、参数 JSON、结果文本、是否成功；可选 ``thinking_header`` 关键字参数。
     """
 
     async def __call__(
@@ -170,48 +147,40 @@ class OnToolFinishCallback(Protocol):
     ) -> None: ...
 
 
+# (tool_name, args_json, result_or_message) — 同步，在工具执行后立即触发
 OnToolCall = Callable[[str, str, str], None]
+# 结构化计划确认：异步返回 ConfirmationResult
 OnPlan = Callable[[StructuredPlan], Awaitable[ConfirmationResult]]
 OnThinking = OnThinkingCallback
 OnToolFinish = OnToolFinishCallback
 
 
 # ============================================================================
-# RuntimeContext 相关 Protocol（新增）
+# RuntimeContext 相关 Protocol
 # ============================================================================
 
 
+@runtime_checkable
 class UnifiedEngineProtocol(Protocol):
-    """统一引擎接口协议
+    """统一引擎接口协议。
 
-    定义引擎核心方法，用于 RuntimeContext.engine 字段类型。
+    用于 ``RuntimeContext.engine`` 字段类型。
+
+    实现类：``miniagent.engine.engine.UnifiedEngine``
 
     Methods:
-        run_agent_with_thinking: 运行 Agent 并处理思考输出
-        inject_message: 注入消息到会话
-        run_pipeline: 运行完整管线（新增）
-        get_thinking_display: 获取思考显示器（新增）
-
-    Example:
-        >>> engine: UnifiedEngineProtocol = ctx.engine
-        >>> result = await engine.run_agent_with_thinking("你好", registry, monitor, session_manager)
+        run_agent_with_thinking: 主对话入口（带思考显示）
+        inject_message: 向会话历史注入用户消息
+        get_thinking_display: 返回 ``ThinkingDisplay`` 实例
 
     Note:
-        - run_agent_with_thinking 是主入口，用于对话交互
-        - run_pipeline 用于嵌入调用场景
-        - get_thinking_display 返回 ThinkingDisplay 实例
-
-    See Also:
-        - miniagent.engine.engine: UnifiedEngine 实现
-        - docs/ARCHITECTURE.md: 引擎层架构
+        线性工具管线 ``run_pipeline`` 为独立函数，见 ``miniagent.core.agent.run_pipeline``，
+        不属于引擎实例方法。
     """
 
     async def run_agent_with_thinking(
         self,
         user_input: str,
-        registry: Any,
-        monitor: Any,
-        session_manager: Any,
         *args: Any,
         **kwargs: Any,
     ) -> Any: ...
@@ -220,53 +189,20 @@ class UnifiedEngineProtocol(Protocol):
         self,
         session_key: str,
         message: str,
-        session_manager: Any,
         *args: Any,
         **kwargs: Any,
     ) -> None: ...
 
-    # ── 新增方法 ──
-    async def run_pipeline(
-        self,
-        user_input: str,
-        *args: Any,
-        **kwargs: Any,
-    ) -> Any:
-        """运行完整管线（嵌入调用入口）
-
-        与 run_agent_with_thinking 不同，此方法用于嵌入调用场景，
-        不处理思考显示，直接返回 Agent 结果。
-
-        Args:
-            user_input: 用户输入
-            *args: 可变参数
-            **kwargs: 关键字参数（可含 registry、monitor 等）
-
-        Returns:
-            Agent 执行结果
-
-        Example:
-            >>> result = await engine.run_pipeline("帮我整理文件")
-        """
-        ...
-
-    def get_thinking_display(self) -> Any:
-        """获取思考显示器实例
-
-        Returns:
-            ThinkingDisplay 实例，用于控制思考输出显示
-
-        Example:
-            >>> thinking = engine.get_thinking_display()
-            >>> thinking.clear()
-        """
-        ...
+    def get_thinking_display(self) -> Any: ...
 
 
+@runtime_checkable
 class ChannelRouterProtocol(Protocol):
     """通道路由器接口协议。
 
-    定义通道与会话绑定方法，用于 RuntimeContext.channel_router 字段类型。
+    将 CLI / 飞书私聊 / 飞书群聊通道映射到会话 ID。
+
+    实现类：``miniagent.infrastructure.channel_router.ChannelRouter``
     """
 
     CLI_CHANNEL: str
@@ -281,41 +217,43 @@ class ChannelRouterProtocol(Protocol):
     def get_primary(self) -> str | None: ...
 
 
+@runtime_checkable
 class MessageQueueProtocol(Protocol):
     """消息队列管理器接口协议。
 
-    定义消息队列方法，用于 RuntimeContext.message_queue 字段类型。
+    为每个 ``chat_id`` 维护独立队列；CLI 使用 ``"__cli__"``。
+
+    实现类：``miniagent.infrastructure.message_queue.MessageQueueManager``
     """
 
     exec_lock: Any | None
 
-    def enqueue(
+    async def dispatch(
         self,
         chat_id: str,
         coro: Any,
-        mode: Any = None,
         on_start: Any = None,
         on_done: Any = None,
     ) -> None: ...
 
-    def abort_pending(self, chat_id: str) -> int: ...
-    def get_queue_status(self, chat_id: str) -> dict[str, Any]: ...
-    def get_all_queue_status(self) -> dict[str, dict[str, Any]]: ...
+    def abort_chat(self, chat_id: str) -> dict[str, Any]: ...
+    def get_status(self) -> dict[str, Any]: ...
+    def get_agent_status(self, chat_id: str | None = None) -> dict[str, Any]: ...
 
 
+@runtime_checkable
 class FeishuRuntimeProtocol(Protocol):
-    """飞书运行时接口协议。
+    """飞书 WebSocket 运行时接口协议。
 
-    定义飞书 WebSocket 生命周期方法，用于 RuntimeContext.feishu 字段类型。
+    实现类：``miniagent.engine.feishu_state.FeishuRuntime``
     """
 
     def start(
         self,
-        skill_toolboxes: list,
-        skill_prompts: list,
         create_handler: Any,
         state: dict | None = None,
-        **kwargs: Any,
+        *,
+        user_status: Callable[[str], None] | None = None,
     ) -> None: ...
 
     def stop(self) -> None: ...

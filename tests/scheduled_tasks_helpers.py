@@ -21,7 +21,11 @@ def patch_tick_once_locks(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def minimal_tick_ctx(*, engine: Any | None = None) -> SimpleNamespace:
-    """Minimal RuntimeContext-like namespace for tick_once."""
+    """Minimal RuntimeContext-like namespace for tick_once / runner tests.
+
+    字段须与 :class:`~miniagent.runtime.context.RuntimeContext` 保持同步，
+    否则 runner 在访问缺失属性时会失败。
+    """
     router = MagicMock()
     router.primary = "default"
     mq = MessageQueueManager()
@@ -37,6 +41,7 @@ def minimal_tick_ctx(*, engine: Any | None = None) -> SimpleNamespace:
         memory_store=None,
         activity_log=None,
         keyword_index=None,
+        memory_context=None,
         openai_client=None,
         cli_transcript_append=None,
         feishu=feishu_rt,

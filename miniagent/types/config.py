@@ -289,6 +289,7 @@ class AgentConfig:
 
     构造与合并：
     - 直接 ``AgentConfig(...)`` 时，``__post_init__`` 会同步分组 ↔ 平铺（**分组优先**）
+    - ``merge_agent_config()`` 同样分组优先；未知覆盖键忽略并记 debug 日志
     - 生产路径仍推荐 ``merge_agent_config(get_default_agent_config(), overrides)``
       以叠加 JSON 默认值与用户覆盖；``executor`` 等模块读取平铺字段
 

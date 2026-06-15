@@ -20,6 +20,7 @@ from miniagent.scheduled_tasks.store import (
     recompute_next_after_run,
     repair_invalid_schedules,
     save_tasks,
+    save_tasks_async,
 )
 from miniagent.scheduled_tasks.ticker import tick_once
 from tests.config_helpers import install_test_config
@@ -636,3 +637,52 @@ def test_cmd_schedule_update_interval(state_dir: str) -> None:
     assert t.prompt == "new prompt text"
     assert t.schedule.interval_seconds == 120
     save_tasks([x for x in load_tasks() if x.id != "upd_cli"])
+
+
+@pytest.mark.asyncio
+async def test_save_tasks_async_roundtrip(state_dir: str) -> None:
+    t = ScheduledTask(
+        id="async1",
+        name="async1",
+        prompt="p",
+        schedule=ScheduleSpec(kind="interval", interval_seconds=90),
+        session=SessionSpec(mode="primary"),
+    )
+    await save_tasks_async([t])
+    loaded = load_tasks()
+    assert len(loaded) == 1
+    assert loaded[0].id == "async1"
+    assert loaded[0].schedule.interval_seconds == 90
+
+
+def test_from_json_falls_back_on_invalid_kind_and_mode(caplog: pytest.LogCaptureFixture) -> None:
+    t = ScheduledTask.from_json(
+        {
+            "id": "bad_enums",
+            "name": "bad_enums",
+            "prompt": "p",
+            "schedule": {"kind": "weekly", "interval_seconds": 60},
+            "session": {"mode": "shared"},
+        }
+    )
+    assert t.schedule.kind == "interval"
+    assert t.session.mode == "primary"
+    assert "schedule.kind" in caplog.text
+    assert "session.mode" in caplog.text
+
+
+def test_compute_initial_once_past_time_returns_past_epoch(state_dir: str) -> None:
+    t = ScheduledTask(
+        id="past_once",
+        name="past_once",
+        prompt="p",
+        schedule=ScheduleSpec(
+            kind="once",
+            once_at_iso="2000-01-01T00:00:00+00:00",
+            timezone="UTC",
+        ),
+    )
+    now = 1_700_000_000.0
+    n = compute_initial_next_run(t, now_ts=now)
+    assert n is not None
+    assert n < now

@@ -22,6 +22,7 @@ from collections.abc import Callable
 from contextlib import redirect_stdout
 from typing import Any
 
+from miniagent.core.constants import IMPROVE_MAX_ITERATIONS
 from miniagent.core.prompts.improver import IMPROVE_PROMPT
 from miniagent.core.prompts.reviewer import REVIEW_ITERATION_PROMPT, REVIEW_PROMPT
 from miniagent.engine.cli_state import CliLoopState
@@ -825,13 +826,28 @@ async def dispatch_command(
         sub_cmd = parts[1].lower() if len(parts) > 1 else ""
 
         if sub_cmd == "run":
-            # 运行测试
-            category_filter = parts[2] if len(parts) > 2 else None
-            name_pattern = parts[3] if len(parts) > 3 else None
+            mode = "mock"
+            category_filter: str | None = None
+            name_pattern: str | None = None
+
+            if len(parts) > 2 and parts[2].lower() in ("mock", "real"):
+                mode = parts[2].lower()
+                category_filter = parts[3] if len(parts) > 3 else None
+                name_pattern = parts[4] if len(parts) > 4 else None
+            else:
+                category_filter = parts[2] if len(parts) > 2 else None
+                name_pattern = parts[3] if len(parts) > 3 else None
 
             output = await _run_test(
                 category=category_filter,
                 name_pattern=name_pattern,
+                mock=(mode != "real"),
+                engine=engine,
+                registry=registry,
+                monitor=monitor,
+                skill_toolboxes=skill_toolboxes,
+                skill_prompts="\n".join(skill_prompts) if skill_prompts else None,
+                state=state,
                 term_write=getattr(rt, "cli_transcript_append", None),
                 capture=capture,
             )
@@ -954,7 +970,7 @@ async def _run_review(
     client: Any = None,
     term_write: Any = None,
     capture: bool = False,
-    max_iterations: int = 3,
+    max_iterations: int = IMPROVE_MAX_ITERATIONS,
 ) -> str | None:
     """执行自我反驳式答案优化。
 
@@ -1236,47 +1252,72 @@ async def _run_test(
     category: str | None = None,
     name_pattern: str | None = None,
     *,
+    mock: bool = True,
+    engine: Any = None,
+    registry: Any = None,
+    monitor: Any = None,
+    skill_toolboxes: list | None = None,
+    skill_prompts: str | None = None,
+    state: dict[str, Any] | None = None,
     term_write: Any = None,
     capture: bool = False,
 ) -> str:
     """执行自测并返回结果。"""
+    from miniagent.testing.agent_adapter import build_execute_agent_from_engine
     from miniagent.testing.test_runner import run_self_test
 
     def _write(text: str, color: str = "") -> None:
         """输出文本：优先走 term_write（全屏 CLI），无 capture 时 fallback 到 print。
 
-        **注意**：term_write 实际是 cli_transcript_append，签名是 (style_cls, text)，
-        不是 (text, color)。需要将 ANSI 颜色转换为样式类并调整参数顺序。
+        term_write 实际是 cli_transcript_append，签名是 (style_cls, text)。
         """
         if term_write and callable(term_write):
             try:
-                # 将 ANSI 颜色转换为样式类
                 style_cls = _ANSI_COLOR_TO_STYLE.get(color, "class:cli-default")
-                # cli_transcript_append 签名是 (style_cls, text)，需要反转参数
                 term_write(style_cls, text)
             except Exception as e:
                 _logger.warning("_write 调用 term_write 失败: %s (text=%s)", e, text[:50])
         if not capture:
             print(text)
 
-    _write("🧪 正在运行自测...", "ansicyan")
+    mode_label = "mock（样本校验）" if mock else "real（真实 Agent）"
+    _write(f"🧪 正在运行自测 [{mode_label}]...", "ansicyan")
+
+    execute_agent = None
+    if not mock:
+        if registry is None:
+            msg = f"{WARNING_PREFIX} 真实模式需要 registry，请在 CLI 主循环中运行 /test run real"
+            if capture:
+                return msg
+            _write(msg, "ansiyellow")
+            return ""
+        execute_agent = await build_execute_agent_from_engine(
+            engine,
+            registry=registry,
+            monitor=monitor,
+            skill_toolboxes=skill_toolboxes,
+            skill_prompts=skill_prompts,
+            state=state if isinstance(state, dict) else None,
+        )
 
     report = await run_self_test(
         category=category,
         name_pattern=name_pattern,
         term_write=_write,
-        mock=True,  # 默认使用 mock 模式，避免真实 LLM 调用
+        execute_agent=execute_agent,
+        mock=mock,
     )
 
     if capture:
         result_lines = [
-            f"🧪 自测结果：{report.passed}/{report.total} 通过 ({report.pass_rate:.1%})",
+            f"🧪 自测结果 [{mode_label}]：{report.passed}/{report.total} 通过 ({report.pass_rate:.1%})",
+            f"失败: {report.failed}，跳过: {report.skipped}",
             f"执行时间：{report.duration_seconds:.1f}s",
         ]
         if report.failed > 0:
             result_lines.append("\n失败的测试：")
             for r in report.results:
-                if not r.passed:
+                if not r.passed and not r.error_message.startswith("跳过:"):
                     result_lines.append(f"  ✗ {r.sample_name}: {r.error_message}")
         return "\n".join(result_lines)
 

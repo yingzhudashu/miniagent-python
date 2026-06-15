@@ -152,3 +152,49 @@ def estimate_history_messages_tokens(history: list[dict[str, Any]]) -> int:
             n += estimate_tokens(str(m.get("tool_calls")))
         n += 5
     return n
+
+
+def _message_token_estimate(message: dict[str, Any]) -> int:
+    """单条 API 消息的 token 估算（与 estimate_history_messages_tokens 一致）。"""
+    from miniagent.memory.context import estimate_tokens
+
+    role = message.get("role")
+    content = message.get("content")
+    tokens = 5
+    if role == "assistant" and message.get("tool_calls"):
+        tokens += estimate_tokens(str(message.get("tool_calls")))
+    if isinstance(content, str):
+        tokens += estimate_tokens(content)
+    return tokens
+
+
+def format_history_for_llm(
+    messages: list[dict[str, Any]],
+    *,
+    max_tokens: int | None = None,
+) -> list[dict[str, Any]]:
+    """将历史消息格式化为 LLM 输入，可选按 token 预算从头部裁剪。
+
+    内部先调用 ``conversation_history_for_llm`` 做角色清洗与 thinking 映射。
+
+    Args:
+        messages: 持久化历史消息列表
+        max_tokens: 最大 token 预算；超出时丢弃最旧消息直至满足预算
+
+    Returns:
+        list[dict]: OpenAI Chat Completions 兼容的消息列表
+    """
+    formatted = conversation_history_for_llm(messages)
+    if max_tokens is None or max_tokens <= 0 or not formatted:
+        return formatted
+
+    while formatted and sum(_message_token_estimate(m) for m in formatted) > max_tokens:
+        formatted.pop(0)
+    return formatted
+
+
+__all__ = [
+    "conversation_history_for_llm",
+    "estimate_history_messages_tokens",
+    "format_history_for_llm",
+]

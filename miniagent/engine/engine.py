@@ -30,7 +30,7 @@ from miniagent.core.agent import run_agent
 from miniagent.engine.cli_commands import feishu_dot_commands_full_enabled
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
-from miniagent.memory.defaults import resolve_memory_dependencies
+from miniagent.memory.defaults import resolve_memory_context, resolve_memory_dependencies
 from miniagent.session.manager import SessionOptions
 from miniagent.types.agent import AgentRunResult
 from miniagent.types.confirmation import ConfirmationResult
@@ -127,6 +127,7 @@ class UnifiedEngine:
         memory_store: Any | None = None,
         activity_log: Any | None = None,
         keyword_index: Any | None = None,
+        memory_context: Any | None = None,
         client: Any | None = None,
         feishu_receive_chat_id: str | None = None,
         feishu_trigger_message_id: str | None = None,
@@ -160,6 +161,7 @@ class UnifiedEngine:
             memory_store: 记忆存储（默认与 ``MINIAGENT_PATHS_STATE_DIR`` 进程 bundle 一致）
             activity_log: 活动日志（同上）
             keyword_index: 关键词索引（同上）
+            memory_context: 记忆上下文服务（同上；缺省时由 store/索引构造）
             client: LLM 客户端（``None`` 时由 ``run_agent`` 回落到共享工厂）
             feishu_receive_chat_id: 飞书消息 API 用的会话 ID（如群聊 ``oc_xxx``）。
                 必须与 ``receive_id_type=chat_id`` 一致，**不得**传入内部路由键 ``feishu:oc_xxx``。
@@ -193,7 +195,7 @@ class UnifiedEngine:
                 session_manager=session_manager, feishu_config=feishu_config,
                 channel_router=channel_router, clawhub=clawhub,
                 memory_store=memory_store, activity_log=activity_log,
-                keyword_index=keyword_index, client=client,
+                keyword_index=keyword_index, memory_context=memory_context, client=client,
                 feishu_receive_chat_id=feishu_receive_chat_id,
                 feishu_trigger_message_id=feishu_trigger_message_id,
                 feishu_root_id=feishu_root_id, feishu_parent_id=feishu_parent_id,
@@ -212,7 +214,7 @@ class UnifiedEngine:
                 session_manager=session_manager, feishu_config=feishu_config,
                 channel_router=channel_router, clawhub=clawhub,
                 memory_store=memory_store, activity_log=activity_log,
-                keyword_index=keyword_index, client=client,
+                keyword_index=keyword_index, memory_context=memory_context, client=client,
                 feishu_receive_chat_id=feishu_receive_chat_id,
                 feishu_trigger_message_id=feishu_trigger_message_id,
                 feishu_root_id=feishu_root_id, feishu_parent_id=feishu_parent_id,
@@ -255,6 +257,7 @@ class UnifiedEngine:
         memory_store: Any | None = None,
         activity_log: Any | None = None,
         keyword_index: Any | None = None,
+        memory_context: Any | None = None,
         client: Any | None = None,
         feishu_receive_chat_id: str | None = None,
         feishu_trigger_message_id: str | None = None,
@@ -319,6 +322,7 @@ class UnifiedEngine:
             - 同轮工具调用合并到同一卡片
         """
         ms, al, ki = resolve_memory_dependencies(memory_store, activity_log, keyword_index)
+        mc = resolve_memory_context(memory_context, ms, ki)
 
         # 1. 获取会话
         session_opts = SessionOptions(
@@ -615,6 +619,7 @@ class UnifiedEngine:
             memory_store=ms,
             activity_log=al,
             keyword_index=ki,
+            memory_context=mc,
             client=client,
             clarifier=self._get_clarifier(),
             session_key=session_key,
@@ -782,6 +787,10 @@ class UnifiedEngine:
     def clear_last_reflection(self, session_key: str) -> None:
         """清除指定会话的反思评估缓存。"""
         self._last_reflection.pop(session_key, None)
+
+    def get_thinking_display(self) -> Any:
+        """返回思考显示器实例（:class:`UnifiedEngineProtocol`）。"""
+        return self.thinking
 
     def inject_message(self, session_key: str, content: str, *, session_manager: Any) -> None:
         """向指定会话的内存历史注入一条用户消息。

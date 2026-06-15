@@ -40,27 +40,34 @@ workspace = get_default_workspace()  # workspaces/sessions/<session_id>/files/
 
 # 路径验证
 resolved = resolve_sandbox_path(path, ["/app/workspace"])
-# 如果路径不在 allowed_dirs 中 → 抛出 PermissionError
+# 如果路径不在 allowed_dirs 中 → 抛出 SandboxViolationError
 ```
 
 ### 父目录遍历拦截
 
 ```python
-# ❌ 被拦截
+# ❌ 被拦截（相对路径基于进程 cwd 解析）
 resolve_sandbox_path("../../etc/passwd", ["/app/workspace"])
-# → PermissionError: 路径越界
+# → SandboxViolationError
 
-# ✅ 允许
-resolve_sandbox_path("data/output.txt", cwd, ["/app/workspace"])
+# ✅ 允许（绝对路径，或工具层已相对 ctx.cwd 拼接后的路径）
+resolve_sandbox_path("/app/workspace/data/output.txt", ["/app/workspace"])
 # → /app/workspace/data/output.txt
+
+# 文件工具应使用 path_utils，相对路径相对会话 cwd 而非进程 cwd：
+# resolve_path_from_ctx("data/output.txt", ctx)  # ctx.cwd="/app/workspace"
 ```
 
-### 权限策略
+### 权限模型（两层，勿混淆）
 
-| 策略 | 说明 |
-|------|------|
-| `allowlist` | 只允许白名单内的路径（默认） |
-| `full` | 允许所有路径（仅调试用） |
+| 层级 | 字段 | 含义 |
+|------|------|------|
+| 工具元数据 | ``ToolDefinition.permission`` | ``sandbox`` / ``allowlist`` / ``require-confirm`` |
+| 运行时上下文 | ``ToolContext.permission`` | ``sandbox`` / ``allowlist`` / ``full``（仅调试） |
+
+- **路径沙箱**：文件类工具通过 ``resolve_path_for_tool`` 校验 ``allowed_paths``，与 ``ctx.permission`` 无关。
+- **命令安全**：``exec_command`` 在 ``ctx.permission != "full"`` 时**始终**启用黑名单、注入检测与命令白名单（生产默认 ``allowlist`` 也会检查）。
+- **用户确认**：``require-confirm`` 工具（如 ``delete_file``、``install_skill``）由 ``executor.execute_plan`` 经 ``ConfirmationChannel`` 拦截；``AgentConfig.auto_execute_confirmed=True`` 可跳过。
 
 ## 2. 命令执行安全
 
@@ -71,17 +78,18 @@ resolve_sandbox_path("data/output.txt", cwd, ["/app/workspace"])
 - 使用 `asyncio.create_subprocess_shell()` 执行命令
 - 设置超时限制，防止无限运行
 - 输出截断，防止内存溢出
-- 工作目录限制在沙箱内
+- 工作目录须在 ``allowed_paths`` 沙箱内（``_validate_exec_cwd``）
+- 除 ``ctx.permission="full"``（调试）外，始终启用危险命令黑名单、Shell 注入检测与命令白名单
 
 ### 危险命令防护
 
+生产 executor 注入 ``ToolContext(permission="allowlist")``；**仍会**执行下列检查（见 ``exec._command_security_enabled``）：
+
 ```python
-# 工具执行上下文
-ctx = ToolContext(
-    cwd=workspace,           # 工作目录限制
-    allowed_paths=[workspace], # 路径白名单
-    permission="allowlist",   # 权限策略
-)
+# 三层检查（permission != "full" 时）
+# 1. 危险命令黑名单（rm -rf /、mkfs 等）
+# 2. Shell 注入模式检测
+# 3. 命令 basename 白名单（可配置 security.allowed_commands）
 ```
 
 ## 3. 多实例安全
@@ -135,7 +143,7 @@ release_session_lock("default")
 ### 消息安全
 
 - 内存 + 磁盘双重去重，防止重复处理
-- 消息防抖合并，防止短时间内大量重复消息
+- 消息防抖合并（``feishu.message_debounce_ms``，见 ``message_debounce.py``），防止同一发送者短时连发被拆成多轮 Agent
 - WebSocket 长连接模式，无需暴露公网端口
 
 ## 6. 数据安全原则

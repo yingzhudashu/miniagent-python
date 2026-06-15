@@ -39,6 +39,12 @@ class CliTranscriptCoordinator:
         parallel_sessions: bool | None = None,
         on_turn_end: Callable[[str], None] | None = None,
     ) -> None:
+        """Args:
+            append_fn: 写入 transcript 的 ``(style_cls, text)`` 回调。
+            append_ansi_fn: 可选 ANSI 对象写入回调。
+            parallel_sessions: 是否启用多 session 缓冲；``None`` 时读 ``agent.parallel_sessions``。
+            on_turn_end: 轮次结束通知（在锁外调用）。
+        """
         if parallel_sessions is None:
             parallel_sessions = bool(get_config("agent.parallel_sessions", True))
         self._append_fn = append_fn
@@ -57,6 +63,7 @@ class CliTranscriptCoordinator:
 
     @property
     def active_turn_count(self) -> int:
+        """当前尚未 ``end_turn`` 的活跃轮次数。"""
         with self._lock:
             return len(self._turns)
 
@@ -79,6 +86,7 @@ class CliTranscriptCoordinator:
             return self._write_policy(self._norm_key(session_key)) == "direct"
 
     def begin_turn(self, session_key: str, *, source: TurnSource = "cli") -> None:
+        """登记新轮次；并行模式下首个轮次为 live，其余 buffer 至 ``end_turn``。"""
         sk = self._norm_key(session_key)
         with self._lock:
             if sk in self._turns:
@@ -112,6 +120,7 @@ class CliTranscriptCoordinator:
             self._append_ansi_fn(ansi_obj)
 
     def append(self, session_key: str, style_cls: str, text: str = "") -> None:
+        """按当前写入策略追加 transcript 片段（直写 / 缓冲 / 丢弃）。"""
         sk = self._norm_key(session_key)
         if not self._parallel_sessions:
             self._append_direct(style_cls, text)
@@ -127,6 +136,7 @@ class CliTranscriptCoordinator:
                 turn.fragments.append(lambda s=style_cls, t=text: self._append_direct(s, t))
 
     def append_ansi(self, session_key: str, ansi_obj: Any) -> None:
+        """与 :meth:`append` 相同策略，写入 ANSI 渲染对象。"""
         sk = self._norm_key(session_key)
         if not self._parallel_sessions or self._append_ansi_fn is None:
             self._append_ansi_direct(ansi_obj)
@@ -158,12 +168,16 @@ class CliTranscriptCoordinator:
                 turn.fragments.append(fn)
 
     def make_session_append(self, session_key: str) -> Callable[[str, str], None]:
+        """返回绑定 ``session_key`` 的 ``append`` 闭包，供引擎回调使用。"""
+
         def _append(style_cls: str, text: str = "") -> None:
             self.append(session_key, style_cls, text)
 
         return _append
 
     def make_session_append_ansi(self, session_key: str) -> Callable[[Any], None]:
+        """返回绑定 ``session_key`` 的 ``append_ansi`` 闭包。"""
+
         def _append_ansi(ansi_obj: Any) -> None:
             self.append_ansi(session_key, ansi_obj)
 
@@ -188,6 +202,7 @@ class CliTranscriptCoordinator:
             self._on_turn_end(sk)
 
     def end_turn(self, session_key: str) -> None:
+        """结束轮次；buffer 模式在此按 FIFO 顺序 flush 到 transcript。"""
         sk = self._norm_key(session_key)
         notify = False
         with self._lock:

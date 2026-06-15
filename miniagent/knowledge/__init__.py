@@ -11,6 +11,10 @@
 2. 执行阶段将 kb_context 放入 current turn user context（规划等阶段放入对应动态 user 上下文）
 3. LLM 调用 → 带知识上下文生成回复
 
+检索策略（KB.yaml ``retriever``）：
+- ``keyword``：关键词倒排索引（默认）
+- ``fulltext``：全文子串匹配
+
 RAG 增强（v2.0.3）：
 提供 `retrieve_knowledge_context` 公共函数，供各阶段统一使用，避免代码重复。
 

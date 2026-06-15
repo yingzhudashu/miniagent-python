@@ -430,8 +430,17 @@ python -m miniagent --stop
 ## 14. MCP 工具（可选）
 
 1. `pip install -e ".[mcp]"`。  
-2. 在 `config.user.json` 的 `mcp.stdio_command` 中设置 **JSON 数组** 形式的启动命令，例如文档中展示的 `["npx","-y","@组织/包名"]` 形态（请替换为你信任的 MCP 服务）。  
-3. 重启进程后，工具会注册进同一工具列表。  
+2. 在 `config.user.json` 的 `mcp.stdio_command` 中设置 **JSON 数组** 形式的启动命令，例如 `["npx","-y","@组织/包名"]`（请替换为你信任的 MCP 服务）。  
+3. 可选：在 `mcp.stdio_env` 中设置传给 MCP 子进程的环境变量，例如 `{"API_KEY": "..."}`。  
+4. 重启进程后，工具以 `mcp_*` 名称注册，并自动加入 **`mcp` 工具箱** 供规划器选用。  
+
+**工具可见性**（与 `agent.tool_selection_strategy` 相关）：
+
+| 策略 | MCP 工具何时对 LLM 可见 |
+|------|-------------------------|
+| `toolbox`（默认） | 规划器在 `required_toolboxes` 中包含 `mcp`，或计划为空工具箱列表时 |
+| `auto` | 同上；无工具箱时仅核心工具（不含 MCP） |
+| `all` | 始终可见 |
 
 具体配置见 `config.defaults.json` 的 `mcp` 节与 [ENGINEERING.md](ENGINEERING.md) §1。
 

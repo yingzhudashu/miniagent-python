@@ -36,7 +36,7 @@ def _tail_diary_preview(session_key: str, max_chars: int = 2000) -> str:
         return ""
 
 
-def _read_identity(system_prompt: str | None = None) -> str:
+def _read_identity() -> str:
     """读取 ``workspaces/identity.md`` 作为全局系统提示词前置段。
 
     返回内容自动追加到 system prompt 最前面，作为 Agent 的"灵魂"设定。

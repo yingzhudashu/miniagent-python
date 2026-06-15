@@ -335,6 +335,24 @@ messages = [
 7. Layer 1 更新 → 更新会话记忆 + 事实提取
 ```
 
+## 非 LLM 能力清单
+
+以下能力**不调用 LLM**，采用启发式、占位或确定性规则实现。阅读文档或排查「记忆质量」问题时，请先区分它们与真正的语义摘要/精炼：
+
+| 能力 | 模块 / 函数 | 实际行为 | 常见误解 |
+|------|-------------|----------|----------|
+| 回合事实提取 | `store.extract_facts()` | 正则启发式 | 并非语义理解，复杂事实可能漏提或误提 |
+| 回合摘要 | `store.generate_turn_summary()` | 字符串拼接（用户意图 + 工具名 + 回复截断） | 并非 LLM 摘要 |
+| 上下文压缩 | `context.DefaultContextManager.compress()` | 中间历史压成一行占位说明 | 并非 LLM 摘要 |
+| Token 估算 | `context.estimate_tokens*` | 中英文字符启发式 | 与真实 tokenizer 有偏差，仅用于预算 |
+| 中文关键词 | `keyword_index.extract_keywords()` | n-gram + 英文分词，无 jieba | 检索精度有限 |
+| Dream 维护 | `dream_scheduler._refine_session()` | 登记日记索引占位、截断 `session_lt` / `agent_lt` 列表 | **不是** LLM 夜间精炼；日摘要字段为占位文本 |
+| 确定事实 | `ground_truth.extract_ground_truth_facts()` | 保守正则 + 纠正句式 | 只提升稳定偏好/约束，一次性任务细节不入库 |
+| 嵌入检索 | `embedding_search` | 需 `embedding.enabled` 与 API；未配置时回退关键词 | 配置缺失时静默降级，不会报错 |
+| 跨会话检索 | `DefaultMemorySearch.search_relevant_memory()` | 默认忽略 `session_key`，全索引检索 | 非按会话隔离检索 |
+
+**有 LLM 参与的路径**（不在本包内）：规划、ReAct 回复、部分引擎侧任务分类等；本包只负责**持久化、检索、格式化与窗口管理**。
+
 ## 配置
 
 记忆系统在 `miniagent/core/config.py` 中可配置：

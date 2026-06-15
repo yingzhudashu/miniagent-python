@@ -103,6 +103,41 @@ class TestGetDefaultAgentConfig:
         assert cfg.loop_detection is not default_loop_detection
         assert cfg.loop_detection == default_loop_detection
 
+    def test_cfg_bool_string_false(self, tmp_path):
+        _install_loader(tmp_path, {"agent": {"debug": "false", "allow_parallel_tools": "false"}})
+        cfg = get_default_agent_config()
+        assert cfg.debug is False
+        assert cfg.allow_parallel_tools is False
+
+    def test_cfg_bool_string_true(self, tmp_path):
+        _install_loader(tmp_path, {"agent": {"debug": "true"}})
+        cfg = get_default_agent_config()
+        assert cfg.debug is True
+
+    def test_hardcoded_fields_not_from_json(self, tmp_path):
+        _install_loader(
+            tmp_path,
+            {
+                "agent": {
+                    "context_overflow_strategy": "truncate",
+                    "compress_messages": False,
+                    "tool_selection_strategy": "all",
+                    "auto_execute_confirmed": True,
+                    "response_language": "en-US",
+                    "response_format": "text",
+                    "log_file": "/tmp/agent.log",
+                }
+            },
+        )
+        cfg = get_default_agent_config()
+        assert cfg.context_overflow_strategy == "summarize"
+        assert cfg.compress_messages is True
+        assert cfg.tool_selection_strategy == "toolbox"
+        assert cfg.auto_execute_confirmed is False
+        assert cfg.response_language == "zh-CN"
+        assert cfg.response_format == "markdown"
+        assert cfg.log_file is None
+
 
 class TestJsonConfigLoader:
     def test_metadata_keys_filtered(self, tmp_path):
@@ -123,3 +158,49 @@ class TestMergeAgentConfig:
         merged = merge_agent_config(base, {"max_turns": 50})
         assert merged.max_turns == 50
         assert merged.tool_timeout == base.tool_timeout
+
+    def test_loop_detection_partial_merge(self, tmp_path):
+        _install_loader(tmp_path)
+        base = get_default_agent_config()
+        assert base.loop_detection.get("enabled") is True
+        merged = merge_agent_config(base, {"loop_detection": {"enabled": False, "warning_threshold": 99}})
+        assert merged.loop_detection["enabled"] is False
+        assert merged.loop_detection["warning_threshold"] == 99
+        assert merged.loop_detection.get("history_size") == base.loop_detection.get("history_size")
+
+    def test_unknown_override_key_ignored(self, tmp_path):
+        from unittest.mock import patch
+
+        _install_loader(tmp_path)
+        base = get_default_agent_config()
+        with patch("miniagent.core.config._logger.debug") as mock_debug:
+            merged = merge_agent_config(base, {"unknown_field": 1, "max_turns": 10})
+        assert merged.max_turns == 10
+        mock_debug.assert_any_call("merge_agent_config: 忽略未知覆盖键 %r", "unknown_field")
+
+    def test_model_overrides_partial_merge(self, tmp_path):
+        _install_loader(tmp_path)
+        base = merge_agent_config(
+            get_default_agent_config(),
+            {"model_overrides": {"model": "gpt-base", "temperature": 0.2}},
+        )
+        merged = merge_agent_config(base, {"model_overrides": {"temperature": 0.9, "max_tokens": 256}})
+        assert merged.model_overrides["model"] == "gpt-base"
+        assert merged.model_overrides["temperature"] == 0.9
+        assert merged.model_overrides["max_tokens"] == 256
+
+    def test_merge_can_override_hardcoded_defaults(self, tmp_path):
+        _install_loader(tmp_path)
+        base = get_default_agent_config()
+        assert base.response_language == "zh-CN"
+        merged = merge_agent_config(
+            base,
+            {
+                "response_language": "en-US",
+                "tool_selection_strategy": "all",
+                "context_overflow_strategy": "truncate",
+            },
+        )
+        assert merged.response_language == "en-US"
+        assert merged.tool_selection_strategy == "all"
+        assert merged.context_overflow_strategy == "truncate"

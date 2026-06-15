@@ -27,14 +27,14 @@ class SkillMetadata:
     Attributes:
         bins: 必需的系统二进制文件
         com: 必需的 Windows COM ProgID（如 ``Mathcad.Application``）
-        env: 必需的环境变量
-        config: 必需的 AgentConfig 字段
-        primary_env: 主环境变量名
+        env: 必需的环境变量（可通过 ``SkillEntry.env`` / ``api_key`` + ``primary_env`` 满足）
+        config: 必需的配置键（AgentConfig 或 ``SkillEntry.config``）
+        primary_env: 主环境变量名；``SkillEntry.api_key`` 可注入该变量以满足 ``env`` gate
         os: 适用操作系统
-        always: 始终加载
-        skill_key: 技能唯一键
-        user_invocable: 用户可调用
-        disable_model_invocation: 排除模型调用
+        always: 始终加载（跳过所有 gate）
+        skill_key: 技能配置键；``SkillEntry`` 可按此键而非 ``Skill.id`` 查找
+        user_invocable: 用户可调用（``user_invocable_only=True`` 时过滤）
+        disable_model_invocation: 为 True 时不向模型暴露工具/工具箱/系统提示（``for_model=True`` 时过滤）
     """
 
     bins: list[str] | None = None
@@ -55,9 +55,9 @@ class SkillEntry:
 
     Attributes:
         enabled: 是否启用
-        env: 注入的环境变量
-        api_key: API Key（可以是字符串或来源配置）
-        config: 自定义配置
+        env: 注入的环境变量（参与 ``metadata.env`` gating）
+        api_key: API Key；字符串直接生效，dict 支持 ``{"env": "VAR"}`` 或 ``{"source": "secrets.xxx"}``
+        config: 自定义配置键值（参与 ``metadata.config`` gating）
     """
 
     enabled: bool = True
@@ -106,6 +106,7 @@ class SkillPackage:
         skills: 包含的技能列表
         skill_md: SKILL.md 原始内容
         source_path: 加载来源路径
+        scope: 作用域；``"global"`` 或 ``"session:<session_id>"``
     """
 
     id: str
@@ -114,7 +115,7 @@ class SkillPackage:
     skills: list[Skill] = field(default_factory=list)
     skill_md: str | None = None
     source_path: str = ""
-    scope: str = "global"  # "global" | "session:<session_id>"
+    scope: str = "global"
 
 
 @runtime_checkable
@@ -125,6 +126,9 @@ class SkillRegistryProtocol(Protocol):
 
     该 Protocol 用于 ``miniagent.runtime.context.RuntimeContext`` 的
     skill_registry 字段类型，支持依赖注入模式。
+
+    聚合方法（``get_all_tools`` / ``get_all_toolboxes`` / ``get_system_prompts``）
+    默认 ``for_model=True``，会排除 ``disable_model_invocation`` 的技能贡献。
     """
 
     def register(self, skill: Skill) -> None:
@@ -211,44 +215,86 @@ class SkillRegistryProtocol(Protocol):
         """
         ...
 
-    def get_all_toolboxes(self, config: AgentConfig | None = None) -> list[Toolbox]:
-        """获取可用技能贡献的工具箱（经 gating 过滤）
+    def set_skill_entries(self, entries: dict[str, SkillEntry]) -> None:
+        """设置技能配置覆盖（供外部配置注入）
+
+        Args:
+            entries: 技能 ID 或 ``metadata.skill_key`` → 配置覆盖
+        """
+        ...
+
+    def get_all_toolboxes(
+        self,
+        config: AgentConfig | None = None,
+        *,
+        session_key: str | None = None,
+        for_model: bool = True,
+    ) -> list[Toolbox]:
+        """获取可用技能贡献的工具箱（经 gating + scope 过滤）
 
         Args:
             config: Agent 配置（可选）
+            session_key: 会话键；None 时含所有 scope，非 None 时仅 global + 该会话
+            for_model: True 时排除 ``disable_model_invocation`` 技能
 
         Returns:
             工具箱列表
         """
         ...
 
-    def get_all_tools(self, config: AgentConfig | None = None) -> dict[str, ToolDefinition]:
-        """获取可用技能贡献的工具（经 gating 过滤）
+    def get_all_tools(
+        self,
+        config: AgentConfig | None = None,
+        *,
+        session_key: str | None = None,
+        for_model: bool = True,
+    ) -> dict[str, ToolDefinition]:
+        """获取可用技能贡献的工具（经 gating + scope 过滤）
 
         Args:
             config: Agent 配置（可选）
+            session_key: 会话键（同 ``get_all_toolboxes``）
+            for_model: True 时排除 ``disable_model_invocation`` 技能
 
         Returns:
             工具名称到工具定义的映射
         """
         ...
 
-    def get_system_prompts(self, config: AgentConfig | None = None) -> list[str]:
-        """获取可用技能的 system prompt 增强（经 gating 过滤）
+    def get_system_prompts(
+        self,
+        config: AgentConfig | None = None,
+        *,
+        session_key: str | None = None,
+        for_model: bool = True,
+    ) -> list[str]:
+        """获取可用技能的 system prompt 增强（经 gating + scope 过滤）
 
         Args:
             config: Agent 配置（可选）
+            session_key: 会话键（同 ``get_all_toolboxes``）
+            for_model: True 时排除 ``disable_model_invocation`` 技能
 
         Returns:
             system prompt 片段列表
         """
         ...
 
-    def get_eligible_skills(self, config: AgentConfig | None = None) -> list[Skill]:
-        """根据配置过滤后的可用技能
+    def get_eligible_skills(
+        self,
+        config: AgentConfig | None = None,
+        *,
+        session_key: str | None = None,
+        for_model: bool = False,
+        user_invocable_only: bool = False,
+    ) -> list[Skill]:
+        """根据 gating 条件过滤可用技能
 
         Args:
             config: Agent 配置（可选）
+            session_key: 会话键（同 ``get_all_toolboxes``）
+            for_model: True 时排除 ``disable_model_invocation`` 技能
+            user_invocable_only: True 时仅返回 ``user_invocable`` 技能
 
         Returns:
             可用技能列表
@@ -256,7 +302,7 @@ class SkillRegistryProtocol(Protocol):
         ...
 
     def get_skill_entry(self, skill_id: str) -> SkillEntry | None:
-        """获取技能配置覆盖
+        """获取技能配置覆盖（按 ``skill_id`` 或 ``metadata.skill_key`` 查找）
 
         Args:
             skill_id: 技能 ID
@@ -303,7 +349,7 @@ class ClawHubSkillDetail:
         version: 当前版本
         tags: 标签
         skill_md: SKILL.md 内容
-        files: 技能文件列表
+        files: 技能文件列表（每项含 ``path``、``content`` 键）
     """
 
     slug: str
@@ -330,7 +376,7 @@ class ClawHubClientProtocol(Protocol):
 
         Args:
             query: 搜索关键词
-            limit: 返回结果数量上限
+            limit: 返回结果数量上限（默认 10）
 
         Returns:
             搜索结果列表
@@ -363,7 +409,7 @@ class ClawHubClientProtocol(Protocol):
             skills_root: 技能根目录（可选）
 
         Returns:
-            包含 'path' 和 'files' 键的字典
+            包含 ``path`` 和 ``files`` 键的字典
         """
         ...
 

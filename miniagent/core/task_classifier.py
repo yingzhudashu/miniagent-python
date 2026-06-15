@@ -1,7 +1,8 @@
 """任务难度轻量分类（可选）：在结构化规划前估算 simple/normal/medium/complex。
 
-配置 execution.task_classifier_enabled 默认开启；简单任务可跳过 Phase 1 规划并由 ``agent`` 下调 thinking。
-失败时回落启发式或 JSON 解析兜底；与 ``thinking_presets``、``llm_params`` 协同。"""
+Internal 常量 ``EXECUTION_TASK_CLASSIFIER_ENABLED``（``constants.py``，默认开启）控制是否启用；
+简单任务可跳过 Phase 1 规划并由 ``agent`` 下调 thinking。LLM 分类失败或输出无法识别时降级为
+``NORMAL``；与 ``thinking_presets``、``llm_params`` 协同。"""
 
 from __future__ import annotations
 
@@ -15,7 +16,7 @@ from miniagent.core._openai_compat import (
 from miniagent.core.llm_json import parse_llm_json_response
 from miniagent.core.openai_client import get_shared_async_openai
 from miniagent.core.prompts.classifier import CLASSIFIER_PROMPT
-from miniagent.core.thinking_presets import map_business_depth, map_thinking_level_to_model
+from miniagent.core.thinking_presets import map_thinking_level_to_model
 from miniagent.infrastructure.debug_ndjson import safe_agent_debug_log
 from miniagent.infrastructure.logger import get_logger
 from miniagent.types.config import AgentConfig
@@ -32,15 +33,36 @@ class TaskDifficulty(str, Enum):
     COMPLEX = "complex"
 
 
+# 中文容错：模型可能返回中文描述而非英文枚举值。
+_ZH_TO_DIFFICULTY: dict[str, TaskDifficulty] = {
+    "简单": TaskDifficulty.SIMPLE,
+    "一般": TaskDifficulty.NORMAL,
+    "普通": TaskDifficulty.NORMAL,
+    "中等": TaskDifficulty.MEDIUM,
+    "复杂": TaskDifficulty.COMPLEX,
+}
+
+
 def task_classifier_enabled() -> bool:
-    """是否启用规划前难度分类（默认开启）。"""
+    """是否启用规划前难度分类。
+
+    读取 ``miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED``（Internal 常量，
+    默认 ``True``）。该开关不可通过 ``config.user.json`` 覆盖，需修改 ``constants.py`` 并重新部署。
+    """
     from miniagent.core.constants import EXECUTION_TASK_CLASSIFIER_ENABLED
 
     return EXECUTION_TASK_CLASSIFIER_ENABLED
 
 
 def planner_merge_for_difficulty(d: TaskDifficulty) -> dict[str, Any]:
-    """规划阶段 model_overrides 合并片段（thinking_level / thinking_budget）。"""
+    """规划阶段 ``model_overrides`` 合并片段（``thinking_level`` / ``thinking_budget``）。
+
+    Args:
+        d: 任务难度档位。
+
+    Returns:
+        含 ``thinking_level`` 与 ``thinking_budget`` 的字典，供 ``generate_plan`` 合并。
+    """
     if d == TaskDifficulty.MEDIUM:
         key = "medium"
     elif d == TaskDifficulty.COMPLEX:
@@ -53,7 +75,14 @@ def planner_merge_for_difficulty(d: TaskDifficulty) -> dict[str, Any]:
 
 
 def default_step_thinking_for_difficulty(d: TaskDifficulty) -> str:
-    """generate_plan 的 default_step_thinking（步骤缺省 thinkingLevel 时回填）。"""
+    """``generate_plan`` 的 ``default_step_thinking``（步骤缺省 thinkingLevel 时回填）。
+
+    Args:
+        d: 任务难度档位。
+
+    Returns:
+        业务档位字符串（``low`` / ``medium`` / ``high``）。
+    """
     if d in (TaskDifficulty.NORMAL, TaskDifficulty.SIMPLE):
         return "low"
     if d == TaskDifficulty.MEDIUM:
@@ -62,9 +91,22 @@ def default_step_thinking_for_difficulty(d: TaskDifficulty) -> str:
 
 
 def exec_merge_for_simple_path() -> dict[str, Any]:
-    """跳过规划时执行阶段统一使用 low 档位。"""
-    tl, tb = map_business_depth("low")
+    """跳过规划时执行阶段统一使用 low 档位。
+
+    Returns:
+        含 ``thinking_level`` 与 ``thinking_budget`` 的字典，与
+        ``planner_merge_for_difficulty(TaskDifficulty.NORMAL)`` 等价。
+    """
+    tl, tb = map_thinking_level_to_model("low")
     return {"thinking_level": tl, "thinking_budget": tb}
+
+
+def _log_classifier_fallback(reason: str, **data: Any) -> None:
+    safe_agent_debug_log(
+        location="task_classifier.py:classify_task_difficulty",
+        message=reason,
+        data=data,
+    )
 
 
 async def classify_task_difficulty(
@@ -93,12 +135,14 @@ async def classify_task_difficulty(
         - COMPLEX: 长链路、强依赖工具或高风险
 
     Note:
-        - 配置项 execution.task_classifier_enabled 控制是否启用
+        - 是否启用由 Internal 常量 ``EXECUTION_TASK_CLASSIFIER_ENABLED`` 控制（见
+          :func:`task_classifier_enabled`）
         - 使用 planner 级参数（低温度、小 max_tokens）降低成本
-        - 解析失败或超时时默认返回 NORMAL
+        - LLM 调用失败、JSON 解析失败或 ``difficulty`` 无法识别时均返回 NORMAL
+        - HTTP 超时沿用 ``agent.http_timeout`` 等全局客户端配置
 
     RAG 增强：分类阶段会检索知识库（可选），辅助判断任务难度。
-        若知识库有直接答案，建议分类为 simple。
+        若知识库有直接答案，建议分类为 simple。受 ``knowledge.classifier_*`` 配置控制。
     """
     from miniagent.core.llm_params import resolve_planner_completion_kwargs
     from miniagent.infrastructure.tracing import emit_trace
@@ -189,6 +233,8 @@ async def classify_task_difficulty(
                     continue
                 raise
         if resp is None:
+            _log_classifier_fallback("classifier_no_response")
+            _logger.debug("任务难度分类: LLM 无有效响应，降级为 normal")
             return TaskDifficulty.NORMAL
         raw = (resp.choices[0].message.content or "").strip()
         data = parse_llm_json_response(raw)
@@ -196,23 +242,19 @@ async def classify_task_difficulty(
         for m in TaskDifficulty:
             if m.value == d:
                 return m
-        # 中文容错：模型可能返回中文描述而非英文枚举值，映射到对应枚举。
-        # 简单→SIMPLE（直接执行）；一般/普通→NORMAL（标准 ReAct）；
-        # 中等→MEDIUM（基础规划）；复杂→COMPLEX（完整规划与多轮迭代）。
-        zh_to_difficulty = {
-            "简单": TaskDifficulty.SIMPLE,
-            "一般": TaskDifficulty.NORMAL,
-            "普通": TaskDifficulty.NORMAL,
-            "中等": TaskDifficulty.MEDIUM,
-            "复杂": TaskDifficulty.COMPLEX,
-        }
-        if d in zh_to_difficulty:
-            return zh_to_difficulty[d]
+        if d in _ZH_TO_DIFFICULTY:
+            return _ZH_TO_DIFFICULTY[d]
+        _log_classifier_fallback(
+            "classifier_unknown_difficulty",
+            raw_difficulty=d[:80],
+            raw_response=raw[:200],
+        )
+        _logger.debug("任务难度分类: 无法识别 difficulty=%r，降级为 normal", d)
     except Exception as e:
-        safe_agent_debug_log(
-            location="task_classifier.py:classify_task_difficulty",
-            message="classifier_failed",
-            data={"exc_type": type(e).__name__, "exc_msg": str(e)[:400]},
+        _log_classifier_fallback(
+            "classifier_failed",
+            exc_type=type(e).__name__,
+            exc_msg=str(e)[:400],
         )
         _logger.warning("任务难度分类失败，降级为 normal: %s", e)
     return TaskDifficulty.NORMAL

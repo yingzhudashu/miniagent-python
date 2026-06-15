@@ -31,7 +31,7 @@ from openai.types.chat import (
 from miniagent.infrastructure.json_config import get_config
 from miniagent.memory.store import format_memory_for_prompt
 from miniagent.types.memory import SessionMemory
-from miniagent.types.tool import ContextManagerProtocol, ContextState
+from miniagent.types.tool import ContextManagerProtocol, ContextState, TokenEstimate
 
 # 预编译正则：匹配非 ASCII 字符（中文等）
 _NON_ASCII_PATTERN = re.compile(r"[^\x00-\x7F]")
@@ -46,15 +46,32 @@ class ContextBudgetExceeded(RuntimeError):
 # ============================================================================
 
 
-def estimate_tokens(text: str | None) -> int:
-    """估算文本的 token 数量
+def estimate_token_estimate(text: str | None) -> TokenEstimate:
+    """估算文本 token 数与字符长度（结构化结果）。
 
     启发式算法（适用于 Qwen 系列）：
     - 中文字符：~1.5 token/字
     - ASCII 字符：~4 字符/token
 
-    这是一个近似值，但足够用于判断是否需要压缩。
-    性能优化：使用字符遍历替代正则匹配。
+    Args:
+        text: 要估算的文本
+
+    Returns:
+        TokenEstimate（tokens + char_length）
+    """
+    if not text:
+        return TokenEstimate(tokens=0, char_length=0)
+
+    chinese_chars = sum(1 for c in text if ord(c) > 127)
+    ascii_chars = len(text) - chinese_chars
+    tokens = int(chinese_chars * 1.5 + ascii_chars / 4) + 1
+    return TokenEstimate(tokens=tokens, char_length=len(text))
+
+
+def estimate_tokens(text: str | None) -> int:
+    """估算文本的 token 数量
+
+    等价于 ``estimate_token_estimate(text).tokens``。
 
     Args:
         text: 要估算的文本
@@ -62,15 +79,7 @@ def estimate_tokens(text: str | None) -> int:
     Returns:
         估算的 token 数
     """
-    if not text:
-        return 0
-
-    # 性能优化：字符遍历替代正则匹配（避免 findall 的列表构建开销）
-    chinese_chars = sum(1 for c in text if ord(c) > 127)
-    ascii_chars = len(text) - chinese_chars
-
-    # 中文 1.5 token/字，ASCII 4 字符/token
-    return int(chinese_chars * 1.5 + ascii_chars / 4) + 1
+    return estimate_token_estimate(text).tokens
 
 
 # Token 估算缓存（性能优化：LRU + TTL）
@@ -112,10 +121,7 @@ def estimate_tokens_cached(text: str | None) -> int:
         # TTL过期，删除
         _TOKEN_ESTIMATE_CACHE.pop(cache_key)
 
-    # 计算并缓存（性能优化：字符遍历替代正则）
-    chinese_chars = sum(1 for c in text if ord(c) > 127)
-    ascii_chars = len(text) - chinese_chars
-    result = int(chinese_chars * 1.5 + ascii_chars / 4) + 1
+    result = estimate_token_estimate(text).tokens
 
     # 缓存结果
     now = time.time()
@@ -512,6 +518,7 @@ class DefaultContextManager(ContextManagerProtocol):
 __all__ = [
     "DefaultContextManager",
     "ContextBudgetExceeded",
+    "estimate_token_estimate",
     "estimate_tokens",
     "estimate_tool_tokens",
 ]

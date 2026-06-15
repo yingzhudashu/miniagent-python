@@ -28,13 +28,15 @@ def _make_memory_bundle():
 
     from miniagent.memory.activity_log import ActivityLogger
     from miniagent.memory.keyword_index import KeywordIndex
+    from miniagent.memory.memory_context_service import create_default_memory_context
     from miniagent.memory.store import DefaultMemoryStore
 
     root = tempfile.mkdtemp()
     ki = KeywordIndex(state_dir=root)
     ms = DefaultMemoryStore(state_dir=root, keyword_index=ki)
     al = ActivityLogger(base_dir=os.path.join(root, "memory"))
-    return ms, al, ki
+    mc = create_default_memory_context(ms, ki)
+    return ms, al, ki, mc
 
 
 def test_import_smoke():
@@ -184,7 +186,7 @@ def test_feishu_handler_creation():
     from miniagent.skills import DefaultSkillRegistry, create_clawhub_client
 
     mq = MessageQueueManager()
-    ms, al, ki = _make_memory_bundle()
+    ms, al, ki, mc = _make_memory_bundle()
     ctx = RuntimeContext(
         registry=DefaultToolRegistry(),
         monitor=DefaultToolMonitor(),
@@ -197,6 +199,7 @@ def test_feishu_handler_creation():
         memory_store=ms,
         activity_log=al,
         keyword_index=ki,
+        memory_context=mc,
     )
     loop_state = {
         "active_session_id": "default",
@@ -242,7 +245,7 @@ def test_feishu_user_status_fn_uses_cli_transcript_append():
     from miniagent.skills import DefaultSkillRegistry, create_clawhub_client
 
     mq = MessageQueueManager()
-    ms, al, ki = _make_memory_bundle()
+    ms, al, ki, mc = _make_memory_bundle()
     ctx = RuntimeContext(
         registry=DefaultToolRegistry(),
         monitor=DefaultToolMonitor(),
@@ -255,6 +258,7 @@ def test_feishu_user_status_fn_uses_cli_transcript_append():
         memory_store=ms,
         activity_log=al,
         keyword_index=ki,
+        memory_context=mc,
     )
     append_calls: list[tuple[str, str]] = []
     ctx.cli_transcript_append = lambda style, text: append_calls.append((style, text))
@@ -360,7 +364,7 @@ def test_command_dispatch_all_commands():
     from miniagent.skills import DefaultSkillRegistry, create_clawhub_client
 
     mq = MessageQueueManager()
-    ms, al, ki = _make_memory_bundle()
+    ms, al, ki, mc = _make_memory_bundle()
     ctx = RuntimeContext(
         registry=DefaultToolRegistry(),
         monitor=DefaultToolMonitor(),
@@ -373,6 +377,7 @@ def test_command_dispatch_all_commands():
         memory_store=ms,
         activity_log=al,
         keyword_index=ki,
+        memory_context=mc,
     )
     ctx.create_feishu_handler_factory = lambda tb, tp, st: lambda *a, **k: None
 
@@ -417,7 +422,7 @@ def test_dispatch_queue_set_async_capture():
     from miniagent.skills import DefaultSkillRegistry, create_clawhub_client
 
     mq = MessageQueueManager()
-    ms, al, ki = _make_memory_bundle()
+    ms, al, ki, mc = _make_memory_bundle()
     ctx = RuntimeContext(
         registry=DefaultToolRegistry(),
         monitor=DefaultToolMonitor(),
@@ -430,6 +435,7 @@ def test_dispatch_queue_set_async_capture():
         memory_store=ms,
         activity_log=al,
         keyword_index=ki,
+        memory_context=mc,
     )
     state = {
         "active_session_id": "default",
@@ -465,7 +471,7 @@ def test_dispatch_feishu_blocks_session_mutations():
     from miniagent.skills import DefaultSkillRegistry, create_clawhub_client
 
     mq = MessageQueueManager()
-    ms, al, ki = _make_memory_bundle()
+    ms, al, ki, mc = _make_memory_bundle()
     ctx = RuntimeContext(
         registry=DefaultToolRegistry(),
         monitor=DefaultToolMonitor(),
@@ -478,6 +484,7 @@ def test_dispatch_feishu_blocks_session_mutations():
         memory_store=ms,
         activity_log=al,
         keyword_index=ki,
+        memory_context=mc,
     )
     state = {
         "active_session_id": "keep-me",

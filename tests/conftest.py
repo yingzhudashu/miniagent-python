@@ -67,7 +67,7 @@ def _reset_process_singletons_after_test() -> None:
     """Teardown：重置进程级默认记忆 bundle 与共享 AsyncOpenAI，减轻测试顺序敏感。
 
     包含：
-    - 记忆三元组 (memory_store, activity_log, keyword_index)
+    - 记忆三元组 (memory_store, activity_log, keyword_index) 与嵌入检索单例
     - AsyncOpenAI 客户端
     - Executor 环境缓存
     - LoopDetector 参数缓存

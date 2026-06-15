@@ -8,6 +8,7 @@ from typing import Any
 from miniagent.infrastructure.logger import get_logger
 from miniagent.skills.loader import discover_skill_packages, load_skill_package
 from miniagent.skills.paths import get_all_skill_roots, resolve_scope_for_root
+from miniagent.types.config import AgentConfig
 from miniagent.types.skill import Skill, SkillPackage
 
 _logger = get_logger(__name__)
@@ -16,8 +17,15 @@ _logger = get_logger(__name__)
 def _register_package_tools(
     registry: Any,
     pkg: SkillPackage,
+    *,
+    eligible_skill_ids: set[str] | None = None,
 ) -> tuple[list[str], list[str]]:
     """将技能包内工具注册到主工具注册表（内置同名则跳过）。
+
+    Args:
+        registry: 主工具注册表
+        pkg: 技能包
+        eligible_skill_ids: 若提供，仅注册 gating 通过的技能工具
 
     Returns:
         (added_tool_names, skipped_tool_names)
@@ -25,6 +33,8 @@ def _register_package_tools(
     added: list[str] = []
     skipped: list[str] = []
     for skill in pkg.skills:
+        if eligible_skill_ids is not None and skill.id not in eligible_skill_ids:
+            continue
         if not skill.tools:
             continue
         for name, tool in skill.tools.items():
@@ -94,6 +104,7 @@ async def load_packages_into_registries(
     packages: list[SkillPackage],
     *,
     replace: bool = False,
+    config: AgentConfig | None = None,
 ) -> tuple[list[Skill], list[str], list[str]]:
     """将技能包注册到 skill_registry 并将其工具并入主 registry。
 
@@ -102,6 +113,7 @@ async def load_packages_into_registries(
         skill_registry: 技能注册表
         packages: 待注册包
         replace: True 时先 ``clear_packages`` 再注册（全量 refresh）
+        config: Agent 配置（gating）；None 时不做 env/config gate
 
     Returns:
         (loaded_skills, added_tool_names, removed_tool_names)
@@ -117,7 +129,15 @@ async def load_packages_into_registries(
     for pkg in packages:
         skill_registry.register_package(pkg)
         loaded_skills.extend(pkg.skills)
-        pkg_added, _skipped = _register_package_tools(registry, pkg)
+
+    eligible_ids = {
+        s.id for s in skill_registry.get_eligible_skills(config, for_model=True)
+    }
+
+    for pkg in packages:
+        pkg_added, _skipped = _register_package_tools(
+            registry, pkg, eligible_skill_ids=eligible_ids,
+        )
         added_tools.extend(pkg_added)
 
     return loaded_skills, added_tools, removed_tools
@@ -128,6 +148,7 @@ async def bootstrap_skill_packages(
     skill_registry: Any,
     *,
     skills_root: str | None = None,
+    config: AgentConfig | None = None,
 ) -> tuple[list[Skill], list[str], list[str]]:
     """启动时全量加载技能目录（等价于 replace=True 的 discover + register）。
 
@@ -142,6 +163,7 @@ async def bootstrap_skill_packages(
         skill_registry,
         packages,
         replace=True,
+        config=config,
     )
 
 

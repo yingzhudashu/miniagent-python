@@ -59,8 +59,16 @@ def _merge_tools_enabled() -> bool:
 
 
 def _cli_thinking_rich_enabled() -> bool:
-    """全屏 CLI 下是否对非流式思考正文尝试 Rich→ANSI。"""
-    return CLI_THINKING_RICH
+    """全屏 CLI 下是否对非流式思考正文尝试 Rich→ANSI。
+
+    优先级：``MINIAGENT_CLI_THINKING_RICH`` 环境变量 > ``cli.thinking_rich`` 配置 >
+    Internal 默认值 ``CLI_THINKING_RICH``。
+    """
+    from miniagent.infrastructure.env_parse import env_flag
+    from miniagent.infrastructure.json_config import get_config
+
+    default = bool(get_config("cli.thinking_rich", CLI_THINKING_RICH))
+    return env_flag("MINIAGENT_CLI_THINKING_RICH", default=default)
 
 
 def _cli_thinking_render_width() -> int:

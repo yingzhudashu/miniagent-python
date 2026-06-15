@@ -464,10 +464,11 @@ def auto_register_trace_file_hook() -> None:
 
 
 def get_trace_file() -> Path | None:
-    """获取当前 trace 文件路径。
+    """获取当前进程 trace **持久化配置**路径（写入侧）。
 
-    Returns:
-        当前 trace 文件路径，未启用持久化时返回 None
+    与统计侧 :func:`miniagent.infrastructure.trace_stats.get_daily_trace_file_path`
+    不同：后者按日期聚合分析，本函数返回 ``auto_register_trace_file_hook`` 注册的路径，
+    未启用持久化时返回 ``None``。实际写入文件见 :func:`get_actual_trace_file`。
     """
     return _TRACE_LOG_FILE
 

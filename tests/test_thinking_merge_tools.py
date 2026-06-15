@@ -179,7 +179,7 @@ async def test_engine_history_merges_tool_under_turn(monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.skipif(not _HAS_PROMPT_TOOLKIT, reason="prompt_toolkit not installed (cli extra)")
 async def test_cli_thinking_rich_sends_ansi_markdown(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("miniagent.engine.thinking.CLI_THINKING_RICH", True)
+    monkeypatch.setattr("miniagent.engine.thinking._cli_thinking_rich_enabled", lambda: True)
     from miniagent.engine.thinking import ThinkingDisplay
 
     td = ThinkingDisplay()
@@ -197,7 +197,7 @@ async def test_cli_thinking_rich_sends_ansi_markdown(monkeypatch: pytest.MonkeyP
 @pytest.mark.asyncio
 @pytest.mark.skipif(not _HAS_PROMPT_TOOLKIT, reason="prompt_toolkit not installed (cli extra)")
 async def test_cli_thinking_rich_falls_back_when_no_ansi(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("miniagent.engine.thinking.CLI_THINKING_RICH", True)
+    monkeypatch.setattr("miniagent.engine.thinking._cli_thinking_rich_enabled", lambda: True)
     monkeypatch.setattr(
         "miniagent.engine.markdown_cli.render_markdown_to_ansi",
         lambda *_a, **_k: None,

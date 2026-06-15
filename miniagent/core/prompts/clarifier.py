@@ -144,11 +144,14 @@ CLARIFIER_PROMPT = """<role>
 </json_schema>
 
 <important>
-如果提供了「历史会话记忆」，请先仔细阅读记忆内容。
+如果提供了「历史会话记忆」或「知识库上下文」，请先仔细阅读。
 
 - 不要重复询问历史中已经回答过的问题
-- 只在记忆确实无法覆盖的模糊点上追问
+- 只在记忆/知识库确实无法覆盖的模糊点上写入 ``ambiguity_report``
 - 利用记忆中的上下文推断隐含约束
+
+只需返回下方 JSON schema 中的字段。模糊点的记忆/知识库/默认值消解由系统在
+``ambiguity_report`` 之上自动完成，无需输出 ``unresolved_questions`` 等扩展字段。
 </important>
 
 只返回 JSON，不要其他文字。"""

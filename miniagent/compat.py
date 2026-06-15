@@ -96,7 +96,7 @@ from miniagent.engine.thinking import ThinkingDisplay
 
 # ── Welcome ──
 from miniagent.engine.welcome import get_session_display, get_version, print_welcome
-from miniagent.runtime.context import RuntimeContext
+from miniagent.runtime.context import RuntimeContext, set_runtime_context
 
 
 def unified_entry() -> None:
@@ -127,15 +127,20 @@ def unified_entry() -> None:
 
     from miniagent.core.openai_client import get_shared_async_openai
     from miniagent.infrastructure.channel_router import ChannelRouter
+    from miniagent.infrastructure.container import (
+        bootstrap_default_factories,
+        get_tool_monitor,
+        get_tool_registry,
+    )
     from miniagent.infrastructure.json_config import get_config
     from miniagent.infrastructure.message_queue import MessageQueueManager, QueueMode
-    from miniagent.infrastructure.monitor import DefaultToolMonitor
-    from miniagent.infrastructure.registry import DefaultToolRegistry
     from miniagent.memory.defaults import get_process_default_memory_bundle
+    from miniagent.memory.memory_context_service import create_default_memory_context
     from miniagent.skills import DefaultSkillRegistry, create_clawhub_client
 
     # 与 unified_entry 使用同一状态根，避免记忆层与实例注册表路径不一致
     memory_store, activity_log, keyword_index = get_process_default_memory_bundle()
+    memory_context = create_default_memory_context(memory_store, keyword_index)
 
     mq = MessageQueueManager()
     # 从配置文件读取队列模式（合法值：queue / preemptive）
@@ -155,9 +160,11 @@ def unified_entry() -> None:
     router.load()
     feishu_rt = FeishuRuntime(mq)
 
+    bootstrap_default_factories()
+
     ctx = RuntimeContext(
-        registry=DefaultToolRegistry(),
-        monitor=DefaultToolMonitor(),
+        registry=get_tool_registry(),
+        monitor=get_tool_monitor(),
         skill_registry=DefaultSkillRegistry(),
         clawhub=create_clawhub_client(),
         engine=UnifiedEngine(),
@@ -167,8 +174,10 @@ def unified_entry() -> None:
         memory_store=memory_store,
         activity_log=activity_log,
         keyword_index=keyword_index,
+        memory_context=memory_context,
         openai_client=get_shared_async_openai(),
     )
+    set_runtime_context(ctx)
     asyncio.run(unified_main(ctx))
 
 

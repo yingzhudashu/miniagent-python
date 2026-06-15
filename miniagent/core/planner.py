@@ -1,7 +1,7 @@
 """Mini Agent Python — 规划器（两阶段中的规划阶段）
 
 调用 LLM 分析用户需求，生成结构化执行计划（``StructuredPlan``）。系统提示要求模型返回 **单一 JSON 对象**
-（与 ``response_format`` / json_object 模式对齐）；解析失败或网络错误时最多重试 ``MAX_RETRIES`` 次，
+（与 ``response_format`` / json_object 模式对齐）；解析失败或网络错误时最多重试 ``PLANNER_MAX_RETRIES`` 次，
 全部失败则降级为内置 fallback 计划，保证执行阶段始终有可消费的结构。
 
 ``planner_model_overrides`` 与 :func:`miniagent.core.llm_params.resolve_planner_completion_kwargs` 合并，
@@ -19,19 +19,26 @@ from typing import Any
 
 from miniagent.core._openai_compat import (
     ensure_json_object_user_message,
+)
+from miniagent.core._openai_compat import (
     json_object_unsupported as _json_object_unsupported,
 )
+from miniagent.core.constants import PLANNER_MAX_RETRIES
 from miniagent.core.llm_json import parse_llm_json_response
 from miniagent.core.openai_client import get_shared_async_openai
+from miniagent.core.plan_utils import parse_plan_chunks_from_raw, parse_plan_steps_from_raw
 from miniagent.core.prompts.planner import PLAN_SYSTEM_PROMPT
 from miniagent.infrastructure.debug_ndjson import safe_agent_debug_log
 from miniagent.infrastructure.logger import append_log, get_logger, truncate
 from miniagent.types.planning import (
+    ContextMode,
     ContextStrategy,
     EstimatedCost,
     EstimatedTokens,
     FallbackPlan,
+    OutputFormat,
     OutputSpec,
+    PlanChunk,
     PlanStep,
     StructuredPlan,
     SuggestedConfig,
@@ -44,9 +51,6 @@ _logger = get_logger(__name__)
 
 # PLAN_SYSTEM_PROMPT 现在从 miniagent.core.prompts.planner 导入
 # 使用 XML 标签结构化，遵循 Claude 最佳实践
-
-MAX_RETRIES = 3
-
 
 # ─── 公共 API ───────────────────────────────────────────
 
@@ -64,10 +68,40 @@ async def generate_plan(
 ) -> StructuredPlan:
     """根据用户需求和可用工具箱生成结构化执行计划。
 
-    最多重试 MAX_RETRIES 次，全部失败返回 fallback plan。
+    调用 LLM 返回单一 JSON 对象，经 :func:`_dict_to_plan` 解析为
+    :class:`~miniagent.types.planning.StructuredPlan`。解析失败或网络错误时
+    最多重试 :data:`~miniagent.core.constants.PLANNER_MAX_RETRIES` 次；全部失败则
+    返回 :func:`_fallback_plan` 兜底计划，保证 Phase 2 始终有可消费结构。
 
-    RAG 增强：规划阶段会检索知识库（可选），注入到规划上下文，
-    让规划器能判断是否需要 "knowledge" 工具箱。
+    **上下文增强**（注入 user 消息）：
+    - 可用工具箱元数据（id / name / description / keywords）
+    - ``registry`` 提供的各工具箱内工具名称映射
+    - RAG 知识库检索结果（:func:`miniagent.knowledge.retrieve_knowledge_context`）
+    - 对话历史中已完成的读取/分析/测试等工作摘要
+
+    **JSON 模式**：优先 ``response_format={"type": "json_object"}``；若 API
+    不支持则当次请求内降级为普通 completion（不重计 attempt）。
+
+    Args:
+        user_input: 用户原始需求文本。
+        toolboxes: 当前可用的工具箱列表。
+        log_file: 可选日志文件路径；非空时将请求/响应摘要写入 NDJSON 日志。
+        client: 可选 AsyncOpenAI 兼容客户端；默认
+            :func:`~miniagent.core.openai_client.get_shared_async_openai`。
+        agent_config: 可选 :class:`~miniagent.types.config.AgentConfig`；
+            提供 session_key、conversation_history、log_file 等规划上下文。
+        registry: 可选工具注册表（需实现 ``get_all()``），用于生成工具箱→工具名映射。
+        planner_model_overrides: 规划阶段 LLM 参数覆盖，与
+            :func:`~miniagent.core.llm_params.resolve_planner_completion_kwargs` 合并。
+        default_step_thinking: LLM 未指定 ``thinkingLevel`` 时的默认档位
+           （``low`` / ``medium`` / ``high``）。
+
+    Returns:
+        StructuredPlan: 结构化执行计划；失败时为单步 fallback 计划。
+
+    See Also:
+        - :func:`miniagent.core.agent.run_agent` — Phase 1 编排入口
+        - :mod:`miniagent.core.executor` — Phase 2 消费方
     """
     from miniagent.core.llm_params import resolve_planner_completion_kwargs
     from miniagent.infrastructure.tracing import emit_trace
@@ -117,7 +151,7 @@ async def generate_plan(
     llm_client = client if client is not None else get_shared_async_openai()
     use_json_object = True
 
-    for attempt in range(MAX_RETRIES):
+    for attempt in range(PLANNER_MAX_RETRIES):
         try:
             create_args: dict[str, Any] = {
                 "messages": json_object_messages if use_json_object else messages,  # type: ignore[arg-type]
@@ -214,7 +248,7 @@ async def generate_plan(
                 },
             )
             _logger.warning("Planner attempt %d failed: %s", attempt + 1, e)
-            if attempt == MAX_RETRIES - 1:
+            if attempt == PLANNER_MAX_RETRIES - 1:
                 return _fallback_plan(user_input)
 
     # 不可达：循环内最后一轮必定返回
@@ -312,9 +346,25 @@ def _dict_to_plan(data: dict[str, Any], *, default_step_thinking: str = "medium"
     """将 LLM 返回的 dict 转为 StructuredPlan。
 
     解析流程：
-    1. 步骤列表（steps）→ List[PlanStep]，支持 dict/str/其它三种输入格式
-    2. 嵌套配置（suggestedConfig 等）→ 各字段安全提取，空值回退默认
-    3. 组装为 StructuredPlan dataclass
+    1. 步骤列表（``steps``）→ ``list[PlanStep]``，支持 dict / str / 其它三种输入格式
+    2. 嵌套配置（``suggestedConfig`` 等）→ 各字段安全提取，空值回退默认
+    3. 经 :func:`_normalize_plan_steps` 去重、重编号、修复依赖
+    4. 组装为 :class:`~miniagent.types.planning.StructuredPlan`
+
+    **静默回退**（不抛异常）：
+    - ``contextStrategy.mode`` 非法值 → ``"normal"``
+    - ``outputSpec.format`` 非法值 → ``"markdown"``
+    - ``steps`` 非 list → 空列表
+    - 嵌套 dict 字段类型错误 → 对应 dataclass 默认值
+    - 非法 ``thinkingLevel`` 保留原字符串，由执行阶段
+      :func:`~miniagent.core.thinking_presets.map_business_depth` 再映射
+
+    Args:
+        data: LLM 解析后的 JSON dict。
+        default_step_thinking: 步骤级 ``thinkingLevel`` 缺省时的回填档位。
+
+    Returns:
+        StructuredPlan: 规范化后的结构化计划。
     """
     # ── 步骤解析 ───────────────────────────────────────────────
     raw_steps = data.get("steps", [])
@@ -355,21 +405,13 @@ def _dict_to_plan(data: dict[str, Any], *, default_step_thinking: str = "medium"
             return step_fallback
         return str(tl)
 
-    steps: list[PlanStep] = []
-    for i, raw in enumerate(raw_steps, start=1):
-        s = _step_as_dict(raw, i)
-        steps.append(
-            PlanStep(
-                step_number=s.get("stepNumber", 0),
-                description=s.get("description", ""),
-                required_toolboxes=s.get("requiredToolboxes", []),
-                expected_input=s.get("expectedInput", ""),
-                expected_output=s.get("expectedOutput", ""),
-                depends_on=s.get("dependsOn"),
-                thinking_level=_step_thinking_level(s),
-            )
+    steps = _normalize_plan_steps(
+        parse_plan_steps_from_raw(
+            raw_steps,
+            step_as_dict=_step_as_dict,
+            step_thinking_level=_step_thinking_level,
         )
-    steps = _normalize_plan_steps(steps)
+    )
 
     # ── 嵌套配置解析（安全提取，空值回退）───────────────────────────────
     # suggestedConfig: 执行建议（轮数、超时、风险等级、策略等）
@@ -384,6 +426,35 @@ def _dict_to_plan(data: dict[str, Any], *, default_step_thinking: str = "medium"
     osp = data.get("outputSpec", {}) if isinstance(data.get("outputSpec"), dict) else {}
     # fallbackPlan: 降级计划（规划失败时的执行策略）
     fb = data.get("fallbackPlan", {}) if isinstance(data.get("fallbackPlan"), dict) else {}
+
+    raw_chunks = cs.get("chunks")
+    parsed_chunks: list[PlanChunk] | None = None
+    if isinstance(raw_chunks, list):
+        parsed_chunks = parse_plan_chunks_from_raw(
+            raw_chunks,
+            step_as_dict=_step_as_dict,
+            step_thinking_level=_step_thinking_level,
+        )
+        if parsed_chunks:
+            parsed_chunks = [
+                PlanChunk(
+                    chunk_number=ch.chunk_number,
+                    steps=_normalize_plan_steps(ch.steps),
+                    estimated_tokens=ch.estimated_tokens,
+                    chunk_system_prompt=ch.chunk_system_prompt,
+                )
+                for ch in parsed_chunks
+            ]
+
+    ctx_mode_raw = str(cs.get("mode", "normal") or "normal").lower()
+    ctx_mode: ContextMode = ctx_mode_raw if ctx_mode_raw in (
+        "normal", "chunked", "summarize", "truncate"
+    ) else "normal"
+
+    out_fmt_raw = str(osp.get("format", "markdown") or "markdown").lower()
+    out_fmt: OutputFormat = out_fmt_raw if out_fmt_raw in (
+        "text", "markdown", "structured"
+    ) else "markdown"
 
     return StructuredPlan(
         summary=data.get("summary", ""),
@@ -410,8 +481,9 @@ def _dict_to_plan(data: dict[str, Any], *, default_step_thinking: str = "medium"
             total=et.get("total", 1200),
         ),
         context_strategy=ContextStrategy(
-            mode=cs.get("mode", "normal"),
-            reason=cs.get("reason", ""),
+            mode=ctx_mode,
+            chunks=parsed_chunks,
+            reason=str(cs.get("reason", "") or ""),
         ),
         requires_confirmation=data.get("requiresConfirmation", False),
         confirmation_message=data.get("confirmationMessage"),
@@ -423,7 +495,7 @@ def _dict_to_plan(data: dict[str, Any], *, default_step_thinking: str = "medium"
         ),
         output_spec=OutputSpec(
             language=osp.get("language", "zh-CN"),
-            format=osp.get("format", "markdown"),
+            format=out_fmt,
             expected_deliverable=osp.get("expectedDeliverable", ""),
         ),
         fallback_plan=FallbackPlan(
@@ -518,6 +590,7 @@ def _dedupe_toolboxes(raw_toolboxes: Any, steps: list[PlanStep]) -> list[str]:
 
 
 def _unique_strings(values: Any) -> list[str]:
+    """从列表中提取非空字符串，去重并保持首次出现顺序。"""
     if not isinstance(values, list):
         return []
     seen: set[str] = set()
@@ -569,6 +642,7 @@ def _first_path_like(text: str) -> str:
 
 
 def _action_bucket(text: str) -> str:
+    """将步骤描述归类为 read/discover/analyze/verify/work，供指纹去重使用。"""
     if any(term in text for term in ("读取", "read", "查看", "打开")):
         return "read"
     if any(term in text for term in ("扫描", "查找", "list", "搜索")):
@@ -584,7 +658,7 @@ def _fallback_plan(user_input: str) -> StructuredPlan:
     """生成回退计划：当规划器调用全部失败时的兜底方案。
 
     在以下场景触发：
-    - LLM 规划器连续失败 MAX_RETRIES 次（网络错误、解析错误等）
+    - LLM 规划器连续失败 PLANNER_MAX_RETRIES 次（网络错误、解析错误等）
     - 规划器返回无效 JSON（缺少 steps/requiredToolboxes 字段）
 
     **回退策略**：
@@ -630,4 +704,5 @@ def _fallback_plan(user_input: str) -> StructuredPlan:
     )
 
 
+# ``_normalize_plan_steps`` 对外导出供单测与步骤后处理复用（非公共 API）。
 __all__ = ["generate_plan", "_normalize_plan_steps"]

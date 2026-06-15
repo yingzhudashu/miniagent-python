@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from miniagent.types.tool import ToolContext
+    from miniagent.types.tool import ToolContext, ToolResult
 
 
 def allowed_dirs_from_ctx(ctx: ToolContext) -> list[str]:
@@ -45,7 +45,7 @@ def resolve_path_from_ctx(path_str: str, ctx: ToolContext) -> str:
         解析后的绝对路径。
 
     Raises:
-        PermissionError: 路径越界或不在允许目录中。
+        SandboxViolationError: 路径越界或不在允许目录中。
     """
     from miniagent.security.sandbox import resolve_sandbox_path
 
@@ -53,6 +53,29 @@ def resolve_path_from_ctx(path_str: str, ctx: ToolContext) -> str:
     if not os.path.isabs(p):
         p = os.path.join(ctx.cwd, p)
     return resolve_sandbox_path(p, allowed_dirs_from_ctx(ctx))
+
+
+def resolve_path_for_tool(path_str: str, ctx: ToolContext) -> tuple[str | None, ToolResult | None]:
+    """解析路径；沙箱违规时返回 ``(None, ToolResult)`` 而非抛异常。
+
+    供文件/数据等工具 handler 使用，与 ``feishu_utils.check_*`` 的返回风格一致。
+
+    Args:
+        path_str: 用户输入的路径（相对或绝对）。
+        ctx: 工具执行上下文。
+
+    Returns:
+        (绝对路径, None): 解析成功。
+        (None, ToolResult): 沙箱违规，已构造错误 ``ToolResult``。
+    """
+    from miniagent.types.error_prefix import ERROR_PREFIX
+    from miniagent.types.errors import SandboxViolationError
+    from miniagent.types.tool import ToolResult
+
+    try:
+        return resolve_path_from_ctx(path_str, ctx), None
+    except SandboxViolationError as e:
+        return None, ToolResult(success=False, content=f"{ERROR_PREFIX} {e}")
 
 
 # 简化版本（不依赖 ToolContext）
@@ -87,7 +110,7 @@ def resolve_path_simple(
         解析后的绝对路径。
 
     Raises:
-        PermissionError: 路径越界或不在允许目录中。
+        SandboxViolationError: 路径越界或不在允许目录中。
     """
     from miniagent.security.sandbox import resolve_sandbox_path
 
@@ -98,6 +121,7 @@ def resolve_path_simple(
 __all__ = [
     "allowed_dirs_from_ctx",
     "resolve_path_from_ctx",
+    "resolve_path_for_tool",
     "allowed_dirs_simple",
     "resolve_path_simple",
 ]

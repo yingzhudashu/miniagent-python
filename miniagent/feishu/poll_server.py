@@ -307,6 +307,9 @@ def _extract_post_media_items(content_str: str) -> list[tuple[str, str, str]]:
 async def reset_feishu_ws_singleton() -> None:
     """关闭并清空本模块持有的飞书 WS 单例，便于外层重连前重建 Client。"""
     global _singleton_client, _singleton_app_id, _ws_shutdown_event
+    from miniagent.feishu.message_debounce import reset_feishu_message_debouncer
+
+    await reset_feishu_message_debouncer()
     c = _singleton_client
     _singleton_client = None
     _singleton_app_id = None
@@ -495,34 +498,63 @@ async def start_feishu_poll_server(
                     create_time=msg_create_time,
                 )
 
-                async def _handle():
-                    finalized = False
-                    try:
-                        reply = await message_handler(inbound)
-                        if reply:
-                            r_mid, r_thr = feishu_outbound_reply_params(
-                                inbound.message_id, inbound.thread_id
-                            )
-                            await _send_reply(
-                                config,
-                                chat_id,
-                                reply,
-                                reply_to_message_id=r_mid,
-                                reply_in_thread=r_thr,
-                            )
-                            _logger.debug("已回复 [%s]", chat_id)
-                        finalized = True
-                    except Exception as e:
-                        _logger.error("处理消息失败: %s", e)
-                    finally:
-                        if finalized:
-                            release_processing(message_id)
-                        else:
-                            abandon_processing_claim(message_id)
+                def _make_text_handle(
+                    merged: FeishuInboundText, claim_ids: list[str]
+                ) -> Callable[[], Awaitable[None]]:
+                    async def _handle() -> None:
+                        finalized = False
+                        try:
+                            reply = await message_handler(merged)
+                            if reply:
+                                r_mid, r_thr = feishu_outbound_reply_params(
+                                    merged.message_id, merged.thread_id
+                                )
+                                await _send_reply(
+                                    config,
+                                    chat_id,
+                                    reply,
+                                    reply_to_message_id=r_mid,
+                                    reply_in_thread=r_thr,
+                                )
+                                _logger.debug("已回复 [%s]", chat_id)
+                            finalized = True
+                        except Exception as e:
+                            _logger.error("处理消息失败: %s", e)
+                        finally:
+                            if finalized:
+                                for mid in claim_ids:
+                                    release_processing(mid)
+                            else:
+                                for mid in claim_ids:
+                                    abandon_processing_claim(mid)
+
+                    return _handle
+
+                from miniagent.feishu.message_debounce import (
+                    feishu_message_debounce_ms,
+                    get_feishu_message_debouncer,
+                )
+
+                debouncer = get_feishu_message_debouncer()
+                debounce_ms = feishu_message_debounce_ms()
+
+                async def _dispatch_text(inb: FeishuInboundText, claim_ids: list[str]) -> None:
+                    asyncio.create_task(
+                        mq.dispatch(inb.chat_id, _make_text_handle(inb, claim_ids)())
+                    )
+
+                async def _schedule_debounced(inb: FeishuInboundText) -> None:
+                    await debouncer.schedule(
+                        inb,
+                        debounce_ms=debounce_ms,
+                        on_flush=_dispatch_text,
+                    )
 
                 # 命令走控制面：不得与 Agent 同锁排队，否则卡死时无法在飞书侧下发 `/abort` 等。
                 if text.lstrip().startswith("/"):
-                    asyncio.create_task(_handle())
+                    asyncio.create_task(
+                        mq.dispatch(chat_id, _make_text_handle(inbound, [message_id])())
+                    )
                 else:
                     # 需求澄清追问拦截：普通消息自动注入为回答
                     _cc = _resolve_feishu_confirmation_channel(
@@ -544,11 +576,10 @@ async def start_feishu_poll_server(
                                 "飞书拦截: 有待确认请求但阶段为 %s，非 CLARIFICATION，走消息队列",
                                 getattr(_cc.pending.stage, "value", _cc.pending.stage),
                             )
-                            asyncio.create_task(mq.dispatch(chat_id, _handle()))
+                            asyncio.create_task(_schedule_debounced(inbound))
                     else:
-                        # _cc.has_pending 已为 False，无需重复打印
                         _logger.debug("飞书拦截: 无待确认请求，走消息队列")
-                        asyncio.create_task(mq.dispatch(chat_id, _handle()))
+                        asyncio.create_task(_schedule_debounced(inbound))
             elif msg_type in ("file", "image") and media_handler:
                 parsed_media = _parse_feishu_media_payload(msg_type, content_str)
                 if not parsed_media:
@@ -1625,6 +1656,7 @@ async def send_reflection_card(
     status = "质量评估通过" if getattr(reflection, "acceptable", True) else "质量评估需改进"
     template = "gray" if reflection.acceptable else "warning"
     score = getattr(reflection, "quality_score", 0)
+    issues = getattr(reflection, "issues", []) or []
     suggestions = getattr(reflection, "suggestions", []) or []
 
     lines: list[str] = [
@@ -1632,6 +1664,11 @@ async def send_reflection_card(
         f"- **状态**：{status}",
         f"- **评分**：{score:.1f}/1.0",
     ]
+    if issues:
+        lines.append("")
+        lines.append("### 发现问题")
+        for issue in issues[:5]:
+            lines.append(f"- {issue}")
     if suggestions:
         lines.append("")
         lines.append("### 改进建议")

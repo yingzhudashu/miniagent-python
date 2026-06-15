@@ -178,6 +178,15 @@ class TestTokenEstimate:
         ratio = estimate.char_length / estimate.tokens
         assert ratio == 4.0
 
+    def test_estimate_token_estimate_helper(self) -> None:
+        """estimate_token_estimate 与 estimate_tokens 一致"""
+        from miniagent.memory.context import estimate_token_estimate, estimate_tokens
+
+        text = "hello 世界"
+        est = estimate_token_estimate(text)
+        assert est.char_length == len(text)
+        assert est.tokens == estimate_tokens(text)
+
 
 class TestContextState:
     """测试上下文状态"""

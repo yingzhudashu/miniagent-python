@@ -1,13 +1,56 @@
 """Mini Agent Python — 自测类型定义
 
-定义测试样本、测试结果和测试报告的数据结构。
+定义测试样本、测试结果和测试报告的数据结构，以及 ``execute_agent`` 回调契约。
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, Protocol, TypedDict, runtime_checkable
+
+DEFAULT_SAMPLES_DIR = "tests/evaluation/samples"
+DEFAULT_REPORT_PATH = "workspaces/test_report.json"
+
+VALID_CATEGORIES = frozenset({
+    "tool_selection",
+    "security",
+    "prompt_injection",
+    "schema",
+    "regression",
+    "cost",
+})
+VALID_ACTIONS = frozenset({"execute", "ask_human", "reject"})
+
+
+class AgentExecutionResult(TypedDict, total=False):
+    """``execute_agent`` 标准返回结构。
+
+    Attributes:
+        tool_calls: 工具调用列表，每项至少含 ``name`` 键
+        output: Agent 最终回复文本
+        tokens: token 用量（缺省时由适配器估算）
+        action: 行为类型 ``execute`` | ``ask_human`` | ``reject``
+    """
+
+    tool_calls: list[dict[str, Any]]
+    output: str
+    tokens: int
+    action: str
+
+
+@runtime_checkable
+class ExecuteAgentFn(Protocol):
+    """自测框架注入的真实 Agent 执行函数。"""
+
+    async def __call__(
+        self,
+        user_input: str,
+        *,
+        capture_tools: bool = True,
+    ) -> AgentExecutionResult:
+        """执行单条用户输入并返回可评估的结构化结果。"""
+        ...
 
 
 @dataclass
@@ -50,9 +93,15 @@ class SampleSpec:
     tags: list[str] = field(default_factory=list)
     priority: int = 1  # 1=高, 2=中, 3=低
 
+    def validate_schema(self) -> list[str]:
+        """校验样本字段（委托 :mod:`miniagent.testing.validation`）。"""
+        from miniagent.testing.validation import validate_sample_schema
+
+        return validate_sample_schema(self)
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> SampleSpec:
-        """从字典创建测试样本"""
+        """从字典创建测试样本（不做校验；加载后由 TestRunner 统一校验）。"""
         return cls(
             name=data.get("name", ""),
             description=data.get("description", ""),
@@ -116,14 +165,18 @@ class ResultRecord:
     violations: list[str] = field(default_factory=list)
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
 
-    def to_dict(self) -> dict[str, Any]:
-        """转换为字典"""
+    def to_dict(self, *, output_max_len: int = 200) -> dict[str, Any]:
+        """转换为字典。
+
+        Args:
+            output_max_len: ``actual_output`` 写入报告时的最大长度（默认 200，避免报告过大）
+        """
         return {
             "sample_name": self.sample_name,
             "passed": self.passed,
             "actual_action": self.actual_action,
             "actual_tools": self.actual_tools,
-            "actual_output": self.actual_output[:200],  # 截断输出
+            "actual_output": self.actual_output[:output_max_len],
             "token_count": self.token_count,
             "tool_call_count": self.tool_call_count,
             "error_message": self.error_message,
@@ -174,4 +227,14 @@ class ReportSummary:
         return self.passed / self.total
 
 
-__all__ = ["SampleSpec", "ResultRecord", "ReportSummary"]
+__all__ = [
+    "DEFAULT_SAMPLES_DIR",
+    "DEFAULT_REPORT_PATH",
+    "VALID_ACTIONS",
+    "VALID_CATEGORIES",
+    "AgentExecutionResult",
+    "ExecuteAgentFn",
+    "SampleSpec",
+    "ResultRecord",
+    "ReportSummary",
+]

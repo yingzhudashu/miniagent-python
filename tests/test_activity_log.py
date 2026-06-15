@@ -115,6 +115,29 @@ class TestActivityLogger:
         assert "最终回复" in content
 
 
+class TestActivityLogStats:
+    """get_stats / clear_old_entries。"""
+
+    def test_get_stats_counts_sections(self, tmp_path: pytest.TempPathFactory):
+        logger = ActivityLogger(base_dir=str(tmp_path))
+        logger.log_session_start("cli-1", "hi")
+        logger.log_final_reply("cli-1", "ok")
+        stats = logger.get_stats()
+        assert stats["sessions"] == 1
+        assert stats["total_entries"] >= 2
+
+    def test_clear_old_entries_removes_stale_files(self, tmp_path: pytest.TempPathFactory):
+        from datetime import datetime, timedelta, timezone
+
+        logger = ActivityLogger(base_dir=str(tmp_path))
+        stale = (datetime.now(timezone.utc) - timedelta(days=45)).strftime("%Y-%m-%d")
+        stale_path = tmp_path / f"{stale}.md"
+        stale_path.write_text("stale\n", encoding="utf-8")
+        removed = logger.clear_old_entries(days=30)
+        assert removed == 1
+        assert not stale_path.exists()
+
+
 class TestShortJson:
     """_short_json 辅助函数。"""
 

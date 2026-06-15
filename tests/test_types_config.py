@@ -152,3 +152,47 @@ class TestMergeAgentConfigGrouped:
         assert merged.session_registry is reg
         assert merged.session_config is not None
         assert merged.session_config.session_registry is reg
+
+    def test_grouped_wins_over_conflicting_flat_session_key(self) -> None:
+        merged = merge_agent_config(
+            get_default_agent_config(),
+            {
+                "session_config": {"session_key": "grouped"},
+                "session_key": "flat",
+            },
+        )
+        assert merged.session_key == "grouped"
+        assert merged.session_config is not None
+        assert merged.session_config.session_key == "grouped"
+
+    def test_grouped_wins_over_conflicting_flat_feishu_key(self) -> None:
+        merged = merge_agent_config(
+            get_default_agent_config(),
+            {
+                "feishu_config": {"receive_chat_id": "oc_grouped"},
+                "feishu_receive_chat_id": "oc_flat",
+            },
+        )
+        assert merged.feishu_receive_chat_id == "oc_grouped"
+        assert merged.feishu_config is not None
+        assert merged.feishu_config.receive_chat_id == "oc_grouped"
+
+    def test_empty_session_config_dict_preserves_base(self) -> None:
+        base = merge_agent_config(
+            get_default_agent_config(),
+            {"session_key": "existing"},
+        )
+        merged = merge_agent_config(base, {"session_config": {}})
+        assert merged.session_key == "existing"
+        assert merged.session_config is not None
+        assert merged.session_config.session_key == "existing"
+
+    def test_empty_feishu_config_dict_preserves_base(self) -> None:
+        base = merge_agent_config(
+            get_default_agent_config(),
+            {"feishu_receive_chat_id": "oc_existing"},
+        )
+        merged = merge_agent_config(base, {"feishu_config": {}})
+        assert merged.feishu_receive_chat_id == "oc_existing"
+        assert merged.feishu_config is not None
+        assert merged.feishu_config.receive_chat_id == "oc_existing"

@@ -81,6 +81,7 @@ async def refresh_skills(
             skill_registry,
             packages,
             replace=False,
+            config=agent_cfg,
         )
     else:
         # 多根发现：主根优先，随后会话技能目录
@@ -93,6 +94,7 @@ async def refresh_skills(
             skill_registry,
             packages,
             replace=True,
+            config=agent_cfg,
         )
 
     package_ids = [p.id for p in packages]

@@ -132,6 +132,96 @@ class TestRequirementClarifier:
             assert len(asked_questions) == 2  # 2 个模糊点，最多 3 个
             assert "ambiguity 1" in asked_questions[0]
             assert "用户补充：user clarification answer" in result.boundary_conditions
+            assert result.clarification_needed is False
+
+    @pytest.mark.asyncio
+    async def test_clarify_interactive_all_answered_clears_clarification_needed(self) -> None:
+        """用户回答全部追问后不应遗留 clarification_needed。"""
+        clarifier = RequirementClarifier(interactive=True)
+
+        async def mock_ask_user(question: str) -> str:
+            return "answered"
+
+        async def mock_llm(*args, **kwargs):
+            return {
+                "clarified_goal": "goal",
+                "ambiguity_report": ["目标目录是哪一个"],
+            }
+
+        with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
+            result = await clarifier.clarify("写文件", ask_user=mock_ask_user)
+
+        assert result.clarification_needed is False
+        assert result.unresolved_questions == []
+
+    @pytest.mark.asyncio
+    async def test_interactive_false_skips_ask_even_with_callback(self) -> None:
+        """interactive=False 时即使有 ask_user 也不追问。"""
+        clarifier = RequirementClarifier(interactive=False)
+        asked = False
+
+        async def mock_ask_user(question: str) -> str:
+            nonlocal asked
+            asked = True
+            return "answer"
+
+        async def mock_llm(*args, **kwargs):
+            return {
+                "clarified_goal": "goal",
+                "ambiguity_report": ["目标目录是哪一个"],
+            }
+
+        with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
+            result = await clarifier.clarify("写文件", ask_user=mock_ask_user)
+
+        assert asked is False
+        assert result.clarification_needed is True
+
+    @pytest.mark.asyncio
+    async def test_on_thinking_receives_summary(self) -> None:
+        """on_thinking 应收到澄清摘要。"""
+        clarifier = RequirementClarifier()
+        messages: list[str] = []
+
+        async def mock_on_thinking(msg: str, *args, **kwargs) -> None:
+            messages.append(msg)
+
+        async def mock_llm(*args, **kwargs):
+            return {
+                "clarified_goal": "Structured goal",
+                "boundary_conditions": ["use markdown"],
+            }
+
+        with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
+            await clarifier.clarify("test", on_thinking=mock_on_thinking)
+
+        assert any("Structured goal" in m for m in messages)
+
+    @pytest.mark.asyncio
+    async def test_clarify_empty_llm_result(self) -> None:
+        """LLM 返回空字典时应回落到原始输入。"""
+        clarifier = RequirementClarifier()
+
+        async def mock_llm(*args, **kwargs):
+            return {}
+
+        with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
+            result = await clarifier.clarify("original request")
+
+        assert result.clarified_goal == "original request"
+        assert result.clarification_needed is False
+
+    @pytest.mark.asyncio
+    async def test_clarify_llm_json_error_propagates(self) -> None:
+        """LLM JSON 解析失败时应向上抛出异常。"""
+        clarifier = RequirementClarifier()
+
+        async def mock_llm(*args, **kwargs):
+            raise ValueError("parse failed")
+
+        with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
+            with pytest.raises(ValueError, match="parse failed"):
+                await clarifier.clarify("test input")
 
     @pytest.mark.asyncio
     async def test_clarify_empty_ambiguity_no_ask(self) -> None:

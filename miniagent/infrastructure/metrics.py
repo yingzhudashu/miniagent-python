@@ -11,8 +11,11 @@
 - 轻量：不依赖外部库，纯 Python 实现
 
 **并发安全**：
-- 全局单例 get_global_metrics() 使用线程锁保护创建过程
-- 采集器本身的记录操作不是线程安全的，但通常在单线程中使用
+- 全局单例 ``get_global_metrics()`` 使用线程锁保护创建过程
+- ``PerformanceMetrics`` 内部使用锁保护 ``_records`` 的追加与读取
+
+**接入状态**：可选模块；通过 ``get_global_metrics()`` 在调试/评测脚本中使用，
+与 ``DefaultToolMonitor``（工具级统计）互补，不替代生产 trace。
 """
 
 from __future__ import annotations
@@ -80,6 +83,7 @@ class PerformanceMetrics:
         self._enabled = enabled
         self._records: list[LatencyRecord] = []
         self._start_time = time.monotonic()
+        self._lock = threading.Lock()
 
     def is_enabled(self) -> bool:
         """检查是否启用"""
@@ -100,13 +104,13 @@ class PerformanceMetrics:
         """
         if not self._enabled:
             return
-        self._records.append(
-            LatencyRecord(
-                name="llm_call",
-                latency_ms=latency_ms,
-                metadata={"tokens": tokens, "model": model},
-            )
+        record = LatencyRecord(
+            name="llm_call",
+            latency_ms=latency_ms,
+            metadata={"tokens": tokens, "model": model},
         )
+        with self._lock:
+            self._records.append(record)
 
     def record_tool_call(
         self,
@@ -123,13 +127,13 @@ class PerformanceMetrics:
         """
         if not self._enabled:
             return
-        self._records.append(
-            LatencyRecord(
-                name=f"tool_{name}",
-                latency_ms=latency_ms,
-                metadata={"success": success},
-            )
+        record = LatencyRecord(
+            name=f"tool_{name}",
+            latency_ms=latency_ms,
+            metadata={"success": success},
         )
+        with self._lock:
+            self._records.append(record)
 
     def record_render_cycle(self, duration_ms: float) -> None:
         """记录渲染周期
@@ -139,12 +143,9 @@ class PerformanceMetrics:
         """
         if not self._enabled:
             return
-        self._records.append(
-            LatencyRecord(
-                name="render_cycle",
-                latency_ms=duration_ms,
-            )
-        )
+        record = LatencyRecord(name="render_cycle", latency_ms=duration_ms)
+        with self._lock:
+            self._records.append(record)
 
     def measure(self, name: str) -> _MeasureContext:
         """测量代码段延迟的上下文管理器
@@ -167,13 +168,13 @@ class PerformanceMetrics:
         """添加延迟记录"""
         if not self._enabled:
             return
-        self._records.append(
-            LatencyRecord(
-                name=name,
-                latency_ms=latency_ms,
-                metadata=metadata or {},
-            )
+        record = LatencyRecord(
+            name=name,
+            latency_ms=latency_ms,
+            metadata=metadata or {},
         )
+        with self._lock:
+            self._records.append(record)
 
     def get_summary(self) -> dict[str, MetricSummary]:
         """获取各指标的摘要统计
@@ -181,12 +182,14 @@ class PerformanceMetrics:
         Returns:
             按名称分组的统计摘要字典
         """
-        if not self._records:
-            return {}
+        with self._lock:
+            if not self._records:
+                return {}
+            records = list(self._records)
 
         # 按名称分组
         groups: dict[str, list[float]] = {}
-        for record in self._records:
+        for record in records:
             if record.name not in groups:
                 groups[record.name] = []
             groups[record.name].append(record.latency_ms)
@@ -220,6 +223,8 @@ class PerformanceMetrics:
     def to_json(self) -> str:
         """导出为 JSON 格式"""
         summary = self.get_summary()
+        with self._lock:
+            records = list(self._records)
         data = {
             "session_duration_ms": self.get_session_duration_ms(),
             "summaries": {
@@ -242,17 +247,19 @@ class PerformanceMetrics:
                     "timestamp": r.timestamp,
                     "metadata": r.metadata,
                 }
-                for r in self._records
+                for r in records
             ],
         }
         return json.dumps(data, indent=2)
 
     def reset(self) -> None:
         """重置所有记录"""
-        self._records.clear()
-        self._start_time = time.monotonic()
+        with self._lock:
+            self._records.clear()
+            self._start_time = time.monotonic()
 
     def __repr__(self) -> str:
+        """人类可读的摘要（用于调试打印）。"""
         summary = self.get_summary()
         if not summary:
             return "PerformanceMetrics(empty)"
@@ -266,15 +273,21 @@ class _MeasureContext:
     """测量上下文管理器"""
 
     def __init__(self, metrics: PerformanceMetrics, name: str) -> None:
+        """Args:
+            metrics: 目标采集器
+            name: 操作名称（写入延迟记录）
+        """
         self._metrics = metrics
         self._name = name
         self._start = 0.0
 
     def __enter__(self) -> _MeasureContext:
+        """记录开始时间。"""
         self._start = time.perf_counter()
         return self
 
     def __exit__(self, *args: Any) -> None:
+        """计算耗时并写入采集器。"""
         end = time.perf_counter()
         latency_ms = (end - self._start) * 1000
         self._metrics.add_record(self._name, latency_ms)

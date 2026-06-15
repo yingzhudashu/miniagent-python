@@ -4,13 +4,14 @@
 
 特性：
 - 自定义超时（默认 30 秒）
-- 自定义工作目录
+- 自定义工作目录（须在 ``allowed_paths`` 沙箱内）
 - 分别捕获 stdout / stderr
-- 安全过滤（沙箱模式下阻止危险命令）
+- 安全过滤：除调试 ``ctx.permission="full"`` 外，始终启用黑名单 / 注入检测 / 命令白名单
+
+``ToolContext.permission`` 为 executor 注入的运行时策略；生产默认 ``allowlist`` 仍会执行
+上述命令安全检查。仅 ``full``（测试/调试）可跳过。
 
 命令允许清单与威胁模型见 ``docs/SECURITY.md``；子进程由 ``process`` 模块追踪以便退出时清理。
-
-重构说明：使用 ToolBuilder 简化工具定义。
 """
 
 from __future__ import annotations
@@ -27,8 +28,12 @@ from miniagent.infrastructure.process import (
     deregister_process,
 )
 from miniagent.tools.base import tool
+from miniagent.tools.path_utils import resolve_path_for_tool
 from miniagent.types.error_prefix import ERROR_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
+
+# 调试专用：跳过命令安全检查（勿在生产 executor 中注入）
+_EXEC_DEBUG_PERMISSION = "full"
 
 _logger = get_logger(__name__)
 
@@ -72,43 +77,66 @@ def _deny(command: str, reason: str) -> ToolResult:
     return ToolResult(success=False, content=f"{ERROR_PREFIX} 命令被拒绝: {reason}")
 
 
+def _command_security_enabled(ctx: ToolContext) -> bool:
+    """是否对本次 exec 启用命令安全检查（生产路径默认 True）。"""
+    return getattr(ctx, "permission", "sandbox") != _EXEC_DEBUG_PERMISSION
+
+
+def _validate_exec_cwd(cwd: str, ctx: ToolContext) -> tuple[str | None, ToolResult | None]:
+    """校验工作目录在沙箱 ``allowed_paths`` 内。"""
+    resolved, err = resolve_path_for_tool(cwd, ctx)
+    if err:
+        return None, err
+    if not os.path.isdir(resolved):
+        return None, ToolResult(success=False, content=f"{ERROR_PREFIX} 工作目录不存在: {cwd}")
+    return resolved, None
+
+
+def _apply_command_security(command: str) -> ToolResult | None:
+    """黑名单 + 注入检测 + 命令白名单；通过则返回 None。"""
+    for pattern in _BLOCKED_PATTERNS:
+        if pattern in command:
+            return _deny(command, f'包含危险操作 "{pattern}"')
+
+    if _SHELL_INJECTION_RE.search(command):
+        return _deny(command, "检测到可能的 shell 注入模式")
+
+    allowed = _get_allowed_commands()
+    try:
+        import shlex
+        parts = shlex.split(command)
+    except ValueError:
+        return _deny(command, "命令语法无效")
+
+    if parts:
+        base_cmd = os.path.basename(parts[0])
+        if base_cmd not in allowed:
+            return _deny(command, f"'{base_cmd}' 不在允许的命令列表中")
+    return None
+
+
 # ─── Handler ───────────────────────────────────────────────────
 
 async def _exec_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     """exec_command 处理器。
 
     使用 asyncio.create_subprocess_shell 实现异步命令执行。
-    沙箱模式下启用多层防御：黑名单 + 注入检测 + 命令允许列表。
+    默认启用多层防御：黑名单 + 注入检测 + 命令允许列表；``permission=full`` 时跳过。
     """
     command = str(args["command"]).strip()
     if not command:
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 命令不能为空")
-    cwd = str(args.get("cwd", "")) or ctx.cwd
+    cwd_raw = str(args.get("cwd", "")) or ctx.cwd
     timeout = float(args.get("timeout", 30))
 
-    # ── 安全检查 ──
-    if ctx.permission == "sandbox":
-        # 第一层：危险命令黑名单
-        for pattern in _BLOCKED_PATTERNS:
-            if pattern in command:
-                return _deny(command, f'包含危险操作 "{pattern}"')
+    cwd, cwd_err = _validate_exec_cwd(cwd_raw, ctx)
+    if cwd_err:
+        return cwd_err
 
-        # 第二层：Shell 注入检测
-        if _SHELL_INJECTION_RE.search(command):
-            return _deny(command, "检测到可能的 shell 注入模式")
-
-        # 第三层：命令允许列表
-        allowed = _get_allowed_commands()
-        try:
-            import shlex
-            parts = shlex.split(command)
-        except ValueError:
-            return _deny(command, "命令语法无效")
-
-        if parts:
-            base_cmd = os.path.basename(parts[0])
-            if base_cmd not in allowed:
-                return _deny(command, f"'{base_cmd}' 不在允许的命令列表中")
+    if _command_security_enabled(ctx):
+        denied = _apply_command_security(command)
+        if denied is not None:
+            return denied
 
     try:
         # 创建子进程（自动追踪，防止孤儿）
@@ -165,4 +193,9 @@ exec_tools: dict[str, ToolDefinition] = {
         .build(),
 }
 
-__all__ = ["exec_tools"]
+__all__ = [
+    "exec_tools",
+    "_command_security_enabled",
+    "_apply_command_security",
+    "_EXEC_DEBUG_PERMISSION",
+]

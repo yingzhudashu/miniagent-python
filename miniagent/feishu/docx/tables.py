@@ -70,6 +70,7 @@ def create_table_with_values(
     parent_block_id: str | None = None,
     column_width: list[int] | None = None,
 ) -> str:
+    """创建表格并写入初始单元格，返回 table block_id。"""
     tid = create_table_block(
         config,
         document_id,

@@ -3,13 +3,11 @@
 本模块提供以下函数：
 
 1. ``llm_json()`` — 调用 LLM 并解析 JSON 回复（需网络请求）
-2. ``parse_llm_json_response()`` — 解析 LLM 返回的 JSON 字本，处理 markdown 围栏、截取大括号
+2. ``parse_llm_json_response()`` — 解析 LLM 返回的 JSON 字符串（围栏剥离、大括号截取）
 
 使用场景：
-- ``problem_solver.py`` 的 _analyze_problem / _reflect
-- ``requirement_clarifier.py`` 的 clarify
-- ``planner.py`` 的规划输出解析
-- ``task_classifier.py`` 的难度分类解析
+- ``problem_solver.py`` / ``requirement_clarifier.py`` — ``llm_json()`` 一站式调用
+- ``planner.py`` / ``task_classifier.py`` — 自管 LLM 调用后用 ``parse_llm_json_response()``
 
 **注意**：``llm_json()`` 需要网络请求，单元测试中应通过 patch 或注入 Mock client 避免真实调用。
 """
@@ -20,7 +18,10 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
-from miniagent.core._openai_compat import ensure_json_object_user_message
+from miniagent.core._openai_compat import (
+    ensure_json_object_user_message,
+    json_object_unsupported,
+)
 from miniagent.infrastructure.json_config import get_config
 
 _logger = logging.getLogger(__name__)
@@ -29,23 +30,35 @@ if TYPE_CHECKING:
     from openai import AsyncOpenAI
 
 
+def _ensure_json_object(parsed: Any) -> dict[str, Any]:
+    """Return *parsed* when it is a JSON object mapping; otherwise raise TypeError."""
+    if isinstance(parsed, dict):
+        return parsed
+    raise TypeError(f"Expected JSON object, got {type(parsed).__name__}")
+
+
 def parse_llm_json_response(content: str, *, strip_fence: bool = True) -> dict[str, Any]:
     """解析 LLM 返回的 JSON 文本，处理常见格式问题。
 
     处理策略：
-    1. 去除 markdown 围栏（```json / ```）
+    1. 去除 markdown 围栏（```json / ```），**仅当文本以** `` ``` `` **开头时**
     2. 尝试直接解析
-    3. 失败时截取首尾大括号内容再次解析
+    3. 失败时截取首尾大括号 ``{...}`` 内容再次解析（仅适用于顶层 JSON 对象）
+
+    限制：
+    - 前置说明文字后的围栏不会自动剥离，但若正文含 ``{...}`` 仍可能经步骤 3 成功
+    - 顶层 JSON 数组 ``[...]`` 或标量会触发 :exc:`TypeError`
 
     Args:
         content: LLM 返回的文本内容
-        strip_fence: 是否去除 markdown 围栏（默认 True）
+        strip_fence: 是否去除开头的 markdown 围栏（默认 True）
 
     Returns:
-        解析后的 JSON 字典
+        解析后的 JSON 对象（dict）
 
     Raises:
-        json.JSONDecodeError: 解析失败时抛出
+        json.JSONDecodeError: 文本无法解析为 JSON
+        TypeError: 解析成功但顶层不是 JSON 对象
     """
     text = content.strip()
 
@@ -63,16 +76,18 @@ def parse_llm_json_response(content: str, *, strip_fence: bool = True) -> dict[s
 
     # 尝试直接解析
     try:
-        return json.loads(text)
+        return _ensure_json_object(json.loads(text))
     except json.JSONDecodeError:
         # 失败时截取首尾大括号
         start = text.find("{")
         end = text.rfind("}")
         if start >= 0 and end > start:
             try:
-                return json.loads(text[start : end + 1])
+                return _ensure_json_object(json.loads(text[start : end + 1]))
             except json.JSONDecodeError as e:
                 _logger.debug("JSON修复失败: %s", e)
+            except TypeError:
+                raise
         # 无法修复，重新抛出原始异常
         raise
 
@@ -87,10 +102,14 @@ async def llm_json(
     max_tokens: int | None = None,
     thinking_level: str | None = None,
     thinking_budget: int | None = None,
+    model_overrides: dict[str, Any] | None = None,
     trace_phase: str | None = None,
     trace_session_key: str | None = None,
 ) -> dict[str, Any]:
     """调用 LLM 并解析 JSON 回复。
+
+    响应文本统一经 :func:`parse_llm_json_response` 解析，因此 ``json_object`` 降级路径
+    同样享有围栏剥离与大括号截取等容错。
 
     Args:
         prompt: 用户提示
@@ -103,6 +122,8 @@ async def llm_json(
         thinking_level: 可选思考档位（如 ``"low"`` / ``"disabled"``）。JSON 评分类任务无需深度思考；
             提供时经 ``build_thinking_extra_body`` 注入 ``extra_body``，对不支持的端点自动无副作用。
         thinking_budget: 与 ``thinking_level`` 配套的思考预算（token）。
+        model_overrides: 可选 ``AgentConfig.model_overrides``；未提供时回落到默认 Agent 配置，
+            以便 ``extra_body`` 等用户自定义字段在 JSON 调用路径生效。
         trace_phase: 可选 trace 阶段标签（如 ``"reflect"`` / ``"clarify"``）；提供时发出
             ``llm.request`` / ``llm.response`` 事件，消除该阶段的 trace 盲区。
         trace_session_key: trace 事件归属的会话标识。
@@ -110,15 +131,18 @@ async def llm_json(
     Returns:
         解析后的 JSON 字典；解析失败时：
         - raise_on_error=False：返回空字典 {}
-        - raise_on_error=True：抛出 json.JSONDecodeError
+        - raise_on_error=True：抛出 :exc:`json.JSONDecodeError` 或 :exc:`TypeError`
 
     Raises:
-        json.JSONDecodeError: 当 raise_on_error=True 且解析失败时抛出
+        json.JSONDecodeError: 当 raise_on_error=True 且文本无法解析时
+        TypeError: 当 raise_on_error=True 且解析结果不是 JSON 对象时
+        Exception: API 调用失败且非 ``json_object`` 不支持类错误时原样抛出
 
     Note:
         OpenAI API 要求：使用 response_format=json_object 时，
         消息中必须包含 "json" 这个词（不区分大小写）。
-        本函数会自动检查并添加必要的提示。
+        本函数会自动检查并添加必要的提示；若端点不支持 json_object，
+        会降级为普通请求，再经 :func:`parse_llm_json_response` 容错解析。
     """
     from miniagent.core.openai_client import get_shared_async_openai
 
@@ -126,71 +150,88 @@ async def llm_json(
     if model is None:
         model = get_config("model.model", "gpt-4o-mini")
 
-    # Some compatible endpoints require a user/input message to mention "json".
-    messages = ensure_json_object_user_message(
-        [
-            {"role": "system", "content": system},
-            {"role": "user", "content": prompt},
-        ]
-    )
+    base_messages: list[dict[str, str]] = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": prompt},
+    ]
+    json_object_messages = ensure_json_object_user_message(base_messages)
 
     create_kwargs: dict[str, Any] = {
         "model": model,
-        "messages": messages,
+        "messages": json_object_messages,
         "response_format": {"type": "json_object"},
     }
     if max_tokens is not None:
         create_kwargs["max_tokens"] = int(max_tokens)
     if thinking_level is not None:
-        # 经 vendor 助手按端点能力注入；不支持的端点返回空 dict，无副作用。
+        from miniagent.core.config import get_default_agent_config
         from miniagent.core.vendor.qwen_extra import build_thinking_extra_body
 
         base_url = get_config("model.base_url", None)
+        overrides = (
+            dict(model_overrides)
+            if model_overrides is not None
+            else dict(get_default_agent_config().model_overrides)
+        )
         extra = build_thinking_extra_body(
             base_url,
             thinking_level,
             int(thinking_budget or 0),
-            model_overrides_extra={},
+            model_overrides_extra=overrides,
         )
         if extra:
             create_kwargs["extra_body"] = extra
 
-    if trace_phase:
+    used_json_object = True
+    resp = None
+
+    def _emit_llm_trace(event_type: str, *, json_object: bool) -> None:
+        if not trace_phase:
+            return
         from miniagent.infrastructure.tracing import emit_trace
 
-        emit_trace(
-            {
-                "type": "llm.request",
-                "phase": trace_phase,
-                "session_key": trace_session_key or "default",
-                "model": model,
-                "json_object": True,
-            }
-        )
-
-    resp = await llm.chat.completions.create(**create_kwargs)
-
-    if trace_phase:
-        from miniagent.infrastructure.tracing import emit_trace
-
-        _usage = getattr(resp, "usage", None)
-        emit_trace(
-            {
-                "type": "llm.response",
-                "phase": trace_phase,
-                "session_key": trace_session_key or "default",
-                "model": model,
-                "usage": _usage.model_dump()
+        payload: dict[str, Any] = {
+            "type": event_type,
+            "phase": trace_phase,
+            "session_key": trace_session_key or "default",
+            "model": model,
+            "json_object": json_object,
+        }
+        if event_type == "llm.response" and resp is not None:
+            _usage = getattr(resp, "usage", None)
+            payload["usage"] = (
+                _usage.model_dump()
                 if _usage is not None and hasattr(_usage, "model_dump")
-                else None,
-            }
-        )
+                else None
+            )
+        emit_trace(payload)
+
+    _emit_llm_trace("llm.request", json_object=True)
+    try:
+        resp = await llm.chat.completions.create(**create_kwargs)
+    except Exception as api_err:
+        if json_object_unsupported(api_err):
+            used_json_object = False
+            _logger.info("llm_json: API 不支持 json_object，已降级为普通 JSON 输出")
+            fallback_kwargs = dict(create_kwargs)
+            fallback_kwargs["messages"] = base_messages
+            fallback_kwargs.pop("response_format", None)
+            _emit_llm_trace("llm.request", json_object=False)
+            resp = await llm.chat.completions.create(**fallback_kwargs)
+        else:
+            raise
+
+    _emit_llm_trace("llm.response", json_object=used_json_object)
+
+    if not resp.choices:
+        _logger.warning("LLM 返回无 choices")
+        return {}
 
     text = resp.choices[0].message.content or "{}"
     try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        logging.getLogger(__name__).warning("LLM 返回的 JSON 解析失败: %s", text[:200])
+        return parse_llm_json_response(text)
+    except (json.JSONDecodeError, TypeError):
+        _logger.warning("LLM 返回的 JSON 解析失败: %s", text[:200])
         if raise_on_error:
             raise
         return {}

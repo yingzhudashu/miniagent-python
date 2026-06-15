@@ -9,10 +9,9 @@
 - 生成优化结果报告
 
 安全约束：
-- 仅在 Git 仓库中执行（确保可回滚）
-- 高风险提案需要确认
-- 每次变更前后创建快照
-- 测试失败自动回滚
+- 优先使用 Git stash 快照；无未提交变更时对涉及文件做内存备份
+- 高风险提案需要 allow_high_risk 或 dry_run
+- 无可执行内容（无 files 且无 test_cases）的提案跳过
 
 详见 ``docs/SELF_OPT.md``。
 """
@@ -21,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shlex
 
 from miniagent.core.self_opt.git_snapshot import (
     create_snapshot_async,
@@ -87,6 +87,47 @@ async def _apply_file_change(change: FileChange, root: str = "") -> bool:
         return False
 
 
+def _backup_file(path: str) -> tuple[bool, bytes | None]:
+    """备份文件内容；返回 (existed, content_or_none)。"""
+    if os.path.exists(path):
+        with open(path, "rb") as f:
+            return True, f.read()
+    return False, None
+
+
+def _restore_file_backup(path: str, existed: bool, content: bytes | None) -> None:
+    """从备份恢复文件。"""
+    if existed and content is not None:
+        with open(path, "wb") as f:
+            f.write(content)
+    elif os.path.exists(path):
+        os.remove(path)
+
+
+def _collect_file_backups(
+    proposal: OptimizationProposal,
+    root: str,
+) -> dict[str, tuple[bool, bytes | None]]:
+    """收集提案涉及路径的当前内容备份。"""
+    backups: dict[str, tuple[bool, bytes | None]] = {}
+    for change in proposal.files:
+        if change.action == "rename" and change.old_path:
+            old_target = os.path.join(root, change.old_path) if root else change.old_path
+            backups[old_target] = _backup_file(old_target)
+        target = os.path.join(root, change.path) if root else change.path
+        backups[target] = _backup_file(target)
+    return backups
+
+
+def _restore_file_backups(backups: dict[str, tuple[bool, bytes | None]]) -> None:
+    """恢复所有文件备份。"""
+    for path, (existed, content) in backups.items():
+        try:
+            _restore_file_backup(path, existed, content)
+        except OSError as e:
+            _logger.error("恢复文件备份失败 %s: %s", path, e)
+
+
 async def _run_validation_tests(proposal: OptimizationProposal) -> OptTestSummary:
     """运行验证测试（异步版本，不阻塞事件循环）。
 
@@ -99,15 +140,17 @@ async def _run_validation_tests(proposal: OptimizationProposal) -> OptTestSummar
     summary = OptTestSummary()
 
     for tc in proposal.test_cases:
+        if not tc.command.strip():
+            continue
         summary.total += 1
         try:
-            # 使用 asyncio.create_subprocess_exec 避免阻塞事件循环
+            cmd_parts = shlex.split(tc.command, posix=os.name != "nt")
             proc = await asyncio.create_subprocess_exec(
-                *tc.command.split(),
+                *cmd_parts,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await proc.communicate()
+            _stdout, stderr = await proc.communicate()
 
             if proc.returncode == 0:
                 summary.passed += 1
@@ -131,6 +174,7 @@ async def apply_proposal(
     root: str = "",
     auto_rollback: bool = True,
     dry_run: bool = False,
+    allow_high_risk: bool = False,
 ) -> OptimizationResult:
     """应用优化提案。
 
@@ -139,29 +183,52 @@ async def apply_proposal(
         root: 项目根目录
         auto_rollback: 测试失败时自动回滚
         dry_run: 仅模拟执行（不实际修改文件）
+        allow_high_risk: 已批准的高风险提案允许执行
 
     Returns:
         优化执行结果
     """
     result = OptimizationResult(proposal_id=proposal.id)
 
-    # 高风险检查
-    if proposal.risk_level == "high" and not dry_run:
+    if not proposal.files and not proposal.test_cases:
         result.status = "skipped"
-        result.error = "高风险提案需要人工确认"
+        result.error = "提案无可执行的文件变更或验证测试"
         return result
 
-    # 检查 Git 仓库（性能优化：使用异步版本避免阻塞）
-    if not await is_in_git_repo_async(root):
-        _logger.warning("不在 Git 仓库中，无法创建快照")
+    # 高风险检查
+    if proposal.risk_level == "high" and not dry_run and not allow_high_risk:
+        result.status = "skipped"
+        result.error = "高风险提案需要先 /self-opt approve 后再执行"
+        return result
 
-    # 创建快照（执行前）- 性能优化：使用异步版本
+    if not await is_in_git_repo_async(root):
+        _logger.warning("不在 Git 仓库中，将使用文件级备份回滚")
+
+    # Git stash 快照（有未提交变更时）
     snapshot_ref = ""
     if not dry_run and await is_in_git_repo_async(root) and await has_uncommitted_changes_async(root):
         snap_result = await create_snapshot_async(f"before-{proposal.id}", path=root)
         if snap_result["success"]:
             snapshot_ref = snap_result["ref"]
             _logger.info("创建前置快照: %s", snapshot_ref)
+
+    file_backups = _collect_file_backups(proposal, root) if not dry_run else {}
+
+    async def _rollback() -> str:
+        suffix = ""
+        if auto_rollback:
+            if snapshot_ref:
+                _logger.info("自动回滚到 Git 快照: %s", snapshot_ref)
+                rollback_result = await rollback_snapshot_async(snapshot_ref, path=root)
+                if rollback_result["success"]:
+                    suffix = " (已回滚)"
+                else:
+                    suffix = f" (Git 回滚失败: {rollback_result['message']})"
+            elif file_backups:
+                _logger.info("自动回滚到文件备份")
+                _restore_file_backups(file_backups)
+                suffix = " (已回滚)"
+        return suffix
 
     # Dry run 模式
     if dry_run:
@@ -179,16 +246,7 @@ async def apply_proposal(
         else:
             result.status = "failed"
             result.error = f"变更失败: {change.path}"
-
-            # 自动回滚（性能优化：使用异步版本）
-            if auto_rollback and snapshot_ref:
-                _logger.info("自动回滚到快照: %s", snapshot_ref)
-                rollback_result = await rollback_snapshot_async(snapshot_ref, path=root)
-                if rollback_result["success"]:
-                    result.error += " (已回滚)"
-                else:
-                    result.error += f" (回滚失败: {rollback_result['message']})"
-
+            result.error += await _rollback()
             return result
 
     result.changes_applied = changes_applied
@@ -201,16 +259,7 @@ async def apply_proposal(
         if test_summary.failed > 0:
             result.status = "failed"
             result.error = f"{test_summary.failed}/{test_summary.total} 测试失败"
-
-            # 自动回滚（性能优化：使用异步版本）
-            if auto_rollback and snapshot_ref:
-                _logger.info("测试失败，自动回滚到快照: %s", snapshot_ref)
-                rollback_result = await rollback_snapshot_async(snapshot_ref, path=root)
-                if rollback_result["success"]:
-                    result.error += " (已回滚)"
-                else:
-                    result.error += f" (回滚失败: {rollback_result['message']})"
-
+            result.error += await _rollback()
             return result
 
     result.status = "success"
@@ -224,6 +273,7 @@ async def run_auto_optimization(
     root: str = "",
     auto_rollback: bool = True,
     dry_run: bool = False,
+    allow_high_risk: bool = False,
 ) -> OptimizationResult:
     """运行自动优化（apply_proposal 的别名）。
 
@@ -232,6 +282,7 @@ async def run_auto_optimization(
         root: 项目根目录
         auto_rollback: 测试失败时自动回滚
         dry_run: 仅模拟执行
+        allow_high_risk: 已批准的高风险提案允许执行
 
     Returns:
         优化执行结果
@@ -241,6 +292,7 @@ async def run_auto_optimization(
         root=root,
         auto_rollback=auto_rollback,
         dry_run=dry_run,
+        allow_high_risk=allow_high_risk,
     )
 
 

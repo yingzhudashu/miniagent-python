@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 from miniagent.infrastructure.json_config import get_config_bool
+from miniagent.testing.types import DEFAULT_SAMPLES_DIR
 
 
 def feishu_markdown_commands_enabled() -> bool:
@@ -47,13 +48,13 @@ def feishu_dot_commands_full_enabled() -> bool:
 def format_test_command_usage() -> str:
     """返回 ``/test`` 自测命令的用法说明（无子命令或未知子命令时展示）。"""
     return (
-        "自测命令（运行预设测试用例，默认 mock 模式）：\n"
+        "自测命令（运行预设测试用例）：\n"
         "  /test list                              列出可用测试用例\n"
-        "  /test run                               运行所有测试\n"
-        "  /test run <类别>                        按类别过滤\n"
-        "  /test run <类别> <名称>                 按名称正则进一步过滤\n"
+        "  /test run                               mock 模式：校验样本 JSON（默认，不调 LLM）\n"
+        "  /test run mock [类别] [名称正则]        同上，可过滤\n"
+        "  /test run real [类别] [名称正则]        真实 Agent 评估（需 registry/engine）\n"
         "  /test status                            查看最近测试结果\n"
-        "  说明: 测试样本位于 tests/evaluation/samples/"
+        f"  说明: 样本目录 {DEFAULT_SAMPLES_DIR}，报告 workspaces/test_report.json"
     )
 
 

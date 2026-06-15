@@ -1543,14 +1543,14 @@ async def cmd_self_opt_apply(proposal_id: str, root: str = "") -> None:
     proposal = record.get("proposal", {})
     risk = proposal.get("risk_level", "low")
 
-    if risk == "high":
-        print(f"\n{WARNING_PREFIX} 高风险提案需人工确认后再执行")
-        print(f"  请先批准: /self-opt approve {proposal_id}\n")
+    if risk == "high" and current_status != "approved":
+        print(f"\n{WARNING_PREFIX} 高风险提案需先批准后再执行")
+        print(f"  请先执行: /self-opt approve {proposal_id}\n")
         return
 
     print(f"\n🔄 正在执行提案 {proposal_id}...\n")
 
-    result = await store.apply_proposal_async(proposal_id, root=root)
+    result = await store.apply_proposal_async(proposal_id, root=root, manual=True)
 
     if result.status == "success":
         print(f"{SUCCESS_PREFIX} 提案执行成功")
@@ -1562,10 +1562,25 @@ async def cmd_self_opt_apply(proposal_id: str, root: str = "") -> None:
 
 
 def cmd_self_opt_analyze() -> None:
-    """触发运行分析并生成提案。"""
+    """触发运行分析与代码静态分析，生成并保存提案。"""
     from miniagent.core.self_opt.proposal_generator import ProposalGenerator
+    from miniagent.infrastructure.json_config import get_config
 
-    print("\n🔍 正在分析运行日志...\n")
+    runtime_on = get_config("self_optimization.runtime_analysis_enabled", True)
+    code_on = get_config("self_optimization.code_analysis_enabled", True)
+
+    parts = []
+    if runtime_on:
+        parts.append("运行日志")
+    if code_on:
+        parts.append("代码静态")
+    label = " + ".join(parts) if parts else "（无分析源启用）"
+
+    print(f"\n🔍 正在分析（{label}）...\n")
+
+    if not runtime_on and not code_on:
+        print(f"{WARNING_PREFIX} runtime_analysis_enabled 与 code_analysis_enabled 均已关闭\n")
+        return
 
     generator = ProposalGenerator()
     saved_ids = generator.generate_and_save()

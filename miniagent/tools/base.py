@@ -225,9 +225,10 @@ class ToolBuilder:
         return self
 
     def sandbox(self) -> ToolBuilder:
-        """设置为 sandbox 权限（默认）。
+        """设置为 sandbox 权限（默认，ToolDefinition.permission 元数据）。
 
-        sandbox 权限：在 allowed_paths 内受沙箱约束。
+        标记为路径/文件类工具；运行时沙箱仍由 ``ToolContext.permission`` 与
+        ``resolve_path_for_tool`` 控制。
 
         Returns:
             self（支持链式调用）
@@ -236,9 +237,10 @@ class ToolBuilder:
         return self
 
     def allowlist(self) -> ToolBuilder:
-        """设置为 allowlist 权限。
+        """设置为 allowlist 权限（ToolDefinition.permission 元数据）。
 
-        allowlist 权限：仅允许预置安全命令清单。
+        标记为不依赖路径沙箱的外部 API / 只读工具；**不会**自动改写
+        ``ToolContext.permission`` 或 ``exec_command`` 的命令 allowlist 行为。
 
         Returns:
             self（支持链式调用）
@@ -249,7 +251,8 @@ class ToolBuilder:
     def require_confirm(self) -> ToolBuilder:
         """设置为 require-confirm 权限。
 
-        require-confirm 权限：执行前需用户确认。
+        executor 在调用 handler 前经 ``ConfirmationChannel`` 等待用户
+        ``/confirm``（``AgentConfig.auto_execute_confirmed=True`` 时可跳过）。
 
         Returns:
             self（支持链式调用）

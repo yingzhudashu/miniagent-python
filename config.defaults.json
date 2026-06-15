@@ -106,7 +106,8 @@
 
   "mcp": {
     "description": "MCP 接入（User 层）",
-    "stdio_command": null
+    "stdio_command": null,
+    "stdio_env": null
   },
 
   "security": {
@@ -134,6 +135,7 @@
     "root": null,
     "auto_mount": true,
     "as_core": true,
+    "top_k": 5,
     "max_chars": 8000,
     "max_file_chars": 50000,
     "planner_enabled": true,
@@ -189,7 +191,8 @@
     "welcome_hint": true,
     "file_vision_desc": true,
     "force_fallback": false,
-    "raw_markdown": false
+    "raw_markdown": false,
+    "thinking_rich": false
   },
 
   "feishu": {
@@ -205,6 +208,7 @@
     "reply_in_thread": null,
     "receive_id_type": "chat_id",
     "max_message_age": 600,
+    "message_debounce_ms": 800,
     "media": {
       "run_agent": false,
       "vision_desc": true,
@@ -294,6 +298,7 @@
     "writer_overflow_policy": "drop_oldest",
     "record_payload": "metrics_only",
     "auto_cleanup": true,
+    "cleanup_interval": 3600,
     "stats_report_interval": 3600
   },
 

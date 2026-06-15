@@ -6,11 +6,13 @@
 配置项：
 - trace.auto_cleanup: 是否启用自动清理（默认 true）
 - trace.retention_days: 保留天数（默认 7）
+- trace.cleanup_interval: 进程内定时清理间隔（秒，默认 3600）
 - trace.stats_report_interval: 报告生成间隔（秒，默认 3600）
 
 用法：
-1. 自动集成：shutdown 时自动清理一次
-2. 定时清理：每小时执行一次清理任务
+1. 自动集成：``shutdown_runtime`` 退出时清理一次
+2. 定时清理：``scheduled_tasks_loop`` 按 ``trace.cleanup_interval`` 节流调用
+   ``maybe_scheduled_cleanup_traces``
 """
 
 from __future__ import annotations
@@ -101,6 +103,20 @@ def scheduled_trace_stats_report() -> dict[str, Any]:
 
 
 _last_stats_report_at: float = 0.0
+_last_cleanup_at: float = 0.0
+
+
+def maybe_scheduled_cleanup_traces() -> dict[str, Any] | None:
+    """按 ``trace.cleanup_interval`` 节流清理过期 trace（供 ticker 循环调用）。"""
+    global _last_cleanup_at
+    if not get_config("trace.auto_cleanup", True):
+        return None
+    interval = max(60.0, float(get_config("trace.cleanup_interval", 3600)))
+    now = time.time()
+    if _last_cleanup_at and (now - _last_cleanup_at) < interval:
+        return None
+    _last_cleanup_at = now
+    return scheduled_cleanup_traces()
 
 
 def maybe_scheduled_trace_stats_report() -> dict[str, Any] | None:
@@ -119,5 +135,6 @@ def maybe_scheduled_trace_stats_report() -> dict[str, Any] | None:
 __all__ = [
     "scheduled_cleanup_traces",
     "scheduled_trace_stats_report",
+    "maybe_scheduled_cleanup_traces",
     "maybe_scheduled_trace_stats_report",
 ]

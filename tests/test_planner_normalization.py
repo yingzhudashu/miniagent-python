@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from miniagent.core.planner import _normalize_plan_steps
+from types import SimpleNamespace
+
+from miniagent.core.planner import (
+    _completed_work_context,
+    _dedupe_toolboxes,
+    _normalize_plan_steps,
+)
 from miniagent.types.planning import PlanStep
 
 
@@ -31,3 +37,49 @@ def test_normalize_plan_steps_drops_empty_steps_and_dedupes_toolboxes() -> None:
     assert len(normalized) == 1
     assert normalized[0].step_number == 1
     assert normalized[0].required_toolboxes == ["exec"]
+
+
+def test_dedupe_toolboxes_merges_plan_and_step_level() -> None:
+    steps = [
+        PlanStep(1, "搜索", ["web"], "", ""),
+        PlanStep(2, "写文件", ["fs"], "", ""),
+    ]
+
+    result = _dedupe_toolboxes(["fs", "exec", "fs"], steps)
+
+    assert result == ["fs", "exec", "web"]
+
+
+def test_dedupe_toolboxes_filters_empty_and_non_list() -> None:
+    steps = [PlanStep(1, "x", ["web"], "", "")]
+
+    assert _dedupe_toolboxes(None, steps) == ["web"]
+    assert _dedupe_toolboxes(["", "  ", "web"], steps) == ["web"]
+
+
+def test_completed_work_context_extracts_keyword_messages() -> None:
+    cfg = SimpleNamespace(
+        conversation_history=[
+            {"content": "你好，今天天气不错"},
+            {"content": "已通过 read_file 读取 config.py"},
+            {"content": "分析完成，测试通过 pytest"},
+        ]
+    )
+
+    result = _completed_work_context(cfg)
+
+    assert "最近已完成工作" in result
+    assert "read_file" in result
+    assert "pytest" in result
+    assert "天气" not in result
+
+
+def test_completed_work_context_empty_without_relevant_history() -> None:
+    assert _completed_work_context(None) == ""
+    assert _completed_work_context(SimpleNamespace(conversation_history=[])) == ""
+    assert (
+        _completed_work_context(
+            SimpleNamespace(conversation_history=[{"content": "普通闲聊"}])
+        )
+        == ""
+    )

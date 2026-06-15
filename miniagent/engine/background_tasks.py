@@ -211,15 +211,18 @@ class BackgroundTaskManager:
         memory_store = None
         activity_log = None
         keyword_index = None
+        memory_context = None
         if runtime_ctx is not None:
             memory_store = getattr(runtime_ctx, "memory_store", None)
             activity_log = getattr(runtime_ctx, "activity_log", None)
             keyword_index = getattr(runtime_ctx, "keyword_index", None)
+            memory_context = getattr(runtime_ctx, "memory_context", None)
         return {
             "session_manager": session_manager,
             "memory_store": memory_store,
             "activity_log": activity_log,
             "keyword_index": keyword_index,
+            "memory_context": memory_context,
         }
 
     async def _execute_task(
@@ -261,6 +264,7 @@ class BackgroundTaskManager:
                         memory_store=runtime_deps["memory_store"],
                         activity_log=runtime_deps["activity_log"],
                         keyword_index=runtime_deps["keyword_index"],
+                        memory_context=runtime_deps["memory_context"],
                         **kwargs,
                     )
 

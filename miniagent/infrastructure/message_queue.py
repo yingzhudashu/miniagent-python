@@ -328,6 +328,7 @@ class MessageQueueManager:
 
     @cross_queue_serial.setter
     def cross_queue_serial(self, value: bool) -> None:
+        """设置是否跨 ``chat_id`` 全局 FIFO（``parallel_sessions=false`` 时应为 ``True``）。"""
         self._cross_queue_serial = bool(value)
 
     def ensure_exec_lock(self) -> asyncio.Lock:

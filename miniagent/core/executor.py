@@ -35,6 +35,12 @@ from typing import Any, TypeAlias
 from openai import AsyncOpenAI
 
 from miniagent.core.config import get_default_agent_config, get_default_model_config
+from miniagent.core.plan_utils import (
+    format_output_spec_block,
+    resolve_chunk_compress_threshold,
+    resolve_effective_overflow_strategy,
+    resolve_execution_step_groups,
+)
 from miniagent.core.constants import (
     EXECUTION_CALLBACK_MIN_CHARS,
     EXECUTION_CALLBACK_MIN_INTERVAL_MS,
@@ -61,19 +67,19 @@ from miniagent.infrastructure.timezone_config import (
 )
 from miniagent.infrastructure.tracing import emit_trace
 from miniagent.memory.context import ContextBudgetExceeded, DefaultContextManager
-from miniagent.memory.defaults import resolve_memory_dependencies
-from miniagent.memory.embedding_search import (
-    embedding_search_enabled,
-    get_embed_provider,
-)
+from miniagent.memory.defaults import resolve_memory_context, resolve_memory_dependencies
 from miniagent.memory.history_bridge import conversation_history_for_llm
-from miniagent.memory.keyword_index import format_search_results, search_relevant_with_index
-from miniagent.memory.store import extract_facts, format_memory_for_prompt, generate_turn_summary
+from miniagent.types.memory_context import MemoryContextProtocol
 from miniagent.security.sandbox import get_default_workspace
 from miniagent.types.agent import LoopDetectionConfig, ToolMonitorProtocol
 from miniagent.types.config import AgentConfig
 from miniagent.types.error_prefix import WARNING_PREFIX
-from miniagent.types.memory import MemoryEntryInput, MemoryStoreProtocol
+from miniagent.types.errors import (
+    FeishuConfigMissingError,
+    LarkOapiMissingError,
+    SandboxViolationError,
+)
+from miniagent.types.memory import MemoryStoreProtocol
 from miniagent.types.planning import PlanStep, StructuredPlan
 from miniagent.types.protocols import (
     ActivityLogProtocol,
@@ -82,7 +88,7 @@ from miniagent.types.protocols import (
     OnToolFinishCallback,
 )
 from miniagent.types.skill import ClawHubClientProtocol
-from miniagent.types.tool import ToolContext, ToolRegistryProtocol, ToolResult
+from miniagent.types.tool import ToolContext, ToolRegistryProtocol, ToolPermission, ToolResult
 
 # ── 性能优化：工具意图映射改为模块级常量，避免每次调用重建 ──
 _TOOL_INTENT_MAP: dict[str, str] = {
@@ -123,6 +129,70 @@ def _get_tool_semaphore() -> asyncio.Semaphore:
     return _tool_semaphore
 
 _logger = get_logger(__name__)
+
+
+async def _await_tool_confirmation(
+    *,
+    tool_name: str,
+    help_text: str,
+    args: dict[str, Any],
+    permission: ToolPermission,
+    confirmation_channel: Any | None,
+    agent_config: AgentConfig,
+    on_thinking: OnThinking | None,
+    thinking_header: str,
+) -> ToolResult | None:
+    """``require-confirm`` 工具执行前的用户确认 gate。
+
+    Returns:
+        None 表示已确认、无需确认或 ``auto_execute_confirmed`` 跳过；
+        ToolResult 表示应直接返回给 LLM（拒绝或未配置通道）。
+    """
+    if permission != "require-confirm":
+        return None
+    if agent_config.auto_execute_confirmed:
+        return None
+    if confirmation_channel is None:
+        return ToolResult(
+            success=False,
+            content=(
+                f"{WARNING_PREFIX} 工具 `{tool_name}` 需要用户确认后才能执行，"
+                "但当前未配置 confirmation_channel。"
+            ),
+            meta={"error_type": "ConfirmationRequired"},
+        )
+
+    from miniagent.types.confirmation import ConfirmationRequest, ConfirmationStage
+
+    args_preview = json.dumps(args, ensure_ascii=False, indent=2)
+    if len(args_preview) > 500:
+        args_preview = args_preview[:500] + "…"
+    prompt = (
+        f"即将执行需确认的工具 `{tool_name}`。\n"
+        f"{help_text}\n\n参数:\n{args_preview}\n\n"
+        "输入 /confirm 同意，/reject 拒绝。"
+    )
+    if on_thinking:
+        await invoke_on_thinking(
+            on_thinking,
+            prompt,
+            True,
+            f"{thinking_header} · 工具确认",
+        )
+    req = ConfirmationRequest(
+        stage=ConfirmationStage.TOOL,
+        content=prompt,
+        full_content=args_preview,
+        context={"tool_name": tool_name, "args": args},
+    )
+    confirm_result = await confirmation_channel.request_confirmation(req)
+    if confirm_result.rejected or not confirm_result.approved:
+        return ToolResult(
+            success=False,
+            content=f"{WARNING_PREFIX} 用户拒绝执行工具 `{tool_name}`。",
+            meta={"error_type": "ConfirmationRejected"},
+        )
+    return None
 
 
 def _raise_if_task_cancelled() -> None:
@@ -354,6 +424,7 @@ def build_current_turn_user_context(
     session_files_root: str | None = None,
     risk_level: str | None = None,
     current_time_context: str | None = None,
+    output_spec_block: str | None = None,
 ) -> str:
     """构建执行阶段每轮动态 user context。
 
@@ -377,6 +448,7 @@ def build_current_turn_user_context(
         session_files_root: 会话文件根目录（工具相对路径基准）
         risk_level: 任务风险等级（low/medium/high）
         current_time_context: 当前时间上下文（含时区信息）
+        output_spec_block: 规划器输出的交付规格文本块
 
     Returns:
         str: 动态 user context 文本
@@ -388,6 +460,8 @@ def build_current_turn_user_context(
     summary = (plan_summary or "").strip()
     if summary:
         parts.append(f"执行计划摘要：\n{summary}")
+    if output_spec_block and output_spec_block.strip():
+        parts.append(output_spec_block.strip())
     if keyword_context and keyword_context.strip():
         parts.append(f"相关记忆：\n{keyword_context.strip()}")
     if kb_context and kb_context.strip():
@@ -612,7 +686,9 @@ async def execute_plan(
     memory_store: MemoryStoreProtocol | None = None,
     activity_log: ActivityLogProtocol | None = None,
     keyword_index: KeywordIndexProtocol | None = None,
+    memory_context: MemoryContextProtocol | None = None,
     client: AsyncOpenAI | None = None,
+    confirmation_channel: Any | None = None,
 ) -> str:
     """执行结构化计划（ReAct 循环）。
 
@@ -656,12 +732,15 @@ async def execute_plan(
         memory_store: 记忆存储（默认与 ``paths.state_dir`` 进程 bundle 一致）
         activity_log: 活动日志（同上）
         keyword_index: 关键词索引（同上；缺省时优先使用 store 已绑定索引）
+        memory_context: 记忆上下文服务（缺省时由 store/索引构造默认实现）
         client: LLM 客户端（默认进程内共享 AsyncOpenAI）
+        confirmation_channel: 确认通道；``require-confirm`` 工具执行前经此等待用户 /confirm
 
     Returns:
         LLM 的最终回复文本
     """
     ms, al, ki = resolve_memory_dependencies(memory_store, activity_log, keyword_index)
+    mc = resolve_memory_context(memory_context, ms, ki)
 
     # ── 工具筛选 ──
     effective_registry = agent_config.session_registry or registry
@@ -705,89 +784,44 @@ async def execute_plan(
 
     # ── 上下文管理器 ──
     model_config = get_default_model_config()
+    overflow_strategy = resolve_effective_overflow_strategy(plan, agent_config.context_overflow_strategy)
+    compress_threshold = resolve_chunk_compress_threshold(
+        plan,
+        context_window=model_config.context_window,
+        default_threshold=agent_config.context_compress_threshold,
+    )
     context_manager = DefaultContextManager(
         context_window=model_config.context_window,
-        compress_threshold=agent_config.context_compress_threshold,
+        compress_threshold=compress_threshold,
         tools=tools,
-        overflow_strategy=agent_config.context_overflow_strategy,
+        overflow_strategy=overflow_strategy,
         reserve_ratio=agent_config.context_reserve_ratio,
         session_key=agent_config.session_key,
     )
+
+    output_spec_block = format_output_spec_block(plan.output_spec)
 
     # ── Stable system + 本轮动态上下文 ──
     # 结构化会话记忆、关键词检索和知识库检索都跟随 user_input 高频变化，
     # 因此只放入 current_turn_context；stable_system 仅保留身份、技能/通道规则
     # 与不含当前时间戳的稳定说明，方便 provider 复用前缀缓存。
-    keyword_context: str | None = None
-    memory_context: str | None = None
     bg_ephemeral = _is_ephemeral_session(agent_config.session_key)
+    turn_keyword_context: str | None = None
     if agent_config.session_key and not bg_ephemeral:
-        memory = await ms.load(agent_config.session_key)
-        memory_text = format_memory_for_prompt(memory)
-        if memory_text:
-            memory_context = memory_text
-
-        # ── 性能优化：并行执行嵌入搜索和关键词索引 ──
-        relevant: list[dict[str, Any]] = []
-
-        # 并行执行嵌入搜索和关键词索引
-        embed_task = None
-        kw_task = None
-
-        if embedding_search_enabled():
-            try:
-                provider = get_embed_provider(
-                    state_dir=ms._state_dir if hasattr(ms, "_state_dir") else "workspaces"
-                )
-                embed_task = asyncio.create_task(
-                    provider.search(user_input, limit=8, min_score=0.3)
-                )
-            except Exception as e:
-                _logger.debug("嵌入搜索初始化失败 (%s)", e)
-
-        # 关键词索引并行搜索
-        kw_task = asyncio.create_task(
-            asyncio.to_thread(
-                search_relevant_with_index, ki, user_input, 8, 0
-            )
+        _, mem_meta = await mc.inject_memory_to_messages(
+            [],
+            agent_config.session_key,
+            agent_config,
+            user_input=user_input,
+            activity_log=al,
+            keyword_index=ki,
         )
-
-        # 并行等待结果
-        embed_results = None
-        kw_results = []
-
-        if embed_task and kw_task:
-            results = await asyncio.gather(
-                embed_task, kw_task, return_exceptions=True
+        turn_keyword_context = mem_meta.get("turn_keyword_context")
+        if agent_config.debug and mem_meta.get("relevant_count"):
+            _logger.debug(
+                "Layer 3 语义检索: %d 条相关记忆",
+                mem_meta["relevant_count"],
             )
-            if not isinstance(results[0], Exception):
-                embed_results = results[0]
-            if not isinstance(results[1], Exception):
-                kw_results = results[1]
-        elif kw_task:
-            kw_results = await kw_task
-
-        # 合并结果（嵌入搜索优先）
-        seen: set[tuple[str, str]] = set()
-        if embed_results:
-            relevant = provider.expand_results(embed_results)
-            for r in relevant:
-                seen.add((r["session_id"], r["timestamp"]))
-            if agent_config.debug:
-                _logger.debug("嵌入搜索: %d 条相关记忆", len(relevant))
-
-        # 关键词索引补充
-        for kw in kw_results:
-            key = (kw["session_id"], kw["timestamp"])
-            if key not in seen and len(relevant) < 8:
-                relevant.append(kw)
-                seen.add(key)
-
-        search_text = format_search_results(relevant)
-        if search_text:
-            keyword_context = search_text
-            if agent_config.debug:
-                _logger.debug("Layer 3 语义检索: %d 条相关记忆（并行优化）", len(relevant))
 
         # ── 知识库检索（使用公共函数，支持配置）──
         from miniagent.knowledge import retrieve_knowledge_context
@@ -801,9 +835,6 @@ async def execute_plan(
             agent_identity=AGENT_IDENTITY,
             caller_system_prompt=system_prompt,
         )
-        turn_keyword_context = "\n\n".join(
-            p for p in (memory_context, keyword_context) if p and p.strip()
-        ) or None
         current_turn_context = build_current_turn_user_context(
             user_input=user_input,
             plan_summary=plan.summary,
@@ -812,6 +843,7 @@ async def execute_plan(
             session_files_root=agent_config.session_workspace,
             risk_level=agent_config.risk_level,
             current_time_context=format_agent_timezone_context(),
+            output_spec_block=output_spec_block,
         )
         context_manager.init(stable_system, current_turn_context)
     else:
@@ -834,6 +866,7 @@ async def execute_plan(
             session_files_root=agent_config.session_workspace,
             risk_level=agent_config.risk_level,
             current_time_context=format_agent_timezone_context(),
+            output_spec_block=output_spec_block,
         )
         context_manager.init(stable_system, current_turn_context)
 
@@ -877,6 +910,19 @@ async def execute_plan(
         _logger.debug("三层记忆: L3(关键词索引 %d 词)", idx_stats["total_keywords"])
 
     llm_client = client if client is not None else get_shared_async_openai()
+
+    async def _persist_session_memory(final_reply: str) -> None:
+        """回合结束后写入会话记忆与最终回复活动日志（跳过后台 ephemeral session）。"""
+        if not agent_config.session_key or not final_reply or bg_ephemeral:
+            return
+        await mc.save_memory_after_turn(
+            agent_config.session_key,
+            user_input,
+            final_reply,
+            ms,
+            tool_calls=turn_tool_calls,
+        )
+        al.log_final_reply(session_key, final_reply)
 
     exec_turn_no = 0
     _exec_hist_segments: dict[str, list[str]] = {}
@@ -1289,6 +1335,19 @@ async def execute_plan(
                         "tool_call_id": tc.id,
                     }
                 )
+                denied = await _await_tool_confirmation(
+                    tool_name=tc.function.name,
+                    help_text=getattr(tool, "help_text", "") or "",
+                    args=args,
+                    permission=getattr(tool, "permission", "sandbox"),
+                    confirmation_channel=confirmation_channel,
+                    agent_config=agent_config,
+                    on_thinking=on_thinking,
+                    thinking_header=thinking_header,
+                )
+                if denied is not None:
+                    elapsed = time.monotonic_ns() // 1_000_000 - tool_start
+                    return tc, args, tool, denied, elapsed
                 try:
                     result = await asyncio.wait_for(
                         tool.handler(args, ctx),
@@ -1357,6 +1416,9 @@ async def execute_plan(
                         TypeError,   # 类型错误
                         KeyError,    # 键错误
                         json.JSONDecodeError,  # JSON 解析错误
+                        SandboxViolationError,  # 沙箱路径越界
+                        FeishuConfigMissingError,  # 飞书配置缺失
+                        LarkOapiMissingError,  # 飞书 SDK 缺失
                     ))
                     _log_tool_error(
                         tool_name=tc.function.name,
@@ -1454,7 +1516,8 @@ async def execute_plan(
                     return oob_t
         return None
 
-    use_phased = _env_phased_execution_enabled() and bool(plan.steps)
+    execution_groups = resolve_execution_step_groups(plan)
+    use_phased = _env_phased_execution_enabled() and bool(execution_groups)
 
     if not use_phased:
         while turns_left > 0:
@@ -1474,16 +1537,7 @@ async def execute_plan(
                 if oob:
                     return oob
 
-                if agent_config.session_key and final_reply:
-                    if not bg_ephemeral:
-                        await _save_session_memory(
-                            ms,
-                            agent_config.session_key,
-                            user_input,
-                            final_reply,
-                            turn_tool_calls,
-                        )
-                        al.log_final_reply(session_key, final_reply)
+                await _persist_session_memory(final_reply)
 
                 if agent_config.debug:
                     _logger.debug(context_manager.get_token_report())
@@ -1507,115 +1561,119 @@ async def execute_plan(
             )
             if oob_txt:
                 return oob_txt
-            if save_memory and agent_config.session_key and final_reply:
-                if not bg_ephemeral:
-                    await _save_session_memory(
-                        ms,
-                        agent_config.session_key,
-                        user_input,
-                        final_reply,
-                        turn_tool_calls,
-                    )
-                    al.log_final_reply(session_key, final_reply)
+            if save_memory:
+                await _persist_session_memory(final_reply)
             if agent_config.debug:
                 _logger.debug(context_manager.get_token_report())
             return None
 
-        n_steps = len(plan.steps)
-        for si, step in enumerate(plan.steps):
-            phase_lbl = _step_thinking_header(si, n_steps, step)
-            is_last = si == n_steps - 1
-            step_tools = _resolve_exec_tools(effective_registry, agent_config, plan, step)
-            context_manager.set_tools(step_tools)
-            step_hint = (
-                f"[执行步骤 {step.step_number or si + 1}/{n_steps}] {step.description}\n"
-                f"预期输入：{step.expected_input}\n"
-                f"预期产出：{step.expected_output}\n"
-                "请仅完成本步骤；若当前无需工具，请直接给出简短步骤小结。"
-            )
-            oob_step = _append_context_or_return(
-                context_manager, {"role": "user", "content": step_hint}
-            )
-            if oob_step:
-                return oob_step
-
-            sub_cap = min(_step_max_turns_cap(), turns_left)
-            sub_left = sub_cap
-            stl, stb = map_business_depth(step.thinking_level)
-            step_merge = {"thinking_level": stl, "thinking_budget": stb}
-
-            step_resolved = False
-            while sub_left > 0 and turns_left > 0:
-                _raise_if_task_cancelled()
-                turns_left -= 1
-                sub_left -= 1
-                msg, _ek, start_ms, _u, _fc, turn_label = await _stream_exec_turn(
-                    step_merge, step_tools, phase_lbl, is_last_step=is_last
+        n_steps = sum(len(grp) for _, grp in execution_groups)
+        global_si = 0
+        for chunk_prompt, group_steps in execution_groups:
+            cp = (chunk_prompt or "").strip()
+            if cp:
+                oob_chunk = _append_context_or_return(
+                    context_manager,
+                    {"role": "user", "content": f"## 分块执行上下文\n{cp}"},
                 )
+                if oob_chunk:
+                    return oob_chunk
+            for step in group_steps:
+                si = global_si
+                global_si += 1
+                is_last = global_si >= n_steps
+                phase_lbl = _step_thinking_header(si, n_steps, step)
+                step_tools = _resolve_exec_tools(effective_registry, agent_config, plan, step)
+                context_manager.set_tools(step_tools)
+                step_hint = (
+                    f"[执行步骤 {step.step_number or si + 1}/{n_steps}] {step.description}\n"
+                    f"预期输入：{step.expected_input}\n"
+                    f"预期产出：{step.expected_output}\n"
+                    "请仅完成本步骤；若当前无需工具，请直接给出简短步骤小结。"
+                )
+                oob_step = _append_context_or_return(
+                    context_manager, {"role": "user", "content": step_hint}
+                )
+                if oob_step:
+                    return oob_step
 
-                if not msg.tool_calls:
-                    final_reply = msg.content or "(空回复)"
-                    oob_txt = await _finish_phased_text_turn(
-                        final_reply, start_ms, save_memory=is_last
+                sub_cap = min(_step_max_turns_cap(), turns_left)
+                sub_left = sub_cap
+                stl, stb = map_business_depth(step.thinking_level)
+                step_merge = {"thinking_level": stl, "thinking_budget": stb}
+
+                step_resolved = False
+                while sub_left > 0 and turns_left > 0:
+                    _raise_if_task_cancelled()
+                    turns_left -= 1
+                    sub_left -= 1
+                    msg, _ek, start_ms, _u, _fc, turn_label = await _stream_exec_turn(
+                        step_merge, step_tools, phase_lbl, is_last_step=is_last
                     )
-                    if oob_txt is not None:
-                        return oob_txt
-                    if is_last:
-                        return final_reply
-                    step_resolved = True
-                    break
 
-                early = await _run_tool_calls_phase(msg, start_ms, turn_label)
-                if early is not None:
-                    return early
-                turn_tool_calls.clear()
+                    if not msg.tool_calls:
+                        final_reply = msg.content or "(空回复)"
+                        oob_txt = await _finish_phased_text_turn(
+                            final_reply, start_ms, save_memory=is_last
+                        )
+                        if oob_txt is not None:
+                            return oob_txt
+                        if is_last:
+                            return final_reply
+                        step_resolved = True
+                        break
 
-            if is_last and not step_resolved:
-                if turns_left > 0:
-                    oob_g = _append_context_or_return(
+                    early = await _run_tool_calls_phase(msg, start_ms, turn_label)
+                    if early is not None:
+                        return early
+                    turn_tool_calls.clear()
+
+                if is_last and not step_resolved:
+                    if turns_left > 0:
+                        oob_g = _append_context_or_return(
+                            context_manager,
+                            {
+                                "role": "user",
+                                "content": (
+                                    "（系统：本步单步子轮次已用尽；工具结果已在上下文中。"
+                                    "请仅用自然语言给出本步的最终简短小结，不要调用工具。）"
+                                ),
+                            },
+                        )
+                        if oob_g:
+                            return oob_g
+                        turns_left -= 1
+                        msg_g, _, start_ms_g, _, _, _ = await _stream_exec_turn(
+                            step_merge, [], phase_lbl, is_last_step=True
+                        )
+                        if not msg_g.tool_calls:
+                            final_reply = msg_g.content or "(空回复)"
+                            oob_txt = await _finish_phased_text_turn(
+                                final_reply, start_ms_g, save_memory=True
+                            )
+                            if oob_txt is not None:
+                                return oob_txt
+                            return final_reply
+                    return (
+                        f"{WARNING_PREFIX} 最后一步在单步子轮次（Internal STEP_MAX_TURNS）或总轮数限制内，"
+                        "未以「无工具调用」形式结束。\n\n"
+                        "可在 config.user.json 提高 agent.max_turns，"
+                        "或联系维护者调整 Internal 分步执行常量（PHASED_EXECUTION / STEP_MAX_TURNS）后重试。"
+                    )
+
+                if not is_last and not step_resolved and turns_left > 0:
+                    oob_n = _append_context_or_return(
                         context_manager,
                         {
                             "role": "user",
                             "content": (
-                                "（系统：本步单步子轮次已用尽；工具结果已在上下文中。"
-                                "请仅用自然语言给出本步的最终简短小结，不要调用工具。）"
+                                "（系统提示：上一步在单步子轮次内未结束，以下继续下一步；"
+                                "若结果不理想可适当提高 agent.max_turns 或 Internal STEP_MAX_TURNS。）"
                             ),
                         },
                     )
-                    if oob_g:
-                        return oob_g
-                    turns_left -= 1
-                    msg_g, _, start_ms_g, _, _, _ = await _stream_exec_turn(
-                        step_merge, [], phase_lbl, is_last_step=True
-                    )
-                    if not msg_g.tool_calls:
-                        final_reply = msg_g.content or "(空回复)"
-                        oob_txt = await _finish_phased_text_turn(
-                            final_reply, start_ms_g, save_memory=True
-                        )
-                        if oob_txt is not None:
-                            return oob_txt
-                        return final_reply
-                return (
-                    f"{WARNING_PREFIX} 最后一步在单步子轮次（Internal STEP_MAX_TURNS）或总轮数限制内，"
-                    "未以「无工具调用」形式结束。\n\n"
-                    "可在 config.user.json 提高 agent.max_turns，"
-                    "或联系维护者调整 Internal 分步执行常量（PHASED_EXECUTION / STEP_MAX_TURNS）后重试。"
-                )
-
-            if not is_last and not step_resolved and turns_left > 0:
-                oob_n = _append_context_or_return(
-                    context_manager,
-                    {
-                        "role": "user",
-                        "content": (
-                            "（系统提示：上一步在单步子轮次内未结束，以下继续下一步；"
-                            "若结果不理想可适当提高 agent.max_turns 或 Internal STEP_MAX_TURNS。）"
-                        ),
-                    },
-                )
-                if oob_n:
-                    return oob_n
+                    if oob_n:
+                        return oob_n
 
     # ── 达到最大轮数 ──
     loop_stats = loop_detector.get_stats()
@@ -1674,63 +1732,6 @@ def _extract_tool_intent(tool_name: str, args: dict[str, Any]) -> str:
                 val = _clip_intent_value(str(args[key]))
                 return f"{base_intent}: {val}"
     return base_intent
-
-
-# ─── 记忆保存 ────────────────────────────────────────────
-
-
-async def _save_session_memory(
-    memory_store: MemoryStoreProtocol,
-    session_key: str,
-    user_input: str,
-    final_reply: str,
-    turn_tool_calls: list[dict[str, Any]],
-) -> None:
-    """保存会话记忆：提取事实、生成摘要、写入存储。
-
-    在 ReAct 循环完成后调用，将本轮对话的关键信息持久化到记忆存储，
-    用于后续会话的上下文检索。
-
-    **处理流程**：
-    1. 提取事实信息（extract_facts）：从对话中识别关键事实
-    2. 生成摘要（generate_turn_summary）：基于工具调用和回复生成概要
-    3. 更新会话摘要（update_summary）：更新长期摘要和事实列表
-    4. 添加条目（add_entry）：写入新的记忆条目（含时间戳和摘要）
-    5. 刷新索引（flush_keyword_index）：更新关键词索引供检索
-
-    Args:
-        memory_store: 记忆存储实例
-        session_key: 会话标识符
-        user_input: 用户原始输入
-        final_reply: Agent 最终回复
-        turn_tool_calls: 本轮工具调用列表（名称、参数、结果）
-
-    Note:
-        该函数仅在成功完成（无工具调用）时被调用，循环拦截不会触发记忆保存。
-        后台子 session（``__bg__*``）跳过持久化。
-    """
-    if _is_ephemeral_session(session_key):
-        return
-
-    from datetime import datetime, timezone
-
-    facts = extract_facts(user_input + " " + final_reply)
-    summary = generate_turn_summary(user_input, turn_tool_calls, final_reply)
-    now = datetime.now(timezone.utc).isoformat()
-
-    await memory_store.update_summary(session_key, summary, facts)
-    await memory_store.add_entry(
-        session_key,
-        MemoryEntryInput(
-            timestamp=now,
-            user_snippet=user_input[:100],
-            summary=summary,
-            facts=facts,
-        ),
-    )
-    flush_ki = getattr(memory_store, "flush_keyword_index", None)
-    if callable(flush_ki):
-        flush_ki()
 
 
 __all__ = [

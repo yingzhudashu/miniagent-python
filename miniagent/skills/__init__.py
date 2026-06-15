@@ -13,7 +13,11 @@ ClawHub 客户端由 ``create_clawhub_client()`` 构造并注入 ``RuntimeContex
 """
 
 from miniagent.skills.autovet import auto_vet_skill
-from miniagent.skills.clawhub_client import create_clawhub_client, search_local_skills
+from miniagent.skills.clawhub_client import (
+    close_clawhub_client,
+    create_clawhub_client,
+    search_local_skills,
+)
 from miniagent.skills.loader import (
     discover_skill_packages,
     evict_skill_modules,
@@ -37,6 +41,7 @@ __all__ = [
     "discover_skill_packages",
     "refresh_skills",
     "create_clawhub_client",
+    "close_clawhub_client",
     "search_local_skills",
     "get_skills_root",
     "get_session_skills_dir",

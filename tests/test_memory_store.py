@@ -200,6 +200,28 @@ class TestMemoryStore:
         assert loaded.key_facts == ["legacy fact"]
         assert loaded.ground_truth_facts == []
 
+    async def test_update_user_snippet_truncates_and_updates_in_progress(self):
+        sid = "session-snippet"
+        long_text = "x" * 150
+        await self.store.update_user_snippet(sid, long_text)
+        loaded = await self.store.load(sid)
+        assert loaded is not None
+        assert len(loaded.entries[0].user_snippet) == 100
+
+        await self.store.update_user_snippet(sid, "revised")
+        loaded = await self.store.load(sid)
+        assert loaded is not None
+        assert len(loaded.entries) == 1
+        assert loaded.entries[0].user_snippet == "revised"
+
+    async def test_append_message_system_role_updates_summary(self):
+        sid = "session-system"
+        await self.store.append_message(sid, "system", "boot note")
+        loaded = await self.store.load(sid)
+        assert loaded is not None
+        assert "boot note" in loaded.cumulative_summary
+        assert loaded.entries == []
+
     async def test_save_and_load_ground_truth_facts(self):
         sid = "session-ground-truth"
         from miniagent.types.memory import SessionMemory

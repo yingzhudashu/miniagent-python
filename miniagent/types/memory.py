@@ -12,12 +12,17 @@
 **Protocol 最佳实践**：
 - Protocol 不使用 @abstractmethod（Python Protocol 仅定义方法签名，实现类自行提供）
 - 使用 @runtime_checkable 支持 isinstance() 检查
+- 实现类 **不要** 显式继承 Protocol（``class Foo(MemoryStoreProtocol)``），否则未覆写的方法会
+  继承 Protocol 的空 stub 并在运行时静默无操作；采用结构子类型即可
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from miniagent.types.tool import Toolbox
 
 
 @dataclass
@@ -27,6 +32,19 @@ class GroundTruthFact:
     ``key_facts`` 保留为兼容性的字符串摘要；本类型用于保存可更新、可纠正、
     可作为后续需求自澄清依据的稳定事实。``supersedes`` 记录被当前事实替换的
     旧值，避免在用户纠正偏好或约束后继续使用过期信息。
+
+    Attributes:
+        key: 事实键（如 ``output.language``、``project.stack``）
+        value: 事实值
+        category: 分类，常见值 ``preference``、``output_format``、
+            ``project_constraint``、``environment``、``identity``、``workflow``
+        confidence: 置信度，范围 0.0–1.0
+        source: 来源，常见值 ``user``、``summary``、``entry``、``file``
+        status: 生命周期状态，``active`` 或 ``superseded``
+        created_at: 首次写入时间（ISO 8601）
+        updated_at: 最后更新时间（ISO 8601）
+        supersedes: 被本事实替换的旧 ``value``；无替换时为 ``None``
+        evidence: 支撑该事实的原文片段或说明
     """
 
     key: str
@@ -145,15 +163,15 @@ class MemoryStoreProtocol(Protocol):
         load: 加载会话记忆
         save: 保存会话记忆
         update_summary: 更新摘要和事实
-        update_user_snippet: 更新用户消息摘要
-        append_message: 追加消息到记忆
-        add_entry: 添加记忆条目
+        update_user_snippet: 更新当前轮用户消息摘要（轮次未完成时）
+        append_message: 追加单条 user/assistant 消息到记忆
+        add_entry: 添加完整记忆条目（轮次结束）
+        add_file: 添加上传文件元数据
 
-    Attributes:
-        _state_dir: 状态目录路径（可选属性，某些实现可能不提供）
+    Note:
+        实现类通常暴露 ``_state_dir`` 属性供上层解析磁盘根路径；该属性不在
+        Protocol 签名中强制要求，调用方应使用 ``getattr(store, "_state_dir", default)``。
     """
-
-    _state_dir: str
 
     async def load(self, session_key: str) -> SessionMemory | None:
         """加载会话记忆
@@ -185,21 +203,27 @@ class MemoryStoreProtocol(Protocol):
         ...
 
     async def update_user_snippet(self, session_key: str, snippet: str) -> None:
-        """更新用户消息摘要
+        """更新当前轮用户消息摘要（轮次尚未 ``add_entry`` 完成时）。
+
+        若存在未完成的条目（``summary`` 与 ``facts`` 均为空），则更新其
+        ``user_snippet``；否则追加一条进行中的条目。
 
         Args:
             session_key: 会话唯一标识
-            snippet: 用户消息摘要（前 100 字符）
+            snippet: 用户消息摘要（实现类通常截断至前 100 字符）
         """
         ...
 
     async def append_message(self, session_key: str, role: str, content: str) -> None:
-        """追加消息到记忆
+        """追加单条消息到记忆（增量写入，适用于轮次进行中）。
+
+        ``user`` 更新/创建进行中的 ``user_snippet``；``assistant`` 写入当前
+        条目的 ``summary``；其他角色（如 ``system``）追加到 ``cumulative_summary``。
 
         Args:
             session_key: 会话唯一标识
-            role: 消息角色（user/assistant）
-            content: 消息内容
+            role: 消息角色（``user`` / ``assistant`` / 其他）
+            content: 消息正文
         """
         ...
 
@@ -240,7 +264,7 @@ class SessionOptions:
     parent_session_id: str | None = None
     workspace_path: str | None = None
     allowed_tools: list[str] | None = None
-    toolboxes: list[Any] | None = None  # list[Toolbox]
+    toolboxes: list[Toolbox] | None = None
 
 
 @dataclass

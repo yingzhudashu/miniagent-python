@@ -37,6 +37,7 @@ def _minimal_ctx() -> RuntimeContext:
         memory_store=MagicMock(),
         activity_log=MagicMock(),
         keyword_index=MagicMock(),
+        memory_context=MagicMock(),
         openai_client=None,
     )
 

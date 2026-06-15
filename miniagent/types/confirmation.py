@@ -1,10 +1,11 @@
 """Confirmation types — 交互式澄清/规划的确认机制。
 
-Agent 在两类场景通过 :class:`miniagent.core.confirmation_channel.ConfirmationChannel`
+Agent 在三类场景通过 :class:`miniagent.core.confirmation_channel.ConfirmationChannel`
 暂停执行并等待用户响应：
 
 - **CLARIFICATION**：需求澄清追问（用户直接回复文本）
 - **PLAN**：高风险计划确认（``/confirm`` / ``/reject`` / ``/adjust`` 或飞书按钮）
+- **TOOL**：``ToolDefinition.permission=require-confirm`` 的工具执行前确认（``/confirm`` / ``/reject``）
 
 典型流程::
 
@@ -25,6 +26,7 @@ class ConfirmationStage(enum.Enum):
 
     CLARIFICATION = "clarification"  # 需求澄清过程中的交互追问
     PLAN = "plan"  # 高风险计划生成后的确认
+    TOOL = "tool"  # require-confirm 工具执行前的确认
 
 
 PlanConfirmationAction = Literal["proceed", "cancel", "replan"]
@@ -35,7 +37,7 @@ class ConfirmationRequest:
     """待确认的请求。
 
     Attributes:
-        stage: 当前所处阶段（澄清或计划）
+        stage: 当前所处阶段（澄清、计划或工具确认）
         content: 展示给用户的简短内容（追问 / 计划摘要）
         full_content: 完整内容；计划阶段为完整计划文本，供 ``/adjust`` 无参数时参考
         context: 额外上下文；计划阶段可含 ``plan_summary``、``risk_level`` 等元数据

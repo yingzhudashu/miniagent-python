@@ -7,7 +7,13 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from miniagent.core.problem_solver import ReflectionResult, reflect_on_result
+from miniagent.core.problem_solver import (
+    ReflectionResult,
+    _parse_reflection_result,
+    build_reflection_footer,
+    reflect_on_result,
+    strip_reflection_footer,
+)
 
 
 class TestReflectionResult:
@@ -164,6 +170,29 @@ class TestReflectOnResult:
             assert result.issues == []
             assert result.suggestions == []
 
+    async def test_reflect_on_result_malformed_fields(self):
+        """畸形 LLM 字段应归一化而非抛异常。"""
+        mock_response = {
+            "acceptable": "yes",
+            "quality_score": "high",
+            "issues": "缺少错误处理",
+            "suggestions": "添加 try/except",
+        }
+
+        with patch("miniagent.core.problem_solver.llm_json", new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = mock_response
+
+            result = await reflect_on_result(
+                user_input="输入",
+                reply="回复",
+                client=None,
+            )
+
+            assert result.acceptable is True
+            assert result.quality_score == 0.5
+            assert result.issues == ["缺少错误处理"]
+            assert result.suggestions == ["添加 try/except"]
+
 
 @pytest.mark.asyncio
 class TestReflectOnResultIntegration:
@@ -198,6 +227,71 @@ class TestReflectOnResultIntegration:
                 assert 0 <= result.quality_score <= 1
                 assert isinstance(result.issues, list)
                 assert isinstance(result.suggestions, list)
+
+
+class TestParseReflectionResult:
+    """_parse_reflection_result 归一化测试"""
+
+    def test_coerce_bool_and_score(self):
+        result = _parse_reflection_result(
+            {"acceptable": "false", "quality_score": 1.5, "issues": ["a"], "suggestions": ["b"]}
+        )
+        assert result.acceptable is False
+        assert result.quality_score == 1.0
+
+    def test_coerce_string_lists(self):
+        result = _parse_reflection_result({"issues": "one issue", "suggestions": ("s1", "s2")})
+        assert result.issues == ["one issue"]
+        assert result.suggestions == ["s1", "s2"]
+
+
+class TestReflectionFooter:
+    """footer 构建与剥离往返测试"""
+
+    def test_build_and_strip_round_trip(self):
+        body = "正文内容"
+        reflection = ReflectionResult(
+            acceptable=False,
+            quality_score=0.4,
+            issues=["缺少细节", "数据\n未验证"],
+            suggestions=["补充示例", "标注来源"],
+        )
+        full = body + build_reflection_footer(reflection)
+        assert "问题：" in full
+        assert "建议：" in full
+        assert "数据 未验证" in full
+        assert strip_reflection_footer(full) == body
+
+    def test_strip_multiline_suggestion_in_source_is_sanitized(self):
+        reflection = ReflectionResult(
+            acceptable=True,
+            quality_score=0.85,
+            suggestions=["multi\nline"],
+        )
+        body = "answer"
+        full = body + build_reflection_footer(reflection)
+        assert "- multi line" in full
+        assert strip_reflection_footer(full) == body
+
+    def test_strip_double_footer(self):
+        reflection = ReflectionResult(acceptable=True, quality_score=0.8)
+        footer = build_reflection_footer(reflection)
+        assert strip_reflection_footer("answer" + footer + footer) == "answer"
+
+    def test_footer_limits_items_to_five(self):
+        reflection = ReflectionResult(
+            acceptable=True,
+            quality_score=0.9,
+            issues=[f"i{i}" for i in range(6)],
+            suggestions=[f"s{i}" for i in range(6)],
+        )
+        footer = build_reflection_footer(reflection)
+        assert footer.count("- i") == 5
+        assert footer.count("- s") == 5
+
+    def test_strip_legacy_footer_without_bullets(self):
+        legacy = "上一轮答案。\n\n---\n🤖 质量评估通过 | 质量评分 0.8"
+        assert strip_reflection_footer(legacy) == "上一轮答案。"
 
 
 class TestReflectionResultDataClass:

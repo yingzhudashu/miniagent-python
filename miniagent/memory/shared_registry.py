@@ -47,6 +47,7 @@ class MemoryEntryRegistry:
     """
 
     def __init__(self, state_dir: str = "workspaces") -> None:
+        """创建注册表；``state_dir`` 决定 ``memory-registry.json`` 路径。"""
         self._state_dir = state_dir
         self._entries: collections.OrderedDict[str, SharedEntry] = collections.OrderedDict()
         self._max_entries: int = get_config("memory.registry_max_entries", 3000)

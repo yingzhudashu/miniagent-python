@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -34,6 +34,7 @@ def _minimal_dispatch_state() -> dict:
         memory_store=None,
         activity_log=None,
         keyword_index=None,
+        memory_context=MagicMock(),
     )
     return {
         "active_session_id": "keep-me",

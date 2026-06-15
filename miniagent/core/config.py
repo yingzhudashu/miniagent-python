@@ -7,7 +7,15 @@
 
 配置优先级：config.defaults.json → config.user.json
 
+布尔项通过 ``get_config_bool`` 解析（兼容 JSON bool 与 ``"true"``/``"false"`` 字符串）。
+``get_default_agent_config()`` 中部分字段为代码硬编码，不可经 JSON 修改；运行时请用
+``merge_agent_config()`` 覆盖。合并时分组键（``session_config``/``feishu_config``）优先于
+同义平铺字段，与 ``AgentConfig.__post_init__`` 一致。
+
 敏感信息（API 密钥等）放在 config.user.json 的 secrets 部分，由 env_loader.py 加载到环境变量。
+
+公开 API：``AGENT_NAME``、``get_default_model_config``、``get_default_agent_config``、
+``merge_agent_config``。
 
 设计背景见 docs/ARCHITECTURE.md § 配置层。
 """
@@ -17,7 +25,7 @@ from __future__ import annotations
 from typing import Any
 
 from miniagent.core.constants import DEFAULT_AGENT_MAX_TURNS, DEFAULT_AGENT_TOOL_TIMEOUT
-from miniagent.infrastructure.json_config import get_config, get_config_section
+from miniagent.infrastructure.json_config import get_config, get_config_bool, get_config_section
 from miniagent.infrastructure.logger import get_logger
 from miniagent.types.config import (
     AgentConfig,
@@ -30,27 +38,72 @@ from miniagent.types.config import (
 _logger = get_logger(__name__)
 
 
+# Agent 显示名称（身份提示词等）
 AGENT_NAME = "MiniAgent"
+
+# merge_agent_config 可合并的顶层键（含分组容器与平铺会话/飞书字段）
+_FLAT_SESSION_KEYS = (
+    "session_key",
+    "session_workspace",
+    "session_registry",
+    "session_toolboxes",
+    "conversation_history",
+)
+_FLAT_FEISHU_KEYS = (
+    "feishu_receive_chat_id",
+    "feishu_trigger_message_id",
+    "feishu_root_id",
+    "feishu_parent_id",
+    "feishu_thread_id",
+    "feishu_im_receive_id_type",
+    "feishu_im_receive_id",
+    "cli_loop_state",
+    "cli_dispatch_allow_mutations",
+)
 
 
 def _cfg_str(key: str, default: str) -> str:
+    """读取字符串配置项。"""
     return str(get_config(key, default))
 
 
 def _cfg_int(key: str, default: int) -> int:
+    """读取整数配置项。"""
     return int(get_config(key, default))
 
 
 def _cfg_bool(key: str, default: bool) -> bool:
-    return bool(get_config(key, default))
+    """读取布尔配置项（字符串 true/false 安全解析）。"""
+    return get_config_bool(key, default)
 
 
 def _cfg_float(key: str, default: float) -> float:
+    """读取浮点配置项。"""
     return float(get_config(key, default))
 
 
+def _flat_feishu_key(flat_key: str) -> str:
+    """平铺飞书键名 → ``FeishuChannelConfig`` 字段名（``feishu_*`` 去前缀）。"""
+    return flat_key[7:] if flat_key.startswith("feishu_") else flat_key
+
+
 def get_default_model_config() -> ModelConfig:
-    """获取默认 ModelConfig（从 JSON 配置加载）。"""
+    """获取默认 ModelConfig（从 JSON 配置加载）。
+
+    JSON 节 ``model.*`` 字段均由此函数读取（defaults → user 合并）。
+
+    **thinking 双轨语义**（``model.thinking_level``）：
+
+    - 业务档位 ``low`` / ``medium`` / ``high``：经
+      ``map_thinking_level_to_model()`` 映射为模型档位（light/medium/heavy）及默认 budget。
+    - 模型档位（如 ``light``、``heavy``）或其它字符串：原样作为 ``thinking_level``，
+      budget 取自 ``model.thinking_budget``（合并后的 defaults/user）。
+
+    **thinking_budget 优先级**：
+
+    1. ``config.user.json`` 中显式设置的 ``model.thinking_budget``（仅 user 层，不含 defaults）
+    2. 业务档位映射得到的 budget，或 ``model.thinking_budget`` 合并值（非业务档位时）
+    """
     from miniagent.core.thinking_presets import map_thinking_level_to_model
 
     thinking_level_raw = _cfg_str("model.thinking_level", "light")
@@ -90,7 +143,28 @@ def get_default_model_config() -> ModelConfig:
 
 
 def get_default_agent_config() -> AgentConfig:
-    """获取默认 AgentConfig（从 JSON 配置加载）。"""
+    """获取默认 AgentConfig（从 JSON 配置加载）。
+
+    **来自 JSON 的字段**（``agent.*`` / ``memory.history_progressive``）：
+
+    - ``max_turns``, ``tool_timeout``, ``http_timeout``
+    - ``context_reserve_ratio``, ``context_compress_threshold``
+    - ``allow_parallel_tools``, ``debug``, ``log_token_usage``
+    - ``loop_detection``（整节浅拷贝）
+    - ``history_progressive_compression``（``memory.history_progressive``）
+
+    **代码硬编码、不可通过 JSON 修改的字段**：
+
+    - ``context_overflow_strategy`` = ``"summarize"``
+    - ``compress_messages`` = ``True``
+    - ``tool_selection_strategy`` = ``"toolbox"``
+    - ``auto_execute_confirmed`` = ``False``
+    - ``response_language`` = ``"zh-CN"``
+    - ``response_format`` = ``"markdown"``
+    - ``log_file`` = ``None``
+
+    运行时覆盖请使用 ``merge_agent_config()`` 或 ``run_agent(options.agent_config)``。
+    """
     agent_section = get_config_section("agent")
     loop_detection = dict(agent_section.get("loop_detection", {}))
 
@@ -122,7 +196,12 @@ def merge_agent_config(base: AgentConfig, overrides: dict[str, Any]) -> AgentCon
     - 新格式（分组结构）：{session_config: {...}, feishu_config: {...}}
     - 旧格式（平铺结构）：{session_key: "...", feishu_receive_chat_id: "..."}
 
-    向后兼容：自动检测格式并正确处理，优先使用分组结构。
+    向后兼容：自动检测格式并正确处理；**同名字段冲突时分组结构优先于平铺字段**
+    （与 ``AgentConfig.__post_init__`` 一致）。
+
+    未知键会被忽略并在 debug 日志中记录；``loop_detection`` / ``model_overrides``
+    为 dict 增量合并。空 ``session_config`` / ``feishu_config``（``{}``）不创建分组对象，
+    保留 ``base`` 上的会话/飞书字段。
 
     Args:
         base: 基础 AgentConfig 对象
@@ -147,42 +226,32 @@ def merge_agent_config(base: AgentConfig, overrides: dict[str, Any]) -> AgentCon
     # ── 处理分组配置 ──
     session_config_dict: dict[str, Any] = {}
     feishu_config_dict: dict[str, Any] = {}
+    grouped_session_keys: set[str] = set()
+    grouped_feishu_keys: set[str] = set()
 
     # 从 overrides 中提取分组配置
     if "session_config" in overrides and isinstance(overrides["session_config"], dict):
         session_config_dict = dict(overrides["session_config"])
-        # 移除分组键，避免后续重复处理
+        grouped_session_keys = set(session_config_dict)
         overrides_processed = {k: v for k, v in overrides.items() if k != "session_config"}
     else:
-        overrides_processed = overrides
+        overrides_processed = dict(overrides)
 
     if "feishu_config" in overrides_processed and isinstance(overrides_processed["feishu_config"], dict):
         feishu_config_dict = dict(overrides_processed["feishu_config"])
+        grouped_feishu_keys = set(feishu_config_dict)
         overrides_processed = {k: v for k, v in overrides_processed.items() if k != "feishu_config"}
 
-    # ── 处理平铺字段（向后兼容）──
-    # 平铺字段映射到分组结构
-    flat_to_session_keys = [
-        "session_key", "session_workspace", "session_registry",
-        "session_toolboxes", "conversation_history"
-    ]
-    flat_to_feishu_keys = [
-        "feishu_receive_chat_id", "feishu_trigger_message_id", "feishu_root_id",
-        "feishu_parent_id", "feishu_thread_id", "feishu_im_receive_id_type",
-        "feishu_im_receive_id", "cli_loop_state", "cli_dispatch_allow_mutations"
-    ]
-
-    # 从平铺字段构建分组配置
-    for key in flat_to_session_keys:
-        if key in overrides_processed:
-            # session 字段无需映射，直接使用原键名
+    # ── 平铺字段 → 分组（分组已设置的键不被平铺覆盖）──
+    for key in _FLAT_SESSION_KEYS:
+        if key in overrides_processed and key not in grouped_session_keys:
             session_config_dict[key] = overrides_processed[key]
 
-    for key in flat_to_feishu_keys:
+    for key in _FLAT_FEISHU_KEYS:
         if key in overrides_processed:
-            # 映射键名：去掉 feishu_ 前缀，保留 cli_loop_state 等原键名
-            mapped_key = key[7:] if key.startswith("feishu_") else key
-            feishu_config_dict[mapped_key] = overrides_processed[key]
+            mapped_key = _flat_feishu_key(key)
+            if mapped_key not in grouped_feishu_keys:
+                feishu_config_dict[mapped_key] = overrides_processed[key]
 
     # ── 构建合并字典 ──
     merged_dict = {
@@ -232,10 +301,9 @@ def merge_agent_config(base: AgentConfig, overrides: dict[str, Any]) -> AgentCon
 
     # ── 应用非分组覆盖 ──
     for key, value in overrides_processed.items():
-        # 跳过已处理的分组和平铺字段
         if key in ("session_config", "feishu_config"):
             continue
-        if key in flat_to_session_keys or key in flat_to_feishu_keys:
+        if key in _FLAT_SESSION_KEYS or key in _FLAT_FEISHU_KEYS:
             continue
 
         if key == "loop_detection" and isinstance(value, dict):
@@ -247,20 +315,21 @@ def merge_agent_config(base: AgentConfig, overrides: dict[str, Any]) -> AgentCon
                 merged_dict[key] = normalize_conversation_history(value)
             else:
                 merged_dict[key] = value
+        else:
+            _logger.debug("merge_agent_config: 忽略未知覆盖键 %r", key)
 
-    # ── 处理平铺字段传入后的同步 ──
-    # 如果有平铺字段传入，同步更新合并字典中的平铺字段值
-    for key in flat_to_session_keys:
-        if key in overrides_processed:
+    # ── 平铺字段同步（分组优先，不覆盖 grouped_* 已声明的键）──
+    for key in _FLAT_SESSION_KEYS:
+        if key in overrides_processed and key not in grouped_session_keys:
             merged_dict[key] = overrides_processed[key]
-            # 同时更新分组配置字典（session 字段键名不变）
             session_config_dict[key] = overrides_processed[key]
 
-    for key in flat_to_feishu_keys:
+    for key in _FLAT_FEISHU_KEYS:
         if key in overrides_processed:
-            mapped_key = key[7:] if key.startswith("feishu_") else key
-            merged_dict[key] = overrides_processed[key]
-            feishu_config_dict[mapped_key] = overrides_processed[key]
+            mapped_key = _flat_feishu_key(key)
+            if mapped_key not in grouped_feishu_keys:
+                merged_dict[key] = overrides_processed[key]
+                feishu_config_dict[mapped_key] = overrides_processed[key]
 
     # ── 构建分组配置对象 ──
     if session_config_dict:

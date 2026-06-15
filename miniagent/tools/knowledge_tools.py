@@ -9,18 +9,19 @@
 
 重构说明：
 - 使用 ToolBuilder 简化工具定义
-- toolbox 固定为 "knowledge"（普通工具箱，不再设为核心）
+- ``knowledge.as_core=true`` 时为核心工具箱（始终可用）；否则归入 ``knowledge`` 工具箱
 """
 
 from __future__ import annotations
 
-import os
+from dataclasses import replace
 from typing import Any
 
 from miniagent.core.constants import KNOWLEDGE_MAX_FILE_CHARS
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.knowledge import get_kb_registry, search_knowledge
+from miniagent.knowledge.base import resolve_kb_file_path
 from miniagent.tools.base import tool
 from miniagent.types.error_prefix import ERROR_PREFIX, WARNING_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
@@ -71,11 +72,9 @@ async def _read_knowledge_file_handler(args: dict[str, Any], _ctx: ToolContext) 
         if not kb:
             return ToolResult(success=False, content=f"{WARNING_PREFIX} 知识库 '{kb_name}' 未挂载")
 
-        full_path = os.path.join(kb.path, "files", file_path)
-        if not os.path.isfile(full_path):
-            full_path = os.path.join(kb.path, file_path)
-            if not os.path.isfile(full_path):
-                return ToolResult(success=False, content=f"{WARNING_PREFIX} 文件不存在: {file_path}")
+        full_path = resolve_kb_file_path(kb.path, file_path)
+        if not full_path:
+            return ToolResult(success=False, content=f"{WARNING_PREFIX} 文件不存在: {file_path}")
 
         try:
             with open(full_path, encoding="utf-8") as f:
@@ -120,32 +119,52 @@ async def _kb_list_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolResul
 
 # ════════════════════════════════════════════════════════
 # Tool Definitions (使用 ToolBuilder)
-# toolbox 固定为 "knowledge"（普通工具箱）
 # ════════════════════════════════════════════════════════
 
 KNOWLEDGE_TOOLBOX = "knowledge"
+KNOWLEDGE_TOOL_NAMES = frozenset({"search_knowledge", "read_knowledge_file", "kb_list"})
+
+
+def _knowledge_toolbox_builder(builder):
+    """按 ``knowledge.as_core`` 决定核心或普通工具箱。"""
+    if bool(get_config("knowledge.as_core", True)):
+        return builder.core()
+    return builder.toolbox(KNOWLEDGE_TOOLBOX)
+
 
 knowledge_tools: dict[str, ToolDefinition] = {
-    "search_knowledge": tool("search_knowledge", "检索已挂载的知识库内容。输入关键词或问题，返回相关文档片段。")
+    "search_knowledge": _knowledge_toolbox_builder(
+        tool("search_knowledge", "检索已挂载的知识库内容。输入关键词或问题，返回相关文档片段。")
         .param("query", "string", "搜索关键词或问题")
         .optional("kb_name", "string", "知识库名称（可选，默认检索所有已挂载知识库）")
         .optional("top_k", "integer", "返回条目数（默认5）")
         .sandbox()
-        .toolbox(KNOWLEDGE_TOOLBOX)
         .handler(_search_knowledge_handler)
-        .build(),
-    "read_knowledge_file": tool("read_knowledge_file", "读取知识库中的完整文件内容。用于查看检索结果中的特定文件。")
+    ).build(),
+    "read_knowledge_file": _knowledge_toolbox_builder(
+        tool("read_knowledge_file", "读取知识库中的完整文件内容。用于查看检索结果中的特定文件。")
         .param("kb_name", "string", "知识库名称")
         .param("file_path", "string", "文件路径（相对于知识库 files/ 目录）")
         .sandbox()
-        .toolbox(KNOWLEDGE_TOOLBOX)
         .handler(_read_knowledge_file_handler)
-        .build(),
-    "kb_list": tool("kb_list", "列出已挂载的知识库及其统计信息。")
+    ).build(),
+    "kb_list": _knowledge_toolbox_builder(
+        tool("kb_list", "列出已挂载的知识库及其统计信息。")
         .sandbox()
-        .toolbox(KNOWLEDGE_TOOLBOX)
         .handler(_kb_list_handler)
-        .build(),
+    ).build(),
 }
 
-__all__ = ["knowledge_tools", "KNOWLEDGE_TOOLBOX"]
+
+def apply_knowledge_toolbox_policy(tool: ToolDefinition) -> ToolDefinition:
+    """注册时按配置刷新 knowledge 工具的 toolbox（``register_builtin_tools`` 调用）。"""
+    if tool.toolbox not in (None, KNOWLEDGE_TOOLBOX):
+        return tool
+    as_core = bool(get_config("knowledge.as_core", True))
+    desired: str | None = None if as_core else KNOWLEDGE_TOOLBOX
+    if tool.toolbox == desired:
+        return tool
+    return replace(tool, toolbox=desired)
+
+
+__all__ = ["knowledge_tools", "KNOWLEDGE_TOOLBOX", "KNOWLEDGE_TOOL_NAMES", "apply_knowledge_toolbox_policy"]

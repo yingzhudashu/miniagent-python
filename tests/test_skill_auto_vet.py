@@ -72,3 +72,26 @@ class TestAutoVetSkill:
                 f.write("eval(user_input)\n")
             report = auto_vet_skill(td)
             assert "eval" in report
+
+    def test_warns_missing_env_from_metadata(self, monkeypatch):
+        monkeypatch.delenv("TEST_VET_MISSING_KEY", raising=False)
+        with tempfile.TemporaryDirectory() as td:
+            skill_md = os.path.join(td, "SKILL.md")
+            with open(skill_md, "w", encoding="utf-8") as f:
+                f.write(
+                    "---\nname: gated\ndescription: d\nmetadata:\n"
+                    "  env:\n    - TEST_VET_MISSING_KEY\n---\n# Skill\n"
+                )
+            report = auto_vet_skill(td)
+            assert "TEST_VET_MISSING_KEY" in report
+
+    def test_warns_missing_binary_from_metadata(self):
+        with tempfile.TemporaryDirectory() as td:
+            skill_md = os.path.join(td, "SKILL.md")
+            with open(skill_md, "w", encoding="utf-8") as f:
+                f.write(
+                    "---\nname: gated\ndescription: d\nmetadata:\n"
+                    "  bins:\n    - definitely-not-a-real-binary-xyz\n---\n# Skill\n"
+                )
+            report = auto_vet_skill(td)
+            assert "definitely-not-a-real-binary-xyz" in report

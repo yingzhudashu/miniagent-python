@@ -44,6 +44,7 @@ def config_from_env() -> FeishuConfig | None:
 
 
 def require_lark_oapi() -> None:
+    """确认 ``lark-oapi`` 已安装；未安装时抛出 ``ImportError``。"""
     import lark_oapi  # noqa: F401
 
 

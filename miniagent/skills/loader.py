@@ -92,6 +92,26 @@ def _resolve_base_dir(content: str, base_dir: str) -> str:
     return content.replace("{baseDir}", posix_dir)
 
 
+def _keywords_from_meta(meta: dict[str, Any]) -> list[str]:
+    """从 front matter 解析 keywords 列表。"""
+    kw = meta.get("keywords", [])
+    if isinstance(kw, str):
+        return [k.strip() for k in kw.split(",") if k.strip()]
+    if isinstance(kw, list):
+        return [str(k).strip() for k in kw if str(k).strip()]
+    return []
+
+
+def _description_from_meta(meta: dict[str, Any], body: str) -> str:
+    """从 front matter 或正文提取描述文本。"""
+    raw = meta.get("description")
+    if raw is not None:
+        if isinstance(raw, str):
+            return raw.strip()
+        return str(raw).strip()
+    return body[:200].strip() if body.strip() else ""
+
+
 def _map_metadata(meta: dict[str, Any]) -> Any | None:
     """将 metadata 映射为 SkillMetadata。
 
@@ -130,6 +150,15 @@ def _map_metadata(meta: dict[str, Any]) -> Any | None:
             return [str(x) for x in v]
         return [str(v)]
 
+    def _to_bool(value: Any, default: bool) -> bool:
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in ("1", "true", "yes", "on")
+        return bool(value)
+
     return SkillMetadata(
         bins=_to_str_list(raw.get("bins")),
         com=_to_str_list(raw.get("com")),
@@ -137,7 +166,13 @@ def _map_metadata(meta: dict[str, Any]) -> Any | None:
         config=_to_str_list(raw.get("config")),
         primary_env=str(raw.get("primary_env") or raw.get("primaryEnv") or "") or None,
         os=_to_str_list(raw.get("os")),
-        always=bool(raw.get("always", False)),
+        always=_to_bool(raw.get("always"), False),
+        skill_key=str(raw.get("skill_key") or raw.get("skillKey") or "") or None,
+        user_invocable=_to_bool(raw.get("user_invocable", raw.get("userInvocable")), True),
+        disable_model_invocation=_to_bool(
+            raw.get("disable_model_invocation", raw.get("disableModelInvocation")),
+            False,
+        ),
     )
 
 
@@ -216,13 +251,7 @@ def _load_sub_skills(
             body = _resolve_base_dir(body, sub_dir)
             name = meta.get("name", name)
             description = meta.get("description", body[:200].strip())
-            kw = meta.get("keywords", [])
-            if isinstance(kw, str):
-                keywords = [k.strip() for k in kw.split(",") if k.strip()]
-            elif isinstance(kw, list):
-                keywords = [str(k).strip() for k in kw if str(k).strip()]
-            else:
-                keywords = []
+            keywords = _keywords_from_meta(meta)
             skill_metadata = _map_metadata(meta)
             system_prompt = body if body.strip() else None
 
@@ -247,7 +276,7 @@ def _load_sub_skills(
         if skill_md or tools:
             skills.append(
                 Skill(
-                    id=f"{os.path.basename(skills_dir)}-{entry}",
+                    id=f"{pkg}-{entry}",
                     name=name,
                     description=description,
                     keywords=keywords,
@@ -255,6 +284,7 @@ def _load_sub_skills(
                     skill_md=skill_md,
                     system_prompt=system_prompt,
                     metadata=skill_metadata or inherit_metadata,
+                    source_path=sub_dir,
                 )
             )
 
@@ -282,32 +312,36 @@ async def load_skill_package(package_dir: str) -> SkillPackage | None:
     skill_md: str | None = None
     name = package_name
     description = f"技能包: {package_name}"
+    package_meta: dict[str, Any] = {}
+    package_body = ""
+    package_metadata = None
 
     if os.path.isfile(skill_md_path):
         skill_md = Path(skill_md_path).read_text(encoding="utf-8")
-        meta, body = parse_skill_md(skill_md)
+        package_meta, package_body = parse_skill_md(skill_md)
         # 解析 {baseDir} 占位符
-        body = _resolve_base_dir(body, package_dir)
-        if meta.get("name"):
-            name = meta["name"]
-        if meta.get("description"):
-            description = meta["description"]
-        if not meta.get("name"):
-            title_match = re.search(r"^#\s+(.+)$", body, re.MULTILINE)
+        package_body = _resolve_base_dir(package_body, package_dir)
+        if package_meta.get("name"):
+            name = package_meta["name"]
+        description = _description_from_meta(package_meta, package_body) or description
+        if not package_meta.get("name"):
+            title_match = re.search(r"^#\s+(.+)$", package_body, re.MULTILINE)
             if title_match:
                 name = title_match.group(1).strip()
         # 解析包级 metadata，用于继承到子技能
-        package_metadata = _map_metadata(meta)
+        package_metadata = _map_metadata(package_meta)
     elif os.path.isfile(skill_yaml_path):
         # 备选格式：skill.yaml + instructions.md
+        meta: dict[str, Any] = {}
         try:
             yaml_content = Path(skill_yaml_path).read_text(encoding="utf-8")
-            meta = yaml.safe_load(yaml_content) or {}
-            if isinstance(meta, dict):
+            loaded = yaml.safe_load(yaml_content) or {}
+            if isinstance(loaded, dict):
+                meta = loaded
                 if meta.get("name"):
                     name = meta["name"]
                 if meta.get("description"):
-                    description = meta["description"]
+                    description = str(meta["description"]).strip()
                 entry = meta.get("entry_point", "instructions.md")
                 entry_path = os.path.join(package_dir, entry)
                 if os.path.isfile(entry_path):
@@ -316,9 +350,16 @@ async def load_skill_package(package_dir: str) -> SkillPackage | None:
                 elif os.path.isfile(instructions_path):
                     skill_md = Path(instructions_path).read_text(encoding="utf-8")
                     skill_md = _resolve_base_dir(skill_md, package_dir)
+                if skill_md:
+                    instr_meta, package_body = parse_skill_md(skill_md)
+                    package_body = _resolve_base_dir(package_body, package_dir)
+                    if instr_meta:
+                        package_meta = {**meta, **instr_meta}
         except Exception as e:
             _logger.warning("加载 skill.yaml 失败 %s: %s", package_dir, e)
-        package_metadata = _map_metadata(meta if isinstance(meta, dict) else {})
+        package_meta = meta
+        package_metadata = _map_metadata(meta)
+        description = _description_from_meta(meta, package_body) or description
     else:
         package_metadata = None
 
@@ -347,6 +388,25 @@ async def load_skill_package(package_dir: str) -> SkillPackage | None:
             sub_skills_dir, package_name=package_name, inherit_metadata=package_metadata
         )
         skills.extend(sub_skills)
+
+    # 纯指令型包：无子技能时，用包级 SKILL.md 合成一个 Skill 以注入 system prompt
+    if not skills and skill_md:
+        body = package_body
+        if not body.strip() and skill_md:
+            _, body = parse_skill_md(skill_md)
+            body = _resolve_base_dir(body, package_dir)
+        skills.append(
+            Skill(
+                id=package_name,
+                name=name,
+                description=description,
+                keywords=_keywords_from_meta(package_meta),
+                skill_md=skill_md,
+                system_prompt=body if body.strip() else None,
+                metadata=package_metadata,
+                source_path=package_dir,
+            )
+        )
 
     if not skills and not skill_md:
         return None
