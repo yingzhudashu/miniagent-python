@@ -46,9 +46,25 @@ PLAN_SYSTEM_PROMPT = """<role>
 
 3. **指定工具箱**：
    - 每步标明所需工具箱（requiredToolboxes）
-   - 涉及时效数据 → 包含 "web"
-   - 涉及内部文档 → 包含 "knowledge"
-   - 涉及文件操作 → 包含 "fs"
+
+   **时效性信息场景**（必须包含 "web"）：
+   - 实时新闻、最新政策、当前价格、在售产品
+   - 市场调研、产品评测、购买指南、消费品推荐
+   - 技术框架对比、最新版本信息、API 文档更新
+   - 股票行情、天气预报等实时数据
+
+   **内部知识场景**（包含 "knowledge"）：
+   - 历史案例、项目文档、积累的经验
+   - 团队规范、编码风格、最佳实践
+   - 过往调研记录、总结报告
+
+   **组合策略**（同时包含 "knowledge" + "web"）：
+   - 当任务可能需要多来源信息时，建议同时包含两者
+   - 典型场景：市场调研、产品推荐、技术选型、最佳实践研究
+   - 执行时先查 knowledge（快速、成本低），未找到再用 web（获取最新信息）
+
+   **文件操作**（包含 "fs"）：
+   - 读写本地文件、代码编辑、目录扫描
 
 4. **设置 thinkingLevel**：
    - 简单操作 → "low"
@@ -241,6 +257,55 @@ PLAN_SYSTEM_PROMPT = """<role>
 
 高风险操作：涉及大规模代码修改，需要确认后执行。
 </example>
+
+<example index="5" type="market_research_with_fallback">
+用户输入："帮我调研高品质板栗的购买渠道和品牌推荐"
+
+输出计划：
+```json
+{
+  "summary": "调研板栗购买渠道、品质标准和品牌推荐",
+  "steps": [
+    {
+      "stepNumber": 1,
+      "description": "检索知识库中是否有板栗购买相关的历史调研或推荐",
+      "requiredToolboxes": ["knowledge"],
+      "expectedInput": "搜索关键词：板栗、购买、品牌、产区",
+      "expectedOutput": "知识库中的相关记录（可能为空）",
+      "dependsOn": null,
+      "thinkingLevel": "low"
+    },
+    {
+      "stepNumber": 2,
+      "description": "搜索最新的板栗产区、品质标准、电商平台评价和购买渠道",
+      "requiredToolboxes": ["web"],
+      "expectedInput": "搜索关键词和知识库检索结果",
+      "expectedOutput": "产区信息、品质判断标准、在售产品、用户评价",
+      "dependsOn": 1,
+      "thinkingLevel": "medium"
+    },
+    {
+      "stepNumber": 3,
+      "description": "整理购买建议报告，包含产区推荐、品质标准、购买渠道和避坑指南",
+      "requiredToolboxes": [],
+      "expectedInput": "知识库和网络搜索结果",
+      "expectedOutput": "结构化购买指南文档",
+      "dependsOn": 2,
+      "thinkingLevel": "high"
+    }
+  ],
+  "requiredToolboxes": ["knowledge", "web"],
+  "defaultStepThinkingLevel": "medium",
+  "suggestedConfig": {"maxTurns": 12, "toolTimeout": 90, "riskLevel": "low"},
+  "riskLevel": "low"
+}
+```
+
+注意：
+- 先检索 knowledge 避免重复调研，未找到再用 web 获取最新信息
+- 市场调研、产品推荐等任务必须包含 "web"（价格、评价、在售状态都是时效性数据）
+- 两个工具箱都列入 requiredToolboxes，确保执行器可以灵活使用
+</example>
 </examples>
 
 <json_schema>
@@ -296,12 +361,14 @@ PLAN_SYSTEM_PROMPT = """<role>
 
 1. ✓ 每个步骤都有 thinkingLevel 字段
 2. ✓ 涉及时效数据时，requiredToolboxes 包含 "web"
+   - 时效数据包括：价格、在售产品、最新评测、实时新闻、当前政策、天气行情等
 3. ✓ 涉及内部文档/历史案例时，requiredToolboxes 包含 "knowledge"
-4. ✓ 步骤间依赖关系正确（dependsOn 指向有效步骤号）
-5. ✓ riskLevel 与操作风险匹配（删除/发布 → high）
-6. ✓ 高风险任务 requiresConfirmation = true
-7. ✓ 计划是最小路径：没有重复读取、重复扫描、重复分析或重复验证
-8. ✓ 已完成工作被复用；RAG 未命中或文件变更时才二次确认源文件
+4. ✓ 市场调研、产品推荐、购买指南等任务，建议同时包含 "knowledge" 和 "web"
+5. ✓ 步骤间依赖关系正确（dependsOn 指向有效步骤号）
+6. ✓ riskLevel 与操作风险匹配（删除/发布 → high）
+7. ✓ 高风险任务 requiresConfirmation = true
+8. ✓ 计划是最小路径：没有重复读取、重复扫描、重复分析或重复验证
+9. ✓ 已完成工作被复用；RAG 未命中或文件变更时才二次确认源文件
 </validation>
 
 只返回 JSON 对象，不要包含其他文字。
