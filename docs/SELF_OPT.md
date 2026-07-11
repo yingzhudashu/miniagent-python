@@ -194,9 +194,7 @@ Trace 事件 → trace_stats 统计分析 → 运行指标
 
 ### Trace 系统
 
-全链路 Trace 为运行分析提供数据源：LLM/工具/会话事件经 `emit_trace()` 派发，配置 `trace.enabled: true` 后自动持久化到 `{paths.state_dir}/logs/trace-{YYYY-MM-DD}-pid{pid}.jsonl`。
-
-事件类型、writer 队列策略、日报 API 与测试隔离见 **[ENGINEERING.md](ENGINEERING.md) §5 Trace 系统**。
+运行分析依赖 Trace 数据：`trace.enabled: true` 时事件持久化到 `{trace.output_dir}/trace-YYYY-MM-DD-pid{pid}.jsonl`（默认 `workspaces/logs/`，相对进程 cwd，**与** `{paths.state_dir}` **分离**）。事件 schema、writer 与日报 API 见 **[ENGINEERING.md §5](ENGINEERING.md#5-trace-系统全链路监控)**。
 
 ## 运行日志分析维度
 
@@ -291,7 +289,7 @@ proposal = OptimizationProposal(
 ### 文件结构
 
 ```
-workspaces/self_opt/proposals/
+workspaces/self_opt/proposals/   # 默认相对 miniagent 包根/cwd，非 {paths.state_dir}
 ├── proposals-{YYYY-MM-DD}.jsonl    # 每日提案追加写入
 ├── history.json            # 提案索引（id、状态、来源、时间戳）
 └── reports/

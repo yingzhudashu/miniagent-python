@@ -210,7 +210,8 @@ CLI 与飞书共进程时：
 |------|------|------|
 | `MINIAGENT_THINKING_MERGE_TOOLS` | `1` | 同阶段工具意图行是否合并到思考卡片 |
 | `MINIAGENT_CLI_THINKING_RICH` | 关 | 是否对思考正文使用 Rich→ANSI 渲染（亦可设 `cli.thinking_rich`） |
-| `MINIAGENT_ANNOUNCE_DIFFICULTY_AND_PLAN` | `1` | 是否推送难度评估与计划到思考流 |
+
+难度与规划段（`[评估与计划]`）是否推送由 Internal 常量 **`EXECUTION_ANNOUNCE_DIFFICULTY`**（`miniagent/core/constants.py`，默认 `True`）控制，非环境变量。
 
 ## 5. 会话历史中的思考块
 

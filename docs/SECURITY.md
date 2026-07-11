@@ -117,9 +117,7 @@ release_session_lock("default")
 
 ### 实例注册表
 
-- 每个实例在 `workspaces/instances/<id>/` 注册
-- **存活判定**以操作系统 PID 为准（Windows: tasklist, Unix: os.kill）；`register()` / `list_all()` 会清理 PID 已退出的僵尸目录
-- 心跳文件周期性刷新，仅供人工排查，**不**触发超时清理（详见 [ENGINEERING.md](ENGINEERING.md) §3.3）
+每个实例在 `workspaces/instances/<id>/` 注册；**存活判定**以 OS PID 为准（详见 [ENGINEERING.md §3.3](ENGINEERING.md#33-多实例注册表)）。
 
 ## 4. 循环检测
 

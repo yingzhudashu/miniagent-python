@@ -13,6 +13,7 @@
 - **`config.defaults.json` `_config_guide`**：标明 User / Advanced 分层与节顺序。
 - **`miniagent/infrastructure/paths.py`**：`resolve_state_dir()` 统一状态目录解析。
 - **`scripts/README.md`**：维护脚本索引；**`tests/test_cli_transcript_scroll.py`**：CLI transcript 滚动源码回归（自 `verify_scroll_fix.py` 迁移）。
+- **README 合并扩充**：安装、配置、功能清单、架构概览、项目结构迁入 [README.md](README.md) 作为用户入门 SSOT；[USER_GUIDE.md](docs/USER_GUIDE.md) 精简为日常使用指南（§1–14）；[INDEX.md](docs/INDEX.md) 瘦身为 SSOT 与文档目录。
 - **Prompt cache 友好执行分层**：执行阶段请求固定为 `stable system -> history -> current turn user context`；新增稳定 system / 当前轮 user context 构建 helper，并默认以 `memory.thinking_for_llm_mode=compact` 回灌短 thinking 摘要，降低动态检索、时间、文件根目录和 thinking 全量回灌造成的前缀波动。
 
 ### Removed
@@ -99,6 +100,8 @@
 - **LRU 缓存扩容**：`DefaultMemoryStore` 缓存上限提高到 200（可通过 `memory.store_cache_max` 调整）。
 - **实例列表缓存延长**：缓存 TTL 从 5 秒提高到 30 秒，减少频繁目录遍历开销。
 - **正则预编译**：[`gfm_table.py`](miniagent/feishu/cards/gfm_table.py) 表格分隔符检测使用预编译正则 `_RE_GFM_SEPARATOR`。
+- **业务热路径（2026-06-07）**：记忆 store/keyword 索引锁路径与紧凑 JSON；Feishu thinking stream 重复 normalize/card JSON 缓存。合成场景 S6/S11/S13 见 [PERFORMANCE.md Part A §2](docs/PERFORMANCE.md)。
+- **Trace 完整性 + 反思延迟（2026-06-11）**：`classify`/`reflect`/`clarify` 阶段补齐 trace 事件；executor `tool_call_id` 配对；反思 bounded thinking（`features.reflection_max_tokens` 默认 512），单次延迟约 -34%。
 
 ### Breaking changes
 

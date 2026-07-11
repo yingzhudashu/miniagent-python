@@ -21,9 +21,7 @@ python -m miniagent --stop 1 2          # 停止指定 ID
 python -m miniagent --stop --state-dir <路径> 1  # 多注册表根时指定实例注册表目录
 ```
 
-**一目录一实例**：同一工作目录（cwd）仅允许一个存活 Agent。若已有实例在运行，再次启动会报错并提示先 `--stop`。不同 cwd 可并行，各自 workspace 位于 `{miniagent}/workspaces/projects/<project_key>/`（由 cwd 路径 hash 生成，如 `myapp-a1b2c3d4`）。
-
-**`--stop --state-dir`**：参数指向**实例注册表根**（含 `instances/` 子目录的目录），默认 `{miniagent}/workspaces`；**不是**项目会话数据目录（`projects/<key>/`）。当 canonical 注册表与 legacy `{cwd}/workspaces/instances/` 同时存在且实例 ID 冲突时，需用此参数指定要操作哪一个注册表根。
+**一目录一实例**、PID 存活判定与 `--stop --state-dir` 语义见 **[ENGINEERING.md §3.3](ENGINEERING.md#33-多实例注册表)**。
 
 `--continue` / 隐式继续：将 `last_cli_session` 写入项目 workspace 的 `channel-router.json`（默认 `{miniagent}/workspaces/projects/<key>/channel-router.json`）；在退出（含 `quit`/`exit`、Ctrl+C、SIGTERM）、`/session switch` 时更新。下次启动会恢复该会话 ID；**全屏 CLI** 在 transcript 区加载最近历史，**简易 CLI**（无 TUI）启动时也会打印最近历史摘要；`/session switch` 后会重载对应会话历史。使用 `--no-continue` 可强制从 `default` 会话开始。若 cwd 下仍有旧版 `{cwd}/workspaces/` 数据，legacy 回退会继续使用该路径。
 
@@ -196,6 +194,14 @@ On branch main
 | | `/review` | 自我反驳式审查答案（迭代最多3轮） |
 | **工具与统计** | `/stats` | 工具调用统计 |
 | | `/status` | 查看系统运行状态 |
+| **自我优化** | `/self-opt status` | 查看自我优化子系统状态 |
+| | `/self-opt proposals [status]` | 列出优化提案 |
+| | `/self-opt show <proposal_id>` | 查看提案详情 |
+| | `/self-opt approve <proposal_id>` | 批准提案 |
+| | `/self-opt reject <proposal_id>` | 拒绝提案 |
+| | `/self-opt apply <proposal_id> [root]` | 执行已批准提案 |
+| | `/self-opt analyze` | 触发运行分析 |
+| | `/self-opt report [date]` | 查看分析报告 |
 | **自测命令** | `/test run` | 运行所有测试样本（默认 mock 模式） |
 | | `/test run <类别>` | 按类别过滤（security | prompt_injection | tool_selection | schema | regression | cost） |
 | | `/test list` | 列出所有测试样本 |
@@ -350,7 +356,7 @@ On branch main
 
 ### /schedule — 定时任务
 
-任务持久化在 **`{paths.state_dir}/scheduled_tasks/tasks.json`**（默认 `workspaces/scheduled_tasks/`）。触发时与手动输入一样经 **消息队列** 跑一轮 Agent。详见 [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」与 [USER_GUIDE.md](USER_GUIDE.md) §9。
+任务持久化在 **`{paths.state_dir}/scheduled_tasks/tasks.json`**（canonical 布局见 [ENGINEERING.md](ENGINEERING.md) §3）。触发时与手动输入一样经 **消息队列** 跑一轮 Agent。详见 [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」与 [USER_GUIDE.md](USER_GUIDE.md) §3。
 
 **语法摘要**（与无参 `/schedule` 打印一致）：
 
@@ -368,7 +374,7 @@ On branch main
 
 - **`add` 必须包含 ` -- `**（空格、两个连字符、空格）：前面为调度与会话参数，后面为交给模型的 **prompt**；缺少分隔符会报错。
 - **`every`**：间隔秒数为正整数；**`once`**：时间为 ISO8601（可含 `Z` 或 `+08:00`）；未带时区的 naive 时间由 **`--tz`** 解释（未写时读 `scheduled_tasks.timezone` → `timezone.default` → `TZ`）。
-- **飞书收结果**：飞书 WebSocket 已连接且任务为 **`primary`** 且已与飞书私聊绑定时，定时任务会镜像思考流与最终回复到飞书（`scheduled_tasks.feishu_mirror=false` 关闭）；详见 [USER_GUIDE.md](USER_GUIDE.md) §9。
+- **飞书收结果**：飞书 WebSocket 已连接且任务为 **`primary`** 且已与飞书私聊绑定时，定时任务会镜像思考流与最终回复到飞书（`scheduled_tasks.feishu_mirror=false` 关闭）；详见 [USER_GUIDE.md](USER_GUIDE.md) §3。
 - **会话**：`primary` 使用当前路由的主会话 / 活跃会话；`ephemeral` 每次新建临时会话键；`fixed:会话ID` 固定到某会话（如 `fixed:default` 或 `fixed:feishu:oc_xxx`，后者可用于飞书群任务）。
 - **时区**：cron 墙钟以 `tasks.json` 内 `schedule.timezone` 为准；未写 `--tz` 时新建任务默认时区为 `scheduled_tasks.timezone` → `timezone.default` → `TZ` → `Asia/Shanghai`。
 - **关闭调度循环**（不删任务表）：`scheduled_tasks.disabled=true`；dispatch 失败退避秒数：`scheduled_tasks.dispatch_backoff`（默认 60，见 `config.defaults.json`）。
@@ -379,14 +385,7 @@ On branch main
 
 ### 通道路由（无 `/bind` 命令）
 
-CLI 与飞书私聊的会话映射由运行时自动维护：
-
-- 启动与 **`/session switch`** 会同步 `__cli__` 与已自动跟随的飞书私聊 sender
-- 飞书私聊**首条消息**自动绑定到当前 `active_session_id`
-- 飞书群聚焦：`/session switch oc_xxx`（或 `feishu:oc_xxx`）
-- 查看绑定与聚焦模式：**`/status`**
-
-详见 **[FEISHU.md §通道绑定](FEISHU.md#通道绑定)**。
+CLI 与飞书私聊的会话映射由运行时自动维护；查看绑定与聚焦模式用 **`/status`**。完整规则、场景与诊断见 **[FEISHU.md §通道绑定](FEISHU.md#通道绑定)**（SSOT）。
 
 ### /feishu — 飞书控制
 
@@ -430,29 +429,9 @@ CLI 与飞书私聊的会话映射由运行时自动维护：
 ✅ 已重载知识库: my_kb
 ```
 
-**Agent 工具**：Agent 可通过 `search_knowledge`、`read_knowledge_file`、`kb_list` 工具检索知识库。
+**Agent 工具**：`search_knowledge`、`read_knowledge_file`、`kb_list`。
 
-**知识库目录结构**：
-
-```
-my_kb/
-├── KB.yaml        # 配置文件（可选）
-└── files/         # 文件目录
-    ├── doc1.md
-    └── doc2.txt
-```
-
-KB.yaml 格式：
-
-```yaml
-name: my_kb            # 知识库名称
-description: 项目文档  # 描述
-file_patterns:         # 包含的文件模式
-  - "*.md"
-  - "*.txt"
-```
-
-详见 [KNOWLEDGE_BASE.md](KNOWLEDGE_BASE.md)。
+目录结构与 `KB.yaml` 格式见 **[KNOWLEDGE_BASE.md](KNOWLEDGE_BASE.md)**（SSOT）。
 
 ### /review — 答案审查
 
@@ -505,6 +484,19 @@ file_patterns:         # 包含的文件模式
 
 测试样本位于 `tests/evaluation/samples/`。
 
+### /self-opt — 自我优化
+
+基于 Trace 运行指标与代码静态分析生成优化提案。**配置、子命令详解、工作流与 API** 见 **[SELF_OPT.md](SELF_OPT.md)**（SSOT）。
+
+```
+> /self-opt status
+> /self-opt proposals pending
+> /self-opt analyze
+> /self-opt show <proposal_id>
+> /self-opt approve <proposal_id>
+> /self-opt apply <proposal_id>
+```
+
 ### /reload-config — 配置热更新
 
 重新加载 `config.user.json`，使配置修改立即生效无需重启：
@@ -542,76 +534,9 @@ file_patterns:         # 包含的文件模式
 
 MiniAgent 提供多项用户体验增强功能，提升交互效率与稳定性。
 
-### 自定义思考颜色
+### 思考过程颜色
 
-CLI 思考过程的显示颜色可通过配置文件自定义。默认使用亮青色（`ansibrightcyan`），淡雅清新。
-
-**配置方式**：
-
-在 `config.user.json` 中添加样式配置：
-
-```json
-{
-  "cli": {
-    "styles": {
-      "think_head": "ansibrightcyan",
-      "think_body": "ansibrightcyan"
-    }
-  }
-}
-```
-
-**支持的颜色**：
-
-prompt_toolkit ANSI 颜色系列：
-
-| 颜色名 | 说明 |
-|--------|------|
-| `ansiblack` | 黑色 |
-| `ansired` | 红色 |
-| `ansigreen` | 绿色 |
-| `ansiyellow` | 黄色 |
-| `ansiblue` | 蓝色 |
-| `ansimagenta` | 紫色 |
-| `ansicyan` | 青色 |
-| `ansiwhite` | 白色 |
-| `ansibrightblack` | 亮黑（灰色） |
-| `ansibrightred` | 亮红 |
-| `ansibrightgreen` | 亮绿 |
-| `ansibrightyellow` | 亮黄 |
-| `ansibrightblue` | 亮蓝 |
-| `ansibrightmagenta` | 亮紫 |
-| `ansibrightcyan` | 亮青（默认） |
-| `ansibrightwhite` | 亮白 |
-
-**样式属性**：
-
-- `bold`：加粗
-- `dim`：变暗（降低亮度，不推荐与 `ansibrightblack` 同时使用）
-- `italic`：斜体
-- `underline`：下划线
-- `reverse`：反显（交换前景色和背景色）
-
-**示例配置**：
-
-```json
-{
-  "cli": {
-    "styles": {
-      "think_head": "ansicyan",
-      "think_body": "ansicyan"
-    }
-  }
-}
-```
-
-**环境变量覆盖**：
-
-也可通过环境变量设置（优先级高于配置文件）：
-
-```bash
-CLI 样式（思考块颜色等）为 Internal 常量，见 `miniagent/core/constants.py`。
-```
+CLI 思考块标题与正文默认使用亮青色（`ansibrightcyan`）。颜色为 **Internal 常量**，定义在 `miniagent/core/constants.py`（`CLI_STYLE_THINK_HEAD` / `CLI_STYLE_THINK_BODY`）；**暂不支持** `config.user.json` 或环境变量覆盖。定制需修改源码常量；若未来实现 `cli.styles` 配置项，将在此文档化。
 
 ### 命令模糊匹配
 
@@ -640,7 +565,7 @@ CLI 样式（思考块颜色等）为 Internal 常量，见 `miniagent/core/cons
 **命令补全**：
 ```
 输入 /st + Tab → 显示选项：
-  /stats   /status   /stop   /stop-instance
+  /stats   /status   /stop   /instance
 ```
 
 **文件路径补全**：
@@ -710,7 +635,7 @@ HTTP 请求自动重试，提升网络稳定性：
 飞书消息以 `/` 开头时，自动路由到命令调度器而非 Agent：
 
 - **多数**命令（如 `/status`、`/help`、`/queue status`）可在飞书使用。
-- **默认仅本机 CLI**：`/schedule` 的 `add` / `update` / `remove` / `enable` / `disable`；`/session` 的 `switch` / `create` / `rename`；`/stop`（与 [USER_GUIDE.md](USER_GUIDE.md) 第 8、9 章一致）。
+- **默认仅本机 CLI**：`/schedule` 的 `add` / `update` / `remove` / `enable` / `disable`；`/session` 的 `switch` / `create` / `rename`；`/stop`（与 [USER_GUIDE.md](USER_GUIDE.md) 第 2、3 章一致）。
 - **全开**：设置 `feishu.dot_commands_full=true` 后飞书与 CLI 命令能力相同（见 [FEISHU.md](FEISHU.md)）。
 
 ```
@@ -745,3 +670,4 @@ HTTP 请求自动重试，提升网络稳定性：
 - [SECURITY.md](SECURITY.md)：沙箱与工具安全模型。
 - [FEISHU.md](FEISHU.md) §通道绑定：CLI 与飞书会话绑定。
 - [KNOWLEDGE_BASE.md](KNOWLEDGE_BASE.md)：知识库挂载与检索。
+- [SELF_OPT.md](SELF_OPT.md)：`/self-opt` 命令、提案工作流与配置。

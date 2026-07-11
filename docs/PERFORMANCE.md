@@ -48,7 +48,7 @@
 | S7 | `serialize_exec_payload_sample`（DefaultContextManager + messages/tools `json.dumps`） | 与 `execute_plan` 请求组装对齐的 Python 序列化冒烟 |
 | S8 | 连续加载 260 个会话到 `DefaultMemoryStore` | 验证 LRU cache 驱逐（`memory.store_cache_max` 默认 200） |
 | S9 | `EmbeddingIndex` 连续添加 250 条目 | 验证 `max_entries` 上限驱逐（200） |
-| S10 | `KeywordIndex` 连续添加 200 条目 | 验证关键词数不超过 `max_entries`（50） |
+| S10 | `KeywordIndex` 连续添加 200 条目 | 验证关键词数不超过 `max_entries`（测试中临时设为 50 以触发驱逐；生产默认见 `memory.keyword_index_max`） |
 
 扩展场景时保持 **确定性**（固定 tmp 状态目录、Mock client），避免在默认 CI 中依赖网络。可选在 CI 中设置 **`PYTHONHASHSEED=0`**（见 `.github/workflows/perf-smoke.yml`）以降低 dict 迭代顺序带来的抖动。
 
@@ -135,52 +135,12 @@ CI **不**依赖基线文件是否存在；可选 workflow 仅上传当次脚本
 - **执行器 import 提升**：[`miniagent/core/executor.py`](../miniagent/core/executor.py) 的 `ToolResult` import 从 `_run_tool` 内部移到模块顶部，节省每次工具调用的 import 开销。
 - **Trace writer 背压与统计真实性**：[`miniagent/infrastructure/tracing.py`](../miniagent/infrastructure/tracing.py) 的 `AsyncTraceWriter` 使用可配置有界队列，队列满时非阻塞丢弃并暴露 `dropped_count`；[`miniagent/infrastructure/trace_stats.py`](../miniagent/infrastructure/trace_stats.py) 聚合 `trace-YYYY-MM-DD.jsonl` 与 `trace-YYYY-MM-DD-pid*.jsonl`，日报不会漏读真实运行分片。
 
-#### 5.2 2026-06-07 业务热路径优化
-
-本轮在保留功能、文件 schema 与用户可见效果不变的前提下，针对合成 perf 中最慢的记忆/索引路径和 Feishu thinking stream 重复渲染做代码级优化：
-
-- [`DefaultMemoryStore`](../miniagent/memory/store.py)：`add_entry()` / `update_summary()` 在已持有 session lock 时走私有 `_load_unlocked()`，避免重复 public `load()` trace 与缓存路径；缓存命中、TTL 检查和 LRU 更新统一在 `_cache_lock` 下完成，减少竞态和重复时间戳读取。
-- 记忆文件写盘改为紧凑 JSON（`separators=(",", ":")`）。字段含义、路径和可读性均保持兼容，只移除空白，降低批量 `add_entry()` 的写盘字节数。
-- [`KeywordIndex`](../miniagent/memory/keyword_index.py)：索引文件改为紧凑 JSON；长中文文本关键词提取增加扫描预算上限，短文本仍保持全量 n-gram；多关键词搜索复用同一 `entry_key` 的 registry lookup；候选集较大时用 Top-K 选择避免全量排序。
-- [`poll_server`](../miniagent/feishu/poll_server.py)：同一轮 Feishu thinking stream 缓存已规范化正文和 card JSON，正文或模板未变化时跳过重复 `_normalize_lark_md()` 与 `json.dumps()`；最终回复卡片对已分片、已规范化正文避免二次 normalize。
-
-验证结果（Windows 本机，Python 3.12，2026-06-07）：
-
-```text
-python -m pytest tests/test_perf_synthetic.py -q -m perf --durations=13
-13 passed in 9.15s
-S6  memory batch + tracemalloc: 3.20s
-S11 memory add_entry batch:      2.88s
-S2  keyword batch save:          1.10s (本地运行有波动)
-S13 Feishu thinking cache:       0.23s
-S12 keyword multi-hit search:    0.04s
-```
-
-`python scripts/perf_profile_tracemalloc.py --inner-repeat 20 --json-out workspaces/logs/perf/perf-snapshot-business-hotpaths.json` 通过，tracemalloc peak 约 `41.74 MiB`。该输出位于 `workspaces/logs/perf/`，属于过程性文件，不提交。
-
-残余风险：S2 在本机仍受临时目录 I/O 和 Python 冷启动影响有波动；Feishu 真实长驻路径仍建议用真实租户流量或 py-spy 采样确认 PATCH 节流、SDK 网络等待和 card JSON 序列化占比。
-
-#### 5.2.1 2026-06-11 Trace 完整性 + 阶段延迟优化
-
-用真实 API（trace 持久化开启）+ `scripts/perf_trace_real_api.py` 跑通完整管线取得基线后，针对**串行 LLM 阶段的 trace 盲区**与**反思阶段延迟**做修复，全程保留功能与效果：
-
-- **Trace 盲区补齐**：`classify` / `reflect` / `clarify` 阶段此前不发 trace 事件（实测各 ~5s 无任何记录）。现统一发出 `llm.request` / `llm.response`（含 `phase`、`session_key`、token usage）；planner 事件补 `session_key`；`compute_llm_stats` 新增 `by_phase` 分阶段聚合，可定位各阶段调用数与 token。
-- **压缩事件归属修复**：[`DefaultContextManager`](../miniagent/memory/context.py) 新增 `session_key` 构造参数（executor 传入），`context.compress` 事件不再永远 `'unknown'`。
-- **工具配对修复**：executor 的 `tool.start` / `tool.end` 补 `tool_call_id`，并发同名工具不再错配；移除不安全的 `semaphore._value` 私有属性访问；[`trace_stats`](../miniagent/infrastructure/trace_stats.py) 删除从不读取的 `tool_starts` 死字典。
-- **死代码清理**：[`tracing.py`](../miniagent/infrastructure/tracing.py) 删除从未注册的 `_trace_file_hook` / `_init_trace_log_file`。
-- **AsyncTraceWriter 健壮性**：`start()` 重复调用/线程创建失败时回收旧句柄与线程，避免 FD/线程泄漏；队列首次背压丢弃时打一次 warning（之后仅累计 `dropped_count`），避免静默丢数据；`metrics_only` 持久化保留**纯数值/布尔数组**（如时延分布），字符串数组仍按策略丢弃以不落模型文本。
-- **反思阶段延迟**：反思是结构化 JSON 评分，无需深度思考与大输出。`llm_json()` 新增可选 `max_tokens` / `thinking_*` / `trace_*` 参数（默认行为不变）；`reflect_on_result` 施加 bounded 思考 + `features.reflection_max_tokens`（默认 512）。**实测单次 6.06s → 3.98s（-34%）**，可接受性判定与评分语义不变。
-
-其他热路径（保留效果）：[`store.py`](../miniagent/memory/store.py) 缓存 TTL 清理从「每次 put 全表扫描持锁」改为按间隔惰性清理，`_session_locks` 加上限清理；[`keyword_index.py`](../miniagent/memory/keyword_index.py) 驱逐循环后只置一次 `_dirty`；[`embedding_search.py`](../miniagent/memory/embedding_search.py) 批量回退加 `_allow_batch` 守卫，消除维度不一致时的潜在无限递归；[`background_tasks.py`](../miniagent/engine/background_tasks.py) `create_task` 改为跟踪引用 + `add_done_callback`，不再静默丢异常。
-
-验证：`ruff` 干净；trace 测试 16 passed；全量回归 1490 passed（唯一失败 `test_footer_survives_history_for_llm` 经 `git stash` 确认为干净树上的既存过期测试，与本轮无关）。
-
-#### 5.3 待验证 / 剖析指引
+#### 5.2 待验证 / 剖析指引
 
 - **单次脚本 cProfile**：若不使用 `--inner-repeat`，top `cumtime` 多为导入链；见 §3.1。
 - **Feishu `json.dumps`**：仍可能是线上热点；优化前应用 py-spy 对 `poll_server` 长驻路径采样确认；S5 仅覆盖 `_normalize_lark_md`，不替代整链 profiling。
 
-#### 5.4 异步最佳实践（新增）
+#### 5.3 异步最佳实践
 
 为避免事件循环阻塞，在异步上下文中应使用异步版本函数：
 
@@ -253,7 +213,7 @@ async def good_example():
 
 **优化方案**：
 
-1. **限制历史长度**：
+1. **限制历史长度**（默认 `memory.history_tail_messages` 为 **200**）：
    ```json
    {
      "memory": {
@@ -262,7 +222,7 @@ async def good_example():
    }
    ```
 
-2. **配置历史归档**：
+2. **限制 transcript 体积**（默认 `memory.max_transcript_chars` 为 **400000**）：
    ```json
    {
      "memory": {
@@ -271,12 +231,9 @@ async def good_example():
      }
    }
    ```
-   注：自动归档功能见 `memory/history_archive.py`，通过代码逻辑控制。
+   注：自动归档逻辑见 `memory/history_archive.py`。
 
-3. **定期清理**：
-   ```bash
-   python scripts/cleanup_old_sessions.py --days 90
-   ```
+3. **定期清理**：删除不再使用的会话目录（`/session delete <id>` 或手动移除 `{paths.state_dir}/sessions/<id>/`）。
 
 #### 记忆分层清理
 
@@ -285,10 +242,7 @@ async def good_example():
 **优化方案**：
 
 1. **短期记忆**：缓存最多 `memory.store_cache_max` 个会话（默认 200），超过限制自动清理。
-2. **活动日志**：
-   ```json
-   { "memory": { "activity_log_retention_days": 90 } }
-   ```
+2. **活动日志**：按日写入 `{paths.state_dir}/memory/YYYY-MM-DD.md`；无独立 `activity_log_retention_days` 配置项，需手动归档旧文件。
 3. **关键词索引**：
    ```json
    { "memory": { "keyword_index_max": 15000 } }
@@ -301,9 +255,9 @@ async def good_example():
    { "memory": { "registry_max_entries": 2000 } }
    ```
 2. **飞书去重缓存**：自动刷盘（每 60 秒或 1000 条），进程退出时同步保存。
-3. **嵌入搜索缓存**：
+3. **嵌入搜索缓存**（关闭可省内存）：
    ```json
-   { "memory": { "embedding_enabled": false } }
+   { "embedding": { "enabled": false } }
    ```
 
 ### B.2 执行优化
@@ -316,13 +270,9 @@ async def good_example():
 
 **效果**：总耗时 ≈ 最慢单个工具耗时（提升 50–70%）。适用于多个独立文件读取、搜索或无依赖关系的工具调用。
 
-#### 流式处理配置
+#### 流式输出
 
-```json
-{ "agent": { "streaming": true } }
-```
-
-用户可实时看到思考过程，总响应时间不变但体验提升明显。
+CLI 与飞书默认以流式展示思考过程（引擎层行为，无 `agent.streaming` 配置项）。渲染细节见 [OUTPUT_FORMAT.md](OUTPUT_FORMAT.md)。
 
 #### Token 估算优化
 
@@ -333,16 +283,13 @@ async def good_example():
      "model": { "context_window": 128000, "max_tokens": 4096 }
    }
    ```
-3. 上下文管理：
+3. 上下文压缩由 `agent.context_compress_threshold`（默认 0.6）与 `memory/context.py` 自动触发，可调：
    ```json
    {
-     "memory": {
-       "context_window_reserve": 2000,
-       "max_context_messages": 100
-     }
+     "agent": { "context_compress_threshold": 0.5 },
+     "memory": { "history_tail_messages": 100 }
    }
    ```
-   注：压缩策略在 `memory/context.py` 中自动触发，无需额外配置。
 
 ### B.3 网络优化
 
@@ -394,8 +341,9 @@ pytest -m perf tests/test_perf_synthetic.py -xvs
 **每周维护**：
 
 ```bash
-python scripts/cleanup_old_sessions.py --days 90
+/session list
 /stats
+# 按需：/session delete <旧会话ID>
 ```
 
 **生产环境推荐配置**：
@@ -405,13 +353,13 @@ python scripts/cleanup_old_sessions.py --days 90
   "memory": {
     "history_tail_messages": 100,
     "store_cache_max": 200,
-    "initial_history_count": 20,
-    "max_transcript_chars": 500000
+    "initial_history_count": 5,
+    "max_transcript_chars": 400000
   },
   "agent": {
-    "streaming": true,
     "parallel_sessions": true,
     "max_parallel_sessions": 4,
+    "allow_parallel_tools": true,
     "tool_timeout": 60,
     "http_timeout": 120
   },
@@ -426,7 +374,7 @@ python scripts/cleanup_old_sessions.py --days 90
 ### B.6 性能问题排查清单
 
 1. 内存占用过高？ → 清理历史和记忆（见 B.1）
-2. 响应缓慢？ → 启用流式处理和并行工具（见 B.2）
+2. 响应缓慢？ → 启用并行工具、检查模型与网络（见 B.2–B.3）
 3. API 超时？ → 增加超时时间和重试次数（见 B.3）
 4. 飞书无响应？ → 检查连接状态和凭证（见 [FEISHU.md](FEISHU.md)、[TROUBLESHOOTING.md](TROUBLESHOOTING.md)）
 5. Token 超限？ → 调整上下文窗口和压缩策略（见 B.2）

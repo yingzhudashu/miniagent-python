@@ -84,9 +84,9 @@ JSONDecodeError: Expecting property name enclosed in double quotes
    ```
 
 **最佳实践**：
-- 使用 JSON 编辑器（避免手写格式错误）
+- 使用 JSON 编辑器（避免手写格式错误；标准 JSON 不支持 `//` 注释）
 - 只覆盖需要修改的配置项（其他保持默认）
-- 添加注释说明配置用途
+- 在仓库外单独记录配置说明（如本地 README 或密码管理器备注）
 
 ---
 
@@ -94,10 +94,12 @@ JSONDecodeError: Expecting property name enclosed in double quotes
 
 **症状**：
 ```
-RuntimeError: 实例 ID X 已在运行（PID Y，心跳 Z 秒前）
+RuntimeError: 项目目录 '/path/to/project' 已有运行中的实例 #1 (PID=12345)。
+请先执行 `python -m miniagent --stop` 停止后再启动。
+   数据目录: ...
 ```
 
-**原因**：同一工作目录已有 Agent 运行
+**原因**：同一工作目录（cwd）已有 Agent 运行。存活判定以 **操作系统 PID** 为准；`heartbeat` 文件仅便于人工排查，**不参与**存活判定（见 [ENGINEERING.md §3.3](ENGINEERING.md#33-多实例注册表)）。
 
 **解决方案**：
 1. 检查运行实例：
@@ -182,34 +184,31 @@ PermissionError: [Errno 13] Permission denied
 **原因**：工具执行超出沙箱限制
 
 **诊断步骤**：
-1. 检查沙箱配置：
-   ```bash
-   /config security
-   ```
-
+1. 查看路径与工作区配置：`/config paths`
 2. 查看默认工作区：
    ```bash
    python -c "from miniagent.security.sandbox import get_default_workspace; print(get_default_workspace())"
    ```
 
 **解决方案**：
-1. 检查路径是否在允许列表：
-   - 默认工作区：`{cwd}/workspaces/`
-   - 添加路径到 `allowed_paths`（见 `config.defaults.json`）
+1. 确认目标路径在会话工作区内：
+   - 默认工作区由 `paths.workspace` 或进程 `cwd` 决定（见 `get_default_workspace()`）
+   - 文件类工具通过 `ToolContext.allowed_paths` 校验，非 JSON 配置项
 
-2. 调整沙箱策略：
+2. 调整 `paths.workspace` 指向可写目录：
    ```json
    {
-     "security": {
-       "sandbox_enabled": false  // 关闭沙箱（仅开发环境）
+     "paths": {
+       "workspace": "/path/to/your/project"
      }
    }
    ```
 
+3. 命令执行白名单：在 `config.user.json` 的 `security.allowed_commands` 中配置（见 [SECURITY.md](SECURITY.md)）。
+
 **安全提醒**：
-- 生产环境必须启用沙箱
-- 只添加必要的路径到 `allowed_paths`
-- 避免添加系统关键路径
+- 勿将系统关键目录设为工作区
+- 生产环境保持默认沙箱策略
 
 ---
 
@@ -227,10 +226,11 @@ TimeoutError: Tool execution timeout after X seconds
    ```json
    {
      "agent": {
-       "tool_call_timeout": 60  // 默认 30 秒，增加到 60 秒
+       "tool_timeout": 120
      }
    }
    ```
+   默认 `agent.tool_timeout` 为 **60** 秒（见 `config.defaults.json`）。
 
 2. 检查工具实现：
    - 是否有网络延迟问题
@@ -286,8 +286,9 @@ TimeoutError: Tool execution timeout after X seconds
 
 4. 检查入站锁：
    ```bash
-   cat workspaces/feishu_inbound_owner.json
+   cat {paths.state_dir}/feishu_inbound_owner.json
    ```
+   `{paths.state_dir}` 默认为 `{miniagent}/workspaces/projects/{project_key}/`（见 [ENGINEERING.md](ENGINEERING.md) §3）。
 
 ---
 
@@ -331,10 +332,10 @@ TimeoutError: Tool execution timeout after X seconds
 ```bash
 /session list
 ls -lh {paths.state_dir}/sessions/*/history.json   # canonical 路径见 [ENGINEERING.md](ENGINEERING.md) §3
-ls -lh workspaces/memory/*.md
+ls -lh {paths.state_dir}/memory/*.md
 ```
 
-**快速处理**：`/session delete <旧会话ID>`；调整 `memory.history_tail_messages`；运行 `python scripts/cleanup_old_sessions.py --days 90`。详细配置见 [PERFORMANCE.md §B.1](PERFORMANCE.md#b1-内存优化)。
+**快速处理**：`/session delete <旧会话ID>`；调低 `memory.history_tail_messages`（默认 200）或 `memory.store_cache_max`。详细配置见 [PERFORMANCE.md §B.1](PERFORMANCE.md#b1-内存优化)。
 
 ---
 
@@ -349,7 +350,7 @@ ls -lh workspaces/memory/*.md
 ping api.openai.com
 ```
 
-**快速处理**：检查工具超时与模型选择；启用 `agent.streaming` 与 `agent.allow_parallel_tools`。详细配置见 [PERFORMANCE.md §B.2–B.3](PERFORMANCE.md#b2-执行优化)。
+**快速处理**：检查 `agent.tool_timeout` 与模型选择；确认 `agent.allow_parallel_tools` 为 `true`（默认已开）。详细配置见 [PERFORMANCE.md §B.2–B.3](PERFORMANCE.md#part-b--运行时调优)。
 
 ---
 
@@ -409,10 +410,10 @@ ping api.openai.com
    }
    ```
 
-4. 对齐定时任务时区：
-   ```bash
-   /schedule align-tz
-   ```
+4. 对齐遗留 UTC 定时任务时区：
+   - **CLI 无** `/schedule align-tz` 子命令
+   - 在 Agent 对话中让模型调用 `manage_scheduled_task` 工具的 `align_tz` action，或手动编辑 `{paths.state_dir}/scheduled_tasks/` 下任务 JSON
+   - 全局时区 SSOT：`MINIAGENT_TIMEZONE` / `TZ` 与 `timezone.default`（见 [CHANGELOG](../CHANGELOG.md)）
 
 ---
 
@@ -428,7 +429,7 @@ python -m miniagent
 
 **查看日志**：
 ```bash
-# Trace（默认启用时）：按日分片 NDJSON
+# Trace（默认 trace.output_dir=workspaces/logs，相对 miniagent 包根，与 {paths.state_dir} 不同）
 tail -f workspaces/logs/trace-$(date +%Y-%m-%d)-pid*.jsonl
 # 活动日志（Markdown，供自我优化分析）
 ls {paths.state_dir}/memory/*.md
@@ -436,10 +437,12 @@ ls {paths.state_dir}/memory/*.md
 ```
 
 **日志位置**：
-- `workspaces/logs/trace-YYYY-MM-DD-pid*.jsonl` — 全链路 Trace（详见 [ENGINEERING.md](ENGINEERING.md) §5）
-- `{paths.state_dir}/memory/YYYY-MM-DD.md` — 活动日志（Markdown）
+- `{trace.output_dir}/trace-YYYY-MM-DD-pid*.jsonl` — 全链路 Trace（默认 `workspaces/logs/`，见 [ENGINEERING.md §5](ENGINEERING.md#5-trace-系统全链路监控)）
+- `{paths.state_dir}/memory/YYYY-MM-DD.md`[^paths] — 活动日志（Markdown）
 - `agent.log_file`（可选）— 在 `config.user.json` 的 `agent` 节配置后写入 NDJSON（如 `logs/agent.jsonl`）
-- `{paths.state_dir}/sessions/*/history.json` — 会话历史（canonical 路径见 [ENGINEERING.md](ENGINEERING.md) §3）
+- `{paths.state_dir}/sessions/*/history.json` — 会话历史
+
+[^paths]: canonical 路径布局见 [ENGINEERING.md §3](ENGINEERING.md#3-状态目录与测试隔离)。
 
 ---
 
@@ -494,19 +497,19 @@ pytest -m perf --cov-report=term-missing
 
 ## 常见现象速查
 
-与 [USER_GUIDE.md §17 FAQ](USER_GUIDE.md#17-常见问题faq) 对齐；下列为深度排障入口。
+与 [USER_GUIDE.md §11 FAQ](USER_GUIDE.md#11-常见问题faq) 对齐；下列为深度排障入口。
 
 | 现象 | 排障章节 |
 |------|---------|
 | 启动报错 / 依赖缺失 | [启动问题](#启动问题) |
 | 配置 / API 密钥无效 | [配置问题](#配置问题) |
-| 实例冲突 / 无法启动 | [运行问题](#运行问题) · [ENGINEERING.md §3.3](ENGINEERING.md#33-多实例注册表) |
+| 实例冲突 / 无法启动 | [启动问题 §实例冲突](#实例冲突多实例运行) · [ENGINEERING.md §3.3](ENGINEERING.md#33-多实例注册表) |
 | 队列阻塞 / 卡住 | [运行问题](#运行问题) |
 | 沙箱 / 权限拒绝 | [SECURITY.md](SECURITY.md) |
 | 飞书无响应 | [飞书集成问题](#飞书集成问题) |
 | 内存 / 会话过多 | [PERFORMANCE.md Part B](PERFORMANCE.md#part-b--运行时调优) |
 | 响应缓慢 | [运行问题](#运行问题) · [PERFORMANCE.md Part B](PERFORMANCE.md#part-b--运行时调优) |
-| 时区 / 定时任务不准 | [配置问题](#配置问题) · `/schedule align-tz` |
+| 时区 / 定时任务不准 | [配置问题](#配置问题) · `manage_scheduled_task` 工具 `align_tz` |
 
 ---
 

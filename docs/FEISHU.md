@@ -329,7 +329,9 @@ UnifiedEngine.run_agent_with_thinking()
 
 ### 飞书与会话工作区文件（发附件）
 
-内置工具 `feishu_send_workspace_file` 的 `relative_path` 必须是**相对当前会话工作区根**的路径（与 `SessionManager` 为该会话分配的 `files_path` 一致，通常为 `…/sessions/<safe_id>/files/`）。飞书用户发到机器人的 file/image 经入站 `media_handler` 保存到 **`files/feishu_incoming/`** 下，发送时应使用该相对路径（例如 `files/feishu_incoming/报告_msgid.pdf`）。
+内置工具 `feishu_send_workspace_file` 的 `relative_path` 必须是**相对当前会话工作区根**的路径（与 `SessionManager` 为该会话分配的 `files_path` 一致，通常为 `{paths.state_dir}/sessions/<safe_id>/files/`[^paths]）。飞书用户发到机器人的 file/image 经入站 `media_handler` 保存到 **`files/feishu_incoming/`** 下，发送时应使用该相对路径（例如 `files/feishu_incoming/报告_msgid.pdf`）。
+
+[^paths]: canonical 路径布局见 [ENGINEERING.md §3](ENGINEERING.md#3-状态目录与测试隔离)。
 
 **不是**用户操作系统上的任意绝对路径。若需发送尚未在工作区内的内容，应先用会话内的文件读写工具写入 `files/` 后再调用发送工具。
 
@@ -342,7 +344,7 @@ UnifiedEngine.run_agent_with_thinking()
 | `group` | 独立会话，始终创建/使用 `feishu:<chat_id>` | `feishu:<chat_id>` |
 | `p2p` | 若尚未绑定，则自动 `bind(feishu_p2p:<sender>, active_session_id)`；已绑定则使用目标 session_key | 通常为当前 CLI 活跃会话 |
 
-**飞书入站独占**：同一 `paths.state_dir` 下通过 `workspaces/feishu_inbound_owner.json`（或 `paths.state_dir` 根目录下的 `feishu_inbound_owner.json`）保证**仅一个存活进程**可成功执行 `/feishu start` 并持有常驻重连任务。避免多开实例重复收消息。
+**飞书入站独占**：同一 `paths.state_dir` 下通过 **`{paths.state_dir}/feishu_inbound_owner.json`** 保证**仅一个存活进程**可成功执行 `/feishu start` 并持有常驻重连任务。避免多开实例重复收消息。
 
 **常驻与锁**：`FeishuRuntime` 在后台任务中循环调用 `start_feishu_poll_server`；单次 WebSocket 断线或启动失败会**指数退避后自动重连**，此期间**不释放入站锁**（其它进程仍无法抢占）。仅在执行 `/feishu stop`、任务被取消或进程退出路径上释放锁。
 
@@ -389,7 +391,7 @@ Windows 上可能出现 `OSError: [WinError 121]` 或日志 `receive message loo
 - **`feishu.media.silent_reply`**：同上真值时，落盘成功仍**不向飞书发送** `_send_reply`（CLI 镜像日志不受影响）。
 - 富文本 **`post`**：对 `content` JSON 递归收集 ``tag==img``（`image_key` / `image_token`）与 ``tag==media``（`file_key`），按顺序逐条调用 `media_handler`；**任一条失败**则整消息不入磁盘去重（与单条 file/image 一致）。`file` 消息的 `content` 同时兼容 `file_name` 与 `name` 字段。
 
-## 关键修复
+## 常见陷阱与约束
 
 ### receive_id 有效性
 
@@ -410,18 +412,7 @@ reply = await engine.run_agent_with_thinking(content, active_session_id, ...)
 
 ### chat_type 支持（私聊 vs 群聊）
 
-系统通过 **`FeishuInboundText.chat_type`**（或与媒体路径等价的元数据）区分飞书消息类型：
-
-| chat_type | 会话策略 | session_key 格式 | 参与绑定 |
-|-----------|----------|------------------|----------|
-| `group` | 始终独立会话 | `feishu:<chat_id>` | 否 |
-| `p2p` | 检查绑定映射 | `feishu_p2p:<sender_id>` | 是 |
-
-- **群聊**：每个群自动创建独立会话，多群完全隔离
-- **私聊**：首条消息自动绑定到当前 `active_session_id`；`/session switch` 后已跟随 sender 同步重绑
-- **绑定效果**：私聊消息使用绑定会话的上下文；CLI 终端实时打印预览（诊断见 `/status`）
-
-**Agent 配置字段**：`AgentConfig` 中的 **`feishu_root_id`** / **`feishu_parent_id`** / **`feishu_thread_id`** 对应入站事件的 `root_id` / `parent_id` / `thread_id`；其中 `feishu_root_id` 与历史方案里口头说的「reply_root / feishu_reply_root_id」语境一致（话题根消息 id）。
+与上文 [§chat_type 与入站结构体](#chat_type-与入站结构体) 一致：`group` 独立会话；`p2p` 可绑定 CLI 活跃会话。`AgentConfig` 中的 **`feishu_root_id`** / **`feishu_parent_id`** / **`feishu_thread_id`** 对应入站事件的 `root_id` / `parent_id` / `thread_id`。
 
 ### 已知限制与风险
 
@@ -495,86 +486,7 @@ Authorization: Bearer <tenant_access_token>
 
 ## 工具 API 参考
 
-### feishu_doc（飞书云文档聚合工具）
-
-单一工具，通过 `action` 参数执行 26 种操作。
-
-**基础操作**
-
-| Action | 参数 | 权限 |
-|--------|------|------|
-| `create` | `title`, `folder_token`(可选), `folder_share_url`(可选) | 需创建权限 |
-| `get` | `document_id` | 需访问权限 |
-| `read` | `document_id` | 需读取权限 |
-| `write` | `document_id`, `text`, `mode`(append/replace), `render_mode`(rich/plain) | 需编辑权限 |
-| `append` | `document_id`, `text`, `render_mode`(rich/plain) | 需编辑权限 |
-| `delete` | `document_id` | 需管理权限 |
-
-**渲染模式说明（render_mode）**
-
-| 模式 | 说明 | 适用场景 |
-|------|------|---------|
-| `rich`（默认） | Markdown 富文本渲染：标题、粗体、列表、代码块、表格等 | 大多数场景，需要格式化内容 |
-| `plain` | 纯文本模式：仅移除 `#`、`>` 等标记 | 向后兼容、简单文本追加 |
-
-支持的 Markdown 元素（`render_mode=rich`）：
-- 块级：标题（#~######）、段落、列表（有序/无序）、代码块（带语言标记）、引用、表格、分隔线
-- 内联：粗体（`**text**`）、斜体（`*text*`）、删除线（`~~text~~`）、链接（`[text](url)`）、内联代码（`` `code` ``）
-
-**Block 操作**
-
-| Action | 参数 | 权限 |
-|--------|------|------|
-| `list_blocks` | `document_id` | 需读取权限 |
-| `get_block` | `document_id`, `block_id` | 需读取权限 |
-| `update_block` | `document_id`, `block_id`, `text` | 需编辑权限 |
-| `delete_block` | `document_id`, `block_id` | 需编辑权限 |
-| `batch_update` | `document_id`, `operations`(JSON 数组) | 需编辑权限 |
-
-**导入/导出**
-
-| Action | 参数 | 权限 |
-|--------|------|------|
-| `export_raw` | `document_id` | 需导出权限 |
-| `import_raw` | `document_id`, `raw_content` | 需编辑权限 |
-
-**表格操作**
-
-| Action | 参数 | 权限 |
-|--------|------|------|
-| `create_table` | `document_id`, `rows`, `cols` | 需编辑权限 |
-| `write_table_cells` | `document_id`, `table_block_id`, `cells` | 需编辑权限 |
-| `create_table_with_values` | `document_id`, `headers`, `rows` | 需编辑权限 |
-
-**媒体操作**
-
-| Action | 参数 | 权限 |
-|--------|------|------|
-| `upload_image` | `document_id`, `image_path` | 需编辑权限 |
-| `upload_file` | `document_id`, `file_path` | 需编辑权限 |
-| `download_media` | `document_id`, `media_token` | 需读取权限 |
-| `upload_image_from_message` | `document_id` | 需编辑权限 |
-
-**云盘操作**
-
-| Action | 参数 | 权限 |
-|--------|------|------|
-| `copy` | `document_id`, `target_folder_token` | 需源读取+目标编辑权限 |
-| `move` | `document_id`, `target_folder_token` | 需源管理+目标编辑权限 |
-
-**协作者管理**
-
-| Action | 参数 | 权限 |
-|--------|------|------|
-| `list_permissions` | `document_id` | 需管理权限 |
-| `add_permission` | `document_id`, `member_type`, `member_id`, `permission` | 需管理权限 |
-| `remove_permission` | `document_id`, `member_type`, `member_id` | 需管理权限 |
-
-**搜索**
-
-| Action | 参数 | 权限 |
-|--------|------|------|
-| `search` | `query` | 需 `secrets.feishu_user_access_token` |
+`feishu_doc` 的 **action 列表与 Markdown 渲染**见上文 [`feishu_doc` action 一览](#feishu_doc-action-一览) 与 [§Markdown 写入与渲染说明](#markdown-写入与渲染说明)。本节仅保留多维表格与独立 IM 工具的参数表。
 
 ### feishu_bitable（飞书多维表格聚合工具）
 

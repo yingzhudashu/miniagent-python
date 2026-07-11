@@ -277,10 +277,10 @@ from miniagent.core.prompts import AGENT_IDENTITY, PLAN_SYSTEM_PROMPT
 
 ### 5.2 功能测试
 
-运行现有测试确保向后兼容：
+运行现有测试确保向后兼容（命令见 [INDEX.md §测试与质量](INDEX.md#测试与质量)）：
 
 ```bash
-pytest tests/ -v
+python -m pytest tests/test_prompts_structure.py -v
 ```
 
 ---

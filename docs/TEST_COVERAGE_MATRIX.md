@@ -189,18 +189,15 @@
 | 类别 | 说明 |
 |------|------|
 | **测试数量** | 以 `pytest tests/ --collect-only -q` 收集结果为准（勿硬编码） |
-| **覆盖率目标** | 核心模块 ≥95%；整体 ≥80%（见 CI `pytest-cov` 报告） |
+| **覆盖率目标** | 见 [INDEX.md](INDEX.md) §测试与质量 |
 
-```bash
-pytest tests/ --collect-only -q
-pytest tests/ -q -m "not evaluation" --cov=miniagent --cov-report=term-missing
-```
+收集与覆盖率命令以 [INDEX.md](INDEX.md) §测试与质量 为准（勿在多处硬编码 pytest 块）。
 
 ---
 
 ## 维护说明
 
-本矩阵只记录当前仓库真实存在的测试文件与主要覆盖关系，不保留某次重构过程中的“新增/合并”流水账。删除、重命名或合并测试文件时，应同步更新本页。
+本矩阵只记录当前仓库真实存在的测试文件与主要覆盖关系，不保留某次重构过程中的“新增/合并”流水账。**新增、重命名或合并 `tests/test_*.py` 时须同步更新本页。** 删除测试文件时同样更新。
 
 覆盖状态是人工维护的质量索引，不替代实时覆盖率报告。需要精确覆盖率时，以 `pytest --cov=miniagent` 输出为准。
 
@@ -208,14 +205,9 @@ pytest tests/ -q -m "not evaluation" --cov=miniagent --cov-report=term-missing
 
 ## 运行测试
 
+与 CI 一致的通用命令见 [INDEX.md](INDEX.md) §测试与质量。以下为**按模块回归**示例子集：
+
 ```bash
-# 快速测试（排除 evaluation）
-pytest tests/ -q -m "not evaluation"
-
-# 覆盖率报告
-pytest tests/ -q -m "not evaluation" \
-  --cov=miniagent --cov-report=html --cov-report=term-missing
-
 # 重点子集示例
 pytest tests/test_engine_engine.py tests/test_command_dispatch.py \
   tests/test_feishu_ws_client.py tests/test_tools_exec.py -v

@@ -14,16 +14,18 @@
 | 版本号 | `miniagent/__init__.py` 中 `__version__` | `pyproject.toml` 通过 `dynamic.version` 读取；发版时与 `CHANGELOG.md`、本文档顶部标语一并更新。 |
 | 依赖声明 | `pyproject.toml` `[project]` / `optional-dependencies` | 不使用根目录 `requirements.txt`；运行时依赖与可选组（`dev`（含 `pytest-cov`）、`feishu`、`browser`、`mcp`、`cli`、`typing`（`mypy` 试点））集中在此。 |
 | 配置说明 | [`config.defaults.json`](../config.defaults.json) + `config.user.json` | 复制 defaults 为 user 后本地填写；`_config_guide` 标明 User/Advanced 分层；**勿提交含真实密钥的 user 文件**（见 `.gitignore`）。 |
-| 用户安装与首次配置 | [USER_GUIDE.md](USER_GUIDE.md) §3–5 | README / DEPLOYMENT 仅保留快速指针，不重复安装长文。 |
+| 用户安装与首次配置 | [README.md](../README.md) §安装、§配置、§快速入门 | USER_GUIDE / DEPLOYMENT 仅保留专题指针，不重复安装长文。 |
 | 通道绑定（CLI↔飞书） | [FEISHU.md](FEISHU.md) §通道绑定 | ARCHITECTURE §2b、USER_GUIDE、CLI 仅保留摘要 + 链接。 |
 | 多实例注册表 | 本文 §3.3 | DEPLOYMENT / USER_GUIDE / CLI 只写 `--stop` 用法与 PID 语义摘要。 |
-| 定时任务配置 | `config.defaults.json` + [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」 | 用户面向摘要见 [USER_GUIDE.md](USER_GUIDE.md) §9；命令语法见 [CLI.md](CLI.md) §/schedule |
+| 定时任务配置 | `config.defaults.json` + [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」 | 用户面向摘要见 [USER_GUIDE.md](USER_GUIDE.md) §3；命令语法见 [CLI.md](CLI.md) §/schedule |
 | 自我优化（操作） | [SELF_OPT.md](SELF_OPT.md) | `self_optimization` 配置节；提案与 `/self-opt` 命令。 |
 | Trace 系统（实现） | 本文 §5 | 事件 schema、writer、stats API；SELF_OPT 只链到此处。 |
 | 输出格式与渲染 | [OUTPUT_FORMAT.md](OUTPUT_FORMAT.md) | CLI TUI / 流式 / 飞书卡片间距；CLI.md 侧重命令交互。 |
 | 提示词编写 | [PROMPT_GUIDELINES.md](PROMPT_GUIDELINES.md) | ARCHITECTURE §提示词模块只列文件表 + 链接。 |
 | 环境变量分类 | 本文 §1.2 | 运维/调试类 env；用户面向配置以 JSON 为准。 |
-| 架构与行为细节 | `docs/ARCHITECTURE.md` 及各专题文档 | README 只做索引与快速上手；深度说明以 `docs/` 为准。 |
+| 知识库 / RAG | [KNOWLEDGE_BASE.md](KNOWLEDGE_BASE.md) | 挂载、检索、各阶段 RAG 集成；CLI `/kb` 仅保留命令示例。 |
+| 安全模型 | [SECURITY.md](SECURITY.md) | 沙箱、命令执行、多实例锁、飞书凭证；多实例注册表细节见本文 §3.3。 |
+| 架构与行为细节 | [README.md](../README.md) §架构概览 + `docs/ARCHITECTURE.md` 及各专题文档 | README 为架构概览 SSOT；各层细节以 ARCHITECTURE 为准。 |
 
 飞书媒体与出站（JSON 键见 [`config.defaults.json`](../config.defaults.json) `feishu` 节；完整说明见 [FEISHU.md](FEISHU.md)）：
 
@@ -46,7 +48,7 @@
 
 | 层级 | 含义 | 文档位置 | 用户是否需了解 |
 |------|------|----------|----------------|
-| **User-facing** | 模型、凭据、路径、渠道行为、功能开关 | [USER_GUIDE.md](USER_GUIDE.md) §5、`config.defaults.json` 顶部 User 层节 | 是 |
+| **User-facing** | 模型、凭据、路径、渠道行为、功能开关 | [README.md](../README.md) §配置、`config.defaults.json` 顶部 User 层节 | 是 |
 | **Advanced / Operator** | 超时、并发、记忆容量、飞书运维、Trace 保留 | 本文 §5、 [DEPLOYMENT.md](DEPLOYMENT.md)、各专题文档 | 按需 |
 | **Internal** | 第三方 API 端点、节流毫秒、渲染边距、算法阈值 | 代码常量或 defaults 中的 dev 默认；**不**写入 user 示例 | 否 |
 
@@ -98,7 +100,7 @@ CI 说明：
 - **compileall**：全包语法编译，可捕获部分「仅某测试未覆盖路径」的语法错误。
 - **mypy（试点）**：`python -m mypy miniagent/types`；与 `test` CI job 一致，需安装 `.[dev,typing]`。
 - **Pytest**：默认 `asyncio_mode = auto`；`tests/evaluation/` 下用例由 `conftest` 统一打上 `evaluation` marker，与主 CI 隔离；本地若要一次跑全量可执行 `python -m pytest tests/ -q`（含评测）。未装 `lark-oapi` 时部分飞书路径可能跳过；本地可改用 `pip install -e ".[dev,feishu]"` 与 CI 飞书 job 对齐。
-- **覆盖率（可选）**：`pip install -e ".[dev]"` 已包含 `pytest-cov`；本地示例：`python -m pytest tests/ -q -m "not evaluation" --cov=miniagent --cov-report=term-missing`。**默认 CI 不启用** `--cov`，以免拖慢矩阵；团队发版前可自选执行。
+- **覆盖率（可选）**：见 [INDEX.md](INDEX.md) §测试与质量（本地 `pytest --cov`；**默认 CI 不启用** `--cov`）。
 
 可选增强（未默认纳入 CI，团队可自行约定）：
 
@@ -128,7 +130,7 @@ CI 说明：
 - **启动时**：`python -m miniagent` 入口会将 `MINIAGENT_PROJECT_DIR` 设为启动时 cwd，并在未显式设置时写入 `MINIAGENT_PATHS_STATE_DIR`（项目 workspace 根，位于共用 `workspaces/projects/{project_key}/`）。
 - **Legacy 回退**：若 `{cwd}/workspaces/` 或（cwd 为 miniagent 源码根时）`{registry}/` 已有 `sessions/` 或 `channel-router.json`，仍使用旧路径直至手动迁移。
 - **推荐**：测试或并行部署时用 `MINIAGENT_PATHS_STATE_DIR` 将项目数据迁出仓库；注册表不受该变量影响（测试可用 `MINIAGENT_REGISTRY_STATE_DIR` 覆盖）。
-- **一目录一实例**：同一 `project_dir`（cwd）仅允许一个存活 Agent；冲突时启动失败并提示 `--stop`。不同 cwd 可并行，各自独立 workspace。
+- **一目录一实例**：见 §3.3。
 - 部分路径见 `.gitignore`，如 `workspaces/sessions/`（即 `{paths.state_dir}/sessions/` 的简写）、`**/*.lock`。
 
 ### 3.1 `workspaces/` 与 Git 跟踪政策
@@ -182,7 +184,7 @@ python -m miniagent --stop --all    # 停止全部
 
 **`--stop --state-dir`**：参数指向**实例注册表根**（含 `instances/` 子目录），默认 `{miniagent}/workspaces`；**不是**项目会话数据目录（`projects/<key>/`）。当 canonical 注册表与 legacy `{cwd}/workspaces/instances/` 同时存在且实例 ID 冲突时，需用此参数指定要操作哪一个注册表根。
 
-**会话互斥**：每个会话工作空间 `.lock` 文件（PID）防止多实例抢同一 session；定时任务调度锁见 `scheduled_tasks/*.lock`（详见 [SECURITY.md](SECURITY.md) §3）。
+**会话互斥**：每个会话工作空间 `.lock` 文件（PID）防止多实例抢同一 session；定时任务调度锁见 `scheduled_tasks/*.lock`（详见 [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」）。
 
 **测试隔离**：`reset_instance_registry_for_tests()` 与 `conftest` fixture 用于重置进程级注册表单例。
 
@@ -192,7 +194,7 @@ python -m miniagent --stop --all    # 停止全部
 
 自我优化基于 Trace 运行指标与代码静态分析生成提案；**配置项、阈值、CLI/API 与操作步骤**见 **[SELF_OPT.md](SELF_OPT.md)**（SSOT）。本节仅保留工程侧要点：
 
-- 提案与报告默认写入 `workspaces/self_opt/`（或 `self_optimization.proposal_output_dir`），**不入库**（见 §3.1）。
+- 提案与报告默认写入 `workspaces/self_opt/`（或 `self_optimization.proposal_output_dir`；相对 miniagent 包根，**不在** `{paths.state_dir}` 下），**不入库**（见 §3.1）。
 - 运行分析依赖 Trace（§5）；`self_optimization.runtime_analysis_enabled` 为真时需 `trace.enabled: true`。
 - 默认 `auto_apply: false`，仅生成提案；自动执行与风险上限见 SELF_OPT §配置。
 

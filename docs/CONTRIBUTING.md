@@ -16,13 +16,13 @@
 
 ## 项目架构
 
-**17 个核心子包**（含可选 `mcp/`）的完整目录树与各包职责见 **[INDEX.md §项目结构](INDEX.md#项目结构)**。逻辑分层（12 功能层）见 [ARCHITECTURE.md](ARCHITECTURE.md)。
+**17 个核心子包**（含可选 `mcp/`）的完整目录树见 **[README.md §项目结构](../README.md#项目结构)**。逻辑分层（12 功能层）见 [README.md §架构概览](../README.md#架构概览) 与 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
 **版本号**：以 `miniagent.__version__`（`miniagent/__init__.py`）为权威；`pyproject.toml` 通过 `tool.setuptools.dynamic` 读取该属性。
 
 ## 开发环境设置
 
-克隆、虚拟环境与 `config.user.json` 的通用步骤见 **[USER_GUIDE.md](USER_GUIDE.md) §3** 与 **§5**；Python 版本与可选 pip extra 见 **[DEPLOYMENT.md](DEPLOYMENT.md) §环境要求**。
+克隆、虚拟环境与 `config.user.json` 的通用步骤见 **[README.md](../README.md) §安装** 与 **§配置**；Python 版本与可选 pip extra 见 **[DEPLOYMENT.md](DEPLOYMENT.md) §环境要求**。
 
 ```bash
 pip install -e ".[dev,typing]"   # 与默认 CI test job 一致
@@ -131,20 +131,12 @@ print("飞书连接已建立")
 
 ## 测试
 
-### 运行测试
+与 CI 一致的 pytest / 覆盖率命令见 **[INDEX.md §测试与质量](INDEX.md#测试与质量)**。以下为开发常用变体（`-x` 快速失败、单模块、`-k` 匹配）：
 
 ```bash
-# 全部测试
-python -m pytest tests/ -v
-
-# 快速模式
-python -m pytest tests/ -x -q
-
-# 单个模块
-python -m pytest tests/test_session.py -v
-
-# 匹配名称
-python -m pytest tests/ -k "test_register"
+python -m pytest tests/ -x -q                              # 快速模式
+python -m pytest tests/test_session.py -v                # 单个模块
+python -m pytest tests/ -k "test_register"               # 匹配名称
 ```
 
 ### 测试文件命名
@@ -309,7 +301,7 @@ refactor: 拆分 unified.py 为 engine/ 包
 
 1. 更新 `CHANGELOG.md`
 2. 更新 `miniagent/__init__.py` 中的 `__version__`
-3. 运行全量测试 `python -m pytest tests/ -v`
+3. 运行全量测试（见 [INDEX.md §测试与质量](INDEX.md#测试与质量)）
 4. 提交并打 tag
 
 ## 软件工程实践（仓库卫生）
@@ -319,17 +311,19 @@ refactor: 拆分 unified.py 为 engine/ 包
 ### 文档与版本对齐清单（发版或大范围文档改动时）
 
 1. ``miniagent/__init__.py`` 中 ``__version__`` 已与 ``CHANGELOG``、主要 ``docs/*.md`` 顶部版本标语一致。
-2. ``docs/INDEX.md`` 中目录树与实际仓库一致（已移除的文件勿再列出）。
+2. ``README.md`` 中项目结构与实际仓库一致（已移除的文件勿再列出）。
 3. 涉及行为变更时同步 ``ARCHITECTURE.md`` / 专题文档（如多实例注册表见 [ENGINEERING.md](ENGINEERING.md) §3.3）。
 4. ``README.md`` 中的命令、测试数量与 CI 保持可验证（测试数以 ``pytest --collect-only`` 为准）。
 
 ### 文档写作约定
 
-- **页眉**：``> Mini Agent Python | 版本: x.y.z | 最后更新: YYYY-MM-DD | 与 miniagent.__version__ 对齐``；**仅** [INDEX.md](INDEX.md) 与 [USER_GUIDE.md](USER_GUIDE.md) 追加「未发版行为见 CHANGELOG `[Unreleased]`」注记，其余专题文档不必重复。
+- **页眉**：``> Mini Agent Python | 版本: x.y.z | 最后更新: YYYY-MM-DD | 与 miniagent.__version__ 对齐``；**仅** [INDEX.md](INDEX.md) 与 [USER_GUIDE.md](USER_GUIDE.md) 追加「未发版行为见 CHANGELOG `[Unreleased]`」注记；[README.md](../README.md) §配置 的升级迁移提示除外。
 - **SSOT**：同一主题只在一处写全；卫星文档用 1–3 句摘要 + 链接。对照表见 [ENGINEERING.md §1](ENGINEERING.md#1-单一事实来源single-source-of-truth) 与 [INDEX.md §SSOT 速查](INDEX.md#ssot-速查单一事实来源)。
 - **交叉引用**：优先 ``[文档名](路径) §节号`` 或 markdown 锚点（如 ``[FEISHU.md §通道绑定](FEISHU.md#通道绑定)``）；深度专题用 Part/§，用户指南用章号。
 - **路径术语**：首次出现 ``{paths.state_dir}/sessions/`` 等简写时，脚注「canonical 路径见 [ENGINEERING.md §3](ENGINEERING.md#3-状态目录与测试隔离)」。
 - **代码示例**：与用户配置相关时以 ``config.user.json`` 为准；勿文档化代码库中不存在的错误码或 env 变量。
+- **风格例外**：[PROMPT_GUIDELINES.md](PROMPT_GUIDELINES.md) 使用「一、二、三」中文序号；[TROUBLESHOOTING.md](TROUBLESHOOTING.md) 小节标题可用 ❌/⚠️/🔧 前缀便于扫描。
+- **pytest 命令**：完整收集/覆盖率命令以 [INDEX.md](INDEX.md) §测试与质量 为 SSOT；其它文档一句 + 链接即可。
 
 ---
 
