@@ -14,7 +14,8 @@ def test_confirmation_stage_enum_values():
     """测试确认阶段枚举值正确性。"""
     assert ConfirmationStage.CLARIFICATION.value == "clarification"
     assert ConfirmationStage.PLAN.value == "plan"
-    assert len(ConfirmationStage) == 2
+    assert ConfirmationStage.TOOL.value == "tool"
+    assert len(ConfirmationStage) == 3
 
 
 def test_confirmation_request_creation():

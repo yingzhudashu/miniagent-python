@@ -16,13 +16,13 @@ from miniagent.memory.memory_context_service import (
     create_default_memory_context,
 )
 from miniagent.memory.store import DefaultMemoryStore
+from miniagent.types.config import AgentConfig
 from miniagent.types.memory_context import (
     MemoryContextProtocol,
     MemoryHistoryProtocol,
     MemoryInjectionResult,
     MemorySearchProtocol,
 )
-from miniagent.types.config import AgentConfig
 
 
 @pytest.fixture

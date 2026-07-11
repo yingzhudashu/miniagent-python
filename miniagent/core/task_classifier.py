@@ -11,6 +11,8 @@ from typing import Any
 
 from miniagent.core._openai_compat import (
     ensure_json_object_user_message,
+)
+from miniagent.core._openai_compat import (
     json_object_unsupported as _json_object_unsupported,
 )
 from miniagent.core.llm_json import parse_llm_json_response

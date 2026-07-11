@@ -15,6 +15,7 @@ from miniagent.core.agent import (
 )
 from miniagent.core.task_classifier import TaskDifficulty
 from miniagent.infrastructure.registry import DefaultToolRegistry
+from miniagent.types.confirmation import ConfirmationResult
 from miniagent.types.planning import PlanStep, StructuredPlan
 from miniagent.types.tool import Toolbox
 from tests.config_helpers import install_test_config

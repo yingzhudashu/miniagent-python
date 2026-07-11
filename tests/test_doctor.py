@@ -7,8 +7,6 @@ import subprocess
 import sys
 from unittest.mock import patch
 
-import pytest
-
 from miniagent.engine.doctor import (
     _format_masked_secret,
     _resolve_api_key,

@@ -19,15 +19,17 @@ class TestConfirmationStage:
         """测试枚举值"""
         assert ConfirmationStage.CLARIFICATION.value == "clarification"
         assert ConfirmationStage.PLAN.value == "plan"
+        assert ConfirmationStage.TOOL.value == "tool"
 
     def test_confirmation_stage_membership(self):
         """测试枚举成员"""
         assert ConfirmationStage.CLARIFICATION in ConfirmationStage
         assert ConfirmationStage.PLAN in ConfirmationStage
+        assert ConfirmationStage.TOOL in ConfirmationStage
 
     def test_confirmation_stage_count(self):
         """测试枚举成员数量"""
-        assert len(ConfirmationStage) == 2
+        assert len(ConfirmationStage) == 3
 
     def test_confirmation_stage_comparison(self):
         """测试枚举比较"""

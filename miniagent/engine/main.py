@@ -25,7 +25,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import re
@@ -822,8 +821,14 @@ async def run_cli_loop(
 
     from miniagent.engine.cli_transcript import (
         is_valid_pt_style as _is_valid_pt_style,
+    )
+    from miniagent.engine.cli_transcript import (
         markdown_render_width as _markdown_render_width_for_vp,
+    )
+    from miniagent.engine.cli_transcript import (
         rule_line_width as _rule_line_width_for_vp,
+    )
+    from miniagent.engine.cli_transcript import (
         safe_ansi_fragments as _safe_ansi,
     )
 

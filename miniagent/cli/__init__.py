@@ -7,12 +7,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 __all__ = ["main"]
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
 
 
 def __getattr__(name: str) -> object:

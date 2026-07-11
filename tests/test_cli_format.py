@@ -5,8 +5,6 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import patch
 
-import pytest
-
 from miniagent.engine.cli_format import (
     format_cli_reply_block,
     format_cli_user_block,

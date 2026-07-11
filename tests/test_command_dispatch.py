@@ -16,7 +16,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.types.error_prefix import WARNING_PREFIX
 from miniagent.engine.command_dispatch import (
     _REGISTERED_COMMANDS,
     _find_command_by_prefix,
@@ -25,6 +24,7 @@ from miniagent.engine.command_dispatch import (
     _normalize_command_text,
     dispatch_command,
 )
+from miniagent.types.error_prefix import WARNING_PREFIX
 
 # ============================================================================
 # Helper Functions

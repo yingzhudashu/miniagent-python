@@ -22,7 +22,6 @@
 """
 
 from miniagent.feishu.types import FeishuConfig, FeishuInboundText, FeishuMessageEvent, FeishuReply
-from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
 from miniagent.types.agent import (
     AgentRunOptions,
     AgentRunResult,
@@ -46,6 +45,7 @@ from miniagent.types.confirmation import (
     ConfirmationStage,
     PlanConfirmationAction,
 )
+from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
 from miniagent.types.errors import (
     FeishuConfigMissingError,
     LarkOapiMissingError,
@@ -137,6 +137,7 @@ __all__ = [
     "AgentConfig",
     # memory
     "FileMetadata",
+    "GroundTruthFact",
     "MemoryEntry",
     "MemoryEntryInput",
     "SessionMemory",

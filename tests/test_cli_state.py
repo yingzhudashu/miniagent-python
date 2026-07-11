@@ -29,12 +29,21 @@ def _forward_name(value: object) -> str:
     return str(value)
 
 
+_EXPECTED_OPTIONAL_KEYS = frozenset(
+    {
+        "last_feishu_receive_chat_id",
+        "cli_render_width",
+        "cli_markdown_width",
+    }
+)
+
+
 class TestCliLoopStateShape:
     """CliLoopState keys align with runtime helpers and annotations."""
 
     def test_required_and_optional_keys(self):
         assert CliLoopState.__required_keys__ == _EXPECTED_REQUIRED_KEYS
-        assert CliLoopState.__optional_keys__ == frozenset({"last_feishu_receive_chat_id"})
+        assert CliLoopState.__optional_keys__ == _EXPECTED_OPTIONAL_KEYS
 
     def test_minimal_cli_state_has_all_required_keys(self):
         ctx = minimal_tick_ctx()
@@ -52,6 +61,8 @@ class TestCliLoopStateShape:
         assert _forward_name(ann["runtime_ctx"]) == "RuntimeContext"
         assert _forward_name(ann["session_manager"]) == "SessionManagerProtocol | None"
         assert _forward_name(ann["last_feishu_receive_chat_id"]) == "str"
+        assert _forward_name(ann["cli_render_width"]) == "object"
+        assert _forward_name(ann["cli_markdown_width"]) == "object"
 
     def test_optional_last_feishu_chat_id_roundtrip(self):
         ctx = minimal_tick_ctx()

@@ -7,13 +7,13 @@ from pathlib import Path
 
 import pytest
 
+from miniagent.infrastructure.paths import resolve_state_dir
 from miniagent.memory.history_archive import diary_file_path
 from miniagent.memory.layered_memory import (
     append_session_day_rollup,
     promote_to_agent_longterm,
 )
 from miniagent.memory.memory_pipeline import build_layered_memory_augmentation
-from miniagent.infrastructure.paths import resolve_state_dir
 from tests.config_helpers import install_test_config
 
 

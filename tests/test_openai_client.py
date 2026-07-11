@@ -5,9 +5,13 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+if TYPE_CHECKING:
+    from miniagent.runtime.context import RuntimeContext
 
 from miniagent.core.openai_client import (
     get_shared_async_openai,
@@ -18,7 +22,7 @@ from miniagent.core.openai_client import (
 from tests.config_helpers import install_test_config
 
 
-def _minimal_ctx() -> "RuntimeContext":
+def _minimal_ctx() -> RuntimeContext:
     from unittest.mock import MagicMock
 
     from miniagent.runtime.context import RuntimeContext

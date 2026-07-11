@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
-
 import pytest
 
 from miniagent.core.agent import run_pipeline

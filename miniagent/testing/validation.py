@@ -9,13 +9,12 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from miniagent.types.error_prefix import ERROR_PREFIX, WARNING_PREFIX
-
 from miniagent.testing.types import (
     VALID_ACTIONS,
     VALID_CATEGORIES,
     SampleSpec,
 )
+from miniagent.types.error_prefix import ERROR_PREFIX, WARNING_PREFIX
 
 _OUTPUT_FLAGS = re.DOTALL
 

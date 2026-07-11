@@ -24,10 +24,10 @@ from collections.abc import Awaitable, Callable
 from typing import Any, Protocol, runtime_checkable
 
 from miniagent.types.agent import ToolMonitorProtocol
+from miniagent.types.confirmation import ConfirmationResult
 
 # 从其他模块再导出 Protocol，便于统一导入
 from miniagent.types.memory import MemoryStoreProtocol, SessionManagerProtocol
-from miniagent.types.confirmation import ConfirmationResult
 from miniagent.types.planning import StructuredPlan
 from miniagent.types.tool import ToolRegistryProtocol
 

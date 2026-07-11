@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -153,7 +152,10 @@ class TestLoopDetection:
             }
         ] * 6
         loops = _detect_loop_patterns(events)
-        assert any(l["type"] == "repeated_tool" and l["tool"] == "read_file" for l in loops)
+        assert any(
+            entry["type"] == "repeated_tool" and entry["tool"] == "read_file"
+            for entry in loops
+        )
 
     def test_detect_ping_pong(self) -> None:
         tools = ["read_file", "write_file"] * 3
@@ -161,7 +163,7 @@ class TestLoopDetection:
             {"type": EVENT_TOOL_END, "session_key": "s1", "tool": t} for t in tools
         ]
         loops = _detect_loop_patterns(events)
-        assert any(l["type"] == "ping_pong" for l in loops)
+        assert any(entry["type"] == "ping_pong" for entry in loops)
 
 
 class TestHistoryIndex:

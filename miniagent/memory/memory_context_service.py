@@ -28,7 +28,6 @@ from miniagent.memory.store import (
 from miniagent.types.config import AgentConfig
 from miniagent.types.memory import MemoryEntryInput, MemoryStoreProtocol
 from miniagent.types.memory_context import (
-    MemoryHistoryProtocol,
     MemoryInjectionResult,
     MemorySearchProtocol,
 )
@@ -201,7 +200,6 @@ class DefaultMemoryContext:
 
             query = (user_input or "").strip()
             if query:
-                ki = keyword_index or self._keyword_index
                 search = self._memory_search
                 if keyword_index is not None and keyword_index is not self._keyword_index:
                     search = DefaultMemorySearch(keyword_index, self._memory_store)

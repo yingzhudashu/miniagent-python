@@ -16,7 +16,6 @@ import zipfile
 from pathlib import Path
 
 from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX
-
 from scripts.quick_validate import validate_skill
 
 # Patterns to exclude when packaging skills.

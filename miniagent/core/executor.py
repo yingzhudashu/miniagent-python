@@ -35,12 +35,6 @@ from typing import Any, TypeAlias
 from openai import AsyncOpenAI
 
 from miniagent.core.config import get_default_agent_config, get_default_model_config
-from miniagent.core.plan_utils import (
-    format_output_spec_block,
-    resolve_chunk_compress_threshold,
-    resolve_effective_overflow_strategy,
-    resolve_execution_step_groups,
-)
 from miniagent.core.constants import (
     EXECUTION_CALLBACK_MIN_CHARS,
     EXECUTION_CALLBACK_MIN_INTERVAL_MS,
@@ -55,6 +49,12 @@ from miniagent.core.constants import (
 from miniagent.core.llm_params import resolve_exec_completion_kwargs
 from miniagent.core.openai_client import get_shared_async_openai
 from miniagent.core.openai_message_sanitize import strip_leading_underscore_keys_from_messages
+from miniagent.core.plan_utils import (
+    format_output_spec_block,
+    resolve_chunk_compress_threshold,
+    resolve_effective_overflow_strategy,
+    resolve_execution_step_groups,
+)
 from miniagent.core.prompts.identity import AGENT_IDENTITY
 from miniagent.core.thinking_callback import invoke_on_thinking
 from miniagent.core.thinking_presets import map_business_depth
@@ -69,7 +69,6 @@ from miniagent.infrastructure.tracing import emit_trace
 from miniagent.memory.context import ContextBudgetExceeded, DefaultContextManager
 from miniagent.memory.defaults import resolve_memory_context, resolve_memory_dependencies
 from miniagent.memory.history_bridge import conversation_history_for_llm
-from miniagent.types.memory_context import MemoryContextProtocol
 from miniagent.security.sandbox import get_default_workspace
 from miniagent.types.agent import LoopDetectionConfig, ToolMonitorProtocol
 from miniagent.types.config import AgentConfig
@@ -80,6 +79,7 @@ from miniagent.types.errors import (
     SandboxViolationError,
 )
 from miniagent.types.memory import MemoryStoreProtocol
+from miniagent.types.memory_context import MemoryContextProtocol
 from miniagent.types.planning import PlanStep, StructuredPlan
 from miniagent.types.protocols import (
     ActivityLogProtocol,
@@ -88,7 +88,7 @@ from miniagent.types.protocols import (
     OnToolFinishCallback,
 )
 from miniagent.types.skill import ClawHubClientProtocol
-from miniagent.types.tool import ToolContext, ToolRegistryProtocol, ToolPermission, ToolResult
+from miniagent.types.tool import ToolContext, ToolPermission, ToolRegistryProtocol, ToolResult
 
 # ── 性能优化：工具意图映射改为模块级常量，避免每次调用重建 ──
 _TOOL_INTENT_MAP: dict[str, str] = {

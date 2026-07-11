@@ -17,8 +17,8 @@ from miniagent.scheduled_tasks.feishu_delivery import (
     send_scheduled_reply_to_feishu,
 )
 from miniagent.scheduled_tasks.models import ScheduledTask
-from miniagent.types.error_prefix import ERROR_PREFIX
 from miniagent.scheduled_tasks.resolve import resolve_execution_target, should_run_feishu
+from miniagent.types.error_prefix import ERROR_PREFIX
 
 _logger = get_logger(__name__)
 

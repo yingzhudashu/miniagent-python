@@ -296,7 +296,10 @@ class BackgroundTaskManager:
                         self._running_count -= 1
             await cleanup_background_session_artifacts(
                 task.session_key,
-                **runtime_deps,
+                session_manager=runtime_deps["session_manager"],
+                memory_store=runtime_deps["memory_store"],
+                activity_log=runtime_deps["activity_log"],
+                keyword_index=runtime_deps["keyword_index"],
             )
 
     def get_status(self, task_id: str) -> dict[str, Any] | None:

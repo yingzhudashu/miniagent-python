@@ -21,7 +21,11 @@ from miniagent.infrastructure.feishu_inbound_lock import (
     release_feishu_inbound_owner,
     try_acquire_feishu_inbound_owner,
 )
-from miniagent.infrastructure.metrics import PerformanceMetrics, get_global_metrics, reset_global_metrics
+from miniagent.infrastructure.metrics import (
+    PerformanceMetrics,
+    get_global_metrics,
+    reset_global_metrics,
+)
 from miniagent.infrastructure.monitor import DefaultToolMonitor
 from miniagent.infrastructure.perf_cache import (
     cached_json_serialize,

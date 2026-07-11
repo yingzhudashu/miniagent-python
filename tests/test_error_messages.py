@@ -10,7 +10,6 @@ from miniagent.types import error_messages as error_messages_module
 from miniagent.types.error_messages import (
     COMMAND_BLOCKED_DANGER,
     FILE_NOT_FOUND_WITH_PATH,
-    FILE_REPLACED,
     FILE_WRITTEN,
     SCHEDULE_ONCE_PARSE_FAILED,
     SCHEDULE_TASK_ADDED,

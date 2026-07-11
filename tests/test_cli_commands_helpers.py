@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from miniagent.engine.cli_commands import (
     _extract_improve_suggestions,
     _get_last_qa_with_metadata,

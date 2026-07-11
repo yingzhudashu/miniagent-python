@@ -67,11 +67,11 @@ else:
 
 from miniagent.core.constants import INSTANCE_CACHE_TTL, INSTANCE_HEARTBEAT_TIMEOUT
 from miniagent.infrastructure.logger import get_logger
-from miniagent.types.error_prefix import ERROR_PREFIX
 from miniagent.infrastructure.process_utils import (
     is_process_running,
     is_process_running_async,
 )
+from miniagent.types.error_prefix import ERROR_PREFIX
 
 HEARTBEAT_TIMEOUT = INSTANCE_HEARTBEAT_TIMEOUT
 
