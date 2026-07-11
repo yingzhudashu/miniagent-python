@@ -1,6 +1,6 @@
 # CLI 命令手册
 
-> Mini Agent Python | 版本: 2.1.0 | 命令使用 `/` 前缀；多数命令在 CLI 与飞书均可使用
+> Mini Agent Python | 版本: 2.1.0 | 最后更新: 2026-07-11 | 与 `miniagent.__version__` 对齐 | 命令使用 `/` 前缀；多数命令在 CLI 与飞书均可使用
 
 **命令前缀**：系统统一使用 `/` 前缀（更符合CLI惯例）。例如：`/help`、`/status`、`/session list`。
 
@@ -49,11 +49,7 @@ transcript 是显示缓冲，不是历史真相源。会话历史仍保存在当
 
 ## 终端 Markdown（Rich，可选）
 
-全屏 CLI（prompt_toolkit TUI）下，上方 transcript 中的 **Assistant 最终回复、命令输出、思考过程正文** 在已安装 **`pip install -e ".[cli]"`** 时由 Rich 将 Markdown（含常见表格）渲染为彩色 ANSI。未安装则显示原始 Markdown 文本。
-
-CLI 渲染细节（Rich、思考块合并等）为 Internal 常量（见 `miniagent/core/constants.py`），一般无需修改。未安装 `[cli]` 时显示原始 Markdown 文本。
-
-详见 [README.md](../README.md) 与 [USER_GUIDE.md](USER_GUIDE.md) §4.3。
+全屏 CLI 下 Assistant 回复、命令输出与思考过程正文的 Markdown 渲染（含 Rich 安装、`pip install -e ".[cli]"`）见 **[OUTPUT_FORMAT.md](OUTPUT_FORMAT.md)** §1（SSOT）。
 
 ## 键盘快捷键
 
@@ -354,7 +350,7 @@ On branch main
 
 ### /schedule — 定时任务
 
-任务持久化在 **`{paths.state_dir}/scheduled_tasks/tasks.json`**（默认 `workspaces/scheduled_tasks/`）。触发时与手动输入一样经 **消息队列** 跑一轮 Agent。详见 [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」与 [USER_GUIDE.md](USER_GUIDE.md) 第 8 章。
+任务持久化在 **`{paths.state_dir}/scheduled_tasks/tasks.json`**（默认 `workspaces/scheduled_tasks/`）。触发时与手动输入一样经 **消息队列** 跑一轮 Agent。详见 [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」与 [USER_GUIDE.md](USER_GUIDE.md) §9。
 
 **语法摘要**（与无参 `/schedule` 打印一致）：
 
@@ -372,7 +368,7 @@ On branch main
 
 - **`add` 必须包含 ` -- `**（空格、两个连字符、空格）：前面为调度与会话参数，后面为交给模型的 **prompt**；缺少分隔符会报错。
 - **`every`**：间隔秒数为正整数；**`once`**：时间为 ISO8601（可含 `Z` 或 `+08:00`）；未带时区的 naive 时间由 **`--tz`** 解释（未写时读 `scheduled_tasks.timezone` → `timezone.default` → `TZ`）。
-- **飞书收结果**：飞书 WebSocket 已连接且任务为 **`primary`** 且已与飞书私聊绑定时，定时任务会镜像思考流与最终回复到飞书（`scheduled_tasks.feishu_mirror=false` 关闭）；详见 [USER_GUIDE.md](USER_GUIDE.md) §8。
+- **飞书收结果**：飞书 WebSocket 已连接且任务为 **`primary`** 且已与飞书私聊绑定时，定时任务会镜像思考流与最终回复到飞书（`scheduled_tasks.feishu_mirror=false` 关闭）；详见 [USER_GUIDE.md](USER_GUIDE.md) §9。
 - **会话**：`primary` 使用当前路由的主会话 / 活跃会话；`ephemeral` 每次新建临时会话键；`fixed:会话ID` 固定到某会话（如 `fixed:default` 或 `fixed:feishu:oc_xxx`，后者可用于飞书群任务）。
 - **时区**：cron 墙钟以 `tasks.json` 内 `schedule.timezone` 为准；未写 `--tz` 时新建任务默认时区为 `scheduled_tasks.timezone` → `timezone.default` → `TZ` → `Asia/Shanghai`。
 - **关闭调度循环**（不删任务表）：`scheduled_tasks.disabled=true`；dispatch 失败退避秒数：`scheduled_tasks.dispatch_backoff`（默认 60，见 `config.defaults.json`）。
@@ -390,7 +386,7 @@ CLI 与飞书私聊的会话映射由运行时自动维护：
 - 飞书群聚焦：`/session switch oc_xxx`（或 `feishu:oc_xxx`）
 - 查看绑定与聚焦模式：**`/status`**
 
-详见 **[CHANNEL_BINDING.md](CHANNEL_BINDING.md)**。
+详见 **[FEISHU.md §通道绑定](FEISHU.md#通道绑定)**。
 
 ### /feishu — 飞书控制
 
@@ -747,5 +743,5 @@ HTTP 请求自动重试，提升网络稳定性：
 
 - [ENGINEERING.md](ENGINEERING.md)：本地与 CI 质量门禁、`paths.state_dir`。
 - [SECURITY.md](SECURITY.md)：沙箱与工具安全模型。
-- [CHANNEL_BINDING.md](CHANNEL_BINDING.md)：CLI 与飞书会话绑定。
+- [FEISHU.md](FEISHU.md) §通道绑定：CLI 与飞书会话绑定。
 - [KNOWLEDGE_BASE.md](KNOWLEDGE_BASE.md)：知识库挂载与检索。

@@ -72,7 +72,7 @@
 
 - **项目结构更新**：[`INDEX.md`](docs/INDEX.md) 补充 `miniagent/knowledge/` 和 `miniagent/testing/` 子包说明，修正子包数量为 16 个。
 - **类名引用修正**：[`ARCHITECTURE.md`](docs/ARCHITECTURE.md) 和 [`architecture.drawio`](docs/architecture.drawio) 中 `ToolRegistry` 改为 `DefaultToolRegistry`（实际实现类名）。
-- **Prompt 分层文档同步**：[`ARCHITECTURE.md`](docs/ARCHITECTURE.md)、[`MEMORY_SYSTEM.md`](docs/MEMORY_SYSTEM.md)、[`KNOWLEDGE_BASE.md`](docs/KNOWLEDGE_BASE.md)、[`FEISHU.md`](docs/FEISHU.md)、[`API_USAGE.md`](docs/API_USAGE.md)、[`EXTENSION_GUIDE.md`](docs/EXTENSION_GUIDE.md)、[`PERFORMANCE.md`](docs/PERFORMANCE.md) 同步当前 `stable system -> history -> current turn user context` 结构，明确 `keyword_context` / `kb_context` 属于本轮动态上下文。
+- **Prompt 分层文档同步**：[`ARCHITECTURE.md`](docs/ARCHITECTURE.md)、[`MEMORY_SYSTEM.md`](docs/MEMORY_SYSTEM.md)、[`KNOWLEDGE_BASE.md`](docs/KNOWLEDGE_BASE.md)、[`FEISHU.md`](docs/FEISHU.md)、[`CONTRIBUTING.md` Part 3](docs/CONTRIBUTING.md#part-3--api-编程示例)（原 API_USAGE）、[`CONTRIBUTING.md` Part 2](docs/CONTRIBUTING.md#part-2--扩展开发指南)（原 EXTENSION_GUIDE）、[`PERFORMANCE.md`](docs/PERFORMANCE.md) 同步当前 `stable system -> history -> current turn user context` 结构，明确 `keyword_context` / `kb_context` 属于本轮动态上下文。
 - **Docstring 补充**：核心模块关键函数补充完整 Args/Returns/Note 文档：
   - `build_execution_system_prompt()`、`get_shared_async_openai()`、`classify_task_difficulty()`
   - `map_thinking_level_to_model()`、`map_business_depth()`、`_fence_tool_output()`
@@ -163,7 +163,7 @@
 ### Documentation
 
 - **目录树**：`docs/INDEX.md` 与 `docs/ARCHITECTURE.md` 同步 `mcp/`、`memory` 管线模块、`tools/git_readonly`、`session_memory`、`infrastructure/tracing` 等；README「项目结构」改为指向 INDEX。
-- **版本标语**：核心与专题文档页眉与 `miniagent.__version__`（**2.0.2**）对齐；完整清单见 [docs/ENGINEERING.md](docs/ENGINEERING.md) §5。补全 `CLI.md`、`FEISHU.md`、`SELF_OPT.md`、`CHANNEL_BINDING.md` 页眉。
+- **版本标语**：核心与专题文档页眉与 `miniagent.__version__`（**2.0.2**）对齐；完整清单见 [docs/ENGINEERING.md](docs/ENGINEERING.md) §5。补全 `CLI.md`、`FEISHU.md`、`SELF_OPT.md`、[FEISHU.md §通道绑定](docs/FEISHU.md#通道绑定)（原 CHANNEL_BINDING）页眉。
 - **关键词索引**：`keyword_index` 模块说明标明索引路径相对 ``state_dir`` / ``MINIAGENT_PATHS_STATE_DIR``。
 
 ### Fixes
@@ -182,7 +182,7 @@
 ### Documentation
 
 - **文档对齐**：`docs/INDEX.md`、`docs/DEPLOYMENT.md`、`docs/SECURITY.md` 等与 **`miniagent.__version__`（本版 2.0.1）** 一致；移除对已删除的 `unified.py` / `requirements.txt` 的过时描述。
-- **新增**：[docs/INSTANCE_REGISTRY.md](docs/INSTANCE_REGISTRY.md)（多实例注册表、PID 判定、`MINIAGENT_PATHS_STATE_DIR`）。
+- **新增**：[ENGINEERING.md §3.3](docs/ENGINEERING.md#33-多实例注册表)（原 INSTANCE_REGISTRY；多实例注册表、PID 判定、`MINIAGENT_PATHS_STATE_DIR`）。
 - **新增**：[docs/ENGINEERING.md](docs/ENGINEERING.md)（质量门禁、单一事实来源、文档维护清单）。
 - **索引**：`docs/INDEX.md` 目录树补充 `core/openai_client.py`、`memory/defaults.py` 与 `feishu_state` / `feishu_runtime` 关系说明。
 - **勘误**：`DEPLOYMENT.md` 中 Python 最低版本改为与 `pyproject.toml` 一致的 **3.10+**；`FEISHU.md` 更新运行时路径说明。

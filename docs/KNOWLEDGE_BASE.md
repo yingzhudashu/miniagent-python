@@ -1,6 +1,8 @@
-# MiniAgent 知识库系统
+# Mini Agent Python — 知识库系统
 
-MiniAgent 支持快速挂载本地知识库、文档、资料，通过关键词索引检索并拼入 Agent 上下文。
+> Mini Agent Python | 版本: 2.1.0 | 最后更新: 2026-07-11 | 与 `miniagent.__version__` 对齐
+
+Mini Agent 支持快速挂载本地知识库、文档、资料，通过关键词索引检索并拼入 Agent 上下文。
 
 ## 概述
 
@@ -198,7 +200,7 @@ file_patterns:
   - "*.md"
 EOF
 
-# 启动 MiniAgent，自动挂载
+# 启动 Mini Agent，自动挂载
 python -m miniagent
 
 # Agent 中检索
@@ -290,7 +292,7 @@ class KnowledgeRegistry:
 
 ## Agent 如何使用知识库（RAG 全面集成）
 
-MiniAgent 在 Agent 各核心阶段使用 RAG：
+Mini Agent 在 Agent 各核心阶段使用 RAG：
 
 ### 主动检索模式（工具层）
 

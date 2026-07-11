@@ -2,7 +2,7 @@
 
 > 本文面向 **零基础或仅有普通电脑使用经验** 的读者，按顺序操作即可完成安装、配置与日常使用。  
 > 技术细节与命令全集以专题文档为准；本文提供 **路径导航 + 常见操作 + 安全习惯**。  
-> 版本与仓库内 `miniagent.__version__` 对齐时请参见 [INDEX.md](INDEX.md) 页眉；**未发版行为**以 [CHANGELOG](../CHANGELOG.md) `[Unreleased]` 为准。
+> Mini Agent Python | 版本: 2.1.0 | 最后更新: 2026-07-11 | 与 `miniagent.__version__` 对齐 | 未发版行为见 [CHANGELOG](../CHANGELOG.md) `[Unreleased]`
 
 ---
 
@@ -21,12 +21,13 @@
 11. [飞书（可选）](#11-飞书可选)
 12. [联网搜索与浏览器工具（可选）](#12-联网搜索与浏览器工具可选)
 13. [技能与 ClawHub（可选）](#13-技能与-clawhub可选)
-14. [MCP 工具（可选）](#14-mcp-工具可选)
-15. [状态目录、备份与 Git](#15-状态目录备份与-git)
-16. [常见问题（FAQ）](#16-常见问题faq)
-17. [安全与隐私清单](#17-安全与隐私清单)
-18. [进阶阅读与开发](#18-进阶阅读与开发)
-19. [文档索引](#19-文档索引)（含 [进阶与维护](#user-guide-sec19-advanced) 专题链）
+14. [知识库（/kb）](#14-知识库kb)
+15. [MCP 工具（可选）](#15-mcp-工具可选)
+16. [状态目录、备份与 Git](#16-状态目录备份与-git)
+17. [常见问题（FAQ）](#17-常见问题faq)
+18. [安全与隐私清单](#18-安全与隐私清单)
+19. [进阶阅读与开发](#19-进阶阅读与开发)
+20. [文档索引](#20-文档索引)（含 [进阶与维护](#user-guide-sec20-advanced) 专题链）
 
 ---
 
@@ -198,13 +199,13 @@ Agent 会自动调用文件工具完成任务。
 
 - 详细配置选项见 [第5章：首次配置](#5-首次配置json-配置文件)
 - CLI 命令全集见 [CLI.md](CLI.md)
-- 飞书集成见 [第10章：飞书](#10-飞书可选)
+- 飞书集成见 [第11章：飞书](#11-飞书可选)
 
 ---
 
 ## 5. 首次配置（JSON 配置文件）
 
-**升级迁移提示**（详见 [CHANGELOG](../CHANGELOG.md) `[Unreleased]` Breaking）：飞书出站默认 `feishu.reply_target=reply`；内置飞书工具默认由 `feishu.tools_auto` 注册；配置已全部迁移到 JSON（`config.user.json`）；云文档链接与文件夹见 `feishu.doc.docx_url_prefix`、`feishu.doc.folder_token`。飞书细节见第 10 章。
+**升级迁移提示**（详见 [CHANGELOG](../CHANGELOG.md) `[Unreleased]` Breaking）：飞书出站默认 `feishu.reply_target=reply`；内置飞书工具默认由 `feishu.tools_auto` 注册；配置已全部迁移到 JSON（`config.user.json`）；云文档链接与文件夹见 `feishu.doc.docx_url_prefix`、`feishu.doc.folder_token`。飞书细节见第 11 章。
 
 ### 5.1 创建配置文件
 
@@ -317,7 +318,7 @@ python -m miniagent --feishu
 python -m miniagent --feishu --continue   # 同时恢复上次 CLI 会话
 ```
 
-飞书 **不会** 单独占一个无终端的进程；始终与 CLI 主循环一起。更多见第 10 章与 [FEISHU.md](FEISHU.md)。
+飞书 **不会** 单独占一个无终端的进程；始终与 CLI 主循环一起。更多见第 11 章与 [FEISHU.md](FEISHU.md)。
 
 ### 6.3 多实例与停止其它进程
 
@@ -335,24 +336,24 @@ python -m miniagent --stop
 
 1. 启动后，在提示处 **直接输入中文或英文需求** 即可。  
 2. 若任务需要工具，界面可能出现 **思考过程** 或 **工具调用提示**（取决于通道与配置），等待结束即可。  
-3. 若模型建议的规划过长，你仍可用点命令（第 7 章）查看状态、切换会话等。  
+3. 若模型建议的规划过长，你仍可用点命令（第 8 章）查看状态、切换会话等。  
 4. **规划 / 执行** 对用户而言不必深究：可理解为「先想清楚步骤，再逐步做完」。
 
 ---
 
 ## 8. 点命令（`/`）速查
 
-多数以下命令在 **CLI 与飞书** 中均可使用（前缀为斜杠 `/`）。**`/schedule` 的 add/update/remove/enable/disable** 及部分 **`/session` 变异** 仅允许在本机 CLI 执行（见第 8 章）。**完整说明、示例输出与边界情况** 见 [CLI.md](CLI.md)。
+多数以下命令在 **CLI 与飞书** 中均可使用（前缀为斜杠 `/`）。**`/schedule` 的 add/update/remove/enable/disable** 仅允许在本机 CLI 执行（见第 9 章）；部分 **`/session` 变异** 亦仅允许在本机 CLI（见第 10 章）。**完整说明、示例输出与边界情况** 见 [CLI.md](CLI.md)。
 
 ### 8.1 最常用命令（速查）
 
 | 命令 | 作用 |
 |------|------|
 | `/help` | 显示帮助 |
-| `/status` | 查看运行状态（含通道绑定与 CLI 聚焦模式，见 [CHANNEL_BINDING.md](CHANNEL_BINDING.md)；不中断当前执行） |
+| `/status` | 查看运行状态（含通道绑定与 CLI 聚焦模式，见 [FEISHU.md §通道绑定](FEISHU.md#通道绑定)；不中断当前执行） |
 | `/session list` / `/session switch <id>` | 列出 / 切换会话（切换会同步 CLI 与自动私聊绑定） |
 | `/feishu start` / `/feishu stop` / `/feishu status` | 飞书 WebSocket 长连接控制 |
-| `/schedule list` | 查看定时任务（增删改见第 8 章，须在本地 CLI） |
+| `/schedule list` | 查看定时任务（增删改见第 9 章，须在本地 CLI） |
 | `/reload-config` | 重新加载配置文件（热更新） |
 | `/config [section]` | 查看配置概览；指定 section 时查看该部分 |
 | `/model [name]` | 显示当前模型；指定 name 时切换模型 |
@@ -377,7 +378,7 @@ python -m miniagent --stop
 
 - 先 **`/schedule`** 或 **`/schedule list`** 查看子命令；语法与示例 → [CLI.md](CLI.md)。
 - **调度**：`every <秒>`、`once <ISO8601>`、五段 **`cron "分 时 日 月 周"`**；`add` 的长 prompt 须用 **` -- `** 与选项分隔。
-- **时区**：cron 墙钟以 `tasks.json` 的 `schedule.timezone` 为准；未写 `--tz` 时新建默认 **`scheduled_tasks.timezone` → `timezone.default` → `TZ` → `Asia/Shanghai`**。**Agent 每轮本地时间**由 `process_timezone()` 注入（读 `timezone.default` / `TZ`）。
+- **时区**：见 [CLI.md §/schedule](CLI.md)「时区」说明（SSOT）。
 - **飞书**：默认仅 **list** / **show**；增删改须在本地 CLI。`primary` 任务在私聊已绑定时可镜像到飞书（`scheduled_tasks.feishu_mirror=false` 可关）。
 
 退避、漏跑、工具接口与数据流 → [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」、`config.defaults.json` 的 `scheduled_tasks` 节。
@@ -389,24 +390,18 @@ python -m miniagent --stop
 - **会话**就像「不同的聊天窗口」，历史与部分配置相互隔离。  
 - 使用 `/session list` 查看列表；在 **本地 CLI** 用 `/session switch` 切换到工作上下文。  
 - **飞书里**（默认）发送 `/session switch` / `create` / `rename` 等变异子命令**不会**修改与 CLI 共享的 `active_session_id` 或会话存储，仅返回提示；请在本地终端执行，或设置 **`feishu.dot_commands_full=true`**（见 [FEISHU.md](FEISHU.md)、[CLI.md](CLI.md)）。  
-- 会话与记忆落盘位置由 **`paths.state_dir`** 控制，详见第 14 章与 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md)。
+- 会话与记忆落盘位置由 **`paths.state_dir`** 控制，详见第 16 章与 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md)。
 
 ---
 
 ## 11. 飞书（可选）
 
 1. 安装依赖：`pip install -e ".[feishu]"`。  
-2. 在飞书开放平台创建企业自建应用，获取 **App ID**、**App Secret**、事件订阅与权限按 [FEISHU.md](FEISHU.md) 操作。  
+2. 在飞书开放平台创建企业自建应用；App ID、App Secret、事件订阅与权限见 **[FEISHU.md](FEISHU.md) §快速开始**（SSOT）。  
 3. 将凭证填入 `config.user.json` 的 `secrets` 部分（勿泄露）。  
 4. 启动 `python -m miniagent --feishu` 或在 CLI 中 `/feishu start`。  
 
-**入站锁**：同一状态根下通常只允许一个进程持有飞书入站连接，避免重复收消息；细节见 [FEISHU.md](FEISHU.md) 与 [SECURITY.md](SECURITY.md)。
-
-**可选内置工具**：`feishu.tools_explicit=true` 时注册发文件、撤回、建文档等工具；或 **未设置** `feishu.tools_explicit` 时默认由 `feishu.tools_auto`（且已配置 `secrets.feishu_*`）在进程启动阶段自动注册（**不**等待 `/feishu start`；详见 [FEISHU.md](FEISHU.md)）。设为 `false` 可关闭。依赖开放平台权限与 [FEISHU.md](FEISHU.md) 自检清单（含 `feishu.receive_id_type`、默认 `feishu.doc.folder_token`、可选 `feishu.doc.docx_url_prefix`）。
-
-**环境变量迁移**：见第 4 章「升级迁移提示」与 [CHANGELOG](../CHANGELOG.md) `[Unreleased]`。
-
-**工作区路径**：通过飞书发附件时，工具只能访问当前会话 **`files/`** 目录下的相对路径；飞书入站附件保存在 `files/feishu_incoming/`，详见 [FEISHU.md](FEISHU.md)「飞书与会话工作区文件」。
+**通道绑定**（CLI 与飞书私聊共享会话）、入站锁、内置工具、附件路径等运维细节见 [FEISHU.md](FEISHU.md)（含 [§通道绑定](FEISHU.md#通道绑定)）与 [SECURITY.md](SECURITY.md)。升级迁移见第 4 章「升级迁移提示」与 [CHANGELOG](../CHANGELOG.md) `[Unreleased]`。
 
 ## 12. 联网搜索与浏览器工具（可选）
 
@@ -421,13 +416,21 @@ python -m miniagent --stop
 
 - 默认技能根目录为仓库下 **`workspaces/skills/`**（可在 `config.user.json` 设置 `paths.skills_dir`）。  
 - **内置基线**：仓库预置 **`skill-creator`**（来自 [anthropics/skills](https://github.com/anthropics/skills)，含 `LICENSE.txt`）；**`skill-vetter`**（安全审查）位于 `miniagent/skills/templates/skill-vetter/`，首次使用时可通过 `miniagent install-skill skill-vetter` 或手动复制到 `workspaces/skills/` 加载。  
-- **仅从 PyPI 安装 wheel**（无完整仓库树）时，默认路径下可能没有预置技能文件；需要基线时请克隆仓库、editable 安装，或手动复制 `workspaces/skills/skill-creator`，详见 [README.md](../README.md)「技能目录迁移」。  
+- **仅从 PyPI 安装 wheel**（无完整仓库树）时，默认路径下可能没有预置技能文件；需要基线时请克隆仓库、editable 安装，或手动复制模板目录（见 [workspaces/skills/THIRD_PARTY_SKILLS.md](../workspaces/skills/THIRD_PARTY_SKILLS.md)）。  
 - **扩展**：可从 ClawHub 安装更多技能包，引导脚本见 `scripts/bootstrap_clawhub_skills.py`（参数以官方技能页为准；脚本仅为额外安装，不替代内置基线）。  
-- 目录结构与内置基线见 `workspaces/skills/` 目录；深入说明见 [README.md](../README.md) 技能章节与 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md) 中与技能相关的部分。
+- 第三方许可清单与合规说明见 **[workspaces/skills/THIRD_PARTY_SKILLS.md](../workspaces/skills/THIRD_PARTY_SKILLS.md)**（SSOT）。
 
 ---
 
-## 14. MCP 工具（可选）
+## 14. 知识库（/kb）
+
+将本地文档挂载入 Agent，对话时自动检索相关内容拼入上下文。示例：`/kb mount ./my-docs 手册` → `/kb search 部署流程 手册`。
+
+完整目录结构、Agent 工具与全部子命令见 [KNOWLEDGE_BASE.md](KNOWLEDGE_BASE.md)；命令示例见 [CLI.md](CLI.md) `/kb` 节。
+
+---
+
+## 15. MCP 工具（可选）
 
 1. `pip install -e ".[mcp]"`。  
 2. 在 `config.user.json` 的 `mcp.stdio_command` 中设置 **JSON 数组** 形式的启动命令，例如 `["npx","-y","@组织/包名"]`（请替换为你信任的 MCP 服务）。  
@@ -446,35 +449,37 @@ python -m miniagent --stop
 
 ---
 
-## 15. 状态目录、备份与 Git
+## 16. 状态目录、备份与 Git
 
-### 15.1 默认布局
+### 16.1 默认布局
 
 默认布局下，**项目业务状态**（会话、锁、飞书去重、记忆索引等）写入 miniagent 安装/源码根下的 **`workspaces/projects/{project_key}/`**（按启动 cwd 自动区分）；**实例注册表** 仍在 `workspaces/instances/`。若 cwd 下存在旧版 `{cwd}/workspaces/` 数据，legacy 回退会继续使用该路径。可在 `config.user.json` 设置绝对 `paths.state_dir` 或通过 `MINIAGENT_PATHS_STATE_DIR` 将项目数据迁到其它磁盘路径，便于备份或多副本隔离。
 
-### 15.2 哪些不应提交到 Git
+### 16.2 哪些不应提交到 Git
 
-根目录 `.gitignore` 已忽略多数运行时目录与文件（如 `workspaces/sessions/`、`workspaces/scheduled_tasks/`、`workspaces/memory/`、`workspaces/feishu/`、`keyword-index.json` 等）。**不要** 强行把含隐私对话或密钥的文件 `git add` 进去。政策说明见 [ENGINEERING.md](ENGINEERING.md) §3.1。
+根目录 `.gitignore` 已忽略多数运行时目录与文件（如 `workspaces/sessions/`（即 `{paths.state_dir}/sessions/`，见 [ENGINEERING.md](ENGINEERING.md) §3）、`workspaces/scheduled_tasks/`、`workspaces/memory/`、`workspaces/feishu/`、`keyword-index.json` 等）。**不要** 强行把含隐私对话或密钥的文件 `git add` 进去。政策说明见 [ENGINEERING.md](ENGINEERING.md) §3.1。
 
-### 15.3 备份建议
+### 16.3 备份建议
 
 若 `paths.state_dir` 指向重要数据目录，请用你自己的备份方案（加密盘、权限控制、定期拷贝）。详见 [DEPLOYMENT.md](DEPLOYMENT.md) 与 [SECURITY.md](SECURITY.md)。
 
 ---
 
-## 16. 常见问题（FAQ）
+## 17. 常见问题（FAQ）
+
+速查表；详细排障步骤见 [TROUBLESHOOTING.md](TROUBLESHOOTING.md)。
 
 | 现象 | 建议 |
 |------|------|
-| 启动报错与 API 密钥相关 | 检查 `config.user.json` 是否在项目根、`secrets.openai_api_key` 是否已填且无多余引号空格；勿把密钥发到公共论坛。 |
-| 无法联网查天气/新闻 | 配置 Tavily 相关变量；或接受「未配置则工具返回错误」的设计。 |
-| 飞书无响应 | 查 `/feishu status`、凭证、事件订阅、是否另一进程已占入站锁；见 [FEISHU.md](FEISHU.md)。 |
-| 磁盘里会话太多 | 用 `/session` 管理或调整 `paths.state_dir`；理解历史与归档见 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md)。 |
-| 怀疑卡住 | `/status`；必要时查看日志级别 `AGENT_DEBUG`。 |
+| 启动报错与 API 密钥相关 | 检查 `config.user.json` 是否在项目根、`secrets.openai_api_key` 是否已填且无多余引号空格；详见 [TROUBLESHOOTING.md §启动问题](TROUBLESHOOTING.md#启动问题)。 |
+| 无法联网查天气/新闻 | 配置 Tavily 相关变量；或接受「未配置则工具返回错误」的设计。详见 [TROUBLESHOOTING.md §配置问题](TROUBLESHOOTING.md#配置问题)。 |
+| 飞书无响应 | 查 `/feishu status`、凭证、事件订阅、是否另一进程已占入站锁；详见 [FEISHU.md](FEISHU.md) 与 [TROUBLESHOOTING.md §飞书](TROUBLESHOOTING.md#飞书集成问题)。 |
+| 磁盘里会话太多 / 内存占用高 | 用 `/session` 管理或调整 `paths.state_dir`；调优见 [PERFORMANCE.md Part B](PERFORMANCE.md#part-b--运行时调优)；诊断见 [TROUBLESHOOTING §性能问题](TROUBLESHOOTING.md#性能问题)。 |
+| 怀疑卡住 / 响应缓慢 | `/status`；必要时 `AGENT_DEBUG=1`。详见 [TROUBLESHOOTING §运行问题](TROUBLESHOOTING.md#运行问题) 与 [§性能问题](TROUBLESHOOTING.md#性能问题)。 |
 
 ---
 
-## 17. 安全与隐私清单
+## 18. 安全与隐私清单
 
 1. **`config.user.json`** 仅本机保存，权限收紧；勿提交 Git。  
 2. **不要在截图、录屏、聊天里** 暴露完整密钥或企业内部令牌。  
@@ -484,46 +489,26 @@ python -m miniagent --stop
 
 ---
 
-## 18. 进阶阅读与开发
+## 19. 进阶阅读与开发
 
 - 参与开发与代码规范：[CONTRIBUTING.md](CONTRIBUTING.md)  
 - 仓库卫生、CI、单一事实来源：[ENGINEERING.md](ENGINEERING.md)  
 - 架构与数据流：[ARCHITECTURE.md](ARCHITECTURE.md)  
-- 部署与运维：[DEPLOYMENT.md](DEPLOYMENT.md)
+- 部署与运维：[DEPLOYMENT.md](DEPLOYMENT.md)  
+- 自我优化（提案与 Trace 分析）：[SELF_OPT.md](SELF_OPT.md)
 
-普通用户日常使用 **读到第 16 章即可**；开发贡献请读 [CONTRIBUTING.md](CONTRIBUTING.md) / [ENGINEERING.md](ENGINEERING.md)，并见 **第 18 章** [进阶与维护](#user-guide-sec18-advanced) 表。
-
----
-
-## 19. 文档索引
-
-**完整专题列表与目录树**以 [INDEX.md](INDEX.md) 为准；下表为常用入口。
-
-| 文档 | 适合 |
-|------|------|
-| [README.md](../README.md) | 项目概览与最短命令 |
-| [INDEX.md](INDEX.md) | 全部文档导航 |
-| [CLI.md](CLI.md) | 点命令全集与示例 |
-| [FEISHU.md](FEISHU.md) | 飞书集成 |
-| [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md) | 记忆与子系统 |
-| [DEPLOYMENT.md](DEPLOYMENT.md) | 安装与部署 |
-| [SECURITY.md](SECURITY.md) | 安全模型与清单 |
-| [ENGINEERING.md](ENGINEERING.md) | 多实例与注册表（§3.3）、质量门禁 |
-| [SELF_OPT.md](SELF_OPT.md) | 自我优化 |
-| [CHANNEL_BINDING.md](CHANNEL_BINDING.md) | 通道绑定 |
-
-<a id="user-guide-sec18-advanced"></a>
-
-### 进阶与维护（贡献者 / CI）
-
-| 文档 | 适合 |
-|------|------|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | 分层架构与数据流 |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | 开发环境、编码与测试约定 |
-| [ENGINEERING.md](ENGINEERING.md) | 质量门禁、CI、`.gitignore` 与单一事实来源 |
-| [PERFORMANCE.md](PERFORMANCE.md) | 性能合成冒烟、基线与剖析 |
-| [OUTPUT_FORMAT.md](OUTPUT_FORMAT.md) | CLI/飞书输出格式规范、流式输出、间距规则 |
+普通用户日常使用 **读到第 17 章即可**；开发贡献请读 [CONTRIBUTING.md](CONTRIBUTING.md) / [ENGINEERING.md](ENGINEERING.md)，并见 **第 20 章** [文档索引](#user-guide-sec20-advanced) 表。
 
 ---
 
-**结语**：按第 3～5 章完成安装与启动后，建议先熟悉 **自然语言提问** 与 **`/help` / `/status` / `/session list`**，再按需打开飞书、搜索与技能。遇到问题优先查第 15 章 FAQ 与对应专题文档。
+## 20. 文档索引
+
+**完整专题列表、按角色导航、SSOT 对照与项目目录树**以 [INDEX.md](INDEX.md) 为准。
+
+<a id="user-guide-sec20-advanced"></a>
+
+贡献者与维护者路径（架构、工程、性能、输出格式、提示词规范等）见 [INDEX.md](INDEX.md)「按角色导航」。
+
+---
+
+**结语**：按第 3～5 章完成安装与启动后，建议先熟悉 **自然语言提问** 与 **`/help` / `/status` / `/session list`**，再按需打开飞书、知识库、搜索与技能。遇到问题优先查第 17 章 FAQ 与 [TROUBLESHOOTING.md](TROUBLESHOOTING.md)。

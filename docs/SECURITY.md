@@ -1,6 +1,6 @@
 # 安全模型
 
-> 模块: `miniagent/security/` + 全局安全策略 | 版本: 2.1.0
+> Mini Agent Python | 版本: 2.1.0 | 最后更新: 2026-07-11 | 与 `miniagent.__version__` 对齐 | 模块: `miniagent/security/` + 全局安全策略
 
 ## 安全架构概览
 
@@ -36,7 +36,7 @@
 
 ```python
 # 默认工作空间
-workspace = get_default_workspace()  # workspaces/sessions/<session_id>/files/
+workspace = get_default_workspace()  # {paths.state_dir}/sessions/<session_id>/files/（见 [ENGINEERING.md](ENGINEERING.md) §3）
 
 # 路径验证
 resolved = resolve_sandbox_path(path, ["/app/workspace"])

@@ -2,7 +2,7 @@
 
 与 ``miniagent.memory`` 的区别：本包侧重 **工具注册、监控、进程与子进程、多实例注册表、
 消息队列与通道路由** 等运行期横切能力；记忆内容持久化与检索在 ``memory`` 包。
-多实例注册与 PID 语义见 ``docs/INSTANCE_REGISTRY.md``；通道绑定见 ``docs/CHANNEL_BINDING.md``。
+多实例注册与 PID 语义见 ``docs/ENGINEERING.md`` §3.3；通道绑定见 ``docs/FEISHU.md`` §通道绑定。
 
 本 ``__init__`` 聚合最常用的符号；下列子模块按需直接导入：
 

@@ -1,6 +1,7 @@
 # 输出格式规范
 
-> Mini Agent Python | CLI 与飞书通道的输出格式、流式输出、间距规则
+> Mini Agent Python | 版本: 2.1.0 | 最后更新: 2026-07-11 | 与 `miniagent.__version__` 对齐  
+> CLI 与飞书通道的输出格式、流式输出、间距规则
 
 ## 概述
 
@@ -76,7 +77,7 @@ Assistant
 - Markdown 标题（`#`、`##` 等）默认靠左对齐，左侧有适当间距
 - 不使用居中对齐，便于阅读和层次区分
 
-**环境变量控制**：
+**环境变量控制**（运维/调试类，见 [ENGINEERING.md](ENGINEERING.md) §1.2）：
 - `MINIAGENT_CLI_RAW_MARKDOWN=1`：关闭 Rich 渲染，显示原始 Markdown（也可通过 `cli.raw_markdown` 配置）
 - `MINIAGENT_CLI_THINKING_RICH=1`：对非流式思考正文使用 Rich 渲染（也可通过 `cli.thinking_rich` 配置）
 
@@ -149,7 +150,7 @@ Assistant
 
 ### 3.2 节流策略
 
-通过环境变量可调整 PATCH 节流参数，优化流式体验：
+通过环境变量可调整 PATCH 节流参数，优化流式体验（运维/调试类，分类见 [ENGINEERING.md](ENGINEERING.md) §1.2）：
 
 | 环境变量 | 默认值 | 说明 |
 |----------|--------|------|
@@ -202,6 +203,8 @@ CLI 与飞书共进程时：
 4. 新阶段以新 header 开始
 
 ### 4.3 相关环境变量
+
+运维/调试类环境变量分类见 [ENGINEERING.md](ENGINEERING.md) §1.2。
 
 | 变量 | 默认 | 说明 |
 |------|------|------|

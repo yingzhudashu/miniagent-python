@@ -1,7 +1,7 @@
 """用户可配置的定时任务：持久化、进程内 asyncio 调度、经 ``message_queue`` 执行 Agent 回合。
 
 与用户文档对应关系：README「定时任务」、``docs/ARCHITECTURE.md`` 子系统说明、
-``docs/USER_GUIDE.md`` 第 8 节。飞书侧仅允许部分 ``.schedule`` 子命令。"""
+``docs/USER_GUIDE.md`` §9。飞书侧仅允许部分 ``.schedule`` 子命令。"""
 
 from miniagent.scheduled_tasks.cron import validate_cron_expr
 from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec, SessionSpec

@@ -1,6 +1,6 @@
 # Mini Agent Python 故障排查手册
 
-> 版本: 2.1.0 | 最后更新: 2026-06-09
+> Mini Agent Python | 版本: 2.1.0 | 最后更新: 2026-07-11 | 与 `miniagent.__version__` 对齐
 
 本手册提供常见问题的诊断方法和解决方案，帮助用户快速定位和解决问题。
 
@@ -146,9 +146,11 @@ RuntimeError: 实例 ID X 已在运行（PID Y，心跳 Z 秒前）
    /status
    ```
 
-3. 查看循环检测日志：
+3. 查看循环检测相关输出（开启 `AGENT_DEBUG=1` 后日志写入 stderr，或检索 Trace 文件）：
    ```bash
-   grep "LoopDetector" logs/agent.log | tail -10
+   export AGENT_DEBUG=1
+   python -m miniagent 2>&1 | grep -i LoopDetector | tail -10
+   # 或：grep -i LoopDetector workspaces/logs/trace-*.jsonl | tail -10
    ```
 
 **解决方案**：
@@ -256,9 +258,11 @@ TimeoutError: Tool execution timeout after X seconds
    /feishu status
    ```
 
-2. 查看飞书日志：
+2. 查看飞书相关输出（`AGENT_DEBUG=1` 写入 stderr，或检索 Trace）：
    ```bash
-   grep "FeishuRuntime" logs/agent.log | tail -20
+   export AGENT_DEBUG=1
+   python -m miniagent --feishu 2>&1 | grep -i FeishuRuntime | tail -20
+   # 或：grep -i feishu workspaces/logs/trace-*.jsonl | tail -20
    ```
 
 3. 检查凭证配置：
@@ -267,9 +271,8 @@ TimeoutError: Tool execution timeout after X seconds
    ```
 
 **解决方案**：
-1. 验证飞书凭证：
-   - `FEISHU_APP_ID` 是否正确
-   - `FEISHU_APP_SECRET` 是否正确
+1. 验证飞书凭证（优先检查 `config.user.json` 的 `secrets.feishu_app_id` / `secrets.feishu_app_secret`；历史环境变量 `FEISHU_APP_ID` / `FEISHU_APP_SECRET` 若仍使用需与 JSON 一致）：
+   - App ID / App Secret 是否正确
    - 应用是否发布到飞书
 
 2. 检查网络连接：
@@ -317,104 +320,36 @@ TimeoutError: Tool execution timeout after X seconds
 
 ## 性能问题
 
+配置级调优与生产推荐配置见 [PERFORMANCE.md Part B](PERFORMANCE.md#part-b--运行时调优)。本节聚焦**诊断步骤**。
+
 ### ⚠️ 内存占用过高
 
 **症状**：进程内存持续增长，占用超过 1GB
 
-**原因**：历史过长、记忆膨胀、缓存未清理
-
 **诊断步骤**：
-1. 查看历史长度：
-   ```bash
-   /session list
-   ```
 
-2. 检查会话历史文件：
-   ```bash
-   ls -lh workspaces/sessions/*/history.json
-   ```
+```bash
+/session list
+ls -lh {paths.state_dir}/sessions/*/history.json   # canonical 路径见 [ENGINEERING.md](ENGINEERING.md) §3
+ls -lh workspaces/memory/*.md
+```
 
-3. 查看记忆文件：
-   ```bash
-   ls -lh workspaces/memory/*.md
-   ```
-
-**解决方案**：
-1. 清理旧会话：
-   ```bash
-   /session delete <旧会话ID>
-   ```
-
-2. 调整历史保留：
-   ```json
-   {
-     "memory": {
-       "history_tail_messages": 100  // 从 200 减少到 100
-     }
-   }
-   ```
-
-3. 启用历史归档：
-   ```json
-   {
-     "memory": {
-       "archive_enabled": true,
-       "archive_after_days": 30
-     }
-   }
-   ```
-
-4. 定期清理：
-   ```bash
-   python scripts/cleanup_old_sessions.py --days 90
-   ```
+**快速处理**：`/session delete <旧会话ID>`；调整 `memory.history_tail_messages`；运行 `python scripts/cleanup_old_sessions.py --days 90`。详细配置见 [PERFORMANCE.md §B.1](PERFORMANCE.md#b1-内存优化)。
 
 ---
 
-### ⚠️ 响应缓慢：工具超时
+### ⚠️ 响应缓慢
 
 **症状**：Agent 响应时间超过 30 秒
 
-**原因**：工具执行慢、网络延迟、模型响应慢
-
 **诊断步骤**：
-1. 查看工具调用统计：
-   ```bash
-   /stats
-   ```
 
-2. 检查网络延迟：
-   ```bash
-   ping api.openai.com
-   ```
+```bash
+/stats
+ping api.openai.com
+```
 
-3. 查看模型响应时间：
-   ```bash
-   grep "LLM call" logs/agent.log | grep "duration"
-   ```
-
-**解决方案**：
-1. 优化工具性能：
-   - 减少工具调用次数
-   - 使用并行工具调用（见 `allow_parallel_tools`）
-
-2. 调整模型参数：
-   ```json
-   {
-     "model": {
-       "model": "gpt-4o-mini"  // 使用更快的模型
-     }
-   }
-   ```
-
-3. 启用流式处理：
-   ```json
-   {
-     "agent": {
-       "streaming": true
-     }
-   }
-   ```
+**快速处理**：检查工具超时与模型选择；启用 `agent.streaming` 与 `agent.allow_parallel_tools`。详细配置见 [PERFORMANCE.md §B.2–B.3](PERFORMANCE.md#b2-执行优化)。
 
 ---
 
@@ -491,15 +426,20 @@ export AGENT_DEBUG=1
 python -m miniagent
 ```
 
-**查看日志文件**：
+**查看日志**：
 ```bash
-tail -f logs/agent.log
+# Trace（默认启用时）：按日分片 NDJSON
+tail -f workspaces/logs/trace-$(date +%Y-%m-%d)-pid*.jsonl
+# 活动日志（Markdown，供自我优化分析）
+ls {paths.state_dir}/memory/*.md
+# 可选 Agent NDJSON：仅在 config.user.json 配置 agent.log_file 后存在
 ```
 
 **日志位置**：
-- `logs/agent.log` - Agent 主日志
-- `logs/activity.jsonl` - 活动日志（JSON格式）
-- `workspaces/sessions/*/history.json` - 会话历史
+- `workspaces/logs/trace-YYYY-MM-DD-pid*.jsonl` — 全链路 Trace（详见 [ENGINEERING.md](ENGINEERING.md) §5）
+- `{paths.state_dir}/memory/YYYY-MM-DD.md` — 活动日志（Markdown）
+- `agent.log_file`（可选）— 在 `config.user.json` 的 `agent` 节配置后写入 NDJSON（如 `logs/agent.jsonl`）
+- `{paths.state_dir}/sessions/*/history.json` — 会话历史（canonical 路径见 [ENGINEERING.md](ENGINEERING.md) §3）
 
 ---
 
@@ -552,29 +492,31 @@ pytest -m perf --cov-report=term-missing
 
 ---
 
-## 常见错误代码速查
+## 常见现象速查
 
-| 错误代码 | 含义 | 解决方案 |
-|---------|------|---------|
-| `E001` | 导入错误 | 安装缺失依赖 |
-| `E002` | 配置错误 | 检查 JSON 格式 |
-| `E003` | 实例冲突 | 停止冲突实例 |
-| `E004` | 队列阻塞 | 中止当前任务 |
-| `E005` | 权限问题 | 调整沙箱配置 |
-| `E006` | 工具超时 | 增加超时时间 |
-| `E007` | 飞书连接失败 | 检查凭证和网络 |
-| `E008` | 内存过高 | 清理历史和记忆 |
-| `E009` | 响应缓慢 | 优化工具和模型 |
-| `E010` | 时区错误 | 设置正确时区 |
+与 [USER_GUIDE.md §17 FAQ](USER_GUIDE.md#17-常见问题faq) 对齐；下列为深度排障入口。
+
+| 现象 | 排障章节 |
+|------|---------|
+| 启动报错 / 依赖缺失 | [启动问题](#启动问题) |
+| 配置 / API 密钥无效 | [配置问题](#配置问题) |
+| 实例冲突 / 无法启动 | [运行问题](#运行问题) · [ENGINEERING.md §3.3](ENGINEERING.md#33-多实例注册表) |
+| 队列阻塞 / 卡住 | [运行问题](#运行问题) |
+| 沙箱 / 权限拒绝 | [SECURITY.md](SECURITY.md) |
+| 飞书无响应 | [飞书集成问题](#飞书集成问题) |
+| 内存 / 会话过多 | [PERFORMANCE.md Part B](PERFORMANCE.md#part-b--运行时调优) |
+| 响应缓慢 | [运行问题](#运行问题) · [PERFORMANCE.md Part B](PERFORMANCE.md#part-b--运行时调优) |
+| 时区 / 定时任务不准 | [配置问题](#配置问题) · `/schedule align-tz` |
 
 ---
 
 ## 获取更多帮助
 
 1. **查阅文档**：
-   - [USER_GUIDE.md](USER_GUIDE.md) - 用户指南
-   - [ARCHITECTURE.md](ARCHITECTURE.md) - 架构说明
-   - [ENGINEERING.md](ENGINEERING.md) - 工程指南
+   - [USER_GUIDE.md](USER_GUIDE.md) — 用户指南
+   - [PERFORMANCE.md Part B](PERFORMANCE.md#part-b--运行时调优) — 性能调优
+   - [ARCHITECTURE.md](ARCHITECTURE.md) — 架构说明
+   - [ENGINEERING.md](ENGINEERING.md) — 工程指南
 
 2. **运行诊断**：
    ```bash

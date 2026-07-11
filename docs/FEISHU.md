@@ -1,6 +1,6 @@
 # 飞书集成文档
 
-> Mini Agent Python | 版本: 2.1.0 | 飞书 WebSocket 长连接
+> Mini Agent Python | 版本: 2.1.0 | 最后更新: 2026-07-11 | 与 `miniagent.__version__` 对齐 | 飞书 WebSocket 长连接
 
 ## 快速开始
 
@@ -32,7 +32,7 @@ python -m miniagent --feishu
 
 在全屏 prompt_toolkit CLI 下，飞书启动提示、以及**策略允许**的入站横幅与思考镜像，会写入上方 **transcript**（`RuntimeContext.cli_transcript_append`），而不再向裸 stdout `print`，避免与备用屏输入行互相覆盖。
 
-**CLI 显示隔离**（详见 [CHANNEL_BINDING.md](CHANNEL_BINDING.md) §CLI 显示策略）：默认 CLI 在 `default` 等一般会话时，**群聊**消息仅在飞书侧处理与回复，**不会**刷屏到 CLI；仅与 CLI 同会话的**私聊**会显示预览。使用 **`/session switch oc_xxx`**（或 `feishu:oc_xxx`）进入群聊聚焦后，CLI 只显示该群内容，私聊不再接入或显示。
+**CLI 显示隔离**（详见上文 [CLI 显示策略](#cli-显示策略cli_feishu_policy)）：默认 CLI 在 `default` 等一般会话时，**群聊**消息仅在飞书侧处理与回复，**不会**刷屏到 CLI；仅与 CLI 同会话的**私聊**会显示预览。使用 **`/session switch oc_xxx`**（或 `feishu:oc_xxx`）进入群聊聚焦后，CLI 只显示该群内容，私聊不再接入或显示。
 
 `get_logger()` 的诊断输出写入 **stderr**（不再写 stdout）；飞书 WebSocket 客户端 SDK 日志级别为 **ERROR**，避免与全屏 UI 争用终端。
 
@@ -41,6 +41,87 @@ python -m miniagent --feishu
 在飞书里发送以 ``/`` 开头的命令时，默认 `/session switch` / `create` / `rename` 以及 `/schedule` 的 `add`/`update`/`remove`/`enable`/`disable` **不会**修改与本地 CLI 共享的 ``active_session_id`` 或 ``tasks.json``，仅返回提示；``/stop`` 亦默认拒绝（避免远程结束进程）。请在本地 MiniAgent 终端执行，或设置 **`feishu.dot_commands_full=true`** 放开全部点命令（启动时会打 WARNING；群聊误触风险需自行管控）。启用 FULL 后飞书侧 `/stop` 成功即进程退出，通常**不会**再收到第二条飞书确认消息。调试 HTTP 栈时请勿开启 ``HTTPX_LOG_LEVEL=debug`` 等会把第三方日志打到终端的配置，以免干扰全屏 UI。
 
 Agent 在飞书会话中若通过内置工具 **`run_dot_command`** 调点命令，上述限制与直接发点命令一致（默认 `cli_dispatch_allow_mutations=False`；`feishu.dot_commands_full=true` 时为 True）。不需要该能力时可将 **`cli.dot_tools_enabled=false`**，启动时不再注册该工具（见 `config.defaults.json`）。
+
+## 通道绑定
+
+CLI 与飞书通道如何映射到同一会话。
+
+### 设计原理
+
+- **CLI**：启动时由 `init_subsystems` 将 `__cli__` 绑定到默认会话，并 `set_primary`；**`/session switch` 成功后会同步** `__cli__` 与「自动跟随」的飞书私聊 sender 到同一目标会话。
+- **飞书群聊**：始终使用独立会话 `feishu:<chat_id>`。CLI 可通过 **`/session switch oc_xxx`**（自动规范为 `feishu:oc_xxx`）聚焦到某群会话。
+- **飞书私聊**：首条私聊到达时，若 `feishu_p2p:<sender_id>` 尚未绑定，则**自动绑定**到当前 `active_session_id`；sender 记入 `feishu_p2p_synced_senders`，之后随 `/session switch` 一起重绑。
+
+不再提供 `/bind` / `/unbind` 用户命令；查看当前映射请用 **`/status`**。
+
+`ChannelRouter` 实现跨通道共享：
+
+- **记忆共享**：对话历史、事实提取、摘要互通
+- **文件共享**：CLI 与飞书访问同一会话 `files/`
+- **工具共享**：会话级工具对绑定通道可见
+
+### 绑定架构
+
+```
+┌─────────────────────────────────────────────────┐
+│                ChannelRouter                     │
+│  __cli__  ──bind──►  primary_session            │
+│  feishu_p2p:ou_x ──bind──►  (同上，自动/随 switch) │
+│  feishu:oc_xxx  ◄── 群聊独立会话（switch 可聚焦 CLI）│
+└─────────────────────────────────────────────────┘
+```
+
+### 典型场景
+
+#### CLI 为主，飞书私聊辅助
+
+1. 在 CLI 使用 `default` 或任意工作会话
+2. 手机上向机器人发**首条私聊** → 自动绑定到当前 `active_session_id`
+3. CLI 与私聊共享记忆；`/session switch` 后，已自动跟随的 sender 一并切换
+
+#### 飞书群为主，CLI 干预
+
+```bash
+> /session switch oc_xxxxxxxxxxxxx
+```
+
+CLI 聚焦该群会话（`feishu:oc_xxx`）：终端仅显示该群入站预览与思考镜像；其它群仍在后台处理。
+
+### 命令与诊断
+
+| 操作 | 命令 |
+|------|------|
+| 切换工作会话（含飞书群 `oc_xxx`） | `/session switch <编号/ID>` |
+| 查看绑定与 CLI 聚焦模式 | `/status` |
+
+**会话标识**：编号（`1`）、原始 ID（`default`）、飞书群（`oc_xxx` 或 `feishu:oc_xxx`）。
+
+### CLI 显示策略（`cli_feishu_policy`）
+
+| CLI 聚焦模式 | 判定条件 | 群聊 CLI 预览 | 私聊 CLI 预览 |
+|--------------|----------|---------------|---------------|
+| **一般模式** | CLI 绑定非 `feishu:oc_*` 会话 | 否（后台仍回复） | 是（私聊已绑定到与 CLI 同会话） |
+| **飞书群聊聚焦** | CLI 绑定 `feishu:<chat_id>` | 是（仅当前群） | 否 |
+
+`/status` 会显示通道绑定列表与聚焦模式说明（原 `/bind status` 信息）。
+
+### 与 Session 系统的关系
+
+```
+用户输入 (CLI / 飞书)
+    ↓
+ChannelRouter.resolve() → session_key
+    ↓
+SessionManager.get_or_create(session_key)
+    ↓
+UnifiedEngine.run_agent_with_thinking(...)
+```
+
+**约束**：
+
+1. 群聊路由键始终为 `feishu:<chat_id>`，不参与私聊自动绑定逻辑。
+2. `/session switch` 到飞书群时，若磁盘尚无该会话，会创建占位会话再绑定 CLI。
+3. 绑定状态持久化在 `{project_state}/channel-router.json`（含 `last_cli_session` 等）。
 
 ## 运维速查（WebSocket）
 
@@ -57,7 +138,7 @@ Agent 在飞书会话中若通过内置工具 **`run_dot_command`** 调点命令
 | `feishu.message_debounce_ms` | `800` | 同一发送者在同话题内连续文本的合并窗口（毫秒）；`0` 关闭 |
 | `feishu.max_message_age` | `600` | 跳过超过该秒数的过期入站消息 |
 
-私聊绑定与排障见 [CHANNEL_BINDING.md](CHANNEL_BINDING.md)；Windows 专项见下文「Windows / 长连接」。
+通道绑定与私聊排障见上文 [通道绑定](#通道绑定)；Windows 专项见下文「Windows / 长连接」。
 
 ## 架构
 
@@ -93,7 +174,7 @@ UnifiedEngine.run_agent_with_thinking()
 | `memory.thinking_for_llm_mode` | `thinking` 历史回灌给 LLM 的模式：`off` / `compact` / `full`；默认 `compact` |
 | `memory.thinking_for_llm_compact_max_chars` | `compact` 模式下 thinking 摘要最大字符数，默认 1200 |
 | `memory.thinking_for_llm_max_chars` | 仅 `full` 模式使用，控制完整 thinking 正文回灌上限 |
-| `feishu.markdown_commands` | `true` 时飞书侧部分命令使用 Markdown 表格（默认 `false`）；或环境变量 **`MINIAGENT_FEISHU_MARKDOWN_COMMANDS=1`** |
+| `feishu.markdown_commands` | `true` 时飞书侧部分命令使用 Markdown 表格（默认 `false`）；或环境变量 **`MINIAGENT_FEISHU_MARKDOWN_COMMANDS=1`**（运维类，见 [ENGINEERING.md](ENGINEERING.md) §1.2） |
 | `feishu.dot_commands_full` | `true` 时飞书点命令与 CLI 同等（含 `/stop`；默认 `false`） |
 | `cli.dot_tools_enabled` | `false` 时不注册 `run_dot_command` |
 | `feishu.reply_plain` | `true` 时弱化最终回复 Markdown |
@@ -226,19 +307,11 @@ UnifiedEngine.run_agent_with_thinking()
 - 导入 Markdown 文件时使用 `import_raw` + `render_mode="rich"`
 - 需要纯文本时可设置 `render_mode="plain"`（向后兼容）
 
-#### Docx validation fallback
+#### Docx 校验回退
 
-`code=1770001 msg=invalid param` and `code=99992402 msg=field validation failed`
-mean Feishu rejected a rich Docx block payload. MiniAgent treats both as rich
-render validation failures, records a warning with the code/msg/log_id when
-available, and retries the same Markdown as readable plain text if no rich
-block has been written yet.
+飞书返回 `code=1770001 msg=invalid param` 或 `code=99992402 msg=field validation failed` 时，表示拒绝了富文本 Docx 块载荷。Mini Agent 将二者均视为富文本渲染校验失败，在可用时记录含 code/msg/log_id 的警告；若尚未写入任何富文本块，则把同一份 Markdown 以可读纯文本重试。
 
-If an earlier rich block batch already succeeded, MiniAgent stops the remaining
-rich writes and returns the partial success count plus warnings. It does not
-write the full plain-text document again, because that would duplicate content.
-The `feishu_doc` result includes `meta.render_stats.written_blocks`,
-`meta.render_stats.fallback_count`, and `meta.warnings` for diagnostics.
+若更早的富文本块批次已成功写入，Mini Agent 会停止后续富文本写入，返回部分成功计数与警告，**不会**再次写入完整纯文本文档（避免内容重复）。`feishu_doc` 结果中的 `meta.render_stats.written_blocks`、`meta.render_stats.fallback_count` 与 `meta.warnings` 可用于诊断。
 
 ### 互动卡片按钮 `action.value` 示例
 
@@ -281,7 +354,7 @@ Windows 上可能出现 `OSError: [WinError 121]` 或日志 `receive message loo
 
 运维建议：电源计划中避免网卡「允许计算机关闭此设备以节约电源」；不稳定网络可设 `feishu.websocket.refresh_interval=3600`。
 
-**私聊绑定**：首条私聊消息**自动绑定**到当前 `active_session_id`；已跟随的 sender 会随 **`/session switch`** 与 CLI 一起重绑。查看映射与聚焦模式请用 **`/status`**（见 [CHANNEL_BINDING.md](CHANNEL_BINDING.md)）。
+**私聊绑定**：首条私聊消息**自动绑定**到当前 `active_session_id`；已跟随的 sender 会随 **`/session switch`** 与 CLI 一起重绑。查看映射与聚焦模式请用 **`/status`**（见上文 [通道绑定](#通道绑定)）。
 
 ## 消息处理流程
 
@@ -309,7 +382,7 @@ Windows 上可能出现 `OSError: [WinError 121]` 或日志 `receive message loo
 
 ### 文件与图片（`file` / `image`）
 
-- 经同一 `chat_id` 消息队列串行调用 `media_handler`：按与文本相同的规则解析 `session_key`、私聊自动绑定，调用开放平台 **获取消息中的资源文件** 接口下载后，写入该会话工作区下的 **`feishu_incoming/`** 目录（与 `SessionManager` 中会话的 `files_path` 一致，即 `workspaces/sessions/<safe_id>/files/feishu_incoming/`）。
+- 经同一 `chat_id` 消息队列串行调用 `media_handler`：按与文本相同的规则解析 `session_key`、私聊自动绑定，调用开放平台 **获取消息中的资源文件** 接口下载后，写入该会话工作区下的 **`feishu_incoming/`** 目录（与 `SessionManager` 中会话的 `files_path` 一致，即 `{paths.state_dir}/sessions/<safe_id>/files/feishu_incoming/`，见 [ENGINEERING.md](ENGINEERING.md) §3）。
 - 下载或处理失败（`media_handler` 返回以「⚠️」开头的提示）时，**不写入磁盘去重**，避免永久跳过。
 - **`feishu.media.run_agent`**：设为 `1` / `true` / `yes` / `on` 时，在成功落盘后追加一条合成用户消息并调用 `run_agent_with_thinking`。
 - **`feishu.media.vision_desc`**：默认开启（`1`/`true`）。收到图片消息时，先调用视觉模型（多模态 LLM）生成图片的文字描述，再将描述注入上下文交给 Agent 处理。设为 `0` 可关闭，此时仅保存图片文件而不生成描述。
@@ -333,7 +406,7 @@ reply = await engine.run_agent_with_thinking(content, active_session_id, ...)
 ### 会话隔离
 
 - **群聊**（`chat_type=group`）：每个 `chat_id` 使用独立会话 `feishu:<chat_id>`。
-- **私聊**（`p2p`）：未绑定时可自动绑到 CLI 活跃会话，与 CLI **共享**同一 `session_key`；已手动绑定或 `/session switch` 后行为见 [CHANNEL_BINDING.md](CHANNEL_BINDING.md)。
+- **私聊**（`p2p`）：未绑定时可自动绑到 CLI 活跃会话，与 CLI **共享**同一 `session_key`；`/session switch` 后已跟随 sender 同步重绑（见上文 [通道绑定](#通道绑定)）。
 
 ### chat_type 支持（私聊 vs 群聊）
 
@@ -349,8 +422,6 @@ reply = await engine.run_agent_with_thinking(content, active_session_id, ...)
 - **绑定效果**：私聊消息使用绑定会话的上下文；CLI 终端实时打印预览（诊断见 `/status`）
 
 **Agent 配置字段**：`AgentConfig` 中的 **`feishu_root_id`** / **`feishu_parent_id`** / **`feishu_thread_id`** 对应入站事件的 `root_id` / `parent_id` / `thread_id`；其中 `feishu_root_id` 与历史方案里口头说的「reply_root / feishu_reply_root_id」语境一致（话题根消息 id）。
-
-详见 [CHANNEL_BINDING.md](CHANNEL_BINDING.md)。
 
 ### 已知限制与风险
 
@@ -376,11 +447,14 @@ Authorization: Bearer <tenant_access_token>
 
 ## 常见问题
 
+配置与 API 参考保留在本节；**排障步骤**见 [TROUBLESHOOTING.md](TROUBLESHOOTING.md) §飞书集成问题。
+
 ### 飞书未启动
 
-检查环境变量是否配置完整：
+优先检查 `config.user.json` 的 `secrets.feishu_app_id` / `secrets.feishu_app_secret`（进程启动后桥接为 `FEISHU_APP_ID` / `FEISHU_APP_SECRET`，仅作 SDK 调试参考）：
+
 ```bash
-echo $FEISHU_APP_ID
+/config feishu
 ```
 
 ### receive_id 无效（Error 230001）
@@ -401,7 +475,7 @@ echo $FEISHU_APP_ID
 | `/feishu stop` | 停止飞书连接 |
 | `/feishu status` | 查看状态 |
 
-## 架构说明
+## 模块定位
 
 飞书运行时位于 `miniagent/engine/feishu_state.py`（`FeishuRuntime`）；`poll_server.py` 负责 WebSocket 长轮询事件分发。入口请使用 `python -m miniagent`。
 

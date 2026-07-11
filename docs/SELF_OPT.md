@@ -1,6 +1,6 @@
 # Self-Opt 自优化文档
 
-> Mini Agent Python | 版本: 2.1.0 | Self-Optimization 子系统
+> Mini Agent Python | 版本: 2.1.0 | 最后更新: 2026-07-11 | 与 `miniagent.__version__` 对齐 | Self-Optimization 子系统
 
 ## 概述
 
@@ -13,7 +13,7 @@ Self-Opt 是 Mini Agent 的自我优化机制，包含两个核心能力：
 
 ## 配置
 
-在 `config.defaults.json` 中配置：
+`self_optimization` 节在 `config.defaults.json` 中配置；运行分析依赖 Trace 数据，Trace 配置见 **[ENGINEERING.md §5](ENGINEERING.md#5-trace-系统)**（SSOT）。
 
 ```json
 {
@@ -27,13 +27,6 @@ Self-Opt 是 Mini Agent 的自我优化机制，包含两个核心能力：
     "proposal_retention_days": 30,
     "min_failure_rate_threshold": 0.05,
     "min_duration_ms_threshold": 2000
-  },
-  "trace": {
-    "enabled": true,
-    "output_dir": "workspaces/logs",
-    "include_memory_ops": true,
-    "include_context_ops": true,
-    "retention_days": 7
   }
 }
 ```
@@ -41,8 +34,7 @@ Self-Opt 是 Mini Agent 的自我优化机制，包含两个核心能力：
 **关键配置**：
 - `auto_apply: false`：默认仅生成提案，需人工批准执行；设为 `true` 可自动执行低风险提案
 - `auto_apply_max_risk: "low"`：自动执行时仅允许低风险提案
-- `runtime_analysis_enabled: true`：启用运行日志分析
-- `trace.enabled: true`：启用全链路 Trace，为运行分析提供数据
+- `runtime_analysis_enabled: true`：启用运行日志分析（需 `trace.enabled: true`，见 [ENGINEERING.md §5](ENGINEERING.md#5-trace-系统)）
 
 ## CLI 命令
 
@@ -202,28 +194,9 @@ Trace 事件 → trace_stats 统计分析 → 运行指标
 
 ### Trace 系统
 
-全链路 Trace 系统为运行分析提供数据源：
+全链路 Trace 为运行分析提供数据源：LLM/工具/会话事件经 `emit_trace()` 派发，配置 `trace.enabled: true` 后自动持久化到 `{paths.state_dir}/logs/trace-{YYYY-MM-DD}-pid{pid}.jsonl`。
 
-```python
-from miniagent.infrastructure.tracing import emit_trace, register_trace_hook
-from miniagent.infrastructure.trace_events import (
-    EVENT_LLM_REQUEST, EVENT_LLM_RESPONSE,
-    EVENT_TOOL_START, EVENT_TOOL_END, EVENT_TOOL_ERROR,
-    EVENT_SESSION_START, EVENT_SESSION_END,
-)
-```
-
-**Trace 事件类型**：
-- `llm.request/response`：LLM 调用统计（请求次数、token 消耗）
-- `tool.start/end`：工具调用统计（时延、成功率）
-- `tool.error`：工具错误收集（错误类型、是否用户误用）
-- `session.start/end`：会话生命周期
-
-**自动持久化**：
-- `trace.enabled: true`：自动写入 `workspaces/logs/trace-{YYYY-MM-DD}.jsonl`
-- `MINIAGENT_TRACE_LOG_FILE`：环境变量指定路径
-
-详见 [ENGINEERING.md](ENGINEERING.md) Trace 系统章节。
+事件类型、writer 队列策略、日报 API 与测试隔离见 **[ENGINEERING.md](ENGINEERING.md) §5 Trace 系统**。
 
 ## 运行日志分析维度
 

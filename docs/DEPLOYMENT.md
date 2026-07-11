@@ -1,6 +1,6 @@
 # 部署指南
 
-> 模块: Mini Agent Python | 版本: 2.1.0（权威版本号见 `miniagent/__init__.py`）
+> Mini Agent Python | 版本: 2.1.0 | 最后更新: 2026-07-11 | 与 `miniagent.__version__` 对齐
 
 ## 环境要求
 
@@ -24,96 +24,26 @@
 | `feishu` | 飞书 SDK（`lark-oapi`）；启用 CLI+飞书 时安装 |
 | `cli` | 终端 Rich Markdown 渲染 |
 | `browser` | Playwright 无头浏览器（`browser_extract_text`） |
-| `mcp` | 官方 MCP SDK（`MINIAGENT_MCP_STDIO`） |
+| `mcp` | 官方 MCP SDK；在 `config.user.json` 配置 `mcp.stdio_command`（见 `config.defaults.json`） |
 | `dev` | pytest、ruff、pytest-cov |
 | `typing` | mypy（与 CI `test` job 一致） |
 
 完整列表见 [ENGINEERING.md](ENGINEERING.md) §1 与 [pyproject.toml](../pyproject.toml)。
 
-## 安装步骤
+## 安装
 
-### 1. 克隆项目
+首次安装（克隆、虚拟环境、`pip install -e .`、创建 `config.user.json`）见 **[USER_GUIDE.md](USER_GUIDE.md) §3 获取代码与安装** 与 **§5 配置文件**。
 
-```bash
-git clone https://github.com/yingzhudashu/miniagent-python.git
-cd miniagent-python
-```
-
-### 2. 安装依赖
-
-```bash
-pip install -e .
-# 开发（与默认 CI test job 一致：pytest、ruff、mypy 试点）：
-pip install -e ".[dev,typing]"
-# 飞书通道：
-pip install -e ".[feishu]"
-```
-
-> 完整本地门禁命令见 [ENGINEERING.md](ENGINEERING.md) §2。
-
-> 仓库 **不提供** 根目录 `requirements.txt`；依赖以 `pyproject.toml` 的 `[project]` / `[project.optional-dependencies]` 为准。
-
-### 3. 配置
-
-复制默认配置并创建用户配置：
-
-```bash
-cp config.defaults.json config.user.json
-```
-
-编辑 `config.user.json` 文件，填写敏感凭据和个性化配置：
-
-```json
-{
-  "model": {
-    "base_url": "https://api.openai.com/v1",
-    "model": "gpt-4o-mini"
-  },
-  "secrets": {
-    "openai_api_key": "sk-your-api-key",
-    "feishu_app_id": "cli_xxxxxxxx",
-    "feishu_app_secret": "your-app-secret"
-  }
-}
-```
-
-> **注意**：`config.user.json` 已在 `.gitignore` 中，不会提交到 git。
+贡献者开发安装（`pip install -e ".[dev,typing]"` 等）见 **[CONTRIBUTING.md](CONTRIBUTING.md) §开发环境设置**；可选 pip extra 与 Python 版本要求见上文「环境要求」表。
 
 ## 启动模式
 
-### CLI 模式（默认）
+CLI 交互启动、`--feishu` 双通道、`--stop` 停止实例等命令与首次使用说明见 **[USER_GUIDE.md](USER_GUIDE.md) §6 第一次启动与退出**。
 
-```bash
-python -m miniagent
-```
+运维场景补充：
 
-进入交互式命令行，输入文字与 Agent 对话，使用 `/` 前缀命令管理系统。
-
-### CLI + 飞书双通道
-
-```bash
-python -m miniagent --feishu
-```
-
-同时启动 CLI 交互和飞书 WebSocket 长连接，飞书消息和 CLI 共享 Agent 引擎。
-
-### 运行时启用飞书
-
-在 CLI 中输入：
-
-```
-/feishu start    # 启动飞书连接
-/feishu stop     # 停止飞书连接
-/feishu status   # 查看飞书状态
-```
-
-### 停止实例
-
-```bash
-python -m miniagent --stop           # 列出运行中实例；在终端中交互选择要停止的 ID
-python -m miniagent --stop --all     # 停止全部
-python -m miniagent --stop 1 2       # 停止指定实例 ID（非交互）
-```
+- **后台运行**（家庭服务器 / NAS）：WebSocket 长连接**无需公网 IP**，可用 `nohup` 或 systemd（见下文示例）。
+- **多实例**：不同项目目录可并行；同一 cwd 第二次启动会被拒绝。注册表与 `--stop` 语义见 [ENGINEERING.md](ENGINEERING.md) §3.3。
 
 ### 状态目录与多实例注册
 
@@ -130,28 +60,13 @@ python -m miniagent --stop 1 2       # 停止指定实例 ID（非交互）
 
 ## 飞书配置
 
-### 1. 创建飞书应用
+飞书应用创建、事件订阅、权限与发布步骤见 **[FEISHU.md](FEISHU.md) §快速开始**。部署侧仅需：
 
-1. 登录 [飞书开放平台](https://open.feishu.cn)
-2. 创建企业自建应用
-3. 获取 **App ID** 和 **App Secret**
+1. 在 `config.user.json` 的 `secrets` 中填写 `feishu_app_id` / `feishu_app_secret`
+2. 安装可选依赖：`pip install -e ".[feishu]"`
+3. 启动：`python -m miniagent --feishu`
 
-### 2. 配置事件订阅
-
-1. 在应用管理后台，进入「事件订阅」
-2. 选择 **WebSocket 长连接模式**（无需公网 IP）
-3. 订阅事件：`im.message.receive_v1`
-
-### 3. 添加权限
-
-| 权限 | 说明 |
-|------|------|
-| `im:message` | 接收和发送消息 |
-| `im:message:send_as_bot` | 以 Bot 身份发送消息 |
-
-### 4. 发布应用
-
-应用创建后需要发布才能接收消息。
+运维速查与 WebSocket 排障见 [FEISHU.md](FEISHU.md) §运维速查。
 
 ## 部署场景
 
@@ -168,7 +83,7 @@ WebSocket 长连接模式**无需公网 IP**，适合内网部署：
 
 ```bash
 # 使用 nohup 后台运行
-nohup python -m miniagent --feishu > agent.log 2>&1 &
+nohup python -m miniagent --feishu > miniagent-stdout.log 2>&1 &
 
 # 或使用 systemd（Linux）
 # 参见下方 systemd 配置示例
@@ -238,11 +153,11 @@ python -m miniagent --feishu           # 实例 #2 (CLI + 飞书)
 | `scheduled_tasks/*.lock` | 调度与单任务互斥锁（见 [ENGINEERING.md](ENGINEERING.md) §3.3） |
 
 - **依赖**：`croniter`、`tzdata` 已包含在主包 `[project]` 依赖中，无需单独 extra。
-- **运维环境变量**：
+- **运维环境变量**（分类见 [ENGINEERING.md](ENGINEERING.md) §1.2）：
   - `MINIAGENT_DISABLE_SCHEDULED_TASKS=1` — 关闭后台 ticker（不删除磁盘任务表）
   - `MINIAGENT_SCHEDULE_DISPATCH_BACKOFF` — dispatch 失败时推迟 `next_run_at` 的秒数（默认 60）
   - `MINIAGENT_TIMEZONE` / `TZ` — 进程默认 IANA 时区（Agent、`get_time`、新建定时任务默认）；修改 `config.user.json` 后须**重启进程**（Windows 上尤其重要）
-- **用户操作**：CLI `/schedule`（`add`/`update`/`remove`/`enable`/`disable`）、Agent 工具 `manage_scheduled_task`（`list`/`show`/`add`/`update`/`remove`/`enable`/`disable`）；飞书侧通常仅 `list` / `show`。详见 [USER_GUIDE.md](USER_GUIDE.md) §8、[ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」。
+- **用户操作**：CLI `/schedule`（`add`/`update`/`remove`/`enable`/`disable`）、Agent 工具 `manage_scheduled_task`（`list`/`show`/`add`/`update`/`remove`/`enable`/`disable`）；飞书侧通常仅 `list` / `show`。详见 [USER_GUIDE.md](USER_GUIDE.md) §9、[ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」。
 
 ## 监控和日志
 
@@ -267,9 +182,9 @@ python -m miniagent --feishu           # 实例 #2 (CLI + 飞书)
 
 | 目录 | 说明 | 备份建议 |
 |------|------|---------|
-| `workspaces/sessions/` | 会话历史和配置 | 定期备份 |
-| `workspaces/scheduled_tasks/` | 定时任务表（含 prompt） | 与 sessions 同级敏感，定期备份 |
-| `workspaces/memory/` | 活动日志 | 按需备份 |
+| `{paths.state_dir}/sessions/` | 会话历史和配置（canonical 见 [ENGINEERING.md](ENGINEERING.md) §3） | 定期备份 |
+| `{paths.state_dir}/scheduled_tasks/` | 定时任务表（含 prompt） | 与 sessions 同级敏感，定期备份 |
+| `{paths.state_dir}/memory/` | 活动日志 | 按需备份 |
 | `workspaces/skills/` | 已安装技能 | 可重新安装 |
 | `config.user.json` | 用户配置与密钥 | 必须备份（含密钥） |
 
@@ -277,8 +192,8 @@ python -m miniagent --feishu           # 实例 #2 (CLI + 飞书)
 
 | 问题 | 解决方案 |
 |------|---------|
-| 飞书连接失败 | 检查 `FEISHU_APP_ID` 和 `FEISHU_APP_SECRET` |
-| LLM 调用超时 | 检查 `OPENAI_API_KEY` 和网络连接 |
+| 飞书连接失败 | 优先检查 `config.user.json` 的 `secrets.feishu_app_id` / `secrets.feishu_app_secret`；详见 [TROUBLESHOOTING.md](TROUBLESHOOTING.md) §飞书集成问题 |
+| LLM 调用超时 | 优先检查 `config.user.json` 的 `secrets.openai_api_key` 与网络连接 |
 | 会话锁冲突 | 运行 `python -m miniagent --stop` 清理 |
 | Agent 卡死 | 使用 `/status` 检查，或 `/stop` 重启 |
 | 编码问题 | 确保 `PYTHONIOENCODING=utf-8` |
@@ -288,4 +203,4 @@ python -m miniagent --feishu           # 实例 #2 (CLI + 飞书)
 - [ENGINEERING.md](ENGINEERING.md)：CI 与本地质量门禁、`MINIAGENT_PATHS_STATE_DIR` 与仓库卫生约定。
 - [SECURITY.md](SECURITY.md)：沙箱与密钥处理。
 - [ENGINEERING.md](ENGINEERING.md) §3.3：多实例与 `--stop` 行为。
-- [USER_GUIDE.md](USER_GUIDE.md) §8：定时任务用户说明。
+- [USER_GUIDE.md](USER_GUIDE.md) §9：定时任务用户说明。

@@ -9,7 +9,7 @@
         <!-- ══════════════════════════════════════════════════ -->
         <!-- TITLE                                              -->
         <!-- ══════════════════════════════════════════════════ -->
-        <mxCell id="2" value="&lt;b&gt;Mini Agent Python v2.0.2 — 完整系统架构&lt;/b&gt;&lt;br&gt;两阶段 (Plan → Execute)  |  ReAct  |  RuntimeContext  |  ChannelRouter  |  CLI + 飞书双通道" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;fontSize=16;fontColor=#333333;" vertex="1" parent="1">
+        <mxCell id="2" value="&lt;b&gt;Mini Agent Python v2.1.0 — 完整系统架构&lt;/b&gt;&lt;br&gt;多阶段 (Phase 0→0.5→1→2)  |  ReAct  |  RuntimeContext  |  ChannelRouter  |  CLI + 飞书双通道" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;fontSize=16;fontColor=#333333;" vertex="1" parent="1">
           <mxGeometry x="300" y="-30" width="1300" height="50" as="geometry"/>
         </mxCell>
 
@@ -577,7 +577,7 @@
         <mxCell id="501" value="&lt;b&gt;图例&lt;/b&gt;  &lt;font color=&quot;#e8eaf6&quot;&gt;■&lt;/font&gt; Runtime  &lt;font color=&quot;#ede7f6&quot;&gt;■&lt;/font&gt; Router  &lt;font color=&quot;#dae8fc&quot;&gt;■&lt;/font&gt; 引擎  &lt;font color=&quot;#d5e8d4&quot;&gt;■&lt;/font&gt; 核心  &lt;font color=&quot;#e1d5e7&quot;&gt;■&lt;/font&gt; 飞书  &lt;font color=&quot;#fff2cc&quot;&gt;■&lt;/font&gt; 记忆  &lt;font color=&quot;#d0e0e3&quot;&gt;■&lt;/font&gt; 工具" style="text;html=1;align=center;verticalAlign=middle;fontSize=9;" vertex="1" parent="500">
           <mxGeometry x="5" y="22" width="420" height="28" as="geometry"/>
         </mxCell>
-        <mxCell id="502" value="Mini Agent Python v2.0.2  |  13 核心子包 + mcp  |  pytest: 见 ENGINEERING §5  |  SSOT: docs/ARCHITECTURE.md" style="text;html=1;align=center;verticalAlign=middle;fontSize=9;fontColor=#999999;" vertex="1" parent="500">
+        <mxCell id="502" value="Mini Agent Python v2.1.0  |  17 核心子包 + mcp  |  pytest: 见 CONTRIBUTING 文档对齐清单  |  SSOT: docs/ARCHITECTURE.md" style="text;html=1;align=center;verticalAlign=middle;fontSize=9;fontColor=#999999;" vertex="1" parent="500">
           <mxGeometry x="5" y="52" width="420" height="40" as="geometry"/>
         </mxCell>
 

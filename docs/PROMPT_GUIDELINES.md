@@ -1,6 +1,6 @@
 # 提示词编写规范
 
-> Mini Agent Python | 版本: 2.1.0 | 基于 Claude 官方最佳实践
+> Mini Agent Python | 版本: 2.1.0 | 最后更新: 2026-07-11 | 与 `miniagent.__version__` 对齐 | 基于 Claude 官方最佳实践
 
 ## 一、设计原则
 
@@ -314,4 +314,5 @@ pytest tests/ -v
 
 - [Claude 提示词最佳实践](https://platform.claude.com/docs/zh-CN/build-with-claude/prompt-engineering/claude-prompting-best-practices)
 - [ARCHITECTURE.md](ARCHITECTURE.md) §提示词模块
+- [CONTRIBUTING.md](CONTRIBUTING.md) — 贡献指南（Part 2 扩展开发、Part 3 API 示例）
 - [tests/test_prompts_structure.py](../tests/test_prompts_structure.py)

@@ -1,20 +1,27 @@
 # 性能测试与优化
 
-> Mini Agent Python | 版本: 2.1.0 | 补充 [ENGINEERING.md](ENGINEERING.md)
+> Mini Agent Python | 版本: 2.1.0 | 最后更新: 2026-07-11 | 与 `miniagent.__version__` 对齐 | 补充 [ENGINEERING.md](ENGINEERING.md)
 
-本文说明如何度量 **进程内** 开销（CPU、内存、本地 I/O），如何与 **端到端（含 LLM 网络）** 指标区分，以及如何维护基线与可选 CI。
+本文分两部分：
 
-## 1. KPI 分层
+- **Part A — 度量与测试**：进程内 KPI、合成场景矩阵、剖析命令、基线与 CI
+- **Part B — 运行时调优**：配置优化、监控诊断、生产环境推荐配置
+
+---
+
+## Part A — 度量与测试
+
+### 1. KPI 分层
 
 | 层级 | 指标 | 说明 |
 |------|------|------|
 | **L1 本地** | `wall_local`（秒）、`alloc_delta`（字节，可选 tracemalloc）、**关键词索引写盘次数**、上下文 `json.dumps` 相关耗时 | 使用 **Mock LLM**，不访问外网；见 `tests/test_perf_synthetic.py` |
 | **L2 剖析** | cProfile 累计时间、py-spy 火焰图、RSS | 开发机按需运行，见 §3 |
-| **L3 端到端** | 单用例 wall time、p50/p95、token usage、错误率、trace 写入开销 | 依赖 API，必须显式设置 `MINIAGENT_REAL_API_STRESS=1`；见 `tests/evaluation/`、[docs/ENGINEERING.md](ENGINEERING.md) §5 |
+| **L3 端到端** | 单用例 wall time、p50/p95、token usage、错误率、trace 写入开销 | 依赖 API，必须显式设置 `MINIAGENT_REAL_API_STRESS=1`；见 `tests/evaluation/`、[docs/ENGINEERING.md](ENGINEERING.md) §3.2 |
 
 **注意**：线上感知的 p95 延迟通常由 **LLM/HTTP** 主导；L1 回归用于防止 Python 侧退化，不替代端到端评测。
 
-### 1.1 进程关闭顺序（`shutdown_runtime`）
+#### 1.1 进程关闭顺序（`shutdown_runtime`）
 
 与 [miniagent/engine/shutdown.py](../miniagent/engine/shutdown.py) 实现一致，供排障与代码审阅对齐：
 
@@ -28,7 +35,7 @@
 
 **与 `run_cli_loop` 的关系**：用户正常 `quit` 时，循环末尾通常会先 `release_session_lock` + `unregister_instance()`，随后 `unified_main` 再调用 `shutdown_runtime(..., release_cli_session_lock=False, call_unregister=False)`，避免重复；`/stop` 与信号路径则传 `True` 以覆盖未走循环清理即退出的情况。
 
-## 2. 场景矩阵（合成）
+### 2. 场景矩阵（合成）
 
 | ID | 场景 | 目的 |
 |----|------|------|
@@ -45,9 +52,9 @@
 
 扩展场景时保持 **确定性**（固定 tmp 状态目录、Mock client），避免在默认 CI 中依赖网络。可选在 CI 中设置 **`PYTHONHASHSEED=0`**（见 `.github/workflows/perf-smoke.yml`）以降低 dict 迭代顺序带来的抖动。
 
-## 3. 本地剖析命令
+### 3. 本地剖析命令
 
-### 3.1 cProfile（CPU）
+#### 3.1 cProfile（CPU）
 
 对 `scripts/perf_profile_tracemalloc.py` **单次进程**跑 cProfile 时，累计时间常被 **importlib 冷启动** 主导；要突出内存批处理热路径，请加大 `--inner-repeat`（每次迭代使用独立子目录，避免状态无限膨胀）：
 
@@ -56,7 +63,7 @@ python -m cProfile -o perf.out scripts/perf_profile_tracemalloc.py --no-tracemal
 python -c "import pstats; p=pstats.Stats('perf.out'); p.strip_dirs().sort_stats('cumtime').print_stats(40)"
 ```
 
-### 3.2 tracemalloc（分配热点）
+#### 3.2 tracemalloc（分配热点）
 
 ```bash
 python scripts/perf_profile_tracemalloc.py --top 25
@@ -64,13 +71,13 @@ python scripts/perf_profile_tracemalloc.py --json-out perf-snapshot.json
 python scripts/perf_profile_tracemalloc.py --inner-repeat 20 --json-out perf-snapshot.json
 ```
 
-### 3.3 py-spy（采样，需单独安装）
+#### 3.3 py-spy（采样，需单独安装）
 
 ```bash
 py-spy record -o profile.svg -- python scripts/perf_profile_tracemalloc.py --no-tracemalloc --inner-repeat 40
 ```
 
-### 3.4 两次剖析 JSON 对比（基线）
+#### 3.4 两次剖析 JSON 对比（基线）
 
 `perf_profile_tracemalloc.py --json-out` 写入的 JSON 含 `tracemalloc_peak_mib`、`inner_repeat` 等字段。将一次输出保存为 `tests/perf_baselines/<你的环境>.json` 后，可与新跑结果对比（**非门禁**，用于人工或可选告警）：
 
@@ -80,7 +87,7 @@ python scripts/compare_perf_snapshots.py tests/perf_baselines/my-baseline.json p
 
 对比 **tracemalloc_peak_mib** 时，请使两侧 JSON 的 **`inner_repeat` 与是否 `--no-tracemalloc`** 一致；否则脚本会打印 WARN，峰值可能不可比。`compare_perf_snapshots.py` 仅接受根为 **JSON 对象** 的文件（与 `perf_profile` 输出一致），勿将 `example.json` 的 `scenarios` 数组根文件误作输入。
 
-### 3.5 真实 API 压测（显式门禁）
+#### 3.5 真实 API 压测（显式门禁）
 
 真实 API 压测默认不会运行；即使存在 API key，也必须显式打开门禁，避免 CI 或本地全量测试意外产生费用：
 
@@ -92,7 +99,7 @@ python -m pytest tests/evaluation/test_perf_real_api.py -v -s
 
 压测使用当前 OpenAI-compatible 配置（`model.base_url`、`model.model`、`OPENAI_API_KEY`）。产物默认写入 `workspaces/logs/perf/`，属于过程性文件，不提交到仓库。Trace 内容策略为 `metrics_only`：只记录模型、耗时、token、状态、会话/请求关联 ID、错误类型等指标，不记录完整 prompt、response 或密钥。
 
-## 4. 基线文件格式（`tests/perf_baselines/`）
+### 4. 基线文件格式（`tests/perf_baselines/`）
 
 用于人工或离线对比（**勿提交密钥**）。基线文件位于 `tests/perf_baselines/` 目录；首次使用请运行 `mkdir -p tests/perf_baselines` 创建。
 
@@ -108,9 +115,9 @@ python -m pytest tests/evaluation/test_perf_real_api.py -v -s
 
 CI **不**依赖基线文件是否存在；可选 workflow 仅上传当次脚本输出 artifact。
 
-## 5. 已确认/已缓解的热点（代码侧）
+### 5. 已确认/已缓解的热点（代码侧）
 
-### 5.1 已缓解
+#### 5.1 已缓解
 
 - **关键词索引**：`KeywordIndex` 使用 `_dirty`；`index_entry` 只改内存。`DefaultMemoryStore.add_entry` 不再每次 `save()`；执行阶段经 [`miniagent/core/executor.py`](../miniagent/core/executor.py) 的 `_persist_session_memory` 调用 [`miniagent/memory/memory_context_service.py`](../miniagent/memory/memory_context_service.py) 的 `save_memory_after_turn`，在写入条目后 **`flush_keyword_index()`** 保证每轮仍落盘一次。批量 `add_entry` 后显式 `flush_keyword_index()` 可减少写次数。进程退出时 [`miniagent/memory/defaults.py`](../miniagent/memory/defaults.py) 通过 **atexit** 再刷一次默认 bundle 的索引，降低异常退出丢失概率。关键词索引有 **`max_entries`** 上限（默认 20000，`memory.keyword_index_max`），超过时修剪最早关键词。
 - **上下文预算中的工具 schema**：[`miniagent/memory/context.py`](../miniagent/memory/context.py) 的 `DefaultContextManager` 对 `estimate_tool_tokens`（内部多次 `json.dumps(tool)`）做 **按次失效缓存**（调用 **`set_tools`** 或构造后首次用时计算；之后复用）。若需更新工具列表或 schema 内容，**必须**通过 `set_tools` 传入新列表，勿仅原地修改已绑定列表并依赖预算立即变化。
@@ -128,7 +135,7 @@ CI **不**依赖基线文件是否存在；可选 workflow 仅上传当次脚本
 - **执行器 import 提升**：[`miniagent/core/executor.py`](../miniagent/core/executor.py) 的 `ToolResult` import 从 `_run_tool` 内部移到模块顶部，节省每次工具调用的 import 开销。
 - **Trace writer 背压与统计真实性**：[`miniagent/infrastructure/tracing.py`](../miniagent/infrastructure/tracing.py) 的 `AsyncTraceWriter` 使用可配置有界队列，队列满时非阻塞丢弃并暴露 `dropped_count`；[`miniagent/infrastructure/trace_stats.py`](../miniagent/infrastructure/trace_stats.py) 聚合 `trace-YYYY-MM-DD.jsonl` 与 `trace-YYYY-MM-DD-pid*.jsonl`，日报不会漏读真实运行分片。
 
-### 5.2 2026-06-07 业务热路径优化
+#### 5.2 2026-06-07 业务热路径优化
 
 本轮在保留功能、文件 schema 与用户可见效果不变的前提下，针对合成 perf 中最慢的记忆/索引路径和 Feishu thinking stream 重复渲染做代码级优化：
 
@@ -153,7 +160,7 @@ S12 keyword multi-hit search:    0.04s
 
 残余风险：S2 在本机仍受临时目录 I/O 和 Python 冷启动影响有波动；Feishu 真实长驻路径仍建议用真实租户流量或 py-spy 采样确认 PATCH 节流、SDK 网络等待和 card JSON 序列化占比。
 
-### 5.2.1 2026-06-11 Trace 完整性 + 阶段延迟优化
+#### 5.2.1 2026-06-11 Trace 完整性 + 阶段延迟优化
 
 用真实 API（trace 持久化开启）+ `scripts/perf_trace_real_api.py` 跑通完整管线取得基线后，针对**串行 LLM 阶段的 trace 盲区**与**反思阶段延迟**做修复，全程保留功能与效果：
 
@@ -168,12 +175,12 @@ S12 keyword multi-hit search:    0.04s
 
 验证：`ruff` 干净；trace 测试 16 passed；全量回归 1490 passed（唯一失败 `test_footer_survives_history_for_llm` 经 `git stash` 确认为干净树上的既存过期测试，与本轮无关）。
 
-### 5.3 待验证 / 剖析指引
+#### 5.3 待验证 / 剖析指引
 
 - **单次脚本 cProfile**：若不使用 `--inner-repeat`，top `cumtime` 多为导入链；见 §3.1。
 - **Feishu `json.dumps`**：仍可能是线上热点；优化前应用 py-spy 对 `poll_server` 长驻路径采样确认；S5 仅覆盖 `_normalize_lark_md`，不替代整链 profiling。
 
-### 5.4 异步最佳实践（新增）
+#### 5.4 异步最佳实践（新增）
 
 为避免事件循环阻塞，在异步上下文中应使用异步版本函数：
 
@@ -222,7 +229,7 @@ async def good_example():
     await save_tasks_async(tasks)
 ```
 
-## 6. 相关文件
+### 6. 相关文件
 
 | 文件 | 作用 |
 |------|------|
@@ -231,3 +238,195 @@ async def good_example():
 | [`tests/test_perf_synthetic.py`](../tests/test_perf_synthetic.py) | 合成 perf 用例（默认参与 `pytest -m "not evaluation"`） |
 | [`scripts/perf_profile_tracemalloc.py`](../scripts/perf_profile_tracemalloc.py) | 本地可重复剖析入口（支持 `--inner-repeat`） |
 | [`scripts/compare_perf_snapshots.py`](../scripts/compare_perf_snapshots.py) | 对比两次 `--json-out` JSON（峰值比例告警） |
+
+---
+
+## Part B — 运行时调优
+
+本部分提供配置级优化策略，帮助提升 Agent 响应速度和资源利用率。度量与回归测试见 Part A。
+
+### B.1 内存优化
+
+#### 历史压缩策略
+
+**问题**：会话历史过长，占用内存过多。
+
+**优化方案**：
+
+1. **限制历史长度**：
+   ```json
+   {
+     "memory": {
+       "history_tail_messages": 100
+     }
+   }
+   ```
+
+2. **配置历史归档**：
+   ```json
+   {
+     "memory": {
+       "history_tail_messages": 100,
+       "max_transcript_chars": 500000
+     }
+   }
+   ```
+   注：自动归档功能见 `memory/history_archive.py`，通过代码逻辑控制。
+
+3. **定期清理**：
+   ```bash
+   python scripts/cleanup_old_sessions.py --days 90
+   ```
+
+#### 记忆分层清理
+
+**问题**：三层记忆文件膨胀。
+
+**优化方案**：
+
+1. **短期记忆**：缓存最多 `memory.store_cache_max` 个会话（默认 200），超过限制自动清理。
+2. **活动日志**：
+   ```json
+   { "memory": { "activity_log_retention_days": 90 } }
+   ```
+3. **关键词索引**：
+   ```json
+   { "memory": { "keyword_index_max": 15000 } }
+   ```
+
+#### 缓存大小调整
+
+1. **工具注册表缓存**：
+   ```json
+   { "memory": { "registry_max_entries": 2000 } }
+   ```
+2. **飞书去重缓存**：自动刷盘（每 60 秒或 1000 条），进程退出时同步保存。
+3. **嵌入搜索缓存**：
+   ```json
+   { "memory": { "embedding_enabled": false } }
+   ```
+
+### B.2 执行优化
+
+#### 并行工具调用
+
+```json
+{ "agent": { "allow_parallel_tools": true } }
+```
+
+**效果**：总耗时 ≈ 最慢单个工具耗时（提升 50–70%）。适用于多个独立文件读取、搜索或无依赖关系的工具调用。
+
+#### 流式处理配置
+
+```json
+{ "agent": { "streaming": true } }
+```
+
+用户可实时看到思考过程，总响应时间不变但体验提升明显。
+
+#### Token 估算优化
+
+1. 使用 tiktoken 库精确计数（见 `executor.py`）。
+2. 调整预算：
+   ```json
+   {
+     "model": { "context_window": 128000, "max_tokens": 4096 }
+   }
+   ```
+3. 上下文管理：
+   ```json
+   {
+     "memory": {
+       "context_window_reserve": 2000,
+       "max_context_messages": 100
+     }
+   }
+   ```
+   注：压缩策略在 `memory/context.py` 中自动触发，无需额外配置。
+
+### B.3 网络优化
+
+#### API 调用优化
+
+```json
+{
+  "agent": { "http_timeout": 120 },
+  "model": { "max_retries": 3, "model": "gpt-4o-mini" }
+}
+```
+
+OpenAI SDK 超时在 `core/openai_client.py` 中配置为 120 秒。
+
+#### 飞书连接优化
+
+```json
+{
+  "feishu": {
+    "websocket": {
+      "auto_reconnect": false,
+      "watchdog_interval": 30,
+      "dead_conn_grace": 90,
+      "refresh_interval": 3600
+    }
+  }
+}
+```
+
+### B.4 监控与诊断
+
+**查看工具调用统计**：`/stats`
+
+**本地剖析与回归测试**：见 Part A §2（场景矩阵）、§3（剖析命令）。合成 perf 回归：
+
+```bash
+pytest -m perf tests/test_perf_synthetic.py -xvs
+```
+
+**关键指标参考**：
+
+- 内存占用 < 500 MB
+- 平均响应时间 < 30 秒
+- 工具成功率 > 95%
+- LLM Token 使用率 < 80%
+
+### B.5 最佳实践
+
+**每周维护**：
+
+```bash
+python scripts/cleanup_old_sessions.py --days 90
+/stats
+```
+
+**生产环境推荐配置**：
+
+```json
+{
+  "memory": {
+    "history_tail_messages": 100,
+    "store_cache_max": 200,
+    "initial_history_count": 20,
+    "max_transcript_chars": 500000
+  },
+  "agent": {
+    "streaming": true,
+    "parallel_sessions": true,
+    "max_parallel_sessions": 4,
+    "tool_timeout": 60,
+    "http_timeout": 120
+  },
+  "model": {
+    "model": "gpt-4o-mini",
+    "retry_count": 2,
+    "max_tokens": 4096
+  }
+}
+```
+
+### B.6 性能问题排查清单
+
+1. 内存占用过高？ → 清理历史和记忆（见 B.1）
+2. 响应缓慢？ → 启用流式处理和并行工具（见 B.2）
+3. API 超时？ → 增加超时时间和重试次数（见 B.3）
+4. 飞书无响应？ → 检查连接状态和凭证（见 [FEISHU.md](FEISHU.md)、[TROUBLESHOOTING.md](TROUBLESHOOTING.md)）
+5. Token 超限？ → 调整上下文窗口和压缩策略（见 B.2）

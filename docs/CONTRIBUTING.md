@@ -1,64 +1,39 @@
 # 贡献指南
 
-> Mini Agent Python | 版本: 2.1.0
+> Mini Agent Python | 版本: 2.1.0 | 最后更新: 2026-07-11 | 与 `miniagent.__version__` 对齐
+
+本文档为开发者单一入口，分三部分：
+
+- **Part 1 — 参与贡献**：环境、规范、测试、docstring、Git 与发布
+- **Part 2 — 扩展开发**：工具 / 技能 / 通道扩展
+- **Part 3 — API 编程示例**：`run_agent` 集成与 Mock 测试
+
+提示词规范见 [PROMPT_GUIDELINES.md](PROMPT_GUIDELINES.md)；仓库卫生与 CI 见 [ENGINEERING.md](ENGINEERING.md)。
+
+---
+
+## Part 1 — 参与贡献
 
 ## 项目架构
 
-项目按一级子包划分职责（**17 个核心子包**，含可选 `mcp/`；与 `compat`、根 `__main__` 同属入口周边）：
-
-| 子包 | 职责 | 关键文件 |
-|------|------|---------|
-| `cli/` | 控制台入口脚本（`project.scripts` → `main`） | cli.py |
-| `core/` | Agent 核心逻辑（规划+执行） | agent.py, executor.py, planner.py, openai_client.py, constants.py |
-| `engine/` | 运行时编排、CLI、生命周期 | main.py, engine.py, command_dispatch.py |
-| `feishu/` | 飞书通信 | poll_server.py, feishu_dedup.py, ws_client.py, ws_health.py |
-| `infrastructure/` | 基础设施（注册表、监控、队列） | registry.py, message_queue.py, timezone_config.py, env_loader.py, env_parse.py, instance.py |
-| `knowledge/` | 知识库管理（本地文档挂载与检索） | base.py, registry.py |
-| `memory/` | 三层记忆系统 | store.py, context.py, keyword_index.py, defaults.py |
-| `session/` | 会话管理与持久化 | manager.py, workspace.py |
-| `skills/` | 可插拔技能系统 | registry.py, loader.py, clawhub_client.py |
-| `tools/` | LLM 可调用的工具 | exec.py, filesystem.py, core_tools.py, data_tools.py |
-| `security/` | 沙箱与权限 | sandbox.py |
-| `scheduled_tasks/` | 定时任务：持久化 + 进程内调度 | models.py, store.py, cron.py, timezone_util.py, feishu_delivery.py, ticker.py, runner.py, lock.py, file_lock.py, resolve.py |
-| `testing/` | 测试工具与类型定义 | test_runner.py, types.py |
-| `types/` | 共享类型定义 | agent.py, config.py, tool.py, planning.py, memory.py, skill.py |
-| `utils/` | 共享工具函数（session_id 安全化等） | session_id.py |
-| `runtime/` | 进程级组合根 | `context.py`（`RuntimeContext`） |
-| `mcp/` | 可选 stdio MCP → `mcp_*` 工具 | `bridge.py`, `runtime.py`, `toolbox.py`（需 `pip install -e ".[mcp]"`） |
+**17 个核心子包**（含可选 `mcp/`）的完整目录树与各包职责见 **[INDEX.md §项目结构](INDEX.md#项目结构)**。逻辑分层（12 功能层）见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
 **版本号**：以 `miniagent.__version__`（`miniagent/__init__.py`）为权威；`pyproject.toml` 通过 `tool.setuptools.dynamic` 读取该属性。
 
 ## 开发环境设置
 
+克隆、虚拟环境与 `config.user.json` 的通用步骤见 **[USER_GUIDE.md](USER_GUIDE.md) §3** 与 **§5**；Python 版本与可选 pip extra 见 **[DEPLOYMENT.md](DEPLOYMENT.md) §环境要求**。
+
 ```bash
-# 1. 克隆项目（将 <repo-url> 换为你的 fork 或上游 Git 远程；README 快速开始中亦使用同一占位）
-git clone <repo-url>
-cd miniagent-python
-
-# 2. 创建虚拟环境
-python -m venv .venv
-.venv\Scripts\activate     # Windows
-source .venv/bin/activate  # Linux/Mac
-
-# 3. 安装依赖（开发模式，与默认 CI `test` job 一致）
-pip install -e ".[dev,typing]"
-# 完整本地门禁命令见 [ENGINEERING.md](ENGINEERING.md) §2
-
-# 4. 配置环境
-cp config.defaults.json config.user.json
-# 编辑 config.user.json 填入 API Key（secrets 部分）
-
-# 5. 运行测试（与 CI 默认一致：排除 evaluation marker）
+pip install -e ".[dev,typing]"   # 与默认 CI test job 一致
+cp config.defaults.json config.user.json   # 若尚未配置；编辑 secrets 部分
 python -m pytest tests/ -q -m "not evaluation"
-# 含 tests/evaluation 全量：
-# python -m pytest tests/ -q
-#
-# 合并前完整本地门禁（ruff / compileall / mypy / pytest）与 [ENGINEERING.md](ENGINEERING.md) §2 命令块一致；已安装 ".[dev,typing]" 时包含 mypy。
+# 合并前完整本地门禁（ruff / compileall / mypy / pytest）见 [ENGINEERING.md](ENGINEERING.md) §2
 ```
 
 ## 运行时目录与测试隔离
 
-本地开发时，Agent 默认把状态写在仓库下的 `workspaces/`（实例心跳、会话历史、锁文件等）。**默认不应把这些当作必须提交的源码**：仓库根 `.gitignore` 已忽略 `workspaces/instances/`、锁文件、`workspaces/sessions/` 等路径；若团队需要提交示例配置，可个案取消跟踪。
+本地开发时，Agent 默认把状态写在仓库下的 `workspaces/`（实例心跳、会话历史、锁文件等）。**默认不应把这些当作必须提交的源码**：仓库根 `.gitignore` 已忽略 `workspaces/instances/`、锁文件、`workspaces/sessions/`（canonical：`{paths.state_dir}/sessions/`，见 [ENGINEERING.md](ENGINEERING.md) §3）等路径；若团队需要提交示例配置，可个案取消跟踪。
 
 自动化测试与 CI 使用 [`tests/config_helpers.py`](../tests/config_helpers.py) 的 `install_test_config` 写入隔离的 `config.user.json`（设置 `paths.state_dir` 等），避免测试污染本机 `workspaces/` 或与并行运行冲突。`tests/conftest.py` 已提供 `isolated_config_loader` fixture；新用例优先使用该方式，而非环境变量覆盖。
 
@@ -78,7 +53,7 @@ def test_example(tmp_path):
 
 ### 推送前自检（密钥与轨迹）
 
-- **勿提交** `config.user.json`（含真实 Key）、含真实 Key 的 JSON、评测轨迹目录（相关内容勿入库，见 [docs/ENGINEERING.md](ENGINEERING.md) §5）；即使 `.gitignore` 已排除，也不要对可疑路径使用 `git add -f`。
+- **勿提交** `config.user.json`（含真实 Key）、含真实 Key 的 JSON、评测轨迹目录（相关内容勿入库，见 [docs/ENGINEERING.md](ENGINEERING.md) §3.2）；即使 `.gitignore` 已排除，也不要对可疑路径使用 `git add -f`。
 - 推送前执行 `git diff --cached`，确认无意加入密钥或完整对话导出。
 - 可选：在仓库根执行检索，排查误粘贴（示例：`tvly-` 前缀、`sk-` 形态的长串需与文档占位符区分）。GitHub 侧建议开启 Secret scanning / Push protection。
 
@@ -205,46 +180,16 @@ class TestYourClass:
 
 ### 测试覆盖率目标
 
-- 核心模块 (`core/`, `infrastructure/`): > 80%
-- 工具模块 (`tools/`): > 60%
+- 核心模块 (`core/`, `infrastructure/`): ≥ 95%
+- 整体包 (`miniagent/`): ≥ 80%
+- 工具模块 (`tools/`): ≥ 60%
 - 集成测试: 覆盖主要工作流
 
-## 添加新功能
-
-### 添加新工具
-
-1. 在 `miniagent/tools/` 创建新文件
-2. 实现 `register_<name>_tools(registry)` 函数
-3. 在 `miniagent/engine/init.py` 注册
-4. 添加测试
-
-```python
-"""新工具模块"""
-from miniagent.types.tool import ToolResult, ToolContext
-
-async def my_tool_handler(args: dict, ctx: ToolContext) -> ToolResult:
-    """工具处理函数。"""
-    # 实现逻辑
-    return ToolResult(success=True, content="结果")
-```
-
-### 添加新技能
-
-1. 在 `workspaces/skills/` 创建技能目录
-2. 编写 `manifest.yaml`
-3. 实现技能模块
-4. 技能会被 `miniagent/skills/loader.py` 自动发现
-
-### 添加新 CLI 命令
-
-1. 在 `miniagent/engine/cli_commands.py` 添加 `cmd_<name>()` 函数
-2. 在 `miniagent/engine/command_dispatch.py` 注册路由
-3. 在 `cmd_help()` 添加帮助文本
-4. CLI 和飞书自动共享新命令
+权威说明见 [TEST_COVERAGE_MATRIX.md](TEST_COVERAGE_MATRIX.md) 与 [INDEX.md](INDEX.md) §测试与质量。
 
 ## 文档字符串（docstring）规范
 
-完整分层约定见下表；本节补充**写法模板**与**交叉引用**，与 [ARCHITECTURE.md](ARCHITECTURE.md) 及 [ENGINEERING.md](ENGINEERING.md) §5 一并维护。
+完整分层约定见下表；本节补充**写法模板**与**交叉引用**，与 [ARCHITECTURE.md](ARCHITECTURE.md) 及 [ENGINEERING.md](ENGINEERING.md) §1 一并维护。
 
 ### 语言与风格
 
@@ -282,7 +227,7 @@ def merge_config(base: AgentConfig, overrides: dict[str, Any]) -> AgentConfig:
         新的 ``AgentConfig`` 实例。
 
     Note:
-        运行时配置以扁平环境变量为准，见 ARCHITECTURE.md「配置（扁平环境变量）」。
+        运行时配置以 JSON 为准（``config.user.json`` > ``config.defaults.json``），见 [ENGINEERING.md](ENGINEERING.md) §1.1。
     """
 ```
 
@@ -369,14 +314,7 @@ refactor: 拆分 unified.py 为 engine/ 包
 
 ## 软件工程实践（仓库卫生）
 
-更完整的清单（质量门禁、单一事实来源、文档对齐）见 **[ENGINEERING.md](ENGINEERING.md)**。
-
-| 项目 | 约定 |
-|------|------|
-| **单一可安装包** | 开发与安装均以 ``miniagent`` 包为准；不再维护顶层 ``src`` 兼容包或根目录 ``requirements.txt``。依赖声明只在 ``pyproject.toml``。 |
-| **CI** | [``.github/workflows/ci.yml``](../.github/workflows/ci.yml) 在 push/PR 上对 Python 3.10 / 3.12 运行 ``compileall``、``ruff check miniagent tests`` 与 ``pytest``；合并前应在本地执行相同命令。 |
-| **状态目录** | 默认 ``workspaces/``；测试与并行运行请在 `config.user.json` 设置 ``paths.state_dir`` 或使用 ``install_test_config``（见上文「运行时目录与测试隔离」与 ``config.defaults.json``）。 |
-| **忽略规则** | ``.gitignore`` 已排除 ``__pycache__``、``.pytest_cache``、``.ruff_cache``、``*.egg-info``、本地 ``debug-*.log`` 及常见运行时产物；勿将含密钥的 ``config.user.json`` 提交入库。 |
+质量门禁、单一事实来源、状态目录与 Git 忽略规则等完整约定见 **[ENGINEERING.md](ENGINEERING.md)**。
 
 ### 文档与版本对齐清单（发版或大范围文档改动时）
 
@@ -384,3 +322,387 @@ refactor: 拆分 unified.py 为 engine/ 包
 2. ``docs/INDEX.md`` 中目录树与实际仓库一致（已移除的文件勿再列出）。
 3. 涉及行为变更时同步 ``ARCHITECTURE.md`` / 专题文档（如多实例注册表见 [ENGINEERING.md](ENGINEERING.md) §3.3）。
 4. ``README.md`` 中的命令、测试数量与 CI 保持可验证（测试数以 ``pytest --collect-only`` 为准）。
+
+### 文档写作约定
+
+- **页眉**：``> Mini Agent Python | 版本: x.y.z | 最后更新: YYYY-MM-DD | 与 miniagent.__version__ 对齐``；**仅** [INDEX.md](INDEX.md) 与 [USER_GUIDE.md](USER_GUIDE.md) 追加「未发版行为见 CHANGELOG `[Unreleased]`」注记，其余专题文档不必重复。
+- **SSOT**：同一主题只在一处写全；卫星文档用 1–3 句摘要 + 链接。对照表见 [ENGINEERING.md §1](ENGINEERING.md#1-单一事实来源single-source-of-truth) 与 [INDEX.md §SSOT 速查](INDEX.md#ssot-速查单一事实来源)。
+- **交叉引用**：优先 ``[文档名](路径) §节号`` 或 markdown 锚点（如 ``[FEISHU.md §通道绑定](FEISHU.md#通道绑定)``）；深度专题用 Part/§，用户指南用章号。
+- **路径术语**：首次出现 ``{paths.state_dir}/sessions/`` 等简写时，脚注「canonical 路径见 [ENGINEERING.md §3](ENGINEERING.md#3-状态目录与测试隔离)」。
+- **代码示例**：与用户配置相关时以 ``config.user.json`` 为准；勿文档化代码库中不存在的错误码或 env 变量。
+
+---
+
+## Part 2 — 扩展开发
+
+### 工具扩展
+
+#### ToolBuilder 使用方法
+
+Mini Agent Python 使用 ToolBuilder 设计模式，提供链式调用 API，减少约 67% 代码量。
+
+```python
+from miniagent.tools.base import ToolBuilder
+
+def register_my_toolbox(registry):
+    toolbox = ToolBuilder("my_toolbox")
+
+    toolbox.add_tool(
+        name="read_config",
+        description="读取配置文件",
+        handler=read_config_handler,
+    ).param(
+        "path", "string", "配置文件路径",
+        required=True,
+    ).help("读取 JSON/YAML 配置文件并返回解析结果")
+
+    toolbox.add_tool(
+        name="write_config",
+        description="写入配置文件",
+        handler=write_config_handler,
+    ).param("path", "string", "配置文件路径", required=True).param(
+        "data", "object", "配置数据", required=True,
+    )
+
+    registry.register(toolbox.build())
+```
+
+#### 工具注册流程
+
+**步骤 1：定义工具处理器**：
+
+```python
+async def read_config_handler(args: dict, ctx: ToolContext) -> ToolResult:
+    path = args["path"]
+    if not ctx.is_path_allowed(path):
+        return ToolResult(status="error", content=f"路径 {path} 不在允许列表", error="Permission denied")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return ToolResult(status="success", content=json.dumps(data, indent=2))
+    except Exception as e:
+        return ToolResult(status="error", content=f"读取失败: {e}", error=str(e))
+```
+
+**步骤 2–3：构建并注册**：内置工具箱由 `build_skill_snapshots` 自动合并；自定义工具应通过**技能包**或在 `register_builtin_tools` 之后向 `registry` 注册：
+
+```python
+from miniagent.tools.my_tools import MY_CUSTOM_TOOL
+
+def register_my_tool(registry):
+    registry.register("my_tool", MY_CUSTOM_TOOL)
+```
+
+#### 工具 Schema 定义
+
+**基础参数类型**：`string`、`number`、`integer`、`boolean`、`object`、`array`
+
+```python
+toolbox.add_tool(...).enum_param("format", "输出格式", ["json", "yaml"], default="json")
+toolbox.add_tool(...).param("encoding", "string", "编码格式", required=False, default="utf-8")
+```
+
+#### 低层 Tool 对象注册（API 场景）
+
+若只需快速注册单个工具而不使用 ToolBuilder，可直接构造 `Tool` 对象：
+
+```python
+from miniagent.types.tool import Tool
+
+tool = Tool(
+    name="my_custom_tool",
+    description="自定义文本处理工具",
+    function=my_custom_tool,
+    parameters={
+        "type": "object",
+        "properties": {"input": {"type": "string", "description": "要处理的文本"}},
+        "required": ["input"],
+    },
+)
+registry.register(tool)
+```
+
+生产扩展优先使用 ToolBuilder + 技能包。
+
+### 技能扩展
+
+#### 技能目录结构（推荐：`SKILL.md`）
+
+```
+workspaces/skills/my_skill/
+├── SKILL.md            # 技能元数据 + 指令（YAML frontmatter + Markdown body）
+├── skills/             # 子技能目录（可选）
+│   └── my_tool/
+│       ├── SKILL.md
+│       └── tools.py    # 子技能工具实现（可选）
+└── README.md           # 技能说明文档（可选）
+```
+
+加载器优先读取 `SKILL.md`（见 `miniagent/skills/loader.py`）。**备选格式**（遗留）：`skill.yaml` + `instructions.md`，新项目请勿使用。
+
+#### SKILL.md 示例
+
+```markdown
+---
+name: my_skill
+description: 我的自定义技能
+version: 1.0.0
+---
+
+# 我的技能
+
+在此编写 stable system augment 指令正文……
+```
+
+#### 指令注入
+
+`SKILL.md` body（或备选格式的 `instructions.md`）作为 stable system augment 放入 Agent 的第一条 `system` 消息，格式：`[SKILL: my_skill]\n{content}`。不要把本轮用户任务、记忆检索、知识库结果、当前时间或文件根目录写入 skill prompt。
+
+### 通道扩展
+
+```python
+class ChannelProtocol(Protocol):
+    async def send_message(self, content: str, *, session_key: str, chat_id: str | None = None) -> None: ...
+    async def receive_message(self, *, session_key: str) -> dict | None: ...
+```
+
+实现消息处理回调时：解析消息 → 映射 `session_key` → 调用 `run_agent_with_thinking` → 发送回复。详见 [FEISHU.md §通道绑定](FEISHU.md#通道绑定)、[ARCHITECTURE.md](ARCHITECTURE.md)。
+
+### 扩展单元测试
+
+```python
+@pytest.mark.asyncio
+async def test_read_config_success(tool_context):
+    args = {"path": "/tmp/test_workspace/config.json"}
+    result = await read_config_handler(args, tool_context)
+    assert result.status == "success"
+```
+
+### 添加新 CLI 命令
+
+1. 在 `miniagent/engine/cli_commands.py` 添加 `cmd_<name>()` 函数
+2. 在 `miniagent/engine/command_dispatch.py` 注册路由
+3. 在 `cmd_help()` 添加帮助文本
+4. CLI 和飞书自动共享新命令
+
+---
+
+## Part 3 — API 编程示例
+
+进程级依赖集中在 [`RuntimeContext`](../miniagent/runtime/context.py)（组合根）；`registry` 经容器注入后传给 `run_agent()`。自我优化 API 见 [SELF_OPT.md](SELF_OPT.md)。
+
+### 基础用法
+
+#### 简单命令执行（内置工具）
+
+```python
+from miniagent.core.agent import run_agent
+from miniagent.infrastructure.container import bootstrap_default_factories, get_tool_registry
+from miniagent.engine.builtin_tools import register_builtin_tools
+
+bootstrap_default_factories()
+registry = get_tool_registry()
+register_builtin_tools(registry)
+
+result = await run_agent(user_input="读取README.md文件", registry=registry)
+print(result.reply)
+```
+
+#### 最小测试注册表
+
+单元测试或无需完整子系统时，可直接构造空注册表（与 `run_agent` docstring 示例一致）：
+
+```python
+from miniagent.core.agent import run_agent
+from miniagent.infrastructure.registry import DefaultToolRegistry
+
+registry = DefaultToolRegistry()
+result = await run_agent("帮我分析当前目录", registry=registry, session_key="test-001")
+```
+
+#### 会话管理
+
+```python
+result1 = await run_agent(
+    user_input="当前目录有什么文件？",
+    registry=registry,
+    session_key="my-session-123",
+)
+result2 = await run_agent(
+    user_input="读取README.md文件",
+    registry=registry,
+    session_key="my-session-123",
+)
+```
+
+#### 流式输出回调
+
+```python
+async def my_thinking_callback(text: str, streaming: bool, header: str, **kwargs) -> None:
+    if streaming:
+        print(f"[{header}] {text}")
+
+result = await run_agent(
+    user_input="分析代码性能",
+    registry=registry,
+    on_thinking=my_thinking_callback,
+)
+```
+
+### 配置管理
+
+#### 自定义 Agent 配置
+
+```python
+custom_config = {
+    "max_turns": 200,
+    "tool_timeout": 30,
+    "allow_parallel_tools": False,
+    "debug": True,
+}
+result = await run_agent(user_input="执行任务", registry=registry, agent_config=custom_config)
+```
+
+#### 自定义系统提示词
+
+```python
+result = await run_agent(
+    user_input="审查src/main.py代码",
+    registry=registry,
+    system_prompt="你是一个专业的代码审查助手...",
+)
+```
+
+`system_prompt` 作为 stable system augment；动态资料（检索结果、当前时间等）由执行器放入 current turn user context。
+
+#### 配置文件管理
+
+```python
+from miniagent.infrastructure.json_config import get_config
+
+max_turns = get_config("agent.max_turns", 400)
+```
+
+### 高级用法
+
+#### 从 RuntimeContext 注入
+
+与 `python -m miniagent` 入口一致：先经 `unified_entry` 构造并 `set_runtime_context(ctx)`，或在测试中手动组装 `RuntimeContext`：
+
+```python
+from miniagent.runtime.context import get_runtime_context
+from miniagent.core.agent import run_agent
+
+ctx = get_runtime_context()  # 须已初始化
+result = await run_agent(
+    user_input="分析代码性能",
+    registry=ctx.registry,
+    session_key="perf-analysis-session",
+    agent_config={"max_turns": 50},
+    client=ctx.openai_client,
+    memory_store=ctx.memory_store,
+    activity_log=ctx.activity_log,
+)
+```
+
+#### 工具执行回调
+
+```python
+async def my_tool_finish_callback(tool_name, args_json, result, success, thinking_header):
+    print(f"[{thinking_header}] 工具 {tool_name} {'成功' if success else '失败'}")
+
+result = await run_agent(
+    user_input="读取README.md",
+    registry=registry,
+    on_tool_finish=my_tool_finish_callback,
+)
+```
+
+#### 跳过规划阶段
+
+```python
+result = await run_agent(user_input="读取README.md", registry=registry, skip_planning=True)
+```
+
+### API 测试场景
+
+#### Mock 工具注册表
+
+```python
+from unittest.mock import Mock
+from miniagent.infrastructure.container import set_tool_registry
+
+mock_registry = Mock()
+set_tool_registry(mock_registry)
+result = await run_agent(user_input="测试命令", registry=mock_registry)
+```
+
+#### Mock LLM 客户端
+
+```python
+mock_client = AsyncMock(spec=AsyncOpenAI)
+mock_client.chat.completions.create.return_value = MockLLMResponse(content="Mock response")
+result = await run_agent(user_input="测试输入", registry=registry, client=mock_client)
+```
+
+#### 测试工具执行器
+
+```python
+from miniagent.core.executor_tools import execute_tools_concurrent
+
+results = await execute_tools_concurrent(
+    pending_calls=pending_calls,
+    agent_config=mock_config,
+    context=mock_context,
+    session_key="test-session",
+    thinking_header="[测试]",
+    monitor=mock_monitor,
+    activity_log=mock_activity_log,
+)
+```
+
+### 错误处理
+
+```python
+try:
+    result = await run_agent(user_input="执行任务", registry=registry)
+except ContextBudgetExceeded as e:
+    print(f"上下文超限: {e}")
+except LLMError as e:
+    print(f"LLM错误: {e}")
+except ToolExecutionError as e:
+    print(f"工具错误: {e}")
+```
+
+循环检测拦截时，结果以 `WARNING_PREFIX` 开头。
+
+---
+
+## 最佳实践与开发清单
+
+### 设计原则
+
+- **工具**：单一职责、异步处理、沙箱检查、清晰错误信息
+- **技能**：指令清晰、README 完整、通过 `/reload-skills` 热加载验证
+- **通道**：Protocol 解耦、ChannelRouter 统一管理会话映射
+- **API**：通过 `run_agent()` 关键字参数注入依赖；`registry` 来自 `get_tool_registry()` 或 `RuntimeContext`；模块化引用 `executor_*` 子模块
+
+### 开发清单
+
+| 类型 | 步骤 |
+|------|------|
+| 工具 | 定义 handler → ToolBuilder 构建 Schema → 沙箱检查 → 单元测试 → 更新文档 |
+| 技能 | 创建 SKILL.md（frontmatter + 指令）→ 实现 tools.py（可选）→ `/reload-skills` 验证 → 集成测试 |
+| 通道 | 定义 ChannelProtocol → 实现回调 → 配置会话同步 → 更新 ARCHITECTURE |
+| CLI 命令 | `cli_commands.py` → `command_dispatch.py` → `cmd_help()` → 测试 |
+| API 集成 | `bootstrap_default_factories` + `run_agent` → 配置 `session_key` → 添加回调 → Mock 测试 |
+
+---
+
+## 相关文档
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) — 系统架构设计
+- [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md) — 记忆系统
+- [KNOWLEDGE_BASE.md](KNOWLEDGE_BASE.md) — 知识库与 RAG
+- [ENGINEERING.md](ENGINEERING.md) — 质量门禁与仓库卫生
+- [PROMPT_GUIDELINES.md](PROMPT_GUIDELINES.md) — 提示词编写规范

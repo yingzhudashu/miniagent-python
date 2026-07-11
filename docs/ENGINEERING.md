@@ -1,6 +1,6 @@
 # 软件工程实践与仓库卫生
 
-> Mini Agent Python | 版本: 2.1.0 | 与 `miniagent.__version__` 对齐 | 未发版行为见 [CHANGELOG](../CHANGELOG.md) `[Unreleased]`
+> Mini Agent Python | 版本: 2.1.0 | 最后更新: 2026-07-11 | 与 `miniagent.__version__` 对齐
 
 本文档汇总本仓库在**可维护性、可重复构建、安全与协作**上的约定，作为 [CONTRIBUTING.md](CONTRIBUTING.md) 的补充：后者偏「如何写代码」，本文偏「仓库与发布如何保持健康」。
 
@@ -14,9 +14,15 @@
 | 版本号 | `miniagent/__init__.py` 中 `__version__` | `pyproject.toml` 通过 `dynamic.version` 读取；发版时与 `CHANGELOG.md`、本文档顶部标语一并更新。 |
 | 依赖声明 | `pyproject.toml` `[project]` / `optional-dependencies` | 不使用根目录 `requirements.txt`；运行时依赖与可选组（`dev`（含 `pytest-cov`）、`feishu`、`browser`、`mcp`、`cli`、`typing`（`mypy` 试点））集中在此。 |
 | 配置说明 | [`config.defaults.json`](../config.defaults.json) + `config.user.json` | 复制 defaults 为 user 后本地填写；`_config_guide` 标明 User/Advanced 分层；**勿提交含真实密钥的 user 文件**（见 `.gitignore`）。 |
-| 定时任务配置 | `config.defaults.json` + [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」 | 用户面向摘要见 [USER_GUIDE.md](USER_GUIDE.md) §8；运维见 [DEPLOYMENT.md](DEPLOYMENT.md) |
-| 自我优化配置 | `config.defaults.json` → `self_optimization` 配置节 | 提案持久化路径、自动执行开关、风险等级上限等；详见 [SELF_OPT.md](SELF_OPT.md) |
-| Trace 系统配置 | `config.defaults.json` → `trace` 配置节 | 持久化开关、输出目录、保留天数等；详见下文 §5 |
+| 用户安装与首次配置 | [USER_GUIDE.md](USER_GUIDE.md) §3–5 | README / DEPLOYMENT 仅保留快速指针，不重复安装长文。 |
+| 通道绑定（CLI↔飞书） | [FEISHU.md](FEISHU.md) §通道绑定 | ARCHITECTURE §2b、USER_GUIDE、CLI 仅保留摘要 + 链接。 |
+| 多实例注册表 | 本文 §3.3 | DEPLOYMENT / USER_GUIDE / CLI 只写 `--stop` 用法与 PID 语义摘要。 |
+| 定时任务配置 | `config.defaults.json` + [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」 | 用户面向摘要见 [USER_GUIDE.md](USER_GUIDE.md) §9；命令语法见 [CLI.md](CLI.md) §/schedule |
+| 自我优化（操作） | [SELF_OPT.md](SELF_OPT.md) | `self_optimization` 配置节；提案与 `/self-opt` 命令。 |
+| Trace 系统（实现） | 本文 §5 | 事件 schema、writer、stats API；SELF_OPT 只链到此处。 |
+| 输出格式与渲染 | [OUTPUT_FORMAT.md](OUTPUT_FORMAT.md) | CLI TUI / 流式 / 飞书卡片间距；CLI.md 侧重命令交互。 |
+| 提示词编写 | [PROMPT_GUIDELINES.md](PROMPT_GUIDELINES.md) | ARCHITECTURE §提示词模块只列文件表 + 链接。 |
+| 环境变量分类 | 本文 §1.2 | 运维/调试类 env；用户面向配置以 JSON 为准。 |
 | 架构与行为细节 | `docs/ARCHITECTURE.md` 及各专题文档 | README 只做索引与快速上手；深度说明以 `docs/` 为准。 |
 
 飞书媒体与出站（JSON 键见 [`config.defaults.json`](../config.defaults.json) `feishu` 节；完整说明见 [FEISHU.md](FEISHU.md)）：
@@ -53,6 +59,18 @@
 **加载机制**（见 [`json_config.py`](../miniagent/infrastructure/json_config.py)）：`defaults → user`（仅两层 JSON）。`secrets` 经 [`env_loader.py`](../miniagent/infrastructure/env_loader.py) 桥接到 `OPENAI_API_KEY` 等 SDK 变量，**不是**用户配置入口。`/config` 命令与 USER_GUIDE 仅展示 User 层子集。
 
 **凭据桥接**（Internal，非用户旋钮）：`config.user.json` → `secrets.*` → `OPENAI_API_KEY` / `FEISHU_APP_ID` 等，供第三方 SDK 读取。
+
+### 1.2 环境变量分类
+
+自 v2.0.0 起，**用户配置**仅通过 JSON（`config.user.json` > `config.defaults.json`），不支持 `MINIAGENT_*` 覆盖配置项。环境变量分三类：
+
+| 类别 | 说明 | 示例 | 文档 |
+|------|------|------|------|
+| **配置类（已废弃）** | 曾用于覆盖 defaults 的 `MINIAGENT_*` 配置键 | `MINIAGENT_MEMORY_STORE_CACHE_MAX` | 迁移至 JSON 键，见 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md) 文末迁移表 |
+| **运维 / 调试类（仍有效）** | 启动行为、日志级别、特性开关，非 defaults 镜像 | `AGENT_DEBUG`、`MINIAGENT_TRACE_LOG_FILE`、`MINIAGENT_FEISHU_DOT_COMMANDS_FULL` | [DEPLOYMENT.md](DEPLOYMENT.md)、[OUTPUT_FORMAT.md](OUTPUT_FORMAT.md)、[FEISHU.md](FEISHU.md) |
+| **路径覆盖类（仍有效）** | 覆盖状态目录或注册表根，不改变配置语义 | `MINIAGENT_PATHS_STATE_DIR`、`MINIAGENT_REGISTRY_STATE_DIR`、`MINIAGENT_PROJECT_DIR` | 本文 §3 |
+
+凭据类变量（`OPENAI_API_KEY`、`FEISHU_APP_ID` 等）由 `secrets.*` 桥接，见上节。
 
 ---
 
@@ -94,6 +112,14 @@ CI 说明：
 
 **双路径模型**（`miniagent/infrastructure/paths.py`）：
 
+**Canonical 会话路径**（默认）：
+
+```
+{miniagent 包根}/workspaces/projects/{project_key}/sessions/<safe_session_id>/
+```
+
+下文与 `.gitignore` 中的 `workspaces/sessions/` 等为**简写**；完整解析规则见本表与 `resolve_project_state_dir()`。
+
 | 路径 | 解析函数 | 默认位置 | 用途 |
 |------|----------|----------|------|
 | 项目 workspace | `resolve_state_dir()` / `resolve_project_state_dir()` | `{miniagent 包根}/workspaces/projects/{project_key}/` | 会话、路由、飞书锁、定时任务等业务状态（按 cwd 自动区分） |
@@ -103,25 +129,11 @@ CI 说明：
 - **Legacy 回退**：若 `{cwd}/workspaces/` 或（cwd 为 miniagent 源码根时）`{registry}/` 已有 `sessions/` 或 `channel-router.json`，仍使用旧路径直至手动迁移。
 - **推荐**：测试或并行部署时用 `MINIAGENT_PATHS_STATE_DIR` 将项目数据迁出仓库；注册表不受该变量影响（测试可用 `MINIAGENT_REGISTRY_STATE_DIR` 覆盖）。
 - **一目录一实例**：同一 `project_dir`（cwd）仅允许一个存活 Agent；冲突时启动失败并提示 `--stop`。不同 cwd 可并行，各自独立 workspace。
-- 部分路径见 `.gitignore`，如 `workspaces/sessions/`、`**/*.lock`。
-
-### 3.3 多实例注册表
-
-磁盘布局：`{registry}/instances/<id>/meta.json` + `heartbeat`（心跳仅观测，**不参与**存活判定）。`meta.json` 含 `project_dir`、`project_key` 与 `project_state_dir`。
-
-| 行为 | 规则 |
-|------|------|
-| 注册 | 新进程 `register()` 前删除 PID 已失效的目录；分配 ID 时持有 `{registry}/instances/.registry.lock`；同 `project_dir` 存活实例存在则拒绝 |
-| 存活 | `list_all()` / `--stop` 仅以 OS PID 是否存在为准（Windows: `tasklist`；POSIX: `kill(pid, 0)`） |
-| 列表 | `list_instances()` 扫描注册表根；过渡期若 legacy cwd 根与注册表不同，一并聚合 |
-| 停止 | `stop_instance_by_id(id)`；多注册表根同 ID 时需 `state_dir=` 或 `--stop --state-dir <路径> <id>` |
-| 注销 | 进程正常退出时 `unregister()` 删除 `{id}/` 目录 |
-
-实例 `mode` 仅两种：`cli`（飞书未启用）与 `both`（CLI + 飞书）。同一会话跨实例互斥见会话 `.lock` 与 [ARCHITECTURE.md](ARCHITECTURE.md)「多实例设计」。
+- 部分路径见 `.gitignore`，如 `workspaces/sessions/`（即 `{paths.state_dir}/sessions/` 的简写）、`**/*.lock`。
 
 ### 3.1 `workspaces/` 与 Git 跟踪政策
 
-**运行时生成物默认不入库**：`.gitignore` 已排除 `workspaces/instances/`、`workspaces/sessions/`、`workspaces/memory/`、`workspaces/scheduled_tasks/`（定时任务表 `tasks.json`，路径为 `{paths.state_dir}/scheduled_tasks/tasks.json`，默认 `workspaces/scheduled_tasks/`）、`workspaces/self_opt/`（自我优化提案与分析报告）、`workspaces/logs/`（Trace 日志）、`workspaces/keyword-index.json`、`workspaces/perf*.jsonl`、`workspaces/feishu_inbound_owner.json`、`workspaces/feishu/`（含 WebSocket 去重等）、`**/*.lock`、`workspaces/cli/` 等，避免把本机 PID、会话历史、记忆索引、对话落盘、飞书去重状态提交到远程。
+**运行时生成物默认不入库**：`.gitignore` 已排除 `workspaces/instances/`、`workspaces/sessions/`（canonical：`{paths.state_dir}/sessions/`，默认 `{miniagent}/workspaces/projects/{project_key}/sessions/`）、`workspaces/memory/`、`workspaces/scheduled_tasks/`（定时任务表 `tasks.json`，路径为 `{paths.state_dir}/scheduled_tasks/tasks.json`，默认 `workspaces/scheduled_tasks/`）、`workspaces/self_opt/`（自我优化提案与分析报告）、`workspaces/logs/`（Trace 日志）、`workspaces/keyword-index.json`、`workspaces/perf*.jsonl`、`workspaces/feishu_inbound_owner.json`、`workspaces/feishu/`（含 WebSocket 去重等）、`**/*.lock`、`workspaces/cli/` 等，避免把本机 PID、会话历史、记忆索引、对话落盘、飞书去重状态提交到远程。
 
 若历史上曾将上述路径纳入版本跟踪，可在确认无团队依赖后执行 `git rm --cached <路径>` 并保留 `.gitignore` 规则。配置形状以 `config.defaults.json` 的 `_config_guide` 与分层节为准；日常开发建议在 `config.user.json` 将 `paths.state_dir` 迁出仓库。
 
@@ -129,7 +141,7 @@ CI 说明：
 
 ### 3.2 可选离线测评产物
 
-若使用 `tests/evaluation/`（见 §3.4）：
+若使用 `tests/evaluation/`（见 [tests/evaluation/README_API_PERF.md](../tests/evaluation/README_API_PERF.md)）：
 
 | 类型 | Git 策略 |
 |------|----------|
@@ -138,34 +150,51 @@ CI 说明：
 
 **轨迹 JSON、聚合评分与 HTML 报告**体积大且环境相关；对话片段中还可能误粘贴 **API Key**，即使已在 `.gitignore` 中列出，也**不要**使用 `git add -f` 强行入库。根目录 `.gitignore` 已忽略 `tests/evaluation/runners/trajectories/`、`tests/evaluation/**/evaluation_results.json`、`docs/EVALUATION_REPORT.html`、`docs/evaluation_results.json` 等。
 
+### 3.3 多实例注册表
+
+实现位于 [`miniagent/infrastructure/instance.py`](../miniagent/infrastructure/instance.py)。注册表根目录由 `resolve_registry_state_dir()` 解析（默认 `{miniagent 包根}/workspaces`），与项目 `paths.state_dir` **分离**。
+
+**目录结构**：
+
+```
+workspaces/instances/
+├── 1/
+│   ├── meta.json    # pid、instance_id、mode、active_sessions、project_dir 等
+│   └── heartbeat    # 心跳时间戳（仅观测）
+└── 2/
+    └── ...
+```
+
+**存活判定**：是否在列表中显示、是否删除磁盘目录，均以 **操作系统 PID 是否存在** 为准（`is_process_running`）。`register()` 在分配新 `instance_id` **之前** 会扫描并删除 PID 已失效的目录；**不会**向其它进程发送终止信号。`heartbeat` 文件仍会更新，便于人工排查；**不参与**存活判定，避免心跳写入滞后导致误删仍在运行的实例。
+
+**一目录一实例**：同一 `project_dir`（启动 cwd）仅允许一个存活 Agent；冲突时启动失败并提示 `python -m miniagent --stop`。不同 cwd 可并行，各自独立 workspace。
+
+**实例 mode**：`cli`（仅 CLI 主循环）或 `both`（CLI + 飞书连接已启用）；不存在无 CLI 的独立飞书进程入口。
+
+**CLI 管理**：
+
+```bash
+python -m miniagent --stop          # 交互停止当前或其它实例
+python -m miniagent --stop --all    # 停止全部
+```
+
+进程内也可用 `/instance list`、`/instance stop <id>`（见 [CLI.md](CLI.md)）。
+
+**`--stop --state-dir`**：参数指向**实例注册表根**（含 `instances/` 子目录），默认 `{miniagent}/workspaces`；**不是**项目会话数据目录（`projects/<key>/`）。当 canonical 注册表与 legacy `{cwd}/workspaces/instances/` 同时存在且实例 ID 冲突时，需用此参数指定要操作哪一个注册表根。
+
+**会话互斥**：每个会话工作空间 `.lock` 文件（PID）防止多实例抢同一 session；定时任务调度锁见 `scheduled_tasks/*.lock`（详见 [SECURITY.md](SECURITY.md) §3）。
+
+**测试隔离**：`reset_instance_registry_for_tests()` 与 `conftest` fixture 用于重置进程级注册表单例。
+
 ---
 
 ## 4. 自我优化子系统
 
-自我优化系统基于运行日志和代码分析生成优化提案，详见 [SELF_OPT.md](SELF_OPT.md)。
+自我优化基于 Trace 运行指标与代码静态分析生成提案；**配置项、阈值、CLI/API 与操作步骤**见 **[SELF_OPT.md](SELF_OPT.md)**（SSOT）。本节仅保留工程侧要点：
 
-### 4.1 运行日志驱动提案
-
-通过 Trace 系统采集运行指标，识别性能瓶颈、高频错误、异常行为：
-
-- **慢工具识别**：平均时延超过阈值（`min_duration_ms_threshold: 2000`）
-- **失败率统计**：成功率低于阈值（`min_failure_rate_threshold: 0.05`）
-- **错误聚合**：按类型/工具分组，标记用户误用 vs 工具缺陷
-- **Token 消耗分析**：总 token > 100000 时生成优化提案
-
-### 4.2 提案持久化
-
-提案存储在 `workspaces/self_opt/proposals/`（或配置的 `proposal_output_dir`）：
-
-- `proposals-{YYYY-MM-DD}.jsonl`：每日提案追加写入
-- `reports/runtime-{YYYY-MM-DD}.json`：运行分析报告
-- `reports/trace-report-{YYYY-MM-DD}.json`：Trace 统计报告
-
-### 4.3 自动执行控制
-
-- **默认仅生成提案**（`auto_apply: false`），需人工批准执行
-- **开启自动执行**（`auto_apply: true`）时仅执行低风险提案
-- **风险等级上限**（`auto_apply_max_risk: "low"`）可配置为 `medium` 或 `high`
+- 提案与报告默认写入 `workspaces/self_opt/`（或 `self_optimization.proposal_output_dir`），**不入库**（见 §3.1）。
+- 运行分析依赖 Trace（§5）；`self_optimization.runtime_analysis_enabled` 为真时需 `trace.enabled: true`。
+- 默认 `auto_apply: false`，仅生成提案；自动执行与风险上限见 SELF_OPT §配置。
 
 ---
 
@@ -346,5 +375,5 @@ deleted = ProposalStore.cleanup_old_proposals(retention_days=30)
 - [SELF_OPT.md](SELF_OPT.md) — 自我优化系统详解
 - [CLI.md](CLI.md) — CLI 命令手册（自我优化命令）
 - [ARCHITECTURE.md](ARCHITECTURE.md) — 系统架构
-- [CONTRIBUTING.md](CONTRIBUTING.md) — 代码规范
-- [PERFORMANCE.md](PERFORMANCE.md) — 性能分析流程
+- [CONTRIBUTING.md](CONTRIBUTING.md) — 贡献指南（含扩展开发与 API 示例）
+- [PERFORMANCE.md](PERFORMANCE.md) — 性能测试与调优

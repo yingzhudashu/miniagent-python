@@ -6,7 +6,7 @@
 未绑定时：每个通道独立会话（保持当前行为）。
 绑定后：多通道共享同一主会话。
 
-用户可见行为与命令说明见 ``docs/CHANNEL_BINDING.md``。
+用户可见行为与命令说明见 ``docs/FEISHU.md`` §通道绑定。
 
 Example:
     router = ChannelRouter()
@@ -153,7 +153,7 @@ class ChannelRouter:
         if chat_type == "p2p":
             channel_id = f"{self.FEISHU_P2P_PREFIX}{sender_id}"
             return self.resolve(channel_id)
-        # 群聊：固定 feishu:<chat_id>，不查 _bindings（与 CHANNEL_BINDING 文档一致）
+        # 群聊：固定 feishu:<chat_id>，不查 _bindings（与 FEISHU.md §通道绑定 一致）
         return f"{self.FEISHU_GROUP_PREFIX}{chat_id}"
 
     # -----------------------------------------------------------------------

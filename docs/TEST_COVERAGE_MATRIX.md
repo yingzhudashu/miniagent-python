@@ -1,6 +1,8 @@
-# MiniAgent Test Coverage Matrix
+# Mini Agent Python — 测试覆盖矩阵
 
-本文档记录 MiniAgent Python 项目的功能模块与测试文件的对应关系。
+> Mini Agent Python | 版本: 2.1.0 | 最后更新: 2026-07-11 | 与 `miniagent.__version__` 对齐
+
+本文档记录 Mini Agent Python 项目的功能模块与测试文件的对应关系。
 
 ---
 
@@ -184,11 +186,15 @@
 
 ## 测试统计摘要
 
-| 类别 | 数量 |
+| 类别 | 说明 |
 |------|------|
-| **测试文件总数** | ~120（合并后） |
-| **测试用例总数** | ~1000+ |
-| **覆盖率目标** | 核心≥95%，整体≥80% |
+| **测试数量** | 以 `pytest tests/ --collect-only -q` 收集结果为准（勿硬编码） |
+| **覆盖率目标** | 核心模块 ≥95%；整体 ≥80%（见 CI `pytest-cov` 报告） |
+
+```bash
+pytest tests/ --collect-only -q
+pytest tests/ -q -m "not evaluation" --cov=miniagent --cov-report=term-missing
+```
 
 ---
 
@@ -230,6 +236,3 @@ set MINIAGENT_REAL_API_STRESS=1
 pytest tests/evaluation/test_perf_real_api.py -v -s
 ```
 
----
-
-*最后更新: 2026-06-07*
