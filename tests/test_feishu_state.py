@@ -18,6 +18,24 @@ def _lines_rt() -> tuple[FeishuRuntime, list[str]]:
     return rt, lines
 
 
+@pytest.mark.asyncio
+async def test_runtime_done_callback_consumes_failure_and_clears_state() -> None:
+    rt, _lines = _lines_rt()
+
+    async def fail() -> None:
+        raise RuntimeError("ws failed")
+
+    task = asyncio.create_task(fail())
+    rt.set_task(task)
+    rt.set_running(True)
+    task.add_done_callback(rt._on_runtime_task_done)
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    assert rt.get_task() is None
+    assert rt.is_running() is False
+
+
 def test_status_when_not_running() -> None:
     rt, lines = _lines_rt()
     rt.set_running(False)

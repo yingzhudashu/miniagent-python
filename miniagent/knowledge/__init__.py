@@ -23,10 +23,14 @@ RAG 增强（v2.0.3）：
 
 from __future__ import annotations
 
-from miniagent.contracts.knowledge import KnowledgeRegistryProtocol
+from typing import TYPE_CHECKING, Any
+
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
-from miniagent.knowledge.registry import KnowledgeRegistry
+
+if TYPE_CHECKING:
+    from miniagent.contracts.knowledge import KnowledgeRegistryProtocol
+    from miniagent.knowledge.registry import KnowledgeRegistry
 
 _logger = get_logger(__name__)
 
@@ -79,6 +83,21 @@ def retrieve_knowledge_context(
         _logger.debug("%s阶段知识库检索失败（非关键）: %s", phase.capitalize(), e)
 
     return ""
+
+
+def __getattr__(name: str) -> Any:
+    """Load the stateful knowledge registry only for callers that request it.
+
+    Control and execution stages import :func:`retrieve_knowledge_context` on
+    their hot path.  Importing the registry there would also initialize the
+    YAML/file-ingest/index stack even when no knowledge base is mounted.
+    """
+    if name == "KnowledgeRegistry":
+        from miniagent.knowledge.registry import KnowledgeRegistry
+
+        globals()[name] = KnowledgeRegistry
+        return KnowledgeRegistry
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 __all__ = [

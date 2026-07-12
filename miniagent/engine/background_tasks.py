@@ -95,6 +95,7 @@ class BackgroundTaskManager:
         # 跟踪 in-flight 执行 task，防止 fire-and-forget 丢失异常（"Task exception never retrieved"）。
         self._exec_tasks: set[asyncio.Task] = set()
         self._exec_by_id: dict[str, asyncio.Task] = {}
+        self._active_slots: set[str] = set()
         cfg_parallel_cap = int(get_config("agent.max_parallel_sessions", 4))
         base_max = max_concurrent if max_concurrent is not None else DEFAULT_MAX_CONCURRENT
         self._max_concurrent = max(1, min(base_max, cfg_parallel_cap))
@@ -197,6 +198,11 @@ class BackgroundTaskManager:
                 status=TaskStatus.PENDING,
             )
             self._tasks[task_id] = task
+            # Reserve capacity before the new coroutine can be scheduled.
+            # Counting only inside _execute_task allows concurrent start_task
+            # calls to all pass the limit while every task is still pending.
+            self._active_slots.add(task_id)
+            self._running_count = len(self._active_slots)
             message = build_background_inbound_message(
                 task_id,
                 session_key,
@@ -210,13 +216,28 @@ class BackgroundTaskManager:
             )
             self._exec_tasks.add(exec_task)
             self._exec_by_id[task_id] = exec_task
-            exec_task.add_done_callback(self._on_exec_task_done)
+            exec_task.add_done_callback(
+                lambda done, reserved_id=task_id: self._on_exec_task_done(
+                    reserved_id,
+                    done,
+                )
+            )
 
             return task_id
 
-    def _on_exec_task_done(self, task: asyncio.Task) -> None:
+    def _release_slot(self, task_id: str) -> None:
+        """Idempotently release capacity on the event-loop thread."""
+        self._active_slots.discard(task_id)
+        self._running_count = len(self._active_slots)
+
+    def _on_exec_task_done(self, task_id: str, task: asyncio.Task) -> None:
         """后台执行 task 完成回调：从跟踪集合移除并记录未捕获异常。"""
         self._exec_tasks.discard(task)
+        if self._exec_by_id.get(task_id) is task:
+            self._exec_by_id.pop(task_id, None)
+        # A task cancelled before its coroutine first runs never reaches the
+        # coroutine's finally block, so the callback is the final safety net.
+        self._release_slot(task_id)
         if task.cancelled():
             return
         exc = task.exception()
@@ -255,12 +276,11 @@ class BackgroundTaskManager:
         runtime_deps = self._resolve_runtime_deps(state)
         should_run = False
         try:
-            should_run = True
             async with self._lock:
                 if task.status == TaskStatus.CANCELLED:
                     should_run = False
                 else:
-                    self._running_count += 1
+                    should_run = True
                     task.status = TaskStatus.RUNNING
                     task.started_at = datetime.now(timezone.utc)
 
@@ -301,15 +321,23 @@ class BackgroundTaskManager:
 
         finally:
             self._exec_by_id.pop(task.task_id, None)
-            if should_run:
-                async with self._lock:
-                    if self._running_count > 0:
-                        self._running_count -= 1
-            await cleanup_background_session_artifacts(
-                task.session_key,
-                session_manager=runtime_deps["session_manager"],
-                memory=runtime_deps["memory"],
-            )
+            async with self._lock:
+                self._release_slot(task.task_id)
+            try:
+                await cleanup_background_session_artifacts(
+                    task.session_key,
+                    session_manager=runtime_deps["session_manager"],
+                    memory=runtime_deps["memory"],
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:
+                task.metadata["cleanup_error"] = type(error).__name__
+                _logger.error(
+                    "后台任务产物清理失败 (task=%s): %s",
+                    task.task_id,
+                    error,
+                )
 
     def get_status(self, task_id: str) -> dict[str, Any] | None:
         """获取任务状态
@@ -468,6 +496,7 @@ class BackgroundTaskManager:
         self._cleanup_task = None
         self._exec_tasks.clear()
         self._exec_by_id.clear()
+        self._active_slots.clear()
         self._running_count = 0
 
 

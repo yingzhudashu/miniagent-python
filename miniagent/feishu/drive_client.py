@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import time
 from typing import Any
 
@@ -34,6 +35,9 @@ def _root_folder_meta_url() -> str:
 # Tenant Access Token 缓存（带 TTL，1.5 小时有效期）
 _token_cache: dict[str, tuple[str, float]] = {}  # app_id -> (token, expiry_timestamp)
 _TOKEN_TTL_SECONDS = 5400  # 1.5 小时（飞书 token 有效期 2 小时）
+_token_cache_lock = threading.RLock()
+_sync_token_locks: dict[str, threading.Lock] = {}
+_async_token_locks: dict[str, asyncio.Lock] = {}
 
 # httpx 客户端缓存（复用连接池）
 _http_client: httpx.AsyncClient | None = None
@@ -74,32 +78,53 @@ def _get_cached_tenant_token(config: FeishuConfig) -> str:
     后续刷新在异步上下文中调用 async 版本。
     """
     key = config.app_id
-    now = time.time()
-    cached = _token_cache.get(key)
-    if cached and cached[1] > now:
-        return cached[0]
-    # 未缓存或已过期，重新获取（同步）
-    token = _fetch_tenant_access_token_sync(config)
-    _token_cache[key] = (token, now + _TOKEN_TTL_SECONDS)
-    return token
+    with _token_cache_lock:
+        fetch_lock = _sync_token_locks.setdefault(key, threading.Lock())
+    with fetch_lock:
+        now = time.monotonic()
+        with _token_cache_lock:
+            cached = _token_cache.get(key)
+            if cached and cached[1] > now:
+                return cached[0]
+        token = _fetch_tenant_access_token_sync(config)
+        with _token_cache_lock:
+            _token_cache[key] = (
+                token,
+                time.monotonic() + _TOKEN_TTL_SECONDS,
+            )
+        return token
 
 
 async def _get_cached_tenant_token_async(config: FeishuConfig) -> str:
     """获取缓存的 tenant_access_token（带 TTL，异步版本）。"""
     key = config.app_id
-    now = time.time()
-    cached = _token_cache.get(key)
-    if cached and cached[1] > now:
-        return cached[0]
-    # 未缓存或已过期，异步获取
-    token = await _fetch_tenant_access_token_async(config)
-    _token_cache[key] = (token, now + _TOKEN_TTL_SECONDS)
-    return token
+    now = time.monotonic()
+    with _token_cache_lock:
+        cached = _token_cache.get(key)
+        if cached and cached[1] > now:
+            return cached[0]
+        fetch_lock = _async_token_locks.setdefault(key, asyncio.Lock())
+    async with fetch_lock:
+        now = time.monotonic()
+        with _token_cache_lock:
+            cached = _token_cache.get(key)
+            if cached and cached[1] > now:
+                return cached[0]
+        token = await _fetch_tenant_access_token_async(config)
+        with _token_cache_lock:
+            _token_cache[key] = (
+                token,
+                time.monotonic() + _TOKEN_TTL_SECONDS,
+            )
+        return token
 
 
 def clear_token_cache() -> None:
     """清除 Token 缓存（测试用）。"""
-    _token_cache.clear()
+    with _token_cache_lock:
+        _token_cache.clear()
+        _sync_token_locks.clear()
+        _async_token_locks.clear()
 
 
 def _parse_feishu_json_code(raw: Any) -> int | None:

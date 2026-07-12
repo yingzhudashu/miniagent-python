@@ -419,6 +419,45 @@ class TestTraceStats:
             error_types = [e["type"] for e in stats]
             assert "PermissionError" in error_types or "TimeoutError" in error_types
 
+    def test_llm_stats_separate_retry_attempts_from_terminal_failures(self) -> None:
+        events = [
+            {
+                "type": EVENT_LLM_REQUEST,
+                "phase": "exec",
+                "message_count": 2,
+                "tool_count": 1,
+            },
+            {
+                "type": EVENT_LLM_RESPONSE,
+                "phase": "exec",
+                "failure_category": "transient_api_error",
+                "retrying": True,
+                "duration_ms": 100,
+            },
+            {
+                "type": EVENT_LLM_REQUEST,
+                "phase": "exec",
+                "message_count": 2,
+                "tool_count": 1,
+            },
+            {
+                "type": EVENT_LLM_RESPONSE,
+                "phase": "exec",
+                "duration_ms": 200,
+            },
+        ]
+
+        stats = compute_llm_stats(events)
+
+        assert stats["failed_response_count"] == 1
+        assert stats["retrying_response_count"] == 1
+        assert stats["terminal_failed_response_count"] == 0
+        assert stats["terminal_response_count"] == 1
+        assert stats["attempt_error_rate"] == 0.5
+        assert stats["error_rate"] == 0.0
+        assert stats["by_phase"]["exec"]["attempt_error_rate"] == 0.5
+        assert stats["by_phase"]["exec"]["error_rate"] == 0.0
+
     def test_context_stats_accepts_emitted_token_field_names(self) -> None:
         stats = compute_context_stats([{
             "type": EVENT_CONTEXT_COMPRESS,

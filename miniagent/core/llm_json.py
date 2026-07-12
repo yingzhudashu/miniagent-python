@@ -207,6 +207,7 @@ async def llm_json(
         json_object: bool,
         attempt: int,
         failure_category: str | None = None,
+        retrying: bool = False,
         duration_ms: int | None = None,
     ) -> None:
         if not trace_phase:
@@ -222,6 +223,7 @@ async def llm_json(
             "attempt": attempt,
             "structured_stream": responses_wire and json_object,
             "failure_category": failure_category,
+            "retrying": bool(failure_category) and retrying,
         }
         if event_type == "llm.request":
             payload.update({"message_count": 2, "tool_count": 0})
@@ -270,25 +272,54 @@ async def llm_json(
                 used_json_object = False
                 _logger.info("llm_json: API 不支持 json_object，已降级为普通 JSON 输出")
                 _emit_llm_trace(
+                    "llm.response",
+                    json_object=True,
+                    attempt=attempt_number,
+                    failure_category="json_object_unsupported",
+                    retrying=True,
+                    duration_ms=(time.monotonic_ns() - attempt_start_ns) // 1_000_000,
+                )
+                _emit_llm_trace(
                     "llm.request",
                     json_object=False,
                     attempt=attempt_number,
                 )
-                resp = await create_completion(
-                    llm,
-                    messages=base_messages,
-                    params=attempt_kwargs,
-                )
+                fallback_start_ns = time.monotonic_ns()
+                try:
+                    resp = await create_completion(
+                        llm,
+                        messages=base_messages,
+                        params=attempt_kwargs,
+                    )
+                except Exception as fallback_error:
+                    fallback_failure = classify_transport_error(fallback_error)
+                    _emit_llm_trace(
+                        "llm.response",
+                        json_object=False,
+                        attempt=attempt_number,
+                        failure_category=fallback_failure.category,
+                        retrying=False,
+                        duration_ms=(
+                            time.monotonic_ns() - fallback_start_ns
+                        ) // 1_000_000,
+                    )
+                    raise
             else:
                 failure = classify_transport_error(api_err)
+                will_retry = (
+                    responses_wire
+                    and failure.retryable
+                    and attempt < max_attempts - 1
+                )
                 _emit_llm_trace(
                     "llm.response",
                     json_object=used_json_object,
                     attempt=attempt_number,
                     failure_category=failure.category,
+                    retrying=will_retry,
                     duration_ms=(time.monotonic_ns() - attempt_start_ns) // 1_000_000,
                 )
-                if responses_wire and failure.retryable and attempt < max_attempts - 1:
+                if will_retry:
                     next_attempt = attempt_number + 1
                     _logger.info(
                         "LLM JSON 第 %d 次遇到可恢复的 %s，准备重试",
@@ -322,6 +353,7 @@ async def llm_json(
             json_object=used_json_object,
             attempt=attempt_number,
             failure_category=failure_category,
+            retrying=bool(failure_category) and attempt < max_attempts - 1,
             duration_ms=(time.monotonic_ns() - attempt_start_ns) // 1_000_000,
         )
         if parsed is not None:

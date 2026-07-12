@@ -50,6 +50,27 @@ def test_memory_package_does_not_eagerly_import_embedding_stack() -> None:
     assert result["modules"] < 150
 
 
+def test_knowledge_context_import_does_not_eagerly_import_yaml_stack() -> None:
+    result = _fresh_import(
+        "from miniagent.knowledge import retrieve_knowledge_context",
+        "assert callable(retrieve_knowledge_context)",
+        "assert 'miniagent.knowledge.registry' not in sys.modules",
+        "assert 'miniagent.knowledge.base' not in sys.modules",
+        "assert 'yaml' not in sys.modules",
+    )
+
+    assert result["modules"] < 150
+
+
+def test_knowledge_registry_lazy_export_remains_compatible() -> None:
+    result = _fresh_import(
+        "from miniagent.knowledge import KnowledgeRegistry",
+        "assert KnowledgeRegistry.__name__ == 'KnowledgeRegistry'",
+    )
+
+    assert result["modules"] > 0
+
+
 def test_memory_lazy_export_remains_compatible() -> None:
     result = _fresh_import(
         "from miniagent.memory import KeywordIndex",

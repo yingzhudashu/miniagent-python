@@ -70,13 +70,21 @@ async def cleanup_background_session_artifacts(
     try:
         from miniagent.engine.session_lock import release_session_lock
 
-        release_session_lock(session_key)
+        await asyncio.to_thread(release_session_lock, session_key)
     except Exception as exc:
         _logger.debug("释放后台 session 锁失败 (%s): %s", session_key, exc)
 
     if session_manager is not None:
         try:
-            session_manager.destroy(session_key, keep_files=False)
+            forget_session = getattr(session_manager, "forget_session", None)
+            if callable(forget_session):
+                forget_session(session_key)
+            else:
+                await asyncio.to_thread(
+                    session_manager.destroy,
+                    session_key,
+                    keep_files=False,
+                )
         except Exception as exc:
             _logger.debug("destroy 后台 session 失败 (%s): %s", session_key, exc)
 
@@ -103,7 +111,10 @@ async def cleanup_background_session_artifacts(
     try:
         from miniagent.memory.layered_memory import remove_agent_longterm_entries_for_session
 
-        removed_agent = remove_agent_longterm_entries_for_session(session_key)
+        removed_agent = await asyncio.to_thread(
+            remove_agent_longterm_entries_for_session,
+            session_key,
+        )
         if removed_agent:
             _logger.debug(
                 "已从 agent_lt 移除后台 session 条目: %s (%d)",
@@ -115,7 +126,7 @@ async def cleanup_background_session_artifacts(
 
     if memory is not None:
         try:
-            memory.remove_session_entries(session_key)
+            await asyncio.to_thread(memory.remove_session_entries, session_key)
         except Exception as exc:
             _logger.debug("清理记忆注册表/索引失败 (%s): %s", session_key, exc)
 

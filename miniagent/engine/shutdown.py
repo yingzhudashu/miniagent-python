@@ -154,6 +154,13 @@ async def shutdown_runtime(
     except Exception as e:
         _logger.debug("shutdown_runtime: close_http_client: %s", e)
 
+    try:
+        from miniagent.tools.html_upload import close_html_upload_http_clients
+
+        await close_html_upload_http_clients()
+    except Exception as e:
+        _logger.debug("shutdown_runtime: close_html_upload_http_clients: %s", e)
+
     # 5c) 关闭容器所拥有的 ClawHub HTTP 客户端。
     try:
         if ctx.clawhub is not None:

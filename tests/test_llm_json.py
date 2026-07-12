@@ -137,6 +137,40 @@ class TestLlmJson:
         assert "response_format" not in calls[1]
 
     @pytest.mark.asyncio
+    async def test_plain_fallback_failure_still_emits_paired_response(self) -> None:
+        events: list[dict] = []
+        calls = 0
+
+        async def fake_create(**_kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise TypeError("response_format json_object not supported")
+            raise RuntimeError("fallback failed")
+
+        client = MagicMock()
+        client.chat.completions.create = fake_create
+        clear_trace_hooks()
+        register_trace_hook(events.append)
+        try:
+            with pytest.raises(RuntimeError, match="fallback failed"):
+                await llm_json(
+                    "hello",
+                    "system",
+                    client=client,
+                    trace_phase="test",
+                    trace_session_key="session",
+                )
+        finally:
+            clear_trace_hooks()
+
+        requests = [event for event in events if event["type"] == "llm.request"]
+        responses = [event for event in events if event["type"] == "llm.response"]
+        assert len(requests) == len(responses) == 2
+        assert responses[0]["retrying"] is True
+        assert responses[1]["retrying"] is False
+
+    @pytest.mark.asyncio
     async def test_parses_markdown_wrapped_json_via_shared_parser(self) -> None:
         """降级或自由格式输出中的 markdown 围栏应被 parse_llm_json_response 剥离。"""
         client = self._make_mock_client('```json\n{"wrapped": true}\n```')

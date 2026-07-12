@@ -12,12 +12,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import collections
 import hashlib
 import json
 import math
 import os
 import re
+import threading
 from array import array
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -26,10 +28,13 @@ from typing import Any
 
 import httpx
 
+from miniagent.infrastructure.atomic_json import atomic_dump_json
+
 # numpy is an optional acceleration path. Importing it eagerly adds substantial
 # startup RSS even when embedding search is disabled or the index is small.
 _numpy_module: Any | None = None
 _numpy_checked = False
+_numpy_lock = threading.Lock()
 
 
 def _get_numpy() -> Any | None:
@@ -37,13 +42,16 @@ def _get_numpy() -> Any | None:
     global _numpy_checked, _numpy_module
     if _numpy_checked:
         return _numpy_module
-    _numpy_checked = True
-    try:
-        import numpy
+    with _numpy_lock:
+        if _numpy_checked:
+            return _numpy_module
+        try:
+            import numpy
 
-        _numpy_module = numpy
-    except ImportError:
-        _numpy_module = None
+            _numpy_module = numpy
+        except ImportError:
+            _numpy_module = None
+        _numpy_checked = True
     return _numpy_module
 
 from miniagent.infrastructure.json_config import get_config
@@ -68,6 +76,7 @@ _EMBEDDING_CACHE: collections.OrderedDict[str, tuple[array[float], float]] = (
 _EMBEDDING_CACHE_MAX_SIZE = get_config("embedding.cache_max_size", 1000)
 _EMBEDDING_CACHE_TTL_SECONDS = get_config("embedding.cache_ttl_seconds", 3600)  # 1小时TTL
 _EMBEDDING_BATCH_CHUNK_SIZE = 256
+_EMBEDDING_CACHE_LOCK = threading.RLock()
 
 
 def _get_cached_embedding(text: str) -> array[float] | None:
@@ -89,17 +98,14 @@ def _get_cached_embedding(text: str) -> array[float] | None:
 
     cache_key = hashlib.md5(text.encode()).hexdigest()
 
-    if cache_key in _EMBEDDING_CACHE:
-        embedding, timestamp = _EMBEDDING_CACHE[cache_key]
-
-        # 检查TTL
-        now = time.time()
-        if now - timestamp < _EMBEDDING_CACHE_TTL_SECONDS:
-            # LRU: 移到最后（最近使用）
-            _EMBEDDING_CACHE.move_to_end(cache_key)
-            return embedding
-        # TTL过期，删除
-        _EMBEDDING_CACHE.pop(cache_key)
+    with _EMBEDDING_CACHE_LOCK:
+        if cache_key in _EMBEDDING_CACHE:
+            embedding, timestamp = _EMBEDDING_CACHE[cache_key]
+            now = time.time()
+            if now - timestamp < _EMBEDDING_CACHE_TTL_SECONDS:
+                _EMBEDDING_CACHE.move_to_end(cache_key)
+                return embedding
+            _EMBEDDING_CACHE.pop(cache_key)
 
     return None
 
@@ -118,13 +124,17 @@ def _cache_embedding(text: str, embedding: Sequence[float]) -> array[float] | No
     now = time.time()
     compact = embedding if isinstance(embedding, array) else array("d", embedding)
 
-    _EMBEDDING_CACHE[cache_key] = (compact, now)
-    _EMBEDDING_CACHE.move_to_end(cache_key)  # LRU
-
-    # 驱逐旧条目
-    while len(_EMBEDDING_CACHE) > _EMBEDDING_CACHE_MAX_SIZE:
-        _EMBEDDING_CACHE.popitem(last=False)
+    with _EMBEDDING_CACHE_LOCK:
+        _EMBEDDING_CACHE[cache_key] = (compact, now)
+        _EMBEDDING_CACHE.move_to_end(cache_key)
+        while len(_EMBEDDING_CACHE) > _EMBEDDING_CACHE_MAX_SIZE:
+            _EMBEDDING_CACHE.popitem(last=False)
     return compact
+
+
+def _embedding_cache_size() -> int:
+    with _EMBEDDING_CACHE_LOCK:
+        return len(_EMBEDDING_CACHE)
 
 
 # ============================================================================
@@ -308,71 +318,87 @@ class EmbeddingIndex:
         self._max_entries: int = get_config("embedding.max_entries", 2000)
         self._loaded = False
         self._dirty = False
+        self._generation = 0
+        self._index_lock = threading.RLock()
+        self._save_lock = threading.Lock()
         self._index_file = os.path.join(state_dir, "embedding-index.json")
 
     def _ensure_loaded(self) -> None:
         """确保索引已从磁盘加载（延迟加载）。"""
-        if not self._loaded:
-            self._load()
+        with self._index_lock:
+            if not self._loaded:
+                self._load()
 
     def _load(self) -> None:
         """从磁盘加载嵌入索引 JSON 文件。"""
-        try:
-            if not os.path.exists(self._index_file):
-                self._loaded = True
-                return
+        with self._index_lock:
+            try:
+                if not os.path.exists(self._index_file):
+                    self._loaded = True
+                    self._generation = 0
+                    return
 
-            with open(self._index_file, encoding="utf-8") as f:
-                disk = json.load(f)
+                with open(self._index_file, encoding="utf-8") as f:
+                    disk = json.load(f)
 
-            self._dim = disk.get("dim", self._dim)
-            self._entries.clear()
-            for key, data in disk.get("entries", {}).items():
-                emb = array("d", data.get("embedding", []))
-                self._entries[key] = _EmbeddingEntry(
-                    embedding=emb,
-                    entry_key=data.get("entry_key", key),
-                    text_hash=data.get("text_hash", ""),
-                    norm=_compute_norm(emb),  # 性能优化：预计算 norm
+                loaded_entries: collections.OrderedDict[str, _EmbeddingEntry] = (
+                    collections.OrderedDict()
                 )
-
-            self._loaded = True
-            self._dirty = False
-        except Exception as e:
-            _logger.warning("加载嵌入索引失败，重建中: %s", e)
-            self._entries.clear()
-            self._loaded = True
-            self._dirty = False
+                for key, data in disk.get("entries", {}).items():
+                    emb = array("d", data.get("embedding", []))
+                    loaded_entries[key] = _EmbeddingEntry(
+                        embedding=emb,
+                        entry_key=data.get("entry_key", key),
+                        text_hash=data.get("text_hash", ""),
+                        norm=_compute_norm(emb),
+                    )
+                self._dim = disk.get("dim", self._dim)
+                self._entries = loaded_entries
+                self._loaded = True
+                self._dirty = False
+                self._generation = 0
+            except Exception as e:
+                _logger.warning("加载嵌入索引失败，重建中: %s", e)
+                self._entries.clear()
+                self._loaded = True
+                self._dirty = False
+                self._generation = 0
 
     def save(self) -> None:
         """保存嵌入索引到磁盘。"""
-        if not self._dirty:
-            return
+        self._ensure_loaded()
         try:
-            os.makedirs(self._state_dir, exist_ok=True)
-            disk = {
-                "version": 2,  # 新版本：仅存储键引用
-                "dim": self._dim,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-                "total_entries": len(self._entries),
-                "entries": {
-                    k: {
-                        "embedding": e.embedding,
-                        "entry_key": e.entry_key,
-                        "text_hash": e.text_hash,
+            with self._save_lock:
+                with self._index_lock:
+                    if not self._dirty:
+                        return
+                    generation = self._generation
+                    dim = self._dim
+                    entries = {
+                        key: {
+                            "embedding": entry.embedding,
+                            "entry_key": entry.entry_key,
+                            "text_hash": entry.text_hash,
+                        }
+                        for key, entry in self._entries.items()
                     }
-                    for k, e in self._entries.items()
-                },
-            }
-            with open(self._index_file, "w", encoding="utf-8") as f:
-                json.dump(
+                disk = {
+                    "version": 2,
+                    "dim": dim,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "total_entries": len(entries),
+                    "entries": entries,
+                }
+                atomic_dump_json(
+                    self._index_file,
                     disk,
-                    f,
                     ensure_ascii=False,
                     separators=(",", ":"),
                     cls=_EmbeddingJSONEncoder,
                 )
-            self._dirty = False
+                with self._index_lock:
+                    if self._generation == generation:
+                        self._dirty = False
         except Exception as e:
             _logger.error("保存嵌入索引失败: %s", e)
 
@@ -382,12 +408,14 @@ class EmbeddingIndex:
             return 0
         self._ensure_loaded()
         removed = 0
-        for entry_key in entry_keys:
-            if entry_key in self._entries:
-                del self._entries[entry_key]
-                removed += 1
-        if removed:
-            self._dirty = True
+        with self._index_lock:
+            for entry_key in entry_keys:
+                if entry_key in self._entries:
+                    del self._entries[entry_key]
+                    removed += 1
+            if removed:
+                self._generation += 1
+                self._dirty = True
             self.save()
         return removed
 
@@ -429,26 +457,27 @@ class EmbeddingIndex:
         idx_text = self._indexable_text(entry)
         text_hash = _text_hash(idx_text)
 
-        # 如果已有相同 hash 的缓存，跳过
-        if entry_key in self._entries and self._entries[entry_key].text_hash == text_hash:
+        if embedding is None:
             return
-
-        if embedding is not None:
+        compact = embedding if isinstance(embedding, array) else array("d", embedding)
+        compact_norm = _compute_norm(compact)
+        with self._index_lock:
+            existing = self._entries.get(entry_key)
+            if existing is not None and existing.text_hash == text_hash:
+                return
             if self._dim == 0:
-                self._dim = len(embedding)
-            compact = embedding if isinstance(embedding, array) else array("d", embedding)
+                self._dim = len(compact)
             self._entries[entry_key] = _EmbeddingEntry(
                 embedding=compact,
                 entry_key=entry_key,
                 text_hash=text_hash,
-                norm=_compute_norm(compact),  # 性能优化：预计算 norm
+                norm=compact_norm,
             )
             self._entries.move_to_end(entry_key)
-            self._dirty = True
-            # 超过上限时驱逐最早条目
             while len(self._entries) > self._max_entries:
                 self._entries.popitem(last=False)
-                self._dirty = True
+            self._generation += 1
+            self._dirty = True
 
     def search_relevant(
         self,
@@ -478,11 +507,15 @@ class EmbeddingIndex:
 
         self._ensure_loaded()
 
-        if limit <= 0 or not query_embedding or not self._entries:
+        if limit <= 0 or not query_embedding:
+            return []
+        with self._index_lock:
+            entries = tuple(self._entries.values())
+        if not entries:
             return []
 
         # 性能优化：numpy可用且entry数量多时，自动使用批量计算（5-10倍加速）
-        if _allow_batch and len(self._entries) > 20 and _get_numpy() is not None:
+        if _allow_batch and len(entries) > 20 and _get_numpy() is not None:
             return self.search_relevant_batch(query_embedding, limit=limit, min_score=min_score)
 
         # numpy不可用或entry数量少时，使用普通版本
@@ -494,7 +527,7 @@ class EmbeddingIndex:
         # 性能优化：使用 heapq 实现 top-k
         heap: list[tuple[float, str]] = []  # (score, entry_key)
 
-        for entry in self._entries.values():
+        for entry in entries:
             if not entry.embedding or entry.norm == 0:
                 continue
             sim = _cosine_similarity_cached(query_embedding, query_norm, entry)
@@ -541,7 +574,11 @@ class EmbeddingIndex:
 
         self._ensure_loaded()
 
-        if not query_embedding or not self._entries:
+        if limit <= 0 or not query_embedding:
+            return []
+        with self._index_lock:
+            entries = tuple(self._entries.values())
+        if not entries:
             return []
 
         # 转换为numpy数组（批量计算）
@@ -554,7 +591,7 @@ class EmbeddingIndex:
 
             candidates = [
                 entry
-                for entry in self._entries.values()
+                for entry in entries
                 if entry.embedding and entry.norm > 0
             ]
             if not candidates:
@@ -610,10 +647,11 @@ class EmbeddingIndex:
     def get_stats(self) -> dict[str, Any]:
         """返回索引条目数与向量维度等统计信息。"""
         self._ensure_loaded()
-        return {
-            "total_embeddings": len(self._entries),
-            "dim": self._dim,
-        }
+        with self._index_lock:
+            return {
+                "total_embeddings": len(self._entries),
+                "dim": self._dim,
+            }
 
 
 # ============================================================================
@@ -634,6 +672,10 @@ class EmbeddingSearchProvider:
         self._index = EmbeddingIndex(state_dir=state_dir, registry=self._registry)
         self._providers: list[dict[str, str | int]] = []
         self._http_client: httpx.AsyncClient | None = None
+        self._inflight_embeddings: dict[
+            str, asyncio.Task[array[float] | None]
+        ] = {}
+        self._inflight_lock = asyncio.Lock()
         self._init_providers()
 
     def _init_providers(self) -> None:
@@ -656,10 +698,54 @@ class EmbeddingSearchProvider:
 
     async def close(self) -> None:
         """Close the provider-owned HTTP connection pool, if it was created."""
+        async with self._inflight_lock:
+            inflight = tuple(self._inflight_embeddings.values())
+            self._inflight_embeddings.clear()
+        for task in inflight:
+            task.cancel()
+        if inflight:
+            await asyncio.gather(*inflight, return_exceptions=True)
         client = self._http_client
         self._http_client = None
         if client is not None:
             await client.aclose()
+
+    async def _fetch_and_cache_embedding(self, clean: str) -> array[float] | None:
+        """Fetch one cache miss; concurrent callers share the owning task."""
+        for provider in self._providers:
+            try:
+                start_time = time.monotonic()
+                embedding = await _get_embedding(
+                    clean,
+                    client=self._get_http_client(),
+                    base_url=str(provider["base_url"]),
+                    model=str(provider["model"]),
+                    api_key=str(provider["api_key"]),
+                )
+                compact = _cache_embedding(clean, embedding)
+                elapsed_ms = int((time.monotonic() - start_time) * 1000)
+                emit_trace({
+                    "type": EVENT_EMBEDDING_API_CALL,
+                    "text_length": len(clean),
+                    "duration_ms": elapsed_ms,
+                    "cache_size": _embedding_cache_size(),
+                })
+                return compact
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                _logger.warning("嵌入供应商失败: %s", e)
+        return None
+
+    async def _run_embedding_request(self, clean: str) -> array[float] | None:
+        """Own one in-flight request and remove it even if every waiter cancels."""
+        try:
+            return await self._fetch_and_cache_embedding(clean)
+        finally:
+            current = asyncio.current_task()
+            async with self._inflight_lock:
+                if self._inflight_embeddings.get(clean) is current:
+                    self._inflight_embeddings.pop(clean, None)
 
     async def get_embedding(self, text: str) -> Sequence[float] | None:
         """获取文本的嵌入向量（带缓存）。
@@ -684,39 +770,30 @@ class EmbeddingSearchProvider:
             emit_trace({
                 "type": EVENT_EMBEDDING_CACHE_HIT,
                 "text_length": len(clean),
-                "cache_size": len(_EMBEDDING_CACHE),
+                "cache_size": _embedding_cache_size(),
             })
             return cached
 
-        # 缓存未命中，调用API
-        for provider in self._providers:
-            try:
-                start_time = time.time()
-                embedding = await _get_embedding(
-                    clean,
-                    client=self._get_http_client(),
-                    base_url=str(provider["base_url"]),
-                    model=str(provider["model"]),
-                    api_key=str(provider["api_key"]),
-                )
-
-                # 性能优化：缓存结果
-                compact = _cache_embedding(clean, embedding)
-
-                elapsed_ms = int((time.time() - start_time) * 1000)
+        async with self._inflight_lock:
+            # A previous owner may have filled the process cache while this
+            # caller was waiting for the single-flight lock.
+            cached = _get_cached_embedding(clean)
+            if cached is not None:
                 emit_trace({
-                    "type": EVENT_EMBEDDING_API_CALL,
+                    "type": EVENT_EMBEDDING_CACHE_HIT,
                     "text_length": len(clean),
-                    "duration_ms": elapsed_ms,
-                    "cache_size": len(_EMBEDDING_CACHE),
+                    "cache_size": _embedding_cache_size(),
                 })
+                return cached
+            task = self._inflight_embeddings.get(clean)
+            if task is None:
+                task = asyncio.create_task(
+                    self._run_embedding_request(clean),
+                    name="embedding-fetch",
+                )
+                self._inflight_embeddings[clean] = task
 
-                return compact
-            except Exception as e:
-                _logger.warning("嵌入供应商失败: %s", e)
-                continue
-
-        return None
+        return await asyncio.shield(task)
 
     async def search(
         self,

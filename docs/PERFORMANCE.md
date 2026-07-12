@@ -29,7 +29,7 @@
 2. 取消并等待 `ApplicationContainer.shutdown_tracked_tasks`，随后关闭 `BackgroundTaskManager`。
 3. 可选：`await message_queue.shutdown()`，取消并等待所有运行中、排队中和 `dispatch_wait` 任务的 `finally`。
 4. `await memory.shutdown()`，停止 Dream 维护任务并关闭 embedding HTTP 池。
-5. `cleanup_all_processes()`，持久化记忆索引，再关闭 OpenAI、飞书 Drive、ClawHub 和 trace writer。
+5. `cleanup_all_processes()`，持久化记忆索引，再关闭 OpenAI、飞书 Drive、HTML 上传、ClawHub 和 trace writer 的连接池。
 6. 按需 `release_session_lock` 与 `unregister_instance()`。默认线程池始终交给解释器回收，避免 prompt_toolkit 退出时再次使用已关闭 executor。
 
 **与 `run_cli_loop` 的关系**：`run_runtime` 在 `finally` 中唯一调用 `shutdown_runtime`。用户正常 `quit` 时循环已释放 session lock 并注销实例，因此传入两个 `False`；初始化、生命周期、CLI 异常与信号路径使用 `True`，覆盖未走循环清理的退出方式。
@@ -141,6 +141,11 @@ CI **不**依赖基线文件是否存在；可选 workflow 仅上传当次脚本
 - **异步关停与飞书输出**：统一 shutdown 保持原资源顺序，但将索引/Trace/提案/锁等同步边界移入线程；飞书独立思考/反思卡使用异步发送，Docx 带统计追加只解析一次 Markdown。
 - **启动导入图**：`miniagent.engine`、`miniagent.memory` 与 `miniagent.types` 聚合包使用惰性导出；OpenAI schema 类型仅在静态类型检查时导入。2026-07-12 同机基线中，`engine.main` 冷导入从约 4.75s / 45.05MiB 降至 0.79s / 17.74MiB，合成 tracemalloc 峰值从 44.21MiB 降至 21.18MiB。导出兼容性和全新进程循环导入由 `tests/test_package_lazy_imports.py` 覆盖。
 - **明确的无工具执行**：`StructuredPlan.tools_enabled=False` 区分“禁止工具”与 `required_toolboxes=[]` 的“不过滤”语义。仅在调用方没有工具箱或用户明确要求不调用工具时关闭工具；其他简单任务仍保留原工具能力。真实同提示对比中执行输入 token 约下降 33%，端到端耗时约下降 26%。
+- **知识库热路径惰性导入**：仅调用 `retrieve_knowledge_context()` 时不再加载 `KnowledgeRegistry`、PyYAML、文件摄取与索引栈；`KnowledgeRegistry` 的公共导出保持兼容。S1 稳态计时先执行一次明确 warm-up，避免把模块/正则一次性初始化和测试夹具 GC 误判为执行抖动，原阈值不放宽。
+- **索引原子持久化与 embedding single-flight**：共享注册表、关键词索引、embedding 索引和会话历史先写同目录唯一临时文件，再用 `os.replace()` 发布；save 使用串行锁与 generation，旧快照不会清除并发变更的 dirty。相同 embedding 文本的并发 miss 共享一个 API task，取消单个等待者不会取消公共请求。
+- **后台任务并发槽位**：后台任务在创建协程时即预留槽位，避免多个并发 `start_task()` 在协程尚未调度时共同绕过上限；正常、失败、启动前取消和 shutdown 都幂等释放槽位。
+- **飞书缓存与连接复用**：消息去重按单键严格执行 5 分钟 TTL 并原子 flush；tenant token 的同步/异步并发 miss 各自合并为一次请求；HTML 上传三类操作按事件循环复用 aiohttp 连接池并在统一 shutdown 中关闭。
+- **Trace 重试与终态语义**：`failed_response_count` 与 `attempt_error_rate` 保留失败尝试诊断；`retrying_response_count`、`terminal_failed_response_count` 和 `error_rate` 描述操作终态。真实运行中 2 次网关重试恢复后，尝试失败率为 33.3%，终态失败率正确为 0，且请求/响应无失配。
 
 #### 5.2 待验证 / 剖析指引
 
@@ -261,7 +266,7 @@ async def good_example():
    ```json
    { "memory": { "registry_max_entries": 2000 } }
    ```
-2. **飞书去重缓存**：每个 `FeishuPollState` 独立持有，自动刷盘（每 60 秒或 1000 条），运行时关闭时异步 flush。
+2. **飞书去重缓存**：每个 `FeishuPollState` 独立持有；处理中 claim 与已完成 ID 均严格执行 TTL，加载时剔除过期记录，运行时关闭时串行、原子地异步 flush。
 3. **嵌入搜索缓存**（关闭可省内存）：
    ```json
    { "embedding": { "enabled": false } }

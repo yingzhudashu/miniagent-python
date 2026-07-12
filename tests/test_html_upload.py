@@ -14,6 +14,32 @@ from unittest.mock import patch
 import pytest
 
 
+@pytest.mark.asyncio
+async def test_http_session_reused_and_closed(monkeypatch) -> None:
+    from miniagent.tools import html_upload
+
+    await html_upload.close_html_upload_http_clients()
+    created = []
+
+    class FakeSession:
+        def __init__(self, **_kwargs) -> None:
+            self.closed = False
+            created.append(self)
+
+        async def close(self) -> None:
+            self.closed = True
+
+    monkeypatch.setattr(html_upload.aiohttp, "ClientSession", FakeSession)
+
+    first = html_upload._get_http_session()
+    second = html_upload._get_http_session()
+
+    assert first is second
+    assert len(created) == 1
+    await html_upload.close_html_upload_http_clients()
+    assert first.closed is True
+
+
 class TestUploadHtmlHandler:
     """HTML 上传 Handler 测试"""
 

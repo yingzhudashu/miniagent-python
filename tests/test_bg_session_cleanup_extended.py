@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
+import time
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -116,3 +120,46 @@ class TestCleanupIntegrationAgentLt:
         assert all(
             e.get("source_session") != session_key for e in doc.get("entries", [])
         )
+
+    @pytest.mark.asyncio
+    async def test_sync_cleanup_collaborators_do_not_block_event_loop(
+        self,
+        state_dir,
+        monkeypatch,
+    ):
+        heartbeat_time: float | None = None
+
+        class SlowSessionManager:
+            def destroy(self, *_args, **_kwargs):
+                time.sleep(0.08)
+                return True
+
+        class SlowMemory:
+            state_root = state_dir
+            store = SimpleNamespace(evict_session=lambda _key: None)
+            activity_log = SimpleNamespace(remove_session=AsyncMock())
+
+            def remove_session_entries(self, _session_key):
+                time.sleep(0.08)
+                return 0
+
+        async def heartbeat() -> None:
+            nonlocal heartbeat_time
+            await asyncio.sleep(0.02)
+            heartbeat_time = time.perf_counter()
+
+        monkeypatch.setattr(
+            "miniagent.memory.layered_memory.remove_agent_longterm_entries_for_session",
+            MagicMock(return_value=0),
+        )
+        heartbeat_task = asyncio.create_task(heartbeat())
+        await cleanup_background_session_artifacts(
+            "__bg__nonblocking",
+            session_manager=SlowSessionManager(),
+            memory=SlowMemory(),
+        )
+        cleanup_returned_at = time.perf_counter()
+        await heartbeat_task
+
+        assert heartbeat_time is not None
+        assert heartbeat_time < cleanup_returned_at

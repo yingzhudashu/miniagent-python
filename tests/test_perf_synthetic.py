@@ -122,6 +122,13 @@ async def test_s1_execute_plan_mock_median_under_cap() -> None:
     al = MagicMock()
     ki = MagicMock()
     ki.get_stats.return_value = {"total_keywords": 0}
+    system_prompt = MagicMock()
+    memory_runtime = make_memory_runtime(
+        store=ms,
+        activity_log=al,
+        keyword_index=ki,
+    )
+    knowledge_registry = make_knowledge_registry()
 
     async def _once():
         call_count["n"] = 0
@@ -129,14 +136,18 @@ async def test_s1_execute_plan_mock_median_under_cap() -> None:
             plan,
             "hi",
             main,
-            MagicMock(),
+            system_prompt,
             ac,
             client=mock_client,
-            memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki),
-            knowledge_registry=make_knowledge_registry(),
+            memory=memory_runtime,
+            knowledge_registry=knowledge_registry,
         )
         assert "done" in out
 
+    # Exclude one-time module/regex initialization from the steady-state
+    # jitter comparison. Cold-import behavior has a dedicated fresh-process
+    # boundary test in test_package_lazy_imports.py.
+    await _once()
     med_a = await median_wall_seconds_async(3, _once)
     med_b = await median_wall_seconds_async(3, _once)
     assert_two_medians_within_ratio(med_a, med_b, msg="S1 run-to-run median jitter")

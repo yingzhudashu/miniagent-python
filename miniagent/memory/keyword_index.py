@@ -36,6 +36,7 @@ from miniagent.core.constants import (
     KEYWORD_INDEX_MAX_KEYWORDS,
     KEYWORD_INDEX_MIN_KEYWORD_LEN,
 )
+from miniagent.infrastructure.atomic_json import atomic_dump_json
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.memory.shared_registry import MemoryEntryRegistry
@@ -320,6 +321,7 @@ class KeywordIndex:
         self._generation = 0
         self._index_file = os.path.join(state_dir, "keyword-index.json")
         self._index_lock = threading.RLock()
+        self._save_lock = threading.Lock()
         # 性能优化：自动清理过期索引
         self._last_prune_time: float = time.time()
         self._prune_interval_seconds = get_config("memory.keyword_prune_interval", 86400)  # 24小时
@@ -392,31 +394,35 @@ class KeywordIndex:
         """
         self._ensure_loaded()
         try:
-            with self._index_lock:
-                if not self._dirty:
-                    return
-                generation = self._generation
-                index_snapshot = {
-                    keyword: {
-                        "references": [
-                            {"entry_key": entry_key, "weight": weight}
-                            for entry_key, weight in entry.references.items()
-                        ]
+            with self._save_lock:
+                with self._index_lock:
+                    if not self._dirty:
+                        return
+                    generation = self._generation
+                    index_snapshot = {
+                        keyword: {
+                            "references": [
+                                {"entry_key": entry_key, "weight": weight}
+                                for entry_key, weight in entry.references.items()
+                            ]
+                        }
+                        for keyword, entry in self._index.items()
                     }
-                    for keyword, entry in self._index.items()
+                disk = {
+                    "version": 2,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "total_entries": len(index_snapshot),
+                    "index": index_snapshot,
                 }
-            os.makedirs(self._state_dir, exist_ok=True)
-            disk = {
-                "version": 2,  # 新版本：仅存储键引用
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-                "total_entries": len(index_snapshot),
-                "index": index_snapshot,
-            }
-            with open(self._index_file, "w", encoding="utf-8") as f:
-                json.dump(disk, f, ensure_ascii=False, separators=(",", ":"))
-            with self._index_lock:
-                if self._generation == generation:
-                    self._dirty = False
+                atomic_dump_json(
+                    self._index_file,
+                    disk,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+                with self._index_lock:
+                    if self._generation == generation:
+                        self._dirty = False
         except Exception as e:
             _logger.error("保存索引失败: %s", e)
 

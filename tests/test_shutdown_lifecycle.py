@@ -331,6 +331,7 @@ async def test_shutdown_runtime_invokes_resource_teardown() -> None:
     state: dict = {"active_session_id": ""}
 
     drive_mock = AsyncMock()
+    html_upload_mock = AsyncMock()
     clawhub_mock = AsyncMock()
     ctx.clawhub.close = clawhub_mock
     background_mock = AsyncMock()
@@ -346,6 +347,10 @@ async def test_shutdown_runtime_invokes_resource_teardown() -> None:
 
     with (
         patch("miniagent.feishu.drive_client.close_http_client", drive_mock),
+        patch(
+            "miniagent.tools.html_upload.close_html_upload_http_clients",
+            html_upload_mock,
+        ),
         patch("miniagent.mcp.runtime.close_mcp_connections", mcp_close),
         patch("miniagent.infrastructure.tracing.shutdown_trace_writer", trace_mock),
     ):
@@ -359,6 +364,7 @@ async def test_shutdown_runtime_invokes_resource_teardown() -> None:
         )
 
     drive_mock.assert_awaited_once()
+    html_upload_mock.assert_awaited_once()
     clawhub_mock.assert_awaited_once()
     background_mock.assert_awaited_once()
     trace_mock.assert_called_once()

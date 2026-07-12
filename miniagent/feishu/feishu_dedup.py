@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import time
 from pathlib import Path
 from typing import Any
 
 from miniagent.core.constants import DEDUP_FLUSH_INTERVAL, DEDUP_FLUSH_THRESHOLD
+from miniagent.infrastructure.atomic_json import atomic_dump_json
 from miniagent.infrastructure.logger import get_logger
 from miniagent.infrastructure.paths import resolve_state_dir
 
@@ -32,6 +32,7 @@ class FeishuDeduplicator:
         self._generation = 0
         self._last_flush_time = 0.0
         self._flush_task: asyncio.Task[None] | None = None
+        self._flush_lock = asyncio.Lock()
         self._load()
 
     @staticmethod
@@ -44,11 +45,18 @@ class FeishuDeduplicator:
             if self._dedup_file.is_file():
                 data = json.loads(self._dedup_file.read_text(encoding="utf-8"))
                 if isinstance(data, dict):
-                    self._processed = {
+                    loaded = {
                         str(key): float(value)
                         for key, value in data.items()
                         if isinstance(value, (int, float))
                     }
+                    cutoff = time.time() - DEDUP_TTL_MS / 1000.0
+                    self._processed = {
+                        key: value for key, value in loaded.items() if value >= cutoff
+                    }
+                    if len(self._processed) != len(loaded):
+                        self._dirty = True
+                        self._generation += 1
         except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
             _logger.debug("加载飞书去重状态失败: %s", error)
             self._processed = {}
@@ -59,6 +67,16 @@ class FeishuDeduplicator:
         if not key:
             return True
         self._prune_if_needed()
+        cutoff = time.time() - DEDUP_TTL_MS / 1000.0
+        processed_at = self._processed.get(key)
+        if processed_at is not None and processed_at < cutoff:
+            self._processed.pop(key, None)
+            self._dirty = True
+            self._generation += 1
+            self._maybe_schedule_flush()
+        claimed_at = self._processing_claims.get(key)
+        if claimed_at is not None and claimed_at < cutoff:
+            self._processing_claims.pop(key, None)
         if key in self._processed or key in self._processing_claims:
             return False
         self._processing_claims[key] = time.time()
@@ -134,26 +152,24 @@ class FeishuDeduplicator:
 
     def _write_snapshot(self, snapshot: dict[str, float]) -> None:
         try:
-            os.makedirs(self._state_dir, exist_ok=True)
-            self._dedup_file.write_text(
-                json.dumps(snapshot), encoding="utf-8"
-            )
+            atomic_dump_json(self._dedup_file, snapshot)
         except OSError as error:
             _logger.debug("保存飞书去重状态失败: %s", error)
             raise
 
     async def flush(self) -> None:
         """Persist dirty state without blocking the event loop."""
-        if not self._dirty:
-            return
-        generation = self._generation
-        snapshot = dict(self._processed)
-        try:
-            await asyncio.to_thread(self._write_snapshot, snapshot)
-        except OSError:
-            return
-        if self._generation == generation:
-            self._dirty = False
+        async with self._flush_lock:
+            if not self._dirty:
+                return
+            generation = self._generation
+            snapshot = dict(self._processed)
+            try:
+                await asyncio.to_thread(self._write_snapshot, snapshot)
+            except OSError:
+                return
+            if self._generation == generation:
+                self._dirty = False
 
     async def close(self) -> None:
         """Wait for any scheduled flush and persist remaining dirty state."""

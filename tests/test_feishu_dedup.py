@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from miniagent.feishu import feishu_dedup as dedup_module
 from miniagent.feishu.feishu_dedup import FeishuDeduplicator
 
 
@@ -60,3 +61,38 @@ def test_stats_do_not_expose_internal_state(tmp_path: Path) -> None:
         "dirty": False,
         "state_dir": str(tmp_path / "feishu" / "dedup"),
     }
+
+
+def test_completed_claim_expires_even_when_cache_is_small(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    now = 1_000_000.0
+    monkeypatch.setattr(dedup_module.time, "time", lambda: now)
+    dedup = FeishuDeduplicator(str(tmp_path))
+    assert dedup.try_begin_processing("om_expiring")
+    dedup.release_processing("om_expiring")
+    assert not dedup.try_begin_processing("om_expiring")
+
+    now += dedup_module.DEDUP_TTL_MS / 1000.0 + 1
+    assert dedup.try_begin_processing("om_expiring")
+
+
+@pytest.mark.asyncio
+async def test_load_prunes_expired_persisted_ids(tmp_path: Path, monkeypatch) -> None:
+    target = tmp_path / "feishu" / "dedup" / "processed.json"
+    target.parent.mkdir(parents=True)
+    target.write_text('{"mini-agent:old":100}', encoding="utf-8")
+    monkeypatch.setattr(
+        dedup_module.time,
+        "time",
+        lambda: 100 + dedup_module.DEDUP_TTL_MS / 1000.0 + 1,
+    )
+
+    dedup = FeishuDeduplicator(str(tmp_path))
+
+    assert dedup.stats()["disk_dedup"] == 0
+    assert dedup.try_begin_processing("old")
+    dedup.abandon_processing_claim("old")
+    await dedup.close()
+    assert json.loads(target.read_text(encoding="utf-8")) == {}

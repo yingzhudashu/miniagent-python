@@ -138,6 +138,28 @@ class TestBackgroundTaskManagerAsync:
         with pytest.raises(RuntimeError):
             await manager.start_task(engine, "Task 2", state)
 
+        await manager.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_concurrent_start_reserves_capacity_before_task_scheduling(self):
+        manager = BackgroundTaskManager(max_concurrent=1)
+
+        class BlockedEngine:
+            async def run_agent_with_thinking(self, **kwargs):
+                await asyncio.Event().wait()
+
+        state = {"skill_toolboxes": [], "skill_prompts": None}
+        results = await asyncio.gather(
+            manager.start_task(BlockedEngine(), "first", state),
+            manager.start_task(BlockedEngine(), "second", state),
+            return_exceptions=True,
+        )
+
+        assert sum(isinstance(result, str) for result in results) == 1
+        assert sum(isinstance(result, RuntimeError) for result in results) == 1
+        assert manager._running_count == 1
+        await manager.shutdown()
+
     @pytest.mark.asyncio
     async def test_cancel_task_nonexistent(self):
         """cancel_task returns False for nonexistent task."""

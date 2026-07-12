@@ -58,6 +58,17 @@ class FeishuRuntime:
         else:
             print(msg, flush=True)
 
+    def _on_runtime_task_done(self, completed: asyncio.Task[Any]) -> None:
+        """Consume terminal exceptions and release the runtime task reference."""
+        if self._task is completed:
+            self._task = None
+        self._running = False
+        if completed.cancelled():
+            return
+        error = completed.exception()
+        if error is not None:
+            _logger.error("飞书后台任务异常退出: %s", error, exc_info=error)
+
     def start(
         self,
         create_handler: FeishuHandlerFactory,
@@ -250,6 +261,7 @@ class FeishuRuntime:
                 self._running = False
 
         self._task = asyncio.create_task(_run())
+        self._task.add_done_callback(self._on_runtime_task_done)
         self._running = True
         # #region agent log
         try:

@@ -1092,6 +1092,20 @@ async def execute_plan(
                     and failure.retryable
                     and request_attempt < _EXEC_LLM_MAX_ATTEMPTS - 1
                 )
+                emit_trace(
+                    {
+                        "type": "llm.response",
+                        "phase": "exec",
+                        "session_key": session_key,
+                        "turn": turn_display,
+                        "attempt": request_attempt + 1,
+                        "failure_category": failure.category,
+                        "retrying": can_retry,
+                        "duration_ms": (
+                            time.monotonic_ns() - request_start_ns
+                        ) // 1_000_000,
+                    }
+                )
                 if not can_retry:
                     if (
                         responses_wire
@@ -1103,19 +1117,6 @@ async def execute_plan(
                             "with a transient gateway error."
                         ) from None
                     raise
-                emit_trace(
-                    {
-                        "type": "llm.response",
-                        "phase": "exec",
-                        "session_key": session_key,
-                        "turn": turn_display,
-                        "attempt": request_attempt + 1,
-                        "failure_category": "transient_api_error",
-                        "duration_ms": (
-                            time.monotonic_ns() - request_start_ns
-                        ) // 1_000_000,
-                    }
-                )
                 _logger.info(
                     "Execution turn %d attempt %d hit a retryable gateway error; retrying",
                     turn_display,
@@ -1130,6 +1131,18 @@ async def execute_plan(
             if full_content.strip() or _tool_call_accum or not responses_wire:
                 break
             if request_attempt == _EXEC_LLM_MAX_ATTEMPTS - 1:
+                emit_trace(
+                    {
+                        "type": "llm.response",
+                        "phase": "exec",
+                        "session_key": session_key,
+                        "turn": turn_display,
+                        "attempt": request_attempt + 1,
+                        "failure_category": "empty_response",
+                        "retrying": False,
+                        "duration_ms": request_duration_ms,
+                    }
+                )
                 raise LLMTransportError(
                     "Responses execution returned no text or tool calls after "
                     f"{_EXEC_LLM_MAX_ATTEMPTS} attempts."
@@ -1142,6 +1155,7 @@ async def execute_plan(
                     "turn": turn_display,
                     "attempt": request_attempt + 1,
                     "failure_category": "empty_response",
+                    "retrying": True,
                     "duration_ms": request_duration_ms,
                 }
             )

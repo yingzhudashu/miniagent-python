@@ -34,6 +34,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+from miniagent.infrastructure.atomic_json import atomic_dump_json
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.infrastructure.registry import DefaultToolRegistry
@@ -421,25 +422,24 @@ class DefaultSessionManager:
         """
         try:
             config_path = os.path.join(config.workspace_path, "config.json")
-            with open(config_path, "w", encoding="utf-8") as f:
-                json.dump(
-                    {
-                        "session_id": config.session_id,
-                        "workspace_path": config.workspace_path,
-                        "files_path": config.files_path,
-                        "skills_path": config.skills_path,
-                        "created_at": config.created_at,
-                        "last_active": config.last_active,
-                        "session_number": config.session_number,
-                        "title": config.title,
-                        "description": config.description,
-                        "chat_id": config.chat_id,
-                        "sender_id": config.sender_id,
-                    },
-                    f,
-                    indent=2,
-                    ensure_ascii=False,
-                )
+            atomic_dump_json(
+                config_path,
+                {
+                    "session_id": config.session_id,
+                    "workspace_path": config.workspace_path,
+                    "files_path": config.files_path,
+                    "skills_path": config.skills_path,
+                    "created_at": config.created_at,
+                    "last_active": config.last_active,
+                    "session_number": config.session_number,
+                    "title": config.title,
+                    "description": config.description,
+                    "chat_id": config.chat_id,
+                    "sender_id": config.sender_id,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
         except Exception:
             _logger.exception("会话配置保存失败: %s", config.workspace_path)
 
@@ -486,11 +486,14 @@ class DefaultSessionManager:
                 # 截断历史防止内存膨胀
                 history = _truncate_history(history)
                 _set_history(ctx, history)
+                history_snapshot = [dict(message) for message in history]
                 path = os.path.join(ctx["config"].workspace_path, "history.json")
-                # 确保目录存在（防止首次保存时目录未创建）
-                os.makedirs(ctx["config"].workspace_path, exist_ok=True)
-                with open(path, "w", encoding="utf-8") as f:
-                    json.dump(history, f, ensure_ascii=False, indent=2)
+                atomic_dump_json(
+                    path,
+                    history_snapshot,
+                    ensure_ascii=False,
+                    indent=2,
+                )
             except Exception as e:
                 _logger.warning("保存会话历史失败 (session=%s): %s", session_id, e)
 
@@ -820,13 +823,18 @@ class DefaultSessionManager:
         Returns:
             成功返回 True，会话不存在返回 False
         """
-        ctx = self._sessions.get(id)
-        if not ctx:
-            return False
+        with self._get_session_lock(id):
+            ctx = self._sessions.get(id)
+            if not ctx:
+                return False
 
-        ctx["config"].last_active = datetime.now(timezone.utc).isoformat()
-        self._save_config(ctx["config"])
-        del self._sessions[id]
+            # Persist metadata only when the workspace survives. Writing a
+            # config immediately before recursively deleting it adds avoidable
+            # disk I/O to ephemeral/background session cleanup.
+            if keep_files:
+                ctx["config"].last_active = datetime.now(timezone.utc).isoformat()
+                self._save_config(ctx["config"])
+            del self._sessions[id]
 
         if not keep_files:
             try:
@@ -838,6 +846,21 @@ class DefaultSessionManager:
 
         _logger.info("会话已销毁: %s", id)
         return True
+
+    def forget_session(self, id: str) -> bool:
+        """Remove one in-memory session without performing filesystem I/O.
+
+        Background cleanup uses this on the event-loop thread and deletes the
+        workspace separately in a worker.  This keeps the ``OrderedDict``
+        owned by its normal thread while avoiding a recursive delete there.
+        """
+        with self._get_session_lock(id):
+            if id not in self._sessions:
+                return False
+            del self._sessions[id]
+            if self._active_session_id == id:
+                self._active_session_id = None
+            return True
 
     def get_active_id(self) -> str:
         """获取当前活跃会话 ID

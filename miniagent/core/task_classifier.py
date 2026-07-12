@@ -255,9 +255,28 @@ async def classify_task_difficulty(
             if use_json_object and _json_object_unsupported(api_err):
                 use_json_object = False
                 _logger.info("任务分类: API 不支持 json_object，已降级为普通 JSON 输出")
+                emit_trace(
+                    {
+                        "type": "llm.response",
+                        "phase": "classify",
+                        "session_key": classify_session_key,
+                        "attempt": attempt_number,
+                        "model": attempt_kw.get("model"),
+                        "failure_category": "json_object_unsupported",
+                        "retrying": True,
+                        "duration_ms": (
+                            time.monotonic_ns() - attempt_start_ns
+                        ) // 1_000_000,
+                    }
+                )
                 continue
             failure = classify_transport_error(api_err)
             failure_history.append(failure.category)
+            will_retry = (
+                responses_wire
+                and failure.retryable
+                and attempt < max_attempts - 1
+            )
             emit_trace(
                 {
                     "type": "llm.response",
@@ -267,10 +286,11 @@ async def classify_task_difficulty(
                     "model": attempt_kw.get("model"),
                     "status_code": failure.status_code,
                     "failure_category": failure.category,
+                    "retrying": will_retry,
                     "duration_ms": (time.monotonic_ns() - attempt_start_ns) // 1_000_000,
                 }
             )
-            if responses_wire and failure.retryable and attempt < max_attempts - 1:
+            if will_retry:
                 next_attempt = attempt_number + 1
                 _logger.info(
                     "任务难度分类第 %d 次遇到可恢复的 %s，准备重试",
@@ -318,6 +338,14 @@ async def classify_task_difficulty(
                 failure_category = "invalid_json"
 
         _resp_usage = resp.usage
+        will_retry = (
+            difficulty_result is None
+            and attempt < max_attempts - 1
+            and not (
+                not responses_wire
+                and failure_category == "invalid_classifier_contract"
+            )
+        )
         emit_trace(
             {
                 "type": "llm.response",
@@ -329,6 +357,7 @@ async def classify_task_difficulty(
                 "output_item_types": list(resp.output_item_types),
                 "incomplete_reason": resp.incomplete_reason,
                 "failure_category": failure_category,
+                "retrying": bool(failure_category) and will_retry,
                 "duration_ms": (time.monotonic_ns() - attempt_start_ns) // 1_000_000,
                 "usage": _resp_usage.model_dump()
                 if _resp_usage is not None and hasattr(_resp_usage, "model_dump")

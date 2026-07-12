@@ -249,6 +249,34 @@ async def generate_plan(
                 if use_json_object and _json_object_unsupported(api_err):
                     use_json_object = False
                     _logger.info("Planner: API 不支持 response_format json_object，已降级")
+                    emit_trace(
+                        {
+                            "type": "llm.response",
+                            "phase": "plan",
+                            "session_key": plan_session_key,
+                            "attempt": attempt + 1,
+                            "model": attempt_kw["model"],
+                            "failure_category": "json_object_unsupported",
+                            "retrying": True,
+                            "duration_ms": (
+                                time.monotonic_ns() - attempt_start_ns
+                            ) // 1_000_000,
+                        }
+                    )
+                    emit_trace(
+                        {
+                            "type": "llm.request",
+                            "phase": "plan",
+                            "session_key": plan_session_key,
+                            "attempt": attempt + 1,
+                            "model": attempt_kw["model"],
+                            "json_object": False,
+                            "protocol_fallback": True,
+                            "message_count": len(messages),
+                            "tool_count": 0,
+                        }
+                    )
+                    attempt_start_ns = time.monotonic_ns()
                     response = await create_completion(
                         llm_client,
                         messages=messages,
@@ -294,6 +322,11 @@ async def generate_plan(
                     "incomplete_reason": response.incomplete_reason,
                     "finish_reason": response.finish_reason,
                     "failure_category": failure.category if failure else None,
+                    "retrying": bool(
+                        failure is not None
+                        and failure.retryable
+                        and attempt < PLANNER_MAX_RETRIES - 1
+                    ),
                     "duration_ms": (time.monotonic_ns() - attempt_start_ns) // 1_000_000,
                     "usage": _plan_usage.model_dump()
                     if _plan_usage is not None and hasattr(_plan_usage, "model_dump")
@@ -343,6 +376,10 @@ async def generate_plan(
             )
             failure_history.append(planner_failure.category)
             if not isinstance(e, _PlannerAttemptFailure):
+                will_retry = (
+                    planner_failure.retryable
+                    and attempt < PLANNER_MAX_RETRIES - 1
+                )
                 emit_trace(
                     {
                         "type": "llm.response",
@@ -352,6 +389,7 @@ async def generate_plan(
                         "model": attempt_kw["model"],
                         "status_code": planner_failure.status_code,
                         "failure_category": planner_failure.category,
+                        "retrying": will_retry,
                         "duration_ms": (time.monotonic_ns() - attempt_start_ns) // 1_000_000,
                     }
                 )

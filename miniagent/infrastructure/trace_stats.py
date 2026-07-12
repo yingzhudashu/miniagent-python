@@ -258,6 +258,8 @@ class _TraceStatsAccumulator:
         self.llm_request_count = 0
         self.llm_response_count = 0
         self.llm_failed_response_count = 0
+        self.llm_retrying_response_count = 0
+        self.llm_terminal_failed_response_count = 0
         self.total_prompt_tokens: int | float = 0
         self.total_completion_tokens: int | float = 0
         self.total_cached_tokens: int | float = 0
@@ -270,6 +272,8 @@ class _TraceStatsAccumulator:
                 "request_count": 0,
                 "response_count": 0,
                 "failed_response_count": 0,
+                "retrying_response_count": 0,
+                "terminal_failed_response_count": 0,
                 "prompt_tokens": 0,
                 "completion_tokens": 0,
                 "cached_tokens": 0,
@@ -350,6 +354,12 @@ class _TraceStatsAccumulator:
         if event.get("failure_category"):
             self.llm_failed_response_count += 1
             phase_stats["failed_response_count"] += 1
+            if event.get("retrying") is True:
+                self.llm_retrying_response_count += 1
+                phase_stats["retrying_response_count"] += 1
+            else:
+                self.llm_terminal_failed_response_count += 1
+                phase_stats["terminal_failed_response_count"] += 1
 
         duration = _numeric_metric(event.get("duration_ms"))
         if duration is not None and duration >= 0:
@@ -457,12 +467,26 @@ class _TraceStatsAccumulator:
                 if key not in {"durations_ms", "message_count", "tool_count"}
             }
             phase_response_count = phase_result["response_count"]
-            phase_result["error_rate"] = (
+            phase_result["attempt_error_rate"] = (
                 round(
                     phase_result["failed_response_count"] / phase_response_count,
                     3,
                 )
                 if phase_response_count
+                else 0.0
+            )
+            terminal_response_count = max(
+                0,
+                phase_response_count - phase_result["retrying_response_count"],
+            )
+            phase_result["terminal_response_count"] = terminal_response_count
+            phase_result["error_rate"] = (
+                round(
+                    phase_result["terminal_failed_response_count"]
+                    / terminal_response_count,
+                    3,
+                )
+                if terminal_response_count
                 else 0.0
             )
             phase_request_count = phase_result["request_count"]
@@ -499,12 +523,30 @@ class _TraceStatsAccumulator:
             "request_count": self.llm_request_count,
             "response_count": self.llm_response_count,
             "failed_response_count": self.llm_failed_response_count,
-            "error_rate": (
+            "retrying_response_count": self.llm_retrying_response_count,
+            "terminal_failed_response_count": self.llm_terminal_failed_response_count,
+            "terminal_response_count": max(
+                0,
+                self.llm_response_count - self.llm_retrying_response_count,
+            ),
+            "attempt_error_rate": (
                 round(
                     self.llm_failed_response_count / self.llm_response_count,
                     3,
                 )
                 if self.llm_response_count
+                else 0.0
+            ),
+            "error_rate": (
+                round(
+                    self.llm_terminal_failed_response_count
+                    / max(
+                        1,
+                        self.llm_response_count - self.llm_retrying_response_count,
+                    ),
+                    3,
+                )
+                if self.llm_response_count - self.llm_retrying_response_count > 0
                 else 0.0
             ),
             "total_tokens": {

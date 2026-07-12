@@ -6,8 +6,11 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 import sys
+import threading
 from array import array
 
 import pytest
@@ -248,6 +251,53 @@ class TestEmbeddingIndex:
             assert len(observed_batch_sizes) > 1
             assert max(observed_batch_sizes) <= 17
 
+    def test_save_keeps_dirty_when_index_changes_during_write(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        idx = self._make_index(str(tmp_path))
+        idx.index_entry(
+            "session-1",
+            MemoryEntryInput(
+                timestamp="1",
+                user_snippet="first",
+                summary="first",
+            ),
+            embedding=[1.0, 0.0],
+        )
+        entered = threading.Event()
+        release = threading.Event()
+        real_dump = embedding_module.atomic_dump_json
+
+        def delayed_dump(*args, **kwargs):
+            entered.set()
+            assert release.wait(timeout=5)
+            return real_dump(*args, **kwargs)
+
+        monkeypatch.setattr(embedding_module, "atomic_dump_json", delayed_dump)
+        save_thread = threading.Thread(target=idx.save)
+        save_thread.start()
+        assert entered.wait(timeout=5)
+
+        idx.index_entry(
+            "session-2",
+            MemoryEntryInput(
+                timestamp="2",
+                user_snippet="second",
+                summary="second",
+            ),
+            embedding=[0.0, 1.0],
+        )
+        release.set()
+        save_thread.join(timeout=5)
+
+        assert not save_thread.is_alive()
+        assert idx._dirty is True
+        idx.save()
+        payload = json.loads((tmp_path / "embedding-index.json").read_text("utf-8"))
+        assert set(payload["entries"]) == {"session-1:1", "session-2:2"}
+
 
 # ============================================================================
 # 嵌入搜索提供者
@@ -255,6 +305,77 @@ class TestEmbeddingIndex:
 
 
 class TestEmbeddingSearchProvider:
+    @pytest.mark.asyncio
+    async def test_concurrent_identical_misses_share_one_api_request(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        provider = EmbeddingSearchProvider(state_dir=str(tmp_path))
+        provider._providers = [
+            {"base_url": "https://embed.example/v1", "model": "embed", "api_key": "test"}
+        ]
+        calls = 0
+        gate = asyncio.Event()
+
+        async def fake_get_embedding(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            await gate.wait()
+            return [0.25, 0.75]
+
+        monkeypatch.setattr(embedding_module, "_get_embedding", fake_get_embedding)
+        with embedding_module._EMBEDDING_CACHE_LOCK:
+            _EMBEDDING_CACHE.clear()
+
+        tasks = [
+            asyncio.create_task(provider.get_embedding("same text"))
+            for _ in range(8)
+        ]
+        await asyncio.sleep(0)
+        gate.set()
+        results = await asyncio.gather(*tasks)
+
+        assert calls == 1
+        assert all(list(result or []) == [0.25, 0.75] for result in results)
+        assert provider._inflight_embeddings == {}
+        await provider.close()
+
+    @pytest.mark.asyncio
+    async def test_cancelled_waiter_does_not_cancel_shared_embedding_request(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        provider = EmbeddingSearchProvider(state_dir=str(tmp_path))
+        provider._providers = [
+            {"base_url": "https://embed.example/v1", "model": "embed", "api_key": "test"}
+        ]
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def fake_get_embedding(*args, **kwargs):
+            started.set()
+            await release.wait()
+            return [1.0, 0.0]
+
+        monkeypatch.setattr(embedding_module, "_get_embedding", fake_get_embedding)
+        with embedding_module._EMBEDDING_CACHE_LOCK:
+            _EMBEDDING_CACHE.clear()
+
+        cancelled = asyncio.create_task(provider.get_embedding("shared cancellation"))
+        await started.wait()
+        survivor = asyncio.create_task(provider.get_embedding("shared cancellation"))
+        await asyncio.sleep(0)
+        cancelled.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await cancelled
+        release.set()
+
+        assert list(await survivor or []) == [1.0, 0.0]
+        assert provider._inflight_embeddings == {}
+        await provider.close()
+
     def test_no_providers_without_config(self, tmp_path, monkeypatch):
         """未配置 embedding 端点时无供应商，回退到关键词索引。"""
         install_test_config(tmp_path, {})

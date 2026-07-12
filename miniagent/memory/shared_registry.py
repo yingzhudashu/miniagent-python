@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from miniagent.infrastructure.atomic_json import atomic_dump_json
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.types.memory import MemoryEntry, MemoryEntryInput
@@ -56,6 +57,7 @@ class MemoryEntryRegistry:
         self._dirty = False
         self._generation = 0
         self._lock = threading.RLock()
+        self._save_lock = threading.Lock()
         self._registry_file = os.path.join(state_dir, "memory-registry.json")
 
     def _ensure_loaded(self) -> None:
@@ -98,32 +100,31 @@ class MemoryEntryRegistry:
         """保存一致快照；并发注册发生时保留 dirty 供下次刷新。"""
         self._ensure_loaded()
         try:
-            with self._lock:
-                if not self._dirty:
-                    return
-                generation = self._generation
-                entries = {
-                    key: {
-                        "session_id": entry.session_id,
-                        "timestamp": entry.timestamp,
-                        "user_snippet": entry.user_snippet,
-                        "summary": entry.summary,
-                        "facts": list(entry.facts),
+            with self._save_lock:
+                with self._lock:
+                    if not self._dirty:
+                        return
+                    generation = self._generation
+                    entries = {
+                        key: {
+                            "session_id": entry.session_id,
+                            "timestamp": entry.timestamp,
+                            "user_snippet": entry.user_snippet,
+                            "summary": entry.summary,
+                            "facts": list(entry.facts),
+                        }
+                        for key, entry in self._entries.items()
                     }
-                    for key, entry in self._entries.items()
+                disk = {
+                    "version": 1,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "total_entries": len(entries),
+                    "entries": entries,
                 }
-            os.makedirs(self._state_dir, exist_ok=True)
-            disk = {
-                "version": 1,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-                "total_entries": len(entries),
-                "entries": entries,
-            }
-            with open(self._registry_file, "w", encoding="utf-8") as f:
-                json.dump(disk, f, ensure_ascii=False)
-            with self._lock:
-                if self._generation == generation:
-                    self._dirty = False
+                atomic_dump_json(self._registry_file, disk, ensure_ascii=False)
+                with self._lock:
+                    if self._generation == generation:
+                        self._dirty = False
         except Exception as e:
             _logger.error("保存注册表失败: %s", e)
 
