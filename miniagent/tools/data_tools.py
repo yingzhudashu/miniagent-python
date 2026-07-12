@@ -17,6 +17,7 @@ import json
 import os
 from typing import Any
 
+from miniagent.infrastructure.atomic_json import atomic_dump_json, atomic_write_text
 from miniagent.tools.base import tool
 from miniagent.tools.path_utils import resolve_path_for_tool
 from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX
@@ -52,7 +53,10 @@ def _read_csv_sync(
             writer = csv.DictWriter(buffer, fieldnames=header)
             writer.writeheader()
             writer.writerows(rows)
-            return ToolResult(success=True, content=buffer.getvalue())
+            content = buffer.getvalue()
+            if len(content) > 1_000_000:
+                content = content[:1_000_000] + "\n... (已截断)"
+            return ToolResult(success=True, content=content)
     except Exception as error:
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 读取失败: {error}")
 
@@ -67,7 +71,11 @@ async def _read_csv_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResul
 
     delimiter = str(args.get("delimiter", "")).strip()
     encoding = str(args.get("encoding", "utf-8"))
-    max_rows = int(args.get("maxRows", 100))
+    try:
+        max_rows = int(args.get("maxRows", 100))
+    except (TypeError, ValueError):
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} maxRows 必须是整数")
+    max_rows = max(1, min(max_rows, 10_000))
 
     return await asyncio.to_thread(
         _read_csv_sync,
@@ -84,20 +92,26 @@ def _write_csv_sync(path: str, raw_data: str, delimiter: str) -> ToolResult:
     except json.JSONDecodeError as error:
         return ToolResult(success=False, content=f"{ERROR_PREFIX} data 不是有效 JSON: {error}")
     try:
-        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-        with open(path, "w", encoding="utf-8", newline="") as file:
-            if data and isinstance(data[0], dict):
-                fieldnames = list(data[0].keys())
-                writer = csv.DictWriter(file, fieldnames=fieldnames, delimiter=delimiter)
-                writer.writeheader()
-                writer.writerows(data)
-                count = len(data)
-            elif data and isinstance(data[0], list):
-                writer = csv.writer(file, delimiter=delimiter)
-                writer.writerows(data)
-                count = len(data)
-            else:
-                return ToolResult(success=False, content=f"{ERROR_PREFIX} data 必须是非空数组")
+        if not isinstance(data, list) or not data:
+            return ToolResult(success=False, content=f"{ERROR_PREFIX} data 必须是非空数组")
+        if len(data) > 10_000:
+            return ToolResult(success=False, content=f"{ERROR_PREFIX} data 最多允许 10000 行")
+        buffer = io.StringIO(newline="")
+        if isinstance(data[0], dict) and all(isinstance(row, dict) for row in data):
+            fieldnames = list(data[0].keys())
+            writer = csv.DictWriter(buffer, fieldnames=fieldnames, delimiter=delimiter)
+            writer.writeheader()
+            writer.writerows(data)
+        elif isinstance(data[0], list) and all(isinstance(row, list) for row in data):
+            writer = csv.writer(buffer, delimiter=delimiter)
+            writer.writerows(data)
+        else:
+            return ToolResult(
+                success=False,
+                content=f"{ERROR_PREFIX} data 各行必须统一为对象或数组",
+            )
+        count = len(data)
+        atomic_write_text(path, buffer.getvalue(), encoding="utf-8")
         return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已写入 {count} 行到 {path}")
     except Exception as error:
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 写入失败: {error}")
@@ -116,15 +130,36 @@ async def _write_csv_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
 
 def _json_read_sync(path: str, encoding: str, max_chars: int) -> ToolResult:
     try:
-        with open(path, encoding=encoding) as file:
-            content = file.read()
         if path.endswith(".jsonl"):
-            parsed = [json.loads(line) for line in content.splitlines() if line.strip()]
+            parts = ["["]
+            output_length = 1
+            emitted = 0
+            truncated = False
+            with open(path, encoding=encoding) as file:
+                for line in file:
+                    if not line.strip():
+                        continue
+                    parsed_line = json.loads(line)
+                    rendered = json.dumps(parsed_line, ensure_ascii=False, indent=2)
+                    rendered = "\n".join("  " + row for row in rendered.splitlines())
+                    prefix = "\n" if emitted == 0 else ",\n"
+                    piece = prefix + rendered
+                    if output_length + len(piece) + 2 <= max_chars:
+                        parts.append(piece)
+                        output_length += len(piece)
+                    else:
+                        truncated = True
+                    emitted += 1
+            parts.append("\n]")
+            formatted = "[]" if emitted == 0 else "".join(parts)
+            if truncated:
+                formatted += "\n... (已截断)"
         else:
-            parsed = json.loads(content)
-        formatted = json.dumps(parsed, ensure_ascii=False, indent=2)
-        if len(formatted) > max_chars:
-            formatted = formatted[:max_chars] + "\n... (已截断)"
+            with open(path, encoding=encoding) as file:
+                parsed = json.load(file)
+            formatted = json.dumps(parsed, ensure_ascii=False, indent=2)
+            if len(formatted) > max_chars:
+                formatted = formatted[:max_chars] + "\n... (已截断)"
         return ToolResult(success=True, content=formatted)
     except json.JSONDecodeError as error:
         return ToolResult(success=False, content=f"{ERROR_PREFIX} JSON 解析失败: {error}")
@@ -141,7 +176,11 @@ async def _json_read_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 文件不存在: {path}")
 
     encoding = str(args.get("encoding", "utf-8"))
-    max_chars = int(args.get("maxChars", 50000))
+    try:
+        max_chars = int(args.get("maxChars", 50000))
+    except (TypeError, ValueError):
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} maxChars 必须是整数")
+    max_chars = max(100, min(max_chars, 1_000_000))
 
     return await asyncio.to_thread(_json_read_sync, path, encoding, max_chars)
 
@@ -154,8 +193,7 @@ def _json_write_sync(path: str, raw_data: str, pretty: bool) -> ToolResult:
     try:
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
         indent = 2 if pretty else None
-        with open(path, "w", encoding="utf-8") as file:
-            json.dump(parsed, file, ensure_ascii=False, indent=indent)
+        atomic_dump_json(path, parsed, ensure_ascii=False, indent=indent)
         size = os.path.getsize(path)
         return ToolResult(
             success=True,

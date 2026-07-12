@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from pathlib import Path
@@ -165,7 +166,7 @@ def _identify_pain_points(root: str) -> list[PainPoint]:
     return pains
 
 
-async def inspect_project(
+def _inspect_project_sync(
     root: str | None = None,
     *,
     include_metrics: bool = True,
@@ -261,6 +262,23 @@ async def inspect_project(
     )
 
     return report
+
+
+async def inspect_project(
+    root: str | None = None,
+    *,
+    include_metrics: bool = True,
+    include_modules: bool = True,
+    include_pain_points: bool = True,
+) -> InspectionReport:
+    """Execute the filesystem-heavy project inspection off the event loop."""
+    return await asyncio.to_thread(
+        _inspect_project_sync,
+        root,
+        include_metrics=include_metrics,
+        include_modules=include_modules,
+        include_pain_points=include_pain_points,
+    )
 
 
 __all__ = ["inspect_project"]

@@ -38,6 +38,46 @@ def test_performance_metrics_thread_safe_append() -> None:
     assert summary["op"].count == 400
 
 
+def test_performance_metrics_retains_exact_totals_after_sample_eviction(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "miniagent.infrastructure.metrics.get_config",
+        lambda key, default: {
+            "debug.perf_metrics_max_records": 100,
+            "debug.perf_metrics_max_names": 8,
+        }.get(key, default),
+    )
+    metrics = PerformanceMetrics(enabled=True)
+    metrics.add_record("rare", 25.0)
+    for _ in range(150):
+        metrics.add_record("busy", 1.0)
+
+    summary = metrics.get_summary()
+
+    assert summary["rare"].count == 1
+    assert summary["rare"].avg_ms == 25.0
+    assert summary["rare"].p50_ms == 25.0
+
+
+def test_performance_metrics_bounds_metric_names(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "miniagent.infrastructure.metrics.get_config",
+        lambda key, default: {
+            "debug.perf_metrics_max_records": 100,
+            "debug.perf_metrics_max_names": 2,
+        }.get(key, default),
+    )
+    metrics = PerformanceMetrics(enabled=True)
+    for index in range(10):
+        metrics.add_record(f"metric-{index}", float(index))
+
+    summary = metrics.get_summary()
+
+    assert set(summary) == {"metric-0", "__other__"}
+    assert summary["__other__"].count == 9
+
+
 def test_feishu_inbound_lock_acquire_and_release(tmp_path: Path) -> None:
     ok, msg = try_acquire_feishu_inbound_owner(state_dir=str(tmp_path), instance_id=1)
     assert ok, msg

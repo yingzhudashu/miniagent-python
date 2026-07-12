@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from miniagent.bootstrap.application import ApplicationContainer
 from miniagent.engine.cli_state import CliLoopState
@@ -62,6 +63,19 @@ async def shutdown_runtime(
     """
     if reason:
         _logger.info("shutdown_runtime: begin (%s)", reason)
+
+    from miniagent.infrastructure.tracing import emit_trace, new_trace_id
+
+    shutdown_span_id = new_trace_id("span")
+    shutdown_wall_start = time.monotonic_ns()
+    shutdown_cpu_start = time.process_time_ns()
+    emit_trace(
+        {
+            "type": "agent.phase_start",
+            "phase": "shutdown",
+            "span_id": shutdown_span_id,
+        }
+    )
 
     try:
         from miniagent.engine.session_continue import save_cli_session_state
@@ -182,14 +196,6 @@ async def shutdown_runtime(
     except Exception as e:
         _logger.debug("shutdown_runtime: ClawHub client close: %s", e)
 
-    # 5f) 关闭trace异步写入器（确保trace事件不丢失）
-    try:
-        from miniagent.infrastructure.tracing import shutdown_trace_writer
-
-        await asyncio.to_thread(shutdown_trace_writer)
-    except Exception as e:
-        _logger.debug("shutdown_runtime: shutdown_trace_writer: %s", e)
-
     # 5g) 清理过期trace文件（可选）
     try:
         from miniagent.infrastructure.json_config import get_config
@@ -234,6 +240,25 @@ async def shutdown_runtime(
             await asyncio.to_thread(unregister_instance)
         except Exception as e:
             _logger.debug("shutdown_runtime: unregister_instance: %s", e)
+
+    # Trace is the final owned resource: record the complete shutdown phase,
+    # then deterministically drain the writer after all producers are stopped.
+    emit_trace(
+        {
+            "type": "agent.phase_end",
+            "phase": "shutdown",
+            "span_id": shutdown_span_id,
+            "duration_ms": (time.monotonic_ns() - shutdown_wall_start) / 1_000_000,
+            "cpu_ms": (time.process_time_ns() - shutdown_cpu_start) / 1_000_000,
+            "success": True,
+        }
+    )
+    try:
+        from miniagent.infrastructure.tracing import shutdown_trace_writer
+
+        await asyncio.to_thread(shutdown_trace_writer)
+    except Exception as e:
+        _logger.debug("shutdown_runtime: shutdown_trace_writer: %s", e)
 
     # 6) 默认线程池：不再主动关闭。prompt_toolkit 的 in_terminal() 异步上下文退出时
     # 仍会通过 run_in_executor 使用默认线程池，此处提前关闭会导致

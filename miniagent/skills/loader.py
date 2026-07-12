@@ -22,6 +22,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import json
 import os
@@ -294,7 +295,7 @@ def _load_sub_skills(
 # ─── 技能包加载 ──────────────────────────────────────────
 
 
-async def load_skill_package(package_dir: str) -> SkillPackage | None:
+def _load_skill_package_sync(package_dir: str) -> SkillPackage | None:
     """尝试从目录加载一个技能包。
 
     Args:
@@ -421,6 +422,11 @@ async def load_skill_package(package_dir: str) -> SkillPackage | None:
     )
 
 
+async def load_skill_package(package_dir: str) -> SkillPackage | None:
+    """Load and import one skill package without blocking the event loop."""
+    return await asyncio.to_thread(_load_skill_package_sync, package_dir)
+
+
 # ─── 自动发现 ───────────────────────────────────────────
 
 
@@ -435,21 +441,20 @@ async def discover_skill_packages(skills_root: str) -> list[SkillPackage]:
     Returns:
         成功加载的 SkillPackage 列表
     """
-    if not os.path.isdir(skills_root):
-        return []
+    def _discover_sync() -> list[SkillPackage]:
+        if not os.path.isdir(skills_root):
+            return []
+        packages: list[SkillPackage] = []
+        for entry in sorted(os.listdir(skills_root)):
+            pkg_dir = os.path.join(skills_root, entry)
+            if not os.path.isdir(pkg_dir):
+                continue
+            pkg = _load_skill_package_sync(pkg_dir)
+            if pkg:
+                packages.append(pkg)
+        return packages
 
-    packages: list[SkillPackage] = []
-
-    for entry in sorted(os.listdir(skills_root)):
-        pkg_dir = os.path.join(skills_root, entry)
-        if not os.path.isdir(pkg_dir):
-            continue
-
-        pkg = await load_skill_package(pkg_dir)
-        if pkg:
-            packages.append(pkg)
-
-    return packages
+    return await asyncio.to_thread(_discover_sync)
 
 
 __all__ = [

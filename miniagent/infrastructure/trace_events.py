@@ -70,6 +70,16 @@ EVENT_EMBEDDING_CACHE_HIT = "embedding.cache_hit"
 EVENT_EMBEDDING_API_CALL = "embedding.api_call"
 EVENT_FEISHU_DOCX_RENDER = "feishu.docx_render"
 
+# Agent / performance lifecycle events.  These are additive so existing trace
+# consumers can continue to ignore event types they do not understand.
+EVENT_AGENT_RUN_START = "agent.run_start"
+EVENT_AGENT_RUN_END = "agent.run_end"
+EVENT_AGENT_PHASE_START = "agent.phase_start"
+EVENT_AGENT_PHASE_END = "agent.phase_end"
+EVENT_PERF_RESOURCE_SAMPLE = "perf.resource_sample"
+EVENT_EMBEDDING_INDEX_QUEUED = "embedding.index_queued"
+EVENT_EMBEDDING_INDEX_COMPLETED = "embedding.index_completed"
+
 # ============================================================================
 # 执行阶段常量
 # ============================================================================
@@ -196,6 +206,13 @@ __all__ = [
     "EVENT_EMBEDDING_CACHE_HIT",
     "EVENT_EMBEDDING_API_CALL",
     "EVENT_FEISHU_DOCX_RENDER",
+    "EVENT_AGENT_RUN_START",
+    "EVENT_AGENT_RUN_END",
+    "EVENT_AGENT_PHASE_START",
+    "EVENT_AGENT_PHASE_END",
+    "EVENT_PERF_RESOURCE_SAMPLE",
+    "EVENT_EMBEDDING_INDEX_QUEUED",
+    "EVENT_EMBEDDING_INDEX_COMPLETED",
     # 类型常量
     "PhaseType",
     "ProposalStatus",

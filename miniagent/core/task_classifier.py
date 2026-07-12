@@ -162,7 +162,7 @@ async def classify_task_difficulty(
         若知识库有直接答案，建议分类为 simple。受 ``knowledge.classifier_*`` 配置控制。
     """
     from miniagent.core.llm_params import resolve_planner_completion_kwargs
-    from miniagent.infrastructure.tracing import emit_trace, llm_request_size_metrics
+    from miniagent.infrastructure.tracing import emit_trace, llm_request_size_metrics, new_trace_id
     from miniagent.knowledge import retrieve_knowledge_context
 
     classify_session_key = (
@@ -213,6 +213,7 @@ async def classify_task_difficulty(
     attempt_kw = dict(kw)
     failure_history: list[str] = []
     for attempt in range(max_attempts):
+        call_id = new_trace_id("llm")
         attempt_number = attempt + 1
         attempt_start_ns = time.monotonic_ns()
         safe_agent_debug_log(
@@ -228,6 +229,7 @@ async def classify_task_difficulty(
         emit_trace(
             {
                 "type": "llm.request",
+                "call_id": call_id,
                 "phase": "classify",
                 "session_key": classify_session_key,
                 "attempt": attempt_number,
@@ -259,6 +261,7 @@ async def classify_task_difficulty(
                 emit_trace(
                     {
                         "type": "llm.response",
+                        "call_id": call_id,
                         "phase": "classify",
                         "session_key": classify_session_key,
                         "attempt": attempt_number,
@@ -275,6 +278,7 @@ async def classify_task_difficulty(
             emit_trace(
                 {
                     "type": "llm.response",
+                    "call_id": call_id,
                     "phase": "classify",
                     "session_key": classify_session_key,
                     "attempt": attempt_number,
@@ -337,6 +341,7 @@ async def classify_task_difficulty(
         emit_trace(
             {
                 "type": "llm.response",
+                "call_id": call_id,
                 "phase": "classify",
                 "session_key": classify_session_key,
                 "attempt": attempt_number,

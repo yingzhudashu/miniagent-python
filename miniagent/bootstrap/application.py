@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from miniagent.application.messaging import ChannelRegistry
+
+_logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from miniagent.bootstrap.lifecycle import LifecycleManager
@@ -66,6 +69,11 @@ class ApplicationContainer:
 
         def _done(completed: asyncio.Task[Any]) -> None:
             self.shutdown_tracked_tasks.discard(completed)
+            if completed.cancelled():
+                return
+            error = completed.exception()
+            if error is not None:
+                _logger.error("shutdown-tracked task failed: %s", error, exc_info=error)
 
         task.add_done_callback(_done)
 

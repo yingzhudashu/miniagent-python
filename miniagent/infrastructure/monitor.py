@@ -16,6 +16,9 @@ import threading
 
 from miniagent.types.agent import ToolMonitorProtocol, ToolStats
 
+_ERROR_SAMPLE_MAX = 20
+_ERROR_SAMPLE_CHARS = 512
+
 
 class _ThreadSafeToolStats:
     """线程安全的工具统计数据包装器。
@@ -49,8 +52,8 @@ class _ThreadSafeToolStats:
                 self._stats.success_count += 1
             else:
                 self._stats.fail_count += 1
-                if error_msg:
-                    self._stats.errors.append(error_msg)
+                if error_msg and len(self._stats.errors) < _ERROR_SAMPLE_MAX:
+                    self._stats.errors.append(error_msg[:_ERROR_SAMPLE_CHARS])
 
     def get_stats(self) -> ToolStats:
         """获取统计数据副本（线程安全）。

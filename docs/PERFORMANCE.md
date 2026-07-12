@@ -29,8 +29,8 @@
 2. 取消并等待 `ApplicationContainer.shutdown_tracked_tasks`，随后关闭 `BackgroundTaskManager`。
 3. 可选：`await message_queue.shutdown()`，取消并等待所有运行中、排队中和 `dispatch_wait` 任务的 `finally`。
 4. `await memory.shutdown()`，停止 Dream 维护任务并关闭 embedding HTTP 池。
-5. `cleanup_all_processes()`，持久化记忆索引，再关闭 OpenAI、飞书 Drive、HTML 上传、ClawHub 和 trace writer 的连接池。
-6. 按需 `release_session_lock` 与 `unregister_instance()`。默认线程池始终交给解释器回收，避免 prompt_toolkit 退出时再次使用已关闭 executor。
+5. `cleanup_all_processes()`，持久化记忆索引，再关闭 OpenAI、飞书 Drive、HTML 上传、ClawHub 和共享 HTTP/browser 连接池。
+6. 按需 `release_session_lock` 与 `unregister_instance()`；记录完整 shutdown span 后，最后 drain Trace writer。默认线程池始终交给解释器回收，避免 prompt_toolkit 退出时再次使用已关闭 executor。
 
 **与 `run_cli_loop` 的关系**：`run_runtime` 在 `finally` 中唯一调用 `shutdown_runtime`。用户正常 `quit` 时循环已释放 session lock 并注销实例，因此传入两个 `False`；初始化、生命周期、CLI 异常与信号路径使用 `True`，覆盖未走循环清理的退出方式。
 
@@ -94,10 +94,37 @@ python scripts/compare_perf_snapshots.py tests/perf_baselines/my-baseline.json p
 set MINIAGENT_REAL_API_STRESS=1
 set MINIAGENT_REAL_API_PERF_DIR=workspaces/logs/perf
 python -m pytest tests/evaluation/test_perf_real_api.py -v -s
-python scripts/perf_trace_real_api.py --prompt "请完成一个受控任务" --runs 1
+python scripts/perf_trace_real_api.py --scenario matrix --runs 3
 ```
 
-压测使用当前 OpenAI-compatible 配置。`perf_trace_real_api.py` 通过正式应用组合根构造依赖，在每次运行独立的 state、knowledge 和 trace 目录中执行，并在退出时关闭 OpenAI、memory、ClawHub、队列与 Trace writer；它只在内存中叠加隔离路径，不改写或复制 `config.user.json`。产物默认写入 `workspaces/logs/perf/`，属于过程性文件，不提交到仓库。Trace 内容策略强制为 `metrics_only`：只记录耗时、token、状态、会话/请求关联 ID、错误类型等指标，不记录完整 prompt、response 或密钥。
+压测使用当前 OpenAI-compatible 配置。`matrix` 运行纯回复、单 `read_file`、`list_dir + read_file` 各 3 次，再运行一轮 3 并发请求；工具矩阵只开放只读工具箱，不执行飞书、上传、命令或文件写操作。`perf_trace_real_api.py` 通过正式应用组合根构造依赖，在每次运行独立的 state、knowledge 和 trace 目录中执行，并在退出时关闭 OpenAI、memory、ClawHub、队列与 Trace writer；它只在内存中叠加隔离路径，不改写或复制 `config.user.json`。产物默认写入 `workspaces/logs/perf/`，属于过程性文件，不提交到仓库。
+
+脚本强制 `metrics_only` 与 250ms 资源采样，并自动验证 LLM `call_id` 配对、工具断言、terminal error、Trace drop/序列化/写入错误、秘密扫描和 writer 完整关闭。`summary.json` 包含 Git SHA、Python/平台、原始样本、中位数/p95、CPU、RSS、Python traced peak、phase/span 和验证错误列表；不包含 prompt、response、工具参数或凭据。
+
+#### 3.5.1 2026-07-12 真实验收摘要
+
+环境：Windows 11、Python 3.12.7；旧/新均使用当前配置端点。过程产物位于 Git 忽略的 `workspaces/logs/perf/`。
+
+| 场景 | 样本 | 中位数 | p95 | 结果 |
+|---|---:|---:|---:|---|
+| 纯回复 | 3 | 6.66s | 9.28s | 3/3 成功 |
+| 单 `read_file` | 3 | 18.44s | 19.35s | 3/3 工具与回复成功 |
+| `list_dir + read_file` | 3 | 58.89s | 59.19s | 3/3 两工具与回复成功 |
+| 3 并发 | 3 | 6.91s | 7.72s | 3/3 成功 |
+| 旧基线同提示 | 1 | 46.59s | — | 10/10 LLM 配对 |
+| 新实现同提示 | 3 | 31.33s | 39.97s | 3/3 `read_file` 成功；中位数下降 32.8% |
+
+长矩阵共写入 1357/1357 个事件，55/55 LLM 请求响应配对，`read_file` 6/6、`list_dir` 3/3，terminal error、drop、序列化错误、写入错误和秘密命中均为 0。预热区间到末尾的 RSS 中位平台增长 0.14%，Python traced 平台增长 0.41%；线程峰值 6。旧同提示运行的两个 embedding 请求合计约 16.66s（含空索引 query），新实现空索引不请求 API，实际 query/index 中位约 202ms，index 在有界队列中与后续网络阶段重叠。
+
+新增高级配置均保持向后兼容：
+
+| 配置 | 默认值 | 作用 |
+|---|---:|---|
+| `trace.resource_sample_interval_seconds` | `0` | 0 表示不启动资源采样线程；真实基准使用 0.25 |
+| `trace.stats_max_latency_samples` | `100000` | 日报全局延迟 reservoir 上限，并按 phase 分配固定子预算 |
+| `trace.stats_max_session_samples` | `1000` | 报告中保留的 session 列表上限；总数使用固定 bitmap 估计 |
+| `embedding.index_queue_max_size` | `256` | 等待/执行中的异步向量索引任务容量；满载时调用方等待 |
+| `embedding.index_concurrency` | `2` | embedding index 网络与写入并发上限 |
 
 ### 4. 基线文件格式（`tests/perf_baselines/`）
 
@@ -146,6 +173,12 @@ CI **不**依赖基线文件是否存在；可选 workflow 仅上传当次脚本
 - **后台任务并发槽位**：后台任务在创建协程时即预留槽位，避免多个并发 `start_task()` 在协程尚未调度时共同绕过上限；正常、失败、启动前取消和 shutdown 都幂等释放槽位。
 - **飞书缓存与连接复用**：消息去重按单键严格执行 5 分钟 TTL 并原子 flush；tenant token 的同步/异步并发 miss 各自合并为一次请求；HTML 上传三类操作按事件循环复用 aiohttp 连接池并在统一 shutdown 中关闭。
 - **Trace 重试与终态语义**：`failed_response_count` 与 `attempt_error_rate` 保留失败尝试诊断；`retrying_response_count`、`terminal_failed_response_count` 和 `error_rate` 描述操作终态。真实运行中 2 次网关重试恢复后，尝试失败率为 33.3%，终态失败率正确为 0，且请求/响应无失配。
+- **Trace 资源与安全白名单**：生产默认 `trace.resource_sample_interval_seconds=0`，真实基准显式设为 0.25s；惰性加载 psutil，并仅在采样启用时启动 tracemalloc。持久化只接受事件类型/模型/phase 等安全字符串和已登记的数字/布尔指标；未知字符串、未知数字标识、嵌套对象、错误正文、prompt/response/args 一律丢弃。hook 仍收到原事件。
+- **Trace 跨日与大分片**：writer 按事件 UTC 日期安全切换分片，自定义无日期路径也能跨日；关闭超时时不关闭仍被线程使用的句柄。日报对延迟、session、phase/tool/error/span 基数均设固定容量，坏 JSON、NaN 和畸形字段不会中止聚合。
+- **LLM 参数能力学习**：仅对明确 HTTP 400 “参数不受支持”学习 `temperature/top_p`，缓存键包含弱引用 client、endpoint、model 与 wire API，并有 LRU 上限；非法参数值和其他 400 不会污染能力缓存。后续请求直接采用已学习的兼容参数，保留现有重试、协议降级与思考等级。
+- **Embedding 异步索引**：空索引在 query embedding 前直接返回；耐久记忆和关键词索引完成后，向量索引进入默认容量 256、并发 2 的队列。满队列反压而不丢条目，下一次搜索和 shutdown 均完整 drain；Trace 区分 query/index、缓存、queue wait、network 和 index duration，并继承 session/span。
+- **工具大输入与原子发布**：`read_file` 单遍完成分页、准确行数、完整 hash 与有界 RAG 内容；目录列表辅助内存受 `max_entries` 约束；JSONL 逐行解析，CSV/JSON/命令输出有类型与容量上限。文件、CSV、JSON、会话记忆和自动知识镜像均先写同目录临时文件，再原子替换，失败保留旧文件。
+- **长驻监控与 CLI 渲染**：工具错误样本、可选延迟样本、Markdown Console/render cache 均固定容量；render cache 同时受条目和 8MiB 限制，共享 Console 的输出句柄切换受锁保护，终端宽度变化不会线性累积实例。
 
 #### 5.2 待验证 / 剖析指引
 

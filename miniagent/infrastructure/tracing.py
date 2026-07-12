@@ -17,13 +17,17 @@ from __future__ import annotations
 import json
 import os
 import queue
+import re
 import tempfile
 import threading
 import time
 from collections.abc import Callable
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 TraceHook = Callable[[dict[str, Any]], None]
 
@@ -31,10 +35,11 @@ TraceHook = Callable[[dict[str, Any]], None]
 class _ExcludeSessionCommand:
     """FIFO maintenance command processed by the sole writer thread."""
 
-    __slots__ = ("done", "removed", "session_key")
+    __slots__ = ("done", "reject_future", "removed", "session_key")
 
-    def __init__(self, session_key: str) -> None:
+    def __init__(self, session_key: str, *, reject_future: bool = True) -> None:
         self.session_key = session_key
+        self.reject_future = reject_future
         self.done = threading.Event()
         self.removed = 0
 
@@ -47,6 +52,7 @@ _TRACE_RECORD_PAYLOAD = "metrics_only"
 
 # 异步写入器实例
 _trace_writer: AsyncTraceWriter | None = None
+_resource_sampler: TraceResourceSampler | None = None
 
 # 是否已自动初始化
 _auto_initialized = False
@@ -85,6 +91,110 @@ _PERSISTENCE_PREVIEW_KEYS = {
     "error_preview",
     "location",
 }
+_PERSISTENCE_SAFE_STRING_KEYS = {
+    "action",
+    "call_id",
+    "failure_category",
+    "finish_reason",
+    "incomplete_reason",
+    "error_type",
+    "kb_name",
+    "layer",
+    "model",
+    "parent_span_id",
+    "phase",
+    "proposal_id",
+    "purpose",
+    "reason",
+    "reasoning_level",
+    "render_mode",
+    "risk_level",
+    "scenario",
+    "session_key",
+    "source",
+    "span_id",
+    "status",
+    "strategy",
+    "tool",
+    "tool_call_id",
+    "tool_name",
+    "ts",
+    "type",
+    "wire_api",
+}
+_PERSISTENCE_SAFE_STRING_LIST_KEYS = {"output_item_types", "retry_adjustments"}
+_PERSISTENCE_SAFE_SCALAR_KEYS = {
+    "after_tokens",
+    "ambiguity_count",
+    "asked_count",
+    "attempt",
+    "before_tokens",
+    "cache_age_seconds",
+    "cache_hit",
+    "cache_size",
+    "changed",
+    "compress_ratio",
+    "cpu_ms",
+    "cpu_system_ms",
+    "cpu_user_ms",
+    "default_resolved_count",
+    "duration_ms",
+    "entries_count",
+    "fallback_count",
+    "has_tool_calls",
+    "idle_seconds",
+    "input_bytes",
+    "input_chars",
+    "index_duration_ms",
+    "is_user_error",
+    "json_object",
+    "knowledge_resolved_count",
+    "max_tokens",
+    "memory_resolved_count",
+    "message_chars",
+    "message_count",
+    "network_ms",
+    "output_chars",
+    "process_cpu_ms",
+    "python_traced_bytes",
+    "python_traced_peak_bytes",
+    "protocol_fallback",
+    "queue_depth",
+    "queue_wait_ms",
+    "removed_count",
+    "removed_tokens",
+    "reply_len",
+    "retrying",
+    "rss_bytes",
+    "run",
+    "sampling_removed",
+    "sampler_elapsed_ms",
+    "size",
+    "size_measurement_truncated",
+    "skipped",
+    "status_code",
+    "structured_stream",
+    "success",
+    "text_length",
+    "thread_count",
+    "trace_queue_depth",
+    "tool_count",
+    "tool_schema_chars",
+    "turn",
+    "unresolved_count",
+    "validation_error",
+    "warning_count",
+    "written_blocks",
+}
+_TRACE_DATE_RE = re.compile(r"trace-(\d{4}-\d{2}-\d{2})")
+_CURRENT_TRACE_SPAN: ContextVar[str | None] = ContextVar(
+    "miniagent_current_trace_span",
+    default=None,
+)
+_CURRENT_TRACE_SESSION: ContextVar[str | None] = ContextVar(
+    "miniagent_current_trace_session",
+    default=None,
+)
 _USAGE_SCALAR_KEYS = {
     "completion_tokens",
     "input_tokens",
@@ -170,6 +280,179 @@ def _sanitize_usage_metrics(usage: dict[Any, Any]) -> dict[str, Any]:
     return sanitized
 
 
+def new_trace_id(prefix: str = "trace") -> str:
+    """Return a compact process-local correlation identifier."""
+    normalized = re.sub(r"[^a-zA-Z0-9_-]", "", prefix)[:16] or "trace"
+    return f"{normalized}-{uuid4().hex[:16]}"
+
+
+@contextmanager
+def trace_parent(span_id: str, *, session_key: str | None = None):
+    """Bind the parent span inherited by nested async work."""
+    token = _CURRENT_TRACE_SPAN.set(span_id)
+    session_token = (
+        _CURRENT_TRACE_SESSION.set(session_key)
+        if session_key is not None
+        else None
+    )
+    try:
+        yield
+    finally:
+        if session_token is not None:
+            _CURRENT_TRACE_SESSION.reset(session_token)
+        _CURRENT_TRACE_SPAN.reset(token)
+
+
+@contextmanager
+def trace_span(
+    phase: str,
+    *,
+    session_key: str | None = None,
+    parent_span_id: str | None = None,
+    span_id: str | None = None,
+):
+    """Emit a low-overhead start/end span around synchronous or async work.
+
+    The context manager itself is synchronous on purpose: it can wrap code that
+    contains ``await`` without introducing another task or altering cancellation
+    semantics.
+    """
+    actual_span_id = span_id or new_trace_id("span")
+    actual_parent_span_id = parent_span_id or _CURRENT_TRACE_SPAN.get()
+    started_wall_ns = time.monotonic_ns()
+    started_cpu_ns = time.process_time_ns()
+    emit_trace(
+        {
+            "type": "agent.phase_start",
+            "phase": phase,
+            "session_key": session_key or "",
+            "span_id": actual_span_id,
+            "parent_span_id": actual_parent_span_id,
+        }
+    )
+    success = False
+    token = _CURRENT_TRACE_SPAN.set(actual_span_id)
+    session_token = (
+        _CURRENT_TRACE_SESSION.set(session_key)
+        if session_key is not None
+        else None
+    )
+    try:
+        yield actual_span_id
+        success = True
+    finally:
+        if session_token is not None:
+            _CURRENT_TRACE_SESSION.reset(session_token)
+        _CURRENT_TRACE_SPAN.reset(token)
+        emit_trace(
+            {
+                "type": "agent.phase_end",
+                "phase": phase,
+                "session_key": session_key or "",
+                "span_id": actual_span_id,
+                "parent_span_id": actual_parent_span_id,
+                "duration_ms": (time.monotonic_ns() - started_wall_ns) / 1_000_000,
+                "cpu_ms": (time.process_time_ns() - started_cpu_ns) / 1_000_000,
+                "success": success,
+            }
+        )
+
+
+class TraceResourceSampler:
+    """Optional process-resource sampler owned by the trace runtime."""
+
+    def __init__(self, interval_seconds: float) -> None:
+        self.interval_seconds = max(0.05, float(interval_seconds))
+        self._started_ns = time.monotonic_ns()
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._process: Any = None
+        self._tracemalloc: Any = None
+        self._owns_tracemalloc = False
+        try:
+            import psutil
+
+            self._process = psutil.Process()
+        except (ImportError, OSError):
+            self._process = None
+        try:
+            import tracemalloc
+
+            self._tracemalloc = tracemalloc
+            if not tracemalloc.is_tracing():
+                tracemalloc.start(1)
+                self._owns_tracemalloc = True
+        except (ImportError, RuntimeError):
+            self._tracemalloc = None
+
+    def start(self) -> None:
+        if self._thread is not None and self._thread.is_alive():
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(
+            target=self._run,
+            daemon=True,
+            name="trace-resource-sampler",
+        )
+        self._thread.start()
+
+    def _sample(self) -> dict[str, Any]:
+        event: dict[str, Any] = {
+            "type": "perf.resource_sample",
+            "process_cpu_ms": time.process_time_ns() / 1_000_000,
+            "sampler_elapsed_ms": (time.monotonic_ns() - self._started_ns) / 1_000_000,
+            "thread_count": threading.active_count(),
+        }
+        writer = _trace_writer
+        if writer is not None:
+            event["trace_queue_depth"] = writer.stats()["queue_depth"]
+        process = self._process
+        if process is not None:
+            try:
+                memory = process.memory_info()
+                cpu = process.cpu_times()
+                event.update(
+                    {
+                        "rss_bytes": int(memory.rss),
+                        "cpu_user_ms": float(cpu.user) * 1000,
+                        "cpu_system_ms": float(cpu.system) * 1000,
+                    }
+                )
+            except (AttributeError, OSError):
+                pass
+        tracemalloc_module = self._tracemalloc
+        if tracemalloc_module is not None:
+            try:
+                current, peak = tracemalloc_module.get_traced_memory()
+                event.update(
+                    {
+                        "python_traced_bytes": int(current),
+                        "python_traced_peak_bytes": int(peak),
+                    }
+                )
+            except RuntimeError:
+                pass
+        return event
+
+    def _run(self) -> None:
+        emit_trace(self._sample())
+        while not self._stop.wait(self.interval_seconds):
+            emit_trace(self._sample())
+
+    def shutdown(self) -> None:
+        self._stop.set()
+        thread = self._thread
+        if thread is not None:
+            thread.join(timeout=max(1.0, self.interval_seconds * 2))
+        self._thread = None
+        if self._owns_tracemalloc and self._tracemalloc is not None:
+            try:
+                self._tracemalloc.stop()
+            except RuntimeError:
+                pass
+        self._owns_tracemalloc = False
+
+
 class AsyncTraceWriter:
     """异步背景写入器，批处理 trace 事件。
 
@@ -215,6 +498,9 @@ class AsyncTraceWriter:
         self._shutdown = False
         self._file_handle: Any = None
         self._file_path: Path | None = None
+        self._base_file_path: Path | None = None
+        self._initial_date: str | None = None
+        self._active_date: str | None = None
         self._process_id = os.getpid()  # 进程ID（进程隔离）
         self._emitted_count = 0
         self._written_count = 0
@@ -225,6 +511,8 @@ class AsyncTraceWriter:
         self._serialization_warned = False
         self._excluded_sessions: set[str] = set()
         self._redacted_count = 0
+        self._rotation_count = 0
+        self._shutdown_incomplete = False
 
     def start(self, file_path: Path) -> None:
         """启动后台写入线程。
@@ -238,24 +526,26 @@ class AsyncTraceWriter:
         # 幂等：重复 start 前回收旧句柄/线程，防止泄漏。
         if self._file_handle is not None or self._writer_thread is not None:
             self.shutdown()
-            self._shutdown = False
+            if self._writer_thread is not None:
+                raise RuntimeError("trace writer cannot restart before its thread exits")
 
-        # 进程隔离：添加进程ID后缀避免多进程写入冲突
-        # 文件名格式：trace-YYYY-MM-DD-pid{process_id}.jsonl
-        file_path_str = str(file_path)
-        if ".jsonl" in file_path_str:
-            # 在.jsonl之前插入pid后缀
-            pid_suffix = f"-pid{self._process_id}"
-            self._file_path = Path(file_path_str.replace(".jsonl", f"{pid_suffix}.jsonl"))
-        else:
-            # 其他情况：直接添加后缀
-            self._file_path = Path(f"{file_path_str}-pid{self._process_id}")
+        # A successfully stopped writer may be reused by tests or an embedded
+        # host. Recreate the FIFO so a consumed/queued shutdown sentinel can
+        # never terminate the next lifecycle.
+        self._shutdown = False
+        self._shutdown_incomplete = False
+        self._queue = queue.Queue(maxsize=self.queue_max_size)
+        self._excluded_sessions.clear()
 
-        # 确保目录存在
-        self._file_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # 打开文件（追加模式）；线程创建失败时回收句柄避免泄漏。
-        self._file_handle = self._file_path.open("a", encoding="utf-8")
+        self._base_file_path = Path(file_path)
+        initial_match = _TRACE_DATE_RE.search(file_path.name)
+        initial_date = (
+            initial_match.group(1)
+            if initial_match is not None
+            else datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        )
+        self._initial_date = initial_date
+        self._open_for_date(initial_date, count_rotation=False)
         try:
             self._writer_thread = threading.Thread(
                 target=self._writer_loop, daemon=True, name="trace-writer"
@@ -268,6 +558,49 @@ class AsyncTraceWriter:
                 self._file_handle = None
                 self._writer_thread = None
             raise
+
+    def _path_for_date(self, date: str) -> Path:
+        """Return the process-isolated shard path for one UTC date."""
+        base = self._base_file_path or Path("trace.jsonl")
+        name = base.name
+        if _TRACE_DATE_RE.search(name):
+            name = _TRACE_DATE_RE.sub(f"trace-{date}", name, count=1)
+        elif self._initial_date is not None and date != self._initial_date:
+            plain_path = Path(name)
+            name = f"{plain_path.stem}-{date}{plain_path.suffix}"
+        stem_path = Path(name)
+        if stem_path.suffix == ".jsonl":
+            actual_name = f"{stem_path.stem}-pid{self._process_id}.jsonl"
+        else:
+            actual_name = f"{name}-pid{self._process_id}"
+        return base.with_name(actual_name)
+
+    def _open_for_date(self, date: str, *, count_rotation: bool = True) -> None:
+        """Switch the sole writer handle to ``date`` without overlapping handles."""
+        if self._active_date == date and self._file_handle is not None:
+            return
+        if self._file_handle is not None:
+            self._file_handle.flush()
+            self._file_handle.close()
+            self._file_handle = None
+        self._file_path = self._path_for_date(date)
+        self._file_path.parent.mkdir(parents=True, exist_ok=True)
+        self._file_handle = self._file_path.open("a", encoding="utf-8")
+        if self._active_date is not None and count_rotation:
+            self._rotation_count += 1
+        self._active_date = date
+
+    @staticmethod
+    def _event_date(event: dict[str, Any]) -> str:
+        timestamp = event.get("ts")
+        if isinstance(timestamp, str) and len(timestamp) >= 10:
+            candidate = timestamp[:10]
+            try:
+                datetime.strptime(candidate, "%Y-%m-%d")
+                return candidate
+            except ValueError:
+                pass
+        return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     def emit(self, event: dict[str, Any]) -> None:
         """非阻塞发送事件（主线程调用）。
@@ -310,7 +643,13 @@ class AsyncTraceWriter:
                 except queue.Full:
                     pass
 
-    def exclude_session(self, session_key: str, *, timeout: float = 5.0) -> int:
+    def exclude_session(
+        self,
+        session_key: str,
+        *,
+        timeout: float = 5.0,
+        reject_future: bool = True,
+    ) -> int:
         """Remove one session from the active shard and reject future events.
 
         The command shares the event FIFO, so all events accepted before it are
@@ -320,8 +659,9 @@ class AsyncTraceWriter:
         normalized = (session_key or "").strip()
         if not normalized or self._shutdown:
             return 0
-        self._excluded_sessions.add(normalized)
-        command = _ExcludeSessionCommand(normalized)
+        if reject_future:
+            self._excluded_sessions.add(normalized)
+        command = _ExcludeSessionCommand(normalized, reject_future=reject_future)
         try:
             self._queue.put(command, timeout=max(0.01, timeout))
         except queue.Full:
@@ -332,7 +672,7 @@ class AsyncTraceWriter:
     def _writer_loop(self) -> None:
         """后台线程：批量写入循环。"""
         while not (self._shutdown and self._queue.empty()):
-            buffer: list[str] = []
+            buffer: list[tuple[str, str]] = []
             stop_after_batch = False
             maintenance: _ExcludeSessionCommand | None = None
             try:
@@ -349,7 +689,7 @@ class AsyncTraceWriter:
                 else:
                     serialized = self._serialize_event(first)
                     if serialized is not None:
-                        buffer.append(serialized)
+                        buffer.append((self._event_date(first), serialized))
 
                 deadline = time.monotonic() + self.batch_interval
                 while (
@@ -370,7 +710,7 @@ class AsyncTraceWriter:
                         else:
                             serialized = self._serialize_event(event)
                             if serialized is not None:
-                                buffer.append(serialized)
+                                buffer.append((self._event_date(event), serialized))
                         continue
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
@@ -384,14 +724,28 @@ class AsyncTraceWriter:
                         else:
                             serialized = self._serialize_event(event)
                             if serialized is not None:
-                                buffer.append(serialized)
+                                buffer.append((self._event_date(event), serialized))
                     except queue.Empty:
                         break
 
-                if buffer and self._file_handle:
+                if buffer:
                     try:
-                        self._file_handle.writelines(buffer)
-                        self._file_handle.flush()
+                        batch_date: str | None = None
+                        batch_lines: list[str] = []
+                        for event_date, line in buffer:
+                            if batch_date is not None and event_date != batch_date:
+                                self._open_for_date(batch_date)
+                                assert self._file_handle is not None
+                                self._file_handle.writelines(batch_lines)
+                                self._file_handle.flush()
+                                batch_lines = []
+                            batch_date = event_date
+                            batch_lines.append(line)
+                        if batch_date is not None and batch_lines:
+                            self._open_for_date(batch_date)
+                            assert self._file_handle is not None
+                            self._file_handle.writelines(batch_lines)
+                            self._file_handle.flush()
                         self._written_count += len(buffer)
                     except Exception as e:
                         self._write_error_count += 1
@@ -507,6 +861,13 @@ class AsyncTraceWriter:
         if self._writer_thread:
             self._writer_thread.join(timeout=5.0)
 
+        if self._writer_thread and self._writer_thread.is_alive():
+            # Never close or rewrite a handle that the writer may still be
+            # using.  The daemon remains responsible for draining it.
+            self._shutdown_incomplete = True
+            _logger.error("Trace writer did not stop within 5 seconds; handle left open")
+            return
+
         # A maintenance command may have timed out while the queue was full;
         # shutdown is the final deterministic opportunity to redact it.
         for session_key in tuple(self._excluded_sessions):
@@ -544,6 +905,10 @@ class AsyncTraceWriter:
             "serialization_error_count": self._serialization_error_count,
             "write_error_count": self._write_error_count,
             "redacted_count": self._redacted_count,
+            "rotation_count": self._rotation_count,
+            "active_date": self._active_date,
+            "excluded_session_count": len(self._excluded_sessions),
+            "shutdown_incomplete": self._shutdown_incomplete,
             "shutdown": self._shutdown,
         }
 
@@ -561,18 +926,24 @@ def _sanitize_trace_event_for_persistence(event: dict[str, Any]) -> dict[str, An
         if key_lower in _PERSISTENCE_DROP_KEYS:
             continue
         if key_lower in _PERSISTENCE_PREVIEW_KEYS:
-            sanitized[key] = str(value)[:200]
+            # Preview strings are useful to in-process hooks but can contain
+            # credentials or user text.  Persist only their size.
+            sanitized[f"{key}_chars"] = len(str(value))
             continue
-        if isinstance(value, str | int | float | bool) or value is None:
+        if isinstance(value, str):
+            if key_lower in _PERSISTENCE_SAFE_STRING_KEYS:
+                sanitized[key] = value[:256]
+        elif key_lower in _PERSISTENCE_SAFE_SCALAR_KEYS and (
+            isinstance(value, int | float | bool) or value is None
+        ):
             sanitized[key] = value
         elif key_lower == "usage" and isinstance(value, dict):
             sanitized[key] = _sanitize_usage_metrics(value)
-        elif isinstance(value, list) and all(
-            isinstance(item, int | float | bool) for item in value
-        ):
-            # 仅保留纯数值/布尔数组（安全 metrics，如时延分布）；
-            # 字符串列表可能含模型生成文本，按 metrics_only 策略丢弃。
-            sanitized[key] = list(value[:50])
+        elif isinstance(value, list):
+            if key_lower in _PERSISTENCE_SAFE_STRING_LIST_KEYS and all(
+                isinstance(item, str) for item in value
+            ):
+                sanitized[key] = [item[:64] for item in value[:20]]
     return sanitized
 
 
@@ -621,7 +992,11 @@ def clear_trace_hooks() -> None:
     同时关闭异步写入器，清除 trace 日志文件配置和自动初始化标志，确保完全重置。
     """
     _hooks.clear()
-    global _TRACE_LOG_FILE, _TRACE_RECORD_PAYLOAD, _auto_initialized, _trace_writer
+    global _TRACE_LOG_FILE, _TRACE_RECORD_PAYLOAD, _auto_initialized, _resource_sampler, _trace_writer
+
+    if _resource_sampler is not None:
+        _resource_sampler.shutdown()
+        _resource_sampler = None
 
     # 关闭异步写入器
     if _trace_writer:
@@ -654,7 +1029,7 @@ def auto_register_trace_file_hook() -> None:
     示例配置：
         {"trace": {"enabled": true, "output_dir": "workspaces/logs"}}
     """
-    global _auto_initialized, _TRACE_LOG_FILE, _TRACE_RECORD_PAYLOAD, _trace_writer
+    global _auto_initialized, _TRACE_LOG_FILE, _TRACE_RECORD_PAYLOAD, _resource_sampler, _trace_writer
 
     if _auto_initialized:
         return
@@ -689,6 +1064,10 @@ def auto_register_trace_file_hook() -> None:
             overflow_policy=overflow_policy,
         )
         _trace_writer.start(_TRACE_LOG_FILE)
+        resource_interval = float(get_config("trace.resource_sample_interval_seconds", 0) or 0)
+        if resource_interval > 0:
+            _resource_sampler = TraceResourceSampler(resource_interval)
+            _resource_sampler.start()
         _logger.info(
             "Trace异步写入器已启动: %s (actual=%s, batch_interval=%ss, batch_size=%d, queue_max=%s)",
             _TRACE_LOG_FILE,
@@ -720,6 +1099,16 @@ def exclude_trace_session(session_key: str) -> tuple[Path | None, int]:
     return _trace_writer.file_path, _trace_writer.exclude_session(session_key)
 
 
+def finalize_trace_session(session_key: str) -> tuple[Path | None, int]:
+    """Remove a completed session without retaining a permanent tombstone."""
+    if _trace_writer is None:
+        return None, 0
+    return _trace_writer.file_path, _trace_writer.exclude_session(
+        session_key,
+        reject_future=False,
+    )
+
+
 def emit_trace(event: dict[str, Any]) -> None:
     """派发事件；钩子异常不影响主流程。
 
@@ -735,8 +1124,20 @@ def emit_trace(event: dict[str, Any]) -> None:
     if not _hooks and not _trace_writer:
         return
 
-    # 添加时间戳
-    event_with_ts = {"ts": datetime.now(timezone.utc).isoformat(), **event}
+    inherited: dict[str, Any] = {}
+    current_span = _CURRENT_TRACE_SPAN.get()
+    current_session = _CURRENT_TRACE_SESSION.get()
+    if current_span is not None and "parent_span_id" not in event:
+        inherited["parent_span_id"] = current_span
+    if current_session is not None and "session_key" not in event:
+        inherited["session_key"] = current_session
+
+    # 添加时间戳；调用方显式关联字段始终优先于上下文继承值。
+    event_with_ts = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        **inherited,
+        **event,
+    }
 
     # 异步文件写入（非阻塞）
     if _trace_writer:
@@ -763,13 +1164,17 @@ def shutdown_trace_writer() -> dict[str, Any] | None:
         from miniagent.infrastructure.tracing import shutdown_trace_writer
         shutdown_trace_writer()
     """
-    global _trace_writer
+    global _auto_initialized, _resource_sampler, _trace_writer
+    if _resource_sampler is not None:
+        _resource_sampler.shutdown()
+        _resource_sampler = None
     if _trace_writer is None:
         return None
     writer = _trace_writer
     writer.shutdown()
     stats = writer.stats()
     _trace_writer = None
+    _auto_initialized = False
     _logger.info("Trace异步写入器已关闭")
     return stats
 
@@ -780,10 +1185,14 @@ __all__ = [
     "unregister_trace_hook",
     "clear_trace_hooks",
     "emit_trace",
+    "new_trace_id",
+    "trace_parent",
+    "trace_span",
     "llm_request_size_metrics",
     "auto_register_trace_file_hook",
     "get_actual_trace_file",
     "get_trace_writer_stats",
     "exclude_trace_session",
+    "finalize_trace_session",
     "shutdown_trace_writer",  # 新增：关闭异步写入器
 ]

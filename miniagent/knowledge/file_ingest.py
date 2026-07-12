@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from miniagent.core.constants import KNOWLEDGE_MAX_FILE_CHARS
+from miniagent.infrastructure.atomic_json import atomic_dump_json, atomic_write_text
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.trace_events import EVENT_KNOWLEDGE_FILE_INGEST
 from miniagent.infrastructure.tracing import emit_trace
@@ -63,7 +64,8 @@ def ensure_auto_file_kb(*, kb_name: str | None = None) -> str:
     files_dir.mkdir(parents=True, exist_ok=True)
     config_path = kb_path / "KB.yaml"
     if not config_path.exists():
-        config_path.write_text(
+        atomic_write_text(
+            config_path,
             "\n".join(
                 [
                     f"name: {name}",
@@ -93,6 +95,8 @@ def ingest_file_for_analysis(
     state_dir: str | None = None,
     kb_name: str | None = None,
     content: str | None = None,
+    source_hash: str | None = None,
+    contains_nul: bool | None = None,
 ) -> IngestResult:
     """Persist a text source file into the project-level analysis knowledge base."""
     start_ns = time.monotonic_ns()
@@ -123,13 +127,13 @@ def ingest_file_for_analysis(
                 result.skipped = True
                 result.reason = "non_utf8"
                 return result
-        if "\x00" in content:
+        if contains_nul is True or (contains_nul is None and "\x00" in content):
             result.skipped = True
             result.reason = "binary"
             return result
 
-        source_hash = _sha256_text(content)
-        result.source_hash = source_hash
+        effective_source_hash = source_hash or _sha256_text(content)
+        result.source_hash = effective_source_hash
         kb_path = Path(ensure_auto_file_kb(kb_name=name))
         result.kb_path = str(kb_path)
         files_dir = kb_path / "files"
@@ -142,7 +146,7 @@ def ingest_file_for_analysis(
         mirror_name = f"{_sha256_text(source_key)[:16]}{extension}"
         mirror_path = files_dir / mirror_name
         result.file_path = mirror_name
-        result.changed = not existing or existing.get("source_hash") != source_hash
+        result.changed = not existing or existing.get("source_hash") != effective_source_hash
 
         if not result.changed and mirror_path.exists():
             result.success = True
@@ -153,11 +157,11 @@ def ingest_file_for_analysis(
         ingest_content = content[:max_chars]
         if len(content) > max_chars:
             ingest_content += "\n...[已截断]"
-        mirror_path.write_text(ingest_content, encoding="utf-8")
+        atomic_write_text(mirror_path, ingest_content, encoding="utf-8")
         metadata[source_key] = {
             "source_path": source_key,
             "file_path": mirror_name,
-            "source_hash": source_hash,
+            "source_hash": effective_source_hash,
             "mtime": stat.st_mtime,
             "size": stat.st_size,
             "ingested_at": time.time(),
@@ -219,8 +223,7 @@ def _load_metadata(path: Path) -> dict[str, dict[str, Any]]:
 
 
 def _save_metadata(path: Path, metadata: dict[str, dict[str, Any]]) -> None:
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(metadata, f, ensure_ascii=False, indent=2, sort_keys=True)
+    atomic_dump_json(path, metadata, ensure_ascii=False, indent=2, sort_keys=True)
 
 
 def _sha256_text(text: str) -> str:

@@ -39,11 +39,16 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import heapq
 import os
 import shutil
 from pathlib import Path
 from typing import Any
 
+from miniagent.core.constants import KNOWLEDGE_MAX_FILE_CHARS
+from miniagent.infrastructure.atomic_json import atomic_write_text
+from miniagent.infrastructure.json_config import get_config
 from miniagent.knowledge.file_ingest import ingest_file_for_analysis
 from miniagent.tools.base import tool
 from miniagent.tools.path_utils import resolve_path_for_tool
@@ -55,6 +60,64 @@ from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 # ════════════════════════════════════════════════════════
 
 
+def _read_file_page_sync(
+    file_path: str,
+    offset: int,
+    limit: int,
+    ingest_cap: int,
+) -> tuple[list[str], int, str, str, bool, int]:
+    """Read one page while hashing/counting the full decoded file in one pass."""
+    page: list[str] = []
+    ingest_parts: list[str] = []
+    ingest_length = 0
+    digest = hashlib.sha256()
+    contains_nul = False
+    total = 0
+    ended_with_newline = False
+    with open(file_path, encoding="utf-8", newline=None) as handle:
+        for raw_line in handle:
+            total += 1
+            digest.update(raw_line.encode("utf-8", errors="replace"))
+            contains_nul = contains_nul or "\x00" in raw_line
+            if ingest_length < ingest_cap:
+                piece = raw_line[: ingest_cap - ingest_length]
+                ingest_parts.append(piece)
+                ingest_length += len(piece)
+            if offset <= total < offset + limit:
+                page.append(raw_line[:-1] if raw_line.endswith("\n") else raw_line)
+            ended_with_newline = raw_line.endswith("\n")
+
+    # str.split("\n") yields one empty row for an empty file and a trailing
+    # empty row when the file ends with a newline. Preserve that contract.
+    if total == 0:
+        total = 1
+        if offset <= 1 < offset + limit:
+            page.append("")
+    elif ended_with_newline:
+        total += 1
+        if offset <= total < offset + limit:
+            page.append("")
+
+    return (
+        page,
+        total,
+        "".join(ingest_parts),
+        digest.hexdigest(),
+        contains_nul,
+        os.path.getsize(file_path),
+    )
+
+
+def _limited_sorted_items(directory: Path, limit: int) -> tuple[list[Path], bool]:
+    """Return the first sorted entries with O(limit) auxiliary memory."""
+    items = heapq.nsmallest(
+        limit + 1,
+        directory.iterdir(),
+        key=lambda item: (not item.is_dir(), item.name),
+    )
+    return items[:limit], len(items) > limit
+
+
 async def _read_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     """读取文件内容。
 
@@ -64,30 +127,56 @@ async def _read_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
     file_path, path_err = resolve_path_for_tool(str(args["path"]), ctx)
     if path_err:
         return path_err
-    offset = int(args.get("offset", 1))
-    limit = int(args.get("limit", 1000))
+    try:
+        offset = int(args.get("offset", 1))
+        limit = int(args.get("limit", 1000))
+    except (TypeError, ValueError):
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} offset/limit 必须是整数")
+    offset = max(1, min(offset, 10_000_000))
+    limit = max(1, min(limit, 10_000))
+    ingest_cap = int(
+        get_config(
+            "knowledge.auto_ingest_max_file_chars",
+            get_config("knowledge.max_file_chars", KNOWLEDGE_MAX_FILE_CHARS),
+        )
+    )
 
     try:
-        content = await asyncio.to_thread(Path(file_path).read_text, encoding="utf-8")
+        page, total, ingest_content, source_hash, contains_nul, input_bytes = (
+            await asyncio.to_thread(
+                _read_file_page_sync,
+                file_path,
+                offset,
+                limit,
+                max(1, ingest_cap + 1),
+            )
+        )
     except FileNotFoundError:
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 文件不存在: {args['path']}")
     except PermissionError:
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 权限不足，无法读取: {args['path']}")
     except IsADirectoryError:
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 路径是目录而非文件: {args['path']}")
+    except UnicodeDecodeError:
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 文件不是有效 UTF-8 文本: {args['path']}")
 
-    lines = content.split("\n")
-    total = len(lines)
-    sliced = lines[offset - 1 : offset - 1 + limit]
-    result = "\n".join(sliced)
+    result = "\n".join(page)
 
-    if len(sliced) < total:
-        result += f"\n... (共 {total} 行，仅显示 {len(sliced)} 行，使用 offset/limit 翻页)"
+    if len(page) < total:
+        result += f"\n... (共 {total} 行，仅显示 {len(page)} 行，使用 offset/limit 翻页)"
 
-    meta: dict[str, Any] = {"totalLines": total, "readLines": len(sliced)}
-    ingest = ingest_file_for_analysis(
+    meta: dict[str, Any] = {
+        "totalLines": total,
+        "readLines": len(page),
+        "input_bytes": input_bytes,
+        "output_chars": len(result),
+    }
+    ingest = await asyncio.to_thread(
+        ingest_file_for_analysis,
         file_path,
-        content=content,
+        content=ingest_content,
+        source_hash=source_hash,
+        contains_nul=contains_nul,
         registry=ctx.knowledge_registry,
     )
     meta.update(
@@ -111,12 +200,8 @@ async def _write_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolRes
         return path_err
     content = str(args["content"])
 
-    parent = os.path.dirname(file_path)
-    if parent:
-        os.makedirs(parent, exist_ok=True)
-
     try:
-        await asyncio.to_thread(Path(file_path).write_text, content, encoding="utf-8")
+        await asyncio.to_thread(atomic_write_text, file_path, content, encoding="utf-8")
     except PermissionError:
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 权限不足，无法写入: {args['path']}")
     except OSError as e:
@@ -148,7 +233,7 @@ async def _edit_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 找到 {occurrences} 处匹配，请提供更精确的 oldText")
 
     updated = content.replace(old_text, new_text, 1)
-    await asyncio.to_thread(Path(file_path).write_text, updated, encoding="utf-8")
+    await asyncio.to_thread(atomic_write_text, file_path, updated, encoding="utf-8")
 
     return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已替换 1 处 ({len(old_text)} → {len(new_text)} 字符)")
 
@@ -201,7 +286,9 @@ async def _list_dir_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResul
             if depth > max_depth:
                 return
             try:
-                items = sorted(d.iterdir(), key=lambda x: (not x.is_dir(), x.name))
+                remaining = max_entries - len(entries)
+                items, has_more = _limited_sorted_items(d, remaining)
+                truncated = truncated or has_more
             except PermissionError:
                 return
             for item in items:
@@ -218,12 +305,15 @@ async def _list_dir_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResul
             content += f"\n... (已截断，最多 {max_entries} 条；可调 max_entries / max_depth)"
         return ToolResult(success=True, content=content)
 
-    def _list_lines() -> list[str]:
-        items = sorted(p.iterdir(), key=lambda x: (not x.is_dir(), x.name))
-        return [_format_entry(entry) for entry in items]
+    def _list_lines() -> tuple[list[str], bool]:
+        items, truncated = _limited_sorted_items(p, max_entries)
+        return [_format_entry(entry) for entry in items], truncated
 
-    lines = await asyncio.to_thread(_list_lines)
-    return ToolResult(success=True, content="\n".join(lines))
+    lines, truncated = await asyncio.to_thread(_list_lines)
+    content = "\n".join(lines)
+    if truncated:
+        content += f"\n... (已截断，最多 {max_entries} 条；可调 max_entries)"
+    return ToolResult(success=True, content=content)
 
 
 async def _create_dir_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:

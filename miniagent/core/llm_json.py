@@ -200,6 +200,7 @@ async def llm_json(
     responses_wire = resolve_wire_api() == "responses"
     max_attempts = 3 if responses_wire else 2
     attempt_kwargs = dict(create_kwargs)
+    current_call_id = ""
 
     def _emit_llm_trace(
         event_type: str,
@@ -216,6 +217,7 @@ async def llm_json(
 
         payload: dict[str, Any] = {
             "type": event_type,
+            "call_id": current_call_id,
             "phase": trace_phase,
             "session_key": trace_session_key or "default",
             "model": model,
@@ -253,7 +255,10 @@ async def llm_json(
         emit_trace(payload)
 
     for attempt in range(max_attempts):
+        from miniagent.infrastructure.tracing import new_trace_id
+
         attempt_number = attempt + 1
+        current_call_id = new_trace_id("llm")
         attempt_start_ns = time.monotonic_ns()
         resp = None
         _emit_llm_trace(
@@ -286,6 +291,7 @@ async def llm_json(
                     retrying=True,
                     duration_ms=(time.monotonic_ns() - attempt_start_ns) // 1_000_000,
                 )
+                current_call_id = new_trace_id("llm")
                 _emit_llm_trace(
                     "llm.request",
                     json_object=False,

@@ -14,6 +14,7 @@ Tests cover:
 
 from __future__ import annotations
 
+import asyncio
 import os
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -23,6 +24,8 @@ import pytest
 from miniagent.tools.exec import (
     _BLOCKED_PATTERNS,
     _DEFAULT_ALLOWED_COMMANDS,
+    _EXEC_MAX_OUTPUT_BYTES,
+    _communicate_limited,
     _deny,
     _exec_handler,
     _get_allowed_commands,
@@ -90,6 +93,22 @@ class TestExecSuccess:
 
                 assert "stderr" in result.content
                 assert "stderr output" in result.content
+
+    @pytest.mark.asyncio
+    async def test_output_capture_drains_but_retains_fixed_budget(self) -> None:
+        stdout = asyncio.StreamReader()
+        stderr = asyncio.StreamReader()
+        stdout.feed_data(b"a" * 700_000)
+        stderr.feed_data(b"b" * 700_000)
+        stdout.feed_eof()
+        stderr.feed_eof()
+        mock_proc = MagicMock(stdout=stdout, stderr=stderr)
+        mock_proc.wait = AsyncMock(return_value=0)
+
+        stdout_bytes, stderr_bytes, truncated = await _communicate_limited(mock_proc)
+
+        assert len(stdout_bytes) + len(stderr_bytes) == _EXEC_MAX_OUTPUT_BYTES
+        assert truncated is True
 
     @pytest.mark.asyncio
     async def test_exec_command_with_nonzero_exit(self) -> None:

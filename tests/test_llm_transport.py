@@ -25,6 +25,7 @@ from miniagent.core.llm_transport import (
         (401, "unauthorized", "deterministic_api_error", False),
         (403, "permission denied", "deterministic_api_error", False),
         (400, "invalid tool schema", "api_error", False),
+        (400, "Unsupported parameter: temperature", "unsupported_parameter", True),
         (500, "upstream error", "transient_api_error", True),
         (None, "connection reset", "network_error", True),
     ],
@@ -183,6 +184,92 @@ async def test_create_completion_responses_maps_params_and_normalizes_string() -
     assert "max_tokens" not in kwargs
     assert "response_format" not in kwargs
     assert "text" not in kwargs
+
+
+@pytest.mark.asyncio
+async def test_responses_learns_unsupported_sampling_parameters_per_client() -> None:
+    class UnsupportedSamplingError(Exception):
+        status_code = 400
+
+    client = MagicMock()
+    client.responses.create = AsyncMock(
+        side_effect=[
+            UnsupportedSamplingError(
+                "Unsupported parameters: temperature and top_p are not supported"
+            ),
+            "ok",
+        ]
+    )
+    params = {
+        "model": "learn-model",
+        "temperature": 0.7,
+        "top_p": 0.9,
+    }
+
+    with pytest.raises(UnsupportedSamplingError):
+        await create_completion(
+            client,
+            messages=[{"role": "user", "content": "first"}],
+            params=params,
+            wire_api="responses",
+        )
+    result = await create_completion(
+        client,
+        messages=[{"role": "user", "content": "second"}],
+        params=params,
+        wire_api="responses",
+    )
+
+    assert result.content == "ok"
+    first, second = client.responses.create.await_args_list
+    assert first.kwargs["temperature"] == 0.7
+    assert first.kwargs["top_p"] == 0.9
+    assert "temperature" not in second.kwargs
+    assert "top_p" not in second.kwargs
+
+
+@pytest.mark.asyncio
+async def test_capability_learning_is_isolated_by_endpoint() -> None:
+    class UnsupportedSamplingError(Exception):
+        status_code = 400
+
+    client = MagicMock()
+    client.base_url = "https://first.example/v1"
+    client.responses.create = AsyncMock(
+        side_effect=[
+            UnsupportedSamplingError("Unsupported parameter: temperature"),
+            "ok",
+        ]
+    )
+    params = {"model": "same-model", "temperature": 0.7}
+
+    with pytest.raises(UnsupportedSamplingError):
+        await create_completion(client, messages=[], params=params, wire_api="responses")
+    client.base_url = "https://second.example/v1"
+    await create_completion(client, messages=[], params=params, wire_api="responses")
+
+    assert client.responses.create.await_args_list[1].kwargs["temperature"] == 0.7
+
+
+@pytest.mark.asyncio
+async def test_invalid_sampling_value_does_not_disable_supported_parameter() -> None:
+    class InvalidSamplingValue(Exception):
+        status_code = 400
+
+    client = MagicMock()
+    client.responses.create = AsyncMock(
+        side_effect=[
+            InvalidSamplingValue("temperature value 3 is not supported; use 0 through 2"),
+            "ok",
+        ]
+    )
+    params = {"model": "value-model", "temperature": 3}
+
+    with pytest.raises(InvalidSamplingValue):
+        await create_completion(client, messages=[], params=params, wire_api="responses")
+    await create_completion(client, messages=[], params=params, wire_api="responses")
+
+    assert client.responses.create.await_args_list[1].kwargs["temperature"] == 3
 
 
 @pytest.mark.asyncio

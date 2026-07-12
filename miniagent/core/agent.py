@@ -22,7 +22,9 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
+import time
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, TypeAlias
 
@@ -382,9 +384,49 @@ def _build_agent_run_result(reply: str, monitor: ToolMonitorProtocol) -> AgentRu
     )
 
 
+def _trace_agent_run(func: Any) -> Any:
+    """Add an exception-safe end-to-end span while preserving the public signature."""
+
+    @functools.wraps(func)
+    async def wrapped(user_input: str, *args: Any, **kwargs: Any) -> AgentRunResult:
+        from miniagent.infrastructure.tracing import emit_trace, new_trace_id, trace_parent
+
+        session_key = str(kwargs.get("session_key") or "")
+        span_id = new_trace_id("agent")
+        wall_start = time.monotonic_ns()
+        cpu_start = time.process_time_ns()
+        emit_trace(
+            {
+                "type": "agent.run_start",
+                "session_key": session_key,
+                "span_id": span_id,
+                "input_chars": len(user_input),
+            }
+        )
+        success = False
+        try:
+            with trace_parent(span_id, session_key=session_key):
+                result = await func(user_input, *args, **kwargs)
+            success = True
+            return result
+        finally:
+            emit_trace(
+                {
+                    "type": "agent.run_end",
+                    "session_key": session_key,
+                    "span_id": span_id,
+                    "duration_ms": (time.monotonic_ns() - wall_start) / 1_000_000,
+                    "cpu_ms": (time.process_time_ns() - cpu_start) / 1_000_000,
+                    "success": success,
+                }
+            )
+    return wrapped
+
+
 # ─── 主入口 ──────────────────────────────────────────────
 
 
+@_trace_agent_run
 async def run_agent(
     user_input: str,
     *,
@@ -491,6 +533,8 @@ async def run_agent(
         - :func:`miniagent.core.task_classifier.classify_task_difficulty`
         - :class:`miniagent.core.requirement_clarifier.RequirementClarifier`
     """
+    from miniagent.infrastructure.tracing import trace_span
+
     if monitor is None:
         monitor = DefaultToolMonitor()
     if toolboxes is None:
@@ -556,13 +600,14 @@ async def run_agent(
     planning_display = ""
 
     if toolboxes and not skip_planning and task_classifier_enabled():
-        difficulty = await classify_task_difficulty(
-            user_input,
-            [t.id for t in toolboxes],
-            knowledge_registry=knowledge_registry,
-            client=client,
-            agent_config=merged_config,
-        )
+        with trace_span("classify", session_key=effective_session_key):
+            difficulty = await classify_task_difficulty(
+                user_input,
+                [t.id for t in toolboxes],
+                knowledge_registry=knowledge_registry,
+                client=client,
+                agent_config=merged_config,
+            )
         if difficulty == TaskDifficulty.SIMPLE:
             effective_skip = True
         if _announce_difficulty_and_plan_enabled() and on_thinking:
@@ -625,16 +670,17 @@ async def run_agent(
                 base_questions,
                 int(get_config("agent.max_questions", CLARIFIER_MAX_QUESTIONS_COMPLEX)),
             )
-            clarified = await clarifier.clarify(
-                user_input,
-                ask_user=_ask_user_for_clarification,
-                client=client,
-                on_thinking=on_thinking,
-                memory_store=memory.store,
-                knowledge_registry=knowledge_registry,
-                session_key=effective_session_key,
-                max_questions=max_questions,
-            )
+            with trace_span("clarify", session_key=effective_session_key):
+                clarified = await clarifier.clarify(
+                    user_input,
+                    ask_user=_ask_user_for_clarification,
+                    client=client,
+                    on_thinking=on_thinking,
+                    memory_store=memory.store,
+                    knowledge_registry=knowledge_registry,
+                    session_key=effective_session_key,
+                    max_questions=max_questions,
+                )
             # 构建完整的澄清信息传递给规划器和执行器
             # 使用 to_system_prompt 生成包含目标、约束、输出规格、示例的完整提示词
             clarified_text = getattr(clarified, "clarified_goal", "") or ""
@@ -677,17 +723,18 @@ async def run_agent(
         replan_attempts_left = EXECUTION_MAX_PLAN_CONFIRM_ROUNDS
 
         while True:
-            plan = await generate_plan(
-                plan_input,
-                toolboxes,
-                merged_config.log_file,
-                client=client,
-                agent_config=merged_config,
-                registry=registry,
-                knowledge_registry=knowledge_registry,
-                planner_model_overrides=planner_merge_for_difficulty(difficulty),
-                default_step_thinking=default_step_thinking_for_difficulty(difficulty),
-            )
+            with trace_span("plan", session_key=effective_session_key):
+                plan = await generate_plan(
+                    plan_input,
+                    toolboxes,
+                    merged_config.log_file,
+                    client=client,
+                    agent_config=merged_config,
+                    registry=registry,
+                    knowledge_registry=knowledge_registry,
+                    planner_model_overrides=planner_merge_for_difficulty(difficulty),
+                    default_step_thinking=default_step_thinking_for_difficulty(difficulty),
+                )
             merged_config = _merge_plan_suggested_config(plan, merged_config)
 
             if merged_config.debug:
@@ -763,24 +810,25 @@ async def run_agent(
         )
 
     # ── Phase 2: 执行 ──
-    reply = await execute_plan(
-        plan,
-        user_input,
-        registry,
-        monitor,
-        merged_config,
-        on_tool_call,
-        on_thinking,
-        on_tool_finish=on_tool_finish,
-        system_prompt=effective_system_prompt,
-        clawhub=clawhub,
-        memory=memory,
-        knowledge_registry=knowledge_registry,
-        client=client,
-        confirmation_channel=confirmation_channel,
-        tool_semaphore=tool_semaphore,
-        manage_activity_lifecycle=False,
-    )
+    with trace_span("exec", session_key=effective_session_key):
+        reply = await execute_plan(
+            plan,
+            user_input,
+            registry,
+            monitor,
+            merged_config,
+            on_tool_call,
+            on_thinking,
+            on_tool_finish=on_tool_finish,
+            system_prompt=effective_system_prompt,
+            clawhub=clawhub,
+            memory=memory,
+            knowledge_registry=knowledge_registry,
+            client=client,
+            confirmation_channel=confirmation_channel,
+            tool_semaphore=tool_semaphore,
+            manage_activity_lifecycle=False,
+        )
 
     if (
         reply.startswith(WARNING_PREFIX)
@@ -804,38 +852,40 @@ async def run_agent(
             fallback_plan=plan.fallback_plan,
             tools_enabled=plan.tools_enabled,
         )
-        fallback_reply = await execute_plan(
-            simple_plan,
-            user_input,
-            registry,
-            monitor,
-            fallback_config,
-            on_tool_call,
-            on_thinking,
-            on_tool_finish=on_tool_finish,
-            system_prompt=effective_system_prompt,
-            clawhub=clawhub,
-            memory=memory,
-            knowledge_registry=knowledge_registry,
-            client=client,
-            confirmation_channel=confirmation_channel,
-            tool_semaphore=tool_semaphore,
-            manage_activity_lifecycle=False,
-        )
+        with trace_span("exec_fallback", session_key=effective_session_key):
+            fallback_reply = await execute_plan(
+                simple_plan,
+                user_input,
+                registry,
+                monitor,
+                fallback_config,
+                on_tool_call,
+                on_thinking,
+                on_tool_finish=on_tool_finish,
+                system_prompt=effective_system_prompt,
+                clawhub=clawhub,
+                memory=memory,
+                knowledge_registry=knowledge_registry,
+                client=client,
+                confirmation_channel=confirmation_channel,
+                tool_semaphore=tool_semaphore,
+                manage_activity_lifecycle=False,
+            )
         if not fallback_reply.startswith(WARNING_PREFIX):
             reply = fallback_reply
 
     # ── Phase 3: 反思评估 ──
     reflection_enabled = get_config("features.reflection", True)
     if reflection_enabled:
-        reflection = await reflect_on_result(
-            user_input,
-            reply,
-            knowledge_registry=knowledge_registry,
-            client=client,
-            on_thinking=None,
-            session_key=effective_session_key,
-        )
+        with trace_span("reflect", session_key=effective_session_key):
+            reflection = await reflect_on_result(
+                user_input,
+                reply,
+                knowledge_registry=knowledge_registry,
+                client=client,
+                on_thinking=None,
+                session_key=effective_session_key,
+            )
         # 动态属性：供飞书质量卡片读取（非 engine 公开契约）
         if engine is not None:
             sk = effective_session_key or "default"

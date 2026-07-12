@@ -17,6 +17,7 @@ ClawHub API 约定（实现会按顺序尝试兼容端点）：
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -24,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from miniagent.core.constants import CLAWHUB_API_URL
+from miniagent.infrastructure.atomic_json import atomic_dump_json, atomic_write_text
 from miniagent.types.skill import (
     ClawHubClientProtocol,
     ClawHubSearchResult,
@@ -240,10 +242,8 @@ class _ClawHubClientImpl:
             files = await self._files_from_download_endpoint(slug, version)
 
         root = skills_root if skills_root else _default_skills_root()
-        os.makedirs(root, exist_ok=True)
         dir_name = skill_install_dir_name(slug)
         skills_dir = os.path.join(root, dir_name)
-        os.makedirs(skills_dir, exist_ok=True)
 
         if not files:
             raise RuntimeError(
@@ -252,25 +252,25 @@ class _ClawHubClientImpl:
                 "或复制仓库内 workspaces/skills 已 vendoring 的技能包。"
             )
 
-        # 写入文件
-        for file_info in files:
-            rel_path = file_info["path"]
-            # 防止路径穿越：确保文件路径不包含 .. 且不跳出 skills_dir
-            if ".." in rel_path or os.path.isabs(rel_path):
-                raise RuntimeError(f"技能包文件路径不安全: {rel_path!r}")
-            file_path = os.path.join(skills_dir, rel_path)
-            # 二次校验：确保解析后路径仍在 skills_dir 内
-            if not os.path.abspath(file_path).startswith(os.path.abspath(skills_dir)):
-                raise RuntimeError(f"技能包文件路径跳出技能目录: {rel_path!r}")
-            os.makedirs(os.path.dirname(file_path), exist_ok=True)
-            Path(file_path).write_text(file_info["content"], encoding="utf-8")
-
-        # 写入 .clawhub 元数据
         from datetime import datetime, timezone
 
-        meta_path = os.path.join(skills_dir, ".clawhub.json")
-        Path(meta_path).write_text(
-            json.dumps(
+        def _install_sync() -> None:
+            os.makedirs(skills_dir, exist_ok=True)
+            root_abs = os.path.abspath(skills_dir)
+            for file_info in files:
+                rel_path = str(file_info["path"])
+                if ".." in Path(rel_path).parts or os.path.isabs(rel_path):
+                    raise RuntimeError(f"技能包文件路径不安全: {rel_path!r}")
+                file_path = os.path.abspath(os.path.join(skills_dir, rel_path))
+                try:
+                    if os.path.commonpath([root_abs, file_path]) != root_abs:
+                        raise RuntimeError(f"技能包文件路径跳出技能目录: {rel_path!r}")
+                except ValueError as error:
+                    raise RuntimeError(f"技能包文件路径跳出技能目录: {rel_path!r}") from error
+                atomic_write_text(file_path, str(file_info["content"]), encoding="utf-8")
+
+            atomic_dump_json(
+                os.path.join(skills_dir, ".clawhub.json"),
                 {
                     "slug": detail.slug,
                     "version": detail.version or "unknown",
@@ -278,9 +278,9 @@ class _ClawHubClientImpl:
                     "source": "clawhub",
                 },
                 indent=2,
-            ),
-            encoding="utf-8",
-        )
+            )
+
+        await asyncio.to_thread(_install_sync)
 
         return {"path": skills_dir, "files": files}
 

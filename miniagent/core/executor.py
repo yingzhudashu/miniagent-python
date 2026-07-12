@@ -74,7 +74,7 @@ from miniagent.infrastructure.timezone_config import (
     format_agent_timezone_context,
     format_agent_timezone_rule_context,
 )
-from miniagent.infrastructure.tracing import emit_trace, llm_request_size_metrics
+from miniagent.infrastructure.tracing import emit_trace, llm_request_size_metrics, new_trace_id
 from miniagent.memory.activity_log import invoke_activity_log
 from miniagent.memory.context import ContextBudgetExceeded, DefaultContextManager
 from miniagent.memory.history_bridge import conversation_history_for_llm
@@ -921,13 +921,16 @@ async def execute_plan(
         """回合结束后写入会话记忆与最终回复活动日志（跳过后台 ephemeral session）。"""
         if not session_config.session_key or not final_reply or bg_ephemeral:
             return
-        await mc.save_memory_after_turn(
-            session_config.session_key,
-            user_input,
-            final_reply,
-            ms,
-            tool_calls=turn_tool_calls,
-        )
+        from miniagent.infrastructure.tracing import trace_span
+
+        with trace_span("memory_persist", session_key=session_key):
+            await mc.save_memory_after_turn(
+                session_config.session_key,
+                user_input,
+                final_reply,
+                ms,
+                tool_calls=turn_tool_calls,
+            )
         if manage_activity_lifecycle:
             await invoke_activity_log(al, "log_final_reply", session_key, final_reply)
 
@@ -1017,6 +1020,7 @@ async def execute_plan(
         )
         responses_wire = model_config.wire_api == "responses"
         for request_attempt in range(_EXEC_LLM_MAX_ATTEMPTS):
+            call_id = new_trace_id("llm")
             request_start_ns = time.monotonic_ns()
             full_content_parts = StreamingBuffer()
             _tool_call_accum: dict[int, dict[str, str]] = {}
@@ -1031,6 +1035,7 @@ async def execute_plan(
             emit_trace(
                 {
                     "type": "llm.request",
+                    "call_id": call_id,
                     "phase": "exec",
                     "session_key": session_key,
                     "turn": turn_display,
@@ -1110,6 +1115,7 @@ async def execute_plan(
                 emit_trace(
                     {
                         "type": "llm.response",
+                        "call_id": call_id,
                         "phase": "exec",
                         "session_key": session_key,
                         "turn": turn_display,
@@ -1141,6 +1147,7 @@ async def execute_plan(
                 emit_trace(
                     {
                         "type": "llm.response",
+                        "call_id": call_id,
                         "phase": "exec",
                         "session_key": session_key,
                         "turn": turn_display,
@@ -1157,6 +1164,7 @@ async def execute_plan(
             emit_trace(
                 {
                     "type": "llm.response",
+                    "call_id": call_id,
                     "phase": "exec",
                     "session_key": session_key,
                     "turn": turn_display,
@@ -1231,6 +1239,7 @@ async def execute_plan(
         emit_trace(
             {
                 "type": "llm.response",
+                "call_id": call_id,
                 "phase": "exec",
                 "session_key": session_key,
                 "turn": turn_display,
@@ -1425,6 +1434,7 @@ async def execute_plan(
             async with execution_semaphore:
                 _raise_if_task_cancelled()
                 tool_start = time.monotonic_ns() // 1_000_000
+                tool_cpu_start_ns = time.process_time_ns()
                 emit_trace(
                     {
                         "type": "tool.start",
@@ -1539,6 +1549,10 @@ async def execute_plan(
                         "tool": tc.function.name,
                         "tool_call_id": tc.id,
                         "duration_ms": tool_elapsed,
+                        "cpu_ms": (time.process_time_ns() - tool_cpu_start_ns) / 1_000_000,
+                        "input_chars": len(tc.function.arguments or ""),
+                        "output_chars": len(result.content or ""),
+                        "input_bytes": result.meta.get("input_bytes") if result.meta else None,
                         "success": result.success,
                     }
                 )

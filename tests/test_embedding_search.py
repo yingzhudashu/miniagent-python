@@ -306,6 +306,79 @@ class TestEmbeddingIndex:
 
 class TestEmbeddingSearchProvider:
     @pytest.mark.asyncio
+    async def test_empty_index_skips_query_embedding_api(self, tmp_path, monkeypatch):
+        provider = EmbeddingSearchProvider(state_dir=str(tmp_path))
+
+        async def should_not_run(*args, **kwargs):
+            raise AssertionError("empty semantic index must not request an embedding")
+
+        monkeypatch.setattr(provider, "get_embedding", should_not_run)
+
+        assert await provider.search("query") == []
+        await provider.close()
+
+    @pytest.mark.asyncio
+    async def test_queued_index_is_visible_before_next_search(self, tmp_path, monkeypatch):
+        install_test_config(
+            tmp_path,
+            {"embedding": {"index_queue_max_size": 1, "index_concurrency": 1}},
+        )
+        provider = EmbeddingSearchProvider(state_dir=str(tmp_path))
+        entry = MemoryEntryInput(
+            timestamp="2026-07-12T00:00:00+00:00",
+            user_snippet="alpha",
+            summary="alpha summary",
+            facts=[],
+        )
+
+        async def fake_embedding(text: str, *, purpose: str = "query"):
+            await asyncio.sleep(0)
+            return [1.0, 0.0]
+
+        monkeypatch.setattr(provider, "get_embedding", fake_embedding)
+        await provider.queue_index("session", entry, "alpha summary")  # type: ignore[arg-type]
+
+        results = await provider.search("alpha", min_score=0.1)
+
+        assert len(results) == 1
+        assert provider._pending_index_tasks == set()
+        await provider.close()
+
+    @pytest.mark.asyncio
+    async def test_concurrent_drains_wait_for_the_same_pending_index(
+        self, tmp_path, monkeypatch
+    ):
+        provider = EmbeddingSearchProvider(state_dir=str(tmp_path))
+        entry = MemoryEntryInput(
+            timestamp="2026-07-12T00:00:00+00:00",
+            user_snippet="alpha",
+            summary="alpha summary",
+            facts=[],
+        )
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def fake_embedding(text: str, *, purpose: str = "query"):
+            started.set()
+            await release.wait()
+            return [1.0, 0.0]
+
+        monkeypatch.setattr(provider, "get_embedding", fake_embedding)
+        await provider.queue_index("session", entry, "alpha summary")  # type: ignore[arg-type]
+        first = asyncio.create_task(provider.drain_indexing())
+        await started.wait()
+        second = asyncio.create_task(provider.drain_indexing())
+        await asyncio.sleep(0)
+
+        assert not first.done()
+        assert not second.done()
+
+        release.set()
+        await asyncio.gather(first, second)
+        assert provider._pending_index_tasks == set()
+        await provider.close()
+
+    @pytest.mark.asyncio
     async def test_concurrent_identical_misses_share_one_api_request(
         self,
         tmp_path,

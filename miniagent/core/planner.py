@@ -137,7 +137,7 @@ async def generate_plan(
         - :mod:`miniagent.core.executor` — Phase 2 消费方
     """
     from miniagent.core.llm_params import resolve_planner_completion_kwargs
-    from miniagent.infrastructure.tracing import emit_trace, llm_request_size_metrics
+    from miniagent.infrastructure.tracing import emit_trace, llm_request_size_metrics, new_trace_id
     from miniagent.knowledge import retrieve_knowledge_context
 
     ac: AgentConfig | None = agent_config if isinstance(agent_config, AgentConfig) else None
@@ -196,12 +196,14 @@ async def generate_plan(
     failure_history: list[str] = []
 
     for attempt in range(PLANNER_MAX_RETRIES):
+        call_id = new_trace_id("llm")
         attempt_start_ns = time.monotonic_ns()
         try:
             use_structured_stream = wire_api == "responses" and use_json_object
             emit_trace(
                 {
                     "type": "llm.request",
+                    "call_id": call_id,
                     "phase": "plan",
                     "session_key": plan_session_key,
                     "attempt": attempt + 1,
@@ -251,6 +253,7 @@ async def generate_plan(
                     emit_trace(
                         {
                             "type": "llm.response",
+                            "call_id": call_id,
                             "phase": "plan",
                             "session_key": plan_session_key,
                             "attempt": attempt + 1,
@@ -260,9 +263,11 @@ async def generate_plan(
                             "duration_ms": (time.monotonic_ns() - attempt_start_ns) // 1_000_000,
                         }
                     )
+                    call_id = new_trace_id("llm")
                     emit_trace(
                         {
                             "type": "llm.request",
+                            "call_id": call_id,
                             "phase": "plan",
                             "session_key": plan_session_key,
                             "attempt": attempt + 1,
@@ -311,6 +316,7 @@ async def generate_plan(
             emit_trace(
                 {
                     "type": "llm.response",
+                    "call_id": call_id,
                     "phase": "plan",
                     "session_key": plan_session_key,
                     "attempt": attempt + 1,
@@ -376,6 +382,7 @@ async def generate_plan(
                 emit_trace(
                     {
                         "type": "llm.response",
+                        "call_id": call_id,
                         "phase": "plan",
                         "session_key": plan_session_key,
                         "attempt": attempt + 1,

@@ -34,6 +34,7 @@ from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 # 调试专用：跳过命令安全检查（勿在生产 executor 中注入）
 _EXEC_DEBUG_PERMISSION = "full"
+_EXEC_MAX_OUTPUT_BYTES = 1_000_000
 
 _logger = get_logger(__name__)
 
@@ -117,6 +118,55 @@ def _apply_command_security(command: str) -> ToolResult | None:
 
 # ─── Handler ───────────────────────────────────────────────────
 
+
+async def _read_stream_limited(
+    stream: asyncio.StreamReader,
+    max_bytes: int,
+) -> tuple[bytes, bool]:
+    """Drain a subprocess pipe while retaining only a fixed byte budget."""
+    chunks: list[bytes] = []
+    retained = 0
+    truncated = False
+    while True:
+        chunk = await stream.read(64 * 1024)
+        if not chunk:
+            break
+        available = max_bytes - retained
+        if available > 0:
+            piece = chunk[:available]
+            chunks.append(piece)
+            retained += len(piece)
+            if len(piece) < len(chunk):
+                truncated = True
+        else:
+            truncated = True
+    return b"".join(chunks), truncated
+
+
+async def _communicate_limited(proc: Any) -> tuple[bytes, bytes, bool]:
+    """Capture production pipes with bounded memory; retain mock compatibility."""
+    stdout_stream = getattr(proc, "stdout", None)
+    stderr_stream = getattr(proc, "stderr", None)
+    if isinstance(stdout_stream, asyncio.StreamReader) and isinstance(
+        stderr_stream, asyncio.StreamReader
+    ):
+        per_stream = _EXEC_MAX_OUTPUT_BYTES // 2
+        _, stdout_result, stderr_result = await asyncio.gather(
+            proc.wait(),
+            _read_stream_limited(stdout_stream, per_stream),
+            _read_stream_limited(stderr_stream, per_stream),
+        )
+        stdout_bytes, stdout_truncated = stdout_result
+        stderr_bytes, stderr_truncated = stderr_result
+        return stdout_bytes, stderr_bytes, stdout_truncated or stderr_truncated
+
+    stdout_bytes, stderr_bytes = await proc.communicate()
+    truncated = len(stdout_bytes) + len(stderr_bytes) > _EXEC_MAX_OUTPUT_BYTES
+    stdout_bytes = stdout_bytes[: _EXEC_MAX_OUTPUT_BYTES // 2]
+    stderr_bytes = stderr_bytes[: _EXEC_MAX_OUTPUT_BYTES // 2]
+    return stdout_bytes, stderr_bytes, truncated
+
+
 async def _exec_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     """exec_command 处理器。
 
@@ -127,7 +177,11 @@ async def _exec_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     if not command:
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 命令不能为空")
     cwd_raw = str(args.get("cwd", "")) or ctx.cwd
-    timeout = float(args.get("timeout", 30))
+    try:
+        timeout = float(args.get("timeout", 30))
+    except (TypeError, ValueError):
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} timeout 必须是数字")
+    timeout = max(0.05, min(timeout, 300.0))
 
     cwd, cwd_err = _validate_exec_cwd(cwd_raw, ctx)
     if cwd_err:
@@ -138,6 +192,7 @@ async def _exec_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         if denied is not None:
             return denied
 
+    proc: Any | None = None
     try:
         # 创建子进程（自动追踪，防止孤儿）
         proc = await create_tracked_subprocess(
@@ -149,14 +204,18 @@ async def _exec_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
 
         # 等待完成（带超时）
         try:
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            captured = await asyncio.wait_for(_communicate_limited(proc), timeout=timeout)
+            if len(captured) == 2:  # compatibility for tests/injected wait_for implementations
+                stdout_bytes, stderr_bytes = captured
+                output_truncated = False
+            else:
+                stdout_bytes, stderr_bytes, output_truncated = captured
         except asyncio.TimeoutError:
             try:
                 proc.kill()
             except ProcessLookupError as e:
                 _logger.debug("进程已不存在: %s", e)
             await proc.wait()
-            await deregister_process(proc)
             return ToolResult(success=False, content=f"{ERROR_PREFIX} 命令执行超时 ({timeout}s)")
 
         stdout = stdout_bytes.decode("utf-8", errors="replace").strip() if stdout_bytes else ""
@@ -169,15 +228,25 @@ async def _exec_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
             content += stdout
         if stderr:
             content += f"\n[stderr]\n{stderr}"
+        if output_truncated:
+            content += "\n... (命令输出已截断)"
         if not content:
             content = "(无输出)"
         content += f"\n\n[exit code: {code}]"
 
-        await deregister_process(proc)
         return ToolResult(success=(code == 0), content=content)
 
     except Exception as e:
+        if proc is not None and getattr(proc, "returncode", None) is None:
+            try:
+                proc.kill()
+                await proc.wait()
+            except (ProcessLookupError, OSError):
+                pass
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 执行失败: {e}")
+    finally:
+        if proc is not None:
+            await deregister_process(proc)
 
 
 # ─── Tool Definition ───────────────────────────────────────────

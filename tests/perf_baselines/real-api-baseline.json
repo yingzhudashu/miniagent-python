@@ -1,22 +1,68 @@
 {
-  "schema_version": 1,
-  "generated_at": "2026-06-05T00:00:00Z",
-  "note": "真实API性能基线（初始值）",
+  "schema_version": 2,
+  "generated_at": "2026-07-12T10:48:05Z",
+  "git_sha": "1ef6a953e664179275b17f392a1c6135f46ee892",
+  "environment": {
+    "python": "3.12.7",
+    "platform": "Windows 11 10.0.26200"
+  },
+  "note": "真实 API 同机验收摘要；原始 Trace 位于 Git 忽略的 workspaces/logs/perf，不包含凭据或用户正文。",
+  "trace_integrity": {
+    "events_emitted": 1357,
+    "events_written": 1357,
+    "llm_requests": 55,
+    "llm_responses": 55,
+    "terminal_errors": 0,
+    "trace_drops": 0,
+    "serialization_errors": 0,
+    "write_errors": 0,
+    "secret_hits": 0
+  },
+  "resources": {
+    "rss_peak_bytes": 187908096,
+    "python_traced_peak_bytes": 49027784,
+    "process_cpu_delta_ms": 13984.4,
+    "thread_peak": 6,
+    "warm_to_final_rss_growth_ratio": 0.0014,
+    "warm_to_final_python_traced_growth_ratio": 0.0041
+  },
   "scenarios": [
     {
-      "id": "llm_streaming_latency",
-      "median_ms": 3500,
-      "notes": "真实LLM流式响应延迟（初始估计）"
+      "id": "pure_response",
+      "samples_seconds": [9.2829, 6.1039, 6.6598],
+      "median_ms": 6659.8,
+      "p95_ms": 9282.9,
+      "success_count": 3
     },
     {
-      "id": "tool_execution_latency",
-      "median_ms": 5000,
-      "notes": "LLM + 工具执行延迟（初始估计）"
+      "id": "single_read_file",
+      "samples_seconds": [18.4361, 19.3471, 15.9880],
+      "median_ms": 18436.1,
+      "p95_ms": 19347.1,
+      "success_count": 3
     },
     {
-      "id": "concurrent_throughput",
-      "median_req_per_s": 0.5,
-      "notes": "并发吞吐量基线（初始估计）"
+      "id": "multi_list_and_read",
+      "samples_seconds": [58.4710, 58.8901, 59.1857],
+      "median_ms": 58890.1,
+      "p95_ms": 59185.7,
+      "success_count": 3
+    },
+    {
+      "id": "concurrent_three",
+      "samples_seconds": [6.8195, 6.9060, 7.7244],
+      "median_ms": 6906.0,
+      "p95_ms": 7724.4,
+      "success_count": 3
+    },
+    {
+      "id": "same_prompt_tool_loop",
+      "before_seconds": [46.5898],
+      "after_seconds": [39.9690, 31.3280, 27.2030],
+      "after_median_ms": 31328.0,
+      "after_p95_ms": 39969.0,
+      "median_improvement_ratio": 0.3275,
+      "success_count": 3
     }
   ]
 }

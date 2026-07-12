@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tracemalloc
 from pathlib import Path
 from unittest.mock import patch
 
@@ -68,6 +69,40 @@ async def test_read_file_rag_ingest_can_be_disabled(tmp_path: Path, ctx: ToolCon
     assert r.meta["rag_ingested"] is False
     assert r.meta["rag_ingest_skipped"] is True
     assert r.meta["rag_ingest_reason"] == "disabled"
+
+
+async def test_read_file_large_page_has_bounded_peak_memory(
+    tmp_path: Path,
+    ctx: ToolContext,
+) -> None:
+    path = tmp_path / "large.txt"
+    with path.open("w", encoding="utf-8") as handle:
+        for index in range(200_000):
+            handle.write(f"line-{index:06d}-" + "x" * 40 + "\n")
+
+    def _get_config(key: str, default=None):
+        if key == "knowledge.auto_ingest_analyzed_files":
+            return False
+        if key in {"knowledge.auto_ingest_max_file_chars", "knowledge.max_file_chars"}:
+            return 200_000
+        return default
+
+    tracemalloc.start()
+    try:
+        tracemalloc.reset_peak()
+        with patch("miniagent.knowledge.file_ingest.get_config", side_effect=_get_config):
+            result = await _read_file_handler(
+                {"path": "large.txt", "offset": 100_000, "limit": 5},
+                ctx,
+            )
+        _current, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert result.success is True
+    assert result.meta["totalLines"] == 200_001
+    assert result.meta["readLines"] == 5
+    assert peak < 8 * 1024 * 1024
 
 
 # ─── write_file ───

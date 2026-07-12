@@ -59,6 +59,8 @@ from miniagent.infrastructure.logger import get_logger
 from miniagent.infrastructure.trace_events import (
     EVENT_EMBEDDING_API_CALL,
     EVENT_EMBEDDING_CACHE_HIT,
+    EVENT_EMBEDDING_INDEX_COMPLETED,
+    EVENT_EMBEDDING_INDEX_QUEUED,
 )
 from miniagent.infrastructure.tracing import emit_trace
 from miniagent.memory.shared_registry import MemoryEntryRegistry
@@ -101,7 +103,7 @@ def _get_cached_embedding(text: str) -> array[float] | None:
     with _EMBEDDING_CACHE_LOCK:
         if cache_key in _EMBEDDING_CACHE:
             embedding, timestamp = _EMBEDDING_CACHE[cache_key]
-            now = time.time()
+            now = time.monotonic()
             if now - timestamp < _EMBEDDING_CACHE_TTL_SECONDS:
                 _EMBEDDING_CACHE.move_to_end(cache_key)
                 return embedding
@@ -121,7 +123,7 @@ def _cache_embedding(text: str, embedding: Sequence[float]) -> array[float] | No
         return None
 
     cache_key = hashlib.md5(text.encode()).hexdigest()
-    now = time.time()
+    now = time.monotonic()
     compact = embedding if isinstance(embedding, array) else array("d", embedding)
 
     with _EMBEDDING_CACHE_LOCK:
@@ -328,6 +330,12 @@ class EmbeddingIndex:
         with self._index_lock:
             if not self._loaded:
                 self._load()
+
+    def has_entries(self) -> bool:
+        """Return whether semantic search can produce a result without an API call."""
+        self._ensure_loaded()
+        with self._index_lock:
+            return bool(self._entries)
 
     def _load(self) -> None:
         """从磁盘加载嵌入索引 JSON 文件。"""
@@ -676,6 +684,15 @@ class EmbeddingSearchProvider:
             str, asyncio.Task[array[float] | None]
         ] = {}
         self._inflight_lock = asyncio.Lock()
+        self._index_queue_max_size = max(
+            1, int(get_config("embedding.index_queue_max_size", 256))
+        )
+        self._index_concurrency = max(
+            1, int(get_config("embedding.index_concurrency", 2))
+        )
+        self._index_semaphore = asyncio.Semaphore(self._index_concurrency)
+        self._pending_index_tasks: set[asyncio.Task[None]] = set()
+        self._pending_index_lock = asyncio.Lock()
         self._init_providers()
 
     def _init_providers(self) -> None:
@@ -698,6 +715,7 @@ class EmbeddingSearchProvider:
 
     async def close(self) -> None:
         """Close the provider-owned HTTP connection pool, if it was created."""
+        await self.drain_indexing()
         async with self._inflight_lock:
             inflight = tuple(self._inflight_embeddings.values())
             self._inflight_embeddings.clear()
@@ -710,7 +728,12 @@ class EmbeddingSearchProvider:
         if client is not None:
             await client.aclose()
 
-    async def _fetch_and_cache_embedding(self, clean: str) -> array[float] | None:
+    async def _fetch_and_cache_embedding(
+        self,
+        clean: str,
+        *,
+        purpose: str,
+    ) -> array[float] | None:
         """Fetch one cache miss; concurrent callers share the owning task."""
         for provider in self._providers:
             try:
@@ -726,28 +749,60 @@ class EmbeddingSearchProvider:
                 elapsed_ms = int((time.monotonic() - start_time) * 1000)
                 emit_trace({
                     "type": EVENT_EMBEDDING_API_CALL,
+                    "purpose": purpose,
                     "text_length": len(clean),
                     "duration_ms": elapsed_ms,
+                    "network_ms": elapsed_ms,
                     "cache_size": _embedding_cache_size(),
+                    "success": True,
                 })
                 return compact
             except asyncio.CancelledError:
                 raise
             except Exception as e:
-                _logger.warning("嵌入供应商失败: %s", e)
+                response = getattr(e, "response", None)
+                status_code = getattr(e, "status_code", None)
+                if status_code is None:
+                    status_code = getattr(response, "status_code", None)
+                if isinstance(e, httpx.TimeoutException):
+                    failure_category = "timeout"
+                elif isinstance(status_code, int):
+                    failure_category = f"http_{status_code}"
+                elif isinstance(e, httpx.TransportError):
+                    failure_category = "transport"
+                elif isinstance(e, ValueError | TypeError):
+                    failure_category = "invalid_response"
+                else:
+                    failure_category = "provider_error"
+                elapsed_ms = int((time.monotonic() - start_time) * 1000)
+                emit_trace({
+                    "type": EVENT_EMBEDDING_API_CALL,
+                    "purpose": purpose,
+                    "text_length": len(clean),
+                    "duration_ms": elapsed_ms,
+                    "network_ms": elapsed_ms,
+                    "cache_size": _embedding_cache_size(),
+                    "success": False,
+                    "failure_category": failure_category,
+                })
+                _logger.warning(
+                    "嵌入供应商失败: category=%s error_type=%s",
+                    failure_category,
+                    type(e).__name__,
+                )
         return None
 
-    async def _run_embedding_request(self, clean: str) -> array[float] | None:
+    async def _run_embedding_request(self, clean: str, *, purpose: str) -> array[float] | None:
         """Own one in-flight request and remove it even if every waiter cancels."""
         try:
-            return await self._fetch_and_cache_embedding(clean)
+            return await self._fetch_and_cache_embedding(clean, purpose=purpose)
         finally:
             current = asyncio.current_task()
             async with self._inflight_lock:
                 if self._inflight_embeddings.get(clean) is current:
                     self._inflight_embeddings.pop(clean, None)
 
-    async def get_embedding(self, text: str) -> Sequence[float] | None:
+    async def get_embedding(self, text: str, *, purpose: str = "query") -> Sequence[float] | None:
         """获取文本的嵌入向量（带缓存）。
 
         性能优化：
@@ -769,6 +824,7 @@ class EmbeddingSearchProvider:
         if cached is not None:
             emit_trace({
                 "type": EVENT_EMBEDDING_CACHE_HIT,
+                "purpose": purpose,
                 "text_length": len(clean),
                 "cache_size": _embedding_cache_size(),
             })
@@ -781,6 +837,7 @@ class EmbeddingSearchProvider:
             if cached is not None:
                 emit_trace({
                     "type": EVENT_EMBEDDING_CACHE_HIT,
+                    "purpose": purpose,
                     "text_length": len(clean),
                     "cache_size": _embedding_cache_size(),
                 })
@@ -788,12 +845,109 @@ class EmbeddingSearchProvider:
             task = self._inflight_embeddings.get(clean)
             if task is None:
                 task = asyncio.create_task(
-                    self._run_embedding_request(clean),
+                    self._run_embedding_request(clean, purpose=purpose),
                     name="embedding-fetch",
                 )
                 self._inflight_embeddings[clean] = task
 
         return await asyncio.shield(task)
+
+    async def queue_index(
+        self,
+        session_id: str,
+        entry: MemoryEntry,
+        text: str,
+    ) -> None:
+        """Queue one durable-memory entry for bounded asynchronous vector indexing.
+
+        Queue saturation applies backpressure to the producer; entries are
+        never dropped.  ``search`` and ``close`` drain pending work to preserve
+        read-after-write and shutdown consistency.
+        """
+        while True:
+            wait_for: asyncio.Task[None] | None = None
+            async with self._pending_index_lock:
+                completed = {task for task in self._pending_index_tasks if task.done()}
+                self._pending_index_tasks.difference_update(completed)
+                for task in completed:
+                    try:
+                        task.result()
+                    except (Exception, asyncio.CancelledError):
+                        pass
+                if len(self._pending_index_tasks) < self._index_queue_max_size:
+                    queued_at_ns = time.monotonic_ns()
+                    task = asyncio.create_task(
+                        self._index_one(session_id, entry, text, queued_at_ns),
+                        name="embedding-index",
+                    )
+                    self._pending_index_tasks.add(task)
+                    emit_trace(
+                        {
+                            "type": EVENT_EMBEDDING_INDEX_QUEUED,
+                            "purpose": "index",
+                            "queue_depth": len(self._pending_index_tasks),
+                            "text_length": len(text),
+                        }
+                    )
+                    return
+                wait_for = next(iter(self._pending_index_tasks))
+            if wait_for is not None:
+                await asyncio.gather(asyncio.shield(wait_for), return_exceptions=True)
+
+    async def _index_one(
+        self,
+        session_id: str,
+        entry: MemoryEntry,
+        text: str,
+        queued_at_ns: int,
+    ) -> None:
+        started_ns = time.monotonic_ns()
+        success = False
+        failure_category: str | None = None
+        index_duration_ms = 0.0
+        try:
+            async with self._index_semaphore:
+                started_ns = time.monotonic_ns()
+                embedding = await self.get_embedding(text, purpose="index")
+                if embedding is not None:
+                    index_started_ns = time.monotonic_ns()
+                    self._index.index_entry(session_id, entry, embedding=embedding)
+                    index_duration_ms = (
+                        time.monotonic_ns() - index_started_ns
+                    ) / 1_000_000
+                    success = True
+                else:
+                    failure_category = "embedding_unavailable"
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            failure_category = "index_error"
+            _logger.debug("异步嵌入索引失败: %s", error)
+        finally:
+            emit_trace(
+                {
+                    "type": EVENT_EMBEDDING_INDEX_COMPLETED,
+                    "purpose": "index",
+                    "success": success,
+                    "failure_category": failure_category,
+                    "queue_wait_ms": (started_ns - queued_at_ns) / 1_000_000,
+                    "index_duration_ms": index_duration_ms,
+                    "duration_ms": (time.monotonic_ns() - started_ns) / 1_000_000,
+                }
+            )
+
+    async def drain_indexing(self) -> None:
+        """Wait until all entries accepted by :meth:`queue_index` are indexed."""
+        while True:
+            async with self._pending_index_lock:
+                pending = tuple(self._pending_index_tasks)
+            if not pending:
+                return
+            await asyncio.gather(*pending, return_exceptions=True)
+            async with self._pending_index_lock:
+                self._pending_index_tasks.difference_update(
+                    task for task in pending if task.done()
+                )
 
     async def search(
         self,
@@ -806,7 +960,10 @@ class EmbeddingSearchProvider:
 
         性能优化：使用批量计算版本（numpy加速）。
         """
-        query_embedding = await self.get_embedding(query)
+        await self.drain_indexing()
+        if not self._index.has_entries():
+            return []
+        query_embedding = await self.get_embedding(query, purpose="query")
         if query_embedding is None:
             return []
         # 性能优化：使用批量计算版本（自动回退）

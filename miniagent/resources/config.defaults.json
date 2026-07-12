@@ -93,7 +93,9 @@
     "min_score": 0.3,
     "max_entries": 2000,
     "cache_max_size": 1000,
-    "cache_ttl_seconds": 3600
+    "cache_ttl_seconds": 3600,
+    "index_queue_max_size": 256,
+    "index_concurrency": 2
   },
 
   "timezone": {
@@ -300,6 +302,9 @@
     "writer_queue_max_size": 10000,
     "writer_overflow_policy": "drop_oldest",
     "record_payload": "metrics_only",
+    "resource_sample_interval_seconds": 0,
+    "stats_max_latency_samples": 100000,
+    "stats_max_session_samples": 1000,
     "auto_cleanup": true,
     "cleanup_interval": 3600,
     "stats_report_interval": 3600

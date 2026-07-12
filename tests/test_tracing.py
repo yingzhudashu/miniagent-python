@@ -16,6 +16,7 @@ from miniagent.infrastructure.tracing import (
     get_trace_writer_stats,
     register_trace_hook,
     shutdown_trace_writer,
+    trace_parent,
     unregister_trace_hook,
 )
 from tests.config_helpers import install_test_config
@@ -51,6 +52,25 @@ class TestTraceHooks:
         emit_trace({"type": "multi"})
         assert len(events1) == 1
         assert len(events2) == 1
+
+    def test_events_inherit_current_span_and_session(self) -> None:
+        events: list[dict] = []
+        register_trace_hook(events.append)
+
+        with trace_parent("agent-span", session_key="session-1"):
+            emit_trace({"type": "embedding.api_call", "purpose": "query"})
+            emit_trace(
+                {
+                    "type": "explicit",
+                    "parent_span_id": "explicit-parent",
+                    "session_key": "explicit-session",
+                }
+            )
+
+        assert events[0]["parent_span_id"] == "agent-span"
+        assert events[0]["session_key"] == "session-1"
+        assert events[1]["parent_span_id"] == "explicit-parent"
+        assert events[1]["session_key"] == "explicit-session"
 
     def test_unregister(self) -> None:
         """测试钩子移除"""
@@ -292,4 +312,31 @@ class TestTraceFilePersistence:
         assert '"cached_tokens":4' in content
         assert '"reasoning_tokens":3' in content
         assert "MUST_NOT_PERSIST" not in content
+
+    def test_metrics_only_drops_unknown_string_fields(self, tmp_path: Path) -> None:
+        log_path = tmp_path / "trace.jsonl"
+        install_test_config(
+            tmp_path,
+            {
+                "debug": {"log_path": str(log_path)},
+                "trace": {"record_payload": "metrics_only"},
+            },
+        )
+        auto_register_trace_file_hook()
+        emit_trace(
+            {
+                "type": "custom.metric",
+                "unknown_secret": "MUST_NEVER_PERSIST",
+                "unknown_numeric_identifier": 123456789,
+                "duration_ms": 7,
+            }
+        )
+        actual_path = get_actual_trace_file()
+        shutdown_trace_writer()
+
+        assert actual_path is not None
+        content = actual_path.read_text(encoding="utf-8")
+        assert "MUST_NEVER_PERSIST" not in content
+        assert "123456789" not in content
+        assert '"duration_ms":7' in content
         actual_path.unlink(missing_ok=True)

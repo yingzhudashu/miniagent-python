@@ -38,6 +38,7 @@ import math
 import os
 import re
 import tempfile
+import zlib
 from collections import defaultdict
 from collections.abc import Iterable, Iterator
 from datetime import datetime, timedelta, timezone
@@ -61,6 +62,22 @@ from miniagent.infrastructure.trace_events import (
 _logger = get_logger(__name__)
 
 _TRACE_FILE_RE = re.compile(r"^trace-(\d{4}-\d{2}-\d{2})(?:-pid\d+)?\.jsonl$")
+_MAX_TOOL_GROUPS = 1024
+_MAX_ERROR_GROUPS = 1024
+_MAX_PHASE_GROUPS = 128
+_MAX_LAYER_GROUPS = 128
+_MAX_SPAN_GROUPS = 128
+
+
+def _bounded_group_key(
+    mapping: dict[str, Any],
+    key: str,
+    limit: int,
+) -> str:
+    """Bound adversarial group cardinality while retaining aggregate totals."""
+    if key in mapping or len(mapping) < limit:
+        return key
+    return "__other__"
 
 
 def get_trace_output_dir() -> Path:
@@ -249,6 +266,12 @@ class _TraceStatsAccumulator:
     def __init__(self) -> None:
         self.total_events = 0
         self.sessions: set[str] = set()
+        self._session_sample_limit = max(
+            1, int(get_config("trace.stats_max_session_samples", 1000))
+        )
+        self._session_bitmap: bytearray | None = None
+        self._session_bitmap_bits = 1_048_576
+        self._sessions_truncated = False
         self.tool_stats: dict[str, dict[str, Any]] = defaultdict(
             lambda: {"count": 0, "total_ms": 0, "success": 0, "fail": 0}
         )
@@ -267,6 +290,14 @@ class _TraceStatsAccumulator:
         self.total_tool_schema_chars = 0
         self.size_measurement_count = 0
         self.llm_durations: list[float] = []
+        self._latency_sample_limit = max(
+            1, int(get_config("trace.stats_max_latency_samples", 100_000))
+        )
+        self._phase_latency_sample_limit = max(
+            1,
+            self._latency_sample_limit // _MAX_PHASE_GROUPS,
+        )
+        self._llm_duration_seen = 0
         self.phase_stats: dict[str, dict[str, Any]] = defaultdict(
             lambda: {
                 "request_count": 0,
@@ -301,13 +332,74 @@ class _TraceStatsAccumulator:
         self.embedding_cache_hit_count = 0
         self.embedding_api_call_count = 0
         self.embedding_total_api_latency = 0
+        self.resource_sample_count = 0
+        self.resource_rss_peak = 0
+        self.resource_rss_min: int | None = None
+        self.resource_cpu_first: float | None = None
+        self.resource_cpu_last: float | None = None
+        self.resource_thread_peak = 0
+        self.resource_python_traced_peak = 0
+        self.span_stats: dict[str, dict[str, float | int]] = defaultdict(
+            lambda: {"count": 0, "total_ms": 0.0, "cpu_ms": 0.0, "fail": 0}
+        )
+
+    def _add_session(self, session_key: str) -> None:
+        session_key = session_key[:256]
+        if session_key in self.sessions:
+            return
+        if len(self.sessions) < self._session_sample_limit:
+            self.sessions.add(session_key)
+            if self._session_bitmap is not None:
+                self._bitmap_add(session_key)
+            return
+        self._sessions_truncated = True
+        if self._session_bitmap is None:
+            self._session_bitmap = bytearray(self._session_bitmap_bits // 8)
+            for existing in self.sessions:
+                self._bitmap_add(existing)
+        self._bitmap_add(session_key)
+
+    def _bitmap_add(self, session_key: str) -> None:
+        bitmap = self._session_bitmap
+        if bitmap is None:
+            return
+        slot = zlib.crc32(session_key.encode("utf-8")) % self._session_bitmap_bits
+        bitmap[slot // 8] |= 1 << (slot % 8)
+
+    def session_count(self) -> int:
+        bitmap = self._session_bitmap
+        if bitmap is None:
+            return len(self.sessions)
+        set_bits = sum(byte.bit_count() for byte in bitmap)
+        zero = self._session_bitmap_bits - set_bits
+        if zero <= 0:
+            return self._session_bitmap_bits
+        return max(len(self.sessions), round(-self._session_bitmap_bits * math.log(zero / self._session_bitmap_bits)))
+
+    def _bounded_latency_add(
+        self,
+        target: list[float],
+        value: float,
+        *,
+        seen: int,
+        limit: int | None = None,
+    ) -> None:
+        limit = self._latency_sample_limit if limit is None else limit
+        if len(target) < limit:
+            target.append(value)
+            return
+        # Deterministic Algorithm-R style replacement keeps reports stable in
+        # tests while bounding memory for very large shards.
+        candidate = ((seen * 1_103_515_245 + 12_345) & 0x7FFFFFFF) % seen
+        if candidate < limit:
+            target[candidate] = value
 
     def add(self, event: dict[str, Any]) -> None:
         """Consume one already-parsed trace event."""
         self.total_events += 1
         session_key = event.get("session_key")
         if isinstance(session_key, str) and session_key:
-            self.sessions.add(session_key)
+            self._add_session(session_key)
 
         event_type = event.get("type", "")
         if event_type == EVENT_TOOL_END:
@@ -326,28 +418,33 @@ class _TraceStatsAccumulator:
             self.embedding_cache_hit_count += 1
         elif event_type == EVENT_EMBEDDING_API_CALL:
             self.embedding_api_call_count += 1
-            self.embedding_total_api_latency += event.get("duration_ms", 0)
+            self.embedding_total_api_latency += _numeric_metric(event.get("duration_ms")) or 0
+        elif event_type == "perf.resource_sample":
+            self._add_resource_sample(event)
+        elif event_type in {"agent.phase_end", "agent.run_end"}:
+            self._add_span_end(event)
 
     def _add_tool_end(self, event: dict[str, Any]) -> None:
-        tool_name = event.get("tool", "")
+        tool_name = str(event.get("tool") or "unknown")[:256]
+        tool_name = _bounded_group_key(self.tool_stats, tool_name, _MAX_TOOL_GROUPS)
         stats = self.tool_stats[tool_name]
         stats["count"] += 1
-        stats["total_ms"] += event.get("duration_ms", 0)
+        stats["total_ms"] += _numeric_metric(event.get("duration_ms")) or 0
         if event.get("success", True):
             stats["success"] += 1
         else:
             stats["fail"] += 1
 
     def _add_llm_request(self, event: dict[str, Any]) -> None:
-        phase = event.get("phase") or "unknown"
-        message_count = event.get("message_count", 0)
-        tool_count = event.get("tool_count", 0)
-        message_chars = event.get("message_chars", 0)
-        tool_schema_chars = event.get("tool_schema_chars", 0)
-        if not isinstance(message_chars, int | float) or isinstance(message_chars, bool):
-            message_chars = 0
-        if not isinstance(tool_schema_chars, int | float) or isinstance(tool_schema_chars, bool):
-            tool_schema_chars = 0
+        phase = str(event.get("phase") or "unknown")[:128]
+        phase = _bounded_group_key(self.phase_stats, phase, _MAX_PHASE_GROUPS)
+        message_count = int(max(0.0, _numeric_metric(event.get("message_count")) or 0))
+        tool_count = int(max(0.0, _numeric_metric(event.get("tool_count")) or 0))
+        message_chars = int(max(0.0, _numeric_metric(event.get("message_chars")) or 0))
+        tool_schema_chars = int(max(
+            0.0,
+            _numeric_metric(event.get("tool_schema_chars")) or 0,
+        ))
         has_size_measurement = "message_chars" in event or "tool_schema_chars" in event
         self.llm_request_count += 1
         self.total_messages += message_count
@@ -365,7 +462,8 @@ class _TraceStatsAccumulator:
             self.phase_stats[phase]["size_measurement_count"] += 1
 
     def _add_llm_response(self, event: dict[str, Any]) -> None:
-        phase = event.get("phase") or "unknown"
+        phase = str(event.get("phase") or "unknown")[:128]
+        phase = _bounded_group_key(self.phase_stats, phase, _MAX_PHASE_GROUPS)
         phase_stats = self.phase_stats[phase]
         self.llm_response_count += 1
         phase_stats["response_count"] += 1
@@ -381,8 +479,20 @@ class _TraceStatsAccumulator:
 
         duration = _numeric_metric(event.get("duration_ms"))
         if duration is not None and duration >= 0:
-            self.llm_durations.append(duration)
-            phase_stats["durations_ms"].append(duration)
+            self._llm_duration_seen += 1
+            self._bounded_latency_add(
+                self.llm_durations,
+                duration,
+                seen=self._llm_duration_seen,
+            )
+            phase_seen = int(phase_stats.get("duration_seen", 0)) + 1
+            phase_stats["duration_seen"] = phase_seen
+            self._bounded_latency_add(
+                phase_stats["durations_ms"],
+                duration,
+                seen=phase_seen,
+                limit=self._phase_latency_sample_limit,
+            )
 
         usage = event.get("usage", {})
         if not isinstance(usage, dict):
@@ -409,34 +519,111 @@ class _TraceStatsAccumulator:
         phase_stats["reasoning_tokens"] += reasoning
 
     def _add_error(self, event: dict[str, Any]) -> None:
-        error_type = event.get("error_type", "Unknown")
+        error_type = str(event.get("error_type") or "Unknown")[:256]
+        error_type = _bounded_group_key(
+            self.error_counts,
+            error_type,
+            _MAX_ERROR_GROUPS,
+        )
         stats = self.error_counts[error_type]
         stats["count"] += 1
         tool_name = event.get("tool_name") or event.get("tool", "")
-        if tool_name:
-            stats["tools"].add(tool_name)
+        if tool_name and len(stats["tools"]) < 64:
+            stats["tools"].add(str(tool_name)[:256])
         if event.get("is_user_error", False):
             stats["is_user_error"] = True
 
     def _add_memory_read(self, event: dict[str, Any]) -> None:
         self.memory_read_count += 1
-        self.memory_total_duration += event.get("duration_ms", 0)
-        self.memory_layer_counts[event.get("layer", "unknown")] += 1
-        self.memory_total_chars += event.get("chars_loaded", 0)
+        self.memory_total_duration += _numeric_metric(event.get("duration_ms")) or 0
+        layer = str(event.get("layer") or "unknown")[:128]
+        layer = _bounded_group_key(
+            self.memory_layer_counts,
+            layer,
+            _MAX_LAYER_GROUPS,
+        )
+        self.memory_layer_counts[layer] += 1
+        self.memory_total_chars += _numeric_metric(event.get("chars_loaded")) or 0
         if event.get("cache_hit", False):
             self.memory_cache_hits += 1
 
     def _add_context_compress(self, event: dict[str, Any]) -> None:
         self.context_compress_count += 1
-        self.context_total_duration += event.get("duration_ms", 0)
-        self.context_total_tokens_before += event.get(
-            "before_tokens",
-            event.get("tokens_before", 0),
+        self.context_total_duration += _numeric_metric(event.get("duration_ms")) or 0
+        self.context_total_tokens_before += _numeric_metric(
+            event.get("before_tokens", event.get("tokens_before", 0))
+        ) or 0
+        self.context_total_tokens_after += _numeric_metric(
+            event.get("after_tokens", event.get("tokens_after", 0))
+        ) or 0
+
+    def _add_resource_sample(self, event: dict[str, Any]) -> None:
+        self.resource_sample_count += 1
+        rss = _numeric_metric(event.get("rss_bytes"))
+        if rss is not None and rss >= 0:
+            rss_int = int(rss)
+            self.resource_rss_peak = max(self.resource_rss_peak, rss_int)
+            self.resource_rss_min = (
+                rss_int if self.resource_rss_min is None else min(self.resource_rss_min, rss_int)
+            )
+        cpu = _numeric_metric(event.get("process_cpu_ms"))
+        if cpu is not None:
+            if self.resource_cpu_first is None:
+                self.resource_cpu_first = cpu
+            self.resource_cpu_last = cpu
+        threads = _numeric_metric(event.get("thread_count"))
+        if threads is not None:
+            self.resource_thread_peak = max(self.resource_thread_peak, int(threads))
+        python_peak = _numeric_metric(event.get("python_traced_peak_bytes"))
+        if python_peak is not None and python_peak >= 0:
+            self.resource_python_traced_peak = max(
+                self.resource_python_traced_peak,
+                int(python_peak),
+            )
+
+    def resource_report(self) -> dict[str, Any]:
+        result: dict[str, Any] = {"sample_count": self.resource_sample_count}
+        if self.resource_rss_peak:
+            result["rss_peak_bytes"] = self.resource_rss_peak
+            result["rss_min_bytes"] = self.resource_rss_min or 0
+            result["rss_growth_bytes"] = self.resource_rss_peak - (self.resource_rss_min or 0)
+        if self.resource_cpu_first is not None and self.resource_cpu_last is not None:
+            result["process_cpu_delta_ms"] = round(
+                max(0.0, self.resource_cpu_last - self.resource_cpu_first), 1
+            )
+        if self.resource_thread_peak:
+            result["thread_peak"] = self.resource_thread_peak
+        if self.resource_python_traced_peak:
+            result["python_traced_peak_bytes"] = self.resource_python_traced_peak
+        return result
+
+    def _add_span_end(self, event: dict[str, Any]) -> None:
+        name = "agent.run" if event.get("type") == "agent.run_end" else str(
+            event.get("phase") or "unknown"
         )
-        self.context_total_tokens_after += event.get(
-            "after_tokens",
-            event.get("tokens_after", 0),
+        name = _bounded_group_key(
+            self.span_stats,
+            name[:128],
+            _MAX_SPAN_GROUPS,
         )
+        stats = self.span_stats[name]
+        stats["count"] += 1
+        stats["total_ms"] += _numeric_metric(event.get("duration_ms")) or 0
+        stats["cpu_ms"] += _numeric_metric(event.get("cpu_ms")) or 0
+        if event.get("success") is False:
+            stats["fail"] += 1
+
+    def span_report(self) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for name, stats in sorted(self.span_stats.items()):
+            count = int(stats["count"])
+            result[name] = {
+                "count": count,
+                "avg_duration_ms": round(float(stats["total_ms"]) / count, 1) if count else 0,
+                "avg_cpu_ms": round(float(stats["cpu_ms"]) / count, 1) if count else 0,
+                "failure_count": int(stats["fail"]),
+            }
+        return result
 
     def tool_report(self) -> dict[str, Any]:
         """Finalize tool counters using the existing public report contract."""
@@ -628,6 +815,9 @@ class _TraceStatsAccumulator:
         )
         if self.llm_durations:
             result.update(_latency_summary(self.llm_durations))
+        result["latency_observation_count"] = self._llm_duration_seen
+        result["latency_sample_count"] = len(self.llm_durations)
+        result["latency_sampled"] = self._llm_duration_seen > len(self.llm_durations)
         return result
 
     def error_report(self) -> list[dict[str, Any]]:
@@ -725,14 +915,17 @@ def aggregate_trace_stats(
     stats = _aggregate_trace_events(events)
     return {
         "total_events": stats.total_events,
-        "sessions": len(stats.sessions),
+        "sessions": stats.session_count(),
         "session_list": sorted(stats.sessions),
+        "session_list_truncated": stats._sessions_truncated,
         "llm": stats.llm_report(),
         "tools": stats.tool_report(),
         "errors": stats.error_report(),
         "memory": stats.memory_report(),
         "context": stats.context_report(),
         "embedding": stats.embedding_report(),
+        "resources": stats.resource_report(),
+        "spans": stats.span_report(),
     }
 
 
@@ -834,8 +1027,9 @@ def generate_daily_report(date: str | None = None) -> dict[str, Any]:
     report = {
         "date": date,
         "total_events": stats.total_events,
-        "sessions": len(stats.sessions),
+        "sessions": stats.session_count(),
         "session_list": sorted(stats.sessions),
+        "session_list_truncated": stats._sessions_truncated,
     }
 
     # 各维度统计
@@ -845,6 +1039,8 @@ def generate_daily_report(date: str | None = None) -> dict[str, Any]:
     report["memory"] = stats.memory_report()
     report["context"] = stats.context_report()
     report["embedding"] = stats.embedding_report()
+    report["resources"] = stats.resource_report()
+    report["spans"] = stats.span_report()
 
     # 摘要文本
     llm_count = report["llm"].get("request_count", 0)
@@ -856,7 +1052,7 @@ def generate_daily_report(date: str | None = None) -> dict[str, Any]:
     report["summary"] = (
         f"LLM调用 {llm_count} 次，工具调用 {tool_count} 次，"
         f"记忆读取 {memory_count} 次，上下文压缩 {context_count} 次，"
-        f"错误 {error_count} 次，会话 {len(stats.sessions)} 个"
+        f"错误 {error_count} 次，会话 {stats.session_count()} 个"
     )
 
     return report
@@ -921,7 +1117,7 @@ def cleanup_old_traces(retention_days: int = 7) -> int:
     return deleted
 
 
-def remove_session_from_trace_files(session_key: str) -> int:
+def _remove_session_from_trace_files(session_key: str, *, completed: bool) -> int:
     """从 trace 目录下所有 jsonl 分片中移除指定 session 的事件行。
 
     Args:
@@ -933,9 +1129,11 @@ def remove_session_from_trace_files(session_key: str) -> int:
     session_key = (session_key or "").strip()
     if not session_key:
         return 0
-    from miniagent.infrastructure.tracing import exclude_trace_session
+    from miniagent.infrastructure.tracing import exclude_trace_session, finalize_trace_session
 
-    active_file, removed_total = exclude_trace_session(session_key)
+    active_file, removed_total = (
+        finalize_trace_session(session_key) if completed else exclude_trace_session(session_key)
+    )
     active_resolved = active_file.resolve() if active_file is not None else None
 
     trace_dir = get_trace_output_dir()
@@ -952,6 +1150,16 @@ def remove_session_from_trace_files(session_key: str) -> int:
     if removed_total > 0:
         _logger.debug("已从 trace 文件移除 session %s 的 %d 条事件", session_key, removed_total)
     return removed_total
+
+
+def remove_session_from_trace_files(session_key: str) -> int:
+    """Remove a session and reject future events for the same identifier."""
+    return _remove_session_from_trace_files(session_key, completed=False)
+
+
+def remove_completed_session_from_trace_files(session_key: str) -> int:
+    """Remove a completed ephemeral session without retaining a tombstone."""
+    return _remove_session_from_trace_files(session_key, completed=True)
 
 
 def _stream_remove_session_from_trace_file(
@@ -1022,4 +1230,5 @@ __all__ = [
     "save_report",
     "cleanup_old_traces",
     "remove_session_from_trace_files",
+    "remove_completed_session_from_trace_files",
 ]

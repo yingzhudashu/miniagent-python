@@ -229,7 +229,16 @@ class DreamScheduler:
 
         task = loop.create_task(_job())
         self._pending_tasks.add(task)
-        task.add_done_callback(self._pending_tasks.discard)
+
+        def _done(completed: asyncio.Task[Any]) -> None:
+            self._pending_tasks.discard(completed)
+            if completed.cancelled():
+                return
+            error = completed.exception()
+            if error is not None:
+                _logger.error("记忆维护任务异常: %s", error, exc_info=error)
+
+        task.add_done_callback(_done)
 
     async def shutdown(self) -> None:
         """Cancel and await all maintenance tasks owned by this scheduler."""

@@ -39,10 +39,10 @@ async def _remove_path_async(path: str, *, is_dir: bool = False) -> None:
 async def _remove_session_trace_events(session_key: str) -> int:
     """从全部 trace jsonl 分片中移除指定 session 的事件行。"""
     try:
-        from miniagent.infrastructure.trace_stats import remove_session_from_trace_files
+        from miniagent.infrastructure.trace_stats import remove_completed_session_from_trace_files
     except ImportError:
         return 0
-    return await asyncio.to_thread(remove_session_from_trace_files, session_key)
+    return await asyncio.to_thread(remove_completed_session_from_trace_files, session_key)
 
 
 async def cleanup_background_session_artifacts(

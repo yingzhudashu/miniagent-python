@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import threading
 from collections import OrderedDict
 from io import StringIO
 from typing import Any
@@ -31,12 +32,16 @@ _HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.+)$")
 _FENCE_LINE = re.compile(r"^(`{3,}|~{3,})(.*)$")
 
 # ── 性能优化：模块级共享 Console ──
-_shared_console_cache: dict[int, Any] = {}  # width -> Console
+_shared_console_cache: OrderedDict[int, Any] = OrderedDict()  # width -> Console
 _shared_console_original_file: dict[int, Any] = {}  # width -> original file
+_CONSOLE_CACHE_MAX_SIZE = 16
 
 # ── 性能优化：渲染结果缓存 ──
 _RENDER_CACHE_MAX_SIZE = CLI_RENDER_CACHE_MAX_SIZE
 _render_cache: OrderedDict[tuple[str, int, str], str] = OrderedDict()
+_RENDER_CACHE_MAX_BYTES = 8 * 1024 * 1024
+_render_cache_bytes = 0
+_RENDER_LOCK = threading.RLock()
 
 
 def _get_cached_console(width: int) -> Any | None:
@@ -54,16 +59,22 @@ def _get_cached_console(width: int) -> Any | None:
         return None
 
     w = max(20, int(width))
-    if w not in _shared_console_cache:
-        console = Console(
-            width=w,
-            force_terminal=True,
-            color_system="standard",
-            highlight=False,
-        )
-        _shared_console_cache[w] = console
-        _shared_console_original_file[w] = console.file
-    return _shared_console_cache[w]
+    with _RENDER_LOCK:
+        if w not in _shared_console_cache:
+            console = Console(
+                width=w,
+                force_terminal=True,
+                color_system="standard",
+                highlight=False,
+            )
+            _shared_console_cache[w] = console
+            _shared_console_original_file[w] = console.file
+            while len(_shared_console_cache) > _CONSOLE_CACHE_MAX_SIZE:
+                evicted_width, _console = _shared_console_cache.popitem(last=False)
+                _shared_console_original_file.pop(evicted_width, None)
+        else:
+            _shared_console_cache.move_to_end(w)
+        return _shared_console_cache[w]
 
 
 def _get_render_cache_key(markdown: str, width: int, justify: str) -> tuple[str, int, str]:
@@ -74,17 +85,28 @@ def _get_render_cache_key(markdown: str, width: int, justify: str) -> tuple[str,
 
 def _get_cached_render(cache_key: tuple[str, int, str]) -> str | None:
     """从 LRU 缓存获取渲染结果。"""
-    if cache_key in _render_cache:
-        _render_cache.move_to_end(cache_key)
-        return _render_cache[cache_key]
-    return None
+    with _RENDER_LOCK:
+        if cache_key in _render_cache:
+            _render_cache.move_to_end(cache_key)
+            return _render_cache[cache_key]
+        return None
 
 
 def _cache_render(cache_key: tuple[str, int, str], result: str) -> None:
     """写入 LRU 渲染缓存。"""
-    _render_cache[cache_key] = result
-    while len(_render_cache) > _RENDER_CACHE_MAX_SIZE:
-        _render_cache.popitem(last=False)
+    global _render_cache_bytes
+    with _RENDER_LOCK:
+        old = _render_cache.pop(cache_key, None)
+        if old is not None:
+            _render_cache_bytes -= len(old.encode("utf-8", errors="replace"))
+        _render_cache[cache_key] = result
+        _render_cache_bytes += len(result.encode("utf-8", errors="replace"))
+        while (
+            len(_render_cache) > _RENDER_CACHE_MAX_SIZE
+            or _render_cache_bytes > _RENDER_CACHE_MAX_BYTES
+        ):
+            _key, evicted = _render_cache.popitem(last=False)
+            _render_cache_bytes -= len(evicted.encode("utf-8", errors="replace"))
 
 
 def _compute_fence_mask(lines: list[str]) -> list[bool]:
@@ -184,7 +206,8 @@ def render_markdown_to_ansi(markdown: str, *, width: int, justify: str = "left")
     if shared_console is None:
         return None
 
-    original_file = _shared_console_original_file.get(w)
+    with _RENDER_LOCK:
+        original_file = _shared_console_original_file.get(w)
 
     i = 0
     while i < len(lines):
@@ -207,11 +230,12 @@ def render_markdown_to_ansi(markdown: str, *, width: int, justify: str = "left")
         block = "\n".join(block_lines)
         if block.strip():
             buf = StringIO()
-            shared_console.file = buf
-            try:
-                shared_console.print(Markdown(block, justify=justify))
-            finally:
-                shared_console.file = original_file
+            with _RENDER_LOCK:
+                shared_console.file = buf
+                try:
+                    shared_console.print(Markdown(block, justify=justify))
+                finally:
+                    shared_console.file = original_file
             output_parts.append(buf.getvalue())
 
     result = "".join(output_parts)

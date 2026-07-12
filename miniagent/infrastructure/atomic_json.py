@@ -1,4 +1,4 @@
-"""Same-volume atomic JSON persistence helper."""
+"""Same-volume atomic text and JSON persistence helpers."""
 
 from __future__ import annotations
 
@@ -9,6 +9,39 @@ from pathlib import Path
 from typing import Any
 
 
+def atomic_write_text(
+    path: str | os.PathLike[str],
+    content: str,
+    *,
+    encoding: str = "utf-8",
+) -> int:
+    """Atomically publish text and return the number of encoded bytes."""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding=encoding,
+            dir=target.parent,
+            prefix=f".{target.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temp_path = Path(handle.name)
+            handle.write(content)
+            handle.flush()
+        os.replace(temp_path, target)
+        temp_path = None
+        return target.stat().st_size
+    finally:
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
 def atomic_dump_json(
     path: str | os.PathLike[str],
     payload: Any,
@@ -17,6 +50,7 @@ def atomic_dump_json(
     indent: int | None = None,
     separators: tuple[str, str] | None = None,
     cls: type[json.JSONEncoder] | None = None,
+    sort_keys: bool = False,
 ) -> None:
     """Write a complete sibling file, then atomically publish it as ``path``.
 
@@ -43,6 +77,7 @@ def atomic_dump_json(
                 indent=indent,
                 separators=separators,
                 cls=cls,
+                sort_keys=sort_keys,
             )
             handle.flush()
         os.replace(temp_path, target)
@@ -55,4 +90,4 @@ def atomic_dump_json(
                 pass
 
 
-__all__ = ["atomic_dump_json"]
+__all__ = ["atomic_dump_json", "atomic_write_text"]

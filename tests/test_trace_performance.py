@@ -14,6 +14,7 @@ import tempfile
 import threading
 import time
 import tracemalloc
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -130,6 +131,37 @@ def test_daily_report_streams_large_trace_with_bounded_peak_memory(
     assert report["total_events"] == 20_000
     assert report["sessions"] == 10
     assert peak < 4 * 1024 * 1024
+
+
+def test_aggregator_bounds_high_cardinality_groups_and_malformed_metrics() -> None:
+    def events():
+        for index in range(5_000):
+            yield {
+                "type": "llm.request",
+                "phase": {"malformed": index} if index == 0 else f"phase-{index}",
+                "session_key": f"session-{index}",
+                "message_count": "not-a-number",
+                "tool_count": float("nan"),
+            }
+            yield {
+                "type": "tool.end",
+                "tool": f"tool-{index}",
+                "duration_ms": "bad",
+                "success": True,
+            }
+            yield {
+                "type": "error.collect",
+                "error_type": {"bad": index} if index == 0 else f"error-{index}",
+            }
+
+    report = trace_stats.aggregate_trace_stats(events())
+
+    assert report["total_events"] == 15_000
+    assert len(report["session_list"]) == 1_000
+    assert report["session_list_truncated"] is True
+    assert len(report["llm"]["by_phase"]) <= 129
+    assert len(report["tools"]["tools"]) <= 1_025
+    assert len(report["errors"]) <= 1_025
 
 
 def test_async_writer_non_blocking():
@@ -302,6 +334,63 @@ def test_writer_can_restart_without_leaking_old_state(tmp_path: Path) -> None:
     assert [line for line in second_path.read_text(encoding="utf-8").splitlines()] == [
         '{"type":"second"}'
     ]
+
+
+def test_writer_rotates_utc_daily_shards(tmp_path: Path) -> None:
+    writer = AsyncTraceWriter(batch_interval=0.001, batch_size=20)
+    writer.start(tmp_path / "trace-2026-07-11.jsonl")
+    writer.emit({"type": "day_one", "ts": "2026-07-11T23:59:59+00:00"})
+    writer.emit({"type": "day_two", "ts": "2026-07-12T00:00:01+00:00"})
+    writer.shutdown()
+
+    first = tmp_path / f"trace-2026-07-11-pid{os.getpid()}.jsonl"
+    second = tmp_path / f"trace-2026-07-12-pid{os.getpid()}.jsonl"
+    assert "day_one" in first.read_text(encoding="utf-8")
+    assert "day_two" in second.read_text(encoding="utf-8")
+    assert writer.stats()["rotation_count"] == 1
+
+
+def test_writer_rotates_custom_path_without_date(tmp_path: Path) -> None:
+    day_one = datetime.now(timezone.utc).date()
+    day_two = day_one + timedelta(days=1)
+    writer = AsyncTraceWriter(batch_interval=0.001, batch_size=20)
+    writer.start(tmp_path / "custom.jsonl")
+    writer.emit({"type": "day_one", "ts": f"{day_one.isoformat()}T23:59:59+00:00"})
+    writer.emit({"type": "day_two", "ts": f"{day_two.isoformat()}T00:00:01+00:00"})
+    writer.shutdown()
+
+    first = tmp_path / f"custom-pid{os.getpid()}.jsonl"
+    second = tmp_path / f"custom-{day_two.isoformat()}-pid{os.getpid()}.jsonl"
+    assert "day_one" in first.read_text(encoding="utf-8")
+    assert "day_two" in second.read_text(encoding="utf-8")
+
+
+def test_stopped_writer_can_start_a_fresh_lifecycle(tmp_path: Path) -> None:
+    writer = AsyncTraceWriter(batch_interval=0.001, batch_size=20)
+    writer.start(tmp_path / "first.jsonl")
+    writer.emit({"type": "first"})
+    writer.shutdown()
+
+    writer.start(tmp_path / "second.jsonl")
+    writer.emit({"type": "second"})
+    writer.shutdown()
+
+    assert writer.file_path is not None
+    assert writer.file_path.read_text(encoding="utf-8").strip() == '{"type":"second"}'
+
+
+def test_completed_session_cleanup_does_not_retain_tombstone(tmp_path: Path) -> None:
+    writer = AsyncTraceWriter(batch_interval=0.001, batch_size=20)
+    writer.start(tmp_path / "trace.jsonl")
+    writer.emit({"type": "first", "session_key": "completed"})
+    assert writer.exclude_session("completed", reject_future=False) == 1
+    writer.emit({"type": "later", "session_key": "completed"})
+    writer.shutdown()
+
+    assert writer.stats()["excluded_session_count"] == 0
+    assert writer.file_path is not None
+    records = [json.loads(line) for line in writer.file_path.read_text(encoding="utf-8").splitlines()]
+    assert [record["type"] for record in records] == ["later"]
 
 
 def test_active_writer_redacts_existing_queued_and_future_session_events(

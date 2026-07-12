@@ -19,6 +19,7 @@ from __future__ import annotations
 import collections
 import json
 import re
+import threading
 import time
 from hashlib import md5
 from typing import TYPE_CHECKING, Any
@@ -88,6 +89,7 @@ def estimate_tokens(text: str | None) -> int:
 _TOKEN_ESTIMATE_CACHE: collections.OrderedDict[str, tuple[int, float]] = collections.OrderedDict()
 _CACHE_MAX_SIZE = 1000
 _CACHE_TTL_SECONDS = 1800  # 30分钟TTL
+_TOKEN_ESTIMATE_CACHE_LOCK = threading.RLock()
 
 
 def estimate_tokens_cached(text: str | None) -> int:
@@ -108,31 +110,28 @@ def estimate_tokens_cached(text: str | None) -> int:
         return 0
 
     # 生成缓存键（基于文本 hash）
-    cache_key = md5(text.encode()).hexdigest()[:12]
+    cache_key = md5(text.encode(), usedforsecurity=False).hexdigest()
 
     # 检查缓存（LRU + TTL）
-    if cache_key in _TOKEN_ESTIMATE_CACHE:
-        cached_tokens, timestamp = _TOKEN_ESTIMATE_CACHE[cache_key]
-
-        # 检查TTL
-        now = time.time()
-        if now - timestamp < _CACHE_TTL_SECONDS:
-            # LRU: 移到最后（最近使用）
-            _TOKEN_ESTIMATE_CACHE.move_to_end(cache_key)
-            return cached_tokens
-        # TTL过期，删除
-        _TOKEN_ESTIMATE_CACHE.pop(cache_key)
+    with _TOKEN_ESTIMATE_CACHE_LOCK:
+        cached = _TOKEN_ESTIMATE_CACHE.get(cache_key)
+        if cached is not None:
+            cached_tokens, timestamp = cached
+            now = time.monotonic()
+            if now - timestamp < _CACHE_TTL_SECONDS:
+                _TOKEN_ESTIMATE_CACHE.move_to_end(cache_key)
+                return cached_tokens
+            _TOKEN_ESTIMATE_CACHE.pop(cache_key, None)
 
     result = estimate_token_estimate(text).tokens
 
     # 缓存结果
-    now = time.time()
-    _TOKEN_ESTIMATE_CACHE[cache_key] = (result, now)
-    _TOKEN_ESTIMATE_CACHE.move_to_end(cache_key)  # LRU
-
-    # 驱逐旧条目（LRU）
-    while len(_TOKEN_ESTIMATE_CACHE) > _CACHE_MAX_SIZE:
-        _TOKEN_ESTIMATE_CACHE.popitem(last=False)
+    now = time.monotonic()
+    with _TOKEN_ESTIMATE_CACHE_LOCK:
+        _TOKEN_ESTIMATE_CACHE[cache_key] = (result, now)
+        _TOKEN_ESTIMATE_CACHE.move_to_end(cache_key)
+        while len(_TOKEN_ESTIMATE_CACHE) > _CACHE_MAX_SIZE:
+            _TOKEN_ESTIMATE_CACHE.popitem(last=False)
 
     return result
 
@@ -244,7 +243,6 @@ class DefaultContextManager(ContextManagerProtocol):
         """运行时替换工具 schema 列表（用于分步执行时按步骤切换可见工具）。"""
         self._tools = tools or []
         self._tool_tokens_dirty = True
-        self._recalculate_tokens()
 
     def get_state(self) -> ContextState:
         """获取当前上下文状态

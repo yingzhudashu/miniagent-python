@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import json
+import re
+import threading
+import weakref
+from collections import OrderedDict
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
@@ -71,6 +75,122 @@ class LLMTransportError(RuntimeError):
         self.status_code = status_code
 
 
+_CAPABILITY_LOCK = threading.Lock()
+_CLIENT_UNSUPPORTED_PARAMS: weakref.WeakKeyDictionary[
+    Any,
+    OrderedDict[tuple[str, str, str], set[str]],
+] = weakref.WeakKeyDictionary()
+_FALLBACK_UNSUPPORTED_PARAMS: OrderedDict[tuple[int, str, str, str], set[str]] = OrderedDict()
+_FALLBACK_CAPABILITY_MAX = 128
+_CLIENT_CAPABILITY_MAX = 64
+
+
+def _client_endpoint(client: Any) -> str:
+    endpoint = getattr(client, "base_url", "")
+    return str(endpoint or "")[:512]
+
+
+def _unsupported_parameter_names(error: Exception) -> set[str]:
+    """Extract only safely recognized unsupported sampling parameter names."""
+    status = getattr(error, "status_code", None)
+    if status not in (400, "400"):
+        return set()
+    message = str(error).lower()
+    names: set[str] = set()
+    for name in ("temperature", "top_p"):
+        patterns = (
+            rf"unsupported\s+(?:request\s+)?parameters?\s*[:=]?\s*['\"]?{name}",
+            rf"unknown\s+(?:request\s+)?parameters?\s*[:=]?\s*['\"]?{name}",
+            rf"unrecognized\s+(?:request\s+)?(?:argument|parameter).*['\"]?{name}",
+            rf"{name}['\"]?\s+(?:parameter\s+)?(?:(?:is|are)\s+)?not\s+supported",
+            rf"does\s+not\s+support[^.\n]{{0,40}}{name}",
+            rf"不支持[^。\n]{{0,20}}{name}|{name}[^。\n]{{0,20}}不支持",
+        )
+        if any(re.search(pattern, message) for pattern in patterns):
+            names.add(name)
+    return names
+
+
+def _capability_bucket(
+    client: Any,
+    *,
+    create: bool,
+) -> OrderedDict[tuple[str, str, str], set[str]] | None:
+    try:
+        bucket = _CLIENT_UNSUPPORTED_PARAMS.get(client)
+        if bucket is None and create:
+            bucket = OrderedDict()
+            _CLIENT_UNSUPPORTED_PARAMS[client] = bucket
+        return bucket
+    except TypeError:
+        return None
+
+
+def _learn_unsupported_params(
+    client: Any,
+    params: dict[str, Any],
+    wire_api: WireAPI,
+    error: Exception,
+) -> None:
+    names = _unsupported_parameter_names(error) & params.keys()
+    if not names:
+        return
+    model = str(params.get("model") or "")
+    endpoint = _client_endpoint(client)
+    with _CAPABILITY_LOCK:
+        bucket = _capability_bucket(client, create=True)
+        if bucket is not None:
+            client_key = (endpoint, wire_api, model)
+            bucket.setdefault(client_key, set()).update(names)
+            bucket.move_to_end(client_key)
+            while len(bucket) > _CLIENT_CAPABILITY_MAX:
+                bucket.popitem(last=False)
+            return
+        fallback_key = (id(client), endpoint, wire_api, model)
+        _FALLBACK_UNSUPPORTED_PARAMS.setdefault(fallback_key, set()).update(names)
+        _FALLBACK_UNSUPPORTED_PARAMS.move_to_end(fallback_key)
+        while len(_FALLBACK_UNSUPPORTED_PARAMS) > _FALLBACK_CAPABILITY_MAX:
+            _FALLBACK_UNSUPPORTED_PARAMS.popitem(last=False)
+
+
+def _apply_learned_capabilities(
+    client: Any,
+    params: dict[str, Any],
+    wire_api: WireAPI,
+) -> tuple[dict[str, Any], tuple[str, ...]]:
+    model = str(params.get("model") or "")
+    endpoint = _client_endpoint(client)
+    with _CAPABILITY_LOCK:
+        bucket = _capability_bucket(client, create=False)
+        if bucket is not None:
+            client_key = (endpoint, wire_api, model)
+            unsupported = set(bucket.get(client_key, set()))
+            if client_key in bucket:
+                bucket.move_to_end(client_key)
+        else:
+            fallback_key = (id(client), endpoint, wire_api, model)
+            unsupported = set(_FALLBACK_UNSUPPORTED_PARAMS.get(fallback_key, set()))
+            if fallback_key in _FALLBACK_UNSUPPORTED_PARAMS:
+                _FALLBACK_UNSUPPORTED_PARAMS.move_to_end(fallback_key)
+    removed = tuple(sorted(name for name in unsupported if name in params))
+    if not removed:
+        return params, ()
+    adjusted = dict(params)
+    for name in removed:
+        adjusted.pop(name, None)
+    from miniagent.infrastructure.tracing import emit_trace
+
+    emit_trace(
+        {
+            "type": "llm.capability_adjustment",
+            "model": model,
+            "wire_api": wire_api,
+            "retry_adjustments": list(removed),
+        }
+    )
+    return adjusted, removed
+
+
 def _wire_api(override: WireAPI | None) -> WireAPI:
     return override or get_default_model_config().wire_api
 
@@ -105,6 +225,8 @@ def classify_transport_error(error: Exception) -> LLMFailureInfo:
     except (TypeError, ValueError):
         status = None
     message = str(error).lower()
+    if _unsupported_parameter_names(error):
+        return LLMFailureInfo("unsupported_parameter", True, status)
     deterministic_markers = (
         "invalid api key",
         "incorrect api key",
@@ -181,10 +303,18 @@ def structured_retry_delay(next_attempt: int) -> float:
     return 0.2 if next_attempt == 2 else 0.5
 
 
-async def _await_with_gateway_errors(call: Any) -> Any:
+async def _await_with_gateway_errors(
+    call: Any,
+    *,
+    client: Any | None = None,
+    params: dict[str, Any] | None = None,
+    wire_api: WireAPI | None = None,
+) -> Any:
     try:
         return await call
     except Exception as exc:
+        if client is not None and params is not None and wire_api is not None:
+            _learn_unsupported_params(client, params, wire_api, exc)
         normalized = _normalize_gateway_error(exc)
         if normalized is not None:
             raise normalized from None
@@ -357,15 +487,19 @@ async def create_completion(
 ) -> LLMCompletion:
     """Create one normalized non-streaming completion."""
     selected = _wire_api(wire_api)
+    effective_params, _adjustments = _apply_learned_capabilities(client, params, selected)
     if selected == "chat_completions":
-        kwargs = _chat_params(params, stream=False)
+        kwargs = _chat_params(effective_params, stream=False)
         kwargs["messages"] = messages
         if tools:
             kwargs["tools"] = tools
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
         response = await _await_with_gateway_errors(
-            client.chat.completions.create(**kwargs)
+            client.chat.completions.create(**kwargs),
+            client=client,
+            params=effective_params,
+            wire_api=selected,
         )
         choice = response.choices[0] if response.choices else None
         message = choice.message if choice is not None else None
@@ -381,12 +515,17 @@ async def create_completion(
             finish_reason=getattr(choice, "finish_reason", None),
         )
 
-    kwargs = _responses_params(params, stream=False, json_mode=json_mode)
+    kwargs = _responses_params(effective_params, stream=False, json_mode=json_mode)
     kwargs["input"] = messages_to_responses_input(messages)
     response_tools = tools_to_responses(tools)
     if response_tools:
         kwargs["tools"] = response_tools
-    response = await _await_with_gateway_errors(client.responses.create(**kwargs))
+    response = await _await_with_gateway_errors(
+        client.responses.create(**kwargs),
+        client=client,
+        params=effective_params,
+        wire_api=selected,
+    )
     if isinstance(response, str):
         return LLMCompletion(content=response)
     output = _field(response, "output", []) or []
@@ -425,12 +564,18 @@ async def stream_completion(
 ) -> AsyncIterator[LLMStreamEvent]:
     """Yield normalized text, tool-call and usage events."""
     selected = _wire_api(wire_api)
+    effective_params, _adjustments = _apply_learned_capabilities(client, params, selected)
     if selected == "chat_completions":
-        kwargs = _chat_params(params, stream=True)
+        kwargs = _chat_params(effective_params, stream=True)
         kwargs["messages"] = messages
         if tools:
             kwargs["tools"] = tools
-        stream = await _await_with_gateway_errors(client.chat.completions.create(**kwargs))
+        stream = await _await_with_gateway_errors(
+            client.chat.completions.create(**kwargs),
+            client=client,
+            params=effective_params,
+            wire_api=selected,
+        )
         async for chunk in stream:
             usage = getattr(chunk, "usage", None)
             if usage is not None:
@@ -453,12 +598,17 @@ async def stream_completion(
         yield LLMStreamEvent(completed=True)
         return
 
-    kwargs = _responses_params(params, stream=True, json_mode=json_mode)
+    kwargs = _responses_params(effective_params, stream=True, json_mode=json_mode)
     kwargs["input"] = messages_to_responses_input(messages)
     response_tools = tools_to_responses(tools)
     if response_tools:
         kwargs["tools"] = response_tools
-    stream = await _await_with_gateway_errors(client.responses.create(**kwargs))
+    stream = await _await_with_gateway_errors(
+        client.responses.create(**kwargs),
+        client=client,
+        params=effective_params,
+        wire_api=selected,
+    )
     if not hasattr(stream, "__aiter__"):
         if isinstance(stream, str):
             if stream:

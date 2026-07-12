@@ -50,6 +50,9 @@ dev = [
 typing = [
     "mypy>=1.8.0",
 ]
+perf = [
+    "psutil>=5.9.0",
+]
 
 [project.scripts]
 miniagent = "miniagent.cli.cli:main"

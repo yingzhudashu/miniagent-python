@@ -29,7 +29,11 @@ from miniagent.core.openai_client import (
     create_async_openai_client,
 )
 from miniagent.infrastructure.json_config import get_config
-from miniagent.infrastructure.tracing import emit_trace, shutdown_trace_writer
+from miniagent.infrastructure.tracing import (
+    auto_register_trace_file_hook,
+    emit_trace,
+    shutdown_trace_writer,
+)
 
 
 @pytest.fixture
@@ -42,6 +46,28 @@ def real_api_config():
 
     # 加载secrets到环境变量
     load_secrets_from_project_root()
+
+    from miniagent.infrastructure.json_config import JsonConfigLoader, install_config_loader
+
+    trace_root = Path(
+        os.environ.get("MINIAGENT_REAL_API_PERF_DIR", "workspaces/logs/perf")
+    ) / f"evaluation-trace-pid{os.getpid()}"
+    loader = JsonConfigLoader()
+    loader.reload(strict=True)
+    install_config_loader(
+        loader.with_runtime_overrides(
+            {
+                "trace": {
+                    "enabled": True,
+                    "output_dir": str(trace_root),
+                    "record_payload": "metrics_only",
+                    "resource_sample_interval_seconds": 0.25,
+                    "auto_cleanup": False,
+                }
+            }
+        )
+    )
+    auto_register_trace_file_hook()
 
     # 验证API Key已加载
     api_key = os.environ.get("OPENAI_API_KEY")
@@ -97,6 +123,9 @@ class TestRealAPIPerformance:
 
         # 创建必要的对象
         registry = DefaultToolRegistry()
+        from miniagent.engine.builtin_tools import register_builtin_tools
+
+        register_builtin_tools(registry)
         monitor = DefaultToolMonitor()
         agent_config = AgentConfig(
             max_turns=1,  # 只执行1轮
@@ -173,6 +202,9 @@ class TestRealAPIPerformance:
 
         # 创建必要的对象
         registry = DefaultToolRegistry()
+        from miniagent.engine.builtin_tools import register_builtin_tools
+
+        register_builtin_tools(registry)
         monitor = DefaultToolMonitor()
         agent_config = AgentConfig(
             max_turns=2,  # 允许工具调用
@@ -183,7 +215,7 @@ class TestRealAPIPerformance:
         plan = StructuredPlan(
             summary="工具执行测试",
             steps=[],
-            required_toolboxes=["read_file"],  # 需要read_file工具
+            required_toolboxes=["file_read"],
         )
 
         # 测量总延迟（LLM + 工具）
@@ -211,6 +243,10 @@ class TestRealAPIPerformance:
             # 验证延迟合理（工具调用 <60秒，网络环境差异大）
             assert elapsed < 60.0, f"工具执行过慢: {elapsed}s"
             assert result and len(result) > 0, "应有返回结果"
+            read_stats = monitor.get_stats("read_file")
+            assert read_stats is not None and read_stats.success_count >= 1, (
+                "真实工具场景必须成功调用 read_file"
+            )
 
         except Exception as e:
             elapsed = time.perf_counter() - start
@@ -242,6 +278,9 @@ class TestRealAPIPerformance:
 
         # 创建共享对象
         registry = DefaultToolRegistry()
+        from miniagent.engine.builtin_tools import register_builtin_tools
+
+        register_builtin_tools(registry)
         monitor = DefaultToolMonitor()
         agent_config = AgentConfig(max_turns=1, tool_timeout=60)
 
@@ -263,6 +302,7 @@ class TestRealAPIPerformance:
                     memory=memory_runtime,
                     knowledge_registry=knowledge_registry,
                     client=real_api_client,
+                    session_key=f"real-api-concurrent-{i}",
                 )
             )
 
@@ -294,7 +334,10 @@ class TestRealAPIPerformance:
             # 验证吞吐量合理（>0.05 req/s，网络环境差异大，给API波动留空间）
             # 注意：真实API测试受网络、API响应速度影响，0.09 req/s已经接近阈值
             assert throughput > 0.05, f"并发吞吐量过低: {throughput} req/s"
-            assert success_count >= 1, f"并发成功率过低: {success_count}/{num_requests}"
+            assert success_count == num_requests, (
+                f"并发请求必须全部成功: {success_count}/{num_requests}"
+            )
+            assert all(isinstance(result, str) and result for result in results)
 
         except Exception as e:
             pytest.fail(f"并发测试失败: {e}")

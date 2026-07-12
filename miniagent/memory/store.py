@@ -36,6 +36,7 @@ from miniagent.core.constants import (
     MEMORY_SESSION_LOCKS_MAX,
     MEMORY_STORE_CACHE_CLEANUP_INTERVAL_S,
 )
+from miniagent.infrastructure.atomic_json import atomic_dump_json
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.memory.ground_truth import (
@@ -654,8 +655,12 @@ class DefaultMemoryStore:
             }
 
             def _sync_write() -> None:
-                with open(file_path, "w", encoding="utf-8") as f:
-                    json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
+                atomic_dump_json(
+                    file_path,
+                    data,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
 
             await asyncio.to_thread(_sync_write)
             self._cache_put(memory.session_id, memory)
@@ -919,13 +924,19 @@ class DefaultMemoryStore:
                 text = " ".join(
                     [entry.user_snippet, entry.summary, *(entry.facts or [])]
                 )
-                emb = await provider.get_embedding(text)
-                if emb is not None:
-                    provider.index.index_entry(
-                        session_key,
-                        full_entry,
-                        embedding=emb,
-                    )
+                queue_index = getattr(provider, "queue_index", None)
+                if callable(queue_index):
+                    await queue_index(session_key, full_entry, text)
+                else:
+                    # Compatibility for injected providers implementing the
+                    # pre-queue surface only.
+                    emb = await provider.get_embedding(text)
+                    if emb is not None:
+                        provider.index.index_entry(
+                            session_key,
+                            full_entry,
+                            embedding=emb,
+                        )
         except Exception as e:
             _logger.debug("嵌入索引失败: %s", e)
 

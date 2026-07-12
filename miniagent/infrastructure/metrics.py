@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -79,7 +80,13 @@ class PerformanceMetrics:
         if enabled is None:
             enabled = get_config("debug.perf_metrics", False)
         self._enabled = enabled
-        self._records: list[LatencyRecord] = []
+        max_records = max(100, int(get_config("debug.perf_metrics_max_records", 10_000)))
+        self._max_names = max(
+            1,
+            int(get_config("debug.perf_metrics_max_names", 1024)),
+        )
+        self._records: deque[LatencyRecord] = deque(maxlen=max_records)
+        self._totals: dict[str, tuple[int, float, float, float]] = {}
         self._start_time = time.monotonic()
         self._lock = threading.Lock()
 
@@ -107,8 +114,7 @@ class PerformanceMetrics:
             latency_ms=latency_ms,
             metadata={"tokens": tokens, "model": model},
         )
-        with self._lock:
-            self._records.append(record)
+        self._record(record)
 
     def record_tool_call(
         self,
@@ -130,8 +136,7 @@ class PerformanceMetrics:
             latency_ms=latency_ms,
             metadata={"success": success},
         )
-        with self._lock:
-            self._records.append(record)
+        self._record(record)
 
     def record_render_cycle(self, duration_ms: float) -> None:
         """记录渲染周期
@@ -142,8 +147,7 @@ class PerformanceMetrics:
         if not self._enabled:
             return
         record = LatencyRecord(name="render_cycle", latency_ms=duration_ms)
-        with self._lock:
-            self._records.append(record)
+        self._record(record)
 
     def measure(self, name: str) -> _MeasureContext:
         """测量代码段延迟的上下文管理器
@@ -171,8 +175,28 @@ class PerformanceMetrics:
             latency_ms=latency_ms,
             metadata=metadata or {},
         )
+        self._record(record)
+
+    def _record(self, record: LatencyRecord) -> None:
         with self._lock:
+            if record.name not in self._totals:
+                normal_capacity = max(0, self._max_names - 1)
+                if "__other__" in self._totals or len(self._totals) >= normal_capacity:
+                    record.name = "__other__"
             self._records.append(record)
+            self._update_total(record)
+
+    def _update_total(self, record: LatencyRecord) -> None:
+        count, total, minimum, maximum = self._totals.get(
+            record.name,
+            (0, 0.0, record.latency_ms, record.latency_ms),
+        )
+        self._totals[record.name] = (
+            count + 1,
+            total + record.latency_ms,
+            min(minimum, record.latency_ms),
+            max(maximum, record.latency_ms),
+        )
 
     def get_summary(self) -> dict[str, MetricSummary]:
         """获取各指标的摘要统计
@@ -184,6 +208,7 @@ class PerformanceMetrics:
             if not self._records:
                 return {}
             records = list(self._records)
+            totals = dict(self._totals)
 
         # 按名称分组
         groups: dict[str, list[float]] = {}
@@ -194,22 +219,34 @@ class PerformanceMetrics:
 
         # 计算统计
         summaries: dict[str, MetricSummary] = {}
-        for name, latencies in groups.items():
+        for name, total_stats in totals.items():
+            latencies = groups.get(name, [])
             latencies.sort()
-            count = len(latencies)
-            total = sum(latencies)
+            count, total, minimum, maximum = total_stats
             avg = total / count if count > 0 else 0
+            # A low-frequency metric may be absent from the retained global
+            # percentile window. Exact cumulative statistics remain available;
+            # use the exact average as a clearly bounded percentile fallback.
+            percentile_fallback = avg if count else 0
 
             summaries[name] = MetricSummary(
                 name=name,
                 count=count,
                 total_ms=total,
                 avg_ms=avg,
-                min_ms=latencies[0] if latencies else 0,
-                max_ms=latencies[-1] if latencies else 0,
-                p50_ms=latencies[count // 2] if latencies else 0,
-                p95_ms=latencies[int(count * 0.95)] if latencies else 0,
-                p99_ms=latencies[int(count * 0.99)] if latencies else 0,
+                min_ms=minimum,
+                max_ms=maximum,
+                p50_ms=(
+                    latencies[len(latencies) // 2]
+                    if latencies
+                    else percentile_fallback
+                ),
+                p95_ms=latencies[min(len(latencies) - 1, int(len(latencies) * 0.95))]
+                if latencies
+                else percentile_fallback,
+                p99_ms=latencies[min(len(latencies) - 1, int(len(latencies) * 0.99))]
+                if latencies
+                else percentile_fallback,
             )
 
         return summaries
@@ -254,6 +291,7 @@ class PerformanceMetrics:
         """重置所有记录"""
         with self._lock:
             self._records.clear()
+            self._totals.clear()
             self._start_time = time.monotonic()
 
     def __repr__(self) -> str:
