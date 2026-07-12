@@ -15,6 +15,7 @@ import pytest
 
 from miniagent.core.problem_solver import ReflectionResult
 from tests.config_helpers import install_test_config
+from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 
 _TC_PATH = "miniagent.core.task_classifier.task_classifier_enabled"
 _REFLECT_PATH = "miniagent.core.agent.reflect_on_result"
@@ -27,14 +28,15 @@ def _make_agent_config(history=None):
     """构造最小可用的 AgentConfig mock（可注入 conversation_history）。"""
     cfg = MagicMock()
     cfg.log_file = None
-    cfg.session_registry = None
-    cfg.session_workspace = None
-    cfg.cli_loop_state = None
-    cfg.cli_dispatch_allow_mutations = True
-    cfg.session_key = "repro_session"
-    cfg.feishu_receive_chat_id = None
-    cfg.feishu_im_receive_id_type = None
-    cfg.feishu_im_receive_id = None
+    cfg.session_config.session_registry = None
+    cfg.session_config.session_workspace = None
+    cfg.session_config.session_key = "repro_session"
+    cfg.session_config.conversation_history = history if history is not None else []
+    cfg.feishu_config.cli_loop_state = None
+    cfg.feishu_config.cli_dispatch_allow_mutations = True
+    cfg.feishu_config.receive_chat_id = None
+    cfg.feishu_config.im_receive_id_type = None
+    cfg.feishu_config.im_receive_id = None
     cfg.loop_detection = None
     cfg.context_compress_threshold = 0.8
     cfg.context_overflow_strategy = "truncate"
@@ -43,7 +45,6 @@ def _make_agent_config(history=None):
     cfg.tool_timeout = 30
     cfg.tool_selection_strategy = "all"
     cfg.allow_parallel_tools = False
-    cfg.conversation_history = history if history is not None else []
     cfg.risk_level = None
     return cfg
 
@@ -81,7 +82,13 @@ class TestHypothesisA_DoubleCall:
                             )
                             from miniagent.core import run_agent
 
-                            reply = await run_agent("问题", registry=_make_registry())
+                            reply = await run_agent(
+                                "问题",
+                                registry=_make_registry(),
+                                memory=make_memory_runtime(),
+                                knowledge_registry=make_knowledge_registry(),
+                                client=MagicMock(),
+                            )
 
         assert mock_reflect.call_count == 1, "单次 run_agent 内 reflect 被调用次数应为 1"
         assert _count_footers(reply.reply) == 1, (
@@ -107,7 +114,13 @@ class TestHypothesisA_DoubleCall:
                         with patch(_REFLECT_PATH, side_effect=_capture_reflect):
                             from miniagent.core import run_agent
 
-                            await run_agent("问题", registry=_make_registry())
+                            await run_agent(
+                                "问题",
+                                registry=_make_registry(),
+                                memory=make_memory_runtime(),
+                                knowledge_registry=make_knowledge_registry(),
+                                client=MagicMock(),
+                            )
 
         assert _SCORE_MARK not in captured["reply"], (
             "execute_plan 返回的 reply 不应自带 footer；若含说明 footer 来自 LLM 复述历史"
@@ -126,7 +139,13 @@ class TestHypothesisB_ReflectThinkingSink:
         captured = {}
 
         async def _capture_reflect(
-            user_input, reply, *, client=None, on_thinking="MISSING", session_key=None
+            user_input,
+            reply,
+            *,
+            knowledge_registry,
+            client=None,
+            on_thinking="MISSING",
+            session_key=None,
         ):
             captured["on_thinking"] = on_thinking
             return ReflectionResult(acceptable=True, quality_score=0.8)
@@ -142,7 +161,12 @@ class TestHypothesisB_ReflectThinkingSink:
                             from miniagent.core import run_agent
 
                             await run_agent(
-                                "问题", registry=_make_registry(), on_thinking=on_thinking_cb
+                                "问题",
+                                registry=_make_registry(),
+                                memory=make_memory_runtime(),
+                                knowledge_registry=make_knowledge_registry(),
+                                client=MagicMock(),
+                                on_thinking=on_thinking_cb,
                             )
 
         assert captured["on_thinking"] is None, (
@@ -202,10 +226,15 @@ class TestHypothesisD_FooterAccumulatesInHistory:
                             )
                             from miniagent.core import run_agent
 
-                            reply = await run_agent("本轮问题", registry=_make_registry())
+                            reply = await run_agent(
+                                "本轮问题",
+                                registry=_make_registry(),
+                                memory=make_memory_runtime(),
+                                knowledge_registry=make_knowledge_registry(),
+                                client=MagicMock(),
+                            )
 
         n = _count_footers(reply.reply)
         assert n == 2, (
             f"复现双重质量评估：当 LLM 从历史复述 footer 后，最终 reply 含 {n} 个 footer"
         )
-

@@ -68,11 +68,8 @@ async def test_analyze_image_success(
 
     monkeypatch.setenv("MINIAGENT_MODEL_MODEL", "gpt-4o")
 
-    with patch(
-        "miniagent.tools.vision.get_shared_async_openai",
-        return_value=mock_client
-    ):
-        r = await _analyze_image_handler({"path": "test.png"}, ctx)
+    ctx.llm_client = mock_client
+    r = await _analyze_image_handler({"path": "test.png"}, ctx)
 
     assert r.success
     assert "测试图片" in r.content
@@ -94,14 +91,10 @@ async def test_analyze_image_custom_prompt(
 
     monkeypatch.setenv("MINIAGENT_MODEL_MODEL", "gpt-4o")
 
-    with patch(
-        "miniagent.tools.vision.get_shared_async_openai",
-        return_value=mock_client
-    ):
-        r = await _analyze_image_handler(
-            {"path": "test.jpg", "prompt": "识别图中的文字"},
-            ctx
-        )
+    ctx.llm_client = mock_client
+    r = await _analyze_image_handler(
+        {"path": "test.jpg", "prompt": "识别图中的文字"}, ctx
+    )
 
     assert r.success
     assert "Hello" in r.content
@@ -119,38 +112,30 @@ async def test_analyze_image_model_unsupported_vision(
     mock_client = MagicMock()
 
     # describe_image 返回空字符串表示不支持
+    ctx.llm_client = mock_client
     with patch(
-        "miniagent.tools.vision.get_shared_async_openai",
-        return_value=mock_client
+        "miniagent.feishu.vision_desc.describe_image",
+        new_callable=AsyncMock,
+        return_value="",
     ):
-        with patch(
-            "miniagent.feishu.vision_desc.describe_image",
-            new_callable=AsyncMock,
-            return_value=""
-        ):
-            r = await _analyze_image_handler({"path": "test.png"}, ctx)
+        r = await _analyze_image_handler({"path": "test.png"}, ctx)
 
     assert not r.success
     assert "失败" in r.content
 
 
-async def test_analyze_image_no_api_key(
+async def test_analyze_image_without_injected_client(
     ctx: ToolContext, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """无 API Key 应返回错误。"""
+    """A vision call without the application-owned client fails clearly."""
     img = tmp_path / "test.png"
     img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
 
-    # Mock get_shared_async_openai 抛出 RuntimeError
-    with patch(
-        "miniagent.tools.vision.get_shared_async_openai",
-        side_effect=RuntimeError("OPENAI_API_KEY not set")
-    ):
-        monkeypatch.setenv("MINIAGENT_MODEL_MODEL", "gpt-4o")
-        r = await _analyze_image_handler({"path": "test.png"}, ctx)
+    monkeypatch.setenv("MINIAGENT_MODEL_MODEL", "gpt-4o")
+    r = await _analyze_image_handler({"path": "test.png"}, ctx)
 
     assert not r.success
-    assert "未配置" in r.content
+    assert "未注入" in r.content
 
 
 async def test_analyze_image_no_model(
@@ -166,11 +151,8 @@ async def test_analyze_image_no_model(
     monkeypatch.delenv("MINIAGENT_MODEL_MODEL", raising=False)
     monkeypatch.delenv("MINIAGENT_CONFIG", raising=False)
 
-    with patch(
-        "miniagent.tools.vision.get_shared_async_openai",
-        return_value=mock_client
-    ):
-        r = await _analyze_image_handler({"path": "test.png"}, ctx)
+    ctx.llm_client = mock_client
+    r = await _analyze_image_handler({"path": "test.png"}, ctx)
 
     assert not r.success
     assert "未配置" in r.content or "model" in r.content.lower()

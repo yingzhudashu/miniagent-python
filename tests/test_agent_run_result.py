@@ -9,6 +9,7 @@ import pytest
 from miniagent.core.agent import _build_agent_run_result, run_agent
 from miniagent.infrastructure.monitor import DefaultToolMonitor
 from miniagent.types.agent import AgentRunOptions, AgentRunResult
+from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 
 
 def test_build_agent_run_result_excludes_llm_response() -> None:
@@ -58,6 +59,9 @@ async def test_run_agent_returns_agent_run_result(tmp_path) -> None:
                     result = await run_agent(
                         "task",
                         registry=registry,
+                        memory=make_memory_runtime(),
+                        knowledge_registry=make_knowledge_registry(),
+                        client=MagicMock(),
                         monitor=monitor,
                         skip_planning=True,
                     )
@@ -106,6 +110,9 @@ async def test_run_agent_options_merge_model_config(tmp_path) -> None:
                     await run_agent(
                         "task",
                         registry=registry,
+                        memory=make_memory_runtime(),
+                        knowledge_registry=make_knowledge_registry(),
+                        client=MagicMock(),
                         skip_planning=True,
                         options=AgentRunOptions(
                             model_config={"temperature": 0.2},

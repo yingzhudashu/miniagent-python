@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -272,8 +272,9 @@ class TestKnowledgeRegistryExtended:
 
 class TestRetrieveKnowledgeContext:
     def test_returns_empty_when_disabled(self):
+        registry = MagicMock()
         with patch("miniagent.knowledge.get_config", return_value=False):
-            assert retrieve_knowledge_context("query", phase="executor") == ""
+            assert retrieve_knowledge_context(registry, "query", phase="executor") == ""
 
     def test_returns_markdown_when_results_exist(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -284,14 +285,13 @@ class TestRetrieveKnowledgeContext:
                 f.close()
                 try:
                     registry.mount(f.name, "doc_kb")
-                    with patch("miniagent.knowledge.get_kb_registry", return_value=registry):
-                        with patch("miniagent.knowledge.get_config") as mock_cfg:
-                            mock_cfg.side_effect = lambda key, default=None: {
-                                "knowledge.executor_enabled": True,
-                                "knowledge.executor_top_k": 3,
-                                "knowledge.executor_max_chars": 4000,
-                            }.get(key, default)
-                            out = retrieve_knowledge_context("API", phase="executor")
+                    with patch("miniagent.knowledge.get_config") as mock_cfg:
+                        mock_cfg.side_effect = lambda key, default=None: {
+                            "knowledge.executor_enabled": True,
+                            "knowledge.executor_top_k": 3,
+                            "knowledge.executor_max_chars": 4000,
+                        }.get(key, default)
+                        out = retrieve_knowledge_context(registry, "API", phase="executor")
                     assert "## 相关知识库摘要" in out
                     assert "API" in out
                 finally:
@@ -302,7 +302,9 @@ class TestKnowledgeToolHandlers:
     @pytest.mark.asyncio
     async def test_search_knowledge_handler_empty_query(self):
         handler = knowledge_tools["search_knowledge"].handler
-        result = await handler({}, ToolContext(cwd=os.getcwd()))
+        result = await handler(
+            {}, ToolContext(cwd=os.getcwd(), knowledge_registry=MagicMock())
+        )
         assert not result.success
 
     @pytest.mark.asyncio
@@ -318,10 +320,9 @@ class TestKnowledgeToolHandlers:
             registry.mount(tmpdir, "kb")
 
             handler = knowledge_tools["read_knowledge_file"].handler
-            ctx = ToolContext(cwd=tmpdir)
-            with patch("miniagent.tools.knowledge_tools.get_kb_registry", return_value=registry):
-                bad = await handler({"kb_name": "kb", "file_path": "../outside.md"}, ctx)
-                good = await handler({"kb_name": "kb", "file_path": "inside.md"}, ctx)
+            ctx = ToolContext(cwd=tmpdir, knowledge_registry=registry)
+            bad = await handler({"kb_name": "kb", "file_path": "../outside.md"}, ctx)
+            good = await handler({"kb_name": "kb", "file_path": "inside.md"}, ctx)
 
             assert not bad.success
             assert good.success
@@ -333,8 +334,9 @@ class TestKnowledgeToolHandlers:
             registry = KnowledgeRegistry(state_dir=tmpdir)
             registry._mounted.clear()
             handler = knowledge_tools["kb_list"].handler
-            with patch("miniagent.tools.knowledge_tools.get_kb_registry", return_value=registry):
-                result = await handler({}, ToolContext(cwd=tmpdir))
+            result = await handler(
+                {}, ToolContext(cwd=tmpdir, knowledge_registry=registry)
+            )
             assert result.success
             assert "未挂载" in result.content
 

@@ -137,18 +137,6 @@ def test_normalize_lark_md_horizontal_rule_to_plain_line() -> None:
     assert "\u2500\u2500\u2500" in _normalize_lark_md("a\n\n---\n\nb")
 
 
-def test_prepare_thinking_markdown_legacy_paragraph_indent_env_has_no_effect(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from miniagent.feishu.poll_server import _prepare_thinking_markdown
-
-    monkeypatch.setenv("MINIAGENT_FEISHU_PARAGRAPH_INDENT", "blockquote")
-    raw = "第一段\n\n第二段"
-    out = _prepare_thinking_markdown(raw)
-    assert "> 第一段" not in out
-    assert "第一段" in out and "第二段" in out
-
-
 def test_strip_light_markdown_for_feishu_plain() -> None:
     from miniagent.feishu.poll_server import _strip_light_markdown_for_feishu_plain
 

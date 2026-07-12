@@ -277,7 +277,7 @@ from miniagent.core.prompts import AGENT_IDENTITY, PLAN_SYSTEM_PROMPT
 
 ### 5.2 功能测试
 
-运行现有测试确保向后兼容（命令见 [INDEX.md §测试与质量](INDEX.md#测试与质量)）：
+运行现有测试确保行为正确（命令见 [INDEX.md §测试与质量](INDEX.md#测试与质量)）：
 
 ```bash
 python -m pytest tests/test_prompts_structure.py -v
@@ -291,7 +291,7 @@ python -m pytest tests/test_prompts_structure.py -v
 
 1. 在对应文件中修改内容
 2. 运行结构测试验证格式
-3. 运行功能测试确保兼容
+3. 运行功能测试验证行为
 
 ### 6.2 新增提示词
 

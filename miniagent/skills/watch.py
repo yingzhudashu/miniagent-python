@@ -94,19 +94,15 @@ def start_skills_watch(
     registry: Any,
     skill_registry: Any,
     state: dict[str, Any],
-    ctx: Any,
+    stop_event: asyncio.Event,
 ) -> asyncio.Task[Any] | None:
     """若 ``features.skills_watch`` 为 true 则启动后台监视任务。"""
     if not skills_watch_enabled():
         return None
-    stop_event = asyncio.Event()
-    ctx.skills_watch_stop_event = stop_event
-
     async def _runner() -> None:
         await _watch_loop(registry, skill_registry, state, stop_event)
 
     task = asyncio.create_task(_runner(), name="miniagent_skills_watch")
-    ctx.skills_watch_task = task
     _logger.info("skills_watch: 已启动技能目录监视（主根 + 会话技能目录）")
     return task
 

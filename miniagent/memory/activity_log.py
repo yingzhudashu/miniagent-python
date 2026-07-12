@@ -112,7 +112,7 @@ class ActivityLogger:
         await asyncio.to_thread(self._append, content)
 
     def _append(self, content: str) -> None:
-        """同步追加内容到今日日志文件（向后兼容）。
+        """同步追加内容到今日日志文件。
 
         Args:
             content: 要追加的 Markdown 内容
@@ -124,7 +124,7 @@ class ActivityLogger:
             self._read_cache = None
 
     def log_session_start(self, session_key: str, user_input: str, source: str = "cli") -> None:
-        """记录会话开始（同步版本，向后兼容）。
+        """同步记录会话开始。
 
         检查今日日志中是否已有该会话的 header，避免重复。
         然后追加用户输入内容。

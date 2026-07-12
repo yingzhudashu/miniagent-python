@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -12,6 +12,7 @@ from miniagent.types.confirmation import ConfirmationResult
 from miniagent.types.planning import StructuredPlan
 from miniagent.types.tool import Toolbox
 from tests.config_helpers import install_test_config
+from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 
 
 @pytest.mark.asyncio
@@ -52,6 +53,9 @@ async def test_on_plan_adjust_triggers_replan(tmp_path) -> None:
         out = await run_agent(
             "分析目录",
             registry=DefaultToolRegistry(),
+            memory=make_memory_runtime(),
+            knowledge_registry=make_knowledge_registry(),
+            client=MagicMock(),
             toolboxes=[tb],
             on_plan=fake_on_plan,
         )

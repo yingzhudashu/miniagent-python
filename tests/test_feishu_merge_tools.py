@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
 from miniagent.feishu.types import FeishuConfig
+from miniagent.types.agent import AgentRunResult
+from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 
 
 @pytest.mark.asyncio
@@ -53,14 +56,14 @@ async def test_feishu_merge_tools_uses_append_not_second_send_thinking(
     )
     monkeypatch.setattr("miniagent.feishu.poll_server._send_thinking", fake_send_thinking)
 
-    async def fake_run_agent(*args: Any, **kwargs: Any) -> str:
+    async def fake_run_agent(*args: Any, **kwargs: Any) -> AgentRunResult:
         ot = kwargs.get("on_thinking")
         lab = "[第 1 轮]"
         await ot(lab, True, lab)
         await ot(lab + "正文", True, lab)
         await ot("🔧 a — 1", False, lab)
         await ot("🔧 b — 2", False, lab)
-        return "ok"
+        return AgentRunResult(reply="ok")
 
     monkeypatch.setattr("miniagent.engine.engine.run_agent", fake_run_agent)
 
@@ -70,6 +73,9 @@ async def test_feishu_merge_tools_uses_append_not_second_send_thinking(
     class SM:
         def get_or_create(self, sk: Any, opts: Any) -> Any:
             return ctx
+
+        def get_session_files_path(self, sk: str) -> None:
+            return None
 
         def save_session_history(self, sk: str) -> None:
             pass
@@ -87,6 +93,9 @@ async def test_feishu_merge_tools_uses_append_not_second_send_thinking(
         "feishu:oc_testchat",
         [],
         None,
+        memory=make_memory_runtime(),
+        knowledge_registry=make_knowledge_registry(),
+        client=MagicMock(),
         registry=DefaultToolRegistry(),
         monitor=DefaultToolMonitor(),
         session_manager=SM(),

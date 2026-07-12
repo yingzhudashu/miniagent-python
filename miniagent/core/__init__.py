@@ -23,9 +23,6 @@ from miniagent.core.config import (
     merge_agent_config,
 )
 from miniagent.core.constants import (  # noqa: F401
-    AGENT_HISTORY_SIZE,
-    AGENT_MAX_TURNS,
-    AGENT_TOOL_TIMEOUT,
     DEFAULT_AGENT_MAX_TURNS,
     DEFAULT_AGENT_TOOL_TIMEOUT,
 )
@@ -53,11 +50,8 @@ def __getattr__(name: str):
 
 
 __all__ = [
-    "AGENT_HISTORY_SIZE",
     "AGENT_IDENTITY",
-    "AGENT_MAX_TURNS",
     "AGENT_NAME",
-    "AGENT_TOOL_TIMEOUT",
     "DEFAULT_AGENT_MAX_TURNS",
     "DEFAULT_AGENT_TOOL_TIMEOUT",
     "TaskDifficulty",

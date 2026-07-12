@@ -42,11 +42,10 @@ def _get_skills_root() -> str:
 
 
 def _resolve_clawhub(ctx: ToolContext) -> Any:
-    """优先使用注入的 ClawHub 客户端，否则按需新建。"""
-    if ctx.clawhub is not None:
-        return ctx.clawhub
-    from miniagent.skills.clawhub_client import create_clawhub_client
-    return create_clawhub_client()
+    """Return the application-owned ClawHub client or fail at the boundary."""
+    if ctx.clawhub is None:
+        raise RuntimeError("ClawHub 客户端未注入")
+    return ctx.clawhub
 
 
 # ════════════════════════════════════════════════════════

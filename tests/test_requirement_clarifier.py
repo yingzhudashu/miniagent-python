@@ -11,6 +11,7 @@ from miniagent.core.requirement_clarifier import (
     RequirementClarifier,
 )
 from miniagent.types.memory import GroundTruthFact, SessionMemory
+from tests.memory_helpers import make_knowledge_registry
 
 
 class FakeMemoryStore:
@@ -94,7 +95,11 @@ class TestRequirementClarifier:
             }
 
         with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
-            result = await clarifier.clarify("test input", client=mock_client)
+            result = await clarifier.clarify(
+                "test input",
+                knowledge_registry=make_knowledge_registry(),
+                client=mock_client,
+            )
 
             assert result.clarified_goal == "Test goal"
             assert len(result.boundary_conditions) == 1
@@ -125,6 +130,7 @@ class TestRequirementClarifier:
         with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
             result = await clarifier.clarify(
                 "test input",
+                knowledge_registry=make_knowledge_registry(),
                 ask_user=mock_ask_user,
                 client=mock_client,
             )
@@ -149,7 +155,12 @@ class TestRequirementClarifier:
             }
 
         with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
-            result = await clarifier.clarify("写文件", ask_user=mock_ask_user)
+            result = await clarifier.clarify(
+                "写文件",
+                knowledge_registry=make_knowledge_registry(),
+                client=MagicMock(),
+                ask_user=mock_ask_user,
+            )
 
         assert result.clarification_needed is False
         assert result.unresolved_questions == []
@@ -172,7 +183,12 @@ class TestRequirementClarifier:
             }
 
         with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
-            result = await clarifier.clarify("写文件", ask_user=mock_ask_user)
+            result = await clarifier.clarify(
+                "写文件",
+                knowledge_registry=make_knowledge_registry(),
+                client=MagicMock(),
+                ask_user=mock_ask_user,
+            )
 
         assert asked is False
         assert result.clarification_needed is True
@@ -193,7 +209,12 @@ class TestRequirementClarifier:
             }
 
         with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
-            await clarifier.clarify("test", on_thinking=mock_on_thinking)
+            await clarifier.clarify(
+                "test",
+                knowledge_registry=make_knowledge_registry(),
+                client=MagicMock(),
+                on_thinking=mock_on_thinking,
+            )
 
         assert any("Structured goal" in m for m in messages)
 
@@ -206,7 +227,11 @@ class TestRequirementClarifier:
             return {}
 
         with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
-            result = await clarifier.clarify("original request")
+            result = await clarifier.clarify(
+                "original request",
+                knowledge_registry=make_knowledge_registry(),
+                client=MagicMock(),
+            )
 
         assert result.clarified_goal == "original request"
         assert result.clarification_needed is False
@@ -221,7 +246,11 @@ class TestRequirementClarifier:
 
         with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
             with pytest.raises(ValueError, match="parse failed"):
-                await clarifier.clarify("test input")
+                await clarifier.clarify(
+                    "test input",
+                    knowledge_registry=make_knowledge_registry(),
+                    client=MagicMock(),
+                )
 
     @pytest.mark.asyncio
     async def test_clarify_empty_ambiguity_no_ask(self) -> None:
@@ -241,7 +270,12 @@ class TestRequirementClarifier:
             }
 
         with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
-            await clarifier.clarify("clear input", ask_user=mock_ask_user)
+            await clarifier.clarify(
+                "clear input",
+                knowledge_registry=make_knowledge_registry(),
+                client=MagicMock(),
+                ask_user=mock_ask_user,
+            )
             assert asked is False  # 没有模糊点，不应追问
 
     @pytest.mark.asyncio
@@ -274,6 +308,8 @@ class TestRequirementClarifier:
         with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
             result = await clarifier.clarify(
                 "写报告",
+                knowledge_registry=make_knowledge_registry(),
+                client=MagicMock(),
                 ask_user=mock_ask_user,
                 memory_store=FakeMemoryStore(memory),
                 session_key="s",
@@ -302,7 +338,13 @@ class TestRequirementClarifier:
             }
 
         with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
-            result = await clarifier.clarify("总结一下", ask_user=mock_ask_user, max_questions=3)
+            result = await clarifier.clarify(
+                "总结一下",
+                knowledge_registry=make_knowledge_registry(),
+                client=MagicMock(),
+                ask_user=mock_ask_user,
+                max_questions=3,
+            )
 
         assert asked is False
         assert len(result.default_resolved_assumptions) == 2
@@ -326,6 +368,8 @@ class TestRequirementClarifier:
         with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
             result = await clarifier.clarify(
                 "调整项目",
+                knowledge_registry=make_knowledge_registry(),
+                client=MagicMock(),
                 ask_user=mock_ask_user,
                 max_questions=2,
             )
@@ -364,6 +408,8 @@ class TestRequirementClarifier:
         with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
             result = await clarifier.clarify(
                 "写文件",
+                knowledge_registry=make_knowledge_registry(),
+                client=MagicMock(),
                 ask_user=mock_ask_user,
                 memory_store=FakeMemoryStore(memory),
                 session_key="s",

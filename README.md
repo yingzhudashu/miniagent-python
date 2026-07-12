@@ -53,12 +53,14 @@
 Mini Agent Python 采用 **多阶段架构**（Phase 0 分类 → Phase 0.5 需求澄清 → Phase 1 规划 → Phase 2 执行），通过 **ReAct 循环** 驱动 LLM 调用工具完成任务。系统分为 **12 个功能层**，支持 **CLI + 飞书** 双通道，经 **ChannelRouter** 实现通道绑定与会话共享。
 
 ```
-用户 → CLI / 飞书 WebSocket → 入口 → 引擎 → 通道路由 → 核心（澄清→规划→执行）
-                                              ↓
-                                    工具层 + 记忆层 → 基础设施 → 安全/类型
+用户 → CLI / 飞书 WebSocket → 通道适配 → 应用用例 → 引擎 → 核心（澄清→规划→执行）
+                            ↕ 标准消息契约          ↓
+                         组合根/基础设施 ← 工具层 + 记忆层 → 安全/类型
 ```
 
-完整分层说明、数据流与扩展点见 **[ARCHITECTURE.md](docs/ARCHITECTURE.md)**；可视化架构图见 [architecture.drawio](docs/architecture.drawio)。`miniagent/` 下 17 个物理子包见 [项目结构](#项目结构)。
+CLI、飞书文本、媒体和定时任务统一使用平台无关 `InboundMessage`；CLI、飞书和定时结果统一使用 `OutboundEvent` 经 `ChannelRegistry` 投递。唯一 `ApplicationContainer` 由正式入口构造，长期服务全部由 `LifecycleManager` 管理；实例 heartbeat 仅用于存活诊断，不属于 Agent 消息通道。
+
+完整分层说明、数据流与扩展点见 **[ARCHITECTURE.md](docs/ARCHITECTURE.md)**。`miniagent/` 下 20 个物理子包见 [项目结构](#项目结构)。
 
 **与 OpenClaw 的关系**：[OpenClaw](https://docs.openclaw.ai) 是自托管 Gateway，将多种渠道接到 Agent；本仓库是 **Python Agent 核心**（多阶段架构、ReAct、技能与 ClawHub、飞书与 CLI、本地记忆），可与 ClawHub 技能生态对齐，但不是 OpenClaw Gateway 的等价实现。
 
@@ -144,11 +146,7 @@ miniagent
 
 ### 最小配置
 
-```bash
-cp config.defaults.json config.user.json
-```
-
-编辑 `config.user.json`，填入 API 密钥：
+首次启动会进入交互式配置引导并生成 `config.user.json`。也可以手动创建该文件并填入 API 密钥：
 
 ```json
 {
@@ -157,8 +155,6 @@ cp config.defaults.json config.user.json
   }
 }
 ```
-
-> 首次启动若无 `config.user.json`，CLI 会进入交互式配置引导并自动生成文件。
 
 ### 启动并对话
 
@@ -176,13 +172,7 @@ Agent 会自动调用文件工具完成任务。
 
 ## 配置
 
-**升级迁移提示**（详见 [CHANGELOG.md](CHANGELOG.md) `[Unreleased]`）：配置已全部迁移到 JSON（`config.user.json`）；飞书出站默认 `feishu.reply_target=reply`。
-
-在项目根目录（与 `pyproject.toml` 同级）：
-
-```bash
-cp config.defaults.json config.user.json
-```
+用户配置位于项目根目录的 `config.user.json`；缺失时由首次启动引导创建。
 
 **不要** 把含真实密钥的 `config.user.json` 提交到公开仓库（已在 `.gitignore` 中忽略）。
 
@@ -208,7 +198,7 @@ cp config.defaults.json config.user.json
 
 ### 常用可选配置
 
-完整项以 `config.defaults.json` 为准：
+完整默认值见 [`miniagent/resources/config.defaults.json`](miniagent/resources/config.defaults.json)：
 
 | 配置路径 | 用途 |
 |----------|------|
@@ -220,9 +210,7 @@ cp config.defaults.json config.user.json
 | `secrets.feishu_app_id` / `secrets.feishu_app_secret` | 飞书应用凭证（事件订阅另需 `feishu_verification_token` 等，见 [FEISHU.md](docs/FEISHU.md)） |
 | `paths.state_dir` | 状态根目录，默认 `workspaces`（canonical 布局：`workspaces/projects/{project_key}/`，见 [ENGINEERING.md](docs/ENGINEERING.md) §3） |
 
-**配置分层**：`config.defaults.json` 顶部 `_config_guide` 列出 User 层与 Advanced 层。普通用户只需覆盖 User 层；Advanced 节（`memory`、`trace` 等）一般保持默认。优先级：**config.user.json > config.defaults.json**。用户面向配置项以 JSON 为准；运维/调试类环境变量（如 `MINIAGENT_PATHS_STATE_DIR`、`AGENT_DEBUG`）见 [ENGINEERING.md](docs/ENGINEERING.md) §1.2。
-
-从旧版 `.env` 迁移：将凭据写入 `secrets`，其余映射到对应 JSON 节，详见 [CHANGELOG.md](CHANGELOG.md)。
+**配置分层**：包内 `miniagent/resources/config.defaults.json` 顶部 `_config_guide` 列出 User 层与 Advanced 层。普通用户只需在 `config.user.json` 覆盖 User 层；Advanced 节（`memory`、`trace` 等）一般保持默认。优先级：**config.user.json > 包内 defaults**。运维/调试类环境变量（如 `MINIAGENT_PATHS_STATE_DIR`、`AGENT_DEBUG`）见 [ENGINEERING.md](docs/ENGINEERING.md) §1.2。
 
 ## 启动与退出
 
@@ -284,8 +272,11 @@ python -m miniagent --stop
 
 ```
 miniagent-python/
-├── miniagent/             # 核心源码（17 个子包）
+├── miniagent/             # 核心源码（20 个子包）
+│   ├── application/       # 平台无关用例协调、通道注册与出站分发
+│   ├── bootstrap/         # 服务生命周期、生产图装配与启动回滚
 │   ├── cli/               # CLI 入口
+│   ├── contracts/         # 平台无关消息、生命周期与共享默认值契约
 │   ├── core/              # Agent 核心：分类、澄清、规划、执行
 │   ├── engine/            # 运行时引擎：主循环、命令调度
 │   ├── feishu/            # 飞书集成
@@ -293,19 +284,20 @@ miniagent-python/
 │   ├── knowledge/         # 知识库管理
 │   ├── mcp/               # MCP 桥接（可选）
 │   ├── memory/            # 三层记忆
-│   ├── runtime/           # RuntimeContext 组合根
+│   ├── resources/         # wheel 内置默认配置等运行时资源
 │   ├── scheduled_tasks/   # 定时任务
 │   ├── security/          # 沙箱
 │   ├── session/           # 会话管理
 │   ├── skills/            # 技能加载、ClawHub
+│   ├── testing/           # Agent 测试适配器与验证运行器
 │   ├── tools/             # 工具实现
-│   └── types/             # 类型定义
+│   ├── types/             # 类型定义
+│   └── utils/             # 通用错误处理与会话 ID 工具
 ├── docs/                  # 文档
 ├── tests/                 # pytest 测试
 ├── scripts/               # 维护脚本
 ├── workspaces/            # 运行时状态（不入库）
 ├── pyproject.toml
-├── config.defaults.json
 └── README.md
 ```
 

@@ -17,6 +17,7 @@ from miniagent.core.task_classifier import (
     task_classifier_enabled,
 )
 from miniagent.core.thinking_presets import THINKING_LEVEL_PRESETS
+from tests.memory_helpers import make_knowledge_registry
 
 
 def test_task_classifier_enabled_reads_internal_constant() -> None:
@@ -89,7 +90,13 @@ async def test_classifier_retries_without_json_object() -> None:
     client = MagicMock()
     client.chat.completions.create = AsyncMock(side_effect=_create)
 
-    d = await classify_task_difficulty("hello", ["tb1"], client=client, agent_config=None)
+    d = await classify_task_difficulty(
+        "hello",
+        ["tb1"],
+        knowledge_registry=make_knowledge_registry(),
+        client=client,
+        agent_config=None,
+    )
     assert d == TaskDifficulty.MEDIUM
     assert n == 2
 
@@ -109,7 +116,13 @@ async def test_classifier_json_object_user_message_mentions_json() -> None:
     client = MagicMock()
     client.chat.completions.create = AsyncMock(side_effect=_create)
 
-    d = await classify_task_difficulty("hello", ["tb1"], client=client, agent_config=None)
+    d = await classify_task_difficulty(
+        "hello",
+        ["tb1"],
+        knowledge_registry=make_knowledge_registry(),
+        client=client,
+        agent_config=None,
+    )
 
     assert d == TaskDifficulty.NORMAL
     assert captured["response_format"] == {"type": "json_object"}
@@ -130,7 +143,12 @@ async def test_classifier_json_object_user_message_mentions_json() -> None:
     ],
 )
 async def test_classifier_difficulty_parsing(payload: str, expected: TaskDifficulty) -> None:
-    d = await classify_task_difficulty("hello", ["tb1"], client=_mock_client(payload))
+    d = await classify_task_difficulty(
+        "hello",
+        ["tb1"],
+        knowledge_registry=make_knowledge_registry(),
+        client=_mock_client(payload),
+    )
     assert d == expected
 
 
@@ -139,6 +157,7 @@ async def test_classifier_unknown_difficulty_fallback() -> None:
     d = await classify_task_difficulty(
         "hello",
         ["tb1"],
+        knowledge_registry=make_knowledge_registry(),
         client=_mock_client('{"difficulty":"unknown"}'),
     )
     assert d == TaskDifficulty.NORMAL
@@ -149,6 +168,7 @@ async def test_classifier_malformed_json_fallback() -> None:
     d = await classify_task_difficulty(
         "hello",
         ["tb1"],
+        knowledge_registry=make_knowledge_registry(),
         client=_mock_client("not json at all"),
     )
     assert d == TaskDifficulty.NORMAL
@@ -159,5 +179,11 @@ async def test_classifier_api_failure_fallback() -> None:
     client = MagicMock()
     client.chat.completions.create = AsyncMock(side_effect=RuntimeError("network down"))
 
-    d = await classify_task_difficulty("hello", ["tb1"], client=client, agent_config=None)
+    d = await classify_task_difficulty(
+        "hello",
+        ["tb1"],
+        knowledge_registry=make_knowledge_registry(),
+        client=client,
+        agent_config=None,
+    )
     assert d == TaskDifficulty.NORMAL

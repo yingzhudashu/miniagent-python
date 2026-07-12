@@ -6,12 +6,12 @@
 未在 ``__all__`` 中列出但仍常用的模块（按需直接 import）：
 
 - ``command_dispatch``：``.`` 命令统一调度
-- ``cli_state``：``CliLoopState`` TypedDict，与 ``unified_main`` 状态字典对齐
+- ``cli_state``：``CliLoopState`` TypedDict，与 ``run_runtime`` 状态字典对齐
 - ``builtin_tools``：``register_builtin_tools``
-- ``feishu_state``：飞书运行时状态，由 ``RuntimeContext.feishu`` 持有
+- ``feishu_state``：飞书运行时状态，由 ``ApplicationContainer.feishu`` 持有
 
 其它模块：``session_lock``、``thinking``、``engine``、``cli_commands``、``feishu_state``、
-``init``、``main``、``welcome``、``markdown_cli``、``clipboard``、``shutdown``
+``init``、``main``、``cli_tui``、``cli_fallback``、``welcome``、``markdown_cli``、``clipboard``、``shutdown``
 （见各文件模块文档）。
 
 主架构与用户可见命令见 ``docs/ARCHITECTURE.md``、``docs/CLI.md``。
@@ -28,11 +28,12 @@ from miniagent.engine.cli_commands import (
     cmd_session_switch,
 )
 from miniagent.engine.cli_state import CliLoopState
+from miniagent.engine.cli_tui import run_cli_loop
 from miniagent.engine.command_dispatch import dispatch_command
 from miniagent.engine.engine import UnifiedEngine
 from miniagent.engine.feishu_state import FeishuRuntime
 from miniagent.engine.init import init_subsystems
-from miniagent.engine.main import run_cli_loop, unified_main
+from miniagent.engine.main import run_runtime
 from miniagent.engine.session_lock import (
     is_session_locked,
     release_session_lock,
@@ -65,7 +66,7 @@ __all__ = [
     "cmd_help",
     "FeishuRuntime",
     "init_subsystems",
-    "unified_main",
+    "run_runtime",
     "run_cli_loop",
     "shutdown_runtime",
     "get_version",

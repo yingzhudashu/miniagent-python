@@ -8,21 +8,22 @@ from miniagent.core.task_classifier import TaskDifficulty
 from miniagent.types.planning import StructuredPlan
 from miniagent.types.tool import Toolbox
 from tests.config_helpers import install_test_config
-from tests.mock_strategies import mock_all_llm_clients
+from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 
 
 def _make_agent_config():
     """构造最小可用的 AgentConfig mock。"""
     cfg = MagicMock()
     cfg.log_file = None
-    cfg.session_registry = None
-    cfg.session_workspace = None
-    cfg.cli_loop_state = None
-    cfg.cli_dispatch_allow_mutations = True
-    cfg.session_key = None
-    cfg.feishu_receive_chat_id = None
-    cfg.feishu_im_receive_id_type = None
-    cfg.feishu_im_receive_id = None
+    cfg.session_config.session_registry = None
+    cfg.session_config.session_workspace = None
+    cfg.session_config.session_key = None
+    cfg.session_config.conversation_history = []
+    cfg.feishu_config.cli_loop_state = None
+    cfg.feishu_config.cli_dispatch_allow_mutations = True
+    cfg.feishu_config.receive_chat_id = None
+    cfg.feishu_config.im_receive_id_type = None
+    cfg.feishu_config.im_receive_id = None
     cfg.loop_detection = None
     cfg.context_compress_threshold = 0.8
     cfg.context_overflow_strategy = "truncate"
@@ -31,7 +32,6 @@ def _make_agent_config():
     cfg.tool_timeout = 30
     cfg.tool_selection_strategy = "all"
     cfg.allow_parallel_tools = False
-    cfg.conversation_history = []
     cfg.risk_level = None
     return cfg
 
@@ -79,6 +79,9 @@ class TestRunAgentClarification:
                         reply = await run_agent(
                             "查天气",
                             registry=registry,
+                            memory=make_memory_runtime(),
+                            knowledge_registry=make_knowledge_registry(),
+                            client=MagicMock(),
                             clarifier=clarifier,
                         )
 
@@ -116,6 +119,9 @@ class TestRunAgentClarification:
                         reply = await run_agent(
                             "查天气",
                             registry=registry,
+                            memory=make_memory_runtime(),
+                            knowledge_registry=make_knowledge_registry(),
+                            client=MagicMock(),
                             clarifier=clarifier,
                         )
 
@@ -140,7 +146,13 @@ class TestRunAgentClarification:
 
                         from miniagent.core import run_agent
 
-                        reply = await run_agent("test", registry=registry)
+                        reply = await run_agent(
+                            "test",
+                            registry=registry,
+                            memory=make_memory_runtime(),
+                            knowledge_registry=make_knowledge_registry(),
+                            client=MagicMock(),
+                        )
 
                         assert reply.reply == "结果"
 
@@ -164,7 +176,6 @@ class TestClarificationMaxQuestionsByDifficulty:
         with (
             patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", True),
             patch("miniagent.core.constants.EXECUTION_ANNOUNCE_DIFFICULTY", False),
-            mock_all_llm_clients(),
         ):
             with patch("miniagent.core.agent.classify_task_difficulty", new_callable=AsyncMock) as clf:
                 clf.return_value = TaskDifficulty.NORMAL
@@ -176,7 +187,15 @@ class TestClarificationMaxQuestionsByDifficulty:
                         from miniagent.core.agent import run_agent
                         from miniagent.infrastructure.registry import DefaultToolRegistry
 
-                        await run_agent("task", registry=DefaultToolRegistry(), toolboxes=[tb], clarifier=clarifier)
+                        await run_agent(
+                            "task",
+                            registry=DefaultToolRegistry(),
+                            memory=make_memory_runtime(),
+                            knowledge_registry=make_knowledge_registry(),
+                            client=MagicMock(),
+                            toolboxes=[tb],
+                            clarifier=clarifier,
+                        )
 
         clarifier.clarify.assert_called_once()
         call_kwargs = clarifier.clarify.call_args.kwargs
@@ -198,7 +217,6 @@ class TestClarificationMaxQuestionsByDifficulty:
         with (
             patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", True),
             patch("miniagent.core.constants.EXECUTION_ANNOUNCE_DIFFICULTY", False),
-            mock_all_llm_clients(),
         ):
             with patch("miniagent.core.agent.classify_task_difficulty", new_callable=AsyncMock) as clf:
                 clf.return_value = TaskDifficulty.MEDIUM
@@ -210,7 +228,15 @@ class TestClarificationMaxQuestionsByDifficulty:
                         from miniagent.core.agent import run_agent
                         from miniagent.infrastructure.registry import DefaultToolRegistry
 
-                        await run_agent("task", registry=DefaultToolRegistry(), toolboxes=[tb], clarifier=clarifier)
+                        await run_agent(
+                            "task",
+                            registry=DefaultToolRegistry(),
+                            memory=make_memory_runtime(),
+                            knowledge_registry=make_knowledge_registry(),
+                            client=MagicMock(),
+                            toolboxes=[tb],
+                            clarifier=clarifier,
+                        )
 
         clarifier.clarify.assert_called_once()
         call_kwargs = clarifier.clarify.call_args.kwargs
@@ -232,7 +258,6 @@ class TestClarificationMaxQuestionsByDifficulty:
         with (
             patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", True),
             patch("miniagent.core.constants.EXECUTION_ANNOUNCE_DIFFICULTY", False),
-            mock_all_llm_clients(),
         ):
             with patch("miniagent.core.agent.classify_task_difficulty", new_callable=AsyncMock) as clf:
                 clf.return_value = TaskDifficulty.COMPLEX
@@ -244,7 +269,15 @@ class TestClarificationMaxQuestionsByDifficulty:
                         from miniagent.core.agent import run_agent
                         from miniagent.infrastructure.registry import DefaultToolRegistry
 
-                        await run_agent("task", registry=DefaultToolRegistry(), toolboxes=[tb], clarifier=clarifier)
+                        await run_agent(
+                            "task",
+                            registry=DefaultToolRegistry(),
+                            memory=make_memory_runtime(),
+                            knowledge_registry=make_knowledge_registry(),
+                            client=MagicMock(),
+                            toolboxes=[tb],
+                            clarifier=clarifier,
+                        )
 
         clarifier.clarify.assert_called_once()
         call_kwargs = clarifier.clarify.call_args.kwargs
@@ -262,7 +295,7 @@ class TestRunAgentReflection:
         install_test_config(tmp_path, {"features": {"reflection": True}})
 
         cfg = _make_agent_config()
-        cfg.session_key = "test_session"
+        cfg.session_config.session_key = "test_session"
 
         with patch("miniagent.core.agent.get_default_agent_config", return_value=cfg):
             with patch("miniagent.core.agent.merge_agent_config", side_effect=lambda a, b: a):
@@ -290,6 +323,9 @@ class TestRunAgentReflection:
                             reply = await run_agent(
                                 "test input",
                                 registry=registry,
+                                memory=make_memory_runtime(),
+                                knowledge_registry=make_knowledge_registry(),
+                                client=MagicMock(),
                                 on_thinking=on_thinking,
                             )
 
@@ -316,7 +352,13 @@ class TestRunAgentReflection:
                         with patch(_REFLECT_PATH, new_callable=AsyncMock) as mock_reflect:
                             from miniagent.core import run_agent
 
-                            reply = await run_agent("test", registry=registry)
+                            reply = await run_agent(
+                                "test",
+                                registry=registry,
+                                memory=make_memory_runtime(),
+                                knowledge_registry=make_knowledge_registry(),
+                                client=MagicMock(),
+                            )
 
                             mock_reflect.assert_not_called()
                             assert reply.reply == "结果"

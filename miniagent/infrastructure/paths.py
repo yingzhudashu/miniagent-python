@@ -15,7 +15,7 @@ _PROJECT_DIR_ENV = "MINIAGENT_PROJECT_DIR"
 
 
 def resolve_project_root() -> str:
-    """返回 miniagent 安装/源码根目录（``config.defaults.json`` 所在目录）。"""
+    """返回 miniagent 安装/源码根目录。"""
     return str(Path(__file__).resolve().parent.parent.parent)
 
 
@@ -48,15 +48,6 @@ def _relative_state_dir_name() -> str:
     return str(raw).strip()
 
 
-def _project_state_has_data(path: str) -> bool:
-    """判断路径是否已有项目业务状态（会话或路由）。"""
-    if not os.path.isdir(path):
-        return False
-    sessions = os.path.join(path, "sessions")
-    router = os.path.join(path, "channel-router.json")
-    return os.path.isdir(sessions) or os.path.isfile(router)
-
-
 def resolve_project_state_dir() -> str:
     """解析项目侧 workspace 根目录（会话、路由、飞书锁等业务状态）。
 
@@ -64,12 +55,9 @@ def resolve_project_state_dir() -> str:
 
     1. ``MINIAGENT_PATHS_STATE_DIR`` 环境变量
     2. ``config`` 中的绝对路径 → ``{abs}/projects/{project_key}/``
-    3. 默认 → ``{registry}/projects/{project_key}/``，含 legacy 回退：
+    3. 默认 → ``{registry}/projects/{project_key}/``
 
-       - 若 ``projects/{key}/`` 已存在 → 使用该目录
-       - 否则若 ``{cwd}/{paths.state_dir}/`` 有历史数据 → legacy cwd 路径
-       - 否则若 cwd 为 miniagent 源码根且 ``{registry}/`` 有历史数据 → registry 根
-       - 否则 → 新建 ``projects/{key}/`` 路径（首次使用时创建）
+    解析结果只由配置与项目目录决定，不探测磁盘中的其它状态目录。
     """
     env = os.environ.get(_STATE_DIR_ENV, "").strip()
     if env:
@@ -82,19 +70,7 @@ def resolve_project_state_dir() -> str:
     if os.path.isabs(raw):
         return os.path.join(raw, "projects", project_key)
 
-    new_path = os.path.join(registry, "projects", project_key)
-    if os.path.isdir(new_path):
-        return new_path
-
-    legacy_cwd = os.path.join(resolve_project_dir(), raw)
-    if _project_state_has_data(legacy_cwd):
-        return legacy_cwd
-
-    if paths_equal(resolve_project_dir(), resolve_project_root()):
-        if _project_state_has_data(registry):
-            return registry
-
-    return new_path
+    return os.path.join(registry, "projects", project_key)
 
 
 def resolve_registry_state_dir() -> str:
@@ -114,22 +90,6 @@ def resolve_state_dir() -> str:
     return resolve_project_state_dir()
 
 
-def resolve_legacy_cwd_state_dir() -> str | None:
-    """旧版实例注册表根（过渡期扫描用）。
-
-    在双路径模型之前，实例可能注册在 ``{cwd}/workspaces/instances/``。
-    仅当该路径与 canonical registry 不同时返回。
-    """
-    legacy_instances = os.path.join(os.getcwd(), _relative_state_dir_name(), "instances")
-    registry = resolve_registry_state_dir()
-    legacy_root = os.path.dirname(legacy_instances)
-    if paths_equal(legacy_root, registry):
-        return None
-    if not os.path.isdir(legacy_instances):
-        return None
-    return legacy_root
-
-
 def paths_equal(a: str, b: str) -> bool:
     """跨平台路径等价比较（normpath + normcase）。"""
     return os.path.normcase(os.path.normpath(a)) == os.path.normcase(os.path.normpath(b))
@@ -143,6 +103,5 @@ __all__ = [
     "resolve_project_state_dir",
     "resolve_registry_state_dir",
     "resolve_state_dir",
-    "resolve_legacy_cwd_state_dir",
     "paths_equal",
 ]

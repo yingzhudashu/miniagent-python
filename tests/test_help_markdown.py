@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from miniagent.bootstrap.application import ApplicationContainer
 from miniagent.engine.cli_commands import _md_help_section, format_help_markdown
 from miniagent.engine.command_dispatch import _REGISTERED_COMMANDS, dispatch_command
 from miniagent.engine.engine import UnifiedEngine
@@ -12,8 +13,12 @@ from miniagent.infrastructure.channel_router import ChannelRouter
 from miniagent.infrastructure.message_queue import MessageQueueManager
 from miniagent.infrastructure.monitor import DefaultToolMonitor
 from miniagent.infrastructure.registry import DefaultToolRegistry
-from miniagent.runtime.context import RuntimeContext
 from miniagent.skills import DefaultSkillRegistry, create_clawhub_client
+from tests.memory_helpers import (
+    make_background_task_manager,
+    make_knowledge_registry,
+    make_memory_runtime,
+)
 from tests.test_startup import _make_memory_bundle
 
 
@@ -84,7 +89,7 @@ async def test_dispatch_help_capture_contains_list() -> None:
     """测试通过命令调度器调用 /help 返回列表格式。"""
     mq = MessageQueueManager()
     ms, al, ki, mc = _make_memory_bundle()
-    ctx = RuntimeContext(
+    ctx = ApplicationContainer(
         registry=DefaultToolRegistry(),
         monitor=DefaultToolMonitor(),
         skill_registry=DefaultSkillRegistry(),
@@ -93,10 +98,9 @@ async def test_dispatch_help_capture_contains_list() -> None:
         channel_router=ChannelRouter(),
         message_queue=mq,
         feishu=FeishuRuntime(mq),
-        memory_store=ms,
-        activity_log=al,
-        keyword_index=ki,
-        memory_context=mc,
+        memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki, context=mc),
+        knowledge_registry=make_knowledge_registry(),
+        background_tasks=make_background_task_manager(),
     )
     ctx.create_feishu_handler_factory = lambda tb, tp, st: lambda *a, **k: None
 
@@ -124,7 +128,7 @@ async def test_dispatch_reload_skills_slash_prefix() -> None:
 
     mq = MessageQueueManager()
     ms, al, ki, mc = _make_memory_bundle()
-    ctx = RuntimeContext(
+    ctx = ApplicationContainer(
         registry=DefaultToolRegistry(),
         monitor=DefaultToolMonitor(),
         skill_registry=DefaultSkillRegistry(),
@@ -133,10 +137,9 @@ async def test_dispatch_reload_skills_slash_prefix() -> None:
         channel_router=ChannelRouter(),
         message_queue=mq,
         feishu=FeishuRuntime(mq),
-        memory_store=ms,
-        activity_log=al,
-        keyword_index=ki,
-        memory_context=mc,
+        memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki, context=mc),
+        knowledge_registry=make_knowledge_registry(),
+        background_tasks=make_background_task_manager(),
     )
     state = {
         "active_session_id": "default",

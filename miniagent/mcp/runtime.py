@@ -81,6 +81,11 @@ async def _release_mcp_connections() -> None:
         await _aexit_quietly(cm)
 
 
+async def close_mcp_connections() -> None:
+    """Close every process-owned MCP stdio/session context exactly once."""
+    await _release_mcp_connections()
+
+
 def _cleanup_mcp_holder() -> None:
     """进程退出时清理 MCP 连接句柄。
 
@@ -140,7 +145,7 @@ async def register_mcp_stdio_tools(
         sess_cm = ClientSession(read_stream, write_stream)
         session = await sess_cm.__aenter__()
         await session.initialize()
-        _holder.extend([stdio_cm, sess_cm, session])
+        _holder.extend([stdio_cm, sess_cm])
     except Exception as ex:
         await _aexit_quietly(sess_cm)
         await _aexit_quietly(stdio_cm)
@@ -186,5 +191,6 @@ __all__ = [
     "_call_tool_to_result",
     "_is_mcp_tool_error",
     "_tool_result_text",
+    "close_mcp_connections",
     "register_mcp_stdio_tools",
 ]

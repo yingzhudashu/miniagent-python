@@ -48,7 +48,7 @@ pytest tests/ --cov=miniagent --cov-report=html
 [CLI.md](CLI.md) · [DEPLOYMENT.md](DEPLOYMENT.md) · [TROUBLESHOOTING.md](TROUBLESHOOTING.md) · [FEISHU.md](FEISHU.md)（含通道绑定） · [KNOWLEDGE_BASE.md](KNOWLEDGE_BASE.md)
 
 ### 架构与专题
-[ARCHITECTURE.md](ARCHITECTURE.md) · [architecture.drawio](architecture.drawio) · [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md) · [SECURITY.md](SECURITY.md) · [SELF_OPT.md](SELF_OPT.md) · [OUTPUT_FORMAT.md](OUTPUT_FORMAT.md)
+[ARCHITECTURE.md](ARCHITECTURE.md) · [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md) · [SECURITY.md](SECURITY.md) · [SELF_OPT.md](SELF_OPT.md) · [OUTPUT_FORMAT.md](OUTPUT_FORMAT.md)
 
 ### 性能
 [PERFORMANCE.md](PERFORMANCE.md) — Part A 度量与测试 · Part B 运行时调优

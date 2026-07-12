@@ -1,6 +1,6 @@
 """配置文件热更新监听器。
 
-监听 config.user.json 的修改并自动触发 reload_config()，
+监听 config.user.json 的修改并自动触发完整运行时配置刷新，
 无需重启即可生效配置更改。
 
 配置项：
@@ -18,7 +18,7 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
-from miniagent.infrastructure.json_config import get_config, reload_config
+from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 
 _logger = get_logger(__name__)
@@ -29,16 +29,17 @@ _DEBOUNCE_SEC = 2.0
 _CHECK_INTERVAL = 5.0
 
 
-async def _config_watch_loop(stop_event: asyncio.Event) -> None:
+async def _config_watch_loop(ctx: Any, stop_event: asyncio.Event) -> None:
     """监听 config.user.json 的修改并触发热更新。
 
     Args:
+        ctx: 当前应用组合根，用于同步刷新 LLM 客户端。
         stop_event: 停止信号（进程退出时设置）
 
     流程：
     1. 每 5 秒检查配置文件的 mtime
     2. 检测到修改后等待 2 秒（防抖）
-    3. 调用 reload_config() 重新加载配置
+    3. 重新加载 JSON、secrets，并原子替换容器持有的 LLM 客户端
     """
     # 配置文件路径（项目根目录下的 config.user.json）
     project_root = Path(__file__).parent.parent.parent
@@ -91,7 +92,9 @@ async def _config_watch_loop(stop_event: asyncio.Event) -> None:
 
                     # 触发热更新
                     try:
-                        reload_config()
+                        from miniagent.infrastructure.json_config import reload_runtime_config
+
+                        await reload_runtime_config(ctx)
                         _logger.info("配置已热更新（检测到 config.user.json 修改）")
                     except Exception as e:
                         _logger.error(f"配置热更新失败: {e}")
@@ -100,11 +103,11 @@ async def _config_watch_loop(stop_event: asyncio.Event) -> None:
             _logger.debug(f"配置文件检查失败: {e}")
 
 
-def start_config_watch(ctx: Any) -> asyncio.Task | None:
+def start_config_watch(ctx: Any, stop_event: asyncio.Event) -> asyncio.Task | None:
     """启动配置文件监听。
 
     Args:
-        ctx: RuntimeContext 实例
+        ctx: ApplicationContainer 实例
 
     Returns:
         监听任务（或 None 如果未启用）
@@ -117,35 +120,13 @@ def start_config_watch(ctx: Any) -> asyncio.Task | None:
         _logger.debug("配置热更新未启用（设置 features.config_hot_reload=true）")
         return None
 
-    # 创建停止信号
-    stop_event = asyncio.Event()
-    ctx.config_watch_stop_event = stop_event
-
     # 启动监听任务
     async def _runner():
-        await _config_watch_loop(stop_event)
+        await _config_watch_loop(ctx, stop_event)
 
     task = asyncio.create_task(_runner(), name="miniagent_config_watch")
-    ctx.config_watch_task = task
-
     _logger.info("配置热更新已启用（监听 config.user.json）")
     return task
 
 
-def stop_config_watch(ctx: Any) -> None:
-    """停止配置文件监听（进程退出时调用）。
-
-    Args:
-        ctx: RuntimeContext 实例
-    """
-    stop_event = getattr(ctx, "config_watch_stop_event", None)
-    if stop_event is not None:
-        stop_event.set()
-
-    task = getattr(ctx, "config_watch_task", None)
-    if task is not None and not task.done():
-        task.cancel()
-        # 不等待任务完成（避免阻塞关闭流程）
-
-
-__all__ = ["start_config_watch", "stop_config_watch"]
+__all__ = ["start_config_watch"]

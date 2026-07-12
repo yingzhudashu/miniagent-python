@@ -4,10 +4,10 @@
 供 ``feishu_doc`` 工具及上层文档管理模块使用。
 底层通过 lark-oapi SDK 与飞书开放平台交互。
 
-新增功能（富文本渲染）：
+富文本渲染：
 - ``append_markdown_to_document``: 将 Markdown 内容转换为飞书文档块（支持标题、列表、代码块、表格等）
 - 支持内联样式（粗体、斜体、链接、内联代码）
-- 向后兼容：旧的 ``append_plain_text_to_document`` 仍可用
+- ``append_plain_text_to_document`` 提供显式纯文本写入
 """
 
 from miniagent.feishu.docx.blocks import (
@@ -41,9 +41,9 @@ __all__ = [
     # 常量
     "DOCX_APPEND_MAX_BLOCKS",
     "DOCX_APPEND_MAX_CHARS",
-    # 块操作（旧）
+    # 纯文本块操作
     "append_plain_text_to_document",
-    # 块操作（新：富文本渲染）
+    # 富文本块操作
     "append_markdown_to_document",
     # 其他块操作
     "batch_update_blocks",
@@ -55,7 +55,7 @@ __all__ = [
     "get_document_raw_content",
     "list_document_blocks",
     "update_block_text",
-    # Markdown 渲染器（新）
+    # Markdown 渲染器
     "BlockType",
     "FeishuBlock",
     "TextRun",

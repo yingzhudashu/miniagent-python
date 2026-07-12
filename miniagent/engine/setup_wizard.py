@@ -9,24 +9,16 @@
 3. 询问 API 密钥、模型、端点等
 4. 保存到 config.user.json 并热加载到内存/环境变量
 
-须在 ``compat.unified_entry`` 加载凭据与 LLM 客户端之前调用。
+须在正式入口加载凭据与构造 LLM 客户端之前调用。
 """
 
 from __future__ import annotations
 
 import json
-import sys
 from typing import Any
 
-from miniagent.infrastructure.json_config import get_user_config_path, reload_runtime_config
+from miniagent.infrastructure.json_config import get_user_config_path, reload_config
 from miniagent.types.error_prefix import SUCCESS_PREFIX
-
-
-def _copy_defaults_hint() -> str:
-    """返回当前平台适用的 config 模板复制命令。"""
-    if sys.platform == "win32":
-        return "copy config.defaults.json config.user.json"
-    return "cp config.defaults.json config.user.json"
 
 
 def detect_first_time_setup() -> bool:
@@ -77,10 +69,8 @@ def run_setup_wizard() -> dict[str, Any]:
         else:
             print("⚠️  未输入 API 密钥，LLM 功能将无法使用")
     elif choice == "2":
-        copy_cmd = _copy_defaults_hint()
         print("\n请稍后手动创建 config.user.json：")
-        print(f"  {copy_cmd}")
-        print("  然后在 secrets 中填写 openai_api_key")
+        print('  {"secrets": {"openai_api_key": "..."}}')
     else:
         print("⚠️  未配置 API 密钥，LLM 功能将无法使用")
 
@@ -136,7 +126,10 @@ def run_setup_wizard() -> dict[str, Any]:
 
 def _apply_saved_config() -> None:
     """将磁盘上的 config.user.json 同步到内存配置与环境变量。"""
-    reload_runtime_config()
+    from miniagent.infrastructure.env_loader import load_secrets_from_project_root
+
+    reload_config()
+    load_secrets_from_project_root()
 
 
 def save_setup_config(config: dict[str, Any]) -> None:
@@ -148,7 +141,7 @@ def save_setup_config(config: dict[str, Any]) -> None:
     Note:
         如果文件已存在，会合并配置（保留现有内容）。
         写入后会调用 ``reload_config()`` 与 ``load_secrets_from_project_root()``，
-        并丢弃已缓存的 AsyncOpenAI 客户端以便后续按新配置重建。
+        入口随后会按新配置创建由 ``ApplicationContainer`` 独占的 AsyncOpenAI 客户端。
     """
     config_path = get_user_config_path()
 
@@ -190,7 +183,7 @@ def run_interactive_setup() -> bool:
     Note:
         - 仅在首次运行时触发（无 config.user.json）
         - 用户可以在入口处选择跳过整个引导
-        - 须在 ``load_secrets_from_project_root()`` 与 ``get_shared_async_openai()``
+        - 须在 ``load_secrets_from_project_root()`` 与 ``create_async_openai_client()``
           之前调用，以便向导中填写的 API 密钥在本进程内生效
     """
     if not detect_first_time_setup():
@@ -205,10 +198,8 @@ def run_interactive_setup() -> bool:
     response = input("\n运行配置引导? [Y/n]: ").strip().lower()
 
     if response in ("n", "no", "否"):
-        copy_cmd = _copy_defaults_hint()
         print("\n跳过配置。您可以稍后手动创建 config.user.json")
-        print(f"  {copy_cmd}")
-        print("参考 config.defaults.json 了解可用配置项")
+        print("再次启动 MiniAgent 即可重新进入配置引导。")
         return False
 
     config = run_setup_wizard()

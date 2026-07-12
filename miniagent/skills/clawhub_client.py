@@ -106,33 +106,6 @@ def _to_skill_detail(data: dict[str, Any], slug: str) -> ClawHubSkillDetail:
 # ─── 客户端实现 ──────────────────────────────────────────
 
 
-# 网络可靠性：全局 HTTP 客户端复用（连接池）
-_CLAWHUB_HTTP_CLIENT: Any = None  # httpx.AsyncClient | None
-
-
-async def _get_clawhub_client(timeout: float = 15.0) -> Any:
-    """获取全局 ClawHub HTTP 客户端（复用连接池）。"""
-    global _CLAWHUB_HTTP_CLIENT
-    if _CLAWHUB_HTTP_CLIENT is None:
-        try:
-            import httpx
-            _CLAWHUB_HTTP_CLIENT = httpx.AsyncClient(timeout=timeout)
-        except ImportError as e:
-            _logger.debug("httpx未安装，回退到urllib: %s", e)
-    return _CLAWHUB_HTTP_CLIENT
-
-
-async def close_clawhub_client() -> None:
-    """关闭全局 ClawHub HTTP 客户端（进程退出时调用）。"""
-    global _CLAWHUB_HTTP_CLIENT
-    if _CLAWHUB_HTTP_CLIENT is not None:
-        try:
-            await _CLAWHUB_HTTP_CLIENT.aclose()
-        except Exception as e:
-            _logger.debug("关闭HTTP客户端失败: %s", e)
-        _CLAWHUB_HTTP_CLIENT = None
-
-
 class _ClawHubClientImpl:
     """ClawHub 客户端实现（符合 ``ClawHubClientProtocol``）。"""
 
@@ -141,6 +114,25 @@ class _ClawHubClientImpl:
         base_url: API 根路径，默认 ``CLAWHUB_API``。
         """
         self._base_url = base_url
+        self._http_client: Any = None
+
+    async def _get_http_client(self, timeout: float = 15.0) -> Any:
+        """Lazily create the connection pool owned by this client instance."""
+        if self._http_client is None:
+            try:
+                import httpx
+
+                self._http_client = httpx.AsyncClient(timeout=timeout)
+            except ImportError as error:
+                _logger.debug("httpx未安装，回退到urllib: %s", error)
+        return self._http_client
+
+    async def close(self) -> None:
+        """Close the instance-owned HTTP pool; repeated calls are harmless."""
+        client = self._http_client
+        self._http_client = None
+        if client is not None:
+            await client.aclose()
 
     async def _fetch_json(self, url: str) -> Any:
         """发起 HTTP GET 请求（带重试机制）。"""
@@ -161,11 +153,11 @@ class _ClawHubClientImpl:
                 )
                 return resp.json()
 
-            client = await _get_clawhub_client()
+            client = await self._get_http_client()
             if client is not None:
                 return await _request(client)
 
-            # 回退：无全局客户端时创建临时客户端（带重试）
+            # 极端降级：实例池创建失败时使用短生命周期客户端。
             async with httpx.AsyncClient(timeout=15.0) as temp_client:
                 return await _request(temp_client)
 
@@ -374,7 +366,6 @@ def search_local_skills(
 
 __all__ = [
     "create_clawhub_client",
-    "close_clawhub_client",
     "search_local_skills",
     "skill_install_dir_name",
 ]

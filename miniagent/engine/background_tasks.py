@@ -23,9 +23,14 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
+from miniagent.contracts.messages import InboundMessage
 from miniagent.core.constants import (
     BACKGROUND_TASKS_MAX_CONCURRENT,
     BACKGROUND_TASKS_TASK_TTL_SECONDS,
+)
+from miniagent.engine.background_inbound import (
+    background_prompt,
+    build_background_inbound_message,
 )
 from miniagent.engine.bg_session_cleanup import cleanup_background_session_artifacts
 from miniagent.infrastructure.json_config import get_config
@@ -97,10 +102,13 @@ class BackgroundTaskManager:
         self._lock = asyncio.Lock()
         self._ttl_seconds = ttl_seconds if ttl_seconds is not None else DEFAULT_TASK_TTL_SECONDS
         self._cleanup_task: asyncio.Task | None = None
+        self._closed = False
         self._start_cleanup_loop()
 
     def _ensure_cleanup_loop(self) -> None:
         """在有事件循环时启动 TTL 自动清理循环（幂等）。"""
+        if self._closed:
+            return
         if self._cleanup_task is not None and not self._cleanup_task.done():
             return
         try:
@@ -166,9 +174,13 @@ class BackgroundTaskManager:
         Returns:
             任务ID（用于后续查询）
         """
+        if self._closed:
+            raise RuntimeError("后台任务管理器已关闭")
         self._ensure_cleanup_loop()
 
         async with self._lock:
+            if self._closed:
+                raise RuntimeError("后台任务管理器已关闭")
             # 检查并行限制
             if self._running_count >= self._max_concurrent:
                 raise RuntimeError(f"达到并行上限 {self._max_concurrent}，请等待其他任务完成")
@@ -185,9 +197,17 @@ class BackgroundTaskManager:
                 status=TaskStatus.PENDING,
             )
             self._tasks[task_id] = task
+            message = build_background_inbound_message(
+                task_id,
+                session_key,
+                prompt,
+                parent_session_key=(state.get("active_session_id") or None),
+            )
 
             # 启动异步执行（跟踪 task 引用并在完成时记录异常，避免静默丢失）
-            exec_task = asyncio.create_task(self._execute_task(engine, task, state, kwargs))
+            exec_task = asyncio.create_task(
+                self._execute_task(engine, task, message, state, kwargs)
+            )
             self._exec_tasks.add(exec_task)
             self._exec_by_id[task_id] = exec_task
             exec_task.add_done_callback(self._on_exec_task_done)
@@ -208,27 +228,18 @@ class BackgroundTaskManager:
         """从 CLI 状态解析子 session 清理与引擎调用所需的运行时依赖。"""
         runtime_ctx = state.get("runtime_ctx")
         session_manager = state.get("session_manager")
-        memory_store = None
-        activity_log = None
-        keyword_index = None
-        memory_context = None
-        if runtime_ctx is not None:
-            memory_store = getattr(runtime_ctx, "memory_store", None)
-            activity_log = getattr(runtime_ctx, "activity_log", None)
-            keyword_index = getattr(runtime_ctx, "keyword_index", None)
-            memory_context = getattr(runtime_ctx, "memory_context", None)
         return {
             "session_manager": session_manager,
-            "memory_store": memory_store,
-            "activity_log": activity_log,
-            "keyword_index": keyword_index,
-            "memory_context": memory_context,
+            "memory": getattr(runtime_ctx, "memory", None),
+            "knowledge_registry": getattr(runtime_ctx, "knowledge_registry", None),
+            "client": getattr(runtime_ctx, "openai_client", None),
         }
 
     async def _execute_task(
         self,
         engine: Any,
         task: BackgroundTask,
+        message: InboundMessage,
         state: dict[str, Any],
         kwargs: dict[str, Any],
     ) -> None:
@@ -237,6 +248,7 @@ class BackgroundTaskManager:
         Args:
             engine: UnifiedEngine实例
             task: 任务条目
+            message: 标准后台入站消息
             state: 主session状态
             kwargs: 其他参数
         """
@@ -255,16 +267,15 @@ class BackgroundTaskManager:
             if should_run:
                 try:
                     result = await engine.run_agent_with_thinking(
-                        user_input=task.prompt,
-                        session_key=task.session_key,
+                        user_input=background_prompt(message),
+                        session_key=message.session_key or task.session_key,
                         skill_toolboxes=state.get("skill_toolboxes", []),
                         skill_prompts=state.get("skill_prompts"),
                         is_feishu=False,
                         session_manager=runtime_deps["session_manager"],
-                        memory_store=runtime_deps["memory_store"],
-                        activity_log=runtime_deps["activity_log"],
-                        keyword_index=runtime_deps["keyword_index"],
-                        memory_context=runtime_deps["memory_context"],
+                        memory=runtime_deps["memory"],
+                        knowledge_registry=runtime_deps["knowledge_registry"],
+                        client=runtime_deps["client"],
                         **kwargs,
                     )
 
@@ -297,9 +308,7 @@ class BackgroundTaskManager:
             await cleanup_background_session_artifacts(
                 task.session_key,
                 session_manager=runtime_deps["session_manager"],
-                memory_store=runtime_deps["memory_store"],
-                activity_log=runtime_deps["activity_log"],
-                keyword_index=runtime_deps["keyword_index"],
+                memory=runtime_deps["memory"],
             )
 
     def get_status(self, task_id: str) -> dict[str, Any] | None:
@@ -402,7 +411,8 @@ class BackgroundTaskManager:
         Returns:
             任务状态列表
         """
-        return [self.get_status(task_id) for task_id in self._tasks]
+        statuses = (self.get_status(task_id) for task_id in self._tasks)
+        return [status for status in statuses if status is not None]
 
     def clear_completed(self) -> int:
         """清理已完成的任务
@@ -434,6 +444,31 @@ class BackgroundTaskManager:
             "max_concurrent": self._max_concurrent,
             "status_counts": status_counts,
         }
+
+    async def shutdown(self) -> None:
+        """Cancel and await the cleanup loop and every in-flight Agent task."""
+        async with self._lock:
+            self._closed = True
+            completed_at = datetime.now(timezone.utc)
+            for task in self._tasks.values():
+                if task.status in (TaskStatus.PENDING, TaskStatus.RUNNING):
+                    task.status = TaskStatus.CANCELLED
+                    task.completed_at = completed_at
+            cleanup_task = self._cleanup_task
+            exec_tasks = tuple(task for task in self._exec_tasks if not task.done())
+
+        if cleanup_task is not None and not cleanup_task.done():
+            cleanup_task.cancel()
+        for task in exec_tasks:
+            task.cancel()
+        pending = tuple(task for task in (cleanup_task, *exec_tasks) if task is not None)
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+
+        self._cleanup_task = None
+        self._exec_tasks.clear()
+        self._exec_by_id.clear()
+        self._running_count = 0
 
 
 __all__ = [

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import os
 
-from miniagent.infrastructure.json_config import JsonConfigLoader
+from miniagent.infrastructure.json_config import get_config_section
 from miniagent.infrastructure.logger import get_logger
 
 _logger = get_logger(__name__)
@@ -46,8 +46,7 @@ def load_secrets_from_config() -> None:
     从 JSON secrets 设置环境变量，供 OpenAI/飞书等 SDK 读取。
     """
     try:
-        config = JsonConfigLoader.get_instance()
-        secrets = config.get_section("secrets")
+        secrets = get_config_section("secrets")
 
         if not secrets:
             _logger.debug("config.user.json中无secrets部分")

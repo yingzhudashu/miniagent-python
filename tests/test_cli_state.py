@@ -58,7 +58,7 @@ class TestCliLoopStateShape:
     def test_type_annotations(self):
         ann = CliLoopState.__annotations__
         assert _forward_name(ann["skill_prompts"]) == "list[str]"
-        assert _forward_name(ann["runtime_ctx"]) == "RuntimeContext"
+        assert _forward_name(ann["runtime_ctx"]) == "ApplicationContainer"
         assert _forward_name(ann["session_manager"]) == "SessionManagerProtocol | None"
         assert _forward_name(ann["last_feishu_receive_chat_id"]) == "str"
         assert _forward_name(ann["cli_render_width"]) == "object"

@@ -121,6 +121,9 @@ class _ChatQueue:
             # 打断模式：取消当前任务 + 清空队列，直接执行新任务
             if self._current_task and not self._current_task.done():
                 self._current_task.cancel()
+            for queued_task in self._queue:
+                if not queued_task.done():
+                    queued_task.cancel()
             self._queue.clear()
             # 直接执行新任务（不走队列），跨队列串行时获取全局执行锁
             if (
@@ -162,6 +165,19 @@ class _ChatQueue:
                 return
             task = asyncio.create_task(self._run_sequential(coro, on_start, on_done))
             self._queue.append(task)
+            task.add_done_callback(self._on_queue_task_done)
+
+    def _on_queue_task_done(self, task: asyncio.Task[Any]) -> None:
+        """Remove a completed wrapper and consume any unhandled exception."""
+        try:
+            self._queue.remove(task)
+        except ValueError:
+            pass
+        if task.cancelled():
+            return
+        error = task.exception()
+        if error is not None:
+            _logger.error("消息队列任务异常: %s", error, exc_info=error)
 
     def mark_task_start(self) -> None:
         """标记当前任务开始，记录启动时间戳。"""
@@ -320,6 +336,7 @@ class MessageQueueManager:
         # 保证 CLI 与飞书等不同通道的消息按入队顺序全局 FIFO 执行。
         # 注意：此锁与 SessionExecCoordinator **不同**，避免同一任务重复获取同一 asyncio.Lock 导致死锁。
         self.exec_lock: asyncio.Lock | None = None
+        self._closed = False
 
     @property
     def cross_queue_serial(self) -> bool:
@@ -397,6 +414,7 @@ class MessageQueueManager:
             on_start: 开始回调
             on_done: 完成回调
         """
+        self._raise_if_closed(coro)
         q = self._get_queue(chat_id)
         await q.enqueue(coro, self._mode, on_start, on_done)
 
@@ -405,6 +423,7 @@ class MessageQueueManager:
 
         供定时任务等需在触发点确认落盘后再继续的逻辑；普通消息仍用 ``dispatch``。
         """
+        self._raise_if_closed(coro)
         q = self._get_queue(chat_id)
         if self._mode == QueueMode.PREEMPTIVE:
             await q.enqueue(coro, self._mode, on_start, on_done)
@@ -454,6 +473,29 @@ class MessageQueueManager:
         for cid in list(self._queues.keys()):
             merged["chats"][cid] = self.abort_chat(cid)
         return merged
+
+    async def shutdown(self) -> dict[str, Any]:
+        """Cancel and await every active or queued task owned by this manager."""
+        self._closed = True
+        tasks: set[asyncio.Task[Any]] = set()
+        for queue in self._queues.values():
+            tasks.update(task for task in queue._queue if not task.done())
+            tasks.update(task for task in queue._dispatch_wait_tasks if not task.done())
+            current = queue._current_task
+            if current is not None and not current.done():
+                tasks.add(current)
+        result = self.abort_all_chats()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        return result
+
+    def _raise_if_closed(self, coro: Any) -> None:
+        """Reject work after shutdown and close an unstarted coroutine cleanly."""
+        if not self._closed:
+            return
+        if asyncio.iscoroutine(coro):
+            coro.close()
+        raise RuntimeError("消息队列已关闭")
 
     def get_status(self) -> dict[str, Any]:
         """获取所有聊天室的队列状态。
@@ -527,4 +569,4 @@ class MessageQueueManager:
         return "\n".join(lines)
 
 
-# MessageQueueManager 由 RuntimeContext.message_queue 持有，非模块级单例。
+# MessageQueueManager 由 ApplicationContainer.message_queue 持有，非模块级单例。

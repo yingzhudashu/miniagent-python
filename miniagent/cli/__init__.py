@@ -1,6 +1,6 @@
 """CLI 子包 — ``console_scripts`` 入口 ``miniagent`` 指向 ``cli.main``。
 
-``main`` 委托 ``miniagent.__main__.main``（``--help``、``--stop``、``unified_entry`` 等）。
+``main`` 委托 ``miniagent.__main__.main`` 处理参数并启动正式应用入口。
 
 与 ``pyproject.toml`` 中 ``[project.scripts] miniagent = miniagent.cli.cli:main`` 一致。
 """

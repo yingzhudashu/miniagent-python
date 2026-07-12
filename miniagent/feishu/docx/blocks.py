@@ -418,7 +418,7 @@ def append_markdown_to_document(
         return total, result.warnings
 
     else:
-        # 向后兼容：使用旧实现
+        # 显式纯文本渲染模式
         from miniagent.feishu.docx.markdown import markdown_to_plain_text
         n = append_plain_text_to_document(config, document_id, markdown_to_plain_text(markdown))
         return n, []

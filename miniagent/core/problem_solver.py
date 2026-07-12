@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from openai import AsyncOpenAI
 
+from miniagent.contracts.knowledge import KnowledgeRegistryProtocol
 from miniagent.core.llm_json import llm_json
 from miniagent.core.prompts.reflector import REFLECTOR_PROMPT
 from miniagent.core.thinking_callback import invoke_on_thinking
@@ -115,9 +116,10 @@ def _format_footer_bullets(label: str, items: list[str]) -> str:
 async def reflect_on_result(
     user_input: str,
     reply: str,
-    client: AsyncOpenAI | None = None,
+    client: AsyncOpenAI,
     on_thinking: Any | None = None,
     *,
+    knowledge_registry: KnowledgeRegistryProtocol,
     session_key: str | None = None,
 ) -> ReflectionResult:
     """调用 LLM 评估 Agent 回复质量。
@@ -127,6 +129,7 @@ async def reflect_on_result(
         reply: Agent 执行结果。
         client: LLM 客户端。
         on_thinking: 思考过程回调。
+        knowledge_registry: 由组合根注入的知识库注册表。
         session_key: 会话标识（用于 trace 归属）。
 
     Returns:
@@ -151,7 +154,11 @@ async def reflect_on_result(
     from miniagent.knowledge import retrieve_knowledge_context
 
     kb_standard = retrieve_knowledge_context(
-        user_input, phase="reflector", default_top_k=2, default_max_chars=1500
+        knowledge_registry,
+        user_input,
+        phase="reflector",
+        default_top_k=2,
+        default_max_chars=1500,
     )
 
     prompt = f"用户原始输入：\n{user_input}\n\nAgent 执行结果：\n{reply}"

@@ -124,7 +124,7 @@ class SkillRegistryProtocol(Protocol):
 
     管理技能的注册、注销、查询、技能包管理、贡献合并。
 
-    该 Protocol 用于 ``miniagent.runtime.context.RuntimeContext`` 的
+    该 Protocol 用于 ``ApplicationContainer`` 的
     skill_registry 字段类型，支持依赖注入模式。
 
     聚合方法（``get_all_tools`` / ``get_all_toolboxes`` / ``get_system_prompts``）
@@ -367,7 +367,7 @@ class ClawHubClientProtocol(Protocol):
 
     提供技能市场的搜索、详情查询、下载功能。
 
-    该 Protocol 用于 ``miniagent.runtime.context.RuntimeContext`` 的
+    该 Protocol 用于 ``ApplicationContainer`` 的
     clawhub 字段类型，支持依赖注入模式。
     """
 
@@ -411,6 +411,10 @@ class ClawHubClientProtocol(Protocol):
         Returns:
             包含 ``path`` 和 ``files`` 键的字典
         """
+        ...
+
+    async def close(self) -> None:
+        """Close the instance-owned HTTP connection pool."""
         ...
 
 

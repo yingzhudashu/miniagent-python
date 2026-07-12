@@ -20,7 +20,6 @@ from typing import Any
 from miniagent.core.constants import KNOWLEDGE_MAX_FILE_CHARS
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
-from miniagent.knowledge import get_kb_registry, search_knowledge
 from miniagent.knowledge.base import resolve_kb_file_path
 from miniagent.tools.base import tool
 from miniagent.types.error_prefix import ERROR_PREFIX, WARNING_PREFIX
@@ -33,7 +32,7 @@ _logger = get_logger(__name__)
 # ════════════════════════════════════════════════════════
 
 
-async def _search_knowledge_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolResult:
+async def _search_knowledge_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     """检索知识库内容。"""
     query = str(args.get("query", "")).strip()
     if not query:
@@ -47,7 +46,10 @@ async def _search_knowledge_handler(args: dict[str, Any], _ctx: ToolContext) -> 
         top_k = int(top_k)
 
     try:
-        result = search_knowledge(query, kb_name=kb_name, top_k=top_k)
+        registry = ctx.knowledge_registry
+        if registry is None:
+            return ToolResult(success=False, content=f"{ERROR_PREFIX} 知识库服务未注入")
+        result = registry.search(query, kb_name=kb_name, top_k=top_k)
         if not result:
             return ToolResult(success=False, content=f"{WARNING_PREFIX} 未找到相关内容")
         return ToolResult(success=True, content=result)
@@ -56,7 +58,7 @@ async def _search_knowledge_handler(args: dict[str, Any], _ctx: ToolContext) -> 
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 检索失败: {e}")
 
 
-async def _read_knowledge_file_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolResult:
+async def _read_knowledge_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     """读取知识库文件完整内容。"""
     kb_name = str(args.get("kb_name", "")).strip()
     file_path = str(args.get("file_path", "")).strip()
@@ -67,7 +69,9 @@ async def _read_knowledge_file_handler(args: dict[str, Any], _ctx: ToolContext) 
         return ToolResult(success=False, content=f"{WARNING_PREFIX} file_path 参数不能为空")
 
     try:
-        registry = get_kb_registry()
+        registry = ctx.knowledge_registry
+        if registry is None:
+            return ToolResult(success=False, content=f"{ERROR_PREFIX} 知识库服务未注入")
         kb = registry.get_kb(kb_name)
         if not kb:
             return ToolResult(success=False, content=f"{WARNING_PREFIX} 知识库 '{kb_name}' 未挂载")
@@ -94,10 +98,12 @@ async def _read_knowledge_file_handler(args: dict[str, Any], _ctx: ToolContext) 
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 读取失败: {e}")
 
 
-async def _kb_list_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolResult:
+async def _kb_list_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     """列出已挂载的知识库。"""
     try:
-        registry = get_kb_registry()
+        registry = ctx.knowledge_registry
+        if registry is None:
+            return ToolResult(success=False, content=f"{ERROR_PREFIX} 知识库服务未注入")
         kb_list = registry.list()
 
         if not kb_list:

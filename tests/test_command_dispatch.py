@@ -21,7 +21,6 @@ from miniagent.engine.command_dispatch import (
     _find_command_by_prefix,
     _format_status,
     _get_last_qa,
-    _normalize_command_text,
     dispatch_command,
 )
 from miniagent.types.error_prefix import WARNING_PREFIX
@@ -54,6 +53,17 @@ def _create_mock_state() -> dict:
         "session_manager": MagicMock(),
         "feishu_p2p_synced_senders": set(),
     }
+
+    from miniagent.bootstrap import LifecycleManager
+    from miniagent.engine.feishu_lifecycle import FeishuRuntimeLifecycleService
+
+    feishu_service = FeishuRuntimeLifecycleService(
+        enabled=False,
+        runtime=mock_rt.feishu,
+        handler_factory=mock_rt.create_feishu_handler_factory,
+        state=state,
+    )
+    mock_rt.lifecycle_manager = LifecycleManager([feishu_service])
 
     # Mock session_manager methods
     state["session_manager"].get_session_display_name = MagicMock(return_value="Default Session")
@@ -186,7 +196,7 @@ class TestFeishuCommand:
 
     @pytest.mark.asyncio
     async def test_feishu_start_calls_start_method(self) -> None:
-        """/feishu start 应调用 feishu.start（factory + state）。"""
+        """/feishu start delegates to the lifecycle-owned runtime."""
         state = _create_mock_state()
         factory = state["runtime_ctx"].create_feishu_handler_factory
 
@@ -201,8 +211,11 @@ class TestFeishuCommand:
 
     @pytest.mark.asyncio
     async def test_feishu_stop_calls_stop_async(self) -> None:
-        """/feishu stop 应 await feishu.stop_async。"""
+        """/feishu stop awaits the lifecycle-owned runtime shutdown."""
         state = _create_mock_state()
+        service = state["runtime_ctx"].lifecycle_manager.service("feishu")
+        service.enabled = True
+        service._start_attempted = True
         state["runtime_ctx"].feishu.stop_async = AsyncMock(return_value=None)
 
         await dispatch_command("/feishu stop", state=state, capture=True)
@@ -516,35 +529,6 @@ class TestSelfOptCommand:
         assert "已执行提案 pid-1" in result
 
 
-class TestLegacyReloadSkills:
-    """旧版 ``.reload-skills`` 别名。"""
-
-    def test_normalize_legacy_dot_prefix(self) -> None:
-        assert _normalize_command_text(".reload-skills") == "/reload-skills"
-        assert _normalize_command_text(".reload_skills") == "/reload-skills"
-        assert _normalize_command_text("hello") is None
-
-    @pytest.mark.asyncio
-    async def test_legacy_reload_skills_dispatches(self) -> None:
-        state = _create_mock_state()
-
-        with patch("miniagent.skills.refresh.refresh_skills", new_callable=AsyncMock) as mock_refresh:
-            from miniagent.skills.refresh import RefreshResult
-
-            mock_refresh.return_value = RefreshResult(
-                package_ids=["pkg"],
-                loaded_skills=[],
-                added_tools=[],
-                removed_tools=[],
-            )
-
-            result = await dispatch_command(".reload-skills", state=state, capture=True)
-
-        assert result is not None
-        assert "技能已重新加载" in result
-        mock_refresh.assert_awaited_once()
-
-
 class TestReviewCommand:
     """测试 /review capture 路径。"""
 
@@ -607,7 +591,6 @@ __all__ = [
     "TestCaptureMode",
     "TestUnknownCommand",
     "TestSelfOptCommand",
-    "TestLegacyReloadSkills",
     "TestReviewCommand",
     "TestPrefixMatchAmbiguity",
 ]

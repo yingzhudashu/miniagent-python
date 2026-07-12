@@ -12,9 +12,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 from miniagent.infrastructure.paths import resolve_state_dir
-from miniagent.memory.history_archive import diary_file_path, safe_session_id_for_memory
+from miniagent.memory.history_archive import diary_file_path
 from miniagent.tools.base import tool
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
+from miniagent.utils.session_id import safe_session_id
 
 # ════════════════════════════════════════════════════════
 # Handlers
@@ -91,7 +92,7 @@ async def _search_session_diary_handler(args: dict[str, Any], ctx: ToolContext) 
     ctx_chars = max(20, min(ctx_chars, 2000))
     max_hits_per_file = max(1, min(max_hits_per_file, 50))
 
-    root = os.path.join(resolve_state_dir(), "memory", "diary", safe_session_id_for_memory(sk))
+    root = os.path.join(resolve_state_dir(), "memory", "diary", safe_session_id(sk))
     if not os.path.isdir(root):
         return ToolResult(success=True, content="（该会话尚无 diary 目录）")
 

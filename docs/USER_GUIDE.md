@@ -77,7 +77,7 @@
 
 - **语法与示例**：[CLI.md §/schedule](CLI.md)
 - **飞书限制**：默认仅 `list` / `show`；`add` / `remove` 等须在本地 CLI
-- **架构与配置**：[ARCHITECTURE.md「定时任务子系统」](ARCHITECTURE.md#定时任务子系统)、`config.defaults.json` 的 `scheduled_tasks` 节
+- **架构与配置**：[ARCHITECTURE.md「定时任务子系统」](ARCHITECTURE.md#定时任务子系统)、`miniagent/resources/config.defaults.json` 的 `scheduled_tasks` 节
 
 ---
 
@@ -106,7 +106,7 @@
 - **联网搜索（Tavily）**：在 `config.user.json` 的 `secrets` 部分配置 `tavily_api_key` 或 `web_search_api_key`。未配置时，若模型尝试调用搜索工具，会得到 **明确错误提示**，不影响其它工具。  
 - **浏览器正文抽取**：需 `[browser]` 与 Playwright 浏览器安装；用于部分需渲染的网页。  
 
-超时等见 `config.defaults.json` 的 `agent` 节（如 `agent.tool_timeout`）。
+超时等见 `miniagent/resources/config.defaults.json` 的 `agent` 节（如 `agent.tool_timeout`）。
 
 ---
 
@@ -143,7 +143,7 @@
 | `auto` | 同上；无工具箱时仅核心工具（不含 MCP） |
 | `all` | 始终可见 |
 
-具体配置见 `config.defaults.json` 的 `mcp` 节与 [ENGINEERING.md](ENGINEERING.md) §1。
+具体配置见 `miniagent/resources/config.defaults.json` 的 `mcp` 节与 [ENGINEERING.md](ENGINEERING.md) §1。
 
 ---
 
@@ -151,7 +151,7 @@
 
 ### 10.1 默认布局
 
-默认布局下，**项目业务状态**（会话、锁、飞书去重、记忆索引等）写入 miniagent 安装/源码根下的 **`workspaces/projects/{project_key}/`**（按启动 cwd 自动区分）；**实例注册表** 仍在 `workspaces/instances/`。若 cwd 下存在旧版 `{cwd}/workspaces/` 数据，legacy 回退会继续使用该路径。可在 `config.user.json` 设置绝对 `paths.state_dir` 或通过 `MINIAGENT_PATHS_STATE_DIR` 将项目数据迁到其它磁盘路径，便于备份或多副本隔离。
+默认布局下，**项目业务状态**（会话、锁、飞书去重、记忆索引等）写入 miniagent 安装/源码根下的 **`workspaces/projects/{project_key}/`**（按启动 cwd 自动区分）；**实例注册表** 位于 `workspaces/instances/`。可在 `config.user.json` 设置绝对 `paths.state_dir` 或通过 `MINIAGENT_PATHS_STATE_DIR` 将项目数据放到其它磁盘路径，便于备份或多副本隔离。
 
 ### 10.2 哪些不应提交到 Git
 

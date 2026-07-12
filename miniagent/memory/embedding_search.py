@@ -39,7 +39,7 @@ from miniagent.infrastructure.trace_events import (
     EVENT_EMBEDDING_CACHE_HIT,
 )
 from miniagent.infrastructure.tracing import emit_trace
-from miniagent.memory.shared_registry import MemoryEntryRegistry, get_registry
+from miniagent.memory.shared_registry import MemoryEntryRegistry
 from miniagent.types.memory import MemoryEntry, MemoryEntryInput
 
 _logger = get_logger(__name__)
@@ -174,29 +174,10 @@ def _text_hash(text: str) -> str:
 # 嵌入 API 调用
 # ============================================================================
 
-# 性能优化：全局 HTTP 客户端复用（避免每次创建新客户端）
-_EMBED_HTTP_CLIENT: httpx.AsyncClient | None = None
-
-
-async def _get_embed_http_client(timeout: float = 15.0) -> httpx.AsyncClient:
-    """获取全局嵌入 HTTP 客户端（性能优化：复用连接池）。"""
-    global _EMBED_HTTP_CLIENT
-    if _EMBED_HTTP_CLIENT is None:
-        _EMBED_HTTP_CLIENT = httpx.AsyncClient(timeout=timeout)
-    return _EMBED_HTTP_CLIENT
-
-
-async def close_embed_http_client() -> None:
-    """关闭全局嵌入 HTTP 客户端（进程退出时调用）。"""
-    global _EMBED_HTTP_CLIENT
-    if _EMBED_HTTP_CLIENT is not None:
-        await _EMBED_HTTP_CLIENT.aclose()
-        _EMBED_HTTP_CLIENT = None
-
-
 async def _get_embedding(
     text: str,
     *,
+    client: httpx.AsyncClient,
     base_url: str,
     model: str,
     api_key: str,
@@ -215,9 +196,6 @@ async def _get_embedding(
         "model": model,
         "input": text,
     }
-
-    # 性能优化：使用全局客户端复用连接池
-    client = await _get_embed_http_client(timeout)
 
     # 网络可靠性：使用重试机制
     from miniagent.infrastructure.http_retry import async_http_request_with_retry
@@ -301,7 +279,7 @@ class EmbeddingIndex:
     ) -> None:
         """创建嵌入索引；``registry`` 缺省时使用 ``state_dir`` 下的共享注册表。"""
         self._state_dir = state_dir
-        self._registry = registry or get_registry(state_dir)
+        self._registry = registry or MemoryEntryRegistry(state_dir=state_dir)
         self._entries: collections.OrderedDict[str, _EmbeddingEntry] = collections.OrderedDict()
         self._dim: int = get_config("embedding.dimension", 1536)
         # 降低默认上限以减少内存占用（10000 条目 ≈ 60MB，2000 ≈ 12MB）
@@ -632,9 +610,10 @@ class EmbeddingSearchProvider:
         registry: MemoryEntryRegistry | None = None,
     ) -> None:
         """创建嵌入搜索提供者；未配置 ``embedding.*`` 时 ``get_embedding`` 返回 None。"""
-        self._registry = registry or get_registry(state_dir)
+        self._registry = registry or MemoryEntryRegistry(state_dir=state_dir)
         self._index = EmbeddingIndex(state_dir=state_dir, registry=self._registry)
         self._providers: list[dict[str, str | int]] = []
+        self._http_client: httpx.AsyncClient | None = None
         self._init_providers()
 
     def _init_providers(self) -> None:
@@ -648,6 +627,19 @@ class EmbeddingSearchProvider:
     def index(self) -> EmbeddingIndex:
         """底层 ``EmbeddingIndex`` 实例（持久化与 ``index_entry`` 入口）。"""
         return self._index
+
+    def _get_http_client(self, timeout: float = 15.0) -> httpx.AsyncClient:
+        """Return this provider's lazily-created reusable connection pool."""
+        if self._http_client is None:
+            self._http_client = httpx.AsyncClient(timeout=timeout)
+        return self._http_client
+
+    async def close(self) -> None:
+        """Close the provider-owned HTTP connection pool, if it was created."""
+        client = self._http_client
+        self._http_client = None
+        if client is not None:
+            await client.aclose()
 
     async def get_embedding(self, text: str) -> list[float] | None:
         """获取文本的嵌入向量（带缓存）。
@@ -682,6 +674,7 @@ class EmbeddingSearchProvider:
                 start_time = time.time()
                 embedding = await _get_embedding(
                     clean,
+                    client=self._get_http_client(),
                     base_url=str(provider["base_url"]),
                     model=str(provider["model"]),
                     api_key=str(provider["api_key"]),
@@ -764,34 +757,9 @@ class EmbeddingSearchProvider:
         return expanded
 
 
-# ============================================================================
-# 便捷函数
-# ============================================================================
-
-_embed_provider: EmbeddingSearchProvider | None = None
-
-
-def get_embed_provider(state_dir: str = "workspaces") -> EmbeddingSearchProvider:
-    """获取或创建全局嵌入搜索提供者。"""
-    global _embed_provider
-    if _embed_provider is None:
-        registry = get_registry(state_dir)
-        _embed_provider = EmbeddingSearchProvider(state_dir=state_dir, registry=registry)
-    return _embed_provider
-
-
-def reset_embed_provider() -> None:
-    """重置全局嵌入搜索提供者（测试用）。"""
-    global _embed_provider
-    _embed_provider = None
-
-
 __all__ = [
     "EmbeddingIndex",
     "EmbeddingSearchProvider",
     "EmbeddingSearchResult",
     "embedding_search_enabled",
-    "get_embed_provider",
-    "reset_embed_provider",
-    "get_registry",
 ]

@@ -38,7 +38,7 @@ from miniagent.core.constants import (
 )
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
-from miniagent.memory.shared_registry import MemoryEntryRegistry, get_registry
+from miniagent.memory.shared_registry import MemoryEntryRegistry
 from miniagent.types.memory import MemoryEntry, MemoryEntryInput
 
 _logger = get_logger(__name__)
@@ -307,12 +307,12 @@ class KeywordIndex:
 
         Args:
             state_dir: 状态存储目录
-            registry: 共享注册表实例（None 时使用全局默认）
+            registry: 共享注册表实例；缺省时创建本索引私有的注册表
         """
         import threading
 
         self._state_dir = state_dir
-        self._registry = registry or get_registry(state_dir)
+        self._registry = registry or MemoryEntryRegistry(state_dir=state_dir)
         self._index: collections.OrderedDict[str, _IndexEntry] = collections.OrderedDict()
         self._max_entries: int = get_config("memory.keyword_index_max", 20000)
         self._loaded = False
@@ -678,48 +678,6 @@ def search_relevant_with_index(
     return output
 
 
-def search_relevant_memory(query: str, top_k: int = 5, min_score: float = 0.0) -> list[dict[str, Any]]:
-    """搜索相关记忆（全局便捷函数）。
-
-    使用进程默认关键词索引检索与查询相关的记忆条目。
-
-    Args:
-        query: 搜索查询文本（会被自动提取关键词）
-        top_k: 返回的最大条目数（默认 5）
-        min_score: 最小匹配分数阈值（默认 0，即无过滤）
-
-    Returns:
-        list[dict]: 匹配的记忆条目列表，每个条目包含：
-            - session_id: 会话 ID
-            - timestamp: 时间戳
-            - summary: 摘要文本
-            - score: 匹配分数
-
-    Note:
-        - 使用 get_process_default_memory_bundle() 获取默认索引
-        - 若索引未初始化则返回空列表
-    """
-    from miniagent.memory.defaults import get_process_default_memory_bundle
-
-    idx = get_process_default_memory_bundle()[2]
-    results = idx.search_relevant(query, limit=top_k)
-    # 转换为 dict 列表以兼容下游
-    output = []
-    for r in results:
-        if r.score >= min_score:
-            shared_entry = idx._registry.get(r.entry_key)
-            if shared_entry is not None:
-                output.append({
-                    "session_id": shared_entry.session_id,
-                    "timestamp": shared_entry.timestamp,
-                    "summary": shared_entry.summary,
-                    "user_snippet": shared_entry.user_snippet,
-                    "facts": shared_entry.facts,
-                    "score": r.score,
-                })
-    return output
-
-
 def format_search_results(
     results: list[dict[str, Any]],
     *,
@@ -742,18 +700,9 @@ def format_search_results(
     return text
 
 
-def get_index_stats() -> dict[str, Any]:
-    """获取索引统计信息（全局便捷函数）。"""
-    from miniagent.memory.defaults import get_process_default_memory_bundle
-
-    return get_process_default_memory_bundle()[2].get_stats()
-
-
 __all__ = [
     "KeywordIndex",
     "extract_keywords",
     "search_relevant_with_index",
-    "search_relevant_memory",
     "format_search_results",
-    "get_index_stats",
 ]

@@ -61,6 +61,15 @@ version = {attr = "miniagent.__version__"}
 where = ["."]
 include = ["miniagent*"]
 
+[tool.setuptools.package-data]
+"miniagent.resources" = ["*.json"]
+"miniagent.skills" = [
+    "templates/**/*.md",
+    "templates/**/*.json",
+    "templates/**/*.html",
+    "templates/**/*.txt",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"

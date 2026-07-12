@@ -1,19 +1,16 @@
-"""scheduled_tasks_loop / start_scheduled_tasks_ticker / shutdown 集成。"""
+"""Scheduler loop, lifecycle-owned starter and dispatch integration tests."""
 
 from __future__ import annotations
 
 import asyncio
 import time
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
-from miniagent.engine.cli_state import CliLoopState
-from miniagent.engine.feishu_state import FeishuRuntime
-from miniagent.engine.shutdown import shutdown_runtime
-from miniagent.infrastructure.message_queue import MessageQueueManager
-from miniagent.runtime.context import RuntimeContext
+from miniagent.contracts.messages import InboundMessage
 from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec, SessionSpec
+from miniagent.scheduled_tasks.runner import ScheduledJob
 from miniagent.scheduled_tasks.store import save_tasks
 from miniagent.scheduled_tasks.ticker import (
     scheduled_tasks_loop,
@@ -21,27 +18,6 @@ from miniagent.scheduled_tasks.ticker import (
     tick_once,
 )
 from tests.scheduled_tasks_helpers import minimal_cli_state, minimal_tick_ctx, patch_tick_once_locks
-
-
-def _runtime_ctx() -> RuntimeContext:
-    mq = MessageQueueManager()
-    router = MagicMock()
-    router.primary = "default"
-    return RuntimeContext(
-        registry=MagicMock(),
-        monitor=MagicMock(),
-        skill_registry=MagicMock(),
-        clawhub=MagicMock(),
-        engine=MagicMock(),
-        channel_router=router,
-        message_queue=mq,
-        feishu=FeishuRuntime(mq),
-        memory_store=MagicMock(),
-        activity_log=MagicMock(),
-        keyword_index=MagicMock(),
-        memory_context=MagicMock(),
-        openai_client=None,
-    )
 
 
 @pytest.mark.asyncio
@@ -69,56 +45,22 @@ async def test_scheduled_tasks_loop_invokes_tick_once(
 
 
 @pytest.mark.asyncio
-async def test_start_scheduled_tasks_ticker_sets_ctx_fields(
+async def test_start_scheduled_tasks_ticker_uses_lifecycle_stop_event(
     state_dir: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     ctx = minimal_tick_ctx()
     st = minimal_cli_state(ctx)
-    ctx.scheduled_tasks_stop_event = None
-    ctx.scheduled_tasks_ticker = None
+    stop_event = asyncio.Event()
 
     monkeypatch.setattr(
         "miniagent.scheduled_tasks.ticker.scheduled_tasks_loop",
         AsyncMock(),
     )
-    t = start_scheduled_tasks_ticker(ctx, st, [], [])
-    assert ctx.scheduled_tasks_stop_event is not None
-    assert ctx.scheduled_tasks_ticker is t
+    t = start_scheduled_tasks_ticker(ctx, st, [], [], stop_event)
+    assert t.get_name() == "miniagent_scheduled_tasks"
     t.cancel()
     with pytest.raises(asyncio.CancelledError):
         await t
-
-
-@pytest.mark.asyncio
-async def test_shutdown_runtime_cancels_scheduled_tasks_ticker() -> None:
-    ctx = _runtime_ctx()
-    st: CliLoopState = {
-        "active_session_id": "",
-        "skill_toolboxes": [],
-        "skill_prompts": [],
-        "feishu_enabled": False,
-        "session_manager": None,
-        "instance_id": 1,
-        "runtime_ctx": ctx,
-        "feishu_p2p_synced_senders": set(),
-    }
-
-    async def _slow_loop() -> None:
-        await asyncio.sleep(3600)
-
-    ticker_task = asyncio.create_task(_slow_loop(), name="miniagent_scheduled_tasks")
-    ctx.scheduled_tasks_ticker = ticker_task
-    ctx.scheduled_tasks_stop_event = asyncio.Event()
-
-    await shutdown_runtime(
-        ctx,
-        st,
-        reason="test_ticker_shutdown",
-        abort_message_queues=False,
-        release_cli_session_lock=False,
-        call_unregister=False,
-    )
-    assert ticker_task.done()
 
 
 @pytest.mark.asyncio
@@ -144,13 +86,24 @@ async def test_tick_once_respects_max_due_per_tick(
     dispatched: list[str] = []
 
     def _fake_build(_ctx, _state, task, *_a, **_k):
-        async def _coro() -> None:
+        async def _run(_message: InboundMessage) -> None:
             dispatched.append(task.id)
 
-        return (_coro(), "__cli__")
+        return ScheduledJob(
+            message=InboundMessage.create(
+                channel="scheduler",
+                conversation_id="__cli__",
+                sender_id="scheduler",
+                content=task.prompt,
+                session_key="default",
+                metadata={"queue_key": "__cli__", "task_id": task.id},
+            ),
+            queue_key="__cli__",
+            run=_run,
+        )
 
     monkeypatch.setattr(
-        "miniagent.scheduled_tasks.ticker.build_run_scheduled_job_coro", _fake_build
+        "miniagent.scheduled_tasks.ticker.build_scheduled_job", _fake_build
     )
     patch_tick_once_locks(monkeypatch)
 

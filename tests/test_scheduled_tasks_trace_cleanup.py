@@ -9,16 +9,13 @@ import pytest
 
 from miniagent.scheduled_tasks import trace_cleanup as tc_mod
 from miniagent.scheduled_tasks.ticker import scheduled_tasks_loop
+from miniagent.scheduled_tasks.trace_cleanup import TraceHousekeeping
 from tests.config_helpers import install_test_config
 from tests.scheduled_tasks_helpers import minimal_cli_state, minimal_tick_ctx
 
 
-def _reset_cleanup_clock() -> None:
-    tc_mod._last_cleanup_at = 0.0
-
-
-def test_maybe_scheduled_cleanup_traces_runs_when_due(monkeypatch: pytest.MonkeyPatch) -> None:
-    _reset_cleanup_clock()
+def test_trace_housekeeping_runs_cleanup_when_due(monkeypatch: pytest.MonkeyPatch) -> None:
+    housekeeping = TraceHousekeeping()
     calls: list[int] = []
 
     def _fake_cleanup() -> dict[str, object]:
@@ -26,13 +23,13 @@ def test_maybe_scheduled_cleanup_traces_runs_when_due(monkeypatch: pytest.Monkey
         return {"success": True, "deleted_count": 2}
 
     monkeypatch.setattr(tc_mod, "scheduled_cleanup_traces", _fake_cleanup)
-    result = tc_mod.maybe_scheduled_cleanup_traces()
+    result = housekeeping.maybe_cleanup()
     assert result == {"success": True, "deleted_count": 2}
     assert len(calls) == 1
 
 
-def test_maybe_scheduled_cleanup_traces_throttles(monkeypatch: pytest.MonkeyPatch) -> None:
-    _reset_cleanup_clock()
+def test_trace_housekeeping_throttles_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
+    housekeeping = TraceHousekeeping()
     calls: list[int] = []
 
     def _fake_cleanup() -> dict[str, object]:
@@ -40,13 +37,15 @@ def test_maybe_scheduled_cleanup_traces_throttles(monkeypatch: pytest.MonkeyPatc
         return {"success": True, "deleted_count": 0}
 
     monkeypatch.setattr(tc_mod, "scheduled_cleanup_traces", _fake_cleanup)
-    assert tc_mod.maybe_scheduled_cleanup_traces() is not None
-    assert tc_mod.maybe_scheduled_cleanup_traces() is None
+    assert housekeeping.maybe_cleanup() is not None
+    assert housekeeping.maybe_cleanup() is None
     assert len(calls) == 1
 
 
-def test_maybe_scheduled_cleanup_traces_disabled(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _reset_cleanup_clock()
+def test_trace_housekeeping_skips_disabled_cleanup(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    housekeeping = TraceHousekeeping()
     install_test_config(tmp_path, {"trace": {"auto_cleanup": False}})
     calls: list[int] = []
     monkeypatch.setattr(
@@ -54,7 +53,7 @@ def test_maybe_scheduled_cleanup_traces_disabled(tmp_path, monkeypatch: pytest.M
         "scheduled_cleanup_traces",
         lambda: calls.append(1) or {"success": True},
     )
-    assert tc_mod.maybe_scheduled_cleanup_traces() is None
+    assert housekeeping.maybe_cleanup() is None
     assert calls == []
 
 
@@ -66,12 +65,12 @@ async def test_scheduled_tasks_loop_invokes_trace_housekeeping(
     stats_calls: list[int] = []
 
     monkeypatch.setattr(
-        "miniagent.scheduled_tasks.trace_cleanup.maybe_scheduled_cleanup_traces",
-        lambda: cleanup_calls.append(1),
+        "miniagent.scheduled_tasks.trace_cleanup.TraceHousekeeping.maybe_cleanup",
+        lambda _self: cleanup_calls.append(1),
     )
     monkeypatch.setattr(
-        "miniagent.scheduled_tasks.trace_cleanup.maybe_scheduled_trace_stats_report",
-        lambda: stats_calls.append(1),
+        "miniagent.scheduled_tasks.trace_cleanup.TraceHousekeeping.maybe_report",
+        lambda _self: stats_calls.append(1),
     )
     monkeypatch.setattr(
         "miniagent.scheduled_tasks.ticker.tick_once",

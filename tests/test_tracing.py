@@ -112,7 +112,7 @@ class TestTraceFilePersistence:
         pid_suffix = f"-pid{os.getpid()}"
         expected_file = Path(str(log_path).replace(".jsonl", f"{pid_suffix}.jsonl"))
 
-        # 如果pid后缀文件不存在，尝试原始文件名（兼容旧版本）
+        # 若 writer 尚未产生 pid 分片，则使用测试配置路径定位输出。
         actual_file = expected_file if expected_file.exists() else log_path
 
         # 验证文件内容

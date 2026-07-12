@@ -12,7 +12,7 @@
 ``on_thinking`` / ``on_tool_call`` 等注入，由 :class:`miniagent.engine.engine.UnifiedEngine` 等上层接线。
 规划可见输出合并为 ``[评估与计划]`` 流式段；可选关键字参数 ``full_record`` 由引擎用于会话历史全量落盘（见 ``miniagent.core.thinking_callback.invoke_on_thinking``）。
 
-**轮数上限（与执行器一致）**：全局 ReAct 上限由 ``agent.max_turns``（默认 400）控制；分步模式下单步上限为 Internal 常量 ``STEP_MAX_TURNS``。规划器给出的建议轮数**不会**把上述硬上限压低。
+**轮数上限（与执行器一致）**：全局 ReAct 上限由 ``agent.max_turns``（默认 400）控制；分步模式下单步上限为 Internal 常量 ``EXECUTION_STEP_MAX_TURNS``。规划器给出的建议轮数**不会**把上述硬上限压低。
 
 **导出**：``run_agent``、``run_pipeline``、常量 ``PLANNING_STREAM_HEADER``。
 
@@ -21,6 +21,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, TypeAlias
@@ -28,12 +29,15 @@ from typing import TYPE_CHECKING, Any, TypeAlias
 if TYPE_CHECKING:
     from openai import AsyncOpenAI
 
+from miniagent.contracts.knowledge import KnowledgeRegistryProtocol
+from miniagent.contracts.memory import MemoryRuntimeProtocol
 from miniagent.core.config import get_default_agent_config, merge_agent_config
 from miniagent.core.constants import (
     CLARIFIER_MAX_QUESTIONS_COMPLEX,
     CLARIFIER_MAX_QUESTIONS_MEDIUM,
     CLARIFIER_MAX_QUESTIONS_NORMAL,
     CLARIFIER_MAX_QUESTIONS_SIMPLE,
+    EXECUTION_MAX_PLAN_CONFIRM_ROUNDS,
 )
 from miniagent.core.executor import execute_plan
 from miniagent.core.plan_utils import (
@@ -384,6 +388,9 @@ async def run_agent(
     user_input: str,
     *,
     registry: ToolRegistryProtocol,
+    memory: MemoryRuntimeProtocol,
+    knowledge_registry: KnowledgeRegistryProtocol,
+    client: AsyncOpenAI,
     monitor: ToolMonitorProtocol | None = None,
     toolboxes: list[Toolbox] | None = None,
     agent_config: dict[str, Any] | None = None,
@@ -395,15 +402,11 @@ async def run_agent(
     on_plan: OnPlan | None = None,
     on_thinking: OnThinking | None = None,
     clawhub: Any | None = None,
-    memory_store: Any | None = None,
-    activity_log: Any | None = None,
-    keyword_index: Any | None = None,
-    memory_context: Any | None = None,
-    client: AsyncOpenAI | None = None,
     clarifier: Any | None = None,
     session_key: str | None = None,
     confirmation_channel: Any | None = None,
     engine: Any | None = None,
+    tool_semaphore: asyncio.Semaphore | None = None,
 ) -> AgentRunResult:
     """运行 Agent（两阶段主入口 + 可选前置/后置步骤）。
 
@@ -451,14 +454,14 @@ async def run_agent(
         on_plan: 规划确认回调（高风险操作时等待用户响应，返回 :class:`ConfirmationResult`）
         on_thinking: 思考流回调（实时展示思考过程）
         clawhub: ClawHub客户端实例（用于技能市场交互）
-        memory_store: 记忆存储实例（默认使用进程bundle）
-        activity_log: 活动日志实例（记录会话活动）
-        keyword_index: 关键词索引实例（语义检索）
-        client: AsyncOpenAI客户端（默认使用进程共享实例）
+        memory: 由应用组合根创建的记忆运行时（存储、日志、索引与上下文）
+        knowledge_registry: 由应用组合根创建的知识库注册表
+        client: 由组合根显式注入的 AsyncOpenAI 客户端
         clarifier: 需求澄清器（见 ``requirement_clarifier`` 模块）
         session_key: 会话标识符（用于记忆加载和历史保存）
         confirmation_channel: 确认通道（澄清追问与计划/工具确认）
         engine: UnifiedEngine 实例；反思结果可写入 ``_last_reflection``
+        tool_semaphore: 由引擎持有并注入 executor 的工具并发限制器
 
     Returns:
         AgentRunResult: 含 ``reply`` 与工具调用统计。
@@ -520,6 +523,7 @@ async def run_agent(
         difficulty = await classify_task_difficulty(
             user_input,
             [t.id for t in toolboxes],
+            knowledge_registry=knowledge_registry,
             client=client,
             agent_config=merged_config,
         )
@@ -590,7 +594,8 @@ async def run_agent(
                 ask_user=_ask_user_for_clarification,
                 client=client,
                 on_thinking=on_thinking,
-                memory_store=memory_store,
+                memory_store=memory.store,
+                knowledge_registry=knowledge_registry,
                 session_key=session_key,
                 max_questions=max_questions,
             )
@@ -631,7 +636,7 @@ async def run_agent(
         # ── Phase 1: 规划 ──
         from_llm_planner = True
         plan_input = user_input
-        replan_attempts_left = max(1, int(get_config("agent.max_plan_confirm_rounds", 3)))
+        replan_attempts_left = EXECUTION_MAX_PLAN_CONFIRM_ROUNDS
 
         while True:
             plan = await generate_plan(
@@ -641,6 +646,7 @@ async def run_agent(
                 client=client,
                 agent_config=merged_config,
                 registry=registry,
+                knowledge_registry=knowledge_registry,
                 planner_model_overrides=planner_merge_for_difficulty(difficulty),
                 default_step_thinking=default_step_thinking_for_difficulty(difficulty),
             )
@@ -731,12 +737,11 @@ async def run_agent(
         on_tool_finish=on_tool_finish,
         system_prompt=effective_system_prompt,
         clawhub=clawhub,
-        memory_store=memory_store,
-        activity_log=activity_log,
-        keyword_index=keyword_index,
-        memory_context=memory_context,
+        memory=memory,
+        knowledge_registry=knowledge_registry,
         client=client,
         confirmation_channel=confirmation_channel,
+        tool_semaphore=tool_semaphore,
     )
 
     if (
@@ -771,12 +776,11 @@ async def run_agent(
             on_tool_finish=on_tool_finish,
             system_prompt=effective_system_prompt,
             clawhub=clawhub,
-            memory_store=memory_store,
-            activity_log=activity_log,
-            keyword_index=keyword_index,
-            memory_context=memory_context,
+            memory=memory,
+            knowledge_registry=knowledge_registry,
             client=client,
             confirmation_channel=confirmation_channel,
+            tool_semaphore=tool_semaphore,
         )
         if not fallback_reply.startswith(WARNING_PREFIX):
             reply = fallback_reply
@@ -785,7 +789,12 @@ async def run_agent(
     reflection_enabled = get_config("features.reflection", True)
     if reflection_enabled:
         reflection = await reflect_on_result(
-            user_input, reply, client=client, on_thinking=None, session_key=session_key
+            user_input,
+            reply,
+            knowledge_registry=knowledge_registry,
+            client=client,
+            on_thinking=None,
+            session_key=session_key,
         )
         # 动态属性：供飞书质量卡片读取（非 engine 公开契约）
         if engine is not None:

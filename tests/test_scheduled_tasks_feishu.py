@@ -7,15 +7,49 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from miniagent.application.messaging import ChannelRegistry
+from miniagent.contracts import OutboundEvent
 from miniagent.infrastructure.channel_router import ChannelRouter
 from miniagent.scheduled_tasks.feishu_delivery import (
+    FeishuDeliveryTarget,
     resolve_feishu_delivery,
     schedule_feishu_last_chat_enabled,
     schedule_feishu_mirror_enabled,
+    send_scheduled_reply_to_feishu,
 )
 from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec, SessionSpec
 from miniagent.scheduled_tasks.timezone_util import default_schedule_timezone
+from tests.channel_helpers import FunctionChannelAdapter
 from tests.config_helpers import install_test_config
+
+
+@pytest.mark.asyncio
+async def test_scheduled_feishu_reply_uses_registered_standard_adapter() -> None:
+    """定时结果优先构造 FINAL 事件，避免绕过组合根通道注册表。"""
+    delivered: list[OutboundEvent] = []
+
+    async def sender(event: OutboundEvent) -> None:
+        delivered.append(event)
+
+    channels = ChannelRegistry([FunctionChannelAdapter("feishu", sender)])
+    target = FeishuDeliveryTarget(
+        receive_chat_id="oc_schedule",
+        session_key="default",
+        mq_chat_id="oc_schedule",
+    )
+    task = ScheduledTask(id="sched-final", name="日报", prompt="生成日报")
+
+    await send_scheduled_reply_to_feishu(
+        target,
+        task,
+        "完成",
+        outbound_channels=channels,
+    )
+
+    assert len(delivered) == 1
+    assert delivered[0].content == "[定时任务 日报]\n完成"
+    assert delivered[0].target.conversation_id == "oc_schedule"
+    assert delivered[0].trace_id == "sched-final"
 
 
 def test_default_schedule_timezone_from_tz(
@@ -203,7 +237,7 @@ def test_resolve_feishu_last_chat_with_config(tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_runner_sends_feishu_reply_on_mirror(tmp_path) -> None:
     install_test_config(tmp_path, {"paths": {"state_dir": str(tmp_path)}})
-    from miniagent.scheduled_tasks.runner import build_run_scheduled_job_coro
+    from miniagent.scheduled_tasks.runner import build_scheduled_job
     from miniagent.scheduled_tasks.store import save_tasks
 
     router = ChannelRouter()
@@ -233,6 +267,7 @@ async def test_runner_sends_feishu_reply_on_mirror(tmp_path) -> None:
     ctx = minimal_tick_ctx(engine=engine)
     ctx.channel_router = router
     ctx.feishu = feishu_rt
+    ctx.outbound_channels = MagicMock()
     st = {
         "active_session_id": "default",
         "skill_toolboxes": [],
@@ -245,18 +280,18 @@ async def test_runner_sends_feishu_reply_on_mirror(tmp_path) -> None:
         "last_feishu_receive_chat_id": "oc_mirror_queue",
     }
 
-    coro, mq_chat = build_run_scheduled_job_coro(ctx, st, task, [], [])  # type: ignore[arg-type]
-    assert mq_chat == "oc_mirror_queue"
+    job = build_scheduled_job(ctx, st, task, [], [])  # type: ignore[arg-type]
+    assert job.queue_key == "oc_mirror_queue"
 
     with patch(
         "miniagent.scheduled_tasks.runner.send_scheduled_reply_to_feishu",
         new_callable=AsyncMock,
     ) as mock_send:
-        err = await coro
+        err = await job.run(job.message)
         assert err is None
         mock_send.assert_awaited_once()
         args = mock_send.await_args
-        assert "定时任务结果正文" in args[0][3]
+        assert "定时任务结果正文" in args[0][2]
 
 
 def test_cmd_schedule_add_uses_tz_fallback(

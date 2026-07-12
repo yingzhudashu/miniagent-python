@@ -36,14 +36,9 @@ def test_status_includes_ws_health_and_lock(monkeypatch) -> None:
     rt, lines = _lines_rt()
     rt.set_running(True)
 
-    monkeypatch.setattr(
-        "miniagent.feishu.ws_health.get_last_ws_session_end",
-        lambda: ("disconnect", 1_700_000_000.0),
-    )
-    monkeypatch.setattr(
-        "miniagent.feishu.ws_health.get_ws_last_inbound_monotonic",
-        lambda: 100.0,
-    )
+    rt._poll_state.ws_health.last_session_end_reason = "disconnect"  # noqa: SLF001
+    rt._poll_state.ws_health.last_session_end_at = 1_700_000_000.0  # noqa: SLF001
+    rt._poll_state.ws_health.last_inbound_monotonic = 100.0  # noqa: SLF001
     monkeypatch.setattr("time.monotonic", lambda: 130.0)
     monkeypatch.setattr(
         "miniagent.infrastructure.feishu_inbound_lock.read_feishu_inbound_owner",
@@ -81,14 +76,10 @@ async def test_stop_sync_defers_inbound_lock_release_until_task_finally(
     entered = asyncio.Event()
     block = asyncio.Event()
 
-    async def reset_noop():
-        return None
-
     async def fake_poll(*_a, **_k):
         entered.set()
         await block.wait()
 
-    monkeypatch.setattr("miniagent.feishu.poll_server.reset_feishu_ws_singleton", reset_noop)
     monkeypatch.setattr("miniagent.feishu.poll_server.start_feishu_poll_server", fake_poll)
 
     mq = MessageQueueManager()

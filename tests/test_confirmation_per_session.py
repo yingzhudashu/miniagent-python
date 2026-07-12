@@ -52,10 +52,11 @@ def test_resolve_feishu_confirmation_channel_routes_by_session() -> None:
     router.resolve_feishu_message.side_effect = (
         lambda cid, sid, ct: f"feishu:{cid}"
     )
-    ps.set_feishu_confirmation_engine(engine, channel_router=router)
+    state = ps.FeishuPollState()
+    state.bind_confirmation(engine, router)
 
-    c_a = ps._resolve_feishu_confirmation_channel("oc_a", "ou_x", "group")
-    c_b = ps._resolve_feishu_confirmation_channel("oc_b", "ou_y", "group")
+    c_a = ps._resolve_feishu_confirmation_channel(state, "oc_a", "ou_x", "group")
+    c_b = ps._resolve_feishu_confirmation_channel(state, "oc_b", "ou_y", "group")
     assert c_a is not c_b
     assert c_a is engine.get_confirmation_channel("feishu:oc_a")
     assert not c_b.has_pending

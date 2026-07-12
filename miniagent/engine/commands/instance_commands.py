@@ -20,9 +20,7 @@ def format_instance_command_usage() -> str:
     return (
         "实例管理命令：\n"
         "  /instance list              列出所有运行中的实例\n"
-        "  /instance stop <ID>         停止指定实例（不可停止当前实例）\n"
-        "  说明: 多注册表根下同 ID 冲突时，请使用 "
-        "python -m miniagent --stop --state-dir <路径> <ID>"
+        "  /instance stop <ID>         停止指定实例（不可停止当前实例）"
     )
 
 
@@ -44,9 +42,6 @@ def cmd_instance_handler(
         markdown: True 时实例列表为 GFM 表格（由 ``feishu.markdown_commands`` 或
             ``MINIAGENT_FEISHU_MARKDOWN_COMMANDS=1`` 启用）
 
-    Note:
-        ``stop`` 在 canonical 与 legacy 注册表根同时存在且实例 ID 重复时，
-        会列出各 ``state_dir`` 并提示使用 ``--stop --state-dir``。
     """
     from miniagent.infrastructure.instance import (
         format_instances_markdown,
@@ -78,12 +73,6 @@ def cmd_instance_handler(
         if not matches:
             print(f"{ERROR_PREFIX} 实例 #{instance_id} 不存在")
             return
-        if len(matches) > 1:
-            print(f"{ERROR_PREFIX} 实例 #{instance_id} 存在于多个状态目录，无法唯一定位")
-            for m in matches:
-                print(f"  - {m.get('state_dir', '?')}")
-            return
-
         result = stop_instance_by_id(instance_id, state_dir=str(matches[0].get("state_dir")))
         if result.get("success"):
             reason = result.get("reason") or ""

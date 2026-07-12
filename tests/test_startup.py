@@ -1,7 +1,7 @@
 """启动冒烟测试
 
 验证完整的启动路径：
-1. unified_entry 可以正常调用（不会因 import 错误崩溃）
+1. 正式入口可以正常调用（不会因 import 错误崩溃）
 2. 所有核心组件可以正常初始化
 3. 实际运行 python -m miniagent 的 import 阶段不报 ImportError
 4. 真实启动：以子进程方式启动实例，验证注册、初始化、欢迎输出
@@ -20,6 +20,12 @@ import time
 from unittest.mock import MagicMock
 
 import pytest
+
+from tests.memory_helpers import (
+    make_background_task_manager,
+    make_knowledge_registry,
+    make_memory_runtime,
+)
 
 
 def _make_memory_bundle():
@@ -40,21 +46,19 @@ def _make_memory_bundle():
 
 
 def test_import_smoke():
-    """入口、compat 聚合 API 与 __main__ 模块可正常 import。"""
+    """正式入口、组合根与核心运行模块可正常 import。"""
     from miniagent.__main__ import main
-    from miniagent.compat import (
-        FeishuRuntime,
-        RuntimeContext,
-        run_cli_loop,
-        unified_entry,
-        unified_main,
-    )
+    from miniagent.bootstrap.application import ApplicationContainer
+    from miniagent.bootstrap.entrypoint import create_application_container, run_application
     from miniagent.engine.cli_commands import (
         cmd_help,
         cmd_session_list,
     )
+    from miniagent.engine.cli_tui import run_cli_loop
     from miniagent.engine.command_dispatch import dispatch_command
     from miniagent.engine.engine import UnifiedEngine
+    from miniagent.engine.feishu_state import FeishuRuntime
+    from miniagent.engine.main import run_runtime
     from miniagent.engine.thinking import ThinkingDisplay
     from miniagent.feishu.poll_server import start_feishu_poll_server
     from miniagent.feishu.types import FeishuConfig, FeishuInboundText
@@ -64,13 +68,14 @@ def test_import_smoke():
     from miniagent.infrastructure.registry import DefaultToolRegistry
     from miniagent.skills import DefaultSkillRegistry, create_clawhub_client
 
-    assert callable(unified_entry)
-    assert callable(unified_main)
+    assert callable(run_application)
+    assert callable(create_application_container)
+    assert callable(run_runtime)
     assert callable(run_cli_loop)
     assert all(
         [
             main,
-            RuntimeContext,
+            ApplicationContainer,
             FeishuRuntime,
             UnifiedEngine,
             ThinkingDisplay,
@@ -154,8 +159,8 @@ def test_cli_layout_initial_focus_on_input_buffer():
 
 
 def test_core_components_constructible():
-    """组合根依赖（registry/monitor/skills/engine）可构造；unified_entry 可调用。"""
-    from miniagent.compat import unified_entry
+    """组合根依赖（registry/monitor/skills/engine）可构造。"""
+    from miniagent.bootstrap.entrypoint import create_application_container
     from miniagent.engine.engine import UnifiedEngine
     from miniagent.infrastructure.monitor import DefaultToolMonitor
     from miniagent.infrastructure.registry import DefaultToolRegistry
@@ -170,11 +175,12 @@ def test_core_components_constructible():
             UnifiedEngine(),
         )
     )
-    assert callable(unified_entry)
+    assert callable(create_application_container)
 
 
 def test_feishu_handler_creation():
     """飞书 handler 可以正常创建。"""
+    from miniagent.bootstrap.application import ApplicationContainer
     from miniagent.engine.engine import UnifiedEngine
     from miniagent.engine.feishu_handler import create_feishu_handler
     from miniagent.engine.feishu_state import FeishuRuntime
@@ -182,12 +188,11 @@ def test_feishu_handler_creation():
     from miniagent.infrastructure.message_queue import MessageQueueManager
     from miniagent.infrastructure.monitor import DefaultToolMonitor
     from miniagent.infrastructure.registry import DefaultToolRegistry
-    from miniagent.runtime.context import RuntimeContext
     from miniagent.skills import DefaultSkillRegistry, create_clawhub_client
 
     mq = MessageQueueManager()
     ms, al, ki, mc = _make_memory_bundle()
-    ctx = RuntimeContext(
+    ctx = ApplicationContainer(
         registry=DefaultToolRegistry(),
         monitor=DefaultToolMonitor(),
         skill_registry=DefaultSkillRegistry(),
@@ -196,10 +201,9 @@ def test_feishu_handler_creation():
         channel_router=ChannelRouter(),
         message_queue=mq,
         feishu=FeishuRuntime(mq),
-        memory_store=ms,
-        activity_log=al,
-        keyword_index=ki,
-        memory_context=mc,
+        memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki, context=mc),
+        knowledge_registry=make_knowledge_registry(),
+        background_tasks=make_background_task_manager(),
     )
     loop_state = {
         "active_session_id": "default",
@@ -232,6 +236,7 @@ def test_set_console_log_threshold_updates_handlers():
 
 def test_feishu_user_status_fn_uses_cli_transcript_append():
     """全屏注册 cli_transcript_append 时，飞书状态行走 transcript 而非裸 print。"""
+    from miniagent.bootstrap.application import ApplicationContainer
     from miniagent.engine.engine import UnifiedEngine
     from miniagent.engine.feishu_state import FeishuRuntime
 
@@ -241,12 +246,11 @@ def test_feishu_user_status_fn_uses_cli_transcript_append():
     from miniagent.infrastructure.message_queue import MessageQueueManager
     from miniagent.infrastructure.monitor import DefaultToolMonitor
     from miniagent.infrastructure.registry import DefaultToolRegistry
-    from miniagent.runtime.context import RuntimeContext
     from miniagent.skills import DefaultSkillRegistry, create_clawhub_client
 
     mq = MessageQueueManager()
     ms, al, ki, mc = _make_memory_bundle()
-    ctx = RuntimeContext(
+    ctx = ApplicationContainer(
         registry=DefaultToolRegistry(),
         monitor=DefaultToolMonitor(),
         skill_registry=DefaultSkillRegistry(),
@@ -255,10 +259,9 @@ def test_feishu_user_status_fn_uses_cli_transcript_append():
         channel_router=ChannelRouter(),
         message_queue=mq,
         feishu=FeishuRuntime(mq),
-        memory_store=ms,
-        activity_log=al,
-        keyword_index=ki,
-        memory_context=mc,
+        memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki, context=mc),
+        knowledge_registry=make_knowledge_registry(),
+        background_tasks=make_background_task_manager(),
     )
     append_calls: list[tuple[str, str]] = []
     ctx.cli_transcript_append = lambda style, text: append_calls.append((style, text))
@@ -353,6 +356,7 @@ def test_thinking_show_mirrors_to_sink_when_feishu_and_sink():
 
 def test_command_dispatch_all_commands():
     """所有 .命令 都可以正常路由（不崩溃）。"""
+    from miniagent.bootstrap.application import ApplicationContainer
     from miniagent.engine.command_dispatch import dispatch_command
     from miniagent.engine.engine import UnifiedEngine
     from miniagent.engine.feishu_state import FeishuRuntime
@@ -360,12 +364,11 @@ def test_command_dispatch_all_commands():
     from miniagent.infrastructure.message_queue import MessageQueueManager
     from miniagent.infrastructure.monitor import DefaultToolMonitor
     from miniagent.infrastructure.registry import DefaultToolRegistry
-    from miniagent.runtime.context import RuntimeContext
     from miniagent.skills import DefaultSkillRegistry, create_clawhub_client
 
     mq = MessageQueueManager()
     ms, al, ki, mc = _make_memory_bundle()
-    ctx = RuntimeContext(
+    ctx = ApplicationContainer(
         registry=DefaultToolRegistry(),
         monitor=DefaultToolMonitor(),
         skill_registry=DefaultSkillRegistry(),
@@ -374,10 +377,9 @@ def test_command_dispatch_all_commands():
         channel_router=ChannelRouter(),
         message_queue=mq,
         feishu=FeishuRuntime(mq),
-        memory_store=ms,
-        activity_log=al,
-        keyword_index=ki,
-        memory_context=mc,
+        memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki, context=mc),
+        knowledge_registry=make_knowledge_registry(),
+        background_tasks=make_background_task_manager(),
     )
     ctx.create_feishu_handler_factory = lambda tb, tp, st: lambda *a, **k: None
 
@@ -411,6 +413,7 @@ def test_command_dispatch_all_commands():
 
 def test_dispatch_queue_set_async_capture():
     """dispatch_command 内 .queue set 须异步 await，不得 run_until_complete。"""
+    from miniagent.bootstrap.application import ApplicationContainer
     from miniagent.engine.command_dispatch import dispatch_command
     from miniagent.engine.engine import UnifiedEngine
     from miniagent.engine.feishu_state import FeishuRuntime
@@ -418,12 +421,11 @@ def test_dispatch_queue_set_async_capture():
     from miniagent.infrastructure.message_queue import MessageQueueManager, QueueMode
     from miniagent.infrastructure.monitor import DefaultToolMonitor
     from miniagent.infrastructure.registry import DefaultToolRegistry
-    from miniagent.runtime.context import RuntimeContext
     from miniagent.skills import DefaultSkillRegistry, create_clawhub_client
 
     mq = MessageQueueManager()
     ms, al, ki, mc = _make_memory_bundle()
-    ctx = RuntimeContext(
+    ctx = ApplicationContainer(
         registry=DefaultToolRegistry(),
         monitor=DefaultToolMonitor(),
         skill_registry=DefaultSkillRegistry(),
@@ -432,10 +434,9 @@ def test_dispatch_queue_set_async_capture():
         channel_router=ChannelRouter(),
         message_queue=mq,
         feishu=FeishuRuntime(mq),
-        memory_store=ms,
-        activity_log=al,
-        keyword_index=ki,
-        memory_context=mc,
+        memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki, context=mc),
+        knowledge_registry=make_knowledge_registry(),
+        background_tasks=make_background_task_manager(),
     )
     state = {
         "active_session_id": "default",
@@ -460,6 +461,7 @@ def test_dispatch_queue_set_async_capture():
 
 def test_dispatch_feishu_blocks_session_mutations():
     """飞书 capture 路径不得修改 active_session_id。"""
+    from miniagent.bootstrap.application import ApplicationContainer
     from miniagent.engine.command_dispatch import dispatch_command
     from miniagent.engine.engine import UnifiedEngine
     from miniagent.engine.feishu_state import FeishuRuntime
@@ -467,12 +469,11 @@ def test_dispatch_feishu_blocks_session_mutations():
     from miniagent.infrastructure.message_queue import MessageQueueManager
     from miniagent.infrastructure.monitor import DefaultToolMonitor
     from miniagent.infrastructure.registry import DefaultToolRegistry
-    from miniagent.runtime.context import RuntimeContext
     from miniagent.skills import DefaultSkillRegistry, create_clawhub_client
 
     mq = MessageQueueManager()
     ms, al, ki, mc = _make_memory_bundle()
-    ctx = RuntimeContext(
+    ctx = ApplicationContainer(
         registry=DefaultToolRegistry(),
         monitor=DefaultToolMonitor(),
         skill_registry=DefaultSkillRegistry(),
@@ -481,10 +482,9 @@ def test_dispatch_feishu_blocks_session_mutations():
         channel_router=ChannelRouter(),
         message_queue=mq,
         feishu=FeishuRuntime(mq),
-        memory_store=ms,
-        activity_log=al,
-        keyword_index=ki,
-        memory_context=mc,
+        memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki, context=mc),
+        knowledge_registry=make_knowledge_registry(),
+        background_tasks=make_background_task_manager(),
     )
     state = {
         "active_session_id": "keep-me",

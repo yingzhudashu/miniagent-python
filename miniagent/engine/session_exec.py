@@ -3,7 +3,7 @@
 ``parallel_sessions=true``（默认）时：不同 ``session_key`` 可并行执行，同一 ``session_key`` 串行，
 且受 ``max_parallel_sessions`` 全局 Semaphore 限制。
 
-``parallel_sessions=false`` 时：退化为单一全局 Lock，与旧版 ``UnifiedEngine._exec_lock`` 等价。
+``parallel_sessions=false`` 时：使用单一全局 Lock，所有会话严格串行。
 
 由 :class:`UnifiedEngine` 在初始化时创建，经 :meth:`SessionExecCoordinator.acquire` 或
 :meth:`~miniagent.engine.engine.UnifiedEngine.session_turn` 进入 Agent 执行前获取锁。

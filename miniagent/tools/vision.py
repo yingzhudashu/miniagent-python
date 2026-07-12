@@ -6,7 +6,7 @@
 依赖：
 - miniagent.feishu.vision_desc: describe_image 函数
 - miniagent.security.sandbox: 路径沙箱保护
-- miniagent.core.openai_client: 共享 AsyncOpenAI 客户端
+- ToolContext.llm_client: 组合根显式注入的 AsyncOpenAI 客户端
 
 支持的图片格式：PNG、JPG、JPEG、GIF、WebP、BMP（最大 20MB）。
 
@@ -19,7 +19,6 @@ import os
 from typing import Any
 
 from miniagent.core.constants import FEISHU_VISION_MAX_BYTES
-from miniagent.core.openai_client import get_shared_async_openai
 from miniagent.infrastructure.json_config import get_config
 from miniagent.tools.base import tool
 from miniagent.tools.path_utils import resolve_path_for_tool
@@ -51,10 +50,9 @@ async def _analyze_image_handler(args: dict[str, Any], ctx: ToolContext) -> Tool
             content=f"{ERROR_PREFIX} 图片文件过大 ({size // 1024 // 1024}MB)，上限 20MB",
         )
 
-    try:
-        client = get_shared_async_openai()
-    except RuntimeError as e:
-        return ToolResult(success=False, content=f"{ERROR_PREFIX} LLM 客户端未配置: {e}")
+    client = ctx.llm_client
+    if client is None:
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} LLM 客户端未注入")
 
     model = get_config("model.model", "")
     if not model:

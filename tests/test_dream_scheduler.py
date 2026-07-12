@@ -35,10 +35,14 @@ def test_state_path_creates_memory_dir(tmp_path: Path) -> None:
     assert (tmp_path / "memory").is_dir()
 
 
-def test_schedule_throttle() -> None:
-    """schedule_memory_maintenance should not raise even when throttled."""
-    dream_scheduler.schedule_memory_maintenance("test-session")
-    dream_scheduler.schedule_memory_maintenance("test-session")
+@pytest.mark.asyncio
+async def test_scheduler_throttles_and_shuts_down(tmp_path: Path) -> None:
+    scheduler = dream_scheduler.DreamScheduler(str(tmp_path))
+    scheduler.schedule("test-session")
+    scheduler.schedule("test-session")
+    assert len(scheduler._pending_tasks) <= 1
+    await scheduler.shutdown()
+    assert scheduler._pending_tasks == set()
 
 
 def test_dream_constants() -> None:

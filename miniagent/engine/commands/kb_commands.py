@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from miniagent.contracts.knowledge import KnowledgeRegistryProtocol
 from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
 
 
@@ -42,7 +43,7 @@ def format_kb_command_usage() -> str:
     )
 
 
-def cmd_kb_list(*, markdown: bool = False) -> None:
+def cmd_kb_list(registry: KnowledgeRegistryProtocol, *, markdown: bool = False) -> None:
     """列出已挂载的知识库。
 
     输出写入 stdout；``command_dispatch`` 在 capture 模式下会捕获打印内容。
@@ -50,9 +51,6 @@ def cmd_kb_list(*, markdown: bool = False) -> None:
     Args:
         markdown: True 时输出 Markdown 表格格式（飞书 capture 路径）。
     """
-    from miniagent.knowledge import get_kb_registry
-
-    registry = get_kb_registry()
     kb_list = registry.list()
 
     if not kb_list:
@@ -84,16 +82,18 @@ def cmd_kb_list(*, markdown: bool = False) -> None:
     print()
 
 
-def cmd_kb_mount(path: str, name: str | None = None) -> None:
+def cmd_kb_mount(
+    registry: KnowledgeRegistryProtocol,
+    path: str,
+    name: str | None = None,
+) -> None:
     """挂载知识库。
 
     Args:
         path: 知识库路径（目录或文件）
         name: 可选的知识库名称
     """
-    from miniagent.knowledge import mount_knowledge_base
-
-    result = mount_knowledge_base(path, name)
+    result = registry.mount(path, name)
     if result.get("success"):
         stats = result.get("stats", {})
         print(f"{SUCCESS_PREFIX} 已挂载知识库: {result.get('kb_name')}")
@@ -102,22 +102,24 @@ def cmd_kb_mount(path: str, name: str | None = None) -> None:
         print(f"{ERROR_PREFIX} {result.get('message')}")
 
 
-def cmd_kb_unmount(name: str) -> None:
+def cmd_kb_unmount(registry: KnowledgeRegistryProtocol, name: str) -> None:
     """卸载知识库。
 
     Args:
         name: 要卸载的知识库名称
     """
-    from miniagent.knowledge import unmount_knowledge_base
-
-    result = unmount_knowledge_base(name)
+    result = registry.unmount(name)
     if result.get("success"):
         print(f"{SUCCESS_PREFIX} {result.get('message')}")
     else:
         print(f"{ERROR_PREFIX} {result.get('message')}")
 
 
-def cmd_kb_search(query: str, kb_name: str | None = None) -> None:
+def cmd_kb_search(
+    registry: KnowledgeRegistryProtocol,
+    query: str,
+    kb_name: str | None = None,
+) -> None:
     """检索知识库内容。
 
     Args:
@@ -128,24 +130,19 @@ def cmd_kb_search(query: str, kb_name: str | None = None) -> None:
         print(f"{WARNING_PREFIX} 请提供搜索关键词")
         return
 
-    from miniagent.knowledge import search_knowledge
-
-    result = search_knowledge(query, kb_name=kb_name)
+    result = registry.search(query, kb_name=kb_name)
     if result:
         print(result)
     else:
         print(f"{WARNING_PREFIX} 未找到相关内容")
 
 
-def cmd_kb_reload(name: str | None = None) -> None:
+def cmd_kb_reload(registry: KnowledgeRegistryProtocol, name: str | None = None) -> None:
     """重新加载知识库。
 
     Args:
         name: 可选的指定知识库名称；未指定时重载全部
     """
-    from miniagent.knowledge import get_kb_registry
-
-    registry = get_kb_registry()
     result = registry.reload(name)
     if result.get("success"):
         print(f"{SUCCESS_PREFIX} {result.get('message')}")

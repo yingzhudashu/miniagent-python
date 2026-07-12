@@ -10,14 +10,14 @@ import pytest
 
 from miniagent.__main__ import _bootstrap_project_paths
 from miniagent.infrastructure.instance import reset_instance_registry_for_tests
-from miniagent.infrastructure.json_config import JsonConfigLoader
+from miniagent.infrastructure.json_config import reset_config_loader
 from miniagent.infrastructure.paths import resolve_project_key
 from tests.config_helpers import install_test_config
 
 
 @pytest.fixture(autouse=True)
 def _isolate_registry(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    JsonConfigLoader._instance = None
+    reset_config_loader()
     monkeypatch.delenv("MINIAGENT_PROJECT_DIR", raising=False)
     monkeypatch.delenv("MINIAGENT_PATHS_STATE_DIR", raising=False)
     monkeypatch.delenv("MINIAGENT_CONTINUE_SESSION", raising=False)
@@ -29,7 +29,7 @@ def _isolate_registry(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     reset_instance_registry_for_tests()
     yield
     reset_instance_registry_for_tests()
-    JsonConfigLoader._instance = None
+    reset_config_loader()
 
 
 def _norm_dir(path: str | Path) -> str:

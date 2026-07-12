@@ -25,15 +25,14 @@
 
 与 [miniagent/engine/shutdown.py](../miniagent/engine/shutdown.py) 实现一致，供排障与代码审阅对齐：
 
-1. 取消并等待 `RuntimeContext.shutdown_tracked_tasks`（如 `tick_once` 派生的 job）。
-2. `cancel_pending_dream_tasks()`（记忆维护后台）。
-3. 定时任务 ticker：`stop_event.set()`，取消并 `await` ticker task。
-4. 飞书：`await feishu.stop_async()`（或 fallback await），再防御性 `reset_feishu_ws_singleton()`。
-5. 可选：`message_queue.abort_all_chats()`。
-6. `cleanup_all_processes()`；按需 `release_session_lock`；按需 `unregister_instance()`。
-7. 可选：`loop.shutdown_default_executor()`（短超时）。**信号路径**（`SIGINT`/`SIGTERM`）当前在 [miniagent/engine/main.py](../miniagent/engine/main.py) 传入 `shutdown_default_executor=False`，以降低与全屏 CLI / 线程池的竞态。
+1. `LifecycleManager.stop()` 逆序停止 skills watcher、ticker、飞书和 config watcher，阻止产生新工作。
+2. 取消并等待 `ApplicationContainer.shutdown_tracked_tasks`，随后关闭 `BackgroundTaskManager`。
+3. 可选：`await message_queue.shutdown()`，取消并等待所有运行中、排队中和 `dispatch_wait` 任务的 `finally`。
+4. `await memory.shutdown()`，停止 Dream 维护任务并关闭 embedding HTTP 池。
+5. `cleanup_all_processes()`，持久化记忆索引，再关闭 OpenAI、飞书 Drive、ClawHub 和 trace writer。
+6. 按需 `release_session_lock` 与 `unregister_instance()`。默认线程池始终交给解释器回收，避免 prompt_toolkit 退出时再次使用已关闭 executor。
 
-**与 `run_cli_loop` 的关系**：用户正常 `quit` 时，循环末尾通常会先 `release_session_lock` + `unregister_instance()`，随后 `unified_main` 再调用 `shutdown_runtime(..., release_cli_session_lock=False, call_unregister=False)`，避免重复；`/stop` 与信号路径则传 `True` 以覆盖未走循环清理即退出的情况。
+**与 `run_cli_loop` 的关系**：`run_runtime` 在 `finally` 中唯一调用 `shutdown_runtime`。用户正常 `quit` 时循环已释放 session lock 并注销实例，因此传入两个 `False`；初始化、生命周期、CLI 异常与信号路径使用 `True`，覆盖未走循环清理的退出方式。
 
 ### 2. 场景矩阵（合成）
 
@@ -119,7 +118,7 @@ CI **不**依赖基线文件是否存在；可选 workflow 仅上传当次脚本
 
 #### 5.1 已缓解
 
-- **关键词索引**：`KeywordIndex` 使用 `_dirty`；`index_entry` 只改内存。`DefaultMemoryStore.add_entry` 不再每次 `save()`；执行阶段经 [`miniagent/core/executor.py`](../miniagent/core/executor.py) 的 `_persist_session_memory` 调用 [`miniagent/memory/memory_context_service.py`](../miniagent/memory/memory_context_service.py) 的 `save_memory_after_turn`，在写入条目后 **`flush_keyword_index()`** 保证每轮仍落盘一次。批量 `add_entry` 后显式 `flush_keyword_index()` 可减少写次数。进程退出时 [`miniagent/memory/defaults.py`](../miniagent/memory/defaults.py) 通过 **atexit** 再刷一次默认 bundle 的索引，降低异常退出丢失概率。关键词索引有 **`max_entries`** 上限（默认 20000，`memory.keyword_index_max`），超过时修剪最早关键词。
+- **关键词索引**：`KeywordIndex` 使用 `_dirty`；`index_entry` 只改内存。`DefaultMemoryStore.add_entry` 不再每次 `save()`；执行阶段经 [`miniagent/core/executor.py`](../miniagent/core/executor.py) 的 `_persist_session_memory` 调用 [`miniagent/memory/memory_context_service.py`](../miniagent/memory/memory_context_service.py) 的 `save_memory_after_turn`，在写入条目后 **`flush_keyword_index()`** 保证每轮仍落盘一次。批量 `add_entry` 后显式 `flush_keyword_index()` 可减少写次数。正常关停时 `shutdown_runtime` 调用 [`MemoryRuntime.close()`](../miniagent/memory/runtime.py)，统一持久化共享注册表、关键词索引与嵌入索引。关键词索引有 **`max_entries`** 上限（默认 20000，`memory.keyword_index_max`），超过时修剪最早关键词。
 - **上下文预算中的工具 schema**：[`miniagent/memory/context.py`](../miniagent/memory/context.py) 的 `DefaultContextManager` 对 `estimate_tool_tokens`（内部多次 `json.dumps(tool)`）做 **按次失效缓存**（调用 **`set_tools`** 或构造后首次用时计算；之后复用）。若需更新工具列表或 schema 内容，**必须**通过 `set_tools` 传入新列表，勿仅原地修改已绑定列表并依赖预算立即变化。
 - **Prompt cache 友好分层**：执行阶段请求固定为 `stable system -> history -> current turn user context`。Agent 身份、skill prompts、通道级稳定规则和时区解释规则留在稳定前缀；`plan.summary`、结构化会话记忆、`keyword_context`、`kb_context`、当前时间、文件根目录和风险等级进入最后一条 user 消息，减少每轮 system prefix 波动，提升 provider 自然前缀缓存命中机会。
 - **会话记忆缓存（LRU）**：[`miniagent/memory/store.py`](../miniagent/memory/store.py) 的 `DefaultMemoryStore._cache` 使用 `OrderedDict` 实现 LRU 驱逐，默认上限 **200 会话**（`memory.store_cache_max`），命中时 `move_to_end` 提升活跃度，超限时 `popitem(last=False)` 驱逐最旧条目。
@@ -254,7 +253,7 @@ async def good_example():
    ```json
    { "memory": { "registry_max_entries": 2000 } }
    ```
-2. **飞书去重缓存**：自动刷盘（每 60 秒或 1000 条），进程退出时同步保存。
+2. **飞书去重缓存**：每个 `FeishuPollState` 独立持有，自动刷盘（每 60 秒或 1000 条），运行时关闭时异步 flush。
 3. **嵌入搜索缓存**（关闭可省内存）：
    ```json
    { "embedding": { "enabled": false } }

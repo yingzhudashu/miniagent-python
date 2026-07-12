@@ -1,6 +1,6 @@
 """进程内命令工具：将 CLI/飞书共享的 ``dispatch_command`` 暴露给 Agent 工具调用。
 
-``ToolContext.cli_loop_state`` 须由 ``unified_main`` 注入；飞书变异命令拦截规则见
+``ToolContext.cli_loop_state`` 须由 ``run_runtime`` 注入；飞书变异命令拦截规则见
 ``docs/FEISHU.md``、``docs/CLI.md``。
 
 重构说明：使用 ToolBuilder 简化工具定义。

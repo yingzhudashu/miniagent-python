@@ -1,10 +1,10 @@
-"""Tests for kb_commands module."""
+"""Tests for the explicitly injected knowledge-base commands."""
 
 from __future__ import annotations
 
 import io
 from contextlib import redirect_stdout
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from miniagent.engine.commands.kb_commands import (
     cmd_kb_list,
@@ -18,10 +18,10 @@ from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_P
 
 
 def _capture(fn) -> str:
-    buf = io.StringIO()
-    with redirect_stdout(buf):
+    buffer = io.StringIO()
+    with redirect_stdout(buffer):
         fn()
-    return buf.getvalue()
+    return buffer.getvalue()
 
 
 def test_format_kb_command_usage_uses_slash_prefix() -> None:
@@ -35,11 +35,10 @@ def test_cmd_kb_list_empty() -> None:
     registry = MagicMock()
     registry.list.return_value = []
 
-    with patch("miniagent.knowledge.get_kb_registry", return_value=registry):
-        out = _capture(lambda: cmd_kb_list())
+    output = _capture(lambda: cmd_kb_list(registry))
 
-    assert "未挂载" in out
-    assert "/kb mount" in out
+    registry.list.assert_called_once_with()
+    assert "/kb mount" in output
 
 
 def test_cmd_kb_list_plain() -> None:
@@ -48,130 +47,108 @@ def test_cmd_kb_list_plain() -> None:
         {"name": "docs", "entries": 3, "keywords": 12, "path": "/data/docs"},
     ]
 
-    with patch("miniagent.knowledge.get_kb_registry", return_value=registry):
-        out = _capture(lambda: cmd_kb_list())
+    output = _capture(lambda: cmd_kb_list(registry))
 
-    assert "docs" in out
-    assert "3 条目" in out
-    assert "/data/docs" in out
+    assert "docs" in output
+    assert "3" in output
+    assert "/data/docs" in output
 
 
 def test_cmd_kb_list_markdown_escapes_pipe_in_path() -> None:
     registry = MagicMock()
     registry.list.return_value = [
-        {
-            "name": "weird",
-            "entries": 1,
-            "keywords": 2,
-            "path": "/tmp/a|b",
-        },
+        {"name": "weird", "entries": 1, "keywords": 2, "path": "/tmp/a|b"},
     ]
 
-    with patch("miniagent.knowledge.get_kb_registry", return_value=registry):
-        out = _capture(lambda: cmd_kb_list(markdown=True))
+    output = _capture(lambda: cmd_kb_list(registry, markdown=True))
 
-    assert "\\|" in out
-    assert "| weird |" in out
+    assert "\\|" in output
+    assert "| weird |" in output
 
 
 def test_cmd_kb_mount_success() -> None:
-    with patch(
-        "miniagent.knowledge.mount_knowledge_base",
-        return_value={
-            "success": True,
-            "kb_name": "my_kb",
-            "stats": {"entries": 5, "keywords": 20},
-        },
-    ):
-        out = _capture(lambda: cmd_kb_mount("/path/to/kb", "my_kb"))
+    registry = MagicMock()
+    registry.mount.return_value = {
+        "success": True,
+        "kb_name": "my_kb",
+        "stats": {"entries": 5, "keywords": 20},
+    }
 
-    assert SUCCESS_PREFIX in out
-    assert "my_kb" in out
-    assert "5" in out
+    output = _capture(lambda: cmd_kb_mount(registry, "/path/to/kb", "my_kb"))
+
+    registry.mount.assert_called_once_with("/path/to/kb", "my_kb")
+    assert SUCCESS_PREFIX in output
+    assert "my_kb" in output
+    assert "5" in output
 
 
 def test_cmd_kb_mount_failure() -> None:
-    with patch(
-        "miniagent.knowledge.mount_knowledge_base",
-        return_value={"success": False, "message": "路径不存在"},
-    ):
-        out = _capture(lambda: cmd_kb_mount("/missing"))
+    registry = MagicMock()
+    registry.mount.return_value = {"success": False, "message": "missing path"}
 
-    assert ERROR_PREFIX in out
-    assert "路径不存在" in out
+    output = _capture(lambda: cmd_kb_mount(registry, "/missing"))
+
+    assert ERROR_PREFIX in output
+    assert "missing path" in output
 
 
 def test_cmd_kb_unmount_success() -> None:
-    with patch(
-        "miniagent.knowledge.unmount_knowledge_base",
-        return_value={"success": True, "message": "已卸载知识库: docs"},
-    ):
-        out = _capture(lambda: cmd_kb_unmount("docs"))
+    registry = MagicMock()
+    registry.unmount.return_value = {"success": True, "message": "removed docs"}
 
-    assert SUCCESS_PREFIX in out
-    assert "已卸载" in out
+    output = _capture(lambda: cmd_kb_unmount(registry, "docs"))
+
+    registry.unmount.assert_called_once_with("docs")
+    assert SUCCESS_PREFIX in output
+    assert "removed docs" in output
 
 
 def test_cmd_kb_search_empty_query() -> None:
-    with patch("miniagent.knowledge.search_knowledge") as mock_search:
-        out = _capture(lambda: cmd_kb_search("   "))
+    registry = MagicMock()
 
-    mock_search.assert_not_called()
-    assert WARNING_PREFIX in out
-    assert "搜索关键词" in out
+    output = _capture(lambda: cmd_kb_search(registry, "   "))
+
+    registry.search.assert_not_called()
+    assert WARNING_PREFIX in output
 
 
 def test_cmd_kb_search_no_results() -> None:
-    with patch("miniagent.knowledge.search_knowledge", return_value=""):
-        out = _capture(lambda: cmd_kb_search("nothing"))
+    registry = MagicMock()
+    registry.search.return_value = ""
 
-    assert WARNING_PREFIX in out
-    assert "未找到" in out
+    output = _capture(lambda: cmd_kb_search(registry, "nothing"))
+
+    registry.search.assert_called_once_with("nothing", kb_name=None)
+    assert WARNING_PREFIX in output
 
 
 def test_cmd_kb_search_with_results() -> None:
-    with patch(
-        "miniagent.knowledge.search_knowledge",
-        return_value="## API\n\nSome API docs.",
-    ):
-        out = _capture(lambda: cmd_kb_search("API", "docs"))
+    registry = MagicMock()
+    registry.search.return_value = "## API\n\nSome API docs."
 
-    assert "API" in out
-    assert "Some API docs" in out
+    output = _capture(lambda: cmd_kb_search(registry, "API", "docs"))
 
-
-def test_cmd_kb_search_unmounted_kb_warning() -> None:
-    warning = f"{WARNING_PREFIX} 知识库 'missing' 未挂载"
-    with patch("miniagent.knowledge.search_knowledge", return_value=warning):
-        out = _capture(lambda: cmd_kb_search("q", "missing"))
-
-    assert "未挂载" in out
+    registry.search.assert_called_once_with("API", kb_name="docs")
+    assert "Some API docs" in output
 
 
 def test_cmd_kb_reload_all() -> None:
     registry = MagicMock()
-    registry.reload.return_value = {
-        "success": True,
-        "message": "已重载 2 个知识库",
-    }
+    registry.reload.return_value = {"success": True, "message": "reloaded 2"}
 
-    with patch("miniagent.knowledge.get_kb_registry", return_value=registry):
-        out = _capture(lambda: cmd_kb_reload())
+    output = _capture(lambda: cmd_kb_reload(registry))
 
     registry.reload.assert_called_once_with(None)
-    assert SUCCESS_PREFIX in out
-    assert "2" in out
+    assert SUCCESS_PREFIX in output
+    assert "2" in output
 
 
 def test_cmd_kb_reload_single_failure() -> None:
     registry = MagicMock()
-    registry.reload.return_value = {
-        "success": False,
-        "message": "知识库 'x' 未挂载",
-    }
+    registry.reload.return_value = {"success": False, "message": "not mounted: x"}
 
-    with patch("miniagent.knowledge.get_kb_registry", return_value=registry):
-        out = _capture(lambda: cmd_kb_reload("x"))
+    output = _capture(lambda: cmd_kb_reload(registry, "x"))
 
-    assert ERROR_PREFIX in out
-    assert "未挂载" in out
+    registry.reload.assert_called_once_with("x")
+    assert ERROR_PREFIX in output
+    assert "not mounted" in output

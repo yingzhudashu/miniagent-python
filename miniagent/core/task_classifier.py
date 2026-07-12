@@ -9,6 +9,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any
 
+from miniagent.contracts.knowledge import KnowledgeRegistryProtocol
 from miniagent.core._openai_compat import (
     ensure_json_object_user_message,
 )
@@ -16,7 +17,6 @@ from miniagent.core._openai_compat import (
     json_object_unsupported as _json_object_unsupported,
 )
 from miniagent.core.llm_json import parse_llm_json_response
-from miniagent.core.openai_client import get_shared_async_openai
 from miniagent.core.prompts.classifier import CLASSIFIER_PROMPT
 from miniagent.core.thinking_presets import map_thinking_level_to_model
 from miniagent.infrastructure.debug_ndjson import safe_agent_debug_log
@@ -115,7 +115,8 @@ async def classify_task_difficulty(
     user_input: str,
     toolbox_ids: list[str],
     *,
-    client: Any | None = None,
+    knowledge_registry: KnowledgeRegistryProtocol,
+    client: Any,
     agent_config: AgentConfig | None = None,
 ) -> TaskDifficulty:
     """使用低开销 LLM 调用估算任务难度，失败时降级为 NORMAL。
@@ -126,7 +127,8 @@ async def classify_task_difficulty(
     Args:
         user_input: 用户原始输入文本
         toolbox_ids: 可用工具箱 ID 列表（用于复杂度判断）
-        client: LLM 客户端（可选，默认使用共享实例）
+        knowledge_registry: 由组合根注入的知识库注册表
+        client: 由组合根显式注入的 LLM 客户端
         agent_config: Agent 配置（可选，用于参数覆盖）
 
     Returns:
@@ -151,12 +153,18 @@ async def classify_task_difficulty(
     from miniagent.knowledge import retrieve_knowledge_context
 
     classify_session_key = (
-        agent_config.session_key if agent_config and agent_config.session_key else "default"
+        agent_config.session_config.session_key
+        if agent_config and agent_config.session_config.session_key
+        else "default"
     )
 
     # ── RAG 增强：知识库检索（使用公共函数）──
     kb_hint = retrieve_knowledge_context(
-        user_input, phase="classifier", default_top_k=2, default_max_chars=1500
+        knowledge_registry,
+        user_input,
+        phase="classifier",
+        default_top_k=2,
+        default_max_chars=1500,
     )
 
     # 使用优化后的分类器提示词（XML 结构化，包含示例）
@@ -167,7 +175,7 @@ async def classify_task_difficulty(
     if kb_hint:
         user_msg += kb_hint
 
-    llm = client if client is not None else get_shared_async_openai()
+    llm = client
     kw = resolve_planner_completion_kwargs(
         agent_config,
         merge_overrides={

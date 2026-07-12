@@ -33,7 +33,7 @@
 | 模块 | 文件 | 测试文件 | 覆盖状态 |
 |------|------|----------|----------|
 | 统一引擎 | engine.py | test_engine_engine.py | ✅ 新增 |
-| 主入口 | main.py | test_startup.py, test_main_stop_args.py, test_cli_transcript_scroll.py | ✅ 充足 |
+| 进程入口与 CLI surfaces | main.py, cli_tui.py, cli_fallback.py | test_startup.py, test_shutdown_lifecycle.py, test_cli_transcript_scroll.py, test_cli_file_markers.py | ✅ 充足 |
 | 子系统初始化 | init.py | test_init_subsystems_registry.py | ✅ 充足 |
 | 命令调度 | command_dispatch.py | test_command_dispatch.py | ✅ 新增 |
 | CLI命令 | cli_commands.py | test_command_dispatch.py | ✅ 充足 |
@@ -227,4 +227,3 @@ pytest tests/test_memory_store.py tests/test_keyword_index.py tests/test_perf_sy
 set MINIAGENT_REAL_API_STRESS=1
 pytest tests/evaluation/test_perf_real_api.py -v -s
 ```
-

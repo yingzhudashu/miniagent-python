@@ -10,6 +10,7 @@ import pytest
 from miniagent.core.planner import _fallback_plan, generate_plan
 from miniagent.types.planning import PlanStep, StructuredPlan
 from miniagent.types.tool import Toolbox
+from tests.memory_helpers import make_knowledge_registry
 
 
 @pytest.mark.asyncio
@@ -26,6 +27,7 @@ async def test_generate_plan_fallback():
     plan = await generate_plan(
         user_input="失败测试",
         toolboxes=[toolbox],
+        knowledge_registry=make_knowledge_registry(),
         client=mock_client,
     )
 
@@ -55,6 +57,7 @@ async def test_generate_plan_basic_call():
     plan = await generate_plan(
         user_input="测试输入",
         toolboxes=[toolbox],
+        knowledge_registry=make_knowledge_registry(),
         client=mock_client,
     )
 
@@ -92,7 +95,12 @@ async def test_generate_plan_json_object_user_message_mentions_json():
     mock_client.chat.completions.create = AsyncMock(side_effect=fake_create)
     toolbox = Toolbox(id="test", name="test", description="test", keywords=["test"])
 
-    plan = await generate_plan("hello", [toolbox], client=mock_client)
+    plan = await generate_plan(
+        "hello",
+        [toolbox],
+        knowledge_registry=make_knowledge_registry(),
+        client=mock_client,
+    )
 
     assert plan.summary == "t"
     assert captured["response_format"] == {"type": "json_object"}
@@ -133,7 +141,12 @@ async def test_generate_plan_json_object_unsupported_downgrades_in_same_attempt(
     mock_client.chat.completions.create = AsyncMock(side_effect=fake_create)
     toolbox = Toolbox(id="test", name="test", description="test", keywords=["test"])
 
-    plan = await generate_plan("hello", [toolbox], client=mock_client)
+    plan = await generate_plan(
+        "hello",
+        [toolbox],
+        knowledge_registry=make_knowledge_registry(),
+        client=mock_client,
+    )
 
     assert plan.summary == "downgraded"
     assert len(calls) == 2

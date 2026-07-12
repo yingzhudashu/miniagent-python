@@ -77,9 +77,9 @@ JSONDecodeError: Expecting property name enclosed in double quotes
    python -m miniagent --doctor
    ```
 
-3. 参考 config.defaults.json 格式：
+3. 参考 `miniagent/resources/config.defaults.json` 格式：
    ```bash
-   cp config.defaults.json config.user.json
+   python -m miniagent  # 按首次启动引导生成 config.user.json
    # 然后编辑 config.user.json，只修改需要覆盖的值
    ```
 
@@ -164,7 +164,7 @@ RuntimeError: 项目目录 '/path/to/project' 已有运行中的实例 #1 (PID=1
 2. 如果循环检测拦截：
    - 检查是否输入重复内容
    - 修改 prompt 使其更具体
-   - 调整循环检测阈值（见 `config.defaults.json`）
+   - 调整循环检测阈值（见 `miniagent/resources/config.defaults.json`）
 
 3. 如果进程卡死：
    ```bash
@@ -230,7 +230,7 @@ TimeoutError: Tool execution timeout after X seconds
      }
    }
    ```
-   默认 `agent.tool_timeout` 为 **60** 秒（见 `config.defaults.json`）。
+   默认 `agent.tool_timeout` 为 **60** 秒（见 `miniagent/resources/config.defaults.json`）。
 
 2. 检查工具实现：
    - 是否有网络延迟问题
@@ -455,7 +455,8 @@ python -m pdb -m miniagent
 
 **关键断点位置**：
 - `miniagent/core/executor.py:execute_plan` - 执行入口
-- `miniagent/engine/main.py:run_cli_loop` - 主循环
+- `miniagent/engine/cli_tui.py:run_cli_loop` - 全屏主循环
+- `miniagent/engine/cli_fallback.py:run_cli_loop_fallback` - 行式回退循环
 - `miniagent/tools/exec.py:exec_command` - 工具执行
 
 **调试工具调用**：

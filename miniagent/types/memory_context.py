@@ -3,7 +3,7 @@
 本模块定义记忆上下文处理和管理的抽象接口，用于解除核心层（core）对记忆层（memory）的直接依赖，
 遵循依赖倒置原则（DIP）。
 
-核心层通过这些 Protocol 接口与记忆系统交互，具体实现由 ``RuntimeContext`` 注入
+核心层通过这些 Protocol 接口与记忆系统交互，具体实现由 ``ApplicationContainer`` 注入
 （``miniagent.memory.memory_context_service.DefaultMemoryContext``），
 避免核心层反向依赖记忆层的具体实现。
 
@@ -22,20 +22,19 @@
 # executor.py - 核心层
 from miniagent.types.memory_context import MemoryContextProtocol
 
-async def execute_plan(..., memory_context: MemoryContextProtocol | None = None):
-    mc = resolve_memory_context(memory_context, memory_store, keyword_index)
-    _, mem_meta = await mc.inject_memory_to_messages(
+async def execute_plan(..., memory: MemoryRuntimeProtocol):
+    _, mem_meta = await memory.context.inject_memory_to_messages(
         [], session_key, agent_config, user_input=user_input
     )
     turn_ctx = mem_meta.get("turn_keyword_context")
 ```
 
 ```python
-# compat.unified_entry - 组合根
+# bootstrap.entrypoint - composition root
 from miniagent.memory.memory_context_service import create_default_memory_context
 
-memory_context = create_default_memory_context(memory_store, keyword_index)
-ctx = RuntimeContext(..., memory_context=memory_context)
+memory = create_memory_runtime()
+container = ApplicationContainer(..., memory=memory)
 ```
 """
 
@@ -85,7 +84,7 @@ class MemoryContextProtocol(Protocol):
 
     当前执行主路径由 executor 直接构建 ``stable system -> history ->
     current turn user context``；本 Protocol 封装检索与持久化逻辑，
-    供 ``RuntimeContext`` 注入及测试替身使用。
+    供 ``ApplicationContainer`` 注入及测试替身使用。
     """
 
     async def inject_memory_to_messages(

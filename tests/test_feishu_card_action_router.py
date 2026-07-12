@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 from miniagent.feishu.cards.action_router import inbound_text_from_card_action_value
-from miniagent.feishu.cards.dedupe import (
-    reset_card_action_dedupe_for_tests,
-    should_skip_card_action,
-)
+from miniagent.feishu.cards.dedupe import CardActionDeduplicator
 
 
 def test_inbound_text_miniagent_text() -> None:
@@ -26,6 +23,14 @@ def test_inbound_text_action_id_with_form() -> None:
 
 
 def test_dedupe_skips_repeat() -> None:
-    reset_card_action_dedupe_for_tests()
-    assert should_skip_card_action("k1") is False
-    assert should_skip_card_action("k1") is True
+    deduplicator = CardActionDeduplicator()
+    assert deduplicator.should_skip("k1") is False
+    assert deduplicator.should_skip("k1") is True
+
+
+def test_card_dedupe_is_scoped_to_runtime() -> None:
+    first = CardActionDeduplicator()
+    second = CardActionDeduplicator()
+    assert first.should_skip("same-action") is False
+    assert first.should_skip("same-action") is True
+    assert second.should_skip("same-action") is False

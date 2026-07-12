@@ -89,6 +89,7 @@ def ensure_auto_file_kb(*, kb_name: str | None = None) -> str:
 def ingest_file_for_analysis(
     path: str,
     *,
+    registry: Any,
     state_dir: str | None = None,
     kb_name: str | None = None,
     content: str | None = None,
@@ -163,7 +164,7 @@ def ingest_file_for_analysis(
             "display_path": _display_path(source_key, state_dir),
         }
         _save_metadata(metadata_path, metadata)
-        _refresh_registry(name, str(kb_path))
+        _refresh_registry(registry, name, str(kb_path))
 
         result.success = True
         return result
@@ -190,11 +191,8 @@ def load_auto_file_metadata(kb_path: str) -> dict[str, dict[str, Any]]:
     return _load_metadata(Path(kb_path) / _METADATA_FILE)
 
 
-def _refresh_registry(kb_name: str, kb_path: str) -> None:
+def _refresh_registry(registry: Any, kb_name: str, kb_path: str) -> None:
     try:
-        from miniagent.knowledge.registry import get_kb_registry
-
-        registry = get_kb_registry()
         refresh = getattr(registry, "refresh_auto_file_kb", None)
         if callable(refresh):
             refresh(kb_path, kb_name)

@@ -14,6 +14,7 @@ from miniagent.mcp.runtime import (
     _call_tool_to_result,
     _is_mcp_tool_error,
     _tool_result_text,
+    close_mcp_connections,
     register_mcp_stdio_tools,
 )
 from miniagent.types.tool import ToolResult
@@ -77,6 +78,24 @@ def test_call_tool_to_result_success_and_error() -> None:
 
 def test_is_mcp_available_is_bool() -> None:
     assert isinstance(is_mcp_available(), bool)
+
+
+@pytest.mark.asyncio
+async def test_close_mcp_connections_exits_owned_contexts_once() -> None:
+    from miniagent.mcp import runtime
+
+    first = MagicMock()
+    first.__aexit__ = AsyncMock(return_value=None)
+    second = MagicMock()
+    second.__aexit__ = AsyncMock(return_value=None)
+    runtime._holder[:] = [first, second]
+
+    await close_mcp_connections()
+    await close_mcp_connections()
+
+    first.__aexit__.assert_awaited_once_with(None, None, None)
+    second.__aexit__.assert_awaited_once_with(None, None, None)
+    assert runtime._holder == []
 
 
 @pytest.mark.asyncio

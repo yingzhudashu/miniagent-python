@@ -5,6 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from miniagent.contracts.channels import ChannelRegistryProtocol
+from miniagent.feishu.inbound_adapter import FEISHU_CHANNEL
+from miniagent.feishu.outbound_adapter import build_feishu_final_event
 from miniagent.infrastructure.json_config import get_config
 from miniagent.scheduled_tasks.models import ScheduledTask
 from miniagent.scheduled_tasks.resolve import should_run_feishu
@@ -156,15 +159,21 @@ def resolve_feishu_delivery(
 
 
 async def send_scheduled_reply_to_feishu(
-    feishu_config: Any,
     target: FeishuDeliveryTarget,
     task: ScheduledTask,
     reply: str,
+    *,
+    outbound_channels: ChannelRegistryProtocol,
 ) -> None:
-    """将定时任务最终回复发往飞书（交互卡片）。"""
-    from miniagent.feishu.poll_server import _send_reply
-
+    """Deliver a scheduled result through the registered Feishu adapter."""
     body = f"[定时任务 {task.name}]\n{(reply or '').strip()}"
     if not body.strip():
         return
-    await _send_reply(feishu_config, target.receive_chat_id, body)
+    outbound_channels.get(FEISHU_CHANNEL)
+    await outbound_channels.send(
+        build_feishu_final_event(
+            body,
+            target.receive_chat_id,
+            trace_id=task.id,
+        )
+    )

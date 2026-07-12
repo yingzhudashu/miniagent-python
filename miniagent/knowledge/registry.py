@@ -307,47 +307,4 @@ class KnowledgeRegistry:
         return {"success": True, "message": f"已重载 {len(self._mounted)} 个知识库"}
 
 
-# ─── 全局实例（进程级单例）────────────────────────────────────
-
-_GLOBAL_REGISTRY: KnowledgeRegistry | None = None
-
-
-def get_kb_registry(state_dir: str | None = None) -> KnowledgeRegistry:
-    """获取知识库注册表实例（进程级单例）。
-
-    Args:
-        state_dir: 仅首次创建时生效；后续调用忽略该参数。
-    """
-    global _GLOBAL_REGISTRY
-    if _GLOBAL_REGISTRY is None:
-        _GLOBAL_REGISTRY = KnowledgeRegistry(state_dir)
-    return _GLOBAL_REGISTRY
-
-
-def mount_knowledge_base(path: str, name: str | None = None) -> dict[str, Any]:
-    """挂载知识库（便捷函数）。"""
-    return get_kb_registry().mount(path, name)
-
-
-def unmount_knowledge_base(name: str) -> dict[str, Any]:
-    """卸载知识库（便捷函数）。"""
-    return get_kb_registry().unmount(name)
-
-
-def search_knowledge(
-    query: str,
-    kb_name: str | None = None,
-    top_k: int | None = None,
-    max_chars: int | None = None,
-) -> str:
-    """检索知识库（便捷函数）。"""
-    return get_kb_registry().search(query, kb_name, top_k, max_chars)
-
-
-__all__ = [
-    "KnowledgeRegistry",
-    "get_kb_registry",
-    "mount_knowledge_base",
-    "unmount_knowledge_base",
-    "search_knowledge",
-]
+__all__ = ["KnowledgeRegistry"]

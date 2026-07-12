@@ -1,6 +1,6 @@
 """CLI Format — CLI transcript 格式化工具。
 
-从 main.py 拆分，负责 CLI transcript 中用户消息块和回复块的格式化。
+供 ``cli_tui.py`` 与 ``cli_fallback.py`` 复用，负责用户消息块和回复块格式化。
 
 职责：
 - 用户消息块格式化（含飞书渠道标识）

@@ -13,11 +13,11 @@
 | 可安装包名与源码布局 | `pyproject.toml` → `[tool.setuptools.packages.find]` | 仅打包 `miniagent*`；不再维护顶层 `src` 作为可导入包。 |
 | 版本号 | `miniagent/__init__.py` 中 `__version__` | `pyproject.toml` 通过 `dynamic.version` 读取；发版时与 `CHANGELOG.md`、本文档顶部标语一并更新。 |
 | 依赖声明 | `pyproject.toml` `[project]` / `optional-dependencies` | 不使用根目录 `requirements.txt`；运行时依赖与可选组（`dev`（含 `pytest-cov`）、`feishu`、`browser`、`mcp`、`cli`、`typing`（`mypy` 试点））集中在此。 |
-| 配置说明 | [`config.defaults.json`](../config.defaults.json) + `config.user.json` | 复制 defaults 为 user 后本地填写；`_config_guide` 标明 User/Advanced 分层；**勿提交含真实密钥的 user 文件**（见 `.gitignore`）。 |
+| 配置说明 | [`miniagent/resources/config.defaults.json`](../miniagent/resources/config.defaults.json) + `config.user.json` | 包资源提供默认值，user 文件只写本地覆盖；`_config_guide` 标明 User/Advanced 分层；**勿提交含真实密钥的 user 文件**（见 `.gitignore`）。 |
 | 用户安装与首次配置 | [README.md](../README.md) §安装、§配置、§快速入门 | USER_GUIDE / DEPLOYMENT 仅保留专题指针，不重复安装长文。 |
 | 通道绑定（CLI↔飞书） | [FEISHU.md](FEISHU.md) §通道绑定 | ARCHITECTURE §2b、USER_GUIDE、CLI 仅保留摘要 + 链接。 |
 | 多实例注册表 | 本文 §3.3 | DEPLOYMENT / USER_GUIDE / CLI 只写 `--stop` 用法与 PID 语义摘要。 |
-| 定时任务配置 | `config.defaults.json` + [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」 | 用户面向摘要见 [USER_GUIDE.md](USER_GUIDE.md) §3；命令语法见 [CLI.md](CLI.md) §/schedule |
+| 定时任务配置 | `miniagent/resources/config.defaults.json` + [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」 | 用户面向摘要见 [USER_GUIDE.md](USER_GUIDE.md) §3；命令语法见 [CLI.md](CLI.md) §/schedule |
 | 自我优化（操作） | [SELF_OPT.md](SELF_OPT.md) | `self_optimization` 配置节；提案与 `/self-opt` 命令。 |
 | Trace 系统（实现） | 本文 §5 | 事件 schema、writer、stats API；SELF_OPT 只链到此处。 |
 | 输出格式与渲染 | [OUTPUT_FORMAT.md](OUTPUT_FORMAT.md) | CLI TUI / 流式 / 飞书卡片间距；CLI.md 侧重命令交互。 |
@@ -27,7 +27,7 @@
 | 安全模型 | [SECURITY.md](SECURITY.md) | 沙箱、命令执行、多实例锁、飞书凭证；多实例注册表细节见本文 §3.3。 |
 | 架构与行为细节 | [README.md](../README.md) §架构概览 + `docs/ARCHITECTURE.md` 及各专题文档 | README 为架构概览 SSOT；各层细节以 ARCHITECTURE 为准。 |
 
-飞书媒体与出站（JSON 键见 [`config.defaults.json`](../config.defaults.json) `feishu` 节；完整说明见 [FEISHU.md](FEISHU.md)）：
+飞书媒体与出站（JSON 键见 [`miniagent/resources/config.defaults.json`](../miniagent/resources/config.defaults.json) `feishu` 节；完整说明见 [FEISHU.md](FEISHU.md)）：
 
 | JSON 路径 | 作用 |
 |-----------|------|
@@ -44,11 +44,11 @@
 
 ### 1.1 配置分层（User / Advanced / Internal）
 
-[`config.defaults.json`](../config.defaults.json) 在本仓库中承担 **「开发者默认值仓库 + 可选用户覆盖面」** 双重角色，**并非**每一项都是用户应理解的旋钮。文档与示例按三层划分：
+[`miniagent/resources/config.defaults.json`](../miniagent/resources/config.defaults.json) 是随 wheel 发布的默认配置事实来源，**并非**每一项都是用户应理解的旋钮。文档与示例按三层划分：
 
 | 层级 | 含义 | 文档位置 | 用户是否需了解 |
 |------|------|----------|----------------|
-| **User-facing** | 模型、凭据、路径、渠道行为、功能开关 | [README.md](../README.md) §配置、`config.defaults.json` 顶部 User 层节 | 是 |
+| **User-facing** | 模型、凭据、路径、渠道行为、功能开关 | [README.md](../README.md) §配置、包内 defaults 顶部 User 层节 | 是 |
 | **Advanced / Operator** | 超时、并发、记忆容量、飞书运维、Trace 保留 | 本文 §5、 [DEPLOYMENT.md](DEPLOYMENT.md)、各专题文档 | 按需 |
 | **Internal** | 第三方 API 端点、节流毫秒、渲染边距、算法阈值 | 代码常量或 defaults 中的 dev 默认；**不**写入 user 示例 | 否 |
 
@@ -56,7 +56,7 @@
 
 **典型 Advanced 节**：`memory.*`、`dream.*`、`trace.*`、`feishu.websocket.*`、`feishu.card.*`、`agent.loop_detection.*`、`background_tasks.*`。
 
-**典型 Internal（写入 [`core/constants.py`](../miniagent/core/constants.py)，不可通过 JSON 覆盖）**：`feishu.api_urls`、`feishu.patch.*`（流式卡片节流）、`clawhub.api_url`、`web_search.tavily_url`、`execution.*`（含 `EXECUTION_MAX_CONCURRENT_TOOLS` 工具并发硬上限）、`render.*`、`cli` 实现细节（`CLI_RAW_MARKDOWN` / `CLI_THINKING_RICH` 可被 ENV 或 `cli.*` 覆盖）、`browser.*`、`keyword_index.*` 算法阈值等。JSON 默认值种子（如 `DEFAULT_AGENT_MAX_TURNS`、`HISTORY_ARCHIVE_MAX_MESSAGES`）与本文件及 `config.defaults.json` 同步，用户 JSON 可覆盖对应键。输出前缀 emoji 见 [`types/error_prefix.py`](../miniagent/types/error_prefix.py)。
+**典型 Internal（写入 [`core/constants.py`](../miniagent/core/constants.py)，不可通过 JSON 覆盖）**：`feishu.api_urls`、`feishu.patch.*`（流式卡片节流）、`clawhub.api_url`、`web_search.tavily_url`、`execution.*`（含 `EXECUTION_MAX_CONCURRENT_TOOLS` 工具并发硬上限）、`render.*`、`cli` 实现细节（`CLI_RAW_MARKDOWN` / `CLI_THINKING_RICH` 可被 ENV 或 `cli.*` 覆盖）、`browser.*`、`keyword_index.*` 算法阈值等。JSON 默认值种子（如 `DEFAULT_AGENT_MAX_TURNS`、`HISTORY_ARCHIVE_MAX_MESSAGES`）与包内 defaults 同步，用户 JSON 可覆盖对应键。输出前缀 emoji 见 [`types/error_prefix.py`](../miniagent/types/error_prefix.py)。
 
 **加载机制**（见 [`json_config.py`](../miniagent/infrastructure/json_config.py)）：`defaults → user`（仅两层 JSON）。`secrets` 经 [`env_loader.py`](../miniagent/infrastructure/env_loader.py) 桥接到 `OPENAI_API_KEY` 等 SDK 变量，**不是**用户配置入口。`/config` 命令与 USER_GUIDE 仅展示 User 层子集。
 
@@ -64,11 +64,10 @@
 
 ### 1.2 环境变量分类
 
-自 v2.0.0 起，**用户配置**仅通过 JSON（`config.user.json` > `config.defaults.json`），不支持 `MINIAGENT_*` 覆盖配置项。环境变量分三类：
+**用户配置**仅通过 JSON（`config.user.json` > 包内 defaults），不支持 `MINIAGENT_*` 覆盖配置项。环境变量分三类：
 
 | 类别 | 说明 | 示例 | 文档 |
 |------|------|------|------|
-| **配置类（已废弃）** | 曾用于覆盖 defaults 的 `MINIAGENT_*` 配置键 | `MINIAGENT_MEMORY_STORE_CACHE_MAX` | 迁移至 JSON 键，见 [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md) 文末迁移表 |
 | **运维 / 调试类（仍有效）** | 启动行为、日志级别、特性开关，非 defaults 镜像 | `AGENT_DEBUG`、`MINIAGENT_TRACE_LOG_FILE`、`MINIAGENT_FEISHU_DOT_COMMANDS_FULL` | [DEPLOYMENT.md](DEPLOYMENT.md)、[OUTPUT_FORMAT.md](OUTPUT_FORMAT.md)、[FEISHU.md](FEISHU.md) |
 | **路径覆盖类（仍有效）** | 覆盖状态目录或注册表根，不改变配置语义 | `MINIAGENT_PATHS_STATE_DIR`、`MINIAGENT_REGISTRY_STATE_DIR`、`MINIAGENT_PROJECT_DIR` | 本文 §3 |
 
@@ -112,7 +111,7 @@ CI 说明：
 
 ## 3. 状态目录与测试隔离
 
-**双路径模型**（`miniagent/infrastructure/paths.py`）：
+**状态路径模型**（`miniagent/infrastructure/paths.py`）：
 
 **Canonical 会话路径**（默认）：
 
@@ -128,8 +127,8 @@ CI 说明：
 | 全局实例注册表 | `resolve_registry_state_dir()` | `{miniagent 包根}/workspaces` | `instances/<id>/meta.json` + `heartbeat` |
 
 - **启动时**：`python -m miniagent` 入口会将 `MINIAGENT_PROJECT_DIR` 设为启动时 cwd，并在未显式设置时写入 `MINIAGENT_PATHS_STATE_DIR`（项目 workspace 根，位于共用 `workspaces/projects/{project_key}/`）。
-- **Legacy 回退**：若 `{cwd}/workspaces/` 或（cwd 为 miniagent 源码根时）`{registry}/` 已有 `sessions/` 或 `channel-router.json`，仍使用旧路径直至手动迁移。
-- **推荐**：测试或并行部署时用 `MINIAGENT_PATHS_STATE_DIR` 将项目数据迁出仓库；注册表不受该变量影响（测试可用 `MINIAGENT_REGISTRY_STATE_DIR` 覆盖）。
+- **路径确定性**：解析只依赖显式环境变量、绝对 `paths.state_dir` 与 canonical 注册表，不扫描磁盘残留目录。
+- **推荐**：测试或并行部署时用 `MINIAGENT_PATHS_STATE_DIR` 指定独立项目数据目录；注册表不受该变量影响（测试可用 `MINIAGENT_REGISTRY_STATE_DIR` 覆盖）。
 - **一目录一实例**：见 §3.3。
 - 部分路径见 `.gitignore`，如 `workspaces/sessions/`（即 `{paths.state_dir}/sessions/` 的简写）、`**/*.lock`。
 
@@ -137,7 +136,7 @@ CI 说明：
 
 **运行时生成物默认不入库**：`.gitignore` 已排除 `workspaces/instances/`、`workspaces/sessions/`（canonical：`{paths.state_dir}/sessions/`，默认 `{miniagent}/workspaces/projects/{project_key}/sessions/`）、`workspaces/memory/`、`workspaces/scheduled_tasks/`（定时任务表 `tasks.json`，路径为 `{paths.state_dir}/scheduled_tasks/tasks.json`，默认 `workspaces/scheduled_tasks/`）、`workspaces/self_opt/`（自我优化提案与分析报告）、`workspaces/logs/`（Trace 日志）、`workspaces/keyword-index.json`、`workspaces/perf*.jsonl`、`workspaces/feishu_inbound_owner.json`、`workspaces/feishu/`（含 WebSocket 去重等）、`**/*.lock`、`workspaces/cli/` 等，避免把本机 PID、会话历史、记忆索引、对话落盘、飞书去重状态提交到远程。
 
-若历史上曾将上述路径纳入版本跟踪，可在确认无团队依赖后执行 `git rm --cached <路径>` 并保留 `.gitignore` 规则。配置形状以 `config.defaults.json` 的 `_config_guide` 与分层节为准；日常开发建议在 `config.user.json` 将 `paths.state_dir` 迁出仓库。
+若上述路径被版本跟踪，可在确认无团队依赖后执行 `git rm --cached <路径>` 并保留 `.gitignore` 规则。配置形状以包内 defaults 的 `_config_guide` 与分层节为准；日常开发建议在 `config.user.json` 将 `paths.state_dir` 设为仓库外目录。
 
 **提交前建议再看一眼 `git status`**：不应把 `__pycache__/`、`.pytest_cache/`、`.ruff_cache/`、`.mypy_cache/`、`*.egg-info/` 等缓存或打包元数据加入版本库（勿对这类路径使用 `git add -f`）。`git clean -fdX` 会删除**所有**已忽略路径（含本地 **`config.user.json`**），执行前请备份密钥；更稳妥做法是只手动删缓存目录。勿用小写 `git clean -fdx`，以免删掉未跟踪的源码。详见 [CONTRIBUTING.md](CONTRIBUTING.md)「提交前仓库卫生」。
 
@@ -182,7 +181,7 @@ python -m miniagent --stop --all    # 停止全部
 
 进程内也可用 `/instance list`、`/instance stop <id>`（见 [CLI.md](CLI.md)）。
 
-**`--stop --state-dir`**：参数指向**实例注册表根**（含 `instances/` 子目录），默认 `{miniagent}/workspaces`；**不是**项目会话数据目录（`projects/<key>/`）。当 canonical 注册表与 legacy `{cwd}/workspaces/instances/` 同时存在且实例 ID 冲突时，需用此参数指定要操作哪一个注册表根。
+**`--stop --state-dir`**：参数指向**实例注册表根**（含 `instances/` 子目录），默认 `{miniagent}/workspaces`；**不是**项目会话数据目录（`projects/<key>/`）。该参数用于显式检查或停止指定注册表中的实例。
 
 **会话互斥**：每个会话工作空间 `.lock` 文件（PID）防止多实例抢同一 session；定时任务调度锁见 `scheduled_tasks/*.lock`（详见 [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」）。
 
@@ -212,7 +211,7 @@ miniagent.infrastructure.tracing
 ├── register_trace_hook(hook)      # 注册回调钩子
 ├── clear_trace_hooks()            # 清空钩子（测试隔离）
 ├── auto_register_trace_file_hook() # 自动注册文件持久化钩子
-├── get_trace_file()               # 获取基础 trace 路径（兼容旧调用方）
+├── get_actual_trace_file()        # 获取当前进程实际写入路径
 ├── get_actual_trace_file()        # 获取当前进程实际写入文件
 └── get_trace_writer_stats()       # 获取队列深度、写入/丢弃计数等 writer 指标
 
@@ -221,7 +220,7 @@ miniagent.infrastructure.trace_events
 └── 事件构建函数（make_error_event 等）
 
 miniagent.infrastructure.trace_stats
-├── get_trace_files()              # 枚举当天基础文件与 pid 分片
+├── get_trace_files()              # 枚举当天全部 pid 分片
 ├── load_trace_events()            # 加载并过滤事件
 ├── compute_tool_stats()           # 工具统计
 ├── compute_llm_stats()            # LLM 统计
@@ -258,7 +257,7 @@ miniagent.infrastructure.trace_stats
 
 ### 5.4 自动持久化
 
-配置 `config.defaults.json`：
+配置 `miniagent/resources/config.defaults.json`：
 
 ```json
 {
@@ -286,7 +285,7 @@ miniagent.infrastructure.trace_stats
 }
 ```
 
-`get_trace_file()` 返回兼容旧调用方的基础路径 `trace-{YYYY-MM-DD}.jsonl`；异步 writer 实际写入 `trace-{YYYY-MM-DD}-pid{pid}.jsonl`，避免多进程同时追加同一文件。`trace_stats.get_trace_files(date)` 和 `load_trace_events(date)` 会聚合同一天的基础文件与全部 pid 分片，日报和自我优化分析不会漏读真实运行数据。
+`get_actual_trace_file()` 返回异步 writer 实际写入的 `trace-{YYYY-MM-DD}-pid{pid}.jsonl`，避免多进程同时追加同一文件。`trace_stats.get_trace_files(date)` 和 `load_trace_events(date)` 会聚合同一天的全部 pid 分片，日报和自我优化分析不会漏读真实运行数据。
 
 writer 使用有界队列保护内存。默认 `writer_queue_max_size=10000`、`writer_overflow_policy=drop_oldest`；队列满时不阻塞主流程，而是丢弃事件并在 `get_trace_writer_stats()` 的 `dropped_count` 中暴露。该指标是 writer 内部状态，不通过 `emit_trace()` 递归上报。
 

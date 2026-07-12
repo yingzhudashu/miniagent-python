@@ -155,9 +155,8 @@ class MemoryStoreProtocol(Protocol):
 
     负责会话记忆的加载、保存、更新和添加条目。
 
-    该 Protocol 同时满足以下两处使用的需求：
-    - ``miniagent.runtime.context.RuntimeContext.memory_store``
-    - ``miniagent.types.protocols`` 中的运行时注入
+    该 Protocol 由 ``ApplicationContainer.memory.store`` 的具体实现满足，
+    并用于核心执行边界的静态类型检查。
 
     Methods:
         load: 加载会话记忆
@@ -305,7 +304,7 @@ class SessionManagerProtocol(Protocol):
 
     管理会话的创建、获取、列表、销毁、切换，以及工具升降维。
 
-    该 Protocol 用于 ``miniagent.runtime.context.RuntimeContext`` 的
+    该 Protocol 用于 ``ApplicationContainer`` 的
     session_manager 字段类型，支持依赖注入模式。
     """
 

@@ -2,7 +2,7 @@
 
 与 ``read_session_diary`` / ``search_session_diary`` 工具读路径一致；背景见 ``docs/MEMORY_SYSTEM.md``。
 
-**重构说明**：状态根目录获取已统一到 ``miniagent/memory/defaults.py`` 的 ``get_state_root()``。
+状态根目录统一由 ``infrastructure.paths.resolve_state_dir()`` 解析。
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from typing import Any
 from miniagent.core.constants import HISTORY_ARCHIVE_MAX_MESSAGES
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
-from miniagent.memory.defaults import get_state_root
+from miniagent.infrastructure.paths import resolve_state_dir as get_state_root
 from miniagent.utils.session_id import safe_session_id
 
 _logger = get_logger(__name__)
@@ -198,16 +198,10 @@ def maybe_archive_old_turns(session_key: str, history: list[dict[str, Any]]) -> 
     return True
 
 
-# 向后兼容：safe_session_id_for_memory 是 safe_session_id 的别名
-# 新代码应直接使用 miniagent.utils.session_id.safe_session_id
-safe_session_id_for_memory = safe_session_id
-
-
 __all__ = [
     "maybe_archive_old_turns",
     "diary_file_path",
     "trim_history_tail_by_turns",
-    "safe_session_id_for_memory",
     "append_archive_chunk_to_diary",
     "history_archive_max_messages",
     "history_archive_token_hint",

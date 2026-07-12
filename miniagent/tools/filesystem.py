@@ -85,7 +85,11 @@ async def _read_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
         result += f"\n... (共 {total} 行，仅显示 {len(sliced)} 行，使用 offset/limit 翻页)"
 
     meta: dict[str, Any] = {"totalLines": total, "readLines": len(sliced)}
-    ingest = ingest_file_for_analysis(file_path, content=content)
+    ingest = ingest_file_for_analysis(
+        file_path,
+        content=content,
+        registry=ctx.knowledge_registry,
+    )
     meta.update(
         {
             "rag_ingested": bool(ingest.success and not ingest.skipped),

@@ -11,14 +11,14 @@
 
 用法：
 1. 自动集成：``shutdown_runtime`` 退出时清理一次
-2. 定时清理：``scheduled_tasks_loop`` 按 ``trace.cleanup_interval`` 节流调用
-   ``maybe_scheduled_cleanup_traces``
+2. 定时清理：``scheduled_tasks_loop`` 持有 ``TraceHousekeeping``，按配置间隔执行
 """
 
 from __future__ import annotations
 
 import logging
 import time
+from dataclasses import dataclass
 from typing import Any
 
 from miniagent.infrastructure.json_config import get_config
@@ -102,39 +102,38 @@ def scheduled_trace_stats_report() -> dict[str, Any]:
         return {"success": False, "error": str(e)}
 
 
-_last_stats_report_at: float = 0.0
-_last_cleanup_at: float = 0.0
+@dataclass(slots=True)
+class TraceHousekeeping:
+    """Per-ticker throttling state for trace cleanup and report generation."""
 
+    last_cleanup_at: float = 0.0
+    last_stats_report_at: float = 0.0
 
-def maybe_scheduled_cleanup_traces() -> dict[str, Any] | None:
-    """按 ``trace.cleanup_interval`` 节流清理过期 trace（供 ticker 循环调用）。"""
-    global _last_cleanup_at
-    if not get_config("trace.auto_cleanup", True):
-        return None
-    interval = max(60.0, float(get_config("trace.cleanup_interval", 3600)))
-    now = time.time()
-    if _last_cleanup_at and (now - _last_cleanup_at) < interval:
-        return None
-    _last_cleanup_at = now
-    return scheduled_cleanup_traces()
+    def maybe_cleanup(self) -> dict[str, Any] | None:
+        """Run trace cleanup when enabled and its configured interval is due."""
+        if not get_config("trace.auto_cleanup", True):
+            return None
+        interval = max(60.0, float(get_config("trace.cleanup_interval", 3600)))
+        now = time.time()
+        if self.last_cleanup_at and (now - self.last_cleanup_at) < interval:
+            return None
+        self.last_cleanup_at = now
+        return scheduled_cleanup_traces()
 
-
-def maybe_scheduled_trace_stats_report() -> dict[str, Any] | None:
-    """按 ``trace.stats_report_interval`` 节流生成统计报告（供定时 tick / shutdown 调用）。"""
-    global _last_stats_report_at
-    if not get_config("trace.enabled", False):
-        return None
-    interval = max(60.0, float(get_config("trace.stats_report_interval", 3600)))
-    now = time.time()
-    if _last_stats_report_at and (now - _last_stats_report_at) < interval:
-        return None
-    _last_stats_report_at = now
-    return scheduled_trace_stats_report()
+    def maybe_report(self) -> dict[str, Any] | None:
+        """Generate trace statistics when enabled and their interval is due."""
+        if not get_config("trace.enabled", False):
+            return None
+        interval = max(60.0, float(get_config("trace.stats_report_interval", 3600)))
+        now = time.time()
+        if self.last_stats_report_at and (now - self.last_stats_report_at) < interval:
+            return None
+        self.last_stats_report_at = now
+        return scheduled_trace_stats_report()
 
 
 __all__ = [
+    "TraceHousekeeping",
     "scheduled_cleanup_traces",
     "scheduled_trace_stats_report",
-    "maybe_scheduled_cleanup_traces",
-    "maybe_scheduled_trace_stats_report",
 ]

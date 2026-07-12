@@ -12,8 +12,9 @@ import os
 import shutil
 from typing import Any
 
+from miniagent.contracts.memory import MemoryRuntimeProtocol
 from miniagent.infrastructure.logger import get_logger
-from miniagent.memory.defaults import get_state_root
+from miniagent.infrastructure.paths import resolve_state_dir
 from miniagent.utils.session_id import safe_session_id
 
 _logger = get_logger(__name__)
@@ -48,9 +49,7 @@ async def cleanup_background_session_artifacts(
     session_key: str,
     *,
     session_manager: Any | None = None,
-    memory_store: Any | None = None,
-    activity_log: Any | None = None,
-    keyword_index: Any | None = None,
+    memory: MemoryRuntimeProtocol | None = None,
 ) -> None:
     """清除后台子 session 在磁盘与进程内的全部痕迹。
 
@@ -60,15 +59,13 @@ async def cleanup_background_session_artifacts(
     Args:
         session_key: 子 session 标识（``__bg__<task_id>``）
         session_manager: 会话管理器（可选）
-        memory_store: 记忆存储（可选）
-        activity_log: 活动日志（可选）
-        keyword_index: 关键词索引（可选）
+        memory: 应用记忆运行时；提供时同步清理缓存、注册表和派生索引
     """
     if not is_background_session_key(session_key):
         return
 
     safe_id = safe_session_id(session_key)
-    state_root = get_state_root()
+    state_root = memory.state_root if memory is not None else resolve_state_dir()
 
     try:
         from miniagent.engine.session_lock import release_session_lock
@@ -89,8 +86,8 @@ async def cleanup_background_session_artifacts(
     memory_path = os.path.join(state_root, "memory", f"{safe_id}.json")
     await _remove_path_async(memory_path)
 
-    if memory_store is not None:
-        evict = getattr(memory_store, "evict_session", None)
+    if memory is not None:
+        evict = getattr(memory.store, "evict_session", None)
         if callable(evict):
             try:
                 evict(session_key)
@@ -116,32 +113,14 @@ async def cleanup_background_session_artifacts(
     except Exception as exc:
         _logger.debug("清理 agent_lt 失败 (%s): %s", session_key, exc)
 
-    try:
-        from miniagent.memory.shared_registry import get_registry
-
-        registry = get_registry(state_root)
-        remove_registry = getattr(registry, "remove_session_entries", None)
-        removed_keys: list[str] = []
-        if callable(remove_registry):
-            removed_keys = remove_registry(session_key)
-        if removed_keys and keyword_index is not None:
-            remove_index = getattr(keyword_index, "remove_entry_keys", None)
-            if callable(remove_index):
-                remove_index(removed_keys)
+    if memory is not None:
         try:
-            from miniagent.memory.embedding_search import get_embed_provider
-
-            embed_provider = get_embed_provider(state_root)
-            remove_embed = getattr(embed_provider.index, "remove_entry_keys", None)
-            if removed_keys and callable(remove_embed):
-                remove_embed(removed_keys)
+            memory.remove_session_entries(session_key)
         except Exception as exc:
-            _logger.debug("清理 embedding 索引失败 (%s): %s", session_key, exc)
-    except Exception as exc:
-        _logger.debug("清理记忆注册表/索引失败 (%s): %s", session_key, exc)
+            _logger.debug("清理记忆注册表/索引失败 (%s): %s", session_key, exc)
 
-    if activity_log is not None:
-        remove_log = getattr(activity_log, "remove_session", None)
+    if memory is not None:
+        remove_log = getattr(memory.activity_log, "remove_session", None)
         if callable(remove_log):
             try:
                 if asyncio.iscoroutinefunction(remove_log):

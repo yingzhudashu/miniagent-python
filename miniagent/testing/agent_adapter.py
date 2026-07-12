@@ -15,6 +15,9 @@ from miniagent.testing.validation import build_agent_execution_dict, estimate_to
 def build_execute_agent(
     *,
     registry: Any,
+    memory: Any,
+    knowledge_registry: Any,
+    client: Any,
     skill_toolboxes: list | None = None,
     skill_prompts: str | None = None,
     session_key: str = "__self_test__",
@@ -24,6 +27,8 @@ def build_execute_agent(
 
     Args:
         registry: 工具注册表
+        memory: 应用记忆运行时
+        knowledge_registry: 应用知识库注册表
         skill_toolboxes: 技能工具箱列表
         skill_prompts: 技能系统提示词
         session_key: 隔离用的会话键（避免污染用户会话历史时可专用）
@@ -62,6 +67,9 @@ def build_execute_agent(
         result = await run_agent(
             user_input,
             registry=registry,
+            memory=memory,
+            knowledge_registry=knowledge_registry,
+            client=client,
             monitor=monitor,
             toolboxes=toolboxes,
             system_prompt=skill_prompts,
@@ -99,6 +107,16 @@ async def build_execute_agent_from_engine(
 ) -> ExecuteAgentFn:
     """从 UnifiedEngine 上下文构建 execute_agent（供 CLI ``/test run real`` 使用）。"""
     sm = (state or {}).get("session_manager")
+    runtime_ctx = (state or {}).get("runtime_ctx")
+    memory = getattr(runtime_ctx, "memory", None)
+    knowledge_registry = getattr(runtime_ctx, "knowledge_registry", None)
+    client = getattr(runtime_ctx, "openai_client", None)
+    if memory is None:
+        raise ValueError("真实 Agent 自测需要 state.runtime_ctx.memory")
+    if knowledge_registry is None:
+        raise ValueError("真实 Agent 自测需要 state.runtime_ctx.knowledge_registry")
+    if client is None:
+        raise ValueError("真实 Agent 自测需要 state.runtime_ctx.openai_client")
     if sm is not None:
         await sm.get_or_create(session_key)
 
@@ -128,6 +146,9 @@ async def build_execute_agent_from_engine(
         result = await run_agent(
             user_input,
             registry=registry,
+            memory=memory,
+            knowledge_registry=knowledge_registry,
+            client=client,
             monitor=run_monitor,
             toolboxes=toolboxes,
             system_prompt=skill_prompts,
@@ -135,8 +156,6 @@ async def build_execute_agent_from_engine(
             session_key=session_key,
             on_tool_finish=on_tool_finish,
             engine=engine,
-            memory_store=getattr(engine, "memory_store", None),
-            activity_log=getattr(engine, "activity_log", None),
             skip_planning=False,
         )
 

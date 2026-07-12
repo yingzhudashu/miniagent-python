@@ -22,7 +22,7 @@ def configure_message_queue_for_parallel(message_queue: MessageQueueManager) -> 
     - ``parallel_sessions=true``（默认）：``cross_queue_serial=False``，不持有 ``exec_lock``，
       不同 ``chat_id`` 可并行投递；同一 ``chat_id`` 仍由各自队列串行。
     - ``parallel_sessions=false``：``cross_queue_serial=True`` 并确保 ``exec_lock`` 存在，
-      CLI 与飞书等通道按全局 FIFO 串行（旧版单飞行为）。
+      CLI 与飞书等通道按全局 FIFO 串行。
 
     与 :class:`~miniagent.engine.session_exec.SessionExecCoordinator` 的分工：
     本函数仅约束**消息入队/出队**是否跨 ``chat_id`` 全局排序；协调器约束**Agent 执行**

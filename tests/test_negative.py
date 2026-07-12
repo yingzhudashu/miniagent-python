@@ -17,6 +17,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from tests.memory_helpers import make_knowledge_registry
+
 # ============================================================================
 # Executor Negative Tests
 # ============================================================================
@@ -87,7 +89,12 @@ class TestPlannerNegative:
             )
 
             # 空输入应返回 fallback
-            result = await generate_plan("", toolboxes=[], client=MagicMock())
+            result = await generate_plan(
+                "",
+                toolboxes=[],
+                knowledge_registry=make_knowledge_registry(),
+                client=MagicMock(),
+            )
 
             # 应返回有效的计划结构
             assert result is not None

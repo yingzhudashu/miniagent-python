@@ -181,7 +181,7 @@ class TestMemoryStore:
                 {
                     "session_id": sid,
                     "cumulative_summary": "",
-                    "key_facts": ["legacy fact"],
+                    "key_facts": ["saved fact"],
                     "entries": [],
                     "uploaded_files": [],
                     "total_turns": 0,
@@ -197,7 +197,7 @@ class TestMemoryStore:
         loaded = await self.store.load(sid)
 
         assert loaded is not None
-        assert loaded.key_facts == ["legacy fact"]
+        assert loaded.key_facts == ["saved fact"]
         assert loaded.ground_truth_facts == []
 
     async def test_update_user_snippet_truncates_and_updates_in_progress(self):

@@ -4,7 +4,7 @@
 ``DefaultSkillRegistry``，并与 ``builtin_toolboxes.BUILTIN_TOOLBOXES`` 合并后交给规划器。
 ``install_skill`` 与 ``.reload-skills`` 可在不重启进程时调用 ``refresh_skills`` 热加载。
 
-ClawHub 客户端由 ``create_clawhub_client()`` 构造并注入 ``RuntimeContext.clawhub``，供工具层
+ClawHub 客户端由 ``create_clawhub_client()`` 构造并注入 ``ApplicationContainer.clawhub``，供工具层
 搜索/安装技能时复用（``ToolContext.clawhub`` 优先）。
 
 导出：注册表、解析/加载函数、ClawHub 工厂、技能根路径解析、refresh。
@@ -14,7 +14,6 @@ ClawHub 客户端由 ``create_clawhub_client()`` 构造并注入 ``RuntimeContex
 
 from miniagent.skills.autovet import auto_vet_skill
 from miniagent.skills.clawhub_client import (
-    close_clawhub_client,
     create_clawhub_client,
     search_local_skills,
 )
@@ -41,7 +40,6 @@ __all__ = [
     "discover_skill_packages",
     "refresh_skills",
     "create_clawhub_client",
-    "close_clawhub_client",
     "search_local_skills",
     "get_skills_root",
     "get_session_skills_dir",

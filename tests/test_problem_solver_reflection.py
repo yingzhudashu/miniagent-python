@@ -11,6 +11,7 @@ from miniagent.core.problem_solver import (
     ReflectionResult,
     reflect_on_result,
 )
+from tests.memory_helpers import make_knowledge_registry
 
 
 @pytest.mark.asyncio
@@ -32,6 +33,7 @@ async def test_reflect_on_result_acceptable():
     result = await reflect_on_result(
         user_input="帮我查找天气",
         reply="今天天气晴朗，温度25°C",
+        knowledge_registry=make_knowledge_registry(),
         client=mock_client,
     )
 
@@ -60,6 +62,7 @@ async def test_reflect_on_result_with_issues():
     result = await reflect_on_result(
         user_input="查询北京天气",
         reply="天气晴",
+        knowledge_registry=make_knowledge_registry(),
         client=mock_client,
     )
 
@@ -85,12 +88,13 @@ async def test_reflect_on_result_with_thinking_callback():
 
     thinking_chunks = []
 
-    async def mock_thinking(text, is_thinking, prefix):
+    async def mock_thinking(text, is_thinking, prefix, **_kwargs):
         thinking_chunks.append((text, is_thinking, prefix))
 
     await reflect_on_result(
         user_input="测试输入",
         reply="测试回复",
+        knowledge_registry=make_knowledge_registry(),
         client=mock_client,
         on_thinking=mock_thinking,
     )
@@ -113,6 +117,7 @@ async def test_reflect_on_result_default_values():
     result = await reflect_on_result(
         user_input="测试",
         reply="回复",
+        knowledge_registry=make_knowledge_registry(),
         client=mock_client,
     )
 
@@ -136,6 +141,7 @@ async def test_reflect_on_result_single_quality_score():
     result = await reflect_on_result(
         user_input="test",
         reply="reply",
+        knowledge_registry=make_knowledge_registry(),
         client=mock_client,
     )
 

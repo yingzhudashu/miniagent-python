@@ -129,11 +129,9 @@ class TestConfigWatch:
         """验证配置监听工具可导入。"""
         from miniagent.infrastructure.config_watch import (
             start_config_watch,
-            stop_config_watch,
         )
 
         assert callable(start_config_watch)
-        assert callable(stop_config_watch)
 
 
 class TestSetupWizard:
@@ -187,14 +185,12 @@ class TestClawhubClientRetry:
     """ClawHub 客户端重试测试。"""
 
     def test_clawhub_client_retry_import(self) -> None:
-        """验证 ClawHub 客户端重试工具可导入。"""
-        from miniagent.skills.clawhub_client import (
-            _get_clawhub_client,
-            close_clawhub_client,
-        )
+        """验证 ClawHub 实例拥有可显式关闭的连接池。"""
+        from miniagent.skills.clawhub_client import create_clawhub_client
 
-        assert callable(_get_clawhub_client)
-        assert callable(close_clawhub_client)
+        client = create_clawhub_client()
+        assert callable(client.search)
+        assert callable(client.close)
 
 
 __all__ = [

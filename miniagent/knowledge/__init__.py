@@ -23,20 +23,16 @@ RAG 增强（v2.0.3）：
 
 from __future__ import annotations
 
+from miniagent.contracts.knowledge import KnowledgeRegistryProtocol
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
-from miniagent.knowledge.registry import (
-    KnowledgeRegistry,
-    get_kb_registry,
-    mount_knowledge_base,
-    search_knowledge,
-    unmount_knowledge_base,
-)
+from miniagent.knowledge.registry import KnowledgeRegistry
 
 _logger = get_logger(__name__)
 
 
 def retrieve_knowledge_context(
+    registry: KnowledgeRegistryProtocol,
     query: str,
     phase: str = "executor",
     default_top_k: int = 3,
@@ -48,6 +44,7 @@ def retrieve_knowledge_context(
     配置项命名规则：`knowledge.{phase}_enabled/top_k/max_chars`。
 
     Args:
+        registry: 由应用组合根注入的知识库注册表
         query: 检索关键词或用户输入
         phase: 阶段名称（planner/clarifier/classifier/reflector/executor）
         default_top_k: 默认返回条目数
@@ -57,7 +54,7 @@ def retrieve_knowledge_context(
         格式化的知识库上下文字符串（含 Markdown 标题），失败或禁用时返回空字符串
 
     Example:
-        >>> kb_context = retrieve_knowledge_context(user_input, phase="planner")
+        >>> kb_context = retrieve_knowledge_context(registry, user_input, phase="planner")
         >>> if kb_context:
         >>>     user_parts.append(kb_context)
     """
@@ -66,7 +63,6 @@ def retrieve_knowledge_context(
         return ""
 
     try:
-        registry = get_kb_registry()
         kb_list = registry.list()
         if not kb_list:
             return ""
@@ -87,9 +83,5 @@ def retrieve_knowledge_context(
 
 __all__ = [
     "KnowledgeRegistry",
-    "get_kb_registry",
-    "mount_knowledge_base",
-    "unmount_knowledge_base",
-    "search_knowledge",
     "retrieve_knowledge_context",
 ]

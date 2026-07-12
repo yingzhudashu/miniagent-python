@@ -14,10 +14,11 @@ from miniagent.core.executor import execute_plan
 from miniagent.infrastructure.registry import DefaultToolRegistry
 from miniagent.memory.keyword_index import KeywordIndex
 from miniagent.memory.store import DefaultMemoryStore
-from miniagent.types.config import AgentConfig
+from miniagent.types.config import AgentConfig, SessionBindingConfig
 from miniagent.types.memory import MemoryEntryInput, SessionMemory
 from miniagent.types.planning import StructuredPlan
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
+from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 from tests.perf_helpers import (
     assert_two_medians_within_ratio,
     median_wall_seconds,
@@ -112,10 +113,9 @@ async def test_s1_execute_plan_mock_median_under_cap() -> None:
 
     ac = AgentConfig(
         max_turns=5,
-        session_key=None,
         allow_parallel_tools=True,
         tool_selection_strategy="all",
-        session_registry=sess,
+        session_config=SessionBindingConfig(session_registry=sess),
     )
 
     ms = MagicMock()
@@ -132,9 +132,8 @@ async def test_s1_execute_plan_mock_median_under_cap() -> None:
             MagicMock(),
             ac,
             client=mock_client,
-            memory_store=ms,
-            activity_log=al,
-            keyword_index=ki,
+            memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki),
+            knowledge_registry=make_knowledge_registry(),
         )
         assert "done" in out
 

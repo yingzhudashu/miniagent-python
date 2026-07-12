@@ -16,7 +16,25 @@
 
 ## 项目架构
 
-**17 个核心子包**（含可选 `mcp/`）的完整目录树见 **[README.md §项目结构](../README.md#项目结构)**。逻辑分层（12 功能层）见 [README.md §架构概览](../README.md#架构概览) 与 [ARCHITECTURE.md](ARCHITECTURE.md)。
+**20 个核心子包**（含用例协调 `application/`、启动协调 `bootstrap/`、纯契约 `contracts/`、包内资源 `resources/` 与可选 `mcp/`）的完整目录树见 **[README.md §项目结构](../README.md#项目结构)**。逻辑分层见 [README.md §架构概览](../README.md#架构概览) 与 [ARCHITECTURE.md](ARCHITECTURE.md)。
+
+新增跨包依赖前运行 `python scripts/check_architecture.py`。`contracts/` 必须保持平台无关且只依赖标准库；`application/` 只依赖 contracts；通道、持久化等实现层不得经 `types/__init__.py` 反向进入基础类型导入路径。
+
+新增入站通道时，在 adapter 边界构造 `InboundMessage` 后交给 `InboundTurnCoordinator`；队列键必须显式定义并发/抢占语义。出站通道必须直接实现 `ChannelAdapter` 并注册到 `ChannelRegistry`。
+
+若通道已经在 SDK/transport 层完成去重、debounce 和排队（当前飞书即如此），标准化应放在这些策略之后，不能再套一层 `InboundTurnCoordinator`。迁移前后必须分别验证 message claim 完成/释放、reply/thread target 和失败回退。
+
+handler 发送标准事件后返回空结果，避免 transport 层重复回复；adapter 发送失败必须传播为可观察错误，不得再走第二套字符串或 transport 发送路径。媒体映射必须在下载和安全落盘后构造 `Attachment`，不能把 SDK resource 对象放入契约 metadata。
+
+定时任务必须构造 `InboundMessage(channel="scheduler")`，并通过 `InboundTurnCoordinator(wait=True)` 投递；不得恢复 ticker 内按 CLI/飞书分支手写 `dispatch_wait`。实例 heartbeat 文件是诊断状态，不应伪装成 Agent 入站消息。
+
+后台任务管理器必须构造 `InboundMessage(channel="background")` 后再调用 Agent；它有自己的并发/取消状态机，不应为了消息契约再套聊天队列。
+
+运行期按需创建的后台服务不应强行注册为启动时静态 service。此类对象必须提供显式异步 shutdown，并由 `shutdown_runtime` 调用；`BackgroundTaskManager.shutdown()` 是参考实现，要求停止接收新任务、取消并 await 所有内部 task、完成资源 `finally`，再清空实例所拥有的状态。
+
+新增长期运行的 asyncio 服务应实现 `LifecycleService` 或使用 `AsyncTaskLifecycleService`，由 `bootstrap/runtime_services.py` 注册到唯一 `LifecycleManager`。生产启动图固定按 config watcher→Feishu→ticker→skills watcher 启动、逆序关停。task 与 stop event 由 service 私有持有，不得重复挂到 `ApplicationContainer`；`shutdown_runtime` 不允许按具体服务字段做旁路清理。飞书 service 只编排 `start()` / `stop_async()` / `is_running()`，不得复制 runtime 内的重连、owner lock 或 `FeishuPollState` 连接状态逻辑。
+
+同步流式回调不能通过裸 `asyncio.create_task()` 接入异步 `ChannelRegistry`。使用 `OrderedOutboundDispatcher.publish()`，将返回任务交给组合根跟踪，并在最终事件和 transcript `end_turn` 前按目标调用 `drain()`；不得绕过同会话顺序、失败聚合或取消传播。
 
 **版本号**：以 `miniagent.__version__`（`miniagent/__init__.py`）为权威；`pyproject.toml` 通过 `tool.setuptools.dynamic` 读取该属性。
 
@@ -26,7 +44,7 @@
 
 ```bash
 pip install -e ".[dev,typing]"   # 与默认 CI test job 一致
-cp config.defaults.json config.user.json   # 若尚未配置；编辑 secrets 部分
+python -m miniagent              # 若尚未配置，按首次启动引导生成 config.user.json
 python -m pytest tests/ -q -m "not evaluation"
 # 合并前完整本地门禁（ruff / compileall / mypy / pytest）见 [ENGINEERING.md](ENGINEERING.md) §2
 ```
@@ -193,7 +211,7 @@ class TestYourClass:
 
 1. **一句话职责**（本文件解决什么问题）。
 2. **与架构的对应关系**（可写「详见 ARCHITECTURE.md §…」或链到具体子系统名，如消息队列、多阶段架构）。
-3. **依赖与边界**：主要 import、是否仅主线程、是否假设已有 ``RuntimeContext``、是否读写 ``paths.state_dir`` 等。
+3. **依赖与边界**：主要 import、是否仅主线程、是否需要 ``ApplicationContainer``、是否读写 ``paths.state_dir`` 等。
 4. **非显而易见的行为**：例如懒加载、与飞书/CLI 共用路径、默认环境变量开关。
 
 ### 函数级模板
@@ -201,8 +219,8 @@ class TestYourClass:
 **无参或薄封装：**
 
 ```python
-def get_foo() -> Foo:
-    """返回进程内缓存的 Foo 单例（首次调用时创建）。"""
+def build_foo(config: FooConfig) -> Foo:
+    """从显式配置构造由调用方持有的 Foo。"""
 ```
 
 **带参数与返回值：**
@@ -219,7 +237,7 @@ def merge_config(base: AgentConfig, overrides: dict[str, Any]) -> AgentConfig:
         新的 ``AgentConfig`` 实例。
 
     Note:
-        运行时配置以 JSON 为准（``config.user.json`` > ``config.defaults.json``），见 [ENGINEERING.md](ENGINEERING.md) §1.1。
+        运行时配置以 JSON 为准（``config.user.json`` > 包内 defaults），见 [ENGINEERING.md](ENGINEERING.md) §1.1。
     """
 ```
 
@@ -483,7 +501,7 @@ async def test_read_config_success(tool_context):
 
 ## Part 3 — API 编程示例
 
-进程级依赖集中在 [`RuntimeContext`](../miniagent/runtime/context.py)（组合根）；`registry` 经容器注入后传给 `run_agent()`。自我优化 API 见 [SELF_OPT.md](SELF_OPT.md)。
+进程级依赖集中在 [`ApplicationContainer`](../miniagent/bootstrap/application.py)；以下示例中的 `registry` 与 `memory` 均应来自同一个容器。自我优化 API 见 [SELF_OPT.md](SELF_OPT.md)。
 
 ### 基础用法
 
@@ -491,14 +509,13 @@ async def test_read_config_success(tool_context):
 
 ```python
 from miniagent.core.agent import run_agent
-from miniagent.infrastructure.container import bootstrap_default_factories, get_tool_registry
-from miniagent.engine.builtin_tools import register_builtin_tools
+from miniagent.bootstrap.entrypoint import create_application_container
 
-bootstrap_default_factories()
-registry = get_tool_registry()
-register_builtin_tools(registry)
+container = create_application_container()
+registry = container.registry
+memory = container.memory
 
-result = await run_agent(user_input="读取README.md文件", registry=registry)
+result = await run_agent(user_input="读取README.md文件", registry=registry, memory=memory)
 print(result.reply)
 ```
 
@@ -509,9 +526,13 @@ print(result.reply)
 ```python
 from miniagent.core.agent import run_agent
 from miniagent.infrastructure.registry import DefaultToolRegistry
+from miniagent.memory.runtime import create_memory_runtime
 
 registry = DefaultToolRegistry()
-result = await run_agent("帮我分析当前目录", registry=registry, session_key="test-001")
+memory = create_memory_runtime("/tmp/miniagent-test-state")
+result = await run_agent(
+    "帮我分析当前目录", registry=registry, memory=memory, session_key="test-001"
+)
 ```
 
 #### 会话管理
@@ -520,11 +541,13 @@ result = await run_agent("帮我分析当前目录", registry=registry, session_
 result1 = await run_agent(
     user_input="当前目录有什么文件？",
     registry=registry,
+    memory=memory,
     session_key="my-session-123",
 )
 result2 = await run_agent(
     user_input="读取README.md文件",
     registry=registry,
+    memory=memory,
     session_key="my-session-123",
 )
 ```
@@ -539,6 +562,7 @@ async def my_thinking_callback(text: str, streaming: bool, header: str, **kwargs
 result = await run_agent(
     user_input="分析代码性能",
     registry=registry,
+    memory=memory,
     on_thinking=my_thinking_callback,
 )
 ```
@@ -554,7 +578,9 @@ custom_config = {
     "allow_parallel_tools": False,
     "debug": True,
 }
-result = await run_agent(user_input="执行任务", registry=registry, agent_config=custom_config)
+result = await run_agent(
+    user_input="执行任务", registry=registry, memory=memory, agent_config=custom_config
+)
 ```
 
 #### 自定义系统提示词
@@ -563,6 +589,7 @@ result = await run_agent(user_input="执行任务", registry=registry, agent_con
 result = await run_agent(
     user_input="审查src/main.py代码",
     registry=registry,
+    memory=memory,
     system_prompt="你是一个专业的代码审查助手...",
 )
 ```
@@ -579,23 +606,25 @@ max_turns = get_config("agent.max_turns", 400)
 
 ### 高级用法
 
-#### 从 RuntimeContext 注入
+#### 从 ApplicationContainer 注入
 
-与 `python -m miniagent` 入口一致：先经 `unified_entry` 构造并 `set_runtime_context(ctx)`，或在测试中手动组装 `RuntimeContext`：
+与正式入口一致：显式加载 secrets 并构造 `ApplicationContainer`，然后将依赖传给 API：
 
 ```python
-from miniagent.runtime.context import get_runtime_context
+from miniagent.bootstrap.entrypoint import create_application_container
 from miniagent.core.agent import run_agent
+from miniagent.infrastructure.env_loader import load_secrets_from_project_root
 
-ctx = get_runtime_context()  # 须已初始化
+load_secrets_from_project_root()
+container = create_application_container()
 result = await run_agent(
     user_input="分析代码性能",
-    registry=ctx.registry,
+    registry=container.registry,
+    memory=container.memory,
+    knowledge_registry=container.knowledge_registry,
     session_key="perf-analysis-session",
     agent_config={"max_turns": 50},
-    client=ctx.openai_client,
-    memory_store=ctx.memory_store,
-    activity_log=ctx.activity_log,
+    client=container.openai_client,
 )
 ```
 
@@ -607,7 +636,10 @@ async def my_tool_finish_callback(tool_name, args_json, result, success, thinkin
 
 result = await run_agent(
     user_input="读取README.md",
-    registry=registry,
+    registry=container.registry,
+    memory=container.memory,
+    knowledge_registry=container.knowledge_registry,
+    client=container.openai_client,
     on_tool_finish=my_tool_finish_callback,
 )
 ```
@@ -615,7 +647,14 @@ result = await run_agent(
 #### 跳过规划阶段
 
 ```python
-result = await run_agent(user_input="读取README.md", registry=registry, skip_planning=True)
+result = await run_agent(
+    user_input="读取README.md",
+    registry=container.registry,
+    memory=container.memory,
+    knowledge_registry=container.knowledge_registry,
+    client=container.openai_client,
+    skip_planning=True,
+)
 ```
 
 ### API 测试场景
@@ -624,11 +663,15 @@ result = await run_agent(user_input="读取README.md", registry=registry, skip_p
 
 ```python
 from unittest.mock import Mock
-from miniagent.infrastructure.container import set_tool_registry
 
 mock_registry = Mock()
-set_tool_registry(mock_registry)
-result = await run_agent(user_input="测试命令", registry=mock_registry)
+result = await run_agent(
+    user_input="测试命令",
+    registry=mock_registry,
+    memory=memory,
+    knowledge_registry=mock_knowledge_registry,
+    client=mock_client,
+)
 ```
 
 #### Mock LLM 客户端
@@ -636,7 +679,13 @@ result = await run_agent(user_input="测试命令", registry=mock_registry)
 ```python
 mock_client = AsyncMock(spec=AsyncOpenAI)
 mock_client.chat.completions.create.return_value = MockLLMResponse(content="Mock response")
-result = await run_agent(user_input="测试输入", registry=registry, client=mock_client)
+result = await run_agent(
+    user_input="测试输入",
+    registry=registry,
+    memory=memory,
+    knowledge_registry=mock_knowledge_registry,
+    client=mock_client,
+)
 ```
 
 #### 测试工具执行器
@@ -659,7 +708,7 @@ results = await execute_tools_concurrent(
 
 ```python
 try:
-    result = await run_agent(user_input="执行任务", registry=registry)
+    result = await run_agent(user_input="执行任务", registry=registry, memory=memory)
 except ContextBudgetExceeded as e:
     print(f"上下文超限: {e}")
 except LLMError as e:
@@ -679,7 +728,7 @@ except ToolExecutionError as e:
 - **工具**：单一职责、异步处理、沙箱检查、清晰错误信息
 - **技能**：指令清晰、README 完整、通过 `/reload-skills` 热加载验证
 - **通道**：Protocol 解耦、ChannelRouter 统一管理会话映射
-- **API**：通过 `run_agent()` 关键字参数注入依赖；`registry` 来自 `get_tool_registry()` 或 `RuntimeContext`；模块化引用 `executor_*` 子模块
+- **API**：通过 `run_agent()` 关键字参数注入依赖；`registry` 与 `memory` 来自同一个 `ApplicationContainer`；模块化引用 `executor_*` 子模块
 
 ### 开发清单
 
@@ -689,7 +738,7 @@ except ToolExecutionError as e:
 | 技能 | 创建 SKILL.md（frontmatter + 指令）→ 实现 tools.py（可选）→ `/reload-skills` 验证 → 集成测试 |
 | 通道 | 定义 ChannelProtocol → 实现回调 → 配置会话同步 → 更新 ARCHITECTURE |
 | CLI 命令 | `cli_commands.py` → `command_dispatch.py` → `cmd_help()` → 测试 |
-| API 集成 | `bootstrap_default_factories` + `run_agent` → 配置 `session_key` → 添加回调 → Mock 测试 |
+| API 集成 | `create_application_container` 或显式构造依赖 → `run_agent` → 添加回调 → Mock 测试 |
 
 ---
 

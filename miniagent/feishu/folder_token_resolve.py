@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import os
 import re
 
 from miniagent.feishu.types import FeishuConfig
-from miniagent.infrastructure.env_parse import env_flag
 from miniagent.infrastructure.json_config import get_config
 from miniagent.types.error_prefix import WARNING_PREFIX
 
@@ -77,9 +75,6 @@ def default_doc_folder_token_from_env() -> str:
 
 def root_meta_fallback_enabled() -> bool:
     """是否启用「根文件夹元数据」API 作为最后回退（默认开启）。"""
-    legacy = os.environ.get("FEISHU_DOC_FOLDER_FALLBACK_ROOT_META")
-    if legacy is not None:
-        return env_flag("FEISHU_DOC_FOLDER_FALLBACK_ROOT_META", default=True)
     return bool(get_config("feishu.doc.folder_fallback_root_meta", True))
 
 
@@ -93,7 +88,7 @@ def format_missing_folder_token_message(
         f"已尝试：{tried_s}。",
         "请任选其一：在工具参数中传入文件夹 token 或飞书云盘文件夹完整链接；",
         "或在 config.user.json 配置 feishu.doc.folder_token；",
-        "或设置 FEISHU_DOC_FOLDER_FALLBACK_ROOT_META=1 并确保应用具备云盘根元数据权限（见 docs/FEISHU.md）。",
+        "或将 feishu.doc.folder_fallback_root_meta 设为 true，并确保应用具备云盘根元数据权限（见 docs/FEISHU.md）。",
     ]
     if root_meta_error:
         lines.append(f"根目录 API 回退失败：{root_meta_error}")

@@ -14,11 +14,12 @@ CI 说明见 ``docs/ENGINEERING.md`` §2。
 """
 
 from miniagent.mcp.bridge import is_mcp_available, list_mcp_tools_openai, mcp_tool_to_openai_param
-from miniagent.mcp.runtime import register_mcp_stdio_tools
+from miniagent.mcp.runtime import close_mcp_connections, register_mcp_stdio_tools
 from miniagent.mcp.toolbox import MCP_TOOLBOX, ensure_mcp_toolbox, registry_has_mcp_tools
 
 __all__ = [
     "MCP_TOOLBOX",
+    "close_mcp_connections",
     "ensure_mcp_toolbox",
     "is_mcp_available",
     "list_mcp_tools_openai",

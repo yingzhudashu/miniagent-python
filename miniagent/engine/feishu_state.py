@@ -1,4 +1,4 @@
-"""飞书运行时状态 — 每进程一个实例，由 :class:`RuntimeContext` 持有。
+"""飞书运行时状态 — 每进程一个实例，由 ``ApplicationContainer`` 持有。
 
 封装原 ``feishu_runtime`` 模块级全局（task / config / running），便于测试与多上下文隔离。
 
@@ -29,7 +29,7 @@ class FeishuRuntime:
     """飞书 WebSocket 长轮询生命周期（绑定到特定 :class:`~miniagent.infrastructure.message_queue.MessageQueueManager`）。
 
     **关停**：优先 ``await stop_async()``（``shutdown_runtime``、CLI ``/feishu stop``）；
-    同步 ``stop()`` 仅 ``cancel`` 后台 task，入站锁与 WS 单例在 task ``finally`` 中释放。
+    同步 ``stop()`` 仅 ``cancel`` 后台 task，入站锁与实例连接状态在 task ``finally`` 中释放。
     """
 
     def __init__(self, message_queue: Any) -> None:
@@ -41,6 +41,9 @@ class FeishuRuntime:
         self._running: bool = False
         self._config: Any = None
         self._user_status: Callable[[str], None] | None = None
+        from miniagent.feishu.poll_server import FeishuPollState
+
+        self._poll_state = FeishuPollState()
 
     def _emit_user_line(self, msg: str) -> None:
         """用户可见状态行：优先走全屏 CLI transcript，否则 stdout。"""
@@ -66,20 +69,16 @@ class FeishuRuntime:
 
         Args:
             create_handler: ``(state) -> handler`` 或 ``(state) -> (text_h, media_h)``；
-                典型为 ``RuntimeContext.create_feishu_handler_factory``。
+                典型为 ``ApplicationContainer.create_feishu_handler_factory``。
             state: CLI 循环状态；``start`` 会读取：
 
-                - ``runtime_ctx``：绑定确认引擎（``set_feishu_confirmation_engine``）
+                - ``runtime_ctx``：绑定确认引擎与通道路由
                 - ``instance_id``：写入飞书入站独占锁
 
             user_status: 可选 ``(msg: str) -> None``，由全屏 CLI 注册为写入 transcript；
                 未提供时使用 ``print``，避免与 prompt_toolkit 备用屏混写时丢失信息。
         """
-        from miniagent.feishu.poll_server import (
-            reset_feishu_ws_singleton,
-            set_feishu_confirmation_engine,
-            start_feishu_poll_server,
-        )
+        from miniagent.feishu.poll_server import start_feishu_poll_server
         from miniagent.feishu.types import FeishuConfig
 
         self._user_status = user_status
@@ -90,7 +89,7 @@ class FeishuRuntime:
             engine = getattr(rt, "engine", None) if rt else None
             router = getattr(rt, "channel_router", None) if rt else None
             if engine is not None:
-                set_feishu_confirmation_engine(engine, channel_router=router)
+                self._poll_state.bind_confirmation(engine, router)
 
         config = FeishuConfig(
             app_id=os.environ.get("FEISHU_APP_ID", ""),
@@ -200,17 +199,16 @@ class FeishuRuntime:
                             self._emit_user_line("\u2139\ufe0f [\u98de\u4e66] \u5df2\u505c\u6b62")
                             raise
                     try:
-                        await reset_feishu_ws_singleton()
+                        await self._poll_state.reset()
                         await start_feishu_poll_server(
                             config,
                             text_h,
+                            runtime_state=self._poll_state,
                             message_queue=mq,
                             media_handler=media_h,
                         )
                         try:
-                            from miniagent.feishu.ws_health import get_last_ws_session_end
-
-                            end_reason, _ = get_last_ws_session_end()
+                            end_reason, _ = self._poll_state.ws_health.last_session_end()
                             if end_reason:
                                 self._emit_user_line(
                                     f"\u2139\ufe0f [\u98de\u4e66] \u4f1a\u8bdd\u7ed3\u675f"
@@ -232,9 +230,9 @@ class FeishuRuntime:
                     attempt += 1
             finally:
                 try:
-                    await reset_feishu_ws_singleton()
+                    await self._poll_state.reset()
                 except Exception as e:
-                    _logger.debug("重置飞书WS单例失败（清理路径）: %s", e)
+                    _logger.debug("重置飞书连接状态失败（清理路径）: %s", e)
                 try:
                     release_feishu_inbound_owner()
                 except Exception as e:
@@ -281,8 +279,8 @@ class FeishuRuntime:
     async def stop_async(self) -> None:
         """异步停止（推荐）：等待后台 task 完成取消链。
 
-        顺序：``request_feishu_ws_shutdown`` → 等待 task（最多 3s，超时 ``cancel``）
-        → task ``finally`` 内 ``reset_feishu_ws_singleton`` / ``release_feishu_inbound_owner``。
+        顺序：向 ``FeishuPollState`` 发出 shutdown → 等待 task（最多 3s，超时 ``cancel``）
+        → task ``finally`` 内 ``FeishuPollState.reset`` / ``release_feishu_inbound_owner``。
         """
         t = self._task
         if not self._running and not (t and not t.done()):
@@ -297,9 +295,7 @@ class FeishuRuntime:
             return
 
         try:
-            from miniagent.feishu.poll_server import request_feishu_ws_shutdown
-
-            request_feishu_ws_shutdown()
+            self._poll_state.request_shutdown()
         except Exception as e:
             _logger.debug("请求WS关闭失败（停止路径）: %s", e)
         if t and not t.done():
@@ -327,7 +323,7 @@ class FeishuRuntime:
     def stop(self) -> None:
         """同步停止（fire-and-forget）：``cancel`` 后台 task，不 ``await``。
 
-        入站锁与 WS 单例在 task ``finally`` 中释放；无法等待清理完成时请用 ``stop_async``。
+        入站锁与实例连接状态在 task ``finally`` 中释放；无法等待清理完成时请用 ``stop_async``。
         未运行时会防御性尝试释放本进程持有的入站锁。
         """
         if not self._running:
@@ -345,9 +341,7 @@ class FeishuRuntime:
         self._running = False
         t = self._task
         try:
-            from miniagent.feishu.poll_server import request_feishu_ws_shutdown
-
-            request_feishu_ws_shutdown()
+            self._poll_state.request_shutdown()
         except Exception as e:
             _logger.debug("请求WS关闭失败（停止路径）: %s", e)
         if t and not t.done():
@@ -376,12 +370,7 @@ class FeishuRuntime:
         else:
             self._emit_user_line("\u26aa \u98de\u4e66: \u672a\u542f\u7528")
         try:
-            from miniagent.feishu.ws_health import (
-                get_last_ws_session_end,
-                get_ws_last_inbound_monotonic,
-            )
-
-            end_reason, end_at = get_last_ws_session_end()
+            end_reason, end_at = self._poll_state.ws_health.last_session_end()
             if end_reason:
                 when = ""
                 if end_at:
@@ -390,7 +379,7 @@ class FeishuRuntime:
                     f"\U0001f4ca \u98de\u4e66 WS: \u4e0a\u6b21\u4f1a\u8bdd\u7ed3\u675f={end_reason}"
                     + (f" ({when})" if when else "")
                 )
-            last_in = get_ws_last_inbound_monotonic()
+            last_in = self._poll_state.ws_health.last_inbound_monotonic
             if last_in is not None:
                 ago = time.monotonic() - last_in
                 self._emit_user_line(

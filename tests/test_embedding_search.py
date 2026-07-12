@@ -16,9 +16,8 @@ from miniagent.memory.embedding_search import (
     _cosine_similarity,
     _text_hash,
     embedding_search_enabled,
-    reset_embed_provider,
 )
-from miniagent.memory.shared_registry import MemoryEntryRegistry, reset_registry
+from miniagent.memory.shared_registry import MemoryEntryRegistry
 from miniagent.types.memory import MemoryEntryInput
 from tests.config_helpers import install_test_config
 
@@ -185,9 +184,6 @@ class TestEmbeddingSearchProvider:
         """未配置 embedding 端点时无供应商，回退到关键词索引。"""
         install_test_config(tmp_path, {})
         monkeypatch.delenv("MINIAGENT_EMBED_API_KEY", raising=False)
-        reset_embed_provider()
-        reset_registry()
-
         registry = MemoryEntryRegistry(state_dir=str(tmp_path))
         provider = EmbeddingSearchProvider(state_dir=str(tmp_path), registry=registry)
         assert len(provider._providers) == 0
@@ -204,9 +200,6 @@ class TestEmbeddingSearchProvider:
                 "secrets": {"embed_api_key": "test-key"},
             },
         )
-        reset_embed_provider()
-        reset_registry()
-
         registry = MemoryEntryRegistry(state_dir=str(tmp_path))
         provider = EmbeddingSearchProvider(state_dir=str(tmp_path), registry=registry)
         assert len(provider._providers) == 1
@@ -218,9 +211,6 @@ class TestEmbeddingSearchProvider:
         install_test_config(tmp_path, {})
         monkeypatch.setenv("OPENAI_API_KEY", "key1")
         monkeypatch.delenv("MINIAGENT_EMBED_API_KEY", raising=False)
-        reset_embed_provider()
-        reset_registry()
-
         registry = MemoryEntryRegistry(state_dir=str(tmp_path))
         provider = EmbeddingSearchProvider(state_dir=str(tmp_path), registry=registry)
         assert len(provider._providers) == 0

@@ -10,7 +10,7 @@
 - 帮助显示：分类展示所有可用命令
 - 答案改进与自我优化相关命令
 
-以下命令在 ``miniagent/engine/commands/`` 子包实现，本模块 re-export 以保持兼容：
+以下命令在 ``miniagent/engine/commands/`` 子包实现，本模块作为 CLI 命令聚合入口导入：
 - kb_commands: 知识库命令（cmd_kb_*）
 - instance_commands: 实例管理（cmd_instance_handler）
 - config_commands: 配置检查与用法辅助（feishu_*_enabled、format_test_command_usage）
@@ -36,7 +36,7 @@ _QUALITY_EVAL_SUGGESTIONS_PATTERN = re.compile(
     r"---\n🤖 .*?质量评分.*?\n\n建议：\n((?:- .+\n?)+)"
 )
 
-# 从拆分模块导入（向后兼容）
+# 从命令子模块导入
 from miniagent.engine.commands.config_commands import (
     feishu_dot_commands_full_enabled,
     feishu_markdown_commands_enabled,
@@ -675,40 +675,34 @@ def format_schedule_command_usage() -> str:
     )
 
 
-def _schedule_head_strip_tz_tokens(tokens: list[str]) -> tuple[list[str], str | None, bool]:
-    """从参数列表去掉 ``--tz X``，返回 (新列表, 时区或 None, 是否显式指定)。"""
+def _schedule_head_strip_tz_tokens(tokens: list[str]) -> tuple[list[str], str | None]:
+    """从参数列表去掉 ``--tz X``，返回新列表与时区。"""
     tz_override: str | None = None
-    tz_explicit = False
     out: list[str] = []
     i = 0
     while i < len(tokens):
         if tokens[i] == "--tz" and i + 1 < len(tokens):
             tz_override = tokens[i + 1].strip() or "UTC"
-            tz_explicit = True
             i += 2
             continue
         out.append(tokens[i])
         i += 1
-    return out, tz_override, tz_explicit
+    return out, tz_override
 
 
 def _resolve_schedule_tz(
     tz_override: str | None,
-    tz_explicit: bool,
     *,
     existing: Any | None = None,
-) -> tuple[str, bool]:
+) -> str:
     """``add`` 用 env 默认；``update`` 未写 ``--tz`` 时保留原任务时区。"""
     from miniagent.scheduled_tasks.timezone_util import default_schedule_timezone
 
     if tz_override is not None:
-        return tz_override, tz_explicit
+        return tz_override
     if existing is not None:
-        return (
-            (existing.schedule.timezone or "").strip() or default_schedule_timezone(),
-            bool(existing.schedule.timezone_explicit),
-        )
-    return default_schedule_timezone(), False
+        return (existing.schedule.timezone or "").strip() or default_schedule_timezone()
+    return default_schedule_timezone()
 
 
 def _parse_cron_add_tokens(tokens: list[str]) -> tuple[str, str]:
@@ -852,8 +846,8 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
             hparts = shlex.split(head0)
         except ValueError as e:
             return f"{ERROR_PREFIX} 参数解析失败: {e}"
-        hparts, tz_override, tz_explicit_flag = _schedule_head_strip_tz_tokens(hparts)
-        tz_name, tz_explicit = _resolve_schedule_tz(tz_override, tz_explicit_flag)
+        hparts, tz_override = _schedule_head_strip_tz_tokens(hparts)
+        tz_name = _resolve_schedule_tz(tz_override)
         if len(hparts) < 4 or hparts[0].lower() != "add":
             return "参数不足。\n" + format_schedule_command_usage()
         tid = hparts[1]
@@ -875,7 +869,6 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
                         kind="interval",
                         interval_seconds=sec,
                         timezone=tz_name,
-                        timezone_explicit=tz_explicit,
                     ),
                     session=sess,
                 )
@@ -894,7 +887,6 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
                         kind="once",
                         once_at_iso=iso,
                         timezone=tz_name,
-                        timezone_explicit=tz_explicit,
                     ),
                     session=sess,
                 )
@@ -918,7 +910,6 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
                         kind="cron",
                         cron_expr=cron_expr,
                         timezone=tz_name,
-                        timezone_explicit=tz_explicit,
                     ),
                     session=sess,
                 )
@@ -957,7 +948,7 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
             hparts = shlex.split(head0)
         except ValueError as e:
             return f"{ERROR_PREFIX} 参数解析失败: {e}"
-        hparts, tz_override, tz_explicit_flag = _schedule_head_strip_tz_tokens(hparts)
+        hparts, tz_override = _schedule_head_strip_tz_tokens(hparts)
         if len(hparts) < 4 or hparts[0].lower() != "update":
             return "参数不足。\n" + format_schedule_command_usage()
         tid = hparts[1]
@@ -966,9 +957,7 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
         existing = next((x for x in tasks if x.id == tid), None)
         if existing is None:
             return f"未找到任务: {tid}"
-        tz_name, tz_explicit = _resolve_schedule_tz(
-            tz_override, tz_explicit_flag, existing=existing
-        )
+        tz_name = _resolve_schedule_tz(tz_override, existing=existing)
         try:
             if kind == "every":
                 if len(hparts) < 5:
@@ -982,7 +971,6 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
                     kind="interval",
                     interval_seconds=sec,
                     timezone=tz_name,
-                    timezone_explicit=tz_explicit,
                 )
                 existing.session = sess
             elif kind == "once":
@@ -995,7 +983,6 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
                     kind="once",
                     once_at_iso=iso,
                     timezone=tz_name,
-                    timezone_explicit=tz_explicit,
                 )
                 existing.session = sess
             elif kind == "cron":
@@ -1009,7 +996,6 @@ def cmd_schedule(text: str, *, allow_mutations: bool) -> str:
                     kind="cron",
                     cron_expr=cron_expr,
                     timezone=tz_name,
-                    timezone_explicit=tz_explicit,
                 )
                 existing.session = sess
             else:

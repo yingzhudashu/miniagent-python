@@ -1,4 +1,4 @@
-"""卡片按钮回调幂等去重（进程内 LRU）。"""
+"""卡片按钮回调幂等去重（每个飞书运行时独立的有界 LRU）。"""
 
 from __future__ import annotations
 
@@ -8,34 +8,35 @@ from miniagent.core.constants import CARD_DEDUPE_MAX_SIZE
 
 _CARD_DEDUPE_MAX_SIZE = CARD_DEDUPE_MAX_SIZE
 
-_seen: OrderedDict[str, float] = OrderedDict()
 
+class CardActionDeduplicator:
+    """Bounded card-action dedupe cache owned by one Feishu runtime."""
 
-def should_skip_card_action(dedupe_key: str) -> bool:
-    """检查卡片操作是否已在进程内去重缓存中。
+    def __init__(self, max_size: int = _CARD_DEDUPE_MAX_SIZE) -> None:
+        self._max_size = max_size
+        self._seen: OrderedDict[str, None] = OrderedDict()
 
-    使用 LRU 缓存（最大 CARD_DEDUPE_MAX_SIZE 条），防止飞书卡片按钮被重复点击导致重复执行。
+    def should_skip(self, dedupe_key: str) -> bool:
+        """检查卡片操作是否已在当前运行时的缓存中。
 
-    Args:
-        dedupe_key: 去重键（通常为 action_id + chat_id 组合）
+        使用有界 LRU，防止飞书卡片按钮被重复点击导致重复执行。
 
-    Returns:
-        True 表示该操作已处理过，应跳过
-    """
-    key = (dedupe_key or "").strip()
-    if not key:
+        Args:
+            dedupe_key: 去重键（通常为 action_id + chat_id 组合）
+
+        Returns:
+            True 表示该操作已处理过，应跳过
+        """
+        key = (dedupe_key or "").strip()
+        if not key:
+            return False
+        if key in self._seen:
+            self._seen.move_to_end(key)
+            return True
+        self._seen[key] = None
+        if len(self._seen) > self._max_size:
+            self._seen.popitem(last=False)
         return False
-    if key in _seen:
-        _seen.move_to_end(key)
-        return True
-    _seen[key] = 0.0
-    if len(_seen) > _CARD_DEDUPE_MAX_SIZE:
-        _seen.popitem(last=False)
-    return False
 
 
-def reset_card_action_dedupe_for_tests() -> None:
-    _seen.clear()
-
-
-__all__ = ["reset_card_action_dedupe_for_tests", "should_skip_card_action"]
+__all__ = ["CardActionDeduplicator"]

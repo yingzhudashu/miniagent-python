@@ -95,7 +95,7 @@ def parse_llm_json_response(content: str, *, strip_fence: bool = True) -> dict[s
 async def llm_json(
     prompt: str,
     system: str,
-    client: AsyncOpenAI | None = None,
+    client: AsyncOpenAI,
     model: str | None = None,
     raise_on_error: bool = False,
     *,
@@ -144,9 +144,7 @@ async def llm_json(
         本函数会自动检查并添加必要的提示；若端点不支持 json_object，
         会降级为普通请求，再经 :func:`parse_llm_json_response` 容错解析。
     """
-    from miniagent.core.openai_client import get_shared_async_openai
-
-    llm = client or get_shared_async_openai()
+    llm = client
     if model is None:
         model = get_config("model.model", "gpt-4o-mini")
 

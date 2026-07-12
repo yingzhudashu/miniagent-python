@@ -5,8 +5,8 @@
 全部失败则降级为内置 fallback 计划，保证执行阶段始终有可消费的结构。
 
 ``planner_model_overrides`` 与 :func:`miniagent.core.llm_params.resolve_planner_completion_kwargs` 合并，
-用于低温、较小 ``max_tokens`` 等规划专用参数。默认客户端为
-:func:`miniagent.core.openai_client.get_shared_async_openai`；测试可通过 ``generate_plan(..., client=...)`` 注入桩。
+用于低温、较小 ``max_tokens`` 等规划专用参数。LLM 客户端由组合根创建，
+并通过 ``generate_plan(..., client=...)`` 显式注入。
 
 输出契约与 Phase 2 消费方式见 ``docs/ARCHITECTURE.md``。
 """
@@ -17,6 +17,7 @@ import json
 import re
 from typing import Any
 
+from miniagent.contracts.knowledge import KnowledgeRegistryProtocol
 from miniagent.core._openai_compat import (
     ensure_json_object_user_message,
 )
@@ -25,7 +26,6 @@ from miniagent.core._openai_compat import (
 )
 from miniagent.core.constants import PLANNER_MAX_RETRIES
 from miniagent.core.llm_json import parse_llm_json_response
-from miniagent.core.openai_client import get_shared_async_openai
 from miniagent.core.plan_utils import parse_plan_chunks_from_raw, parse_plan_steps_from_raw
 from miniagent.core.prompts.planner import PLAN_SYSTEM_PROMPT
 from miniagent.infrastructure.debug_ndjson import safe_agent_debug_log
@@ -60,7 +60,8 @@ async def generate_plan(
     toolboxes: list[Toolbox],
     log_file: str | None = None,
     *,
-    client: Any | None = None,
+    knowledge_registry: KnowledgeRegistryProtocol,
+    client: Any,
     agent_config: Any | None = None,
     registry: Any | None = None,
     planner_model_overrides: dict[str, Any] | None = None,
@@ -86,11 +87,11 @@ async def generate_plan(
         user_input: 用户原始需求文本。
         toolboxes: 当前可用的工具箱列表。
         log_file: 可选日志文件路径；非空时将请求/响应摘要写入 NDJSON 日志。
-        client: 可选 AsyncOpenAI 兼容客户端；默认
-            :func:`~miniagent.core.openai_client.get_shared_async_openai`。
+        client: 由组合根注入的 AsyncOpenAI 兼容客户端。
         agent_config: 可选 :class:`~miniagent.types.config.AgentConfig`；
             提供 session_key、conversation_history、log_file 等规划上下文。
         registry: 可选工具注册表（需实现 ``get_all()``），用于生成工具箱→工具名映射。
+        knowledge_registry: 由组合根注入的知识库注册表。
         planner_model_overrides: 规划阶段 LLM 参数覆盖，与
             :func:`~miniagent.core.llm_params.resolve_planner_completion_kwargs` 合并。
         default_step_thinking: LLM 未指定 ``thinkingLevel`` 时的默认档位
@@ -114,7 +115,11 @@ async def generate_plan(
 
     # ── RAG 增强：知识库检索（使用公共函数）──
     kb_context_planner = retrieve_knowledge_context(
-        user_input, phase="planner", default_top_k=2, default_max_chars=2000
+        knowledge_registry,
+        user_input,
+        phase="planner",
+        default_top_k=2,
+        default_max_chars=2000,
     )
 
     toolboxes_json = json.dumps(
@@ -148,7 +153,7 @@ async def generate_plan(
     ]
     json_object_messages = ensure_json_object_user_message(messages)
 
-    llm_client = client if client is not None else get_shared_async_openai()
+    llm_client = client
     use_json_object = True
 
     for attempt in range(PLANNER_MAX_RETRIES):

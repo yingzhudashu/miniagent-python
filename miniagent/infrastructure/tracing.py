@@ -410,7 +410,7 @@ def auto_register_trace_file_hook() -> None:
     1. debug.log_path 指定路径
     2. 默认路径（trace.output_dir/trace-YYYY-MM-DD.jsonl）
 
-    在进程启动时调用一次（通常在 engine.main.unified_main）。
+    在进程启动时调用一次（通常由 ``engine.init.init_subsystems`` 调用）。
 
     性能优化：
     - 使用异步写入器替代同步文件 hook
@@ -463,16 +463,6 @@ def auto_register_trace_file_hook() -> None:
         )
 
 
-def get_trace_file() -> Path | None:
-    """获取当前进程 trace **持久化配置**路径（写入侧）。
-
-    与统计侧 :func:`miniagent.infrastructure.trace_stats.get_daily_trace_file_path`
-    不同：后者按日期聚合分析，本函数返回 ``auto_register_trace_file_hook`` 注册的路径，
-    未启用持久化时返回 ``None``。实际写入文件见 :func:`get_actual_trace_file`。
-    """
-    return _TRACE_LOG_FILE
-
-
 def get_actual_trace_file() -> Path | None:
     """获取当前进程实际写入的 trace 文件路径。"""
     if _trace_writer is not None:
@@ -491,7 +481,7 @@ def emit_trace(event: dict[str, Any]) -> None:
     """派发事件；钩子异常不影响主流程。
 
     性能优化：
-    - 钩子仍然同步调用（保持向后兼容）
+    - 钩子按注册顺序同步调用
     - 文件写入改为异步批处理（非阻塞）
     - 快速路径：无钩子且无写入器时直接返回
 
@@ -512,7 +502,7 @@ def emit_trace(event: dict[str, Any]) -> None:
         else:
             _trace_writer.emit(event_with_ts)
 
-    # 钩子同步调用（保持向后兼容）
+    # 钩子按注册顺序同步调用
     for h in _hooks:  # 避免 list copy 开销
         try:
             h(event_with_ts)
@@ -544,7 +534,6 @@ __all__ = [
     "clear_trace_hooks",
     "emit_trace",
     "auto_register_trace_file_hook",
-    "get_trace_file",
     "get_actual_trace_file",
     "get_trace_writer_stats",
     "shutdown_trace_writer",  # 新增：关闭异步写入器

@@ -69,21 +69,7 @@ def test_default_schedule_timezone_uses_schedule_env(
     assert default_schedule_timezone() == "America/New_York"
 
 
-def test_effective_task_timezone_legacy_utc(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
-) -> None:
-    install_test_config(tmp_path, {"timezone": {"default": ""}})
-    monkeypatch.setenv("TZ", "Asia/Shanghai")
-    task = ScheduledTask(
-        id="t",
-        name="t",
-        prompt="p",
-        schedule=ScheduleSpec(kind="cron", cron_expr="0 20 * * *", timezone="UTC"),
-    )
-    assert effective_task_timezone(task) == "Asia/Shanghai"
-
-
-def test_effective_task_timezone_explicit_utc(
+def test_effective_task_timezone_utc(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
     install_test_config(tmp_path, {"timezone": {"default": ""}})
@@ -96,7 +82,6 @@ def test_effective_task_timezone_explicit_utc(
             kind="cron",
             cron_expr="0 20 * * *",
             timezone="UTC",
-            timezone_explicit=True,
         ),
     )
     assert effective_task_timezone(task) == "UTC"

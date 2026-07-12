@@ -73,57 +73,19 @@ def get_trace_output_dir() -> Path:
     return Path("workspaces/logs")
 
 
-def get_trace_file(date: str | None = None) -> Path:
-    """获取指定日期的 trace 文件路径（统计/报告侧）。
-
-    .. note::
-        写入侧请使用 :func:`miniagent.infrastructure.tracing.get_trace_file` 或
-        :func:`miniagent.infrastructure.tracing.get_actual_trace_file`。
-        推荐新代码对本函数使用别名 :func:`get_daily_trace_file_path`。
-
-    Args:
-        date: 日期字符串（YYYY-MM-DD），默认今天
-
-    Returns:
-        Trace 文件路径（trace-YYYY-MM-DD.jsonl）
-    """
-    return get_daily_trace_file_path(date)
-
-
-def get_daily_trace_file_path(date: str | None = None) -> Path:
-    """按日期返回 trace JSONL 路径（统计/报告用，不含 pid 分片）。
-
-    异步写入器可能额外产生 ``trace-YYYY-MM-DD-pid{pid}.jsonl``；
-    聚合读取请用 :func:`get_trace_files`。
-    """
-    if date is None:
-        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    return get_trace_output_dir() / f"trace-{date}.jsonl"
-
-
 def get_trace_files(date: str | None = None) -> list[Path]:
     """获取指定日期的所有 trace 文件分片。
 
     异步写入器会为每个进程写入 ``trace-YYYY-MM-DD-pid{pid}.jsonl``，
-    统计侧必须同时读取基础文件和 pid 分片，避免日报漏掉真实运行数据。
+    统计侧读取当天全部 pid 分片，避免日报漏掉并行进程数据。
     """
     if date is None:
         date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     trace_dir = get_trace_output_dir()
-    base_file = trace_dir / f"trace-{date}.jsonl"
-    candidates = [base_file]
-    if trace_dir.exists():
-        candidates.extend(sorted(trace_dir.glob(f"trace-{date}-pid*.jsonl"), key=lambda p: p.name))
-
-    seen: set[Path] = set()
-    result: list[Path] = []
-    for path in candidates:
-        if path in seen or not path.exists():
-            continue
-        seen.add(path)
-        result.append(path)
-    return result
+    if not trace_dir.exists():
+        return []
+    return sorted(trace_dir.glob(f"trace-{date}-pid*.jsonl"), key=lambda p: p.name)
 
 
 def load_trace_events(
@@ -670,8 +632,6 @@ def remove_session_from_trace_files(session_key: str) -> int:
 
 __all__ = [
     "get_trace_output_dir",
-    "get_trace_file",
-    "get_daily_trace_file_path",
     "get_trace_files",
     "load_trace_events",
     "compute_tool_stats",

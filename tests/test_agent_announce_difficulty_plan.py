@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -19,34 +18,7 @@ from miniagent.types.confirmation import ConfirmationResult
 from miniagent.types.planning import PlanStep, StructuredPlan
 from miniagent.types.tool import Toolbox
 from tests.config_helpers import install_test_config
-
-
-def _make_mock_llm_client() -> MagicMock:
-    """创建 mock LLM client，避免需要真实 API key。"""
-    mock_client = MagicMock()
-    mock_client.chat.completions.create = AsyncMock()
-    return mock_client
-
-
-@contextlib.contextmanager
-def _mock_all_llm_clients():
-    """Mock 所有模块中的 get_shared_async_openai 引用。"""
-    mock_client = _make_mock_llm_client()
-    # Mock 源函数（延迟导入的模块会使用这个）
-    # Mock 直接导入的模块
-    patches = [
-        patch("miniagent.core.openai_client.get_shared_async_openai", return_value=mock_client),
-        patch("miniagent.core.task_classifier.get_shared_async_openai", return_value=mock_client),
-        patch("miniagent.core.planner.get_shared_async_openai", return_value=mock_client),
-        patch("miniagent.core.executor.get_shared_async_openai", return_value=mock_client),
-    ]
-    for p in patches:
-        p.start()
-    try:
-        yield mock_client
-    finally:
-        for p in patches:
-            p.stop()
+from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 
 
 def test_format_task_difficulty() -> None:
@@ -118,7 +90,7 @@ async def test_plan_announce_before_execute_when_classifier_off(tmp_path) -> Non
     )
     sequence: list[str] = []
 
-    async def ot(text: str, streaming: bool, header: str) -> None:
+    async def ot(text: str, streaming: bool, header: str, **_kwargs: object) -> None:
         sequence.append(f"ot:{header}:{streaming}:{text[:40]}")
 
     async def fake_exec(*_a: object, **_k: object) -> str:
@@ -128,7 +100,6 @@ async def test_plan_announce_before_execute_when_classifier_off(tmp_path) -> Non
     with (
         patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False),
         patch("miniagent.core.constants.EXECUTION_ANNOUNCE_DIFFICULTY", True),
-        _mock_all_llm_clients(),
     ):
         with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
             gp.return_value = fake_plan
@@ -137,6 +108,9 @@ async def test_plan_announce_before_execute_when_classifier_off(tmp_path) -> Non
                 await run_agent(
                     "task",
                     registry=DefaultToolRegistry(),
+                    memory=make_memory_runtime(),
+                    knowledge_registry=make_knowledge_registry(),
+                    client=MagicMock(),
                     toolboxes=[tb],
                     on_thinking=ot,
                 )
@@ -154,13 +128,12 @@ async def test_difficulty_announced_when_classifier_runs(tmp_path) -> None:
 
     captured: list[tuple[str, str]] = []
 
-    async def ot(text: str, streaming: bool, header: str) -> None:
+    async def ot(text: str, streaming: bool, header: str, **_kwargs: object) -> None:
         captured.append((header, text))
 
     with (
         patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", True),
         patch("miniagent.core.constants.EXECUTION_ANNOUNCE_DIFFICULTY", True),
-        _mock_all_llm_clients(),
     ):
         with patch(
             "miniagent.core.agent.classify_task_difficulty",
@@ -174,6 +147,9 @@ async def test_difficulty_announced_when_classifier_runs(tmp_path) -> None:
                     await run_agent(
                         "x",
                         registry=DefaultToolRegistry(),
+                        memory=make_memory_runtime(),
+                        knowledge_registry=make_knowledge_registry(),
+                        client=MagicMock(),
                         toolboxes=[tb],
                         on_thinking=ot,
                     )
@@ -200,7 +176,7 @@ async def test_on_plan_reject_skips_plan_announce_and_execute(tmp_path) -> None:
 
     captured: list[str] = []
 
-    async def ot(text: str, _stream: bool, _header: str) -> None:
+    async def ot(text: str, _stream: bool, _header: str, **_kwargs: object) -> None:
         captured.append(text)
 
     async def fake_on_plan(_plan: object) -> ConfirmationResult:
@@ -211,7 +187,6 @@ async def test_on_plan_reject_skips_plan_announce_and_execute(tmp_path) -> None:
     with (
         patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False),
         patch("miniagent.core.constants.EXECUTION_ANNOUNCE_DIFFICULTY", True),
-        _mock_all_llm_clients(),
     ):
         with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
             gp.return_value = risky
@@ -219,6 +194,9 @@ async def test_on_plan_reject_skips_plan_announce_and_execute(tmp_path) -> None:
                 out = await run_agent(
                     "x",
                     registry=DefaultToolRegistry(),
+                    memory=make_memory_runtime(),
+                    knowledge_registry=make_knowledge_registry(),
+                    client=MagicMock(),
                     toolboxes=[tb],
                     on_thinking=ot,
                     on_plan=fake_on_plan,
@@ -237,13 +215,12 @@ async def test_skip_planning_announces_user_skip_not_simple(tmp_path) -> None:
 
     captured: list[str] = []
 
-    async def ot(text: str, _stream: bool, _header: str) -> None:
+    async def ot(text: str, _stream: bool, _header: str, **_kwargs: object) -> None:
         captured.append(text)
 
     with (
         patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", True),
         patch("miniagent.core.constants.EXECUTION_ANNOUNCE_DIFFICULTY", True),
-        _mock_all_llm_clients(),
     ):
         with patch(
             "miniagent.core.agent.classify_task_difficulty",
@@ -255,6 +232,9 @@ async def test_skip_planning_announces_user_skip_not_simple(tmp_path) -> None:
                 await run_agent(
                     "task",
                     registry=DefaultToolRegistry(),
+                    memory=make_memory_runtime(),
+                    knowledge_registry=make_knowledge_registry(),
+                    client=MagicMock(),
                     toolboxes=[tb],
                     skip_planning=True,
                     on_thinking=ot,
@@ -279,7 +259,6 @@ async def test_announce_disabled_skips_extra_on_thinking(tmp_path) -> None:
     with (
         patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False),
         patch("miniagent.core.constants.EXECUTION_ANNOUNCE_DIFFICULTY", False),
-        _mock_all_llm_clients(),
     ):
         with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
             gp.return_value = StructuredPlan(summary="s", steps=[], required_toolboxes=[])
@@ -287,6 +266,9 @@ async def test_announce_disabled_skips_extra_on_thinking(tmp_path) -> None:
                 await run_agent(
                     "x",
                     registry=DefaultToolRegistry(),
+                    memory=make_memory_runtime(),
+                    knowledge_registry=make_knowledge_registry(),
+                    client=MagicMock(),
                     toolboxes=[tb],
                     on_thinking=ot,
                 )

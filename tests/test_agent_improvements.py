@@ -25,6 +25,7 @@ from miniagent.types.planning import (
 )
 from miniagent.types.tool import Toolbox
 from tests.config_helpers import install_test_config
+from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 
 
 def test_format_plan_display_short_omits_expected_io() -> None:
@@ -154,6 +155,9 @@ async def test_fallback_degrade_retries_with_empty_steps(tmp_path) -> None:
         out = await run_agent(
             "task",
             registry=DefaultToolRegistry(),
+            memory=make_memory_runtime(),
+            knowledge_registry=make_knowledge_registry(),
+            client=MagicMock(),
             toolboxes=[tb],
         )
 
@@ -163,10 +167,7 @@ async def test_fallback_degrade_retries_with_empty_steps(tmp_path) -> None:
 
 @pytest.mark.asyncio
 async def test_replan_exhaustion_cancels(tmp_path) -> None:
-    install_test_config(
-        tmp_path,
-        {"agent": {"max_plan_confirm_rounds": 1}, "features": {"reflection": False}},
-    )
+    install_test_config(tmp_path, {"features": {"reflection": False}})
     tb = Toolbox(id="fs", name="fs", description="files", keywords=[])
 
     risky = StructuredPlan(
@@ -182,6 +183,7 @@ async def test_replan_exhaustion_cancels(tmp_path) -> None:
     with (
         patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False),
         patch("miniagent.core.constants.EXECUTION_ANNOUNCE_DIFFICULTY", False),
+        patch("miniagent.core.agent.EXECUTION_MAX_PLAN_CONFIRM_ROUNDS", 1),
         patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp,
         patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex,
     ):
@@ -189,6 +191,9 @@ async def test_replan_exhaustion_cancels(tmp_path) -> None:
         out = await run_agent(
             "task",
             registry=DefaultToolRegistry(),
+            memory=make_memory_runtime(),
+            knowledge_registry=make_knowledge_registry(),
+            client=MagicMock(),
             toolboxes=[tb],
             on_plan=fake_on_plan,
         )
@@ -220,6 +225,9 @@ async def test_requires_confirmation_without_on_plan_proceeds(tmp_path) -> None:
         out = await run_agent(
             "task",
             registry=DefaultToolRegistry(),
+            memory=make_memory_runtime(),
+            knowledge_registry=make_knowledge_registry(),
+            client=MagicMock(),
             toolboxes=[tb],
         )
 
@@ -255,6 +263,9 @@ async def test_reflection_stored_on_engine(tmp_path) -> None:
         await run_agent(
             "task",
             registry=registry,
+            memory=make_memory_runtime(),
+            knowledge_registry=make_knowledge_registry(),
+            client=MagicMock(),
             skip_planning=True,
             session_key="sess-1",
             engine=engine,

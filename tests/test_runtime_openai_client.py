@@ -1,4 +1,4 @@
-"""RuntimeContext + UnifiedEngine 对 LLM 客户端的贯通。"""
+"""ApplicationContainer client injection through the engine execution path."""
 
 from __future__ import annotations
 
@@ -7,15 +7,17 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from miniagent.engine.engine import UnifiedEngine
+from miniagent.types.agent import AgentRunResult
+from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 
 
 @pytest.mark.asyncio
 async def test_run_agent_with_thinking_forwards_client_to_run_agent() -> None:
     captured: dict = {}
 
-    async def fake_run_agent(*_a, **kwargs: object) -> str:
+    async def fake_run_agent(*_a, **kwargs: object) -> AgentRunResult:
         captured["client"] = kwargs.get("client")
-        return "ok"
+        return AgentRunResult(reply="ok")
 
     fake_llm = MagicMock(name="injected_llm")
 
@@ -31,6 +33,8 @@ async def test_run_agent_with_thinking_forwards_client_to_run_agent() -> None:
             "session-a",
             [],
             None,
+            memory=make_memory_runtime(),
+            knowledge_registry=make_knowledge_registry(),
             registry=MagicMock(),
             monitor=MagicMock(),
             session_manager=sm,
@@ -49,6 +53,9 @@ async def test_run_agent_with_thinking_requires_session_manager() -> None:
             "session-a",
             [],
             None,
+            memory=make_memory_runtime(),
+            knowledge_registry=make_knowledge_registry(),
+            client=MagicMock(),
             registry=MagicMock(),
             monitor=MagicMock(),
             session_manager=None,
@@ -82,10 +89,16 @@ async def test_run_agent_forwards_client_to_execute_plan(tmp_path) -> None:
         await run_agent(
             "u",
             registry=reg,
+            memory=make_memory_runtime(),
+            knowledge_registry=make_knowledge_registry(),
             monitor=mon,
             toolboxes=[],
             client=fake,
-            agent_config={"session_key": "k", "max_turns": 1, "debug": False},
+            agent_config={
+                "session_config": {"session_key": "k"},
+                "max_turns": 1,
+                "debug": False,
+            },
         )
 
     assert called.get("client") is fake

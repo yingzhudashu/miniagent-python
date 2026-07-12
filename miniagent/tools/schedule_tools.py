@@ -15,14 +15,14 @@ from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 SCHEDULE_TOOL_NAMES = frozenset({"manage_scheduled_task"})
 
 
-def _tool_timezone_spec(args: dict[str, Any]) -> tuple[str, bool]:
+def _tool_timezone_spec(args: dict[str, Any]) -> str:
     """解析工具调用中的时区参数：返回 (时区名, 是否用户显式指定)。"""
     from miniagent.scheduled_tasks.timezone_util import default_schedule_timezone
 
     raw = (args.get("timezone") or "").strip()
     if raw:
-        return raw, True
-    return default_schedule_timezone(), False
+        return raw
+    return default_schedule_timezone()
 
 
 def _session_from_tool(
@@ -152,7 +152,7 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
             )
         except ValueError as e:
             return ToolResult(success=False, content=f"{ERROR_PREFIX} {e}")
-        tz, tz_ex = _tool_timezone_spec(args)
+        tz = _tool_timezone_spec(args)
         task = ScheduledTask(
             id=tid,
             name=tid,
@@ -162,7 +162,6 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
                 kind="interval",
                 interval_seconds=sec,
                 timezone=tz,
-                timezone_explicit=tz_ex,
             ),
             session=sess,
         )
@@ -195,7 +194,7 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
             )
         except ValueError as e:
             return ToolResult(success=False, content=f"{ERROR_PREFIX} {e}")
-        tz, tz_ex = _tool_timezone_spec(args)
+        tz = _tool_timezone_spec(args)
         task = ScheduledTask(
             id=tid,
             name=tid,
@@ -205,7 +204,6 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
                 kind="once",
                 once_at_iso=iso,
                 timezone=tz,
-                timezone_explicit=tz_ex,
             ),
             session=sess,
         )
@@ -245,7 +243,7 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
             )
         except ValueError as e:
             return ToolResult(success=False, content=f"{ERROR_PREFIX} {e}")
-        tz, tz_ex = _tool_timezone_spec(args)
+        tz = _tool_timezone_spec(args)
         task = ScheduledTask(
             id=tid,
             name=tid,
@@ -255,7 +253,6 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
                 kind="cron",
                 cron_expr=cron_expr,
                 timezone=tz,
-                timezone_explicit=tz_ex,
             ),
             session=sess,
         )
@@ -284,12 +281,9 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
             return ToolResult(success=False, content=f"未找到任务: {tid}")
         tz_raw = (args.get("timezone") or "").strip()
         if tz_raw:
-            tz, tz_ex = tz_raw, True
+            tz = tz_raw
         else:
-            tz, tz_ex = (
-                (existing.schedule.timezone or "").strip() or _tool_timezone_spec(args)[0],
-                existing.schedule.timezone_explicit,
-            )
+            tz = (existing.schedule.timezone or "").strip() or _tool_timezone_spec(args)
         try:
             sess = _session_from_tool(
                 str(args.get("session_mode") or existing.session.mode),
@@ -312,7 +306,6 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
                 kind="interval",
                 interval_seconds=sec,
                 timezone=tz,
-                timezone_explicit=tz_ex,
             )
         elif schedule_kind == "once" or (not schedule_kind and existing.schedule.kind == "once"):
             iso = (args.get("once_iso") or existing.schedule.once_at_iso or "").strip()
@@ -322,7 +315,6 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
                 kind="once",
                 once_at_iso=iso,
                 timezone=tz,
-                timezone_explicit=tz_ex,
             )
         elif schedule_kind == "cron" or (not schedule_kind and existing.schedule.kind == "cron"):
             from miniagent.scheduled_tasks.cron import validate_cron_expr
@@ -338,7 +330,6 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
                 kind="cron",
                 cron_expr=cron_expr,
                 timezone=tz,
-                timezone_explicit=tz_ex,
             )
         elif schedule_kind:
             return ToolResult(success=False, content=f"未知 schedule_kind: {schedule_kind}")

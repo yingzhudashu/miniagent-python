@@ -14,6 +14,7 @@ from miniagent.core.problem_solver import (
     reflect_on_result,
     strip_reflection_footer,
 )
+from tests.memory_helpers import make_knowledge_registry
 
 
 class TestReflectionResult:
@@ -72,6 +73,7 @@ class TestReflectOnResult:
             result = await reflect_on_result(
                 user_input="帮我写一个Python函数",
                 reply="已为你编写函数代码...",
+                knowledge_registry=make_knowledge_registry(),
                 client=None,
             )
 
@@ -94,6 +96,7 @@ class TestReflectOnResult:
             result = await reflect_on_result(
                 user_input="优化这段代码",
                 reply="原代码：...",
+                knowledge_registry=make_knowledge_registry(),
                 client=None,
             )
 
@@ -119,6 +122,7 @@ class TestReflectOnResult:
             await reflect_on_result(
                 user_input="测试输入",
                 reply="测试回复",
+                knowledge_registry=make_knowledge_registry(),
                 client=None,
                 on_thinking=mock_on_thinking,
             )
@@ -145,6 +149,7 @@ class TestReflectOnResult:
                 await reflect_on_result(
                     user_input="如何编写高质量代码",
                     reply="建议...",
+                    knowledge_registry=make_knowledge_registry(),
                     client=None,
                 )
 
@@ -161,6 +166,7 @@ class TestReflectOnResult:
             result = await reflect_on_result(
                 user_input="输入",
                 reply="回复",
+                knowledge_registry=make_knowledge_registry(),
                 client=None,
             )
 
@@ -185,6 +191,7 @@ class TestReflectOnResult:
             result = await reflect_on_result(
                 user_input="输入",
                 reply="回复",
+                knowledge_registry=make_knowledge_registry(),
                 client=None,
             )
 
@@ -217,6 +224,7 @@ class TestReflectOnResultIntegration:
                 result = await reflect_on_result(
                     user_input="写一个排序算法",
                     reply="这是一个冒泡排序实现...",
+                    knowledge_registry=make_knowledge_registry(),
                     client=None,
                     on_thinking=mock_on_thinking,
                 )
@@ -289,9 +297,9 @@ class TestReflectionFooter:
         assert footer.count("- i") == 5
         assert footer.count("- s") == 5
 
-    def test_strip_legacy_footer_without_bullets(self):
-        legacy = "上一轮答案。\n\n---\n🤖 质量评估通过 | 质量评分 0.8"
-        assert strip_reflection_footer(legacy) == "上一轮答案。"
+    def test_strip_minimal_footer_without_bullets(self):
+        content = "上一轮答案。\n\n---\n🤖 质量评估通过 | 质量评分 0.8"
+        assert strip_reflection_footer(content) == "上一轮答案。"
 
 
 class TestReflectionResultDataClass:

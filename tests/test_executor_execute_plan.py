@@ -11,6 +11,7 @@ import pytest
 
 from miniagent.core.executor import execute_plan
 from miniagent.types.planning import PlanStep, StructuredPlan
+from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 from tests.mock_strategies import (
     agent_config_with_session,
     empty_plan,
@@ -32,9 +33,8 @@ async def test_execute_plan_uses_session_registry_for_tools() -> None:
         MagicMock(),
         agent_config_with_session(sess),
         client=mock_client,
-        memory_store=ms,
-        activity_log=al,
-        keyword_index=ki,
+        memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki),
+        knowledge_registry=make_knowledge_registry(),
     )
     assert "done" in out
 
@@ -63,9 +63,8 @@ async def test_execute_plan_calls_on_tool_finish() -> None:
         MagicMock(),
         agent_config_with_session(sess),
         client=mock_client,
-        memory_store=ms,
-        activity_log=al,
-        keyword_index=ki,
+        memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki),
+        knowledge_registry=make_knowledge_registry(),
         on_tool_finish=on_finish,
     )
     assert "done" in out
@@ -104,9 +103,8 @@ async def test_execute_plan_phased_last_step_grace_synthesis() -> None:
             MagicMock(),
             agent_config_with_session(sess, max_turns=5),
             client=mock_client,
-            memory_store=ms,
-            activity_log=al,
-            keyword_index=ki,
+            memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki),
+            knowledge_registry=make_knowledge_registry(),
         )
     assert "wrapped_up" in out
     assert "未以无工具调用形式结束" not in out
@@ -157,9 +155,8 @@ async def test_execute_plan_phased_last_step_no_turns_left_still_warns() -> None
             MagicMock(),
             agent_config_with_session(sess, max_turns=1),
             client=mock_client,
-            memory_store=ms,
-            activity_log=al,
-            keyword_index=ki,
+            memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki),
+            knowledge_registry=make_knowledge_registry(),
         )
     assert "「无工具调用」形式结束" in out
 
@@ -203,9 +200,8 @@ async def test_execute_plan_phased_grace_still_tool_calls_warns() -> None:
             MagicMock(),
             agent_config_with_session(sess, max_turns=2),
             client=mock_client,
-            memory_store=ms,
-            activity_log=al,
-            keyword_index=ki,
+            memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki),
+            knowledge_registry=make_knowledge_registry(),
         )
     assert "「无工具调用」形式结束" in out
     assert mock_client._call_count["n"] == 2
@@ -214,7 +210,7 @@ async def test_execute_plan_phased_grace_still_tool_calls_warns() -> None:
 @pytest.mark.asyncio
 async def test_execute_plan_ephemeral_session_skips_activity_log(state_dir) -> None:
     """后台子 session 不在 activity log 中落盘。"""
-    from miniagent.types.config import AgentConfig
+    from miniagent.types.config import AgentConfig, SessionBindingConfig
 
     main, sess = make_ping_tool_registry()
     mock_client = mock_streaming_client()
@@ -222,10 +218,12 @@ async def test_execute_plan_ephemeral_session_skips_activity_log(state_dir) -> N
     session_key = "__bg__ephemeral"
     cfg = AgentConfig(
         max_turns=3,
-        session_key=session_key,
         allow_parallel_tools=True,
         tool_selection_strategy="all",
-        session_registry=sess,
+        session_config=SessionBindingConfig(
+            session_key=session_key,
+            session_registry=sess,
+        ),
         debug=False,
     )
 
@@ -236,9 +234,8 @@ async def test_execute_plan_ephemeral_session_skips_activity_log(state_dir) -> N
         MagicMock(),
         cfg,
         client=mock_client,
-        memory_store=ms,
-        activity_log=al,
-        keyword_index=ki,
+        memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki),
+        knowledge_registry=make_knowledge_registry(),
     )
     assert "done" in out
 
@@ -270,9 +267,8 @@ async def test_execute_plan_respects_asyncio_cancel() -> None:
             MagicMock(),
             agent_config_with_session(sess),
             client=mock_client,
-            memory_store=ms,
-            activity_log=al,
-            keyword_index=ki,
+            memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki),
+            knowledge_registry=make_knowledge_registry(),
         )
     )
     await asyncio.sleep(0.05)
@@ -339,9 +335,8 @@ async def test_execute_plan_require_confirm_without_channel_denies() -> None:
         MagicMock(),
         agent_config_with_session(reg),
         client=mock_client,
-        memory_store=ms,
-        activity_log=al,
-        keyword_index=ki,
+        memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki),
+        knowledge_registry=make_knowledge_registry(),
         on_tool_finish=on_finish,
     )
     assert calls == []
@@ -379,9 +374,8 @@ async def test_execute_plan_require_confirm_user_rejects() -> None:
         MagicMock(),
         agent_config_with_session(reg),
         client=mock_client,
-        memory_store=ms,
-        activity_log=al,
-        keyword_index=ki,
+        memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki),
+        knowledge_registry=make_knowledge_registry(),
         confirmation_channel=channel,
         on_tool_finish=on_finish,
     )
@@ -393,17 +387,16 @@ async def test_execute_plan_require_confirm_user_rejects() -> None:
 
 @pytest.mark.asyncio
 async def test_execute_plan_require_confirm_auto_execute_skips() -> None:
-    from miniagent.types.config import AgentConfig
+    from miniagent.types.config import AgentConfig, SessionBindingConfig
 
     reg, calls = _make_confirm_registry()
     mock_client = mock_streaming_client(tool_name="danger_tool")
     ms, al, ki = mock_memory_bundle()
     cfg = AgentConfig(
         max_turns=3,
-        session_key=None,
         allow_parallel_tools=True,
         tool_selection_strategy="all",
-        session_registry=reg,
+        session_config=SessionBindingConfig(session_registry=reg),
         auto_execute_confirmed=True,
     )
     out = await execute_plan(
@@ -413,9 +406,8 @@ async def test_execute_plan_require_confirm_auto_execute_skips() -> None:
         MagicMock(),
         cfg,
         client=mock_client,
-        memory_store=ms,
-        activity_log=al,
-        keyword_index=ki,
+        memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki),
+        knowledge_registry=make_knowledge_registry(),
     )
     assert "done" in out
     assert calls == [1]
@@ -437,9 +429,8 @@ async def test_execute_plan_require_confirm_user_approves() -> None:
         MagicMock(),
         agent_config_with_session(reg),
         client=mock_client,
-        memory_store=ms,
-        activity_log=al,
-        keyword_index=ki,
+        memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki),
+        knowledge_registry=make_knowledge_registry(),
         confirmation_channel=channel,
     )
     assert "done" in out
@@ -450,7 +441,7 @@ async def test_execute_plan_require_confirm_user_approves() -> None:
 @pytest.mark.asyncio
 async def test_execute_plan_phased_last_step_persists_session_memory() -> None:
     """分步模式最后一步完成时应落盘会话记忆（回归：曾调用未定义的 _save_session_memory）。"""
-    from miniagent.types.config import AgentConfig
+    from miniagent.types.config import AgentConfig, SessionBindingConfig
 
     main, sess = make_ping_tool_registry()
     plan = StructuredPlan(
@@ -465,10 +456,12 @@ async def test_execute_plan_phased_last_step_persists_session_memory() -> None:
     mc.save_memory_after_turn = AsyncMock()
     cfg = AgentConfig(
         max_turns=5,
-        session_key="test-session",
         allow_parallel_tools=True,
         tool_selection_strategy="all",
-        session_registry=sess,
+        session_config=SessionBindingConfig(
+            session_key="test-session",
+            session_registry=sess,
+        ),
         debug=False,
     )
     with patch("miniagent.core.executor._env_phased_execution_enabled", return_value=True):
@@ -479,10 +472,13 @@ async def test_execute_plan_phased_last_step_persists_session_memory() -> None:
             MagicMock(),
             cfg,
             client=mock_client,
-            memory_store=ms,
-            activity_log=al,
-            keyword_index=ki,
-            memory_context=mc,
+            memory=make_memory_runtime(
+                store=ms,
+                activity_log=al,
+                keyword_index=ki,
+                context=mc,
+            ),
+            knowledge_registry=make_knowledge_registry(),
         )
     assert "wrapped_up" in out
     mc.save_memory_after_turn.assert_awaited_once()

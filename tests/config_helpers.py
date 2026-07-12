@@ -6,8 +6,10 @@ import json
 from pathlib import Path
 from typing import Any
 
+from miniagent.infrastructure.json_config import _packaged_defaults_path
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DEFAULTS_PATH = PROJECT_ROOT / "config.defaults.json"
+DEFAULTS_PATH = Path(_packaged_defaults_path())
 
 
 def install_test_config(
@@ -17,17 +19,17 @@ def install_test_config(
     user_path: Path | None = None,
 ) -> None:
     """安装隔离 JsonConfigLoader（defaults + 可选 user 覆盖）。"""
-    from miniagent.infrastructure.json_config import JsonConfigLoader
+    from miniagent.infrastructure.json_config import JsonConfigLoader, install_config_loader
 
     if user_path is None:
         user_path = tmp_path / "config.user.json"
         user_path.write_text(json.dumps(overrides or {}), encoding="utf-8")
 
-    JsonConfigLoader._instance = JsonConfigLoader(
-        defaults_path=str(DEFAULTS_PATH),
-        user_path=str(user_path),
+    loader = JsonConfigLoader(
+        defaults_path=str(DEFAULTS_PATH), user_path=str(user_path)
     )
-    JsonConfigLoader.get_instance().reload()
+    loader.reload()
+    install_config_loader(loader)
 
 
 def deep_merge(base: dict, patch: dict) -> dict:

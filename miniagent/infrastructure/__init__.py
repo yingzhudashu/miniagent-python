@@ -16,31 +16,52 @@
 - 消息队列 (``MessageQueueManager``)、通道路由 (``ChannelRouter``)
 """
 
-from miniagent.infrastructure.channel_router import ChannelRouter
-from miniagent.infrastructure.instance import (
-    InstanceRegistry,
-    format_instances_markdown,
-    format_instances_table,
-    heartbeat,
-    list_instances,
-    register_instance,
-    stop_instance_by_id,
-    unregister_instance,
-    update_instance_mode,
-)
-from miniagent.infrastructure.logger import append_log, get_logger, truncate
-from miniagent.infrastructure.loop_detector import LoopDetector
-from miniagent.infrastructure.message_queue import MessageQueueManager, QueueMode
-from miniagent.infrastructure.monitor import DefaultToolMonitor
-from miniagent.infrastructure.process import (
-    cleanup_all_processes,
-    create_tracked_subprocess,
-    deregister_process,
-    get_active_processes,
-    get_tracked_count,
-    register_process,
-)
-from miniagent.infrastructure.registry import DefaultToolRegistry
+from __future__ import annotations
+
+import importlib
+from typing import Any
+
+_LAZY_EXPORTS = {
+    "ChannelRouter": "miniagent.infrastructure.channel_router",
+    "DefaultToolMonitor": "miniagent.infrastructure.monitor",
+    "DefaultToolRegistry": "miniagent.infrastructure.registry",
+    "InstanceRegistry": "miniagent.infrastructure.instance",
+    "LoopDetector": "miniagent.infrastructure.loop_detector",
+    "MessageQueueManager": "miniagent.infrastructure.message_queue",
+    "QueueMode": "miniagent.infrastructure.message_queue",
+    "append_log": "miniagent.infrastructure.logger",
+    "cleanup_all_processes": "miniagent.infrastructure.process",
+    "create_tracked_subprocess": "miniagent.infrastructure.process",
+    "deregister_process": "miniagent.infrastructure.process",
+    "format_instances_markdown": "miniagent.infrastructure.instance",
+    "format_instances_table": "miniagent.infrastructure.instance",
+    "get_active_processes": "miniagent.infrastructure.process",
+    "get_logger": "miniagent.infrastructure.logger",
+    "get_tracked_count": "miniagent.infrastructure.process",
+    "heartbeat": "miniagent.infrastructure.instance",
+    "list_instances": "miniagent.infrastructure.instance",
+    "register_instance": "miniagent.infrastructure.instance",
+    "register_process": "miniagent.infrastructure.process",
+    "stop_instance_by_id": "miniagent.infrastructure.instance",
+    "truncate": "miniagent.infrastructure.logger",
+    "unregister_instance": "miniagent.infrastructure.instance",
+    "update_instance_mode": "miniagent.infrastructure.instance",
+}
+
+
+def __getattr__(name: str) -> Any:
+    """Load historical aggregate exports only when explicitly requested."""
+    module_name = _LAZY_EXPORTS.get(name)
+    if module_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    value = getattr(importlib.import_module(module_name), name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    """Expose lazy aggregate names to interactive discovery and documentation."""
+    return sorted(set(globals()) | set(_LAZY_EXPORTS))
 
 __all__ = [
     "get_logger",

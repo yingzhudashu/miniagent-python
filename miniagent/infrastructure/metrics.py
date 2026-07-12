@@ -10,11 +10,9 @@
 - 可选：默认关闭，通过配置启用
 - 轻量：不依赖外部库，纯 Python 实现
 
-**并发安全**：
-- 全局单例 ``get_global_metrics()`` 使用线程锁保护创建过程
-- ``PerformanceMetrics`` 内部使用锁保护 ``_records`` 的追加与读取
+**并发安全**：``PerformanceMetrics`` 内部使用锁保护 ``_records`` 的追加与读取。
 
-**接入状态**：可选模块；通过 ``get_global_metrics()`` 在调试/评测脚本中使用，
+**接入状态**：可选模块；调用方显式构造实例，
 与 ``DefaultToolMonitor``（工具级统计）互补，不替代生产 trace。
 """
 
@@ -293,38 +291,8 @@ class _MeasureContext:
         self._metrics.add_record(self._name, latency_ms)
 
 
-# 进程级全局指标实例（可选使用）
-_global_metrics: PerformanceMetrics | None = None
-_global_metrics_lock = threading.Lock()
-
-
-def get_global_metrics() -> PerformanceMetrics:
-    """获取全局性能指标实例（线程安全）
-
-    使用线程锁保护单例创建过程，确保多线程环境下只创建一个实例。
-
-    Returns:
-        全局 PerformanceMetrics 实例
-    """
-    global _global_metrics
-    with _global_metrics_lock:
-        if _global_metrics is None:
-            _global_metrics = PerformanceMetrics()
-        return _global_metrics
-
-
-def reset_global_metrics() -> None:
-    """重置全局性能指标实例（线程安全）"""
-    global _global_metrics
-    with _global_metrics_lock:
-        if _global_metrics is not None:
-            _global_metrics.reset()
-
-
 __all__ = [
     "PerformanceMetrics",
     "LatencyRecord",
     "MetricSummary",
-    "get_global_metrics",
-    "reset_global_metrics",
 ]

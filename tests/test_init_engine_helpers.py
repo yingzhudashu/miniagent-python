@@ -23,7 +23,7 @@ class _FakeSessionManager:
         self.created: list[str] = []
 
     def list_all_sessions_with_info(self) -> list[dict]:
-        return [{"session_id": sid} for sid in self._session_ids]
+        return [{"id": sid} for sid in self._session_ids]
 
     def get_or_create(self, session_id: str, _options: object) -> None:
         self.created.append(session_id)

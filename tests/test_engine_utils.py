@@ -276,9 +276,9 @@ class TestFeishuUserStatusFn:
 
     def test_append_exception_falls_back_to_print(self, capsys):
         """Transcript append errors fall back to print."""
-        from miniagent.runtime.context import RuntimeContext
+        from miniagent.bootstrap.application import ApplicationContainer
 
-        ctx = RuntimeContext.__new__(RuntimeContext)
+        ctx = ApplicationContainer.__new__(ApplicationContainer)
 
         def _boom(_style: str, _line: str) -> None:
             raise RuntimeError("transcript unavailable")

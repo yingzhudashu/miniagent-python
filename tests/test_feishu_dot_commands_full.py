@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from miniagent.bootstrap.application import ApplicationContainer
 from miniagent.engine.cli_commands import feishu_dot_commands_full_enabled
 from miniagent.engine.command_dispatch import dispatch_command
 from miniagent.engine.engine import UnifiedEngine
@@ -15,14 +16,18 @@ from miniagent.infrastructure.channel_router import ChannelRouter
 from miniagent.infrastructure.message_queue import MessageQueueManager
 from miniagent.infrastructure.monitor import DefaultToolMonitor
 from miniagent.infrastructure.registry import DefaultToolRegistry
-from miniagent.runtime.context import RuntimeContext
 from miniagent.skills import DefaultSkillRegistry, create_clawhub_client
 from tests.config_helpers import install_test_config
+from tests.memory_helpers import (
+    make_background_task_manager,
+    make_knowledge_registry,
+    make_memory_runtime,
+)
 
 
 def _minimal_dispatch_state() -> dict:
     mq = MessageQueueManager()
-    ctx = RuntimeContext(
+    ctx = ApplicationContainer(
         registry=DefaultToolRegistry(),
         monitor=DefaultToolMonitor(),
         skill_registry=DefaultSkillRegistry(),
@@ -31,10 +36,9 @@ def _minimal_dispatch_state() -> dict:
         channel_router=ChannelRouter(),
         message_queue=mq,
         feishu=FeishuRuntime(mq),
-        memory_store=None,
-        activity_log=None,
-        keyword_index=None,
-        memory_context=MagicMock(),
+        memory=make_memory_runtime(),
+        knowledge_registry=make_knowledge_registry(),
+        background_tasks=make_background_task_manager(),
     )
     return {
         "active_session_id": "keep-me",
@@ -204,13 +208,13 @@ def test_engine_feishu_mutations_follow_env(tmp_path) -> None:
     base = get_default_agent_config()
     merged = merge_agent_config(
         base,
-        {"cli_dispatch_allow_mutations": feishu_dot_commands_full_enabled()},
+        {"feishu_config": {"cli_dispatch_allow_mutations": feishu_dot_commands_full_enabled()}},
     )
-    assert merged.cli_dispatch_allow_mutations is True
+    assert merged.feishu_config.cli_dispatch_allow_mutations is True
 
     install_test_config(tmp_path)
     merged_off = merge_agent_config(
         base,
-        {"cli_dispatch_allow_mutations": feishu_dot_commands_full_enabled()},
+        {"feishu_config": {"cli_dispatch_allow_mutations": feishu_dot_commands_full_enabled()}},
     )
-    assert merged_off.cli_dispatch_allow_mutations is False
+    assert merged_off.feishu_config.cli_dispatch_allow_mutations is False

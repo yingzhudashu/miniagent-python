@@ -221,7 +221,9 @@ class TestTraceStats:
         install_test_config(tmp_path, {"trace": {"output_dir": str(trace_output_dir)}})
 
         # Write events to file
-        trace_file = trace_output_dir / f"trace-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.jsonl"
+        trace_file = trace_output_dir / (
+            f"trace-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}-pid123.jsonl"
+        )
         with trace_file.open("w", encoding="utf-8") as f:
             for event in trace_events:
                 f.write(json.dumps(event, ensure_ascii=False) + "\n")
@@ -238,13 +240,13 @@ class TestTraceStats:
         tmp_path: Path,
         trace_output_dir: Path,
     ) -> None:
-        """Trace 统计应聚合同一天的基础文件和 pid 分片。"""
+        """Trace 统计应聚合同一天的全部 pid 分片。"""
         install_test_config(tmp_path, {"trace": {"output_dir": str(trace_output_dir)}})
         date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        base_file = trace_output_dir / f"trace-{date}.jsonl"
+        first_pid_file = trace_output_dir / f"trace-{date}-pid122.jsonl"
         pid_file = trace_output_dir / f"trace-{date}-pid123.jsonl"
 
-        base_file.write_text(
+        first_pid_file.write_text(
             json.dumps({"type": EVENT_LLM_REQUEST, "session_key": "s1"}, ensure_ascii=False)
             + "\n",
             encoding="utf-8",
@@ -259,7 +261,7 @@ class TestTraceStats:
         events = load_trace_events(date, session_key="s1")
         report = generate_daily_report(date)
 
-        assert base_file in files
+        assert first_pid_file in files
         assert pid_file in files
         assert [event["type"] for event in events] == [EVENT_LLM_REQUEST, EVENT_LLM_RESPONSE]
         assert report["total_events"] == 2

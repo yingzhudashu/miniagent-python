@@ -8,7 +8,7 @@
 - 引用块
 - 表格
 - 边界情况（长文本、空段落、截断）
-- 向后兼容性
+- 纯文本渲染路径
 """
 
 from __future__ import annotations
@@ -342,27 +342,27 @@ class TestStatistics:
         assert result.stats["lists"] == 4
 
 
-class TestBackwardCompatibility:
-    """向后兼容性测试"""
+class TestPlainTextRendering:
+    """纯文本渲染测试"""
 
-    def test_old_markdown_to_plain_text(self):
-        """旧的纯文本剥离函数"""
+    def test_markdown_to_plain_text(self):
+        """纯文本剥离函数"""
         from miniagent.feishu.docx.markdown import markdown_to_plain_text
 
         md = "# Title\n\n**bold** text\n\n- list item"
         plain = markdown_to_plain_text(md)
         # 剥离标题标记和引用标记，但不处理粗体（保守剥离）
         assert "#" not in plain
-        # 注意：旧的 markdown_to_plain_text 不处理 **bold**，保留原样
+        # markdown_to_plain_text 不处理 **bold**，保留原样
         # 这是设计意图（保守剥离）
 
-    def test_old_markdown_to_blocks(self):
-        """旧的纯文本块函数"""
+    def test_markdown_to_blocks(self):
+        """纯文本块函数"""
         from miniagent.feishu.docx.markdown import markdown_to_blocks
 
         md = "# Title"
         blocks = markdown_to_blocks(md)
-        # 旧实现只返回纯文本块
+        # 纯文本路径只返回文本块
         assert len(blocks) > 0
 
 

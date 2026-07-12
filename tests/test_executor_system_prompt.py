@@ -8,7 +8,6 @@ import pytest
 
 from miniagent.core.executor import (
     build_current_turn_user_context,
-    build_execution_system_prompt,
     build_stable_execution_system_prompt,
     execute_plan,
 )
@@ -17,6 +16,7 @@ from miniagent.core.planner import _format_toolbox_tool_names
 from miniagent.infrastructure.registry import DefaultToolRegistry
 from miniagent.types.planning import StructuredPlan
 from miniagent.types.tool import ToolDefinition
+from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 from tests.mock_strategies import (
     agent_config_with_session,
     make_ping_tool_registry,
@@ -59,16 +59,6 @@ def test_build_current_turn_user_context_contains_volatile_parts(tmp_path) -> No
     assert str(tmp_path) in s
 
 
-def test_build_execution_system_prompt_compat_wrapper() -> None:
-    s = build_execution_system_prompt(
-        agent_identity="ID",
-        caller_system_prompt="SKILL",
-        plan_summary="TASK",
-        keyword_context="KW",
-    )
-    assert s.index("ID") < s.index("SKILL") < s.index("执行计划摘要：\nTASK") < s.index("KW")
-
-
 @pytest.mark.asyncio
 async def test_execute_plan_messages_are_cache_friendly(tmp_path) -> None:
     main, sess = make_ping_tool_registry()
@@ -83,9 +73,9 @@ async def test_execute_plan_messages_are_cache_friendly(tmp_path) -> None:
     mock_client.chat.completions.create = AsyncMock(side_effect=capture_kwargs)
     ms, al, ki = mock_memory_bundle()
     cfg = agent_config_with_session(sess, max_turns=1)
-    cfg.session_key = None
-    cfg.conversation_history = [{"role": "assistant", "content": "OLD"}]
-    cfg.session_workspace = str(tmp_path / "files")
+    cfg.session_config.session_key = None
+    cfg.session_config.conversation_history = [{"role": "assistant", "content": "OLD"}]
+    cfg.session_config.session_workspace = str(tmp_path / "files")
     cfg.risk_level = "medium"
     plan = StructuredPlan(summary="PLAN_SUMMARY", steps=[], required_toolboxes=[])
 
@@ -98,9 +88,8 @@ async def test_execute_plan_messages_are_cache_friendly(tmp_path) -> None:
             cfg,
             system_prompt="SKILL_PROMPT",
             client=mock_client,
-            memory_store=ms,
-            activity_log=al,
-            keyword_index=ki,
+            memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki),
+            knowledge_registry=make_knowledge_registry(),
         )
 
     messages = captured[0]["messages"]

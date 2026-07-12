@@ -10,7 +10,7 @@ CLI 命令实现：启动、查询、取消后台任务。
 - ``/btw cancel <task_id>`` → ``cmd_btw_cancel``
 - ``/btw clear`` → ``cmd_btw_clear``
 
-进程内使用 ``get_background_task_manager()`` 单例；并行上限由
+管理器由 ``ApplicationContainer.background_tasks`` 显式注入；并行上限由
 ``BackgroundTaskManager`` 与配置 ``agent.max_parallel_sessions`` 共同决定。
 """
 
@@ -21,9 +21,6 @@ from typing import Any
 from miniagent.engine.background_tasks import BackgroundTaskManager
 from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
 
-# 全局后台任务管理器（进程级单例）
-_bg_manager: BackgroundTaskManager | None = None
-
 
 def _truncate_preview(text: str, max_len: int) -> str:
     """截断预览文本，仅在超长时追加省略号。"""
@@ -32,19 +29,8 @@ def _truncate_preview(text: str, max_len: int) -> str:
     return text[:max_len] + "..."
 
 
-def get_background_task_manager() -> BackgroundTaskManager:
-    """获取全局后台任务管理器实例（进程级单例）。
-
-    首次调用时创建 ``BackgroundTaskManager``，并行上限从配置加载。
-    测试或 CLI 会话间会共享同一实例。
-    """
-    global _bg_manager
-    if _bg_manager is None:
-        _bg_manager = BackgroundTaskManager()
-    return _bg_manager
-
-
 async def cmd_btw_start(
+    manager: BackgroundTaskManager,
     engine: Any,
     prompt: str,
     state: dict[str, Any],
@@ -59,8 +45,6 @@ async def cmd_btw_start(
     Returns:
         操作结果消息（成功、并行上限警告或错误）
     """
-    manager = get_background_task_manager()
-
     try:
         task_id = await manager.start_task(engine, prompt, state)
         preview = _truncate_preview(prompt, 50)
@@ -75,7 +59,7 @@ async def cmd_btw_start(
         return f"{ERROR_PREFIX} 启动失败: {e}"
 
 
-def cmd_btw_status(task_id: str | None = None) -> str:
+def cmd_btw_status(manager: BackgroundTaskManager, task_id: str | None = None) -> str:
     """查看后台任务状态。
 
     Args:
@@ -84,8 +68,6 @@ def cmd_btw_status(task_id: str | None = None) -> str:
     Returns:
         Markdown 格式的状态信息
     """
-    manager = get_background_task_manager()
-
     if task_id:
         status = manager.get_status(task_id)
         if status is None:
@@ -128,21 +110,17 @@ def cmd_btw_status(task_id: str | None = None) -> str:
         }.get(task["status"], "?")
 
         preview = _truncate_preview(task["prompt"], 40)
-        lines.append(
-            f"{status_icon} **{task['task_id']}**: {task['status']} - {preview}"
-        )
+        lines.append(f"{status_icon} **{task['task_id']}**: {task['status']} - {preview}")
 
     lines.append("")
     lines.append(f"统计: {len(tasks)} 个任务")
     stats = manager.get_stats()
-    lines.append(
-        f"并行上限: {stats['max_concurrent']}，当前运行: {stats['running_tasks']}"
-    )
+    lines.append(f"并行上限: {stats['max_concurrent']}，当前运行: {stats['running_tasks']}")
 
     return "\n".join(lines)
 
 
-async def cmd_btw_result(task_id: str) -> str:
+async def cmd_btw_result(manager: BackgroundTaskManager, task_id: str) -> str:
     """获取后台任务结果或错误信息。
 
     Args:
@@ -151,8 +129,6 @@ async def cmd_btw_result(task_id: str) -> str:
     Returns:
         任务结果、错误信息或状态提示
     """
-    manager = get_background_task_manager()
-
     status = manager.get_status(task_id)
     if status is None:
         return f"{ERROR_PREFIX} 任务 {task_id} 不存在"
@@ -183,7 +159,7 @@ async def cmd_btw_result(task_id: str) -> str:
     )
 
 
-async def cmd_btw_cancel(task_id: str) -> str:
+async def cmd_btw_cancel(manager: BackgroundTaskManager, task_id: str) -> str:
     """取消后台任务（中止 asyncio 执行并标记为 cancelled）。
 
     Args:
@@ -192,8 +168,6 @@ async def cmd_btw_cancel(task_id: str) -> str:
     Returns:
         操作结果消息
     """
-    manager = get_background_task_manager()
-
     success = await manager.cancel_task(task_id)
     if success:
         return f"{SUCCESS_PREFIX} 任务 {task_id} 已取消"
@@ -204,13 +178,12 @@ async def cmd_btw_cancel(task_id: str) -> str:
     return f"{WARNING_PREFIX} 任务 {task_id} 已完成或已取消，无法取消"
 
 
-def cmd_btw_clear() -> str:
+def cmd_btw_clear(manager: BackgroundTaskManager) -> str:
     """清理已完成、失败或已取消的任务。
 
     Returns:
         清理结果消息
     """
-    manager = get_background_task_manager()
     count = manager.clear_completed()
 
     if count > 0:
@@ -219,7 +192,6 @@ def cmd_btw_clear() -> str:
 
 
 __all__ = [
-    "get_background_task_manager",
     "cmd_btw_start",
     "cmd_btw_status",
     "cmd_btw_result",

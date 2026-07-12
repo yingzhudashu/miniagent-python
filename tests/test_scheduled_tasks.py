@@ -8,9 +8,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from miniagent.contracts.messages import InboundMessage
 from miniagent.engine.cli_state import CliLoopState
 from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec, SessionSpec
 from miniagent.scheduled_tasks.resolve import resolve_execution_target, should_run_feishu
+from miniagent.scheduled_tasks.runner import ScheduledJob
 from miniagent.scheduled_tasks.store import (
     apply_dispatch_failure_backoff,
     compute_initial_next_run,
@@ -242,13 +244,24 @@ async def test_tick_once_dispatch_failure_backoff(
     ctx = minimal_tick_ctx()
     st = minimal_cli_state(ctx)
 
-    def _boom(*_a: object, **_k: object) -> tuple[object, str]:
-        async def _coro() -> None:
+    def _boom(*_a: object, **_k: object) -> ScheduledJob:
+        async def _run(_message: InboundMessage) -> None:
             raise RuntimeError("dispatch boom")
 
-        return (_coro(), "__cli__")
+        return ScheduledJob(
+            message=InboundMessage.create(
+                channel="scheduler",
+                conversation_id="__cli__",
+                sender_id="scheduler",
+                content="p",
+                session_key="default",
+                metadata={"queue_key": "__cli__", "task_id": "fail1"},
+            ),
+            queue_key="__cli__",
+            run=_run,
+        )
 
-    monkeypatch.setattr("miniagent.scheduled_tasks.ticker.build_run_scheduled_job_coro", _boom)
+    monkeypatch.setattr("miniagent.scheduled_tasks.ticker.build_scheduled_job", _boom)
     patch_tick_once_locks(monkeypatch)
 
     before = time.time()

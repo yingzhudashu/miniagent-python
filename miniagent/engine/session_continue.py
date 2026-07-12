@@ -13,8 +13,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from miniagent.bootstrap.application import ApplicationContainer
 from miniagent.engine.cli_state import CliLoopState
-from miniagent.runtime.context import RuntimeContext
 
 _logger = logging.getLogger(__name__)
 
@@ -63,7 +63,7 @@ def persist_cli_session_state(
         return False
 
 
-def save_cli_session_state(ctx: RuntimeContext, state: CliLoopState) -> None:
+def save_cli_session_state(ctx: ApplicationContainer, state: CliLoopState) -> None:
     """保存 CLI 上次活跃会话到 ``channel-router.json``（``--continue`` 功能）。
 
     供 ``shutdown_runtime`` 与 ``run_cli_loop`` 正常退出路径调用；失败时不抛异常，

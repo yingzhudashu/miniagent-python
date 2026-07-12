@@ -32,8 +32,6 @@ class ScheduleSpec:
     cron_expr: str | None = None
     #: IANA 名称，如 UTC、Asia/Shanghai；用于解析 naive 的 once_at 与 cron 墙钟
     timezone: str = "UTC"
-    #: 用户曾显式 ``--tz`` / 工具传入 timezone 时为 True；遗留 UTC 迁移时跳过
-    timezone_explicit: bool = False
 
 
 @dataclass
@@ -114,7 +112,6 @@ class ScheduledTask:
                 once_at_iso=sch.get("once_at_iso"),
                 cron_expr=sch.get("cron_expr"),
                 timezone=str(sch.get("timezone") or "UTC"),
-                timezone_explicit=bool(sch.get("timezone_explicit", False)),
             ),
             session=SessionSpec(
                 mode=mode,

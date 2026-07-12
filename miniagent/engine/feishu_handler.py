@@ -25,20 +25,28 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+from miniagent.bootstrap.application import ApplicationContainer
+from miniagent.contracts.messages import ChannelTarget, OutboundEventKind
 from miniagent.engine.cli_format import (
     format_cli_reply_block,
     format_cli_user_block,
     get_cli_format_widths,
 )
+from miniagent.engine.cli_inbound import CLI_CHANNEL
+from miniagent.engine.cli_outbound import build_cli_outbound_event
 from miniagent.engine.cli_state import CliLoopState
 from miniagent.engine.utils import (
     detect_ext_from_magic,
     detect_mime_from_magic,
     feishu_user_status_fn,
 )
+from miniagent.feishu.inbound_adapter import (
+    FEISHU_CHANNEL,
+    build_feishu_inbound_message,
+    build_feishu_media_inbound_message,
+)
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
-from miniagent.runtime.context import RuntimeContext
 from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
 
 _logger = get_logger(__name__)
@@ -55,7 +63,7 @@ class _FeishuCliTurn:
 
 
 def _begin_feishu_cli_turn(
-    ctx: RuntimeContext,
+    ctx: ApplicationContainer,
     session_key: str,
     *,
     mirror_cli: bool,
@@ -63,7 +71,7 @@ def _begin_feishu_cli_turn(
     """开启飞书轮次的 CLI transcript 上下文。
 
     ``mirror_cli=True`` 且存在 coordinator 时，调用 ``begin_turn`` 并绑定
-    会话级 ``cli_append``；否则回退到 ``RuntimeContext`` 全局 append。
+    会话级 ``cli_append``；否则使用 ``ApplicationContainer`` 的全局 append。
     """
     coordinator = ctx.cli_transcript_coordinator
     if mirror_cli and coordinator is not None:
@@ -86,10 +94,57 @@ def _begin_feishu_cli_turn(
     )
 
 
-def _end_feishu_cli_turn(turn: _FeishuCliTurn, session_key: str) -> None:
-    """结束由 :func:`_begin_feishu_cli_turn` 开启的 CLI transcript turn。"""
-    if turn.mirror_cli and turn.coordinator is not None:
-        turn.coordinator.end_turn(session_key)
+async def _drain_feishu_cli_events(ctx: ApplicationContainer, session_key: str) -> None:
+    """等待当前飞书镜像会话的有序 CLI 思考事件完成。"""
+    dispatcher = ctx.cli_outbound_dispatcher
+    if dispatcher is not None:
+        await dispatcher.drain(ChannelTarget(CLI_CHANNEL, session_key))
+
+
+async def _end_feishu_cli_turn(
+    ctx: ApplicationContainer,
+    turn: _FeishuCliTurn,
+    session_key: str,
+) -> None:
+    """Drain pending mirror events before ending the transcript turn."""
+    try:
+        if turn.mirror_cli:
+            await _drain_feishu_cli_events(ctx, session_key)
+    except Exception:
+        _logger.warning("飞书 CLI 镜像思考事件收尾失败", exc_info=True)
+    finally:
+        if turn.mirror_cli and turn.coordinator is not None:
+            turn.coordinator.end_turn(session_key)
+
+
+async def _render_feishu_cli_reply(
+    ctx: ApplicationContainer,
+    turn: _FeishuCliTurn,
+    session_key: str,
+    reply: str,
+    state: CliLoopState,
+) -> None:
+    """Render a mirrored final reply through the CLI adapter."""
+    if not turn.mirror_cli or not turn.cli_append or not reply:
+        return
+    channels = ctx.outbound_channels
+    try:
+        channels.get(CLI_CHANNEL)
+    except LookupError:
+        pass
+    else:
+        await channels.send(
+            build_cli_outbound_event(reply, session_key, interface="feishu-mirror")
+        )
+        return
+    render_width, markdown_width = get_cli_format_widths(state)
+    format_cli_reply_block(
+        turn.cli_append,
+        turn.cli_append_ansi,
+        reply,
+        render_width=render_width,
+        markdown_width=markdown_width,
+    )
 
 
 async def _send_feishu_agent_reply(
@@ -127,7 +182,7 @@ async def _send_feishu_agent_reply(
 
 def create_feishu_handler(
     state: CliLoopState,
-    ctx: RuntimeContext,
+    ctx: ApplicationContainer,
     stick_bottom: list[bool],
 ) -> tuple[Any, Any]:
     """创建飞书消息处理器（文本/媒体）。
@@ -155,6 +210,11 @@ def create_feishu_handler(
     monitor = ctx.monitor
     from miniagent.engine.cli_commands import feishu_dot_commands_full_enabled
     from miniagent.engine.command_dispatch import dispatch_command
+    from miniagent.feishu.outbound_adapter import (
+        FeishuChannelAdapter,
+        build_feishu_final_event,
+        build_feishu_reply_event,
+    )
     from miniagent.feishu.types import FeishuInboundText
     from miniagent.skills.snapshots import (
         get_skill_prompts_from_state,
@@ -164,6 +224,49 @@ def create_feishu_handler(
 
     channel_router = ctx.channel_router
     _emit_feishu_cli = feishu_user_status_fn(ctx)
+
+    outbound_channels = ctx.outbound_channels
+
+    async def _send_feishu_final(
+        target_chat_id: str,
+        text: str,
+        reply_to_message_id: str | None,
+        reply_in_thread: bool,
+    ) -> None:
+        """Delegate a normalized final event to the Feishu reply sender."""
+        await _send_feishu_agent_reply(
+            ctx.feishu.get_config(),
+            target_chat_id,
+            text,
+            reply_to_message_id=reply_to_message_id,
+            reply_in_thread=reply_in_thread,
+        )
+
+    try:
+        outbound_channels.get(FEISHU_CHANNEL)
+    except LookupError:
+        outbound_channels.register(FeishuChannelAdapter(_send_feishu_final))
+
+    async def _send_handler_reply(
+        kind: OutboundEventKind,
+        text: str,
+        *,
+        chat_id: str,
+        message_id: str,
+        thread_id: str | None,
+    ) -> str:
+        """Send one normalized reply through the registered Feishu adapter."""
+        await outbound_channels.send(
+            build_feishu_reply_event(
+                kind,
+                text,
+                chat_id,
+                reply_to_message_id=message_id or None,
+                thread_id=thread_id,
+                trace_id=message_id or None,
+            )
+        )
+        return ""
     from miniagent.infrastructure.cli_feishu_policy import (
         should_allow_p2p_auto_bind,
         should_mirror_feishu_to_cli,
@@ -234,8 +337,9 @@ def create_feishu_handler(
         if content.startswith("/"):
             try:
                 cmd_sk = channel_router.resolve_feishu_message(chat_id, sender_id, chat_type)
+                command_message = build_feishu_inbound_message(inbound, cmd_sk)
                 reply = await dispatch_command(
-                    content.strip(),
+                    command_message.content.strip(),
                     state=state,
                     engine=engine,
                     registry=registry,
@@ -256,16 +360,40 @@ def create_feishu_handler(
                         chat_id=chat_id,
                         sender_id=sender_id,
                         session_key=cmd_sk,
-                        line=f"\n\U0001f4e8 [飞书命令 {chat_id[:8]}] {content}",
+                        line=(
+                            f"\n\U0001f4e8 [飞书命令 {chat_id[:8]}] "
+                            f"{command_message.content}"
+                        ),
                     )
-                    return reply
+                    return await _send_handler_reply(
+                        OutboundEventKind.STATUS,
+                        reply,
+                        chat_id=command_message.conversation_id,
+                        message_id=str(command_message.metadata.get("message_id") or ""),
+                        thread_id=command_message.thread_id,
+                    )
             except Exception as e:
                 _logger.exception("飞书命令执行失败: %s", content)
-                return f"{ERROR_PREFIX} 命令执行失败: {e}"
+                error_text = f"{ERROR_PREFIX} 命令执行失败: {e}"
+                return await _send_handler_reply(
+                    OutboundEventKind.ERROR,
+                    error_text,
+                    chat_id=chat_id,
+                    message_id=(inbound.message_id or "").strip(),
+                    thread_id=inbound.thread_id,
+                )
 
         _maybe_auto_bind_p2p(chat_type, sender_id, state)
 
         session_key = channel_router.resolve_feishu_message(chat_id, sender_id, chat_type)
+        message = build_feishu_inbound_message(inbound, session_key)
+        content = message.content
+        chat_id = message.conversation_id
+        sender_id = message.sender_id
+        chat_type = str(message.metadata.get("chat_type") or "group")
+        message_id = str(message.metadata.get("message_id") or "")
+        root_id = message.metadata.get("root_id")
+        parent_id = message.metadata.get("parent_id")
 
         # ── 检查是否有待澄清需求（agent 正在等待用户回答）──
         cc = engine.get_confirmation_channel(session_key)
@@ -317,32 +445,34 @@ def create_feishu_handler(
                     feishu_config=ctx.feishu.get_config(),
                     channel_router=channel_router,
                     clawhub=ctx.clawhub,
-                    memory_store=ctx.memory_store,
-                    activity_log=ctx.activity_log,
-                    keyword_index=ctx.keyword_index,
-                    memory_context=ctx.memory_context,
+                    memory=ctx.memory,
+                    knowledge_registry=ctx.knowledge_registry,
                     client=ctx.openai_client,
                     feishu_receive_chat_id=chat_id,
-                    feishu_trigger_message_id=inbound.message_id or None,
-                    feishu_root_id=inbound.root_id,
-                    feishu_parent_id=inbound.parent_id,
-                    feishu_thread_id=inbound.thread_id,
-                    feishu_im_receive_id=(inbound.sender_id or "").strip() or None,
+                    feishu_trigger_message_id=message_id or None,
+                    feishu_root_id=root_id if isinstance(root_id, str) else None,
+                    feishu_parent_id=parent_id if isinstance(parent_id, str) else None,
+                    feishu_thread_id=message.thread_id,
+                    feishu_im_receive_id=(message.sender_id or "").strip() or None,
                     cli_loop_state=state,
                     feishu_mirror_cli=mirror_cli,
                     _hold_session_lock=True,
                 )
+                if cli_turn.mirror_cli:
+                    await _drain_feishu_cli_events(ctx, session_key)
                 # 结论卡片（含质量评估尾部，与 /help 交互卡片同格式；失败时 text 回退）
                 reply_body = (reply or "").strip()
                 send_failed = False
                 if reply_body:
                     try:
-                        await _send_feishu_agent_reply(
-                            ctx.feishu.get_config(),
-                            chat_id,
-                            reply_body,
-                            reply_to_message_id=inbound.message_id or None,
-                            reply_in_thread=bool((inbound.thread_id or "").strip()),
+                        await outbound_channels.send(
+                            build_feishu_final_event(
+                                reply_body,
+                                chat_id,
+                                reply_to_message_id=message_id or None,
+                                thread_id=message.thread_id,
+                                trace_id=message.trace_id,
+                            )
                         )
                     except Exception:
                         send_failed = True
@@ -350,23 +480,24 @@ def create_feishu_handler(
                 engine.clear_last_reflection(session_key)
 
                 # CLI 侧：仅 mirror 会话展示完整回复
-                if cli_turn.mirror_cli and cli_turn.cli_append and reply_body:
-                    _rw, _mdw = get_cli_format_widths(state)
-                    format_cli_reply_block(
-                        cli_turn.cli_append,
-                        cli_turn.cli_append_ansi,
-                        reply_body,
-                        render_width=_rw,
-                        markdown_width=_mdw,
-                    )
+                await _render_feishu_cli_reply(
+                    ctx, cli_turn, session_key, reply_body, state
+                )
                 # 飞书单消息：思考 + 工具均在思考卡中展示，结论经卡片或 text 回退输出。
                 if send_failed:
                     return reply_body
                 return ""
             except Exception as e:
-                return f"{WARNING_PREFIX} 处理失败: {e}"
+                error_text = f"{WARNING_PREFIX} 处理失败: {e}"
+                return await _send_handler_reply(
+                    OutboundEventKind.ERROR,
+                    error_text,
+                    chat_id=message.conversation_id,
+                    message_id=str(message.metadata.get("message_id") or ""),
+                    thread_id=message.thread_id,
+                )
             finally:
-                _end_feishu_cli_turn(cli_turn, session_key)
+                await _end_feishu_cli_turn(ctx, cli_turn, session_key)
 
 
     async def media_handler(
@@ -424,6 +555,8 @@ def create_feishu_handler(
         except Exception as e:
             return f"{WARNING_PREFIX} 下载失败: {e}"
 
+        mime_type = detect_mime_from_magic(data) or "application/octet-stream"
+
         # 优先使用 API 返回的建议名（如包含原始文件名）；其次用入参名。
         # 根据文件头 magic bytes 修正扩展名，避免图片等被保存为无扩展名或 .bin。
         raw_name = (api_suggested_name or "").strip() or suggested_name
@@ -450,9 +583,6 @@ def create_feishu_handler(
             from miniagent.memory.store import add_file_to_memory
             from miniagent.types.memory import FileMetadata
 
-            # 获取 MIME 类型
-            mime_type = detect_mime_from_magic(data) or "application/octet-stream"
-
             file_meta = FileMetadata(
                 name=dest_name,
                 path=rel,
@@ -466,7 +596,7 @@ def create_feishu_handler(
 
             # 图片描述：如果有视觉模型描述，稍后更新
             # 先添加基础信息
-            await add_file_to_memory(session_key, file_meta, ctx.memory_store)
+            await add_file_to_memory(session_key, file_meta, ctx.memory.store)
         except Exception as e:
             _logger.debug("记忆存储失败: %s", e)
 
@@ -507,6 +637,25 @@ def create_feishu_handler(
                         f"图片内容：{desc}"
                     )
 
+        message = build_feishu_media_inbound_message(
+            content=user_line,
+            session_key=session_key,
+            message_id=message_id,
+            chat_id=chat_id,
+            sender_id=sender_id,
+            chat_type=chat_type,
+            msg_type=msg_type,
+            file_key=file_key,
+            resource_type=resource_type,
+            name=dest_name,
+            mime_type=mime_type,
+            size=len(data),
+            local_path=dest_path,
+            relative_path=rel,
+            thread_id=thread_id,
+        )
+        user_line = message.content
+
         cli_turn = _begin_feishu_cli_turn(ctx, session_key, mirror_cli=media_mirror_cli)
         channel_label = (
             "飞书私聊媒体" if chat_type == "p2p" else f"飞书媒体 {chat_id[:8]}"
@@ -535,49 +684,56 @@ def create_feishu_handler(
                     feishu_config=ctx.feishu.get_config(),
                     channel_router=channel_router,
                     clawhub=ctx.clawhub,
-                    memory_store=ctx.memory_store,
-                    activity_log=ctx.activity_log,
-                    keyword_index=ctx.keyword_index,
-                    memory_context=ctx.memory_context,
+                    memory=ctx.memory,
+                    knowledge_registry=ctx.knowledge_registry,
                     client=ctx.openai_client,
-                    feishu_receive_chat_id=chat_id,
-                    feishu_trigger_message_id=message_id or None,
-                    feishu_thread_id=(thread_id or "").strip() or None,
-                    feishu_im_receive_id=(sender_id or "").strip() or None,
+                    feishu_receive_chat_id=message.conversation_id,
+                    feishu_trigger_message_id=(
+                        str(message.metadata.get("message_id") or "") or None
+                    ),
+                    feishu_thread_id=message.thread_id,
+                    feishu_im_receive_id=(message.sender_id or "").strip() or None,
                     cli_loop_state=state,
                     feishu_mirror_cli=media_mirror_cli,
                     _hold_session_lock=True,
                 )
+                if cli_turn.mirror_cli:
+                    await _drain_feishu_cli_events(ctx, session_key)
                 reply_body = (reply or "").strip()
                 send_failed = False
                 if reply_body:
                     try:
-                        await _send_feishu_agent_reply(
-                            ctx.feishu.get_config(),
-                            chat_id,
-                            reply_body,
-                            reply_to_message_id=message_id or None,
-                            reply_in_thread=bool((thread_id or "").strip()),
+                        await outbound_channels.send(
+                            build_feishu_final_event(
+                                reply_body,
+                                message.conversation_id,
+                                reply_to_message_id=(
+                                    str(message.metadata.get("message_id") or "") or None
+                                ),
+                                thread_id=message.thread_id,
+                                trace_id=message.trace_id,
+                            )
                         )
                     except Exception:
                         send_failed = True
                 engine.clear_last_reflection(session_key)
-                if cli_turn.mirror_cli and cli_turn.cli_append and reply_body:
-                    _rw, _mdw = get_cli_format_widths(state)
-                    format_cli_reply_block(
-                        cli_turn.cli_append,
-                        cli_turn.cli_append_ansi,
-                        reply_body,
-                        render_width=_rw,
-                        markdown_width=_mdw,
-                    )
+                await _render_feishu_cli_reply(
+                    ctx, cli_turn, session_key, reply_body, state
+                )
                 if send_failed:
                     return f"{SUCCESS_PREFIX} 已保存 {rel}\n\n{reply_body}"
                 return ""
             except Exception as e:
-                return f"{SUCCESS_PREFIX} 已保存 {rel}（Agent 处理失败: {e}）"
+                error_text = f"{SUCCESS_PREFIX} 已保存 {rel}（Agent 处理失败: {e}）"
+                return await _send_handler_reply(
+                    OutboundEventKind.ERROR,
+                    error_text,
+                    chat_id=message.conversation_id,
+                    message_id=str(message.metadata.get("message_id") or ""),
+                    thread_id=message.thread_id,
+                )
             finally:
-                _end_feishu_cli_turn(cli_turn, session_key)
+                await _end_feishu_cli_turn(ctx, cli_turn, session_key)
 
     return handler, media_handler
 

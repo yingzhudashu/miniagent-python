@@ -76,7 +76,7 @@ def test_batch_write_integrity():
     pid_suffix = f"-pid{os.getpid()}"
     expected_file = Path(str(test_file).replace(".jsonl", f"{pid_suffix}.jsonl"))
 
-    # 如果pid后缀文件不存在，尝试原始文件名（兼容旧版本）
+        # 若 writer 尚未产生 pid 分片，则使用测试配置路径定位输出。
     actual_file = expected_file if expected_file.exists() else test_file
 
     with actual_file.open(encoding="utf-8") as f:
@@ -127,7 +127,7 @@ def test_graceful_shutdown():
     pid_suffix = f"-pid{os.getpid()}"
     expected_file = Path(str(test_file).replace(".jsonl", f"{pid_suffix}.jsonl"))
 
-    # 如果pid后缀文件不存在，尝试原始文件名（兼容旧版本）
+        # 若 writer 尚未产生 pid 分片，则使用测试配置路径定位输出。
     actual_file = expected_file if expected_file.exists() else test_file
 
     with actual_file.open(encoding="utf-8") as f:
@@ -226,7 +226,7 @@ def test_concurrent_emit():
     pid_suffix = f"-pid{os.getpid()}"
     expected_file = Path(str(test_file).replace(".jsonl", f"{pid_suffix}.jsonl"))
 
-    # 如果pid后缀文件不存在，尝试原始文件名（兼容旧版本）
+        # 若 writer 尚未产生 pid 分片，则使用测试配置路径定位输出。
     actual_file = expected_file if expected_file.exists() else test_file
 
     with actual_file.open(encoding="utf-8") as f:

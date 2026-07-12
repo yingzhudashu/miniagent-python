@@ -8,11 +8,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.engine.main import (
-    _resolve_cli_history_file,
-    detect_and_process_file_markers,
-    run_cli_bash_command,
+from miniagent.application.messaging import ChannelRegistry
+from miniagent.engine.cli_files import process_cli_file_markers
+from miniagent.engine.cli_history import (
+    create_cli_file_history,
+    resolve_cli_history_file,
 )
+from miniagent.engine.cli_shell import run_cli_shell_command
+from tests.memory_helpers import make_memory_runtime
 
 
 @pytest.mark.asyncio
@@ -35,11 +38,11 @@ async def test_detect_and_process_file_markers_text_file(
         AsyncMock(return_value=None),
     )
 
-    processed, files_info = await detect_and_process_file_markers(
+    processed, files_info = await process_cli_file_markers(
         f"please read @file:{sample.name}",
         "sess-1",
         session_manager,
-        MagicMock(memory_store=None),
+        MagicMock(memory=make_memory_runtime()),
         notify=notify,
     )
 
@@ -57,11 +60,11 @@ async def test_detect_and_process_file_markers_missing_file(tmp_path: Path) -> N
     session_manager.get.return_value = MagicMock(workspace_path=str(tmp_path))
     messages: list[str] = []
 
-    processed, files_info = await detect_and_process_file_markers(
+    processed, files_info = await process_cli_file_markers(
         "@file:missing.txt",
         "sess-1",
         session_manager,
-        MagicMock(memory_store=None),
+        MagicMock(memory=make_memory_runtime()),
         notify=lambda msg, _color: messages.append(msg),
     )
 
@@ -71,13 +74,13 @@ async def test_detect_and_process_file_markers_missing_file(tmp_path: Path) -> N
 
 
 def test_run_cli_bash_command_echo() -> None:
-    ok, output = run_cli_bash_command("echo miniagent-bash-test")
+    ok, output = run_cli_shell_command("echo miniagent-bash-test")
     assert ok is True
     assert "miniagent-bash-test" in output
 
 
 def test_run_cli_bash_command_nonzero_exit() -> None:
-    ok, output = run_cli_bash_command("exit 42")
+    ok, output = run_cli_shell_command("exit 42")
     assert ok is False
     assert "退出码: 42" in output
 
@@ -97,11 +100,11 @@ async def test_detect_and_process_file_markers_file_prefix_without_at(
         AsyncMock(return_value=None),
     )
 
-    processed, files_info = await detect_and_process_file_markers(
+    processed, files_info = await process_cli_file_markers(
         f"summarize file:{sample.name}",
         "sess-1",
         session_manager,
-        MagicMock(memory_store=None),
+        MagicMock(memory=make_memory_runtime()),
     )
 
     assert "file:" not in processed
@@ -126,11 +129,11 @@ async def test_detect_and_process_file_markers_multiple_files(
         AsyncMock(return_value=None),
     )
 
-    processed, files_info = await detect_and_process_file_markers(
+    processed, files_info = await process_cli_file_markers(
         f"@file:{first.name} and @file:{second.name}",
         "sess-1",
         session_manager,
-        MagicMock(memory_store=None),
+        MagicMock(memory=make_memory_runtime()),
     )
 
     assert "@file:" not in processed
@@ -143,20 +146,18 @@ def test_resolve_cli_history_file_under_state_dir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
-    path = _resolve_cli_history_file()
+    path = resolve_cli_history_file()
     assert path.endswith(os.path.join("cli", "history.txt"))
     assert os.path.isdir(os.path.dirname(path))
 
 
 def test_cli_file_history_merge_is_memory_only(tmp_path: Path) -> None:
-    from miniagent.engine.main import _create_cli_file_history
-
     history_path = tmp_path / "history.txt"
     history_path.write_text(
         "\n# ts\n+saved-command\n",
         encoding="utf-8",
     )
-    hist = _create_cli_file_history(str(history_path))
+    hist = create_cli_file_history(str(history_path))
     before = history_path.read_text(encoding="utf-8")
 
     hist.merge_strings_memory_only(["from-session", "saved-command"])
@@ -170,7 +171,7 @@ def test_cli_file_history_merge_is_memory_only(tmp_path: Path) -> None:
 
 def test_reset_and_reload_transcript_does_not_reset_input_history() -> None:
     source = Path(__file__).resolve().parent.parent.joinpath(
-        "miniagent", "engine", "main.py"
+        "miniagent", "engine", "cli_tui.py"
     ).read_text(encoding="utf-8")
     start = source.index("def _reset_and_reload_transcript(")
     end = source.index("def _trigger_lazy_load_more_history(", start)
@@ -182,10 +183,11 @@ def test_reset_and_reload_transcript_does_not_reset_input_history() -> None:
 @pytest.mark.asyncio
 async def test_fallback_cli_dispatches_help_via_dispatch_command(
     monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Fallback 与 TUI 一致：``/help`` 走 ``dispatch_command`` 而非 inline handler。"""
-    from miniagent.engine.main import _run_cli_loop_fallback
-    from miniagent.runtime.context import RuntimeContext
+    from miniagent.bootstrap.application import ApplicationContainer
+    from miniagent.engine.cli_fallback import run_cli_loop_fallback
 
     dispatch_calls: list[str] = []
 
@@ -204,7 +206,7 @@ async def test_fallback_cli_dispatches_help_via_dispatch_command(
         fake_dispatch,
     )
 
-    ctx = MagicMock(spec=RuntimeContext)
+    ctx = MagicMock(spec=ApplicationContainer)
     ctx.engine = MagicMock()
     ctx.engine.thinking.set_output_sink = MagicMock()
     ctx.engine.get_confirmation_channel.return_value = None
@@ -213,12 +215,11 @@ async def test_fallback_cli_dispatches_help_via_dispatch_command(
     ctx.monitor = MagicMock()
     ctx.channel_router = MagicMock()
     ctx.message_queue = MagicMock()
+    ctx.outbound_channels = ChannelRegistry()
     ctx.cli_transcript_coordinator = None
     ctx.cli_transcript_append = None
     ctx.clawhub = None
-    ctx.memory_store = None
-    ctx.activity_log = None
-    ctx.keyword_index = None
+    ctx.memory = make_memory_runtime()
     ctx.openai_client = None
     ctx.feishu = MagicMock()
 
@@ -230,13 +231,14 @@ async def test_fallback_cli_dispatches_help_via_dispatch_command(
     }
 
     monkeypatch.setattr(
-        "miniagent.engine.main._print_history_summary_fallback",
+        "miniagent.engine.cli_fallback.print_history_summary_fallback",
         lambda *args, **kwargs: None,
     )
     monkeypatch.setattr("miniagent.engine.session_continue.save_cli_session_state", lambda *_: None)
     monkeypatch.setattr("miniagent.engine.session_lock.release_session_lock", lambda *_: None)
     monkeypatch.setattr("miniagent.infrastructure.instance.unregister_instance", lambda: None)
 
-    await _run_cli_loop_fallback(ctx, state, [], [])
+    await run_cli_loop_fallback(ctx, state, [], [])
 
     assert dispatch_calls == ["/help"]
+    assert "HELP_OK" in capsys.readouterr().out

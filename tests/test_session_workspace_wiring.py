@@ -22,20 +22,19 @@ def test_get_session_files_path_after_get_or_create(
     assert os.path.isdir(fp)
 
 
-def test_build_execution_system_prompt_includes_files_root(
+def test_build_current_turn_context_includes_files_root(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = str(tmp_path / "files")
     os.makedirs(root, exist_ok=True)
-    from miniagent.core.executor import build_execution_system_prompt
+    from miniagent.core.executor import build_current_turn_user_context
 
-    s = build_execution_system_prompt(
-        agent_identity="ID",
-        caller_system_prompt=None,
+    s = build_current_turn_user_context(
+        user_input="task",
         plan_summary="T",
         keyword_context=None,
         session_files_root=root,
     )
     assert "默认文件根目录" in s
-    assert "read_file" in s
+    assert "工具路径参数" in s
     assert os.path.abspath(root) in s

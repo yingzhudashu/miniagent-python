@@ -17,6 +17,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from miniagent.engine.engine import UnifiedEngine
+from miniagent.types.agent import AgentRunResult
+from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 
 # ============================================================================
 # Helper Function
@@ -40,6 +42,7 @@ def _create_mock_session_manager() -> tuple[MagicMock, MagicMock]:
     mock_ctx.conversation_history = []
     mock_ctx.files_path = "/tmp/test"
     mock_session_manager.get_or_create.return_value = mock_ctx
+    mock_session_manager.get_session_files_path.return_value = mock_ctx.files_path
     return mock_session_manager, mock_ctx
 
 
@@ -89,6 +92,9 @@ class TestUnifiedEngineSessionBinding:
                 session_key="test_session",
                 skill_toolboxes=[],
                 skill_prompts=None,
+                memory=make_memory_runtime(),
+                knowledge_registry=make_knowledge_registry(),
+                client=MagicMock(),
             )
 
         assert "session_manager" in str(exc_info.value)
@@ -105,13 +111,16 @@ class TestUnifiedEngineToolboxAssembly:
         mock_session_manager, _ = _create_mock_session_manager()
 
         with patch("miniagent.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = "Test reply"
+            mock_run.return_value = AgentRunResult(reply="Test reply")
 
             result = await engine.run_agent_with_thinking(
                 user_input="test",
                 session_key="test_session",
                 skill_toolboxes=[],
                 skill_prompts=None,
+                memory=make_memory_runtime(),
+                knowledge_registry=make_knowledge_registry(),
+                client=MagicMock(),
                 session_manager=mock_session_manager,
             )
 
@@ -125,7 +134,7 @@ class TestUnifiedEngineToolboxAssembly:
         mock_session_manager, _ = _create_mock_session_manager()
 
         with patch("miniagent.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = "Test reply"
+            mock_run.return_value = AgentRunResult(reply="Test reply")
             toolboxes = ["filesystem", "exec"]
 
             await engine.run_agent_with_thinking(
@@ -133,6 +142,9 @@ class TestUnifiedEngineToolboxAssembly:
                 session_key="test_session",
                 skill_toolboxes=toolboxes,
                 skill_prompts=None,
+                memory=make_memory_runtime(),
+                knowledge_registry=make_knowledge_registry(),
+                client=MagicMock(),
                 session_manager=mock_session_manager,
             )
 
@@ -151,7 +163,7 @@ class TestUnifiedEngineThinkingCallback:
         mock_session_manager, _ = _create_mock_session_manager()
 
         with patch("miniagent.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = "Test reply"
+            mock_run.return_value = AgentRunResult(reply="Test reply")
             session_key = "test_session_reset"
 
             await engine.run_agent_with_thinking(
@@ -159,6 +171,9 @@ class TestUnifiedEngineThinkingCallback:
                 session_key=session_key,
                 skill_toolboxes=[],
                 skill_prompts=None,
+                memory=make_memory_runtime(),
+                knowledge_registry=make_knowledge_registry(),
+                client=MagicMock(),
                 session_manager=mock_session_manager,
             )
 
@@ -179,7 +194,7 @@ class TestUnifiedEngineToolFinish:
             on_tool_finish = kwargs.get("on_tool_finish")
             if on_tool_finish:
                 await on_tool_finish("test_tool", '{"arg": "value"}', "output", True)
-            return "Reply"
+            return AgentRunResult(reply="Reply")
 
         with patch("miniagent.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
             mock_run.side_effect = mock_run_with_tool
@@ -189,6 +204,9 @@ class TestUnifiedEngineToolFinish:
                 session_key="test_session",
                 skill_toolboxes=[],
                 skill_prompts=None,
+                memory=make_memory_runtime(),
+                knowledge_registry=make_knowledge_registry(),
+                client=MagicMock(),
                 session_manager=mock_session_manager,
             )
 
@@ -208,7 +226,7 @@ class TestUnifiedEngineHistoryUpdate:
         mock_session_manager, mock_ctx = _create_mock_session_manager()
 
         with patch("miniagent.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = "Reply"
+            mock_run.return_value = AgentRunResult(reply="Reply")
             user_input = "Hello!"
 
             await engine.run_agent_with_thinking(
@@ -216,6 +234,9 @@ class TestUnifiedEngineHistoryUpdate:
                 session_key="test_session",
                 skill_toolboxes=[],
                 skill_prompts=None,
+                memory=make_memory_runtime(),
+                knowledge_registry=make_knowledge_registry(),
+                client=MagicMock(),
                 session_manager=mock_session_manager,
             )
 
@@ -232,13 +253,16 @@ class TestUnifiedEngineHistoryUpdate:
         reply = "Assistant reply."
 
         with patch("miniagent.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = reply
+            mock_run.return_value = AgentRunResult(reply=reply)
 
             await engine.run_agent_with_thinking(
                 user_input="test",
                 session_key="test_session",
                 skill_toolboxes=[],
                 skill_prompts=None,
+                memory=make_memory_runtime(),
+                knowledge_registry=make_knowledge_registry(),
+                client=MagicMock(),
                 session_manager=mock_session_manager,
             )
 
@@ -286,6 +310,9 @@ class TestUnifiedEngineFeishuChannel:
                 session_key="feishu:test",
                 skill_toolboxes=[],
                 skill_prompts=None,
+                memory=make_memory_runtime(),
+                knowledge_registry=make_knowledge_registry(),
+                client=MagicMock(),
                 is_feishu=True,
                 session_manager=mock_session_manager,
                 feishu_config=MagicMock(),
@@ -312,17 +339,17 @@ class TestUnifiedEngineExecLock:
             import asyncio
             await asyncio.sleep(0.05)
             call_order.append("end")
-            return "Reply"
+            return AgentRunResult(reply="Reply")
 
         with patch("miniagent.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
             mock_run.side_effect = slow_run
 
             import asyncio
             t1 = asyncio.create_task(engine.run_agent_with_thinking(
-                "test1", "s1", [], None, session_manager=mock_session_manager
+                "test1", "s1", [], None, memory=make_memory_runtime(), knowledge_registry=make_knowledge_registry(), client=MagicMock(), session_manager=mock_session_manager
             ))
             t2 = asyncio.create_task(engine.run_agent_with_thinking(
-                "test2", "s1", [], None, session_manager=mock_session_manager
+                "test2", "s1", [], None, memory=make_memory_runtime(), knowledge_registry=make_knowledge_registry(), client=MagicMock(), session_manager=mock_session_manager
             ))
             await asyncio.gather(t1, t2)
 
@@ -346,17 +373,17 @@ class TestUnifiedEngineExecLock:
             import asyncio
             await asyncio.sleep(0.08)
             in_flight -= 1
-            return "Reply"
+            return AgentRunResult(reply="Reply")
 
         with patch("miniagent.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
             mock_run.side_effect = slow_run
 
             import asyncio
             t1 = asyncio.create_task(engine.run_agent_with_thinking(
-                "test1", "s1", [], None, session_manager=mock_session_manager
+                "test1", "s1", [], None, memory=make_memory_runtime(), knowledge_registry=make_knowledge_registry(), client=MagicMock(), session_manager=mock_session_manager
             ))
             t2 = asyncio.create_task(engine.run_agent_with_thinking(
-                "test2", "s2", [], None, session_manager=mock_session_manager
+                "test2", "s2", [], None, memory=make_memory_runtime(), knowledge_registry=make_knowledge_registry(), client=MagicMock(), session_manager=mock_session_manager
             ))
             await asyncio.gather(t1, t2)
 
@@ -468,13 +495,16 @@ class TestUnifiedEngineIntegration:
         mock_session_manager.save_session_history = MagicMock()
 
         with patch("miniagent.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = "Final reply"
+            mock_run.return_value = AgentRunResult(reply="Final reply")
 
             result = await engine.run_agent_with_thinking(
                 user_input="Hello",
                 session_key="cli",
                 skill_toolboxes=["filesystem"],
                 skill_prompts="System",
+                memory=make_memory_runtime(),
+                knowledge_registry=make_knowledge_registry(),
+                client=MagicMock(),
                 is_feishu=False,
                 session_manager=mock_session_manager,
             )
@@ -494,7 +524,7 @@ class TestUnifiedEngineIntegration:
         mock_router.get_bound_channels.return_value = []
 
         with patch("miniagent.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = "Feishu reply"
+            mock_run.return_value = AgentRunResult(reply="Feishu reply")
 
             # Mock finalize_feishu_thinking_stream from poll_server
             with patch("miniagent.feishu.poll_server.finalize_feishu_thinking_stream", new_callable=AsyncMock):
@@ -503,6 +533,9 @@ class TestUnifiedEngineIntegration:
                     session_key="feishu:oc_test",
                     skill_toolboxes=["feishu_doc"],
                     skill_prompts=None,
+                    memory=make_memory_runtime(),
+                    knowledge_registry=make_knowledge_registry(),
+                    client=MagicMock(),
                     is_feishu=True,
                     session_manager=mock_session_manager,
                     feishu_config=MagicMock(),

@@ -39,7 +39,11 @@ def memory_bundle():
 async def test_default_memory_context_inject_metadata(memory_bundle) -> None:
     ms, ki = memory_bundle
     ctx = DefaultMemoryContext(ms, ki)
-    agent_config = AgentConfig(session_key="session-a")
+    from miniagent.types.config import SessionBindingConfig
+
+    agent_config = AgentConfig(
+        session_config=SessionBindingConfig(session_key="session-a")
+    )
 
     _, metadata = await ctx.inject_memory_to_messages(
         [],

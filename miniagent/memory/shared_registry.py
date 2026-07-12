@@ -229,32 +229,7 @@ class MemoryEntryRegistry:
         self._dirty = False
 
 
-# ============================================================================
-# 全局注册表实例
-# ============================================================================
-
-_registry: MemoryEntryRegistry | None = None
-
-
-def get_registry(state_dir: str = "workspaces") -> MemoryEntryRegistry:
-    """获取或创建全局注册表实例。"""
-    global _registry
-    if _registry is None:
-        _registry = MemoryEntryRegistry(state_dir=state_dir)
-    return _registry
-
-
-def reset_registry() -> None:
-    """重置全局注册表（测试用）。"""
-    global _registry
-    if _registry is not None:
-        _registry.clear()
-    _registry = None
-
-
 __all__ = [
     "SharedEntry",
     "MemoryEntryRegistry",
-    "get_registry",
-    "reset_registry",
 ]

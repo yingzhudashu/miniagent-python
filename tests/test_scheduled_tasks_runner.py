@@ -1,4 +1,4 @@
-"""build_run_scheduled_job_coro 与消息队列路由。"""
+"""ScheduledJob construction and queue routing."""
 
 from __future__ import annotations
 
@@ -10,12 +10,43 @@ from miniagent.engine.cli_state import CliLoopState
 from miniagent.feishu.types import FeishuConfig
 from miniagent.infrastructure.message_queue import MessageQueueManager
 from miniagent.scheduled_tasks.models import ScheduledTask, SessionSpec
-from miniagent.scheduled_tasks.runner import build_run_scheduled_job_coro
+from miniagent.scheduled_tasks.runner import (
+    SCHEDULER_CHANNEL,
+    build_scheduled_job,
+)
 from tests.scheduled_tasks_helpers import minimal_cli_state, minimal_tick_ctx
 
 
 @pytest.mark.asyncio
-async def test_build_run_scheduled_job_feishu_sets_is_feishu() -> None:
+async def test_build_scheduled_job_exposes_standard_inbound_message() -> None:
+    """Ticker receives a normalized message while preserving the Agent prompt."""
+    engine = MagicMock()
+    engine.run_agent_with_thinking = AsyncMock(return_value="ok")
+    ctx = minimal_tick_ctx(engine=engine)
+    st = minimal_cli_state(ctx)
+    task = ScheduledTask(
+        id="std1",
+        name="standard",
+        prompt="ping",
+        next_run_at=123.5,
+        session=SessionSpec(mode="primary"),
+    )
+
+    job = build_scheduled_job(ctx, st, task, [], [])
+
+    assert job.message.channel == SCHEDULER_CHANNEL
+    assert job.message.conversation_id == "__cli__"
+    assert job.message.sender_id == "scheduler"
+    assert job.message.content == "ping"
+    assert job.message.session_key == "default"
+    assert job.message.idempotency_key == "std1:123.500000"
+    assert job.message.metadata["queue_key"] == "__cli__"
+    await job.run(job.message)
+    assert "ping" in engine.run_agent_with_thinking.await_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_build_scheduled_job_feishu_sets_is_feishu() -> None:
     engine = MagicMock()
     engine.run_agent_with_thinking = AsyncMock(return_value="ok")
     feishu_rt = MagicMock()
@@ -23,6 +54,7 @@ async def test_build_run_scheduled_job_feishu_sets_is_feishu() -> None:
 
     ctx = minimal_tick_ctx(engine=engine)
     ctx.feishu = feishu_rt
+    ctx.outbound_channels = MagicMock()
     st: CliLoopState = {
         **minimal_cli_state(ctx),
         "feishu_enabled": True,
@@ -38,20 +70,20 @@ async def test_build_run_scheduled_job_feishu_sets_is_feishu() -> None:
             feishu_chat_id="oc_chat1",
         ),
     )
-    job_coro, mq_chat = build_run_scheduled_job_coro(ctx, st, task, [], [])
-    assert mq_chat == "oc_chat1"
+    job = build_scheduled_job(ctx, st, task, [], [])
+    assert job.queue_key == "oc_chat1"
     with patch(
         "miniagent.scheduled_tasks.runner.send_scheduled_reply_to_feishu",
         new_callable=AsyncMock,
     ) as mock_send:
-        await job_coro
+        await job.run(job.message)
         mock_send.assert_awaited_once()
     engine.run_agent_with_thinking.assert_awaited_once()
     assert engine.run_agent_with_thinking.await_args.kwargs.get("is_feishu") is True
 
 
 @pytest.mark.asyncio
-async def test_build_run_scheduled_job_non_cli_uses_dispatch_wait() -> None:
+async def test_scheduled_job_can_be_dispatched_to_resolved_queue() -> None:
     engine = MagicMock()
     engine.run_agent_with_thinking = AsyncMock(return_value="ok")
     mq = MessageQueueManager()
@@ -59,6 +91,7 @@ async def test_build_run_scheduled_job_non_cli_uses_dispatch_wait() -> None:
 
     ctx = minimal_tick_ctx(engine=engine)
     ctx.message_queue = mq
+    ctx.outbound_channels = MagicMock()
     st = minimal_cli_state(ctx)
 
     task = ScheduledTask(
@@ -71,7 +104,7 @@ async def test_build_run_scheduled_job_non_cli_uses_dispatch_wait() -> None:
             feishu_chat_id="oc_x",
         ),
     )
-    job_coro, mq_chat = build_run_scheduled_job_coro(ctx, st, task, [], [])
-    assert mq_chat == "oc_x"
-    await mq.dispatch_wait(mq_chat, job_coro)
+    job = build_scheduled_job(ctx, st, task, [], [])
+    assert job.queue_key == "oc_x"
+    await mq.dispatch_wait(job.queue_key, job.run(job.message))
     mq.dispatch_wait.assert_awaited_once()

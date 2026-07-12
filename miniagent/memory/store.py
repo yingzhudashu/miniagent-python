@@ -32,6 +32,10 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
+from miniagent.core.constants import (
+    MEMORY_SESSION_LOCKS_MAX,
+    MEMORY_STORE_CACHE_CLEANUP_INTERVAL_S,
+)
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.memory.ground_truth import (
@@ -95,8 +99,7 @@ def format_memory_for_prompt(memory: SessionMemory | None) -> str:
     从 SessionMemory 提取关键事实、上传文件、累计摘要和最近对话条目，
     格式化为 Markdown 文本。执行阶段主路径会把返回值合并到
     ``build_current_turn_user_context`` 的「相关记忆」段，避免本轮动态记忆污染
-    stable system prompt；旧的 ``DefaultContextManager.inject_memory`` 兼容路径仍可
-    直接使用该文本。
+    stable system prompt。
 
     Args:
         memory: 会话记忆对象（None 时返回空字符串）
@@ -119,7 +122,7 @@ def format_memory_for_prompt(memory: SessionMemory | None) -> str:
         for fact in ground_truth_lines:
             parts.append(f"- {fact}")
 
-    # 关键事实（兼容旧记忆；与确定事实重复的内容会跳过）
+    # 关键事实摘要（与确定事实重复的内容会跳过）
     if memory.key_facts:
         parts.append("## 关键记忆")
         seen_ground_truth = {line.lower().strip() for line in ground_truth_lines}
@@ -280,12 +283,14 @@ class DefaultMemoryStore:
         state_dir: str = "workspaces",
         *,
         keyword_index: Any | None = None,
+        embedding_provider: Any | None = None,
     ) -> None:
         """创建记忆存储
 
         Args:
             state_dir: 状态存储目录
-            keyword_index: 关键词索引实例（写入条目时更新；未提供则用模块默认索引）
+            keyword_index: 关键词索引实例；未提供时仅保存会话记忆
+            embedding_provider: 嵌入索引服务；未提供时跳过向量索引
         """
         self._state_dir = state_dir
         self._memory_dir = os.path.join(state_dir, "memory")
@@ -295,15 +300,16 @@ class DefaultMemoryStore:
         self._cache_max = get_config("memory.store_cache_max", 200)
         self._cache_ttl_seconds = get_config("memory.store_cache_ttl_seconds", 1800)  # 30分钟TTL
         self._keyword_index = keyword_index
+        self._embedding_provider = embedding_provider
         # 并发安全：缓存操作锁（保护LRU更新）
         self._cache_lock = threading.Lock()
         self._session_locks: dict[str, asyncio.Lock] = {}
         self._session_locks_meta = asyncio.Lock()
         # 上限保护：避免长生命周期进程中 session lock 字典无界增长。
-        self._session_locks_max = get_config("memory.session_locks_max", 2048)
+        self._session_locks_max = MEMORY_SESSION_LOCKS_MAX
         # 惰性 TTL 清理节流：避免每次 put 都全表扫描（O(n) 持锁）。
         self._last_cache_cleanup = 0.0
-        self._cache_cleanup_interval = get_config("memory.store_cache_cleanup_interval_s", 60)
+        self._cache_cleanup_interval = MEMORY_STORE_CACHE_CLEANUP_INTERVAL_S
 
     async def _get_session_lock(self, session_id: str) -> asyncio.Lock:
         async with self._session_locks_meta:
@@ -377,11 +383,8 @@ class DefaultMemoryStore:
         """将 Layer 3 关键词索引的挂起变更写入磁盘。"""
         try:
             idx = self._keyword_index
-            if idx is None:
-                from miniagent.memory.defaults import get_process_default_memory_bundle
-
-                idx = get_process_default_memory_bundle()[2]
-            idx.save()
+            if idx is not None:
+                idx.save()
         except Exception as e:
             _logger.debug("保存关键词索引失败: %s", e)
 
@@ -830,26 +833,20 @@ class DefaultMemoryStore:
             memory.last_active = now
             await self._save_unlocked(memory)
 
-        # Layer 3: 索引到关键词倒排索引（与进程默认 bundle 同源）
+        # Layer 3: 更新由 MemoryRuntime 显式注入、与本 store 同源的关键词索引。
         try:
             idx = self._keyword_index
-            if idx is None:
-                from miniagent.memory.defaults import get_process_default_memory_bundle
-
-                idx = get_process_default_memory_bundle()[2]
-            idx.index_entry(session_key, full_entry)
+            if idx is not None:
+                idx.index_entry(session_key, full_entry)
         except Exception as e:
             _logger.debug("关键词索引失败: %s", e)
 
         # Layer 3b: 嵌入索引（异步，失败静默回退）
         try:
-            from miniagent.memory.embedding_search import (
-                embedding_search_enabled,
-                get_embed_provider,
-            )
+            from miniagent.memory.embedding_search import embedding_search_enabled
 
-            if embedding_search_enabled():
-                provider = get_embed_provider(state_dir=self._state_dir)
+            provider = self._embedding_provider
+            if embedding_search_enabled() and provider is not None:
                 text = " ".join([entry.user_snippet, entry.summary, *(entry.facts or [])])
                 emb = await provider.get_embedding(text)
                 if emb is not None:
@@ -902,20 +899,12 @@ __all__ = [
 ]
 
 
-async def add_file_to_memory(session_id: str, file_meta: FileMetadata, store: Any = None) -> None:
+async def add_file_to_memory(session_id: str, file_meta: FileMetadata, store: Any) -> None:
     """将文件添加到会话记忆（便捷函数）
 
     Args:
         session_id: 会话 ID
         file_meta: 文件元数据
-        store: 记忆存储实例（None 时使用进程默认）
+        store: 由应用容器注入的记忆存储实例
     """
-    if store is None:
-        from miniagent.memory.defaults import get_process_default_memory_bundle
-
-        store = get_process_default_memory_bundle()[0]
-
-    if store is None:
-        return
-
     await store.add_file(session_id, file_meta)

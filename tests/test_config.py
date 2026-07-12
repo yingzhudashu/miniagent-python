@@ -10,10 +10,18 @@ from miniagent.core.config import (
     get_default_model_config,
     merge_agent_config,
 )
-from miniagent.infrastructure.json_config import JsonConfigLoader, get_config, get_config_section
+from miniagent.infrastructure.json_config import (
+    JsonConfigLoader,
+    get_config,
+    get_config_section,
+    install_config_loader,
+    reload_config,
+)
 
 PROJECT_ROOT = pathlib.Path(__file__).parent.parent
-DEFAULTS_PATH = str(PROJECT_ROOT / "config.defaults.json")
+from miniagent.infrastructure.json_config import _packaged_defaults_path
+
+DEFAULTS_PATH = _packaged_defaults_path()
 
 
 def _install_loader(tmp_path: pathlib.Path, user_overrides: dict | None = None) -> str:
@@ -22,9 +30,8 @@ def _install_loader(tmp_path: pathlib.Path, user_overrides: dict | None = None) 
         user_path.write_text(json.dumps(user_overrides), encoding="utf-8")
     else:
         user_path.write_text("{}", encoding="utf-8")
-    JsonConfigLoader._instance = JsonConfigLoader(
-        defaults_path=DEFAULTS_PATH,
-        user_path=str(user_path),
+    install_config_loader(
+        JsonConfigLoader(defaults_path=DEFAULTS_PATH, user_path=str(user_path))
     )
     return str(user_path)
 
@@ -53,7 +60,7 @@ class TestGetDefaultModelConfig:
         _install_loader(tmp_path)
         monkeypatch.setenv("MINIAGENT_MODEL_MODEL", "gpt-4o")
         monkeypatch.setenv("MINIAGENT_MODEL_TEMPERATURE", "0.1")
-        JsonConfigLoader.get_instance().reload()
+        reload_config()
         cfg = get_default_model_config()
         assert cfg.model == "gpt-4o-mini"
         assert cfg.temperature == 0.7
@@ -143,8 +150,6 @@ class TestJsonConfigLoader:
     def test_metadata_keys_filtered(self, tmp_path):
         _install_loader(tmp_path)
         assert get_config("_config_guide.usage") is None
-        sections = JsonConfigLoader.get_instance()._defaults
-        assert "_config_guide" not in sections
 
     def test_user_overrides_defaults(self, tmp_path):
         _install_loader(tmp_path, {"paths": {"state_dir": "custom-ws"}})

@@ -42,6 +42,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from openai import AsyncOpenAI
 
+from miniagent.contracts.knowledge import KnowledgeRegistryProtocol
 from miniagent.core.llm_json import llm_json
 from miniagent.core.prompts.clarifier import CLARIFIER_PROMPT
 from miniagent.core.thinking_callback import invoke_on_thinking
@@ -97,8 +98,9 @@ class RequirementClarifier:
         self,
         user_input: str,
         *,
+        knowledge_registry: KnowledgeRegistryProtocol,
+        client: AsyncOpenAI,
         ask_user: Callable[[str], Awaitable[str]] | None = None,
-        client: AsyncOpenAI | None = None,
         on_thinking: Any | None = None,
         memory_store: Any | None = None,
         session_key: str | None = None,
@@ -108,6 +110,7 @@ class RequirementClarifier:
 
         Args:
             user_input: 用户原始输入
+            knowledge_registry: 由组合根注入的知识库注册表
             ask_user: 交互追问回调（接收问题文本，返回用户回答）
             client: LLM 客户端
             on_thinking: 思考过程回调；澄清摘要经此输出（``agent.run_agent`` 会传入）
@@ -144,7 +147,11 @@ class RequirementClarifier:
         from miniagent.knowledge import retrieve_knowledge_context
 
         kb_context = retrieve_knowledge_context(
-            user_input, phase="clarifier", default_top_k=3, default_max_chars=3000
+            knowledge_registry,
+            user_input,
+            phase="clarifier",
+            default_top_k=3,
+            default_max_chars=3000,
         )
 
         context_parts: list[str] = []

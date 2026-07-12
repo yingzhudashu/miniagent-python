@@ -8,8 +8,6 @@ import pytest
 from miniagent.memory.shared_registry import (
     MemoryEntryRegistry,
     SharedEntry,
-    get_registry,
-    reset_registry,
 )
 from miniagent.types.memory import MemoryEntryInput
 from tests.config_helpers import install_test_config
@@ -31,7 +29,6 @@ def temp_state_dir():
 @pytest.fixture
 def registry(temp_state_dir):
     """Create a fresh registry for each test."""
-    reset_registry()
     r = MemoryEntryRegistry(state_dir=temp_state_dir)
     yield r
     r.clear()
@@ -221,29 +218,3 @@ class TestMemoryEntryRegistry:
 
         stats = registry.get_stats()
         assert stats["total_entries"] == 5
-
-
-class TestGlobalRegistry:
-    """Tests for global registry functions."""
-
-    def test_get_registry_singleton(self, temp_state_dir):
-        """get_registry returns singleton."""
-        reset_registry()
-        r1 = get_registry(state_dir=temp_state_dir)
-        r2 = get_registry(state_dir=temp_state_dir)
-        assert r1 is r2
-
-    def test_reset_registry(self, temp_state_dir):
-        """reset_registry clears and recreates."""
-        r1 = get_registry(state_dir=temp_state_dir)
-        entry = MemoryEntryInput(
-            timestamp="2026-05-31T12:00:00Z",
-            user_snippet="test",
-            summary="test",
-            facts=[],
-        )
-        r1.register("s1", entry)
-
-        reset_registry()
-        r2 = get_registry(state_dir=temp_state_dir)
-        assert r2.get_stats()["total_entries"] == 0

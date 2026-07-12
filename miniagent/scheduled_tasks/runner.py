@@ -7,11 +7,14 @@
 from __future__ import annotations
 
 import traceback
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, replace
 from typing import Any
 
+from miniagent.bootstrap.application import ApplicationContainer
+from miniagent.contracts.messages import InboundMessage
 from miniagent.engine.cli_state import CliLoopState
 from miniagent.infrastructure.logger import get_logger
-from miniagent.runtime.context import RuntimeContext
 from miniagent.scheduled_tasks.feishu_delivery import (
     resolve_feishu_delivery,
     send_scheduled_reply_to_feishu,
@@ -24,9 +27,20 @@ _logger = get_logger(__name__)
 
 # 错误文本截断最大长度（飞书消息限制）
 MAX_ERROR_TEXT_LENGTH = 4000
+SCHEDULER_CHANNEL = "scheduler"
+SCHEDULER_SENDER_ID = "scheduler"
 
 
-def _emit_cli(ctx: RuntimeContext, line: str) -> None:
+@dataclass(frozen=True, slots=True)
+class ScheduledJob:
+    """Normalized scheduled turn plus its behavior-preserving Agent handler."""
+
+    message: InboundMessage
+    queue_key: str
+    run: Callable[[InboundMessage], Awaitable[str | None]]
+
+
+def _emit_cli(ctx: ApplicationContainer, line: str) -> None:
     """定时任务日志：优先写入全屏 CLI transcript，否则 ``print``。"""
     fn = ctx.cli_transcript_append
     if fn is not None:
@@ -38,14 +52,14 @@ def _emit_cli(ctx: RuntimeContext, line: str) -> None:
         print(line, flush=True)
 
 
-def build_run_scheduled_job_coro(
-    ctx: RuntimeContext,
+def build_scheduled_job(
+    ctx: ApplicationContainer,
     state: CliLoopState,
     task: ScheduledTask,
     skill_toolboxes: list[Any],
     skill_prompts: list[Any],
-) -> tuple[Any, str]:
-    """将单条 ScheduledTask 编译为可 await 的协程及队列 chat_id。
+) -> ScheduledJob:
+    """Compile one task into a normalized inbound turn and Agent handler.
 
     构建执行协程，最终调用 UnifiedEngine.run_agent_with_thinking，
     并在完成后可选向飞书镜像推送执行结果。
@@ -58,9 +72,7 @@ def build_run_scheduled_job_coro(
         skill_prompts: 技能提示列表（用于 Agent 执行）
 
     Returns:
-        tuple[Any, str]: (执行协程, message_queue 用 chat_id)
-        - 协程执行完毕返回 None 或错误摘要字符串
-        - chat_id 用于队列投递
+        标准入站消息、队列键与执行 handler。
 
     Note:
         - 执行路径与会话人工消息共用队列模型
@@ -80,12 +92,34 @@ def build_run_scheduled_job_coro(
         state=state,
         feishu_runtime=ctx.feishu,
     )
+    outbound_channels = ctx.outbound_channels
     if delivery is not None:
         mq_chat = delivery.mq_chat_id
         feishu_recv = delivery.receive_chat_id
         session_key = delivery.session_key
 
-    async def _run() -> str | None:
+    idempotency_key = None
+    if task.next_run_at is not None:
+        idempotency_key = f"{task.id}:{float(task.next_run_at):.6f}"
+    message = InboundMessage.create(
+        channel=SCHEDULER_CHANNEL,
+        conversation_id=mq_chat,
+        sender_id=SCHEDULER_SENDER_ID,
+        content=task.prompt or f"[scheduled task {task.name}]",
+        session_key=session_key,
+        idempotency_key=idempotency_key,
+        metadata={
+            "task_id": task.id,
+            "task_name": task.name,
+            "schedule_kind": task.schedule.kind,
+            "schedule_timezone": task.schedule.timezone,
+            "session_mode": task.session.mode,
+            "queue_key": mq_chat,
+            "feishu_receive_chat_id": feishu_recv,
+        },
+    )
+
+    async def _run(inbound: InboundMessage) -> str | None:
         """执行单条定时任务：构造带前缀 prompt 并走 ``run_agent_with_thinking``。"""
         engine = ctx.engine
         registry = ctx.registry
@@ -104,14 +138,16 @@ def build_run_scheduled_job_coro(
         prompt = (
             f"[定时任务 {task.name} | 调度时区 {sched_tz} | "
             f"当前本地 {now.strftime('%Y-%m-%d %H:%M:%S')}]\n"
-            f"{task.prompt}"
+            f"{inbound.content}"
         )
-        _emit_cli(ctx, f"⏰ 定时任务开始: {task.id} → {session_key}")
+        routed = replace(inbound, content=prompt)
+        routed_session_key = routed.session_key or session_key
+        _emit_cli(ctx, f"⏰ 定时任务开始: {task.id} → {routed_session_key}")
 
         try:
             reply = await engine.run_agent_with_thinking(
                 prompt,
-                session_key,
+                routed_session_key,
                 skill_toolboxes,
                 "\n\n".join(skill_prompts) if skill_prompts else None,
                 is_feishu=is_fs,
@@ -121,10 +157,8 @@ def build_run_scheduled_job_coro(
                 feishu_config=feishu_cfg,
                 channel_router=channel_router,
                 clawhub=ctx.clawhub,
-                memory_store=ctx.memory_store,
-                activity_log=ctx.activity_log,
-                keyword_index=ctx.keyword_index,
-                memory_context=ctx.memory_context,
+                memory=ctx.memory,
+                knowledge_registry=ctx.knowledge_registry,
                 client=ctx.openai_client,
                 feishu_receive_chat_id=feishu_recv,
                 cli_loop_state=state,
@@ -133,7 +167,12 @@ def build_run_scheduled_job_coro(
             _emit_cli(ctx, f"⏰ 定时任务完成: {task.id} — {preview}")
             if delivery is not None and feishu_cfg and (reply or "").strip():
                 try:
-                    await send_scheduled_reply_to_feishu(feishu_cfg, delivery, task, reply or "")
+                    await send_scheduled_reply_to_feishu(
+                        delivery,
+                        task,
+                        reply or "",
+                        outbound_channels=outbound_channels,
+                    )
                 except Exception:
                     _logger.exception("定时任务飞书投递失败: %s", task.id)
             return None
@@ -144,13 +183,22 @@ def build_run_scheduled_job_coro(
             if delivery is not None and feishu_cfg:
                 try:
                     await send_scheduled_reply_to_feishu(
-                        feishu_cfg,
                         delivery,
                         task,
                         f"定时任务执行失败:\n{err_text[:3500]}",
+                        outbound_channels=outbound_channels,
                     )
                 except Exception:
                     _logger.exception("定时任务飞书失败通知发送失败: %s", task.id)
             return err_text
 
-    return _run(), mq_chat
+    return ScheduledJob(message=message, queue_key=mq_chat, run=_run)
+
+
+__all__ = [
+    "MAX_ERROR_TEXT_LENGTH",
+    "SCHEDULER_CHANNEL",
+    "SCHEDULER_SENDER_ID",
+    "ScheduledJob",
+    "build_scheduled_job",
+]

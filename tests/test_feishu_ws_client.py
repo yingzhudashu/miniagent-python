@@ -16,14 +16,11 @@ import pytest
 
 from miniagent.feishu.ws_health import (
     FeishuWsHealthConfig,
+    FeishuWsHealthState,
     _receive_loop_exit_reason,
-    _record_session_end,
     _watchdog_loop,
-    get_last_ws_session_end,
-    get_ws_last_inbound_monotonic,
     read_feishu_ws_health_config,
     supervise_feishu_ws_session,
-    touch_ws_inbound_activity,
 )
 
 # ============================================================================
@@ -73,14 +70,15 @@ class TestActivityTracking:
     """测试活动时间跟踪。"""
 
     def test_touch_updates_timestamp(self) -> None:
-        """touch_ws_inbound_activity 应更新时间戳。"""
+        """实例状态的入站活动时间应更新。"""
 
         # 初始状态
-        before = get_ws_last_inbound_monotonic()
+        state = FeishuWsHealthState()
+        before = state.last_inbound_monotonic
 
         # 更新时间戳
-        touch_ws_inbound_activity()
-        after = get_ws_last_inbound_monotonic()
+        state.touch_inbound()
+        after = state.last_inbound_monotonic
 
         # 时间戳应更新
         assert after is not None
@@ -88,8 +86,9 @@ class TestActivityTracking:
 
     def test_activity_timestamp_is_monotonic(self) -> None:
         """时间戳应为 monotonic 时间。"""
-        touch_ws_inbound_activity()
-        ts = get_ws_last_inbound_monotonic()
+        state = FeishuWsHealthState()
+        state.touch_inbound()
+        ts = state.last_inbound_monotonic
 
         assert ts is not None
         # monotonic 时间应大于 0（系统启动以来的时间）
@@ -101,9 +100,10 @@ class TestSessionEndTracking:
 
     def test_record_session_end_stores_reason(self) -> None:
         """记录会话结束应存储原因和时间。"""
-        _record_session_end("test_reason")
+        state = FeishuWsHealthState()
+        state.record_session_end("test_reason")
 
-        reason, timestamp = get_last_ws_session_end()
+        reason, timestamp = state.last_session_end()
 
         assert reason == "test_reason"
         assert timestamp is not None
@@ -113,10 +113,11 @@ class TestSessionEndTracking:
         import time
 
         before = time.time()
-        _record_session_end("another_reason")
+        state = FeishuWsHealthState()
+        state.record_session_end("another_reason")
         after = time.time()
 
-        reason, timestamp = get_last_ws_session_end()
+        reason, timestamp = state.last_session_end()
 
         assert timestamp is not None
         assert before <= timestamp <= after
@@ -190,6 +191,7 @@ class TestWebSocketHealthIntegration:
             result = await supervise_feishu_ws_session(
                 mock_client,
                 shutdown_event=shutdown_event,
+                health_state=FeishuWsHealthState(),
             )
 
             assert result == "no_receive_task"
@@ -216,6 +218,7 @@ class TestWebSocketHealthIntegration:
             result = await supervise_feishu_ws_session(
                 mock_client,
                 shutdown_event=shutdown_event,
+                health_state=FeishuWsHealthState(),
             )
 
             assert result == "shutdown"
@@ -324,6 +327,7 @@ class TestWatchdogLoop:
                 shutdown_event,
                 exit_event,
                 reason_holder,
+                FeishuWsHealthState(),
             )
         )
 
@@ -383,6 +387,7 @@ class TestWatchdogLoop:
             shutdown_event,
             exit_event,
             reason_holder,
+            FeishuWsHealthState(),
         )
 
         # 不应设置 exit_event（通过 shutdown 退出）

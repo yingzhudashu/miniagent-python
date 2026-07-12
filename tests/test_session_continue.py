@@ -6,8 +6,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from miniagent.bootstrap.application import ApplicationContainer
 from miniagent.engine.session_continue import persist_cli_session_state, save_cli_session_state
-from miniagent.runtime.context import RuntimeContext
 
 
 class _FakeSessionManager:
@@ -90,7 +90,7 @@ def test_save_cli_session_state_delegates_to_persist(monkeypatch: pytest.MonkeyP
     )
     sm = object()
     state = {"active_session_id": "foo", "session_manager": sm}
-    ctx = MagicMock(spec=RuntimeContext)
+    ctx = MagicMock(spec=ApplicationContainer)
     ctx.channel_router = MagicMock()
 
     save_cli_session_state(ctx, state)  # type: ignore[arg-type]

@@ -3,7 +3,7 @@
 使用飞书 SDK WSClient 长轮询模式接收事件推送。
 
 核心机制（对齐 OpenClaw）：
-- 单客户端单例：防止多实例导致事件路由不确定
+- 实例连接所有权：每个 ``FeishuRuntime`` 只维护一个活动 SDK 客户端
 - 内存+磁盘双重去重：防止重复处理同一消息（已拆分至 feishu_dedup.py）
 - 聊天室顺序队列：防止并发导致上下文混乱
 - 消息防抖：合并同一发送者短时内的连续消息
@@ -64,38 +64,20 @@ _RE_BOLD_UNDERSCORE = re.compile(r"__([^_]+)__")
 # 入站文本 handler：单参数 ``FeishuInboundText``，返回回复正文。
 FeishuTextMessageHandler = Callable[[FeishuInboundText], Awaitable[str]]
 
-# 引擎与通道路由引用（供确认侧通道、澄清拦截使用）
-_feishu_confirmation_engine: Any | None = None
-_feishu_channel_router: Any | None = None
-
-
-def set_feishu_confirmation_engine(engine: Any, *, channel_router: Any | None = None) -> None:
-    """设置飞书侧可访问的引擎引用，供卡片确认按钮与澄清拦截使用。"""
-    global _feishu_confirmation_engine, _feishu_channel_router
-    _feishu_confirmation_engine = engine
-    if channel_router is not None:
-        _feishu_channel_router = channel_router
-    cc = getattr(engine, "confirmation_channel", None) if engine else None
-    _logger.info(
-        "set_feishu_confirmation_engine: engine=%s, confirmation_channel=%s",
-        engine is not None,
-        cc is not None,
-    )
-
-
 def _resolve_feishu_confirmation_channel(
+    runtime_state: FeishuPollState,
     chat_id: str,
     sender_id: str,
     chat_type: str | None = None,
 ) -> Any | None:
     """按飞书入站上下文解析 per-session ConfirmationChannel。"""
-    eng = _feishu_confirmation_engine
+    eng = runtime_state.confirmation_engine
     if eng is None:
         return None
     session_key: str | None = None
-    if _feishu_channel_router is not None:
+    if runtime_state.channel_router is not None:
         try:
-            session_key = _feishu_channel_router.resolve_feishu_message(
+            session_key = runtime_state.channel_router.resolve_feishu_message(
                 chat_id, sender_id, chat_type or "group"
             )
         except Exception as e:
@@ -301,45 +283,77 @@ def _extract_post_media_items(content_str: str) -> list[tuple[str, str, str]]:
     return out
 
 
-# --- WebSocket 单例：reset 供关停或重连前释放 SDK Client ---
+class FeishuPollState:
+    """Connection state owned by one ``FeishuRuntime`` instance."""
 
+    def __init__(self) -> None:
+        from miniagent.feishu.cards.dedupe import CardActionDeduplicator
+        from miniagent.feishu.feishu_dedup import FeishuDeduplicator
+        from miniagent.feishu.message_debounce import FeishuMessageDebouncer
+        from miniagent.feishu.ws_health import FeishuWsHealthState
 
-async def reset_feishu_ws_singleton() -> None:
-    """关闭并清空本模块持有的飞书 WS 单例，便于外层重连前重建 Client。"""
-    global _singleton_client, _singleton_app_id, _ws_shutdown_event
-    from miniagent.feishu.message_debounce import reset_feishu_message_debouncer
+        self.client: Any | None = None
+        self.app_id: str | None = None
+        self.shutdown_event: asyncio.Event | None = None
+        self.debouncer = FeishuMessageDebouncer()
+        self.deduplicator = FeishuDeduplicator()
+        self.card_actions = CardActionDeduplicator()
+        self.ws_health = FeishuWsHealthState()
+        self.confirmation_engine: Any | None = None
+        self.channel_router: Any | None = None
+        self.callback_tasks: set[asyncio.Task[Any]] = set()
 
-    await reset_feishu_message_debouncer()
-    c = _singleton_client
-    _singleton_client = None
-    _singleton_app_id = None
-    if c is None:
-        return
-    try:
-        await c._disconnect()
-    except Exception as e:
-        _logger.debug("reset_feishu_ws_singleton: %s", e)
+    def bind_confirmation(self, engine: Any, channel_router: Any | None) -> None:
+        """Bind confirmation routing dependencies to this Feishu runtime."""
+        self.confirmation_engine = engine
+        self.channel_router = channel_router
 
+    def request_shutdown(self) -> None:
+        """Signal the active supervised session, if any, to stop."""
+        if self.shutdown_event is not None:
+            self.shutdown_event.set()
 
-# --- 去重：使用 feishu_dedup 模块（已拆分为独立模块）---
-# 去重逻辑已迁移至 miniagent/feishu/feishu_dedup.py，此处仅导入公共函数
-from miniagent.feishu.feishu_dedup import (
-    abandon_processing_claim,
-    release_processing,
-    try_begin_processing,
-)
+    def spawn_callback_task(self, awaitable: Awaitable[Any]) -> asyncio.Task[Any]:
+        """Track async work bridged from a synchronous SDK callback."""
+        try:
+            task = asyncio.create_task(awaitable)
+        except RuntimeError:
+            if asyncio.iscoroutine(awaitable):
+                awaitable.close()
+            raise
+        self.callback_tasks.add(task)
 
-# --- WebSocket 单例状态（每进程一套 WS；防多客户端抢事件，与 OpenClaw 对齐）---
-_singleton_client: Any = None
-_singleton_app_id: str | None = None
-_ws_shutdown_event: asyncio.Event | None = None
+        def _done(completed: asyncio.Task[Any]) -> None:
+            self.callback_tasks.discard(completed)
+            if completed.cancelled():
+                return
+            error = completed.exception()
+            if error is not None:
+                _logger.error("飞书回调任务异常: %s", error, exc_info=error)
 
+        task.add_done_callback(_done)
+        return task
 
-def request_feishu_ws_shutdown() -> None:
-    """请求结束当前 WebSocket 会话监督（供 ``stop_async`` / 进程 shutdown 调用）。"""
-    ev = _ws_shutdown_event
-    if ev is not None:
-        ev.set()
+    async def reset(self) -> None:
+        """Disconnect the active SDK client and clear pending debounce tasks."""
+        callback_tasks = [task for task in self.callback_tasks if not task.done()]
+        for task in callback_tasks:
+            task.cancel()
+        if callback_tasks:
+            await asyncio.gather(*callback_tasks, return_exceptions=True)
+        self.callback_tasks.clear()
+        await self.debouncer.reset()
+        await self.deduplicator.close()
+        client = self.client
+        self.client = None
+        self.app_id = None
+        self.shutdown_event = None
+        if client is not None:
+            try:
+                await client._disconnect()
+            except Exception as error:
+                _logger.debug("FeishuPollState.reset: %s", error)
+
 
 
 def _feishu_media_reply_indicates_failure(reply: str | None) -> bool:
@@ -357,6 +371,7 @@ async def start_feishu_poll_server(
     config: FeishuConfig,
     message_handler: FeishuTextMessageHandler,
     *,
+    runtime_state: FeishuPollState,
     message_queue: Any,
     media_handler: FeishuMediaHandler | None = None,
 ) -> None:
@@ -372,8 +387,9 @@ async def start_feishu_poll_server(
         media_handler: 可选；处理 file/image 入站（见 ``_create_feishu_handler`` 返回的第二个回调）
     """
     mq = message_queue
-    global _singleton_client, _singleton_app_id
-
+    try_begin_processing = runtime_state.deduplicator.try_begin_processing
+    release_processing = runtime_state.deduplicator.release_processing
+    abandon_processing_claim = runtime_state.deduplicator.abandon_processing_claim
     # #region agent log
     try:
         from miniagent.infrastructure.debug_ndjson import agent_debug_log
@@ -388,13 +404,13 @@ async def start_feishu_poll_server(
         _logger.debug("Agent debug log 记录失败（非关键）: %s", e)
     # #endregion
 
-    # 任何残留单例一律关闭后重建，避免「同 appId 直接 return」导致外层重连误判为断线空转。
-    if _singleton_client is not None:
-        if _singleton_app_id != config.app_id:
-            _logger.info("存在不同 appId 的 WSClient (%s)，先关闭", _singleton_app_id)
+    # 任何实例残留连接一律关闭后重建，避免外层重连误判为断线空转。
+    if runtime_state.client is not None:
+        if runtime_state.app_id != config.app_id:
+            _logger.info("存在不同 appId 的 WSClient (%s)，先关闭", runtime_state.app_id)
         else:
-            _logger.warning("检测到残留 WebSocket 单例（与当前 appId 相同），将关闭后重建")
-        await reset_feishu_ws_singleton()
+            _logger.warning("检测到残留 WebSocket 客户端（与当前 appId 相同），将关闭后重建")
+        await runtime_state.reset()
 
     # 加载 SDK
     try:
@@ -418,13 +434,11 @@ async def start_feishu_poll_server(
         _logger.error("请安装 lark-oapi: pip install lark-oapi (%s)", e)
         raise
 
-    from miniagent.feishu.ws_health import touch_ws_inbound_activity
-
     # 同步回调（SDK 要求 sync），内部通过 asyncio.create_task 调度 async 逻辑
     def on_message_receive(event: P2ImMessageReceiveV1) -> None:
         """处理 im.message.receive_v1 事件。"""
         try:
-            touch_ws_inbound_activity()
+            runtime_state.ws_health.touch_inbound()
             message = event.event.message
             if not message:
                 return
@@ -532,14 +546,13 @@ async def start_feishu_poll_server(
 
                 from miniagent.feishu.message_debounce import (
                     feishu_message_debounce_ms,
-                    get_feishu_message_debouncer,
                 )
 
-                debouncer = get_feishu_message_debouncer()
+                debouncer = runtime_state.debouncer
                 debounce_ms = feishu_message_debounce_ms()
 
                 async def _dispatch_text(inb: FeishuInboundText, claim_ids: list[str]) -> None:
-                    asyncio.create_task(
+                    runtime_state.spawn_callback_task(
                         mq.dispatch(inb.chat_id, _make_text_handle(inb, claim_ids)())
                     )
 
@@ -552,13 +565,13 @@ async def start_feishu_poll_server(
 
                 # 命令走控制面：不得与 Agent 同锁排队，否则卡死时无法在飞书侧下发 `/abort` 等。
                 if text.lstrip().startswith("/"):
-                    asyncio.create_task(
+                    runtime_state.spawn_callback_task(
                         mq.dispatch(chat_id, _make_text_handle(inbound, [message_id])())
                     )
                 else:
                     # 需求澄清追问拦截：普通消息自动注入为回答
                     _cc = _resolve_feishu_confirmation_channel(
-                        chat_id, sender_id, chat_type or "group"
+                        runtime_state, chat_id, sender_id, chat_type or "group"
                     )
                     if _cc and _cc.has_pending:
                         from miniagent.types.confirmation import (
@@ -576,10 +589,10 @@ async def start_feishu_poll_server(
                                 "飞书拦截: 有待确认请求但阶段为 %s，非 CLARIFICATION，走消息队列",
                                 getattr(_cc.pending.stage, "value", _cc.pending.stage),
                             )
-                            asyncio.create_task(_schedule_debounced(inbound))
+                            runtime_state.spawn_callback_task(_schedule_debounced(inbound))
                     else:
                         _logger.debug("飞书拦截: 无待确认请求，走消息队列")
-                        asyncio.create_task(_schedule_debounced(inbound))
+                        runtime_state.spawn_callback_task(_schedule_debounced(inbound))
             elif msg_type in ("file", "image") and media_handler:
                 parsed_media = _parse_feishu_media_payload(msg_type, content_str)
                 if not parsed_media:
@@ -627,7 +640,7 @@ async def start_feishu_poll_server(
                         else:
                             abandon_processing_claim(message_id)
 
-                asyncio.create_task(mq.dispatch(chat_id, _handle_media()))
+                runtime_state.spawn_callback_task(mq.dispatch(chat_id, _handle_media()))
             elif msg_type == "post" and media_handler:
                 post_items = _extract_post_media_items(content_str)
                 if not post_items:
@@ -678,7 +691,9 @@ async def start_feishu_poll_server(
                         else:
                             abandon_processing_claim(message_id)
 
-                asyncio.create_task(mq.dispatch(chat_id, _handle_post_media()))
+                runtime_state.spawn_callback_task(
+                    mq.dispatch(chat_id, _handle_post_media())
+                )
             else:
                 release_processing(message_id)
                 return
@@ -704,7 +719,7 @@ async def start_feishu_poll_server(
         resp.toast = bad
 
         try:
-            touch_ws_inbound_activity()
+            runtime_state.ws_health.touch_inbound()
             ev = getattr(event, "event", None)
             if not ev:
                 return resp
@@ -723,9 +738,7 @@ async def start_feishu_poll_server(
                 sender_id = str(getattr(op, "open_id", None) or "").strip()
             dedupe_key = str(value.get("dedupe_key") or "").strip()
             if dedupe_key:
-                from miniagent.feishu.cards.dedupe import should_skip_card_action
-
-                if should_skip_card_action(dedupe_key):
+                if runtime_state.card_actions.should_skip(dedupe_key):
                     ok = CallBackToast()
                     ok.type = "info"
                     ok.content = "已处理（重复操作已忽略）"
@@ -736,7 +749,9 @@ async def start_feishu_poll_server(
 
             # 拦截确认命令：直接响应确认通道，不经消息队列
             if text in ("/confirm", "/reject") or text.startswith("/adjust "):
-                cc = _resolve_feishu_confirmation_channel(chat_id, sender_id, "group")
+                cc = _resolve_feishu_confirmation_channel(
+                    runtime_state, chat_id, sender_id, "group"
+                )
                 if cc is not None and cc.has_pending:
                     from miniagent.types.confirmation import ConfirmationResult
 
@@ -790,12 +805,10 @@ async def start_feishu_poll_server(
                     _logger.warning("卡片动作调度 Agent 失败: %s", ex)
 
             try:
-                loop = asyncio.get_running_loop()
+                runtime_state.spawn_callback_task(mq.dispatch(chat_id, _card_job()))
             except RuntimeError:
                 bad.content = "Mini Agent：无运行中的事件循环，无法调度"
                 return resp
-
-            loop.create_task(mq.dispatch(chat_id, _card_job()))
             ok = CallBackToast()
             ok.type = "info"
             ok.content = "已提交处理"
@@ -818,14 +831,12 @@ async def start_feishu_poll_server(
 
     # 启动 WebSocket 客户端
     from miniagent.feishu.ws_client import FeishuWsClient
-    from miniagent.feishu.ws_health import get_last_ws_session_end, supervise_feishu_ws_session
-
-    global _ws_shutdown_event
+    from miniagent.feishu.ws_health import supervise_feishu_ws_session
 
     ws_client: FeishuWsClient | None = None
     ping_task: asyncio.Task[Any] | None = None
     shutdown_event = asyncio.Event()
-    _ws_shutdown_event = shutdown_event
+    runtime_state.shutdown_event = shutdown_event
     try:
         # ── 关键修复：lark-oapi SDK 在模块加载时捕获了 event loop，
         #    但 asyncio.run() 会创建全新 loop。如果不替换，
@@ -843,8 +854,8 @@ async def start_feishu_poll_server(
             log_level=LogLevel.ERROR,
         )
 
-        _singleton_client = ws_client
-        _singleton_app_id = config.app_id
+        runtime_state.client = ws_client
+        runtime_state.app_id = config.app_id
 
         _logger.info("WebSocket 长轮询模式已启动（无需公网 IP）")
         _logger.info("消息会通过 WebSocket 自动从飞书服务器拉取")
@@ -859,8 +870,9 @@ async def start_feishu_poll_server(
             await supervise_feishu_ws_session(
                 ws_client,
                 shutdown_event=shutdown_event,
+                health_state=runtime_state.ws_health,
             )
-            end_reason, _ = get_last_ws_session_end()
+            end_reason, _ = runtime_state.ws_health.last_session_end()
             _logger.info(
                 "飞书 WebSocket 会话已结束（%s），将由外层退避后重连",
                 end_reason or "unknown",
@@ -874,8 +886,8 @@ async def start_feishu_poll_server(
         _logger.error("WebSocket 启动失败: %s", e)
         raise
     finally:
-        _ws_shutdown_event = None
-        # 与 FeishuRuntime 循环开头的 reset 互补：保证异常/取消路径下 SDK 与单例状态一致。
+        runtime_state.shutdown_event = None
+        # 与 FeishuRuntime 循环开头的 reset 互补：保证异常/取消路径下 SDK 与实例状态一致。
         if ping_task is not None and not ping_task.done():
             ping_task.cancel()
             try:
@@ -910,7 +922,7 @@ async def start_feishu_poll_server(
                     _logger.debug("读取接收任务结果失败（清理路径）: %s", e)
         except Exception as e:
             _logger.debug("清理接收任务失败（清理路径）: %s", e)
-        await reset_feishu_ws_singleton()
+        await runtime_state.reset()
 
 
 def _normalize_im_receive_chat_id(chat_id: str) -> str:
@@ -1129,20 +1141,39 @@ def _prepare_thinking_markdown(raw: str) -> str:
     return _prepare_thinking_body_for_card(raw, apply_cap=True, max_len=feishu_card_thinking_max())
 
 
-def _thinking_card_json_cached(st: Any, raw: str, template: str, session_key: str | None) -> str:
+def _thinking_card_json_cached(
+    st: Any,
+    raw: str,
+    template: str,
+    session_key: str | None,
+    confirmation_engine: Any | None = None,
+) -> str:
     """为同一轮思考流缓存 normalized body 与 card JSON。
 
     流式 PATCH 会频繁检查是否需要更新卡片；当累计正文未变化时复用结果，避免重复
     `_normalize_lark_md()` 和 `json.dumps()`。
     """
-    cache_key = (raw, template, session_key)
+    confirmation_pending = False
+    if confirmation_engine is not None and session_key:
+        channel = (
+            confirmation_engine.get_confirmation_channel(session_key)
+            if hasattr(confirmation_engine, "get_confirmation_channel")
+            else getattr(confirmation_engine, "confirmation_channel", None)
+        )
+        confirmation_pending = bool(channel is not None and channel.has_pending)
+    cache_key = (raw, template, session_key, confirmation_pending)
     if getattr(st, "feishu_cached_card_key", None) == cache_key:
         cached = getattr(st, "feishu_cached_card_json", None)
         if isinstance(cached, str):
             return cached
     cleaned = _prepare_thinking_markdown(raw)
     card_json = json.dumps(
-        _thinking_interactive_card_dict(cleaned, template, session_key=session_key),
+        _thinking_interactive_card_dict(
+            cleaned,
+            template,
+            session_key=session_key,
+            confirmation_engine=confirmation_engine,
+        ),
         ensure_ascii=False,
     )
     st.feishu_cached_card_key = cache_key
@@ -1261,12 +1292,13 @@ def _thinking_interactive_card_dict(
     template: str,
     *,
     session_key: str | None = None,
+    confirmation_engine: Any | None = None,
 ) -> dict[str, Any]:
     """构造思考内容交互卡片（可能包含确认按钮）。"""
     from miniagent.feishu.cards.builder import confirmation_buttons, thinking_card_dict
 
     buttons = None
-    eng = _feishu_confirmation_engine
+    eng = confirmation_engine
     if eng is not None and session_key:
         cc_obj = (
             eng.get_confirmation_channel(session_key)
@@ -1392,6 +1424,7 @@ async def push_feishu_thinking_stream(
     st: Any,
     *,
     new_round: bool,
+    confirmation_engine: Any | None = None,
 ) -> None:
     """ReAct 单轮 LLM 流式思考：同一会话只保留一条卡片，用 PATCH 节流更新（避免每条 chunk 新建消息）。"""
     import time
@@ -1452,7 +1485,13 @@ async def push_feishu_thinking_stream(
         st.feishu_tool_section_started = True
 
     _sk = getattr(st, "feishu_session_key", None) or None
-    card_json = _thinking_card_json_cached(st, st.feishu_stream_accumulated, template, _sk)
+    card_json = _thinking_card_json_cached(
+        st,
+        st.feishu_stream_accumulated,
+        template,
+        _sk,
+        confirmation_engine,
+    )
 
     if not st.feishu_thinking_message_id:
         r_mid = getattr(st, "feishu_reply_to_message_id", None)
@@ -1500,6 +1539,8 @@ async def finalize_feishu_thinking_stream(
     chat_id: str,
     template: str,
     st: Any,
+    *,
+    confirmation_engine: Any | None = None,
 ) -> None:
     """一轮 LLM 流结束或非合并的非流式块前：PATCH 首张卡片为正文第一段；超长则追加多张「思考续页」卡片。"""
     chat_id = _normalize_im_receive_chat_id(chat_id)
@@ -1521,7 +1562,13 @@ async def finalize_feishu_thinking_stream(
     first_body = _prepare_card_markdown(chunks[0], normalize=False)
     _sk = getattr(st, "feishu_session_key", None) or None
     card_json = json.dumps(
-        _thinking_interactive_card_dict(first_body, template, session_key=_sk), ensure_ascii=False,
+        _thinking_interactive_card_dict(
+            first_body,
+            template,
+            session_key=_sk,
+            confirmation_engine=confirmation_engine,
+        ),
+        ensure_ascii=False,
     )
     # ✅ 使用异步版本：PATCH 收尾时不阻塞事件循环
     patched = await _patch_interactive_thinking_message_async(config, mid, card_json)
@@ -1556,6 +1603,8 @@ async def append_feishu_thinking_same_card(
     tool_line: str,
     template: str,
     st: Any,
+    *,
+    confirmation_engine: Any | None = None,
 ) -> None:
     """同轮工具意图：追加到当前思考卡片的 lark_md 正文并 PATCH（不新建消息、不计入流式 PATCH 预算）。"""
     chat_id = _normalize_im_receive_chat_id(chat_id)
@@ -1576,7 +1625,13 @@ async def append_feishu_thinking_same_card(
     acc2 = acc + addition
     st.feishu_stream_accumulated = acc2
     _sk = getattr(st, "feishu_session_key", None) or None
-    card_json = _thinking_card_json_cached(st, acc2, template, _sk)
+    card_json = _thinking_card_json_cached(
+        st,
+        acc2,
+        template,
+        _sk,
+        confirmation_engine,
+    )
 
     if mid:
         # ✅ 使用异步版本：追加工具后 PATCH 不阻塞事件循环
@@ -1831,14 +1886,9 @@ async def _send_reply(
 
 
 __all__ = [
-    "set_feishu_confirmation_engine",
     "feishu_outbound_reply_params",
     "FeishuMediaHandler",
-    "reset_feishu_ws_singleton",
-    "request_feishu_ws_shutdown",
-    "try_begin_processing",
-    "release_processing",
-    "abandon_processing_claim",
+    "FeishuPollState",
     "start_feishu_poll_server",
     "feishu_card_body_max",
     "push_feishu_thinking_stream",

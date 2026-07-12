@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import importlib.util
+from unittest.mock import MagicMock
 
 import pytest
+
+from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 
 # Check if prompt_toolkit is available (cli extra)
 _HAS_PROMPT_TOOLKIT = importlib.util.find_spec("prompt_toolkit") is not None
@@ -87,6 +90,7 @@ async def test_engine_history_merges_two_tools_under_turn(monkeypatch):
     from miniagent.engine.engine import UnifiedEngine
     from miniagent.infrastructure.monitor import DefaultToolMonitor
     from miniagent.infrastructure.registry import DefaultToolRegistry
+    from miniagent.types.agent import AgentRunResult
 
     async def fake_run_agent(*args, **kwargs):
         ot = kwargs.get("on_thinking")
@@ -94,7 +98,7 @@ async def test_engine_history_merges_two_tools_under_turn(monkeypatch):
         await ot("[第 1 轮]x", True, "[第 1 轮]")
         await ot("🔧 a — 1", False, "[第 1 轮]")
         await ot("🔧 b — 2", False, "[第 1 轮]")
-        return "ok"
+        return AgentRunResult(reply="ok")
 
     monkeypatch.setattr("miniagent.engine.engine.run_agent", fake_run_agent)
 
@@ -104,6 +108,9 @@ async def test_engine_history_merges_two_tools_under_turn(monkeypatch):
     class SM:
         def get_or_create(self, sk, opts):
             return ctx
+
+        def get_session_files_path(self, sk: str) -> None:
+            return None
 
         def save_session_history(self, sk: str) -> None:
             pass
@@ -116,6 +123,9 @@ async def test_engine_history_merges_two_tools_under_turn(monkeypatch):
         "sess",
         [],
         None,
+        memory=make_memory_runtime(),
+        knowledge_registry=make_knowledge_registry(),
+        client=MagicMock(),
         registry=DefaultToolRegistry(),
         monitor=DefaultToolMonitor(),
         session_manager=SM(),
@@ -134,13 +144,14 @@ async def test_engine_history_merges_tool_under_turn(monkeypatch):
     from miniagent.engine.engine import UnifiedEngine
     from miniagent.infrastructure.monitor import DefaultToolMonitor
     from miniagent.infrastructure.registry import DefaultToolRegistry
+    from miniagent.types.agent import AgentRunResult
 
     async def fake_run_agent(*args, **kwargs):
         ot = kwargs.get("on_thinking")
         await ot("[第 1 轮]", True, "[第 1 轮]")
         await ot("[第 1 轮]brain text", True, "[第 1 轮]")
         await ot("🔧 web_search — q", False, "[第 1 轮]")
-        return "reply"
+        return AgentRunResult(reply="reply")
 
     monkeypatch.setattr("miniagent.engine.engine.run_agent", fake_run_agent)
 
@@ -150,6 +161,9 @@ async def test_engine_history_merges_tool_under_turn(monkeypatch):
     class SM:
         def get_or_create(self, sk, opts):
             return ctx
+
+        def get_session_files_path(self, sk: str) -> None:
+            return None
 
         def save_session_history(self, sk: str) -> None:
             pass
@@ -162,6 +176,9 @@ async def test_engine_history_merges_tool_under_turn(monkeypatch):
         "sess",
         [],
         None,
+        memory=make_memory_runtime(),
+        knowledge_registry=make_knowledge_registry(),
+        client=MagicMock(),
         registry=DefaultToolRegistry(),
         monitor=DefaultToolMonitor(),
         session_manager=SM(),

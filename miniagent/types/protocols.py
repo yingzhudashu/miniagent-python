@@ -3,7 +3,7 @@
 定义核心接口的 Protocol 类型，替代 Any 类型，提升类型安全性。
 
 使用场景：
-- ``runtime/context.py`` RuntimeContext 字段类型
+- ``bootstrap/application.py`` ApplicationContainer 字段类型
 - ``core/executor.py`` 回调函数签名
 - ``core/agent.py`` 参数类型
 
@@ -156,7 +156,7 @@ OnToolFinish = OnToolFinishCallback
 
 
 # ============================================================================
-# RuntimeContext 相关 Protocol
+# ApplicationContainer dependency protocols
 # ============================================================================
 
 
@@ -164,7 +164,7 @@ OnToolFinish = OnToolFinishCallback
 class UnifiedEngineProtocol(Protocol):
     """统一引擎接口协议。
 
-    用于 ``RuntimeContext.engine`` 字段类型。
+    用于 ``ApplicationContainer.engine`` 字段类型。
 
     实现类：``miniagent.engine.engine.UnifiedEngine``
 
@@ -236,7 +236,17 @@ class MessageQueueProtocol(Protocol):
         on_done: Any = None,
     ) -> None: ...
 
+    async def dispatch_wait(
+        self,
+        chat_id: str,
+        coro: Any,
+        on_start: Any = None,
+        on_done: Any = None,
+    ) -> None: ...
+
     def abort_chat(self, chat_id: str) -> dict[str, Any]: ...
+    def abort_all_chats(self) -> dict[str, Any]: ...
+    async def shutdown(self) -> dict[str, Any]: ...
     def get_status(self) -> dict[str, Any]: ...
     def get_agent_status(self, chat_id: str | None = None) -> dict[str, Any]: ...
 
@@ -256,8 +266,10 @@ class FeishuRuntimeProtocol(Protocol):
         user_status: Callable[[str], None] | None = None,
     ) -> None: ...
 
+    async def stop_async(self) -> None: ...
     def stop(self) -> None: ...
     def is_running(self) -> bool: ...
+    def get_config(self) -> Any: ...
 
 
 __all__ = [

@@ -11,7 +11,7 @@
 - **单一源码包**：可导入包名为 ``miniagent``；``pyproject.toml`` 仅打包 ``miniagent*``。
 - **版本号**：本模块 ``__version__`` 为发布权威；``pyproject.toml`` 通过 ``dynamic.version`` 读取。
 - **入口**：用户进程请使用 ``python -m miniagent`` 或控制台脚本 ``miniagent``（见 ``project.scripts``）。
-- **组合根**：进程级依赖集中在 ``RuntimeContext``（``miniagent.runtime.context``），由 ``compat.unified_entry`` 构造；子系统避免再挂模块级全局单例。
+- **组合根**：进程级依赖集中在唯一 ``ApplicationContainer``，由 ``bootstrap.entrypoint`` 构造并显式传递。
 - **状态目录**：默认写入仓库下 ``workspaces/``；可在 ``config.user.json`` 设置 ``paths.state_dir`` 迁出（测试与多实例场景推荐），详见 ``docs/ENGINEERING.md`` §3.3。
 - **文档索引**：``docs/INDEX.md``；架构总览 ``docs/ARCHITECTURE.md``。
 

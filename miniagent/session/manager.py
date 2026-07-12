@@ -124,18 +124,18 @@ def _load_history_from_disk(ctx: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 # ============================================================================
-# 会话列表字段（list_all_sessions_with_info 返回 id/number，兼容旧 session_id）
+# 会话列表字段（list_all_sessions_with_info 返回 id/number）
 # ============================================================================
 
 
 def session_info_id(entry: dict) -> str:
     """从 ``list_all_sessions_with_info`` 条目解析会话 ID。"""
-    return str(entry.get("id") or entry.get("session_id") or "")
+    return str(entry.get("id") or "")
 
 
 def session_info_number(entry: dict) -> int:
     """从 ``list_all_sessions_with_info`` 条目解析会话编号。"""
-    n = entry.get("number", entry.get("session_number", 0))
+    n = entry.get("number", 0)
     try:
         return int(n)
     except (TypeError, ValueError):

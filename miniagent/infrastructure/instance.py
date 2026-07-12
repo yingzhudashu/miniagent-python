@@ -38,9 +38,7 @@
     instances = mgr.list_all()
     mgr.unregister()  # 退出时调用
 
-**重构说明**：
-- PID 检测函数已提取到公共模块 ``miniagent/infrastructure/process_utils.py``
-- 本模块导入并再导出以保持 API 兼容性
+PID 检测函数位于公共模块 ``miniagent/infrastructure/process_utils.py``。
 """
 
 from __future__ import annotations
@@ -65,15 +63,13 @@ if sys.platform == "win32":
 else:
     import fcntl
 
-from miniagent.core.constants import INSTANCE_CACHE_TTL, INSTANCE_HEARTBEAT_TIMEOUT
+from miniagent.core.constants import INSTANCE_CACHE_TTL
 from miniagent.infrastructure.logger import get_logger
 from miniagent.infrastructure.process_utils import (
     is_process_running,
     is_process_running_async,
 )
 from miniagent.types.error_prefix import ERROR_PREFIX
-
-HEARTBEAT_TIMEOUT = INSTANCE_HEARTBEAT_TIMEOUT
 
 _logger = get_logger(__name__)
 
@@ -160,17 +156,11 @@ def find_alive_instance_for_project(
 
     target = normalize_project_dir(project_dir)
     checker = pid_checker or is_process_running
-    for root in _instance_registry_roots():
-        reg = InstanceRegistry(state_dir=root, pid_checker=checker)
-        for inst in reg.list_all():
-            if paths_equal(_meta_project_dir(inst), target):
-                return inst
+    reg = InstanceRegistry(pid_checker=checker)
+    for inst in reg.list_all():
+        if paths_equal(_meta_project_dir(inst), target):
+            return inst
     return None
-
-
-# PID 检测函数已移至 miniagent.infrastructure.process_utils
-# 以下为再导出，保持 API 兼容性
-# is_process_running 和 is_process_running_async 从 process_utils 导入
 
 
 def _next_instance_id(inst_dir: Path) -> int:
@@ -219,25 +209,6 @@ def _short_state_dir_label(state_dir: str, *, canonical: str | None = None) -> s
     if parent and parent not in (".", ".."):
         return f"{parent}/{base}"
     return base
-
-
-def _instance_registry_roots(*, include_legacy_cwd: bool = True) -> list[str]:
-    """返回需要扫描的实例注册表状态根（registry + 可选 legacy cwd）。"""
-    from miniagent.infrastructure.paths import (
-        resolve_legacy_cwd_state_dir,
-        resolve_registry_state_dir,
-    )
-
-    roots: list[str] = []
-    registry = resolve_registry_state_dir()
-    for candidate in (registry, resolve_legacy_cwd_state_dir() if include_legacy_cwd else None):
-        if not candidate:
-            continue
-        norm = os.path.normcase(os.path.normpath(candidate))
-        if any(os.path.normcase(os.path.normpath(r)) == norm for r in roots):
-            continue
-        roots.append(candidate)
-    return roots
 
 
 # ============================================================================
@@ -651,7 +622,7 @@ class InstanceRegistry:
 _default_registry: InstanceRegistry | None = None
 
 # ── 性能优化：实例列表缓存（按 cache_key 分键）──
-_instance_list_caches: dict[tuple[str | None, bool], tuple[float, list[dict[str, Any]]]] = {}
+_instance_list_caches: dict[str | None, tuple[float, list[dict[str, Any]]]] = {}
 # 使用 constants.py 中定义的 TTL
 
 # 并发安全：全局单例创建锁
@@ -704,51 +675,32 @@ def unregister_instance(state_dir: str | None = None) -> None:
 
 def list_instances(
     state_dir: str | None = None,
-    *,
-    include_legacy_cwd: bool = True,
 ) -> list[dict[str, Any]]:
-    """列出所有存活实例（可聚合 canonical + legacy cwd 注册表）。"""
-    if state_dir is not None:
-        reg = InstanceRegistry(state_dir=state_dir)
-        return reg.list_all(attach_state_dir=True)
-
-    results: list[dict[str, Any]] = []
-    for root in _instance_registry_roots(include_legacy_cwd=include_legacy_cwd):
-        reg = InstanceRegistry(state_dir=root)
-        results.extend(reg.list_all(attach_state_dir=True))
-    results.sort(
-        key=lambda i: (
-            str(i.get("state_dir", "")),
-            int(i.get("instance_id") or 0),
-        )
-    )
-    return results
+    """列出指定注册表中的所有存活实例；省略时使用 canonical 注册表。"""
+    reg = InstanceRegistry(state_dir=state_dir)
+    return reg.list_all(attach_state_dir=True)
 
 
 def list_instances_cached(
     state_dir: str | None = None,
-    *,
-    include_legacy_cwd: bool = True,
 ) -> list[dict[str, Any]]:
     """列出所有存活实例（带缓存，性能优化）。
 
-    缓存 5 秒有效，按 ``(state_dir, include_legacy_cwd)`` 分键。
+    缓存 5 秒有效，按 ``state_dir`` 分键。
     注册/注销操作会自动清除缓存。
 
     Args:
         state_dir: 状态目录
-        include_legacy_cwd: 是否聚合 legacy cwd 注册表
-
     Returns:
         存活实例列表
     """
     global _instance_list_caches
-    cache_key = (state_dir, include_legacy_cwd)
+    cache_key = state_dir
     now = time.time()
     cached = _instance_list_caches.get(cache_key)
     if cached is not None and now - cached[0] < INSTANCE_CACHE_TTL:
         return cached[1]
-    result = list_instances(state_dir, include_legacy_cwd=include_legacy_cwd)
+    result = list_instances(state_dir)
     _instance_list_caches[cache_key] = (now, result)
     return result
 
@@ -757,35 +709,9 @@ def stop_instance_by_id(
     instance_id: int,
     state_dir: str | None = None,
 ) -> dict[str, Any]:
-    """停止指定实例。``state_dir`` 省略时在已聚合列表中查找；多根同 ID 时需显式指定。"""
+    """停止指定注册表中的实例；省略 ``state_dir`` 时使用 canonical 注册表。"""
     _clear_instance_list_caches()
-
-    target_dir = state_dir
-    if target_dir is None:
-        matches = [
-            i
-            for i in list_instances()
-            if int(i.get("instance_id") or 0) == instance_id
-        ]
-        if not matches:
-            return {"success": False, "reason": f"实例 #{instance_id} 不存在"}
-        if len(matches) > 1:
-            dirs = ", ".join(sorted({str(m.get("state_dir", "?")) for m in matches}))
-            return {
-                "success": False,
-                "reason": (
-                    f"实例 #{instance_id} 存在于多个状态目录（{dirs}），"
-                    "请使用 stop_instance_by_id(id, state_dir=...) 或 "
-                    "python -m miniagent --stop --state-dir <路径> <id>"
-                ),
-            }
-        target_dir = str(matches[0].get("state_dir") or "")
-        if not target_dir:
-            from miniagent.infrastructure.paths import resolve_registry_state_dir
-
-            target_dir = resolve_registry_state_dir()
-
-    return InstanceRegistry(state_dir=target_dir).stop(instance_id)
+    return InstanceRegistry(state_dir=state_dir).stop(instance_id)
 
 
 def _inst_md_cell(text: str) -> str:
@@ -948,6 +874,5 @@ __all__ = [
     "format_instances_markdown",
     "is_process_running",
     "is_process_running_async",
-    "HEARTBEAT_TIMEOUT",
     "reset_instance_registry_for_tests",
 ]

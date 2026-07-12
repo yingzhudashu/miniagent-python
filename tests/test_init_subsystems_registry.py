@@ -32,7 +32,6 @@ async def test_init_subsystems_registers_core_tools(tmp_path) -> None:
 
     registry = DefaultToolRegistry()
     skill_registry = DefaultSkillRegistry()
-    engine = MagicMock()
     SessionManager = MagicMock()
     sm_instance = MagicMock()
     sm_instance.get_or_create = MagicMock()
@@ -45,7 +44,6 @@ async def test_init_subsystems_registers_core_tools(tmp_path) -> None:
     await init_subsystems(
         registry,
         skill_registry,
-        engine,
         SessionManager,
         channel_router,
         clawhub=None,

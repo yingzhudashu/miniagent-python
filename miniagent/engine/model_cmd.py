@@ -19,7 +19,7 @@ from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX
 def get_current_model() -> str:
     """读取当前生效的 ``model.model`` 配置值。
 
-    合并顺序为 ``config.user.json`` 覆盖 ``config.defaults.json``。
+    合并顺序为 ``config.user.json`` 覆盖包内 defaults。
     空字符串或非字符串异常值回退到 ``gpt-4o-mini``。
     """
     value = get_config("model.model", "gpt-4o-mini")

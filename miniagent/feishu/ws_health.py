@@ -13,32 +13,26 @@ from miniagent.infrastructure.logger import get_logger
 
 _logger = get_logger(__name__)
 
-# 最近一次入站（monotonic）与最近一次会话结束信息（供 status / 诊断）
-_ws_last_inbound_monotonic: float | None = None
-_last_session_end_reason: str | None = None
-_last_session_end_at: float | None = None  # time.time()
+@dataclass(slots=True)
+class FeishuWsHealthState:
+    """Health observations owned by one Feishu runtime connection loop."""
 
+    last_inbound_monotonic: float | None = None
+    last_session_end_reason: str | None = None
+    last_session_end_at: float | None = None
 
-def touch_ws_inbound_activity() -> None:
-    """入站回调入口调用，更新最后活动时间。"""
-    global _ws_last_inbound_monotonic
-    _ws_last_inbound_monotonic = time.monotonic()
+    def touch_inbound(self) -> None:
+        """Record activity from an inbound SDK callback."""
+        self.last_inbound_monotonic = time.monotonic()
 
+    def record_session_end(self, reason: str) -> None:
+        """Record why and when the supervised WebSocket session ended."""
+        self.last_session_end_reason = reason
+        self.last_session_end_at = time.time()
 
-def get_ws_last_inbound_monotonic() -> float | None:
-    return _ws_last_inbound_monotonic
-
-
-def get_last_ws_session_end() -> tuple[str | None, float | None]:
-    """返回 ``(reason, ended_at_unix)``。"""
-    return _last_session_end_reason, _last_session_end_at
-
-
-def _record_session_end(reason: str) -> None:
-    """记录 WebSocket 会话结束原因和时间（用于健康检测）。"""
-    global _last_session_end_reason, _last_session_end_at
-    _last_session_end_reason = reason
-    _last_session_end_at = time.time()
+    def last_session_end(self) -> tuple[str | None, float | None]:
+        """Return ``(reason, ended_at_unix)`` for status reporting."""
+        return self.last_session_end_reason, self.last_session_end_at
 
 
 @dataclass(frozen=True)
@@ -77,6 +71,7 @@ async def _watchdog_loop(
     shutdown_event: asyncio.Event,
     exit_event: asyncio.Event,
     reason_holder: list[str],
+    health_state: FeishuWsHealthState,
 ) -> None:
     dead_since: float | None = None
     reconnect_dead_since: float | None = None
@@ -102,8 +97,9 @@ async def _watchdog_loop(
             exit_event.set()
             return
 
-        if config.idle_refresh_s > 0 and _ws_last_inbound_monotonic is not None:
-            if (now - _ws_last_inbound_monotonic) >= config.idle_refresh_s:
+        last_inbound = health_state.last_inbound_monotonic
+        if config.idle_refresh_s > 0 and last_inbound is not None:
+            if (now - last_inbound) >= config.idle_refresh_s:
                 reason_holder[0] = "watchdog_idle_refresh"
                 exit_event.set()
                 return
@@ -137,6 +133,7 @@ async def supervise_feishu_ws_session(
     ws_client: FeishuWsClient,
     *,
     shutdown_event: asyncio.Event,
+    health_state: FeishuWsHealthState,
 ) -> str:
     """监督 WebSocket 会话直至应结束；返回结束原因字符串。"""
     config = read_feishu_ws_health_config()
@@ -147,7 +144,7 @@ async def supervise_feishu_ws_session(
     receive_task = ws_client.receive_task
     if receive_task is None:
         reason = "no_receive_task"
-        _record_session_end(reason)
+        health_state.record_session_end(reason)
         _logger.warning("飞书 WS：无收包任务，结束会话监督")
         return reason
 
@@ -159,6 +156,7 @@ async def supervise_feishu_ws_session(
             shutdown_event,
             exit_event,
             reason_holder,
+            health_state,
         )
     )
 
@@ -194,7 +192,7 @@ async def supervise_feishu_ws_session(
         else:
             reason = reason_holder[0]
 
-        _record_session_end(reason)
+        health_state.record_session_end(reason)
         _logger.info("飞书 WS 会话监督结束，原因=%s", reason)
         try:
             await ws_client._disconnect()
@@ -202,7 +200,9 @@ async def supervise_feishu_ws_session(
             _logger.debug("supervise_feishu_ws_session disconnect: %s", e)
         return reason
     except asyncio.CancelledError:
-        _record_session_end("shutdown" if shutdown_event.is_set() else "cancelled")
+        health_state.record_session_end(
+            "shutdown" if shutdown_event.is_set() else "cancelled"
+        )
         # 取消路径下显式消费 receive_task 异常，避免 "Task exception was never retrieved"。
         if receive_task.done():
             try:
@@ -222,9 +222,7 @@ async def supervise_feishu_ws_session(
 
 __all__ = [
     "FeishuWsHealthConfig",
-    "get_last_ws_session_end",
-    "get_ws_last_inbound_monotonic",
+    "FeishuWsHealthState",
     "read_feishu_ws_health_config",
     "supervise_feishu_ws_session",
-    "touch_ws_inbound_activity",
 ]

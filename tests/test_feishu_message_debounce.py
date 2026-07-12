@@ -9,7 +9,6 @@ import pytest
 from miniagent.feishu.message_debounce import (
     FeishuMessageDebouncer,
     feishu_message_debounce_ms,
-    reset_feishu_message_debouncer,
 )
 from miniagent.feishu.types import FeishuInboundText
 
@@ -69,11 +68,6 @@ async def test_reset_clears_pending_buffers() -> None:
     await debouncer.reset()
     await asyncio.sleep(0.05)
     assert flushed == []
-
-
-@pytest.mark.asyncio
-async def test_reset_feishu_message_debouncer_singleton() -> None:
-    await reset_feishu_message_debouncer()
 
 
 def test_feishu_message_debounce_ms_default(monkeypatch: pytest.MonkeyPatch) -> None:

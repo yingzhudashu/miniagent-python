@@ -3,13 +3,12 @@
 使用 mistune 解析 Markdown AST，转换为飞书文档块结构。
 支持：标题、段落、列表、代码块、引用、表格、图片、内联样式。
 
-与旧版 markdown.py 的区别：
+两种渲染路径：
 - markdown.py: 保守剥离，只输出纯文本块
 - markdown_renderer.py: 完整渲染，保留结构和样式
 
-向后兼容：
-- 旧的 markdown_to_plain_text/markdown_to_blocks 保持不变
-- 新的 append_markdown_to_document 可选择使用哪个渲染器
+- ``markdown_to_plain_text`` / ``markdown_to_blocks`` 生成纯文本块
+- ``append_markdown_to_document`` 可显式选择富文本或纯文本渲染
 
 mistune 3.x API 说明：
 - mistune.create_markdown(renderer=None) 返回 token AST（dict 列表）

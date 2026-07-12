@@ -456,7 +456,7 @@ def _action_import_raw(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig
 
     支持两种渲染模式：
     - render_mode="rich": 富文本渲染（标题、粗体、列表、代码块等）【默认】
-    - render_mode="plain": 纯文本（向后兼容）
+    - render_mode="plain": 纯文本
 
     Markdown 文件将自动转换为飞书文档的 Block 结构，保留格式信息。
     """
@@ -760,7 +760,7 @@ _feishu_doc_schema = {
                     "type": "string",
                     "enum": ["rich", "plain"],
                     "default": "rich",
-                    "description": "渲染模式：rich=富文本渲染（标题、粗体、列表、代码块），plain=纯文本（向后兼容）",
+                    "description": "渲染模式：rich=富文本渲染（标题、粗体、列表、代码块），plain=纯文本",
                 },
                 "block_id": {"type": "string"},
                 "page_token": {"type": "string"},

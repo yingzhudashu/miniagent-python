@@ -29,7 +29,7 @@ def _thinking_for_llm_mode() -> str:
 
     - ``off``：不把内部 thinking 记录放入历史上下文。
     - ``compact``：默认模式，仅保留较短摘要，减少 history 波动和上下文膨胀。
-    - ``full``：兼容旧行为，按 ``memory.thinking_for_llm_max_chars`` 保留更长正文。
+    - ``full``：按 ``memory.thinking_for_llm_max_chars`` 保留更长正文。
     """
     mode = str(get_config("memory.thinking_for_llm_mode", "compact") or "").strip().lower()
     if mode not in {"off", "compact", "full"}:

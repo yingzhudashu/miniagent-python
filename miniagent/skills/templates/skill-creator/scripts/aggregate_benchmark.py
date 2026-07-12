@@ -12,9 +12,8 @@ Usage:
 Example:
     python aggregate_benchmark.py benchmarks/2026-01-15T10-30-00/
 
-The script supports two directory layouts:
+The script reads the workspace layout produced by skill-creator iterations:
 
-    Workspace layout (from skill-creator iterations):
     <benchmark_dir>/
     └── eval-N/
         ├── with_skill/
@@ -23,15 +22,6 @@ The script supports two directory layouts:
         └── without_skill/
             ├── run-1/grading.json
             └── run-2/grading.json
-
-    Legacy layout (with runs/ subdirectory):
-    <benchmark_dir>/
-    └── runs/
-        └── eval-N/
-            ├── with_skill/
-            │   └── run-1/grading.json
-            └── without_skill/
-                └── run-1/grading.json
 """
 
 import argparse
@@ -74,14 +64,9 @@ def load_run_results(benchmark_dir: Path) -> dict:
     Returns dict keyed by config name (e.g. "with_skill"/"without_skill",
     or "new_skill"/"old_skill"), each containing a list of run results.
     """
-    # Support both layouts: eval dirs directly under benchmark_dir, or under runs/
-    runs_dir = benchmark_dir / "runs"
-    if runs_dir.exists():
-        search_dir = runs_dir
-    elif list(benchmark_dir.glob("eval-*")):
-        search_dir = benchmark_dir
-    else:
-        print(f"No eval directories found in {benchmark_dir} or {benchmark_dir / 'runs'}")
+    search_dir = benchmark_dir
+    if not list(search_dir.glob("eval-*")):
+        print(f"No eval directories found in {benchmark_dir}")
         return {}
 
     results: dict[str, list] = {}

@@ -4,8 +4,7 @@
 1. Token 估算：基于字符类型的启发式估算（中文 ~1.5 token/字，英文 ~4 字符/token）
 2. 上下文预算：总窗口 - 工具 schema - 系统 prompt - 输出预留
 3. 智能压缩：保留 system + 首条用户消息 + 最近 2 轮对话，中间历史做摘要
-4. 记忆上下文：当前执行主路径将动态记忆放入 current turn user context；旧
-   ``inject_memory`` 方法仅保留兼容
+4. 记忆上下文：执行主路径将动态记忆放入 current turn user context
 
 压缩策略：
 - 当 token 使用 > compress_threshold 时触发
@@ -29,8 +28,6 @@ from openai.types.chat import (
 )
 
 from miniagent.infrastructure.json_config import get_config
-from miniagent.memory.store import format_memory_for_prompt
-from miniagent.types.memory import SessionMemory
 from miniagent.types.tool import ContextManagerProtocol, ContextState, TokenEstimate
 
 # 预编译正则：匹配非 ASCII 字符（中文等）
@@ -171,7 +168,7 @@ class DefaultContextManager(ContextManagerProtocol):
     执行阶段当前主路径由 ``executor`` 先构造 ``stable_system`` 与
     ``current_turn_context``，再调用 ``init(system, user)``；结构化会话记忆、
     keyword_context 与 kb_context 已经在 ``current_turn_context`` 中，避免频繁变化的
-    内容进入 system 前缀。``inject_memory`` 仍存在，但仅用于旧调用兼容。
+    内容进入 system 前缀。
 
     工具 schema 的 token 估算带缓存：若运行时修改可见工具列表或其内容，请通过
     ``set_tools`` 更新，勿仅原地修改内部列表后仍期望预算立即刷新。
@@ -403,36 +400,6 @@ class DefaultContextManager(ContextManagerProtocol):
             del self._messages[2]
             self._total_tokens_estimate -= self._message_tokens(removed_msg)
         self._compressed = True
-
-    def inject_memory(self, memory: SessionMemory | None) -> None:
-        """兼容旧路径：把记忆摘要追加到 system prompt。
-
-        当前执行主路径不会调用本方法；动态记忆会由 ``executor`` 合并进最后一条
-        current turn user context，以保持 ``system -> history -> current user`` 的
-        cache-friendly 消息结构。
-
-        Args:
-            memory: 会话记忆对象
-        """
-        # 性能优化：增量计算token差异
-        old_system_tokens = estimate_tokens_cached(self._system_prompt)
-
-        memory_text = format_memory_for_prompt(memory)
-        if not memory_text:
-            return
-
-        # 旧兼容行为：在 base system prompt 后面追加记忆。
-        self._system_prompt = f"{self._base_system_prompt}\n\n{memory_text}"
-
-        # 计算新system prompt的token
-        new_system_tokens = estimate_tokens_cached(self._system_prompt)
-
-        # 更新 messages 中的 system prompt
-        if self._messages and self._messages[0].get("role") == "system":
-            self._messages[0]["content"] = self._system_prompt  # type: ignore
-
-        # 性能优化：增量更新token估算（避免全量重算）
-        self._total_tokens_estimate += (new_system_tokens - old_system_tokens)
 
     def get_token_report(self) -> str:
         """获取 token 使用报告

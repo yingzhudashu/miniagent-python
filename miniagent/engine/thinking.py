@@ -25,13 +25,13 @@ from typing import Any, Protocol
 
 from miniagent.core.constants import (
     CLI_THINKING_RICH,
+    EXECUTION_TERMINAL_WIDTH_CACHE_TTL,
     EXECUTION_THINKING_MERGE_TOOLS,
-    TERMINAL_WIDTH_CACHE_TTL,
 )
 from miniagent.types.error_prefix import WARNING_PREFIX
 
 # ── 性能优化：缓存终端宽度，避免频繁调用 get_terminal_size ──
-_TERMINAL_WIDTH_CACHE_TTL: float = max(0.0, float(TERMINAL_WIDTH_CACHE_TTL))
+_TERMINAL_WIDTH_CACHE_TTL: float = max(0.0, float(EXECUTION_TERMINAL_WIDTH_CACHE_TTL))
 _TERMINAL_WIDTH_CACHE: int = 0
 _TERMINAL_WIDTH_CACHE_TIME: float = 0.0
 _TERMINAL_WIDTH_CACHE_LOCK = threading.Lock()  # 并发安全：保护缓存访问
@@ -307,7 +307,7 @@ class ThinkingDisplay:
         self._sink_has_kind: bool = False
         self._sink_accepts_ansi_markdown: bool = False
         self._sink_accepts_session_key: bool = False
-        # 全屏 TUI 下与 Assistant 回复区 Rich 宽度对齐（见 main.run_cli_loop）
+        # 全屏 TUI 下与 Assistant 回复区 Rich 宽度对齐（见 cli_tui.run_cli_loop）
         self._cli_markdown_width_fn: Callable[[], int] | None = None
         self._cli_display_lock = threading.Lock()
 
@@ -843,7 +843,7 @@ class ThinkingDisplay:
     def end_thinking(self, session_key: str | None = None) -> None:
         """结束流式显示块。
 
-        ``session_key`` 指定时仅收尾该会话；``None`` 时收尾全部（兼容旧行为）。
+        ``session_key`` 指定时仅收尾该会话；``None`` 时收尾全部。
         """
         if session_key is not None:
             sk = (session_key or "").strip()

@@ -8,11 +8,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniagent.engine.main import (
-    _create_cli_file_history,
-    _reload_cli_input_history,
-    _session_user_inputs_for_cli_history,
-    _sync_preload_buffer_working_lines,
+from miniagent.engine.cli_history import (
+    create_cli_file_history,
+    reload_cli_input_history,
+    session_user_inputs_for_cli_history,
+    sync_preload_buffer_working_lines,
 )
 from miniagent.infrastructure.registry import DefaultToolRegistry
 from miniagent.session.manager import DefaultSessionManager
@@ -21,7 +21,7 @@ from miniagent.types.memory import SessionOptions
 
 def test_session_user_inputs_respects_limit(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "miniagent.engine.main.get_config",
+        "miniagent.engine.cli_history.get_config",
         lambda key, default=None: 3 if key == "cli.input_history_max" else default,
     )
     session = MagicMock()
@@ -32,7 +32,7 @@ def test_session_user_inputs_respects_limit(monkeypatch: pytest.MonkeyPatch) -> 
         "session_manager": MagicMock(get=MagicMock(return_value=session)),
         "active_session_id": "default",
     }
-    result = _session_user_inputs_for_cli_history(state)
+    result = session_user_inputs_for_cli_history(state)
     assert result == ["msg-7", "msg-8", "msg-9"]
 
 
@@ -42,13 +42,13 @@ def test_sync_preload_buffer_working_lines(tmp_path: Path) -> None:
 
     history_path = tmp_path / "history.txt"
     history_path.write_text("\n# ts\n+alpha\n", encoding="utf-8")
-    hist = _create_cli_file_history(str(history_path))
+    hist = create_cli_file_history(str(history_path))
     hist.merge_strings_memory_only(["beta", "gamma"])
 
     buf = Buffer(history=hist)
     assert len(buf._working_lines) == 1
 
-    _sync_preload_buffer_working_lines(buf)
+    sync_preload_buffer_working_lines(buf)
 
     lines = [s.replace("\r", "") for s in buf._working_lines]
     assert lines == ["alpha", "gamma", "beta", ""]
@@ -81,9 +81,9 @@ def test_reload_cli_input_history_merges_session_messages(
     Path(history_file).write_text("\n# ts\n+saved-cmd\n", encoding="utf-8")
 
     state = {"session_manager": sm, "active_session_id": session_id}
-    buf = Buffer(history=_create_cli_file_history(history_file))
+    buf = Buffer(history=create_cli_file_history(history_file))
 
-    _reload_cli_input_history(state, buf, history_file)
+    reload_cli_input_history(state, buf, history_file)
 
     lines = [s.replace("\r", "") for s in buf._working_lines]
     assert lines == [
@@ -97,10 +97,10 @@ def test_reload_cli_input_history_merges_session_messages(
 
 def test_session_switch_calls_reload_cli_input_history() -> None:
     source = Path(__file__).resolve().parent.parent.joinpath(
-        "miniagent", "engine", "main.py"
+        "miniagent", "engine", "cli_tui.py"
     ).read_text(encoding="utf-8")
-    assert "_reload_cli_input_history(state, input_buffer, history_file)" in source
+    assert "reload_cli_input_history(state, input_buffer, history_file)" in source
     switch_block_start = source.index("prev_session_id = state")
     switch_block = source[switch_block_start : switch_block_start + 800]
-    assert switch_block.count("_reload_cli_input_history") >= 1
+    assert switch_block.count("reload_cli_input_history") >= 1
     assert "_reset_and_reload_transcript" in switch_block

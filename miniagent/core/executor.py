@@ -34,6 +34,8 @@ from typing import Any, TypeAlias
 
 from openai import AsyncOpenAI
 
+from miniagent.contracts.knowledge import KnowledgeRegistryProtocol
+from miniagent.contracts.memory import MemoryRuntimeProtocol
 from miniagent.core.config import get_default_agent_config, get_default_model_config
 from miniagent.core.constants import (
     EXECUTION_CALLBACK_MIN_CHARS,
@@ -47,7 +49,6 @@ from miniagent.core.constants import (
     MAX_ARGS_LOG_LEN,
 )
 from miniagent.core.llm_params import resolve_exec_completion_kwargs
-from miniagent.core.openai_client import get_shared_async_openai
 from miniagent.core.openai_message_sanitize import strip_leading_underscore_keys_from_messages
 from miniagent.core.plan_utils import (
     format_output_spec_block,
@@ -67,7 +68,6 @@ from miniagent.infrastructure.timezone_config import (
 )
 from miniagent.infrastructure.tracing import emit_trace
 from miniagent.memory.context import ContextBudgetExceeded, DefaultContextManager
-from miniagent.memory.defaults import resolve_memory_context, resolve_memory_dependencies
 from miniagent.memory.history_bridge import conversation_history_for_llm
 from miniagent.security.sandbox import get_default_workspace
 from miniagent.types.agent import LoopDetectionConfig, ToolMonitorProtocol
@@ -78,12 +78,8 @@ from miniagent.types.errors import (
     LarkOapiMissingError,
     SandboxViolationError,
 )
-from miniagent.types.memory import MemoryStoreProtocol
-from miniagent.types.memory_context import MemoryContextProtocol
 from miniagent.types.planning import PlanStep, StructuredPlan
 from miniagent.types.protocols import (
-    ActivityLogProtocol,
-    KeywordIndexProtocol,
     OnThinkingCallback,
     OnToolFinishCallback,
 )
@@ -106,27 +102,6 @@ _TOOL_INTENT_MAP: dict[str, str] = {
     "git_status": "Git 状态",
     "git_diff": "Git 差异",
 }
-
-# ── 性能优化：工具并发限制（避免资源耗尽）──
-_tool_semaphore: asyncio.Semaphore | None = None
-
-def _get_tool_semaphore() -> asyncio.Semaphore:
-    """获取全局工具并发限制信号量（惰性初始化）。
-
-    性能优化：
-    - 控制并发工具数，避免API限流
-    - 防止资源耗尽（内存、CPU、网络）
-    - 可配置并发上限
-
-    Returns:
-        asyncio.Semaphore 实例
-    """
-    global _tool_semaphore
-    if _tool_semaphore is None:
-        max_concurrent = max(1, min(20, EXECUTION_MAX_CONCURRENT_TOOLS))
-        _tool_semaphore = asyncio.Semaphore(max_concurrent)
-        _logger.debug("工具并发限制已初始化: %d", max_concurrent)
-    return _tool_semaphore
 
 _logger = get_logger(__name__)
 
@@ -482,45 +457,6 @@ def build_current_turn_user_context(
     return "\n\n".join(parts)
 
 
-def build_execution_system_prompt(
-    *,
-    agent_identity: str,
-    caller_system_prompt: str | None,
-    plan_summary: str,
-    keyword_context: str | None,
-    kb_context: str | None = None,
-    session_files_root: str | None = None,
-) -> str:
-    """Compatibility wrapper for the legacy combined execution prompt.
-
-    New execution paths use ``build_stable_execution_system_prompt`` plus
-    ``build_current_turn_user_context`` so volatile context does not pollute the
-    cache-friendly system prefix. This wrapper deliberately keeps the old single
-    string shape for tests or external callers that still import it directly; it
-    should not be used as the primary execution assembly path because it combines
-    stable and volatile sections in one string.
-    """
-    stable = build_stable_execution_system_prompt(
-        agent_identity=agent_identity,
-        caller_system_prompt=caller_system_prompt,
-    )
-    volatile = build_current_turn_user_context(
-        user_input="",
-        plan_summary=plan_summary,
-        keyword_context=keyword_context,
-        kb_context=kb_context,
-        session_files_root=session_files_root,
-        risk_level=None,
-        current_time_context=format_agent_timezone_context(),
-    )
-    return f"{stable}\n\n{volatile}".strip()
-
-
-def get_client() -> AsyncOpenAI:
-    """获取进程内共享 AsyncOpenAI（与 :func:`get_shared_async_openai` 相同）。"""
-    return get_shared_async_openai()
-
-
 # ─── 环境变量缓存（性能优化）────────────────────────────────────
 
 @lru_cache(maxsize=1)
@@ -680,15 +616,14 @@ async def execute_plan(
     on_tool_call: OnToolCall | None = None,
     on_thinking: OnThinking | None = None,
     *,
+    memory: MemoryRuntimeProtocol,
+    knowledge_registry: KnowledgeRegistryProtocol,
     on_tool_finish: OnToolFinish | None = None,
     system_prompt: str | None = None,
     clawhub: ClawHubClientProtocol | None = None,
-    memory_store: MemoryStoreProtocol | None = None,
-    activity_log: ActivityLogProtocol | None = None,
-    keyword_index: KeywordIndexProtocol | None = None,
-    memory_context: MemoryContextProtocol | None = None,
-    client: AsyncOpenAI | None = None,
+    client: AsyncOpenAI,
     confirmation_channel: Any | None = None,
+    tool_semaphore: asyncio.Semaphore | None = None,
 ) -> str:
     """执行结构化计划（ReAct 循环）。
 
@@ -703,7 +638,7 @@ async def execute_plan(
     **分步模式**（PHASED_EXECUTION=True 且 plan.steps 非空）：
     - 每步独立子循环，显示 "[步骤 i/n]" 思考 header
     - 最后一步用尽单步轮次但全局仍有余量时，追加无 tools 的 synthesis 收尾
-    - 避免分步过多导致 token 预算分散（见 STEP_MAX_TURNS）
+    - 避免分步过多导致 token 预算分散（见 EXECUTION_STEP_MAX_TURNS）
 
     **流式处理**（agent_config.streaming=True）：
     - 通过 on_thinking 回调实时推送思考内容
@@ -729,44 +664,52 @@ async def execute_plan(
             ``UnifiedEngine.run_agent_with_thinking`` 已默认传入。
         system_prompt: 调用方注入的稳定系统补充（如 skill prompts、通道级稳定规则）
         clawhub: ClawHub 客户端实例
-        memory_store: 记忆存储（默认与 ``paths.state_dir`` 进程 bundle 一致）
-        activity_log: 活动日志（同上）
-        keyword_index: 关键词索引（同上；缺省时优先使用 store 已绑定索引）
-        memory_context: 记忆上下文服务（缺省时由 store/索引构造默认实现）
-        client: LLM 客户端（默认进程内共享 AsyncOpenAI）
+        memory: 由组合根注入的记忆运行时，统一提供存储、日志、索引和上下文服务
+        knowledge_registry: 由组合根注入的知识库注册表
+        client: 由组合根显式注入的 LLM 客户端
         confirmation_channel: 确认通道；``require-confirm`` 工具执行前经此等待用户 /confirm
+        tool_semaphore: 由引擎持有的进程级工具并发限制；直接调用时创建本轮私有限制器
 
     Returns:
         LLM 的最终回复文本
     """
-    ms, al, ki = resolve_memory_dependencies(memory_store, activity_log, keyword_index)
-    mc = resolve_memory_context(memory_context, ms, ki)
+    ms = memory.store
+    al = memory.activity_log
+    ki = memory.keyword_index
+    mc = memory.context
+    session_config = agent_config.session_config
+    feishu_config = agent_config.feishu_config
+    execution_semaphore = tool_semaphore or asyncio.Semaphore(
+        max(1, min(20, EXECUTION_MAX_CONCURRENT_TOOLS))
+    )
 
     # ── 工具筛选 ──
-    effective_registry = agent_config.session_registry or registry
+    effective_registry = session_config.session_registry or registry
     tools = _resolve_exec_tools(effective_registry, agent_config, plan, None)
 
     # ── 执行上下文 ──
-    workspace = agent_config.session_workspace or get_default_workspace()
+    workspace = session_config.session_workspace or get_default_workspace()
     # 允许路径：workspace 作为主工作目录（会话 files/ 或 cwd），
     # 同时加入项目根目录以确保 exec/mkdir 等环境操作不受路径限制。
     _cwd = os.getcwd()
     _allowed = list(dict.fromkeys([workspace, _cwd]))  # 去重但保持顺序
-    mq_abort = (agent_config.feishu_receive_chat_id or "").strip() or None
-    rid_raw = (getattr(agent_config, "feishu_im_receive_id_type", None) or "").strip().lower()
+    mq_abort = (feishu_config.receive_chat_id or "").strip() or None
+    rid_raw = (feishu_config.im_receive_id_type or "").strip().lower()
     if rid_raw not in ("chat_id", "open_id", "union_id"):
         # 从JSON配置获取（支持环境变量覆盖）
         rid_raw = get_config("feishu.receive_id_type", "chat_id")
     feishu_rid_type = rid_raw if rid_raw in ("chat_id", "open_id", "union_id") else None
-    im_recv_alt = (getattr(agent_config, "feishu_im_receive_id", None) or "").strip() or None
+    im_recv_alt = (feishu_config.im_receive_id or "").strip() or None
     ctx = ToolContext(
         cwd=workspace,
         allowed_paths=_allowed,
         permission="allowlist",
         clawhub=clawhub,
-        session_key=agent_config.session_key,
-        cli_loop_state=agent_config.cli_loop_state,
-        cli_dispatch_allow_mutations=agent_config.cli_dispatch_allow_mutations,
+        knowledge_registry=knowledge_registry,
+        llm_client=client,
+        session_key=session_config.session_key,
+        cli_loop_state=feishu_config.cli_loop_state,
+        cli_dispatch_allow_mutations=feishu_config.cli_dispatch_allow_mutations,
         message_queue_abort_chat_id=mq_abort,
         feishu_im_receive_id_type=feishu_rid_type,
         feishu_im_receive_id=im_recv_alt,
@@ -796,7 +739,7 @@ async def execute_plan(
         tools=tools,
         overflow_strategy=overflow_strategy,
         reserve_ratio=agent_config.context_reserve_ratio,
-        session_key=agent_config.session_key,
+        session_key=session_config.session_key,
     )
 
     output_spec_block = format_output_spec_block(plan.output_spec)
@@ -805,12 +748,12 @@ async def execute_plan(
     # 结构化会话记忆、关键词检索和知识库检索都跟随 user_input 高频变化，
     # 因此只放入 current_turn_context；stable_system 仅保留身份、技能/通道规则
     # 与不含当前时间戳的稳定说明，方便 provider 复用前缀缓存。
-    bg_ephemeral = _is_ephemeral_session(agent_config.session_key)
+    bg_ephemeral = _is_ephemeral_session(session_config.session_key)
     turn_keyword_context: str | None = None
-    if agent_config.session_key and not bg_ephemeral:
+    if session_config.session_key and not bg_ephemeral:
         _, mem_meta = await mc.inject_memory_to_messages(
             [],
-            agent_config.session_key,
+            session_config.session_key,
             agent_config,
             user_input=user_input,
             activity_log=al,
@@ -826,7 +769,11 @@ async def execute_plan(
         # ── 知识库检索（使用公共函数，支持配置）──
         from miniagent.knowledge import retrieve_knowledge_context
         kb_context_str = retrieve_knowledge_context(
-            user_input, phase="executor", default_top_k=3, default_max_chars=4000
+            knowledge_registry,
+            user_input,
+            phase="executor",
+            default_top_k=3,
+            default_max_chars=4000,
         )
         # 公共函数返回的字符串已有标题，直接使用
         kb_context: str | None = kb_context_str if kb_context_str else None
@@ -840,7 +787,7 @@ async def execute_plan(
             plan_summary=plan.summary,
             keyword_context=turn_keyword_context,
             kb_context=kb_context,
-            session_files_root=agent_config.session_workspace,
+            session_files_root=session_config.session_workspace,
             risk_level=agent_config.risk_level,
             current_time_context=format_agent_timezone_context(),
             output_spec_block=output_spec_block,
@@ -850,7 +797,11 @@ async def execute_plan(
         # ── 知识库检索（无会话时也检索，使用公共函数）──
         from miniagent.knowledge import retrieve_knowledge_context
         kb_context_str = retrieve_knowledge_context(
-            user_input, phase="executor", default_top_k=3, default_max_chars=4000
+            knowledge_registry,
+            user_input,
+            phase="executor",
+            default_top_k=3,
+            default_max_chars=4000,
         )
         kb_context: str | None = kb_context_str if kb_context_str else None
 
@@ -863,7 +814,7 @@ async def execute_plan(
             plan_summary=plan.summary,
             keyword_context=None,
             kb_context=kb_context,
-            session_files_root=agent_config.session_workspace,
+            session_files_root=session_config.session_workspace,
             risk_level=agent_config.risk_level,
             current_time_context=format_agent_timezone_context(),
             output_spec_block=output_spec_block,
@@ -871,12 +822,12 @@ async def execute_plan(
         context_manager.init(stable_system, current_turn_context)
 
     # ── 恢复对话历史（在当前输入之前） ──
-    if agent_config.conversation_history:
+    if session_config.conversation_history:
         # 先保存当前 user 上下文（包含本轮动态检索与时间信息）。
         # 最终顺序必须保持 system → history → current user context：
         # history 放到 system 前面会破坏稳定前缀，也会改变 system 指令优先级。
         current_user_msg = {"role": "user", "content": current_turn_context}
-        hist_api = conversation_history_for_llm(agent_config.conversation_history)
+        hist_api = conversation_history_for_llm(session_config.conversation_history)
         # 重建消息：system + 历史 + 当前输入。
         context_manager._messages = [
             context_manager._messages[0],  # system prompt
@@ -885,7 +836,7 @@ async def execute_plan(
         ]
         context_manager._recalculate_tokens()
         if agent_config.debug:
-            _logger.debug("恢复对话历史: %d 条消息", len(agent_config.conversation_history))
+            _logger.debug("恢复对话历史: %d 条消息", len(session_config.conversation_history))
 
     max_turns = agent_config.max_turns
     turns_left = max_turns
@@ -895,7 +846,7 @@ async def execute_plan(
     turn_tool_calls: list[dict[str, Any]] = []
 
     # 活动日志 — 记录会话开始（后台子 session 不落盘）
-    session_key = agent_config.session_key or "default"
+    session_key = session_config.session_key or "default"
     source = "cli"  # 默认 CLI，飞书调用方会设置 session_key
     if not bg_ephemeral:
         al.log_session_start(session_key, user_input, source)
@@ -909,14 +860,14 @@ async def execute_plan(
         )
         _logger.debug("三层记忆: L3(关键词索引 %d 词)", idx_stats["total_keywords"])
 
-    llm_client = client if client is not None else get_shared_async_openai()
+    llm_client = client
 
     async def _persist_session_memory(final_reply: str) -> None:
         """回合结束后写入会话记忆与最终回复活动日志（跳过后台 ephemeral session）。"""
-        if not agent_config.session_key or not final_reply or bg_ephemeral:
+        if not session_config.session_key or not final_reply or bg_ephemeral:
             return
         await mc.save_memory_after_turn(
-            agent_config.session_key,
+            session_config.session_key,
             user_input,
             final_reply,
             ms,
@@ -1321,10 +1272,7 @@ async def execute_plan(
             - Exception: 其他异常（权限拒绝、参数错误、内部错误等），返回错误信息
             无论成功与否，都会记录 trace 和 monitor，不影响其他工具执行。
             """
-            # 性能优化：获取并发限制信号量
-            semaphore = _get_tool_semaphore()
-
-            async with semaphore:  # 限制并发数
+            async with execution_semaphore:
                 _raise_if_task_cancelled()
                 tool_start = time.monotonic_ns() // 1_000_000
                 emit_trace(
@@ -1655,10 +1603,10 @@ async def execute_plan(
                                 return oob_txt
                             return final_reply
                     return (
-                        f"{WARNING_PREFIX} 最后一步在单步子轮次（Internal STEP_MAX_TURNS）或总轮数限制内，"
+                        f"{WARNING_PREFIX} 最后一步在单步子轮次（Internal EXECUTION_STEP_MAX_TURNS）或总轮数限制内，"
                         "未以「无工具调用」形式结束。\n\n"
                         "可在 config.user.json 提高 agent.max_turns，"
-                        "或联系维护者调整 Internal 分步执行常量（PHASED_EXECUTION / STEP_MAX_TURNS）后重试。"
+                        "或联系维护者调整 Internal 分步执行常量（EXECUTION_PHASED_ENABLED / EXECUTION_STEP_MAX_TURNS）后重试。"
                     )
 
                 if not is_last and not step_resolved and turns_left > 0:
@@ -1668,7 +1616,7 @@ async def execute_plan(
                             "role": "user",
                             "content": (
                                 "（系统提示：上一步在单步子轮次内未结束，以下继续下一步；"
-                                "若结果不理想可适当提高 agent.max_turns 或 Internal STEP_MAX_TURNS。）"
+                                "若结果不理想可适当提高 agent.max_turns 或 Internal EXECUTION_STEP_MAX_TURNS。）"
                             ),
                         },
                     )
@@ -1678,7 +1626,7 @@ async def execute_plan(
     # ── 达到最大轮数 ──
     loop_stats = loop_detector.get_stats()
 
-    if agent_config.session_key and not bg_ephemeral:
+    if session_config.session_key and not bg_ephemeral:
         al.log_incomplete(session_key, f"达到最大轮数 {max_turns}")
 
     if agent_config.debug:
@@ -1736,9 +1684,7 @@ def _extract_tool_intent(tool_name: str, args: dict[str, Any]) -> str:
 
 __all__ = [
     "execute_plan",
-    "get_client",
     "AGENT_IDENTITY",
-    "build_execution_system_prompt",
     "build_stable_execution_system_prompt",
     "build_current_turn_user_context",
 ]

@@ -1,6 +1,6 @@
 """进程级 IANA 时区 SSOT：Agent、工具与定时任务默认均由此解析。
 
-配置来源：config.defaults.json / config.user.json（``timezone.default``、``timezone.default_fallback``）。
+配置来源：包内 defaults / config.user.json（``timezone.default``、``timezone.default_fallback``）。
 """
 
 from __future__ import annotations

@@ -6,6 +6,12 @@ import asyncio
 
 import pytest
 
+from tests.memory_helpers import (
+    make_background_task_manager,
+    make_knowledge_registry,
+    make_memory_runtime,
+)
+
 
 @pytest.mark.asyncio
 async def test_abort_chat_cancels_running_and_pending_in_queue_mode():
@@ -56,6 +62,7 @@ async def test_abort_chat_idle_chat():
 
 @pytest.mark.asyncio
 async def test_dispatch_abort_respects_message_queue_abort_chat_id():
+    from miniagent.bootstrap.application import ApplicationContainer
     from miniagent.engine.command_dispatch import dispatch_command
     from miniagent.engine.engine import UnifiedEngine
     from miniagent.engine.feishu_state import FeishuRuntime
@@ -63,7 +70,6 @@ async def test_dispatch_abort_respects_message_queue_abort_chat_id():
     from miniagent.infrastructure.message_queue import MessageQueueManager
     from miniagent.infrastructure.monitor import DefaultToolMonitor
     from miniagent.infrastructure.registry import DefaultToolRegistry
-    from miniagent.runtime.context import RuntimeContext
     from miniagent.skills import DefaultSkillRegistry, create_clawhub_client
     from tests.test_startup import _make_memory_bundle
 
@@ -78,7 +84,7 @@ async def test_dispatch_abort_respects_message_queue_abort_chat_id():
     mq.abort_chat = wrapped_abort  # type: ignore[method-assign]
 
     ms, al, ki, mc = _make_memory_bundle()
-    ctx = RuntimeContext(
+    ctx = ApplicationContainer(
         registry=DefaultToolRegistry(),
         monitor=DefaultToolMonitor(),
         skill_registry=DefaultSkillRegistry(),
@@ -87,10 +93,9 @@ async def test_dispatch_abort_respects_message_queue_abort_chat_id():
         channel_router=ChannelRouter(),
         message_queue=mq,
         feishu=FeishuRuntime(mq),
-        memory_store=ms,
-        activity_log=al,
-        keyword_index=ki,
-        memory_context=mc,
+        memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki, context=mc),
+        knowledge_registry=make_knowledge_registry(),
+        background_tasks=make_background_task_manager(),
     )
     state = {
         "active_session_id": "default",
@@ -162,3 +167,77 @@ async def test_abort_chat_preemptive_cancels_current():
     assert r["cancelled_preemptive_current"] is True
     assert r.get("cancelled_running") is True
     assert int(r.get("cancelled_dispatch_wait") or 0) == 0
+
+
+@pytest.mark.asyncio
+async def test_completed_queue_tasks_do_not_consume_queue_capacity() -> None:
+    from miniagent.infrastructure.message_queue import MessageQueueManager
+
+    mq = MessageQueueManager()
+    finished = asyncio.Event()
+
+    async def quick_job() -> None:
+        finished.set()
+
+    await mq.dispatch("room-cleanup", quick_job())
+    await asyncio.wait_for(finished.wait(), timeout=1.0)
+    await asyncio.sleep(0)
+
+    assert mq.get_agent_status("room-cleanup")["pending"] == 0
+
+
+@pytest.mark.asyncio
+async def test_switch_to_preemptive_cancels_existing_queue_wrappers() -> None:
+    from miniagent.infrastructure.message_queue import MessageQueueManager, QueueMode
+
+    mq = MessageQueueManager()
+    cancelled: list[str] = []
+
+    async def hold(name: str) -> None:
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.append(name)
+            raise
+
+    await mq.dispatch("room-switch", hold("first"))
+    await mq.dispatch("room-switch", hold("second"))
+    await asyncio.sleep(0)
+
+    mq.mode = QueueMode.PREEMPTIVE
+    await mq.dispatch("room-switch", asyncio.sleep(0))
+    await asyncio.sleep(0)
+
+    assert cancelled == ["first"]
+    assert mq.get_agent_status("room-switch")["pending"] == 0
+
+
+@pytest.mark.asyncio
+async def test_shutdown_awaits_queue_task_cancellation() -> None:
+    from miniagent.infrastructure.message_queue import MessageQueueManager
+
+    mq = MessageQueueManager()
+    cancelled = asyncio.Event()
+
+    async def hold() -> None:
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            await asyncio.sleep(0)
+            cancelled.set()
+            raise
+
+    await mq.dispatch("room-shutdown", hold())
+    await asyncio.sleep(0)
+    await mq.shutdown()
+
+    assert cancelled.is_set()
+    assert mq.get_agent_status("room-shutdown") == {
+        "busy": False,
+        "pending": 0,
+        "elapsed_seconds": None,
+        "status": "idle",
+    }
+
+    with pytest.raises(RuntimeError, match="已关闭"):
+        await mq.dispatch("room-shutdown", asyncio.sleep(0))

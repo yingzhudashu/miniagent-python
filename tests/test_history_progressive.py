@@ -113,7 +113,7 @@ def test_redact_param_with_internal_backticks() -> None:
 
 def test_compress_step_includes_plan_line_when_present() -> None:
     text = (
-        "[执行计划]\n摘要\n\n步骤概要：\n"
+        "[评估与计划]\n摘要\n\n步骤概要：\n"
         "2. Second step description here long enough\n\n"
         "[步骤 2/3] run this\n" + ("detail " * 30)
     )

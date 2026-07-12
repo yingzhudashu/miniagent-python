@@ -2,8 +2,7 @@
 
 从原 ``unified`` 单文件拆分而来。**职责**：按 ``session_key`` 绑定 ``SessionManager`` 与会话历史；
 组装技能工具箱与系统提示片段；调用 :func:`miniagent.core.agent.run_agent` 并串联 ``ThinkingDisplay``
-（CLI 实时打印 / 飞书侧缓冲后卡片）；在适当时机解析 ``resolve_memory_dependencies`` 注入的
-``memory_store`` / ``activity_log`` / ``keyword_index``。
+（CLI 实时打印 / 飞书侧缓冲后卡片）；记忆服务由组合根以单一 ``MemoryRuntime`` 注入。
 
 **非职责**：不实现飞书 WebSocket 协议细节（见 :mod:`miniagent.feishu.poll_server`）；不解析 ``.`` 命令
 （见 :mod:`miniagent.engine.command_dispatch`）。与 :mod:`miniagent.core` 的分工：core 无 asyncio 主循环与 stdin。
@@ -17,6 +16,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -26,21 +26,16 @@ from typing import Any
 _STEP_NUMBER_PATTERN = re.compile(r"\[步骤\s*(\d+)\s*/\s*(\d+)\s*\]")
 _ROUND_NUMBER_PATTERN = re.compile(r"第\s*(\d+)\s*轮")
 
+from miniagent.contracts.knowledge import KnowledgeRegistryProtocol
+from miniagent.contracts.memory import MemoryRuntimeProtocol
 from miniagent.core.agent import run_agent
 from miniagent.engine.cli_commands import feishu_dot_commands_full_enabled
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
-from miniagent.memory.defaults import resolve_memory_context, resolve_memory_dependencies
 from miniagent.session.manager import SessionOptions
-from miniagent.types.agent import AgentRunResult
 from miniagent.types.confirmation import ConfirmationResult
 
 _logger = get_logger(__name__)
-
-
-def _reply_from_run_agent_result(result: AgentRunResult | str) -> str:
-    """从 ``run_agent`` 返回值提取最终回复（兼容测试 mock 仍返回 ``str``）。"""
-    return result.reply if isinstance(result, AgentRunResult) else result
 
 
 def _fence_tool_output(body: str) -> str:
@@ -109,6 +104,11 @@ class UnifiedEngine:
         self._confirmation_channels: dict[str, Any] = {}
         self._last_reflection: dict[str, Any] = {}
         self._active_session_key: str | None = None
+        from miniagent.core.constants import EXECUTION_MAX_CONCURRENT_TOOLS
+
+        self._tool_semaphore = asyncio.Semaphore(
+            max(1, min(20, EXECUTION_MAX_CONCURRENT_TOOLS))
+        )
 
     async def run_agent_with_thinking(
         self,
@@ -117,6 +117,9 @@ class UnifiedEngine:
         skill_toolboxes: list,
         skill_prompts: str | None,
         *,
+        memory: MemoryRuntimeProtocol,
+        knowledge_registry: KnowledgeRegistryProtocol,
+        client: Any,
         is_feishu: bool = False,
         registry: Any = None,
         monitor: Any = None,
@@ -124,11 +127,6 @@ class UnifiedEngine:
         feishu_config: Any = None,
         channel_router: Any = None,
         clawhub: Any | None = None,
-        memory_store: Any | None = None,
-        activity_log: Any | None = None,
-        keyword_index: Any | None = None,
-        memory_context: Any | None = None,
-        client: Any | None = None,
         feishu_receive_chat_id: str | None = None,
         feishu_trigger_message_id: str | None = None,
         feishu_root_id: str | None = None,
@@ -151,6 +149,8 @@ class UnifiedEngine:
             session_key: 会话标识符
             skill_toolboxes: 可用工具箱
             skill_prompts: 技能系统提示词
+            memory: 由应用组合根注入的完整记忆运行时
+            knowledge_registry: 由应用组合根注入的知识库注册表
             is_feishu: 当前请求是否来自飞书通道（非独立启动形态；进程始终带 CLI）
             registry: 工具注册表（注入）
             monitor: 性能监控器（注入）
@@ -158,10 +158,6 @@ class UnifiedEngine:
             feishu_config: 飞书配置（注入）
             channel_router: 通道路由器（飞书思考多通道回调时使用）
             clawhub: ClawHub 客户端（注入至工具上下文，技能搜索/安装复用）
-            memory_store: 记忆存储（默认与 ``MINIAGENT_PATHS_STATE_DIR`` 进程 bundle 一致）
-            activity_log: 活动日志（同上）
-            keyword_index: 关键词索引（同上）
-            memory_context: 记忆上下文服务（同上；缺省时由 store/索引构造）
             client: LLM 客户端（``None`` 时由 ``run_agent`` 回落到共享工厂）
             feishu_receive_chat_id: 飞书消息 API 用的会话 ID（如群聊 ``oc_xxx``）。
                 必须与 ``receive_id_type=chat_id`` 一致，**不得**传入内部路由键 ``feishu:oc_xxx``。
@@ -194,8 +190,7 @@ class UnifiedEngine:
                 is_feishu=is_feishu, registry=registry, monitor=monitor,
                 session_manager=session_manager, feishu_config=feishu_config,
                 channel_router=channel_router, clawhub=clawhub,
-                memory_store=memory_store, activity_log=activity_log,
-                keyword_index=keyword_index, memory_context=memory_context, client=client,
+                memory=memory, knowledge_registry=knowledge_registry, client=client,
                 feishu_receive_chat_id=feishu_receive_chat_id,
                 feishu_trigger_message_id=feishu_trigger_message_id,
                 feishu_root_id=feishu_root_id, feishu_parent_id=feishu_parent_id,
@@ -213,8 +208,7 @@ class UnifiedEngine:
                 is_feishu=is_feishu, registry=registry, monitor=monitor,
                 session_manager=session_manager, feishu_config=feishu_config,
                 channel_router=channel_router, clawhub=clawhub,
-                memory_store=memory_store, activity_log=activity_log,
-                keyword_index=keyword_index, memory_context=memory_context, client=client,
+                memory=memory, knowledge_registry=knowledge_registry, client=client,
                 feishu_receive_chat_id=feishu_receive_chat_id,
                 feishu_trigger_message_id=feishu_trigger_message_id,
                 feishu_root_id=feishu_root_id, feishu_parent_id=feishu_parent_id,
@@ -247,6 +241,9 @@ class UnifiedEngine:
         skill_toolboxes: list,
         skill_prompts: str | None,
         *,
+        memory: MemoryRuntimeProtocol,
+        knowledge_registry: KnowledgeRegistryProtocol,
+        client: Any,
         is_feishu: bool = False,
         registry: Any = None,
         monitor: Any = None,
@@ -254,11 +251,6 @@ class UnifiedEngine:
         feishu_config: Any = None,
         channel_router: Any = None,
         clawhub: Any | None = None,
-        memory_store: Any | None = None,
-        activity_log: Any | None = None,
-        keyword_index: Any | None = None,
-        memory_context: Any | None = None,
-        client: Any | None = None,
         feishu_receive_chat_id: str | None = None,
         feishu_trigger_message_id: str | None = None,
         feishu_root_id: str | None = None,
@@ -274,7 +266,7 @@ class UnifiedEngine:
 
         由 run_agent_with_thinking 在 SessionExecCoordinator.acquire 内调用。
         执行流程：
-        1. 解析记忆依赖（memory_store/activity_log/keyword_index）
+        1. 使用组合根注入的记忆运行时
         2. 获取或创建会话上下文（SessionManager）
         3. 构建系统提示（技能 + 分层记忆摘要）
         4. 注册飞书思考流回调（``is_feishu`` 且提供 ``feishu_config`` 时）
@@ -298,9 +290,8 @@ class UnifiedEngine:
             feishu_config: 飞书配置（飞书通道必填）
             channel_router: 通道路由器（飞书通道必填）
             clawhub: ClawHub 客户端（可选）
-            memory_store: 记忆存储（可选）
-            activity_log: 活动日志（可选）
-            keyword_index: 关键词索引（可选）
+            memory: 完整记忆运行时（必填）
+            knowledge_registry: 知识库注册表（必填）
             client: LLM 客户端（可选）
             feishu_receive_chat_id: 飞书接收消息的 chat_id
             feishu_trigger_message_id: 飞书触发消息 ID
@@ -321,8 +312,8 @@ class UnifiedEngine:
             - 飞书思考使用流式卡片（PATCH 节流）
             - 同轮工具调用合并到同一卡片
         """
-        ms, al, ki = resolve_memory_dependencies(memory_store, activity_log, keyword_index)
-        mc = resolve_memory_context(memory_context, ms, ki)
+        ms = memory.store
+        al = memory.activity_log
 
         # 1. 获取会话
         session_opts = SessionOptions(
@@ -331,15 +322,7 @@ class UnifiedEngine:
         ctx = session_manager.get_or_create(session_key, session_opts)
         history = ctx.conversation_history
 
-        # 优先 API get_session_files_path；无则回退 Session.files_path（旧桩/测试可能无该方法）
-        session_workspace = None
-        getter = getattr(session_manager, "get_session_files_path", None)
-        if callable(getter):
-            session_workspace = getter(session_key)
-        if not session_workspace:
-            session_workspace = (
-                getattr(ctx, "files_path", None) or getattr(ctx, "workspace_path", None) or None
-            )
+        session_workspace = session_manager.get_session_files_path(session_key)
 
         # 2. 技能与分层摘要作为低频 system augment 传给 execute_plan。
         #    结构化会话记忆、关键词检索与知识库检索由执行器按本轮 user_input
@@ -398,20 +381,39 @@ class UnifiedEngine:
                     return
                 if finalize_only:
                     await finalize_feishu_thinking_stream(
-                        feishu_config, chat_id, template, st_local
+                        feishu_config,
+                        chat_id,
+                        template,
+                        st_local,
+                        confirmation_engine=self,
                     )
                     return
                 if streaming:
                     await push_feishu_thinking_stream(
-                        feishu_config, chat_id, text, template, st_local, new_round=is_new_round
+                        feishu_config,
+                        chat_id,
+                        text,
+                        template,
+                        st_local,
+                        new_round=is_new_round,
+                        confirmation_engine=self,
                     )
                 elif merge_tools:
                     await append_feishu_thinking_same_card(
-                        feishu_config, chat_id, text, template, st_local
+                        feishu_config,
+                        chat_id,
+                        text,
+                        template,
+                        st_local,
+                        confirmation_engine=self,
                     )
                 else:
                     await finalize_feishu_thinking_stream(
-                        feishu_config, chat_id, template, st_local
+                        feishu_config,
+                        chat_id,
+                        template,
+                        st_local,
+                        confirmation_engine=self,
                     )
                     await _send_thinking(
                         feishu_config,
@@ -568,21 +570,25 @@ class UnifiedEngine:
         if not _recv_chat and session_key.startswith("feishu:"):
             _recv_chat = session_key[len("feishu:") :].strip()
         agent_cfg_in: dict[str, Any] = {
-            "session_key": session_key,
-            "session_workspace": session_workspace,
-            "conversation_history": history,
+            "session_config": {
+                "session_key": session_key,
+                "session_workspace": session_workspace,
+                "conversation_history": history,
+            },
             "debug": False,
-            "cli_loop_state": cli_loop_state,
-            "cli_dispatch_allow_mutations": (
-                True if not is_feishu else feishu_dot_commands_full_enabled()
-            ),
-            "feishu_receive_chat_id": _recv_chat or None,
-            "feishu_trigger_message_id": (feishu_trigger_message_id or "").strip() or None,
-            "feishu_root_id": (feishu_root_id or "").strip() or None,
-            "feishu_parent_id": (feishu_parent_id or "").strip() or None,
-            "feishu_thread_id": (feishu_thread_id or "").strip() or None,
-            "feishu_im_receive_id_type": (feishu_im_receive_id_type or "").strip() or None,
-            "feishu_im_receive_id": (feishu_im_receive_id or "").strip() or None,
+            "feishu_config": {
+                "cli_loop_state": cli_loop_state,
+                "cli_dispatch_allow_mutations": (
+                    True if not is_feishu else feishu_dot_commands_full_enabled()
+                ),
+                "receive_chat_id": _recv_chat or None,
+                "trigger_message_id": (feishu_trigger_message_id or "").strip() or None,
+                "root_id": (feishu_root_id or "").strip() or None,
+                "parent_id": (feishu_parent_id or "").strip() or None,
+                "thread_id": (feishu_thread_id or "").strip() or None,
+                "im_receive_id_type": (feishu_im_receive_id_type or "").strip() or None,
+                "im_receive_id": (feishu_im_receive_id or "").strip() or None,
+            },
         }
         if agent_config_overrides:
             agent_cfg_in.update(agent_config_overrides)
@@ -590,7 +596,7 @@ class UnifiedEngine:
 
         merged_for_prog = merge_agent_config(get_default_agent_config(), agent_cfg_in)
 
-        effective_registry = merged_for_prog.session_registry or registry
+        effective_registry = merged_for_prog.session_config.session_registry or registry
         if is_feishu and effective_registry is not None:
             from miniagent.feishu.agent_channel_prompts import append_feishu_channel_system
 
@@ -603,10 +609,11 @@ class UnifiedEngine:
             "run_agent 调度: session_key=%s source=%s input=%.40s",
             session_key, "feishu" if is_feishu else "cli", (user_input or "").replace("\n", " "),
         )
-        reply = _reply_from_run_agent_result(
-            await run_agent(
+        agent_result = await run_agent(
             user_input,
             registry=registry,
+            memory=memory,
+            knowledge_registry=knowledge_registry,
             monitor=monitor,
             toolboxes=skill_toolboxes,
             skip_planning=False,
@@ -616,23 +623,24 @@ class UnifiedEngine:
             on_tool_finish=_tool_finish,
             on_plan=self._on_plan_handler(session_key),
             clawhub=clawhub,
-            memory_store=ms,
-            activity_log=al,
-            keyword_index=ki,
-            memory_context=mc,
             client=client,
             clarifier=self._get_clarifier(),
             session_key=session_key,
             confirmation_channel=self._get_confirmation_channel(session_key),
             engine=self,
-            )
+            tool_semaphore=self._tool_semaphore,
         )
+        reply = agent_result.reply
         # 无工具调用等场景：最后一轮 LLM 流结束后无 streaming=False，需在此 PATCH 落盘全文
         if is_feishu and feishu_config:
             from miniagent.feishu.poll_server import finalize_feishu_thinking_stream
 
             await finalize_feishu_thinking_stream(
-                feishu_config, im_recv, "gray", self.thinking.thinking_state(session_key),
+                feishu_config,
+                im_recv,
+                "gray",
+                self.thinking.thinking_state(session_key),
+                confirmation_engine=self,
             )
         # 流式思考最后一 chunk 往往不以换行结束；否则下一区块（分隔线/回复）会黏在同一行。
         self.thinking.end_thinking(session_key)
@@ -713,9 +721,7 @@ class UnifiedEngine:
 
         if not bg_ephemeral:
             try:
-                from miniagent.memory.dream_scheduler import schedule_memory_maintenance
-
-                schedule_memory_maintenance(session_key)
+                memory.dream_scheduler.schedule(session_key)
             except Exception as e:
                 _logger.warning("Dream scheduler scheduling failed: %s", e)
 
@@ -801,7 +807,7 @@ class UnifiedEngine:
         Args:
             session_key: 会话标识符
             content: 消息内容
-            session_manager: 当前进程的会话管理器（由 ``RuntimeContext`` / 启动流程持有；
+            session_manager: 当前进程的会话管理器（由 ``ApplicationContainer`` / 启动流程持有；
                 为 ``None`` 时静默跳过）
         """
         if session_manager:

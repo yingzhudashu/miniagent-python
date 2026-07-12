@@ -368,107 +368,6 @@ class TestInstanceRegistry:
             assert disk["pid"] == other_pid
             mgr.unregister()
 
-    def test_list_instances_merges_multiple_roots(self, monkeypatch):
-        from miniagent.infrastructure.instance import (
-            list_instances,
-            reset_instance_registry_for_tests,
-        )
-
-        with tempfile.TemporaryDirectory() as canonical, tempfile.TemporaryDirectory() as legacy:
-            canon_pid = 91001
-            legacy_pid = 91002
-
-            def fake_running(pid: int) -> bool:
-                return pid in (canon_pid, legacy_pid)
-
-            monkeypatch.setattr(
-                "miniagent.infrastructure.instance.is_process_running",
-                fake_running,
-            )
-
-            def _seed(root: str, iid: int, pid: int, mode: str) -> None:
-                d = Path(root) / "instances" / str(iid)
-                d.mkdir(parents=True)
-                (d / "meta.json").write_text(
-                    json.dumps(
-                        {
-                            "pid": pid,
-                            "instance_id": iid,
-                            "mode": mode,
-                            "active_sessions": [],
-                            "hostname": "h",
-                            "start_time": "2026-05-09T10:00:00",
-                        }
-                    ),
-                    encoding="utf-8",
-                )
-
-            _seed(canonical, 1, canon_pid, "cli")
-            _seed(legacy, 1, legacy_pid, "both")
-
-            monkeypatch.setattr(
-                "miniagent.infrastructure.instance._instance_registry_roots",
-                lambda **_: [canonical, legacy],
-            )
-            reset_instance_registry_for_tests()
-
-            found = list_instances()
-            assert len(found) == 2
-            pids = {i["pid"] for i in found}
-            assert pids == {canon_pid, legacy_pid}
-            dirs = {i["state_dir"] for i in found}
-            assert dirs == {canonical, legacy}
-
-    def test_stop_instance_by_id_requires_state_dir_when_ambiguous(self, monkeypatch):
-        from miniagent.infrastructure.instance import (
-            list_instances,
-            reset_instance_registry_for_tests,
-            stop_instance_by_id,
-        )
-
-        pid_a, pid_b = 92001, 92002
-
-        def fake_running(pid: int) -> bool:
-            return pid in (pid_a, pid_b)
-
-        monkeypatch.setattr(
-            "miniagent.infrastructure.instance.is_process_running",
-            fake_running,
-        )
-
-        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
-            for root, pid in ((a, pid_a), (b, pid_b)):
-                d = Path(root) / "instances" / "1"
-                d.mkdir(parents=True)
-                (d / "meta.json").write_text(
-                    json.dumps(
-                        {
-                            "pid": pid,
-                            "instance_id": 1,
-                            "mode": "cli",
-                            "active_sessions": [],
-                            "hostname": "h",
-                            "start_time": "2026-05-09T10:00:00",
-                        }
-                    ),
-                    encoding="utf-8",
-                )
-
-            reset_instance_registry_for_tests()
-
-            import miniagent.infrastructure.instance as inst_mod
-
-            orig = inst_mod._instance_registry_roots
-            try:
-                inst_mod._instance_registry_roots = lambda **_: [a, b]
-                assert len(list_instances()) == 2
-                r = stop_instance_by_id(1)
-                assert r["success"] is False
-                assert "多个状态目录" in r["reason"]
-            finally:
-                inst_mod._instance_registry_roots = orig
-                reset_instance_registry_for_tests()
-
     def test_register_same_project_dir_raises_conflict(self, monkeypatch, tmp_path):
         project = tmp_path / "same-project"
         project.mkdir()
@@ -509,10 +408,10 @@ class TestInstanceRegistry:
         )
 
         reset_instance_registry_for_tests()
-        calls: list[tuple] = []
+        calls: list[str | None] = []
 
-        def fake_list(state_dir=None, *, include_legacy_cwd=True):
-            calls.append((state_dir, include_legacy_cwd))
+        def fake_list(state_dir=None):
+            calls.append(state_dir)
             return []
 
         monkeypatch.setattr(
@@ -521,10 +420,10 @@ class TestInstanceRegistry:
         )
 
         list_instances_cached()
-        list_instances_cached(include_legacy_cwd=False)
+        list_instances_cached()
+        list_instances_cached("other")
         assert len(calls) == 2
-        assert calls[0] == (None, True)
-        assert calls[1] == (None, False)
+        assert calls == [None, "other"]
 
         list_instances_cached()
         assert len(calls) == 2

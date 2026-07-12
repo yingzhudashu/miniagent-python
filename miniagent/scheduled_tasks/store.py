@@ -15,8 +15,8 @@ from typing import Literal
 
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
+from miniagent.infrastructure.paths import resolve_state_dir as get_state_root
 from miniagent.infrastructure.timezone_config import process_timezone
-from miniagent.memory.defaults import get_state_root
 from miniagent.scheduled_tasks.file_lock import tasks_json_lock
 from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec
 
@@ -131,13 +131,8 @@ async def save_tasks_async(tasks: list[ScheduledTask]) -> None:
 
 
 def effective_task_timezone(task: ScheduledTask) -> str:
-    """计算/展示用的 IANA 时区；磁盘 ``UTC`` 且非显式指定时回退进程默认。"""
-    tz = (task.schedule.timezone or "").strip() or "UTC"
-    if task.schedule.timezone_explicit:
-        return tz
-    if tz == "UTC":
-        return process_timezone()
-    return tz
+    """返回任务显式保存的 IANA 时区。"""
+    return (task.schedule.timezone or "").strip() or process_timezone()
 
 
 def _parse_once_utc_epoch(
@@ -286,11 +281,7 @@ def format_next_run_display(task: ScheduledTask, *, now_ts: float | None = None)
 
         eff = effective_task_timezone(task)
         local = format_process_local(float(nxt), tz_name=eff)
-        disk = (task.schedule.timezone or "UTC").strip() or "UTC"
-        extra = ""
-        if disk != eff and not task.schedule.timezone_explicit:
-            extra = f" [disk={disk}]"
-        return f"{local} ({when}) tz={eff}{extra}"
+        return f"{local} ({when}) tz={eff}"
     except Exception:
         return f"{nxt:.0f} ({when})"
 

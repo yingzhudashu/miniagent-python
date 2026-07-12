@@ -5,12 +5,11 @@ Enhanced fixtures for standardized testing infrastructure.
 
 from __future__ import annotations
 
-import contextlib
 import os
 import sys
 import tempfile
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -42,16 +41,16 @@ def isolated_config_loader(tmp_path):
     """Factory: build JsonConfigLoader with optional user overrides dict."""
     import json
 
-    from miniagent.infrastructure.json_config import JsonConfigLoader
+    from miniagent.infrastructure.json_config import JsonConfigLoader, install_config_loader
 
     def _factory(user_overrides: dict | None = None) -> JsonConfigLoader:
         user_path = tmp_path / "config.user.json"
         user_path.write_text(json.dumps(user_overrides or {}), encoding="utf-8")
         loader = JsonConfigLoader(
-            defaults_path=os.path.join(PROJECT_ROOT, "config.defaults.json"),
+            defaults_path=None,
             user_path=str(user_path),
         )
-        JsonConfigLoader._instance = loader
+        install_config_loader(loader)
         return loader
 
     return _factory
@@ -64,43 +63,22 @@ def isolated_config_loader(tmp_path):
 
 @pytest.fixture(autouse=True)
 def _reset_process_singletons_after_test() -> None:
-    """Teardown：重置进程级默认记忆 bundle 与共享 AsyncOpenAI，减轻测试顺序敏感。
+    """Teardown：重置仍由模块管理的共享客户端与纯性能缓存。
 
     包含：
-    - 记忆三元组 (memory_store, activity_log, keyword_index) 与嵌入检索单例
     - AsyncOpenAI 客户端
     - Executor 环境缓存
     - LoopDetector 参数缓存
-    - RuntimeContext（如果已初始化）
-    - ChannelRouter（如果已初始化）
     - InstanceRegistry（如果已初始化）
     """
     from miniagent.core.executor import _reset_env_caches_for_tests
-    from miniagent.core.openai_client import reset_shared_async_openai_for_tests
     from miniagent.infrastructure.loop_detector import clear_args_cache
-    from miniagent.memory.defaults import reset_process_default_memory_bundle_for_tests
 
     yield
 
     # 重置所有进程级单例
-    reset_process_default_memory_bundle_for_tests()
-    reset_shared_async_openai_for_tests()
     _reset_env_caches_for_tests()
     clear_args_cache()
-
-    # 尝试重置 RuntimeContext（如果存在）
-    try:
-        from miniagent.runtime.context import reset_runtime_context_for_tests
-        reset_runtime_context_for_tests()
-    except ImportError:
-        pass
-
-    # 尝试重置 ChannelRouter（如果存在）
-    try:
-        from miniagent.infrastructure.channel_router import reset_channel_router_for_tests
-        reset_channel_router_for_tests()
-    except ImportError:
-        pass
 
     # 尝试重置 InstanceRegistry（如果存在）
     try:
@@ -113,58 +91,6 @@ def _reset_process_singletons_after_test() -> None:
 # ============================================================================
 # Mock OpenAI Client Fixtures
 # ============================================================================
-
-
-@pytest.fixture
-def mock_openai_client() -> MagicMock:
-    """全局 OpenAI 客户端 mock，避免真实 API 调用。
-
-    返回一个 MagicMock 客户端，包含：
-    - chat.completions.create（AsyncMock）
-
-    使用方式：
-        def test_example(mock_openai_client):
-            mock_openai_client.chat.completions.create.return_value = ...
-    """
-    mock_client = MagicMock()
-    mock_client.chat.completions.create = AsyncMock()
-    return mock_client
-
-
-@pytest.fixture
-def mock_llm_context(mock_openai_client: MagicMock):
-    """Mock 所有模块中的 get_shared_async_openai 引用（上下文管理器模式）。
-
-    包括：
-    - miniagent.core.openai_client
-    - miniagent.core.task_classifier
-    - miniagent.core.planner
-    - miniagent.core.executor
-
-    使用方式：
-        def test_example(mock_llm_context):
-            mock_client = mock_llm_context.__enter__()
-            # ... 使用 mock_client
-            mock_llm_context.__exit__(None, None, None)
-    """
-    patches = [
-        patch("miniagent.core.openai_client.get_shared_async_openai", return_value=mock_openai_client),
-        patch("miniagent.core.task_classifier.get_shared_async_openai", return_value=mock_openai_client),
-        patch("miniagent.core.planner.get_shared_async_openai", return_value=mock_openai_client),
-        patch("miniagent.core.executor.get_shared_async_openai", return_value=mock_openai_client),
-    ]
-
-    @contextlib.contextmanager
-    def _ctx():
-        for p in patches:
-            p.start()
-        try:
-            yield mock_openai_client
-        finally:
-            for p in patches:
-                p.stop()
-
-    return _ctx()
 
 
 # ============================================================================
@@ -342,6 +268,24 @@ def mock_tool_registry_pair() -> tuple[Any, Any]:
 
 
 @pytest.fixture
+def memory_runtime(state_dir: str):
+    """Return a real, isolated memory object graph owned by the requesting test."""
+    from miniagent.memory.runtime import create_memory_runtime
+
+    runtime = create_memory_runtime(state_dir)
+    yield runtime
+    runtime.close()
+
+
+@pytest.fixture
+def knowledge_registry():
+    """Return an empty explicitly injected knowledge registry test double."""
+    from tests.memory_helpers import make_knowledge_registry
+
+    return make_knowledge_registry()
+
+
+@pytest.fixture
 def mock_memory_bundle() -> tuple[MagicMock, MagicMock, MagicMock]:
     """记忆系统 mock 三元组。
 
@@ -361,10 +305,9 @@ def mock_keyword_index(state_dir: str) -> Any:
     返回 KeywordIndex 实例。
     """
     from miniagent.memory.keyword_index import KeywordIndex
-    from miniagent.memory.shared_registry import get_registry, reset_registry
+    from miniagent.memory.shared_registry import MemoryEntryRegistry
 
-    reset_registry()
-    registry = get_registry(state_dir)
+    registry = MemoryEntryRegistry(state_dir=state_dir)
     ki = KeywordIndex(state_dir=state_dir, registry=registry)
     return ki
 
@@ -402,15 +345,14 @@ def mock_agent_config(mock_tool_registry_pair: tuple[Any, Any]) -> Any:
 
     返回 AgentConfig 实例。
     """
-    from miniagent.types.config import AgentConfig
+    from miniagent.types.config import AgentConfig, SessionBindingConfig
 
     _, sess = mock_tool_registry_pair
     return AgentConfig(
         max_turns=3,
-        session_key=None,
         allow_parallel_tools=True,
         tool_selection_strategy="all",
-        session_registry=sess,
+        session_config=SessionBindingConfig(session_registry=sess),
     )
 
 
@@ -550,8 +492,6 @@ __all__ = [
     # Singleton Reset
     "_reset_process_singletons_after_test",
     # OpenAI Mock
-    "mock_openai_client",
-    "mock_llm_context",
     # Feishu Mock
     "mock_feishu_websocket",
     "mock_feishu_config",

@@ -5,6 +5,7 @@ from datetime import timezone
 
 import pytest
 
+from miniagent.engine.background_inbound import build_background_inbound_message
 from miniagent.engine.background_tasks import (
     BackgroundTask,
     BackgroundTaskManager,
@@ -288,8 +289,13 @@ class TestBackgroundTaskManagerCancel:
                 await asyncio.sleep(10)
 
         state = {"skill_toolboxes": [], "skill_prompts": None}
+        message = build_background_inbound_message(
+            task.task_id,
+            task.session_key,
+            task.prompt,
+        )
         exec_task = asyncio.create_task(
-            manager._execute_task(SlowEngine(), task, state, {})
+            manager._execute_task(SlowEngine(), task, message, state, {})
         )
         manager._exec_by_id["pending01"] = exec_task
 
@@ -389,3 +395,55 @@ class TestBackgroundTaskManagerStats:
 
         assert manager._running_count == 0
         assert manager.get_stats()["running_tasks"] == 0
+
+
+class TestBackgroundTaskManagerShutdown:
+    """Process shutdown cancels internal maintenance and execution tasks."""
+
+    @pytest.mark.asyncio
+    async def test_shutdown_awaits_execution_cleanup(self, monkeypatch):
+        manager = BackgroundTaskManager()
+        cleanup_finished = asyncio.Event()
+
+        async def cleanup(*_args, **_kwargs):
+            cleanup_finished.set()
+
+        monkeypatch.setattr(
+            "miniagent.engine.background_tasks.cleanup_background_session_artifacts",
+            cleanup,
+        )
+
+        class SlowEngine:
+            async def run_agent_with_thinking(self, **_kwargs):
+                await asyncio.Event().wait()
+
+        task_id = await manager.start_task(
+            SlowEngine(),
+            "shutdown",
+            {"skill_toolboxes": [], "skill_prompts": None},
+        )
+        await asyncio.sleep(0)
+        cleanup_task = manager._cleanup_task
+        exec_task = manager._exec_by_id[task_id]
+
+        await manager.shutdown()
+        await manager.shutdown()
+
+        assert cleanup_task is not None and cleanup_task.done()
+        assert exec_task.done()
+        assert cleanup_finished.is_set()
+        assert manager.get_status(task_id)["status"] == "cancelled"
+        assert manager._cleanup_task is None
+        assert manager._exec_tasks == set()
+
+    @pytest.mark.asyncio
+    async def test_closed_manager_rejects_new_tasks(self):
+        manager = BackgroundTaskManager()
+        await manager.shutdown()
+
+        with pytest.raises(RuntimeError, match="已关闭"):
+            await manager.start_task(
+                object(),
+                "late",
+                {"skill_toolboxes": [], "skill_prompts": None},
+            )

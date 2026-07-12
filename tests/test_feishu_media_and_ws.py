@@ -1,7 +1,8 @@
-"""飞书媒体解析、WS 单例清理等单元测试。"""
+"""飞书媒体解析与实例连接状态清理测试。"""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 
@@ -23,16 +24,16 @@ def test_parse_feishu_media_payload_file_and_image():
     )
     assert _parse_feishu_media_payload("file", "{}") is None
     assert _parse_feishu_media_payload("file", "not-json") is None
-    assert _parse_feishu_media_payload("file", '{"file_key":"fk2","name":"legacy.bin"}') == (
+    assert _parse_feishu_media_payload("file", '{"file_key":"fk2","name":"alternate.bin"}') == (
         "file",
         "fk2",
-        "legacy.bin",
+        "alternate.bin",
     )
 
 
 @pytest.mark.asyncio
-async def test_reset_feishu_ws_singleton_disconnects_and_clears():
-    import miniagent.feishu.poll_server as ps
+async def test_feishu_poll_state_reset_disconnects_and_clears():
+    from miniagent.feishu.poll_server import FeishuPollState
 
     class _FakeClient:
         def __init__(self) -> None:
@@ -42,31 +43,49 @@ async def test_reset_feishu_ws_singleton_disconnects_and_clears():
             self.disconnected = True
 
     c = _FakeClient()
-    ps._singleton_client = c
-    ps._singleton_app_id = "app_test"
-    await ps.reset_feishu_ws_singleton()
-    assert ps._singleton_client is None
-    assert ps._singleton_app_id is None
+    state = FeishuPollState()
+    state.client = c
+    state.app_id = "app_test"
+    await state.reset()
+    assert state.client is None
+    assert state.app_id is None
     assert c.disconnected is True
 
 
-def test_abandon_processing_claim_allows_retry_release_writes_disk_dedup():
+@pytest.mark.asyncio
+async def test_feishu_poll_state_reset_awaits_callback_tasks() -> None:
+    from miniagent.feishu.poll_server import FeishuPollState
+
+    state = FeishuPollState()
+    cancelled = asyncio.Event()
+
+    async def callback_work() -> None:
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    state.spawn_callback_task(callback_work())
+    await asyncio.sleep(0)
+    await state.reset()
+
+    assert cancelled.is_set()
+    assert state.callback_tasks == set()
+
+
+def test_abandon_processing_claim_allows_retry_release_writes_disk_dedup(tmp_path):
     """失败路径应 abandon：同一 message_id 可再次 try_begin；release 后写入磁盘去重。"""
-    import miniagent.feishu.feishu_dedup as dedup
+    from miniagent.feishu.feishu_dedup import FeishuDeduplicator
 
     mid = f"dedup-test-{uuid.uuid4().hex}"
+    dedup = FeishuDeduplicator(str(tmp_path))
     assert dedup.try_begin_processing(mid)
-    key = dedup._resolve_dedup_key(mid)
     dedup.abandon_processing_claim(mid)
-    assert key not in dedup._disk_dedup
     assert dedup.try_begin_processing(mid)
 
     dedup.release_processing(mid)
-    assert key in dedup._disk_dedup
     assert not dedup.try_begin_processing(mid)
-
-    dedup._disk_dedup.pop(key, None)
-
 
 def test_extract_post_media_items_recurses_img_and_media():
     from miniagent.feishu.poll_server import _extract_post_media_items

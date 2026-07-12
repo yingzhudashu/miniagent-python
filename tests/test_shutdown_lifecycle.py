@@ -9,23 +9,32 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from miniagent.bootstrap import LifecycleManager
+from miniagent.bootstrap.application import ApplicationContainer
+from miniagent.contracts.messages import InboundMessage
 from miniagent.engine.cli_state import CliLoopState
+from miniagent.engine.feishu_lifecycle import FeishuRuntimeLifecycleService
 from miniagent.engine.feishu_state import FeishuRuntime
 from miniagent.engine.shutdown import shutdown_runtime
 from miniagent.infrastructure.message_queue import MessageQueueManager
 from miniagent.infrastructure.process import cleanup_all_processes
-from miniagent.runtime.context import RuntimeContext
 from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec, SessionSpec
+from miniagent.scheduled_tasks.runner import ScheduledJob
 from miniagent.scheduled_tasks.store import save_tasks
 from miniagent.scheduled_tasks.ticker import tick_once
+from tests.memory_helpers import (
+    make_background_task_manager,
+    make_knowledge_registry,
+    make_memory_runtime,
+)
 from tests.scheduled_tasks_helpers import patch_tick_once_locks
 
 
-def _minimal_ctx() -> RuntimeContext:
+def _minimal_ctx() -> ApplicationContainer:
     mq = MessageQueueManager()
     router = MagicMock()
     router.primary = "default"
-    return RuntimeContext(
+    return ApplicationContainer(
         registry=MagicMock(),
         monitor=MagicMock(),
         skill_registry=MagicMock(),
@@ -34,10 +43,9 @@ def _minimal_ctx() -> RuntimeContext:
         channel_router=router,
         message_queue=mq,
         feishu=FeishuRuntime(mq),
-        memory_store=MagicMock(),
-        activity_log=MagicMock(),
-        keyword_index=MagicMock(),
-        memory_context=MagicMock(),
+        memory=make_memory_runtime(),
+        knowledge_registry=make_knowledge_registry(),
+        background_tasks=make_background_task_manager(),
         openai_client=None,
     )
 
@@ -80,6 +88,39 @@ async def test_shutdown_runtime_feishu_stop_async_noop_when_never_started() -> N
 
 
 @pytest.mark.asyncio
+async def test_shutdown_does_not_stop_lifecycle_managed_feishu_twice() -> None:
+    ctx = _minimal_ctx()
+    runtime = MagicMock()
+    runtime.is_running.return_value = True
+
+    async def _stop_runtime() -> None:
+        runtime.is_running.return_value = False
+
+    runtime.stop_async = AsyncMock(side_effect=_stop_runtime)
+    service = FeishuRuntimeLifecycleService(
+        enabled=True,
+        runtime=runtime,
+        handler_factory=MagicMock(),
+        state={},
+    )
+    manager = LifecycleManager([service])
+    await manager.start()
+    ctx.feishu = runtime
+    ctx.lifecycle_manager = manager
+
+    await shutdown_runtime(
+        ctx,
+        {"active_session_id": ""},  # type: ignore[arg-type]
+        reason="test_managed_feishu",
+        abort_message_queues=False,
+        release_cli_session_lock=False,
+        call_unregister=False,
+    )
+
+    runtime.stop_async.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_feishu_stop_async_awaits_cancelled_poll_task() -> None:
     """start → 可取消的 poll stub → stop_async 应结束 task（不依赖 reset 打桩次数；闭包会绑定首次 import 的符号）。"""
     mq = MessageQueueManager()
@@ -100,10 +141,6 @@ async def test_feishu_stop_async_awaits_cancelled_poll_task() -> None:
         patch(
             "miniagent.feishu.poll_server.start_feishu_poll_server",
             new=fake_poll,
-        ),
-        patch(
-            "miniagent.feishu.poll_server.reset_feishu_ws_singleton",
-            new_callable=AsyncMock,
         ),
     ):
         fe.start(
@@ -185,14 +222,25 @@ async def test_tick_once_job_registered_then_shutdown_cancels(
     due_at = float(t.next_run_at or 0)
     save_tasks([t])
 
-    async def _slow_coro() -> None:
+    async def _slow_run(_message: InboundMessage) -> None:
         await asyncio.sleep(120)
 
-    def _fake_build(*_a: object, **_k: object) -> tuple[object, str]:
-        return (_slow_coro(), "__cli__")
+    def _fake_build(*_a: object, **_k: object) -> ScheduledJob:
+        return ScheduledJob(
+            message=InboundMessage.create(
+                channel="scheduler",
+                conversation_id="__cli__",
+                sender_id="scheduler",
+                content="p",
+                session_key="default",
+                metadata={"queue_key": "__cli__", "task_id": "j_shutdown"},
+            ),
+            queue_key="__cli__",
+            run=_slow_run,
+        )
 
     monkeypatch.setattr(
-        "miniagent.scheduled_tasks.ticker.build_run_scheduled_job_coro",
+        "miniagent.scheduled_tasks.ticker.build_scheduled_job",
         _fake_build,
     )
     patch_tick_once_locks(monkeypatch)
@@ -283,16 +331,22 @@ async def test_shutdown_runtime_invokes_resource_teardown() -> None:
     state: dict = {"active_session_id": ""}
 
     drive_mock = AsyncMock()
-    embed_mock = AsyncMock()
     clawhub_mock = AsyncMock()
-    config_mock = MagicMock()
+    ctx.clawhub.close = clawhub_mock
+    background_mock = AsyncMock()
+    ctx.background_tasks.shutdown = background_mock
     trace_mock = MagicMock()
+    mcp_close = AsyncMock()
+    active_openai = MagicMock()
+    active_openai.close = AsyncMock()
+    retired_openai = MagicMock()
+    retired_openai.close = AsyncMock()
+    ctx.openai_client = active_openai
+    ctx.retired_openai_clients.append(retired_openai)
 
     with (
         patch("miniagent.feishu.drive_client.close_http_client", drive_mock),
-        patch("miniagent.memory.embedding_search.close_embed_http_client", embed_mock),
-        patch("miniagent.skills.clawhub_client.close_clawhub_client", clawhub_mock),
-        patch("miniagent.infrastructure.config_watch.stop_config_watch", config_mock),
+        patch("miniagent.mcp.runtime.close_mcp_connections", mcp_close),
         patch("miniagent.infrastructure.tracing.shutdown_trace_writer", trace_mock),
     ):
         await shutdown_runtime(
@@ -305,10 +359,68 @@ async def test_shutdown_runtime_invokes_resource_teardown() -> None:
         )
 
     drive_mock.assert_awaited_once()
-    embed_mock.assert_awaited_once()
     clawhub_mock.assert_awaited_once()
-    config_mock.assert_called_once_with(ctx)
+    background_mock.assert_awaited_once()
     trace_mock.assert_called_once()
+    mcp_close.assert_awaited_once()
+    active_openai.close.assert_awaited_once()
+    retired_openai.close.assert_awaited_once()
+    assert ctx.openai_client is None
+    assert ctx.retired_openai_clients == []
+
+
+@pytest.mark.asyncio
+async def test_shutdown_stops_producers_before_consumers_and_resources() -> None:
+    ctx = _minimal_ctx()
+    order: list[str] = []
+    lifecycle = MagicMock()
+    lifecycle.stop = AsyncMock(side_effect=lambda: order.append("lifecycle"))
+    ctx.lifecycle_manager = lifecycle
+    ctx.background_tasks.shutdown = AsyncMock(
+        side_effect=lambda: order.append("background")
+    )
+    ctx.message_queue.shutdown = AsyncMock(side_effect=lambda: order.append("queue"))
+    ctx.memory.shutdown = AsyncMock(side_effect=lambda: order.append("memory"))
+
+    await shutdown_runtime(
+        ctx,
+        {"active_session_id": ""},  # type: ignore[arg-type]
+        reason="test_shutdown_order",
+        abort_message_queues=True,
+        release_cli_session_lock=False,
+        call_unregister=False,
+    )
+
+    assert order[:4] == ["lifecycle", "background", "queue", "memory"]
+
+
+@pytest.mark.asyncio
+async def test_run_runtime_failure_always_invokes_unified_shutdown() -> None:
+    from miniagent.engine.main import run_runtime
+
+    ctx = _minimal_ctx()
+    shutdown = AsyncMock()
+    init_failure = RuntimeError("init failed")
+
+    with (
+        patch("miniagent.engine.main._configure_console_encoding"),
+        patch("miniagent.engine.main.register_instance", return_value={"instance_id": 1}),
+        patch("miniagent.engine.main.signal.signal"),
+        patch(
+            "miniagent.engine.init.init_subsystems",
+            new=AsyncMock(side_effect=init_failure),
+        ),
+        patch("miniagent.engine.main.shutdown_runtime", new=shutdown),
+    ):
+        with pytest.raises(RuntimeError, match="init failed"):
+            await run_runtime(ctx)
+
+    shutdown.assert_awaited_once()
+    kwargs = shutdown.await_args.kwargs
+    assert kwargs["reason"] == "run_runtime_finally"
+    assert kwargs["abort_message_queues"] is True
+    assert kwargs["release_cli_session_lock"] is True
+    assert kwargs["call_unregister"] is True
 
 
 @pytest.mark.asyncio

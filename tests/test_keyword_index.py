@@ -12,24 +12,13 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-import pytest
-
 from miniagent.memory.keyword_index import (
     KeywordIndex,
     extract_keywords,
     format_search_results,
     search_relevant_with_index,
 )
-from miniagent.memory.shared_registry import reset_registry
 from miniagent.types.memory import MemoryEntryInput
-
-
-@pytest.fixture(autouse=True)
-def _reset_singletons() -> None:
-    """每个测试前重置单例"""
-    reset_registry()
-    yield
-    reset_registry()
 
 
 class TestExtractKeywords:

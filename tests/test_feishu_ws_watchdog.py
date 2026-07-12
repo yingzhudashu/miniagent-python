@@ -7,11 +7,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.feishu import ws_health
 from miniagent.feishu.ws_health import (
+    FeishuWsHealthState,
     read_feishu_ws_health_config,
     supervise_feishu_ws_session,
-    touch_ws_inbound_activity,
 )
 from tests.config_helpers import install_test_config
 
@@ -38,9 +37,12 @@ async def test_supervise_returns_on_receive_task_done():
 
     client = _mock_ws_client(receive_task=receive_task)
     shutdown = asyncio.Event()
-    reason = await supervise_feishu_ws_session(client, shutdown_event=shutdown)
+    health = FeishuWsHealthState()
+    reason = await supervise_feishu_ws_session(
+        client, shutdown_event=shutdown, health_state=health
+    )
     assert reason.startswith("receive_loop_exit")
-    end_reason, _ = ws_health.get_last_ws_session_end()
+    end_reason, _ = health.last_session_end()
     assert end_reason == reason
 
 
@@ -69,7 +71,9 @@ async def test_watchdog_reconnect_grace_sdk_auto(tmp_path):
     shutdown = asyncio.Event()
 
     reason = await asyncio.wait_for(
-        supervise_feishu_ws_session(client, shutdown_event=shutdown),
+        supervise_feishu_ws_session(
+            client, shutdown_event=shutdown, health_state=FeishuWsHealthState()
+        ),
         timeout=3.0,
     )
     receive_task.cancel()
@@ -105,7 +109,9 @@ async def test_watchdog_dead_conn(tmp_path):
     shutdown = asyncio.Event()
 
     reason = await asyncio.wait_for(
-        supervise_feishu_ws_session(client, shutdown_event=shutdown),
+        supervise_feishu_ws_session(
+            client, shutdown_event=shutdown, health_state=FeishuWsHealthState()
+        ),
         timeout=3.0,
     )
     receive_task.cancel()
@@ -140,7 +146,9 @@ async def test_watchdog_refresh_interval(tmp_path):
     shutdown = asyncio.Event()
 
     reason = await asyncio.wait_for(
-        supervise_feishu_ws_session(client, shutdown_event=shutdown),
+        supervise_feishu_ws_session(
+            client, shutdown_event=shutdown, health_state=FeishuWsHealthState()
+        ),
         timeout=3.0,
     )
     receive_task.cancel()
@@ -168,9 +176,10 @@ async def test_watchdog_idle_refresh(tmp_path):
         },
     )
 
-    touch_ws_inbound_activity()
+    health = FeishuWsHealthState()
+    health.touch_inbound()
     # 模拟入站发生在很久以前
-    ws_health._ws_last_inbound_monotonic = __import__("time").monotonic() - 200.0
+    health.last_inbound_monotonic = __import__("time").monotonic() - 200.0
 
     async def never_end():
         await asyncio.Event().wait()
@@ -180,7 +189,9 @@ async def test_watchdog_idle_refresh(tmp_path):
     shutdown = asyncio.Event()
 
     reason = await asyncio.wait_for(
-        supervise_feishu_ws_session(client, shutdown_event=shutdown),
+        supervise_feishu_ws_session(
+            client, shutdown_event=shutdown, health_state=health
+        ),
         timeout=3.0,
     )
     receive_task.cancel()
@@ -193,7 +204,7 @@ async def test_watchdog_idle_refresh(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_request_feishu_ws_shutdown_sets_reason(tmp_path):
+async def test_poll_state_shutdown_sets_supervisor_reason(tmp_path):
     from miniagent.feishu import poll_server as ps
 
     install_test_config(
@@ -214,21 +225,25 @@ async def test_request_feishu_ws_shutdown_sets_reason(tmp_path):
     receive_task = asyncio.create_task(never_end())
     client = _mock_ws_client(connected=True, receive_task=receive_task)
     shutdown = asyncio.Event()
-    ps._ws_shutdown_event = shutdown
+    state = ps.FeishuPollState()
+    state.shutdown_event = shutdown
 
     async def run_supervise():
-        return await supervise_feishu_ws_session(client, shutdown_event=shutdown)
+        return await supervise_feishu_ws_session(
+            client,
+            shutdown_event=shutdown,
+            health_state=state.ws_health,
+        )
 
     supervise_task = asyncio.create_task(run_supervise())
     await asyncio.sleep(0.05)
-    ps.request_feishu_ws_shutdown()
+    state.request_shutdown()
     reason = await asyncio.wait_for(supervise_task, timeout=3.0)
     receive_task.cancel()
     try:
         await receive_task
     except asyncio.CancelledError:
         pass
-    ps._ws_shutdown_event = None
 
     assert reason == "shutdown"
 
@@ -243,7 +258,11 @@ async def test_supervise_shutdown_event():
     shutdown = asyncio.Event()
     shutdown.set()
 
-    reason = await supervise_feishu_ws_session(client, shutdown_event=shutdown)
+    reason = await supervise_feishu_ws_session(
+        client,
+        shutdown_event=shutdown,
+        health_state=FeishuWsHealthState(),
+    )
     receive_task.cancel()
     try:
         await receive_task
@@ -291,9 +310,6 @@ async def test_reconnect_loop_holds_lock_after_supervised_return(monkeypatch, tm
     calls = {"n": 0}
     second_started = asyncio.Event()
 
-    async def reset_noop():
-        return None
-
     async def fake_start(*args, **kwargs):
         calls["n"] += 1
         if calls["n"] == 1:
@@ -301,10 +317,6 @@ async def test_reconnect_loop_holds_lock_after_supervised_return(monkeypatch, tm
         second_started.set()
         await asyncio.Event().wait()
 
-    monkeypatch.setattr(
-        "miniagent.feishu.poll_server.reset_feishu_ws_singleton",
-        reset_noop,
-    )
     monkeypatch.setattr(
         "miniagent.feishu.poll_server.start_feishu_poll_server",
         fake_start,

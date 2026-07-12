@@ -27,9 +27,6 @@ async def test_reconnect_loop_holds_inbound_lock_until_stop(monkeypatch, tmp_pat
     calls = {"n": 0}
     first_fail = asyncio.Event()
 
-    async def reset_noop():
-        return None
-
     async def fake_start_feishu_poll_server(*args, **kwargs):
         calls["n"] += 1
         if calls["n"] == 1:
@@ -37,10 +34,6 @@ async def test_reconnect_loop_holds_inbound_lock_until_stop(monkeypatch, tmp_pat
             raise OSError(121, "信号灯超时时间已到")
         await asyncio.Event().wait()
 
-    monkeypatch.setattr(
-        "miniagent.feishu.poll_server.reset_feishu_ws_singleton",
-        reset_noop,
-    )
     monkeypatch.setattr(
         "miniagent.feishu.poll_server.start_feishu_poll_server",
         fake_start_feishu_poll_server,
@@ -106,9 +99,6 @@ async def test_first_connection_failure_skips_backoff_sleep(monkeypatch, tmp_pat
     second_entered = asyncio.Event()
     hold = asyncio.Event()
 
-    async def reset_noop():
-        return None
-
     async def fake_start(*a, **k):
         calls["n"] += 1
         if calls["n"] == 1:
@@ -116,7 +106,6 @@ async def test_first_connection_failure_skips_backoff_sleep(monkeypatch, tmp_pat
         second_entered.set()
         await hold.wait()
 
-    monkeypatch.setattr("miniagent.feishu.poll_server.reset_feishu_ws_singleton", reset_noop)
     monkeypatch.setattr("miniagent.feishu.poll_server.start_feishu_poll_server", fake_start)
 
     from miniagent.engine.feishu_state import FeishuRuntime

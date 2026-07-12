@@ -1,7 +1,7 @@
 """CLI 终端辅助工具函数。
 
 提供统一的终端宽度计算、状态格式化、文件类型检测等公共工具，
-避免在 main.py、feishu_handler.py 和其他模块中重复实现。
+避免在 CLI surfaces、feishu_handler.py 和其他模块中重复实现。
 
 模块职责：
 - 终端宽度计算（自适应宽屏）
@@ -11,7 +11,7 @@
 - 飞书状态行输出
 
 非职责：
-- 不处理用户输入（属于 main.py）
+- 不处理用户输入（属于 cli_tui.py / cli_fallback.py）
 - 不处理 thinking 输出（属于 thinking.py）
 """
 
@@ -21,8 +21,8 @@ import shutil
 from collections.abc import Callable
 from typing import Any
 
+from miniagent.bootstrap.application import ApplicationContainer
 from miniagent.core.constants import RENDER_MAX_WIDTH, RENDER_MIN_WIDTH, RENDER_WIDTH_MARGIN
-from miniagent.runtime.context import RuntimeContext
 
 # ─── 终端宽度计算 ───────────────────────────────────────────────
 
@@ -254,7 +254,7 @@ def detect_mime_from_magic(data: bytes) -> str | None:
 
 # ─── 飞书状态行输出 ───────────────────────────────────────────────
 
-def feishu_user_status_fn(ctx: RuntimeContext) -> Callable[[str], None]:
+def feishu_user_status_fn(ctx: ApplicationContainer) -> Callable[[str], None]:
     """飞书状态行输出函数工厂。
 
     全屏 CLI 已注册 ``cli_transcript_append`` 时写入 transcript，否则 ``print``。

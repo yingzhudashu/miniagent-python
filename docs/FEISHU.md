@@ -6,7 +6,7 @@
 
 ### 1. 配置凭据
 
-在 **项目根** 创建 `config.user.json`（可从 `config.defaults.json` 复制），填写 `secrets`：
+在 **项目根** 创建 `config.user.json`（也可由首次启动引导生成），填写 `secrets`：
 
 ```json
 {
@@ -30,7 +30,7 @@ python -m miniagent --feishu
 
 **启动形态**：进程始终以 **CLI 主循环** 为主；上述两种方式均为 **CLI + 飞书**（同进程内附加飞书 WebSocket 长连接），不存在无 CLI 的独立飞书进程入口。
 
-在全屏 prompt_toolkit CLI 下，飞书启动提示、以及**策略允许**的入站横幅与思考镜像，会写入上方 **transcript**（`RuntimeContext.cli_transcript_append`），而不再向裸 stdout `print`，避免与备用屏输入行互相覆盖。
+在全屏 prompt_toolkit CLI 下，飞书启动提示、以及**策略允许**的入站横幅与思考镜像，会写入上方 **transcript**（`ApplicationContainer.cli_transcript_append`），而不再向裸 stdout `print`，避免与备用屏输入行互相覆盖。
 
 **CLI 显示隔离**（详见上文 [CLI 显示策略](#cli-显示策略cli_feishu_policy)）：默认 CLI 在 `default` 等一般会话时，**群聊**消息仅在飞书侧处理与回复，**不会**刷屏到 CLI；仅与 CLI 同会话的**私聊**会显示预览。使用 **`/session switch oc_xxx`**（或 `feishu:oc_xxx`）进入群聊聚焦后，CLI 只显示该群内容，私聊不再接入或显示。
 
@@ -40,7 +40,7 @@ python -m miniagent --feishu
 
 在飞书里发送以 ``/`` 开头的命令时，默认 `/session switch` / `create` / `rename` 以及 `/schedule` 的 `add`/`update`/`remove`/`enable`/`disable` **不会**修改与本地 CLI 共享的 ``active_session_id`` 或 ``tasks.json``，仅返回提示；``/stop`` 亦默认拒绝（避免远程结束进程）。请在本地 MiniAgent 终端执行，或设置 **`feishu.dot_commands_full=true`** 放开全部点命令（启动时会打 WARNING；群聊误触风险需自行管控）。启用 FULL 后飞书侧 `/stop` 成功即进程退出，通常**不会**再收到第二条飞书确认消息。调试 HTTP 栈时请勿开启 ``HTTPX_LOG_LEVEL=debug`` 等会把第三方日志打到终端的配置，以免干扰全屏 UI。
 
-Agent 在飞书会话中若通过内置工具 **`run_dot_command`** 调点命令，上述限制与直接发点命令一致（默认 `cli_dispatch_allow_mutations=False`；`feishu.dot_commands_full=true` 时为 True）。不需要该能力时可将 **`cli.dot_tools_enabled=false`**，启动时不再注册该工具（见 `config.defaults.json`）。
+Agent 在飞书会话中若通过内置工具 **`run_dot_command`** 调点命令，上述限制与直接发点命令一致（默认 `cli_dispatch_allow_mutations=False`；`feishu.dot_commands_full=true` 时为 True）。不需要该能力时可将 **`cli.dot_tools_enabled=false`**，启动时不再注册该工具（见 `miniagent/resources/config.defaults.json`）。
 
 ## 通道绑定
 
@@ -166,7 +166,7 @@ UnifiedEngine.run_agent_with_thinking()
 
 **多群并行**（默认开启）：不同飞书群映射到独立 `session_key`（`feishu:<chat_id>`），在 `agent.parallel_sessions=true` 时可**同时**运行 Agent（进程内默认最多 4 路，见 `agent.max_parallel_sessions`）。同一群内消息仍按 `chat_id` 队列串行。设 `agent.parallel_sessions: false` 可回退为全局串行。
 
-### 配置项（`config.defaults.json` → `feishu` 节）
+### 配置项（`miniagent/resources/config.defaults.json` → `feishu` 节）
 
 | JSON 路径 | 含义 |
 |-----------|------|
@@ -181,7 +181,7 @@ UnifiedEngine.run_agent_with_thinking()
 | `feishu.reply_target` | 默认 **`reply`**；`create` 为会话内新建消息 |
 | `feishu.reply_in_thread` | 与 `reply` 联用；未设置且入站 `thread_id` 非空时默认话题内回复 |
 | `feishu.card_action_router` | 默认 **开**；处理卡片按钮回调 |
-| `feishu.tools_explicit` / `feishu.tools_auto` | 内置飞书工具注册策略（见 `config.defaults.json`） |
+| `feishu.tools_explicit` / `feishu.tools_auto` | 内置飞书工具注册策略（见包内 defaults） |
 | `feishu.doc.docx_url_prefix` | 创建云文档成功时附带可分享链接 |
 | `feishu.receive_id_type` | IM `create` 的 `receive_id_type` |
 | `feishu.doc.folder_token` | 云盘默认父文件夹 token |
@@ -287,7 +287,7 @@ UnifiedEngine.run_agent_with_thinking()
 
 #### 2. 纯文本模式 (`render_mode="plain"`)
 
-向后兼容模式，剥离 Markdown 标记，仅保留纯文本内容。
+纯文本模式会剥离 Markdown 标记，仅保留文本内容。
 
 #### 3. 导入 Markdown 文件 (`import_raw`)
 
@@ -305,7 +305,7 @@ UnifiedEngine.run_agent_with_thinking()
 **最佳实践**：
 - 写入 Markdown 内容时使用 `render_mode="rich"`（默认）
 - 导入 Markdown 文件时使用 `import_raw` + `render_mode="rich"`
-- 需要纯文本时可设置 `render_mode="plain"`（向后兼容）
+- 需要纯文本时可设置 `render_mode="plain"`
 
 #### Docx 校验回退
 
@@ -416,7 +416,7 @@ reply = await engine.run_agent_with_thinking(content, active_session_id, ...)
 
 ### 已知限制与风险
 
-- **`receive_id_type`**：机器人主循环出站仍以 **`chat_id`** + 规范化后的 `oc_`/`ou_` 为主；**内置飞书工具**发 `create` 消息时可经 `feishu.receive_id_type`、工具参数或 `AgentConfig.feishu_im_receive_id_type` 使用 `open_id`/`union_id`，须与传入的 `receive_id` 类型一致。
+- **`receive_id_type`**：机器人主循环出站仍以 **`chat_id`** + 规范化后的 `oc_`/`ou_` 为主；**内置飞书工具**发 `create` 消息时可经 `feishu.receive_id_type`、工具参数或 `AgentConfig.feishu_config.im_receive_id_type` 使用 `open_id`/`union_id`，须与传入的 `receive_id` 类型一致。
 - **卡片回调 `p2.card.action.trigger`**：依赖按钮 `action.value` 与回调 `context.open_chat_id` 等字段；无内置幂等键；生产使用需在开放平台完成订阅与卡片配置，必要时在业务 `value` 中自带去重键。
 
 ## API 调用

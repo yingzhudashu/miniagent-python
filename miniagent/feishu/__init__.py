@@ -62,13 +62,6 @@ from miniagent.feishu.drive_client import (
     list_folder_files_page,
 )
 
-# ── 去重 ──
-from miniagent.feishu.feishu_dedup import (
-    abandon_processing_claim,
-    release_processing,
-    try_begin_processing,
-)
-
 # ── IM 发送 ──
 from miniagent.feishu.im_send import ImMsgType, post_im_message
 from miniagent.feishu.lark_client import build_client, clear_client_cache, config_from_env
@@ -91,10 +84,6 @@ __all__ = [
     "build_v2_table_card",
     "reply_card_dict",
     "thinking_card_dict",
-    # 去重
-    "try_begin_processing",
-    "release_processing",
-    "abandon_processing_claim",
     # 文档
     "DOCX_APPEND_MAX_BLOCKS",
     "DOCX_APPEND_MAX_CHARS",

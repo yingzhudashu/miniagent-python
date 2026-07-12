@@ -132,25 +132,11 @@ _REMOTE_SESSION_HINT = (
     "飞书上可使用 /session list 查看会话列表。"
 )
 
-# 旧版 ``.reload-skills`` 别名 → 统一 ``/`` 前缀
-_LEGACY_COMMAND_ALIASES: dict[str, str] = {
-    ".reload-skills": "/reload-skills",
-    ".reload_skills": "/reload-skills",
-}
-
-
 def _normalize_command_text(text: str) -> str | None:
     """规范化命令文本；非命令输入返回 None。"""
     stripped = text.strip()
     if not stripped:
         return None
-    parts = stripped.split()
-    first = parts[0].lower()
-    if first in _LEGACY_COMMAND_ALIASES:
-        normalized = _LEGACY_COMMAND_ALIASES[first]
-        if len(parts) > 1:
-            normalized += " " + " ".join(parts[1:])
-        return normalized
     if stripped.startswith("/"):
         return stripped
     return None
@@ -378,38 +364,36 @@ async def dispatch_command(
 
     # ── /feishu ──
     if cmd == "/feishu":
-        factory = rt.create_feishu_handler_factory
+        from miniagent.engine.feishu_lifecycle import FeishuRuntimeLifecycleService
 
-        def _resolve_feishu_user_status() -> Callable[[str], None] | None:
-            """解析飞书状态行回调：优先使用传入参数，capture 模式下返回 None。"""
-            if feishu_user_status is not None:
-                return feishu_user_status
+        manager = rt.lifecycle_manager
+        if manager is None:
+            output = f"{ERROR_PREFIX} 飞书生命周期服务未初始化"
             if capture:
-                return None
-            from miniagent.engine.utils import feishu_user_status_fn
-
-            return feishu_user_status_fn(rt)
+                return output
+            print(output)
+            return None
+        service = manager.service("feishu")
+        if not isinstance(service, FeishuRuntimeLifecycleService):
+            output = f"{ERROR_PREFIX} 飞书生命周期服务类型错误"
+            if capture:
+                return output
+            print(output)
+            return None
 
         if text == "/feishu start":
-            if factory is None:
-                output = f"{WARNING_PREFIX} 飞书处理器工厂未初始化"
-            else:
-                us = _resolve_feishu_user_status()
-
-                def _start() -> None:
-                    """启动飞书长轮询任务。"""
-                    feishu_rt.start(factory, state, user_status=us)
-
-                output = _capture(_start)
-        elif text == "/feishu stop":
-            buf = io.StringIO()
             try:
-                with redirect_stdout(buf):
-                    await feishu_rt.stop_async()
+                await service.activate()
+                output = ""
+            except Exception as e:
+                output = f"{ERROR_PREFIX} 命令执行失败: {e}"
+        elif text == "/feishu stop":
+            try:
+                await service.deactivate()
             except Exception as e:
                 output = f"{ERROR_PREFIX} 命令执行失败: {e}"
             else:
-                output = buf.getvalue().strip()
+                output = ""
         else:
             output = _capture(feishu_rt.status)
 
@@ -466,7 +450,7 @@ async def dispatch_command(
         print(output)
         return None
 
-    # ── /reload-skills（兼容旧 .reload-skills）──
+    # ── /reload-skills ──
     if cmd in ("/reload-skills", ".reload-skills", ".reload_skills"):
         try:
             from miniagent.skills.refresh import refresh_skills
@@ -494,27 +478,29 @@ async def dispatch_command(
     # ── btw: 后台任务系统 ──
     if cmd == "/btw":
         sub_cmd = parts[1] if len(parts) > 1 else ""
+        runtime_ctx = state.get("runtime_ctx")
+        manager = runtime_ctx.background_tasks
 
         if sub_cmd == "start" and len(parts) >= 3:
             # 启动后台任务：/btw start <prompt>
             prompt = " ".join(parts[2:])
-            output = await cmd_btw_start(engine, prompt, state)
+            output = await cmd_btw_start(manager, engine, prompt, state)
         elif sub_cmd == "status":
             # 查看状态：/btw status [task_id]
             task_id = parts[2] if len(parts) >= 3 else None
-            output = cmd_btw_status(task_id)
+            output = cmd_btw_status(manager, task_id)
         elif sub_cmd == "result" and len(parts) >= 3:
             # 获取结果：/btw result <task_id>
-            output = await cmd_btw_result(parts[2])
+            output = await cmd_btw_result(manager, parts[2])
         elif sub_cmd == "cancel" and len(parts) >= 3:
             # 取消任务：/btw cancel <task_id>
-            output = await cmd_btw_cancel(parts[2])
+            output = await cmd_btw_cancel(manager, parts[2])
         elif sub_cmd == "clear":
             # 清理任务：/btw clear
-            output = cmd_btw_clear()
+            output = cmd_btw_clear(manager)
         else:
             # 默认显示帮助和任务列表
-            output = cmd_btw_status()  # 显示所有任务
+            output = cmd_btw_status(manager)  # 显示所有任务
 
         if capture:
             return output
@@ -653,30 +639,29 @@ async def dispatch_command(
     if cmd == "/kb":
         sub_cmd = parts[1].lower() if len(parts) > 1 else ""
         md_kb = capture and feishu_markdown_commands_enabled()
+        kb_registry = state["runtime_ctx"].knowledge_registry
 
         if sub_cmd in ("list", ""):
-            output = _capture(lambda md=md_kb: cmd_kb_list(markdown=md))
+            output = _capture(lambda md=md_kb: cmd_kb_list(kb_registry, markdown=md))
         elif sub_cmd == "mount" and len(parts) >= 3:
             path = parts[2]
             name = parts[3] if len(parts) > 3 else None
-            output = _capture(lambda: cmd_kb_mount(path, name))
+            output = _capture(lambda: cmd_kb_mount(kb_registry, path, name))
         elif sub_cmd == "unmount" and len(parts) >= 3:
-            output = _capture(lambda: cmd_kb_unmount(parts[2]))
+            output = _capture(lambda: cmd_kb_unmount(kb_registry, parts[2]))
         elif sub_cmd == "search" and len(parts) >= 3:
             query = " ".join(parts[2:])
             kb_name = None
             # 检查是否指定了知识库名称（最后一个参数如果是知识库名称）
-            from miniagent.knowledge import get_kb_registry
-            kb_registry = get_kb_registry()
             kb_list = kb_registry.list()
             kb_names = [kb["name"] for kb in kb_list]
             if len(parts) >= 4 and parts[-1] in kb_names:
                 kb_name = parts[-1]
                 query = " ".join(parts[2:-1])
-            output = _capture(lambda: cmd_kb_search(query, kb_name))
+            output = _capture(lambda: cmd_kb_search(kb_registry, query, kb_name))
         elif sub_cmd == "reload":
             name = parts[2] if len(parts) > 2 else None
-            output = _capture(lambda: cmd_kb_reload(name))
+            output = _capture(lambda: cmd_kb_reload(kb_registry, name))
         else:
             output = format_kb_command_usage()
 
@@ -871,7 +856,7 @@ async def dispatch_command(
         from miniagent.infrastructure.json_config import reload_runtime_config
 
         try:
-            reload_runtime_config()
+            await reload_runtime_config(rt)
             output = f"{SUCCESS_PREFIX} 配置已重新加载"
         except Exception as e:
             output = f"{ERROR_PREFIX} 配置加载失败: {e}"

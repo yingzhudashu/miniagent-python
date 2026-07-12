@@ -392,33 +392,6 @@ class ChannelRouter:
         }
 
 
-# ============================================================================
-# 测试辅助函数
-# ============================================================================
-
-_default_router: ChannelRouter | None = None
-
-
-def get_channel_router() -> ChannelRouter | None:
-    """获取进程级 ChannelRouter 单例（如果已初始化）。"""
-    return _default_router
-
-
-def set_channel_router(router: ChannelRouter) -> None:
-    """设置进程级 ChannelRouter 单例。"""
-    global _default_router
-    _default_router = router
-
-
-def reset_channel_router_for_tests() -> None:
-    """清空 ChannelRouter 缓存，仅供测试使用。"""
-    global _default_router
-    _default_router = None
-
-
 __all__ = [
     "ChannelRouter",
-    "get_channel_router",
-    "set_channel_router",
-    "reset_channel_router_for_tests",
 ]

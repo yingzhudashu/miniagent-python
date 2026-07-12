@@ -5,7 +5,7 @@
 
 Layer 3 摘要语义见 ``docs/MEMORY_SYSTEM.md``。
 
-**重构说明**：状态根目录获取已统一到 ``miniagent/memory/defaults.py`` 的 ``get_state_root()``。
+状态根目录统一由 ``infrastructure.paths.resolve_state_dir()`` 解析。
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from miniagent.infrastructure.logger import get_logger
-from miniagent.memory.defaults import get_state_root
+from miniagent.infrastructure.paths import resolve_state_dir as get_state_root
 from miniagent.utils.session_id import safe_session_id
 
 _logger = get_logger(__name__)

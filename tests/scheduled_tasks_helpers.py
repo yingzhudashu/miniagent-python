@@ -8,8 +8,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from miniagent.application.messaging import ChannelRegistry
 from miniagent.engine.cli_state import CliLoopState
 from miniagent.infrastructure.message_queue import MessageQueueManager
+from tests.memory_helpers import (
+    make_background_task_manager,
+    make_knowledge_registry,
+    make_memory_runtime,
+)
 
 
 def patch_tick_once_locks(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -21,9 +27,9 @@ def patch_tick_once_locks(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def minimal_tick_ctx(*, engine: Any | None = None) -> SimpleNamespace:
-    """Minimal RuntimeContext-like namespace for tick_once / runner tests.
+    """Minimal ApplicationContainer-like namespace for ticker and runner tests.
 
-    字段须与 :class:`~miniagent.runtime.context.RuntimeContext` 保持同步，
+    字段须与 :class:`~miniagent.bootstrap.application.ApplicationContainer` 保持同步，
     否则 runner 在访问缺失属性时会失败。
     """
     router = MagicMock()
@@ -38,11 +44,11 @@ def minimal_tick_ctx(*, engine: Any | None = None) -> SimpleNamespace:
         registry=None,
         monitor=None,
         clawhub=None,
-        memory_store=None,
-        activity_log=None,
-        keyword_index=None,
-        memory_context=None,
+        memory=make_memory_runtime(),
+        knowledge_registry=make_knowledge_registry(),
+        background_tasks=make_background_task_manager(),
         openai_client=None,
+        outbound_channels=ChannelRegistry(),
         cli_transcript_append=None,
         feishu=feishu_rt,
     )

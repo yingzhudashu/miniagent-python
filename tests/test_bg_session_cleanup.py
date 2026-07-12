@@ -9,8 +9,6 @@ from miniagent.engine.bg_session_cleanup import (
     cleanup_background_session_artifacts,
     is_background_session_key,
 )
-from miniagent.memory.activity_log import ActivityLogger
-from miniagent.memory.shared_registry import get_registry, reset_registry
 from miniagent.utils.session_id import safe_session_id
 
 
@@ -22,12 +20,7 @@ class TestIsBackgroundSessionKey:
 
 class TestCleanupBackgroundSessionArtifacts:
     @pytest.mark.asyncio
-    async def test_removes_workspace_memory_and_activity_log(self, state_dir, monkeypatch):
-        from miniagent.memory.defaults import reset_process_default_memory_bundle_for_tests
-
-        reset_registry()
-        reset_process_default_memory_bundle_for_tests()
-
+    async def test_removes_workspace_memory_and_activity_log(self, state_dir, memory_runtime):
         session_key = "__bg__deadbeef"
         safe_id = safe_session_id(session_key)
 
@@ -51,7 +44,7 @@ class TestCleanupBackgroundSessionArtifacts:
         with open(os.path.join(diary_dir, "2026-06-14.md"), "w", encoding="utf-8") as f:
             f.write("# diary")
 
-        registry = get_registry(state_dir)
+        registry = memory_runtime.registry
         registry.register(
             session_key,
             type("E", (), {
@@ -62,12 +55,12 @@ class TestCleanupBackgroundSessionArtifacts:
             })(),
         )
 
-        activity_log = ActivityLogger(base_dir=os.path.join(state_dir, "memory"))
+        activity_log = memory_runtime.activity_log
         activity_log.log_session_start(session_key, "background prompt")
 
         await cleanup_background_session_artifacts(
             session_key,
-            activity_log=activity_log,
+            memory=memory_runtime,
         )
 
         assert not os.path.exists(workspace_dir)
@@ -94,14 +87,11 @@ class TestCleanupBackgroundSessionArtifacts:
 
 class TestBackgroundTaskCleanupIntegration:
     @pytest.mark.asyncio
-    async def test_execute_task_cleans_disk_after_completion(self, state_dir, monkeypatch):
+    async def test_execute_task_cleans_disk_after_completion(self, state_dir, memory_runtime):
         import asyncio
+        from types import SimpleNamespace
 
         from miniagent.engine.background_tasks import BackgroundTaskManager
-        from miniagent.memory.defaults import reset_process_default_memory_bundle_for_tests
-
-        reset_registry()
-        reset_process_default_memory_bundle_for_tests()
 
         manager = BackgroundTaskManager()
         session_key_holder: list[str] = []
@@ -119,7 +109,11 @@ class TestBackgroundTaskCleanupIntegration:
                 return "done"
 
         engine = MockEngine()
-        state = {"skill_toolboxes": [], "skill_prompts": None}
+        state = {
+            "skill_toolboxes": [],
+            "skill_prompts": None,
+            "runtime_ctx": SimpleNamespace(memory=memory_runtime),
+        }
 
         task_id = await manager.start_task(engine, "cleanup test", state)
         await asyncio.sleep(0.2)

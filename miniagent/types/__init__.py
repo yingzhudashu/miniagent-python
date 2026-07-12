@@ -16,12 +16,12 @@
 - ``confirmation``: 澄清/计划确认请求与结果（``ConfirmationRequest`` / ``ConfirmationResult``）
 - ``planning``: Phase 1 结构化计划（``StructuredPlan`` 等）
 - ``protocols``: 运行时注入协议（ActivityLogProtocol、KeywordIndexProtocol）
-- ``feishu``: 自 ``miniagent.feishu.types`` 再导出，便于 ``from miniagent.types import …``
 - ``error_prefix`` / ``error_messages``: 工具与 CLI 的统一输出前缀与用户可见消息常量
 - ``errors``: 项目自定义异常类型（沙箱、飞书配置/依赖等）
 """
 
-from miniagent.feishu.types import FeishuConfig, FeishuInboundText, FeishuMessageEvent, FeishuReply
+from __future__ import annotations
+
 from miniagent.types.agent import (
     AgentRunOptions,
     AgentRunResult,
@@ -199,11 +199,6 @@ __all__ = [
     "EstimatedCost",
     "OutputSpec",
     "FallbackPlan",
-    # feishu
-    "FeishuInboundText",
-    "FeishuMessageEvent",
-    "FeishuConfig",
-    "FeishuReply",
     # output prefixes
     "ERROR_PREFIX",
     "WARNING_PREFIX",

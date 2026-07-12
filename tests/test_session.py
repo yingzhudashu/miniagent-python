@@ -10,13 +10,13 @@ from miniagent.session.manager import DefaultSessionManager
 from miniagent.types.config import normalize_conversation_history
 
 
-def test_normalize_conversation_history_wrapped_dict():
+def test_normalize_conversation_history_rejects_wrapped_dict():
     raw = {
         "session_id": "default",
         "messages": [{"role": "user", "content": "hi"}],
     }
     out = normalize_conversation_history(raw)
-    assert out == [{"role": "user", "content": "hi"}]
+    assert out == []
 
 
 def test_normalize_conversation_history_filters_non_dict():

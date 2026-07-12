@@ -10,10 +10,12 @@ import asyncio
 import time
 from typing import Any
 
+from miniagent.application.messaging import InboundTurnCoordinator
+from miniagent.bootstrap.application import ApplicationContainer
+from miniagent.contracts.messages import InboundMessage
 from miniagent.engine.cli_state import CliLoopState
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
-from miniagent.runtime.context import RuntimeContext
 from miniagent.scheduled_tasks.lock import (
     release_job_lock,
     release_scheduler_lock,
@@ -21,7 +23,7 @@ from miniagent.scheduled_tasks.lock import (
     try_acquire_scheduler_lock,
 )
 from miniagent.scheduled_tasks.models import ScheduledTask
-from miniagent.scheduled_tasks.runner import build_run_scheduled_job_coro
+from miniagent.scheduled_tasks.runner import build_scheduled_job
 from miniagent.scheduled_tasks.store import (
     TaskRunOutcome,
     finalize_task_after_run,
@@ -50,7 +52,7 @@ def _sleep_seconds_until(tasks: list[ScheduledTask]) -> float:
 
 
 async def tick_once(
-    ctx: RuntimeContext,
+    ctx: ApplicationContainer,
     state: CliLoopState,
     skill_toolboxes: list[Any] | None = None,
     skill_prompts: list[Any] | None = None,
@@ -108,6 +110,10 @@ async def tick_once(
         due = due[:_MAX_DUE_PER_TICK]
 
         mq = ctx.message_queue
+        inbound_turns = InboundTurnCoordinator(
+            mq,
+            queue_key=lambda message: str(message.metadata.get("queue_key") or ""),
+        )
         for t in due:
             job_id = t.id
             _inflight.add(job_id)
@@ -120,7 +126,7 @@ async def tick_once(
                     task = next((x for x in tlist if x.id == task_id), None)
                     if task is None or not task.enabled:
                         return
-                    coro, mq_chat = build_run_scheduled_job_coro(
+                    job = build_scheduled_job(
                         ctx,
                         state,
                         task,
@@ -129,13 +135,10 @@ async def tick_once(
                     )
                     err_holder: list[str | None] = [None]
 
-                    async def _wrap() -> None:
-                        err_holder[0] = await coro
+                    async def _handle(message: InboundMessage) -> None:
+                        err_holder[0] = await job.run(message)
 
-                    if mq_chat == mq.CLI_CHAT_ID:
-                        await mq.dispatch_cli_wait(_wrap())
-                    else:
-                        await mq.dispatch_wait(mq_chat, _wrap())
+                    await inbound_turns.submit(job.message, _handle, wait=True)
                     agent_error = err_holder[0]
                     outcome = "agent_error" if agent_error else "completed"
                 except asyncio.CancelledError:
@@ -169,13 +172,16 @@ async def tick_once(
 
 
 async def scheduled_tasks_loop(
-    ctx: RuntimeContext,
+    ctx: ApplicationContainer,
     state: CliLoopState,
     skill_toolboxes: list[Any],
     skill_prompts: list[Any],
     stop_event: asyncio.Event,
 ) -> None:
     """根据下一触发时间睡眠并反复调用 ``tick_once``；由 ``stop_event`` 终止。"""
+    from miniagent.scheduled_tasks.trace_cleanup import TraceHousekeeping
+
+    trace_housekeeping = TraceHousekeeping()
     while not stop_event.is_set():
         tasks = load_tasks()
         delay = _sleep_seconds_until(tasks)
@@ -192,31 +198,24 @@ async def scheduled_tasks_loop(
         except Exception:
             _logger.exception("scheduled_tasks tick 异常")
         try:
-            from miniagent.scheduled_tasks.trace_cleanup import (
-                maybe_scheduled_cleanup_traces,
-                maybe_scheduled_trace_stats_report,
-            )
-
-            maybe_scheduled_cleanup_traces()
-            maybe_scheduled_trace_stats_report()
+            trace_housekeeping.maybe_cleanup()
+            trace_housekeeping.maybe_report()
         except Exception:
             _logger.debug("trace housekeeping tick skipped", exc_info=True)
 
 
 def start_scheduled_tasks_ticker(
-    ctx: RuntimeContext,
+    ctx: ApplicationContainer,
     state: CliLoopState,
     skill_toolboxes: list[Any],
     skill_prompts: list[Any],
+    stop_event: asyncio.Event,
 ) -> asyncio.Task[Any]:
-    """创建后台 Task 并写入 ``ctx.scheduled_tasks_*``，供进程退出时 cancel。"""
-    stop_event = asyncio.Event()
-    ctx.scheduled_tasks_stop_event = stop_event
+    """Create the scheduler task using a lifecycle-owned stop event."""
 
     async def _runner() -> None:
         """后台入口：运行 ``scheduled_tasks_loop`` 直至 ``stop_event``。"""
         await scheduled_tasks_loop(ctx, state, skill_toolboxes, skill_prompts, stop_event)
 
     task = asyncio.create_task(_runner(), name="miniagent_scheduled_tasks")
-    ctx.scheduled_tasks_ticker = task
     return task

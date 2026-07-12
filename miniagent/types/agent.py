@@ -18,9 +18,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, TypedDict, runtime_checkable
 
-from miniagent.core.constants import AGENT_HISTORY_SIZE
+from miniagent.contracts.defaults import AGENT_HISTORY_SIZE_DEFAULT
 
-_HISTORY_SIZE_DEFAULT = AGENT_HISTORY_SIZE
+_HISTORY_SIZE_DEFAULT = AGENT_HISTORY_SIZE_DEFAULT
 
 
 class ToolCallResult(TypedDict):
@@ -102,8 +102,8 @@ class LoopDetectionConfig:
 
     Attributes:
         enabled: 是否启用循环检测
-        history_size: 保留的最近工具调用历史条数（默认与 ``AGENT_HISTORY_SIZE`` 一致；
-            运行时通常来自 ``config.defaults.json`` 的 ``agent.loop_detection.history_size``）
+        history_size: 保留的最近工具调用历史条数（默认与 ``AGENT_HISTORY_SIZE_DEFAULT`` 一致；
+            运行时通常来自包内 defaults 的 ``agent.loop_detection.history_size``）
         warning_threshold: 警告阈值（默认 8）
         critical_threshold: 严重阈值（默认 12）
         detectors: 检测器开关，键名：
@@ -178,7 +178,7 @@ class ToolMonitorProtocol(Protocol):
 
     记录工具调用统计，生成性能报告。
 
-    该 Protocol 用于 ``miniagent.runtime.context.RuntimeContext`` 的
+    该 Protocol 用于 ``ApplicationContainer`` 的
     monitor 字段类型，支持依赖注入模式。
     """
 

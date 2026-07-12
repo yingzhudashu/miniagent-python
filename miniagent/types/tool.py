@@ -39,9 +39,11 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
+    from openai import AsyncOpenAI
+
+    from miniagent.contracts.knowledge import KnowledgeRegistryProtocol
     from miniagent.engine.cli_state import CliLoopState
     from miniagent.types.skill import ClawHubClientProtocol
-
 from openai.types.chat import ChatCompletionMessageParam, ChatCompletionToolParam
 
 # ============================================================================
@@ -98,7 +100,8 @@ class ToolContext:
         cwd: 当前工作目录
         allowed_paths: 允许访问的路径列表（路径类工具在 sandbox 策略下生效）
         permission: 运行时沙箱策略（``sandbox`` / ``allowlist`` / ``full``；``full`` 仅测试/调试）
-        clawhub: ClawHub 客户端（可选；由 RuntimeContext 注入，技能搜索/安装工具优先使用）
+        clawhub: ClawHub 客户端（可选；由 ApplicationContainer 注入）
+        knowledge_registry: 知识库注册表（由 ApplicationContainer 注入）
         session_key: 当前 Agent 会话键（可选；由执行器注入供会话级只读工具使用）
         cli_loop_state: CLI 主循环共享状态（可选；点命令工具用）
         cli_dispatch_allow_mutations: 是否允许 dispatch 在 capture 下执行会话变异子命令
@@ -111,6 +114,8 @@ class ToolContext:
     allowed_paths: list[str] = field(default_factory=list)
     permission: ToolRuntimePermission = "sandbox"
     clawhub: ClawHubClientProtocol | None = None
+    knowledge_registry: KnowledgeRegistryProtocol | None = None
+    llm_client: AsyncOpenAI | None = None
     session_key: str | None = None
     cli_loop_state: CliLoopState | None = None
     cli_dispatch_allow_mutations: bool = True
@@ -186,7 +191,7 @@ class ToolRegistryProtocol(Protocol):
     管理工具的注册、注销、查询和按工具箱筛选。
 
     默认实现：:class:`miniagent.infrastructure.registry.DefaultToolRegistry`
-    用于 ``miniagent.runtime.context.RuntimeContext.registry`` 字段，支持依赖注入。
+    用于 ``ApplicationContainer.registry`` 字段，支持依赖注入。
 
     实现约定：
     - ``register``：同名重复注册应抛出 ``ValueError``
@@ -367,17 +372,6 @@ class ContextManagerProtocol(Protocol):
         """执行压缩（保留首尾，中间摘要）"""
         ...
 
-    def inject_memory(self, memory: SessionMemory | None) -> None:
-        """兼容旧路径：将记忆摘要追加到当前上下文。
-
-        执行阶段主路径已改为由 executor 把动态记忆放入 current turn user
-        context；实现类保留该方法仅用于旧调用兼容。
-
-        Args:
-            memory: 会话记忆对象（可选）
-        """
-        ...
-
     def get_token_report(self) -> str:
         """获取当前 token 使用报告
 
@@ -394,9 +388,6 @@ class ContextManagerProtocol(Protocol):
         """
         ...
 
-
-# Forward reference fix
-from miniagent.types.memory import SessionMemory  # noqa: E402
 
 __all__ = [
     "ToolPermission",

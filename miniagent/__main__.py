@@ -20,7 +20,7 @@
     python -m miniagent --doctor     # 环境诊断（安装、依赖、配置、状态目录）
 
 架构（组合根）:
-- 进程级依赖由 ``compat.unified_entry`` 构造 ``RuntimeContext``，再 ``asyncio.run(unified_main(ctx))``
+- 进程级依赖由 ``bootstrap.entrypoint`` 构造唯一 ``ApplicationContainer``
 - ``--feishu`` 等运行时开关由 ``engine.main`` 读取 ``sys.argv``（本模块不解析）
 - CLI 经 ``run_cli_loop``；飞书经 ``FeishuRuntime`` + ``poll_server``（同进程可插拔）
 - ``UnifiedEngine`` 编排 ``run_agent`` 与思考回调；会话由 ``SessionManager`` 单一数据源
@@ -58,7 +58,7 @@ def _print_cli_help() -> None:
 def _load_env() -> None:
     """加载敏感凭据（``config.user.json`` 的 secrets 段）。
 
-    幂等；``unified_entry`` 启动前会再次加载，重复调用无害。
+    幂等；正式入口在创建 LLM 客户端前会再次加载，重复调用无害。
     """
     from miniagent.infrastructure.env_loader import load_secrets_from_project_root
 
@@ -307,10 +307,10 @@ def _consume_session_arg() -> None:
 
 
 def main() -> None:
-    """统一入口：解析 CLI 开关后委托 ``compat.unified_entry``。
+    """统一入口：解析 CLI 开关后启动正式应用入口。
 
     处理顺序：``--help`` / ``-h``（早退）→ 加载凭据 → ``--no-continue`` / ``--continue``
-    → ``--session`` → ``--stop`` / ``--doctor``（早退）→ 绑定项目路径 → ``unified_entry()``。
+    → ``--session`` → ``--stop`` / ``--doctor``（早退）→ 绑定项目路径 → ``run_application()``。
     """
     import os
 
@@ -356,9 +356,9 @@ def main() -> None:
         )
     )
 
-    from miniagent.compat import unified_entry
+    from miniagent.bootstrap.entrypoint import run_application
 
-    unified_entry()
+    run_application()
 
 
 if __name__ == "__main__":

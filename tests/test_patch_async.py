@@ -11,8 +11,7 @@
 
 from __future__ import annotations
 
-import asyncio
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -285,63 +284,10 @@ class TestDynamicBudgetAdjustment:
         assert budget == base_budget + 50
 
 
-# ============================================================================
-# PATCH 队列管理器测试
-# ============================================================================
-
-
-class TestPatchQueueManager:
-    """PATCH 队列管理器测试。"""
-
-    @pytest.mark.asyncio
-    async def test_queue_enqueue_and_process(self) -> None:
-        """队列入队和处理。"""
-        from miniagent.feishu.patch_queue import PatchQueueManager
-
-        manager = PatchQueueManager(max_queue_size=5)
-
-        cfg = MagicMock()
-        cfg.app_id = "test"
-        cfg.app_secret = "test"
-
-        with patch("miniagent.feishu.poll_server._patch_interactive_thinking_message_async") as mock_patch:
-            mock_patch.return_value = True
-
-            ok = await manager.enqueue(cfg, "om_test", '{"test": "card"}')
-
-            assert ok is True
-            assert manager.size == 0  # 处理完成后队列清空
-
-    @pytest.mark.asyncio
-    async def test_queue_multiple_requests(self) -> None:
-        """队列处理多个请求。"""
-        from miniagent.feishu.patch_queue import PatchQueueManager
-
-        manager = PatchQueueManager(max_queue_size=5)
-
-        cfg = MagicMock()
-        cfg.app_id = "test"
-        cfg.app_secret = "test"
-
-        with patch("miniagent.feishu.poll_server._patch_interactive_thinking_message_async") as mock_patch:
-            mock_patch.return_value = True
-
-            # 并发入队多个请求
-            results = await asyncio.gather(
-                manager.enqueue(cfg, "om_1", '{"1": "card"}'),
-                manager.enqueue(cfg, "om_2", '{"2": "card"}'),
-                manager.enqueue(cfg, "om_3", '{"3": "card"}'),
-            )
-
-            assert all(results)
-            mock_patch.assert_called()
-
-
 __all__ = [
     "TestPatchImMessageAsync",
     "TestPostInteractiveMessageAsync",
     "TestPatchInteractiveThinkingMessageAsync",
     "TestSmartThrottling",
     "TestDynamicBudgetAdjustment",
-    "TestPatchQueueManager",
 ]

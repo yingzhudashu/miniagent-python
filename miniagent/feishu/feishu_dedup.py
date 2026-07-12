@@ -1,40 +1,12 @@
-"""飞书消息去重模块
-
-内存+磁盘双重去重，防止同一消息被重复处理。
-
-核心机制：
-- 内存去重：处理中的消息 claim（_processing_claims）
-- 磁盘去重：已处理消息的持久化记录（_disk_dedup）
-- 惰性清理：仅在超过阈值时清理过期条目
-- 延迟刷盘：使用脏标记，定期或超阈值时异步刷盘
-
-配置项：
-- DEDUP_TTL_MS: 去重条目有效期（默认 5 分钟）
-- DEDUP_MAX_SIZE: 最大去重条目数（默认 2000）
-- DEDUP_FLUSH_INTERVAL: 刷盘间隔（默认 60 秒）
-- DEDUP_FLUSH_THRESHOLD: 触发刷盘的条目阈值（默认 1000）
-
-使用方式：
-    # 尝试获取处理权
-    if try_begin_processing(message_id):
-        # 处理消息
-        ...
-        # 完成后释放并记录
-        release_processing(message_id)
-
-性能优化：
-- 内存缓存所有去重数据，避免每次消息都读取磁盘
-- 使用脏标记延迟刷盘，减少 I/O 次数
-- 惰性清理过期条目，避免每次都遍历字典
-"""
+"""Instance-owned Feishu message deduplication with explicit persistence."""
 
 from __future__ import annotations
 
 import asyncio
-import atexit
 import json
 import os
 import time
+from pathlib import Path
 from typing import Any
 
 from miniagent.core.constants import DEDUP_FLUSH_INTERVAL, DEDUP_FLUSH_THRESHOLD
@@ -43,239 +15,158 @@ from miniagent.infrastructure.paths import resolve_state_dir
 
 _logger = get_logger(__name__)
 
-# ─── 常量配置 ───
-
-DEDUP_TTL_MS = 5 * 60 * 1000  # 5 分钟有效期
-DEDUP_MAX_SIZE = 2000  # 最大条目数
-
-# ─── 状态目录 ───
-
-_state_dir = os.path.join(resolve_state_dir(), "feishu", "dedup")
-_dedup_file = os.path.join(_state_dir, "processed.json")
-
-# ─── 内存状态 ───
-
-_processing_claims: dict[str, float] = {}
-_disk_dedup: dict[str, float] = {}
-_disk_dedup_dirty: bool = False  # 性能优化：脏标记
-_last_flush_time: float = 0  # 上次刷盘时间
+DEDUP_TTL_MS = 5 * 60 * 1000
+DEDUP_MAX_SIZE = 2000
 
 
-# ─── 内部函数 ───
+class FeishuDeduplicator:
+    """Claim inbound messages and persist recently completed message IDs."""
 
+    def __init__(self, state_dir: str | None = None) -> None:
+        root = Path(state_dir or resolve_state_dir()) / "feishu" / "dedup"
+        self._state_dir = root
+        self._dedup_file = root / "processed.json"
+        self._processing_claims: dict[str, float] = {}
+        self._processed: dict[str, float] = {}
+        self._dirty = False
+        self._generation = 0
+        self._last_flush_time = 0.0
+        self._flush_task: asyncio.Task[None] | None = None
+        self._load()
 
-def _ensure_state_dir() -> None:
-    """确保状态目录存在。"""
-    os.makedirs(_state_dir, exist_ok=True)
+    @staticmethod
+    def _key(message_id: str) -> str:
+        value = message_id.strip()
+        return f"mini-agent:{value}" if value else ""
 
-
-def _resolve_dedup_key(message_id: str) -> str:
-    """解析去重键。"""
-    return f"mini-agent:{message_id.strip()}"
-
-
-def _load_disk_dedup() -> None:
-    """加载磁盘去重数据（启动时一次性加载）。
-
-    性能优化：仅在模块初始化时同步读取，运行时所有去重操作都在内存中完成。
-    """
-    global _disk_dedup
-    try:
-        _ensure_state_dir()
-        if os.path.isfile(_dedup_file):
-            with open(_dedup_file, encoding="utf-8") as f:
-                _disk_dedup = json.load(f)
-    except Exception:
-        _disk_dedup = {}
-
-
-def _save_disk_dedup() -> None:
-    """保存磁盘去重数据（同步版本，仅在必要时调用）。
-
-    性能优化：使用脏标记延迟刷盘，避免每次消息都写磁盘。
-    """
-    global _disk_dedup_dirty
-    if not _disk_dedup_dirty:
-        return
-    try:
-        _ensure_state_dir()
-        with open(_dedup_file, "w", encoding="utf-8") as f:
-            json.dump(_disk_dedup, f)  # 紧凑格式
-        _disk_dedup_dirty = False
-    except Exception as e:
-        _logger.debug("同步保存去重数据失败: %s", e)
-
-
-async def _save_disk_dedup_async() -> None:
-    """异步保存磁盘去重数据（不阻塞事件循环）。
-
-    性能优化：使用 asyncio.to_thread 包装文件写入。
-    """
-    global _disk_dedup_dirty
-    if not _disk_dedup_dirty:
-        return
-
-    def _sync_save() -> None:
+    def _load(self) -> None:
         try:
-            _ensure_state_dir()
-            with open(_dedup_file, "w", encoding="utf-8") as f:
-                json.dump(_disk_dedup, f)
-        except Exception as e:
-            _logger.debug("保存去重数据失败: %s", e)
+            if self._dedup_file.is_file():
+                data = json.loads(self._dedup_file.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    self._processed = {
+                        str(key): float(value)
+                        for key, value in data.items()
+                        if isinstance(value, (int, float))
+                    }
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
+            _logger.debug("加载飞书去重状态失败: %s", error)
+            self._processed = {}
 
-    try:
-        await asyncio.to_thread(_sync_save)
-        _disk_dedup_dirty = False
-    except Exception as e:
-        _logger.debug("同步保存去重数据失败: %s", e)
-
-
-def _maybe_trigger_flush() -> None:
-    """检查是否需要触发异步刷盘。
-
-    性能优化：仅在超过阈值或时间间隔时刷盘，减少 I/O 次数。
-    """
-    global _last_flush_time
-    now = time.monotonic()
-
-    need_flush = (
-        len(_disk_dedup) >= DEDUP_FLUSH_THRESHOLD
-        or now - _last_flush_time >= DEDUP_FLUSH_INTERVAL
-    )
-
-    if need_flush and _disk_dedup_dirty:
-        _last_flush_time = now
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.create_task(_save_disk_dedup_async())
-        except Exception as e:
-            _logger.debug("触发异步刷盘失败: %s", e)
-
-
-def _prune_claims_if_needed() -> None:
-    """惰性清理过期去重条目。
-
-    仅当超过 80% 阈值时才执行清理，避免每次消息处理都遍历整个字典。
-    """
-    global _disk_dedup_dirty
-    threshold = int(DEDUP_MAX_SIZE * 0.8)
-    if len(_processing_claims) <= threshold and len(_disk_dedup) <= threshold:
-        return
-
-    cutoff = time.time() - DEDUP_TTL_MS / 1000.0
-
-    if len(_processing_claims) > threshold:
-        to_remove = [k for k, v in _processing_claims.items() if v < cutoff]
-        for k in to_remove:
-            del _processing_claims[k]
-
-    if len(_disk_dedup) > threshold:
-        to_remove = [k for k, v in _disk_dedup.items() if v < cutoff]
-        for k in to_remove:
-            del _disk_dedup[k]
-        _disk_dedup_dirty = True
-
-    _maybe_trigger_flush()
-
-
-def _flush_dedup_at_exit() -> None:
-    """进程退出时同步刷盘（atexit 回调）。"""
-    global _disk_dedup_dirty
-    if _disk_dedup_dirty:
-        _save_disk_dedup()
-
-
-# ─── 公共函数 ───
-
-
-def try_begin_processing(message_id: str) -> bool:
-    """尝试获取消息处理权。
-
-    Args:
-        message_id: 飞书消息 ID
-
-    Returns:
-        True = 首次处理，可以处理；False = 重复/处理中，跳过
-    """
-    key = _resolve_dedup_key(message_id)
-    if not key:
+    def try_begin_processing(self, message_id: str) -> bool:
+        """Claim a message unless it is active or already completed."""
+        key = self._key(message_id)
+        if not key:
+            return True
+        self._prune_if_needed()
+        if key in self._processed or key in self._processing_claims:
+            return False
+        self._processing_claims[key] = time.time()
         return True
 
-    now = time.time()
-    _prune_claims_if_needed()
+    def release_processing(self, message_id: str) -> None:
+        """Complete a claim and mark the message for persistent deduplication."""
+        key = self._key(message_id)
+        if not key:
+            return
+        self._processing_claims.pop(key, None)
+        self._processed[key] = time.time()
+        self._dirty = True
+        self._generation += 1
+        if len(self._processed) > DEDUP_MAX_SIZE:
+            oldest = sorted(self._processed, key=self._processed.get)
+            for stale in oldest[: max(1, len(oldest) // 5)]:
+                del self._processed[stale]
+        self._maybe_schedule_flush()
 
-    if key in _disk_dedup:
-        return False
+    def abandon_processing_claim(self, message_id: str) -> None:
+        """Release an in-flight claim without marking the message complete."""
+        key = self._key(message_id)
+        if key:
+            self._processing_claims.pop(key, None)
 
-    if key in _processing_claims:
-        return False
+    def stats(self) -> dict[str, Any]:
+        """Return operational counts without exposing mutable dictionaries."""
+        return {
+            "processing_claims": len(self._processing_claims),
+            "disk_dedup": len(self._processed),
+            "dirty": self._dirty,
+            "state_dir": str(self._state_dir),
+        }
 
-    _processing_claims[key] = now
-    return True
+    def _prune_if_needed(self) -> None:
+        threshold = int(DEDUP_MAX_SIZE * 0.8)
+        if (
+            len(self._processing_claims) <= threshold
+            and len(self._processed) <= threshold
+        ):
+            return
+        cutoff = time.time() - DEDUP_TTL_MS / 1000.0
+        self._processing_claims = {
+            key: value
+            for key, value in self._processing_claims.items()
+            if value >= cutoff
+        }
+        before = len(self._processed)
+        self._processed = {
+            key: value for key, value in self._processed.items() if value >= cutoff
+        }
+        if len(self._processed) != before:
+            self._dirty = True
+            self._generation += 1
+            self._maybe_schedule_flush()
 
+    def _maybe_schedule_flush(self) -> None:
+        now = time.monotonic()
+        due = (
+            len(self._processed) >= DEDUP_FLUSH_THRESHOLD
+            or now - self._last_flush_time >= DEDUP_FLUSH_INTERVAL
+        )
+        if not due or not self._dirty:
+            return
+        self._last_flush_time = now
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        if self._flush_task is None or self._flush_task.done():
+            self._flush_task = loop.create_task(self.flush())
 
-def release_processing(message_id: str) -> None:
-    """释放处理权并记录到磁盘去重。
+    def _write_snapshot(self, snapshot: dict[str, float]) -> None:
+        try:
+            os.makedirs(self._state_dir, exist_ok=True)
+            self._dedup_file.write_text(
+                json.dumps(snapshot), encoding="utf-8"
+            )
+        except OSError as error:
+            _logger.debug("保存飞书去重状态失败: %s", error)
+            raise
 
-    Args:
-        message_id: 飞书消息 ID
-    """
-    global _disk_dedup_dirty
-    key = _resolve_dedup_key(message_id)
-    if not key:
-        return
+    async def flush(self) -> None:
+        """Persist dirty state without blocking the event loop."""
+        if not self._dirty:
+            return
+        generation = self._generation
+        snapshot = dict(self._processed)
+        try:
+            await asyncio.to_thread(self._write_snapshot, snapshot)
+        except OSError:
+            return
+        if self._generation == generation:
+            self._dirty = False
 
-    _processing_claims.pop(key, None)
-    _disk_dedup[key] = time.time()
-    _disk_dedup_dirty = True
-
-    if len(_disk_dedup) > DEDUP_MAX_SIZE:
-        sorted_items = sorted(_disk_dedup.items(), key=lambda x: x[1])
-        to_remove = len(sorted_items) // 5
-        for k, _ in sorted_items[:to_remove]:
-            del _disk_dedup[k]
-
-    _maybe_trigger_flush()
-
-
-def abandon_processing_claim(message_id: str) -> None:
-    """仅丢弃内存中的处理权，不写入磁盘去重。
-
-    用于可恢复失败时调用，避免永久跳过该消息。
-
-    Args:
-        message_id: 飞书消息 ID
-    """
-    key = _resolve_dedup_key(message_id)
-    if not key:
-        return
-    _processing_claims.pop(key, None)
-
-
-def get_dedup_stats() -> dict[str, Any]:
-    """获取去重统计信息（用于调试）。"""
-    return {
-        "processing_claims": len(_processing_claims),
-        "disk_dedup": len(_disk_dedup),
-        "dirty": _disk_dedup_dirty,
-        "state_dir": _state_dir,
-    }
-
-
-# ─── 初始化 ───
-
-atexit.register(_flush_dedup_at_exit)
-_load_disk_dedup()
+    async def close(self) -> None:
+        """Wait for any scheduled flush and persist remaining dirty state."""
+        task = self._flush_task
+        if task is not None and task is not asyncio.current_task():
+            await asyncio.gather(task, return_exceptions=True)
+        await self.flush()
 
 
 __all__ = [
-    "try_begin_processing",
-    "release_processing",
-    "abandon_processing_claim",
-    "get_dedup_stats",
-    "DEDUP_TTL_MS",
-    "DEDUP_MAX_SIZE",
     "DEDUP_FLUSH_INTERVAL",
     "DEDUP_FLUSH_THRESHOLD",
+    "DEDUP_MAX_SIZE",
+    "DEDUP_TTL_MS",
+    "FeishuDeduplicator",
 ]

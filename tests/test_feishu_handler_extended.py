@@ -28,7 +28,7 @@ def loop_state() -> dict:
 
 @pytest.mark.asyncio
 async def test_handler_dispatches_slash_command(loop_state: dict) -> None:
-    """以 / 开头的消息走 dispatch_command 并返回捕获结果。"""
+    """以 / 开头的消息经 STATUS 事件发送原捕获结果。"""
     router = ChannelRouter()
     ctx = _make_ctx(router)
     loop_state["runtime_ctx"] = ctx
@@ -39,7 +39,10 @@ async def test_handler_dispatches_slash_command(loop_state: dict) -> None:
         "miniagent.engine.command_dispatch.dispatch_command",
         new_callable=AsyncMock,
         return_value="命令输出",
-    ) as mock_dispatch:
+    ) as mock_dispatch, patch(
+        "miniagent.engine.feishu_handler._send_feishu_agent_reply",
+        new_callable=AsyncMock,
+    ) as mock_send:
         handler, _ = create_feishu_handler(loop_state, ctx, [True])
         inbound = FeishuInboundText(
             text="/help",
@@ -50,9 +53,43 @@ async def test_handler_dispatches_slash_command(loop_state: dict) -> None:
         )
         result = await handler(inbound)
 
-    assert result == "命令输出"
+    assert result == ""
     mock_dispatch.assert_awaited_once()
     assert mock_dispatch.await_args.kwargs["capture"] is True
+    mock_send.assert_awaited_once()
+    assert mock_send.await_args.args[1:3] == ("oc_cmd123", "命令输出")
+    assert mock_send.await_args.kwargs["reply_to_message_id"] == "msg_cmd"
+
+
+@pytest.mark.asyncio
+async def test_command_send_failure_is_propagated(loop_state: dict) -> None:
+    """A channel delivery failure remains observable to the transport supervisor."""
+    router = ChannelRouter()
+    ctx = _make_ctx(router)
+    loop_state["runtime_ctx"] = ctx
+    ctx.feishu = MagicMock()
+    ctx.feishu.get_config = MagicMock(return_value=MagicMock())
+
+    with patch(
+        "miniagent.engine.command_dispatch.dispatch_command",
+        new_callable=AsyncMock,
+        return_value="命令输出",
+    ), patch(
+        "miniagent.engine.feishu_handler._send_feishu_agent_reply",
+        new_callable=AsyncMock,
+        side_effect=RuntimeError("offline"),
+    ):
+        handler, _ = create_feishu_handler(loop_state, ctx, [True])
+        with pytest.raises(RuntimeError, match="failed to deliver"):
+            await handler(
+                FeishuInboundText(
+                    text="/help",
+                    chat_id="oc_cmd_failure",
+                    sender_id="ou_x",
+                    chat_type="group",
+                    message_id="msg_cmd_failure",
+                )
+            )
 
 
 @pytest.mark.asyncio
@@ -159,3 +196,36 @@ async def test_handler_returns_text_when_send_reply_raises(loop_state: dict) -> 
         result = await handler(inbound)
 
     assert result == "Agent 正文"
+
+
+@pytest.mark.asyncio
+async def test_agent_failure_is_sent_as_error_event(loop_state: dict) -> None:
+    """Agent 执行异常优先经 ERROR 事件发送并保留 reply target。"""
+    router = ChannelRouter()
+    ctx = _make_ctx(router)
+    loop_state["runtime_ctx"] = ctx
+    ctx.feishu = MagicMock()
+    ctx.feishu.get_config = MagicMock(return_value=MagicMock())
+    ctx.engine.run_agent_with_thinking = AsyncMock(  # type: ignore[method-assign]
+        side_effect=RuntimeError("agent failed")
+    )
+
+    handler, _ = create_feishu_handler(loop_state, ctx, [True])
+    with patch(
+        "miniagent.engine.feishu_handler._send_feishu_agent_reply",
+        new_callable=AsyncMock,
+    ) as mock_send:
+        result = await handler(
+            FeishuInboundText(
+                text="问题",
+                chat_id="oc_agent_error",
+                sender_id="ou_x",
+                chat_type="group",
+                message_id="msg_agent_error",
+            )
+        )
+
+    assert result == ""
+    mock_send.assert_awaited_once()
+    assert "agent failed" in mock_send.await_args.args[2]
+    assert mock_send.await_args.kwargs["reply_to_message_id"] == "msg_agent_error"

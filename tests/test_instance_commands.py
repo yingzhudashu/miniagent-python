@@ -13,7 +13,6 @@ class TestFormatInstanceCommandUsage:
         usage = format_instance_command_usage()
         assert "/instance list" in usage
         assert "/instance stop" in usage
-        assert "--state-dir" in usage
 
 
 class TestCmdInstanceHandler:

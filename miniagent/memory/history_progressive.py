@@ -148,20 +148,19 @@ def redact_first_tool_output_in_text(text: str) -> tuple[str, bool]:
 
 
 def _find_plan_line_for_step(text: str, step_no: int) -> str | None:
-    """从 ``[评估与计划]`` / ``[执行计划]``（旧格式兼容）块中匹配 ``步骤概要`` 下的 ``{n}. …`` 行。"""
-    # 新格式优先，兼容旧格式历史记录
-    for marker in ("[评估与计划]", "[执行计划]"):
-        idx = text.find(marker)
-        if idx < 0:
-            continue
-        start = idx + len(marker)
-        next_step = re.search(r"\n\[步骤\s*\d+", text[start:])
-        end = start + next_step.start() if next_step else len(text)
-        block = text[start:end]
-        mm = re.compile(rf"^\s*{step_no}\.\s+(.+)$", re.MULTILINE).search(block)
-        if mm:
-            line = mm.group(1).strip()
-            return line[:500] if len(line) > 500 else line
+    """从 ``[评估与计划]`` 块的 ``步骤概要`` 中匹配 ``{n}. …`` 行。"""
+    marker = "[评估与计划]"
+    idx = text.find(marker)
+    if idx < 0:
+        return None
+    start = idx + len(marker)
+    next_step = re.search(r"\n\[步骤\s*\d+", text[start:])
+    end = start + next_step.start() if next_step else len(text)
+    block = text[start:end]
+    mm = re.compile(rf"^\s*{step_no}\.\s+(.+)$", re.MULTILINE).search(block)
+    if mm:
+        line = mm.group(1).strip()
+        return line[:500] if len(line) > 500 else line
     return None
 
 

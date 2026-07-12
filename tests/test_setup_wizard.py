@@ -6,17 +6,17 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
-from miniagent.infrastructure.json_config import JsonConfigLoader
+from miniagent.infrastructure.json_config import JsonConfigLoader, install_config_loader
 from tests.config_helpers import DEFAULTS_PATH, install_test_config
 
 
 def _install_loader_without_user_file(tmp_path: Path) -> Path:
     user_path = tmp_path / "config.user.json"
-    JsonConfigLoader._instance = JsonConfigLoader(
-        defaults_path=str(DEFAULTS_PATH),
-        user_path=str(user_path),
+    install_config_loader(
+        JsonConfigLoader(
+            defaults_path=str(DEFAULTS_PATH),
+            user_path=str(user_path),
+        )
     )
     return user_path
 
@@ -72,15 +72,17 @@ def test_save_setup_config_applies_reload_and_secrets(tmp_path: Path) -> None:
     from miniagent.engine import setup_wizard
 
     with (
+        patch("miniagent.engine.setup_wizard.reload_config") as reload_mock,
         patch(
-            "miniagent.engine.setup_wizard.reload_runtime_config",
-        ) as reload_mock,
+            "miniagent.infrastructure.env_loader.load_secrets_from_project_root"
+        ) as secrets_mock,
         patch.object(setup_wizard, "_apply_saved_config", wraps=setup_wizard._apply_saved_config) as apply_mock,
     ):
         setup_wizard.save_setup_config({"secrets": {"openai_api_key": "sk-new"}})
 
     assert user_path.exists()
     reload_mock.assert_called_once()
+    secrets_mock.assert_called_once()
     apply_mock.assert_called_once()
 
 
@@ -141,28 +143,18 @@ def test_run_interactive_setup_saves_config(tmp_path: Path) -> None:
     assert data["secrets"]["openai_api_key"] == "sk-wizard"
 
 
-@pytest.mark.parametrize(
-    ("platform", "expected"),
-    [
-        ("win32", "copy config.defaults.json config.user.json"),
-        ("linux", "cp config.defaults.json config.user.json"),
-    ],
-)
-def test_copy_defaults_hint_platform(platform: str, expected: str) -> None:
-    from miniagent.engine.setup_wizard import _copy_defaults_hint
-
-    with patch("miniagent.engine.setup_wizard.sys.platform", platform):
-        assert _copy_defaults_hint() == expected
-
-
-def test_apply_saved_config_invalidates_openai_client(tmp_path: Path) -> None:
+def test_apply_saved_config_reloads_config_and_secrets(tmp_path: Path) -> None:
     install_test_config(tmp_path, {"secrets": {"openai_api_key": "sk-x"}})
 
-    with patch(
-        "miniagent.engine.setup_wizard.reload_runtime_config",
-    ) as reload_mock:
+    with (
+        patch("miniagent.engine.setup_wizard.reload_config") as reload_mock,
+        patch(
+            "miniagent.infrastructure.env_loader.load_secrets_from_project_root"
+        ) as secrets_mock,
+    ):
         from miniagent.engine.setup_wizard import _apply_saved_config
 
         _apply_saved_config()
 
     reload_mock.assert_called_once()
+    secrets_mock.assert_called_once()

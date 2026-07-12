@@ -21,8 +21,13 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
+import pytest_asyncio
 
 from miniagent.core.executor import execute_plan
+from miniagent.core.openai_client import (
+    close_async_openai_client,
+    create_async_openai_client,
+)
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.tracing import emit_trace, shutdown_trace_writer
 
@@ -50,6 +55,16 @@ def real_api_config():
     }
 
 
+@pytest_asyncio.fixture
+async def real_api_client(real_api_config):
+    """Own one real client per test and close its connection pool afterward."""
+    client = create_async_openai_client()
+    try:
+        yield client
+    finally:
+        await close_async_openai_client(client)
+
+
 @pytest.fixture
 def baseline_dir():
     """真实 API 压测输出目录。"""
@@ -63,7 +78,14 @@ class TestRealAPIPerformance:
     """真实API性能测试套件。"""
 
     @pytest.mark.asyncio
-    async def test_llm_streaming_latency(self, real_api_config, baseline_dir):
+    async def test_llm_streaming_latency(
+        self,
+        real_api_config,
+        real_api_client,
+        baseline_dir,
+        memory_runtime,
+        knowledge_registry,
+    ):
         """测量真实LLM流式响应延迟。"""
         from miniagent.infrastructure.monitor import DefaultToolMonitor
         from miniagent.infrastructure.registry import DefaultToolRegistry
@@ -97,6 +119,9 @@ class TestRealAPIPerformance:
                 registry=registry,
                 monitor=monitor,
                 agent_config=agent_config,
+                memory=memory_runtime,
+                knowledge_registry=knowledge_registry,
+                client=real_api_client,
             )
             elapsed = time.perf_counter() - start
 
@@ -130,7 +155,13 @@ class TestRealAPIPerformance:
             pytest.fail(f"LLM调用失败: {e}（耗时 {elapsed}s）")
 
     @pytest.mark.asyncio
-    async def test_tool_execution_with_real_api(self, real_api_config):
+    async def test_tool_execution_with_real_api(
+        self,
+        real_api_config,
+        real_api_client,
+        memory_runtime,
+        knowledge_registry,
+    ):
         """测量真实工具执行延迟（带LLM）。"""
         from miniagent.infrastructure.monitor import DefaultToolMonitor
         from miniagent.infrastructure.registry import DefaultToolRegistry
@@ -164,6 +195,9 @@ class TestRealAPIPerformance:
                 registry=registry,
                 monitor=monitor,
                 agent_config=agent_config,
+                memory=memory_runtime,
+                knowledge_registry=knowledge_registry,
+                client=real_api_client,
             )
             elapsed = time.perf_counter() - start
 
@@ -189,7 +223,14 @@ class TestRealAPIPerformance:
             pytest.fail(f"工具执行失败: {e}")
 
     @pytest.mark.asyncio
-    async def test_concurrent_requests_throughput(self, real_api_config, baseline_dir):
+    async def test_concurrent_requests_throughput(
+        self,
+        real_api_config,
+        real_api_client,
+        baseline_dir,
+        memory_runtime,
+        knowledge_registry,
+    ):
         """测量并发请求吞吐量。"""
         from miniagent.infrastructure.monitor import DefaultToolMonitor
         from miniagent.infrastructure.registry import DefaultToolRegistry
@@ -219,6 +260,9 @@ class TestRealAPIPerformance:
                     registry=registry,
                     monitor=monitor,
                     agent_config=agent_config,
+                    memory=memory_runtime,
+                    knowledge_registry=knowledge_registry,
+                    client=real_api_client,
                 )
             )
 

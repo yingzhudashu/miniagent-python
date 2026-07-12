@@ -6,7 +6,7 @@
 
 - Python 运行时（版本、平台、解释器路径）
 - 必需与可选 Python 依赖（对齐 ``pyproject.toml`` 与 extras）
-- ``config.defaults.json`` / ``config.user.json`` 与 API 密钥（JSON 与环境变量）
+- 包内默认配置 / ``config.user.json`` 与 API 密钥（JSON 与环境变量）
 - 项目状态目录（``sessions``、``memory``）与知识库根目录（``knowledge.root``）
 """
 
@@ -16,7 +16,7 @@ import os
 import sys
 from pathlib import Path
 
-from miniagent.infrastructure.json_config import JsonConfigLoader, get_config
+from miniagent.infrastructure.json_config import get_config, get_config_paths
 
 # 与 pyproject.toml [project.dependencies] 对齐（import 名可能与包名不同）
 REQUIRED_DEPENDENCIES: tuple[tuple[str, str], ...] = (
@@ -88,8 +88,7 @@ def _resolve_api_key() -> tuple[str | None, str]:
 
 def _config_file_paths() -> tuple[Path, Path]:
     """返回 defaults 与 user 配置文件的绝对路径。"""
-    loader = JsonConfigLoader.get_instance()
-    return Path(loader._defaults_path), Path(loader._user_path)
+    return get_config_paths()
 
 
 def _resolve_knowledge_root() -> str:
@@ -216,13 +215,13 @@ def diagnose_environment() -> str:
 
     if not api_key:
         issues.append("未配置 OpenAI API 密钥")
-        tips.append("复制 config.defaults.json 为 config.user.json，在 secrets 中填写 openai_api_key")
+        tips.append("运行 `python -m miniagent` 生成 config.user.json，并在 secrets 中填写 openai_api_key")
         tips.append("或设置环境变量 OPENAI_API_KEY")
 
     if not user_path.is_file():
         issues.append("config.user.json 不存在")
-        if not tips or "复制 config.defaults.json" not in tips[0]:
-            tips.append("复制 config.defaults.json 为 config.user.json 并按需覆盖配置")
+        if not tips or "生成 config.user.json" not in tips[0]:
+            tips.append("运行 `python -m miniagent` 生成 config.user.json 并按需覆盖配置")
 
     if missing_optional:
         tips.append("可选组件未装全时，相关功能可能不可用；按需执行 pip install -e '.[cli]' 或 '.[feishu]'")

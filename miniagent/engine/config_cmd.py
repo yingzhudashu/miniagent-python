@@ -7,12 +7,12 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
+from miniagent.infrastructure.json_config import _packaged_defaults_path
 from miniagent.types.error_prefix import WARNING_PREFIX
 
-# guide 不可读时的兜底；正常以 config.defaults.json `_config_guide` 为准
+# guide 不可读时的兜底；正常以包内 defaults 的 `_config_guide` 为准
 _USER_SECTIONS_FALLBACK = frozenset({
     "secrets", "model", "paths", "features", "embedding", "timezone",
     "session", "mcp", "security", "scheduled_tasks", "scheduled_tools",
@@ -37,10 +37,10 @@ _EMPTY_SECTION_HINT = "- _（当前无配置项，使用默认或未覆盖）_"
 
 
 def _load_config_guide() -> dict[str, Any]:
-    """读取 ``config.defaults.json`` 中的 ``_config_guide``；失败时返回空 dict。"""
+    """读取包内 defaults 的 ``_config_guide``；失败时返回空 dict。"""
     try:
-        defaults_path = Path(__file__).parent.parent.parent / "config.defaults.json"
-        data = json.loads(defaults_path.read_text(encoding="utf-8"))
+        with open(_packaged_defaults_path(), encoding="utf-8") as defaults_file:
+            data = json.load(defaults_file)
         guide = data.get("_config_guide", {})
         return guide if isinstance(guide, dict) else {}
     except (OSError, json.JSONDecodeError, TypeError):
@@ -200,7 +200,7 @@ def format_config_info(section: str | None = None) -> str:
             _append_value_lines(lines, k, v)
 
         lines.append("")
-        lines.append("💡 修改配置请编辑 `config.user.json`（参考 `config.defaults.json` 分层结构）")
+        lines.append("💡 修改配置请编辑 `config.user.json`（参考包内 `miniagent/resources/config.defaults.json` 的分层结构）")
         return "\n".join(lines)
 
     user_sections = guide.get("user_sections") or sorted(_USER_SECTIONS_FALLBACK)
@@ -234,7 +234,7 @@ def format_config_info(section: str | None = None) -> str:
 
     lines.append("")
     lines.append("### 配置文件")
-    lines.append("- `config.defaults.json` - 默认配置（含 User/Advanced 分层说明）")
+    lines.append("- `miniagent/resources/config.defaults.json` - 包内默认配置（含 User/Advanced 分层说明）")
     lines.append("- `config.user.json` - 用户覆盖（仅需填写个性化项与 secrets）")
 
     return "\n".join(lines)

@@ -7,11 +7,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from miniagent.bootstrap.application import ApplicationContainer
 from miniagent.engine.init import _init_default_session
 from miniagent.infrastructure.channel_router import ChannelRouter
 from miniagent.infrastructure.message_queue import MessageQueueManager
-from miniagent.runtime.context import RuntimeContext
 from tests.config_helpers import install_test_config
+from tests.memory_helpers import (
+    make_background_task_manager,
+    make_knowledge_registry,
+    make_memory_runtime,
+)
 
 
 class _FakeSessionManager:
@@ -20,7 +25,7 @@ class _FakeSessionManager:
         self.created: list[str] = []
 
     def list_all_sessions_with_info(self) -> list[dict]:
-        return [{"session_id": sid} for sid in self._session_ids]
+        return [{"id": sid} for sid in self._session_ids]
 
     def get_or_create(self, session_id: str, _options: object) -> None:
         self.created.append(session_id)
@@ -89,10 +94,8 @@ def test_session_info_helpers() -> None:
     from miniagent.session.manager import session_info_id, session_info_number
 
     assert session_info_id({"id": "foo"}) == "foo"
-    assert session_info_id({"session_id": "bar"}) == "bar"
-    assert session_info_id({"id": "foo", "session_id": "bar"}) == "foo"
+    assert session_info_id({}) == ""
     assert session_info_number({"number": 3}) == 3
-    assert session_info_number({"session_number": 5}) == 5
     assert session_info_number({}) == 0
 
 
@@ -119,7 +122,7 @@ def test_shutdown_saves_last_cli_with_real_list_format(tmp_path) -> None:
     install_test_config(tmp_path, {"paths": {"state_dir": str(tmp_path)}})
     router = ChannelRouter()
     mq = MessageQueueManager()
-    ctx = RuntimeContext(
+    ctx = ApplicationContainer(
         registry=MagicMock(),
         monitor=MagicMock(),
         skill_registry=MagicMock(),
@@ -128,10 +131,9 @@ def test_shutdown_saves_last_cli_with_real_list_format(tmp_path) -> None:
         channel_router=router,
         message_queue=mq,
         feishu=FeishuRuntime(mq),
-        memory_store=MagicMock(),
-        activity_log=MagicMock(),
-        keyword_index=MagicMock(),
-        memory_context=MagicMock(),
+        memory=make_memory_runtime(),
+        knowledge_registry=make_knowledge_registry(),
+        background_tasks=make_background_task_manager(),
         openai_client=None,
     )
     sm = _RealFormatFakeSessionManager(
@@ -273,7 +275,7 @@ def test_shutdown_runtime_saves_last_cli_session(tmp_path) -> None:
     install_test_config(tmp_path, {"paths": {"state_dir": str(tmp_path)}})
     router = ChannelRouter()
     mq = MessageQueueManager()
-    ctx = RuntimeContext(
+    ctx = ApplicationContainer(
         registry=MagicMock(),
         monitor=MagicMock(),
         skill_registry=MagicMock(),
@@ -282,10 +284,9 @@ def test_shutdown_runtime_saves_last_cli_session(tmp_path) -> None:
         channel_router=router,
         message_queue=mq,
         feishu=FeishuRuntime(mq),
-        memory_store=MagicMock(),
-        activity_log=MagicMock(),
-        keyword_index=MagicMock(),
-        memory_context=MagicMock(),
+        memory=make_memory_runtime(),
+        knowledge_registry=make_knowledge_registry(),
+        background_tasks=make_background_task_manager(),
         openai_client=None,
     )
     sm = _FakeSessionManager(["work-a"])

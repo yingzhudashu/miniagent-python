@@ -116,23 +116,22 @@ class TestHttpClientReuse:
     """HTTP客户端复用测试。"""
 
     @pytest.mark.asyncio
-    async def test_embed_client_reuse(self) -> None:
-        """嵌入HTTP客户端复用测试。"""
-        from miniagent.memory.embedding_search import (
-            _get_embed_http_client,
-            close_embed_http_client,
-        )
+    async def test_embed_client_reuse(self, tmp_path) -> None:
+        """一个 embedding provider 在其生命周期内复用连接池。"""
+        from miniagent.memory.embedding_search import EmbeddingSearchProvider
 
-        client1 = await _get_embed_http_client()
-        client2 = await _get_embed_http_client()
+        provider = EmbeddingSearchProvider(state_dir=str(tmp_path))
+        client1 = provider._get_http_client()
+        client2 = provider._get_http_client()
 
         # 应返回同一客户端实例
         assert client1 is client2
 
         # 关闭后应创建新实例
-        await close_embed_http_client()
-        client3 = await _get_embed_http_client()
+        await provider.close()
+        client3 = provider._get_http_client()
         assert client3 is not client1
+        await provider.close()
 
 
 # ============================================================================

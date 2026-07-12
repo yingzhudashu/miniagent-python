@@ -390,24 +390,18 @@ class TestThinkingCallback:
         received: list[str | None] = []
 
         async def cb(
-            text: str, streaming: bool, header: str, *, full_record: str | None = None
+            text: str,
+            streaming: bool,
+            header: str,
+            *,
+            full_record: str | None = None,
+            reset: bool = False,
+            is_last_step: bool = False,
         ) -> None:
             received.append(full_record)
 
         await invoke_on_thinking(cb, "d", False, "h", full_record="FULL")
         assert received == ["FULL"]
-
-    @pytest.mark.asyncio
-    async def test_invoke_on_thinking_three_arg_cb_ignores_full_record(self) -> None:
-        calls: list[tuple[object, ...]] = []
-
-        async def cb(text: str, streaming: bool, header: str) -> None:
-            calls.append((text, streaming, header))
-
-        await invoke_on_thinking(cb, "x", True, "y", full_record=None)
-        assert calls == [("x", True, "y")]
-        await invoke_on_thinking(cb, "a", False, "b", full_record="should_not_break")
-        assert calls == [("x", True, "y"), ("a", False, "b")]
 
     def test_step_thinking_header_shape_and_truncation(self) -> None:
         long_desc = "字" * 80

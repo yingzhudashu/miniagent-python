@@ -1,7 +1,7 @@
 """记忆上下文 Protocol 的默认实现。
 
 将 ``miniagent.types.memory_context`` 中定义的接口落地为可注入服务，
-供 ``RuntimeContext``、``execute_plan`` 与测试使用。
+供 ``ApplicationContainer``、``execute_plan`` 与测试使用。
 """
 
 from __future__ import annotations
@@ -12,8 +12,8 @@ from typing import Any
 
 from miniagent.engine.bg_session_cleanup import is_background_session_key
 from miniagent.memory.embedding_search import (
+    EmbeddingSearchProvider,
     embedding_search_enabled,
-    get_embed_provider,
 )
 from miniagent.memory.history_bridge import format_history_for_llm
 from miniagent.memory.keyword_index import (
@@ -45,10 +45,12 @@ class DefaultMemorySearch:
         self,
         keyword_index: KeywordIndexProtocol,
         memory_store: MemoryStoreProtocol | None = None,
+        embedding_provider: EmbeddingSearchProvider | None = None,
     ) -> None:
         """绑定关键词索引与可选记忆存储（嵌入检索需 store 的 state_dir）。"""
         self._keyword_index = keyword_index
         self._memory_store = memory_store
+        self._embedding_provider = embedding_provider
 
     async def search_relevant_memory(
         self,
@@ -63,11 +65,9 @@ class DefaultMemorySearch:
             return []
 
         embed_task: asyncio.Task[Any] | None = None
-        provider = None
-        if embedding_search_enabled() and self._memory_store is not None:
+        provider = self._embedding_provider
+        if embedding_search_enabled() and provider is not None:
             try:
-                state_dir = getattr(self._memory_store, "_state_dir", "workspaces")
-                provider = get_embed_provider(state_dir=state_dir)
                 embed_task = asyncio.create_task(
                     provider.search(query, limit=top_k, min_score=0.3)
                 )
@@ -165,13 +165,15 @@ class DefaultMemoryContext:
         keyword_index: KeywordIndexProtocol,
         *,
         memory_search: MemorySearchProtocol | None = None,
+        embedding_provider: EmbeddingSearchProvider | None = None,
     ) -> None:
         """绑定记忆存储、关键词索引与可选自定义检索实现。"""
         self._memory_store = memory_store
         self._keyword_index = keyword_index
         self._memory_search = memory_search or DefaultMemorySearch(
-            keyword_index, memory_store
+            keyword_index, memory_store, embedding_provider
         )
+        self._embedding_provider = embedding_provider
 
     async def inject_memory_to_messages(
         self,
@@ -202,7 +204,11 @@ class DefaultMemoryContext:
             if query:
                 search = self._memory_search
                 if keyword_index is not None and keyword_index is not self._keyword_index:
-                    search = DefaultMemorySearch(keyword_index, self._memory_store)
+                    search = DefaultMemorySearch(
+                        keyword_index,
+                        self._memory_store,
+                        self._embedding_provider,
+                    )
                 relevant = await search.search_relevant_memory(
                     query, session_key, top_k=8
                 )
@@ -284,9 +290,15 @@ class DefaultMemoryContext:
 def create_default_memory_context(
     memory_store: MemoryStoreProtocol,
     keyword_index: KeywordIndexProtocol,
+    *,
+    embedding_provider: EmbeddingSearchProvider | None = None,
 ) -> DefaultMemoryContext:
     """由记忆存储与关键词索引构造默认记忆上下文服务。"""
-    return DefaultMemoryContext(memory_store=memory_store, keyword_index=keyword_index)
+    return DefaultMemoryContext(
+        memory_store=memory_store,
+        keyword_index=keyword_index,
+        embedding_provider=embedding_provider,
+    )
 
 
 __all__ = [

@@ -30,10 +30,19 @@ jobs:
         run: python -m compileall -q miniagent
 
       - name: Ruff
-        run: python -m ruff check miniagent tests
+        run: python -m ruff check miniagent tests scripts/check_architecture.py scripts/check_wheel_resources.py
 
-      - name: Mypy (miniagent/types)
-        run: python -m mypy miniagent/types
+      - name: Architecture dependency rules
+        run: python scripts/check_architecture.py
+
+      - name: Mypy (application + bootstrap + contracts + types)
+        run: python -m mypy miniagent/application miniagent/bootstrap miniagent/contracts miniagent/types
+
+      - name: Build and inspect wheel runtime resources
+        if: matrix.python-version == '3.12'
+        run: |
+          python -m pip wheel . --no-deps --wheel-dir wheelhouse
+          python scripts/check_wheel_resources.py wheelhouse/*.whl
 
       - name: Pytest
         run: python -m pytest tests/ -q -m "not evaluation"

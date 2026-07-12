@@ -1,6 +1,6 @@
 """Engine — 子系统初始化
 
-拆分自 unified.py。在 ``unified_main`` 早期调用 ``init_subsystems``，完成 **工具与技能**
+由 ``run_runtime`` 早期调用 ``init_subsystems``，完成 **工具与技能**
 的就绪后再进入 CLI 循环。
 
 顺序要点（与注册覆盖语义一致）：
@@ -11,7 +11,7 @@
 4. ``build_skill_snapshots``（内含 ``BUILTIN_TOOLBOXES`` 合并）；若已注册 MCP 工具则追加 ``mcp`` 工具箱；创建 ``SessionManager``；默认会话加锁；
    ``KeywordIndex.prune_expired`` 清理过期索引项
 
-配置见 config.defaults.json；架构见 ``docs/ARCHITECTURE.md``。
+配置见包内 ``miniagent/resources/config.defaults.json``；架构见 ``docs/ARCHITECTURE.md``。
 """
 
 from __future__ import annotations
@@ -33,7 +33,6 @@ _logger = get_logger(__name__)
 async def init_subsystems(
     registry: Any,
     skill_registry: Any,
-    engine: Any,
     SessionManager: Any,
     channel_router: Any,
     clawhub: Any | None = None,
@@ -44,7 +43,6 @@ async def init_subsystems(
     Args:
         registry: 工具注册表
         skill_registry: 技能注册表
-        engine: 保留以兼容旧调用方，当前未使用
         SessionManager: SessionManager 类
         channel_router: 本进程的 :class:`~miniagent.infrastructure.channel_router.ChannelRouter` 实例
         clawhub: ClawHub 客户端，传入 :class:`~miniagent.session.manager.DefaultSessionManager`
@@ -60,7 +58,6 @@ async def init_subsystems(
     from miniagent.skills.load_runtime import bootstrap_skill_packages
     from miniagent.skills.snapshots import build_skill_snapshots
 
-    _ = engine  # API 兼容占位
     auto_register_trace_file_hook()
 
     # 0.5. 检查并恢复 baseline skills（skill-vetter / skill-creator）

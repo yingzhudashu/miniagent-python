@@ -18,12 +18,12 @@ python -m miniagent --feishu --continue # CLI + 飞书，并继续上次会话
 python -m miniagent --stop              # 列出运行中实例；交互选择停止
 python -m miniagent --stop --all        # 停止全部
 python -m miniagent --stop 1 2          # 停止指定 ID
-python -m miniagent --stop --state-dir <路径> 1  # 多注册表根时指定实例注册表目录
+python -m miniagent --stop --state-dir <路径> 1  # 操作显式指定的实例注册表目录
 ```
 
 **一目录一实例**、PID 存活判定与 `--stop --state-dir` 语义见 **[ENGINEERING.md §3.3](ENGINEERING.md#33-多实例注册表)**。
 
-`--continue` / 隐式继续：将 `last_cli_session` 写入项目 workspace 的 `channel-router.json`（默认 `{miniagent}/workspaces/projects/<key>/channel-router.json`）；在退出（含 `quit`/`exit`、Ctrl+C、SIGTERM）、`/session switch` 时更新。下次启动会恢复该会话 ID；**全屏 CLI** 在 transcript 区加载最近历史，**简易 CLI**（无 TUI）启动时也会打印最近历史摘要；`/session switch` 后会重载对应会话历史。使用 `--no-continue` 可强制从 `default` 会话开始。若 cwd 下仍有旧版 `{cwd}/workspaces/` 数据，legacy 回退会继续使用该路径。
+`--continue` / 隐式继续：将 `last_cli_session` 写入项目 workspace 的 `channel-router.json`（默认 `{miniagent}/workspaces/projects/<key>/channel-router.json`）；在退出（含 `quit`/`exit`、Ctrl+C、SIGTERM）、`/session switch` 时更新。下次启动会恢复该会话 ID；**全屏 CLI** 在 transcript 区加载最近历史，**简易 CLI**（无 TUI）启动时也会打印最近历史摘要；`/session switch` 后会重载对应会话历史。使用 `--no-continue` 可强制从 `default` 会话开始。
 
 ## 全屏 transcript 历史加载
 
@@ -137,7 +137,7 @@ On branch main
 ```
 
 **图片视觉描述**：
-- 默认启用 `cli.file_vision_desc`（见 `config.defaults.json`）
+- 默认启用 `cli.file_vision_desc`（见 `miniagent/resources/config.defaults.json`）
 - 图片会调用配置的视觉模型生成描述，并注入到对话历史
 - 设为 `0` 可禁用此功能
 
@@ -377,11 +377,11 @@ On branch main
 - **飞书收结果**：飞书 WebSocket 已连接且任务为 **`primary`** 且已与飞书私聊绑定时，定时任务会镜像思考流与最终回复到飞书（`scheduled_tasks.feishu_mirror=false` 关闭）；详见 [USER_GUIDE.md](USER_GUIDE.md) §3。
 - **会话**：`primary` 使用当前路由的主会话 / 活跃会话；`ephemeral` 每次新建临时会话键；`fixed:会话ID` 固定到某会话（如 `fixed:default` 或 `fixed:feishu:oc_xxx`，后者可用于飞书群任务）。
 - **时区**：cron 墙钟以 `tasks.json` 内 `schedule.timezone` 为准；未写 `--tz` 时新建任务默认时区为 `scheduled_tasks.timezone` → `timezone.default` → `TZ` → `Asia/Shanghai`。
-- **关闭调度循环**（不删任务表）：`scheduled_tasks.disabled=true`；dispatch 失败退避秒数：`scheduled_tasks.dispatch_backoff`（默认 60，见 `config.defaults.json`）。
+- **关闭调度循环**（不删任务表）：`scheduled_tasks.disabled=true`；dispatch 失败退避秒数：`scheduled_tasks.dispatch_backoff`（默认 60，见包内 defaults）。
 
 **飞书渠道**：在飞书里发 `/schedule` 时，通常 **仅允许** `list` / `show`；`add` / `remove` / `enable` / `disable` 须在 **本机 CLI** 执行（与 `/session` 变异限制类似）。
 
-**Agent 工具**（可选）：`run_dot_command` 由 `cli.dot_tools_enabled` 控制；`manage_scheduled_task` 由 `scheduled_tools.enabled` 控制。见 `config.defaults.json`。
+**Agent 工具**（可选）：`run_dot_command` 由 `cli.dot_tools_enabled` 控制；`manage_scheduled_task` 由 `scheduled_tools.enabled` 控制。见包内 defaults。
 
 ### 通道路由（无 `/bind` 命令）
 
@@ -591,7 +591,7 @@ HTTP 请求自动重试，提升网络稳定性：
 **参数配置**：
 - `max_retries`：默认 3 次
 - `backoff_factor`：指数退避因子 1.0（间隔：1s → 2s → 4s）
-- `http_timeout`：默认 120 秒（`config.defaults.json`）
+- `http_timeout`：默认 120 秒（包内 defaults）
 
 **覆盖模块**：
 - OpenAI API 调用（SDK 原生 `max_retries=2`）

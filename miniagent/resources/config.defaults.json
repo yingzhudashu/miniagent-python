@@ -245,11 +245,9 @@
     "description": "Agent HTML 上传服务（User 层）",
     "base_url": "https://robotclaw.site",
     "max_size": 2097152,
-    "default_ttl_days": 7,
     "_guide": {
       "base_url": "API 服务基础 URL",
-      "max_size": "单文件最大字节数（默认 2MB）",
-      "default_ttl_days": "文件默认保留天数"
+      "max_size": "单文件最大字节数（默认 2MB）"
     }
   },
 

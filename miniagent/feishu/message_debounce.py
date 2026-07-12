@@ -130,22 +130,7 @@ class FeishuMessageDebouncer:
             await asyncio.gather(*tasks, return_exceptions=True)
 
 
-_message_debouncer = FeishuMessageDebouncer()
-
-
-def get_feishu_message_debouncer() -> FeishuMessageDebouncer:
-    """返回进程内单例防抖器。"""
-    return _message_debouncer
-
-
-async def reset_feishu_message_debouncer() -> None:
-    """重置防抖器（测试与 WS 重连用）。"""
-    await _message_debouncer.reset()
-
-
 __all__ = [
     "FeishuMessageDebouncer",
     "feishu_message_debounce_ms",
-    "get_feishu_message_debouncer",
-    "reset_feishu_message_debouncer",
 ]
