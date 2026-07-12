@@ -6,7 +6,8 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -63,7 +64,7 @@ class TestLlmJson:
     def setup_method(self) -> None:
         clear_trace_hooks()
 
-    def _make_mock_client(self, json_str: str) -> MagicMock:
+    def _make_mock_client(self, json_str: str | None) -> MagicMock:
         """构造返回指定 JSON 字符串的 Mock LLM client。"""
         mock_choice = MagicMock()
         mock_choice.message.content = json_str
@@ -176,6 +177,180 @@ class TestLlmJson:
         client.chat.completions.create = fake_create
         result = await llm_json("test", "system", client=client)
         assert result == {}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("first_content", [None, "", "not valid json"])
+    async def test_retries_empty_or_malformed_content(
+        self, first_content: str | None
+    ) -> None:
+        contents = [first_content, '{"ok": true}']
+        calls = 0
+
+        async def fake_create(**_kw):
+            nonlocal calls
+            content = contents[calls]
+            calls += 1
+            choice = MagicMock()
+            choice.message.content = content
+            response = MagicMock()
+            response.choices = [choice]
+            response.usage = None
+            return response
+
+        client = MagicMock()
+        client.chat.completions.create = fake_create
+
+        result = await llm_json("test", "system", client=client)
+
+        assert result == {"ok": True}
+        assert calls == 2
+
+    @pytest.mark.asyncio
+    async def test_raise_on_error_rejects_repeated_empty_content(self) -> None:
+        client = self._make_mock_client(None)
+        with pytest.raises(ValueError, match="empty text content"):
+            await llm_json(
+                "test",
+                "system",
+                client=client,
+                raise_on_error=True,
+            )
+
+    @pytest.mark.asyncio
+    async def test_responses_json_without_explicit_thinking_uses_low(self) -> None:
+        async def events():
+            yield SimpleNamespace(
+                type="response.output_text.delta",
+                output_index=0,
+                content_index=0,
+                delta='{"ok": true}',
+            )
+            yield SimpleNamespace(
+                type="response.completed",
+                response=SimpleNamespace(
+                    status="completed",
+                    output=[SimpleNamespace(type="message")],
+                    usage=None,
+                    model="response-model",
+                ),
+            )
+
+        client = MagicMock()
+        client.responses.create = AsyncMock(return_value=events())
+
+        with patch("miniagent.core.llm_transport._wire_api", return_value="responses"):
+            result = await llm_json("test", "system", client=client)
+
+        assert result == {"ok": True}
+        assert client.responses.create.await_args.kwargs["reasoning"] == {
+            "effort": "low"
+        }
+        assert client.responses.create.await_args.kwargs["stream"] is True
+
+    @pytest.mark.asyncio
+    async def test_responses_retries_reasoning_only_then_parses_stream(self) -> None:
+        async def reasoning_only():
+            yield SimpleNamespace(
+                type="response.output_item.added",
+                output_index=0,
+                item=SimpleNamespace(type="reasoning"),
+            )
+            yield SimpleNamespace(
+                type="response.completed",
+                response=SimpleNamespace(
+                    status="completed",
+                    output=[SimpleNamespace(type="reasoning")],
+                    usage=None,
+                    model="response-model",
+                ),
+            )
+
+        async def valid():
+            yield SimpleNamespace(
+                type="response.output_text.done",
+                output_index=0,
+                content_index=0,
+                text='{"ok": true}',
+            )
+            yield SimpleNamespace(
+                type="response.completed",
+                response=SimpleNamespace(
+                    status="completed",
+                    output=[SimpleNamespace(type="message")],
+                    usage=None,
+                    model="response-model",
+                ),
+            )
+
+        client = MagicMock()
+        client.responses.create = AsyncMock(
+            side_effect=[reasoning_only(), valid()]
+        )
+        with (
+            patch("miniagent.core.llm_transport._wire_api", return_value="responses"),
+            patch("miniagent.core.llm_json.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            result = await llm_json("test", "system", client=client)
+
+        assert result == {"ok": True}
+        assert client.responses.create.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_responses_retries_transient_400_and_uses_low_last(self) -> None:
+        class GatewayInvalidRequest(Exception):
+            status_code = 400
+
+        async def valid():
+            yield SimpleNamespace(
+                type="response.output_text.done",
+                output_index=0,
+                content_index=0,
+                text='{"ok": true}',
+            )
+            yield SimpleNamespace(
+                type="response.completed",
+                response=SimpleNamespace(
+                    status="completed",
+                    output=[SimpleNamespace(type="message")],
+                    usage=None,
+                    model="response-model",
+                ),
+            )
+
+        client = MagicMock()
+        client.responses.create = AsyncMock(
+            side_effect=[
+                GatewayInvalidRequest("invalid_request_error cch_session_id: probe"),
+                GatewayInvalidRequest("invalid_request_error cch_session_id: probe"),
+                valid(),
+            ]
+        )
+        with (
+            patch("miniagent.core.llm_transport._wire_api", return_value="responses"),
+            patch("miniagent.core.llm_json.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            result = await llm_json("test", "system", client=client)
+
+        assert result == {"ok": True}
+        third = client.responses.create.await_args_list[2].kwargs
+        assert third["reasoning"] == {"effort": "low"}
+        assert "temperature" not in third
+        assert "top_p" not in third
+
+    @pytest.mark.asyncio
+    async def test_responses_does_not_retry_auth_failure(self) -> None:
+        class AuthenticationFailure(Exception):
+            status_code = 401
+
+        client = MagicMock()
+        client.responses.create = AsyncMock(
+            side_effect=AuthenticationFailure("unauthorized")
+        )
+        with patch("miniagent.core.llm_transport._wire_api", return_value="responses"):
+            with pytest.raises(AuthenticationFailure):
+                await llm_json("test", "system", client=client)
+
+        assert client.responses.create.await_count == 1
 
     @pytest.mark.asyncio
     async def test_empty_choices_returns_empty_dict(self) -> None:

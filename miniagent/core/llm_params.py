@@ -28,7 +28,7 @@ def resolve_exec_completion_kwargs(
         merge_overrides: 运行时额外覆盖（如特定工具调用时的参数调整）。
 
     Returns:
-        kwargs 可直接传给 ``client.chat.completions.create(**kwargs)``。
+        供统一 LLM transport 消费的模型参数。
     """
     mc = get_default_model_config()
     ov = dict(agent_config.model_overrides)
@@ -46,6 +46,8 @@ def resolve_exec_completion_kwargs(
         "max_tokens": int(ov.get("max_tokens", mc.max_tokens)),
         "top_p": float(ov.get("top_p", mc.top_p)),
         "stream": stream,
+        "_thinking_level": tl,
+        "_thinking_budget": tb,
     }
 
     # service_tier: 服务层级（auto/default/flex），控制延迟优先级
@@ -79,7 +81,7 @@ def resolve_planner_completion_kwargs(
         merge_overrides: 运行时额外覆盖。
 
     Returns:
-        kwargs 可直接传给 ``client.chat.completions.create(**kwargs)``。
+        供统一 LLM transport 消费的模型参数。
     """
     mc = get_default_model_config()
     ov: dict[str, Any] = dict(agent_config.model_overrides) if agent_config else {}
@@ -95,6 +97,8 @@ def resolve_planner_completion_kwargs(
         "max_tokens": int(ov.get("planner_max_tokens", 2048)),
         "top_p": float(ov.get("top_p", mc.top_p)),
         "stream": False,
+        "_thinking_level": tl,
+        "_thinking_budget": tb,
     }
 
     # service_tier: 服务层级（auto/default/flex）

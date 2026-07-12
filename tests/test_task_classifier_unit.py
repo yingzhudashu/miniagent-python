@@ -154,24 +154,218 @@ async def test_classifier_difficulty_parsing(payload: str, expected: TaskDifficu
 
 @pytest.mark.asyncio
 async def test_classifier_unknown_difficulty_fallback() -> None:
+    client = _mock_client('{"difficulty":"unknown"}')
     d = await classify_task_difficulty(
         "hello",
         ["tb1"],
         knowledge_registry=make_knowledge_registry(),
-        client=_mock_client('{"difficulty":"unknown"}'),
+        client=client,
     )
     assert d == TaskDifficulty.NORMAL
+    assert client.chat.completions.create.await_count == 1
 
 
 @pytest.mark.asyncio
 async def test_classifier_malformed_json_fallback() -> None:
+    client = _mock_client("not json at all")
     d = await classify_task_difficulty(
         "hello",
         ["tb1"],
         knowledge_registry=make_knowledge_registry(),
-        client=_mock_client("not json at all"),
+        client=client,
     )
     assert d == TaskDifficulty.NORMAL
+    assert client.chat.completions.create.await_count == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("first_content", [None, "", "not json"])
+async def test_classifier_retries_empty_or_malformed_response(
+    first_content: str | None,
+) -> None:
+    responses = [
+        SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=first_content))],
+            usage=None,
+        ),
+        SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content='{"difficulty":"medium"}')
+                )
+            ],
+            usage=None,
+        ),
+    ]
+    client = MagicMock()
+    client.chat.completions.create = AsyncMock(side_effect=responses)
+
+    result = await classify_task_difficulty(
+        "hello",
+        ["tb1"],
+        knowledge_registry=make_knowledge_registry(),
+        client=client,
+    )
+
+    assert result == TaskDifficulty.MEDIUM
+    assert client.chat.completions.create.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_classifier_responses_json_uses_low_reasoning() -> None:
+    async def events():
+        yield SimpleNamespace(
+            type="response.output_text.done",
+            output_index=0,
+            content_index=0,
+            text='{"difficulty":"simple"}',
+        )
+        yield SimpleNamespace(
+            type="response.completed",
+            response=SimpleNamespace(
+                status="completed",
+                output=[SimpleNamespace(type="message")],
+                usage=None,
+                model="response-model",
+            ),
+        )
+
+    client = MagicMock()
+    client.responses.create = AsyncMock(return_value=events())
+
+    with patch("miniagent.core.llm_transport._wire_api", return_value="responses"):
+        result = await classify_task_difficulty(
+            "hello",
+            ["tb1"],
+            knowledge_registry=make_knowledge_registry(),
+            client=client,
+        )
+
+    assert result == TaskDifficulty.SIMPLE
+    assert client.responses.create.await_args.kwargs["reasoning"] == {"effort": "low"}
+    assert client.responses.create.await_args.kwargs["stream"] is True
+
+
+@pytest.mark.asyncio
+async def test_classifier_responses_recovers_reasoning_only_stream() -> None:
+    async def reasoning_only():
+        yield SimpleNamespace(
+            type="response.output_item.added",
+            output_index=0,
+            item=SimpleNamespace(type="reasoning"),
+        )
+        yield SimpleNamespace(
+            type="response.completed",
+            response=SimpleNamespace(
+                status="completed",
+                output=[SimpleNamespace(type="reasoning")],
+                usage=None,
+                model="response-model",
+            ),
+        )
+
+    async def valid():
+        yield SimpleNamespace(
+            type="response.output_text.done",
+            output_index=0,
+            content_index=0,
+            text='{"difficulty":"complex"}',
+        )
+        yield SimpleNamespace(
+            type="response.completed",
+            response=SimpleNamespace(
+                status="completed",
+                output=[SimpleNamespace(type="message")],
+                usage=None,
+                model="response-model",
+            ),
+        )
+
+    client = MagicMock()
+    client.responses.create = AsyncMock(
+        side_effect=[reasoning_only(), valid()]
+    )
+    with (
+        patch("miniagent.core.llm_transport._wire_api", return_value="responses"),
+        patch("miniagent.core.task_classifier.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        result = await classify_task_difficulty(
+            "complex task",
+            ["tb1"],
+            knowledge_registry=make_knowledge_registry(),
+            client=client,
+        )
+
+    assert result == TaskDifficulty.COMPLEX
+    assert client.responses.create.await_count == 2
+    assert "temperature" not in client.responses.create.await_args_list[1].kwargs
+    assert "top_p" not in client.responses.create.await_args_list[1].kwargs
+
+
+@pytest.mark.asyncio
+async def test_classifier_responses_third_attempt_uses_low() -> None:
+    class GatewayInvalidRequest(Exception):
+        status_code = 400
+
+    async def valid():
+        yield SimpleNamespace(
+            type="response.output_text.done",
+            output_index=0,
+            content_index=0,
+            text='{"difficulty":"medium"}',
+        )
+        yield SimpleNamespace(
+            type="response.completed",
+            response=SimpleNamespace(
+                status="completed",
+                output=[SimpleNamespace(type="message")],
+                usage=None,
+                model="response-model",
+            ),
+        )
+
+    client = MagicMock()
+    client.responses.create = AsyncMock(
+        side_effect=[
+            GatewayInvalidRequest("invalid_request_error cch_session_id: probe"),
+            GatewayInvalidRequest("invalid_request_error cch_session_id: probe"),
+            valid(),
+        ]
+    )
+    with (
+        patch("miniagent.core.llm_transport._wire_api", return_value="responses"),
+        patch("miniagent.core.task_classifier.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        result = await classify_task_difficulty(
+            "medium task",
+            ["tb1"],
+            knowledge_registry=make_knowledge_registry(),
+            client=client,
+        )
+
+    assert result == TaskDifficulty.MEDIUM
+    assert client.responses.create.await_args_list[2].kwargs["reasoning"] == {
+        "effort": "low"
+    }
+
+
+@pytest.mark.asyncio
+async def test_classifier_responses_does_not_retry_auth_failure() -> None:
+    class AuthenticationFailure(Exception):
+        status_code = 401
+
+    client = MagicMock()
+    client.responses.create = AsyncMock(side_effect=AuthenticationFailure("unauthorized"))
+    with patch("miniagent.core.llm_transport._wire_api", return_value="responses"):
+        result = await classify_task_difficulty(
+            "task",
+            ["tb1"],
+            knowledge_registry=make_knowledge_registry(),
+            client=client,
+        )
+
+    assert result == TaskDifficulty.NORMAL
+    assert client.responses.create.await_count == 1
 
 
 @pytest.mark.asyncio

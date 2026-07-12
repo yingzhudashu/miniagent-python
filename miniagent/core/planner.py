@@ -1,8 +1,9 @@
 """Mini Agent Python — 规划器（两阶段中的规划阶段）
 
 调用 LLM 分析用户需求，生成结构化执行计划（``StructuredPlan``）。系统提示要求模型返回 **单一 JSON 对象**
-（与 ``response_format`` / json_object 模式对齐）；解析失败或网络错误时最多重试 ``PLANNER_MAX_RETRIES`` 次，
-全部失败则降级为内置 fallback 计划，保证执行阶段始终有可消费的结构。
+（与 ``response_format`` / json_object 模式对齐）；解析失败或网络错误时最多重试 ``PLANNER_MAX_RETRIES`` 次。
+Responses 空文本会按 reasoning-only、截断和 completed-empty 分类并有界恢复，全部失败才降级为内置
+fallback 计划，保证执行阶段始终有可消费的结构。
 
 ``planner_model_overrides`` 与 :func:`miniagent.core.llm_params.resolve_planner_completion_kwargs` 合并，
 用于低温、较小 ``max_tokens`` 等规划专用参数。LLM 客户端由组合根创建，
@@ -13,9 +14,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
-from typing import Any
+from typing import Any, cast
 
 from miniagent.contracts.knowledge import KnowledgeRegistryProtocol
 from miniagent.core._openai_compat import (
@@ -26,10 +28,20 @@ from miniagent.core._openai_compat import (
 )
 from miniagent.core.constants import PLANNER_MAX_RETRIES
 from miniagent.core.llm_json import parse_llm_json_response
+from miniagent.core.llm_transport import (
+    LLMCompletion,
+    classify_transport_error,
+    completion_failure_category,
+    create_completion,
+    create_structured_completion,
+    structured_retry_delay,
+    structured_retry_params,
+)
 from miniagent.core.plan_utils import parse_plan_chunks_from_raw, parse_plan_steps_from_raw
 from miniagent.core.prompts.planner import PLAN_SYSTEM_PROMPT
 from miniagent.infrastructure.debug_ndjson import safe_agent_debug_log
 from miniagent.infrastructure.logger import append_log, get_logger, truncate
+from miniagent.types.config import AgentConfig, WireAPI
 from miniagent.types.planning import (
     ContextMode,
     ContextStrategy,
@@ -47,6 +59,23 @@ from miniagent.types.tool import Toolbox
 
 _logger = get_logger(__name__)
 
+class _PlannerAttemptFailure(RuntimeError):
+    """Safe, structured failure raised within one planner attempt."""
+
+    def __init__(
+        self,
+        category: str,
+        *,
+        retryable: bool = True,
+        status_code: int | None = None,
+        incomplete_reason: str | None = None,
+    ) -> None:
+        super().__init__(category)
+        self.category = category
+        self.retryable = retryable
+        self.status_code = status_code
+        self.incomplete_reason = incomplete_reason
+
 # ─── 常量 ───────────────────────────────────────────────
 
 # PLAN_SYSTEM_PROMPT 现在从 miniagent.core.prompts.planner 导入
@@ -62,7 +91,7 @@ async def generate_plan(
     *,
     knowledge_registry: KnowledgeRegistryProtocol,
     client: Any,
-    agent_config: Any | None = None,
+    agent_config: AgentConfig | None = None,
     registry: Any | None = None,
     planner_model_overrides: dict[str, Any] | None = None,
     default_step_thinking: str = "medium",
@@ -89,7 +118,7 @@ async def generate_plan(
         log_file: 可选日志文件路径；非空时将请求/响应摘要写入 NDJSON 日志。
         client: 由组合根注入的 AsyncOpenAI 兼容客户端。
         agent_config: 可选 :class:`~miniagent.types.config.AgentConfig`；
-            提供 session_key、conversation_history、log_file 等规划上下文。
+            通过 ``session_config`` 提供 session_key、conversation_history 等规划上下文。
         registry: 可选工具注册表（需实现 ``get_all()``），用于生成工具箱→工具名映射。
         knowledge_registry: 由组合根注入的知识库注册表。
         planner_model_overrides: 规划阶段 LLM 参数覆盖，与
@@ -107,11 +136,14 @@ async def generate_plan(
     from miniagent.core.llm_params import resolve_planner_completion_kwargs
     from miniagent.infrastructure.tracing import emit_trace
     from miniagent.knowledge import retrieve_knowledge_context
-    from miniagent.types.config import AgentConfig
 
     ac: AgentConfig | None = agent_config if isinstance(agent_config, AgentConfig) else None
     planner_kw = resolve_planner_completion_kwargs(ac, merge_overrides=planner_model_overrides)
-    plan_session_key = ac.session_key if ac and ac.session_key else "default"
+    plan_session_key = (
+        ac.session_config.session_key
+        if ac and ac.session_config.session_key
+        else "default"
+    )
 
     # ── RAG 增强：知识库检索（使用公共函数）──
     kb_context_planner = retrieve_knowledge_context(
@@ -155,65 +187,115 @@ async def generate_plan(
 
     llm_client = client
     use_json_object = True
+    from miniagent.core.config import get_default_model_config
+
+    model_config = get_default_model_config()
+    wire_api = model_config.wire_api
+    attempt_kw = dict(planner_kw)
+    failure_history: list[str] = []
 
     for attempt in range(PLANNER_MAX_RETRIES):
         try:
-            create_args: dict[str, Any] = {
-                "messages": json_object_messages if use_json_object else messages,  # type: ignore[arg-type]
-                **planner_kw,
-            }
-            if use_json_object:
-                create_args["response_format"] = {"type": "json_object"}
-
+            use_structured_stream = wire_api == "responses" and use_json_object
             emit_trace(
                 {
                     "type": "llm.request",
                     "phase": "plan",
                     "session_key": plan_session_key,
                     "attempt": attempt + 1,
-                    "model": planner_kw["model"],
+                    "model": attempt_kw["model"],
                     "json_object": use_json_object,
+                    "reasoning_level": attempt_kw.get("_thinking_level"),
+                    "max_tokens": attempt_kw.get("max_tokens"),
+                    "sampling_removed": (
+                        "temperature" not in attempt_kw and "top_p" not in attempt_kw
+                    ),
+                    "structured_stream": use_structured_stream,
                 }
             )
             safe_agent_debug_log(
                 location="planner.py:generate_plan",
-                message="before_planner_chat_completions",
+                message="before_planner_completion",
                 data={
                     "attempt": attempt + 1,
-                    "model": planner_kw.get("model"),
+                    "model": attempt_kw.get("model"),
                     "json_object": use_json_object,
+                    "wire_api": wire_api,
                 },
             )
             try:
-                response = await llm_client.chat.completions.create(**create_args)
+                request_messages = (
+                    json_object_messages if use_json_object else messages
+                )
+                if use_json_object:
+                    response = await create_structured_completion(
+                        llm_client,
+                        messages=request_messages,
+                        params=attempt_kw,
+                    )
+                else:
+                    response = await create_completion(
+                        llm_client,
+                        messages=request_messages,
+                        params=attempt_kw,
+                    )
             except Exception as api_err:
                 if use_json_object and _json_object_unsupported(api_err):
                     use_json_object = False
                     _logger.info("Planner: API 不支持 response_format json_object，已降级")
-                    response = await llm_client.chat.completions.create(
-                        messages=messages,  # type: ignore[arg-type]
-                        **planner_kw,
+                    response = await create_completion(
+                        llm_client,
+                        messages=messages,
+                        params=attempt_kw,
                     )
                 else:
                     raise
 
-            content = response.choices[0].message.content
+            content = response.content
+            failure: _PlannerAttemptFailure | None = None
+            plan_data: dict[str, Any] | None = None
+            plan: StructuredPlan | None = None
             if not content:
-                raise ValueError("Empty response from planner")
+                failure = _empty_response_failure(response)
+            else:
+                try:
+                    plan_data = parse_llm_json_response(content)
+                except Exception:
+                    failure = _PlannerAttemptFailure("invalid_json")
+                if plan_data is not None and (
+                    "steps" not in plan_data or "requiredToolboxes" not in plan_data
+                ):
+                    failure = _PlannerAttemptFailure("invalid_plan_contract")
+                elif plan_data is not None:
+                    try:
+                        plan = _dict_to_plan(
+                            plan_data,
+                            default_step_thinking=default_step_thinking,
+                        )
+                    except Exception:
+                        failure = _PlannerAttemptFailure("invalid_plan_contract")
 
-            _plan_usage = getattr(response, "usage", None)
+            _plan_usage = response.usage
             emit_trace(
                 {
                     "type": "llm.response",
                     "phase": "plan",
                     "session_key": plan_session_key,
                     "attempt": attempt + 1,
-                    "model": planner_kw["model"],
+                    "model": attempt_kw["model"],
+                    "status": response.status,
+                    "output_item_types": list(response.output_item_types),
+                    "incomplete_reason": response.incomplete_reason,
+                    "finish_reason": response.finish_reason,
+                    "failure_category": failure.category if failure else None,
                     "usage": _plan_usage.model_dump()
                     if _plan_usage is not None and hasattr(_plan_usage, "model_dump")
                     else None,
                 }
             )
+
+            if failure is not None:
+                raise failure
 
             if log_file:
                 append_log(
@@ -222,7 +304,7 @@ async def generate_plan(
                         "phase": "plan",
                         "attempt": attempt + 1,
                         "req": {
-                            "model": planner_kw["model"],
+                            "model": attempt_kw["model"],
                             "messages": [
                                 {"role": m["role"], "content": truncate(m.get("content", ""), 500)}
                                 for m in messages
@@ -235,32 +317,118 @@ async def generate_plan(
                     },
                 )
 
-            plan_data = parse_llm_json_response(content)
-            if "steps" not in plan_data or "requiredToolboxes" not in plan_data:
-                raise ValueError("Invalid plan: missing required fields")
-
-            plan = _dict_to_plan(plan_data, default_step_thinking=default_step_thinking)
+            assert plan is not None
+            if failure_history:
+                _logger.info(
+                    "Planner recovered on attempt %d after %s "
+                    "(reasoning=%s, max_tokens=%s, budget_adjusted=%s)",
+                    attempt + 1,
+                    ",".join(failure_history),
+                    attempt_kw.get("_thinking_level"),
+                    attempt_kw.get("max_tokens"),
+                    attempt_kw.get("max_tokens") != planner_kw.get("max_tokens"),
+                )
             return plan
 
         except Exception as e:
+            planner_failure = (
+                e if isinstance(e, _PlannerAttemptFailure) else _api_failure(e)
+            )
+            failure_history.append(planner_failure.category)
+            if not isinstance(e, _PlannerAttemptFailure):
+                emit_trace(
+                    {
+                        "type": "llm.response",
+                        "phase": "plan",
+                        "session_key": plan_session_key,
+                        "attempt": attempt + 1,
+                        "model": attempt_kw["model"],
+                        "status_code": planner_failure.status_code,
+                        "failure_category": planner_failure.category,
+                    }
+                )
             safe_agent_debug_log(
                 location="planner.py:generate_plan",
                 message="planner_attempt_failed",
                 data={
                     "attempt": attempt + 1,
                     "exc_type": type(e).__name__,
-                    "exc_msg": str(e)[:400],
+                    "failure_category": planner_failure.category,
+                    "retryable": planner_failure.retryable,
+                    "status_code": planner_failure.status_code,
                 },
             )
-            _logger.warning("Planner attempt %d failed: %s", attempt + 1, e)
-            if attempt == PLANNER_MAX_RETRIES - 1:
+            is_last = attempt == PLANNER_MAX_RETRIES - 1
+            if is_last or not planner_failure.retryable:
+                _logger.warning(
+                    "Planner fallback after %d attempt(s); failures=%s",
+                    attempt + 1,
+                    ",".join(failure_history),
+                )
                 return _fallback_plan(user_input)
+            if attempt == 0:
+                _logger.info(
+                    "Planner attempt 1 produced retryable %s; retrying",
+                    planner_failure.category,
+                )
+            else:
+                _logger.warning(
+                    "Planner attempt %d failed with %s; final recovery retry follows",
+                    attempt + 1,
+                    planner_failure.category,
+                )
+            attempt_kw = _planner_retry_params(
+                current=attempt_kw,
+                failure=planner_failure,
+                next_attempt=attempt + 2,
+                wire_api=wire_api,
+                model_max_tokens=model_config.max_tokens,
+            )
+            if wire_api == "responses":
+                await asyncio.sleep(structured_retry_delay(attempt + 2))
 
     # 不可达：循环内最后一轮必定返回
     assert False, "unreachable"
 
 
 # ─── 内部辅助 ───────────────────────────────────────────
+
+
+def _empty_response_failure(response: LLMCompletion) -> _PlannerAttemptFailure:
+    return _PlannerAttemptFailure(
+        completion_failure_category(response) or "empty_gateway_response",
+        incomplete_reason=response.incomplete_reason,
+    )
+
+
+def _api_failure(error: Exception) -> _PlannerAttemptFailure:
+    failure = classify_transport_error(error)
+    return _PlannerAttemptFailure(
+        failure.category,
+        retryable=failure.retryable,
+        status_code=failure.status_code,
+    )
+
+
+def _planner_retry_params(
+    *,
+    current: dict[str, Any],
+    failure: _PlannerAttemptFailure,
+    next_attempt: int,
+    wire_api: WireAPI,
+    model_max_tokens: int,
+) -> dict[str, Any]:
+    """Build bounded recovery parameters without changing the first request."""
+    if wire_api != "responses":
+        return dict(current)
+    return structured_retry_params(
+        current,
+        next_attempt=next_attempt,
+        max_attempts=PLANNER_MAX_RETRIES,
+        final_reasoning="medium",
+        model_max_tokens=model_max_tokens,
+        incomplete_reason=failure.incomplete_reason,
+    )
 
 
 def _format_toolbox_tool_names(registry: Any, toolbox_ids: list[str]) -> str:
@@ -309,7 +477,7 @@ def _format_toolbox_tool_names(registry: Any, toolbox_ids: list[str]) -> str:
     return "\n".join(lines)
 
 
-def _completed_work_context(agent_config: Any | None) -> str:
+def _completed_work_context(agent_config: AgentConfig | None) -> str:
     """从对话历史中提取已完成工作的摘要，供规划器复用。
 
     扫描最近 20 条对话历史消息，识别包含关键工作标记的条目（如"已读取"、
@@ -323,7 +491,7 @@ def _completed_work_context(agent_config: Any | None) -> str:
     - 知识检索：rag、知识库
 
     Args:
-        agent_config: Agent 配置对象（需包含 conversation_history 属性）
+        agent_config: Agent 配置对象；历史来自 ``session_config.conversation_history``。
 
     Returns:
         str: 已完成工作摘要文本（含标题），无相关历史则返回空串
@@ -331,7 +499,11 @@ def _completed_work_context(agent_config: Any | None) -> str:
     Note:
         最多返回最近 8 条相关记录，每条截断至 180 字符。
     """
-    history = getattr(agent_config, "conversation_history", None) if agent_config is not None else None
+    history = (
+        agent_config.session_config.conversation_history
+        if agent_config is not None
+        else None
+    )
     if not history:
         return ""
     lines: list[str] = []
@@ -452,14 +624,18 @@ def _dict_to_plan(data: dict[str, Any], *, default_step_thinking: str = "medium"
             ]
 
     ctx_mode_raw = str(cs.get("mode", "normal") or "normal").lower()
-    ctx_mode: ContextMode = ctx_mode_raw if ctx_mode_raw in (
-        "normal", "chunked", "summarize", "truncate"
-    ) else "normal"
+    ctx_mode: ContextMode = (
+        cast(ContextMode, ctx_mode_raw)
+        if ctx_mode_raw in ("normal", "chunked", "summarize", "truncate")
+        else "normal"
+    )
 
     out_fmt_raw = str(osp.get("format", "markdown") or "markdown").lower()
-    out_fmt: OutputFormat = out_fmt_raw if out_fmt_raw in (
-        "text", "markdown", "structured"
-    ) else "markdown"
+    out_fmt: OutputFormat = (
+        cast(OutputFormat, out_fmt_raw)
+        if out_fmt_raw in ("text", "markdown", "structured")
+        else "markdown"
+    )
 
     return StructuredPlan(
         summary=data.get("summary", ""),

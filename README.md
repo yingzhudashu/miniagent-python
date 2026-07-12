@@ -195,6 +195,8 @@ Agent 会自动调用文件工具完成任务。
 | `secrets.openai_api_key` | API 密钥（勿在截图中泄露） |
 | `model.base_url` | 可选，兼容网关地址 |
 | `model.model` | 可选，模型 id |
+| `model.wire_api` | 传输协议：`chat_completions`（默认）或 `responses` |
+| `model.user_agent` | 可选，仅在兼容网关/WAF 明确要求自定义 User-Agent 时设置 |
 
 ### 常用可选配置
 
@@ -204,6 +206,7 @@ Agent 会自动调用文件工具完成任务。
 |----------|------|
 | `model.temperature` | 模型温度，默认 0.7 |
 | `model.thinking_level` | 思考档位：`light` / `medium` / `heavy` |
+| `model.wire_api` | OpenAI Chat Completions / Responses 双协议选择 |
 | `agent.max_turns` | 单轮 ReAct 最大轮数，默认 400 |
 | `agent.debug` | `true` 时更啰嗦的日志 |
 | `secrets.tavily_api_key` | 启用联网搜索（Tavily） |

@@ -25,6 +25,29 @@ sys.path.insert(0, PROJECT_ROOT)
 # ============================================================================
 
 
+@pytest.fixture(autouse=True)
+def _isolate_json_config_from_user_file(request: pytest.FixtureRequest, tmp_path):
+    """Keep unit tests independent from the developer's config.user.json."""
+    if request.node.get_closest_marker("evaluation") is not None:
+        yield
+        return
+
+    import json
+
+    from miniagent.infrastructure import json_config
+
+    previous = json_config._config_loader
+    user_path = tmp_path / "default-user-config.json"
+    user_path.write_text(json.dumps({}), encoding="utf-8")
+    json_config.install_config_loader(
+        json_config.JsonConfigLoader(defaults_path=None, user_path=str(user_path))
+    )
+    try:
+        yield
+    finally:
+        json_config.install_config_loader(previous)
+
+
 @pytest.fixture()
 def state_dir(tmp_path, monkeypatch: pytest.MonkeyPatch) -> str:
     """Isolated state directory via MINIAGENT_PATHS_STATE_DIR env override.

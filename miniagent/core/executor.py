@@ -49,6 +49,11 @@ from miniagent.core.constants import (
     MAX_ARGS_LOG_LEN,
 )
 from miniagent.core.llm_params import resolve_exec_completion_kwargs
+from miniagent.core.llm_transport import (
+    LLMTransportError,
+    classify_transport_error,
+    stream_completion,
+)
 from miniagent.core.openai_message_sanitize import strip_leading_underscore_keys_from_messages
 from miniagent.core.plan_utils import (
     format_output_spec_block,
@@ -104,6 +109,21 @@ _TOOL_INTENT_MAP: dict[str, str] = {
 }
 
 _logger = get_logger(__name__)
+_EXEC_LLM_MAX_ATTEMPTS = 3
+
+
+def _exec_retry_params(
+    base: dict[str, Any], *, attempt: int, responses: bool
+) -> dict[str, Any]:
+    """Keep the first execution request intact and adapt Responses retries only."""
+    params = dict(base)
+    if not responses or attempt == 0:
+        return params
+    params.pop("temperature", None)
+    params.pop("top_p", None)
+    if attempt == _EXEC_LLM_MAX_ATTEMPTS - 1:
+        params["_thinking_level"] = "medium"
+    return params
 
 
 async def _await_tool_confirmation(
@@ -930,12 +950,9 @@ async def execute_plan(
                 len(tools_arg),
             )
 
-        full_content_parts = StreamingBuffer()
         full_tool_calls: list[Any] = []
         thinking_header = thinking_phase_label
         _thinking_started = False
-        _tool_call_accum: dict[int, dict[str, str]] = {}
-        _usage = None
 
         # 性能优化：回调频率控制
         _last_callback_time = time.monotonic_ns() // 1_000_000
@@ -959,80 +976,156 @@ async def execute_plan(
             except Exception as e:
                 _logger.debug("思考状态推送失败（非关键）: %s", e)
 
-        exec_kw = resolve_exec_completion_kwargs(
+        base_exec_kw = resolve_exec_completion_kwargs(
             agent_config, stream=True, merge_overrides=merge_overrides
         )
-        emit_trace(
-            {
-                "type": "llm.request",
-                "phase": "exec",
-                "session_key": session_key,
-                "turn": turn_display,
-                "model": exec_kw["model"],
-                "message_count": len(messages),
-                "tool_count": len(tools_arg),
-            }
-        )
-        stream = await llm_client.chat.completions.create(
-            messages=messages,  # type: ignore[arg-type]
-            tools=tools_arg if tools_arg else None,  # type: ignore[arg-type]
-            **exec_kw,
-        )
+        responses_wire = model_config.wire_api == "responses"
+        for request_attempt in range(_EXEC_LLM_MAX_ATTEMPTS):
+            full_content_parts = StreamingBuffer()
+            _tool_call_accum: dict[int, dict[str, str]] = {}
+            _usage = None
+            _chars_since_last_callback = 0
+            _last_callback_time = time.monotonic_ns() // 1_000_000
+            exec_kw = _exec_retry_params(
+                base_exec_kw,
+                attempt=request_attempt,
+                responses=responses_wire,
+            )
+            emit_trace(
+                {
+                    "type": "llm.request",
+                    "phase": "exec",
+                    "session_key": session_key,
+                    "turn": turn_display,
+                    "attempt": request_attempt + 1,
+                    "model": exec_kw["model"],
+                    "message_count": len(messages),
+                    "tool_count": len(tools_arg),
+                    "reasoning_level": exec_kw.get("_thinking_level"),
+                    "sampling_removed": (
+                        "temperature" not in exec_kw and "top_p" not in exec_kw
+                    ),
+                }
+            )
+            try:
+                async for event in stream_completion(
+                    llm_client,
+                    messages=messages,
+                    tools=tools_arg if tools_arg else None,
+                    params=exec_kw,
+                ):
+                    if event.usage is not None:
+                        _usage = event.usage
+                    if event.content_delta:
+                        full_content_parts.append(event.content_delta)
+                        _chars_since_last_callback += len(event.content_delta)
 
-        async for chunk in stream:
-            delta = chunk.choices[0].delta if chunk.choices else None
-            if delta is None:
-                continue
-            if hasattr(chunk, "usage") and chunk.usage:
-                _usage = chunk.usage
-            if delta.content:
-                full_content_parts.append(delta.content)
-                _chars_since_last_callback += len(delta.content)
-
-                if on_thinking:
-                    # 性能优化：频率控制（避免高频回调）
-                    now_ms = time.monotonic_ns() // 1_000_000
-                    time_elapsed = now_ms - _last_callback_time
-
-                    # 触发条件：时间间隔 > 50ms 或 字符数 > 100
-                    should_callback = (
-                        time_elapsed >= _callback_min_interval_ms or
-                        _chars_since_last_callback >= _callback_min_chars
-                    )
-
-                    if should_callback:
-                        cum = _joined_phase_cumulative(thinking_phase_label, full_content_parts.getvalue())
-                        try:
-                            await invoke_on_thinking(
-                                on_thinking,
-                                cum,
-                                True,
-                                thinking_phase_label,
-                                full_record=cum,
-                                is_last_step=is_last_step,
+                        if on_thinking:
+                            # 性能优化：回调频率控制（避免高频回调）
+                            now_ms = time.monotonic_ns() // 1_000_000
+                            time_elapsed = now_ms - _last_callback_time
+                            should_callback = (
+                                time_elapsed >= _callback_min_interval_ms
+                                or _chars_since_last_callback >= _callback_min_chars
                             )
-                            _last_callback_time = now_ms  # 更新最后回调时间
-                            _chars_since_last_callback = 0  # 重置字符计数
-                        except Exception:
-                            pass
-            if delta.tool_calls:
-                for tc_delta in delta.tool_calls:
-                    idx = tc_delta.index
-                    if idx not in _tool_call_accum:
-                        _tool_call_accum[idx] = {
-                            "id": tc_delta.id or "",
-                            "name": tc_delta.function.name if tc_delta.function else "",
-                            "arguments": "",
-                        }
-                    if tc_delta.id:
-                        _tool_call_accum[idx]["id"] = tc_delta.id
-                    if tc_delta.function:
-                        if tc_delta.function.name:
-                            _tool_call_accum[idx]["name"] = tc_delta.function.name
-                        if tc_delta.function.arguments:
-                            _tool_call_accum[idx]["arguments"] += tc_delta.function.arguments
 
-        full_content = full_content_parts.getvalue()
+                            if should_callback:
+                                cum = _joined_phase_cumulative(
+                                    thinking_phase_label,
+                                    full_content_parts.getvalue(),
+                                )
+                                try:
+                                    await invoke_on_thinking(
+                                        on_thinking,
+                                        cum,
+                                        True,
+                                        thinking_phase_label,
+                                        full_record=cum,
+                                        is_last_step=is_last_step,
+                                    )
+                                    _last_callback_time = now_ms
+                                    _chars_since_last_callback = 0
+                                except Exception:
+                                    pass
+                    tc_delta = event.tool_call_delta
+                    if tc_delta is not None:
+                        idx = tc_delta.index
+                        if idx not in _tool_call_accum:
+                            _tool_call_accum[idx] = {
+                                "id": tc_delta.id,
+                                "name": tc_delta.name,
+                                "arguments": "",
+                            }
+                        if tc_delta.id:
+                            _tool_call_accum[idx]["id"] = tc_delta.id
+                        if tc_delta.name:
+                            _tool_call_accum[idx]["name"] = tc_delta.name
+                        if tc_delta.arguments:
+                            _tool_call_accum[idx]["arguments"] += tc_delta.arguments
+            except Exception as error:
+                has_partial_output = bool(
+                    full_content_parts.getvalue() or _tool_call_accum
+                )
+                failure = classify_transport_error(error)
+                can_retry = (
+                    responses_wire
+                    and not has_partial_output
+                    and failure.retryable
+                    and request_attempt < _EXEC_LLM_MAX_ATTEMPTS - 1
+                )
+                if not can_retry:
+                    if (
+                        responses_wire
+                        and not has_partial_output
+                        and failure.retryable
+                    ):
+                        raise LLMTransportError(
+                            "LLM endpoint repeatedly rejected the execution request "
+                            "with a transient gateway error."
+                        ) from None
+                    raise
+                emit_trace(
+                    {
+                        "type": "llm.response",
+                        "phase": "exec",
+                        "session_key": session_key,
+                        "turn": turn_display,
+                        "attempt": request_attempt + 1,
+                        "failure_category": "transient_api_error",
+                    }
+                )
+                _logger.info(
+                    "Execution turn %d attempt %d hit a retryable gateway error; retrying",
+                    turn_display,
+                    request_attempt + 1,
+                )
+                continue
+
+            full_content = full_content_parts.getvalue()
+            if full_content.strip() or _tool_call_accum or not responses_wire:
+                break
+            if request_attempt == _EXEC_LLM_MAX_ATTEMPTS - 1:
+                raise LLMTransportError(
+                    "Responses execution returned no text or tool calls after "
+                    f"{_EXEC_LLM_MAX_ATTEMPTS} attempts."
+                )
+            emit_trace(
+                {
+                    "type": "llm.response",
+                    "phase": "exec",
+                    "session_key": session_key,
+                    "turn": turn_display,
+                    "attempt": request_attempt + 1,
+                    "failure_category": "empty_response",
+                }
+            )
+            _logger.info(
+                "Execution turn %d attempt %d returned no text or tool calls; retrying",
+                turn_display,
+                request_attempt + 1,
+            )
+        else:
+            raise AssertionError("unreachable execution retry loop")
 
         # 性能优化：确保最后回调发送（完整内容）
         if on_thinking and full_content and _chars_since_last_callback > 0:

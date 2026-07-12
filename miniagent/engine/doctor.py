@@ -177,6 +177,13 @@ def diagnose_environment() -> str:
 
     lines.append(f"- 模型: {get_config('model.model', 'gpt-4o-mini')}")
     lines.append(f"- API 地址: {get_config('model.base_url', 'https://api.openai.com/v1')}")
+    lines.append(
+        f"- 传输协议: {get_config('model.wire_api', 'chat_completions')}"
+    )
+    lines.append(
+        "- 自定义 User-Agent: "
+        + ("已设置" if str(get_config("model.user_agent", "") or "").strip() else "未设置")
+    )
     lines.append("")
 
     from miniagent.infrastructure.paths import resolve_state_dir

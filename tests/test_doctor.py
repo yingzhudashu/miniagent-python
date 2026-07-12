@@ -70,11 +70,20 @@ def test_diagnose_environment_reports_missing_api_key(isolated_config_loader, mo
 
 
 def test_diagnose_environment_reports_env_api_key(isolated_config_loader, monkeypatch) -> None:
-    isolated_config_loader({})
+    isolated_config_loader(
+        {
+            "model": {
+                "wire_api": "responses",
+                "user_agent": "MiniAgent-Test",
+            }
+        }
+    )
     monkeypatch.setenv("OPENAI_API_KEY", "sk-env-diagnostic-key")
     out = diagnose_environment()
     assert "环境变量 OPENAI_API_KEY" in out
     assert "sk-env-d..." in out
+    assert "传输协议: responses" in out
+    assert "自定义 User-Agent: 已设置" in out
     assert "关键配置检查通过" in out
 
 

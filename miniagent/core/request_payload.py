@@ -22,7 +22,7 @@ def serialize_exec_payload_sample(
 ) -> tuple[int, int]:
     """构建执行风格 messages 并对 messages/tools 做 ``json.dumps``（S7 perf 样本）。
 
-    与 ``execute_plan`` 内 ``chat.completions.create(messages=..., tools=...)`` 的
+    与 ``execute_plan`` 交给统一 LLM transport 的 ``messages`` / ``tools``
     **传参形状**对齐：messages 来自 ``DefaultContextManager``，tools 单独序列化。
     不含流式参数、model kwargs 或网络 I/O。
 

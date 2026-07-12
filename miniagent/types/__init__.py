@@ -38,6 +38,7 @@ from miniagent.types.agent import (
 from miniagent.types.config import (
     AgentConfig,
     ModelConfig,
+    WireAPI,
 )
 from miniagent.types.confirmation import (
     ConfirmationRequest,
@@ -134,6 +135,7 @@ __all__ = [
     "ContextManagerProtocol",
     # config
     "ModelConfig",
+    "WireAPI",
     "AgentConfig",
     # memory
     "FileMetadata",

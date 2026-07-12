@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 from miniagent.core.planner import (
     _completed_work_context,
     _dedupe_toolboxes,
     _normalize_plan_steps,
 )
+from miniagent.types.config import AgentConfig, SessionBindingConfig
 from miniagent.types.planning import PlanStep
+
+
+def _config_with_history(history: list[dict[str, str]]) -> AgentConfig:
+    return AgentConfig(
+        session_config=SessionBindingConfig(conversation_history=history)
+    )
 
 
 def test_normalize_plan_steps_merges_duplicate_file_reads_and_repairs_depends_on() -> None:
@@ -58,8 +63,8 @@ def test_dedupe_toolboxes_filters_empty_and_non_list() -> None:
 
 
 def test_completed_work_context_extracts_keyword_messages() -> None:
-    cfg = SimpleNamespace(
-        conversation_history=[
+    cfg = _config_with_history(
+        [
             {"content": "你好，今天天气不错"},
             {"content": "已通过 read_file 读取 config.py"},
             {"content": "分析完成，测试通过 pytest"},
@@ -76,10 +81,8 @@ def test_completed_work_context_extracts_keyword_messages() -> None:
 
 def test_completed_work_context_empty_without_relevant_history() -> None:
     assert _completed_work_context(None) == ""
-    assert _completed_work_context(SimpleNamespace(conversation_history=[])) == ""
+    assert _completed_work_context(_config_with_history([])) == ""
     assert (
-        _completed_work_context(
-            SimpleNamespace(conversation_history=[{"content": "普通闲聊"}])
-        )
+        _completed_work_context(_config_with_history([{"content": "普通闲聊"}]))
         == ""
     )

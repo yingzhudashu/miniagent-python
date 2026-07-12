@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from miniagent.types.tool import Toolbox, ToolRegistryProtocol
@@ -23,6 +23,19 @@ if TYPE_CHECKING:
 # 数据类占位默认值（与包内 defaults 对齐；运行时请用 get_default_*_config()）
 _MAX_TURNS_DEFAULT = 400
 _TOOL_TIMEOUT_DEFAULT = 60
+
+WireAPI = Literal["chat_completions", "responses"]
+
+
+def normalize_wire_api(value: Any) -> WireAPI:
+    """Validate and normalize the configured OpenAI wire protocol."""
+    normalized = str(value or "chat_completions").strip().lower()
+    if normalized not in ("chat_completions", "responses"):
+        raise ValueError(
+            "model.wire_api must be 'chat_completions' or 'responses', "
+            f"got {value!r}"
+        )
+    return normalized  # type: ignore[return-value]
 
 
 # ============================================================================
@@ -48,6 +61,8 @@ class ModelConfig:
         context_window: 上下文窗口大小（token）
         retry_count: API 调用重试次数
         service_tier: 服务层级（auto/default/flex）
+        wire_api: OpenAI 传输协议（chat_completions/responses）
+        user_agent: 可选 HTTP User-Agent 覆盖
 
     Example:
         >>> config = ModelConfig(model="gpt-4o", temperature=0.7)
@@ -71,6 +86,8 @@ class ModelConfig:
     context_window: int = 128000
     retry_count: int = 2
     service_tier: str | None = None  # auto/default/flex
+    wire_api: WireAPI = "chat_completions"
+    user_agent: str | None = None
 
 
 # ============================================================================
@@ -293,5 +310,7 @@ __all__ = [
     "SessionBindingConfig",
     "FeishuChannelConfig",
     "AgentConfig",
+    "WireAPI",
+    "normalize_wire_api",
     "normalize_conversation_history",
 ]

@@ -18,6 +18,7 @@ from openai import AsyncOpenAI
 
 from miniagent.infrastructure.debug_ndjson import safe_agent_debug_log
 from miniagent.infrastructure.json_config import get_config
+from miniagent.types.config import normalize_wire_api
 
 if TYPE_CHECKING:
     from miniagent.bootstrap.application import ApplicationContainer
@@ -50,6 +51,24 @@ def _read_retry_count(config_getter: Callable[[str, Any], Any] = get_config) -> 
     return count
 
 
+def _read_wire_api(config_getter: Callable[[str, Any], Any] = get_config) -> str:
+    try:
+        return normalize_wire_api(config_getter("model.wire_api", "chat_completions"))
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from None
+
+
+def _read_user_agent(
+    config_getter: Callable[[str, Any], Any] = get_config,
+) -> str | None:
+    value = str(config_getter("model.user_agent", "") or "").strip()
+    if not value:
+        return None
+    if "\r" in value or "\n" in value:
+        raise RuntimeError("model.user_agent must not contain CR or LF characters")
+    return value
+
+
 def create_async_openai_client(
     *,
     api_key: str | None = None,
@@ -71,7 +90,9 @@ def create_async_openai_client(
         )
 
     base_url = getter("model.base_url", None)
-    client = AsyncOpenAI(
+    wire_api = _read_wire_api(getter)
+    user_agent = _read_user_agent(getter)
+    client_kwargs: dict[str, Any] = dict(
         api_key=resolved_api_key,
         base_url=base_url,
         timeout=httpx.Timeout(
@@ -79,6 +100,9 @@ def create_async_openai_client(
         ),
         max_retries=_read_retry_count(getter),
     )
+    if user_agent:
+        client_kwargs["default_headers"] = {"User-Agent": user_agent}
+    client = AsyncOpenAI(**client_kwargs)
     safe_agent_debug_log(
         hypothesis_id="A",
         location="openai_client.py:create_async_openai_client",
@@ -86,6 +110,8 @@ def create_async_openai_client(
         data={
             "base_url_nonempty": bool(str(base_url or "").strip()),
             "api_key_len": len(resolved_api_key),
+            "wire_api": wire_api,
+            "custom_user_agent": bool(user_agent),
         },
     )
     return client

@@ -9,6 +9,7 @@ import os
 from openai import AsyncOpenAI
 
 from miniagent.core.constants import FEISHU_VISION_MAX_BYTES
+from miniagent.core.llm_transport import create_completion
 
 _logger = logging.getLogger(__name__)
 
@@ -72,8 +73,9 @@ async def describe_image(
         b64 = base64.b64encode(raw).decode("ascii")
         data_uri = f"data:{mime};base64,{b64}"
 
-        resp = await client.chat.completions.create(
-            model=model,
+        resp = await create_completion(
+            client,
+            params={"model": model, "max_tokens": 500},
             messages=[
                 {
                     "role": "user",
@@ -86,9 +88,8 @@ async def describe_image(
                     ],
                 },
             ],
-            max_tokens=500,
         )
-        return (resp.choices[0].message.content or "").strip()
+        return (resp.content or "").strip()
     except Exception as e:
         err_str = str(e).lower()
         if any(kw in err_str for kw in _VISION_UNSUPPORTED_KEYWORDS):

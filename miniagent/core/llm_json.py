@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import TYPE_CHECKING, Any
@@ -21,6 +22,16 @@ from typing import TYPE_CHECKING, Any
 from miniagent.core._openai_compat import (
     ensure_json_object_user_message,
     json_object_unsupported,
+)
+from miniagent.core.llm_transport import (
+    LLMCompletion,
+    classify_transport_error,
+    completion_failure_category,
+    create_completion,
+    create_structured_completion,
+    resolve_wire_api,
+    structured_retry_delay,
+    structured_retry_params,
 )
 from miniagent.infrastructure.json_config import get_config
 
@@ -109,7 +120,9 @@ async def llm_json(
     """调用 LLM 并解析 JSON 回复。
 
     响应文本统一经 :func:`parse_llm_json_response` 解析，因此 ``json_object`` 降级路径
-    同样享有围栏剥离与大括号截取等容错。
+    同样享有围栏剥离与大括号截取等容错。Responses 从首次请求起使用流式聚合，
+    空文本、解析失败和瞬时网关错误最多尝试三次；Chat 保持两次非流式尝试。
+    确定性的 API 错误不会由本层额外重试。
 
     Args:
         prompt: 用户提示
@@ -154,11 +167,7 @@ async def llm_json(
     ]
     json_object_messages = ensure_json_object_user_message(base_messages)
 
-    create_kwargs: dict[str, Any] = {
-        "model": model,
-        "messages": json_object_messages,
-        "response_format": {"type": "json_object"},
-    }
+    create_kwargs: dict[str, Any] = {"model": model}
     if max_tokens is not None:
         create_kwargs["max_tokens"] = int(max_tokens)
     if thinking_level is not None:
@@ -179,11 +188,25 @@ async def llm_json(
         )
         if extra:
             create_kwargs["extra_body"] = extra
+        create_kwargs["_thinking_level"] = thinking_level
+        create_kwargs["_thinking_budget"] = int(thinking_budget or 0)
 
     used_json_object = True
-    resp = None
+    resp: LLMCompletion | None = None
+    from miniagent.core.config import get_default_model_config
 
-    def _emit_llm_trace(event_type: str, *, json_object: bool) -> None:
+    model_config = get_default_model_config()
+    responses_wire = resolve_wire_api() == "responses"
+    max_attempts = 3 if responses_wire else 2
+    attempt_kwargs = dict(create_kwargs)
+
+    def _emit_llm_trace(
+        event_type: str,
+        *,
+        json_object: bool,
+        attempt: int,
+        failure_category: str | None = None,
+    ) -> None:
         if not trace_phase:
             return
         from miniagent.infrastructure.tracing import emit_trace
@@ -194,6 +217,9 @@ async def llm_json(
             "session_key": trace_session_key or "default",
             "model": model,
             "json_object": json_object,
+            "attempt": attempt,
+            "structured_stream": responses_wire and json_object,
+            "failure_category": failure_category,
         }
         if event_type == "llm.response" and resp is not None:
             _usage = getattr(resp, "usage", None)
@@ -202,37 +228,130 @@ async def llm_json(
                 if _usage is not None and hasattr(_usage, "model_dump")
                 else None
             )
+            payload.update(
+                {
+                    "status": resp.status,
+                    "output_item_types": list(resp.output_item_types),
+                    "incomplete_reason": resp.incomplete_reason,
+                }
+            )
         emit_trace(payload)
 
-    _emit_llm_trace("llm.request", json_object=True)
-    try:
-        resp = await llm.chat.completions.create(**create_kwargs)
-    except Exception as api_err:
-        if json_object_unsupported(api_err):
-            used_json_object = False
-            _logger.info("llm_json: API 不支持 json_object，已降级为普通 JSON 输出")
-            fallback_kwargs = dict(create_kwargs)
-            fallback_kwargs["messages"] = base_messages
-            fallback_kwargs.pop("response_format", None)
-            _emit_llm_trace("llm.request", json_object=False)
-            resp = await llm.chat.completions.create(**fallback_kwargs)
-        else:
-            raise
+    for attempt in range(max_attempts):
+        attempt_number = attempt + 1
+        resp = None
+        _emit_llm_trace(
+            "llm.request",
+            json_object=used_json_object,
+            attempt=attempt_number,
+        )
+        try:
+            if used_json_object:
+                resp = await create_structured_completion(
+                    llm,
+                    messages=json_object_messages,
+                    params=attempt_kwargs,
+                )
+            else:
+                resp = await create_completion(
+                    llm,
+                    messages=base_messages,
+                    params=attempt_kwargs,
+                )
+        except Exception as api_err:
+            if used_json_object and json_object_unsupported(api_err):
+                used_json_object = False
+                _logger.info("llm_json: API 不支持 json_object，已降级为普通 JSON 输出")
+                _emit_llm_trace(
+                    "llm.request",
+                    json_object=False,
+                    attempt=attempt_number,
+                )
+                resp = await create_completion(
+                    llm,
+                    messages=base_messages,
+                    params=attempt_kwargs,
+                )
+            else:
+                failure = classify_transport_error(api_err)
+                _emit_llm_trace(
+                    "llm.response",
+                    json_object=used_json_object,
+                    attempt=attempt_number,
+                    failure_category=failure.category,
+                )
+                if responses_wire and failure.retryable and attempt < max_attempts - 1:
+                    next_attempt = attempt_number + 1
+                    _logger.info(
+                        "LLM JSON 第 %d 次遇到可恢复的 %s，准备重试",
+                        attempt_number,
+                        failure.category,
+                    )
+                    attempt_kwargs = structured_retry_params(
+                        attempt_kwargs,
+                        next_attempt=next_attempt,
+                        max_attempts=max_attempts,
+                        final_reasoning="low",
+                        model_max_tokens=model_config.max_tokens,
+                    )
+                    await asyncio.sleep(structured_retry_delay(next_attempt))
+                    continue
+                raise
 
-    _emit_llm_trace("llm.response", json_object=used_json_object)
+        text = (resp.content or "").strip()
+        failure_category = completion_failure_category(resp)
+        parsed: dict[str, Any] | None = None
+        parse_error: json.JSONDecodeError | TypeError | None = None
+        try:
+            if text:
+                parsed = parse_llm_json_response(text)
+        except (json.JSONDecodeError, TypeError) as error:
+            parse_error = error
+            failure_category = "invalid_json"
 
-    if not resp.choices:
-        _logger.warning("LLM 返回无 choices")
-        return {}
+        _emit_llm_trace(
+            "llm.response",
+            json_object=used_json_object,
+            attempt=attempt_number,
+            failure_category=failure_category,
+        )
+        if parsed is not None:
+            return parsed
 
-    text = resp.choices[0].message.content or "{}"
-    try:
-        return parse_llm_json_response(text)
-    except (json.JSONDecodeError, TypeError):
-        _logger.warning("LLM 返回的 JSON 解析失败: %s", text[:200])
+        if attempt < max_attempts - 1:
+            next_attempt = attempt_number + 1
+            _logger.info(
+                "LLM JSON 第 %d 次返回 %s，准备重试",
+                attempt_number,
+                failure_category or "invalid_json",
+            )
+            if responses_wire:
+                attempt_kwargs = structured_retry_params(
+                    attempt_kwargs,
+                    next_attempt=next_attempt,
+                    max_attempts=max_attempts,
+                    final_reasoning="low",
+                    model_max_tokens=model_config.max_tokens,
+                    incomplete_reason=resp.incomplete_reason,
+                )
+                await asyncio.sleep(structured_retry_delay(next_attempt))
+            continue
+
+        _logger.warning(
+            "LLM JSON 最终失败: attempts=%d, category=%s",
+            max_attempts,
+            failure_category or "invalid_json",
+        )
         if raise_on_error:
-            raise
+            if parse_error is not None:
+                raise parse_error
+            raise ValueError(
+                "LLM returned empty text content or no usable structured JSON "
+                f"({failure_category or 'empty_gateway_response'})"
+            )
         return {}
+
+    assert False, "unreachable"
 
 
 __all__ = ["llm_json", "parse_llm_json_response"]

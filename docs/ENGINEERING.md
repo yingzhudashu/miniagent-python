@@ -60,6 +60,12 @@
 
 **加载机制**（见 [`json_config.py`](../miniagent/infrastructure/json_config.py)）：`defaults → user`（仅两层 JSON）。`secrets` 经 [`env_loader.py`](../miniagent/infrastructure/env_loader.py) 桥接到 `OPENAI_API_KEY` 等 SDK 变量，**不是**用户配置入口。`/config` 命令与 USER_GUIDE 仅展示 User 层子集。
 
+**模型协议**：`model.wire_api` 默认 `chat_completions`，可显式设为 `responses`；统一 transport 负责消息、图片、工具调用、结束状态和流式事件转换。结构化 JSON 请求通过 `create_structured_completion` 路由：Responses 使用流式聚合，Chat 使用非流式 `json_object`。两条路径均返回统一的 `status`、output item 类型和 `incomplete_reason`。`model.user_agent` 只用于需要客户端标识白名单的兼容网关，空值继续使用 OpenAI SDK 默认值；含 CR/LF 的值会在客户端构造时拒绝。
+
+**结构化控制链恢复**：分类、澄清、规划与反思的 Responses 请求从首次调用即使用流式聚合。首次请求不改写现有 reasoning、采样或 token 配置；第二次移除采样参数；第三次分类/`llm_json` 使用 low、规划使用 medium。明确的输出 token 截断才提高预算。中间恢复只记 INFO 和安全 trace，最终失败才记汇总 WARNING；不记录提示词、响应正文或凭据。
+
+**执行器恢复**：Responses 执行流在尚未输出文本或工具调用时，可对网关泛化 400、429、5xx 与空完成事件做最多两次恢复；第二次移除 `temperature/top_p`，最后一次使用 medium。任何部分文本或工具调用都会关闭自动重试，防止重复动作。transport 会将没有 delta 的 `response.output_text.done` 作为正文，但若已消费相同位置的 delta 则不会重复拼接。
+
 **凭据桥接**（Internal，非用户旋钮）：`config.user.json` → `secrets.*` → `OPENAI_API_KEY` / `FEISHU_APP_ID` 等，供第三方 SDK 读取。
 
 ### 1.2 环境变量分类
@@ -83,13 +89,14 @@
 python -m pip install -e ".[dev,typing]"
 python -m ruff check miniagent tests
 python -m compileall -q miniagent
-python -m mypy miniagent/types
+python -m mypy miniagent/application miniagent/bootstrap miniagent/contracts miniagent/types
+python -m mypy --follow-imports=silent miniagent/core/llm_transport.py miniagent/core/planner.py miniagent/core/task_classifier.py miniagent/core/llm_params.py miniagent/core/llm_json.py
 python -m pytest tests/ -q -m "not evaluation"
 ```
 
 CI 说明：
 
-- **`test` job**（矩阵 Python 3.10 / 3.12）：`pip install -e ".[dev,typing]"`，跑 `compileall`、`ruff`、`mypy miniagent/types`、`pytest -m "not evaluation"`。
+- **`test` job**（矩阵 Python 3.10 / 3.12）：`pip install -e ".[dev,typing]"`，跑 `compileall`、`ruff`、架构检查、分层类型检查、规划配置消费者增量类型检查、wheel 资源检查（仅 3.12）及 `pytest -m "not evaluation"`。
 - **`test-feishu-extra` job**（仅 3.12）：`pip install -e ".[dev,feishu]"` 后再跑 `compileall`、`ruff` 与 `pytest -m "not evaluation"`，确保安装 `lark-oapi` 时仍通过（与主矩阵并行，不拖慢双版本安装）。
 - **`test-mcp-extra` job**（仅 3.12）：`pip install -e ".[dev,mcp]"`，对官方 `mcp` SDK 做 `import` 冒烟，再跑 `compileall`、`ruff` 与 `pytest -m "not evaluation"`，防止 `[mcp]` extra 与代码导入漂移。
 
@@ -97,7 +104,7 @@ CI 说明：
 
 - **Ruff**：风格、导入顺序、pyupgrade 风格（`UP`）与部分静态问题；规则集见 `pyproject.toml` `[tool.ruff]` / `[tool.ruff.lint]`（含 `E4`、`E7`、`E9`、`F`、`I`、`UP`；`E402` 对部分延后 import 忽略）。
 - **compileall**：全包语法编译，可捕获部分「仅某测试未覆盖路径」的语法错误。
-- **mypy（试点）**：`python -m mypy miniagent/types`；与 `test` CI job 一致，需安装 `.[dev,typing]`。
+- **mypy（试点）**：分层检查覆盖 `application`、`bootstrap`、`contracts` 与 `types`；模型链路另以 `--follow-imports=silent` 检查统一 transport、规划器、任务分类器、参数解析器和 JSON 控制请求，读取真实配置类型而不报告其余依赖模块的既有告警。两项命令均与 `test` CI job 一致，需安装 `.[dev,typing]`。
 - **Pytest**：默认 `asyncio_mode = auto`；`tests/evaluation/` 下用例由 `conftest` 统一打上 `evaluation` marker，与主 CI 隔离；本地若要一次跑全量可执行 `python -m pytest tests/ -q`（含评测）。未装 `lark-oapi` 时部分飞书路径可能跳过；本地可改用 `pip install -e ".[dev,feishu]"` 与 CI 飞书 job 对齐。
 - **覆盖率（可选）**：见 [INDEX.md](INDEX.md) §测试与质量（本地 `pytest --cov`；**默认 CI 不启用** `--cov`）。
 

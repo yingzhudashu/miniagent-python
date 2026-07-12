@@ -57,8 +57,12 @@
     "context_window": 128000,
     "retry_count": 2,
     "service_tier": null,
+    "wire_api": "chat_completions",
+    "user_agent": null,
     "_guide": {
-      "service_tier": "服务层级：auto(自动选择)、default(标准)、flex(灵活/低成本)"
+      "service_tier": "服务层级：auto(自动选择)、default(标准)、flex(灵活/低成本)",
+      "wire_api": "传输协议：chat_completions（默认）或 responses",
+      "user_agent": "可选 HTTP User-Agent；仅在兼容网关明确要求时设置"
     }
   },
 

@@ -32,6 +32,7 @@ from miniagent.types.config import (
     ModelConfig,
     SessionBindingConfig,
     normalize_conversation_history,
+    normalize_wire_api,
 )
 
 _logger = get_logger(__name__)
@@ -111,6 +112,8 @@ def get_default_model_config() -> ModelConfig:
         context_window=_cfg_int("model.context_window", 128000),
         retry_count=_cfg_int("model.retry_count", 2),
         service_tier=get_config("model.service_tier", None),
+        wire_api=normalize_wire_api(get_config("model.wire_api", "chat_completions")),
+        user_agent=(str(get_config("model.user_agent", "") or "").strip() or None),
     )
 
 

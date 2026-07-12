@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -10,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from miniagent.core.executor import execute_plan
+from miniagent.types.config import ModelConfig
 from miniagent.types.planning import PlanStep, StructuredPlan
 from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 from tests.mock_strategies import (
@@ -19,6 +22,22 @@ from tests.mock_strategies import (
     mock_memory_bundle,
     mock_streaming_client,
 )
+
+
+@contextmanager
+def _responses_execution_config() -> Iterator[None]:
+    config = ModelConfig(
+        model="response-model",
+        wire_api="responses",
+        thinking_level="heavy",
+        max_tokens=4096,
+    )
+    with (
+        patch("miniagent.core.executor.get_default_model_config", return_value=config),
+        patch("miniagent.core.llm_params.get_default_model_config", return_value=config),
+        patch("miniagent.core.llm_transport._wire_api", return_value="responses"),
+    ):
+        yield
 
 
 @pytest.mark.asyncio
@@ -72,6 +91,206 @@ async def test_execute_plan_calls_on_tool_finish() -> None:
     assert finishes[0][0] == "ping_tool"
     assert finishes[0][3] is True
     assert finishes[0][4] == "[执行]"
+
+
+@pytest.mark.asyncio
+async def test_execute_plan_responses_tool_round_trip() -> None:
+    main, sess = make_ping_tool_registry()
+    calls: list[dict[str, Any]] = []
+
+    async def tool_stream():
+        yield SimpleNamespace(
+            type="response.output_item.added",
+            output_index=0,
+            item=SimpleNamespace(
+                type="function_call",
+                id="item-1",
+                call_id="call-1",
+                name="ping_tool",
+            ),
+        )
+        yield SimpleNamespace(
+            type="response.function_call_arguments.delta",
+            output_index=0,
+            item_id="item-1",
+            delta="{}",
+        )
+        yield SimpleNamespace(
+            type="response.output_item.done",
+            output_index=0,
+            item=SimpleNamespace(
+                type="function_call",
+                call_id="call-1",
+                name="ping_tool",
+                arguments="{}",
+            ),
+        )
+        yield SimpleNamespace(
+            type="response.completed", response=SimpleNamespace(usage=None)
+        )
+
+    async def final_stream():
+        yield SimpleNamespace(
+            type="response.output_text.done",
+            output_index=0,
+            content_index=0,
+            text="done",
+        )
+        yield SimpleNamespace(
+            type="response.completed", response=SimpleNamespace(usage=None)
+        )
+
+    async def create_response(**kwargs: Any):
+        calls.append(kwargs)
+        return tool_stream() if len(calls) == 1 else final_stream()
+
+    client = MagicMock()
+    client.responses.create = AsyncMock(side_effect=create_response)
+    ms, al, ki = mock_memory_bundle()
+    with patch("miniagent.core.llm_transport._wire_api", return_value="responses"):
+        out = await execute_plan(
+            empty_plan(),
+            "hi",
+            main,
+            MagicMock(),
+            agent_config_with_session(sess),
+            client=client,
+            memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki),
+            knowledge_registry=make_knowledge_registry(),
+        )
+
+    assert out == "done"
+    assert len(calls) == 2
+    assert any(item.get("type") == "function_call" for item in calls[1]["input"])
+    assert any(
+        item.get("type") == "function_call_output" for item in calls[1]["input"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_execute_plan_responses_retries_transient_400_before_output() -> None:
+    class GatewayInvalidRequest(Exception):
+        status_code = 400
+
+    async def final_stream():
+        yield SimpleNamespace(
+            type="response.output_text.done",
+            output_index=0,
+            content_index=0,
+            text="done",
+        )
+        yield SimpleNamespace(
+            type="response.completed",
+            response=SimpleNamespace(usage=None),
+        )
+
+    main, sess = make_ping_tool_registry()
+    client = MagicMock()
+    client.responses.create = AsyncMock(
+        side_effect=[
+            GatewayInvalidRequest("invalid_request_error cch_session_id: probe"),
+            GatewayInvalidRequest("invalid_request_error cch_session_id: probe"),
+            final_stream(),
+        ]
+    )
+    ms, al, ki = mock_memory_bundle()
+
+    with _responses_execution_config():
+        out = await execute_plan(
+            empty_plan(),
+            "hi",
+            main,
+            MagicMock(),
+            agent_config_with_session(sess),
+            client=client,
+            memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki),
+            knowledge_registry=make_knowledge_registry(),
+        )
+
+    assert out == "done"
+    calls = client.responses.create.await_args_list
+    assert calls[0].kwargs["temperature"] == 0.7
+    assert calls[0].kwargs["top_p"] == 1.0
+    assert "temperature" not in calls[1].kwargs
+    assert "top_p" not in calls[1].kwargs
+    assert calls[2].kwargs["reasoning"] == {"effort": "medium"}
+
+
+@pytest.mark.asyncio
+async def test_execute_plan_responses_retries_completed_empty_stream() -> None:
+    async def empty_stream():
+        yield SimpleNamespace(
+            type="response.completed",
+            response=SimpleNamespace(usage=None),
+        )
+
+    async def final_stream():
+        yield SimpleNamespace(
+            type="response.output_text.done",
+            output_index=0,
+            content_index=0,
+            text="recovered",
+        )
+        yield SimpleNamespace(
+            type="response.completed",
+            response=SimpleNamespace(usage=None),
+        )
+
+    main, sess = make_ping_tool_registry()
+    client = MagicMock()
+    client.responses.create = AsyncMock(
+        side_effect=[empty_stream(), final_stream()]
+    )
+    ms, al, ki = mock_memory_bundle()
+
+    with _responses_execution_config():
+        out = await execute_plan(
+            empty_plan(),
+            "hi",
+            main,
+            MagicMock(),
+            agent_config_with_session(sess),
+            client=client,
+            memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki),
+            knowledge_registry=make_knowledge_registry(),
+        )
+
+    assert out == "recovered"
+    assert client.responses.create.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_execute_plan_does_not_retry_after_partial_stream_output() -> None:
+    class GatewayInvalidRequest(Exception):
+        status_code = 400
+
+    async def partial_stream():
+        yield SimpleNamespace(
+            type="response.output_text.delta",
+            output_index=0,
+            content_index=0,
+            delta="partial",
+        )
+        raise GatewayInvalidRequest("invalid_request_error cch_session_id: probe")
+
+    main, sess = make_ping_tool_registry()
+    client = MagicMock()
+    client.responses.create = AsyncMock(return_value=partial_stream())
+    ms, al, ki = mock_memory_bundle()
+
+    with _responses_execution_config(), pytest.raises(GatewayInvalidRequest):
+        await execute_plan(
+            empty_plan(),
+            "hi",
+            main,
+            MagicMock(),
+            agent_config_with_session(sess),
+            client=client,
+            memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki),
+            knowledge_registry=make_knowledge_registry(),
+        )
+
+    assert client.responses.create.await_count == 1
 
 
 @pytest.mark.asyncio

@@ -62,13 +62,37 @@ def test_invalid_retry_count_raises_runtime_error(
         create_async_openai_client()
 
 
+def test_invalid_wire_api_raises_runtime_error(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_test_config(tmp_path, {"model": {"wire_api": "legacy"}})
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    with pytest.raises(RuntimeError, match="model.wire_api"):
+        create_async_openai_client()
+
+
+@pytest.mark.parametrize("user_agent", ["bad\rvalue", "bad\nvalue"])
+def test_user_agent_rejects_header_injection(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, user_agent: str
+) -> None:
+    install_test_config(tmp_path, {"model": {"user_agent": user_agent}})
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    with pytest.raises(RuntimeError, match="CR or LF"):
+        create_async_openai_client()
+
+
 def test_constructor_receives_transport_configuration(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     install_test_config(
         tmp_path,
         {
-            "model": {"base_url": "https://custom.example/v1", "retry_count": 5},
+            "model": {
+                "base_url": "https://custom.example/v1",
+                "retry_count": 5,
+                "wire_api": "responses",
+                "user_agent": "MiniAgent-Test",
+            },
             "agent": {"http_timeout": 90},
         },
     )
@@ -84,6 +108,7 @@ def test_constructor_receives_transport_configuration(
     assert kwargs["max_retries"] == 5
     assert kwargs["timeout"].read == 90.0
     assert kwargs["timeout"].connect == 30.0
+    assert kwargs["default_headers"] == {"User-Agent": "MiniAgent-Test"}
 
 
 @pytest.mark.asyncio
@@ -237,6 +262,45 @@ async def test_reload_invalid_client_settings_preserves_config_and_client(
     )
 
     with pytest.raises(RuntimeError, match="http_timeout"):
+        await reload_runtime_config(container)
+
+    assert get_config("model.model") == "working-model"
+    assert container.openai_client is previous
+    previous.close.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reload_invalid_wire_api_preserves_config_and_client(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from miniagent.infrastructure.json_config import (
+        get_config,
+        get_config_paths,
+        reload_runtime_config,
+    )
+
+    install_test_config(
+        tmp_path,
+        {
+            "model": {"model": "working-model", "wire_api": "chat_completions"},
+            "secrets": {"openai_api_key": "sk-working"},
+        },
+    )
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-working")
+    previous = MagicMock()
+    previous.close = AsyncMock()
+    container = _minimal_container(previous)
+    get_config_paths()[1].write_text(
+        json.dumps(
+            {
+                "model": {"model": "broken-model", "wire_api": "legacy"},
+                "secrets": {"openai_api_key": "sk-new"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="model.wire_api"):
         await reload_runtime_config(container)
 
     assert get_config("model.model") == "working-model"

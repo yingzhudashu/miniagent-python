@@ -38,6 +38,9 @@ jobs:
       - name: Mypy (application + bootstrap + contracts + types)
         run: python -m mypy miniagent/application miniagent/bootstrap miniagent/contracts miniagent/types
 
+      - name: Mypy (planning config consumers)
+        run: python -m mypy --follow-imports=silent miniagent/core/llm_transport.py miniagent/core/planner.py miniagent/core/task_classifier.py miniagent/core/llm_params.py miniagent/core/llm_json.py
+
       - name: Build and inspect wheel runtime resources
         if: matrix.python-version == '3.12'
         run: |

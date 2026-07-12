@@ -49,12 +49,31 @@ class TestGetDefaultModelConfig:
         assert cfg.thinking_level == "light"
         assert cfg.thinking_budget == 1024
         assert cfg.retry_count == 2
+        assert cfg.wire_api == "chat_completions"
+        assert cfg.user_agent is None
 
     def test_user_json_override(self, tmp_path):
-        _install_loader(tmp_path, {"model": {"model": "gpt-4", "temperature": 0.5}})
+        _install_loader(
+            tmp_path,
+            {
+                "model": {
+                    "model": "gpt-4",
+                    "temperature": 0.5,
+                    "wire_api": "responses",
+                    "user_agent": "MiniAgent-Test",
+                }
+            },
+        )
         cfg = get_default_model_config()
         assert cfg.model == "gpt-4"
         assert cfg.temperature == 0.5
+        assert cfg.wire_api == "responses"
+        assert cfg.user_agent == "MiniAgent-Test"
+
+    def test_invalid_wire_api_rejected(self, tmp_path):
+        _install_loader(tmp_path, {"model": {"wire_api": "legacy"}})
+        with pytest.raises(ValueError, match="model.wire_api"):
+            get_default_model_config()
 
     def test_env_ignored(self, tmp_path, monkeypatch: pytest.MonkeyPatch):
         _install_loader(tmp_path)
