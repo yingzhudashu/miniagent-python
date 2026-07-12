@@ -106,8 +106,8 @@ class AsyncTraceWriter:
             queue_max_size: 等待写入的最大事件数；小于等于 0 表示无界队列
             overflow_policy: 队列满时的策略，支持 ``drop_oldest`` / ``drop_newest``
         """
-        self.batch_interval = batch_interval
-        self.batch_size = batch_size
+        self.batch_interval = max(0.001, float(batch_interval))
+        self.batch_size = max(1, int(batch_size))
         self.queue_max_size = max(0, int(queue_max_size))
         if overflow_policy not in {TRACE_OVERFLOW_DROP_OLDEST, TRACE_OVERFLOW_DROP_NEWEST}:
             overflow_policy = TRACE_OVERFLOW_DROP_OLDEST
@@ -121,7 +121,10 @@ class AsyncTraceWriter:
         self._emitted_count = 0
         self._written_count = 0
         self._dropped_count = 0
+        self._serialization_error_count = 0
+        self._write_error_count = 0
         self._drop_warned = False
+        self._serialization_warned = False
 
     def start(self, file_path: Path) -> None:
         """启动后台写入线程。
@@ -202,61 +205,72 @@ class AsyncTraceWriter:
 
     def _writer_loop(self) -> None:
         """后台线程：批量写入循环。"""
-        buffer: list[str] = []
-
-        while not self._shutdown:
+        while not (self._shutdown and self._queue.empty()):
+            buffer: list[str] = []
+            stop_after_batch = False
             try:
-                # 收集批次（最多等待 batch_interval）
-                deadline = time.time() + self.batch_interval
-                while time.time() < deadline and len(buffer) < self.batch_size:
+                # 无事件时最多每 batch_interval 唤醒一次；收到首事件后再按同一
+                # interval 聚合后续事件，避免旧实现每 10ms 空轮询且低流量逐条 flush。
+                try:
+                    first = self._queue.get(timeout=self.batch_interval)
+                except queue.Empty:
+                    continue
+                if first is None:
+                    stop_after_batch = self._shutdown
+                else:
+                    serialized = self._serialize_event(first)
+                    if serialized is not None:
+                        buffer.append(serialized)
+
+                deadline = time.monotonic() + self.batch_interval
+                while not stop_after_batch and len(buffer) < self.batch_size:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        break
                     try:
-                        event = self._queue.get(timeout=0.01)
-                        if event is None:  # 关闭信号
-                            # 设置关闭标志，但继续处理剩余事件
-                            self._shutdown = True
-                            # 不要break，继续处理队列中的剩余事件
+                        event = self._queue.get(timeout=remaining)
+                        if event is None:
+                            stop_after_batch = self._shutdown
                         else:
-                            # JSON 序列化并添加换行符
-                            buffer.append(json.dumps(event, ensure_ascii=False) + "\n")
+                            serialized = self._serialize_event(event)
+                            if serialized is not None:
+                                buffer.append(serialized)
                     except queue.Empty:
                         break
 
-                # 批量写入（单次 I/O 操作）
                 if buffer and self._file_handle:
                     try:
                         self._file_handle.writelines(buffer)
                         self._file_handle.flush()
                         self._written_count += len(buffer)
-                        buffer.clear()
                     except Exception as e:
+                        self._write_error_count += 1
+                        self._dropped_count += len(buffer)
                         _logger.debug("Trace batch write failed: %s", e)
-
             except Exception as e:
                 _logger.debug("Trace writer loop error: %s", e)
-
-        # 关闭前处理队列中的所有剩余事件
-        # （即使收到None信号，也要确保队列完全清空）
-        while True:
-            try:
-                # 立即获取剩余事件（不等待）
-                event = self._queue.get(timeout=0.01)
-                if event is None:
-                    # 再次收到None信号，说明队列已清空
-                    break
-                # 序列化剩余事件
-                buffer.append(json.dumps(event, ensure_ascii=False) + "\n")
-            except queue.Empty:
-                # 队列已空，退出
+            if stop_after_batch and self._queue.empty():
                 break
 
-        # 写入剩余数据（最后一个批次）
-        if buffer and self._file_handle:
-            try:
-                self._file_handle.writelines(buffer)
-                self._file_handle.flush()
-                self._written_count += len(buffer)
-            except Exception as e:
-                _logger.debug("Trace final flush failed: %s", e)
+    def _serialize_event(self, event: dict[str, Any]) -> str | None:
+        """Serialize one event compactly and account for malformed payloads."""
+        try:
+            return json.dumps(
+                event,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ) + "\n"
+        except (TypeError, ValueError) as error:
+            self._serialization_error_count += 1
+            self._dropped_count += 1
+            if not self._serialization_warned:
+                self._serialization_warned = True
+                _logger.warning(
+                    "Trace 事件无法 JSON 序列化，已丢弃；后续仅累计 "
+                    "serialization_error_count: %s",
+                    type(error).__name__,
+                )
+            return None
 
     def shutdown(self) -> None:
         """优雅关闭：等待队列清空。"""
@@ -264,15 +278,9 @@ class AsyncTraceWriter:
         try:
             self._queue.put_nowait(None)  # 发送关闭信号
         except queue.Full:
-            try:
-                self._queue.get_nowait()
-                self._dropped_count += 1
-            except queue.Empty:
-                pass
-            try:
-                self._queue.put_nowait(None)
-            except queue.Full:
-                pass
+            # _shutdown 已阻止新事件；writer 会自然排空满队列后退出，不能为了
+            # 插入 sentinel 主动丢弃一条真实 trace。
+            pass
 
         if self._writer_thread:
             self._writer_thread.join(timeout=5.0)
@@ -306,6 +314,8 @@ class AsyncTraceWriter:
             "emitted_count": self._emitted_count,
             "written_count": self._written_count,
             "dropped_count": self._dropped_count,
+            "serialization_error_count": self._serialization_error_count,
+            "write_error_count": self._write_error_count,
             "shutdown": self._shutdown,
         }
 
