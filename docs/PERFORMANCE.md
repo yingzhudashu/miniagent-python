@@ -331,6 +331,14 @@ OpenAI SDK 超时在 `core/openai_client.py` 中配置为 120 秒。
 }
 ```
 
+内置 Web 技能的 Tavily、静态页面抓取与下载工具由运行时按事件循环复用同一组有界
+HTTPX 连接池；浏览器和 Playwright driver 由基础设施层成对持有，并在空闲回收、创建失败和
+统一 shutdown 时关闭。技能热重载不会接管这些长生命周期资源。Lark SDK 客户端按
+`app_id + 密钥指纹` 复用，同一 app 密钥轮换会原子替换旧实例，缓存最多保留 8 项。
+
+会话列表使用 `config.json` 的 `mtime_ns + size` 指纹复用已解析的紧凑元数据，缓存最多
+2048 项；外部原子替换会自动失效。该缓存为内部实现，无需新增用户配置。
+
 ### B.4 监控与诊断
 
 **查看工具调用统计**：`/stats`
@@ -339,6 +347,13 @@ OpenAI SDK 超时在 `core/openai_client.py` 中配置为 120 秒。
 
 ```bash
 pytest -m perf tests/test_perf_synthetic.py -xvs
+```
+
+真实 API Trace harness 默认拒绝运行，需显式设置 `MINIAGENT_REAL_API_STRESS=1`；它使用隔离状态目录和
+`metrics_only` Trace，不写入 prompt、response、工具参数或凭据：
+
+```bash
+MINIAGENT_REAL_API_STRESS=1 python scripts/perf_trace_real_api.py --runs 1
 ```
 
 **关键指标参考**：

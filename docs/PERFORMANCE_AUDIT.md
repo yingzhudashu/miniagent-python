@@ -8,15 +8,19 @@
 
 | 指标 | 优化前 | 当前证据 | 状态 |
 |---|---:|---:|---|
-| 合成性能、Trace 与惰性导入专项 | 18 passed / 约 0.81s | 64 passed / 约 4.6–5.2s（覆盖项显著增加） | 通过 |
+| 合成性能、Trace、惰性导入与资源生命周期专项 | 18 passed / 约 0.81s | 95 passed / 15.74s（覆盖项显著增加） | 通过 |
 | 合成 tracemalloc 峰值 | 44.21MiB | 约 16.29MiB | 约下降 63% |
 | 2 万条 Trace 日报聚合峰值 | 18.81MiB（整日列表） | 0.06MiB（单遍流式） | 约下降 99.7% |
 | 1000 条历史预算裁剪 | 2.0751s（重复求和/头删） | 0.0049s（单次计数/切片） | 约加速 427 倍 |
 | 500×1536 embedding 常驻分配 | 23.65MiB（Python float 列表） | 6.25MiB（连续 float64） | 约下降 73.6% |
 | `engine.main` 冷导入 | 4.75s / 45.05MiB | 0.79s / 17.74MiB | 时间约下降 83%，峰值约下降 61% |
 | 明确无工具的真实请求 | 17.32s；exec 输入 9,884 token | 12.77s；exec 输入 6,610 token | 耗时约下降 26%，exec token 约下降 33% |
-| 真实规划/执行工具闭环 | 无可靠 harness | 最新 23.73s；`read_file` 15ms；20/20 Trace 写入；6/6 LLM 配对；2 次重试恢复、终态失败率 0 | 通过 |
-| 非 evaluation 全量测试 | 既有基线 | 2425 passed，3 skipped，6 deselected | 通过 |
+| 真实规划/执行工具闭环 | 无可靠 harness | 最新连续两轮 24.76s / 24.36s；`read_file` 平均 16ms；36/36 Trace 写入；10/10 LLM 配对；无终态或尝试失败 | 通过 |
+| 1000 会话重复列表 / 编号解析 | 134.4ms / 103.6ms | 13.3ms / 8.1ms | 约加速 10× / 13× |
+| 3000 会话扫描峰值 | 5.60MiB | 2.32MiB（缓存硬上限 2048） | 约下降 59% |
+| 500 个短会话后的 Session 锁表 | 500 项（仅 10 项驻留） | 10 项（与驻留 LRU 一致） | 无界增长已消除 |
+| 50 次 HTTPX 客户端获取 | 逐调用创建/关闭约 20.6s | 复用 1 个池约 0.41s | 约下降 98% |
+| 非 evaluation 全量测试 | 既有基线 | 2449 passed，3 skipped，6 deselected | 通过 |
 
 真实性能数字受网络与上游调度影响，只用于同机、同提示、同配置的方向性对比；功能正确性由测试、Trace 配对和工具结果共同验证。
 
@@ -26,6 +30,7 @@
 |---|---|---|
 | `infrastructure/tracing.py` | 修复 10ms 空轮询、低流量逐事件 flush、满队列关闭丢事件、大批次关闭等待、序列化静默丢失；活动分片会话清理由 writer FIFO 独占重写，后续与排队事件同步过滤；紧凑 JSON；最终 writer 统计可返回 | 活动分片/满队列维护命令/继续写专项；真实运行 16/16 写入，零丢弃/错误 |
 | `infrastructure/trace_stats.py` | 同时读取基础/PID 分片；日报单遍流式聚合；历史分片常量辅助内存重写；统一 Chat/Responses usage；修复 `context.compress` 字段别名；缓存/推理 token、message/tool 数、平均/p50/p95 时延和分阶段统计；区分失败尝试率与终态失败率，恢复成功不再污染稳定性指标 | 2 万事件峰值 18.81→0.06MiB；畸形行保留；真实请求/响应零失配；真实执行 2 次重试但终态失败率为 0 |
+| `infrastructure/tracing.py`、`infrastructure/trace_stats.py`、四类 LLM 控制/执行调用点 | `llm.request` 增加纯数字 `message_chars` / `tool_schema_chars`，线性计长且不序列化或保存正文；日报提供分阶段平均值，可将本地请求膨胀与上游 token 计量波动分离 | 同进程连续两轮分类/规划字符数严格一致（3309 / 11031），执行 schema 均为 1809；36 行 Trace 禁止字段与配置凭据值命中均为 0 |
 | `core/self_opt/runtime_analyzer.py` | 复用统一流式聚合；循环检测只保留每会话工具计数和前 6 次调用，不再持有整日事件或完整调用序列 | self-opt 集成/循环模式专项 |
 | `core/task_classifier.py` | 每次尝试记录安全 duration、message/tool 数及是否继续重试；协议降级请求/响应保持配对；保留既有有界恢复 | 分类专项与真实 API（可恢复失败可见且不计为终态失败） |
 | `core/llm_json.py` | JSON 控制阶段记录逐尝试 duration、请求规模与重试终态；`json_object` 降级也补齐响应事件 | JSON/反思专项与真实反思请求 |
@@ -44,9 +49,15 @@
 | `infrastructure/message_queue.py` | 非 CLI chat 最后一个任务完成后回收；未知状态查询不再创建队列；shutdown 清空持有图 | 250 个瞬时 chat 后队列表为空；并行/abort/shutdown 回归 |
 | `infrastructure/registry.py` | 任意 LLM toolbox 组合的派生 schema 缓存改为 128 项 LRU，注册/注销仍整体失效 | 300 组合驱逐与筛选结果回归 |
 | `engine/background_tasks.py`、`engine/bg_session_cleanup.py`、`session/manager.py` | 后台任务在创建时原子预留并发槽位，启动前取消与正常 finally 幂等释放；同步清理移入线程，但 SessionManager 容器仍由事件循环线程移除；历史/配置改为原子写入，销毁临时会话不再先写后删 | 并发 start 上限、取消计数、清理 heartbeat、历史并发保存与临时会话专项 |
+| `session/manager.py`、`engine/engine.py` | `scandir` + 文件指纹复用紧凑会话元数据，缓存硬上限 2048 且检测外部原子替换；per-session RLock 引用计数后随 LRU/销毁回收；回合末历史保存转入工作线程并等待完成，不再阻塞事件循环 | 100/1000/3000 会话同机基准；外部替换、缓存上限、500 会话锁回收、异步持久化 heartbeat 与历史一致性专项 |
 | `feishu/feishu_dedup.py`、`feishu/drive_client.py`、`engine/feishu_state.py` | 去重记录按单键严格执行 TTL、加载时裁剪、串行原子 flush；tenant token 的同步/异步并发 miss 分别合并；飞书后台任务终态异常显式消费并清理状态 | TTL/重载持久化、同步/异步 8 路并发单次 fetch、WS 生命周期专项 |
+| `infrastructure/httpx_pool.py`、`infrastructure/browser_pool.py`、`skills/templates/builtin-web/.../tools.py` | 动态技能不再持有逐调用 HTTP 客户端或孤立 Playwright driver；HTTPX 按事件循环复用有界连接池，关闭失效 loop 池；browser + driver 在空闲、失败与 shutdown 成对关闭，热重载不丢所有权 | 50 次获取 20.6s→0.41s；复用/关闭/失效 loop、browser 创建失败清理、Web handler 双调用专项 |
+| `engine/init.py` | `builtin-web` 已安装副本只在内容精确匹配任一历史官方 Git blob 时原子升级；任意用户定制均保留，使既有安装实际获得新连接池而不覆盖自定义技能 | 官方历史副本 `c03e2a…`→当前模板 `d35f08…`；定制文件保留测试；当前工作区 4 个 Web 工具加载成功 |
+| `feishu/lark_client.py`、`feishu/drive_client.py` | Lark SDK 缓存增加线程安全、密钥轮换识别、同 app 原子替换和 8 项 LRU；drive HTTP shutdown 同时清理 token、同步/异步锁表和 SDK 缓存 | 8 线程并发只构建一次、密钥轮换、上限与飞书发送/Drive 回归 |
 | `tools/html_upload.py`、`engine/shutdown.py` | HTML 上传/列表/清理按事件循环复用 aiohttp 连接池，统一关停时显式关闭；URL、认证、超时和响应契约不变 | 连接池复用/关闭、统一 shutdown 资源断言 |
 | `feishu/docx/blocks.py`、`feishu/poll_server.py` | 带 stats 文档追加复用一次 Markdown AST 结果；独立思考与反思卡改走异步发送 | parse 调用次数断言；Docx fallback、反思卡、merge-tools 回归 |
+| `engine/thinking.py`、`feishu/poll_server.py` | 记录最后一次成功送达的思考卡 JSON；流式重复回调、重要内容重复判断和 finalize 内容未变化时不再发送相同 PATCH，也不消耗预算；失败不标记，后续仍可恢复 | 相同正文零 PATCH、失败后重试、finalize 去重及 72 项卡片/思考回归 |
+| `feishu/ws_health.py` | supervisor 取消、shutdown、watchdog 与 receive cleanup 统一取消并消费异常；无 receive task 也断连；收包任务取消清理抛异常不再打断健康原因和外层重连 | 取消后收包任务终止/断连、清理异常仍返回 shutdown、43 项 WS/生命周期回归 |
 | `engine/shutdown.py` | 会话状态、记忆索引、Trace join/清理、提案、锁和实例注册等同步边界移出事件循环，资源关闭顺序不变 | shutdown 顺序/幂等/heartbeat 专项 63 项 |
 | `types/__init__.py` | eager 类型聚合改为缓存式惰性导出 | 导出兼容测试；冷启动基线 |
 | `types/tool.py`、`memory/context.py`、`infrastructure/registry.py` | OpenAI schema 仅用于静态检查，运行时使用等价 dict 注解，避免加载 SDK 全部类型树 | `types.config` 导入不含 `openai`；全量测试 |
@@ -57,9 +68,9 @@
 
 按风险与实测收益排序，逐批推进：
 
-1. `tools/*` 剩余 schema 体积、模板内外部客户端复用和工具并发路径。
-2. `feishu/*` 剩余卡片出站去重、SDK 客户端缓存与 WebSocket 极端异常路径。
-3. `session/*` 剩余大规模磁盘扫描、LRU 驱逐和跨会话列表并发边界。
+1. `tools/*` 剩余 schema 体积、工具并发与大结果内存路径。
+2. `feishu/*` 剩余卡片出站去重与 WebSocket 极端异常路径。
+3. `session/*` 剩余多线程列表/创建交错与 LRU 正在执行会话边界。
 4. `engine/*` 剩余启动、命令分发和信号/异常关停路径。
 5. 其余 `miniagent/`、`scripts/` 与关键测试文件；逐项确认无无界缓存、阻塞 async I/O、重复解析或资源泄漏。
 

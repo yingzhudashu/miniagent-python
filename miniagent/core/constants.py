@@ -136,6 +136,7 @@ LIST_FILE_PAGE_SIZE = 50  # 云盘文件列表默认分页大小
 DOCX_APPEND_MAX_BLOCKS = 30  # Docx 单次追加块数上限
 DOCX_LIST_BLOCKS_MAX = 200  # Docx 列举块数上限
 FEISHU_SEND_TIMEOUT = 30.0  # 飞书 IM 发送超时（秒）
+FEISHU_SDK_CLIENT_CACHE_MAX_SIZE = 8  # Lark SDK 客户端缓存硬上限
 
 # ─── 记忆 Internal ───
 
@@ -186,6 +187,7 @@ KEYWORD_PRUNE_DAYS = 30  # 关键词索引自动清理天数阈值
 # ─── 会话管理（纯 Internal）───
 
 SESSION_MANAGER_MAX_SESSIONS = 50  # 会话管理器内存中保留的最大会话数
+SESSION_CONFIG_CACHE_MAX_SIZE = 2048  # 会话 config.json 指纹缓存上限
 
 # ─── 后台任务（纯 Internal）───
 
@@ -248,6 +250,7 @@ __all__ = [
     "DOCX_APPEND_MAX_BLOCKS",
     "DOCX_LIST_BLOCKS_MAX",
     "FEISHU_SEND_TIMEOUT",
+    "FEISHU_SDK_CLIENT_CACHE_MAX_SIZE",
     "MEMORY_MAINTENANCE_MAX_ITERS",
     "HISTORY_ARCHIVE_MAX_MESSAGES",
     "IMPROVE_MAX_ITERATIONS",
@@ -268,6 +271,7 @@ __all__ = [
     "KEYWORD_EXTRACT_MAX",
     "KEYWORD_PRUNE_DAYS",
     "SESSION_MANAGER_MAX_SESSIONS",
+    "SESSION_CONFIG_CACHE_MAX_SIZE",
     "BACKGROUND_TASKS_MAX_CONCURRENT",
     "BACKGROUND_TASKS_TASK_TTL_SECONDS",
 ]

@@ -30,6 +30,7 @@ def _tenant_token_url() -> str:
 def _root_folder_meta_url() -> str:
     return FEISHU_API_URL_ROOT_FOLDER_META
 
+
 # ─── Token 缓存（性能优化）──
 
 # Tenant Access Token 缓存（带 TTL，1.5 小时有效期）
@@ -66,9 +67,14 @@ async def close_http_client() -> None:
     在 miniagent/engine/shutdown.py 的 shutdown_runtime() 中调用。
     """
     global _http_client
-    if _http_client is not None:
-        await _http_client.aclose()
-        _http_client = None
+    client = _http_client
+    _http_client = None
+    try:
+        if client is not None:
+            await client.aclose()
+    finally:
+        clear_token_cache()
+        clear_client_cache()
 
 
 def _get_cached_tenant_token(config: FeishuConfig) -> str:
@@ -183,14 +189,14 @@ async def _async_http_request(
                 raise RuntimeError(f"HTTP {e.response.status_code}: {body[:500]}") from e
             # 5xx 错误重试
             if attempt < max_retries - 1:
-                await asyncio.sleep(backoff_factor * (2 ** attempt))
+                await asyncio.sleep(backoff_factor * (2**attempt))
                 continue
             body = e.response.text
             raise RuntimeError(f"HTTP {e.response.status_code}: {body[:500]}") from e
         except httpx.RequestError as e:
             # 网络错误重试
             if attempt < max_retries - 1:
-                await asyncio.sleep(backoff_factor * (2 ** attempt))
+                await asyncio.sleep(backoff_factor * (2**attempt))
                 continue
             raise RuntimeError(f"network error: {e}") from e
 

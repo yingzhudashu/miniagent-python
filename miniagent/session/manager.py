@@ -30,6 +30,8 @@ import asyncio
 import json
 import os
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -51,7 +53,9 @@ _logger = get_logger(__name__)
 MAX_HISTORY_MESSAGES = get_config("memory.max_history_messages", 200)
 
 
-def _truncate_history(history: list[dict[str, Any]], max_messages: int = MAX_HISTORY_MESSAGES) -> list[dict[str, Any]]:
+def _truncate_history(
+    history: list[dict[str, Any]], max_messages: int = MAX_HISTORY_MESSAGES
+) -> list[dict[str, Any]]:
     """截断历史消息，保留 system + 首条用户 + 最后 N-2 条消息。"""
     if len(history) <= max_messages:
         return history
@@ -61,7 +65,7 @@ def _truncate_history(history: list[dict[str, Any]], max_messages: int = MAX_HIS
     if len(system_msgs) > 0 and len(other_msgs) > max_messages - 1:
         # 保留首条用户消息 + 最后剩余消息
         first_user = next((m for m in other_msgs if m.get("role") == "user"), None)
-        remaining = other_msgs[-(max_messages - len(system_msgs) - (1 if first_user else 0)):]
+        remaining = other_msgs[-(max_messages - len(system_msgs) - (1 if first_user else 0)) :]
         return system_msgs + ([first_user] if first_user else []) + remaining
     # 简单截断：保留最后 max_messages 条
     return history[-max_messages:]
@@ -199,6 +203,28 @@ class SessionConfig:
     sender_id: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class _DiskSessionConfig:
+    """Compact metadata needed by session discovery commands."""
+
+    dir_name: str
+    workspace_path: str
+    session_id: str
+    session_number: int
+    title: str
+    created_at: str
+    last_active: str
+
+
+@dataclass(frozen=True, slots=True)
+class _DiskConfigCacheEntry:
+    """One fingerprinted parse result; ``config=None`` caches invalid JSON."""
+
+    mtime_ns: int
+    size: int
+    config: _DiskSessionConfig | None
+
+
 @dataclass
 class SessionInfo:
     """会话信息（用于列表展示）
@@ -280,18 +306,49 @@ class DefaultSessionManager:
         self._active_session_id: str | None = None
         self._next_number: int = 1  # 下一个会话编号
         self._session_locks: dict[str, threading.RLock] = {}
+        self._session_lock_users: dict[str, int] = {}
         self._session_locks_meta = threading.Lock()
+        from miniagent.core.constants import SESSION_CONFIG_CACHE_MAX_SIZE
+
+        self._disk_config_cache: dict[str, _DiskConfigCacheEntry] = {}
+        self._disk_config_cache_max = SESSION_CONFIG_CACHE_MAX_SIZE
+        self._disk_config_cache_lock = threading.Lock()
         self._ensure_workspaces_dir()
         self._scan_existing_numbers()
 
-    def _get_session_lock(self, session_id: str) -> threading.RLock:
-        """每 session 一把 RLock，保护 history RMW 与 LRU 驱逐。"""
+    @contextmanager
+    def _session_guard(self, session_id: str) -> Iterator[None]:
+        """Acquire one reference-counted per-session lock.
+
+        Idle locks for sessions no longer resident in the LRU are removed on
+        exit. Counting users before acquisition prevents a waiter from racing
+        with cleanup and receiving a second lock for the same session.
+        """
         with self._session_locks_meta:
             lock = self._session_locks.get(session_id)
             if lock is None:
                 lock = threading.RLock()
                 self._session_locks[session_id] = lock
-            return lock
+            self._session_lock_users[session_id] = self._session_lock_users.get(session_id, 0) + 1
+        lock.acquire()
+        try:
+            yield
+        finally:
+            lock.release()
+            with self._session_locks_meta:
+                users = self._session_lock_users.get(session_id, 1) - 1
+                if users > 0:
+                    self._session_lock_users[session_id] = users
+                else:
+                    self._session_lock_users.pop(session_id, None)
+                    if session_id not in self._sessions:
+                        self._session_locks.pop(session_id, None)
+
+    def _discard_session_lock_if_idle(self, session_id: str) -> None:
+        """Drop a non-resident lock unless another thread is using or waiting on it."""
+        with self._session_locks_meta:
+            if self._session_lock_users.get(session_id, 0) == 0:
+                self._session_locks.pop(session_id, None)
 
     def _ensure_workspaces_dir(self) -> None:
         """确保工作空间目录存在"""
@@ -321,6 +378,7 @@ class DefaultSessionManager:
             self.save_session_history(oldest_id)
             # 移除内存中的会话
             del self._sessions[oldest_id]
+            self._discard_session_lock_if_idle(oldest_id)
             _logger.debug("LRU 驎出会话: %s (内存中剩余 %d)", oldest_id, len(self._sessions))
 
     def _touch_session(self, session_id: str) -> None:
@@ -360,7 +418,7 @@ class DefaultSessionManager:
                     _logger.debug("工具已存在，跳过: %s", e)
         return registry, core_count
 
-    def _scan_disk_configs(self) -> list[dict]:
+    def _scan_disk_configs(self) -> list[_DiskSessionConfig]:
         """统一磁盘扫描：读取所有会话 config.json。
 
         替代之前 3 处重复的磁盘扫描逻辑：
@@ -369,36 +427,84 @@ class DefaultSessionManager:
         - list_all_sessions_with_info() 的磁盘部分
 
         Returns:
-            每个元素: {dir_name, workspace_path, raw_config}
+            紧凑且只读的会话元数据；未变化文件复用指纹缓存。
         """
         workspaces = _get_workspaces_dir()
-        if not os.path.isdir(workspaces):
-            return []
-        result = []
-        for name in os.listdir(workspaces):
-            config_path = os.path.join(workspaces, name, "config.json")
-            if os.path.isfile(config_path):
-                try:
-                    with open(config_path, encoding="utf-8-sig") as f:
-                        raw = json.load(f)
-                    result.append(
-                        {
-                            "dir_name": name,
-                            "workspace_path": os.path.join(workspaces, name),
-                            "raw": raw,
-                        }
-                    )
-                except Exception as e:
-                    _logger.debug("扫描磁盘配置失败: %s", e)
+        result: list[_DiskSessionConfig] = []
+        seen_paths: set[str] = set()
+        with self._disk_config_cache_lock:
+            try:
+                entries = os.scandir(workspaces)
+            except OSError:
+                return result
+
+            with entries:
+                for entry in entries:
+                    try:
+                        if not entry.is_dir():
+                            continue
+                    except OSError:
+                        continue
+
+                    config_path = os.path.join(entry.path, "config.json")
+                    try:
+                        stat = os.stat(config_path)
+                    except OSError:
+                        continue
+                    seen_paths.add(config_path)
+
+                    cached = self._disk_config_cache.get(config_path)
+                    if (
+                        cached is not None
+                        and cached.mtime_ns == stat.st_mtime_ns
+                        and cached.size == stat.st_size
+                    ):
+                        if cached.config is not None:
+                            result.append(cached.config)
+                        continue
+
+                    parsed: _DiskSessionConfig | None = None
+                    try:
+                        with open(config_path, encoding="utf-8-sig") as f:
+                            raw = json.load(f)
+                        if not isinstance(raw, dict):
+                            raise ValueError("config root must be an object")
+                        number = raw.get("session_number", 0)
+                        parsed = _DiskSessionConfig(
+                            dir_name=entry.name,
+                            workspace_path=entry.path,
+                            session_id=str(raw.get("session_id") or ""),
+                            session_number=number if isinstance(number, int) else 0,
+                            title=str(raw.get("title") or ""),
+                            created_at=str(raw.get("created_at") or ""),
+                            last_active=str(raw.get("last_active") or ""),
+                        )
+                    except Exception as e:
+                        _logger.debug("扫描磁盘配置失败: %s", e)
+
+                    if (
+                        cached is not None
+                        or len(self._disk_config_cache) < self._disk_config_cache_max
+                    ):
+                        self._disk_config_cache[config_path] = _DiskConfigCacheEntry(
+                            mtime_ns=stat.st_mtime_ns,
+                            size=stat.st_size,
+                            config=parsed,
+                        )
+                    if parsed is not None:
+                        result.append(parsed)
+
+            stale_paths = self._disk_config_cache.keys() - seen_paths
+            for path in stale_paths:
+                self._disk_config_cache.pop(path, None)
         return result
 
     def _scan_existing_numbers(self) -> None:
         """扫描已有会话编号，确定下一个可用编号。"""
         max_num = 0
         for entry in self._scan_disk_configs():
-            num = entry["raw"].get("session_number", 0)
-            if isinstance(num, int) and num > max_num:
-                max_num = num
+            if entry.session_number > max_num:
+                max_num = entry.session_number
         self._next_number = max_num + 1
 
     def _make_safe_id(self, session_id: str) -> str:
@@ -440,6 +546,31 @@ class DefaultSessionManager:
                 indent=2,
                 ensure_ascii=False,
             )
+            try:
+                stat = os.stat(config_path)
+            except OSError:
+                with self._disk_config_cache_lock:
+                    self._disk_config_cache.pop(config_path, None)
+            else:
+                cached_config = _DiskSessionConfig(
+                    dir_name=os.path.basename(config.workspace_path),
+                    workspace_path=config.workspace_path,
+                    session_id=config.session_id,
+                    session_number=config.session_number,
+                    title=config.title,
+                    created_at=config.created_at,
+                    last_active=config.last_active,
+                )
+                with self._disk_config_cache_lock:
+                    if (
+                        config_path in self._disk_config_cache
+                        or len(self._disk_config_cache) < self._disk_config_cache_max
+                    ):
+                        self._disk_config_cache[config_path] = _DiskConfigCacheEntry(
+                            mtime_ns=stat.st_mtime_ns,
+                            size=stat.st_size,
+                            config=cached_config,
+                        )
         except Exception:
             _logger.exception("会话配置保存失败: %s", config.workspace_path)
 
@@ -477,7 +608,7 @@ class DefaultSessionManager:
             静默失败（try/except pass），不影响主流程。
             历史持久化是增强功能，不是关键路径。
         """
-        with self._get_session_lock(session_id):
+        with self._session_guard(session_id):
             ctx = self._sessions.get(session_id)
             if not ctx:
                 return
@@ -603,12 +734,18 @@ class DefaultSessionManager:
             已保存的会话 ID 列表（磁盘目录名，即 safe_id）
         """
         workspaces = _get_workspaces_dir()
-        ids = []
-        if os.path.isdir(workspaces):
-            for name in os.listdir(workspaces):
-                config_path = os.path.join(workspaces, name, "config.json")
-                if os.path.isfile(config_path):
-                    ids.append(name)
+        ids: list[str] = []
+        try:
+            entries = os.scandir(workspaces)
+        except OSError:
+            return ids
+        with entries:
+            for entry in entries:
+                try:
+                    if entry.is_dir() and os.path.isfile(os.path.join(entry.path, "config.json")):
+                        ids.append(entry.name)
+                except OSError:
+                    continue
         return ids
 
     def get_or_create(self, id: str, options: SessionOptions | None = None) -> Session:
@@ -624,7 +761,7 @@ class DefaultSessionManager:
         Returns:
             会话对象
         """
-        with self._get_session_lock(id):
+        with self._session_guard(id):
             if id in self._sessions:
                 ctx = self._sessions[id]
                 # 性能优化：标记为最近使用
@@ -823,7 +960,7 @@ class DefaultSessionManager:
         Returns:
             成功返回 True，会话不存在返回 False
         """
-        with self._get_session_lock(id):
+        with self._session_guard(id):
             ctx = self._sessions.get(id)
             if not ctx:
                 return False
@@ -854,7 +991,7 @@ class DefaultSessionManager:
         workspace separately in a worker.  This keeps the ``OrderedDict``
         owned by its normal thread while avoiding a recursive delete there.
         """
-        with self._get_session_lock(id):
+        with self._session_guard(id):
             if id not in self._sessions:
                 return False
             del self._sessions[id]
@@ -935,10 +1072,8 @@ class DefaultSessionManager:
         """
         result = {}
         for entry in self._scan_disk_configs():
-            num = entry["raw"].get("session_number", 0)
-            sid = entry["raw"].get("session_id", "")
-            if isinstance(num, int) and num > 0 and sid:
-                result[num] = sid
+            if entry.session_number > 0 and entry.session_id:
+                result[entry.session_number] = entry.session_id
         return result
 
     def resolve_session_id(self, id_or_number: str) -> str | None:
@@ -1026,18 +1161,18 @@ class DefaultSessionManager:
 
         # 再添加磁盘上存在但内存中没有的会话
         for entry in self._scan_disk_configs():
-            sid = entry["raw"].get("session_id", "")
+            sid = entry.session_id
             if sid in seen_ids:
                 continue
             try:
-                lock_owner = _get_session_lock_owner(entry["workspace_path"])
+                lock_owner = _get_session_lock_owner(entry.workspace_path)
                 result.append(
                     {
                         "id": sid,
-                        "number": entry["raw"].get("session_number", 0),
-                        "title": entry["raw"].get("title", "") or sid,
-                        "created_at": entry["raw"].get("created_at", ""),
-                        "last_active": entry["raw"].get("last_active", ""),
+                        "number": entry.session_number,
+                        "title": entry.title or sid,
+                        "created_at": entry.created_at,
+                        "last_active": entry.last_active,
                         "turn_count": 0,  # 不加载历史，避免开销
                         "locked": lock_owner is not None,
                         "lock_pid": lock_owner,

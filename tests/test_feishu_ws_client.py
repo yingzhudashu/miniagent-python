@@ -129,6 +129,7 @@ class TestReceiveLoopExitReason:
     @pytest.mark.asyncio
     async def test_cancelled_task_returns_cancelled_reason(self) -> None:
         """取消的任务应返回 cancelled 原因。"""
+
         async def cancelled_coro():
             raise asyncio.CancelledError()
 
@@ -144,6 +145,7 @@ class TestReceiveLoopExitReason:
     @pytest.mark.asyncio
     async def test_normal_exit_returns_exit_reason(self) -> None:
         """正常退出应返回 exit 原因。"""
+
         async def normal_coro():
             pass
 
@@ -156,6 +158,7 @@ class TestReceiveLoopExitReason:
     @pytest.mark.asyncio
     async def test_exception_exit_returns_exception_type(self) -> None:
         """异常退出应返回异常类型。"""
+
         async def error_coro():
             raise ValueError("test error")
 
@@ -195,6 +198,7 @@ class TestWebSocketHealthIntegration:
             )
 
             assert result == "no_receive_task"
+            mock_client._disconnect.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_supervise_respects_shutdown_event(self) -> None:
@@ -317,6 +321,7 @@ class TestWatchdogLoop:
 
         # 启动 watchdog
         import time
+
         session_start = time.monotonic()
 
         task = asyncio.create_task(
@@ -377,6 +382,7 @@ class TestWatchdogLoop:
         reason_holder = ["unknown"]
 
         import time
+
         session_start = time.monotonic()
 
         # watchdog 应立即退出

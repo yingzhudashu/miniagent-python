@@ -161,6 +161,20 @@ async def shutdown_runtime(
     except Exception as e:
         _logger.debug("shutdown_runtime: close_html_upload_http_clients: %s", e)
 
+    try:
+        from miniagent.infrastructure.httpx_pool import close_shared_httpx_clients
+
+        await close_shared_httpx_clients()
+    except Exception as e:
+        _logger.debug("shutdown_runtime: close_shared_httpx_clients: %s", e)
+
+    try:
+        from miniagent.infrastructure.browser_pool import close_browser_pool
+
+        await close_browser_pool()
+    except Exception as e:
+        _logger.debug("shutdown_runtime: close_browser_pool: %s", e)
+
     # 5c) 关闭容器所拥有的 ClawHub HTTP 客户端。
     try:
         if ctx.clawhub is not None:

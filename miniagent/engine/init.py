@@ -17,10 +17,13 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import random
 import shutil
+import tempfile
+from pathlib import Path
 from typing import Any
 
 from miniagent.infrastructure.env_parse import env_flag, env_str
@@ -77,7 +80,9 @@ async def init_subsystems(
         agent_cfg = None
 
     loaded_skills, _added, _removed = await bootstrap_skill_packages(
-        registry, skill_registry, config=agent_cfg,
+        registry,
+        skill_registry,
+        config=agent_cfg,
     )
 
     await _register_mcp_tools_from_config(registry)
@@ -200,7 +205,9 @@ async def _init_default_session_async(
     return fallback
 
 
-def _init_default_session(session_manager: Any, channel_router: Any, *, session_name: str | None = None) -> str:
+def _init_default_session(
+    session_manager: Any, channel_router: Any, *, session_name: str | None = None
+) -> str:
     """创建默认会话并加锁（同步；供测试与非 async 调用方）。"""
     from miniagent.engine.session_lock import try_lock_session
     from miniagent.session.manager import SessionOptions
@@ -235,6 +242,71 @@ def _init_default_session(session_manager: Any, channel_router: Any, *, session_
 
 _BASELINE_SKILLS = ("skill-vetter", "skill-creator", "builtin-web")
 
+# Git blob IDs of every previously shipped canonical builtin-web tools.py.
+# Identity comparison is migration gating, not a cryptographic trust decision:
+# any local edit changes the blob and is therefore preserved.
+_BUILTIN_WEB_MANAGED_TOOL_BLOBS = frozenset(
+    {
+        "59b3cc3306e0db6ec8aa3e6606de7c1299900556",
+        "09cef9c23b475c64e24f579e8aaabe8784d6e421",
+        "85cab56011efc29acc233e26b10f1311dbdd0ef8",
+        "cffd180e02b5ba5c53d4841482a4cd4012c956f9",
+        "1f8cf9491a97f73a0f7ea44452e16c554997baed",
+        "edd2fb1ad86456def31d59b3ad3707dcee2532d5",
+        "3d5e3bc01b9dc9fa03ca4902957f8d7a1888b967",
+        "4745e4a43aefa76d4e9c3ed2847147ff1f8b49fd",
+        "49c3e931cb69e174a8138d4376c94f853b5bf1f0",
+        "89c3aaf272578c4f09c519f40517646bc283dd7f",
+        "cabf3502d203924308ecdadfb57ef2640d8b93c7",
+        "c03e2aeb0db97e38d195043e51ae4a1e9e3641d5",
+        "873be94bdea9f5cf9744d2209b101ebb1a350414",
+    }
+)
+
+
+def _git_blob_id(path: str | os.PathLike[str]) -> str:
+    """Compute Git's content identity without requiring a Git executable."""
+    payload = Path(path).read_bytes()
+    digest = hashlib.sha1(usedforsecurity=False)
+    digest.update(f"blob {len(payload)}\0".encode())
+    digest.update(payload)
+    return digest.hexdigest()
+
+
+def _replace_known_managed_file(
+    source: str | os.PathLike[str],
+    target: str | os.PathLike[str],
+    known_blobs: frozenset[str],
+) -> bool:
+    """Atomically upgrade an unchanged historical template; preserve custom files."""
+    source_path = Path(source)
+    target_path = Path(target)
+    if not source_path.is_file() or not target_path.is_file():
+        return False
+    try:
+        target_blob = _git_blob_id(target_path)
+        if target_blob not in known_blobs or _git_blob_id(source_path) == target_blob:
+            return False
+        temp_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                dir=target_path.parent,
+                prefix=f".{target_path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                temp_path = Path(handle.name)
+            shutil.copy2(source_path, temp_path)
+            os.replace(temp_path, target_path)
+            temp_path = None
+            return True
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
+    except OSError as error:
+        _logger.debug("托管 baseline skill 文件升级失败 %s: %s", target_path, error)
+        return False
+
 
 def _ensure_baseline_skills() -> None:
     """检查 baseline skills 是否存在，缺失则从模板恢复。
@@ -255,14 +327,22 @@ def _ensure_baseline_skills() -> None:
 
     for name in _BASELINE_SKILLS:
         target = os.path.join(skills_root, name)
+        src = os.path.join(templates_dir, name)
         if not os.path.isdir(target):
-            src = os.path.join(templates_dir, name)
             if os.path.isdir(src):
                 try:
                     shutil.copytree(src, target)
                     _logger.info("已恢复 baseline skill: %s", name)
                 except OSError as e:
                     _logger.warning("恢复 baseline skill %s 失败: %s", name, e)
+        elif name == "builtin-web":
+            relative_tools = os.path.join("skills", "web-tools", "tools.py")
+            if _replace_known_managed_file(
+                os.path.join(src, relative_tools),
+                os.path.join(target, relative_tools),
+                _BUILTIN_WEB_MANAGED_TOOL_BLOBS,
+            ):
+                _logger.info("已升级未修改的托管 baseline skill: builtin-web/tools.py")
 
 
 def _parse_mcp_stdio_command(raw: Any) -> list[str] | None:
@@ -322,9 +402,7 @@ async def _register_mcp_tools_from_config(registry: Any) -> int:
     try:
         spec = _parse_mcp_stdio_command(mcp_raw)
         if not spec:
-            _logger.warning(
-                "mcp.stdio_command: 无效格式，需为非空 JSON 数组 [command, arg1, ...]"
-            )
+            _logger.warning("mcp.stdio_command: 无效格式，需为非空 JSON 数组 [command, arg1, ...]")
             return 0
         env_raw = get_config("mcp.stdio_env", None)
         try:
@@ -333,13 +411,16 @@ async def _register_mcp_tools_from_config(registry: Any) -> int:
             _logger.warning("mcp.stdio_env: JSON 解析失败: %s", e)
             return 0
         if env_raw and stdio_env is None:
-            _logger.warning("mcp.stdio_env: 无效格式，需为 JSON 对象 {\"KEY\": \"value\", ...}")
+            _logger.warning('mcp.stdio_env: 无效格式，需为 JSON 对象 {"KEY": "value", ...}')
             return 0
 
         from miniagent.mcp.runtime import register_mcp_stdio_tools
 
         mcp_n = await register_mcp_stdio_tools(
-            registry, spec[0], spec[1:], env=stdio_env,
+            registry,
+            spec[0],
+            spec[1:],
+            env=stdio_env,
         )
         _logger.info("mcp.stdio_command: 已注册 %d 个 MCP 工具", mcp_n)
         return mcp_n

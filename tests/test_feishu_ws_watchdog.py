@@ -38,9 +38,7 @@ async def test_supervise_returns_on_receive_task_done():
     client = _mock_ws_client(receive_task=receive_task)
     shutdown = asyncio.Event()
     health = FeishuWsHealthState()
-    reason = await supervise_feishu_ws_session(
-        client, shutdown_event=shutdown, health_state=health
-    )
+    reason = await supervise_feishu_ws_session(client, shutdown_event=shutdown, health_state=health)
     assert reason.startswith("receive_loop_exit")
     end_reason, _ = health.last_session_end()
     assert end_reason == reason
@@ -189,9 +187,7 @@ async def test_watchdog_idle_refresh(tmp_path):
     shutdown = asyncio.Event()
 
     reason = await asyncio.wait_for(
-        supervise_feishu_ws_session(
-            client, shutdown_event=shutdown, health_state=health
-        ),
+        supervise_feishu_ws_session(client, shutdown_event=shutdown, health_state=health),
         timeout=3.0,
     )
     receive_task.cancel()
@@ -270,6 +266,60 @@ async def test_supervise_shutdown_event():
         pass
 
     assert reason == "shutdown"
+
+
+@pytest.mark.asyncio
+async def test_supervisor_cancellation_cleans_receive_task_and_disconnects():
+    async def never_end():
+        await asyncio.Event().wait()
+
+    receive_task = asyncio.create_task(never_end())
+    client = _mock_ws_client(connected=True, receive_task=receive_task)
+    health = FeishuWsHealthState()
+    supervisor = asyncio.create_task(
+        supervise_feishu_ws_session(
+            client,
+            shutdown_event=asyncio.Event(),
+            health_state=health,
+        )
+    )
+    await asyncio.sleep(0)
+
+    supervisor.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await supervisor
+
+    assert receive_task.done()
+    assert receive_task.cancelled()
+    client._disconnect.assert_awaited_once()
+    assert health.last_session_end()[0] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_receive_cleanup_error_does_not_break_shutdown_result():
+    async def fail_during_cancel():
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError as error:
+            raise RuntimeError("receive cleanup failed") from error
+
+    receive_task = asyncio.create_task(fail_during_cancel())
+    client = _mock_ws_client(connected=True, receive_task=receive_task)
+    shutdown = asyncio.Event()
+    supervisor = asyncio.create_task(
+        supervise_feishu_ws_session(
+            client,
+            shutdown_event=shutdown,
+            health_state=FeishuWsHealthState(),
+        )
+    )
+    await asyncio.sleep(0)
+    shutdown.set()
+
+    assert await supervisor == "shutdown"
+    assert receive_task.done()
+    assert isinstance(receive_task.exception(), RuntimeError)
+    client._disconnect.assert_awaited_once()
 
 
 def test_read_feishu_ws_health_config_defaults(tmp_path):

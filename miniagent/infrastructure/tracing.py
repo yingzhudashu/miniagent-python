@@ -38,6 +38,7 @@ class _ExcludeSessionCommand:
         self.done = threading.Event()
         self.removed = 0
 
+
 _hooks: list[TraceHook] = []
 
 # 可选持久化配置
@@ -99,13 +100,62 @@ _USAGE_DETAIL_KEYS = {
 }
 
 
+def _json_shape_char_count(value: Any, *, max_nodes: int = 100_000) -> tuple[int, bool]:
+    """Count JSON-like key/value characters without materializing or retaining payload text."""
+    total = 0
+    visited = 0
+    stack = [value]
+    while stack:
+        current = stack.pop()
+        visited += 1
+        if visited > max_nodes:
+            return total, True
+        if isinstance(current, str | bytes):
+            total += len(current)
+        elif isinstance(current, dict):
+            for key, item in current.items():
+                total += len(str(key))
+                stack.append(item)
+        elif isinstance(current, list | tuple):
+            stack.extend(current)
+        elif current is None:
+            total += 4
+        elif isinstance(current, bool):
+            total += 4 if current else 5
+        elif isinstance(current, int | float):
+            total += len(str(current))
+    return total, False
+
+
+def llm_request_size_metrics(
+    messages: Any,
+    tools: Any | None = None,
+    *,
+    force: bool = False,
+) -> dict[str, int | bool]:
+    """Return payload-size scalars safe for metrics-only LLM request traces."""
+    if not force and not _hooks and _trace_writer is None:
+        return {}
+    message_chars, message_truncated = _json_shape_char_count(messages)
+    tool_chars, tool_truncated = _json_shape_char_count(tools or [])
+    return {
+        "message_chars": message_chars,
+        "tool_schema_chars": tool_chars,
+        "size_measurement_truncated": message_truncated or tool_truncated,
+    }
+
+
 def _sanitize_usage_metrics(usage: dict[Any, Any]) -> dict[str, Any]:
     """Keep only numeric token counters from an SDK usage payload."""
     sanitized: dict[str, Any] = {}
     for key, value in usage.items():
         if not isinstance(key, str):
             continue
-        if key in _USAGE_SCALAR_KEYS and isinstance(value, int | float) and not isinstance(value, bool):
+        if (
+            key in _USAGE_SCALAR_KEYS
+            and isinstance(value, int | float)
+            and not isinstance(value, bool)
+        ):
             sanitized[key] = value
         elif key in _USAGE_DETAIL_KEYS and isinstance(value, dict):
             details = {
@@ -208,9 +258,7 @@ class AsyncTraceWriter:
         self._file_handle = self._file_path.open("a", encoding="utf-8")
         try:
             self._writer_thread = threading.Thread(
-                target=self._writer_loop,
-                daemon=True,
-                name="trace-writer"
+                target=self._writer_loop, daemon=True, name="trace-writer"
             )
             self._writer_thread.start()
         except Exception:
@@ -305,9 +353,7 @@ class AsyncTraceWriter:
 
                 deadline = time.monotonic() + self.batch_interval
                 while (
-                    not stop_after_batch
-                    and maintenance is None
-                    and len(buffer) < self.batch_size
+                    not stop_after_batch and maintenance is None and len(buffer) < self.batch_size
                 ):
                     if self._shutdown:
                         # 关闭期间不会再接收新事件，因此只排空当前队列，不能继续
@@ -352,9 +398,7 @@ class AsyncTraceWriter:
                         self._dropped_count += len(buffer)
                         _logger.debug("Trace batch write failed: %s", e)
                 if maintenance is not None:
-                    maintenance.removed = self._rewrite_without_session(
-                        maintenance.session_key
-                    )
+                    maintenance.removed = self._rewrite_without_session(maintenance.session_key)
                     maintenance.done.set()
             except Exception as e:
                 _logger.debug("Trace writer loop error: %s", e)
@@ -367,19 +411,21 @@ class AsyncTraceWriter:
             self._redacted_count += 1
             return None
         try:
-            return json.dumps(
-                event,
-                ensure_ascii=False,
-                separators=(",", ":"),
-            ) + "\n"
+            return (
+                json.dumps(
+                    event,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+                + "\n"
+            )
         except (TypeError, ValueError) as error:
             self._serialization_error_count += 1
             self._dropped_count += 1
             if not self._serialization_warned:
                 self._serialization_warned = True
                 _logger.warning(
-                    "Trace 事件无法 JSON 序列化，已丢弃；后续仅累计 "
-                    "serialization_error_count: %s",
+                    "Trace 事件无法 JSON 序列化，已丢弃；后续仅累计 serialization_error_count: %s",
                     type(error).__name__,
                 )
             return None
@@ -632,7 +678,9 @@ def auto_register_trace_file_hook() -> None:
         batch_size = get_config("trace.writer_batch_size", 50)
         queue_max_size = get_config("trace.writer_queue_max_size", 10000)
         overflow_policy = get_config("trace.writer_overflow_policy", TRACE_OVERFLOW_DROP_OLDEST)
-        _TRACE_RECORD_PAYLOAD = get_config("trace.record_payload", TRACE_RECORD_PAYLOAD_METRICS_ONLY)
+        _TRACE_RECORD_PAYLOAD = get_config(
+            "trace.record_payload", TRACE_RECORD_PAYLOAD_METRICS_ONLY
+        )
 
         _trace_writer = AsyncTraceWriter(
             batch_interval=batch_interval,
@@ -732,6 +780,7 @@ __all__ = [
     "unregister_trace_hook",
     "clear_trace_hooks",
     "emit_trace",
+    "llm_request_size_metrics",
     "auto_register_trace_file_hook",
     "get_actual_trace_file",
     "get_trace_writer_stats",

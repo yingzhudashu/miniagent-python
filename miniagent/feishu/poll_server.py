@@ -64,6 +64,7 @@ _RE_BOLD_UNDERSCORE = re.compile(r"__([^_]+)__")
 # 入站文本 handler：单参数 ``FeishuInboundText``，返回回复正文。
 FeishuTextMessageHandler = Callable[[FeishuInboundText], Awaitable[str]]
 
+
 def _resolve_feishu_confirmation_channel(
     runtime_state: FeishuPollState,
     chat_id: str,
@@ -355,7 +356,6 @@ class FeishuPollState:
                 _logger.debug("FeishuPollState.reset: %s", error)
 
 
-
 def _feishu_media_reply_indicates_failure(reply: str | None) -> bool:
     """media_handler 用「⚠️」前缀表示不可落盘的失败类回复。"""
     if not reply:
@@ -465,7 +465,9 @@ async def start_feishu_poll_server(
                 if _msg_age > _max_age:
                     _logger.info(
                         "跳过过期消息: message_id=%s, age=%.0fs > max=%.0fs",
-                        message_id, _msg_age, _max_age,
+                        message_id,
+                        _msg_age,
+                        _max_age,
                     )
                     release_processing(message_id)
                     return
@@ -580,7 +582,9 @@ async def start_feishu_poll_server(
                         )
 
                         if _cc.pending.stage == ConfirmationStage.CLARIFICATION:
-                            _logger.info("飞书澄清拦截: chat_id=%s, text=%s", chat_id[:12], text[:60])
+                            _logger.info(
+                                "飞书澄清拦截: chat_id=%s, text=%s", chat_id[:12], text[:60]
+                            )
                             _cc.respond(ConfirmationResult.clarification_reply(text))
                             release_processing(message_id)
                             _logger.info("飞书澄清已响应: confirmation_channel.respond() 已调用")
@@ -691,9 +695,7 @@ async def start_feishu_poll_server(
                         else:
                             abandon_processing_claim(message_id)
 
-                runtime_state.spawn_callback_task(
-                    mq.dispatch(chat_id, _handle_post_media())
-                )
+                runtime_state.spawn_callback_task(mq.dispatch(chat_id, _handle_post_media()))
             else:
                 release_processing(message_id)
                 return
@@ -770,7 +772,7 @@ async def start_feishu_poll_server(
                         resp.toast = ok
                         return resp
                     else:
-                        adjustment = text[len("/adjust "):].strip()
+                        adjustment = text[len("/adjust ") :].strip()
                         if adjustment:
                             cc.respond(ConfirmationResult.adjust(adjustment))
                             ok = CallBackToast()
@@ -1192,6 +1194,7 @@ def _reset_feishu_thinking_state(st: Any) -> None:
     st.feishu_thinking_message_id = None
     st.feishu_stream_accumulated = ""
     st.feishu_last_patched_char_len = -1
+    st.feishu_last_sent_card_json = None
     st.feishu_tool_section_started = False
     st.feishu_pending_tool_lines = []
     st.feishu_stream_llm_len = 0
@@ -1438,7 +1441,7 @@ async def push_feishu_thinking_stream(
     existing = getattr(st, "feishu_stream_accumulated", "") or ""
     tool_section = ""
     if _TOOL_MARKER in existing and getattr(st, "feishu_tool_section_started", False):
-        tool_section = existing[existing.index(_TOOL_MARKER):]
+        tool_section = existing[existing.index(_TOOL_MARKER) :]
 
     if new_round:
         # 复用同一张思考卡：若上一轮有工具段，先保留旧轮 LLM 正文（不含工具段），
@@ -1463,7 +1466,7 @@ async def push_feishu_thinking_stream(
 
     if _round_separator:
         # 新轮已写入分隔符（仅含旧轮 LLM 正文），追加新轮 LLM 正文并重新附上工具段。
-        st.feishu_stream_accumulated += (markdown or "")
+        st.feishu_stream_accumulated += markdown or ""
         st.feishu_stream_accumulated += tool_section
     else:
         # 非新一轮：不重建 tool_section，避免与 append 路径已 PATCH 到卡上的工具重复。
@@ -1508,6 +1511,7 @@ async def push_feishu_thinking_stream(
             st.feishu_thinking_message_id = mid
             st.feishu_last_patch_monotonic = time.monotonic()
             st.feishu_last_patched_char_len = len(markdown)
+            st.feishu_last_sent_card_json = card_json
         return
 
     now = time.monotonic()
@@ -1526,12 +1530,16 @@ async def push_feishu_thinking_stream(
         len(st.feishu_stream_accumulated), st.feishu_patch_budget
     )
 
-    if need_patch and st.feishu_patch_budget > 0:
+    card_changed = card_json != getattr(st, "feishu_last_sent_card_json", None)
+    if card_changed and need_patch and st.feishu_patch_budget > 0:
         # ✅ 使用异步版本：PATCH 更新时不阻塞事件循环
-        if await _patch_interactive_thinking_message_async(config, st.feishu_thinking_message_id, card_json):
+        if await _patch_interactive_thinking_message_async(
+            config, st.feishu_thinking_message_id, card_json
+        ):
             st.feishu_patch_budget -= 1
             st.feishu_last_patch_monotonic = now
             st.feishu_last_patched_char_len = len(markdown)
+            st.feishu_last_sent_card_json = card_json
 
 
 async def finalize_feishu_thinking_stream(
@@ -1571,7 +1579,12 @@ async def finalize_feishu_thinking_stream(
         ensure_ascii=False,
     )
     # ✅ 使用异步版本：PATCH 收尾时不阻塞事件循环
-    patched = await _patch_interactive_thinking_message_async(config, mid, card_json)
+    if card_json == getattr(st, "feishu_last_sent_card_json", None):
+        patched = True
+    else:
+        patched = await _patch_interactive_thinking_message_async(config, mid, card_json)
+        if patched:
+            st.feishu_last_sent_card_json = card_json
     if not patched:
         _logger.warning("finalize 思考 PATCH 失败 message_id=%s", mid)
     if nch > 1:
@@ -1635,11 +1648,15 @@ async def append_feishu_thinking_same_card(
 
     if mid:
         # ✅ 使用异步版本：追加工具后 PATCH 不阻塞事件循环
+        if card_json == getattr(st, "feishu_last_sent_card_json", None):
+            return
         if not await _patch_interactive_thinking_message_async(config, mid, card_json):
             _logger.warning(
                 "飞书思考卡片追加工具后 PATCH 失败 message_id=%s（正文已累积，客户端可能未刷新）",
                 mid,
             )
+        else:
+            st.feishu_last_sent_card_json = card_json
         return
 
     # 尚无卡片：缓冲工具行，等待 LLM 流式创建卡片时一并写入
@@ -1733,7 +1750,9 @@ async def send_reflection_card(
     body = "\n".join(lines)
     cleaned = _prepare_thinking_markdown(body)
     # 使用 "🤖 Mini Agent" 卡片头，与 .help 命令输出格式一致
-    card_json = json.dumps(_feishu_interactive_card_dict("🤖 Mini Agent", cleaned, template), ensure_ascii=False)
+    card_json = json.dumps(
+        _feishu_interactive_card_dict("🤖 Mini Agent", cleaned, template), ensure_ascii=False
+    )
 
     ok, _ = await _post_interactive_message_async(
         config,

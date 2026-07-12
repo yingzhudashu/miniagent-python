@@ -5,6 +5,7 @@
 - 批量写入不丢数据
 - 优雅关闭机制
 """
+
 from __future__ import annotations
 
 import json
@@ -21,7 +22,53 @@ from miniagent.infrastructure.tracing import (
     AsyncTraceWriter,
     clear_trace_hooks,
     emit_trace,
+    llm_request_size_metrics,
 )
+
+
+def test_llm_request_size_metrics_are_scalar_and_do_not_retain_payload() -> None:
+    secret = "sensitive-prompt-value"
+    metrics = llm_request_size_metrics(
+        [{"role": "user", "content": secret}],
+        [{"type": "function", "function": {"name": "read_file"}}],
+        force=True,
+    )
+
+    assert metrics["message_chars"] >= len(secret)
+    assert metrics["tool_schema_chars"] > 0
+    assert metrics["size_measurement_truncated"] is False
+    assert secret not in repr(metrics)
+
+
+def test_llm_request_size_metrics_skip_traversal_without_trace() -> None:
+    clear_trace_hooks()
+    assert llm_request_size_metrics([{"content": "not measured"}]) == {}
+
+
+def test_trace_stats_report_request_character_sizes() -> None:
+    report = trace_stats.aggregate_trace_stats(
+        [
+            {
+                "type": "llm.request",
+                "phase": "plan",
+                "message_count": 2,
+                "tool_count": 0,
+                "message_chars": 1200,
+                "tool_schema_chars": 0,
+            },
+            {
+                "type": "llm.request",
+                "phase": "plan",
+                "message_count": 2,
+                "tool_count": 0,
+                "message_chars": 1400,
+                "tool_schema_chars": 0,
+            },
+        ]
+    )
+
+    assert report["llm"]["avg_message_chars"] == 1300.0
+    assert report["llm"]["by_phase"]["plan"]["avg_message_chars"] == 1300.0
 
 
 class _CountingFile:
@@ -52,11 +99,17 @@ def test_daily_report_streams_large_trace_with_bounded_peak_memory(
     payload = "x" * 512
     with trace_file.open("w", encoding="utf-8") as handle:
         for index in range(20_000):
-            handle.write(json.dumps({
-                "type": "perf.sample",
-                "session_key": f"session-{index % 10}",
-                "payload": payload,
-            }, separators=(",", ":")) + "\n")
+            handle.write(
+                json.dumps(
+                    {
+                        "type": "perf.sample",
+                        "session_key": f"session-{index % 10}",
+                        "payload": payload,
+                    },
+                    separators=(",", ":"),
+                )
+                + "\n"
+            )
 
     monkeypatch.setattr(trace_stats, "get_trace_output_dir", lambda: tmp_path)
     monkeypatch.setattr(
@@ -87,7 +140,7 @@ def test_async_writer_non_blocking():
     - 单事件延迟 <0.1ms（vs 同步版本 3-11ms）
     """
     # 准备临时文件
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
         test_file = Path(f.name)
 
     # 创建异步写入器
@@ -117,7 +170,7 @@ def test_batch_write_integrity():
     - 优雅关闭后无数据丢失
     """
     # 准备临时文件
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
         test_file = Path(f.name)
 
     # 创建异步写入器
@@ -136,7 +189,7 @@ def test_batch_write_integrity():
     pid_suffix = f"-pid{os.getpid()}"
     expected_file = Path(str(test_file).replace(".jsonl", f"{pid_suffix}.jsonl"))
 
-        # 若 writer 尚未产生 pid 分片，则使用测试配置路径定位输出。
+    # 若 writer 尚未产生 pid 分片，则使用测试配置路径定位输出。
     actual_file = expected_file if expected_file.exists() else test_file
 
     with actual_file.open(encoding="utf-8") as f:
@@ -146,6 +199,7 @@ def test_batch_write_integrity():
 
     # 验证每条记录完整性
     import json
+
     for i, line in enumerate(lines):
         record = json.loads(line)
         assert record.get("index") == i, f"记录顺序错误：第 {i} 行 index={record.get('index')}"
@@ -268,8 +322,7 @@ def test_active_writer_redacts_existing_queued_and_future_session_events(
 
     assert writer.file_path is not None
     records = [
-        json.loads(line)
-        for line in writer.file_path.read_text(encoding="utf-8").splitlines()
+        json.loads(line) for line in writer.file_path.read_text(encoding="utf-8").splitlines()
     ]
     assert [record["session_key"] for record in records] == ["keep", "keep"]
     assert writer.stats()["redacted_count"] == 2
@@ -328,7 +381,7 @@ def test_graceful_shutdown():
     - 后台线程正常终止
     """
     # 准备临时文件
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
         test_file = Path(f.name)
 
     # 创建异步写入器
@@ -352,7 +405,7 @@ def test_graceful_shutdown():
     pid_suffix = f"-pid{os.getpid()}"
     expected_file = Path(str(test_file).replace(".jsonl", f"{pid_suffix}.jsonl"))
 
-        # 若 writer 尚未产生 pid 分片，则使用测试配置路径定位输出。
+    # 若 writer 尚未产生 pid 分片，则使用测试配置路径定位输出。
     actual_file = expected_file if expected_file.exists() else test_file
 
     with actual_file.open(encoding="utf-8") as f:
@@ -385,7 +438,7 @@ def test_emit_trace_performance():
     assert elapsed_fast < 0.001, f"快速路径过慢: {elapsed_fast}s（预期 <0.001s）"
 
     # 测试异步写入路径
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
         test_file = Path(f.name)
 
     # 创建异步写入器并启动
@@ -421,7 +474,7 @@ def test_concurrent_emit():
     import threading
 
     # 准备临时文件
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
         test_file = Path(f.name)
 
     # 创建异步写入器
@@ -431,6 +484,7 @@ def test_concurrent_emit():
     # 并发发射事件（5 个线程，每个发射 50 个事件）
     threads = []
     for thread_id in range(5):
+
         def emit_events(tid):
             for i in range(50):
                 writer.emit({"type": "concurrent_test", "thread": tid, "index": i})
@@ -451,7 +505,7 @@ def test_concurrent_emit():
     pid_suffix = f"-pid{os.getpid()}"
     expected_file = Path(str(test_file).replace(".jsonl", f"{pid_suffix}.jsonl"))
 
-        # 若 writer 尚未产生 pid 分片，则使用测试配置路径定位输出。
+    # 若 writer 尚未产生 pid 分片，则使用测试配置路径定位输出。
     actual_file = expected_file if expected_file.exists() else test_file
 
     with actual_file.open(encoding="utf-8") as f:

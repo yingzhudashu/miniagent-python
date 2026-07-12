@@ -60,6 +60,7 @@ from miniagent.types.tool import Toolbox
 
 _logger = get_logger(__name__)
 
+
 class _PlannerAttemptFailure(RuntimeError):
     """Safe, structured failure raised within one planner attempt."""
 
@@ -76,6 +77,7 @@ class _PlannerAttemptFailure(RuntimeError):
         self.retryable = retryable
         self.status_code = status_code
         self.incomplete_reason = incomplete_reason
+
 
 # ─── 常量 ───────────────────────────────────────────────
 
@@ -135,15 +137,13 @@ async def generate_plan(
         - :mod:`miniagent.core.executor` — Phase 2 消费方
     """
     from miniagent.core.llm_params import resolve_planner_completion_kwargs
-    from miniagent.infrastructure.tracing import emit_trace
+    from miniagent.infrastructure.tracing import emit_trace, llm_request_size_metrics
     from miniagent.knowledge import retrieve_knowledge_context
 
     ac: AgentConfig | None = agent_config if isinstance(agent_config, AgentConfig) else None
     planner_kw = resolve_planner_completion_kwargs(ac, merge_overrides=planner_model_overrides)
     plan_session_key = (
-        ac.session_config.session_key
-        if ac and ac.session_config.session_key
-        else "default"
+        ac.session_config.session_key if ac and ac.session_config.session_key else "default"
     )
 
     # ── RAG 增强：知识库检索（使用公共函数）──
@@ -213,10 +213,11 @@ async def generate_plan(
                         "temperature" not in attempt_kw and "top_p" not in attempt_kw
                     ),
                     "structured_stream": use_structured_stream,
-                    "message_count": len(
+                    "message_count": len(json_object_messages if use_json_object else messages),
+                    "tool_count": 0,
+                    **llm_request_size_metrics(
                         json_object_messages if use_json_object else messages
                     ),
-                    "tool_count": 0,
                 }
             )
             safe_agent_debug_log(
@@ -230,9 +231,7 @@ async def generate_plan(
                 },
             )
             try:
-                request_messages = (
-                    json_object_messages if use_json_object else messages
-                )
+                request_messages = json_object_messages if use_json_object else messages
                 if use_json_object:
                     response = await create_structured_completion(
                         llm_client,
@@ -258,9 +257,7 @@ async def generate_plan(
                             "model": attempt_kw["model"],
                             "failure_category": "json_object_unsupported",
                             "retrying": True,
-                            "duration_ms": (
-                                time.monotonic_ns() - attempt_start_ns
-                            ) // 1_000_000,
+                            "duration_ms": (time.monotonic_ns() - attempt_start_ns) // 1_000_000,
                         }
                     )
                     emit_trace(
@@ -274,6 +271,7 @@ async def generate_plan(
                             "protocol_fallback": True,
                             "message_count": len(messages),
                             "tool_count": 0,
+                            **llm_request_size_metrics(messages),
                         }
                     )
                     attempt_start_ns = time.monotonic_ns()
@@ -371,15 +369,10 @@ async def generate_plan(
             return plan
 
         except Exception as e:
-            planner_failure = (
-                e if isinstance(e, _PlannerAttemptFailure) else _api_failure(e)
-            )
+            planner_failure = e if isinstance(e, _PlannerAttemptFailure) else _api_failure(e)
             failure_history.append(planner_failure.category)
             if not isinstance(e, _PlannerAttemptFailure):
-                will_retry = (
-                    planner_failure.retryable
-                    and attempt < PLANNER_MAX_RETRIES - 1
-                )
+                will_retry = planner_failure.retryable and attempt < PLANNER_MAX_RETRIES - 1
                 emit_trace(
                     {
                         "type": "llm.response",
@@ -545,11 +538,7 @@ def _completed_work_context(agent_config: AgentConfig | None) -> str:
     Note:
         最多返回最近 8 条相关记录，每条截断至 180 字符。
     """
-    history = (
-        agent_config.session_config.conversation_history
-        if agent_config is not None
-        else None
-    )
+    history = agent_config.session_config.conversation_history if agent_config is not None else None
     if not history:
         return ""
     lines: list[str] = []
@@ -558,7 +547,10 @@ def _completed_work_context(agent_config: AgentConfig | None) -> str:
         if not content:
             continue
         low = content.lower()
-        if any(term in low for term in ("read_file", "已读取", "分析", "测试", "pytest", "已完成", "rag", "知识库")):
+        if any(
+            term in low
+            for term in ("read_file", "已读取", "分析", "测试", "pytest", "已完成", "rag", "知识库")
+        ):
             lines.append(f"- {content[:180]}")
     if not lines:
         return ""
@@ -862,7 +854,9 @@ def _step_fingerprint(step: PlanStep) -> str:
 
 
 def _first_path_like(text: str) -> str:
-    match = re.search(r"([a-zA-Z0-9_.\\/-]+\.(?:py|md|txt|json|ya?ml|toml|ini|csv|html|css|js|ts))", text)
+    match = re.search(
+        r"([a-zA-Z0-9_.\\/-]+\.(?:py|md|txt|json|ya?ml|toml|ini|csv|html|css|js|ts))", text
+    )
     if match:
         return match.group(1).replace("\\", "/").lower()
     return ""

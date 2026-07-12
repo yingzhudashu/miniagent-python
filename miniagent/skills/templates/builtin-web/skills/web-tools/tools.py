@@ -10,33 +10,32 @@ import asyncio
 import logging
 import os
 import re
-import time
 from typing import Any
 from urllib.parse import urlparse
 
 from miniagent.core.constants import (
     BROWSER_DISABLE_IMAGES,
     BROWSER_DISABLE_STYLES,
-    BROWSER_IDLE_TIMEOUT_SECONDS,
     BROWSER_TIMEOUT_SECONDS,
     WEB_SEARCH_TAVILY_TIMEOUT,
     WEB_SEARCH_TAVILY_URL,
 )
-from miniagent.infrastructure.trace_events import (
-    EVENT_BROWSER_CLOSE,
-    EVENT_BROWSER_CREATE,
-    EVENT_BROWSER_REUSE,
+from miniagent.infrastructure.browser_pool import (
+    close_browser_pool,
 )
-from miniagent.infrastructure.tracing import emit_trace
+from miniagent.infrastructure.browser_pool import (
+    get_browser_instance as _get_browser_instance,
+)
+from miniagent.infrastructure.httpx_pool import get_shared_httpx_client
 from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 
 _logger = logging.getLogger(__name__)
 
-# ─── 全局浏览器实例池（性能优化）────────────────────────────
-_global_browser: Any | None = None
-_browser_lock = asyncio.Lock()
-_browser_last_used: float = 0.0
+
+async def _cleanup_browser() -> None:
+    """Compatibility hook delegated to the process-owned browser pool."""
+    await close_browser_pool()
 
 
 def _browser_resource_route_handler():
@@ -57,108 +56,6 @@ def _browser_resource_route_handler():
 
     return pattern, _handler
 
-
-def _browser_idle_timeout_seconds() -> float:
-    """浏览器实例空闲回收时间（秒）。"""
-    return float(BROWSER_IDLE_TIMEOUT_SECONDS)
-
-
-async def _get_browser_instance() -> Any:
-    """获取或创建全局浏览器实例（惰性初始化，连接池复用）。
-
-    性能优化：
-    - 单例模式避免重复启动 Chromium
-    - 自动清理机制防止资源泄漏
-    - 连接池复用减少启动延迟
-
-    Returns:
-        Playwright Browser 实例
-    """
-    global _global_browser, _browser_last_used
-
-    async with _browser_lock:
-        # 检查是否需要重新创建
-        now = time.time()
-        need_create = False
-
-        if _global_browser is None:
-            need_create = True
-        elif (now - _browser_last_used) > _browser_idle_timeout_seconds():
-            # 清理旧实例（超时未使用）
-            try:
-                await _global_browser.close()
-                emit_trace({
-                    "type": EVENT_BROWSER_CLOSE,
-                    "idle_seconds": int(now - _browser_last_used),
-                })
-                _logger.info("浏览器实例已清理（空闲超时）")
-            except Exception as e:
-                _logger.debug("关闭旧浏览器实例失败: %s", e)
-            _global_browser = None
-            need_create = True
-
-        if need_create:
-            # 创建新实例
-            try:
-                from playwright.async_api import async_playwright
-
-                start_time = time.time()
-                pw = async_playwright()
-
-                # 兼容Mock测试：检测是否为上下文管理器
-                if hasattr(pw, '__aenter__'):
-                    # Mock环境：使用上下文管理器
-                    p = await pw.__aenter__()
-                else:
-                    # 正常环境：使用start()方法
-                    p = await pw.start()
-
-                _global_browser = await p.chromium.launch(
-                    headless=True,
-                    # 性能优化参数
-                    args=[
-                        '--disable-blink-features=AutomationControlled',
-                        '--disable-dev-shm-usage',  # 减少内存占用
-                        '--no-sandbox',  # 提升启动速度
-                        '--disable-setuid-sandbox',
-                    ]
-                )
-                elapsed_ms = int((time.time() - start_time) * 1000)
-
-                emit_trace({
-                    "type": EVENT_BROWSER_CREATE,
-                    "duration_ms": elapsed_ms,
-                })
-                _logger.info("全局浏览器实例已创建（复用模式），耗时 %dms", elapsed_ms)
-            except Exception as e:
-                _logger.error("创建浏览器实例失败: %s", e)
-                _global_browser = None
-                raise
-        else:
-            # 复用现有实例
-            emit_trace({
-                "type": EVENT_BROWSER_REUSE,
-                "idle_seconds": int(now - _browser_last_used),
-            })
-
-        _browser_last_used = now
-        return _global_browser
-
-
-async def _cleanup_browser() -> None:
-    """清理全局浏览器实例（进程退出时调用）。
-
-    应在程序退出前调用，确保资源释放。
-    """
-    global _global_browser
-    if _global_browser is not None:
-        try:
-            await _global_browser.close()
-            emit_trace({"type": EVENT_BROWSER_CLOSE})
-            _logger.info("全局浏览器实例已关闭")
-        except Exception as e:
-            _logger.debug("关闭浏览器失败: %s", e)
-        _global_browser = None
 
 # ─── Tavily 配置 ────────────────────────────────────────────
 
@@ -241,16 +138,16 @@ async def _web_search_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolRe
     timeout = _tavily_timeout_sec()
 
     try:
-        import httpx
-
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(
-                _tavily_url(),
-                json=payload,
-                headers={"Content-Type": "application/json"},
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        client = await get_shared_httpx_client()
+        resp = await client.post(
+            _tavily_url(),
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=timeout,
+            follow_redirects=False,
+        )
+        resp.raise_for_status()
+        data = resp.json()
     except Exception as e:
         return ToolResult(success=False, content=f"{ERROR_PREFIX} Tavily 搜索失败: {e}")
 
@@ -321,10 +218,13 @@ async def _browser_extract_handler(args: dict[str, Any], _ctx: ToolContext) -> T
         wait_until = "domcontentloaded"
 
     if not _allowed_http_url(url, https_only=False):
-        return ToolResult(success=False, content=f"{ERROR_PREFIX} 仅允许 http/https URL，且须包含主机名")
+        return ToolResult(
+            success=False, content=f"{ERROR_PREFIX} 仅允许 http/https URL，且须包含主机名"
+        )
 
     # 检查 Playwright 是否可用（不直接导入）
     import importlib.util
+
     if not importlib.util.find_spec("playwright"):
         return ToolResult(
             success=False,
@@ -389,15 +289,15 @@ async def _fetch_url_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolRes
 
     try:
         try:
-            import httpx
-
-            async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-                resp = await client.get(
-                    url,
-                    headers={"User-Agent": "Mozilla/5.0 (compatible; MiniAgent/1.0)"},
-                )
-                resp.raise_for_status()
-                text = resp.text
+            client = await get_shared_httpx_client()
+            resp = await client.get(
+                url,
+                headers={"User-Agent": "Mozilla/5.0 (compatible; MiniAgent/1.0)"},
+                timeout=15.0,
+                follow_redirects=True,
+            )
+            resp.raise_for_status()
+            text = resp.text
         except ImportError:
             import asyncio
             from urllib.request import Request, urlopen
@@ -436,7 +336,10 @@ _download_file_schema = {
             "type": "object",
             "properties": {
                 "url": {"type": "string", "description": "HTTP/HTTPS 文件 URL"},
-                "filename": {"type": "string", "description": "保存的文件名（可选，默认从 URL 或 Content-Disposition 提取）"},
+                "filename": {
+                    "type": "string",
+                    "description": "保存的文件名（可选，默认从 URL 或 Content-Disposition 提取）",
+                },
                 "max_size_mb": {"type": "number", "description": "最大允许下载大小（MB，默认 50）"},
             },
             "required": ["url"],
@@ -481,7 +384,9 @@ async def _download_file_handler(args: dict[str, Any], ctx: ToolContext) -> Tool
     max_size_bytes = max_size_mb * 1024 * 1024
 
     if not _allowed_http_url(url, https_only=False):
-        return ToolResult(success=False, content=f"{ERROR_PREFIX} 仅允许 http/https URL，且须包含主机名")
+        return ToolResult(
+            success=False, content=f"{ERROR_PREFIX} 仅允许 http/https URL，且须包含主机名"
+        )
 
     # 解析默认文件名
     parsed = urlparse(url)
@@ -502,76 +407,74 @@ async def _download_file_handler(args: dict[str, Any], ctx: ToolContext) -> Tool
 
     timeout = 120.0
     try:
-        import httpx
+        client = await get_shared_httpx_client()
+        # 先发送 HEAD 请求检查大小和类型
+        try:
+            head_resp = await client.head(url, timeout=timeout, follow_redirects=True)
+            content_length = int(head_resp.headers.get("content-length", 0) or 0)
+            content_type = head_resp.headers.get("content-type", "application/octet-stream")
 
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            # 先发送 HEAD 请求检查大小和类型
-            try:
-                head_resp = await client.head(url)
-                content_length = int(head_resp.headers.get("content-length", 0) or 0)
-                content_type = head_resp.headers.get("content-type", "application/octet-stream")
+            # 从 Content-Disposition 提取文件名（如果未指定）
+            disposition = head_resp.headers.get("content-disposition", "")
+            if not args.get("filename") and disposition:
+                # 解析 filename="xxx" 或 filename*=UTF-8''xxx
+                # parser already imported at module scope
+                match = re.search(r'filename[*]?[="\']?([^"\';\s]+)["\']?', disposition)
+                if match:
+                    cd_name = unquote(match.group(1))
+                    filename = os.path.basename(cd_name) or filename
+                    save_path = os.path.join(save_dir, filename)
 
-                # 从 Content-Disposition 提取文件名（如果未指定）
-                disposition = head_resp.headers.get("content-disposition", "")
-                if not args.get("filename") and disposition:
-                    # 解析 filename="xxx" 或 filename*=UTF-8''xxx
-                    import re
-                    match = re.search(r'filename[*]?=["\']?([^"\';\s]+)["\']?', disposition)
-                    if match:
-                        cd_name = unquote(match.group(1))
-                        filename = os.path.basename(cd_name) or filename
-                        save_path = os.path.join(save_dir, filename)
+            # 检查大小限制
+            if content_length > max_size_bytes:
+                return ToolResult(
+                    success=False,
+                    content=f"{ERROR_PREFIX} 文件过大: {content_length / 1024 / 1024:.1f}MB > {max_size_mb}MB 限制",
+                )
+        except Exception:
+            content_length = 0
+            content_type = "application/octet-stream"
 
-                # 检查大小限制
-                if content_length > max_size_bytes:
+        # 流式下载
+        total = 0
+        try:
+            async with client.stream("GET", url, timeout=timeout, follow_redirects=True) as resp:
+                resp.raise_for_status()
+
+                # 再次检查 Content-Type
+                content_type = resp.headers.get("content-type", content_type)
+
+                file = await asyncio.to_thread(_open_binary_writer, save_path)
+                pending = bytearray()
+                too_large = False
+                try:
+                    async for chunk in resp.aiter_bytes(chunk_size=65536):
+                        total += len(chunk)
+                        if total > max_size_bytes:
+                            too_large = True
+                            break
+                        pending.extend(chunk)
+                        if len(pending) >= 1024 * 1024:
+                            await asyncio.to_thread(file.write, bytes(pending))
+                            pending.clear()
+                    if pending and not too_large:
+                        await asyncio.to_thread(file.write, bytes(pending))
+                finally:
+                    await asyncio.to_thread(file.close)
+                if too_large:
+                    await asyncio.to_thread(os.remove, save_path)
                     return ToolResult(
                         success=False,
-                        content=f"{ERROR_PREFIX} 文件过大: {content_length / 1024 / 1024:.1f}MB > {max_size_mb}MB 限制",
+                        content=f"{ERROR_PREFIX} 下载超过限制: {total / 1024 / 1024:.1f}MB > {max_size_mb}MB",
                     )
-            except Exception:
-                content_length = 0
-                content_type = "application/octet-stream"
-
-            # 流式下载
-            total = 0
-            try:
-                async with client.stream("GET", url) as resp:
-                    resp.raise_for_status()
-
-                    # 再次检查 Content-Type
-                    content_type = resp.headers.get("content-type", content_type)
-
-                    file = await asyncio.to_thread(_open_binary_writer, save_path)
-                    pending = bytearray()
-                    too_large = False
-                    try:
-                        async for chunk in resp.aiter_bytes(chunk_size=65536):
-                            total += len(chunk)
-                            if total > max_size_bytes:
-                                too_large = True
-                                break
-                            pending.extend(chunk)
-                            if len(pending) >= 1024 * 1024:
-                                await asyncio.to_thread(file.write, bytes(pending))
-                                pending.clear()
-                        if pending and not too_large:
-                            await asyncio.to_thread(file.write, bytes(pending))
-                    finally:
-                        await asyncio.to_thread(file.close)
-                    if too_large:
-                        await asyncio.to_thread(os.remove, save_path)
-                        return ToolResult(
-                            success=False,
-                            content=f"{ERROR_PREFIX} 下载超过限制: {total / 1024 / 1024:.1f}MB > {max_size_mb}MB",
-                        )
-            except Exception as e:
-                # 清理部分下载的文件
-                if os.path.exists(save_path):
-                    try:
-                        os.remove(save_path)
-                    except Exception as e:
-                        _logger.debug("清理下载文件失败: %s", e)
-                return ToolResult(success=False, content=f"{ERROR_PREFIX} 下载失败: {e}")
+        except Exception as e:
+            # 清理部分下载的文件
+            if os.path.exists(save_path):
+                try:
+                    os.remove(save_path)
+                except Exception as cleanup_error:
+                    _logger.debug("清理下载文件失败: %s", cleanup_error)
+            return ToolResult(success=False, content=f"{ERROR_PREFIX} 下载失败: {e}")
 
     except ImportError:
         # 无 httpx，使用 urllib 回退

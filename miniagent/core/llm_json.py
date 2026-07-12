@@ -212,7 +212,7 @@ async def llm_json(
     ) -> None:
         if not trace_phase:
             return
-        from miniagent.infrastructure.tracing import emit_trace
+        from miniagent.infrastructure.tracing import emit_trace, llm_request_size_metrics
 
         payload: dict[str, Any] = {
             "type": event_type,
@@ -226,7 +226,14 @@ async def llm_json(
             "retrying": bool(failure_category) and retrying,
         }
         if event_type == "llm.request":
-            payload.update({"message_count": 2, "tool_count": 0})
+            request_messages = json_object_messages if json_object else base_messages
+            payload.update(
+                {
+                    "message_count": len(request_messages),
+                    "tool_count": 0,
+                    **llm_request_size_metrics(request_messages),
+                }
+            )
         if event_type == "llm.response" and duration_ms is not None:
             payload["duration_ms"] = duration_ms
         if event_type == "llm.response" and resp is not None:
@@ -299,18 +306,12 @@ async def llm_json(
                         attempt=attempt_number,
                         failure_category=fallback_failure.category,
                         retrying=False,
-                        duration_ms=(
-                            time.monotonic_ns() - fallback_start_ns
-                        ) // 1_000_000,
+                        duration_ms=(time.monotonic_ns() - fallback_start_ns) // 1_000_000,
                     )
                     raise
             else:
                 failure = classify_transport_error(api_err)
-                will_retry = (
-                    responses_wire
-                    and failure.retryable
-                    and attempt < max_attempts - 1
-                )
+                will_retry = responses_wire and failure.retryable and attempt < max_attempts - 1
                 _emit_llm_trace(
                     "llm.response",
                     json_object=used_json_object,

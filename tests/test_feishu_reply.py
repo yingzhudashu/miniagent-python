@@ -22,6 +22,13 @@ from tests.config_helpers import install_test_config
 pytest.importorskip("lark_oapi")
 
 
+@pytest.fixture(autouse=True)
+def _clear_lark_client_cache_for_reply_tests():
+    from miniagent.feishu import im_send
+
+    im_send.clear_client_cache()
+
+
 # ============================================================================
 # Reply Chunking Tests
 # ============================================================================
@@ -141,12 +148,6 @@ class TestFeishuReplyRouting:
 
 class TestFeishuSendReplyPolicy:
     """飞书回复分片发送策略。"""
-
-    @pytest.fixture(autouse=True)
-    def _clear_lark_client_cache(self):
-        from miniagent.feishu import im_send
-
-        im_send.clear_client_cache()
 
     def test_send_interactive_reply_cards_stops_after_failed_shard(self) -> None:
         from miniagent.feishu.poll_server import _send_interactive_reply_cards

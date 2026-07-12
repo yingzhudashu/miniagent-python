@@ -79,7 +79,10 @@ def _cli_thinking_render_width() -> int:
     global _TERMINAL_WIDTH_CACHE, _TERMINAL_WIDTH_CACHE_TIME
     with _TERMINAL_WIDTH_CACHE_LOCK:
         now = time.time()
-        if _TERMINAL_WIDTH_CACHE > 0 and (now - _TERMINAL_WIDTH_CACHE_TIME) < _TERMINAL_WIDTH_CACHE_TTL:
+        if (
+            _TERMINAL_WIDTH_CACHE > 0
+            and (now - _TERMINAL_WIDTH_CACHE_TIME) < _TERMINAL_WIDTH_CACHE_TTL
+        ):
             return _TERMINAL_WIDTH_CACHE
         try:
             terminal_width = shutil.get_terminal_size(fallback=(80, 24)).columns
@@ -208,6 +211,7 @@ class _SessionThinkingState:
         "feishu_cached_card_json",
         "feishu_last_patch_monotonic",
         "feishu_last_patched_char_len",
+        "feishu_last_sent_card_json",
         "feishu_patch_budget",
         "feishu_tool_section_started",
         "feishu_pending_tool_lines",
@@ -235,6 +239,7 @@ class _SessionThinkingState:
     feishu_cached_card_json: str | None
     feishu_last_patch_monotonic: float
     feishu_last_patched_char_len: int
+    feishu_last_sent_card_json: str | None
     feishu_patch_budget: int
     feishu_tool_section_started: bool
     feishu_pending_tool_lines: list[str]
@@ -263,6 +268,7 @@ class _SessionThinkingState:
         self.feishu_cached_card_json = None
         self.feishu_last_patch_monotonic = 0.0
         self.feishu_last_patched_char_len = -1
+        self.feishu_last_sent_card_json = None
         self.feishu_patch_budget = 0
         self.feishu_tool_section_started = False
         self.feishu_pending_tool_lines: list[str] = []
@@ -280,6 +286,7 @@ def _clear_feishu_stream_fields(state: _SessionThinkingState) -> None:
     state.feishu_cached_card_json = None
     state.feishu_last_patch_monotonic = 0.0
     state.feishu_last_patched_char_len = -1
+    state.feishu_last_sent_card_json = None
     state.feishu_patch_budget = 0
     state.feishu_tool_section_started = False
     state.feishu_pending_tool_lines = []
@@ -518,7 +525,9 @@ class ThinkingDisplay:
             return False
         return True
 
-    def _show_streaming(self, state: _SessionThinkingState, text: str, *, session_key: str = "") -> None:
+    def _show_streaming(
+        self, state: _SessionThinkingState, text: str, *, session_key: str = ""
+    ) -> None:
         """流式思考正文增量输出（带内容连续性校验，防止丢字）。"""
         full = text.replace("\r\n", "\n")
 
@@ -588,9 +597,7 @@ class ThinkingDisplay:
 
         # reset=True 或流式/非流式阶段切换：先于飞书 PATCH，避免新阶段正文拼进上一张卡。
         # 注意：不要求 streaming=True，否则 [执行] 开始（streaming=False）无法检测到从规划到执行的 header 变化。
-        phase_changed = (
-            bool(hdr) and bool(state.stream_header) and hdr != state.stream_header
-        )
+        phase_changed = bool(hdr) and bool(state.stream_header) and hdr != state.stream_header
         # 关键修复：reset=True 也触发状态重置，避免语义不同的新内容与旧流式状态拼接导致重复显示
         should_reset_stream = phase_changed or reset
         if phase_changed:
@@ -698,7 +705,9 @@ class ThinkingDisplay:
                     and self._output_sink
                     and self._sink_accepts_ansi_markdown
                 ):
-                    self._call_sink("", kind="chunk", session_key=session_key, ansi_markdown=ansi_body)
+                    self._call_sink(
+                        "", kind="chunk", session_key=session_key, ansi_markdown=ansi_body
+                    )
                     self._emit("\n", session_key=session_key)
                 else:
                     self._emit(body_md + "\n", session_key=session_key)
@@ -722,7 +731,9 @@ class ThinkingDisplay:
                 # 前一个流式阶段已结束（非流式调用结束或 end_thinking），先补空行
                 if state.stream_done:
                     if self._should_emit_cli(state):
-                        self._emit("\n\n", session_key=session_key)  # 阶段间空行：结束上一阶段 + 留一行间隔
+                        self._emit(
+                            "\n\n", session_key=session_key
+                        )  # 阶段间空行：结束上一阶段 + 留一行间隔
                 state.stream_step = self._next_step(session_key)
                 state.stream_header = header or ""
                 state.stream_printed = 0
@@ -781,7 +792,9 @@ class ThinkingDisplay:
                 state.feishu_pending_header = hdr
                 if self._should_emit_cli(state):
                     if _is_transition:
-                        self._emit("\n\n", session_key=session_key)  # 阶段间空行：规划与执行之间留一行间隔
+                        self._emit(
+                            "\n\n", session_key=session_key
+                        )  # 阶段间空行：规划与执行之间留一行间隔
                     label = f"\U0001f4ad [{state.stream_step}] {state.stream_header}"
                     self._emit_line(label, "gray", session_key=session_key)
                 if self._should_emit_cli(state):
@@ -805,7 +818,9 @@ class ThinkingDisplay:
                         and self._output_sink
                         and self._sink_accepts_ansi_markdown
                     ):
-                        self._call_sink("", kind="chunk", session_key=session_key, ansi_markdown=ansi_body)
+                        self._call_sink(
+                            "", kind="chunk", session_key=session_key, ansi_markdown=ansi_body
+                        )
                         self._emit("\n", session_key=session_key)
                     else:
                         self._emit(body_md + "\n", session_key=session_key)
@@ -834,8 +849,12 @@ class ThinkingDisplay:
                     and self._output_sink
                     and self._sink_accepts_ansi_markdown
                 ):
-                    self._call_sink("", kind="chunk", session_key=session_key, ansi_markdown=ansi_body)
-                    self._emit("\n", session_key=session_key)  # 非流式正文后补换行，避免与下一区块黏连
+                    self._call_sink(
+                        "", kind="chunk", session_key=session_key, ansi_markdown=ansi_body
+                    )
+                    self._emit(
+                        "\n", session_key=session_key
+                    )  # 非流式正文后补换行，避免与下一区块黏连
                 else:
                     body = "\n".join(lines)
                     self._emit(body + "\n", session_key=session_key)

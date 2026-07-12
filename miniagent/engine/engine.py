@@ -80,6 +80,20 @@ def _tool_finish_verbose_history() -> bool:
     return EXECUTION_TOOL_FINISH_VERBOSE
 
 
+async def _persist_session_history(session_manager: Any, session_key: str) -> None:
+    """Persist history without blocking the event loop on filesystem I/O.
+
+    The concrete manager exposes an async wrapper. Lightweight integrations
+    and older test doubles may only implement the synchronous method, which is
+    delegated to the default executor as a compatibility fallback.
+    """
+    async_method = getattr(type(session_manager), "save_session_history_async", None)
+    if async_method is not None and asyncio.iscoroutinefunction(async_method):
+        await session_manager.save_session_history_async(session_key)
+        return
+    await asyncio.to_thread(session_manager.save_session_history, session_key)
+
+
 class UnifiedEngine:
     """统一管理引擎。
 
@@ -106,9 +120,7 @@ class UnifiedEngine:
         self._active_session_key: str | None = None
         from miniagent.core.constants import EXECUTION_MAX_CONCURRENT_TOOLS
 
-        self._tool_semaphore = asyncio.Semaphore(
-            max(1, min(20, EXECUTION_MAX_CONCURRENT_TOOLS))
-        )
+        self._tool_semaphore = asyncio.Semaphore(max(1, min(20, EXECUTION_MAX_CONCURRENT_TOOLS)))
 
     async def run_agent_with_thinking(
         self,
@@ -186,14 +198,24 @@ class UnifiedEngine:
         # 否则 asyncio.Lock 不可重入会死锁。
         if _hold_session_lock:
             return await self._run_agent_with_thinking_locked(
-                user_input, session_key, skill_toolboxes, skill_prompts,
-                is_feishu=is_feishu, registry=registry, monitor=monitor,
-                session_manager=session_manager, feishu_config=feishu_config,
-                channel_router=channel_router, clawhub=clawhub,
-                memory=memory, knowledge_registry=knowledge_registry, client=client,
+                user_input,
+                session_key,
+                skill_toolboxes,
+                skill_prompts,
+                is_feishu=is_feishu,
+                registry=registry,
+                monitor=monitor,
+                session_manager=session_manager,
+                feishu_config=feishu_config,
+                channel_router=channel_router,
+                clawhub=clawhub,
+                memory=memory,
+                knowledge_registry=knowledge_registry,
+                client=client,
                 feishu_receive_chat_id=feishu_receive_chat_id,
                 feishu_trigger_message_id=feishu_trigger_message_id,
-                feishu_root_id=feishu_root_id, feishu_parent_id=feishu_parent_id,
+                feishu_root_id=feishu_root_id,
+                feishu_parent_id=feishu_parent_id,
                 feishu_thread_id=feishu_thread_id,
                 feishu_im_receive_id_type=feishu_im_receive_id_type,
                 feishu_im_receive_id=feishu_im_receive_id,
@@ -204,14 +226,24 @@ class UnifiedEngine:
 
         async with self._session_exec.acquire(session_key):
             return await self._run_agent_with_thinking_locked(
-                user_input, session_key, skill_toolboxes, skill_prompts,
-                is_feishu=is_feishu, registry=registry, monitor=monitor,
-                session_manager=session_manager, feishu_config=feishu_config,
-                channel_router=channel_router, clawhub=clawhub,
-                memory=memory, knowledge_registry=knowledge_registry, client=client,
+                user_input,
+                session_key,
+                skill_toolboxes,
+                skill_prompts,
+                is_feishu=is_feishu,
+                registry=registry,
+                monitor=monitor,
+                session_manager=session_manager,
+                feishu_config=feishu_config,
+                channel_router=channel_router,
+                clawhub=clawhub,
+                memory=memory,
+                knowledge_registry=knowledge_registry,
+                client=client,
                 feishu_receive_chat_id=feishu_receive_chat_id,
                 feishu_trigger_message_id=feishu_trigger_message_id,
-                feishu_root_id=feishu_root_id, feishu_parent_id=feishu_parent_id,
+                feishu_root_id=feishu_root_id,
+                feishu_parent_id=feishu_parent_id,
                 feishu_thread_id=feishu_thread_id,
                 feishu_im_receive_id_type=feishu_im_receive_id_type,
                 feishu_im_receive_id=feishu_im_receive_id,
@@ -528,7 +560,12 @@ class UnifiedEngine:
             # 关键修复：传递 reset 参数，让 ThinkingDisplay 在 reset=True 时重置流式状态
             # 传递 is_last_step 参数，最后一步的 LLM 正文不在思考区显示（避免与最终结论重复）
             await self.thinking.show(
-                display_text or text, session_key, streaming=streaming, header=header, reset=reset, is_last_step=is_last_step
+                display_text or text,
+                session_key,
+                streaming=streaming,
+                header=header,
+                reset=reset,
+                is_last_step=is_last_step,
             )
 
         async def _tool_finish(
@@ -597,7 +634,9 @@ class UnifiedEngine:
         # 诊断：记录每次 run_agent 的会话与来源，便于确认同一答案是否被多次驱动。
         _logger.debug(
             "run_agent 调度: session_key=%s source=%s input=%.40s",
-            session_key, "feishu" if is_feishu else "cli", (user_input or "").replace("\n", " "),
+            session_key,
+            "feishu" if is_feishu else "cli",
+            (user_input or "").replace("\n", " "),
         )
         agent_result = await run_agent(
             user_input,
@@ -688,7 +727,7 @@ class UnifiedEngine:
 
         # 9. 持久化（活动日志生命周期由 run_agent 统一写入，避免重复）
         if session_manager and not bg_ephemeral:
-            session_manager.save_session_history(session_key)
+            await _persist_session_history(session_manager, session_key)
 
         if not bg_ephemeral:
             try:

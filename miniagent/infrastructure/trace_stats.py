@@ -91,11 +91,7 @@ def get_trace_files(date: str | None = None) -> list[Path]:
         return []
     base_name = f"trace-{date}.jsonl"
     return sorted(
-        (
-            path
-            for path in trace_dir.iterdir()
-            if path.is_file() and _trace_file_date(path) == date
-        ),
+        (path for path in trace_dir.iterdir() if path.is_file() and _trace_file_date(path) == date),
         key=lambda path: (path.name != base_name, path.name),
     )
 
@@ -152,6 +148,7 @@ def iter_trace_events(
                         continue
         except OSError:
             continue
+
 
 def _trace_file_date(trace_file: Path) -> str | None:
     """从基础文件或 pid 分片文件名中解析 YYYY-MM-DD。"""
@@ -266,6 +263,9 @@ class _TraceStatsAccumulator:
         self.total_reasoning_tokens: int | float = 0
         self.total_messages = 0
         self.total_tools = 0
+        self.total_message_chars = 0
+        self.total_tool_schema_chars = 0
+        self.size_measurement_count = 0
         self.llm_durations: list[float] = []
         self.phase_stats: dict[str, dict[str, Any]] = defaultdict(
             lambda: {
@@ -280,6 +280,9 @@ class _TraceStatsAccumulator:
                 "reasoning_tokens": 0,
                 "message_count": 0,
                 "tool_count": 0,
+                "message_chars": 0,
+                "tool_schema_chars": 0,
+                "size_measurement_count": 0,
                 "durations_ms": [],
             }
         )
@@ -339,12 +342,27 @@ class _TraceStatsAccumulator:
         phase = event.get("phase") or "unknown"
         message_count = event.get("message_count", 0)
         tool_count = event.get("tool_count", 0)
+        message_chars = event.get("message_chars", 0)
+        tool_schema_chars = event.get("tool_schema_chars", 0)
+        if not isinstance(message_chars, int | float) or isinstance(message_chars, bool):
+            message_chars = 0
+        if not isinstance(tool_schema_chars, int | float) or isinstance(tool_schema_chars, bool):
+            tool_schema_chars = 0
+        has_size_measurement = "message_chars" in event or "tool_schema_chars" in event
         self.llm_request_count += 1
         self.total_messages += message_count
         self.total_tools += tool_count
+        self.total_message_chars += message_chars
+        self.total_tool_schema_chars += tool_schema_chars
+        if has_size_measurement:
+            self.size_measurement_count += 1
         self.phase_stats[phase]["request_count"] += 1
         self.phase_stats[phase]["message_count"] += message_count
         self.phase_stats[phase]["tool_count"] += tool_count
+        self.phase_stats[phase]["message_chars"] += message_chars
+        self.phase_stats[phase]["tool_schema_chars"] += tool_schema_chars
+        if has_size_measurement:
+            self.phase_stats[phase]["size_measurement_count"] += 1
 
     def _add_llm_response(self, event: dict[str, Any]) -> None:
         phase = event.get("phase") or "unknown"
@@ -442,17 +460,21 @@ class _TraceStatsAccumulator:
                 "success_rate": success_rate,
             }
             if avg_ms >= slow_threshold:
-                result["slow_tools"].append({
-                    "name": tool_name,
-                    "avg_ms": avg_ms,
-                    "count": stats["count"],
-                })
+                result["slow_tools"].append(
+                    {
+                        "name": tool_name,
+                        "avg_ms": avg_ms,
+                        "count": stats["count"],
+                    }
+                )
             if success_rate < 0.95:
-                result["failed_tools"].append({
-                    "name": tool_name,
-                    "success_rate": success_rate,
-                    "fail_count": stats["fail"],
-                })
+                result["failed_tools"].append(
+                    {
+                        "name": tool_name,
+                        "success_rate": success_rate,
+                        "fail_count": stats["fail"],
+                    }
+                )
         result["slow_tools"].sort(key=lambda item: item["avg_ms"], reverse=True)
         return result
 
@@ -464,7 +486,15 @@ class _TraceStatsAccumulator:
             phase_result = {
                 key: value
                 for key, value in stats.items()
-                if key not in {"durations_ms", "message_count", "tool_count"}
+                if key
+                not in {
+                    "durations_ms",
+                    "message_count",
+                    "tool_count",
+                    "message_chars",
+                    "tool_schema_chars",
+                    "size_measurement_count",
+                }
             }
             phase_response_count = phase_result["response_count"]
             phase_result["attempt_error_rate"] = (
@@ -482,8 +512,7 @@ class _TraceStatsAccumulator:
             phase_result["terminal_response_count"] = terminal_response_count
             phase_result["error_rate"] = (
                 round(
-                    phase_result["terminal_failed_response_count"]
-                    / terminal_response_count,
+                    phase_result["terminal_failed_response_count"] / terminal_response_count,
                     3,
                 )
                 if terminal_response_count
@@ -496,10 +525,18 @@ class _TraceStatsAccumulator:
                 else 0.0
             )
             phase_result["avg_tools"] = (
-                round(stats["tool_count"] / phase_request_count, 1)
-                if phase_request_count
-                else 0.0
+                round(stats["tool_count"] / phase_request_count, 1) if phase_request_count else 0.0
             )
+            phase_size_count = stats["size_measurement_count"]
+            if phase_size_count:
+                phase_result["avg_message_chars"] = round(
+                    stats["message_chars"] / phase_size_count,
+                    1,
+                )
+                phase_result["avg_tool_schema_chars"] = round(
+                    stats["tool_schema_chars"] / phase_size_count,
+                    1,
+                )
             if phase_request_count:
                 phase_result["avg_prompt_tokens"] = round(
                     phase_result["prompt_tokens"] / phase_request_count,
@@ -567,6 +604,15 @@ class _TraceStatsAccumulator:
                 self.total_tools / self.llm_request_count,
                 1,
             )
+        if self.size_measurement_count:
+            result["avg_message_chars"] = round(
+                self.total_message_chars / self.size_measurement_count,
+                1,
+            )
+            result["avg_tool_schema_chars"] = round(
+                self.total_tool_schema_chars / self.size_measurement_count,
+                1,
+            )
             result["avg_prompt_tokens"] = round(
                 self.total_prompt_tokens / self.llm_request_count,
                 1,
@@ -609,9 +655,7 @@ class _TraceStatsAccumulator:
                 1,
             )
             result["layer_distribution"] = dict(self.memory_layer_counts)
-            result["avg_chars_loaded"] = round(
-                self.memory_total_chars / self.memory_read_count
-            )
+            result["avg_chars_loaded"] = round(self.memory_total_chars / self.memory_read_count)
             result["cache_hit_rate"] = round(
                 self.memory_cache_hits / self.memory_read_count,
                 3,
@@ -636,8 +680,7 @@ class _TraceStatsAccumulator:
             )
             if self.context_total_tokens_before > 0:
                 result["compress_ratio"] = round(
-                    self.context_total_tokens_after
-                    / self.context_total_tokens_before,
+                    self.context_total_tokens_after / self.context_total_tokens_before,
                     3,
                 )
             result["total_tokens_saved"] = (
@@ -647,9 +690,7 @@ class _TraceStatsAccumulator:
 
     def embedding_report(self) -> dict[str, Any]:
         """Finalize embedding cache and latency counters."""
-        total_requests = (
-            self.embedding_cache_hit_count + self.embedding_api_call_count
-        )
+        total_requests = self.embedding_cache_hit_count + self.embedding_api_call_count
         result: dict[str, Any] = {
             "cache_hit_count": self.embedding_cache_hit_count,
             "api_call_count": self.embedding_api_call_count,
@@ -664,9 +705,7 @@ class _TraceStatsAccumulator:
                 self.embedding_total_api_latency / self.embedding_api_call_count,
                 1,
             )
-            result["estimated_cost_saved"] = (
-                f"${self.embedding_cache_hit_count * 0.0001:.4f}"
-            )
+            result["estimated_cost_saved"] = f"${self.embedding_cache_hit_count * 0.0001:.4f}"
         return result
 
 
@@ -941,8 +980,7 @@ def _stream_remove_session_from_trace_file(
                         try:
                             event = json.loads(stripped)
                             should_remove = (
-                                isinstance(event, dict)
-                                and event.get("session_key") == session_key
+                                isinstance(event, dict) and event.get("session_key") == session_key
                             )
                         except json.JSONDecodeError:
                             pass

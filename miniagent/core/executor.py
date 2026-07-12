@@ -74,7 +74,7 @@ from miniagent.infrastructure.timezone_config import (
     format_agent_timezone_context,
     format_agent_timezone_rule_context,
 )
-from miniagent.infrastructure.tracing import emit_trace
+from miniagent.infrastructure.tracing import emit_trace, llm_request_size_metrics
 from miniagent.memory.activity_log import invoke_activity_log
 from miniagent.memory.context import ContextBudgetExceeded, DefaultContextManager
 from miniagent.memory.history_bridge import conversation_history_for_llm
@@ -116,9 +116,7 @@ _logger = get_logger(__name__)
 _EXEC_LLM_MAX_ATTEMPTS = 3
 
 
-def _exec_retry_params(
-    base: dict[str, Any], *, attempt: int, responses: bool
-) -> dict[str, Any]:
+def _exec_retry_params(base: dict[str, Any], *, attempt: int, responses: bool) -> dict[str, Any]:
     """Keep the first execution request intact and adapt Responses retries only."""
     params = dict(base)
     if not responses or attempt == 0:
@@ -207,6 +205,7 @@ def _is_ephemeral_session(session_key: str | None) -> bool:
 
     return is_background_session_key(session_key or "")
 
+
 # ─── 工具错误日志辅助 ────────────────────────────────────────────
 
 _MAX_ARGS_LOG_LEN = MAX_ARGS_LOG_LEN
@@ -267,25 +266,35 @@ def _log_tool_error(
     """
     args_str = _truncate_args_for_log(args)
     log_prefix = f"[工具错误] {tool_name}"
-    emit_trace({
-        "type": "tool.error",
-        "tool": tool_name,
-        "tool_call_id": tool_call_id,
-        "args_truncated": args_str,
-        "session_key": session_key,
-        "error_type": error_type,
-        "error_message": error_message,
-        "is_user_error": is_user_error,
-    })
+    emit_trace(
+        {
+            "type": "tool.error",
+            "tool": tool_name,
+            "tool_call_id": tool_call_id,
+            "args_truncated": args_str,
+            "session_key": session_key,
+            "error_type": error_type,
+            "error_message": error_message,
+            "is_user_error": is_user_error,
+        }
+    )
     if is_user_error:
         _logger.warning(
             "%s | 类型: %s | 参数: %s | 消息: %s | 会话: %s",
-            log_prefix, error_type, args_str, error_message, session_key or "N/A",
+            log_prefix,
+            error_type,
+            args_str,
+            error_message,
+            session_key or "N/A",
         )
     else:
         _logger.error(
             "%s | 类型: %s | 参数: %s | 消息: %s | 会话: %s",
-            log_prefix, error_type, args_str, error_message, session_key or "N/A",
+            log_prefix,
+            error_type,
+            args_str,
+            error_message,
+            session_key or "N/A",
         )
         if traceback_str:
             _logger.debug("%s | 堆栈:\n%s", log_prefix, traceback_str)
@@ -483,6 +492,7 @@ def build_current_turn_user_context(
 
 # ─── 环境变量缓存（性能优化）────────────────────────────────────
 
+
 @lru_cache(maxsize=1)
 def _env_phased_execution_enabled() -> bool:
     """是否启用分阶段执行（工具批次与 LLM 轮次分段），默认开启。"""
@@ -626,8 +636,12 @@ def _append_context_or_return(
 
 OnToolCall = Callable[[str, str, str], None]  # (name, args_json, result)
 # 使用 Protocol 类型替代 Callable[..., Any]，详见 miniagent/types/protocols.py
-OnThinking: TypeAlias = OnThinkingCallback  # (text, streaming, header, *, full_record=..., reset=...)
-OnToolFinish: TypeAlias = OnToolFinishCallback  # (name, args_json, result, success, *, thinking_header=...)
+OnThinking: TypeAlias = (
+    OnThinkingCallback  # (text, streaming, header, *, full_record=..., reset=...)
+)
+OnToolFinish: TypeAlias = (
+    OnToolFinishCallback  # (name, args_json, result, success, *, thinking_header=...)
+)
 
 
 # ─── 核心：execute_plan（ReAct 主循环；可选分步子循环 + 无 tools 收尾 synthesis）──
@@ -756,7 +770,9 @@ async def execute_plan(
 
     # ── 上下文管理器 ──
     model_config = get_default_model_config()
-    overflow_strategy = resolve_effective_overflow_strategy(plan, agent_config.context_overflow_strategy)
+    overflow_strategy = resolve_effective_overflow_strategy(
+        plan, agent_config.context_overflow_strategy
+    )
     compress_threshold = resolve_chunk_compress_threshold(
         plan,
         context_window=model_config.context_window,
@@ -798,6 +814,7 @@ async def execute_plan(
 
         # ── 知识库检索（使用公共函数，支持配置）──
         from miniagent.knowledge import retrieve_knowledge_context
+
         kb_context_str = retrieve_knowledge_context(
             knowledge_registry,
             user_input,
@@ -826,6 +843,7 @@ async def execute_plan(
     else:
         # ── 知识库检索（无会话时也检索，使用公共函数）──
         from miniagent.knowledge import retrieve_knowledge_context
+
         kb_context_str = retrieve_knowledge_context(
             knowledge_registry,
             user_input,
@@ -1020,10 +1038,9 @@ async def execute_plan(
                     "model": exec_kw["model"],
                     "message_count": len(messages),
                     "tool_count": len(tools_arg),
+                    **llm_request_size_metrics(messages, tools_arg),
                     "reasoning_level": exec_kw.get("_thinking_level"),
-                    "sampling_removed": (
-                        "temperature" not in exec_kw and "top_p" not in exec_kw
-                    ),
+                    "sampling_removed": ("temperature" not in exec_kw and "top_p" not in exec_kw),
                 }
             )
             try:
@@ -1082,9 +1099,7 @@ async def execute_plan(
                         if tc_delta.arguments:
                             _tool_call_accum[idx]["arguments"] += tc_delta.arguments
             except Exception as error:
-                has_partial_output = bool(
-                    full_content_parts.getvalue() or _tool_call_accum
-                )
+                has_partial_output = bool(full_content_parts.getvalue() or _tool_call_accum)
                 failure = classify_transport_error(error)
                 can_retry = (
                     responses_wire
@@ -1101,17 +1116,11 @@ async def execute_plan(
                         "attempt": request_attempt + 1,
                         "failure_category": failure.category,
                         "retrying": can_retry,
-                        "duration_ms": (
-                            time.monotonic_ns() - request_start_ns
-                        ) // 1_000_000,
+                        "duration_ms": (time.monotonic_ns() - request_start_ns) // 1_000_000,
                     }
                 )
                 if not can_retry:
-                    if (
-                        responses_wire
-                        and not has_partial_output
-                        and failure.retryable
-                    ):
+                    if responses_wire and not has_partial_output and failure.retryable:
                         raise LLMTransportError(
                             "LLM endpoint repeatedly rejected the execution request "
                             "with a transient gateway error."
@@ -1125,9 +1134,7 @@ async def execute_plan(
                 continue
 
             full_content = full_content_parts.getvalue()
-            request_duration_ms = (
-                time.monotonic_ns() - request_start_ns
-            ) // 1_000_000
+            request_duration_ms = (time.monotonic_ns() - request_start_ns) // 1_000_000
             if full_content.strip() or _tool_call_accum or not responses_wire:
                 break
             if request_attempt == _EXEC_LLM_MAX_ATTEMPTS - 1:
@@ -1269,7 +1276,9 @@ async def execute_plan(
                 message_count=len(messages),
                 tool_count=len(tools_arg),
                 thinking=full_content,
-                token_usage=_usage.model_dump() if (_usage and agent_config.log_token_usage) else None,
+                token_usage=_usage.model_dump()
+                if (_usage and agent_config.log_token_usage)
+                else None,
             )
         if (full_content or "").strip():
             _exec_hist_segments.setdefault(thinking_phase_label, []).append(full_content)
@@ -1330,7 +1339,9 @@ async def execute_plan(
                 avail = ", ".join(effective_registry.list())
                 # 未知工具：LLM 调用了不存在的工具（通常是模型幻觉或工具注册问题）
                 try:
-                    args_unknown = json.loads(tc.function.arguments) if tc.function.arguments else {}
+                    args_unknown = (
+                        json.loads(tc.function.arguments) if tc.function.arguments else {}
+                    )
                 except json.JSONDecodeError:
                     args_unknown = {"raw": tc.function.arguments}
                 _log_tool_error(
@@ -1353,7 +1364,9 @@ async def execute_plan(
                 if oob_u:
                     return oob_u
                 if on_tool_call:
-                    on_tool_call(tc.function.name, tc.function.arguments, f"{WARNING_PREFIX} 未知工具")
+                    on_tool_call(
+                        tc.function.name, tc.function.arguments, f"{WARNING_PREFIX} 未知工具"
+                    )
                 await _invoke_on_tool_finish(
                     tc.function.name,
                     tc.function.arguments,
@@ -1376,9 +1389,7 @@ async def execute_plan(
                         error=loop_check.message,
                     )
                     _logger.warning("循环检测拦截: %s", loop_check.message)
-                    return (
-                        f"{WARNING_PREFIX} 任务执行被终止：{loop_check.message}\n\n建议：简化请求或明确具体目标。"
-                    )
+                    return f"{WARNING_PREFIX} 任务执行被终止：{loop_check.message}\n\n建议：简化请求或明确具体目标。"
 
                 if loop_check.level == "warning" and not loop_warning_shown:
                     loop_warning_shown = True
@@ -1498,15 +1509,18 @@ async def execute_plan(
                     )
                     tb_str = traceback.format_exc()
                     # 根据异常类型判断是用户误用还是工具缺陷
-                    is_user_error = isinstance(e, (
-                        ValueError,  # 参数错误
-                        TypeError,   # 类型错误
-                        KeyError,    # 键错误
-                        json.JSONDecodeError,  # JSON 解析错误
-                        SandboxViolationError,  # 沙箱路径越界
-                        FeishuConfigMissingError,  # 飞书配置缺失
-                        LarkOapiMissingError,  # 飞书 SDK 缺失
-                    ))
+                    is_user_error = isinstance(
+                        e,
+                        (
+                            ValueError,  # 参数错误
+                            TypeError,  # 类型错误
+                            KeyError,  # 键错误
+                            json.JSONDecodeError,  # JSON 解析错误
+                            SandboxViolationError,  # 沙箱路径越界
+                            FeishuConfigMissingError,  # 飞书配置缺失
+                            LarkOapiMissingError,  # 飞书 SDK 缺失
+                        ),
+                    )
                     _log_tool_error(
                         tool_name=tc.function.name,
                         tool_call_id=tc.id,
@@ -1535,7 +1549,7 @@ async def execute_plan(
                 # 使用 return_exceptions=True 确保单个工具失败不影响其他工具
                 outcomes = await asyncio.gather(
                     *[_run_tool(tc, args, tool) for tc, args, tool in pending],
-                    return_exceptions=True
+                    return_exceptions=True,
                 )
             else:
                 outcomes = []

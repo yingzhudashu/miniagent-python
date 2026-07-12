@@ -13,6 +13,16 @@ from miniagent.infrastructure.logger import get_logger
 
 _logger = get_logger(__name__)
 
+
+async def _cancel_and_consume(tasks: set[asyncio.Task[Any]]) -> None:
+    """Cancel unfinished tasks and retrieve every terminal exception."""
+    for task in tasks:
+        if not task.done():
+            task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
 @dataclass(slots=True)
 class FeishuWsHealthState:
     """Health observations owned by one Feishu runtime connection loop."""
@@ -146,6 +156,10 @@ async def supervise_feishu_ws_session(
         reason = "no_receive_task"
         health_state.record_session_end(reason)
         _logger.warning("飞书 WS：无收包任务，结束会话监督")
+        try:
+            await ws_client._disconnect()
+        except Exception as error:
+            _logger.debug("无收包任务时断开连接失败: %s", error)
         return reason
 
     watchdog_task = asyncio.create_task(
@@ -162,18 +176,14 @@ async def supervise_feishu_ws_session(
 
     wait_shutdown = asyncio.create_task(shutdown_event.wait())
     wait_exit = asyncio.create_task(exit_event.wait())
+    helper_tasks = {watchdog_task, wait_shutdown, wait_exit}
 
     try:
         done, pending = await asyncio.wait(
             {receive_task, wait_shutdown, wait_exit},
             return_when=asyncio.FIRST_COMPLETED,
         )
-        for t in pending:
-            t.cancel()
-            try:
-                await t
-            except asyncio.CancelledError as e:
-                _logger.debug("任务取消: %s", e)
+        await _cancel_and_consume(pending)
 
         # 显式检索 receive_task 异常（可能是正常关闭的
         # ConnectionClosedOK），避免 "Task exception was never retrieved"。
@@ -200,24 +210,15 @@ async def supervise_feishu_ws_session(
             _logger.debug("supervise_feishu_ws_session disconnect: %s", e)
         return reason
     except asyncio.CancelledError:
-        health_state.record_session_end(
-            "shutdown" if shutdown_event.is_set() else "cancelled"
-        )
-        # 取消路径下显式消费 receive_task 异常，避免 "Task exception was never retrieved"。
-        if receive_task.done():
-            try:
-                receive_task.exception()
-            except (asyncio.CancelledError, Exception) as e:
-                _logger.debug("接收任务异常: %s", e)
+        health_state.record_session_end("shutdown" if shutdown_event.is_set() else "cancelled")
+        await _cancel_and_consume({receive_task})
+        try:
+            await ws_client._disconnect()
+        except Exception as error:
+            _logger.debug("取消监督时断开连接失败: %s", error)
         raise
     finally:
-        watchdog_task.cancel()
-        try:
-            await watchdog_task
-        except asyncio.CancelledError as e:
-            _logger.debug("看门狗任务取消: %s", e)
-        except Exception as e:
-            _logger.debug("看门狗任务异常: %s", e)
+        await _cancel_and_consume(helper_tasks)
 
 
 __all__ = [

@@ -162,7 +162,7 @@ async def classify_task_difficulty(
         若知识库有直接答案，建议分类为 simple。受 ``knowledge.classifier_*`` 配置控制。
     """
     from miniagent.core.llm_params import resolve_planner_completion_kwargs
-    from miniagent.infrastructure.tracing import emit_trace
+    from miniagent.infrastructure.tracing import emit_trace, llm_request_size_metrics
     from miniagent.knowledge import retrieve_knowledge_context
 
     classify_session_key = (
@@ -236,6 +236,7 @@ async def classify_task_difficulty(
                 "structured_stream": responses_wire and use_json_object,
                 "message_count": len(json_object_messages if use_json_object else messages),
                 "tool_count": 0,
+                **llm_request_size_metrics(json_object_messages if use_json_object else messages),
             }
         )
         try:
@@ -264,19 +265,13 @@ async def classify_task_difficulty(
                         "model": attempt_kw.get("model"),
                         "failure_category": "json_object_unsupported",
                         "retrying": True,
-                        "duration_ms": (
-                            time.monotonic_ns() - attempt_start_ns
-                        ) // 1_000_000,
+                        "duration_ms": (time.monotonic_ns() - attempt_start_ns) // 1_000_000,
                     }
                 )
                 continue
             failure = classify_transport_error(api_err)
             failure_history.append(failure.category)
-            will_retry = (
-                responses_wire
-                and failure.retryable
-                and attempt < max_attempts - 1
-            )
+            will_retry = responses_wire and failure.retryable and attempt < max_attempts - 1
             emit_trace(
                 {
                     "type": "llm.response",
@@ -325,11 +320,7 @@ async def classify_task_difficulty(
                 data = parse_llm_json_response(raw)
                 d = str(data.get("difficulty", "")).strip().lower()
                 difficulty_result = next(
-                    (
-                        difficulty
-                        for difficulty in TaskDifficulty
-                        if difficulty.value == d
-                    ),
+                    (difficulty for difficulty in TaskDifficulty if difficulty.value == d),
                     _ZH_TO_DIFFICULTY.get(d),
                 )
                 if difficulty_result is None:
@@ -341,10 +332,7 @@ async def classify_task_difficulty(
         will_retry = (
             difficulty_result is None
             and attempt < max_attempts - 1
-            and not (
-                not responses_wire
-                and failure_category == "invalid_classifier_contract"
-            )
+            and not (not responses_wire and failure_category == "invalid_classifier_contract")
         )
         emit_trace(
             {
