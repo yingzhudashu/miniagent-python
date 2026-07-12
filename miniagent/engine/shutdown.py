@@ -66,7 +66,7 @@ async def shutdown_runtime(
     try:
         from miniagent.engine.session_continue import save_cli_session_state
 
-        save_cli_session_state(ctx, state)
+        await asyncio.to_thread(save_cli_session_state, ctx, state)
     except Exception as e:
         _logger.debug("shutdown_runtime: save_cli_session_state: %s", e)
 
@@ -122,7 +122,7 @@ async def shutdown_runtime(
 
     # 5a) 记忆运行时由 ApplicationContainer 独占；退出前统一持久化全部派生索引。
     try:
-        ctx.memory.close()
+        await asyncio.to_thread(ctx.memory.close)
     except Exception as e:
         _logger.debug("shutdown_runtime: memory runtime close: %s", e)
 
@@ -165,7 +165,7 @@ async def shutdown_runtime(
     try:
         from miniagent.infrastructure.tracing import shutdown_trace_writer
 
-        shutdown_trace_writer()
+        await asyncio.to_thread(shutdown_trace_writer)
     except Exception as e:
         _logger.debug("shutdown_runtime: shutdown_trace_writer: %s", e)
 
@@ -176,7 +176,10 @@ async def shutdown_runtime(
 
         if get_config("trace.auto_cleanup", True):
             retention_days = get_config("trace.retention_days", 7)
-            deleted_count = cleanup_old_traces(retention_days)
+            deleted_count = await asyncio.to_thread(
+                cleanup_old_traces,
+                retention_days,
+            )
             if deleted_count > 0:
                 _logger.info("shutdown: 清理过期trace文件 %d 个", deleted_count)
     except Exception as e:
@@ -188,7 +191,10 @@ async def shutdown_runtime(
         from miniagent.infrastructure.json_config import get_config
 
         retention_days = int(get_config("self_optimization.proposal_retention_days", 30))
-        deleted_proposals = ProposalStore.cleanup_old_proposals(retention_days)
+        deleted_proposals = await asyncio.to_thread(
+            ProposalStore.cleanup_old_proposals,
+            retention_days,
+        )
         if deleted_proposals > 0:
             _logger.info("shutdown: 清理过期提案文件 %d 个", deleted_proposals)
     except Exception as e:
@@ -198,13 +204,13 @@ async def shutdown_runtime(
         sid = (state.get("active_session_id") or "").strip()
         if sid:
             try:
-                release_session_lock(sid)
+                await asyncio.to_thread(release_session_lock, sid)
             except Exception as e:
                 _logger.debug("shutdown_runtime: release_session_lock: %s", e)
 
     if call_unregister:
         try:
-            unregister_instance()
+            await asyncio.to_thread(unregister_instance)
         except Exception as e:
             _logger.debug("shutdown_runtime: unregister_instance: %s", e)
 

@@ -141,7 +141,7 @@ class DefaultMemoryHistory:
             else:
                 sync_loader = getattr(self._session_manager, "load_session_history", None)
                 if callable(sync_loader):
-                    history = sync_loader(session_key)
+                    history = await asyncio.to_thread(sync_loader, session_key)
         if max_messages is not None and max_messages > 0:
             history = history[-max_messages:]
         return history
@@ -268,23 +268,37 @@ class DefaultMemoryContext:
 
         store = memory_store or self._memory_store
         calls = tool_calls or []
-        facts = extract_facts(user_input + " " + reply)
+        tool_results_text = " ".join(
+            str(call.get("result", ""))
+            for call in calls
+            if isinstance(call, dict)
+        )
+        facts = extract_facts(
+            " ".join(part for part in (user_input, reply, tool_results_text) if part)
+        )
         summary = generate_turn_summary(user_input, calls, reply)
         now = datetime.now(timezone.utc).isoformat()
-
-        await store.update_summary(session_key, summary, facts)
-        await store.add_entry(
-            session_key,
-            MemoryEntryInput(
-                timestamp=now,
-                user_snippet=user_input[:100],
-                summary=summary,
-                facts=facts,
-            ),
+        entry = MemoryEntryInput(
+            timestamp=now,
+            user_snippet=user_input[:100],
+            summary=summary,
+            facts=facts,
         )
-        flush_ki = getattr(store, "flush_keyword_index", None)
-        if callable(flush_ki):
-            flush_ki()
+        record_turn = getattr(store, "record_turn", None)
+        if callable(record_turn):
+            await record_turn(session_key, summary, facts, entry)
+        else:
+            # Compatibility for injected third-party stores implementing only
+            # the stable MemoryStoreProtocol surface.
+            await store.update_summary(session_key, summary, facts)
+            await store.add_entry(session_key, entry)
+        flush_ki_async = getattr(store, "flush_keyword_index_async", None)
+        if callable(flush_ki_async):
+            await flush_ki_async()
+        else:
+            flush_ki = getattr(store, "flush_keyword_index", None)
+            if callable(flush_ki):
+                flush_ki()
 
 
 def create_default_memory_context(

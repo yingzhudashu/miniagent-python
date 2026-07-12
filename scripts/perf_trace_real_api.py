@@ -20,6 +20,7 @@ import json
 import os
 import time
 from collections import Counter
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -191,19 +192,6 @@ def _phase_latency_breakdown(trace_file: Path) -> dict[str, Any]:
     if not trace_file.exists():
         print("(trace file missing)")
         return {"total_events": 0, "missing_trace": True}
-    events: list[dict[str, Any]] = []
-    with trace_file.open(encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                try:
-                    events.append(json.loads(line))
-                except json.JSONDecodeError:
-                    pass
-    from miniagent.infrastructure.trace_stats import compute_llm_stats, compute_tool_stats
-
-    by_type = Counter(str(event.get("type", "?")) for event in events)
-
     def llm_key(event: dict[str, Any]) -> tuple[Any, ...]:
         return (
             event.get("session_key"),
@@ -212,23 +200,44 @@ def _phase_latency_breakdown(trace_file: Path) -> dict[str, Any]:
             event.get("attempt", 1),
         )
 
-    requests = Counter(
-        llm_key(event) for event in events if event.get("type") == "llm.request"
-    )
-    responses = Counter(
-        llm_key(event) for event in events if event.get("type") == "llm.response"
-    )
+    by_type: Counter[str] = Counter()
+    requests: Counter[tuple[Any, ...]] = Counter()
+    responses: Counter[tuple[Any, ...]] = Counter()
+
+    def iter_events() -> Iterator[dict[str, Any]]:
+        with trace_file.open(encoding="utf-8") as handle:
+            for line in handle:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                try:
+                    event = json.loads(stripped)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(event, dict):
+                    continue
+                event_type = str(event.get("type", "?"))
+                by_type[event_type] += 1
+                if event_type == "llm.request":
+                    requests[llm_key(event)] += 1
+                elif event_type == "llm.response":
+                    responses[llm_key(event)] += 1
+                yield event
+
+    from miniagent.infrastructure.trace_stats import aggregate_trace_stats
+
+    stats = aggregate_trace_stats(iter_events())
     unmatched_requests = sum((requests - responses).values())
     unmatched_responses = sum((responses - requests).values())
     result = {
-        "total_events": len(events),
+        "total_events": stats["total_events"],
         "event_counts": dict(sorted(by_type.items())),
-        "llm": compute_llm_stats(events),
-        "tools": compute_tool_stats(events),
+        "llm": stats["llm"],
+        "tools": stats["tools"],
         "unmatched_llm_requests": unmatched_requests,
         "unmatched_llm_responses": unmatched_responses,
     }
-    print(f"\n=== phase breakdown ({len(events)} events) ===")
+    print(f"\n=== phase breakdown ({stats['total_events']} events) ===")
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return result
 

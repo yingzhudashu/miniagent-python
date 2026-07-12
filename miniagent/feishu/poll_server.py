@@ -1673,7 +1673,7 @@ async def _send_thinking(
         card_json = json.dumps(
             _thinking_interactive_card_dict(cleaned, template), ensure_ascii=False
         )
-        ok, _ = _post_interactive_message(
+        ok, _ = await _post_interactive_message_async(
             config,
             receive_id=chat_id,
             card_json=card_json,
@@ -1735,7 +1735,7 @@ async def send_reflection_card(
     # 使用 "🤖 Mini Agent" 卡片头，与 .help 命令输出格式一致
     card_json = json.dumps(_feishu_interactive_card_dict("🤖 Mini Agent", cleaned, template), ensure_ascii=False)
 
-    ok, _ = _post_interactive_message(
+    ok, _ = await _post_interactive_message_async(
         config,
         receive_id=chat_id,
         card_json=card_json,

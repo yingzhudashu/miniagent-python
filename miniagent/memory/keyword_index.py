@@ -317,8 +317,9 @@ class KeywordIndex:
         self._max_entries: int = get_config("memory.keyword_index_max", 20000)
         self._loaded = False
         self._dirty = False
+        self._generation = 0
         self._index_file = os.path.join(state_dir, "keyword-index.json")
-        self._index_lock = threading.Lock()
+        self._index_lock = threading.RLock()
         # 性能优化：自动清理过期索引
         self._last_prune_time: float = time.time()
         self._prune_interval_seconds = get_config("memory.keyword_prune_interval", 86400)  # 24小时
@@ -370,15 +371,18 @@ class KeywordIndex:
 
             self._loaded = True
             self._dirty = False
+            self._generation = 0
         except Exception as e:
             _logger.warning("加载索引失败，重建中: %s", e)
             self._index.clear()
             self._loaded = True
             self._dirty = False
+            self._generation = 0
 
     def load(self) -> None:
         """从磁盘加载索引（公开接口）。"""
-        self._load()
+        with self._index_lock:
+            self._load()
 
     def save(self) -> None:
         """保存索引到磁盘
@@ -386,30 +390,33 @@ class KeywordIndex:
         无未提交变更时快速返回（避免重复重写整文件）。
         通常在批次末尾、进程退出或维护清理后调用。
         """
-        if not self._dirty:
-            return
+        self._ensure_loaded()
         try:
+            with self._index_lock:
+                if not self._dirty:
+                    return
+                generation = self._generation
+                index_snapshot = {
+                    keyword: {
+                        "references": [
+                            {"entry_key": entry_key, "weight": weight}
+                            for entry_key, weight in entry.references.items()
+                        ]
+                    }
+                    for keyword, entry in self._index.items()
+                }
             os.makedirs(self._state_dir, exist_ok=True)
             disk = {
                 "version": 2,  # 新版本：仅存储键引用
                 "updated_at": datetime.now(timezone.utc).isoformat(),
-                "total_entries": len(self._index),
-                "index": {
-                    k: {
-                        "references": [
-                            {
-                                "entry_key": entry_key,
-                                "weight": weight,
-                            }
-                            for entry_key, weight in v.references.items()
-                        ]
-                    }
-                    for k, v in self._index.items()
-                },
+                "total_entries": len(index_snapshot),
+                "index": index_snapshot,
             }
             with open(self._index_file, "w", encoding="utf-8") as f:
                 json.dump(disk, f, ensure_ascii=False, separators=(",", ":"))
-            self._dirty = False
+            with self._index_lock:
+                if self._generation == generation:
+                    self._dirty = False
         except Exception as e:
             _logger.error("保存索引失败: %s", e)
 
@@ -437,6 +444,7 @@ class KeywordIndex:
                 if not idx_entry.references:
                     del self._index[keyword]
             if removed:
+                self._generation += 1
                 self._dirty = True
         if removed:
             self.save()
@@ -466,22 +474,23 @@ class KeywordIndex:
 
         keywords = extract_keywords(full_text, max_keywords=KEYWORD_INDEX_MAX_KEYWORDS)
 
-        for keyword in keywords:
-            if keyword not in self._index:
-                self._index[keyword] = _IndexEntry(keyword=keyword)
+        changed = False
+        with self._index_lock:
+            for keyword in keywords:
+                if keyword not in self._index:
+                    self._index[keyword] = _IndexEntry(keyword=keyword)
 
-            idx_entry = self._index[keyword]
+                idx_entry = self._index[keyword]
+                if entry_key not in idx_entry.references:
+                    idx_entry.references[entry_key] = 1.0
+                    changed = True
 
-            # 性能优化：使用 dict 自动去重，无需额外 seen set
-            if entry_key not in idx_entry.references:
-                idx_entry.references[entry_key] = 1.0  # weight
-                self._dirty = True
-
-        # 超过上限时驱逐最早关键词（驱逐后统一置 dirty 一次，避免循环内重复赋值）
-        if len(self._index) > self._max_entries:
             while len(self._index) > self._max_entries:
                 self._index.popitem(last=False)
-            self._dirty = True
+                changed = True
+            if changed:
+                self._generation += 1
+                self._dirty = True
 
     def search_relevant(
         self, query: str, limit: int = 10, recent_minutes: int = 0
@@ -517,12 +526,15 @@ class KeywordIndex:
         scores: dict[str, _SearchResult] = {}
         shared_cache: dict[str, Any] = {}
 
-        for keyword in query_keywords:
-            idx_entry = self._index.get(keyword)
-            if not idx_entry:
-                continue
+        with self._index_lock:
+            candidate_refs = [
+                (keyword, tuple(self._index[keyword].references))
+                for keyword in query_keywords
+                if keyword in self._index
+            ]
 
-            for entry_key in idx_entry.references:
+        for keyword, entry_keys in candidate_refs:
+            for entry_key in entry_keys:
                 # 从注册表获取时间戳用于过滤
                 shared_entry = shared_cache.get(entry_key)
                 if shared_entry is None and entry_key not in shared_cache:
@@ -590,17 +602,18 @@ class KeywordIndex:
         """
         self._ensure_loaded()
 
-        total_refs = 0
-        keyword_counts: list[dict[str, Any]] = []
-
-        for keyword, entry in self._index.items():
-            total_refs += len(entry.references)
-            keyword_counts.append({"keyword": keyword, "count": len(entry.references)})
+        with self._index_lock:
+            total_keywords = len(self._index)
+            keyword_counts = [
+                {"keyword": keyword, "count": len(entry.references)}
+                for keyword, entry in self._index.items()
+            ]
+            total_refs = sum(item["count"] for item in keyword_counts)
 
         keyword_counts.sort(key=lambda x: x["count"], reverse=True)
 
         return {
-            "total_keywords": len(self._index),
+            "total_keywords": total_keywords,
             "total_references": total_refs,
             "top_keywords": keyword_counts[:20],
         }
@@ -624,26 +637,42 @@ class KeywordIndex:
         from datetime import timedelta
 
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days_old)).isoformat()
+        with self._index_lock:
+            references_snapshot = {
+                keyword: tuple(entry.references)
+                for keyword, entry in self._index.items()
+            }
+        expired_refs: dict[str, set[str]] = {}
+        for keyword, entry_keys in references_snapshot.items():
+            expired = {
+                entry_key
+                for entry_key in entry_keys
+                if (
+                    (shared := self._registry.get(entry_key)) is None
+                    or shared.timestamp < cutoff
+                )
+            }
+            if expired:
+                expired_refs[keyword] = expired
+
         removed_count = 0
+        removed_keywords = 0
+        with self._index_lock:
+            for keyword, expired in expired_refs.items():
+                entry = self._index.get(keyword)
+                if entry is None:
+                    continue
+                for entry_key in expired:
+                    if entry.references.pop(entry_key, None) is not None:
+                        removed_count += 1
+                if not entry.references:
+                    del self._index[keyword]
+                    removed_keywords += 1
+            if removed_count or removed_keywords:
+                self._generation += 1
+                self._dirty = True
 
-        for entry in self._index.values():
-            before = len(entry.references)
-            # 性能优化：过滤 dict，构建新 dict
-            new_refs: dict[str, float] = {}
-            for entry_key, weight in entry.references.items():
-                shared = self._registry.get(entry_key)
-                if shared is not None and shared.timestamp >= cutoff:
-                    new_refs[entry_key] = weight
-            entry.references = new_refs
-            removed_count += before - len(entry.references)
-
-        # 清空关键词
-        empty_keys = [k for k, v in self._index.items() if not v.references]
-        for k in empty_keys:
-            del self._index[k]
-
-        if removed_count > 0 or empty_keys:
-            self._dirty = True
+        if removed_count or removed_keywords:
             self.save()
 
         return removed_count

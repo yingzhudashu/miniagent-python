@@ -47,6 +47,78 @@ async def test_simple_difficulty_skips_planner(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_top_level_session_key_propagates_to_all_agent_stages(tmp_path) -> None:
+    install_test_config(tmp_path, {"features": {"reflection": False}})
+    toolbox = Toolbox(id="fs", name="fs", description="files", keywords=[])
+    from miniagent.core.task_classifier import TaskDifficulty
+    from miniagent.types.planning import StructuredPlan
+
+    plan = StructuredPlan(summary="x", steps=[], required_toolboxes=[])
+    with (
+        patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", True),
+        patch(
+            "miniagent.core.agent.classify_task_difficulty",
+            new_callable=AsyncMock,
+            return_value=TaskDifficulty.NORMAL,
+        ) as classify,
+        patch(
+            "miniagent.core.agent.generate_plan",
+            new_callable=AsyncMock,
+            return_value=plan,
+        ) as planner,
+        patch(
+            "miniagent.core.agent.execute_plan",
+            new_callable=AsyncMock,
+            return_value="done",
+        ) as execute,
+    ):
+        await run_agent(
+            "task",
+            registry=DefaultToolRegistry(),
+            memory=make_memory_runtime(),
+            knowledge_registry=make_knowledge_registry(),
+            client=MagicMock(),
+            toolboxes=[toolbox],
+            session_key="top-level-session",
+        )
+
+    classify_config = classify.await_args.kwargs["agent_config"]
+    planner_config = planner.await_args.kwargs["agent_config"]
+    execute_config = execute.await_args.args[4]
+    assert classify_config.session_config.session_key == "top-level-session"
+    assert planner_config.session_config.session_key == "top-level-session"
+    assert execute_config.session_config.session_key == "top-level-session"
+
+
+@pytest.mark.asyncio
+async def test_run_agent_owns_activity_lifecycle_once(tmp_path) -> None:
+    install_test_config(tmp_path, {"features": {"reflection": False}})
+    from miniagent.memory.activity_log import ActivityLogger
+
+    activity_log = ActivityLogger(base_dir=str(tmp_path / "activity"))
+    with patch(
+        "miniagent.core.agent.execute_plan",
+        new_callable=AsyncMock,
+        return_value="done",
+    ) as execute:
+        result = await run_agent(
+            "hello",
+            registry=DefaultToolRegistry(),
+            memory=make_memory_runtime(activity_log=activity_log),
+            knowledge_registry=make_knowledge_registry(),
+            client=MagicMock(),
+            toolboxes=[],
+            session_key="activity-session",
+        )
+
+    content = next((tmp_path / "activity").glob("*.md")).read_text(encoding="utf-8")
+    assert result.reply == "done"
+    assert content.count("### 用户输入") == 1
+    assert content.count("### 最终回复") == 1
+    assert execute.await_args.kwargs["manage_activity_lifecycle"] is False
+
+
+@pytest.mark.asyncio
 async def test_classifier_off_always_plans(tmp_path) -> None:
     install_test_config(tmp_path, {"features": {"reflection": False}})
     tb = Toolbox(id="fs", name="fs", description="files", keywords=[])

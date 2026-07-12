@@ -370,6 +370,35 @@ async def test_shutdown_runtime_invokes_resource_teardown() -> None:
 
 
 @pytest.mark.asyncio
+async def test_shutdown_sync_persistence_does_not_block_event_loop() -> None:
+    ctx = _minimal_ctx()
+    heartbeat_time: float | None = None
+
+    def slow_memory_close() -> None:
+        time.sleep(0.1)
+
+    async def heartbeat() -> None:
+        nonlocal heartbeat_time
+        await asyncio.sleep(0.02)
+        heartbeat_time = time.perf_counter()
+
+    ctx.memory.close = slow_memory_close  # type: ignore[method-assign]
+    heartbeat_task = asyncio.create_task(heartbeat())
+    await shutdown_runtime(
+        ctx,
+        {"active_session_id": ""},  # type: ignore[arg-type]
+        abort_message_queues=False,
+        release_cli_session_lock=False,
+        call_unregister=False,
+    )
+    shutdown_returned_at = time.perf_counter()
+    await heartbeat_task
+
+    assert heartbeat_time is not None
+    assert heartbeat_time < shutdown_returned_at
+
+
+@pytest.mark.asyncio
 async def test_shutdown_stops_producers_before_consumers_and_resources() -> None:
     ctx = _minimal_ctx()
     order: list[str] = []

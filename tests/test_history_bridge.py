@@ -85,3 +85,23 @@ def test_estimate_tokens_for_thinking_uses_same_cap_as_llm(tmp_path) -> None:
 
     t_mapped = estimate_tokens(mapped[0]["content"]) + 5
     assert t_est == t_mapped
+
+
+def test_format_history_budget_estimates_each_message_once(monkeypatch) -> None:
+    history = [
+        {"role": "user" if index % 2 == 0 else "assistant", "content": "x" * 40}
+        for index in range(200)
+    ]
+    calls = 0
+    real_estimate = hb._message_token_estimate
+
+    def counting_estimate(message):
+        nonlocal calls
+        calls += 1
+        return real_estimate(message)
+
+    monkeypatch.setattr(hb, "_message_token_estimate", counting_estimate)
+    result = hb.format_history_for_llm(history, max_tokens=100)
+
+    assert result
+    assert calls == len(history)

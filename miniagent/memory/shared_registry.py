@@ -17,6 +17,7 @@ from __future__ import annotations
 import collections
 import json
 import os
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -53,12 +54,15 @@ class MemoryEntryRegistry:
         self._max_entries: int = get_config("memory.registry_max_entries", 3000)
         self._loaded = False
         self._dirty = False
+        self._generation = 0
+        self._lock = threading.RLock()
         self._registry_file = os.path.join(state_dir, "memory-registry.json")
 
     def _ensure_loaded(self) -> None:
         """确保注册表已从磁盘加载（延迟加载）。"""
-        if not self._loaded:
-            self._load()
+        with self._lock:
+            if not self._loaded:
+                self._load()
 
     def _load(self) -> None:
         """从磁盘加载注册表。"""
@@ -82,36 +86,44 @@ class MemoryEntryRegistry:
 
             self._loaded = True
             self._dirty = False
+            self._generation = 0
         except Exception as e:
             _logger.warning("加载注册表失败，重建中: %s", e)
             self._entries.clear()
             self._loaded = True
             self._dirty = False
+            self._generation = 0
 
     def save(self) -> None:
-        """保存注册表到磁盘。"""
-        if not self._dirty:
-            return
+        """保存一致快照；并发注册发生时保留 dirty 供下次刷新。"""
+        self._ensure_loaded()
         try:
+            with self._lock:
+                if not self._dirty:
+                    return
+                generation = self._generation
+                entries = {
+                    key: {
+                        "session_id": entry.session_id,
+                        "timestamp": entry.timestamp,
+                        "user_snippet": entry.user_snippet,
+                        "summary": entry.summary,
+                        "facts": list(entry.facts),
+                    }
+                    for key, entry in self._entries.items()
+                }
             os.makedirs(self._state_dir, exist_ok=True)
             disk = {
                 "version": 1,
                 "updated_at": datetime.now(timezone.utc).isoformat(),
-                "total_entries": len(self._entries),
-                "entries": {
-                    k: {
-                        "session_id": e.session_id,
-                        "timestamp": e.timestamp,
-                        "user_snippet": e.user_snippet,
-                        "summary": e.summary,
-                        "facts": e.facts,
-                    }
-                    for k, e in self._entries.items()
-                },
+                "total_entries": len(entries),
+                "entries": entries,
             }
             with open(self._registry_file, "w", encoding="utf-8") as f:
                 json.dump(disk, f, ensure_ascii=False)
-            self._dirty = False
+            with self._lock:
+                if self._generation == generation:
+                    self._dirty = False
         except Exception as e:
             _logger.error("保存注册表失败: %s", e)
 
@@ -136,42 +148,39 @@ class MemoryEntryRegistry:
         self._ensure_loaded()
 
         key = self._make_key(session_id, entry.timestamp)
-        new_facts = getattr(entry, "facts", []) or []
+        new_facts = list(getattr(entry, "facts", []) or [])
 
-        # 检查是否已存在，且内容是否变更
-        if key in self._entries:
-            existing = self._entries[key]
-            # 如果内容变更，更新条目
-            if (
-                existing.user_snippet != entry.user_snippet
-                or existing.summary != entry.summary
-                or existing.facts != new_facts
-            ):
-                self._entries[key] = SharedEntry(
-                    session_id=session_id,
-                    timestamp=entry.timestamp,
-                    user_snippet=entry.user_snippet,
-                    summary=entry.summary,
-                    facts=new_facts,
-                )
-                self._entries.move_to_end(key)
-                self._dirty = True
-            return key
+        with self._lock:
+            existing = self._entries.get(key)
+            if existing is not None:
+                if (
+                    existing.user_snippet != entry.user_snippet
+                    or existing.summary != entry.summary
+                    or existing.facts != new_facts
+                ):
+                    self._entries[key] = SharedEntry(
+                        session_id=session_id,
+                        timestamp=entry.timestamp,
+                        user_snippet=entry.user_snippet,
+                        summary=entry.summary,
+                        facts=new_facts,
+                    )
+                    self._entries.move_to_end(key)
+                    self._generation += 1
+                    self._dirty = True
+                return key
 
-        # 新条目
-        self._entries[key] = SharedEntry(
-            session_id=session_id,
-            timestamp=entry.timestamp,
-            user_snippet=entry.user_snippet,
-            summary=entry.summary,
-            facts=new_facts,
-        )
-        self._entries.move_to_end(key)
-        self._dirty = True
-
-        # 超过上限时驱逐最早条目
-        while len(self._entries) > self._max_entries:
-            self._entries.popitem(last=False)
+            self._entries[key] = SharedEntry(
+                session_id=session_id,
+                timestamp=entry.timestamp,
+                user_snippet=entry.user_snippet,
+                summary=entry.summary,
+                facts=new_facts,
+            )
+            self._entries.move_to_end(key)
+            while len(self._entries) > self._max_entries:
+                self._entries.popitem(last=False)
+            self._generation += 1
             self._dirty = True
 
         return key
@@ -179,21 +188,25 @@ class MemoryEntryRegistry:
     def get(self, key: str) -> SharedEntry | None:
         """获取条目。"""
         self._ensure_loaded()
-        return self._entries.get(key)
+        with self._lock:
+            return self._entries.get(key)
 
     def contains(self, key: str) -> bool:
         """检查键是否存在。"""
         self._ensure_loaded()
-        return key in self._entries
+        with self._lock:
+            return key in self._entries
 
     def evict(self, key: str) -> bool:
         """驱逐指定键。"""
         self._ensure_loaded()
-        if key in self._entries:
+        with self._lock:
+            if key not in self._entries:
+                return False
             del self._entries[key]
+            self._generation += 1
             self._dirty = True
             return True
-        return False
 
     def remove_session_entries(self, session_id: str) -> list[str]:
         """移除指定会话的全部注册条目并持久化。
@@ -207,26 +220,32 @@ class MemoryEntryRegistry:
         self._ensure_loaded()
         prefix = f"{session_id}:"
         removed: list[str] = []
-        for key in list(self._entries.keys()):
-            entry = self._entries[key]
-            if key.startswith(prefix) or entry.session_id == session_id:
-                del self._entries[key]
-                removed.append(key)
+        with self._lock:
+            for key in list(self._entries.keys()):
+                entry = self._entries[key]
+                if key.startswith(prefix) or entry.session_id == session_id:
+                    del self._entries[key]
+                    removed.append(key)
+            if removed:
+                self._generation += 1
+                self._dirty = True
         if removed:
-            self._dirty = True
             self.save()
         return removed
 
     def get_stats(self) -> dict[str, Any]:
         """获取统计信息。"""
         self._ensure_loaded()
-        return {"total_entries": len(self._entries)}
+        with self._lock:
+            return {"total_entries": len(self._entries)}
 
     def clear(self) -> None:
         """清空注册表（测试用）。"""
-        self._entries.clear()
-        self._loaded = True
-        self._dirty = False
+        with self._lock:
+            self._entries.clear()
+            self._loaded = True
+            self._dirty = False
+            self._generation = 0
 
 
 __all__ = [

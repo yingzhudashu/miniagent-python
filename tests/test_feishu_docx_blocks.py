@@ -157,3 +157,30 @@ def test_docx_render_trace_is_metrics_only():
     assert "doc_" not in repr(event)
     assert "content" not in event
     assert "markdown" not in event
+
+
+def test_append_markdown_with_stats_parses_once(monkeypatch: pytest.MonkeyPatch):
+    from miniagent.feishu.docx import blocks, markdown_renderer
+    from miniagent.feishu.types import FeishuConfig
+
+    monkeypatch.setattr(
+        blocks,
+        "_batch_create_blocks",
+        lambda _config, _document_id, lark_blocks: (len(lark_blocks), []),
+    )
+    with patch.object(
+        markdown_renderer,
+        "markdown_to_feishu_blocks",
+        wraps=markdown_renderer.markdown_to_feishu_blocks,
+    ) as render:
+        written, warnings, stats = blocks.append_markdown_to_document_with_stats(
+            FeishuConfig("a", "b"),
+            "doc_1",
+            "# Title\n\nbody",
+    )
+
+    assert written == 2
+    assert len(warnings) == 1
+    assert stats["total_blocks"] == 2
+    assert stats["warnings"] == 1
+    assert render.call_count == 1

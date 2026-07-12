@@ -387,6 +387,7 @@ class DefaultContextManager(ContextManagerProtocol):
         emit_trace({
             "type": EVENT_CONTEXT_COMPRESS,
             "session_key": self._session_key or "unknown",
+            "strategy": "summarize",
             "duration_ms": elapsed,
             "before_tokens": before_tokens,
             "after_tokens": after_tokens,
@@ -397,14 +398,46 @@ class DefaultContextManager(ContextManagerProtocol):
 
     def _compress_truncate(self) -> None:
         """从第三条消息起删除最旧条目，直至低于阈值或仅剩 system 与一条 user。"""
-        guard = 0
-        while self.needs_compression() and len(self._messages) > 2 and guard < 2000:
-            guard += 1
-            # 删除消息时同步更新 token 估算（性能优化：避免后续判断使用过期数值）
-            removed_msg = self._messages[2]
-            del self._messages[2]
-            self._total_tokens_estimate -= self._message_tokens(removed_msg)
+        from miniagent.infrastructure.trace_events import EVENT_CONTEXT_COMPRESS
+        from miniagent.infrastructure.tracing import emit_trace
+
+        before_tokens = self._total_tokens_estimate
+        start_time = time.monotonic_ns()
+        budget = self._get_available_budget()
+        threshold_tokens = budget * self._compress_threshold
+        max_remove = min(max(0, len(self._messages) - 2), 2000)
+        removed_count = 0
+        removed_tokens = 0
+        while (
+            removed_count < max_remove
+            and (budget <= 0 or before_tokens - removed_tokens > threshold_tokens)
+        ):
+            removed_tokens += self._message_tokens(
+                self._messages[2 + removed_count]
+            )
+            removed_count += 1
+        if removed_count:
+            del self._messages[2 : 2 + removed_count]
+            self._total_tokens_estimate = before_tokens - removed_tokens
         self._compressed = True
+
+        elapsed = (time.monotonic_ns() - start_time) // 1_000_000
+        after_tokens = self._total_tokens_estimate
+        emit_trace({
+            "type": EVENT_CONTEXT_COMPRESS,
+            "session_key": self._session_key or "unknown",
+            "strategy": "truncate",
+            "duration_ms": elapsed,
+            "before_tokens": before_tokens,
+            "after_tokens": after_tokens,
+            "removed_count": removed_count,
+            "removed_tokens": removed_tokens,
+            "compress_ratio": (
+                (before_tokens - after_tokens) / before_tokens
+                if before_tokens > 0
+                else 0
+            ),
+        })
 
     def get_token_report(self) -> str:
         """获取 token 使用报告

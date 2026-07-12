@@ -388,6 +388,10 @@ class DefaultMemoryStore:
         except Exception as e:
             _logger.debug("保存关键词索引失败: %s", e)
 
+    async def flush_keyword_index_async(self) -> None:
+        """Persist the index without blocking the async execution loop."""
+        await asyncio.to_thread(self.flush_keyword_index)
+
     def _ensure_dir(self) -> None:
         """确保记忆目录存在"""
         os.makedirs(self._memory_dir, exist_ok=True)
@@ -777,6 +781,154 @@ class DefaultMemoryStore:
             memory.last_active = now
             await self._save_unlocked(memory)
 
+    async def record_turn(
+        self,
+        session_key: str,
+        summary: str,
+        facts: list[str],
+        entry: MemoryEntryInput | dict[str, Any],
+    ) -> None:
+        """Persist one completed turn with one load/modify/write cycle.
+
+        This is the optimized equivalent of calling ``update_summary`` followed
+        by ``add_entry``.  The two public operations remain available for
+        callers that update either layer independently, while the normal turn
+        finalization path avoids serializing and rewriting the same session
+        file twice.
+        """
+        normalized_entry = self._normalize_entry_input(entry)
+        async with await self._get_session_lock(session_key):
+            memory = await self._load_unlocked(session_key)
+            now = datetime.now(timezone.utc).isoformat()
+            if not memory:
+                memory = SessionMemory(
+                    session_id=session_key,
+                    cumulative_summary=summary[-_SUMMARY_MAX_LEN:] if summary else "",
+                    key_facts=list(facts),
+                    total_turns=0,
+                    first_seen=now,
+                    last_active=now,
+                )
+            else:
+                self._merge_summary_and_facts(memory, summary, facts)
+
+            apply_ground_truth_updates(
+                memory,
+                "。".join([summary, *facts]),
+                source="summary",
+                now=now,
+            )
+            full_entry = self._merge_completed_entry(memory, normalized_entry, now)
+            await self._save_unlocked(memory)
+
+        await self._index_completed_entry(session_key, full_entry, normalized_entry)
+
+    @staticmethod
+    def _normalize_entry_input(
+        entry: MemoryEntryInput | dict[str, Any],
+    ) -> MemoryEntryInput:
+        if isinstance(entry, MemoryEntryInput):
+            return entry
+        return MemoryEntryInput(
+            timestamp=str(entry.get("timestamp", "")),
+            user_snippet=str(entry.get("user_snippet", "")),
+            summary=str(entry.get("summary", "")),
+            facts=(
+                list(entry.get("facts") or [])
+                if entry.get("facts") is not None
+                else None
+            ),
+        )
+
+    @staticmethod
+    def _merge_summary_and_facts(
+        memory: SessionMemory,
+        summary: str,
+        facts: list[str],
+    ) -> None:
+        if summary:
+            new_summary = (
+                f"{memory.cumulative_summary}\n- {summary}"
+                if memory.cumulative_summary
+                else summary
+            )
+            memory.cumulative_summary = new_summary[-_SUMMARY_MAX_LEN:]
+
+        existing = {fact.lower().strip() for fact in memory.key_facts}
+        for fact in facts:
+            normalized = fact.lower().strip()
+            if normalized not in existing:
+                memory.key_facts.append(fact)
+                existing.add(normalized)
+        if len(memory.key_facts) > 20:
+            memory.key_facts = memory.key_facts[-20:]
+
+    @staticmethod
+    def _merge_completed_entry(
+        memory: SessionMemory,
+        entry: MemoryEntryInput,
+        now: str,
+    ) -> MemoryEntry:
+        full_entry = MemoryEntry(
+            timestamp=entry.timestamp,
+            user_snippet=entry.user_snippet,
+            summary=entry.summary,
+            facts=entry.facts or [],
+        )
+        if memory.entries and _is_in_progress_entry(memory.entries[-1]):
+            in_progress = memory.entries[-1]
+            in_progress.timestamp = full_entry.timestamp or in_progress.timestamp
+            in_progress.user_snippet = (
+                full_entry.user_snippet or in_progress.user_snippet
+            )
+            in_progress.summary = full_entry.summary
+            in_progress.facts = full_entry.facts
+            full_entry = in_progress
+        else:
+            memory.entries.append(full_entry)
+        memory.total_turns += 1
+        if len(memory.entries) > _MAX_ENTRIES:
+            memory.entries = memory.entries[-_MAX_ENTRIES:]
+        apply_ground_truth_updates(
+            memory,
+            "。".join([entry.user_snippet, entry.summary, *(entry.facts or [])]),
+            source="entry",
+            now=now,
+        )
+        memory.last_active = now
+        return full_entry
+
+    async def _index_completed_entry(
+        self,
+        session_key: str,
+        full_entry: MemoryEntry,
+        entry: MemoryEntryInput,
+    ) -> None:
+        try:
+            idx = self._keyword_index
+            if idx is not None:
+                idx.index_entry(session_key, full_entry)
+        except Exception as e:
+            _logger.debug("关键词索引失败: %s", e)
+
+        try:
+            from miniagent.memory.embedding_search import embedding_search_enabled
+
+            provider = self._embedding_provider
+            if embedding_search_enabled() and provider is not None:
+                text = " ".join(
+                    [entry.user_snippet, entry.summary, *(entry.facts or [])]
+                )
+                emb = await provider.get_embedding(text)
+                if emb is not None:
+                    provider.index.index_entry(
+                        session_key,
+                        full_entry,
+                        embedding=emb,
+                    )
+        except Exception as e:
+            _logger.debug("嵌入索引失败: %s", e)
+
     async def add_entry(self, session_key: str, entry: MemoryEntryInput | dict[str, Any]) -> None:
         """添加对话条目
 
@@ -784,13 +936,7 @@ class DefaultMemoryStore:
             session_key: 会话唯一标识
             entry: 记忆条目输入（或兼容的 dict，与 executor 传入格式一致）
         """
-        if isinstance(entry, dict):
-            entry = MemoryEntryInput(
-                timestamp=str(entry.get("timestamp", "")),
-                user_snippet=str(entry.get("user_snippet", "")),
-                summary=str(entry.get("summary", "")),
-                facts=list(entry.get("facts") or []) if entry.get("facts") is not None else None,
-            )
+        entry = self._normalize_entry_input(entry)
 
         async with await self._get_session_lock(session_key):
             memory = await self._load_unlocked(session_key)
@@ -803,56 +949,11 @@ class DefaultMemoryStore:
                     last_active=now,
                 )
 
-            full_entry = MemoryEntry(
-                timestamp=entry.timestamp,
-                user_snippet=entry.user_snippet,
-                summary=entry.summary,
-                facts=entry.facts or [],
-            )
-            if memory.entries and _is_in_progress_entry(memory.entries[-1]):
-                in_progress = memory.entries[-1]
-                in_progress.timestamp = full_entry.timestamp or in_progress.timestamp
-                in_progress.user_snippet = full_entry.user_snippet or in_progress.user_snippet
-                in_progress.summary = full_entry.summary
-                in_progress.facts = full_entry.facts
-                full_entry = in_progress
-            else:
-                memory.entries.append(full_entry)
-            memory.total_turns += 1
-
-            if len(memory.entries) > _MAX_ENTRIES:
-                memory.entries = memory.entries[-_MAX_ENTRIES:]
-
             now = datetime.now(timezone.utc).isoformat()
-            apply_ground_truth_updates(
-                memory,
-                "。".join([entry.user_snippet, entry.summary, *(entry.facts or [])]),
-                source="entry",
-                now=now,
-            )
-            memory.last_active = now
+            full_entry = self._merge_completed_entry(memory, entry, now)
             await self._save_unlocked(memory)
 
-        # Layer 3: 更新由 MemoryRuntime 显式注入、与本 store 同源的关键词索引。
-        try:
-            idx = self._keyword_index
-            if idx is not None:
-                idx.index_entry(session_key, full_entry)
-        except Exception as e:
-            _logger.debug("关键词索引失败: %s", e)
-
-        # Layer 3b: 嵌入索引（异步，失败静默回退）
-        try:
-            from miniagent.memory.embedding_search import embedding_search_enabled
-
-            provider = self._embedding_provider
-            if embedding_search_enabled() and provider is not None:
-                text = " ".join([entry.user_snippet, entry.summary, *(entry.facts or [])])
-                emb = await provider.get_embedding(text)
-                if emb is not None:
-                    provider.index.index_entry(session_key, full_entry, embedding=emb)
-        except Exception as e:
-            _logger.debug("嵌入索引失败: %s", e)
+        await self._index_completed_entry(session_key, full_entry, entry)
 
     async def add_file(self, session_key: str, file_meta: FileMetadata) -> None:
         """添加上传文件到记忆

@@ -324,6 +324,7 @@ def append_markdown_to_document(
     use_renderer: bool = True,
     handle_images: bool = False,
     max_blocks: int = 30,
+    _rendered_result: Any | None = None,
 ) -> tuple[int, list[str]]:
     """将 Markdown 内容追加到飞书文档（支持富文本渲染）。
 
@@ -359,7 +360,13 @@ def append_markdown_to_document(
         from miniagent.feishu.docx.tables import create_table_with_values
 
         # 1. 解析 Markdown 为中间表示
-        result = markdown_to_feishu_blocks(markdown, max_blocks=max_blocks, handle_images=handle_images)
+        result = _rendered_result
+        if result is None:
+            result = markdown_to_feishu_blocks(
+                markdown,
+                max_blocks=max_blocks,
+                handle_images=handle_images,
+            )
 
         # 2. 分离表格块（需要特殊处理）
         table_blocks = [b for b in result.blocks if b.block_type == BlockType.TABLE]
@@ -434,6 +441,7 @@ def append_markdown_to_document_with_stats(
     max_blocks: int = 30,
 ) -> tuple[int, list[str], dict[str, int]]:
     """Append Markdown and return metrics useful for tool diagnostics."""
+    preview = None
     if use_renderer:
         try:
             from miniagent.feishu.docx.markdown_renderer import markdown_to_feishu_blocks
@@ -456,6 +464,7 @@ def append_markdown_to_document_with_stats(
         use_renderer=use_renderer,
         handle_images=handle_images,
         max_blocks=max_blocks,
+        _rendered_result=preview,
     )
     stats["written_blocks"] = n
     stats["warnings"] = len(warnings)

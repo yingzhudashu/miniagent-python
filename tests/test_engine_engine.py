@@ -493,6 +493,7 @@ class TestUnifiedEngineIntegration:
         _mock_engine_thinking(engine)
         mock_session_manager, mock_ctx = _create_mock_session_manager()
         mock_session_manager.save_session_history = MagicMock()
+        memory_runtime = make_memory_runtime()
 
         with patch("miniagent.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
             mock_run.return_value = AgentRunResult(reply="Final reply")
@@ -502,7 +503,7 @@ class TestUnifiedEngineIntegration:
                 session_key="cli",
                 skill_toolboxes=["filesystem"],
                 skill_prompts="System",
-                memory=make_memory_runtime(),
+                memory=memory_runtime,
                 knowledge_registry=make_knowledge_registry(),
                 client=MagicMock(),
                 is_feishu=False,
@@ -511,6 +512,9 @@ class TestUnifiedEngineIntegration:
 
             assert result == "Final reply"
             mock_session_manager.save_session_history.assert_called_once()
+            memory_runtime.store.update_summary.assert_not_awaited()
+            memory_runtime.activity_log.log_session_start.assert_not_called()
+            memory_runtime.activity_log.log_final_reply.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_full_feishu_flow(self) -> None:

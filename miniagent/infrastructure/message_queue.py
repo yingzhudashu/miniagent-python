@@ -144,6 +144,8 @@ class _ChatQueue:
                     _logger.debug("任务被取消: %s", e)
                 finally:
                     self._current_task = None
+                    if self._manager is not None:
+                        self._manager._discard_idle_queue(self)
             finally:
                 if (
                     self._manager is not None
@@ -178,6 +180,8 @@ class _ChatQueue:
         error = task.exception()
         if error is not None:
             _logger.error("消息队列任务异常: %s", error, exc_info=error)
+        if self._manager is not None:
+            self._manager._discard_idle_queue(self)
 
     def mark_task_start(self) -> None:
         """标记当前任务开始，记录启动时间戳。"""
@@ -243,6 +247,8 @@ class _ChatQueue:
     def unregister_dispatch_wait_task(self, task: asyncio.Task) -> None:
         """从 ``dispatch_wait`` 跟踪集合移除已完成/已取消的任务句柄。"""
         self._dispatch_wait_tasks.discard(task)
+        if self._manager is not None:
+            self._manager._discard_idle_queue(self)
 
     def abort_pending(self, mode: QueueMode) -> dict[str, Any]:
         """取消本聊天室队列上的工作：当前执行中的包装任务 + 排队中的任务。
@@ -387,6 +393,15 @@ class MessageQueueManager:
             self._queues[chat_id] = _ChatQueue(manager=self)
         return self._queues[chat_id]
 
+    def _discard_idle_queue(self, queue: _ChatQueue) -> None:
+        """Release an inactive non-CLI queue after its final owner finishes."""
+        if queue.is_busy or queue.pending or queue._dispatch_wait_tasks:
+            return
+        for chat_id, candidate in tuple(self._queues.items()):
+            if candidate is queue and chat_id != self.CLI_CHAT_ID:
+                self._queues.pop(chat_id, None)
+                return
+
     def set_exec_lock(self, lock: asyncio.Lock) -> None:
         """设置跨队列执行排序锁。
 
@@ -487,6 +502,7 @@ class MessageQueueManager:
         result = self.abort_all_chats()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+        self._queues.clear()
         return result
 
     def _raise_if_closed(self, coro: Any) -> None:
@@ -533,7 +549,14 @@ class MessageQueueManager:
             agent 状态字典
         """
         if chat_id:
-            q = self._get_queue(chat_id)
+            q = self._queues.get(chat_id)
+            if q is None:
+                return {
+                    "busy": False,
+                    "pending": 0,
+                    "elapsed_seconds": None,
+                    "status": "idle",
+                }
             return {
                 "busy": q.is_busy,
                 "pending": q.pending,

@@ -62,6 +62,30 @@ class TestTraceMultiFileCleanup:
             assert session_key not in content
             assert "cli-main" in content
 
+    def test_remove_session_stream_preserves_malformed_and_unterminated_lines(
+        self,
+        state_dir,
+        isolated_config_loader,
+    ):
+        trace_dir = os.path.join(state_dir, "logs")
+        os.makedirs(trace_dir, exist_ok=True)
+        isolated_config_loader({"trace": {"output_dir": trace_dir}})
+        path = os.path.join(trace_dir, "trace-2026-06-13.jsonl")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps({"session_key": "remove", "type": "x"}) + "\n")
+            handle.write("{malformed}\n")
+            handle.write(json.dumps({"session_key": "keep", "type": "y"}))
+
+        removed = remove_session_from_trace_files("remove")
+
+        assert removed == 1
+        with open(path, encoding="utf-8") as handle:
+            lines = handle.read().splitlines()
+        assert lines == [
+            "{malformed}",
+            json.dumps({"session_key": "keep", "type": "y"}),
+        ]
+
 
 class TestAgentLtCleanup:
     def test_remove_agent_longterm_entries_for_session(self, state_dir, monkeypatch):

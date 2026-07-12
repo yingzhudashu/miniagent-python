@@ -188,9 +188,13 @@ def format_history_for_llm(
     if max_tokens is None or max_tokens <= 0 or not formatted:
         return formatted
 
-    while formatted and sum(_message_token_estimate(m) for m in formatted) > max_tokens:
-        formatted.pop(0)
-    return formatted
+    token_counts = [_message_token_estimate(message) for message in formatted]
+    total_tokens = sum(token_counts)
+    first_kept = 0
+    while first_kept < len(formatted) and total_tokens > max_tokens:
+        total_tokens -= token_counts[first_kept]
+        first_kept += 1
+    return formatted[first_kept:]
 
 
 __all__ = [

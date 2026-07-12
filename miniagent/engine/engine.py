@@ -273,7 +273,7 @@ class UnifiedEngine:
         5. 注册 ``on_thinking`` / ``on_tool_finish`` 并驱动 ``ThinkingDisplay``
         6. 调用 ``run_agent`` 执行 Agent
         7. 收尾思考流（``finalize_feishu_thinking_stream``、``end_thinking``）
-        8. 写入会话历史并触发持久化、活动日志与记忆更新
+        8. 写入会话历史并触发持久化与记忆更新（活动日志由 run_agent 单点负责）
 
         最终飞书**结论卡片**由 :mod:`miniagent.engine.feishu_handler` 在
         :meth:`run_agent_with_thinking` 返回后发送，本方法不负责。
@@ -312,9 +312,6 @@ class UnifiedEngine:
             - 飞书思考使用流式卡片（PATCH 节流）
             - 同轮工具调用合并到同一卡片
         """
-        ms = memory.store
-        al = memory.activity_log
-
         # 1. 获取会话
         session_opts = SessionOptions(
             description=f"{'飞书' if is_feishu else 'CLI'}: {session_key}"
@@ -470,7 +467,6 @@ class UnifiedEngine:
         # 5. 思考回调（支持流式更新；落盘到 history 的 thinking role）
         thinking_by_label: dict[str, str] = {}
         tool_thought_lines: list[str] = []
-        tool_calls_list: list[dict[str, str]] = []
 
         async def _thinking(
             text: str,
@@ -546,12 +542,6 @@ class UnifiedEngine:
             """工具结束回调：按环境变量决定写入历史的详略，并复用 ``_thinking`` 落盘。"""
             status = "成功" if success else "失败"
             short = f"`{tool_name}` · {status}"
-            # 积累结构化数据供引擎记忆更新
-            tool_calls_list.append({
-                "name": tool_name,
-                "args": args_json,
-                "result": result,
-            })
             if _tool_finish_verbose_history():
                 body = (result or "").strip()
                 record = (
@@ -696,28 +686,9 @@ class UnifiedEngine:
                 progressive_compression=merged_for_prog.history_progressive_compression,
             )
 
-        # 9. 活动日志
-        if al and not bg_ephemeral:
-            al.log_session_start(session_key, user_input, source="feishu" if is_feishu else "cli")
-            al.log_final_reply(session_key, reply)
-
-        # 10. 持久化
+        # 9. 持久化（活动日志生命周期由 run_agent 统一写入，避免重复）
         if session_manager and not bg_ephemeral:
             session_manager.save_session_history(session_key)
-
-        # 11. 更新记忆存储（使用本轮实际工具调用数据）
-        if ms is not None and not bg_ephemeral:
-            try:
-                from miniagent.memory.store import extract_facts, generate_turn_summary
-
-                tool_results_text = " ".join(
-                    tc.get("result", "") for tc in tool_calls_list
-                )
-                summary = generate_turn_summary(user_input, tool_calls_list, reply)
-                facts = extract_facts(user_input + " " + reply + " " + tool_results_text)
-                await ms.update_summary(session_key, summary, facts)
-            except Exception as e:
-                _logger.warning("Memory summary update failed: %s", e)
 
         if not bg_ephemeral:
             try:

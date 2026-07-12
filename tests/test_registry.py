@@ -103,6 +103,18 @@ class TestDefaultToolRegistry:
         assert len(reg.get_schemas_by_toolboxes([])) == 2
         assert len(reg.get_by_toolboxes([])) == 2
 
+    def test_toolbox_schema_cache_is_lru_bounded(self) -> None:
+        reg = DefaultToolRegistry()
+        reg.register("core", make_tool("core"))
+
+        for index in range(300):
+            schemas = reg.get_schemas_by_toolboxes([f"model-generated-{index}"])
+            assert schemas[0]["function"]["name"] == "core"
+
+        assert len(reg._toolbox_schema_cache) == 128
+        assert frozenset({"model-generated-0"}) not in reg._toolbox_schema_cache
+        assert frozenset({"model-generated-299"}) in reg._toolbox_schema_cache
+
     def test_get_all_returns_copy(self) -> None:
         reg = DefaultToolRegistry()
         reg.register("one", make_tool("one"))

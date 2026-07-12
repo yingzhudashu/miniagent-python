@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -24,7 +24,8 @@ async def test_send_reflection_card_posts_interactive_message() -> None:
     reflection = _FakeReflection(acceptable=True, suggestions=["更简洁"])
 
     with patch(
-        "miniagent.feishu.poll_server._post_interactive_message",
+        "miniagent.feishu.poll_server._post_interactive_message_async",
+        new_callable=AsyncMock,
         return_value=(True, "om_card"),
     ) as post:
         await send_reflection_card(
@@ -56,7 +57,8 @@ async def test_send_reflection_card_includes_issues() -> None:
     reflection.issues = ["信息不完整"]  # type: ignore[attr-defined]
 
     with patch(
-        "miniagent.feishu.poll_server._post_interactive_message",
+        "miniagent.feishu.poll_server._post_interactive_message_async",
+        new_callable=AsyncMock,
         return_value=(True, "om_card"),
     ) as post:
         await send_reflection_card(cfg, "oc_chat1234567890", reflection)
@@ -70,7 +72,8 @@ async def test_send_reflection_card_includes_issues() -> None:
 async def test_send_reflection_card_skips_invalid_chat_id() -> None:
     cfg = FeishuConfig(app_id="a", app_secret="b")
     with patch(
-        "miniagent.feishu.poll_server._post_interactive_message",
+        "miniagent.feishu.poll_server._post_interactive_message_async",
+        new_callable=AsyncMock,
         return_value=(True, "om_card"),
     ) as post:
         await send_reflection_card(cfg, "", _FakeReflection(acceptable=False))

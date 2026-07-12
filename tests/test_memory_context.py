@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import tempfile
+import time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -60,6 +62,8 @@ async def test_default_memory_context_inject_metadata(memory_bundle) -> None:
 async def test_default_memory_context_save_after_turn(memory_bundle) -> None:
     ms, ki = memory_bundle
     ctx = DefaultMemoryContext(ms, ki)
+    real_save_unlocked = ms._save_unlocked
+    ms._save_unlocked = AsyncMock(wraps=real_save_unlocked)  # type: ignore[method-assign]
 
     await ctx.save_memory_after_turn(
         "session-a",
@@ -72,6 +76,68 @@ async def test_default_memory_context_save_after_turn(memory_bundle) -> None:
     memory = await ms.load("session-a")
     assert memory is not None
     assert memory.entries
+    assert ms._save_unlocked.await_count == 1  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_save_after_turn_extracts_facts_from_tool_results(memory_bundle) -> None:
+    ms, ki = memory_bundle
+    ctx = DefaultMemoryContext(ms, ki)
+
+    await ctx.save_memory_after_turn(
+        "session-tool-fact",
+        "读取设置",
+        "读取完成",
+        ms,
+        tool_calls=[{
+            "name": "read_file",
+            "result": "记住：以后默认使用 Markdown",
+        }],
+    )
+
+    memory = await ms.load("session-tool-fact")
+    assert memory is not None
+    assert any("Markdown" in fact for fact in memory.key_facts)
+
+
+@pytest.mark.asyncio
+async def test_save_after_turn_flush_does_not_block_event_loop(memory_bundle) -> None:
+    ms, ki = memory_bundle
+    ctx = DefaultMemoryContext(ms, ki)
+    tick_time: float | None = None
+
+    def slow_save() -> None:
+        time.sleep(0.1)
+
+    async def heartbeat() -> None:
+        nonlocal tick_time
+        await asyncio.sleep(0.02)
+        tick_time = time.perf_counter()
+
+    ki.save = slow_save  # type: ignore[method-assign]
+    heartbeat_task = asyncio.create_task(heartbeat())
+    await ctx.save_memory_after_turn("responsive", "hello", "world", ms)
+    save_returned_at = time.perf_counter()
+    await heartbeat_task
+
+    assert tick_time is not None
+    assert tick_time < save_returned_at
+
+
+@pytest.mark.asyncio
+async def test_save_after_turn_keeps_legacy_store_compatibility() -> None:
+    store = MagicMock()
+    store.record_turn = None
+    store.flush_keyword_index_async = None
+    store.flush_keyword_index = None
+    store.update_summary = AsyncMock()
+    store.add_entry = AsyncMock()
+    ctx = DefaultMemoryContext(store, MagicMock())
+
+    await ctx.save_memory_after_turn("legacy", "hello", "world", store)
+
+    store.update_summary.assert_awaited_once()
+    store.add_entry.assert_awaited_once()
 
 
 def test_memory_injection_result_from_tuple() -> None:
@@ -107,6 +173,34 @@ async def test_default_memory_history_load_with_manager() -> None:
     history = DefaultMemoryHistory(manager)
     rows = await history.load_history("session-1", max_messages=1)
     assert len(rows) == 1
+
+
+@pytest.mark.asyncio
+async def test_default_memory_history_sync_loader_does_not_block_loop() -> None:
+    manager = MagicMock()
+
+    def slow_load(_session_key: str):
+        time.sleep(0.1)
+        return [{"role": "user", "content": "hi"}]
+
+    manager.load_session_history_async = None
+    manager.load_session_history = slow_load
+    history = DefaultMemoryHistory(manager)
+    heartbeat_time: float | None = None
+
+    async def heartbeat() -> None:
+        nonlocal heartbeat_time
+        await asyncio.sleep(0.02)
+        heartbeat_time = time.perf_counter()
+
+    heartbeat_task = asyncio.create_task(heartbeat())
+    rows = await history.load_history("session-1")
+    load_returned_at = time.perf_counter()
+    await heartbeat_task
+
+    assert heartbeat_time is not None
+    assert heartbeat_time < load_returned_at
+    assert rows == [{"role": "user", "content": "hi"}]
 
 
 @pytest.mark.asyncio

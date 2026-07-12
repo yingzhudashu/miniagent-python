@@ -39,7 +39,7 @@ import os
 import re
 import tempfile
 from collections import defaultdict
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -161,7 +161,7 @@ def _trace_file_date(trace_file: Path) -> str | None:
     return match.group(1)
 
 
-def compute_tool_stats(events: list[dict[str, Any]]) -> dict[str, Any]:
+def compute_tool_stats(events: Iterable[dict[str, Any]]) -> dict[str, Any]:
     """计算工具执行统计。
 
     Args:
@@ -178,65 +178,10 @@ def compute_tool_stats(events: list[dict[str, Any]]) -> dict[str, Any]:
           "failed_tools": [...]
         }
     """
-    # tool.end 自带 duration_ms 与 success，直接聚合；
-    # tool.start 仅用于存在性/配对校验（按 tool_call_id），不参与时延计算。
-    tool_stats: dict[str, dict[str, Any]] = defaultdict(
-        lambda: {"count": 0, "total_ms": 0, "success": 0, "fail": 0}
-    )
-
-    for event in events:
-        event_type = event.get("type", "")
-
-        if event_type == EVENT_TOOL_END:
-            tool_name = event.get("tool", "")
-            duration_ms = event.get("duration_ms", 0)
-            success = event.get("success", True)
-
-            stats = tool_stats[tool_name]
-            stats["count"] += 1
-            stats["total_ms"] += duration_ms
-            if success:
-                stats["success"] += 1
-            else:
-                stats["fail"] += 1
-
-    # 计算平均值和成功率
-    result = {"tools": {}, "slow_tools": [], "failed_tools": []}
-    slow_threshold = get_config("self_optimization.min_duration_ms_threshold", 2000)
-
-    for tool_name, stats in tool_stats.items():
-        if stats["count"] > 0:
-            avg_ms = round(stats["total_ms"] / stats["count"], 1)
-            success_rate = round(stats["success"] / stats["count"], 3)
-            result["tools"][tool_name] = {
-                "count": stats["count"],
-                "avg_ms": avg_ms,
-                "success_rate": success_rate,
-            }
-
-            # 慢工具标记
-            if avg_ms >= slow_threshold:
-                result["slow_tools"].append({
-                    "name": tool_name,
-                    "avg_ms": avg_ms,
-                    "count": stats["count"],
-                })
-
-            # 失败率高工具标记
-            if success_rate < 0.95:
-                result["failed_tools"].append({
-                    "name": tool_name,
-                    "success_rate": success_rate,
-                    "fail_count": stats["fail"],
-                })
-
-    # 按平均时延排序慢工具
-    result["slow_tools"].sort(key=lambda x: x["avg_ms"], reverse=True)
-
-    return result
+    return _aggregate_trace_events(events).tool_report()
 
 
-def compute_llm_stats(events: list[dict[str, Any]]) -> dict[str, Any]:
+def compute_llm_stats(events: Iterable[dict[str, Any]]) -> dict[str, Any]:
     """计算 LLM 调用统计。
 
     Args:
@@ -251,157 +196,7 @@ def compute_llm_stats(events: list[dict[str, Any]]) -> dict[str, Any]:
           "avg_tools": 3
         }
     """
-    request_count = 0
-    response_count = 0
-    failed_response_count = 0
-    total_prompt_tokens = 0
-    total_completion_tokens = 0
-    total_cached_tokens = 0
-    total_reasoning_tokens = 0
-    total_messages = 0
-    total_tools = 0
-    durations: list[float] = []
-    # 按 phase（plan/exec/classify/reflect/clarify…）分组，便于定位各阶段调用次数与 token。
-    phase_stats: dict[str, dict[str, Any]] = defaultdict(
-        lambda: {
-            "request_count": 0,
-            "response_count": 0,
-            "failed_response_count": 0,
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "cached_tokens": 0,
-            "reasoning_tokens": 0,
-            "message_count": 0,
-            "tool_count": 0,
-            "durations_ms": [],
-        }
-    )
-
-    for event in events:
-        event_type = event.get("type", "")
-        phase = event.get("phase") or "unknown"
-
-        if event_type == EVENT_LLM_REQUEST:
-            request_count += 1
-            total_messages += event.get("message_count", 0)
-            total_tools += event.get("tool_count", 0)
-            phase_stats[phase]["request_count"] += 1
-            phase_stats[phase]["message_count"] += event.get("message_count", 0)
-            phase_stats[phase]["tool_count"] += event.get("tool_count", 0)
-
-        elif event_type == EVENT_LLM_RESPONSE:
-            response_count += 1
-            phase_stats[phase]["response_count"] += 1
-            if event.get("failure_category"):
-                failed_response_count += 1
-                phase_stats[phase]["failed_response_count"] += 1
-
-            duration = _numeric_metric(event.get("duration_ms"))
-            if duration is not None and duration >= 0:
-                durations.append(duration)
-                phase_stats[phase]["durations_ms"].append(duration)
-
-            usage = event.get("usage", {})
-            if isinstance(usage, dict):
-                # Chat Completions uses prompt/completion, while Responses uses
-                # input/output. Normalize both into the existing public names.
-                prompt = _token_metric(usage, "prompt_tokens", "input_tokens")
-                completion = _token_metric(usage, "completion_tokens", "output_tokens")
-                cached = _nested_token_metric(
-                    usage,
-                    ("prompt_tokens_details", "input_tokens_details"),
-                    "cached_tokens",
-                )
-                reasoning = _nested_token_metric(
-                    usage,
-                    ("completion_tokens_details", "output_tokens_details"),
-                    "reasoning_tokens",
-                )
-                total_prompt_tokens += prompt
-                total_completion_tokens += completion
-                total_cached_tokens += cached
-                total_reasoning_tokens += reasoning
-                phase_stats[phase]["prompt_tokens"] += prompt
-                phase_stats[phase]["completion_tokens"] += completion
-                phase_stats[phase]["cached_tokens"] += cached
-                phase_stats[phase]["reasoning_tokens"] += reasoning
-
-    by_phase: dict[str, dict[str, Any]] = {}
-    for phase, stats in phase_stats.items():
-        phase_durations = stats.pop("durations_ms")
-        phase_result = dict(stats)
-        phase_response_count = phase_result["response_count"]
-        phase_result["error_rate"] = (
-            round(phase_result["failed_response_count"] / phase_response_count, 3)
-            if phase_response_count
-            else 0.0
-        )
-        phase_request_count = phase_result["request_count"]
-        phase_result["avg_messages"] = (
-            round(phase_result.pop("message_count") / phase_request_count, 1)
-            if phase_request_count
-            else 0.0
-        )
-        phase_result["avg_tools"] = (
-            round(phase_result.pop("tool_count") / phase_request_count, 1)
-            if phase_request_count
-            else 0.0
-        )
-        if phase_request_count:
-            phase_result["avg_prompt_tokens"] = round(
-                phase_result["prompt_tokens"] / phase_request_count,
-                1,
-            )
-            phase_result["avg_completion_tokens"] = round(
-                phase_result["completion_tokens"] / phase_request_count,
-                1,
-            )
-        phase_prompt_tokens = phase_result["prompt_tokens"]
-        phase_result["cached_token_rate"] = (
-            round(phase_result["cached_tokens"] / phase_prompt_tokens, 3)
-            if phase_prompt_tokens
-            else 0.0
-        )
-        if phase_durations:
-            phase_result.update(_latency_summary(phase_durations))
-        by_phase[phase] = phase_result
-
-    result = {
-        "request_count": request_count,
-        "response_count": response_count,
-        "failed_response_count": failed_response_count,
-        "error_rate": (
-            round(failed_response_count / response_count, 3)
-            if response_count
-            else 0.0
-        ),
-        "total_tokens": {
-            "prompt": total_prompt_tokens,
-            "completion": total_completion_tokens,
-            "cached": total_cached_tokens,
-            "reasoning": total_reasoning_tokens,
-            "total": total_prompt_tokens + total_completion_tokens,
-        },
-        "by_phase": by_phase,
-    }
-
-    if request_count > 0:
-        result["avg_messages"] = round(total_messages / request_count, 1)
-        result["avg_tools"] = round(total_tools / request_count, 1)
-        result["avg_prompt_tokens"] = round(total_prompt_tokens / request_count, 1)
-        result["avg_completion_tokens"] = round(
-            total_completion_tokens / request_count,
-            1,
-        )
-    result["cached_token_rate"] = (
-        round(total_cached_tokens / total_prompt_tokens, 3)
-        if total_prompt_tokens
-        else 0.0
-    )
-    if durations:
-        result.update(_latency_summary(durations))
-
-    return result
+    return _aggregate_trace_events(events).llm_report()
 
 
 def _numeric_metric(value: Any) -> float | None:
@@ -451,7 +246,416 @@ def _latency_summary(durations: list[float]) -> dict[str, float]:
     }
 
 
-def compute_error_stats(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+class _TraceStatsAccumulator:
+    """Incrementally aggregate report metrics without retaining full events."""
+
+    def __init__(self) -> None:
+        self.total_events = 0
+        self.sessions: set[str] = set()
+        self.tool_stats: dict[str, dict[str, Any]] = defaultdict(
+            lambda: {"count": 0, "total_ms": 0, "success": 0, "fail": 0}
+        )
+        self.llm_request_count = 0
+        self.llm_response_count = 0
+        self.llm_failed_response_count = 0
+        self.total_prompt_tokens: int | float = 0
+        self.total_completion_tokens: int | float = 0
+        self.total_cached_tokens: int | float = 0
+        self.total_reasoning_tokens: int | float = 0
+        self.total_messages = 0
+        self.total_tools = 0
+        self.llm_durations: list[float] = []
+        self.phase_stats: dict[str, dict[str, Any]] = defaultdict(
+            lambda: {
+                "request_count": 0,
+                "response_count": 0,
+                "failed_response_count": 0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "cached_tokens": 0,
+                "reasoning_tokens": 0,
+                "message_count": 0,
+                "tool_count": 0,
+                "durations_ms": [],
+            }
+        )
+        self.error_counts: dict[str, dict[str, Any]] = defaultdict(
+            lambda: {"count": 0, "tools": set(), "is_user_error": False}
+        )
+        self.memory_read_count = 0
+        self.memory_total_duration = 0
+        self.memory_layer_counts: dict[str, int] = defaultdict(int)
+        self.memory_total_chars = 0
+        self.memory_cache_hits = 0
+        self.context_compress_count = 0
+        self.context_total_duration = 0
+        self.context_total_tokens_before = 0
+        self.context_total_tokens_after = 0
+        self.embedding_cache_hit_count = 0
+        self.embedding_api_call_count = 0
+        self.embedding_total_api_latency = 0
+
+    def add(self, event: dict[str, Any]) -> None:
+        """Consume one already-parsed trace event."""
+        self.total_events += 1
+        session_key = event.get("session_key")
+        if isinstance(session_key, str) and session_key:
+            self.sessions.add(session_key)
+
+        event_type = event.get("type", "")
+        if event_type == EVENT_TOOL_END:
+            self._add_tool_end(event)
+        elif event_type == EVENT_LLM_REQUEST:
+            self._add_llm_request(event)
+        elif event_type == EVENT_LLM_RESPONSE:
+            self._add_llm_response(event)
+        elif event_type in (EVENT_ERROR_COLLECT, EVENT_TOOL_ERROR):
+            self._add_error(event)
+        elif event_type == EVENT_MEMORY_READ:
+            self._add_memory_read(event)
+        elif event_type == EVENT_CONTEXT_COMPRESS:
+            self._add_context_compress(event)
+        elif event_type == EVENT_EMBEDDING_CACHE_HIT:
+            self.embedding_cache_hit_count += 1
+        elif event_type == EVENT_EMBEDDING_API_CALL:
+            self.embedding_api_call_count += 1
+            self.embedding_total_api_latency += event.get("duration_ms", 0)
+
+    def _add_tool_end(self, event: dict[str, Any]) -> None:
+        tool_name = event.get("tool", "")
+        stats = self.tool_stats[tool_name]
+        stats["count"] += 1
+        stats["total_ms"] += event.get("duration_ms", 0)
+        if event.get("success", True):
+            stats["success"] += 1
+        else:
+            stats["fail"] += 1
+
+    def _add_llm_request(self, event: dict[str, Any]) -> None:
+        phase = event.get("phase") or "unknown"
+        message_count = event.get("message_count", 0)
+        tool_count = event.get("tool_count", 0)
+        self.llm_request_count += 1
+        self.total_messages += message_count
+        self.total_tools += tool_count
+        self.phase_stats[phase]["request_count"] += 1
+        self.phase_stats[phase]["message_count"] += message_count
+        self.phase_stats[phase]["tool_count"] += tool_count
+
+    def _add_llm_response(self, event: dict[str, Any]) -> None:
+        phase = event.get("phase") or "unknown"
+        phase_stats = self.phase_stats[phase]
+        self.llm_response_count += 1
+        phase_stats["response_count"] += 1
+        if event.get("failure_category"):
+            self.llm_failed_response_count += 1
+            phase_stats["failed_response_count"] += 1
+
+        duration = _numeric_metric(event.get("duration_ms"))
+        if duration is not None and duration >= 0:
+            self.llm_durations.append(duration)
+            phase_stats["durations_ms"].append(duration)
+
+        usage = event.get("usage", {})
+        if not isinstance(usage, dict):
+            return
+        prompt = _token_metric(usage, "prompt_tokens", "input_tokens")
+        completion = _token_metric(usage, "completion_tokens", "output_tokens")
+        cached = _nested_token_metric(
+            usage,
+            ("prompt_tokens_details", "input_tokens_details"),
+            "cached_tokens",
+        )
+        reasoning = _nested_token_metric(
+            usage,
+            ("completion_tokens_details", "output_tokens_details"),
+            "reasoning_tokens",
+        )
+        self.total_prompt_tokens += prompt
+        self.total_completion_tokens += completion
+        self.total_cached_tokens += cached
+        self.total_reasoning_tokens += reasoning
+        phase_stats["prompt_tokens"] += prompt
+        phase_stats["completion_tokens"] += completion
+        phase_stats["cached_tokens"] += cached
+        phase_stats["reasoning_tokens"] += reasoning
+
+    def _add_error(self, event: dict[str, Any]) -> None:
+        error_type = event.get("error_type", "Unknown")
+        stats = self.error_counts[error_type]
+        stats["count"] += 1
+        tool_name = event.get("tool_name") or event.get("tool", "")
+        if tool_name:
+            stats["tools"].add(tool_name)
+        if event.get("is_user_error", False):
+            stats["is_user_error"] = True
+
+    def _add_memory_read(self, event: dict[str, Any]) -> None:
+        self.memory_read_count += 1
+        self.memory_total_duration += event.get("duration_ms", 0)
+        self.memory_layer_counts[event.get("layer", "unknown")] += 1
+        self.memory_total_chars += event.get("chars_loaded", 0)
+        if event.get("cache_hit", False):
+            self.memory_cache_hits += 1
+
+    def _add_context_compress(self, event: dict[str, Any]) -> None:
+        self.context_compress_count += 1
+        self.context_total_duration += event.get("duration_ms", 0)
+        self.context_total_tokens_before += event.get(
+            "before_tokens",
+            event.get("tokens_before", 0),
+        )
+        self.context_total_tokens_after += event.get(
+            "after_tokens",
+            event.get("tokens_after", 0),
+        )
+
+    def tool_report(self) -> dict[str, Any]:
+        """Finalize tool counters using the existing public report contract."""
+        result: dict[str, Any] = {
+            "tools": {},
+            "slow_tools": [],
+            "failed_tools": [],
+        }
+        slow_threshold = get_config(
+            "self_optimization.min_duration_ms_threshold",
+            2000,
+        )
+        for tool_name, stats in self.tool_stats.items():
+            if stats["count"] <= 0:
+                continue
+            avg_ms = round(stats["total_ms"] / stats["count"], 1)
+            success_rate = round(stats["success"] / stats["count"], 3)
+            result["tools"][tool_name] = {
+                "count": stats["count"],
+                "avg_ms": avg_ms,
+                "success_rate": success_rate,
+            }
+            if avg_ms >= slow_threshold:
+                result["slow_tools"].append({
+                    "name": tool_name,
+                    "avg_ms": avg_ms,
+                    "count": stats["count"],
+                })
+            if success_rate < 0.95:
+                result["failed_tools"].append({
+                    "name": tool_name,
+                    "success_rate": success_rate,
+                    "fail_count": stats["fail"],
+                })
+        result["slow_tools"].sort(key=lambda item: item["avg_ms"], reverse=True)
+        return result
+
+    def llm_report(self) -> dict[str, Any]:
+        """Finalize protocol-neutral LLM counters and exact latency percentiles."""
+        by_phase: dict[str, dict[str, Any]] = {}
+        for phase, stats in self.phase_stats.items():
+            phase_durations = stats["durations_ms"]
+            phase_result = {
+                key: value
+                for key, value in stats.items()
+                if key not in {"durations_ms", "message_count", "tool_count"}
+            }
+            phase_response_count = phase_result["response_count"]
+            phase_result["error_rate"] = (
+                round(
+                    phase_result["failed_response_count"] / phase_response_count,
+                    3,
+                )
+                if phase_response_count
+                else 0.0
+            )
+            phase_request_count = phase_result["request_count"]
+            phase_result["avg_messages"] = (
+                round(stats["message_count"] / phase_request_count, 1)
+                if phase_request_count
+                else 0.0
+            )
+            phase_result["avg_tools"] = (
+                round(stats["tool_count"] / phase_request_count, 1)
+                if phase_request_count
+                else 0.0
+            )
+            if phase_request_count:
+                phase_result["avg_prompt_tokens"] = round(
+                    phase_result["prompt_tokens"] / phase_request_count,
+                    1,
+                )
+                phase_result["avg_completion_tokens"] = round(
+                    phase_result["completion_tokens"] / phase_request_count,
+                    1,
+                )
+            phase_prompt_tokens = phase_result["prompt_tokens"]
+            phase_result["cached_token_rate"] = (
+                round(phase_result["cached_tokens"] / phase_prompt_tokens, 3)
+                if phase_prompt_tokens
+                else 0.0
+            )
+            if phase_durations:
+                phase_result.update(_latency_summary(phase_durations))
+            by_phase[phase] = phase_result
+
+        result: dict[str, Any] = {
+            "request_count": self.llm_request_count,
+            "response_count": self.llm_response_count,
+            "failed_response_count": self.llm_failed_response_count,
+            "error_rate": (
+                round(
+                    self.llm_failed_response_count / self.llm_response_count,
+                    3,
+                )
+                if self.llm_response_count
+                else 0.0
+            ),
+            "total_tokens": {
+                "prompt": self.total_prompt_tokens,
+                "completion": self.total_completion_tokens,
+                "cached": self.total_cached_tokens,
+                "reasoning": self.total_reasoning_tokens,
+                "total": self.total_prompt_tokens + self.total_completion_tokens,
+            },
+            "by_phase": by_phase,
+        }
+        if self.llm_request_count > 0:
+            result["avg_messages"] = round(
+                self.total_messages / self.llm_request_count,
+                1,
+            )
+            result["avg_tools"] = round(
+                self.total_tools / self.llm_request_count,
+                1,
+            )
+            result["avg_prompt_tokens"] = round(
+                self.total_prompt_tokens / self.llm_request_count,
+                1,
+            )
+            result["avg_completion_tokens"] = round(
+                self.total_completion_tokens / self.llm_request_count,
+                1,
+            )
+        result["cached_token_rate"] = (
+            round(self.total_cached_tokens / self.total_prompt_tokens, 3)
+            if self.total_prompt_tokens
+            else 0.0
+        )
+        if self.llm_durations:
+            result.update(_latency_summary(self.llm_durations))
+        return result
+
+    def error_report(self) -> list[dict[str, Any]]:
+        """Finalize grouped error counters."""
+        return [
+            {
+                "type": error_type,
+                "count": stats["count"],
+                "tools": sorted(stats["tools"]),
+                "is_user_error": stats["is_user_error"],
+            }
+            for error_type, stats in sorted(
+                self.error_counts.items(),
+                key=lambda item: item[1]["count"],
+                reverse=True,
+            )
+        ]
+
+    def memory_report(self) -> dict[str, Any]:
+        """Finalize memory read counters."""
+        result: dict[str, Any] = {"read_count": self.memory_read_count}
+        if self.memory_read_count > 0:
+            result["avg_duration_ms"] = round(
+                self.memory_total_duration / self.memory_read_count,
+                1,
+            )
+            result["layer_distribution"] = dict(self.memory_layer_counts)
+            result["avg_chars_loaded"] = round(
+                self.memory_total_chars / self.memory_read_count
+            )
+            result["cache_hit_rate"] = round(
+                self.memory_cache_hits / self.memory_read_count,
+                3,
+            )
+        return result
+
+    def context_report(self) -> dict[str, Any]:
+        """Finalize context compression counters."""
+        result: dict[str, Any] = {
+            "compress_count": self.context_compress_count,
+        }
+        if self.context_compress_count > 0:
+            result["avg_duration_ms"] = round(
+                self.context_total_duration / self.context_compress_count,
+                1,
+            )
+            result["avg_tokens_before"] = round(
+                self.context_total_tokens_before / self.context_compress_count
+            )
+            result["avg_tokens_after"] = round(
+                self.context_total_tokens_after / self.context_compress_count
+            )
+            if self.context_total_tokens_before > 0:
+                result["compress_ratio"] = round(
+                    self.context_total_tokens_after
+                    / self.context_total_tokens_before,
+                    3,
+                )
+            result["total_tokens_saved"] = (
+                self.context_total_tokens_before - self.context_total_tokens_after
+            )
+        return result
+
+    def embedding_report(self) -> dict[str, Any]:
+        """Finalize embedding cache and latency counters."""
+        total_requests = (
+            self.embedding_cache_hit_count + self.embedding_api_call_count
+        )
+        result: dict[str, Any] = {
+            "cache_hit_count": self.embedding_cache_hit_count,
+            "api_call_count": self.embedding_api_call_count,
+        }
+        if total_requests > 0:
+            result["cache_hit_rate"] = round(
+                self.embedding_cache_hit_count / total_requests,
+                3,
+            )
+        if self.embedding_api_call_count > 0:
+            result["avg_api_latency_ms"] = round(
+                self.embedding_total_api_latency / self.embedding_api_call_count,
+                1,
+            )
+            result["estimated_cost_saved"] = (
+                f"${self.embedding_cache_hit_count * 0.0001:.4f}"
+            )
+        return result
+
+
+def _aggregate_trace_events(
+    events: Iterable[dict[str, Any]],
+) -> _TraceStatsAccumulator:
+    accumulator = _TraceStatsAccumulator()
+    for event in events:
+        accumulator.add(event)
+    return accumulator
+
+
+def aggregate_trace_stats(
+    events: Iterable[dict[str, Any]],
+) -> dict[str, Any]:
+    """Aggregate all report dimensions in one pass over an event iterable."""
+    stats = _aggregate_trace_events(events)
+    return {
+        "total_events": stats.total_events,
+        "sessions": len(stats.sessions),
+        "session_list": sorted(stats.sessions),
+        "llm": stats.llm_report(),
+        "tools": stats.tool_report(),
+        "errors": stats.error_report(),
+        "memory": stats.memory_report(),
+        "context": stats.context_report(),
+        "embedding": stats.embedding_report(),
+    }
+
+
+def compute_error_stats(events: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     """计算错误统计。
 
     Args:
@@ -464,39 +668,10 @@ def compute_error_stats(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
           ...
         ]
     """
-    error_counts: dict[str, dict[str, Any]] = defaultdict(
-        lambda: {"count": 0, "tools": set(), "is_user_error": False}
-    )
-
-    for event in events:
-        event_type = event.get("type", "")
-        if event_type in (EVENT_ERROR_COLLECT, EVENT_TOOL_ERROR):
-            error_type = event.get("error_type", "Unknown")
-            tool_name = event.get("tool_name") or event.get("tool", "")
-            is_user_error = event.get("is_user_error", False)
-
-            stats = error_counts[error_type]
-            stats["count"] += 1
-            if tool_name:
-                stats["tools"].add(tool_name)
-            if is_user_error:
-                stats["is_user_error"] = True
-
-    result = []
-    for error_type, stats in sorted(
-        error_counts.items(), key=lambda x: x[1]["count"], reverse=True
-    ):
-        result.append({
-            "type": error_type,
-            "count": stats["count"],
-            "tools": sorted(stats["tools"]),
-            "is_user_error": stats["is_user_error"],
-        })
-
-    return result
+    return _aggregate_trace_events(events).error_report()
 
 
-def compute_memory_stats(events: list[dict[str, Any]]) -> dict[str, Any]:
+def compute_memory_stats(events: Iterable[dict[str, Any]]) -> dict[str, Any]:
     """计算记忆操作统计。
 
     Args:
@@ -512,40 +687,10 @@ def compute_memory_stats(events: list[dict[str, Any]]) -> dict[str, Any]:
           "cache_hit_rate": 0.8
         }
     """
-    read_count = 0
-    total_duration = 0
-    layer_counts: dict[str, int] = defaultdict(int)
-    total_chars = 0
-    cache_hits = 0
-
-    for event in events:
-        if event.get("type") == EVENT_MEMORY_READ:
-            read_count += 1
-            total_duration += event.get("duration_ms", 0)
-
-            # 统计各层读取分布
-            layer = event.get("layer", "unknown")
-            layer_counts[layer] += 1
-
-            # 统计加载字符数
-            total_chars += event.get("chars_loaded", 0)
-
-            # 统计缓存命中
-            if event.get("cache_hit", False):
-                cache_hits += 1
-
-    result = {"read_count": read_count}
-
-    if read_count > 0:
-        result["avg_duration_ms"] = round(total_duration / read_count, 1)
-        result["layer_distribution"] = dict(layer_counts)
-        result["avg_chars_loaded"] = round(total_chars / read_count)
-        result["cache_hit_rate"] = round(cache_hits / read_count, 3)
-
-    return result
+    return _aggregate_trace_events(events).memory_report()
 
 
-def compute_context_stats(events: list[dict[str, Any]]) -> dict[str, Any]:
+def compute_context_stats(events: Iterable[dict[str, Any]]) -> dict[str, Any]:
     """计算上下文管理统计。
 
     Args:
@@ -562,35 +707,10 @@ def compute_context_stats(events: list[dict[str, Any]]) -> dict[str, Any]:
           "total_tokens_saved": 35000
         }
     """
-    compress_count = 0
-    total_duration = 0
-    total_tokens_before = 0
-    total_tokens_after = 0
-
-    for event in events:
-        if event.get("type") == EVENT_CONTEXT_COMPRESS:
-            compress_count += 1
-            total_duration += event.get("duration_ms", 0)
-            total_tokens_before += event.get("tokens_before", 0)
-            total_tokens_after += event.get("tokens_after", 0)
-
-    result = {"compress_count": compress_count}
-
-    if compress_count > 0:
-        result["avg_duration_ms"] = round(total_duration / compress_count, 1)
-        result["avg_tokens_before"] = round(total_tokens_before / compress_count)
-        result["avg_tokens_after"] = round(total_tokens_after / compress_count)
-
-        if total_tokens_before > 0:
-            result["compress_ratio"] = round(total_tokens_after / total_tokens_before, 3)
-
-        # 计算节省的token总数
-        result["total_tokens_saved"] = total_tokens_before - total_tokens_after
-
-    return result
+    return _aggregate_trace_events(events).context_report()
 
 
-def compute_embedding_stats(events: list[dict[str, Any]]) -> dict[str, Any]:
+def compute_embedding_stats(events: Iterable[dict[str, Any]]) -> dict[str, Any]:
     """计算Embedding缓存统计。
 
     Args:
@@ -606,38 +726,7 @@ def compute_embedding_stats(events: list[dict[str, Any]]) -> dict[str, Any]:
           "estimated_cost_saved": "$0.0050"
         }
     """
-    cache_hit_count = 0
-    api_call_count = 0
-    total_api_latency = 0
-
-    for event in events:
-        event_type = event.get("type")
-
-        if event_type == EVENT_EMBEDDING_CACHE_HIT:
-            cache_hit_count += 1
-
-        elif event_type == EVENT_EMBEDDING_API_CALL:
-            api_call_count += 1
-            total_api_latency += event.get("duration_ms", 0)
-
-    total_requests = cache_hit_count + api_call_count
-    result = {
-        "cache_hit_count": cache_hit_count,
-        "api_call_count": api_call_count
-    }
-
-    if total_requests > 0:
-        result["cache_hit_rate"] = round(cache_hit_count / total_requests, 3)
-
-    if api_call_count > 0:
-        result["avg_api_latency_ms"] = round(total_api_latency / api_call_count, 1)
-
-        # 成本估算：假设每次API调用成本 $0.0001
-        # 根据 OpenAI text-embedding-3-small 价格：$0.00002 per 1K tokens
-        # 平均每次调用约 500 tokens，成本约 $0.0001
-        result["estimated_cost_saved"] = f"${cache_hit_count * 0.0001:.4f}"
-
-    return result
+    return _aggregate_trace_events(events).embedding_report()
 
 
 def generate_daily_report(date: str | None = None) -> dict[str, Any]:
@@ -652,36 +741,29 @@ def generate_daily_report(date: str | None = None) -> dict[str, Any]:
     if date is None:
         date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-    events = load_trace_events(date)
+    stats = _aggregate_trace_events(iter_trace_events(date))
 
-    if not events:
+    if stats.total_events == 0:
         return {
             "date": date,
             "total_events": 0,
             "message": "无 trace 数据",
         }
 
-    # 基础统计
-    sessions = set()
-    for event in events:
-        session_key = event.get("session_key")
-        if session_key:
-            sessions.add(session_key)
-
     report = {
         "date": date,
-        "total_events": len(events),
-        "sessions": len(sessions),
-        "session_list": sorted(sessions),
+        "total_events": stats.total_events,
+        "sessions": len(stats.sessions),
+        "session_list": sorted(stats.sessions),
     }
 
     # 各维度统计
-    report["llm"] = compute_llm_stats(events)
-    report["tools"] = compute_tool_stats(events)
-    report["errors"] = compute_error_stats(events)
-    report["memory"] = compute_memory_stats(events)
-    report["context"] = compute_context_stats(events)
-    report["embedding"] = compute_embedding_stats(events)
+    report["llm"] = stats.llm_report()
+    report["tools"] = stats.tool_report()
+    report["errors"] = stats.error_report()
+    report["memory"] = stats.memory_report()
+    report["context"] = stats.context_report()
+    report["embedding"] = stats.embedding_report()
 
     # 摘要文本
     llm_count = report["llm"].get("request_count", 0)
@@ -693,7 +775,7 @@ def generate_daily_report(date: str | None = None) -> dict[str, Any]:
     report["summary"] = (
         f"LLM调用 {llm_count} 次，工具调用 {tool_count} 次，"
         f"记忆读取 {memory_count} 次，上下文压缩 {context_count} 次，"
-        f"错误 {error_count} 次，会话 {len(sessions)} 个"
+        f"错误 {error_count} 次，会话 {len(stats.sessions)} 个"
     )
 
     return report
@@ -849,6 +931,7 @@ __all__ = [
     "get_trace_files",
     "iter_trace_events",
     "load_trace_events",
+    "aggregate_trace_stats",
     "compute_tool_stats",
     "compute_llm_stats",
     "compute_error_stats",

@@ -45,11 +45,8 @@ from typing import Any
 from miniagent.infrastructure.logger import get_logger
 from miniagent.infrastructure.trace_events import EVENT_TOOL_END
 from miniagent.infrastructure.trace_stats import (
-    compute_context_stats,
-    compute_error_stats,
-    compute_llm_stats,
-    compute_tool_stats,
-    load_trace_events,
+    aggregate_trace_stats,
+    iter_trace_events,
 )
 
 _logger = get_logger(__name__)
@@ -176,43 +173,59 @@ def parse_activity_log(date: str | None = None) -> dict[str, Any]:
 
 def _detect_loop_patterns(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """从 trace 事件检测重复调用与 ping-pong 模式。"""
-    loops: list[dict[str, Any]] = []
-    by_session: dict[str, list[str]] = defaultdict(list)
-
+    detector = _LoopPatternAccumulator()
     for event in events:
-        if event.get("type") == EVENT_TOOL_END:
-            session = event.get("session_key", "unknown")
-            tool = event.get("tool", "")
-            if tool:
-                by_session[session].append(tool)
+        detector.add(event)
+    return detector.report()
 
-    repeat_threshold = 5
-    for session, tools in by_session.items():
-        for tool, count in Counter(tools).items():
-            if count >= repeat_threshold:
-                loops.append({
-                    "type": "repeated_tool",
-                    "session": session,
-                    "tool": tool,
-                    "count": count,
-                    "severity": 2,
-                })
 
-        if len(tools) >= 6:
-            a, b = tools[0], tools[1]
-            if a != b:
-                is_ping_pong = all(
-                    t == (a if i % 2 == 0 else b) for i, t in enumerate(tools[:6])
-                )
-                if is_ping_pong:
+class _LoopPatternAccumulator:
+    """Retain only counters and the prefix needed by loop heuristics."""
+
+    def __init__(self) -> None:
+        self._counts: dict[str, Counter[str]] = defaultdict(Counter)
+        self._prefixes: dict[str, list[str]] = defaultdict(list)
+
+    def add(self, event: dict[str, Any]) -> None:
+        if event.get("type") != EVENT_TOOL_END:
+            return
+        session = str(event.get("session_key") or "unknown")
+        tool = str(event.get("tool") or "")
+        if not tool:
+            return
+        self._counts[session][tool] += 1
+        prefix = self._prefixes[session]
+        if len(prefix) < 6:
+            prefix.append(tool)
+
+    def report(self) -> list[dict[str, Any]]:
+        loops: list[dict[str, Any]] = []
+        repeat_threshold = 5
+        for session, counts in self._counts.items():
+            for tool, count in counts.items():
+                if count >= repeat_threshold:
+                    loops.append({
+                        "type": "repeated_tool",
+                        "session": session,
+                        "tool": tool,
+                        "count": count,
+                        "severity": 2,
+                    })
+
+            tools = self._prefixes[session]
+            if len(tools) >= 6:
+                a, b = tools[0], tools[1]
+                if a != b and all(
+                    tool == (a if index % 2 == 0 else b)
+                    for index, tool in enumerate(tools)
+                ):
                     loops.append({
                         "type": "ping_pong",
                         "session": session,
                         "tools": [a, b],
                         "severity": 3,
                     })
-
-    return loops
+        return loops
 
 
 class RuntimeAnalyzer:
@@ -243,28 +256,27 @@ class RuntimeAnalyzer:
             "generated_at": datetime.now(timezone.utc).isoformat(),
         }
 
-        # 1. Trace 统计
-        trace_events = load_trace_events(date)
-        report["trace_events_count"] = len(trace_events)
+        # 1. Trace 统计：单遍流式聚合，不保留整日事件列表。
+        loop_detector = _LoopPatternAccumulator()
 
-        # 工具统计
-        tool_stats = compute_tool_stats(trace_events)
+        def _events_with_loop_detection():
+            for event in iter_trace_events(date):
+                loop_detector.add(event)
+                yield event
+
+        trace_stats = aggregate_trace_stats(_events_with_loop_detection())
+        report["trace_events_count"] = trace_stats["total_events"]
+        tool_stats = trace_stats["tools"]
+        llm_stats = trace_stats["llm"]
+        error_stats = trace_stats["errors"]
+        context_stats = trace_stats["context"]
         report["tools"] = tool_stats
-
-        # LLM 统计
-        llm_stats = compute_llm_stats(trace_events)
         report["llm"] = llm_stats
-
-        # 错误统计
-        error_stats = compute_error_stats(trace_events)
         report["errors"] = error_stats
-
-        # 上下文压缩统计
-        context_stats = compute_context_stats(trace_events)
         report["context"] = context_stats
 
-        # 循环检测
-        loop_patterns = _detect_loop_patterns(trace_events)
+        # 循环检测仅保留计数与每会话前 6 次工具调用。
+        loop_patterns = loop_detector.report()
         report["loops"] = loop_patterns
 
         # 2. 活动日志分析

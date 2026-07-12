@@ -22,6 +22,7 @@ from miniagent.core.self_opt.proposal_store import ProposalStore
 from miniagent.core.self_opt.runtime_analyzer import RuntimeAnalyzer
 from miniagent.core.self_opt.types import OptimizationProposal
 from miniagent.infrastructure.trace_events import (
+    EVENT_CONTEXT_COMPRESS,
     EVENT_ERROR_COLLECT,
     EVENT_LLM_REQUEST,
     EVENT_LLM_RESPONSE,
@@ -32,6 +33,7 @@ from miniagent.infrastructure.trace_events import (
 )
 from miniagent.infrastructure.trace_stats import (
     cleanup_old_traces,
+    compute_context_stats,
     compute_error_stats,
     compute_llm_stats,
     compute_tool_stats,
@@ -416,6 +418,20 @@ class TestTraceStats:
             # Check error grouping
             error_types = [e["type"] for e in stats]
             assert "PermissionError" in error_types or "TimeoutError" in error_types
+
+    def test_context_stats_accepts_emitted_token_field_names(self) -> None:
+        stats = compute_context_stats([{
+            "type": EVENT_CONTEXT_COMPRESS,
+            "duration_ms": 12,
+            "before_tokens": 1000,
+            "after_tokens": 250,
+        }])
+
+        assert stats["compress_count"] == 1
+        assert stats["avg_tokens_before"] == 1000
+        assert stats["avg_tokens_after"] == 250
+        assert stats["total_tokens_saved"] == 750
+        assert stats["compress_ratio"] == 0.25
 
     def test_generate_daily_report(
         self,

@@ -2,6 +2,7 @@
 
 import pytest
 
+from miniagent.infrastructure.tracing import register_trace_hook, unregister_trace_hook
 from miniagent.memory.context import ContextBudgetExceeded, DefaultContextManager
 
 
@@ -21,6 +22,35 @@ def test_overflow_truncate_drops_middle_messages() -> None:
     assert len(cm.get_messages()) >= 2
     cm._compress_truncate()
     assert cm._compressed
+
+
+def test_overflow_truncate_emits_compatible_trace_metrics() -> None:
+    events = []
+    register_trace_hook(events.append)
+    try:
+        cm = DefaultContextManager(
+            100,
+            0.2,
+            [],
+            overflow_strategy="truncate",
+            session_key="trace-session",
+        )
+        cm.init("s", "u")
+        cm._messages.extend(
+            {"role": "assistant", "content": "x" * 100}
+            for _ in range(20)
+        )
+        cm._recalculate_tokens()
+        cm._compress_truncate()
+    finally:
+        unregister_trace_hook(events.append)
+
+    event = events[-1]
+    assert event["type"] == "context.compress"
+    assert event["strategy"] == "truncate"
+    assert event["session_key"] == "trace-session"
+    assert event["before_tokens"] > event["after_tokens"]
+    assert event["removed_count"] > 0
 
 
 def test_overflow_summarize_inserts_placeholder_when_heavy_history() -> None:

@@ -1,10 +1,34 @@
 """Tests for miniagent.memory.activity_log."""
 
+import asyncio
 import os
+import time
 
 import pytest
 
-from miniagent.memory.activity_log import ActivityLogger, _short_json
+from miniagent.memory.activity_log import ActivityLogger, _short_json, invoke_activity_log
+
+
+@pytest.mark.asyncio
+async def test_invoke_activity_log_offloads_legacy_sync_method() -> None:
+    class LegacyLog:
+        def log_final_reply(self, _session_key: str, _reply: str) -> None:
+            time.sleep(0.1)
+
+    heartbeat_time: float | None = None
+
+    async def heartbeat() -> None:
+        nonlocal heartbeat_time
+        await asyncio.sleep(0.02)
+        heartbeat_time = time.perf_counter()
+
+    heartbeat_task = asyncio.create_task(heartbeat())
+    await invoke_activity_log(LegacyLog(), "log_final_reply", "session", "reply")
+    log_returned_at = time.perf_counter()
+    await heartbeat_task
+
+    assert heartbeat_time is not None
+    assert heartbeat_time < log_returned_at
 
 
 class TestActivityLogger:

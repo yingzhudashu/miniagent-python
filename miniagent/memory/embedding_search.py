@@ -18,6 +18,8 @@ import json
 import math
 import os
 import re
+from array import array
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -60,12 +62,15 @@ _logger = get_logger(__name__)
 import time
 
 # 全局embedding缓存（LRU + TTL）
-_EMBEDDING_CACHE: collections.OrderedDict[str, tuple[list[float], float]] = collections.OrderedDict()
+_EMBEDDING_CACHE: collections.OrderedDict[str, tuple[array[float], float]] = (
+    collections.OrderedDict()
+)
 _EMBEDDING_CACHE_MAX_SIZE = get_config("embedding.cache_max_size", 1000)
 _EMBEDDING_CACHE_TTL_SECONDS = get_config("embedding.cache_ttl_seconds", 3600)  # 1小时TTL
+_EMBEDDING_BATCH_CHUNK_SIZE = 256
 
 
-def _get_cached_embedding(text: str) -> list[float] | None:
+def _get_cached_embedding(text: str) -> array[float] | None:
     """从缓存获取embedding（LRU + TTL）。
 
     性能优化：
@@ -82,7 +87,7 @@ def _get_cached_embedding(text: str) -> list[float] | None:
     if not text:
         return None
 
-    cache_key = hashlib.md5(text.encode()).hexdigest()[:16]
+    cache_key = hashlib.md5(text.encode()).hexdigest()
 
     if cache_key in _EMBEDDING_CACHE:
         embedding, timestamp = _EMBEDDING_CACHE[cache_key]
@@ -99,7 +104,7 @@ def _get_cached_embedding(text: str) -> list[float] | None:
     return None
 
 
-def _cache_embedding(text: str, embedding: list[float]) -> None:
+def _cache_embedding(text: str, embedding: Sequence[float]) -> array[float] | None:
     """缓存embedding向量。
 
     Args:
@@ -107,17 +112,19 @@ def _cache_embedding(text: str, embedding: list[float]) -> None:
         embedding: 嵌入向量
     """
     if not text or not embedding:
-        return
+        return None
 
-    cache_key = hashlib.md5(text.encode()).hexdigest()[:16]
+    cache_key = hashlib.md5(text.encode()).hexdigest()
     now = time.time()
+    compact = embedding if isinstance(embedding, array) else array("d", embedding)
 
-    _EMBEDDING_CACHE[cache_key] = (embedding, now)
+    _EMBEDDING_CACHE[cache_key] = (compact, now)
     _EMBEDDING_CACHE.move_to_end(cache_key)  # LRU
 
     # 驱逐旧条目
     while len(_EMBEDDING_CACHE) > _EMBEDDING_CACHE_MAX_SIZE:
         _EMBEDDING_CACHE.popitem(last=False)
+    return compact
 
 
 # ============================================================================
@@ -146,21 +153,21 @@ def _get_embed_config() -> dict[str, str | int]:
 # ============================================================================
 
 
-def _dot_product(a: list[float], b: list[float]) -> float:
+def _dot_product(a: Sequence[float], b: Sequence[float]) -> float:
     """计算两个列表向量的点积；批量路径另行使用 numpy。"""
     if not a or not b:
         return 0.0
     return sum(x * y for x, y in zip(a, b))
 
 
-def _compute_norm(embedding: list[float]) -> float:
+def _compute_norm(embedding: Sequence[float]) -> float:
     """计算单个列表向量的 L2 norm，不为一次运算加载 numpy。"""
     if not embedding:
         return 0.0
     return math.sqrt(sum(x * x for x in embedding))
 
 
-def _cosine_similarity(a: list[float], b: list[float]) -> float:
+def _cosine_similarity(a: Sequence[float], b: Sequence[float]) -> float:
     """计算两个向量的余弦相似度（性能优化：可选 numpy 加速）。"""
     if not a or not b:
         return 0.0
@@ -233,14 +240,23 @@ class _EmbeddingEntry:
     - 预计算 norm 值，避免每次搜索重复计算
     """
 
-    embedding: list[float]
+    embedding: array[float]
     entry_key: str  # "session_id:timestamp"
     text_hash: str = ""  # 用于检测内容变更
     norm: float = 0.0  # 性能优化：预计算的向量 norm
 
 
+class _EmbeddingJSONEncoder(json.JSONEncoder):
+    """Encode one compact vector at a time instead of expanding the whole index."""
+
+    def default(self, value: Any) -> Any:
+        if isinstance(value, array):
+            return value.tolist()
+        return super().default(value)
+
+
 def _cosine_similarity_cached(
-    query_embedding: list[float],
+    query_embedding: Sequence[float],
     query_norm: float,
     entry: _EmbeddingEntry,
 ) -> float:
@@ -312,7 +328,7 @@ class EmbeddingIndex:
             self._dim = disk.get("dim", self._dim)
             self._entries.clear()
             for key, data in disk.get("entries", {}).items():
-                emb = data.get("embedding", [])
+                emb = array("d", data.get("embedding", []))
                 self._entries[key] = _EmbeddingEntry(
                     embedding=emb,
                     entry_key=data.get("entry_key", key),
@@ -349,7 +365,13 @@ class EmbeddingIndex:
                 },
             }
             with open(self._index_file, "w", encoding="utf-8") as f:
-                json.dump(disk, f, ensure_ascii=False)
+                json.dump(
+                    disk,
+                    f,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    cls=_EmbeddingJSONEncoder,
+                )
             self._dirty = False
         except Exception as e:
             _logger.error("保存嵌入索引失败: %s", e)
@@ -391,7 +413,7 @@ class EmbeddingIndex:
         session_id: str,
         entry: MemoryEntryInput | MemoryEntry,
         *,
-        embedding: list[float] | None = None,
+        embedding: Sequence[float] | None = None,
     ) -> None:
         """索引一条记忆及其嵌入向量。
 
@@ -414,11 +436,12 @@ class EmbeddingIndex:
         if embedding is not None:
             if self._dim == 0:
                 self._dim = len(embedding)
+            compact = embedding if isinstance(embedding, array) else array("d", embedding)
             self._entries[entry_key] = _EmbeddingEntry(
-                embedding=embedding,
+                embedding=compact,
                 entry_key=entry_key,
                 text_hash=text_hash,
-                norm=_compute_norm(embedding),  # 性能优化：预计算 norm
+                norm=_compute_norm(compact),  # 性能优化：预计算 norm
             )
             self._entries.move_to_end(entry_key)
             self._dirty = True
@@ -429,7 +452,7 @@ class EmbeddingIndex:
 
     def search_relevant(
         self,
-        query_embedding: list[float],
+        query_embedding: Sequence[float],
         *,
         limit: int = 8,
         min_score: float = 0.3,
@@ -455,7 +478,7 @@ class EmbeddingIndex:
 
         self._ensure_loaded()
 
-        if not query_embedding or not self._entries:
+        if limit <= 0 or not query_embedding or not self._entries:
             return []
 
         # 性能优化：numpy可用且entry数量多时，自动使用批量计算（5-10倍加速）
@@ -489,7 +512,7 @@ class EmbeddingIndex:
 
     def search_relevant_batch(
         self,
-        query_embedding: list[float],
+        query_embedding: Sequence[float],
         *,
         limit: int = 8,
         min_score: float = 0.3,
@@ -529,63 +552,53 @@ class EmbeddingIndex:
             if query_norm == 0:
                 return []
 
-            # 收集所有entry的embedding和norm
-            entry_keys = []
-            embeddings = []
-            norms = []
-
-            for entry in self._entries.values():
-                if entry.embedding and entry.norm > 0:
-                    entry_keys.append(entry.entry_key)
-                    embeddings.append(entry.embedding)
-                    norms.append(entry.norm)
-
-            if not embeddings:
+            candidates = [
+                entry
+                for entry in self._entries.values()
+                if entry.embedding and entry.norm > 0
+            ]
+            if not candidates:
                 return []
 
-            # 性能优化：检查embedding维度一致性
-            # numpy要求所有向量维度相同，否则会报错
-            embedding_dims = [len(e) for e in embeddings]
-            if len(set(embedding_dims)) > 1:
-                # 维度不一致，回退到普通版本
-                _logger.debug("Embedding维度不一致，回退到普通版本: dims=%s", set(embedding_dims))
+            embedding_dims = {len(entry.embedding) for entry in candidates}
+            if len(embedding_dims) > 1 or len(query_embedding) not in embedding_dims:
+                _logger.debug(
+                    "Embedding维度不一致，回退到普通版本: dims=%s query=%d",
+                    embedding_dims,
+                    len(query_embedding),
+                )
                 return self.search_relevant(
                     query_embedding, limit=limit, min_score=min_score, _allow_batch=False
                 )
 
-            # 批量转换为numpy数组（维度一致性已验证）
-            entry_vecs = numpy.array(embeddings, dtype=numpy.float32)
-            norm_vecs = numpy.array(norms, dtype=numpy.float32)
+            # Chunked BLAS bounds the transient matrix to roughly
+            # chunk_size * dimension * 4 bytes instead of duplicating the
+            # entire index for every query.
+            import heapq
 
-            # 批量点积（numpy优化）
-            dots = numpy.dot(entry_vecs, query_vec)
-
-            # 批量计算相似度
-            sims = dots / (norm_vecs * query_norm)
-
-            # 过滤阈值
-            valid_indices = numpy.where(sims >= min_score)[0]
-
-            if len(valid_indices) == 0:
-                return []
-
-            # Top-K索引（numpy排序）
-            valid_scores = sims[valid_indices]
-            top_k_indices = numpy.argsort(valid_scores)[-limit:]
-
-            # 反转排序（从高到低）
-            top_k_indices = top_k_indices[::-1]
-
-            # 构建结果
-            result = [
-                EmbeddingSearchResult(
-                    entry_key=entry_keys[valid_indices[i]],
-                    score=float(valid_scores[i])
+            heap: list[tuple[float, str]] = []
+            for offset in range(0, len(candidates), _EMBEDDING_BATCH_CHUNK_SIZE):
+                chunk = candidates[offset : offset + _EMBEDDING_BATCH_CHUNK_SIZE]
+                entry_vecs = numpy.asarray(
+                    [entry.embedding for entry in chunk],
+                    dtype=numpy.float32,
                 )
-                for i in top_k_indices
-            ]
+                norm_vecs = numpy.fromiter(
+                    (entry.norm for entry in chunk),
+                    dtype=numpy.float32,
+                    count=len(chunk),
+                )
+                sims = numpy.dot(entry_vecs, query_vec) / (norm_vecs * query_norm)
+                for index in numpy.flatnonzero(sims >= min_score):
+                    score = float(sims[index])
+                    heapq.heappush(heap, (score, chunk[int(index)].entry_key))
+                    if len(heap) > limit:
+                        heapq.heappop(heap)
 
-            return result
+            return [
+                EmbeddingSearchResult(entry_key=entry_key, score=score)
+                for score, entry_key in sorted(heap, reverse=True)
+            ]
 
         except Exception as e:
             # numpy计算失败时回退到普通版本
@@ -648,7 +661,7 @@ class EmbeddingSearchProvider:
         if client is not None:
             await client.aclose()
 
-    async def get_embedding(self, text: str) -> list[float] | None:
+    async def get_embedding(self, text: str) -> Sequence[float] | None:
         """获取文本的嵌入向量（带缓存）。
 
         性能优化：
@@ -688,7 +701,7 @@ class EmbeddingSearchProvider:
                 )
 
                 # 性能优化：缓存结果
-                _cache_embedding(clean, embedding)
+                compact = _cache_embedding(clean, embedding)
 
                 elapsed_ms = int((time.time() - start_time) * 1000)
                 emit_trace({
@@ -698,7 +711,7 @@ class EmbeddingSearchProvider:
                     "cache_size": len(_EMBEDDING_CACHE),
                 })
 
-                return embedding
+                return compact
             except Exception as e:
                 _logger.warning("嵌入供应商失败: %s", e)
                 continue

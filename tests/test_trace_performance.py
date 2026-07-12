@@ -7,13 +7,16 @@
 """
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import threading
 import time
+import tracemalloc
 from pathlib import Path
 from typing import Any
 
+from miniagent.infrastructure import trace_stats
 from miniagent.infrastructure.tracing import (
     AsyncTraceWriter,
     clear_trace_hooks,
@@ -37,6 +40,43 @@ class _CountingFile:
 
     def close(self) -> None:
         self._delegate.close()
+
+
+def test_daily_report_streams_large_trace_with_bounded_peak_memory(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    """Daily aggregation must not materialize every parsed event in memory."""
+    date = "2026-07-12"
+    trace_file = tmp_path / f"trace-{date}.jsonl"
+    payload = "x" * 512
+    with trace_file.open("w", encoding="utf-8") as handle:
+        for index in range(20_000):
+            handle.write(json.dumps({
+                "type": "perf.sample",
+                "session_key": f"session-{index % 10}",
+                "payload": payload,
+            }, separators=(",", ":")) + "\n")
+
+    monkeypatch.setattr(trace_stats, "get_trace_output_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        trace_stats,
+        "load_trace_events",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("daily report must use the streaming iterator")
+        ),
+    )
+
+    tracemalloc.start()
+    try:
+        report = trace_stats.generate_daily_report(date)
+        _current, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert report["total_events"] == 20_000
+    assert report["sessions"] == 10
+    assert peak < 4 * 1024 * 1024
 
 
 def test_async_writer_non_blocking():
@@ -208,6 +248,76 @@ def test_writer_can_restart_without_leaking_old_state(tmp_path: Path) -> None:
     assert [line for line in second_path.read_text(encoding="utf-8").splitlines()] == [
         '{"type":"second"}'
     ]
+
+
+def test_active_writer_redacts_existing_queued_and_future_session_events(
+    tmp_path: Path,
+) -> None:
+    writer = AsyncTraceWriter(batch_interval=0.01, batch_size=10)
+    writer.start(tmp_path / "trace.jsonl")
+    writer.emit({"type": "before", "session_key": "remove"})
+    writer.emit({"type": "before", "session_key": "keep"})
+    deadline = time.monotonic() + 1.0
+    while writer.stats()["written_count"] < 2 and time.monotonic() < deadline:
+        time.sleep(0.005)
+
+    assert writer.exclude_session("remove") == 1
+    writer.emit({"type": "after", "session_key": "remove"})
+    writer.emit({"type": "after", "session_key": "keep"})
+    writer.shutdown()
+
+    assert writer.file_path is not None
+    records = [
+        json.loads(line)
+        for line in writer.file_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert [record["session_key"] for record in records] == ["keep", "keep"]
+    assert writer.stats()["redacted_count"] == 2
+    assert writer.stats()["dropped_count"] == 0
+
+
+def test_full_queue_never_discards_session_redaction_command(
+    tmp_path: Path,
+) -> None:
+    writer = AsyncTraceWriter(
+        batch_interval=0.01,
+        batch_size=10,
+        queue_max_size=2,
+        overflow_policy="drop_oldest",
+    )
+    original_serialize = writer._serialize_event
+    first_started = threading.Event()
+    release_first = threading.Event()
+
+    def blocking_serialize(event: dict[str, Any]) -> str | None:
+        if event.get("index") == 0:
+            first_started.set()
+            assert release_first.wait(timeout=2.0)
+        return original_serialize(event)
+
+    writer._serialize_event = blocking_serialize  # type: ignore[method-assign]
+    writer.start(tmp_path / "trace.jsonl")
+    writer.emit({"type": "queued", "index": 0, "session_key": "remove"})
+    assert first_started.wait(timeout=1.0)
+
+    removed: list[int] = []
+    cleanup_thread = threading.Thread(
+        target=lambda: removed.append(writer.exclude_session("remove")),
+    )
+    cleanup_thread.start()
+    deadline = time.monotonic() + 1.0
+    while writer._queue.qsize() < 1 and time.monotonic() < deadline:
+        time.sleep(0.005)
+    writer.emit({"type": "queued", "index": 1, "session_key": "keep"})
+    writer.emit({"type": "overflow", "index": 2, "session_key": "keep"})
+    release_first.set()
+    cleanup_thread.join(timeout=2.0)
+    writer.shutdown()
+
+    assert not cleanup_thread.is_alive()
+    assert removed == [0]
+    assert writer.stats()["redacted_count"] >= 1
+    assert writer.stats()["dropped_count"] == 1
 
 
 def test_graceful_shutdown():

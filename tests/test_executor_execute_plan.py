@@ -63,6 +63,11 @@ async def test_execute_plan_calls_on_tool_finish() -> None:
     main, sess = make_ping_tool_registry()
     mock_client = mock_streaming_client(tool_args='{"k":1}')
     ms, al, ki = mock_memory_bundle()
+    mc = MagicMock()
+    mc.inject_memory_to_messages = AsyncMock(return_value=([], {}))
+    mc.save_memory_after_turn = AsyncMock()
+    config = agent_config_with_session(sess)
+    config.session_config.session_key = "test-session"
     finishes: list[tuple[str, str, str, bool, str]] = []
 
     async def on_finish(
@@ -80,9 +85,14 @@ async def test_execute_plan_calls_on_tool_finish() -> None:
         "hi",
         main,
         MagicMock(),
-        agent_config_with_session(sess),
+        config,
         client=mock_client,
-        memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki),
+        memory=make_memory_runtime(
+            store=ms,
+            activity_log=al,
+            keyword_index=ki,
+            context=mc,
+        ),
         knowledge_registry=make_knowledge_registry(),
         on_tool_finish=on_finish,
     )
@@ -91,6 +101,10 @@ async def test_execute_plan_calls_on_tool_finish() -> None:
     assert finishes[0][0] == "ping_tool"
     assert finishes[0][3] is True
     assert finishes[0][4] == "[执行]"
+    persisted_tool_calls = mc.save_memory_after_turn.await_args.kwargs["tool_calls"]
+    assert len(persisted_tool_calls) == 1
+    assert persisted_tool_calls[0]["name"] == "ping_tool"
+    assert persisted_tool_calls[0]["result"] == "pong"
 
 
 @pytest.mark.asyncio

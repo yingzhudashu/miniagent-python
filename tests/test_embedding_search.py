@@ -7,12 +7,17 @@
 from __future__ import annotations
 
 import os
+import sys
+from array import array
 
 import pytest
 
+from miniagent.memory import embedding_search as embedding_module
 from miniagent.memory.embedding_search import (
+    _EMBEDDING_CACHE,
     EmbeddingIndex,
     EmbeddingSearchProvider,
+    _cache_embedding,
     _cosine_similarity,
     _text_hash,
     embedding_search_enabled,
@@ -172,6 +177,76 @@ class TestEmbeddingIndex:
         idx._dirty = False
         idx.save()  # 不应写磁盘
         assert not os.path.exists(idx._index_file)
+
+    def test_compact_vector_storage_preserves_precision_and_shares_cache(self, tmp_path):
+        vector = [float(index) / 1536 for index in range(1536)]
+        compact = _cache_embedding("compact-vector-test", vector)
+        assert isinstance(compact, array)
+        assert compact.typecode == "d"
+
+        idx = self._make_index(str(tmp_path))
+        entry = MemoryEntryInput(
+            timestamp="2026-05-22T10:00:00Z",
+            user_snippet="紧凑向量",
+            summary="内存测试",
+        )
+        idx.index_entry("sess-compact", entry, embedding=compact)
+        stored = idx._entries["sess-compact:2026-05-22T10:00:00Z"].embedding
+
+        assert stored is compact
+        assert list(stored) == vector
+        list_deep_size = sys.getsizeof(vector) + sum(
+            sys.getsizeof(value) for value in vector
+        )
+        assert sys.getsizeof(stored) < list_deep_size / 3
+        _EMBEDDING_CACHE.clear()
+
+    def test_chunked_batch_search_matches_scalar_top_k(self, tmp_path, monkeypatch):
+        idx = self._make_index(str(tmp_path))
+        idx._dim = 32
+        for item in range(150):
+            vector = [float((item * 7 + dim * 3) % 101) / 101 for dim in range(32)]
+            idx.index_entry(
+                f"session-{item}",
+                MemoryEntryInput(
+                    timestamp=str(item),
+                    user_snippet=f"entry {item}",
+                    summary="batch",
+                ),
+                embedding=vector,
+            )
+        query = [float((dim * 11) % 101) / 101 for dim in range(32)]
+        monkeypatch.setattr(embedding_module, "_EMBEDDING_BATCH_CHUNK_SIZE", 17)
+        numpy = embedding_module._get_numpy()
+        observed_batch_sizes: list[int] = []
+        if numpy is not None:
+            real_asarray = numpy.asarray
+
+            def recording_asarray(values, *args, **kwargs):
+                observed_batch_sizes.append(len(values))
+                return real_asarray(values, *args, **kwargs)
+
+            monkeypatch.setattr(numpy, "asarray", recording_asarray)
+
+        scalar = idx.search_relevant(
+            query,
+            limit=12,
+            min_score=0.0,
+            _allow_batch=False,
+        )
+        batch = idx.search_relevant_batch(query, limit=12, min_score=0.0)
+
+        assert [result.entry_key for result in batch] == [
+            result.entry_key for result in scalar
+        ]
+        assert [result.score for result in batch] == pytest.approx(
+            [result.score for result in scalar],
+            abs=1e-6,
+        )
+        assert idx.search_relevant_batch(query, limit=0) == []
+        if numpy is not None:
+            assert len(observed_batch_sizes) > 1
+            assert max(observed_batch_sizes) <= 17
 
 
 # ============================================================================

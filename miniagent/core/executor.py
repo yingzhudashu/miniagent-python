@@ -75,6 +75,7 @@ from miniagent.infrastructure.timezone_config import (
     format_agent_timezone_rule_context,
 )
 from miniagent.infrastructure.tracing import emit_trace
+from miniagent.memory.activity_log import invoke_activity_log
 from miniagent.memory.context import ContextBudgetExceeded, DefaultContextManager
 from miniagent.memory.history_bridge import conversation_history_for_llm
 from miniagent.security.sandbox import get_default_workspace
@@ -649,6 +650,7 @@ async def execute_plan(
     client: AsyncOpenAI,
     confirmation_channel: Any | None = None,
     tool_semaphore: asyncio.Semaphore | None = None,
+    manage_activity_lifecycle: bool = True,
 ) -> str:
     """执行结构化计划（ReAct 循环）。
 
@@ -694,6 +696,8 @@ async def execute_plan(
         client: 由组合根显式注入的 LLM 客户端
         confirmation_channel: 确认通道；``require-confirm`` 工具执行前经此等待用户 /confirm
         tool_semaphore: 由引擎持有的进程级工具并发限制；直接调用时创建本轮私有限制器
+        manage_activity_lifecycle: 直接调用时记录会话开始/结束；由 ``run_agent``
+            编排时关闭，避免上层与执行器重复写活动日志
 
     Returns:
         LLM 的最终回复文本
@@ -774,6 +778,7 @@ async def execute_plan(
     # 因此只放入 current_turn_context；stable_system 仅保留身份、技能/通道规则
     # 与不含当前时间戳的稳定说明，方便 provider 复用前缀缓存。
     bg_ephemeral = _is_ephemeral_session(session_config.session_key)
+    activity_log_enabled = bool(session_config.session_key) and not bg_ephemeral
     turn_keyword_context: str | None = None
     if session_config.session_key and not bg_ephemeral:
         _, mem_meta = await mc.inject_memory_to_messages(
@@ -867,14 +872,21 @@ async def execute_plan(
     turns_left = max_turns
     loop_warning_shown = False
 
-    # 跟踪工具调用
+    # 跟踪整轮工具调用；保留所有执行轮结果供最终记忆提取，而不是仅保留
+    # 最后一轮（通常是无工具的收尾 LLM 响应）。
     turn_tool_calls: list[dict[str, Any]] = []
 
     # 活动日志 — 记录会话开始（后台子 session 不落盘）
     session_key = session_config.session_key or "default"
-    source = "cli"  # 默认 CLI，飞书调用方会设置 session_key
-    if not bg_ephemeral:
-        al.log_session_start(session_key, user_input, source)
+    source = "feishu" if session_key.startswith("feishu:") else "cli"
+    if manage_activity_lifecycle and activity_log_enabled:
+        await invoke_activity_log(
+            al,
+            "log_session_start",
+            session_key,
+            user_input,
+            source,
+        )
 
     if agent_config.debug:
         idx_stats = ki.get_stats()
@@ -898,7 +910,8 @@ async def execute_plan(
             ms,
             tool_calls=turn_tool_calls,
         )
-        al.log_final_reply(session_key, final_reply)
+        if manage_activity_lifecycle:
+            await invoke_activity_log(al, "log_final_reply", session_key, final_reply)
 
     exec_turn_no = 0
     _exec_hist_segments: dict[str, list[str]] = {}
@@ -1209,7 +1222,8 @@ async def execute_plan(
         )
 
         if agent_config.log_file:
-            append_log(
+            await asyncio.to_thread(
+                append_log,
                 agent_config.log_file,
                 {
                     "phase": "exec",
@@ -1231,8 +1245,10 @@ async def execute_plan(
                 },
             )
 
-        if not bg_ephemeral:
-            al.log_llm_call(
+        if activity_log_enabled:
+            await invoke_activity_log(
+                al,
+                "log_llm_call",
                 session_key=session_key,
                 turn=turn_display,
                 model=exec_kw["model"],
@@ -1551,8 +1567,10 @@ async def execute_plan(
                 intent = _extract_tool_intent(tc.function.name, args)
                 # 从 result.meta 中提取 error_type（如果失败）
                 error_type = result.meta.get("error_type") if not result.success else None
-                if not bg_ephemeral:
-                    al.log_tool_call(
+                if activity_log_enabled:
+                    await invoke_activity_log(
+                        al,
+                        "log_tool_call",
                         session_key=session_key,
                         tool_name=tc.function.name,
                         intent=intent,
@@ -1604,7 +1622,6 @@ async def execute_plan(
             early = await _run_tool_calls_phase(msg, start_ms, turn_label)
             if early is not None:
                 return early
-            turn_tool_calls.clear()
     else:
 
         async def _finish_phased_text_turn(
@@ -1683,7 +1700,6 @@ async def execute_plan(
                     early = await _run_tool_calls_phase(msg, start_ms, turn_label)
                     if early is not None:
                         return early
-                    turn_tool_calls.clear()
 
                 if is_last and not step_resolved:
                     if turns_left > 0:
@@ -1735,8 +1751,14 @@ async def execute_plan(
     # ── 达到最大轮数 ──
     loop_stats = loop_detector.get_stats()
 
-    if session_config.session_key and not bg_ephemeral:
-        al.log_incomplete(session_key, f"达到最大轮数 {max_turns}")
+    if activity_log_enabled:
+        if manage_activity_lifecycle:
+            await invoke_activity_log(
+                al,
+                "log_incomplete",
+                session_key,
+                f"达到最大轮数 {max_turns}",
+            )
 
     if agent_config.debug:
         _logger.debug(context_manager.get_token_report())

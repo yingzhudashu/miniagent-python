@@ -241,3 +241,20 @@ async def test_shutdown_awaits_queue_task_cancellation() -> None:
 
     with pytest.raises(RuntimeError, match="已关闭"):
         await mq.dispatch("room-shutdown", asyncio.sleep(0))
+
+
+@pytest.mark.asyncio
+async def test_transient_chat_queues_are_reclaimed_and_status_is_read_only() -> None:
+    from miniagent.infrastructure.message_queue import MessageQueueManager
+
+    mq = MessageQueueManager()
+
+    async def completed() -> None:
+        await asyncio.sleep(0)
+
+    for index in range(250):
+        await mq.dispatch_wait(f"transient-{index}", completed())
+
+    assert mq._queues == {}
+    assert mq.get_agent_status("never-seen")["status"] == "idle"
+    assert mq._queues == {}

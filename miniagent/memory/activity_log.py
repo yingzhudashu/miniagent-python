@@ -25,6 +25,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import os
 import re
@@ -32,6 +33,22 @@ import threading
 import time
 from datetime import datetime, timezone
 from typing import Any
+
+
+async def invoke_activity_log(
+    activity_log: Any,
+    method_name: str,
+    *args: Any,
+    **kwargs: Any,
+) -> None:
+    """Invoke native async logging or offload a legacy sync implementation."""
+    async_method = getattr(activity_log, f"{method_name}_async", None)
+    if callable(async_method) and inspect.iscoroutinefunction(async_method):
+        await async_method(*args, **kwargs)
+        return
+    sync_method = getattr(activity_log, method_name, None)
+    if callable(sync_method):
+        await asyncio.to_thread(sync_method, *args, **kwargs)
 
 
 class ActivityLogger:
@@ -150,11 +167,7 @@ class ActivityLogger:
             user_input: 用户原始输入
             source: 来源标识（"cli" 或 "feishu"）
         """
-        today = self._read_today()
-        header = f"\n---\n## {session_key} ({source})\n\n"
-        if f"## {session_key}" not in today:
-            await self._append_async(header)
-        await self._append_async(f"### 用户输入\n\n{user_input}\n\n")
+        await asyncio.to_thread(self.log_session_start, session_key, user_input, source)
 
     def log_llm_call(
         self,

@@ -60,6 +60,7 @@ from miniagent.core.thinking_presets import map_business_depth
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.infrastructure.monitor import DefaultToolMonitor
+from miniagent.memory.activity_log import invoke_activity_log
 from miniagent.security.sandbox import get_default_workspace
 from miniagent.types.agent import (
     AgentRunOptions,
@@ -511,6 +512,41 @@ async def run_agent(
     if options_overlay:
         base_config = merge_agent_config(base_config, options_overlay)
     merged_config = merge_agent_config(base_config, agent_config or {})
+    configured_session_key = merged_config.session_config.session_key
+    effective_session_key = configured_session_key or (session_key or "").strip() or None
+    if effective_session_key and not configured_session_key:
+        # ``session_key`` is a long-standing public convenience argument. Keep
+        # the grouped config as the single downstream source of truth while
+        # ensuring control stages and execution share the same trace/memory ID.
+        merged_config = merge_agent_config(
+            merged_config,
+            {"session_config": {"session_key": effective_session_key}},
+        )
+
+    activity_log_enabled = False
+    if effective_session_key:
+        from miniagent.engine.bg_session_cleanup import is_background_session_key
+
+        activity_log_enabled = not is_background_session_key(effective_session_key)
+    if activity_log_enabled:
+        source = "feishu" if effective_session_key.startswith("feishu:") else "cli"
+        await invoke_activity_log(
+            memory.activity_log,
+            "log_session_start",
+            effective_session_key,
+            user_input,
+            source,
+        )
+
+    async def _finish_result(final_reply: str) -> AgentRunResult:
+        if activity_log_enabled and effective_session_key:
+            await invoke_activity_log(
+                memory.activity_log,
+                "log_final_reply",
+                effective_session_key,
+                final_reply,
+            )
+        return _build_agent_run_result(final_reply, monitor)
 
     # ── Phase 0: 任务难度分类 ──
     difficulty = TaskDifficulty.NORMAL
@@ -596,7 +632,7 @@ async def run_agent(
                 on_thinking=on_thinking,
                 memory_store=memory.store,
                 knowledge_registry=knowledge_registry,
-                session_key=session_key,
+                session_key=effective_session_key,
                 max_questions=max_questions,
             )
             # 构建完整的澄清信息传递给规划器和执行器
@@ -682,13 +718,12 @@ async def run_agent(
             result = await on_plan(plan)
             action, adjustment = result.plan_action()
             if action == "cancel":
-                return _build_agent_run_result(f"{WARNING_PREFIX} 操作已取消", monitor)
+                return await _finish_result(f"{WARNING_PREFIX} 操作已取消")
             if action == "replan":
                 replan_attempts_left -= 1
                 if replan_attempts_left <= 0:
-                    return _build_agent_run_result(
-                        f"{WARNING_PREFIX} 计划调整次数过多，已取消",
-                        monitor,
+                    return await _finish_result(
+                        f"{WARNING_PREFIX} 计划调整次数过多，已取消"
                     )
                 if adjustment:
                     plan_input = f"{plan_input}\n\n[用户计划调整] {adjustment}"
@@ -744,6 +779,7 @@ async def run_agent(
         client=client,
         confirmation_channel=confirmation_channel,
         tool_semaphore=tool_semaphore,
+        manage_activity_lifecycle=False,
     )
 
     if (
@@ -784,6 +820,7 @@ async def run_agent(
             client=client,
             confirmation_channel=confirmation_channel,
             tool_semaphore=tool_semaphore,
+            manage_activity_lifecycle=False,
         )
         if not fallback_reply.startswith(WARNING_PREFIX):
             reply = fallback_reply
@@ -797,11 +834,11 @@ async def run_agent(
             knowledge_registry=knowledge_registry,
             client=client,
             on_thinking=None,
-            session_key=session_key,
+            session_key=effective_session_key,
         )
         # 动态属性：供飞书质量卡片读取（非 engine 公开契约）
         if engine is not None:
-            sk = session_key or "default"
+            sk = effective_session_key or "default"
             if not hasattr(engine, "_last_reflection") or not isinstance(engine._last_reflection, dict):
                 engine._last_reflection = {}
             engine._last_reflection[sk] = reflection
@@ -810,7 +847,7 @@ async def run_agent(
         # 剥离（见 strip_reflection_footer），避免下一轮被模型复述导致重复评估。
         reply = reply + build_reflection_footer(reflection)
 
-    return _build_agent_run_result(reply, monitor)
+    return await _finish_result(reply)
 
 
 # ─── 线性管线执行器 ─────────────────────────────────────
