@@ -41,9 +41,15 @@ class FeishuRuntime:
         self._running: bool = False
         self._config: Any = None
         self._user_status: Callable[[str], None] | None = None
-        from miniagent.feishu.poll_server import FeishuPollState
+        self._poll_state: Any | None = None
 
-        self._poll_state = FeishuPollState()
+    def _ensure_poll_state(self) -> Any:
+        """Construct the heavy Feishu SDK-backed state only when Feishu starts."""
+        if self._poll_state is None:
+            from miniagent.feishu.poll_server import FeishuPollState
+
+            self._poll_state = FeishuPollState()
+        return self._poll_state
 
     def _emit_user_line(self, msg: str) -> None:
         """用户可见状态行：优先走全屏 CLI transcript，否则 stdout。"""
@@ -78,18 +84,9 @@ class FeishuRuntime:
             user_status: 可选 ``(msg: str) -> None``，由全屏 CLI 注册为写入 transcript；
                 未提供时使用 ``print``，避免与 prompt_toolkit 备用屏混写时丢失信息。
         """
-        from miniagent.feishu.poll_server import start_feishu_poll_server
         from miniagent.feishu.types import FeishuConfig
 
         self._user_status = user_status
-
-        # 设置引擎引用，供卡片确认按钮直接响应确认通道
-        if state is not None and isinstance(state, dict):
-            rt = state.get("runtime_ctx")
-            engine = getattr(rt, "engine", None) if rt else None
-            router = getattr(rt, "channel_router", None) if rt else None
-            if engine is not None:
-                self._poll_state.bind_confirmation(engine, router)
 
         config = FeishuConfig(
             app_id=os.environ.get("FEISHU_APP_ID", ""),
@@ -116,6 +113,18 @@ class FeishuRuntime:
                 "\u274c \u672a\u914d\u7f6e\u98de\u4e66\u51ed\u8bc1 (FEISHU_APP_ID)"
             )
             return
+
+        # Only a configured Feishu start pays the lark-oapi import cost.
+        from miniagent.feishu.poll_server import start_feishu_poll_server
+
+        poll_state = self._ensure_poll_state()
+        # 设置引擎引用，供卡片确认按钮直接响应确认通道
+        if state is not None and isinstance(state, dict):
+            rt = state.get("runtime_ctx")
+            engine = getattr(rt, "engine", None) if rt else None
+            router = getattr(rt, "channel_router", None) if rt else None
+            if engine is not None:
+                poll_state.bind_confirmation(engine, router)
 
         if self._running and self._task and not self._task.done():
             self._emit_user_line("\u2139\ufe0f [\u98de\u4e66] \u5df2\u5728\u8fd0\u884c\u4e2d")
@@ -199,16 +208,16 @@ class FeishuRuntime:
                             self._emit_user_line("\u2139\ufe0f [\u98de\u4e66] \u5df2\u505c\u6b62")
                             raise
                     try:
-                        await self._poll_state.reset()
+                        await poll_state.reset()
                         await start_feishu_poll_server(
                             config,
                             text_h,
-                            runtime_state=self._poll_state,
+                            runtime_state=poll_state,
                             message_queue=mq,
                             media_handler=media_h,
                         )
                         try:
-                            end_reason, _ = self._poll_state.ws_health.last_session_end()
+                            end_reason, _ = poll_state.ws_health.last_session_end()
                             if end_reason:
                                 self._emit_user_line(
                                     f"\u2139\ufe0f [\u98de\u4e66] \u4f1a\u8bdd\u7ed3\u675f"
@@ -230,7 +239,7 @@ class FeishuRuntime:
                     attempt += 1
             finally:
                 try:
-                    await self._poll_state.reset()
+                    await poll_state.reset()
                 except Exception as e:
                     _logger.debug("重置飞书连接状态失败（清理路径）: %s", e)
                 try:
@@ -295,7 +304,8 @@ class FeishuRuntime:
             return
 
         try:
-            self._poll_state.request_shutdown()
+            if self._poll_state is not None:
+                self._poll_state.request_shutdown()
         except Exception as e:
             _logger.debug("请求WS关闭失败（停止路径）: %s", e)
         if t and not t.done():
@@ -341,7 +351,8 @@ class FeishuRuntime:
         self._running = False
         t = self._task
         try:
-            self._poll_state.request_shutdown()
+            if self._poll_state is not None:
+                self._poll_state.request_shutdown()
         except Exception as e:
             _logger.debug("请求WS关闭失败（停止路径）: %s", e)
         if t and not t.done():
@@ -370,6 +381,8 @@ class FeishuRuntime:
         else:
             self._emit_user_line("\u26aa \u98de\u4e66: \u672a\u542f\u7528")
         try:
+            if self._poll_state is None:
+                raise LookupError("Feishu poll state has not been initialized")
             end_reason, end_at = self._poll_state.ws_health.last_session_end()
             if end_reason:
                 when = ""

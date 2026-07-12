@@ -36,9 +36,10 @@ def test_status_includes_ws_health_and_lock(monkeypatch) -> None:
     rt, lines = _lines_rt()
     rt.set_running(True)
 
-    rt._poll_state.ws_health.last_session_end_reason = "disconnect"  # noqa: SLF001
-    rt._poll_state.ws_health.last_session_end_at = 1_700_000_000.0  # noqa: SLF001
-    rt._poll_state.ws_health.last_inbound_monotonic = 100.0  # noqa: SLF001
+    poll_state = rt._ensure_poll_state()  # noqa: SLF001
+    poll_state.ws_health.last_session_end_reason = "disconnect"
+    poll_state.ws_health.last_session_end_at = 1_700_000_000.0
+    poll_state.ws_health.last_inbound_monotonic = 100.0
     monkeypatch.setattr("time.monotonic", lambda: 130.0)
     monkeypatch.setattr(
         "miniagent.infrastructure.feishu_inbound_lock.read_feishu_inbound_owner",

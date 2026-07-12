@@ -256,3 +256,40 @@ class TestTraceFilePersistence:
         assert "duration_ms" in content
         assert "prompt_tokens" in content
         actual_path.unlink(missing_ok=True)
+
+    def test_metrics_only_persistence_keeps_safe_responses_usage_details(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Responses usage detail counters remain available to daily reports."""
+        log_path = tmp_path / "trace.jsonl"
+        install_test_config(
+            tmp_path,
+            {
+                "debug": {"log_path": str(log_path)},
+                "trace": {"record_payload": "metrics_only"},
+            },
+        )
+        auto_register_trace_file_hook()
+        emit_trace(
+            {
+                "type": "llm.response",
+                "usage": {
+                    "input_tokens": 20,
+                    "output_tokens": 7,
+                    "input_tokens_details": {"cached_tokens": 4},
+                    "output_tokens_details": {"reasoning_tokens": 3},
+                    "provider_debug": "MUST_NOT_PERSIST",
+                },
+            }
+        )
+        actual_path = get_actual_trace_file()
+        shutdown_trace_writer()
+
+        assert actual_path is not None
+        content = actual_path.read_text(encoding="utf-8")
+        assert '"input_tokens":20' in content
+        assert '"cached_tokens":4' in content
+        assert '"reasoning_tokens":3' in content
+        assert "MUST_NOT_PERSIST" not in content
+        actual_path.unlink(missing_ok=True)

@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 
@@ -45,6 +46,11 @@ def _write_lock_file(lock_path: str, my_pid: int) -> tuple[bool, str]:
     return True, ""
 
 
+def _read_lock_pid(lock_path: str) -> int:
+    with open(lock_path) as file:
+        return int(file.read().strip())
+
+
 def try_lock_session(session_id: str) -> tuple[bool, str]:
     """尝试获取会话锁（同步）。
 
@@ -65,8 +71,7 @@ def try_lock_session(session_id: str) -> tuple[bool, str]:
 
     if os.path.exists(lock_path):
         try:
-            with open(lock_path) as f:
-                locked_pid = int(f.read().strip())
+            locked_pid = _read_lock_pid(lock_path)
             if locked_pid == my_pid:
                 return True, ""  # 我自己锁的，幂等
             if is_process_running(locked_pid):
@@ -96,8 +101,7 @@ async def try_lock_session_async(session_id: str) -> tuple[bool, str]:
 
     if os.path.exists(lock_path):
         try:
-            with open(lock_path) as f:
-                locked_pid = int(f.read().strip())
+            locked_pid = await asyncio.to_thread(_read_lock_pid, lock_path)
             if locked_pid == my_pid:
                 return True, ""  # 我自己锁的，幂等
             if await is_process_running_async(locked_pid):
@@ -106,7 +110,7 @@ async def try_lock_session_async(session_id: str) -> tuple[bool, str]:
         except (ValueError, OSError):
             _remove_lock_file(lock_path, reason="清理损坏锁文件失败")
 
-    return _write_lock_file(lock_path, my_pid)
+    return await asyncio.to_thread(_write_lock_file, lock_path, my_pid)
 
 
 def release_session_lock(session_id: str) -> None:

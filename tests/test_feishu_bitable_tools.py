@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
 from unittest.mock import patch
 
 import pytest
@@ -86,3 +88,36 @@ async def test_feishu_bitable_upload_attachment(tmp_path, monkeypatch: pytest.Mo
         )
     assert r.success is True
     mock_up.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_feishu_bitable_sync_sdk_does_not_block_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from miniagent.tools.feishu_bitable_tools import _feishu_bitable
+    from miniagent.types.tool import ToolContext
+
+    monkeypatch.setenv("FEISHU_APP_ID", "a")
+    monkeypatch.setenv("FEISHU_APP_SECRET", "b")
+
+    def slow_meta(*_args: object) -> dict[str, str]:
+        time.sleep(0.15)
+        return {"app_token": "appX", "name": "Demo"}
+
+    with (
+        patch("miniagent.tools.feishu_bitable_tools.get_app_meta", side_effect=slow_meta),
+        patch("miniagent.tools.feishu_bitable_tools.list_tables", return_value=([], None, False)),
+    ):
+        task = asyncio.create_task(
+            _feishu_bitable(
+                {"action": "get_meta", "app_token": "appX"},
+                ToolContext(cwd="/tmp"),
+            )
+        )
+        start = time.perf_counter()
+        await asyncio.sleep(0.01)
+        scheduler_delay = time.perf_counter() - start
+        result = await task
+
+    assert scheduler_delay < 0.1
+    assert result.success is True

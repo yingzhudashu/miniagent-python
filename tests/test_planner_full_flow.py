@@ -262,6 +262,15 @@ async def test_responses_planner_recovers_reasoning_only_without_sampling() -> N
     )
     assert first_response["failure_category"] == "reasoning_only"
     assert first_response["output_item_types"] == ["reasoning"]
+    assert isinstance(first_response["duration_ms"], int)
+    assert first_response["duration_ms"] >= 0
+    first_request = next(
+        event
+        for event in events
+        if event.get("type") == "llm.request" and event.get("attempt") == 1
+    )
+    assert first_request["message_count"] == 2
+    assert first_request["tool_count"] == 0
 
 
 @pytest.mark.asyncio

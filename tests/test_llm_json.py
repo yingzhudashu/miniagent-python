@@ -436,8 +436,12 @@ class TestLlmJson:
         assert events[0]["phase"] == "reflect"
         assert events[0]["session_key"] == "sess-1"
         assert events[0]["json_object"] is True
+        assert events[0]["message_count"] == 2
+        assert events[0]["tool_count"] == 0
         assert events[1]["json_object"] is True
         assert events[1]["usage"] is None
+        assert isinstance(events[1]["duration_ms"], int)
+        assert events[1]["duration_ms"] >= 0
 
     @pytest.mark.asyncio
     async def test_thinking_level_forwards_model_overrides_extra_body(

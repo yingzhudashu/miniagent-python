@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 import os
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
-from openai import AsyncOpenAI
+if TYPE_CHECKING:
+    from openai import AsyncOpenAI
+else:
+    AsyncOpenAI = Any
 
 from miniagent.core.constants import FEISHU_VISION_MAX_BYTES
 from miniagent.core.llm_transport import create_completion
@@ -61,16 +67,17 @@ async def describe_image(
         图片描述文本，失败时返回空字符串。
     """
     try:
-        size = os.path.getsize(file_path)
+        size = await asyncio.to_thread(os.path.getsize, file_path)
         if size > _max_image_bytes():
             _logger.debug("跳过图片描述：文件过大 %s (%d bytes)", file_path, size)
             return ""
 
-        with open(file_path, "rb") as f:
-            raw = f.read()
+        raw = await asyncio.to_thread(Path(file_path).read_bytes)
 
         mime = _image_mime_hint(file_path)
-        b64 = base64.b64encode(raw).decode("ascii")
+        b64 = await asyncio.to_thread(
+            lambda: base64.b64encode(raw).decode("ascii")
+        )
         data_uri = f"data:{mime};base64,{b64}"
 
         resp = await create_completion(

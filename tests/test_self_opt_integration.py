@@ -37,6 +37,7 @@ from miniagent.infrastructure.trace_stats import (
     compute_tool_stats,
     generate_daily_report,
     get_trace_files,
+    iter_trace_events,
     load_trace_events,
 )
 from miniagent.infrastructure.tracing import (
@@ -243,9 +244,15 @@ class TestTraceStats:
         """Trace 统计应聚合同一天的全部 pid 分片。"""
         install_test_config(tmp_path, {"trace": {"output_dir": str(trace_output_dir)}})
         date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        base_file = trace_output_dir / f"trace-{date}.jsonl"
         first_pid_file = trace_output_dir / f"trace-{date}-pid122.jsonl"
         pid_file = trace_output_dir / f"trace-{date}-pid123.jsonl"
 
+        base_file.write_text(
+            json.dumps({"type": EVENT_LLM_REQUEST, "session_key": "s1"}, ensure_ascii=False)
+            + "\n",
+            encoding="utf-8",
+        )
         first_pid_file.write_text(
             json.dumps({"type": EVENT_LLM_REQUEST, "session_key": "s1"}, ensure_ascii=False)
             + "\n",
@@ -261,10 +268,31 @@ class TestTraceStats:
         events = load_trace_events(date, session_key="s1")
         report = generate_daily_report(date)
 
-        assert first_pid_file in files
-        assert pid_file in files
-        assert [event["type"] for event in events] == [EVENT_LLM_REQUEST, EVENT_LLM_RESPONSE]
-        assert report["total_events"] == 2
+        assert files == [base_file, first_pid_file, pid_file]
+        assert [event["type"] for event in events] == [
+            EVENT_LLM_REQUEST,
+            EVENT_LLM_REQUEST,
+            EVENT_LLM_RESPONSE,
+        ]
+        assert report["total_events"] == 3
+
+    def test_iter_trace_events_is_lazy_and_ignores_non_object_json(
+        self,
+        tmp_path: Path,
+        trace_output_dir: Path,
+    ) -> None:
+        install_test_config(tmp_path, {"trace": {"output_dir": str(trace_output_dir)}})
+        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        trace_file = trace_output_dir / f"trace-{date}.jsonl"
+        trace_file.write_text(
+            "[]\n" + json.dumps({"type": EVENT_LLM_REQUEST, "session_key": "s1"}) + "\n",
+            encoding="utf-8",
+        )
+
+        events = iter_trace_events(date, session_key="s1")
+
+        assert iter(events) is events
+        assert list(events) == [{"type": EVENT_LLM_REQUEST, "session_key": "s1"}]
 
     def test_cleanup_old_traces_handles_pid_suffix(
         self,
@@ -314,6 +342,70 @@ class TestTraceStats:
         assert "total_tokens" in stats
         assert stats["total_tokens"]["prompt"] > 0
         assert stats["total_tokens"]["completion"] > 0
+
+    def test_compute_llm_stats_normalizes_responses_usage_and_latency(self) -> None:
+        """Chat and Responses token names must contribute to one report contract."""
+        events = [
+            {
+                "type": EVENT_LLM_REQUEST,
+                "phase": "classify",
+                "message_count": 2,
+                "tool_count": 0,
+            },
+            {
+                "type": EVENT_LLM_RESPONSE,
+                "phase": "classify",
+                "duration_ms": 100,
+                "usage": {
+                    "input_tokens": 30,
+                    "output_tokens": 10,
+                    "input_tokens_details": {"cached_tokens": 5},
+                    "output_tokens_details": {"reasoning_tokens": 4},
+                },
+            },
+            {
+                "type": EVENT_LLM_REQUEST,
+                "phase": "plan",
+                "message_count": 3,
+                "tool_count": 1,
+            },
+            {
+                "type": EVENT_LLM_RESPONSE,
+                "phase": "plan",
+                "duration_ms": 300,
+                "failure_category": "invalid_json",
+                "usage": {
+                    "prompt_tokens": 20,
+                    "completion_tokens": 8,
+                    "prompt_tokens_details": {"cached_tokens": 3},
+                    "completion_tokens_details": {"reasoning_tokens": 2},
+                },
+            },
+        ]
+
+        stats = compute_llm_stats(events)
+
+        assert stats["request_count"] == 2
+        assert stats["response_count"] == 2
+        assert stats["failed_response_count"] == 1
+        assert stats["error_rate"] == 0.5
+        assert stats["total_tokens"] == {
+            "prompt": 50.0,
+            "completion": 18.0,
+            "cached": 8.0,
+            "reasoning": 6.0,
+            "total": 68.0,
+        }
+        assert stats["avg_duration_ms"] == 200.0
+        assert stats["p50_duration_ms"] == 100.0
+        assert stats["p95_duration_ms"] == 300.0
+        assert stats["by_phase"]["classify"]["prompt_tokens"] == 30
+        assert stats["by_phase"]["classify"]["avg_messages"] == 2.0
+        assert stats["by_phase"]["classify"]["avg_tools"] == 0.0
+        assert stats["by_phase"]["classify"]["avg_prompt_tokens"] == 30.0
+        assert stats["by_phase"]["classify"]["cached_token_rate"] == 0.167
+        assert stats["by_phase"]["plan"]["error_rate"] == 1.0
+        assert stats["cached_token_rate"] == 0.16
 
     def test_compute_error_stats(self, trace_events: list[dict[str, Any]]) -> None:
         """Test error statistics computation."""

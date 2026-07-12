@@ -9,14 +9,34 @@ from __future__ import annotations
 
 import os
 import tempfile
+import threading
 import time
 from pathlib import Path
+from typing import Any
 
 from miniagent.infrastructure.tracing import (
     AsyncTraceWriter,
     clear_trace_hooks,
     emit_trace,
 )
+
+
+class _CountingFile:
+    """Delegate file operations while counting physical trace batches."""
+
+    def __init__(self, delegate: Any) -> None:
+        self._delegate = delegate
+        self.write_batches = 0
+
+    def writelines(self, lines: list[str]) -> None:
+        self.write_batches += 1
+        self._delegate.writelines(lines)
+
+    def flush(self) -> None:
+        self._delegate.flush()
+
+    def close(self) -> None:
+        self._delegate.close()
 
 
 def test_async_writer_non_blocking():
@@ -93,6 +113,101 @@ def test_batch_write_integrity():
     # 清理（包括pid后缀版本）
     test_file.unlink(missing_ok=True)
     expected_file.unlink(missing_ok=True)
+
+
+def test_writer_aggregates_low_latency_burst_into_one_batch(tmp_path: Path) -> None:
+    """A short burst should use one physical write instead of one write per event."""
+    writer = AsyncTraceWriter(batch_interval=0.05, batch_size=50)
+    writer.start(tmp_path / "trace.jsonl")
+    assert writer._file_handle is not None
+    counting_file = _CountingFile(writer._file_handle)
+    writer._file_handle = counting_file
+
+    for index in range(20):
+        writer.emit({"type": "batch_test", "index": index})
+    writer.shutdown()
+
+    assert counting_file.write_batches == 1
+    assert writer.stats()["written_count"] == 20
+
+
+def test_shutdown_with_full_queue_preserves_all_accepted_events(tmp_path: Path) -> None:
+    """A full queue must not sacrifice a real event to enqueue the sentinel."""
+    writer = AsyncTraceWriter(
+        batch_interval=10.0,
+        batch_size=50,
+        queue_max_size=2,
+        overflow_policy="drop_newest",
+    )
+    original_serialize = writer._serialize_event
+    first_started = threading.Event()
+    release_first = threading.Event()
+
+    def blocking_serialize(event: dict[str, Any]) -> str | None:
+        if event.get("index") == 0:
+            first_started.set()
+            assert release_first.wait(timeout=2.0)
+        return original_serialize(event)
+
+    writer._serialize_event = blocking_serialize  # type: ignore[method-assign]
+    writer.start(tmp_path / "trace.jsonl")
+    writer.emit({"type": "shutdown_full", "index": 0})
+    assert first_started.wait(timeout=1.0)
+    writer.emit({"type": "shutdown_full", "index": 1})
+    writer.emit({"type": "shutdown_full", "index": 2})
+
+    shutdown_thread = threading.Thread(target=writer.shutdown)
+    shutdown_thread.start()
+    release_first.set()
+    shutdown_thread.join(timeout=2.0)
+
+    assert not shutdown_thread.is_alive()
+    assert writer.stats()["written_count"] == 3
+    assert writer.stats()["dropped_count"] == 0
+    assert writer.file_path is not None
+    assert len(writer.file_path.read_text(encoding="utf-8").splitlines()) == 3
+
+
+def test_writer_counts_serialization_errors_and_uses_compact_json(tmp_path: Path) -> None:
+    """Malformed payloads are visible in metrics and valid JSON has no spacer bytes."""
+    writer = AsyncTraceWriter(batch_interval=0.01, batch_size=10)
+    writer.start(tmp_path / "trace.jsonl")
+    writer.emit({"type": "bad", "value": object()})
+    writer.emit({"type": "good", "nested": {"value": 1}})
+    writer.shutdown()
+
+    stats = writer.stats()
+    assert stats["emitted_count"] == 2
+    assert stats["written_count"] == 1
+    assert stats["dropped_count"] == 1
+    assert stats["serialization_error_count"] == 1
+    assert stats["write_error_count"] == 0
+    assert writer.file_path is not None
+    assert writer.file_path.read_text(encoding="utf-8") == (
+        '{"type":"good","nested":{"value":1}}\n'
+    )
+
+
+def test_writer_can_restart_without_leaking_old_state(tmp_path: Path) -> None:
+    """Repeated start closes the prior target and writes subsequent events once."""
+    writer = AsyncTraceWriter(batch_interval=0.01, batch_size=10)
+    writer.start(tmp_path / "first.jsonl")
+    first_path = writer.file_path
+    writer.emit({"type": "first"})
+
+    writer.start(tmp_path / "second.jsonl")
+    second_path = writer.file_path
+    writer.emit({"type": "second"})
+    writer.shutdown()
+
+    assert first_path is not None
+    assert second_path is not None
+    assert [line for line in first_path.read_text(encoding="utf-8").splitlines()] == [
+        '{"type":"first"}'
+    ]
+    assert [line for line in second_path.read_text(encoding="utf-8").splitlines()] == [
+        '{"type":"second"}'
+    ]
 
 
 def test_graceful_shutdown():

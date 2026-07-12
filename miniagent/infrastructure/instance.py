@@ -416,8 +416,8 @@ class InstanceRegistry:
             return {"success": False, "reason": f"实例 #{instance_id} 不存在"}
 
         try:
-            with open(meta_file, encoding="utf-8") as f:
-                meta = json.load(f)
+            with open(meta_file, encoding="utf-8") as file:
+                meta = json.load(file)
         except Exception as e:
             return {"success": False, "reason": f"读取元数据失败: {e}"}
 
@@ -478,8 +478,11 @@ class InstanceRegistry:
             return {"success": False, "reason": f"实例 #{instance_id} 不存在"}
 
         try:
-            with open(meta_file, encoding="utf-8") as f:
-                meta = json.load(f)
+            def _read_meta_async() -> dict[str, Any]:
+                with open(meta_file, encoding="utf-8") as file:
+                    return json.load(file)
+
+            meta = await asyncio.to_thread(_read_meta_async)
         except Exception as e:
             return {"success": False, "reason": f"读取元数据失败: {e}"}
 

@@ -174,6 +174,30 @@ class TestJsonConfigLoader:
         _install_loader(tmp_path, {"paths": {"state_dir": "custom-ws"}})
         assert get_config("paths.state_dir") == "custom-ws"
 
+    def test_runtime_overrides_are_isolated_and_never_written(self, tmp_path):
+        user_path = tmp_path / "config.user.json"
+        original = {
+            "trace": {"enabled": False, "record_payload": "metrics_only"},
+            "paths": {"state_dir": "original"},
+        }
+        user_path.write_text(json.dumps(original), encoding="utf-8")
+        loader = JsonConfigLoader(DEFAULTS_PATH, str(user_path))
+        overrides = {
+            "trace": {"enabled": True, "output_dir": "isolated"},
+            "paths": {"state_dir": "runtime"},
+        }
+
+        candidate = loader.with_runtime_overrides(overrides)
+        overrides["trace"]["output_dir"] = "mutated-after-copy"
+
+        assert loader.get("trace.enabled") is False
+        assert loader.get("paths.state_dir") == "original"
+        assert candidate.get("trace.enabled") is True
+        assert candidate.get("trace.record_payload") == "metrics_only"
+        assert candidate.get("trace.output_dir") == "isolated"
+        assert candidate.get("paths.state_dir") == "runtime"
+        assert json.loads(user_path.read_text(encoding="utf-8")) == original
+
 
 class TestMergeAgentConfig:
     def test_override_single_field(self, tmp_path):

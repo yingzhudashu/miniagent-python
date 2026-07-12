@@ -30,9 +30,12 @@ import traceback
 from collections.abc import Callable
 from functools import lru_cache
 from types import SimpleNamespace
-from typing import Any, TypeAlias
+from typing import TYPE_CHECKING, Any, TypeAlias
 
-from openai import AsyncOpenAI
+if TYPE_CHECKING:
+    from openai import AsyncOpenAI
+else:
+    AsyncOpenAI = Any
 
 from miniagent.contracts.knowledge import KnowledgeRegistryProtocol
 from miniagent.contracts.memory import MemoryRuntimeProtocol
@@ -551,6 +554,8 @@ def _resolve_exec_tools(
     Note:
         分步模式下每步可使用不同工具集，提升安全性和 token 效率。
     """
+    if not plan.tools_enabled:
+        return []
     step_tbs = list(step.required_toolboxes) if step and step.required_toolboxes else None
     plan_tbs = plan.required_toolboxes
 
@@ -981,6 +986,7 @@ async def execute_plan(
         )
         responses_wire = model_config.wire_api == "responses"
         for request_attempt in range(_EXEC_LLM_MAX_ATTEMPTS):
+            request_start_ns = time.monotonic_ns()
             full_content_parts = StreamingBuffer()
             _tool_call_accum: dict[int, dict[str, str]] = {}
             _usage = None
@@ -1092,6 +1098,9 @@ async def execute_plan(
                         "turn": turn_display,
                         "attempt": request_attempt + 1,
                         "failure_category": "transient_api_error",
+                        "duration_ms": (
+                            time.monotonic_ns() - request_start_ns
+                        ) // 1_000_000,
                     }
                 )
                 _logger.info(
@@ -1102,6 +1111,9 @@ async def execute_plan(
                 continue
 
             full_content = full_content_parts.getvalue()
+            request_duration_ms = (
+                time.monotonic_ns() - request_start_ns
+            ) // 1_000_000
             if full_content.strip() or _tool_call_accum or not responses_wire:
                 break
             if request_attempt == _EXEC_LLM_MAX_ATTEMPTS - 1:
@@ -1117,6 +1129,7 @@ async def execute_plan(
                     "turn": turn_display,
                     "attempt": request_attempt + 1,
                     "failure_category": "empty_response",
+                    "duration_ms": request_duration_ms,
                 }
             )
             _logger.info(
@@ -1187,7 +1200,10 @@ async def execute_plan(
                 "phase": "exec",
                 "session_key": session_key,
                 "turn": turn_display,
+                "attempt": request_attempt + 1,
+                "model": exec_kw["model"],
                 "has_tool_calls": bool(full_tool_calls),
+                "duration_ms": request_duration_ms,
                 "usage": _usage.model_dump() if _usage else None,
             }
         )

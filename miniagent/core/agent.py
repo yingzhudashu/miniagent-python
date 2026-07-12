@@ -626,7 +626,9 @@ async def run_agent(
 
     # ── 直接执行模式 ──
     if effective_skip or not toolboxes:
-        plan = _create_default_plan()
+        plan = _create_default_plan(
+            tools_enabled=bool(toolboxes) and not _user_forbids_tools(user_input)
+        )
         if toolboxes and effective_skip and difficulty == TaskDifficulty.SIMPLE:
             merged_config = merge_agent_config(
                 merged_config,
@@ -764,6 +766,7 @@ async def run_agent(
             risk_level=plan.risk_level,
             output_spec=plan.output_spec,
             fallback_plan=plan.fallback_plan,
+            tools_enabled=plan.tools_enabled,
         )
         fallback_reply = await execute_plan(
             simple_plan,
@@ -882,7 +885,25 @@ async def run_pipeline(
 # ─── 内部辅助 ────────────────────────────────────────────
 
 
-def _create_default_plan() -> StructuredPlan:
+_NO_TOOL_PATTERNS = (
+    "不调用工具",
+    "不要调用工具",
+    "无需调用工具",
+    "禁止调用工具",
+    "do not use tools",
+    "don't use tools",
+    "without tools",
+    "no tools",
+)
+
+
+def _user_forbids_tools(user_input: str) -> bool:
+    """Return whether the user explicitly requested a tool-free response."""
+    normalized = " ".join((user_input or "").lower().split())
+    return any(pattern in normalized for pattern in _NO_TOOL_PATTERNS)
+
+
+def _create_default_plan(*, tools_enabled: bool = True) -> StructuredPlan:
     """创建默认计划（直接执行模式）。
 
     用于以下场景：
@@ -896,6 +917,7 @@ def _create_default_plan() -> StructuredPlan:
             - steps: 空列表（无分步执行）
             - required_toolboxes: 空列表
             - risk_level: "low"
+            - tools_enabled: 调用方按纯对话/明确禁用工具语义决定
             - max_turns: None（使用全局默认值）
 
     Note:
@@ -910,6 +932,7 @@ def _create_default_plan() -> StructuredPlan:
         context_strategy=ContextStrategy(mode="normal", reason="跳过规划"),
         requires_confirmation=False,
         risk_level="low",
+        tools_enabled=tools_enabled,
     )
 
 

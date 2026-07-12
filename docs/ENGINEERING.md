@@ -292,9 +292,9 @@ miniagent.infrastructure.trace_stats
 }
 ```
 
-`get_actual_trace_file()` 返回异步 writer 实际写入的 `trace-{YYYY-MM-DD}-pid{pid}.jsonl`，避免多进程同时追加同一文件。`trace_stats.get_trace_files(date)` 和 `load_trace_events(date)` 会聚合同一天的全部 pid 分片，日报和自我优化分析不会漏读真实运行数据。
+`get_actual_trace_file()` 返回异步 writer 实际写入的 `trace-{YYYY-MM-DD}-pid{pid}.jsonl`，避免多进程同时追加同一文件。`trace_stats.get_trace_files(date)` 和 `load_trace_events(date)` 会聚合同一天的基础文件与全部 pid 分片，日报和自我优化分析不会漏读历史格式或真实运行分片。
 
-writer 使用有界队列保护内存。默认 `writer_queue_max_size=10000`、`writer_overflow_policy=drop_oldest`；队列满时不阻塞主流程，而是丢弃事件并在 `get_trace_writer_stats()` 的 `dropped_count` 中暴露。该指标是 writer 内部状态，不通过 `emit_trace()` 递归上报。
+writer 使用有界队列保护内存，并按 `writer_batch_interval` / `writer_batch_size` 聚合真实批次；关闭状态只排空已接收队列，不再等待批次窗口。默认 `writer_queue_max_size=10000`、`writer_overflow_policy=drop_oldest`；队列满时不阻塞主流程，而是按策略丢弃事件。`get_trace_writer_stats()` 和 `shutdown_trace_writer()` 的最终返回值包含 `emitted_count`、`written_count`、`dropped_count`、`serialization_error_count` 与 `write_error_count`。这些是 writer 内部状态，不通过 `emit_trace()` 递归上报。
 
 真实 API 压测和默认 trace 策略采用 `record_payload: "metrics_only"`：trace 只应保存模型、时延、token、状态、会话/请求关联 ID、错误类型等指标，不落完整 prompt、response 或 API key。
 
@@ -314,7 +314,12 @@ report = generate_daily_report(date="2026-06-05")
   "sessions": 10,
   "llm": {
     "request_count": 10,
-    "total_tokens": {"prompt": 5000, "completion": 2000},
+    "response_count": 10,
+    "total_tokens": {"prompt": 5000, "completion": 2000, "cached": 1500, "reasoning": 300},
+    "avg_duration_ms": 500,
+    "p50_duration_ms": 450,
+    "p95_duration_ms": 900,
+    "by_phase": {"plan": {"avg_tools": 0, "cached_token_rate": 0.3}},
   },
   "tools": {
     "tools": {"read_file": {"count": 10, "avg_ms": 50, "success_rate": 1.0}},

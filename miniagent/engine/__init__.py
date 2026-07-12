@@ -17,37 +17,57 @@
 主架构与用户可见命令见 ``docs/ARCHITECTURE.md``、``docs/CLI.md``。
 """
 
-from miniagent.engine.cli_commands import (
-    cmd_help,
-    cmd_queue_set,
-    cmd_queue_status,
-    cmd_session_create,
-    cmd_session_delete,
-    cmd_session_list,
-    cmd_session_rename,
-    cmd_session_switch,
-)
-from miniagent.engine.cli_state import CliLoopState
-from miniagent.engine.cli_tui import run_cli_loop
-from miniagent.engine.command_dispatch import dispatch_command
-from miniagent.engine.engine import UnifiedEngine
-from miniagent.engine.feishu_state import FeishuRuntime
-from miniagent.engine.init import init_subsystems
-from miniagent.engine.main import run_runtime
-from miniagent.engine.session_lock import (
-    is_session_locked,
-    release_session_lock,
-    try_lock_session,
-    try_lock_session_async,
-)
-from miniagent.engine.shutdown import shutdown_runtime
-from miniagent.engine.welcome import get_session_display, get_version, print_welcome
+from __future__ import annotations
 
-# ThinkingDisplay 需要 prompt_toolkit（cli extra），未安装时设为 None
-try:
-    from miniagent.engine.thinking import ThinkingDisplay
-except ImportError:
-    ThinkingDisplay = None  # type: ignore[misc,assignment]
+import importlib
+from typing import Any
+
+_LAZY_EXPORTS = {
+    "CliLoopState": "miniagent.engine.cli_state",
+    "FeishuRuntime": "miniagent.engine.feishu_state",
+    "ThinkingDisplay": "miniagent.engine.thinking",
+    "UnifiedEngine": "miniagent.engine.engine",
+    "cmd_help": "miniagent.engine.cli_commands",
+    "cmd_queue_set": "miniagent.engine.cli_commands",
+    "cmd_queue_status": "miniagent.engine.cli_commands",
+    "cmd_session_create": "miniagent.engine.cli_commands",
+    "cmd_session_delete": "miniagent.engine.cli_commands",
+    "cmd_session_list": "miniagent.engine.cli_commands",
+    "cmd_session_rename": "miniagent.engine.cli_commands",
+    "cmd_session_switch": "miniagent.engine.cli_commands",
+    "dispatch_command": "miniagent.engine.command_dispatch",
+    "get_session_display": "miniagent.engine.welcome",
+    "get_version": "miniagent.engine.welcome",
+    "init_subsystems": "miniagent.engine.init",
+    "is_session_locked": "miniagent.engine.session_lock",
+    "print_welcome": "miniagent.engine.welcome",
+    "release_session_lock": "miniagent.engine.session_lock",
+    "run_cli_loop": "miniagent.engine.cli_tui",
+    "run_runtime": "miniagent.engine.main",
+    "shutdown_runtime": "miniagent.engine.shutdown",
+    "try_lock_session": "miniagent.engine.session_lock",
+    "try_lock_session_async": "miniagent.engine.session_lock",
+}
+
+
+def __getattr__(name: str) -> Any:
+    """Load aggregate exports on first access without importing the whole runtime."""
+    module_name = _LAZY_EXPORTS.get(name)
+    if module_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    try:
+        value = getattr(importlib.import_module(module_name), name)
+    except ImportError:
+        if name != "ThinkingDisplay":
+            raise
+        value = None
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    """Expose lazy aggregate names to discovery and documentation tools."""
+    return sorted(set(globals()) | set(_LAZY_EXPORTS))
 
 __all__ = [
     "try_lock_session",

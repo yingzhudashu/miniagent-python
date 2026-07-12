@@ -477,3 +477,37 @@ def test_s13_feishu_thinking_card_cache_median_under_cap() -> None:
 
     med = median_wall_seconds(5, once)
     assert med < 2.0, f"S13 thinking card cache too slow: {med:.3f}s"
+
+
+@pytest.mark.perf
+@pytest.mark.asyncio
+async def test_s14_json_tool_io_does_not_block_event_loop(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """S14：JSON 文件解析在工作线程执行，主事件循环仍可及时调度。"""
+    import importlib
+    import time
+
+    data_tools = importlib.import_module("miniagent.tools.data_tools")
+
+    target = tmp_path / "payload.json"
+    target.write_text('{"ok":true}', encoding="utf-8")
+    original = data_tools._json_read_sync
+
+    def slow_read(*args):
+        time.sleep(0.15)
+        return original(*args)
+
+    monkeypatch.setattr(data_tools, "_json_read_sync", slow_read)
+    ctx = ToolContext(cwd=str(tmp_path), allowed_paths=[str(tmp_path)])
+    task = asyncio.create_task(
+        data_tools._json_read_handler({"path": "payload.json"}, ctx)
+    )
+    start = time.perf_counter()
+    await asyncio.sleep(0.01)
+    scheduler_delay = time.perf_counter() - start
+    result = await task
+
+    assert scheduler_delay < 0.1
+    assert result.success is True

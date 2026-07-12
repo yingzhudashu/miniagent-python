@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from datetime import datetime, timezone
 from typing import Any
@@ -36,13 +37,16 @@ async def _read_session_diary_handler(args: dict[str, Any], ctx: ToolContext) ->
     max_chars = max(100, min(max_chars, 100_000))
 
     path = diary_file_path(sk, day)
-    if not os.path.isfile(path):
+    if not await asyncio.to_thread(os.path.isfile, path):
         d = day or datetime.now(timezone.utc).strftime("%Y-%m-%d")
         return ToolResult(success=False, content=f"未找到日记文件: {path}（日期 {d}）")
 
     try:
-        with open(path, encoding="utf-8") as f:
-            raw = f.read()
+        def _read_diary() -> str:
+            with open(path, encoding="utf-8") as file:
+                return file.read()
+
+        raw = await asyncio.to_thread(_read_diary)
     except OSError as e:
         return ToolResult(success=False, content=f"读取失败: {e}")
 
@@ -93,27 +97,37 @@ async def _search_session_diary_handler(args: dict[str, Any], ctx: ToolContext) 
     max_hits_per_file = max(1, min(max_hits_per_file, 50))
 
     root = os.path.join(resolve_state_dir(), "memory", "diary", safe_session_id(sk))
-    if not os.path.isdir(root):
+    if not await asyncio.to_thread(os.path.isdir, root):
         return ToolResult(success=True, content="（该会话尚无 diary 目录）")
 
-    hits: list[str] = []
-    files = sorted(f for f in os.listdir(root) if f.endswith(".md") or f.endswith(".txt"))
-    for name in files[:max_files]:
-        fp = os.path.join(root, name)
-        try:
-            with open(fp, encoding="utf-8") as f:
-                text = f.read()
-        except OSError:
-            continue
-        positions = _diary_query_positions(text, q, max_hits_per_file)
-        if not positions:
-            continue
-        for idx, pos in enumerate(positions, start=1):
-            lo = max(0, pos - ctx_chars)
-            hi = min(len(text), pos + len(q) + ctx_chars)
-            snippet = text[lo:hi].replace("\n", " ")
-            label = f"--- {name} (#{idx}) ---" if len(positions) > 1 else f"--- {name} ---"
-            hits.append(f"{label}\n…{snippet}…")
+    def _search_files() -> list[str]:
+        hits: list[str] = []
+        files = sorted(
+            name
+            for name in os.listdir(root)
+            if name.endswith(".md") or name.endswith(".txt")
+        )
+        for name in files[:max_files]:
+            file_path = os.path.join(root, name)
+            try:
+                with open(file_path, encoding="utf-8") as file:
+                    text = file.read()
+            except OSError:
+                continue
+            positions = _diary_query_positions(text, q, max_hits_per_file)
+            for index, position in enumerate(positions, start=1):
+                low = max(0, position - ctx_chars)
+                high = min(len(text), position + len(q) + ctx_chars)
+                snippet = text[low:high].replace("\n", " ")
+                label = (
+                    f"--- {name} (#{index}) ---"
+                    if len(positions) > 1
+                    else f"--- {name} ---"
+                )
+                hits.append(f"{label}\n…{snippet}…")
+        return hits
+
+    hits = await asyncio.to_thread(_search_files)
 
     if not hits:
         return ToolResult(success=True, content=f"未在日记目录中找到 {q!r}。")

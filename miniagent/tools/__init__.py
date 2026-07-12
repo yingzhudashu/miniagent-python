@@ -41,51 +41,89 @@ ALL_TOOLS 汇总上述内置工具（约 40+ 个）；启动时由 ``register_bu
 - 使用 ToolBuilder 简化工具定义
 """
 
-from miniagent.tools.cli_dispatch_tools import cli_dispatch_tools
-from miniagent.tools.core_tools import core_tools
-from miniagent.tools.data_tools import data_tools
-from miniagent.tools.exec import exec_tools
-from miniagent.tools.feishu_bitable_tools import feishu_bitable_tools
-from miniagent.tools.feishu_card_tools import feishu_card_tools
-from miniagent.tools.feishu_doc_tools import feishu_doc_tools
-from miniagent.tools.feishu_im_tools import feishu_im_tools
-from miniagent.tools.filesystem import filesystem_tools
-from miniagent.tools.html_upload import (
-    cleanup_html_files_tool,
-    list_html_files_tool,
-    upload_html_tool,
-)
-from miniagent.tools.knowledge_tools import knowledge_tools
-from miniagent.tools.schedule_tools import schedule_tools
-from miniagent.tools.session_memory import session_memory_tools
-from miniagent.tools.skills import skills_tools
-from miniagent.tools.vision import vision_tools
+from __future__ import annotations
 
-# HTML 上传工具集合
-html_upload_tools = {
-    "upload_html": upload_html_tool,
-    "list_html_files": list_html_files_tool,
-    "cleanup_html_files": cleanup_html_files_tool,
+import importlib
+from typing import Any
+
+_LAZY_EXPORTS = {
+    "cli_dispatch_tools": "miniagent.tools.cli_dispatch_tools",
+    "core_tools": "miniagent.tools.core_tools",
+    "data_tools": "miniagent.tools.data_tools",
+    "exec_tools": "miniagent.tools.exec",
+    "feishu_bitable_tools": "miniagent.tools.feishu_bitable_tools",
+    "feishu_card_tools": "miniagent.tools.feishu_card_tools",
+    "feishu_doc_tools": "miniagent.tools.feishu_doc_tools",
+    "feishu_im_tools": "miniagent.tools.feishu_im_tools",
+    "filesystem_tools": "miniagent.tools.filesystem",
+    "knowledge_tools": "miniagent.tools.knowledge_tools",
+    "schedule_tools": "miniagent.tools.schedule_tools",
+    "session_memory_tools": "miniagent.tools.session_memory",
+    "skills_tools": "miniagent.tools.skills",
+    "vision_tools": "miniagent.tools.vision",
 }
 
-# 汇总所有内置工具
-ALL_TOOLS = {
-    **filesystem_tools,
-    **exec_tools,
-    **core_tools,
-    **skills_tools,
-    **cli_dispatch_tools,
-    **schedule_tools,
-    **feishu_im_tools,
-    **feishu_doc_tools,
-    **feishu_bitable_tools,
-    **feishu_card_tools,
-    **data_tools,
-    **vision_tools,
-    **knowledge_tools,
-    **session_memory_tools,
-    **html_upload_tools,
-}
+
+def _load_export(name: str) -> Any:
+    value = getattr(importlib.import_module(_LAZY_EXPORTS[name]), name)
+    globals()[name] = value
+    return value
+
+
+def _build_html_upload_tools() -> dict[str, Any]:
+    module = importlib.import_module("miniagent.tools.html_upload")
+    return {
+        "upload_html": module.upload_html_tool,
+        "list_html_files": module.list_html_files_tool,
+        "cleanup_html_files": module.cleanup_html_files_tool,
+    }
+
+
+def _build_all_tools() -> dict[str, Any]:
+    collections = [
+        _load_export(name)
+        for name in (
+            "filesystem_tools",
+            "exec_tools",
+            "core_tools",
+            "skills_tools",
+            "cli_dispatch_tools",
+            "schedule_tools",
+            "feishu_im_tools",
+            "feishu_doc_tools",
+            "feishu_bitable_tools",
+            "feishu_card_tools",
+            "data_tools",
+            "vision_tools",
+            "knowledge_tools",
+            "session_memory_tools",
+        )
+    ]
+    collections.append(__getattr__("html_upload_tools"))
+    return {
+        tool_name: definition
+        for collection in collections
+        for tool_name, definition in collection.items()
+    }
+
+
+def __getattr__(name: str) -> Any:
+    """Load one tool collection, or build the complete registry on demand."""
+    if name in _LAZY_EXPORTS:
+        return _load_export(name)
+    if name == "html_upload_tools":
+        value = _build_html_upload_tools()
+    elif name == "ALL_TOOLS":
+        value = _build_all_tools()
+    else:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    """Expose lazy tool collection names to discovery and documentation."""
+    return sorted(set(globals()) | set(__all__))
 
 __all__ = [
     "filesystem_tools",

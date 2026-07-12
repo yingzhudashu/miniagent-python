@@ -218,6 +218,7 @@ async def test_execute_plan_responses_retries_transient_400_before_output() -> N
 
 @pytest.mark.asyncio
 async def test_execute_plan_responses_retries_completed_empty_stream() -> None:
+    trace_events: list[dict[str, Any]] = []
     async def empty_stream():
         yield SimpleNamespace(
             type="response.completed",
@@ -243,7 +244,10 @@ async def test_execute_plan_responses_retries_completed_empty_stream() -> None:
     )
     ms, al, ki = mock_memory_bundle()
 
-    with _responses_execution_config():
+    with (
+        _responses_execution_config(),
+        patch("miniagent.core.executor.emit_trace", side_effect=trace_events.append),
+    ):
         out = await execute_plan(
             empty_plan(),
             "hi",
@@ -257,6 +261,18 @@ async def test_execute_plan_responses_retries_completed_empty_stream() -> None:
 
     assert out == "recovered"
     assert client.responses.create.await_count == 2
+    response_events = [
+        event for event in trace_events if event.get("type") == "llm.response"
+    ]
+    assert [event.get("failure_category") for event in response_events] == [
+        "empty_response",
+        None,
+    ]
+    assert all(
+        isinstance(event.get("duration_ms"), int)
+        and event["duration_ms"] >= 0
+        for event in response_events
+    )
 
 
 @pytest.mark.asyncio

@@ -24,13 +24,25 @@ from typing import Any
 
 import httpx
 
-# 性能优化：numpy批量计算（可选依赖）
-try:
-    import numpy as np
-    _numpy_available = True
-except ImportError:
-    np = None
-    _numpy_available = False
+# numpy is an optional acceleration path. Importing it eagerly adds substantial
+# startup RSS even when embedding search is disabled or the index is small.
+_numpy_module: Any | None = None
+_numpy_checked = False
+
+
+def _get_numpy() -> Any | None:
+    """Load optional numpy once, only when vector math actually needs it."""
+    global _numpy_checked, _numpy_module
+    if _numpy_checked:
+        return _numpy_module
+    _numpy_checked = True
+    try:
+        import numpy
+
+        _numpy_module = numpy
+    except ImportError:
+        _numpy_module = None
+    return _numpy_module
 
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
@@ -135,22 +147,16 @@ def _get_embed_config() -> dict[str, str | int]:
 
 
 def _dot_product(a: list[float], b: list[float]) -> float:
-    """计算两个向量的点积（性能优化：可选 numpy 加速）。"""
+    """计算两个列表向量的点积；批量路径另行使用 numpy。"""
     if not a or not b:
         return 0.0
-    if _numpy_available:
-        # numpy 点积比 Python 循环快 5-10 倍
-        return float(np.dot(a, b))
     return sum(x * y for x, y in zip(a, b))
 
 
 def _compute_norm(embedding: list[float]) -> float:
-    """计算向量的 L2 norm（性能优化：可选 numpy 加速）。"""
+    """计算单个列表向量的 L2 norm，不为一次运算加载 numpy。"""
     if not embedding:
         return 0.0
-    if _numpy_available:
-        # numpy norm 计算更快
-        return float(np.linalg.norm(embedding))
     return math.sqrt(sum(x * x for x in embedding))
 
 
@@ -453,7 +459,7 @@ class EmbeddingIndex:
             return []
 
         # 性能优化：numpy可用且entry数量多时，自动使用批量计算（5-10倍加速）
-        if _allow_batch and _numpy_available and len(self._entries) > 20:
+        if _allow_batch and len(self._entries) > 20 and _get_numpy() is not None:
             return self.search_relevant_batch(query_embedding, limit=limit, min_score=min_score)
 
         # numpy不可用或entry数量少时，使用普通版本
@@ -504,7 +510,8 @@ class EmbeddingIndex:
             按相关性排序的搜索结果
         """
         # numpy不可用时回退到普通版本
-        if not _numpy_available:
+        numpy = _get_numpy()
+        if numpy is None:
             return self.search_relevant(
                 query_embedding, limit=limit, min_score=min_score, _allow_batch=False
             )
@@ -516,8 +523,8 @@ class EmbeddingIndex:
 
         # 转换为numpy数组（批量计算）
         try:
-            query_vec = np.array(query_embedding, dtype=np.float32)
-            query_norm = np.linalg.norm(query_vec)
+            query_vec = numpy.array(query_embedding, dtype=numpy.float32)
+            query_norm = numpy.linalg.norm(query_vec)
 
             if query_norm == 0:
                 return []
@@ -547,24 +554,24 @@ class EmbeddingIndex:
                 )
 
             # 批量转换为numpy数组（维度一致性已验证）
-            entry_vecs = np.array(embeddings, dtype=np.float32)
-            norm_vecs = np.array(norms, dtype=np.float32)
+            entry_vecs = numpy.array(embeddings, dtype=numpy.float32)
+            norm_vecs = numpy.array(norms, dtype=numpy.float32)
 
             # 批量点积（numpy优化）
-            dots = np.dot(entry_vecs, query_vec)
+            dots = numpy.dot(entry_vecs, query_vec)
 
             # 批量计算相似度
             sims = dots / (norm_vecs * query_norm)
 
             # 过滤阈值
-            valid_indices = np.where(sims >= min_score)[0]
+            valid_indices = numpy.where(sims >= min_score)[0]
 
             if len(valid_indices) == 0:
                 return []
 
             # Top-K索引（numpy排序）
             valid_scores = sims[valid_indices]
-            top_k_indices = np.argsort(valid_scores)[-limit:]
+            top_k_indices = numpy.argsort(valid_scores)[-limit:]
 
             # 反转排序（从高到低）
             top_k_indices = top_k_indices[::-1]

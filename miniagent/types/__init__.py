@@ -22,102 +22,104 @@
 
 from __future__ import annotations
 
-from miniagent.types.agent import (
-    AgentRunOptions,
-    AgentRunResult,
-    LoopDetectionConfig,
-    LoopDetectionResult,
-    LoopLevel,
-    PipelineResult,
-    PipelineStep,
-    PipelineStepRecord,
-    ToolCallResult,
-    ToolMonitorProtocol,
-    ToolStats,
-)
-from miniagent.types.config import (
-    AgentConfig,
-    ModelConfig,
-    WireAPI,
-)
-from miniagent.types.confirmation import (
-    ConfirmationRequest,
-    ConfirmationResult,
-    ConfirmationStage,
-    PlanConfirmationAction,
-)
-from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
-from miniagent.types.errors import (
-    FeishuConfigMissingError,
-    LarkOapiMissingError,
-    SandboxViolationError,
-)
-from miniagent.types.memory import (
-    FileMetadata,
-    GroundTruthFact,
-    MemoryEntry,
-    MemoryEntryInput,
-    MemoryStoreProtocol,
-    Session,
-    SessionManagerProtocol,
-    SessionMemory,
-    SessionOptions,
-)
-from miniagent.types.memory_context import (
-    MemoryContextProtocol,
-    MemoryHistoryProtocol,
-    MemoryInjectionResult,
-    MemorySearchProtocol,
-)
-from miniagent.types.planning import (
-    ContextStrategy,
-    EstimatedCost,
-    EstimatedTokens,
-    FallbackPlan,
-    OutputSpec,
-    PlanChunk,
-    PlanStep,
-    StructuredPlan,
-    SuggestedConfig,
-)
-from miniagent.types.protocols import (
-    ActivityLogProtocol,
-    ChannelRouterProtocol,
-    FeishuRuntimeProtocol,
-    KeywordIndexProtocol,
-    MessageQueueProtocol,
-    OnPlan,
-    OnThinking,
-    OnThinkingCallback,
-    OnToolCall,
-    OnToolFinish,
-    OnToolFinishCallback,
-    UnifiedEngineProtocol,
-)
-from miniagent.types.skill import (
-    ClawHubClientProtocol,
-    ClawHubSearchResult,
-    ClawHubSkillDetail,
-    Skill,
-    SkillEntry,
-    SkillMetadata,
-    SkillPackage,
-    SkillRegistryProtocol,
-)
-from miniagent.types.tool import (
-    ContextManagerProtocol,
-    ContextState,
-    RegisteredTool,
-    TokenEstimate,
-    Toolbox,
-    ToolContext,
-    ToolDefinition,
-    ToolHandler,
-    ToolPermission,
-    ToolRegistryProtocol,
-    ToolResult,
-    ToolRuntimePermission,
-)
+import importlib
+from typing import Any
+
+_LAZY_EXPORTS = {
+    "ActivityLogProtocol": "miniagent.types.protocols",
+    "AgentConfig": "miniagent.types.config",
+    "AgentRunOptions": "miniagent.types.agent",
+    "AgentRunResult": "miniagent.types.agent",
+    "ChannelRouterProtocol": "miniagent.types.protocols",
+    "ClawHubClientProtocol": "miniagent.types.skill",
+    "ClawHubSearchResult": "miniagent.types.skill",
+    "ClawHubSkillDetail": "miniagent.types.skill",
+    "ConfirmationRequest": "miniagent.types.confirmation",
+    "ConfirmationResult": "miniagent.types.confirmation",
+    "ConfirmationStage": "miniagent.types.confirmation",
+    "ContextManagerProtocol": "miniagent.types.tool",
+    "ContextState": "miniagent.types.tool",
+    "ContextStrategy": "miniagent.types.planning",
+    "ERROR_PREFIX": "miniagent.types.error_prefix",
+    "EstimatedCost": "miniagent.types.planning",
+    "EstimatedTokens": "miniagent.types.planning",
+    "FallbackPlan": "miniagent.types.planning",
+    "FeishuConfigMissingError": "miniagent.types.errors",
+    "FeishuRuntimeProtocol": "miniagent.types.protocols",
+    "FileMetadata": "miniagent.types.memory",
+    "GroundTruthFact": "miniagent.types.memory",
+    "KeywordIndexProtocol": "miniagent.types.protocols",
+    "LarkOapiMissingError": "miniagent.types.errors",
+    "LoopDetectionConfig": "miniagent.types.agent",
+    "LoopDetectionResult": "miniagent.types.agent",
+    "LoopLevel": "miniagent.types.agent",
+    "MemoryContextProtocol": "miniagent.types.memory_context",
+    "MemoryEntry": "miniagent.types.memory",
+    "MemoryEntryInput": "miniagent.types.memory",
+    "MemoryHistoryProtocol": "miniagent.types.memory_context",
+    "MemoryInjectionResult": "miniagent.types.memory_context",
+    "MemorySearchProtocol": "miniagent.types.memory_context",
+    "MemoryStoreProtocol": "miniagent.types.memory",
+    "MessageQueueProtocol": "miniagent.types.protocols",
+    "ModelConfig": "miniagent.types.config",
+    "OnPlan": "miniagent.types.protocols",
+    "OnThinking": "miniagent.types.protocols",
+    "OnThinkingCallback": "miniagent.types.protocols",
+    "OnToolCall": "miniagent.types.protocols",
+    "OnToolFinish": "miniagent.types.protocols",
+    "OnToolFinishCallback": "miniagent.types.protocols",
+    "OutputSpec": "miniagent.types.planning",
+    "PipelineResult": "miniagent.types.agent",
+    "PipelineStep": "miniagent.types.agent",
+    "PipelineStepRecord": "miniagent.types.agent",
+    "PlanChunk": "miniagent.types.planning",
+    "PlanConfirmationAction": "miniagent.types.confirmation",
+    "PlanStep": "miniagent.types.planning",
+    "RegisteredTool": "miniagent.types.tool",
+    "SUCCESS_PREFIX": "miniagent.types.error_prefix",
+    "SandboxViolationError": "miniagent.types.errors",
+    "Session": "miniagent.types.memory",
+    "SessionManagerProtocol": "miniagent.types.memory",
+    "SessionMemory": "miniagent.types.memory",
+    "SessionOptions": "miniagent.types.memory",
+    "Skill": "miniagent.types.skill",
+    "SkillEntry": "miniagent.types.skill",
+    "SkillMetadata": "miniagent.types.skill",
+    "SkillPackage": "miniagent.types.skill",
+    "SkillRegistryProtocol": "miniagent.types.skill",
+    "StructuredPlan": "miniagent.types.planning",
+    "SuggestedConfig": "miniagent.types.planning",
+    "TokenEstimate": "miniagent.types.tool",
+    "ToolCallResult": "miniagent.types.agent",
+    "ToolContext": "miniagent.types.tool",
+    "ToolDefinition": "miniagent.types.tool",
+    "ToolHandler": "miniagent.types.tool",
+    "ToolMonitorProtocol": "miniagent.types.agent",
+    "ToolPermission": "miniagent.types.tool",
+    "ToolRegistryProtocol": "miniagent.types.tool",
+    "ToolResult": "miniagent.types.tool",
+    "ToolRuntimePermission": "miniagent.types.tool",
+    "ToolStats": "miniagent.types.agent",
+    "Toolbox": "miniagent.types.tool",
+    "UnifiedEngineProtocol": "miniagent.types.protocols",
+    "WARNING_PREFIX": "miniagent.types.error_prefix",
+    "WireAPI": "miniagent.types.config",
+}
+
+
+def __getattr__(name: str) -> Any:
+    """Load aggregate type exports only when explicitly requested."""
+    module_name = _LAZY_EXPORTS.get(name)
+    if module_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    value = getattr(importlib.import_module(module_name), name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    """Expose lazy aggregate names to discovery and documentation tools."""
+    return sorted(set(globals()) | set(_LAZY_EXPORTS))
 
 __all__ = [
     # tool

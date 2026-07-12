@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from collections import Counter
@@ -138,63 +139,78 @@ async def _feishu_doc(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         return dep_err
 
     try:
-        if action == "create":
-            return await _action_create(args, ctx, cfg)
-        if action == "get":
-            return _action_get(args, cfg)
-        if action == "read":
-            return _action_read(args, cfg)
-        if action in ("write", "append"):
-            return _action_append(args, cfg, full_write=action == "write")
-        if action == "delete":
-            return _action_delete(args, cfg)
-        if action == "list_blocks":
-            return _action_list_blocks(args, cfg)
-        if action == "get_block":
-            return _action_get_block(args, cfg)
-        if action == "update_block":
-            return _action_update_block(args, cfg)
-        if action == "delete_block":
-            return _action_delete_block(args, cfg)
-        if action == "batch_update":
-            return _action_batch_update(args, cfg)
-        if action == "export_raw":
-            return _action_export_raw(args, ctx, cfg)
-        if action == "import_raw":
-            return _action_import_raw(args, ctx, cfg)
-        if action == "create_table":
-            return _action_create_table(args, cfg)
-        if action == "write_table_cells":
-            return _action_write_table_cells(args, cfg)
-        if action == "create_table_with_values":
-            return _action_create_table_with_values(args, cfg)
-        if action == "upload_image":
-            return _action_upload_image(args, ctx, cfg)
-        if action == "upload_file":
-            return _action_upload_file(args, ctx, cfg)
-        if action == "download_media":
-            return _action_download_media(args, ctx, cfg)
         if action == "upload_image_from_message":
             return await _action_upload_image_from_message(args, ctx, cfg)
-        if action == "copy":
-            return _action_copy(args, cfg)
-        if action == "move":
-            return _action_move(args, cfg)
-        if action == "list_permissions":
-            return _action_list_permissions(args, cfg)
-        if action == "add_permission":
-            return _action_add_permission(args, cfg)
-        if action == "remove_permission":
-            return _action_remove_permission(args, cfg)
-        if action == "search":
-            return _action_search(args, cfg)
+        return await asyncio.to_thread(
+            _dispatch_sync_doc_action,
+            action,
+            args,
+            ctx,
+            cfg,
+        )
     except Exception as e:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} feishu_doc.{action} 失败: {e}")
 
+
+def _dispatch_sync_doc_action(
+    action: str,
+    args: dict[str, Any],
+    ctx: ToolContext,
+    cfg: FeishuConfig,
+) -> ToolResult:
+    """Dispatch synchronous lark-oapi and filesystem actions in a worker thread."""
+    if action == "create":
+        return _action_create(args, ctx, cfg)
+    if action == "get":
+        return _action_get(args, cfg)
+    if action == "read":
+        return _action_read(args, cfg)
+    if action in ("write", "append"):
+        return _action_append(args, cfg, full_write=action == "write")
+    if action == "delete":
+        return _action_delete(args, cfg)
+    if action == "list_blocks":
+        return _action_list_blocks(args, cfg)
+    if action == "get_block":
+        return _action_get_block(args, cfg)
+    if action == "update_block":
+        return _action_update_block(args, cfg)
+    if action == "delete_block":
+        return _action_delete_block(args, cfg)
+    if action == "batch_update":
+        return _action_batch_update(args, cfg)
+    if action == "export_raw":
+        return _action_export_raw(args, ctx, cfg)
+    if action == "import_raw":
+        return _action_import_raw(args, ctx, cfg)
+    if action == "create_table":
+        return _action_create_table(args, cfg)
+    if action == "write_table_cells":
+        return _action_write_table_cells(args, cfg)
+    if action == "create_table_with_values":
+        return _action_create_table_with_values(args, cfg)
+    if action == "upload_image":
+        return _action_upload_image(args, ctx, cfg)
+    if action == "upload_file":
+        return _action_upload_file(args, ctx, cfg)
+    if action == "download_media":
+        return _action_download_media(args, ctx, cfg)
+    if action == "copy":
+        return _action_copy(args, cfg)
+    if action == "move":
+        return _action_move(args, cfg)
+    if action == "list_permissions":
+        return _action_list_permissions(args, cfg)
+    if action == "add_permission":
+        return _action_add_permission(args, cfg)
+    if action == "remove_permission":
+        return _action_remove_permission(args, cfg)
+    if action == "search":
+        return _action_search(args, cfg)
     return ToolResult(success=False, content=f"{WARNING_PREFIX} 未处理的 action。")
 
 
-async def _action_create(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig) -> ToolResult:
+def _action_create(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig) -> ToolResult:
     """创建飞书云文档。
 
     Args:
@@ -638,7 +654,7 @@ async def _action_upload_image_from_message(
     data, _ = await download_message_resource(
         cfg.app_id, cfg.app_secret, message_id=mid, file_key=fk, type_="image"
     )
-    tok = upload_doc_image_from_bytes(cfg, doc_id, data)
+    tok = await asyncio.to_thread(upload_doc_image_from_bytes, cfg, doc_id, data)
     return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已从消息插入图片，file_token={tok}")
 
 

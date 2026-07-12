@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -75,8 +76,11 @@ async def process_cli_file_markers(
             file_name = os.path.basename(resolved)
             file_size = os.path.getsize(resolved)
             try:
-                with open(resolved, "rb") as stream:
-                    header = stream.read(32)
+                def _read_header() -> bytes:
+                    with open(resolved, "rb") as stream:
+                        return stream.read(32)
+
+                header = await asyncio.to_thread(_read_header)
                 mime_type = detect_mime_from_magic(header) or "application/octet-stream"
             except Exception as error:
                 _logger.debug("读取文件 MIME 失败 (%s): %s", resolved, error)
@@ -89,7 +93,11 @@ async def process_cli_file_markers(
             else:
                 file_type = "binary"
 
-            description = _read_file_description(resolved, file_type)
+            description = await asyncio.to_thread(
+                _read_file_description,
+                resolved,
+                file_type,
+            )
             if (
                 file_type == "image"
                 and runtime_ctx is not None

@@ -172,7 +172,8 @@ async def _list_dir_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResul
     max_entries = max(1, min(max_entries, 2000))
 
     p = Path(dir_path)
-    if not p.exists() or not p.is_dir():
+    exists, is_dir = await asyncio.to_thread(lambda: (p.exists(), p.is_dir()))
+    if not exists or not is_dir:
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 目录不存在: {dir_path}")
 
     def _format_entry(item: Path) -> str:
@@ -211,14 +212,17 @@ async def _list_dir_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResul
                 if item.is_dir() and depth < max_depth:
                     _walk(item, prefix + "  ", depth + 1)
 
-        _walk(p, "", 1)
+        await asyncio.to_thread(_walk, p, "", 1)
         content = "\n".join(entries)
         if truncated:
             content += f"\n... (已截断，最多 {max_entries} 条；可调 max_entries / max_depth)"
         return ToolResult(success=True, content=content)
 
-    items = sorted(p.iterdir(), key=lambda x: (not x.is_dir(), x.name))
-    lines = [_format_entry(e) for e in items]
+    def _list_lines() -> list[str]:
+        items = sorted(p.iterdir(), key=lambda x: (not x.is_dir(), x.name))
+        return [_format_entry(entry) for entry in items]
+
+    lines = await asyncio.to_thread(_list_lines)
     return ToolResult(success=True, content="\n".join(lines))
 
 
@@ -228,7 +232,7 @@ async def _create_dir_handler(args: dict[str, Any], ctx: ToolContext) -> ToolRes
     if path_err:
         return path_err
     recursive = args.get("recursive", True)
-    os.makedirs(dir_path, exist_ok=bool(recursive))
+    await asyncio.to_thread(os.makedirs, dir_path, exist_ok=bool(recursive))
     return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已创建目录: {dir_path}")
 
 
@@ -241,14 +245,17 @@ async def _move_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
     if dst_err:
         return dst_err
 
-    if not os.path.exists(src):
+    if not await asyncio.to_thread(os.path.exists, src):
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 源文件不存在: {src}")
 
     try:
-        parent = os.path.dirname(dst)
-        if parent:
-            os.makedirs(parent, exist_ok=True)
-        shutil.move(src, dst)
+        def _move() -> None:
+            parent = os.path.dirname(dst)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            shutil.move(src, dst)
+
+        await asyncio.to_thread(_move)
         return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已移动: {src} → {dst}")
     except OSError as e:
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 移动失败: {e}")
@@ -263,14 +270,17 @@ async def _copy_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
     if dst_err:
         return dst_err
 
-    if not os.path.exists(src):
+    if not await asyncio.to_thread(os.path.exists, src):
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 源文件不存在: {src}")
 
     try:
-        parent = os.path.dirname(dst)
-        if parent:
-            os.makedirs(parent, exist_ok=True)
-        shutil.copy2(src, dst)
+        def _copy() -> None:
+            parent = os.path.dirname(dst)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            shutil.copy2(src, dst)
+
+        await asyncio.to_thread(_copy)
         return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已复制: {src} → {dst}")
     except OSError as e:
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 复制失败: {e}")
@@ -284,12 +294,17 @@ async def _delete_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolRe
     recursive = bool(args.get("recursive", False))
 
     p = Path(file_path)
-    if p.is_dir():
-        if not recursive:
-            return ToolResult(success=False, content=f"{ERROR_PREFIX} 删除目录需设置 recursive=true")
-        shutil.rmtree(file_path)
-    else:
-        p.unlink()
+    is_dir = await asyncio.to_thread(p.is_dir)
+    if is_dir and not recursive:
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 删除目录需设置 recursive=true")
+
+    def _delete() -> None:
+        if is_dir:
+            shutil.rmtree(file_path)
+        else:
+            p.unlink()
+
+    await asyncio.to_thread(_delete)
 
     return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已删除: {file_path}")
 

@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -570,8 +571,11 @@ def create_feishu_handler(
         dest_name = f"{root}_{tag}{ext}" if root else f"file_{tag}{ext or '.bin'}"
         dest_path = os.path.join(incoming, dest_name)
 
-        with open(dest_path, "wb") as f:
-            f.write(data)
+        def _write_download() -> None:
+            with open(dest_path, "wb") as file:
+                file.write(data)
+
+        await asyncio.to_thread(_write_download)
 
         try:
             rel = os.path.relpath(dest_path, base)

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from typing import Any
@@ -56,7 +57,7 @@ def _parse_fields_arg(raw: Any) -> dict[str, Any] | None:
     return None
 
 
-async def _feishu_bitable(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+def _feishu_bitable_sync(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     _ = ctx
     action = str(args.get("action") or "").strip().lower()
     if action not in _SUPPORTED_ACTIONS:
@@ -193,6 +194,11 @@ async def _feishu_bitable(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} feishu_bitable.{action} 失败: {e}")
 
     return ToolResult(success=False, content=f"{WARNING_PREFIX} 未处理的 action。")
+
+
+async def _feishu_bitable(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    """Run synchronous lark-oapi Bitable calls outside the event loop."""
+    return await asyncio.to_thread(_feishu_bitable_sync, args, ctx)
 
 
 _feishu_bitable_schema = {

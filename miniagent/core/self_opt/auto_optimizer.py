@@ -39,7 +39,7 @@ from miniagent.infrastructure.logger import get_logger
 _logger = get_logger(__name__)
 
 
-async def _apply_file_change(change: FileChange, root: str = "") -> bool:
+def _apply_file_change_sync(change: FileChange, root: str = "") -> bool:
     """应用单个文件变更。
 
     Args:
@@ -85,6 +85,11 @@ async def _apply_file_change(change: FileChange, root: str = "") -> bool:
     except (OSError, PermissionError) as e:
         _logger.error("应用变更失败 [%s] %s: %s", change.action, change.path, e)
         return False
+
+
+async def _apply_file_change(change: FileChange, root: str = "") -> bool:
+    """Apply filesystem mutations in a worker so optimizer I/O cannot stall the loop."""
+    return await asyncio.to_thread(_apply_file_change_sync, change, root)
 
 
 def _backup_file(path: str) -> tuple[bool, bytes | None]:

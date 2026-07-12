@@ -1,6 +1,6 @@
 # 性能测试与优化
 
-> Mini Agent Python | 版本: 2.1.0 | 最后更新: 2026-07-11 | 与 `miniagent.__version__` 对齐 | 补充 [ENGINEERING.md](ENGINEERING.md)
+> Mini Agent Python | 版本: 2.1.0 | 最后更新: 2026-07-12 | 与 `miniagent.__version__` 对齐 | 补充 [ENGINEERING.md](ENGINEERING.md)
 
 本文分两部分：
 
@@ -94,9 +94,10 @@ python scripts/compare_perf_snapshots.py tests/perf_baselines/my-baseline.json p
 set MINIAGENT_REAL_API_STRESS=1
 set MINIAGENT_REAL_API_PERF_DIR=workspaces/logs/perf
 python -m pytest tests/evaluation/test_perf_real_api.py -v -s
+python scripts/perf_trace_real_api.py --prompt "请完成一个受控任务" --runs 1
 ```
 
-压测使用当前 OpenAI-compatible 配置（`model.base_url`、`model.model`、`OPENAI_API_KEY`）。产物默认写入 `workspaces/logs/perf/`，属于过程性文件，不提交到仓库。Trace 内容策略为 `metrics_only`：只记录模型、耗时、token、状态、会话/请求关联 ID、错误类型等指标，不记录完整 prompt、response 或密钥。
+压测使用当前 OpenAI-compatible 配置。`perf_trace_real_api.py` 通过正式应用组合根构造依赖，在每次运行独立的 state、knowledge 和 trace 目录中执行，并在退出时关闭 OpenAI、memory、ClawHub、队列与 Trace writer；它只在内存中叠加隔离路径，不改写或复制 `config.user.json`。产物默认写入 `workspaces/logs/perf/`，属于过程性文件，不提交到仓库。Trace 内容策略强制为 `metrics_only`：只记录耗时、token、状态、会话/请求关联 ID、错误类型等指标，不记录完整 prompt、response 或密钥。
 
 ### 4. 基线文件格式（`tests/perf_baselines/`）
 
@@ -133,6 +134,8 @@ CI **不**依赖基线文件是否存在；可选 workflow 仅上传当次脚本
 - **预编译分词正则**：[`miniagent/memory/keyword_index.py`](../miniagent/memory/keyword_index.py) 的 `extract_keywords()` 使用模块级预编译 `_RE_NON_ALNUM_CJK` / `_RE_CJK_ONLY`，避免每次 `re.sub` 重新编译。
 - **执行器 import 提升**：[`miniagent/core/executor.py`](../miniagent/core/executor.py) 的 `ToolResult` import 从 `_run_tool` 内部移到模块顶部，节省每次工具调用的 import 开销。
 - **Trace writer 背压与统计真实性**：[`miniagent/infrastructure/tracing.py`](../miniagent/infrastructure/tracing.py) 的 `AsyncTraceWriter` 使用可配置有界队列，队列满时非阻塞丢弃并暴露 `dropped_count`；[`miniagent/infrastructure/trace_stats.py`](../miniagent/infrastructure/trace_stats.py) 聚合 `trace-YYYY-MM-DD.jsonl` 与 `trace-YYYY-MM-DD-pid*.jsonl`，日报不会漏读真实运行分片。
+- **启动导入图**：`miniagent.engine`、`miniagent.memory` 与 `miniagent.types` 聚合包使用惰性导出；OpenAI schema 类型仅在静态类型检查时导入。2026-07-12 同机基线中，`engine.main` 冷导入从约 4.75s / 45.05MiB 降至 0.79s / 17.74MiB，合成 tracemalloc 峰值从 44.21MiB 降至 21.18MiB。导出兼容性和全新进程循环导入由 `tests/test_package_lazy_imports.py` 覆盖。
+- **明确的无工具执行**：`StructuredPlan.tools_enabled=False` 区分“禁止工具”与 `required_toolboxes=[]` 的“不过滤”语义。仅在调用方没有工具箱或用户明确要求不调用工具时关闭工具；其他简单任务仍保留原工具能力。真实同提示对比中执行输入 token 约下降 33%，端到端耗时约下降 26%。
 
 #### 5.2 待验证 / 剖析指引
 

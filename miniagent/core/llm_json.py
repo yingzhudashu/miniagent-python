@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from typing import TYPE_CHECKING, Any
 
 from miniagent.core._openai_compat import (
@@ -206,6 +207,7 @@ async def llm_json(
         json_object: bool,
         attempt: int,
         failure_category: str | None = None,
+        duration_ms: int | None = None,
     ) -> None:
         if not trace_phase:
             return
@@ -221,6 +223,10 @@ async def llm_json(
             "structured_stream": responses_wire and json_object,
             "failure_category": failure_category,
         }
+        if event_type == "llm.request":
+            payload.update({"message_count": 2, "tool_count": 0})
+        if event_type == "llm.response" and duration_ms is not None:
+            payload["duration_ms"] = duration_ms
         if event_type == "llm.response" and resp is not None:
             _usage = getattr(resp, "usage", None)
             payload["usage"] = (
@@ -239,6 +245,7 @@ async def llm_json(
 
     for attempt in range(max_attempts):
         attempt_number = attempt + 1
+        attempt_start_ns = time.monotonic_ns()
         resp = None
         _emit_llm_trace(
             "llm.request",
@@ -279,6 +286,7 @@ async def llm_json(
                     json_object=used_json_object,
                     attempt=attempt_number,
                     failure_category=failure.category,
+                    duration_ms=(time.monotonic_ns() - attempt_start_ns) // 1_000_000,
                 )
                 if responses_wire and failure.retryable and attempt < max_attempts - 1:
                     next_attempt = attempt_number + 1
@@ -314,6 +322,7 @@ async def llm_json(
             json_object=used_json_object,
             attempt=attempt_number,
             failure_category=failure_category,
+            duration_ms=(time.monotonic_ns() - attempt_start_ns) // 1_000_000,
         )
         if parsed is not None:
             return parsed

@@ -82,29 +82,29 @@ def get_active_processes() -> list[dict]:
 async def _kill_tree_windows(pid: int) -> None:
     """Windows：终止进程及其所有子进程（任务树）。"""
     try:
-        subprocess.check_output(
-            ["taskkill", "/PID", str(pid), "/T", "/F"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=10,
+        taskkill = await asyncio.create_subprocess_exec(
+            "taskkill",
+            "/PID",
+            str(pid),
+            "/T",
+            "/F",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
         )
-        _logger.debug("已终止进程树 PID=%d", pid)
-    except subprocess.CalledProcessError as e:
-        _logger.debug("进程可能已自行退出: %s", e)
-    except subprocess.TimeoutExpired:
+        try:
+            return_code = await asyncio.wait_for(taskkill.wait(), timeout=10.0)
+        except asyncio.TimeoutError:
+            taskkill.kill()
+            await taskkill.wait()
+            raise
+        if return_code == 0:
+            _logger.debug("已终止进程树 PID=%d", pid)
+        else:
+            _logger.debug("进程可能已自行退出: PID=%d, code=%d", pid, return_code)
+    except asyncio.TimeoutError:
         _logger.warning("终止进程 PID=%d 超时", pid)
     except FileNotFoundError:
-        # taskkill 不存在，回退到单进程终止
-        try:
-            # 使用 subprocess.run 同步执行，避免 asyncio 管道问题
-            subprocess.run(
-                ["taskkill", "/PID", str(pid), "/F"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=5,
-            )
-        except Exception as e:
-            _logger.debug("终止进程回退失败: %s", e)
+        _logger.debug("taskkill 不可用，无法终止 Windows 进程树 PID=%d", pid)
 
 
 async def _kill_unix(proc: asyncio.subprocess.Process) -> None:

@@ -17,31 +17,44 @@
 
 from __future__ import annotations
 
-from miniagent.memory.activity_log import ActivityLogger
-from miniagent.memory.context import DefaultContextManager
-from miniagent.memory.embedding_search import (
-    EmbeddingIndex,
-    EmbeddingSearchProvider,
-    embedding_search_enabled,
-)
-from miniagent.memory.keyword_index import (
-    KeywordIndex,
-    extract_keywords,
-    format_search_results,
-)
-from miniagent.memory.memory_context_service import (
-    DefaultMemoryContext,
-    DefaultMemoryHistory,
-    DefaultMemorySearch,
-    create_default_memory_context,
-)
-from miniagent.memory.runtime import MemoryRuntime, create_memory_runtime
-from miniagent.memory.store import (
-    DefaultMemoryStore,
-    extract_facts,
-    format_memory_for_prompt,
-    generate_turn_summary,
-)
+import importlib
+from typing import Any
+
+_LAZY_EXPORTS = {
+    "ActivityLogger": "miniagent.memory.activity_log",
+    "DefaultContextManager": "miniagent.memory.context",
+    "DefaultMemoryContext": "miniagent.memory.memory_context_service",
+    "DefaultMemoryHistory": "miniagent.memory.memory_context_service",
+    "DefaultMemorySearch": "miniagent.memory.memory_context_service",
+    "DefaultMemoryStore": "miniagent.memory.store",
+    "EmbeddingIndex": "miniagent.memory.embedding_search",
+    "EmbeddingSearchProvider": "miniagent.memory.embedding_search",
+    "KeywordIndex": "miniagent.memory.keyword_index",
+    "MemoryRuntime": "miniagent.memory.runtime",
+    "create_default_memory_context": "miniagent.memory.memory_context_service",
+    "create_memory_runtime": "miniagent.memory.runtime",
+    "embedding_search_enabled": "miniagent.memory.embedding_search",
+    "extract_facts": "miniagent.memory.store",
+    "extract_keywords": "miniagent.memory.keyword_index",
+    "format_memory_for_prompt": "miniagent.memory.store",
+    "format_search_results": "miniagent.memory.keyword_index",
+    "generate_turn_summary": "miniagent.memory.store",
+}
+
+
+def __getattr__(name: str) -> Any:
+    """Load historical aggregate exports only when explicitly requested."""
+    module_name = _LAZY_EXPORTS.get(name)
+    if module_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    value = getattr(importlib.import_module(module_name), name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    """Expose lazy aggregate names to discovery and documentation tools."""
+    return sorted(set(globals()) | set(_LAZY_EXPORTS))
 
 __all__ = [
     "DefaultContextManager",

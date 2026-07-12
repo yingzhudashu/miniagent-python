@@ -40,11 +40,14 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from openai import AsyncOpenAI
+    from openai.types.chat import ChatCompletionMessageParam, ChatCompletionToolParam
 
     from miniagent.contracts.knowledge import KnowledgeRegistryProtocol
     from miniagent.engine.cli_state import CliLoopState
     from miniagent.types.skill import ClawHubClientProtocol
-from openai.types.chat import ChatCompletionMessageParam, ChatCompletionToolParam
+else:
+    ChatCompletionMessageParam = dict[str, Any]
+    ChatCompletionToolParam = dict[str, Any]
 
 # ============================================================================
 # 权限与工具箱

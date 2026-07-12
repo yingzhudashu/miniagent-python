@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from miniagent.core.agent import _create_default_plan, _user_forbids_tools
 from miniagent.infrastructure.registry import DefaultToolRegistry
 from miniagent.types.config import AgentConfig
 from miniagent.types.planning import StructuredPlan
@@ -91,3 +92,33 @@ def test_auto_with_required_merges_like_toolbox_mode() -> None:
     names = {t["function"]["name"] for t in tools}
     assert "core_one" in names
     assert "fr" in names
+
+
+def test_plan_can_explicitly_disable_all_tools() -> None:
+    from miniagent.core.executor import _resolve_exec_tools
+
+    reg = DefaultToolRegistry()
+    reg.register(
+        "core_one",
+        ToolDefinition(
+            schema=_schema("core_one"),
+            handler=_h,
+            permission="allowlist",
+            help_text="",
+            toolbox=None,
+        ),
+    )
+    plan = StructuredPlan(
+        summary="pure conversation",
+        required_toolboxes=[],
+        tools_enabled=False,
+    )
+
+    assert _resolve_exec_tools(reg, AgentConfig(), plan, None) == []
+
+
+def test_default_plan_preserves_explicit_no_tool_intent() -> None:
+    assert _user_forbids_tools("请直接回答，不要调用工具。") is True
+    assert _user_forbids_tools("Please answer without tools.") is True
+    assert _user_forbids_tools("读取 README.md") is False
+    assert _create_default_plan(tools_enabled=False).tools_enabled is False

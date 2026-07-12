@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from copy import deepcopy
 from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -153,6 +154,28 @@ class JsonConfigLoader:
         """Return a fresh loader for the same paths without mutating this instance."""
         candidate = JsonConfigLoader(self._defaults_path, self._user_path)
         candidate.reload(strict=strict)
+        return candidate
+
+    def with_runtime_overrides(self, overrides: dict[str, Any]) -> JsonConfigLoader:
+        """Return an in-memory overlay without writing either configuration file.
+
+        Top-level mapping sections are shallow-merged, matching
+        :meth:`get_section`; scalar sections are replaced. Deep copies prevent
+        callers from mutating this loader or the returned candidate through a
+        shared nested object. This is intended for isolated harnesses and
+        embedded runtimes, not persistent user configuration changes.
+        """
+        self._load()
+        candidate = JsonConfigLoader(self._defaults_path, self._user_path)
+        candidate._defaults = deepcopy(self._defaults)
+        candidate._user = deepcopy(self._user)
+        for section, value in overrides.items():
+            current = candidate._user.get(section)
+            if isinstance(current, dict) and isinstance(value, dict):
+                candidate._user[section] = {**current, **deepcopy(value)}
+            else:
+                candidate._user[section] = deepcopy(value)
+        candidate._loaded = True
         return candidate
 
     def get_user_section(self, section: str) -> dict[str, Any]:

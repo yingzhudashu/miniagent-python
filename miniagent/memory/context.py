@@ -21,11 +21,16 @@ import json
 import re
 import time
 from hashlib import md5
+from typing import TYPE_CHECKING, Any
 
-from openai.types.chat import (
-    ChatCompletionMessageParam,
-    ChatCompletionToolParam,
-)
+if TYPE_CHECKING:
+    from openai.types.chat import (
+        ChatCompletionMessageParam,
+        ChatCompletionToolParam,
+    )
+else:
+    ChatCompletionMessageParam = dict[str, Any]
+    ChatCompletionToolParam = dict[str, Any]
 
 from miniagent.infrastructure.json_config import get_config
 from miniagent.types.tool import ContextManagerProtocol, ContextState, TokenEstimate

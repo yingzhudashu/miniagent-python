@@ -445,6 +445,23 @@ _download_file_schema = {
 }
 
 
+def _open_binary_writer(path: str) -> Any:
+    return open(path, "wb")
+
+
+def _write_binary_file(path: str, data: bytes) -> None:
+    with open(path, "wb") as file:
+        file.write(data)
+
+
+def _read_sync_http_response(response: Any) -> tuple[str, bytes]:
+    try:
+        content_type = response.headers.get("content-type", "application/octet-stream")
+        return content_type, response.read()
+    finally:
+        response.close()
+
+
 async def _download_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     """下载 HTTP 文件到沙箱目录。
 
@@ -524,17 +541,29 @@ async def _download_file_handler(args: dict[str, Any], ctx: ToolContext) -> Tool
                     # 再次检查 Content-Type
                     content_type = resp.headers.get("content-type", content_type)
 
-                    with open(save_path, "wb") as f:
-                        for chunk in resp.iter_bytes(chunk_size=8192):
+                    file = await asyncio.to_thread(_open_binary_writer, save_path)
+                    pending = bytearray()
+                    too_large = False
+                    try:
+                        async for chunk in resp.aiter_bytes(chunk_size=65536):
                             total += len(chunk)
                             if total > max_size_bytes:
-                                f.close()
-                                os.remove(save_path)
-                                return ToolResult(
-                                    success=False,
-                                    content=f"{ERROR_PREFIX} 下载超过限制: {total / 1024 / 1024:.1f}MB > {max_size_mb}MB",
-                                )
-                            f.write(chunk)
+                                too_large = True
+                                break
+                            pending.extend(chunk)
+                            if len(pending) >= 1024 * 1024:
+                                await asyncio.to_thread(file.write, bytes(pending))
+                                pending.clear()
+                        if pending and not too_large:
+                            await asyncio.to_thread(file.write, bytes(pending))
+                    finally:
+                        await asyncio.to_thread(file.close)
+                    if too_large:
+                        await asyncio.to_thread(os.remove, save_path)
+                        return ToolResult(
+                            success=False,
+                            content=f"{ERROR_PREFIX} 下载超过限制: {total / 1024 / 1024:.1f}MB > {max_size_mb}MB",
+                        )
             except Exception as e:
                 # 清理部分下载的文件
                 if os.path.exists(save_path):
@@ -546,20 +575,20 @@ async def _download_file_handler(args: dict[str, Any], ctx: ToolContext) -> Tool
 
     except ImportError:
         # 无 httpx，使用 urllib 回退
-        import asyncio
         from urllib.request import urlopen
 
         try:
             resp_sync = await asyncio.to_thread(urlopen, url, timeout=timeout)
-            content_type = resp_sync.headers.get("content-type", "application/octet-stream")
-            data = resp_sync.read()
+            content_type, data = await asyncio.to_thread(
+                _read_sync_http_response,
+                resp_sync,
+            )
             if len(data) > max_size_bytes:
                 return ToolResult(
                     success=False,
                     content=f"{ERROR_PREFIX} 文件过大: {len(data) / 1024 / 1024:.1f}MB > {max_size_mb}MB",
                 )
-            with open(save_path, "wb") as f:
-                f.write(data)
+            await asyncio.to_thread(_write_binary_file, save_path, data)
             total = len(data)
         except Exception as e:
             return ToolResult(success=False, content=f"{ERROR_PREFIX} 下载失败: {e}")

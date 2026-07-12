@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 from typing import Any, cast
 
 from miniagent.contracts.knowledge import KnowledgeRegistryProtocol
@@ -195,6 +196,7 @@ async def generate_plan(
     failure_history: list[str] = []
 
     for attempt in range(PLANNER_MAX_RETRIES):
+        attempt_start_ns = time.monotonic_ns()
         try:
             use_structured_stream = wire_api == "responses" and use_json_object
             emit_trace(
@@ -211,6 +213,10 @@ async def generate_plan(
                         "temperature" not in attempt_kw and "top_p" not in attempt_kw
                     ),
                     "structured_stream": use_structured_stream,
+                    "message_count": len(
+                        json_object_messages if use_json_object else messages
+                    ),
+                    "tool_count": 0,
                 }
             )
             safe_agent_debug_log(
@@ -288,6 +294,7 @@ async def generate_plan(
                     "incomplete_reason": response.incomplete_reason,
                     "finish_reason": response.finish_reason,
                     "failure_category": failure.category if failure else None,
+                    "duration_ms": (time.monotonic_ns() - attempt_start_ns) // 1_000_000,
                     "usage": _plan_usage.model_dump()
                     if _plan_usage is not None and hasattr(_plan_usage, "model_dump")
                     else None,
@@ -345,6 +352,7 @@ async def generate_plan(
                         "model": attempt_kw["model"],
                         "status_code": planner_failure.status_code,
                         "failure_category": planner_failure.category,
+                        "duration_ms": (time.monotonic_ns() - attempt_start_ns) // 1_000_000,
                     }
                 )
             safe_agent_debug_log(

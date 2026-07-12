@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import replace
 from typing import Any
 
@@ -80,12 +81,15 @@ async def _read_knowledge_file_handler(args: dict[str, Any], ctx: ToolContext) -
         if not full_path:
             return ToolResult(success=False, content=f"{WARNING_PREFIX} 文件不存在: {file_path}")
 
-        try:
-            with open(full_path, encoding="utf-8") as f:
-                content = f.read()
-        except UnicodeDecodeError:
-            with open(full_path, encoding="gbk") as f:
-                content = f.read()
+        def _read_content() -> str:
+            try:
+                with open(full_path, encoding="utf-8") as file:
+                    return file.read()
+            except UnicodeDecodeError:
+                with open(full_path, encoding="gbk") as file:
+                    return file.read()
+
+        content = await asyncio.to_thread(_read_content)
 
         max_chars = int(get_config("knowledge.max_file_chars", KNOWLEDGE_MAX_FILE_CHARS))
         if len(content) > max_chars:

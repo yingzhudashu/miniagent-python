@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import tempfile
 import threading
 import time
 from collections.abc import Callable
@@ -25,6 +26,17 @@ from pathlib import Path
 from typing import Any
 
 TraceHook = Callable[[dict[str, Any]], None]
+
+
+class _ExcludeSessionCommand:
+    """FIFO maintenance command processed by the sole writer thread."""
+
+    __slots__ = ("done", "removed", "session_key")
+
+    def __init__(self, session_key: str) -> None:
+        self.session_key = session_key
+        self.done = threading.Event()
+        self.removed = 0
 
 _hooks: list[TraceHook] = []
 
@@ -72,6 +84,40 @@ _PERSISTENCE_PREVIEW_KEYS = {
     "error_preview",
     "location",
 }
+_USAGE_SCALAR_KEYS = {
+    "completion_tokens",
+    "input_tokens",
+    "output_tokens",
+    "prompt_tokens",
+    "total_tokens",
+}
+_USAGE_DETAIL_KEYS = {
+    "completion_tokens_details",
+    "input_tokens_details",
+    "output_tokens_details",
+    "prompt_tokens_details",
+}
+
+
+def _sanitize_usage_metrics(usage: dict[Any, Any]) -> dict[str, Any]:
+    """Keep only numeric token counters from an SDK usage payload."""
+    sanitized: dict[str, Any] = {}
+    for key, value in usage.items():
+        if not isinstance(key, str):
+            continue
+        if key in _USAGE_SCALAR_KEYS and isinstance(value, int | float) and not isinstance(value, bool):
+            sanitized[key] = value
+        elif key in _USAGE_DETAIL_KEYS and isinstance(value, dict):
+            details = {
+                detail_key: detail_value
+                for detail_key, detail_value in value.items()
+                if isinstance(detail_key, str)
+                and isinstance(detail_value, int | float)
+                and not isinstance(detail_value, bool)
+            }
+            if details:
+                sanitized[key] = details
+    return sanitized
 
 
 class AsyncTraceWriter:
@@ -112,7 +158,9 @@ class AsyncTraceWriter:
         if overflow_policy not in {TRACE_OVERFLOW_DROP_OLDEST, TRACE_OVERFLOW_DROP_NEWEST}:
             overflow_policy = TRACE_OVERFLOW_DROP_OLDEST
         self.overflow_policy = overflow_policy
-        self._queue: queue.Queue[dict[str, Any] | None] = queue.Queue(maxsize=self.queue_max_size)
+        self._queue: queue.Queue[dict[str, Any] | _ExcludeSessionCommand | None] = queue.Queue(
+            maxsize=self.queue_max_size
+        )
         self._writer_thread: threading.Thread | None = None
         self._shutdown = False
         self._file_handle: Any = None
@@ -125,6 +173,8 @@ class AsyncTraceWriter:
         self._write_error_count = 0
         self._drop_warned = False
         self._serialization_warned = False
+        self._excluded_sessions: set[str] = set()
+        self._redacted_count = 0
 
     def start(self, file_path: Path) -> None:
         """启动后台写入线程。
@@ -195,19 +245,48 @@ class AsyncTraceWriter:
                 if self.overflow_policy != TRACE_OVERFLOW_DROP_OLDEST:
                     return
                 try:
-                    self._queue.get_nowait()
+                    oldest = self._queue.get_nowait()
                 except queue.Empty:
                     pass
+                else:
+                    if isinstance(oldest, _ExcludeSessionCommand):
+                        # Maintenance commands must never be sacrificed for a
+                        # trace event. Requeue it and drop the newest event.
+                        try:
+                            self._queue.put_nowait(oldest)
+                        except queue.Full:
+                            pass
+                        return
                 try:
                     self._queue.put_nowait(event)
                 except queue.Full:
                     pass
+
+    def exclude_session(self, session_key: str, *, timeout: float = 5.0) -> int:
+        """Remove one session from the active shard and reject future events.
+
+        The command shares the event FIFO, so all events accepted before it are
+        either filtered or persisted before the sole writer thread rewrites the
+        file. No second thread mutates a file while its writer handle is active.
+        """
+        normalized = (session_key or "").strip()
+        if not normalized or self._shutdown:
+            return 0
+        self._excluded_sessions.add(normalized)
+        command = _ExcludeSessionCommand(normalized)
+        try:
+            self._queue.put(command, timeout=max(0.01, timeout))
+        except queue.Full:
+            return 0
+        command.done.wait(timeout=max(0.01, timeout))
+        return command.removed
 
     def _writer_loop(self) -> None:
         """后台线程：批量写入循环。"""
         while not (self._shutdown and self._queue.empty()):
             buffer: list[str] = []
             stop_after_batch = False
+            maintenance: _ExcludeSessionCommand | None = None
             try:
                 # 无事件时最多每 batch_interval 唤醒一次；收到首事件后再按同一
                 # interval 聚合后续事件，避免旧实现每 10ms 空轮询且低流量逐条 flush。
@@ -217,13 +296,36 @@ class AsyncTraceWriter:
                     continue
                 if first is None:
                     stop_after_batch = self._shutdown
+                elif isinstance(first, _ExcludeSessionCommand):
+                    maintenance = first
                 else:
                     serialized = self._serialize_event(first)
                     if serialized is not None:
                         buffer.append(serialized)
 
                 deadline = time.monotonic() + self.batch_interval
-                while not stop_after_batch and len(buffer) < self.batch_size:
+                while (
+                    not stop_after_batch
+                    and maintenance is None
+                    and len(buffer) < self.batch_size
+                ):
+                    if self._shutdown:
+                        # 关闭期间不会再接收新事件，因此只排空当前队列，不能继续
+                        # 等待完整 batch_interval；否则大 interval 会令 shutdown
+                        # 超过 join timeout 并在 writer 尚未退出时关闭文件句柄。
+                        try:
+                            event = self._queue.get_nowait()
+                        except queue.Empty:
+                            break
+                        if event is None:
+                            stop_after_batch = True
+                        elif isinstance(event, _ExcludeSessionCommand):
+                            maintenance = event
+                        else:
+                            serialized = self._serialize_event(event)
+                            if serialized is not None:
+                                buffer.append(serialized)
+                        continue
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
                         break
@@ -231,6 +333,8 @@ class AsyncTraceWriter:
                         event = self._queue.get(timeout=remaining)
                         if event is None:
                             stop_after_batch = self._shutdown
+                        elif isinstance(event, _ExcludeSessionCommand):
+                            maintenance = event
                         else:
                             serialized = self._serialize_event(event)
                             if serialized is not None:
@@ -247,6 +351,11 @@ class AsyncTraceWriter:
                         self._write_error_count += 1
                         self._dropped_count += len(buffer)
                         _logger.debug("Trace batch write failed: %s", e)
+                if maintenance is not None:
+                    maintenance.removed = self._rewrite_without_session(
+                        maintenance.session_key
+                    )
+                    maintenance.done.set()
             except Exception as e:
                 _logger.debug("Trace writer loop error: %s", e)
             if stop_after_batch and self._queue.empty():
@@ -254,6 +363,9 @@ class AsyncTraceWriter:
 
     def _serialize_event(self, event: dict[str, Any]) -> str | None:
         """Serialize one event compactly and account for malformed payloads."""
+        if str(event.get("session_key") or "") in self._excluded_sessions:
+            self._redacted_count += 1
+            return None
         try:
             return json.dumps(
                 event,
@@ -272,6 +384,70 @@ class AsyncTraceWriter:
                 )
             return None
 
+    def _rewrite_without_session(self, session_key: str) -> int:
+        """Stream-rewrite the active file while running on the writer thread."""
+        file_path = self._file_path
+        if file_path is None:
+            return 0
+        temp_path: Path | None = None
+        removed = 0
+        try:
+            if self._file_handle is not None:
+                self._file_handle.flush()
+                self._file_handle.close()
+                self._file_handle = None
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=file_path.parent,
+                prefix=f".{file_path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as target:
+                temp_path = Path(target.name)
+                if file_path.exists():
+                    with file_path.open(encoding="utf-8") as source:
+                        for line in source:
+                            stripped = line.strip()
+                            should_remove = False
+                            if stripped:
+                                try:
+                                    parsed = json.loads(stripped)
+                                    should_remove = (
+                                        isinstance(parsed, dict)
+                                        and parsed.get("session_key") == session_key
+                                    )
+                                except json.JSONDecodeError:
+                                    pass
+                            if should_remove:
+                                removed += 1
+                            else:
+                                target.write(line if line.endswith("\n") else line + "\n")
+            os.replace(temp_path, file_path)
+            temp_path = None
+            self._redacted_count += removed
+            return removed
+        except OSError as error:
+            self._write_error_count += 1
+            _logger.warning(
+                "Trace 会话清理失败，保留原分片: %s",
+                type(error).__name__,
+            )
+            return 0
+        finally:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
+            try:
+                self._file_handle = file_path.open("a", encoding="utf-8")
+            except OSError as error:
+                self._file_handle = None
+                self._write_error_count += 1
+                _logger.warning(
+                    "Trace 分片重新打开失败: %s",
+                    type(error).__name__,
+                )
+
     def shutdown(self) -> None:
         """优雅关闭：等待队列清空。"""
         self._shutdown = True
@@ -284,6 +460,11 @@ class AsyncTraceWriter:
 
         if self._writer_thread:
             self._writer_thread.join(timeout=5.0)
+
+        # A maintenance command may have timed out while the queue was full;
+        # shutdown is the final deterministic opportunity to redact it.
+        for session_key in tuple(self._excluded_sessions):
+            self._rewrite_without_session(session_key)
 
         if self._file_handle:
             try:
@@ -316,6 +497,7 @@ class AsyncTraceWriter:
             "dropped_count": self._dropped_count,
             "serialization_error_count": self._serialization_error_count,
             "write_error_count": self._write_error_count,
+            "redacted_count": self._redacted_count,
             "shutdown": self._shutdown,
         }
 
@@ -338,11 +520,7 @@ def _sanitize_trace_event_for_persistence(event: dict[str, Any]) -> dict[str, An
         if isinstance(value, str | int | float | bool) or value is None:
             sanitized[key] = value
         elif key_lower == "usage" and isinstance(value, dict):
-            sanitized[key] = {
-                usage_key: usage_value
-                for usage_key, usage_value in value.items()
-                if isinstance(usage_value, int | float | str | bool) or usage_value is None
-            }
+            sanitized[key] = _sanitize_usage_metrics(value)
         elif isinstance(value, list) and all(
             isinstance(item, int | float | bool) for item in value
         ):
@@ -487,6 +665,13 @@ def get_trace_writer_stats() -> dict[str, Any] | None:
     return _trace_writer.stats()
 
 
+def exclude_trace_session(session_key: str) -> tuple[Path | None, int]:
+    """Redact one session from the active shard through the writer FIFO."""
+    if _trace_writer is None:
+        return None, 0
+    return _trace_writer.file_path, _trace_writer.exclude_session(session_key)
+
+
 def emit_trace(event: dict[str, Any]) -> None:
     """派发事件；钩子异常不影响主流程。
 
@@ -520,7 +705,7 @@ def emit_trace(event: dict[str, Any]) -> None:
             _logger.debug("trace hook执行失败: %s", e)
 
 
-def shutdown_trace_writer() -> None:
+def shutdown_trace_writer() -> dict[str, Any] | None:
     """关闭 trace 异步写入器（优雅退出）。
 
     应在进程退出前调用，确保所有 trace 事件都已写入文件。
@@ -531,10 +716,14 @@ def shutdown_trace_writer() -> None:
         shutdown_trace_writer()
     """
     global _trace_writer
-    if _trace_writer:
-        _trace_writer.shutdown()
-        _trace_writer = None
-        _logger.info("Trace异步写入器已关闭")
+    if _trace_writer is None:
+        return None
+    writer = _trace_writer
+    writer.shutdown()
+    stats = writer.stats()
+    _trace_writer = None
+    _logger.info("Trace异步写入器已关闭")
+    return stats
 
 
 __all__ = [
@@ -546,5 +735,6 @@ __all__ = [
     "auto_register_trace_file_hook",
     "get_actual_trace_file",
     "get_trace_writer_stats",
+    "exclude_trace_session",
     "shutdown_trace_writer",  # 新增：关闭异步写入器
 ]

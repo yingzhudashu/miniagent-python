@@ -213,6 +213,7 @@ async def test_classifier_retries_empty_or_malformed_response(
 
 @pytest.mark.asyncio
 async def test_classifier_responses_json_uses_low_reasoning() -> None:
+    trace_events: list[dict[str, object]] = []
     async def events():
         yield SimpleNamespace(
             type="response.output_text.done",
@@ -233,7 +234,10 @@ async def test_classifier_responses_json_uses_low_reasoning() -> None:
     client = MagicMock()
     client.responses.create = AsyncMock(return_value=events())
 
-    with patch("miniagent.core.llm_transport._wire_api", return_value="responses"):
+    with (
+        patch("miniagent.core.llm_transport._wire_api", return_value="responses"),
+        patch("miniagent.infrastructure.tracing.emit_trace", side_effect=trace_events.append),
+    ):
         result = await classify_task_difficulty(
             "hello",
             ["tb1"],
@@ -244,6 +248,16 @@ async def test_classifier_responses_json_uses_low_reasoning() -> None:
     assert result == TaskDifficulty.SIMPLE
     assert client.responses.create.await_args.kwargs["reasoning"] == {"effort": "low"}
     assert client.responses.create.await_args.kwargs["stream"] is True
+    response_event = next(
+        event for event in trace_events if event.get("type") == "llm.response"
+    )
+    assert isinstance(response_event["duration_ms"], int)
+    assert response_event["duration_ms"] >= 0
+    request_event = next(
+        event for event in trace_events if event.get("type") == "llm.request"
+    )
+    assert request_event["message_count"] == 2
+    assert request_event["tool_count"] == 0
 
 
 @pytest.mark.asyncio

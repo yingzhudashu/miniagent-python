@@ -205,6 +205,8 @@ class StructuredPlan:
         estimated_cost: 成本预估
         output_spec: 输出规格
         fallback_plan: 降级计划
+        tools_enabled: 是否允许执行阶段向模型暴露工具；默认开启。纯对话或用户明确
+            禁止工具时关闭，区别于 ``required_toolboxes=[]`` 的“不筛选”语义。
     """
 
     summary: str = ""
@@ -219,6 +221,7 @@ class StructuredPlan:
     estimated_cost: EstimatedCost = field(default_factory=EstimatedCost)
     output_spec: OutputSpec = field(default_factory=OutputSpec)
     fallback_plan: FallbackPlan = field(default_factory=FallbackPlan)
+    tools_enabled: bool = True
 
 
 __all__ = [

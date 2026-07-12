@@ -34,8 +34,12 @@
 from __future__ import annotations
 
 import json
+import math
+import os
 import re
+import tempfile
 from collections import defaultdict
+from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -85,7 +89,15 @@ def get_trace_files(date: str | None = None) -> list[Path]:
     trace_dir = get_trace_output_dir()
     if not trace_dir.exists():
         return []
-    return sorted(trace_dir.glob(f"trace-{date}-pid*.jsonl"), key=lambda p: p.name)
+    base_name = f"trace-{date}.jsonl"
+    return sorted(
+        (
+            path
+            for path in trace_dir.iterdir()
+            if path.is_file() and _trace_file_date(path) == date
+        ),
+        key=lambda path: (path.name != base_name, path.name),
+    )
 
 
 def load_trace_events(
@@ -103,11 +115,22 @@ def load_trace_events(
     Returns:
         事件列表
     """
-    trace_files = get_trace_files(date)
-    if not trace_files:
-        return []
+    return list(
+        iter_trace_events(
+            date,
+            session_key=session_key,
+            event_type=event_type,
+        )
+    )
 
-    events = []
+
+def iter_trace_events(
+    date: str | None = None,
+    session_key: str | None = None,
+    event_type: str | None = None,
+) -> Iterator[dict[str, Any]]:
+    """Yield matching trace events without retaining a whole day in memory."""
+    trace_files = get_trace_files(date)
     for trace_file in trace_files:
         try:
             with trace_file.open("r", encoding="utf-8") as f:
@@ -117,19 +140,18 @@ def load_trace_events(
                         continue
                     try:
                         event = json.loads(line)
+                        if not isinstance(event, dict):
+                            continue
                         # 过滤条件
                         if session_key and event.get("session_key") != session_key:
                             continue
                         if event_type and event.get("type") != event_type:
                             continue
-                        events.append(event)
+                        yield event
                     except json.JSONDecodeError:
                         continue
         except OSError:
             continue
-
-    return events
-
 
 def _trace_file_date(trace_file: Path) -> str | None:
     """从基础文件或 pid 分片文件名中解析 YYYY-MM-DD。"""
@@ -230,13 +252,29 @@ def compute_llm_stats(events: list[dict[str, Any]]) -> dict[str, Any]:
         }
     """
     request_count = 0
+    response_count = 0
+    failed_response_count = 0
     total_prompt_tokens = 0
     total_completion_tokens = 0
+    total_cached_tokens = 0
+    total_reasoning_tokens = 0
     total_messages = 0
     total_tools = 0
+    durations: list[float] = []
     # 按 phase（plan/exec/classify/reflect/clarify…）分组，便于定位各阶段调用次数与 token。
-    phase_stats: dict[str, dict[str, int]] = defaultdict(
-        lambda: {"request_count": 0, "prompt_tokens": 0, "completion_tokens": 0}
+    phase_stats: dict[str, dict[str, Any]] = defaultdict(
+        lambda: {
+            "request_count": 0,
+            "response_count": 0,
+            "failed_response_count": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "cached_tokens": 0,
+            "reasoning_tokens": 0,
+            "message_count": 0,
+            "tool_count": 0,
+            "durations_ms": [],
+        }
     )
 
     for event in events:
@@ -248,31 +286,169 @@ def compute_llm_stats(events: list[dict[str, Any]]) -> dict[str, Any]:
             total_messages += event.get("message_count", 0)
             total_tools += event.get("tool_count", 0)
             phase_stats[phase]["request_count"] += 1
+            phase_stats[phase]["message_count"] += event.get("message_count", 0)
+            phase_stats[phase]["tool_count"] += event.get("tool_count", 0)
 
         elif event_type == EVENT_LLM_RESPONSE:
+            response_count += 1
+            phase_stats[phase]["response_count"] += 1
+            if event.get("failure_category"):
+                failed_response_count += 1
+                phase_stats[phase]["failed_response_count"] += 1
+
+            duration = _numeric_metric(event.get("duration_ms"))
+            if duration is not None and duration >= 0:
+                durations.append(duration)
+                phase_stats[phase]["durations_ms"].append(duration)
+
             usage = event.get("usage", {})
-            if usage:
-                prompt = usage.get("prompt_tokens", 0) or 0
-                completion = usage.get("completion_tokens", 0) or 0
+            if isinstance(usage, dict):
+                # Chat Completions uses prompt/completion, while Responses uses
+                # input/output. Normalize both into the existing public names.
+                prompt = _token_metric(usage, "prompt_tokens", "input_tokens")
+                completion = _token_metric(usage, "completion_tokens", "output_tokens")
+                cached = _nested_token_metric(
+                    usage,
+                    ("prompt_tokens_details", "input_tokens_details"),
+                    "cached_tokens",
+                )
+                reasoning = _nested_token_metric(
+                    usage,
+                    ("completion_tokens_details", "output_tokens_details"),
+                    "reasoning_tokens",
+                )
                 total_prompt_tokens += prompt
                 total_completion_tokens += completion
+                total_cached_tokens += cached
+                total_reasoning_tokens += reasoning
                 phase_stats[phase]["prompt_tokens"] += prompt
                 phase_stats[phase]["completion_tokens"] += completion
+                phase_stats[phase]["cached_tokens"] += cached
+                phase_stats[phase]["reasoning_tokens"] += reasoning
+
+    by_phase: dict[str, dict[str, Any]] = {}
+    for phase, stats in phase_stats.items():
+        phase_durations = stats.pop("durations_ms")
+        phase_result = dict(stats)
+        phase_response_count = phase_result["response_count"]
+        phase_result["error_rate"] = (
+            round(phase_result["failed_response_count"] / phase_response_count, 3)
+            if phase_response_count
+            else 0.0
+        )
+        phase_request_count = phase_result["request_count"]
+        phase_result["avg_messages"] = (
+            round(phase_result.pop("message_count") / phase_request_count, 1)
+            if phase_request_count
+            else 0.0
+        )
+        phase_result["avg_tools"] = (
+            round(phase_result.pop("tool_count") / phase_request_count, 1)
+            if phase_request_count
+            else 0.0
+        )
+        if phase_request_count:
+            phase_result["avg_prompt_tokens"] = round(
+                phase_result["prompt_tokens"] / phase_request_count,
+                1,
+            )
+            phase_result["avg_completion_tokens"] = round(
+                phase_result["completion_tokens"] / phase_request_count,
+                1,
+            )
+        phase_prompt_tokens = phase_result["prompt_tokens"]
+        phase_result["cached_token_rate"] = (
+            round(phase_result["cached_tokens"] / phase_prompt_tokens, 3)
+            if phase_prompt_tokens
+            else 0.0
+        )
+        if phase_durations:
+            phase_result.update(_latency_summary(phase_durations))
+        by_phase[phase] = phase_result
 
     result = {
         "request_count": request_count,
+        "response_count": response_count,
+        "failed_response_count": failed_response_count,
+        "error_rate": (
+            round(failed_response_count / response_count, 3)
+            if response_count
+            else 0.0
+        ),
         "total_tokens": {
             "prompt": total_prompt_tokens,
             "completion": total_completion_tokens,
+            "cached": total_cached_tokens,
+            "reasoning": total_reasoning_tokens,
+            "total": total_prompt_tokens + total_completion_tokens,
         },
-        "by_phase": {phase: dict(stats) for phase, stats in phase_stats.items()},
+        "by_phase": by_phase,
     }
 
     if request_count > 0:
         result["avg_messages"] = round(total_messages / request_count, 1)
         result["avg_tools"] = round(total_tools / request_count, 1)
+        result["avg_prompt_tokens"] = round(total_prompt_tokens / request_count, 1)
+        result["avg_completion_tokens"] = round(
+            total_completion_tokens / request_count,
+            1,
+        )
+    result["cached_token_rate"] = (
+        round(total_cached_tokens / total_prompt_tokens, 3)
+        if total_prompt_tokens
+        else 0.0
+    )
+    if durations:
+        result.update(_latency_summary(durations))
 
     return result
+
+
+def _numeric_metric(value: Any) -> float | None:
+    """Return a finite numeric metric while rejecting bools and malformed data."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    numeric = float(value)
+    return numeric if math.isfinite(numeric) else None
+
+
+def _token_metric(usage: dict[str, Any], primary: str, fallback: str) -> int | float:
+    """Read one token counter using protocol-specific aliases."""
+    value = _numeric_metric(usage.get(primary))
+    if value is None:
+        value = _numeric_metric(usage.get(fallback))
+    return value if value is not None and value >= 0 else 0
+
+
+def _nested_token_metric(
+    usage: dict[str, Any],
+    detail_keys: tuple[str, ...],
+    metric_key: str,
+) -> int | float:
+    """Read a token detail from the first compatible protocol detail object."""
+    for detail_key in detail_keys:
+        details = usage.get(detail_key)
+        if not isinstance(details, dict):
+            continue
+        value = _numeric_metric(details.get(metric_key))
+        if value is not None and value >= 0:
+            return value
+    return 0
+
+
+def _latency_summary(durations: list[float]) -> dict[str, float]:
+    """Compute stable average and nearest-rank p50/p95 latency metrics."""
+    ordered = sorted(durations)
+
+    def nearest_rank(percentile: float) -> float:
+        index = max(0, math.ceil(percentile * len(ordered)) - 1)
+        return round(ordered[index], 1)
+
+    return {
+        "avg_duration_ms": round(sum(ordered) / len(ordered), 1),
+        "p50_duration_ms": nearest_rank(0.50),
+        "p95_duration_ms": nearest_rank(0.95),
+    }
 
 
 def compute_error_stats(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -591,48 +767,87 @@ def remove_session_from_trace_files(session_key: str) -> int:
     Returns:
         移除的事件行总数
     """
+    session_key = (session_key or "").strip()
+    if not session_key:
+        return 0
+    from miniagent.infrastructure.tracing import exclude_trace_session
+
+    active_file, removed_total = exclude_trace_session(session_key)
+    active_resolved = active_file.resolve() if active_file is not None else None
+
     trace_dir = get_trace_output_dir()
     if not trace_dir.exists():
-        return 0
+        return removed_total
 
-    removed_total = 0
     for trace_file in sorted(trace_dir.glob("trace-*.jsonl")):
         if not _TRACE_FILE_RE.match(trace_file.name):
             continue
-        kept: list[str] = []
-        removed = 0
-        try:
-            with open(trace_file, encoding="utf-8") as f:
-                for line in f:
-                    stripped = line.strip()
-                    if not stripped:
-                        continue
-                    try:
-                        event = json.loads(stripped)
-                        if event.get("session_key") == session_key:
-                            removed += 1
-                            continue
-                    except json.JSONDecodeError:
-                        pass
-                    kept.append(stripped)
-            if removed:
-                if kept:
-                    with open(trace_file, "w", encoding="utf-8") as f:
-                        f.write("\n".join(kept) + "\n")
-                else:
-                    trace_file.unlink(missing_ok=True)
-                removed_total += removed
-        except OSError:
+        if active_resolved is not None and trace_file.resolve() == active_resolved:
             continue
+        removed_total += _stream_remove_session_from_trace_file(trace_file, session_key)
 
     if removed_total > 0:
         _logger.debug("已从 trace 文件移除 session %s 的 %d 条事件", session_key, removed_total)
     return removed_total
 
 
+def _stream_remove_session_from_trace_file(
+    trace_file: Path,
+    session_key: str,
+) -> int:
+    """Atomically filter one inactive shard with constant auxiliary memory."""
+    temp_path: Path | None = None
+    removed = 0
+    kept = 0
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=trace_file.parent,
+            prefix=f".{trace_file.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as target:
+            temp_path = Path(target.name)
+            with trace_file.open(encoding="utf-8") as source:
+                for line in source:
+                    stripped = line.strip()
+                    should_remove = False
+                    if stripped:
+                        try:
+                            event = json.loads(stripped)
+                            should_remove = (
+                                isinstance(event, dict)
+                                and event.get("session_key") == session_key
+                            )
+                        except json.JSONDecodeError:
+                            pass
+                    if should_remove:
+                        removed += 1
+                        continue
+                    kept += 1
+                    target.write(line if line.endswith("\n") else line + "\n")
+        if not removed:
+            temp_path.unlink(missing_ok=True)
+            return 0
+        if kept:
+            os.replace(temp_path, trace_file)
+        else:
+            trace_file.unlink(missing_ok=True)
+            temp_path.unlink(missing_ok=True)
+        temp_path = None
+        return removed
+    except OSError:
+        return 0
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+
+
 __all__ = [
     "get_trace_output_dir",
     "get_trace_files",
+    "iter_trace_events",
     "load_trace_events",
     "compute_tool_stats",
     "compute_llm_stats",

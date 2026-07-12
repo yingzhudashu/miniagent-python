@@ -19,37 +19,67 @@ import asyncio
 import json
 import os
 import time
+from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 
-def _setup() -> None:
+def _setup(perf_root: Path) -> Path:
+    """Install an in-memory isolated config while preserving real model credentials."""
+    from miniagent.infrastructure.json_config import JsonConfigLoader, install_config_loader
+
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    run_dir = (perf_root / f"trace-{run_id}-pid{os.getpid()}").resolve()
+    run_dir.mkdir(parents=True, exist_ok=False)
+
+    base_loader = JsonConfigLoader()
+    base_loader.reload(strict=True)
+    # This harness deliberately overlays only non-secret runtime paths in memory.
+    # It neither writes nor copies config.user.json to the result directory.
+    loader = base_loader.with_runtime_overrides(
+        {
+            "trace": {
+                "enabled": True,
+                "output_dir": str(run_dir / "trace"),
+                "record_payload": "metrics_only",
+                "auto_cleanup": False,
+            },
+            "paths": {"state_dir": str(run_dir / "state")},
+            "knowledge": {
+                "root": str(run_dir / "knowledge"),
+                "auto_mount": False,
+            },
+        }
+    )
+    install_config_loader(loader)
+
     from miniagent.infrastructure.env_loader import load_secrets_from_project_root
 
     load_secrets_from_project_root()
+    return run_dir
 
 
-async def _one_run(prompt: str, run_idx: int) -> dict[str, Any]:
+async def _one_run(prompt: str, run_idx: int, ctx: Any, toolboxes: list[Any]) -> dict[str, Any]:
     from miniagent.core.agent import run_agent
-    from miniagent.engine.builtin_tools import register_builtin_tools
-    from miniagent.infrastructure.registry import DefaultToolRegistry
-    from miniagent.infrastructure.tracing import emit_trace, get_trace_writer_stats
-    from miniagent.skills.builtin_toolboxes import BUILTIN_TOOLBOXES
+    from miniagent.infrastructure.tracing import emit_trace
 
-    registry = DefaultToolRegistry()
-    register_builtin_tools(registry)
-    toolboxes = list(BUILTIN_TOOLBOXES)
-
-    session_key = f"perf-trace-{int(time.time())}-{run_idx}"
+    session_key = f"perf-trace-{os.getpid()}-{run_idx}"
     emit_trace({"type": "harness.run_start", "session_key": session_key, "run": run_idx})
 
     t0 = time.perf_counter()
     reply = await run_agent(
         prompt,
-        registry=registry,
+        registry=ctx.registry,
+        memory=ctx.memory,
+        knowledge_registry=ctx.knowledge_registry,
+        client=ctx.openai_client,
+        monitor=ctx.monitor,
         toolboxes=toolboxes,
         agent_config={"max_turns": 6, "streaming": True, "debug": False},
         session_key=session_key,
+        clawhub=ctx.clawhub,
+        engine=ctx.engine,
     )
     elapsed = time.perf_counter() - t0
 
@@ -66,40 +96,70 @@ async def _one_run(prompt: str, run_idx: int) -> dict[str, Any]:
         "session_key": session_key,
         "elapsed_s": elapsed,
         "reply_len": len(reply.reply or ""),
-        "writer_stats": get_trace_writer_stats(),
     }
 
 
-async def _main_async(args: argparse.Namespace) -> None:
-    # Enable trace persistence before importing anything that reads config.
-    from miniagent.infrastructure.json_config import JsonConfigLoader
+async def _close_container_resources(ctx: Any) -> None:
+    """Close every process-owned resource constructed by the composition root."""
+    from miniagent.core.openai_client import close_async_openai_client
+
+    failures: list[str] = []
+    async_closers = [
+        ("background_tasks", ctx.background_tasks.shutdown),
+        ("message_queue", ctx.message_queue.shutdown),
+        ("memory_async", ctx.memory.shutdown),
+        ("openai_client", lambda: close_async_openai_client(ctx.openai_client)),
+    ]
+    if ctx.clawhub is not None:
+        async_closers.append(("clawhub", ctx.clawhub.close))
+    for name, close in async_closers:
+        try:
+            await close()
+        except Exception:
+            failures.append(name)
+    ctx.openai_client = None
+    try:
+        ctx.memory.close()
+    except Exception:
+        failures.append("memory_persist")
+    if failures:
+        print("Resource cleanup warnings: " + ", ".join(failures))
+
+
+async def _main_async(args: argparse.Namespace, run_dir: Path) -> None:
+    from miniagent.bootstrap.entrypoint import create_application_container
+    from miniagent.engine.builtin_tools import register_builtin_tools
     from miniagent.infrastructure.tracing import (
         auto_register_trace_file_hook,
         get_actual_trace_file,
         shutdown_trace_writer,
     )
+    from miniagent.skills.builtin_toolboxes import BUILTIN_TOOLBOXES
 
-    loader = JsonConfigLoader.get_instance()
-    loader._load()
-    loader._user.setdefault("trace", {})
-    loader._user["trace"]["enabled"] = True
-    loader._user["trace"]["record_payload"] = "metrics_only"
     auto_register_trace_file_hook()
-
-    results = []
+    results: list[dict[str, Any]] = []
+    trace_file: Path | None = None
+    writer_stats: dict[str, Any] | None = None
+    ctx: Any | None = None
     try:
+        ctx = create_application_container()
+        register_builtin_tools(ctx.registry)
+        toolboxes = list(BUILTIN_TOOLBOXES)
         for i in range(args.runs):
             print(f"--- run {i + 1}/{args.runs} ---")
-            r = await _one_run(args.prompt, i)
+            r = await _one_run(args.prompt, i, ctx, toolboxes)
             print(f"  elapsed={r['elapsed_s']:.2f}s reply_len={r['reply_len']}")
             results.append(r)
     finally:
         trace_file = get_actual_trace_file()
-        shutdown_trace_writer()
+        try:
+            if ctx is not None:
+                await _close_container_resources(ctx)
+        finally:
+            writer_stats = shutdown_trace_writer()
 
-    print("\n=== writer stats (last run) ===")
-    if results:
-        print(json.dumps(results[-1]["writer_stats"], ensure_ascii=False, indent=2))
+    print("\n=== writer stats ===")
+    print(json.dumps(writer_stats, ensure_ascii=False, indent=2))
 
     # Aggregate the trace into a phase report.
     from miniagent.infrastructure import trace_stats
@@ -110,15 +170,28 @@ async def _main_async(args: argparse.Namespace) -> None:
 
     if trace_file:
         print(f"\nTrace file: {trace_file}")
-        _phase_latency_breakdown(Path(str(trace_file)))
+        breakdown = _phase_latency_breakdown(Path(str(trace_file)))
+        (run_dir / "summary.json").write_text(
+            json.dumps(
+                {
+                    "runs": results,
+                    "writer": writer_stats,
+                    "report": report,
+                    "breakdown": breakdown,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
 
 
-def _phase_latency_breakdown(trace_file: Path) -> None:
-    """Pair llm.request/response and tool.start/end per session to show phase timing."""
+def _phase_latency_breakdown(trace_file: Path) -> dict[str, Any]:
+    """Summarize per-phase latency and request/response pairing from one trace shard."""
     if not trace_file.exists():
         print("(trace file missing)")
-        return
-    events = []
+        return {"total_events": 0, "missing_trace": True}
+    events: list[dict[str, Any]] = []
     with trace_file.open(encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -127,12 +200,37 @@ def _phase_latency_breakdown(trace_file: Path) -> None:
                     events.append(json.loads(line))
                 except json.JSONDecodeError:
                     pass
+    from miniagent.infrastructure.trace_stats import compute_llm_stats, compute_tool_stats
+
+    by_type = Counter(str(event.get("type", "?")) for event in events)
+
+    def llm_key(event: dict[str, Any]) -> tuple[Any, ...]:
+        return (
+            event.get("session_key"),
+            event.get("phase"),
+            event.get("turn"),
+            event.get("attempt", 1),
+        )
+
+    requests = Counter(
+        llm_key(event) for event in events if event.get("type") == "llm.request"
+    )
+    responses = Counter(
+        llm_key(event) for event in events if event.get("type") == "llm.response"
+    )
+    unmatched_requests = sum((requests - responses).values())
+    unmatched_responses = sum((responses - requests).values())
+    result = {
+        "total_events": len(events),
+        "event_counts": dict(sorted(by_type.items())),
+        "llm": compute_llm_stats(events),
+        "tools": compute_tool_stats(events),
+        "unmatched_llm_requests": unmatched_requests,
+        "unmatched_llm_responses": unmatched_responses,
+    }
     print(f"\n=== phase breakdown ({len(events)} events) ===")
-    by_type: dict[str, int] = {}
-    for e in events:
-        by_type[e.get("type", "?")] = by_type.get(e.get("type", "?"), 0) + 1
-    for t, c in sorted(by_type.items(), key=lambda x: -x[1]):
-        print(f"  {t:30s} {c}")
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return result
 
 
 def main() -> None:
@@ -147,8 +245,13 @@ def main() -> None:
     if os.environ.get("MINIAGENT_REAL_API_STRESS") != "1":
         raise SystemExit("Set MINIAGENT_REAL_API_STRESS=1 to run the real-API trace harness.")
 
-    _setup()
-    asyncio.run(_main_async(args))
+    if args.runs < 1:
+        raise SystemExit("--runs must be at least 1")
+    perf_root = Path(
+        os.environ.get("MINIAGENT_REAL_API_PERF_DIR", "workspaces/logs/perf")
+    )
+    run_dir = _setup(perf_root)
+    asyncio.run(_main_async(args, run_dir))
 
 
 if __name__ == "__main__":

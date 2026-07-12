@@ -9,7 +9,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
+from pathlib import Path
 from typing import Any
 
 from miniagent.feishu._utils import resolve_under_workspace
@@ -52,7 +54,7 @@ async def _feishu_send_workspace_file(args: dict[str, Any], ctx: ToolContext) ->
         path = resolve_under_workspace(ws, rel)
     except ValueError as e:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} {e}")
-    if not os.path.isfile(path):
+    if not await asyncio.to_thread(os.path.isfile, path):
         return ToolResult(success=False, content=f"{WARNING_PREFIX} 文件不存在: {rel}")
 
     try:
@@ -66,19 +68,39 @@ async def _feishu_send_workspace_file(args: dict[str, Any], ctx: ToolContext) ->
         return ToolResult(success=False, content=f"{WARNING_PREFIX} 请安装 lark-oapi（pip install miniagent-python[feishu]）。")
 
     try:
-        with open(path, "rb") as f:
-            data = f.read()
+        data = await asyncio.to_thread(Path(path).read_bytes)
     except OSError as e:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} 读取文件失败: {e}")
 
     try:
         if as_image:
-            ik = upload_im_image(cfg, data)
-            ok, err = send_im_image_message(cfg, receive_id, ik, reply_to_message_id=reply_to, reply_in_thread=reply_in_thread, receive_id_type=receive_id_type)
+            def _upload_image() -> tuple[bool, str | None]:
+                image_key = upload_im_image(cfg, data)
+                return send_im_image_message(
+                    cfg,
+                    receive_id,
+                    image_key,
+                    reply_to_message_id=reply_to,
+                    reply_in_thread=reply_in_thread,
+                    receive_id_type=receive_id_type,
+                )
+
+            ok, err = await asyncio.to_thread(_upload_image)
         else:
             name = os.path.basename(path)
-            fk = upload_im_file(cfg, data, file_name=name)
-            ok, err = send_im_file_message(cfg, receive_id, fk, file_name=name, reply_to_message_id=reply_to, reply_in_thread=reply_in_thread, receive_id_type=receive_id_type)
+            def _upload_file() -> tuple[bool, str | None]:
+                file_key = upload_im_file(cfg, data, file_name=name)
+                return send_im_file_message(
+                    cfg,
+                    receive_id,
+                    file_key,
+                    file_name=name,
+                    reply_to_message_id=reply_to,
+                    reply_in_thread=reply_in_thread,
+                    receive_id_type=receive_id_type,
+                )
+
+            ok, err = await asyncio.to_thread(_upload_file)
     except Exception as e:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} 上传或发送失败: {e}")
     if not ok:
@@ -100,7 +122,7 @@ async def _feishu_recall_message(args: dict[str, Any], ctx: ToolContext) -> Tool
     from miniagent.feishu.upload_io import delete_im_message
 
     try:
-        ok, err = delete_im_message(cfg, mid)
+        ok, err = await asyncio.to_thread(delete_im_message, cfg, mid)
     except Exception as e:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} 撤回失败: {e}")
     if not ok:
@@ -130,7 +152,12 @@ async def _feishu_list_drive_files(args: dict[str, Any], ctx: ToolContext) -> To
         return ToolResult(success=False, content=f"{WARNING_PREFIX} 请安装 lark-oapi。")
 
     try:
-        entries, next_tok, has_more = list_folder_files_page(cfg, folder_token=folder, page_token=page_token)
+        entries, next_tok, has_more = await asyncio.to_thread(
+            list_folder_files_page,
+            cfg,
+            folder_token=folder,
+            page_token=page_token,
+        )
     except Exception as e:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} 列举失败: {e}")
 
