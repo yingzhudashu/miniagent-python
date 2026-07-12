@@ -260,7 +260,7 @@ async def test_execute_plan_responses_retries_completed_empty_stream() -> None:
 
     with (
         _responses_execution_config(),
-        patch("miniagent.core.executor.emit_trace", side_effect=trace_events.append),
+        patch("miniagent.core.execution_turn.emit_trace", side_effect=trace_events.append),
     ):
         out = await execute_plan(
             empty_plan(),

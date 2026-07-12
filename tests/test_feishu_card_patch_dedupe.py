@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from miniagent.engine.thinking import _SessionThinkingState
-from miniagent.feishu import poll_server
+from miniagent.feishu import thinking_delivery as poll_server
 from miniagent.feishu.types import FeishuConfig
 
 

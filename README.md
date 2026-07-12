@@ -6,7 +6,7 @@
 ![Tests](https://img.shields.io/badge/tests-dynamic-blue)
 > **测试数量**：以 `pytest --collect-only -q` 为准，不硬编码以避免漂移（见 [CONTRIBUTING.md](docs/CONTRIBUTING.md) §文档与版本对齐清单）
 ![Coverage](https://img.shields.io/badge/coverage-%E2%89%A580%25%20%E7%9B%AE%E6%A0%87-yellow)
-> **覆盖率**：整体 ≥80%、核心模块 ≥95%；本地 `pytest --cov=miniagent` 验证，详见 [INDEX.md](docs/INDEX.md) §测试与质量
+> **覆盖率门禁**：整体综合分支覆盖率 ≥80%、本次修改行 ≥95%；实时结果以 CI 的 `coverage.xml` 和 `diff-cover` 为准，详见 [INDEX.md](docs/INDEX.md) §测试与质量
 
 基于 LLM 的多阶段智能代理系统。支持 CLI 和飞书双通道接入，具备记忆、定时任务、技能与自我优化能力。
 
@@ -260,7 +260,7 @@ python -m miniagent --stop
 | 运维 | [DEPLOYMENT.md](docs/DEPLOYMENT.md) → [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) → [FEISHU.md](docs/FEISHU.md) |
 | 架构师 | 本文 §架构概览 → [ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | 开发者 | [CONTRIBUTING.md](docs/CONTRIBUTING.md) → [PROMPT_GUIDELINES.md](docs/PROMPT_GUIDELINES.md) |
-| 维护者 | [ENGINEERING.md](docs/ENGINEERING.md) → [TEST_COVERAGE_MATRIX.md](docs/TEST_COVERAGE_MATRIX.md) → [CHANGELOG.md](CHANGELOG.md) |
+| 维护者 | [ENGINEERING.md](docs/ENGINEERING.md) → [CHANGELOG.md](CHANGELOG.md) |
 
 ## 配置速查
 
@@ -319,7 +319,7 @@ miniagent-python/
 | 架构与专题 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) · [MEMORY_SYSTEM.md](docs/MEMORY_SYSTEM.md) · [SECURITY.md](docs/SECURITY.md) · [SELF_OPT.md](docs/SELF_OPT.md) |
 | 性能 | [PERFORMANCE.md](docs/PERFORMANCE.md) |
 | 开发者 | [CONTRIBUTING.md](docs/CONTRIBUTING.md) · [PROMPT_GUIDELINES.md](docs/PROMPT_GUIDELINES.md) |
-| 维护者 | [ENGINEERING.md](docs/ENGINEERING.md) · [TEST_COVERAGE_MATRIX.md](docs/TEST_COVERAGE_MATRIX.md) |
+| 维护者 | [ENGINEERING.md](docs/ENGINEERING.md) · [CHANGELOG.md](CHANGELOG.md) |
 
 完整索引与 SSOT 对照见 **[INDEX.md](docs/INDEX.md)**。
 

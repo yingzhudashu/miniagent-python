@@ -20,7 +20,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from miniagent.core.constants import CLI_WIDTH_MARGIN
@@ -161,7 +161,7 @@ def format_cli_reply_block(
     append_fn("class:cli-border-strong", _BORDER_STRONG * width + "\n")
 
 
-def get_cli_format_widths(state: dict[str, Any] | None) -> tuple[int | None, int | None]:
+def get_cli_format_widths(state: Mapping[str, Any] | None) -> tuple[int | None, int | None]:
     """从 ``CliLoopState`` 读取全屏 transcript 视口宽度。
 
     全屏 ``run_cli_loop`` 会向 state 注册 ``cli_render_width`` /

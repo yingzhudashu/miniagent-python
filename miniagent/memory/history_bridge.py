@@ -107,8 +107,9 @@ def conversation_history_for_llm(history: list[dict[str, Any]]) -> list[dict[str
         # 剥离 assistant 回复末尾的质量评估尾部（footer）：footer 是展示层内容，
         # 若回灌给 LLM 会被模型当作正文复述，叠加本轮新 footer 造成重复质量评估。
         # 此处同时清理历史中已被污染的旧 footer。落盘原文不变（仅影响 LLM 上下文）。
-        if clean.get("role") == "assistant" and isinstance(clean.get("content"), str):
-            clean["content"] = strip_reflection_footer(clean["content"])
+        content = clean.get("content")
+        if clean.get("role") == "assistant" and isinstance(content, str):
+            clean["content"] = strip_reflection_footer(content)
         out.append(clean)
     return out
 

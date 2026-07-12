@@ -610,13 +610,13 @@ class KeywordIndex:
 
         with self._index_lock:
             total_keywords = len(self._index)
-            keyword_counts = [
+            keyword_counts: list[dict[str, Any]] = [
                 {"keyword": keyword, "count": len(entry.references)}
                 for keyword, entry in self._index.items()
             ]
-            total_refs = sum(item["count"] for item in keyword_counts)
+            total_refs = sum(int(item["count"]) for item in keyword_counts)
 
-        keyword_counts.sort(key=lambda x: x["count"], reverse=True)
+        keyword_counts.sort(key=lambda item: int(item["count"]), reverse=True)
 
         return {
             "total_keywords": total_keywords,

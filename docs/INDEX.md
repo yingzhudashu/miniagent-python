@@ -29,8 +29,8 @@
 ## 测试与质量
 
 - **测试数量**：以 `pytest tests/ --collect-only -q` 收集结果为准
-- **覆盖率**：核心模块 ≥95%；整体 ≥80%；`tools/` ≥60%（本地 `pytest --cov` 验证，CI 默认不产 cov 报告，见 [ENGINEERING.md](ENGINEERING.md) §2）
-- **测试矩阵**：[TEST_COVERAGE_MATRIX.md](TEST_COVERAGE_MATRIX.md)
+- **覆盖率**：CI 使用分支模式并以 80% 作为整体门禁，同时要求本次修改行覆盖率 ≥95%；当前实测值和命令见 [ENGINEERING.md](ENGINEERING.md) §2
+- **测试矩阵**：测试文件和 CI workflow 是可执行事实来源，不再维护人工状态表
 
 ```bash
 pytest tests/ -q -m "not evaluation"
@@ -51,13 +51,13 @@ pytest tests/ --cov=miniagent --cov-report=html
 [ARCHITECTURE.md](ARCHITECTURE.md) · [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md) · [SECURITY.md](SECURITY.md) · [SELF_OPT.md](SELF_OPT.md) · [OUTPUT_FORMAT.md](OUTPUT_FORMAT.md)
 
 ### 性能
-[PERFORMANCE.md](PERFORMANCE.md) — Part A 度量与测试 · Part B 运行时调优 · [PERFORMANCE_AUDIT.md](PERFORMANCE_AUDIT.md) — 逐文件审计台账与实测证据
+[PERFORMANCE.md](PERFORMANCE.md) — Part A 度量与测试 · Part B 运行时调优
 
 ### 开发者路径
 [CONTRIBUTING.md](CONTRIBUTING.md)（Part 1 贡献 · Part 2 扩展 · Part 3 API）→ [PROMPT_GUIDELINES.md](PROMPT_GUIDELINES.md)
 
 ### 维护者
-[ENGINEERING.md](ENGINEERING.md)（§3.3 多实例注册表、§2 质量门禁）· [TEST_COVERAGE_MATRIX.md](TEST_COVERAGE_MATRIX.md)
+[ENGINEERING.md](ENGINEERING.md)（§3.3 多实例注册表、§2 质量门禁）
 
 ---
 

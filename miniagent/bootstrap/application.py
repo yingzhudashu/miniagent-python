@@ -15,16 +15,17 @@ _logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from miniagent.bootstrap.lifecycle import LifecycleManager
     from miniagent.contracts.channels import ChannelRegistryProtocol
+    from miniagent.contracts.configuration import ConfigSnapshot
     from miniagent.contracts.knowledge import KnowledgeRegistryProtocol
     from miniagent.contracts.memory import MemoryRuntimeProtocol
     from miniagent.contracts.messaging import OrderedOutboundDispatcherProtocol
-    from miniagent.types.agent import ToolMonitorProtocol
-    from miniagent.types.protocols import (
+    from miniagent.contracts.runtime import (
         ChannelRouterProtocol,
         FeishuRuntimeProtocol,
         MessageQueueProtocol,
         UnifiedEngineProtocol,
     )
+    from miniagent.types.agent import ToolMonitorProtocol
     from miniagent.types.skill import ClawHubClientProtocol, SkillRegistryProtocol
     from miniagent.types.tool import ToolRegistryProtocol
 
@@ -50,6 +51,7 @@ class ApplicationContainer:
     memory: MemoryRuntimeProtocol
     knowledge_registry: KnowledgeRegistryProtocol
     background_tasks: Any
+    config: ConfigSnapshot | None = None
     outbound_channels: ChannelRegistryProtocol = field(default_factory=ChannelRegistry)
     cli_outbound_dispatcher: OrderedOutboundDispatcherProtocol | None = None
     lifecycle_manager: LifecycleManager | None = field(default=None, repr=False)

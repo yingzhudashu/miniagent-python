@@ -7,15 +7,16 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import secrets
-import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, tzinfo
 from typing import Literal
 
+from miniagent.infrastructure.atomic_json import atomic_dump_json
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.infrastructure.paths import resolve_state_dir as get_state_root
+from miniagent.infrastructure.persistence import load_state_file
+from miniagent.infrastructure.state_schemas import install_builtin_state_schemas
 from miniagent.infrastructure.timezone_config import process_timezone
 from miniagent.scheduled_tasks.file_lock import tasks_json_lock
 from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec
@@ -24,6 +25,7 @@ _logger = get_logger(__name__)
 _utc_timezone_hint_logged: set[str] = set()
 
 _FILE_VERSION = 2
+install_builtin_state_schemas()
 
 TaskRunOutcome = Literal[
     "completed",
@@ -59,8 +61,7 @@ def load_tasks() -> list[ScheduledTask]:
         return []
     with tasks_json_lock():
         try:
-            with open(p, encoding="utf-8") as f:
-                raw = json.load(f)
+            raw = load_state_file("scheduled_tasks", p)
         except (OSError, json.JSONDecodeError) as e:
             _logger.warning("读取任务文件失败: %s - %s", p, e)
             return []
@@ -83,36 +84,23 @@ def save_tasks(tasks: list[ScheduledTask]) -> None:
     os.makedirs(os.path.dirname(p), exist_ok=True)
     payload = {
         "version": _FILE_VERSION,
+        "schema_version": _FILE_VERSION,
         "tasks": [t.to_json() for t in tasks],
     }
-    dir_name = os.path.dirname(p)
     delays = (0.0, 0.02, 0.05, 0.1, 0.2, 0.35)
     last_err: OSError | None = None
     with tasks_json_lock():
         for attempt, delay in enumerate(delays):
             if delay > 0:
                 time.sleep(delay)
-            tmp = os.path.join(dir_name, f"tasks-{secrets.token_hex(16)}.tmp")
             try:
-                with open(tmp, "w", encoding="utf-8") as f:
-                    json.dump(payload, f, ensure_ascii=False, indent=2)
-                    f.flush()
-                    try:
-                        os.fsync(f.fileno())
-                    except OSError as e:
-                        _logger.debug("fsync失败: %s", e)
-                os.replace(tmp, p)
+                atomic_dump_json(p, payload, ensure_ascii=False, indent=2)
                 return
             except OSError as e:
                 last_err = e
-                try:
-                    if os.path.isfile(tmp):
-                        os.unlink(tmp)
-                except OSError as e:
-                    _logger.debug("删除临时文件失败: %s", e)
-                if attempt < len(delays) - 1 and sys.platform == "win32":
+                if attempt < len(delays) - 1:
                     continue
-                raise last_err
+                raise last_err from e
 
 
 async def save_tasks_async(tasks: list[ScheduledTask]) -> None:
@@ -150,6 +138,7 @@ def _parse_once_utc_epoch(
             raw = raw[:-1] + "+00:00"
         dt = datetime.fromisoformat(raw)
         if dt.tzinfo is None:
+            tz: tzinfo
             from zoneinfo import ZoneInfo
 
             try:

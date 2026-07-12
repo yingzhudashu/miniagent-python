@@ -85,7 +85,7 @@ class TestThinkingLevelPresetsConstant:
         assert set(THINKING_LEVEL_PRESETS.keys()) == {"low", "medium", "high"}
 
     def test_values_are_tuples(self):
-        for key, val in THINKING_LEVEL_PRESETS.items():
+        for val in THINKING_LEVEL_PRESETS.values():
             assert isinstance(val, tuple)
             assert len(val) == 2
             assert isinstance(val[0], str)

@@ -184,14 +184,14 @@ def merge_agent_config(base: AgentConfig, overrides: dict[str, Any]) -> AgentCon
         ...     "feishu_config": {"receive_chat_id": "oc_abc"},
         ... })
     """
-    session_config_dict = {
+    session_config_dict: dict[str, Any] = {
         "session_key": base.session_config.session_key,
         "session_workspace": base.session_config.session_workspace,
         "session_registry": base.session_config.session_registry,
         "session_toolboxes": list(base.session_config.session_toolboxes),
         "conversation_history": list(base.session_config.conversation_history),
     }
-    feishu_config_dict = {
+    feishu_config_dict: dict[str, Any] = {
         "receive_chat_id": base.feishu_config.receive_chat_id,
         "trigger_message_id": base.feishu_config.trigger_message_id,
         "root_id": base.feishu_config.root_id,
@@ -202,7 +202,7 @@ def merge_agent_config(base: AgentConfig, overrides: dict[str, Any]) -> AgentCon
         "cli_loop_state": base.feishu_config.cli_loop_state,
         "cli_dispatch_allow_mutations": base.feishu_config.cli_dispatch_allow_mutations,
     }
-    merged_dict = {
+    merged_dict: dict[str, Any] = {
         # 核心配置
         "max_turns": base.max_turns,
         "tool_timeout": base.tool_timeout,

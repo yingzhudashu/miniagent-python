@@ -19,6 +19,8 @@ from pathlib import Path
 from typing import Any
 
 from miniagent.infrastructure.logger import get_logger
+from miniagent.infrastructure.persistence import dump_state_file, load_state_file
+from miniagent.infrastructure.state_schemas import install_builtin_state_schemas
 from miniagent.testing.types import (
     DEFAULT_REPORT_PATH,
     DEFAULT_SAMPLES_DIR,
@@ -35,6 +37,7 @@ from miniagent.testing.validation import (
 )
 
 _logger = get_logger(__name__)
+install_builtin_state_schemas()
 
 TermWriteFn = Callable[[str, str], None]
 
@@ -234,8 +237,7 @@ class TestRunner:
             raise ValueError("无报告可保存")
 
         self._report_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self._report_path, "w", encoding="utf-8") as f:
-            json.dump(data.to_dict(), f, indent=2, ensure_ascii=False)
+        dump_state_file("testing_report", self._report_path, data.to_dict())
         return self._report_path
 
     async def _run_single(self, sample: SampleSpec, mock: bool = False) -> ResultRecord:
@@ -323,8 +325,7 @@ class TestRunner:
             return None
 
         try:
-            with open(self._report_path, encoding="utf-8") as f:
-                return json.load(f)
+            return load_state_file("testing_report", self._report_path)
         except Exception:
             return None
 

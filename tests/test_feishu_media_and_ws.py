@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -74,6 +76,44 @@ async def test_feishu_poll_state_reset_awaits_callback_tasks() -> None:
     assert state.callback_tasks == set()
 
 
+@pytest.mark.asyncio
+async def test_feishu_poll_state_task_failures_shutdown_and_disconnect_errors() -> None:
+    from miniagent.feishu.poll_state import FeishuPollState
+
+    state = FeishuPollState()
+    state.request_shutdown()
+    state.shutdown_event = asyncio.Event()
+    state.request_shutdown()
+    assert state.shutdown_event.is_set()
+
+    async def fail() -> None:
+        raise RuntimeError("callback failed")
+
+    state.spawn_callback_task(fail())
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    assert state.callback_tasks == set()
+
+    state.client = SimpleNamespace(_disconnect=AsyncMock(side_effect=RuntimeError("closed")))
+    await state.reset()
+    assert state.client is None
+
+
+def test_feishu_poll_state_spawn_without_loop_closes_coroutine(monkeypatch) -> None:
+    from miniagent.feishu.poll_state import FeishuPollState
+
+    state = FeishuPollState()
+
+    async def work() -> None:
+        return None
+
+    coroutine = work()
+    monkeypatch.setattr(asyncio, "create_task", MagicMock(side_effect=RuntimeError("no loop")))
+    with pytest.raises(RuntimeError):
+        state.spawn_callback_task(coroutine)
+    assert coroutine.cr_frame is None
+
+
 def test_abandon_processing_claim_allows_retry_release_writes_disk_dedup(tmp_path):
     """失败路径应 abandon：同一 message_id 可再次 try_begin；release 后写入磁盘去重。"""
     from miniagent.feishu.feishu_dedup import FeishuDeduplicator
@@ -101,3 +141,30 @@ def test_extract_post_media_items_recurses_img_and_media():
     items = _extract_post_media_items(json.dumps(payload))
     keys = {(t, fk) for t, fk, _ in items}
     assert keys == {("image", "img_x"), ("file", "f_y")}
+
+
+def test_media_parsers_cover_invalid_image_type_duplicates_and_depth() -> None:
+    from miniagent.feishu.poll_state import (
+        _extract_post_media_items,
+        _feishu_media_reply_indicates_failure,
+        _parse_feishu_media_payload,
+    )
+
+    assert _parse_feishu_media_payload("image", "{}") is None
+    assert _parse_feishu_media_payload("audio", "{}") is None
+    assert _parse_feishu_media_payload("image", None) is None
+    payload = {
+        "items": [
+            {"tag": "img", "image_token": "same"},
+            {"tag": "img", "image_key": "same"},
+            {"tag": "media", "file_key": "file", "name": "name"},
+        ]
+    }
+    assert len(_extract_post_media_items(json.dumps(payload))) == 2
+    assert _extract_post_media_items("bad-json") == []
+    deep: object = {"tag": "img", "image_key": "too-deep"}
+    for _ in range(12):
+        deep = [deep]
+    assert _extract_post_media_items(json.dumps(deep)) == []
+    assert not _feishu_media_reply_indicates_failure(None)
+    assert _feishu_media_reply_indicates_failure("  ⚠️ failed")

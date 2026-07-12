@@ -373,7 +373,7 @@ class DefaultMemoryStore:
         """清理过期缓存条目（TTL）。"""
         # 在锁内调用，清理过期条目
         expired_keys = []
-        for session_id, (memory, timestamp) in self._cache.items():
+        for session_id, (_, timestamp) in self._cache.items():
             if now - timestamp > self._cache_ttl_seconds:
                 expired_keys.append(session_id)
 

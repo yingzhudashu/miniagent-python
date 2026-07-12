@@ -6,7 +6,12 @@
 import os
 import time
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
+import pytest
+
+from miniagent.infrastructure import tracing
 from miniagent.infrastructure.tracing import (
     AsyncTraceWriter,
     auto_register_trace_file_hook,
@@ -340,3 +345,126 @@ class TestTraceFilePersistence:
         assert "123456789" not in content
         assert '"duration_ms":7' in content
         actual_path.unlink(missing_ok=True)
+
+
+def test_json_shape_and_usage_sanitization_edges() -> None:
+    count, truncated = tracing._json_shape_char_count(
+        {
+            "text": "abc",
+            "bytes": b"xy",
+            "list": [None, True, False, 12, 1.5, object()],
+        }
+    )
+    assert count > 20
+    assert truncated is False
+    assert tracing._json_shape_char_count([1, 2, 3], max_nodes=1)[1] is True
+
+    usage = tracing._sanitize_usage_metrics(
+        {
+            1: 10,
+            "input_tokens": 20,
+            "output_tokens": True,
+            "ignored": 99,
+            "input_tokens_details": {
+                "cached_tokens": 4,
+                "bad": True,
+                2: 3,
+            },
+            "output_tokens_details": {"bad": "value"},
+        }
+    )
+    assert usage == {
+        "input_tokens": 20,
+        "input_tokens_details": {"cached_tokens": 4},
+    }
+    assert tracing.new_trace_id("!@#") .startswith("trace-")
+    assert tracing.new_trace_id("a" * 30).startswith("a" * 16 + "-")
+
+
+def test_trace_span_reports_success_failure_and_parent() -> None:
+    events: list[dict] = []
+    clear_trace_hooks()
+    register_trace_hook(events.append)
+    with tracing.trace_parent("parent"):
+        with tracing.trace_span("plan", session_key="session", span_id="span") as span:
+            assert span == "span"
+    assert events[-1]["success"] is True
+    assert events[-1]["parent_span_id"] == "parent"
+
+    with pytest.raises(RuntimeError):
+        with tracing.trace_span("execute", parent_span_id="explicit"):
+            raise RuntimeError("failed")
+    assert events[-1]["success"] is False
+    assert events[-1]["parent_span_id"] == "explicit"
+    clear_trace_hooks()
+
+
+def test_resource_sampler_collects_optional_metrics_and_errors(monkeypatch) -> None:
+    sampler = tracing.TraceResourceSampler(0.001)
+    sampler._process = SimpleNamespace(
+        memory_info=lambda: SimpleNamespace(rss=123),
+        cpu_times=lambda: SimpleNamespace(user=1.5, system=0.5),
+    )
+    sampler._tracemalloc = SimpleNamespace(get_traced_memory=lambda: (10, 20), stop=lambda: None)
+    sampler._owns_tracemalloc = True
+    event = sampler._sample()
+    assert event["rss_bytes"] == 123
+    assert event["cpu_user_ms"] == 1500
+    assert event["python_traced_peak_bytes"] == 20
+
+    sampler._process = SimpleNamespace(memory_info=MagicMock(side_effect=OSError("gone")))
+    sampler._tracemalloc = SimpleNamespace(
+        get_traced_memory=MagicMock(side_effect=RuntimeError("disabled")),
+        stop=MagicMock(side_effect=RuntimeError("disabled")),
+    )
+    assert "rss_bytes" not in sampler._sample()
+    sampler.shutdown()
+    assert sampler._owns_tracemalloc is False
+
+    events: list[dict] = []
+    monkeypatch.setattr(tracing, "emit_trace", events.append)
+    sampler = tracing.TraceResourceSampler(0.05)
+    sampler.start()
+    sampler.start()
+    sampler.shutdown()
+    assert events
+
+
+def test_persistence_sanitizer_allows_only_declared_shapes() -> None:
+    sanitized = tracing._sanitize_trace_event_for_persistence(
+        {
+            "type": "test",
+            "error_preview": "secret preview",
+            "duration_ms": 3,
+            "status": "ok",
+            "retry_adjustments": ["a", "b"],
+            "output_item_types": ["x", 2],
+            "content": "secret",
+            "unknown": ["secret"],
+            "usage": {"prompt_tokens": 4, "debug": "secret"},
+        }
+    )
+    assert sanitized["error_preview_chars"] == len("secret preview")
+    assert sanitized["duration_ms"] == 3
+    assert sanitized["status"] == "ok"
+    assert sanitized["retry_adjustments"] == ["a", "b"]
+    assert sanitized["usage"] == {"prompt_tokens": 4}
+    assert "content" not in sanitized
+    assert "unknown" not in sanitized
+    assert "output_item_types" not in sanitized
+
+
+def test_global_trace_helpers_without_writer_and_duplicate_hooks() -> None:
+    clear_trace_hooks()
+    hook = MagicMock()
+    register_trace_hook(hook)
+    register_trace_hook(hook)
+    emit_trace({"type": "once"})
+    hook.assert_called_once()
+    unregister_trace_hook(hook)
+    unregister_trace_hook(hook)
+    assert tracing.get_trace_writer_stats() is None
+    assert tracing.exclude_trace_session("s") == (None, 0)
+    assert tracing.finalize_trace_session("s") == (None, 0)
+    assert shutdown_trace_writer() is None
+    clear_trace_hooks()

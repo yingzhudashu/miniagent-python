@@ -23,6 +23,45 @@ from typing import Any
 import httpx
 
 
+async def _send_http_request(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    *,
+    payload: dict[str, Any] | None,
+    headers: dict[str, str] | None,
+    timeout: float | None,
+) -> httpx.Response:
+    """执行单次 HTTP 请求，不包含重试或状态码策略。"""
+    request_args: dict[str, Any] = {}
+    if headers:
+        request_args["headers"] = headers
+    if timeout is not None:
+        request_args["timeout"] = timeout
+    normalized_method = method.upper()
+    if normalized_method == "POST":
+        return await client.post(url, json=payload or {}, **request_args)
+    if normalized_method == "GET":
+        return await client.get(url, **request_args)
+    return await client.request(method, url, **request_args)
+
+
+async def _retry_or_raise(
+    *,
+    error: httpx.RequestError,
+    message: str,
+    failure_prefix: str,
+    attempt: int,
+    max_retries: int,
+    backoff_factor: float,
+) -> None:
+    """未到重试上限时退避，否则保留原异常链抛出稳定用户错误。"""
+    if attempt < max_retries - 1:
+        await asyncio.sleep(backoff_factor * (2**attempt))
+        return
+    raise RuntimeError(f"{failure_prefix}（重试{max_retries}次后）: {message}") from error
+
+
 async def async_http_request_with_retry(
     client: httpx.AsyncClient,
     method: str,
@@ -61,71 +100,50 @@ async def async_http_request_with_retry(
         )
         data = resp.json()
     """
-    last_error: str = ""
-
     for attempt in range(max_retries):
         try:
-            # 构建请求参数
-            request_args: dict[str, Any] = {}
-            if headers:
-                request_args["headers"] = headers
-            if timeout is not None:
-                request_args["timeout"] = timeout
-
-            # 发送请求
-            if method.upper() == "POST":
-                request_args["json"] = payload or {}
-                resp = await client.post(url, **request_args)
-            elif method.upper() == "GET":
-                resp = await client.get(url, **request_args)
-            else:
-                resp = await client.request(method, url, **request_args)
-
-            # 检查HTTP状态
-            resp.raise_for_status()
-            return resp
-
-        except httpx.HTTPStatusError as e:
-            # 4xx错误：客户端错误，不重试
-            if e.response.status_code < 500:
+            response = await _send_http_request(
+                client,
+                method,
+                url,
+                payload=payload,
+                headers=headers,
+                timeout=timeout,
+            )
+            response.raise_for_status()
+            return response
+        except httpx.HTTPStatusError as error:
+            if error.response.status_code < 500:
                 raise RuntimeError(
-                    f"HTTP {e.response.status_code} 错误: {e.response.text[:500]}"
-                ) from e
-
-            # 5xx错误：服务器错误，重试
-            last_error = f"HTTP {e.response.status_code}: {e.response.text[:200]}"
-            if attempt < max_retries - 1:
-                delay = backoff_factor * (2 ** attempt)
-                await asyncio.sleep(delay)
-                continue
-            raise RuntimeError(
-                f"HTTP请求失败（重试{max_retries}次后）: {last_error}"
-            ) from e
-
-        except httpx.TimeoutException as e:
-            # 超时错误，重试
-            last_error = f"请求超时: {e}"
-            if attempt < max_retries - 1:
-                delay = backoff_factor * (2 ** attempt)
-                await asyncio.sleep(delay)
-                continue
-            raise RuntimeError(
-                f"HTTP请求超时（重试{max_retries}次后）: {last_error}"
-            ) from e
-
-        except httpx.RequestError as e:
-            # 网络错误（连接失败、DNS错误等），重试
-            last_error = f"网络错误: {e}"
-            if attempt < max_retries - 1:
-                delay = backoff_factor * (2 ** attempt)
-                await asyncio.sleep(delay)
-                continue
-            raise RuntimeError(
-                f"网络请求失败（重试{max_retries}次后）: {last_error}"
-            ) from e
-
-    # 不应该到达这里
-    raise RuntimeError(f"HTTP请求失败: {last_error}")
+                    f"HTTP {error.response.status_code} 错误: {error.response.text[:500]}"
+                ) from error
+            await _retry_or_raise(
+                error=error,
+                message=f"HTTP {error.response.status_code}: {error.response.text[:200]}",
+                failure_prefix="HTTP请求失败",
+                attempt=attempt,
+                max_retries=max_retries,
+                backoff_factor=backoff_factor,
+            )
+        except httpx.TimeoutException as error:
+            await _retry_or_raise(
+                error=error,
+                message=f"请求超时: {error}",
+                failure_prefix="HTTP请求超时",
+                attempt=attempt,
+                max_retries=max_retries,
+                backoff_factor=backoff_factor,
+            )
+        except httpx.RequestError as error:
+            await _retry_or_raise(
+                error=error,
+                message=f"网络错误: {error}",
+                failure_prefix="网络请求失败",
+                attempt=attempt,
+                max_retries=max_retries,
+                backoff_factor=backoff_factor,
+            )
+    raise RuntimeError("HTTP请求失败: 未执行任何请求")
 
 
 async def async_http_get_json_with_retry(

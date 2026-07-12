@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from miniagent.bootstrap.application import ApplicationContainer
+    from miniagent.contracts.configuration import ConfigSnapshot
 
 from miniagent.infrastructure.env_parse import FALSY, TRUTHY
 
@@ -90,6 +91,8 @@ class JsonConfigLoader:
             if os.path.isfile(self._user_path)
             else {}
         )
+        if strict:
+            _validate_user_keys(defaults, user)
         return defaults, user
 
     def _load_json(self, path: str, *, strict: bool = False) -> dict[str, Any]:
@@ -184,6 +187,16 @@ class JsonConfigLoader:
         value = self._user.get(section, {})
         return dict(value) if isinstance(value, dict) else {}
 
+    def snapshot(self) -> ConfigSnapshot:
+        """返回 defaults 与 user 深度合并后的不可变配置快照。"""
+        from miniagent.contracts.configuration import ConfigSnapshot
+
+        defaults, user = self._read_layers(strict=True)
+        self._defaults = defaults
+        self._user = user
+        self._loaded = True
+        return ConfigSnapshot(_deep_merge(self._defaults, self._user))
+
     @property
     def paths(self) -> tuple[Path, Path]:
         """Return the configured defaults and user file paths."""
@@ -191,6 +204,54 @@ class JsonConfigLoader:
 
 
 _config_loader = JsonConfigLoader()
+
+
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """递归合并配置树，同时断开所有可变对象引用。"""
+    merged = deepcopy(base)
+    for key, value in override.items():
+        current = merged.get(key)
+        if isinstance(current, dict) and isinstance(value, dict):
+            merged[key] = _deep_merge(current, value)
+        else:
+            merged[key] = deepcopy(value)
+    return merged
+
+
+def _validate_user_keys(defaults: dict[str, Any], user: dict[str, Any], prefix: str = "") -> None:
+    """严格校验用户配置键，并在错误中报告完整点路径。"""
+    for key, value in user.items():
+        path = f"{prefix}.{key}" if prefix else key
+        if key not in defaults:
+            raise ValueError(f"未知配置项: {path}")
+        default_value = defaults[key]
+        if isinstance(value, dict):
+            if not isinstance(default_value, dict):
+                raise ValueError(f"配置项类型错误: {path} 应为 {type(default_value).__name__}")
+            _validate_user_keys(default_value, value, path)
+        elif isinstance(default_value, dict):
+            raise ValueError(f"配置项类型错误: {path} 应为 object")
+        elif default_value is not None and not _compatible_config_type(default_value, value):
+            raise ValueError(
+                f"配置项类型错误: {path} 应为 {type(default_value).__name__}，"
+                f"实际为 {type(value).__name__}"
+            )
+
+
+def _compatible_config_type(default: Any, value: Any) -> bool:
+    """判断用户值是否与默认值类型兼容，避免 bool 被当作整数。"""
+    if isinstance(default, bool):
+        return isinstance(value, bool)
+    if isinstance(default, float):
+        return isinstance(value, int | float) and not isinstance(value, bool)
+    if isinstance(default, int):
+        return isinstance(value, int) and not isinstance(value, bool)
+    return isinstance(value, type(default))
+
+
+def get_config_snapshot() -> ConfigSnapshot:
+    """返回当前已安装配置加载器的不可变快照。"""
+    return _config_loader.snapshot()
 
 
 def install_config_loader(loader: JsonConfigLoader) -> None:
@@ -285,6 +346,7 @@ __all__ = [
     "get_config_bool",
     "get_config_paths",
     "get_config_section",
+    "get_config_snapshot",
     "get_user_config_section",
     "get_user_config_path",
     "install_config_loader",

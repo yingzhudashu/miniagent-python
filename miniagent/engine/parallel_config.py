@@ -12,11 +12,10 @@ from typing import TYPE_CHECKING
 from miniagent.infrastructure.json_config import get_config_bool
 
 if TYPE_CHECKING:
-    from miniagent.infrastructure.channel_router import ChannelRouter
-    from miniagent.infrastructure.message_queue import MessageQueueManager
+    from miniagent.contracts.runtime import ChannelRouterProtocol, MessageQueueProtocol
 
 
-def configure_message_queue_for_parallel(message_queue: MessageQueueManager) -> None:
+def configure_message_queue_for_parallel(message_queue: MessageQueueProtocol) -> None:
     """根据 ``agent.parallel_sessions`` 配置消息队列跨队列串行行为。
 
     - ``parallel_sessions=true``（默认）：``cross_queue_serial=False``，不持有 ``exec_lock``，
@@ -37,7 +36,7 @@ def configure_message_queue_for_parallel(message_queue: MessageQueueManager) -> 
 
 
 def resolve_active_session_key(
-    channel_router: ChannelRouter | None,
+    channel_router: ChannelRouterProtocol | None,
     fallback: str = "default",
 ) -> str:
     """解析 CLI 当前应使用的 ``session_key``。
@@ -57,9 +56,7 @@ def resolve_active_session_key(
     if channel_router is None:
         return fallback
     try:
-        from miniagent.infrastructure.channel_router import ChannelRouter
-
-        return channel_router.resolve(ChannelRouter.CLI_CHANNEL)
+        return channel_router.resolve(channel_router.CLI_CHANNEL)
     except Exception:
         return fallback
 

@@ -22,15 +22,18 @@ from miniagent.types.planning import (
     PlanChunk,
     PlanStep,
     StructuredPlan,
+    ThinkingLevel,
 )
 
 StepAsDict = Callable[[object, int], dict[str, Any]]
-StepThinkingLevel = Callable[[dict[str, Any]], str | None]
+StepThinkingLevel = Callable[[dict[str, Any]], ThinkingLevel | None]
 
 
 def _resolve_step_depends_on(dep: object, by_num: dict[int, PlanStep]) -> int | None:
     """将 ``depends_on`` 规范为可匹配的步骤序号；无效或缺失依赖返回 ``None``。"""
     if dep is None:
+        return None
+    if not isinstance(dep, (str, bytes, bytearray, int, float)):
         return None
     try:
         n = int(dep)
@@ -143,11 +146,11 @@ def resolve_effective_overflow_strategy(plan: StructuredPlan, default: str) -> s
     sc = plan.suggested_config
     if sc and sc.context_overflow_strategy:
         return sc.context_overflow_strategy
-    mode = (plan.context_strategy.mode if plan.context_strategy else "normal") or "normal"
-    mode = str(mode).lower()
-    if mode == "summarize":
+    raw_mode = (plan.context_strategy.mode if plan.context_strategy else "normal") or "normal"
+    normalized_mode = str(raw_mode).lower()
+    if normalized_mode == "summarize":
         return "summarize"
-    if mode == "truncate":
+    if normalized_mode == "truncate":
         return "truncate"
     return default
 
@@ -230,6 +233,8 @@ def format_estimated_cost_block(cost: EstimatedCost) -> str | None:
 
 def _parse_depends_on(raw: object) -> int | None:
     if raw is None:
+        return None
+    if not isinstance(raw, (str, bytes, bytearray, int, float)):
         return None
     try:
         return int(raw)

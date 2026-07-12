@@ -16,6 +16,7 @@ import atexit
 import os
 import subprocess
 import sys
+from typing import Any, cast
 
 from miniagent.infrastructure.logger import get_logger
 
@@ -109,19 +110,23 @@ async def _kill_tree_windows(pid: int) -> None:
 
 async def _kill_unix(proc: asyncio.subprocess.Process) -> None:
     """Unix：终止进程组。"""
+    # Windows 的 typeshed 不暴露这两个 POSIX API；该函数只在 Unix 分支调用。
+    posix_os = cast(Any, os)
+    getpgid = posix_os.getpgid
+    killpg = posix_os.killpg
     try:
-        pgid = os.getpgid(proc.pid)
-        os.killpg(pgid, 15)  # SIGTERM
+        pgid = getpgid(proc.pid)
+        killpg(pgid, 15)  # SIGTERM
         await asyncio.wait_for(proc.wait(), timeout=3.0)
-    except (ProcessLookupError, OSError) as e:
-        _logger.debug("进程已退出或进程组不存在: %s", e)
     except asyncio.TimeoutError:
         try:
-            pgid = os.getpgid(proc.pid)
-            os.killpg(pgid, 9)  # SIGKILL
+            pgid = getpgid(proc.pid)
+            killpg(pgid, 9)  # SIGKILL
             await asyncio.wait_for(proc.wait(), timeout=2.0)
         except (ProcessLookupError, OSError, asyncio.TimeoutError) as e:
             _logger.debug("强制终止进程失败: %s", e)
+    except (ProcessLookupError, OSError) as e:
+        _logger.debug("进程已退出或进程组不存在: %s", e)
 
 
 async def cleanup_all_processes() -> None:

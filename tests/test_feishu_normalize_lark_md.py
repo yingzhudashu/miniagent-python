@@ -67,7 +67,7 @@ def test_prepare_card_markdown_preserves_pipe_prose_without_table_row() -> None:
 
 
 def test_chunk_feishu_normalizes_before_split(monkeypatch: pytest.MonkeyPatch) -> None:
-    from miniagent.feishu import poll_server as ps
+    from miniagent.feishu import thinking_delivery as ps
 
     monkeypatch.setattr(ps, "feishu_card_body_max", lambda: 200)
     raw = "\u200b# Title\n\n" + ("paragraph\n" * 80)
@@ -118,7 +118,7 @@ def test_finalize_pipeline_matches_streaming_thinking_prep(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """收尾应对累积正文走与 PATCH 相同的 thinking body 管线（折叠空行与 normalize，无额外缩进）。"""
-    from miniagent.feishu import poll_server as ps
+    from miniagent.feishu import thinking_delivery as ps
 
     monkeypatch.setattr(ps, "feishu_card_body_max", lambda: 10_000)
     acc = "段落一\n\n段落二\n\n**工具**\n\n- a\n- b"
@@ -160,7 +160,7 @@ def test_normalize_lark_md_strips_replacement_char() -> None:
 
 
 def test_chunk_feishu_extends_past_cap_to_close_fence(monkeypatch: pytest.MonkeyPatch) -> None:
-    from miniagent.feishu import poll_server as ps
+    from miniagent.feishu import thinking_delivery as ps
 
     monkeypatch.setattr(ps, "feishu_card_body_max", lambda: 120)
     inner = "\n".join([f"line {i}" for i in range(40)])

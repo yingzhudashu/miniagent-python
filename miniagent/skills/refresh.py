@@ -50,7 +50,7 @@ async def refresh_skills(
     package_dir: str | None = None,
     skills_root: str | None = None,
     config: AgentConfig | None = None,
-    state: dict[str, Any] | None = None,
+    state: Any | None = None,
     session_manager: Any | None = None,
 ) -> RefreshResult:
     """重新发现磁盘技能并更新注册表与快照。

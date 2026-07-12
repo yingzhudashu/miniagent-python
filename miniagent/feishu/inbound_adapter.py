@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any
 
 from miniagent.contracts.messages import Attachment, InboundMessage
 from miniagent.feishu.types import FeishuInboundText
@@ -28,7 +29,7 @@ def build_feishu_inbound_message(
     message_id = (inbound.message_id or "").strip()
     chat_type = (inbound.chat_type or "group").strip().lower() or "group"
     received_at = _received_at(inbound.create_time)
-    kwargs = {
+    kwargs: dict[str, Any] = {
         "channel": FEISHU_CHANNEL,
         "conversation_id": inbound.chat_id,
         "sender_id": inbound.sender_id,

@@ -462,7 +462,7 @@ class TestSelfOptCommand:
         state = _create_mock_state()
 
         with patch(
-            "miniagent.engine.cli_commands.cmd_self_opt_status",
+            "miniagent.engine.commands.self_opt_commands.cmd_self_opt_status",
             side_effect=lambda: print("自我优化状态 OK"),
         ):
             result = await dispatch_command("/self-opt status", state=state, capture=True)
@@ -516,7 +516,7 @@ class TestSelfOptCommand:
             print(f"已执行提案 {proposal_id} root={root}")
 
         with patch(
-            "miniagent.engine.cli_commands.cmd_self_opt_apply",
+            "miniagent.engine.commands.self_opt_commands.cmd_self_opt_apply",
             side_effect=_fake_apply,
         ):
             result = await dispatch_command(

@@ -10,16 +10,18 @@ Layer 3 摘要语义见 ``docs/MEMORY_SYSTEM.md``。
 
 from __future__ import annotations
 
-import json
 import os
 from datetime import datetime, timezone
 from typing import Any
 
 from miniagent.infrastructure.logger import get_logger
 from miniagent.infrastructure.paths import resolve_state_dir as get_state_root
+from miniagent.infrastructure.persistence import dump_state_file, load_state_file
+from miniagent.infrastructure.state_schemas import install_builtin_state_schemas
 from miniagent.utils.session_id import safe_session_id
 
 _logger = get_logger(__name__)
+install_builtin_state_schemas()
 
 
 # 使用统一的 safe_session_id 函数
@@ -49,8 +51,7 @@ def load_session_longterm(session_key: str) -> dict[str, Any]:
     if not os.path.isfile(path):
         return {"session_key": session_key, "day_entries": []}
     try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
+        return load_state_file("session_longterm", path)
     except Exception:
         return {"session_key": session_key, "day_entries": []}
 
@@ -62,8 +63,7 @@ def save_session_longterm(session_key: str, data: dict[str, Any]) -> None:
     data["session_key"] = session_key
     data["updated_at"] = datetime.now(timezone.utc).isoformat()
     try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        dump_state_file("session_longterm", path, data)
     except OSError as e:
         _logger.warning("写入 session_lt 失败: %s", e)
 
@@ -96,8 +96,7 @@ def load_agent_longterm() -> dict[str, Any]:
     if not os.path.isfile(path):
         return {"entries": []}
     try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
+        return load_state_file("agent_longterm", path)
     except Exception:
         return {"entries": []}
 
@@ -108,8 +107,7 @@ def save_agent_longterm(data: dict[str, Any]) -> None:
     data = dict(data)
     data["updated_at"] = datetime.now(timezone.utc).isoformat()
     try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        dump_state_file("agent_longterm", path, data)
     except OSError as e:
         _logger.warning("写入 agent_lt 失败: %s", e)
 

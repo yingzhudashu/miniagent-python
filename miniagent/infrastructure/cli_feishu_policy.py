@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
-    from miniagent.infrastructure.channel_router import ChannelRouter
+    from miniagent.contracts.runtime import ChannelRouterProtocol
 
 CliFocusMode = Literal["general", "feishu_group"]
 
@@ -20,14 +20,12 @@ def is_feishu_group_session(session_key: str) -> bool:
     return sk.startswith("feishu:") and not sk.startswith("feishu_p2p:")
 
 
-def cli_bound_session(router: ChannelRouter) -> str:
+def cli_bound_session(router: ChannelRouterProtocol) -> str:
     """CLI 通道当前解析到的会话 ID。"""
-    from miniagent.infrastructure.channel_router import ChannelRouter
-
-    return router.resolve(ChannelRouter.CLI_CHANNEL)
+    return router.resolve(router.CLI_CHANNEL)
 
 
-def get_cli_focus_mode(router: ChannelRouter) -> CliFocusMode:
+def get_cli_focus_mode(router: ChannelRouterProtocol) -> CliFocusMode:
     """根据 CLI 绑定目标判断聚焦模式。"""
     if is_feishu_group_session(cli_bound_session(router)):
         return "feishu_group"
@@ -54,12 +52,14 @@ def normalize_bind_session_id(channel: str, raw_id: str) -> str:
     return sid
 
 
-def should_allow_p2p_auto_bind(router: ChannelRouter) -> bool:
+def should_allow_p2p_auto_bind(router: ChannelRouterProtocol) -> bool:
     """群聊聚焦模式下禁止私聊自动绑定到 active_session。"""
     return get_cli_focus_mode(router) != "feishu_group"
 
 
-def should_sync_p2p_on_session_switch(router: ChannelRouter, target_session_id: str) -> bool:
+def should_sync_p2p_on_session_switch(
+    router: ChannelRouterProtocol, target_session_id: str
+) -> bool:
     """切换到飞书群会话时不同步 feishu_p2p_synced_senders。
 
     在 ``sync_channel_router_to_session`` 中于 CLI 已绑定到 ``target`` 之后调用，
@@ -70,7 +70,7 @@ def should_sync_p2p_on_session_switch(router: ChannelRouter, target_session_id: 
 
 
 def should_mirror_feishu_to_cli(
-    router: ChannelRouter,
+    router: ChannelRouterProtocol,
     *,
     chat_type: str,
     chat_id: str,
@@ -78,8 +78,6 @@ def should_mirror_feishu_to_cli(
     session_key: str,
 ) -> bool:
     """是否将本条飞书入站/侧车信息写入 CLI transcript。"""
-    from miniagent.infrastructure.channel_router import ChannelRouter
-
     mode = get_cli_focus_mode(router)
     cli_sk = cli_bound_session(router)
     sk = (session_key or "").strip()
@@ -94,12 +92,12 @@ def should_mirror_feishu_to_cli(
     if ct == "group":
         return sk == cli_sk
     if ct == "p2p":
-        p2p_ch = f"{ChannelRouter.FEISHU_P2P_PREFIX}{(sender_id or '').strip()}"
+        p2p_ch = f"{router.FEISHU_P2P_PREFIX}{(sender_id or '').strip()}"
         return router.resolve(p2p_ch) == cli_sk
     return False
 
 
-def focus_mode_status_line(router: ChannelRouter) -> str:
+def focus_mode_status_line(router: ChannelRouterProtocol) -> str:
     """供 ``.bind status`` 附加的聚焦模式说明。"""
     mode = get_cli_focus_mode(router)
     if mode == "feishu_group":

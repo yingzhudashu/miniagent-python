@@ -13,7 +13,7 @@ Self-Opt 是 Mini Agent 的自我优化机制，包含两个核心能力：
 
 ## 配置
 
-`self_optimization` 节在 `miniagent/resources/config.defaults.json` 中配置；运行分析依赖 Trace 数据，Trace 配置见 **[ENGINEERING.md §5](ENGINEERING.md#5-trace-系统)**（SSOT）。
+`self_optimization` 节在 `miniagent/resources/config.defaults.json` 中配置；运行分析依赖 Trace 数据，Trace 配置见 **[ENGINEERING.md §5](ENGINEERING.md#5-trace-系统全链路监控)**（SSOT）。
 
 ```json
 {
@@ -34,7 +34,7 @@ Self-Opt 是 Mini Agent 的自我优化机制，包含两个核心能力：
 **关键配置**：
 - `auto_apply: false`：默认仅生成提案，需人工批准执行；设为 `true` 可自动执行低风险提案
 - `auto_apply_max_risk: "low"`：自动执行时仅允许低风险提案
-- `runtime_analysis_enabled: true`：启用运行日志分析（需 `trace.enabled: true`，见 [ENGINEERING.md §5](ENGINEERING.md#5-trace-系统)）
+- `runtime_analysis_enabled: true`：启用运行日志分析（需 `trace.enabled: true`，见 [ENGINEERING.md §5](ENGINEERING.md#5-trace-系统全链路监控)）
 
 ## CLI 命令
 

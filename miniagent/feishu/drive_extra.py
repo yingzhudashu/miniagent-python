@@ -35,6 +35,7 @@ class SearchRequiresUserTokenError(Exception):
         self.log_id = log_id
 
     def to_payload(self) -> dict[str, Any]:
+        """转换为飞书工具可以直接返回的结构化错误。"""
         return {
             "ok": False,
             "requires_user_token": True,
@@ -63,6 +64,7 @@ class SearchApiError(Exception):
         self.log_id = log_id
 
     def to_payload(self) -> dict[str, Any]:
+        """转换为飞书工具可以直接返回的结构化错误。"""
         return {
             "ok": False,
             "requires_user_token": False,
@@ -102,7 +104,7 @@ def search_docs(
     code = raw.get("code")
     if code not in (0, None):
         try:
-            icode = int(code)
+            icode = int(str(code))
         except (TypeError, ValueError):
             icode = None
         raise SearchApiError(

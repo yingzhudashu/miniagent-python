@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, MutableMapping
 from typing import Any
 
 from miniagent.skills.builtin_toolboxes import BUILTIN_TOOLBOXES
@@ -30,14 +31,14 @@ def build_skill_snapshots(
     return skill_toolboxes, skill_prompts
 
 
-def get_skill_toolboxes_from_state(state: dict[str, Any] | None) -> list[Any]:
+def get_skill_toolboxes_from_state(state: Mapping[str, Any] | None) -> list[Any]:
     """从 CLI 运行时 state 读取技能工具箱快照。"""
     if not state:
         return []
     return list(state.get("skill_toolboxes") or [])
 
 
-def get_skill_prompts_from_state(state: dict[str, Any] | None) -> list[str]:
+def get_skill_prompts_from_state(state: Mapping[str, Any] | None) -> list[str]:
     """从 CLI 运行时 state 读取技能系统提示词快照。"""
     if not state:
         return []
@@ -53,7 +54,7 @@ def join_skill_prompts(prompts: list[str] | None) -> str | None:
 
 
 def apply_skill_snapshots_to_state(
-    state: dict[str, Any],
+    state: MutableMapping[str, Any],
     *,
     skill_toolboxes: list[Any],
     skill_prompts: list[str],

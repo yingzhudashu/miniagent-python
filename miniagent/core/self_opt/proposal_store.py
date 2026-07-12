@@ -41,6 +41,8 @@ from miniagent.core.self_opt.auto_optimizer import apply_proposal
 from miniagent.core.self_opt.types import OptimizationProposal, OptimizationResult
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
+from miniagent.infrastructure.persistence import dump_state_file, load_state_file
+from miniagent.infrastructure.state_schemas import install_builtin_state_schemas
 from miniagent.infrastructure.trace_events import (
     EVENT_PROPOSAL_APPLY,
     EVENT_PROPOSAL_APPROVE,
@@ -54,6 +56,7 @@ from miniagent.infrastructure.trace_events import (
 from miniagent.infrastructure.tracing import emit_trace
 
 _logger = get_logger(__name__)
+install_builtin_state_schemas()
 
 
 def get_proposal_output_dir() -> Path:
@@ -107,10 +110,10 @@ def _update_history_index(record: dict[str, Any]) -> None:
     index: list[dict[str, Any]] = []
     if history_file.exists():
         try:
-            with history_file.open("r", encoding="utf-8") as f:
-                loaded = json.load(f)
-            if isinstance(loaded, list):
-                index = loaded
+            loaded = load_state_file("self_opt_proposal_index", history_file)
+            entries = loaded.get("entries", [])
+            if isinstance(entries, list):
+                index = [item for item in entries if isinstance(item, dict)]
         except (OSError, json.JSONDecodeError):
             index = []
 
@@ -130,8 +133,11 @@ def _update_history_index(record: dict[str, Any]) -> None:
     index.sort(key=lambda e: e.get("updated_at", ""), reverse=True)
 
     try:
-        with history_file.open("w", encoding="utf-8") as f:
-            json.dump(index, f, indent=2, ensure_ascii=False)
+        dump_state_file(
+            "self_opt_proposal_index",
+            history_file,
+            {"entries": index},
+        )
     except OSError as e:
         _logger.warning("更新提案索引失败: %s", e)
 
@@ -396,6 +402,69 @@ class ProposalStore:
 
         return updated
 
+    @staticmethod
+    def _proposal_apply_denial(
+        proposal_id: str,
+        record: dict[str, Any],
+        *,
+        dry_run: bool,
+        manual: bool,
+    ) -> OptimizationResult | None:
+        """校验自动执行开关和风险上限；允许执行时返回 ``None``。"""
+        if dry_run or manual:
+            return None
+        if not get_config("self_optimization.auto_apply", False):
+            return OptimizationResult(
+                proposal_id=proposal_id,
+                status="skipped",
+                error="auto_apply 未启用，请使用 /self-opt apply 手动执行",
+            )
+        max_risk = get_config("self_optimization.auto_apply_max_risk", "low")
+        proposal_risk = record.get("proposal", {}).get("risk_level", "low")
+        risk_order = {"low": 0, "medium": 1, "high": 2}
+        if risk_order.get(proposal_risk, 0) <= risk_order.get(max_risk, 0):
+            return None
+        return OptimizationResult(
+            proposal_id=proposal_id,
+            status="skipped",
+            error=f"风险等级 {proposal_risk} 超过配置上限 {max_risk}",
+        )
+
+    @staticmethod
+    def _proposal_from_record(proposal_id: str, record: dict[str, Any]) -> OptimizationProposal:
+        """从 JSONL 记录重建强类型优化提案。"""
+        from miniagent.core.self_opt.types import FileChange, OptTestCase
+
+        data = record.get("proposal", {})
+        return OptimizationProposal(
+            id=data.get("id", proposal_id),
+            type=data.get("type", "optimize"),
+            risk_level=data.get("risk_level", "low"),
+            target=data.get("target", ""),
+            description=data.get("description", ""),
+            rationale=data.get("rationale", ""),
+            expected_benefit=data.get("expected_benefit", ""),
+            estimated_effort=data.get("estimated_effort", 0),
+            files=[
+                FileChange(
+                    path=item.get("path", ""),
+                    action=item.get("action", "update"),
+                    content=item.get("content", ""),
+                    reason=item.get("reason", ""),
+                )
+                for item in data.get("files", [])
+            ],
+            test_cases=[
+                OptTestCase(
+                    id=item.get("id", ""),
+                    type=item.get("type", "unit"),
+                    description=item.get("description", ""),
+                    command=item.get("command", ""),
+                )
+                for item in data.get("test_cases", [])
+            ],
+        )
+
     async def apply_proposal_async(
         self,
         proposal_id: str,
@@ -424,66 +493,19 @@ class ProposalStore:
                 error="提案不存在",
             )
 
-        auto_apply_enabled = get_config("self_optimization.auto_apply", False)
-        max_risk = get_config("self_optimization.auto_apply_max_risk", "low")
-        proposal_risk = record.get("proposal", {}).get("risk_level", "low")
         current_status = record.get("status", "pending")
-        risk_order = {"low": 0, "medium": 1, "high": 2}
-
-        if not dry_run:
-            if manual:
-                pass  # CLI 已校验状态与风险
-            elif auto_apply_enabled:
-                if risk_order.get(proposal_risk, 0) > risk_order.get(max_risk, 0):
-                    return OptimizationResult(
-                        proposal_id=proposal_id,
-                        status="skipped",
-                        error=f"风险等级 {proposal_risk} 超过配置上限 {max_risk}",
-                    )
-            else:
-                return OptimizationResult(
-                    proposal_id=proposal_id,
-                    status="skipped",
-                    error="auto_apply 未启用，请使用 /self-opt apply 手动执行",
-                )
+        denial = self._proposal_apply_denial(
+            proposal_id, record, dry_run=dry_run, manual=manual
+        )
+        if denial is not None:
+            return denial
 
         allow_high_risk = manual and current_status == "approved"
 
         # 更新状态为 executing
         self.update_status(proposal_id, "executing")
 
-        # 从记录重建 OptimizationProposal
-        proposal_data = record.get("proposal", {})
-        from miniagent.core.self_opt.types import FileChange, OptTestCase
-
-        proposal = OptimizationProposal(
-            id=proposal_data.get("id", proposal_id),
-            type=proposal_data.get("type", "optimize"),
-            risk_level=proposal_data.get("risk_level", "low"),
-            target=proposal_data.get("target", ""),
-            description=proposal_data.get("description", ""),
-            rationale=proposal_data.get("rationale", ""),
-            expected_benefit=proposal_data.get("expected_benefit", ""),
-            estimated_effort=proposal_data.get("estimated_effort", 0),
-            files=[
-                FileChange(
-                    path=f.get("path", ""),
-                    action=f.get("action", "update"),
-                    content=f.get("content", ""),
-                    reason=f.get("reason", ""),
-                )
-                for f in proposal_data.get("files", [])
-            ],
-            test_cases=[
-                OptTestCase(
-                    id=tc.get("id", ""),
-                    type=tc.get("type", "unit"),
-                    description=tc.get("description", ""),
-                    command=tc.get("command", ""),
-                )
-                for tc in proposal_data.get("test_cases", [])
-            ],
-        )
+        proposal = self._proposal_from_record(proposal_id, record)
 
         # 执行提案
         result = await apply_proposal(
@@ -496,7 +518,7 @@ class ProposalStore:
 
         # 更新最终状态
         if result.status == "success":
-            final_status = "completed"
+            final_status: ProposalStatus = "completed"
         elif result.status == "skipped":
             final_status = current_status if current_status in ("pending", "approved") else "failed"
         else:

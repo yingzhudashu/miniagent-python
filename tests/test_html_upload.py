@@ -14,6 +14,98 @@ from unittest.mock import patch
 import pytest
 
 
+class _Response:
+    def __init__(self, status: int, payload: dict) -> None:
+        self.status = status
+        self.payload = payload
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return None
+
+    async def json(self):
+        return self.payload
+
+
+class _Session:
+    def __init__(self, responses: list[_Response]) -> None:
+        self.responses = responses
+
+    def post(self, *_args, **_kwargs):
+        return self.responses.pop(0)
+
+    def get(self, *_args, **_kwargs):
+        return self.responses.pop(0)
+
+
+@pytest.mark.asyncio
+async def test_upload_success_and_friendly_server_error(monkeypatch) -> None:
+    from miniagent.tools import html_upload
+    from miniagent.types.tool import ToolContext
+
+    session = _Session(
+        [
+            _Response(201, {"success": True, "id": "1", "filename": "x.html", "url": "/agent/1"}),
+            _Response(400, {"error_code": "SANITIZATION_FAILED", "error": "unsafe"}),
+        ]
+    )
+    monkeypatch.setattr(html_upload, "_get_api_key", lambda: "key")
+    monkeypatch.setattr(html_upload, "_get_base_url", lambda: "https://example.test")
+    monkeypatch.setattr(html_upload, "_get_http_session", lambda: session)
+    ctx = ToolContext(cwd=".")
+    result = await html_upload._upload_html_handler(
+        {"html": "<h1>ok</h1>", "filename": "x.html"}, ctx
+    )
+    assert result.success and result.meta["full_url"] == "https://example.test/agent/1"
+    failed = await html_upload._upload_html_handler({"html": "<script>x</script>"}, ctx)
+    assert not failed.success and "危险内容" in failed.content
+
+
+@pytest.mark.asyncio
+async def test_list_empty_nonempty_and_server_failure(monkeypatch) -> None:
+    from miniagent.tools import html_upload
+    from miniagent.types.tool import ToolContext
+
+    session = _Session(
+        [
+            _Response(200, {"files": [], "count": 0}),
+            _Response(200, {"files": [{"filename": "x", "url": "/x"}], "count": 1}),
+            _Response(500, {"error": "server"}),
+        ]
+    )
+    monkeypatch.setattr(html_upload, "_get_api_key", lambda: "key")
+    monkeypatch.setattr(html_upload, "_get_base_url", lambda: "https://example.test")
+    monkeypatch.setattr(html_upload, "_get_http_session", lambda: session)
+    ctx = ToolContext(cwd=".")
+    assert (await html_upload._list_html_files_handler({}, ctx)).meta["count"] == 0
+    listed = await html_upload._list_html_files_handler({}, ctx)
+    assert listed.success and "https://example.test/x" in listed.content
+    assert not (await html_upload._list_html_files_handler({}, ctx)).success
+
+
+@pytest.mark.asyncio
+async def test_cleanup_empty_nonempty_and_failure(monkeypatch) -> None:
+    from miniagent.tools import html_upload
+    from miniagent.types.tool import ToolContext
+
+    session = _Session(
+        [
+            _Response(200, {"success": True, "deleted_count": 0}),
+            _Response(200, {"success": True, "deleted_count": 2, "deleted_files": ["a", "b"]}),
+            _Response(500, {"error": "server"}),
+        ]
+    )
+    monkeypatch.setattr(html_upload, "_get_api_key", lambda: "key")
+    monkeypatch.setattr(html_upload, "_get_http_session", lambda: session)
+    ctx = ToolContext(cwd=".")
+    assert (await html_upload._cleanup_html_files_handler({"days": 3}, ctx)).meta["deleted_count"] == 0
+    cleaned = await html_upload._cleanup_html_files_handler({"days": 3}, ctx)
+    assert cleaned.success and cleaned.meta["deleted_count"] == 2
+    assert not (await html_upload._cleanup_html_files_handler({"days": 3}, ctx)).success
+
+
 @pytest.mark.asyncio
 async def test_http_session_reused_and_closed(monkeypatch) -> None:
     from miniagent.tools import html_upload

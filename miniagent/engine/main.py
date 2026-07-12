@@ -60,6 +60,108 @@ def _configure_console_encoding() -> None:
                 reconfigure(encoding="utf-8", errors="replace")
 
 
+def _enable_windows_vt() -> None:
+    """尽力启用 Windows VT；失败时保留 prompt_toolkit 降级。"""
+    try:
+        import ctypes
+
+        handle = ctypes.windll.kernel32.GetStdHandle(-11)
+        if handle and handle != -1:
+            mode = ctypes.c_ulong()
+            if ctypes.windll.kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+                ctypes.windll.kernel32.SetConsoleMode(handle, mode.value | 0x0004)
+    except Exception as error:
+        _logger.debug("Windows VT模式设置失败（降级到prompt_toolkit）: %s", error)
+
+
+def _initial_runtime_state(ctx: ApplicationContainer, feishu_mode: bool) -> CliLoopState:
+    """注册进程实例并构造显式 CLI 运行状态。"""
+    try:
+        registration = register_instance(
+            mode="both" if feishu_mode else "cli", active_sessions=[]
+        )
+    except ProjectDirConflictError as error:
+        print(format_project_conflict_message(error.existing_meta))
+        raise SystemExit(2) from error
+    return {
+        "active_session_id": "",
+        "skill_toolboxes": [],
+        "skill_prompts": [],
+        "feishu_enabled": feishu_mode,
+        "session_manager": None,
+        "instance_id": registration.get("instance_id", 0),
+        "runtime_ctx": ctx,
+        "feishu_p2p_synced_senders": set(),
+    }
+
+
+def _install_signal_shutdown(ctx: ApplicationContainer, state: CliLoopState) -> None:
+    """将 SIGINT/SIGTERM 安全桥接到事件循环内的统一关停协程。"""
+    loop = asyncio.get_running_loop()
+    signal_lock = threading.Lock()
+    armed = {"value": False}
+
+    async def shutdown_after_signal(signum: int) -> None:
+        try:
+            await shutdown_runtime(ctx, state, reason=f"signal:{signum}", call_unregister=True)
+        except Exception as error:
+            _logger.debug("信号关闭过程中异常（不影响退出）: %s", error)
+        os._exit(0)
+
+    def on_exit(signum: int, *_: Any) -> None:
+        with signal_lock:
+            if armed["value"]:
+                os._exit(128)
+            armed["value"] = True
+
+        def kick() -> None:
+            asyncio.create_task(shutdown_after_signal(signum))
+
+        loop.call_soon_threadsafe(kick)
+
+    signal.signal(signal.SIGINT, on_exit)
+    signal.signal(signal.SIGTERM, on_exit)
+
+
+async def _start_runtime_services(
+    ctx: ApplicationContainer, state: CliLoopState
+) -> tuple[list[Any], list[Any], str]:
+    """初始化会话、技能、并行队列与生命周期服务。"""
+    from miniagent.engine.init import init_subsystems
+    from miniagent.session.manager import DefaultSessionManager as SessionManager
+
+    _, skill_toolboxes, skill_prompts, active_session_id, session_manager = (
+        await init_subsystems(
+            ctx.registry,
+            ctx.skill_registry,
+            SessionManager,
+            ctx.channel_router,
+            clawhub=ctx.clawhub,
+            keyword_index=ctx.memory.keyword_index,
+        )
+    )
+    state["active_session_id"] = active_session_id
+    state["skill_toolboxes"] = skill_toolboxes
+    state["skill_prompts"] = skill_prompts
+    state["session_manager"] = session_manager
+    from miniagent.engine.parallel_config import configure_message_queue_for_parallel
+
+    configure_message_queue_for_parallel(ctx.message_queue)
+    ctx.engine.set_active_session_key(active_session_id)
+    from miniagent.bootstrap.runtime_services import build_runtime_lifecycle_manager
+
+    manager = build_runtime_lifecycle_manager(
+        ctx,
+        state,
+        skill_toolboxes,
+        skill_prompts,
+        feishu_user_status=_feishu_user_status_fn(ctx),
+    )
+    ctx.lifecycle_manager = manager
+    await manager.start()
+    return skill_toolboxes, skill_prompts, active_session_id
+
+
 # ─── run_runtime：组合根注入后的进程主流程（init → 信号/实例 → CLI / 飞书）──
 
 
@@ -75,142 +177,23 @@ async def run_runtime(ctx: ApplicationContainer) -> None:
     Args:
         ctx: 运行时组合根（registry / monitor / skill_registry / clawhub / engine）
     """
-    registry = ctx.registry
-    skill_registry = ctx.skill_registry
-    engine = ctx.engine
     _configure_console_encoding()
-
-    # 尝试启用 Windows VT 模式（某些终端可能不支持）
-    try:
-        import ctypes
-
-        _h = ctypes.windll.kernel32.GetStdHandle(-11)
-        if _h and _h != -1:
-            _mode = ctypes.c_ulong()
-            if ctypes.windll.kernel32.GetConsoleMode(_h, ctypes.byref(_mode)):
-                _new_mode = _mode.value | 0x0004
-                ctypes.windll.kernel32.SetConsoleMode(_h, _new_mode)
-    except Exception as e:
-        _logger.debug(
-            "Windows VT模式设置失败（降级到prompt_toolkit）: %s", e
-        )  # VT 模式不可用，降级到 prompt_toolkit 颜色
-
-    MODEL = get_config("model.model", "gpt-4o-mini")
-    from miniagent.engine.init import init_subsystems
+    _enable_windows_vt()
+    model = get_config("model.model", "gpt-4o-mini")
     from miniagent.engine.welcome import print_welcome
-
-    # 磁盘注册：分配 instance_id 前会清扫 PID 已失效的目录（不 kill 其它进程）
     feishu_mode = "--feishu" in sys.argv
-
-    try:
-        reg_result = register_instance(
-            mode="both" if feishu_mode else "cli",
-            active_sessions=[],
-        )
-    except ProjectDirConflictError as e:
-        print(format_project_conflict_message(e.existing_meta))
-        raise SystemExit(2) from e
-    instance_id = reg_result.get("instance_id", 0)
-
-    # 全局状态（通过闭包传递）
-    state: CliLoopState = {
-        "active_session_id": "",
-        "skill_toolboxes": [],
-        "skill_prompts": [],
-        "feishu_enabled": feishu_mode,
-        "session_manager": None,
-        "instance_id": instance_id,
-        "runtime_ctx": ctx,
-        "feishu_p2p_synced_senders": set(),
-    }
+    state = _initial_runtime_state(ctx, feishu_mode)
     _dummy_stick: list[bool] = [True]
     ctx.create_feishu_handler_factory = lambda st: create_feishu_handler(st, ctx, _dummy_stick)
-
-    # 信号：在事件循环线程内 await 统一关停（飞书 WS reset、子进程、实例注销）
-    main_loop = asyncio.get_running_loop()
-    _sig_lock = threading.Lock()
-    _sig_armed: dict[str, bool] = {"v": False}
-
-    async def _shutdown_after_signal(signum: int) -> None:
-        """信号触发后在事件循环内执行 ``shutdown_runtime`` 并退出进程。
-
-        使用 os._exit(0) 而非 sys.exit(0) 以避免 SystemExit 异常未被捕获。
-        """
-        try:
-            await shutdown_runtime(
-                ctx,
-                state,
-                reason=f"signal:{signum}",
-                call_unregister=True,
-            )
-        except Exception as e:
-            _logger.debug(
-                "信号关闭过程中异常（不影响退出）: %s", e
-            )  # 关闭过程中的异常不影响最终退出
-        # 使用 os._exit 直接终止进程，避免 SystemExit 异常
-        os._exit(0)
-
-    def _on_exit(signum: int, *_: Any) -> None:
-        """信号处理器：防重入后把关停协程投递回主循环线程。"""
-        with _sig_lock:
-            if _sig_armed["v"]:
-                os._exit(128)
-            _sig_armed["v"] = True
-
-        def _kick() -> None:
-            """在主循环线程上调度 ``_shutdown_after_signal``。"""
-            asyncio.create_task(_shutdown_after_signal(signum))
-
-        main_loop.call_soon_threadsafe(_kick)
-
-    signal.signal(signal.SIGINT, _on_exit)
-    signal.signal(signal.SIGTERM, _on_exit)
+    _install_signal_shutdown(ctx, state)
 
     cli_returned = False
     try:
-        # 初始化子系统
-        from miniagent.session.manager import DefaultSessionManager as SessionManager
-
-        (
-            loaded_skills,
-            skill_toolboxes,
-            skill_prompts,
-            active_session_id,
-            session_manager,
-        ) = await init_subsystems(
-            registry,
-            skill_registry,
-            SessionManager,
-            ctx.channel_router,
-            clawhub=ctx.clawhub,
-            keyword_index=ctx.memory.keyword_index,
-        )
-        state["active_session_id"] = active_session_id
-        state["skill_toolboxes"] = skill_toolboxes
-        state["skill_prompts"] = skill_prompts
-        state["session_manager"] = session_manager
-
-        from miniagent.engine.parallel_config import configure_message_queue_for_parallel
-
-        configure_message_queue_for_parallel(ctx.message_queue)
-        engine.set_active_session_key(active_session_id)
-
-        from miniagent.bootstrap.runtime_services import build_runtime_lifecycle_manager
-
-        lifecycle_manager = build_runtime_lifecycle_manager(
-            ctx,
-            state,
-            skill_toolboxes,
-            skill_prompts,
-            feishu_user_status=_feishu_user_status_fn(ctx),
-        )
-        ctx.lifecycle_manager = lifecycle_manager
-        await lifecycle_manager.start()
-
+        skill_toolboxes, skill_prompts, active_session_id = await _start_runtime_services(ctx, state)
         print_welcome(
-            registry,
-            skill_registry,
-            MODEL,
+            ctx.registry,
+            ctx.skill_registry,
+            model,
             state.get("session_manager"),
             active_session_id,
             state["feishu_enabled"],

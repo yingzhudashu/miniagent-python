@@ -66,6 +66,7 @@ async def _read_csv_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResul
     path, path_err = resolve_path_for_tool(str(args["path"]), ctx)
     if path_err:
         return path_err
+    assert path is not None
     if not await asyncio.to_thread(os.path.isfile, path):
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 文件不存在: {path}")
 
@@ -99,12 +100,12 @@ def _write_csv_sync(path: str, raw_data: str, delimiter: str) -> ToolResult:
         buffer = io.StringIO(newline="")
         if isinstance(data[0], dict) and all(isinstance(row, dict) for row in data):
             fieldnames = list(data[0].keys())
-            writer = csv.DictWriter(buffer, fieldnames=fieldnames, delimiter=delimiter)
-            writer.writeheader()
-            writer.writerows(data)
+            dict_writer = csv.DictWriter(buffer, fieldnames=fieldnames, delimiter=delimiter)
+            dict_writer.writeheader()
+            dict_writer.writerows(data)
         elif isinstance(data[0], list) and all(isinstance(row, list) for row in data):
-            writer = csv.writer(buffer, delimiter=delimiter)
-            writer.writerows(data)
+            row_writer = csv.writer(buffer, delimiter=delimiter)
+            row_writer.writerows(data)
         else:
             return ToolResult(
                 success=False,
@@ -122,6 +123,7 @@ async def _write_csv_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
     path, path_err = resolve_path_for_tool(str(args["path"]), ctx)
     if path_err:
         return path_err
+    assert path is not None
     delimiter = str(args.get("delimiter", ",")).strip() or ","
     raw_data = str(args.get("data", ""))
 
@@ -172,6 +174,7 @@ async def _json_read_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
     path, path_err = resolve_path_for_tool(str(args["path"]), ctx)
     if path_err:
         return path_err
+    assert path is not None
     if not await asyncio.to_thread(os.path.isfile, path):
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 文件不存在: {path}")
 
@@ -208,6 +211,7 @@ async def _json_write_handler(args: dict[str, Any], ctx: ToolContext) -> ToolRes
     path, path_err = resolve_path_for_tool(str(args["path"]), ctx)
     if path_err:
         return path_err
+    assert path is not None
     pretty = args.get("pretty", True) in (True, "true", "1")
     raw_data = str(args.get("data", ""))
     return await asyncio.to_thread(_json_write_sync, path, raw_data, pretty)

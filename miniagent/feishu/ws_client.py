@@ -56,6 +56,7 @@ class FeishuWsClient(_LarkWsClient):
     ) -> None:
         if auto_reconnect is None:
             auto_reconnect = feishu_ws_auto_reconnect_enabled()
+        self._conn: Any = None
         super().__init__(*args, auto_reconnect=auto_reconnect, **kwargs)
         self._receive_task: asyncio.Task[Any] | None = None
 
@@ -88,14 +89,17 @@ class FeishuWsClient(_LarkWsClient):
 
     @property
     def connected(self) -> bool:
+        """返回底层 WebSocket 是否已建立。"""
         return self._conn is not None
 
     @property
     def receive_task(self) -> asyncio.Task[Any] | None:
+        """返回当前接收循环任务，尚未连接时为 ``None``。"""
         return self._receive_task
 
     @property
     def conn_id(self) -> str:
+        """返回 SDK 分配的当前连接标识。"""
         return self._conn_id
 
 

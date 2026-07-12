@@ -190,7 +190,8 @@ class TestHistoryIndex:
         history_file = get_history_file()
         assert history_file.exists()
         index = json.loads(history_file.read_text(encoding="utf-8"))
-        assert any(e["id"] == "opt-hist-001" for e in index)
+        assert index["schema_version"] == 1
+        assert any(e["id"] == "opt-hist-001" for e in index["entries"])
 
 
 class TestShlexCommand:

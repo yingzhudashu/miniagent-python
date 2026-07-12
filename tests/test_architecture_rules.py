@@ -73,3 +73,21 @@ def test_type_checking_and_function_local_imports_are_allowed(
 
 def test_current_repository_obeys_enabled_rules(architecture_module) -> None:
     assert architecture_module.check_architecture(REPO_ROOT / "miniagent") == []
+
+
+def _function_source(total_lines: int) -> str:
+    """构造 AST 行数精确可控的函数源码。"""
+    return "def sample():\n" + "\n".join("    pass" for _ in range(total_lines - 1)) + "\n"
+
+
+def test_function_length_limit_rejects_101_lines(architecture_module, tmp_path: Path) -> None:
+    _write_module(tmp_path, "core", _function_source(101))
+    violations = architecture_module.check_architecture(tmp_path, rules=())
+    assert len(violations) == 1
+    assert violations[0].function_name == "sample"
+    assert violations[0].length == 101
+
+
+def test_function_length_limit_accepts_100_lines(architecture_module, tmp_path: Path) -> None:
+    _write_module(tmp_path, "core", _function_source(100))
+    assert architecture_module.check_architecture(tmp_path, rules=()) == []

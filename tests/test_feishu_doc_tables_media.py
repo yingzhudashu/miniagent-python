@@ -2,11 +2,41 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 pytest.importorskip("lark_oapi")
+
+
+def test_download_media_bytes_passes_sdk_extra(monkeypatch) -> None:
+    from miniagent.feishu.docx import media
+    from miniagent.feishu.types import FeishuConfig
+
+    builder = MagicMock()
+    builder.file_token.return_value = builder
+    builder.extra.return_value = builder
+    builder.build.return_value = "request"
+    monkeypatch.setattr(
+        "lark_oapi.api.drive.v1.DownloadMediaRequest.builder", lambda: builder
+    )
+    response = SimpleNamespace(
+        success=lambda: True,
+        file=b"data",
+        raw=None,
+    )
+    client = SimpleNamespace(
+        drive=SimpleNamespace(
+            v1=SimpleNamespace(media=SimpleNamespace(download=lambda _request: response))
+        )
+    )
+    monkeypatch.setattr(media, "build_client", lambda _config: client)
+
+    assert media.download_media_bytes(
+        FeishuConfig("app", "secret"), "token", extra="meta"
+    ) == b"data"
+    builder.extra.assert_called_once_with("meta")
 
 
 @pytest.mark.asyncio

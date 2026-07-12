@@ -16,7 +16,7 @@ SCHEDULE_TOOL_NAMES = frozenset({"manage_scheduled_task"})
 
 
 def _tool_timezone_spec(args: dict[str, Any]) -> str:
-    """解析工具调用中的时区参数：返回 (时区名, 是否用户显式指定)。"""
+    """返回工具调用显式指定的时区，缺省时使用进程调度默认时区。"""
     from miniagent.scheduled_tasks.timezone_util import default_schedule_timezone
 
     raw = (args.get("timezone") or "").strip()
@@ -56,9 +56,211 @@ def _coerce_interval_seconds(raw: Any) -> int:
         return 0
 
 
-async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-    """``manage_scheduled_task``：JSON 驱动定时任务 CRUD；飞书等非 CLI 渠道禁止写操作。"""
-    from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec
+def _schedule_tool_handlers() -> dict[str, Any]:
+    """返回结构化定时任务 action 的处理器表。"""
+    return {
+        "list": _schedule_tool_list,
+        "show": _schedule_tool_show,
+        "remove": _schedule_tool_remove,
+        "set_enabled": _schedule_tool_set_enabled,
+        "add_interval": _schedule_tool_add,
+        "add_once": _schedule_tool_add,
+        "add_cron": _schedule_tool_add,
+        "update": _schedule_tool_update,
+    }
+
+
+def _schedule_tool_list(args: dict[str, Any]) -> ToolResult:
+    """列出任务摘要。"""
+    del args
+    from miniagent.scheduled_tasks.store import format_next_run_display, load_tasks
+
+    tasks = load_tasks()
+    if not tasks:
+        return ToolResult(success=True, content="（暂无定时任务）")
+    now = time.time()
+    lines = ["定时任务:"]
+    for task in tasks:
+        kind = str(task.schedule.kind)
+        if kind == "cron" and task.schedule.cron_expr:
+            kind = f'cron "{task.schedule.cron_expr}"'
+        lines.append(
+            f"  • {task.id}  ({task.name})  enabled={task.enabled}  "
+            f"{kind}  next={format_next_run_display(task, now_ts=now)}  runs={task.run_count}"
+        )
+    return ToolResult(success=True, content="\n".join(lines))
+
+
+def _schedule_tool_show(args: dict[str, Any]) -> ToolResult:
+    """显示单个任务 JSON。"""
+    from miniagent.scheduled_tasks.store import load_tasks
+
+    task_id = str(args.get("task_id") or "").strip()
+    if not task_id:
+        return ToolResult(success=False, content="show 需要 task_id")
+    task = next((item for item in load_tasks() if item.id == task_id), None)
+    if task is None:
+        return ToolResult(success=False, content=f"未找到任务: {task_id}")
+    return ToolResult(
+        success=True,
+        content=json.dumps(task.to_json(), ensure_ascii=False, indent=2),
+    )
+
+
+def _schedule_tool_remove(args: dict[str, Any]) -> ToolResult:
+    """删除指定任务。"""
+    from miniagent.scheduled_tasks.store import load_tasks, save_tasks
+
+    task_id = str(args.get("task_id") or "").strip()
+    if not task_id:
+        return ToolResult(success=False, content="remove 需要 task_id")
+    tasks = load_tasks()
+    remaining = [item for item in tasks if item.id != task_id]
+    if len(remaining) == len(tasks):
+        return ToolResult(success=False, content=f"未找到任务: {task_id}")
+    save_tasks(remaining)
+    return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已删除任务 {task_id}")
+
+
+def _schedule_tool_set_enabled(args: dict[str, Any]) -> ToolResult:
+    """设置任务启用状态并修复下次触发时间。"""
+    from miniagent.scheduled_tasks.store import (
+        compute_initial_next_run,
+        load_tasks,
+        repair_invalid_schedules,
+        save_tasks,
+    )
+
+    task_id = str(args.get("task_id") or "").strip()
+    enabled = args.get("enabled")
+    if not task_id:
+        return ToolResult(success=False, content="set_enabled 需要 task_id")
+    if not isinstance(enabled, bool):
+        return ToolResult(success=False, content="set_enabled 需要 enabled 布尔值")
+    tasks = load_tasks()
+    task = next((item for item in tasks if item.id == task_id), None)
+    if task is None:
+        return ToolResult(success=False, content=f"未找到任务: {task_id}")
+    task.enabled = enabled
+    if enabled and task.next_run_at is None:
+        task.next_run_at = compute_initial_next_run(task)
+    repair_invalid_schedules(tasks)
+    save_tasks(tasks)
+    return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 任务 {task_id} enabled={enabled}")
+
+
+def _tool_schedule_spec(action: str, args: dict[str, Any], timezone: str) -> Any:
+    """构建 add_* 对应 ScheduleSpec；参数错误抛 ``ValueError``。"""
+    from miniagent.scheduled_tasks.cron import validate_cron_expr
+    from miniagent.scheduled_tasks.models import ScheduleSpec
+
+    if action == "add_interval":
+        seconds = _coerce_interval_seconds(args.get("interval_seconds"))
+        if seconds <= 0:
+            raise ValueError("add_interval 需要 task_id、prompt、interval_seconds（正整数）")
+        return ScheduleSpec(kind="interval", interval_seconds=seconds, timezone=timezone)
+    if action == "add_once":
+        once_iso = str(args.get("once_iso") or "").strip()
+        if not once_iso:
+            raise ValueError("add_once 需要 task_id、prompt、once_iso（ISO8601）")
+        return ScheduleSpec(kind="once", once_at_iso=once_iso, timezone=timezone)
+    cron_expr = str(args.get("cron_expr") or "").strip()
+    if not cron_expr:
+        raise ValueError("add_cron 需要 task_id、prompt、cron_expr（5 段 Unix cron）")
+    return ScheduleSpec(
+        kind="cron",
+        cron_expr=validate_cron_expr(cron_expr),
+        timezone=timezone,
+    )
+
+
+def _schedule_tool_add(args: dict[str, Any]) -> ToolResult:
+    """创建 interval/once/cron 任务并验证首次触发时间。"""
+    from miniagent.scheduled_tasks.models import ScheduledTask
+    from miniagent.scheduled_tasks.store import (
+        compute_initial_next_run,
+        format_next_run_display,
+        load_tasks,
+        save_tasks,
+    )
+
+    action = str(args.get("action") or "")
+    task_id = str(args.get("task_id") or "").strip()
+    prompt = str(args.get("prompt") or "").strip()
+    if not task_id or not prompt:
+        return ToolResult(success=False, content=f"{action} 需要 task_id、prompt")
+    try:
+        session = _session_from_tool(
+            str(args.get("session_mode") or "primary"),
+            args.get("fixed_session_id"),
+        )
+        timezone = _tool_timezone_spec(args)
+        schedule = _tool_schedule_spec(action, args, timezone)
+    except ValueError as error:
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} {error}")
+    task = ScheduledTask(
+        id=task_id,
+        name=task_id,
+        prompt=prompt,
+        enabled=True,
+        schedule=schedule,
+        session=session,
+    )
+    task.next_run_at = compute_initial_next_run(task)
+    if task.next_run_at is None:
+        message = "无法解析 once_iso，请使用 ISO8601（可含 Z 或偏移）"
+        if action == "add_cron":
+            message = "无法根据 cron 计算下次触发时间"
+        return ToolResult(success=False, content=message)
+    if action == "add_once" and task.next_run_at < time.time():
+        return ToolResult(success=False, content="一次性任务时间已在过去")
+    tasks = load_tasks()
+    if any(item.id == task_id for item in tasks):
+        return ToolResult(success=False, content=f"任务 ID 已存在: {task_id}")
+    tasks.append(task)
+    save_tasks(tasks)
+    kind = action.removeprefix("add_")
+    return ToolResult(
+        success=True,
+        content=(
+            f"{SUCCESS_PREFIX} 已添加 {kind} 任务 {task_id} timezone={timezone} "
+            f"next={format_next_run_display(task)}"
+        ),
+    )
+
+
+def _updated_schedule(existing: Any, args: dict[str, Any], timezone: str) -> Any:
+    """根据更新参数构建新调度，省略 kind 时保持原类型。"""
+    from miniagent.scheduled_tasks.cron import validate_cron_expr
+    from miniagent.scheduled_tasks.models import ScheduleSpec
+
+    kind = str(args.get("schedule_kind") or existing.schedule.kind).strip().lower()
+    if kind == "interval":
+        seconds = _coerce_interval_seconds(
+            args.get("interval_seconds", existing.schedule.interval_seconds)
+        )
+        if seconds <= 0:
+            raise ValueError("interval 更新需要 interval_seconds（正整数）")
+        return ScheduleSpec(kind="interval", interval_seconds=seconds, timezone=timezone)
+    if kind == "once":
+        once_iso = str(args.get("once_iso") or existing.schedule.once_at_iso or "").strip()
+        if not once_iso:
+            raise ValueError("once 更新需要 once_iso")
+        return ScheduleSpec(kind="once", once_at_iso=once_iso, timezone=timezone)
+    if kind == "cron":
+        expression = str(args.get("cron_expr") or existing.schedule.cron_expr or "").strip()
+        if not expression:
+            raise ValueError("cron 更新需要 cron_expr")
+        return ScheduleSpec(
+            kind="cron",
+            cron_expr=validate_cron_expr(expression),
+            timezone=timezone,
+        )
+    raise ValueError(f"未知 schedule_kind: {kind}")
+
+
+def _schedule_tool_update(args: dict[str, Any]) -> ToolResult:
+    """更新现有任务并重新计算下一次触发时间。"""
     from miniagent.scheduled_tasks.store import (
         compute_initial_next_run,
         format_next_run_display,
@@ -67,6 +269,43 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
         save_tasks,
     )
 
+    task_id = str(args.get("task_id") or "").strip()
+    prompt = str(args.get("prompt") or "").strip()
+    if not task_id or not prompt:
+        return ToolResult(success=False, content="update 需要 task_id、prompt")
+    tasks = load_tasks()
+    existing = next((item for item in tasks if item.id == task_id), None)
+    if existing is None:
+        return ToolResult(success=False, content=f"未找到任务: {task_id}")
+    timezone = str(args.get("timezone") or existing.schedule.timezone or "").strip()
+    timezone = timezone or _tool_timezone_spec(args)
+    try:
+        existing.session = _session_from_tool(
+            str(args.get("session_mode") or existing.session.mode),
+            args.get("fixed_session_id") or existing.session.session_id,
+        )
+        existing.schedule = _updated_schedule(existing, args, timezone)
+    except ValueError as error:
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} {error}")
+    existing.prompt = prompt
+    existing.enabled = True
+    existing.last_error = None
+    existing.next_run_at = compute_initial_next_run(existing)
+    if existing.next_run_at is None:
+        return ToolResult(success=False, content="无法计算下次触发时间")
+    repair_invalid_schedules(tasks)
+    save_tasks(tasks)
+    return ToolResult(
+        success=True,
+        content=(
+            f"{SUCCESS_PREFIX} 已更新 {task_id} timezone={existing.schedule.timezone} "
+            f"next={format_next_run_display(existing)}"
+        ),
+    )
+
+
+async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    """``manage_scheduled_task``：JSON 驱动定时任务 CRUD；飞书等非 CLI 渠道禁止写操作。"""
     action = (args.get("action") or "").strip().lower()
     if not action:
         return ToolResult(success=False, content="缺少 action")
@@ -78,285 +317,16 @@ async def _manage_scheduled_task_handler(args: dict[str, Any], ctx: ToolContext)
             content=f"{WARNING_PREFIX} 当前渠道不允许修改定时任务（飞书场景）；请在本地 CLI 使用或使用 list/show。",
         )
 
-    if action == "list":
-        tasks = load_tasks()
-        if not tasks:
-            return ToolResult(success=True, content="（暂无定时任务）")
-        lines = ["定时任务:"]
-        now = time.time()
-        for t in tasks:
-            nxt_s = format_next_run_display(t, now_ts=now)
-            kind = t.schedule.kind
-            if kind == "cron" and t.schedule.cron_expr:
-                kind = f'cron "{t.schedule.cron_expr}"'
-            lines.append(
-                f"  • {t.id}  ({t.name})  enabled={t.enabled}  "
-                f"{kind}  next={nxt_s}  runs={t.run_count}"
-            )
-        return ToolResult(success=True, content="\n".join(lines))
-
-    if action == "show":
-        tid = (args.get("task_id") or "").strip()
-        if not tid:
-            return ToolResult(success=False, content="show 需要 task_id")
-        for t in load_tasks():
-            if t.id == tid:
-                return ToolResult(
-                    success=True,
-                    content=json.dumps(t.to_json(), ensure_ascii=False, indent=2),
-                )
-        return ToolResult(success=False, content=f"未找到任务: {tid}")
-
-    if action == "remove":
-        tid = (args.get("task_id") or "").strip()
-        if not tid:
-            return ToolResult(success=False, content="remove 需要 task_id")
-        tasks = load_tasks()
-        new = [x for x in tasks if x.id != tid]
-        if len(new) == len(tasks):
-            return ToolResult(success=False, content=f"未找到任务: {tid}")
-        save_tasks(new)
-        return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已删除任务 {tid}")
-
-    if action == "set_enabled":
-        tid = (args.get("task_id") or "").strip()
-        if not tid:
-            return ToolResult(success=False, content="set_enabled 需要 task_id")
-        en = args.get("enabled")
-        if not isinstance(en, bool):
-            return ToolResult(success=False, content="set_enabled 需要 enabled 布尔值")
-        tasks = load_tasks()
-        for t in tasks:
-            if t.id == tid:
-                t.enabled = en
-                if en and t.next_run_at is None:
-                    t.next_run_at = compute_initial_next_run(t)
-                repair_invalid_schedules(tasks)
-                save_tasks(tasks)
-                return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 任务 {tid} enabled={en}")
-        return ToolResult(success=False, content=f"未找到任务: {tid}")
-
-    if action == "add_interval":
-        tid = (args.get("task_id") or "").strip()
-        prompt = (args.get("prompt") or "").strip()
-        sec = _coerce_interval_seconds(args.get("interval_seconds"))
-        if not tid or not prompt or sec <= 0:
-            return ToolResult(
-                success=False,
-                content="add_interval 需要 task_id、prompt、interval_seconds（正整数）",
-            )
-        try:
-            sess = _session_from_tool(
-                str(args.get("session_mode") or "primary"),
-                args.get("fixed_session_id"),
-            )
-        except ValueError as e:
-            return ToolResult(success=False, content=f"{ERROR_PREFIX} {e}")
-        tz = _tool_timezone_spec(args)
-        task = ScheduledTask(
-            id=tid,
-            name=tid,
-            prompt=prompt,
-            enabled=True,
-            schedule=ScheduleSpec(
-                kind="interval",
-                interval_seconds=sec,
-                timezone=tz,
-            ),
-            session=sess,
-        )
-        task.next_run_at = compute_initial_next_run(task)
-        tasks = load_tasks()
-        if any(x.id == tid for x in tasks):
-            return ToolResult(success=False, content=f"任务 ID 已存在: {tid}")
-        tasks.append(task)
-        save_tasks(tasks)
+    handler = _schedule_tool_handlers().get(action)
+    if handler is None:
         return ToolResult(
-            success=True,
+            success=False,
             content=(
-                f"{SUCCESS_PREFIX} 已添加 interval 任务 {tid} timezone={tz} next={format_next_run_display(task)}"
+                f"未知 action: {action}；可用 list、show、add_interval、add_once、add_cron、"
+                "update、remove、set_enabled"
             ),
         )
-
-    if action == "add_once":
-        tid = (args.get("task_id") or "").strip()
-        prompt = (args.get("prompt") or "").strip()
-        iso = (args.get("once_iso") or "").strip()
-        if not tid or not prompt or not iso:
-            return ToolResult(
-                success=False,
-                content="add_once 需要 task_id、prompt、once_iso（ISO8601）",
-            )
-        try:
-            sess = _session_from_tool(
-                str(args.get("session_mode") or "primary"),
-                args.get("fixed_session_id"),
-            )
-        except ValueError as e:
-            return ToolResult(success=False, content=f"{ERROR_PREFIX} {e}")
-        tz = _tool_timezone_spec(args)
-        task = ScheduledTask(
-            id=tid,
-            name=tid,
-            prompt=prompt,
-            enabled=True,
-            schedule=ScheduleSpec(
-                kind="once",
-                once_at_iso=iso,
-                timezone=tz,
-            ),
-            session=sess,
-        )
-        task.next_run_at = compute_initial_next_run(task)
-        if task.next_run_at is None:
-            return ToolResult(
-                success=False, content="无法解析 once_iso，请使用 ISO8601（可含 Z 或偏移）"
-            )
-        if task.next_run_at < time.time():
-            return ToolResult(success=False, content="一次性任务时间已在过去")
-        tasks = load_tasks()
-        if any(x.id == tid for x in tasks):
-            return ToolResult(success=False, content=f"任务 ID 已存在: {tid}")
-        tasks.append(task)
-        save_tasks(tasks)
-        return ToolResult(
-            success=True,
-            content=f"{SUCCESS_PREFIX} 已添加 once 任务 {tid} timezone={tz} next={format_next_run_display(task)}",
-        )
-
-    if action == "add_cron":
-        tid = (args.get("task_id") or "").strip()
-        prompt = (args.get("prompt") or "").strip()
-        cron_expr = (args.get("cron_expr") or "").strip()
-        if not tid or not prompt or not cron_expr:
-            return ToolResult(
-                success=False,
-                content="add_cron 需要 task_id、prompt、cron_expr（5 段 Unix cron）",
-            )
-        from miniagent.scheduled_tasks.cron import validate_cron_expr
-
-        try:
-            cron_expr = validate_cron_expr(cron_expr)
-            sess = _session_from_tool(
-                str(args.get("session_mode") or "primary"),
-                args.get("fixed_session_id"),
-            )
-        except ValueError as e:
-            return ToolResult(success=False, content=f"{ERROR_PREFIX} {e}")
-        tz = _tool_timezone_spec(args)
-        task = ScheduledTask(
-            id=tid,
-            name=tid,
-            prompt=prompt,
-            enabled=True,
-            schedule=ScheduleSpec(
-                kind="cron",
-                cron_expr=cron_expr,
-                timezone=tz,
-            ),
-            session=sess,
-        )
-        task.next_run_at = compute_initial_next_run(task)
-        if task.next_run_at is None:
-            return ToolResult(success=False, content="无法根据 cron 计算下次触发时间")
-        tasks = load_tasks()
-        if any(x.id == tid for x in tasks):
-            return ToolResult(success=False, content=f"任务 ID 已存在: {tid}")
-        tasks.append(task)
-        save_tasks(tasks)
-        return ToolResult(
-            success=True,
-            content=f"{SUCCESS_PREFIX} 已添加 cron 任务 {tid} timezone={tz} next={format_next_run_display(task)}",
-        )
-
-    if action == "update":
-        tid = (args.get("task_id") or "").strip()
-        prompt = (args.get("prompt") or "").strip()
-        if not tid or not prompt:
-            return ToolResult(success=False, content="update 需要 task_id、prompt")
-        schedule_kind = (args.get("schedule_kind") or "").strip().lower()
-        tasks = load_tasks()
-        existing = next((x for x in tasks if x.id == tid), None)
-        if existing is None:
-            return ToolResult(success=False, content=f"未找到任务: {tid}")
-        tz_raw = (args.get("timezone") or "").strip()
-        if tz_raw:
-            tz = tz_raw
-        else:
-            tz = (existing.schedule.timezone or "").strip() or _tool_timezone_spec(args)
-        try:
-            sess = _session_from_tool(
-                str(args.get("session_mode") or existing.session.mode),
-                args.get("fixed_session_id") or existing.session.session_id,
-            )
-        except ValueError as e:
-            return ToolResult(success=False, content=f"{ERROR_PREFIX} {e}")
-        existing.prompt = prompt
-        existing.session = sess
-        if schedule_kind == "interval" or (
-            not schedule_kind and existing.schedule.kind == "interval"
-        ):
-            raw_sec = args.get("interval_seconds", existing.schedule.interval_seconds)
-            sec = _coerce_interval_seconds(raw_sec)
-            if sec <= 0:
-                return ToolResult(
-                    success=False, content="interval 更新需要 interval_seconds（正整数）"
-                )
-            existing.schedule = ScheduleSpec(
-                kind="interval",
-                interval_seconds=sec,
-                timezone=tz,
-            )
-        elif schedule_kind == "once" or (not schedule_kind and existing.schedule.kind == "once"):
-            iso = (args.get("once_iso") or existing.schedule.once_at_iso or "").strip()
-            if not iso:
-                return ToolResult(success=False, content="once 更新需要 once_iso")
-            existing.schedule = ScheduleSpec(
-                kind="once",
-                once_at_iso=iso,
-                timezone=tz,
-            )
-        elif schedule_kind == "cron" or (not schedule_kind and existing.schedule.kind == "cron"):
-            from miniagent.scheduled_tasks.cron import validate_cron_expr
-
-            cron_expr = (args.get("cron_expr") or existing.schedule.cron_expr or "").strip()
-            if not cron_expr:
-                return ToolResult(success=False, content="cron 更新需要 cron_expr")
-            try:
-                cron_expr = validate_cron_expr(cron_expr)
-            except ValueError as e:
-                return ToolResult(success=False, content=f"{ERROR_PREFIX} {e}")
-            existing.schedule = ScheduleSpec(
-                kind="cron",
-                cron_expr=cron_expr,
-                timezone=tz,
-            )
-        elif schedule_kind:
-            return ToolResult(success=False, content=f"未知 schedule_kind: {schedule_kind}")
-        existing.enabled = True
-        existing.last_error = None
-        existing.next_run_at = compute_initial_next_run(existing)
-        if existing.next_run_at is None:
-            repair_invalid_schedules(tasks)
-            save_tasks(tasks)
-            return ToolResult(success=False, content="无法计算下次触发时间")
-        repair_invalid_schedules(tasks)
-        save_tasks(tasks)
-        return ToolResult(
-            success=True,
-            content=(
-                f"{SUCCESS_PREFIX} 已更新 {tid} timezone={existing.schedule.timezone} "
-                f"next={format_next_run_display(existing)}"
-            ),
-        )
-
-    return ToolResult(
-        success=False,
-        content=(
-            f"未知 action: {action}；可用 list、show、add_interval、add_once、add_cron、"
-            "update、remove、set_enabled"
-        ),
-    )
+    return handler(args)
 
 
 _manage_scheduled_task_schema = {

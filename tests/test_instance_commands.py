@@ -27,6 +27,19 @@ class TestCmdInstanceHandler:
             cmd_instance_handler(["/instance", "list"], "list", {"instance_id": 1})
         assert "暂无运行实例" in capsys.readouterr().out
 
+    def test_list_markdown(self, capsys):
+        with patch(
+            "miniagent.infrastructure.instance.list_instances",
+            return_value=[{"instance_id": 1}],
+        ), patch(
+            "miniagent.infrastructure.instance.format_instances_markdown",
+            return_value="| ID |",
+        ):
+            cmd_instance_handler(
+                ["/instance", "list"], "list", {"instance_id": 1}, markdown=True
+            )
+        assert "| ID |" in capsys.readouterr().out
+
     def test_stop_without_id(self, capsys):
         cmd_instance_handler(["/instance", "stop"], "stop", {"instance_id": 1})
         out = capsys.readouterr().out

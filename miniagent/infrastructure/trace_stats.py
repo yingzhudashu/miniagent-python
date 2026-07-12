@@ -321,17 +321,17 @@ class _TraceStatsAccumulator:
             lambda: {"count": 0, "tools": set(), "is_user_error": False}
         )
         self.memory_read_count = 0
-        self.memory_total_duration = 0
+        self.memory_total_duration = 0.0
         self.memory_layer_counts: dict[str, int] = defaultdict(int)
         self.memory_total_chars = 0
         self.memory_cache_hits = 0
         self.context_compress_count = 0
-        self.context_total_duration = 0
+        self.context_total_duration = 0.0
         self.context_total_tokens_before = 0
         self.context_total_tokens_after = 0
         self.embedding_cache_hit_count = 0
         self.embedding_api_call_count = 0
-        self.embedding_total_api_latency = 0
+        self.embedding_total_api_latency = 0.0
         self.resource_sample_count = 0
         self.resource_rss_peak = 0
         self.resource_rss_min: int | None = None
@@ -367,6 +367,7 @@ class _TraceStatsAccumulator:
         bitmap[slot // 8] |= 1 << (slot % 8)
 
     def session_count(self) -> int:
+        """返回已聚合的去重会话数。"""
         bitmap = self._session_bitmap
         if bitmap is None:
             return len(self.sessions)
@@ -462,6 +463,11 @@ class _TraceStatsAccumulator:
             self.phase_stats[phase]["size_measurement_count"] += 1
 
     def _add_llm_response(self, event: dict[str, Any]) -> None:
+        """聚合一次 LLM 响应的失败状态、有限延迟样本与协议兼容 token 用量。
+
+        延迟采用有界蓄水池，避免长进程内存随事件数增长；phase 键和分阶段样本
+        同样有上限。usage 仅接受有限非负数值，畸形或布尔字段不会污染日报。
+        """
         phase = str(event.get("phase") or "unknown")[:128]
         phase = _bounded_group_key(self.phase_stats, phase, _MAX_PHASE_GROUPS)
         phase_stats = self.phase_stats[phase]
@@ -543,19 +549,19 @@ class _TraceStatsAccumulator:
             _MAX_LAYER_GROUPS,
         )
         self.memory_layer_counts[layer] += 1
-        self.memory_total_chars += _numeric_metric(event.get("chars_loaded")) or 0
+        self.memory_total_chars += int(_numeric_metric(event.get("chars_loaded")) or 0)
         if event.get("cache_hit", False):
             self.memory_cache_hits += 1
 
     def _add_context_compress(self, event: dict[str, Any]) -> None:
         self.context_compress_count += 1
         self.context_total_duration += _numeric_metric(event.get("duration_ms")) or 0
-        self.context_total_tokens_before += _numeric_metric(
-            event.get("before_tokens", event.get("tokens_before", 0))
-        ) or 0
-        self.context_total_tokens_after += _numeric_metric(
-            event.get("after_tokens", event.get("tokens_after", 0))
-        ) or 0
+        self.context_total_tokens_before += int(
+            _numeric_metric(event.get("before_tokens", event.get("tokens_before", 0))) or 0
+        )
+        self.context_total_tokens_after += int(
+            _numeric_metric(event.get("after_tokens", event.get("tokens_after", 0))) or 0
+        )
 
     def _add_resource_sample(self, event: dict[str, Any]) -> None:
         self.resource_sample_count += 1
@@ -582,6 +588,7 @@ class _TraceStatsAccumulator:
             )
 
     def resource_report(self) -> dict[str, Any]:
+        """生成 CPU、内存和事件循环资源采样摘要。"""
         result: dict[str, Any] = {"sample_count": self.resource_sample_count}
         if self.resource_rss_peak:
             result["rss_peak_bytes"] = self.resource_rss_peak
@@ -614,6 +621,7 @@ class _TraceStatsAccumulator:
             stats["fail"] += 1
 
     def span_report(self) -> dict[str, Any]:
+        """生成按受控维度聚合的 span 延迟报告。"""
         result: dict[str, Any] = {}
         for name, stats in sorted(self.span_stats.items()):
             count = int(stats["count"])
@@ -665,12 +673,11 @@ class _TraceStatsAccumulator:
         result["slow_tools"].sort(key=lambda item: item["avg_ms"], reverse=True)
         return result
 
-    def llm_report(self) -> dict[str, Any]:
-        """Finalize protocol-neutral LLM counters and exact latency percentiles."""
-        by_phase: dict[str, dict[str, Any]] = {}
-        for phase, stats in self.phase_stats.items():
-            phase_durations = stats["durations_ms"]
-            phase_result = {
+    @staticmethod
+    def _phase_llm_report(stats: dict[str, Any]) -> dict[str, Any]:
+        """汇总单个 LLM 阶段的错误率、大小、Token 与延迟。"""
+        durations = stats["durations_ms"]
+        result = {
                 key: value
                 for key, value in stats.items()
                 if key
@@ -683,65 +690,54 @@ class _TraceStatsAccumulator:
                     "size_measurement_count",
                 }
             }
-            phase_response_count = phase_result["response_count"]
-            phase_result["attempt_error_rate"] = (
+        response_count = result["response_count"]
+        result["attempt_error_rate"] = (
                 round(
-                    phase_result["failed_response_count"] / phase_response_count,
+                    result["failed_response_count"] / response_count,
                     3,
                 )
-                if phase_response_count
+                if response_count
                 else 0.0
             )
-            terminal_response_count = max(
-                0,
-                phase_response_count - phase_result["retrying_response_count"],
-            )
-            phase_result["terminal_response_count"] = terminal_response_count
-            phase_result["error_rate"] = (
+        terminal_count = max(0, response_count - result["retrying_response_count"])
+        result["terminal_response_count"] = terminal_count
+        result["error_rate"] = (
                 round(
-                    phase_result["terminal_failed_response_count"] / terminal_response_count,
+                    result["terminal_failed_response_count"] / terminal_count,
                     3,
                 )
-                if terminal_response_count
+                if terminal_count
                 else 0.0
             )
-            phase_request_count = phase_result["request_count"]
-            phase_result["avg_messages"] = (
-                round(stats["message_count"] / phase_request_count, 1)
-                if phase_request_count
+        request_count = result["request_count"]
+        result["avg_messages"] = (
+                round(stats["message_count"] / request_count, 1) if request_count else 0.0
+            )
+        result["avg_tools"] = (
+                round(stats["tool_count"] / request_count, 1) if request_count else 0.0
+            )
+        size_count = stats["size_measurement_count"]
+        if size_count:
+            result["avg_message_chars"] = round(stats["message_chars"] / size_count, 1)
+            result["avg_tool_schema_chars"] = round(stats["tool_schema_chars"] / size_count, 1)
+        if request_count:
+            result["avg_prompt_tokens"] = round(result["prompt_tokens"] / request_count, 1)
+            result["avg_completion_tokens"] = round(result["completion_tokens"] / request_count, 1)
+        prompt_tokens = result["prompt_tokens"]
+        result["cached_token_rate"] = (
+                round(result["cached_tokens"] / prompt_tokens, 3)
+                if prompt_tokens
                 else 0.0
             )
-            phase_result["avg_tools"] = (
-                round(stats["tool_count"] / phase_request_count, 1) if phase_request_count else 0.0
-            )
-            phase_size_count = stats["size_measurement_count"]
-            if phase_size_count:
-                phase_result["avg_message_chars"] = round(
-                    stats["message_chars"] / phase_size_count,
-                    1,
-                )
-                phase_result["avg_tool_schema_chars"] = round(
-                    stats["tool_schema_chars"] / phase_size_count,
-                    1,
-                )
-            if phase_request_count:
-                phase_result["avg_prompt_tokens"] = round(
-                    phase_result["prompt_tokens"] / phase_request_count,
-                    1,
-                )
-                phase_result["avg_completion_tokens"] = round(
-                    phase_result["completion_tokens"] / phase_request_count,
-                    1,
-                )
-            phase_prompt_tokens = phase_result["prompt_tokens"]
-            phase_result["cached_token_rate"] = (
-                round(phase_result["cached_tokens"] / phase_prompt_tokens, 3)
-                if phase_prompt_tokens
-                else 0.0
-            )
-            if phase_durations:
-                phase_result.update(_latency_summary(phase_durations))
-            by_phase[phase] = phase_result
+        if durations:
+            result.update(_latency_summary(durations))
+        return result
+
+    def llm_report(self) -> dict[str, Any]:
+        """Finalize protocol-neutral LLM counters and exact latency percentiles."""
+        by_phase = {
+            phase: self._phase_llm_report(stats) for phase, stats in self.phase_stats.items()
+        }
 
         result: dict[str, Any] = {
             "request_count": self.llm_request_count,
@@ -1024,7 +1020,7 @@ def generate_daily_report(date: str | None = None) -> dict[str, Any]:
             "message": "无 trace 数据",
         }
 
-    report = {
+    report: dict[str, Any] = {
         "date": date,
         "total_events": stats.total_events,
         "sessions": stats.session_count(),

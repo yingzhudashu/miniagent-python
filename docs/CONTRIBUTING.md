@@ -86,7 +86,7 @@ def test_example(tmp_path):
 | 缩进 | 4 空格 |
 | 引号 | 双引号优先 |
 | 注释语言 | 中文 |
-| docstring | 必须，中文（每个 ``.py`` 须具备模块级 docstring；类与**非 magic** 函数须具备 docstring；见下「缺失项扫描」与 magic 例外） |
+| docstring | 中文；模块、公开 API、复杂顶层私有实现与关键状态机必须具备，简单私有控件/协议样板不强制 |
 
 ### 类型注解
 
@@ -195,7 +195,7 @@ class TestYourClass:
 - 工具模块 (`tools/`): ≥ 60%
 - 集成测试: 覆盖主要工作流
 
-权威说明见 [TEST_COVERAGE_MATRIX.md](TEST_COVERAGE_MATRIX.md) 与 [INDEX.md](INDEX.md) §测试与质量。
+权威说明见 [INDEX.md](INDEX.md) §测试与质量；测试文件和 CI workflow 是覆盖关系的可执行事实来源。
 
 ## 文档字符串（docstring）规范
 
@@ -263,15 +263,15 @@ async def dispatch_message(queue: MessageQueue, item: QueueItem) -> None:
 
 - 若导出公共符号，模块 docstring 中列出**子包职责**与**主要导出**（或写明「聚合导出，实现见子模块」），避免空文件无说明。
 
-### 缺失项扫描（可选）
+### 缺失项扫描（CI 强制）
 
 仓库提供 ``scripts/docstring_inventory.py``，可列出当前仍缺 docstring 的模块与符号；生成 Markdown 报告：
 
 ```bash
-python scripts/docstring_inventory.py --write docs/docstring_inventory.md
+python scripts/docstring_inventory.py --check
 ```
 
-**与上表「docstring 必须」的关系**：脚本为自动化清单——除 ``__init__`` 外，名称形如 ``__x__`` 的方法**不在清单中检查**（不要求 docstring）；公开 API、普通函数与模块仍应符合上表。若报告中出现「（本次扫描无缺失项。）」表示按脚本规则当前无缺口。
+脚本检查模块、公开顶层符号、公开类方法、复杂顶层私有函数和复杂私有状态机；忽略局部闭包、dunder、Protocol 样板和简单私有控件处理器，避免为过门禁添加复述代码的注释。若报告显示“本次扫描无缺失项”，表示强制范围当前无缺口。
 
 **模块首行约定**：模块 docstring 须为文件**首条**语句（须写在 ``from __future__ import annotations`` 之前），否则 CPython 不将其视为 ``__doc__``，脚本也会判为「模块 docstring 缺失」。
 

@@ -31,6 +31,7 @@ import math
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 _logger = logging.getLogger(__name__)
 
@@ -57,6 +58,67 @@ def calculate_stats(values: list[float]) -> dict:
     }
 
 
+def _eval_id(eval_dir: Path, fallback: int) -> int:
+    """Resolve the stable evaluation identifier."""
+    metadata_path = eval_dir / "eval_metadata.json"
+    if metadata_path.exists():
+        try:
+            return json.loads(metadata_path.read_text()).get("eval_id", fallback)
+        except (json.JSONDecodeError, OSError):
+            return fallback
+    try:
+        return int(eval_dir.name.split("-")[1])
+    except (ValueError, IndexError):
+        return fallback
+
+
+def _load_grading(run_dir: Path) -> dict | None:
+    """Load one grading result while preserving warning output."""
+    grading_file = run_dir / "grading.json"
+    if not grading_file.exists():
+        print(f"Warning: grading.json not found in {run_dir}")
+        return None
+    try:
+        return json.loads(grading_file.read_text())
+    except json.JSONDecodeError as error:
+        print(f"Warning: Invalid JSON in {grading_file}: {error}")
+        return None
+
+
+def _build_run_result(run_dir: Path, eval_id: int, grading: dict) -> dict:
+    """Normalize grading, timing, metrics and notes for aggregation."""
+    summary = grading.get("summary", {})
+    result = {
+        "eval_id": eval_id,
+        "run_number": int(run_dir.name.split("-")[1]),
+        "pass_rate": summary.get("pass_rate", 0.0),
+        "passed": summary.get("passed", 0),
+        "failed": summary.get("failed", 0),
+        "total": summary.get("total", 0),
+    }
+    timing = grading.get("timing", {})
+    result["time_seconds"] = timing.get("total_duration_seconds", 0.0)
+    timing_file = run_dir / "timing.json"
+    if result["time_seconds"] == 0.0 and timing_file.exists():
+        try:
+            timing_data = json.loads(timing_file.read_text())
+            result["time_seconds"] = timing_data.get("total_duration_seconds", 0.0)
+            result["tokens"] = timing_data.get("total_tokens", 0)
+        except json.JSONDecodeError as error:
+            _logger.debug("解析timing文件失败: %s", error)
+    metrics = grading.get("execution_metrics", {})
+    result["tool_calls"] = metrics.get("total_tool_calls", 0)
+    result["tokens"] = result.get("tokens") or metrics.get("output_chars", 0)
+    result["errors"] = metrics.get("errors_encountered", 0)
+    result["expectations"] = grading.get("expectations", [])
+    notes_summary = grading.get("user_notes_summary", {})
+    result["notes"] = sum(
+        (notes_summary.get(key, []) for key in ("uncertainties", "needs_review", "workarounds")),
+        [],
+    )
+    return result
+
+
 def load_run_results(benchmark_dir: Path) -> dict:
     """
     Load all run results from a benchmark directory.
@@ -72,93 +134,23 @@ def load_run_results(benchmark_dir: Path) -> dict:
     results: dict[str, list] = {}
 
     for eval_idx, eval_dir in enumerate(sorted(search_dir.glob("eval-*"))):
-        metadata_path = eval_dir / "eval_metadata.json"
-        if metadata_path.exists():
-            try:
-                with open(metadata_path) as mf:
-                    eval_id = json.load(mf).get("eval_id", eval_idx)
-            except (json.JSONDecodeError, OSError):
-                eval_id = eval_idx
-        else:
-            try:
-                eval_id = int(eval_dir.name.split("-")[1])
-            except ValueError:
-                eval_id = eval_idx
-
-        # Discover config directories dynamically rather than hardcoding names
+        eval_id = _eval_id(eval_dir, eval_idx)
         for config_dir in sorted(eval_dir.iterdir()):
-            if not config_dir.is_dir():
-                continue
-            # Skip non-config directories (inputs, outputs, etc.)
-            if not list(config_dir.glob("run-*")):
+            run_dirs = sorted(config_dir.glob("run-*")) if config_dir.is_dir() else []
+            if not run_dirs:
                 continue
             config = config_dir.name
-            if config not in results:
-                results[config] = []
-
-            for run_dir in sorted(config_dir.glob("run-*")):
-                run_number = int(run_dir.name.split("-")[1])
-                grading_file = run_dir / "grading.json"
-
-                if not grading_file.exists():
-                    print(f"Warning: grading.json not found in {run_dir}")
+            results.setdefault(config, [])
+            for run_dir in run_dirs:
+                grading = _load_grading(run_dir)
+                if grading is None:
                     continue
-
-                try:
-                    with open(grading_file) as f:
-                        grading = json.load(f)
-                except json.JSONDecodeError as e:
-                    print(f"Warning: Invalid JSON in {grading_file}: {e}")
-                    continue
-
-                # Extract metrics
-                result = {
-                    "eval_id": eval_id,
-                    "run_number": run_number,
-                    "pass_rate": grading.get("summary", {}).get("pass_rate", 0.0),
-                    "passed": grading.get("summary", {}).get("passed", 0),
-                    "failed": grading.get("summary", {}).get("failed", 0),
-                    "total": grading.get("summary", {}).get("total", 0),
-                }
-
-                # Extract timing — check grading.json first, then sibling timing.json
-                timing = grading.get("timing", {})
-                result["time_seconds"] = timing.get("total_duration_seconds", 0.0)
-                timing_file = run_dir / "timing.json"
-                if result["time_seconds"] == 0.0 and timing_file.exists():
-                    try:
-                        with open(timing_file) as tf:
-                            timing_data = json.load(tf)
-                        result["time_seconds"] = timing_data.get("total_duration_seconds", 0.0)
-                        result["tokens"] = timing_data.get("total_tokens", 0)
-                    except json.JSONDecodeError as e:
-                        _logger.debug("解析timing文件失败: %s", e)
-
-                # Extract metrics if available
-                metrics = grading.get("execution_metrics", {})
-                result["tool_calls"] = metrics.get("total_tool_calls", 0)
-                if not result.get("tokens"):
-                    result["tokens"] = metrics.get("output_chars", 0)
-                result["errors"] = metrics.get("errors_encountered", 0)
-
-                # Extract expectations — viewer requires fields: text, passed, evidence
-                raw_expectations = grading.get("expectations", [])
-                for exp in raw_expectations:
+                for exp in grading.get("expectations", []):
                     if "text" not in exp or "passed" not in exp:
                         print(
-                            f"Warning: expectation in {grading_file} missing required fields (text, passed, evidence): {exp}"
+                            f"Warning: expectation in {run_dir / 'grading.json'} missing required fields (text, passed, evidence): {exp}"
                         )
-                result["expectations"] = raw_expectations
-
-                # Extract notes from user_notes_summary
-                notes_summary = grading.get("user_notes_summary", {})
-                notes = []
-                notes.extend(notes_summary.get("uncertainties", []))
-                notes.extend(notes_summary.get("needs_review", []))
-                notes.extend(notes_summary.get("workarounds", []))
-                result["notes"] = notes
-
-                results[config].append(result)
+                results[config].append(_build_run_result(run_dir, eval_id, grading))
 
     return results
 
@@ -169,7 +161,7 @@ def aggregate_results(results: dict) -> dict:
 
     Returns run_summary with stats for each configuration and delta.
     """
-    run_summary = {}
+    run_summary: dict[str, Any] = {}
     configs = list(results.keys())
 
     for config in configs:

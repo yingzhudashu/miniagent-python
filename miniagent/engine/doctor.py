@@ -26,7 +26,8 @@ REQUIRED_DEPENDENCIES: tuple[tuple[str, str], ...] = (
     ("pydantic", "数据校验 (pydantic)"),
     ("yaml", "YAML 配置 (PyYAML)"),
     ("croniter", "定时表达式 (croniter)"),
-    ("websockets", "WebSocket (websockets)"),
+    ("tzdata", "时区数据库 (tzdata)"),
+    ("typing_extensions", "类型兼容层 (typing-extensions)"),
 )
 
 # 与 pyproject.toml optional-dependencies 对齐
@@ -45,7 +46,18 @@ OPTIONAL_DEPENDENCY_GROUPS: tuple[tuple[str, str, tuple[tuple[str, str], ...]], 
         (
             ("lark_oapi", "飞书 SDK (lark-oapi)"),
             ("mistune", "Markdown 解析 (mistune)"),
+            ("websockets", "WebSocket (websockets)"),
         ),
+    ),
+    (
+        "browser",
+        "浏览器工具（``pip install -e '.[browser]'``）",
+        (("playwright", "浏览器自动化 (playwright)"),),
+    ),
+    (
+        "mcp",
+        "MCP 集成（``pip install -e '.[mcp]'``）",
+        (("mcp", "Model Context Protocol (mcp)"),),
     ),
 )
 
@@ -129,6 +141,75 @@ def _append_dependency_section(
     lines.append("")
 
 
+def _append_config_diagnostics(lines: list[str]) -> tuple[Path, bool]:
+    """追加配置文件诊断并返回用户配置路径及存在状态。"""
+    defaults_path, user_path = _config_file_paths()
+    lines.append("### 配置文件")
+    lines.append(
+        f"- ✅ 默认配置: {defaults_path}"
+        if defaults_path.is_file()
+        else f"- ❌ 默认配置缺失: {defaults_path}"
+    )
+    user_exists = user_path.is_file()
+    lines.append(
+        f"- ✅ 用户配置: {user_path}"
+        if user_exists
+        else f"- ⚠️ 用户配置缺失: {user_path}（将仅使用 defaults）"
+    )
+    lines.append("")
+    return user_path, user_exists
+
+
+def _append_api_diagnostics(lines: list[str]) -> bool:
+    """追加 API/模型配置诊断，返回是否存在 API 密钥。"""
+    api_key, api_source = _resolve_api_key()
+    lines.append("### API 与模型配置")
+    if api_key:
+        source_label = {
+            "json": "config.user.json secrets.openai_api_key",
+            "env": "环境变量 OPENAI_API_KEY",
+        }.get(api_source, "未知来源")
+        lines.append(f"- ✅ API 密钥 ({source_label}): {_format_masked_secret(api_key)}")
+    else:
+        lines.append("- ❌ API 密钥: 未设置（需 config.user.json 或 OPENAI_API_KEY）")
+    lines.extend(
+        [
+            f"- 模型: {get_config('model.model', 'gpt-4o-mini')}",
+            f"- API 地址: {get_config('model.base_url', 'https://api.openai.com/v1')}",
+            f"- 传输协议: {get_config('model.wire_api', 'chat_completions')}",
+            "- 自定义 User-Agent: "
+            + ("已设置" if str(get_config("model.user_agent", "") or "").strip() else "未设置"),
+            "",
+        ]
+    )
+    return bool(api_key)
+
+
+def _append_storage_diagnostics(lines: list[str]) -> None:
+    """追加状态目录与知识库目录诊断。"""
+    from miniagent.infrastructure.paths import resolve_state_dir
+
+    state_dir = resolve_state_dir()
+    lines.append("### 状态目录")
+    if os.path.isdir(state_dir):
+        lines.append(f"- ✅ 状态目录存在: {state_dir}")
+        for subdir in ("sessions", "memory"):
+            path = os.path.join(state_dir, subdir)
+            status = "✅" if os.path.isdir(path) else "ℹ️"
+            suffix = "" if os.path.isdir(path) else " (尚未创建，首次使用时自动创建)"
+            lines.append(f"  - {status} {subdir}/{suffix}")
+    else:
+        lines.extend([f"- ℹ️ 状态目录尚未创建: {state_dir}", "  - 首次启动会话时将自动创建"])
+    knowledge_root = _resolve_knowledge_root()
+    lines.extend(["", "### 知识库", f"- 配置路径: {knowledge_root}"])
+    lines.append(
+        "- ✅ 知识库根目录存在"
+        if os.path.isdir(knowledge_root)
+        else "- ℹ️ 知识库根目录不存在（未启用知识库或尚未挂载时为正常情况）"
+    )
+    lines.append("")
+
+
 def diagnose_environment() -> str:
     """诊断安装与配置环境。
 
@@ -151,66 +232,9 @@ def diagnose_environment() -> str:
         missing_optional=missing_optional,
     )
 
-    defaults_path, user_path = _config_file_paths()
-    lines.append("### 配置文件")
-    if defaults_path.is_file():
-        lines.append(f"- ✅ 默认配置: {defaults_path}")
-    else:
-        lines.append(f"- ❌ 默认配置缺失: {defaults_path}")
-
-    if user_path.is_file():
-        lines.append(f"- ✅ 用户配置: {user_path}")
-    else:
-        lines.append(f"- ⚠️ 用户配置缺失: {user_path}（将仅使用 defaults）")
-    lines.append("")
-
-    api_key, api_source = _resolve_api_key()
-    lines.append("### API 与模型配置")
-    if api_key:
-        source_label = {
-            "json": "config.user.json secrets.openai_api_key",
-            "env": "环境变量 OPENAI_API_KEY",
-        }.get(api_source, "未知来源")
-        lines.append(f"- ✅ API 密钥 ({source_label}): {_format_masked_secret(api_key)}")
-    else:
-        lines.append("- ❌ API 密钥: 未设置（需 config.user.json 或 OPENAI_API_KEY）")
-
-    lines.append(f"- 模型: {get_config('model.model', 'gpt-4o-mini')}")
-    lines.append(f"- API 地址: {get_config('model.base_url', 'https://api.openai.com/v1')}")
-    lines.append(
-        f"- 传输协议: {get_config('model.wire_api', 'chat_completions')}"
-    )
-    lines.append(
-        "- 自定义 User-Agent: "
-        + ("已设置" if str(get_config("model.user_agent", "") or "").strip() else "未设置")
-    )
-    lines.append("")
-
-    from miniagent.infrastructure.paths import resolve_state_dir
-
-    state_dir = resolve_state_dir()
-    lines.append("### 状态目录")
-    if os.path.isdir(state_dir):
-        lines.append(f"- ✅ 状态目录存在: {state_dir}")
-        for subdir in ("sessions", "memory"):
-            path = os.path.join(state_dir, subdir)
-            if os.path.isdir(path):
-                lines.append(f"  - ✅ {subdir}/")
-            else:
-                lines.append(f"  - ℹ️ {subdir}/ (尚未创建，首次使用时自动创建)")
-    else:
-        lines.append(f"- ℹ️ 状态目录尚未创建: {state_dir}")
-        lines.append("  - 首次启动会话时将自动创建")
-    lines.append("")
-
-    knowledge_root = _resolve_knowledge_root()
-    lines.append("### 知识库")
-    lines.append(f"- 配置路径: {knowledge_root}")
-    if os.path.isdir(knowledge_root):
-        lines.append("- ✅ 知识库根目录存在")
-    else:
-        lines.append("- ℹ️ 知识库根目录不存在（未启用知识库或尚未挂载时为正常情况）")
-    lines.append("")
+    user_path, user_exists = _append_config_diagnostics(lines)
+    has_api_key = _append_api_diagnostics(lines)
+    _append_storage_diagnostics(lines)
 
     lines.append("### 建议")
     issues: list[str] = []
@@ -220,18 +244,22 @@ def diagnose_environment() -> str:
         issues.append(f"缺少 {len(missing_required)} 个必需依赖: {', '.join(missing_required)}")
         tips.append("重新安装: pip install -e .")
 
-    if not api_key:
+    if not has_api_key:
         issues.append("未配置 OpenAI API 密钥")
-        tips.append("运行 `python -m miniagent` 生成 config.user.json，并在 secrets 中填写 openai_api_key")
+        tips.append(
+            "运行 `python -m miniagent` 生成 config.user.json，并在 secrets 中填写 openai_api_key"
+        )
         tips.append("或设置环境变量 OPENAI_API_KEY")
 
-    if not user_path.is_file():
+    if not user_exists:
         issues.append("config.user.json 不存在")
         if not tips or "生成 config.user.json" not in tips[0]:
             tips.append("运行 `python -m miniagent` 生成 config.user.json 并按需覆盖配置")
 
     if missing_optional:
-        tips.append("可选组件未装全时，相关功能可能不可用；按需执行 pip install -e '.[cli]' 或 '.[feishu]'")
+        tips.append(
+            "可选组件未装全时，相关功能可能不可用；按需安装 cli、feishu、browser 或 mcp extra"
+        )
 
     if issues:
         lines.append("⚠️ 发现以下问题:")

@@ -49,6 +49,143 @@ else:
     _cleanup_browser = None
 
 
+class _StreamResponse:
+    """用于下载工具测试的最小异步流响应。"""
+
+    def __init__(self, chunks: list[bytes], *, content_type: str = "application/octet-stream"):
+        self._chunks = chunks
+        self.headers = {"content-type": content_type}
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return None
+
+    def raise_for_status(self) -> None:
+        return None
+
+    async def aiter_bytes(self, *, chunk_size: int):
+        assert chunk_size == 65536
+        for chunk in self._chunks:
+            yield chunk
+
+
+class _DownloadClient:
+    def __init__(self, chunks: list[bytes], *, length: int = 0, disposition: str = ""):
+        self.chunks = chunks
+        self.length = length
+        self.disposition = disposition
+
+    async def head(self, *_args, **_kwargs):
+        return MagicMock(
+            headers={
+                "content-length": str(self.length),
+                "content-type": "application/pdf",
+                "content-disposition": self.disposition,
+            }
+        )
+
+    def stream(self, *_args, **_kwargs):
+        return _StreamResponse(self.chunks, content_type="application/pdf")
+
+
+@pytest.mark.skipif(_import_result is None, reason="builtin-web skill template not importable")
+@pytest.mark.asyncio
+async def test_download_file_validates_url_and_head_size(tmp_path) -> None:
+    from miniagent.types.tool import ToolContext
+
+    ctx = ToolContext(cwd=str(tmp_path), allowed_paths=[str(tmp_path)], permission="sandbox")
+    invalid = await _import_result._download_file_handler({"url": "file:///etc/passwd"}, ctx)
+    assert not invalid.success
+
+    client = _DownloadClient([], length=2 * 1024 * 1024)
+    with patch.object(_import_result, "get_shared_httpx_client", AsyncMock(return_value=client)):
+        too_large = await _import_result._download_file_handler(
+            {"url": "https://example.test/file.bin", "max_size_mb": 1}, ctx
+        )
+    assert not too_large.success and "文件过大" in too_large.content
+
+
+@pytest.mark.skipif(_import_result is None, reason="builtin-web skill template not importable")
+@pytest.mark.asyncio
+async def test_download_file_streams_and_sanitizes_disposition(tmp_path) -> None:
+    from miniagent.types.tool import ToolContext
+
+    ctx = ToolContext(cwd=str(tmp_path), allowed_paths=[str(tmp_path)], permission="sandbox")
+    client = _DownloadClient(
+        [b"abc", b"def"],
+        length=6,
+        disposition='attachment; filename="../safe.pdf"',
+    )
+    with patch.object(_import_result, "get_shared_httpx_client", AsyncMock(return_value=client)):
+        result = await _import_result._download_file_handler(
+            {"url": "https://example.test/original.bin"}, ctx
+        )
+    assert result.success and result.meta["size"] == 6
+    assert result.meta["filename"] == "safe.pdf"
+    assert (tmp_path / "safe.pdf").read_bytes() == b"abcdef"
+
+
+@pytest.mark.skipif(_import_result is None, reason="builtin-web skill template not importable")
+@pytest.mark.asyncio
+async def test_download_file_stream_limit_removes_partial_file(tmp_path) -> None:
+    from miniagent.types.tool import ToolContext
+
+    ctx = ToolContext(cwd=str(tmp_path), allowed_paths=[str(tmp_path)], permission="sandbox")
+    client = _DownloadClient([b"x" * (1024 * 1024 + 1)], length=0)
+    with patch.object(_import_result, "get_shared_httpx_client", AsyncMock(return_value=client)):
+        result = await _import_result._download_file_handler(
+            {"url": "https://example.test/huge.bin", "max_size_mb": 1}, ctx
+        )
+    assert not result.success and "超过限制" in result.content
+    assert not (tmp_path / "huge.bin").exists()
+
+
+@pytest.mark.skipif(_import_result is None, reason="builtin-web skill template not importable")
+@pytest.mark.asyncio
+async def test_download_probe_failure_stream_error_and_urllib_fallback(tmp_path, monkeypatch) -> None:
+    from miniagent.types.tool import ToolContext
+
+    class BrokenHeadClient(_DownloadClient):
+        async def head(self, *_args, **_kwargs):
+            raise RuntimeError("head failed")
+
+    client = BrokenHeadClient([b"ok"])
+    length, content_type, filename, path = await _import_result._probe_download(
+        client, "https://example.test/a", {}, str(tmp_path), "a.bin", 1
+    )
+    assert length == 0 and content_type == "application/octet-stream"
+    assert filename == "a.bin" and path.endswith("a.bin")
+
+    ctx = ToolContext(cwd=str(tmp_path), allowed_paths=[str(tmp_path)], permission="sandbox")
+    with patch.object(
+        _import_result,
+        "get_shared_httpx_client",
+        AsyncMock(side_effect=ImportError("httpx missing")),
+    ), patch.object(
+        _import_result,
+        "_urllib_download",
+        AsyncMock(return_value=(3, "text/plain")),
+    ):
+        result = await _import_result._download_file_handler(
+            {"url": "https://example.test/a.txt"}, ctx
+        )
+    assert result.success and result.meta["size"] == 3
+
+    failing = _DownloadClient([])
+    failing.stream = MagicMock(side_effect=RuntimeError("stream failed"))
+    partial = tmp_path / "partial.bin"
+    partial.write_bytes(b"partial")
+    with patch.object(_import_result, "_download_target", return_value=("partial.bin", str(partial))), patch.object(
+        _import_result, "get_shared_httpx_client", AsyncMock(return_value=failing)
+    ):
+        result = await _import_result._download_file_handler(
+            {"url": "https://example.test/a"}, ctx
+        )
+    assert not result.success and not partial.exists()
+
+
 @pytest.mark.skipif(_web_search_handler is None, reason="builtin-web skill template not importable")
 @pytest.mark.asyncio
 async def test_web_search_missing_key() -> None:

@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 from typing import Any
 
 from miniagent.infrastructure.timezone_config import process_timezone
@@ -22,6 +22,7 @@ from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
 async def _time_handler(args: dict[str, Any], _ctx: ToolContext) -> ToolResult:
     """获取指定时区当前本地时间与 UTC 偏移说明。"""
     tz_name = str(args.get("timezone", "")).strip() or process_timezone()
+    tz: tzinfo
 
     try:
         from zoneinfo import ZoneInfo

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 from miniagent.infrastructure.json_config import get_config
@@ -39,7 +39,7 @@ def create_cli_file_history(filename: str) -> Any:
             """Merge unique entries without writing them to ``history.txt``."""
             if not getattr(self, "_loaded", False):
                 self._loaded_strings = list(self.load_history_strings())
-                setattr(self, "_loaded", True)
+                self._loaded = True
             known = {(x or "").strip() for x in self._loaded_strings if (x or "").strip()}
             for raw in reversed(list(strings)):
                 value = (raw or "").strip()
@@ -57,7 +57,7 @@ def cli_input_history_max() -> int:
 
 
 def session_user_inputs_for_cli_history(
-    state: dict[str, Any],
+    state: Mapping[str, Any],
     *,
     limit: int | None = None,
 ) -> list[str]:
@@ -84,7 +84,7 @@ def session_user_inputs_for_cli_history(
 
 
 def prime_cli_input_history_from_session(
-    state: dict[str, Any],
+    state: Mapping[str, Any],
     buffer: Any,
     *,
     limit: int | None = None,
@@ -106,9 +106,11 @@ class _HistoryLoadDone:
     """Completed-task placeholder used when no asyncio loop is running."""
 
     def done(self) -> bool:
+        """返回已完成状态，以兼容 ``asyncio.Task`` 的查询接口。"""
         return True
 
     def result(self) -> None:
+        """已完成的占位任务没有返回值或异常。"""
         return None
 
 
@@ -140,7 +142,7 @@ def sync_preload_buffer_working_lines(buffer: Any) -> None:
 
 
 def reload_cli_input_history(
-    state: dict[str, Any],
+    state: Mapping[str, Any],
     buffer: Any,
     history_file: str,
     *,

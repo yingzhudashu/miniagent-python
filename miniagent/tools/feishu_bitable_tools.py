@@ -57,8 +57,161 @@ def _parse_fields_arg(raw: Any) -> dict[str, Any] | None:
     return None
 
 
+def _bitable_get_meta(
+    cfg: Any, app_token: str, args: dict[str, Any], ctx: ToolContext
+) -> ToolResult:
+    """读取应用元数据与表列表。"""
+    del args, ctx
+    if not app_token:
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 app_token 或 base URL。")
+    meta = get_app_meta(cfg, app_token)
+    tables, token, has_more = list_tables(cfg, app_token)
+    return ToolResult(
+        success=True,
+        content=fmt_json(
+            {"app": meta, "tables": tables, "has_more": has_more, "page_token": token}
+        ),
+    )
+
+
+def _field_names(raw: Any) -> list[str] | None:
+    """规范化字段名数组或逗号分隔字符串。"""
+    if isinstance(raw, list):
+        return [str(item) for item in raw]
+    if isinstance(raw, str) and raw.strip():
+        return [item.strip() for item in raw.split(",") if item.strip()]
+    return None
+
+
+def _bitable_list(
+    cfg: Any,
+    app_token: str,
+    table_id: str,
+    args: dict[str, Any],
+    *,
+    records: bool,
+) -> ToolResult:
+    """列出字段或记录，并返回统一分页信息。"""
+    page_token = str(args.get("page_token") or "").strip() or None
+    if not records:
+        items, next_token, has_more = list_fields(cfg, app_token, table_id, page_token=page_token)
+        key = "fields"
+    else:
+        items, next_token, has_more = list_records(
+            cfg,
+            app_token,
+            table_id,
+            page_token=page_token,
+            page_size=int(args.get("page_size") or 100),
+            view_id=str(args.get("view_id") or "").strip() or None,
+            field_names=_field_names(args.get("field_names")),
+            filter_expr=str(args.get("filter") or args.get("filter_expr") or "").strip() or None,
+            sort=args.get("sort") if isinstance(args.get("sort"), list) else None,
+        )
+        key = "records"
+    return ToolResult(
+        success=True,
+        content=fmt_json({key: items, "has_more": has_more, "page_token": next_token}),
+    )
+
+
+def _bitable_record(
+    action: str,
+    cfg: Any,
+    app_token: str,
+    table_id: str,
+    args: dict[str, Any],
+) -> ToolResult:
+    """读取、创建或更新单条记录。"""
+    record_id = str(args.get("record_id") or "").strip()
+    if action == "get_record":
+        if not record_id:
+            return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 record_id。")
+        value = get_record(cfg, app_token, table_id, record_id)
+    else:
+        fields = _parse_fields_arg(args.get("fields"))
+        if fields is None:
+            return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 fields。")
+        if action == "create_record":
+            value = create_record(cfg, app_token, table_id, fields)
+        elif record_id:
+            value = update_record(cfg, app_token, table_id, record_id, fields)
+        else:
+            return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 record_id。")
+    return ToolResult(success=True, content=fmt_json(value))
+
+
+def _bitable_delete(cfg: Any, app_token: str, table_id: str, args: dict[str, Any]) -> ToolResult:
+    """删除单条或批量记录。"""
+    record_ids = args.get("record_ids")
+    if isinstance(record_ids, list) and record_ids:
+        count = delete_records_batch(cfg, app_token, table_id, [str(item) for item in record_ids])
+        return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已批量删除 {count} 条记录。")
+    record_id = str(args.get("record_id") or "").strip()
+    if not record_id:
+        return ToolResult(
+            success=False, content=f"{WARNING_PREFIX} 需要 record_id 或 record_ids 数组。"
+        )
+    delete_record(cfg, app_token, table_id, record_id)
+    return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已删除记录 {record_id}。")
+
+
+def _bitable_upload(
+    cfg: Any,
+    app_token: str,
+    table_id: str,
+    args: dict[str, Any],
+    ctx: ToolContext,
+) -> ToolResult:
+    """上传工作区文件到附件字段。"""
+    record_id = str(args.get("record_id") or "").strip()
+    field_name = str(args.get("field_name") or "").strip()
+    relative_path = str(args.get("relative_path") or "").strip()
+    workspace = (ctx.cwd or "").strip()
+    if not record_id or not field_name or not relative_path or not workspace:
+        return ToolResult(
+            success=False,
+            content=f"{WARNING_PREFIX} 需要 record_id、field_name、relative_path。",
+        )
+    path = resolve_under_workspace(workspace, relative_path)
+    with open(path, "rb") as stream:
+        data = stream.read()
+    output = upload_record_attachment(
+        cfg,
+        app_token,
+        table_id,
+        record_id,
+        field_name,
+        data,
+        file_name=os.path.basename(path),
+    )
+    return ToolResult(success=True, content=fmt_json(output))
+
+
+def _dispatch_bitable_action(
+    action: str,
+    cfg: Any,
+    app_token: str,
+    table_id: str,
+    args: dict[str, Any],
+    ctx: ToolContext,
+) -> ToolResult:
+    """分派已通过 token 校验的 Bitable action。"""
+    if action == "list_fields":
+        return _bitable_list(cfg, app_token, table_id, args, records=False)
+    if action == "list_records":
+        return _bitable_list(cfg, app_token, table_id, args, records=True)
+    if action in {"get_record", "create_record", "update_record"}:
+        return _bitable_record(action, cfg, app_token, table_id, args)
+    if action == "delete_record":
+        return _bitable_delete(cfg, app_token, table_id, args)
+    if action == "upload_attachment":
+        return _bitable_upload(cfg, app_token, table_id, args, ctx)
+    return ToolResult(success=False, content=f"{WARNING_PREFIX} 未处理的 action。")
+
+
 def _feishu_bitable_sync(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-    _ = ctx
+    """在线程内执行 Bitable SDK 调用并统一映射工具结果。"""
     action = str(args.get("action") or "").strip().lower()
     if action not in _SUPPORTED_ACTIONS:
         return ToolResult(
@@ -68,7 +221,9 @@ def _feishu_bitable_sync(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
 
     cfg = config_from_env()
     if cfg is None:
-        return ToolResult(success=False, content=f"{WARNING_PREFIX} 未配置 FEISHU_APP_ID / FEISHU_APP_SECRET。")
+        return ToolResult(
+            success=False, content=f"{WARNING_PREFIX} 未配置 FEISHU_APP_ID / FEISHU_APP_SECRET。"
+        )
     dep_err = check_lark_oapi()
     if dep_err:
         return dep_err
@@ -81,119 +236,20 @@ def _feishu_bitable_sync(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
 
     try:
         if action == "get_meta":
-            if not app_token:
-                return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 app_token 或 base URL。")
-            meta = get_app_meta(cfg, app_token)
-            tables, nxt, has_more = list_tables(cfg, app_token)
-            return ToolResult(
-                success=True,
-                content=fmt_json(
-                    {"app": meta, "tables": tables, "has_more": has_more, "page_token": nxt}
-                ),
-            )
+            return _bitable_get_meta(cfg, app_token, args, ctx)
         if not app_token or not table_id:
             return ToolResult(
-                success=False, content=f"{WARNING_PREFIX} 需要 app_token 与 table_id（或 base URL 含 ?table=）。"
+                success=False,
+                content=f"{WARNING_PREFIX} 需要 app_token 与 table_id（或 base URL 含 ?table=）。",
             )
 
-        if action == "list_fields":
-            items, nxt, has_more = list_fields(
-                cfg,
-                app_token,
-                table_id,
-                page_token=str(args.get("page_token") or "").strip() or None,
-            )
-            return ToolResult(
-                success=True,
-                content=fmt_json({"fields": items, "has_more": has_more, "page_token": nxt}),
-            )
-        if action == "list_records":
-            field_names = args.get("field_names")
-            fn_list = None
-            if isinstance(field_names, list):
-                fn_list = [str(x) for x in field_names]
-            elif isinstance(field_names, str) and field_names.strip():
-                fn_list = [x.strip() for x in field_names.split(",") if x.strip()]
-            items, nxt, has_more = list_records(
-                cfg,
-                app_token,
-                table_id,
-                page_token=str(args.get("page_token") or "").strip() or None,
-                page_size=int(args.get("page_size") or 100),
-                view_id=str(args.get("view_id") or "").strip() or None,
-                field_names=fn_list,
-                filter_expr=str(args.get("filter") or args.get("filter_expr") or "").strip()
-                or None,
-                sort=args.get("sort") if isinstance(args.get("sort"), list) else None,
-            )
-            return ToolResult(
-                success=True,
-                content=fmt_json({"records": items, "has_more": has_more, "page_token": nxt}),
-            )
-        if action == "get_record":
-            rid = str(args.get("record_id") or "").strip()
-            if not rid:
-                return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 record_id。")
-            return ToolResult(
-                success=True, content=fmt_json(get_record(cfg, app_token, table_id, rid))
-            )
-        if action == "create_record":
-            fields = _parse_fields_arg(args.get("fields"))
-            if fields is None:
-                return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 fields（对象或 JSON 字符串）。")
-            return ToolResult(
-                success=True,
-                content=fmt_json(create_record(cfg, app_token, table_id, fields)),
-            )
-        if action == "update_record":
-            rid = str(args.get("record_id") or "").strip()
-            fields = _parse_fields_arg(args.get("fields"))
-            if not rid:
-                return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 record_id。")
-            if fields is None:
-                return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 fields。")
-            return ToolResult(
-                success=True,
-                content=fmt_json(update_record(cfg, app_token, table_id, rid, fields)),
-            )
-        if action == "delete_record":
-            rid = str(args.get("record_id") or "").strip()
-            rids = args.get("record_ids")
-            if isinstance(rids, list) and rids:
-                n = delete_records_batch(cfg, app_token, table_id, [str(x) for x in rids])
-                return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已批量删除 {n} 条记录。")
-            if not rid:
-                return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 record_id 或 record_ids 数组。")
-            delete_record(cfg, app_token, table_id, rid)
-            return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已删除记录 {rid}。")
-        if action == "upload_attachment":
-            rid = str(args.get("record_id") or "").strip()
-            field_name = str(args.get("field_name") or "").strip()
-            rel = str(args.get("relative_path") or "").strip()
-            ws = (ctx.cwd or "").strip()
-            if not rid or not field_name or not rel or not ws:
-                return ToolResult(
-                    success=False, content=f"{WARNING_PREFIX} 需要 record_id、field_name、relative_path。"
-                )
-            path = resolve_under_workspace(ws, rel)
-            with open(path, "rb") as f:
-                data = f.read()
-            out = upload_record_attachment(
-                cfg,
-                app_token,
-                table_id,
-                rid,
-                field_name,
-                data,
-                file_name=os.path.basename(path),
-            )
-            return ToolResult(success=True, content=fmt_json(out))
+        return _dispatch_bitable_action(action, cfg, app_token, table_id, args, ctx)
     except json.JSONDecodeError as e:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} fields JSON 无效: {e}")
     except Exception as e:
-        return ToolResult(success=False, content=f"{WARNING_PREFIX} feishu_bitable.{action} 失败: {e}")
-
-    return ToolResult(success=False, content=f"{WARNING_PREFIX} 未处理的 action。")
+        return ToolResult(
+            success=False, content=f"{WARNING_PREFIX} feishu_bitable.{action} 失败: {e}"
+        )
 
 
 async def _feishu_bitable(args: dict[str, Any], ctx: ToolContext) -> ToolResult:

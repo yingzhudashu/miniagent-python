@@ -1,4 +1,4 @@
-"""Protocol 契约测试 — 实现类须满足 types.protocols 声明。"""
+"""Protocol 契约测试 — 实现类须满足 contracts.runtime 声明。"""
 
 from __future__ import annotations
 
@@ -6,13 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from miniagent.engine.engine import UnifiedEngine
-from miniagent.engine.feishu_state import FeishuRuntime
-from miniagent.infrastructure.channel_router import ChannelRouter
-from miniagent.infrastructure.message_queue import MessageQueueManager
-from miniagent.memory.activity_log import ActivityLogger
-from miniagent.memory.keyword_index import KeywordIndex
-from miniagent.types.protocols import (
+from miniagent.contracts.runtime import (
     ActivityLogProtocol,
     ChannelRouterProtocol,
     FeishuRuntimeProtocol,
@@ -20,6 +14,12 @@ from miniagent.types.protocols import (
     MessageQueueProtocol,
     UnifiedEngineProtocol,
 )
+from miniagent.engine.engine import UnifiedEngine
+from miniagent.engine.feishu_state import FeishuRuntime
+from miniagent.infrastructure.channel_router import ChannelRouter
+from miniagent.infrastructure.message_queue import MessageQueueManager
+from miniagent.memory.activity_log import ActivityLogger
+from miniagent.memory.keyword_index import KeywordIndex
 
 
 @pytest.mark.parametrize(

@@ -142,7 +142,7 @@ async def test_thinking_show_passes_merge_tools_to_feishu(monkeypatch: pytest.Mo
 async def test_append_feishu_thinking_same_card_updates_accumulator(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import miniagent.feishu.poll_server as ps
+    import miniagent.feishu.thinking_delivery as ps
     from miniagent.engine.thinking import ThinkingDisplay
     from miniagent.feishu.poll_server import append_feishu_thinking_same_card
 
@@ -169,7 +169,7 @@ async def test_append_feishu_thinking_same_card_updates_accumulator(
 async def test_append_feishu_with_message_id_patches(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import miniagent.feishu.poll_server as ps
+    import miniagent.feishu.thinking_delivery as ps
     from miniagent.engine.thinking import ThinkingDisplay
     from miniagent.feishu.poll_server import append_feishu_thinking_same_card
 
@@ -195,7 +195,7 @@ async def test_append_feishu_with_message_id_patches(
 
 
 def test_thinking_card_json_cache_reuses_same_body(monkeypatch: pytest.MonkeyPatch) -> None:
-    import miniagent.feishu.poll_server as ps
+    import miniagent.feishu.thinking_delivery as ps
     from miniagent.engine.thinking import ThinkingDisplay
 
     td = ThinkingDisplay()

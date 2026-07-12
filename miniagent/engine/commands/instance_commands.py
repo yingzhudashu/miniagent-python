@@ -10,9 +10,39 @@
 
 from __future__ import annotations
 
+import io
+from collections.abc import Mapping
+from contextlib import redirect_stdout
 from typing import Any
 
 from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
+
+
+async def handle_instance(
+    text: str,
+    *,
+    state: Mapping[str, Any],
+    capture: bool = False,
+    **_kwargs: Any,
+) -> str | None:
+    """解析实例子命令，并按渠道返回或打印叶子处理器输出。"""
+    from miniagent.engine.cli_commands import feishu_markdown_commands_enabled
+
+    parts = text.split()
+    subcommand = parts[1].lower() if len(parts) > 1 else ""
+    buffer = io.StringIO()
+    with redirect_stdout(buffer):
+        cmd_instance_handler(
+            parts,
+            subcommand,
+            state,
+            markdown=capture and feishu_markdown_commands_enabled(),
+        )
+    output = buffer.getvalue().strip()
+    if capture:
+        return output
+    print(output)
+    return None
 
 
 def format_instance_command_usage() -> str:
@@ -25,7 +55,7 @@ def format_instance_command_usage() -> str:
 
 
 def cmd_instance_handler(
-    parts: list[str], sub_cmd: str, state: dict[str, Any], *, markdown: bool = False
+    parts: list[str], sub_cmd: str, state: Mapping[str, Any], *, markdown: bool = False
 ) -> None:
     """处理 `/instance` 命令及其子命令。
 
@@ -93,4 +123,4 @@ def cmd_instance_handler(
         print(format_instance_command_usage())
 
 
-__all__ = ["cmd_instance_handler", "format_instance_command_usage"]
+__all__ = ["cmd_instance_handler", "format_instance_command_usage", "handle_instance"]

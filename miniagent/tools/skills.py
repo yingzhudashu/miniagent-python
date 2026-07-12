@@ -132,8 +132,8 @@ async def _install_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult
             vet_report = auto_vet_skill(install_path)
 
         st = ctx.cli_loop_state
-        rt = st.get("runtime_ctx") if isinstance(st, dict) else None
-        if rt is not None:
+        rt = st.get("runtime_ctx") if st is not None else None
+        if rt is not None and st is not None:
             from miniagent.skills.refresh import refresh_skills
             try:
                 fr = await refresh_skills(
@@ -212,8 +212,8 @@ async def _uninstall_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
 
         # 热移除
         st = ctx.cli_loop_state
-        rt = st.get("runtime_ctx") if isinstance(st, dict) else None
-        if rt is not None:
+        rt = st.get("runtime_ctx") if st is not None else None
+        if rt is not None and st is not None:
             from miniagent.skills.refresh import refresh_skills
             try:
                 fr = await refresh_skills(

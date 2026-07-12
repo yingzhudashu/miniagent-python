@@ -31,6 +31,7 @@ def atomic_write_text(
             temp_path = Path(handle.name)
             handle.write(content)
             handle.flush()
+            os.fsync(handle.fileno())
         os.replace(temp_path, target)
         temp_path = None
         return target.stat().st_size
@@ -80,6 +81,7 @@ def atomic_dump_json(
                 sort_keys=sort_keys,
             )
             handle.flush()
+            os.fsync(handle.fileno())
         os.replace(temp_path, target)
         temp_path = None
     finally:

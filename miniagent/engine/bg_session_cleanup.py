@@ -45,6 +45,94 @@ async def _remove_session_trace_events(session_key: str) -> int:
     return await asyncio.to_thread(remove_completed_session_from_trace_files, session_key)
 
 
+async def _release_background_session_lock(session_key: str) -> None:
+    """尽力释放后台会话锁；锁模块不可用或重复释放均不阻断清理。"""
+    try:
+        from miniagent.engine.session_lock import release_session_lock
+
+        await asyncio.to_thread(release_session_lock, session_key)
+    except Exception as error:
+        _logger.debug("释放后台 session 锁失败 (%s): %s", session_key, error, exc_info=True)
+
+
+async def _forget_background_session(session_key: str, session_manager: Any | None) -> None:
+    """从会话管理器缓存移除会话，必要时回退到销毁旧接口。"""
+    if session_manager is None:
+        return
+    try:
+        forget_session = getattr(session_manager, "forget_session", None)
+        if callable(forget_session):
+            forget_session(session_key)
+        else:
+            await asyncio.to_thread(
+                session_manager.destroy,
+                session_key,
+                keep_files=False,
+            )
+    except Exception as error:
+        _logger.debug("destroy 后台 session 失败 (%s): %s", session_key, error, exc_info=True)
+
+
+async def _remove_background_memory_entries(
+    session_key: str,
+    memory: MemoryRuntimeProtocol | None,
+) -> None:
+    """清理进程缓存、注册表和派生索引；各存储失败互不影响。"""
+    if memory is None:
+        return
+    evict = getattr(memory.store, "evict_session", None)
+    if callable(evict):
+        try:
+            evict(session_key)
+        except Exception as error:
+            _logger.debug("驱逐记忆缓存失败 (%s): %s", session_key, error, exc_info=True)
+    try:
+        await asyncio.to_thread(memory.remove_session_entries, session_key)
+    except Exception as error:
+        _logger.debug("清理记忆注册表/索引失败 (%s): %s", session_key, error, exc_info=True)
+
+
+async def _remove_background_activity_log(
+    session_key: str,
+    memory: MemoryRuntimeProtocol | None,
+) -> None:
+    """兼容同步与异步 activity log 仓储的会话清理接口。"""
+    if memory is None:
+        return
+    remove_log = getattr(memory.activity_log, "remove_session", None)
+    if not callable(remove_log):
+        return
+    try:
+        if asyncio.iscoroutinefunction(remove_log):
+            await remove_log(session_key)
+        else:
+            await asyncio.to_thread(remove_log, session_key)
+    except Exception as error:
+        _logger.debug("清理 activity log 失败 (%s): %s", session_key, error, exc_info=True)
+
+
+async def _remove_background_agent_memory(session_key: str) -> None:
+    """删除 agent 长期记忆中由后台会话产生的来源条目。"""
+    try:
+        from miniagent.memory.layered_memory import remove_agent_longterm_entries_for_session
+
+        removed = await asyncio.to_thread(remove_agent_longterm_entries_for_session, session_key)
+        if removed:
+            _logger.debug("已从 agent_lt 移除后台 session 条目: %s (%d)", session_key, removed)
+    except Exception as error:
+        _logger.debug("清理 agent_lt 失败 (%s): %s", session_key, error, exc_info=True)
+
+
+async def _remove_background_traces(session_key: str) -> None:
+    """从所有 trace 分片移除后台会话事件。"""
+    try:
+        removed = await _remove_session_trace_events(session_key)
+        if removed:
+            _logger.debug("已移除后台 session trace 事件: %s (%d)", session_key, removed)
+    except Exception as error:
+        _logger.debug("清理 trace 失败 (%s): %s", session_key, error, exc_info=True)
+
+
 async def cleanup_background_session_artifacts(
     session_key: str,
     *,
@@ -67,26 +155,8 @@ async def cleanup_background_session_artifacts(
     safe_id = safe_session_id(session_key)
     state_root = memory.state_root if memory is not None else resolve_state_dir()
 
-    try:
-        from miniagent.engine.session_lock import release_session_lock
-
-        await asyncio.to_thread(release_session_lock, session_key)
-    except Exception as exc:
-        _logger.debug("释放后台 session 锁失败 (%s): %s", session_key, exc)
-
-    if session_manager is not None:
-        try:
-            forget_session = getattr(session_manager, "forget_session", None)
-            if callable(forget_session):
-                forget_session(session_key)
-            else:
-                await asyncio.to_thread(
-                    session_manager.destroy,
-                    session_key,
-                    keep_files=False,
-                )
-        except Exception as exc:
-            _logger.debug("destroy 后台 session 失败 (%s): %s", session_key, exc)
+    await _release_background_session_lock(session_key)
+    await _forget_background_session(session_key, session_manager)
 
     workspace_path = os.path.join(state_root, "sessions", safe_id)
     await _remove_path_async(workspace_path, is_dir=True)
@@ -94,59 +164,16 @@ async def cleanup_background_session_artifacts(
     memory_path = os.path.join(state_root, "memory", f"{safe_id}.json")
     await _remove_path_async(memory_path)
 
-    if memory is not None:
-        evict = getattr(memory.store, "evict_session", None)
-        if callable(evict):
-            try:
-                evict(session_key)
-            except Exception as exc:
-                _logger.debug("驱逐记忆缓存失败 (%s): %s", session_key, exc)
-
     session_lt_path = os.path.join(state_root, "memory", "session_lt", f"{safe_id}.json")
     await _remove_path_async(session_lt_path)
 
     diary_dir = os.path.join(state_root, "memory", "diary", safe_id)
     await _remove_path_async(diary_dir, is_dir=True)
 
-    try:
-        from miniagent.memory.layered_memory import remove_agent_longterm_entries_for_session
-
-        removed_agent = await asyncio.to_thread(
-            remove_agent_longterm_entries_for_session,
-            session_key,
-        )
-        if removed_agent:
-            _logger.debug(
-                "已从 agent_lt 移除后台 session 条目: %s (%d)",
-                session_key,
-                removed_agent,
-            )
-    except Exception as exc:
-        _logger.debug("清理 agent_lt 失败 (%s): %s", session_key, exc)
-
-    if memory is not None:
-        try:
-            await asyncio.to_thread(memory.remove_session_entries, session_key)
-        except Exception as exc:
-            _logger.debug("清理记忆注册表/索引失败 (%s): %s", session_key, exc)
-
-    if memory is not None:
-        remove_log = getattr(memory.activity_log, "remove_session", None)
-        if callable(remove_log):
-            try:
-                if asyncio.iscoroutinefunction(remove_log):
-                    await remove_log(session_key)
-                else:
-                    await asyncio.to_thread(remove_log, session_key)
-            except Exception as exc:
-                _logger.debug("清理 activity log 失败 (%s): %s", session_key, exc)
-
-    try:
-        removed_traces = await _remove_session_trace_events(session_key)
-        if removed_traces:
-            _logger.debug("已移除后台 session trace 事件: %s (%d)", session_key, removed_traces)
-    except Exception as exc:
-        _logger.debug("清理 trace 失败 (%s): %s", session_key, exc)
+    await _remove_background_agent_memory(session_key)
+    await _remove_background_memory_entries(session_key, memory)
+    await _remove_background_activity_log(session_key, memory)
+    await _remove_background_traces(session_key)
 
     _logger.debug("已清理后台 session 痕迹: %s", session_key)
 

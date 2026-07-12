@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import Any
 
 from miniagent.engine.background_tasks import BackgroundTaskManager
+from miniagent.engine.cli_state import CliLoopState
 from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
 
 
@@ -33,7 +34,7 @@ async def cmd_btw_start(
     manager: BackgroundTaskManager,
     engine: Any,
     prompt: str,
-    state: dict[str, Any],
+    state: CliLoopState | dict[str, Any],
 ) -> str:
     """启动后台任务。
 

@@ -109,60 +109,54 @@ def _find_runs_recursive(root: Path, current: Path, runs: list[dict]) -> None:
             _find_runs_recursive(root, child, runs)
 
 
+def _read_prompt(run_dir: Path) -> tuple[str, object | None]:
+    """Read prompt metadata, falling back to the captured transcript."""
+    for candidate in (run_dir / "eval_metadata.json", run_dir.parent / "eval_metadata.json"):
+        if not candidate.exists():
+            continue
+        try:
+            metadata = json.loads(candidate.read_text())
+            if metadata.get("prompt"):
+                return metadata["prompt"], metadata.get("eval_id")
+        except (json.JSONDecodeError, OSError) as error:
+            _logger.debug("读取 eval_metadata.json 失败: %s", error)
+    for candidate in (run_dir / "transcript.md", run_dir / "outputs" / "transcript.md"):
+        if not candidate.exists():
+            continue
+        try:
+            match = re.search(r"## Eval Prompt\n\n([\s\S]*?)(?=\n##|$)", candidate.read_text())
+            if match:
+                return match.group(1).strip(), None
+        except OSError as error:
+            _logger.debug("读取 transcript.md 失败: %s", error)
+    return "(No prompt found)", None
+
+
+def _read_first_json(candidates: list[Path]) -> dict | None:
+    """Return the first readable, non-empty JSON object."""
+    for candidate in candidates:
+        if not candidate.exists():
+            continue
+        try:
+            value = json.loads(candidate.read_text())
+            if value:
+                return value
+        except (json.JSONDecodeError, OSError) as error:
+            _logger.debug("读取 JSON 失败 %s: %s", candidate, error)
+    return None
+
+
 def build_run(root: Path, run_dir: Path) -> dict | None:
     """Build a run dict with prompt, outputs, and grading data."""
-    prompt = ""
-    eval_id = None
-
-    # Try eval_metadata.json
-    for candidate in [run_dir / "eval_metadata.json", run_dir.parent / "eval_metadata.json"]:
-        if candidate.exists():
-            try:
-                metadata = json.loads(candidate.read_text())
-                prompt = metadata.get("prompt", "")
-                eval_id = metadata.get("eval_id")
-            except (json.JSONDecodeError, OSError) as e:
-                _logger.debug("读取 eval_metadata.json 失败: %s", e)
-            if prompt:
-                break
-
-    # Fall back to transcript.md
-    if not prompt:
-        for candidate in [run_dir / "transcript.md", run_dir / "outputs" / "transcript.md"]:
-            if candidate.exists():
-                try:
-                    text = candidate.read_text()
-                    match = re.search(r"## Eval Prompt\n\n([\s\S]*?)(?=\n##|$)", text)
-                    if match:
-                        prompt = match.group(1).strip()
-                except OSError as e:
-                    _logger.debug("读取 transcript.md 失败: %s", e)
-                if prompt:
-                    break
-
-    if not prompt:
-        prompt = "(No prompt found)"
-
+    prompt, eval_id = _read_prompt(run_dir)
     run_id = str(run_dir.relative_to(root)).replace("/", "-").replace("\\", "-")
-
-    # Collect output files
     outputs_dir = run_dir / "outputs"
-    output_files: list[dict] = []
-    if outputs_dir.is_dir():
-        for f in sorted(outputs_dir.iterdir()):
-            if f.is_file() and f.name not in METADATA_FILES:
-                output_files.append(embed_file(f))
-
-    # Load grading if present
-    grading = None
-    for candidate in [run_dir / "grading.json", run_dir.parent / "grading.json"]:
-        if candidate.exists():
-            try:
-                grading = json.loads(candidate.read_text())
-            except (json.JSONDecodeError, OSError) as e:
-                _logger.debug("读取 eval_metadata.json 失败: %s", e)
-            if grading:
-                break
+    output_files = [
+        embed_file(path)
+        for path in sorted(outputs_dir.iterdir())
+        if path.is_file() and path.name not in METADATA_FILES
+    ] if outputs_dir.is_dir() else []
+    grading = _read_first_json([run_dir / "grading.json", run_dir.parent / "grading.json"])
 
     return {
         "id": run_id,

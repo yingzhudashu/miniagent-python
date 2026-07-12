@@ -15,6 +15,8 @@ jobs:
         python-version: ["3.10", "3.12"]
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -30,16 +32,21 @@ jobs:
         run: python -m compileall -q miniagent
 
       - name: Ruff
-        run: python -m ruff check miniagent tests scripts/check_architecture.py scripts/check_wheel_resources.py
+        run: python -m ruff check miniagent tests scripts
+
+      - name: Documentation and docstring contracts
+        run: |
+          python scripts/check_docs.py
+          python scripts/docstring_inventory.py --check
+
+      - name: Bandit high-severity security scan
+        run: python -m bandit -q -r miniagent -x miniagent/skills/templates -lll
 
       - name: Architecture dependency rules
         run: python scripts/check_architecture.py
 
-      - name: Mypy (application + bootstrap + contracts + types)
-        run: python -m mypy miniagent/application miniagent/bootstrap miniagent/contracts miniagent/types
-
-      - name: Mypy (planning config consumers)
-        run: python -m mypy --follow-imports=silent miniagent/core/llm_transport.py miniagent/core/planner.py miniagent/core/task_classifier.py miniagent/core/llm_params.py miniagent/core/llm_json.py
+      - name: Mypy (entire package, including untyped bodies)
+        run: python -m mypy miniagent
 
       - name: Build and inspect wheel runtime resources
         if: matrix.python-version == '3.12'
@@ -48,7 +55,15 @@ jobs:
           python scripts/check_wheel_resources.py wheelhouse/*.whl
 
       - name: Pytest
-        run: python -m pytest tests/ -q -m "not evaluation"
+        run: python -m pytest tests/ -q -m "not evaluation and not perf"
+
+      - name: Branch coverage baseline
+        if: matrix.python-version == '3.12'
+        run: python -m pytest tests/ -q -m "not evaluation and not perf" --cov=miniagent --cov-branch --cov-report=xml --cov-fail-under=80
+
+      - name: Changed-line coverage
+        if: matrix.python-version == '3.12' && github.event_name == 'pull_request'
+        run: diff-cover coverage.xml --fail-under=95 --compare-branch=origin/${{ github.base_ref }}
 
   test-feishu-extra:
     runs-on: ubuntu-latest
@@ -72,7 +87,7 @@ jobs:
         run: python -m ruff check miniagent tests
 
       - name: Pytest
-        run: python -m pytest tests/ -q -m "not evaluation"
+        run: python -m pytest tests/ -q -m "not evaluation and not perf"
 
   test-mcp-extra:
     runs-on: ubuntu-latest
@@ -99,4 +114,18 @@ jobs:
         run: python -m ruff check miniagent tests
 
       - name: Pytest
-        run: python -m pytest tests/ -q -m "not evaluation"
+        run: python -m pytest tests/ -q -m "not evaluation and not perf"
+
+  windows-smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install core and CLI extras
+        run: python -m pip install -e ".[dev,cli]"
+      - name: Windows entrypoint and platform tests
+        run: |
+          python -m miniagent --help
+          python -m pytest tests/test_cli_entry.py tests/test_clipboard.py tests/test_session_lock.py -q

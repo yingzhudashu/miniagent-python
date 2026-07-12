@@ -114,7 +114,7 @@ def resolve_path_simple(
     """
     from miniagent.security.sandbox import resolve_sandbox_path
 
-    dirs = allowed or allowed_dirs_simple(cwd)
+    dirs = list(allowed) if allowed else allowed_dirs_simple(cwd)
     return resolve_sandbox_path(input_path, dirs)
 
 

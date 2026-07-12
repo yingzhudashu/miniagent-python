@@ -1,4 +1,4 @@
-"""Mini Agent Python — 领域类型与协议（Pydantic/dataclass/Protocol）
+"""Mini Agent Python — 无 I/O 的领域数据模型。
 
 本包只放 **数据结构契约**，不包含 I/O 或业务编排。实现落在 ``miniagent.core``、
 ``miniagent.memory``、``miniagent.infrastructure`` 等模块。
@@ -15,7 +15,7 @@
 - ``agent``: 运行结果、监控协议、循环检测配置、线性管线
 - ``confirmation``: 澄清/计划确认请求与结果（``ConfirmationRequest`` / ``ConfirmationResult``）
 - ``planning``: Phase 1 结构化计划（``StructuredPlan`` 等）
-- ``protocols``: 运行时注入协议（ActivityLogProtocol、KeywordIndexProtocol）
+- 应用运行时端口统一位于 ``miniagent.contracts``，不从本包反向聚合导出
 - ``error_prefix`` / ``error_messages``: 工具与 CLI 的统一输出前缀与用户可见消息常量
 - ``errors``: 项目自定义异常类型（沙箱、飞书配置/依赖等）
 """
@@ -26,11 +26,9 @@ import importlib
 from typing import Any
 
 _LAZY_EXPORTS = {
-    "ActivityLogProtocol": "miniagent.types.protocols",
     "AgentConfig": "miniagent.types.config",
     "AgentRunOptions": "miniagent.types.agent",
     "AgentRunResult": "miniagent.types.agent",
-    "ChannelRouterProtocol": "miniagent.types.protocols",
     "ClawHubClientProtocol": "miniagent.types.skill",
     "ClawHubSearchResult": "miniagent.types.skill",
     "ClawHubSkillDetail": "miniagent.types.skill",
@@ -45,10 +43,8 @@ _LAZY_EXPORTS = {
     "EstimatedTokens": "miniagent.types.planning",
     "FallbackPlan": "miniagent.types.planning",
     "FeishuConfigMissingError": "miniagent.types.errors",
-    "FeishuRuntimeProtocol": "miniagent.types.protocols",
     "FileMetadata": "miniagent.types.memory",
     "GroundTruthFact": "miniagent.types.memory",
-    "KeywordIndexProtocol": "miniagent.types.protocols",
     "LarkOapiMissingError": "miniagent.types.errors",
     "LoopDetectionConfig": "miniagent.types.agent",
     "LoopDetectionResult": "miniagent.types.agent",
@@ -60,14 +56,7 @@ _LAZY_EXPORTS = {
     "MemoryInjectionResult": "miniagent.types.memory_context",
     "MemorySearchProtocol": "miniagent.types.memory_context",
     "MemoryStoreProtocol": "miniagent.types.memory",
-    "MessageQueueProtocol": "miniagent.types.protocols",
     "ModelConfig": "miniagent.types.config",
-    "OnPlan": "miniagent.types.protocols",
-    "OnThinking": "miniagent.types.protocols",
-    "OnThinkingCallback": "miniagent.types.protocols",
-    "OnToolCall": "miniagent.types.protocols",
-    "OnToolFinish": "miniagent.types.protocols",
-    "OnToolFinishCallback": "miniagent.types.protocols",
     "OutputSpec": "miniagent.types.planning",
     "PipelineResult": "miniagent.types.agent",
     "PipelineStep": "miniagent.types.agent",
@@ -101,7 +90,6 @@ _LAZY_EXPORTS = {
     "ToolRuntimePermission": "miniagent.types.tool",
     "ToolStats": "miniagent.types.agent",
     "Toolbox": "miniagent.types.tool",
-    "UnifiedEngineProtocol": "miniagent.types.protocols",
     "WARNING_PREFIX": "miniagent.types.error_prefix",
     "WireAPI": "miniagent.types.config",
 }
@@ -154,19 +142,6 @@ __all__ = [
     "MemoryContextProtocol",
     "MemorySearchProtocol",
     "MemoryHistoryProtocol",
-    # protocols (运行时注入)
-    "ActivityLogProtocol",
-    "KeywordIndexProtocol",
-    "UnifiedEngineProtocol",
-    "ChannelRouterProtocol",
-    "MessageQueueProtocol",
-    "FeishuRuntimeProtocol",
-    "OnThinkingCallback",
-    "OnToolFinishCallback",
-    "OnToolCall",
-    "OnPlan",
-    "OnThinking",
-    "OnToolFinish",
     # skill
     "SkillMetadata",
     "SkillEntry",

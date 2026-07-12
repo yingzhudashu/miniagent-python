@@ -14,6 +14,7 @@ import sys
 import time
 import uuid
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from dataclasses import dataclass
 from pathlib import Path
 
 from scripts.utils import parse_skill_md
@@ -30,6 +31,106 @@ def find_project_root() -> Path:
         if (parent / ".claude").is_dir():
             return parent
     return current
+
+
+@dataclass
+class _TriggerDetector:
+    """Track the tool invocation represented by streaming JSON events."""
+
+    clean_name: str
+    pending_tool_name: str | None = None
+    accumulated_json: str = ""
+    triggered: bool = False
+
+    def consume(self, event: dict) -> bool | None:
+        """Return a final decision, or ``None`` while more events are needed."""
+        event_type = event.get("type")
+        if event_type == "stream_event":
+            return self._consume_stream_event(event.get("event", {}))
+        if event_type == "assistant":
+            return self._consume_assistant(event.get("message", {}))
+        if event_type == "result":
+            return self.triggered
+        return None
+
+    def _consume_stream_event(self, event: dict) -> bool | None:
+        stream_type = event.get("type", "")
+        if stream_type == "content_block_start":
+            content = event.get("content_block", {})
+            if content.get("type") != "tool_use":
+                return None
+            tool_name = content.get("name", "")
+            if tool_name not in ("Skill", "Read"):
+                return False
+            self.pending_tool_name = tool_name
+            self.accumulated_json = ""
+        elif stream_type == "content_block_delta" and self.pending_tool_name:
+            delta = event.get("delta", {})
+            if delta.get("type") == "input_json_delta":
+                self.accumulated_json += delta.get("partial_json", "")
+                if self.clean_name in self.accumulated_json:
+                    return True
+        elif stream_type in ("content_block_stop", "message_stop"):
+            if self.pending_tool_name:
+                return self.clean_name in self.accumulated_json
+            if stream_type == "message_stop":
+                return False
+        return None
+
+    def _consume_assistant(self, message: dict) -> bool | None:
+        for item in message.get("content", []):
+            if item.get("type") != "tool_use":
+                continue
+            tool_name = item.get("name", "")
+            tool_input = item.get("input", {})
+            field = "skill" if tool_name == "Skill" else "file_path"
+            self.triggered = tool_name in ("Skill", "Read") and self.clean_name in tool_input.get(
+                field, ""
+            )
+            return self.triggered
+        return None
+
+
+def _consume_json_lines(buffer: str, detector: _TriggerDetector) -> tuple[str, bool | None]:
+    """Consume complete newline-delimited JSON events from a byte buffer."""
+    while "\n" in buffer:
+        line, buffer = buffer.split("\n", 1)
+        try:
+            event = json.loads(line.strip()) if line.strip() else None
+        except json.JSONDecodeError:
+            continue
+        if event is None:
+            continue
+        decision = detector.consume(event)
+        if decision is not None:
+            return buffer, decision
+    return buffer, None
+
+
+def _watch_process(process: subprocess.Popen, clean_name: str, timeout: int) -> bool:
+    """Read a Claude subprocess until a trigger decision or timeout."""
+    assert process.stdout is not None
+    detector = _TriggerDetector(clean_name)
+    buffer = ""
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        if process.poll() is not None:
+            remaining = process.stdout.read()
+            if remaining:
+                buffer += remaining.decode("utf-8", errors="replace")
+            _, decision = _consume_json_lines(buffer + "\n", detector)
+            return detector.triggered if decision is None else decision
+        ready, _, _ = select.select([process.stdout], [], [], 1.0)
+        if not ready:
+            continue
+        chunk = os.read(process.stdout.fileno(), 8192)
+        if not chunk:
+            break
+        buffer += chunk.decode("utf-8", errors="replace")
+        buffer, decision = _consume_json_lines(buffer, detector)
+        if decision is not None:
+            return decision
+    return detector.triggered
 
 
 def run_single_query(
@@ -91,95 +192,13 @@ def run_single_query(
             cwd=project_root,
             env=env,
         )
-
-        triggered = False
-        start_time = time.time()
-        buffer = ""
-        # Track state for stream event detection
-        pending_tool_name = None
-        accumulated_json = ""
-
         try:
-            while time.time() - start_time < timeout:
-                if process.poll() is not None:
-                    remaining = process.stdout.read()
-                    if remaining:
-                        buffer += remaining.decode("utf-8", errors="replace")
-                    break
-
-                ready, _, _ = select.select([process.stdout], [], [], 1.0)
-                if not ready:
-                    continue
-
-                chunk = os.read(process.stdout.fileno(), 8192)
-                if not chunk:
-                    break
-                buffer += chunk.decode("utf-8", errors="replace")
-
-                while "\n" in buffer:
-                    line, buffer = buffer.split("\n", 1)
-                    line = line.strip()
-                    if not line:
-                        continue
-
-                    try:
-                        event = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-
-                    # Early detection via stream events
-                    if event.get("type") == "stream_event":
-                        se = event.get("event", {})
-                        se_type = se.get("type", "")
-
-                        if se_type == "content_block_start":
-                            cb = se.get("content_block", {})
-                            if cb.get("type") == "tool_use":
-                                tool_name = cb.get("name", "")
-                                if tool_name in ("Skill", "Read"):
-                                    pending_tool_name = tool_name
-                                    accumulated_json = ""
-                                else:
-                                    return False
-
-                        elif se_type == "content_block_delta" and pending_tool_name:
-                            delta = se.get("delta", {})
-                            if delta.get("type") == "input_json_delta":
-                                accumulated_json += delta.get("partial_json", "")
-                                if clean_name in accumulated_json:
-                                    return True
-
-                        elif se_type in ("content_block_stop", "message_stop"):
-                            if pending_tool_name:
-                                return clean_name in accumulated_json
-                            if se_type == "message_stop":
-                                return False
-
-                    # Fallback: full assistant message
-                    elif event.get("type") == "assistant":
-                        message = event.get("message", {})
-                        for content_item in message.get("content", []):
-                            if content_item.get("type") != "tool_use":
-                                continue
-                            tool_name = content_item.get("name", "")
-                            tool_input = content_item.get("input", {})
-                            if tool_name == "Skill" and clean_name in tool_input.get("skill", ""):
-                                triggered = True
-                            elif tool_name == "Read" and clean_name in tool_input.get(
-                                "file_path", ""
-                            ):
-                                triggered = True
-                            return triggered
-
-                    elif event.get("type") == "result":
-                        return triggered
+            return _watch_process(process, clean_name, timeout)
         finally:
             # Clean up process on any exit path (return, exception, timeout)
             if process.poll() is None:
                 process.kill()
                 process.wait()
-
-        return triggered
     finally:
         if command_file.exists():
             command_file.unlink()

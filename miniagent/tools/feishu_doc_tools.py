@@ -31,6 +31,7 @@ from miniagent.feishu.lark_client import config_from_env
 from miniagent.feishu.token_resolve import extract_doc_token
 from miniagent.feishu.types import FeishuConfig
 from miniagent.infrastructure.json_config import get_config
+from miniagent.tools.feishu_doc_schema import build_feishu_doc_schema
 from miniagent.tools.feishu_utils import check_lark_oapi
 from miniagent.types.error_prefix import SUCCESS_PREFIX, WARNING_PREFIX
 from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
@@ -133,7 +134,9 @@ async def _feishu_doc(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
 
     cfg = config_from_env()
     if cfg is None:
-        return ToolResult(success=False, content=f"{WARNING_PREFIX} 未配置 FEISHU_APP_ID / FEISHU_APP_SECRET。")
+        return ToolResult(
+            success=False, content=f"{WARNING_PREFIX} 未配置 FEISHU_APP_ID / FEISHU_APP_SECRET。"
+        )
     dep_err = check_lark_oapi()
     if dep_err:
         return dep_err
@@ -159,55 +162,43 @@ def _dispatch_sync_doc_action(
     cfg: FeishuConfig,
 ) -> ToolResult:
     """Dispatch synchronous lark-oapi and filesystem actions in a worker thread."""
-    if action == "create":
-        return _action_create(args, ctx, cfg)
-    if action == "get":
-        return _action_get(args, cfg)
-    if action == "read":
-        return _action_read(args, cfg)
-    if action in ("write", "append"):
+    if action in {"write", "append"}:
         return _action_append(args, cfg, full_write=action == "write")
-    if action == "delete":
-        return _action_delete(args, cfg)
-    if action == "list_blocks":
-        return _action_list_blocks(args, cfg)
-    if action == "get_block":
-        return _action_get_block(args, cfg)
-    if action == "update_block":
-        return _action_update_block(args, cfg)
-    if action == "delete_block":
-        return _action_delete_block(args, cfg)
-    if action == "batch_update":
-        return _action_batch_update(args, cfg)
-    if action == "export_raw":
-        return _action_export_raw(args, ctx, cfg)
-    if action == "import_raw":
-        return _action_import_raw(args, ctx, cfg)
-    if action == "create_table":
-        return _action_create_table(args, cfg)
-    if action == "write_table_cells":
-        return _action_write_table_cells(args, cfg)
-    if action == "create_table_with_values":
-        return _action_create_table_with_values(args, cfg)
-    if action == "upload_image":
-        return _action_upload_image(args, ctx, cfg)
-    if action == "upload_file":
-        return _action_upload_file(args, ctx, cfg)
-    if action == "download_media":
-        return _action_download_media(args, ctx, cfg)
-    if action == "copy":
-        return _action_copy(args, cfg)
-    if action == "move":
-        return _action_move(args, cfg)
-    if action == "list_permissions":
-        return _action_list_permissions(args, cfg)
-    if action == "add_permission":
-        return _action_add_permission(args, cfg)
-    if action == "remove_permission":
-        return _action_remove_permission(args, cfg)
-    if action == "search":
-        return _action_search(args, cfg)
-    return ToolResult(success=False, content=f"{WARNING_PREFIX} 未处理的 action。")
+    context_handlers = {
+        "create": _action_create,
+        "export_raw": _action_export_raw,
+        "import_raw": _action_import_raw,
+        "upload_image": _action_upload_image,
+        "upload_file": _action_upload_file,
+        "download_media": _action_download_media,
+    }
+    if context_handler := context_handlers.get(action):
+        return context_handler(args, ctx, cfg)
+    handlers = {
+        "get": _action_get,
+        "read": _action_read,
+        "delete": _action_delete,
+        "list_blocks": _action_list_blocks,
+        "get_block": _action_get_block,
+        "update_block": _action_update_block,
+        "delete_block": _action_delete_block,
+        "batch_update": _action_batch_update,
+        "create_table": _action_create_table,
+        "write_table_cells": _action_write_table_cells,
+        "create_table_with_values": _action_create_table_with_values,
+        "copy": _action_copy,
+        "move": _action_move,
+        "list_permissions": _action_list_permissions,
+        "add_permission": _action_add_permission,
+        "remove_permission": _action_remove_permission,
+        "search": _action_search,
+    }
+    config_handler = handlers.get(action)
+    return (
+        config_handler(args, cfg)
+        if config_handler
+        else ToolResult(success=False, content=f"{WARNING_PREFIX} 未处理的 action。")
+    )
 
 
 def _action_create(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig) -> ToolResult:
@@ -230,7 +221,9 @@ def _action_create(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig) ->
     folder_arg = str(args.get("folder_token") or "").strip()
     folder, folder_err = resolve_parent_folder_token(folder_arg, cfg=cfg)
     if folder_err or not folder:
-        return ToolResult(success=False, content=folder_err or f"{WARNING_PREFIX} 缺少 folder_token。")
+        return ToolResult(
+            success=False, content=folder_err or f"{WARNING_PREFIX} 缺少 folder_token。"
+        )
     doc_id, rev = create_document(cfg, folder_token=folder, title=title)
     url = _docx_open_url(doc_id)
     url_line = f"\n- url: {url}" if url else ""
@@ -251,7 +244,9 @@ def _action_get(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
 
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
     if not doc_id:
-        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token 或 document_id。")
+        return ToolResult(
+            success=False, content=f"{WARNING_PREFIX} 需要 doc_token 或 document_id。"
+        )
     meta = get_document(cfg, doc_id)
     url = _docx_open_url(doc_id)
     if url:
@@ -266,7 +261,9 @@ def _action_read(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
 
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
     if not doc_id:
-        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token 或 document_id。")
+        return ToolResult(
+            success=False, content=f"{WARNING_PREFIX} 需要 doc_token 或 document_id。"
+        )
     meta = get_document(cfg, doc_id)
     text = get_document_raw_content(cfg, doc_id)
     blocks, _, _ = list_document_blocks(cfg, doc_id, page_size=200)
@@ -360,15 +357,20 @@ def _action_append(args: dict[str, Any], cfg: FeishuConfig, *, full_write: bool)
         meta={"render_mode": render_mode, "render_stats": stats, "warnings": []},
     )
 
+
 def _action_delete(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
     """删除云文档。"""
     from miniagent.feishu.docx.client import delete_document
 
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
     if not doc_id:
-        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token 或 document_id。")
+        return ToolResult(
+            success=False, content=f"{WARNING_PREFIX} 需要 doc_token 或 document_id。"
+        )
     delete_document(cfg, doc_id)
-    return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已删除云文档（file_token={doc_id}）。")
+    return ToolResult(
+        success=True, content=f"{SUCCESS_PREFIX} 已删除云文档（file_token={doc_id}）。"
+    )
 
 
 def _action_list_blocks(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
@@ -377,7 +379,9 @@ def _action_list_blocks(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
 
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
     if not doc_id:
-        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token 或 document_id。")
+        return ToolResult(
+            success=False, content=f"{WARNING_PREFIX} 需要 doc_token 或 document_id。"
+        )
     page_token = str(args.get("page_token") or "").strip() or None
     items, nxt, has_more = list_document_blocks(cfg, doc_id, page_token=page_token)
     return ToolResult(
@@ -429,9 +433,13 @@ def _action_batch_update(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
     requests_raw = args.get("requests")
     if not doc_id:
-        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token 或 document_id。")
+        return ToolResult(
+            success=False, content=f"{WARNING_PREFIX} 需要 doc_token 或 document_id。"
+        )
     if requests_raw is None:
-        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 requests（batch_update 请求数组）。")
+        return ToolResult(
+            success=False, content=f"{WARNING_PREFIX} 需要 requests（batch_update 请求数组）。"
+        )
     if isinstance(requests_raw, str):
         try:
             requests_payload = json.loads(requests_raw)
@@ -452,10 +460,14 @@ def _action_export_raw(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
     rel = str(args.get("relative_path") or args.get("path") or "").strip()
     if not doc_id:
-        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token 或 document_id。")
+        return ToolResult(
+            success=False, content=f"{WARNING_PREFIX} 需要 doc_token 或 document_id。"
+        )
     ws = (ctx.cwd or "").strip()
     if not ws or not rel:
-        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要会话工作区与 relative_path。")
+        return ToolResult(
+            success=False, content=f"{WARNING_PREFIX} 需要会话工作区与 relative_path。"
+        )
     try:
         path = resolve_under_workspace(ws, rel)
     except ValueError as e:
@@ -464,7 +476,9 @@ def _action_export_raw(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig
     os.makedirs(os.path.dirname(path) or ws, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         f.write(text)
-    return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已导出到工作区: {rel}（{len(text)} 字符）")
+    return ToolResult(
+        success=True, content=f"{SUCCESS_PREFIX} 已导出到工作区: {rel}（{len(text)} 字符）"
+    )
 
 
 def _action_import_raw(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfig) -> ToolResult:
@@ -551,10 +565,15 @@ def _action_write_table_cells(args: dict[str, Any], cfg: FeishuConfig) -> ToolRe
     tid = str(args.get("table_block_id") or "").strip()
     values = args.get("values")
     if not doc_id or not tid:
-        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token 与 table_block_id。")
+        return ToolResult(
+            success=False, content=f"{WARNING_PREFIX} 需要 doc_token 与 table_block_id。"
+        )
     if isinstance(values, str):
         values = json.loads(values)
-    write_table_cells(cfg, doc_id, tid, values)
+    if not isinstance(values, list) or not all(isinstance(row, list) for row in values):
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} values 必须是二维数组。")
+    normalized_values = [[str(cell) for cell in row] for row in values]
+    write_table_cells(cfg, doc_id, tid, normalized_values)
     return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已写入表格单元格。")
 
 
@@ -585,7 +604,9 @@ def _action_upload_image(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConf
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
     rel = str(args.get("relative_path") or args.get("file_path") or "").strip()
     if not doc_id or not rel:
-        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token 与 relative_path。")
+        return ToolResult(
+            success=False, content=f"{WARNING_PREFIX} 需要 doc_token 与 relative_path。"
+        )
     path = resolve_under_workspace(ctx.cwd or "", rel)
     tok = upload_doc_image_from_path(cfg, doc_id, path)
     return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已插入图片，file_token={tok}")
@@ -598,7 +619,9 @@ def _action_upload_file(args: dict[str, Any], ctx: ToolContext, cfg: FeishuConfi
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
     rel = str(args.get("relative_path") or args.get("file_path") or "").strip()
     if not doc_id or not rel:
-        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token 与 relative_path。")
+        return ToolResult(
+            success=False, content=f"{WARNING_PREFIX} 需要 doc_token 与 relative_path。"
+        )
     path = resolve_under_workspace(ctx.cwd or "", rel)
     tok = upload_doc_file_from_path(cfg, doc_id, path)
     return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已上传附件素材，file_token={tok}")
@@ -615,7 +638,9 @@ def _action_download_media(args: dict[str, Any], ctx: ToolContext, cfg: FeishuCo
         return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 file_token。")
     ws = (ctx.cwd or "").strip()
     if not ws or not rel:
-        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 relative_path 写入工作区。")
+        return ToolResult(
+            success=False, content=f"{WARNING_PREFIX} 需要 relative_path 写入工作区。"
+        )
     try:
         path = resolve_under_workspace(ws, rel)
     except ValueError as e:
@@ -650,7 +675,9 @@ async def _action_upload_image_from_message(
     mid = str(args.get("message_id") or "").strip()
     fk = str(args.get("file_key") or "").strip()
     if not doc_id or not mid or not fk:
-        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token、message_id、file_key。")
+        return ToolResult(
+            success=False, content=f"{WARNING_PREFIX} 需要 doc_token、message_id、file_key。"
+        )
     data, _ = await download_message_resource(
         cfg.app_id, cfg.app_secret, message_id=mid, file_key=fk, type_="image"
     )
@@ -706,7 +733,8 @@ def _action_add_permission(args: dict[str, Any], cfg: FeishuConfig) -> ToolResul
     perm = str(args.get("perm") or "view").strip()
     if not doc_id or not member_type or not member_id:
         return ToolResult(
-            success=False, content=f"{WARNING_PREFIX} 需要 doc_token、member_type、member_id（或 email/open_id）。"
+            success=False,
+            content=f"{WARNING_PREFIX} 需要 doc_token、member_type、member_id（或 email/open_id）。",
         )
     out = add_permission(cfg, doc_id, member_type=member_type, member_id=member_id, perm=perm)
     return ToolResult(success=True, content=fmt_json(out))
@@ -720,7 +748,9 @@ def _action_remove_permission(args: dict[str, Any], cfg: FeishuConfig) -> ToolRe
     member_type = str(args.get("member_type") or "").strip()
     member_id = str(args.get("member_id") or args.get("email") or args.get("open_id") or "").strip()
     if not doc_id or not member_type or not member_id:
-        return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token、member_type、member_id。")
+        return ToolResult(
+            success=False, content=f"{WARNING_PREFIX} 需要 doc_token、member_type、member_id。"
+        )
     remove_permission(cfg, doc_id, member_type=member_type, member_id=member_id)
     return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已移除协作者权限。")
 
@@ -745,75 +775,7 @@ def _action_search(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
         return ToolResult(success=False, content=fmt_json(e.to_payload()))
 
 
-_feishu_doc_schema = {
-    "type": "function",
-    "function": {
-        "name": "feishu_doc",
-        "description": (
-            "飞书云文档（docx）统一工具。action："
-            "create/get/read/write/append/delete、list_blocks/get_block/update_block/delete_block/batch_update、"
-            "export_raw/import_raw；表格 create_table/write_table_cells/create_table_with_values；"
-            "媒体 upload_image/upload_file/download_media/upload_image_from_message；"
-            "copy/move；list_permissions/add_permission/remove_permission；search（需 User Token）。"
-            "write 默认 append；mode=replace 整篇替换。doc_token 可为 document_id 或 docx URL。"
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "action": {
-                    "type": "string",
-                    "enum": list(_SUPPORTED_ACTIONS),
-                    "description": "操作类型",
-                },
-                "doc_token": {"type": "string", "description": "文档 ID 或 docx URL"},
-                "document_id": {"type": "string", "description": "同 doc_token"},
-                "title": {"type": "string"},
-                "folder_token": {"type": "string"},
-                "owner_open_id": {"type": "string", "description": "创建时建议传入用户 open_id"},
-                "content": {"type": "string", "description": "write/append/update_block 正文"},
-                "text": {"type": "string", "description": "append 别名"},
-                "render_mode": {
-                    "type": "string",
-                    "enum": ["rich", "plain"],
-                    "default": "rich",
-                    "description": "渲染模式：rich=富文本渲染（标题、粗体、列表、代码块），plain=纯文本",
-                },
-                "block_id": {"type": "string"},
-                "page_token": {"type": "string"},
-                "requests": {
-                    "description": "batch_update 请求数组或 JSON 字符串",
-                },
-                "relative_path": {
-                    "type": "string",
-                    "description": "export_raw/import_raw/download_media/upload_image 等工作区相对路径",
-                },
-                "path": {"type": "string", "description": "relative_path 别名"},
-                "mode": {
-                    "type": "string",
-                    "description": "write 时：replace 整篇替换，默认 append",
-                },
-                "table_block_id": {"type": "string", "description": "write_table_cells"},
-                "values": {"description": "表格二维数组或 JSON 字符串"},
-                "row_size": {"type": "integer", "description": "create_table"},
-                "column_size": {"type": "integer", "description": "create_table"},
-                "parent_block_id": {"type": "string", "description": "create_table 父块"},
-                "file_token": {"type": "string", "description": "download_media"},
-                "extra": {"type": "string", "description": "download_media 可选 extra"},
-                "message_id": {"type": "string", "description": "upload_image_from_message"},
-                "file_key": {"type": "string", "description": "upload_image_from_message"},
-                "name": {"type": "string", "description": "copy 新文档名"},
-                "member_type": {"type": "string", "description": "add/remove_permission"},
-                "member_id": {"type": "string", "description": "协作者 ID 或 email"},
-                "email": {"type": "string", "description": "add_permission 别名"},
-                "open_id": {"type": "string", "description": "add_permission 别名"},
-                "perm": {"type": "string", "description": "view/edit/full_access 等"},
-                "query": {"type": "string", "description": "search 关键词"},
-                "q": {"type": "string", "description": "query 别名"},
-            },
-            "required": ["action"],
-        },
-    },
-}
+_feishu_doc_schema = build_feishu_doc_schema(_SUPPORTED_ACTIONS)
 
 # Tool Definition（聚合工具保留原有 schema）
 feishu_doc_tools: dict[str, ToolDefinition] = {

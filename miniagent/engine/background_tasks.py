@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -161,7 +162,7 @@ class BackgroundTaskManager:
         self,
         engine: Any,
         prompt: str,
-        state: dict[str, Any],
+        state: Mapping[str, Any],
         **kwargs,
     ) -> str:
         """启动后台任务
@@ -216,12 +217,10 @@ class BackgroundTaskManager:
             )
             self._exec_tasks.add(exec_task)
             self._exec_by_id[task_id] = exec_task
-            exec_task.add_done_callback(
-                lambda done, reserved_id=task_id: self._on_exec_task_done(
-                    reserved_id,
-                    done,
-                )
-            )
+            def _done(done: asyncio.Task[Any]) -> None:
+                self._on_exec_task_done(task_id, done)
+
+            exec_task.add_done_callback(_done)
 
             return task_id
 
@@ -245,7 +244,7 @@ class BackgroundTaskManager:
             _logger.error("后台任务执行异常: %s", exc, exc_info=exc)
 
     @staticmethod
-    def _resolve_runtime_deps(state: dict[str, Any]) -> dict[str, Any]:
+    def _resolve_runtime_deps(state: Mapping[str, Any]) -> dict[str, Any]:
         """从 CLI 状态解析子 session 清理与引擎调用所需的运行时依赖。"""
         runtime_ctx = state.get("runtime_ctx")
         session_manager = state.get("session_manager")
@@ -261,7 +260,7 @@ class BackgroundTaskManager:
         engine: Any,
         task: BackgroundTask,
         message: InboundMessage,
-        state: dict[str, Any],
+        state: Mapping[str, Any],
         kwargs: dict[str, Any],
     ) -> None:
         """执行后台任务（内部方法）
@@ -478,18 +477,22 @@ class BackgroundTaskManager:
         async with self._lock:
             self._closed = True
             completed_at = datetime.now(timezone.utc)
-            for task in self._tasks.values():
-                if task.status in (TaskStatus.PENDING, TaskStatus.RUNNING):
-                    task.status = TaskStatus.CANCELLED
-                    task.completed_at = completed_at
+            for record in self._tasks.values():
+                if record.status in (TaskStatus.PENDING, TaskStatus.RUNNING):
+                    record.status = TaskStatus.CANCELLED
+                    record.completed_at = completed_at
             cleanup_task = self._cleanup_task
             exec_tasks = tuple(task for task in self._exec_tasks if not task.done())
 
         if cleanup_task is not None and not cleanup_task.done():
             cleanup_task.cancel()
-        for task in exec_tasks:
-            task.cancel()
-        pending = tuple(task for task in (cleanup_task, *exec_tasks) if task is not None)
+        for exec_task in exec_tasks:
+            exec_task.cancel()
+        pending = tuple(
+            pending_task
+            for pending_task in (cleanup_task, *exec_tasks)
+            if pending_task is not None
+        )
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
 

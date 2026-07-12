@@ -228,7 +228,10 @@ class TestSmartThrottling:
         """禁用重要内容立即 PATCH 时返回 False。"""
         from miniagent.feishu.poll_server import _is_important_content_for_immediate_patch
 
-        with patch("miniagent.feishu.poll_server.FEISHU_PATCH_IMPORTANT_CONTENT_IMMEDIATE", False):
+        with patch(
+            "miniagent.feishu.thinking_delivery.FEISHU_PATCH_IMPORTANT_CONTENT_IMMEDIATE",
+            False,
+        ):
             text = "```python\ndef hello():"
             assert _is_important_content_for_immediate_patch(text) is False
 

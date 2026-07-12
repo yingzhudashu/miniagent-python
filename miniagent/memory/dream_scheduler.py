@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import time
 from datetime import datetime, timezone
@@ -20,6 +19,8 @@ from typing import Any
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.infrastructure.paths import resolve_state_dir as get_state_root
+from miniagent.infrastructure.persistence import dump_state_file, load_state_file
+from miniagent.infrastructure.state_schemas import install_builtin_state_schemas
 from miniagent.memory.layered_memory import (
     append_session_day_rollup,
     load_agent_longterm,
@@ -29,6 +30,7 @@ from miniagent.memory.layered_memory import (
 )
 
 _logger = get_logger(__name__)
+install_builtin_state_schemas()
 
 _STATE_NAME = "dream_state.json"
 
@@ -61,8 +63,7 @@ def _load_dream_state(state_root: str | None = None) -> dict[str, Any]:
     if not os.path.isfile(p):
         return {}
     try:
-        with open(p, encoding="utf-8") as f:
-            return json.load(f)
+        return load_state_file("dream_state", p)
     except Exception:
         return {}
 
@@ -70,8 +71,7 @@ def _load_dream_state(state_root: str | None = None) -> dict[str, Any]:
 def _save_dream_state(data: dict[str, Any], state_root: str | None = None) -> None:
     """原子写回 dream 状态（失败仅 debug 日志）。"""
     try:
-        with open(_state_path(state_root), "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        dump_state_file("dream_state", _state_path(state_root), data)
     except OSError as e:
         _logger.debug("dream_state 写入失败: %s", e)
 
@@ -132,8 +132,10 @@ def _release_file_lock(state_root: str | None = None) -> None:
     try:
         if os.path.isfile(lock):
             with open(lock, encoding="utf-8") as f:
-                if f.read().strip() == str(os.getpid()):
-                    os.unlink(lock)
+                owner_pid = f.read().strip()
+            # Windows 不允许删除仍由当前进程打开的文件，因此必须先退出读取上下文。
+            if owner_pid == str(os.getpid()):
+                os.unlink(lock)
     except OSError as e:
         _logger.debug("释放锁文件失败: %s", e)
 

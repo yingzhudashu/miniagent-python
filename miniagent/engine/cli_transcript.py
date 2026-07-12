@@ -17,6 +17,8 @@ at the top. This module keeps that rendering model explicit and testable:
 
 from __future__ import annotations
 
+from collections import deque
+from collections.abc import Iterable, Iterator
 from typing import Any
 
 # Style class paired with ``history_load_hint`` for the top-of-transcript hint.
@@ -29,6 +31,91 @@ _VALID_PT_ANSI_COLOR_NAMES = frozenset({
     "ansibrightblack", "ansibrightred", "ansibrightgreen", "ansibrightyellow",
     "ansibrightblue", "ansibrightmagenta", "ansibrightcyan", "ansibrightwhite",
 })
+
+
+class TranscriptBuffer:
+    """维护可见字符预算的 transcript 双端缓冲区。
+
+    所有增删改操作都在同一对象内更新 ``total_len``，从而消除 TUI 多个闭包
+    分别维护 deque 与长度计数器时产生漂移的风险。缓冲区超过预算后从最旧端
+    裁剪，但至少保留 ``min_fragments`` 个片段，保证当前渲染块不会被清空。
+
+    该对象只在 TUI 事件循环线程内使用，不提供跨线程同步。
+    """
+
+    def __init__(self, max_chars: int, *, min_fragments: int = 16) -> None:
+        """创建字符预算和最小片段数均已归一化的空缓冲区。"""
+        self.max_chars = max(0, int(max_chars))
+        self.min_fragments = max(0, int(min_fragments))
+        self._items: deque[Any] = deque()
+        self.total_len = 0
+
+    def __bool__(self) -> bool:
+        """返回缓冲区是否包含片段。"""
+        return bool(self._items)
+
+    def __len__(self) -> int:
+        """返回片段数量。"""
+        return len(self._items)
+
+    def __iter__(self) -> Iterator[Any]:
+        """按显示顺序迭代片段。"""
+        return iter(self._items)
+
+    def __getitem__(self, index: int) -> Any:
+        """按索引读取片段。"""
+        return self._items[index]
+
+    def __setitem__(self, index: int, fragment: Any) -> None:
+        """替换片段并以可见字符差值更新计数器。"""
+        previous = self._items[index]
+        self._items[index] = fragment
+        self.total_len = max(
+            0,
+            self.total_len - transcript_fragment_len(previous) + transcript_fragment_len(fragment),
+        )
+        self.trim()
+
+    def append(self, fragment: Any) -> None:
+        """在尾部追加片段并执行预算裁剪。"""
+        self._items.append(fragment)
+        self.total_len += transcript_fragment_len(fragment)
+        self.trim()
+
+    def prepend(self, fragment: Any) -> None:
+        """在头部插入片段并执行预算裁剪。"""
+        self._items.appendleft(fragment)
+        self.total_len += transcript_fragment_len(fragment)
+        self.trim()
+
+    def extend(self, fragments: Iterable[Any]) -> None:
+        """在尾部批量追加片段，并在批次完成后裁剪。"""
+        for fragment in fragments:
+            self._items.append(fragment)
+            self.total_len += transcript_fragment_len(fragment)
+        self.trim()
+
+    def popleft(self) -> Any:
+        """移除最旧片段并返回它。"""
+        fragment = self._items.popleft()
+        self.total_len = max(0, self.total_len - transcript_fragment_len(fragment))
+        return fragment
+
+    def pop(self) -> Any:
+        """移除最新片段并返回它。"""
+        fragment = self._items.pop()
+        self.total_len = max(0, self.total_len - transcript_fragment_len(fragment))
+        return fragment
+
+    def clear(self) -> None:
+        """清空片段与累计字符计数。"""
+        self._items.clear()
+        self.total_len = 0
+
+    def trim(self) -> None:
+        """从最旧端裁剪到字符预算内，同时遵守最小片段保留量。"""
+        while self.total_len > self.max_chars and len(self._items) > self.min_fragments:
+            self.popleft()
 
 
 def is_valid_pt_style(style: str) -> bool:
@@ -179,6 +266,7 @@ def rule_line_width(viewport_cols: int) -> int:
 
 __all__ = [
     "HISTORY_HINT_STYLE",
+    "TranscriptBuffer",
     "history_all_loaded",
     "history_load_hint",
     "history_loaded_end",

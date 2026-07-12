@@ -162,10 +162,9 @@ def save_setup_config(config: dict[str, Any]) -> None:
         else:
             merged[key] = value
 
-    config_path.write_text(
-        json.dumps(merged, indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
+    from miniagent.infrastructure.atomic_json import atomic_dump_json
+
+    atomic_dump_json(config_path, merged, indent=2, ensure_ascii=False)
 
     _apply_saved_config()
 

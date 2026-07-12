@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import cast
 
 from miniagent.application.messaging import ChannelRegistry
 from miniagent.bootstrap.application import ApplicationContainer
+from miniagent.contracts.memory import MemoryRuntimeProtocol
+from miniagent.contracts.runtime import MessageQueueProtocol
 
 _logger = logging.getLogger(__name__)
 
@@ -18,7 +21,7 @@ def create_application_container() -> ApplicationContainer:
     from miniagent.engine.engine import UnifiedEngine
     from miniagent.engine.feishu_state import FeishuRuntime
     from miniagent.infrastructure.channel_router import ChannelRouter
-    from miniagent.infrastructure.json_config import get_config
+    from miniagent.infrastructure.json_config import get_config, get_config_snapshot
     from miniagent.infrastructure.message_queue import MessageQueueManager, QueueMode
     from miniagent.infrastructure.monitor import DefaultToolMonitor
     from miniagent.infrastructure.registry import DefaultToolRegistry
@@ -48,11 +51,12 @@ def create_application_container() -> ApplicationContainer:
         clawhub=create_clawhub_client(),
         engine=UnifiedEngine(),
         channel_router=channel_router,
-        message_queue=message_queue,
+        message_queue=cast(MessageQueueProtocol, message_queue),
         feishu=FeishuRuntime(message_queue),
-        memory=memory,
+        memory=cast(MemoryRuntimeProtocol, memory),
         knowledge_registry=KnowledgeRegistry(),
         background_tasks=BackgroundTaskManager(),
+        config=get_config_snapshot(),
         outbound_channels=ChannelRegistry(),
         openai_client=create_async_openai_client(),
     )

@@ -1,4 +1,4 @@
-"""Mini Agent Python — Protocol 类型定义
+"""应用运行时端口协议。
 
 定义核心接口的 Protocol 类型，替代 Any 类型，提升类型安全性。
 
@@ -9,27 +9,14 @@
 
 注意：Protocol 仅用于类型检查，不影响运行时行为。
 
-**Protocol 定义位置**：
-- MemoryStoreProtocol / SessionManagerProtocol: ``miniagent/types/memory.py``
-- ToolRegistryProtocol: ``miniagent/types/tool.py``
-- ToolMonitorProtocol: ``miniagent/types/agent.py``
-- SkillRegistryProtocol / ClawHubClientProtocol: ``miniagent/types/skill.py``
-- MemoryContextProtocol 等: ``miniagent/types/memory_context.py``
-- 本模块定义运行时注入特有的 Protocol（ActivityLog、KeywordIndex、回调、引擎、队列等）
+本模块只定义应用组合根注入的端口（ActivityLog、KeywordIndex、回调、引擎、队列等）；
+记忆、工具、技能等领域专用协议仍与其数据模型共置，不在此重复聚合。
 """
 
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol, runtime_checkable
-
-from miniagent.types.agent import ToolMonitorProtocol
-from miniagent.types.confirmation import ConfirmationResult
-
-# 从其他模块再导出 Protocol，便于统一导入
-from miniagent.types.memory import MemoryStoreProtocol, SessionManagerProtocol
-from miniagent.types.planning import StructuredPlan
-from miniagent.types.tool import ToolRegistryProtocol
 
 
 @runtime_checkable
@@ -150,7 +137,7 @@ class OnToolFinishCallback(Protocol):
 # (tool_name, args_json, result_or_message) — 同步，在工具执行后立即触发
 OnToolCall = Callable[[str, str, str], None]
 # 结构化计划确认：异步返回 ConfirmationResult
-OnPlan = Callable[[StructuredPlan], Awaitable[ConfirmationResult]]
+OnPlan = Callable[[Any], Awaitable[Any]]
 OnThinking = OnThinkingCallback
 OnToolFinish = OnToolFinishCallback
 
@@ -178,6 +165,8 @@ class UnifiedEngineProtocol(Protocol):
         不属于引擎实例方法。
     """
 
+    thinking: Any
+
     async def run_agent_with_thinking(
         self,
         user_input: str,
@@ -194,6 +183,10 @@ class UnifiedEngineProtocol(Protocol):
     ) -> None: ...
 
     def get_thinking_display(self) -> Any: ...
+    def session_turn(self, session_key: str) -> Any: ...
+    def get_confirmation_channel(self, session_key: str) -> Any: ...
+    def set_active_session_key(self, session_key: str | None) -> None: ...
+    def clear_last_reflection(self, session_key: str) -> None: ...
 
 
 @runtime_checkable
@@ -215,6 +208,12 @@ class ChannelRouterProtocol(Protocol):
     def get_bound_channels(self, session_id: str) -> list[str]: ...
     def set_primary(self, session_id: str) -> None: ...
     def get_primary(self) -> str | None: ...
+    def resolve_feishu_message(
+        self, chat_id: str, sender_id: str, chat_type: str = "group"
+    ) -> str: ...
+    def get_all_bindings(self) -> dict[str, str]: ...
+    def is_bound(self, channel_id: str) -> bool: ...
+    def status(self) -> str: ...
 
 
 @runtime_checkable
@@ -227,6 +226,11 @@ class MessageQueueProtocol(Protocol):
     """
 
     exec_lock: Any | None
+    CLI_CHAT_ID: str
+    mode: Any
+    cross_queue_serial: bool
+
+    def ensure_exec_lock(self) -> None: ...
 
     async def dispatch(
         self,
@@ -270,13 +274,10 @@ class FeishuRuntimeProtocol(Protocol):
     def stop(self) -> None: ...
     def is_running(self) -> bool: ...
     def get_config(self) -> Any: ...
+    def status(self) -> None: ...
 
 
 __all__ = [
-    "MemoryStoreProtocol",
-    "SessionManagerProtocol",
-    "ToolRegistryProtocol",
-    "ToolMonitorProtocol",
     "ActivityLogProtocol",
     "KeywordIndexProtocol",
     "OnThinkingCallback",

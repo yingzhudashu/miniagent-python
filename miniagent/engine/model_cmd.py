@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 
+from miniagent.infrastructure.atomic_json import atomic_dump_json
 from miniagent.infrastructure.json_config import (
     get_config,
     get_user_config_path,
@@ -81,10 +82,7 @@ def switch_model(new_model: str) -> str:
     existing["model"] = model_section
 
     try:
-        user_path.write_text(
-            json.dumps(existing, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        atomic_dump_json(user_path, existing, indent=2, ensure_ascii=False)
     except OSError as exc:
         return f"{ERROR_PREFIX} 无法写入 config.user.json: {exc}"
 

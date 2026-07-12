@@ -42,9 +42,22 @@ _logger = get_logger(__name__)
 
 # 危险命令黑名单（沙箱模式下生效）
 _BLOCKED_PATTERNS = [
-    "rm -rf /", "rm -rf ~", "sudo rm", "mkfs", "dd if=", "> /dev/",
-    ":(){ :|:& };:", "chmod -R 777", "> /etc/", "crontab",
-    "del /s /q", "format ", "chkdsk /f", "bootsect", "bcdedit", "reg delete",
+    "rm -rf /",
+    "rm -rf ~",
+    "sudo rm",
+    "mkfs",
+    "dd if=",
+    "> /dev/",
+    ":(){ :|:& };:",
+    "chmod -R 777",
+    "> /etc/",
+    "crontab",
+    "del /s /q",
+    "format ",
+    "chkdsk /f",
+    "bootsect",
+    "bcdedit",
+    "reg delete",
 ]
 
 # Shell 注入检测正则
@@ -54,14 +67,61 @@ _SHELL_INJECTION_RE = re.compile(
 )
 
 # 沙箱模式下允许的命令基础名
-_DEFAULT_ALLOWED_COMMANDS = frozenset({
-    "ls", "cat", "head", "tail", "grep", "find", "wc", "pwd", "echo", "date",
-    "whoami", "uname", "df", "du", "ps", "uptime", "free", "top",
-    "python", "python3", "pip", "pip3", "npm", "yarn", "pnpm", "node", "git",
-    "curl", "wget", "mkdir", "touch", "cp", "mv", "chmod", "chown",
-    "sed", "awk", "sort", "uniq", "tee", "zip", "unzip", "tar",
-    "sha256sum", "md5sum", "ping", "nslookup", "dig", "tree", "file", "stat",
-})
+_DEFAULT_ALLOWED_COMMANDS = frozenset(
+    {
+        "ls",
+        "cat",
+        "head",
+        "tail",
+        "grep",
+        "find",
+        "wc",
+        "pwd",
+        "echo",
+        "date",
+        "whoami",
+        "uname",
+        "df",
+        "du",
+        "ps",
+        "uptime",
+        "free",
+        "top",
+        "python",
+        "python3",
+        "pip",
+        "pip3",
+        "npm",
+        "yarn",
+        "pnpm",
+        "node",
+        "git",
+        "curl",
+        "wget",
+        "mkdir",
+        "touch",
+        "cp",
+        "mv",
+        "chmod",
+        "chown",
+        "sed",
+        "awk",
+        "sort",
+        "uniq",
+        "tee",
+        "zip",
+        "unzip",
+        "tar",
+        "sha256sum",
+        "md5sum",
+        "ping",
+        "nslookup",
+        "dig",
+        "tree",
+        "file",
+        "stat",
+    }
+)
 
 
 def _get_allowed_commands() -> frozenset[str]:
@@ -88,6 +148,7 @@ def _validate_exec_cwd(cwd: str, ctx: ToolContext) -> tuple[str | None, ToolResu
     resolved, err = resolve_path_for_tool(cwd, ctx)
     if err:
         return None, err
+    assert resolved is not None  # resolve_path_for_tool 的成功分支不变量
     if not os.path.isdir(resolved):
         return None, ToolResult(success=False, content=f"{ERROR_PREFIX} 工作目录不存在: {cwd}")
     return resolved, None
@@ -105,6 +166,7 @@ def _apply_command_security(command: str) -> ToolResult | None:
     allowed = _get_allowed_commands()
     try:
         import shlex
+
         parts = shlex.split(command)
     except ValueError:
         return _deny(command, "命令语法无效")
@@ -186,15 +248,53 @@ async def _exec_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     cwd, cwd_err = _validate_exec_cwd(cwd_raw, ctx)
     if cwd_err:
         return cwd_err
+    assert cwd is not None
 
     if _command_security_enabled(ctx):
         denied = _apply_command_security(command)
         if denied is not None:
             return denied
 
+    return await _run_exec_process(command, cwd, timeout)
+
+
+def _format_exec_result(
+    stdout_bytes: bytes,
+    stderr_bytes: bytes,
+    *,
+    truncated: bool,
+    returncode: int,
+) -> ToolResult:
+    """把受限捕获的字节流格式化为稳定工具结果。"""
+    stdout = stdout_bytes.decode("utf-8", errors="replace").strip() if stdout_bytes else ""
+    stderr = stderr_bytes.decode("utf-8", errors="replace").strip() if stderr_bytes else ""
+    sections = [stdout] if stdout else []
+    if stderr:
+        sections.append(f"[stderr]\n{stderr}")
+    if truncated:
+        sections.append("... (命令输出已截断)")
+    content = "\n".join(sections) if sections else "(无输出)"
+    return ToolResult(
+        success=returncode == 0,
+        content=f"{content}\n\n[exit code: {returncode}]",
+    )
+
+
+async def _terminate_exec_process(proc: Any) -> None:
+    """尽力终止仍运行的子进程；进程已退出时保持幂等。"""
+    if getattr(proc, "returncode", None) is not None:
+        return
+    try:
+        proc.kill()
+        await proc.wait()
+    except (ProcessLookupError, OSError) as error:
+        _logger.debug("子进程终止时已退出: %s", error)
+
+
+async def _run_exec_process(command: str, cwd: str, timeout: float) -> ToolResult:
+    """拥有子进程完整生命周期，并确保所有路径解除进程追踪。"""
     proc: Any | None = None
     try:
-        # 创建子进程（自动追踪，防止孤儿）
         proc = await create_tracked_subprocess(
             command,
             stdout=asyncio.subprocess.PIPE,
@@ -202,48 +302,30 @@ async def _exec_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
             cwd=cwd,
         )
 
-        # 等待完成（带超时）
         try:
             captured = await asyncio.wait_for(_communicate_limited(proc), timeout=timeout)
-            if len(captured) == 2:  # compatibility for tests/injected wait_for implementations
+            if len(captured) == 2:
                 stdout_bytes, stderr_bytes = captured
                 output_truncated = False
             else:
                 stdout_bytes, stderr_bytes, output_truncated = captured
         except asyncio.TimeoutError:
-            try:
-                proc.kill()
-            except ProcessLookupError as e:
-                _logger.debug("进程已不存在: %s", e)
-            await proc.wait()
+            await _terminate_exec_process(proc)
             return ToolResult(success=False, content=f"{ERROR_PREFIX} 命令执行超时 ({timeout}s)")
-
-        stdout = stdout_bytes.decode("utf-8", errors="replace").strip() if stdout_bytes else ""
-        stderr = stderr_bytes.decode("utf-8", errors="replace").strip() if stderr_bytes else ""
-        code = proc.returncode or 0
-
-        # 拼接输出
-        content = ""
-        if stdout:
-            content += stdout
-        if stderr:
-            content += f"\n[stderr]\n{stderr}"
-        if output_truncated:
-            content += "\n... (命令输出已截断)"
-        if not content:
-            content = "(无输出)"
-        content += f"\n\n[exit code: {code}]"
-
-        return ToolResult(success=(code == 0), content=content)
-
-    except Exception as e:
-        if proc is not None and getattr(proc, "returncode", None) is None:
-            try:
-                proc.kill()
-                await proc.wait()
-            except (ProcessLookupError, OSError):
-                pass
-        return ToolResult(success=False, content=f"{ERROR_PREFIX} 执行失败: {e}")
+        return _format_exec_result(
+            stdout_bytes,
+            stderr_bytes,
+            truncated=output_truncated,
+            returncode=proc.returncode or 0,
+        )
+    except asyncio.CancelledError:
+        if proc is not None:
+            await _terminate_exec_process(proc)
+        raise
+    except Exception as error:
+        if proc is not None:
+            await _terminate_exec_process(proc)
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 执行失败: {error}")
     finally:
         if proc is not None:
             await deregister_process(proc)
@@ -253,13 +335,13 @@ async def _exec_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
 
 exec_tools: dict[str, ToolDefinition] = {
     "exec_command": tool("exec_command", "执行 shell 命令")
-        .param("command", "string", "要执行的 shell 命令")
-        .optional("cwd", "string", "工作目录（可选）")
-        .optional("timeout", "number", "超时时间（秒），默认 30")
-        .allowlist()
-        .toolbox("exec")
-        .handler(_exec_handler)
-        .build(),
+    .param("command", "string", "要执行的 shell 命令")
+    .optional("cwd", "string", "工作目录（可选）")
+    .optional("timeout", "number", "超时时间（秒），默认 30")
+    .allowlist()
+    .toolbox("exec")
+    .handler(_exec_handler)
+    .build(),
 }
 
 __all__ = [

@@ -204,6 +204,6 @@ def test_core_and_skills_tools_schema():
 
 def test_core_tools_permission():
     """测试工具权限配置正确性。"""
-    for tool_name, tool_def in core_tools.items():
+    for tool_def in core_tools.values():
         assert tool_def.permission == "sandbox"
         assert tool_def.toolbox == "core"

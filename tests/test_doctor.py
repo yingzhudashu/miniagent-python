@@ -8,11 +8,18 @@ import sys
 from unittest.mock import patch
 
 from miniagent.engine.doctor import (
+    REQUIRED_DEPENDENCIES,
     _format_masked_secret,
     _resolve_api_key,
     _resolve_knowledge_root,
     diagnose_environment,
 )
+
+
+def test_required_dependency_inventory_matches_core_runtime() -> None:
+    modules = {module_name for module_name, _display_name in REQUIRED_DEPENDENCIES}
+    assert {"croniter", "tzdata", "typing_extensions"} <= modules
+    assert "websockets" not in modules
 
 
 def test_format_masked_secret_truncates_long_values() -> None:
@@ -114,6 +121,24 @@ def test_diagnose_environment_flags_missing_required_dependency(
     assert "croniter" in out
     assert "缺少" in out and "必需依赖" in out
     assert "关键配置检查通过" not in out
+
+
+def test_diagnose_environment_treats_websockets_as_feishu_optional(
+    isolated_config_loader,
+    monkeypatch,
+) -> None:
+    isolated_config_loader({})
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
+
+    with patch(
+        "miniagent.engine.doctor._is_module_available",
+        side_effect=lambda module_name: module_name != "websockets",
+    ):
+        out = diagnose_environment()
+
+    assert "WebSocket (websockets): 未安装" in out
+    assert "缺少 1 个必需依赖" not in out
+    assert "关键配置检查通过" in out
 
 
 def test_main_doctor_flag_exits_zero() -> None:

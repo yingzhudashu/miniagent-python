@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, cast
 
+from miniagent.contracts.runtime import KeywordIndexProtocol
 from miniagent.engine.bg_session_cleanup import is_background_session_key
 from miniagent.memory.embedding_search import (
     EmbeddingSearchProvider,
@@ -17,6 +18,7 @@ from miniagent.memory.embedding_search import (
 )
 from miniagent.memory.history_bridge import format_history_for_llm
 from miniagent.memory.keyword_index import (
+    KeywordIndex,
     format_search_results,
     search_relevant_with_index,
 )
@@ -31,7 +33,6 @@ from miniagent.types.memory_context import (
     MemoryInjectionResult,
     MemorySearchProtocol,
 )
-from miniagent.types.protocols import KeywordIndexProtocol
 
 
 def _is_ephemeral_session(session_key: str | None) -> bool:
@@ -77,7 +78,7 @@ class DefaultMemorySearch:
         kw_task = asyncio.create_task(
             asyncio.to_thread(
                 search_relevant_with_index,
-                self._keyword_index,
+                cast(KeywordIndex, self._keyword_index),
                 query,
                 top_k,
                 0,

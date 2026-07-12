@@ -139,7 +139,7 @@ class LoopDetector:
             config: 检测配置，使用默认配置如果为 None
         """
         if config:
-            merged = {
+            merged: dict[str, Any] = {
                 "enabled": config.enabled,
                 "history_size": config.history_size,
                 "warning_threshold": config.warning_threshold,

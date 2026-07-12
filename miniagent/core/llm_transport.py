@@ -3,192 +3,29 @@
 from __future__ import annotations
 
 import json
-import re
-import threading
-import weakref
-from collections import OrderedDict
 from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
 from typing import Any
 
 from miniagent.core.config import get_default_model_config
+from miniagent.core.llm_capabilities import (
+    apply_learned_capabilities as _apply_learned_capabilities,
+)
+from miniagent.core.llm_capabilities import (
+    learn_unsupported_params as _learn_unsupported_params,
+)
+from miniagent.core.llm_capabilities import (
+    unsupported_parameter_names as _unsupported_parameter_names,
+)
+from miniagent.core.llm_transport_models import (
+    LLMCompletion,
+    LLMFailureInfo,
+    LLMFunctionCall,
+    LLMStreamEvent,
+    LLMToolCall,
+    LLMToolCallDelta,
+    LLMTransportError,
+)
 from miniagent.types.config import WireAPI
-
-
-@dataclass(slots=True)
-class LLMFunctionCall:
-    name: str
-    arguments: str
-
-
-@dataclass(slots=True)
-class LLMToolCall:
-    id: str
-    function: LLMFunctionCall
-    _args_dict: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(slots=True)
-class LLMCompletion:
-    content: str | None
-    tool_calls: list[LLMToolCall] = field(default_factory=list)
-    usage: Any | None = None
-    model: str | None = None
-    status: str | None = None
-    output_item_types: tuple[str, ...] = ()
-    incomplete_reason: str | None = None
-    finish_reason: str | None = None
-
-
-@dataclass(slots=True)
-class LLMToolCallDelta:
-    index: int
-    id: str = ""
-    name: str = ""
-    arguments: str = ""
-
-
-@dataclass(slots=True)
-class LLMStreamEvent:
-    content_delta: str | None = None
-    tool_call_delta: LLMToolCallDelta | None = None
-    usage: Any | None = None
-    completed: bool = False
-    status: str | None = None
-    output_item_types: tuple[str, ...] = ()
-    incomplete_reason: str | None = None
-    model: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class LLMFailureInfo:
-    category: str
-    retryable: bool
-    status_code: int | None = None
-
-
-class LLMTransportError(RuntimeError):
-    """Sanitized error raised for recognized gateway failures."""
-
-    def __init__(self, message: str, *, status_code: int | None = None) -> None:
-        super().__init__(message)
-        self.status_code = status_code
-
-
-_CAPABILITY_LOCK = threading.Lock()
-_CLIENT_UNSUPPORTED_PARAMS: weakref.WeakKeyDictionary[
-    Any,
-    OrderedDict[tuple[str, str, str], set[str]],
-] = weakref.WeakKeyDictionary()
-_FALLBACK_UNSUPPORTED_PARAMS: OrderedDict[tuple[int, str, str, str], set[str]] = OrderedDict()
-_FALLBACK_CAPABILITY_MAX = 128
-_CLIENT_CAPABILITY_MAX = 64
-
-
-def _client_endpoint(client: Any) -> str:
-    endpoint = getattr(client, "base_url", "")
-    return str(endpoint or "")[:512]
-
-
-def _unsupported_parameter_names(error: Exception) -> set[str]:
-    """Extract only safely recognized unsupported sampling parameter names."""
-    status = getattr(error, "status_code", None)
-    if status not in (400, "400"):
-        return set()
-    message = str(error).lower()
-    names: set[str] = set()
-    for name in ("temperature", "top_p"):
-        patterns = (
-            rf"unsupported\s+(?:request\s+)?parameters?\s*[:=]?\s*['\"]?{name}",
-            rf"unknown\s+(?:request\s+)?parameters?\s*[:=]?\s*['\"]?{name}",
-            rf"unrecognized\s+(?:request\s+)?(?:argument|parameter).*['\"]?{name}",
-            rf"{name}['\"]?\s+(?:parameter\s+)?(?:(?:is|are)\s+)?not\s+supported",
-            rf"does\s+not\s+support[^.\n]{{0,40}}{name}",
-            rf"不支持[^。\n]{{0,20}}{name}|{name}[^。\n]{{0,20}}不支持",
-        )
-        if any(re.search(pattern, message) for pattern in patterns):
-            names.add(name)
-    return names
-
-
-def _capability_bucket(
-    client: Any,
-    *,
-    create: bool,
-) -> OrderedDict[tuple[str, str, str], set[str]] | None:
-    try:
-        bucket = _CLIENT_UNSUPPORTED_PARAMS.get(client)
-        if bucket is None and create:
-            bucket = OrderedDict()
-            _CLIENT_UNSUPPORTED_PARAMS[client] = bucket
-        return bucket
-    except TypeError:
-        return None
-
-
-def _learn_unsupported_params(
-    client: Any,
-    params: dict[str, Any],
-    wire_api: WireAPI,
-    error: Exception,
-) -> None:
-    names = _unsupported_parameter_names(error) & params.keys()
-    if not names:
-        return
-    model = str(params.get("model") or "")
-    endpoint = _client_endpoint(client)
-    with _CAPABILITY_LOCK:
-        bucket = _capability_bucket(client, create=True)
-        if bucket is not None:
-            client_key = (endpoint, wire_api, model)
-            bucket.setdefault(client_key, set()).update(names)
-            bucket.move_to_end(client_key)
-            while len(bucket) > _CLIENT_CAPABILITY_MAX:
-                bucket.popitem(last=False)
-            return
-        fallback_key = (id(client), endpoint, wire_api, model)
-        _FALLBACK_UNSUPPORTED_PARAMS.setdefault(fallback_key, set()).update(names)
-        _FALLBACK_UNSUPPORTED_PARAMS.move_to_end(fallback_key)
-        while len(_FALLBACK_UNSUPPORTED_PARAMS) > _FALLBACK_CAPABILITY_MAX:
-            _FALLBACK_UNSUPPORTED_PARAMS.popitem(last=False)
-
-
-def _apply_learned_capabilities(
-    client: Any,
-    params: dict[str, Any],
-    wire_api: WireAPI,
-) -> tuple[dict[str, Any], tuple[str, ...]]:
-    model = str(params.get("model") or "")
-    endpoint = _client_endpoint(client)
-    with _CAPABILITY_LOCK:
-        bucket = _capability_bucket(client, create=False)
-        if bucket is not None:
-            client_key = (endpoint, wire_api, model)
-            unsupported = set(bucket.get(client_key, set()))
-            if client_key in bucket:
-                bucket.move_to_end(client_key)
-        else:
-            fallback_key = (id(client), endpoint, wire_api, model)
-            unsupported = set(_FALLBACK_UNSUPPORTED_PARAMS.get(fallback_key, set()))
-            if fallback_key in _FALLBACK_UNSUPPORTED_PARAMS:
-                _FALLBACK_UNSUPPORTED_PARAMS.move_to_end(fallback_key)
-    removed = tuple(sorted(name for name in unsupported if name in params))
-    if not removed:
-        return params, ()
-    adjusted = dict(params)
-    for name in removed:
-        adjusted.pop(name, None)
-    from miniagent.infrastructure.tracing import emit_trace
-
-    emit_trace(
-        {
-            "type": "llm.capability_adjustment",
-            "model": model,
-            "wire_api": wire_api,
-            "retry_adjustments": list(removed),
-        }
-    )
-    return adjusted, removed
 
 
 def _wire_api(override: WireAPI | None) -> WireAPI:
@@ -238,9 +75,7 @@ def classify_transport_error(error: Exception) -> LLMFailureInfo:
         "cloudflare/waf",
         "http 403",
     )
-    if status in (401, 403) or any(
-        marker in message for marker in deterministic_markers
-    ):
+    if status in (401, 403) or any(marker in message for marker in deterministic_markers):
         return LLMFailureInfo("deterministic_api_error", False, status)
     if status == 404 and ("model" in message or "not found" in message):
         return LLMFailureInfo("deterministic_api_error", False, status)
@@ -543,14 +378,200 @@ async def create_completion(
         model=_field(response, "model"),
         status=str(_field(response, "status") or "") or None,
         output_item_types=tuple(
-            str(item_type)
-            for item in output
-            if (item_type := _field(item, "type")) is not None
+            str(item_type) for item in output if (item_type := _field(item, "type")) is not None
         ),
-        incomplete_reason=(
-            str(incomplete_reason) if incomplete_reason is not None else None
-        ),
+        incomplete_reason=(str(incomplete_reason) if incomplete_reason is not None else None),
     )
+
+
+async def _stream_chat_completion(
+    client: Any,
+    *,
+    messages: list[dict[str, Any]],
+    params: dict[str, Any],
+    tools: list[dict[str, Any]] | None,
+) -> AsyncIterator[LLMStreamEvent]:
+    """规范化 Chat Completions 的文本、工具与用量增量。"""
+    kwargs = _chat_params(params, stream=True)
+    kwargs["messages"] = messages
+    if tools:
+        kwargs["tools"] = tools
+    stream = await _await_with_gateway_errors(
+        client.chat.completions.create(**kwargs),
+        client=client,
+        params=params,
+        wire_api="chat_completions",
+    )
+    async for chunk in stream:
+        usage = getattr(chunk, "usage", None)
+        if usage is not None:
+            yield LLMStreamEvent(usage=usage)
+        delta = chunk.choices[0].delta if getattr(chunk, "choices", None) else None
+        if delta is None:
+            continue
+        if getattr(delta, "content", None):
+            yield LLMStreamEvent(content_delta=delta.content)
+        for call in getattr(delta, "tool_calls", None) or []:
+            function = getattr(call, "function", None)
+            yield LLMStreamEvent(
+                tool_call_delta=LLMToolCallDelta(
+                    index=int(call.index),
+                    id=str(getattr(call, "id", "") or ""),
+                    name=str(getattr(function, "name", "") or ""),
+                    arguments=str(getattr(function, "arguments", "") or ""),
+                )
+            )
+    yield LLMStreamEvent(completed=True)
+
+
+def _response_fallback_events(response: Any) -> list[LLMStreamEvent]:
+    """把不支持异步迭代的 Responses 兼容响应展开为稳定事件。"""
+    if isinstance(response, str):
+        text_events = [LLMStreamEvent(content_delta=response)] if response else []
+        return [*text_events, LLMStreamEvent(completed=True, status="completed")]
+    output = _field(response, "output", []) or []
+    events: list[LLMStreamEvent] = []
+    fallback_text = _response_output_text(response)
+    if fallback_text:
+        events.append(LLMStreamEvent(content_delta=fallback_text))
+    for index, item in enumerate(output):
+        if _field(item, "type") == "function_call":
+            events.append(
+                LLMStreamEvent(
+                    tool_call_delta=LLMToolCallDelta(
+                        index=index,
+                        id=str(_field(item, "call_id") or ""),
+                        name=str(_field(item, "name") or ""),
+                        arguments=str(_field(item, "arguments") or "{}"),
+                    )
+                )
+            )
+    details = _field(response, "incomplete_details")
+    reason = _field(details, "reason")
+    events.append(
+        LLMStreamEvent(
+            usage=_field(response, "usage"),
+            completed=True,
+            status=str(_field(response, "status") or "completed"),
+            output_item_types=tuple(
+                str(item_type) for item in output if (item_type := _field(item, "type")) is not None
+            ),
+            incomplete_reason=str(reason) if reason is not None else None,
+            model=(str(_field(response, "model") or "") or None),
+        )
+    )
+    return events
+
+
+class _ResponseEventState:
+    """保存一个 Responses 流的工具索引和文本去重状态。"""
+
+    def __init__(self) -> None:
+        self.calls: dict[int, dict[str, str]] = {}
+        self.item_indexes: dict[str, int] = {}
+        self.text_keys: set[tuple[int, int]] = set()
+        self.output_types: list[str] = []
+
+
+def _response_text_event(event: Any, state: _ResponseEventState) -> list[LLMStreamEvent]:
+    """规范化 Responses 文本 delta/done，并避免重复发送最终全文。"""
+    key = (
+        int(getattr(event, "output_index", 0)),
+        int(getattr(event, "content_index", 0)),
+    )
+    if event.type == "response.output_text.delta":
+        state.text_keys.add(key)
+        return [LLMStreamEvent(content_delta=str(getattr(event, "delta", "") or ""))]
+    text = str(getattr(event, "text", "") or "")
+    return [LLMStreamEvent(content_delta=text)] if text and key not in state.text_keys else []
+
+
+def _response_tool_event(event: Any, state: _ResponseEventState) -> list[LLMStreamEvent]:
+    """规范化工具声明、参数增量和最终参数事件。"""
+    event_type = str(getattr(event, "type", ""))
+    item = getattr(event, "item", None)
+    if event_type == "response.output_item.added":
+        item_type = str(getattr(item, "type", "") or "")
+        if item_type and item_type not in state.output_types:
+            state.output_types.append(item_type)
+        if item_type != "function_call":
+            return []
+        index = int(getattr(event, "output_index", len(state.calls)))
+        item_id = str(getattr(item, "id", "") or "")
+        if item_id:
+            state.item_indexes[item_id] = index
+        call = state.calls.setdefault(index, {"arguments": ""})
+        call.update(
+            {
+                "id": str(getattr(item, "call_id", "") or ""),
+                "name": str(getattr(item, "name", "") or ""),
+            }
+        )
+        delta = LLMToolCallDelta(index=index, id=call.get("id", ""), name=call.get("name", ""))
+    elif event_type == "response.function_call_arguments.delta":
+        item_id = str(getattr(event, "item_id", "") or "")
+        index = int(getattr(event, "output_index", state.item_indexes.get(item_id, 0)))
+        arguments = str(getattr(event, "delta", "") or "")
+        call = state.calls.setdefault(index, {"id": "", "name": "", "arguments": ""})
+        call["arguments"] = call.get("arguments", "") + arguments
+        delta = LLMToolCallDelta(index=index, arguments=arguments)
+    else:
+        if getattr(item, "type", None) != "function_call":
+            return []
+        index = int(getattr(event, "output_index", 0))
+        call = state.calls.setdefault(index, {"id": "", "name": "", "arguments": ""})
+        final_arguments = str(getattr(item, "arguments", "") or "")
+        delta = LLMToolCallDelta(
+            index=index,
+            id=str(getattr(item, "call_id", "") or call.get("id", "")),
+            name=str(getattr(item, "name", "") or call.get("name", "")),
+            arguments=final_arguments if not call.get("arguments") else "",
+        )
+    return [LLMStreamEvent(tool_call_delta=delta)]
+
+
+def _response_terminal_event(event: Any, state: _ResponseEventState) -> LLMStreamEvent:
+    """规范化 completed/incomplete 终态及用量元数据。"""
+    response = getattr(event, "response", None)
+    output = getattr(response, "output", []) or []
+    output_types = tuple(
+        str(item_type) for item in output if (item_type := getattr(item, "type", None)) is not None
+    ) or tuple(state.output_types)
+    incomplete = event.type == "response.incomplete"
+    details = getattr(response, "incomplete_details", None)
+    reason = getattr(details, "reason", None)
+    return LLMStreamEvent(
+        usage=getattr(response, "usage", None),
+        completed=True,
+        status=(
+            "incomplete"
+            if incomplete
+            else str(getattr(response, "status", "completed") or "completed")
+        ),
+        output_item_types=output_types,
+        incomplete_reason=str(reason) if incomplete and reason is not None else None,
+        model=(str(getattr(response, "model", "") or "") or None),
+    )
+
+
+def _normalize_response_stream_event(
+    event: Any, state: _ResponseEventState
+) -> list[LLMStreamEvent]:
+    """分派单个 Responses SDK 事件；未知事件忽略，失败事件抛出。"""
+    event_type = str(getattr(event, "type", ""))
+    if event_type in {"response.output_text.delta", "response.output_text.done"}:
+        return _response_text_event(event, state)
+    if event_type in {
+        "response.output_item.added",
+        "response.function_call_arguments.delta",
+        "response.output_item.done",
+    }:
+        return _response_tool_event(event, state)
+    if event_type in {"response.completed", "response.incomplete"}:
+        return [_response_terminal_event(event, state)]
+    if event_type == "response.failed":
+        raise LLMTransportError("LLM Responses stream failed before completion.")
+    return []
 
 
 async def stream_completion(
@@ -566,36 +587,13 @@ async def stream_completion(
     selected = _wire_api(wire_api)
     effective_params, _adjustments = _apply_learned_capabilities(client, params, selected)
     if selected == "chat_completions":
-        kwargs = _chat_params(effective_params, stream=True)
-        kwargs["messages"] = messages
-        if tools:
-            kwargs["tools"] = tools
-        stream = await _await_with_gateway_errors(
-            client.chat.completions.create(**kwargs),
-            client=client,
+        async for event in _stream_chat_completion(
+            client,
+            messages=messages,
             params=effective_params,
-            wire_api=selected,
-        )
-        async for chunk in stream:
-            usage = getattr(chunk, "usage", None)
-            if usage is not None:
-                yield LLMStreamEvent(usage=usage)
-            delta = chunk.choices[0].delta if getattr(chunk, "choices", None) else None
-            if delta is None:
-                continue
-            if getattr(delta, "content", None):
-                yield LLMStreamEvent(content_delta=delta.content)
-            for call in getattr(delta, "tool_calls", None) or []:
-                function = getattr(call, "function", None)
-                yield LLMStreamEvent(
-                    tool_call_delta=LLMToolCallDelta(
-                        index=int(call.index),
-                        id=str(getattr(call, "id", "") or ""),
-                        name=str(getattr(function, "name", "") or ""),
-                        arguments=str(getattr(function, "arguments", "") or ""),
-                    )
-                )
-        yield LLMStreamEvent(completed=True)
+            tools=tools,
+        ):
+            yield event
         return
 
     kwargs = _responses_params(effective_params, stream=True, json_mode=json_mode)
@@ -610,150 +608,13 @@ async def stream_completion(
         wire_api=selected,
     )
     if not hasattr(stream, "__aiter__"):
-        if isinstance(stream, str):
-            if stream:
-                yield LLMStreamEvent(content_delta=stream)
-            yield LLMStreamEvent(completed=True, status="completed")
-            return
-        output = _field(stream, "output", []) or []
-        fallback_text = _response_output_text(stream)
-        if fallback_text:
-            yield LLMStreamEvent(content_delta=fallback_text)
-        for index, item in enumerate(output):
-            if _field(item, "type") != "function_call":
-                continue
-            yield LLMStreamEvent(
-                tool_call_delta=LLMToolCallDelta(
-                    index=index,
-                    id=str(_field(item, "call_id") or ""),
-                    name=str(_field(item, "name") or ""),
-                    arguments=str(_field(item, "arguments") or "{}"),
-                )
-            )
-        details = _field(stream, "incomplete_details")
-        reason = _field(details, "reason")
-        yield LLMStreamEvent(
-            usage=_field(stream, "usage"),
-            completed=True,
-            status=str(_field(stream, "status") or "completed"),
-            output_item_types=tuple(
-                str(item_type)
-                for item in output
-                if (item_type := _field(item, "type")) is not None
-            ),
-            incomplete_reason=str(reason) if reason is not None else None,
-            model=(str(_field(stream, "model") or "") or None),
-        )
+        for event in _response_fallback_events(stream):
+            yield event
         return
-    call_state: dict[int, dict[str, str]] = {}
-    item_indexes: dict[str, int] = {}
-    text_delta_keys: set[tuple[int, int]] = set()
-    output_item_types: list[str] = []
-    async for event in stream:
-        event_type = str(getattr(event, "type", ""))
-        if event_type == "response.output_text.delta":
-            text_delta_keys.add(
-                (
-                    int(getattr(event, "output_index", 0)),
-                    int(getattr(event, "content_index", 0)),
-                )
-            )
-            yield LLMStreamEvent(content_delta=str(getattr(event, "delta", "") or ""))
-        elif event_type == "response.output_text.done":
-            text_key = (
-                int(getattr(event, "output_index", 0)),
-                int(getattr(event, "content_index", 0)),
-            )
-            final_text = str(getattr(event, "text", "") or "")
-            if final_text and text_key not in text_delta_keys:
-                yield LLMStreamEvent(content_delta=final_text)
-        elif event_type == "response.output_item.added":
-            item = getattr(event, "item", None)
-            item_type = str(getattr(item, "type", "") or "")
-            if item_type and item_type not in output_item_types:
-                output_item_types.append(item_type)
-            if item_type == "function_call":
-                index = int(getattr(event, "output_index", len(call_state)))
-                item_id = str(getattr(item, "id", "") or "")
-                if item_id:
-                    item_indexes[item_id] = index
-                state = call_state.setdefault(index, {"arguments": ""})
-                state.update(
-                    {
-                        "id": str(getattr(item, "call_id", "") or ""),
-                        "name": str(getattr(item, "name", "") or ""),
-                    }
-                )
-                yield LLMStreamEvent(
-                    tool_call_delta=LLMToolCallDelta(
-                        index=index,
-                        id=state.get("id", ""),
-                        name=state.get("name", ""),
-                    )
-                )
-        elif event_type == "response.function_call_arguments.delta":
-            item_id = str(getattr(event, "item_id", "") or "")
-            index = int(
-                getattr(event, "output_index", item_indexes.get(item_id, 0))
-            )
-            arguments = str(getattr(event, "delta", "") or "")
-            state = call_state.setdefault(index, {"id": "", "name": "", "arguments": ""})
-            state["arguments"] = state.get("arguments", "") + arguments
-            yield LLMStreamEvent(
-                tool_call_delta=LLMToolCallDelta(index=index, arguments=arguments)
-            )
-        elif event_type == "response.output_item.done":
-            item = getattr(event, "item", None)
-            if getattr(item, "type", None) == "function_call":
-                index = int(getattr(event, "output_index", 0))
-                state = call_state.setdefault(
-                    index, {"id": "", "name": "", "arguments": ""}
-                )
-                final_arguments = str(getattr(item, "arguments", "") or "")
-                arguments_delta = final_arguments if not state.get("arguments") else ""
-                yield LLMStreamEvent(
-                    tool_call_delta=LLMToolCallDelta(
-                        index=index,
-                        id=str(getattr(item, "call_id", "") or state.get("id", "")),
-                        name=str(getattr(item, "name", "") or state.get("name", "")),
-                        arguments=arguments_delta,
-                    )
-                )
-        elif event_type == "response.completed":
-            response = getattr(event, "response", None)
-            final_output = getattr(response, "output", []) or []
-            final_types = tuple(
-                str(final_item_type)
-                for item in final_output
-                if (final_item_type := getattr(item, "type", None)) is not None
-            ) or tuple(output_item_types)
-            yield LLMStreamEvent(
-                usage=getattr(response, "usage", None),
-                completed=True,
-                status=str(getattr(response, "status", "completed") or "completed"),
-                output_item_types=final_types,
-                model=(str(getattr(response, "model", "") or "") or None),
-            )
-        elif event_type == "response.incomplete":
-            response = getattr(event, "response", None)
-            details = getattr(response, "incomplete_details", None)
-            reason = getattr(details, "reason", None)
-            final_output = getattr(response, "output", []) or []
-            yield LLMStreamEvent(
-                usage=getattr(response, "usage", None),
-                completed=True,
-                status="incomplete",
-                output_item_types=tuple(
-                    str(final_item_type)
-                    for item in final_output
-                    if (final_item_type := getattr(item, "type", None)) is not None
-                )
-                or tuple(output_item_types),
-                incomplete_reason=str(reason) if reason is not None else None,
-                model=(str(getattr(response, "model", "") or "") or None),
-            )
-        elif event_type == "response.failed":
-            raise LLMTransportError("LLM Responses stream failed before completion.")
+    state = _ResponseEventState()
+    async for raw_event in stream:
+        for event in _normalize_response_stream_event(raw_event, state):
+            yield event
 
 
 async def create_structured_completion(

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
@@ -123,6 +124,255 @@ def _log_classifier_fallback(reason: str, **data: Any) -> None:
     )
 
 
+def _parse_difficulty(response: LLMCompletion) -> tuple[TaskDifficulty | None, str | None]:
+    """解析分类响应，返回难度及规范化失败分类。"""
+    raw = (response.content or "").strip()
+    failure_category = completion_failure_category(response)
+    if not raw:
+        return None, failure_category
+    try:
+        data = parse_llm_json_response(raw)
+        value = str(data.get("difficulty", "")).strip().lower()
+    except (ValueError, TypeError):
+        return None, "invalid_json"
+    difficulty = next(
+        (item for item in TaskDifficulty if item.value == value),
+        _ZH_TO_DIFFICULTY.get(value),
+    )
+    return difficulty, failure_category if difficulty is not None else "invalid_classifier_contract"
+
+
+@dataclass(slots=True)
+class _ClassifierRunner:
+    """持有一次任务分类调用序列的协议状态与恢复参数。"""
+
+    client: Any
+    messages: list[dict[str, str]]
+    json_messages: list[dict[str, str]]
+    params: dict[str, Any]
+    session_key: str
+    responses_wire: bool
+    model_max_tokens: int
+    use_json_object: bool = True
+    failures: list[str] = field(default_factory=list)
+
+    @property
+    def max_attempts(self) -> int:
+        """返回当前传输协议允许的最大尝试次数。"""
+        return 3 if self.responses_wire else 2
+
+    def emit_request(self, call_id: str, attempt: int) -> None:
+        """记录不含正文的分类请求元数据。"""
+        from miniagent.infrastructure.tracing import emit_trace, llm_request_size_metrics
+
+        request_messages = self.json_messages if self.use_json_object else self.messages
+        emit_trace(
+            {
+                "type": "llm.request",
+                "call_id": call_id,
+                "phase": "classify",
+                "session_key": self.session_key,
+                "attempt": attempt,
+                "model": self.params.get("model"),
+                "json_object": self.use_json_object,
+                "structured_stream": self.responses_wire and self.use_json_object,
+                "message_count": len(request_messages),
+                "tool_count": 0,
+                **llm_request_size_metrics(request_messages),
+            }
+        )
+
+    async def request(self) -> LLMCompletion:
+        """按当前格式开关执行一次物理请求。"""
+        if self.use_json_object:
+            return await create_structured_completion(
+                self.client,
+                messages=self.json_messages,
+                params=self.params,
+            )
+        return await create_completion(
+            self.client,
+            messages=self.messages,
+            params=self.params,
+        )
+
+    def emit_response(
+        self,
+        call_id: str,
+        attempt: int,
+        started_ns: int,
+        *,
+        failure_category: str | None,
+        retrying: bool,
+        response: LLMCompletion | None = None,
+        status_code: int | None = None,
+    ) -> None:
+        """记录请求结果；仅包含状态、耗时和计量信息。"""
+        from miniagent.infrastructure.tracing import emit_trace
+
+        payload: dict[str, Any] = {
+            "type": "llm.response",
+            "call_id": call_id,
+            "phase": "classify",
+            "session_key": self.session_key,
+            "attempt": attempt,
+            "model": self.params.get("model"),
+            "failure_category": failure_category,
+            "retrying": retrying,
+            "duration_ms": (time.monotonic_ns() - started_ns) // 1_000_000,
+        }
+        if status_code is not None:
+            payload["status_code"] = status_code
+        if response is not None:
+            usage = response.usage
+            payload.update(
+                {
+                    "status": response.status,
+                    "output_item_types": list(response.output_item_types),
+                    "incomplete_reason": response.incomplete_reason,
+                    "usage": usage.model_dump()
+                    if usage is not None and hasattr(usage, "model_dump")
+                    else None,
+                }
+            )
+        emit_trace(payload)
+
+    async def recover(self, next_attempt: int, *, incomplete_reason: str | None = None) -> None:
+        """为 Responses 下一轮调整预算并执行有界退避。"""
+        if not self.responses_wire:
+            return
+        self.params = structured_retry_params(
+            self.params,
+            next_attempt=next_attempt,
+            max_attempts=self.max_attempts,
+            final_reasoning="low",
+            model_max_tokens=self.model_max_tokens,
+            incomplete_reason=incomplete_reason,
+        )
+        await asyncio.sleep(structured_retry_delay(next_attempt))
+
+    async def handle_api_error(
+        self,
+        error: Exception,
+        *,
+        call_id: str,
+        attempt: int,
+        started_ns: int,
+    ) -> TaskDifficulty | None:
+        """处理协议降级、暂态恢复和最终 API 降级。"""
+        if self.use_json_object and _json_object_unsupported(error):
+            self.use_json_object = False
+            _logger.info("任务分类: API 不支持 json_object，已降级为普通 JSON 输出")
+            self.emit_response(
+                call_id,
+                attempt,
+                started_ns,
+                failure_category="json_object_unsupported",
+                retrying=True,
+            )
+            return None
+        failure = classify_transport_error(error)
+        self.failures.append(failure.category)
+        retrying = self.responses_wire and failure.retryable and attempt < self.max_attempts
+        self.emit_response(
+            call_id,
+            attempt,
+            started_ns,
+            failure_category=failure.category,
+            retrying=retrying,
+            status_code=failure.status_code,
+        )
+        if retrying:
+            _logger.info("任务难度分类第 %d 次遇到可恢复的 %s，准备重试", attempt, failure.category)
+            await self.recover(attempt + 1)
+            return None
+        _log_classifier_fallback(
+            "classifier_failed",
+            exc_type=type(error).__name__,
+            failure_category=failure.category,
+        )
+        _logger.warning("任务难度分类最终失败，降级为 normal: category=%s", failure.category)
+        return TaskDifficulty.NORMAL
+
+    async def handle_response(
+        self,
+        response: LLMCompletion,
+        *,
+        call_id: str,
+        attempt: int,
+        started_ns: int,
+    ) -> TaskDifficulty | None:
+        """解析一次响应，并在需要时准备下一轮参数。"""
+        difficulty, failure_category = _parse_difficulty(response)
+        retrying = (
+            difficulty is None
+            and attempt < self.max_attempts
+            and not (
+                not self.responses_wire and failure_category == "invalid_classifier_contract"
+            )
+        )
+        self.emit_response(
+            call_id,
+            attempt,
+            started_ns,
+            failure_category=failure_category,
+            retrying=bool(failure_category) and retrying,
+            response=response,
+        )
+        if difficulty is not None:
+            return difficulty
+        if not self.responses_wire and failure_category == "invalid_classifier_contract":
+            _log_classifier_fallback("classifier_unknown_difficulty")
+            return TaskDifficulty.NORMAL
+        self.failures.append(failure_category or "invalid_json")
+        if attempt < self.max_attempts:
+            _logger.info(
+                "任务难度分类第 %d 次返回 %s，准备重试",
+                attempt,
+                failure_category or "invalid_json",
+            )
+            await self.recover(attempt + 1, incomplete_reason=response.incomplete_reason)
+            return None
+        _log_classifier_fallback(
+            "classifier_no_response",
+            failure_categories=tuple(self.failures),
+        )
+        _logger.warning("任务难度分类最终失败，降级为 normal: failures=%s", ",".join(self.failures))
+        return TaskDifficulty.NORMAL
+
+    async def run(self) -> TaskDifficulty:
+        """执行有界分类循环，任何最终失败均安全降级为 NORMAL。"""
+        from miniagent.infrastructure.tracing import new_trace_id
+
+        for attempt in range(1, self.max_attempts + 1):
+            call_id = new_trace_id("llm")
+            started_ns = time.monotonic_ns()
+            safe_agent_debug_log(
+                location="task_classifier.py:classify_task_difficulty",
+                message="before_structured_completion",
+                data={
+                    "attempt": attempt,
+                    "model": self.params.get("model"),
+                    "json_object": self.use_json_object,
+                    "structured_stream": self.responses_wire and self.use_json_object,
+                },
+            )
+            self.emit_request(call_id, attempt)
+            try:
+                response = await self.request()
+            except Exception as error:
+                result = await self.handle_api_error(
+                    error, call_id=call_id, attempt=attempt, started_ns=started_ns
+                )
+            else:
+                result = await self.handle_response(
+                    response, call_id=call_id, attempt=attempt, started_ns=started_ns
+                )
+            if result is not None:
+                return result
+        return TaskDifficulty.NORMAL
+
+
 async def classify_task_difficulty(
     user_input: str,
     toolbox_ids: list[str],
@@ -162,7 +412,6 @@ async def classify_task_difficulty(
         若知识库有直接答案，建议分类为 simple。受 ``knowledge.classifier_*`` 配置控制。
     """
     from miniagent.core.llm_params import resolve_planner_completion_kwargs
-    from miniagent.infrastructure.tracing import emit_trace, llm_request_size_metrics, new_trace_id
     from miniagent.knowledge import retrieve_knowledge_context
 
     classify_session_key = (
@@ -188,7 +437,6 @@ async def classify_task_difficulty(
     if kb_hint:
         user_msg += kb_hint
 
-    llm = client
     kw = resolve_planner_completion_kwargs(
         agent_config,
         merge_overrides={
@@ -204,196 +452,20 @@ async def classify_task_difficulty(
         {"role": "user", "content": user_msg},
     ]
     json_object_messages = ensure_json_object_user_message(messages)
-    use_json_object = True
     from miniagent.core.config import get_default_model_config
 
     model_config = get_default_model_config()
     responses_wire = resolve_wire_api() == "responses"
-    max_attempts = 3 if responses_wire else 2
-    attempt_kw = dict(kw)
-    failure_history: list[str] = []
-    for attempt in range(max_attempts):
-        call_id = new_trace_id("llm")
-        attempt_number = attempt + 1
-        attempt_start_ns = time.monotonic_ns()
-        safe_agent_debug_log(
-            location="task_classifier.py:classify_task_difficulty",
-            message="before_structured_completion",
-            data={
-                "attempt": attempt_number,
-                "model": attempt_kw.get("model"),
-                "json_object": use_json_object,
-                "structured_stream": responses_wire and use_json_object,
-            },
-        )
-        emit_trace(
-            {
-                "type": "llm.request",
-                "call_id": call_id,
-                "phase": "classify",
-                "session_key": classify_session_key,
-                "attempt": attempt_number,
-                "model": attempt_kw.get("model"),
-                "json_object": use_json_object,
-                "structured_stream": responses_wire and use_json_object,
-                "message_count": len(json_object_messages if use_json_object else messages),
-                "tool_count": 0,
-                **llm_request_size_metrics(json_object_messages if use_json_object else messages),
-            }
-        )
-        try:
-            if use_json_object:
-                resp: LLMCompletion = await create_structured_completion(
-                    llm,
-                    messages=json_object_messages,
-                    params=attempt_kw,
-                )
-            else:
-                resp = await create_completion(
-                    llm,
-                    messages=messages,
-                    params=attempt_kw,
-                )
-        except Exception as api_err:
-            if use_json_object and _json_object_unsupported(api_err):
-                use_json_object = False
-                _logger.info("任务分类: API 不支持 json_object，已降级为普通 JSON 输出")
-                emit_trace(
-                    {
-                        "type": "llm.response",
-                        "call_id": call_id,
-                        "phase": "classify",
-                        "session_key": classify_session_key,
-                        "attempt": attempt_number,
-                        "model": attempt_kw.get("model"),
-                        "failure_category": "json_object_unsupported",
-                        "retrying": True,
-                        "duration_ms": (time.monotonic_ns() - attempt_start_ns) // 1_000_000,
-                    }
-                )
-                continue
-            failure = classify_transport_error(api_err)
-            failure_history.append(failure.category)
-            will_retry = responses_wire and failure.retryable and attempt < max_attempts - 1
-            emit_trace(
-                {
-                    "type": "llm.response",
-                    "call_id": call_id,
-                    "phase": "classify",
-                    "session_key": classify_session_key,
-                    "attempt": attempt_number,
-                    "model": attempt_kw.get("model"),
-                    "status_code": failure.status_code,
-                    "failure_category": failure.category,
-                    "retrying": will_retry,
-                    "duration_ms": (time.monotonic_ns() - attempt_start_ns) // 1_000_000,
-                }
-            )
-            if will_retry:
-                next_attempt = attempt_number + 1
-                _logger.info(
-                    "任务难度分类第 %d 次遇到可恢复的 %s，准备重试",
-                    attempt_number,
-                    failure.category,
-                )
-                attempt_kw = structured_retry_params(
-                    attempt_kw,
-                    next_attempt=next_attempt,
-                    max_attempts=max_attempts,
-                    final_reasoning="low",
-                    model_max_tokens=model_config.max_tokens,
-                )
-                await asyncio.sleep(structured_retry_delay(next_attempt))
-                continue
-            _log_classifier_fallback(
-                "classifier_failed",
-                exc_type=type(api_err).__name__,
-                failure_category=failure.category,
-            )
-            _logger.warning(
-                "任务难度分类最终失败，降级为 normal: category=%s",
-                failure.category,
-            )
-            return TaskDifficulty.NORMAL
-
-        raw = (resp.content or "").strip()
-        failure_category = completion_failure_category(resp)
-        difficulty_result: TaskDifficulty | None = None
-        if raw:
-            try:
-                data = parse_llm_json_response(raw)
-                d = str(data.get("difficulty", "")).strip().lower()
-                difficulty_result = next(
-                    (difficulty for difficulty in TaskDifficulty if difficulty.value == d),
-                    _ZH_TO_DIFFICULTY.get(d),
-                )
-                if difficulty_result is None:
-                    failure_category = "invalid_classifier_contract"
-            except (ValueError, TypeError):
-                failure_category = "invalid_json"
-
-        _resp_usage = resp.usage
-        will_retry = (
-            difficulty_result is None
-            and attempt < max_attempts - 1
-            and not (not responses_wire and failure_category == "invalid_classifier_contract")
-        )
-        emit_trace(
-            {
-                "type": "llm.response",
-                "call_id": call_id,
-                "phase": "classify",
-                "session_key": classify_session_key,
-                "attempt": attempt_number,
-                "model": attempt_kw.get("model"),
-                "status": resp.status,
-                "output_item_types": list(resp.output_item_types),
-                "incomplete_reason": resp.incomplete_reason,
-                "failure_category": failure_category,
-                "retrying": bool(failure_category) and will_retry,
-                "duration_ms": (time.monotonic_ns() - attempt_start_ns) // 1_000_000,
-                "usage": _resp_usage.model_dump()
-                if _resp_usage is not None and hasattr(_resp_usage, "model_dump")
-                else None,
-            }
-        )
-        if difficulty_result is not None:
-            return difficulty_result
-
-        if not responses_wire and failure_category == "invalid_classifier_contract":
-            _log_classifier_fallback("classifier_unknown_difficulty")
-            return TaskDifficulty.NORMAL
-
-        failure_history.append(failure_category or "invalid_json")
-        if attempt < max_attempts - 1:
-            next_attempt = attempt_number + 1
-            _logger.info(
-                "任务难度分类第 %d 次返回 %s，准备重试",
-                attempt_number,
-                failure_category or "invalid_json",
-            )
-            if responses_wire:
-                attempt_kw = structured_retry_params(
-                    attempt_kw,
-                    next_attempt=next_attempt,
-                    max_attempts=max_attempts,
-                    final_reasoning="low",
-                    model_max_tokens=model_config.max_tokens,
-                    incomplete_reason=resp.incomplete_reason,
-                )
-                await asyncio.sleep(structured_retry_delay(next_attempt))
-            continue
-
-        _log_classifier_fallback(
-            "classifier_no_response",
-            failure_categories=tuple(failure_history),
-        )
-        _logger.warning(
-            "任务难度分类最终失败，降级为 normal: failures=%s",
-            ",".join(failure_history),
-        )
-        return TaskDifficulty.NORMAL
-    return TaskDifficulty.NORMAL
+    runner = _ClassifierRunner(
+        client=client,
+        messages=messages,
+        json_messages=json_object_messages,
+        params=dict(kw),
+        session_key=classify_session_key,
+        responses_wire=responses_wire,
+        model_max_tokens=model_config.max_tokens,
+    )
+    return await runner.run()
 
 
 __all__ = [

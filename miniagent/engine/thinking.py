@@ -21,12 +21,21 @@ import threading
 import time
 from collections import OrderedDict
 from collections.abc import Callable
-from typing import Any, Protocol
+from typing import Any
 
 from miniagent.core.constants import (
     CLI_THINKING_RICH,
     EXECUTION_TERMINAL_WIDTH_CACHE_TTL,
     EXECUTION_THINKING_MERGE_TOOLS,
+)
+from miniagent.engine.thinking_state import (
+    OnFeishuSend,
+)
+from miniagent.engine.thinking_state import (
+    SessionThinkingState as _SessionThinkingState,
+)
+from miniagent.engine.thinking_state import (
+    clear_feishu_stream_fields as _clear_feishu_stream_fields,
 )
 from miniagent.types.error_prefix import WARNING_PREFIX
 
@@ -141,156 +150,6 @@ def indent_stream_thinking_suffix(full_text: str, prev_printed: int, *, indent: 
 def _cli_thinking_use_rich_render(text: str) -> bool:
     """非空思考正文是否走 Rich→ANSI 渲染（含纯文本，以保证换行宽度一致）。"""
     return bool((text or "").strip())
-
-
-class OnFeishuSend(Protocol):
-    """飞书思考卡片发送回调。
-
-    - ``streaming=True``：流式 PATCH 节流更新
-    - ``streaming=False``：finalize 后另发独立卡，或 ``merge_tools=True`` 时追加同卡
-    - ``finalize_only=True``：仅 PATCH 收尾当前流式卡，不另发独立卡（阶段切换用）
-    """
-
-    async def __call__(
-        self,
-        chat_id: str,
-        text: str,
-        template: str,
-        *,
-        is_new_round: bool = False,
-        streaming: bool = True,
-        merge_tools: bool = False,
-        finalize_only: bool = False,
-    ) -> None: ...
-
-
-class _SessionThinkingState:
-    """单个会话的思考状态（内部使用）。
-
-    飞书 PATCH 节流机制（防止高频 PATCH 请求）：
-    ───────────────────────────────────────────────────────────────────
-    飞书流式思考卡片通过 PATCH 更新正文，但飞书 API 有频率限制。
-    本类通过以下字段实现节流：
-
-    - feishu_last_patch_monotonic: 上次 PATCH 的单调时间（秒）。
-    - feishu_last_patched_char_len: 上次 PATCH 时已发送的字符数。
-    - feishu_patch_budget: 剩余 PATCH 次数（初始化为 N，每次 PATCH 减 1）。
-
-    节流策略（见 poll_server.py 中的发送逻辑）：
-    1. 首次流式创建卡片（POST），获得 message_id。
-    2. 后续流式正文：检查距上次 PATCH 是否超过最小间隔（如 0.5s）。
-    3. 若超过间隔且 patch_budget > 0：发送 PATCH 更新正文。
-    4. 流式结束时 PATCH 收尾（finalize_only=True）。
-
-    字段说明：
-    - feishu_stream_accumulated: 累积的流式正文（用于 PATCH 正文）。
-    - feishu_stream_llm_len: LLM 正文长度（不含工具段前缀）。
-    - feishu_tool_section_started: 是否已进入工具段（影响正文拼接）。
-    - feishu_pending_tool_lines: 待发送的工具行（批量 PATCH 时合并）。
-    - feishu_pending_header: 待发送的阶段标签（如 ``[步骤 1/3]``）。
-    ───────────────────────────────────────────────────────────────────
-    """
-
-    __slots__ = (
-        "step_counter",
-        "buffer",
-        "feishu_send",
-        "feishu_chat_id",
-        "feishu_session_key",
-        "feishu_reply_to_message_id",
-        "feishu_reply_in_thread",
-        "feishu_mirror_cli",
-        "stream_step",
-        "stream_header",
-        "stream_done",
-        "stream_printed",
-        "feishu_thinking_message_id",
-        "feishu_stream_accumulated",
-        "feishu_stream_llm_len",
-        "feishu_cached_card_key",
-        "feishu_cached_card_json",
-        "feishu_last_patch_monotonic",
-        "feishu_last_patched_char_len",
-        "feishu_last_sent_card_json",
-        "feishu_patch_budget",
-        "feishu_tool_section_started",
-        "feishu_pending_tool_lines",
-        "feishu_pending_header",
-        "turn_number",
-        "_last_stream_full",
-    )
-
-    step_counter: int
-    buffer: list[str]
-    feishu_send: OnFeishuSend | None
-    feishu_chat_id: str
-    feishu_session_key: str
-    feishu_reply_to_message_id: str | None
-    feishu_reply_in_thread: bool
-    feishu_mirror_cli: bool
-    stream_step: int | None
-    stream_header: str
-    stream_done: bool
-    stream_printed: int  # 已打印的字符数（用于增量输出）
-    feishu_thinking_message_id: str | None
-    feishu_stream_accumulated: str
-    feishu_stream_llm_len: int  # LLM 正文字符数，用于工具段保留时的前缀计算
-    feishu_cached_card_key: tuple[str, str, str | None] | None
-    feishu_cached_card_json: str | None
-    feishu_last_patch_monotonic: float
-    feishu_last_patched_char_len: int
-    feishu_last_sent_card_json: str | None
-    feishu_patch_budget: int
-    feishu_tool_section_started: bool
-    feishu_pending_tool_lines: list[str]
-    feishu_pending_header: str
-    turn_number: int
-    _last_stream_full: str
-
-    def __init__(self) -> None:
-        """初始化会话级流式/飞书 PATCH 状态为默认值。"""
-        self.step_counter = 0
-        self.buffer = []
-        self.feishu_send = None
-        self.feishu_chat_id = ""
-        self.feishu_session_key = ""
-        self.feishu_reply_to_message_id = None
-        self.feishu_reply_in_thread = False
-        self.feishu_mirror_cli = True
-        self.stream_step = None
-        self.stream_header = ""
-        self.stream_done = False
-        self.stream_printed = 0
-        self.feishu_thinking_message_id = None
-        self.feishu_stream_accumulated = ""
-        self.feishu_stream_llm_len = 0
-        self.feishu_cached_card_key = None
-        self.feishu_cached_card_json = None
-        self.feishu_last_patch_monotonic = 0.0
-        self.feishu_last_patched_char_len = -1
-        self.feishu_last_sent_card_json = None
-        self.feishu_patch_budget = 0
-        self.feishu_tool_section_started = False
-        self.feishu_pending_tool_lines: list[str] = []
-        self.feishu_pending_header = ""
-        self.turn_number = 0
-        self._last_stream_full = ""
-
-
-def _clear_feishu_stream_fields(state: _SessionThinkingState) -> None:
-    """清零单会话飞书流式/PATCH 字段（与 ``poll_server._reset_feishu_thinking_state`` 对齐）。"""
-    state.feishu_thinking_message_id = None
-    state.feishu_stream_accumulated = ""
-    state.feishu_stream_llm_len = 0
-    state.feishu_cached_card_key = None
-    state.feishu_cached_card_json = None
-    state.feishu_last_patch_monotonic = 0.0
-    state.feishu_last_patched_char_len = -1
-    state.feishu_last_sent_card_json = None
-    state.feishu_patch_budget = 0
-    state.feishu_tool_section_started = False
-    state.feishu_pending_tool_lines = []
-    state.feishu_pending_header = ""
 
 
 class ThinkingDisplay:
@@ -557,6 +416,212 @@ class ThinkingDisplay:
         state.stream_printed = len(full)
         state._last_stream_full = full  # 保存本次全文供下次校验
 
+    async def _reset_stream_phase(
+        self, state: _SessionThinkingState, header: str, reset: bool
+    ) -> None:
+        """在阶段切换时先收尾飞书卡片，再清理本地流状态。"""
+        phase_changed = bool(header and state.stream_header and header != state.stream_header)
+        if phase_changed and state.feishu_send and state.feishu_chat_id:
+            open_feishu = bool(getattr(state, "feishu_thinking_message_id", None))
+            if state.stream_step is not None or open_feishu:
+                try:
+                    await state.feishu_send(
+                        state.feishu_chat_id,
+                        "",
+                        "gray",
+                        is_new_round=False,
+                        streaming=False,
+                        merge_tools=False,
+                        finalize_only=True,
+                    )
+                except TypeError:
+                    _logger.debug(
+                        "feishu_send 不支持 finalize_only，阶段切换时可能未收尾思考卡",
+                        exc_info=True,
+                    )
+        if phase_changed or reset:
+            state.stream_done = True
+            state.stream_step = None
+            state.stream_header = ""
+            state.stream_printed = 0
+            state._last_stream_full = ""
+
+    async def _push_feishu_update(
+        self,
+        state: _SessionThinkingState,
+        text: str,
+        header: str,
+        *,
+        streaming: bool,
+        merge_tools: bool,
+        is_last_step: bool,
+        session_key: str,
+    ) -> None:
+        """按流阶段策略投递飞书思考更新，并将失败映射到 CLI 警告。"""
+        if not state.feishu_send or not state.feishu_chat_id or (is_last_step and streaming):
+            return
+        skip_initial = (
+            _merge_tools_enabled()
+            and not streaming
+            and bool(header)
+            and state.stream_step is None
+            and not state.stream_header
+        )
+        if skip_initial:
+            return
+        is_new_round = bool(
+            streaming
+            and state.stream_step is None
+            and (not state.stream_header or header != state.stream_header)
+        )
+        try:
+            await state.feishu_send(
+                state.feishu_chat_id,
+                text,
+                "gray",
+                is_new_round=is_new_round,
+                streaming=streaming,
+                merge_tools=merge_tools,
+                finalize_only=False,
+            )
+        except Exception as error:
+            _logger.warning("飞书思考发送失败: %s", error)
+            if self._output_sink:
+                self._call_sink(
+                    f"{WARNING_PREFIX} 飞书发送失败: {error}\n",
+                    kind="label",
+                    session_key=session_key,
+                )
+
+    def _render_body(self, body: str, *, session_key: str) -> None:
+        """使用 Rich 渲染正文；不可用时保持纯文本输出。"""
+        ansi_body: str | None = None
+        if (
+            _cli_thinking_rich_enabled()
+            and self._sink_accepts_ansi_markdown
+            and self._output_sink
+            and _cli_thinking_use_rich_render(body)
+        ):
+            from miniagent.engine.markdown_cli import render_markdown_to_ansi
+
+            ansi_body = render_markdown_to_ansi(body, width=self._cli_rich_markdown_width())
+        if ansi_body and ansi_body.strip() and self._output_sink and self._sink_accepts_ansi_markdown:
+            self._call_sink("", kind="chunk", session_key=session_key, ansi_markdown=ansi_body)
+            self._emit("\n", session_key=session_key)
+        else:
+            self._emit(body + "\n", session_key=session_key)
+
+    def _show_merged_tools(
+        self, state: _SessionThinkingState, text: str, *, session_key: str
+    ) -> None:
+        """把同阶段工具行追加到当前思考块。"""
+        if state.stream_step is not None and not state.stream_done:
+            if self._should_emit_cli(state):
+                self._emit("\n", session_key=session_key)
+            state.stream_done = True
+        lines = (text or "").splitlines() or [""]
+        if self._buffer_enabled:
+            state.buffer.extend(lines)
+        elif self._should_emit_cli(state):
+            self._render_body("\n".join(lines), session_key=session_key)
+        state.stream_done = False
+
+    def _show_stream_event(
+        self,
+        state: _SessionThinkingState,
+        text: str,
+        header: str,
+        *,
+        is_last_step: bool,
+        session_key: str,
+    ) -> None:
+        """显示一个流式思考增量。"""
+        if is_last_step:
+            return
+        if state.stream_step is None:
+            if state.stream_done and self._should_emit_cli(state):
+                self._emit("\n\n", session_key=session_key)
+            state.stream_step = self._next_step(session_key)
+            state.stream_header = header
+            state.stream_printed = 0
+            state.stream_done = False
+            state._last_stream_full = ""
+            if self._should_emit_cli(state):
+                self._emit_line(
+                    f"\U0001f4ad [{state.stream_step}] {state.stream_header}",
+                    "gray",
+                    session_key=session_key,
+                )
+        self._show_streaming(state, text, session_key=session_key)
+
+    async def _finish_active_stream(
+        self, state: _SessionThinkingState, *, session_key: str
+    ) -> str:
+        """收尾活动流并返回其阶段标签。"""
+        if state.stream_step is None or state.stream_done:
+            return ""
+        if self._should_emit_cli(state):
+            self._emit("\n\n", session_key=session_key)
+        if state.feishu_send and state.feishu_chat_id:
+            try:
+                await state.feishu_send(
+                    state.feishu_chat_id,
+                    "",
+                    "gray",
+                    is_new_round=False,
+                    streaming=False,
+                    merge_tools=False,
+                    finalize_only=True,
+                )
+            except TypeError as error:
+                _logger.debug("流合并参数不匹配: %s", error)
+        state.stream_done = True
+        return state.stream_header
+
+    async def _show_non_stream_event(
+        self,
+        state: _SessionThinkingState,
+        text: str,
+        header: str,
+        *,
+        is_last_step: bool,
+        session_key: str,
+    ) -> None:
+        """显示工具通知等非流式思考事件。"""
+        if is_last_step and text.strip().endswith("开始"):
+            return
+        saved_header = await self._finish_active_stream(state, session_key=session_key)
+        step = self._next_step(session_key)
+        lines = (text or "").splitlines() or [""]
+        initialize_merge = bool(
+            _merge_tools_enabled()
+            and header
+            and (state.stream_step is None or state.stream_done)
+        )
+        if initialize_merge:
+            is_transition = bool(state.stream_done)
+            state.stream_step = step
+            state.stream_header = header
+            state.stream_printed = 0
+            state.stream_done = False
+            state._last_stream_full = ""
+            state.feishu_pending_header = header
+            if self._should_emit_cli(state):
+                if is_transition:
+                    self._emit("\n\n", session_key=session_key)
+                self._emit_line(
+                    f"\U0001f4ad [{state.stream_step}] {state.stream_header}",
+                    "gray",
+                    session_key=session_key,
+                )
+                self._render_body("\n".join(lines), session_key=session_key)
+            state.stream_done = False
+            return
+        if self._should_emit_cli(state):
+            header_part = f" {saved_header}" if saved_header else ""
+            self._emit_line(f"\U0001f4ad [{step}]{header_part}", "gray", session_key=session_key)
+            self._render_body(text or "", session_key=session_key)
+
     async def show(
         self,
         text: str,
@@ -592,272 +657,46 @@ class ThinkingDisplay:
             is_last_step: 是否为规划的最后一步（最后一步的 LLM 正文不在思考区显示，避免重复）。
         """
         state = self._get_state(session_key)
-
-        hdr = (header or "").strip()
-
-        # reset=True 或流式/非流式阶段切换：先于飞书 PATCH，避免新阶段正文拼进上一张卡。
-        # 注意：不要求 streaming=True，否则 [执行] 开始（streaming=False）无法检测到从规划到执行的 header 变化。
-        phase_changed = bool(hdr) and bool(state.stream_header) and hdr != state.stream_header
-        # 关键修复：reset=True 也触发状态重置，避免语义不同的新内容与旧流式状态拼接导致重复显示
-        should_reset_stream = phase_changed or reset
-        if phase_changed:
-            if state.feishu_send and state.feishu_chat_id:
-                open_feishu = bool(getattr(state, "feishu_thinking_message_id", None))
-                if state.stream_step is not None or open_feishu:
-                    try:
-                        await state.feishu_send(
-                            state.feishu_chat_id,
-                            "",
-                            "gray",
-                            is_new_round=False,
-                            streaming=False,
-                            merge_tools=False,
-                            finalize_only=True,
-                        )
-                    except TypeError:
-                        _logger.debug(
-                            "feishu_send 不支持 finalize_only，阶段切换时可能未收尾思考卡",
-                            exc_info=True,
-                        )
-        # 关键修复：流式状态重置在 phase_changed 或 reset=True 时都执行
-        # reset=True 表示语义不同的新内容，需要清除旧的 stream_printed 和 _last_stream_full
-        if should_reset_stream:
-            # 注意：飞书状态由后续 push_feishu_thinking_stream(new_round=True) 统一清理，
-            # 此处不重复清除，避免与 new_round 路径双重清零。
-            # CLI 空行由下方 streaming 块的 stream_done 检查统一处理，避免此处 emit 后又在下方的
-            # stream_step=None 分支再次 emit，造成双倍空行。
-            state.stream_done = True
-            state.stream_step = None
-            state.stream_header = ""
-            state.stream_printed = 0
-            state._last_stream_full = ""
-
-        merge_tools = (
+        normalized_header = (header or "").strip()
+        await self._reset_stream_phase(state, normalized_header, reset)
+        merge_tools = bool(
             _merge_tools_enabled()
             and not streaming
-            and bool(hdr)
-            and bool(state.stream_header)
-            and hdr == state.stream_header
+            and normalized_header
+            and state.stream_header
+            and normalized_header == state.stream_header
         )
-
-        # 飞书实时推送（与下方 CLI transcript 镜像可并存）；正文用原始文本便于 lark_md
-        # 最后一步的 LLM 流式正文不发送到飞书思考卡（避免与最终结论重复）
-        if state.feishu_send and state.feishu_chat_id and not (is_last_step and streaming):
-            # 非流式、无活跃流、merge_tools 开启：仅初始化状态，不发独立卡片。
-            # 首张卡片由后续 LLM 流式创建（push_feishu_thinking_stream），工具行
-            # 走 append_feishu_thinking_same_card 追加入同卡。
-            _skip_feishu_init = (
-                _merge_tools_enabled()
-                and not streaming
-                and bool(hdr)
-                and state.stream_step is None
-                and not state.stream_header
-            )
-            if not _skip_feishu_init:
-                try:
-                    # 同一步/同一 thinking_header 内工具后继续流式：不新开卡片（merge_tools 后保留 stream_step）
-                    is_new_round = (
-                        streaming
-                        and state.stream_step is None
-                        and (not state.stream_header or hdr != state.stream_header)
-                    )
-                    await state.feishu_send(
-                        state.feishu_chat_id,
-                        text,
-                        "gray",
-                        is_new_round=is_new_round,
-                        streaming=streaming,
-                        merge_tools=merge_tools,
-                        finalize_only=False,
-                    )
-                except Exception as e:
-                    _logger.warning("飞书思考发送失败: %s", e)
-                    err = f"{WARNING_PREFIX} 飞书发送失败: {e}\n"
-                    if self._output_sink:
-                        self._call_sink(err, kind="label", session_key=session_key)
-
+        await self._push_feishu_update(
+            state,
+            text,
+            normalized_header,
+            streaming=streaming,
+            merge_tools=merge_tools,
+            is_last_step=is_last_step,
+            session_key=session_key,
+        )
         if merge_tools:
-            if state.stream_step is not None and not state.stream_done:
-                if self._should_emit_cli(state):
-                    self._emit("\n", session_key=session_key)
-                state.stream_done = True
-            lines = (text or "").splitlines() or [""]
-            if self._buffer_enabled:
-                state.buffer.extend(lines)
-            elif self._should_emit_cli(state):
-                # 与 merge_tools 初始化路径保持一致的 Rich Markdown 渲染
-                body_md = "\n".join(lines)
-                ansi_body: str | None = None
-                if (
-                    _cli_thinking_rich_enabled()
-                    and self._sink_accepts_ansi_markdown
-                    and self._output_sink
-                    and _cli_thinking_use_rich_render(body_md)
-                ):
-                    from miniagent.engine.markdown_cli import render_markdown_to_ansi
-
-                    ansi_body = render_markdown_to_ansi(
-                        body_md, width=self._cli_rich_markdown_width()
-                    )
-                if (
-                    ansi_body
-                    and ansi_body.strip()
-                    and self._output_sink
-                    and self._sink_accepts_ansi_markdown
-                ):
-                    self._call_sink(
-                        "", kind="chunk", session_key=session_key, ansi_markdown=ansi_body
-                    )
-                    self._emit("\n", session_key=session_key)
-                else:
-                    self._emit(body_md + "\n", session_key=session_key)
-            # 保留 stream_step / stream_printed / stream_header：同一步内工具后继续流式不新开 CLI 标签、不重复打印已输出正文
-            state.stream_done = False
+            self._show_merged_tools(state, text, session_key=session_key)
             return
-
         if self._buffer_enabled:
             state.buffer.extend(text.split("\n"))
             return
-
-        # CLI（全屏 sink 或 print_formatted_text；飞书+sink 时镜像到 transcript）
         if streaming:
-            # 最后一步的 LLM 流式正文不在思考区显示，避免与最终结论重复
-            # 且不更新流式状态，以免影响后续非流式（tool_finish）的显示
-            if is_last_step:
-                return
-
-            # 首次流式或新阶段：打印 header 标签
-            if state.stream_step is None:
-                # 前一个流式阶段已结束（非流式调用结束或 end_thinking），先补空行
-                if state.stream_done:
-                    if self._should_emit_cli(state):
-                        self._emit(
-                            "\n\n", session_key=session_key
-                        )  # 阶段间空行：结束上一阶段 + 留一行间隔
-                state.stream_step = self._next_step(session_key)
-                state.stream_header = header or ""
-                state.stream_printed = 0
-                state.stream_done = False
-                state._last_stream_full = ""
-                label = f"\U0001f4ad [{state.stream_step}] {state.stream_header}"
-                if self._should_emit_cli(state):
-                    self._emit_line(label, "gray", session_key=session_key)
-
-            self._show_streaming(state, text, session_key=session_key)
-        else:
-            # 非流式：结束之前的流式
-            # 最后一步的阶段开始提示（如 "[步骤 X/Y] 开始"）不在思考区显示
-            # tool_finish 等回调的 is_last_step 默认为 False，会正常显示
-            if is_last_step and text.strip().endswith("开始"):
-                return
-
-            saved_header = ""
-            if state.stream_step is not None and not state.stream_done:
-                if self._should_emit_cli(state):
-                    self._emit("\n\n", session_key=session_key)  # 阶段间空行：结束流式 + 留一行间隔
-                # 飞书侧也需收尾当前流式卡片
-                if state.feishu_send and state.feishu_chat_id:
-                    try:
-                        await state.feishu_send(
-                            state.feishu_chat_id,
-                            "",
-                            "gray",
-                            is_new_round=False,
-                            streaming=False,
-                            merge_tools=False,
-                            finalize_only=True,
-                        )
-                    except TypeError as e:
-                        _logger.debug("流合并参数不匹配: %s", e)
-                state.stream_done = True
-                saved_header = state.stream_header
-
-            step = self._next_step(session_key)
-            lines = (text or "").splitlines() or [""]
-
-            # 无活跃流（或旧流已收尾）但有 header 且 merge_tools 开启：初始化流状态，
-            # 使后续同 header 的非流式/流式调用能走 merge_tools 路径合并。
-            if (
-                _merge_tools_enabled()
-                and bool(hdr)
-                and (state.stream_step is None or state.stream_done)
-            ):
-                _is_transition = bool(state.stream_done)
-                state.stream_step = step
-                state.stream_header = hdr
-                state.stream_printed = 0
-                state.stream_done = False
-                state._last_stream_full = ""
-                # 统一存入 feishu_pending_header，供 push_feishu_thinking_stream(new_round=False) 消费
-                state.feishu_pending_header = hdr
-                if self._should_emit_cli(state):
-                    if _is_transition:
-                        self._emit(
-                            "\n\n", session_key=session_key
-                        )  # 阶段间空行：规划与执行之间留一行间隔
-                    label = f"\U0001f4ad [{state.stream_step}] {state.stream_header}"
-                    self._emit_line(label, "gray", session_key=session_key)
-                if self._should_emit_cli(state):
-                    # 与非 merge_tools 路径保持一致的 Rich Markdown 渲染
-                    body_md = "\n".join(lines)
-                    ansi_body: str | None = None
-                    if (
-                        _cli_thinking_rich_enabled()
-                        and self._sink_accepts_ansi_markdown
-                        and self._output_sink
-                        and _cli_thinking_use_rich_render(body_md)
-                    ):
-                        from miniagent.engine.markdown_cli import render_markdown_to_ansi
-
-                        ansi_body = render_markdown_to_ansi(
-                            body_md, width=self._cli_rich_markdown_width()
-                        )
-                    if (
-                        ansi_body
-                        and ansi_body.strip()
-                        and self._output_sink
-                        and self._sink_accepts_ansi_markdown
-                    ):
-                        self._call_sink(
-                            "", kind="chunk", session_key=session_key, ansi_markdown=ansi_body
-                        )
-                        self._emit("\n", session_key=session_key)
-                    else:
-                        self._emit(body_md + "\n", session_key=session_key)
-                state.stream_done = False
-                return
-
-            if self._should_emit_cli(state):
-                hdr_part = f" {saved_header}" if saved_header else ""
-                self._emit_line(f"\U0001f4ad [{step}]{hdr_part}", "gray", session_key=session_key)
-                body_md = text or ""
-                ansi_body: str | None = None
-                if (
-                    _cli_thinking_rich_enabled()
-                    and self._sink_accepts_ansi_markdown
-                    and self._output_sink
-                    and _cli_thinking_use_rich_render(body_md)
-                ):
-                    from miniagent.engine.markdown_cli import render_markdown_to_ansi
-
-                    ansi_body = render_markdown_to_ansi(
-                        body_md, width=self._cli_rich_markdown_width()
-                    )
-                if (
-                    ansi_body
-                    and ansi_body.strip()
-                    and self._output_sink
-                    and self._sink_accepts_ansi_markdown
-                ):
-                    self._call_sink(
-                        "", kind="chunk", session_key=session_key, ansi_markdown=ansi_body
-                    )
-                    self._emit(
-                        "\n", session_key=session_key
-                    )  # 非流式正文后补换行，避免与下一区块黏连
-                else:
-                    body = "\n".join(lines)
-                    self._emit(body + "\n", session_key=session_key)
+            self._show_stream_event(
+                state,
+                text,
+                header or "",
+                is_last_step=is_last_step,
+                session_key=session_key,
+            )
+            return
+        await self._show_non_stream_event(
+            state,
+            text,
+            normalized_header,
+            is_last_step=is_last_step,
+            session_key=session_key,
+        )
 
     def end_thinking(self, session_key: str | None = None) -> None:
         """结束流式显示块。

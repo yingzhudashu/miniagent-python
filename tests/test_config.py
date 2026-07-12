@@ -14,6 +14,7 @@ from miniagent.infrastructure.json_config import (
     JsonConfigLoader,
     get_config,
     get_config_section,
+    get_config_snapshot,
     install_config_loader,
     reload_config,
 )
@@ -198,6 +199,23 @@ class TestJsonConfigLoader:
         assert candidate.get("paths.state_dir") == "runtime"
         assert json.loads(user_path.read_text(encoding="utf-8")) == original
 
+    def test_strict_reload_reports_unknown_nested_path(self, tmp_path):
+        user_path = tmp_path / "config.user.json"
+        user_path.write_text('{"model":{"typo_model":"x"}}', encoding="utf-8")
+        loader = JsonConfigLoader(DEFAULTS_PATH, str(user_path))
+        with pytest.raises(ValueError, match=r"model\.typo_model"):
+            loader.reload(strict=True)
+
+    def test_config_snapshot_is_deeply_immutable(self, tmp_path):
+        _install_loader(tmp_path, {"model": {"model": "snapshot-model"}})
+        snapshot = get_config_snapshot()
+        assert snapshot.get_path("model.model") == "snapshot-model"
+        with pytest.raises(TypeError):
+            snapshot["model"]["model"] = "mutated"
+        assert "model" in tuple(snapshot)
+        assert len(snapshot) > 1
+        assert snapshot.get_path("missing.path", "fallback") == "fallback"
+
 
 class TestMergeAgentConfig:
     def test_override_single_field(self, tmp_path):
@@ -252,3 +270,14 @@ class TestMergeAgentConfig:
         assert merged.response_language == "en-US"
         assert merged.tool_selection_strategy == "all"
         assert merged.context_overflow_strategy == "truncate"
+
+
+def test_strict_user_config_rejects_nested_mapping_for_scalar(tmp_path) -> None:
+    defaults = tmp_path / "defaults.json"
+    user = tmp_path / "user.json"
+    defaults.write_text(json.dumps({"feature": False}), encoding="utf-8")
+    user.write_text(json.dumps({"feature": {"enabled": True}}), encoding="utf-8")
+
+    loader = JsonConfigLoader(defaults_path=str(defaults), user_path=str(user))
+    with pytest.raises(ValueError, match="配置项类型错误: feature"):
+        loader.reload(strict=True)

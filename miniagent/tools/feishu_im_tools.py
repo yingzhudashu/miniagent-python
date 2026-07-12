@@ -42,6 +42,7 @@ async def _feishu_send_workspace_file(args: dict[str, Any], ctx: ToolContext) ->
     cfg, cfg_err = check_feishu_config_and_lark_oapi()
     if cfg_err:
         return cfg_err
+    assert cfg is not None
     if recv_err:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} {recv_err}")
     if not receive_id:
@@ -118,6 +119,7 @@ async def _feishu_recall_message(args: dict[str, Any], ctx: ToolContext) -> Tool
     cfg, cfg_err = check_feishu_config_and_lark_oapi()
     if cfg_err:
         return cfg_err
+    assert cfg is not None
 
     from miniagent.feishu.upload_io import delete_im_message
 
@@ -137,6 +139,7 @@ async def _feishu_list_drive_files(args: dict[str, Any], ctx: ToolContext) -> To
     cfg, cfg_err = check_feishu_config_and_lark_oapi()
     if cfg_err:
         return cfg_err
+    assert cfg is not None
 
     folder, folder_err = await resolve_parent_folder_token_async(folder_arg, cfg=cfg)
     if folder_err or not folder:
@@ -158,18 +161,18 @@ async def _feishu_list_drive_files(args: dict[str, Any], ctx: ToolContext) -> To
             folder_token=folder,
             page_token=page_token,
         )
-    except Exception as e:
-        return ToolResult(success=False, content=f"{WARNING_PREFIX} 列举失败: {e}")
+    except Exception as exc:
+        return ToolResult(success=False, content=f"{WARNING_PREFIX} 列举失败: {exc}")
 
     lines = ["| name | token | type |", "| --- | --- | --- |"]
-    for e in entries:
-        if folders_only and str(e.get("type") or "").lower() != "folder":
+    for entry in entries:
+        if folders_only and str(entry.get("type") or "").lower() != "folder":
             continue
-        if name_sub and name_sub not in str(e.get("name") or "").lower():
+        if name_sub and name_sub not in str(entry.get("name") or "").lower():
             continue
-        nm = str(e.get("name") or "").replace("|", "\\|")
-        tk = str(e.get("token") or "").replace("|", "\\|")
-        tp = str(e.get("type") or "").replace("|", "\\|")
+        nm = str(entry.get("name") or "").replace("|", "\\|")
+        tk = str(entry.get("token") or "").replace("|", "\\|")
+        tp = str(entry.get("type") or "").replace("|", "\\|")
         lines.append(f"| {nm} | {tk} | {tp} |")
 
     tail = f"\n\nhas_more={has_more}"

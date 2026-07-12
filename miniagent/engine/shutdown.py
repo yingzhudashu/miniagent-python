@@ -24,6 +24,132 @@ from miniagent.infrastructure.process import cleanup_all_processes
 _logger = logging.getLogger(__name__)
 
 
+async def _shutdown_step(label: str, awaitable) -> None:
+    """执行一个关闭 awaitable；失败仅记录上下文，不阻断后续资源释放。"""
+    try:
+        await awaitable
+    except Exception as error:
+        _logger.debug("shutdown_runtime: %s: %s", label, error, exc_info=True)
+
+
+async def _shutdown_thread_step(label: str, callable_, *args) -> None:
+    """在线程中执行同步关闭步骤并统一降级。"""
+    await _shutdown_step(label, asyncio.to_thread(callable_, *args))
+
+
+async def _stop_runtime_work(
+    ctx: ApplicationContainer,
+    *,
+    abort_message_queues: bool,
+) -> None:
+    """停止任务生产者、排空已登记任务与队列消费者。"""
+    if ctx.lifecycle_manager is not None:
+        await _shutdown_step("lifecycle manager stop", ctx.lifecycle_manager.stop())
+    tracked = [task for task in ctx.shutdown_tracked_tasks if not task.done()]
+    for task in tracked:
+        task.cancel()
+    if tracked:
+        await asyncio.gather(*tracked, return_exceptions=True)
+    await _shutdown_step("background task manager shutdown", ctx.background_tasks.shutdown())
+    if abort_message_queues:
+        await _shutdown_step("message queue shutdown", ctx.message_queue.shutdown())
+    await _shutdown_step("memory runtime shutdown", ctx.memory.shutdown())
+
+
+async def _close_protocol_and_process_resources() -> None:
+    """先关闭协议上下文，再执行通用子进程兜底清理。"""
+    try:
+        from miniagent.mcp.runtime import close_mcp_connections
+
+        await _shutdown_step("MCP connections close", close_mcp_connections())
+    except ImportError as error:
+        _logger.debug("shutdown_runtime: MCP runtime unavailable: %s", error)
+    await _shutdown_step("cleanup_all_processes", cleanup_all_processes())
+
+
+async def _close_openai_clients(ctx: ApplicationContainer) -> None:
+    """去重关闭当前与热重载退休的 OpenAI 客户端池。"""
+    from miniagent.core.openai_client import close_async_openai_client
+
+    clients = [ctx.openai_client, *ctx.retired_openai_clients]
+    ctx.openai_client = None
+    ctx.retired_openai_clients.clear()
+    seen: set[int] = set()
+    for client in clients:
+        if client is None or id(client) in seen:
+            continue
+        seen.add(id(client))
+        await _shutdown_step("OpenAI client close", close_async_openai_client(client))
+
+
+async def _close_network_resources(ctx: ApplicationContainer) -> None:
+    """关闭应用拥有的 HTTP、浏览器与 ClawHub 资源。"""
+    try:
+        await _close_openai_clients(ctx)
+    except Exception as error:
+        _logger.debug("shutdown_runtime: OpenAI clients close: %s", error, exc_info=True)
+    from miniagent.feishu.drive_client import close_http_client
+    from miniagent.infrastructure.browser_pool import close_browser_pool
+    from miniagent.infrastructure.httpx_pool import close_shared_httpx_clients
+    from miniagent.tools.html_upload import close_html_upload_http_clients
+
+    await _shutdown_step("close_http_client", close_http_client())
+    await _shutdown_step("close_html_upload_http_clients", close_html_upload_http_clients())
+    await _shutdown_step("close_shared_httpx_clients", close_shared_httpx_clients())
+    await _shutdown_step("close_browser_pool", close_browser_pool())
+    if ctx.clawhub is not None:
+        await _shutdown_step("ClawHub client close", ctx.clawhub.close())
+
+
+async def _run_shutdown_housekeeping() -> None:
+    """清理过期 trace 与自优化提案；外部状态缺失时安全跳过。"""
+    from miniagent.core.self_opt.proposal_store import ProposalStore
+    from miniagent.infrastructure.json_config import get_config
+    from miniagent.infrastructure.trace_stats import cleanup_old_traces
+
+    if get_config("trace.auto_cleanup", True):
+        deleted = await asyncio.to_thread(
+            cleanup_old_traces,
+            get_config("trace.retention_days", 7),
+        )
+        if deleted > 0:
+            _logger.info("shutdown: 清理过期trace文件 %d 个", deleted)
+    proposals = await asyncio.to_thread(
+        ProposalStore.cleanup_old_proposals,
+        int(get_config("self_optimization.proposal_retention_days", 30)),
+    )
+    if proposals > 0:
+        _logger.info("shutdown: 清理过期提案文件 %d 个", proposals)
+
+
+def _begin_shutdown_trace() -> tuple[str, int, int]:
+    """记录关闭阶段起点并返回 span 与墙钟/CPU 基线。"""
+    from miniagent.infrastructure.tracing import emit_trace, new_trace_id
+
+    span_id = new_trace_id("span")
+    wall_start = time.monotonic_ns()
+    cpu_start = time.process_time_ns()
+    emit_trace({"type": "agent.phase_start", "phase": "shutdown", "span_id": span_id})
+    return span_id, wall_start, cpu_start
+
+
+async def _finish_shutdown_trace(span_id: str, wall_start: int, cpu_start: int) -> None:
+    """写入关闭完成事件并最后排空 Trace writer。"""
+    from miniagent.infrastructure.tracing import emit_trace, shutdown_trace_writer
+
+    emit_trace(
+        {
+            "type": "agent.phase_end",
+            "phase": "shutdown",
+            "span_id": span_id,
+            "duration_ms": (time.monotonic_ns() - wall_start) / 1_000_000,
+            "cpu_ms": (time.process_time_ns() - cpu_start) / 1_000_000,
+            "success": True,
+        }
+    )
+    await _shutdown_thread_step("shutdown_trace_writer", shutdown_trace_writer)
+
+
 async def shutdown_runtime(
     ctx: ApplicationContainer,
     state: CliLoopState,
@@ -64,201 +190,35 @@ async def shutdown_runtime(
     if reason:
         _logger.info("shutdown_runtime: begin (%s)", reason)
 
-    from miniagent.infrastructure.tracing import emit_trace, new_trace_id
+    shutdown_span_id, shutdown_wall_start, shutdown_cpu_start = _begin_shutdown_trace()
 
-    shutdown_span_id = new_trace_id("span")
-    shutdown_wall_start = time.monotonic_ns()
-    shutdown_cpu_start = time.process_time_ns()
-    emit_trace(
-        {
-            "type": "agent.phase_start",
-            "phase": "shutdown",
-            "span_id": shutdown_span_id,
-        }
-    )
+    from miniagent.engine.session_continue import save_cli_session_state
 
-    try:
-        from miniagent.engine.session_continue import save_cli_session_state
-
-        await asyncio.to_thread(save_cli_session_state, ctx, state)
-    except Exception as e:
-        _logger.debug("shutdown_runtime: save_cli_session_state: %s", e)
+    await _shutdown_thread_step("save_cli_session_state", save_cli_session_state, ctx, state)
 
     from miniagent.engine.session_lock import release_session_lock
 
     # 1) 先停止静态生产者，避免取消任务快照后 ticker / Feishu 又提交新工作。
-    lifecycle_manager = ctx.lifecycle_manager
-    if lifecycle_manager is not None:
-        try:
-            await lifecycle_manager.stop()
-        except Exception as e:
-            _logger.debug("shutdown_runtime: lifecycle manager stop: %s", e)
-
-    # 2) tick_once / 其它登记在 ctx 上的 fire-and-forget
-    snap_tracked = [t for t in ctx.shutdown_tracked_tasks if not t.done()]
-    for t in snap_tracked:
-        t.cancel()
-    if snap_tracked:
-        await asyncio.gather(*snap_tracked, return_exceptions=True)
-
-    # 3) 容器持有的 /btw 管理器（取消执行任务并等待子 session finally）
-    try:
-        await ctx.background_tasks.shutdown()
-    except Exception as e:
-        _logger.debug("shutdown_runtime: background task manager shutdown: %s", e)
-
-    # 4) 停止通道后取消并等待队列任务，确保它们不会继续使用后续关闭的资源。
-    if abort_message_queues:
-        try:
-            await ctx.message_queue.shutdown()
-        except Exception as e:
-            _logger.debug("shutdown_runtime: message queue shutdown: %s", e)
-
-    # 5) 队列消费者结束后再关闭 memory 的维护任务与 embedding 连接池。
-    try:
-        await ctx.memory.shutdown()
-    except Exception as e:
-        _logger.debug("shutdown_runtime: memory runtime shutdown: %s", e)
-
-    # MCP owns stdio/session async contexts outside the chat queue. Close them
-    # before the generic child-process fallback so protocol shutdown can run.
-    try:
-        from miniagent.mcp.runtime import close_mcp_connections
-
-        await close_mcp_connections()
-    except Exception as e:
-        _logger.debug("shutdown_runtime: MCP connections close: %s", e)
-
-    try:
-        await cleanup_all_processes()
-    except Exception as e:
-        _logger.debug("shutdown_runtime: cleanup_all_processes: %s", e)
+    await _stop_runtime_work(ctx, abort_message_queues=abort_message_queues)
+    await _close_protocol_and_process_resources()
 
     # 5a) 记忆运行时由 ApplicationContainer 独占；退出前统一持久化全部派生索引。
-    try:
-        await asyncio.to_thread(ctx.memory.close)
-    except Exception as e:
-        _logger.debug("shutdown_runtime: memory runtime close: %s", e)
+    await _shutdown_thread_step("memory runtime close", ctx.memory.close)
 
     # Close the active pool and pools retired by hot reload. Retired pools stay
     # alive until this point so in-flight turns using an old client can finish.
-    try:
-        from miniagent.core.openai_client import close_async_openai_client
-
-        clients = [ctx.openai_client, *ctx.retired_openai_clients]
-        ctx.openai_client = None
-        ctx.retired_openai_clients.clear()
-        seen_clients: set[int] = set()
-        for client in clients:
-            if client is None or id(client) in seen_clients:
-                continue
-            seen_clients.add(id(client))
-            try:
-                await close_async_openai_client(client)
-            except Exception as error:
-                _logger.debug("shutdown_runtime: OpenAI client close: %s", error)
-    except Exception as e:
-        _logger.debug("shutdown_runtime: OpenAI clients close: %s", e)
-
-    # 5b) 关闭 httpx 客户端（飞书 drive_client）
-    try:
-        from miniagent.feishu.drive_client import close_http_client
-
-        await close_http_client()
-    except Exception as e:
-        _logger.debug("shutdown_runtime: close_http_client: %s", e)
-
-    try:
-        from miniagent.tools.html_upload import close_html_upload_http_clients
-
-        await close_html_upload_http_clients()
-    except Exception as e:
-        _logger.debug("shutdown_runtime: close_html_upload_http_clients: %s", e)
-
-    try:
-        from miniagent.infrastructure.httpx_pool import close_shared_httpx_clients
-
-        await close_shared_httpx_clients()
-    except Exception as e:
-        _logger.debug("shutdown_runtime: close_shared_httpx_clients: %s", e)
-
-    try:
-        from miniagent.infrastructure.browser_pool import close_browser_pool
-
-        await close_browser_pool()
-    except Exception as e:
-        _logger.debug("shutdown_runtime: close_browser_pool: %s", e)
-
-    # 5c) 关闭容器所拥有的 ClawHub HTTP 客户端。
-    try:
-        if ctx.clawhub is not None:
-            await ctx.clawhub.close()
-    except Exception as e:
-        _logger.debug("shutdown_runtime: ClawHub client close: %s", e)
-
-    # 5g) 清理过期trace文件（可选）
-    try:
-        from miniagent.infrastructure.json_config import get_config
-        from miniagent.infrastructure.trace_stats import cleanup_old_traces
-
-        if get_config("trace.auto_cleanup", True):
-            retention_days = get_config("trace.retention_days", 7)
-            deleted_count = await asyncio.to_thread(
-                cleanup_old_traces,
-                retention_days,
-            )
-            if deleted_count > 0:
-                _logger.info("shutdown: 清理过期trace文件 %d 个", deleted_count)
-    except Exception as e:
-        _logger.debug("shutdown_runtime: cleanup_old_traces: %s", e)
-
-    # 5h) 清理过期自我优化提案
-    try:
-        from miniagent.core.self_opt.proposal_store import ProposalStore
-        from miniagent.infrastructure.json_config import get_config
-
-        retention_days = int(get_config("self_optimization.proposal_retention_days", 30))
-        deleted_proposals = await asyncio.to_thread(
-            ProposalStore.cleanup_old_proposals,
-            retention_days,
-        )
-        if deleted_proposals > 0:
-            _logger.info("shutdown: 清理过期提案文件 %d 个", deleted_proposals)
-    except Exception as e:
-        _logger.debug("shutdown_runtime: cleanup_old_proposals: %s", e)
+    await _close_network_resources(ctx)
+    await _shutdown_step("housekeeping", _run_shutdown_housekeeping())
 
     if release_cli_session_lock:
         sid = (state.get("active_session_id") or "").strip()
         if sid:
-            try:
-                await asyncio.to_thread(release_session_lock, sid)
-            except Exception as e:
-                _logger.debug("shutdown_runtime: release_session_lock: %s", e)
+            await _shutdown_thread_step("release_session_lock", release_session_lock, sid)
 
     if call_unregister:
-        try:
-            await asyncio.to_thread(unregister_instance)
-        except Exception as e:
-            _logger.debug("shutdown_runtime: unregister_instance: %s", e)
+        await _shutdown_thread_step("unregister_instance", unregister_instance)
 
-    # Trace is the final owned resource: record the complete shutdown phase,
-    # then deterministically drain the writer after all producers are stopped.
-    emit_trace(
-        {
-            "type": "agent.phase_end",
-            "phase": "shutdown",
-            "span_id": shutdown_span_id,
-            "duration_ms": (time.monotonic_ns() - shutdown_wall_start) / 1_000_000,
-            "cpu_ms": (time.process_time_ns() - shutdown_cpu_start) / 1_000_000,
-            "success": True,
-        }
-    )
-    try:
-        from miniagent.infrastructure.tracing import shutdown_trace_writer
-
-        await asyncio.to_thread(shutdown_trace_writer)
-    except Exception as e:
-        _logger.debug("shutdown_runtime: shutdown_trace_writer: %s", e)
+    await _finish_shutdown_trace(shutdown_span_id, shutdown_wall_start, shutdown_cpu_start)
 
     # 6) 默认线程池：不再主动关闭。prompt_toolkit 的 in_terminal() 异步上下文退出时
     # 仍会通过 run_in_executor 使用默认线程池，此处提前关闭会导致

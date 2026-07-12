@@ -25,7 +25,7 @@ jobs:
       - name: Pytest perf marker
         env:
           PYTHONHASHSEED: "0"
-        run: python -m pytest tests/test_perf_synthetic.py -q -m perf --tb=short
+        run: python -m pytest tests/test_perf_synthetic.py tests/test_trace_performance.py -q -m perf --tb=short
 
       - name: Tracemalloc profile script
         env:

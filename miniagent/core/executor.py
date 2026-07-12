@@ -23,13 +23,10 @@ Internal 常量 ``PHASED_EXECUTION`` 开启且 ``plan.steps`` 非空时，按步
 from __future__ import annotations
 
 import asyncio
-import json
-import os
 import time
-import traceback
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from functools import lru_cache
-from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, TypeAlias
 
 if TYPE_CHECKING:
@@ -39,10 +36,12 @@ else:
 
 from miniagent.contracts.knowledge import KnowledgeRegistryProtocol
 from miniagent.contracts.memory import MemoryRuntimeProtocol
-from miniagent.core.config import get_default_agent_config, get_default_model_config
+from miniagent.contracts.runtime import (
+    OnThinkingCallback,
+    OnToolFinishCallback,
+)
+from miniagent.core.config import get_default_model_config
 from miniagent.core.constants import (
-    EXECUTION_CALLBACK_MIN_CHARS,
-    EXECUTION_CALLBACK_MIN_INTERVAL_MS,
     EXECUTION_MAX_CONCURRENT_TOOLS,
     EXECUTION_PHASED_ENABLED,
     EXECUTION_STEP_MAX_TURNS,
@@ -51,66 +50,25 @@ from miniagent.core.constants import (
     EXECUTION_TOOL_INTENT_MAX_CHARS,
     MAX_ARGS_LOG_LEN,
 )
-from miniagent.core.llm_params import resolve_exec_completion_kwargs
-from miniagent.core.llm_transport import (
-    LLMTransportError,
-    classify_transport_error,
-    stream_completion,
+from miniagent.core.execution_intent import extract_tool_intent
+from miniagent.core.execution_prompts import (
+    build_current_turn_user_context,
+    build_stable_execution_system_prompt,
 )
-from miniagent.core.openai_message_sanitize import strip_leading_underscore_keys_from_messages
-from miniagent.core.plan_utils import (
-    format_output_spec_block,
-    resolve_chunk_compress_threshold,
-    resolve_effective_overflow_strategy,
-    resolve_execution_step_groups,
-)
+from miniagent.core.plan_utils import resolve_execution_step_groups
 from miniagent.core.prompts.identity import AGENT_IDENTITY
-from miniagent.core.thinking_callback import invoke_on_thinking
 from miniagent.core.thinking_presets import map_business_depth
 from miniagent.infrastructure.json_config import get_config
-from miniagent.infrastructure.logger import append_log, get_logger, truncate
+from miniagent.infrastructure.logger import get_logger
 from miniagent.infrastructure.loop_detector import LoopDetector
-from miniagent.infrastructure.timezone_config import (
-    format_agent_timezone_context,
-    format_agent_timezone_rule_context,
-)
-from miniagent.infrastructure.tracing import emit_trace, llm_request_size_metrics, new_trace_id
 from miniagent.memory.activity_log import invoke_activity_log
 from miniagent.memory.context import ContextBudgetExceeded, DefaultContextManager
-from miniagent.memory.history_bridge import conversation_history_for_llm
-from miniagent.security.sandbox import get_default_workspace
 from miniagent.types.agent import LoopDetectionConfig, ToolMonitorProtocol
 from miniagent.types.config import AgentConfig
 from miniagent.types.error_prefix import WARNING_PREFIX
-from miniagent.types.errors import (
-    FeishuConfigMissingError,
-    LarkOapiMissingError,
-    SandboxViolationError,
-)
-from miniagent.types.planning import PlanStep, StructuredPlan
-from miniagent.types.protocols import (
-    OnThinkingCallback,
-    OnToolFinishCallback,
-)
+from miniagent.types.planning import StructuredPlan
 from miniagent.types.skill import ClawHubClientProtocol
-from miniagent.types.tool import ToolContext, ToolPermission, ToolRegistryProtocol, ToolResult
-
-# ── 性能优化：工具意图映射改为模块级常量，避免每次调用重建 ──
-_TOOL_INTENT_MAP: dict[str, str] = {
-    "read_file": "读取文件",
-    "write_file": "写入文件",
-    "edit_file": "编辑文件",
-    "list_dir": "列出目录",
-    "exec_command": "执行命令",
-    "web_search": "搜索网页",
-    "browser_extract_text": "浏览器提取正文",
-    "fetch_url": "抓取网页",
-    "read_memory": "读取记忆",
-    "write_memory": "写入记忆",
-    "search_memory": "搜索记忆",
-    "git_status": "Git 状态",
-    "git_diff": "Git 差异",
-}
+from miniagent.types.tool import ToolRegistryProtocol
 
 _logger = get_logger(__name__)
 _EXEC_LLM_MAX_ATTEMPTS = 3
@@ -126,70 +84,6 @@ def _exec_retry_params(base: dict[str, Any], *, attempt: int, responses: bool) -
     if attempt == _EXEC_LLM_MAX_ATTEMPTS - 1:
         params["_thinking_level"] = "medium"
     return params
-
-
-async def _await_tool_confirmation(
-    *,
-    tool_name: str,
-    help_text: str,
-    args: dict[str, Any],
-    permission: ToolPermission,
-    confirmation_channel: Any | None,
-    agent_config: AgentConfig,
-    on_thinking: OnThinking | None,
-    thinking_header: str,
-) -> ToolResult | None:
-    """``require-confirm`` 工具执行前的用户确认 gate。
-
-    Returns:
-        None 表示已确认、无需确认或 ``auto_execute_confirmed`` 跳过；
-        ToolResult 表示应直接返回给 LLM（拒绝或未配置通道）。
-    """
-    if permission != "require-confirm":
-        return None
-    if agent_config.auto_execute_confirmed:
-        return None
-    if confirmation_channel is None:
-        return ToolResult(
-            success=False,
-            content=(
-                f"{WARNING_PREFIX} 工具 `{tool_name}` 需要用户确认后才能执行，"
-                "但当前未配置 confirmation_channel。"
-            ),
-            meta={"error_type": "ConfirmationRequired"},
-        )
-
-    from miniagent.types.confirmation import ConfirmationRequest, ConfirmationStage
-
-    args_preview = json.dumps(args, ensure_ascii=False, indent=2)
-    if len(args_preview) > 500:
-        args_preview = args_preview[:500] + "…"
-    prompt = (
-        f"即将执行需确认的工具 `{tool_name}`。\n"
-        f"{help_text}\n\n参数:\n{args_preview}\n\n"
-        "输入 /confirm 同意，/reject 拒绝。"
-    )
-    if on_thinking:
-        await invoke_on_thinking(
-            on_thinking,
-            prompt,
-            True,
-            f"{thinking_header} · 工具确认",
-        )
-    req = ConfirmationRequest(
-        stage=ConfirmationStage.TOOL,
-        content=prompt,
-        full_content=args_preview,
-        context={"tool_name": tool_name, "args": args},
-    )
-    confirm_result = await confirmation_channel.request_confirmation(req)
-    if confirm_result.rejected or not confirm_result.approved:
-        return ToolResult(
-            success=False,
-            content=f"{WARNING_PREFIX} 用户拒绝执行工具 `{tool_name}`。",
-            meta={"error_type": "ConfirmationRejected"},
-        )
-    return None
 
 
 def _raise_if_task_cancelled() -> None:
@@ -209,288 +103,6 @@ def _is_ephemeral_session(session_key: str | None) -> bool:
 # ─── 工具错误日志辅助 ────────────────────────────────────────────
 
 _MAX_ARGS_LOG_LEN = MAX_ARGS_LOG_LEN
-
-
-def _truncate_args_for_log(args: dict[str, Any] | str, max_len: int = _MAX_ARGS_LOG_LEN) -> str:
-    """截断工具参数用于日志输出，避免大内容导致日志膨胀。
-
-    Args:
-        args: 工具参数字典或 JSON 字符串
-        max_len: 最大长度（字符）
-
-    Returns:
-        截断后的字符串
-    """
-    if isinstance(args, str):
-        if len(args) <= max_len:
-            return args
-        return args[:max_len] + "...[截断]"
-    try:
-        result = json.dumps(args, ensure_ascii=False)
-        if len(result) <= max_len:
-            return result
-        return result[:max_len] + "...[截断]"
-    except Exception:
-        return str(args)[:max_len]
-
-
-def _log_tool_error(
-    *,
-    tool_name: str,
-    tool_call_id: str | None,
-    args: dict[str, Any],
-    session_key: str | None,
-    error_type: str,
-    error_message: str,
-    is_user_error: bool = False,
-    traceback_str: str | None = None,
-) -> None:
-    """统一记录工具错误日志，区分用户误用与工具缺陷。
-
-    对工具执行错误进行分类记录和 trace 发射，帮助诊断问题根源：
-    - 用户误用：权限错误、文件不存在、参数错误等 → WARNING 级别
-    - 工具缺陷：内部错误、未捕获异常等 → ERROR 级别，附带堆栈
-
-    Args:
-        tool_name: 工具名称
-        tool_call_id: LLM 生成的 tool_call ID（可为 None）
-        args: 工具参数字典（会被截断以避免日志膨胀）
-        session_key: 会话标识符（用于关联会话日志）
-        error_type: 异常类型名称（如 "PermissionError"）
-        error_message: 错误消息文本
-        is_user_error: 是否为用户误用（True=WARNING，False=ERROR）
-        traceback_str: 完整堆栈信息（仅非用户错误时记录）
-
-    Note:
-        所有错误都会发射 tool.error trace 事件，供监控系统收集。
-    """
-    args_str = _truncate_args_for_log(args)
-    log_prefix = f"[工具错误] {tool_name}"
-    emit_trace(
-        {
-            "type": "tool.error",
-            "tool": tool_name,
-            "tool_call_id": tool_call_id,
-            "args_truncated": args_str,
-            "session_key": session_key,
-            "error_type": error_type,
-            "error_message": error_message,
-            "is_user_error": is_user_error,
-        }
-    )
-    if is_user_error:
-        _logger.warning(
-            "%s | 类型: %s | 参数: %s | 消息: %s | 会话: %s",
-            log_prefix,
-            error_type,
-            args_str,
-            error_message,
-            session_key or "N/A",
-        )
-    else:
-        _logger.error(
-            "%s | 类型: %s | 参数: %s | 消息: %s | 会话: %s",
-            log_prefix,
-            error_type,
-            args_str,
-            error_message,
-            session_key or "N/A",
-        )
-        if traceback_str:
-            _logger.debug("%s | 堆栈:\n%s", log_prefix, traceback_str)
-
-
-# ─── 流式输出优化：增量 buffer（性能优化）──
-
-
-class StreamingBuffer:
-    """高效的流式内容缓冲器，避免 O(n²) 字符拼接。
-
-    性能优化：降低合并阈值从100到50，减少内存占用和getvalue复杂度。
-
-    设计原理：
-    - 维护一个增长的 chunk 列表
-    - 当列表过长时（>50），合并为单个字符串（降低阈值）
-    - 提供 getvalue() 获取当前内容
-
-    Example:
-        >>> buffer = StreamingBuffer()
-        >>> for chunk in stream:
-        >>>     buffer.append(chunk)
-        >>> content = buffer.getvalue()
-    """
-
-    __slots__ = ("_chunks", "_length", "_consolidated")
-
-    def __init__(self) -> None:
-        """初始化空缓冲器。"""
-        self._chunks: list[str] = []
-        self._length: int = 0
-        self._consolidated: str | None = None
-
-    def append(self, chunk: str) -> None:
-        """追加一个 chunk。
-
-        Args:
-            chunk: 要追加的文本块
-        """
-        self._chunks.append(chunk)
-        self._length += len(chunk)
-        # 性能优化：降低合并阈值从100到50，减少内存占用
-        if len(self._chunks) > 50:
-            self._consolidated = "".join(self._chunks)
-            self._chunks = [self._consolidated]
-
-    def getvalue(self) -> str:
-        """性能优化：简化逻辑，快速返回当前内容。
-
-        Returns:
-            缓冲器中的完整文本内容
-        """
-        if self._consolidated is not None:
-            # 已合并过，直接返回或追加新 chunks
-            if len(self._chunks) == 1:
-                return self._consolidated
-            # 合并后又有新追加（简化拼接）
-            return self._consolidated + "".join(self._chunks[1:])
-        # 未合并过，直接拼接
-        return "".join(self._chunks)
-
-    def __len__(self) -> int:
-        """返回当前内容长度。
-
-        Returns:
-            缓冲内容的字符数
-        """
-        return self._length
-
-    def clear(self) -> None:
-        """清空缓冲器。"""
-        self._chunks.clear()
-        self._length = 0
-        self._consolidated = None
-
-
-# ─── Agent 身份（从 prompts 模块导入）────────────────────────────
-
-# AGENT_IDENTITY 现在从 miniagent.core.prompts.identity 导入
-# 使用 XML 标签结构化，遵循 Claude 最佳实践
-
-
-def build_stable_execution_system_prompt(
-    *,
-    agent_identity: str,
-    caller_system_prompt: str | None,
-) -> str:
-    """构建执行阶段可复用的稳定 system prompt。
-
-    该函数生成消息数组的第一条 system 消息，设计为在同一 session/channel 下
-    尽量保持稳定，以便 OpenAI/Anthropic 的前缀缓存机制自然命中，降低成本。
-
-    **应包含的内容**（低频变化）：
-    - Agent 身份与全局行为约束（AGENT_IDENTITY）
-    - 调用方稳定系统补充（技能 prompt、通道级规则、长期摘要等）
-    - 工具/文件访问的稳定解释规则
-    - 时区解释规则（不含当前具体时间）
-
-    **不应包含的内容**（高频变化，应放入 current_turn_user_context）：
-    - 用户当前请求
-    - plan.summary
-    - keyword_context / kb_context
-    - 当前时间
-    - 风险等级、具体文件根目录
-
-    Args:
-        agent_identity: Agent 身份描述文本（如 AGENT_IDENTITY）
-        caller_system_prompt: 调用方注入的稳定系统补充（如 skill prompts）
-
-    Returns:
-        str: 稳定的 system prompt 文本
-
-    Note:
-        与 build_current_turn_user_context 配合使用，实现缓存友好的 prompt 分层。
-    """
-    parts: list[str] = [agent_identity.strip()]
-    if caller_system_prompt and caller_system_prompt.strip():
-        parts.append(caller_system_prompt.strip())
-    parts.append(
-        "## 文件与工具路径规则\n"
-        "当本轮用户上下文提供默认文件根目录时，read_file、write_file、list_dir、"
-        "edit_file 等工具的相对路径参数均相对于该目录；不要使用 `../` 等方式"
-        "逃逸到该目录之外。如需参考会话上传文件，可使用 read_file 等工具读取。"
-    )
-    parts.append(format_agent_timezone_rule_context())
-    return "\n\n".join(p for p in parts if p and p.strip())
-
-
-def build_current_turn_user_context(
-    *,
-    user_input: str,
-    plan_summary: str,
-    keyword_context: str | None,
-    kb_context: str | None = None,
-    session_files_root: str | None = None,
-    risk_level: str | None = None,
-    current_time_context: str | None = None,
-    output_spec_block: str | None = None,
-) -> str:
-    """构建执行阶段每轮动态 user context。
-
-    该函数生成包含所有高频变化资料的 user 消息，在有历史时作为消息数组的
-    最后一条 user 消息：``[system] + history + [current_turn_context]``。
-    既保留了历史语义顺序，也避免动态检索结果污染稳定 system 前缀。
-
-    **应包含的内容**（高频变化）：
-    - 本轮用户请求与计划摘要
-    - 结构化会话记忆（memory_context）
-    - 关键词检索上下文（keyword_context）
-    - 知识库检索上下文（kb_context）
-    - 当前默认文件根目录
-    - 风险等级与当前时间上下文
-
-    Args:
-        user_input: 用户原始需求文本
-        plan_summary: 执行计划摘要
-        keyword_context: 关键词检索结果（可含结构化记忆）
-        kb_context: 知识库检索结果
-        session_files_root: 会话文件根目录（工具相对路径基准）
-        risk_level: 任务风险等级（low/medium/high）
-        current_time_context: 当前时间上下文（含时区信息）
-        output_spec_block: 规划器输出的交付规格文本块
-
-    Returns:
-        str: 动态 user context 文本
-
-    Note:
-        与 build_stable_execution_system_prompt 配合使用，实现缓存友好的 prompt 分层。
-    """
-    parts: list[str] = [f"用户请求：\n{user_input.strip()}"]
-    summary = (plan_summary or "").strip()
-    if summary:
-        parts.append(f"执行计划摘要：\n{summary}")
-    if output_spec_block and output_spec_block.strip():
-        parts.append(output_spec_block.strip())
-    if keyword_context and keyword_context.strip():
-        parts.append(f"相关记忆：\n{keyword_context.strip()}")
-    if kb_context and kb_context.strip():
-        parts.append(f"相关知识库：\n{kb_context.strip()}")
-    root = (session_files_root or "").strip()
-    if root:
-        parts.append(
-            "当前默认文件根目录：\n"
-            f"{os.path.abspath(root)}\n\n"
-            "工具路径参数若为相对路径，均相对于该目录。"
-        )
-    risk = (risk_level or "").strip()
-    if risk:
-        parts.append(f"本任务风险等级：\n{risk}")
-    time_ctx = (current_time_context or "").strip()
-    if time_ctx:
-        parts.append(f"当前时间上下文：\n{time_ctx}")
-    return "\n\n".join(parts)
-
-
-# ─── 环境变量缓存（性能优化）────────────────────────────────────
 
 
 @lru_cache(maxsize=1)
@@ -535,101 +147,28 @@ def _reset_env_caches_for_tests() -> None:
     _tool_intent_max_chars.cache_clear()
 
 
-def _resolve_exec_tools(
-    effective_registry: ToolRegistryProtocol,
-    agent_config: AgentConfig,
-    plan: StructuredPlan,
-    step: PlanStep | None,
-) -> list[Any]:
-    """根据工具选择策略筛选本轮可用工具定义列表。
-
-    工具筛选遵循三级优先级：
-    1. 步骤级工具箱（step.required_toolboxes）：分步执行时按步骤覆盖
-    2. 计划级工具箱（plan.required_toolboxes）：规划器指定的工具箱
-    3. 策略回退（tool_selection_strategy）：all/auto/manual 三种模式
-
-    **策略说明**：
-    - "all": 所有已注册工具（无筛选）
-    - "auto": 有工具箱时按工具箱筛选，否则返回核心工具（toolbox=None）
-    - "manual": 严格按工具箱筛选（plan/step 指定的工具箱）
-
-    Args:
-        effective_registry: 工具注册表（可能是会话级覆盖注册表）
-        agent_config: Agent 配置（含 tool_selection_strategy）
-        plan: 结构化执行计划
-        step: 当前执行步骤（None 表示非分步模式）
-
-    Returns:
-        list[Any]: 工具定义 schema 列表（传递给 LLM tools 参数）
-
-    Note:
-        分步模式下每步可使用不同工具集，提升安全性和 token 效率。
-    """
-    if not plan.tools_enabled:
-        return []
-    step_tbs = list(step.required_toolboxes) if step and step.required_toolboxes else None
-    plan_tbs = plan.required_toolboxes
-
-    if agent_config.tool_selection_strategy == "all":
-        return effective_registry.get_schemas()
-    if agent_config.tool_selection_strategy == "auto":
-        tbs = step_tbs if step_tbs else plan_tbs
-        if tbs:
-            return effective_registry.get_schemas_by_toolboxes(tbs)
-        tools = [t.schema for t in effective_registry.get_all().values() if t.toolbox is None]
-        return tools if tools else effective_registry.get_schemas()
-    tbs = step_tbs if step_tbs else plan_tbs
-    return effective_registry.get_schemas_by_toolboxes(tbs)
-
-
-def _step_thinking_header(si: int, n_steps: int, step: PlanStep) -> str:
-    """生成分步执行时的步骤级思考展示 header。
-
-    用于分步模式（PHASED_EXECUTION）的思考流分段标题，格式：
-    "[步骤 {step_number}/{total_steps}] {description}"
-
-    Args:
-        si: 步骤索引（从 0 开始）
-        n_steps: 总步骤数
-        step: 当前步骤对象
-
-    Returns:
-        str: 步骤 header 文本（用于 on_thinking 的 header 参数）
-
-    Note:
-        描述超过 72 字符时自动截断并添加省略号。
-    """
-    sn = int(step.step_number) if step.step_number is not None else si + 1
-    desc = (step.description or "").strip().replace("\n", " ")
-    if len(desc) > 72:
-        desc = desc[:69] + "…"
-    return f"[步骤 {sn}/{n_steps}] {desc}".strip()
+from miniagent.core.execution_setup import _resolve_exec_tools, _step_thinking_header
 
 
 def _append_context_or_return(
     context_manager: DefaultContextManager,
     msg: dict[str, Any],
 ) -> str | None:
-    """安全地向上下文管理器追加消息，处理超预算错误。
-
-    尝试将消息追加到上下文管理器，若 overflow_strategy="error" 且超出
-    token 预算，则捕获 ContextBudgetExceeded 异常并返回警告文案。
-
-    Args:
-        context_manager: 上下文管理器实例
-        msg: 要追加的消息字典（含 role 和 content）
-
-    Returns:
-        str | None: 超预算时返回 WARNING_PREFIX 错误提示，正常则返回 None
-
-    Note:
-        调用方应检查返回值，非 None 时立即终止执行并返回错误文案。
-    """
+    """追加消息；``error`` 溢出策略触发时返回用户可操作警告。"""
     try:
         context_manager.append(msg)
     except ContextBudgetExceeded as e:
         return f"{WARNING_PREFIX} {e}"
     return None
+
+
+def _resolve_feishu_receive_id_type(raw: str) -> str | None:
+    """规范化飞书接收 ID 类型，非法配置回落到全局默认值。"""
+    allowed = {"chat_id", "open_id", "union_id"}
+    normalized = raw.strip().lower()
+    if normalized not in allowed:
+        normalized = str(get_config("feishu.receive_id_type", "chat_id"))
+    return normalized if normalized in allowed else None
 
 
 # ─── 回调类型 ────────────────────────────────────────────
@@ -645,6 +184,526 @@ OnToolFinish: TypeAlias = (
 
 
 # ─── 核心：execute_plan（ReAct 主循环；可选分步子循环 + 无 tools 收尾 synthesis）──
+
+
+async def _finish_text_turn(
+    final_reply: str,
+    start_ms: int,
+    *,
+    context_manager: DefaultContextManager,
+    monitor: ToolMonitorProtocol,
+    persist_memory: Callable[[str], Awaitable[None]],
+    save_memory: bool,
+    debug: bool,
+) -> str | None:
+    """提交无工具的 assistant 文本，并按需持久化会话记忆。"""
+    monitor.record("llm_response", time.monotonic_ns() // 1_000_000 - start_ms, True)
+    out_of_budget = _append_context_or_return(
+        context_manager,
+        {"role": "assistant", "content": final_reply},
+    )
+    if out_of_budget:
+        return out_of_budget
+    if save_memory:
+        await persist_memory(final_reply)
+    if debug:
+        _logger.debug(context_manager.get_token_report())
+    return None
+
+
+async def _run_unphased_execution(
+    *,
+    turns_left: int,
+    tools: list[Any],
+    turn_streamer: Any,
+    tool_runner: Any,
+    context_manager: DefaultContextManager,
+    monitor: ToolMonitorProtocol,
+    persist_memory: Callable[[str], Awaitable[None]],
+    debug: bool,
+) -> str | None:
+    """运行传统整体 ReAct 循环；耗尽轮次时返回 ``None``。"""
+    while turns_left > 0:
+        _raise_if_task_cancelled()
+        turns_left -= 1
+        message, _, start_ms, _, _, label = await turn_streamer.stream_exec_turn(
+            None,
+            tools,
+            "[执行]",
+            is_last_step=True,
+        )
+        if message.tool_calls:
+            early = await tool_runner.run_tool_calls_phase(message, start_ms, label)
+            if early is not None:
+                return early
+            continue
+        final_reply = message.content or "(空回复)"
+        out_of_budget = await _finish_text_turn(
+            final_reply,
+            start_ms,
+            context_manager=context_manager,
+            monitor=monitor,
+            persist_memory=persist_memory,
+            save_memory=True,
+            debug=debug,
+        )
+        return out_of_budget or final_reply
+    return None
+
+
+def _phased_step_hint(step: Any, index: int, total: int) -> str:
+    """构建单个执行步骤的动态用户提示。"""
+    return (
+        f"[执行步骤 {step.step_number or index + 1}/{total}] {step.description}\n"
+        f"预期输入：{step.expected_input}\n"
+        f"预期产出：{step.expected_output}\n"
+        "请仅完成本步骤；若当前无需工具，请直接给出简短步骤小结。"
+    )
+
+
+async def _run_phased_step(
+    *,
+    step: Any,
+    index: int,
+    total: int,
+    turns_left: int,
+    plan: StructuredPlan,
+    registry: ToolRegistryProtocol,
+    agent_config: AgentConfig,
+    turn_streamer: Any,
+    tool_runner: Any,
+    context_manager: DefaultContextManager,
+    monitor: ToolMonitorProtocol,
+    persist_memory: Callable[[str], Awaitable[None]],
+) -> tuple[str | None, int, bool]:
+    """运行一个分步子循环，返回结果、剩余轮次和是否自然结束。"""
+    is_last = index + 1 >= total
+    label = _step_thinking_header(index, total, step)
+    tools = _resolve_exec_tools(registry, agent_config, plan, step)
+    context_manager.set_tools(tools)
+    out_of_budget = _append_context_or_return(
+        context_manager,
+        {"role": "user", "content": _phased_step_hint(step, index, total)},
+    )
+    if out_of_budget:
+        return out_of_budget, turns_left, False
+    step_left = min(_step_max_turns_cap(), turns_left)
+    thinking_level, thinking_budget = map_business_depth(step.thinking_level)
+    overrides = {"thinking_level": thinking_level, "thinking_budget": thinking_budget}
+    while step_left > 0 and turns_left > 0:
+        _raise_if_task_cancelled()
+        turns_left -= 1
+        step_left -= 1
+        message, _, start_ms, _, _, turn_label = await turn_streamer.stream_exec_turn(
+            overrides,
+            tools,
+            label,
+            is_last_step=is_last,
+        )
+        if message.tool_calls:
+            early = await tool_runner.run_tool_calls_phase(message, start_ms, turn_label)
+            if early is not None:
+                return early, turns_left, False
+            continue
+        final_reply = message.content or "(空回复)"
+        out_of_budget = await _finish_text_turn(
+            final_reply,
+            start_ms,
+            context_manager=context_manager,
+            monitor=monitor,
+            persist_memory=persist_memory,
+            save_memory=is_last,
+            debug=agent_config.debug,
+        )
+        return out_of_budget or (final_reply if is_last else None), turns_left, True
+    if is_last:
+        return await _synthesize_last_phased_step(
+            turns_left=turns_left,
+            overrides=overrides,
+            label=label,
+            turn_streamer=turn_streamer,
+            context_manager=context_manager,
+            monitor=monitor,
+            persist_memory=persist_memory,
+            debug=agent_config.debug,
+        )
+    return None, turns_left, False
+
+
+async def _synthesize_last_phased_step(
+    *,
+    turns_left: int,
+    overrides: dict[str, Any],
+    label: str,
+    turn_streamer: Any,
+    context_manager: DefaultContextManager,
+    monitor: ToolMonitorProtocol,
+    persist_memory: Callable[[str], Awaitable[None]],
+    debug: bool,
+) -> tuple[str, int, bool]:
+    """最后一步工具轮次耗尽时，用剩余全局轮次执行一次无工具收尾。"""
+    if turns_left <= 0:
+        return _phased_limit_message(), turns_left, False
+    out_of_budget = _append_context_or_return(
+        context_manager,
+        {
+            "role": "user",
+            "content": (
+                "（系统：本步单步子轮次已用尽；工具结果已在上下文中。"
+                "请仅用自然语言给出本步的最终简短小结，不要调用工具。）"
+            ),
+        },
+    )
+    if out_of_budget:
+        return out_of_budget, turns_left, False
+    turns_left -= 1
+    message, _, start_ms, _, _, _ = await turn_streamer.stream_exec_turn(
+        overrides,
+        [],
+        label,
+        is_last_step=True,
+    )
+    if message.tool_calls:
+        return _phased_limit_message(), turns_left, False
+    final_reply = message.content or "(空回复)"
+    error = await _finish_text_turn(
+        final_reply,
+        start_ms,
+        context_manager=context_manager,
+        monitor=monitor,
+        persist_memory=persist_memory,
+        save_memory=True,
+        debug=debug,
+    )
+    return error or final_reply, turns_left, True
+
+
+def _phased_limit_message() -> str:
+    """返回最后一步未自然结束时的可操作提示。"""
+    return (
+        f"{WARNING_PREFIX} 最后一步在单步子轮次（Internal EXECUTION_STEP_MAX_TURNS）或总轮数限制内，"
+        "未以「无工具调用」形式结束。\n\n"
+        "可在 config.user.json 提高 agent.max_turns，"
+        "或联系维护者调整 Internal 分步执行常量（EXECUTION_PHASED_ENABLED / EXECUTION_STEP_MAX_TURNS）后重试。"
+    )
+
+
+async def _run_phased_execution(
+    *,
+    groups: list[Any],
+    turns_left: int,
+    plan: StructuredPlan,
+    registry: ToolRegistryProtocol,
+    agent_config: AgentConfig,
+    turn_streamer: Any,
+    tool_runner: Any,
+    context_manager: DefaultContextManager,
+    monitor: ToolMonitorProtocol,
+    persist_memory: Callable[[str], Awaitable[None]],
+) -> str | None:
+    """按计划分组顺序运行步骤；耗尽全局轮次时返回 ``None``。"""
+    total = sum(len(steps) for _, steps in groups)
+    index = 0
+    for chunk_prompt, steps in groups:
+        prompt = (chunk_prompt or "").strip()
+        if prompt:
+            error = _append_context_or_return(
+                context_manager,
+                {"role": "user", "content": f"## 分块执行上下文\n{prompt}"},
+            )
+            if error:
+                return error
+        for step in steps:
+            result, turns_left, resolved = await _run_phased_step(
+                step=step,
+                index=index,
+                total=total,
+                turns_left=turns_left,
+                plan=plan,
+                registry=registry,
+                agent_config=agent_config,
+                turn_streamer=turn_streamer,
+                tool_runner=tool_runner,
+                context_manager=context_manager,
+                monitor=monitor,
+                persist_memory=persist_memory,
+            )
+            index += 1
+            if result is not None:
+                return result
+            if not resolved and turns_left > 0:
+                error = _append_context_or_return(
+                    context_manager,
+                    {
+                        "role": "user",
+                        "content": (
+                            "（系统提示：上一步在单步子轮次内未结束，以下继续下一步；"
+                            "若结果不理想可适当提高 agent.max_turns 或 Internal EXECUTION_STEP_MAX_TURNS。）"
+                        ),
+                    },
+                )
+                if error:
+                    return error
+    return None
+
+
+def _build_tool_context(
+    agent_config: AgentConfig,
+    *,
+    clawhub: ClawHubClientProtocol | None,
+    knowledge_registry: KnowledgeRegistryProtocol,
+    client: AsyncOpenAI,
+) -> Any:
+    """构造受工作区 allowlist 约束的工具上下文。"""
+    from miniagent.core.execution_runtime_setup import build_tool_context
+
+    return build_tool_context(
+        agent_config,
+        clawhub=clawhub,
+        knowledge_registry=knowledge_registry,
+        client=client,
+        receive_id_type_resolver=_resolve_feishu_receive_id_type,
+    )
+
+
+def _build_loop_detector(agent_config: AgentConfig) -> tuple[LoopDetector, LoopDetectionConfig]:
+    """从强类型配置或兼容字典构造本轮循环检测器。"""
+    from miniagent.core.execution_runtime_setup import build_loop_detector
+
+    return build_loop_detector(agent_config)
+
+
+async def _build_execution_context(
+    plan: StructuredPlan,
+    user_input: str,
+    *,
+    tools: list[dict[str, Any]],
+    agent_config: AgentConfig,
+    memory: MemoryRuntimeProtocol,
+    knowledge_registry: KnowledgeRegistryProtocol,
+    system_prompt: str | None,
+) -> tuple[DefaultContextManager, bool, bool]:
+    """注入本轮记忆与知识，并按稳定前缀顺序恢复会话历史。"""
+    from miniagent.core.execution_runtime_setup import build_execution_context
+
+    return await build_execution_context(
+        plan,
+        user_input,
+        tools=tools,
+        agent_config=agent_config,
+        memory=memory,
+        knowledge_registry=knowledge_registry,
+        system_prompt=system_prompt,
+        ephemeral_resolver=_is_ephemeral_session,
+    )
+
+
+@dataclass(slots=True)
+class _ExecutionRuntime:
+    """持有一次 ReAct 执行的资源所有权与活动日志生命周期。"""
+
+    plan: StructuredPlan
+    user_input: str
+    registry: ToolRegistryProtocol
+    monitor: ToolMonitorProtocol
+    config: AgentConfig
+    memory: MemoryRuntimeProtocol
+    context: DefaultContextManager
+    loop_detector: LoopDetector
+    loop_config: LoopDetectionConfig
+    tools: list[dict[str, Any]]
+    turn_streamer: Any
+    tool_runner: Any
+    ephemeral: bool
+    activity_enabled: bool
+    manage_activity: bool
+    turn_tool_calls: list[dict[str, Any]]
+
+    @property
+    def session_key(self) -> str:
+        """返回用于 Trace 与活动日志的稳定会话键。"""
+        return self.config.session_config.session_key or "default"
+
+    async def start(self) -> None:
+        """记录直接执行入口的会话开始事件并输出调试摘要。"""
+        if self.manage_activity and self.activity_enabled:
+            source = "feishu" if self.session_key.startswith("feishu:") else "cli"
+            await invoke_activity_log(
+                self.memory.activity_log,
+                "log_session_start",
+                self.session_key,
+                self.user_input,
+                source,
+            )
+        if self.config.debug:
+            stats = self.memory.keyword_index.get_stats()
+            _logger.info("使用 %d 个工具 (策略: %s)", len(self.tools), self.config.tool_selection_strategy)
+            _logger.info("计划: %s", self.plan.summary)
+            _logger.info(
+                "最大轮数: %d | 循环检测: %s",
+                self.config.max_turns,
+                "启用" if self.loop_config.enabled else "禁用",
+            )
+            _logger.debug("三层记忆: L3(关键词索引 %d 词)", stats["total_keywords"])
+
+    async def persist(self, final_reply: str) -> None:
+        """成功回合后写入记忆；后台临时会话始终跳过持久化。"""
+        session_key = self.config.session_config.session_key
+        if not session_key or not final_reply or self.ephemeral:
+            return
+        from miniagent.infrastructure.tracing import trace_span
+
+        with trace_span("memory_persist", session_key=self.session_key):
+            await self.memory.context.save_memory_after_turn(
+                session_key,
+                self.user_input,
+                final_reply,
+                self.memory.store,
+                tool_calls=self.turn_tool_calls,
+            )
+        if self.manage_activity:
+            await invoke_activity_log(
+                self.memory.activity_log, "log_final_reply", self.session_key, final_reply
+            )
+
+    async def run(self) -> str:
+        """选择分步或普通路径，并统一处理最大轮次耗尽。"""
+        await self.start()
+        groups = resolve_execution_step_groups(self.plan)
+        if _env_phased_execution_enabled() and groups:
+            result = await _run_phased_execution(
+                groups=groups,
+                turns_left=self.config.max_turns,
+                plan=self.plan,
+                registry=self.registry,
+                agent_config=self.config,
+                turn_streamer=self.turn_streamer,
+                tool_runner=self.tool_runner,
+                context_manager=self.context,
+                monitor=self.monitor,
+                persist_memory=self.persist,
+            )
+        else:
+            result = await _run_unphased_execution(
+                turns_left=self.config.max_turns,
+                tools=self.tools,
+                turn_streamer=self.turn_streamer,
+                tool_runner=self.tool_runner,
+                context_manager=self.context,
+                monitor=self.monitor,
+                persist_memory=self.persist,
+                debug=self.config.debug,
+            )
+        if result is not None:
+            return result
+        if self.manage_activity and self.activity_enabled:
+            await invoke_activity_log(
+                self.memory.activity_log,
+                "log_incomplete",
+                self.session_key,
+                f"达到最大轮数 {self.config.max_turns}",
+            )
+        if self.config.debug:
+            _logger.debug(self.context.get_token_report())
+        calls = self.loop_detector.get_stats()["total_calls"]
+        return (
+            f"{WARNING_PREFIX} 达到最大调用次数（{self.config.max_turns} 轮），任务未完成。\n\n"
+            f"建议：简化请求，分步骤执行。\n\n📊 本轮统计：工具调用 {calls} 次"
+        )
+
+
+async def _create_execution_runtime(
+    plan: StructuredPlan,
+    user_input: str,
+    registry: ToolRegistryProtocol,
+    monitor: ToolMonitorProtocol,
+    agent_config: AgentConfig,
+    *,
+    memory: MemoryRuntimeProtocol,
+    knowledge_registry: KnowledgeRegistryProtocol,
+    client: AsyncOpenAI,
+    system_prompt: str | None,
+    clawhub: ClawHubClientProtocol | None,
+    on_tool_call: OnToolCall | None,
+    on_tool_finish: OnToolFinish | None,
+    on_thinking: OnThinking | None,
+    confirmation_channel: Any | None,
+    tool_semaphore: asyncio.Semaphore | None,
+    manage_activity_lifecycle: bool,
+) -> _ExecutionRuntime:
+    """装配一次执行所需的上下文、流式器、工具运行器和所有者对象。"""
+    from miniagent.core.execution_tools import ToolPhaseRunner
+    from miniagent.core.execution_turn import ExecutionTurnStreamer
+
+    effective_registry = agent_config.session_config.session_registry or registry
+    tools = _resolve_exec_tools(effective_registry, agent_config, plan, None)
+    context, ephemeral, activity_enabled = await _build_execution_context(
+        plan,
+        user_input,
+        tools=tools,
+        agent_config=agent_config,
+        memory=memory,
+        knowledge_registry=knowledge_registry,
+        system_prompt=system_prompt,
+    )
+    loop_detector, loop_config = _build_loop_detector(agent_config)
+    session_key = agent_config.session_config.session_key or "default"
+    turn_tool_calls: list[dict[str, Any]] = []
+    turn_streamer = ExecutionTurnStreamer(
+        context_manager=context,
+        agent_config=agent_config,
+        on_thinking=on_thinking,
+        phase_header_sent=set(),
+        model_config=get_default_model_config(),
+        session_key=session_key,
+        llm_client=client,
+        exec_hist_segments={},
+        activity_log_enabled=activity_enabled,
+        activity_log=memory.activity_log,
+        separator=_thinking_segment_separator(),
+    )
+    tool_runner = ToolPhaseRunner(
+        context_manager=context,
+        agent_config=agent_config,
+        effective_registry=effective_registry,
+        session_key=session_key,
+        on_tool_call=on_tool_call,
+        loop_detector=loop_detector,
+        monitor=monitor,
+        turn_tool_calls=turn_tool_calls,
+        activity_log_enabled=activity_enabled,
+        activity_log=memory.activity_log,
+        confirmation_channel=confirmation_channel,
+        on_thinking=on_thinking,
+        tool_context=_build_tool_context(
+            agent_config,
+            clawhub=clawhub,
+            knowledge_registry=knowledge_registry,
+            client=client,
+        ),
+        execution_semaphore=tool_semaphore
+        or asyncio.Semaphore(max(1, min(20, EXECUTION_MAX_CONCURRENT_TOOLS))),
+        on_tool_finish=on_tool_finish,
+        loop_warning_shown=False,
+    )
+    return _ExecutionRuntime(
+        plan,
+        user_input,
+        effective_registry,
+        monitor,
+        agent_config,
+        memory,
+        context,
+        loop_detector,
+        loop_config,
+        tools,
+        turn_streamer,
+        tool_runner,
+        ephemeral,
+        activity_enabled,
+        manage_activity_lifecycle,
+        turn_tool_calls,
+    )
 
 
 async def execute_plan(
@@ -666,1193 +725,38 @@ async def execute_plan(
     tool_semaphore: asyncio.Semaphore | None = None,
     manage_activity_lifecycle: bool = True,
 ) -> str:
-    """执行结构化计划（ReAct 循环）。
+    """装配并执行结构化计划的 ReAct 循环。
 
-    **核心执行流程**：
-    Phase 2 的 ReAct 循环（Think → Act → Observe）：
-    1. 根据计划筛选可用工具（tool_selection_strategy: all/auto/manual）
-    2. 初始化上下文管理器、循环检测器、Token 统计
-    3. 组装 cache-friendly prompt：stable system → history → current turn user context
-    4. ReAct 循环：LLM 调用 → 工具执行 → 结果反馈 → 循环检测
-    5. 循环终止条件：无工具调用 / max_turns / 循环检测拦截 / 上下文超预算
-
-    **分步模式**（PHASED_EXECUTION=True 且 plan.steps 非空）：
-    - 每步独立子循环，显示 "[步骤 i/n]" 思考 header
-    - 最后一步用尽单步轮次但全局仍有余量时，追加无 tools 的 synthesis 收尾
-    - 避免分步过多导致 token 预算分散（见 EXECUTION_STEP_MAX_TURNS）
-
-    **流式处理**（agent_config.streaming=True）：
-    - 通过 on_thinking 回调实时推送思考内容
-    - 工具调用合并展示（merge_tools 配置）
-    - 避免同轮重复推送（stream_first_body_chunk 控制）
-
-    **错误处理**：
-    - 上下文超预算：ContextBudgetExceeded → 返回 WARNING_PREFIX 提示
-    - 工具执行失败：记录错误日志，继续执行（除非沙箱拒绝）
-    - 循环检测拦截：返回 WARNING_PREFIX + 循环提示
-
-    Args:
-        plan: 来自 Phase 1 的结构化执行计划
-        user_input: 用户原始需求
-        registry: 工具注册表
-        monitor: 性能监控器
-        agent_config: 合并后的 Agent 配置
-        on_tool_call: 工具调用回调（如未知工具等路径）
-        on_thinking: 思考过程回调（含难度/规划可见输出与执行阶段流式思考）
-        on_tool_finish: 每个工具执行完成后异步回调（名称、参数 JSON 字符串、完整结果、是否成功）。
-            若回调签名包含关键字参数 ``thinking_header``（或 ``**kwargs``），将传入当前 ReAct 轮标签（如 ``[第 1 轮]``）；否则仅按四参调用。
-            会话 ``history.json`` 中的工具全文块依赖此回调；不传则不会落盘工具输出。
-            ``UnifiedEngine.run_agent_with_thinking`` 已默认传入。
-        system_prompt: 调用方注入的稳定系统补充（如 skill prompts、通道级稳定规则）
-        clawhub: ClawHub 客户端实例
-        memory: 由组合根注入的记忆运行时，统一提供存储、日志、索引和上下文服务
-        knowledge_registry: 由组合根注入的知识库注册表
-        client: 由组合根显式注入的 LLM 客户端
-        confirmation_channel: 确认通道；``require-confirm`` 工具执行前经此等待用户 /confirm
-        tool_semaphore: 由引擎持有的进程级工具并发限制；直接调用时创建本轮私有限制器
-        manage_activity_lifecycle: 直接调用时记录会话开始/结束；由 ``run_agent``
-            编排时关闭，避免上层与执行器重复写活动日志
-
-    Returns:
-        LLM 的最终回复文本
+    所有工具调用受 :class:`ToolContext` 路径 allowlist 约束。上下文按稳定系统提示、
+    历史、本轮动态上下文的顺序装配；后台临时会话不写活动日志或长期记忆。
     """
-    ms = memory.store
-    al = memory.activity_log
-    ki = memory.keyword_index
-    mc = memory.context
-    session_config = agent_config.session_config
-    feishu_config = agent_config.feishu_config
-    execution_semaphore = tool_semaphore or asyncio.Semaphore(
-        max(1, min(20, EXECUTION_MAX_CONCURRENT_TOOLS))
-    )
-
-    # ── 工具筛选 ──
-    effective_registry = session_config.session_registry or registry
-    tools = _resolve_exec_tools(effective_registry, agent_config, plan, None)
-
-    # ── 执行上下文 ──
-    workspace = session_config.session_workspace or get_default_workspace()
-    # 允许路径：workspace 作为主工作目录（会话 files/ 或 cwd），
-    # 同时加入项目根目录以确保 exec/mkdir 等环境操作不受路径限制。
-    _cwd = os.getcwd()
-    _allowed = list(dict.fromkeys([workspace, _cwd]))  # 去重但保持顺序
-    mq_abort = (feishu_config.receive_chat_id or "").strip() or None
-    rid_raw = (feishu_config.im_receive_id_type or "").strip().lower()
-    if rid_raw not in ("chat_id", "open_id", "union_id"):
-        # 从JSON配置获取（支持环境变量覆盖）
-        rid_raw = get_config("feishu.receive_id_type", "chat_id")
-    feishu_rid_type = rid_raw if rid_raw in ("chat_id", "open_id", "union_id") else None
-    im_recv_alt = (feishu_config.im_receive_id or "").strip() or None
-    ctx = ToolContext(
-        cwd=workspace,
-        allowed_paths=_allowed,
-        permission="allowlist",
-        clawhub=clawhub,
-        knowledge_registry=knowledge_registry,
-        llm_client=client,
-        session_key=session_config.session_key,
-        cli_loop_state=feishu_config.cli_loop_state,
-        cli_dispatch_allow_mutations=feishu_config.cli_dispatch_allow_mutations,
-        message_queue_abort_chat_id=mq_abort,
-        feishu_im_receive_id_type=feishu_rid_type,
-        feishu_im_receive_id=im_recv_alt,
-    )
-
-    # ── 循环检测器 ──
-    # 如果agent_config.loop_detection为空，使用默认配置
-    loop_config_data = agent_config.loop_detection or get_default_agent_config().loop_detection
-    loop_config = (
-        LoopDetectionConfig(**loop_config_data)
-        if isinstance(loop_config_data, dict)
-        else loop_config_data
-    )
-    loop_detector = LoopDetector(loop_config)
-
-    # ── 上下文管理器 ──
-    model_config = get_default_model_config()
-    overflow_strategy = resolve_effective_overflow_strategy(
-        plan, agent_config.context_overflow_strategy
-    )
-    compress_threshold = resolve_chunk_compress_threshold(
+    runtime = await _create_execution_runtime(
         plan,
-        context_window=model_config.context_window,
-        default_threshold=agent_config.context_compress_threshold,
+        user_input,
+        registry,
+        monitor,
+        agent_config,
+        memory=memory,
+        knowledge_registry=knowledge_registry,
+        client=client,
+        system_prompt=system_prompt,
+        clawhub=clawhub,
+        on_tool_call=on_tool_call,
+        on_tool_finish=on_tool_finish,
+        on_thinking=on_thinking,
+        confirmation_channel=confirmation_channel,
+        tool_semaphore=tool_semaphore,
+        manage_activity_lifecycle=manage_activity_lifecycle,
     )
-    context_manager = DefaultContextManager(
-        context_window=model_config.context_window,
-        compress_threshold=compress_threshold,
-        tools=tools,
-        overflow_strategy=overflow_strategy,
-        reserve_ratio=agent_config.context_reserve_ratio,
-        session_key=session_config.session_key,
-    )
-
-    output_spec_block = format_output_spec_block(plan.output_spec)
-
-    # ── Stable system + 本轮动态上下文 ──
-    # 结构化会话记忆、关键词检索和知识库检索都跟随 user_input 高频变化，
-    # 因此只放入 current_turn_context；stable_system 仅保留身份、技能/通道规则
-    # 与不含当前时间戳的稳定说明，方便 provider 复用前缀缓存。
-    bg_ephemeral = _is_ephemeral_session(session_config.session_key)
-    activity_log_enabled = bool(session_config.session_key) and not bg_ephemeral
-    turn_keyword_context: str | None = None
-    if session_config.session_key and not bg_ephemeral:
-        _, mem_meta = await mc.inject_memory_to_messages(
-            [],
-            session_config.session_key,
-            agent_config,
-            user_input=user_input,
-            activity_log=al,
-            keyword_index=ki,
-        )
-        turn_keyword_context = mem_meta.get("turn_keyword_context")
-        if agent_config.debug and mem_meta.get("relevant_count"):
-            _logger.debug(
-                "Layer 3 语义检索: %d 条相关记忆",
-                mem_meta["relevant_count"],
-            )
-
-        # ── 知识库检索（使用公共函数，支持配置）──
-        from miniagent.knowledge import retrieve_knowledge_context
-
-        kb_context_str = retrieve_knowledge_context(
-            knowledge_registry,
-            user_input,
-            phase="executor",
-            default_top_k=3,
-            default_max_chars=4000,
-        )
-        # 公共函数返回的字符串已有标题，直接使用
-        kb_context: str | None = kb_context_str if kb_context_str else None
-
-        stable_system = build_stable_execution_system_prompt(
-            agent_identity=AGENT_IDENTITY,
-            caller_system_prompt=system_prompt,
-        )
-        current_turn_context = build_current_turn_user_context(
-            user_input=user_input,
-            plan_summary=plan.summary,
-            keyword_context=turn_keyword_context,
-            kb_context=kb_context,
-            session_files_root=session_config.session_workspace,
-            risk_level=agent_config.risk_level,
-            current_time_context=format_agent_timezone_context(),
-            output_spec_block=output_spec_block,
-        )
-        context_manager.init(stable_system, current_turn_context)
-    else:
-        # ── 知识库检索（无会话时也检索，使用公共函数）──
-        from miniagent.knowledge import retrieve_knowledge_context
-
-        kb_context_str = retrieve_knowledge_context(
-            knowledge_registry,
-            user_input,
-            phase="executor",
-            default_top_k=3,
-            default_max_chars=4000,
-        )
-        kb_context: str | None = kb_context_str if kb_context_str else None
-
-        stable_system = build_stable_execution_system_prompt(
-            agent_identity=AGENT_IDENTITY,
-            caller_system_prompt=system_prompt,
-        )
-        current_turn_context = build_current_turn_user_context(
-            user_input=user_input,
-            plan_summary=plan.summary,
-            keyword_context=None,
-            kb_context=kb_context,
-            session_files_root=session_config.session_workspace,
-            risk_level=agent_config.risk_level,
-            current_time_context=format_agent_timezone_context(),
-            output_spec_block=output_spec_block,
-        )
-        context_manager.init(stable_system, current_turn_context)
-
-    # ── 恢复对话历史（在当前输入之前） ──
-    if session_config.conversation_history:
-        # 先保存当前 user 上下文（包含本轮动态检索与时间信息）。
-        # 最终顺序必须保持 system → history → current user context：
-        # history 放到 system 前面会破坏稳定前缀，也会改变 system 指令优先级。
-        current_user_msg = {"role": "user", "content": current_turn_context}
-        hist_api = conversation_history_for_llm(session_config.conversation_history)
-        # 重建消息：system + 历史 + 当前输入。
-        context_manager._messages = [
-            context_manager._messages[0],  # system prompt
-            *hist_api,  # 历史消息（含 thinking → assistant 映射）
-            current_user_msg,  # 当前输入
-        ]
-        context_manager._recalculate_tokens()
-        if agent_config.debug:
-            _logger.debug("恢复对话历史: %d 条消息", len(session_config.conversation_history))
-
-    max_turns = agent_config.max_turns
-    turns_left = max_turns
-    loop_warning_shown = False
-
-    # 跟踪整轮工具调用；保留所有执行轮结果供最终记忆提取，而不是仅保留
-    # 最后一轮（通常是无工具的收尾 LLM 响应）。
-    turn_tool_calls: list[dict[str, Any]] = []
-
-    # 活动日志 — 记录会话开始（后台子 session 不落盘）
-    session_key = session_config.session_key or "default"
-    source = "feishu" if session_key.startswith("feishu:") else "cli"
-    if manage_activity_lifecycle and activity_log_enabled:
-        await invoke_activity_log(
-            al,
-            "log_session_start",
-            session_key,
-            user_input,
-            source,
-        )
-
-    if agent_config.debug:
-        idx_stats = ki.get_stats()
-        _logger.info("使用 %d 个工具 (策略: %s)", len(tools), agent_config.tool_selection_strategy)
-        _logger.info("计划: %s", plan.summary)
-        _logger.info(
-            "最大轮数: %d | 循环检测: %s", max_turns, "启用" if loop_config.enabled else "禁用"
-        )
-        _logger.debug("三层记忆: L3(关键词索引 %d 词)", idx_stats["total_keywords"])
-
-    llm_client = client
-
-    async def _persist_session_memory(final_reply: str) -> None:
-        """回合结束后写入会话记忆与最终回复活动日志（跳过后台 ephemeral session）。"""
-        if not session_config.session_key or not final_reply or bg_ephemeral:
-            return
-        from miniagent.infrastructure.tracing import trace_span
-
-        with trace_span("memory_persist", session_key=session_key):
-            await mc.save_memory_after_turn(
-                session_config.session_key,
-                user_input,
-                final_reply,
-                ms,
-                tool_calls=turn_tool_calls,
-            )
-        if manage_activity_lifecycle:
-            await invoke_activity_log(al, "log_final_reply", session_key, final_reply)
-
-    exec_turn_no = 0
-    _exec_hist_segments: dict[str, list[str]] = {}
-    _phase_header_sent: set[str] = set()
-
-    sep = _thinking_segment_separator()
-
-    def _joined_phase_cumulative(label: str, current_body: str) -> str:
-        """将同一 ``label`` 下历史执行轮正文与 ``current_body`` 用分段符拼接，供思考流 cumulative 展示。
-
-        返回完整累积内容（含历史轮），使引擎端 prefix 检测始终生效。
-        工具意图行必须用 ``streaming=False``，否则污染 LLM 正文前缀导致 prefix 匹配失效。
-        """
-        prev = [p for p in _exec_hist_segments.get(label, []) if (p or "").strip()]
-        if not prev:
-            return current_body
-        return sep.join(prev + [current_body])
-
-    async def _stream_exec_turn(
-        merge_overrides: dict[str, Any] | None,
-        tools_arg: list[Any],
-        thinking_phase_label: str,
-        is_last_step: bool = False,
-    ) -> tuple[Any, dict[str, Any], int, Any, str, str]:
-        """流式调用执行阶段 LLM 一轮，聚合正文与 tool_calls，并驱动 ``on_thinking``。
-
-        Args:
-            merge_overrides: 模型参数覆盖（如 thinking_level/budget）
-            tools_arg: 本轮可用的工具定义列表（传给 LLM tools 参数）
-            thinking_phase_label: 思考流分段标题（如 "[执行]" 或 "[步骤 1/3]"）
-            is_last_step: 是否为规划的最后一步（最后一步的 LLM 正文不在思考区显示）
-
-        Returns:
-            tuple: (msg, usage, elapsed_ms, tool_calls, full_content, thinking_header)
-                - msg: LLM 返回的 assistant 消息对象
-                - usage: token 用量统计（prompt/completion/total）
-                - elapsed_ms: 本轮调用耗时（毫秒）
-                - tool_calls: 解析后的 tool_calls 列表（无则空）
-                - full_content: 聚合后的正文内容
-                - thinking_header: 当前思考分段标题（供工具回调）
-        """
-        nonlocal exec_turn_no
-        _raise_if_task_cancelled()
-        exec_turn_no += 1
-        start_ms = time.monotonic_ns() // 1_000_000
-        messages = strip_leading_underscore_keys_from_messages(list(context_manager.get_messages()))
-        turn_display = exec_turn_no
-
-        if agent_config.debug:
-            _logger.debug(
-                "LLM 请求 (第 %d 轮): 消息数=%d, 工具数=%d",
-                turn_display,
-                len(messages),
-                len(tools_arg),
-            )
-
-        full_tool_calls: list[Any] = []
-        thinking_header = thinking_phase_label
-        _thinking_started = False
-
-        # 性能优化：回调频率控制
-        _last_callback_time = time.monotonic_ns() // 1_000_000
-        _callback_min_interval_ms = EXECUTION_CALLBACK_MIN_INTERVAL_MS
-        _callback_min_chars = EXECUTION_CALLBACK_MIN_CHARS
-        _chars_since_last_callback = 0
-
-        if on_thinking and not _thinking_started:
-            try:
-                if thinking_phase_label not in _phase_header_sent:
-                    await invoke_on_thinking(
-                        on_thinking,
-                        f"{thinking_phase_label} 开始",
-                        False,
-                        thinking_phase_label,
-                        full_record=f"{thinking_phase_label} 开始",
-                        is_last_step=is_last_step,
-                    )
-                    _phase_header_sent.add(thinking_phase_label)
-                _thinking_started = True
-            except Exception as e:
-                _logger.debug("思考状态推送失败（非关键）: %s", e)
-
-        base_exec_kw = resolve_exec_completion_kwargs(
-            agent_config, stream=True, merge_overrides=merge_overrides
-        )
-        responses_wire = model_config.wire_api == "responses"
-        for request_attempt in range(_EXEC_LLM_MAX_ATTEMPTS):
-            call_id = new_trace_id("llm")
-            request_start_ns = time.monotonic_ns()
-            full_content_parts = StreamingBuffer()
-            _tool_call_accum: dict[int, dict[str, str]] = {}
-            _usage = None
-            _chars_since_last_callback = 0
-            _last_callback_time = time.monotonic_ns() // 1_000_000
-            exec_kw = _exec_retry_params(
-                base_exec_kw,
-                attempt=request_attempt,
-                responses=responses_wire,
-            )
-            emit_trace(
-                {
-                    "type": "llm.request",
-                    "call_id": call_id,
-                    "phase": "exec",
-                    "session_key": session_key,
-                    "turn": turn_display,
-                    "attempt": request_attempt + 1,
-                    "model": exec_kw["model"],
-                    "message_count": len(messages),
-                    "tool_count": len(tools_arg),
-                    **llm_request_size_metrics(messages, tools_arg),
-                    "reasoning_level": exec_kw.get("_thinking_level"),
-                    "sampling_removed": ("temperature" not in exec_kw and "top_p" not in exec_kw),
-                }
-            )
-            try:
-                async for event in stream_completion(
-                    llm_client,
-                    messages=messages,
-                    tools=tools_arg if tools_arg else None,
-                    params=exec_kw,
-                ):
-                    if event.usage is not None:
-                        _usage = event.usage
-                    if event.content_delta:
-                        full_content_parts.append(event.content_delta)
-                        _chars_since_last_callback += len(event.content_delta)
-
-                        if on_thinking:
-                            # 性能优化：回调频率控制（避免高频回调）
-                            now_ms = time.monotonic_ns() // 1_000_000
-                            time_elapsed = now_ms - _last_callback_time
-                            should_callback = (
-                                time_elapsed >= _callback_min_interval_ms
-                                or _chars_since_last_callback >= _callback_min_chars
-                            )
-
-                            if should_callback:
-                                cum = _joined_phase_cumulative(
-                                    thinking_phase_label,
-                                    full_content_parts.getvalue(),
-                                )
-                                try:
-                                    await invoke_on_thinking(
-                                        on_thinking,
-                                        cum,
-                                        True,
-                                        thinking_phase_label,
-                                        full_record=cum,
-                                        is_last_step=is_last_step,
-                                    )
-                                    _last_callback_time = now_ms
-                                    _chars_since_last_callback = 0
-                                except Exception:
-                                    pass
-                    tc_delta = event.tool_call_delta
-                    if tc_delta is not None:
-                        idx = tc_delta.index
-                        if idx not in _tool_call_accum:
-                            _tool_call_accum[idx] = {
-                                "id": tc_delta.id,
-                                "name": tc_delta.name,
-                                "arguments": "",
-                            }
-                        if tc_delta.id:
-                            _tool_call_accum[idx]["id"] = tc_delta.id
-                        if tc_delta.name:
-                            _tool_call_accum[idx]["name"] = tc_delta.name
-                        if tc_delta.arguments:
-                            _tool_call_accum[idx]["arguments"] += tc_delta.arguments
-            except Exception as error:
-                has_partial_output = bool(full_content_parts.getvalue() or _tool_call_accum)
-                failure = classify_transport_error(error)
-                can_retry = (
-                    responses_wire
-                    and not has_partial_output
-                    and failure.retryable
-                    and request_attempt < _EXEC_LLM_MAX_ATTEMPTS - 1
-                )
-                emit_trace(
-                    {
-                        "type": "llm.response",
-                        "call_id": call_id,
-                        "phase": "exec",
-                        "session_key": session_key,
-                        "turn": turn_display,
-                        "attempt": request_attempt + 1,
-                        "failure_category": failure.category,
-                        "retrying": can_retry,
-                        "duration_ms": (time.monotonic_ns() - request_start_ns) // 1_000_000,
-                    }
-                )
-                if not can_retry:
-                    if responses_wire and not has_partial_output and failure.retryable:
-                        raise LLMTransportError(
-                            "LLM endpoint repeatedly rejected the execution request "
-                            "with a transient gateway error."
-                        ) from None
-                    raise
-                _logger.info(
-                    "Execution turn %d attempt %d hit a retryable gateway error; retrying",
-                    turn_display,
-                    request_attempt + 1,
-                )
-                continue
-
-            full_content = full_content_parts.getvalue()
-            request_duration_ms = (time.monotonic_ns() - request_start_ns) // 1_000_000
-            if full_content.strip() or _tool_call_accum or not responses_wire:
-                break
-            if request_attempt == _EXEC_LLM_MAX_ATTEMPTS - 1:
-                emit_trace(
-                    {
-                        "type": "llm.response",
-                        "call_id": call_id,
-                        "phase": "exec",
-                        "session_key": session_key,
-                        "turn": turn_display,
-                        "attempt": request_attempt + 1,
-                        "failure_category": "empty_response",
-                        "retrying": False,
-                        "duration_ms": request_duration_ms,
-                    }
-                )
-                raise LLMTransportError(
-                    "Responses execution returned no text or tool calls after "
-                    f"{_EXEC_LLM_MAX_ATTEMPTS} attempts."
-                )
-            emit_trace(
-                {
-                    "type": "llm.response",
-                    "call_id": call_id,
-                    "phase": "exec",
-                    "session_key": session_key,
-                    "turn": turn_display,
-                    "attempt": request_attempt + 1,
-                    "failure_category": "empty_response",
-                    "retrying": True,
-                    "duration_ms": request_duration_ms,
-                }
-            )
-            _logger.info(
-                "Execution turn %d attempt %d returned no text or tool calls; retrying",
-                turn_display,
-                request_attempt + 1,
-            )
-        else:
-            raise AssertionError("unreachable execution retry loop")
-
-        # 性能优化：确保最后回调发送（完整内容）
-        if on_thinking and full_content and _chars_since_last_callback > 0:
-            try:
-                cum = _joined_phase_cumulative(thinking_phase_label, full_content)
-                await invoke_on_thinking(
-                    on_thinking,
-                    cum,
-                    True,
-                    thinking_phase_label,
-                    full_record=cum,
-                    is_last_step=is_last_step,
-                )
-            except Exception:
-                pass
-
-        if _tool_call_accum:
-            full_tool_calls = []
-            for idx in sorted(_tool_call_accum.keys()):
-                tc_info = _tool_call_accum[idx]
-                # 预解析 arguments（避免后续重复 JSON 解析）
-                try:
-                    tc_info["args_dict"] = json.loads(tc_info["arguments"])
-                except (json.JSONDecodeError, TypeError):
-                    tc_info["args_dict"] = {}
-                fn_obj = SimpleNamespace(name=tc_info["name"], arguments=tc_info["arguments"])
-                tc_obj = SimpleNamespace(id=tc_info["id"], function=fn_obj)
-                # 将 args_dict 附加到 tc_obj 以便后续使用
-                tc_obj._args_dict = tc_info["args_dict"]
-                full_tool_calls.append(tc_obj)
-
-        msg = SimpleNamespace(
-            content=full_content or None,
-            tool_calls=full_tool_calls or None,
-        )
-
-        if on_thinking and full_tool_calls and _tool_intent_in_thinking_enabled():
-            try:
-                for tc in full_tool_calls:
-                    try:
-                        args_dict = tc._args_dict  # 使用预解析的结果
-                        intent = _extract_tool_intent(tc.function.name, args_dict)
-                    except (json.JSONDecodeError, TypeError):
-                        intent = "执行操作"
-                    line = f"🔧 {tc.function.name} — {intent}"
-                    await invoke_on_thinking(
-                        on_thinking,
-                        line,
-                        False,
-                        thinking_phase_label,
-                        full_record=line,
-                    )
-            except Exception as e:
-                _logger.debug("思考状态推送失败（非关键）: %s", e)
-
-        emit_trace(
-            {
-                "type": "llm.response",
-                "call_id": call_id,
-                "phase": "exec",
-                "session_key": session_key,
-                "turn": turn_display,
-                "attempt": request_attempt + 1,
-                "model": exec_kw["model"],
-                "has_tool_calls": bool(full_tool_calls),
-                "duration_ms": request_duration_ms,
-                "usage": _usage.model_dump() if _usage else None,
-            }
-        )
-
-        if agent_config.log_file:
-            await asyncio.to_thread(
-                append_log,
-                agent_config.log_file,
-                {
-                    "phase": "exec",
-                    "turn": turn_display,
-                    "req": {
-                        "model": exec_kw["model"],
-                        "messageCount": len(messages),
-                        "toolCount": len(tools_arg),
-                    },
-                    "res": {
-                        "hasToolCalls": bool(full_tool_calls),
-                        "toolCalls": [
-                            {"name": tc.function.name, "args": truncate(tc.function.arguments, 300)}
-                            for tc in full_tool_calls
-                        ],
-                        "content": truncate(full_content or "", 1000) if full_content else None,
-                        "usage": _usage.model_dump() if _usage else None,
-                    },
-                },
-            )
-
-        if activity_log_enabled:
-            await invoke_activity_log(
-                al,
-                "log_llm_call",
-                session_key=session_key,
-                turn=turn_display,
-                model=exec_kw["model"],
-                message_count=len(messages),
-                tool_count=len(tools_arg),
-                thinking=full_content,
-                token_usage=_usage.model_dump()
-                if (_usage and agent_config.log_token_usage)
-                else None,
-            )
-        if (full_content or "").strip():
-            _exec_hist_segments.setdefault(thinking_phase_label, []).append(full_content)
-        return msg, exec_kw, start_ms, _usage, full_content, thinking_header
-
-    async def _invoke_on_tool_finish(
-        name: str,
-        args_json: str,
-        result: str,
-        success: bool,
-        thinking_header: str,
-    ) -> None:
-        """调用 ``on_tool_finish`` 回调。"""
-        if on_tool_finish is None:
-            return
-        try:
-            await on_tool_finish(name, args_json, result, success, thinking_header=thinking_header)
-        except Exception as e:
-            if agent_config.debug:
-                _logger.exception("on_tool_finish 回调失败: %s", e)
-
-    async def _run_tool_calls_phase(msg: Any, start_ms: int, thinking_header: str) -> str | None:
-        """处理 assistant 消息中的 tool_calls：入上下文、循环检测、并发执行工具并写回 tool 消息。
-
-        Args:
-            msg: LLM 返回的 assistant 消息（含 content 与 tool_calls）
-            start_ms: 本轮开始时间戳（用于计算 elapsed）
-            thinking_header: 当前思考分段标题（传递给工具回调）
-
-        Returns:
-            str | None: 上下文超预算时返回错误消息；正常完成返回 None
-        """
-        nonlocal loop_warning_shown
-        _raise_if_task_cancelled()
-        assistant_msg = {"role": "assistant", "content": msg.content or ""}
-        if msg.tool_calls:
-            assistant_msg["tool_calls"] = [
-                {
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {
-                        "name": tc.function.name,
-                        "arguments": tc.function.arguments,
-                    },
-                }
-                for tc in msg.tool_calls
-            ]
-        oob_a = _append_context_or_return(context_manager, assistant_msg)
-        if oob_a:
-            return oob_a
-
-        timeout_sec = max(1, int(agent_config.tool_timeout))
-        pending: list[tuple[Any, dict[str, Any], Any]] = []
-
-        for tc in msg.tool_calls:
-            tool = effective_registry.get(tc.function.name)
-            if tool is None:
-                avail = ", ".join(effective_registry.list())
-                # 未知工具：LLM 调用了不存在的工具（通常是模型幻觉或工具注册问题）
-                try:
-                    args_unknown = (
-                        json.loads(tc.function.arguments) if tc.function.arguments else {}
-                    )
-                except json.JSONDecodeError:
-                    args_unknown = {"raw": tc.function.arguments}
-                _log_tool_error(
-                    tool_name=tc.function.name,
-                    tool_call_id=tc.id,
-                    args=args_unknown,
-                    session_key=session_key,
-                    error_type="UnknownTool",
-                    error_message=f"工具不存在，可用工具: {avail[:100]}",
-                    is_user_error=False,  # 这是 LLM 或工具注册问题，非用户误用
-                )
-                oob_u = _append_context_or_return(
-                    context_manager,
-                    {
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "content": f"错误：未知工具 {tc.function.name}。可用: {avail}",
-                    },
-                )
-                if oob_u:
-                    return oob_u
-                if on_tool_call:
-                    on_tool_call(
-                        tc.function.name, tc.function.arguments, f"{WARNING_PREFIX} 未知工具"
-                    )
-                await _invoke_on_tool_finish(
-                    tc.function.name,
-                    tc.function.arguments,
-                    f"错误：未知工具 {tc.function.name}。可用: {avail}",
-                    False,
-                    thinking_header,
-                )
-                continue
-
-            try:
-                args = getattr(tc, "_args_dict", None) or json.loads(tc.function.arguments)
-                loop_check = loop_detector.check(tc.function.name, args)
-
-                if loop_check.level == "critical":
-                    elapsed = time.monotonic_ns() // 1_000_000 - start_ms
-                    monitor.record(
-                        tc.function.name,
-                        elapsed,
-                        False,
-                        error=loop_check.message,
-                    )
-                    _logger.warning("循环检测拦截: %s", loop_check.message)
-                    return f"{WARNING_PREFIX} 任务执行被终止：{loop_check.message}\n\n建议：简化请求或明确具体目标。"
-
-                if loop_check.level == "warning" and not loop_warning_shown:
-                    loop_warning_shown = True
-                    _logger.warning(loop_check.message)
-            except Exception:
-                args = {}
-
-            pending.append((tc, args, tool))
-
-        async def _run_tool(
-            tc: Any, args: dict[str, Any], tool: Any
-        ) -> tuple[Any, dict[str, Any], Any, Any, int]:
-            """执行单个 tool_call（含超时与监控），返回 tool 消息构造所需字段。
-
-            Args:
-                tc: tool_call 对象（含 id、function.name、function.arguments）
-                args: 解析后的工具参数字典
-                tool: ToolDefinition 对象（含 handler 与权限信息）
-
-            Returns:
-                tuple: (tc, args, result, tool, elapsed_ms)
-                - tc: 原 tool_call 对象
-                - args: 解析后的参数
-                - result: ToolResult（success/content/meta）
-                - tool: ToolDefinition
-                - elapsed_ms: 执行耗时（毫秒）
-
-            异常处理策略：
-            - TimeoutError: 工具执行超过 timeout_sec，返回超时提示
-            - Exception: 其他异常（权限拒绝、参数错误、内部错误等），返回错误信息
-            无论成功与否，都会记录 trace 和 monitor，不影响其他工具执行。
-            """
-            async with execution_semaphore:
-                _raise_if_task_cancelled()
-                tool_start = time.monotonic_ns() // 1_000_000
-                tool_cpu_start_ns = time.process_time_ns()
-                emit_trace(
-                    {
-                        "type": "tool.start",
-                        "session_key": session_key,
-                        "tool": tc.function.name,
-                        "tool_call_id": tc.id,
-                    }
-                )
-                denied = await _await_tool_confirmation(
-                    tool_name=tc.function.name,
-                    help_text=getattr(tool, "help_text", "") or "",
-                    args=args,
-                    permission=getattr(tool, "permission", "sandbox"),
-                    confirmation_channel=confirmation_channel,
-                    agent_config=agent_config,
-                    on_thinking=on_thinking,
-                    thinking_header=thinking_header,
-                )
-                if denied is not None:
-                    elapsed = time.monotonic_ns() // 1_000_000 - tool_start
-                    return tc, args, tool, denied, elapsed
-                try:
-                    result = await asyncio.wait_for(
-                        tool.handler(args, ctx),
-                        timeout=timeout_sec,
-                    )
-                except asyncio.TimeoutError:
-                    # 超时：工具执行时间超过限制（可能是工具性能问题或参数导致的长操作）
-                    result = ToolResult(
-                        success=False,
-                        content=f"{WARNING_PREFIX} 工具超时（{timeout_sec}s）: {tc.function.name}",
-                        meta={"error_type": "TimeoutError"},
-                    )
-                    _log_tool_error(
-                        tool_name=tc.function.name,
-                        tool_call_id=tc.id,
-                        args=args,
-                        session_key=session_key,
-                        error_type="TimeoutError",
-                        error_message=f"工具执行超过 {timeout_sec}s 超时限制",
-                        is_user_error=False,  # 超时可能是工具性能问题，也可能是用户请求导致
-                    )
-                except PermissionError as e:
-                    # 权限拒绝：沙箱限制或文件权限不足（用户误用）
-                    result = ToolResult(
-                        success=False,
-                        content=f"{WARNING_PREFIX} 权限拒绝: {e}",
-                        meta={"error_type": "PermissionError"},
-                    )
-                    _log_tool_error(
-                        tool_name=tc.function.name,
-                        tool_call_id=tc.id,
-                        args=args,
-                        session_key=session_key,
-                        error_type="PermissionError",
-                        error_message=str(e),
-                        is_user_error=True,  # 权限问题通常是用户操作导致的
-                    )
-                except FileNotFoundError as e:
-                    # 文件不存在：read_file 等工具的常见错误（用户误用）
-                    result = ToolResult(
-                        success=False,
-                        content=f"{WARNING_PREFIX} 文件不存在: {e}",
-                        meta={"error_type": "FileNotFoundError"},
-                    )
-                    _log_tool_error(
-                        tool_name=tc.function.name,
-                        tool_call_id=tc.id,
-                        args=args,
-                        session_key=session_key,
-                        error_type="FileNotFoundError",
-                        error_message=str(e),
-                        is_user_error=True,  # 文件不存在是用户操作导致的
-                    )
-                except Exception as e:
-                    # 其他异常：参数错误、工具内部错误等，需要详细诊断
-                    error_type_name = type(e).__name__
-                    result = ToolResult(
-                        success=False,
-                        content=f"{WARNING_PREFIX} 执行异常: {e}",
-                        meta={"error_type": error_type_name},
-                    )
-                    tb_str = traceback.format_exc()
-                    # 根据异常类型判断是用户误用还是工具缺陷
-                    is_user_error = isinstance(
-                        e,
-                        (
-                            ValueError,  # 参数错误
-                            TypeError,  # 类型错误
-                            KeyError,  # 键错误
-                            json.JSONDecodeError,  # JSON 解析错误
-                            SandboxViolationError,  # 沙箱路径越界
-                            FeishuConfigMissingError,  # 飞书配置缺失
-                            LarkOapiMissingError,  # 飞书 SDK 缺失
-                        ),
-                    )
-                    _log_tool_error(
-                        tool_name=tc.function.name,
-                        tool_call_id=tc.id,
-                        args=args,
-                        session_key=session_key,
-                        error_type=error_type_name,
-                        error_message=str(e),
-                        is_user_error=is_user_error,
-                        traceback_str=tb_str if not is_user_error else None,
-                    )
-                tool_elapsed = time.monotonic_ns() // 1_000_000 - tool_start
-                emit_trace(
-                    {
-                        "type": "tool.end",
-                        "session_key": session_key,
-                        "tool": tc.function.name,
-                        "tool_call_id": tc.id,
-                        "duration_ms": tool_elapsed,
-                        "cpu_ms": (time.process_time_ns() - tool_cpu_start_ns) / 1_000_000,
-                        "input_chars": len(tc.function.arguments or ""),
-                        "output_chars": len(result.content or ""),
-                        "input_bytes": result.meta.get("input_bytes") if result.meta else None,
-                        "success": result.success,
-                    }
-                )
-                return tc, args, tool, result, tool_elapsed
-
-        if pending:
-            if agent_config.allow_parallel_tools and len(pending) > 1:
-                # 使用 return_exceptions=True 确保单个工具失败不影响其他工具
-                outcomes = await asyncio.gather(
-                    *[_run_tool(tc, args, tool) for tc, args, tool in pending],
-                    return_exceptions=True,
-                )
-            else:
-                outcomes = []
-                for tc, args, tool in pending:
-                    try:
-                        outcomes.append(await _run_tool(tc, args, tool))
-                    except Exception as e:
-                        # 捕获单个工具异常，继续执行其他工具
-                        outcomes.append(e)
-
-            for idx, outcome in enumerate(outcomes):
-                tc, args, tool = pending[idx]
-                # 处理可能的异常结果
-                if isinstance(outcome, Exception):
-                    result = ToolResult(success=False, content=f"工具执行异常: {outcome}")
-                    tool_elapsed = 0
-                else:
-                    # outcome 是 _run_tool 返回的元组，只提取 result 和 tool_elapsed
-                    # tc/args/tool 已经从 pending 获取
-                    _, _, _, result, tool_elapsed = outcome
-                turn_tool_calls.append(
-                    {
-                        "name": tc.function.name,
-                        "args": tc.function.arguments,
-                        "result": result.content,
-                    }
-                )
-                loop_detector.record(tc.function.name, args, result.content)
-                monitor.record(
-                    tc.function.name,
-                    tool_elapsed,
-                    result.success,
-                    error=result.content if not result.success else None,
-                )
-                oob_t = _append_context_or_return(
-                    context_manager,
-                    {
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "content": result.content,
-                    },
-                )
-                intent = _extract_tool_intent(tc.function.name, args)
-                # 从 result.meta 中提取 error_type（如果失败）
-                error_type = result.meta.get("error_type") if not result.success else None
-                if activity_log_enabled:
-                    await invoke_activity_log(
-                        al,
-                        "log_tool_call",
-                        session_key=session_key,
-                        tool_name=tc.function.name,
-                        intent=intent,
-                        args=args,
-                        result=result.content,
-                        duration_ms=tool_elapsed,
-                        success=result.success,
-                        error_type=error_type,
-                    )
-                await _invoke_on_tool_finish(
-                    tc.function.name,
-                    tc.function.arguments,
-                    result.content,
-                    result.success,
-                    thinking_header,
-                )
-                if oob_t:
-                    return oob_t
-        return None
-
-    execution_groups = resolve_execution_step_groups(plan)
-    use_phased = _env_phased_execution_enabled() and bool(execution_groups)
-
-    if not use_phased:
-        while turns_left > 0:
-            _raise_if_task_cancelled()
-            turns_left -= 1
-            msg, _exec_kw, start_ms, _usage, _full_content, turn_label = await _stream_exec_turn(
-                None, tools, "[执行]", is_last_step=True
-            )
-
-            if not msg.tool_calls:
-                final_reply = msg.content or "(空回复)"
-                elapsed = time.monotonic_ns() // 1_000_000 - start_ms
-                monitor.record("llm_response", elapsed, True)
-                oob = _append_context_or_return(
-                    context_manager, {"role": "assistant", "content": final_reply}
-                )
-                if oob:
-                    return oob
-
-                await _persist_session_memory(final_reply)
-
-                if agent_config.debug:
-                    _logger.debug(context_manager.get_token_report())
-
-                return final_reply
-
-            early = await _run_tool_calls_phase(msg, start_ms, turn_label)
-            if early is not None:
-                return early
-    else:
-
-        async def _finish_phased_text_turn(
-            final_reply: str, start_ms_text: int, *, save_memory: bool
-        ) -> str | None:
-            """写入本轮纯文本 assistant；可选落会话记忆。若上下文超预算则返回错误文案。"""
-            elapsed_txt = time.monotonic_ns() // 1_000_000 - start_ms_text
-            monitor.record("llm_response", elapsed_txt, True)
-            oob_txt = _append_context_or_return(
-                context_manager, {"role": "assistant", "content": final_reply}
-            )
-            if oob_txt:
-                return oob_txt
-            if save_memory:
-                await _persist_session_memory(final_reply)
-            if agent_config.debug:
-                _logger.debug(context_manager.get_token_report())
-            return None
-
-        n_steps = sum(len(grp) for _, grp in execution_groups)
-        global_si = 0
-        for chunk_prompt, group_steps in execution_groups:
-            cp = (chunk_prompt or "").strip()
-            if cp:
-                oob_chunk = _append_context_or_return(
-                    context_manager,
-                    {"role": "user", "content": f"## 分块执行上下文\n{cp}"},
-                )
-                if oob_chunk:
-                    return oob_chunk
-            for step in group_steps:
-                si = global_si
-                global_si += 1
-                is_last = global_si >= n_steps
-                phase_lbl = _step_thinking_header(si, n_steps, step)
-                step_tools = _resolve_exec_tools(effective_registry, agent_config, plan, step)
-                context_manager.set_tools(step_tools)
-                step_hint = (
-                    f"[执行步骤 {step.step_number or si + 1}/{n_steps}] {step.description}\n"
-                    f"预期输入：{step.expected_input}\n"
-                    f"预期产出：{step.expected_output}\n"
-                    "请仅完成本步骤；若当前无需工具，请直接给出简短步骤小结。"
-                )
-                oob_step = _append_context_or_return(
-                    context_manager, {"role": "user", "content": step_hint}
-                )
-                if oob_step:
-                    return oob_step
-
-                sub_cap = min(_step_max_turns_cap(), turns_left)
-                sub_left = sub_cap
-                stl, stb = map_business_depth(step.thinking_level)
-                step_merge = {"thinking_level": stl, "thinking_budget": stb}
-
-                step_resolved = False
-                while sub_left > 0 and turns_left > 0:
-                    _raise_if_task_cancelled()
-                    turns_left -= 1
-                    sub_left -= 1
-                    msg, _ek, start_ms, _u, _fc, turn_label = await _stream_exec_turn(
-                        step_merge, step_tools, phase_lbl, is_last_step=is_last
-                    )
-
-                    if not msg.tool_calls:
-                        final_reply = msg.content or "(空回复)"
-                        oob_txt = await _finish_phased_text_turn(
-                            final_reply, start_ms, save_memory=is_last
-                        )
-                        if oob_txt is not None:
-                            return oob_txt
-                        if is_last:
-                            return final_reply
-                        step_resolved = True
-                        break
-
-                    early = await _run_tool_calls_phase(msg, start_ms, turn_label)
-                    if early is not None:
-                        return early
-
-                if is_last and not step_resolved:
-                    if turns_left > 0:
-                        oob_g = _append_context_or_return(
-                            context_manager,
-                            {
-                                "role": "user",
-                                "content": (
-                                    "（系统：本步单步子轮次已用尽；工具结果已在上下文中。"
-                                    "请仅用自然语言给出本步的最终简短小结，不要调用工具。）"
-                                ),
-                            },
-                        )
-                        if oob_g:
-                            return oob_g
-                        turns_left -= 1
-                        msg_g, _, start_ms_g, _, _, _ = await _stream_exec_turn(
-                            step_merge, [], phase_lbl, is_last_step=True
-                        )
-                        if not msg_g.tool_calls:
-                            final_reply = msg_g.content or "(空回复)"
-                            oob_txt = await _finish_phased_text_turn(
-                                final_reply, start_ms_g, save_memory=True
-                            )
-                            if oob_txt is not None:
-                                return oob_txt
-                            return final_reply
-                    return (
-                        f"{WARNING_PREFIX} 最后一步在单步子轮次（Internal EXECUTION_STEP_MAX_TURNS）或总轮数限制内，"
-                        "未以「无工具调用」形式结束。\n\n"
-                        "可在 config.user.json 提高 agent.max_turns，"
-                        "或联系维护者调整 Internal 分步执行常量（EXECUTION_PHASED_ENABLED / EXECUTION_STEP_MAX_TURNS）后重试。"
-                    )
-
-                if not is_last and not step_resolved and turns_left > 0:
-                    oob_n = _append_context_or_return(
-                        context_manager,
-                        {
-                            "role": "user",
-                            "content": (
-                                "（系统提示：上一步在单步子轮次内未结束，以下继续下一步；"
-                                "若结果不理想可适当提高 agent.max_turns 或 Internal EXECUTION_STEP_MAX_TURNS。）"
-                            ),
-                        },
-                    )
-                    if oob_n:
-                        return oob_n
-
-    # ── 达到最大轮数 ──
-    loop_stats = loop_detector.get_stats()
-
-    if activity_log_enabled:
-        if manage_activity_lifecycle:
-            await invoke_activity_log(
-                al,
-                "log_incomplete",
-                session_key,
-                f"达到最大轮数 {max_turns}",
-            )
-
-    if agent_config.debug:
-        _logger.debug(context_manager.get_token_report())
-
-    return (
-        f"{WARNING_PREFIX} 达到最大调用次数（{max_turns} 轮），任务未完成。\n\n"
-        f"建议：简化请求，分步骤执行。\n\n"
-        f"📊 本轮统计：工具调用 {loop_stats['total_calls']} 次"
-    )
+    return await runtime.run()
 
 
 # ─── 工具意图提取 ────────────────────────────────────────────
 
 
-def _clip_intent_value(s: str) -> str:
-    """将意图字符串截断至 :func:`_tool_intent_max_chars` 上限并追加长度提示。"""
-    cap = _tool_intent_max_chars()
-    if cap <= 0:
-        return s
-    if len(s) <= cap:
-        return s
-    return s[:cap] + f"…（共 {len(s)} 字）"
-
-
 def _extract_tool_intent(tool_name: str, args: dict[str, Any]) -> str:
-    """从工具调用中提取简要意图描述。
-
-    生成工具调用的用户可读摘要，用于活动日志和思考流展示。
-    优先显示关键参数值（如文件路径、搜索查询、命令等）。
-
-    **提取优先级**：
-    1. 查找常见参数名（path、query、command、content、url）
-    2. 显示参数值（截断至 TOOL_INTENT_MAX_CHARS）
-    3. 回退到工具名称映射（_TOOL_INTENT_MAP）
-
-    Args:
-        tool_name: 工具名称
-        args: 工具参数字典
-
-    Returns:
-        str: 工具意图简要描述（如 "读取文件: /path/to/file"）
-
-    Note:
-        参数值会被 _clip_intent_value 截断以避免日志膨胀。
-    """
-    base_intent = _TOOL_INTENT_MAP.get(tool_name, f"调用 {tool_name}")
-    if args:
-        for key in ("path", "query", "command", "content", "url"):
-            if key in args:
-                val = _clip_intent_value(str(args[key]))
-                return f"{base_intent}: {val}"
-    return base_intent
+    """从工具名称与关键参数生成有界意图摘要。"""
+    return extract_tool_intent(tool_name, args, max_chars=_tool_intent_max_chars)
 
 
 __all__ = [

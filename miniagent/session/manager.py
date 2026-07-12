@@ -27,6 +27,7 @@
 from __future__ import annotations
 
 import asyncio
+import builtins
 import json
 import os
 import threading
@@ -39,7 +40,9 @@ from typing import Any
 from miniagent.infrastructure.atomic_json import atomic_dump_json
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
+from miniagent.infrastructure.persistence import dump_state_file, load_state_file
 from miniagent.infrastructure.registry import DefaultToolRegistry
+from miniagent.infrastructure.state_schemas import install_builtin_state_schemas
 from miniagent.types.config import normalize_conversation_history
 from miniagent.types.memory import Session, SessionOptions
 from miniagent.types.skill import Skill
@@ -47,6 +50,7 @@ from miniagent.types.tool import Toolbox, ToolContext, ToolDefinition
 from miniagent.utils.session_id import safe_session_id
 
 _logger = get_logger(__name__)
+install_builtin_state_schemas()
 
 # ─── 会话历史硬限制（性能优化：防止内存膨胀）──
 
@@ -92,9 +96,8 @@ def _load_history_json_file(path: str) -> list[dict[str, Any]]:
         return []
     try:
         file_size = os.path.getsize(path)
-        with open(path, encoding="utf-8-sig") as f:
-            raw = json.load(f)
-        history = normalize_conversation_history(raw)
+        document = load_state_file("session_history", path)
+        history = normalize_conversation_history(document.get("messages"))
         original_count = len(history)
         max_msgs = int(get_config("memory.max_history_messages", MAX_HISTORY_MESSAGES))
         history = _truncate_history(history, max_messages=max_msgs)
@@ -465,8 +468,7 @@ class DefaultSessionManager:
 
                     parsed: _DiskSessionConfig | None = None
                     try:
-                        with open(config_path, encoding="utf-8-sig") as f:
-                            raw = json.load(f)
+                        raw = load_state_file("session_config", config_path)
                         if not isinstance(raw, dict):
                             raise ValueError("config root must be an object")
                         number = raw.get("session_number", 0)
@@ -531,6 +533,7 @@ class DefaultSessionManager:
             atomic_dump_json(
                 config_path,
                 {
+                    "schema_version": 1,
                     "session_id": config.session_id,
                     "workspace_path": config.workspace_path,
                     "files_path": config.files_path,
@@ -619,9 +622,10 @@ class DefaultSessionManager:
                 _set_history(ctx, history)
                 history_snapshot = [dict(message) for message in history]
                 path = os.path.join(ctx["config"].workspace_path, "history.json")
-                atomic_dump_json(
+                dump_state_file(
+                    "session_history",
                     path,
-                    history_snapshot,
+                    {"messages": history_snapshot},
                     ensure_ascii=False,
                     indent=2,
                 )
@@ -784,7 +788,7 @@ class DefaultSessionManager:
         config: SessionConfig,
         conversation_history: list | None = None,
         toolboxes: list | None = None,
-    ) -> dict:
+    ) -> tuple[dict[str, Any], int]:
         """创建会话级上下文（注册表 + Session + ctx 字典）。
 
         抽取 _create() 和 _restore() 的公共逻辑：
@@ -856,8 +860,7 @@ class DefaultSessionManager:
         # 1. 读取配置
         config_path = os.path.join(workspace_path, "config.json")
         try:
-            with open(config_path, encoding="utf-8-sig") as f:
-                raw = json.load(f)
+            raw = load_state_file("session_config", config_path)
         except json.JSONDecodeError as e:
             raise ValueError(f"会话配置 {config_path} JSON 格式无效: {e}") from e
 
@@ -918,7 +921,7 @@ class DefaultSessionManager:
             last_active=now,
             session_number=self._next_number,
             title=options.title if options and options.title else "",
-            description=options.description if options else "",
+            description=(options.description or "") if options else "",
         )
         self._next_number += 1
 
@@ -1129,7 +1132,7 @@ class DefaultSessionManager:
         title = config.title if config.title else session_id
         return f"#{config.session_number} {title}"
 
-    def list_all_sessions_with_info(self) -> list[dict]:
+    def list_all_sessions_with_info(self) -> builtins.list[dict]:
         """列出所有会话及其详细信息
 
         同时包含内存中和磁盘上已持久化的会话。
@@ -1318,7 +1321,7 @@ class DefaultSessionManager:
     # 主空间查询
     # -----------------------------------------------------------------------
 
-    def get_main_tools(self) -> list[str]:
+    def get_main_tools(self) -> builtins.list[str]:
         """获取主空间所有工具名称
 
         Returns:
@@ -1326,7 +1329,7 @@ class DefaultSessionManager:
         """
         return self._main_registry.list()
 
-    def get_main_skills(self) -> list[Skill]:
+    def get_main_skills(self) -> builtins.list[Skill]:
         """获取主空间所有技能
 
         Returns:
@@ -1334,7 +1337,7 @@ class DefaultSessionManager:
         """
         return list(self._main_skills)
 
-    def get_main_toolboxes(self) -> list[Toolbox]:
+    def get_main_toolboxes(self) -> builtins.list[Toolbox]:
         """获取主空间所有工具箱
 
         Returns:
@@ -1344,8 +1347,8 @@ class DefaultSessionManager:
 
     def refresh_main_skills(
         self,
-        skills: list[Skill],
-        toolboxes: list[Toolbox] | None = None,
+        skills: builtins.list[Skill],
+        toolboxes: builtins.list[Toolbox] | None = None,
     ) -> None:
         """热更新主空间技能与工具箱快照（``refresh_skills`` 后调用）。"""
         self._main_skills = list(skills)

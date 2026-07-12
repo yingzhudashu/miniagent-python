@@ -47,6 +47,8 @@ class FeishuWsHealthState:
 
 @dataclass(frozen=True)
 class FeishuWsHealthConfig:
+    """飞书长连接健康检查的不可变时间参数。"""
+
     watchdog_interval_s: float
     dead_conn_grace_s: float
     reconnect_grace_s: float
@@ -55,6 +57,7 @@ class FeishuWsHealthConfig:
 
 
 def read_feishu_ws_health_config() -> FeishuWsHealthConfig:
+    """从用户配置读取并构造本次连接使用的健康检查参数。"""
     return FeishuWsHealthConfig(
         watchdog_interval_s=float(get_config("feishu.websocket.watchdog_interval", 30.0)),
         dead_conn_grace_s=float(get_config("feishu.websocket.dead_conn_grace", 90.0)),
@@ -83,6 +86,7 @@ async def _watchdog_loop(
     reason_holder: list[str],
     health_state: FeishuWsHealthState,
 ) -> None:
+    """监督连接存活、SDK 重连和主动刷新，并报告退出原因。"""
     dead_since: float | None = None
     reconnect_dead_since: float | None = None
     sdk_auto = feishu_ws_auto_reconnect_enabled()

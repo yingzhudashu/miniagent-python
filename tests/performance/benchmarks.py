@@ -126,7 +126,7 @@ class TestRenderPerformance:
             nonlocal invalidate_count_new
             last_time = 0
             min_interval = 0.05  # 50ms
-            for i in range(100):
+            for _ in range(100):
                 now = time.monotonic()
                 if now - last_time >= min_interval:
                     invalidate_count_new += 1
@@ -347,7 +347,7 @@ class TestEmbeddingSearch:
         def no_norm_cache():
             results = []
             for v in vectors:
-                dot = sum(a * b for a, b in zip(query, v))
+                dot = sum(a * b for a, b in zip(query, v, strict=True))
                 norm_q = math.sqrt(sum(x * x for x in query))
                 norm_v = math.sqrt(sum(x * x for x in v))
                 sim = dot / (norm_q * norm_v) if norm_q * norm_v > 0 else 0
@@ -361,7 +361,7 @@ class TestEmbeddingSearch:
 
             results = []
             for i, v in enumerate(vectors):
-                dot = sum(a * b for a, b in zip(query, v))
+                dot = sum(a * b for a, b in zip(query, v, strict=True))
                 sim = dot / (norm_q * cached_norms[i]) if norm_q * cached_norms[i] > 0 else 0
                 results.append(sim)
             return results

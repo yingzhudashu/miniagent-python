@@ -99,8 +99,8 @@ def test_session_switch_calls_reload_cli_input_history() -> None:
     source = Path(__file__).resolve().parent.parent.joinpath(
         "miniagent", "engine", "cli_tui.py"
     ).read_text(encoding="utf-8")
-    assert "reload_cli_input_history(state, input_buffer, history_file)" in source
-    switch_block_start = source.index("prev_session_id = state")
+    assert "reload_cli_input_history(state, runtime[\"input_buffer\"], runtime[\"history_file\"])" in source
+    switch_block_start = source.index("previous = state")
     switch_block = source[switch_block_start : switch_block_start + 800]
     assert switch_block.count("reload_cli_input_history") >= 1
-    assert "_reset_and_reload_transcript" in switch_block
+    assert 'runtime["reset_transcript"]' in switch_block

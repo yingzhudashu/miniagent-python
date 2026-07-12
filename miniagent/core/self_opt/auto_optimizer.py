@@ -206,12 +206,13 @@ async def apply_proposal(
         result.error = "高风险提案需要先 /self-opt approve 后再执行"
         return result
 
-    if not await is_in_git_repo_async(root):
+    in_git_repo = await is_in_git_repo_async(root)
+    if not in_git_repo:
         _logger.warning("不在 Git 仓库中，将使用文件级备份回滚")
 
     # Git stash 快照（有未提交变更时）
     snapshot_ref = ""
-    if not dry_run and await is_in_git_repo_async(root) and await has_uncommitted_changes_async(root):
+    if not dry_run and in_git_repo and await has_uncommitted_changes_async(root):
         snap_result = await create_snapshot_async(f"before-{proposal.id}", path=root)
         if snap_result["success"]:
             snapshot_ref = snap_result["ref"]
@@ -220,20 +221,12 @@ async def apply_proposal(
     file_backups = _collect_file_backups(proposal, root) if not dry_run else {}
 
     async def _rollback() -> str:
-        suffix = ""
-        if auto_rollback:
-            if snapshot_ref:
-                _logger.info("自动回滚到 Git 快照: %s", snapshot_ref)
-                rollback_result = await rollback_snapshot_async(snapshot_ref, path=root)
-                if rollback_result["success"]:
-                    suffix = " (已回滚)"
-                else:
-                    suffix = f" (Git 回滚失败: {rollback_result['message']})"
-            elif file_backups:
-                _logger.info("自动回滚到文件备份")
-                _restore_file_backups(file_backups)
-                suffix = " (已回滚)"
-        return suffix
+        return await _rollback_proposal(
+            enabled=auto_rollback,
+            snapshot_ref=snapshot_ref,
+            root=root,
+            file_backups=file_backups,
+        )
 
     # Dry run 模式
     if dry_run:
@@ -270,6 +263,29 @@ async def apply_proposal(
     result.status = "success"
     _logger.info("提案 %s 应用成功: %d 个变更", proposal.id, changes_applied)
     return result
+
+
+async def _rollback_proposal(
+    *,
+    enabled: bool,
+    snapshot_ref: str,
+    root: str,
+    file_backups: dict[str, tuple[bool, bytes | None]],
+) -> str:
+    """按 Git 快照优先级回滚，返回可附加到错误信息的状态文本。"""
+    if not enabled:
+        return ""
+    if snapshot_ref:
+        _logger.info("自动回滚到 Git 快照: %s", snapshot_ref)
+        rollback_result = await rollback_snapshot_async(snapshot_ref, path=root)
+        if rollback_result["success"]:
+            return " (已回滚)"
+        return f" (Git 回滚失败: {rollback_result['message']})"
+    if file_backups:
+        _logger.info("自动回滚到文件备份")
+        _restore_file_backups(file_backups)
+        return " (已回滚)"
+    return ""
 
 
 async def run_auto_optimization(

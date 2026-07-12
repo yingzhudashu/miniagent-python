@@ -14,6 +14,7 @@ import tempfile
 import time
 import webbrowser
 from pathlib import Path
+from typing import Any
 
 from scripts.generate_report import generate_html
 from scripts.improve_description import improve_description
@@ -46,6 +47,78 @@ def split_eval_set(
     return train_set, test_set
 
 
+def _result_group(results: list[dict]) -> dict:
+    """Build the stable summary shape consumed by reports and improvers."""
+    passed = sum(1 for result in results if result["pass"])
+    return {
+        "results": results,
+        "summary": {"passed": passed, "failed": len(results) - passed, "total": len(results)},
+    }
+
+
+def _history_item(
+    iteration: int, description: str, train_results: dict, test_results: dict | None
+) -> dict[str, Any]:
+    """Create one report-compatible optimization history record."""
+    train = train_results["summary"]
+    test = test_results["summary"] if test_results else None
+    return {
+        "iteration": iteration,
+        "description": description,
+        "train_passed": train["passed"],
+        "train_failed": train["failed"],
+        "train_total": train["total"],
+        "train_results": train_results["results"],
+        "test_passed": test["passed"] if test else None,
+        "test_failed": test["failed"] if test else None,
+        "test_total": test["total"] if test else None,
+        "test_results": test_results["results"] if test_results else None,
+        "passed": train["passed"],
+        "failed": train["failed"],
+        "total": train["total"],
+        "results": train_results["results"],
+    }
+
+
+def _print_eval_stats(label: str, results: list[dict], elapsed: float) -> None:
+    """Print precision, recall, accuracy and per-query decisions."""
+    positive = [result for result in results if result["should_trigger"]]
+    negative = [result for result in results if not result["should_trigger"]]
+    true_positive = sum(result["triggers"] for result in positive)
+    positive_runs = sum(result["runs"] for result in positive)
+    false_positive = sum(result["triggers"] for result in negative)
+    negative_runs = sum(result["runs"] for result in negative)
+    false_negative = positive_runs - true_positive
+    true_negative = negative_runs - false_positive
+    total = true_positive + true_negative + false_positive + false_negative
+    precision = true_positive / (true_positive + false_positive) if true_positive + false_positive else 1.0
+    recall = true_positive / (true_positive + false_negative) if true_positive + false_negative else 1.0
+    accuracy = (true_positive + true_negative) / total if total else 0.0
+    print(
+        f"{label}: {true_positive + true_negative}/{total} correct, precision={precision:.0%} recall={recall:.0%} accuracy={accuracy:.0%} ({elapsed:.1f}s)",
+        file=sys.stderr,
+    )
+    for result in results:
+        status = "PASS" if result["pass"] else "FAIL"
+        print(
+            f"  [{status}] rate={result['triggers']}/{result['runs']} expected={result['should_trigger']}: {result['query'][:60]}",
+            file=sys.stderr,
+        )
+
+
+def _prepare_eval_sets(eval_set: list[dict], holdout: float, verbose: bool) -> tuple[list[dict], list[dict]]:
+    """Split the evaluation set and report the split when requested."""
+    if holdout <= 0:
+        return eval_set, []
+    train_set, test_set = split_eval_set(eval_set, holdout)
+    if verbose:
+        print(
+            f"Split: {len(train_set)} train, {len(test_set)} test (holdout={holdout})",
+            file=sys.stderr,
+        )
+    return train_set, test_set
+
+
 def run_loop(
     eval_set: list[dict],
     skill_path: Path,
@@ -66,19 +139,9 @@ def run_loop(
     name, original_description, content = parse_skill_md(skill_path)
     current_description = description_override or original_description
 
-    # Split into train/test if holdout > 0
-    if holdout > 0:
-        train_set, test_set = split_eval_set(eval_set, holdout)
-        if verbose:
-            print(
-                f"Split: {len(train_set)} train, {len(test_set)} test (holdout={holdout})",
-                file=sys.stderr,
-            )
-    else:
-        train_set = eval_set
-        test_set = []
+    train_set, test_set = _prepare_eval_sets(eval_set, holdout, verbose)
 
-    history = []
+    history: list[dict[str, Any]] = []
     exit_reason = "unknown"
 
     for iteration in range(1, max_iterations + 1):
@@ -111,47 +174,10 @@ def run_loop(
             r for r in all_results["results"] if r["query"] not in train_queries_set
         ]
 
-        train_passed = sum(1 for r in train_result_list if r["pass"])
-        train_total = len(train_result_list)
-        train_summary = {
-            "passed": train_passed,
-            "failed": train_total - train_passed,
-            "total": train_total,
-        }
-        train_results = {"results": train_result_list, "summary": train_summary}
-
-        if test_set:
-            test_passed = sum(1 for r in test_result_list if r["pass"])
-            test_total = len(test_result_list)
-            test_summary = {
-                "passed": test_passed,
-                "failed": test_total - test_passed,
-                "total": test_total,
-            }
-            test_results = {"results": test_result_list, "summary": test_summary}
-        else:
-            test_results = None
-            test_summary = None
-
-        history.append(
-            {
-                "iteration": iteration,
-                "description": current_description,
-                "train_passed": train_summary["passed"],
-                "train_failed": train_summary["failed"],
-                "train_total": train_summary["total"],
-                "train_results": train_results["results"],
-                "test_passed": test_summary["passed"] if test_summary else None,
-                "test_failed": test_summary["failed"] if test_summary else None,
-                "test_total": test_summary["total"] if test_summary else None,
-                "test_results": test_results["results"] if test_results else None,
-                # 报告生成器需要的字段
-                "passed": train_summary["passed"],
-                "failed": train_summary["failed"],
-                "total": train_summary["total"],
-                "results": train_results["results"],
-            }
-        )
+        train_results = _result_group(train_result_list)
+        test_results = _result_group(test_result_list) if test_set else None
+        train_summary = train_results["summary"]
+        history.append(_history_item(iteration, current_description, train_results, test_results))
 
         # Write live report if path provided
         if live_report_path:
@@ -170,35 +196,9 @@ def run_loop(
             )
 
         if verbose:
-
-            def print_eval_stats(label, results, elapsed):
-                pos = [r for r in results if r["should_trigger"]]
-                neg = [r for r in results if not r["should_trigger"]]
-                tp = sum(r["triggers"] for r in pos)
-                pos_runs = sum(r["runs"] for r in pos)
-                fn = pos_runs - tp
-                fp = sum(r["triggers"] for r in neg)
-                neg_runs = sum(r["runs"] for r in neg)
-                tn = neg_runs - fp
-                total = tp + tn + fp + fn
-                precision = tp / (tp + fp) if (tp + fp) > 0 else 1.0
-                recall = tp / (tp + fn) if (tp + fn) > 0 else 1.0
-                accuracy = (tp + tn) / total if total > 0 else 0.0
-                print(
-                    f"{label}: {tp + tn}/{total} correct, precision={precision:.0%} recall={recall:.0%} accuracy={accuracy:.0%} ({elapsed:.1f}s)",
-                    file=sys.stderr,
-                )
-                for r in results:
-                    status = "PASS" if r["pass"] else "FAIL"
-                    rate_str = f"{r['triggers']}/{r['runs']}"
-                    print(
-                        f"  [{status}] rate={rate_str} expected={r['should_trigger']}: {r['query'][:60]}",
-                        file=sys.stderr,
-                    )
-
-            print_eval_stats("Train", train_results["results"], eval_elapsed)
-            if test_summary:
-                print_eval_stats("Test ", test_results["results"], 0)
+            _print_eval_stats("Train", train_results["results"], eval_elapsed)
+            if test_results is not None:
+                _print_eval_stats("Test ", test_results["results"], 0)
 
         if train_summary["failed"] == 0:
             exit_reason = f"all_passed (iteration {iteration})"
@@ -240,10 +240,10 @@ def run_loop(
 
     # Find the best iteration by TEST score (or train if no test set)
     if test_set:
-        best = max(history, key=lambda h: h["test_passed"] or 0)
+        best = max(history, key=lambda item: int(item.get("test_passed") or 0))
         best_score = f"{best['test_passed']}/{best['test_total']}"
     else:
-        best = max(history, key=lambda h: h["train_passed"])
+        best = max(history, key=lambda item: int(item.get("train_passed") or 0))
         best_score = f"{best['train_passed']}/{best['train_total']}"
 
     if verbose:

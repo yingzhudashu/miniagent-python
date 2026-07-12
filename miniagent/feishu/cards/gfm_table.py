@@ -20,6 +20,7 @@ def is_gfm_table_separator_line(line: str) -> bool:
 
 
 def parse_gfm_table_row_cells(line: str) -> list[str]:
+    """解析一行 GFM 表格，并保留转义竖线与行内代码的单元格边界。"""
     s = line.strip()
     if s.startswith("|"):
         s = s[1:]

@@ -30,6 +30,7 @@ from typing import Any
 # 可选导入：mistune 是 feishu extra 的可选依赖
 try:
     import mistune
+
     _HAS_MISTUNE = True
 except ImportError:
     mistune = None  # type: ignore
@@ -236,7 +237,9 @@ class FeishuASTRenderer:
         for item in children:
             if item.get("type") == "list_item":
                 runs = self._render_children(item.get("children", []))
-                blocks.append(FeishuBlock(block_type, text_runs=runs, indent_level=self.indent_level))
+                blocks.append(
+                    FeishuBlock(block_type, text_runs=runs, indent_level=self.indent_level)
+                )
             elif item.get("type") == "list":
                 # 嵌套列表：增加层级
                 self.indent_level += 1
@@ -399,7 +402,9 @@ def markdown_to_feishu_blocks(
         _logger.warning("mistune 未安装，回退到纯文本模式")
         return MarkdownConversionResult(
             blocks=[FeishuBlock(BlockType.TEXT, text_runs=[TextRun(md)])],
-            warnings=["mistune 未安装，无法进行富文本渲染。请安装: pip install 'miniagent-python[feishu]'"],
+            warnings=[
+                "mistune 未安装，无法进行富文本渲染。请安装: pip install 'miniagent-python[feishu]'"
+            ],
             stats={"total_blocks": 1},
         )
 
@@ -407,7 +412,7 @@ def markdown_to_feishu_blocks(
     md_parser = mistune.create_markdown(
         renderer=None,
         escape=False,
-        plugins=['strikethrough', 'table'],  # GFM 扩展
+        plugins=["strikethrough", "table"],  # GFM 扩展
     )
 
     try:
@@ -484,112 +489,9 @@ def build_lark_blocks_from_intermediate(blocks: list[FeishuBlock]) -> list[Any]:
         # 构建 TextElement 列表
         elements = _build_text_elements(block.text_runs)
 
-        # 根据 block_type 构建不同的 Block
         try:
-            # 基础 Text 对象（包含 elements）
             text_obj = Text.builder().elements(elements).build()
-
-            if block.block_type == BlockType.TEXT:
-                lark_block = (
-                    BlockBuilder()
-                    .block_type(2)
-                    .text(text_obj)
-                    .build()
-                )
-
-            elif block.block_type == BlockType.HEADING1:
-                lark_block = (
-                    BlockBuilder()
-                    .block_type(3)
-                    .heading1(text_obj)
-                    .build()
-                )
-
-            elif block.block_type == BlockType.HEADING2:
-                lark_block = (
-                    BlockBuilder()
-                    .block_type(4)
-                    .heading2(text_obj)
-                    .build()
-                )
-
-            elif block.block_type == BlockType.HEADING3:
-                lark_block = (
-                    BlockBuilder()
-                    .block_type(5)
-                    .heading3(text_obj)
-                    .build()
-                )
-
-            elif block.block_type == BlockType.HEADING4:
-                lark_block = (
-                    BlockBuilder()
-                    .block_type(6)
-                    .heading4(text_obj)
-                    .build()
-                )
-
-            elif block.block_type == BlockType.HEADING5:
-                lark_block = (
-                    BlockBuilder()
-                    .block_type(7)
-                    .heading5(text_obj)
-                    .build()
-                )
-
-            elif block.block_type == BlockType.HEADING6:
-                lark_block = (
-                    BlockBuilder()
-                    .block_type(8)
-                    .heading6(text_obj)
-                    .build()
-                )
-
-            elif block.block_type in (BlockType.BULLET, BlockType.ORDERED, BlockType.CODE):
-                # 列表项/代码块统一降级为带前缀的纯文本块（去除内联样式）
-                if block.block_type == BlockType.BULLET:
-                    prefix = "- "
-                elif block.block_type == BlockType.ORDERED:
-                    prefix = "1. "
-                else:
-                    prefix = ""
-                plain_elements = _build_text_elements(_plain_runs(block.text_runs, prefix=prefix))
-                plain_text = Text.builder().elements(plain_elements).build()
-                lark_block = (
-                    BlockBuilder()
-                    .block_type(2)
-                    .text(plain_text)
-                    .build()
-                )
-
-            elif block.block_type == BlockType.QUOTE:
-                lark_block = (
-                    BlockBuilder()
-                    .block_type(12)
-                    .quote(text_obj)
-                    .build()
-                )
-
-            elif block.block_type == BlockType.IMAGE:
-                # 图片块需要 image_token
-                if block.image_token:
-                    lark_block_dict = {
-                        "block_type": 14,
-                        "image": {"token": block.image_token},
-                    }
-                    result.append(lark_block_dict)
-                continue
-
-            else:
-                # 默认：文本块
-                lark_block = (
-                    BlockBuilder()
-                    .block_type(2)
-                    .text(text_obj)
-                    .build()
-                )
-
-            result.append(lark_block)
+            result.append(_build_single_lark_block(block, text_obj, BlockBuilder, Text))
 
         except Exception as e:
             _logger.warning(f"构建 Block 失败 ({block.block_type}): {e}")
@@ -607,6 +509,31 @@ def build_lark_blocks_from_intermediate(blocks: list[FeishuBlock]) -> list[Any]:
                 continue
 
     return result
+
+
+def _build_single_lark_block(block: FeishuBlock, text_obj: Any, builder: Any, text: Any) -> Any:
+    """表驱动构建单个 SDK 块；列表和代码块统一降级为纯文本。"""
+    if block.block_type == BlockType.IMAGE:
+        return {"block_type": 14, "image": {"token": block.image_token}}
+    if block.block_type in (BlockType.BULLET, BlockType.ORDERED, BlockType.CODE):
+        prefixes = {BlockType.BULLET: "- ", BlockType.ORDERED: "1. ", BlockType.CODE: ""}
+        elements = _build_text_elements(
+            _plain_runs(block.text_runs, prefix=prefixes[block.block_type])
+        )
+        return builder().block_type(2).text(text.builder().elements(elements).build()).build()
+    specifications = {
+        BlockType.TEXT: (2, "text"),
+        BlockType.HEADING1: (3, "heading1"),
+        BlockType.HEADING2: (4, "heading2"),
+        BlockType.HEADING3: (5, "heading3"),
+        BlockType.HEADING4: (6, "heading4"),
+        BlockType.HEADING5: (7, "heading5"),
+        BlockType.HEADING6: (8, "heading6"),
+        BlockType.QUOTE: (12, "quote"),
+    }
+    block_type, setter = specifications.get(block.block_type, (2, "text"))
+    block_builder = builder().block_type(block_type)
+    return getattr(block_builder, setter)(text_obj).build()
 
 
 def _build_text_elements(runs: list[TextRun]) -> list[Any]:

@@ -24,6 +24,7 @@ from miniagent.core.self_opt.types import (
     PainPoint,
 )
 from miniagent.infrastructure.logger import get_logger
+from miniagent.infrastructure.trace_events import RiskLevel
 
 _logger = get_logger(__name__)
 
@@ -44,7 +45,7 @@ def _pain_point_to_proposal(pain: PainPoint, root: str = "") -> OptimizationProp
         优化提案（如果可生成）
     """
     if pain.severity <= 2:
-        risk_level = "low"
+        risk_level: RiskLevel = "low"
     elif pain.severity <= 3:
         risk_level = "medium"
     else:

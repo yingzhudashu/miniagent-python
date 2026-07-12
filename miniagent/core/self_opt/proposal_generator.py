@@ -44,6 +44,7 @@ from miniagent.core.self_opt.types import (
 )
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
+from miniagent.infrastructure.trace_events import RiskLevel
 
 _logger = get_logger(__name__)
 
@@ -77,39 +78,7 @@ class ProposalGenerator:
         Returns:
             优化提案列表（按优先级排序）
         """
-        proposals: list[OptimizationProposal] = []
-
-        # 1. 慢工具提案
-        for issue in report.get("issues", []):
-            if issue.get("type") == "slow_tool":
-                proposal = self._make_slow_tool_proposal(issue)
-                if proposal:
-                    proposals.append(proposal)
-
-            elif issue.get("type") == "tool_failure":
-                proposal = self._make_tool_failure_proposal(issue)
-                if proposal:
-                    proposals.append(proposal)
-
-            elif issue.get("type") == "high_frequency_error":
-                proposal = self._make_error_handling_proposal(issue)
-                if proposal:
-                    proposals.append(proposal)
-
-            elif issue.get("type") == "tool_loop":
-                proposal = self._make_tool_loop_proposal(issue)
-                if proposal:
-                    proposals.append(proposal)
-
-            elif issue.get("type") == "ping_pong":
-                proposal = self._make_ping_pong_proposal(issue)
-                if proposal:
-                    proposals.append(proposal)
-
-            elif issue.get("type") == "context_pressure":
-                proposal = self._make_context_pressure_proposal(issue)
-                if proposal:
-                    proposals.append(proposal)
+        proposals = self._proposals_from_issues(report.get("issues", []))
 
         # 2. LLM token 消耗提案
         llm_stats = report.get("llm", {})
@@ -121,11 +90,27 @@ class ProposalGenerator:
 
         # 按风险等级和预估工时排序
         risk_order = {"low": 0, "medium": 1, "high": 2}
-        proposals.sort(
-            key=lambda p: (risk_order.get(p.risk_level, 1), p.estimated_effort)
-        )
+        proposals.sort(key=lambda p: (risk_order.get(p.risk_level, 1), p.estimated_effort))
 
         return proposals[:max_proposals]
+
+    def _proposals_from_issues(self, issues: list[dict[str, Any]]) -> list[OptimizationProposal]:
+        """按问题类型映射生成器，未知类型被安全忽略。"""
+        factories = {
+            "slow_tool": self._make_slow_tool_proposal,
+            "tool_failure": self._make_tool_failure_proposal,
+            "high_frequency_error": self._make_error_handling_proposal,
+            "tool_loop": self._make_tool_loop_proposal,
+            "ping_pong": self._make_ping_pong_proposal,
+            "context_pressure": self._make_context_pressure_proposal,
+        }
+        proposals: list[OptimizationProposal] = []
+        for issue in issues:
+            factory = factories.get(str(issue.get("type", "")))
+            proposal = factory(issue) if factory else None
+            if proposal is not None:
+                proposals.append(proposal)
+        return proposals
 
     def _make_slow_tool_proposal(
         self,
@@ -142,9 +127,7 @@ class ProposalGenerator:
         tool_name = issue.get("tool", "")
         avg_ms = issue.get("avg_ms", 0)
 
-        threshold = get_config(
-            "self_optimization.min_duration_ms_threshold", 2000
-        )
+        threshold = get_config("self_optimization.min_duration_ms_threshold", 2000)
 
         if not tool_name or avg_ms < threshold:
             return None
@@ -190,9 +173,7 @@ class ProposalGenerator:
         if not tool_name or success_rate > 0.90:
             return None
 
-        threshold = get_config(
-            "self_optimization.min_failure_rate_threshold", 0.05
-        )
+        threshold = get_config("self_optimization.min_failure_rate_threshold", 0.05)
 
         return OptimizationProposal(
             id=_generate_proposal_id(),
@@ -236,7 +217,7 @@ class ProposalGenerator:
         if not error_type or count < 3:
             return None
 
-        risk = "low" if is_user_error else "medium"
+        risk: RiskLevel = "low" if is_user_error else "medium"
 
         return OptimizationProposal(
             id=_generate_proposal_id(),
@@ -377,18 +358,14 @@ class ProposalGenerator:
             if target in seen_targets:
                 # 合并：保留风险更高的
                 existing = seen_targets[target]
-                if risk_order.get(proposal.risk_level, 0) > risk_order.get(
-                    existing.risk_level, 0
-                ):
+                if risk_order.get(proposal.risk_level, 0) > risk_order.get(existing.risk_level, 0):
                     seen_targets[target] = proposal
             else:
                 seen_targets[target] = proposal
 
         # 排序
         proposals = list(seen_targets.values())
-        proposals.sort(
-            key=lambda p: (risk_order.get(p.risk_level, 1), p.estimated_effort)
-        )
+        proposals.sort(key=lambda p: (risk_order.get(p.risk_level, 1), p.estimated_effort))
 
         return proposals[:max_total]
 

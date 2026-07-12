@@ -42,7 +42,7 @@ def test_send_interactive_reply_cards_stops_after_failed_shard() -> None:
 
 
 def test_send_plain_text_chunks_sends_multiple(monkeypatch: pytest.MonkeyPatch) -> None:
-    import miniagent.feishu.poll_server as ps
+    import miniagent.feishu.outbound_delivery as ps
 
     monkeypatch.setattr(ps, "feishu_card_body_max", lambda: 8)
     from miniagent.feishu.poll_server import _send_plain_text_chunks

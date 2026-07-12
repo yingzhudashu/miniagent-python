@@ -290,11 +290,7 @@ def new_trace_id(prefix: str = "trace") -> str:
 def trace_parent(span_id: str, *, session_key: str | None = None):
     """Bind the parent span inherited by nested async work."""
     token = _CURRENT_TRACE_SPAN.set(span_id)
-    session_token = (
-        _CURRENT_TRACE_SESSION.set(session_key)
-        if session_key is not None
-        else None
-    )
+    session_token = _CURRENT_TRACE_SESSION.set(session_key) if session_key is not None else None
     try:
         yield
     finally:
@@ -332,11 +328,7 @@ def trace_span(
     )
     success = False
     token = _CURRENT_TRACE_SPAN.set(actual_span_id)
-    session_token = (
-        _CURRENT_TRACE_SESSION.set(session_key)
-        if session_key is not None
-        else None
-    )
+    session_token = _CURRENT_TRACE_SESSION.set(session_key) if session_key is not None else None
     try:
         yield actual_span_id
         success = True
@@ -386,6 +378,7 @@ class TraceResourceSampler:
             self._tracemalloc = None
 
     def start(self) -> None:
+        """启动唯一的后台采样线程；重复调用保持幂等。"""
         if self._thread is not None and self._thread.is_alive():
             return
         self._stop.clear()
@@ -440,6 +433,7 @@ class TraceResourceSampler:
             emit_trace(self._sample())
 
     def shutdown(self) -> None:
+        """请求采样线程停止，并在限定时间内等待退出。"""
         self._stop.set()
         thread = self._thread
         if thread is not None:
@@ -672,92 +666,89 @@ class AsyncTraceWriter:
     def _writer_loop(self) -> None:
         """后台线程：批量写入循环。"""
         while not (self._shutdown and self._queue.empty()):
-            buffer: list[tuple[str, str]] = []
-            stop_after_batch = False
-            maintenance: _ExcludeSessionCommand | None = None
             try:
-                # 无事件时最多每 batch_interval 唤醒一次；收到首事件后再按同一
-                # interval 聚合后续事件，避免旧实现每 10ms 空轮询且低流量逐条 flush。
-                try:
-                    first = self._queue.get(timeout=self.batch_interval)
-                except queue.Empty:
+                batch = self._collect_writer_batch()
+                if batch is None:
                     continue
-                if first is None:
-                    stop_after_batch = self._shutdown
-                elif isinstance(first, _ExcludeSessionCommand):
-                    maintenance = first
-                else:
-                    serialized = self._serialize_event(first)
-                    if serialized is not None:
-                        buffer.append((self._event_date(first), serialized))
-
-                deadline = time.monotonic() + self.batch_interval
-                while (
-                    not stop_after_batch and maintenance is None and len(buffer) < self.batch_size
-                ):
-                    if self._shutdown:
-                        # 关闭期间不会再接收新事件，因此只排空当前队列，不能继续
-                        # 等待完整 batch_interval；否则大 interval 会令 shutdown
-                        # 超过 join timeout 并在 writer 尚未退出时关闭文件句柄。
-                        try:
-                            event = self._queue.get_nowait()
-                        except queue.Empty:
-                            break
-                        if event is None:
-                            stop_after_batch = True
-                        elif isinstance(event, _ExcludeSessionCommand):
-                            maintenance = event
-                        else:
-                            serialized = self._serialize_event(event)
-                            if serialized is not None:
-                                buffer.append((self._event_date(event), serialized))
-                        continue
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
-                        break
-                    try:
-                        event = self._queue.get(timeout=remaining)
-                        if event is None:
-                            stop_after_batch = self._shutdown
-                        elif isinstance(event, _ExcludeSessionCommand):
-                            maintenance = event
-                        else:
-                            serialized = self._serialize_event(event)
-                            if serialized is not None:
-                                buffer.append((self._event_date(event), serialized))
-                    except queue.Empty:
-                        break
-
-                if buffer:
-                    try:
-                        batch_date: str | None = None
-                        batch_lines: list[str] = []
-                        for event_date, line in buffer:
-                            if batch_date is not None and event_date != batch_date:
-                                self._open_for_date(batch_date)
-                                assert self._file_handle is not None
-                                self._file_handle.writelines(batch_lines)
-                                self._file_handle.flush()
-                                batch_lines = []
-                            batch_date = event_date
-                            batch_lines.append(line)
-                        if batch_date is not None and batch_lines:
-                            self._open_for_date(batch_date)
-                            assert self._file_handle is not None
-                            self._file_handle.writelines(batch_lines)
-                            self._file_handle.flush()
-                        self._written_count += len(buffer)
-                    except Exception as e:
-                        self._write_error_count += 1
-                        self._dropped_count += len(buffer)
-                        _logger.debug("Trace batch write failed: %s", e)
-                if maintenance is not None:
-                    maintenance.removed = self._rewrite_without_session(maintenance.session_key)
-                    maintenance.done.set()
-            except Exception as e:
-                _logger.debug("Trace writer loop error: %s", e)
+                buffer, maintenance, stop_after_batch = batch
+                self._write_trace_batch(buffer)
+                self._apply_writer_maintenance(maintenance)
+            except Exception as error:
+                _logger.debug("Trace writer loop error: %s", error, exc_info=True)
             if stop_after_batch and self._queue.empty():
                 break
+
+    def _collect_writer_batch(
+        self,
+    ) -> tuple[list[tuple[str, str]], _ExcludeSessionCommand | None, bool] | None:
+        """按时间/数量上限收集一批事件，关闭期间仅非阻塞排空。"""
+        try:
+            first = self._queue.get(timeout=self.batch_interval)
+        except queue.Empty:
+            return None
+        buffer: list[tuple[str, str]] = []
+        maintenance: _ExcludeSessionCommand | None = None
+        stop = False
+
+        def accept(item: Any) -> None:
+            nonlocal maintenance, stop
+            if item is None:
+                stop = self._shutdown
+            elif isinstance(item, _ExcludeSessionCommand):
+                maintenance = item
+            else:
+                serialized = self._serialize_event(item)
+                if serialized is not None:
+                    buffer.append((self._event_date(item), serialized))
+
+        accept(first)
+        deadline = time.monotonic() + self.batch_interval
+        while not stop and maintenance is None and len(buffer) < self.batch_size:
+            try:
+                item = (
+                    self._queue.get_nowait()
+                    if self._shutdown
+                    else self._queue.get(timeout=max(0.0, deadline - time.monotonic()))
+                )
+            except queue.Empty:
+                break
+            accept(item)
+        return buffer, maintenance, stop
+
+    def _write_trace_batch(self, buffer: list[tuple[str, str]]) -> None:
+        """按日期分片写入一批序列化事件并刷新句柄。"""
+        if not buffer:
+            return
+        try:
+            current_date: str | None = None
+            lines: list[str] = []
+            for event_date, line in buffer:
+                if current_date is not None and event_date != current_date:
+                    self._flush_trace_lines(current_date, lines)
+                    lines = []
+                current_date = event_date
+                lines.append(line)
+            if current_date is not None:
+                self._flush_trace_lines(current_date, lines)
+            self._written_count += len(buffer)
+        except Exception as error:
+            self._write_error_count += 1
+            self._dropped_count += len(buffer)
+            _logger.debug("Trace batch write failed: %s", error, exc_info=True)
+
+    def _flush_trace_lines(self, event_date: str, lines: list[str]) -> None:
+        """切换到指定日期分片并同步刷新一组行。"""
+        self._open_for_date(event_date)
+        assert self._file_handle is not None
+        self._file_handle.writelines(lines)
+        self._file_handle.flush()
+
+    def _apply_writer_maintenance(self, command: _ExcludeSessionCommand | None) -> None:
+        """在唯一 writer 线程内执行会话排除重写并唤醒等待方。"""
+        if command is None:
+            return
+        command.removed = self._rewrite_without_session(command.session_key)
+        command.done.set()
 
     def _serialize_event(self, event: dict[str, Any]) -> str | None:
         """Serialize one event compactly and account for malformed payloads."""
@@ -992,7 +983,12 @@ def clear_trace_hooks() -> None:
     同时关闭异步写入器，清除 trace 日志文件配置和自动初始化标志，确保完全重置。
     """
     _hooks.clear()
-    global _TRACE_LOG_FILE, _TRACE_RECORD_PAYLOAD, _auto_initialized, _resource_sampler, _trace_writer
+    global \
+        _TRACE_LOG_FILE, \
+        _TRACE_RECORD_PAYLOAD, \
+        _auto_initialized, \
+        _resource_sampler, \
+        _trace_writer
 
     if _resource_sampler is not None:
         _resource_sampler.shutdown()
@@ -1029,7 +1025,12 @@ def auto_register_trace_file_hook() -> None:
     示例配置：
         {"trace": {"enabled": true, "output_dir": "workspaces/logs"}}
     """
-    global _auto_initialized, _TRACE_LOG_FILE, _TRACE_RECORD_PAYLOAD, _resource_sampler, _trace_writer
+    global \
+        _auto_initialized, \
+        _TRACE_LOG_FILE, \
+        _TRACE_RECORD_PAYLOAD, \
+        _resource_sampler, \
+        _trace_writer
 
     if _auto_initialized:
         return

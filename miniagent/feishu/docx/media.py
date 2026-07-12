@@ -110,7 +110,8 @@ def download_media_bytes(
     client = build_client(config)
     b = DownloadMediaRequest.builder().file_token(file_token)
     if extra:
-        b = b.extra(extra)
+        # ``extra`` 是飞书 SDK 请求字段，不涉及数据库查询。
+        b = b.extra(extra)  # nosec B610
     resp = client.drive.v1.media.download(b.build())
     if not resp.success():
         raise RuntimeError(f"media download failed: {format_lark_response_error(resp)}")

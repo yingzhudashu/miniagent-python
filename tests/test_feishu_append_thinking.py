@@ -15,7 +15,7 @@ async def test_append_feishu_thinking_same_card_multiline_keeps_newlines_and_fen
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "miniagent.feishu.poll_server._patch_interactive_thinking_message",
+        "miniagent.feishu.thinking_delivery._patch_interactive_thinking_message",
         lambda *_a, **_k: True,
     )
 

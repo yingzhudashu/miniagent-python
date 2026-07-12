@@ -10,6 +10,7 @@ import json
 import threading
 import time
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -29,6 +30,17 @@ def _tenant_token_url() -> str:
 
 def _root_folder_meta_url() -> str:
     return FEISHU_API_URL_ROOT_FOLDER_META
+
+
+def _validate_feishu_api_url(url: str) -> None:
+    """仅允许访问内置飞书开放平台 HTTPS 主机，阻止内部 HTTP helper 被用于 SSRF。"""
+    parsed = urlsplit(url)
+    allowed_hosts = {
+        urlsplit(FEISHU_API_URL_TENANT_TOKEN).hostname,
+        urlsplit(FEISHU_API_URL_ROOT_FOLDER_META).hostname,
+    }
+    if parsed.scheme != "https" or parsed.hostname not in allowed_hosts:
+        raise ValueError(f"不允许的飞书 API URL: {url!r}")
 
 
 # ─── Token 缓存（性能优化）──
@@ -168,6 +180,7 @@ async def _async_http_request(
     Raises:
         RuntimeError: HTTP 错误、网络错误或 JSON 解析失败
     """
+    _validate_feishu_api_url(url)
     client = _get_http_client()
     h = {"Content-Type": "application/json; charset=utf-8"}
     if headers:
@@ -233,6 +246,7 @@ def _http_request(
     import urllib.error
     import urllib.request
 
+    _validate_feishu_api_url(url)
     h = {"Content-Type": "application/json; charset=utf-8"}
     if headers:
         h.update(headers)
@@ -244,7 +258,8 @@ def _http_request(
         req = urllib.request.Request(url, method="GET", headers=h)
 
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        # URL 已由飞书 API 主机白名单校验。
+        with urllib.request.urlopen(req, timeout=30) as resp:  # nosec B310
             body = resp.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")

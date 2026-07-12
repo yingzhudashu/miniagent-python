@@ -243,6 +243,7 @@ def _run_stop_command() -> int:
                 return 2
             assert stop_targets is not None
 
+    assert stop_targets is not None
     exit_code = 0
     for iid, sd in stop_targets:
         result = stop_instance_by_id(iid, state_dir=sd)

@@ -316,6 +316,63 @@ def _append_plain_text_fallback(
         ]
 
 
+def _append_rendered_tables(
+    config: FeishuConfig,
+    document_id: str,
+    table_blocks: list[Any],
+    warnings: list[str],
+) -> tuple[int, int]:
+    """写入中间表示中的表格，并返回成功数与失败数。"""
+    from miniagent.feishu.docx.tables import create_table_with_values
+
+    success_count = 0
+    failure_count = 0
+    for table in table_blocks:
+        if not table.table_data:
+            continue
+        try:
+            rows = len(table.table_data)
+            columns = max((len(row) for row in table.table_data), default=0)
+            if rows <= 0 or columns <= 0:
+                continue
+            values = []
+            for row in table.table_data:
+                row_text = [run.content for run in row] if row else []
+                row_text.extend([""] * (columns - len(row_text)))
+                values.append(row_text)
+            create_table_with_values(
+                config,
+                document_id,
+                row_size=rows,
+                column_size=columns,
+                values=values,
+            )
+            success_count += 1
+        except Exception as error:
+            failure_count += 1
+            warnings.append(f"rich table creation failed: {error}")
+    return success_count, failure_count
+
+
+def _append_rendered_blocks(
+    config: FeishuConfig,
+    document_id: str,
+    blocks: list[Any],
+    warnings: list[str],
+) -> int:
+    """把非表格中间块转为 SDK Block 并批量追加。"""
+    from miniagent.feishu.docx.markdown_renderer import build_lark_blocks_from_intermediate
+
+    if not blocks:
+        return 0
+    lark_blocks = build_lark_blocks_from_intermediate(blocks)
+    if not lark_blocks:
+        return 0
+    count, block_warnings = _batch_create_blocks(config, document_id, lark_blocks)
+    warnings.extend(block_warnings)
+    return count
+
+
 def append_markdown_to_document(
     config: FeishuConfig,
     document_id: str,
@@ -354,10 +411,8 @@ def append_markdown_to_document(
     if use_renderer:
         from miniagent.feishu.docx.markdown_renderer import (
             BlockType,
-            build_lark_blocks_from_intermediate,
             markdown_to_feishu_blocks,
         )
-        from miniagent.feishu.docx.tables import create_table_with_values
 
         # 1. 解析 Markdown 为中间表示
         result = _rendered_result
@@ -372,49 +427,24 @@ def append_markdown_to_document(
         table_blocks = [b for b in result.blocks if b.block_type == BlockType.TABLE]
         non_table_blocks = [b for b in result.blocks if b.block_type != BlockType.TABLE]
 
-        # 3. 处理表格（使用专门 API）
-        table_count = 0
-        table_failures = 0
-        for tb in table_blocks:
-            if tb.table_data and len(tb.table_data) > 0:
-                try:
-                    rows = len(tb.table_data)
-                    cols = max(len(row) for row in tb.table_data) if rows > 0 else 0
-                    if rows > 0 and cols > 0:
-                        # 转换为纯文本（飞书表格不支持富文本样式）
-                        values = []
-                        for row in tb.table_data:
-                            row_text = [run.content for run in row] if row else []
-                            # 补齐列数
-                            while len(row_text) < cols:
-                                row_text.append("")
-                            values.append(row_text)
-                        create_table_with_values(
-                            config, document_id,
-                            row_size=rows, column_size=cols,
-                            values=values,
-                        )
-                        table_count += 1
-                except Exception as e:
-                    table_failures += 1
-                    result.warnings.append(f"rich table creation failed: {e}")
+        table_count, table_failures = _append_rendered_tables(
+            config, document_id, table_blocks, result.warnings
+        )
 
         # 4. 批量创建非表格块
-        non_table_count = 0
-        if non_table_blocks:
-            try:
-                lark_blocks = build_lark_blocks_from_intermediate(non_table_blocks)
-                if lark_blocks:
-                    non_table_count, block_warnings = _batch_create_blocks(
-                        config, document_id, lark_blocks
-                    )
-                    result.warnings.extend(block_warnings)
-            except Exception as e:
-                result.warnings.append(f"rich block creation failed: {e}")
-                return _append_plain_text_fallback(
-                    config, document_id, markdown, result.warnings,
-                    reason="rich Markdown rendering failed",
-                )
+        try:
+            non_table_count = _append_rendered_blocks(
+                config, document_id, non_table_blocks, result.warnings
+            )
+        except Exception as error:
+            result.warnings.append(f"rich block creation failed: {error}")
+            return _append_plain_text_fallback(
+                config,
+                document_id,
+                markdown,
+                result.warnings,
+                reason="rich Markdown rendering failed",
+            )
 
         total = non_table_count + table_count
         if total == 0 and table_failures:

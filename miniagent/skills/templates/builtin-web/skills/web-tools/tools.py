@@ -365,6 +365,87 @@ def _read_sync_http_response(response: Any) -> tuple[str, bytes]:
         response.close()
 
 
+def _download_target(args: dict[str, Any], cwd: str) -> tuple[str, str]:
+    """解析并约束下载文件名，返回文件名和沙箱内目标路径。"""
+    import os
+    from urllib.parse import unquote, urlparse
+
+    url = str(args["url"]).strip()
+    default_name = unquote(os.path.basename(urlparse(url).path) or "downloaded_file")
+    filename = os.path.basename(str(args.get("filename", "")).strip() or default_name)
+    filename = filename or "downloaded_file"
+    os.makedirs(cwd, exist_ok=True)
+    return filename, os.path.join(cwd, filename)
+
+
+async def _probe_download(
+    client: Any, url: str, args: dict[str, Any], save_dir: str, filename: str, timeout: float
+) -> tuple[int, str, str, str]:
+    """使用 HEAD 探测大小、类型及服务端建议文件名。"""
+    import os
+    from urllib.parse import unquote
+
+    try:
+        response = await client.head(url, timeout=timeout, follow_redirects=True)
+        length = int(response.headers.get("content-length", 0) or 0)
+        content_type = response.headers.get("content-type", "application/octet-stream")
+        disposition = response.headers.get("content-disposition", "")
+        if not args.get("filename") and disposition:
+            match = re.search(
+                r"filename\*\s*=\s*UTF-8''([^;]+)"
+                r'|filename\s*=\s*"([^"]+)"'
+                r"|filename\s*=\s*([^;\s]+)",
+                disposition,
+                flags=re.IGNORECASE,
+            )
+            if match:
+                suggested = unquote(next(group for group in match.groups() if group is not None))
+                filename = os.path.basename(suggested) or filename
+        return length, content_type, filename, os.path.join(save_dir, filename)
+    except Exception:
+        return 0, "application/octet-stream", filename, os.path.join(save_dir, filename)
+
+
+async def _stream_download(
+    client: Any, url: str, save_path: str, content_type: str, limit: int, timeout: float
+) -> tuple[int, str, bool]:
+    """流式写入文件；返回已接收字节数、类型及是否超限。"""
+    async with client.stream("GET", url, timeout=timeout, follow_redirects=True) as response:
+        response.raise_for_status()
+        content_type = response.headers.get("content-type", content_type)
+        file = await asyncio.to_thread(_open_binary_writer, save_path)
+        total = 0
+        pending = bytearray()
+        too_large = False
+        try:
+            async for chunk in response.aiter_bytes(chunk_size=65536):
+                total += len(chunk)
+                if total > limit:
+                    too_large = True
+                    break
+                pending.extend(chunk)
+                if len(pending) >= 1024 * 1024:
+                    await asyncio.to_thread(file.write, bytes(pending))
+                    pending.clear()
+            if pending and not too_large:
+                await asyncio.to_thread(file.write, bytes(pending))
+        finally:
+            await asyncio.to_thread(file.close)
+    return total, content_type, too_large
+
+
+async def _urllib_download(url: str, save_path: str, limit: int, timeout: float) -> tuple[int, str]:
+    """在 httpx 不可用时通过 urllib 下载小文件。"""
+    from urllib.request import urlopen
+
+    response = await asyncio.to_thread(urlopen, url, timeout=timeout)
+    content_type, data = await asyncio.to_thread(_read_sync_http_response, response)
+    if len(data) > limit:
+        raise ValueError(f"文件过大: {len(data) / 1024 / 1024:.1f}MB")
+    await asyncio.to_thread(_write_binary_file, save_path, data)
+    return len(data), content_type
+
+
 async def _download_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     """下载 HTTP 文件到沙箱目录。
 
@@ -377,7 +458,6 @@ async def _download_file_handler(args: dict[str, Any], ctx: ToolContext) -> Tool
         ToolResult 包含文件路径、大小、MIME 类型等信息
     """
     import os
-    from urllib.parse import unquote, urlparse
 
     url = str(args["url"]).strip()
     max_size_mb = min(500, max(1, int(args.get("max_size_mb", 50))))
@@ -388,113 +468,46 @@ async def _download_file_handler(args: dict[str, Any], ctx: ToolContext) -> Tool
             success=False, content=f"{ERROR_PREFIX} 仅允许 http/https URL，且须包含主机名"
         )
 
-    # 解析默认文件名
-    parsed = urlparse(url)
-    default_name = unquote(os.path.basename(parsed.path) or "downloaded_file")
-
-    # 用户指定的文件名，或从 URL/Content-Disposition 提取
-    filename = str(args.get("filename", "")).strip() or default_name
-
-    # 安全：禁止路径穿越
-    filename = os.path.basename(filename)
-    if not filename:
-        filename = "downloaded_file"
-
-    # 沙箱目录：使用 ctx.cwd（会话 files 目录）
     save_dir = ctx.cwd
-    os.makedirs(save_dir, exist_ok=True)
-    save_path = os.path.join(save_dir, filename)
-
+    filename, save_path = _download_target(args, save_dir)
     timeout = 120.0
     try:
         client = await get_shared_httpx_client()
-        # 先发送 HEAD 请求检查大小和类型
+        length, content_type, filename, save_path = await _probe_download(
+            client, url, args, save_dir, filename, timeout
+        )
+        if length > max_size_bytes:
+            return ToolResult(
+                success=False,
+                content=f"{ERROR_PREFIX} 文件过大: {length / 1024 / 1024:.1f}MB > {max_size_mb}MB 限制",
+            )
         try:
-            head_resp = await client.head(url, timeout=timeout, follow_redirects=True)
-            content_length = int(head_resp.headers.get("content-length", 0) or 0)
-            content_type = head_resp.headers.get("content-type", "application/octet-stream")
-
-            # 从 Content-Disposition 提取文件名（如果未指定）
-            disposition = head_resp.headers.get("content-disposition", "")
-            if not args.get("filename") and disposition:
-                # 解析 filename="xxx" 或 filename*=UTF-8''xxx
-                # parser already imported at module scope
-                match = re.search(r'filename[*]?[="\']?([^"\';\s]+)["\']?', disposition)
-                if match:
-                    cd_name = unquote(match.group(1))
-                    filename = os.path.basename(cd_name) or filename
-                    save_path = os.path.join(save_dir, filename)
-
-            # 检查大小限制
-            if content_length > max_size_bytes:
+            total, content_type, too_large = await _stream_download(
+                client, url, save_path, content_type, max_size_bytes, timeout
+            )
+            if too_large:
+                await asyncio.to_thread(os.remove, save_path)
                 return ToolResult(
                     success=False,
-                    content=f"{ERROR_PREFIX} 文件过大: {content_length / 1024 / 1024:.1f}MB > {max_size_mb}MB 限制",
+                    content=f"{ERROR_PREFIX} 下载超过限制: {total / 1024 / 1024:.1f}MB > {max_size_mb}MB",
                 )
-        except Exception:
-            content_length = 0
-            content_type = "application/octet-stream"
-
-        # 流式下载
-        total = 0
-        try:
-            async with client.stream("GET", url, timeout=timeout, follow_redirects=True) as resp:
-                resp.raise_for_status()
-
-                # 再次检查 Content-Type
-                content_type = resp.headers.get("content-type", content_type)
-
-                file = await asyncio.to_thread(_open_binary_writer, save_path)
-                pending = bytearray()
-                too_large = False
-                try:
-                    async for chunk in resp.aiter_bytes(chunk_size=65536):
-                        total += len(chunk)
-                        if total > max_size_bytes:
-                            too_large = True
-                            break
-                        pending.extend(chunk)
-                        if len(pending) >= 1024 * 1024:
-                            await asyncio.to_thread(file.write, bytes(pending))
-                            pending.clear()
-                    if pending and not too_large:
-                        await asyncio.to_thread(file.write, bytes(pending))
-                finally:
-                    await asyncio.to_thread(file.close)
-                if too_large:
-                    await asyncio.to_thread(os.remove, save_path)
-                    return ToolResult(
-                        success=False,
-                        content=f"{ERROR_PREFIX} 下载超过限制: {total / 1024 / 1024:.1f}MB > {max_size_mb}MB",
-                    )
-        except Exception as e:
-            # 清理部分下载的文件
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
             if os.path.exists(save_path):
                 try:
                     os.remove(save_path)
                 except Exception as cleanup_error:
                     _logger.debug("清理下载文件失败: %s", cleanup_error)
-            return ToolResult(success=False, content=f"{ERROR_PREFIX} 下载失败: {e}")
+            return ToolResult(success=False, content=f"{ERROR_PREFIX} 下载失败: {error}")
 
     except ImportError:
-        # 无 httpx，使用 urllib 回退
-        from urllib.request import urlopen
-
         try:
-            resp_sync = await asyncio.to_thread(urlopen, url, timeout=timeout)
-            content_type, data = await asyncio.to_thread(
-                _read_sync_http_response,
-                resp_sync,
-            )
-            if len(data) > max_size_bytes:
-                return ToolResult(
-                    success=False,
-                    content=f"{ERROR_PREFIX} 文件过大: {len(data) / 1024 / 1024:.1f}MB > {max_size_mb}MB",
-                )
-            await asyncio.to_thread(_write_binary_file, save_path, data)
-            total = len(data)
-        except Exception as e:
-            return ToolResult(success=False, content=f"{ERROR_PREFIX} 下载失败: {e}")
+            total, content_type = await _urllib_download(url, save_path, max_size_bytes, timeout)
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            return ToolResult(success=False, content=f"{ERROR_PREFIX} 下载失败: {error}")
 
     # 格式化大小
     size_str = f"{total / 1024:.1f}KB" if total < 1024 * 1024 else f"{total / 1024 / 1024:.2f}MB"

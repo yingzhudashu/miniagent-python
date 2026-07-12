@@ -23,9 +23,9 @@ from __future__ import annotations
 
 import asyncio
 import functools
-import json
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeAlias
 
 if TYPE_CHECKING:
@@ -33,6 +33,22 @@ if TYPE_CHECKING:
 
 from miniagent.contracts.knowledge import KnowledgeRegistryProtocol
 from miniagent.contracts.memory import MemoryRuntimeProtocol
+from miniagent.contracts.runtime import OnThinkingCallback, OnToolFinishCallback
+from miniagent.core.agent_defaults import (
+    create_default_plan as _create_default_plan,
+)
+from miniagent.core.agent_defaults import (
+    user_forbids_tools as _user_forbids_tools,
+)
+from miniagent.core.agent_display import (
+    format_plan_display_short as _format_plan_display_short,
+)
+from miniagent.core.agent_display import (
+    format_plan_message as _format_plan_message,
+)
+from miniagent.core.agent_display import (
+    format_task_difficulty as _format_task_difficulty,
+)
 from miniagent.core.config import get_default_agent_config, merge_agent_config
 from miniagent.core.constants import (
     CLARIFIER_MAX_QUESTIONS_COMPLEX,
@@ -42,11 +58,8 @@ from miniagent.core.constants import (
     EXECUTION_MAX_PLAN_CONFIRM_ROUNDS,
 )
 from miniagent.core.executor import execute_plan
-from miniagent.core.plan_utils import (
-    format_estimated_cost_block,
-    format_output_spec_block,
-    resolve_effective_overflow_strategy,
-)
+from miniagent.core.pipeline import run_pipeline
+from miniagent.core.plan_utils import resolve_effective_overflow_strategy
 from miniagent.core.planner import generate_plan
 from miniagent.core.problem_solver import build_reflection_footer, reflect_on_result
 from miniagent.core.task_classifier import (
@@ -63,14 +76,9 @@ from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 from miniagent.infrastructure.monitor import DefaultToolMonitor
 from miniagent.memory.activity_log import invoke_activity_log
-from miniagent.security.sandbox import get_default_workspace
 from miniagent.types.agent import (
     AgentRunOptions,
     AgentRunResult,
-    PipelineResult,
-    PipelineStep,
-    PipelineStepRecord,
-    ToolCallResult,
     ToolMonitorProtocol,
     ToolStats,
 )
@@ -79,12 +87,10 @@ from miniagent.types.confirmation import ConfirmationRequest, ConfirmationResult
 from miniagent.types.error_prefix import WARNING_PREFIX
 from miniagent.types.planning import (
     ContextStrategy,
-    EstimatedTokens,
     StructuredPlan,
     SuggestedConfig,
 )
-from miniagent.types.protocols import OnThinkingCallback, OnToolFinishCallback
-from miniagent.types.tool import Toolbox, ToolContext, ToolRegistryProtocol
+from miniagent.types.tool import Toolbox, ToolRegistryProtocol
 
 _logger = get_logger(__name__)
 
@@ -106,14 +112,6 @@ def _announce_difficulty_and_plan_enabled() -> bool:
     return EXECUTION_ANNOUNCE_DIFFICULTY
 
 
-_DIFFICULTY_LABELS = {
-    "simple": "简单",
-    "normal": "一般",
-    "medium": "中等",
-    "complex": "复杂",
-}
-
-
 def _clarifier_max_questions_for_difficulty(difficulty: TaskDifficulty) -> int:
     """按任务难度返回澄清追问上限（见 ``core.constants`` CLARIFIER_MAX_QUESTIONS_*）。"""
     if difficulty == TaskDifficulty.SIMPLE:
@@ -125,190 +123,7 @@ def _clarifier_max_questions_for_difficulty(difficulty: TaskDifficulty) -> int:
     return CLARIFIER_MAX_QUESTIONS_COMPLEX
 
 
-def _format_task_difficulty(difficulty: Any, *, display: bool = False) -> str:
-    """格式化任务难度为可读文本。
-
-    根据 display 参数返回不同格式：
-    - display=False: 完整说明（含思考深度调整提示），用于会话历史全量记录
-    - display=True: 精简卡片格式（CLI/飞书卡片），仅显示难度标签
-
-    Args:
-        difficulty: TaskDifficulty 枚举值或字符串（simple/normal/medium/complex）
-        display: 是否返回精简展示格式（默认 False）
-
-    Returns:
-        str: 格式化后的难度文本
-
-    Note:
-        中文标签映射见 _DIFFICULTY_LABELS 字典。
-    """
-    key = getattr(difficulty, "value", str(difficulty))
-    zh = _DIFFICULTY_LABELS.get(key, key)
-    if display:
-        return f"**难度** {zh}（{key}）"
-    return (
-        f"任务难度：{zh}（{key}）\n将据此调整规划与执行的思考深度（若已启用分类器）。"
-    )
-
-
-def _skip_structured_plan_reason(
-    *,
-    no_toolboxes: bool,
-    user_skip_planning: bool,
-    simple_classified: bool,
-) -> str:
-    """生成跳过结构化规划的原因说明。
-
-    根据跳过原因返回用户可读的中文解释，用于展示在 [评估与计划] 段。
-    调用方应确保三个布尔标志互斥（仅一个为 True）。
-
-    Args:
-        no_toolboxes: 无可用工具箱（纯对话模式）
-        user_skip_planning: 用户显式设置 skip_planning=True
-        simple_classified: 任务分类器判定为简单任务
-
-    Returns:
-        str: 跳过原因的中文说明文本
-
-    Note:
-        按优先级检查：no_toolboxes > user_skip_planning > simple_classified。
-    """
-    if no_toolboxes:
-        return "原因：无可用工具箱，未调用结构化规划器。"
-    if user_skip_planning:
-        return "原因：已显式跳过规划（skip_planning），未调用结构化规划器。"
-    if simple_classified:
-        return "原因：任务难度评估为「简单」，已跳过结构化规划。"
-    return "原因：未调用结构化规划器。"
-
-
 PLANNING_STREAM_HEADER = "[评估与计划]"
-
-
-def _format_plan_display_short(
-    plan: StructuredPlan,
-    *,
-    from_llm_planner: bool,
-    no_toolboxes: bool = False,
-    user_skip_planning: bool = False,
-    simple_classified: bool = False,
-) -> str:
-    """格式化执行计划为精简 Markdown（CLI/飞书卡片展示用）。
-
-    根据计划来源（LLM规划器 vs 默认计划）生成不同格式：
-    - LLM规划：显示摘要、步骤列表、工具箱
-    - 默认计划：显示跳过原因和摘要
-
-    与 _format_plan_message 的区别：此函数省略预期输入/产出细节，适合即时展示。
-
-    Args:
-        plan: 结构化执行计划
-        from_llm_planner: 是否来自 LLM 规划器（False 表示默认计划）
-        no_toolboxes: 是否因无工具箱跳过规划
-        user_skip_planning: 是否用户显式跳过规划
-        simple_classified: 是否因简单任务跳过规划
-
-    Returns:
-        str: 精简格式的计划 Markdown 文本
-
-    Note:
-        飞书卡片有字符数限制，此格式确保关键信息可见。
-    """
-    if not from_llm_planner:
-        reason = _skip_structured_plan_reason(
-            no_toolboxes=no_toolboxes,
-            user_skip_planning=user_skip_planning,
-            simple_classified=simple_classified,
-        )
-        return (
-            "（已跳过结构化规划）\n"
-            + reason
-            + f"\n摘要：{(plan.summary or '').strip() or '—'}"
-        )
-    lines: list[str] = [(plan.summary or "").strip() or "—"]
-    if plan.steps:
-        lines.append("")
-        for i, st in enumerate(plan.steps, start=1):
-            desc = (st.description or "").strip() or "—"
-            lines.append(f"{i}. {desc}")
-    if plan.required_toolboxes:
-        lines.append("")
-        lines.append(f"工具箱：`{', '.join(plan.required_toolboxes)}`")
-    if plan.estimated_cost.total_usd > 0:
-        lines.append("")
-        lines.append(f"预估成本约 ${plan.estimated_cost.total_usd:.4f}")
-    return "\n".join(lines)
-
-
-def _format_plan_message(
-    plan: StructuredPlan,
-    *,
-    from_llm_planner: bool,
-    no_toolboxes: bool = False,
-    user_skip_planning: bool = False,
-    simple_classified: bool = False,
-) -> str:
-    """格式化执行计划为完整 Markdown（会话历史全量记录用）。
-
-    生成包含所有细节的计划文本，用于 on_thinking 回调的 full_record 参数
-    和会话历史存储。包含预期输入/产出等完整信息。
-
-    Args:
-        plan: 结构化执行计划
-        from_llm_planner: 是否来自 LLM 规划器（False 表示默认计划）
-        no_toolboxes: 是否因无工具箱跳过规划
-        user_skip_planning: 是否用户显式跳过规划
-        simple_classified: 是否因简单任务跳过规划
-
-    Returns:
-        str: 完整格式的计划 Markdown 文本
-
-    Note:
-        飞书通道在 poll_server 中应用字符数限制，此函数不负责截断。
-    """
-    if not from_llm_planner:
-        reason = _skip_structured_plan_reason(
-            no_toolboxes=no_toolboxes,
-            user_skip_planning=user_skip_planning,
-            simple_classified=simple_classified,
-        )
-        return (
-            f"执行模式：跳过结构化规划。\n{reason}\n"
-            f"摘要：{(plan.summary or '').strip() or '—'}"
-        )
-    lines: list[str] = [(plan.summary or "").strip() or "—"]
-    if plan.steps:
-        lines.append("")
-        lines.append("步骤概要：")
-        for i, st in enumerate(plan.steps, start=1):
-            desc = (st.description or "").strip()
-            lines.append(f"{i}. {desc}")
-            ei = (st.expected_input or "").strip()
-            eo = (st.expected_output or "").strip()
-            if ei:
-                lines.append(f"预期输入：{ei}")
-            if eo:
-                lines.append(f"预期产出：{eo}")
-    if plan.required_toolboxes:
-        lines.append("")
-        lines.append(f"涉及工具箱：{', '.join(plan.required_toolboxes)}")
-    cost_block = format_estimated_cost_block(plan.estimated_cost)
-    if cost_block:
-        lines.append("")
-        lines.append(cost_block)
-    out_block = format_output_spec_block(plan.output_spec)
-    if out_block:
-        lines.append("")
-        lines.append(out_block)
-    cs = plan.context_strategy
-    if cs and (cs.reason or cs.chunks):
-        lines.append("")
-        lines.append("上下文策略：")
-        if cs.reason:
-            lines.append(cs.reason)
-        if cs.chunks:
-            lines.append(f"分 {len(cs.chunks)} 块执行")
-    return "\n".join(lines)
 
 
 def _merge_plan_suggested_config(plan: StructuredPlan, merged_config: AgentConfig) -> AgentConfig:
@@ -420,10 +235,443 @@ def _trace_agent_run(func: Any) -> Any:
                     "success": success,
                 }
             )
+
     return wrapped
 
 
 # ─── 主入口 ──────────────────────────────────────────────
+
+
+async def _execute_agent_plan(
+    plan: StructuredPlan,
+    user_input: str,
+    *,
+    registry: ToolRegistryProtocol,
+    monitor: ToolMonitorProtocol,
+    config: AgentConfig,
+    system_prompt: str | None,
+    memory: MemoryRuntimeProtocol,
+    knowledge_registry: KnowledgeRegistryProtocol,
+    client: Any,
+    on_tool_call: OnToolCall | None,
+    on_tool_finish: OnToolFinish | None,
+    on_thinking: OnThinking | None,
+    clawhub: Any | None,
+    confirmation_channel: Any | None,
+    tool_semaphore: asyncio.Semaphore | None,
+    session_key: str | None,
+) -> str:
+    """执行计划，并在计划允许时以简化计划做一次有界降级。"""
+    from miniagent.infrastructure.tracing import trace_span
+
+    async def execute(current_plan: StructuredPlan, current_config: AgentConfig, phase: str) -> str:
+        with trace_span(phase, session_key=session_key):
+            return await execute_plan(
+                current_plan,
+                user_input,
+                registry,
+                monitor,
+                current_config,
+                on_tool_call,
+                on_thinking,
+                on_tool_finish=on_tool_finish,
+                system_prompt=system_prompt,
+                clawhub=clawhub,
+                memory=memory,
+                knowledge_registry=knowledge_registry,
+                client=client,
+                confirmation_channel=confirmation_channel,
+                tool_semaphore=tool_semaphore,
+                manage_activity_lifecycle=False,
+            )
+
+    reply = await execute(plan, config, "exec")
+    if not (
+        reply.startswith(WARNING_PREFIX) and plan.fallback_plan.degrade_to_simple and plan.steps
+    ):
+        return reply
+    fallback_config = merge_agent_config(
+        config,
+        {"max_turns": plan.fallback_plan.degraded_max_turns},
+    )
+    simple_plan = StructuredPlan(
+        summary=plan.summary,
+        steps=[],
+        required_toolboxes=plan.required_toolboxes,
+        suggested_config=SuggestedConfig(max_turns=plan.fallback_plan.degraded_max_turns),
+        estimated_tokens=plan.estimated_tokens,
+        context_strategy=ContextStrategy(mode="normal", reason="fallback 降级"),
+        risk_level=plan.risk_level,
+        output_spec=plan.output_spec,
+        fallback_plan=plan.fallback_plan,
+        tools_enabled=plan.tools_enabled,
+    )
+    fallback_reply = await execute(simple_plan, fallback_config, "exec_fallback")
+    return fallback_reply if not fallback_reply.startswith(WARNING_PREFIX) else reply
+
+
+async def _reflect_agent_reply(
+    user_input: str,
+    reply: str,
+    *,
+    knowledge_registry: KnowledgeRegistryProtocol,
+    client: Any,
+    session_key: str | None,
+    engine: Any | None,
+) -> str:
+    """按配置执行结果反思，并更新展示 footer 与引擎会话缓存。"""
+    if not get_config("features.reflection", True):
+        return reply
+    from miniagent.infrastructure.tracing import trace_span
+
+    with trace_span("reflect", session_key=session_key):
+        reflection = await reflect_on_result(
+            user_input,
+            reply,
+            knowledge_registry=knowledge_registry,
+            client=client,
+            on_thinking=None,
+            session_key=session_key,
+        )
+    if engine is not None:
+        key = session_key or "default"
+        if not hasattr(engine, "_last_reflection") or not isinstance(engine._last_reflection, dict):
+            engine._last_reflection = {}
+        engine._last_reflection[key] = reflection
+    return reply + build_reflection_footer(reflection)
+
+
+async def _prepare_control_stages(
+    user_input: str,
+    *,
+    toolboxes: list[Toolbox],
+    skip_planning: bool,
+    clarifier: Any | None,
+    confirmation_channel: Any | None,
+    on_thinking: OnThinking | None,
+    knowledge_registry: KnowledgeRegistryProtocol,
+    memory: MemoryRuntimeProtocol,
+    client: Any,
+    config: AgentConfig,
+    session_key: str | None,
+) -> tuple[str, TaskDifficulty, bool]:
+    """执行可选分类与澄清，返回增强输入、难度和有效跳过规划标志。"""
+    from miniagent.infrastructure.tracing import trace_span
+
+    difficulty = TaskDifficulty.NORMAL
+    effective_skip = skip_planning
+    if toolboxes and not skip_planning and task_classifier_enabled():
+        with trace_span("classify", session_key=session_key):
+            difficulty = await classify_task_difficulty(
+                user_input,
+                [toolbox.id for toolbox in toolboxes],
+                knowledge_registry=knowledge_registry,
+                client=client,
+                agent_config=config,
+            )
+        effective_skip = difficulty == TaskDifficulty.SIMPLE
+        if _announce_difficulty_and_plan_enabled() and on_thinking:
+            await invoke_on_thinking(
+                on_thinking,
+                _format_task_difficulty(difficulty, display=True),
+                True,
+                PLANNING_STREAM_HEADER,
+                full_record=_format_task_difficulty(difficulty),
+            )
+    if (
+        not get_config("features.requirement_clarify", True)
+        or clarifier is None
+        or difficulty == TaskDifficulty.SIMPLE
+    ):
+        return user_input, difficulty, effective_skip
+    clarified = await _clarify_user_input(
+        user_input,
+        difficulty=difficulty,
+        clarifier=clarifier,
+        confirmation_channel=confirmation_channel,
+        on_thinking=on_thinking,
+        knowledge_registry=knowledge_registry,
+        memory=memory,
+        client=client,
+        session_key=session_key,
+    )
+    return clarified, difficulty, effective_skip
+
+
+async def _clarify_user_input(
+    user_input: str,
+    *,
+    difficulty: TaskDifficulty,
+    clarifier: Any,
+    confirmation_channel: Any | None,
+    on_thinking: OnThinking | None,
+    knowledge_registry: KnowledgeRegistryProtocol,
+    memory: MemoryRuntimeProtocol,
+    client: Any,
+    session_key: str | None,
+) -> str:
+    """运行需求澄清；可选能力失败时保留原始输入继续。"""
+    from miniagent.infrastructure.tracing import trace_span
+
+    async def ask_user(question: str) -> str:
+        if confirmation_channel is None or on_thinking is None:
+            _logger.warning("需求澄清: confirmation_channel 或 on_thinking 未设置，跳过追问")
+            return ""
+        await invoke_on_thinking(on_thinking, f"❓ {question}", True, "[需求澄清]")
+        request = ConfirmationRequest(stage=ConfirmationStage.CLARIFICATION, content=question)
+        result = await confirmation_channel.request_confirmation(request)
+        if result.rejected:
+            return ""
+        answer = (result.adjustment or "").strip()
+        if answer:
+            await invoke_on_thinking(
+                on_thinking,
+                f"用户回复：{answer}",
+                True,
+                "[需求澄清]",
+            )
+        return answer
+
+    if on_thinking:
+        try:
+            await invoke_on_thinking(
+                on_thinking,
+                "正在分析需求，识别模糊表述与边界条件…",
+                True,
+                "[需求澄清]",
+            )
+        except Exception as error:
+            _logger.debug("调用thinking回调失败: %s", error, exc_info=True)
+    try:
+        max_questions = min(
+            _clarifier_max_questions_for_difficulty(difficulty),
+            int(get_config("agent.max_questions", CLARIFIER_MAX_QUESTIONS_COMPLEX)),
+        )
+        with trace_span("clarify", session_key=session_key):
+            clarified = await clarifier.clarify(
+                user_input,
+                ask_user=ask_user,
+                client=client,
+                on_thinking=on_thinking,
+                memory_store=memory.store,
+                knowledge_registry=knowledge_registry,
+                session_key=session_key,
+                max_questions=max_questions,
+            )
+        if not clarified:
+            return user_input
+        prompt = clarifier.to_system_prompt(clarified)
+        if _announce_difficulty_and_plan_enabled() and on_thinking:
+            await invoke_on_thinking(
+                on_thinking,
+                f"需求已澄清：{getattr(clarified, 'clarified_goal', '')[:80]}",
+                True,
+                "[需求澄清]",
+                full_record=prompt,
+            )
+        return f"{user_input}\n\n{prompt}"
+    except Exception as error:
+        _logger.warning("需求澄清失败: %s", error, exc_info=True)
+        return user_input
+
+
+async def _prepare_plan(
+    user_input: str,
+    *,
+    toolboxes: list[Toolbox],
+    skip_planning: bool,
+    difficulty: TaskDifficulty,
+    config: AgentConfig,
+    registry: ToolRegistryProtocol,
+    knowledge_registry: KnowledgeRegistryProtocol,
+    client: Any,
+    on_plan: OnPlan | None,
+    on_thinking: OnThinking | None,
+    session_key: str | None,
+) -> tuple[StructuredPlan | None, AgentConfig, bool, str | None]:
+    """生成默认或 LLM 计划，并处理高风险计划确认/调整循环。"""
+    from miniagent.infrastructure.tracing import trace_span
+
+    if skip_planning or not toolboxes:
+        plan = _create_default_plan(
+            tools_enabled=bool(toolboxes) and not _user_forbids_tools(user_input)
+        )
+        if toolboxes and skip_planning and difficulty == TaskDifficulty.SIMPLE:
+            config = merge_agent_config(
+                config,
+                {"model_overrides": exec_merge_for_simple_path()},
+            )
+        return plan, config, False, None
+    plan_input = user_input
+    rounds_left = EXECUTION_MAX_PLAN_CONFIRM_ROUNDS
+    while True:
+        with trace_span("plan", session_key=session_key):
+            plan = await generate_plan(
+                plan_input,
+                toolboxes,
+                config.log_file,
+                client=client,
+                agent_config=config,
+                registry=registry,
+                knowledge_registry=knowledge_registry,
+                planner_model_overrides=planner_merge_for_difficulty(difficulty),
+                default_step_thinking=default_step_thinking_for_difficulty(difficulty),
+            )
+        config = _merge_plan_suggested_config(plan, config)
+        if not plan.requires_confirmation or on_plan is None:
+            return plan, config, True, None
+        if on_thinking:
+            try:
+                await invoke_on_thinking(
+                    on_thinking,
+                    f"{WARNING_PREFIX} 高风险操作，请确认执行计划。输入 /confirm 同意，/reject 拒绝，/adjust 调整。",
+                    True,
+                    "[等待确认]",
+                )
+            except Exception as error:
+                _logger.debug("等待确认推送失败（非关键）: %s", error, exc_info=True)
+        action, adjustment = (await on_plan(plan)).plan_action()
+        if action == "cancel":
+            return None, config, True, f"{WARNING_PREFIX} 操作已取消"
+        if action != "replan":
+            return plan, config, True, None
+        rounds_left -= 1
+        if rounds_left <= 0:
+            return None, config, True, f"{WARNING_PREFIX} 计划调整次数过多，已取消"
+        if adjustment:
+            plan_input = f"{plan_input}\n\n[用户计划调整] {adjustment}"
+
+
+def _merge_invocation_config(
+    options: AgentRunOptions | None,
+    agent_config: dict[str, Any] | None,
+    session_key: str | None,
+) -> AgentConfig:
+    """按默认值、运行选项、显式覆盖的顺序合并一次调用配置。"""
+    config = get_default_agent_config()
+    overlay: dict[str, Any] = {}
+    if options is not None and options.agent_config:
+        overlay.update(options.agent_config)
+    if options is not None and options.model_config:
+        model_overrides = dict(overlay.get("model_overrides") or {})
+        model_overrides.update(options.model_config)
+        overlay["model_overrides"] = model_overrides
+    if overlay:
+        config = merge_agent_config(config, overlay)
+    config = merge_agent_config(config, agent_config or {})
+    requested_key = (session_key or "").strip() or None
+    if requested_key and not config.session_config.session_key:
+        config = merge_agent_config(
+            config,
+            {"session_config": {"session_key": requested_key}},
+        )
+    return config
+
+
+@dataclass(slots=True)
+class _AgentInvocation:
+    """持有一次 Agent 编排的配置、会话日志和统计生命周期。"""
+
+    user_input: str
+    memory: MemoryRuntimeProtocol
+    monitor: ToolMonitorProtocol
+    toolboxes: list[Toolbox]
+    config: AgentConfig
+    system_prompt: str | None
+    activity_enabled: bool
+
+    @property
+    def session_key(self) -> str | None:
+        """返回归一化后的下游会话键。"""
+        return self.config.session_config.session_key or None
+
+    async def start(self) -> None:
+        """为可持久化会话记录单一开始事件。"""
+        if not self.activity_enabled or not self.session_key:
+            return
+        source = "feishu" if self.session_key.startswith("feishu:") else "cli"
+        await invoke_activity_log(
+            self.memory.activity_log,
+            "log_session_start",
+            self.session_key,
+            self.user_input,
+            source,
+        )
+
+    async def finish(self, reply: str) -> AgentRunResult:
+        """记录最终回复并从监控器生成稳定结果 DTO。"""
+        if self.activity_enabled and self.session_key:
+            await invoke_activity_log(
+                self.memory.activity_log,
+                "log_final_reply",
+                self.session_key,
+                reply,
+            )
+        return _build_agent_run_result(reply, self.monitor)
+
+
+def _create_agent_invocation(
+    user_input: str,
+    *,
+    memory: MemoryRuntimeProtocol,
+    monitor: ToolMonitorProtocol | None,
+    toolboxes: list[Toolbox] | None,
+    agent_config: dict[str, Any] | None,
+    options: AgentRunOptions | None,
+    system_prompt: str | None,
+    session_key: str | None,
+) -> _AgentInvocation:
+    """解析一次公共调用的可选参数并建立生命周期对象。"""
+    effective_monitor = monitor or DefaultToolMonitor()
+    config = _merge_invocation_config(options, agent_config, session_key)
+    effective_system = (
+        system_prompt if system_prompt is not None else (options.system_prompt if options else None)
+    )
+    effective_key = config.session_config.session_key or None
+    activity_enabled = False
+    if effective_key:
+        from miniagent.engine.bg_session_cleanup import is_background_session_key
+
+        activity_enabled = not is_background_session_key(effective_key)
+    return _AgentInvocation(
+        user_input,
+        memory,
+        effective_monitor,
+        toolboxes or [],
+        config,
+        effective_system,
+        activity_enabled,
+    )
+
+
+async def _announce_plan(
+    plan: StructuredPlan,
+    *,
+    toolboxes: list[Toolbox],
+    skip_planning: bool,
+    difficulty: TaskDifficulty,
+    from_llm_planner: bool,
+    on_thinking: OnThinking | None,
+) -> None:
+    """重置规划展示段，避免澄清前后的难度信息重复。"""
+    if not _announce_difficulty_and_plan_enabled() or on_thinking is None:
+        return
+    no_toolboxes = not toolboxes
+    simple_classified = bool(toolboxes) and not skip_planning and difficulty == TaskDifficulty.SIMPLE
+    common = {
+        "from_llm_planner": from_llm_planner,
+        "no_toolboxes": no_toolboxes,
+        "user_skip_planning": skip_planning,
+        "simple_classified": simple_classified,
+    }
+    await invoke_on_thinking(
+        on_thinking,
+        _format_plan_display_short(plan, **common),
+        True,
+        PLANNING_STREAM_HEADER,
+        full_record=_format_plan_message(plan, **common),
+        reset=True,
+    )
 
 
 @_trace_agent_run
@@ -451,576 +699,82 @@ async def run_agent(
     engine: Any | None = None,
     tool_semaphore: asyncio.Semaphore | None = None,
 ) -> AgentRunResult:
-    """运行 Agent（两阶段主入口 + 可选前置/后置步骤）。
-
-    **对外两阶段**（本函数核心职责）：
-    - **Phase 1 — Planning**：``generate_plan`` 产出 :class:`~miniagent.types.planning.StructuredPlan`；
-      在 ``skip_planning``、无 ``toolboxes``、或分类为「简单」时跳过并回落默认计划。
-    - **Phase 2 — Execution**：``execute_plan`` 实现 ReAct（Think → Act → Observe）。
-
-    **可选编排步骤**（仍在 ``run_agent`` 内串联）：
-    - **Phase 0 — 任务分类**：``classify_task_difficulty``；简单任务可跳过 Phase 1。
-      可通过 ``agent.skip_task_classification=True`` 关闭分类器。
-    - **Phase 0.5 — 需求澄清**：需传入 ``clarifier`` 与 ``confirmation_channel``；
-      追问算法与轮次策略见
-      :class:`~miniagent.core.requirement_clarifier.RequirementClarifier`（本模块仅编排调用）。
-    - **Phase 3 — 结果反思**：``features.reflection=True`` 时在回复末尾追加展示用 footer；
-      完整评估逻辑见 :mod:`miniagent.core.problem_solver`。
-
-    **思考展示**（``on_thinking``）：
-    - ``EXECUTION_ANNOUNCE_DIFFICULTY=True`` 时合并难度与规划为 ``[评估与计划]`` 段。
-    - 分段标签示例：``[评估与计划]`` → ``[需求澄清]`` → ``[等待确认]`` → 执行器内 ``[执行]``。
-    - ``full_record`` 写入会话历史全量文本；``reset=True`` 避免澄清后重复展示难度。
-
-    **高风险计划确认**（``plan.requires_confirmation=True``）：
-    - 已提供 ``on_plan``：推送 ``[等待确认]``，阻塞等待
-      :class:`~miniagent.types.confirmation.ConfirmationResult`（``/confirm`` / ``/reject`` / ``/adjust``）。
-    - **未提供 ``on_plan``**：无法阻塞，**直接进入 Phase 2**（无确认通道时的降级行为）。
-
-    **执行失败降级**：Phase 2 返回带 ``WARNING_PREFIX`` 且 ``plan.fallback_plan.degrade_to_simple``
-    为真时，以 ``degraded_max_turns`` 清空 ``steps`` 后再执行一次 ReAct。
-
-    **副作用**：反思开启且传入 ``engine`` 时，结果写入 ``engine._last_reflection[session_key]``，
-    供飞书质量卡片读取（动态属性，非公开 API 契约）。
-
-    Args:
-        user_input: 用户的原始需求文本
-        registry: 工具注册表（实现 ToolRegistryProtocol）
-        monitor: 性能监控器（默认创建 DefaultToolMonitor）
-        toolboxes: 可用工具箱列表（空则跳过规划阶段）
-        agent_config: Agent 配置覆盖（如 streaming、debug、max_turns）；优先于 ``options.agent_config``
-        options: 运行选项（``system_prompt`` / ``agent_config`` / ``model_config`` 批量注入）
-        system_prompt: 自定义系统提示词（覆盖 ``options.system_prompt``）
-        skip_planning: 强制跳过规划阶段（直接进入执行）
-        on_tool_call: 工具调用回调（用于飞书卡片按钮交互）
-        on_tool_finish: 工具执行完成回调（用于历史记录落盘）
-        on_plan: 规划确认回调（高风险操作时等待用户响应，返回 :class:`ConfirmationResult`）
-        on_thinking: 思考流回调（实时展示思考过程）
-        clawhub: ClawHub客户端实例（用于技能市场交互）
-        memory: 由应用组合根创建的记忆运行时（存储、日志、索引与上下文）
-        knowledge_registry: 由应用组合根创建的知识库注册表
-        client: 由组合根显式注入的 AsyncOpenAI 客户端
-        clarifier: 需求澄清器（见 ``requirement_clarifier`` 模块）
-        session_key: 会话标识符（用于记忆加载和历史保存）
-        confirmation_channel: 确认通道（澄清追问与计划/工具确认）
-        engine: UnifiedEngine 实例；反思结果可写入 ``_last_reflection``
-        tool_semaphore: 由引擎持有并注入 executor 的工具并发限制器
-
-    Returns:
-        AgentRunResult: 含 ``reply`` 与工具调用统计。
-        正常完成时 ``reply`` 为最终回复（可含反思 footer）；取消或拦截时为
-        ``WARNING_PREFIX`` 前缀的中文提示。
-
-    Raises:
-        以下由下游模块抛出，本函数不主动校验后抛出：
-        ``ValueError``（配置无效）、``RuntimeError``（LLM/规划器失败）、
-        ``ContextBudgetExceeded``（执行器上下文超预算）。
-
-    Examples:
-        >>> from miniagent.core.agent import run_agent
-        >>> from miniagent.infrastructure.registry import DefaultToolRegistry
-        >>> registry = DefaultToolRegistry()
-        >>> result = await run_agent(
-        ...     "帮我分析当前目录的文件结构",
-        ...     registry=registry,
-        ...     session_key="session_001",
-        ... )
-        >>> print(result.reply)  # "已分析完成，当前目录包含..."
-
-    See Also:
-        - :func:`miniagent.core.executor.execute_plan`
-        - :func:`miniagent.core.planner.generate_plan`
-        - :func:`miniagent.core.task_classifier.classify_task_difficulty`
-        - :class:`miniagent.core.requirement_clarifier.RequirementClarifier`
-    """
-    from miniagent.infrastructure.tracing import trace_span
-
-    if monitor is None:
-        monitor = DefaultToolMonitor()
-    if toolboxes is None:
-        toolboxes = []
-
-    effective_system_prompt = (
-        system_prompt if system_prompt is not None else (options.system_prompt if options else None)
+    """运行分类、澄清、规划、确认、ReAct 执行和可选反思管线。"""
+    invocation = _create_agent_invocation(
+        user_input,
+        memory=memory,
+        monitor=monitor,
+        toolboxes=toolboxes,
+        agent_config=agent_config,
+        options=options,
+        system_prompt=system_prompt,
+        session_key=session_key,
     )
-
-    # ── 合并配置（options 先合并，agent_config 覆盖）──
-    base_config = get_default_agent_config()
-    options_overlay: dict[str, Any] = {}
-    if options is not None and options.agent_config:
-        options_overlay.update(options.agent_config)
-    if options is not None and options.model_config:
-        model_overrides = dict(options_overlay.get("model_overrides") or {})
-        model_overrides.update(options.model_config)
-        options_overlay["model_overrides"] = model_overrides
-    if options_overlay:
-        base_config = merge_agent_config(base_config, options_overlay)
-    merged_config = merge_agent_config(base_config, agent_config or {})
-    configured_session_key = merged_config.session_config.session_key
-    effective_session_key = configured_session_key or (session_key or "").strip() or None
-    if effective_session_key and not configured_session_key:
-        # ``session_key`` is a long-standing public convenience argument. Keep
-        # the grouped config as the single downstream source of truth while
-        # ensuring control stages and execution share the same trace/memory ID.
-        merged_config = merge_agent_config(
-            merged_config,
-            {"session_config": {"session_key": effective_session_key}},
-        )
-
-    activity_log_enabled = False
-    if effective_session_key:
-        from miniagent.engine.bg_session_cleanup import is_background_session_key
-
-        activity_log_enabled = not is_background_session_key(effective_session_key)
-    if activity_log_enabled:
-        source = "feishu" if effective_session_key.startswith("feishu:") else "cli"
-        await invoke_activity_log(
-            memory.activity_log,
-            "log_session_start",
-            effective_session_key,
-            user_input,
-            source,
-        )
-
-    async def _finish_result(final_reply: str) -> AgentRunResult:
-        if activity_log_enabled and effective_session_key:
-            await invoke_activity_log(
-                memory.activity_log,
-                "log_final_reply",
-                effective_session_key,
-                final_reply,
-            )
-        return _build_agent_run_result(final_reply, monitor)
-
-    # ── Phase 0: 任务难度分类 ──
-    difficulty = TaskDifficulty.NORMAL
-    effective_skip = skip_planning
-
-    planning_hist = ""
-    planning_display = ""
-
-    if toolboxes and not skip_planning and task_classifier_enabled():
-        with trace_span("classify", session_key=effective_session_key):
-            difficulty = await classify_task_difficulty(
-                user_input,
-                [t.id for t in toolboxes],
-                knowledge_registry=knowledge_registry,
-                client=client,
-                agent_config=merged_config,
-            )
-        if difficulty == TaskDifficulty.SIMPLE:
-            effective_skip = True
-        if _announce_difficulty_and_plan_enabled() and on_thinking:
-            diff_msg = _format_task_difficulty(difficulty)
-            diff_disp = _format_task_difficulty(difficulty, display=True)
-            planning_hist = diff_msg
-            planning_display = diff_disp
-            await invoke_on_thinking(
-                on_thinking,
-                planning_display,
-                True,
-                PLANNING_STREAM_HEADER,
-                full_record=planning_hist,
-            )
-
-    # ── Phase 0.5: 需求澄清（按难度条件执行）──
-    # 简单任务：不澄清；一般任务：最多澄清 1 个问题；复杂任务：完整澄清
-    clarifier_enabled = get_config("features.requirement_clarify", True)
-    clarified_text = ""
-    if clarifier_enabled and clarifier is not None and difficulty != TaskDifficulty.SIMPLE:
-        # 交互追问回调（通过确认侧通道阻塞等待用户回答）
-        async def _ask_user_for_clarification(question: str) -> str:
-            if confirmation_channel is None or on_thinking is None:
-                _logger.warning("需求澄清: confirmation_channel 或 on_thinking 未设置，跳过追问")
-                return ""
-            _logger.info("需求澄清: 向用户发送追问: %s", question[:80])
-            # 直接发送问题，不含 .adjust 提示；用户直接回复即可
-            await invoke_on_thinking(on_thinking, f"❓ {question}", True, "[需求澄清]")
-            req = ConfirmationRequest(stage=ConfirmationStage.CLARIFICATION, content=question)
-            _logger.info("需求澄清: 已发送 ConfirmationRequest，等待用户回复...")
-            result = await confirmation_channel.request_confirmation(req)
-            if result.rejected:
-                return ""
-            answer = (result.adjustment or "").strip()
-            _logger.info("需求澄清: 收到用户回复: %s", answer[:80] if answer else "(空)")
-            # 将用户回复展示到 CLI/飞书，保持上下文完整
-            if answer and on_thinking:
-                await invoke_on_thinking(
-                    on_thinking,
-                    f"用户回复：{answer}",
-                    True,
-                    "[需求澄清]",
-                )
-            return answer
-
-        # 即时反馈：在 LLM 调用前让用户看到提示，避免"沉默太久"
-        if on_thinking:
-            try:
-                await invoke_on_thinking(
-                    on_thinking,
-                    "正在分析需求，识别模糊表述与边界条件…",
-                    True,
-                    "[需求澄清]",
-                )
-            except Exception as e:
-                _logger.debug("调用thinking回调失败: %s", e)
-        try:
-            base_questions = _clarifier_max_questions_for_difficulty(difficulty)
-            max_questions = min(
-                base_questions,
-                int(get_config("agent.max_questions", CLARIFIER_MAX_QUESTIONS_COMPLEX)),
-            )
-            with trace_span("clarify", session_key=effective_session_key):
-                clarified = await clarifier.clarify(
-                    user_input,
-                    ask_user=_ask_user_for_clarification,
-                    client=client,
-                    on_thinking=on_thinking,
-                    memory_store=memory.store,
-                    knowledge_registry=knowledge_registry,
-                    session_key=effective_session_key,
-                    max_questions=max_questions,
-                )
-            # 构建完整的澄清信息传递给规划器和执行器
-            # 使用 to_system_prompt 生成包含目标、约束、输出规格、示例的完整提示词
-            clarified_text = getattr(clarified, "clarified_goal", "") or ""
-            if clarified:
-                # 将完整澄清结果注入到 user_input，确保用户补充、输出规格等生效
-                full_clarification = clarifier.to_system_prompt(clarified)
-                user_input = f"{user_input}\n\n{full_clarification}"
-                if _announce_difficulty_and_plan_enabled() and on_thinking:
-                    try:
-                        await invoke_on_thinking(
-                            on_thinking,
-                            f"需求已澄清：{clarified_text[:80]}",
-                            True,
-                            "[需求澄清]",
-                            full_record=full_clarification,
-                        )
-                    except Exception as e:
-                        _logger.debug("澄清结果推送失败（非关键）: %s", e)
-        except Exception as e:
-            _logger.warning("需求澄清失败: %s", e)
-
-    # ── Phase 1: 规划/默认计划 ──
-    plan: StructuredPlan
-    from_llm_planner = False
-
-    # ── 直接执行模式 ──
-    if effective_skip or not toolboxes:
-        plan = _create_default_plan(
-            tools_enabled=bool(toolboxes) and not _user_forbids_tools(user_input)
-        )
-        if toolboxes and effective_skip and difficulty == TaskDifficulty.SIMPLE:
-            merged_config = merge_agent_config(
-                merged_config,
-                {"model_overrides": exec_merge_for_simple_path()},
-            )
-    else:
-        # ── Phase 1: 规划 ──
-        from_llm_planner = True
-        plan_input = user_input
-        replan_attempts_left = EXECUTION_MAX_PLAN_CONFIRM_ROUNDS
-
-        while True:
-            with trace_span("plan", session_key=effective_session_key):
-                plan = await generate_plan(
-                    plan_input,
-                    toolboxes,
-                    merged_config.log_file,
-                    client=client,
-                    agent_config=merged_config,
-                    registry=registry,
-                    knowledge_registry=knowledge_registry,
-                    planner_model_overrides=planner_merge_for_difficulty(difficulty),
-                    default_step_thinking=default_step_thinking_for_difficulty(difficulty),
-                )
-            merged_config = _merge_plan_suggested_config(plan, merged_config)
-
-            if merged_config.debug:
-                _logger.info("规划结果: %s", plan.summary)
-                _logger.debug("工具箱: %s", ", ".join(plan.required_toolboxes))
-                _logger.debug("预估 token: %d", plan.estimated_tokens.total)
-                _logger.debug("风险等级: %s", plan.risk_level)
-                if plan.estimated_cost.total_usd > 0:
-                    _logger.debug("预估成本: $%.4f", plan.estimated_cost.total_usd)
-                if plan.context_strategy.chunks:
-                    _logger.debug("分块执行: %d 块", len(plan.context_strategy.chunks))
-
-            # 无 on_plan 时无法阻塞确认，直接进入 Phase 2（见本函数 docstring）
-            if not plan.requires_confirmation or not on_plan:
-                break
-
-            if on_thinking:
-                try:
-                    await invoke_on_thinking(
-                        on_thinking,
-                        f"{WARNING_PREFIX} 高风险操作，请确认执行计划。输入 /confirm 同意，/reject 拒绝，/adjust 调整。",
-                        True,
-                        "[等待确认]",
-                    )
-                except Exception as e:
-                    _logger.debug("等待确认推送失败（非关键）: %s", e)
-
-            result = await on_plan(plan)
-            action, adjustment = result.plan_action()
-            if action == "cancel":
-                return await _finish_result(f"{WARNING_PREFIX} 操作已取消")
-            if action == "replan":
-                replan_attempts_left -= 1
-                if replan_attempts_left <= 0:
-                    return await _finish_result(
-                        f"{WARNING_PREFIX} 计划调整次数过多，已取消"
-                    )
-                if adjustment:
-                    plan_input = f"{plan_input}\n\n[用户计划调整] {adjustment}"
-                continue
-            break
-
-    if _announce_difficulty_and_plan_enabled() and on_thinking:
-        no_toolboxes_flag = len(toolboxes) == 0
-        simple_classified_flag = (
-            bool(toolboxes) and not skip_planning and difficulty == TaskDifficulty.SIMPLE
-        )
-        plan_msg = _format_plan_message(
-            plan,
-            from_llm_planner=from_llm_planner,
-            no_toolboxes=no_toolboxes_flag,
-            user_skip_planning=skip_planning,
-            simple_classified=simple_classified_flag,
-        )
-        plan_disp = _format_plan_display_short(
-            plan,
-            from_llm_planner=from_llm_planner,
-            no_toolboxes=no_toolboxes_flag,
-            user_skip_planning=skip_planning,
-            simple_classified=simple_classified_flag,
-        )
-        # 关键修复：使用 reset=True 清除已有难度内容，避免重复显示
-        # 需求澄清后的第二次 [评估与计划] 应只显示规划概要
-        planning_hist = plan_msg
-        planning_display = plan_disp
-        await invoke_on_thinking(
-            on_thinking,
-            planning_display,
-            True,
-            PLANNING_STREAM_HEADER,
-            full_record=planning_hist,
-            reset=True,
-        )
-
-    # ── Phase 2: 执行 ──
-    with trace_span("exec", session_key=effective_session_key):
-        reply = await execute_plan(
-            plan,
-            user_input,
-            registry,
-            monitor,
-            merged_config,
-            on_tool_call,
-            on_thinking,
-            on_tool_finish=on_tool_finish,
-            system_prompt=effective_system_prompt,
-            clawhub=clawhub,
-            memory=memory,
-            knowledge_registry=knowledge_registry,
-            client=client,
-            confirmation_channel=confirmation_channel,
-            tool_semaphore=tool_semaphore,
-            manage_activity_lifecycle=False,
-        )
-
-    if (
-        reply.startswith(WARNING_PREFIX)
-        and plan.fallback_plan.degrade_to_simple
-        and plan.steps
-    ):
-        _logger.info("执行失败，启用 fallback_plan 降级重试（max_turns=%d）", plan.fallback_plan.degraded_max_turns)
-        fallback_config = merge_agent_config(
-            merged_config,
-            {"max_turns": plan.fallback_plan.degraded_max_turns},
-        )
-        simple_plan = StructuredPlan(
-            summary=plan.summary,
-            steps=[],
-            required_toolboxes=plan.required_toolboxes,
-            suggested_config=SuggestedConfig(max_turns=plan.fallback_plan.degraded_max_turns),
-            estimated_tokens=plan.estimated_tokens,
-            context_strategy=ContextStrategy(mode="normal", reason="fallback 降级"),
-            risk_level=plan.risk_level,
-            output_spec=plan.output_spec,
-            fallback_plan=plan.fallback_plan,
-            tools_enabled=plan.tools_enabled,
-        )
-        with trace_span("exec_fallback", session_key=effective_session_key):
-            fallback_reply = await execute_plan(
-                simple_plan,
-                user_input,
-                registry,
-                monitor,
-                fallback_config,
-                on_tool_call,
-                on_thinking,
-                on_tool_finish=on_tool_finish,
-                system_prompt=effective_system_prompt,
-                clawhub=clawhub,
-                memory=memory,
-                knowledge_registry=knowledge_registry,
-                client=client,
-                confirmation_channel=confirmation_channel,
-                tool_semaphore=tool_semaphore,
-                manage_activity_lifecycle=False,
-            )
-        if not fallback_reply.startswith(WARNING_PREFIX):
-            reply = fallback_reply
-
-    # ── Phase 3: 反思评估 ──
-    reflection_enabled = get_config("features.reflection", True)
-    if reflection_enabled:
-        with trace_span("reflect", session_key=effective_session_key):
-            reflection = await reflect_on_result(
-                user_input,
-                reply,
-                knowledge_registry=knowledge_registry,
-                client=client,
-                on_thinking=None,
-                session_key=effective_session_key,
-            )
-        # 动态属性：供飞书质量卡片读取（非 engine 公开契约）
-        if engine is not None:
-            sk = effective_session_key or "default"
-            if not hasattr(engine, "_last_reflection") or not isinstance(engine._last_reflection, dict):
-                engine._last_reflection = {}
-            engine._last_reflection[sk] = reflection
-        # 展示层：在回复末尾追加质量评估尾部（CLI 终端 / 飞书卡片）。
-        # 注意：footer 仅用于展示，落入会话历史后由 history_bridge 在回灌 LLM 前
-        # 剥离（见 strip_reflection_footer），避免下一轮被模型复述导致重复评估。
-        reply = reply + build_reflection_footer(reflection)
-
-    return await _finish_result(reply)
-
-
-# ─── 线性管线执行器 ─────────────────────────────────────
-
-
-async def run_pipeline(
-    steps: list[PipelineStep],
-    registry: ToolRegistryProtocol,
-    context: ToolContext | None = None,
-    on_tool_call: OnToolCall | None = None,
-    *,
-    clawhub: Any | None = None,
-) -> PipelineResult:
-    """运行管线（线性工具执行器，无 LLM 循环）。
-
-    与 run_agent 的区别：
-    - run_agent: ReAct 循环，LLM 自主决定工具调用顺序
-    - run_pipeline: 线性执行，预先定义好工具调用序列
-
-    适用场景：预定义自动化流程、确定性操作、批量文件处理。
-    """
-    results: list[PipelineStepRecord] = []
-    pipeline_content = ""
-    pipeline_success = True
-
-    if context is None:
-        workspace = get_default_workspace()
-        context = ToolContext(
-            cwd=workspace,
-            allowed_paths=[workspace],
-            permission="allowlist",
-            clawhub=clawhub,
-        )
-
-    for step in steps:
-        tool = registry.get(step.tool)
-        if tool is None:
-            err_result: ToolCallResult = {
-                "success": False,
-                "content": f"{WARNING_PREFIX} 未知工具: {step.tool}",
-            }
-            results.append({"tool": step.tool, "args": step.args, "result": err_result})
-            return PipelineResult(
-                steps=results,
-                final_content=err_result["content"],
-                success=False,
-            )
-
-        result = await tool.handler(step.args, context)
-        step_record: PipelineStepRecord = {
-            "tool": step.tool,
-            "args": step.args,
-            "result": {"success": result.success, "content": result.content},
-        }
-        results.append(step_record)
-        pipeline_content += result.content + "\n"
-
-        if on_tool_call:
-            on_tool_call(step.tool, json.dumps(step.args), result.content)
-
-        if not result.success:
-            pipeline_success = False
-            break
-
-    return PipelineResult(
-        steps=results,
-        final_content=pipeline_content.strip(),
-        success=pipeline_success,
+    await invocation.start()
+    controlled_input, difficulty, effective_skip = await _prepare_control_stages(
+        invocation.user_input,
+        toolboxes=invocation.toolboxes,
+        skip_planning=skip_planning,
+        clarifier=clarifier,
+        confirmation_channel=confirmation_channel,
+        on_thinking=on_thinking,
+        knowledge_registry=knowledge_registry,
+        memory=memory,
+        client=client,
+        config=invocation.config,
+        session_key=invocation.session_key,
     )
-
-
-# ─── 内部辅助 ────────────────────────────────────────────
-
-
-_NO_TOOL_PATTERNS = (
-    "不调用工具",
-    "不要调用工具",
-    "无需调用工具",
-    "禁止调用工具",
-    "do not use tools",
-    "don't use tools",
-    "without tools",
-    "no tools",
-)
-
-
-def _user_forbids_tools(user_input: str) -> bool:
-    """Return whether the user explicitly requested a tool-free response."""
-    normalized = " ".join((user_input or "").lower().split())
-    return any(pattern in normalized for pattern in _NO_TOOL_PATTERNS)
-
-
-def _create_default_plan(*, tools_enabled: bool = True) -> StructuredPlan:
-    """创建默认计划（直接执行模式）。
-
-    用于以下场景：
-    - 无可用工具箱（纯对话模式）
-    - 用户显式跳过规划（skip_planning=True）
-    - 简单任务自动跳过规划（TaskDifficulty.SIMPLE）
-
-    Returns:
-        StructuredPlan: 包含默认配置的结构化计划
-            - summary: "直接执行模式"
-            - steps: 空列表（无分步执行）
-            - required_toolboxes: 空列表
-            - risk_level: "low"
-            - tools_enabled: 调用方按纯对话/明确禁用工具语义决定
-            - max_turns: None（使用全局默认值）
-
-    Note:
-        该计划会被传递给执行器，触发单阶段 ReAct 循环（非分步模式）。
-    """
-    return StructuredPlan(
-        summary="直接执行模式",
-        steps=[],
-        required_toolboxes=[],
-        suggested_config=SuggestedConfig(max_turns=None, tool_timeout=30, risk_level="low"),
-        estimated_tokens=EstimatedTokens(),
-        context_strategy=ContextStrategy(mode="normal", reason="跳过规划"),
-        requires_confirmation=False,
-        risk_level="low",
-        tools_enabled=tools_enabled,
+    plan, execution_config, from_llm_planner, early_reply = await _prepare_plan(
+        controlled_input,
+        toolboxes=invocation.toolboxes,
+        skip_planning=effective_skip,
+        difficulty=difficulty,
+        config=invocation.config,
+        registry=registry,
+        knowledge_registry=knowledge_registry,
+        client=client,
+        on_plan=on_plan,
+        on_thinking=on_thinking,
+        session_key=invocation.session_key,
     )
+    if early_reply is not None:
+        return await invocation.finish(early_reply)
+    assert plan is not None
+    await _announce_plan(
+        plan,
+        toolboxes=invocation.toolboxes,
+        skip_planning=skip_planning,
+        difficulty=difficulty,
+        from_llm_planner=from_llm_planner,
+        on_thinking=on_thinking,
+    )
+    reply = await _execute_agent_plan(
+        plan,
+        controlled_input,
+        registry=registry,
+        monitor=invocation.monitor,
+        config=execution_config,
+        system_prompt=invocation.system_prompt,
+        memory=memory,
+        knowledge_registry=knowledge_registry,
+        client=client,
+        on_tool_call=on_tool_call,
+        on_tool_finish=on_tool_finish,
+        on_thinking=on_thinking,
+        clawhub=clawhub,
+        confirmation_channel=confirmation_channel,
+        tool_semaphore=tool_semaphore,
+        session_key=invocation.session_key,
+    )
+    reply = await _reflect_agent_reply(
+        controlled_input,
+        reply,
+        knowledge_registry=knowledge_registry,
+        client=client,
+        session_key=invocation.session_key,
+        engine=engine,
+    )
+    return await invocation.finish(reply)
 
 
 __all__ = ["run_agent", "run_pipeline", "PLANNING_STREAM_HEADER"]

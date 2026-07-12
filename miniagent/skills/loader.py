@@ -28,6 +28,7 @@ import json
 import os
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -257,13 +258,12 @@ def _load_sub_skills(
             system_prompt = body if body.strip() else None
 
         # 加载工具定义
-        tools: dict[str, ToolDefinition] | None = None
+        tools: dict[str, ToolDefinition] = {}
         if os.path.isfile(tools_py_path):
             prefix = f"_skill_{pkg}_{entry}_tools"
             mod_name = _module_name_for_path(prefix, tools_py_path)
             mod = _import_module_from_path(mod_name, tools_py_path)
             if mod:
-                tools = {}
                 for key, value in vars(mod).items():
                     if key.startswith("_"):
                         continue
@@ -295,6 +295,114 @@ def _load_sub_skills(
 # ─── 技能包加载 ──────────────────────────────────────────
 
 
+@dataclass(frozen=True)
+class _PackageManifest:
+    """保存技能包文档解析结果，避免加载流程共享可变局部状态。"""
+
+    name: str
+    description: str
+    metadata: dict[str, Any]
+    body: str
+    skill_md: str | None
+    skill_metadata: Any | None
+
+
+def _read_skill_yaml(package_dir: str, yaml_path: str) -> tuple[dict[str, Any], str | None, str]:
+    """读取旧式 YAML 技能清单及其指令入口。"""
+    meta: dict[str, Any] = {}
+    skill_md: str | None = None
+    body = ""
+    try:
+        loaded = yaml.safe_load(Path(yaml_path).read_text(encoding="utf-8")) or {}
+        if not isinstance(loaded, dict):
+            return meta, skill_md, body
+        meta = loaded
+        entry_path = os.path.join(package_dir, str(meta.get("entry_point", "instructions.md")))
+        fallback_path = os.path.join(package_dir, "instructions.md")
+        selected_path = entry_path if os.path.isfile(entry_path) else fallback_path
+        if os.path.isfile(selected_path):
+            skill_md = _resolve_base_dir(Path(selected_path).read_text(encoding="utf-8"), package_dir)
+            instruction_meta, body = parse_skill_md(skill_md)
+            body = _resolve_base_dir(body, package_dir)
+            if instruction_meta:
+                meta = {**meta, **instruction_meta}
+    except Exception as error:
+        _logger.warning("加载 skill.yaml 失败 %s: %s", package_dir, error)
+    return meta, skill_md, body
+
+
+def _load_package_manifest(package_dir: str, package_name: str) -> _PackageManifest:
+    """按 ``SKILL.md`` 优先、YAML 兼容的顺序读取包级清单。"""
+    skill_md_path = os.path.join(package_dir, "SKILL.md")
+    skill_yaml_path = os.path.join(package_dir, "skill.yaml")
+    default_description = f"技能包: {package_name}"
+    if os.path.isfile(skill_md_path):
+        skill_md = Path(skill_md_path).read_text(encoding="utf-8")
+        metadata, body = parse_skill_md(skill_md)
+        body = _resolve_base_dir(body, package_dir)
+        name = str(metadata.get("name") or package_name)
+        if not metadata.get("name"):
+            title_match = re.search(r"^#\s+(.+)$", body, re.MULTILINE)
+            if title_match:
+                name = title_match.group(1).strip()
+        return _PackageManifest(
+            name=name,
+            description=_description_from_meta(metadata, body) or default_description,
+            metadata=metadata,
+            body=body,
+            skill_md=skill_md,
+            skill_metadata=_map_metadata(metadata),
+        )
+    if os.path.isfile(skill_yaml_path):
+        metadata, yaml_skill_md, body = _read_skill_yaml(package_dir, skill_yaml_path)
+        return _PackageManifest(
+            name=str(metadata.get("name") or package_name),
+            description=_description_from_meta(metadata, body) or default_description,
+            metadata=metadata,
+            body=body,
+            skill_md=yaml_skill_md,
+            skill_metadata=_map_metadata(metadata),
+        )
+    return _PackageManifest(package_name, default_description, {}, "", None, None)
+
+
+def _load_python_skill_definitions(package_dir: str, package_name: str) -> list[Skill]:
+    """加载包入口公开的技能定义，并保证刷新时不复用旧模块。"""
+    evict_skill_modules(f"_skillpkg_{package_name}", f"_skill_{package_name}_")
+    for filename in ("__init__.py", "index.py"):
+        candidate = os.path.join(package_dir, filename)
+        if not os.path.isfile(candidate):
+            continue
+        module_name = _module_name_for_path(f"_skillpkg_{package_name}", candidate)
+        module = _import_module_from_path(module_name, candidate)
+        if module and isinstance(getattr(module, "skills", None), list):
+            return module.skills
+        if module and isinstance(getattr(module, "default", None), list):
+            return module.default
+        break
+    return []
+
+
+def _build_instruction_only_skill(
+    package_dir: str, package_name: str, manifest: _PackageManifest
+) -> Skill:
+    """把没有 Python 或子技能定义的包级指令合成为单个技能。"""
+    body = manifest.body
+    if not body.strip() and manifest.skill_md:
+        _, body = parse_skill_md(manifest.skill_md)
+        body = _resolve_base_dir(body, package_dir)
+    return Skill(
+        id=package_name,
+        name=manifest.name,
+        description=manifest.description,
+        keywords=_keywords_from_meta(manifest.metadata),
+        skill_md=manifest.skill_md,
+        system_prompt=body if body.strip() else None,
+        metadata=manifest.skill_metadata,
+        source_path=package_dir,
+    )
+
+
 def _load_skill_package_sync(package_dir: str) -> SkillPackage | None:
     """尝试从目录加载一个技能包。
 
@@ -305,119 +413,32 @@ def _load_skill_package_sync(package_dir: str) -> SkillPackage | None:
         SkillPackage 或 None（加载失败）
     """
     package_name = os.path.basename(package_dir)
-    skill_md_path = os.path.join(package_dir, "SKILL.md")
-    skill_yaml_path = os.path.join(package_dir, "skill.yaml")
-    instructions_path = os.path.join(package_dir, "instructions.md")
-
-    # 读取 SKILL.md（优先）或 skill.yaml + instructions.md（备选）
-    skill_md: str | None = None
-    name = package_name
-    description = f"技能包: {package_name}"
-    package_meta: dict[str, Any] = {}
-    package_body = ""
-    package_metadata = None
-
-    if os.path.isfile(skill_md_path):
-        skill_md = Path(skill_md_path).read_text(encoding="utf-8")
-        package_meta, package_body = parse_skill_md(skill_md)
-        # 解析 {baseDir} 占位符
-        package_body = _resolve_base_dir(package_body, package_dir)
-        if package_meta.get("name"):
-            name = package_meta["name"]
-        description = _description_from_meta(package_meta, package_body) or description
-        if not package_meta.get("name"):
-            title_match = re.search(r"^#\s+(.+)$", package_body, re.MULTILINE)
-            if title_match:
-                name = title_match.group(1).strip()
-        # 解析包级 metadata，用于继承到子技能
-        package_metadata = _map_metadata(package_meta)
-    elif os.path.isfile(skill_yaml_path):
-        # 备选格式：skill.yaml + instructions.md
-        meta: dict[str, Any] = {}
-        try:
-            yaml_content = Path(skill_yaml_path).read_text(encoding="utf-8")
-            loaded = yaml.safe_load(yaml_content) or {}
-            if isinstance(loaded, dict):
-                meta = loaded
-                if meta.get("name"):
-                    name = meta["name"]
-                if meta.get("description"):
-                    description = str(meta["description"]).strip()
-                entry = meta.get("entry_point", "instructions.md")
-                entry_path = os.path.join(package_dir, entry)
-                if os.path.isfile(entry_path):
-                    skill_md = Path(entry_path).read_text(encoding="utf-8")
-                    skill_md = _resolve_base_dir(skill_md, package_dir)
-                elif os.path.isfile(instructions_path):
-                    skill_md = Path(instructions_path).read_text(encoding="utf-8")
-                    skill_md = _resolve_base_dir(skill_md, package_dir)
-                if skill_md:
-                    instr_meta, package_body = parse_skill_md(skill_md)
-                    package_body = _resolve_base_dir(package_body, package_dir)
-                    if instr_meta:
-                        package_meta = {**meta, **instr_meta}
-        except Exception as e:
-            _logger.warning("加载 skill.yaml 失败 %s: %s", package_dir, e)
-        package_meta = meta
-        package_metadata = _map_metadata(meta)
-        description = _description_from_meta(meta, package_body) or description
-    else:
-        package_metadata = None
-
-    # 尝试加载 __init__.py 中的技能定义
-    skills: list[Skill] = []
-    init_path = os.path.join(package_dir, "__init__.py")
-    index_path = os.path.join(package_dir, "index.py")
-
-    evict_skill_modules(f"_skillpkg_{package_name}", f"_skill_{package_name}_")
-
-    for candidate in (init_path, index_path):
-        if os.path.isfile(candidate):
-            mod_name = _module_name_for_path(f"_skillpkg_{package_name}", candidate)
-            mod = _import_module_from_path(mod_name, candidate)
-            if mod:
-                if hasattr(mod, "skills") and isinstance(mod.skills, list):
-                    skills = mod.skills
-                elif hasattr(mod, "default") and isinstance(mod.default, list):
-                    skills = mod.default
-            break
+    manifest = _load_package_manifest(package_dir, package_name)
+    skills = _load_python_skill_definitions(package_dir, package_name)
 
     # 尝试从 skills/ 子目录加载子技能
     sub_skills_dir = os.path.join(package_dir, "skills")
     if os.path.isdir(sub_skills_dir):
         sub_skills = _load_sub_skills(
-            sub_skills_dir, package_name=package_name, inherit_metadata=package_metadata
+            sub_skills_dir,
+            package_name=package_name,
+            inherit_metadata=manifest.skill_metadata,
         )
         skills.extend(sub_skills)
 
     # 纯指令型包：无子技能时，用包级 SKILL.md 合成一个 Skill 以注入 system prompt
-    if not skills and skill_md:
-        body = package_body
-        if not body.strip() and skill_md:
-            _, body = parse_skill_md(skill_md)
-            body = _resolve_base_dir(body, package_dir)
-        skills.append(
-            Skill(
-                id=package_name,
-                name=name,
-                description=description,
-                keywords=_keywords_from_meta(package_meta),
-                skill_md=skill_md,
-                system_prompt=body if body.strip() else None,
-                metadata=package_metadata,
-                source_path=package_dir,
-            )
-        )
+    if not skills and manifest.skill_md:
+        skills.append(_build_instruction_only_skill(package_dir, package_name, manifest))
 
-    if not skills and not skill_md:
+    if not skills and not manifest.skill_md:
         return None
 
     return SkillPackage(
         id=package_name,
-        name=name,
-        description=description,
+        name=manifest.name,
+        description=manifest.description,
         skills=skills,
-        skill_md=skill_md,
+        skill_md=manifest.skill_md,
         source_path=package_dir,
     )
 

@@ -18,6 +18,7 @@ import logging
 import os
 from pathlib import Path
 
+from miniagent import __version__
 from miniagent.core.self_opt.types import (
     CodeQualityMetric,
     InspectionReport,
@@ -166,6 +167,57 @@ def _identify_pain_points(root: str) -> list[PainPoint]:
     return pains
 
 
+def _base_metrics(root: str) -> list[CodeQualityMetric]:
+    """计算文件数和代码行数两项基础指标。"""
+    python_files = _count_python_files(root)
+    total_lines = _count_lines(root)
+    return [
+        CodeQualityMetric(
+            name="python_files",
+            value=float(python_files),
+            threshold=100.0,
+            status="good" if python_files < 50 else "warning",
+        ),
+        CodeQualityMetric(
+            name="total_lines",
+            value=float(total_lines),
+            threshold=10000.0,
+            status="good" if total_lines < 5000 else "warning",
+        ),
+    ]
+
+
+def _inspect_modules(root: str) -> tuple[list[ModuleAnalysis], list[float]]:
+    """扫描非测试生产模块并返回问题模块与全部复杂度样本。"""
+    modules: list[ModuleAnalysis] = []
+    complexities: list[float] = []
+    for path in sorted(Path(root).rglob("*.py")):
+        relative = path.relative_to(root)
+        is_test_module = (
+            "tests" in relative.parts
+            or path.name.startswith("test_")
+            or path.name.endswith("_test.py")
+        )
+        if is_test_module or "__pycache__" in relative.parts:
+            continue
+        analysis = _analyze_module(str(path))
+        complexities.append(analysis.complexity)
+        if analysis.issues:
+            modules.append(analysis)
+    return modules, complexities
+
+
+def _complexity_metric(complexities: list[float]) -> CodeQualityMetric:
+    """把模块复杂度样本汇总为稳定的平均值指标。"""
+    average = round(sum(complexities) / len(complexities), 1) if complexities else 0.0
+    return CodeQualityMetric(
+        name="avg_complexity",
+        value=average,
+        threshold=10.0,
+        status="good" if average < 10 else "warning",
+    )
+
+
 def _inspect_project_sync(
     root: str | None = None,
     *,
@@ -184,77 +236,28 @@ def _inspect_project_sync(
     Returns:
         项目检查报告
     """
-    if root is None:
-        root = os.getcwd()
+    root = root or os.getcwd()
 
     from datetime import datetime
 
     report = InspectionReport(
         timestamp=datetime.now().isoformat(),
-        version="1.0.0",
+        version=__version__,
         summary="项目检查完成",
     )
 
-    # 基础统计
     all_complexities: list[float] = []
     if include_metrics:
-        py_files = _count_python_files(root)
-        total_lines = _count_lines(root)
+        report.metrics.extend(_base_metrics(root))
 
-        report.metrics.append(
-            CodeQualityMetric(
-                name="python_files",
-                value=float(py_files),
-                threshold=100.0,
-                status="good" if py_files < 50 else "warning",
-            )
-        )
-        report.metrics.append(
-            CodeQualityMetric(
-                name="total_lines",
-                value=float(total_lines),
-                threshold=10000.0,
-                status="good" if total_lines < 5000 else "warning",
-            )
-        )
-
-    # 模块分析
     if include_modules:
-        for f in sorted(Path(root).rglob("*.py")):
-            if "test" not in str(f) and "__pycache__" not in str(f):
-                analysis = _analyze_module(str(f))
-                all_complexities.append(analysis.complexity)
-                if analysis.issues:
-                    report.modules.append(analysis)
+        report.modules, all_complexities = _inspect_modules(root)
 
-    if include_metrics and all_complexities:
-        avg_complexity = round(sum(all_complexities) / len(all_complexities), 1)
-        report.metrics.append(
-            CodeQualityMetric(
-                name="avg_complexity",
-                value=avg_complexity,
-                threshold=10.0,
-                status="good" if avg_complexity < 10 else "warning",
-            )
-        )
-    elif include_metrics:
-        report.metrics.append(
-            CodeQualityMetric(
-                name="avg_complexity",
-                value=0.0,
-                threshold=10.0,
-                status="good",
-            )
-        )
-
-    # 测试覆盖率
+    if include_metrics:
+        report.metrics.append(_complexity_metric(all_complexities))
     report.test_coverage = _estimate_test_coverage(root)
-
-    # 痛点识别
     if include_pain_points:
         report.pain_points = _identify_pain_points(root)
-
-    # 更新摘要
     issue_count = sum(len(m.issues) for m in report.modules)
     pain_count = len(report.pain_points)
     report.summary = (

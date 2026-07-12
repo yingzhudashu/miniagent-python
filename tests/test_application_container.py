@@ -38,6 +38,7 @@ def test_container_defaults_and_repr_hide_runtime_resources() -> None:
     rendered = repr(container)
 
     assert container.openai_client is None
+    assert container.config is None
     for field_name in (
         "create_feishu_handler_factory",
         "cli_transcript_append",

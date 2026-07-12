@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from miniagent.engine.cli_transcript import (
     HISTORY_HINT_STYLE,
+    TranscriptBuffer,
     history_all_loaded,
     history_load_hint,
     history_loaded_end,
@@ -16,6 +17,40 @@ from miniagent.engine.cli_transcript import (
     transcript_fragment_text,
     transcript_plain,
 )
+
+
+def test_transcript_buffer_keeps_length_in_sync_across_mutations() -> None:
+    buffer = TranscriptBuffer(100, min_fragments=0)
+    buffer.append(("class:a", "abc"))
+    buffer.prepend(("class:b", "xy"))
+    buffer.extend([("class:c", "1234"), ("class:d", "z")])
+    assert buffer.total_len == 10
+    assert list(buffer) == [
+        ("class:b", "xy"),
+        ("class:a", "abc"),
+        ("class:c", "1234"),
+        ("class:d", "z"),
+    ]
+
+    buffer[-1] = ("class:d", "long")
+    assert buffer.total_len == 13
+    buffer.pop()
+    buffer.popleft()
+    assert buffer.total_len == 7
+    buffer.clear()
+    assert buffer.total_len == 0
+    assert not buffer
+
+
+def test_transcript_buffer_trims_oldest_fragments_but_keeps_minimum() -> None:
+    buffer = TranscriptBuffer(5, min_fragments=2)
+    buffer.extend([("", "aaa"), ("", "bbb"), ("", "ccc")])
+    assert list(buffer) == [("", "bbb"), ("", "ccc")]
+    assert buffer.total_len == 6
+
+    buffer.max_chars = 10
+    buffer.append(("", "d"))
+    assert buffer.total_len == 7
 
 
 def test_history_load_hint_reports_remaining_older_messages() -> None:

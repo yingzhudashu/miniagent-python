@@ -174,7 +174,7 @@ class TestFeishuSendReplyPolicy:
         assert client.im.v1.message.create.call_count == 2
 
     def test_send_plain_text_chunks_sends_multiple(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import miniagent.feishu.poll_server as ps
+        import miniagent.feishu.outbound_delivery as ps
 
         monkeypatch.setattr(ps, "feishu_card_body_max", lambda: 8)
         from miniagent.feishu.poll_server import _send_plain_text_chunks

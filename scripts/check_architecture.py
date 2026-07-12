@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enforce package dependency boundaries with a lightweight AST scan."""
+"""Enforce dependency boundaries and bounded function size with an AST scan."""
 
 from __future__ import annotations
 
@@ -36,6 +36,28 @@ class Violation:
         return (
             f"{display}:{self.line}: {self.source_package} must not import "
             f"{self.imported_module}"
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class FunctionLengthViolation:
+    """A function exceeding the repository's zero-exemption size limit."""
+
+    path: Path
+    line: int
+    function_name: str
+    length: int
+    limit: int
+
+    def format(self, root: Path) -> str:
+        """Return a stable function-size error relative to ``root``."""
+        try:
+            display = self.path.relative_to(root.parent)
+        except ValueError:
+            display = self.path
+        return (
+            f"{display}:{self.line}: function {self.function_name} has "
+            f"{self.length} lines (limit {self.limit})"
         )
 
 
@@ -83,6 +105,7 @@ DEFAULT_RULES = (
     ),
     DependencyRule("types", ("miniagent.feishu",)),
 )
+MAX_FUNCTION_LINES = 100
 
 
 def _is_type_checking_guard(node: ast.expr) -> bool:
@@ -120,15 +143,35 @@ def _imported_modules(node: ast.Import | ast.ImportFrom) -> Iterator[str]:
 def check_architecture(
     package_root: Path,
     rules: Iterable[DependencyRule] = DEFAULT_RULES,
-) -> list[Violation]:
-    """Return dependency violations below ``package_root`` without importing code."""
-    violations: list[Violation] = []
+) -> list[Violation | FunctionLengthViolation]:
+    """Return dependency and function-size violations without importing code."""
+    violations: list[Violation | FunctionLengthViolation] = []
+    parsed_modules: dict[Path, ast.Module] = {}
+    for path in sorted(package_root.rglob("*.py")):
+        if "templates" in path.parts:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        parsed_modules[path] = tree
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            length = (node.end_lineno or node.lineno) - node.lineno + 1
+            if length > MAX_FUNCTION_LINES:
+                violations.append(
+                    FunctionLengthViolation(
+                        path,
+                        node.lineno,
+                        node.name,
+                        length,
+                        MAX_FUNCTION_LINES,
+                    )
+                )
     for rule in rules:
         source_root = package_root / rule.source_package
         if not source_root.is_dir():
             continue
         for path in sorted(source_root.rglob("*.py")):
-            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            tree = parsed_modules[path]
             for node in _runtime_import_nodes(tree.body):
                 for imported in _imported_modules(node):
                     if imported.startswith(rule.forbidden_prefixes):

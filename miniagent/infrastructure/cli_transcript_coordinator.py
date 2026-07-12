@@ -133,7 +133,10 @@ class CliTranscriptCoordinator:
                 self._append_direct(style_cls, text)
             else:
                 turn = self._turns[sk]
-                turn.fragments.append(lambda s=style_cls, t=text: self._append_direct(s, t))
+                def _append_fragment() -> None:
+                    self._append_direct(style_cls, text)
+
+                turn.fragments.append(_append_fragment)
 
     def append_ansi(self, session_key: str, ansi_obj: Any) -> None:
         """与 :meth:`append` 相同策略，写入 ANSI 渲染对象。"""
@@ -149,7 +152,10 @@ class CliTranscriptCoordinator:
                 self._append_ansi_direct(ansi_obj)
             else:
                 turn = self._turns[sk]
-                turn.fragments.append(lambda o=ansi_obj: self._append_ansi_direct(o))
+                def _append_ansi_fragment() -> None:
+                    self._append_ansi_direct(ansi_obj)
+
+                turn.fragments.append(_append_ansi_fragment)
 
     def defer(self, session_key: str, fn: Callable[[], None]) -> None:
         """延迟执行写入（用于 thinking sink 等复杂路径）。"""

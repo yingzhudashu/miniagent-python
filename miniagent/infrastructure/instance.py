@@ -45,7 +45,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 import os
 import shutil
 import socket
@@ -65,17 +64,25 @@ else:
 
 from miniagent.core.constants import INSTANCE_CACHE_TTL
 from miniagent.infrastructure.logger import get_logger
+from miniagent.infrastructure.persistence import dump_state_file, load_state_file
 from miniagent.infrastructure.process_utils import (
     is_process_running,
     is_process_running_async,
 )
+from miniagent.infrastructure.state_schemas import install_builtin_state_schemas
 from miniagent.types.error_prefix import ERROR_PREFIX
 
 _logger = get_logger(__name__)
+install_builtin_state_schemas()
 
 # 实例 mode 仅两种：始终有 CLI 主循环；both 表示同进程已启用飞书连接
 _VALID_INSTANCE_MODES = frozenset({"cli", "both"})
 _REGISTER_ID_MAX_ATTEMPTS = 50
+
+
+def _read_instance_meta(path: Path) -> dict[str, Any]:
+    """读取并按需迁移一个实例元数据文件。"""
+    return load_state_file("instance_metadata", path)
 
 
 class ProjectDirConflictError(Exception):
@@ -286,8 +293,7 @@ class InstanceRegistry:
                 meta_file = candidate / "meta.json"
                 if meta_file.exists():
                     try:
-                        with open(meta_file, encoding="utf-8") as f:
-                            existing = json.load(f)
+                        existing = _read_instance_meta(meta_file)
                         if self._is_pid_alive(existing):
                             continue
                     except Exception:
@@ -354,7 +360,7 @@ class InstanceRegistry:
         Returns:
             存活实例元数据列表，按 instance_id 排序。
         """
-        results = []
+        results: list[dict[str, Any]] = []
         if not self._inst_dir.exists():
             return results
 
@@ -370,8 +376,7 @@ class InstanceRegistry:
                 continue
 
             try:
-                with open(meta_file, encoding="utf-8") as f:
-                    meta = json.load(f)
+                meta = _read_instance_meta(meta_file)
 
                 is_alive = self._is_pid_alive(meta)
 
@@ -416,8 +421,7 @@ class InstanceRegistry:
             return {"success": False, "reason": f"实例 #{instance_id} 不存在"}
 
         try:
-            with open(meta_file, encoding="utf-8") as file:
-                meta = json.load(file)
+            meta = _read_instance_meta(meta_file)
         except Exception as e:
             return {"success": False, "reason": f"读取元数据失败: {e}"}
 
@@ -479,8 +483,7 @@ class InstanceRegistry:
 
         try:
             def _read_meta_async() -> dict[str, Any]:
-                with open(meta_file, encoding="utf-8") as file:
-                    return json.load(file)
+                return _read_instance_meta(meta_file)
 
             meta = await asyncio.to_thread(_read_meta_async)
         except Exception as e:
@@ -560,8 +563,7 @@ class InstanceRegistry:
         """写入元数据文件。"""
         if self._my_dir:
             meta_file = self._my_dir / "meta.json"
-            with open(meta_file, "w", encoding="utf-8") as f:
-                json.dump(self._meta, f, indent=2, ensure_ascii=False)
+            dump_state_file("instance_metadata", meta_file, self._meta)
 
     def _is_pid_alive(self, meta: dict[str, Any]) -> bool:
         """以操作系统进程是否存在判定实例是否仍在运行。"""
@@ -588,8 +590,7 @@ class InstanceRegistry:
             if not meta_file.exists():
                 continue
             try:
-                with open(meta_file, encoding="utf-8") as f:
-                    meta = json.load(f)
+                meta = _read_instance_meta(meta_file)
                 if self._is_pid_alive(meta):
                     continue
                 shutil.rmtree(entry)
@@ -610,8 +611,7 @@ class InstanceRegistry:
             if not meta_file.exists():
                 continue
             try:
-                with open(meta_file, encoding="utf-8") as f:
-                    meta = json.load(f)
+                meta = _read_instance_meta(meta_file)
             except Exception:
                 continue
             if not self._is_pid_alive(meta):
@@ -717,141 +717,18 @@ def stop_instance_by_id(
     return InstanceRegistry(state_dir=state_dir).stop(instance_id)
 
 
-def _inst_md_cell(text: str) -> str:
-    """将单元格文本压成单行并转义 ``|``，供 GFM 表格渲染。"""
-    s = (text or "").replace("\r\n", "\n").replace("\r", "\n")
-    return s.replace("|", "\\|").replace("\n", " ").strip()
-
-
-def _short_project_dir_label(project_dir: str) -> str:
-    """表格用短项目目录标签。"""
-    norm = os.path.normpath(project_dir)
-    base = os.path.basename(norm) or norm
-    parent = os.path.basename(os.path.dirname(norm))
-    if parent and parent not in (".", ".."):
-        return f"{parent}/{base}"
-    return base
-
-
-def _workspace_label(inst: dict[str, Any]) -> str:
-    """表格用 workspace 标签（优先 project_key，否则短路径）。"""
-    key = inst.get("project_key")
-    if key:
-        return f"projects/{key}"
-    state_dir = inst.get("project_state_dir")
-    if state_dir:
-        norm = os.path.normpath(str(state_dir))
-        base = os.path.basename(norm)
-        parent = os.path.basename(os.path.dirname(norm))
-        if parent == "projects" and base:
-            return f"projects/{base}"
-        return _short_state_dir_label(norm)
-    return "?"
-
-
 def format_instances_markdown(instances: list[dict[str, Any]]) -> str:
     """运行实例列表的 GFM 表格（飞书友好）。"""
-    from miniagent.infrastructure.paths import resolve_registry_state_dir
+    from miniagent.infrastructure.instance_render import format_instances_markdown as render
 
-    registry = resolve_registry_state_dir()
-    if not instances:
-        return f"📭 暂无运行实例\n\n注册表: `{registry}`"
-
-    state_dirs = {str(i.get("state_dir", registry)) for i in instances}
-    multi_root = len(state_dirs) > 1
-
-    lines = [
-        "## 运行实例",
-        "",
-        f"注册表: `{registry}`",
-        "",
-        "> cli=仅 CLI，both=CLI+飞书",
-        "",
-        "| ID | PID | 模式 | 项目目录 | Workspace | 启动时间 | 会话数 | 主机 |"
-        + (" 状态目录 |" if multi_root else "")
-        + " 备注 |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- |"
-        + (" --- |" if multi_root else "")
-        + " --- |",
-    ]
-
-    my_pid = os.getpid()
-    for inst in instances:
-        marker = "当前" if inst["pid"] == my_pid else ""
-        sid = inst["instance_id"]
-        pid = inst["pid"]
-        mode = inst.get("mode", "?")
-        proj = _short_project_dir_label(_meta_project_dir(inst))
-        ws = _workspace_label(inst)
-        start = str(inst.get("start_time", "?"))[:19]
-        sessions = len(inst.get("active_sessions", []))
-        host = inst.get("hostname", "?")
-        row = (
-            f"| {sid} | {pid} | {_inst_md_cell(str(mode))} | {_inst_md_cell(proj)} | "
-            f"{_inst_md_cell(ws)} | {_inst_md_cell(start)} | {sessions} | "
-            f"{_inst_md_cell(str(host))} |"
-        )
-        if multi_root:
-            sd = _short_state_dir_label(str(inst.get("state_dir", registry)), canonical=registry)
-            row += f" {_inst_md_cell(sd)} |"
-        row += f" {_inst_md_cell(marker)} |"
-        lines.append(row)
-    return "\n".join(lines) + "\n"
+    return render(instances)
 
 
 def format_instances_table(instances: list[dict[str, Any]]) -> str:
-    """格式化为表格文本。"""
-    from miniagent.infrastructure.paths import resolve_registry_state_dir
+    """格式化为等宽终端表格。"""
+    from miniagent.infrastructure.instance_render import format_instances_table as render
 
-    registry = resolve_registry_state_dir()
-    if not instances:
-        return f"📭 暂无运行实例\n\n  注册表: {registry}\n"
-
-    state_dirs = {str(i.get("state_dir", registry)) for i in instances}
-    multi_root = len(state_dirs) > 1
-
-    lines = []
-    lines.append("📋 运行实例列表:\n")
-    lines.append(f"  注册表: {registry}\n")
-    if multi_root:
-        lines.append(
-            f"  {'ID':<6} {'PID':<8} {'模式':<8} {'项目目录':<18} {'Workspace':<22} "
-            f"{'启动时间':<22} {'会话数':<6} {'主机':<12} {'状态目录'}"
-        )
-        lines.append("  " + "-" * 128)
-    else:
-        lines.append(
-            f"  {'ID':<6} {'PID':<8} {'模式':<8} {'项目目录':<18} {'Workspace':<22} "
-            f"{'启动时间':<22} {'会话数':<6} {'主机'}"
-        )
-        lines.append("  " + "-" * 108)
-    lines.append("  （cli=仅 CLI，both=CLI+飞书）")
-
-    my_pid = os.getpid()
-    for inst in instances:
-        marker = " ← 当前" if inst["pid"] == my_pid else ""
-        sid = inst["instance_id"]
-        pid = inst["pid"]
-        mode = inst.get("mode", "?")
-        proj = _short_project_dir_label(_meta_project_dir(inst))
-        ws = _workspace_label(inst)
-        start = inst.get("start_time", "?")[:19]
-        sessions = len(inst.get("active_sessions", []))
-        host = inst.get("hostname", "?")
-        if multi_root:
-            sd = _short_state_dir_label(str(inst.get("state_dir", registry)), canonical=registry)
-            lines.append(
-                f"  #{sid:<5} {pid:<8} {mode:<8} {proj:<18} {ws:<22} {start:<22} "
-                f"{sessions:<6} {host:<12} {sd}{marker}"
-            )
-        else:
-            lines.append(
-                f"  #{sid:<5} {pid:<8} {mode:<8} {proj:<18} {ws:<22} {start:<22} "
-                f"{sessions:<6} {host}{marker}"
-            )
-
-    lines.append("")
-    return "\n".join(lines)
+    return render(instances)
 
 
 def reset_instance_registry_for_tests() -> None:

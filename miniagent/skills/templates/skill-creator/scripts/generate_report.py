@@ -13,24 +13,87 @@ import sys
 from pathlib import Path
 
 
+def _query_inventory(history: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Extract the stable train and test column definitions."""
+    if not history:
+        return [], []
+    first = history[0]
+    train = [
+        {"query": item["query"], "should_trigger": item.get("should_trigger", True)}
+        for item in first.get("train_results", first.get("results", []))
+    ]
+    test = [
+        {"query": item["query"], "should_trigger": item.get("should_trigger", True)}
+        for item in first.get("test_results", []) or []
+    ]
+    return train, test
+
+
+def _aggregate_runs(results: list[dict]) -> tuple[int, int]:
+    """Count correct decisions across repeated trigger attempts."""
+    correct = total = 0
+    for result in results:
+        runs = result.get("runs", 0)
+        triggers = result.get("triggers", 0)
+        total += runs
+        correct += triggers if result.get("should_trigger", True) else runs - triggers
+    return correct, total
+
+
+def _score_class(correct: int, total: int) -> str:
+    """Map a score ratio to its report style."""
+    ratio = correct / total if total else 0.0
+    if ratio >= 0.8:
+        return "score-good"
+    if ratio >= 0.5:
+        return "score-ok"
+    return "score-bad"
+
+
+def _result_cell(result: dict, *, test: bool = False) -> str:
+    """Render one query result cell."""
+    did_pass = result.get("pass", False)
+    icon = "✓" if did_pass else "✗"
+    css_class = "pass" if did_pass else "fail"
+    test_class = " test-result" if test else ""
+    return (
+        f'                <td class="result{test_class} {css_class}">{icon}'
+        f'<span class="rate">{result.get("triggers", 0)}/{result.get("runs", 0)}</span></td>\n'
+    )
+
+
+def _append_iteration_row(
+    html_parts: list[str], item: dict, best_iter: object, train_queries: list[dict], test_queries: list[dict]
+) -> None:
+    """Append one complete optimization iteration row."""
+    iteration = item.get("iteration", "?")
+    train_results = item.get("train_results", item.get("results", []))
+    test_results = item.get("test_results", []) or []
+    train_correct, train_runs = _aggregate_runs(train_results)
+    test_correct, test_runs = _aggregate_runs(test_results)
+    row_class = "best-row" if iteration == best_iter else ""
+    html_parts.append(f'''            <tr class="{row_class}">
+                <td>{iteration}</td>
+                <td><span class="score {_score_class(train_correct, train_runs)}">{train_correct}/{train_runs}</span></td>
+                <td><span class="score {_score_class(test_correct, test_runs)}">{test_correct}/{test_runs}</span></td>
+                <td class="description">{html.escape(item.get("description", ""))}</td>
+''')
+    train_by_query = {result["query"]: result for result in train_results}
+    test_by_query = {result["query"]: result for result in test_results}
+    for query in train_queries:
+        html_parts.append(_result_cell(train_by_query.get(query["query"], {})))
+    for query in test_queries:
+        html_parts.append(_result_cell(test_by_query.get(query["query"], {}), test=True))
+    html_parts.append("            </tr>\n")
+
+
 def generate_html(data: dict, auto_refresh: bool = False, skill_name: str = "") -> str:
     """Generate HTML report from loop output data. If auto_refresh is True, adds a meta refresh tag."""
     history = data.get("history", [])
     title_prefix = html.escape(skill_name + " \u2014 ") if skill_name else ""
 
     # Get all unique queries from train and test sets, with should_trigger info
-    train_queries: list[dict] = []
-    test_queries: list[dict] = []
-    if history:
-        for r in history[0].get("train_results", history[0].get("results", [])):
-            train_queries.append(
-                {"query": r["query"], "should_trigger": r.get("should_trigger", True)}
-            )
-        if history[0].get("test_results"):
-            for r in history[0].get("test_results", []):
-                test_queries.append(
-                    {"query": r["query"], "should_trigger": r.get("should_trigger", True)}
-                )
+    train_queries, test_queries = _query_inventory(history)
 
     refresh_tag = '    <meta http-equiv="refresh" content="5">\n' if auto_refresh else ""
 
@@ -224,85 +287,8 @@ def generate_html(data: dict, auto_refresh: bool = False, skill_name: str = "") 
             "iteration"
         )
 
-    # Add rows for each iteration
-    for h in history:
-        iteration = h.get("iteration", "?")
-        description = h.get("description", "")
-        train_results = h.get("train_results", h.get("results", []))
-        test_results = h.get("test_results", [])
-
-        # Create lookups for results by query
-        train_by_query = {r["query"]: r for r in train_results}
-        test_by_query = {r["query"]: r for r in test_results} if test_results else {}
-
-        # Compute aggregate correct/total runs across all retries
-        def aggregate_runs(results: list[dict]) -> tuple[int, int]:
-            correct = 0
-            total = 0
-            for r in results:
-                runs = r.get("runs", 0)
-                triggers = r.get("triggers", 0)
-                total += runs
-                if r.get("should_trigger", True):
-                    correct += triggers
-                else:
-                    correct += runs - triggers
-            return correct, total
-
-        train_correct, train_runs = aggregate_runs(train_results)
-        test_correct, test_runs = aggregate_runs(test_results)
-
-        # Determine score classes
-        def score_class(correct: int, total: int) -> str:
-            if total > 0:
-                ratio = correct / total
-                if ratio >= 0.8:
-                    return "score-good"
-                elif ratio >= 0.5:
-                    return "score-ok"
-            return "score-bad"
-
-        train_class = score_class(train_correct, train_runs)
-        test_class = score_class(test_correct, test_runs)
-
-        row_class = "best-row" if iteration == best_iter else ""
-
-        html_parts.append(f"""            <tr class="{row_class}">
-                <td>{iteration}</td>
-                <td><span class="score {train_class}">{train_correct}/{train_runs}</span></td>
-                <td><span class="score {test_class}">{test_correct}/{test_runs}</span></td>
-                <td class="description">{html.escape(description)}</td>
-""")
-
-        # Add result for each train query
-        for qinfo in train_queries:
-            r = train_by_query.get(qinfo["query"], {})
-            did_pass = r.get("pass", False)
-            triggers = r.get("triggers", 0)
-            runs = r.get("runs", 0)
-
-            icon = "✓" if did_pass else "✗"
-            css_class = "pass" if did_pass else "fail"
-
-            html_parts.append(
-                f'                <td class="result {css_class}">{icon}<span class="rate">{triggers}/{runs}</span></td>\n'
-            )
-
-        # Add result for each test query (with different background)
-        for qinfo in test_queries:
-            r = test_by_query.get(qinfo["query"], {})
-            did_pass = r.get("pass", False)
-            triggers = r.get("triggers", 0)
-            runs = r.get("runs", 0)
-
-            icon = "✓" if did_pass else "✗"
-            css_class = "pass" if did_pass else "fail"
-
-            html_parts.append(
-                f'                <td class="result test-result {css_class}">{icon}<span class="rate">{triggers}/{runs}</span></td>\n'
-            )
-
-        html_parts.append("            </tr>\n")
+    for item in history:
+        _append_iteration_row(html_parts, item, best_iter, train_queries, test_queries)
 
     html_parts.append("""        </tbody>
     </table>

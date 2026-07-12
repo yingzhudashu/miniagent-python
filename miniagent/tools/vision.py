@@ -38,6 +38,7 @@ async def _analyze_image_handler(args: dict[str, Any], ctx: ToolContext) -> Tool
     image_path, path_err = resolve_path_for_tool(str(args["path"]), ctx)
     if path_err:
         return path_err
+    assert image_path is not None
 
     if not os.path.isfile(image_path):
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 图片文件不存在: {args['path']}")

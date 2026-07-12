@@ -94,6 +94,120 @@ class RequirementClarifier:
 
     interactive: bool = False
 
+    @staticmethod
+    async def _load_context(
+        user_input: str,
+        knowledge_registry: KnowledgeRegistryProtocol,
+        memory_store: Any | None,
+        session_key: str | None,
+    ) -> tuple[Any | None, str, str]:
+        """加载会话记忆和知识库上下文，并隔离可选记忆失败。"""
+        memory = None
+        context_parts: list[str] = []
+        if memory_store and session_key:
+            try:
+                from miniagent.memory.store import format_memory_for_prompt
+
+                memory = await memory_store.load(session_key)
+                memory_context = format_memory_for_prompt(memory)
+                if memory_context:
+                    context_parts.append(memory_context)
+            except Exception as error:
+                _logger.debug("加载记忆失败: %s", error)
+        from miniagent.knowledge import retrieve_knowledge_context
+
+        knowledge = retrieve_knowledge_context(
+            knowledge_registry,
+            user_input,
+            phase="clarifier",
+            default_top_k=3,
+            default_max_chars=3000,
+        )
+        if knowledge:
+            context_parts.append(knowledge)
+        return memory, knowledge, "\n\n".join(context_parts)
+
+    @staticmethod
+    def _from_result(user_input: str, result: dict[str, Any]) -> ClarifiedRequirement:
+        """把 LLM JSON 结果转换为澄清需求 DTO。"""
+        return ClarifiedRequirement(
+            original=user_input,
+            clarified_goal=result.get("clarified_goal") or user_input,
+            boundary_conditions=list(result.get("boundary_conditions") or []),
+            output_spec=str(result.get("output_spec") or ""),
+            examples=list(result.get("examples") or []),
+            anti_examples=list(result.get("anti_examples") or []),
+            ambiguity_report=list(result.get("ambiguity_report") or []),
+        )
+
+    @staticmethod
+    def _resolve_ambiguities(
+        clarified: ClarifiedRequirement,
+        *,
+        memory: Any | None,
+        knowledge_context: str,
+        user_input: str,
+    ) -> None:
+        """用 Ground Truth、知识库和默认规则消解歧义。"""
+        if not clarified.ambiguity_report:
+            return
+        from miniagent.memory.ground_truth import (
+            prioritize_clarification_questions,
+            resolve_ambiguities_from_ground_truth,
+        )
+
+        memory_facts, knowledge_facts, defaults, unresolved = (
+            resolve_ambiguities_from_ground_truth(
+                clarified.ambiguity_report,
+                memory,
+                knowledge_context=knowledge_context,
+                user_input=user_input,
+            )
+        )
+        clarified.memory_resolved_facts.extend(memory_facts)
+        clarified.knowledge_resolved_facts.extend(knowledge_facts)
+        clarified.default_resolved_assumptions.extend(defaults)
+        clarified.resolved_assumptions.extend(memory_facts + knowledge_facts + defaults)
+        clarified.unresolved_questions.extend(prioritize_clarification_questions(unresolved))
+
+    async def _ask_unresolved(
+        self,
+        clarified: ClarifiedRequirement,
+        ask_user: Callable[[str], Awaitable[str]] | None,
+        max_questions: int,
+    ) -> int:
+        """在交互模式中追问有界数量的问题，并保留未回答项。"""
+        if not self.interactive or ask_user is None or not clarified.unresolved_questions:
+            return 0
+        questions = clarified.unresolved_questions[: max(0, max_questions)]
+        clarified.unresolved_questions = clarified.unresolved_questions[len(questions) :]
+        for ambiguity in questions:
+            answer = await ask_user(f"关于「{ambiguity}」，您能补充说明吗？")
+            if answer and answer.strip():
+                clarified.boundary_conditions.append(f"用户补充：{answer.strip()}")
+            else:
+                clarified.unresolved_questions.append(ambiguity)
+        return len(questions)
+
+    @staticmethod
+    async def _emit_summary(
+        clarified: ClarifiedRequirement, user_input: str, on_thinking: Any | None
+    ) -> None:
+        """把澄清目标、约束和输出规格展示到思考流。"""
+        parts: list[str] = []
+        if clarified.clarified_goal and clarified.clarified_goal != user_input:
+            parts.append(f"目标：{clarified.clarified_goal}")
+        if clarified.boundary_conditions:
+            parts.append(f"约束：{'、'.join(clarified.boundary_conditions[:5])}")
+        if clarified.output_spec:
+            parts.append(f"输出规格：{clarified.output_spec}")
+        await invoke_on_thinking(
+            on_thinking,
+            "；".join(parts) if parts else "未识别额外约束",
+            True,
+            "[需求澄清]",
+        )
+
     async def clarify(
         self,
         user_input: str,
@@ -131,35 +245,9 @@ class RequirementClarifier:
             ``ambiguity_report`` 经 Ground Truth 规则消解后写入各 ``*_resolved_*`` 字段。
         """
         start_time = time.monotonic_ns()
-        llm_success = True
-
-        memory_context = ""
-        memory = None
-        if memory_store and session_key:
-            try:
-                from miniagent.memory.store import format_memory_for_prompt
-
-                memory = await memory_store.load(session_key)
-                memory_context = format_memory_for_prompt(memory)
-            except Exception as e:
-                _logger.debug("加载记忆失败: %s", e)
-
-        from miniagent.knowledge import retrieve_knowledge_context
-
-        kb_context = retrieve_knowledge_context(
-            knowledge_registry,
-            user_input,
-            phase="clarifier",
-            default_top_k=3,
-            default_max_chars=3000,
+        memory, knowledge_context, full_context = await self._load_context(
+            user_input, knowledge_registry, memory_store, session_key
         )
-
-        context_parts: list[str] = []
-        if memory_context:
-            context_parts.append(memory_context)
-        if kb_context:
-            context_parts.append(kb_context)
-        full_context = "\n\n".join(context_parts) if context_parts else ""
 
         system = CLARIFIER_PROMPT
         if full_context:
@@ -176,7 +264,6 @@ class RequirementClarifier:
 
         if not result:
             _logger.warning("需求澄清 LLM 返回空结果，使用原始输入")
-            llm_success = False
             clarified = ClarifiedRequirement(
                 original=user_input,
                 clarified_goal=user_input,
@@ -190,71 +277,15 @@ class RequirementClarifier:
             )
             return clarified
 
-        clarified = ClarifiedRequirement(
-            original=user_input,
-            clarified_goal=result.get("clarified_goal") or user_input,
-            boundary_conditions=list(result.get("boundary_conditions") or []),
-            output_spec=str(result.get("output_spec") or ""),
-            examples=list(result.get("examples") or []),
-            anti_examples=list(result.get("anti_examples") or []),
-            ambiguity_report=list(result.get("ambiguity_report") or []),
+        clarified = self._from_result(user_input, result)
+        self._resolve_ambiguities(
+            clarified,
+            memory=memory,
+            knowledge_context=knowledge_context,
+            user_input=user_input,
         )
-
-        if clarified.ambiguity_report:
-            from miniagent.memory.ground_truth import (
-                prioritize_clarification_questions,
-                resolve_ambiguities_from_ground_truth,
-            )
-
-            (
-                memory_resolved,
-                knowledge_resolved,
-                default_resolved,
-                unresolved,
-            ) = resolve_ambiguities_from_ground_truth(
-                clarified.ambiguity_report,
-                memory,
-                knowledge_context=kb_context,
-                user_input=user_input,
-            )
-            clarified.memory_resolved_facts.extend(memory_resolved)
-            clarified.knowledge_resolved_facts.extend(knowledge_resolved)
-            clarified.default_resolved_assumptions.extend(default_resolved)
-            clarified.resolved_assumptions.extend(
-                memory_resolved + knowledge_resolved + default_resolved
-            )
-            clarified.unresolved_questions.extend(
-                prioritize_clarification_questions(unresolved)
-            )
-
-        parts: list[str] = []
-        if clarified.clarified_goal and clarified.clarified_goal != user_input:
-            parts.append(f"目标：{clarified.clarified_goal}")
-        if clarified.boundary_conditions:
-            parts.append(f"约束：{'、'.join(clarified.boundary_conditions[:5])}")
-        if clarified.output_spec:
-            parts.append(f"输出规格：{clarified.output_spec}")
-        summary = "；".join(parts) if parts else "未识别额外约束"
-        await invoke_on_thinking(
-            on_thinking,
-            summary,
-            True,
-            "[需求澄清]",
-        )
-
-        asked_count = 0
-        if self.interactive and ask_user and clarified.unresolved_questions:
-            questions_to_ask = clarified.unresolved_questions[: max(0, max_questions)]
-            remaining_unasked = clarified.unresolved_questions[len(questions_to_ask):]
-            clarified.unresolved_questions = list(remaining_unasked)
-            for ambiguity in questions_to_ask:
-                answer = await ask_user(f"关于「{ambiguity}」，您能补充说明吗？")
-                asked_count += 1
-                if answer and answer.strip():
-                    clarified.boundary_conditions.append(f"用户补充：{answer.strip()}")
-                else:
-                    clarified.unresolved_questions.append(ambiguity)
-
+        await self._emit_summary(clarified, user_input, on_thinking)
+        asked_count = await self._ask_unresolved(clarified, ask_user, max_questions)
         clarified.clarification_needed = bool(clarified.unresolved_questions)
 
         await self._emit_clarify_trace(
@@ -262,7 +293,7 @@ class RequirementClarifier:
             start_time=start_time,
             clarified=clarified,
             asked_count=asked_count,
-            success=llm_success,
+            success=True,
         )
         return clarified
 

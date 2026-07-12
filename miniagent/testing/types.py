@@ -37,6 +37,8 @@ class AgentExecutionResult(TypedDict, total=False):
     output: str
     tokens: int
     action: str
+    actual_tools: list[str]
+    tool_call_count: int
 
 
 @runtime_checkable

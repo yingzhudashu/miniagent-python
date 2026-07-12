@@ -70,6 +70,7 @@ class MemoryInjectionResult(dict):
         cls,
         result: tuple[list[dict], dict[str, Any]],
     ) -> MemoryInjectionResult:
+        """把旧版二元组返回值转换为具名兼容结果。"""
         messages, metadata = result
         return cls(messages=messages, memory_metadata=metadata)
 

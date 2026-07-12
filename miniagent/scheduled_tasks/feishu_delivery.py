@@ -41,9 +41,9 @@ def schedule_feishu_last_chat_enabled() -> bool:
 
 def _is_valid_im_receive_id(chat_id: str) -> bool:
     """验证飞书 IM receive_id 格式有效性。"""
-    from miniagent.feishu.poll_server import _is_valid_im_receive_id
+    from miniagent.feishu.card_rendering import is_valid_im_receive_id
 
-    return _is_valid_im_receive_id((chat_id or "").strip())
+    return is_valid_im_receive_id((chat_id or "").strip())
 
 
 def _channel_to_receive_id(channel_id: str) -> tuple[str | None, bool]:

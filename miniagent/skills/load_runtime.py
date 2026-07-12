@@ -76,10 +76,10 @@ async def discover_packages(
         if not os.path.isdir(skills_root):
             return []
         scope = resolve_scope_for_root(skills_root)
-        packages = await discover_skill_packages(skills_root)
-        for pkg in packages:
+        root_packages = await discover_skill_packages(skills_root)
+        for pkg in root_packages:
             pkg.scope = scope
-        return packages
+        return root_packages
     # 多根发现：主根优先，随后按会话顺序扫描
     all_roots = get_all_skill_roots(include_sessions=include_sessions)
     seen_ids: set[str] = set()

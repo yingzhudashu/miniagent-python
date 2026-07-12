@@ -19,9 +19,14 @@ Example:
 
 from __future__ import annotations
 
-import json
 import os
 from typing import Any
+
+from miniagent.infrastructure.atomic_json import atomic_dump_json
+from miniagent.infrastructure.persistence import load_state_file
+from miniagent.infrastructure.state_schemas import install_builtin_state_schemas
+
+install_builtin_state_schemas()
 
 
 class ChannelRouter:
@@ -291,8 +296,7 @@ class ChannelRouter:
             p = path
 
         os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
-        with open(p, "w", encoding="utf-8") as f:
-            json.dump(self.to_dict(), f, ensure_ascii=False, indent=2)
+        atomic_dump_json(p, self.to_dict(), ensure_ascii=False, indent=2)
         return p
 
     def load(self, path: str | None = None) -> bool:
@@ -313,8 +317,7 @@ class ChannelRouter:
             if not os.path.isfile(p):
                 return False
 
-        with open(p, encoding="utf-8") as f:
-            data = json.load(f)
+        data = load_state_file("channel_router", p)
         self.from_dict(data)
         return True
 
@@ -325,6 +328,7 @@ class ChannelRouter:
             可 JSON 序列化的字典
         """
         return {
+            "schema_version": 1,
             "bindings": dict(self._bindings),
             "reverse": {k: list(v) for k, v in self._reverse.items()},
             "primary": self._primary,

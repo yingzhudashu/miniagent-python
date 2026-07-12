@@ -47,9 +47,10 @@ def test_load_range_then_append_persists_history(session_manager: DefaultSession
     assert os.path.isfile(path)
     with open(path, encoding="utf-8") as f:
         saved = json.load(f)
-    assert len(saved) == 2
-    assert saved[0]["role"] == "user"
-    assert saved[1]["role"] == "assistant"
+    assert saved["schema_version"] == 1
+    assert len(saved["messages"]) == 2
+    assert saved["messages"][0]["role"] == "user"
+    assert saved["messages"][1]["role"] == "assistant"
 
     # ctx 与 session 仍指向同一 list
     assert ctx["conversation_history"] is session.conversation_history
@@ -102,8 +103,8 @@ def test_save_after_truncate_keeps_session_and_ctx_in_sync(
     path = _history_path(session_manager, session_id)
     with open(path, encoding="utf-8") as f:
         saved = json.load(f)
-    assert len(saved) == 2
-    assert saved == session.conversation_history
+    assert len(saved["messages"]) == 2
+    assert saved["messages"] == session.conversation_history
 
 
 def test_load_range_expands_assistant_window_to_preserve_user_turn(
@@ -182,7 +183,7 @@ def test_load_range_preserves_long_assistant_content_on_disk(
     assert messages[-1]["content"] == long_answer
     with open(_history_path(session_manager, session_id), encoding="utf-8") as f:
         saved = json.load(f)
-    assert saved[-1]["content"] == long_answer
+    assert saved["messages"][-1]["content"] == long_answer
 
 
 def test_restore_truncates_large_disk_history(

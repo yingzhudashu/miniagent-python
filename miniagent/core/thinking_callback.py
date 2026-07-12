@@ -7,8 +7,8 @@ path because thinking output is observational UI state.
 
 from __future__ import annotations
 
+from miniagent.contracts.runtime import OnThinkingCallback
 from miniagent.infrastructure.logger import get_logger
-from miniagent.types.protocols import OnThinkingCallback
 
 _logger = get_logger(__name__)
 

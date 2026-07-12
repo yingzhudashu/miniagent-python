@@ -35,12 +35,17 @@
 
 from __future__ import annotations
 
-import json
 import re
 from collections import Counter, defaultdict
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from miniagent.infrastructure.persistence import dump_state_file
+from miniagent.infrastructure.state_schemas import install_builtin_state_schemas
+
+install_builtin_state_schemas()
 
 from miniagent.infrastructure.logger import get_logger
 from miniagent.infrastructure.trace_events import EVENT_TOOL_END
@@ -109,7 +114,7 @@ def parse_activity_log(date: str | None = None) -> dict[str, Any]:
     if not log_file.exists():
         return {"sessions": [], "tool_calls": [], "llm_calls": [], "errors": []}
 
-    result = {
+    result: dict[str, list[Any]] = {
         "sessions": [],
         "tool_calls": [],
         "llm_calls": [],
@@ -187,6 +192,7 @@ class _LoopPatternAccumulator:
         self._prefixes: dict[str, list[str]] = defaultdict(list)
 
     def add(self, event: dict[str, Any]) -> None:
+        """消费一条工具终态事件并更新有界计数器。"""
         if event.get("type") != EVENT_TOOL_END:
             return
         session = str(event.get("session_key") or "unknown")
@@ -199,6 +205,7 @@ class _LoopPatternAccumulator:
             prefix.append(tool)
 
     def report(self) -> list[dict[str, Any]]:
+        """根据累计次数和短前缀生成循环风险报告。"""
         loops: list[dict[str, Any]] = []
         repeat_threshold = 5
         for session, counts in self._counts.items():
@@ -239,6 +246,100 @@ class RuntimeAnalyzer:
         """初始化分析器。"""
         pass
 
+    @staticmethod
+    def _trace_report(date: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        """单遍聚合 Trace，并在同一遍中收集循环模式。"""
+        loop_detector = _LoopPatternAccumulator()
+
+        def events() -> Iterator[dict[str, Any]]:
+            for event in iter_trace_events(date):
+                loop_detector.add(event)
+                yield event
+
+        return aggregate_trace_stats(events()), loop_detector.report()
+
+    @staticmethod
+    def _summary(
+        activity_data: dict[str, Any],
+        trace_stats: dict[str, Any],
+        loop_patterns: list[dict[str, Any]],
+    ) -> str:
+        """生成人类可读的运行统计摘要。"""
+        llm_count = trace_stats["llm"].get("request_count", 0)
+        tool_count = sum(
+            item.get("count", 0)
+            for item in trace_stats["tools"].get("tools", {}).values()
+        )
+        error_count = sum(item.get("count", 0) for item in trace_stats["errors"])
+        compress_count = trace_stats["context"].get("compress_count", 0)
+        return (
+            f"会话 {len(activity_data['sessions'])} 个，"
+            f"LLM 调用 {llm_count} 次，工具调用 {tool_count} 次，"
+            f"上下文压缩 {compress_count} 次，循环模式 {len(loop_patterns)} 个，"
+            f"错误 {error_count} 次"
+        )
+
+    @staticmethod
+    def _issues(
+        trace_stats: dict[str, Any], loop_patterns: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """从工具、错误、循环和上下文压力指标识别问题。"""
+        issues: list[dict[str, Any]] = []
+        for tool in trace_stats["tools"].get("slow_tools", []):
+            issues.append(
+                {"type": "slow_tool", "tool": tool["name"], "avg_ms": tool["avg_ms"], "severity": 2}
+            )
+        for tool in trace_stats["tools"].get("failed_tools", []):
+            issues.append(
+                {
+                    "type": "tool_failure",
+                    "tool": tool["name"],
+                    "success_rate": tool["success_rate"],
+                    "severity": 3,
+                }
+            )
+        for error in trace_stats["errors"][:5]:
+            if error.get("count", 0) >= 3:
+                issues.append(
+                    {
+                        "type": "high_frequency_error",
+                        "error_type": error["type"],
+                        "count": error["count"],
+                        "is_user_error": error.get("is_user_error", False),
+                        "severity": 2 if error.get("is_user_error") else 3,
+                    }
+                )
+        for loop in loop_patterns:
+            issue = RuntimeAnalyzer._loop_issue(loop)
+            if issue is not None:
+                issues.append(issue)
+        context = trace_stats["context"]
+        if context.get("compress_count", 0) >= 5:
+            issues.append(
+                {"type": "context_pressure", "compress_count": context["compress_count"], "severity": 2}
+            )
+        return issues
+
+    @staticmethod
+    def _loop_issue(loop: dict[str, Any]) -> dict[str, Any] | None:
+        """把循环检测结果映射为统一问题结构。"""
+        if loop.get("type") == "repeated_tool":
+            return {
+                "type": "tool_loop",
+                "tool": loop["tool"],
+                "count": loop["count"],
+                "session": loop.get("session", ""),
+                "severity": loop.get("severity", 2),
+            }
+        if loop.get("type") == "ping_pong":
+            return {
+                "type": "ping_pong",
+                "tools": loop.get("tools", []),
+                "session": loop.get("session", ""),
+                "severity": loop.get("severity", 3),
+            }
+        return None
+
     def analyze(self, date: str | None = None) -> dict[str, Any]:
         """执行完整分析。
 
@@ -251,20 +352,12 @@ class RuntimeAnalyzer:
         if date is None:
             date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-        report = {
+        report: dict[str, Any] = {
             "date": date,
             "generated_at": datetime.now(timezone.utc).isoformat(),
         }
 
-        # 1. Trace 统计：单遍流式聚合，不保留整日事件列表。
-        loop_detector = _LoopPatternAccumulator()
-
-        def _events_with_loop_detection():
-            for event in iter_trace_events(date):
-                loop_detector.add(event)
-                yield event
-
-        trace_stats = aggregate_trace_stats(_events_with_loop_detection())
+        trace_stats, loop_patterns = self._trace_report(date)
         report["trace_events_count"] = trace_stats["total_events"]
         tool_stats = trace_stats["tools"]
         llm_stats = trace_stats["llm"]
@@ -275,8 +368,6 @@ class RuntimeAnalyzer:
         report["errors"] = error_stats
         report["context"] = context_stats
 
-        # 循环检测仅保留计数与每会话前 6 次工具调用。
-        loop_patterns = loop_detector.report()
         report["loops"] = loop_patterns
 
         # 2. 活动日志分析
@@ -292,84 +383,8 @@ class RuntimeAnalyzer:
         if activity_data["errors"]:
             report["activity_errors"] = len(activity_data["errors"])
 
-        # 3. 生成摘要
-        llm_count = llm_stats.get("request_count", 0)
-        tool_count = sum(
-            t.get("count", 0) for t in tool_stats.get("tools", {}).values()
-        )
-        error_count = sum(e.get("count", 0) for e in error_stats)
-        session_count = len(activity_data["sessions"])
-        compress_count = context_stats.get("compress_count", 0)
-        loop_count = len(loop_patterns)
-
-        report["summary"] = (
-            f"会话 {session_count} 个，"
-            f"LLM 调用 {llm_count} 次，"
-            f"工具调用 {tool_count} 次，"
-            f"上下文压缩 {compress_count} 次，"
-            f"循环模式 {loop_count} 个，"
-            f"错误 {error_count} 次"
-        )
-
-        # 4. 问题标记
-        issues = []
-
-        # 慢工具问题
-        for tool in tool_stats.get("slow_tools", []):
-            issues.append({
-                "type": "slow_tool",
-                "tool": tool["name"],
-                "avg_ms": tool["avg_ms"],
-                "severity": 2,
-            })
-
-        # 高失败率工具问题
-        for tool in tool_stats.get("failed_tools", []):
-            issues.append({
-                "type": "tool_failure",
-                "tool": tool["name"],
-                "success_rate": tool["success_rate"],
-                "severity": 3,
-            })
-
-        # 高频错误问题
-        for error in error_stats[:5]:  # 前 5 个高频错误
-            if error.get("count", 0) >= 3:
-                issues.append({
-                    "type": "high_frequency_error",
-                    "error_type": error["type"],
-                    "count": error["count"],
-                    "is_user_error": error.get("is_user_error", False),
-                    "severity": 2 if error.get("is_user_error") else 3,
-                })
-
-        # 循环模式问题
-        for loop in loop_patterns:
-            if loop.get("type") == "repeated_tool":
-                issues.append({
-                    "type": "tool_loop",
-                    "tool": loop["tool"],
-                    "count": loop["count"],
-                    "session": loop.get("session", ""),
-                    "severity": loop.get("severity", 2),
-                })
-            elif loop.get("type") == "ping_pong":
-                issues.append({
-                    "type": "ping_pong",
-                    "tools": loop.get("tools", []),
-                    "session": loop.get("session", ""),
-                    "severity": loop.get("severity", 3),
-                })
-
-        # 高频上下文压缩
-        if context_stats.get("compress_count", 0) >= 5:
-            issues.append({
-                "type": "context_pressure",
-                "compress_count": context_stats["compress_count"],
-                "severity": 2,
-            })
-
-        report["issues"] = issues
+        report["summary"] = self._summary(activity_data, trace_stats, loop_patterns)
+        report["issues"] = self._issues(trace_stats, loop_patterns)
 
         return report
 
@@ -388,8 +403,7 @@ class RuntimeAnalyzer:
         date = report.get("date", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
         report_file = reports_dir / f"runtime-{date}.json"
 
-        with report_file.open("w", encoding="utf-8") as f:
-            json.dump(report, f, indent=2, ensure_ascii=False)
+        dump_state_file("self_opt_runtime_report", report_file, report)
 
         _logger.info("运行分析报告已保存: %s", report_file)
         return report_file

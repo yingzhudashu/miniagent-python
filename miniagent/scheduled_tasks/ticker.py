@@ -42,13 +42,88 @@ _MAX_DUE_PER_TICK = 5
 def _sleep_seconds_until(tasks: list[ScheduledTask]) -> float:
     """根据已启用任务的 ``next_run_at`` 计算下一次唤醒前的睡眠秒数（有界 0.5～60s）。"""
     now = time.time()
-    candidates = [
-        float(t.next_run_at) for t in tasks if t.enabled and t.next_run_at is not None
-    ]
+    candidates = [float(t.next_run_at) for t in tasks if t.enabled and t.next_run_at is not None]
     if not candidates:
         return 60.0
     nxt = min(candidates)
     return max(0.5, min(60.0, nxt - now))
+
+
+def _select_due_tasks(tasks: list[ScheduledTask], now: float) -> list[ScheduledTask]:
+    """获取任务锁并返回本 tick 可投递的有界任务列表。"""
+    due: list[ScheduledTask] = []
+    for task in tasks:
+        if not task.enabled or task.id in _inflight:
+            continue
+        if task.next_run_at is None or task.next_run_at > now:
+            continue
+        if try_acquire_job_lock(task.id):
+            due.append(task)
+    due.sort(key=lambda item: float(item.next_run_at or 0))
+    selected = due[:_MAX_DUE_PER_TICK]
+    for task in due[_MAX_DUE_PER_TICK:]:
+        release_job_lock(task.id)
+    return selected
+
+
+async def _finalize_scheduled_job(
+    task_id: str,
+    *,
+    outcome: TaskRunOutcome,
+    agent_error: str | None,
+) -> None:
+    """尽力写回任务结果，并无条件释放进程内标记和跨进程锁。"""
+    try:
+        tasks = load_tasks()
+        task = next((item for item in tasks if item.id == task_id), None)
+        if task:
+            finalize_task_after_run(task, outcome=outcome, agent_error=agent_error)
+            await save_tasks_async(tasks)
+    except Exception:
+        _logger.exception("定时任务写回状态失败: %s", task_id)
+    finally:
+        _inflight.discard(task_id)
+        release_job_lock(task_id)
+
+
+async def _run_scheduled_job(
+    task_id: str,
+    *,
+    ctx: ApplicationContainer,
+    state: CliLoopState,
+    inbound_turns: InboundTurnCoordinator,
+    skill_toolboxes: list[Any],
+    skill_prompts: list[Any],
+) -> None:
+    """执行单个已锁定任务；取消继续传播，最终状态始终写回。"""
+    outcome: TaskRunOutcome = "skipped"
+    agent_error: str | None = None
+    try:
+        tasks = load_tasks()
+        task = next((item for item in tasks if item.id == task_id), None)
+        if task is None or not task.enabled:
+            return
+        job = build_scheduled_job(ctx, state, task, skill_toolboxes, skill_prompts)
+        errors: list[str | None] = [None]
+
+        async def handle(message: InboundMessage) -> None:
+            errors[0] = await job.run(message)
+
+        await inbound_turns.submit(job.message, handle, wait=True)
+        agent_error = errors[0]
+        outcome = "agent_error" if agent_error else "completed"
+    except asyncio.CancelledError:
+        outcome = "cancelled"
+        raise
+    except Exception:
+        _logger.exception("定时任务包装执行失败: %s", task_id)
+        outcome = "dispatch_failed"
+    finally:
+        await _finalize_scheduled_job(
+            task_id,
+            outcome=outcome,
+            agent_error=agent_error,
+        )
 
 
 async def tick_once(
@@ -96,74 +171,26 @@ async def tick_once(
         if repair_invalid_schedules(tasks):
             await save_tasks_async(tasks)
 
-        now = time.time()
-        due: list[ScheduledTask] = []
-        for t in tasks:
-            if not t.enabled or t.id in _inflight:
-                continue
-            if t.next_run_at is None or t.next_run_at > now:
-                continue
-            if not try_acquire_job_lock(t.id):
-                continue
-            due.append(t)
-        due.sort(key=lambda x: float(x.next_run_at or 0))
-        due = due[:_MAX_DUE_PER_TICK]
+        due = _select_due_tasks(tasks, time.time())
 
         mq = ctx.message_queue
         inbound_turns = InboundTurnCoordinator(
             mq,
             queue_key=lambda message: str(message.metadata.get("queue_key") or ""),
         )
-        for t in due:
-            job_id = t.id
+        for task in due:
+            job_id = task.id
             _inflight.add(job_id)
-
-            async def _one_job(task_id: str = job_id) -> None:
-                outcome: TaskRunOutcome = "skipped"
-                agent_error: str | None = None
-                try:
-                    tlist = load_tasks()
-                    task = next((x for x in tlist if x.id == task_id), None)
-                    if task is None or not task.enabled:
-                        return
-                    job = build_scheduled_job(
-                        ctx,
-                        state,
-                        task,
-                        skill_toolboxes,
-                        skill_prompts,
-                    )
-                    err_holder: list[str | None] = [None]
-
-                    async def _handle(message: InboundMessage) -> None:
-                        err_holder[0] = await job.run(message)
-
-                    await inbound_turns.submit(job.message, _handle, wait=True)
-                    agent_error = err_holder[0]
-                    outcome = "agent_error" if agent_error else "completed"
-                except asyncio.CancelledError:
-                    outcome = "cancelled"
-                    raise
-                except Exception:
-                    _logger.exception("定时任务包装执行失败: %s", task_id)
-                    outcome = "dispatch_failed"
-                finally:
-                    try:
-                        tlist2 = load_tasks()
-                        task2 = next((x for x in tlist2 if x.id == task_id), None)
-                        if task2:
-                            finalize_task_after_run(
-                                task2,
-                                outcome=outcome,
-                                agent_error=agent_error,
-                            )
-                            await save_tasks_async(tlist2)
-                    except Exception:
-                        _logger.exception("定时任务写回状态失败: %s", task_id)
-                    _inflight.discard(task_id)
-                    release_job_lock(task_id)
-
-            jt = asyncio.create_task(_one_job())
+            jt = asyncio.create_task(
+                _run_scheduled_job(
+                    job_id,
+                    ctx=ctx,
+                    state=state,
+                    inbound_turns=inbound_turns,
+                    skill_toolboxes=skill_toolboxes,
+                    skill_prompts=skill_prompts,
+                )
+            )
             reg = getattr(ctx, "register_shutdown_tracked_task", None)
             if callable(reg):
                 reg(jt)

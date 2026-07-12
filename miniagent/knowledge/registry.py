@@ -5,17 +5,19 @@
 
 from __future__ import annotations
 
-import json
 import os
 import time
 from typing import Any
 
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
+from miniagent.infrastructure.persistence import dump_state_file, load_state_file
+from miniagent.infrastructure.state_schemas import install_builtin_state_schemas
 from miniagent.knowledge.base import KnowledgeBase
 from miniagent.types.error_prefix import WARNING_PREFIX
 
 _logger = get_logger(__name__)
+install_builtin_state_schemas()
 
 # 默认知识库根目录
 _DEFAULT_KB_ROOT = "workspaces/knowledge"
@@ -74,8 +76,7 @@ class KnowledgeRegistry:
             return
 
         try:
-            with open(registry_path, encoding="utf-8") as f:
-                data = json.load(f)
+            data = load_state_file("knowledge_registry", registry_path)
             for item in data.get("mounted", []):
                 path = item.get("path", "")
                 if not path or not os.path.exists(path):
@@ -111,8 +112,7 @@ class KnowledgeRegistry:
         }
 
         try:
-            with open(registry_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+            dump_state_file("knowledge_registry", registry_path, data)
         except Exception as e:
             _logger.warning("保存知识库注册表失败: %s", e)
 

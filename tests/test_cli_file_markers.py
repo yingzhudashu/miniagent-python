@@ -171,7 +171,7 @@ def test_cli_file_history_merge_is_memory_only(tmp_path: Path) -> None:
 
 def test_reset_and_reload_transcript_does_not_reset_input_history() -> None:
     source = Path(__file__).resolve().parent.parent.joinpath(
-        "miniagent", "engine", "cli_tui.py"
+        "miniagent", "engine", "cli_tui_transcript_ops.py"
     ).read_text(encoding="utf-8")
     start = source.index("def _reset_and_reload_transcript(")
     end = source.index("def _trigger_lazy_load_more_history(", start)

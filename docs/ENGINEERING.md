@@ -12,7 +12,7 @@
 |------|----------|------|
 | 可安装包名与源码布局 | `pyproject.toml` → `[tool.setuptools.packages.find]` | 仅打包 `miniagent*`；不再维护顶层 `src` 作为可导入包。 |
 | 版本号 | `miniagent/__init__.py` 中 `__version__` | `pyproject.toml` 通过 `dynamic.version` 读取；发版时与 `CHANGELOG.md`、本文档顶部标语一并更新。 |
-| 依赖声明 | `pyproject.toml` `[project]` / `optional-dependencies` | 不使用根目录 `requirements.txt`；运行时依赖与可选组（`dev`（含 `pytest-cov`）、`feishu`、`browser`、`mcp`、`cli`、`typing`（`mypy` 试点））集中在此。 |
+| 依赖声明 | `pyproject.toml` `[project]` / `optional-dependencies` | 不使用根目录 `requirements.txt`；运行时依赖与可选组（`dev`（含 `pytest-cov`）、`feishu`、`browser`、`mcp`、`cli`、`typing`（全包 `mypy`））集中在此。 |
 | 配置说明 | [`miniagent/resources/config.defaults.json`](../miniagent/resources/config.defaults.json) + `config.user.json` | 包资源提供默认值，user 文件只写本地覆盖；`_config_guide` 标明 User/Advanced 分层；**勿提交含真实密钥的 user 文件**（见 `.gitignore`）。 |
 | 用户安装与首次配置 | [README.md](../README.md) §安装、§配置、§快速入门 | USER_GUIDE / DEPLOYMENT 仅保留专题指针，不重复安装长文。 |
 | 通道绑定（CLI↔飞书） | [FEISHU.md](FEISHU.md) §通道绑定 | ARCHITECTURE §2b、USER_GUIDE、CLI 仅保留摘要 + 链接。 |
@@ -87,26 +87,38 @@
 
 ```bash
 python -m pip install -e ".[dev,typing]"
-python -m ruff check miniagent tests
+python -m ruff check miniagent tests scripts
 python -m compileall -q miniagent
-python -m mypy miniagent/application miniagent/bootstrap miniagent/contracts miniagent/types
-python -m mypy --follow-imports=silent miniagent/core/llm_transport.py miniagent/core/planner.py miniagent/core/task_classifier.py miniagent/core/llm_params.py miniagent/core/llm_json.py
-python -m pytest tests/ -q -m "not evaluation"
+python -m mypy miniagent
+python scripts/check_architecture.py
+python scripts/docstring_inventory.py --check
+python scripts/check_docs.py
+python -m bandit -q -r miniagent -x miniagent/skills/templates -lll
+python -m pytest tests/ -q -m "not evaluation and not perf"
 ```
 
 CI 说明：
 
-- **`test` job**（矩阵 Python 3.10 / 3.12）：`pip install -e ".[dev,typing]"`，跑 `compileall`、`ruff`、架构检查、分层类型检查、规划配置消费者增量类型检查、wheel 资源检查（仅 3.12）及 `pytest -m "not evaluation"`。
+- **`test` job**（矩阵 Python 3.10 / 3.12）：`pip install -e ".[dev,typing]"`，跑 `compileall`、Ruff、文档/docstring、Bandit、架构/函数长度、全包 Mypy、wheel 资源检查（仅 3.12）及离线非性能测试。
 - **`test-feishu-extra` job**（仅 3.12）：`pip install -e ".[dev,feishu]"` 后再跑 `compileall`、`ruff` 与 `pytest -m "not evaluation"`，确保安装 `lark-oapi` 时仍通过（与主矩阵并行，不拖慢双版本安装）。
 - **`test-mcp-extra` job**（仅 3.12）：`pip install -e ".[dev,mcp]"`，对官方 `mcp` SDK 做 `import` 冒烟，再跑 `compileall`、`ruff` 与 `pytest -m "not evaluation"`，防止 `[mcp]` extra 与代码导入漂移。
 
 说明：
 
-- **Ruff**：风格、导入顺序、pyupgrade 风格（`UP`）与部分静态问题；规则集见 `pyproject.toml` `[tool.ruff]` / `[tool.ruff.lint]`（含 `E4`、`E7`、`E9`、`F`、`I`、`UP`；`E402` 对部分延后 import 忽略）。
+- **Ruff**：规则集见 `pyproject.toml`，包含 Pyflakes、isort、pyupgrade、Bugbear、async、性能与 C901；圈复杂度上限 15。
+- **架构检查**：除依赖方向外，AST 零豁免要求生产函数/方法不超过 100 行；确需复杂状态机时应拆为小对象，而不是增加白名单。
 - **compileall**：全包语法编译，可捕获部分「仅某测试未覆盖路径」的语法错误。
-- **mypy（试点）**：分层检查覆盖 `application`、`bootstrap`、`contracts` 与 `types`；模型链路另以 `--follow-imports=silent` 检查统一 transport、规划器、任务分类器、参数解析器和 JSON 控制请求，读取真实配置类型而不报告其余依赖模块的既有告警。两项命令均与 `test` CI job 一致，需安装 `.[dev,typing]`。
+- **mypy**：CI 与本地均对整个 `miniagent` 包执行有类型函数体检查；可选 SDK 通过 Protocol/适配器隔离，不使用全局忽略掩盖内部错误。需安装 `.[dev,typing]`。
 - **Pytest**：默认 `asyncio_mode = auto`；`tests/evaluation/` 下用例由 `conftest` 统一打上 `evaluation` marker，与主 CI 隔离；本地若要一次跑全量可执行 `python -m pytest tests/ -q`（含评测）。未装 `lark-oapi` 时部分飞书路径可能跳过；本地可改用 `pip install -e ".[dev,feishu]"` 与 CI 飞书 job 对齐。
-- **覆盖率（可选）**：见 [INDEX.md](INDEX.md) §测试与质量（本地 `pytest --cov`；**默认 CI 不启用** `--cov`）。
+- **覆盖率门禁**：CI 运行 `pytest-cov --cov-branch --cov-fail-under=80`；PR 使用 `diff-cover` 要求修改行覆盖率 ≥95%。实时数值以 CI 产物为准；测试代码必须验证行为，不能通过扩大 omit 或生成无断言测试达成。本地命令见 [INDEX.md](INDEX.md) §测试与质量。
+
+### 2.1 测试责任矩阵
+
+- Agent 阶段、模型协议与工具执行由 `test_agent_*`、`test_planner_*`、`test_executor_*` 和 `test_llm_*` 覆盖。
+- CLI/TUI、历史与命令由 `test_cli_*`、`test_command_dispatch.py` 和 `test_help_markdown.py` 覆盖。
+- 飞书接收、路由、卡片、Docx/Bitable/Drive 与降级由 `test_feishu_*` 覆盖。
+- 会话、记忆、知识库、调度、Trace 和生命周期分别由同名测试模块覆盖。
+- 新功能必须在同一变更中增加行为测试；删除测试前必须证明它与仍保留的测试断言完全重复。
 
 可选增强（未默认纳入 CI，团队可自行约定）：
 

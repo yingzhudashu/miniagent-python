@@ -98,7 +98,7 @@ def _get_cached_embedding(text: str) -> array[float] | None:
     if not text:
         return None
 
-    cache_key = hashlib.md5(text.encode()).hexdigest()
+    cache_key = hashlib.blake2s(text.encode(), digest_size=16).hexdigest()
 
     with _EMBEDDING_CACHE_LOCK:
         if cache_key in _EMBEDDING_CACHE:
@@ -122,7 +122,7 @@ def _cache_embedding(text: str, embedding: Sequence[float]) -> array[float] | No
     if not text or not embedding:
         return None
 
-    cache_key = hashlib.md5(text.encode()).hexdigest()
+    cache_key = hashlib.blake2s(text.encode(), digest_size=16).hexdigest()
     now = time.monotonic()
     compact = embedding if isinstance(embedding, array) else array("d", embedding)
 
@@ -169,7 +169,7 @@ def _dot_product(a: Sequence[float], b: Sequence[float]) -> float:
     """计算两个列表向量的点积；批量路径另行使用 numpy。"""
     if not a or not b:
         return 0.0
-    return sum(x * y for x, y in zip(a, b))
+    return sum(x * y for x, y in zip(a, b, strict=True))
 
 
 def _compute_norm(embedding: Sequence[float]) -> float:
@@ -192,7 +192,7 @@ def _cosine_similarity(a: Sequence[float], b: Sequence[float]) -> float:
 
 def _text_hash(text: str) -> str:
     """生成文本的短 hash，用于检测内容变更。"""
-    return hashlib.md5(text.encode("utf-8")).hexdigest()[:12]
+    return hashlib.blake2s(text.encode("utf-8"), digest_size=6).hexdigest()
 
 
 # ============================================================================
@@ -262,6 +262,7 @@ class _EmbeddingJSONEncoder(json.JSONEncoder):
     """Encode one compact vector at a time instead of expanding the whole index."""
 
     def default(self, value: Any) -> Any:
+        """把紧凑向量数组转换成可持久化的 JSON 列表。"""
         if isinstance(value, array):
             return value.tolist()
         return super().default(value)
@@ -286,7 +287,7 @@ def _cosine_similarity_cached(
         return 0.0
     if query_norm == 0 or entry.norm == 0:
         return 0.0
-    dot = sum(x * y for x, y in zip(query_embedding, entry.embedding))
+    dot = sum(x * y for x, y in zip(query_embedding, entry.embedding, strict=True))
     return dot / (query_norm * entry.norm)
 
 

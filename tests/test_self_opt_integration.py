@@ -579,6 +579,16 @@ class TestRuntimeAnalyzer:
         # At least one error should be detected
         assert isinstance(issues, list)
 
+    def test_save_report_uses_versioned_state_schema(self, tmp_path: Path, monkeypatch) -> None:
+        from miniagent.core.self_opt import proposal_store
+
+        reports = tmp_path / "reports"
+        monkeypatch.setattr(proposal_store, "get_reports_dir", lambda: reports)
+        path = RuntimeAnalyzer().save_report({"date": "2026-07-13", "issues": []})
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        assert payload["schema_version"] == 1
+        assert payload["date"] == "2026-07-13"
+
 
 class TestProposalGenerator:
     """Test proposal generation from runtime analysis."""

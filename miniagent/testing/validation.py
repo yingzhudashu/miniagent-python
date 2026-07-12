@@ -12,6 +12,7 @@ from typing import Any
 from miniagent.testing.types import (
     VALID_ACTIONS,
     VALID_CATEGORIES,
+    AgentExecutionResult,
     SampleSpec,
 )
 from miniagent.types.error_prefix import ERROR_PREFIX, WARNING_PREFIX
@@ -174,7 +175,7 @@ def build_agent_execution_dict(
     tool_calls: list[dict[str, Any]],
     token_count: int | None = None,
     action: str | None = None,
-) -> dict[str, Any]:
+) -> AgentExecutionResult:
     """构造 execute_agent 标准返回字典。"""
     actual_tools = [tc.get("name", "") for tc in tool_calls if tc.get("name")]
     tool_call_count = len(tool_calls)

@@ -127,6 +127,7 @@ async def _read_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
     file_path, path_err = resolve_path_for_tool(str(args["path"]), ctx)
     if path_err:
         return path_err
+    assert file_path is not None
     try:
         offset = int(args.get("offset", 1))
         limit = int(args.get("limit", 1000))
@@ -142,23 +143,34 @@ async def _read_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
     )
 
     try:
-        page, total, ingest_content, source_hash, contains_nul, input_bytes = (
-            await asyncio.to_thread(
-                _read_file_page_sync,
-                file_path,
-                offset,
-                limit,
-                max(1, ingest_cap + 1),
-            )
+        (
+            page,
+            total,
+            ingest_content,
+            source_hash,
+            contains_nul,
+            input_bytes,
+        ) = await asyncio.to_thread(
+            _read_file_page_sync,
+            file_path,
+            offset,
+            limit,
+            max(1, ingest_cap + 1),
         )
     except FileNotFoundError:
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 文件不存在: {args['path']}")
     except PermissionError:
-        return ToolResult(success=False, content=f"{ERROR_PREFIX} 权限不足，无法读取: {args['path']}")
+        return ToolResult(
+            success=False, content=f"{ERROR_PREFIX} 权限不足，无法读取: {args['path']}"
+        )
     except IsADirectoryError:
-        return ToolResult(success=False, content=f"{ERROR_PREFIX} 路径是目录而非文件: {args['path']}")
+        return ToolResult(
+            success=False, content=f"{ERROR_PREFIX} 路径是目录而非文件: {args['path']}"
+        )
     except UnicodeDecodeError:
-        return ToolResult(success=False, content=f"{ERROR_PREFIX} 文件不是有效 UTF-8 文本: {args['path']}")
+        return ToolResult(
+            success=False, content=f"{ERROR_PREFIX} 文件不是有效 UTF-8 文本: {args['path']}"
+        )
 
     result = "\n".join(page)
 
@@ -198,16 +210,21 @@ async def _write_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolRes
     file_path, path_err = resolve_path_for_tool(str(args["path"]), ctx)
     if path_err:
         return path_err
+    assert file_path is not None
     content = str(args["content"])
 
     try:
         await asyncio.to_thread(atomic_write_text, file_path, content, encoding="utf-8")
     except PermissionError:
-        return ToolResult(success=False, content=f"{ERROR_PREFIX} 权限不足，无法写入: {args['path']}")
+        return ToolResult(
+            success=False, content=f"{ERROR_PREFIX} 权限不足，无法写入: {args['path']}"
+        )
     except OSError as e:
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 写入失败: {e}")
 
-    return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已写入 {file_path} ({len(content)} 字节)")
+    return ToolResult(
+        success=True, content=f"{SUCCESS_PREFIX} 已写入 {file_path} ({len(content)} 字节)"
+    )
 
 
 async def _edit_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
@@ -215,6 +232,7 @@ async def _edit_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
     file_path, path_err = resolve_path_for_tool(str(args["path"]), ctx)
     if path_err:
         return path_err
+    assert file_path is not None
     old_text = str(args["oldText"])
     new_text = str(args["newText"])
 
@@ -228,14 +246,22 @@ async def _edit_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
     occurrences = content.count(old_text)
 
     if occurrences == 0:
-        return ToolResult(success=False, content=f'{ERROR_PREFIX} 未找到匹配的文本: "{old_text[:50]}..."')
+        return ToolResult(
+            success=False, content=f'{ERROR_PREFIX} 未找到匹配的文本: "{old_text[:50]}..."'
+        )
     if occurrences > 1:
-        return ToolResult(success=False, content=f"{ERROR_PREFIX} 找到 {occurrences} 处匹配，请提供更精确的 oldText")
+        return ToolResult(
+            success=False,
+            content=f"{ERROR_PREFIX} 找到 {occurrences} 处匹配，请提供更精确的 oldText",
+        )
 
     updated = content.replace(old_text, new_text, 1)
     await asyncio.to_thread(atomic_write_text, file_path, updated, encoding="utf-8")
 
-    return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已替换 1 处 ({len(old_text)} → {len(new_text)} 字符)")
+    return ToolResult(
+        success=True,
+        content=f"{SUCCESS_PREFIX} 已替换 1 处 ({len(old_text)} → {len(new_text)} 字符)",
+    )
 
 
 async def _list_dir_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
@@ -243,6 +269,7 @@ async def _list_dir_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResul
     dir_path, path_err = resolve_path_for_tool(str(args["path"]), ctx)
     if path_err:
         return path_err
+    assert dir_path is not None
     recursive = bool(args.get("recursive", False))
     detail = bool(args.get("detail", False))
     try:
@@ -261,45 +288,14 @@ async def _list_dir_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResul
     if not exists or not is_dir:
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 目录不存在: {dir_path}")
 
-    def _format_entry(item: Path) -> str:
-        icon = "📁 " if item.is_dir() else "📄 "
-        label = f"{icon}{item.name}"
-        if not detail:
-            return label
-        try:
-            stat = item.stat()
-            if item.is_dir():
-                return f"{label} [dir, mtime={int(stat.st_mtime)}]"
-            return f"{label} [{stat.st_size} B, mtime={int(stat.st_mtime)}]"
-        except OSError:
-            return label
-
     if recursive:
-        entries: list[str] = []
-        truncated = False
-
-        def _walk(d: Path, prefix: str, depth: int) -> None:
-            nonlocal truncated
-            if len(entries) >= max_entries:
-                truncated = True
-                return
-            if depth > max_depth:
-                return
-            try:
-                remaining = max_entries - len(entries)
-                items, has_more = _limited_sorted_items(d, remaining)
-                truncated = truncated or has_more
-            except PermissionError:
-                return
-            for item in items:
-                if len(entries) >= max_entries:
-                    truncated = True
-                    return
-                entries.append(f"{prefix}{_format_entry(item)}")
-                if item.is_dir() and depth < max_depth:
-                    _walk(item, prefix + "  ", depth + 1)
-
-        await asyncio.to_thread(_walk, p, "", 1)
+        entries, truncated = await asyncio.to_thread(
+            _walk_directory,
+            p,
+            detail=detail,
+            max_depth=max_depth,
+            max_entries=max_entries,
+        )
         content = "\n".join(entries)
         if truncated:
             content += f"\n... (已截断，最多 {max_entries} 条；可调 max_entries / max_depth)"
@@ -307,7 +303,7 @@ async def _list_dir_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResul
 
     def _list_lines() -> tuple[list[str], bool]:
         items, truncated = _limited_sorted_items(p, max_entries)
-        return [_format_entry(entry) for entry in items], truncated
+        return [_format_directory_entry(entry, detail=detail) for entry in items], truncated
 
     lines, truncated = await asyncio.to_thread(_list_lines)
     content = "\n".join(lines)
@@ -316,11 +312,59 @@ async def _list_dir_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResul
     return ToolResult(success=True, content=content)
 
 
+def _format_directory_entry(item: Path, *, detail: bool) -> str:
+    """格式化一个目录项；stat 竞争失败时退回名称。"""
+    try:
+        is_directory = item.is_dir()
+        label = f"{'📁 ' if is_directory else '📄 '}{item.name}"
+        if not detail:
+            return label
+        stat = item.stat()
+        suffix = "dir" if is_directory else f"{stat.st_size} B"
+        return f"{label} [{suffix}, mtime={int(stat.st_mtime)}]"
+    except OSError:
+        return item.name
+
+
+def _walk_directory(
+    root: Path,
+    *,
+    detail: bool,
+    max_depth: int,
+    max_entries: int,
+) -> tuple[list[str], bool]:
+    """深度优先遍历目录，并在权限或条目上限边界安全停止。"""
+    entries: list[str] = []
+    truncated = False
+
+    def visit(directory: Path, prefix: str, depth: int) -> None:
+        nonlocal truncated
+        if len(entries) >= max_entries or depth > max_depth:
+            truncated = truncated or len(entries) >= max_entries
+            return
+        try:
+            items, has_more = _limited_sorted_items(directory, max_entries - len(entries))
+        except PermissionError:
+            return
+        truncated = truncated or has_more
+        for item in items:
+            if len(entries) >= max_entries:
+                truncated = True
+                return
+            entries.append(f"{prefix}{_format_directory_entry(item, detail=detail)}")
+            if item.is_dir() and depth < max_depth:
+                visit(item, prefix + "  ", depth + 1)
+
+    visit(root, "", 1)
+    return entries, truncated
+
+
 async def _create_dir_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     """创建新目录。默认递归创建父目录。"""
     dir_path, path_err = resolve_path_for_tool(str(args["path"]), ctx)
     if path_err:
         return path_err
+    assert dir_path is not None
     recursive = args.get("recursive", True)
     await asyncio.to_thread(os.makedirs, dir_path, exist_ok=bool(recursive))
     return ToolResult(success=True, content=f"{SUCCESS_PREFIX} 已创建目录: {dir_path}")
@@ -331,14 +375,17 @@ async def _move_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
     src, src_err = resolve_path_for_tool(str(args["from"]), ctx)
     if src_err:
         return src_err
+    assert src is not None
     dst, dst_err = resolve_path_for_tool(str(args["to"]), ctx)
     if dst_err:
         return dst_err
+    assert dst is not None
 
     if not await asyncio.to_thread(os.path.exists, src):
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 源文件不存在: {src}")
 
     try:
+
         def _move() -> None:
             parent = os.path.dirname(dst)
             if parent:
@@ -356,14 +403,17 @@ async def _copy_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolResu
     src, src_err = resolve_path_for_tool(str(args["from"]), ctx)
     if src_err:
         return src_err
+    assert src is not None
     dst, dst_err = resolve_path_for_tool(str(args["to"]), ctx)
     if dst_err:
         return dst_err
+    assert dst is not None
 
     if not await asyncio.to_thread(os.path.exists, src):
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 源文件不存在: {src}")
 
     try:
+
         def _copy() -> None:
             parent = os.path.dirname(dst)
             if parent:
@@ -381,6 +431,7 @@ async def _delete_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolRe
     file_path, path_err = resolve_path_for_tool(str(args["path"]), ctx)
     if path_err:
         return path_err
+    assert file_path is not None
     recursive = bool(args.get("recursive", False))
 
     p = Path(file_path)
@@ -405,66 +456,66 @@ async def _delete_file_handler(args: dict[str, Any], ctx: ToolContext) -> ToolRe
 
 filesystem_tools: dict[str, ToolDefinition] = {
     "read_file": tool("read_file", "读取文件内容")
-        .param("path", "string", "文件路径")
-        .optional("offset", "number", "起始行号（1-indexed）")
-        .optional("limit", "number", "最大读取行数")
-        .sandbox()
-        .toolbox("file_read")
-        .handler(_read_file_handler)
-        .build(),
+    .param("path", "string", "文件路径")
+    .optional("offset", "number", "起始行号（1-indexed）")
+    .optional("limit", "number", "最大读取行数")
+    .sandbox()
+    .toolbox("file_read")
+    .handler(_read_file_handler)
+    .build(),
     "write_file": tool("write_file", "写入文件（创建新文件或覆盖已有文件）")
-        .param("path", "string", "文件路径")
-        .param("content", "string", "要写入的内容")
-        .sandbox()
-        .toolbox("file_write")
-        .handler(_write_file_handler)
-        .build(),
+    .param("path", "string", "文件路径")
+    .param("content", "string", "要写入的内容")
+    .sandbox()
+    .toolbox("file_write")
+    .handler(_write_file_handler)
+    .build(),
     "edit_file": tool("edit_file", "精确替换文件中的文本（只替换唯一匹配的一处）")
-        .param("path", "string", "文件路径")
-        .param("oldText", "string", "要替换的原文（必须唯一匹配）")
-        .param("newText", "string", "替换为的新文本")
-        .sandbox()
-        .toolbox("file_write")
-        .handler(_edit_file_handler)
-        .build(),
+    .param("path", "string", "文件路径")
+    .param("oldText", "string", "要替换的原文（必须唯一匹配）")
+    .param("newText", "string", "替换为的新文本")
+    .sandbox()
+    .toolbox("file_write")
+    .handler(_edit_file_handler)
+    .build(),
     "list_dir": tool("list_dir", "列出目录内容（文件和子目录）")
-        .param("path", "string", "目录路径")
-        .optional("recursive", "boolean", "是否递归列出子目录")
-        .optional("detail", "boolean", "是否显示文件大小/目录 mtime 等详情")
-        .optional("max_depth", "number", "递归最大深度（默认 8，仅 recursive=true 时生效）")
-        .optional("max_entries", "number", "最大返回条目数（默认 200）")
-        .sandbox()
-        .toolbox("dir_ops")
-        .handler(_list_dir_handler)
-        .build(),
+    .param("path", "string", "目录路径")
+    .optional("recursive", "boolean", "是否递归列出子目录")
+    .optional("detail", "boolean", "是否显示文件大小/目录 mtime 等详情")
+    .optional("max_depth", "number", "递归最大深度（默认 8，仅 recursive=true 时生效）")
+    .optional("max_entries", "number", "最大返回条目数（默认 200）")
+    .sandbox()
+    .toolbox("dir_ops")
+    .handler(_list_dir_handler)
+    .build(),
     "create_dir": tool("create_dir", "创建新目录")
-        .param("path", "string", "目录路径")
-        .optional("recursive", "boolean", "是否递归创建父目录（默认 true）")
-        .sandbox()
-        .toolbox("dir_ops")
-        .handler(_create_dir_handler)
-        .build(),
+    .param("path", "string", "目录路径")
+    .optional("recursive", "boolean", "是否递归创建父目录（默认 true）")
+    .sandbox()
+    .toolbox("dir_ops")
+    .handler(_create_dir_handler)
+    .build(),
     "move_file": tool("move_file", "移动文件或重命名")
-        .param("from", "string", "源文件路径")
-        .param("to", "string", "目标文件路径")
-        .sandbox()
-        .toolbox("dir_ops")
-        .handler(_move_file_handler)
-        .build(),
+    .param("from", "string", "源文件路径")
+    .param("to", "string", "目标文件路径")
+    .sandbox()
+    .toolbox("dir_ops")
+    .handler(_move_file_handler)
+    .build(),
     "copy_file": tool("copy_file", "复制文件")
-        .param("from", "string", "源文件路径")
-        .param("to", "string", "目标文件路径")
-        .sandbox()
-        .toolbox("dir_ops")
-        .handler(_copy_file_handler)
-        .build(),
+    .param("from", "string", "源文件路径")
+    .param("to", "string", "目标文件路径")
+    .sandbox()
+    .toolbox("dir_ops")
+    .handler(_copy_file_handler)
+    .build(),
     "delete_file": tool("delete_file", "删除文件或目录（危险操作！）")
-        .param("path", "string", "要删除的路径")
-        .optional("recursive", "boolean", "是否递归删除目录内容")
-        .require_confirm()
-        .toolbox("dir_ops")
-        .handler(_delete_file_handler)
-        .build(),
+    .param("path", "string", "要删除的路径")
+    .optional("recursive", "boolean", "是否递归删除目录内容")
+    .require_confirm()
+    .toolbox("dir_ops")
+    .handler(_delete_file_handler)
+    .build(),
 }
 
 __all__ = ["filesystem_tools"]

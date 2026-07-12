@@ -24,16 +24,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
-if TYPE_CHECKING:
-    from miniagent.types.tool import ToolContext, ToolResult
-
-from miniagent.types.tool import ToolDefinition
-
-# 工具处理器签名
-ToolHandler = Callable[[dict[str, Any], "ToolContext"], "ToolResult"]
+from miniagent.types.tool import (
+    ChatCompletionToolParam,
+    ToolDefinition,
+    ToolHandler,
+    ToolPermission,
+)
 
 
 def build_schema(
@@ -41,7 +39,7 @@ def build_schema(
     description: str,
     properties: dict[str, Any],
     required: list[str] | None = None,
-) -> dict[str, Any]:
+) -> ChatCompletionToolParam:
     """构建 OpenAI 兼容的 tool schema。
 
     Args:
@@ -56,14 +54,14 @@ def build_schema(
     params: dict[str, Any] = {"type": "object", "properties": properties}
     if required:
         params["required"] = required
-    return {
+    return cast(ChatCompletionToolParam, {
         "type": "function",
         "function": {
             "name": name,
             "description": description,
             "parameters": params,
         }
-    }
+    })
 
 
 class ToolBuilder:
@@ -93,7 +91,7 @@ class ToolBuilder:
         self._description = description
         self._properties: dict[str, Any] = {}
         self._required: list[str] = []
-        self._permission: str = "sandbox"
+        self._permission: ToolPermission = "sandbox"
         self._toolbox: str | None = None
         self._help_text: str = description
         self._handler: ToolHandler | None = None

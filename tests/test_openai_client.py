@@ -261,7 +261,7 @@ async def test_reload_invalid_client_settings_preserves_config_and_client(
         encoding="utf-8",
     )
 
-    with pytest.raises(RuntimeError, match="http_timeout"):
+    with pytest.raises(ValueError, match="agent.http_timeout"):
         await reload_runtime_config(container)
 
     assert get_config("model.model") == "working-model"

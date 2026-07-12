@@ -20,6 +20,7 @@ import asyncio
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
 from typing import Any
 
 # 性能优化：预编译高频正则表达式
@@ -92,6 +93,224 @@ async def _persist_session_history(session_manager: Any, session_key: str) -> No
         await session_manager.save_session_history_async(session_key)
         return
     await asyncio.to_thread(session_manager.save_session_history, session_key)
+
+
+def _turn_label_sort_key(item: tuple[str, str]) -> tuple[int, int, str]:
+    """将思考区块标签排序为规划、评估、执行、轮次和其它。"""
+    label = item[0]
+    step_match = _STEP_NUMBER_PATTERN.search(label)
+    if step_match:
+        return (0, int(step_match.group(1)), label)
+    if label.startswith("[评估与计划]"):
+        return (1, 0, label)
+    if label.startswith("[执行]"):
+        return (2, 0, label)
+    round_match = _ROUND_NUMBER_PATTERN.search(label)
+    if round_match:
+        return (3, int(round_match.group(1)), label)
+    return (4, 0, label)
+
+
+@dataclass
+class _TurnThinkingRecorder:
+    """聚合单轮思考历史，并把事件转发给会话显示器。"""
+
+    display: Any
+    session_key: str
+    by_label: dict[str, str] = field(default_factory=dict)
+    tool_lines: list[str] = field(default_factory=list)
+
+    async def on_thinking(
+        self,
+        text: str,
+        streaming: bool = False,
+        header: str = "",
+        *,
+        full_record: str | None = None,
+        reset: bool = False,
+        is_last_step: bool = False,
+    ) -> None:
+        """合并累积式 LLM 正文，工具等非流事件另行记录。"""
+        record = full_record if full_record is not None else text
+        key = header if header.strip() else "__stream__"
+        if reset:
+            self.by_label.pop(key, None)
+        if streaming and record:
+            previous = self.by_label.get(key, "")
+            if not previous or record.startswith(previous):
+                self.by_label[key] = record
+            elif not previous.startswith(record):
+                self.by_label[key] = previous + "\n\n" + record
+        elif record:
+            self.tool_lines.append(record)
+        display_text = text
+        if streaming and header.strip():
+            display_text = self.by_label.get(key, "")
+        await self.display.show(
+            display_text or text,
+            self.session_key,
+            streaming=streaming,
+            header=header,
+            reset=reset,
+            is_last_step=is_last_step,
+        )
+
+    async def on_tool_finish(
+        self,
+        tool_name: str,
+        args_json: str,
+        result: str,
+        success: bool,
+        *,
+        thinking_header: str = "",
+    ) -> None:
+        """把工具完成事件格式化为显示文本和可选详细历史。"""
+        status = "成功" if success else "失败"
+        short = f"`{tool_name}` · {status}"
+        record = short
+        if _tool_finish_verbose_history():
+            record = (
+                f"**工具 `{tool_name}`**（{status}）\n"
+                f"- 参数：`{args_json}`\n"
+                f"- 输出：\n{_fence_tool_output((result or '').strip())}"
+            )
+        await self.on_thinking(short, False, header=thinking_header, full_record=record)
+
+    def history_blob(self) -> str:
+        """按产品展示顺序生成持久化思考正文。"""
+        parts = [
+            f"{label}\n{blob.strip()}"
+            for label, blob in sorted(self.by_label.items(), key=_turn_label_sort_key)
+            if blob.strip()
+        ]
+        if self.tool_lines:
+            parts.append("\n".join(self.tool_lines))
+        return "\n\n".join(parts).strip()
+
+
+def _build_turn_agent_config(
+    session_key: str,
+    session_workspace: str,
+    history: list[dict[str, Any]],
+    *,
+    is_feishu: bool,
+    feishu_receive_chat_id: str | None,
+    feishu_trigger_message_id: str | None,
+    feishu_root_id: str | None,
+    feishu_parent_id: str | None,
+    feishu_thread_id: str | None,
+    feishu_im_receive_id_type: str | None,
+    feishu_im_receive_id: str | None,
+    cli_loop_state: Any | None,
+    overrides: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """构造引擎传给核心 Agent 的分组会话与飞书配置。"""
+    receive_chat = (feishu_receive_chat_id or "").strip()
+    if not receive_chat and session_key.startswith("feishu:"):
+        receive_chat = session_key.removeprefix("feishu:").strip()
+    config: dict[str, Any] = {
+        "session_config": {
+            "session_key": session_key,
+            "session_workspace": session_workspace,
+            "conversation_history": history,
+        },
+        "debug": False,
+        "feishu_config": {
+            "cli_loop_state": cli_loop_state,
+            "cli_dispatch_allow_mutations": (
+                True if not is_feishu else feishu_dot_commands_full_enabled()
+            ),
+            "receive_chat_id": receive_chat or None,
+            "trigger_message_id": (feishu_trigger_message_id or "").strip() or None,
+            "root_id": (feishu_root_id or "").strip() or None,
+            "parent_id": (feishu_parent_id or "").strip() or None,
+            "thread_id": (feishu_thread_id or "").strip() or None,
+            "im_receive_id_type": (feishu_im_receive_id_type or "").strip() or None,
+            "im_receive_id": (feishu_im_receive_id or "").strip() or None,
+        },
+    }
+    if overrides:
+        config.update(overrides)
+    return config
+
+
+def _build_turn_system_prompt(
+    session_key: str,
+    user_input: str,
+    skill_prompts: str | None,
+) -> str | None:
+    """合并技能提示与低频分层记忆摘要，保持执行器稳定前缀。"""
+    from miniagent.memory.memory_pipeline import build_layered_memory_augmentation
+
+    layered = build_layered_memory_augmentation(session_key, user_input=user_input)
+    combined = f"{skill_prompts}\n\n{layered}" if skill_prompts and layered else skill_prompts or layered
+    return combined.strip() if combined else None
+
+
+def _open_engine_session(
+    session_manager: Any,
+    session_key: str,
+    *,
+    is_feishu: bool,
+) -> tuple[list[dict[str, Any]], str]:
+    """获取会话历史与文件工作区；调用方已持有会话执行锁。"""
+    options = SessionOptions(description=f"{'飞书' if is_feishu else 'CLI'}: {session_key}")
+    context = session_manager.get_or_create(session_key, options)
+    return context.conversation_history, session_manager.get_session_files_path(session_key)
+
+
+async def _finalize_engine_turn(
+    engine: Any,
+    *,
+    user_input: str,
+    reply: str,
+    session_key: str,
+    history: list[dict[str, Any]],
+    recorder: _TurnThinkingRecorder,
+    merged_config: Any,
+    memory: MemoryRuntimeProtocol,
+    session_manager: Any,
+    is_feishu: bool,
+    feishu_config: Any,
+    feishu_receive_id: str,
+) -> None:
+    """收尾通道流并原子更新会话历史、持久化与梦境调度。"""
+    if is_feishu and feishu_config:
+        from miniagent.feishu.poll_server import finalize_feishu_thinking_stream
+
+        await finalize_feishu_thinking_stream(
+            feishu_config,
+            feishu_receive_id,
+            "gray",
+            engine.thinking.thinking_state(session_key),
+            confirmation_engine=engine,
+        )
+    engine.thinking.end_thinking(session_key)
+    if is_feishu:
+        engine.thinking.disable_buffer(session_key)
+    history.append({"role": "user", "content": user_input})
+    thinking = recorder.history_blob()
+    if thinking:
+        history.append({"role": "thinking", "content": thinking})
+    history.append({"role": "assistant", "content": reply})
+    from miniagent.engine.bg_session_cleanup import is_background_session_key
+
+    if is_background_session_key(session_key):
+        return
+    from miniagent.memory.history_progressive import run_session_history_maintenance
+
+    run_session_history_maintenance(
+        session_key,
+        history,
+        tail_cap=get_config("memory.history_tail_messages", 200),
+        progressive_compression=merged_config.history_progressive_compression,
+    )
+    if session_manager:
+        await _persist_session_history(session_manager, session_key)
+    try:
+        memory.dream_scheduler.schedule(session_key)
+    except Exception as error:
+        _logger.warning("Dream scheduler scheduling failed: %s", error)
 
 
 class UnifiedEngine:
@@ -191,65 +410,36 @@ class UnifiedEngine:
             raise ValueError(
                 "run_agent_with_thinking 需要注入 session_manager（会话历史与工作区依赖 SessionManager）"
             )
-
-        # 会话级执行锁：同 session_key 串行；parallel_sessions 开启时不同 session 可并行。
-        # _hold_session_lock=True 表示调用方已通过 ``session_turn`` 持有该会话锁
-        # （把 You 问题块/答案块打印与执行纳入同一原子边界），此处必须跳过再次 acquire，
-        # 否则 asyncio.Lock 不可重入会死锁。
+        locked_kwargs = {
+            "is_feishu": is_feishu,
+            "registry": registry,
+            "monitor": monitor,
+            "session_manager": session_manager,
+            "feishu_config": feishu_config,
+            "channel_router": channel_router,
+            "clawhub": clawhub,
+            "memory": memory,
+            "knowledge_registry": knowledge_registry,
+            "client": client,
+            "feishu_receive_chat_id": feishu_receive_chat_id,
+            "feishu_trigger_message_id": feishu_trigger_message_id,
+            "feishu_root_id": feishu_root_id,
+            "feishu_parent_id": feishu_parent_id,
+            "feishu_thread_id": feishu_thread_id,
+            "feishu_im_receive_id_type": feishu_im_receive_id_type,
+            "feishu_im_receive_id": feishu_im_receive_id,
+            "cli_loop_state": cli_loop_state,
+            "agent_config_overrides": agent_config_overrides,
+            "feishu_mirror_cli": feishu_mirror_cli,
+        }
         if _hold_session_lock:
             return await self._run_agent_with_thinking_locked(
-                user_input,
-                session_key,
-                skill_toolboxes,
-                skill_prompts,
-                is_feishu=is_feishu,
-                registry=registry,
-                monitor=monitor,
-                session_manager=session_manager,
-                feishu_config=feishu_config,
-                channel_router=channel_router,
-                clawhub=clawhub,
-                memory=memory,
-                knowledge_registry=knowledge_registry,
-                client=client,
-                feishu_receive_chat_id=feishu_receive_chat_id,
-                feishu_trigger_message_id=feishu_trigger_message_id,
-                feishu_root_id=feishu_root_id,
-                feishu_parent_id=feishu_parent_id,
-                feishu_thread_id=feishu_thread_id,
-                feishu_im_receive_id_type=feishu_im_receive_id_type,
-                feishu_im_receive_id=feishu_im_receive_id,
-                cli_loop_state=cli_loop_state,
-                agent_config_overrides=agent_config_overrides,
-                feishu_mirror_cli=feishu_mirror_cli,
+                user_input, session_key, skill_toolboxes, skill_prompts, **locked_kwargs
             )
 
         async with self._session_exec.acquire(session_key):
             return await self._run_agent_with_thinking_locked(
-                user_input,
-                session_key,
-                skill_toolboxes,
-                skill_prompts,
-                is_feishu=is_feishu,
-                registry=registry,
-                monitor=monitor,
-                session_manager=session_manager,
-                feishu_config=feishu_config,
-                channel_router=channel_router,
-                clawhub=clawhub,
-                memory=memory,
-                knowledge_registry=knowledge_registry,
-                client=client,
-                feishu_receive_chat_id=feishu_receive_chat_id,
-                feishu_trigger_message_id=feishu_trigger_message_id,
-                feishu_root_id=feishu_root_id,
-                feishu_parent_id=feishu_parent_id,
-                feishu_thread_id=feishu_thread_id,
-                feishu_im_receive_id_type=feishu_im_receive_id_type,
-                feishu_im_receive_id=feishu_im_receive_id,
-                cli_loop_state=cli_loop_state,
-                agent_config_overrides=agent_config_overrides,
-                feishu_mirror_cli=feishu_mirror_cli,
+                user_input, session_key, skill_toolboxes, skill_prompts, **locked_kwargs
             )
 
     @asynccontextmanager
@@ -265,6 +455,92 @@ class UnifiedEngine:
         """
         async with self._session_exec.acquire(session_key):
             yield
+
+    async def _enable_feishu_thinking(
+        self,
+        session_key: str,
+        feishu_config: Any,
+        channel_router: Any,
+        receive_chat_id: str | None,
+        trigger_message_id: str | None,
+        thread_id: str | None,
+        mirror_cli: bool,
+    ) -> str:
+        """为单轮飞书请求注册思考卡片投递回调并返回接收 ID。"""
+        if channel_router is None:
+            raise ValueError("channel_router 为必填（飞书会话且提供 feishu_config 时）")
+        bound_channels = channel_router.get_bound_channels(session_key)
+        receive_id = (receive_chat_id or "").strip()
+        if not receive_id and session_key.startswith("feishu:"):
+            receive_id = session_key[len("feishu:") :]
+        from miniagent.feishu.poll_server import feishu_outbound_reply_params
+
+        reply_message_id, reply_in_thread = feishu_outbound_reply_params(
+            trigger_message_id, thread_id
+        )
+
+        async def send(
+            chat_id: str,
+            text: str,
+            template: str,
+            *,
+            is_new_round: bool = False,
+            streaming: bool = True,
+            merge_tools: bool = False,
+            finalize_only: bool = False,
+        ) -> None:
+            from miniagent.feishu.poll_server import (
+                _send_thinking,
+                append_feishu_thinking_same_card,
+                finalize_feishu_thinking_stream,
+                push_feishu_thinking_stream,
+            )
+
+            state = self.thinking.thinking_state(session_key)
+            if state is None:
+                _logger.warning("思考状态无效，跳过飞书发送")
+                return
+            if finalize_only:
+                await finalize_feishu_thinking_stream(
+                    feishu_config, chat_id, template, state, confirmation_engine=self
+                )
+            elif streaming:
+                await push_feishu_thinking_stream(
+                    feishu_config,
+                    chat_id,
+                    text,
+                    template,
+                    state,
+                    new_round=is_new_round,
+                    confirmation_engine=self,
+                )
+            elif merge_tools:
+                await append_feishu_thinking_same_card(
+                    feishu_config, chat_id, text, template, state, confirmation_engine=self
+                )
+            else:
+                await finalize_feishu_thinking_stream(
+                    feishu_config, chat_id, template, state, confirmation_engine=self
+                )
+                await _send_thinking(
+                    feishu_config,
+                    chat_id,
+                    text,
+                    template,
+                    reply_to_message_id=getattr(state, "feishu_reply_to_message_id", None),
+                    reply_in_thread=bool(getattr(state, "feishu_reply_in_thread", False)),
+                )
+
+        cli_dual = channel_router.CLI_CHANNEL in bound_channels and mirror_cli
+        self.thinking.enable_feishu(
+            session_key,
+            receive_id,
+            send,
+            reply_to_message_id=reply_message_id,
+            reply_in_thread=reply_in_thread,
+            mirror_cli=True if cli_dual else mirror_cli,
+        )
+        return receive_id
 
     async def _run_agent_with_thinking_locked(
         self,
@@ -294,335 +570,40 @@ class UnifiedEngine:
         agent_config_overrides: dict[str, Any] | None = None,
         feishu_mirror_cli: bool = True,
     ) -> str:
-        """已获取进程级锁后的实际执行逻辑（内部方法）。
-
-        由 run_agent_with_thinking 在 SessionExecCoordinator.acquire 内调用。
-        执行流程：
-        1. 使用组合根注入的记忆运行时
-        2. 获取或创建会话上下文（SessionManager）
-        3. 构建系统提示（技能 + 分层记忆摘要）
-        4. 注册飞书思考流回调（``is_feishu`` 且提供 ``feishu_config`` 时）
-        5. 注册 ``on_thinking`` / ``on_tool_finish`` 并驱动 ``ThinkingDisplay``
-        6. 调用 ``run_agent`` 执行 Agent
-        7. 收尾思考流（``finalize_feishu_thinking_stream``、``end_thinking``）
-        8. 写入会话历史并触发持久化与记忆更新（活动日志由 run_agent 单点负责）
-
-        最终飞书**结论卡片**由 :mod:`miniagent.engine.feishu_handler` 在
-        :meth:`run_agent_with_thinking` 返回后发送，本方法不负责。
-
-        Args:
-            user_input: 用户输入文本
-            session_key: 会话标识（如 "default" 或 "feishu:oc_xxx"）
-            skill_toolboxes: 技能工具箱列表
-            skill_prompts: 技能系统提示
-            is_feishu: 是否为飞书通道
-            registry: 工具注册表
-            monitor: 性能监控器
-            session_manager: 会话管理器（必填）
-            feishu_config: 飞书配置（飞书通道必填）
-            channel_router: 通道路由器（飞书通道必填）
-            clawhub: ClawHub 客户端（可选）
-            memory: 完整记忆运行时（必填）
-            knowledge_registry: 知识库注册表（必填）
-            client: LLM 客户端（可选）
-            feishu_receive_chat_id: 飞书接收消息的 chat_id
-            feishu_trigger_message_id: 飞书触发消息 ID
-            feishu_root_id: 飞书根消息 ID
-            feishu_parent_id: 飞书父消息 ID
-            feishu_thread_id: 飞书话题 ID
-            feishu_im_receive_id_type: 飞书接收 ID 类型
-            feishu_im_receive_id: 飞书接收者 ID
-            cli_loop_state: CLI 循环状态
-            agent_config_overrides: Agent 配置覆盖
-            feishu_mirror_cli: CLI 是否镜像到飞书
-
-        Returns:
-            str: Agent 的最终回复文本
-
-        Note:
-            - 会话级执行锁防止同 session 并发；parallel 模式下不同 session 可并行
-            - 飞书思考使用流式卡片（PATCH 节流）
-            - 同轮工具调用合并到同一卡片
-        """
-        # 1. 获取会话
-        session_opts = SessionOptions(
-            description=f"{'飞书' if is_feishu else 'CLI'}: {session_key}"
-        )
-        ctx = session_manager.get_or_create(session_key, session_opts)
-        history = ctx.conversation_history
-
-        session_workspace = session_manager.get_session_files_path(session_key)
-
-        # 2. 技能与分层摘要作为低频 system augment 传给 execute_plan。
-        #    结构化会话记忆、关键词检索与知识库检索由执行器按本轮 user_input
-        #    放入 current turn user context，不再走 inject_memory 主路径，避免动态内容污染稳定前缀。
-        from miniagent.memory.memory_pipeline import build_layered_memory_augmentation
-
-        layered_augment = build_layered_memory_augmentation(session_key, user_input=user_input)
-        combined_skill = skill_prompts
-        if layered_augment:
-            combined_skill = (
-                f"{skill_prompts}\n\n{layered_augment}" if skill_prompts else layered_augment
-            )
-        system_prompt = combined_skill.strip() if combined_skill else None
-
-        # 3. 重置该会话的思考计数器（每个会话独立计数，多群并发安全）
+        """在已持有会话执行锁时运行一轮 Agent，并完成通道与历史收尾。"""
+        history, session_workspace = _open_engine_session(session_manager, session_key, is_feishu=is_feishu)
+        system_prompt = _build_turn_system_prompt(session_key, user_input, skill_prompts)
         self.thinking.reset_counter(session_key)
-
-        # 4. 飞书通道：启用飞书思考回调（与 CLI 终端展示并行）
-        #    每个会话独立注册回调，多群聊并发时互不覆盖
-        #    如果该会话有多个绑定通道（如 CLI 绑定到此），思考内容同时发送到所有通道
+        im_recv = (feishu_receive_chat_id or "").strip()
         if is_feishu and feishu_config:
-            router = channel_router
-            if router is None:
-                raise ValueError("channel_router 为必填（飞书会话且提供 feishu_config 时）")
-            bound_channels = router.get_bound_channels(session_key)
-            # 飞书 create message 的 receive_id，须为 oc_ 等原始 ID，不能传 feishu: 前缀的内部 session_key
-            im_recv = (feishu_receive_chat_id or "").strip()
-            if not im_recv and session_key.startswith("feishu:"):
-                im_recv = session_key[len("feishu:") :]
-
-            from miniagent.feishu.poll_server import feishu_outbound_reply_params
-
-            r_mid, r_thr = feishu_outbound_reply_params(feishu_trigger_message_id, feishu_thread_id)
-
-            async def _feishu_send(
-                chat_id: str,
-                text: str,
-                template: str,
-                *,
-                is_new_round: bool = False,
-                streaming: bool = True,
-                merge_tools: bool = False,
-                finalize_only: bool = False,
-            ) -> None:
-                """飞书思考：流式一轮一条卡片（PATCH 节流）；同轮工具合并时追加同卡；否则 finalize + 独立卡。"""
-                from miniagent.feishu.poll_server import (
-                    _send_thinking,
-                    append_feishu_thinking_same_card,
-                    finalize_feishu_thinking_stream,
-                    push_feishu_thinking_stream,
-                )
-
-                st_local = self.thinking.thinking_state(session_key)
-                if st_local is None:
-                    _logger.warning("思考状态无效，跳过飞书发送")
-                    return
-                if finalize_only:
-                    await finalize_feishu_thinking_stream(
-                        feishu_config,
-                        chat_id,
-                        template,
-                        st_local,
-                        confirmation_engine=self,
-                    )
-                    return
-                if streaming:
-                    await push_feishu_thinking_stream(
-                        feishu_config,
-                        chat_id,
-                        text,
-                        template,
-                        st_local,
-                        new_round=is_new_round,
-                        confirmation_engine=self,
-                    )
-                elif merge_tools:
-                    await append_feishu_thinking_same_card(
-                        feishu_config,
-                        chat_id,
-                        text,
-                        template,
-                        st_local,
-                        confirmation_engine=self,
-                    )
-                else:
-                    await finalize_feishu_thinking_stream(
-                        feishu_config,
-                        chat_id,
-                        template,
-                        st_local,
-                        confirmation_engine=self,
-                    )
-                    await _send_thinking(
-                        feishu_config,
-                        chat_id,
-                        text,
-                        template,
-                        reply_to_message_id=getattr(st_local, "feishu_reply_to_message_id", None),
-                        reply_in_thread=bool(getattr(st_local, "feishu_reply_in_thread", False)),
-                    )
-
-            # 如果 CLI 也绑定到此会话且策略允许镜像，注册双回调（终端 + 飞书）
-            cli_dual = router.CLI_CHANNEL in bound_channels and feishu_mirror_cli
-            if cli_dual:
-
-                async def _dual_send(
-                    chat_id: str,
-                    text: str,
-                    template: str,
-                    *,
-                    is_new_round: bool = False,
-                    streaming: bool = True,
-                    merge_tools: bool = False,
-                    finalize_only: bool = False,
-                ) -> None:
-                    """双通道：飞书仍走流式卡片；CLI 由 ThinkingDisplay._output_sink 镜像。"""
-                    await _feishu_send(
-                        chat_id,
-                        text,
-                        template,
-                        is_new_round=is_new_round,
-                        streaming=streaming,
-                        merge_tools=merge_tools,
-                        finalize_only=finalize_only,
-                    )
-
-                self.thinking.enable_feishu(
-                    session_key,
-                    im_recv,
-                    _dual_send,
-                    reply_to_message_id=r_mid,
-                    reply_in_thread=r_thr,
-                    mirror_cli=True,
-                )
-            else:
-                self.thinking.enable_feishu(
-                    session_key,
-                    im_recv,
-                    _feishu_send,
-                    reply_to_message_id=r_mid,
-                    reply_in_thread=r_thr,
-                    mirror_cli=feishu_mirror_cli,
-                )
-
-        # 5. 思考回调（支持流式更新；落盘到 history 的 thinking role）
-        thinking_by_label: dict[str, str] = {}
-        tool_thought_lines: list[str] = []
-
-        async def _thinking(
-            text: str,
-            streaming: bool = False,
-            header: str = "",
-            *,
-            full_record: str | None = None,
-            reset: bool = False,
-            is_last_step: bool = False,
-        ) -> None:
-            """桥接 :meth:`run_agent` 的 ``on_thinking``：更新按标签聚合的缓冲并驱动 UI/飞书展示。
-
-            澄清类消息（header = ``[需求澄清]``）由思考卡片统一展示，不再走直发通道。
-
-            聚合策略（按 ``thinking_by_label`` 的 key 分组累积）：
-            - 新 record 以已有内容为前缀 → **替换**（LLM 流式 chunk 增长）
-            - 已有内容以新 record 为前缀 → **保留**旧内容（新 record 是旧内容的一部分）
-            - 否则：**追加**到历史（澄清问题、用户回答、LLM 新 exec 轮）
-            全部分隔符统一为 ``\n\n``，与 executor 内 ``_joined_phase_cumulative`` 默认一致。
-
-            关键约束：``thinking_by_label`` 中同一 key 的内容必须与 executor 端
-            ``_joined_phase_cumulative`` 输出的**纯 LLM 正文前缀一致**，否则 prefix
-            检测失败导致重复。因此 ``streaming=True`` 时**不**向 thinking_by_label
-            追加非 LLM 记录（工具行等），改为走 ``tool_thought_lines``。
-
-            Args:
-                reset: 若为 True，清除该 header 对应的已有聚合内容（用于避免重复显示）
-                is_last_step: 若为 True，表示这是最后一步的 LLM 思考内容（不在思考区显示，避免重复）
-            """
-            record = full_record if full_record is not None else text
-            key = header if (header or "").strip() else "__stream__"
-
-            # reset=True 时清除已有聚合内容，避免语义不同的新阶段与旧内容拼接
-            if reset:
-                thinking_by_label.pop(key, None)
-
-            if streaming and record:
-                prev = thinking_by_label.get(key, "")
-                if not prev:
-                    thinking_by_label[key] = record
-                elif record.startswith(prev):
-                    # LLM 流式 chunk 前缀增长：替换为最新全文
-                    thinking_by_label[key] = record
-                elif prev.startswith(record):
-                    # 新 record 是旧内容的一部分：保留旧内容
-                    pass
-                else:
-                    thinking_by_label[key] = prev + "\n\n" + record
-            elif record:
-                # 非流式记录（工具行、澄清结果等）：统一走 tool_thought_lines，
-                # 不污染 thinking_by_label 的 LLM 正文前缀
-                tool_thought_lines.append(record)
-            # 非流式显示使用原始 text（工具行），不用 thinking_by_label 的 LLM 正文前缀，
-            # 避免 merge_tools 路径误用 LLM 内容。
-            if not streaming and record:
-                display_text = text
-            else:
-                display_text = thinking_by_label.get(key, "") if (header or "").strip() else text
-            # 关键修复：传递 reset 参数，让 ThinkingDisplay 在 reset=True 时重置流式状态
-            # 传递 is_last_step 参数，最后一步的 LLM 正文不在思考区显示（避免与最终结论重复）
-            await self.thinking.show(
-                display_text or text,
+            im_recv = await self._enable_feishu_thinking(
                 session_key,
-                streaming=streaming,
-                header=header,
-                reset=reset,
-                is_last_step=is_last_step,
+                feishu_config,
+                channel_router,
+                feishu_receive_chat_id,
+                feishu_trigger_message_id,
+                feishu_thread_id,
+                feishu_mirror_cli,
             )
-
-        async def _tool_finish(
-            tool_name: str,
-            args_json: str,
-            result: str,
-            success: bool,
-            *,
-            thinking_header: str = "",
-        ) -> None:
-            """工具结束回调：按环境变量决定写入历史的详略，并复用 ``_thinking`` 落盘。"""
-            status = "成功" if success else "失败"
-            short = f"`{tool_name}` · {status}"
-            if _tool_finish_verbose_history():
-                body = (result or "").strip()
-                record = (
-                    f"**工具 `{tool_name}`**（{status}）\n"
-                    f"- 参数：`{args_json}`\n"
-                    f"- 输出：\n{_fence_tool_output(body)}"
-                )
-            else:
-                record = short
-            # 工具行用 streaming=False，走 tool_thought_lines 而非 thinking_by_label。
-            # 这样可以避免工具行污染 LLM 正文前缀，导致下一轮 exec 的 prefix 检测失败。
-            await _thinking(short, False, header=thinking_header or "", full_record=record)
-
-        # 6. 调用 Agent
-        _recv_chat = (feishu_receive_chat_id or "").strip()
-        if not _recv_chat and session_key.startswith("feishu:"):
-            _recv_chat = session_key[len("feishu:") :].strip()
-        agent_cfg_in: dict[str, Any] = {
-            "session_config": {
-                "session_key": session_key,
-                "session_workspace": session_workspace,
-                "conversation_history": history,
-            },
-            "debug": False,
-            "feishu_config": {
-                "cli_loop_state": cli_loop_state,
-                "cli_dispatch_allow_mutations": (
-                    True if not is_feishu else feishu_dot_commands_full_enabled()
-                ),
-                "receive_chat_id": _recv_chat or None,
-                "trigger_message_id": (feishu_trigger_message_id or "").strip() or None,
-                "root_id": (feishu_root_id or "").strip() or None,
-                "parent_id": (feishu_parent_id or "").strip() or None,
-                "thread_id": (feishu_thread_id or "").strip() or None,
-                "im_receive_id_type": (feishu_im_receive_id_type or "").strip() or None,
-                "im_receive_id": (feishu_im_receive_id or "").strip() or None,
-            },
-        }
-        if agent_config_overrides:
-            agent_cfg_in.update(agent_config_overrides)
+        thinking_recorder = _TurnThinkingRecorder(self.thinking, session_key)
+        agent_cfg_in = _build_turn_agent_config(
+            session_key,
+            session_workspace,
+            history,
+            is_feishu=is_feishu,
+            feishu_receive_chat_id=feishu_receive_chat_id,
+            feishu_trigger_message_id=feishu_trigger_message_id,
+            feishu_root_id=feishu_root_id,
+            feishu_parent_id=feishu_parent_id,
+            feishu_thread_id=feishu_thread_id,
+            feishu_im_receive_id_type=feishu_im_receive_id_type,
+            feishu_im_receive_id=feishu_im_receive_id,
+            cli_loop_state=cli_loop_state,
+            overrides=agent_config_overrides,
+        )
         from miniagent.core.config import get_default_agent_config, merge_agent_config
 
         merged_for_prog = merge_agent_config(get_default_agent_config(), agent_cfg_in)
-
         effective_registry = merged_for_prog.session_config.session_registry or registry
         if is_feishu and effective_registry is not None:
             from miniagent.feishu.agent_channel_prompts import append_feishu_channel_system
@@ -630,8 +611,55 @@ class UnifiedEngine:
             system_prompt = append_feishu_channel_system(
                 system_prompt, is_feishu=True, registry=effective_registry
             )
+        reply = await self._invoke_core_agent(
+            user_input,
+            session_key=session_key,
+            registry=registry,
+            memory=memory,
+            knowledge_registry=knowledge_registry,
+            monitor=monitor,
+            skill_toolboxes=skill_toolboxes,
+            agent_config=agent_cfg_in,
+            system_prompt=system_prompt,
+            recorder=thinking_recorder,
+            clawhub=clawhub,
+            client=client,
+            is_feishu=is_feishu,
+        )
+        await _finalize_engine_turn(
+            self,
+            user_input=user_input,
+            reply=reply,
+            session_key=session_key,
+            history=history,
+            recorder=thinking_recorder,
+            merged_config=merged_for_prog,
+            memory=memory,
+            session_manager=session_manager,
+            is_feishu=is_feishu,
+            feishu_config=feishu_config,
+            feishu_receive_id=im_recv,
+        )
+        return reply
 
-        # 诊断：记录每次 run_agent 的会话与来源，便于确认同一答案是否被多次驱动。
+    async def _invoke_core_agent(
+        self,
+        user_input: str,
+        *,
+        session_key: str,
+        registry: Any,
+        memory: MemoryRuntimeProtocol,
+        knowledge_registry: KnowledgeRegistryProtocol,
+        monitor: Any,
+        skill_toolboxes: list[Any],
+        agent_config: dict[str, Any],
+        system_prompt: str | None,
+        recorder: _TurnThinkingRecorder,
+        clawhub: Any | None,
+        client: Any,
+        is_feishu: bool,
+    ) -> str:
+        """调用纯核心 Agent，并注入当前会话的确认与思考回调。"""
         _logger.debug(
             "run_agent 调度: session_key=%s source=%s input=%.40s",
             session_key,
@@ -646,10 +674,10 @@ class UnifiedEngine:
             monitor=monitor,
             toolboxes=skill_toolboxes,
             skip_planning=False,
-            agent_config=agent_cfg_in,
+            agent_config=agent_config,
             system_prompt=system_prompt,
-            on_thinking=_thinking,
-            on_tool_finish=_tool_finish,
+            on_thinking=recorder.on_thinking,
+            on_tool_finish=recorder.on_tool_finish,
             on_plan=self._on_plan_handler(session_key),
             clawhub=clawhub,
             client=client,
@@ -659,83 +687,7 @@ class UnifiedEngine:
             engine=self,
             tool_semaphore=self._tool_semaphore,
         )
-        reply = agent_result.reply
-        # 无工具调用等场景：最后一轮 LLM 流结束后无 streaming=False，需在此 PATCH 落盘全文
-        if is_feishu and feishu_config:
-            from miniagent.feishu.poll_server import finalize_feishu_thinking_stream
-
-            await finalize_feishu_thinking_stream(
-                feishu_config,
-                im_recv,
-                "gray",
-                self.thinking.thinking_state(session_key),
-                confirmation_engine=self,
-            )
-        # 流式思考最后一 chunk 往往不以换行结束；否则下一区块（分隔线/回复）会黏在同一行。
-        self.thinking.end_thinking(session_key)
-
-        # 7. 飞书：思考已实时发送，清理该会话的思考状态
-        if is_feishu:
-            self.thinking.disable_buffer(session_key)
-
-        # 8. 更新历史（含思考过程；会话历史不总结，仅后续可归档到日记）
-        def _turn_label_sort_key(item: tuple[str, str]) -> tuple[int, int, str]:
-            """将思考区块标签排序：规划步骤 → 评估 → 执行 → 第 n 轮 → 其它。"""
-            lab = item[0]
-            # 性能优化：使用预编译正则
-            m = _STEP_NUMBER_PATTERN.search(lab)
-            if m:
-                return (0, int(m.group(1)), lab)
-            if lab.startswith("[评估与计划]"):
-                return (1, 0, lab)
-            if lab.startswith("[执行]"):
-                return (2, 0, lab)
-            # 性能优化：使用预编译正则
-            m = _ROUND_NUMBER_PATTERN.search(lab)
-            if m:
-                return (3, int(m.group(1)), lab)
-            return (4, 0, lab)
-
-        thinking_parts: list[str] = []
-        for label, blob in sorted(thinking_by_label.items(), key=_turn_label_sort_key):
-            b = (blob or "").strip()
-            if b:
-                thinking_parts.append(f"{label}\n{b}")
-        if tool_thought_lines:
-            thinking_parts.append("\n".join(tool_thought_lines))
-        thinking_blob = "\n\n".join(thinking_parts).strip()
-
-        history.append({"role": "user", "content": user_input})
-        if thinking_blob:
-            history.append({"role": "thinking", "content": thinking_blob})
-        history.append({"role": "assistant", "content": reply})
-        cap = get_config("memory.history_tail_messages", 200)
-
-        from miniagent.engine.bg_session_cleanup import is_background_session_key
-        from miniagent.memory.history_progressive import run_session_history_maintenance
-
-        bg_ephemeral = is_background_session_key(session_key)
-
-        # 渐进 L1–L3 后单次归档/删轮循环，避免一次调用内多轮硬切
-        if not bg_ephemeral:
-            run_session_history_maintenance(
-                session_key,
-                history,
-                tail_cap=cap,
-                progressive_compression=merged_for_prog.history_progressive_compression,
-            )
-
-        # 9. 持久化（活动日志生命周期由 run_agent 统一写入，避免重复）
-        if session_manager and not bg_ephemeral:
-            await _persist_session_history(session_manager, session_key)
-
-        if not bg_ephemeral:
-            try:
-                memory.dream_scheduler.schedule(session_key)
-            except Exception as e:
-                _logger.warning("Dream scheduler scheduling failed: %s", e)
-
-        return reply
+        return agent_result.reply
 
     def _on_plan_handler(self, session_key: str) -> Callable[[Any], Awaitable[ConfirmationResult]]:
         """创建计划确认回调。

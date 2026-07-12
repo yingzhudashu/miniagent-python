@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 from miniagent.contracts.lifecycle import HealthReport, HealthState
 
 if TYPE_CHECKING:
-    from miniagent.types.protocols import FeishuRuntimeProtocol
+    from miniagent.contracts.runtime import FeishuRuntimeProtocol
 
 HandlerFactory = Callable[[dict[str, Any] | None], Any]
 UserStatusCallback = Callable[[str], None]

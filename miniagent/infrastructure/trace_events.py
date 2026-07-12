@@ -22,7 +22,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 # ============================================================================
 # 事件类型常量
@@ -132,7 +132,7 @@ def make_proposal_event(
     Returns:
         标准化的事件字典
     """
-    event = {
+    event: dict[str, Any] = {
         "type": event_type,
         "proposal_id": proposal_id,
         "source": source,

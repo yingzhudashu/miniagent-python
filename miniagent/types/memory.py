@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import builtins
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
@@ -392,6 +393,19 @@ class SessionManagerProtocol(Protocol):
             是否成功降维
         """
         ...
+
+    def save_session_history(self, session_id: str) -> None:
+        """把指定会话的内存历史原子持久化。"""
+        ...  # pragma: no cover - Protocol 声明无运行时实现
+
+    def load_session_history_range(
+        self,
+        session_id: str,
+        start_idx: int = 0,
+        count: int = 10,
+    ) -> tuple[builtins.list[dict[str, Any]], int]:
+        """从历史尾部起按范围读取消息及总数。"""
+        ...  # pragma: no cover - Protocol 声明无运行时实现
 
 
 __all__ = [

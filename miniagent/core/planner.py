@@ -18,6 +18,7 @@ import asyncio
 import json
 import re
 import time
+from dataclasses import dataclass
 from typing import Any, cast
 
 from miniagent.contracts.knowledge import KnowledgeRegistryProtocol
@@ -39,6 +40,15 @@ from miniagent.core.llm_transport import (
     structured_retry_params,
 )
 from miniagent.core.plan_utils import parse_plan_chunks_from_raw, parse_plan_steps_from_raw
+from miniagent.core.planner_support import (
+    completed_work_context as _completed_work_context,
+)
+from miniagent.core.planner_support import (
+    fallback_plan as _fallback_plan,
+)
+from miniagent.core.planner_support import (
+    format_toolbox_tool_names as _format_toolbox_tool_names,
+)
 from miniagent.core.prompts.planner import PLAN_SYSTEM_PROMPT
 from miniagent.infrastructure.debug_ndjson import safe_agent_debug_log
 from miniagent.infrastructure.logger import append_log, get_logger, truncate
@@ -55,6 +65,7 @@ from miniagent.types.planning import (
     PlanStep,
     StructuredPlan,
     SuggestedConfig,
+    ThinkingLevel,
 )
 from miniagent.types.tool import Toolbox
 
@@ -79,12 +90,300 @@ class _PlannerAttemptFailure(RuntimeError):
         self.incomplete_reason = incomplete_reason
 
 
+def _build_planner_messages(
+    user_input: str,
+    toolboxes: list[Toolbox],
+    *,
+    registry: Any | None,
+    knowledge_registry: KnowledgeRegistryProtocol,
+    agent_config: AgentConfig | None,
+) -> list[dict[str, str]]:
+    """构建规划器上下文，合并工具、知识库与已完成工作摘要。"""
+    from miniagent.knowledge import retrieve_knowledge_context
+
+    toolbox_data = [
+        {
+            "id": toolbox.id,
+            "name": toolbox.name,
+            "description": toolbox.description,
+            "keywords": toolbox.keywords,
+        }
+        for toolbox in toolboxes
+    ]
+    parts = [
+        f"用户需求: {user_input}",
+        f"可用工具箱:\n{json.dumps(toolbox_data, ensure_ascii=False)}",
+    ]
+    tool_hint = _format_toolbox_tool_names(registry, [toolbox.id for toolbox in toolboxes])
+    if tool_hint:
+        parts.append(
+            "各工具箱内可用工具名称（规划时请对齐 requiredToolboxes 与工具箱 id）:\n" + tool_hint
+        )
+    knowledge = retrieve_knowledge_context(
+        knowledge_registry,
+        user_input,
+        phase="planner",
+        default_top_k=2,
+        default_max_chars=2000,
+    )
+    if knowledge:
+        parts.append(knowledge)
+    completed = _completed_work_context(agent_config)
+    if completed:
+        parts.append(completed)
+    return [
+        {"role": "system", "content": PLAN_SYSTEM_PROMPT},
+        {"role": "user", "content": "\n\n".join(parts)},
+    ]
+
+
+def _parse_planner_completion(
+    response: LLMCompletion,
+    *,
+    default_step_thinking: str,
+) -> tuple[StructuredPlan | None, _PlannerAttemptFailure | None]:
+    """解析规划响应并验证执行器依赖的最小合同。"""
+    if not response.content:
+        return None, _empty_response_failure(response)
+    try:
+        data = parse_llm_json_response(response.content)
+    except (json.JSONDecodeError, TypeError):
+        return None, _PlannerAttemptFailure("invalid_json")
+    if "steps" not in data or "requiredToolboxes" not in data:
+        return None, _PlannerAttemptFailure("invalid_plan_contract")
+    try:
+        return _dict_to_plan(data, default_step_thinking=default_step_thinking), None
+    except (KeyError, TypeError, ValueError):
+        return None, _PlannerAttemptFailure("invalid_plan_contract")
+
+
 # ─── 常量 ───────────────────────────────────────────────
 
 # PLAN_SYSTEM_PROMPT 现在从 miniagent.core.prompts.planner 导入
 # 使用 XML 标签结构化，遵循 Claude 最佳实践
 
 # ─── 公共 API ───────────────────────────────────────────
+
+
+@dataclass(slots=True)
+class _PlannerRunner:
+    """执行规划请求序列并维护协议降级、恢复参数和追踪关联。"""
+
+    user_input: str
+    client: Any
+    messages: list[dict[str, str]]
+    json_messages: list[dict[str, str]]
+    original_params: dict[str, Any]
+    params: dict[str, Any]
+    session_key: str
+    wire_api: WireAPI
+    model_max_tokens: int
+    default_step_thinking: str
+    log_file: str | None
+    use_json_object: bool = True
+    failures: list[str] | None = None
+    call_id: str = ""
+    started_ns: int = 0
+
+    def __post_init__(self) -> None:
+        """为每次运行创建独立失败历史，避免实例间共享可变状态。"""
+        self.failures = []
+
+    def emit_request(self, attempt: int, *, protocol_fallback: bool = False) -> None:
+        """记录一次物理请求的安全元数据。"""
+        from miniagent.infrastructure.tracing import emit_trace, llm_request_size_metrics
+
+        request_messages = self.json_messages if self.use_json_object else self.messages
+        emit_trace(
+            {
+                "type": "llm.request",
+                "call_id": self.call_id,
+                "phase": "plan",
+                "session_key": self.session_key,
+                "attempt": attempt,
+                "model": self.params["model"],
+                "json_object": self.use_json_object,
+                "protocol_fallback": protocol_fallback or None,
+                "reasoning_level": self.params.get("_thinking_level"),
+                "max_tokens": self.params.get("max_tokens"),
+                "sampling_removed": "temperature" not in self.params and "top_p" not in self.params,
+                "structured_stream": self.wire_api == "responses" and self.use_json_object,
+                "message_count": len(request_messages),
+                "tool_count": 0,
+                **llm_request_size_metrics(request_messages),
+            }
+        )
+
+    def emit_response(
+        self,
+        attempt: int,
+        *,
+        failure: _PlannerAttemptFailure | None,
+        retrying: bool,
+        response: LLMCompletion | None = None,
+    ) -> None:
+        """记录规划响应状态、耗时和可选用量。"""
+        from miniagent.infrastructure.tracing import emit_trace
+
+        payload: dict[str, Any] = {
+            "type": "llm.response",
+            "call_id": self.call_id,
+            "phase": "plan",
+            "session_key": self.session_key,
+            "attempt": attempt,
+            "model": self.params["model"],
+            "failure_category": failure.category if failure else None,
+            "retrying": retrying,
+            "duration_ms": (time.monotonic_ns() - self.started_ns) // 1_000_000,
+        }
+        if failure and failure.status_code is not None:
+            payload["status_code"] = failure.status_code
+        if response is not None:
+            usage = response.usage
+            payload.update(
+                {
+                    "status": response.status,
+                    "output_item_types": list(response.output_item_types),
+                    "incomplete_reason": response.incomplete_reason,
+                    "finish_reason": response.finish_reason,
+                    "usage": usage.model_dump()
+                    if usage is not None and hasattr(usage, "model_dump")
+                    else None,
+                }
+            )
+        emit_trace(payload)
+
+    async def request(self, attempt: int) -> LLMCompletion:
+        """执行一次逻辑请求；不支持 JSON Object 时在本轮内降级。"""
+        from miniagent.infrastructure.tracing import new_trace_id
+
+        self.call_id = new_trace_id("llm")
+        self.started_ns = time.monotonic_ns()
+        self.emit_request(attempt)
+        safe_agent_debug_log(
+            location="planner.py:generate_plan",
+            message="before_planner_completion",
+            data={
+                "attempt": attempt,
+                "model": self.params.get("model"),
+                "json_object": self.use_json_object,
+                "wire_api": self.wire_api,
+            },
+        )
+        try:
+            if self.use_json_object:
+                return await create_structured_completion(
+                    self.client, messages=self.json_messages, params=self.params
+                )
+            return await create_completion(self.client, messages=self.messages, params=self.params)
+        except Exception as error:
+            if not self.use_json_object or not _json_object_unsupported(error):
+                raise
+        self.emit_response(
+            attempt,
+            failure=_PlannerAttemptFailure("json_object_unsupported"),
+            retrying=True,
+        )
+        self.use_json_object = False
+        _logger.info("Planner: API 不支持 response_format json_object，已降级")
+        self.call_id = new_trace_id("llm")
+        self.started_ns = time.monotonic_ns()
+        self.emit_request(attempt, protocol_fallback=True)
+        return await create_completion(self.client, messages=self.messages, params=self.params)
+
+    def append_log(self, attempt: int, response: LLMCompletion) -> None:
+        """按配置写入截断后的规划请求与响应摘要。"""
+        if not self.log_file:
+            return
+        append_log(
+            self.log_file,
+            {
+                "phase": "plan",
+                "attempt": attempt,
+                "req": {
+                    "model": self.params["model"],
+                    "messages": [
+                        {"role": message["role"], "content": truncate(message.get("content", ""), 500)}
+                        for message in self.messages
+                    ],
+                },
+                "res": {
+                    "content": truncate(response.content, 2000),
+                    "usage": response.usage.model_dump() if response.usage else None,
+                },
+            },
+        )
+
+    async def prepare_retry(self, failure: _PlannerAttemptFailure, next_attempt: int) -> None:
+        """调整下一轮恢复参数，并仅对 Responses 执行退避。"""
+        self.params = _planner_retry_params(
+            current=self.params,
+            failure=failure,
+            next_attempt=next_attempt,
+            wire_api=self.wire_api,
+            model_max_tokens=self.model_max_tokens,
+        )
+        if self.wire_api == "responses":
+            await asyncio.sleep(structured_retry_delay(next_attempt))
+
+    async def run(self) -> StructuredPlan:
+        """运行有界规划循环；不可恢复或耗尽重试时返回内置计划。"""
+        assert self.failures is not None
+        for attempt in range(1, PLANNER_MAX_RETRIES + 1):
+            try:
+                response = await self.request(attempt)
+                plan, failure = _parse_planner_completion(
+                    response, default_step_thinking=self.default_step_thinking
+                )
+                self.emit_response(
+                    attempt,
+                    failure=failure,
+                    retrying=bool(failure and failure.retryable and attempt < PLANNER_MAX_RETRIES),
+                    response=response,
+                )
+                if failure is not None:
+                    raise failure
+                assert plan is not None
+                self.append_log(attempt, response)
+                if self.failures:
+                    _logger.info(
+                        "Planner recovered on attempt %d after %s (reasoning=%s, max_tokens=%s, budget_adjusted=%s)",
+                        attempt,
+                        ",".join(self.failures),
+                        self.params.get("_thinking_level"),
+                        self.params.get("max_tokens"),
+                        self.params.get("max_tokens") != self.original_params.get("max_tokens"),
+                    )
+                return plan
+            except Exception as error:
+                failure = error if isinstance(error, _PlannerAttemptFailure) else _api_failure(error)
+                self.failures.append(failure.category)
+                if not isinstance(error, _PlannerAttemptFailure):
+                    self.emit_response(
+                        attempt,
+                        failure=failure,
+                        retrying=failure.retryable and attempt < PLANNER_MAX_RETRIES,
+                    )
+                safe_agent_debug_log(
+                    location="planner.py:generate_plan",
+                    message="planner_attempt_failed",
+                    data={
+                        "attempt": attempt,
+                        "exc_type": type(error).__name__,
+                        "failure_category": failure.category,
+                        "retryable": failure.retryable,
+                        "status_code": failure.status_code,
+                    },
+                )
+                if attempt == PLANNER_MAX_RETRIES or not failure.retryable:
+                    _logger.warning(
+                        "Planner fallback after %d attempt(s); failures=%s",
+                        attempt,
+                        ",".join(self.failures),
+                    )
+                    return _fallback_plan(self.user_input)
+                await self.prepare_retry(failure, attempt + 1)
+        raise AssertionError("unreachable")  # pragma: no cover
 
 
 async def generate_plan(
@@ -99,46 +398,12 @@ async def generate_plan(
     planner_model_overrides: dict[str, Any] | None = None,
     default_step_thinking: str = "medium",
 ) -> StructuredPlan:
-    """根据用户需求和可用工具箱生成结构化执行计划。
+    """生成结构化计划；协议或内容最终失败时返回可执行的内置计划。
 
-    调用 LLM 返回单一 JSON 对象，经 :func:`_dict_to_plan` 解析为
-    :class:`~miniagent.types.planning.StructuredPlan`。解析失败或网络错误时
-    最多重试 :data:`~miniagent.core.constants.PLANNER_MAX_RETRIES` 次；全部失败则
-    返回 :func:`_fallback_plan` 兜底计划，保证 Phase 2 始终有可消费结构。
-
-    **上下文增强**（注入 user 消息）：
-    - 可用工具箱元数据（id / name / description / keywords）
-    - ``registry`` 提供的各工具箱内工具名称映射
-    - RAG 知识库检索结果（:func:`miniagent.knowledge.retrieve_knowledge_context`）
-    - 对话历史中已完成的读取/分析/测试等工作摘要
-
-    **JSON 模式**：优先 ``response_format={"type": "json_object"}``；若 API
-    不支持则当次请求内降级为普通 completion（不重计 attempt）。
-
-    Args:
-        user_input: 用户原始需求文本。
-        toolboxes: 当前可用的工具箱列表。
-        log_file: 可选日志文件路径；非空时将请求/响应摘要写入 NDJSON 日志。
-        client: 由组合根注入的 AsyncOpenAI 兼容客户端。
-        agent_config: 可选 :class:`~miniagent.types.config.AgentConfig`；
-            通过 ``session_config`` 提供 session_key、conversation_history 等规划上下文。
-        registry: 可选工具注册表（需实现 ``get_all()``），用于生成工具箱→工具名映射。
-        knowledge_registry: 由组合根注入的知识库注册表。
-        planner_model_overrides: 规划阶段 LLM 参数覆盖，与
-            :func:`~miniagent.core.llm_params.resolve_planner_completion_kwargs` 合并。
-        default_step_thinking: LLM 未指定 ``thinkingLevel`` 时的默认档位
-           （``low`` / ``medium`` / ``high``）。
-
-    Returns:
-        StructuredPlan: 结构化执行计划；失败时为单步 fallback 计划。
-
-    See Also:
-        - :func:`miniagent.core.agent.run_agent` — Phase 1 编排入口
-        - :mod:`miniagent.core.executor` — Phase 2 消费方
+    工具元数据、知识库和会话历史会进入规划上下文。JSON Object 不受支持时在
+    同一逻辑轮次降级，Responses 暂态/空响应最多尝试三次，Chat 尝试两次。
     """
     from miniagent.core.llm_params import resolve_planner_completion_kwargs
-    from miniagent.infrastructure.tracing import emit_trace, llm_request_size_metrics, new_trace_id
-    from miniagent.knowledge import retrieve_knowledge_context
 
     ac: AgentConfig | None = agent_config if isinstance(agent_config, AgentConfig) else None
     planner_kw = resolve_planner_completion_kwargs(ac, merge_overrides=planner_model_overrides)
@@ -146,295 +411,32 @@ async def generate_plan(
         ac.session_config.session_key if ac and ac.session_config.session_key else "default"
     )
 
-    # ── RAG 增强：知识库检索（使用公共函数）──
-    kb_context_planner = retrieve_knowledge_context(
-        knowledge_registry,
+    messages = _build_planner_messages(
         user_input,
-        phase="planner",
-        default_top_k=2,
-        default_max_chars=2000,
+        toolboxes,
+        registry=registry,
+        knowledge_registry=knowledge_registry,
+        agent_config=ac,
     )
-
-    toolboxes_json = json.dumps(
-        [
-            {"id": t.id, "name": t.name, "description": t.description, "keywords": t.keywords}
-            for t in toolboxes
-        ],
-        ensure_ascii=False,
-    )
-
-    toolbox_ids = [t.id for t in toolboxes]
-    tool_hint = _format_toolbox_tool_names(registry, toolbox_ids)
-    user_parts = [
-        f"用户需求: {user_input}",
-        f"可用工具箱:\n{toolboxes_json}",
-    ]
-    if tool_hint:
-        user_parts.append(
-            f"各工具箱内可用工具名称（规划时请对齐 requiredToolboxes 与工具箱 id）:\n{tool_hint}"
-        )
-    # 注入知识库检索结果
-    if kb_context_planner:
-        user_parts.append(kb_context_planner)
-    completed_context = _completed_work_context(ac)
-    if completed_context:
-        user_parts.append(completed_context)
-
-    messages: list[dict[str, str]] = [
-        {"role": "system", "content": PLAN_SYSTEM_PROMPT},
-        {"role": "user", "content": "\n\n".join(user_parts)},
-    ]
     json_object_messages = ensure_json_object_user_message(messages)
 
-    llm_client = client
-    use_json_object = True
     from miniagent.core.config import get_default_model_config
 
     model_config = get_default_model_config()
-    wire_api = model_config.wire_api
-    attempt_kw = dict(planner_kw)
-    failure_history: list[str] = []
-
-    for attempt in range(PLANNER_MAX_RETRIES):
-        call_id = new_trace_id("llm")
-        attempt_start_ns = time.monotonic_ns()
-        try:
-            use_structured_stream = wire_api == "responses" and use_json_object
-            emit_trace(
-                {
-                    "type": "llm.request",
-                    "call_id": call_id,
-                    "phase": "plan",
-                    "session_key": plan_session_key,
-                    "attempt": attempt + 1,
-                    "model": attempt_kw["model"],
-                    "json_object": use_json_object,
-                    "reasoning_level": attempt_kw.get("_thinking_level"),
-                    "max_tokens": attempt_kw.get("max_tokens"),
-                    "sampling_removed": (
-                        "temperature" not in attempt_kw and "top_p" not in attempt_kw
-                    ),
-                    "structured_stream": use_structured_stream,
-                    "message_count": len(json_object_messages if use_json_object else messages),
-                    "tool_count": 0,
-                    **llm_request_size_metrics(
-                        json_object_messages if use_json_object else messages
-                    ),
-                }
-            )
-            safe_agent_debug_log(
-                location="planner.py:generate_plan",
-                message="before_planner_completion",
-                data={
-                    "attempt": attempt + 1,
-                    "model": attempt_kw.get("model"),
-                    "json_object": use_json_object,
-                    "wire_api": wire_api,
-                },
-            )
-            try:
-                request_messages = json_object_messages if use_json_object else messages
-                if use_json_object:
-                    response = await create_structured_completion(
-                        llm_client,
-                        messages=request_messages,
-                        params=attempt_kw,
-                    )
-                else:
-                    response = await create_completion(
-                        llm_client,
-                        messages=request_messages,
-                        params=attempt_kw,
-                    )
-            except Exception as api_err:
-                if use_json_object and _json_object_unsupported(api_err):
-                    use_json_object = False
-                    _logger.info("Planner: API 不支持 response_format json_object，已降级")
-                    emit_trace(
-                        {
-                            "type": "llm.response",
-                            "call_id": call_id,
-                            "phase": "plan",
-                            "session_key": plan_session_key,
-                            "attempt": attempt + 1,
-                            "model": attempt_kw["model"],
-                            "failure_category": "json_object_unsupported",
-                            "retrying": True,
-                            "duration_ms": (time.monotonic_ns() - attempt_start_ns) // 1_000_000,
-                        }
-                    )
-                    call_id = new_trace_id("llm")
-                    emit_trace(
-                        {
-                            "type": "llm.request",
-                            "call_id": call_id,
-                            "phase": "plan",
-                            "session_key": plan_session_key,
-                            "attempt": attempt + 1,
-                            "model": attempt_kw["model"],
-                            "json_object": False,
-                            "protocol_fallback": True,
-                            "message_count": len(messages),
-                            "tool_count": 0,
-                            **llm_request_size_metrics(messages),
-                        }
-                    )
-                    attempt_start_ns = time.monotonic_ns()
-                    response = await create_completion(
-                        llm_client,
-                        messages=messages,
-                        params=attempt_kw,
-                    )
-                else:
-                    raise
-
-            content = response.content
-            failure: _PlannerAttemptFailure | None = None
-            plan_data: dict[str, Any] | None = None
-            plan: StructuredPlan | None = None
-            if not content:
-                failure = _empty_response_failure(response)
-            else:
-                try:
-                    plan_data = parse_llm_json_response(content)
-                except Exception:
-                    failure = _PlannerAttemptFailure("invalid_json")
-                if plan_data is not None and (
-                    "steps" not in plan_data or "requiredToolboxes" not in plan_data
-                ):
-                    failure = _PlannerAttemptFailure("invalid_plan_contract")
-                elif plan_data is not None:
-                    try:
-                        plan = _dict_to_plan(
-                            plan_data,
-                            default_step_thinking=default_step_thinking,
-                        )
-                    except Exception:
-                        failure = _PlannerAttemptFailure("invalid_plan_contract")
-
-            _plan_usage = response.usage
-            emit_trace(
-                {
-                    "type": "llm.response",
-                    "call_id": call_id,
-                    "phase": "plan",
-                    "session_key": plan_session_key,
-                    "attempt": attempt + 1,
-                    "model": attempt_kw["model"],
-                    "status": response.status,
-                    "output_item_types": list(response.output_item_types),
-                    "incomplete_reason": response.incomplete_reason,
-                    "finish_reason": response.finish_reason,
-                    "failure_category": failure.category if failure else None,
-                    "retrying": bool(
-                        failure is not None
-                        and failure.retryable
-                        and attempt < PLANNER_MAX_RETRIES - 1
-                    ),
-                    "duration_ms": (time.monotonic_ns() - attempt_start_ns) // 1_000_000,
-                    "usage": _plan_usage.model_dump()
-                    if _plan_usage is not None and hasattr(_plan_usage, "model_dump")
-                    else None,
-                }
-            )
-
-            if failure is not None:
-                raise failure
-
-            if log_file:
-                append_log(
-                    log_file,
-                    {
-                        "phase": "plan",
-                        "attempt": attempt + 1,
-                        "req": {
-                            "model": attempt_kw["model"],
-                            "messages": [
-                                {"role": m["role"], "content": truncate(m.get("content", ""), 500)}
-                                for m in messages
-                            ],
-                        },
-                        "res": {
-                            "content": truncate(content, 2000),
-                            "usage": response.usage.model_dump() if response.usage else None,
-                        },
-                    },
-                )
-
-            assert plan is not None
-            if failure_history:
-                _logger.info(
-                    "Planner recovered on attempt %d after %s "
-                    "(reasoning=%s, max_tokens=%s, budget_adjusted=%s)",
-                    attempt + 1,
-                    ",".join(failure_history),
-                    attempt_kw.get("_thinking_level"),
-                    attempt_kw.get("max_tokens"),
-                    attempt_kw.get("max_tokens") != planner_kw.get("max_tokens"),
-                )
-            return plan
-
-        except Exception as e:
-            planner_failure = e if isinstance(e, _PlannerAttemptFailure) else _api_failure(e)
-            failure_history.append(planner_failure.category)
-            if not isinstance(e, _PlannerAttemptFailure):
-                will_retry = planner_failure.retryable and attempt < PLANNER_MAX_RETRIES - 1
-                emit_trace(
-                    {
-                        "type": "llm.response",
-                        "call_id": call_id,
-                        "phase": "plan",
-                        "session_key": plan_session_key,
-                        "attempt": attempt + 1,
-                        "model": attempt_kw["model"],
-                        "status_code": planner_failure.status_code,
-                        "failure_category": planner_failure.category,
-                        "retrying": will_retry,
-                        "duration_ms": (time.monotonic_ns() - attempt_start_ns) // 1_000_000,
-                    }
-                )
-            safe_agent_debug_log(
-                location="planner.py:generate_plan",
-                message="planner_attempt_failed",
-                data={
-                    "attempt": attempt + 1,
-                    "exc_type": type(e).__name__,
-                    "failure_category": planner_failure.category,
-                    "retryable": planner_failure.retryable,
-                    "status_code": planner_failure.status_code,
-                },
-            )
-            is_last = attempt == PLANNER_MAX_RETRIES - 1
-            if is_last or not planner_failure.retryable:
-                _logger.warning(
-                    "Planner fallback after %d attempt(s); failures=%s",
-                    attempt + 1,
-                    ",".join(failure_history),
-                )
-                return _fallback_plan(user_input)
-            if attempt == 0:
-                _logger.info(
-                    "Planner attempt 1 produced retryable %s; retrying",
-                    planner_failure.category,
-                )
-            else:
-                _logger.warning(
-                    "Planner attempt %d failed with %s; final recovery retry follows",
-                    attempt + 1,
-                    planner_failure.category,
-                )
-            attempt_kw = _planner_retry_params(
-                current=attempt_kw,
-                failure=planner_failure,
-                next_attempt=attempt + 2,
-                wire_api=wire_api,
-                model_max_tokens=model_config.max_tokens,
-            )
-            if wire_api == "responses":
-                await asyncio.sleep(structured_retry_delay(attempt + 2))
-
-    # 不可达：循环内最后一轮必定返回
-    assert False, "unreachable"
+    runner = _PlannerRunner(
+        user_input=user_input,
+        client=client,
+        messages=messages,
+        json_messages=json_object_messages,
+        original_params=dict(planner_kw),
+        params=dict(planner_kw),
+        session_key=plan_session_key,
+        wire_api=model_config.wire_api,
+        model_max_tokens=model_config.max_tokens,
+        default_step_thinking=default_step_thinking,
+        log_file=log_file,
+    )
+    return await runner.run()
 
 
 # ─── 内部辅助 ───────────────────────────────────────────
@@ -477,139 +479,25 @@ def _planner_retry_params(
     )
 
 
-def _format_toolbox_tool_names(registry: Any, toolbox_ids: list[str]) -> str:
-    """按工具箱 ID 列出注册表中的工具名称映射。
+@dataclass(slots=True)
+class _PlanDictParser:
+    """把不可信的规划 JSON 转换为执行器可消费的强类型对象。"""
 
-    生成工具箱到工具名称的映射文本，用于规划器上下文。帮助 LLM 规划器
-    了解每个工具箱包含哪些具体工具，从而在 requiredToolboxes 中做出准确选择。
+    data: dict[str, Any]
+    default_step_thinking: str
 
-    **输出格式**：
-    ```
-    __core__（无工具箱绑定的核心工具）: read_file, write_file, exec_command
-    filesystem: list_dir, watch_file
-    web: web_search, fetch_url
-    ```
+    def mapping(self, key: str) -> dict[str, Any]:
+        """读取嵌套对象；模型返回其他类型时使用空对象。"""
+        value = self.data.get(key)
+        return value if isinstance(value, dict) else {}
 
-    Args:
-        registry: 工具注册表实例（需实现 get_all 方法）
-        toolbox_ids: 可用工具箱 ID 列表
-
-    Returns:
-        str: 工具箱到工具名称的映射文本，无注册表或为空则返回空串
-
-    Note:
-        核心工具（toolbox=None）会被单独列为 __core__ 组。
-    """
-    if registry is None or not toolbox_ids:
-        return ""
-    try:
-        all_tools = registry.get_all()
-    except Exception:
-        return ""
-    by_tb: dict[str, list[str]] = {}
-    core: list[str] = []
-    for name, t in all_tools.items():
-        tb = t.toolbox
-        if tb is None:
-            core.append(name)
-        else:
-            by_tb.setdefault(str(tb), []).append(name)
-    lines: list[str] = []
-    if core:
-        lines.append(f"__core__（无工具箱绑定的核心工具）: {', '.join(sorted(core))}")
-    for tid in sorted(set(toolbox_ids)):
-        names = sorted(by_tb.get(tid, []))
-        lines.append(f"{tid}: {', '.join(names) if names else '(无匹配工具)'}")
-    return "\n".join(lines)
-
-
-def _completed_work_context(agent_config: AgentConfig | None) -> str:
-    """从对话历史中提取已完成工作的摘要，供规划器复用。
-
-    扫描最近 20 条对话历史消息，识别包含关键工作标记的条目（如"已读取"、
-    "分析"、"测试"、"已完成"等），生成简洁摘要。帮助规划器避免重复步骤，
-    直接利用已有结果。
-
-    **识别的关键词**：
-    - 文件操作：read_file、已读取
-    - 分析工作：分析、review、解释
-    - 测试验证：测试、pytest、已完成
-    - 知识检索：rag、知识库
-
-    Args:
-        agent_config: Agent 配置对象；历史来自 ``session_config.conversation_history``。
-
-    Returns:
-        str: 已完成工作摘要文本（含标题），无相关历史则返回空串
-
-    Note:
-        最多返回最近 8 条相关记录，每条截断至 180 字符。
-    """
-    history = agent_config.session_config.conversation_history if agent_config is not None else None
-    if not history:
-        return ""
-    lines: list[str] = []
-    for msg in history[-20:]:
-        content = str(msg.get("content", "")) if isinstance(msg, dict) else ""
-        if not content:
-            continue
-        low = content.lower()
-        if any(
-            term in low
-            for term in ("read_file", "已读取", "分析", "测试", "pytest", "已完成", "rag", "知识库")
-        ):
-            lines.append(f"- {content[:180]}")
-    if not lines:
-        return ""
-    return "## 最近已完成工作（规划时应复用，避免重复步骤）\n" + "\n".join(lines[-8:])
-
-
-def _dict_to_plan(data: dict[str, Any], *, default_step_thinking: str = "medium") -> StructuredPlan:
-    """将 LLM 返回的 dict 转为 StructuredPlan。
-
-    解析流程：
-    1. 步骤列表（``steps``）→ ``list[PlanStep]``，支持 dict / str / 其它三种输入格式
-    2. 嵌套配置（``suggestedConfig`` 等）→ 各字段安全提取，空值回退默认
-    3. 经 :func:`_normalize_plan_steps` 去重、重编号、修复依赖
-    4. 组装为 :class:`~miniagent.types.planning.StructuredPlan`
-
-    **静默回退**（不抛异常）：
-    - ``contextStrategy.mode`` 非法值 → ``"normal"``
-    - ``outputSpec.format`` 非法值 → ``"markdown"``
-    - ``steps`` 非 list → 空列表
-    - 嵌套 dict 字段类型错误 → 对应 dataclass 默认值
-    - 非法 ``thinkingLevel`` 保留原字符串，由执行阶段
-      :func:`~miniagent.core.thinking_presets.map_business_depth` 再映射
-
-    Args:
-        data: LLM 解析后的 JSON dict。
-        default_step_thinking: 步骤级 ``thinkingLevel`` 缺省时的回填档位。
-
-    Returns:
-        StructuredPlan: 规范化后的结构化计划。
-    """
-    # ── 步骤解析 ───────────────────────────────────────────────
-    raw_steps = data.get("steps", [])
-    if not isinstance(raw_steps, list):
-        raw_steps = []
-
-    # 默认 thinking 档位：LLM 未指定时使用参数传入值
-    step_fallback = str(data.get("defaultStepThinkingLevel") or default_step_thinking)
-
-    def _step_as_dict(s: Any, idx: int) -> dict[str, Any]:
-        """将原始步骤项（dict / str / 其它）规范为规划步骤字段字典。
-
-        LLM 可能返回：
-        - dict: 完整结构，直接使用
-        - str: 仅描述，自动填充默认字段
-        - 其它: 强制转 str，按 str 处理
-        """
-        if isinstance(s, dict):
-            return s
-        # str 或其它类型：统一转为描述文本（str 本身 str() 不变），填充默认字段
+    def step_as_dict(self, value: Any, index: int) -> dict[str, Any]:
+        """兼容完整步骤对象和只有描述文本的简写步骤。"""
+        if isinstance(value, dict):
+            return value
         return {
-            "stepNumber": idx,
-            "description": str(s),
+            "stepNumber": index,
+            "description": str(value),
             "requiredToolboxes": [],
             "expectedInput": "",
             "expectedOutput": "",
@@ -617,118 +505,136 @@ def _dict_to_plan(data: dict[str, Any], *, default_step_thinking: str = "medium"
             "thinkingLevel": None,
         }
 
-    def _step_thinking_level(s: dict[str, Any]) -> str | None:
-        """解析单步 ``thinkingLevel``，缺省则回落 ``step_fallback``。
+    def fallback_thinking(self) -> ThinkingLevel | None:
+        """解析计划级默认思考档位。"""
+        raw = str(
+            self.data.get("defaultStepThinkingLevel") or self.default_step_thinking
+        ).lower()
+        return cast(ThinkingLevel, raw) if raw in ("low", "medium", "high") else None
 
-        thinkingLevel 取值：low / medium / high，影响该步的推理深度。
-        """
-        tl = s.get("thinkingLevel")
-        if tl is None or tl == "":
-            return step_fallback
-        return str(tl)
+    def step_thinking(self, step: dict[str, Any]) -> ThinkingLevel | None:
+        """解析步骤思考档位，非法或缺省值回落到计划默认值。"""
+        value = step.get("thinkingLevel")
+        if value in (None, ""):
+            return self.fallback_thinking()
+        normalized = str(value).lower()
+        if normalized in ("low", "medium", "high"):
+            return cast(ThinkingLevel, normalized)
+        return self.fallback_thinking()
 
-    steps = _normalize_plan_steps(
-        parse_plan_steps_from_raw(
+    def steps(self) -> list[PlanStep]:
+        """解析并规范化顶层步骤。"""
+        raw = self.data.get("steps", [])
+        raw_steps = raw if isinstance(raw, list) else []
+        parsed = parse_plan_steps_from_raw(
             raw_steps,
-            step_as_dict=_step_as_dict,
-            step_thinking_level=_step_thinking_level,
+            step_as_dict=self.step_as_dict,
+            step_thinking_level=self.step_thinking,
         )
-    )
+        return _normalize_plan_steps(parsed)
 
-    # ── 嵌套配置解析（安全提取，空值回退）───────────────────────────────
-    # suggestedConfig: 执行建议（轮数、超时、风险等级、策略等）
-    sc = data.get("suggestedConfig", {}) if isinstance(data.get("suggestedConfig"), dict) else {}
-    # estimatedTokens: Token 预估（用于成本监控）
-    et = data.get("estimatedTokens", {}) if isinstance(data.get("estimatedTokens"), dict) else {}
-    # contextStrategy: 上下文处理策略（溢出时的压缩/摘要行为）
-    cs = data.get("contextStrategy", {}) if isinstance(data.get("contextStrategy"), dict) else {}
-    # estimatedCost: 成本预估（USD）
-    ec = data.get("estimatedCost", {}) if isinstance(data.get("estimatedCost"), dict) else {}
-    # outputSpec: 输出规格（语言、格式、交付物）
-    osp = data.get("outputSpec", {}) if isinstance(data.get("outputSpec"), dict) else {}
-    # fallbackPlan: 降级计划（规划失败时的执行策略）
-    fb = data.get("fallbackPlan", {}) if isinstance(data.get("fallbackPlan"), dict) else {}
-
-    raw_chunks = cs.get("chunks")
-    parsed_chunks: list[PlanChunk] | None = None
-    if isinstance(raw_chunks, list):
-        parsed_chunks = parse_plan_chunks_from_raw(
-            raw_chunks,
-            step_as_dict=_step_as_dict,
-            step_thinking_level=_step_thinking_level,
+    def chunks(self, context: dict[str, Any]) -> list[PlanChunk] | None:
+        """解析上下文分块，并独立规范化每个分块内的步骤。"""
+        raw = context.get("chunks")
+        if not isinstance(raw, list):
+            return None
+        parsed = parse_plan_chunks_from_raw(
+            raw,
+            step_as_dict=self.step_as_dict,
+            step_thinking_level=self.step_thinking,
         )
-        if parsed_chunks:
-            parsed_chunks = [
-                PlanChunk(
-                    chunk_number=ch.chunk_number,
-                    steps=_normalize_plan_steps(ch.steps),
-                    estimated_tokens=ch.estimated_tokens,
-                    chunk_system_prompt=ch.chunk_system_prompt,
-                )
-                for ch in parsed_chunks
-            ]
+        if not parsed:
+            return None
+        return [
+            PlanChunk(
+                chunk_number=chunk.chunk_number,
+                steps=_normalize_plan_steps(chunk.steps),
+                estimated_tokens=chunk.estimated_tokens,
+                chunk_system_prompt=chunk.chunk_system_prompt,
+            )
+            for chunk in parsed
+        ]
 
-    ctx_mode_raw = str(cs.get("mode", "normal") or "normal").lower()
-    ctx_mode: ContextMode = (
-        cast(ContextMode, ctx_mode_raw)
-        if ctx_mode_raw in ("normal", "chunked", "summarize", "truncate")
-        else "normal"
-    )
+    def context_strategy(self, context: dict[str, Any]) -> ContextStrategy:
+        """构造上下文策略并收敛模型可能生成的非法枚举值。"""
+        raw_mode = str(context.get("mode", "normal") or "normal").lower()
+        mode: ContextMode = (
+            cast(ContextMode, raw_mode)
+            if raw_mode in ("normal", "chunked", "summarize", "truncate")
+            else "normal"
+        )
+        return ContextStrategy(
+            mode=mode,
+            chunks=self.chunks(context),
+            reason=str(context.get("reason", "") or ""),
+        )
 
-    out_fmt_raw = str(osp.get("format", "markdown") or "markdown").lower()
-    out_fmt: OutputFormat = (
-        cast(OutputFormat, out_fmt_raw)
-        if out_fmt_raw in ("text", "markdown", "structured")
-        else "markdown"
-    )
+    def output_spec(self, output: dict[str, Any]) -> OutputSpec:
+        """构造输出规格，未知格式安全回落到 Markdown。"""
+        raw_format = str(output.get("format", "markdown") or "markdown").lower()
+        output_format: OutputFormat = (
+            cast(OutputFormat, raw_format)
+            if raw_format in ("text", "markdown", "structured")
+            else "markdown"
+        )
+        return OutputSpec(
+            language=output.get("language", "zh-CN"),
+            format=output_format,
+            expected_deliverable=output.get("expectedDeliverable", ""),
+        )
 
-    return StructuredPlan(
-        summary=data.get("summary", ""),
-        steps=steps,
-        required_toolboxes=_dedupe_toolboxes(data.get("requiredToolboxes", []), steps),
-        suggested_config=SuggestedConfig(
-            max_turns=sc.get("maxTurns"),
-            tool_timeout=sc.get("toolTimeout"),
-            risk_level=sc.get("riskLevel"),
-            context_overflow_strategy=sc.get("contextOverflowStrategy"),
-            tool_selection_strategy=sc.get("toolSelectionStrategy"),
-            model_overrides=sc.get("modelOverrides")
-            if isinstance(sc.get("modelOverrides"), dict)
-            else None,
-            thinking_level=sc.get("thinkingLevel"),
-            chunk_execution=bool(sc.get("chunkExecution", False)),
-            chunk_token_budget=sc.get("chunkTokenBudget"),
-            parallelism=sc.get("parallelism"),
-        ),
-        estimated_tokens=EstimatedTokens(
-            prompt_tokens=et.get("promptTokens", 500),
-            completion_tokens=et.get("completionTokens", 500),
-            tool_result_tokens=et.get("toolResultTokens", 200),
-            total=et.get("total", 1200),
-        ),
-        context_strategy=ContextStrategy(
-            mode=ctx_mode,
-            chunks=parsed_chunks,
-            reason=str(cs.get("reason", "") or ""),
-        ),
-        requires_confirmation=data.get("requiresConfirmation", False),
-        confirmation_message=data.get("confirmationMessage"),
-        risk_level=data.get("riskLevel", "low"),
-        estimated_cost=EstimatedCost(
-            input_tokens=ec.get("inputTokens", 0),
-            output_tokens=ec.get("outputTokens", 0),
-            total_usd=ec.get("totalUSD", 0.0),
-        ),
-        output_spec=OutputSpec(
-            language=osp.get("language", "zh-CN"),
-            format=out_fmt,
-            expected_deliverable=osp.get("expectedDeliverable", ""),
-        ),
-        fallback_plan=FallbackPlan(
-            degrade_to_simple=fb.get("degradeToSimple", True),
-            degraded_max_turns=fb.get("degradedMaxTurns", 5),
-        ),
-    )
+    def build(self) -> StructuredPlan:
+        """组装最终计划；所有嵌套对象在此之前已完成类型收敛。"""
+        steps = self.steps()
+        suggested = self.mapping("suggestedConfig")
+        tokens = self.mapping("estimatedTokens")
+        context = self.mapping("contextStrategy")
+        cost = self.mapping("estimatedCost")
+        output = self.mapping("outputSpec")
+        fallback = self.mapping("fallbackPlan")
+        overrides = suggested.get("modelOverrides")
+        return StructuredPlan(
+            summary=self.data.get("summary", ""),
+            steps=steps,
+            required_toolboxes=_dedupe_toolboxes(self.data.get("requiredToolboxes", []), steps),
+            suggested_config=SuggestedConfig(
+                max_turns=suggested.get("maxTurns"),
+                tool_timeout=suggested.get("toolTimeout"),
+                risk_level=suggested.get("riskLevel"),
+                context_overflow_strategy=suggested.get("contextOverflowStrategy"),
+                tool_selection_strategy=suggested.get("toolSelectionStrategy"),
+                model_overrides=overrides if isinstance(overrides, dict) else None,
+                thinking_level=suggested.get("thinkingLevel"),
+                chunk_execution=bool(suggested.get("chunkExecution", False)),
+                chunk_token_budget=suggested.get("chunkTokenBudget"),
+                parallelism=suggested.get("parallelism"),
+            ),
+            estimated_tokens=EstimatedTokens(
+                prompt_tokens=tokens.get("promptTokens", 500),
+                completion_tokens=tokens.get("completionTokens", 500),
+                tool_result_tokens=tokens.get("toolResultTokens", 200),
+                total=tokens.get("total", 1200),
+            ),
+            context_strategy=self.context_strategy(context),
+            requires_confirmation=self.data.get("requiresConfirmation", False),
+            confirmation_message=self.data.get("confirmationMessage"),
+            risk_level=self.data.get("riskLevel", "low"),
+            estimated_cost=EstimatedCost(
+                input_tokens=cost.get("inputTokens", 0),
+                output_tokens=cost.get("outputTokens", 0),
+                total_usd=cost.get("totalUSD", 0.0),
+            ),
+            output_spec=self.output_spec(output),
+            fallback_plan=FallbackPlan(
+                degrade_to_simple=fallback.get("degradeToSimple", True),
+                degraded_max_turns=fallback.get("degradedMaxTurns", 5),
+            ),
+        )
+
+
+def _dict_to_plan(data: dict[str, Any], *, default_step_thinking: str = "medium") -> StructuredPlan:
+    """将不可信的 LLM 字典宽容地解析并规范化为结构化计划。"""
+    return _PlanDictParser(data, default_step_thinking).build()
 
 
 def _normalize_plan_steps(steps: list[PlanStep]) -> list[PlanStep]:
@@ -880,56 +786,6 @@ def _action_bucket(text: str) -> str:
     if any(term in text for term in ("测试", "验证", "pytest", "compile", "ruff")):
         return "verify"
     return "work"
-
-
-def _fallback_plan(user_input: str) -> StructuredPlan:
-    """生成回退计划：当规划器调用全部失败时的兜底方案。
-
-    在以下场景触发：
-    - LLM 规划器连续失败 PLANNER_MAX_RETRIES 次（网络错误、解析错误等）
-    - 规划器返回无效 JSON（缺少 steps/requiredToolboxes 字段）
-
-    **回退策略**：
-    - 单步直接执行（无详细规划）
-    - 低风险等级（risk_level="low"）
-    - 较短轮数限制（max_turns=5）
-    - 低思考深度（thinking_level="low"）
-
-    Args:
-        user_input: 用户原始需求
-
-    Returns:
-        StructuredPlan: 回退计划对象
-
-    Note:
-        回退计划确保系统在规划器故障时仍能继续执行，避免完全失败。
-    """
-    return StructuredPlan(
-        summary="直接执行模式：跳过详细规划",
-        steps=[
-            PlanStep(
-                step_number=1,
-                description="根据用户需求直接处理",
-                required_toolboxes=[],
-                expected_input=user_input,
-                expected_output="用户需求的回复",
-                thinking_level="low",
-            )
-        ],
-        required_toolboxes=[],
-        suggested_config=SuggestedConfig(max_turns=5, tool_timeout=30, risk_level="low"),
-        estimated_tokens=EstimatedTokens(
-            prompt_tokens=500, completion_tokens=500, tool_result_tokens=200, total=1200
-        ),
-        context_strategy=ContextStrategy(mode="normal", reason="简单任务"),
-        requires_confirmation=False,
-        risk_level="low",
-        estimated_cost=EstimatedCost(input_tokens=500, output_tokens=500, total_usd=0.0),
-        output_spec=OutputSpec(
-            language="zh-CN", format="markdown", expected_deliverable="直接回复"
-        ),
-        fallback_plan=FallbackPlan(degrade_to_simple=False, degraded_max_turns=5),
-    )
 
 
 # ``_normalize_plan_steps`` 对外导出供单测与步骤后处理复用（非公共 API）。

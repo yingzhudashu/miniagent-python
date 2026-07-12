@@ -27,6 +27,7 @@ FEISHU_CARD_TOOL_NAMES = frozenset(
 
 
 async def _feishu_send_interactive_card(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    """构造并发送交互卡片，同时统一处理飞书 API 错误。"""
     cfg = config_from_env()
     if cfg is None:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} 未配置 FEISHU_APP_ID / FEISHU_APP_SECRET。")

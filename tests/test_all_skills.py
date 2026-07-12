@@ -202,13 +202,13 @@ async def main():
     fails = [(n, s, m) for n, s, m in parse_results + reg_results if s == "FAIL"]
     if fails:
         print("\n  失败项详情:")
-        for name, status, msg in fails:
+        for name, _, msg in fails:
             print(f"    [FAIL] {name}: {msg}")
 
     warns = [(n, s, m) for n, s, m in parse_results + reg_results if s == "WARN"]
     if warns:
         print("\n  警告项详情:")
-        for name, status, msg in warns:
+        for name, _, msg in warns:
             print(f"    [WARN] {name}: {msg}")
 
 

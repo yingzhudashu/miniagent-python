@@ -560,7 +560,7 @@ def test_actual_instance_startup():
         ret = proc.poll()
         if ret is not None:
             stdout_out, stderr_out = proc.communicate()
-            assert False, (
+            raise AssertionError(
                 f"进程已退出 (code={ret})\nstdout:\n{stdout_out[:1000]}\nstderr:\n{stderr_out[:2000]}"
             )
 

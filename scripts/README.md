@@ -1,5 +1,11 @@
 # 维护脚本
 
+- `check_architecture.py`：校验核心分层依赖方向与生产函数 100 行零豁免上限。
+- `check_docs.py`：校验 Markdown 本地链接、锚点、索引和易漂移事实。
+- `check_wheel_resources.py`：检查构建 Wheel 中的默认配置、技能资源，以及 Python 模块清单是否与当前源码树完全一致，防止旧构建缓存夹带已删除模块。
+- `docstring_inventory.py --check`：强制模块、公开接口、复杂顶层私有实现与关键状态机具备有效说明。
+- `perf_profile_tracemalloc.py` / `compare_perf_snapshots.py`：生成并比较本地性能快照。
+
 本目录脚本不参与 Agent 运行时；在项目根执行 `python scripts/<name>.py`。
 
 | 脚本 | 用途 | 文档 |

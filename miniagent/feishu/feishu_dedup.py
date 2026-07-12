@@ -92,7 +92,7 @@ class FeishuDeduplicator:
         self._dirty = True
         self._generation += 1
         if len(self._processed) > DEDUP_MAX_SIZE:
-            oldest = sorted(self._processed, key=self._processed.get)
+            oldest = sorted(self._processed, key=lambda item: self._processed[item])
             for stale in oldest[: max(1, len(oldest) // 5)]:
                 del self._processed[stale]
         self._maybe_schedule_flush()

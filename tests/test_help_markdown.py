@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 from miniagent.bootstrap.application import ApplicationContainer
-from miniagent.engine.cli_commands import _md_help_section, format_help_markdown
 from miniagent.engine.command_dispatch import _REGISTERED_COMMANDS, dispatch_command
+from miniagent.engine.commands.help_commands import _md_help_section, format_help_markdown
 from miniagent.engine.engine import UnifiedEngine
 from miniagent.engine.feishu_state import FeishuRuntime
 from miniagent.infrastructure.channel_router import ChannelRouter

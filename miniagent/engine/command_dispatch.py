@@ -26,6 +26,7 @@ from miniagent.core.constants import IMPROVE_MAX_ITERATIONS
 from miniagent.core.prompts.improver import IMPROVE_PROMPT
 from miniagent.core.prompts.reviewer import REVIEW_ITERATION_PROMPT, REVIEW_PROMPT
 from miniagent.engine.cli_state import CliLoopState
+from miniagent.engine.command_registry import COMMAND_REGISTRY, CommandHandler
 from miniagent.infrastructure.logger import get_logger
 from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
 
@@ -35,33 +36,7 @@ _logger = get_logger(__name__)
 # ─── 已注册命令列表（用于模糊匹配与 CLI 补全）────────────────────────────────
 # 顺序影响 _find_command_by_prefix：同前缀时返回列表中先出现的项
 # （例如 "/sta" 会匹配 "/stats" 而非 "/status"，因 "/stats" 更靠前）。
-_REGISTERED_COMMANDS = [
-    "/help",
-    "/session",
-    "/instance",
-    "/feishu",
-    "/queue",
-    "/abort",
-    "/query",
-    "/btw",
-    "/schedule",
-    "/self-opt",  # 新增：自我优化命令
-    "/kb",
-    "/model",
-    "/config",
-    "/doctor",
-    "/stats",
-    "/status",
-    "/stop",
-    "/confirm",
-    "/adjust",
-    "/reject",
-    "/review",
-    "/improve",
-    "/test",
-    "/reload-skills",
-    "/reload-config",  # 新增：配置热更新命令
-]
+_REGISTERED_COMMANDS = list(COMMAND_REGISTRY.names)
 
 
 def _find_closest_command(input_cmd: str, threshold: float = 0.6) -> str | None:
@@ -142,6 +117,63 @@ def _normalize_command_text(text: str) -> str | None:
     return None
 
 
+from miniagent.engine.commands.basic_commands import (
+    handle_config,
+    handle_doctor,
+    handle_help,
+    handle_model,
+    handle_reload_config,
+    handle_schedule,
+    handle_stats,
+    handle_status,
+)
+from miniagent.engine.commands.confirmation_commands import handle_confirmation
+from miniagent.engine.commands.instance_commands import handle_instance
+from miniagent.engine.commands.knowledge_commands import handle_knowledge
+from miniagent.engine.commands.quality_commands import handle_improve, handle_review
+from miniagent.engine.commands.runtime_commands import (
+    handle_abort,
+    handle_background_task,
+    handle_feishu,
+    handle_query,
+    handle_queue,
+    handle_reload_skills,
+    handle_stop,
+)
+from miniagent.engine.commands.self_opt_commands import handle_self_opt
+from miniagent.engine.commands.session_commands import handle_session
+from miniagent.engine.commands.test_commands import handle_test
+
+_BOUND_HANDLERS: dict[str, CommandHandler] = {
+    "abort": handle_abort,
+    "adjust": handle_confirmation,
+    "background_task": handle_background_task,
+    "config": handle_config,
+    "confirm": handle_confirmation,
+    "doctor": handle_doctor,
+    "feishu": handle_feishu,
+    "help": handle_help,
+    "improve": handle_improve,
+    "instance": handle_instance,
+    "knowledge": handle_knowledge,
+    "model": handle_model,
+    "query": handle_query,
+    "queue": handle_queue,
+    "reject": handle_confirmation,
+    "reload_config": handle_reload_config,
+    "reload_skills": handle_reload_skills,
+    "review": handle_review,
+    "schedule": handle_schedule,
+    "self_opt": handle_self_opt,
+    "session": handle_session,
+    "stats": handle_stats,
+    "status": handle_status,
+    "stop": handle_stop,
+    "test": handle_test,
+}
+BOUND_COMMAND_REGISTRY = COMMAND_REGISTRY.bind_handlers(_BOUND_HANDLERS)
+
+
 async def dispatch_command(
     text: str,
     *,
@@ -157,731 +189,35 @@ async def dispatch_command(
     message_queue_abort_chat_id: str | None = None,
     confirmation_session_key: str | None = None,
 ) -> str | None:
-    """统一命令调度。
-
-    Args:
-        text: 用户输入的原始文本
-        state: 运行时状态字典
-        engine: UnifiedEngine 实例（agent 命令需要）
-        registry: 工具注册表
-        monitor: 性能监控器
-        skill_toolboxes: 技能工具箱
-        skill_prompts: 技能提示词
-        capture: True = 捕获 print 输出并返回（飞书用），False = 直接 print（CLI 用）
-        allow_session_mutations_when_capture: capture=True 时是否允许执行 /session
-            switch/create/rename（飞书应传 False，避免改 CLI 共享 state）
-        feishu_user_status: capture=True 时若传入，则 /feishu start 用其写入全屏 transcript；
-            为 None 且 capture=True 时用 print 捕获（飞书）；capture=False 时默认
-            使用 ``_feishu_user_status_fn(runtime_ctx)``
-        message_queue_abort_chat_id: 飞书入站 ``chat_id``（集成侧应传入）；供 ``/queue abort`` / ``/abort``
-            定位要中止的 per-chat 队列。缺省为 CLI 专用 ``__cli__``。
-        confirmation_session_key: 飞书入站时传入的 ``session_key``，供 ``/confirm`` 等确认命令路由。
-
-    Returns:
-        capture=True 时返回输出字符串（无文本时可能为 ``""``，表示命令已处理），
-        capture=False 时返回 None；``/stop`` 成功时返回 ``"__EXIT__"``。
-    """
+    """通过不可变命令注册表解析、授权并调用独立处理器。"""
     normalized = _normalize_command_text(text)
     if normalized is None:
         return None
-    text = normalized
-
-    from miniagent.engine.btw_cmd import (
-        cmd_btw_cancel,
-        cmd_btw_clear,
-        cmd_btw_result,
-        cmd_btw_start,
-        cmd_btw_status,
-    )
-    from miniagent.engine.cli_commands import (
-        cmd_help,
-        cmd_instance_handler,
-        cmd_kb_list,
-        cmd_kb_mount,
-        cmd_kb_reload,
-        cmd_kb_search,
-        cmd_kb_unmount,
-        cmd_queue_set,
-        cmd_queue_status,
-        cmd_self_opt_analyze,
-        cmd_self_opt_apply,
-        cmd_self_opt_approve,
-        cmd_self_opt_proposals,
-        cmd_self_opt_reject,
-        cmd_self_opt_report,
-        cmd_self_opt_show,
-        # 自我优化命令
-        cmd_self_opt_status,
-        cmd_session_create,
-        cmd_session_delete,
-        cmd_session_list,
-        cmd_session_rename,
-        cmd_session_switch,
-        feishu_dot_commands_full_enabled,
-        feishu_markdown_commands_enabled,
-        format_kb_command_usage,
-        format_queue_abort_message,
-        format_queue_command_usage,
-        format_session_command_usage,
-        format_test_command_usage,
-    )
-    from miniagent.engine.doctor import diagnose_environment
-    from miniagent.engine.model_cmd import format_model_info, switch_model
-    from miniagent.engine.session_lock import (
-        is_session_locked,
-        release_session_lock,
-        try_lock_session_async,
-    )
-
-    rt = state.get("runtime_ctx")
-    if rt is None:
-        msg = f"{WARNING_PREFIX} 运行时上下文未初始化（缺少 runtime_ctx）"
-        if capture:
-            return msg
-        print(msg)
-        return None
-
-    message_queue = rt.message_queue
-    channel_router = rt.channel_router
-    feishu_rt = rt.feishu
-    md_cmds = capture and feishu_markdown_commands_enabled()
-    allow_remote = allow_session_mutations_when_capture or feishu_dot_commands_full_enabled()
-    block_remote = capture and not allow_remote
-
-    parts = text.split()
-    cmd = parts[0].lower() if parts else ""
-
-    # ── /status ──
-    if cmd == "/status":
-        output = _format_status(state)
-        if capture:
-            return output
-        print(output)
-        return None
-
-    # ── /stop：飞书 capture 默认拒绝；feishu.dot_commands_full=true 时与 CLI 相同
-    if cmd == "/stop":
-        if capture and not feishu_dot_commands_full_enabled():
-            return f"{WARNING_PREFIX} /stop 命令只能在 CLI 使用（或设置 feishu.dot_commands_full=true）"
-        from miniagent.engine.shutdown import shutdown_runtime
-
-        await shutdown_runtime(
-            rt,
-            state,  # type: ignore[arg-type]
-            reason="dot_stop_dispatch",
-            release_cli_session_lock=True,
-            call_unregister=True,
+    command_name = normalized.split(maxsplit=1)[0].lower()
+    handler = BOUND_COMMAND_REGISTRY.handler_for(command_name)
+    if handler is not None:
+        return await handler(
+            normalized,
+            state=state,
+            engine=engine,
+            registry=registry,
+            monitor=monitor,
+            skill_toolboxes=skill_toolboxes,
+            skill_prompts=skill_prompts,
+            capture=capture,
+            allow_session_mutations_when_capture=allow_session_mutations_when_capture,
+            feishu_user_status=feishu_user_status,
+            message_queue_abort_chat_id=message_queue_abort_chat_id,
+            confirmation_session_key=confirmation_session_key,
         )
-        return "__EXIT__"
-
-    # ── instance ──
-    if cmd == "/instance":
-        sub_cmd = parts[1] if len(parts) > 1 else ""
-        output = _capture(
-            lambda md=md_cmds: cmd_instance_handler(parts, sub_cmd, state, markdown=md)
+    closest = _find_command_by_prefix(command_name) or _find_closest_command(command_name)
+    if closest and closest.lower() != command_name:
+        suggestion = (
+            f"{WARNING_PREFIX} 未找到命令 '{command_name}'，您是否想输入 '{closest}'？"
         )
         if capture:
-            return output
-        print(output)
-        return None
-
-    # ── session ──
-    if cmd == "/session":
-        sub_cmd = parts[1] if len(parts) > 1 else ""
-        sm = state.get("session_manager")
-        active = state.get("active_session_id", "")
-
-        # 飞书 capture 默认只读 list；FULL=1 或 allow_remote 时与 CLI 相同
-        if sub_cmd == "list":
-            output = _capture(lambda md=md_cmds: cmd_session_list(sm, active, markdown=md))
-        elif sub_cmd == "switch" and len(parts) >= 3:
-            if block_remote:
-                output = _REMOTE_SESSION_HINT
-            else:
-                buf = io.StringIO()
-                try:
-                    with redirect_stdout(buf):
-                        new_active = await cmd_session_switch(
-                            sm,
-                            active,
-                            parts[2],
-                            try_lock_session_async,
-                            release_session_lock,
-                            is_session_locked,
-                            channel_router,
-                            state.get("feishu_p2p_synced_senders")
-                            if isinstance(state.get("feishu_p2p_synced_senders"), set)
-                            else None,
-                        )
-                    state["active_session_id"] = new_active
-                    output = buf.getvalue().strip()
-                except Exception as e:
-                    output = f"{ERROR_PREFIX} 命令执行失败: {e}"
-        elif sub_cmd == "create" and len(parts) >= 3:
-            if block_remote:
-                output = _REMOTE_SESSION_HINT
-            else:
-                buf = io.StringIO()
-                try:
-                    with redirect_stdout(buf):
-                        await cmd_session_create(
-                            sm,
-                            parts[2],
-                            parts[3] if len(parts) > 3 else None,
-                            try_lock_session_async,
-                        )
-                    output = buf.getvalue().strip()
-                except Exception as e:
-                    output = f"{ERROR_PREFIX} 命令执行失败: {e}"
-        elif sub_cmd == "rename" and len(parts) >= 4:
-            if block_remote:
-                output = _REMOTE_SESSION_HINT
-            else:
-                output = _capture(lambda: cmd_session_rename(sm, parts[2], " ".join(parts[3:])))
-        elif sub_cmd == "delete" and len(parts) >= 3:
-            if block_remote:
-                output = _REMOTE_SESSION_HINT
-            else:
-                buf = io.StringIO()
-                try:
-                    with redirect_stdout(buf):
-                        cmd_session_delete(
-                            sm,
-                            active,
-                            parts[2],
-                            release_session_lock,
-                        )
-                    output = buf.getvalue().strip()
-                except Exception as e:
-                    output = f"{ERROR_PREFIX} 命令执行失败: {e}"
-        else:
-            output = format_session_command_usage()
-
-        if capture:
-            return output
-        print(output)
-        return None
-
-    # ── /feishu ──
-    if cmd == "/feishu":
-        from miniagent.engine.feishu_lifecycle import FeishuRuntimeLifecycleService
-
-        manager = rt.lifecycle_manager
-        if manager is None:
-            output = f"{ERROR_PREFIX} 飞书生命周期服务未初始化"
-            if capture:
-                return output
-            print(output)
-            return None
-        service = manager.service("feishu")
-        if not isinstance(service, FeishuRuntimeLifecycleService):
-            output = f"{ERROR_PREFIX} 飞书生命周期服务类型错误"
-            if capture:
-                return output
-            print(output)
-            return None
-
-        if text == "/feishu start":
-            try:
-                await service.activate()
-                output = ""
-            except Exception as e:
-                output = f"{ERROR_PREFIX} 命令执行失败: {e}"
-        elif text == "/feishu stop":
-            try:
-                await service.deactivate()
-            except Exception as e:
-                output = f"{ERROR_PREFIX} 命令执行失败: {e}"
-            else:
-                output = ""
-        else:
-            output = _capture(feishu_rt.status)
-
-        if capture:
-            return output
-        print(output)
-        return None
-
-    def _abort_queue_output() -> str:
-        """中止当前/指定 chat 队列上的 dispatch 任务并返回格式化结果文本。"""
-        tid = (message_queue_abort_chat_id or "").strip() or message_queue.CLI_CHAT_ID
-        res = message_queue.abort_chat(tid)
-        return format_queue_abort_message(res)
-
-    # ── /abort / /queue abort（不退出进程；飞书 handler 应传入当前 chat_id，缺省视为 CLI 队列）──
-    if cmd == "/abort":
-        output = _abort_queue_output()
-        if capture:
-            return output
-        print(output)
-        return None
-
-    # ── /queue ──
-    if cmd == "/queue":
-        sub = parts[1] if len(parts) > 1 else ""
-        if sub == "status":
-            output = _capture(lambda md=md_cmds: cmd_queue_status(message_queue, markdown=md))
-        elif sub == "set" and len(parts) >= 3:
-            buf = io.StringIO()
-            try:
-                with redirect_stdout(buf):
-                    await cmd_queue_set(message_queue, parts[2])
-                output = buf.getvalue().strip()
-            except Exception as e:
-                output = f"{ERROR_PREFIX} 命令执行失败: {e}"
-        elif sub == "abort":
-            output = _abort_queue_output()
-        else:
-            output = format_queue_command_usage(message_queue)
-
-        if capture:
-            return output
-        print(output)
-        return None
-
-    # ── /stats ──
-    if cmd == "/stats":
-        if monitor:
-            output = _capture(lambda: print(f"\n{monitor.report()}"))
-        else:
-            output = f"{WARNING_PREFIX} 监控器未初始化"
-        if capture:
-            return output
-        print(output)
-        return None
-
-    # ── /reload-skills ──
-    if cmd in ("/reload-skills", ".reload-skills", ".reload_skills"):
-        try:
-            from miniagent.skills.refresh import refresh_skills
-
-            fr = await refresh_skills(
-                registry,
-                rt.skill_registry,
-                state=state,
-                session_manager=state.get("session_manager"),
-            )
-            output = (
-                f"🔄 技能已重新加载\n"
-                f"  包: {', '.join(fr.package_ids) or '(无)'}\n"
-                f"  技能数: {len(fr.loaded_skills)}\n"
-                f"  新增工具: {len(fr.added_tools)}\n"
-                f"  移除工具: {len(fr.removed_tools)}"
-            )
-        except Exception as e:
-            output = f"{ERROR_PREFIX} 技能 reload 失败: {e}"
-        if capture:
-            return output
-        print(output)
-        return None
-
-    # ── btw: 后台任务系统 ──
-    if cmd == "/btw":
-        sub_cmd = parts[1] if len(parts) > 1 else ""
-        runtime_ctx = state.get("runtime_ctx")
-        manager = runtime_ctx.background_tasks
-
-        if sub_cmd == "start" and len(parts) >= 3:
-            # 启动后台任务：/btw start <prompt>
-            prompt = " ".join(parts[2:])
-            output = await cmd_btw_start(manager, engine, prompt, state)
-        elif sub_cmd == "status":
-            # 查看状态：/btw status [task_id]
-            task_id = parts[2] if len(parts) >= 3 else None
-            output = cmd_btw_status(manager, task_id)
-        elif sub_cmd == "result" and len(parts) >= 3:
-            # 获取结果：/btw result <task_id>
-            output = await cmd_btw_result(manager, parts[2])
-        elif sub_cmd == "cancel" and len(parts) >= 3:
-            # 取消任务：/btw cancel <task_id>
-            output = await cmd_btw_cancel(manager, parts[2])
-        elif sub_cmd == "clear":
-            # 清理任务：/btw clear
-            output = cmd_btw_clear(manager)
-        else:
-            # 默认显示帮助和任务列表
-            output = cmd_btw_status(manager)  # 显示所有任务
-
-        if capture:
-            return output
-        print(output)
-        return None
-
-    # ── model: 显示/切换模型 ──
-    if cmd == "/model":
-        if len(parts) > 1:
-            # 切换模型
-            new_model = parts[1]
-            output = switch_model(new_model)
-        else:
-            # 显示当前模型
-            output = format_model_info()
-        if capture:
-            return output
-        print(output)
-        return None
-
-    # ── doctor: 环境诊断 ──
-    if cmd == "/doctor":
-        output = diagnose_environment()
-        if capture:
-            return output
-        print(output)
-        return None
-
-    # ── query: 队列状态（合并/queue status） ──
-    if cmd == "/query":
-        output = _capture(lambda md=md_cmds: cmd_queue_status(message_queue, markdown=md))
-        if capture:
-            return output
-        print(output)
-        return None
-
-    # ── /config（配置查看）──
-    if cmd == "/config":
-        from miniagent.engine.config_cmd import format_config_info
-
-        section = parts[1] if len(parts) > 1 else None
-        output = format_config_info(section)
-        if capture:
-            return output
-        print(output)
-        return None
-
-    # ── /help ──
-    if cmd == "/help":
-        output = _capture(
-            lambda: cmd_help(message_queue, state.get("instance_id"))
-        )
-        if capture:
-            return output
-        print(output)
-        return None
-
-    # ── /schedule（定时任务）──
-    if cmd == "/schedule":
-        from miniagent.engine.cli_commands import cmd_schedule
-
-        sub_s = parts[1].lower() if len(parts) > 1 else ""
-        mutating = sub_s in ("add", "remove", "enable", "disable")
-        allow_muts = not (block_remote and mutating)
-        output = cmd_schedule(text, allow_mutations=allow_muts)
-        if capture:
-            return output
-        print(output)
-        return None
-
-    # ── /self-opt（自我优化）──
-    if cmd == "/self-opt":
-        from miniagent.core.constants import CLI_SELF_OPT_TOOLS
-        from miniagent.infrastructure.json_config import get_config
-
-        if not CLI_SELF_OPT_TOOLS or not get_config("self_optimization.enabled", True):
-            msg = f"{WARNING_PREFIX} 自我优化功能已关闭（self_optimization.enabled）"
-            if capture:
-                return msg
-            print(msg)
-            return None
-
-        sub_cmd = parts[1].lower() if len(parts) > 1 else ""
-
-        # self-opt 不经过消息队列；输出须走 _capture，供全屏 CLI / 飞书 capture 路径消费
-        if sub_cmd in ("status", ""):
-            output = _capture(cmd_self_opt_status)
-        elif sub_cmd == "proposals":
-            status_filter = parts[2] if len(parts) > 2 else None
-            output = _capture(lambda: cmd_self_opt_proposals(status=status_filter))
-        elif sub_cmd == "show":
-            if len(parts) >= 3:
-                output = _capture(lambda: cmd_self_opt_show(parts[2]))
-            else:
-                output = "用法: /self-opt show <id>"
-        elif sub_cmd == "approve":
-            if len(parts) >= 3:
-                output = _capture(lambda: cmd_self_opt_approve(parts[2]))
-            else:
-                output = "用法: /self-opt approve <id>"
-        elif sub_cmd == "reject":
-            if len(parts) >= 3:
-                output = _capture(lambda: cmd_self_opt_reject(parts[2]))
-            else:
-                output = "用法: /self-opt reject <id>"
-        elif sub_cmd == "apply":
-            if len(parts) >= 3:
-                proposal_id = parts[2]
-                root = parts[3] if len(parts) > 3 else ""
-                buf = io.StringIO()
-                try:
-                    with redirect_stdout(buf):
-                        await cmd_self_opt_apply(proposal_id, root=root)
-                    output = buf.getvalue().strip()
-                except Exception as e:
-                    output = f"{ERROR_PREFIX} 命令执行失败: {e}"
-            else:
-                output = "用法: /self-opt apply <id> [root]"
-        elif sub_cmd == "analyze":
-            output = _capture(cmd_self_opt_analyze)
-        elif sub_cmd == "report":
-            date = parts[2] if len(parts) > 2 else None
-            output = _capture(lambda: cmd_self_opt_report(date=date))
-        else:
-            output = (
-                f"{WARNING_PREFIX} 未知的子命令: {sub_cmd}\n"
-                "用法: /self-opt status|proposals|show|approve|reject|apply|analyze|report"
-            )
-
-        if capture:
-            return output
-        print(output)
-        return None
-
-    # ── /kb（知识库）──
-    if cmd == "/kb":
-        sub_cmd = parts[1].lower() if len(parts) > 1 else ""
-        md_kb = capture and feishu_markdown_commands_enabled()
-        kb_registry = state["runtime_ctx"].knowledge_registry
-
-        if sub_cmd in ("list", ""):
-            output = _capture(lambda md=md_kb: cmd_kb_list(kb_registry, markdown=md))
-        elif sub_cmd == "mount" and len(parts) >= 3:
-            path = parts[2]
-            name = parts[3] if len(parts) > 3 else None
-            output = _capture(lambda: cmd_kb_mount(kb_registry, path, name))
-        elif sub_cmd == "unmount" and len(parts) >= 3:
-            output = _capture(lambda: cmd_kb_unmount(kb_registry, parts[2]))
-        elif sub_cmd == "search" and len(parts) >= 3:
-            query = " ".join(parts[2:])
-            kb_name = None
-            # 检查是否指定了知识库名称（最后一个参数如果是知识库名称）
-            kb_list = kb_registry.list()
-            kb_names = [kb["name"] for kb in kb_list]
-            if len(parts) >= 4 and parts[-1] in kb_names:
-                kb_name = parts[-1]
-                query = " ".join(parts[2:-1])
-            output = _capture(lambda: cmd_kb_search(kb_registry, query, kb_name))
-        elif sub_cmd == "reload":
-            name = parts[2] if len(parts) > 2 else None
-            output = _capture(lambda: cmd_kb_reload(kb_registry, name))
-        else:
-            output = format_kb_command_usage()
-
-        if capture:
-            return output
-        print(output)
-        return None
-
-    # ── /review（自我反驳式答案优化）──
-    if cmd == "/review":
-        rt = state.get("runtime_ctx")
-        sm = state.get("session_manager")
-        session_id = state.get("active_session_id", "")
-        if rt is None or sm is None or not session_id:
-            output = f"{WARNING_PREFIX} /review 需要会话上下文和会话管理器"
-        else:
-            # 获取最后一轮 Q&A
-            user_msg, assistant_msg = _get_last_qa(sm, session_id)
-            if not user_msg or not assistant_msg:
-                output = f"{WARNING_PREFIX} 当前会话无历史对话，无法审查"
-            else:
-                extra_feedback = " ".join(parts[1:]).strip() if len(parts) > 1 else ""
-                output = await _run_review(
-                    user_msg, assistant_msg,
-                    extra_feedback=extra_feedback,
-                    client=getattr(rt, "openai_client", None),
-                    term_write=getattr(rt, "cli_transcript_append", None),
-                    capture=capture,
-                )
-        if capture:
-            # 进度已由 term_write 写入 transcript；空串表示已处理，避免 fallthrough
-            return output if output is not None else ""
-        if output:
-            print(output)
-        return None
-
-    # ── /improve（根据质量评估建议改进答案）──
-    if cmd == "/improve":
-        rt = state.get("runtime_ctx")
-        sm = state.get("session_manager")
-        session_id = state.get("active_session_id", "")
-        if rt is None or sm is None or not session_id:
-            output = f"{WARNING_PREFIX} /improve 需要会话上下文和会话管理器"
-        else:
-            # 解析参数
-            force = "--force" in parts
-            reset = "--reset" in parts
-
-            # 导入辅助函数
-            from miniagent.engine.cli_commands import cmd_improve
-
-            result = cmd_improve(sm, session_id, force=force, reset=reset)
-
-            if isinstance(result, tuple) and len(result) == 2 and isinstance(result[1], bool):
-                # 错误情况
-                output = result[0]
-            else:
-                # 执行改进
-                user_msg_dict, assistant_msg_dict, suggestions = result
-                user_msg = user_msg_dict.get("content", "")
-                assistant_msg = assistant_msg_dict.get("content", "")
-
-                improved_answer = await _run_improve(
-                    user_msg, assistant_msg, suggestions,
-                    client=getattr(rt, "openai_client", None),
-                    term_write=getattr(rt, "cli_transcript_append", None),
-                    capture=capture,
-                )
-
-                if improved_answer:
-                    # 追加到历史
-                    session = sm.get(session_id)
-                    if session:
-                        metadata = assistant_msg_dict.get("metadata", {})
-                        improve_round = metadata.get("improve_round", 0) + 1 if metadata.get("improved") else 1
-
-                        session.conversation_history.append({
-                            "role": "assistant",
-                            "content": improved_answer,
-                            "metadata": {
-                                "improved": True,
-                                "improve_round": improve_round,
-                            }
-                        })
-                        # 持久化
-                        sm.save_session_history(session_id)
-
-                    output = improved_answer if capture else None
-                else:
-                    output = f"{WARNING_PREFIX} 改进失败"
-
-        if capture:
-            return output
-        if output:
-            print(output)
-        return None
-
-    # ── /confirm / /adjust / /reject（确认侧通道）──
-    if cmd in ("/confirm", "/adjust", "/reject"):
-        from miniagent.engine.parallel_config import resolve_active_session_key
-
-        sk = confirmation_session_key or resolve_active_session_key(
-            channel_router, state.get("active_session_id") or "default"
-        )
-        cc = None
-        if engine is not None:
-            engine.set_active_session_key(sk)
-            cc = engine.get_confirmation_channel(sk)
-        if cc is None or not cc.has_pending:
-            output = f"{WARNING_PREFIX} 当前无待确认的请求"
-        elif cmd == "/confirm":
-            from miniagent.types.confirmation import ConfirmationResult
-
-            cc.respond(ConfirmationResult.confirm())
-            output = f"{SUCCESS_PREFIX} 已确认，继续执行"
-        elif cmd == "/reject":
-            from miniagent.types.confirmation import ConfirmationResult
-
-            cc.respond(ConfirmationResult.reject())
-            output = f"{WARNING_PREFIX} 已拒绝，取消当前操作"
-        else:
-            # /adjust <新内容>
-            adjustment = " ".join(parts[1:]).strip()
-            if not adjustment:
-                from miniagent.types.confirmation import ConfirmationStage
-
-                output = "用法：/adjust <调整后的内容>"
-                pending = cc.pending
-                if pending and pending.stage == ConfirmationStage.PLAN:
-                    ref = (pending.full_content or pending.content or "").strip()
-                    if ref:
-                        preview = ref if len(ref) <= 2000 else f"{ref[:2000]}…"
-                        output = f"{output}\n\n当前完整计划：\n{preview}"
-            else:
-                from miniagent.types.confirmation import ConfirmationResult
-
-                cc.respond(ConfirmationResult.adjust(adjustment))
-                output = f"{SUCCESS_PREFIX} 已调整并确认：{adjustment[:60]}{'…' if len(adjustment) > 60 else ''}"
-
-        if capture:
-            return output
-        print(output)
-        return None
-
-    # ── /test（自测命令）──
-    if cmd == "/test":
-        sub_cmd = parts[1].lower() if len(parts) > 1 else ""
-
-        if sub_cmd == "run":
-            mode = "mock"
-            category_filter: str | None = None
-            name_pattern: str | None = None
-
-            if len(parts) > 2 and parts[2].lower() in ("mock", "real"):
-                mode = parts[2].lower()
-                category_filter = parts[3] if len(parts) > 3 else None
-                name_pattern = parts[4] if len(parts) > 4 else None
-            else:
-                category_filter = parts[2] if len(parts) > 2 else None
-                name_pattern = parts[3] if len(parts) > 3 else None
-
-            output = await _run_test(
-                category=category_filter,
-                name_pattern=name_pattern,
-                mock=(mode != "real"),
-                engine=engine,
-                registry=registry,
-                monitor=monitor,
-                skill_toolboxes=skill_toolboxes,
-                skill_prompts="\n".join(skill_prompts) if skill_prompts else None,
-                state=state,
-                term_write=getattr(rt, "cli_transcript_append", None),
-                capture=capture,
-            )
-        elif sub_cmd == "list":
-            # 列出测试样本
-            output = _list_test_samples()
-        elif sub_cmd == "status":
-            # 查看最近测试结果
-            output = _get_test_status()
-        else:
-            # 显示用法
-            output = format_test_command_usage()
-
-        if capture:
-            return output
-        print(output)
-        return None
-
-    # ── /reload-config（配置热更新）──
-    if cmd == "/reload-config":
-        from miniagent.infrastructure.json_config import reload_runtime_config
-
-        try:
-            await reload_runtime_config(rt)
-            output = f"{SUCCESS_PREFIX} 配置已重新加载"
-        except Exception as e:
-            output = f"{ERROR_PREFIX} 配置加载失败: {e}"
-
-        if capture:
-            return output
-        print(output)
-        return None
-
-    # ── 未知命令：尝试模糊匹配 ──
-    if cmd.startswith("/"):
-        # 优先前缀匹配（如 "/sta" → "/status"）
-        closest = _find_command_by_prefix(cmd)
-        # 其次模糊匹配（如 "/sttatus" → "/status"）
-        if not closest:
-            closest = _find_closest_command(cmd)
-
-        if closest and closest.lower() != cmd.lower():
-            suggestion = f"{WARNING_PREFIX} 未找到命令 '{cmd}'，您是否想输入 '{closest}'？"
-            if capture:
-                return suggestion
-            print(suggestion)
-            return None
-
-    # 不是已知命令，返回 None 让调用者交给 agent 处理
+            return suggestion
+        print(suggestion)
     return None
 
 
@@ -914,16 +250,32 @@ def _get_last_qa(session_manager, session_id: str) -> tuple[str | None, str | No
     # 优先从内存中的 conversation_history 读取
     history = getattr(session, "conversation_history", None) or []
     if not history:
-        # 回退到 history.json
-        files_path = getattr(session, "workspace_path", None) or getattr(session, "files_path", None)
-        if files_path:
-            hp = os.path.join(os.path.dirname(files_path), "history.json")
-            if os.path.isfile(hp):
-                try:
-                    with open(hp, encoding="utf-8-sig") as f:
-                        history = json.load(f)
-                except Exception:
-                    history = []
+        # 优先通过 SessionManager 读取，以复用版本迁移、校验和截断策略。
+        loader = getattr(session_manager, "load_session_history", None)
+        if callable(loader):
+            try:
+                history = loader(session_id) or []
+            except Exception as error:
+                _logger.debug("读取会话历史失败: %s", error)
+        if not history:
+            # 兼容只实现最小 get() 接口的第三方 SessionManager。
+            files_path = getattr(session, "workspace_path", None) or getattr(
+                session, "files_path", None
+            )
+            if files_path:
+                hp = os.path.join(os.path.dirname(files_path), "history.json")
+                if os.path.isfile(hp):
+                    try:
+                        with open(hp, encoding="utf-8-sig") as f:
+                            raw_history = json.load(f)
+                        history = (
+                            raw_history.get("messages", [])
+                            if isinstance(raw_history, dict)
+                            else raw_history
+                        )
+                    except (OSError, ValueError, TypeError) as error:
+                        _logger.debug("读取兼容历史文件失败: %s", error)
+                        history = []
 
     assistant_idx = -1
     last_assistant: str | None = None
@@ -947,6 +299,64 @@ def _get_last_qa(session_manager, session_id: str) -> tuple[str | None, str | No
     return last_user, last_assistant
 
 
+def _review_writer(term_write: Any, capture: bool) -> Callable[[str, str], None]:
+    """构造同时兼容 TUI transcript 与 stdout 的审查输出器。"""
+    def write(text: str, color: str = "") -> None:
+        if term_write and callable(term_write):
+            try:
+                term_write(_ANSI_COLOR_TO_STYLE.get(color, "class:cli-default"), text)
+            except Exception as error:
+                _logger.warning("_write 调用 term_write 失败: %s (text=%s)", error, text[:50])
+        if not capture:
+            print(text)
+
+    return write
+
+
+async def _iterate_review(
+    user_msg: str,
+    current_answer: str,
+    issue_count: int,
+    *,
+    client: Any,
+    max_iterations: int,
+    write: Callable[[str, str], None],
+) -> str:
+    """迭代审查，直到通过、无改进或达到上限。"""
+    from miniagent.core.llm_json import llm_json
+
+    for iteration in range(1, max_iterations):
+        result = await llm_json(
+            prompt=f"用户问题：\n{user_msg[:3000]}\n\n当前答案：\n{current_answer[:5000]}",
+            system=_REVIEW_ITERATION_SYSTEM.replace("{prev_issue_count}", str(issue_count)),
+            client=client,
+        )
+        if not result:
+            write(f"{WARNING_PREFIX} 审查服务不可用，返回当前最佳答案", "ansired")
+            break
+        issues = result.get("issues", [])
+        if not result.get("has_issues", False) or not issues:
+            write(f"{SUCCESS_PREFIX} 第 {iteration + 1} 轮审查通过，无新问题。", "ansigreen")
+            break
+        issue_count = len(issues)
+        improved = result.get("improved_answer")
+        if not improved:
+            write(
+                f"{WARNING_PREFIX} 第 {iteration + 1} 轮发现 {len(issues)} 个问题，但无法生成改进答案",
+                "ansired",
+            )
+            break
+        current_answer = improved
+        summary = "；".join(item.get("description", "")[:60] for item in issues[:2])
+        write(
+            f"🔄 第 {iteration + 1} 轮发现 {len(issues)} 个问题，继续改进：{summary}",
+            "ansiyellow",
+        )
+    else:
+        write(f"{WARNING_PREFIX} 已达到最大迭代次数（{max_iterations} 轮），返回最新答案", "ansiyellow")
+    return current_answer
+
+
 async def _run_review(
     user_msg: str,
     assistant_msg: str,
@@ -957,109 +367,34 @@ async def _run_review(
     capture: bool = False,
     max_iterations: int = IMPROVE_MAX_ITERATIONS,
 ) -> str | None:
-    """执行自我反驳式答案优化。
-
-    Args:
-        user_msg: 用户原始问题
-        assistant_msg: 当前答案
-        extra_feedback: 用户附加反馈（如 "代码太复杂"）
-        client: OpenAI 异步客户端
-        term_write: CLI transcript 写入回调（可选）
-        capture: 是否捕获输出（飞书模式）
-        max_iterations: 最大迭代轮数
-
-    Returns:
-        最终输出字符串（capture=True 时），或 None（直接 print）
-    """
+    """执行自我反驳式答案优化，并按调用渠道返回或打印最终答案。"""
     from miniagent.core.llm_json import llm_json
 
-    def _write(text: str, color: str = "") -> None:
-        """输出文本：优先走 term_write（全屏 CLI），无 capture 时 fallback 到 print。
-
-        **注意**：term_write 实际是 cli_transcript_append，签名是 (style_cls, text)，
-        不是 (text, color)。需要将 ANSI 颜色转换为样式类并调整参数顺序。
-        """
-        if term_write and callable(term_write):
-            try:
-                # 将 ANSI 颜色转换为样式类
-                style_cls = _ANSI_COLOR_TO_STYLE.get(color, "class:cli-default")
-                # cli_transcript_append 签名是 (style_cls, text)，需要反转参数
-                term_write(style_cls, text)
-            except Exception as e:
-                _logger.warning("_write 调用 term_write 失败: %s (text=%s)", e, text[:50])
-        if not capture:
-            print(text)
-
-    _write("🔍 正在审查答案…", "ansicyan")
-
-    # 第一轮审查
-    prompt_parts = [
-        f"用户问题：\n{user_msg[:3000]}",
-        f"\n当前答案：\n{assistant_msg[:5000]}",
-    ]
+    write = _review_writer(term_write, capture)
+    write("🔍 正在审查答案…", "ansicyan")
+    prompt_parts = [f"用户问题：\n{user_msg[:3000]}", f"\n当前答案：\n{assistant_msg[:5000]}"]
     if extra_feedback:
         prompt_parts.append(f"\n用户额外反馈：{extra_feedback}")
-
-    review_result = await llm_json(
-        prompt="\n".join(prompt_parts),
-        system=_REVIEW_SYSTEM,
+    result = await llm_json(prompt="\n".join(prompt_parts), system=_REVIEW_SYSTEM, client=client)
+    if not result:
+        write(f"{WARNING_PREFIX} 审查服务不可用（LLM 无响应）", "ansired")
+        return None
+    issues = result.get("issues", [])
+    if not result.get("has_issues", False) or not issues:
+        write(f"{SUCCESS_PREFIX} 未发现明显问题，答案质量良好。", "ansigreen")
+        return None
+    summary = "；".join(item.get("description", "")[:60] for item in issues[:3])
+    write(f"{WARNING_PREFIX} 发现 {len(issues)} 个问题：{summary}", "ansiyellow")
+    write("🔄 正在改进答案…", "ansicyan")
+    current_answer = await _iterate_review(
+        user_msg,
+        result.get("improved_answer") or assistant_msg,
+        len(issues),
         client=client,
+        max_iterations=max_iterations,
+        write=write,
     )
-
-    # 空结果说明 LLM 调用失败或无响应
-    if not review_result:
-        _write(f"{WARNING_PREFIX} 审查服务不可用（LLM 无响应）", "ansired")
-        return None
-
-    has_issues = review_result.get("has_issues", False)
-    issues = review_result.get("issues", [])
-    improved = review_result.get("improved_answer")
-
-    if not has_issues or not issues:
-        _write(f"{SUCCESS_PREFIX} 未发现明显问题，答案质量良好。", "ansigreen")
-        return None
-
-    issue_summary = "；".join(i.get("description", "")[:60] for i in issues[:3])
-    _write(f"{WARNING_PREFIX} 发现 {len(issues)} 个问题：{issue_summary}", "ansiyellow")
-    _write("🔄 正在改进答案…", "ansicyan")
-
-    current_answer = improved or assistant_msg
-    prev_issue_count = len(issues)
-
-    # 迭代改进
-    for iteration in range(1, max_iterations):
-        review_result = await llm_json(
-            prompt=f"用户问题：\n{user_msg[:3000]}\n\n当前答案：\n{current_answer[:5000]}",
-            system=_REVIEW_ITERATION_SYSTEM.format(prev_issue_count=prev_issue_count),
-            client=client,
-        )
-
-        # 空结果 → LLM 不可用
-        if not review_result:
-            _write(f"{WARNING_PREFIX} 审查服务不可用，返回当前最佳答案", "ansired")
-            break
-
-        has_issues = review_result.get("has_issues", False)
-        new_issues = review_result.get("issues", [])
-        new_improved = review_result.get("improved_answer")
-
-        if not has_issues or not new_issues:
-            _write(f"{SUCCESS_PREFIX} 第 {iteration + 1} 轮审查通过，无新问题。", "ansigreen")
-            break
-
-        prev_issue_count = len(new_issues)
-        if new_improved:
-            current_answer = new_improved
-            issue_summary = "；".join(i.get("description", "")[:60] for i in new_issues[:2])
-            _write(f"🔄 第 {iteration + 1} 轮发现 {len(new_issues)} 个问题，继续改进：{issue_summary}", "ansiyellow")
-        else:
-            _write(f"{WARNING_PREFIX} 第 {iteration + 1} 轮发现 {len(new_issues)} 个问题，但无法生成改进答案", "ansired")
-            break
-    else:
-        _write(f"{WARNING_PREFIX} 已达到最大迭代次数（{max_iterations} 轮），返回最新答案", "ansiyellow")
-
-    # 输出最终答案
-    _write("\n--- 优化后的答案 ---", "ansigreen")
+    write("\n--- 优化后的答案 ---", "ansigreen")
     if capture:
         return f"🔍 审查完成\n\n{current_answer[:2000]}"
     print(current_answer[:2000])

@@ -145,7 +145,9 @@ class TestHttpRetry:
     @pytest.mark.asyncio
     async def test_http_retry_on_network_error(self) -> None:
         """网络错误时重试测试。"""
-        from miniagent.feishu.drive_client import _async_http_request
+        import httpx
+
+        from miniagent.feishu.drive_client import _async_http_request, _tenant_token_url
         from miniagent.feishu.types import FeishuConfig
 
         FeishuConfig(app_id="test", app_secret="test", verification_token="test")
@@ -162,15 +164,15 @@ class TestHttpRetry:
 
         with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
             mock_post.side_effect = [
-                Exception("network error"),
-                Exception("network error"),
+                httpx.RequestError("network error"),
+                httpx.RequestError("network error"),
                 MagicMock(status_code=200, text='{"ok": true}'),
             ]
 
             # 应在第三次成功
             try:
                 await _async_http_request(
-                    "POST", "http://test.url",
+                    "POST", _tenant_token_url(),
                     max_retries=3,
                     backoff_factor=0.1,
                 )

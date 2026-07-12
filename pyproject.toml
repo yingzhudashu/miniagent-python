@@ -7,7 +7,7 @@ name = "miniagent-python"
 dynamic = ["version"]
 description = "A minimal LLM agent with two-phase planning, skill system, self-optimization, and Feishu integration"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
 requires-python = ">=3.10"
 authors = [
     {name = "yingzhudashu"}
@@ -20,7 +20,6 @@ dependencies = [
     "tzdata>=2024.1",
     "aiohttp>=3.9.0",
     "httpx>=0.25.0",
-    "websockets>=12.0",
     "pydantic>=2.0.0",
     "pyyaml>=6.0",
     "typing_extensions>=4.0.0",
@@ -34,6 +33,7 @@ cli = [
 feishu = [
     "lark-oapi>=1.4.0",
     "mistune>=3.0.0",
+    "websockets>=12.0,<14",
 ]
 browser = [
     "playwright>=1.40.0",
@@ -42,6 +42,9 @@ mcp = [
     "mcp>=1.0.0",
 ]
 dev = [
+    "build>=1.0.0",
+    "bandit>=1.7.0",
+    "diff-cover>=9.0.0",
     "pytest>=7.0.0",
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.0.0",
@@ -94,14 +97,21 @@ src = ["miniagent", "tests"]
 
 [tool.ruff.lint]
 # 渐进启用：语法/未定义名/导入顺序/pyupgrade（UP）；行长由上方 line-length 与 formatter 约束，不单开 E501 门禁
-select = ["E4", "E7", "E9", "F", "I", "UP"]
+select = [
+    "E4", "E7", "E9", "F", "I", "UP", "B", "C90",
+    "ASYNC100", "ASYNC109", "ASYNC110", "ASYNC115", "ASYNC116",
+    "ASYNC210", "ASYNC220", "ASYNC221", "ASYNC222", "ASYNC250",
+    "PERF101", "PERF102", "PERF403",
+]
 ignore = ["E402"]  # 部分模块需在 import 前改 sys.path / 环境，保留延后 import
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
 
 [tool.ruff.lint.isort]
 known-first-party = ["miniagent"]
 
-# 可选渐进类型检查：默认仅作配置占位；本地建议先对单个子包跑：
-#   pip install -e ".[dev,typing]" && python -m mypy miniagent/types
+# 全包类型门禁；可选 SDK 由本地 Protocol/适配器隔离。
 [tool.mypy]
 python_version = "3.10"
 warn_unused_configs = true
@@ -109,3 +119,4 @@ ignore_missing_imports = true
 follow_imports = "skip"
 explicit_package_bases = true
 show_error_codes = true
+check_untyped_defs = true
