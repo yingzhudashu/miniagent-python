@@ -1,7 +1,7 @@
 # Mini Agent Python — 文档索引
 
 > 用户入门以 **[README.md](../README.md)** 为准。  
-> Mini Agent Python | 版本: 2.1.0 | 最后更新: 2026-07-11 | 与 `miniagent.__version__` 对齐 | 未发版行为以 [CHANGELOG](../CHANGELOG.md) `[Unreleased]` 为准
+> Mini Agent Python | 版本: 2.2.0 | 最后更新: 2026-07-14 | 与 `miniagent.__version__` 对齐 | 未发版行为以 [CHANGELOG](../CHANGELOG.md) `[Unreleased]` 为准
 
 ---
 

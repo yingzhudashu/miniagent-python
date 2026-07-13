@@ -2,7 +2,7 @@
 
 ![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-2.1.0-blue)
+![Version](https://img.shields.io/badge/version-2.2.0-blue)
 ![Tests](https://img.shields.io/badge/tests-dynamic-blue)
 > **测试数量**：以 `pytest --collect-only -q` 为准，不硬编码以避免漂移（见 [CONTRIBUTING.md](docs/CONTRIBUTING.md) §文档与版本对齐清单）
 ![Coverage](https://img.shields.io/badge/coverage-%E2%89%A580%25%20%E7%9B%AE%E6%A0%87-yellow)
@@ -256,7 +256,7 @@ python -m miniagent --stop
 
 | 角色 | 建议路径 |
 |------|----------|
-| 新用户 | 本文 → [USER_GUIDE.md](docs/USER_GUIDE.md) → [CLI.md](docs/CLI.md) |
+| 新用户 | 本文 → [USER_GUIDE.md](docs/USER_GUIDE.md) → [CLI.md](docs/CLI.md)；完整地图见 [INDEX.md](docs/INDEX.md) |
 | 运维 | [DEPLOYMENT.md](docs/DEPLOYMENT.md) → [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) → [FEISHU.md](docs/FEISHU.md) |
 | 架构师 | 本文 §架构概览 → [ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | 开发者 | [CONTRIBUTING.md](docs/CONTRIBUTING.md) → [PROMPT_GUIDELINES.md](docs/PROMPT_GUIDELINES.md) |
@@ -316,7 +316,7 @@ miniagent-python/
 |------|------|
 | 核心 | [USER_GUIDE.md](docs/USER_GUIDE.md) · [CHANGELOG.md](CHANGELOG.md) · [INDEX.md](docs/INDEX.md) |
 | 用户与运维 | [CLI.md](docs/CLI.md) · [DEPLOYMENT.md](docs/DEPLOYMENT.md) · [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) · [FEISHU.md](docs/FEISHU.md) · [KNOWLEDGE_BASE.md](docs/KNOWLEDGE_BASE.md) |
-| 架构与专题 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) · [MEMORY_SYSTEM.md](docs/MEMORY_SYSTEM.md) · [SECURITY.md](docs/SECURITY.md) · [SELF_OPT.md](docs/SELF_OPT.md) |
+| 架构与专题 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) · [MEMORY_SYSTEM.md](docs/MEMORY_SYSTEM.md) · [SECURITY.md](docs/SECURITY.md) · [SELF_OPT.md](docs/SELF_OPT.md) · [OUTPUT_FORMAT.md](docs/OUTPUT_FORMAT.md) |
 | 性能 | [PERFORMANCE.md](docs/PERFORMANCE.md) |
 | 开发者 | [CONTRIBUTING.md](docs/CONTRIBUTING.md) · [PROMPT_GUIDELINES.md](docs/PROMPT_GUIDELINES.md) |
 | 维护者 | [ENGINEERING.md](docs/ENGINEERING.md) · [CHANGELOG.md](CHANGELOG.md) |

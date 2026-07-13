@@ -1,6 +1,6 @@
 # 三层记忆系统
 
-> Mini Agent Python | 版本: 2.1.0 | 最后更新: 2026-07-12 | 与 `miniagent.__version__` 对齐 | 模块: `miniagent/memory/`
+> Mini Agent Python | 版本: 2.2.0 | 最后更新: 2026-07-14 | 与 `miniagent.__version__` 对齐 | 模块: `miniagent/memory/`
 
 ## 架构概览
 

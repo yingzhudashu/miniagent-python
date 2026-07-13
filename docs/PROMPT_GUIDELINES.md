@@ -1,6 +1,6 @@
 # 提示词编写规范
 
-> Mini Agent Python | 版本: 2.1.0 | 最后更新: 2026-07-11 | 与 `miniagent.__version__` 对齐 | 基于 Claude 官方最佳实践
+> Mini Agent Python | 版本: 2.2.0 | 最后更新: 2026-07-14 | 与 `miniagent.__version__` 对齐 | 基于 Claude 官方最佳实践
 
 ## 一、设计原则
 

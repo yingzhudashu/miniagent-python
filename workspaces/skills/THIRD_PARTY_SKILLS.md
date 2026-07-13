@@ -1,46 +1,39 @@
-# 第三方技能许可与合规说明
+# 第三方技能许可与合规清单
 
-> 本文件为 **SSOT**：记录 `workspaces/skills/` 下内置与已安装第三方技能包的来源、许可证与合规要点。  
-> 用户指南见 [docs/USER_GUIDE.md](../../docs/USER_GUIDE.md) §13；ClawHub 安装脚本见 `scripts/bootstrap_clawhub_skills.py`。
+> 本文件是 `workspaces/skills/` 下第三方/模板技能来源与许可说明的 **SSOT**。  
+> 运行时技能包默认放在本目录；仓库预置模板位于 `miniagent/skills/templates/`。
 
----
+## 目录约定
 
-## 内置基线技能
+| 路径 | 用途 |
+|------|------|
+| `workspaces/skills/` | 用户本机已安装/复制的技能包（默认运行时根，多数内容被 gitignore） |
+| `miniagent/skills/templates/` | 随源码/wheel 发布的模板与基线技能（可复制或 `install-skill` 到上表目录） |
 
-| 目录 | 来源 | 许可证 | 说明 |
-|------|------|--------|------|
-| `skill-creator` | [anthropics/skills](https://github.com/anthropics/skills) | Apache-2.0（见包内 `LICENSE.txt`） | 仓库模板位于 `miniagent/skills/templates/skill-creator/`；editable 安装或克隆后复制到本目录 |
-| `skill-vetter` | 本仓库配套 | 与项目 MIT 一致 | 模板位于 `miniagent/skills/templates/skill-vetter/`；可通过 `miniagent install-skill skill-vetter` 安装 |
+仅从 PyPI 安装 wheel、无完整仓库树时，本目录可能为空；需要基线技能时请克隆仓库、editable 安装，或从 `miniagent/skills/templates/` 手动复制。
 
-**wheel 安装说明**：仅从 PyPI 安装时，`workspaces/skills/` 下可能没有预置文件。需要基线时请克隆仓库、`pip install -e .`，或手动复制上述模板目录。
+## 模板与基线技能
 
----
+| 技能 | 模板路径 | 来源 | 许可摘要 |
+|------|----------|------|----------|
+| `skill-creator` | `miniagent/skills/templates/skill-creator/` | [anthropics/skills](https://github.com/anthropics/skills)（含 `LICENSE.txt`） | Apache-2.0（见模板内 `LICENSE.txt`） |
+| `skill-vetter` | `miniagent/skills/templates/skill-vetter/` | 本仓库维护的指令型安全审查技能 | 与本仓库相同（MIT）；不含可执行第三方代码 |
+| `builtin-web` | `miniagent/skills/templates/builtin-web/` | 本仓库维护的联网工具技能（Tavily / fetch / Playwright） | 与本仓库相同（MIT）；调用方需自行遵守 Tavily 等第三方 API 条款 |
 
-## 从 ClawHub 安装的技能
+`skill-creator` 首次使用时可复制整个模板目录到 `workspaces/skills/skill-creator/`，或按 [USER_GUIDE.md §7](../../docs/USER_GUIDE.md#7-技能与-clawhub可选) 的安装指引操作。`skill-vetter` 同理（可用 `miniagent install-skill skill-vetter` 或手动复制）。
 
-通过 `scripts/bootstrap_clawhub_skills.py` 或 Agent 的 `search_skills` / 市场 API 安装的包，**不由本仓库分发**。安装前请：
+## ClawHub / 自行安装的技能
 
-1. 在 [ClawHub](https://clawhub.ai) 核对技能页上的 **slug**、作者与许可说明。
-2. 安装目录为 slug **最后一段**（与 `skill_install_dir_name` 一致），便于引擎扫描一级子目录。
-3. 安装后在本表 **追加一行**，记录 slug、安装日期、许可证（若页面未标明则标注「未知，需自行审查」）。
+从 [ClawHub](https://clawhub.ai) 或其它来源安装的技能 **不在本清单逐项担保**：
 
-| slug | 安装目录 | 许可证 | 安装日期 | 备注 |
-|------|----------|--------|----------|------|
-| _(示例)_ `author/my-skill` | `my-skill` | MIT | YYYY-MM-DD | 请替换为实际记录 |
+1. 安装前用 `skill-vetter`（或等价人工审查）检查提示词、脚本与网络/文件访问面。
+2. 保留上游作者、仓库 URL、版本/commit 与许可证文本；若技能自带 `LICENSE` / `NOTICE`，勿删除。
+3. 附加引导安装可用 `scripts/bootstrap_clawhub_skills.py`（参数以官方技能页为准；**不替代**上表基线模板）。
 
----
-
-## 合规与使用建议
-
-- **审查优先**：加载前可用内置 `skill-vetter` 技能或人工阅读 `SKILL.md`、脚本与网络请求，确认无越权文件访问、凭据外泄或恶意依赖。
-- **许可证义务**：遵守各包 LICENSE；Apache-2.0 / MIT 等常见许可需保留版权声明与 NOTICE（若存在）。
-- **网络与密钥**：ClawHub 下载与技能运行时可能访问外网；勿在不可信技能中硬编码或传入生产密钥。
-- **卸载**：删除 `workspaces/skills/<目录名>/` 并从上表移除对应行即可；重启 Agent 后不再加载。
-
----
+将新的长期第三方技能并入团队仓库时，请在本文件增补一行（名称、来源 URL、许可、备注），并确保 `.gitignore` 对敏感运行时文件的忽略仍有效。
 
 ## 相关文档
 
-- [docs/USER_GUIDE.md](../../docs/USER_GUIDE.md) §13 — 技能与 ClawHub 用户说明
-- [docs/SECURITY.md](../../docs/SECURITY.md) — 沙箱与工具权限
-- `miniagent/skills/clawhub_client.py` — 市场 API 与本地降级行为
+- [USER_GUIDE.md §7](../../docs/USER_GUIDE.md#7-技能与-clawhub可选) — 日常技能与 ClawHub 使用
+- [CONTRIBUTING.md](../../docs/CONTRIBUTING.md) Part 2 — 编写自定义技能
+- [SECURITY.md](../../docs/SECURITY.md) — 沙箱与高风险工具确认

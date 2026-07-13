@@ -5,6 +5,18 @@
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-07-14
+
+### 文档
+
+- 补齐 `workspaces/skills/THIRD_PARTY_SKILLS.md`（技能来源与许可合规 SSOT）。
+- 修正文档中的配置/环境变量漂移：`model.retry_count`、时区解析优先级、
+  `MINIAGENT_DISABLE_SCHEDULED_TASKS` 等运维 env 写入 ENGINEERING §1.2。
+- 更新 CONTRIBUTING：CLI 命令以 `command_registry.CommandSpec` 为 SSOT；
+  通道扩展对齐 `ChannelAdapter` / `InboundMessage`。
+- README 专题索引补齐 `OUTPUT_FORMAT.md`；收敛 CLI 与渲染文档交叉叙述；
+  FEISHU 文首补充控制台快速开始清单。
+
 ### 架构
 
 - 增加不可变配置快照、结构化状态 schema/显式备份迁移、带只读 callable 绑定的统一命令注册表，并将飞书卡片渲染策略从长轮询模块拆出。

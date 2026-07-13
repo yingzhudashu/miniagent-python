@@ -1,7 +1,7 @@
 # 系统架构
 
 > 架构概览见 [README.md §架构概览](../README.md#架构概览)。本文档为各层深读。  
-> Mini Agent Python | 版本: 2.1.0 | 最后更新: 2026-07-11 | 与 `miniagent.__version__` 对齐
+> Mini Agent Python | 版本: 2.2.0 | 最后更新: 2026-07-14 | 与 `miniagent.__version__` 对齐
 
 ## 架构总览
 

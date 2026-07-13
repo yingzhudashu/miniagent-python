@@ -1,6 +1,6 @@
 # Mini Agent Python 故障排查手册
 
-> Mini Agent Python | 版本: 2.1.0 | 最后更新: 2026-07-11 | 与 `miniagent.__version__` 对齐
+> Mini Agent Python | 版本: 2.2.0 | 最后更新: 2026-07-14 | 与 `miniagent.__version__` 对齐
 
 本手册提供常见问题的诊断方法和解决方案，帮助用户快速定位和解决问题。
 
@@ -413,7 +413,7 @@ ping api.openai.com
 4. 对齐遗留 UTC 定时任务时区：
    - **CLI 无** `/schedule align-tz` 子命令
    - 在 Agent 对话中让模型调用 `manage_scheduled_task` 工具的 `align_tz` action，或手动编辑 `{paths.state_dir}/scheduled_tasks/` 下任务 JSON
-   - 全局时区 SSOT：`MINIAGENT_TIMEZONE` / `TZ` 与 `timezone.default`（见 [CHANGELOG](../CHANGELOG.md)）
+   - 全局时区 SSOT（见 `miniagent/infrastructure/timezone_config.py`）：`timezone.default`（JSON）→ 环境变量 `TZ` → `timezone.default_fallback`（默认 `Asia/Shanghai`）。**无** `MINIAGENT_TIMEZONE` 环境变量。
 
 ---
 

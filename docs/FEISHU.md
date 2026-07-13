@@ -1,8 +1,18 @@
 # 飞书集成文档
 
-> Mini Agent Python | 版本: 2.1.0 | 最后更新: 2026-07-11 | 与 `miniagent.__version__` 对齐 | 飞书 WebSocket 长连接
+> Mini Agent Python | 版本: 2.2.0 | 最后更新: 2026-07-14 | 与 `miniagent.__version__` 对齐 | 飞书 WebSocket 长连接
 
 ## 快速开始
+
+### 0. 开放平台控制台（约 5 步）
+
+以下清单便于首次接入；权限与事件细节以 [飞书开放平台](https://open.feishu.cn) 为准，本文后续章节展开运维与工具。
+
+1. 在开放平台 **创建企业自建应用**，记下 App ID / App Secret。
+2. 开通机器人能力；按下文「权限」申请 IM、云文档等所需 scope（先最小集，用到再开）。
+3. 订阅事件：本集成走 **WebSocket 长连接**，一般 **无需** 公网回调 URL；在控制台启用事件订阅并确保可收到 `im.message.receive_v1` 等（以开放平台当前指引为准）。
+4. （可选）记录 Verification Token，写入 `secrets.feishu_verification_token`。
+5. 将应用发布/版本生效，并把机器人拉入目标群或开启私聊。
 
 ### 1. 配置凭据
 
@@ -18,7 +28,7 @@
 }
 ```
 
-`env_loader` 会将上述值桥接到 SDK 所需的 `FEISHU_*` 环境变量。
+`env_loader` 会将上述值桥接到 SDK 所需的 `FEISHU_*` 环境变量。依赖：`pip install -e ".[feishu]"`。
 
 ### 2. 启动
 
@@ -27,12 +37,11 @@ python -m miniagent --feishu
 ```
 
 或在 CLI 中运行：`/feishu start`
-
 **启动形态**：进程始终以 **CLI 主循环** 为主；上述两种方式均为 **CLI + 飞书**（同进程内附加飞书 WebSocket 长连接），不存在无 CLI 的独立飞书进程入口。
 
 在全屏 prompt_toolkit CLI 下，飞书启动提示、以及**策略允许**的入站横幅与思考镜像，会写入上方 **transcript**（`ApplicationContainer.cli_transcript_append`），而不再向裸 stdout `print`，避免与备用屏输入行互相覆盖。
 
-**CLI 显示隔离**（详见上文 [CLI 显示策略](#cli-显示策略cli_feishu_policy)）：默认 CLI 在 `default` 等一般会话时，**群聊**消息仅在飞书侧处理与回复，**不会**刷屏到 CLI；仅与 CLI 同会话的**私聊**会显示预览。使用 **`/session switch oc_xxx`**（或 `feishu:oc_xxx`）进入群聊聚焦后，CLI 只显示该群内容，私聊不再接入或显示。
+**CLI 显示隔离**（详见下文 [CLI 显示策略](#cli-显示策略cli_feishu_policy)）：默认 CLI 在 `default` 等一般会话时，**群聊**消息仅在飞书侧处理与回复，**不会**刷屏到 CLI；仅与 CLI 同会话的**私聊**会显示预览。使用 **`/session switch oc_xxx`**（或 `feishu:oc_xxx`）进入群聊聚焦后，CLI 只显示该群内容，私聊不再接入或显示。
 
 `get_logger()` 的诊断输出写入 **stderr**（不再写 stdout）；飞书 WebSocket 客户端 SDK 日志级别为 **ERROR**，避免与全屏 UI 争用终端。
 

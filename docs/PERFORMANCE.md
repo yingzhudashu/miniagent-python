@@ -1,6 +1,6 @@
 # 性能测试与优化
 
-> Mini Agent Python | 版本: 2.1.0 | 最后更新: 2026-07-12 | 与 `miniagent.__version__` 对齐 | 补充 [ENGINEERING.md](ENGINEERING.md)
+> Mini Agent Python | 版本: 2.2.0 | 最后更新: 2026-07-14 | 与 `miniagent.__version__` 对齐 | 补充 [ENGINEERING.md](ENGINEERING.md)
 
 本文分两部分：
 
@@ -343,11 +343,11 @@ CLI 与飞书默认以流式展示思考过程（引擎层行为，无 `agent.st
 ```json
 {
   "agent": { "http_timeout": 120 },
-  "model": { "max_retries": 3, "model": "gpt-4o-mini" }
+  "model": { "retry_count": 2, "model": "gpt-4o-mini" }
 }
 ```
 
-OpenAI SDK 超时在 `core/openai_client.py` 中配置为 120 秒。
+用户 JSON 键为 **`model.retry_count`**（非 `max_retries`）。`infrastructure/http_retry.py` 与 OpenAI SDK 内部参数名也可能叫 `max_retries`，属于实现细节，勿写成 `config.user.json` 键。OpenAI SDK 超时在 `core/openai_client.py` 中配置为 120 秒。
 
 #### 飞书连接优化
 

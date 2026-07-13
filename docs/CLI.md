@@ -1,6 +1,6 @@
 # CLI 命令手册
 
-> Mini Agent Python | 版本: 2.1.0 | 最后更新: 2026-07-11 | 与 `miniagent.__version__` 对齐 | 命令使用 `/` 前缀；多数命令在 CLI 与飞书均可使用
+> Mini Agent Python | 版本: 2.2.0 | 最后更新: 2026-07-14 | 与 `miniagent.__version__` 对齐 | 命令使用 `/` 前缀；多数命令在 CLI 与飞书均可使用
 
 **命令前缀**：系统统一使用 `/` 前缀（更符合CLI惯例）。例如：`/help`、`/status`、`/session list`。
 
@@ -588,13 +588,13 @@ HTTP 请求自动重试，提升网络稳定性：
 - **4xx 错误**：不重试（客户端错误）
 - **网络错误**：重试（连接失败）
 
-**参数配置**：
-- `max_retries`：默认 3 次
-- `backoff_factor`：指数退避因子 1.0（间隔：1s → 2s → 4s）
-- `http_timeout`：默认 120 秒（包内 defaults）
+**参数配置**（实现层，**不是** `config.user.json` 用户键名）：
+- 通用 HTTP 客户端（`infrastructure/http_retry.py`）：函数参数 `max_retries` 默认 3；`backoff_factor` 默认 1.0（间隔：1s → 2s → 4s）
+- 模型客户端：用户 JSON 使用 **`model.retry_count`**（默认见 `config.defaults.json`）；OpenAI SDK 内部另有原生 `max_retries`（常见为 2），勿与 JSON 键混淆
+- `agent.http_timeout`：默认 120 秒（包内 defaults，**这是**合法 JSON 键）
 
 **覆盖模块**：
-- OpenAI API 调用（SDK 原生 `max_retries=2`）
+- OpenAI API 调用（配置键 `model.retry_count`；SDK 另有原生重试）
 - Embedding 搜索
 - ClawHub 客户端
 - 飞书 Drive API

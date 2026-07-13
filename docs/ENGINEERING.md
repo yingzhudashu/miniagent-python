@@ -1,6 +1,6 @@
 # 软件工程实践与仓库卫生
 
-> Mini Agent Python | 版本: 2.1.0 | 最后更新: 2026-07-11 | 与 `miniagent.__version__` 对齐
+> Mini Agent Python | 版本: 2.2.0 | 最后更新: 2026-07-14 | 与 `miniagent.__version__` 对齐
 
 本文档汇总本仓库在**可维护性、可重复构建、安全与协作**上的约定，作为 [CONTRIBUTING.md](CONTRIBUTING.md) 的补充：后者偏「如何写代码」，本文偏「仓库与发布如何保持健康」。
 
@@ -11,7 +11,7 @@
 | 主题 | 权威位置 | 说明 |
 |------|----------|------|
 | 可安装包名与源码布局 | `pyproject.toml` → `[tool.setuptools.packages.find]` | 仅打包 `miniagent*`；不再维护顶层 `src` 作为可导入包。 |
-| 版本号 | `miniagent/__init__.py` 中 `__version__` | `pyproject.toml` 通过 `dynamic.version` 读取；发版时与 `CHANGELOG.md`、本文档顶部标语一并更新。 |
+| 版本号 | `miniagent/__init__.py` 中 `__version__` | `pyproject.toml` 通过 `dynamic.version` 读取；发版时与 `CHANGELOG.md`、本文档顶部标语一并更新。**包版本**（如 `2.2.0`）与 `config.defaults.json` 顶层 `version`（**defaults schema version**，当前可为 `2.0.0`）是两条轨道，勿混为一谈。 |
 | 依赖声明 | `pyproject.toml` `[project]` / `optional-dependencies` | 不使用根目录 `requirements.txt`；运行时依赖与可选组（`dev`（含 `pytest-cov`）、`feishu`、`browser`、`mcp`、`cli`、`typing`（全包 `mypy`））集中在此。 |
 | 配置说明 | [`miniagent/resources/config.defaults.json`](../miniagent/resources/config.defaults.json) + `config.user.json` | 包资源提供默认值，user 文件只写本地覆盖；`_config_guide` 标明 User/Advanced 分层；**勿提交含真实密钥的 user 文件**（见 `.gitignore`）。 |
 | 用户安装与首次配置 | [README.md](../README.md) §安装、§配置、§快速入门 | USER_GUIDE / DEPLOYMENT 仅保留专题指针，不重复安装长文。 |
@@ -74,7 +74,7 @@
 
 | 类别 | 说明 | 示例 | 文档 |
 |------|------|------|------|
-| **运维 / 调试类（仍有效）** | 启动行为、日志级别、特性开关，非 defaults 镜像 | `AGENT_DEBUG`、`MINIAGENT_TRACE_LOG_FILE`、`MINIAGENT_FEISHU_DOT_COMMANDS_FULL` | [DEPLOYMENT.md](DEPLOYMENT.md)、[OUTPUT_FORMAT.md](OUTPUT_FORMAT.md)、[FEISHU.md](FEISHU.md) |
+| **运维 / 调试类（仍有效）** | 启动行为、日志级别、特性开关，非 defaults 镜像 | `AGENT_DEBUG`、`MINIAGENT_TRACE_LOG_FILE`、`MINIAGENT_FEISHU_DOT_COMMANDS_FULL`、`MINIAGENT_DISABLE_SCHEDULED_TASKS`（设为 `1`/`true` 时禁用进程内定时任务调度；见 [CLI.md](CLI.md) `/schedule`） | [DEPLOYMENT.md](DEPLOYMENT.md)、[OUTPUT_FORMAT.md](OUTPUT_FORMAT.md)、[FEISHU.md](FEISHU.md)、[CLI.md](CLI.md) |
 | **路径覆盖类（仍有效）** | 覆盖状态目录或注册表根，不改变配置语义 | `MINIAGENT_PATHS_STATE_DIR`、`MINIAGENT_REGISTRY_STATE_DIR`、`MINIAGENT_PROJECT_DIR` | 本文 §3 |
 
 凭据类变量（`OPENAI_API_KEY`、`FEISHU_APP_ID` 等）由 `secrets.*` 桥接，见上节。
@@ -395,7 +395,18 @@ deleted = ProposalStore.cleanup_old_proposals(retention_days=30)
 
 ---
 
-## 7. 相关文档
+## 7. 常用术语（短表）
+
+| 术语 | 含义 |
+|------|------|
+| `session_key` | 会话逻辑键（如 `default`、`feishu:oc_xxx`）；记忆/锁/文件按会话隔离 |
+| `project_key` | 由启动 cwd 等确定性推导的项目分区名；状态落在 `workspaces/projects/{project_key}/` |
+| `__cli__` | CLI 通道在 `ChannelRouter` 上的绑定标识 |
+| `oc_` / `ou_` | 飞书群 `chat_id` / 用户 `open_id` 常见前缀；CLI `/session switch oc_xxx` 会规范为 `feishu:oc_xxx` |
+| User / Advanced / Internal | 配置分层：用户 JSON、运维调优、不可 JSON 覆盖的代码常量（见 §1.1） |
+| 包版本 vs schema | `miniagent.__version__`（发版）与 `config.defaults.json` 顶层 `version`（defaults schema）双轨 |
+
+## 8. 相关文档
 
 - [SELF_OPT.md](SELF_OPT.md) — 自我优化系统详解
 - [CLI.md](CLI.md) — CLI 命令手册（自我优化命令）
