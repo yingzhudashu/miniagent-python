@@ -358,6 +358,12 @@ ClarifiedRequirement（澄清后的需求规格）
 | `builtin_toolboxes.py` | 内置工具箱定义，与技能包合并 |
 | `clawhub_client.py` | ClawHub 客户端：技能搜索/安装/版本管理 |
 
+启动阶段会从包内模板补齐 `skill-creator`、`skill-vetter`、`builtin-web` 与
+`builtin-stackexchange` 基线技能。`builtin-stackexchange` 将 `stack_exchange_search`
+注册到 `web` 工具箱：通过 Stack Exchange API 并发查询最多三个站点，批量读取采纳/高票答案，
+并在工具层完成查询脱敏、15 分钟缓存、配额上报和 `backoff` 执行。它使用独立技能目录，升级时
+不会覆盖用户定制的 `builtin-web`。
+
 ### 8. 工具层 (Tools)
 
 LLM 可通过 function calling 调用的工具：

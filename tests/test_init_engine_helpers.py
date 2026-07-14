@@ -127,7 +127,12 @@ def test_ensure_baseline_skills_restores_missing(tmp_path, monkeypatch) -> None:
 
     _ensure_baseline_skills()
 
-    for name in ("skill-vetter", "skill-creator", "builtin-web"):
+    for name in (
+        "skill-vetter",
+        "skill-creator",
+        "builtin-web",
+        "builtin-stackexchange",
+    ):
         assert (skills_root / name).is_dir()
 
 

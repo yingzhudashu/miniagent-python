@@ -1,0 +1,5 @@
+{
+  "name": "builtin-stackexchange",
+  "version": "1.0.0",
+  "description": "Stack Exchange troubleshooting search with structured answers and attribution metadata"
+}

@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+### 体验
+
+- 复杂任务长内容分层：计划即时预览封顶、分步中间步收成状态行（TUI 替换 / 飞书强制 PATCH）；完整细节仍写入会话历史。配置见 `display.*`，说明见 `docs/OUTPUT_FORMAT.md` §1.7。
+- 最终回复结论先行改由执行 prompt「回复结构」约束，展示层不再硬插 `## 结论`。
+- 新增独立 `builtin-stackexchange` 基线技能：软硬件排障时主动检索 Stack Overflow 及对应 Stack Exchange 站点，结构化返回采纳/高票答案、作者、日期、票数和来源链接；匿名模式可用，并包含查询脱敏、缓存、配额与 API backoff 保护。
+
 ## [2.2.0] - 2026-07-14
 
 ### 文档

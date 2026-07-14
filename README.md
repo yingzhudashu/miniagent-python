@@ -44,6 +44,7 @@
 - 🔌 技能系统（动态加载 + ClawHub 市场）
 - 🔌 MCP 工具（Model Context Protocol）
 - 🔌 联网搜索（Tavily API）
+- 🔌 Stack Overflow / Stack Exchange 故障经验检索（公开 API，无 Key 可用）
 - 🔌 无头浏览器（Playwright）
 - 🔌 飞书集成（IM + 云文档 + 多维表格）
 - 🔌 知识库 RAG（`/kb` 挂载检索）
@@ -210,6 +211,7 @@ Agent 会自动调用文件工具完成任务。
 | `agent.max_turns` | 单轮 ReAct 最大轮数，默认 400 |
 | `agent.debug` | `true` 时更啰嗦的日志 |
 | `secrets.tavily_api_key` | 启用联网搜索（Tavily） |
+| `secrets.stack_exchange_key` | 可选；提高 Stack Exchange API 配额，匿名检索无需配置 |
 | `secrets.feishu_app_id` / `secrets.feishu_app_secret` | 飞书应用凭证（事件订阅另需 `feishu_verification_token` 等，见 [FEISHU.md](docs/FEISHU.md)） |
 | `paths.state_dir` | 状态根目录，默认 `workspaces`（canonical 布局：`workspaces/projects/{project_key}/`，见 [ENGINEERING.md](docs/ENGINEERING.md) §3） |
 
@@ -268,6 +270,7 @@ python -m miniagent --stop
 |--------|------|----------|
 | `secrets.openai_api_key` | LLM API 密钥 | 本文 §配置 |
 | `secrets.tavily_api_key` | 联网搜索 | [USER_GUIDE.md §6](docs/USER_GUIDE.md#6-联网搜索与浏览器工具可选) |
+| `secrets.stack_exchange_key` | Stack Exchange 可选配额 Key | [USER_GUIDE.md §6](docs/USER_GUIDE.md#6-联网搜索与浏览器工具可选) |
 | `feishu.*` | 飞书配置 | [FEISHU.md](docs/FEISHU.md) |
 | `agent.max_turns` | 执行轮数上限 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 

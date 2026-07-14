@@ -5,6 +5,7 @@
 - OPENAI_API_KEY
 - TAVILY_API_KEY
 - WEB_SEARCH_API_KEY
+- STACK_EXCHANGE_KEY
 - MINIAGENT_EMBED_API_KEY
 - FEISHU_APP_ID
 - FEISHU_APP_SECRET
@@ -30,6 +31,7 @@ _SECRETS_TO_ENV = {
     "openai_api_key": "OPENAI_API_KEY",
     "tavily_api_key": "TAVILY_API_KEY",
     "web_search_api_key": "WEB_SEARCH_API_KEY",
+    "stack_exchange_key": "STACK_EXCHANGE_KEY",
     "embed_api_key": "MINIAGENT_EMBED_API_KEY",
     "feishu_app_id": "FEISHU_APP_ID",
     "feishu_app_secret": "FEISHU_APP_SECRET",

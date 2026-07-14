@@ -240,7 +240,12 @@ def _init_default_session(
     return fallback
 
 
-_BASELINE_SKILLS = ("skill-vetter", "skill-creator", "builtin-web")
+_BASELINE_SKILLS = (
+    "skill-vetter",
+    "skill-creator",
+    "builtin-web",
+    "builtin-stackexchange",
+)
 
 # Git blob IDs of every previously shipped canonical builtin-web tools.py.
 # Identity comparison is migration gating, not a cryptographic trust decision:

@@ -104,6 +104,7 @@
 ## 6. 联网搜索与浏览器工具（可选）
 
 - **联网搜索（Tavily）**：在 `config.user.json` 的 `secrets` 部分配置 `tavily_api_key` 或 `web_search_api_key`。未配置时，若模型尝试调用搜索工具，会得到 **明确错误提示**，不影响其它工具。  
+- **Stack Overflow / Stack Exchange 排障检索**：`builtin-stackexchange` 使用公开 API，匿名模式即可工作；`secrets.stack_exchange_key` 仅用于提高配额。Agent 只在报错、异常、兼容性、性能、安装构建、驱动、网络和硬件排障时主动查询，并按问题选择 Stack Overflow、Super User、Server Fault、Ask Ubuntu、Unix & Linux、Electrical Engineering 等站点。查询会脱敏常见凭据、邮箱、私有主机和本地路径；社区票数与采纳状态只是经验信号，最终建议仍需核对本地环境和当前官方资料。引用社区答案时保留作者与原帖链接。
 - **浏览器正文抽取**：需 `[browser]` 与 Playwright 浏览器安装；用于部分需渲染的网页。  
 
 超时等见 `miniagent/resources/config.defaults.json` 的 `agent` 节（如 `agent.tool_timeout`）。
@@ -113,8 +114,8 @@
 ## 7. 技能与 ClawHub（可选）
 
 - 默认技能根目录为仓库下 **`workspaces/skills/`**（可在 `config.user.json` 设置 `paths.skills_dir`）。  
-- **内置基线**：仓库预置 **`skill-creator`**（来自 [anthropics/skills](https://github.com/anthropics/skills)，含 `LICENSE.txt`）；**`skill-vetter`**（安全审查）位于 `miniagent/skills/templates/skill-vetter/`，首次使用时可通过 `miniagent install-skill skill-vetter` 或手动复制到 `workspaces/skills/` 加载。  
-- **仅从 PyPI 安装 wheel**（无完整仓库树）时，默认路径下可能没有预置技能文件；需要基线时请克隆仓库、editable 安装，或手动复制模板目录（见 [workspaces/skills/THIRD_PARTY_SKILLS.md](../workspaces/skills/THIRD_PARTY_SKILLS.md)）。  
+- **内置基线**：启动时会补齐 `skill-creator`、`skill-vetter`、`builtin-web` 和 `builtin-stackexchange`；新增的 Stack Exchange 技能不会覆盖用户修改过的 `builtin-web`。`skill-creator` 来自 [anthropics/skills](https://github.com/anthropics/skills) 并包含 `LICENSE.txt`。
+- **从 PyPI 安装 wheel** 时也包含上述基线模板；启动会恢复缺失目录。已有用户定制会保留，托管的 `builtin-web` 历史版本文件仅在内容仍与已知官方版本完全一致时升级。
 - **扩展**：可从 ClawHub 安装更多技能包，引导脚本见 `scripts/bootstrap_clawhub_skills.py`（参数以官方技能页为准；脚本仅为额外安装，不替代内置基线）。  
 - 第三方许可清单与合规说明见 **[workspaces/skills/THIRD_PARTY_SKILLS.md](../workspaces/skills/THIRD_PARTY_SKILLS.md)**（SSOT）。
 
@@ -183,6 +184,7 @@
 3. **共享电脑**：使用独立用户目录与独立 `paths.state_dir`，用完可删除状态目录。  
 4. **工具能力**：文件与命令受沙箱等约束，见 [SECURITY.md](SECURITY.md)；不要给不可信人员开放你的运行环境。  
 5. **备份介质**：会话与记忆可能含敏感业务文本，备份同样需加密与访问控制。
+6. **外部检索**：排障查询会发送到 Stack Exchange API；即使有自动脱敏，也不要把内部源码、客户数据或完整私有日志作为搜索词。
 
 ---
 
