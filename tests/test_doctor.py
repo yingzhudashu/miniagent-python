@@ -7,7 +7,7 @@ import subprocess
 import sys
 from unittest.mock import patch
 
-from miniagent.engine.doctor import (
+from miniagent.assistant.engine.doctor import (
     REQUIRED_DEPENDENCIES,
     _format_masked_secret,
     _resolve_api_key,
@@ -115,7 +115,7 @@ def test_diagnose_environment_flags_missing_required_dependency(
     def _availability(module_name: str) -> bool:
         return module_name != "croniter"
 
-    with patch("miniagent.engine.doctor._is_module_available", side_effect=_availability):
+    with patch("miniagent.assistant.engine.doctor._is_module_available", side_effect=_availability):
         out = diagnose_environment()
 
     assert "croniter" in out
@@ -131,7 +131,7 @@ def test_diagnose_environment_treats_websockets_as_feishu_optional(
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-key")
 
     with patch(
-        "miniagent.engine.doctor._is_module_available",
+        "miniagent.assistant.engine.doctor._is_module_available",
         side_effect=lambda module_name: module_name != "websockets",
     ):
         out = diagnose_environment()

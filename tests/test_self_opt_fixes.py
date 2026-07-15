@@ -8,11 +8,11 @@ from pathlib import Path
 
 import pytest
 
-from miniagent.core.self_opt.auto_optimizer import apply_proposal
-from miniagent.core.self_opt.proposal_store import ProposalStore, get_history_file
-from miniagent.core.self_opt.runtime_analyzer import _detect_loop_patterns
-from miniagent.core.self_opt.types import FileChange, OptimizationProposal, OptTestCase
-from miniagent.infrastructure.trace_events import EVENT_TOOL_END
+from miniagent.agent.trace_events import EVENT_TOOL_END
+from miniagent.assistant.self_opt.auto_optimizer import apply_proposal
+from miniagent.assistant.self_opt.proposal_store import ProposalStore, get_history_file
+from miniagent.assistant.self_opt.runtime_analyzer import _detect_loop_patterns
+from miniagent.assistant.self_opt.types import FileChange, OptimizationProposal, OptTestCase
 from tests.config_helpers import install_test_config
 
 

@@ -6,11 +6,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from miniagent.core.requirement_clarifier import (
+from miniagent.agent.requirement_clarifier import (
     ClarifiedRequirement,
     RequirementClarifier,
 )
-from miniagent.types.memory import GroundTruthFact, SessionMemory
+from miniagent.agent.types.memory import GroundTruthFact, SessionMemory
 from tests.memory_helpers import make_knowledge_registry
 
 
@@ -94,7 +94,7 @@ class TestRequirementClarifier:
                 "ambiguity_report": ["ambiguous term"],
             }
 
-        with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
+        with patch("miniagent.agent.requirement_clarifier.llm_json", side_effect=mock_llm):
             result = await clarifier.clarify(
                 "test input",
                 knowledge_registry=make_knowledge_registry(),
@@ -127,7 +127,7 @@ class TestRequirementClarifier:
                 "ambiguity_report": ["ambiguity 1", "ambiguity 2"],
             }
 
-        with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
+        with patch("miniagent.agent.requirement_clarifier.llm_json", side_effect=mock_llm):
             result = await clarifier.clarify(
                 "test input",
                 knowledge_registry=make_knowledge_registry(),
@@ -154,7 +154,7 @@ class TestRequirementClarifier:
                 "ambiguity_report": ["目标目录是哪一个"],
             }
 
-        with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
+        with patch("miniagent.agent.requirement_clarifier.llm_json", side_effect=mock_llm):
             result = await clarifier.clarify(
                 "写文件",
                 knowledge_registry=make_knowledge_registry(),
@@ -182,7 +182,7 @@ class TestRequirementClarifier:
                 "ambiguity_report": ["目标目录是哪一个"],
             }
 
-        with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
+        with patch("miniagent.agent.requirement_clarifier.llm_json", side_effect=mock_llm):
             result = await clarifier.clarify(
                 "写文件",
                 knowledge_registry=make_knowledge_registry(),
@@ -208,7 +208,7 @@ class TestRequirementClarifier:
                 "boundary_conditions": ["use markdown"],
             }
 
-        with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
+        with patch("miniagent.agent.requirement_clarifier.llm_json", side_effect=mock_llm):
             await clarifier.clarify(
                 "test",
                 knowledge_registry=make_knowledge_registry(),
@@ -226,7 +226,7 @@ class TestRequirementClarifier:
         async def mock_llm(*args, **kwargs):
             return {}
 
-        with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
+        with patch("miniagent.agent.requirement_clarifier.llm_json", side_effect=mock_llm):
             result = await clarifier.clarify(
                 "original request",
                 knowledge_registry=make_knowledge_registry(),
@@ -244,7 +244,7 @@ class TestRequirementClarifier:
         async def mock_llm(*args, **kwargs):
             raise ValueError("parse failed")
 
-        with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
+        with patch("miniagent.agent.requirement_clarifier.llm_json", side_effect=mock_llm):
             with pytest.raises(ValueError, match="parse failed"):
                 await clarifier.clarify(
                     "test input",
@@ -269,7 +269,7 @@ class TestRequirementClarifier:
                 "ambiguity_report": [],
             }
 
-        with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
+        with patch("miniagent.agent.requirement_clarifier.llm_json", side_effect=mock_llm):
             await clarifier.clarify(
                 "clear input",
                 knowledge_registry=make_knowledge_registry(),
@@ -305,7 +305,7 @@ class TestRequirementClarifier:
                 "ambiguity_report": ["输出语言是什么"],
             }
 
-        with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
+        with patch("miniagent.agent.requirement_clarifier.llm_json", side_effect=mock_llm):
             result = await clarifier.clarify(
                 "写报告",
                 knowledge_registry=make_knowledge_registry(),
@@ -337,7 +337,7 @@ class TestRequirementClarifier:
                 "ambiguity_report": ["输出格式是什么", "回答语言是什么"],
             }
 
-        with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
+        with patch("miniagent.agent.requirement_clarifier.llm_json", side_effect=mock_llm):
             result = await clarifier.clarify(
                 "总结一下",
                 knowledge_registry=make_knowledge_registry(),
@@ -365,7 +365,7 @@ class TestRequirementClarifier:
                 "ambiguity_report": ["目标目录是哪一个", "要覆盖哪些文件", "迁移范围是什么"],
             }
 
-        with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
+        with patch("miniagent.agent.requirement_clarifier.llm_json", side_effect=mock_llm):
             result = await clarifier.clarify(
                 "调整项目",
                 knowledge_registry=make_knowledge_registry(),
@@ -405,7 +405,7 @@ class TestRequirementClarifier:
                 "ambiguity_report": ["目标目录是哪一个"],
             }
 
-        with patch("miniagent.core.requirement_clarifier.llm_json", side_effect=mock_llm):
+        with patch("miniagent.agent.requirement_clarifier.llm_json", side_effect=mock_llm):
             result = await clarifier.clarify(
                 "写文件",
                 knowledge_registry=make_knowledge_registry(),

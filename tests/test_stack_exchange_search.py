@@ -10,13 +10,13 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from miniagent.core.prompts.planner import PLAN_SYSTEM_PROMPT
-from miniagent.skills.loader import load_skill_package
-from miniagent.types.tool import ToolContext
+from miniagent.agent.prompts.planner import PLAN_SYSTEM_PROMPT
+from miniagent.agent.types.tool import ToolContext
+from miniagent.assistant.skills.loader import load_skill_package
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_DIR = (
-    PROJECT_ROOT / "miniagent" / "skills" / "templates" / "builtin-stackexchange"
+    PROJECT_ROOT / "miniagent" / "assistant" / "skills" / "templates" / "builtin-stackexchange"
 )
 TOOLS_PATH = PACKAGE_DIR / "skills" / "stackexchange-tools" / "tools.py"
 
@@ -256,7 +256,7 @@ async def test_packaged_skill_loads_tool_and_system_prompt() -> None:
 
 
 def test_config_secret_bridge_sets_stack_exchange_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    from miniagent.infrastructure import env_loader
+    from miniagent.assistant.infrastructure import env_loader
 
     monkeypatch.delenv("STACK_EXCHANGE_KEY", raising=False)
     with patch.object(
@@ -266,4 +266,3 @@ def test_config_secret_bridge_sets_stack_exchange_key(monkeypatch: pytest.Monkey
     ):
         env_loader.load_secrets_from_config()
     assert os.environ["STACK_EXCHANGE_KEY"] == "configured-key"
-

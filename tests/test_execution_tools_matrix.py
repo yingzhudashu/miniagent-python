@@ -8,11 +8,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.core import execution_tools
-from miniagent.core.execution_tools import ToolPhaseRunner
-from miniagent.types.config import AgentConfig
-from miniagent.types.confirmation import ConfirmationResult
-from miniagent.types.tool import ToolResult
+from miniagent.agent import execution_tools
+from miniagent.agent.execution_tools import ToolPhaseRunner
+from miniagent.agent.types.config import AgentConfig
+from miniagent.agent.types.confirmation import ConfirmationResult
+from miniagent.agent.types.tool import ToolResult
 
 
 def _tool_call(name: str, arguments: str = "{}", call_id: str = "call") -> object:

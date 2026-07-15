@@ -7,8 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.core._openai_compat import json_object_unsupported
-from miniagent.core.task_classifier import (
+from miniagent.agent.task_classifier import (
     TaskDifficulty,
     classify_task_difficulty,
     default_step_thinking_for_difficulty,
@@ -16,14 +15,15 @@ from miniagent.core.task_classifier import (
     planner_merge_for_difficulty,
     task_classifier_enabled,
 )
-from miniagent.core.thinking_presets import THINKING_LEVEL_PRESETS
+from miniagent.agent.thinking_presets import THINKING_LEVEL_PRESETS
+from miniagent.llm.openai_compat import json_object_unsupported
 from tests.memory_helpers import make_knowledge_registry
 
 
 def test_task_classifier_enabled_reads_internal_constant() -> None:
-    with patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", True):
+    with patch("miniagent.agent.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", True):
         assert task_classifier_enabled() is True
-    with patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False):
+    with patch("miniagent.agent.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False):
         assert task_classifier_enabled() is False
 
 
@@ -235,8 +235,8 @@ async def test_classifier_responses_json_uses_low_reasoning() -> None:
     client.responses.create = AsyncMock(return_value=events())
 
     with (
-        patch("miniagent.core.llm_transport._wire_api", return_value="responses"),
-        patch("miniagent.infrastructure.tracing.emit_trace", side_effect=trace_events.append),
+        patch("miniagent.llm.legacy_transport._wire_api", return_value="responses"),
+        patch("miniagent.agent.observability.emit_trace", side_effect=trace_events.append),
     ):
         result = await classify_task_difficulty(
             "hello",
@@ -300,8 +300,8 @@ async def test_classifier_responses_recovers_reasoning_only_stream() -> None:
         side_effect=[reasoning_only(), valid()]
     )
     with (
-        patch("miniagent.core.llm_transport._wire_api", return_value="responses"),
-        patch("miniagent.core.task_classifier.asyncio.sleep", new_callable=AsyncMock),
+        patch("miniagent.llm.legacy_transport._wire_api", return_value="responses"),
+        patch("miniagent.agent.task_classifier.asyncio.sleep", new_callable=AsyncMock),
     ):
         result = await classify_task_difficulty(
             "complex task",
@@ -347,8 +347,8 @@ async def test_classifier_responses_third_attempt_uses_low() -> None:
         ]
     )
     with (
-        patch("miniagent.core.llm_transport._wire_api", return_value="responses"),
-        patch("miniagent.core.task_classifier.asyncio.sleep", new_callable=AsyncMock),
+        patch("miniagent.llm.legacy_transport._wire_api", return_value="responses"),
+        patch("miniagent.agent.task_classifier.asyncio.sleep", new_callable=AsyncMock),
     ):
         result = await classify_task_difficulty(
             "medium task",
@@ -370,7 +370,7 @@ async def test_classifier_responses_does_not_retry_auth_failure() -> None:
 
     client = MagicMock()
     client.responses.create = AsyncMock(side_effect=AuthenticationFailure("unauthorized"))
-    with patch("miniagent.core.llm_transport._wire_api", return_value="responses"):
+    with patch("miniagent.llm.legacy_transport._wire_api", return_value="responses"):
         result = await classify_task_difficulty(
             "task",
             ["tb1"],

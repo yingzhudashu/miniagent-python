@@ -6,24 +6,24 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.core.agent import (
+from miniagent.agent.agent import (
     _format_plan_display_short,
     _format_plan_message,
     _merge_plan_suggested_config,
     run_agent,
 )
-from miniagent.infrastructure.registry import DefaultToolRegistry
-from miniagent.types.config import AgentConfig
-from miniagent.types.confirmation import ConfirmationResult
-from miniagent.types.error_prefix import WARNING_PREFIX
-from miniagent.types.planning import (
+from miniagent.agent.types.config import AgentConfig
+from miniagent.agent.types.confirmation import ConfirmationResult
+from miniagent.agent.types.error_prefix import WARNING_PREFIX
+from miniagent.agent.types.planning import (
     ContextStrategy,
     FallbackPlan,
     PlanStep,
     StructuredPlan,
     SuggestedConfig,
 )
-from miniagent.types.tool import Toolbox
+from miniagent.agent.types.tool import Toolbox
+from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 from tests.config_helpers import install_test_config
 from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 
@@ -146,10 +146,10 @@ async def test_fallback_degrade_retries_with_empty_steps(tmp_path) -> None:
         return "recovered"
 
     with (
-        patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False),
-        patch("miniagent.core.constants.EXECUTION_ANNOUNCE_DIFFICULTY", False),
-        patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp,
-        patch("miniagent.core.agent.execute_plan", side_effect=fake_execute),
+        patch("miniagent.agent.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False),
+        patch("miniagent.agent.constants.EXECUTION_ANNOUNCE_DIFFICULTY", False),
+        patch("miniagent.agent.agent.generate_plan", new_callable=AsyncMock) as gp,
+        patch("miniagent.agent.agent.execute_plan", side_effect=fake_execute),
     ):
         gp.return_value = plan
         out = await run_agent(
@@ -181,11 +181,11 @@ async def test_replan_exhaustion_cancels(tmp_path) -> None:
         return ConfirmationResult.adjust("请改成只读")
 
     with (
-        patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False),
-        patch("miniagent.core.constants.EXECUTION_ANNOUNCE_DIFFICULTY", False),
-        patch("miniagent.core.agent.EXECUTION_MAX_PLAN_CONFIRM_ROUNDS", 1),
-        patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp,
-        patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex,
+        patch("miniagent.agent.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False),
+        patch("miniagent.agent.constants.EXECUTION_ANNOUNCE_DIFFICULTY", False),
+        patch("miniagent.agent.agent.EXECUTION_MAX_PLAN_CONFIRM_ROUNDS", 1),
+        patch("miniagent.agent.agent.generate_plan", new_callable=AsyncMock) as gp,
+        patch("miniagent.agent.agent.execute_plan", new_callable=AsyncMock) as ex,
     ):
         gp.return_value = risky
         out = await run_agent(
@@ -215,10 +215,10 @@ async def test_requires_confirmation_without_on_plan_proceeds(tmp_path) -> None:
     )
 
     with (
-        patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False),
-        patch("miniagent.core.constants.EXECUTION_ANNOUNCE_DIFFICULTY", False),
-        patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp,
-        patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex,
+        patch("miniagent.agent.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False),
+        patch("miniagent.agent.constants.EXECUTION_ANNOUNCE_DIFFICULTY", False),
+        patch("miniagent.agent.agent.generate_plan", new_callable=AsyncMock) as gp,
+        patch("miniagent.agent.agent.execute_plan", new_callable=AsyncMock) as ex,
     ):
         gp.return_value = risky
         ex.return_value = "executed without confirm channel"
@@ -237,16 +237,16 @@ async def test_requires_confirmation_without_on_plan_proceeds(tmp_path) -> None:
 
 @pytest.mark.asyncio
 async def test_reflection_stored_on_engine(tmp_path) -> None:
-    from miniagent.core.problem_solver import ReflectionResult
+    from miniagent.agent.problem_solver import ReflectionResult
 
     install_test_config(tmp_path, {"features": {"reflection": True}})
     engine = MagicMock()
     engine._last_reflection = {}
 
     with (
-        patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False),
-        patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex,
-        patch("miniagent.core.agent.reflect_on_result", new_callable=AsyncMock) as ref,
+        patch("miniagent.agent.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False),
+        patch("miniagent.agent.agent.execute_plan", new_callable=AsyncMock) as ex,
+        patch("miniagent.agent.agent.reflect_on_result", new_callable=AsyncMock) as ref,
     ):
         ex.return_value = "done"
         ref.return_value = ReflectionResult(

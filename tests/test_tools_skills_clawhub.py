@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.tools import skills as skills_module
-from miniagent.types.tool import ToolContext
+from miniagent.agent.types.tool import ToolContext
+from miniagent.assistant.tools import skills as skills_module
 
 
 @pytest.mark.asyncio
@@ -18,7 +18,7 @@ async def test_search_skills_clawhub_uses_injected_client() -> None:
     )
     ctx = ToolContext(cwd=".", allowed_paths=["."], permission="allowlist", clawhub=fake)
 
-    with patch("miniagent.skills.clawhub_client.create_clawhub_client") as mock_create:
+    with patch("miniagent.assistant.skills.clawhub_client.create_clawhub_client") as mock_create:
         result = await skills_module._search_handler(
             {"query": "q", "source": "clawhub", "limit": 5},
             ctx,

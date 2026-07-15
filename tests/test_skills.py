@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from miniagent.skills.clawhub_client import skill_install_dir_name
-from miniagent.skills.loader import discover_skill_packages, parse_skill_md
-from miniagent.skills.registry import DefaultSkillRegistry
-from miniagent.types.skill import Skill
+from miniagent.agent.types.skill import Skill
+from miniagent.assistant.skills.clawhub_client import skill_install_dir_name
+from miniagent.assistant.skills.loader import discover_skill_packages, parse_skill_md
+from miniagent.assistant.skills.registry import DefaultSkillRegistry
 
 
 def test_skill_install_dir_name_flattens_nested_slug():
@@ -49,7 +49,7 @@ class TestDefaultSkillRegistry:
         assert reg.get("ghost") is None
 
     def test_unregister_package(self):
-        from miniagent.types.skill import SkillPackage
+        from miniagent.agent.types.skill import SkillPackage
 
         reg = DefaultSkillRegistry()
         skill = Skill(id="pkg-x-s1", name="S", description="d")

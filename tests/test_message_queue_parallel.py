@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from miniagent.infrastructure.message_queue import MessageQueueManager
+from miniagent.assistant.infrastructure.message_queue import MessageQueueManager
 
 
 @pytest.mark.asyncio

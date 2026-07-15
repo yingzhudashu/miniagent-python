@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 
-from miniagent.memory.history_archive import (
+from miniagent.assistant.memory.history_archive import (
     diary_file_path,
     maybe_archive_old_turns,
     trim_history_tail_by_turns,

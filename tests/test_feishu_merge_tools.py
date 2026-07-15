@@ -7,8 +7,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniagent.feishu.types import FeishuConfig
-from miniagent.types.agent import AgentRunResult
+from miniagent.agent.types.agent import AgentRunResult
+from miniagent.assistant.feishu.types import FeishuConfig
 from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 
 
@@ -16,9 +16,9 @@ from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 async def test_feishu_merge_tools_uses_append_not_second_send_thinking(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from miniagent.engine.engine import UnifiedEngine
-    from miniagent.infrastructure.monitor import DefaultToolMonitor
-    from miniagent.infrastructure.registry import DefaultToolRegistry
+    from miniagent.agent.monitor import DefaultToolMonitor
+    from miniagent.assistant.engine.engine import UnifiedEngine
+    from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
     calls: list[tuple[str, Any]] = []
 
@@ -47,14 +47,14 @@ async def test_feishu_merge_tools_uses_append_not_second_send_thinking(
     async def fake_send_thinking(*args: Any, **kwargs: Any) -> None:
         calls.append(("send_thinking", (args, kwargs)))
 
-    monkeypatch.setattr("miniagent.feishu.poll_server.push_feishu_thinking_stream", fake_push)
+    monkeypatch.setattr("miniagent.assistant.feishu.poll_server.push_feishu_thinking_stream", fake_push)
     monkeypatch.setattr(
-        "miniagent.feishu.poll_server.append_feishu_thinking_same_card", fake_append
+        "miniagent.assistant.feishu.poll_server.append_feishu_thinking_same_card", fake_append
     )
     monkeypatch.setattr(
-        "miniagent.feishu.poll_server.finalize_feishu_thinking_stream", fake_finalize
+        "miniagent.assistant.feishu.poll_server.finalize_feishu_thinking_stream", fake_finalize
     )
-    monkeypatch.setattr("miniagent.feishu.poll_server._send_thinking", fake_send_thinking)
+    monkeypatch.setattr("miniagent.assistant.feishu.poll_server._send_thinking", fake_send_thinking)
 
     async def fake_run_agent(*args: Any, **kwargs: Any) -> AgentRunResult:
         ot = kwargs.get("on_thinking")
@@ -65,7 +65,7 @@ async def test_feishu_merge_tools_uses_append_not_second_send_thinking(
         await ot("🔧 b — 2", False, lab)
         return AgentRunResult(reply="ok")
 
-    monkeypatch.setattr("miniagent.engine.engine.run_agent", fake_run_agent)
+    monkeypatch.setattr("miniagent.assistant.engine.engine.run_agent", fake_run_agent)
 
     ctx = type("Ctx", (), {})()
     ctx.conversation_history = []
@@ -80,7 +80,7 @@ async def test_feishu_merge_tools_uses_append_not_second_send_thinking(
         def save_session_history(self, sk: str) -> None:
             pass
 
-    from miniagent.infrastructure.channel_router import ChannelRouter
+    from miniagent.assistant.infrastructure.channel_router import ChannelRouter
 
     router = ChannelRouter()
     engine = UnifiedEngine()
@@ -113,7 +113,7 @@ async def test_feishu_merge_tools_uses_append_not_second_send_thinking(
 
 @pytest.mark.asyncio
 async def test_thinking_show_passes_merge_tools_to_feishu(monkeypatch: pytest.MonkeyPatch) -> None:
-    from miniagent.engine.thinking import ThinkingDisplay
+    from miniagent.assistant.engine.thinking import ThinkingDisplay
 
     td = ThinkingDisplay()
     td.set_output_sink(lambda *_a, **_k: None)
@@ -142,9 +142,9 @@ async def test_thinking_show_passes_merge_tools_to_feishu(monkeypatch: pytest.Mo
 async def test_append_feishu_thinking_same_card_updates_accumulator(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import miniagent.feishu.thinking_delivery as ps
-    from miniagent.engine.thinking import ThinkingDisplay
-    from miniagent.feishu.poll_server import append_feishu_thinking_same_card
+    import miniagent.assistant.feishu.thinking_delivery as ps
+    from miniagent.assistant.engine.thinking import ThinkingDisplay
+    from miniagent.assistant.feishu.poll_server import append_feishu_thinking_same_card
 
     td = ThinkingDisplay()
     st = td.thinking_state("sk")
@@ -169,9 +169,9 @@ async def test_append_feishu_thinking_same_card_updates_accumulator(
 async def test_append_feishu_with_message_id_patches(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import miniagent.feishu.thinking_delivery as ps
-    from miniagent.engine.thinking import ThinkingDisplay
-    from miniagent.feishu.poll_server import append_feishu_thinking_same_card
+    import miniagent.assistant.feishu.thinking_delivery as ps
+    from miniagent.assistant.engine.thinking import ThinkingDisplay
+    from miniagent.assistant.feishu.poll_server import append_feishu_thinking_same_card
 
     td = ThinkingDisplay()
     st = td.thinking_state("sk2")
@@ -195,8 +195,8 @@ async def test_append_feishu_with_message_id_patches(
 
 
 def test_thinking_card_json_cache_reuses_same_body(monkeypatch: pytest.MonkeyPatch) -> None:
-    import miniagent.feishu.thinking_delivery as ps
-    from miniagent.engine.thinking import ThinkingDisplay
+    import miniagent.assistant.feishu.thinking_delivery as ps
+    from miniagent.assistant.engine.thinking import ThinkingDisplay
 
     td = ThinkingDisplay()
     st = td.thinking_state("sk-cache")

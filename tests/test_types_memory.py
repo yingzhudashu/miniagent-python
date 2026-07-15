@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from miniagent.types.memory import (
+from miniagent.agent.types.memory import (
     FileMetadata,
     GroundTruthFact,
     MemoryEntry,

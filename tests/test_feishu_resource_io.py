@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.feishu.lark_response import format_lark_response_error
-from miniagent.feishu.resource_io import sanitize_filename
+from miniagent.assistant.feishu.lark_response import format_lark_response_error
+from miniagent.assistant.feishu.resource_io import sanitize_filename
 
 
 def test_sanitize_filename_strips_path_segments() -> None:
@@ -30,7 +30,7 @@ def test_format_lark_response_error_includes_code_and_msg() -> None:
 @pytest.mark.asyncio
 async def test_download_message_resource_success() -> None:
     pytest.importorskip("lark_oapi")
-    from miniagent.feishu.resource_io import download_message_resource
+    from miniagent.assistant.feishu.resource_io import download_message_resource
 
     mock_file = MagicMock()
     mock_file.read.return_value = b"payload"

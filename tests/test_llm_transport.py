@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.core.llm_transport import (
+from miniagent.llm.legacy_transport import (
     LLMTransportError,
     classify_transport_error,
     create_completion,

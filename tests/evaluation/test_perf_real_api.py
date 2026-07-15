@@ -23,23 +23,20 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 
-from miniagent.core.executor import execute_plan
-from miniagent.core.openai_client import (
-    close_async_openai_client,
-    create_async_openai_client,
-)
-from miniagent.infrastructure.json_config import get_config
-from miniagent.infrastructure.tracing import (
+from miniagent.agent.executor import execute_plan
+from miniagent.agent.observability import (
     auto_register_trace_file_hook,
     emit_trace,
     shutdown_trace_writer,
 )
+from miniagent.assistant.infrastructure.json_config import get_config, get_user_config_section
+from miniagent.llm.factory import create_llm_gateway
 
 
 @pytest.fixture
 def real_api_config():
     """验证API配置存在并加载到环境变量。"""
-    from miniagent.infrastructure.env_loader import load_secrets_from_project_root
+    from miniagent.assistant.infrastructure.env_loader import load_secrets_from_project_root
 
     if os.environ.get("MINIAGENT_REAL_API_STRESS") != "1":
         pytest.skip("真实 API 压测需显式设置 MINIAGENT_REAL_API_STRESS=1")
@@ -47,7 +44,10 @@ def real_api_config():
     # 加载secrets到环境变量
     load_secrets_from_project_root()
 
-    from miniagent.infrastructure.json_config import JsonConfigLoader, install_config_loader
+    from miniagent.assistant.infrastructure.json_config import (
+        JsonConfigLoader,
+        install_config_loader,
+    )
 
     trace_root = Path(
         os.environ.get("MINIAGENT_REAL_API_PERF_DIR", "workspaces/logs/perf")
@@ -83,12 +83,12 @@ def real_api_config():
 
 @pytest_asyncio.fixture
 async def real_api_client(real_api_config):
-    """Own one real client per test and close its connection pool afterward."""
-    client = create_async_openai_client()
+    """Own one provider-neutral gateway per test and close it afterward."""
+    client = create_llm_gateway(get_config, user_section_getter=get_user_config_section)
     try:
         yield client
     finally:
-        await close_async_openai_client(client)
+        await client.close()
 
 
 @pytest.fixture
@@ -113,17 +113,17 @@ class TestRealAPIPerformance:
         knowledge_registry,
     ):
         """测量真实LLM流式响应延迟。"""
-        from miniagent.infrastructure.monitor import DefaultToolMonitor
-        from miniagent.infrastructure.registry import DefaultToolRegistry
-        from miniagent.types.config import AgentConfig  # 修复导入路径
-        from miniagent.types.planning import StructuredPlan
+        from miniagent.agent.monitor import DefaultToolMonitor
+        from miniagent.agent.types.config import AgentConfig  # 修复导入路径
+        from miniagent.agent.types.planning import StructuredPlan
+        from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
         # 准备测试输入
         user_input = "请分析以下代码的性能瓶颈：def slow_func(n): return sum(range(n))"
 
         # 创建必要的对象
         registry = DefaultToolRegistry()
-        from miniagent.engine.builtin_tools import register_builtin_tools
+        from miniagent.assistant.engine.builtin_tools import register_builtin_tools
 
         register_builtin_tools(registry)
         monitor = DefaultToolMonitor()
@@ -192,17 +192,17 @@ class TestRealAPIPerformance:
         knowledge_registry,
     ):
         """测量真实工具执行延迟（带LLM）。"""
-        from miniagent.infrastructure.monitor import DefaultToolMonitor
-        from miniagent.infrastructure.registry import DefaultToolRegistry
-        from miniagent.types.config import AgentConfig  # 修复导入路径
-        from miniagent.types.planning import StructuredPlan
+        from miniagent.agent.monitor import DefaultToolMonitor
+        from miniagent.agent.types.config import AgentConfig  # 修复导入路径
+        from miniagent.agent.types.planning import StructuredPlan
+        from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
         # 准备测试输入（触发工具调用）
         user_input = "请读取README.md文件的前10行内容"
 
         # 创建必要的对象
         registry = DefaultToolRegistry()
-        from miniagent.engine.builtin_tools import register_builtin_tools
+        from miniagent.assistant.engine.builtin_tools import register_builtin_tools
 
         register_builtin_tools(registry)
         monitor = DefaultToolMonitor()
@@ -268,17 +268,17 @@ class TestRealAPIPerformance:
         knowledge_registry,
     ):
         """测量并发请求吞吐量。"""
-        from miniagent.infrastructure.monitor import DefaultToolMonitor
-        from miniagent.infrastructure.registry import DefaultToolRegistry
-        from miniagent.types.config import AgentConfig  # 修复导入路径
-        from miniagent.types.planning import StructuredPlan
+        from miniagent.agent.monitor import DefaultToolMonitor
+        from miniagent.agent.types.config import AgentConfig  # 修复导入路径
+        from miniagent.agent.types.planning import StructuredPlan
+        from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
         # 并发发送3个请求（避免API限流）
         num_requests = 3
 
         # 创建共享对象
         registry = DefaultToolRegistry()
-        from miniagent.engine.builtin_tools import register_builtin_tools
+        from miniagent.assistant.engine.builtin_tools import register_builtin_tools
 
         register_builtin_tools(registry)
         monitor = DefaultToolMonitor()

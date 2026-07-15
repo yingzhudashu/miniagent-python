@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from miniagent.core.self_opt.proposal_generator import ProposalGenerator
+from miniagent.assistant.self_opt.proposal_generator import ProposalGenerator
 
 
 def test_runtime_report_generates_all_supported_proposal_types(monkeypatch) -> None:
-    import miniagent.core.self_opt.proposal_generator as module
+    import miniagent.assistant.self_opt.proposal_generator as module
 
     monkeypatch.setattr(
         module,

@@ -10,8 +10,8 @@ pytest.importorskip("lark_oapi")
 
 
 def test_search_docs_requires_user_token(monkeypatch: pytest.MonkeyPatch) -> None:
-    from miniagent.feishu.drive_extra import SearchRequiresUserTokenError, search_docs
-    from miniagent.feishu.types import FeishuConfig
+    from miniagent.assistant.feishu.drive_extra import SearchRequiresUserTokenError, search_docs
+    from miniagent.assistant.feishu.types import FeishuConfig
 
     monkeypatch.delenv("MINIAGENT_FEISHU_USER_ACCESS_TOKEN", raising=False)
     cfg = FeishuConfig(app_id="a", app_secret="b")
@@ -23,8 +23,8 @@ def test_search_docs_requires_user_token(monkeypatch: pytest.MonkeyPatch) -> Non
 
 @pytest.mark.asyncio
 async def test_feishu_doc_search_no_token_json(monkeypatch: pytest.MonkeyPatch) -> None:
-    from miniagent.tools.feishu_doc_tools import _feishu_doc
-    from miniagent.types.tool import ToolContext
+    from miniagent.agent.types.tool import ToolContext
+    from miniagent.assistant.tools.feishu_doc_tools import _feishu_doc
 
     monkeypatch.setenv("FEISHU_APP_ID", "a")
     monkeypatch.setenv("FEISHU_APP_SECRET", "b")
@@ -35,8 +35,8 @@ async def test_feishu_doc_search_no_token_json(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_add_permission_mock() -> None:
-    from miniagent.feishu.drive_extra import add_permission
-    from miniagent.feishu.types import FeishuConfig
+    from miniagent.assistant.feishu.drive_extra import add_permission
+    from miniagent.assistant.feishu.types import FeishuConfig
 
     cfg = FeishuConfig(app_id="a", app_secret="b")
     mock_resp = MagicMock()
@@ -44,7 +44,7 @@ def test_add_permission_mock() -> None:
     mock_resp.data = MagicMock(
         member=MagicMock(member_type="email", member_id="u@x.com", perm="view")
     )
-    with patch("miniagent.feishu.drive_extra.build_client") as bc:
+    with patch("miniagent.assistant.feishu.drive_extra.build_client") as bc:
         bc.return_value.drive.v1.permission_member.create.return_value = mock_resp
         out = add_permission(cfg, "doc_tok", member_type="email", member_id="u@x.com")
     assert out["member_id"] == "u@x.com"

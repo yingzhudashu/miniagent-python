@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from miniagent.application.messaging import ChannelRegistry
-from miniagent.contracts import (
+from miniagent.assistant.application.messaging import ChannelRegistry
+from miniagent.assistant.contracts import (
     ChannelAdapter,
     ChannelTarget,
     OutboundEvent,
     OutboundEventKind,
 )
-from miniagent.feishu.outbound_adapter import (
+from miniagent.assistant.feishu.outbound_adapter import (
     FeishuChannelAdapter,
     UnsupportedFeishuEventError,
     build_feishu_final_event,

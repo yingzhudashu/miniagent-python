@@ -77,7 +77,7 @@ JSONDecodeError: Expecting property name enclosed in double quotes
    python -m miniagent --doctor
    ```
 
-3. 参考 `miniagent/resources/config.defaults.json` 格式：
+3. 参考 `miniagent/assistant/resources/config.defaults.json` 格式：
    ```bash
    python -m miniagent  # 按首次启动引导生成 config.user.json
    # 然后编辑 config.user.json，只修改需要覆盖的值
@@ -164,7 +164,7 @@ RuntimeError: 项目目录 '/path/to/project' 已有运行中的实例 #1 (PID=1
 2. 如果循环检测拦截：
    - 检查是否输入重复内容
    - 修改 prompt 使其更具体
-   - 调整循环检测阈值（见 `miniagent/resources/config.defaults.json`）
+   - 调整循环检测阈值（见 `miniagent/assistant/resources/config.defaults.json`）
 
 3. 如果进程卡死：
    ```bash
@@ -187,7 +187,7 @@ PermissionError: [Errno 13] Permission denied
 1. 查看路径与工作区配置：`/config paths`
 2. 查看默认工作区：
    ```bash
-   python -c "from miniagent.security.sandbox import get_default_workspace; print(get_default_workspace())"
+   python -c "from miniagent.assistant.security.sandbox import get_default_workspace; print(get_default_workspace())"
    ```
 
 **解决方案**：
@@ -230,7 +230,7 @@ TimeoutError: Tool execution timeout after X seconds
      }
    }
    ```
-   默认 `agent.tool_timeout` 为 **60** 秒（见 `miniagent/resources/config.defaults.json`）。
+   默认 `agent.tool_timeout` 为 **60** 秒（见 `miniagent/assistant/resources/config.defaults.json`）。
 
 2. 检查工具实现：
    - 是否有网络延迟问题
@@ -413,7 +413,7 @@ ping api.openai.com
 4. 对齐遗留 UTC 定时任务时区：
    - **CLI 无** `/schedule align-tz` 子命令
    - 在 Agent 对话中让模型调用 `manage_scheduled_task` 工具的 `align_tz` action，或手动编辑 `{paths.state_dir}/scheduled_tasks/` 下任务 JSON
-   - 全局时区 SSOT（见 `miniagent/infrastructure/timezone_config.py`）：`timezone.default`（JSON）→ 环境变量 `TZ` → `timezone.default_fallback`（默认 `Asia/Shanghai`）。**无** `MINIAGENT_TIMEZONE` 环境变量。
+   - 全局时区 SSOT（见 `miniagent/agent/timezone.py`）：`timezone.default`（JSON）→ 环境变量 `TZ` → `timezone.default_fallback`（默认 `Asia/Shanghai`）。**无** `MINIAGENT_TIMEZONE` 环境变量。
 
 ---
 
@@ -454,10 +454,10 @@ python -m pdb -m miniagent
 ```
 
 **关键断点位置**：
-- `miniagent/core/executor.py:execute_plan` - 执行入口
-- `miniagent/engine/cli_tui.py:run_cli_loop` - 全屏主循环
-- `miniagent/engine/cli_fallback.py:run_cli_loop_fallback` - 行式回退循环
-- `miniagent/tools/exec.py:exec_command` - 工具执行
+- `miniagent/agent/executor.py:execute_plan` - 执行入口
+- `miniagent/assistant/engine/cli_tui.py:run_cli_loop` - 全屏主循环
+- `miniagent/assistant/engine/cli_fallback.py:run_cli_loop_fallback` - 行式回退循环
+- `miniagent/assistant/tools/exec.py:exec_command` - 工具执行
 
 **调试工具调用**：
 ```python

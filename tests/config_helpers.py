@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from miniagent.infrastructure.json_config import _packaged_defaults_path
+from miniagent.assistant.infrastructure.json_config import _packaged_defaults_path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULTS_PATH = Path(_packaged_defaults_path())
@@ -19,7 +19,10 @@ def install_test_config(
     user_path: Path | None = None,
 ) -> None:
     """安装隔离 JsonConfigLoader（defaults + 可选 user 覆盖）。"""
-    from miniagent.infrastructure.json_config import JsonConfigLoader, install_config_loader
+    from miniagent.assistant.infrastructure.json_config import (
+        JsonConfigLoader,
+        install_config_loader,
+    )
 
     if user_path is None:
         user_path = tmp_path / "config.user.json"

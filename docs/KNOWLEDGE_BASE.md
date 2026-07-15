@@ -17,7 +17,7 @@ Mini Agent 支持快速挂载本地知识库、文档、资料，通过关键词
 ## 架构
 
 ```
-miniagent/knowledge/
+miniagent/assistant/knowledge/
 ├── __init__.py      # 模块入口
 ├── base.py          # KnowledgeBase 类（单知识库）
 ├── file_ingest.py   # 文件分析自动入库
@@ -138,7 +138,7 @@ workspaces/knowledge/_auto_file_analysis/
 
 ### 关键词提取
 
-复用 `miniagent.memory.keyword_index` 的关键词提取逻辑：
+复用 `miniagent.assistant.memory.keyword_index` 的关键词提取逻辑：
 
 - 中英文分词（中文 2/3-gram，英文词元）
 - 3-gram 命中权重更高
@@ -314,7 +314,7 @@ Mini Agent 在 Agent 各核心阶段使用 RAG：
 | **任务分类** | 检索摘要，辅助难度判断 |
 | **反思评估** | 检索标准文档，辅助质量评估 |
 
-统一入口：`miniagent.knowledge.retrieve_knowledge_context(query, phase=...)`
+统一入口：`miniagent.assistant.knowledge.retrieve_knowledge_context(query, phase=...)`
 
 ## 最佳实践
 

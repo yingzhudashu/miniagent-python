@@ -9,7 +9,7 @@ import pytest
 async def test_set_cli_markdown_width_used_for_thinking_rich(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("miniagent.engine.thinking._cli_thinking_rich_enabled", lambda: True)
+    monkeypatch.setattr("miniagent.assistant.engine.thinking._cli_thinking_rich_enabled", lambda: True)
     seen: list[int] = []
 
     def fake_render(markdown: str, *, width: int) -> str:
@@ -17,10 +17,10 @@ async def test_set_cli_markdown_width_used_for_thinking_rich(
         return "ok"
 
     monkeypatch.setattr(
-        "miniagent.engine.markdown_cli.render_markdown_to_ansi",
+        "miniagent.assistant.engine.markdown_cli.render_markdown_to_ansi",
         fake_render,
     )
-    from miniagent.engine.thinking import ThinkingDisplay
+    from miniagent.assistant.engine.thinking import ThinkingDisplay
 
     td = ThinkingDisplay()
     td.set_cli_markdown_width(lambda: 99)

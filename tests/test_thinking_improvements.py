@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from miniagent.engine.thinking import ThinkingDisplay
+from miniagent.assistant.engine.thinking import ThinkingDisplay
 
 
 def test_reset_counter_clears_feishu_cache_fields() -> None:

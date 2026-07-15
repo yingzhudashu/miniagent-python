@@ -9,14 +9,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.core import llm_transport
-from miniagent.core.self_opt import auto_optimizer
-from miniagent.engine import bg_session_cleanup
-from miniagent.infrastructure.tracing import AsyncTraceWriter
-from miniagent.scheduled_tasks import ticker
-from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec
-from miniagent.tools import filesystem
-from miniagent.types.tool import ToolContext
+from miniagent.agent.observability import AsyncTraceWriter
+from miniagent.agent.types.tool import ToolContext
+from miniagent.assistant.engine import bg_session_cleanup
+from miniagent.assistant.scheduled_tasks import ticker
+from miniagent.assistant.scheduled_tasks.models import ScheduledTask, ScheduleSpec
+from miniagent.assistant.self_opt import auto_optimizer
+from miniagent.assistant.tools import filesystem
+from miniagent.llm import legacy_transport as llm_transport
 
 
 def test_responses_fallback_and_stream_event_edges() -> None:
@@ -73,12 +73,12 @@ async def test_optimizer_rollback_failure_empty_and_alias(monkeypatch: pytest.Mo
 @pytest.mark.asyncio
 async def test_cleanup_optional_agent_trace_and_lock_failures(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "miniagent.engine.session_lock.release_session_lock", MagicMock(side_effect=RuntimeError)
+        "miniagent.assistant.engine.session_lock.release_session_lock", MagicMock(side_effect=RuntimeError)
     )
     await bg_session_cleanup._release_background_session_lock("__bg__x")
 
     monkeypatch.setattr(
-        "miniagent.memory.layered_memory.remove_agent_longterm_entries_for_session",
+        "miniagent.assistant.memory.layered_memory.remove_agent_longterm_entries_for_session",
         MagicMock(side_effect=RuntimeError),
     )
     await bg_session_cleanup._remove_background_agent_memory("__bg__x")

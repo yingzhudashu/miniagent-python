@@ -77,7 +77,7 @@
 
 - **语法与示例**：[CLI.md §/schedule](CLI.md)
 - **飞书限制**：默认仅 `list` / `show`；`add` / `remove` 等须在本地 CLI
-- **架构与配置**：[ARCHITECTURE.md「定时任务子系统」](ARCHITECTURE.md#定时任务子系统)、`miniagent/resources/config.defaults.json` 的 `scheduled_tasks` 节
+- **架构与配置**：[ARCHITECTURE.md「定时任务子系统」](ARCHITECTURE.md#定时任务子系统)、`miniagent/assistant/resources/config.defaults.json` 的 `scheduled_tasks` 节
 
 ---
 
@@ -107,7 +107,7 @@
 - **Stack Overflow / Stack Exchange 排障检索**：`builtin-stackexchange` 使用公开 API，匿名模式即可工作；`secrets.stack_exchange_key` 仅用于提高配额。Agent 只在报错、异常、兼容性、性能、安装构建、驱动、网络和硬件排障时主动查询，并按问题选择 Stack Overflow、Super User、Server Fault、Ask Ubuntu、Unix & Linux、Electrical Engineering 等站点。查询会脱敏常见凭据、邮箱、私有主机和本地路径；社区票数与采纳状态只是经验信号，最终建议仍需核对本地环境和当前官方资料。引用社区答案时保留作者与原帖链接。
 - **浏览器正文抽取**：需 `[browser]` 与 Playwright 浏览器安装；用于部分需渲染的网页。  
 
-超时等见 `miniagent/resources/config.defaults.json` 的 `agent` 节（如 `agent.tool_timeout`）。
+超时等见 `miniagent/assistant/resources/config.defaults.json` 的 `agent` 节（如 `agent.tool_timeout`）。
 
 ---
 
@@ -144,7 +144,7 @@
 | `auto` | 同上；无工具箱时仅核心工具（不含 MCP） |
 | `all` | 始终可见 |
 
-具体配置见 `miniagent/resources/config.defaults.json` 的 `mcp` 节与 [ENGINEERING.md](ENGINEERING.md) §1。
+具体配置见 `miniagent/assistant/resources/config.defaults.json` 的 `mcp` 节与 [ENGINEERING.md](ENGINEERING.md) §1。
 
 ---
 

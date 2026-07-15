@@ -8,13 +8,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.application.messaging import ChannelRegistry
-from miniagent.engine.cli_files import process_cli_file_markers
-from miniagent.engine.cli_history import (
+from miniagent.assistant.application.messaging import ChannelRegistry
+from miniagent.assistant.engine.cli_files import process_cli_file_markers
+from miniagent.assistant.engine.cli_history import (
     create_cli_file_history,
     resolve_cli_history_file,
 )
-from miniagent.engine.cli_shell import run_cli_shell_command
+from miniagent.assistant.engine.cli_shell import run_cli_shell_command
 from tests.memory_helpers import make_memory_runtime
 
 
@@ -34,7 +34,7 @@ async def test_detect_and_process_file_markers_text_file(
         messages.append((msg, color))
 
     monkeypatch.setattr(
-        "miniagent.memory.store.add_file_to_memory",
+        "miniagent.assistant.memory.store.add_file_to_memory",
         AsyncMock(return_value=None),
     )
 
@@ -96,7 +96,7 @@ async def test_detect_and_process_file_markers_file_prefix_without_at(
     session_manager.get.return_value = MagicMock(workspace_path=str(tmp_path))
 
     monkeypatch.setattr(
-        "miniagent.memory.store.add_file_to_memory",
+        "miniagent.assistant.memory.store.add_file_to_memory",
         AsyncMock(return_value=None),
     )
 
@@ -125,7 +125,7 @@ async def test_detect_and_process_file_markers_multiple_files(
     session_manager.get.return_value = MagicMock(workspace_path=str(tmp_path))
 
     monkeypatch.setattr(
-        "miniagent.memory.store.add_file_to_memory",
+        "miniagent.assistant.memory.store.add_file_to_memory",
         AsyncMock(return_value=None),
     )
 
@@ -171,7 +171,7 @@ def test_cli_file_history_merge_is_memory_only(tmp_path: Path) -> None:
 
 def test_reset_and_reload_transcript_does_not_reset_input_history() -> None:
     source = Path(__file__).resolve().parent.parent.joinpath(
-        "miniagent", "engine", "cli_tui_transcript_ops.py"
+        "miniagent", "assistant", "engine", "cli_tui_transcript_ops.py"
     ).read_text(encoding="utf-8")
     start = source.index("def _reset_and_reload_transcript(")
     end = source.index("def _trigger_lazy_load_more_history(", start)
@@ -186,8 +186,8 @@ async def test_fallback_cli_dispatches_help_via_dispatch_command(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Fallback 与 TUI 一致：``/help`` 走 ``dispatch_command`` 而非 inline handler。"""
-    from miniagent.bootstrap.application import ApplicationContainer
-    from miniagent.engine.cli_fallback import run_cli_loop_fallback
+    from miniagent.assistant.bootstrap.application import ApplicationContainer
+    from miniagent.assistant.engine.cli_fallback import run_cli_loop_fallback
 
     dispatch_calls: list[str] = []
 
@@ -202,7 +202,7 @@ async def test_fallback_cli_dispatches_help_via_dispatch_command(
 
     monkeypatch.setattr("asyncio.to_thread", fake_to_thread)
     monkeypatch.setattr(
-        "miniagent.engine.command_dispatch.dispatch_command",
+        "miniagent.assistant.engine.command_dispatch.dispatch_command",
         fake_dispatch,
     )
 
@@ -220,7 +220,7 @@ async def test_fallback_cli_dispatches_help_via_dispatch_command(
     ctx.cli_transcript_append = None
     ctx.clawhub = None
     ctx.memory = make_memory_runtime()
-    ctx.openai_client = None
+    ctx.llm_gateway = None
     ctx.feishu = MagicMock()
 
     state = {
@@ -231,12 +231,12 @@ async def test_fallback_cli_dispatches_help_via_dispatch_command(
     }
 
     monkeypatch.setattr(
-        "miniagent.engine.cli_fallback.print_history_summary_fallback",
+        "miniagent.assistant.engine.cli_fallback.print_history_summary_fallback",
         lambda *args, **kwargs: None,
     )
-    monkeypatch.setattr("miniagent.engine.session_continue.save_cli_session_state", lambda *_: None)
-    monkeypatch.setattr("miniagent.engine.session_lock.release_session_lock", lambda *_: None)
-    monkeypatch.setattr("miniagent.infrastructure.instance.unregister_instance", lambda: None)
+    monkeypatch.setattr("miniagent.assistant.engine.session_continue.save_cli_session_state", lambda *_: None)
+    monkeypatch.setattr("miniagent.assistant.engine.session_lock.release_session_lock", lambda *_: None)
+    monkeypatch.setattr("miniagent.assistant.infrastructure.instance.unregister_instance", lambda: None)
 
     await run_cli_loop_fallback(ctx, state, [], [])
 

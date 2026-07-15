@@ -6,8 +6,12 @@ import asyncio
 
 import pytest
 
-from miniagent.core.confirmation_channel import ConfirmationChannel
-from miniagent.types.confirmation import ConfirmationRequest, ConfirmationResult, ConfirmationStage
+from miniagent.agent.confirmation_channel import ConfirmationChannel
+from miniagent.agent.types.confirmation import (
+    ConfirmationRequest,
+    ConfirmationResult,
+    ConfirmationStage,
+)
 
 
 def _req(content: str = "Q", stage: ConfirmationStage = ConfirmationStage.PLAN) -> ConfirmationRequest:

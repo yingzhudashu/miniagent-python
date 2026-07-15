@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from miniagent.engine.clipboard import copy_text_to_system_clipboard
+from miniagent.ui.tui.clipboard import copy_text_to_system_clipboard
 
 
 def _run_ok(**kwargs) -> MagicMock:

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from miniagent.engine import cli_tui_output as output_module
-from miniagent.presentation.cli.state import TuiViewState
+from miniagent.assistant.engine import cli_tui_output as output_module
+from miniagent.ui.cli.state import TuiViewState
 
 
 class _Thinking:
@@ -75,7 +75,7 @@ def test_output_bindings_cover_markdown_stream_and_delivery(monkeypatch) -> None
     dispatcher = SimpleNamespace(publish=lambda event: ("task", event))
     monkeypatch.setattr(output_module, "get_config", lambda *_args: True)
     monkeypatch.setattr(output_module, "get_app", lambda: SimpleNamespace(invalidate=lambda: None))
-    import miniagent.engine.markdown_cli as markdown_module
+    import miniagent.assistant.engine.markdown_cli as markdown_module
 
     monkeypatch.setattr(markdown_module, "render_markdown_to_ansi", lambda text, **_kw: f"ANSI:{text}")
 
@@ -152,7 +152,7 @@ def test_default_tui_view_shows_evaluation_plan_and_execution_details(monkeypatc
     monkeypatch.setattr(output_module, "get_config", lambda *_args: True)
     monkeypatch.setattr(output_module, "get_app", lambda: SimpleNamespace(invalidate=lambda: None))
     monkeypatch.setattr(
-        "miniagent.engine.markdown_cli.render_markdown_to_ansi",
+        "miniagent.assistant.engine.markdown_cli.render_markdown_to_ansi",
         lambda text, **_kwargs: text,
     )
     output_module.create_tui_output_bindings(

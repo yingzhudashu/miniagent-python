@@ -1,6 +1,6 @@
 """ThinkingDisplay 编号系统 — CLI/飞书一致性验证。"""
 
-from miniagent.engine.thinking import ThinkingDisplay
+from miniagent.assistant.engine.thinking import ThinkingDisplay
 
 
 def test_next_turn_persistent_across_reset() -> None:

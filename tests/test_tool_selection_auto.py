@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from miniagent.core.agent import _create_default_plan, _user_forbids_tools
-from miniagent.infrastructure.registry import DefaultToolRegistry
-from miniagent.types.config import AgentConfig
-from miniagent.types.planning import StructuredPlan
-from miniagent.types.tool import ToolDefinition, ToolResult
+from miniagent.agent.agent import _create_default_plan, _user_forbids_tools
+from miniagent.agent.types.config import AgentConfig
+from miniagent.agent.types.planning import StructuredPlan
+from miniagent.agent.types.tool import ToolDefinition, ToolResult
+from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
 
 async def _h(args: dict, ctx) -> ToolResult:
@@ -95,7 +95,7 @@ def test_auto_with_required_merges_like_toolbox_mode() -> None:
 
 
 def test_plan_can_explicitly_disable_all_tools() -> None:
-    from miniagent.core.executor import _resolve_exec_tools
+    from miniagent.agent.executor import _resolve_exec_tools
 
     reg = DefaultToolRegistry()
     reg.register(

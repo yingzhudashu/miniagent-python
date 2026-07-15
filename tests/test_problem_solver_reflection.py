@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.core.problem_solver import (
+from miniagent.agent.problem_solver import (
     ReflectionResult,
     reflect_on_result,
 )

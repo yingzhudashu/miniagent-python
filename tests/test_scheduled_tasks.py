@@ -8,12 +8,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.contracts.messages import InboundMessage
-from miniagent.engine.cli_state import CliLoopState
-from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec, SessionSpec
-from miniagent.scheduled_tasks.resolve import resolve_execution_target, should_run_feishu
-from miniagent.scheduled_tasks.runner import ScheduledJob
-from miniagent.scheduled_tasks.store import (
+from miniagent.assistant.contracts.messages import InboundMessage
+from miniagent.assistant.engine.cli_state import CliLoopState
+from miniagent.assistant.scheduled_tasks.models import ScheduledTask, ScheduleSpec, SessionSpec
+from miniagent.assistant.scheduled_tasks.resolve import resolve_execution_target, should_run_feishu
+from miniagent.assistant.scheduled_tasks.runner import ScheduledJob
+from miniagent.assistant.scheduled_tasks.store import (
     apply_dispatch_failure_backoff,
     compute_initial_next_run,
     dispatch_failure_backoff_seconds,
@@ -24,7 +24,7 @@ from miniagent.scheduled_tasks.store import (
     save_tasks,
     save_tasks_async,
 )
-from miniagent.scheduled_tasks.ticker import tick_once
+from miniagent.assistant.scheduled_tasks.ticker import tick_once
 from tests.config_helpers import install_test_config
 from tests.scheduled_tasks_helpers import (
     minimal_cli_state,
@@ -88,7 +88,7 @@ def test_recompute_once_disables(state_dir: str) -> None:
 
 
 def test_cmd_schedule_remote_blocks_mutations() -> None:
-    from miniagent.engine.cli_commands import cmd_schedule
+    from miniagent.assistant.engine.cli_commands import cmd_schedule
 
     out = cmd_schedule(
         "/schedule add x every 60 primary -- hello",
@@ -98,7 +98,7 @@ def test_cmd_schedule_remote_blocks_mutations() -> None:
 
 
 def test_cmd_schedule_once_insufficient_args(state_dir: str) -> None:
-    from miniagent.engine.cli_commands import cmd_schedule
+    from miniagent.assistant.engine.cli_commands import cmd_schedule
 
     out = cmd_schedule(
         "/schedule add bad once 2030-01-01 -- oops",
@@ -108,7 +108,7 @@ def test_cmd_schedule_once_insufficient_args(state_dir: str) -> None:
 
 
 def test_cmd_schedule_add_parses(state_dir: str) -> None:
-    from miniagent.engine.cli_commands import cmd_schedule
+    from miniagent.assistant.engine.cli_commands import cmd_schedule
 
     line = "/schedule add t99 every 5 primary -- integration test prompt"
     msg = cmd_schedule(line, allow_mutations=True)
@@ -119,7 +119,7 @@ def test_cmd_schedule_add_parses(state_dir: str) -> None:
 
 
 def test_cmd_schedule_add_once_with_tz_naive(state_dir: str) -> None:
-    from miniagent.engine.cli_commands import cmd_schedule
+    from miniagent.assistant.engine.cli_commands import cmd_schedule
 
     line = "/schedule add tz1 once 2030-06-15T08:00:00 primary --tz Asia/Shanghai -- remind me"
     msg = cmd_schedule(line, allow_mutations=True)
@@ -261,7 +261,7 @@ async def test_tick_once_dispatch_failure_backoff(
             run=_run,
         )
 
-    monkeypatch.setattr("miniagent.scheduled_tasks.ticker.build_scheduled_job", _boom)
+    monkeypatch.setattr("miniagent.assistant.scheduled_tasks.ticker.build_scheduled_job", _boom)
     patch_tick_once_locks(monkeypatch)
 
     before = time.time()
@@ -315,7 +315,7 @@ def test_repair_invalid_cron_sets_error(state_dir: str) -> None:
 
 
 def test_cmd_schedule_add_cron(state_dir: str) -> None:
-    from miniagent.engine.cli_commands import cmd_schedule
+    from miniagent.assistant.engine.cli_commands import cmd_schedule
 
     line = '/schedule add cron1 cron "10 8 * * *" primary --tz Asia/Shanghai -- daily job'
     msg = cmd_schedule(line, allow_mutations=True)
@@ -383,7 +383,7 @@ def test_finalize_dispatch_failed_backoff(state_dir: str) -> None:
 
 
 def test_format_next_run_display_shows_relative(state_dir: str) -> None:
-    from miniagent.scheduled_tasks.store import format_next_run_display
+    from miniagent.assistant.scheduled_tasks.store import format_next_run_display
 
     t = ScheduledTask(
         id="fmt",
@@ -481,7 +481,7 @@ def test_resolve_feishu_p2p_without_chat_id(state_dir: str) -> None:
 
 
 def test_cmd_schedule_list_and_show(state_dir: str) -> None:
-    from miniagent.engine.cli_commands import cmd_schedule
+    from miniagent.assistant.engine.cli_commands import cmd_schedule
 
     save_tasks(
         [
@@ -504,7 +504,7 @@ def test_cmd_schedule_list_and_show(state_dir: str) -> None:
 
 
 def test_cmd_schedule_remove_enable_disable(state_dir: str) -> None:
-    from miniagent.engine.cli_commands import cmd_schedule
+    from miniagent.assistant.engine.cli_commands import cmd_schedule
 
     save_tasks(
         [
@@ -586,7 +586,7 @@ async def test_tick_once_skips_when_scheduler_lock_held(
     ctx = minimal_tick_ctx(engine=engine)
     st = minimal_cli_state(ctx)
     monkeypatch.setattr(
-        "miniagent.scheduled_tasks.ticker.try_acquire_scheduler_lock", lambda: False
+        "miniagent.assistant.scheduled_tasks.ticker.try_acquire_scheduler_lock", lambda: False
     )
     await tick_once(ctx, st, [], [])
     engine.run_agent_with_thinking.assert_not_called()
@@ -634,7 +634,7 @@ def test_dispatch_failure_backoff_seconds_from_config(tmp_path) -> None:
 
 
 def test_cmd_schedule_update_interval(state_dir: str) -> None:
-    from miniagent.engine.cli_commands import cmd_schedule
+    from miniagent.assistant.engine.cli_commands import cmd_schedule
 
     add = cmd_schedule(
         "/schedule add upd_cli every 60 primary -- old prompt",

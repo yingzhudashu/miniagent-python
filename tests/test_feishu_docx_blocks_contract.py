@@ -7,8 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from miniagent.feishu.docx import blocks
-from miniagent.feishu.types import FeishuConfig
+from miniagent.assistant.feishu.docx import blocks
+from miniagent.assistant.feishu.types import FeishuConfig
 
 CFG = FeishuConfig("app", "secret")
 

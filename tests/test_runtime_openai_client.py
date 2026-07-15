@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from miniagent.engine.engine import UnifiedEngine
-from miniagent.types.agent import AgentRunResult
+from miniagent.agent.types.agent import AgentRunResult
+from miniagent.assistant.engine.engine import UnifiedEngine
 from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 
 
@@ -26,7 +26,7 @@ async def test_run_agent_with_thinking_forwards_client_to_run_agent() -> None:
     sess.conversation_history = []
     sm.get_or_create = MagicMock(return_value=sess)
 
-    with patch("miniagent.engine.engine.run_agent", new=fake_run_agent):
+    with patch("miniagent.assistant.engine.engine.run_agent", new=fake_run_agent):
         engine = UnifiedEngine()
         await engine.run_agent_with_thinking(
             "hello",
@@ -65,9 +65,9 @@ async def test_run_agent_with_thinking_requires_session_manager() -> None:
 @pytest.mark.asyncio
 async def test_run_agent_forwards_client_to_execute_plan(tmp_path) -> None:
     """run_agent 传入的 client 应传入 execute_plan（空 toolboxes 走默认计划，不调用规划 LLM）。"""
-    from miniagent.core.agent import run_agent
-    from miniagent.infrastructure.monitor import DefaultToolMonitor
-    from miniagent.infrastructure.registry import DefaultToolRegistry
+    from miniagent.agent.agent import run_agent
+    from miniagent.agent.monitor import DefaultToolMonitor
+    from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
     from tests.config_helpers import install_test_config
 
     install_test_config(tmp_path, {"features": {"reflection": False}})
@@ -83,7 +83,7 @@ async def test_run_agent_forwards_client_to_execute_plan(tmp_path) -> None:
         return "done"
 
     fake = MagicMock(name="llm")
-    with patch("miniagent.core.agent.execute_plan", new=fake_execute_plan):
+    with patch("miniagent.agent.agent.execute_plan", new=fake_execute_plan):
         reg = DefaultToolRegistry()
         mon = DefaultToolMonitor()
         await run_agent(

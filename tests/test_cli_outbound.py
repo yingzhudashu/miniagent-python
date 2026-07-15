@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from miniagent.application.messaging import ChannelRegistry
-from miniagent.contracts import ChannelAdapter, OutboundEventKind
-from miniagent.engine.cli_outbound import (
+from miniagent.assistant.application.messaging import ChannelRegistry
+from miniagent.assistant.contracts import ChannelAdapter, OutboundEventKind
+from miniagent.assistant.engine.cli_outbound import (
     CliChannelAdapter,
     UnsupportedCliEventError,
     build_cli_outbound_event,

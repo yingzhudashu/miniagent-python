@@ -5,7 +5,7 @@ from __future__ import annotations
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion
 from prompt_toolkit.document import Document
 
-from miniagent.engine.cli_completion import (
+from miniagent.assistant.engine.cli_completion import (
     CommandCompleter,
     FileMarkerCompleter,
     create_cli_completer,

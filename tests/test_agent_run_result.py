@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.core.agent import _build_agent_run_result, run_agent
-from miniagent.infrastructure.monitor import DefaultToolMonitor
-from miniagent.types.agent import AgentRunOptions, AgentRunResult
+from miniagent.agent.agent import _build_agent_run_result, run_agent
+from miniagent.agent.monitor import DefaultToolMonitor
+from miniagent.agent.types.agent import AgentRunOptions, AgentRunResult
 from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 
 
@@ -33,7 +33,7 @@ async def test_run_agent_returns_agent_run_result(tmp_path) -> None:
 
     install_test_config(tmp_path, {"features": {"reflection": False}})
 
-    with patch("miniagent.core.agent.get_default_agent_config") as mock_cfg:
+    with patch("miniagent.agent.agent.get_default_agent_config") as mock_cfg:
         mock_cfg.return_value = MagicMock(
             log_file=None,
             max_turns=10,
@@ -41,10 +41,10 @@ async def test_run_agent_returns_agent_run_result(tmp_path) -> None:
             risk_level=None,
             loop_detection=None,
         )
-        with patch("miniagent.core.agent.merge_agent_config", side_effect=lambda a, b: a):
-            with patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False):
+        with patch("miniagent.agent.agent.merge_agent_config", side_effect=lambda a, b: a):
+            with patch("miniagent.agent.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False):
                 with patch(
-                    "miniagent.core.agent.execute_plan",
+                    "miniagent.agent.agent.execute_plan",
                     new_callable=AsyncMock,
                     return_value="done",
                 ):
@@ -90,7 +90,7 @@ async def test_run_agent_options_merge_model_config(tmp_path) -> None:
         execute_kwargs.update(kwargs)
         return "ok"
 
-    with patch("miniagent.core.agent.get_default_agent_config") as mock_cfg:
+    with patch("miniagent.agent.agent.get_default_agent_config") as mock_cfg:
         mock_cfg.return_value = MagicMock(
             log_file=None,
             max_turns=10,
@@ -98,9 +98,9 @@ async def test_run_agent_options_merge_model_config(tmp_path) -> None:
             risk_level=None,
             loop_detection=None,
         )
-        with patch("miniagent.core.agent.merge_agent_config", side_effect=_capture_merge):
-            with patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False):
-                with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as mock_exec:
+        with patch("miniagent.agent.agent.merge_agent_config", side_effect=_capture_merge):
+            with patch("miniagent.agent.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False):
+                with patch("miniagent.agent.agent.execute_plan", new_callable=AsyncMock) as mock_exec:
                     mock_exec.side_effect = _capture_execute
                     registry = MagicMock()
                     registry.get_schemas.return_value = []

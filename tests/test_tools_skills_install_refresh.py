@@ -8,11 +8,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.infrastructure.registry import DefaultToolRegistry
-from miniagent.skills.registry import DefaultSkillRegistry
-from miniagent.tools import skills as skills_module
-from miniagent.types.skill import ClawHubSkillDetail
-from miniagent.types.tool import ToolContext
+from miniagent.agent.types.skill import ClawHubSkillDetail
+from miniagent.agent.types.tool import ToolContext
+from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
+from miniagent.assistant.skills.registry import DefaultSkillRegistry
+from miniagent.assistant.tools import skills as skills_module
 
 
 @pytest.mark.asyncio
@@ -40,7 +40,7 @@ async def test_install_skill_hot_loads_without_restart() -> None:
                 os.path.join(pkg_dir, "skills", "main", "tools.py"), "w", encoding="utf-8"
             ) as f:
                 f.write(
-                    "from miniagent.types.tool import ToolDefinition\n"
+                    "from miniagent.agent.types.tool import ToolDefinition\n"
                     "hot_tool = ToolDefinition(\n"
                     "    schema={'type': 'function', 'function': {'name': 'hot_tool', "
                     "'description': 'd', 'parameters': {'type': 'object'}}},\n"

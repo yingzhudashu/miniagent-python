@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
-from miniagent.feishu.receive_id import default_receive_id_for_send, effective_receive_id_type
-from miniagent.types.tool import ToolContext
+from miniagent.agent.types.tool import ToolContext
+from miniagent.assistant.feishu.receive_id import (
+    default_receive_id_for_send,
+    effective_receive_id_type,
+)
 from tests.config_helpers import install_test_config
 
 _default_receive_id_for_send = default_receive_id_for_send

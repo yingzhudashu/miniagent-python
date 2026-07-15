@@ -9,7 +9,7 @@
 
 ## 输出前缀规范
 
-工具返回、CLI提示、飞书回复等场景统一使用以下 emoji 前缀（定义于 `miniagent/types/error_prefix.py`，亦可 `from miniagent.types import ERROR_PREFIX, WARNING_PREFIX, SUCCESS_PREFIX`）：
+工具返回、CLI提示、飞书回复等场景统一使用以下 emoji 前缀（定义于 `miniagent/agent/types/error_prefix.py`，亦可 `from miniagent.agent.types import ERROR_PREFIX, WARNING_PREFIX, SUCCESS_PREFIX`）：
 
 | 前缀 | 常量 | 含义 | 使用场景 |
 |------|------|------|----------|
@@ -17,7 +17,7 @@
 | ⚠️ | `WARNING_PREFIX` | 提示/警告 | 配置缺失、建议、需确认、非致命错误 |
 | ✅ | `SUCCESS_PREFIX` | 操作成功 | 文件写入、发送完成、创建成功 |
 
-**消息常量**（`miniagent/types/error_messages.py`）：
+**消息常量**（`miniagent/agent/types/error_messages.py`）：
 
 - **简单常量**：纯文本，无前缀（如 `FILE_NOT_FOUND`），用于 CLI 打印或内部异常文案。
 - **模板常量**：已含上述前缀，占位符为 `{key}`；通过 `format_message(template, key=value)` 填充后写入 `ToolResult.content` 或回复用户。
@@ -211,7 +211,7 @@ CLI 与飞书共进程时：
 | `MINIAGENT_THINKING_MERGE_TOOLS` | `1` | 同阶段工具意图行是否合并到思考卡片 |
 | `MINIAGENT_CLI_THINKING_RICH` | 关 | 是否对思考正文使用 Rich→ANSI 渲染（亦可设 `cli.thinking_rich`） |
 
-难度与规划段（`[评估与计划]`）是否推送由 Internal 常量 **`EXECUTION_ANNOUNCE_DIFFICULTY`**（`miniagent/core/constants.py`，默认 `True`）控制，非环境变量。
+难度与规划段（`[评估与计划]`）是否推送由 Internal 常量 **`EXECUTION_ANNOUNCE_DIFFICULTY`**（`miniagent/agent/constants.py`，默认 `True`）控制，非环境变量。
 
 ## 5. 会话历史中的思考块
 

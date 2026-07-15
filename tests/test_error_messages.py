@@ -1,4 +1,4 @@
-"""Tests for miniagent.types.error_messages."""
+"""Tests for miniagent.agent.types.error_messages."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ import doctest
 
 import pytest
 
-from miniagent.types import error_messages as error_messages_module
-from miniagent.types.error_messages import (
+from miniagent.agent.types import error_messages as error_messages_module
+from miniagent.agent.types.error_messages import (
     COMMAND_BLOCKED_DANGER,
     FILE_NOT_FOUND_WITH_PATH,
     FILE_WRITTEN,
@@ -17,7 +17,7 @@ from miniagent.types.error_messages import (
     TEXT_NOT_FOUND,
     format_message,
 )
-from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX
+from miniagent.agent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX
 
 
 class TestFormatMessage:

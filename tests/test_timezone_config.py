@@ -8,14 +8,14 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from miniagent.infrastructure.timezone_config import (
+from miniagent.agent.timezone import (
     format_agent_timezone_context,
     process_timezone,
 )
-from miniagent.scheduled_tasks.cron import cron_next_run_epoch
-from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec
-from miniagent.scheduled_tasks.store import effective_task_timezone
-from miniagent.scheduled_tasks.timezone_util import default_schedule_timezone
+from miniagent.assistant.scheduled_tasks.cron import cron_next_run_epoch
+from miniagent.assistant.scheduled_tasks.models import ScheduledTask, ScheduleSpec
+from miniagent.assistant.scheduled_tasks.store import effective_task_timezone
+from miniagent.assistant.scheduled_tasks.timezone_util import default_schedule_timezone
 from tests.config_helpers import install_test_config
 
 

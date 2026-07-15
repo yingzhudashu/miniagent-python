@@ -6,9 +6,13 @@ import asyncio
 
 import pytest
 
-from miniagent.core.confirmation_channel import ConfirmationChannel
-from miniagent.engine.engine import UnifiedEngine
-from miniagent.types.confirmation import ConfirmationRequest, ConfirmationResult, ConfirmationStage
+from miniagent.agent.confirmation_channel import ConfirmationChannel
+from miniagent.agent.types.confirmation import (
+    ConfirmationRequest,
+    ConfirmationResult,
+    ConfirmationStage,
+)
+from miniagent.assistant.engine.engine import UnifiedEngine
 
 
 @pytest.mark.asyncio
@@ -45,7 +49,7 @@ def test_confirmation_channel_isolated_instances() -> None:
 def test_resolve_feishu_confirmation_channel_routes_by_session() -> None:
     from unittest.mock import MagicMock
 
-    from miniagent.feishu import poll_server as ps
+    from miniagent.assistant.feishu import poll_server as ps
 
     engine = UnifiedEngine()
     router = MagicMock()

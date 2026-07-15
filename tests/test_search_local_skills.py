@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import tempfile
 
-from miniagent.skills.clawhub_client import search_local_skills
+from miniagent.assistant.skills.clawhub_client import search_local_skills
 
 
 def test_search_local_skills_multiline_description() -> None:

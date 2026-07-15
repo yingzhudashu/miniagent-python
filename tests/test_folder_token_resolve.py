@@ -6,13 +6,13 @@ from unittest.mock import patch
 
 import pytest
 
-from miniagent.feishu.folder_token_resolve import (
+from miniagent.assistant.feishu.folder_token_resolve import (
     extract_folder_token_from_url,
     folder_token_from_tool_arg,
     resolve_parent_folder_token,
     root_meta_fallback_enabled,
 )
-from miniagent.feishu.types import FeishuConfig
+from miniagent.assistant.feishu.types import FeishuConfig
 from tests.config_helpers import install_test_config
 
 
@@ -91,7 +91,7 @@ def test_resolve_parent_folder_token_root_meta_fallback(tmp_path) -> None:
     install_test_config(tmp_path)
     cfg = FeishuConfig(app_id="a", app_secret="b")
     with patch(
-        "miniagent.feishu.drive_client.get_root_folder_meta",
+        "miniagent.assistant.feishu.drive_client.get_root_folder_meta",
         return_value="fld_root",
     ):
         tok, err = resolve_parent_folder_token("", cfg=cfg)

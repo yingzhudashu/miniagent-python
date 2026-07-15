@@ -13,7 +13,7 @@
 
 from __future__ import annotations
 
-from miniagent.types.tool import (
+from miniagent.agent.types.tool import (
     ContextState,
     RegisteredTool,
     TokenEstimate,
@@ -180,7 +180,7 @@ class TestTokenEstimate:
 
     def test_estimate_token_estimate_helper(self) -> None:
         """estimate_token_estimate 与 estimate_tokens 一致"""
-        from miniagent.memory.context import estimate_token_estimate, estimate_tokens
+        from miniagent.agent.context import estimate_token_estimate, estimate_tokens
 
         text = "hello 世界"
         est = estimate_token_estimate(text)

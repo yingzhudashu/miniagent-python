@@ -5,11 +5,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from miniagent.infrastructure.config_migration import (
+from miniagent.assistant.infrastructure.config_migration import (
     migrate_config_file,
     migrate_v2_document,
 )
-from miniagent.infrastructure.json_config import JsonConfigLoader
+from miniagent.assistant.infrastructure.json_config import JsonConfigLoader
 from tests.config_helpers import DEFAULTS_PATH
 
 

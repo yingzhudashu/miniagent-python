@@ -17,11 +17,12 @@ from typing import Any
 
 import pytest
 
-from miniagent.core.self_opt.proposal_generator import ProposalGenerator
-from miniagent.core.self_opt.proposal_store import ProposalStore
-from miniagent.core.self_opt.runtime_analyzer import RuntimeAnalyzer
-from miniagent.core.self_opt.types import OptimizationProposal
-from miniagent.infrastructure.trace_events import (
+from miniagent.agent.observability import (
+    clear_trace_hooks,
+    emit_trace,
+    register_trace_hook,
+)
+from miniagent.agent.trace_events import (
     EVENT_CONTEXT_COMPRESS,
     EVENT_ERROR_COLLECT,
     EVENT_LLM_REQUEST,
@@ -31,7 +32,7 @@ from miniagent.infrastructure.trace_events import (
     EVENT_TOOL_START,
     make_error_event,
 )
-from miniagent.infrastructure.trace_stats import (
+from miniagent.assistant.infrastructure.trace_stats import (
     cleanup_old_traces,
     compute_context_stats,
     compute_error_stats,
@@ -42,11 +43,10 @@ from miniagent.infrastructure.trace_stats import (
     iter_trace_events,
     load_trace_events,
 )
-from miniagent.infrastructure.tracing import (
-    clear_trace_hooks,
-    emit_trace,
-    register_trace_hook,
-)
+from miniagent.assistant.self_opt.proposal_generator import ProposalGenerator
+from miniagent.assistant.self_opt.proposal_store import ProposalStore
+from miniagent.assistant.self_opt.runtime_analyzer import RuntimeAnalyzer
+from miniagent.assistant.self_opt.types import OptimizationProposal
 from tests.config_helpers import install_test_config
 
 
@@ -580,7 +580,7 @@ class TestRuntimeAnalyzer:
         assert isinstance(issues, list)
 
     def test_save_report_uses_versioned_state_schema(self, tmp_path: Path, monkeypatch) -> None:
-        from miniagent.core.self_opt import proposal_store
+        from miniagent.assistant.self_opt import proposal_store
 
         reports = tmp_path / "reports"
         monkeypatch.setattr(proposal_store, "get_reports_dir", lambda: reports)
@@ -771,7 +771,7 @@ class TestCLICommands:
 
     def test_cmd_self_opt_status(self) -> None:
         """Test /self-opt status command."""
-        from miniagent.engine.cli_commands import cmd_self_opt_status
+        from miniagent.assistant.engine.cli_commands import cmd_self_opt_status
 
         # Execute command
         cmd_self_opt_status()
@@ -781,7 +781,7 @@ class TestCLICommands:
 
     def test_cmd_self_opt_proposals(self, tmp_path: Path, proposal_output_dir: Path) -> None:
         """Test /self-opt proposals command."""
-        from miniagent.engine.cli_commands import cmd_self_opt_proposals
+        from miniagent.assistant.engine.cli_commands import cmd_self_opt_proposals
 
         install_test_config(
             tmp_path,
@@ -806,7 +806,7 @@ class TestCLICommands:
 
     def test_cmd_self_opt_show(self, tmp_path: Path, proposal_output_dir: Path) -> None:
         """Test /self-opt show command."""
-        from miniagent.engine.cli_commands import cmd_self_opt_show
+        from miniagent.assistant.engine.cli_commands import cmd_self_opt_show
 
         install_test_config(
             tmp_path,

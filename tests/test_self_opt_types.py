@@ -1,6 +1,6 @@
 """Tests for self-optimization types."""
 
-from miniagent.core.self_opt.types import (
+from miniagent.assistant.self_opt.types import (
     FileChange,
     InspectionReport,
     OptimizationProposal,

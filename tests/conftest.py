@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.engine.cli_state import CliLoopState
+from miniagent.assistant.engine.cli_state import CliLoopState
 
 # Add project root to path
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -34,7 +34,7 @@ def _isolate_json_config_from_user_file(request: pytest.FixtureRequest, tmp_path
 
     import json
 
-    from miniagent.infrastructure import json_config
+    from miniagent.assistant.infrastructure import json_config
 
     previous = json_config._config_loader
     user_path = tmp_path / "default-user-config.json"
@@ -64,7 +64,10 @@ def isolated_config_loader(tmp_path):
     """Factory: build JsonConfigLoader with optional user overrides dict."""
     import json
 
-    from miniagent.infrastructure.json_config import JsonConfigLoader, install_config_loader
+    from miniagent.assistant.infrastructure.json_config import (
+        JsonConfigLoader,
+        install_config_loader,
+    )
 
     def _factory(user_overrides: dict | None = None) -> JsonConfigLoader:
         user_path = tmp_path / "config.user.json"
@@ -94,8 +97,8 @@ def _reset_process_singletons_after_test() -> None:
     - LoopDetector 参数缓存
     - InstanceRegistry（如果已初始化）
     """
-    from miniagent.core.executor import _reset_env_caches_for_tests
-    from miniagent.infrastructure.loop_detector import clear_args_cache
+    from miniagent.agent.executor import _reset_env_caches_for_tests
+    from miniagent.agent.loop_detector import clear_args_cache
 
     yield
 
@@ -105,7 +108,7 @@ def _reset_process_singletons_after_test() -> None:
 
     # 尝试重置 InstanceRegistry（如果存在）
     try:
-        from miniagent.infrastructure.instance import reset_instance_registry_for_tests
+        from miniagent.assistant.infrastructure.instance import reset_instance_registry_for_tests
         reset_instance_registry_for_tests()
     except ImportError:
         pass
@@ -216,8 +219,8 @@ def mock_tool_registry() -> Any:
 
     返回 DefaultToolRegistry 实例。
     """
-    from miniagent.infrastructure.registry import DefaultToolRegistry
-    from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
+    from miniagent.agent.types.tool import ToolContext, ToolDefinition, ToolResult
+    from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
     registry = DefaultToolRegistry()
 
@@ -253,8 +256,8 @@ def mock_tool_registry_pair() -> tuple[Any, Any]:
 
     返回：(main_registry, session_registry)
     """
-    from miniagent.infrastructure.registry import DefaultToolRegistry
-    from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
+    from miniagent.agent.types.tool import ToolContext, ToolDefinition, ToolResult
+    from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
     main = DefaultToolRegistry()
     sess = DefaultToolRegistry()
@@ -293,7 +296,7 @@ def mock_tool_registry_pair() -> tuple[Any, Any]:
 @pytest.fixture
 def memory_runtime(state_dir: str):
     """Return a real, isolated memory object graph owned by the requesting test."""
-    from miniagent.memory.runtime import create_memory_runtime
+    from miniagent.assistant.memory.runtime import create_memory_runtime
 
     runtime = create_memory_runtime(state_dir)
     yield runtime
@@ -327,8 +330,8 @@ def mock_keyword_index(state_dir: str) -> Any:
 
     返回 KeywordIndex 实例。
     """
-    from miniagent.memory.keyword_index import KeywordIndex
-    from miniagent.memory.shared_registry import MemoryEntryRegistry
+    from miniagent.assistant.memory.keyword_index import KeywordIndex
+    from miniagent.assistant.memory.shared_registry import MemoryEntryRegistry
 
     registry = MemoryEntryRegistry(state_dir=state_dir)
     ki = KeywordIndex(state_dir=state_dir, registry=registry)
@@ -368,7 +371,7 @@ def mock_agent_config(mock_tool_registry_pair: tuple[Any, Any]) -> Any:
 
     返回 AgentConfig 实例。
     """
-    from miniagent.types.config import AgentConfig, SessionBindingConfig
+    from miniagent.agent.types.config import AgentConfig, SessionBindingConfig
 
     _, sess = mock_tool_registry_pair
     return AgentConfig(
@@ -488,7 +491,7 @@ def mock_session_manager(state_dir: str) -> Any:
 
     返回 DefaultSessionManager 实例。
     """
-    from miniagent.session.manager import DefaultSessionManager
+    from miniagent.assistant.session.manager import DefaultSessionManager
 
     return DefaultSessionManager(state_dir=state_dir)
 
@@ -504,7 +507,7 @@ def empty_plan() -> Any:
 
     返回 StructuredPlan 实例。
     """
-    from miniagent.types.planning import StructuredPlan
+    from miniagent.agent.types.planning import StructuredPlan
 
     return StructuredPlan(summary="empty plan", steps=[], required_toolboxes=[])
 

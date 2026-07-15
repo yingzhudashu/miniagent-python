@@ -4,16 +4,16 @@ from __future__ import annotations
 
 import pytest
 
-from miniagent.bootstrap.application import ApplicationContainer
-from miniagent.engine.command_dispatch import _REGISTERED_COMMANDS, dispatch_command
-from miniagent.engine.commands.help_commands import _md_help_section, format_help_markdown
-from miniagent.engine.engine import UnifiedEngine
-from miniagent.engine.feishu_state import FeishuRuntime
-from miniagent.infrastructure.channel_router import ChannelRouter
-from miniagent.infrastructure.message_queue import MessageQueueManager
-from miniagent.infrastructure.monitor import DefaultToolMonitor
-from miniagent.infrastructure.registry import DefaultToolRegistry
-from miniagent.skills import DefaultSkillRegistry, create_clawhub_client
+from miniagent.agent.monitor import DefaultToolMonitor
+from miniagent.assistant.bootstrap.application import ApplicationContainer
+from miniagent.assistant.engine.command_dispatch import _REGISTERED_COMMANDS, dispatch_command
+from miniagent.assistant.engine.commands.help_commands import _md_help_section, format_help_markdown
+from miniagent.assistant.engine.engine import UnifiedEngine
+from miniagent.assistant.engine.feishu_state import FeishuRuntime
+from miniagent.assistant.infrastructure.channel_router import ChannelRouter
+from miniagent.assistant.infrastructure.message_queue import MessageQueueManager
+from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
+from miniagent.assistant.skills import DefaultSkillRegistry, create_clawhub_client
 from tests.memory_helpers import (
     make_background_task_manager,
     make_knowledge_registry,
@@ -55,7 +55,7 @@ def test_help_covers_all_registered_commands() -> None:
 
 def test_md_help_header_separated_from_first_section() -> None:
     """元信息（当前实例）与首个分节标题之间应有可见空行（飞书 lark_md）。"""
-    from miniagent.feishu.poll_server import _normalize_lark_md
+    from miniagent.assistant.feishu.poll_server import _normalize_lark_md
 
     md = format_help_markdown(MessageQueueManager(), instance_id=1)
     norm = _normalize_lark_md(md)
@@ -67,7 +67,7 @@ def test_md_help_header_separated_from_first_section() -> None:
 
 def test_md_help_section_title_adjacent_to_list() -> None:
     """节标题应紧贴列表（飞书 lark_md 分组）。"""
-    from miniagent.feishu.poll_server import _normalize_lark_md
+    from miniagent.assistant.feishu.poll_server import _normalize_lark_md
 
     s1 = _md_help_section("节A", None, [("`/cmd1`", "说明1")])
     md = _normalize_lark_md(s1)
@@ -76,7 +76,7 @@ def test_md_help_section_title_adjacent_to_list() -> None:
 
 def test_md_help_section_list_separated_from_next_title() -> None:
     """上一节列表与下一节标题之间应有足够空行。"""
-    from miniagent.feishu.poll_server import _normalize_lark_md
+    from miniagent.assistant.feishu.poll_server import _normalize_lark_md
 
     s1 = _md_help_section("节A", None, [("`/cmd1`", "说明1")])
     s2 = _md_help_section("节B", None, [("`/cmd2`", "说明2")])
@@ -153,7 +153,7 @@ async def test_dispatch_reload_skills_slash_prefix() -> None:
         removed_tools=[],
     )
     with patch(
-        "miniagent.skills.refresh.refresh_skills",
+        "miniagent.assistant.skills.refresh.refresh_skills",
         new_callable=AsyncMock,
         return_value=fr,
     ):
@@ -165,6 +165,6 @@ async def test_dispatch_reload_skills_slash_prefix() -> None:
 
 def test_md_escape_cell_escapes_pipe() -> None:
     """测试表格单元格转义（仍用于 /session list 和 /queue status 的表格）。"""
-    from miniagent.engine.cli_commands import _md_escape_cell
+    from miniagent.assistant.engine.cli_commands import _md_escape_cell
 
     assert _md_escape_cell("a|b") == r"a\|b"

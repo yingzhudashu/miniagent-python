@@ -9,22 +9,22 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from miniagent.knowledge import (
+from miniagent.agent.types.tool import ToolContext
+from miniagent.assistant.knowledge import (
     KnowledgeRegistry,
     retrieve_knowledge_context,
 )
-from miniagent.knowledge.base import (
+from miniagent.assistant.knowledge.base import (
     KBConfig,
     KnowledgeBase,
     load_kb_config,
     resolve_kb_file_path,
 )
-from miniagent.tools.knowledge_tools import (
+from miniagent.assistant.tools.knowledge_tools import (
     KNOWLEDGE_TOOLBOX,
     apply_knowledge_toolbox_policy,
     knowledge_tools,
 )
-from miniagent.types.tool import ToolContext
 
 
 class TestKnowledgeBase:
@@ -151,7 +151,7 @@ class TestKnowledgeTools:
     @pytest.mark.asyncio
     async def test_search_knowledge_tool(self):
         """Test search_knowledge_tool."""
-        from miniagent.tools.knowledge_tools import knowledge_tools
+        from miniagent.assistant.tools.knowledge_tools import knowledge_tools
 
         # Get the tool definition
         tool = knowledge_tools.get("search_knowledge")
@@ -161,7 +161,7 @@ class TestKnowledgeTools:
     @pytest.mark.asyncio
     async def test_kb_list_tool(self):
         """Test kb_list_tool."""
-        from miniagent.tools.knowledge_tools import knowledge_tools
+        from miniagent.assistant.tools.knowledge_tools import knowledge_tools
 
         tool = knowledge_tools.get("kb_list")
         assert tool is not None
@@ -170,7 +170,7 @@ class TestKnowledgeTools:
     @pytest.mark.asyncio
     async def test_read_knowledge_file_tool(self):
         """Test read_knowledge_file_tool."""
-        from miniagent.tools.knowledge_tools import knowledge_tools
+        from miniagent.assistant.tools.knowledge_tools import knowledge_tools
 
         tool = knowledge_tools.get("read_knowledge_file")
         assert tool is not None
@@ -236,7 +236,7 @@ class TestKnowledgeRegistryExtended:
             with open(os.path.join(files_dir, "x.md"), "w", encoding="utf-8") as f:
                 f.write("hello")
 
-            with patch("miniagent.knowledge.registry.get_config", return_value=kb_root):
+            with patch("miniagent.assistant.knowledge.registry.get_config", return_value=kb_root):
                 registry = KnowledgeRegistry(state_dir=tmpdir)
                 registry._mounted.clear()
                 registry.mount(kb_dir, "alias_name")
@@ -273,7 +273,7 @@ class TestKnowledgeRegistryExtended:
 class TestRetrieveKnowledgeContext:
     def test_returns_empty_when_disabled(self):
         registry = MagicMock()
-        with patch("miniagent.knowledge.get_config", return_value=False):
+        with patch("miniagent.assistant.knowledge.get_config", return_value=False):
             assert retrieve_knowledge_context(registry, "query", phase="executor") == ""
 
     def test_returns_markdown_when_results_exist(self):
@@ -285,7 +285,7 @@ class TestRetrieveKnowledgeContext:
                 f.close()
                 try:
                     registry.mount(f.name, "doc_kb")
-                    with patch("miniagent.knowledge.get_config") as mock_cfg:
+                    with patch("miniagent.assistant.knowledge.get_config") as mock_cfg:
                         mock_cfg.side_effect = lambda key, default=None: {
                             "knowledge.executor_enabled": True,
                             "knowledge.executor_top_k": 3,
@@ -344,7 +344,7 @@ class TestKnowledgeToolHandlers:
 class TestKnowledgeToolboxPolicy:
     def test_apply_knowledge_toolbox_policy_respects_as_core(self):
         tool = knowledge_tools["search_knowledge"]
-        with patch("miniagent.tools.knowledge_tools.get_config", return_value=True):
+        with patch("miniagent.assistant.tools.knowledge_tools.get_config", return_value=True):
             assert apply_knowledge_toolbox_policy(tool).toolbox is None
-        with patch("miniagent.tools.knowledge_tools.get_config", return_value=False):
+        with patch("miniagent.assistant.tools.knowledge_tools.get_config", return_value=False):
             assert apply_knowledge_toolbox_policy(tool).toolbox == KNOWLEDGE_TOOLBOX

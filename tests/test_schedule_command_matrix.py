@@ -6,8 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from miniagent.engine.commands import schedule_commands as commands
-from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec, SessionSpec
+from miniagent.assistant.engine.commands import schedule_commands as commands
+from miniagent.assistant.scheduled_tasks.models import ScheduledTask, ScheduleSpec, SessionSpec
 
 
 def test_schedule_helper_parsers(monkeypatch) -> None:
@@ -16,7 +16,7 @@ def test_schedule_helper_parsers(monkeypatch) -> None:
     ) == (["add", "x", "every"], "Asia/Shanghai")
     assert commands._schedule_head_strip_tz_tokens(["--tz", "", "x"])[1] == "UTC"
     monkeypatch.setattr(
-        "miniagent.scheduled_tasks.timezone_util.default_schedule_timezone",
+        "miniagent.assistant.scheduled_tasks.timezone_util.default_schedule_timezone",
         lambda: "Default/TZ",
     )
     assert commands._resolve_schedule_tz(None) == "Default/TZ"
@@ -47,18 +47,18 @@ def test_schedule_helper_parsers(monkeypatch) -> None:
 def test_schedule_read_and_mutation_validation(monkeypatch) -> None:
     tasks: list[ScheduledTask] = []
     saved: list[list[ScheduledTask]] = []
-    monkeypatch.setattr("miniagent.scheduled_tasks.store.load_tasks", lambda: list(tasks))
+    monkeypatch.setattr("miniagent.assistant.scheduled_tasks.store.load_tasks", lambda: list(tasks))
     monkeypatch.setattr(
-        "miniagent.scheduled_tasks.store.save_tasks", lambda value: saved.append(list(value))
+        "miniagent.assistant.scheduled_tasks.store.save_tasks", lambda value: saved.append(list(value))
     )
     monkeypatch.setattr(
-        "miniagent.scheduled_tasks.store.format_next_run_display", lambda *_args, **_kwargs: "soon"
+        "miniagent.assistant.scheduled_tasks.store.format_next_run_display", lambda *_args, **_kwargs: "soon"
     )
     monkeypatch.setattr(
-        "miniagent.scheduled_tasks.store.repair_invalid_schedules", lambda _tasks: False
+        "miniagent.assistant.scheduled_tasks.store.repair_invalid_schedules", lambda _tasks: False
     )
     monkeypatch.setattr(
-        "miniagent.scheduled_tasks.store.compute_initial_next_run", lambda _task: 9999999999.0
+        "miniagent.assistant.scheduled_tasks.store.compute_initial_next_run", lambda _task: 9999999999.0
     )
 
     assert commands.cmd_schedule("not-command", allow_mutations=True).startswith("定时任务")
@@ -110,17 +110,17 @@ def test_schedule_add_once_cron_and_update_errors(monkeypatch) -> None:
         session=SessionSpec(mode="primary"),
     )
     tasks = [task]
-    monkeypatch.setattr("miniagent.scheduled_tasks.store.load_tasks", lambda: tasks)
-    monkeypatch.setattr("miniagent.scheduled_tasks.store.save_tasks", lambda _value: None)
+    monkeypatch.setattr("miniagent.assistant.scheduled_tasks.store.load_tasks", lambda: tasks)
+    monkeypatch.setattr("miniagent.assistant.scheduled_tasks.store.save_tasks", lambda _value: None)
     monkeypatch.setattr(
-        "miniagent.scheduled_tasks.store.repair_invalid_schedules", lambda _tasks: False
+        "miniagent.assistant.scheduled_tasks.store.repair_invalid_schedules", lambda _tasks: False
     )
     monkeypatch.setattr(
-        "miniagent.scheduled_tasks.store.format_next_run_display", lambda *_args, **_kwargs: "soon"
+        "miniagent.assistant.scheduled_tasks.store.format_next_run_display", lambda *_args, **_kwargs: "soon"
     )
     next_runs = iter([None, 1.0, None, 9999999999.0, 9999999999.0, None])
     monkeypatch.setattr(
-        "miniagent.scheduled_tasks.store.compute_initial_next_run", lambda _task: next(next_runs)
+        "miniagent.assistant.scheduled_tasks.store.compute_initial_next_run", lambda _task: next(next_runs)
     )
 
     assert "无法解析 once" in commands.cmd_schedule(

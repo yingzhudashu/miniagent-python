@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from miniagent.memory.history_archive import maybe_archive_old_turns, trim_history_tail_by_turns
-from miniagent.memory.history_progressive import (
+from miniagent.assistant.memory.history_archive import (
+    maybe_archive_old_turns,
+    trim_history_tail_by_turns,
+)
+from miniagent.assistant.memory.history_progressive import (
     TOOL_OUTPUT_REDACTED_PLACEHOLDER,
     apply_one_progressive_disk_step,
     compress_first_step_span_in_text,
@@ -96,7 +99,7 @@ def test_run_session_history_maintenance_respects_progressive_off(tmp_path):
 
 
 def test_merge_agent_config_history_progressive_compression():
-    from miniagent.core.config import get_default_agent_config, merge_agent_config
+    from miniagent.agent.config import get_default_agent_config, merge_agent_config
 
     base = get_default_agent_config()
     merged = merge_agent_config(base, {"history_progressive_compression": False})

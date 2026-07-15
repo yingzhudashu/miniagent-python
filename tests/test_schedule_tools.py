@@ -7,8 +7,8 @@ import os
 
 import pytest
 
-from miniagent.tools.schedule_tools import _manage_scheduled_task_handler
-from miniagent.types.tool import ToolContext
+from miniagent.agent.types.tool import ToolContext
+from miniagent.assistant.tools.schedule_tools import _manage_scheduled_task_handler
 
 
 @pytest.mark.asyncio

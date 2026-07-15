@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from miniagent.core.problem_solver import (
+from miniagent.agent.problem_solver import (
     ReflectionResult,
     _parse_reflection_result,
     build_reflection_footer,
@@ -67,7 +67,7 @@ class TestReflectOnResult:
             "suggestions": ["回答清晰"],
         }
 
-        with patch("miniagent.core.problem_solver.llm_json", new_callable=AsyncMock) as mock_llm:
+        with patch("miniagent.agent.problem_solver.llm_json", new_callable=AsyncMock) as mock_llm:
             mock_llm.return_value = mock_response
 
             result = await reflect_on_result(
@@ -90,7 +90,7 @@ class TestReflectOnResult:
             "suggestions": ["添加异常捕获", "简化逻辑"],
         }
 
-        with patch("miniagent.core.problem_solver.llm_json", new_callable=AsyncMock) as mock_llm:
+        with patch("miniagent.agent.problem_solver.llm_json", new_callable=AsyncMock) as mock_llm:
             mock_llm.return_value = mock_response
 
             result = await reflect_on_result(
@@ -116,7 +116,7 @@ class TestReflectOnResult:
 
         mock_on_thinking = AsyncMock()
 
-        with patch("miniagent.core.problem_solver.llm_json", new_callable=AsyncMock) as mock_llm:
+        with patch("miniagent.agent.problem_solver.llm_json", new_callable=AsyncMock) as mock_llm:
             mock_llm.return_value = mock_response
 
             await reflect_on_result(
@@ -141,8 +141,8 @@ class TestReflectOnResult:
 
         mock_kb_context = "知识库参考：最佳实践文档"
 
-        with patch("miniagent.core.problem_solver.llm_json", new_callable=AsyncMock) as mock_llm:
-            with patch("miniagent.knowledge.retrieve_knowledge_context") as mock_kb:
+        with patch("miniagent.agent.problem_solver.llm_json", new_callable=AsyncMock) as mock_llm:
+            with patch("miniagent.agent.knowledge.retrieve_knowledge_context") as mock_kb:
                 mock_llm.return_value = mock_response
                 mock_kb.return_value = mock_kb_context
 
@@ -160,7 +160,7 @@ class TestReflectOnResult:
         """测试LLM响应缺失字段时的默认值"""
         mock_response = {}  # 空响应
 
-        with patch("miniagent.core.problem_solver.llm_json", new_callable=AsyncMock) as mock_llm:
+        with patch("miniagent.agent.problem_solver.llm_json", new_callable=AsyncMock) as mock_llm:
             mock_llm.return_value = mock_response
 
             result = await reflect_on_result(
@@ -185,7 +185,7 @@ class TestReflectOnResult:
             "suggestions": "添加 try/except",
         }
 
-        with patch("miniagent.core.problem_solver.llm_json", new_callable=AsyncMock) as mock_llm:
+        with patch("miniagent.agent.problem_solver.llm_json", new_callable=AsyncMock) as mock_llm:
             mock_llm.return_value = mock_response
 
             result = await reflect_on_result(
@@ -216,8 +216,8 @@ class TestReflectOnResultIntegration:
 
         mock_on_thinking = AsyncMock()
 
-        with patch("miniagent.core.problem_solver.llm_json", new_callable=AsyncMock) as mock_llm:
-            with patch("miniagent.knowledge.retrieve_knowledge_context") as mock_kb:
+        with patch("miniagent.agent.problem_solver.llm_json", new_callable=AsyncMock) as mock_llm:
+            with patch("miniagent.agent.knowledge.retrieve_knowledge_context") as mock_kb:
                 mock_llm.return_value = mock_response
                 mock_kb.return_value = ""
 

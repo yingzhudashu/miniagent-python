@@ -6,16 +6,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.core.executor import (
+from miniagent.agent.executor import (
     build_current_turn_user_context,
     build_stable_execution_system_prompt,
     execute_plan,
 )
-from miniagent.core.llm_json import parse_llm_json_response
-from miniagent.core.planner import _format_toolbox_tool_names
-from miniagent.infrastructure.registry import DefaultToolRegistry
-from miniagent.types.planning import StructuredPlan
-from miniagent.types.tool import ToolDefinition
+from miniagent.agent.llm_json import parse_llm_json_response
+from miniagent.agent.planner import _format_toolbox_tool_names
+from miniagent.agent.types.planning import StructuredPlan
+from miniagent.agent.types.tool import ToolDefinition
+from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 from tests.mock_strategies import (
     agent_config_with_session,
@@ -79,7 +79,7 @@ async def test_execute_plan_messages_are_cache_friendly(tmp_path) -> None:
     cfg.risk_level = "medium"
     plan = StructuredPlan(summary="PLAN_SUMMARY", steps=[], required_toolboxes=[])
 
-    with patch("miniagent.knowledge.retrieve_knowledge_context", return_value="KB_CTX"):
+    with patch("miniagent.agent.knowledge.retrieve_knowledge_context", return_value="KB_CTX"):
         await execute_plan(
             plan,
             "USER_INPUT",
@@ -120,7 +120,7 @@ def test_format_toolbox_tool_names() -> None:
     reg = DefaultToolRegistry()
 
     async def _h(args, ctx):
-        from miniagent.types.tool import ToolResult
+        from miniagent.agent.types.tool import ToolResult
 
         return ToolResult(True, "")
 

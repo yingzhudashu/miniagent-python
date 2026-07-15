@@ -7,8 +7,8 @@ from types import SimpleNamespace
 from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.document import Document
 
-from miniagent.engine.cli_tui import _TuiViewport
-from miniagent.engine.cli_tui_app import _create_input_prompt
+from miniagent.assistant.engine.cli_tui import _TuiViewport
+from miniagent.assistant.engine.cli_tui_app import _create_input_prompt
 
 
 def test_input_prompt_starts_at_one_row_grows_and_caps_at_six() -> None:

@@ -1,6 +1,6 @@
 # 安全模型
 
-> Mini Agent Python | 版本: 3.0.0 | 最后更新: 2026-07-15 | 与 `miniagent.__version__` 对齐 | 模块: `miniagent/security/` + 全局安全策略
+> Mini Agent Python | 版本: 3.0.0 | 最后更新: 2026-07-15 | 与 `miniagent.__version__` 对齐 | 模块: `miniagent/assistant/security/` + 全局安全策略
 
 ## 安全架构概览
 
@@ -28,7 +28,7 @@
 
 ## 1. 沙箱机制
 
-**位置**: `miniagent/security/sandbox.py`
+**位置**: `miniagent/assistant/security/sandbox.py`
 
 ### 路径白名单
 
@@ -71,7 +71,7 @@ resolve_sandbox_path("/app/workspace/data/output.txt", ["/app/workspace"])
 
 ## 2. 命令执行安全
 
-**位置**: `miniagent/tools/exec.py`
+**位置**: `miniagent/assistant/tools/exec.py`
 
 ### subprocess 调用约束
 
@@ -94,7 +94,7 @@ resolve_sandbox_path("/app/workspace/data/output.txt", ["/app/workspace"])
 
 ## 3. 多实例安全
 
-**位置**: `miniagent/engine/session_lock.py` + `miniagent/infrastructure/instance.py`
+**位置**: `miniagent/assistant/engine/session_lock.py` + `miniagent/assistant/infrastructure/instance.py`
 
 ### 会话锁
 
@@ -121,7 +121,7 @@ release_session_lock("default")
 
 ## 4. 循环检测
 
-**位置**: `miniagent/infrastructure/loop_detector.py`
+**位置**: `miniagent/agent/loop_detector.py`
 
 防止 Agent 陷入无限循环：
 

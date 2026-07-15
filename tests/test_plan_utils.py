@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from miniagent.core.plan_utils import (
+from miniagent.agent.plan_utils import (
     format_estimated_cost_block,
     format_output_spec_block,
     order_steps_by_dependencies,
@@ -12,8 +12,8 @@ from miniagent.core.plan_utils import (
     resolve_effective_overflow_strategy,
     resolve_execution_step_groups,
 )
-from miniagent.core.planner import _dict_to_plan
-from miniagent.types.planning import (
+from miniagent.agent.planner import _dict_to_plan
+from miniagent.agent.types.planning import (
     ContextStrategy,
     EstimatedCost,
     OutputSpec,

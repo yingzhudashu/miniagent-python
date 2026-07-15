@@ -8,16 +8,16 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.infrastructure.registry import DefaultToolRegistry
-from miniagent.mcp.bridge import is_mcp_available, mcp_tool_to_openai_param
-from miniagent.mcp.runtime import (
+from miniagent.agent.types.tool import ToolResult
+from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
+from miniagent.assistant.mcp.bridge import is_mcp_available, mcp_tool_to_openai_param
+from miniagent.assistant.mcp.runtime import (
     _call_tool_to_result,
     _is_mcp_tool_error,
     _tool_result_text,
     close_mcp_connections,
     register_mcp_stdio_tools,
 )
-from miniagent.types.tool import ToolResult
 
 
 async def _h(args: dict, ctx) -> ToolResult:
@@ -82,7 +82,7 @@ def test_is_mcp_available_is_bool() -> None:
 
 @pytest.mark.asyncio
 async def test_close_mcp_connections_exits_owned_contexts_once() -> None:
-    from miniagent.mcp import runtime
+    from miniagent.assistant.mcp import runtime
 
     first = MagicMock()
     first.__aexit__ = AsyncMock(return_value=None)

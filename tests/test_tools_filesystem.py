@@ -1,4 +1,4 @@
-"""Tests for miniagent.tools.filesystem — core file operation tools."""
+"""Tests for miniagent.assistant.tools.filesystem — core file operation tools."""
 
 from __future__ import annotations
 
@@ -8,7 +8,8 @@ from unittest.mock import patch
 
 import pytest
 
-from miniagent.tools.filesystem import (
+from miniagent.agent.types.tool import ToolContext
+from miniagent.assistant.tools.filesystem import (
     _copy_file_handler,
     _create_dir_handler,
     _delete_file_handler,
@@ -18,7 +19,6 @@ from miniagent.tools.filesystem import (
     _read_file_handler,
     _write_file_handler,
 )
-from miniagent.types.tool import ToolContext
 
 
 @pytest.fixture
@@ -62,7 +62,7 @@ async def test_read_file_rag_ingest_can_be_disabled(tmp_path: Path, ctx: ToolCon
             return False
         return default
 
-    with patch("miniagent.knowledge.file_ingest.get_config", side_effect=_get_config):
+    with patch("miniagent.assistant.knowledge.file_ingest.get_config", side_effect=_get_config):
         r = await _read_file_handler({"path": "disabled.txt"}, ctx)
 
     assert r.success
@@ -90,7 +90,7 @@ async def test_read_file_large_page_has_bounded_peak_memory(
     tracemalloc.start()
     try:
         tracemalloc.reset_peak()
-        with patch("miniagent.knowledge.file_ingest.get_config", side_effect=_get_config):
+        with patch("miniagent.assistant.knowledge.file_ingest.get_config", side_effect=_get_config):
             result = await _read_file_handler(
                 {"path": "large.txt", "offset": 100_000, "limit": 5},
                 ctx,

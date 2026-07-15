@@ -40,7 +40,7 @@ jobs:
           python scripts/docstring_inventory.py --check
 
       - name: Bandit high-severity security scan
-        run: python -m bandit -q -r miniagent -x miniagent/skills/templates -lll
+        run: python -m bandit -q -r miniagent -x miniagent/assistant/skills/templates -lll
 
       - name: Architecture dependency rules
         run: python scripts/check_architecture.py

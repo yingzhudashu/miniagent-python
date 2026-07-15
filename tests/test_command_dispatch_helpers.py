@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniagent.engine import command_dispatch as dispatch
+from miniagent.assistant.engine import command_dispatch as dispatch
 
 
 def test_last_qa_reads_versioned_history_and_handles_failures(tmp_path: Path) -> None:
@@ -61,7 +61,7 @@ def test_last_qa_loader_and_compatibility_file_failures(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_review_empty_clean_and_iterative(monkeypatch) -> None:
-    import miniagent.core.llm_json as llm_module
+    import miniagent.agent.llm_json as llm_module
 
     responses = iter(
         [
@@ -88,7 +88,7 @@ async def test_review_empty_clean_and_iterative(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_review_output_fallbacks_and_iteration_limits(monkeypatch) -> None:
-    import miniagent.core.llm_json as llm_module
+    import miniagent.agent.llm_json as llm_module
 
     writes: list[tuple[str, str]] = []
     responses = iter(
@@ -131,7 +131,7 @@ async def test_review_output_fallbacks_and_iteration_limits(monkeypatch) -> None
 
 @pytest.mark.asyncio
 async def test_improve_success_failure_and_term_sink(monkeypatch) -> None:
-    import miniagent.core.llm_json as llm_module
+    import miniagent.agent.llm_json as llm_module
 
     calls = []
 
@@ -182,7 +182,7 @@ def test_capture_and_status_busy_bindings() -> None:
 
 @pytest.mark.asyncio
 async def test_run_test_capture_and_real_mode_validation(monkeypatch) -> None:
-    import miniagent.testing.test_runner as runner_module
+    import miniagent.assistant.testing.test_runner as runner_module
 
     report = SimpleNamespace(
         passed=1,
@@ -204,7 +204,7 @@ async def test_run_test_capture_and_real_mode_validation(monkeypatch) -> None:
 
 
 def test_list_samples_and_last_status(monkeypatch) -> None:
-    import miniagent.testing.test_runner as runner_module
+    import miniagent.assistant.testing.test_runner as runner_module
 
     sample = SimpleNamespace(category="core", name="sample", description="desc", input="q", priority=1)
     fake = SimpleNamespace(

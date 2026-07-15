@@ -9,27 +9,27 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.memory.history_bridge import format_history_for_llm
-from miniagent.memory.keyword_index import format_search_results
-from miniagent.memory.memory_context_service import (
-    DefaultMemoryContext,
-    DefaultMemoryHistory,
-    DefaultMemorySearch,
-    create_default_memory_context,
-)
-from miniagent.memory.store import DefaultMemoryStore
-from miniagent.types.config import AgentConfig
-from miniagent.types.memory_context import (
+from miniagent.agent.history import format_history_for_llm
+from miniagent.agent.types.config import AgentConfig
+from miniagent.agent.types.memory_context import (
     MemoryContextProtocol,
     MemoryHistoryProtocol,
     MemoryInjectionResult,
     MemorySearchProtocol,
 )
+from miniagent.assistant.memory.keyword_index import format_search_results
+from miniagent.assistant.memory.memory_context_service import (
+    DefaultMemoryContext,
+    DefaultMemoryHistory,
+    DefaultMemorySearch,
+    create_default_memory_context,
+)
+from miniagent.assistant.memory.store import DefaultMemoryStore
 
 
 @pytest.fixture
 def memory_bundle():
-    from miniagent.memory.keyword_index import KeywordIndex
+    from miniagent.assistant.memory.keyword_index import KeywordIndex
 
     with tempfile.TemporaryDirectory() as tmpdir:
         ki = KeywordIndex(state_dir=tmpdir)
@@ -41,7 +41,7 @@ def memory_bundle():
 async def test_default_memory_context_inject_metadata(memory_bundle) -> None:
     ms, ki = memory_bundle
     ctx = DefaultMemoryContext(ms, ki)
-    from miniagent.types.config import SessionBindingConfig
+    from miniagent.agent.types.config import SessionBindingConfig
 
     agent_config = AgentConfig(
         session_config=SessionBindingConfig(session_key="session-a")

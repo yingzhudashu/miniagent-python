@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from miniagent.infrastructure.cli_transcript_coordinator import CliTranscriptCoordinator
+from miniagent.assistant.infrastructure.cli_transcript_coordinator import CliTranscriptCoordinator
 
 
 def test_fallback_coordinator_unregistered_thinking_dropped() -> None:

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.engine import cli_fallback
+from miniagent.assistant.engine import cli_fallback
 
 
 def _runtime() -> cli_fallback._FallbackCliRuntime:
@@ -18,7 +18,7 @@ def _runtime() -> cli_fallback._FallbackCliRuntime:
         clawhub=None,
         memory=None,
         knowledge_registry=None,
-        openai_client=None,
+        llm_gateway=None,
     )
     runtime.engine = SimpleNamespace(
         set_active_session_key=MagicMock(),
@@ -60,8 +60,8 @@ async def test_handle_line_shell_copy_stop_and_exit(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_command_switch_status_and_exit(monkeypatch) -> None:
     runtime = _runtime()
-    import miniagent.engine.command_dispatch as dispatch_module
-    import miniagent.engine.parallel_config as parallel_module
+    import miniagent.assistant.engine.command_dispatch as dispatch_module
+    import miniagent.assistant.engine.parallel_config as parallel_module
 
     async def switch(*_args, **_kwargs):
         runtime.state["active_session_id"] = "s2"
@@ -80,8 +80,8 @@ async def test_command_switch_status_and_exit(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_submit_clarification_and_maintenance(monkeypatch) -> None:
     runtime = _runtime()
-    import miniagent.engine.parallel_config as parallel_module
-    from miniagent.types.confirmation import ConfirmationStage
+    import miniagent.assistant.engine.parallel_config as parallel_module
+    from miniagent.agent.types.confirmation import ConfirmationStage
 
     monkeypatch.setattr(parallel_module, "resolve_active_session_key", lambda *_args: "s1")
     channel = SimpleNamespace(
@@ -109,7 +109,7 @@ async def test_submit_clarification_and_maintenance(monkeypatch) -> None:
 
 def test_copy_history_outcomes(monkeypatch, capsys) -> None:
     runtime = _runtime()
-    import miniagent.engine.cli_commands as commands
+    import miniagent.assistant.engine.cli_commands as commands
 
     monkeypatch.setattr(commands, "build_session_history_plaintext", lambda *_args: "plain")
     monkeypatch.setattr(cli_fallback, "copy_text_to_system_clipboard", lambda _text: True)
@@ -138,8 +138,8 @@ def test_thinking_delivery_and_cleanup(monkeypatch) -> None:
     runtime.ctx.register_shutdown_tracked_task.assert_called_with("task")
 
     runtime.engine.thinking = SimpleNamespace(set_output_sink=MagicMock())
-    import miniagent.engine.session_continue as continue_module
-    import miniagent.engine.session_lock as lock_module
+    import miniagent.assistant.engine.session_continue as continue_module
+    import miniagent.assistant.engine.session_lock as lock_module
 
     monkeypatch.setattr(continue_module, "save_cli_session_state", MagicMock())
     monkeypatch.setattr(lock_module, "release_session_lock", MagicMock())
@@ -159,7 +159,7 @@ def test_history_summary_user_assistant_and_failures(monkeypatch, capsys) -> Non
             5,
         )
     )
-    import miniagent.engine.markdown_cli as markdown_module
+    import miniagent.assistant.engine.markdown_cli as markdown_module
 
     monkeypatch.setattr(markdown_module, "cli_raw_markdown_enabled", lambda: True)
     cli_fallback.print_history_summary_fallback(

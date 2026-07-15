@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.engine.commands.runtime_commands import (
+from miniagent.assistant.engine.commands.runtime_commands import (
     handle_abort,
     handle_background_task,
     handle_feishu,
@@ -41,7 +41,7 @@ def _state(queue: _Queue | None = None) -> dict[str, object]:
 async def test_abort_uses_channel_id_then_cli_default() -> None:
     queue = _Queue()
     state = _state(queue)
-    with patch("miniagent.engine.cli_commands.format_queue_abort_message", return_value="aborted"):
+    with patch("miniagent.assistant.engine.cli_commands.format_queue_abort_message", return_value="aborted"):
         assert (
             await handle_abort(
                 "/abort",
@@ -67,14 +67,14 @@ async def test_query_and_queue_cover_read_write_abort_and_usage() -> None:
         print("queue-set")
 
     with (
-        patch("miniagent.engine.cli_commands.cmd_queue_status", side_effect=print_status),
-        patch("miniagent.engine.cli_commands.cmd_queue_set", side_effect=set_mode),
+        patch("miniagent.assistant.engine.cli_commands.cmd_queue_status", side_effect=print_status),
+        patch("miniagent.assistant.engine.cli_commands.cmd_queue_set", side_effect=set_mode),
         patch(
-            "miniagent.engine.cli_commands.format_queue_abort_message",
+            "miniagent.assistant.engine.cli_commands.format_queue_abort_message",
             return_value="queue-abort",
         ),
         patch(
-            "miniagent.engine.cli_commands.format_queue_command_usage",
+            "miniagent.assistant.engine.cli_commands.format_queue_command_usage",
             return_value="queue-usage",
         ),
     ):
@@ -88,7 +88,7 @@ async def test_query_and_queue_cover_read_write_abort_and_usage() -> None:
 @pytest.mark.asyncio
 async def test_queue_maps_set_failure() -> None:
     with patch(
-        "miniagent.engine.cli_commands.cmd_queue_set",
+        "miniagent.assistant.engine.cli_commands.cmd_queue_set",
         AsyncMock(side_effect=ValueError("invalid mode")),
     ):
         output = await handle_queue("/queue set bad", state=_state(), capture=True)
@@ -105,7 +105,7 @@ async def test_reload_skills_reports_changes_and_failure() -> None:
             removed_tools=[],
         )
     )
-    with patch("miniagent.skills.refresh.refresh_skills", refresh):
+    with patch("miniagent.assistant.skills.refresh.refresh_skills", refresh):
         output = await handle_reload_skills(
             "/reload-skills", state=_state(), registry=object(), capture=True
         )
@@ -113,7 +113,7 @@ async def test_reload_skills_reports_changes_and_failure() -> None:
     assert "技能数: 2" in (output or "")
 
     with patch(
-        "miniagent.skills.refresh.refresh_skills",
+        "miniagent.assistant.skills.refresh.refresh_skills",
         AsyncMock(side_effect=RuntimeError("refresh failed")),
     ):
         output = await handle_reload_skills(
@@ -128,10 +128,10 @@ async def test_stop_enforces_channel_policy_and_shutdown_contract() -> None:
     shutdown = AsyncMock()
     with (
         patch(
-            "miniagent.engine.cli_commands.feishu_dot_commands_full_enabled",
+            "miniagent.assistant.engine.cli_commands.feishu_dot_commands_full_enabled",
             return_value=False,
         ),
-        patch("miniagent.engine.shutdown.shutdown_runtime", shutdown),
+        patch("miniagent.assistant.engine.shutdown.shutdown_runtime", shutdown),
     ):
         assert "只能在 CLI" in (await handle_stop("/stop", state=state, capture=True) or "")
         assert await handle_stop("/stop", state=state, capture=False) == "__EXIT__"
@@ -159,11 +159,11 @@ async def test_background_task_dispatch_and_missing_runtime() -> None:
     state = _state()
     state["runtime_ctx"].background_tasks = object()
     with (
-        patch("miniagent.engine.btw_cmd.cmd_btw_start", AsyncMock(return_value="started")),
-        patch("miniagent.engine.btw_cmd.cmd_btw_result", AsyncMock(return_value="result")),
-        patch("miniagent.engine.btw_cmd.cmd_btw_cancel", AsyncMock(return_value="cancelled")),
-        patch("miniagent.engine.btw_cmd.cmd_btw_clear", return_value="cleared"),
-        patch("miniagent.engine.btw_cmd.cmd_btw_status", return_value="status"),
+        patch("miniagent.assistant.engine.btw_cmd.cmd_btw_start", AsyncMock(return_value="started")),
+        patch("miniagent.assistant.engine.btw_cmd.cmd_btw_result", AsyncMock(return_value="result")),
+        patch("miniagent.assistant.engine.btw_cmd.cmd_btw_cancel", AsyncMock(return_value="cancelled")),
+        patch("miniagent.assistant.engine.btw_cmd.cmd_btw_clear", return_value="cleared"),
+        patch("miniagent.assistant.engine.btw_cmd.cmd_btw_status", return_value="status"),
     ):
         assert (
             await handle_background_task("/btw start do work", state=state, capture=True)
@@ -204,7 +204,7 @@ async def test_feishu_lifecycle_error_boundaries() -> None:
     runtime.lifecycle_manager = SimpleNamespace(service=lambda _name: service)
     runtime.feishu = SimpleNamespace(status=MagicMock(return_value="status"))
     with patch(
-        "miniagent.engine.feishu_lifecycle.FeishuRuntimeLifecycleService",
+        "miniagent.assistant.engine.feishu_lifecycle.FeishuRuntimeLifecycleService",
         FakeFeishuService,
     ):
         assert (

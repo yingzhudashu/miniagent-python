@@ -1,4 +1,4 @@
-"""Tests for miniagent.infrastructure.debug_ndjson."""
+"""Tests for miniagent.agent.debug."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import importlib
 import json
 from pathlib import Path
 
-from miniagent.infrastructure import debug_ndjson
+from miniagent.agent import debug as debug_ndjson
 from tests.config_helpers import install_test_config
 
 
@@ -54,7 +54,7 @@ def test_enables_after_reload_config_without_module_reload(tmp_path: Path) -> No
         tmp_path,
         {"debug": {"session_id": "r1", "log_path": str(log_file)}},
     )
-    from miniagent.infrastructure.json_config import reload_config
+    from miniagent.assistant.infrastructure.json_config import reload_config
 
     reload_config()
     debug_ndjson.agent_debug_log(hypothesis_id="H", location="x", message="ok")

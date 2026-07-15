@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from miniagent.infrastructure.instance import InstanceRegistry, ProjectDirConflictError
-from miniagent.infrastructure.paths import normalize_project_dir, resolve_project_key
+from miniagent.assistant.infrastructure.instance import InstanceRegistry, ProjectDirConflictError
+from miniagent.assistant.infrastructure.paths import normalize_project_dir, resolve_project_key
 
 
 def _fake_pid_checker(pid: int) -> bool:
@@ -131,14 +131,14 @@ class TestInstanceRegistry:
             mgr.unregister()
 
     def test_format_table_empty(self):
-        from miniagent.infrastructure.instance import format_instances_table
+        from miniagent.assistant.infrastructure.instance import format_instances_table
 
         result = format_instances_table([])
         assert "暂无" in result
         assert "注册表" in result
 
     def test_format_table_with_data(self):
-        from miniagent.infrastructure.instance import format_instances_table
+        from miniagent.assistant.infrastructure.instance import format_instances_table
 
         fake = [
             {
@@ -158,7 +158,7 @@ class TestInstanceRegistry:
         assert "both=CLI+飞书" in result
 
     def test_format_table_shows_workspace_column(self):
-        from miniagent.infrastructure.instance import format_instances_table
+        from miniagent.assistant.infrastructure.instance import format_instances_table
 
         fake = [
             {
@@ -179,7 +179,7 @@ class TestInstanceRegistry:
     def test_format_project_conflict_message_includes_state_dir(
         self, monkeypatch, tmp_path
     ):
-        from miniagent.infrastructure.instance import format_project_conflict_message
+        from miniagent.assistant.infrastructure.instance import format_project_conflict_message
 
         reg = tmp_path / "registry"
         reg.mkdir()
@@ -402,7 +402,7 @@ class TestInstanceRegistry:
             mgr2.unregister()
 
     def test_list_instances_cached_separate_keys(self, monkeypatch):
-        from miniagent.infrastructure.instance import (
+        from miniagent.assistant.infrastructure.instance import (
             list_instances_cached,
             reset_instance_registry_for_tests,
         )
@@ -415,7 +415,7 @@ class TestInstanceRegistry:
             return []
 
         monkeypatch.setattr(
-            "miniagent.infrastructure.instance.list_instances",
+            "miniagent.assistant.infrastructure.instance.list_instances",
             fake_list,
         )
 

@@ -1,0 +1,1022 @@
+"""Mini Agent Python — 跨会话记忆持久化存储
+
+管理每个会话（chatId/senderId）的长期记忆。
+
+存储结构：
+- workspaces/memory/<sessionId>.json
+- 每次对话结束后自动保存
+- 下次执行时自动加载，当前主路径会放入 current turn user context
+
+记忆内容：
+- cumulative_summary: 累计对话摘要
+- key_facts: 关键事实列表（偏好、约定、重要信息）
+- entries: 最近对话条目
+
+性能优化：
+- 使用 asyncio.to_thread 包装文件 I/O，避免阻塞事件循环
+- 紧凑 JSON 格式（移除 indent=2），减少约 30% 文件体积
+- LRU 内存缓存（默认上限 100），减少磁盘读取
+
+详见 ``docs/MEMORY_SYSTEM.md``（会话级 Layer 2）。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import collections
+import json
+import os
+import re
+import threading
+import time
+from datetime import datetime, timezone
+from typing import Any
+
+from miniagent.agent.constants import (
+    MEMORY_SESSION_LOCKS_MAX,
+    MEMORY_STORE_CACHE_CLEANUP_INTERVAL_S,
+)
+from miniagent.agent.ground_truth import (
+    apply_ground_truth_updates,
+    format_ground_truth_for_prompt,
+)
+from miniagent.agent.logging import get_logger
+from miniagent.agent.types.memory import (
+    FileMetadata,
+    GroundTruthFact,
+    MemoryEntry,
+    MemoryEntryInput,
+    SessionMemory,
+)
+from miniagent.assistant.infrastructure.atomic_json import atomic_dump_json
+from miniagent.assistant.infrastructure.json_config import get_config
+from miniagent.assistant.utils.session_id import safe_session_id
+
+_logger = get_logger(__name__)
+
+_SNIPPET_MAX_LEN = 100
+_SUMMARY_MAX_LEN = 2000
+_MAX_ENTRIES = 20
+
+
+def _truncate_text(text: str, max_len: int) -> str:
+    return text[:max_len] if text else ""
+
+
+def _is_in_progress_entry(entry: MemoryEntry) -> bool:
+    """条目尚未由 ``add_entry`` 完成（仅 user_snippet 或 assistant 增量写入）。"""
+    return not entry.summary and not entry.facts
+
+
+# ============================================================================
+# 路径配置
+# ============================================================================
+
+
+def _memory_file_path(state_dir: str, session_id: str) -> str:
+    """生成记忆文件路径
+
+    文件名安全处理：将非法字符替换为下划线。
+
+    Args:
+        state_dir: 状态存储目录
+        session_id: 会话唯一标识
+
+    Returns:
+        记忆文件的完整路径
+    """
+    safe = safe_session_id(session_id)
+    return os.path.join(state_dir, "memory", f"{safe}.json")
+
+
+# ============================================================================
+# 记忆格式化
+# ============================================================================
+
+
+def format_memory_for_prompt(memory: SessionMemory | None) -> str:
+    """将结构化会话记忆格式化为可拼入 prompt 的文本。
+
+    从 SessionMemory 提取关键事实、上传文件、累计摘要和最近对话条目，
+    格式化为 Markdown 文本。执行阶段主路径会把返回值合并到
+    ``build_current_turn_user_context`` 的「相关记忆」段，避免本轮动态记忆污染
+    stable system prompt。
+
+    Args:
+        memory: 会话记忆对象（None 时返回空字符串）
+
+    Returns:
+        格式化后的记忆文本（或空字符串）
+
+    Example:
+        memory_text = format_memory_for_prompt(session_memory)
+        current_turn_parts.append(memory_text)
+    """
+    if not memory:
+        return ""
+
+    parts: list[str] = []
+
+    ground_truth_lines = format_ground_truth_for_prompt(memory)
+    if ground_truth_lines:
+        parts.append("## 确定事实")
+        for fact in ground_truth_lines:
+            parts.append(f"- {fact}")
+
+    # 关键事实摘要（与确定事实重复的内容会跳过）
+    if memory.key_facts:
+        parts.append("## 关键记忆")
+        seen_ground_truth = {line.lower().strip() for line in ground_truth_lines}
+        for fact in memory.key_facts[-10:]:
+            if any(fact.lower().strip() in line for line in seen_ground_truth):
+                continue
+            parts.append(f"- {fact}")
+
+    # 上传的文件（新增）
+    if memory.uploaded_files:
+        parts.append("## 上传的文件")
+        for file in memory.uploaded_files[-10:]:
+            type_label = {"image": "图片", "text": "文本", "binary": "文件"}.get(file.type, "文件")
+            size_kb = file.size // 1024 if file.size >= 1024 else file.size
+            size_label = f"{size_kb}KB" if file.size >= 1024 else f"{size_kb}B"
+            parts.append(f"- {file.name} ({type_label}, {size_label})")
+            if file.description:
+                # 描述截断到 200 字符
+                desc = file.description[:200] + "…" if len(file.description) > 200 else file.description
+                parts.append(f"  内容: {desc}")
+
+    # 累计摘要
+    if memory.cumulative_summary:
+        parts.append("## 之前的对话摘要")
+        parts.append(memory.cumulative_summary)
+
+    # 最近条目
+    if memory.entries:
+        parts.append("## 最近的对话")
+        for entry in memory.entries[-5:]:
+            time_str = entry.timestamp[:16].replace("T", " ")
+            parts.append(f"[{time_str}] 用户: {entry.user_snippet} → 摘要: {entry.summary}")
+
+    if not parts:
+        return ""
+
+    return "【历史记忆】\n\n" + "\n\n".join(parts) + "\n\n【记忆结束】"
+
+
+# 性能优化：预编译事实提取正则（合并多个模式，单次遍历全文）
+_COMPILED_FACTS_PATTERN = re.compile(
+    r"记住[：:，,。]\s*(.+)|"
+    r"以后[都]?[要]?[：:，,。]\s*(.+)|"
+    r"偏好[是]?[：:，,。]\s*(.+)|"
+    r"默认[是]?[：:，,。]\s*(.+)|"
+    r"不[要喜欢]([^.。]+)|"
+    r"喜[欢好]([^.。]+)",
+    re.UNICODE
+)
+
+
+def extract_facts(text: str) -> list[str]:
+    """从对话中提取关键事实（简单启发式）
+
+    识别包含记忆性关键词（"记住"、"以后"、"偏好"、"默认"、"喜欢"等）的句子，
+    提取其内容作为关键事实存储。
+
+    性能优化：使用预编译正则 + finditer，单次遍历全文，
+    避免多个正则各自搜索导致的重复遍历。
+
+    Args:
+        text: 要分析的对话文本
+
+    Returns:
+        提取的关键事实列表
+
+    Example:
+        extract_facts('记住我喜欢用中文回复，以后默认用 Markdown 格式')
+        # → ['我喜欢用中文回复', '默认用 Markdown 格式']
+    """
+    facts: list[str] = []
+
+    # 性能优化：单次 finditer 遍历，替代多个 search 各自遍历
+    for match in _COMPILED_FACTS_PATTERN.finditer(text):
+        # 检查哪个分组匹配成功（group(1)到group(6)）
+        for i in range(1, 7):
+            group_val = match.group(i)
+            if group_val:
+                fact = group_val.strip()[:200]
+                if len(fact) > 2:
+                    facts.append(fact)
+                    break
+
+    return facts
+
+
+def generate_turn_summary(
+    user_message: str,
+    tool_calls: list[dict[str, Any]],
+    final_reply: str,
+) -> str:
+    """生成单轮对话摘要（简单版，不调用 LLM）
+
+    从用户消息、工具调用和最终回复中提取关键信息，
+    拼接为简短的中文摘要字符串。
+
+    Args:
+        user_message: 用户原始消息
+        tool_calls: 本轮使用的工具调用列表
+        final_reply: LLM 的最终回复
+
+    Returns:
+        摘要字符串
+
+    Example:
+        generate_turn_summary(
+            "帮我创建 README.md",
+            [{"name": "write_file", "args": {"path": "README.md"}}],
+            "已创建 README.md 文件"
+        )
+        # → "用户帮我创建 README.md，使用了 write_file，回复: 已创建 README.md 文件"
+    """
+    parts: list[str] = []
+
+    # 用户意图（取前 50 字符）
+    intent = user_message.strip()[:50]
+    if intent:
+        parts.append(f"用户{intent}")
+
+    # 工具使用
+    if tool_calls:
+        tools = ", ".join(tc.get("name", "") for tc in tool_calls)
+        parts.append(f"使用了 {tools}")
+
+    # 结果摘要
+    if final_reply:
+        summary = final_reply.strip()[:100]
+        if summary:
+            parts.append(f"回复: {summary}")
+
+    return "，".join(parts)
+
+
+# ============================================================================
+# 记忆存储实现
+# ============================================================================
+
+
+class DefaultMemoryStore:
+    """默认记忆存储实现
+
+    基于文件系统的 JSON 持久化，带 LRU 内存缓存。
+    缓存上限由 ``memory.store_cache_max`` 控制（默认 200）。
+
+    性能优化：
+    - 文件 I/O 使用 asyncio.to_thread 包装，避免阻塞事件循环
+    - 紧凑 JSON 格式，减少文件体积和读写时间
+    - LRU 缓存避免重复磁盘读取
+
+    Example:
+        store = DefaultMemoryStore(state_dir="./workspaces")
+        memory = await store.load("session-1")
+        await store.update_summary("session-1", "用户询问了天气", [])
+    """
+
+    def __init__(
+        self,
+        state_dir: str = "workspaces",
+        *,
+        keyword_index: Any | None = None,
+        embedding_provider: Any | None = None,
+    ) -> None:
+        """创建记忆存储
+
+        Args:
+            state_dir: 状态存储目录
+            keyword_index: 关键词索引实例；未提供时仅保存会话记忆
+            embedding_provider: 嵌入索引服务；未提供时跳过向量索引
+        """
+        self._state_dir = state_dir
+        self._memory_dir = os.path.join(state_dir, "memory")
+        # 性能优化：OrderedDict实现LRU + TTL
+        self._cache: collections.OrderedDict[str, tuple[SessionMemory, float]] = collections.OrderedDict()
+        # 性能优化：缓存上限从100提高到200（命中率提高70%）
+        self._cache_max = get_config("memory.store_cache_max", 200)
+        self._cache_ttl_seconds = get_config("memory.store_cache_ttl_seconds", 1800)  # 30分钟TTL
+        self._keyword_index = keyword_index
+        self._embedding_provider = embedding_provider
+        # 并发安全：缓存操作锁（保护LRU更新）
+        self._cache_lock = threading.Lock()
+        self._session_locks: dict[str, asyncio.Lock] = {}
+        self._session_locks_meta = asyncio.Lock()
+        # 上限保护：避免长生命周期进程中 session lock 字典无界增长。
+        self._session_locks_max = MEMORY_SESSION_LOCKS_MAX
+        # 惰性 TTL 清理节流：避免每次 put 都全表扫描（O(n) 持锁）。
+        self._last_cache_cleanup = 0.0
+        self._cache_cleanup_interval = MEMORY_STORE_CACHE_CLEANUP_INTERVAL_S
+
+    async def _get_session_lock(self, session_id: str) -> asyncio.Lock:
+        async with self._session_locks_meta:
+            lock = self._session_locks.get(session_id)
+            if lock is None:
+                # 有界清理：超过上限时丢弃当前未被占用的旧锁（不影响正在等待的协程，
+                # 因为持有/等待该锁的协程仍各自持有对象引用；这里仅停止缓存复用）。
+                if len(self._session_locks) >= self._session_locks_max:
+                    for old_key, old_lock in list(self._session_locks.items()):
+                        if not old_lock.locked():
+                            del self._session_locks[old_key]
+                        if len(self._session_locks) < self._session_locks_max:
+                            break
+                lock = asyncio.Lock()
+                self._session_locks[session_id] = lock
+            return lock
+
+    def _cache_put(self, session_id: str, memory: SessionMemory) -> None:
+        """将记忆放入 LRU 缓存（带TTL），超过上限时驱逐最旧条目（线程安全）。"""
+        now = time.time()
+        with self._cache_lock:
+            self._cache[session_id] = (memory, now)
+            self._cache.move_to_end(session_id)  # LRU
+
+            # 驱逐旧条目（LRU）
+            while len(self._cache) > self._cache_max:
+                self._cache.popitem(last=False)
+
+            # TTL 清理节流：仅每隔 interval 秒做一次全表扫描，避免每次 put 都 O(n)。
+            if now - self._last_cache_cleanup >= self._cache_cleanup_interval:
+                self._cleanup_expired_cache(now)
+                self._last_cache_cleanup = now
+
+    def _cache_get(self, session_id: str, now: float | None = None) -> tuple[SessionMemory | None, int | None]:
+        """从 LRU 缓存读取记忆。
+
+        返回 ``(memory, age_seconds)``。缓存读取、TTL 检查与 LRU 更新在同一把锁内完成，
+        避免并发读写 `_cache` 时出现竞态，也减少调用方重复获取时间戳。
+        """
+        now = time.time() if now is None else now
+        with self._cache_lock:
+            cached = self._cache.get(session_id)
+            if cached is None:
+                return None, None
+            memory, timestamp = cached
+            age = now - timestamp
+            if age >= self._cache_ttl_seconds:
+                self._cache.pop(session_id, None)
+                return None, None
+            self._cache.move_to_end(session_id)
+            return memory, int(age)
+
+    def evict_session(self, session_id: str) -> None:
+        """从内存缓存与锁表中移除指定会话（不删磁盘文件）。"""
+        with self._cache_lock:
+            self._cache.pop(session_id, None)
+        self._session_locks.pop(session_id, None)
+
+    def _cleanup_expired_cache(self, now: float) -> None:
+        """清理过期缓存条目（TTL）。"""
+        # 在锁内调用，清理过期条目
+        expired_keys = []
+        for session_id, (_, timestamp) in self._cache.items():
+            if now - timestamp > self._cache_ttl_seconds:
+                expired_keys.append(session_id)
+
+        for key in expired_keys:
+            self._cache.pop(key, None)
+
+    def flush_keyword_index(self) -> None:
+        """将 Layer 3 关键词索引的挂起变更写入磁盘。"""
+        try:
+            idx = self._keyword_index
+            if idx is not None:
+                idx.save()
+        except Exception as e:
+            _logger.debug("保存关键词索引失败: %s", e)
+
+    async def flush_keyword_index_async(self) -> None:
+        """Persist the index without blocking the async execution loop."""
+        await asyncio.to_thread(self.flush_keyword_index)
+
+    def _ensure_dir(self) -> None:
+        """确保记忆目录存在"""
+        os.makedirs(self._memory_dir, exist_ok=True)
+
+    def _file_path(self, session_id: str) -> str:
+        """获取记忆文件路径
+
+        Args:
+            session_id: 会话唯一标识
+
+        Returns:
+            记忆文件的完整路径
+        """
+        return _memory_file_path(self._state_dir, session_id)
+
+    def _memory_from_dict(self, data: dict[str, Any]) -> SessionMemory:
+        """将磁盘 JSON 数据转换为 SessionMemory。"""
+        entries: list[MemoryEntry] = []
+        for e in data.get("entries", []):
+            if isinstance(e, MemoryEntry):
+                entries.append(e)
+            elif isinstance(e, dict):
+                try:
+                    entries.append(
+                        MemoryEntry(
+                            timestamp=str(e.get("timestamp", "")),
+                            user_snippet=str(e.get("user_snippet", "")),
+                            summary=str(e.get("summary", "")),
+                            facts=list(e.get("facts") or []),
+                        )
+                    )
+                except Exception:
+                    continue
+
+        uploaded_files: list[FileMetadata] = []
+        for f in data.get("uploaded_files", []):
+            try:
+                uploaded_files.append(
+                    FileMetadata(
+                        name=str(f.get("name", "")),
+                        path=str(f.get("path", "")),
+                        size=int(f.get("size", 0)),
+                        mime_type=str(f.get("mime_type", "")),
+                        type=str(f.get("type", "binary")),
+                        description=str(f.get("description", "")),
+                        timestamp=str(f.get("timestamp", "")),
+                        source=str(f.get("source", "cli")),
+                    )
+                )
+            except Exception:
+                continue
+
+        ground_truth_facts: list[GroundTruthFact] = []
+        for fact in data.get("ground_truth_facts", []):
+            if isinstance(fact, GroundTruthFact):
+                ground_truth_facts.append(fact)
+            elif isinstance(fact, dict):
+                try:
+                    ground_truth_facts.append(
+                        GroundTruthFact(
+                            key=str(fact.get("key", "")),
+                            value=str(fact.get("value", "")),
+                            category=str(fact.get("category", "preference")),
+                            confidence=float(fact.get("confidence", 1.0)),
+                            source=str(fact.get("source", "user")),
+                            status=str(fact.get("status", "active")),
+                            created_at=str(fact.get("created_at", "")),
+                            updated_at=str(fact.get("updated_at", "")),
+                            supersedes=(
+                                str(fact.get("supersedes"))
+                                if fact.get("supersedes") is not None
+                                else None
+                            ),
+                            evidence=str(fact.get("evidence", "")),
+                        )
+                    )
+                except Exception:
+                    continue
+
+        return SessionMemory(
+            session_id=data["session_id"],
+            cumulative_summary=data.get("cumulative_summary", ""),
+            key_facts=data.get("key_facts", []),
+            ground_truth_facts=ground_truth_facts,
+            entries=entries,
+            uploaded_files=uploaded_files,
+            total_turns=data.get("total_turns", 0),
+            first_seen=data.get("first_seen", ""),
+            last_active=data.get("last_active", ""),
+            chat_id=data.get("chat_id"),
+            sender_id=data.get("sender_id"),
+        )
+
+    async def _load_unlocked(self, session_id: str) -> SessionMemory | None:
+        """在调用方已持有 session lock 时加载记忆，不额外发 trace。"""
+        try:
+            memory, _age = self._cache_get(session_id)
+            if memory is not None:
+                return memory
+
+            self._ensure_dir()
+            file_path = self._file_path(session_id)
+            if not os.path.exists(file_path):
+                return None
+
+            def _sync_read() -> dict[str, Any]:
+                with open(file_path, encoding="utf-8") as f:
+                    return json.load(f)
+
+            data = await asyncio.to_thread(_sync_read)
+            memory = self._memory_from_dict(data)
+            self._cache_put(session_id, memory)
+            return memory
+        except Exception as e:
+            _logger.debug("锁内加载记忆失败 [%s]: %s", session_id, e)
+            return None
+
+    async def load(self, session_key: str) -> SessionMemory | None:
+        """加载会话记忆（带trace）。
+
+        先查缓存，未命中则从磁盘读取。
+        使用 asyncio.to_thread 包装文件 I/O，避免阻塞事件循环。
+
+        Args:
+            session_key: 会话唯一标识
+
+        Returns:
+            会话记忆对象，不存在返回 None
+        """
+        from miniagent.agent.observability import emit_trace
+        from miniagent.agent.trace_events import EVENT_MEMORY_READ
+
+        start_time = time.monotonic_ns()
+
+        # 先查缓存（检查TTL）
+        memory, cache_age = self._cache_get(session_key)
+        if memory is not None:
+            elapsed = (time.monotonic_ns() - start_time) // 1_000_000
+            emit_trace({
+                "type": EVENT_MEMORY_READ,
+                "session_key": session_key,
+                "duration_ms": elapsed,
+                "success": True,
+                "cache_hit": True,
+                "cache_age_seconds": cache_age or 0,
+            })
+            return memory
+
+        try:
+            self._ensure_dir()
+            file_path = self._file_path(session_key)
+            if not os.path.exists(file_path):
+                elapsed = (time.monotonic_ns() - start_time) // 1_000_000
+                emit_trace({
+                    "type": EVENT_MEMORY_READ,
+                    "session_key": session_key,
+                    "duration_ms": elapsed,
+                    "success": False,
+                    "reason": "file_not_found",
+                })
+                return None
+
+            # 异步读取文件（避免阻塞事件循环）
+            def _sync_read() -> dict[str, Any]:
+                with open(file_path, encoding="utf-8") as f:
+                    return json.load(f)
+
+            data = await asyncio.to_thread(_sync_read)
+            memory = self._memory_from_dict(data)
+            self._cache_put(session_key, memory)
+
+            # Trace: 加载成功
+            elapsed = (time.monotonic_ns() - start_time) // 1_000_000
+            emit_trace({
+                "type": EVENT_MEMORY_READ,
+                "session_key": session_key,
+                "duration_ms": elapsed,
+                "success": True,
+                "cache_hit": False,
+                "entries_count": len(memory.entries),
+            })
+
+            return memory
+
+        except Exception as e:
+            # Trace: 加载失败
+            elapsed = (time.monotonic_ns() - start_time) // 1_000_000
+            emit_trace({
+                "type": EVENT_MEMORY_READ,
+                "session_key": session_key,
+                "duration_ms": elapsed,
+                "success": False,
+                "error": str(e),
+            })
+            return None
+
+    async def save(self, memory: SessionMemory) -> None:
+        """保存会话记忆到磁盘
+
+        使用 asyncio.to_thread 包装文件写入，避免阻塞事件循环。
+        使用紧凑 JSON 格式（无 indent），减少文件体积。
+
+        Args:
+            memory: 会话记忆对象
+        """
+        async with await self._get_session_lock(memory.session_id):
+            await self._save_unlocked(memory)
+
+    async def _save_unlocked(self, memory: SessionMemory) -> None:
+        try:
+            self._ensure_dir()
+            file_path = self._file_path(memory.session_id)
+
+            data = {
+                "session_id": memory.session_id,
+                "cumulative_summary": memory.cumulative_summary,
+                "key_facts": memory.key_facts,
+                "ground_truth_facts": [
+                    {
+                        "key": f.key,
+                        "value": f.value,
+                        "category": f.category,
+                        "confidence": f.confidence,
+                        "source": f.source,
+                        "status": f.status,
+                        "created_at": f.created_at,
+                        "updated_at": f.updated_at,
+                        "supersedes": f.supersedes,
+                        "evidence": f.evidence,
+                    }
+                    for f in memory.ground_truth_facts
+                ],
+                "entries": [
+                    {
+                        "timestamp": e.timestamp,
+                        "user_snippet": e.user_snippet,
+                        "summary": e.summary,
+                        "facts": e.facts,
+                    }
+                    for e in memory.entries
+                ],
+                "uploaded_files": [
+                    {
+                        "name": f.name,
+                        "path": f.path,
+                        "size": f.size,
+                        "mime_type": f.mime_type,
+                        "type": f.type,
+                        "description": f.description,
+                        "timestamp": f.timestamp,
+                        "source": f.source,
+                    }
+                    for f in memory.uploaded_files
+                ],
+                "total_turns": memory.total_turns,
+                "first_seen": memory.first_seen,
+                "last_active": memory.last_active,
+                "chat_id": memory.chat_id,
+                "sender_id": memory.sender_id,
+            }
+
+            def _sync_write() -> None:
+                atomic_dump_json(
+                    file_path,
+                    data,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+
+            await asyncio.to_thread(_sync_write)
+            self._cache_put(memory.session_id, memory)
+        except Exception as e:
+            _logger.error("保存失败 [%s]: %s", memory.session_id, e)
+
+    async def update_user_snippet(self, session_key: str, snippet: str) -> None:
+        """更新当前轮用户消息摘要（轮次尚未 ``add_entry`` 完成时）。"""
+        snippet = _truncate_text(snippet, _SNIPPET_MAX_LEN)
+        if not snippet:
+            return
+
+        async with await self._get_session_lock(session_key):
+            memory = await self._load_unlocked(session_key)
+            now = datetime.now(timezone.utc).isoformat()
+            if not memory:
+                memory = SessionMemory(
+                    session_id=session_key,
+                    total_turns=0,
+                    first_seen=now,
+                    last_active=now,
+                )
+            if memory.entries and _is_in_progress_entry(memory.entries[-1]):
+                memory.entries[-1].user_snippet = snippet
+            else:
+                memory.entries.append(
+                    MemoryEntry(timestamp=now, user_snippet=snippet, summary="")
+                )
+            if len(memory.entries) > _MAX_ENTRIES:
+                memory.entries = memory.entries[-_MAX_ENTRIES:]
+            memory.last_active = now
+            await self._save_unlocked(memory)
+
+    async def append_message(self, session_key: str, role: str, content: str) -> None:
+        """追加单条 user/assistant 消息到记忆（轮次进行中增量写入）。"""
+        if not content:
+            return
+
+        role = role.strip().lower()
+        async with await self._get_session_lock(session_key):
+            memory = await self._load_unlocked(session_key)
+            now = datetime.now(timezone.utc).isoformat()
+            if not memory:
+                memory = SessionMemory(
+                    session_id=session_key,
+                    total_turns=0,
+                    first_seen=now,
+                    last_active=now,
+                )
+
+            if role == "user":
+                snippet = _truncate_text(content, _SNIPPET_MAX_LEN)
+                if memory.entries and _is_in_progress_entry(memory.entries[-1]):
+                    memory.entries[-1].user_snippet = snippet
+                else:
+                    memory.entries.append(
+                        MemoryEntry(timestamp=now, user_snippet=snippet, summary="")
+                    )
+            elif role == "assistant":
+                summary = _truncate_text(content, _SUMMARY_MAX_LEN)
+                if memory.entries and _is_in_progress_entry(memory.entries[-1]):
+                    memory.entries[-1].summary = summary
+                else:
+                    memory.entries.append(
+                        MemoryEntry(timestamp=now, user_snippet="", summary=summary)
+                    )
+            else:
+                line = f"- [{role}] {_truncate_text(content, 500)}"
+                memory.cumulative_summary = (
+                    f"{memory.cumulative_summary}\n{line}"
+                    if memory.cumulative_summary
+                    else line
+                )[-_SUMMARY_MAX_LEN:]
+
+            if len(memory.entries) > _MAX_ENTRIES:
+                memory.entries = memory.entries[-_MAX_ENTRIES:]
+            memory.last_active = now
+            await self._save_unlocked(memory)
+
+    async def update_summary(self, session_key: str, summary: str, facts: list[str]) -> None:
+        """更新摘要和事实
+
+        Args:
+            session_key: 会话唯一标识
+            summary: 新的对话摘要
+            facts: 关键事实列表
+        """
+        async with await self._get_session_lock(session_key):
+            memory = await self._load_unlocked(session_key)
+            if not memory:
+                now = datetime.now(timezone.utc).isoformat()
+                memory = SessionMemory(
+                    session_id=session_key,
+                    cumulative_summary=summary[-2000:] if summary else "",
+                    key_facts=list(facts),
+                    total_turns=0,
+                    first_seen=now,
+                    last_active=now,
+                )
+                apply_ground_truth_updates(memory, "。".join([summary, *facts]), source="summary", now=now)
+                await self._save_unlocked(memory)
+                return
+
+            if summary:
+                new_summary = (
+                    f"{memory.cumulative_summary}\n- {summary}"
+                    if memory.cumulative_summary
+                    else summary
+                )
+                memory.cumulative_summary = new_summary[-2000:]
+
+            existing = {f.lower().strip() for f in memory.key_facts}
+            for fact in facts:
+                normalized = fact.lower().strip()
+                if normalized not in existing:
+                    memory.key_facts.append(fact)
+                    existing.add(normalized)
+            if len(memory.key_facts) > 20:
+                memory.key_facts = memory.key_facts[-20:]
+
+            now = datetime.now(timezone.utc).isoformat()
+            apply_ground_truth_updates(memory, "。".join([summary, *facts]), source="summary", now=now)
+            memory.last_active = now
+            await self._save_unlocked(memory)
+
+    async def record_turn(
+        self,
+        session_key: str,
+        summary: str,
+        facts: list[str],
+        entry: MemoryEntryInput | dict[str, Any],
+    ) -> None:
+        """Persist one completed turn with one load/modify/write cycle.
+
+        This is the optimized equivalent of calling ``update_summary`` followed
+        by ``add_entry``.  The two public operations remain available for
+        callers that update either layer independently, while the normal turn
+        finalization path avoids serializing and rewriting the same session
+        file twice.
+        """
+        normalized_entry = self._normalize_entry_input(entry)
+        async with await self._get_session_lock(session_key):
+            memory = await self._load_unlocked(session_key)
+            now = datetime.now(timezone.utc).isoformat()
+            if not memory:
+                memory = SessionMemory(
+                    session_id=session_key,
+                    cumulative_summary=summary[-_SUMMARY_MAX_LEN:] if summary else "",
+                    key_facts=list(facts),
+                    total_turns=0,
+                    first_seen=now,
+                    last_active=now,
+                )
+            else:
+                self._merge_summary_and_facts(memory, summary, facts)
+
+            apply_ground_truth_updates(
+                memory,
+                "。".join([summary, *facts]),
+                source="summary",
+                now=now,
+            )
+            full_entry = self._merge_completed_entry(memory, normalized_entry, now)
+            await self._save_unlocked(memory)
+
+        await self._index_completed_entry(session_key, full_entry, normalized_entry)
+
+    @staticmethod
+    def _normalize_entry_input(
+        entry: MemoryEntryInput | dict[str, Any],
+    ) -> MemoryEntryInput:
+        if isinstance(entry, MemoryEntryInput):
+            return entry
+        return MemoryEntryInput(
+            timestamp=str(entry.get("timestamp", "")),
+            user_snippet=str(entry.get("user_snippet", "")),
+            summary=str(entry.get("summary", "")),
+            facts=(
+                list(entry.get("facts") or [])
+                if entry.get("facts") is not None
+                else None
+            ),
+        )
+
+    @staticmethod
+    def _merge_summary_and_facts(
+        memory: SessionMemory,
+        summary: str,
+        facts: list[str],
+    ) -> None:
+        if summary:
+            new_summary = (
+                f"{memory.cumulative_summary}\n- {summary}"
+                if memory.cumulative_summary
+                else summary
+            )
+            memory.cumulative_summary = new_summary[-_SUMMARY_MAX_LEN:]
+
+        existing = {fact.lower().strip() for fact in memory.key_facts}
+        for fact in facts:
+            normalized = fact.lower().strip()
+            if normalized not in existing:
+                memory.key_facts.append(fact)
+                existing.add(normalized)
+        if len(memory.key_facts) > 20:
+            memory.key_facts = memory.key_facts[-20:]
+
+    @staticmethod
+    def _merge_completed_entry(
+        memory: SessionMemory,
+        entry: MemoryEntryInput,
+        now: str,
+    ) -> MemoryEntry:
+        full_entry = MemoryEntry(
+            timestamp=entry.timestamp,
+            user_snippet=entry.user_snippet,
+            summary=entry.summary,
+            facts=entry.facts or [],
+        )
+        if memory.entries and _is_in_progress_entry(memory.entries[-1]):
+            in_progress = memory.entries[-1]
+            in_progress.timestamp = full_entry.timestamp or in_progress.timestamp
+            in_progress.user_snippet = (
+                full_entry.user_snippet or in_progress.user_snippet
+            )
+            in_progress.summary = full_entry.summary
+            in_progress.facts = full_entry.facts
+            full_entry = in_progress
+        else:
+            memory.entries.append(full_entry)
+        memory.total_turns += 1
+        if len(memory.entries) > _MAX_ENTRIES:
+            memory.entries = memory.entries[-_MAX_ENTRIES:]
+        apply_ground_truth_updates(
+            memory,
+            "。".join([entry.user_snippet, entry.summary, *(entry.facts or [])]),
+            source="entry",
+            now=now,
+        )
+        memory.last_active = now
+        return full_entry
+
+    async def _index_completed_entry(
+        self,
+        session_key: str,
+        full_entry: MemoryEntry,
+        entry: MemoryEntryInput,
+    ) -> None:
+        try:
+            idx = self._keyword_index
+            if idx is not None:
+                idx.index_entry(session_key, full_entry)
+        except Exception as e:
+            _logger.debug("关键词索引失败: %s", e)
+
+        try:
+            from miniagent.assistant.memory.embedding_search import embedding_search_enabled
+
+            provider = self._embedding_provider
+            if embedding_search_enabled() and provider is not None:
+                text = " ".join(
+                    [entry.user_snippet, entry.summary, *(entry.facts or [])]
+                )
+                queue_index = getattr(provider, "queue_index", None)
+                if callable(queue_index):
+                    await queue_index(session_key, full_entry, text)
+                else:
+                    # Compatibility for injected providers implementing the
+                    # pre-queue surface only.
+                    emb = await provider.get_embedding(text)
+                    if emb is not None:
+                        provider.index.index_entry(
+                            session_key,
+                            full_entry,
+                            embedding=emb,
+                        )
+        except Exception as e:
+            _logger.debug("嵌入索引失败: %s", e)
+
+    async def add_entry(self, session_key: str, entry: MemoryEntryInput | dict[str, Any]) -> None:
+        """添加对话条目
+
+        Args:
+            session_key: 会话唯一标识
+            entry: 记忆条目输入（或兼容的 dict，与 executor 传入格式一致）
+        """
+        entry = self._normalize_entry_input(entry)
+
+        async with await self._get_session_lock(session_key):
+            memory = await self._load_unlocked(session_key)
+            if not memory:
+                now = datetime.now(timezone.utc).isoformat()
+                memory = SessionMemory(
+                    session_id=session_key,
+                    total_turns=0,
+                    first_seen=now,
+                    last_active=now,
+                )
+
+            now = datetime.now(timezone.utc).isoformat()
+            full_entry = self._merge_completed_entry(memory, entry, now)
+            await self._save_unlocked(memory)
+
+        await self._index_completed_entry(session_key, full_entry, entry)
+
+    async def add_file(self, session_key: str, file_meta: FileMetadata) -> None:
+        """添加上传文件到记忆
+
+        Args:
+            session_key: 会话唯一标识
+            file_meta: 文件元数据
+        """
+        memory = await self.load(session_key)
+        if not memory:
+            now = datetime.now(timezone.utc).isoformat()
+            memory = SessionMemory(
+                session_id=session_key,
+                total_turns=0,
+                first_seen=now,
+                last_active=now,
+            )
+
+        memory.uploaded_files.append(file_meta)
+
+        # 最多保留 50 个文件记录
+        if len(memory.uploaded_files) > 50:
+            memory.uploaded_files = memory.uploaded_files[-50:]
+
+        # 图片或有描述的文件，同时作为 key_fact
+        if file_meta.description:
+            type_label = {"image": "图片", "text": "文本文件", "binary": "文件"}.get(file_meta.type, "文件")
+            fact = f"用户上传过{type_label} {file_meta.name}: {file_meta.description[:100]}"
+            existing = {f.lower().strip() for f in memory.key_facts}
+            if fact.lower().strip() not in existing and len(memory.key_facts) < 20:
+                memory.key_facts.append(fact)
+            apply_ground_truth_updates(memory, fact, source="file", now=datetime.now(timezone.utc).isoformat())
+
+        memory.last_active = datetime.now(timezone.utc).isoformat()
+        await self.save(memory)
+
+
+__all__ = [
+    "DefaultMemoryStore",
+    "format_memory_for_prompt",
+    "extract_facts",
+    "generate_turn_summary",
+    "add_file_to_memory",
+]
+
+
+async def add_file_to_memory(session_id: str, file_meta: FileMetadata, store: Any) -> None:
+    """将文件添加到会话记忆（便捷函数）
+
+    Args:
+        session_id: 会话 ID
+        file_meta: 文件元数据
+        store: 由应用容器注入的记忆存储实例
+    """
+    await store.add_file(session_id, file_meta)

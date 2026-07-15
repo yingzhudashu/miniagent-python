@@ -6,13 +6,13 @@ import tempfile
 
 import pytest
 
-from miniagent.tools.data_tools import (
+from miniagent.agent.types.tool import ToolContext
+from miniagent.assistant.tools.data_tools import (
     _json_read_handler,
     _json_write_handler,
     _read_csv_handler,
     _write_csv_handler,
 )
-from miniagent.types.tool import ToolContext
 
 
 @pytest.fixture

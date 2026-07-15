@@ -7,8 +7,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniagent.feishu.bitable import client as bitable
-from miniagent.feishu.types import FeishuConfig
+from miniagent.assistant.feishu.bitable import client as bitable
+from miniagent.assistant.feishu.types import FeishuConfig
 
 
 def _response(data=None, *, success: bool = True):
@@ -100,7 +100,7 @@ def test_bitable_write_delete_and_attachment_apis(monkeypatch: pytest.MonkeyPatc
     assert bitable.delete_records_batch(config, "app", "t", []) == 0
     assert bitable.delete_records_batch(config, "app", "t", [str(i) for i in range(600)]) == 500
 
-    monkeypatch.setattr("miniagent.feishu.docx.media.upload_drive_media", lambda *_a, **_k: "file")
+    monkeypatch.setattr("miniagent.assistant.feishu.docx.media.upload_drive_media", lambda *_a, **_k: "file")
     result = bitable.upload_record_attachment(
         config, "app", "t", "r1", "Attachment", b"data", file_name="a.txt"
     )

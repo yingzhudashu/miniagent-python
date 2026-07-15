@@ -2,13 +2,13 @@
 
 import pytest
 
-from miniagent.infrastructure.registry import DefaultToolRegistry
-from miniagent.memory.context import DefaultContextManager, estimate_token_estimate
-from miniagent.types.tool import (
+from miniagent.agent.context import DefaultContextManager, estimate_token_estimate
+from miniagent.agent.types.tool import (
     ContextManagerProtocol,
     ToolDefinition,
     ToolRegistryProtocol,
 )
+from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
 
 def make_tool(name: str = "test", *, toolbox: str | None = None) -> ToolDefinition:

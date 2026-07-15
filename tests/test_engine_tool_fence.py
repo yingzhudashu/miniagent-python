@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from miniagent.engine.engine import _fence_tool_output
+from miniagent.assistant.engine.engine import _fence_tool_output
 
 
 def test_fence_tool_output_escapes_inner_fence() -> None:

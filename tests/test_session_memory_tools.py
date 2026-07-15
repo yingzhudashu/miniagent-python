@@ -1,4 +1,4 @@
-"""Tests for miniagent.tools.session_memory — diary read/search tools."""
+"""Tests for miniagent.assistant.tools.session_memory — diary read/search tools."""
 
 from __future__ import annotations
 
@@ -6,25 +6,25 @@ from pathlib import Path
 
 import pytest
 
-from miniagent.tools.session_memory import (
+from miniagent.agent.types.tool import ToolContext
+from miniagent.assistant.tools.session_memory import (
     _diary_query_positions,
     _read_session_diary_handler,
     _search_session_diary_handler,
     session_memory_tools,
 )
-from miniagent.types.tool import ToolContext
-from miniagent.utils.session_id import safe_session_id
+from miniagent.assistant.utils.session_id import safe_session_id
 
 
 @pytest.fixture
 def memory_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """将状态根目录指向临时目录。"""
-    from miniagent.infrastructure import paths
+    from miniagent.assistant.infrastructure import paths
 
     root = str(tmp_path)
     monkeypatch.setattr(paths, "resolve_state_dir", lambda: root)
-    monkeypatch.setattr("miniagent.tools.session_memory.resolve_state_dir", lambda: root)
-    monkeypatch.setattr("miniagent.memory.history_archive.get_state_root", lambda: root)
+    monkeypatch.setattr("miniagent.assistant.tools.session_memory.resolve_state_dir", lambda: root)
+    monkeypatch.setattr("miniagent.assistant.memory.history_archive.get_state_root", lambda: root)
     return tmp_path
 
 

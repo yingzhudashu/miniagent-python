@@ -8,7 +8,7 @@ import time
 
 import pytest
 
-from miniagent.engine.engine import _persist_session_history
+from miniagent.assistant.engine.engine import _persist_session_history
 
 
 @pytest.mark.asyncio

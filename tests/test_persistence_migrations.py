@@ -6,8 +6,8 @@ import json
 
 import pytest
 
-from miniagent.infrastructure import state_schemas
-from miniagent.infrastructure.persistence import (
+from miniagent.assistant.infrastructure import state_schemas
+from miniagent.assistant.infrastructure.persistence import (
     StateMigrationError,
     StateSchema,
     dump_state_file,
@@ -17,7 +17,7 @@ from miniagent.infrastructure.persistence import (
     migrate_state_file,
     register_state_schema,
 )
-from miniagent.infrastructure.state_schemas import install_builtin_state_schemas
+from miniagent.assistant.infrastructure.state_schemas import install_builtin_state_schemas
 
 
 def test_session_legacy_migrates_without_mutating_input() -> None:

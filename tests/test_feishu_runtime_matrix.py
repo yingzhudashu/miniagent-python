@@ -9,9 +9,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.engine import feishu_handler
-from miniagent.feishu import poll_server
-from miniagent.feishu.types import FeishuConfig, FeishuInboundText
+from miniagent.assistant.engine import feishu_handler
+from miniagent.assistant.feishu import poll_server
+from miniagent.assistant.feishu.types import FeishuConfig, FeishuInboundText
 
 
 class _Dedup:
@@ -159,7 +159,7 @@ def _handler_runtime(tmp_path: Path):
         memory=memory,
         knowledge_registry=object(),
         clawhub=None,
-        openai_client=None,
+        llm_gateway=None,
         cli_transcript_coordinator=None,
         cli_transcript_append=None,
         cli_transcript_append_ansi=None,
@@ -173,7 +173,7 @@ def _handler_runtime(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_handler_command_and_clarification_matrix(tmp_path, monkeypatch) -> None:
     runtime, ctx = _handler_runtime(tmp_path)
-    import miniagent.engine.command_dispatch as dispatch_module
+    import miniagent.assistant.engine.command_dispatch as dispatch_module
 
     monkeypatch.setattr(dispatch_module, "dispatch_command", AsyncMock(return_value="status"))
     inbound = FeishuInboundText("/status", "chat", "user", "group", message_id="m")
@@ -181,7 +181,7 @@ async def test_handler_command_and_clarification_matrix(tmp_path, monkeypatch) -
     assert handled and result == ""
     ctx.outbound_channels.send.assert_awaited_once()
 
-    from miniagent.types.confirmation import ConfirmationStage
+    from miniagent.agent.types.confirmation import ConfirmationStage
 
     channel = SimpleNamespace(
         has_pending=True,
@@ -196,7 +196,7 @@ async def test_handler_command_and_clarification_matrix(tmp_path, monkeypatch) -
 @pytest.mark.asyncio
 async def test_media_download_prompt_and_validation(tmp_path, monkeypatch) -> None:
     runtime, ctx = _handler_runtime(tmp_path)
-    from miniagent.feishu import resource_io
+    from miniagent.assistant.feishu import resource_io
 
     monkeypatch.setattr(
         resource_io,

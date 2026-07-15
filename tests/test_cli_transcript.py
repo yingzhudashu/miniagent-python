@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from miniagent.engine.cli_transcript import (
+from miniagent.ui.tui.transcript import (
     HISTORY_HINT_STYLE,
     TranscriptBuffer,
     history_all_loaded,

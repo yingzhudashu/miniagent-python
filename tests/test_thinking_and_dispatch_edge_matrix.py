@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.engine import command_dispatch
-from miniagent.engine.thinking import ThinkingDisplay
+from miniagent.assistant.engine import command_dispatch
+from miniagent.assistant.engine.thinking import ThinkingDisplay
 
 
 @pytest.mark.asyncio
@@ -65,10 +65,10 @@ async def test_thinking_render_merge_last_step_and_finish(monkeypatch: pytest.Mo
 
     display = ThinkingDisplay()
     display.set_output_sink(capture)
-    monkeypatch.setattr("miniagent.engine.thinking._cli_thinking_rich_enabled", lambda: True)
-    monkeypatch.setattr("miniagent.engine.thinking._cli_thinking_use_rich_render", lambda _body: True)
+    monkeypatch.setattr("miniagent.assistant.engine.thinking._cli_thinking_rich_enabled", lambda: True)
+    monkeypatch.setattr("miniagent.assistant.engine.thinking._cli_thinking_use_rich_render", lambda _body: True)
     monkeypatch.setattr(
-        "miniagent.engine.markdown_cli.render_markdown_to_ansi",
+        "miniagent.assistant.engine.markdown_cli.render_markdown_to_ansi",
         lambda _body, **_kwargs: "ANSI",
     )
     display._render_body("**body**", session_key="s")
@@ -108,7 +108,7 @@ async def test_command_suggestion_capture_and_print(capsys) -> None:
 async def test_review_and_improve_non_capture_outputs(
     monkeypatch: pytest.MonkeyPatch, capsys
 ) -> None:
-    import miniagent.core.llm_json as llm_module
+    import miniagent.agent.llm_json as llm_module
 
     review_responses = iter(
         [

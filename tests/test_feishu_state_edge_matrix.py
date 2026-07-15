@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniagent.engine.feishu_state import FeishuRuntime
+from miniagent.assistant.engine.feishu_state import FeishuRuntime
 
 
 class _FakeTask:
@@ -61,7 +61,7 @@ def test_runtime_stop_cancels_owned_task(monkeypatch: pytest.MonkeyPatch) -> Non
     runtime.set_task(task)  # type: ignore[arg-type]
     runtime.set_running(True)
     runtime._poll_state = SimpleNamespace(request_shutdown=MagicMock(side_effect=RuntimeError))
-    monkeypatch.setattr("miniagent.infrastructure.instance.update_instance_mode", MagicMock())
+    monkeypatch.setattr("miniagent.assistant.infrastructure.instance.update_instance_mode", MagicMock())
 
     runtime.stop()
     assert task.cancelled_by_runtime
@@ -76,11 +76,11 @@ def test_runtime_stop_when_idle_and_status(monkeypatch: pytest.MonkeyPatch) -> N
     runtime = FeishuRuntime(MagicMock())
     runtime._user_status = lines.append
     monkeypatch.setattr(
-        "miniagent.infrastructure.feishu_inbound_lock.release_feishu_inbound_owner",
+        "miniagent.assistant.infrastructure.feishu_inbound_lock.release_feishu_inbound_owner",
         MagicMock(),
     )
     monkeypatch.setattr(
-        "miniagent.infrastructure.feishu_inbound_lock.read_feishu_inbound_owner",
+        "miniagent.assistant.infrastructure.feishu_inbound_lock.read_feishu_inbound_owner",
         lambda: {"alive": True, "pid": 1, "instance_id": 2},
     )
     runtime.stop()
@@ -99,7 +99,7 @@ def test_runtime_stop_when_idle_and_status(monkeypatch: pytest.MonkeyPatch) -> N
 async def test_runtime_stop_async_idle_releases_lock(monkeypatch: pytest.MonkeyPatch) -> None:
     released = MagicMock()
     monkeypatch.setattr(
-        "miniagent.infrastructure.feishu_inbound_lock.release_feishu_inbound_owner", released
+        "miniagent.assistant.infrastructure.feishu_inbound_lock.release_feishu_inbound_owner", released
     )
     runtime = FeishuRuntime(MagicMock())
     await runtime.stop_async()

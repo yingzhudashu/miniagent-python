@@ -24,15 +24,15 @@ from unittest.mock import patch
 
 import pytest
 
-from miniagent.core.executor import _step_thinking_header
-from miniagent.core.thinking_callback import invoke_on_thinking
-from miniagent.core.thinking_presets import (
+from miniagent.agent.executor import _step_thinking_header
+from miniagent.agent.thinking_callback import invoke_on_thinking
+from miniagent.agent.thinking_presets import (
     THINKING_LEVEL_PRESETS,
     map_business_depth,
     map_thinking_level_to_model,
 )
-from miniagent.engine.thinking import ThinkingDisplay, indent_stream_thinking_suffix
-from miniagent.types.planning import PlanStep
+from miniagent.agent.types.planning import PlanStep
+from miniagent.assistant.engine.thinking import ThinkingDisplay, indent_stream_thinking_suffix
 
 # Check if prompt_toolkit is available
 _HAS_PROMPT_TOOLKIT = importlib.util.find_spec("prompt_toolkit") is not None
@@ -226,7 +226,7 @@ class TestEmitColorFormat:
             captured.extend(style for style, _ in ft)
 
         # 无 output_sink 时才走 print_formatted_text 分支
-        with patch("miniagent.engine.thinking.print_formatted_text", fake_print):
+        with patch("miniagent.assistant.engine.thinking.print_formatted_text", fake_print):
             call_fn()
         return captured
 
@@ -303,7 +303,7 @@ class TestThinkingMergeTools:
 
     @pytest.mark.asyncio
     async def test_thinking_display_merge_disabled_extra_label(self, monkeypatch):
-        monkeypatch.setattr("miniagent.engine.thinking.EXECUTION_THINKING_MERGE_TOOLS", False)
+        monkeypatch.setattr("miniagent.assistant.engine.thinking.EXECUTION_THINKING_MERGE_TOOLS", False)
         td = ThinkingDisplay()
         sink: list[tuple[str, str]] = []
 
@@ -470,7 +470,7 @@ class TestThinkingCLIWidth:
     async def test_set_cli_markdown_width_used_for_thinking_rich(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr("miniagent.engine.thinking._cli_thinking_rich_enabled", lambda: True)
+        monkeypatch.setattr("miniagent.assistant.engine.thinking._cli_thinking_rich_enabled", lambda: True)
         seen: list[int] = []
 
         def fake_render(markdown: str, *, width: int) -> str:
@@ -478,10 +478,10 @@ class TestThinkingCLIWidth:
             return "ok"
 
         monkeypatch.setattr(
-            "miniagent.engine.markdown_cli.render_markdown_to_ansi",
+            "miniagent.assistant.engine.markdown_cli.render_markdown_to_ansi",
             fake_render,
         )
-        from miniagent.engine.thinking import ThinkingDisplay
+        from miniagent.assistant.engine.thinking import ThinkingDisplay
 
         td = ThinkingDisplay()
         td.set_cli_markdown_width(lambda: 99)

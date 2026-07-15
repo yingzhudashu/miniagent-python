@@ -3,7 +3,7 @@
 覆盖 ConfirmationStage、ConfirmationRequest、ConfirmationResult 的基本功能。
 """
 
-from miniagent.types.confirmation import (
+from miniagent.agent.types.confirmation import (
     ConfirmationRequest,
     ConfirmationResult,
     ConfirmationStage,

@@ -23,7 +23,7 @@
 
 #### 1.1 进程关闭顺序（`shutdown_runtime`）
 
-与 [miniagent/engine/shutdown.py](../miniagent/engine/shutdown.py) 实现一致，供排障与代码审阅对齐：
+与 [miniagent/assistant/engine/shutdown.py](../miniagent/assistant/engine/shutdown.py) 实现一致，供排障与代码审阅对齐：
 
 1. `LifecycleManager.stop()` 逆序停止 skills watcher、ticker、飞书和 config watcher，阻止产生新工作。
 2. 取消并等待 `ApplicationContainer.shutdown_tracked_tasks`，随后关闭 `BackgroundTaskManager`。
@@ -147,26 +147,26 @@ CI **不**依赖基线文件是否存在；可选 workflow 仅上传当次脚本
 #### 5.1 已缓解
 
 - **回合记忆与关键词索引**：标准 `DefaultMemoryStore` 通过 `record_turn()` 在同一会话锁内一次完成摘要、事实和条目更新，把正常回合的会话 JSON 写入从两次降为一次；注入的旧 MemoryStore 仍兼容 `update_summary()` + `add_entry()`。`KeywordIndex` 使用 dirty generation 和锁内一致快照，每轮 `flush_keyword_index_async()` 在线程中写盘，不阻塞事件循环；批量 `add_entry` 后仍可显式 `flush_keyword_index()`。正常关停时 `MemoryRuntime.close()` 统一持久化共享注册表、关键词索引与嵌入索引。关键词索引上限默认 20000（`memory.keyword_index_max`）。
-- **上下文预算中的工具 schema**：[`miniagent/memory/context.py`](../miniagent/memory/context.py) 的 `DefaultContextManager` 对 `estimate_tool_tokens`（内部多次 `json.dumps(tool)`）做 **按次失效缓存**（调用 **`set_tools`** 或构造后首次用时计算；之后复用）。若需更新工具列表或 schema 内容，**必须**通过 `set_tools` 传入新列表，勿仅原地修改已绑定列表并依赖预算立即变化。
+- **上下文预算中的工具 schema**：[`miniagent/agent/context.py`](../miniagent/agent/context.py) 的 `DefaultContextManager` 对 `estimate_tool_tokens`（内部多次 `json.dumps(tool)`）做 **按次失效缓存**（调用 **`set_tools`** 或构造后首次用时计算；之后复用）。若需更新工具列表或 schema 内容，**必须**通过 `set_tools` 传入新列表，勿仅原地修改已绑定列表并依赖预算立即变化。
 - **Prompt cache 友好分层**：执行阶段请求固定为 `stable system -> history -> current turn user context`。Agent 身份、skill prompts、通道级稳定规则和时区解释规则留在稳定前缀；`plan.summary`、结构化会话记忆、`keyword_context`、`kb_context`、当前时间、文件根目录和风险等级进入最后一条 user 消息，减少每轮 system prefix 波动，提升 provider 自然前缀缓存命中机会。
-- **会话记忆缓存（LRU）**：[`miniagent/memory/store.py`](../miniagent/memory/store.py) 的 `DefaultMemoryStore._cache` 使用 `OrderedDict` 实现 LRU 驱逐，默认上限 **200 会话**（`memory.store_cache_max`），命中时 `move_to_end` 提升活跃度，超限时 `popitem(last=False)` 驱逐最旧条目。
-- **记忆存储异步 I/O**：[`miniagent/memory/store.py`](../miniagent/memory/store.py) 的 `load()` 和 `save()` 使用 `asyncio.to_thread()` 包装文件读写，避免阻塞事件循环。
-- **飞书消息异步发送**：[`miniagent/feishu/im_send.py`](../miniagent/feishu/im_send.py) 新增 `post_im_message_async()`，使用 `asyncio.to_thread()` 包装同步 SDK 调用，避免阻塞事件循环。
+- **会话记忆缓存（LRU）**：[`miniagent/assistant/memory/store.py`](../miniagent/assistant/memory/store.py) 的 `DefaultMemoryStore._cache` 使用 `OrderedDict` 实现 LRU 驱逐，默认上限 **200 会话**（`memory.store_cache_max`），命中时 `move_to_end` 提升活跃度，超限时 `popitem(last=False)` 驱逐最旧条目。
+- **记忆存储异步 I/O**：[`miniagent/assistant/memory/store.py`](../miniagent/assistant/memory/store.py) 的 `load()` 和 `save()` 使用 `asyncio.to_thread()` 包装文件读写，避免阻塞事件循环。
+- **飞书消息异步发送**：[`miniagent/assistant/feishu/im_send.py`](../miniagent/assistant/feishu/im_send.py) 新增 `post_im_message_async()`，使用 `asyncio.to_thread()` 包装同步 SDK 调用，避免阻塞事件循环。
 - **紧凑 JSON 格式**：记忆文件使用紧凑 JSON（移除 `indent=2`），减少约 30% 文件体积和 20% 写入时间。
 - **实例列表缓存延长**：缓存 TTL 从 5 秒提高到 **30 秒**，减少频繁目录遍历开销。
-- **表格分隔符正则预编译**：[`miniagent/feishu/cards/gfm_table.py`](../miniagent/feishu/cards/gfm_table.py) 使用预编译 `_RE_GFM_SEPARATOR`。
-- **嵌入向量紧凑存储与分块查询**：[`miniagent/memory/embedding_search.py`](../miniagent/memory/embedding_search.py) 用连续 float64 数组替代 Python `list[float]`，API 缓存与索引可共享同一向量；500×1536 合成常驻分配由 23.65MiB 降至 6.25MiB（约 73.6%）。numpy 检索按 256 条构造临时矩阵，Top-K 与标量路径等价。索引仍受 `embedding.max_entries`（默认 2000）限制。
-- **活动日志读取缓存**：[`miniagent/memory/activity_log.py`](../miniagent/memory/activity_log.py) 的 `_read_today()` 有 30 秒内存缓存，避免每次 `log_session_start` 都读取 Growing 的 Markdown 文件。
+- **表格分隔符正则预编译**：[`miniagent/assistant/feishu/cards/gfm_table.py`](../miniagent/assistant/feishu/cards/gfm_table.py) 使用预编译 `_RE_GFM_SEPARATOR`。
+- **嵌入向量紧凑存储与分块查询**：[`miniagent/assistant/memory/embedding_search.py`](../miniagent/assistant/memory/embedding_search.py) 用连续 float64 数组替代 Python `list[float]`，API 缓存与索引可共享同一向量；500×1536 合成常驻分配由 23.65MiB 降至 6.25MiB（约 73.6%）。numpy 检索按 256 条构造临时矩阵，Top-K 与标量路径等价。索引仍受 `embedding.max_entries`（默认 2000）限制。
+- **活动日志读取缓存**：[`miniagent/assistant/memory/activity_log.py`](../miniagent/assistant/memory/activity_log.py) 的 `_read_today()` 有 30 秒内存缓存，避免每次 `log_session_start` 都读取 Growing 的 Markdown 文件。
 - **活动日志单一所有权**：`run_agent` 统一记录每轮首尾，executor 只在直接调用时兼容管理首尾，engine 不再二次写入或保留第二份完整工具结果。LLM、工具和兼容同步日志方法均通过异步适配器在线程执行。
-- **历史消息浅拷贝**：[`miniagent/memory/history_bridge.py`](../miniagent/memory/history_bridge.py) 的 `conversation_history_for_llm()` 用 `v.copy()` 替代 `copy.deepcopy(v)`，对简单 `{role, content}` 消息快 5-10 倍。
+- **历史消息浅拷贝**：[`miniagent/agent/history.py`](../miniagent/agent/history.py) 的 `conversation_history_for_llm()` 用 `v.copy()` 替代 `copy.deepcopy(v)`，对简单 `{role, content}` 消息快 5-10 倍。
 - **历史预算线性裁剪**：`format_history_for_llm()` 只估算每条消息一次，再用单次后缀切片替代反复 `sum()+pop(0)`。同机 1000 条等价输出对比由 2.0751s 降至 0.0049s（约 427×）。`DefaultContextManager` 的 truncate 策略也改为累计待删 token 后一次切片，并发出 `strategy=truncate` 的 `context.compress` Trace。
-- **预编译分词正则**：[`miniagent/memory/keyword_index.py`](../miniagent/memory/keyword_index.py) 的 `extract_keywords()` 使用模块级预编译 `_RE_NON_ALNUM_CJK` / `_RE_CJK_ONLY`，避免每次 `re.sub` 重新编译。
-- **执行器 import 提升**：[`miniagent/core/executor.py`](../miniagent/core/executor.py) 的 `ToolResult` import 从 `_run_tool` 内部移到模块顶部，节省每次工具调用的 import 开销。
-- **Trace writer 背压与统计真实性**：[`miniagent/infrastructure/tracing.py`](../miniagent/infrastructure/tracing.py) 的 `AsyncTraceWriter` 使用可配置有界队列，队列满时非阻塞丢弃并暴露 `dropped_count`；[`miniagent/infrastructure/trace_stats.py`](../miniagent/infrastructure/trace_stats.py) 聚合 `trace-YYYY-MM-DD.jsonl` 与 `trace-YYYY-MM-DD-pid*.jsonl`，日报不会漏读真实运行分片。
+- **预编译分词正则**：[`miniagent/assistant/memory/keyword_index.py`](../miniagent/assistant/memory/keyword_index.py) 的 `extract_keywords()` 使用模块级预编译 `_RE_NON_ALNUM_CJK` / `_RE_CJK_ONLY`，避免每次 `re.sub` 重新编译。
+- **执行器 import 提升**：[`miniagent/agent/executor.py`](../miniagent/agent/executor.py) 的 `ToolResult` import 从 `_run_tool` 内部移到模块顶部，节省每次工具调用的 import 开销。
+- **Trace writer 背压与统计真实性**：[`miniagent/agent/observability.py`](../miniagent/agent/observability.py) 的 `AsyncTraceWriter` 使用可配置有界队列，队列满时非阻塞丢弃并暴露 `dropped_count`；[`miniagent/assistant/infrastructure/trace_stats.py`](../miniagent/assistant/infrastructure/trace_stats.py) 聚合 `trace-YYYY-MM-DD.jsonl` 与 `trace-YYYY-MM-DD-pid*.jsonl`，日报不会漏读真实运行分片。
 - **Trace 单遍聚合与安全清理**：日报和真实 API 阶段汇总不再构造整日事件列表；2 万条合成事件峰值由 18.81MiB 降至 0.06MiB。活动分片的 session 清理由 writer FIFO 独占执行，历史分片以临时文件流式原子替换；满队列不会牺牲维护命令，畸形 JSON 行会保留。`RuntimeAnalyzer` 复用同一聚合器，循环检测只保留有界前缀与计数。
 - **队列与派生缓存上限**：完成的非 CLI chat 队列会立即回收，未知 chat 状态查询不再创建对象；工具箱 schema 组合缓存使用 128 项 LRU，防止模型生成不同 toolbox 组合造成长驻增长。
 - **异步关停与飞书输出**：统一 shutdown 保持原资源顺序，但将索引/Trace/提案/锁等同步边界移入线程；飞书独立思考/反思卡使用异步发送，Docx 带统计追加只解析一次 Markdown。
-- **启动导入图**：`miniagent.engine`、`miniagent.memory` 与 `miniagent.types` 聚合包使用惰性导出；OpenAI schema 类型仅在静态类型检查时导入。2026-07-12 同机基线中，`engine.main` 冷导入从约 4.75s / 45.05MiB 降至 0.79s / 17.74MiB，合成 tracemalloc 峰值从 44.21MiB 降至 21.18MiB。导出兼容性和全新进程循环导入由 `tests/test_package_lazy_imports.py` 覆盖。
+- **启动导入图**：`miniagent.assistant.engine`、`miniagent.assistant.memory` 与 `miniagent.agent.types` 聚合包使用惰性导出；OpenAI schema 类型仅在静态类型检查时导入。2026-07-12 同机基线中，`engine.main` 冷导入从约 4.75s / 45.05MiB 降至 0.79s / 17.74MiB，合成 tracemalloc 峰值从 44.21MiB 降至 21.18MiB。导出兼容性和全新进程循环导入由 `tests/test_package_lazy_imports.py` 覆盖。
 - **明确的无工具执行**：`StructuredPlan.tools_enabled=False` 区分“禁止工具”与 `required_toolboxes=[]` 的“不过滤”语义。仅在调用方没有工具箱或用户明确要求不调用工具时关闭工具；其他简单任务仍保留原工具能力。真实同提示对比中执行输入 token 约下降 33%，端到端耗时约下降 26%。
 - **知识库热路径惰性导入**：仅调用 `retrieve_knowledge_context()` 时不再加载 `KnowledgeRegistry`、PyYAML、文件摄取与索引栈；`KnowledgeRegistry` 的公共导出保持兼容。S1 稳态计时先执行一次明确 warm-up，避免把模块/正则一次性初始化和测试夹具 GC 误判为执行抖动，原阈值不放宽。
 - **索引原子持久化与 embedding single-flight**：共享注册表、关键词索引、embedding 索引和会话历史先写同目录唯一临时文件，再用 `os.replace()` 发布；save 使用串行锁与 generation，旧快照不会清除并发变更的 dirty。相同 embedding 文本的并发 miss 共享一个 API task，取消单个等待者不会取消公共请求。
@@ -238,8 +238,8 @@ async def good_example():
 
 | 文件 | 作用 |
 |------|------|
-| [`miniagent/core/request_payload.py`](../miniagent/core/request_payload.py) | S7：`serialize_exec_payload_sample`（执行轮次 messages/tools 序列化样本） |
-| [`miniagent/engine/shutdown.py`](../miniagent/engine/shutdown.py) | 统一关停：定时任务、飞书、队列、子进程、实例注册 |
+| [`miniagent/agent/request_payload.py`](../miniagent/agent/request_payload.py) | S7：`serialize_exec_payload_sample`（执行轮次 messages/tools 序列化样本） |
+| [`miniagent/assistant/engine/shutdown.py`](../miniagent/assistant/engine/shutdown.py) | 统一关停：定时任务、飞书、队列、子进程、实例注册 |
 | [`tests/test_perf_synthetic.py`](../tests/test_perf_synthetic.py) | 合成 perf 用例（默认参与 `pytest -m "not evaluation"`） |
 | [`scripts/perf_profile_tracemalloc.py`](../scripts/perf_profile_tracemalloc.py) | 本地可重复剖析入口（支持 `--inner-repeat`） |
 | [`scripts/compare_perf_snapshots.py`](../scripts/compare_perf_snapshots.py) | 对比两次 `--json-out` JSON（峰值比例告警） |

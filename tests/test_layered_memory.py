@@ -1,4 +1,4 @@
-"""Tests for miniagent.memory.layered_memory — session/agent long-term memory."""
+"""Tests for miniagent.assistant.memory.layered_memory — session/agent long-term memory."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from miniagent.memory import layered_memory
-from miniagent.memory.layered_memory import (
+from miniagent.assistant.memory import layered_memory
+from miniagent.assistant.memory.layered_memory import (
     append_session_day_rollup,
     load_agent_longterm,
     load_session_longterm,

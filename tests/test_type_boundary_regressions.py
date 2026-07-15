@@ -10,21 +10,21 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from miniagent.core.plan_utils import _parse_depends_on, _resolve_step_depends_on
-from miniagent.core.planner import _dict_to_plan
-from miniagent.core.self_opt.proposal_engine import _pain_point_to_proposal
-from miniagent.core.self_opt.types import PainPoint
-from miniagent.engine.cli_commands import cmd_schedule
-from miniagent.engine.cli_shell import _shell_argv
-from miniagent.engine.cli_transcript import TranscriptBuffer
-from miniagent.feishu.drive_extra import SearchApiError, search_docs
-from miniagent.feishu.feishu_dedup import FeishuDeduplicator
-from miniagent.feishu.types import FeishuConfig
-from miniagent.infrastructure.cli_transcript_coordinator import CliTranscriptCoordinator
-from miniagent.infrastructure.trace_stats import _TraceStatsAccumulator
-from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec
-from miniagent.tools.path_utils import resolve_path_simple
-from miniagent.tools.schedule_tools import _manage_scheduled_task_handler
+from miniagent.agent.plan_utils import _parse_depends_on, _resolve_step_depends_on
+from miniagent.agent.planner import _dict_to_plan
+from miniagent.assistant.engine.cli_commands import cmd_schedule
+from miniagent.assistant.engine.cli_shell import _shell_argv
+from miniagent.assistant.feishu.drive_extra import SearchApiError, search_docs
+from miniagent.assistant.feishu.feishu_dedup import FeishuDeduplicator
+from miniagent.assistant.feishu.types import FeishuConfig
+from miniagent.assistant.infrastructure.cli_transcript_coordinator import CliTranscriptCoordinator
+from miniagent.assistant.infrastructure.trace_stats import _TraceStatsAccumulator
+from miniagent.assistant.scheduled_tasks.models import ScheduledTask, ScheduleSpec
+from miniagent.assistant.self_opt.proposal_engine import _pain_point_to_proposal
+from miniagent.assistant.self_opt.types import PainPoint
+from miniagent.assistant.tools.path_utils import resolve_path_simple
+from miniagent.assistant.tools.schedule_tools import _manage_scheduled_task_handler
+from miniagent.ui.tui.transcript import TranscriptBuffer
 
 
 def test_dependency_parsers_reject_arbitrary_objects() -> None:
@@ -49,7 +49,7 @@ def test_low_severity_pain_point_produces_low_risk_proposal(tmp_path: Path) -> N
 
 
 def test_posix_shell_argv_uses_explicit_shell(monkeypatch: pytest.MonkeyPatch) -> None:
-    import miniagent.engine.cli_shell as cli_shell
+    import miniagent.assistant.engine.cli_shell as cli_shell
 
     monkeypatch.setattr(cli_shell.os, "name", "posix")
     monkeypatch.setenv("SHELL", "/bin/test-shell")
@@ -65,7 +65,7 @@ def test_transcript_buffer_supports_index_reads() -> None:
 def test_search_docs_preserves_numeric_api_error_code(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import miniagent.feishu.drive_client as drive_client
+    import miniagent.assistant.feishu.drive_client as drive_client
 
     monkeypatch.setattr(
         drive_client,
@@ -80,7 +80,7 @@ def test_search_docs_preserves_numeric_api_error_code(
 def test_deduplicator_evicts_oldest_completed_ids(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import miniagent.feishu.feishu_dedup as dedup_module
+    import miniagent.assistant.feishu.feishu_dedup as dedup_module
 
     monkeypatch.setattr(dedup_module, "DEDUP_MAX_SIZE", 2)
     dedup = FeishuDeduplicator(str(tmp_path))
@@ -128,7 +128,7 @@ async def test_schedule_tool_lists_cron_expression(monkeypatch: pytest.MonkeyPat
         prompt="run",
         schedule=ScheduleSpec(kind="cron", cron_expr="0 8 * * *"),
     )
-    import miniagent.scheduled_tasks.store as store
+    import miniagent.assistant.scheduled_tasks.store as store
 
     monkeypatch.setattr(store, "load_tasks", lambda: [task])
     result = await _manage_scheduled_task_handler(
@@ -152,7 +152,7 @@ def test_invalid_step_thinking_level_falls_back() -> None:
 def test_parse_activity_log_with_existing_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import miniagent.core.self_opt.runtime_analyzer as analyzer
+    import miniagent.assistant.self_opt.runtime_analyzer as analyzer
 
     monkeypatch.setattr(analyzer, "get_activity_log_dir", lambda: tmp_path)
     (tmp_path / "2026-07-12.md").write_text("## session-1\n", encoding="utf-8")
@@ -164,7 +164,7 @@ def test_parse_activity_log_with_existing_file(
 async def test_tui_force_fallback_after_optional_imports(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import miniagent.engine.cli_tui as tui
+    import miniagent.assistant.engine.cli_tui as tui
 
     fallback = AsyncMock()
     monkeypatch.setattr(tui, "run_cli_loop_fallback", fallback)
@@ -186,7 +186,7 @@ async def test_tui_force_fallback_after_optional_imports(
 
 @pytest.mark.asyncio
 async def test_unix_process_group_termination(monkeypatch: pytest.MonkeyPatch) -> None:
-    import miniagent.infrastructure.process as process_module
+    import miniagent.assistant.infrastructure.process as process_module
 
     signals: list[tuple[int, int]] = []
     monkeypatch.setattr(process_module.os, "getpgid", lambda pid: pid + 1, raising=False)
@@ -205,9 +205,9 @@ async def test_unix_process_group_termination(monkeypatch: pytest.MonkeyPatch) -
 async def test_feishu_im_handlers_cover_config_and_filter_boundaries(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from miniagent.feishu import upload_io
+    from miniagent.assistant.feishu import upload_io
 
-    im_tools = importlib.import_module("miniagent.tools.feishu_im_tools")
+    im_tools = importlib.import_module("miniagent.assistant.tools.feishu_im_tools")
     cfg = FeishuConfig("id", "secret")
     monkeypatch.setattr(im_tools, "check_feishu_config_and_lark_oapi", lambda: (cfg, None))
     monkeypatch.setattr(im_tools, "default_receive_id_for_send", lambda *_args: ("chat", None))
@@ -230,7 +230,7 @@ async def test_feishu_im_handlers_cover_config_and_filter_boundaries(
         return "folder", None
 
     monkeypatch.setattr(im_tools, "resolve_parent_folder_token_async", resolved)
-    import miniagent.feishu.drive_client as drive_client
+    import miniagent.assistant.feishu.drive_client as drive_client
 
     monkeypatch.setattr(
         drive_client,
@@ -263,8 +263,8 @@ async def test_feishu_im_handlers_cover_config_and_filter_boundaries(
 def test_feishu_doc_table_values_are_validated_and_normalized(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import miniagent.feishu.docx.tables as tables
-    from miniagent.tools.feishu_doc_tools import _action_write_table_cells
+    import miniagent.assistant.feishu.docx.tables as tables
+    from miniagent.assistant.tools.feishu_doc_tools import _action_write_table_cells
 
     written: list[list[list[str]]] = []
     monkeypatch.setattr(
@@ -285,7 +285,7 @@ def test_feishu_doc_table_values_are_validated_and_normalized(
 
 
 def test_cli_schedule_list_and_update_kinds(monkeypatch: pytest.MonkeyPatch) -> None:
-    import miniagent.scheduled_tasks.store as store
+    import miniagent.assistant.scheduled_tasks.store as store
 
     task = ScheduledTask(
         id="job",
@@ -311,8 +311,8 @@ def test_cli_schedule_list_and_update_kinds(monkeypatch: pytest.MonkeyPatch) -> 
 
 @pytest.mark.asyncio
 async def test_command_dispatch_instance_and_query() -> None:
-    from miniagent.engine.command_dispatch import dispatch_command
-    from miniagent.infrastructure.message_queue import MessageQueueManager
+    from miniagent.assistant.engine.command_dispatch import dispatch_command
+    from miniagent.assistant.infrastructure.message_queue import MessageQueueManager
 
     queue = MessageQueueManager()
     runtime = SimpleNamespace(
@@ -328,7 +328,7 @@ async def test_command_dispatch_instance_and_query() -> None:
 
 
 def test_feishu_ws_client_initializes_owned_task_state() -> None:
-    from miniagent.feishu.ws_client import FeishuWsClient
+    from miniagent.assistant.feishu.ws_client import FeishuWsClient
 
     client = FeishuWsClient(
         app_id="id", app_secret="secret", event_handler=lambda _event: None
@@ -340,8 +340,8 @@ def test_feishu_ws_client_initializes_owned_task_state() -> None:
 async def test_uninstall_skill_hot_refreshes_runtime(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import miniagent.skills.refresh as refresh_module
-    skill_tools = importlib.import_module("miniagent.tools.skills")
+    import miniagent.assistant.skills.refresh as refresh_module
+    skill_tools = importlib.import_module("miniagent.assistant.tools.skills")
 
     (tmp_path / "demo").mkdir()
     monkeypatch.setattr(skill_tools, "_get_skills_root", lambda: str(tmp_path))
@@ -363,7 +363,7 @@ async def test_uninstall_skill_hot_refreshes_runtime(
 async def test_unix_process_group_escalates_after_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import miniagent.infrastructure.process as process_module
+    import miniagent.assistant.infrastructure.process as process_module
 
     signals: list[int] = []
     monkeypatch.setattr(process_module.os, "getpgid", lambda _pid: 1, raising=False)
@@ -399,7 +399,7 @@ async def _completed_coroutine() -> int:
 async def test_unix_process_group_logs_failed_escalation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import miniagent.infrastructure.process as process_module
+    import miniagent.assistant.infrastructure.process as process_module
 
     monkeypatch.setattr(process_module.os, "getpgid", lambda _pid: 1, raising=False)
     monkeypatch.setattr(process_module.os, "killpg", lambda *_args: None, raising=False)
@@ -424,7 +424,7 @@ async def test_unix_process_group_logs_failed_escalation(
 async def test_unix_process_group_handles_missing_group(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import miniagent.infrastructure.process as process_module
+    import miniagent.assistant.infrastructure.process as process_module
 
     def missing(_pid):
         raise ProcessLookupError("gone")
@@ -439,7 +439,7 @@ async def test_unix_process_group_handles_missing_group(
 def test_scheduled_task_save_preserves_primary_error_when_cleanup_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import miniagent.scheduled_tasks.store as store
+    import miniagent.assistant.scheduled_tasks.store as store
 
     monkeypatch.setattr(store, "tasks_file_path", lambda: str(tmp_path / "tasks.json"))
     monkeypatch.setattr(store, "tasks_json_lock", lambda: nullcontext())

@@ -1,7 +1,7 @@
 """Welcome banner version must match package __version__ (dynamic setuptools metadata)."""
 
 import miniagent
-from miniagent.engine.welcome import get_version
+from miniagent.assistant.engine.welcome import get_version
 
 
 def test_get_version_matches_package_version() -> None:

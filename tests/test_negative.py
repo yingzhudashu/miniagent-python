@@ -30,7 +30,7 @@ class TestExecutorNegative:
     @pytest.mark.asyncio
     async def test_executor_handles_llm_api_error(self) -> None:
         """LLM API 错误应被正确处理。"""
-        from miniagent.infrastructure.registry import DefaultToolRegistry
+        from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
         # Mock LLM client 抛出错误
         mock_client = MagicMock()
@@ -50,7 +50,7 @@ class TestExecutorNegative:
     @pytest.mark.asyncio
     async def test_executor_handles_tool_execution_error(self) -> None:
         """工具执行错误应被正确处理。"""
-        from miniagent.types.tool import ToolContext
+        from miniagent.agent.types.tool import ToolContext
 
         # 模拟工具执行失败
         ToolContext(cwd="/tmp", permission="sandbox")
@@ -79,9 +79,9 @@ class TestPlannerNegative:
     @pytest.mark.asyncio
     async def test_planner_handles_empty_input(self) -> None:
         """空输入应返回 fallback plan。"""
-        from miniagent.core.planner import generate_plan
+        from miniagent.agent.planner import generate_plan
 
-        with patch("miniagent.core.planner._dict_to_plan") as mock_dict:
+        with patch("miniagent.agent.planner._dict_to_plan") as mock_dict:
             mock_dict.return_value = MagicMock(
                 summary="fallback",
                 steps=[],
@@ -102,7 +102,7 @@ class TestPlannerNegative:
     @pytest.mark.asyncio
     async def test_planner_handles_json_parse_error(self) -> None:
         """JSON 解析错误应返回 fallback。"""
-        from miniagent.core.planner import _dict_to_plan
+        from miniagent.agent.planner import _dict_to_plan
 
         # 无效的 JSON 数据
         invalid_data = {"invalid_key": "value"}
@@ -160,9 +160,9 @@ class TestMemoryNegative:
     @pytest.mark.asyncio
     async def test_memory_handles_write_failure(self) -> None:
         """内存写入失败应被正确处理。"""
-        from miniagent.memory.store import DefaultMemoryStore
+        from miniagent.assistant.memory.store import DefaultMemoryStore
 
-        with patch("miniagent.memory.store.get_config") as mock_config:
+        with patch("miniagent.assistant.memory.store.get_config") as mock_config:
             mock_config.return_value = "/nonexistent/path"
 
             try:
@@ -196,7 +196,7 @@ class TestFeishuNegative:
     @pytest.mark.asyncio
     async def test_feishu_handles_connection_failure(self) -> None:
         """飞书连接失败应被正确处理。"""
-        from miniagent.feishu.ws_client import FeishuWsClient
+        from miniagent.assistant.feishu.ws_client import FeishuWsClient
 
         try:
             # 创建客户端但不连接
@@ -211,7 +211,7 @@ class TestFeishuNegative:
     @pytest.mark.asyncio
     async def test_feishu_handles_message_send_failure(self) -> None:
         """飞书消息发送失败应被正确处理。"""
-        from miniagent.feishu.types import FeishuConfig
+        from miniagent.assistant.feishu.types import FeishuConfig
 
         cfg = FeishuConfig(
             app_id="test",
@@ -244,7 +244,7 @@ class TestToolExecutionNegative:
     @pytest.mark.asyncio
     async def test_tool_handles_permission_denied(self) -> None:
         """权限拒绝应被正确处理。"""
-        from miniagent.types.tool import ToolContext
+        from miniagent.agent.types.tool import ToolContext
 
         ctx = ToolContext(
             cwd="/protected",
@@ -287,7 +287,7 @@ class TestCommandDispatchNegative:
     @pytest.mark.asyncio
     async def test_dispatch_handles_invalid_command(self) -> None:
         """无效命令应返回 None。"""
-        from miniagent.engine.command_dispatch import dispatch_command
+        from miniagent.assistant.engine.command_dispatch import dispatch_command
 
         state = {"runtime_ctx": MagicMock()}
 
@@ -300,7 +300,7 @@ class TestCommandDispatchNegative:
     @pytest.mark.asyncio
     async def test_dispatch_handles_missing_runtime_ctx(self) -> None:
         """缺少 runtime_ctx 应返回警告。"""
-        from miniagent.engine.command_dispatch import dispatch_command
+        from miniagent.assistant.engine.command_dispatch import dispatch_command
 
         state = {"runtime_ctx": None}  # runtime_ctx 为 None
 
@@ -363,7 +363,7 @@ class TestConfigurationNegative:
 
     def test_config_handles_missing_required_fields(self) -> None:
         """缺少必填字段应使用默认值或报错。"""
-        from miniagent.core.config import get_default_agent_config
+        from miniagent.agent.config import get_default_agent_config
 
         # 获取默认配置
         config = get_default_agent_config()

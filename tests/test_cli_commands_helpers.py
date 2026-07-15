@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from miniagent.engine.cli_commands import (
+from miniagent.agent.types.error_prefix import SUCCESS_PREFIX, WARNING_PREFIX
+from miniagent.assistant.engine.cli_commands import (
     _extract_improve_suggestions,
     _get_last_qa_with_metadata,
     _has_quality_evaluation,
@@ -14,7 +15,6 @@ from miniagent.engine.cli_commands import (
     cmd_improve,
     format_queue_abort_message,
 )
-from miniagent.types.error_prefix import SUCCESS_PREFIX, WARNING_PREFIX
 
 
 def test_format_queue_abort_message_idle() -> None:

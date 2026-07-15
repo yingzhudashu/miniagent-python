@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 
-from miniagent.feishu.poll_server import start_feishu_poll_server
+from miniagent.assistant.feishu.poll_server import start_feishu_poll_server
 
 
 def test_start_feishu_poll_server_is_async_coroutine() -> None:

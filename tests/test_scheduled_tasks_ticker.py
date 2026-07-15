@@ -8,11 +8,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from miniagent.contracts.messages import InboundMessage
-from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec, SessionSpec
-from miniagent.scheduled_tasks.runner import ScheduledJob
-from miniagent.scheduled_tasks.store import save_tasks
-from miniagent.scheduled_tasks.ticker import (
+from miniagent.assistant.contracts.messages import InboundMessage
+from miniagent.assistant.scheduled_tasks.models import ScheduledTask, ScheduleSpec, SessionSpec
+from miniagent.assistant.scheduled_tasks.runner import ScheduledJob
+from miniagent.assistant.scheduled_tasks.store import save_tasks
+from miniagent.assistant.scheduled_tasks.ticker import (
     scheduled_tasks_loop,
     start_scheduled_tasks_ticker,
     tick_once,
@@ -29,9 +29,9 @@ async def test_scheduled_tasks_loop_invokes_tick_once(
     async def _fake_tick(*_a: object, **_k: object) -> None:
         calls.append(1)
 
-    monkeypatch.setattr("miniagent.scheduled_tasks.ticker.tick_once", _fake_tick)
+    monkeypatch.setattr("miniagent.assistant.scheduled_tasks.ticker.tick_once", _fake_tick)
     monkeypatch.setattr(
-        "miniagent.scheduled_tasks.ticker._sleep_seconds_until", lambda _tasks: 0.01
+        "miniagent.assistant.scheduled_tasks.ticker._sleep_seconds_until", lambda _tasks: 0.01
     )
 
     ctx = minimal_tick_ctx()
@@ -53,7 +53,7 @@ async def test_start_scheduled_tasks_ticker_uses_lifecycle_stop_event(
     stop_event = asyncio.Event()
 
     monkeypatch.setattr(
-        "miniagent.scheduled_tasks.ticker.scheduled_tasks_loop",
+        "miniagent.assistant.scheduled_tasks.ticker.scheduled_tasks_loop",
         AsyncMock(),
     )
     t = start_scheduled_tasks_ticker(ctx, st, [], [], stop_event)
@@ -103,7 +103,7 @@ async def test_tick_once_respects_max_due_per_tick(
         )
 
     monkeypatch.setattr(
-        "miniagent.scheduled_tasks.ticker.build_scheduled_job", _fake_build
+        "miniagent.assistant.scheduled_tasks.ticker.build_scheduled_job", _fake_build
     )
     patch_tick_once_locks(monkeypatch)
 

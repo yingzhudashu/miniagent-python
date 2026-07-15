@@ -7,6 +7,8 @@
 
 ### Breaking Changes
 
+- 源码包收敛为 `llm`、`agent`、`ui`、`assistant` 四个主模块；旧的 `core`、`engine`、
+  `contracts`、`types`、`infrastructure` 等顶层导入路径已移除，不提供转发兼容层。
 - LLM 配置升级为 `llm.providers`、`llm.models`、`llm.roles` 与
   `secrets.llm`；新增 `python -m miniagent migrate-config --dry-run/--write`，写入前自动
   备份 2.x 配置。包版本进入 3.0.0。
@@ -25,7 +27,8 @@
 
 - 应用组合根持有 LLM gateway 快照；配置热更新不关闭在途请求使用的旧 gateway。
 - 会话历史 schema 升至 v2，并标记跨 provider 的稳定消息格式；旧文件沿用集中备份迁移。
-- 架构检查新增 core、presentation 与 LLM adapter 的依赖方向约束。
+- 架构检查升级为四模块白名单、完整 AST 导入扫描和跨层循环检测；函数内、相对及
+  `TYPE_CHECKING` 导入均不能绕过规则。
 
 ### 体验
 
@@ -51,7 +54,7 @@
 - 将自优化命令、CLI 补全、transcript 缓冲、执行 prompt 与流式聚合迁入独立组件；TUI 由 `_TuiApplication` 统一持有布局、输入、输出和关闭生命周期，保留原有导入和用户命令兼容路径。
 - 将 Agent 生命周期、规划/分类恢复、ReAct 资源装配、引擎会话收尾和飞书思考状态收敛为小型对象；传输 DTO、能力学习、计划/输出格式化、线性 pipeline、实例渲染和飞书 Docx schema 各自拥有独立模块。
 
-- `miniagent.bootstrap.entrypoint` 是唯一启动入口，负责构造
+- `miniagent.assistant.bootstrap.entrypoint` 是唯一启动入口，负责构造
   `ApplicationContainer` 并调用 `run_runtime`。
 - `ApplicationContainer` 是唯一组合根；工具、技能、会话、消息队列、记忆、飞书、
   LLM 客户端与出站通道均通过显式依赖传递。
@@ -74,7 +77,7 @@
 - 严格配置热更新会报告未知键的完整点路径；持久化状态保存时写入 `schema_version`，旧文件读取先校验并备份，再通过集中迁移注册表原子发布；失败保留原文件并返回带路径错误。
 - `--doctor` 的依赖诊断与 extras 对齐：WebSocket 归入飞书可选依赖，并补充 browser、MCP 可选组，核心安装不再因缺少飞书依赖被误报为损坏。
 
-- 唯一默认配置位于 `miniagent/resources/config.defaults.json`，并作为 wheel 包资源发布。
+- 唯一默认配置位于 `miniagent/assistant/resources/config.defaults.json`，并作为 wheel 包资源发布。
 - `config.user.json` 只保存本地覆盖与凭据；首次启动引导可直接生成最小配置。
 - 默认配置资源、内置技能资源和 wheel 内容由 CI 门禁校验。
 - 项目状态目录采用确定性解析：

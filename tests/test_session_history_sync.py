@@ -8,10 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from miniagent.engine.cli_transcript import history_loaded_end
-from miniagent.infrastructure.registry import DefaultToolRegistry
-from miniagent.session.manager import DefaultSessionManager
-from miniagent.types.memory import SessionOptions
+from miniagent.agent.types.memory import SessionOptions
+from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
+from miniagent.assistant.session.manager import DefaultSessionManager
+from miniagent.ui.tui.transcript import history_loaded_end
 
 
 @pytest.fixture
@@ -83,7 +83,7 @@ def test_save_after_truncate_keeps_session_and_ctx_in_sync(
     session_manager: DefaultSessionManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """截断后 save 应同步 Session 与 ctx，落盘内容与内存一致。"""
-    import miniagent.session.manager as sm_mod
+    import miniagent.assistant.session.manager as sm_mod
 
     def _truncate_tail(history: list, max_messages: int = 200) -> list:
         return list(history[-2:])
@@ -197,11 +197,11 @@ def test_restore_truncates_large_disk_history(
     def _cfg(key: str, default=None):
         if key == "memory.max_history_messages":
             return 50
-        from miniagent.infrastructure.json_config import get_config as real_get_config
+        from miniagent.assistant.infrastructure.json_config import get_config as real_get_config
 
         return real_get_config(key, default)
 
-    monkeypatch.setattr("miniagent.session.manager.get_config", _cfg)
+    monkeypatch.setattr("miniagent.assistant.session.manager.get_config", _cfg)
 
     sm = DefaultSessionManager(DefaultToolRegistry())
     session_id = "big-history"

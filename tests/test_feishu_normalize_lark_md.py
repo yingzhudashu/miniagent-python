@@ -6,7 +6,7 @@ import pytest
 
 
 def test_prepare_card_markdown_collapses_long_fence() -> None:
-    from miniagent.feishu.poll_server import _prepare_card_markdown
+    from miniagent.assistant.feishu.poll_server import _prepare_card_markdown
 
     raw = "````python\nx = 1\n````\n"
     out = _prepare_card_markdown(raw, max_len=10_000)
@@ -17,7 +17,7 @@ def test_prepare_card_markdown_collapses_long_fence() -> None:
 def test_prepare_card_markdown_wide_table_to_bullet_list(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from miniagent.feishu.poll_server import _prepare_card_markdown
+    from miniagent.assistant.feishu.poll_server import _prepare_card_markdown
 
     header = "|a|b|c|d|e|"
     sep = "|---|---|---|---|---|"
@@ -35,7 +35,7 @@ def test_prepare_card_markdown_narrow_table_also_converted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """窄表格也应转为 bullet list（lark_md 不支持任何管道符表格）。"""
-    from miniagent.feishu.poll_server import _prepare_card_markdown
+    from miniagent.assistant.feishu.poll_server import _prepare_card_markdown
 
     raw = "|a|b|c|\n|---|---|---|\n|1|2|3|\n"
     out = _prepare_card_markdown(raw, max_len=10_000)
@@ -46,7 +46,7 @@ def test_prepare_card_markdown_narrow_table_also_converted(
 
 def test_prepare_card_markdown_heading_to_bold() -> None:
     """ATX 标题转为粗体。"""
-    from miniagent.feishu.poll_server import _prepare_card_markdown
+    from miniagent.assistant.feishu.poll_server import _prepare_card_markdown
 
     out = _prepare_card_markdown("### 三级标题", max_len=10_000)
     assert "**三级标题**" in out
@@ -55,7 +55,7 @@ def test_prepare_card_markdown_heading_to_bold() -> None:
 
 def test_prepare_card_markdown_preserves_pipe_prose_without_table_row() -> None:
     """含 | 的正文但下一行不是表格分隔行时不应整块替换为「列数较多」提示。"""
-    from miniagent.feishu.poll_server import _prepare_card_markdown
+    from miniagent.assistant.feishu.poll_server import _prepare_card_markdown
 
     raw = (
         "|many|pipes|in|one|line|without|being|a|full|markdown|table|row|\n"
@@ -67,7 +67,7 @@ def test_prepare_card_markdown_preserves_pipe_prose_without_table_row() -> None:
 
 
 def test_chunk_feishu_normalizes_before_split(monkeypatch: pytest.MonkeyPatch) -> None:
-    from miniagent.feishu import thinking_delivery as ps
+    from miniagent.assistant.feishu import thinking_delivery as ps
 
     monkeypatch.setattr(ps, "feishu_card_body_max", lambda: 200)
     raw = "\u200b# Title\n\n" + ("paragraph\n" * 80)
@@ -77,7 +77,7 @@ def test_chunk_feishu_normalizes_before_split(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_prepare_thinking_markdown_collapses_blank_lines() -> None:
-    from miniagent.feishu.poll_server import _prepare_thinking_markdown
+    from miniagent.assistant.feishu.poll_server import _prepare_thinking_markdown
 
     raw = "第一段\n\n\n\n第二段"
     out = _prepare_thinking_markdown(raw)
@@ -87,7 +87,7 @@ def test_prepare_thinking_markdown_collapses_blank_lines() -> None:
 
 
 def test_prepare_thinking_markdown_list_lines_not_padded() -> None:
-    from miniagent.feishu.poll_server import _prepare_thinking_markdown
+    from miniagent.assistant.feishu.poll_server import _prepare_thinking_markdown
 
     raw = "**工具**\n\n- first intent\n- second intent"
     out = _prepare_thinking_markdown(raw)
@@ -96,7 +96,7 @@ def test_prepare_thinking_markdown_list_lines_not_padded() -> None:
 
 
 def test_prepare_thinking_markdown_ordered_list_not_padded() -> None:
-    from miniagent.feishu.poll_server import _prepare_thinking_markdown
+    from miniagent.assistant.feishu.poll_server import _prepare_thinking_markdown
 
     raw = "步骤\n\n1. 先做 A\n2. 再做 B"
     out = _prepare_thinking_markdown(raw)
@@ -105,7 +105,7 @@ def test_prepare_thinking_markdown_ordered_list_not_padded() -> None:
 
 
 def test_prepare_card_markdown_skips_normalize_when_requested() -> None:
-    from miniagent.feishu.poll_server import _prepare_card_markdown
+    from miniagent.assistant.feishu.poll_server import _prepare_card_markdown
 
     raw = "a * b"
     with_norm = _prepare_card_markdown(raw, max_len=10_000)
@@ -118,7 +118,7 @@ def test_finalize_pipeline_matches_streaming_thinking_prep(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """收尾应对累积正文走与 PATCH 相同的 thinking body 管线（折叠空行与 normalize，无额外缩进）。"""
-    from miniagent.feishu import thinking_delivery as ps
+    from miniagent.assistant.feishu import thinking_delivery as ps
 
     monkeypatch.setattr(ps, "feishu_card_body_max", lambda: 10_000)
     acc = "段落一\n\n段落二\n\n**工具**\n\n- a\n- b"
@@ -131,14 +131,14 @@ def test_finalize_pipeline_matches_streaming_thinking_prep(
 
 
 def test_normalize_lark_md_horizontal_rule_to_plain_line() -> None:
-    from miniagent.feishu.poll_server import _normalize_lark_md
+    from miniagent.assistant.feishu.poll_server import _normalize_lark_md
 
     assert "---" not in _normalize_lark_md("a\n\n---\n\nb")
     assert "\u2500\u2500\u2500" in _normalize_lark_md("a\n\n---\n\nb")
 
 
 def test_strip_light_markdown_for_feishu_plain() -> None:
-    from miniagent.feishu.poll_server import _strip_light_markdown_for_feishu_plain
+    from miniagent.assistant.feishu.poll_server import _strip_light_markdown_for_feishu_plain
 
     s = _strip_light_markdown_for_feishu_plain("**bold** and `x`")
     assert "**" not in s
@@ -147,20 +147,20 @@ def test_strip_light_markdown_for_feishu_plain() -> None:
 
 
 def test_normalize_lark_md_lone_asterisk_to_fullwidth() -> None:
-    from miniagent.feishu.poll_server import _normalize_lark_md
+    from miniagent.assistant.feishu.poll_server import _normalize_lark_md
 
     assert "\uff0a" in _normalize_lark_md("a * b")
     assert "**bold**" in _normalize_lark_md("**bold**")
 
 
 def test_normalize_lark_md_strips_replacement_char() -> None:
-    from miniagent.feishu.poll_server import _normalize_lark_md
+    from miniagent.assistant.feishu.poll_server import _normalize_lark_md
 
     assert "\ufffd" not in _normalize_lark_md("x\ufffdy")
 
 
 def test_chunk_feishu_extends_past_cap_to_close_fence(monkeypatch: pytest.MonkeyPatch) -> None:
-    from miniagent.feishu import thinking_delivery as ps
+    from miniagent.assistant.feishu import thinking_delivery as ps
 
     monkeypatch.setattr(ps, "feishu_card_body_max", lambda: 120)
     inner = "\n".join([f"line {i}" for i in range(40)])

@@ -13,12 +13,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.core.problem_solver import ReflectionResult
+from miniagent.agent.problem_solver import ReflectionResult
 from tests.config_helpers import install_test_config
 from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 
-_TC_PATH = "miniagent.core.task_classifier.task_classifier_enabled"
-_REFLECT_PATH = "miniagent.core.agent.reflect_on_result"
+_TC_PATH = "miniagent.agent.task_classifier.task_classifier_enabled"
+_REFLECT_PATH = "miniagent.agent.agent.reflect_on_result"
 
 _FOOTER_MARK = "质量评估"
 _SCORE_MARK = "质量评分"
@@ -71,16 +71,16 @@ class TestHypothesisA_DoubleCall:
         """一次 run_agent 调用，reflect_on_result 恰好被调用 1 次，footer 恰好 1 个。"""
         install_test_config(tmp_path, {"features": {"reflection": True}})
 
-        with patch("miniagent.core.agent.get_default_agent_config", return_value=_make_agent_config()):
-            with patch("miniagent.core.agent.merge_agent_config", side_effect=lambda a, b: a):
+        with patch("miniagent.agent.agent.get_default_agent_config", return_value=_make_agent_config()):
+            with patch("miniagent.agent.agent.merge_agent_config", side_effect=lambda a, b: a):
                 with patch(_TC_PATH, return_value=False):
-                    with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as mock_exec:
+                    with patch("miniagent.agent.agent.execute_plan", new_callable=AsyncMock) as mock_exec:
                         mock_exec.return_value = "这是答案正文。"
                         with patch(_REFLECT_PATH, new_callable=AsyncMock) as mock_reflect:
                             mock_reflect.return_value = ReflectionResult(
                                 acceptable=True, quality_score=0.8
                             )
-                            from miniagent.core import run_agent
+                            from miniagent.agent import run_agent
 
                             reply = await run_agent(
                                 "问题",
@@ -106,13 +106,13 @@ class TestHypothesisA_DoubleCall:
             captured["reply"] = reply
             return ReflectionResult(acceptable=True, quality_score=0.8)
 
-        with patch("miniagent.core.agent.get_default_agent_config", return_value=_make_agent_config()):
-            with patch("miniagent.core.agent.merge_agent_config", side_effect=lambda a, b: a):
+        with patch("miniagent.agent.agent.get_default_agent_config", return_value=_make_agent_config()):
+            with patch("miniagent.agent.agent.merge_agent_config", side_effect=lambda a, b: a):
                 with patch(_TC_PATH, return_value=False):
-                    with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as mock_exec:
+                    with patch("miniagent.agent.agent.execute_plan", new_callable=AsyncMock) as mock_exec:
                         mock_exec.return_value = "这是答案正文。"
                         with patch(_REFLECT_PATH, side_effect=_capture_reflect):
-                            from miniagent.core import run_agent
+                            from miniagent.agent import run_agent
 
                             await run_agent(
                                 "问题",
@@ -152,13 +152,13 @@ class TestHypothesisB_ReflectThinkingSink:
 
         on_thinking_cb = AsyncMock()
 
-        with patch("miniagent.core.agent.get_default_agent_config", return_value=_make_agent_config()):
-            with patch("miniagent.core.agent.merge_agent_config", side_effect=lambda a, b: a):
+        with patch("miniagent.agent.agent.get_default_agent_config", return_value=_make_agent_config()):
+            with patch("miniagent.agent.agent.merge_agent_config", side_effect=lambda a, b: a):
                 with patch(_TC_PATH, return_value=False):
-                    with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as mock_exec:
+                    with patch("miniagent.agent.agent.execute_plan", new_callable=AsyncMock) as mock_exec:
                         mock_exec.return_value = "答案正文。"
                         with patch(_REFLECT_PATH, side_effect=_capture_reflect):
-                            from miniagent.core import run_agent
+                            from miniagent.agent import run_agent
 
                             await run_agent(
                                 "问题",
@@ -180,7 +180,7 @@ class TestHypothesisB_ReflectThinkingSink:
 class TestHypothesisD_FooterAccumulatesInHistory:
     def test_footer_stripped_before_llm_context(self):
         """conversation_history_for_llm 会剥离反思 footer，避免回灌 LLM 后复述。"""
-        from miniagent.memory.history_bridge import conversation_history_for_llm
+        from miniagent.agent.history import conversation_history_for_llm
 
         prior_reply = "上一轮答案。\n\n---\n🤖 质量评估通过 | 质量评分 0.8"
         history = [
@@ -215,16 +215,16 @@ class TestHypothesisD_FooterAccumulatesInHistory:
         # execute_plan 的 LLM 看到历史 footer 后，在本轮正文里复述了同样的 footer
         echoed_reply = "本轮答案正文。" + prior_footer
 
-        with patch("miniagent.core.agent.get_default_agent_config", return_value=cfg):
-            with patch("miniagent.core.agent.merge_agent_config", side_effect=lambda a, b: a):
+        with patch("miniagent.agent.agent.get_default_agent_config", return_value=cfg):
+            with patch("miniagent.agent.agent.merge_agent_config", side_effect=lambda a, b: a):
                 with patch(_TC_PATH, return_value=False):
-                    with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as mock_exec:
+                    with patch("miniagent.agent.agent.execute_plan", new_callable=AsyncMock) as mock_exec:
                         mock_exec.return_value = echoed_reply
                         with patch(_REFLECT_PATH, new_callable=AsyncMock) as mock_reflect:
                             mock_reflect.return_value = ReflectionResult(
                                 acceptable=True, quality_score=0.9
                             )
-                            from miniagent.core import run_agent
+                            from miniagent.agent import run_agent
 
                             reply = await run_agent(
                                 "本轮问题",

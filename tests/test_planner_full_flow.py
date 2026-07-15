@@ -10,10 +10,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.core.planner import _fallback_plan, generate_plan
-from miniagent.types.config import AgentConfig, ModelConfig, SessionBindingConfig, WireAPI
-from miniagent.types.planning import PlanStep, StructuredPlan
-from miniagent.types.tool import Toolbox
+from miniagent.agent.planner import _fallback_plan, generate_plan
+from miniagent.agent.types.config import AgentConfig, ModelConfig, SessionBindingConfig, WireAPI
+from miniagent.agent.types.planning import PlanStep, StructuredPlan
+from miniagent.agent.types.tool import Toolbox
 from tests.memory_helpers import make_knowledge_registry
 
 _VALID_PLAN_CONTENT = (
@@ -72,9 +72,14 @@ def _model_protocol(
         max_tokens=max_tokens,
     )
     with (
-        patch("miniagent.core.config.get_default_model_config", return_value=config),
-        patch("miniagent.core.llm_params.get_default_model_config", return_value=config),
-        patch("miniagent.core.llm_transport.get_default_model_config", return_value=config),
+        patch("miniagent.agent.config.get_default_model_config", return_value=config),
+        patch("miniagent.agent.llm_params.get_default_model_config", return_value=config),
+        patch(
+            "miniagent.agent.planner.get_config",
+            side_effect=lambda path, default=None: wire_api
+            if path == "model.wire_api"
+            else default,
+        ),
     ):
         yield
 
@@ -234,7 +239,7 @@ async def test_responses_planner_recovers_reasoning_only_without_sampling() -> N
     with (
         _model_protocol("responses"),
         patch(
-            "miniagent.infrastructure.tracing.emit_trace",
+            "miniagent.agent.observability.emit_trace",
             side_effect=lambda event: events.append(event),
         ),
     ):
@@ -380,7 +385,7 @@ async def test_responses_planner_falls_back_after_three_reasoning_only_responses
 
     with (
         _model_protocol("responses"),
-        patch("miniagent.core.planner._logger.warning") as warning,
+        patch("miniagent.agent.planner._logger.warning") as warning,
     ):
         plan = await generate_plan(
             secret_marker,
@@ -477,7 +482,7 @@ async def test_generate_plan_uses_grouped_session_config_and_history() -> None:
     )
 
     with patch(
-        "miniagent.infrastructure.tracing.emit_trace",
+        "miniagent.agent.observability.emit_trace",
         side_effect=lambda event: events.append(event),
     ):
         plan = await generate_plan(
@@ -509,7 +514,7 @@ async def test_generate_plan_defaults_missing_or_empty_session_key(
     mock_client.chat.completions.create = AsyncMock(return_value=_planner_response())
 
     with patch(
-        "miniagent.infrastructure.tracing.emit_trace",
+        "miniagent.agent.observability.emit_trace",
         side_effect=lambda event: events.append(event),
     ):
         await generate_plan(

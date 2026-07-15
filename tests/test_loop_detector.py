@@ -1,7 +1,7 @@
 """Tests for loop detector."""
 
-from miniagent.infrastructure.loop_detector import LoopDetector
-from miniagent.types.agent import LoopDetectionConfig
+from miniagent.agent.loop_detector import LoopDetector
+from miniagent.agent.types.agent import LoopDetectionConfig
 
 # 与历史测试阈值对齐（LoopDetectionConfig 默认 8/12）
 _TEST_LOOP_CONFIG = LoopDetectionConfig(

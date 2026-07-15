@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from miniagent.core.executor import _step_thinking_header
-from miniagent.core.thinking_callback import invoke_on_thinking
-from miniagent.types.planning import PlanStep
+from miniagent.agent.executor import _step_thinking_header
+from miniagent.agent.thinking_callback import invoke_on_thinking
+from miniagent.agent.types.planning import PlanStep
 
 
 @pytest.mark.asyncio

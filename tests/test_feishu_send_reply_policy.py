@@ -11,14 +11,14 @@ pytest.importorskip("lark_oapi")
 
 @pytest.fixture(autouse=True)
 def _clear_lark_client_cache():
-    from miniagent.feishu import im_send
+    from miniagent.assistant.feishu import im_send
 
     im_send.clear_client_cache()
 
 
 def test_send_interactive_reply_cards_stops_after_failed_shard() -> None:
-    from miniagent.feishu.poll_server import _send_interactive_reply_cards
-    from miniagent.feishu.types import FeishuConfig
+    from miniagent.assistant.feishu.poll_server import _send_interactive_reply_cards
+    from miniagent.assistant.feishu.types import FeishuConfig
 
     cfg = FeishuConfig(app_id="a", app_secret="b", verification_token="t")
     client = MagicMock()
@@ -42,11 +42,11 @@ def test_send_interactive_reply_cards_stops_after_failed_shard() -> None:
 
 
 def test_send_plain_text_chunks_sends_multiple(monkeypatch: pytest.MonkeyPatch) -> None:
-    import miniagent.feishu.outbound_delivery as ps
+    import miniagent.assistant.feishu.outbound_delivery as ps
 
     monkeypatch.setattr(ps, "feishu_card_body_max", lambda: 8)
-    from miniagent.feishu.poll_server import _send_plain_text_chunks
-    from miniagent.feishu.types import FeishuConfig
+    from miniagent.assistant.feishu.poll_server import _send_plain_text_chunks
+    from miniagent.assistant.feishu.types import FeishuConfig
 
     cfg = FeishuConfig(app_id="a", app_secret="b", verification_token="t")
     client = MagicMock()

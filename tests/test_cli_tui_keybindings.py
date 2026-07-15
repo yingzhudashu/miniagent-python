@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from miniagent.engine.cli_tui_keybindings import install_tui_key_bindings
+from miniagent.assistant.engine.cli_tui_keybindings import install_tui_key_bindings
 
 
 class _KeyBindings:
@@ -85,18 +85,18 @@ def test_key_bindings_register_and_execute_major_paths(monkeypatch: pytest.Monke
         copy_mode[0] = not copy_mode[0]
 
     monkeypatch.setattr(
-        "miniagent.engine.cli_tui_keybindings.copy_text_to_system_clipboard",
+        "miniagent.assistant.engine.cli_tui_keybindings.copy_text_to_system_clipboard",
         lambda _text: True,
     )
     monkeypatch.setattr(
-        "miniagent.engine.cli_tui_keybindings.run_cli_shell_command",
+        "miniagent.assistant.engine.cli_tui_keybindings.run_cli_shell_command",
         lambda command: (True, f"ran:{command}"),
     )
     monkeypatch.setattr(
-        "miniagent.engine.cli_tui_keybindings.sync_preload_buffer_working_lines",
+        "miniagent.assistant.engine.cli_tui_keybindings.sync_preload_buffer_working_lines",
         lambda _buffer: _buffer.calls.append("sync_history"),
     )
-    monkeypatch.setattr("miniagent.engine.btw_cmd.cmd_btw_status", lambda _manager: "idle")
+    monkeypatch.setattr("miniagent.assistant.engine.btw_cmd.cmd_btw_status", lambda _manager: "idle")
 
     install_tui_key_bindings(
         kb=kb,

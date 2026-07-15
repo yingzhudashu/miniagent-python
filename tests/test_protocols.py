@@ -6,20 +6,22 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from miniagent.contracts.runtime import (
+from miniagent.agent.ports.runtime import (
     ActivityLogProtocol,
+    KeywordIndexProtocol,
+)
+from miniagent.assistant.contracts.runtime import (
     ChannelRouterProtocol,
     FeishuRuntimeProtocol,
-    KeywordIndexProtocol,
     MessageQueueProtocol,
     UnifiedEngineProtocol,
 )
-from miniagent.engine.engine import UnifiedEngine
-from miniagent.engine.feishu_state import FeishuRuntime
-from miniagent.infrastructure.channel_router import ChannelRouter
-from miniagent.infrastructure.message_queue import MessageQueueManager
-from miniagent.memory.activity_log import ActivityLogger
-from miniagent.memory.keyword_index import KeywordIndex
+from miniagent.assistant.engine.engine import UnifiedEngine
+from miniagent.assistant.engine.feishu_state import FeishuRuntime
+from miniagent.assistant.infrastructure.channel_router import ChannelRouter
+from miniagent.assistant.infrastructure.message_queue import MessageQueueManager
+from miniagent.assistant.memory.activity_log import ActivityLogger
+from miniagent.assistant.memory.keyword_index import KeywordIndex
 
 
 @pytest.mark.parametrize(

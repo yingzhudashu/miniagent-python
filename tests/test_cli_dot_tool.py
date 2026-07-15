@@ -7,9 +7,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniagent.core.config import get_default_agent_config, merge_agent_config
-from miniagent.tools.cli_dispatch_tools import _run_dot_command_handler
-from miniagent.types.tool import ToolContext
+from miniagent.agent.config import get_default_agent_config, merge_agent_config
+from miniagent.agent.types.tool import ToolContext
+from miniagent.assistant.tools.cli_dispatch_tools import _run_dot_command_handler
 
 
 def test_merge_agent_config_cli_loop_fields() -> None:
@@ -85,7 +85,7 @@ async def test_run_dot_command_dispatches_capture_and_allow_flag(
         return "mocked"
 
     monkeypatch.setattr(
-        "miniagent.engine.command_dispatch.dispatch_command",
+        "miniagent.assistant.engine.command_dispatch.dispatch_command",
         fake_dispatch,
     )
 
@@ -123,7 +123,7 @@ async def test_run_dot_command_empty_capture_becomes_placeholder(
         return "   \n  "
 
     monkeypatch.setattr(
-        "miniagent.engine.command_dispatch.dispatch_command",
+        "miniagent.assistant.engine.command_dispatch.dispatch_command",
         fake_dispatch,
     )
     rt = MagicMock()
@@ -176,7 +176,7 @@ async def test_run_dot_command_max_chars_truncates(
         return long
 
     monkeypatch.setattr(
-        "miniagent.engine.command_dispatch.dispatch_command",
+        "miniagent.assistant.engine.command_dispatch.dispatch_command",
         fake_dispatch,
     )
     rt = MagicMock()
@@ -263,7 +263,7 @@ async def test_run_dot_command_unknown_returns_failure(
         return None
 
     monkeypatch.setattr(
-        "miniagent.engine.command_dispatch.dispatch_command",
+        "miniagent.assistant.engine.command_dispatch.dispatch_command",
         fake_dispatch,
     )
     rt = MagicMock()

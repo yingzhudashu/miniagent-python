@@ -1,4 +1,4 @@
-"""Tests for miniagent.core.self_opt inspector and proposal_engine implementation."""
+"""Tests for miniagent.assistant.self_opt inspector and proposal_engine implementation."""
 
 from __future__ import annotations
 
@@ -6,17 +6,17 @@ from pathlib import Path
 
 import pytest
 
-from miniagent.core.self_opt.inspector import (
+from miniagent.assistant.self_opt.inspector import (
     _count_lines,
     _count_python_files,
     _estimate_test_coverage,
 )
-from miniagent.core.self_opt.proposal_engine import (
+from miniagent.assistant.self_opt.proposal_engine import (
     _generate_proposal_id,
     _generate_test_proposals,
     _pain_point_to_proposal,
 )
-from miniagent.core.self_opt.types import InspectionReport, PainPoint
+from miniagent.assistant.self_opt.types import InspectionReport, PainPoint
 
 
 @pytest.fixture

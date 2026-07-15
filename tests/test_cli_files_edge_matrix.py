@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.engine import cli_files
+from miniagent.assistant.engine import cli_files
 
 
 def test_marker_path_description_type_and_replacement(tmp_path: Path) -> None:
@@ -43,16 +43,16 @@ async def test_inspect_and_describe_file_fallbacks(
     monkeypatch.setattr(cli_files, "detect_mime_from_magic", MagicMock(side_effect=ValueError))
     assert (await cli_files._inspect_cli_file(str(path)))[1] == "application/octet-stream"
 
-    runtime = SimpleNamespace(openai_client=object())
+    runtime = SimpleNamespace(llm_gateway=object())
     monkeypatch.setattr(cli_files, "get_config", lambda *_args: True)
     monkeypatch.setattr(
-        "miniagent.feishu.vision_desc.describe_image",
+        "miniagent.assistant.feishu.vision_desc.describe_image",
         AsyncMock(return_value="described"),
     )
     assert await cli_files._describe_cli_file(str(path), "image", runtime) == "described"
 
     monkeypatch.setattr(
-        "miniagent.feishu.vision_desc.describe_image",
+        "miniagent.assistant.feishu.vision_desc.describe_image",
         AsyncMock(side_effect=RuntimeError("vision")),
     )
     assert await cli_files._describe_cli_file(str(path), "image", runtime) == ""

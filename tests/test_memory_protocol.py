@@ -6,10 +6,10 @@ import tempfile
 
 import pytest
 
-from miniagent.infrastructure.registry import DefaultToolRegistry
-from miniagent.memory.store import DefaultMemoryStore
-from miniagent.session.manager import DefaultSessionManager
-from miniagent.types.memory import MemoryStoreProtocol, SessionManagerProtocol
+from miniagent.agent.types.memory import MemoryStoreProtocol, SessionManagerProtocol
+from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
+from miniagent.assistant.memory.store import DefaultMemoryStore
+from miniagent.assistant.session.manager import DefaultSessionManager
 
 
 class TestMemoryStoreProtocolCompliance:
@@ -54,7 +54,7 @@ class TestMemoryStoreProtocolCompliance:
     async def test_add_entry_merges_in_progress_entry(self) -> None:
         from datetime import datetime, timezone
 
-        from miniagent.types.memory import MemoryEntryInput
+        from miniagent.agent.types.memory import MemoryEntryInput
 
         sid = "merge-session"
         now = datetime.now(timezone.utc).isoformat()

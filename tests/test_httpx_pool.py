@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from miniagent.infrastructure import httpx_pool
+from miniagent.assistant.infrastructure import httpx_pool
 
 
 class _FakeClient:

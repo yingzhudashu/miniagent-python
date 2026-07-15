@@ -5,11 +5,11 @@ import tempfile
 
 import pytest
 
-from miniagent.memory.shared_registry import (
+from miniagent.agent.types.memory import MemoryEntryInput
+from miniagent.assistant.memory.shared_registry import (
     MemoryEntryRegistry,
     SharedEntry,
 )
-from miniagent.types.memory import MemoryEntryInput
 from tests.config_helpers import install_test_config
 
 

@@ -6,8 +6,8 @@ import asyncio
 
 import pytest
 
-from miniagent.engine.feishu_state import FeishuRuntime
-from miniagent.infrastructure.message_queue import MessageQueueManager
+from miniagent.assistant.engine.feishu_state import FeishuRuntime
+from miniagent.assistant.infrastructure.message_queue import MessageQueueManager
 
 
 def _lines_rt() -> tuple[FeishuRuntime, list[str]]:
@@ -60,7 +60,7 @@ def test_status_includes_ws_health_and_lock(monkeypatch) -> None:
     poll_state.ws_health.last_inbound_monotonic = 100.0
     monkeypatch.setattr("time.monotonic", lambda: 130.0)
     monkeypatch.setattr(
-        "miniagent.infrastructure.feishu_inbound_lock.read_feishu_inbound_owner",
+        "miniagent.assistant.infrastructure.feishu_inbound_lock.read_feishu_inbound_owner",
         lambda *a, **k: {"pid": 1234, "instance_id": 7, "alive": True},
     )
 
@@ -88,7 +88,7 @@ async def test_stop_sync_defers_inbound_lock_release_until_task_finally(
         releases.append("release")
 
     monkeypatch.setattr(
-        "miniagent.infrastructure.feishu_inbound_lock.release_feishu_inbound_owner",
+        "miniagent.assistant.infrastructure.feishu_inbound_lock.release_feishu_inbound_owner",
         track_release,
     )
 
@@ -99,7 +99,7 @@ async def test_stop_sync_defers_inbound_lock_release_until_task_finally(
         entered.set()
         await block.wait()
 
-    monkeypatch.setattr("miniagent.feishu.poll_server.start_feishu_poll_server", fake_poll)
+    monkeypatch.setattr("miniagent.assistant.feishu.poll_server.start_feishu_poll_server", fake_poll)
 
     mq = MessageQueueManager()
     rt = FeishuRuntime(mq)

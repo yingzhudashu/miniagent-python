@@ -6,8 +6,8 @@ from types import SimpleNamespace
 
 from prompt_toolkit.formatted_text.ansi import ANSI
 
-from miniagent.engine.cli_transcript import TranscriptBuffer
-from miniagent.engine.cli_tui_transcript_ops import create_transcript_operations
+from miniagent.assistant.engine.cli_tui_transcript_ops import create_transcript_operations
+from miniagent.ui.tui.transcript import TranscriptBuffer
 
 
 class _History:
@@ -52,7 +52,7 @@ def _make_operations(
 
     def fake_get_app() -> SimpleNamespace:
         return SimpleNamespace(is_running=True, invalidate=lambda: invalidations.append(True))
-    monkeypatch.setattr("miniagent.engine.cli_tui_transcript_ops.get_app", fake_get_app)
+    monkeypatch.setattr("miniagent.assistant.engine.cli_tui_transcript_ops.get_app", fake_get_app)
     monkeypatch.setattr("prompt_toolkit.application.get_app", fake_get_app)
 
     def append(style, text="", **_kwargs):
@@ -225,7 +225,7 @@ def test_render_history_roles_and_prepend_paths(monkeypatch) -> None:
 def test_render_history_prepend_falls_back_when_markdown_is_empty(monkeypatch) -> None:
     state = _make_operations(monkeypatch, safe_ansi=lambda _value: [])
     monkeypatch.setattr(
-        "miniagent.engine.markdown_cli.render_markdown_to_ansi",
+        "miniagent.assistant.engine.markdown_cli.render_markdown_to_ansi",
         lambda *_args, **_kwargs: "",
     )
 

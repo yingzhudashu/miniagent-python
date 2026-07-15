@@ -6,9 +6,13 @@ import re
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-_CLI_TUI_PY = _REPO_ROOT / "miniagent" / "engine" / "cli_tui.py"
-_TRANSCRIPT_OPS_PY = _REPO_ROOT / "miniagent" / "engine" / "cli_tui_transcript_ops.py"
-_KEYBINDINGS_PY = _REPO_ROOT / "miniagent" / "engine" / "cli_tui_keybindings.py"
+_CLI_TUI_PY = _REPO_ROOT / "miniagent" / "assistant" / "engine" / "cli_tui.py"
+_TRANSCRIPT_OPS_PY = (
+    _REPO_ROOT / "miniagent" / "assistant" / "engine" / "cli_tui_transcript_ops.py"
+)
+_KEYBINDINGS_PY = (
+    _REPO_ROOT / "miniagent" / "assistant" / "engine" / "cli_tui_keybindings.py"
+)
 
 
 def _tui_source() -> str:

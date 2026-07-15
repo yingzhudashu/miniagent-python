@@ -2,7 +2,7 @@
 
 from unittest.mock import patch
 
-from miniagent.engine.commands.instance_commands import (
+from miniagent.assistant.engine.commands.instance_commands import (
     cmd_instance_handler,
     format_instance_command_usage,
 )
@@ -18,10 +18,10 @@ class TestFormatInstanceCommandUsage:
 class TestCmdInstanceHandler:
     def test_list_empty(self, capsys):
         with patch(
-            "miniagent.infrastructure.instance.list_instances",
+            "miniagent.assistant.infrastructure.instance.list_instances",
             return_value=[],
         ), patch(
-            "miniagent.infrastructure.instance.format_instances_table",
+            "miniagent.assistant.infrastructure.instance.format_instances_table",
             return_value="📭 暂无运行实例",
         ):
             cmd_instance_handler(["/instance", "list"], "list", {"instance_id": 1})
@@ -29,10 +29,10 @@ class TestCmdInstanceHandler:
 
     def test_list_markdown(self, capsys):
         with patch(
-            "miniagent.infrastructure.instance.list_instances",
+            "miniagent.assistant.infrastructure.instance.list_instances",
             return_value=[{"instance_id": 1}],
         ), patch(
-            "miniagent.infrastructure.instance.format_instances_markdown",
+            "miniagent.assistant.infrastructure.instance.format_instances_markdown",
             return_value="| ID |",
         ):
             cmd_instance_handler(
@@ -59,10 +59,10 @@ class TestCmdInstanceHandler:
             "pid": 99999,
         }
         with patch(
-            "miniagent.infrastructure.instance.list_instances",
+            "miniagent.assistant.infrastructure.instance.list_instances",
             return_value=[fake_inst],
         ), patch(
-            "miniagent.infrastructure.instance.stop_instance_by_id",
+            "miniagent.assistant.infrastructure.instance.stop_instance_by_id",
             return_value={"success": False, "reason": "无法终止 PID=99999: access denied"},
         ):
             cmd_instance_handler(["/instance", "stop", "2"], "stop", {"instance_id": 1})
@@ -73,10 +73,10 @@ class TestCmdInstanceHandler:
     def test_stop_success_without_reason(self, capsys):
         fake_inst = {"instance_id": 2, "state_dir": "/tmp/registry", "pid": 99999}
         with patch(
-            "miniagent.infrastructure.instance.list_instances",
+            "miniagent.assistant.infrastructure.instance.list_instances",
             return_value=[fake_inst],
         ), patch(
-            "miniagent.infrastructure.instance.stop_instance_by_id",
+            "miniagent.assistant.infrastructure.instance.stop_instance_by_id",
             return_value={"success": True},
         ):
             cmd_instance_handler(["/instance", "stop", "2"], "stop", {"instance_id": 1})
@@ -87,10 +87,10 @@ class TestCmdInstanceHandler:
     def test_stop_success_with_reason(self, capsys):
         fake_inst = {"instance_id": 2, "state_dir": "/tmp/registry", "pid": 99999}
         with patch(
-            "miniagent.infrastructure.instance.list_instances",
+            "miniagent.assistant.infrastructure.instance.list_instances",
             return_value=[fake_inst],
         ), patch(
-            "miniagent.infrastructure.instance.stop_instance_by_id",
+            "miniagent.assistant.infrastructure.instance.stop_instance_by_id",
             return_value={
                 "success": True,
                 "reason": "实例 #2 (PID=99999) 已不存在，已清理",

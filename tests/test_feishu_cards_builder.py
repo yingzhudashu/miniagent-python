@@ -1,4 +1,4 @@
-from miniagent.feishu.cards.builder import build_button, build_interactive_card
+from miniagent.assistant.feishu.cards.builder import build_button, build_interactive_card
 
 
 def test_build_interactive_card_with_button() -> None:

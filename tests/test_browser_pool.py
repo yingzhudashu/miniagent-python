@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from miniagent.infrastructure import browser_pool
+from miniagent.assistant.infrastructure import browser_pool
 
 
 @pytest.mark.asyncio

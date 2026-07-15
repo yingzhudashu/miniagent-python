@@ -6,10 +6,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.engine.feishu_handler import create_feishu_handler
-from miniagent.feishu.types import FeishuInboundText
-from miniagent.infrastructure.channel_router import ChannelRouter
-from miniagent.types.error_prefix import SUCCESS_PREFIX
+from miniagent.agent.types.error_prefix import SUCCESS_PREFIX
+from miniagent.assistant.engine.feishu_handler import create_feishu_handler
+from miniagent.assistant.feishu.types import FeishuInboundText
+from miniagent.assistant.infrastructure.channel_router import ChannelRouter
 from tests.test_feishu_handler_cli_mirror import _make_ctx
 
 
@@ -36,11 +36,11 @@ async def test_handler_dispatches_slash_command(loop_state: dict) -> None:
     ctx.feishu.get_config = MagicMock(return_value=MagicMock())
 
     with patch(
-        "miniagent.engine.command_dispatch.dispatch_command",
+        "miniagent.assistant.engine.command_dispatch.dispatch_command",
         new_callable=AsyncMock,
         return_value="命令输出",
     ) as mock_dispatch, patch(
-        "miniagent.engine.feishu_handler._send_feishu_agent_reply",
+        "miniagent.assistant.engine.feishu_handler._send_feishu_agent_reply",
         new_callable=AsyncMock,
     ) as mock_send:
         handler, _ = create_feishu_handler(loop_state, ctx, [True])
@@ -71,11 +71,11 @@ async def test_command_send_failure_is_propagated(loop_state: dict) -> None:
     ctx.feishu.get_config = MagicMock(return_value=MagicMock())
 
     with patch(
-        "miniagent.engine.command_dispatch.dispatch_command",
+        "miniagent.assistant.engine.command_dispatch.dispatch_command",
         new_callable=AsyncMock,
         return_value="命令输出",
     ), patch(
-        "miniagent.engine.feishu_handler._send_feishu_agent_reply",
+        "miniagent.assistant.engine.feishu_handler._send_feishu_agent_reply",
         new_callable=AsyncMock,
         side_effect=RuntimeError("offline"),
     ):
@@ -106,7 +106,7 @@ async def test_p2p_auto_bind_on_first_message(loop_state: dict) -> None:
     handler, _ = create_feishu_handler(loop_state, ctx, [True])
     p2p_ch = f"{ChannelRouter.FEISHU_P2P_PREFIX}ou_bind_me"
 
-    with patch("miniagent.engine.feishu_handler._send_feishu_agent_reply", new_callable=AsyncMock):
+    with patch("miniagent.assistant.engine.feishu_handler._send_feishu_agent_reply", new_callable=AsyncMock):
         inbound = FeishuInboundText(
             text="你好",
             chat_id="ou_bind_me",
@@ -143,16 +143,16 @@ async def test_media_handler_save_only_without_agent(loop_state: dict) -> None:
         return b"data", "doc.txt"
 
     with patch(
-        "miniagent.engine.feishu_handler.get_config",
+        "miniagent.assistant.engine.feishu_handler.get_config",
         side_effect=lambda key, default=None: False if key == "feishu.media.run_agent" else default,
     ), patch(
-        "miniagent.feishu.resource_io.download_message_resource", _fake_download
+        "miniagent.assistant.feishu.resource_io.download_message_resource", _fake_download
     ), patch("builtins.open", create=True), patch(
-        "miniagent.engine.feishu_handler.os.makedirs"
+        "miniagent.assistant.engine.feishu_handler.os.makedirs"
     ), patch(
-        "miniagent.engine.feishu_handler.os.path.relpath", return_value="feishu_incoming/doc.txt"
+        "miniagent.assistant.engine.feishu_handler.os.path.relpath", return_value="feishu_incoming/doc.txt"
     ), patch(
-        "miniagent.memory.store.add_file_to_memory", new_callable=AsyncMock
+        "miniagent.assistant.memory.store.add_file_to_memory", new_callable=AsyncMock
     ):
         result = await media_handler(
             MagicMock(app_id="a", app_secret="s"),
@@ -182,7 +182,7 @@ async def test_handler_returns_text_when_send_reply_raises(loop_state: dict) -> 
     handler, _ = create_feishu_handler(loop_state, ctx, [True])
 
     with patch(
-        "miniagent.engine.feishu_handler._send_feishu_agent_reply",
+        "miniagent.assistant.engine.feishu_handler._send_feishu_agent_reply",
         new_callable=AsyncMock,
         side_effect=RuntimeError("network down"),
     ):
@@ -212,7 +212,7 @@ async def test_agent_failure_is_sent_as_error_event(loop_state: dict) -> None:
 
     handler, _ = create_feishu_handler(loop_state, ctx, [True])
     with patch(
-        "miniagent.engine.feishu_handler._send_feishu_agent_reply",
+        "miniagent.assistant.engine.feishu_handler._send_feishu_agent_reply",
         new_callable=AsyncMock,
     ) as mock_send:
         result = await handler(

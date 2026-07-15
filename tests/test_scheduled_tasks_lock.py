@@ -7,15 +7,15 @@ import os
 import threading
 import time
 
-from miniagent.scheduled_tasks.file_lock import tasks_json_lock
-from miniagent.scheduled_tasks.lock import (
+from miniagent.assistant.scheduled_tasks.file_lock import tasks_json_lock
+from miniagent.assistant.scheduled_tasks.lock import (
     release_job_lock,
     release_scheduler_lock,
     try_acquire_job_lock,
     try_acquire_scheduler_lock,
 )
-from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec, SessionSpec
-from miniagent.scheduled_tasks.store import load_tasks, save_tasks, tasks_file_path
+from miniagent.assistant.scheduled_tasks.models import ScheduledTask, ScheduleSpec, SessionSpec
+from miniagent.assistant.scheduled_tasks.store import load_tasks, save_tasks, tasks_file_path
 
 
 def test_scheduler_lock_acquire_release_roundtrip(state_dir: str) -> None:

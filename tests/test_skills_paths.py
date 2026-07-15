@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from miniagent.skills.paths import get_skills_root
+from miniagent.assistant.skills.paths import get_skills_root
 from tests.config_helpers import install_test_config
 
 

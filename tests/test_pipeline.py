@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from miniagent.core.agent import run_pipeline
-from miniagent.infrastructure.registry import DefaultToolRegistry
-from miniagent.types.agent import PipelineStep
-from miniagent.types.tool import ToolDefinition, ToolResult
+from miniagent.agent.agent import run_pipeline
+from miniagent.agent.types.agent import PipelineStep
+from miniagent.agent.types.tool import ToolDefinition, ToolResult
+from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
 
 def _schema(name: str) -> dict:

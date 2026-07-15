@@ -1,4 +1,4 @@
-"""Tests for miniagent.memory.activity_log."""
+"""Tests for miniagent.assistant.memory.activity_log."""
 
 import asyncio
 import os
@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from miniagent.memory.activity_log import ActivityLogger, _short_json, invoke_activity_log
+from miniagent.assistant.memory.activity_log import ActivityLogger, _short_json, invoke_activity_log
 
 
 @pytest.mark.asyncio

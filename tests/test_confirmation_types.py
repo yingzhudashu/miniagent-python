@@ -5,7 +5,7 @@
 
 import pytest
 
-from miniagent.types.confirmation import (
+from miniagent.agent.types.confirmation import (
     ConfirmationRequest,
     ConfirmationResult,
     ConfirmationStage,

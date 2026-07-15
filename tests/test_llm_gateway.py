@@ -7,14 +7,14 @@ from typing import Any
 
 import pytest
 
-from miniagent.contracts.llm import (
+from miniagent.llm.catalog import ModelCatalog, RoleRouter
+from miniagent.llm.gateway import LLMGateway, ProviderRegistry
+from miniagent.llm.types import (
     LLMCompletion,
     LLMStreamEvent,
     ModelCapabilities,
     ModelDescriptor,
 )
-from miniagent.infrastructure.llm.catalog import ModelCatalog, RoleRouter
-from miniagent.infrastructure.llm.gateway import LLMGateway, ProviderRegistry
 
 
 class FauxProvider:

@@ -9,19 +9,19 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.bootstrap import LifecycleManager
-from miniagent.bootstrap.application import ApplicationContainer
-from miniagent.contracts.messages import InboundMessage
-from miniagent.engine.cli_state import CliLoopState
-from miniagent.engine.feishu_lifecycle import FeishuRuntimeLifecycleService
-from miniagent.engine.feishu_state import FeishuRuntime
-from miniagent.engine.shutdown import shutdown_runtime
-from miniagent.infrastructure.message_queue import MessageQueueManager
-from miniagent.infrastructure.process import cleanup_all_processes
-from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec, SessionSpec
-from miniagent.scheduled_tasks.runner import ScheduledJob
-from miniagent.scheduled_tasks.store import save_tasks
-from miniagent.scheduled_tasks.ticker import tick_once
+from miniagent.assistant.bootstrap import LifecycleManager
+from miniagent.assistant.bootstrap.application import ApplicationContainer
+from miniagent.assistant.contracts.messages import InboundMessage
+from miniagent.assistant.engine.cli_state import CliLoopState
+from miniagent.assistant.engine.feishu_lifecycle import FeishuRuntimeLifecycleService
+from miniagent.assistant.engine.feishu_state import FeishuRuntime
+from miniagent.assistant.engine.shutdown import shutdown_runtime
+from miniagent.assistant.infrastructure.message_queue import MessageQueueManager
+from miniagent.assistant.infrastructure.process import cleanup_all_processes
+from miniagent.assistant.scheduled_tasks.models import ScheduledTask, ScheduleSpec, SessionSpec
+from miniagent.assistant.scheduled_tasks.runner import ScheduledJob
+from miniagent.assistant.scheduled_tasks.store import save_tasks
+from miniagent.assistant.scheduled_tasks.ticker import tick_once
 from tests.memory_helpers import (
     make_background_task_manager,
     make_knowledge_registry,
@@ -46,7 +46,7 @@ def _minimal_ctx() -> ApplicationContainer:
         memory=make_memory_runtime(),
         knowledge_registry=make_knowledge_registry(),
         background_tasks=make_background_task_manager(),
-        openai_client=None,
+        llm_gateway=None,
     )
 
 
@@ -135,11 +135,11 @@ async def test_feishu_stop_async_awaits_cancelled_poll_task() -> None:
             {"FEISHU_APP_ID": "x", "FEISHU_APP_SECRET": "y", "FEISHU_VERIFICATION_TOKEN": "z"},
         ),
         patch(
-            "miniagent.infrastructure.feishu_inbound_lock.try_acquire_feishu_inbound_owner",
+            "miniagent.assistant.infrastructure.feishu_inbound_lock.try_acquire_feishu_inbound_owner",
             return_value=(True, "ok"),
         ),
         patch(
-            "miniagent.feishu.poll_server.start_feishu_poll_server",
+            "miniagent.assistant.feishu.poll_server.start_feishu_poll_server",
             new=fake_poll,
         ),
     ):
@@ -157,7 +157,7 @@ async def test_feishu_stop_async_awaits_cancelled_poll_task() -> None:
 @pytest.mark.asyncio
 async def test_cleanup_all_processes_clears_after_child_exits() -> None:
     """已结束子进程经 cleanup 后追踪表清空（不依赖跨平台强杀语义）。"""
-    from miniagent.infrastructure.process import get_tracked_count, register_process
+    from miniagent.assistant.infrastructure.process import get_tracked_count, register_process
 
     proc = await asyncio.create_subprocess_exec(
         sys.executable,
@@ -204,7 +204,7 @@ async def test_tick_once_job_registered_then_shutdown_cancels(
     tmp_path,
 ) -> None:
     """tick_once 派生的 _one_job 登记到 ctx 后，shutdown_runtime 可将其取消。"""
-    from miniagent.scheduled_tasks import ticker as ticker_mod
+    from miniagent.assistant.scheduled_tasks import ticker as ticker_mod
 
     monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
     monkeypatch.setenv("MINIAGENT_DISABLE_SCHEDULED_TASKS", "0")
@@ -240,7 +240,7 @@ async def test_tick_once_job_registered_then_shutdown_cancels(
         )
 
     monkeypatch.setattr(
-        "miniagent.scheduled_tasks.ticker.build_scheduled_job",
+        "miniagent.assistant.scheduled_tasks.ticker.build_scheduled_job",
         _fake_build,
     )
     patch_tick_once_locks(monkeypatch)
@@ -271,7 +271,7 @@ async def test_tick_once_job_registered_then_shutdown_cancels(
     )
     assert all(x.done() for x in pending)
 
-    from miniagent.scheduled_tasks.store import load_tasks
+    from miniagent.assistant.scheduled_tasks.store import load_tasks
 
     loaded = load_tasks()
     assert len(loaded) == 1
@@ -307,9 +307,9 @@ async def test_shutdown_runtime_continues_after_cleanup_processes_failure() -> N
         raise RuntimeError("cleanup failed")
 
     with (
-        patch("miniagent.engine.shutdown.cleanup_all_processes", new=_boom),
+        patch("miniagent.assistant.engine.shutdown.cleanup_all_processes", new=_boom),
         patch(
-            "miniagent.infrastructure.tracing.shutdown_trace_writer",
+            "miniagent.agent.observability.shutdown_trace_writer",
             side_effect=lambda: trace_called.append("trace"),
         ),
     ):
@@ -342,17 +342,17 @@ async def test_shutdown_runtime_invokes_resource_teardown() -> None:
     active_openai.close = AsyncMock()
     retired_openai = MagicMock()
     retired_openai.close = AsyncMock()
-    ctx.openai_client = active_openai
-    ctx.retired_openai_clients.append(retired_openai)
+    ctx.llm_gateway = active_openai
+    ctx.retired_llm_gateways.append(retired_openai)
 
     with (
-        patch("miniagent.feishu.drive_client.close_http_client", drive_mock),
+        patch("miniagent.assistant.feishu.drive_client.close_http_client", drive_mock),
         patch(
-            "miniagent.tools.html_upload.close_html_upload_http_clients",
+            "miniagent.assistant.tools.html_upload.close_html_upload_http_clients",
             html_upload_mock,
         ),
-        patch("miniagent.mcp.runtime.close_mcp_connections", mcp_close),
-        patch("miniagent.infrastructure.tracing.shutdown_trace_writer", trace_mock),
+        patch("miniagent.assistant.mcp.runtime.close_mcp_connections", mcp_close),
+        patch("miniagent.agent.observability.shutdown_trace_writer", trace_mock),
     ):
         await shutdown_runtime(
             ctx,
@@ -371,8 +371,8 @@ async def test_shutdown_runtime_invokes_resource_teardown() -> None:
     mcp_close.assert_awaited_once()
     active_openai.close.assert_awaited_once()
     retired_openai.close.assert_awaited_once()
-    assert ctx.openai_client is None
-    assert ctx.retired_openai_clients == []
+    assert ctx.llm_gateway is None
+    assert ctx.retired_llm_gateways == []
 
 
 @pytest.mark.asyncio
@@ -431,21 +431,21 @@ async def test_shutdown_stops_producers_before_consumers_and_resources() -> None
 
 @pytest.mark.asyncio
 async def test_run_runtime_failure_always_invokes_unified_shutdown() -> None:
-    from miniagent.engine.main import run_runtime
+    from miniagent.assistant.engine.main import run_runtime
 
     ctx = _minimal_ctx()
     shutdown = AsyncMock()
     init_failure = RuntimeError("init failed")
 
     with (
-        patch("miniagent.engine.main._configure_console_encoding"),
-        patch("miniagent.engine.main.register_instance", return_value={"instance_id": 1}),
-        patch("miniagent.engine.main.signal.signal"),
+        patch("miniagent.assistant.engine.main._configure_console_encoding"),
+        patch("miniagent.assistant.engine.main.register_instance", return_value={"instance_id": 1}),
+        patch("miniagent.assistant.engine.main.signal.signal"),
         patch(
-            "miniagent.engine.init.init_subsystems",
+            "miniagent.assistant.engine.init.init_subsystems",
             new=AsyncMock(side_effect=init_failure),
         ),
-        patch("miniagent.engine.main.shutdown_runtime", new=shutdown),
+        patch("miniagent.assistant.engine.main.shutdown_runtime", new=shutdown),
     ):
         with pytest.raises(RuntimeError, match="init failed"):
             await run_runtime(ctx)
@@ -461,7 +461,10 @@ async def test_run_runtime_failure_always_invokes_unified_shutdown() -> None:
 @pytest.mark.asyncio
 @pytest.mark.skipif(sys.platform == "win32", reason="tracked child kill path flaky on Windows CI")
 async def test_cleanup_all_processes_kills_long_running_tracked_child() -> None:
-    from miniagent.infrastructure.process import create_tracked_subprocess, get_tracked_count
+    from miniagent.assistant.infrastructure.process import (
+        create_tracked_subprocess,
+        get_tracked_count,
+    )
 
     proc = await create_tracked_subprocess(
         f'"{sys.executable}" -c "import time; time.sleep(120)"',

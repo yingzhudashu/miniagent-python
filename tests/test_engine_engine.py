@@ -16,8 +16,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.engine.engine import UnifiedEngine
-from miniagent.types.agent import AgentRunResult
+from miniagent.agent.types.agent import AgentRunResult
+from miniagent.assistant.engine.engine import UnifiedEngine
 from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 
 # ============================================================================
@@ -110,7 +110,7 @@ class TestUnifiedEngineToolboxAssembly:
         _mock_engine_thinking(engine)
         mock_session_manager, _ = _create_mock_session_manager()
 
-        with patch("miniagent.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
+        with patch("miniagent.assistant.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
             mock_run.return_value = AgentRunResult(reply="Test reply")
 
             result = await engine.run_agent_with_thinking(
@@ -133,7 +133,7 @@ class TestUnifiedEngineToolboxAssembly:
         _mock_engine_thinking(engine)
         mock_session_manager, _ = _create_mock_session_manager()
 
-        with patch("miniagent.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
+        with patch("miniagent.assistant.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
             mock_run.return_value = AgentRunResult(reply="Test reply")
             toolboxes = ["filesystem", "exec"]
 
@@ -162,7 +162,7 @@ class TestUnifiedEngineThinkingCallback:
         _mock_engine_thinking(engine)
         mock_session_manager, _ = _create_mock_session_manager()
 
-        with patch("miniagent.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
+        with patch("miniagent.assistant.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
             mock_run.return_value = AgentRunResult(reply="Test reply")
             session_key = "test_session_reset"
 
@@ -196,7 +196,7 @@ class TestUnifiedEngineToolFinish:
                 await on_tool_finish("test_tool", '{"arg": "value"}', "output", True)
             return AgentRunResult(reply="Reply")
 
-        with patch("miniagent.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
+        with patch("miniagent.assistant.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
             mock_run.side_effect = mock_run_with_tool
 
             await engine.run_agent_with_thinking(
@@ -225,7 +225,7 @@ class TestUnifiedEngineHistoryUpdate:
         _mock_engine_thinking(engine)
         mock_session_manager, mock_ctx = _create_mock_session_manager()
 
-        with patch("miniagent.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
+        with patch("miniagent.assistant.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
             mock_run.return_value = AgentRunResult(reply="Reply")
             user_input = "Hello!"
 
@@ -252,7 +252,7 @@ class TestUnifiedEngineHistoryUpdate:
         mock_session_manager, mock_ctx = _create_mock_session_manager()
         reply = "Assistant reply."
 
-        with patch("miniagent.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
+        with patch("miniagent.assistant.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
             mock_run.return_value = AgentRunResult(reply=reply)
 
             await engine.run_agent_with_thinking(
@@ -341,7 +341,7 @@ class TestUnifiedEngineExecLock:
             call_order.append("end")
             return AgentRunResult(reply="Reply")
 
-        with patch("miniagent.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
+        with patch("miniagent.assistant.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
             mock_run.side_effect = slow_run
 
             import asyncio
@@ -375,7 +375,7 @@ class TestUnifiedEngineExecLock:
             in_flight -= 1
             return AgentRunResult(reply="Reply")
 
-        with patch("miniagent.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
+        with patch("miniagent.assistant.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
             mock_run.side_effect = slow_run
 
             import asyncio
@@ -402,8 +402,8 @@ class TestUnifiedEngineClarifier:
         """启用时 clarifier 应懒加载。"""
         engine = UnifiedEngine()
 
-        with patch("miniagent.engine.engine.get_config", return_value=True):
-            with patch("miniagent.core.requirement_clarifier.RequirementClarifier") as mock_c:
+        with patch("miniagent.assistant.engine.engine.get_config", return_value=True):
+            with patch("miniagent.agent.requirement_clarifier.RequirementClarifier") as mock_c:
                 mock_c.return_value = MagicMock()
                 c1 = engine._get_clarifier()
                 assert c1 is not None
@@ -460,7 +460,7 @@ class TestUnifiedEnginePlanHandler:
 
     @pytest.mark.asyncio
     async def test_on_plan_handler_uses_confirmation_channel(self) -> None:
-        from miniagent.types.confirmation import ConfirmationResult
+        from miniagent.agent.types.confirmation import ConfirmationResult
 
         engine = UnifiedEngine()
         channel = engine.get_confirmation_channel("plan_session")
@@ -471,8 +471,8 @@ class TestUnifiedEnginePlanHandler:
         handler = engine._on_plan_handler("plan_session")
         plan = MagicMock(requires_confirmation=True)
 
-        with patch("miniagent.core.agent._format_plan_display_short", return_value="summary"):
-            with patch("miniagent.core.agent._format_plan_message", return_value="full"):
+        with patch("miniagent.agent.agent._format_plan_display_short", return_value="summary"):
+            with patch("miniagent.agent.agent._format_plan_message", return_value="full"):
                 result = await handler(plan)
 
         assert result.approved is False
@@ -495,7 +495,7 @@ class TestUnifiedEngineIntegration:
         mock_session_manager.save_session_history = MagicMock()
         memory_runtime = make_memory_runtime()
 
-        with patch("miniagent.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
+        with patch("miniagent.assistant.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
             mock_run.return_value = AgentRunResult(reply="Final reply")
 
             result = await engine.run_agent_with_thinking(
@@ -527,11 +527,11 @@ class TestUnifiedEngineIntegration:
         mock_router = MagicMock()
         mock_router.get_bound_channels.return_value = []
 
-        with patch("miniagent.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
+        with patch("miniagent.assistant.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
             mock_run.return_value = AgentRunResult(reply="Feishu reply")
 
             # Mock finalize_feishu_thinking_stream from poll_server
-            with patch("miniagent.feishu.poll_server.finalize_feishu_thinking_stream", new_callable=AsyncMock):
+            with patch("miniagent.assistant.feishu.poll_server.finalize_feishu_thinking_stream", new_callable=AsyncMock):
                 result = await engine.run_agent_with_thinking(
                     user_input="Hello",
                     session_key="feishu:oc_test",

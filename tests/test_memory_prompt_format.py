@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
-from miniagent.memory.store import extract_facts, format_memory_for_prompt, generate_turn_summary
-from miniagent.types.memory import FileMetadata, GroundTruthFact, MemoryEntry, SessionMemory
+from miniagent.agent.types.memory import FileMetadata, GroundTruthFact, MemoryEntry, SessionMemory
+from miniagent.assistant.memory.store import (
+    extract_facts,
+    format_memory_for_prompt,
+    generate_turn_summary,
+)
 
 
 def test_format_memory_includes_all_sections_and_deduplicates_ground_truth() -> None:

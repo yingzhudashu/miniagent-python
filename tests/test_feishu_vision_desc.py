@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.feishu import vision_desc
+from miniagent.assistant.feishu import vision_desc
 
 
 @pytest.mark.asyncio

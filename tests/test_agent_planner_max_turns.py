@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from miniagent.core.config import merge_agent_config
-from miniagent.types.config import AgentConfig
-from miniagent.types.planning import SuggestedConfig
+from miniagent.agent.config import merge_agent_config
+from miniagent.agent.types.config import AgentConfig
+from miniagent.agent.types.planning import SuggestedConfig
 
 
 def _apply_suggested_max_turns(merged: AgentConfig, sc: SuggestedConfig) -> AgentConfig:

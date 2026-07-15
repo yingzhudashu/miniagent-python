@@ -6,10 +6,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from miniagent.application.messaging import ChannelRegistry
-from miniagent.engine.cli_state import CliLoopState
-from miniagent.infrastructure.channel_router import ChannelRouter
-from miniagent.infrastructure.message_queue import MessageQueueManager
+from miniagent.assistant.application.messaging import ChannelRegistry
+from miniagent.assistant.engine.cli_state import CliLoopState
+from miniagent.assistant.infrastructure.channel_router import ChannelRouter
+from miniagent.assistant.infrastructure.message_queue import MessageQueueManager
 
 
 class _ThinkingDisplayStub:
@@ -45,9 +45,9 @@ async def test_fullscreen_tui_builds_and_exits_without_user_state(
     from prompt_toolkit.input import DummyInput
     from prompt_toolkit.output import DummyOutput
 
-    import miniagent.engine.cli_tui as tui
-    import miniagent.engine.session_continue as session_continue
-    import miniagent.engine.session_lock as session_lock
+    import miniagent.assistant.engine.cli_tui as tui
+    import miniagent.assistant.engine.session_continue as session_continue
+    import miniagent.assistant.engine.session_lock as session_lock
 
     inputs = iter((None, "   ", "/copy", "__exit__"))
 

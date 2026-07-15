@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from miniagent.contracts.configuration import ConfigSnapshot
+from miniagent.assistant.contracts.configuration import ConfigSnapshot
 
 
 def test_config_snapshot_recursively_freezes_input() -> None:

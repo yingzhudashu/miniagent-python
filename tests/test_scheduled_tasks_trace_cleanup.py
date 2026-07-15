@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from miniagent.scheduled_tasks import trace_cleanup as tc_mod
-from miniagent.scheduled_tasks.ticker import scheduled_tasks_loop
-from miniagent.scheduled_tasks.trace_cleanup import TraceHousekeeping
+from miniagent.assistant.scheduled_tasks import trace_cleanup as tc_mod
+from miniagent.assistant.scheduled_tasks.ticker import scheduled_tasks_loop
+from miniagent.assistant.scheduled_tasks.trace_cleanup import TraceHousekeeping
 from tests.config_helpers import install_test_config
 from tests.scheduled_tasks_helpers import minimal_cli_state, minimal_tick_ctx
 
@@ -65,19 +65,19 @@ async def test_scheduled_tasks_loop_invokes_trace_housekeeping(
     stats_calls: list[int] = []
 
     monkeypatch.setattr(
-        "miniagent.scheduled_tasks.trace_cleanup.TraceHousekeeping.maybe_cleanup",
+        "miniagent.assistant.scheduled_tasks.trace_cleanup.TraceHousekeeping.maybe_cleanup",
         lambda _self: cleanup_calls.append(1),
     )
     monkeypatch.setattr(
-        "miniagent.scheduled_tasks.trace_cleanup.TraceHousekeeping.maybe_report",
+        "miniagent.assistant.scheduled_tasks.trace_cleanup.TraceHousekeeping.maybe_report",
         lambda _self: stats_calls.append(1),
     )
     monkeypatch.setattr(
-        "miniagent.scheduled_tasks.ticker.tick_once",
+        "miniagent.assistant.scheduled_tasks.ticker.tick_once",
         AsyncMock(),
     )
     monkeypatch.setattr(
-        "miniagent.scheduled_tasks.ticker._sleep_seconds_until", lambda _tasks: 0.01
+        "miniagent.assistant.scheduled_tasks.ticker._sleep_seconds_until", lambda _tasks: 0.01
     )
 
     ctx = minimal_tick_ctx()

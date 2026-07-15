@@ -10,8 +10,8 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 
-from miniagent.feishu import drive_client
-from miniagent.feishu.types import FeishuConfig
+from miniagent.assistant.feishu import drive_client
+from miniagent.assistant.feishu.types import FeishuConfig
 
 
 def test_concurrent_sync_token_misses_share_one_fetch(monkeypatch) -> None:

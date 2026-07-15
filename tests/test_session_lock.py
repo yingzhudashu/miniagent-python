@@ -1,4 +1,4 @@
-"""Tests for miniagent.engine.session_lock."""
+"""Tests for miniagent.assistant.engine.session_lock."""
 
 from __future__ import annotations
 
@@ -8,21 +8,21 @@ from unittest.mock import patch
 
 import pytest
 
-from miniagent.engine.session_lock import (
+from miniagent.assistant.engine.session_lock import (
     is_session_locked,
     release_session_lock,
     try_lock_session,
     try_lock_session_async,
 )
-from miniagent.infrastructure.process_utils import is_process_running
+from miniagent.assistant.infrastructure.process_utils import is_process_running
 
 
 @pytest.fixture
 def mock_workspaces(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Redirect workspaces dir to tmp_path by patching where it's imported."""
-    with patch("miniagent.engine.session_lock._get_workspaces_dir", return_value=str(tmp_path)):
+    with patch("miniagent.assistant.engine.session_lock._get_workspaces_dir", return_value=str(tmp_path)):
         # Also need to patch the session.manager module for consistency
-        with patch("miniagent.session.manager._get_workspaces_dir", return_value=str(tmp_path)):
+        with patch("miniagent.assistant.session.manager._get_workspaces_dir", return_value=str(tmp_path)):
             yield tmp_path
 
 
@@ -46,7 +46,7 @@ def test_try_lock_session_conflict(mock_workspaces: Path) -> None:
     lock_file = lock_dir / ".lock"
     lock_file.write_text("999999", encoding="utf-8")
 
-    with patch("miniagent.engine.session_lock.is_process_running", return_value=True):
+    with patch("miniagent.assistant.engine.session_lock.is_process_running", return_value=True):
         ok, reason = try_lock_session("sess-conflict")
     assert not ok
     assert "999999" in reason
@@ -58,7 +58,7 @@ def test_try_lock_stale_pid(mock_workspaces: Path) -> None:
     lock_file = lock_dir / ".lock"
     lock_file.write_text("1", encoding="utf-8")
 
-    with patch("miniagent.engine.session_lock.is_process_running", return_value=False):
+    with patch("miniagent.assistant.engine.session_lock.is_process_running", return_value=False):
         ok, reason = try_lock_session("sess-stale")
     assert ok
     assert lock_file.read_text(encoding="utf-8") == str(os.getpid())
@@ -116,7 +116,7 @@ async def test_try_lock_session_async_conflict(mock_workspaces: Path) -> None:
     lock_file = lock_dir / ".lock"
     lock_file.write_text("999999", encoding="utf-8")
 
-    with patch("miniagent.engine.session_lock.is_process_running_async", return_value=True):
+    with patch("miniagent.assistant.engine.session_lock.is_process_running_async", return_value=True):
         ok, reason = await try_lock_session_async("sess-async-conflict")
     assert not ok
     assert "999999" in reason
@@ -129,7 +129,7 @@ async def test_try_lock_session_async_stale_pid(mock_workspaces: Path) -> None:
     lock_file = lock_dir / ".lock"
     lock_file.write_text("1", encoding="utf-8")
 
-    with patch("miniagent.engine.session_lock.is_process_running_async", return_value=False):
+    with patch("miniagent.assistant.engine.session_lock.is_process_running_async", return_value=False):
         ok, reason = await try_lock_session_async("sess-async-stale")
     assert ok
     assert lock_file.read_text(encoding="utf-8") == str(os.getpid())
@@ -163,7 +163,7 @@ def test_is_session_locked_by_other(mock_workspaces: Path) -> None:
     lock_file = lock_dir / ".lock"
     lock_file.write_text("999999", encoding="utf-8")
 
-    with patch("miniagent.engine.session_lock.is_process_running", return_value=True):
+    with patch("miniagent.assistant.engine.session_lock.is_process_running", return_value=True):
         pid = is_session_locked("sess-other2")
     assert pid == 999999
 
@@ -174,7 +174,7 @@ def test_is_session_locked_stale_returns_none(mock_workspaces: Path) -> None:
     lock_file = lock_dir / ".lock"
     lock_file.write_text("1", encoding="utf-8")
 
-    with patch("miniagent.engine.session_lock.is_process_running", return_value=False):
+    with patch("miniagent.assistant.engine.session_lock.is_process_running", return_value=False):
         pid = is_session_locked("sess-stale-check")
     assert pid is None
     assert lock_file.exists()

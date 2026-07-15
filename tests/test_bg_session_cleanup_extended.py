@@ -11,10 +11,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.engine.bg_session_cleanup import cleanup_background_session_artifacts
-from miniagent.infrastructure.trace_stats import remove_session_from_trace_files
-from miniagent.memory.activity_log import ActivityLogger
-from miniagent.memory.layered_memory import (
+from miniagent.assistant.engine.bg_session_cleanup import cleanup_background_session_artifacts
+from miniagent.assistant.infrastructure.trace_stats import remove_session_from_trace_files
+from miniagent.assistant.memory.activity_log import ActivityLogger
+from miniagent.assistant.memory.layered_memory import (
     load_agent_longterm,
     promote_to_agent_longterm,
     remove_agent_longterm_entries_for_session,
@@ -149,7 +149,7 @@ class TestCleanupIntegrationAgentLt:
             heartbeat_time = time.perf_counter()
 
         monkeypatch.setattr(
-            "miniagent.memory.layered_memory.remove_agent_longterm_entries_for_session",
+            "miniagent.assistant.memory.layered_memory.remove_agent_longterm_entries_for_session",
             MagicMock(return_value=0),
         )
         heartbeat_task = asyncio.create_task(heartbeat())

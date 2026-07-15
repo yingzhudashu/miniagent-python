@@ -1,4 +1,4 @@
-"""Tests for miniagent.testing self-test framework."""
+"""Tests for miniagent.assistant.testing self-test framework."""
 
 from __future__ import annotations
 
@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from miniagent.testing.test_runner import TestRunner, run_self_test
-from miniagent.testing.types import SampleSpec
-from miniagent.testing.validation import (
+from miniagent.assistant.testing.test_runner import TestRunner, run_self_test
+from miniagent.assistant.testing.types import SampleSpec
+from miniagent.assistant.testing.validation import (
     evaluate_sample_result,
     infer_action_from_reply,
     validate_sample_schema,
@@ -198,7 +198,7 @@ async def test_load_samples_filters_by_name_pattern(samples_dir: Path) -> None:
 
 
 def test_result_record_truncates_output_in_report() -> None:
-    from miniagent.testing.types import ResultRecord
+    from miniagent.assistant.testing.types import ResultRecord
 
     rec = ResultRecord(sample_name="x", passed=True, actual_output="a" * 300)
     dumped = rec.to_dict(output_max_len=50)

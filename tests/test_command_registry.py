@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from miniagent.engine.command_dispatch import _REGISTERED_COMMANDS, BOUND_COMMAND_REGISTRY
-from miniagent.engine.command_registry import COMMAND_REGISTRY, CommandRegistry, CommandSpec
+from miniagent.assistant.engine.command_dispatch import _REGISTERED_COMMANDS, BOUND_COMMAND_REGISTRY
+from miniagent.assistant.engine.command_registry import (
+    COMMAND_REGISTRY,
+    CommandRegistry,
+    CommandSpec,
+)
 
 
 def test_legacy_command_list_is_derived_from_registry() -> None:
@@ -18,7 +22,7 @@ def test_every_command_has_handler_help_and_channel_policy() -> None:
         assert spec.handler_key
         handler = BOUND_COMMAND_REGISTRY.handler_for(spec.name)
         assert callable(handler)
-        assert handler.__module__.startswith("miniagent.engine.commands.")
+        assert handler.__module__.startswith("miniagent.assistant.engine.commands.")
         assert spec.summary
         assert spec.usage.startswith(spec.name)
         assert spec.channels

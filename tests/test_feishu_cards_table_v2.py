@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from miniagent.feishu.cards.table_v2 import build_v2_table_card, extract_wide_gfm_table
+from miniagent.assistant.feishu.cards.table_v2 import build_v2_table_card, extract_wide_gfm_table
 
 
 def test_extract_wide_gfm_table() -> None:

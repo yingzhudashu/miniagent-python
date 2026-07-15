@@ -11,8 +11,8 @@ pytest.importorskip("lark_oapi")
 
 
 def test_download_media_bytes_passes_sdk_extra(monkeypatch) -> None:
-    from miniagent.feishu.docx import media
-    from miniagent.feishu.types import FeishuConfig
+    from miniagent.assistant.feishu.docx import media
+    from miniagent.assistant.feishu.types import FeishuConfig
 
     builder = MagicMock()
     builder.file_token.return_value = builder
@@ -41,12 +41,12 @@ def test_download_media_bytes_passes_sdk_extra(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_feishu_doc_create_table(monkeypatch: pytest.MonkeyPatch) -> None:
-    from miniagent.tools.feishu_doc_tools import _feishu_doc
-    from miniagent.types.tool import ToolContext
+    from miniagent.agent.types.tool import ToolContext
+    from miniagent.assistant.tools.feishu_doc_tools import _feishu_doc
 
     monkeypatch.setenv("FEISHU_APP_ID", "a")
     monkeypatch.setenv("FEISHU_APP_SECRET", "b")
-    with patch("miniagent.feishu.docx.tables.create_table_block", return_value="tbl_1"):
+    with patch("miniagent.assistant.feishu.docx.tables.create_table_block", return_value="tbl_1"):
         r = await _feishu_doc(
             {"action": "create_table", "doc_token": "d1", "row_size": 2, "column_size": 3},
             ToolContext(cwd="/tmp"),
@@ -57,13 +57,13 @@ async def test_feishu_doc_create_table(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.mark.asyncio
 async def test_feishu_doc_download_media(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from miniagent.tools.feishu_doc_tools import _feishu_doc
-    from miniagent.types.tool import ToolContext
+    from miniagent.agent.types.tool import ToolContext
+    from miniagent.assistant.tools.feishu_doc_tools import _feishu_doc
 
     monkeypatch.setenv("FEISHU_APP_ID", "a")
     monkeypatch.setenv("FEISHU_APP_SECRET", "b")
     ws = str(tmp_path)
-    with patch("miniagent.feishu.docx.media.download_media_bytes", return_value=b"png"):
+    with patch("miniagent.assistant.feishu.docx.media.download_media_bytes", return_value=b"png"):
         r = await _feishu_doc(
             {"action": "download_media", "file_token": "ftok", "relative_path": "out.bin"},
             ToolContext(cwd=ws),
@@ -74,14 +74,14 @@ async def test_feishu_doc_download_media(tmp_path, monkeypatch: pytest.MonkeyPat
 
 @pytest.mark.asyncio
 async def test_feishu_doc_write_replace(monkeypatch: pytest.MonkeyPatch) -> None:
-    from miniagent.tools.feishu_doc_tools import _feishu_doc
-    from miniagent.types.tool import ToolContext
+    from miniagent.agent.types.tool import ToolContext
+    from miniagent.assistant.tools.feishu_doc_tools import _feishu_doc
 
     monkeypatch.setenv("FEISHU_APP_ID", "a")
     monkeypatch.setenv("FEISHU_APP_SECRET", "b")
     with (
-        patch("miniagent.feishu.docx.blocks.clear_document_content_blocks", return_value=(3, 1)),
-        patch("miniagent.feishu.docx.blocks.append_plain_text_to_document", return_value=2),
+        patch("miniagent.assistant.feishu.docx.blocks.clear_document_content_blocks", return_value=(3, 1)),
+        patch("miniagent.assistant.feishu.docx.blocks.append_plain_text_to_document", return_value=2),
     ):
         r = await _feishu_doc(
             {"action": "write", "doc_token": "d1", "content": "# New", "mode": "replace"},
@@ -95,12 +95,12 @@ async def test_feishu_doc_write_replace(monkeypatch: pytest.MonkeyPatch) -> None
 def test_remove_permission_mock() -> None:
     from unittest.mock import MagicMock, patch
 
-    from miniagent.feishu.drive_extra import remove_permission
-    from miniagent.feishu.types import FeishuConfig
+    from miniagent.assistant.feishu.drive_extra import remove_permission
+    from miniagent.assistant.feishu.types import FeishuConfig
 
     cfg = FeishuConfig(app_id="a", app_secret="b")
     mock_resp = MagicMock()
     mock_resp.success.return_value = True
-    with patch("miniagent.feishu.drive_extra.build_client") as bc:
+    with patch("miniagent.assistant.feishu.drive_extra.build_client") as bc:
         bc.return_value.drive.v1.permission_member.delete.return_value = mock_resp
         remove_permission(cfg, "doc_tok", member_type="email", member_id="u@x.com")

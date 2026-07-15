@@ -7,14 +7,14 @@ pytest.importorskip("lark_oapi")
 
 @pytest.mark.asyncio
 async def test_send_interactive_card_mock(monkeypatch: pytest.MonkeyPatch) -> None:
-    from miniagent.tools.feishu_card_tools import _feishu_send_interactive_card
-    from miniagent.types.tool import ToolContext
+    from miniagent.agent.types.tool import ToolContext
+    from miniagent.assistant.tools.feishu_card_tools import _feishu_send_interactive_card
 
     monkeypatch.setenv("FEISHU_APP_ID", "a")
     monkeypatch.setenv("FEISHU_APP_SECRET", "b")
 
     with patch(
-        "miniagent.feishu.im_send.post_im_message",
+        "miniagent.assistant.feishu.im_send.post_im_message",
         return_value=(True, "om_x", None),
     ):
         r = await _feishu_send_interactive_card(

@@ -12,7 +12,7 @@ import pytest
 
 
 def test_parse_feishu_media_payload_file_and_image():
-    from miniagent.feishu.poll_server import _parse_feishu_media_payload
+    from miniagent.assistant.feishu.poll_server import _parse_feishu_media_payload
 
     assert _parse_feishu_media_payload("file", '{"file_key":"fk1","file_name":"a.pdf"}') == (
         "file",
@@ -35,7 +35,7 @@ def test_parse_feishu_media_payload_file_and_image():
 
 @pytest.mark.asyncio
 async def test_feishu_poll_state_reset_disconnects_and_clears():
-    from miniagent.feishu.poll_server import FeishuPollState
+    from miniagent.assistant.feishu.poll_server import FeishuPollState
 
     class _FakeClient:
         def __init__(self) -> None:
@@ -56,7 +56,7 @@ async def test_feishu_poll_state_reset_disconnects_and_clears():
 
 @pytest.mark.asyncio
 async def test_feishu_poll_state_reset_awaits_callback_tasks() -> None:
-    from miniagent.feishu.poll_server import FeishuPollState
+    from miniagent.assistant.feishu.poll_server import FeishuPollState
 
     state = FeishuPollState()
     cancelled = asyncio.Event()
@@ -78,7 +78,7 @@ async def test_feishu_poll_state_reset_awaits_callback_tasks() -> None:
 
 @pytest.mark.asyncio
 async def test_feishu_poll_state_task_failures_shutdown_and_disconnect_errors() -> None:
-    from miniagent.feishu.poll_state import FeishuPollState
+    from miniagent.assistant.feishu.poll_state import FeishuPollState
 
     state = FeishuPollState()
     state.request_shutdown()
@@ -100,7 +100,7 @@ async def test_feishu_poll_state_task_failures_shutdown_and_disconnect_errors() 
 
 
 def test_feishu_poll_state_spawn_without_loop_closes_coroutine(monkeypatch) -> None:
-    from miniagent.feishu.poll_state import FeishuPollState
+    from miniagent.assistant.feishu.poll_state import FeishuPollState
 
     state = FeishuPollState()
 
@@ -116,7 +116,7 @@ def test_feishu_poll_state_spawn_without_loop_closes_coroutine(monkeypatch) -> N
 
 def test_abandon_processing_claim_allows_retry_release_writes_disk_dedup(tmp_path):
     """失败路径应 abandon：同一 message_id 可再次 try_begin；release 后写入磁盘去重。"""
-    from miniagent.feishu.feishu_dedup import FeishuDeduplicator
+    from miniagent.assistant.feishu.feishu_dedup import FeishuDeduplicator
 
     mid = f"dedup-test-{uuid.uuid4().hex}"
     dedup = FeishuDeduplicator(str(tmp_path))
@@ -128,7 +128,7 @@ def test_abandon_processing_claim_allows_retry_release_writes_disk_dedup(tmp_pat
     assert not dedup.try_begin_processing(mid)
 
 def test_extract_post_media_items_recurses_img_and_media():
-    from miniagent.feishu.poll_server import _extract_post_media_items
+    from miniagent.assistant.feishu.poll_server import _extract_post_media_items
 
     payload = {
         "zh_cn": {
@@ -144,7 +144,7 @@ def test_extract_post_media_items_recurses_img_and_media():
 
 
 def test_media_parsers_cover_invalid_image_type_duplicates_and_depth() -> None:
-    from miniagent.feishu.poll_state import (
+    from miniagent.assistant.feishu.poll_state import (
         _extract_post_media_items,
         _feishu_media_reply_indicates_failure,
         _parse_feishu_media_payload,

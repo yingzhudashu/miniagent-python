@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from miniagent.memory.runtime import create_memory_runtime
-from miniagent.types.memory import MemoryEntryInput
+from miniagent.agent.types.memory import MemoryEntryInput
+from miniagent.assistant.memory.runtime import create_memory_runtime
 
 
 def test_runtime_uses_one_state_root_and_shared_registry(tmp_path) -> None:

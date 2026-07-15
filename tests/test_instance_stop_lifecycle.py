@@ -7,8 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from miniagent.infrastructure import instance as instance_module
-from miniagent.infrastructure.instance import InstanceRegistry
+from miniagent.assistant.infrastructure import instance as instance_module
+from miniagent.assistant.infrastructure.instance import InstanceRegistry
 
 
 def _write_instance(tmp_path, instance_id=1, pid=123):

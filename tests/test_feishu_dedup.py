@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from miniagent.feishu import feishu_dedup as dedup_module
-from miniagent.feishu.feishu_dedup import FeishuDeduplicator
+from miniagent.assistant.feishu import feishu_dedup as dedup_module
+from miniagent.assistant.feishu.feishu_dedup import FeishuDeduplicator
 
 
 def test_claim_abandon_and_release(tmp_path: Path) -> None:

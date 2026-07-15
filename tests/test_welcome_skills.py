@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from miniagent.engine.welcome import (
+from miniagent.agent.types.skill import Skill, SkillPackage
+from miniagent.assistant.engine.welcome import (
     SkillDisplayCounts,
     compute_skill_display_counts,
     format_skill_display_label,
 )
-from miniagent.skills.registry import DefaultSkillRegistry
-from miniagent.types.skill import Skill, SkillPackage
+from miniagent.assistant.skills.registry import DefaultSkillRegistry
 
 
 def _pkg(pkg_id: str, *, scope: str = "global") -> SkillPackage:

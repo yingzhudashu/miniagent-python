@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from miniagent.core.self_opt import git_snapshot
-from miniagent.core.self_opt.inspector import (
+from miniagent.assistant.self_opt import git_snapshot
+from miniagent.assistant.self_opt.inspector import (
     _analyze_module,
     _count_lines,
     _count_python_files,

@@ -5,11 +5,11 @@ import os
 
 import pytest
 
-from miniagent.engine.bg_session_cleanup import (
+from miniagent.assistant.engine.bg_session_cleanup import (
     cleanup_background_session_artifacts,
     is_background_session_key,
 )
-from miniagent.utils.session_id import safe_session_id
+from miniagent.assistant.utils.session_id import safe_session_id
 
 
 class TestIsBackgroundSessionKey:
@@ -91,7 +91,7 @@ class TestBackgroundTaskCleanupIntegration:
         import asyncio
         from types import SimpleNamespace
 
-        from miniagent.engine.background_tasks import BackgroundTaskManager
+        from miniagent.assistant.engine.background_tasks import BackgroundTaskManager
 
         manager = BackgroundTaskManager()
         session_key_holder: list[str] = []

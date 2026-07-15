@@ -1,6 +1,6 @@
 """Tests for feishu types."""
 
-from miniagent.feishu.types import FeishuConfig
+from miniagent.assistant.feishu.types import FeishuConfig
 
 
 class TestFeishuConfig:

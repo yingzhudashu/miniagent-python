@@ -7,8 +7,8 @@ from unittest.mock import patch
 
 import pytest
 
-from miniagent.bootstrap.application import ApplicationContainer
-from miniagent.infrastructure.message_queue import QueueMode
+from miniagent.assistant.bootstrap.application import ApplicationContainer
+from miniagent.assistant.infrastructure.message_queue import QueueMode
 
 
 def _run_entrypoint_with_mock_runtime(*, queue_mode: str | None = None) -> ApplicationContainer:
@@ -24,7 +24,7 @@ def _run_entrypoint_with_mock_runtime(*, queue_mode: str | None = None) -> Appli
         finally:
             loop.close()
 
-    from miniagent.infrastructure import json_config as config_module
+    from miniagent.assistant.infrastructure import json_config as config_module
 
     real_get_config = config_module.get_config
 
@@ -34,13 +34,13 @@ def _run_entrypoint_with_mock_runtime(*, queue_mode: str | None = None) -> Appli
         return real_get_config(key, default)
 
     with (
-        patch("miniagent.engine.main.run_runtime", fake_run_runtime),
+        patch("miniagent.assistant.engine.main.run_runtime", fake_run_runtime),
         patch("asyncio.run", run_coroutine),
-        patch("miniagent.engine.setup_wizard.run_interactive_setup"),
-        patch("miniagent.infrastructure.env_loader.load_secrets_from_project_root"),
+        patch("miniagent.assistant.engine.setup_wizard.run_interactive_setup"),
+        patch("miniagent.assistant.infrastructure.env_loader.load_secrets_from_project_root"),
         patch.object(config_module, "get_config", side_effect=get_config),
     ):
-        from miniagent.bootstrap.entrypoint import run_application
+        from miniagent.assistant.bootstrap.entrypoint import run_application
 
         run_application()
 
@@ -66,7 +66,7 @@ def test_entrypoint_builds_complete_application_container(
     assert container.memory.keyword_index is not None
     assert container.outbound_channels is not None
     assert container.outbound_channels.list_channel_ids() == ()
-    assert container.openai_client is not None
+    assert container.llm_gateway is not None
 
 
 def test_entrypoint_applies_preemptive_queue_mode(
@@ -83,7 +83,7 @@ def test_entrypoint_rejects_unknown_queue_mode_with_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "test-entrypoint-key")
-    with patch("miniagent.bootstrap.entrypoint._logger") as logger:
+    with patch("miniagent.assistant.bootstrap.entrypoint._logger") as logger:
         container = _run_entrypoint_with_mock_runtime(queue_mode="invalid")
     assert container.message_queue.mode is QueueMode.QUEUE
     logger.warning.assert_called_once()

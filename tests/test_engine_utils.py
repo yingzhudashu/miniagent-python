@@ -1,6 +1,6 @@
 """Tests for miniagent/engine/utils.py."""
 
-from miniagent.engine.utils import (
+from miniagent.assistant.engine.utils import (
     MAX_RENDER_WIDTH,
     MIN_RENDER_WIDTH,
     detect_ext_from_magic,
@@ -21,7 +21,7 @@ class TestTerminalWidth:
     def test_get_terminal_width_fallback(self, monkeypatch):
         """Fallback value when terminal size unavailable."""
         monkeypatch.setattr(
-            "miniagent.engine.utils.shutil.get_terminal_size",
+            "miniagent.assistant.engine.utils.shutil.get_terminal_size",
             lambda fallback: (_ for _ in ()).throw(OSError("no tty")),
         )
         assert get_terminal_width(fallback_width=100) == 100
@@ -29,7 +29,7 @@ class TestTerminalWidth:
     def test_get_render_width_bounds(self, monkeypatch):
         """Render width respects min/max bounds."""
         monkeypatch.setattr(
-            "miniagent.engine.utils.shutil.get_terminal_size",
+            "miniagent.assistant.engine.utils.shutil.get_terminal_size",
             lambda fallback: type("Size", (), {"columns": 80})(),
         )
         width = get_render_width(fallback_width=80)
@@ -39,7 +39,7 @@ class TestTerminalWidth:
     def test_get_render_width_small_terminal(self, monkeypatch):
         """Small terminal returns minimum width."""
         monkeypatch.setattr(
-            "miniagent.engine.utils.shutil.get_terminal_size",
+            "miniagent.assistant.engine.utils.shutil.get_terminal_size",
             lambda fallback: type("Size", (), {"columns": 20})(),
         )
         assert get_render_width(fallback_width=20) == MIN_RENDER_WIDTH
@@ -47,7 +47,7 @@ class TestTerminalWidth:
     def test_get_render_width_large_terminal(self, monkeypatch):
         """Large terminal returns capped width."""
         monkeypatch.setattr(
-            "miniagent.engine.utils.shutil.get_terminal_size",
+            "miniagent.assistant.engine.utils.shutil.get_terminal_size",
             lambda fallback: type("Size", (), {"columns": 1000})(),
         )
         assert get_render_width(fallback_width=1000) == MAX_RENDER_WIDTH
@@ -276,7 +276,7 @@ class TestFeishuUserStatusFn:
 
     def test_append_exception_falls_back_to_print(self, capsys):
         """Transcript append errors fall back to print."""
-        from miniagent.bootstrap.application import ApplicationContainer
+        from miniagent.assistant.bootstrap.application import ApplicationContainer
 
         ctx = ApplicationContainer.__new__(ApplicationContainer)
 

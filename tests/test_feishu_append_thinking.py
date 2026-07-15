@@ -6,8 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from miniagent.feishu.poll_server import append_feishu_thinking_same_card
-from miniagent.feishu.types import FeishuConfig
+from miniagent.assistant.feishu.poll_server import append_feishu_thinking_same_card
+from miniagent.assistant.feishu.types import FeishuConfig
 
 
 @pytest.mark.asyncio
@@ -15,7 +15,7 @@ async def test_append_feishu_thinking_same_card_multiline_keeps_newlines_and_fen
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "miniagent.feishu.thinking_delivery._patch_interactive_thinking_message",
+        "miniagent.assistant.feishu.thinking_delivery._patch_interactive_thinking_message",
         lambda *_a, **_k: True,
     )
 

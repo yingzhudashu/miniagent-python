@@ -7,15 +7,15 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.infrastructure.tracing import clear_trace_hooks, register_trace_hook
-from miniagent.memory.store import DefaultMemoryStore
-from miniagent.types.memory import (
+from miniagent.agent.observability import clear_trace_hooks, register_trace_hook
+from miniagent.agent.types.memory import (
     FileMetadata,
     GroundTruthFact,
     MemoryEntry,
     MemoryEntryInput,
     SessionMemory,
 )
+from miniagent.assistant.memory.store import DefaultMemoryStore
 
 
 @pytest.mark.asyncio
@@ -36,7 +36,7 @@ class TestMemoryStore:
         # Create initial memory by calling save
         from datetime import datetime, timezone
 
-        from miniagent.types.memory import SessionMemory
+        from miniagent.agent.types.memory import SessionMemory
 
         memory = SessionMemory(
             session_id=sid,
@@ -65,7 +65,7 @@ class TestMemoryStore:
         sid = "session-dict-entry"
         from datetime import datetime, timezone
 
-        from miniagent.types.memory import SessionMemory
+        from miniagent.agent.types.memory import SessionMemory
 
         now = datetime.now(timezone.utc).isoformat()
         memory = SessionMemory(
@@ -98,7 +98,7 @@ class TestMemoryStore:
         sid = "session-update"
         from datetime import datetime, timezone
 
-        from miniagent.types.memory import SessionMemory
+        from miniagent.agent.types.memory import SessionMemory
 
         memory = SessionMemory(
             session_id=sid,
@@ -121,7 +121,7 @@ class TestMemoryStore:
         sid = "session-locked-load"
         from datetime import datetime, timezone
 
-        from miniagent.types.memory import SessionMemory
+        from miniagent.agent.types.memory import SessionMemory
 
         now = datetime.now(timezone.utc).isoformat()
         memory = SessionMemory(
@@ -158,7 +158,7 @@ class TestMemoryStore:
         sid = "session-compact-json"
         from datetime import datetime, timezone
 
-        from miniagent.types.memory import SessionMemory
+        from miniagent.agent.types.memory import SessionMemory
 
         now = datetime.now(timezone.utc).isoformat()
         memory = SessionMemory(
@@ -231,7 +231,7 @@ class TestMemoryStore:
 
     async def test_save_and_load_ground_truth_facts(self):
         sid = "session-ground-truth"
-        from miniagent.types.memory import SessionMemory
+        from miniagent.agent.types.memory import SessionMemory
 
         memory = SessionMemory(
             session_id=sid,
@@ -351,7 +351,7 @@ class TestMemoryStore:
         )
         await store.update_user_snippet("turn", "in progress")
         monkeypatch.setattr(
-            "miniagent.memory.embedding_search.embedding_search_enabled", lambda: True
+            "miniagent.assistant.memory.embedding_search.embedding_search_enabled", lambda: True
         )
 
         await store.record_turn(
@@ -387,7 +387,7 @@ class TestMemoryStore:
 
     async def test_embedding_index_compatibility_and_failures(self, monkeypatch):
         monkeypatch.setattr(
-            "miniagent.memory.embedding_search.embedding_search_enabled", lambda: True
+            "miniagent.assistant.memory.embedding_search.embedding_search_enabled", lambda: True
         )
         provider = MagicMock(spec=[])
         provider.get_embedding = AsyncMock(return_value=[0.1])
@@ -431,7 +431,7 @@ class TestMemoryStore:
 
         store = MagicMock()
         store.add_file = AsyncMock()
-        from miniagent.memory.store import add_file_to_memory
+        from miniagent.assistant.memory.store import add_file_to_memory
 
         meta = FileMetadata(
             name="one", path="p", size=1, mime_type="text/plain", type="text"

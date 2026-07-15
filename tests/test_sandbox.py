@@ -6,13 +6,13 @@ from unittest.mock import patch
 
 import pytest
 
-import miniagent.security as security_pkg
-from miniagent.security.sandbox import (
+import miniagent.assistant.security as security_pkg
+from miniagent.agent.types.errors import SandboxViolationError
+from miniagent.assistant.security.sandbox import (
     get_default_workspace,
     is_path_allowed,
     resolve_sandbox_path,
 )
-from miniagent.types.errors import SandboxViolationError
 
 
 class TestResolveSandboxPath:
@@ -90,23 +90,23 @@ class TestIsPathAllowed:
 
 class TestGetDefaultWorkspace:
     def test_returns_cwd_when_config_missing(self):
-        with patch("miniagent.security.sandbox.get_config", return_value=None):
+        with patch("miniagent.assistant.security.sandbox.get_config", return_value=None):
             assert get_default_workspace() == os.getcwd()
 
     def test_returns_cwd_when_config_empty(self):
-        with patch("miniagent.security.sandbox.get_config", return_value=""):
+        with patch("miniagent.assistant.security.sandbox.get_config", return_value=""):
             assert get_default_workspace() == os.getcwd()
 
     def test_returns_cwd_when_config_whitespace(self):
-        with patch("miniagent.security.sandbox.get_config", return_value="   "):
+        with patch("miniagent.assistant.security.sandbox.get_config", return_value="   "):
             assert get_default_workspace() == os.getcwd()
 
     def test_returns_configured_path(self):
-        with patch("miniagent.security.sandbox.get_config", return_value="/custom/workspace"):
+        with patch("miniagent.assistant.security.sandbox.get_config", return_value="/custom/workspace"):
             assert get_default_workspace() == "/custom/workspace"
 
     def test_strips_configured_path(self):
-        with patch("miniagent.security.sandbox.get_config", return_value="  /custom/ws  "):
+        with patch("miniagent.assistant.security.sandbox.get_config", return_value="  /custom/ws  "):
             assert get_default_workspace() == "/custom/ws"
 
 

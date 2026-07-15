@@ -73,7 +73,7 @@ perf = [
 ]
 
 [project.scripts]
-miniagent = "miniagent.cli.cli:main"
+miniagent = "miniagent.assistant:run_assistant"
 
 [tool.setuptools.dynamic]
 version = {attr = "miniagent.__version__"}
@@ -83,8 +83,8 @@ where = ["."]
 include = ["miniagent*"]
 
 [tool.setuptools.package-data]
-"miniagent.resources" = ["*.json"]
-"miniagent.skills" = [
+"miniagent.assistant.resources" = ["*.json"]
+"miniagent.assistant.skills" = [
     "templates/**/*.md",
     "templates/**/*.json",
     "templates/**/*.html",
@@ -135,3 +135,4 @@ follow_imports = "skip"
 explicit_package_bases = true
 show_error_codes = true
 check_untyped_defs = true
+exclude = ["miniagent/assistant/skills/templates/"]

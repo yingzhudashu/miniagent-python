@@ -1,8 +1,8 @@
-"""Tests for miniagent.skills.snapshots."""
+"""Tests for miniagent.assistant.skills.snapshots."""
 
 from __future__ import annotations
 
-from miniagent.skills.snapshots import (
+from miniagent.assistant.skills.snapshots import (
     apply_skill_snapshots_to_state,
     get_skill_prompts_from_state,
     get_skill_toolboxes_from_state,

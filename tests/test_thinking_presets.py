@@ -1,8 +1,8 @@
-"""Tests for miniagent.core.thinking_presets."""
+"""Tests for miniagent.agent.thinking_presets."""
 
 import pytest
 
-from miniagent.core.thinking_presets import (
+from miniagent.agent.thinking_presets import (
     THINKING_LEVEL_PRESETS,
     map_business_depth,
     map_thinking_level_to_model,

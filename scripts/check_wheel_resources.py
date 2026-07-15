@@ -8,19 +8,19 @@ from pathlib import Path
 
 REQUIRED_RESOURCES = frozenset(
     {
-        "miniagent/resources/config.defaults.json",
-        "miniagent/skills/templates/builtin-web/SKILL.md",
-        "miniagent/skills/templates/builtin-web/_meta.json",
-        "miniagent/skills/templates/builtin-web/skills/web-tools/SKILL.md",
-        "miniagent/skills/templates/builtin-stackexchange/SKILL.md",
-        "miniagent/skills/templates/builtin-stackexchange/_meta.json",
-        "miniagent/skills/templates/builtin-stackexchange/skills/stackexchange-tools/SKILL.md",
-        "miniagent/skills/templates/skill-creator/SKILL.md",
-        "miniagent/skills/templates/skill-creator/assets/eval_review.html",
-        "miniagent/skills/templates/skill-creator/eval-viewer/viewer.html",
-        "miniagent/skills/templates/skill-creator/references/schemas.md",
-        "miniagent/skills/templates/skill-vetter/SKILL.md",
-        "miniagent/skills/templates/skill-vetter/references/vetting-checklist.md",
+        "miniagent/assistant/resources/config.defaults.json",
+        "miniagent/assistant/skills/templates/builtin-web/SKILL.md",
+        "miniagent/assistant/skills/templates/builtin-web/_meta.json",
+        "miniagent/assistant/skills/templates/builtin-web/skills/web-tools/SKILL.md",
+        "miniagent/assistant/skills/templates/builtin-stackexchange/SKILL.md",
+        "miniagent/assistant/skills/templates/builtin-stackexchange/_meta.json",
+        "miniagent/assistant/skills/templates/builtin-stackexchange/skills/stackexchange-tools/SKILL.md",
+        "miniagent/assistant/skills/templates/skill-creator/SKILL.md",
+        "miniagent/assistant/skills/templates/skill-creator/assets/eval_review.html",
+        "miniagent/assistant/skills/templates/skill-creator/eval-viewer/viewer.html",
+        "miniagent/assistant/skills/templates/skill-creator/references/schemas.md",
+        "miniagent/assistant/skills/templates/skill-vetter/SKILL.md",
+        "miniagent/assistant/skills/templates/skill-vetter/references/vetting-checklist.md",
     }
 )
 

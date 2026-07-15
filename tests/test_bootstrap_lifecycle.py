@@ -7,13 +7,13 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from miniagent.bootstrap import (
+from miniagent.assistant.bootstrap import (
     LifecycleManager,
     LifecyclePhase,
     LifecycleShutdownError,
     LifecycleStartupError,
 )
-from miniagent.contracts import HealthReport, HealthState
+from miniagent.assistant.contracts import HealthReport, HealthState
 
 
 @dataclass

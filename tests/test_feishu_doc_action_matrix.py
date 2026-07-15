@@ -7,11 +7,11 @@ import json
 
 import pytest
 
-from miniagent.feishu.types import FeishuConfig
-from miniagent.types.tool import ToolContext
+from miniagent.agent.types.tool import ToolContext
+from miniagent.assistant.feishu.types import FeishuConfig
 
 CFG = FeishuConfig("app", "secret")
-tools = importlib.import_module("miniagent.tools.feishu_doc_tools")
+tools = importlib.import_module("miniagent.assistant.tools.feishu_doc_tools")
 
 
 @pytest.mark.asyncio
@@ -44,7 +44,7 @@ def test_doc_export_and_download_require_workspace_paths() -> None:
 
 def test_doc_url_and_trace_validation(monkeypatch) -> None:
     emitted = []
-    import miniagent.infrastructure.tracing as tracing
+    import miniagent.agent.observability as tracing
 
     monkeypatch.setattr(tools, "get_config", lambda key, default=None: "https://tenant/docx")
     monkeypatch.setattr(tracing, "emit_trace", emitted.append)
@@ -83,8 +83,8 @@ def test_doc_actions_validate_required_arguments(action, args) -> None:
 
 
 def test_metadata_blocks_and_batch_actions(monkeypatch) -> None:
-    import miniagent.feishu.docx.blocks as blocks
-    import miniagent.feishu.docx.client as client
+    import miniagent.assistant.feishu.docx.blocks as blocks
+    import miniagent.assistant.feishu.docx.client as client
 
     calls = []
     monkeypatch.setattr(client, "get_document", lambda *_args: {"title": "T"})
@@ -113,8 +113,8 @@ def test_metadata_blocks_and_batch_actions(monkeypatch) -> None:
 
 
 def test_import_export_and_plain_write(tmp_path, monkeypatch) -> None:
-    import miniagent.feishu.docx.blocks as blocks
-    import miniagent.feishu.docx.client as client
+    import miniagent.assistant.feishu.docx.blocks as blocks
+    import miniagent.assistant.feishu.docx.client as client
 
     monkeypatch.setattr(client, "get_document_raw_content", lambda *_args: "remote")
     monkeypatch.setattr(blocks, "append_plain_text_to_document", lambda *_args: 2)
@@ -146,9 +146,9 @@ def test_import_export_and_plain_write(tmp_path, monkeypatch) -> None:
 
 
 def test_table_media_drive_and_permissions(tmp_path, monkeypatch) -> None:
-    import miniagent.feishu.docx.media as media
-    import miniagent.feishu.docx.tables as tables
-    import miniagent.feishu.drive_extra as drive
+    import miniagent.assistant.feishu.docx.media as media
+    import miniagent.assistant.feishu.docx.tables as tables
+    import miniagent.assistant.feishu.drive_extra as drive
 
     calls = []
     monkeypatch.setattr(tables, "create_table_block", lambda *_args, **_kw: "table")
@@ -195,8 +195,8 @@ def test_table_media_drive_and_permissions(tmp_path, monkeypatch) -> None:
 
 
 def test_copy_move_and_search_errors(monkeypatch) -> None:
-    import miniagent.feishu.drive_extra as drive
-    import miniagent.feishu.folder_token_resolve as folders
+    import miniagent.assistant.feishu.drive_extra as drive
+    import miniagent.assistant.feishu.folder_token_resolve as folders
 
     monkeypatch.setattr(folders, "resolve_parent_folder_token", lambda *_args, **_kw: ("folder", None))
     monkeypatch.setattr(drive, "copy_file", lambda *_args, **_kw: "copy")
@@ -216,8 +216,8 @@ def test_copy_move_and_search_errors(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_upload_image_from_message(monkeypatch) -> None:
-    import miniagent.feishu.docx.media as media
-    import miniagent.feishu.resource_io as resource_io
+    import miniagent.assistant.feishu.docx.media as media
+    import miniagent.assistant.feishu.resource_io as resource_io
 
     async def download(*_args, **_kwargs):
         return b"image", "image/png"

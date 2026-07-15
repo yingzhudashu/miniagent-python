@@ -6,9 +6,9 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from miniagent.core.constants import FEISHU_SDK_CLIENT_CACHE_MAX_SIZE
-from miniagent.feishu import lark_client
-from miniagent.feishu.types import FeishuConfig
+from miniagent.agent.constants import FEISHU_SDK_CLIENT_CACHE_MAX_SIZE
+from miniagent.assistant.feishu import lark_client
+from miniagent.assistant.feishu.types import FeishuConfig
 
 
 def test_concurrent_lark_client_misses_build_once(monkeypatch) -> None:

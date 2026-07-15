@@ -1,6 +1,6 @@
 """Tests for tool monitor."""
 
-from miniagent.infrastructure.monitor import DefaultToolMonitor
+from miniagent.agent.monitor import DefaultToolMonitor
 
 
 class TestDefaultToolMonitor:

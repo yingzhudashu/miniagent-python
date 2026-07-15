@@ -6,7 +6,7 @@ from tests.config_helpers import install_test_config
 
 
 def test_feishu_reply_plain_default_off(tmp_path) -> None:
-    from miniagent.feishu.poll_server import _feishu_reply_plain_enabled
+    from miniagent.assistant.feishu.poll_server import _feishu_reply_plain_enabled
 
     install_test_config(tmp_path)
     assert _feishu_reply_plain_enabled() is False
@@ -15,7 +15,7 @@ def test_feishu_reply_plain_default_off(tmp_path) -> None:
 
 
 def test_feishu_reply_plain_explicit_false(tmp_path) -> None:
-    from miniagent.feishu.poll_server import _feishu_reply_plain_enabled
+    from miniagent.assistant.feishu.poll_server import _feishu_reply_plain_enabled
 
     install_test_config(tmp_path, {"feishu": {"reply_plain": False}})
     assert _feishu_reply_plain_enabled() is False

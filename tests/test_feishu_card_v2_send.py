@@ -9,7 +9,7 @@ pytest.importorskip("lark_oapi")
 
 def test_normalize_lark_md_wide_table_to_bullet_list(monkeypatch: pytest.MonkeyPatch) -> None:
     """所有表格（不分宽窄）都应转为 bullet-point list。"""
-    from miniagent.feishu.poll_server import _normalize_lark_md
+    from miniagent.assistant.feishu.poll_server import _normalize_lark_md
 
     # 7 列表格
     md = "| a | b | c | d | e | f | g |\n|---|---|---|---|---|---|---|\n| 1 | 2 | 3 | 4 | 5 | 6 | 7 |"
@@ -25,7 +25,7 @@ def test_normalize_lark_md_wide_table_to_bullet_list(monkeypatch: pytest.MonkeyP
 
 def test_normalize_lark_md_narrow_table_also_converted(monkeypatch: pytest.MonkeyPatch) -> None:
     """窄表格（列数少）也应转为 bullet list，不再保留原始管道符。"""
-    from miniagent.feishu.poll_server import _normalize_lark_md
+    from miniagent.assistant.feishu.poll_server import _normalize_lark_md
 
     md = "| a | b | c |\n|---|---|---|\n| 1 | 2 | 3 |"
     result = _normalize_lark_md(md)
@@ -36,7 +36,7 @@ def test_normalize_lark_md_narrow_table_also_converted(monkeypatch: pytest.Monke
 
 
 def test_normalize_lark_md_preserves_other_markdown(monkeypatch: pytest.MonkeyPatch) -> None:
-    from miniagent.feishu.poll_server import _normalize_lark_md
+    from miniagent.assistant.feishu.poll_server import _normalize_lark_md
 
     text = "**粗体** 和 `代码` 以及 [链接](https://example.com)"
     result = _normalize_lark_md(text)
@@ -48,7 +48,7 @@ def test_normalize_lark_md_preserves_other_markdown(monkeypatch: pytest.MonkeyPa
 
 def test_normalize_lark_md_heading_to_bold(monkeypatch: pytest.MonkeyPatch) -> None:
     """ATX 标题转为粗体（lark_md 不支持 ### 语法）。"""
-    from miniagent.feishu.poll_server import _normalize_lark_md
+    from miniagent.assistant.feishu.poll_server import _normalize_lark_md
 
     assert _normalize_lark_md("# 一级标题") == "**一级标题**"
     assert _normalize_lark_md("### 三级标题") == "**三级标题**"
@@ -61,7 +61,7 @@ def test_normalize_lark_md_bullet_list_has_key_value_for_wide(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """宽表格使用 key-value 格式的 bullet list。"""
-    from miniagent.feishu.poll_server import _normalize_lark_md
+    from miniagent.assistant.feishu.poll_server import _normalize_lark_md
 
     md = "| 姓名 | 年龄 | 城市 | 职业 | 部门 | 级别 | 评分 |\n|---|---|---|---|---|---|---|\n| 张三 | 28 | 北京 | 工程师 | 技术部 | P6 | 95 |"
     result = _normalize_lark_md(md)
@@ -72,7 +72,7 @@ def test_normalize_lark_md_bullet_list_has_key_value_for_wide(
 
 def test_gfm_table_block_to_bullet_list_key_value_format() -> None:
     """直接测试 gfm_table_block_to_bullet_list 的 key-value 格式。"""
-    from miniagent.feishu.cards.gfm_table import gfm_table_block_to_bullet_list
+    from miniagent.assistant.feishu.cards.gfm_table import gfm_table_block_to_bullet_list
 
     lines = [
         "| A | B | C | D | E | F | G |",
@@ -88,7 +88,7 @@ def test_gfm_table_block_to_bullet_list_key_value_format() -> None:
 
 def test_gfm_table_block_to_bullet_list_pipe_format() -> None:
     """直接测试 gfm_table_block_to_bullet_list 的简洁管道符格式（<= 6 列）。"""
-    from miniagent.feishu.cards.gfm_table import gfm_table_block_to_bullet_list
+    from miniagent.assistant.feishu.cards.gfm_table import gfm_table_block_to_bullet_list
 
     lines = [
         "| a | b | c |",

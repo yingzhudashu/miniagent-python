@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from miniagent.core.execution_setup import _resolve_exec_tools, _step_thinking_header
+from miniagent.agent.execution_setup import _resolve_exec_tools, _step_thinking_header
 
 
 class _Registry:

@@ -9,8 +9,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 def make_ping_tool_registry() -> tuple[Any, Any]:
     """Create main/session registries with one successful session tool."""
-    from miniagent.infrastructure.registry import DefaultToolRegistry
-    from miniagent.types.tool import ToolDefinition, ToolResult
+    from miniagent.agent.types.tool import ToolDefinition, ToolResult
+    from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
     async def handler(_args: dict[str, Any], _ctx: Any) -> ToolResult:
         return ToolResult(success=True, content="pong")
@@ -57,7 +57,7 @@ def agent_config_with_session(
     debug: bool = False,
 ) -> Any:
     """Create an AgentConfig bound to a session tool registry."""
-    from miniagent.types.config import AgentConfig, SessionBindingConfig
+    from miniagent.agent.types.config import AgentConfig, SessionBindingConfig
 
     return AgentConfig(
         max_turns=max_turns,
@@ -70,7 +70,7 @@ def agent_config_with_session(
 
 def empty_plan() -> Any:
     """Create the minimal direct-execution plan."""
-    from miniagent.types.planning import StructuredPlan
+    from miniagent.agent.types.planning import StructuredPlan
 
     return StructuredPlan(summary="s", steps=[], required_toolboxes=[])
 

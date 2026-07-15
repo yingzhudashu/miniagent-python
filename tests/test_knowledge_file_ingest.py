@@ -6,9 +6,9 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from miniagent.knowledge.base import KnowledgeBase
-from miniagent.knowledge.file_ingest import ingest_file_for_analysis
-from miniagent.knowledge.registry import KnowledgeRegistry
+from miniagent.assistant.knowledge.base import KnowledgeBase
+from miniagent.assistant.knowledge.file_ingest import ingest_file_for_analysis
+from miniagent.assistant.knowledge.registry import KnowledgeRegistry
 
 
 def _cfg(root: Path):
@@ -28,7 +28,7 @@ def test_ingest_file_for_analysis_creates_auto_kb(tmp_path: Path) -> None:
 
     registry = KnowledgeRegistry(state_dir=str(tmp_path))
     registry._mounted.clear()
-    with patch("miniagent.knowledge.file_ingest.get_config", side_effect=_cfg(kb_root)):
+    with patch("miniagent.assistant.knowledge.file_ingest.get_config", side_effect=_cfg(kb_root)):
         result = ingest_file_for_analysis(
             str(source), registry=registry, state_dir=str(tmp_path)
         )
@@ -50,7 +50,7 @@ def test_ingest_unchanged_file_skips_duplicate_write(tmp_path: Path) -> None:
 
     registry = KnowledgeRegistry(state_dir=str(tmp_path))
     registry._mounted.clear()
-    with patch("miniagent.knowledge.file_ingest.get_config", side_effect=_cfg(kb_root)):
+    with patch("miniagent.assistant.knowledge.file_ingest.get_config", side_effect=_cfg(kb_root)):
         first = ingest_file_for_analysis(str(source), registry=registry)
         second = ingest_file_for_analysis(str(source), registry=registry)
 
@@ -66,7 +66,7 @@ def test_ingest_changed_file_refreshes_searchable_content(tmp_path: Path) -> Non
     source.write_text("old keyword", encoding="utf-8")
     registry = KnowledgeRegistry(state_dir=str(tmp_path))
     registry._mounted.clear()
-    with patch("miniagent.knowledge.file_ingest.get_config", side_effect=_cfg(kb_root)):
+    with patch("miniagent.assistant.knowledge.file_ingest.get_config", side_effect=_cfg(kb_root)):
         first = ingest_file_for_analysis(str(source), registry=registry)
 
         source.write_text("new keyword zeta", encoding="utf-8")

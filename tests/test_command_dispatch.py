@@ -16,14 +16,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.engine.command_dispatch import (
+from miniagent.agent.types.error_prefix import WARNING_PREFIX
+from miniagent.assistant.engine.command_dispatch import (
     _REGISTERED_COMMANDS,
     _find_command_by_prefix,
     _format_status,
     _get_last_qa,
     dispatch_command,
 )
-from miniagent.types.error_prefix import WARNING_PREFIX
 
 # ============================================================================
 # Helper Functions
@@ -54,8 +54,8 @@ def _create_mock_state() -> dict:
         "feishu_p2p_synced_senders": set(),
     }
 
-    from miniagent.bootstrap import LifecycleManager
-    from miniagent.engine.feishu_lifecycle import FeishuRuntimeLifecycleService
+    from miniagent.assistant.bootstrap import LifecycleManager
+    from miniagent.assistant.engine.feishu_lifecycle import FeishuRuntimeLifecycleService
 
     feishu_service = FeishuRuntimeLifecycleService(
         enabled=False,
@@ -136,7 +136,7 @@ class TestSessionCommand:
         """/session list 应返回会话列表。"""
         state = _create_mock_state()
 
-        with patch("miniagent.engine.cli_commands.cmd_session_list") as mock_list:
+        with patch("miniagent.assistant.engine.cli_commands.cmd_session_list") as mock_list:
             mock_list.return_value = "Sessions: default, test"
 
             await dispatch_command("/session list", state=state, capture=True)
@@ -149,7 +149,7 @@ class TestSessionCommand:
         state = _create_mock_state()
 
         with patch(
-            "miniagent.engine.cli_commands.feishu_dot_commands_full_enabled",
+            "miniagent.assistant.engine.cli_commands.feishu_dot_commands_full_enabled",
             return_value=False,
         ):
             result = await dispatch_command(
@@ -166,8 +166,8 @@ class TestSessionCommand:
         """MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1 时允许 session switch。"""
         state = _create_mock_state()
 
-        with patch("miniagent.engine.cli_commands.feishu_dot_commands_full_enabled", return_value=True):
-            with patch("miniagent.engine.cli_commands.cmd_session_switch", new_callable=AsyncMock) as mock_switch:
+        with patch("miniagent.assistant.engine.cli_commands.feishu_dot_commands_full_enabled", return_value=True):
+            with patch("miniagent.assistant.engine.cli_commands.cmd_session_switch", new_callable=AsyncMock) as mock_switch:
                 mock_switch.return_value = "test_session"
 
                 await dispatch_command(
@@ -231,7 +231,7 @@ class TestQueueCommand:
         """/queue status 应返回队列状态。"""
         state = _create_mock_state()
 
-        with patch("miniagent.engine.cli_commands.cmd_queue_status") as mock_status:
+        with patch("miniagent.assistant.engine.cli_commands.cmd_queue_status") as mock_status:
             mock_status.return_value = "Queue: preemptive"
 
             await dispatch_command("/queue status", state=state, capture=True)
@@ -279,7 +279,7 @@ class TestRemovedCommands:
 class TestStatusFocusLine:
     @pytest.mark.asyncio
     async def test_status_includes_cli_focus_mode(self) -> None:
-        from miniagent.infrastructure.channel_router import ChannelRouter
+        from miniagent.assistant.infrastructure.channel_router import ChannelRouter
 
         state = _create_mock_state()
         router = ChannelRouter()
@@ -300,7 +300,7 @@ class TestHelpCommand:
         """/help 应返回使用信息。"""
         state = _create_mock_state()
 
-        with patch("miniagent.engine.cli_commands.cmd_help") as mock_help:
+        with patch("miniagent.assistant.engine.cli_commands.cmd_help") as mock_help:
             mock_help.return_value = "Help: available commands..."
 
             await dispatch_command("/help", state=state, capture=True)
@@ -340,7 +340,7 @@ class TestModelCommand:
         """/model 应显示当前模型信息。"""
         state = _create_mock_state()
 
-        with patch("miniagent.engine.model_cmd.format_model_info") as mock_info:
+        with patch("miniagent.assistant.engine.model_cmd.format_model_info") as mock_info:
             mock_info.return_value = "Current model: gpt-4"
 
             await dispatch_command("/model", state=state, capture=True)
@@ -352,7 +352,7 @@ class TestModelCommand:
         """/model gpt-4o 应切换模型。"""
         state = _create_mock_state()
 
-        with patch("miniagent.engine.model_cmd.switch_model") as mock_switch:
+        with patch("miniagent.assistant.engine.model_cmd.switch_model") as mock_switch:
             mock_switch.return_value = "Model switched to gpt-4o"
 
             await dispatch_command("/model gpt-4o", state=state, capture=True)
@@ -368,7 +368,7 @@ class TestBtwCommand:
         """/btw status 应返回后台任务状态。"""
         state = _create_mock_state()
 
-        with patch("miniagent.engine.btw_cmd.cmd_btw_status") as mock_status:
+        with patch("miniagent.assistant.engine.btw_cmd.cmd_btw_status") as mock_status:
             mock_status.return_value = "Background tasks: 0"
 
             await dispatch_command("/btw status", state=state, capture=True)
@@ -384,7 +384,7 @@ class TestKbCommand:
         """/kb list 应返回知识库列表。"""
         state = _create_mock_state()
 
-        with patch("miniagent.engine.cli_commands.cmd_kb_list") as mock_list:
+        with patch("miniagent.assistant.engine.cli_commands.cmd_kb_list") as mock_list:
             mock_list.return_value = "Knowledge bases: docs, api"
 
             await dispatch_command("/kb list", state=state, capture=True)
@@ -462,7 +462,7 @@ class TestSelfOptCommand:
         state = _create_mock_state()
 
         with patch(
-            "miniagent.engine.commands.self_opt_commands.cmd_self_opt_status",
+            "miniagent.assistant.engine.commands.self_opt_commands.cmd_self_opt_status",
             side_effect=lambda: print("自我优化状态 OK"),
         ):
             result = await dispatch_command("/self-opt status", state=state, capture=True)
@@ -488,7 +488,7 @@ class TestSelfOptCommand:
         state = _create_mock_state()
 
         with patch(
-            "miniagent.infrastructure.json_config.get_config",
+            "miniagent.assistant.infrastructure.json_config.get_config",
             return_value=False,
         ):
             result = await dispatch_command("/self-opt status", state=state, capture=True)
@@ -516,7 +516,7 @@ class TestSelfOptCommand:
             print(f"已执行提案 {proposal_id} root={root}")
 
         with patch(
-            "miniagent.engine.commands.self_opt_commands.cmd_self_opt_apply",
+            "miniagent.assistant.engine.commands.self_opt_commands.cmd_self_opt_apply",
             side_effect=_fake_apply,
         ):
             result = await dispatch_command(
@@ -544,7 +544,7 @@ class TestReviewCommand:
         state["session_manager"].get.return_value = session
 
         with patch(
-            "miniagent.engine.command_dispatch._run_review",
+            "miniagent.assistant.engine.command_dispatch._run_review",
             new_callable=AsyncMock,
             return_value=None,
         ):

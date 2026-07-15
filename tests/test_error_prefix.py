@@ -1,16 +1,16 @@
-"""Tests for miniagent.types.error_prefix."""
+"""Tests for miniagent.agent.types.error_prefix."""
 
 from __future__ import annotations
 
-import miniagent.types.error_prefix as error_prefix_module
-from miniagent.types import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
-from miniagent.types.error_prefix import (
+import miniagent.agent.types.error_prefix as error_prefix_module
+from miniagent.agent.types import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
+from miniagent.agent.types.error_prefix import (
     ERROR_PREFIX as DIRECT_ERROR_PREFIX,
 )
-from miniagent.types.error_prefix import (
+from miniagent.agent.types.error_prefix import (
     SUCCESS_PREFIX as DIRECT_SUCCESS_PREFIX,
 )
-from miniagent.types.error_prefix import (
+from miniagent.agent.types.error_prefix import (
     WARNING_PREFIX as DIRECT_WARNING_PREFIX,
 )
 

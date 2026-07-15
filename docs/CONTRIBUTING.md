@@ -114,8 +114,8 @@ def resolve_session(manager, id_or_number):
 支持内存和磁盘双重查找，编号和 ID 双重解析。
 
 依赖:
-- miniagent.session.workspace: 工作空间管理
-- miniagent.engine.session_lock: 会话锁
+- miniagent.assistant.session.workspace: 工作空间管理
+- miniagent.assistant.engine.session_lock: 会话锁
 """
 ```
 
@@ -131,15 +131,15 @@ import sys
 from openai import AsyncOpenAI
 
 # 3. 项目内部
-from miniagent.types.config import AgentConfig
-from miniagent.infrastructure.logger import get_logger
+from miniagent.agent.types.config import AgentConfig
+from miniagent.agent.logging import get_logger
 ```
 
 ### 日志 vs print
 
 ```python
 # ✅ 使用 logger（非 CLI 模块）
-from miniagent.infrastructure.logger import get_logger
+from miniagent.agent.logging import get_logger
 _logger = get_logger(__name__)
 _logger.info("飞书连接已建立")
 
@@ -161,9 +161,9 @@ python -m pytest tests/ -k "test_register"               # 匹配名称
 
 | 源文件 | 测试文件 |
 |--------|---------|
-| `miniagent/infrastructure/registry.py` | `tests/test_registry.py` |
-| `miniagent/session/manager.py` | `tests/test_session.py` |
-| `miniagent/security/sandbox.py` | `tests/test_sandbox.py` |
+| `miniagent/assistant/infrastructure/registry.py` | `tests/test_registry.py` |
+| `miniagent/assistant/session/manager.py` | `tests/test_session.py` |
+| `miniagent/assistant/security/sandbox.py` | `tests/test_sandbox.py` |
 
 ### 添加新测试
 
@@ -354,7 +354,7 @@ refactor: 拆分 unified.py 为 engine/ 包
 Mini Agent Python 使用 ToolBuilder 设计模式，提供链式调用 API，减少约 67% 代码量。
 
 ```python
-from miniagent.tools.base import ToolBuilder
+from miniagent.assistant.tools.base import ToolBuilder
 
 def register_my_toolbox(registry):
     toolbox = ToolBuilder("my_toolbox")
@@ -399,7 +399,7 @@ async def read_config_handler(args: dict, ctx: ToolContext) -> ToolResult:
 **步骤 2–3：构建并注册**：内置工具箱由 `build_skill_snapshots` 自动合并；自定义工具应通过**技能包**或在 `register_builtin_tools` 之后向 `registry` 注册：
 
 ```python
-from miniagent.tools.my_tools import MY_CUSTOM_TOOL
+from miniagent.assistant.tools.my_tools import MY_CUSTOM_TOOL
 
 def register_my_tool(registry):
     registry.register("my_tool", MY_CUSTOM_TOOL)
@@ -419,7 +419,7 @@ toolbox.add_tool(...).param("encoding", "string", "编码格式", required=False
 若只需快速注册单个工具而不使用 ToolBuilder，可直接构造 `Tool` 对象：
 
 ```python
-from miniagent.types.tool import Tool
+from miniagent.agent.types.tool import Tool
 
 tool = Tool(
     name="my_custom_tool",
@@ -450,7 +450,7 @@ workspaces/skills/my_skill/
 └── README.md           # 技能说明文档（可选）
 ```
 
-加载器优先读取 `SKILL.md`（见 `miniagent/skills/loader.py`）。**备选格式**（遗留）：`skill.yaml` + `instructions.md`，新项目请勿使用。
+加载器优先读取 `SKILL.md`（见 `miniagent/assistant/skills/loader.py`）。**备选格式**（遗留）：`skill.yaml` + `instructions.md`，新项目请勿使用。
 
 #### SKILL.md 示例
 
@@ -472,7 +472,7 @@ version: 1.0.0
 
 ### 通道扩展
 
-出站通道实现 [`ChannelAdapter`](../miniagent/contracts/channels.py)（`channel_id` + `async send(OutboundEvent)`），并注册到 `ChannelRegistry`。入站侧在 adapter 边界构造平台无关 [`InboundMessage`](../miniagent/contracts/messages.py)，交给 `InboundTurnCoordinator`；队列键必须显式定义并发/抢占语义。参考实现：`CliChannelAdapter`、`FeishuChannelAdapter`。
+出站通道实现 [`ChannelAdapter`](../miniagent/assistant/contracts/channels.py)（`channel_id` + `async send(OutboundEvent)`），并注册到 `ChannelRegistry`。入站侧在 adapter 边界构造平台无关 [`InboundMessage`](../miniagent/assistant/contracts/messages.py)，交给 `InboundTurnCoordinator`；队列键必须显式定义并发/抢占语义。参考实现：`CliChannelAdapter`、`FeishuChannelAdapter`。
 
 不要再自造 `send_message`/`receive_message` 的平行 Protocol；会话映射与绑定见 [FEISHU.md §通道绑定](FEISHU.md#通道绑定)、数据流见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
@@ -488,11 +488,11 @@ async def test_read_config_success(tool_context):
 
 ### 添加新 CLI 命令
 
-命令元数据 SSOT 为 [`command_registry.py`](../miniagent/engine/command_registry.py) 中的 `CommandSpec` / `COMMAND_REGISTRY`（名称、别名、摘要、用法、`channels`、`mutates_state`、`handler_key`）。
+命令元数据 SSOT 为 [`command_registry.py`](../miniagent/assistant/engine/command_registry.py) 中的 `CommandSpec` / `COMMAND_REGISTRY`（名称、别名、摘要、用法、`channels`、`mutates_state`、`handler_key`）。
 
 1. 在 `COMMAND_REGISTRY` 增加一条 `CommandSpec`（`handler_key` 为稳定标识）。
-2. 在 `miniagent/engine/commands/` 实现异步 handler（可按域拆分；`cli_commands.py` 仍可作为兼容聚合入口导入部分 helper）。
-3. 在 [`command_dispatch.py`](../miniagent/engine/command_dispatch.py) 的 `_BOUND_HANDLERS` 中按 `handler_key` 绑定处理器，然后 `COMMAND_REGISTRY.bind_handlers(...)`（缺一或多一都会在启动期失败）。
+2. 在 `miniagent/assistant/engine/commands/` 实现异步 handler（可按域拆分；`cli_commands.py` 仍可作为兼容聚合入口导入部分 helper）。
+3. 在 [`command_dispatch.py`](../miniagent/assistant/engine/command_dispatch.py) 的 `_BOUND_HANDLERS` 中按 `handler_key` 绑定处理器，然后 `COMMAND_REGISTRY.bind_handlers(...)`（缺一或多一都会在启动期失败）。
 4. 帮助文案来自 `CommandSpec.summary` / `usage`（经 help 命令渲染）；补充 [CLI.md](CLI.md) 用户说明。
 5. CLI 与飞书共享同一注册表；用 `channels=frozenset({"cli"})` 等限制可用通道（如 `/stop`）。
 
@@ -500,15 +500,15 @@ async def test_read_config_success(tool_context):
 
 ## Part 3 — API 编程示例
 
-进程级依赖集中在 [`ApplicationContainer`](../miniagent/bootstrap/application.py)；以下示例中的 `registry` 与 `memory` 均应来自同一个容器。自我优化 API 见 [SELF_OPT.md](SELF_OPT.md)。
+进程级依赖集中在 [`ApplicationContainer`](../miniagent/assistant/bootstrap/application.py)；以下示例中的 `registry` 与 `memory` 均应来自同一个容器。自我优化 API 见 [SELF_OPT.md](SELF_OPT.md)。
 
 ### 基础用法
 
 #### 简单命令执行（内置工具）
 
 ```python
-from miniagent.core.agent import run_agent
-from miniagent.bootstrap.entrypoint import create_application_container
+from miniagent.agent.agent import run_agent
+from miniagent.assistant.bootstrap.entrypoint import create_application_container
 
 container = create_application_container()
 registry = container.registry
@@ -523,9 +523,9 @@ print(result.reply)
 单元测试或无需完整子系统时，可直接构造空注册表（与 `run_agent` docstring 示例一致）：
 
 ```python
-from miniagent.core.agent import run_agent
-from miniagent.infrastructure.registry import DefaultToolRegistry
-from miniagent.memory.runtime import create_memory_runtime
+from miniagent.agent.agent import run_agent
+from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
+from miniagent.assistant.memory.runtime import create_memory_runtime
 
 registry = DefaultToolRegistry()
 memory = create_memory_runtime("/tmp/miniagent-test-state")
@@ -598,7 +598,7 @@ result = await run_agent(
 #### 配置文件管理
 
 ```python
-from miniagent.infrastructure.json_config import get_config
+from miniagent.assistant.infrastructure.json_config import get_config
 
 max_turns = get_config("agent.max_turns", 400)
 ```
@@ -610,9 +610,9 @@ max_turns = get_config("agent.max_turns", 400)
 与正式入口一致：显式加载 secrets 并构造 `ApplicationContainer`，然后将依赖传给 API：
 
 ```python
-from miniagent.bootstrap.entrypoint import create_application_container
-from miniagent.core.agent import run_agent
-from miniagent.infrastructure.env_loader import load_secrets_from_project_root
+from miniagent.assistant.bootstrap.entrypoint import create_application_container
+from miniagent.agent.agent import run_agent
+from miniagent.assistant.infrastructure.env_loader import load_secrets_from_project_root
 
 load_secrets_from_project_root()
 container = create_application_container()
@@ -690,7 +690,7 @@ result = await run_agent(
 #### 测试工具执行器
 
 ```python
-from miniagent.core.executor_tools import execute_tools_concurrent
+from miniagent.agent.executor_tools import execute_tools_concurrent
 
 results = await execute_tools_concurrent(
     pending_calls=pending_calls,

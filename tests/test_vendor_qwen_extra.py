@@ -1,7 +1,7 @@
 """Tests for miniagent/core/vendor/qwen_extra.py."""
 
 
-from miniagent.core.vendor.qwen_extra import build_thinking_extra_body
+from miniagent.agent.vendor.qwen_extra import build_thinking_extra_body
 
 
 class TestBuildThinkingExtraBody:

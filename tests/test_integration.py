@@ -9,7 +9,7 @@ class TestBasicWorkflows:
 
     def test_sandbox_workflow(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            from miniagent.security.sandbox import is_path_allowed, resolve_sandbox_path
+            from miniagent.assistant.security.sandbox import is_path_allowed, resolve_sandbox_path
 
             path = os.path.join(tmpdir, "test.txt")
             result = resolve_sandbox_path(path, [tmpdir])

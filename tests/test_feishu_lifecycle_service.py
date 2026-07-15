@@ -8,9 +8,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.bootstrap import LifecycleManager, LifecycleStartupError
-from miniagent.contracts import HealthReport, HealthState, LifecycleService
-from miniagent.engine.feishu_lifecycle import FeishuRuntimeLifecycleService
+from miniagent.assistant.bootstrap import LifecycleManager, LifecycleStartupError
+from miniagent.assistant.contracts import HealthReport, HealthState, LifecycleService
+from miniagent.assistant.engine.feishu_lifecycle import FeishuRuntimeLifecycleService
 
 
 def _service(

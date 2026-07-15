@@ -11,20 +11,20 @@ pytest.importorskip("lark_oapi")
 
 @pytest.mark.asyncio
 async def test_feishu_doc_read_returns_json(monkeypatch: pytest.MonkeyPatch) -> None:
-    from miniagent.tools.feishu_doc_tools import _feishu_doc
-    from miniagent.types.tool import ToolContext
+    from miniagent.agent.types.tool import ToolContext
+    from miniagent.assistant.tools.feishu_doc_tools import _feishu_doc
 
     monkeypatch.setenv("FEISHU_APP_ID", "a")
     monkeypatch.setenv("FEISHU_APP_SECRET", "b")
 
     with (
         patch(
-            "miniagent.feishu.docx.client.get_document",
+            "miniagent.assistant.feishu.docx.client.get_document",
             return_value={"title": "T", "revision_id": 1},
         ),
-        patch("miniagent.feishu.docx.client.get_document_raw_content", return_value="# Hi"),
+        patch("miniagent.assistant.feishu.docx.client.get_document_raw_content", return_value="# Hi"),
         patch(
-            "miniagent.feishu.docx.blocks.list_document_blocks",
+            "miniagent.assistant.feishu.docx.blocks.list_document_blocks",
             return_value=([{"block_id": "b1", "block_type": 2}], None, False),
         ),
     ):
@@ -36,8 +36,8 @@ async def test_feishu_doc_read_returns_json(monkeypatch: pytest.MonkeyPatch) -> 
 
 @pytest.mark.asyncio
 async def test_feishu_doc_unknown_action() -> None:
-    from miniagent.tools.feishu_doc_tools import _feishu_doc
-    from miniagent.types.tool import ToolContext
+    from miniagent.agent.types.tool import ToolContext
+    from miniagent.assistant.tools.feishu_doc_tools import _feishu_doc
 
     with patch.dict("os.environ", {"FEISHU_APP_ID": "a", "FEISHU_APP_SECRET": "b"}):
         r = await _feishu_doc({"action": "nope"}, ToolContext(cwd="/tmp"))
@@ -47,8 +47,8 @@ async def test_feishu_doc_unknown_action() -> None:
 
 @pytest.mark.asyncio
 async def test_feishu_doc_create_uses_folder_url(monkeypatch: pytest.MonkeyPatch) -> None:
-    from miniagent.tools.feishu_doc_tools import _feishu_doc
-    from miniagent.types.tool import ToolContext
+    from miniagent.agent.types.tool import ToolContext
+    from miniagent.assistant.tools.feishu_doc_tools import _feishu_doc
 
     monkeypatch.setenv("FEISHU_APP_ID", "a")
     monkeypatch.setenv("FEISHU_APP_SECRET", "b")
@@ -57,7 +57,7 @@ async def test_feishu_doc_create_uses_folder_url(monkeypatch: pytest.MonkeyPatch
     url = "https://tenant.feishu.cn/drive/folder/fldcnFromShare"
 
     with patch(
-        "miniagent.feishu.docx.client.create_document", return_value=("doc_y", 2)
+        "miniagent.assistant.feishu.docx.client.create_document", return_value=("doc_y", 2)
     ) as mock_create:
         r = await _feishu_doc(
             {"action": "create", "title": "T", "folder_token": url}, ToolContext(cwd="/tmp")

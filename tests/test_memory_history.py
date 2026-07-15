@@ -17,14 +17,14 @@ import os
 
 import pytest
 
-from miniagent.core.config import get_default_agent_config, merge_agent_config
-from miniagent.memory import history_bridge as hb
-from miniagent.memory.history_archive import (
+from miniagent.agent import history as hb
+from miniagent.agent.config import get_default_agent_config, merge_agent_config
+from miniagent.assistant.memory.history_archive import (
     diary_file_path,
     maybe_archive_old_turns,
     trim_history_tail_by_turns,
 )
-from miniagent.memory.history_progressive import (
+from miniagent.assistant.memory.history_progressive import (
     TOOL_OUTPUT_REDACTED_PLACEHOLDER,
     apply_one_progressive_disk_step,
     compress_first_step_span_in_text,
@@ -113,7 +113,7 @@ class TestHistoryBridge:
         hist = [{"role": "thinking", "content": long_body}]
         t_est = hb.estimate_history_messages_tokens(hist)
         mapped = hb.conversation_history_for_llm(hist)
-        from miniagent.memory.context import estimate_tokens
+        from miniagent.agent.context import estimate_tokens
 
         t_mapped = estimate_tokens(mapped[0]["content"]) + 5
         assert t_est == t_mapped

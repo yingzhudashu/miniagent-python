@@ -8,10 +8,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniagent.bootstrap import LifecycleStartupError
-from miniagent.bootstrap.application import ApplicationContainer
-from miniagent.bootstrap.runtime_services import build_runtime_lifecycle_manager
-from miniagent.engine.cli_state import CliLoopState
+from miniagent.assistant.bootstrap import LifecycleStartupError
+from miniagent.assistant.bootstrap.application import ApplicationContainer
+from miniagent.assistant.bootstrap.runtime_services import build_runtime_lifecycle_manager
+from miniagent.assistant.engine.cli_state import CliLoopState
 from tests.memory_helpers import (
     make_background_task_manager,
     make_knowledge_registry,
@@ -132,15 +132,15 @@ async def test_runtime_graph_preserves_production_order_and_dependencies(
         return task
 
     monkeypatch.setattr(
-        "miniagent.bootstrap.runtime_services.start_config_watch",
+        "miniagent.assistant.bootstrap.runtime_services.start_config_watch",
         start_config,
     )
     monkeypatch.setattr(
-        "miniagent.bootstrap.runtime_services.start_scheduled_tasks_ticker",
+        "miniagent.assistant.bootstrap.runtime_services.start_scheduled_tasks_ticker",
         start_scheduled,
     )
     monkeypatch.setattr(
-        "miniagent.bootstrap.runtime_services.start_skills_watch",
+        "miniagent.assistant.bootstrap.runtime_services.start_skills_watch",
         start_skills,
     )
 
@@ -197,15 +197,15 @@ async def test_runtime_graph_rolls_back_feishu_when_ticker_start_fails(
         raise RuntimeError("ticker failed")
 
     monkeypatch.setattr(
-        "miniagent.bootstrap.runtime_services.start_config_watch",
+        "miniagent.assistant.bootstrap.runtime_services.start_config_watch",
         lambda *_args: None,
     )
     monkeypatch.setattr(
-        "miniagent.bootstrap.runtime_services.start_scheduled_tasks_ticker",
+        "miniagent.assistant.bootstrap.runtime_services.start_scheduled_tasks_ticker",
         fail_scheduled,
     )
     monkeypatch.setattr(
-        "miniagent.bootstrap.runtime_services.start_skills_watch",
+        "miniagent.assistant.bootstrap.runtime_services.start_skills_watch",
         skills_start,
     )
     manager = build_runtime_lifecycle_manager(ctx, state, [], [])
@@ -227,15 +227,15 @@ async def test_runtime_graph_keeps_disabled_feishu_as_safe_service(
     state = _make_state(ctx, feishu_enabled=False)
     ctx.create_feishu_handler_factory = MagicMock()
     monkeypatch.setattr(
-        "miniagent.bootstrap.runtime_services.start_config_watch",
+        "miniagent.assistant.bootstrap.runtime_services.start_config_watch",
         lambda *_args: None,
     )
     monkeypatch.setattr(
-        "miniagent.bootstrap.runtime_services.start_scheduled_tasks_ticker",
+        "miniagent.assistant.bootstrap.runtime_services.start_scheduled_tasks_ticker",
         lambda *_args: None,
     )
     monkeypatch.setattr(
-        "miniagent.bootstrap.runtime_services.start_skills_watch",
+        "miniagent.assistant.bootstrap.runtime_services.start_skills_watch",
         lambda *_args: None,
     )
     manager = build_runtime_lifecycle_manager(ctx, state, [], [])

@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from miniagent.engine.session_exec import SessionExecCoordinator
+from miniagent.assistant.engine.session_exec import SessionExecCoordinator
 
 
 @pytest.mark.asyncio

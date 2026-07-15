@@ -7,11 +7,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from miniagent.contracts.llm import ModelCapabilities, ModelDescriptor
-from miniagent.engine.model_cmd import get_current_model, switch_model_profile
-from miniagent.presentation.cli.components import footer_text
-from miniagent.presentation.cli.keybindings import resolve_tui_keybindings
-from miniagent.presentation.cli.state import TuiViewState
+from miniagent.assistant.engine.model_cmd import get_current_model, switch_model_profile
+from miniagent.llm.types import ModelCapabilities, ModelDescriptor
+from miniagent.ui.cli.components import footer_text
+from miniagent.ui.cli.keybindings import resolve_tui_keybindings
+from miniagent.ui.cli.state import TuiViewState
 from tests.config_helpers import install_test_config
 
 

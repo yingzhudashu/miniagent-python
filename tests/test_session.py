@@ -5,9 +5,9 @@ import tempfile
 
 import pytest
 
-from miniagent.infrastructure.registry import DefaultToolRegistry
-from miniagent.session.manager import DefaultSessionManager
-from miniagent.types.config import normalize_conversation_history
+from miniagent.agent.types.config import normalize_conversation_history
+from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
+from miniagent.assistant.session.manager import DefaultSessionManager
 
 
 def test_normalize_conversation_history_rejects_wrapped_dict():

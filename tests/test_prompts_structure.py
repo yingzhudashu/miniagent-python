@@ -8,7 +8,7 @@
 """
 
 
-from miniagent.core.prompts import (
+from miniagent.agent.prompts import (
     AGENT_IDENTITY,
     CLARIFIER_PROMPT,
     CLASSIFIER_PROMPT,

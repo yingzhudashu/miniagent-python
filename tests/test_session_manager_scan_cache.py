@@ -9,15 +9,15 @@ from unittest.mock import patch
 
 import pytest
 
-from miniagent.infrastructure.registry import DefaultToolRegistry
-from miniagent.session.manager import DefaultSessionManager
+from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
+from miniagent.assistant.session.manager import DefaultSessionManager
 
 
 @pytest.fixture
 def workspaces(tmp_path: Path) -> Path:
     sessions = tmp_path / "sessions"
     sessions.mkdir()
-    with patch("miniagent.session.manager._get_workspaces_dir", return_value=str(sessions)):
+    with patch("miniagent.assistant.session.manager._get_workspaces_dir", return_value=str(sessions)):
         yield sessions
 
 
@@ -49,7 +49,7 @@ def test_repeated_session_listing_reuses_unchanged_parsed_configs(workspaces: Pa
         _write_config(workspaces, index)
     manager = DefaultSessionManager(DefaultToolRegistry())
 
-    with patch("miniagent.session.manager.json.load", wraps=json.load) as json_load:
+    with patch("miniagent.assistant.session.manager.json.load", wraps=json.load) as json_load:
         sessions = manager.list_all_sessions_with_info()
 
     assert len(sessions) == 12

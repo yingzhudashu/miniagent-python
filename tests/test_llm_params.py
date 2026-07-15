@@ -1,8 +1,8 @@
 """LLM 参数解析。"""
 
 
-from miniagent.core.config import get_default_agent_config, merge_agent_config
-from miniagent.core.llm_params import (
+from miniagent.agent.config import get_default_agent_config, merge_agent_config
+from miniagent.agent.llm_params import (
     resolve_exec_completion_kwargs,
     resolve_planner_completion_kwargs,
 )

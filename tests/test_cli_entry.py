@@ -1,4 +1,4 @@
-"""Tests for CLI packaging entry (``miniagent.cli.cli``) and ``--help``."""
+"""Tests for CLI packaging entry (``miniagent.assistant.cli.cli``) and ``--help``."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import sys
 
 import pytest
 
-from miniagent.__main__ import _print_cli_help, _wants_help
+from miniagent.assistant.runner import _print_cli_help, _wants_help
 
 
 def test_wants_help_detects_flags() -> None:
@@ -23,7 +23,7 @@ def test_print_cli_help_includes_usage(capsys) -> None:
     assert "用法:" in out
     assert "--stop" in out
     assert "--doctor" in out
-    assert "miniagent.cli.cli" in out
+    assert "miniagent.assistant.cli.cli" in out
 
 
 @pytest.mark.parametrize(
@@ -31,7 +31,7 @@ def test_print_cli_help_includes_usage(capsys) -> None:
     [
         [sys.executable, "-m", "miniagent", "--help"],
         [sys.executable, "-m", "miniagent", "-h"],
-        [sys.executable, "-m", "miniagent.cli.cli", "--help"],
+        [sys.executable, "-m", "miniagent.assistant.cli.cli", "--help"],
     ],
 )
 def test_help_flag_exits_zero(argv: list[str]) -> None:
@@ -53,9 +53,9 @@ def test_cli_main_delegates_to_entry(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_entry() -> None:
         called.append(True)
 
-    monkeypatch.setattr("miniagent.__main__.main", fake_entry)
+    monkeypatch.setattr("miniagent.assistant.runner.main", fake_entry)
 
-    from miniagent.cli.cli import main
+    from miniagent.assistant.cli.cli import main
 
     main()
     assert called == [True]

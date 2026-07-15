@@ -6,11 +6,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.core.agent import run_agent
-from miniagent.infrastructure.registry import DefaultToolRegistry
-from miniagent.types.confirmation import ConfirmationResult
-from miniagent.types.planning import StructuredPlan
-from miniagent.types.tool import Toolbox
+from miniagent.agent.agent import run_agent
+from miniagent.agent.types.confirmation import ConfirmationResult
+from miniagent.agent.types.planning import StructuredPlan
+from miniagent.agent.types.tool import Toolbox
+from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 from tests.config_helpers import install_test_config
 from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 
@@ -43,10 +43,10 @@ async def test_on_plan_adjust_triggers_replan(tmp_path) -> None:
         return ConfirmationResult.adjust("不要删除，只读即可")
 
     with (
-        patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False),
-        patch("miniagent.core.constants.EXECUTION_ANNOUNCE_DIFFICULTY", False),
-        patch("miniagent.core.agent.generate_plan", side_effect=fake_generate),
-        patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex,
+        patch("miniagent.agent.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False),
+        patch("miniagent.agent.constants.EXECUTION_ANNOUNCE_DIFFICULTY", False),
+        patch("miniagent.agent.agent.generate_plan", side_effect=fake_generate),
+        patch("miniagent.agent.agent.execute_plan", new_callable=AsyncMock) as ex,
     ):
         ex.return_value = "done"
 

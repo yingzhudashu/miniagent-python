@@ -1,6 +1,6 @@
 """web_search（Tavily）与 browser_extract_text 的 mock 单测。
 
-工具定义已移至 ``miniagent/skills/templates/builtin-web``；测试直接导入 skill tools.py。
+工具定义位于 ``miniagent/assistant/skills/templates/builtin-web``；测试直接导入 skill tools.py。
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ _HAS_PLAYWRIGHT = importlib.util.find_spec("playwright") is not None
 _skill_tools = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "miniagent",
+    "assistant",
     "skills",
     "templates",
     "builtin-web",
@@ -93,7 +94,7 @@ class _DownloadClient:
 @pytest.mark.skipif(_import_result is None, reason="builtin-web skill template not importable")
 @pytest.mark.asyncio
 async def test_download_file_validates_url_and_head_size(tmp_path) -> None:
-    from miniagent.types.tool import ToolContext
+    from miniagent.agent.types.tool import ToolContext
 
     ctx = ToolContext(cwd=str(tmp_path), allowed_paths=[str(tmp_path)], permission="sandbox")
     invalid = await _import_result._download_file_handler({"url": "file:///etc/passwd"}, ctx)
@@ -110,7 +111,7 @@ async def test_download_file_validates_url_and_head_size(tmp_path) -> None:
 @pytest.mark.skipif(_import_result is None, reason="builtin-web skill template not importable")
 @pytest.mark.asyncio
 async def test_download_file_streams_and_sanitizes_disposition(tmp_path) -> None:
-    from miniagent.types.tool import ToolContext
+    from miniagent.agent.types.tool import ToolContext
 
     ctx = ToolContext(cwd=str(tmp_path), allowed_paths=[str(tmp_path)], permission="sandbox")
     client = _DownloadClient(
@@ -130,7 +131,7 @@ async def test_download_file_streams_and_sanitizes_disposition(tmp_path) -> None
 @pytest.mark.skipif(_import_result is None, reason="builtin-web skill template not importable")
 @pytest.mark.asyncio
 async def test_download_file_stream_limit_removes_partial_file(tmp_path) -> None:
-    from miniagent.types.tool import ToolContext
+    from miniagent.agent.types.tool import ToolContext
 
     ctx = ToolContext(cwd=str(tmp_path), allowed_paths=[str(tmp_path)], permission="sandbox")
     client = _DownloadClient([b"x" * (1024 * 1024 + 1)], length=0)
@@ -145,7 +146,7 @@ async def test_download_file_stream_limit_removes_partial_file(tmp_path) -> None
 @pytest.mark.skipif(_import_result is None, reason="builtin-web skill template not importable")
 @pytest.mark.asyncio
 async def test_download_probe_failure_stream_error_and_urllib_fallback(tmp_path, monkeypatch) -> None:
-    from miniagent.types.tool import ToolContext
+    from miniagent.agent.types.tool import ToolContext
 
     class BrokenHeadClient(_DownloadClient):
         async def head(self, *_args, **_kwargs):
@@ -190,7 +191,7 @@ async def test_download_probe_failure_stream_error_and_urllib_fallback(tmp_path,
 @pytest.mark.asyncio
 async def test_web_search_missing_key() -> None:
     with patch.dict("os.environ", {}, clear=True):
-        from miniagent.types.tool import ToolContext
+        from miniagent.agent.types.tool import ToolContext
 
         ctx = ToolContext(cwd=".", allowed_paths=["."], permission="sandbox")
         r = await _web_search_handler({"query": "深圳天气"}, ctx)
@@ -217,7 +218,7 @@ async def test_web_search_success_mock(monkeypatch) -> None:
     mock_client.post = AsyncMock(return_value=mock_resp)
     mock_client.aclose = AsyncMock()
 
-    from miniagent.types.tool import ToolContext
+    from miniagent.agent.types.tool import ToolContext
 
     with patch("httpx.AsyncClient", return_value=mock_client):
         ctx = ToolContext(cwd=".", allowed_paths=["."], permission="sandbox")
@@ -230,8 +231,8 @@ async def test_web_search_success_mock(monkeypatch) -> None:
 @pytest.mark.skipif(_fetch_url_handler is None, reason="builtin-web skill template not importable")
 @pytest.mark.asyncio
 async def test_fetch_url_reuses_shared_http_client() -> None:
-    from miniagent.infrastructure.httpx_pool import close_shared_httpx_clients
-    from miniagent.types.tool import ToolContext
+    from miniagent.agent.types.tool import ToolContext
+    from miniagent.assistant.infrastructure.httpx_pool import close_shared_httpx_clients
 
     await close_shared_httpx_clients()
     response = MagicMock()
@@ -256,7 +257,7 @@ async def test_fetch_url_reuses_shared_http_client() -> None:
 @pytest.mark.skipif(_cleanup_browser is None, reason="builtin-web skill template not importable")
 @pytest.mark.asyncio
 async def test_browser_cleanup_closes_browser_and_playwright_driver() -> None:
-    from miniagent.infrastructure import browser_pool
+    from miniagent.assistant.infrastructure import browser_pool
 
     browser = AsyncMock()
     playwright = AsyncMock()
@@ -277,7 +278,7 @@ async def test_browser_cleanup_closes_browser_and_playwright_driver() -> None:
 )
 @pytest.mark.asyncio
 async def test_browser_extract_invalid_url() -> None:
-    from miniagent.types.tool import ToolContext
+    from miniagent.agent.types.tool import ToolContext
 
     ctx = ToolContext(cwd=".", allowed_paths=["."], permission="sandbox")
     r = await _browser_extract_handler({"url": "file:///etc/passwd"}, ctx)
@@ -290,10 +291,10 @@ async def test_browser_extract_invalid_url() -> None:
 @pytest.mark.skipif(not _HAS_PLAYWRIGHT, reason="playwright not installed (browser extra)")
 @pytest.mark.asyncio
 async def test_browser_extract_playwright_mock() -> None:
-    from miniagent.infrastructure.browser_pool import close_browser_pool
+    from miniagent.assistant.infrastructure.browser_pool import close_browser_pool
 
     await close_browser_pool()
-    from miniagent.types.tool import ToolContext
+    from miniagent.agent.types.tool import ToolContext
 
     mock_page = AsyncMock()
     mock_page.goto = AsyncMock()

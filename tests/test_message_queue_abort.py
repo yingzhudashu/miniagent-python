@@ -15,7 +15,7 @@ from tests.memory_helpers import (
 
 @pytest.mark.asyncio
 async def test_abort_chat_cancels_running_and_pending_in_queue_mode():
-    from miniagent.infrastructure.message_queue import MessageQueueManager, QueueMode
+    from miniagent.assistant.infrastructure.message_queue import MessageQueueManager, QueueMode
 
     mq = MessageQueueManager()
     assert mq.mode == QueueMode.QUEUE
@@ -51,7 +51,7 @@ async def test_abort_chat_cancels_running_and_pending_in_queue_mode():
 
 @pytest.mark.asyncio
 async def test_abort_chat_idle_chat():
-    from miniagent.infrastructure.message_queue import MessageQueueManager
+    from miniagent.assistant.infrastructure.message_queue import MessageQueueManager
 
     mq = MessageQueueManager()
     r = mq.abort_chat("never_used")
@@ -62,15 +62,15 @@ async def test_abort_chat_idle_chat():
 
 @pytest.mark.asyncio
 async def test_dispatch_abort_respects_message_queue_abort_chat_id():
-    from miniagent.bootstrap.application import ApplicationContainer
-    from miniagent.engine.command_dispatch import dispatch_command
-    from miniagent.engine.engine import UnifiedEngine
-    from miniagent.engine.feishu_state import FeishuRuntime
-    from miniagent.infrastructure.channel_router import ChannelRouter
-    from miniagent.infrastructure.message_queue import MessageQueueManager
-    from miniagent.infrastructure.monitor import DefaultToolMonitor
-    from miniagent.infrastructure.registry import DefaultToolRegistry
-    from miniagent.skills import DefaultSkillRegistry, create_clawhub_client
+    from miniagent.agent.monitor import DefaultToolMonitor
+    from miniagent.assistant.bootstrap.application import ApplicationContainer
+    from miniagent.assistant.engine.command_dispatch import dispatch_command
+    from miniagent.assistant.engine.engine import UnifiedEngine
+    from miniagent.assistant.engine.feishu_state import FeishuRuntime
+    from miniagent.assistant.infrastructure.channel_router import ChannelRouter
+    from miniagent.assistant.infrastructure.message_queue import MessageQueueManager
+    from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
+    from miniagent.assistant.skills import DefaultSkillRegistry, create_clawhub_client
     from tests.test_startup import _make_memory_bundle
 
     mq = MessageQueueManager()
@@ -126,7 +126,7 @@ async def test_dispatch_abort_respects_message_queue_abort_chat_id():
 
 @pytest.mark.asyncio
 async def test_abort_chat_cancels_dispatch_wait_task():
-    from miniagent.infrastructure.message_queue import MessageQueueManager, QueueMode
+    from miniagent.assistant.infrastructure.message_queue import MessageQueueManager, QueueMode
 
     mq = MessageQueueManager()
     assert mq.mode == QueueMode.QUEUE
@@ -153,7 +153,7 @@ async def test_abort_chat_cancels_dispatch_wait_task():
 
 @pytest.mark.asyncio
 async def test_abort_chat_preemptive_cancels_current():
-    from miniagent.infrastructure.message_queue import MessageQueueManager, QueueMode
+    from miniagent.assistant.infrastructure.message_queue import MessageQueueManager, QueueMode
 
     mq = MessageQueueManager()
     mq.mode = QueueMode.PREEMPTIVE
@@ -171,7 +171,7 @@ async def test_abort_chat_preemptive_cancels_current():
 
 @pytest.mark.asyncio
 async def test_completed_queue_tasks_do_not_consume_queue_capacity() -> None:
-    from miniagent.infrastructure.message_queue import MessageQueueManager
+    from miniagent.assistant.infrastructure.message_queue import MessageQueueManager
 
     mq = MessageQueueManager()
     finished = asyncio.Event()
@@ -188,7 +188,7 @@ async def test_completed_queue_tasks_do_not_consume_queue_capacity() -> None:
 
 @pytest.mark.asyncio
 async def test_switch_to_preemptive_cancels_existing_queue_wrappers() -> None:
-    from miniagent.infrastructure.message_queue import MessageQueueManager, QueueMode
+    from miniagent.assistant.infrastructure.message_queue import MessageQueueManager, QueueMode
 
     mq = MessageQueueManager()
     cancelled: list[str] = []
@@ -214,7 +214,7 @@ async def test_switch_to_preemptive_cancels_existing_queue_wrappers() -> None:
 
 @pytest.mark.asyncio
 async def test_shutdown_awaits_queue_task_cancellation() -> None:
-    from miniagent.infrastructure.message_queue import MessageQueueManager
+    from miniagent.assistant.infrastructure.message_queue import MessageQueueManager
 
     mq = MessageQueueManager()
     cancelled = asyncio.Event()
@@ -245,7 +245,7 @@ async def test_shutdown_awaits_queue_task_cancellation() -> None:
 
 @pytest.mark.asyncio
 async def test_transient_chat_queues_are_reclaimed_and_status_is_read_only() -> None:
-    from miniagent.infrastructure.message_queue import MessageQueueManager
+    from miniagent.assistant.infrastructure.message_queue import MessageQueueManager
 
     mq = MessageQueueManager()
 

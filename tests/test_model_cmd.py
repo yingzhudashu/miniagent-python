@@ -5,12 +5,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from miniagent.engine.model_cmd import (
+from miniagent.agent.types.error_prefix import ERROR_PREFIX
+from miniagent.assistant.engine.model_cmd import (
     format_model_info,
     get_current_model,
     switch_model,
 )
-from miniagent.types.error_prefix import ERROR_PREFIX
 from tests.config_helpers import install_test_config
 
 

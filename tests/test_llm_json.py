@@ -11,8 +11,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.core.llm_json import llm_json, parse_llm_json_response
-from miniagent.infrastructure.tracing import clear_trace_hooks, register_trace_hook
+from miniagent.agent.llm_json import llm_json, parse_llm_json_response
+from miniagent.agent.observability import clear_trace_hooks, register_trace_hook
 
 
 class TestParseLlmJsonResponse:
@@ -272,7 +272,7 @@ class TestLlmJson:
         client = MagicMock()
         client.responses.create = AsyncMock(return_value=events())
 
-        with patch("miniagent.core.llm_transport._wire_api", return_value="responses"):
+        with patch("miniagent.llm.legacy_transport._wire_api", return_value="responses"):
             result = await llm_json("test", "system", client=client)
 
         assert result == {"ok": True}
@@ -321,8 +321,8 @@ class TestLlmJson:
             side_effect=[reasoning_only(), valid()]
         )
         with (
-            patch("miniagent.core.llm_transport._wire_api", return_value="responses"),
-            patch("miniagent.core.llm_json.asyncio.sleep", new_callable=AsyncMock),
+            patch("miniagent.llm.legacy_transport._wire_api", return_value="responses"),
+            patch("miniagent.agent.llm_json.asyncio.sleep", new_callable=AsyncMock),
         ):
             result = await llm_json("test", "system", client=client)
 
@@ -360,8 +360,8 @@ class TestLlmJson:
             ]
         )
         with (
-            patch("miniagent.core.llm_transport._wire_api", return_value="responses"),
-            patch("miniagent.core.llm_json.asyncio.sleep", new_callable=AsyncMock),
+            patch("miniagent.llm.legacy_transport._wire_api", return_value="responses"),
+            patch("miniagent.agent.llm_json.asyncio.sleep", new_callable=AsyncMock),
         ):
             result = await llm_json("test", "system", client=client)
 
@@ -380,7 +380,7 @@ class TestLlmJson:
         client.responses.create = AsyncMock(
             side_effect=AuthenticationFailure("unauthorized")
         )
-        with patch("miniagent.core.llm_transport._wire_api", return_value="responses"):
+        with patch("miniagent.llm.legacy_transport._wire_api", return_value="responses"):
             with pytest.raises(AuthenticationFailure):
                 await llm_json("test", "system", client=client)
 

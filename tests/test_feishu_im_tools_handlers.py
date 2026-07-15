@@ -15,15 +15,15 @@ pytest.importorskip("lark_oapi")
 async def test_feishu_list_drive_files_empty_table(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from miniagent.tools.feishu_im_tools import _feishu_list_drive_files
-    from miniagent.types.tool import ToolContext
+    from miniagent.agent.types.tool import ToolContext
+    from miniagent.assistant.tools.feishu_im_tools import _feishu_list_drive_files
 
     monkeypatch.setenv("FEISHU_APP_ID", "a")
     monkeypatch.setenv("FEISHU_APP_SECRET", "b")
     install_test_config(tmp_path, {"feishu": {"doc": {"folder_token": "fld_env"}}})
 
     with patch(
-        "miniagent.feishu.drive_client.list_folder_files_page",
+        "miniagent.assistant.feishu.drive_client.list_folder_files_page",
         return_value=([], None, False),
     ):
         r = await _feishu_list_drive_files({}, ToolContext(cwd="/tmp"))

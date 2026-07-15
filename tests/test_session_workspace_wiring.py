@@ -11,8 +11,8 @@ def test_get_session_files_path_after_get_or_create(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
-    from miniagent.infrastructure.registry import DefaultToolRegistry
-    from miniagent.session.manager import DefaultSessionManager
+    from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
+    from miniagent.assistant.session.manager import DefaultSessionManager
 
     sm = DefaultSessionManager(DefaultToolRegistry())
     sm.get_or_create("unit-test-session", None)
@@ -27,7 +27,7 @@ def test_build_current_turn_context_includes_files_root(
 ) -> None:
     root = str(tmp_path / "files")
     os.makedirs(root, exist_ok=True)
-    from miniagent.core.executor import build_current_turn_user_context
+    from miniagent.agent.executor import build_current_turn_user_context
 
     s = build_current_turn_user_context(
         user_input="task",

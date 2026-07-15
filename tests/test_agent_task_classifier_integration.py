@@ -7,10 +7,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.core.agent import run_agent
-from miniagent.core.requirement_clarifier import RequirementClarifier
-from miniagent.infrastructure.registry import DefaultToolRegistry
-from miniagent.types.tool import Toolbox
+from miniagent.agent.agent import run_agent
+from miniagent.agent.requirement_clarifier import RequirementClarifier
+from miniagent.agent.types.tool import Toolbox
+from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 from tests.config_helpers import install_test_config
 from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 
@@ -21,17 +21,17 @@ async def test_simple_difficulty_skips_planner(tmp_path) -> None:
     tb = Toolbox(id="fs", name="fs", description="files", keywords=[])
 
     with (
-        patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", True),
+        patch("miniagent.agent.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", True),
     ):
         with patch(
-            "miniagent.core.agent.classify_task_difficulty",
+            "miniagent.agent.agent.classify_task_difficulty",
             new_callable=AsyncMock,
         ) as clf:
-            from miniagent.core.task_classifier import TaskDifficulty
+            from miniagent.agent.task_classifier import TaskDifficulty
 
             clf.return_value = TaskDifficulty.SIMPLE
-            with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
-                with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
+            with patch("miniagent.agent.agent.generate_plan", new_callable=AsyncMock) as gp:
+                with patch("miniagent.agent.agent.execute_plan", new_callable=AsyncMock) as ex:
                     ex.return_value = "ok"
                     out = await run_agent(
                         "hello",
@@ -50,24 +50,24 @@ async def test_simple_difficulty_skips_planner(tmp_path) -> None:
 async def test_top_level_session_key_propagates_to_all_agent_stages(tmp_path) -> None:
     install_test_config(tmp_path, {"features": {"reflection": False}})
     toolbox = Toolbox(id="fs", name="fs", description="files", keywords=[])
-    from miniagent.core.task_classifier import TaskDifficulty
-    from miniagent.types.planning import StructuredPlan
+    from miniagent.agent.task_classifier import TaskDifficulty
+    from miniagent.agent.types.planning import StructuredPlan
 
     plan = StructuredPlan(summary="x", steps=[], required_toolboxes=[])
     with (
-        patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", True),
+        patch("miniagent.agent.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", True),
         patch(
-            "miniagent.core.agent.classify_task_difficulty",
+            "miniagent.agent.agent.classify_task_difficulty",
             new_callable=AsyncMock,
             return_value=TaskDifficulty.NORMAL,
         ) as classify,
         patch(
-            "miniagent.core.agent.generate_plan",
+            "miniagent.agent.agent.generate_plan",
             new_callable=AsyncMock,
             return_value=plan,
         ) as planner,
         patch(
-            "miniagent.core.agent.execute_plan",
+            "miniagent.agent.agent.execute_plan",
             new_callable=AsyncMock,
             return_value="done",
         ) as execute,
@@ -93,11 +93,11 @@ async def test_top_level_session_key_propagates_to_all_agent_stages(tmp_path) ->
 @pytest.mark.asyncio
 async def test_run_agent_owns_activity_lifecycle_once(tmp_path) -> None:
     install_test_config(tmp_path, {"features": {"reflection": False}})
-    from miniagent.memory.activity_log import ActivityLogger
+    from miniagent.assistant.memory.activity_log import ActivityLogger
 
     activity_log = ActivityLogger(base_dir=str(tmp_path / "activity"))
     with patch(
-        "miniagent.core.agent.execute_plan",
+        "miniagent.agent.agent.execute_plan",
         new_callable=AsyncMock,
         return_value="done",
     ) as execute:
@@ -123,16 +123,16 @@ async def test_classifier_off_always_plans(tmp_path) -> None:
     install_test_config(tmp_path, {"features": {"reflection": False}})
     tb = Toolbox(id="fs", name="fs", description="files", keywords=[])
 
-    from miniagent.types.planning import StructuredPlan
+    from miniagent.agent.types.planning import StructuredPlan
 
     fake_plan = StructuredPlan(summary="x", steps=[], required_toolboxes=[])
 
     with (
-        patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False),
+        patch("miniagent.agent.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False),
     ):
-        with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
+        with patch("miniagent.agent.agent.generate_plan", new_callable=AsyncMock) as gp:
             gp.return_value = fake_plan
-            with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
+            with patch("miniagent.agent.agent.execute_plan", new_callable=AsyncMock) as ex:
                 ex.return_value = "done"
                 await run_agent(
                     "task",
@@ -170,8 +170,8 @@ async def test_run_agent_real_planner_accepts_grouped_session_config(tmp_path) -
     response.usage = None
     mock_client.chat.completions.create = AsyncMock(return_value=response)
 
-    with patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False):
-        with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as execute:
+    with patch("miniagent.agent.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False):
+        with patch("miniagent.agent.agent.execute_plan", new_callable=AsyncMock) as execute:
             execute.return_value = "done"
             result = await run_agent(
                 "task",
@@ -229,8 +229,8 @@ async def test_run_agent_real_planner_supports_responses_wire_api(tmp_path) -> N
     client = MagicMock()
     client.responses.create = AsyncMock(return_value=response_events())
 
-    with patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False):
-        with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as execute:
+    with patch("miniagent.agent.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False):
+        with patch("miniagent.agent.agent.execute_plan", new_callable=AsyncMock) as execute:
             execute.return_value = "done"
             result = await run_agent(
                 "task",
@@ -306,8 +306,8 @@ async def test_run_agent_responses_control_chain_streams_all_json_stages(
         side_effect=[response_events(content) for content in contents]
     )
     with (
-        patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", True),
-        patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as execute,
+        patch("miniagent.agent.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", True),
+        patch("miniagent.agent.agent.execute_plan", new_callable=AsyncMock) as execute,
     ):
         execute.return_value = "done"
         result = await run_agent(
@@ -334,7 +334,7 @@ async def test_suggested_thinking_level_merges_into_model_overrides(tmp_path) ->
     install_test_config(tmp_path, {"features": {"reflection": False}})
     tb = Toolbox(id="fs", name="fs", description="files", keywords=[])
 
-    from miniagent.types.planning import StructuredPlan, SuggestedConfig
+    from miniagent.agent.types.planning import StructuredPlan, SuggestedConfig
 
     fake_plan = StructuredPlan(
         summary="x",
@@ -363,11 +363,11 @@ async def test_suggested_thinking_level_merges_into_model_overrides(tmp_path) ->
         return "ok"
 
     with (
-        patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False),
+        patch("miniagent.agent.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False),
     ):
-        with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
+        with patch("miniagent.agent.agent.generate_plan", new_callable=AsyncMock) as gp:
             gp.return_value = fake_plan
-            with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
+            with patch("miniagent.agent.agent.execute_plan", new_callable=AsyncMock) as ex:
                 ex.side_effect = _capture_exec
                 await run_agent(
                     "task",

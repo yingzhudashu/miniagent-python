@@ -8,10 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from miniagent.__main__ import _bootstrap_project_paths
-from miniagent.infrastructure.instance import reset_instance_registry_for_tests
-from miniagent.infrastructure.json_config import reset_config_loader
-from miniagent.infrastructure.paths import resolve_project_key
+from miniagent.assistant.infrastructure.instance import reset_instance_registry_for_tests
+from miniagent.assistant.infrastructure.json_config import reset_config_loader
+from miniagent.assistant.infrastructure.paths import resolve_project_key
+from miniagent.assistant.runner import _bootstrap_project_paths
 from tests.config_helpers import install_test_config
 
 
@@ -103,7 +103,7 @@ def test_bootstrap_conflict_exits(
         return pid == other_pid
 
     monkeypatch.setattr(
-        "miniagent.infrastructure.instance.is_process_running",
+        "miniagent.assistant.infrastructure.instance.is_process_running",
         checker,
     )
     stale = Path(reg) / "instances" / "1"
@@ -137,7 +137,7 @@ def test_bootstrap_for_stop_skips_conflict_check(
         return pid == other_pid
 
     monkeypatch.setattr(
-        "miniagent.infrastructure.instance.is_process_running",
+        "miniagent.assistant.infrastructure.instance.is_process_running",
         checker,
     )
     stale = Path(reg) / "instances" / "1"

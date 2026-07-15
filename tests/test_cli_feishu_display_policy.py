@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from miniagent.engine.cli_commands import _resolve_session, sync_channel_router_to_session
-from miniagent.infrastructure.channel_router import ChannelRouter
-from miniagent.infrastructure.cli_feishu_policy import (
+from miniagent.assistant.engine.cli_commands import _resolve_session, sync_channel_router_to_session
+from miniagent.assistant.infrastructure.channel_router import ChannelRouter
+from miniagent.assistant.infrastructure.cli_feishu_policy import (
     get_cli_focus_mode,
     normalize_bind_session_id,
     should_allow_p2p_auto_bind,

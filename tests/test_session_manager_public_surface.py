@@ -6,11 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from miniagent.infrastructure.registry import DefaultToolRegistry
-from miniagent.session import manager as manager_module
-from miniagent.session.manager import DefaultSessionManager, _get_session_lock_owner
-from miniagent.types.skill import Skill
-from miniagent.types.tool import Toolbox, ToolDefinition, ToolResult
+from miniagent.agent.types.skill import Skill
+from miniagent.agent.types.tool import Toolbox, ToolDefinition, ToolResult
+from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
+from miniagent.assistant.session import manager as manager_module
+from miniagent.assistant.session.manager import DefaultSessionManager, _get_session_lock_owner
 
 
 async def _handler(_args, _ctx) -> ToolResult:

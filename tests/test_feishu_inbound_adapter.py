@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from miniagent.feishu.inbound_adapter import (
+from miniagent.assistant.feishu.inbound_adapter import (
     build_feishu_inbound_message,
     build_feishu_media_inbound_message,
 )
-from miniagent.feishu.types import FeishuInboundText
+from miniagent.assistant.feishu.types import FeishuInboundText
 
 
 def test_feishu_text_mapping_retains_routing_and_thread_metadata() -> None:

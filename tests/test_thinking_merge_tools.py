@@ -15,7 +15,7 @@ _HAS_PROMPT_TOOLKIT = importlib.util.find_spec("prompt_toolkit") is not None
 
 @pytest.mark.asyncio
 async def test_thinking_display_merge_tool_no_second_step_label():
-    from miniagent.engine.thinking import ThinkingDisplay
+    from miniagent.assistant.engine.thinking import ThinkingDisplay
 
     td = ThinkingDisplay()
     sink: list[tuple[str, str]] = []
@@ -42,7 +42,7 @@ async def test_thinking_display_merge_tool_no_second_step_label():
 @pytest.mark.asyncio
 async def test_thinking_display_merge_two_tools_same_round_one_label():
     """同一轮连续两次工具行仍只打一条轮次 label。"""
-    from miniagent.engine.thinking import ThinkingDisplay
+    from miniagent.assistant.engine.thinking import ThinkingDisplay
 
     td = ThinkingDisplay()
     sink: list[tuple[str, str]] = []
@@ -66,8 +66,8 @@ async def test_thinking_display_merge_two_tools_same_round_one_label():
 
 @pytest.mark.asyncio
 async def test_thinking_display_merge_disabled_extra_label(monkeypatch):
-    monkeypatch.setattr("miniagent.engine.thinking.EXECUTION_THINKING_MERGE_TOOLS", False)
-    from miniagent.engine.thinking import ThinkingDisplay
+    monkeypatch.setattr("miniagent.assistant.engine.thinking.EXECUTION_THINKING_MERGE_TOOLS", False)
+    from miniagent.assistant.engine.thinking import ThinkingDisplay
 
     td = ThinkingDisplay()
     sink: list[tuple[str, str]] = []
@@ -87,10 +87,10 @@ async def test_thinking_display_merge_disabled_extra_label(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_engine_history_merges_two_tools_under_turn(monkeypatch):
-    from miniagent.engine.engine import UnifiedEngine
-    from miniagent.infrastructure.monitor import DefaultToolMonitor
-    from miniagent.infrastructure.registry import DefaultToolRegistry
-    from miniagent.types.agent import AgentRunResult
+    from miniagent.agent.monitor import DefaultToolMonitor
+    from miniagent.agent.types.agent import AgentRunResult
+    from miniagent.assistant.engine.engine import UnifiedEngine
+    from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
     async def fake_run_agent(*args, **kwargs):
         ot = kwargs.get("on_thinking")
@@ -100,7 +100,7 @@ async def test_engine_history_merges_two_tools_under_turn(monkeypatch):
         await ot("🔧 b — 2", False, "[第 1 轮]")
         return AgentRunResult(reply="ok")
 
-    monkeypatch.setattr("miniagent.engine.engine.run_agent", fake_run_agent)
+    monkeypatch.setattr("miniagent.assistant.engine.engine.run_agent", fake_run_agent)
 
     ctx = type("Ctx", (), {})()
     ctx.conversation_history = []
@@ -141,10 +141,10 @@ async def test_engine_history_merges_two_tools_under_turn(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_engine_history_merges_tool_under_turn(monkeypatch):
-    from miniagent.engine.engine import UnifiedEngine
-    from miniagent.infrastructure.monitor import DefaultToolMonitor
-    from miniagent.infrastructure.registry import DefaultToolRegistry
-    from miniagent.types.agent import AgentRunResult
+    from miniagent.agent.monitor import DefaultToolMonitor
+    from miniagent.agent.types.agent import AgentRunResult
+    from miniagent.assistant.engine.engine import UnifiedEngine
+    from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
     async def fake_run_agent(*args, **kwargs):
         ot = kwargs.get("on_thinking")
@@ -153,7 +153,7 @@ async def test_engine_history_merges_tool_under_turn(monkeypatch):
         await ot("🔧 web_search — q", False, "[第 1 轮]")
         return AgentRunResult(reply="reply")
 
-    monkeypatch.setattr("miniagent.engine.engine.run_agent", fake_run_agent)
+    monkeypatch.setattr("miniagent.assistant.engine.engine.run_agent", fake_run_agent)
 
     ctx = type("Ctx", (), {})()
     ctx.conversation_history = []
@@ -196,8 +196,8 @@ async def test_engine_history_merges_tool_under_turn(monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.skipif(not _HAS_PROMPT_TOOLKIT, reason="prompt_toolkit not installed (cli extra)")
 async def test_cli_thinking_rich_sends_ansi_markdown(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("miniagent.engine.thinking._cli_thinking_rich_enabled", lambda: True)
-    from miniagent.engine.thinking import ThinkingDisplay
+    monkeypatch.setattr("miniagent.assistant.engine.thinking._cli_thinking_rich_enabled", lambda: True)
+    from miniagent.assistant.engine.thinking import ThinkingDisplay
 
     td = ThinkingDisplay()
     calls: list[dict[str, object]] = []
@@ -214,12 +214,12 @@ async def test_cli_thinking_rich_sends_ansi_markdown(monkeypatch: pytest.MonkeyP
 @pytest.mark.asyncio
 @pytest.mark.skipif(not _HAS_PROMPT_TOOLKIT, reason="prompt_toolkit not installed (cli extra)")
 async def test_cli_thinking_rich_falls_back_when_no_ansi(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("miniagent.engine.thinking._cli_thinking_rich_enabled", lambda: True)
+    monkeypatch.setattr("miniagent.assistant.engine.thinking._cli_thinking_rich_enabled", lambda: True)
     monkeypatch.setattr(
-        "miniagent.engine.markdown_cli.render_markdown_to_ansi",
+        "miniagent.assistant.engine.markdown_cli.render_markdown_to_ansi",
         lambda *_a, **_k: None,
     )
-    from miniagent.engine.thinking import ThinkingDisplay
+    from miniagent.assistant.engine.thinking import ThinkingDisplay
 
     td = ThinkingDisplay()
     records: list[tuple[str | None, str | None]] = []
@@ -238,7 +238,7 @@ async def test_cli_thinking_rich_falls_back_when_no_ansi(monkeypatch: pytest.Mon
 @pytest.mark.asyncio
 async def test_feishu_same_header_after_merge_tools_not_new_round() -> None:
     """同一步内工具后继续流式：飞书不应新开思考卡（is_new_round=False）。"""
-    from miniagent.engine.thinking import ThinkingDisplay
+    from miniagent.assistant.engine.thinking import ThinkingDisplay
 
     td = ThinkingDisplay()
     flags: list[bool] = []
@@ -270,7 +270,7 @@ async def test_feishu_same_header_after_merge_tools_not_new_round() -> None:
 @pytest.mark.asyncio
 async def test_cli_same_header_after_merge_tools_one_label_and_no_dup_prefix() -> None:
     """同一步内工具后继续流式：CLI 仅一条步骤标签，且不累打上一子轮正文（对齐 _joined_phase_cumulative）。"""
-    from miniagent.engine.thinking import ThinkingDisplay
+    from miniagent.assistant.engine.thinking import ThinkingDisplay
 
     td = ThinkingDisplay()
     sink: list[tuple[str, str]] = []
@@ -300,7 +300,7 @@ async def test_cli_same_header_after_merge_tools_one_label_and_no_dup_prefix() -
 @pytest.mark.asyncio
 async def test_cli_phase_changed_resets_stream_without_feishu() -> None:
     """纯 CLI（无飞书）：流式 header 切换时收尾并重置，应出现两条步骤标签。"""
-    from miniagent.engine.thinking import ThinkingDisplay
+    from miniagent.assistant.engine.thinking import ThinkingDisplay
 
     td = ThinkingDisplay()
     sink: list[tuple[str, str]] = []
@@ -328,7 +328,7 @@ async def test_cli_phase_changed_resets_stream_without_feishu() -> None:
 @pytest.mark.asyncio
 async def test_cli_tools_merge_without_prior_streaming() -> None:
     """LLM 无正文仅工具调用时，首个工具行初始化流状态，后续工具行合并。"""
-    from miniagent.engine.thinking import ThinkingDisplay
+    from miniagent.assistant.engine.thinking import ThinkingDisplay
 
     td = ThinkingDisplay()
     sink: list[tuple[str, str]] = []
@@ -356,8 +356,8 @@ async def test_cli_tools_merge_without_prior_streaming() -> None:
 async def test_cli_tools_no_merge_when_disabled_and_no_prior_streaming(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("miniagent.engine.thinking.EXECUTION_THINKING_MERGE_TOOLS", False)
-    from miniagent.engine.thinking import ThinkingDisplay
+    monkeypatch.setattr("miniagent.assistant.engine.thinking.EXECUTION_THINKING_MERGE_TOOLS", False)
+    from miniagent.assistant.engine.thinking import ThinkingDisplay
 
     td = ThinkingDisplay()
     sink: list[tuple[str, str]] = []

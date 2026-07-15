@@ -7,16 +7,16 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from miniagent.bootstrap.application import ApplicationContainer
-from miniagent.engine.cli_commands import feishu_dot_commands_full_enabled
-from miniagent.engine.command_dispatch import dispatch_command
-from miniagent.engine.engine import UnifiedEngine
-from miniagent.engine.feishu_state import FeishuRuntime
-from miniagent.infrastructure.channel_router import ChannelRouter
-from miniagent.infrastructure.message_queue import MessageQueueManager
-from miniagent.infrastructure.monitor import DefaultToolMonitor
-from miniagent.infrastructure.registry import DefaultToolRegistry
-from miniagent.skills import DefaultSkillRegistry, create_clawhub_client
+from miniagent.agent.monitor import DefaultToolMonitor
+from miniagent.assistant.bootstrap.application import ApplicationContainer
+from miniagent.assistant.engine.cli_commands import feishu_dot_commands_full_enabled
+from miniagent.assistant.engine.command_dispatch import dispatch_command
+from miniagent.assistant.engine.engine import UnifiedEngine
+from miniagent.assistant.engine.feishu_state import FeishuRuntime
+from miniagent.assistant.infrastructure.channel_router import ChannelRouter
+from miniagent.assistant.infrastructure.message_queue import MessageQueueManager
+from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
+from miniagent.assistant.skills import DefaultSkillRegistry, create_clawhub_client
 from tests.config_helpers import install_test_config
 from tests.memory_helpers import (
     make_background_task_manager,
@@ -102,7 +102,7 @@ async def test_capture_stop_allowed_when_full_enabled(tmp_path) -> None:
     install_test_config(tmp_path, {"feishu": {"dot_commands_full": True}})
     state = _minimal_dispatch_state()
     with patch(
-        "miniagent.engine.shutdown.shutdown_runtime",
+        "miniagent.assistant.engine.shutdown.shutdown_runtime",
         new_callable=AsyncMock,
     ) as mock_shutdown:
         result = await dispatch_command("/stop", state=state, capture=True)
@@ -119,7 +119,7 @@ async def test_capture_stop_allowed_via_env_only(
     monkeypatch.setenv("MINIAGENT_FEISHU_DOT_COMMANDS_FULL", "1")
     state = _minimal_dispatch_state()
     with patch(
-        "miniagent.engine.shutdown.shutdown_runtime",
+        "miniagent.assistant.engine.shutdown.shutdown_runtime",
         new_callable=AsyncMock,
     ) as mock_shutdown:
         result = await dispatch_command("/stop", state=state, capture=True)
@@ -146,8 +146,8 @@ async def test_capture_schedule_mutations_blocked_by_default(tmp_path) -> None:
 async def test_capture_schedule_mutations_allowed_when_flag_true(
     state_dir: str,
 ) -> None:
-    from miniagent.engine.cli_commands import cmd_schedule
-    from miniagent.scheduled_tasks.store import load_tasks, save_tasks
+    from miniagent.assistant.engine.cli_commands import cmd_schedule
+    from miniagent.assistant.scheduled_tasks.store import load_tasks, save_tasks
 
     out = await dispatch_command(
         "/schedule add feishu_full_test every 3600 primary -- probe",
@@ -172,7 +172,7 @@ async def test_capture_schedule_unblocked_when_full_env_only(
     state_dir: str,
 ) -> None:
     """仅配置 dot_commands_full=true、显式 allow=False 时仍放行 schedule 变异。"""
-    from miniagent.scheduled_tasks.store import load_tasks, save_tasks
+    from miniagent.assistant.scheduled_tasks.store import load_tasks, save_tasks
 
     install_test_config(tmp_path, {"feishu": {"dot_commands_full": True}})
     out = await dispatch_command(
@@ -202,7 +202,7 @@ async def test_capture_session_not_blocked_when_full_env_only(tmp_path) -> None:
 
 
 def test_engine_feishu_mutations_follow_env(tmp_path) -> None:
-    from miniagent.core.config import get_default_agent_config, merge_agent_config
+    from miniagent.agent.config import get_default_agent_config, merge_agent_config
 
     install_test_config(tmp_path, {"feishu": {"dot_commands_full": True}})
     base = get_default_agent_config()

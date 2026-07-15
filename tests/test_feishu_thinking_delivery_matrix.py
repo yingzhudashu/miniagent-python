@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.engine.thinking import _SessionThinkingState
-from miniagent.feishu import thinking_delivery as delivery
-from miniagent.feishu.types import FeishuConfig
+from miniagent.assistant.engine.thinking import _SessionThinkingState
+from miniagent.assistant.feishu import thinking_delivery as delivery
+from miniagent.assistant.feishu.types import FeishuConfig
 
 
 @pytest.fixture
@@ -38,7 +38,7 @@ async def test_create_and_patch_message_async_contracts(monkeypatch, config) -> 
     ) is None
 
     patch = AsyncMock(side_effect=[(False, "denied"), (True, None)])
-    monkeypatch.setattr("miniagent.feishu.im_send.patch_im_message_async", patch)
+    monkeypatch.setattr("miniagent.assistant.feishu.im_send.patch_im_message_async", patch)
     assert not await delivery._patch_interactive_thinking_message_async(
         config, "mid", "{}"
     )

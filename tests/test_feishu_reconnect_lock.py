@@ -20,7 +20,7 @@ async def test_reconnect_loop_holds_inbound_lock_until_stop(monkeypatch, tmp_pat
         releases.append("release")
 
     monkeypatch.setattr(
-        "miniagent.infrastructure.feishu_inbound_lock.release_feishu_inbound_owner",
+        "miniagent.assistant.infrastructure.feishu_inbound_lock.release_feishu_inbound_owner",
         track_release,
     )
 
@@ -35,7 +35,7 @@ async def test_reconnect_loop_holds_inbound_lock_until_stop(monkeypatch, tmp_pat
         await asyncio.Event().wait()
 
     monkeypatch.setattr(
-        "miniagent.feishu.poll_server.start_feishu_poll_server",
+        "miniagent.assistant.feishu.poll_server.start_feishu_poll_server",
         fake_start_feishu_poll_server,
     )
 
@@ -44,8 +44,8 @@ async def test_reconnect_loop_holds_inbound_lock_until_stop(monkeypatch, tmp_pat
 
     monkeypatch.setattr("asyncio.sleep", instant_sleep)
 
-    from miniagent.engine.feishu_state import FeishuRuntime
-    from miniagent.infrastructure.message_queue import MessageQueueManager
+    from miniagent.assistant.engine.feishu_state import FeishuRuntime
+    from miniagent.assistant.infrastructure.message_queue import MessageQueueManager
 
     mq = MessageQueueManager()
     rt = FeishuRuntime(mq)
@@ -84,7 +84,7 @@ async def test_first_connection_failure_skips_backoff_sleep(monkeypatch, tmp_pat
     monkeypatch.setenv("FEISHU_VERIFICATION_TOKEN", "tok")
 
     monkeypatch.setattr(
-        "miniagent.infrastructure.feishu_inbound_lock.release_feishu_inbound_owner",
+        "miniagent.assistant.infrastructure.feishu_inbound_lock.release_feishu_inbound_owner",
         lambda *a, **k: None,
     )
 
@@ -106,10 +106,10 @@ async def test_first_connection_failure_skips_backoff_sleep(monkeypatch, tmp_pat
         second_entered.set()
         await hold.wait()
 
-    monkeypatch.setattr("miniagent.feishu.poll_server.start_feishu_poll_server", fake_start)
+    monkeypatch.setattr("miniagent.assistant.feishu.poll_server.start_feishu_poll_server", fake_start)
 
-    from miniagent.engine.feishu_state import FeishuRuntime
-    from miniagent.infrastructure.message_queue import MessageQueueManager
+    from miniagent.assistant.engine.feishu_state import FeishuRuntime
+    from miniagent.assistant.infrastructure.message_queue import MessageQueueManager
 
     mq = MessageQueueManager()
     rt = FeishuRuntime(mq)

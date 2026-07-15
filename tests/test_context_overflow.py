@@ -2,8 +2,8 @@
 
 import pytest
 
-from miniagent.infrastructure.tracing import register_trace_hook, unregister_trace_hook
-from miniagent.memory.context import ContextBudgetExceeded, DefaultContextManager
+from miniagent.agent.context import ContextBudgetExceeded, DefaultContextManager
+from miniagent.agent.observability import register_trace_hook, unregister_trace_hook
 
 
 def test_overflow_error_raises_on_append() -> None:

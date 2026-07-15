@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from miniagent.infrastructure.json_config import JsonConfigLoader, install_config_loader
+from miniagent.assistant.infrastructure.json_config import JsonConfigLoader, install_config_loader
 from tests.config_helpers import DEFAULTS_PATH, install_test_config
 
 
@@ -24,7 +24,7 @@ def _install_loader_without_user_file(tmp_path: Path) -> Path:
 def test_detect_first_time_setup_when_user_file_missing(tmp_path: Path) -> None:
     _install_loader_without_user_file(tmp_path)
 
-    from miniagent.engine.setup_wizard import detect_first_time_setup
+    from miniagent.assistant.engine.setup_wizard import detect_first_time_setup
 
     assert detect_first_time_setup() is True
 
@@ -32,7 +32,7 @@ def test_detect_first_time_setup_when_user_file_missing(tmp_path: Path) -> None:
 def test_detect_first_time_setup_when_user_file_exists(tmp_path: Path) -> None:
     install_test_config(tmp_path, {"model": {"model": "gpt-4o-mini"}})
 
-    from miniagent.engine.setup_wizard import detect_first_time_setup
+    from miniagent.assistant.engine.setup_wizard import detect_first_time_setup
 
     assert detect_first_time_setup() is False
 
@@ -50,7 +50,7 @@ def test_save_setup_config_merges_sections(tmp_path: Path) -> None:
     )
     install_test_config(tmp_path, user_path=user_path)
 
-    from miniagent.engine.setup_wizard import save_setup_config
+    from miniagent.assistant.engine.setup_wizard import save_setup_config
 
     save_setup_config(
         {
@@ -69,12 +69,12 @@ def test_save_setup_config_merges_sections(tmp_path: Path) -> None:
 def test_save_setup_config_applies_reload_and_secrets(tmp_path: Path) -> None:
     user_path = _install_loader_without_user_file(tmp_path)
 
-    from miniagent.engine import setup_wizard
+    from miniagent.assistant.engine import setup_wizard
 
     with (
-        patch("miniagent.engine.setup_wizard.reload_config") as reload_mock,
+        patch("miniagent.assistant.engine.setup_wizard.reload_config") as reload_mock,
         patch(
-            "miniagent.infrastructure.env_loader.load_secrets_from_project_root"
+            "miniagent.assistant.infrastructure.env_loader.load_secrets_from_project_root"
         ) as secrets_mock,
         patch.object(setup_wizard, "_apply_saved_config", wraps=setup_wizard._apply_saved_config) as apply_mock,
     ):
@@ -87,7 +87,7 @@ def test_save_setup_config_applies_reload_and_secrets(tmp_path: Path) -> None:
 
 
 def test_run_setup_wizard_collects_user_input() -> None:
-    from miniagent.engine.setup_wizard import run_setup_wizard
+    from miniagent.assistant.engine.setup_wizard import run_setup_wizard
 
     inputs = [
         "1",
@@ -109,7 +109,7 @@ def test_run_setup_wizard_collects_user_input() -> None:
 
 
 def test_run_setup_wizard_empty_api_key_does_not_write_secret() -> None:
-    from miniagent.engine.setup_wizard import run_setup_wizard
+    from miniagent.assistant.engine.setup_wizard import run_setup_wizard
 
     with patch("builtins.input", side_effect=["1", "", "", "", ""]):
         config = run_setup_wizard()
@@ -120,7 +120,7 @@ def test_run_setup_wizard_empty_api_key_does_not_write_secret() -> None:
 def test_run_interactive_setup_skipped_at_gate(tmp_path: Path) -> None:
     _install_loader_without_user_file(tmp_path)
 
-    from miniagent.engine.setup_wizard import run_interactive_setup
+    from miniagent.assistant.engine.setup_wizard import run_interactive_setup
 
     with patch("builtins.input", return_value="n"):
         ran = run_interactive_setup()
@@ -132,7 +132,7 @@ def test_run_interactive_setup_skipped_at_gate(tmp_path: Path) -> None:
 def test_run_interactive_setup_saves_config(tmp_path: Path) -> None:
     user_path = _install_loader_without_user_file(tmp_path)
 
-    from miniagent.engine.setup_wizard import run_interactive_setup
+    from miniagent.assistant.engine.setup_wizard import run_interactive_setup
 
     wizard_inputs = ["1", "sk-wizard", "", "", ""]
     gate_inputs = ["", *wizard_inputs]
@@ -149,12 +149,12 @@ def test_apply_saved_config_reloads_config_and_secrets(tmp_path: Path) -> None:
     install_test_config(tmp_path, {"secrets": {"openai_api_key": "sk-x"}})
 
     with (
-        patch("miniagent.engine.setup_wizard.reload_config") as reload_mock,
+        patch("miniagent.assistant.engine.setup_wizard.reload_config") as reload_mock,
         patch(
-            "miniagent.infrastructure.env_loader.load_secrets_from_project_root"
+            "miniagent.assistant.infrastructure.env_loader.load_secrets_from_project_root"
         ) as secrets_mock,
     ):
-        from miniagent.engine.setup_wizard import _apply_saved_config
+        from miniagent.assistant.engine.setup_wizard import _apply_saved_config
 
         _apply_saved_config()
 

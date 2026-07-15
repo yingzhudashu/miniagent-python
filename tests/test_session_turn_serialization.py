@@ -12,7 +12,7 @@ import asyncio
 
 import pytest
 
-from miniagent.engine.engine import UnifiedEngine
+from miniagent.assistant.engine.engine import UnifiedEngine
 
 
 @pytest.mark.asyncio

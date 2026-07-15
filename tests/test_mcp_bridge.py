@@ -1,4 +1,4 @@
-"""Tests for miniagent.mcp.bridge — MCP to OpenAI schema conversion."""
+"""Tests for miniagent.assistant.mcp.bridge — MCP to OpenAI schema conversion."""
 
 from __future__ import annotations
 
@@ -8,7 +8,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.mcp.bridge import is_mcp_available, list_mcp_tools_openai, mcp_tool_to_openai_param
+from miniagent.assistant.mcp.bridge import (
+    is_mcp_available,
+    list_mcp_tools_openai,
+    mcp_tool_to_openai_param,
+)
 
 
 def test_is_mcp_available() -> None:
@@ -104,7 +108,7 @@ async def test_list_mcp_tools_openai_mock_stdio(
     monkeypatch.setitem(sys.modules, "mcp", mcp_pkg)
     monkeypatch.setitem(sys.modules, "mcp.client", mcp_client)
     monkeypatch.setitem(sys.modules, "mcp.client.stdio", mcp_stdio)
-    monkeypatch.setattr("miniagent.mcp.bridge._MCP_INSTALLED", True)
+    monkeypatch.setattr("miniagent.assistant.mcp.bridge._MCP_INSTALLED", True)
 
     out = await list_mcp_tools_openai("echo", ["--flag"], env={"K": "V"})
     assert len(out) == 1
@@ -115,6 +119,6 @@ async def test_list_mcp_tools_openai_mock_stdio(
 async def test_list_mcp_tools_openai_raises_when_uninstalled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("miniagent.mcp.bridge._MCP_INSTALLED", False)
+    monkeypatch.setattr("miniagent.assistant.mcp.bridge._MCP_INSTALLED", False)
     with pytest.raises(RuntimeError, match="未安装 mcp"):
         await list_mcp_tools_openai("x", [])

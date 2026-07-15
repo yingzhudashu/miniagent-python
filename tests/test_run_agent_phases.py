@@ -4,9 +4,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.core.task_classifier import TaskDifficulty
-from miniagent.types.planning import StructuredPlan
-from miniagent.types.tool import Toolbox
+from miniagent.agent.task_classifier import TaskDifficulty
+from miniagent.agent.types.planning import StructuredPlan
+from miniagent.agent.types.tool import Toolbox
 from tests.config_helpers import install_test_config
 from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 
@@ -36,8 +36,8 @@ def _make_agent_config():
     return cfg
 
 
-_TC_PATH = "miniagent.core.task_classifier.task_classifier_enabled"
-_REFLECT_PATH = "miniagent.core.agent.reflect_on_result"
+_TC_PATH = "miniagent.agent.task_classifier.task_classifier_enabled"
+_REFLECT_PATH = "miniagent.agent.agent.reflect_on_result"
 
 
 class TestRunAgentClarification:
@@ -46,7 +46,7 @@ class TestRunAgentClarification:
     @pytest.mark.asyncio
     async def test_clarifier_enhances_input(self, tmp_path):
         """传入 clarifier 时，clarify 被调用且澄清结果注入。"""
-        from miniagent.core.requirement_clarifier import ClarifiedRequirement
+        from miniagent.agent.requirement_clarifier import ClarifiedRequirement
 
         install_test_config(
             tmp_path,
@@ -63,10 +63,10 @@ class TestRunAgentClarification:
         clarifier.clarify = AsyncMock(return_value=clarified)
         clarifier.to_system_prompt = MagicMock(return_value="## 需求规格\n目标：获取指定城市的天气预报")
 
-        with patch("miniagent.core.agent.get_default_agent_config", return_value=_make_agent_config()):
-            with patch("miniagent.core.agent.merge_agent_config", side_effect=lambda a, b: a):
+        with patch("miniagent.agent.agent.get_default_agent_config", return_value=_make_agent_config()):
+            with patch("miniagent.agent.agent.merge_agent_config", side_effect=lambda a, b: a):
                 with patch(_TC_PATH, return_value=False):
-                    with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as mock_exec:
+                    with patch("miniagent.agent.agent.execute_plan", new_callable=AsyncMock) as mock_exec:
                         mock_exec.return_value = "天气预报结果"
 
                         registry = MagicMock()
@@ -74,7 +74,7 @@ class TestRunAgentClarification:
                         registry.get_all.return_value = {}
                         registry.list.return_value = []
 
-                        from miniagent.core import run_agent
+                        from miniagent.agent import run_agent
 
                         reply = await run_agent(
                             "查天气",
@@ -103,10 +103,10 @@ class TestRunAgentClarification:
         clarifier = MagicMock()
         clarifier.clarify = AsyncMock()
 
-        with patch("miniagent.core.agent.get_default_agent_config", return_value=_make_agent_config()):
-            with patch("miniagent.core.agent.merge_agent_config", side_effect=lambda a, b: a):
+        with patch("miniagent.agent.agent.get_default_agent_config", return_value=_make_agent_config()):
+            with patch("miniagent.agent.agent.merge_agent_config", side_effect=lambda a, b: a):
                 with patch(_TC_PATH, return_value=False):
-                    with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as mock_exec:
+                    with patch("miniagent.agent.agent.execute_plan", new_callable=AsyncMock) as mock_exec:
                         mock_exec.return_value = "结果"
 
                         registry = MagicMock()
@@ -114,7 +114,7 @@ class TestRunAgentClarification:
                         registry.get_all.return_value = {}
                         registry.list.return_value = []
 
-                        from miniagent.core import run_agent
+                        from miniagent.agent import run_agent
 
                         reply = await run_agent(
                             "查天气",
@@ -133,10 +133,10 @@ class TestRunAgentClarification:
         """不传入 clarifier 时正常运行。"""
         install_test_config(tmp_path, {"features": {"reflection": False}})
 
-        with patch("miniagent.core.agent.get_default_agent_config", return_value=_make_agent_config()):
-            with patch("miniagent.core.agent.merge_agent_config", side_effect=lambda a, b: a):
+        with patch("miniagent.agent.agent.get_default_agent_config", return_value=_make_agent_config()):
+            with patch("miniagent.agent.agent.merge_agent_config", side_effect=lambda a, b: a):
                 with patch(_TC_PATH, return_value=False):
-                    with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as mock_exec:
+                    with patch("miniagent.agent.agent.execute_plan", new_callable=AsyncMock) as mock_exec:
                         mock_exec.return_value = "结果"
 
                         registry = MagicMock()
@@ -144,7 +144,7 @@ class TestRunAgentClarification:
                         registry.get_all.return_value = {}
                         registry.list.return_value = []
 
-                        from miniagent.core import run_agent
+                        from miniagent.agent import run_agent
 
                         reply = await run_agent(
                             "test",
@@ -174,18 +174,18 @@ class TestClarificationMaxQuestionsByDifficulty:
         clarifier.clarify.return_value = MagicMock(clarified_goal="")
 
         with (
-            patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", True),
-            patch("miniagent.core.constants.EXECUTION_ANNOUNCE_DIFFICULTY", False),
+            patch("miniagent.agent.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", True),
+            patch("miniagent.agent.constants.EXECUTION_ANNOUNCE_DIFFICULTY", False),
         ):
-            with patch("miniagent.core.agent.classify_task_difficulty", new_callable=AsyncMock) as clf:
+            with patch("miniagent.agent.agent.classify_task_difficulty", new_callable=AsyncMock) as clf:
                 clf.return_value = TaskDifficulty.NORMAL
-                with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
+                with patch("miniagent.agent.agent.generate_plan", new_callable=AsyncMock) as gp:
                     gp.return_value = StructuredPlan(summary="s", steps=[], required_toolboxes=[])
-                    with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
+                    with patch("miniagent.agent.agent.execute_plan", new_callable=AsyncMock) as ex:
                         ex.return_value = "ok"
 
-                        from miniagent.core.agent import run_agent
-                        from miniagent.infrastructure.registry import DefaultToolRegistry
+                        from miniagent.agent.agent import run_agent
+                        from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
                         await run_agent(
                             "task",
@@ -215,18 +215,18 @@ class TestClarificationMaxQuestionsByDifficulty:
         clarifier.clarify.return_value = MagicMock(clarified_goal="")
 
         with (
-            patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", True),
-            patch("miniagent.core.constants.EXECUTION_ANNOUNCE_DIFFICULTY", False),
+            patch("miniagent.agent.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", True),
+            patch("miniagent.agent.constants.EXECUTION_ANNOUNCE_DIFFICULTY", False),
         ):
-            with patch("miniagent.core.agent.classify_task_difficulty", new_callable=AsyncMock) as clf:
+            with patch("miniagent.agent.agent.classify_task_difficulty", new_callable=AsyncMock) as clf:
                 clf.return_value = TaskDifficulty.MEDIUM
-                with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
+                with patch("miniagent.agent.agent.generate_plan", new_callable=AsyncMock) as gp:
                     gp.return_value = StructuredPlan(summary="s", steps=[], required_toolboxes=[])
-                    with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
+                    with patch("miniagent.agent.agent.execute_plan", new_callable=AsyncMock) as ex:
                         ex.return_value = "ok"
 
-                        from miniagent.core.agent import run_agent
-                        from miniagent.infrastructure.registry import DefaultToolRegistry
+                        from miniagent.agent.agent import run_agent
+                        from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
                         await run_agent(
                             "task",
@@ -256,18 +256,18 @@ class TestClarificationMaxQuestionsByDifficulty:
         clarifier.clarify.return_value = MagicMock(clarified_goal="")
 
         with (
-            patch("miniagent.core.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", True),
-            patch("miniagent.core.constants.EXECUTION_ANNOUNCE_DIFFICULTY", False),
+            patch("miniagent.agent.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", True),
+            patch("miniagent.agent.constants.EXECUTION_ANNOUNCE_DIFFICULTY", False),
         ):
-            with patch("miniagent.core.agent.classify_task_difficulty", new_callable=AsyncMock) as clf:
+            with patch("miniagent.agent.agent.classify_task_difficulty", new_callable=AsyncMock) as clf:
                 clf.return_value = TaskDifficulty.COMPLEX
-                with patch("miniagent.core.agent.generate_plan", new_callable=AsyncMock) as gp:
+                with patch("miniagent.agent.agent.generate_plan", new_callable=AsyncMock) as gp:
                     gp.return_value = StructuredPlan(summary="s", steps=[], required_toolboxes=[])
-                    with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as ex:
+                    with patch("miniagent.agent.agent.execute_plan", new_callable=AsyncMock) as ex:
                         ex.return_value = "ok"
 
-                        from miniagent.core.agent import run_agent
-                        from miniagent.infrastructure.registry import DefaultToolRegistry
+                        from miniagent.agent.agent import run_agent
+                        from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
                         await run_agent(
                             "task",
@@ -290,17 +290,17 @@ class TestRunAgentReflection:
     @pytest.mark.asyncio
     async def test_reflection_when_enabled(self, tmp_path):
         """默认开启反思评估。"""
-        from miniagent.core.problem_solver import ReflectionResult
+        from miniagent.agent.problem_solver import ReflectionResult
 
         install_test_config(tmp_path, {"features": {"reflection": True}})
 
         cfg = _make_agent_config()
         cfg.session_config.session_key = "test_session"
 
-        with patch("miniagent.core.agent.get_default_agent_config", return_value=cfg):
-            with patch("miniagent.core.agent.merge_agent_config", side_effect=lambda a, b: a):
+        with patch("miniagent.agent.agent.get_default_agent_config", return_value=cfg):
+            with patch("miniagent.agent.agent.merge_agent_config", side_effect=lambda a, b: a):
                 with patch(_TC_PATH, return_value=False):
-                    with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as mock_exec:
+                    with patch("miniagent.agent.agent.execute_plan", new_callable=AsyncMock) as mock_exec:
                         mock_exec.return_value = "Agent 回复结果"
 
                         on_thinking = AsyncMock()
@@ -318,7 +318,7 @@ class TestRunAgentReflection:
                             registry.get_all.return_value = {}
                             registry.list.return_value = []
 
-                            from miniagent.core import run_agent
+                            from miniagent.agent import run_agent
 
                             reply = await run_agent(
                                 "test input",
@@ -338,10 +338,10 @@ class TestRunAgentReflection:
         """features.reflection=false 时不执行反思。"""
         install_test_config(tmp_path, {"features": {"reflection": False}})
 
-        with patch("miniagent.core.agent.get_default_agent_config", return_value=_make_agent_config()):
-            with patch("miniagent.core.agent.merge_agent_config", side_effect=lambda a, b: a):
+        with patch("miniagent.agent.agent.get_default_agent_config", return_value=_make_agent_config()):
+            with patch("miniagent.agent.agent.merge_agent_config", side_effect=lambda a, b: a):
                 with patch(_TC_PATH, return_value=False):
-                    with patch("miniagent.core.agent.execute_plan", new_callable=AsyncMock) as mock_exec:
+                    with patch("miniagent.agent.agent.execute_plan", new_callable=AsyncMock) as mock_exec:
                         mock_exec.return_value = "结果"
 
                         registry = MagicMock()
@@ -350,7 +350,7 @@ class TestRunAgentReflection:
                         registry.list.return_value = []
 
                         with patch(_REFLECT_PATH, new_callable=AsyncMock) as mock_reflect:
-                            from miniagent.core import run_agent
+                            from miniagent.agent import run_agent
 
                             reply = await run_agent(
                                 "test",

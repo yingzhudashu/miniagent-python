@@ -9,7 +9,7 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _clear_render_cache() -> None:
-    from miniagent.engine import markdown_cli
+    from miniagent.assistant.engine import markdown_cli
 
     markdown_cli._render_cache.clear()
     yield
@@ -18,27 +18,27 @@ def _clear_render_cache() -> None:
 
 def test_render_markdown_respects_raw_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MINIAGENT_CLI_RAW_MARKDOWN", "1")
-    from miniagent.engine.markdown_cli import render_markdown_to_ansi
+    from miniagent.assistant.engine.markdown_cli import render_markdown_to_ansi
 
     assert render_markdown_to_ansi("# Title\n\nbody", width=50) is None
 
 
 def test_cli_raw_markdown_from_config(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("MINIAGENT_CLI_RAW_MARKDOWN", raising=False)
-    from miniagent.engine.markdown_cli import cli_raw_markdown_enabled
+    from miniagent.assistant.engine.markdown_cli import cli_raw_markdown_enabled
 
-    with patch("miniagent.infrastructure.json_config.get_config", return_value=True):
+    with patch("miniagent.assistant.infrastructure.json_config.get_config", return_value=True):
         assert cli_raw_markdown_enabled() is True
 
 
 def test_strip_ansi() -> None:
-    from miniagent.engine.markdown_cli import strip_ansi
+    from miniagent.assistant.engine.markdown_cli import strip_ansi
 
     assert strip_ansi("\x1b[32mok\x1b[0m") == "ok"
 
 
 def test_code_fence_heading_not_promoted() -> None:
-    from miniagent.engine.markdown_cli import render_markdown_to_ansi, strip_ansi
+    from miniagent.assistant.engine.markdown_cli import render_markdown_to_ansi, strip_ansi
 
     md = "```python\n# fake heading\nprint(1)\n```\n\n# Real Title\n\nbody"
     rendered = render_markdown_to_ansi(md, width=80)
@@ -50,7 +50,7 @@ def test_code_fence_heading_not_promoted() -> None:
 
 
 def test_render_cache_no_collision() -> None:
-    from miniagent.engine.markdown_cli import render_markdown_to_ansi
+    from miniagent.assistant.engine.markdown_cli import render_markdown_to_ansi
 
     md_a = "x" * 100 + "UNIQUE_A"
     md_b = "x" * 100 + "UNIQUE_B"
@@ -61,7 +61,7 @@ def test_render_cache_no_collision() -> None:
 
 
 def test_compute_fence_mask() -> None:
-    from miniagent.engine.markdown_cli import _compute_fence_mask
+    from miniagent.assistant.engine.markdown_cli import _compute_fence_mask
 
     lines = ["```python", "# inside", "code", "```", "# outside", "text"]
     mask = _compute_fence_mask(lines)
@@ -69,7 +69,7 @@ def test_compute_fence_mask() -> None:
 
 
 def test_console_file_restored_on_render_error() -> None:
-    from miniagent.engine import markdown_cli
+    from miniagent.assistant.engine import markdown_cli
 
     console = markdown_cli._get_cached_console(60)
     original_file = markdown_cli._shared_console_original_file[60]

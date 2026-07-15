@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.feishu.ws_health import (
+from miniagent.assistant.feishu.ws_health import (
     FeishuWsHealthState,
     _receive_loop_exit_reason,
     read_feishu_ws_health_config,
@@ -62,7 +62,7 @@ async def test_receive_loop_ping_timeout_has_stable_recoverable_reason():
 
 def test_health_state_tracks_physical_session_duration(monkeypatch):
     ticks = iter((100.0, 175.5))
-    monkeypatch.setattr("miniagent.feishu.ws_health.time.monotonic", lambda: next(ticks))
+    monkeypatch.setattr("miniagent.assistant.feishu.ws_health.time.monotonic", lambda: next(ticks))
     health = FeishuWsHealthState()
     health.record_session_start()
     health.record_session_end("receive_loop_ping_timeout")
@@ -227,7 +227,7 @@ async def test_watchdog_idle_refresh(tmp_path):
 
 @pytest.mark.asyncio
 async def test_poll_state_shutdown_sets_supervisor_reason(tmp_path):
-    from miniagent.feishu import poll_server as ps
+    from miniagent.assistant.feishu import poll_server as ps
 
     install_test_config(
         tmp_path,
@@ -357,7 +357,7 @@ def test_read_feishu_ws_health_config_defaults(tmp_path):
 
 
 def test_stable_session_resets_reconnect_backoff():
-    from miniagent.engine.feishu_state import _next_reconnect_attempt
+    from miniagent.assistant.engine.feishu_state import _next_reconnect_attempt
 
     assert (
         _next_reconnect_attempt(
@@ -378,7 +378,7 @@ def test_stable_session_resets_reconnect_backoff():
 
 
 def test_feishu_ws_auto_reconnect_default(tmp_path):
-    from miniagent.feishu.ws_client import feishu_ws_auto_reconnect_enabled
+    from miniagent.assistant.feishu.ws_client import feishu_ws_auto_reconnect_enabled
 
     install_test_config(tmp_path)
     assert feishu_ws_auto_reconnect_enabled() is False
@@ -400,7 +400,7 @@ async def test_reconnect_loop_holds_lock_after_supervised_return(monkeypatch, tm
         releases.append("release")
 
     monkeypatch.setattr(
-        "miniagent.infrastructure.feishu_inbound_lock.release_feishu_inbound_owner",
+        "miniagent.assistant.infrastructure.feishu_inbound_lock.release_feishu_inbound_owner",
         track_release,
     )
 
@@ -415,7 +415,7 @@ async def test_reconnect_loop_holds_lock_after_supervised_return(monkeypatch, tm
         await asyncio.Event().wait()
 
     monkeypatch.setattr(
-        "miniagent.feishu.poll_server.start_feishu_poll_server",
+        "miniagent.assistant.feishu.poll_server.start_feishu_poll_server",
         fake_start,
     )
 
@@ -424,8 +424,8 @@ async def test_reconnect_loop_holds_lock_after_supervised_return(monkeypatch, tm
 
     monkeypatch.setattr("asyncio.sleep", instant_sleep)
 
-    from miniagent.engine.feishu_state import FeishuRuntime
-    from miniagent.infrastructure.message_queue import MessageQueueManager
+    from miniagent.assistant.engine.feishu_state import FeishuRuntime
+    from miniagent.assistant.infrastructure.message_queue import MessageQueueManager
 
     mq = MessageQueueManager()
     rt = FeishuRuntime(mq)

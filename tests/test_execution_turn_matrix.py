@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.core.execution_turn import ExecutionTurnStreamer
-from miniagent.core.llm_transport import LLMTransportError
+from miniagent.agent.execution_turn import ExecutionTurnStreamer
+from miniagent.llm.legacy_transport import LLMTransportError
 
 
 def _event(*, content: str | None = None, tool: object | None = None, usage: object = None):
@@ -83,18 +83,18 @@ async def test_stream_exec_turn_aggregates_tools_and_records_observability() -> 
 
     traces: list[dict[str, object]] = []
     with (
-        patch("miniagent.core.execution_turn.stream_completion", side_effect=events),
+        patch("miniagent.agent.execution_turn.stream_completion", side_effect=events),
         patch(
-            "miniagent.core.execution_turn.resolve_exec_completion_kwargs",
+            "miniagent.agent.execution_turn.resolve_exec_completion_kwargs",
             return_value={"model": "model-x"},
         ),
-        patch("miniagent.core.execution_turn.invoke_on_thinking", thinking_calls),
-        patch("miniagent.core.execution_turn._tool_intent_in_thinking_enabled", return_value=True),
-        patch("miniagent.core.execution_turn._extract_tool_intent", return_value="读取内容"),
-        patch("miniagent.core.execution_turn.emit_trace", side_effect=traces.append),
-        patch("miniagent.core.execution_turn.asyncio.to_thread", side_effect=fake_to_thread),
+        patch("miniagent.agent.execution_turn.invoke_on_thinking", thinking_calls),
+        patch("miniagent.agent.execution_turn._tool_intent_in_thinking_enabled", return_value=True),
+        patch("miniagent.agent.execution_turn._extract_tool_intent", return_value="读取内容"),
+        patch("miniagent.agent.execution_turn.emit_trace", side_effect=traces.append),
+        patch("miniagent.agent.execution_turn.asyncio.to_thread", side_effect=fake_to_thread),
         patch(
-            "miniagent.core.execution_turn.invoke_activity_log", new_callable=AsyncMock
+            "miniagent.agent.execution_turn.invoke_activity_log", new_callable=AsyncMock
         ) as activity,
     ):
         message, kwargs, _, actual_usage, content, label = await streamer.stream_exec_turn(
@@ -131,13 +131,13 @@ async def test_stream_exec_turn_retries_transient_responses_error_without_output
     streamer = _streamer(responses=True)
     failure = SimpleNamespace(retryable=True, category="gateway")
     with (
-        patch("miniagent.core.execution_turn.stream_completion", side_effect=events),
+        patch("miniagent.agent.execution_turn.stream_completion", side_effect=events),
         patch(
-            "miniagent.core.execution_turn.resolve_exec_completion_kwargs",
+            "miniagent.agent.execution_turn.resolve_exec_completion_kwargs",
             return_value={"model": "model-x"},
         ),
-        patch("miniagent.core.execution_turn.classify_transport_error", return_value=failure),
-        patch("miniagent.core.execution_turn.emit_trace"),
+        patch("miniagent.agent.execution_turn.classify_transport_error", return_value=failure),
+        patch("miniagent.agent.execution_turn.emit_trace"),
     ):
         message, *_ = await streamer.stream_exec_turn(None, [], "[执行]")
 
@@ -159,13 +159,13 @@ async def test_stream_exec_turn_never_replays_after_partial_output() -> None:
     streamer = _streamer(responses=True)
     failure = SimpleNamespace(retryable=True, category="gateway")
     with (
-        patch("miniagent.core.execution_turn.stream_completion", side_effect=events),
+        patch("miniagent.agent.execution_turn.stream_completion", side_effect=events),
         patch(
-            "miniagent.core.execution_turn.resolve_exec_completion_kwargs",
+            "miniagent.agent.execution_turn.resolve_exec_completion_kwargs",
             return_value={"model": "model-x"},
         ),
-        patch("miniagent.core.execution_turn.classify_transport_error", return_value=failure),
-        patch("miniagent.core.execution_turn.emit_trace"),
+        patch("miniagent.agent.execution_turn.classify_transport_error", return_value=failure),
+        patch("miniagent.agent.execution_turn.emit_trace"),
         pytest.raises(RuntimeError, match="gateway"),
     ):
         await streamer.stream_exec_turn(None, [], "[执行]")
@@ -183,13 +183,13 @@ async def test_stream_exec_turn_wraps_repeated_transient_responses_error() -> No
     streamer = _streamer(responses=True)
     failure = SimpleNamespace(retryable=True, category="gateway")
     with (
-        patch("miniagent.core.execution_turn.stream_completion", side_effect=events),
+        patch("miniagent.agent.execution_turn.stream_completion", side_effect=events),
         patch(
-            "miniagent.core.execution_turn.resolve_exec_completion_kwargs",
+            "miniagent.agent.execution_turn.resolve_exec_completion_kwargs",
             return_value={"model": "model-x"},
         ),
-        patch("miniagent.core.execution_turn.classify_transport_error", return_value=failure),
-        patch("miniagent.core.execution_turn.emit_trace"),
+        patch("miniagent.agent.execution_turn.classify_transport_error", return_value=failure),
+        patch("miniagent.agent.execution_turn.emit_trace"),
         pytest.raises(LLMTransportError, match="repeatedly rejected"),
     ):
         await streamer.stream_exec_turn(None, [], "[执行]")
@@ -204,12 +204,12 @@ async def test_stream_exec_turn_rejects_repeated_empty_responses() -> None:
 
     streamer = _streamer(responses=True)
     with (
-        patch("miniagent.core.execution_turn.stream_completion", side_effect=events),
+        patch("miniagent.agent.execution_turn.stream_completion", side_effect=events),
         patch(
-            "miniagent.core.execution_turn.resolve_exec_completion_kwargs",
+            "miniagent.agent.execution_turn.resolve_exec_completion_kwargs",
             return_value={"model": "model-x"},
         ),
-        patch("miniagent.core.execution_turn.emit_trace"),
+        patch("miniagent.agent.execution_turn.emit_trace"),
         pytest.raises(LLMTransportError, match="no text or tool calls"),
     ):
         await streamer.stream_exec_turn(None, [], "[执行]")
@@ -224,13 +224,13 @@ async def test_thinking_failures_are_non_fatal_and_phase_can_retry_later() -> No
     streamer = _streamer(thinking=object())
     callback = AsyncMock(side_effect=RuntimeError("display unavailable"))
     with (
-        patch("miniagent.core.execution_turn.stream_completion", side_effect=events),
+        patch("miniagent.agent.execution_turn.stream_completion", side_effect=events),
         patch(
-            "miniagent.core.execution_turn.resolve_exec_completion_kwargs",
+            "miniagent.agent.execution_turn.resolve_exec_completion_kwargs",
             return_value={"model": "model-x"},
         ),
-        patch("miniagent.core.execution_turn.invoke_on_thinking", callback),
-        patch("miniagent.core.execution_turn.emit_trace"),
+        patch("miniagent.agent.execution_turn.invoke_on_thinking", callback),
+        patch("miniagent.agent.execution_turn.emit_trace"),
     ):
         message, *_ = await streamer.stream_exec_turn(None, [], "[执行]")
 

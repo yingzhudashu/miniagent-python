@@ -11,9 +11,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.core.executor import execute_plan
-from miniagent.types.config import ModelConfig
-from miniagent.types.planning import PlanStep, StructuredPlan
+from miniagent.agent.executor import execute_plan
+from miniagent.agent.types.config import ModelConfig
+from miniagent.agent.types.planning import PlanStep, StructuredPlan
 from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 from tests.mock_strategies import (
     agent_config_with_session,
@@ -33,9 +33,9 @@ def _responses_execution_config() -> Iterator[None]:
         max_tokens=4096,
     )
     with (
-        patch("miniagent.core.executor.get_default_model_config", return_value=config),
-        patch("miniagent.core.llm_params.get_default_model_config", return_value=config),
-        patch("miniagent.core.llm_transport._wire_api", return_value="responses"),
+        patch("miniagent.agent.executor.get_default_model_config", return_value=config),
+        patch("miniagent.agent.llm_params.get_default_model_config", return_value=config),
+        patch("miniagent.llm.legacy_transport._wire_api", return_value="responses"),
     ):
         yield
 
@@ -161,7 +161,7 @@ async def test_execute_plan_responses_tool_round_trip() -> None:
     client = MagicMock()
     client.responses.create = AsyncMock(side_effect=create_response)
     ms, al, ki = mock_memory_bundle()
-    with patch("miniagent.core.llm_transport._wire_api", return_value="responses"):
+    with patch("miniagent.llm.legacy_transport._wire_api", return_value="responses"):
         out = await execute_plan(
             empty_plan(),
             "hi",
@@ -260,7 +260,7 @@ async def test_execute_plan_responses_retries_completed_empty_stream() -> None:
 
     with (
         _responses_execution_config(),
-        patch("miniagent.core.execution_turn.emit_trace", side_effect=trace_events.append),
+        patch("miniagent.agent.execution_turn.emit_trace", side_effect=trace_events.append),
     ):
         out = await execute_plan(
             empty_plan(),
@@ -342,8 +342,8 @@ async def test_execute_plan_phased_last_step_grace_synthesis() -> None:
     mock_client.chat.completions.create = AsyncMock(side_effect=capture_kwargs)
     ms, al, ki = mock_memory_bundle()
     with (
-        patch("miniagent.core.executor._env_phased_execution_enabled", return_value=True),
-        patch("miniagent.core.executor.EXECUTION_STEP_MAX_TURNS", 1),
+        patch("miniagent.agent.executor._env_phased_execution_enabled", return_value=True),
+        patch("miniagent.agent.executor.EXECUTION_STEP_MAX_TURNS", 1),
     ):
         out = await execute_plan(
             plan,
@@ -394,8 +394,8 @@ async def test_execute_plan_phased_last_step_no_turns_left_still_warns() -> None
     )
     ms, al, ki = mock_memory_bundle()
     with (
-        patch("miniagent.core.executor._env_phased_execution_enabled", return_value=True),
-        patch("miniagent.core.executor.EXECUTION_STEP_MAX_TURNS", 1),
+        patch("miniagent.agent.executor._env_phased_execution_enabled", return_value=True),
+        patch("miniagent.agent.executor.EXECUTION_STEP_MAX_TURNS", 1),
     ):
         out = await execute_plan(
             plan,
@@ -439,8 +439,8 @@ async def test_execute_plan_phased_grace_still_tool_calls_warns() -> None:
     mock_client = mock_streaming_client(extra_streams=[tool_stream, tool_stream])
     ms, al, ki = mock_memory_bundle()
     with (
-        patch("miniagent.core.executor._env_phased_execution_enabled", return_value=True),
-        patch("miniagent.core.executor.EXECUTION_STEP_MAX_TURNS", 1),
+        patch("miniagent.agent.executor._env_phased_execution_enabled", return_value=True),
+        patch("miniagent.agent.executor.EXECUTION_STEP_MAX_TURNS", 1),
     ):
         out = await execute_plan(
             plan,
@@ -459,7 +459,7 @@ async def test_execute_plan_phased_grace_still_tool_calls_warns() -> None:
 @pytest.mark.asyncio
 async def test_execute_plan_ephemeral_session_skips_activity_log(state_dir) -> None:
     """后台子 session 不在 activity log 中落盘。"""
-    from miniagent.types.config import AgentConfig, SessionBindingConfig
+    from miniagent.agent.types.config import AgentConfig, SessionBindingConfig
 
     main, sess = make_ping_tool_registry()
     mock_client = mock_streaming_client()
@@ -538,8 +538,8 @@ def _confirm_tool_schema(name: str = "danger_tool") -> dict:
 
 
 def _make_confirm_registry(*, handler=None) -> tuple[Any, list[int]]:
-    from miniagent.infrastructure.registry import DefaultToolRegistry
-    from miniagent.types.tool import ToolDefinition, ToolResult
+    from miniagent.agent.types.tool import ToolDefinition, ToolResult
+    from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
     calls: list[int] = []
 
@@ -597,7 +597,7 @@ async def test_execute_plan_require_confirm_without_channel_denies() -> None:
 
 @pytest.mark.asyncio
 async def test_execute_plan_require_confirm_user_rejects() -> None:
-    from miniagent.types.confirmation import ConfirmationResult
+    from miniagent.agent.types.confirmation import ConfirmationResult
 
     reg, calls = _make_confirm_registry()
     channel = MagicMock()
@@ -636,7 +636,7 @@ async def test_execute_plan_require_confirm_user_rejects() -> None:
 
 @pytest.mark.asyncio
 async def test_execute_plan_require_confirm_auto_execute_skips() -> None:
-    from miniagent.types.config import AgentConfig, SessionBindingConfig
+    from miniagent.agent.types.config import AgentConfig, SessionBindingConfig
 
     reg, calls = _make_confirm_registry()
     mock_client = mock_streaming_client(tool_name="danger_tool")
@@ -664,7 +664,7 @@ async def test_execute_plan_require_confirm_auto_execute_skips() -> None:
 
 @pytest.mark.asyncio
 async def test_execute_plan_require_confirm_user_approves() -> None:
-    from miniagent.types.confirmation import ConfirmationResult
+    from miniagent.agent.types.confirmation import ConfirmationResult
 
     reg, calls = _make_confirm_registry()
     channel = MagicMock()
@@ -690,7 +690,7 @@ async def test_execute_plan_require_confirm_user_approves() -> None:
 @pytest.mark.asyncio
 async def test_execute_plan_phased_last_step_persists_session_memory() -> None:
     """分步模式最后一步完成时应落盘会话记忆（回归：曾调用未定义的 _save_session_memory）。"""
-    from miniagent.types.config import AgentConfig, SessionBindingConfig
+    from miniagent.agent.types.config import AgentConfig, SessionBindingConfig
 
     main, sess = make_ping_tool_registry()
     plan = StructuredPlan(
@@ -713,7 +713,7 @@ async def test_execute_plan_phased_last_step_persists_session_memory() -> None:
         ),
         debug=False,
     )
-    with patch("miniagent.core.executor._env_phased_execution_enabled", return_value=True):
+    with patch("miniagent.agent.executor._env_phased_execution_enabled", return_value=True):
         out = await execute_plan(
             plan,
             "hi",

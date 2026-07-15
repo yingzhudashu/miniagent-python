@@ -8,12 +8,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.engine import command_dispatch
-from miniagent.engine.engine import _turn_label_sort_key, _TurnThinkingRecorder
-from miniagent.feishu import card_rendering
-from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec
+from miniagent.assistant.engine import command_dispatch
+from miniagent.assistant.engine.engine import _turn_label_sort_key, _TurnThinkingRecorder
+from miniagent.assistant.feishu import card_rendering
+from miniagent.assistant.scheduled_tasks.models import ScheduledTask, ScheduleSpec
 
-schedule_tools = importlib.import_module("miniagent.tools.schedule_tools")
+schedule_tools = importlib.import_module("miniagent.assistant.tools.schedule_tools")
 
 
 def test_card_rendering_empty_cap_and_fence_cut(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -56,12 +56,12 @@ def test_updated_schedule_all_kinds_and_errors() -> None:
 
 def test_set_enabled_repairs_missing_next_run(monkeypatch: pytest.MonkeyPatch) -> None:
     task = ScheduledTask(id="task", name="task", prompt="p", enabled=False, next_run_at=None)
-    monkeypatch.setattr("miniagent.scheduled_tasks.store.load_tasks", lambda: [task])
+    monkeypatch.setattr("miniagent.assistant.scheduled_tasks.store.load_tasks", lambda: [task])
     monkeypatch.setattr(
-        "miniagent.scheduled_tasks.store.compute_initial_next_run", lambda _task: 123.0
+        "miniagent.assistant.scheduled_tasks.store.compute_initial_next_run", lambda _task: 123.0
     )
-    monkeypatch.setattr("miniagent.scheduled_tasks.store.repair_invalid_schedules", lambda _tasks: False)
-    monkeypatch.setattr("miniagent.scheduled_tasks.store.save_tasks", MagicMock())
+    monkeypatch.setattr("miniagent.assistant.scheduled_tasks.store.repair_invalid_schedules", lambda _tasks: False)
+    monkeypatch.setattr("miniagent.assistant.scheduled_tasks.store.save_tasks", MagicMock())
     result = schedule_tools._schedule_tool_set_enabled(
         {"task_id": "task", "enabled": True}
     )
@@ -73,7 +73,7 @@ async def test_schedule_add_invalid_next_run_and_update_no_save(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "miniagent.scheduled_tasks.store.compute_initial_next_run", lambda _task: None
+        "miniagent.assistant.scheduled_tasks.store.compute_initial_next_run", lambda _task: None
     )
     add = schedule_tools._schedule_tool_add(
         {"action": "add_cron", "task_id": "x", "prompt": "p", "cron_expr": "0 1 * * *"}
@@ -81,9 +81,9 @@ async def test_schedule_add_invalid_next_run_and_update_no_save(
     assert not add.success and "cron" in add.content
 
     existing = ScheduledTask(id="x", name="x", prompt="old")
-    monkeypatch.setattr("miniagent.scheduled_tasks.store.load_tasks", lambda: [existing])
+    monkeypatch.setattr("miniagent.assistant.scheduled_tasks.store.load_tasks", lambda: [existing])
     save = MagicMock()
-    monkeypatch.setattr("miniagent.scheduled_tasks.store.save_tasks", save)
+    monkeypatch.setattr("miniagent.assistant.scheduled_tasks.store.save_tasks", save)
     update = schedule_tools._schedule_tool_update(
         {"action": "update", "task_id": "x", "prompt": "new", "interval_seconds": 10}
     )
@@ -95,7 +95,7 @@ async def test_schedule_add_invalid_next_run_and_update_no_save(
 async def test_review_iterative_update_and_missing_improvement(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import miniagent.core.llm_json as llm_module
+    import miniagent.agent.llm_json as llm_module
 
     responses = iter(
         [
@@ -117,8 +117,8 @@ async def test_review_iterative_update_and_missing_improvement(
 
 @pytest.mark.asyncio
 async def test_self_test_real_builder_and_non_capture_return(monkeypatch: pytest.MonkeyPatch) -> None:
-    import miniagent.testing.agent_adapter as adapter
-    import miniagent.testing.test_runner as runner
+    import miniagent.assistant.testing.agent_adapter as adapter
+    import miniagent.assistant.testing.test_runner as runner
 
     monkeypatch.setattr(adapter, "build_execute_agent_from_engine", AsyncMock(return_value="agent"))
     monkeypatch.setattr(
@@ -151,8 +151,8 @@ async def test_turn_recorder_sort_reset_concat_and_tools(monkeypatch: pytest.Mon
 
 
 def test_feishu_auto_bind_and_clarification(monkeypatch: pytest.MonkeyPatch) -> None:
-    from miniagent.engine.feishu_handler import _FeishuHandlerRuntime
-    from miniagent.types.confirmation import ConfirmationStage
+    from miniagent.agent.types.confirmation import ConfirmationStage
+    from miniagent.assistant.engine.feishu_handler import _FeishuHandlerRuntime
 
     runtime = object.__new__(_FeishuHandlerRuntime)
     router = SimpleNamespace(
@@ -163,7 +163,7 @@ def test_feishu_auto_bind_and_clarification(monkeypatch: pytest.MonkeyPatch) -> 
     runtime.channel_router = router
     runtime.state = {"active_session_id": "active", "feishu_p2p_synced_senders": []}
     monkeypatch.setattr(
-        "miniagent.infrastructure.cli_feishu_policy.should_allow_p2p_auto_bind", lambda _router: True
+        "miniagent.assistant.infrastructure.cli_feishu_policy.should_allow_p2p_auto_bind", lambda _router: True
     )
     runtime.maybe_auto_bind("p2p", "sender")
     router.bind.assert_called_once()

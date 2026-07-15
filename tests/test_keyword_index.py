@@ -12,13 +12,13 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from miniagent.memory.keyword_index import (
+from miniagent.agent.types.memory import MemoryEntryInput
+from miniagent.assistant.memory.keyword_index import (
     KeywordIndex,
     extract_keywords,
     format_search_results,
     search_relevant_with_index,
 )
-from miniagent.types.memory import MemoryEntryInput
 
 
 class TestExtractKeywords:

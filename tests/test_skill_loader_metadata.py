@@ -1,6 +1,6 @@
 """SKILL.md 元数据解析测试"""
 
-from miniagent.skills.loader import _map_metadata, _resolve_base_dir, parse_skill_md
+from miniagent.assistant.skills.loader import _map_metadata, _resolve_base_dir, parse_skill_md
 
 
 class TestParseSkillMdMultilineYaml:

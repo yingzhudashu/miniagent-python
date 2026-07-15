@@ -10,8 +10,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from miniagent.feishu import poll_server
-from miniagent.feishu.types import FeishuConfig
+from miniagent.assistant.feishu import poll_server
+from miniagent.assistant.feishu.types import FeishuConfig
 
 
 class _Deduplicator:
@@ -138,11 +138,11 @@ def test_confirmation_channel_resolution_fallbacks() -> None:
 
 
 def _install_fake_sdk(monkeypatch, state: _RuntimeState, drive_callbacks):
-    import miniagent.feishu.ws_client as ws_client_module
-    import miniagent.feishu.ws_health as ws_health_module
+    import miniagent.assistant.feishu.ws_client as ws_client_module
+    import miniagent.assistant.feishu.ws_health as ws_health_module
 
     dispatcher_module = importlib.import_module("lark_oapi.event.dispatcher_handler")
-    debounce_module = importlib.import_module("miniagent.feishu.message_debounce")
+    debounce_module = importlib.import_module("miniagent.assistant.feishu.message_debounce")
     builder = _Builder()
     monkeypatch.setattr(
         dispatcher_module.EventDispatcherHandler,
@@ -520,7 +520,7 @@ async def test_poll_server_routes_post_media_and_expires_old_messages(monkeypatc
 
 @pytest.mark.asyncio
 async def test_poll_server_command_and_clarification_control_paths(monkeypatch) -> None:
-    from miniagent.types.confirmation import ConfirmationStage
+    from miniagent.agent.types.confirmation import ConfirmationStage
 
     state = _RuntimeState()
     queue = _Queue()
@@ -565,7 +565,7 @@ async def test_poll_server_command_and_clarification_control_paths(monkeypatch) 
 
 @pytest.mark.asyncio
 async def test_poll_server_nonclarification_pending_uses_debouncer(monkeypatch) -> None:
-    from miniagent.types.confirmation import ConfirmationStage
+    from miniagent.agent.types.confirmation import ConfirmationStage
 
     state = _RuntimeState()
     queue = _Queue()
@@ -656,7 +656,7 @@ async def test_poll_server_media_silent_and_post_failure_paths(monkeypatch) -> N
     [("/confirm", "success"), ("/reject", "warning"), ("/adjust 更简洁", "success")],
 )
 async def test_poll_server_card_confirmation_actions(monkeypatch, text, expected_type) -> None:
-    from miniagent.types.confirmation import ConfirmationStage
+    from miniagent.agent.types.confirmation import ConfirmationStage
 
     state = _RuntimeState()
     queue = _Queue()

@@ -15,8 +15,9 @@ from array import array
 
 import pytest
 
-from miniagent.memory import embedding_search as embedding_module
-from miniagent.memory.embedding_search import (
+from miniagent.agent.types.memory import MemoryEntryInput
+from miniagent.assistant.memory import embedding_search as embedding_module
+from miniagent.assistant.memory.embedding_search import (
     _EMBEDDING_CACHE,
     EmbeddingIndex,
     EmbeddingSearchProvider,
@@ -25,8 +26,7 @@ from miniagent.memory.embedding_search import (
     _text_hash,
     embedding_search_enabled,
 )
-from miniagent.memory.shared_registry import MemoryEntryRegistry
-from miniagent.types.memory import MemoryEntryInput
+from miniagent.assistant.memory.shared_registry import MemoryEntryRegistry
 from tests.config_helpers import install_test_config
 
 # ============================================================================

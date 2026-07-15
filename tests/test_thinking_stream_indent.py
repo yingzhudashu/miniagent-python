@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from miniagent.engine.thinking import indent_stream_thinking_suffix
+from miniagent.assistant.engine.thinking import indent_stream_thinking_suffix
 
 
 def test_indent_default_no_paragraph_prefix() -> None:

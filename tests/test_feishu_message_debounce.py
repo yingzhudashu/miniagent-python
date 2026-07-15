@@ -6,11 +6,11 @@ import asyncio
 
 import pytest
 
-from miniagent.feishu.message_debounce import (
+from miniagent.assistant.feishu.message_debounce import (
     FeishuMessageDebouncer,
     feishu_message_debounce_ms,
 )
-from miniagent.feishu.types import FeishuInboundText
+from miniagent.assistant.feishu.types import FeishuInboundText
 
 
 def _inbound(text: str, *, mid: str = "om_1") -> FeishuInboundText:
@@ -26,7 +26,7 @@ def _inbound(text: str, *, mid: str = "om_1") -> FeishuInboundText:
 @pytest.mark.asyncio
 async def test_debouncer_merges_messages_within_window(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "miniagent.feishu.message_debounce.get_config",
+        "miniagent.assistant.feishu.message_debounce.get_config",
         lambda key, default=None: 50 if key == "feishu.message_debounce_ms" else default,
     )
     debouncer = FeishuMessageDebouncer()
@@ -72,7 +72,7 @@ async def test_reset_clears_pending_buffers() -> None:
 
 def test_feishu_message_debounce_ms_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "miniagent.feishu.message_debounce.get_config",
+        "miniagent.assistant.feishu.message_debounce.get_config",
         lambda key, default=None: default,
     )
     assert feishu_message_debounce_ms() == 800

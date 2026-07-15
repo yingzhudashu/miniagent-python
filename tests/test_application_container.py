@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniagent.bootstrap.application import ApplicationContainer
+from miniagent.assistant.bootstrap.application import ApplicationContainer
 from tests.memory_helpers import (
     make_background_task_manager,
     make_knowledge_registry,
@@ -37,7 +37,7 @@ def test_container_defaults_and_repr_hide_runtime_resources() -> None:
     container = _make_container()
     rendered = repr(container)
 
-    assert container.openai_client is None
+    assert container.llm_gateway is None
     assert container.config is None
     for field_name in (
         "create_feishu_handler_factory",
@@ -66,8 +66,8 @@ async def test_container_tracks_each_live_shutdown_task_once() -> None:
 
 def test_importing_infrastructure_does_not_load_core_or_feishu() -> None:
     code = (
-        "import sys; import miniagent.infrastructure; "
-        "assert 'miniagent.core' not in sys.modules; "
-        "assert 'miniagent.feishu' not in sys.modules"
+        "import sys; import miniagent.assistant.infrastructure; "
+        "assert 'miniagent.agent' not in sys.modules; "
+        "assert 'miniagent.assistant.feishu' not in sys.modules"
     )
     subprocess.run([sys.executable, "-c", code], check=True)

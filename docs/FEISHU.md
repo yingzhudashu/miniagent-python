@@ -49,7 +49,7 @@ python -m miniagent --feishu
 
 在飞书里发送以 ``/`` 开头的命令时，默认 `/session switch` / `create` / `rename` 以及 `/schedule` 的 `add`/`update`/`remove`/`enable`/`disable` **不会**修改与本地 CLI 共享的 ``active_session_id`` 或 ``tasks.json``，仅返回提示；``/stop`` 亦默认拒绝（避免远程结束进程）。请在本地 MiniAgent 终端执行，或设置 **`feishu.dot_commands_full=true`** 放开全部点命令（启动时会打 WARNING；群聊误触风险需自行管控）。启用 FULL 后飞书侧 `/stop` 成功即进程退出，通常**不会**再收到第二条飞书确认消息。调试 HTTP 栈时请勿开启 ``HTTPX_LOG_LEVEL=debug`` 等会把第三方日志打到终端的配置，以免干扰全屏 UI。
 
-Agent 在飞书会话中若通过内置工具 **`run_dot_command`** 调点命令，上述限制与直接发点命令一致（默认 `cli_dispatch_allow_mutations=False`；`feishu.dot_commands_full=true` 时为 True）。不需要该能力时可将 **`cli.dot_tools_enabled=false`**，启动时不再注册该工具（见 `miniagent/resources/config.defaults.json`）。
+Agent 在飞书会话中若通过内置工具 **`run_dot_command`** 调点命令，上述限制与直接发点命令一致（默认 `cli_dispatch_allow_mutations=False`；`feishu.dot_commands_full=true` 时为 True）。不需要该能力时可将 **`cli.dot_tools_enabled=false`**，启动时不再注册该工具（见 `miniagent/assistant/resources/config.defaults.json`）。
 
 ## 通道绑定
 
@@ -156,10 +156,10 @@ UnifiedEngine.run_agent_with_thinking(...)
 飞书开放平台
     │ WebSocket 长连接
     ▼
-miniagent/feishu/poll_server.py
+miniagent/assistant/feishu/poll_server.py
     │
     ▼
-miniagent/engine/feishu_handler.create_feishu_handler() → (text_handler, media_handler)
+miniagent/assistant/engine/feishu_handler.create_feishu_handler() → (text_handler, media_handler)
     │                                      （text 以 ``FeishuInboundText`` 调 Agent；file/image 走 media_handler）
     ▼
 ChannelRouter.resolve_feishu_message(chat_id, sender_id, chat_type)
@@ -176,7 +176,7 @@ UnifiedEngine.run_agent_with_thinking()
 
 **多群并行**（默认开启）：不同飞书群映射到独立 `session_key`（`feishu:<chat_id>`），在 `agent.parallel_sessions=true` 时可**同时**运行 Agent（进程内默认最多 4 路，见 `agent.max_parallel_sessions`）。同一群内消息仍按 `chat_id` 队列串行。设 `agent.parallel_sessions: false` 可回退为全局串行。
 
-### 配置项（`miniagent/resources/config.defaults.json` → `feishu` 节）
+### 配置项（`miniagent/assistant/resources/config.defaults.json` → `feishu` 节）
 
 | JSON 路径 | 含义 |
 |-----------|------|
@@ -199,18 +199,18 @@ UnifiedEngine.run_agent_with_thinking()
 | `feishu.card_extract_inbound` | 入站 `interactive` 抽取可读文本 |
 | `secrets.feishu_user_access_token` | 用户 OAuth token；`feishu_doc` + `action=search` 必填 |
 
-工具意图合并、卡片 v2 等细节为 Internal 常量，见 `miniagent/core/constants.py`。
+工具意图合并、卡片 v2 等细节为 Internal 常量，见 `miniagent/agent/constants.py`。
 
 ### 出站能力矩阵（摘要）
 
 | 能力 | 实现要点 |
 |------|----------|
 | 会话内新消息 / 回复某条消息 | `create` 与 `im/v1/messages`；`reply` 与 `im/v1/messages/:id/reply`（见上表环境变量） |
-| 上传并发 file/image 消息 | `miniagent/feishu/upload_io.py` + 工具 `feishu_send_workspace_file`（需 `feishu.tools_explicit=true` 或 `feishu.tools_auto` 与 `secrets.feishu_app_id`/`secrets.feishu_app_secret`） |
-| 云文档（聚合工具） | **`feishu_doc`**：见下表；实现 [`miniagent/feishu/docx/`](../miniagent/feishu/docx/)、权限/搜索 [`drive_extra.py`](../miniagent/feishu/drive_extra.py) |
-| 多维表格 | **`feishu_bitable`**：`get_meta`/`list_fields`/`list_records`/`get_record`/`create_record`/`update_record`/`delete_record`/`upload_attachment`；[`bitable/`](../miniagent/feishu/bitable/) |
-| 互动卡片 | **`feishu_send_interactive_card`**、**`feishu_update_message_card`**；构建/入站抽取 [`cards/`](../miniagent/feishu/cards/) |
-| 云盘列举 | `feishu_list_drive_files` + [`drive_client`](../miniagent/feishu/drive_client.py) |
+| 上传并发 file/image 消息 | `miniagent/assistant/feishu/upload_io.py` + 工具 `feishu_send_workspace_file`（需 `feishu.tools_explicit=true` 或 `feishu.tools_auto` 与 `secrets.feishu_app_id`/`secrets.feishu_app_secret`） |
+| 云文档（聚合工具） | **`feishu_doc`**：见下表；实现 [`miniagent/assistant/feishu/docx/`](../miniagent/assistant/feishu/docx/)、权限/搜索 [`drive_extra.py`](../miniagent/assistant/feishu/drive_extra.py) |
+| 多维表格 | **`feishu_bitable`**：`get_meta`/`list_fields`/`list_records`/`get_record`/`create_record`/`update_record`/`delete_record`/`upload_attachment`；[`bitable/`](../miniagent/assistant/feishu/bitable/) |
+| 互动卡片 | **`feishu_send_interactive_card`**、**`feishu_update_message_card`**；构建/入站抽取 [`cards/`](../miniagent/assistant/feishu/cards/) |
+| 云盘列举 | `feishu_list_drive_files` + [`drive_client`](../miniagent/assistant/feishu/drive_client.py) |
 | 撤回机器人消息 | `feishu_recall_message` |
 
 ### 开放平台权限（scope）
@@ -347,7 +347,7 @@ UnifiedEngine.run_agent_with_thinking()
 
 ## chat_type 与入站结构体
 
-生产路径中文本入站使用单参 **`FeishuInboundText`**（定义见 [`miniagent/feishu/types.py`](../miniagent/feishu/types.py)），其中字段 **`chat_type`** 区分群聊与私聊；不再向 handler 单独传入 `chat_type` 位置参数。
+生产路径中文本入站使用单参 **`FeishuInboundText`**（定义见 [`miniagent/assistant/feishu/types.py`](../miniagent/assistant/feishu/types.py)），其中字段 **`chat_type`** 区分群聊与私聊；不再向 handler 单独传入 `chat_type` 位置参数。
 
 | chat_type | 行为 | session_key |
 |-----------|------|------------|
@@ -358,7 +358,7 @@ UnifiedEngine.run_agent_with_thinking()
 
 **常驻与锁**：`FeishuRuntime` 在后台任务中循环调用 `start_feishu_poll_server`；单次 WebSocket 断线或启动失败会**指数退避后自动重连**，此期间**不释放入站锁**（其它进程仍无法抢占）。仅在执行 `/feishu stop`、任务被取消或进程退出路径上释放锁。
 
-**WebSocket 会话监督**（`miniagent/feishu/ws_health.py`）：连接成功后由看门狗监督收包任务与连接状态；收包循环退出、连接长时间为空、或达到定期刷新间隔时，会结束当前会话并由 `FeishuRuntime` 外层退避重建。默认**关闭** SDK 内建 `auto_reconnect`，避免与外层重连脱节导致「进程显示运行中但收不到消息」。`/feishu status` 可查看上次会话结束原因与最后入站时间。
+**WebSocket 会话监督**（`miniagent/assistant/feishu/ws_health.py`）：连接成功后由看门狗监督收包任务与连接状态；收包循环退出、连接长时间为空、或达到定期刷新间隔时，会结束当前会话并由 `FeishuRuntime` 外层退避重建。默认**关闭** SDK 内建 `auto_reconnect`，避免与外层重连脱节导致「进程显示运行中但收不到消息」。`/feishu status` 可查看上次会话结束原因与最后入站时间。
 
 ### Windows / 长连接
 
@@ -377,7 +377,7 @@ Windows 上可能出现 `OSError: [WinError 121]`、`ping_timeout (3003)` 或 `n
 3. **命令拦截** — 以 `/` 开头的消息路由到 `dispatch_command()`（默认拒绝会话/定时任务变异与 `/stop`；``feishu.dot_commands_full=true`` 时与 CLI 同等）。例如 `/help` 与可选 ``feishu.markdown_commands=true`` 下的 `/session list` 等返回 Markdown **表格**，依赖客户端对 GFM / `lark_md` 子集的支持；若表格显示异常可改用本地 CLI 或关闭该变量
 4. **解析 session_key** — 通过 `ChannelRouter.resolve_feishu_message()`
 5. **运行 Agent** — `run_agent_with_thinking(session_key, ...)`
-6. **发送思考** — 与 CLI 一致由 `ThinkingDisplay` 驱动：`push_feishu_thinking_stream()` 对同一逻辑段 PATCH 节流更新；规划阶段为单 header ``[评估与计划]`` 的流式卡；执行阶段为 ``[执行]`` 或分步时的 ``[步骤 i/n] …``；同段内工具结果走 `append_feishu_thinking_same_card()`；阶段切换时仅 `finalize_feishu_thinking_stream()` 收尾当前卡（不另发空思考卡）；**finalize 与 PATCH 共用 `_prepare_thinking_body_for_card`**（折叠空行与 `lark_md` 规范化一致，正文顶格无额外段首/列表缩进）。非流式结论块仍为 `finalize` + `_send_thinking()`。详见 `miniagent/feishu/poll_server.py` 顶部常量（PATCH 频率与单条可 PATCH 次数上限）
+6. **发送思考** — 与 CLI 一致由 `ThinkingDisplay` 驱动：`push_feishu_thinking_stream()` 对同一逻辑段 PATCH 节流更新；规划阶段为单 header ``[评估与计划]`` 的流式卡；执行阶段为 ``[执行]`` 或分步时的 ``[步骤 i/n] …``；同段内工具结果走 `append_feishu_thinking_same_card()`；阶段切换时仅 `finalize_feishu_thinking_stream()` 收尾当前卡（不另发空思考卡）；**finalize 与 PATCH 共用 `_prepare_thinking_body_for_card`**（折叠空行与 `lark_md` 规范化一致，正文顶格无额外段首/列表缩进）。非流式结论块仍为 `finalize` + `_send_thinking()`。详见 `miniagent/assistant/feishu/poll_server.py` 顶部常量（PATCH 频率与单条可 PATCH 次数上限）
 7. **发送回复** — `_send_reply()` 使用与思考相同的交互卡片构建（`_feishu_interactive_card_dict` + `_prepare_card_markdown`）；入站 `chat_id` 会先 `_normalize_im_receive_chat_id`，仅当规范化后以 `oc_`（群）或 `ou_`（用户）开头时才发送。
 
 若 `message_handler` 抛错或 `_send_reply` 失败，**不会**把该 `message_id` 写入磁盘去重，便于同一事件在可恢复场景下再次处理。
@@ -478,13 +478,13 @@ Authorization: Bearer <tenant_access_token>
 
 ## 模块定位
 
-飞书运行时位于 `miniagent/engine/feishu_state.py`（`FeishuRuntime`）；`poll_server.py` 负责 WebSocket 长轮询事件分发。入口请使用 `python -m miniagent`。
+飞书运行时位于 `miniagent/assistant/engine/feishu_state.py`（`FeishuRuntime`）；`poll_server.py` 负责 WebSocket 长轮询事件分发。入口请使用 `python -m miniagent`。
 
 ## 互动卡片（`cards/`）
 
-- 出站/思考：v1 `lark_md`（[`cards/builder.py`](../miniagent/feishu/cards/builder.py)）。
-- 入站抽取与按钮路由：[`cards/extract.py`](../miniagent/feishu/cards/extract.py)、[`cards/action_router.py`](../miniagent/feishu/cards/action_router.py)。
-- GFM 表格：**所有表格**转为 **bullet-point list**（[`cards/gfm_table.py`](../miniagent/feishu/cards/gfm_table.py) 中的 `gfm_table_block_to_bullet_list`）；窄表用 `|` 分隔，宽表用 key-value 格式。不再使用警告提示或代码块包裹。
+- 出站/思考：v1 `lark_md`（[`cards/builder.py`](../miniagent/assistant/feishu/cards/builder.py)）。
+- 入站抽取与按钮路由：[`cards/extract.py`](../miniagent/assistant/feishu/cards/extract.py)、[`cards/action_router.py`](../miniagent/assistant/feishu/cards/action_router.py)。
+- GFM 表格：**所有表格**转为 **bullet-point list**（[`cards/gfm_table.py`](../miniagent/assistant/feishu/cards/gfm_table.py) 中的 `gfm_table_block_to_bullet_list`）；窄表用 `|` 分隔，宽表用 key-value 格式。不再使用警告提示或代码块包裹。
 
 ## 相关文档
 

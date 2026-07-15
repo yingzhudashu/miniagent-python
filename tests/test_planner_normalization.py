@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from miniagent.core.planner import (
+from miniagent.agent.planner import (
     _completed_work_context,
     _dedupe_toolboxes,
     _normalize_plan_steps,
 )
-from miniagent.types.config import AgentConfig, SessionBindingConfig
-from miniagent.types.planning import PlanStep
+from miniagent.agent.types.config import AgentConfig, SessionBindingConfig
+from miniagent.agent.types.planning import PlanStep
 
 
 def _config_with_history(history: list[dict[str, str]]) -> AgentConfig:

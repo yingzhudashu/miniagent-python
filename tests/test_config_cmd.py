@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from miniagent.engine.config_cmd import (
+from miniagent.agent.types.error_prefix import WARNING_PREFIX
+from miniagent.assistant.engine.config_cmd import (
     _append_value_lines,
     _is_sensitive_key,
     _mask_sensitive,
     _summarize_value,
     format_config_info,
 )
-from miniagent.types.error_prefix import WARNING_PREFIX
 
 
 def test_is_sensitive_key_does_not_match_keyword_prefix() -> None:
@@ -108,7 +108,7 @@ def test_format_config_info_overview_shows_empty_section(
     isolated_config_loader,
 ) -> None:
     isolated_config_loader()
-    from miniagent.infrastructure import json_config
+    from miniagent.assistant.infrastructure import json_config
 
     real_get = json_config.get_config_section
 

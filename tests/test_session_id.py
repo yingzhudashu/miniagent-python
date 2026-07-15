@@ -1,4 +1,4 @@
-"""Tests for miniagent.utils.session_id."""
+"""Tests for miniagent.assistant.utils.session_id."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ import doctest
 
 import pytest
 
-from miniagent.utils import session_id as session_id_module
-from miniagent.utils.session_id import safe_session_id
+from miniagent.assistant.utils import session_id as session_id_module
+from miniagent.assistant.utils.session_id import safe_session_id
 
 
 class TestSafeSessionId:

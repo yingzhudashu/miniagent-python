@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from prompt_toolkit.mouse_events import MouseButton, MouseEventType, MouseModifier
 
-from miniagent.engine import cli_tui_controls as controls
+from miniagent.ui.tui import controls
 
 
 def _event(

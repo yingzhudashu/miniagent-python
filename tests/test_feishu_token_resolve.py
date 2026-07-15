@@ -1,6 +1,6 @@
 """token_resolve URL 解析。"""
 
-from miniagent.feishu.token_resolve import (
+from miniagent.assistant.feishu.token_resolve import (
     extract_bitable_app_token,
     extract_doc_token,
     extract_table_id,

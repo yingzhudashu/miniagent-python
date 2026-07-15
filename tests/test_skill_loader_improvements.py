@@ -8,10 +8,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from miniagent.skills import loader
-from miniagent.skills.loader import load_skill_package
-from miniagent.skills.registry import DefaultSkillRegistry
-from miniagent.types.config import AgentConfig
+from miniagent.agent.types.config import AgentConfig
+from miniagent.assistant.skills import loader
+from miniagent.assistant.skills.loader import load_skill_package
+from miniagent.assistant.skills.registry import DefaultSkillRegistry
 
 
 @pytest.mark.asyncio

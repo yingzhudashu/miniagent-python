@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from miniagent.engine.cli_state import CliLoopState
+from miniagent.assistant.engine.cli_state import CliLoopState
 from tests.scheduled_tasks_helpers import minimal_cli_state, minimal_tick_ctx
 
 _EXPECTED_REQUIRED_KEYS = frozenset(

@@ -6,7 +6,8 @@ import io
 from contextlib import redirect_stdout
 from unittest.mock import MagicMock
 
-from miniagent.engine.commands.kb_commands import (
+from miniagent.agent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
+from miniagent.assistant.engine.commands.kb_commands import (
     cmd_kb_list,
     cmd_kb_mount,
     cmd_kb_reload,
@@ -14,7 +15,6 @@ from miniagent.engine.commands.kb_commands import (
     cmd_kb_unmount,
     format_kb_command_usage,
 )
-from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
 
 
 def _capture(fn) -> str:

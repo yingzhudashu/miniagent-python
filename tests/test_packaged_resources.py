@@ -6,7 +6,7 @@ import json
 from importlib.resources import files
 from pathlib import Path
 
-from miniagent.infrastructure.json_config import (
+from miniagent.assistant.infrastructure.json_config import (
     JsonConfigLoader,
     _packaged_defaults_path,
 )
@@ -16,7 +16,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 def test_packaged_defaults_match_source_defaults() -> None:
     packaged = json.loads(
-        files("miniagent.resources")
+        files("miniagent.assistant.resources")
         .joinpath("config.defaults.json")
         .read_text(encoding="utf-8")
     )
@@ -34,7 +34,7 @@ def test_loader_can_use_packaged_defaults_without_source_checkout() -> None:
 
 
 def test_baseline_skill_templates_contain_required_runtime_data() -> None:
-    templates = files("miniagent.skills").joinpath("templates")
+    templates = files("miniagent.assistant.skills").joinpath("templates")
     required = (
         "builtin-web/SKILL.md",
         "builtin-web/_meta.json",

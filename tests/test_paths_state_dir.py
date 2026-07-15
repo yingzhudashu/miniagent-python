@@ -6,8 +6,8 @@ import os
 
 import pytest
 
-from miniagent.infrastructure.json_config import reset_config_loader
-from miniagent.infrastructure.paths import (
+from miniagent.assistant.infrastructure.json_config import reset_config_loader
+from miniagent.assistant.infrastructure.paths import (
     normalize_project_dir,
     paths_equal,
     resolve_project_dir,

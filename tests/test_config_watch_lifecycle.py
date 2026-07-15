@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from miniagent.infrastructure import config_watch
+from miniagent.assistant.infrastructure import config_watch
 
 
 @pytest.mark.asyncio

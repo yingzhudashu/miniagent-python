@@ -1,4 +1,4 @@
-"""Tests for miniagent.tools.vision — image analysis tool."""
+"""Tests for miniagent.assistant.tools.vision — image analysis tool."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.tools.vision import _analyze_image_handler
-from miniagent.types.tool import ToolContext
+from miniagent.agent.types.tool import ToolContext
+from miniagent.assistant.tools.vision import _analyze_image_handler
 
 
 @pytest.fixture
@@ -114,7 +114,7 @@ async def test_analyze_image_model_unsupported_vision(
     # describe_image 返回空字符串表示不支持
     ctx.llm_client = mock_client
     with patch(
-        "miniagent.feishu.vision_desc.describe_image",
+        "miniagent.assistant.feishu.vision_desc.describe_image",
         new_callable=AsyncMock,
         return_value="",
     ):
@@ -160,7 +160,7 @@ async def test_analyze_image_no_model(
 
 async def test_vision_tools_export() -> None:
     """vision_tools 应正确导出。"""
-    from miniagent.tools.vision import vision_tools
+    from miniagent.assistant.tools.vision import vision_tools
 
     assert "analyze_image" in vision_tools
     tool = vision_tools["analyze_image"]
@@ -171,6 +171,6 @@ async def test_vision_tools_export() -> None:
 
 async def test_vision_tools_in_all_tools() -> None:
     """vision_tools 应在 ALL_TOOLS 中。"""
-    from miniagent.tools import ALL_TOOLS
+    from miniagent.assistant.tools import ALL_TOOLS
 
     assert "analyze_image" in ALL_TOOLS

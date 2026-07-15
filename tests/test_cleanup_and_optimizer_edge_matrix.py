@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.core.self_opt import auto_optimizer
-from miniagent.core.self_opt.types import FileChange, OptimizationProposal, OptTestCase
-from miniagent.engine import bg_session_cleanup
+from miniagent.assistant.engine import bg_session_cleanup
+from miniagent.assistant.self_opt import auto_optimizer
+from miniagent.assistant.self_opt.types import FileChange, OptimizationProposal, OptTestCase
 
 
 def _proposal(*, files=(), tests=(), risk: str = "low") -> OptimizationProposal:

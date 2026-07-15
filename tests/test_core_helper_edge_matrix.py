@@ -9,17 +9,24 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.core.execution_prompts import build_current_turn_user_context
-from miniagent.core.execution_stream import StreamingBuffer
-from miniagent.engine.commands.help_commands import _md_escape_cell
-from miniagent.engine.commands.instance_commands import handle_instance
-from miniagent.engine.commands.runtime_commands import _capture_call, _respond
-from miniagent.infrastructure import persistence
-from miniagent.infrastructure.json_config import _compatible_config_type, _validate_user_keys
-from miniagent.infrastructure.persistence import StateMigrationError, StateSchema, load_state_file
-from miniagent.tools import exec as exec_module
-from miniagent.tools import filesystem
-from miniagent.types.tool import ToolContext
+from miniagent.agent.execution_prompts import build_current_turn_user_context
+from miniagent.agent.execution_stream import StreamingBuffer
+from miniagent.agent.types.tool import ToolContext
+from miniagent.assistant.engine.commands.help_commands import _md_escape_cell
+from miniagent.assistant.engine.commands.instance_commands import handle_instance
+from miniagent.assistant.engine.commands.runtime_commands import _capture_call, _respond
+from miniagent.assistant.infrastructure import persistence
+from miniagent.assistant.infrastructure.json_config import (
+    _compatible_config_type,
+    _validate_user_keys,
+)
+from miniagent.assistant.infrastructure.persistence import (
+    StateMigrationError,
+    StateSchema,
+    load_state_file,
+)
+from miniagent.assistant.tools import exec as exec_module
+from miniagent.assistant.tools import filesystem
 
 
 def test_execution_prompt_and_stream_consolidation(tmp_path: Path) -> None:
@@ -85,7 +92,7 @@ async def test_runtime_response_capture_and_instance_print(monkeypatch: pytest.M
     assert "命令执行失败" in _capture_call(lambda: 1 / 0)
 
     monkeypatch.setattr(
-        "miniagent.engine.commands.instance_commands.cmd_instance_handler",
+        "miniagent.assistant.engine.commands.instance_commands.cmd_instance_handler",
         lambda *_args, **_kwargs: print("instances"),
     )
     result = await handle_instance("/instance list", state={}, capture=False)

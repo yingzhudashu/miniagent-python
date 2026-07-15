@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from miniagent.scheduled_tasks.cron import (
+from miniagent.assistant.scheduled_tasks.cron import (
     cron_next_run_epoch,
     normalize_cron_expr,
     validate_cron_expr,

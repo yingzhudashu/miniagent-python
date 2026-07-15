@@ -1,4 +1,4 @@
-"""Tests for miniagent.memory.dream_scheduler — scheduling state and throttle."""
+"""Tests for miniagent.assistant.memory.dream_scheduler — scheduling state and throttle."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from miniagent.memory import dream_scheduler
+from miniagent.assistant.memory import dream_scheduler
 from tests.config_helpers import install_test_config
 
 
@@ -54,7 +54,7 @@ def test_dream_constants() -> None:
 
 
 def test_diary_size_and_file_lock_lifecycle(tmp_path: Path) -> None:
-    from miniagent.utils.session_id import safe_session_id
+    from miniagent.assistant.utils.session_id import safe_session_id
 
     diary = tmp_path / "memory" / "diary" / safe_session_id("session")
     diary.mkdir(parents=True)

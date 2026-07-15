@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from miniagent.engine import cli_commands
+from miniagent.assistant.engine import cli_commands
 
 
 class _Manager:

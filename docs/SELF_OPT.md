@@ -13,7 +13,7 @@ Self-Opt 是 Mini Agent 的自我优化机制，包含两个核心能力：
 
 ## 配置
 
-`self_optimization` 节在 `miniagent/resources/config.defaults.json` 中配置；运行分析依赖 Trace 数据，Trace 配置见 **[ENGINEERING.md §5](ENGINEERING.md#5-trace-系统全链路监控)**（SSOT）。
+`self_optimization` 节在 `miniagent/assistant/resources/config.defaults.json` 中配置；运行分析依赖 Trace 数据，Trace 配置见 **[ENGINEERING.md §5](ENGINEERING.md#5-trace-系统全链路监控)**（SSOT）。
 
 ```json
 {
@@ -121,7 +121,7 @@ Self-Opt 是 Mini Agent 的自我优化机制，包含两个核心能力：
 ## 模块结构
 
 ```
-miniagent/core/self_opt/
+miniagent/assistant/self_opt/
 ├── __init__.py             # 包入口，导出类型模型
 ├── types.py                # 类型定义（InspectionReport, OptimizationProposal 等）
 ├── inspector.py            # 代码与结构静态分析
@@ -135,10 +135,10 @@ miniagent/core/self_opt/
 
 ## 类型模型
 
-核心类型由 `miniagent.core.self_opt` 包级导出：
+核心类型由 `miniagent.assistant.self_opt` 包级导出：
 
 ```python
-from miniagent.core.self_opt import (
+from miniagent.assistant.self_opt import (
     ModuleAnalysis, PainPoint, InspectionReport,
     FileChange, OptimizationProposal, OptimizationResult,
     CodeQualityMetric, OptTestCase, OptTestSummary,
@@ -333,7 +333,7 @@ pending → rejected
 ### 触发运行分析
 
 ```python
-from miniagent.core.self_opt import ProposalGenerator
+from miniagent.assistant.self_opt import ProposalGenerator
 
 generator = ProposalGenerator()
 saved_ids = generator.generate_and_save(date="2026-06-05")
@@ -346,7 +346,7 @@ for pid in saved_ids:
 ### 加载提案
 
 ```python
-from miniagent.core.self_opt import ProposalStore
+from miniagent.assistant.self_opt import ProposalStore
 
 store = ProposalStore()
 
@@ -360,7 +360,7 @@ record = store.get_proposal("opt-abc123")
 ### 执行提案
 
 ```python
-from miniagent.core.self_opt import ProposalStore
+from miniagent.assistant.self_opt import ProposalStore
 
 store = ProposalStore()
 
@@ -381,7 +381,7 @@ else:
 ### 生成运行报告
 
 ```python
-from miniagent.core.self_opt import RuntimeAnalyzer
+from miniagent.assistant.self_opt import RuntimeAnalyzer
 
 analyzer = RuntimeAnalyzer()
 report = analyzer.analyze(date="2026-06-05")

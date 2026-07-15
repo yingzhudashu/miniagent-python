@@ -9,7 +9,7 @@
   python scripts/bootstrap_clawhub_skills.py --slug your-org/skill-example --slug other-org/other-skill
 
 slug **必须与 ClawHub 技能详情页上的标识一致**（可能含 ``author/slug`` 形式）。
-安装目录为 slug **最后一段**（与 ``miniagent.skills.clawhub_client.skill_install_dir_name`` 一致），
+安装目录为 slug **最后一段**（与 ``miniagent.assistant.skills.clawhub_client.skill_install_dir_name`` 一致），
 以便引擎只扫描 ``skills_root`` 一级子目录时仍能发现包。
 
 以下示例中的 ``your-org/skill-example`` 仅为占位，**请替换**为站点上的真实 slug；若 HTTP 404，
@@ -28,8 +28,11 @@ DEFAULT_SLUGS = ("skill-creator", "skill-vetter")
 
 
 async def _install_slugs(slugs: list[str]) -> int:
-    from miniagent.skills.clawhub_client import create_clawhub_client, skill_install_dir_name
-    from miniagent.skills.paths import get_skills_root
+    from miniagent.assistant.skills.clawhub_client import (
+        create_clawhub_client,
+        skill_install_dir_name,
+    )
+    from miniagent.assistant.skills.paths import get_skills_root
 
     root = get_skills_root()
     os.makedirs(root, exist_ok=True)

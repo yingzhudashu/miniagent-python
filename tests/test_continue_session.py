@@ -7,10 +7,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from miniagent.bootstrap.application import ApplicationContainer
-from miniagent.engine.init import _init_default_session
-from miniagent.infrastructure.channel_router import ChannelRouter
-from miniagent.infrastructure.message_queue import MessageQueueManager
+from miniagent.assistant.bootstrap.application import ApplicationContainer
+from miniagent.assistant.engine.init import _init_default_session
+from miniagent.assistant.infrastructure.channel_router import ChannelRouter
+from miniagent.assistant.infrastructure.message_queue import MessageQueueManager
 from tests.config_helpers import install_test_config
 from tests.memory_helpers import (
     make_background_task_manager,
@@ -77,7 +77,7 @@ class _FakeChannelRouter:
 @pytest.fixture(autouse=True)
 def _always_lock(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "miniagent.engine.session_lock.try_lock_session",
+        "miniagent.assistant.engine.session_lock.try_lock_session",
         lambda _sid: (True, ""),
     )
 
@@ -85,13 +85,13 @@ def _always_lock(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture
 def _no_continue_config(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "miniagent.engine.init.get_config",
+        "miniagent.assistant.engine.init.get_config",
         lambda key, default=None: default,
     )
 
 
 def test_session_info_helpers() -> None:
-    from miniagent.session.manager import session_info_id, session_info_number
+    from miniagent.assistant.session.manager import session_info_id, session_info_number
 
     assert session_info_id({"id": "foo"}) == "foo"
     assert session_info_id({}) == ""
@@ -116,8 +116,8 @@ def test_continue_resolves_with_real_list_format(
 
 
 def test_shutdown_saves_last_cli_with_real_list_format(tmp_path) -> None:
-    from miniagent.engine.feishu_state import FeishuRuntime
-    from miniagent.engine.shutdown import shutdown_runtime
+    from miniagent.assistant.engine.feishu_state import FeishuRuntime
+    from miniagent.assistant.engine.shutdown import shutdown_runtime
 
     install_test_config(tmp_path, {"paths": {"state_dir": str(tmp_path)}})
     router = ChannelRouter()
@@ -134,7 +134,7 @@ def test_shutdown_saves_last_cli_with_real_list_format(tmp_path) -> None:
         memory=make_memory_runtime(),
         knowledge_registry=make_knowledge_registry(),
         background_tasks=make_background_task_manager(),
-        openai_client=None,
+        llm_gateway=None,
     )
     sm = _RealFormatFakeSessionManager(
         [{"id": "work-a", "number": 2, "title": "Work A"}]
@@ -191,7 +191,7 @@ def test_continue_config_mode(
             return True
         return default
 
-    monkeypatch.setattr("miniagent.engine.init.get_config", _cfg)
+    monkeypatch.setattr("miniagent.assistant.engine.init.get_config", _cfg)
     monkeypatch.delenv("MINIAGENT_CONTINUE_SESSION", raising=False)
     sm = _FakeSessionManager(["default", "saved"])
     router = _FakeChannelRouter({"last_cli_session": "saved"})
@@ -269,8 +269,8 @@ def test_continue_restores_after_router_load_from_disk(
 
 
 def test_shutdown_runtime_saves_last_cli_session(tmp_path) -> None:
-    from miniagent.engine.feishu_state import FeishuRuntime
-    from miniagent.engine.shutdown import shutdown_runtime
+    from miniagent.assistant.engine.feishu_state import FeishuRuntime
+    from miniagent.assistant.engine.shutdown import shutdown_runtime
 
     install_test_config(tmp_path, {"paths": {"state_dir": str(tmp_path)}})
     router = ChannelRouter()
@@ -287,7 +287,7 @@ def test_shutdown_runtime_saves_last_cli_session(tmp_path) -> None:
         memory=make_memory_runtime(),
         knowledge_registry=make_knowledge_registry(),
         background_tasks=make_background_task_manager(),
-        openai_client=None,
+        llm_gateway=None,
     )
     sm = _FakeSessionManager(["work-a"])
     state = {"active_session_id": "work-a", "session_manager": sm}
@@ -315,7 +315,7 @@ def test_consume_session_arg_sets_env_and_strips_argv(
 ) -> None:
     import sys
 
-    from miniagent.__main__ import _consume_session_arg
+    from miniagent.assistant.runner import _consume_session_arg
 
     monkeypatch.setattr(sys, "argv", ["-m", "miniagent", "--session", "foo", "--feishu"])
     monkeypatch.delenv("MINIAGENT_SESSION_NAME", raising=False)
@@ -329,7 +329,7 @@ def test_consume_session_arg_sets_env_and_strips_argv(
 def test_consume_session_arg_missing_value_exits() -> None:
     import sys
 
-    from miniagent.__main__ import _consume_session_arg
+    from miniagent.assistant.runner import _consume_session_arg
 
     with patch.object(sys, "argv", ["-m", "miniagent", "--session"]):
         with pytest.raises(SystemExit) as exc:

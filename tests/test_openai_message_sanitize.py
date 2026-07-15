@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from miniagent.core.openai_message_sanitize import strip_leading_underscore_keys_from_messages
+from miniagent.llm.message_sanitize import strip_leading_underscore_keys_from_messages
 
 
 def test_strip_top_level_underscore_keys() -> None:

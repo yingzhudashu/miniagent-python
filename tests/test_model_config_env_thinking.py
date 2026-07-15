@@ -1,7 +1,7 @@
 """model thinking 配置从 config.user.json 加载。"""
 
 
-from miniagent.core.config import get_default_model_config
+from miniagent.agent.config import get_default_model_config
 from tests.test_config import _install_loader
 
 

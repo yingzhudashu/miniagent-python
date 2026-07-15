@@ -2,12 +2,12 @@
 
 import pytest
 
-from miniagent.engine.background_tasks import BackgroundTaskManager
-from miniagent.engine.btw_cmd import (
+from miniagent.agent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
+from miniagent.assistant.engine.background_tasks import BackgroundTaskManager
+from miniagent.assistant.engine.btw_cmd import (
     cmd_btw_clear,
     cmd_btw_status,
 )
-from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
 
 
 @pytest.fixture
@@ -66,7 +66,7 @@ class TestCmdBtwStart:
     @pytest.mark.asyncio
     async def test_start_with_mock_engine(self, manager):
         """cmd_btw_start with mock engine returns task ID."""
-        from miniagent.engine.btw_cmd import cmd_btw_start
+        from miniagent.assistant.engine.btw_cmd import cmd_btw_start
 
         class MockEngine:
             async def run_agent_with_thinking(self, **kwargs):
@@ -85,7 +85,7 @@ class TestCmdBtwStart:
     @pytest.mark.asyncio
     async def test_start_short_prompt_no_ellipsis(self, manager):
         """Short prompts are not truncated with ellipsis."""
-        from miniagent.engine.btw_cmd import cmd_btw_start
+        from miniagent.assistant.engine.btw_cmd import cmd_btw_start
 
         class MockEngine:
             async def run_agent_with_thinking(self, **kwargs):
@@ -100,7 +100,7 @@ class TestCmdBtwStart:
         """cmd_btw_start fails when concurrent limit reached."""
         import asyncio
 
-        from miniagent.engine.btw_cmd import cmd_btw_start
+        from miniagent.assistant.engine.btw_cmd import cmd_btw_start
         original_max = manager._max_concurrent
         manager._max_concurrent = 1
         manager._running_count = 1  # Simulate running task
@@ -130,7 +130,7 @@ class TestCmdBtwResult:
         """cmd_btw_result returns error for failed tasks."""
         import asyncio
 
-        from miniagent.engine.btw_cmd import cmd_btw_result, cmd_btw_start
+        from miniagent.assistant.engine.btw_cmd import cmd_btw_result, cmd_btw_start
 
         class FailingEngine:
             async def run_agent_with_thinking(self, **kwargs):
@@ -154,7 +154,7 @@ class TestCmdBtwResult:
     @pytest.mark.asyncio
     async def test_result_nonexistent_task(self, manager):
         """cmd_btw_result returns error for nonexistent task."""
-        from miniagent.engine.btw_cmd import cmd_btw_result
+        from miniagent.assistant.engine.btw_cmd import cmd_btw_result
 
         result = await cmd_btw_result(manager, "nonexistent")
         assert "不存在" in result
@@ -169,7 +169,7 @@ class TestCmdBtwCancel:
         """Cancelled running task remains cancelled after asyncio task ends."""
         import asyncio
 
-        from miniagent.engine.btw_cmd import cmd_btw_cancel, cmd_btw_start, cmd_btw_status
+        from miniagent.assistant.engine.btw_cmd import cmd_btw_cancel, cmd_btw_start, cmd_btw_status
 
         class SlowEngine:
             async def run_agent_with_thinking(self, **kwargs):
@@ -195,7 +195,7 @@ class TestCmdBtwCancel:
     @pytest.mark.asyncio
     async def test_cancel_nonexistent_task(self, manager):
         """cmd_btw_cancel returns error for nonexistent task."""
-        from miniagent.engine.btw_cmd import cmd_btw_cancel
+        from miniagent.assistant.engine.btw_cmd import cmd_btw_cancel
 
         result = await cmd_btw_cancel(manager, "nonexistent")
         assert "不存在" in result
@@ -210,7 +210,7 @@ class TestIntegration:
         """Test full btw workflow: start -> status -> result -> clear."""
         import asyncio
 
-        from miniagent.engine.btw_cmd import (
+        from miniagent.assistant.engine.btw_cmd import (
             cmd_btw_clear,
             cmd_btw_result,
             cmd_btw_start,

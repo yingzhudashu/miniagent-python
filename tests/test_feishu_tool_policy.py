@@ -15,7 +15,7 @@ _HAS_LARK_OAPI = importlib.util.find_spec("lark_oapi") is not None
 
 def test_feishu_im_tools_explicit_on(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     install_test_config(tmp_path, {"feishu": {"tools_explicit": True, "tools_auto": False}})
-    from miniagent.feishu.im_tool_policy import feishu_im_tools_should_register
+    from miniagent.assistant.feishu.im_tool_policy import feishu_im_tools_should_register
 
     assert feishu_im_tools_should_register() is True
 
@@ -29,7 +29,7 @@ def test_feishu_im_tools_explicit_off_overrides_auto(
         tmp_path,
         {"feishu": {"tools_explicit": False, "tools_auto": True}},
     )
-    from miniagent.feishu.im_tool_policy import feishu_im_tools_should_register
+    from miniagent.assistant.feishu.im_tool_policy import feishu_im_tools_should_register
 
     assert feishu_im_tools_should_register() is False
 
@@ -40,13 +40,13 @@ def test_feishu_im_tools_auto_when_unset_tools_and_creds(
     monkeypatch.setenv("FEISHU_APP_ID", "a")
     monkeypatch.setenv("FEISHU_APP_SECRET", "b")
     install_test_config(tmp_path, {"feishu": {"tools_auto": True}})
-    from miniagent.feishu.im_tool_policy import feishu_im_tools_should_register
+    from miniagent.assistant.feishu.im_tool_policy import feishu_im_tools_should_register
 
     assert feishu_im_tools_should_register() is True
 
 
 def test_feishu_ext_tool_names_includes_doc_and_bitable() -> None:
-    from miniagent.feishu.feishu_tool_policy import FEISHU_EXT_TOOL_NAMES
+    from miniagent.assistant.feishu.feishu_tool_policy import FEISHU_EXT_TOOL_NAMES
 
     assert "feishu_doc" in FEISHU_EXT_TOOL_NAMES
     assert "feishu_bitable" in FEISHU_EXT_TOOL_NAMES
@@ -63,7 +63,7 @@ def test_append_feishu_channel_with_feishu_doc() -> None:
         return {"x": 1} if name == "feishu_doc" else None
 
     reg.get = _get
-    from miniagent.feishu.agent_channel_prompts import append_feishu_channel_system
+    from miniagent.assistant.feishu.agent_channel_prompts import append_feishu_channel_system
 
     out = append_feishu_channel_system("base", is_feishu=True, registry=reg)
     assert out is not None
@@ -76,7 +76,7 @@ def test_append_feishu_channel_without_tools_when_creds(monkeypatch: pytest.Monk
     monkeypatch.setenv("FEISHU_APP_SECRET", "b")
     reg = MagicMock()
     reg.get = MagicMock(return_value=None)
-    from miniagent.feishu.agent_channel_prompts import append_feishu_channel_system
+    from miniagent.assistant.feishu.agent_channel_prompts import append_feishu_channel_system
 
     out = append_feishu_channel_system(None, is_feishu=True, registry=reg)
     assert out is not None
@@ -96,9 +96,9 @@ async def test_feishu_doc_create_accepts_folder_share_url(
     )
     url = "https://tenant.feishu.cn/drive/folder/fldcnFromShare"
 
-    with patch("miniagent.feishu.docx.client.create_document", return_value=("doc_y", 1)):
-        from miniagent.tools.feishu_doc_tools import _feishu_doc
-        from miniagent.types.tool import ToolContext
+    with patch("miniagent.assistant.feishu.docx.client.create_document", return_value=("doc_y", 1)):
+        from miniagent.agent.types.tool import ToolContext
+        from miniagent.assistant.tools.feishu_doc_tools import _feishu_doc
 
         r = await _feishu_doc(
             {"action": "create", "title": "T", "folder_token": url}, ToolContext(cwd="/tmp")

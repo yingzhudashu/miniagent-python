@@ -7,11 +7,11 @@ import tempfile
 
 import pytest
 
-from miniagent.infrastructure.registry import DefaultToolRegistry
-from miniagent.skills.refresh import refresh_skills
-from miniagent.skills.registry import DefaultSkillRegistry
-from miniagent.types.skill import Skill
-from miniagent.types.tool import ToolDefinition
+from miniagent.agent.types.skill import Skill
+from miniagent.agent.types.tool import ToolDefinition
+from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
+from miniagent.assistant.skills.refresh import refresh_skills
+from miniagent.assistant.skills.registry import DefaultSkillRegistry
 
 
 def _minimal_tool(name: str) -> ToolDefinition:
@@ -36,7 +36,7 @@ async def test_refresh_skills_full_loads_tools() -> None:
         tools_py = os.path.join(pkg_dir, "skills", "sub1", "tools.py")
         with open(tools_py, "w", encoding="utf-8") as f:
             f.write(
-                "from miniagent.types.tool import ToolDefinition\n"
+                "from miniagent.agent.types.tool import ToolDefinition\n"
                 "demo_tool = ToolDefinition(\n"
                 "    schema={'type': 'function', 'function': {'name': 'demo_tool', "
                 "'description': 'd', 'parameters': {'type': 'object'}}},\n"
@@ -77,7 +77,7 @@ async def test_refresh_skills_incremental_package() -> None:
             f.write("---\nname: t1\ndescription: t\n---\n")
         with open(os.path.join(sub, "tools.py"), "w", encoding="utf-8") as f:
             f.write(
-                "from miniagent.types.tool import ToolDefinition\n"
+                "from miniagent.agent.types.tool import ToolDefinition\n"
                 "incr_tool = ToolDefinition(\n"
                 "    schema={'type': 'function', 'function': {'name': 'incr_tool', "
                 "'description': 'd', 'parameters': {'type': 'object'}}},\n"
@@ -105,7 +105,7 @@ async def test_unregister_package_removes_tools() -> None:
         description="d",
         tools={"t1": _minimal_tool("t1")},
     )
-    from miniagent.types.skill import SkillPackage
+    from miniagent.agent.types.skill import SkillPackage
 
     pkg = SkillPackage(id="pkg-a", name="A", description="a", skills=[skill])
     reg.register_package(pkg)
@@ -116,7 +116,7 @@ async def test_unregister_package_removes_tools() -> None:
 
 def test_clear_packages_collects_gated_skill_tool_names() -> None:
     """全量 refresh 卸载工具名须包含被 gating 的技能，避免幽灵工具。"""
-    from miniagent.types.skill import SkillMetadata
+    from miniagent.agent.types.skill import SkillMetadata
 
     reg = DefaultSkillRegistry()
     reg.register(
@@ -145,7 +145,7 @@ async def test_refresh_full_rescan_removes_tools_when_package_gone() -> None:
             f.write("---\nname: gone-pkg\ndescription: d\n---\n")
         with open(os.path.join(sub, "tools.py"), "w", encoding="utf-8") as f:
             f.write(
-                "from miniagent.types.tool import ToolDefinition\n"
+                "from miniagent.agent.types.tool import ToolDefinition\n"
                 "orphan_tool = ToolDefinition(\n"
                 "    schema={'type': 'function', 'function': {'name': 'orphan_tool', "
                 "'description': 'd', 'parameters': {'type': 'object'}}},\n"
@@ -171,7 +171,7 @@ async def test_refresh_full_rescan_removes_tools_when_package_gone() -> None:
 
 @pytest.mark.asyncio
 async def test_refresh_builtin_wins_on_tool_name_clash() -> None:
-    from miniagent.engine.builtin_tools import register_builtin_tools
+    from miniagent.assistant.engine.builtin_tools import register_builtin_tools
 
     with tempfile.TemporaryDirectory() as tmpdir:
         pkg_dir = os.path.join(tmpdir, "clash-pkg")
@@ -181,7 +181,7 @@ async def test_refresh_builtin_wins_on_tool_name_clash() -> None:
             f.write("---\nname: clash\ndescription: d\n---\n")
         with open(os.path.join(sub, "tools.py"), "w", encoding="utf-8") as f:
             f.write(
-                "from miniagent.types.tool import ToolDefinition\n"
+                "from miniagent.agent.types.tool import ToolDefinition\n"
                 "read_file = ToolDefinition(\n"
                 "    schema={'type': 'function', 'function': {'name': 'read_file', "
                 "'description': 'skill', 'parameters': {'type': 'object'}}},\n"
@@ -218,7 +218,7 @@ async def test_refresh_reloads_tools_py_after_edit() -> None:
         with open(tools_py, "w", encoding="utf-8") as f:
             f.write(
                 "MARKER = 'v1'\n"
-                "from miniagent.types.tool import ToolDefinition\n"
+                "from miniagent.agent.types.tool import ToolDefinition\n"
                 "def _h(a, c):\n"
                 "    return None\n"
                 "hot_tool = ToolDefinition(\n"
@@ -242,7 +242,7 @@ async def test_refresh_reloads_tools_py_after_edit() -> None:
         with open(tools_py, "w", encoding="utf-8") as f:
             f.write(
                 "MARKER = 'v2'\n"
-                "from miniagent.types.tool import ToolDefinition\n"
+                "from miniagent.agent.types.tool import ToolDefinition\n"
                 "def _h(a, c):\n"
                 "    return None\n"
                 "hot_tool = ToolDefinition(\n"
@@ -267,7 +267,7 @@ async def test_refresh_reloads_tools_py_after_edit() -> None:
 @pytest.mark.asyncio
 async def test_registry_gating_filters_toolboxes() -> None:
     reg = DefaultSkillRegistry()
-    from miniagent.types.skill import SkillMetadata
+    from miniagent.agent.types.skill import SkillMetadata
 
     reg.register(
         Skill(

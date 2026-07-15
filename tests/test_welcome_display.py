@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniagent.engine.welcome import get_session_display, print_welcome
+from miniagent.assistant.engine.welcome import get_session_display, print_welcome
 
 _real_import = builtins.__import__
 
@@ -66,9 +66,9 @@ def _make_print_welcome_args(**overrides: object) -> dict[str, object]:
 
 
 def test_print_welcome_output(capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("miniagent.engine.welcome.get_version", lambda: "9.9.9-test")
+    monkeypatch.setattr("miniagent.assistant.engine.welcome.get_version", lambda: "9.9.9-test")
     monkeypatch.setattr(
-        "miniagent.engine.welcome.get_config",
+        "miniagent.assistant.engine.welcome.get_config",
         lambda key, default: False if key == "cli.welcome_hint" else default,
     )
 
@@ -88,9 +88,9 @@ def test_print_welcome_shows_rich_hint_when_missing(
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("miniagent.engine.welcome.get_version", lambda: "1.0.0")
+    monkeypatch.setattr("miniagent.assistant.engine.welcome.get_version", lambda: "1.0.0")
     monkeypatch.setattr(
-        "miniagent.engine.welcome.get_config",
+        "miniagent.assistant.engine.welcome.get_config",
         lambda key, default: True if key == "cli.welcome_hint" else default,
     )
     monkeypatch.setattr(builtins, "__import__", _import_without_rich_markdown)
@@ -105,9 +105,9 @@ def test_print_welcome_skips_hint_when_rich_available(
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("miniagent.engine.welcome.get_version", lambda: "1.0.0")
+    monkeypatch.setattr("miniagent.assistant.engine.welcome.get_version", lambda: "1.0.0")
     monkeypatch.setattr(
-        "miniagent.engine.welcome.get_config",
+        "miniagent.assistant.engine.welcome.get_config",
         lambda key, default: True if key == "cli.welcome_hint" else default,
     )
 

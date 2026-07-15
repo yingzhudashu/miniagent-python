@@ -10,9 +10,9 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from miniagent.skills.loader import discover_skill_packages, parse_skill_md
-from miniagent.skills.registry import DefaultSkillRegistry
-from miniagent.types.config import AgentConfig
+from miniagent.agent.types.config import AgentConfig
+from miniagent.assistant.skills.loader import discover_skill_packages, parse_skill_md
+from miniagent.assistant.skills.registry import DefaultSkillRegistry
 
 
 def _check_skill_parsing(pkg_dir, name):

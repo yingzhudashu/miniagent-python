@@ -6,11 +6,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from miniagent import __main__ as main_module
+from miniagent.assistant import runner as main_module
 
 
 def _patch_instances(monkeypatch, *, stop_success: bool = True) -> list[tuple[int, str]]:
-    import miniagent.infrastructure.instance as instance_module
+    import miniagent.assistant.infrastructure.instance as instance_module
 
     instances = [
         {"instance_id": 1, "state_dir": "state-a", "pid": 10},
@@ -63,7 +63,7 @@ def test_stop_interactive_cancel(monkeypatch, answer) -> None:
 
 
 def test_stop_no_instances(monkeypatch) -> None:
-    import miniagent.infrastructure.instance as instance_module
+    import miniagent.assistant.infrastructure.instance as instance_module
 
     monkeypatch.setattr(instance_module, "list_instances", lambda: [])
     monkeypatch.setattr(instance_module, "format_instances_table", lambda _items: "none")

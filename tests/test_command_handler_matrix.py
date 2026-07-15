@@ -7,16 +7,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.engine.commands import (
+from miniagent.assistant.engine.commands import (
     confirmation_commands,
     knowledge_commands,
     quality_commands,
     session_commands,
     test_commands,
 )
-from miniagent.engine.commands.knowledge_commands import _capture as capture_knowledge
-from miniagent.engine.commands.knowledge_commands import _parse_search
-from miniagent.engine.commands.queue_commands import (
+from miniagent.assistant.engine.commands.knowledge_commands import _capture as capture_knowledge
+from miniagent.assistant.engine.commands.knowledge_commands import _parse_search
+from miniagent.assistant.engine.commands.queue_commands import (
     _md_escape_cell,
     cmd_queue_set,
     cmd_queue_status,
@@ -58,7 +58,7 @@ async def test_confirmation_handler_matrix(capsys) -> None:
         confirmation_session_key="s",
     )
 
-    from miniagent.types.confirmation import ConfirmationStage
+    from miniagent.agent.types.confirmation import ConfirmationStage
 
     channel.pending = SimpleNamespace(
         stage=ConfirmationStage.PLAN,
@@ -78,9 +78,9 @@ async def test_confirmation_handler_matrix(capsys) -> None:
 @pytest.mark.asyncio
 async def test_test_command_parsing_and_dispatch(monkeypatch, capsys) -> None:
     run = AsyncMock(return_value="run-output")
-    monkeypatch.setattr("miniagent.engine.command_dispatch._run_test", run)
-    monkeypatch.setattr("miniagent.engine.command_dispatch._list_test_samples", lambda: "list")
-    monkeypatch.setattr("miniagent.engine.command_dispatch._get_test_status", lambda: "status")
+    monkeypatch.setattr("miniagent.assistant.engine.command_dispatch._run_test", run)
+    monkeypatch.setattr("miniagent.assistant.engine.command_dispatch._list_test_samples", lambda: "list")
+    monkeypatch.setattr("miniagent.assistant.engine.command_dispatch._get_test_status", lambda: "status")
     runtime = SimpleNamespace(cli_transcript_append=MagicMock())
     state = {"runtime_ctx": runtime}
 
@@ -109,17 +109,17 @@ async def test_test_command_parsing_and_dispatch(monkeypatch, capsys) -> None:
 async def test_quality_handlers_and_persistence(monkeypatch, capsys) -> None:
     assert "需要会话" in await quality_commands.handle_review("/review", state={}, capture=True)
     state = {
-        "runtime_ctx": SimpleNamespace(openai_client=None, cli_transcript_append=None),
+        "runtime_ctx": SimpleNamespace(llm_gateway=None, cli_transcript_append=None),
         "session_manager": MagicMock(),
         "active_session_id": "s",
     }
     monkeypatch.setattr(
-        "miniagent.engine.command_dispatch._get_last_qa", lambda *_args: (None, None)
+        "miniagent.assistant.engine.command_dispatch._get_last_qa", lambda *_args: (None, None)
     )
     assert "无历史" in await quality_commands.handle_review("/review", state=state, capture=True)
-    monkeypatch.setattr("miniagent.engine.command_dispatch._get_last_qa", lambda *_args: ("q", "a"))
+    monkeypatch.setattr("miniagent.assistant.engine.command_dispatch._get_last_qa", lambda *_args: ("q", "a"))
     review = AsyncMock(return_value="reviewed")
-    monkeypatch.setattr("miniagent.engine.command_dispatch._run_review", review)
+    monkeypatch.setattr("miniagent.assistant.engine.command_dispatch._run_review", review)
     assert (
         await quality_commands.handle_review("/review focus", state=state, capture=True)
         == "reviewed"
@@ -127,7 +127,7 @@ async def test_quality_handlers_and_persistence(monkeypatch, capsys) -> None:
     assert review.await_args.kwargs["extra_feedback"] == "focus"
 
     monkeypatch.setattr(
-        "miniagent.engine.cli_commands.cmd_improve", lambda *_args, **_kwargs: ("message", True)
+        "miniagent.assistant.engine.cli_commands.cmd_improve", lambda *_args, **_kwargs: ("message", True)
     )
     assert (
         await quality_commands.handle_improve("/improve --force", state=state, capture=True)
@@ -136,11 +136,11 @@ async def test_quality_handlers_and_persistence(monkeypatch, capsys) -> None:
 
     previous = {"content": "old", "metadata": {"improved": True, "improve_round": 2}}
     monkeypatch.setattr(
-        "miniagent.engine.cli_commands.cmd_improve",
+        "miniagent.assistant.engine.cli_commands.cmd_improve",
         lambda *_args, **_kwargs: ({"content": "q"}, previous, ["better"]),
     )
     improve = AsyncMock(return_value="new")
-    monkeypatch.setattr("miniagent.engine.command_dispatch._run_improve", improve)
+    monkeypatch.setattr("miniagent.assistant.engine.command_dispatch._run_improve", improve)
     session = SimpleNamespace(conversation_history=[])
     manager = SimpleNamespace(get=lambda _sid: session, save_session_history=MagicMock())
     state["session_manager"] = manager
@@ -151,7 +151,7 @@ async def test_quality_handlers_and_persistence(monkeypatch, capsys) -> None:
 
     assert "需要会话" in await quality_commands.handle_improve("/improve", state={}, capture=True)
     monkeypatch.setattr(
-        "miniagent.engine.cli_commands.cmd_improve",
+        "miniagent.assistant.engine.cli_commands.cmd_improve",
         lambda *_args, **_kwargs: ({"content": "q"}, previous, []),
     )
     improve.return_value = ""
@@ -175,13 +175,13 @@ async def test_session_handler_full_dispatch_matrix(monkeypatch, capsys) -> None
         "feishu_p2p_synced_senders": {"sender"},
     }
     monkeypatch.setattr(
-        "miniagent.engine.cli_commands.feishu_dot_commands_full_enabled", lambda: False
+        "miniagent.assistant.engine.cli_commands.feishu_dot_commands_full_enabled", lambda: False
     )
     monkeypatch.setattr(
-        "miniagent.engine.cli_commands.feishu_markdown_commands_enabled", lambda: True
+        "miniagent.assistant.engine.cli_commands.feishu_markdown_commands_enabled", lambda: True
     )
     monkeypatch.setattr(
-        "miniagent.engine.cli_commands.format_session_command_usage", lambda: "usage"
+        "miniagent.assistant.engine.cli_commands.format_session_command_usage", lambda: "usage"
     )
     assert "本地 MiniAgent" in await session_commands.handle_session(
         "/session switch next",
@@ -198,11 +198,11 @@ async def test_session_handler_full_dispatch_matrix(monkeypatch, capsys) -> None
         "cmd_session_delete": MagicMock(side_effect=lambda *_a, **_k: print("deleted")),
     }
     with (
-        patch("miniagent.engine.cli_commands.cmd_session_list", leaves["cmd_session_list"]),
-        patch("miniagent.engine.cli_commands.cmd_session_switch", leaves["cmd_session_switch"]),
-        patch("miniagent.engine.cli_commands.cmd_session_create", leaves["cmd_session_create"]),
-        patch("miniagent.engine.cli_commands.cmd_session_rename", leaves["cmd_session_rename"]),
-        patch("miniagent.engine.cli_commands.cmd_session_delete", leaves["cmd_session_delete"]),
+        patch("miniagent.assistant.engine.cli_commands.cmd_session_list", leaves["cmd_session_list"]),
+        patch("miniagent.assistant.engine.cli_commands.cmd_session_switch", leaves["cmd_session_switch"]),
+        patch("miniagent.assistant.engine.cli_commands.cmd_session_create", leaves["cmd_session_create"]),
+        patch("miniagent.assistant.engine.cli_commands.cmd_session_rename", leaves["cmd_session_rename"]),
+        patch("miniagent.assistant.engine.cli_commands.cmd_session_delete", leaves["cmd_session_delete"]),
     ):
         assert (
             await session_commands.handle_session("/session list", state=state, capture=True)
@@ -237,14 +237,14 @@ async def test_session_handler_full_dispatch_matrix(monkeypatch, capsys) -> None
     assert "listed" in capsys.readouterr().out
 
     with patch(
-        "miniagent.engine.cli_commands.cmd_session_switch",
+        "miniagent.assistant.engine.cli_commands.cmd_session_switch",
         AsyncMock(side_effect=RuntimeError("switch failed")),
     ):
         assert "switch failed" in await session_commands.handle_session(
             "/session switch bad", state=state, capture=True
         )
     with patch(
-        "miniagent.engine.cli_commands.cmd_session_create",
+        "miniagent.assistant.engine.cli_commands.cmd_session_create",
         AsyncMock(side_effect=RuntimeError("create failed")),
     ):
         assert "create failed" in await session_commands.handle_session(
@@ -263,9 +263,9 @@ async def test_knowledge_handler_full_dispatch_matrix(monkeypatch, capsys) -> No
     registry = SimpleNamespace(list=lambda: [{"name": "docs"}])
     state = {"runtime_ctx": SimpleNamespace(knowledge_registry=registry)}
     monkeypatch.setattr(
-        "miniagent.engine.cli_commands.feishu_markdown_commands_enabled", lambda: True
+        "miniagent.assistant.engine.cli_commands.feishu_markdown_commands_enabled", lambda: True
     )
-    monkeypatch.setattr("miniagent.engine.cli_commands.format_kb_command_usage", lambda: "usage")
+    monkeypatch.setattr("miniagent.assistant.engine.cli_commands.format_kb_command_usage", lambda: "usage")
     leaves = {
         "list": MagicMock(side_effect=lambda *_a, **_k: print("listed")),
         "mount": MagicMock(return_value="mounted"),
@@ -274,11 +274,11 @@ async def test_knowledge_handler_full_dispatch_matrix(monkeypatch, capsys) -> No
         "reload": MagicMock(return_value="reloaded"),
     }
     with (
-        patch("miniagent.engine.cli_commands.cmd_kb_list", leaves["list"]),
-        patch("miniagent.engine.cli_commands.cmd_kb_mount", leaves["mount"]),
-        patch("miniagent.engine.cli_commands.cmd_kb_unmount", leaves["unmount"]),
-        patch("miniagent.engine.cli_commands.cmd_kb_search", leaves["search"]),
-        patch("miniagent.engine.cli_commands.cmd_kb_reload", leaves["reload"]),
+        patch("miniagent.assistant.engine.cli_commands.cmd_kb_list", leaves["list"]),
+        patch("miniagent.assistant.engine.cli_commands.cmd_kb_mount", leaves["mount"]),
+        patch("miniagent.assistant.engine.cli_commands.cmd_kb_unmount", leaves["unmount"]),
+        patch("miniagent.assistant.engine.cli_commands.cmd_kb_search", leaves["search"]),
+        patch("miniagent.assistant.engine.cli_commands.cmd_kb_reload", leaves["reload"]),
     ):
         assert (
             await knowledge_commands.handle_knowledge("/knowledge", state=state, capture=True)

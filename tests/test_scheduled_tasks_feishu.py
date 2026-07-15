@@ -7,18 +7,18 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.application.messaging import ChannelRegistry
-from miniagent.contracts import OutboundEvent
-from miniagent.infrastructure.channel_router import ChannelRouter
-from miniagent.scheduled_tasks.feishu_delivery import (
+from miniagent.assistant.application.messaging import ChannelRegistry
+from miniagent.assistant.contracts import OutboundEvent
+from miniagent.assistant.infrastructure.channel_router import ChannelRouter
+from miniagent.assistant.scheduled_tasks.feishu_delivery import (
     FeishuDeliveryTarget,
     resolve_feishu_delivery,
     schedule_feishu_last_chat_enabled,
     schedule_feishu_mirror_enabled,
     send_scheduled_reply_to_feishu,
 )
-from miniagent.scheduled_tasks.models import ScheduledTask, ScheduleSpec, SessionSpec
-from miniagent.scheduled_tasks.timezone_util import default_schedule_timezone
+from miniagent.assistant.scheduled_tasks.models import ScheduledTask, ScheduleSpec, SessionSpec
+from miniagent.assistant.scheduled_tasks.timezone_util import default_schedule_timezone
 from tests.channel_helpers import FunctionChannelAdapter
 from tests.config_helpers import install_test_config
 
@@ -237,8 +237,8 @@ def test_resolve_feishu_last_chat_with_config(tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_runner_sends_feishu_reply_on_mirror(tmp_path) -> None:
     install_test_config(tmp_path, {"paths": {"state_dir": str(tmp_path)}})
-    from miniagent.scheduled_tasks.runner import build_scheduled_job
-    from miniagent.scheduled_tasks.store import save_tasks
+    from miniagent.assistant.scheduled_tasks.runner import build_scheduled_job
+    from miniagent.assistant.scheduled_tasks.store import save_tasks
 
     router = ChannelRouter()
     router.bind(router.CLI_CHANNEL, "default")
@@ -284,7 +284,7 @@ async def test_runner_sends_feishu_reply_on_mirror(tmp_path) -> None:
     assert job.queue_key == "oc_mirror_queue"
 
     with patch(
-        "miniagent.scheduled_tasks.runner.send_scheduled_reply_to_feishu",
+        "miniagent.assistant.scheduled_tasks.runner.send_scheduled_reply_to_feishu",
         new_callable=AsyncMock,
     ) as mock_send:
         err = await job.run(job.message)
@@ -307,8 +307,8 @@ def test_cmd_schedule_add_uses_tz_fallback(
         },
     )
     monkeypatch.setenv("TZ", "Asia/Shanghai")
-    from miniagent.engine.cli_commands import cmd_schedule
-    from miniagent.scheduled_tasks.store import load_tasks
+    from miniagent.assistant.engine.cli_commands import cmd_schedule
+    from miniagent.assistant.scheduled_tasks.store import load_tasks
 
     msg = cmd_schedule(
         '/schedule add tzenv cron "0 12 * * *" primary -- test',

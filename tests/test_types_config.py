@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from miniagent.core.config import get_default_agent_config, merge_agent_config
-from miniagent.infrastructure.registry import DefaultToolRegistry
-from miniagent.types.config import (
+from miniagent.agent.config import get_default_agent_config, merge_agent_config
+from miniagent.agent.types.config import (
     AgentConfig,
     FeishuChannelConfig,
     SessionBindingConfig,
     normalize_conversation_history,
 )
+from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
 
 class TestNormalizeConversationHistory:

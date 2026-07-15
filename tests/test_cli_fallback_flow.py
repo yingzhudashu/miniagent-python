@@ -8,8 +8,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniagent.application.messaging import ChannelRegistry
-from miniagent.engine.cli_fallback import run_cli_loop_fallback
+from miniagent.assistant.application.messaging import ChannelRegistry
+from miniagent.assistant.engine.cli_fallback import run_cli_loop_fallback
 
 
 class _Queue:
@@ -57,7 +57,7 @@ def _context() -> SimpleNamespace:
         clawhub=None,
         memory=None,
         knowledge_registry=None,
-        openai_client=None,
+        llm_gateway=None,
         register_shutdown_tracked_task=lambda _task: None,
     )
 
@@ -69,14 +69,14 @@ def _patch_lifecycle(monkeypatch, inputs: list[str]) -> None:
         return next(iterator)
 
     monkeypatch.setattr("asyncio.to_thread", fake_to_thread)
-    monkeypatch.setattr("miniagent.engine.cli_fallback.resolve_cli_history_file", lambda: "missing")
-    monkeypatch.setattr("miniagent.engine.cli_fallback.prime_fallback_readline_history", lambda *_: None)
-    monkeypatch.setattr("miniagent.engine.cli_fallback.heartbeat", lambda: None)
-    monkeypatch.setattr("miniagent.engine.cli_fallback.unregister_instance", lambda: None)
-    monkeypatch.setattr("miniagent.engine.session_continue.save_cli_session_state", lambda *_: None)
-    monkeypatch.setattr("miniagent.engine.session_lock.release_session_lock", lambda *_: None)
+    monkeypatch.setattr("miniagent.assistant.engine.cli_fallback.resolve_cli_history_file", lambda: "missing")
+    monkeypatch.setattr("miniagent.assistant.engine.cli_fallback.prime_fallback_readline_history", lambda *_: None)
+    monkeypatch.setattr("miniagent.assistant.engine.cli_fallback.heartbeat", lambda: None)
+    monkeypatch.setattr("miniagent.assistant.engine.cli_fallback.unregister_instance", lambda: None)
+    monkeypatch.setattr("miniagent.assistant.engine.session_continue.save_cli_session_state", lambda *_: None)
+    monkeypatch.setattr("miniagent.assistant.engine.session_lock.release_session_lock", lambda *_: None)
     monkeypatch.setattr(
-        "miniagent.engine.cli_fallback.print_history_summary_fallback", lambda *_args, **_kwargs: None
+        "miniagent.assistant.engine.cli_fallback.print_history_summary_fallback", lambda *_args, **_kwargs: None
     )
 
 
@@ -85,13 +85,13 @@ async def test_fallback_shell_command_status_and_agent_turn(monkeypatch, capsys)
     ctx = _context()
     _patch_lifecycle(monkeypatch, ["", "!echo hello", "/status", "ask", "quit"])
     monkeypatch.setattr(
-        "miniagent.engine.cli_fallback.run_cli_shell_command", lambda _cmd: (0, "shell output")
+        "miniagent.assistant.engine.cli_fallback.run_cli_shell_command", lambda _cmd: (0, "shell output")
     )
 
     async def dispatch(_text, **_kwargs):
         return "status output"
 
-    monkeypatch.setattr("miniagent.engine.command_dispatch.dispatch_command", dispatch)
+    monkeypatch.setattr("miniagent.assistant.engine.command_dispatch.dispatch_command", dispatch)
     state = {"active_session_id": "default", "session_manager": None, "instance_id": 1}
     await run_cli_loop_fallback(ctx, state, [], [])
 
@@ -106,8 +106,8 @@ async def test_fallback_shell_command_status_and_agent_turn(monkeypatch, capsys)
 async def test_fallback_copy_outcomes(monkeypatch, capsys, plain, copied, expected) -> None:
     ctx = _context()
     _patch_lifecycle(monkeypatch, ["/copy", "quit"])
-    monkeypatch.setattr("miniagent.engine.cli_commands.build_session_history_plaintext", lambda *_: plain)
-    monkeypatch.setattr("miniagent.engine.cli_fallback.copy_text_to_system_clipboard", lambda _text: copied)
+    monkeypatch.setattr("miniagent.assistant.engine.cli_commands.build_session_history_plaintext", lambda *_: plain)
+    monkeypatch.setattr("miniagent.assistant.engine.cli_fallback.copy_text_to_system_clipboard", lambda _text: copied)
     state = {"active_session_id": "default", "session_manager": None, "instance_id": 1}
     await run_cli_loop_fallback(ctx, state, [], [])
     assert expected in capsys.readouterr().out

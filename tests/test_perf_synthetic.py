@@ -10,14 +10,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.core.executor import execute_plan
-from miniagent.infrastructure.registry import DefaultToolRegistry
-from miniagent.memory.keyword_index import KeywordIndex
-from miniagent.memory.store import DefaultMemoryStore
-from miniagent.types.config import AgentConfig, SessionBindingConfig
-from miniagent.types.memory import MemoryEntryInput, SessionMemory
-from miniagent.types.planning import StructuredPlan
-from miniagent.types.tool import ToolContext, ToolDefinition, ToolResult
+from miniagent.agent.executor import execute_plan
+from miniagent.agent.types.config import AgentConfig, SessionBindingConfig
+from miniagent.agent.types.memory import MemoryEntryInput, SessionMemory
+from miniagent.agent.types.planning import StructuredPlan
+from miniagent.agent.types.tool import ToolContext, ToolDefinition, ToolResult
+from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
+from miniagent.assistant.memory.keyword_index import KeywordIndex
+from miniagent.assistant.memory.store import DefaultMemoryStore
 from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 from tests.perf_helpers import (
     assert_two_medians_within_ratio,
@@ -209,7 +209,7 @@ def test_s3_context_manager_estimate_bounded() -> None:
     """S3：较多工具 schema 下 token 估算可在合理时间内完成。"""
     import time
 
-    from miniagent.memory.context import DefaultContextManager
+    from miniagent.agent.context import DefaultContextManager
 
     tools = _large_tool_schemas(40)
 
@@ -230,7 +230,7 @@ def test_s3_context_manager_estimate_bounded() -> None:
 @pytest.mark.perf
 def test_s4_tool_budget_burst_median_under_cap() -> None:
     """S4：多工具下反复取 token 报告（依赖工具 token 缓存，防 needs_compression 路径退化）。"""
-    from miniagent.memory.context import DefaultContextManager
+    from miniagent.agent.context import DefaultContextManager
 
     tools = _large_tool_schemas(40)
     cm = DefaultContextManager(
@@ -252,7 +252,7 @@ def test_s4_tool_budget_burst_median_under_cap() -> None:
 @pytest.mark.perf
 def test_s5_normalize_lark_md_median_under_cap() -> None:
     """S5：飞书 lark_md 规范化纯 CPU 路径（不访问网络；与 poll_server 热点对照）。"""
-    from miniagent.feishu.poll_server import _normalize_lark_md
+    from miniagent.assistant.feishu.poll_server import _normalize_lark_md
 
     lines: list[str] = []
     for i in range(450):
@@ -271,9 +271,9 @@ def test_s6_memory_store_batch_tracemalloc_peak_loose() -> None:
     """S6：批量 add_entry + flush 的分配峰值（宽松上界，防灾难性分配回归）。"""
     from datetime import datetime, timezone
 
-    from miniagent.memory.keyword_index import KeywordIndex
-    from miniagent.memory.store import DefaultMemoryStore
-    from miniagent.types.memory import MemoryEntryInput, SessionMemory
+    from miniagent.agent.types.memory import MemoryEntryInput, SessionMemory
+    from miniagent.assistant.memory.keyword_index import KeywordIndex
+    from miniagent.assistant.memory.store import DefaultMemoryStore
 
     def run() -> None:
         async def body() -> None:
@@ -313,7 +313,7 @@ def test_s6_memory_store_batch_tracemalloc_peak_loose() -> None:
 @pytest.mark.perf
 def test_s7_exec_payload_json_serialize_median_under_cap() -> None:
     """S7：messages + tools 的 json.dumps 本地耗时上界（与 execute_plan 组装路径对齐）。"""
-    from miniagent.core.request_payload import serialize_exec_payload_sample
+    from miniagent.agent.request_payload import serialize_exec_payload_sample
 
     tools = _large_tool_schemas(28)
 
@@ -366,7 +366,7 @@ def test_s8_memory_store_lru_cache_bounded() -> None:
 @pytest.mark.perf
 def test_s9_embedding_index_bounded() -> None:
     """S9：EmbeddingIndex 连续添加条目，验证峰值不超过 max_entries。"""
-    from miniagent.memory.embedding_search import EmbeddingIndex
+    from miniagent.assistant.memory.embedding_search import EmbeddingIndex
 
     with tempfile.TemporaryDirectory() as tmp:
         idx = EmbeddingIndex(state_dir=tmp)
@@ -474,8 +474,8 @@ def test_s12_keyword_index_search_multi_hit_median_under_cap() -> None:
 @pytest.mark.perf
 def test_s13_feishu_thinking_card_cache_median_under_cap() -> None:
     """S13：重复 thinking card 渲染应复用 normalized body/card JSON。"""
-    from miniagent.engine.thinking import ThinkingDisplay
-    from miniagent.feishu.poll_server import _thinking_card_json_cached
+    from miniagent.assistant.engine.thinking import ThinkingDisplay
+    from miniagent.assistant.feishu.poll_server import _thinking_card_json_cached
 
     body = "\n\n".join(["### 标题", "**bold**", "a * b", "| A | B |", "|---|---|", "| 1 | 2 |"] * 80)
 
@@ -500,7 +500,7 @@ async def test_s14_json_tool_io_does_not_block_event_loop(
     import importlib
     import time
 
-    data_tools = importlib.import_module("miniagent.tools.data_tools")
+    data_tools = importlib.import_module("miniagent.assistant.tools.data_tools")
 
     target = tmp_path / "payload.json"
     target.write_text('{"ok":true}', encoding="utf-8")

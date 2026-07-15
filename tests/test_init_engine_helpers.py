@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.engine.init import (
+from miniagent.assistant.engine.init import (
     _ensure_baseline_skills,
     _init_default_session,
     _is_mcp_missing_error,
@@ -73,7 +73,7 @@ async def test_register_mcp_tools_from_native_json_array(tmp_path) -> None:
 
     registry = MagicMock()
     mock_register = AsyncMock(return_value=2)
-    with patch("miniagent.mcp.runtime.register_mcp_stdio_tools", mock_register):
+    with patch("miniagent.assistant.mcp.runtime.register_mcp_stdio_tools", mock_register):
         n = await _register_mcp_tools_from_config(registry)
 
     mock_register.assert_awaited_once_with(registry, "echo", ["hello"], env=None)
@@ -113,7 +113,7 @@ async def test_register_mcp_tools_missing_package_logs_warning(
     async def _raise_missing(*_a, **_kw) -> int:
         raise RuntimeError("未安装 mcp 包: pip install miniagent-python[mcp]")
 
-    with patch("miniagent.mcp.runtime.register_mcp_stdio_tools", _raise_missing):
+    with patch("miniagent.assistant.mcp.runtime.register_mcp_stdio_tools", _raise_missing):
         n = await _register_mcp_tools_from_config(MagicMock())
     assert n == 0
 
@@ -121,7 +121,7 @@ async def test_register_mcp_tools_missing_package_logs_warning(
 def test_ensure_baseline_skills_restores_missing(tmp_path, monkeypatch) -> None:
     skills_root = tmp_path / "skills"
     monkeypatch.setattr(
-        "miniagent.engine.init._get_skills_root_for_baseline",
+        "miniagent.assistant.engine.init._get_skills_root_for_baseline",
         lambda: str(skills_root),
     )
 
@@ -137,7 +137,7 @@ def test_ensure_baseline_skills_restores_missing(tmp_path, monkeypatch) -> None:
 
 
 def test_replace_known_managed_file_upgrades_only_exact_known_blob(tmp_path) -> None:
-    from miniagent.engine.init import _git_blob_id, _replace_known_managed_file
+    from miniagent.assistant.engine.init import _git_blob_id, _replace_known_managed_file
 
     source = tmp_path / "source.py"
     target = tmp_path / "target.py"
@@ -165,10 +165,10 @@ def test_init_default_session_lock_fallback(
         return True, ""
 
     monkeypatch.setattr(
-        "miniagent.engine.init.get_config",
+        "miniagent.assistant.engine.init.get_config",
         lambda key, default=None: default,
     )
-    monkeypatch.setattr("miniagent.engine.session_lock.try_lock_session", _lock)
+    monkeypatch.setattr("miniagent.assistant.engine.session_lock.try_lock_session", _lock)
 
     sm = _FakeSessionManager(["default"])
     router = _FakeChannelRouter()

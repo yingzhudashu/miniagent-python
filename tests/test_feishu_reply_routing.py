@@ -12,21 +12,21 @@ pytest.importorskip("lark_oapi")
 
 
 def test_feishu_outbound_reply_params_default_reply(tmp_path) -> None:
-    from miniagent.feishu.poll_server import feishu_outbound_reply_params
+    from miniagent.assistant.feishu.poll_server import feishu_outbound_reply_params
 
     install_test_config(tmp_path)
     assert feishu_outbound_reply_params("om_123") == ("om_123", False)
 
 
 def test_feishu_outbound_reply_params_explicit_create(tmp_path) -> None:
-    from miniagent.feishu.poll_server import feishu_outbound_reply_params
+    from miniagent.assistant.feishu.poll_server import feishu_outbound_reply_params
 
     install_test_config(tmp_path, {"feishu": {"reply_target": "create"}})
     assert feishu_outbound_reply_params("om_123") == (None, False)
 
 
 def test_feishu_outbound_reply_params_reply_mode(tmp_path) -> None:
-    from miniagent.feishu.poll_server import feishu_outbound_reply_params
+    from miniagent.assistant.feishu.poll_server import feishu_outbound_reply_params
 
     install_test_config(
         tmp_path,
@@ -36,7 +36,7 @@ def test_feishu_outbound_reply_params_reply_mode(tmp_path) -> None:
 
 
 def test_feishu_outbound_reply_params_invalid_target_falls_back(tmp_path) -> None:
-    from miniagent.feishu.poll_server import feishu_outbound_reply_params
+    from miniagent.assistant.feishu.poll_server import feishu_outbound_reply_params
 
     install_test_config(tmp_path, {"feishu": {"reply_target": "typo"}})
     assert feishu_outbound_reply_params("om_123") == (None, False)
@@ -44,14 +44,14 @@ def test_feishu_outbound_reply_params_invalid_target_falls_back(tmp_path) -> Non
 
 def test_feishu_outbound_reply_params_thread_id_default_in_thread(tmp_path) -> None:
     """未设置 ``feishu.reply_in_thread`` 时，``thread_id`` 非空则默认话题内回复。"""
-    from miniagent.feishu.poll_server import feishu_outbound_reply_params
+    from miniagent.assistant.feishu.poll_server import feishu_outbound_reply_params
 
     install_test_config(tmp_path, {"feishu": {"reply_target": "reply"}})
     assert feishu_outbound_reply_params("om_x", "t_thread_1") == ("om_x", True)
 
 
 def test_feishu_outbound_reply_params_explicit_off_overrides_thread(tmp_path) -> None:
-    from miniagent.feishu.poll_server import feishu_outbound_reply_params
+    from miniagent.assistant.feishu.poll_server import feishu_outbound_reply_params
 
     install_test_config(
         tmp_path,
@@ -61,9 +61,9 @@ def test_feishu_outbound_reply_params_explicit_off_overrides_thread(tmp_path) ->
 
 
 def test_send_interactive_reply_cards_uses_reply_api_when_configured() -> None:
-    from miniagent.feishu.lark_client import clear_client_cache
-    from miniagent.feishu.poll_server import _send_interactive_reply_cards
-    from miniagent.feishu.types import FeishuConfig
+    from miniagent.assistant.feishu.lark_client import clear_client_cache
+    from miniagent.assistant.feishu.poll_server import _send_interactive_reply_cards
+    from miniagent.assistant.feishu.types import FeishuConfig
 
     # Clear client cache to ensure mock is used
     clear_client_cache()

@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.feishu.ws_health import (
+from miniagent.assistant.feishu.ws_health import (
     FeishuWsHealthConfig,
     FeishuWsHealthState,
     _receive_loop_exit_reason,
@@ -28,7 +28,7 @@ def test_lark_ping_timeout_filter_reroutes_only_recoverable_3003() -> None:
     import logging
     from unittest.mock import patch
 
-    from miniagent.feishu.ws_client import _RecoverablePingTimeoutFilter
+    from miniagent.assistant.feishu.ws_client import _RecoverablePingTimeoutFilter
 
     timeout_record = logging.LogRecord(
         "Lark",
@@ -43,7 +43,7 @@ def test_lark_ping_timeout_filter_reroutes_only_recoverable_3003() -> None:
         "Lark", logging.ERROR, "", 0, "connect failed, err: unauthorized", (), None
     )
     filter_ = _RecoverablePingTimeoutFilter()
-    with patch("miniagent.feishu.ws_client._app_logger.warning") as warning:
+    with patch("miniagent.assistant.feishu.ws_client._app_logger.warning") as warning:
         assert filter_.filter(timeout_record) is False
         warning.assert_called_once()
     assert filter_.filter(other_record) is True
@@ -76,7 +76,7 @@ class TestFeishuWsHealthConfig:
 
     def test_config_read_from_settings(self) -> None:
         """配置应从设置读取。"""
-        with patch("miniagent.feishu.ws_health.get_config") as mock_config:
+        with patch("miniagent.assistant.feishu.ws_health.get_config") as mock_config:
             mock_config.side_effect = lambda key, default: {
                 "feishu.websocket.watchdog_interval": 60.0,
                 "feishu.websocket.dead_conn_grace": 120.0,
@@ -215,7 +215,7 @@ class TestWebSocketHealthIntegration:
         shutdown_event = asyncio.Event()
 
         # 需要 mock get_config 来提供配置
-        with patch("miniagent.feishu.ws_health.get_config", return_value=30.0):
+        with patch("miniagent.assistant.feishu.ws_health.get_config", return_value=30.0):
             result = await supervise_feishu_ws_session(
                 mock_client,
                 shutdown_event=shutdown_event,
@@ -243,7 +243,7 @@ class TestWebSocketHealthIntegration:
         shutdown_event = asyncio.Event()
         shutdown_event.set()  # 立即设置
 
-        with patch("miniagent.feishu.ws_health.get_config", return_value=30.0):
+        with patch("miniagent.assistant.feishu.ws_health.get_config", return_value=30.0):
             result = await supervise_feishu_ws_session(
                 mock_client,
                 shutdown_event=shutdown_event,
@@ -265,7 +265,7 @@ class TestFeishuWsClientBasic:
         """客户端应有 connected 属性。"""
         # 直接导入，测试是否有属性定义
         try:
-            from miniagent.feishu.ws_client import FeishuWsClient
+            from miniagent.assistant.feishu.ws_client import FeishuWsClient
 
             # 检查类定义有 connected 属性
             assert hasattr(FeishuWsClient, "connected")
@@ -275,7 +275,7 @@ class TestFeishuWsClientBasic:
     def test_client_has_receive_task_property(self) -> None:
         """客户端应有 receive_task 属性。"""
         try:
-            from miniagent.feishu.ws_client import FeishuWsClient
+            from miniagent.assistant.feishu.ws_client import FeishuWsClient
 
             assert hasattr(FeishuWsClient, "receive_task")
         except ImportError:
@@ -284,7 +284,7 @@ class TestFeishuWsClientBasic:
     def test_client_has_conn_id_property(self) -> None:
         """客户端应有 conn_id 属性。"""
         try:
-            from miniagent.feishu.ws_client import FeishuWsClient
+            from miniagent.assistant.feishu.ws_client import FeishuWsClient
 
             assert hasattr(FeishuWsClient, "conn_id")
         except ImportError:
@@ -296,9 +296,9 @@ class TestFeishuWsAutoReconnect:
 
     def test_auto_reconnect_reads_config(self) -> None:
         """自动重连应从配置读取。"""
-        from miniagent.feishu.ws_client import feishu_ws_auto_reconnect_enabled
+        from miniagent.assistant.feishu.ws_client import feishu_ws_auto_reconnect_enabled
 
-        with patch("miniagent.feishu.ws_client.get_config") as mock_config:
+        with patch("miniagent.assistant.feishu.ws_client.get_config") as mock_config:
             mock_config.return_value = True
             result = feishu_ws_auto_reconnect_enabled()
             assert result is True
@@ -309,7 +309,7 @@ class TestFeishuWsAutoReconnect:
 
     def test_auto_reconnect_default_is_false(self) -> None:
         """自动重连默认应为 False。"""
-        from miniagent.feishu.ws_client import feishu_ws_auto_reconnect_enabled
+        from miniagent.assistant.feishu.ws_client import feishu_ws_auto_reconnect_enabled
 
         # 不 mock 时应返回默认值
         result = feishu_ws_auto_reconnect_enabled()

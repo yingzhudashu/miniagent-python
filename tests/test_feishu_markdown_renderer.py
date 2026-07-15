@@ -13,7 +13,7 @@
 
 from __future__ import annotations
 
-from miniagent.feishu.docx.markdown_renderer import (
+from miniagent.assistant.feishu.docx.markdown_renderer import (
     BlockType,
     FeishuBlock,
     MarkdownConversionResult,
@@ -347,7 +347,7 @@ class TestPlainTextRendering:
 
     def test_markdown_to_plain_text(self):
         """纯文本剥离函数"""
-        from miniagent.feishu.docx.markdown import markdown_to_plain_text
+        from miniagent.assistant.feishu.docx.markdown import markdown_to_plain_text
 
         md = "# Title\n\n**bold** text\n\n- list item"
         plain = markdown_to_plain_text(md)
@@ -358,7 +358,7 @@ class TestPlainTextRendering:
 
     def test_markdown_to_blocks(self):
         """纯文本块函数"""
-        from miniagent.feishu.docx.markdown import markdown_to_blocks
+        from miniagent.assistant.feishu.docx.markdown import markdown_to_blocks
 
         md = "# Title"
         blocks = markdown_to_blocks(md)

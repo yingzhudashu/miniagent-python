@@ -6,13 +6,18 @@ import asyncio
 
 import pytest
 
-from miniagent.application.messaging import (
+from miniagent.assistant.application.messaging import (
     ChannelDeliveryError,
     ChannelNotRegisteredError,
     ChannelRegistrationError,
     ChannelRegistry,
 )
-from miniagent.contracts import ChannelAdapter, ChannelTarget, OutboundEvent, OutboundEventKind
+from miniagent.assistant.contracts import (
+    ChannelAdapter,
+    ChannelTarget,
+    OutboundEvent,
+    OutboundEventKind,
+)
 from tests.channel_helpers import FunctionChannelAdapter
 
 

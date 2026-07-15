@@ -1,16 +1,16 @@
-"""Tests for miniagent.core.config — 模型与 Agent 配置管理（双 JSON）。"""
+"""Tests for miniagent.agent.config — 模型与 Agent 配置管理（双 JSON）。"""
 
 import json
 import pathlib
 
 import pytest
 
-from miniagent.core.config import (
+from miniagent.agent.config import (
     get_default_agent_config,
     get_default_model_config,
     merge_agent_config,
 )
-from miniagent.infrastructure.json_config import (
+from miniagent.assistant.infrastructure.json_config import (
     JsonConfigLoader,
     get_config,
     get_config_section,
@@ -20,7 +20,7 @@ from miniagent.infrastructure.json_config import (
 )
 
 PROJECT_ROOT = pathlib.Path(__file__).parent.parent
-from miniagent.infrastructure.json_config import _packaged_defaults_path
+from miniagent.assistant.infrastructure.json_config import _packaged_defaults_path
 
 DEFAULTS_PATH = _packaged_defaults_path()
 
@@ -239,7 +239,7 @@ class TestMergeAgentConfig:
 
         _install_loader(tmp_path)
         base = get_default_agent_config()
-        with patch("miniagent.core.config._logger.debug") as mock_debug:
+        with patch("miniagent.agent.config._logger.debug") as mock_debug:
             merged = merge_agent_config(base, {"unknown_field": 1, "max_turns": 10})
         assert merged.max_turns == 10
         mock_debug.assert_any_call("merge_agent_config: 忽略未知覆盖键 %r", "unknown_field")

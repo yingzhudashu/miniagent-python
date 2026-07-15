@@ -1,4 +1,4 @@
-"""Tests for miniagent.utils.error_handling."""
+"""Tests for miniagent.assistant.utils.error_handling."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ import logging
 
 import pytest
 
-from miniagent.utils import error_handling
-from miniagent.utils.error_handling import (
+from miniagent.assistant.utils import error_handling
+from miniagent.assistant.utils.error_handling import (
     _log_failure,
     log_exception,
     safe_execute,

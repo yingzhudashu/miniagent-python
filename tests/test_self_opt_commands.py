@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from miniagent.engine.commands import self_opt_commands as commands
+from miniagent.assistant.engine.commands import self_opt_commands as commands
 
 
 class _Store:
@@ -37,9 +37,9 @@ class _Store:
 
 @pytest.fixture(autouse=True)
 def _patch_dependencies(monkeypatch, tmp_path: Path):
-    import miniagent.core.self_opt.proposal_generator as generator_module
-    import miniagent.core.self_opt.proposal_store as store_module
-    import miniagent.infrastructure.json_config as config_module
+    import miniagent.assistant.infrastructure.json_config as config_module
+    import miniagent.assistant.self_opt.proposal_generator as generator_module
+    import miniagent.assistant.self_opt.proposal_store as store_module
 
     _Store.records = {}
     _Store.update_result = True
@@ -82,7 +82,7 @@ def _record(status="pending", *, risk="low") -> dict:
 
 @pytest.mark.asyncio
 async def test_handle_self_opt_dispatches_and_validates(monkeypatch) -> None:
-    import miniagent.infrastructure.json_config as config_module
+    import miniagent.assistant.infrastructure.json_config as config_module
 
     assert "系统状态" in await commands.handle_self_opt("/self-opt status", capture=True)
     assert "用法" in await commands.handle_self_opt("/self-opt show", capture=True)

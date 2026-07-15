@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from miniagent.memory import history_bridge as hb
+from miniagent.agent import history as hb
 from tests.config_helpers import install_test_config
 
 
@@ -81,7 +81,7 @@ def test_estimate_tokens_for_thinking_uses_same_cap_as_llm(tmp_path) -> None:
     hist = [{"role": "thinking", "content": long_body}]
     t_est = hb.estimate_history_messages_tokens(hist)
     mapped = hb.conversation_history_for_llm(hist)
-    from miniagent.memory.context import estimate_tokens
+    from miniagent.agent.context import estimate_tokens
 
     t_mapped = estimate_tokens(mapped[0]["content"]) + 5
     assert t_est == t_mapped

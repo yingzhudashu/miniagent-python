@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from miniagent.feishu.cards.action_router import inbound_text_from_card_action_value
-from miniagent.feishu.cards.dedupe import CardActionDeduplicator
+from miniagent.assistant.feishu.cards.action_router import inbound_text_from_card_action_value
+from miniagent.assistant.feishu.cards.dedupe import CardActionDeduplicator
 
 
 def test_inbound_text_miniagent_text() -> None:

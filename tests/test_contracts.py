@@ -9,7 +9,7 @@ from datetime import datetime
 
 import pytest
 
-from miniagent.contracts import (
+from miniagent.assistant.contracts import (
     Attachment,
     ChannelTarget,
     HealthReport,
@@ -85,7 +85,7 @@ def test_health_report_copies_metadata() -> None:
 
 def test_importing_types_does_not_eagerly_import_feishu_adapter() -> None:
     code = (
-        "import sys; import miniagent.types; "
-        "assert 'miniagent.feishu' not in sys.modules, sorted(sys.modules)"
+        "import sys; import miniagent.agent.types; "
+        "assert 'miniagent.assistant.feishu' not in sys.modules, sorted(sys.modules)"
     )
     subprocess.run([sys.executable, "-c", code], check=True)

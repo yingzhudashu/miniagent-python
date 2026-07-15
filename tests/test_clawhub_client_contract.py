@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from miniagent.skills.clawhub_client import _ClawHubClientImpl
+from miniagent.assistant.skills.clawhub_client import _ClawHubClientImpl
 
 
 @pytest.mark.asyncio
@@ -62,7 +62,7 @@ async def test_download_installs_files_and_metadata(tmp_path: Path, monkeypatch)
     client = _ClawHubClientImpl("https://hub.test")
 
     async def detail(_slug):
-        from miniagent.types.skill import ClawHubSkillDetail
+        from miniagent.agent.types.skill import ClawHubSkillDetail
 
         return ClawHubSkillDetail(
             slug="author/example",
@@ -87,7 +87,7 @@ async def test_download_rejects_unsafe_paths(tmp_path: Path, monkeypatch, unsafe
     client = _ClawHubClientImpl("https://hub.test")
 
     async def detail(_slug):
-        from miniagent.types.skill import ClawHubSkillDetail
+        from miniagent.agent.types.skill import ClawHubSkillDetail
 
         return ClawHubSkillDetail(
             slug="example",

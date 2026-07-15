@@ -1,4 +1,4 @@
-"""Tests for miniagent.infrastructure.tracing
+"""Tests for miniagent.agent.observability
 
 验证 trace 钩子系统，包括可选的持久化功能。
 """
@@ -11,8 +11,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniagent.infrastructure import tracing
-from miniagent.infrastructure.tracing import (
+from miniagent.agent import observability as tracing
+from miniagent.agent.observability import (
     AsyncTraceWriter,
     auto_register_trace_file_hook,
     clear_trace_hooks,

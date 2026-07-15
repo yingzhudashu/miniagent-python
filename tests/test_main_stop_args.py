@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from miniagent.__main__ import (
+from miniagent.assistant.runner import (
     _argv_after_flag,
     _extract_stop_state_dir,
     _instance_targets,

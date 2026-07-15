@@ -7,8 +7,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniagent.tools.schedule_tools import _manage_scheduled_task_handler
-from miniagent.types.tool import ToolContext
+from miniagent.agent.types.tool import ToolContext
+from miniagent.assistant.tools.schedule_tools import _manage_scheduled_task_handler
 
 
 def _ctx(*, mutable: bool = True, cwd: str = "/tmp") -> ToolContext:
@@ -142,7 +142,7 @@ async def test_schedule_once_past_and_update_variants(state_dir: str) -> None:
 @pytest.mark.asyncio
 async def test_bitable_helper_and_dispatch_matrix(monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("lark_oapi")
-    module = importlib.import_module("miniagent.tools.feishu_bitable_tools")
+    module = importlib.import_module("miniagent.assistant.tools.feishu_bitable_tools")
 
     monkeypatch.setattr(module, "config_from_env", lambda: object())
     monkeypatch.setattr(module, "check_lark_oapi", lambda: None)

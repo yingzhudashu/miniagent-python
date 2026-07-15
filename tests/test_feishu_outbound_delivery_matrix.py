@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.feishu import outbound_delivery as delivery
-from miniagent.feishu.types import FeishuConfig
+from miniagent.assistant.feishu import outbound_delivery as delivery
+from miniagent.assistant.feishu.types import FeishuConfig
 
 
 @pytest.fixture
@@ -17,7 +17,7 @@ def config() -> FeishuConfig:
 
 def test_post_message_helpers_map_failures_and_missing_ids(monkeypatch, config) -> None:
     post = MagicMock(side_effect=[(False, None, "bad"), (True, None, None), (True, "mid", None)])
-    monkeypatch.setattr("miniagent.feishu.im_send.post_im_message", post)
+    monkeypatch.setattr("miniagent.assistant.feishu.im_send.post_im_message", post)
     assert delivery._post_interactive_message(
         config, receive_id="chat", card_json="{}"
     ) == (False, None)
@@ -46,7 +46,7 @@ async def test_async_post_message_helper_matrix(monkeypatch, config) -> None:
             (True, "mid", None),
         ]
     )
-    monkeypatch.setattr("miniagent.feishu.im_send.post_im_message_async", post)
+    monkeypatch.setattr("miniagent.assistant.feishu.im_send.post_im_message_async", post)
     assert await delivery._post_interactive_message_async(
         config, receive_id="chat", card_json="{}"
     ) == (False, None)

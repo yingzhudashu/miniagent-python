@@ -9,9 +9,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniagent.engine.init import init_subsystems
-from miniagent.infrastructure.registry import DefaultToolRegistry
-from miniagent.skills.registry import DefaultSkillRegistry
+from miniagent.assistant.engine.init import init_subsystems
+from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
+from miniagent.assistant.skills.registry import DefaultSkillRegistry
 from tests.config_helpers import install_test_config
 
 

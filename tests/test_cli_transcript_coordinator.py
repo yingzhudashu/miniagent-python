@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 
-from miniagent.infrastructure.cli_transcript_coordinator import CliTranscriptCoordinator
+from miniagent.assistant.infrastructure.cli_transcript_coordinator import CliTranscriptCoordinator
 
 
 def test_single_turn_append_passthrough_immediately() -> None:

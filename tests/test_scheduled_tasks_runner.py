@@ -6,11 +6,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.engine.cli_state import CliLoopState
-from miniagent.feishu.types import FeishuConfig
-from miniagent.infrastructure.message_queue import MessageQueueManager
-from miniagent.scheduled_tasks.models import ScheduledTask, SessionSpec
-from miniagent.scheduled_tasks.runner import (
+from miniagent.assistant.engine.cli_state import CliLoopState
+from miniagent.assistant.feishu.types import FeishuConfig
+from miniagent.assistant.infrastructure.message_queue import MessageQueueManager
+from miniagent.assistant.scheduled_tasks.models import ScheduledTask, SessionSpec
+from miniagent.assistant.scheduled_tasks.runner import (
     SCHEDULER_CHANNEL,
     build_scheduled_job,
 )
@@ -73,7 +73,7 @@ async def test_build_scheduled_job_feishu_sets_is_feishu() -> None:
     job = build_scheduled_job(ctx, st, task, [], [])
     assert job.queue_key == "oc_chat1"
     with patch(
-        "miniagent.scheduled_tasks.runner.send_scheduled_reply_to_feishu",
+        "miniagent.assistant.scheduled_tasks.runner.send_scheduled_reply_to_feishu",
         new_callable=AsyncMock,
     ) as mock_send:
         await job.run(job.message)

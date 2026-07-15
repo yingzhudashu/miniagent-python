@@ -1,11 +1,11 @@
-"""Tests for ``miniagent.engine.cli_format``."""
+"""Tests for ``miniagent.assistant.engine.cli_format``."""
 
 from __future__ import annotations
 
 from typing import Any
 from unittest.mock import patch
 
-from miniagent.engine.cli_format import (
+from miniagent.assistant.engine.cli_format import (
     format_cli_reply_block,
     format_cli_user_block,
     get_cli_format_widths,
@@ -73,10 +73,10 @@ def test_format_cli_reply_block_uses_safe_ansi_fragments_on_invalid_styles() -> 
         ansi_calls.append(obj)
 
     with patch(
-        "miniagent.engine.markdown_cli.render_markdown_to_ansi",
+        "miniagent.assistant.engine.markdown_cli.render_markdown_to_ansi",
         return_value="\x1b[31mok\x1b[0m\n",
     ), patch(
-        "miniagent.engine.cli_format.safe_ansi_fragments",
+        "miniagent.assistant.engine.cli_format.safe_ansi_fragments",
         return_value=[("", "ok\n")],
     ), patch(
         "prompt_toolkit.formatted_text.to_formatted_text",

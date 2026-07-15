@@ -1,6 +1,6 @@
 import json
 
-from miniagent.feishu.cards.extract import extract_text_from_interactive_content
+from miniagent.assistant.feishu.cards.extract import extract_text_from_interactive_content
 
 
 def test_extract_v1_card() -> None:

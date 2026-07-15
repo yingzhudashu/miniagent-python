@@ -8,15 +8,15 @@ from unittest.mock import patch
 
 import pytest
 
-from miniagent.infrastructure.registry import DefaultToolRegistry
-from miniagent.session.manager import DefaultSessionManager, SessionOptions
+from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
+from miniagent.assistant.session.manager import DefaultSessionManager, SessionOptions
 
 
 @pytest.fixture
 def workspaces(tmp_path: Path) -> Path:
     ws = tmp_path / "sessions"
     ws.mkdir()
-    with patch("miniagent.session.manager._get_workspaces_dir", return_value=str(ws)):
+    with patch("miniagent.assistant.session.manager._get_workspaces_dir", return_value=str(ws)):
         yield ws
 
 

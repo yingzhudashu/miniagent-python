@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from miniagent.engine.builtin_tools import register_builtin_tools
-from miniagent.feishu.feishu_tool_policy import FEISHU_EXT_TOOL_NAMES
-from miniagent.infrastructure.registry import DefaultToolRegistry
-from miniagent.types.tool import ToolDefinition
+from miniagent.agent.types.tool import ToolDefinition
+from miniagent.assistant.engine.builtin_tools import register_builtin_tools
+from miniagent.assistant.feishu.feishu_tool_policy import FEISHU_EXT_TOOL_NAMES
+from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 from tests.config_helpers import install_test_config
 
 

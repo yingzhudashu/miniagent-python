@@ -1,4 +1,4 @@
-"""Tests for miniagent.types.errors and related integration."""
+"""Tests for miniagent.agent.types.errors and related integration."""
 
 from __future__ import annotations
 
@@ -7,25 +7,25 @@ import tempfile
 
 import pytest
 
-from miniagent.security.sandbox import resolve_sandbox_path
-from miniagent.tools.feishu_utils import (
+from miniagent.agent.types.error_messages import (
+    DEPENDENCY_LARK_OAPI_MISSING,
+    FEISHU_CONFIG_MISSING,
+    format_sandbox_path_violation,
+)
+from miniagent.agent.types.errors import (
+    FeishuConfigMissingError,
+    LarkOapiMissingError,
+    SandboxViolationError,
+)
+from miniagent.agent.types.tool import ToolContext
+from miniagent.assistant.security.sandbox import resolve_sandbox_path
+from miniagent.assistant.tools.feishu_utils import (
     check_feishu_config,
     check_lark_oapi,
     require_feishu_config,
     require_lark_oapi_installed,
 )
-from miniagent.tools.path_utils import resolve_path_for_tool
-from miniagent.types.error_messages import (
-    DEPENDENCY_LARK_OAPI_MISSING,
-    FEISHU_CONFIG_MISSING,
-    format_sandbox_path_violation,
-)
-from miniagent.types.errors import (
-    FeishuConfigMissingError,
-    LarkOapiMissingError,
-    SandboxViolationError,
-)
-from miniagent.types.tool import ToolContext
+from miniagent.assistant.tools.path_utils import resolve_path_for_tool
 
 
 class TestSandboxViolationError:

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from miniagent.engine.commands.basic_commands import (
+from miniagent.assistant.engine.commands.basic_commands import (
     handle_config,
     handle_doctor,
     handle_help,
@@ -21,10 +21,10 @@ from miniagent.engine.commands.basic_commands import (
 @pytest.mark.asyncio
 async def test_model_config_and_doctor_capture_results() -> None:
     with (
-        patch("miniagent.engine.model_cmd.format_model_info", return_value="model-info"),
-        patch("miniagent.engine.model_cmd.switch_model", return_value="switched") as switch,
-        patch("miniagent.engine.config_cmd.format_config_info", return_value="config") as config,
-        patch("miniagent.engine.doctor.diagnose_environment", return_value="healthy"),
+        patch("miniagent.assistant.engine.model_cmd.format_model_info", return_value="model-info"),
+        patch("miniagent.assistant.engine.model_cmd.switch_model", return_value="switched") as switch,
+        patch("miniagent.assistant.engine.config_cmd.format_config_info", return_value="config") as config,
+        patch("miniagent.assistant.engine.doctor.diagnose_environment", return_value="healthy"),
     ):
         assert await handle_model("/model", capture=True) == "model-info"
         assert await handle_model("/model gpt-test", capture=True) == "switched"
@@ -36,7 +36,7 @@ async def test_model_config_and_doctor_capture_results() -> None:
 
 @pytest.mark.asyncio
 async def test_print_channel_emits_once(capsys: pytest.CaptureFixture[str]) -> None:
-    with patch("miniagent.engine.model_cmd.format_model_info", return_value="model-info"):
+    with patch("miniagent.assistant.engine.model_cmd.format_model_info", return_value="model-info"):
         assert await handle_model("/model", capture=False) is None
     assert capsys.readouterr().out.strip() == "model-info"
 
@@ -52,15 +52,15 @@ async def test_help_and_stats_degrade_without_runtime_or_monitor() -> None:
 @pytest.mark.asyncio
 async def test_help_captures_builtin_print_contract() -> None:
     runtime = SimpleNamespace(message_queue=object())
-    with patch("miniagent.engine.cli_commands.cmd_help", side_effect=lambda *_: print("help")):
+    with patch("miniagent.assistant.engine.cli_commands.cmd_help", side_effect=lambda *_: print("help")):
         assert await handle_help("/help", state={"runtime_ctx": runtime}, capture=True) == "help"
 
 
 @pytest.mark.asyncio
 async def test_schedule_forwards_remote_mutation_policy() -> None:
     with (
-        patch("miniagent.engine.cli_commands.cmd_schedule", return_value="schedule") as command,
-        patch("miniagent.engine.cli_commands.feishu_dot_commands_full_enabled", return_value=False),
+        patch("miniagent.assistant.engine.cli_commands.cmd_schedule", return_value="schedule") as command,
+        patch("miniagent.assistant.engine.cli_commands.feishu_dot_commands_full_enabled", return_value=False),
     ):
         result = await handle_schedule(
             "/schedule add daily",
@@ -78,7 +78,7 @@ async def test_reload_config_maps_success_failure_and_missing_runtime() -> None:
     )
     runtime = object()
     reload_mock = AsyncMock()
-    with patch("miniagent.infrastructure.json_config.reload_runtime_config", reload_mock):
+    with patch("miniagent.assistant.infrastructure.json_config.reload_runtime_config", reload_mock):
         assert "重新加载" in (
             await handle_reload_config(
                 "/reload-config", state={"runtime_ctx": runtime}, capture=True
@@ -88,7 +88,7 @@ async def test_reload_config_maps_success_failure_and_missing_runtime() -> None:
     reload_mock.assert_awaited_once_with(runtime)
 
     reload_mock = AsyncMock(side_effect=ValueError("bad config"))
-    with patch("miniagent.infrastructure.json_config.reload_runtime_config", reload_mock):
+    with patch("miniagent.assistant.infrastructure.json_config.reload_runtime_config", reload_mock):
         assert "bad config" in (
             await handle_reload_config(
                 "/reload-config", state={"runtime_ctx": runtime}, capture=True

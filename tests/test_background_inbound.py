@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from miniagent.engine.background_inbound import (
+from miniagent.assistant.engine.background_inbound import (
     BACKGROUND_CHANNEL,
     background_prompt,
     build_background_inbound_message,

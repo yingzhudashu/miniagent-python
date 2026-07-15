@@ -10,10 +10,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from prompt_toolkit.formatted_text.ansi import ANSI
 
-from miniagent.contracts.messages import InboundMessage
-from miniagent.engine.cli_transcript import TranscriptBuffer
-from miniagent.engine.cli_tui_appenders import create_transcript_appenders
-from miniagent.engine.cli_tui_turn import create_tui_process_input
+from miniagent.assistant.contracts.messages import InboundMessage
+from miniagent.assistant.engine.cli_tui_turn import create_tui_process_input
+from miniagent.ui.tui.appenders import create_transcript_appenders
+from miniagent.ui.tui.transcript import TranscriptBuffer
 
 
 def test_transcript_appenders_merge_validate_scroll_and_plain(monkeypatch) -> None:
@@ -22,7 +22,7 @@ def test_transcript_appenders_merge_validate_scroll_and_plain(monkeypatch) -> No
     snaps: list[bool] = []
     invalidations: list[bool] = []
     monkeypatch.setattr(
-        "miniagent.engine.cli_tui_appenders.get_app",
+        "miniagent.ui.tui.appenders.get_app",
         lambda: SimpleNamespace(invalidate=lambda: invalidations.append(True)),
     )
     stick = [False]
@@ -52,7 +52,7 @@ def test_transcript_appenders_merge_validate_scroll_and_plain(monkeypatch) -> No
 def test_transcript_appenders_preserve_scroll_when_not_at_bottom(monkeypatch) -> None:
     transcript = TranscriptBuffer(1000)
     monkeypatch.setattr(
-        "miniagent.engine.cli_tui_appenders.get_app",
+        "miniagent.ui.tui.appenders.get_app",
         MagicMock(side_effect=RuntimeError("no app")),
     )
     stick = [False]
@@ -97,18 +97,18 @@ async def test_tui_turn_success_and_error_paths(monkeypatch) -> None:
         clawhub=None,
         memory=None,
         knowledge_registry=None,
-        openai_client=None,
+        llm_gateway=None,
     )
     state = {"active_session_id": "s", "session_manager": None}
     monkeypatch.setattr(
-        "miniagent.engine.cli_tui_turn.process_cli_file_markers",
+        "miniagent.assistant.engine.cli_tui_turn.process_cli_file_markers",
         AsyncMock(return_value=("normalized", [])),
     )
     monkeypatch.setattr(
-        "miniagent.engine.cli_format.format_cli_user_block", lambda *_args, **_kwargs: None
+        "miniagent.assistant.engine.cli_format.format_cli_user_block", lambda *_args, **_kwargs: None
     )
     monkeypatch.setattr(
-        "miniagent.engine.cli_tui_turn.get_app",
+        "miniagent.assistant.engine.cli_tui_turn.get_app",
         lambda: SimpleNamespace(invalidate=lambda: None),
     )
     def event_builder(text, session_key, **kwargs):

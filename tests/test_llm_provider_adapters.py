@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from miniagent.infrastructure.llm.providers.anthropic import (
+from miniagent.llm.providers.anthropic import (
     _anthropic_messages,
     _anthropic_tools,
 )
-from miniagent.infrastructure.llm.providers.common import normalize_provider_error
-from miniagent.infrastructure.llm.providers.google import _google_contents, _google_tools
+from miniagent.llm.providers.common import normalize_provider_error
+from miniagent.llm.providers.google import _google_contents, _google_tools
 
 
 def _conversation():

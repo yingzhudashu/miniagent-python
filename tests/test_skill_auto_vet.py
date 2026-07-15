@@ -3,7 +3,7 @@
 import os
 import tempfile
 
-from miniagent.skills.autovet import auto_vet_skill
+from miniagent.assistant.skills.autovet import auto_vet_skill
 
 
 class TestAutoVetSkill:

@@ -6,23 +6,23 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.application.messaging import (
+from miniagent.agent.monitor import DefaultToolMonitor
+from miniagent.assistant.application.messaging import (
     ChannelRegistry,
     OrderedOutboundDispatcher,
 )
-from miniagent.bootstrap.application import ApplicationContainer
-from miniagent.contracts import OutboundEventKind
-from miniagent.engine.cli_outbound import build_cli_thinking_event
-from miniagent.engine.engine import UnifiedEngine
-from miniagent.engine.feishu_handler import create_feishu_handler
-from miniagent.engine.feishu_state import FeishuRuntime
-from miniagent.feishu.types import FeishuInboundText
-from miniagent.infrastructure.channel_router import ChannelRouter
-from miniagent.infrastructure.cli_transcript_coordinator import CliTranscriptCoordinator
-from miniagent.infrastructure.message_queue import MessageQueueManager
-from miniagent.infrastructure.monitor import DefaultToolMonitor
-from miniagent.infrastructure.registry import DefaultToolRegistry
-from miniagent.skills import DefaultSkillRegistry, create_clawhub_client
+from miniagent.assistant.bootstrap.application import ApplicationContainer
+from miniagent.assistant.contracts import OutboundEventKind
+from miniagent.assistant.engine.cli_outbound import build_cli_thinking_event
+from miniagent.assistant.engine.engine import UnifiedEngine
+from miniagent.assistant.engine.feishu_handler import create_feishu_handler
+from miniagent.assistant.engine.feishu_state import FeishuRuntime
+from miniagent.assistant.feishu.types import FeishuInboundText
+from miniagent.assistant.infrastructure.channel_router import ChannelRouter
+from miniagent.assistant.infrastructure.cli_transcript_coordinator import CliTranscriptCoordinator
+from miniagent.assistant.infrastructure.message_queue import MessageQueueManager
+from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
+from miniagent.assistant.skills import DefaultSkillRegistry, create_clawhub_client
 from tests.channel_helpers import FunctionChannelAdapter
 from tests.memory_helpers import (
     make_background_task_manager,
@@ -96,8 +96,8 @@ async def test_background_group_does_not_write_cli_user_or_reply(loop_state: dic
         chat_type="group",
         message_id="msg1",
     )
-    with patch("miniagent.engine.feishu_handler.format_cli_user_block") as mock_user, patch(
-        "miniagent.engine.feishu_handler.format_cli_reply_block"
+    with patch("miniagent.assistant.engine.feishu_handler.format_cli_user_block") as mock_user, patch(
+        "miniagent.assistant.engine.feishu_handler.format_cli_reply_block"
     ) as mock_reply:
         await handler(inbound)
         mock_user.assert_not_called()
@@ -135,10 +135,10 @@ async def test_bound_group_mirrors_user_and_reply(loop_state: dict) -> None:
         chat_type="group",
         message_id="msg2",
     )
-    with patch("miniagent.engine.feishu_handler.format_cli_user_block") as mock_user, patch(
-        "miniagent.engine.feishu_handler.format_cli_reply_block"
+    with patch("miniagent.assistant.engine.feishu_handler.format_cli_user_block") as mock_user, patch(
+        "miniagent.assistant.engine.feishu_handler.format_cli_reply_block"
     ) as mock_reply, patch(
-        "miniagent.engine.feishu_handler._send_feishu_agent_reply", new_callable=AsyncMock
+        "miniagent.assistant.engine.feishu_handler._send_feishu_agent_reply", new_callable=AsyncMock
     ):
         await handler(inbound)
         mock_user.assert_called_once()
@@ -196,10 +196,10 @@ async def test_bound_group_drains_thinking_before_adapter_final(loop_state: dict
         message_id="msg_ordered",
     )
 
-    with patch("miniagent.engine.feishu_handler.format_cli_user_block"), patch(
-        "miniagent.engine.feishu_handler.format_cli_reply_block"
+    with patch("miniagent.assistant.engine.feishu_handler.format_cli_user_block"), patch(
+        "miniagent.assistant.engine.feishu_handler.format_cli_reply_block"
     ) as direct_reply, patch(
-        "miniagent.engine.feishu_handler._send_feishu_agent_reply",
+        "miniagent.assistant.engine.feishu_handler._send_feishu_agent_reply",
         new_callable=AsyncMock,
     ):
         await handler(inbound)
@@ -249,20 +249,20 @@ async def test_media_handler_mirror_writes_user_block(
         return b"png", "img.png"
 
     with patch(
-        "miniagent.engine.feishu_handler.get_config",
+        "miniagent.assistant.engine.feishu_handler.get_config",
         side_effect=lambda key, default=None: True if key == "feishu.media.run_agent" else default,
     ), patch(
-        "miniagent.feishu.resource_io.download_message_resource", _fake_download
+        "miniagent.assistant.feishu.resource_io.download_message_resource", _fake_download
     ), patch("builtins.open", create=True), patch(
-        "miniagent.engine.feishu_handler.os.makedirs"
+        "miniagent.assistant.engine.feishu_handler.os.makedirs"
     ), patch(
-        "miniagent.engine.feishu_handler.os.path.relpath", return_value="feishu_incoming/img.png"
+        "miniagent.assistant.engine.feishu_handler.os.path.relpath", return_value="feishu_incoming/img.png"
     ), patch(
-        "miniagent.memory.store.add_file_to_memory", new_callable=AsyncMock
+        "miniagent.assistant.memory.store.add_file_to_memory", new_callable=AsyncMock
     ), patch(
-        "miniagent.engine.feishu_handler.format_cli_user_block"
+        "miniagent.assistant.engine.feishu_handler.format_cli_user_block"
     ) as mock_user, patch(
-        "miniagent.engine.feishu_handler.format_cli_reply_block"
+        "miniagent.assistant.engine.feishu_handler.format_cli_reply_block"
     ) as mock_reply:
         await media_handler(
             MagicMock(app_id="a", app_secret="s"),

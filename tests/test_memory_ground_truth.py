@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from miniagent.memory.ground_truth import (
+from miniagent.agent.ground_truth import (
     active_ground_truth,
     apply_ground_truth_updates,
     extract_ground_truth_facts,
     format_ground_truth_for_prompt,
     resolve_ambiguities_from_ground_truth,
 )
-from miniagent.types.memory import GroundTruthFact, SessionMemory
+from miniagent.agent.types.memory import GroundTruthFact, SessionMemory
 
 
 def test_extract_stable_output_format_fact() -> None:

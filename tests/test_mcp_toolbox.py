@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from miniagent.infrastructure.registry import DefaultToolRegistry
-from miniagent.mcp.toolbox import (
+from miniagent.agent.types.tool import ToolDefinition, ToolResult
+from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
+from miniagent.assistant.mcp.toolbox import (
     MCP_TOOLBOX,
     ensure_mcp_toolbox,
     registry_has_mcp_tools,
 )
-from miniagent.types.tool import ToolDefinition, ToolResult
 
 
 async def _h(_args: dict, _ctx) -> ToolResult:

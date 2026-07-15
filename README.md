@@ -51,17 +51,16 @@
 
 ## 架构概览
 
-Mini Agent Python 采用 **多阶段架构**（Phase 0 分类 → Phase 0.5 需求澄清 → Phase 1 规划 → Phase 2 执行），通过 **ReAct 循环** 驱动 LLM 调用工具完成任务。系统分为 **12 个功能层**，支持 **CLI + 飞书** 双通道，经 **ChannelRouter** 实现通道绑定与会话共享。
+Mini Agent Python 采用单发行包内的四模块架构，并保持个人高质量问答助手定位。Agent 内部仍使用 Phase 0 分类 → Phase 0.5 需求澄清 → Phase 1 规划 → Phase 2 ReAct 执行 → Phase 3 反思，但产品渠道、持久化和工具实现不进入 Agent 核心。
 
 ```
-用户 → CLI / 飞书 WebSocket → 通道适配 → 应用用例 → 引擎 → 核心（澄清→规划→执行）
-                            ↕ 标准消息契约          ↓
-                         组合根/基础设施 ← 工具层 + 记忆层 → 安全/类型
+CLI / 飞书 → assistant → agent → llm
+                 └──────→ ui
 ```
 
 CLI、飞书文本、媒体和定时任务统一使用平台无关 `InboundMessage`；CLI、飞书和定时结果统一使用 `OutboundEvent` 经 `ChannelRegistry` 投递。唯一 `ApplicationContainer` 由正式入口构造，长期服务全部由 `LifecycleManager` 管理；实例 heartbeat 仅用于存活诊断，不属于 Agent 消息通道。
 
-完整分层说明、数据流与扩展点见 **[ARCHITECTURE.md](docs/ARCHITECTURE.md)**。`miniagent/` 下 20 个物理子包见 [项目结构](#项目结构)。
+`llm` 与 `ui` 相互独立，`agent` 只依赖 `llm`，`assistant` 是唯一组合根。完整依赖规则、数据流与扩展点见 **[ARCHITECTURE.md](docs/ARCHITECTURE.md)**。
 
 **与 OpenClaw 的关系**：[OpenClaw](https://docs.openclaw.ai) 是自托管 Gateway，将多种渠道接到 Agent；本仓库是 **Python Agent 核心**（多阶段架构、ReAct、技能与 ClawHub、飞书与 CLI、本地记忆），可与 ClawHub 技能生态对齐，但不是 OpenClaw Gateway 的等价实现。
 
@@ -218,7 +217,7 @@ Agent 会自动调用文件工具完成任务。
 
 ### 常用可选配置
 
-完整默认值见 [`miniagent/resources/config.defaults.json`](miniagent/resources/config.defaults.json)：
+完整默认值见 [`miniagent/assistant/resources/config.defaults.json`](miniagent/assistant/resources/config.defaults.json)：
 
 | 配置路径 | 用途 |
 |----------|------|
@@ -232,7 +231,7 @@ Agent 会自动调用文件工具完成任务。
 | `secrets.feishu_app_id` / `secrets.feishu_app_secret` | 飞书应用凭证（事件订阅另需 `feishu_verification_token` 等，见 [FEISHU.md](docs/FEISHU.md)） |
 | `paths.state_dir` | 状态根目录，默认 `workspaces`（canonical 布局：`workspaces/projects/{project_key}/`，见 [ENGINEERING.md](docs/ENGINEERING.md) §3） |
 
-**配置分层**：包内 `miniagent/resources/config.defaults.json` 顶部 `_config_guide` 列出 User 层与 Advanced 层。普通用户只需在 `config.user.json` 覆盖 User 层；Advanced 节（`memory`、`trace` 等）一般保持默认。优先级：**config.user.json > 包内 defaults**。运维/调试类环境变量（如 `MINIAGENT_PATHS_STATE_DIR`、`AGENT_DEBUG`）见 [ENGINEERING.md](docs/ENGINEERING.md) §1.2。
+**配置分层**：包内 `miniagent/assistant/resources/config.defaults.json` 顶部 `_config_guide` 列出 User 层与 Advanced 层。普通用户只需在 `config.user.json` 覆盖 User 层；Advanced 节（`memory`、`trace` 等）一般保持默认。优先级：**config.user.json > 包内 defaults**。运维/调试类环境变量（如 `MINIAGENT_PATHS_STATE_DIR`、`AGENT_DEBUG`）见 [ENGINEERING.md](docs/ENGINEERING.md) §1.2。
 
 从 2.x 升级时先运行 `python -m miniagent migrate-config --dry-run`，确认后使用
 `python -m miniagent migrate-config --write`。写入前会创建带 UTC 时间戳的 v2 备份。
@@ -299,27 +298,13 @@ python -m miniagent --stop
 
 ```
 miniagent-python/
-├── miniagent/             # 核心源码（20 个子包）
-│   ├── application/       # 平台无关用例协调、通道注册与出站分发
-│   ├── bootstrap/         # 服务生命周期、生产图装配与启动回滚
-│   ├── cli/               # CLI 入口
-│   ├── contracts/         # 平台无关消息、生命周期与共享默认值契约
-│   ├── core/              # Agent 核心：分类、澄清、规划、执行
-│   ├── engine/            # 运行时引擎：主循环、命令调度
-│   ├── feishu/            # 飞书集成
-│   ├── infrastructure/    # 注册表、消息队列、日志、实例
-│   ├── knowledge/         # 知识库管理
-│   ├── mcp/               # MCP 桥接（可选）
-│   ├── memory/            # 三层记忆
-│   ├── resources/         # wheel 内置默认配置等运行时资源
-│   ├── scheduled_tasks/   # 定时任务
-│   ├── security/          # 沙箱
-│   ├── session/           # 会话管理
-│   ├── skills/            # 技能加载、ClawHub
-│   ├── testing/           # Agent 测试适配器与验证运行器
-│   ├── tools/             # 工具实现
-│   ├── types/             # 类型定义
-│   └── utils/             # 通用错误处理与会话 ID 工具
+├── miniagent/
+│   ├── llm/               # 多提供商 Gateway、模型目录、流事件和 Provider
+│   ├── agent/             # 分类、澄清、规划、执行、反思及注入端口
+│   ├── ui/                # 独立 TUI 控件、transcript、滚动、选择与复制
+│   ├── assistant/         # 会话、记忆、工具、渠道、配置、持久化与组合根
+│   ├── __init__.py
+│   └── __main__.py        # 仅委托 assistant.run_assistant()
 ├── docs/                  # 文档
 ├── tests/                 # pytest 测试
 ├── scripts/               # 维护脚本

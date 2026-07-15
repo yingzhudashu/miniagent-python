@@ -5,8 +5,8 @@ from datetime import timezone
 
 import pytest
 
-from miniagent.engine.background_inbound import build_background_inbound_message
-from miniagent.engine.background_tasks import (
+from miniagent.assistant.engine.background_inbound import build_background_inbound_message
+from miniagent.assistant.engine.background_tasks import (
     BackgroundTask,
     BackgroundTaskManager,
     TaskStatus,
@@ -431,7 +431,7 @@ class TestBackgroundTaskManagerShutdown:
             cleanup_finished.set()
 
         monkeypatch.setattr(
-            "miniagent.engine.background_tasks.cleanup_background_session_artifacts",
+            "miniagent.assistant.engine.background_tasks.cleanup_background_session_artifacts",
             cleanup,
         )
 

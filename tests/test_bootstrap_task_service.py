@@ -6,8 +6,8 @@ import asyncio
 
 import pytest
 
-from miniagent.bootstrap import AsyncTaskLifecycleService, LifecycleManager
-from miniagent.contracts import HealthState, LifecycleService
+from miniagent.assistant.bootstrap import AsyncTaskLifecycleService, LifecycleManager
+from miniagent.assistant.contracts import HealthState, LifecycleService
 
 
 @pytest.mark.asyncio

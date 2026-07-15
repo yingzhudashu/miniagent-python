@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from miniagent.infrastructure.atomic_json import atomic_dump_json
+from miniagent.assistant.infrastructure.atomic_json import atomic_dump_json
 
 
 def test_atomic_dump_json_publishes_complete_document(tmp_path) -> None:

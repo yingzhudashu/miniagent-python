@@ -27,7 +27,7 @@ class TestAsyncWorkspace:
     @pytest.mark.asyncio
     async def test_copy_tree_async_basic(self) -> None:
         """异步复制基本功能测试。"""
-        from miniagent.session.workspace import WorkspaceManager
+        from miniagent.assistant.session.workspace import WorkspaceManager
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # 创建源目录结构
@@ -56,7 +56,7 @@ class TestAsyncWorkspace:
     @pytest.mark.asyncio
     async def test_create_workspace_async(self) -> None:
         """异步创建工作空间测试。"""
-        from miniagent.session.workspace import WorkspaceManager
+        from miniagent.assistant.session.workspace import WorkspaceManager
 
         with tempfile.TemporaryDirectory() as tmpdir:
             wm = WorkspaceManager(base_dir=os.path.join(tmpdir, "sessions"))
@@ -73,7 +73,7 @@ class TestAsyncWorkspace:
     @pytest.mark.asyncio
     async def test_destroy_workspace_async(self) -> None:
         """异步销毁工作空间测试。"""
-        from miniagent.session.workspace import WorkspaceManager
+        from miniagent.assistant.session.workspace import WorkspaceManager
 
         with tempfile.TemporaryDirectory() as tmpdir:
             wm = WorkspaceManager(base_dir=os.path.join(tmpdir, "sessions"))
@@ -98,7 +98,7 @@ class TestAsyncSessionHistory:
 
     def test_async_history_functions_exist(self) -> None:
         """验证异步历史函数存在。"""
-        from miniagent.session.manager import DefaultSessionManager
+        from miniagent.assistant.session.manager import DefaultSessionManager
 
         # 验证异步方法存在
         assert hasattr(DefaultSessionManager, 'save_session_history_async')
@@ -118,7 +118,7 @@ class TestHttpClientReuse:
     @pytest.mark.asyncio
     async def test_embed_client_reuse(self, tmp_path) -> None:
         """一个 embedding provider 在其生命周期内复用连接池。"""
-        from miniagent.memory.embedding_search import EmbeddingSearchProvider
+        from miniagent.assistant.memory.embedding_search import EmbeddingSearchProvider
 
         provider = EmbeddingSearchProvider(state_dir=str(tmp_path))
         client1 = provider._get_http_client()
@@ -147,8 +147,8 @@ class TestHttpRetry:
         """网络错误时重试测试。"""
         import httpx
 
-        from miniagent.feishu.drive_client import _async_http_request, _tenant_token_url
-        from miniagent.feishu.types import FeishuConfig
+        from miniagent.assistant.feishu.drive_client import _async_http_request, _tenant_token_url
+        from miniagent.assistant.feishu.types import FeishuConfig
 
         FeishuConfig(app_id="test", app_secret="test", verification_token="test")
 
@@ -191,7 +191,10 @@ class TestDedupFlushThreshold:
 
     def test_dedup_threshold_reduced(self) -> None:
         """验证刷盘阈值常量已定义且为合理正值。"""
-        from miniagent.feishu.feishu_dedup import DEDUP_FLUSH_INTERVAL, DEDUP_FLUSH_THRESHOLD
+        from miniagent.assistant.feishu.feishu_dedup import (
+            DEDUP_FLUSH_INTERVAL,
+            DEDUP_FLUSH_THRESHOLD,
+        )
 
         assert DEDUP_FLUSH_THRESHOLD > 0
         assert DEDUP_FLUSH_INTERVAL > 0
@@ -210,7 +213,7 @@ class TestPerformanceBenchmarks:
         """异步与同步操作对比测试。"""
         import time
 
-        from miniagent.session.workspace import WorkspaceManager
+        from miniagent.assistant.session.workspace import WorkspaceManager
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # 创建较大的目录结构（测试异步优势）

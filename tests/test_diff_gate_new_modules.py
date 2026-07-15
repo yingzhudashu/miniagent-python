@@ -8,10 +8,9 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 
-from miniagent.core import agent_display, llm_capabilities, planner_support
-from miniagent.infrastructure import http_retry, instance_render
-from miniagent.types.config import AgentConfig, SessionBindingConfig
-from miniagent.types.planning import (
+from miniagent.agent import agent_display, planner_support
+from miniagent.agent.types.config import AgentConfig, SessionBindingConfig
+from miniagent.agent.types.planning import (
     ContextStrategy,
     EstimatedCost,
     OutputSpec,
@@ -19,6 +18,8 @@ from miniagent.types.planning import (
     PlanStep,
     StructuredPlan,
 )
+from miniagent.assistant.infrastructure import http_retry, instance_render
+from miniagent.llm import capabilities as llm_capabilities
 
 
 class _CapabilityClient:
@@ -47,7 +48,7 @@ def test_llm_capability_detection_weak_and_fallback_buckets(
     ) == {"temperature"}
 
     events: list[dict[str, object]] = []
-    monkeypatch.setattr("miniagent.infrastructure.tracing.emit_trace", events.append)
+    monkeypatch.setattr("miniagent.agent.observability.emit_trace", events.append)
     client = _CapabilityClient()
     params = {"model": "m", "temperature": 0.2, "top_p": 0.9, "keep": True}
     llm_capabilities.learn_unsupported_params(
@@ -61,7 +62,7 @@ def test_llm_capability_detection_weak_and_fallback_buckets(
     )
     assert removed == ("temperature",)
     assert adjusted == {"model": "m", "top_p": 0.9, "keep": True}
-    assert events[-1]["retry_adjustments"] == ["temperature"]
+    assert events == []  # LLM capability learning stays independent from Agent tracing.
 
     fallback_client: object = object()
     llm_capabilities.learn_unsupported_params(
@@ -173,7 +174,7 @@ def test_instance_render_empty_single_and_multi_root(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "miniagent.infrastructure.paths.resolve_registry_state_dir", lambda: "C:/state"
+        "miniagent.assistant.infrastructure.paths.resolve_registry_state_dir", lambda: "C:/state"
     )
     monkeypatch.setattr(instance_render.os, "getpid", lambda: 10)
     assert "暂无运行实例" in instance_render.format_instances_markdown([])
@@ -260,9 +261,9 @@ def test_agent_display_and_planner_support_branches() -> None:
 async def test_runtime_service_start_updates_state_and_starts_lifecycle(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import miniagent.bootstrap.runtime_services as runtime_services
-    from miniagent.engine import init as init_module
-    from miniagent.engine import main, parallel_config
+    import miniagent.assistant.bootstrap.runtime_services as runtime_services
+    from miniagent.assistant.engine import init as init_module
+    from miniagent.assistant.engine import main, parallel_config
 
     session_manager = object()
     monkeypatch.setattr(
@@ -298,7 +299,7 @@ def test_runtime_initial_state_conflict_and_windows_vt_fallback(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from miniagent.engine import main
+    from miniagent.assistant.engine import main
 
     monkeypatch.setattr(main, "register_instance", lambda **_kwargs: {"instance_id": 7})
     state = main._initial_runtime_state(SimpleNamespace(), True)
@@ -323,10 +324,10 @@ def test_runtime_initial_state_conflict_and_windows_vt_fallback(
 
 
 def test_docx_rendered_table_and_block_edge_paths(monkeypatch: pytest.MonkeyPatch) -> None:
-    import miniagent.feishu.docx.markdown_renderer as renderer
-    import miniagent.feishu.docx.tables as tables
-    from miniagent.feishu.docx import blocks
-    from miniagent.feishu.types import FeishuConfig
+    import miniagent.assistant.feishu.docx.markdown_renderer as renderer
+    import miniagent.assistant.feishu.docx.tables as tables
+    from miniagent.assistant.feishu.docx import blocks
+    from miniagent.assistant.feishu.types import FeishuConfig
 
     warnings: list[str] = []
     empty = SimpleNamespace(table_data=[])
@@ -362,7 +363,7 @@ def test_docx_rendered_table_and_block_edge_paths(monkeypatch: pytest.MonkeyPatc
 
 @pytest.mark.asyncio
 async def test_agent_reflection_cache_and_disabled_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    from miniagent.core import agent
+    from miniagent.agent import agent
 
     monkeypatch.setattr(agent, "get_config", lambda *_args, **_kwargs: False)
     assert await agent._reflect_agent_reply(
@@ -386,8 +387,8 @@ async def test_agent_reflection_cache_and_disabled_path(monkeypatch: pytest.Monk
 async def test_agent_clarification_answer_and_failure_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from miniagent.core import agent
-    from miniagent.core.task_classifier import TaskDifficulty
+    from miniagent.agent import agent
+    from miniagent.agent.task_classifier import TaskDifficulty
 
     thinking = AsyncMock()
     channel = SimpleNamespace(
@@ -425,8 +426,8 @@ async def test_agent_clarification_answer_and_failure_fallback(
 async def test_agent_high_risk_plan_cancel_with_thinking_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from miniagent.core import agent
-    from miniagent.core.task_classifier import TaskDifficulty
+    from miniagent.agent import agent
+    from miniagent.agent.task_classifier import TaskDifficulty
 
     plan = StructuredPlan(summary="risk", requires_confirmation=True)
     monkeypatch.setattr(agent, "generate_plan", AsyncMock(return_value=plan))

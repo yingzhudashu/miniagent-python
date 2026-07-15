@@ -21,13 +21,13 @@ from typing import Any
 
 import pytest
 
-from miniagent.infrastructure import trace_stats
-from miniagent.infrastructure.tracing import (
+from miniagent.agent.observability import (
     AsyncTraceWriter,
     clear_trace_hooks,
     emit_trace,
     llm_request_size_metrics,
 )
+from miniagent.assistant.infrastructure import trace_stats
 
 
 def test_llm_request_size_metrics_are_scalar_and_do_not_retain_payload() -> None:

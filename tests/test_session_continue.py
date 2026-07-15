@@ -1,4 +1,4 @@
-"""Tests for miniagent.engine.session_continue."""
+"""Tests for miniagent.assistant.engine.session_continue."""
 
 from __future__ import annotations
 
@@ -6,8 +6,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniagent.bootstrap.application import ApplicationContainer
-from miniagent.engine.session_continue import persist_cli_session_state, save_cli_session_state
+from miniagent.assistant.bootstrap.application import ApplicationContainer
+from miniagent.assistant.engine.session_continue import (
+    persist_cli_session_state,
+    save_cli_session_state,
+)
 
 
 class _FakeSessionManager:
@@ -85,7 +88,7 @@ def test_save_cli_session_state_delegates_to_persist(monkeypatch: pytest.MonkeyP
         return True
 
     monkeypatch.setattr(
-        "miniagent.engine.session_continue.persist_cli_session_state",
+        "miniagent.assistant.engine.session_continue.persist_cli_session_state",
         _fake_persist,
     )
     sm = object()

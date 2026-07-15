@@ -3,7 +3,7 @@
 import json
 import os
 
-from miniagent.infrastructure.channel_router import ChannelRouter
+from miniagent.assistant.infrastructure.channel_router import ChannelRouter
 
 
 def test_save_and_load_roundtrip(state_dir: str) -> None:

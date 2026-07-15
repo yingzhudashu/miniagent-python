@@ -5,10 +5,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from miniagent.skills import registry as registry_module
-from miniagent.skills.registry import DefaultSkillRegistry
-from miniagent.types.config import AgentConfig
-from miniagent.types.skill import (
+from miniagent.agent.types.config import AgentConfig
+from miniagent.agent.types.skill import (
     ClawHubClientProtocol,
     ClawHubSearchResult,
     ClawHubSkillDetail,
@@ -18,7 +16,9 @@ from miniagent.types.skill import (
     SkillPackage,
     SkillRegistryProtocol,
 )
-from miniagent.types.tool import Toolbox, ToolDefinition
+from miniagent.agent.types.tool import Toolbox, ToolDefinition
+from miniagent.assistant.skills import registry as registry_module
+from miniagent.assistant.skills.registry import DefaultSkillRegistry
 
 
 def _minimal_tool(name: str) -> ToolDefinition:
@@ -39,7 +39,7 @@ class TestProtocolCompliance:
         assert isinstance(reg, SkillRegistryProtocol)
 
     def test_clawhub_client_satisfies_protocol(self) -> None:
-        from miniagent.skills.clawhub_client import create_clawhub_client
+        from miniagent.assistant.skills.clawhub_client import create_clawhub_client
 
         client = create_clawhub_client()
         assert isinstance(client, ClawHubClientProtocol)
@@ -211,7 +211,7 @@ class TestRegistryGateEdges:
         )
 
         monkeypatch.setattr(
-            "miniagent.infrastructure.json_config.get_config",
+            "miniagent.assistant.infrastructure.json_config.get_config",
             lambda path: "from-json" if path == "remote.key" else None,
         )
         assert (
@@ -219,7 +219,7 @@ class TestRegistryGateEdges:
             == "from-json"
         )
         monkeypatch.setattr(
-            "miniagent.infrastructure.json_config.get_config",
+            "miniagent.assistant.infrastructure.json_config.get_config",
             MagicMock(side_effect=RuntimeError("bad config")),
         )
         assert registry_module._resolve_api_key({"source": "bad"}, None) is None
@@ -327,7 +327,7 @@ class TestRegistryGateEdges:
 
 class TestClawHubMapping:
     def test_to_search_result(self) -> None:
-        from miniagent.skills.clawhub_client import _to_search_result
+        from miniagent.assistant.skills.clawhub_client import _to_search_result
 
         item = {
             "slug": "demo",
@@ -346,7 +346,7 @@ class TestClawHubMapping:
         assert result.downloads == 42
 
     def test_to_skill_detail(self) -> None:
-        from miniagent.skills.clawhub_client import _to_skill_detail
+        from miniagent.assistant.skills.clawhub_client import _to_skill_detail
 
         data = {
             "slug": "demo",
@@ -366,7 +366,7 @@ class TestClawHubMapping:
 
 class TestLoaderMetadataFields:
     def test_extended_metadata_parsing(self) -> None:
-        from miniagent.skills.loader import _map_metadata
+        from miniagent.assistant.skills.loader import _map_metadata
 
         meta = {
             "metadata": {

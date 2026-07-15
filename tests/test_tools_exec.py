@@ -21,7 +21,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.tools.exec import (
+from miniagent.agent.types.tool import ToolContext
+from miniagent.assistant.tools.exec import (
     _BLOCKED_PATTERNS,
     _DEFAULT_ALLOWED_COMMANDS,
     _EXEC_MAX_OUTPUT_BYTES,
@@ -31,7 +32,6 @@ from miniagent.tools.exec import (
     _get_allowed_commands,
     exec_tools,
 )
-from miniagent.types.tool import ToolContext
 
 # ============================================================================
 # Helper Functions
@@ -66,10 +66,10 @@ class TestExecSuccess:
         mock_proc.communicate = AsyncMock(return_value=(b"output", b""))
         mock_proc.returncode = 0
 
-        with patch("miniagent.tools.exec.create_tracked_subprocess", new_callable=AsyncMock) as mock_create:
+        with patch("miniagent.assistant.tools.exec.create_tracked_subprocess", new_callable=AsyncMock) as mock_create:
             mock_create.return_value = mock_proc
 
-            with patch("miniagent.tools.exec.deregister_process", new_callable=AsyncMock):
+            with patch("miniagent.assistant.tools.exec.deregister_process", new_callable=AsyncMock):
                 result = await _exec_handler({"command": "echo hello"}, ctx)
 
                 assert result.success is True
@@ -85,10 +85,10 @@ class TestExecSuccess:
         mock_proc.communicate = AsyncMock(return_value=(b"stdout", b"stderr output"))
         mock_proc.returncode = 0
 
-        with patch("miniagent.tools.exec.create_tracked_subprocess", new_callable=AsyncMock) as mock_create:
+        with patch("miniagent.assistant.tools.exec.create_tracked_subprocess", new_callable=AsyncMock) as mock_create:
             mock_create.return_value = mock_proc
 
-            with patch("miniagent.tools.exec.deregister_process", new_callable=AsyncMock):
+            with patch("miniagent.assistant.tools.exec.deregister_process", new_callable=AsyncMock):
                 result = await _exec_handler({"command": "test"}, ctx)
 
                 assert "stderr" in result.content
@@ -119,10 +119,10 @@ class TestExecSuccess:
         mock_proc.communicate = AsyncMock(return_value=(b"", b"error"))
         mock_proc.returncode = 1
 
-        with patch("miniagent.tools.exec.create_tracked_subprocess", new_callable=AsyncMock) as mock_create:
+        with patch("miniagent.assistant.tools.exec.create_tracked_subprocess", new_callable=AsyncMock) as mock_create:
             mock_create.return_value = mock_proc
 
-            with patch("miniagent.tools.exec.deregister_process", new_callable=AsyncMock):
+            with patch("miniagent.assistant.tools.exec.deregister_process", new_callable=AsyncMock):
                 result = await _exec_handler({"command": "false"}, ctx)
 
                 assert result.success is False
@@ -154,10 +154,10 @@ class TestExecTimeout:
 
         mock_proc.communicate = slow_communicate
 
-        with patch("miniagent.tools.exec.create_tracked_subprocess", new_callable=AsyncMock) as mock_create:
+        with patch("miniagent.assistant.tools.exec.create_tracked_subprocess", new_callable=AsyncMock) as mock_create:
             mock_create.return_value = mock_proc
 
-            with patch("miniagent.tools.exec.deregister_process", new_callable=AsyncMock):
+            with patch("miniagent.assistant.tools.exec.deregister_process", new_callable=AsyncMock):
                 result = await _exec_handler(
                     {"command": "sleep 10", "timeout": 0.1},
                     ctx,
@@ -175,10 +175,10 @@ class TestExecTimeout:
         mock_proc.communicate = AsyncMock(return_value=(b"", b""))
         mock_proc.returncode = 0
 
-        with patch("miniagent.tools.exec.create_tracked_subprocess", new_callable=AsyncMock) as mock_create:
+        with patch("miniagent.assistant.tools.exec.create_tracked_subprocess", new_callable=AsyncMock) as mock_create:
             mock_create.return_value = mock_proc
 
-            with patch("miniagent.tools.exec.deregister_process", new_callable=AsyncMock):
+            with patch("miniagent.assistant.tools.exec.deregister_process", new_callable=AsyncMock):
                 with patch("asyncio.wait_for") as mock_wait_for:
                     mock_wait_for.return_value = (b"", b"")
 
@@ -267,10 +267,10 @@ class TestExecSandboxSecurity:
         mock_proc.communicate = AsyncMock(return_value=(b"file1\nfile2", b""))
         mock_proc.returncode = 0
 
-        with patch("miniagent.tools.exec.create_tracked_subprocess", new_callable=AsyncMock) as mock_create:
+        with patch("miniagent.assistant.tools.exec.create_tracked_subprocess", new_callable=AsyncMock) as mock_create:
             mock_create.return_value = mock_proc
 
-            with patch("miniagent.tools.exec.deregister_process", new_callable=AsyncMock):
+            with patch("miniagent.assistant.tools.exec.deregister_process", new_callable=AsyncMock):
                 result = await _exec_handler({"command": "ls -la"}, ctx)
 
                 assert result.success is True
@@ -284,10 +284,10 @@ class TestExecSandboxSecurity:
         mock_proc.communicate = AsyncMock(return_value=(b"", b""))
         mock_proc.returncode = 0
 
-        with patch("miniagent.tools.exec.create_tracked_subprocess", new_callable=AsyncMock) as mock_create:
+        with patch("miniagent.assistant.tools.exec.create_tracked_subprocess", new_callable=AsyncMock) as mock_create:
             mock_create.return_value = mock_proc
 
-            with patch("miniagent.tools.exec.deregister_process", new_callable=AsyncMock):
+            with patch("miniagent.assistant.tools.exec.deregister_process", new_callable=AsyncMock):
                 # full 权限下危险命令仍会执行（不检查）
                 await _exec_handler({"command": "some_command"}, ctx)
 
@@ -313,13 +313,13 @@ class TestAllowedCommands:
 
     def test_get_allowed_commands_returns_default(self) -> None:
         """无配置时应返回默认列表。"""
-        with patch("miniagent.tools.exec.get_config", return_value=""):
+        with patch("miniagent.assistant.tools.exec.get_config", return_value=""):
             result = _get_allowed_commands()
             assert result == _DEFAULT_ALLOWED_COMMANDS
 
     def test_get_allowed_commands_reads_config(self) -> None:
         """配置时应读取自定义列表。"""
-        with patch("miniagent.tools.exec.get_config", return_value="ls,cat,grep"):
+        with patch("miniagent.assistant.tools.exec.get_config", return_value="ls,cat,grep"):
             result = _get_allowed_commands()
             assert "ls" in result
             assert "cat" in result
@@ -406,10 +406,10 @@ class TestWorkingDirectory:
         mock_proc.communicate = AsyncMock(return_value=(b"", b""))
         mock_proc.returncode = 0
 
-        with patch("miniagent.tools.exec.create_tracked_subprocess", new_callable=AsyncMock) as mock_create:
+        with patch("miniagent.assistant.tools.exec.create_tracked_subprocess", new_callable=AsyncMock) as mock_create:
             mock_create.return_value = mock_proc
 
-            with patch("miniagent.tools.exec.deregister_process", new_callable=AsyncMock):
+            with patch("miniagent.assistant.tools.exec.deregister_process", new_callable=AsyncMock):
                 await _exec_handler({"command": "echo hello", "cwd": str(sub)}, ctx)
 
                 call_kwargs = mock_create.call_args[1]
@@ -428,10 +428,10 @@ class TestWorkingDirectory:
         mock_proc.communicate = AsyncMock(return_value=(b"", b""))
         mock_proc.returncode = 0
 
-        with patch("miniagent.tools.exec.create_tracked_subprocess", new_callable=AsyncMock) as mock_create:
+        with patch("miniagent.assistant.tools.exec.create_tracked_subprocess", new_callable=AsyncMock) as mock_create:
             mock_create.return_value = mock_proc
 
-            with patch("miniagent.tools.exec.deregister_process", new_callable=AsyncMock):
+            with patch("miniagent.assistant.tools.exec.deregister_process", new_callable=AsyncMock):
                 await _exec_handler({"command": "echo hello"}, ctx)
 
                 call_kwargs = mock_create.call_args[1]
@@ -464,7 +464,7 @@ class TestAllowlistProductionPath:
 
     @pytest.mark.asyncio
     async def test_command_security_enabled_for_allowlist(self) -> None:
-        from miniagent.tools.exec import _command_security_enabled
+        from miniagent.assistant.tools.exec import _command_security_enabled
 
         ctx = _create_context(permission="allowlist")
         assert _command_security_enabled(ctx) is True
@@ -511,7 +511,7 @@ class TestExceptionHandling:
         """子进程异常应返回错误。"""
         ctx = _create_context(permission="full")
 
-        with patch("miniagent.tools.exec.create_tracked_subprocess", new_callable=AsyncMock) as mock_create:
+        with patch("miniagent.assistant.tools.exec.create_tracked_subprocess", new_callable=AsyncMock) as mock_create:
             mock_create.side_effect = Exception("process error")
 
             result = await _exec_handler({"command": "test"}, ctx)

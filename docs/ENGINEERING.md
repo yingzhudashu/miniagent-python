@@ -1,6 +1,6 @@
 # 软件工程实践与仓库卫生
 
-> Mini Agent Python | 版本: 3.0.0 | 最后更新: 2026-07-15 | 与 `miniagent.__version__` 对齐
+> Mini Agent Python | 版本: 3.0.0 | 最后更新: 2026-07-16 | 与 `miniagent.__version__` 对齐
 
 本文档汇总本仓库在**可维护性、可重复构建、安全与协作**上的约定，作为 [CONTRIBUTING.md](CONTRIBUTING.md) 的补充：后者偏「如何写代码」，本文偏「仓库与发布如何保持健康」。
 
@@ -13,11 +13,11 @@
 | 可安装包名与源码布局 | `pyproject.toml` → `[tool.setuptools.packages.find]` | 仅打包 `miniagent*`；不再维护顶层 `src` 作为可导入包。 |
 | 版本号 | `miniagent/__init__.py` 中 `__version__` | `pyproject.toml` 通过 `dynamic.version` 读取；发版时与 `CHANGELOG.md`、本文档顶部标语一并更新。**包版本**（如 `2.2.0`）与 `config.defaults.json` 顶层 `version`（**defaults schema version**，当前可为 `2.0.0`）是两条轨道，勿混为一谈。 |
 | 依赖声明 | `pyproject.toml` `[project]` / `optional-dependencies` | 不使用根目录 `requirements.txt`；运行时依赖与可选组（`dev`（含 `pytest-cov`）、`feishu`、`browser`、`mcp`、`cli`、`typing`（全包 `mypy`））集中在此。 |
-| 配置说明 | [`miniagent/resources/config.defaults.json`](../miniagent/resources/config.defaults.json) + `config.user.json` | 包资源提供默认值，user 文件只写本地覆盖；`_config_guide` 标明 User/Advanced 分层；**勿提交含真实密钥的 user 文件**（见 `.gitignore`）。 |
+| 配置说明 | [`miniagent/assistant/resources/config.defaults.json`](../miniagent/assistant/resources/config.defaults.json) + `config.user.json` | 包资源提供默认值，user 文件只写本地覆盖；`_config_guide` 标明 User/Advanced 分层；**勿提交含真实密钥的 user 文件**（见 `.gitignore`）。 |
 | 用户安装与首次配置 | [README.md](../README.md) §安装、§配置、§快速入门 | USER_GUIDE / DEPLOYMENT 仅保留专题指针，不重复安装长文。 |
 | 通道绑定（CLI↔飞书） | [FEISHU.md](FEISHU.md) §通道绑定 | ARCHITECTURE §2b、USER_GUIDE、CLI 仅保留摘要 + 链接。 |
 | 多实例注册表 | 本文 §3.3 | DEPLOYMENT / USER_GUIDE / CLI 只写 `--stop` 用法与 PID 语义摘要。 |
-| 定时任务配置 | `miniagent/resources/config.defaults.json` + [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」 | 用户面向摘要见 [USER_GUIDE.md](USER_GUIDE.md) §3；命令语法见 [CLI.md](CLI.md) §/schedule |
+| 定时任务配置 | `miniagent/assistant/resources/config.defaults.json` + [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」 | 用户面向摘要见 [USER_GUIDE.md](USER_GUIDE.md) §3；命令语法见 [CLI.md](CLI.md) §/schedule |
 | 自我优化（操作） | [SELF_OPT.md](SELF_OPT.md) | `self_optimization` 配置节；提案与 `/self-opt` 命令。 |
 | Trace 系统（实现） | 本文 §5 | 事件 schema、writer、stats API；SELF_OPT 只链到此处。 |
 | 输出格式与渲染 | [OUTPUT_FORMAT.md](OUTPUT_FORMAT.md) | CLI TUI / 流式 / 飞书卡片间距；CLI.md 侧重命令交互。 |
@@ -27,7 +27,7 @@
 | 安全模型 | [SECURITY.md](SECURITY.md) | 沙箱、命令执行、多实例锁、飞书凭证；多实例注册表细节见本文 §3.3。 |
 | 架构与行为细节 | [README.md](../README.md) §架构概览 + `docs/ARCHITECTURE.md` 及各专题文档 | README 为架构概览 SSOT；各层细节以 ARCHITECTURE 为准。 |
 
-飞书媒体与出站（JSON 键见 [`miniagent/resources/config.defaults.json`](../miniagent/resources/config.defaults.json) `feishu` 节；完整说明见 [FEISHU.md](FEISHU.md)）：
+飞书媒体与出站（JSON 键见 [`miniagent/assistant/resources/config.defaults.json`](../miniagent/assistant/resources/config.defaults.json) `feishu` 节；完整说明见 [FEISHU.md](FEISHU.md)）：
 
 | JSON 路径 | 作用 |
 |-----------|------|
@@ -44,7 +44,7 @@
 
 ### 1.1 配置分层（User / Advanced / Internal）
 
-[`miniagent/resources/config.defaults.json`](../miniagent/resources/config.defaults.json) 是随 wheel 发布的默认配置事实来源，**并非**每一项都是用户应理解的旋钮。文档与示例按三层划分：
+[`miniagent/assistant/resources/config.defaults.json`](../miniagent/assistant/resources/config.defaults.json) 是随 wheel 发布的默认配置事实来源，**并非**每一项都是用户应理解的旋钮。文档与示例按三层划分：
 
 | 层级 | 含义 | 文档位置 | 用户是否需了解 |
 |------|------|----------|----------------|
@@ -56,9 +56,9 @@
 
 **典型 Advanced 节**：`memory.*`、`dream.*`、`trace.*`、`feishu.websocket.*`、`feishu.card.*`、`agent.loop_detection.*`、`background_tasks.*`。
 
-**典型 Internal（写入 [`core/constants.py`](../miniagent/core/constants.py)，不可通过 JSON 覆盖）**：`feishu.api_urls`、`feishu.patch.*`（流式卡片节流）、`clawhub.api_url`、`web_search.tavily_url`、`execution.*`（含 `EXECUTION_MAX_CONCURRENT_TOOLS` 工具并发硬上限）、`render.*`、`cli` 实现细节（`CLI_RAW_MARKDOWN` / `CLI_THINKING_RICH` 可被 ENV 或 `cli.*` 覆盖）、`browser.*`、`keyword_index.*` 算法阈值等。JSON 默认值种子（如 `DEFAULT_AGENT_MAX_TURNS`、`HISTORY_ARCHIVE_MAX_MESSAGES`）与包内 defaults 同步，用户 JSON 可覆盖对应键。输出前缀 emoji 见 [`types/error_prefix.py`](../miniagent/types/error_prefix.py)。
+**典型 Internal（写入 [`core/constants.py`](../miniagent/agent/constants.py)，不可通过 JSON 覆盖）**：`feishu.api_urls`、`feishu.patch.*`（流式卡片节流）、`clawhub.api_url`、`web_search.tavily_url`、`execution.*`（含 `EXECUTION_MAX_CONCURRENT_TOOLS` 工具并发硬上限）、`render.*`、`cli` 实现细节（`CLI_RAW_MARKDOWN` / `CLI_THINKING_RICH` 可被 ENV 或 `cli.*` 覆盖）、`browser.*`、`keyword_index.*` 算法阈值等。JSON 默认值种子（如 `DEFAULT_AGENT_MAX_TURNS`、`HISTORY_ARCHIVE_MAX_MESSAGES`）与包内 defaults 同步，用户 JSON 可覆盖对应键。输出前缀 emoji 见 [`types/error_prefix.py`](../miniagent/agent/types/error_prefix.py)。
 
-**加载机制**（见 [`json_config.py`](../miniagent/infrastructure/json_config.py)）：`defaults → user`（仅两层 JSON）。`secrets` 经 [`env_loader.py`](../miniagent/infrastructure/env_loader.py) 桥接到 `OPENAI_API_KEY` 等 SDK 变量，**不是**用户配置入口。`/config` 命令与 USER_GUIDE 仅展示 User 层子集。
+**加载机制**（见 [`json_config.py`](../miniagent/assistant/infrastructure/json_config.py)）：`defaults → user`（仅两层 JSON）。`secrets` 经 [`env_loader.py`](../miniagent/assistant/infrastructure/env_loader.py) 桥接到 `OPENAI_API_KEY` 等 SDK 变量，**不是**用户配置入口。`/config` 命令与 USER_GUIDE 仅展示 User 层子集。
 
 **模型协议**：`model.wire_api` 默认 `chat_completions`，可显式设为 `responses`；统一 transport 负责消息、图片、工具调用、结束状态和流式事件转换。结构化 JSON 请求通过 `create_structured_completion` 路由：Responses 使用流式聚合，Chat 使用非流式 `json_object`。两条路径均返回统一的 `status`、output item 类型和 `incomplete_reason`。`model.user_agent` 只用于需要客户端标识白名单的兼容网关，空值继续使用 OpenAI SDK 默认值；含 CR/LF 的值会在客户端构造时拒绝。
 
@@ -93,7 +93,7 @@ python -m mypy miniagent
 python scripts/check_architecture.py
 python scripts/docstring_inventory.py --check
 python scripts/check_docs.py
-python -m bandit -q -r miniagent -x miniagent/skills/templates -lll
+python -m bandit -q -r miniagent -x miniagent/assistant/skills/templates -lll
 python -m pytest tests/ -q -m "not evaluation and not perf"
 ```
 
@@ -106,7 +106,7 @@ CI 说明：
 说明：
 
 - **Ruff**：规则集见 `pyproject.toml`，包含 Pyflakes、isort、pyupgrade、Bugbear、async、性能与 C901；圈复杂度上限 15。
-- **架构检查**：除依赖方向外，AST 零豁免要求生产函数/方法不超过 100 行；确需复杂状态机时应拆为小对象，而不是增加白名单。
+- **架构检查**：顶层只允许 `llm`、`agent`、`ui`、`assistant`，完整扫描函数内、相对及 `TYPE_CHECKING` 导入，校验 `assistant → agent → llm` 与 `assistant → ui` 的无环方向；AST 同时零豁免要求生产函数/方法不超过 100 行。
 - **compileall**：全包语法编译，可捕获部分「仅某测试未覆盖路径」的语法错误。
 - **mypy**：CI 与本地均对整个 `miniagent` 包执行有类型函数体检查；可选 SDK 通过 Protocol/适配器隔离，不使用全局忽略掩盖内部错误。需安装 `.[dev,typing]`。
 - **Pytest**：默认 `asyncio_mode = auto`；`tests/evaluation/` 下用例由 `conftest` 统一打上 `evaluation` marker，与主 CI 隔离；本地若要一次跑全量可执行 `python -m pytest tests/ -q`（含评测）。未装 `lark-oapi` 时部分飞书路径可能跳过；本地可改用 `pip install -e ".[dev,feishu]"` 与 CI 飞书 job 对齐。
@@ -130,7 +130,7 @@ CI 说明：
 
 ## 3. 状态目录与测试隔离
 
-**状态路径模型**（`miniagent/infrastructure/paths.py`）：
+**状态路径模型**（`miniagent/assistant/infrastructure/paths.py`）：
 
 **Canonical 会话路径**（默认）：
 
@@ -172,7 +172,7 @@ CI 说明：
 
 ### 3.3 多实例注册表
 
-实现位于 [`miniagent/infrastructure/instance.py`](../miniagent/infrastructure/instance.py)。注册表根目录由 `resolve_registry_state_dir()` 解析（默认 `{miniagent 包根}/workspaces`），与项目 `paths.state_dir` **分离**。
+实现位于 [`miniagent/assistant/infrastructure/instance.py`](../miniagent/assistant/infrastructure/instance.py)。注册表根目录由 `resolve_registry_state_dir()` 解析（默认 `{miniagent 包根}/workspaces`），与项目 `paths.state_dir` **分离**。
 
 **目录结构**：
 
@@ -225,7 +225,7 @@ Trace 系统为自我优化提供运行数据源，同时支持外部 APM 接入
 ### 5.1 架构设计
 
 ```
-miniagent.infrastructure.tracing
+miniagent.agent.observability
 ├── emit_trace(event)              # 派发事件到钩子列表
 ├── register_trace_hook(hook)      # 注册回调钩子
 ├── clear_trace_hooks()            # 清空钩子（测试隔离）
@@ -234,11 +234,11 @@ miniagent.infrastructure.tracing
 ├── get_actual_trace_file()        # 获取当前进程实际写入文件
 └── get_trace_writer_stats()       # 获取队列深度、写入/丢弃计数等 writer 指标
 
-miniagent.infrastructure.trace_events
+miniagent.agent.trace_events
 ├── 事件类型常量（EVENT_LLM_REQUEST 等）
 └── 事件构建函数（make_error_event 等）
 
-miniagent.infrastructure.trace_stats
+miniagent.assistant.infrastructure.trace_stats
 ├── get_trace_files()              # 枚举当天全部 pid 分片
 ├── load_trace_events()            # 加载并过滤事件
 ├── compute_tool_stats()           # 工具统计
@@ -276,7 +276,7 @@ miniagent.infrastructure.trace_stats
 
 ### 5.4 自动持久化
 
-配置 `miniagent/resources/config.defaults.json`：
+配置 `miniagent/assistant/resources/config.defaults.json`：
 
 ```json
 {
@@ -315,7 +315,7 @@ writer 使用有界队列保护内存，并按 `writer_batch_interval` / `writer
 运行分析器从 Trace 文件提取指标：
 
 ```python
-from miniagent.infrastructure.trace_stats import generate_daily_report
+from miniagent.assistant.infrastructure.trace_stats import generate_daily_report
 
 report = generate_daily_report(date="2026-06-05")
 
@@ -347,7 +347,7 @@ report = generate_daily_report(date="2026-06-05")
 测试用例中可清空钩子避免污染：
 
 ```python
-from miniagent.infrastructure.tracing import clear_trace_hooks
+from miniagent.agent.observability import clear_trace_hooks
 
 def test_trace():
     clear_trace_hooks()
@@ -359,7 +359,7 @@ def test_trace():
 Trace 事件作为自我优化数据源：
 
 ```python
-from miniagent.core.self_opt import RuntimeAnalyzer
+from miniagent.assistant.self_opt import RuntimeAnalyzer
 
 analyzer = RuntimeAnalyzer()
 report = analyzer.analyze(date="2026-06-05")
@@ -378,7 +378,7 @@ report = analyzer.analyze(date="2026-06-05")
 ### 6.1 Trace 文件清理
 
 ```python
-from miniagent.infrastructure.trace_stats import cleanup_old_traces
+from miniagent.assistant.infrastructure.trace_stats import cleanup_old_traces
 
 # 删除超过 7 天的 trace 文件；兼容 trace-YYYY-MM-DD.jsonl 与 trace-YYYY-MM-DD-pid*.jsonl
 deleted = cleanup_old_traces(retention_days=7)
@@ -387,7 +387,7 @@ deleted = cleanup_old_traces(retention_days=7)
 ### 6.2 提案文件清理
 
 ```python
-from miniagent.core.self_opt.proposal_store import ProposalStore
+from miniagent.assistant.self_opt.proposal_store import ProposalStore
 
 # 删除超过 30 天的提案文件
 deleted = ProposalStore.cleanup_old_proposals(retention_days=30)

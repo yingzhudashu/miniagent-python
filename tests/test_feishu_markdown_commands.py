@@ -7,9 +7,9 @@ from contextlib import redirect_stdout
 
 import pytest
 
-from miniagent.engine.cli_commands import cmd_queue_status, cmd_session_list
-from miniagent.engine.commands.config_commands import feishu_markdown_commands_enabled
-from miniagent.infrastructure.message_queue import MessageQueueManager
+from miniagent.assistant.engine.cli_commands import cmd_queue_status, cmd_session_list
+from miniagent.assistant.engine.commands.config_commands import feishu_markdown_commands_enabled
+from miniagent.assistant.infrastructure.message_queue import MessageQueueManager
 from tests.config_helpers import install_test_config
 
 

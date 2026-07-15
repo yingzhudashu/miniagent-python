@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.engine import cli_tui, cli_tui_keybindings, cli_tui_output
+from miniagent.assistant.engine import cli_tui, cli_tui_keybindings, cli_tui_output
 
 
 def _app(*, rows: int = 24, columns: int = 80):
@@ -109,8 +109,8 @@ async def test_handle_tui_copy_stop_and_command(monkeypatch) -> None:
     assert await cli_tui._handle_tui_input("/stop", runtime) is True
     shutdown.assert_awaited_once()
 
-    import miniagent.engine.command_dispatch as dispatch_module
-    import miniagent.engine.parallel_config as parallel_module
+    import miniagent.assistant.engine.command_dispatch as dispatch_module
+    import miniagent.assistant.engine.parallel_config as parallel_module
 
     monkeypatch.setattr(dispatch_module, "dispatch_command", AsyncMock(return_value="status"))
     monkeypatch.setattr(parallel_module, "resolve_active_session_key", lambda *_args: "s1")
@@ -124,8 +124,8 @@ async def test_handle_tui_copy_stop_and_command(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_submit_tui_clarification_and_agent(monkeypatch) -> None:
     runtime = _runtime()
-    import miniagent.engine.parallel_config as parallel_module
-    from miniagent.types.confirmation import ConfirmationStage
+    import miniagent.assistant.engine.parallel_config as parallel_module
+    from miniagent.agent.types.confirmation import ConfirmationStage
 
     monkeypatch.setattr(parallel_module, "resolve_active_session_key", lambda *_args: "s1")
     channel = SimpleNamespace(
@@ -198,7 +198,7 @@ def _output_bindings():
 
 def test_output_binding_stream_fallback_and_delivery(monkeypatch) -> None:
     binding, transcript, appended, streams = _output_bindings()
-    import miniagent.engine.markdown_cli as markdown_module
+    import miniagent.assistant.engine.markdown_cli as markdown_module
 
     monkeypatch.setattr(markdown_module, "render_markdown_to_ansi", lambda text, **_kw: text)
     binding.term_write("")

@@ -8,20 +8,20 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniagent.engine.cli_history import (
+from miniagent.agent.types.memory import SessionOptions
+from miniagent.assistant.engine.cli_history import (
     create_cli_file_history,
     reload_cli_input_history,
     session_user_inputs_for_cli_history,
     sync_preload_buffer_working_lines,
 )
-from miniagent.infrastructure.registry import DefaultToolRegistry
-from miniagent.session.manager import DefaultSessionManager
-from miniagent.types.memory import SessionOptions
+from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
+from miniagent.assistant.session.manager import DefaultSessionManager
 
 
 def test_session_user_inputs_respects_limit(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "miniagent.engine.cli_history.get_config",
+        "miniagent.assistant.engine.cli_history.get_config",
         lambda key, default=None: 3 if key == "cli.input_history_max" else default,
     )
     session = MagicMock()
@@ -97,7 +97,7 @@ def test_reload_cli_input_history_merges_session_messages(
 
 def test_session_switch_calls_reload_cli_input_history() -> None:
     source = Path(__file__).resolve().parent.parent.joinpath(
-        "miniagent", "engine", "cli_tui.py"
+        "miniagent", "assistant", "engine", "cli_tui.py"
     ).read_text(encoding="utf-8")
     assert "reload_cli_input_history(state, runtime[\"input_buffer\"], runtime[\"history_file\"])" in source
     switch_block_start = source.index("previous = state")

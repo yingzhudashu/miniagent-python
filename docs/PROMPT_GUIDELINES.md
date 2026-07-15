@@ -151,7 +151,7 @@
 ### 3.1 目录结构
 
 ```
-miniagent/core/prompts/
+miniagent/agent/prompts/
 ├── __init__.py              # 导出所有提示词
 ├── identity.py              # AGENT_IDENTITY
 ├── planner.py               # PLAN_SYSTEM_PROMPT
@@ -168,8 +168,8 @@ miniagent/core/prompts/
 `__init__.py` 统一导出：
 
 ```python
-from miniagent.core.prompts.identity import AGENT_IDENTITY
-from miniagent.core.prompts.planner import PLAN_SYSTEM_PROMPT
+from miniagent.agent.prompts.identity import AGENT_IDENTITY
+from miniagent.agent.prompts.planner import PLAN_SYSTEM_PROMPT
 # ...
 
 __all__ = [
@@ -185,13 +185,13 @@ __all__ = [
 
 ```python
 # executor.py
-from miniagent.core.prompts.identity import AGENT_IDENTITY
+from miniagent.agent.prompts.identity import AGENT_IDENTITY
 
 # planner.py  
-from miniagent.core.prompts.planner import PLAN_SYSTEM_PROMPT
+from miniagent.agent.prompts.planner import PLAN_SYSTEM_PROMPT
 
 # 或从 __init__ 导入
-from miniagent.core.prompts import AGENT_IDENTITY, PLAN_SYSTEM_PROMPT
+from miniagent.agent.prompts import AGENT_IDENTITY, PLAN_SYSTEM_PROMPT
 ```
 
 ---
@@ -295,7 +295,7 @@ python -m pytest tests/test_prompts_structure.py -v
 
 ### 6.2 新增提示词
 
-1. 在 `miniagent/core/prompts/` 下创建新文件
+1. 在 `miniagent/agent/prompts/` 下创建新文件
 2. 使用标准模板编写
 3. 在 `__init__.py` 中导出
 4. 编写结构测试

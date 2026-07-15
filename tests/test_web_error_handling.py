@@ -9,9 +9,9 @@ from unittest.mock import patch
 
 import pytest
 
-from miniagent.tools.core_tools import core_tools
-from miniagent.tools.skills import skills_tools
-from miniagent.types.tool import ToolContext
+from miniagent.agent.types.tool import ToolContext
+from miniagent.assistant.tools.core_tools import core_tools
+from miniagent.assistant.tools.skills import skills_tools
 
 
 @pytest.mark.asyncio

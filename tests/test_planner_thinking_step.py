@@ -1,6 +1,6 @@
 """规划 JSON 中每步 thinkingLevel 与回填。"""
 
-from miniagent.core import planner as planner_mod
+from miniagent.agent import planner as planner_mod
 
 
 def test_dict_to_plan_fills_step_thinking_from_default() -> None:

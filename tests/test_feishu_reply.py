@@ -24,7 +24,7 @@ pytest.importorskip("lark_oapi")
 
 @pytest.fixture(autouse=True)
 def _clear_lark_client_cache_for_reply_tests():
-    from miniagent.feishu import im_send
+    from miniagent.assistant.feishu import im_send
 
     im_send.clear_client_cache()
 
@@ -38,7 +38,7 @@ class TestFeishuReplyChunking:
     """飞书回复按卡片正文上限分片。"""
 
     def test_chunk_concat_roundtrip(self) -> None:
-        from miniagent.feishu.poll_server import _chunk_feishu_card_markdown
+        from miniagent.assistant.feishu.poll_server import _chunk_feishu_card_markdown
 
         s = "a" * 35
         parts = _chunk_feishu_card_markdown(s, max_len=12)
@@ -46,7 +46,7 @@ class TestFeishuReplyChunking:
         assert all(len(p) <= 12 for p in parts)
 
     def test_chunk_multiline_produces_multiple_segments(self) -> None:
-        from miniagent.feishu.poll_server import _chunk_feishu_card_markdown
+        from miniagent.assistant.feishu.poll_server import _chunk_feishu_card_markdown
 
         s = "para1\n\npara2\n\npara3\nextra-long-tail-xxxxx"
         parts = _chunk_feishu_card_markdown(s, max_len=18)
@@ -54,7 +54,7 @@ class TestFeishuReplyChunking:
         assert all(len(p) <= 18 for p in parts)
 
     def test_single_chunk_when_under_cap(self) -> None:
-        from miniagent.feishu.poll_server import _chunk_feishu_card_markdown
+        from miniagent.assistant.feishu.poll_server import _chunk_feishu_card_markdown
 
         assert _chunk_feishu_card_markdown("hello", max_len=1000) == ["hello"]
 
@@ -68,19 +68,19 @@ class TestFeishuReplyRouting:
     """飞书回复路由与 ``feishu.reply_target`` 配置相关。"""
 
     def test_feishu_outbound_reply_params_default_reply(self, tmp_path) -> None:
-        from miniagent.feishu.poll_server import feishu_outbound_reply_params
+        from miniagent.assistant.feishu.poll_server import feishu_outbound_reply_params
 
         install_test_config(tmp_path)
         assert feishu_outbound_reply_params("om_123") == ("om_123", False)
 
     def test_feishu_outbound_reply_params_explicit_create(self, tmp_path) -> None:
-        from miniagent.feishu.poll_server import feishu_outbound_reply_params
+        from miniagent.assistant.feishu.poll_server import feishu_outbound_reply_params
 
         install_test_config(tmp_path, {"feishu": {"reply_target": "create"}})
         assert feishu_outbound_reply_params("om_123") == (None, False)
 
     def test_feishu_outbound_reply_params_reply_mode(self, tmp_path) -> None:
-        from miniagent.feishu.poll_server import feishu_outbound_reply_params
+        from miniagent.assistant.feishu.poll_server import feishu_outbound_reply_params
 
         install_test_config(
             tmp_path,
@@ -89,20 +89,20 @@ class TestFeishuReplyRouting:
         assert feishu_outbound_reply_params("om_abc") == ("om_abc", True)
 
     def test_feishu_outbound_reply_params_invalid_target_falls_back(self, tmp_path) -> None:
-        from miniagent.feishu.poll_server import feishu_outbound_reply_params
+        from miniagent.assistant.feishu.poll_server import feishu_outbound_reply_params
 
         install_test_config(tmp_path, {"feishu": {"reply_target": "typo"}})
         assert feishu_outbound_reply_params("om_123") == (None, False)
 
     def test_feishu_outbound_reply_params_thread_id_default_in_thread(self, tmp_path) -> None:
         """未设置 ``feishu.reply_in_thread`` 时，thread_id 非空则默认话题内回复。"""
-        from miniagent.feishu.poll_server import feishu_outbound_reply_params
+        from miniagent.assistant.feishu.poll_server import feishu_outbound_reply_params
 
         install_test_config(tmp_path, {"feishu": {"reply_target": "reply"}})
         assert feishu_outbound_reply_params("om_x", "t_thread_1") == ("om_x", True)
 
     def test_feishu_outbound_reply_params_explicit_off_overrides_thread(self, tmp_path) -> None:
-        from miniagent.feishu.poll_server import feishu_outbound_reply_params
+        from miniagent.assistant.feishu.poll_server import feishu_outbound_reply_params
 
         install_test_config(
             tmp_path,
@@ -111,8 +111,8 @@ class TestFeishuReplyRouting:
         assert feishu_outbound_reply_params("om_x", "t_thread_1") == ("om_x", False)
 
     def test_send_interactive_reply_cards_uses_reply_api_when_configured(self) -> None:
-        from miniagent.feishu.poll_server import _send_interactive_reply_cards
-        from miniagent.feishu.types import FeishuConfig
+        from miniagent.assistant.feishu.poll_server import _send_interactive_reply_cards
+        from miniagent.assistant.feishu.types import FeishuConfig
 
         cfg = FeishuConfig(app_id="a", app_secret="b", verification_token="t")
         client = MagicMock()
@@ -150,8 +150,8 @@ class TestFeishuSendReplyPolicy:
     """飞书回复分片发送策略。"""
 
     def test_send_interactive_reply_cards_stops_after_failed_shard(self) -> None:
-        from miniagent.feishu.poll_server import _send_interactive_reply_cards
-        from miniagent.feishu.types import FeishuConfig
+        from miniagent.assistant.feishu.poll_server import _send_interactive_reply_cards
+        from miniagent.assistant.feishu.types import FeishuConfig
 
         cfg = FeishuConfig(app_id="a", app_secret="b", verification_token="t")
         client = MagicMock()
@@ -174,11 +174,11 @@ class TestFeishuSendReplyPolicy:
         assert client.im.v1.message.create.call_count == 2
 
     def test_send_plain_text_chunks_sends_multiple(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import miniagent.feishu.outbound_delivery as ps
+        import miniagent.assistant.feishu.outbound_delivery as ps
 
         monkeypatch.setattr(ps, "feishu_card_body_max", lambda: 8)
-        from miniagent.feishu.poll_server import _send_plain_text_chunks
-        from miniagent.feishu.types import FeishuConfig
+        from miniagent.assistant.feishu.poll_server import _send_plain_text_chunks
+        from miniagent.assistant.feishu.types import FeishuConfig
 
         cfg = FeishuConfig(app_id="a", app_secret="b", verification_token="t")
         client = MagicMock()

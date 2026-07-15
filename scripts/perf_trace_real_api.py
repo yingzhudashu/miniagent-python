@@ -92,7 +92,10 @@ def _summarize_runs(results: list[dict[str, Any]]) -> dict[str, Any]:
 
 def _setup(perf_root: Path) -> Path:
     """Install an in-memory isolated config while preserving real model credentials."""
-    from miniagent.infrastructure.json_config import JsonConfigLoader, install_config_loader
+    from miniagent.assistant.infrastructure.json_config import (
+        JsonConfigLoader,
+        install_config_loader,
+    )
 
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
     run_dir = (perf_root / f"trace-{run_id}-pid{os.getpid()}").resolve()
@@ -120,7 +123,7 @@ def _setup(perf_root: Path) -> Path:
     )
     install_config_loader(loader)
 
-    from miniagent.infrastructure.env_loader import load_secrets_from_project_root
+    from miniagent.assistant.infrastructure.env_loader import load_secrets_from_project_root
 
     load_secrets_from_project_root()
     return run_dir
@@ -135,8 +138,8 @@ async def _one_run(
     scenario: str = "custom",
     required_tools: tuple[str, ...] = (),
 ) -> dict[str, Any]:
-    from miniagent.core.agent import run_agent
-    from miniagent.infrastructure.tracing import emit_trace
+    from miniagent.agent.agent import run_agent
+    from miniagent.agent.observability import emit_trace
 
     session_key = f"perf-trace-{os.getpid()}-{scenario}-{run_idx}"
     emit_trace(
@@ -188,7 +191,7 @@ async def _one_run(
 
 async def _close_container_resources(ctx: Any) -> None:
     """Close every process-owned resource constructed by the composition root."""
-    from miniagent.core.openai_client import close_async_openai_client
+    from miniagent.llm.openai_client_compat import close_async_openai_client
 
     failures: list[str] = []
     async_closers = [
@@ -214,14 +217,14 @@ async def _close_container_resources(ctx: Any) -> None:
 
 
 async def _main_async(args: argparse.Namespace, run_dir: Path) -> None:
-    from miniagent.bootstrap.entrypoint import create_application_container
-    from miniagent.engine.builtin_tools import register_builtin_tools
-    from miniagent.infrastructure.tracing import (
+    from miniagent.agent.observability import (
         auto_register_trace_file_hook,
         get_actual_trace_file,
         shutdown_trace_writer,
     )
-    from miniagent.skills.builtin_toolboxes import BUILTIN_TOOLBOXES
+    from miniagent.assistant.bootstrap.entrypoint import create_application_container
+    from miniagent.assistant.engine.builtin_tools import register_builtin_tools
+    from miniagent.assistant.skills.builtin_toolboxes import BUILTIN_TOOLBOXES
 
     auto_register_trace_file_hook()
     results: list[dict[str, Any]] = []
@@ -309,7 +312,7 @@ async def _main_async(args: argparse.Namespace, run_dir: Path) -> None:
     print(json.dumps(writer_stats, ensure_ascii=False, indent=2))
 
     # Aggregate the trace into a phase report.
-    from miniagent.infrastructure import trace_stats
+    from miniagent.assistant.infrastructure import trace_stats
 
     report = trace_stats.generate_daily_report()
     print("\n=== daily trace report ===")
@@ -403,7 +406,7 @@ def _phase_latency_breakdown(trace_file: Path) -> dict[str, Any]:
                     responses[llm_key(event)] += 1
                 yield event
 
-    from miniagent.infrastructure.trace_stats import aggregate_trace_stats
+    from miniagent.assistant.infrastructure.trace_stats import aggregate_trace_stats
 
     stats = aggregate_trace_stats(iter_events())
     unmatched_requests = sum((requests - responses).values())
