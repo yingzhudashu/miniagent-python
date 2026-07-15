@@ -13,6 +13,9 @@ from urllib.parse import parse_qs, urlparse
 import websockets
 
 from miniagent.infrastructure.json_config import get_config
+from miniagent.infrastructure.logger import get_logger
+
+_app_logger = get_logger(__name__)
 
 # lark-oapi 是可选依赖；未安装时提供 placeholder，避免 import 阻塞测试
 try:
@@ -40,6 +43,30 @@ except ImportError:
 logger = _lark_logger
 
 
+class _RecoverablePingTimeoutFilter(logging.Filter):
+    """Replace the SDK's alarming 3003 ERROR with an actionable reconnect notice."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage().lower()
+        recoverable = (
+            "receive message loop exit" in message
+            and "ping_timeout" in message
+            and "3003" in message
+        )
+        if recoverable:
+            _app_logger.warning(
+                "飞书 WebSocket 心跳超时（3003），当前会话将由连接监督器自动重建"
+            )
+            return False
+        return True
+
+
+def install_lark_recoverable_log_filter() -> None:
+    """Install one process-wide filter without hiding unrelated SDK errors."""
+    if not any(isinstance(item, _RecoverablePingTimeoutFilter) for item in logger.filters):
+        logger.addFilter(_RecoverablePingTimeoutFilter())
+
+
 def feishu_ws_auto_reconnect_enabled() -> bool:
     """是否启用 lark-oapi SDK 内建 ``auto_reconnect``（默认关闭，由应用外层退避重连）。"""
     return get_config("feishu.websocket.auto_reconnect", False)
@@ -56,6 +83,7 @@ class FeishuWsClient(_LarkWsClient):
     ) -> None:
         if auto_reconnect is None:
             auto_reconnect = feishu_ws_auto_reconnect_enabled()
+        install_lark_recoverable_log_filter()
         self._conn: Any = None
         super().__init__(*args, auto_reconnect=auto_reconnect, **kwargs)
         self._receive_task: asyncio.Task[Any] | None = None
@@ -103,4 +131,8 @@ class FeishuWsClient(_LarkWsClient):
         return self._conn_id
 
 
-__all__ = ["FeishuWsClient", "feishu_ws_auto_reconnect_enabled"]
+__all__ = [
+    "FeishuWsClient",
+    "feishu_ws_auto_reconnect_enabled",
+    "install_lark_recoverable_log_filter",
+]

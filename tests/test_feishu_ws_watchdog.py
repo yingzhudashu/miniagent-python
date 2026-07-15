@@ -9,6 +9,7 @@ import pytest
 
 from miniagent.feishu.ws_health import (
     FeishuWsHealthState,
+    _receive_loop_exit_reason,
     read_feishu_ws_health_config,
     supervise_feishu_ws_session,
 )
@@ -42,6 +43,31 @@ async def test_supervise_returns_on_receive_task_done():
     assert reason.startswith("receive_loop_exit")
     end_reason, _ = health.last_session_end()
     assert end_reason == reason
+
+
+@pytest.mark.asyncio
+async def test_receive_loop_ping_timeout_has_stable_recoverable_reason():
+    class PingTimeout(Exception):
+        code = 3003
+
+    async def fail():
+        raise PingTimeout("received 3003 ping_timeout")
+
+    task = asyncio.create_task(fail())
+    with pytest.raises(PingTimeout):
+        await task
+
+    assert _receive_loop_exit_reason(task) == "receive_loop_ping_timeout"
+
+
+def test_health_state_tracks_physical_session_duration(monkeypatch):
+    ticks = iter((100.0, 175.5))
+    monkeypatch.setattr("miniagent.feishu.ws_health.time.monotonic", lambda: next(ticks))
+    health = FeishuWsHealthState()
+    health.record_session_start()
+    health.record_session_end("receive_loop_ping_timeout")
+    assert health.last_session_duration_s == 75.5
+    assert health.session_started_monotonic is None
 
 
 @pytest.mark.asyncio
@@ -328,6 +354,27 @@ def test_read_feishu_ws_health_config_defaults(tmp_path):
     assert cfg.watchdog_interval_s == 30.0
     assert cfg.dead_conn_grace_s == 90.0
     assert cfg.refresh_interval_s == 0.0
+
+
+def test_stable_session_resets_reconnect_backoff():
+    from miniagent.engine.feishu_state import _next_reconnect_attempt
+
+    assert (
+        _next_reconnect_attempt(
+            6,
+            session_duration_s=300.0,
+            stable_reset_after_s=60.0,
+        )
+        == 1
+    )
+    assert (
+        _next_reconnect_attempt(
+            2,
+            session_duration_s=5.0,
+            stable_reset_after_s=60.0,
+        )
+        == 3
+    )
 
 
 def test_feishu_ws_auto_reconnect_default(tmp_path):

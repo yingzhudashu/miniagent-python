@@ -1,7 +1,7 @@
 # Mini Agent Python — 日常使用指南
 
 > 安装、配置、首次启动见 **[README.md](../README.md)**。本文从日常使用起，面向已能跑通 Agent 的用户。  
-> Mini Agent Python | 版本: 2.2.0 | 最后更新: 2026-07-14 | 与 `miniagent.__version__` 对齐 | 未发版行为见 [CHANGELOG](../CHANGELOG.md) `[Unreleased]`
+> Mini Agent Python | 版本: 3.0.0 | 最后更新: 2026-07-15 | 与 `miniagent.__version__` 对齐 | 未发版行为见 [CHANGELOG](../CHANGELOG.md) `[Unreleased]`
 
 ### 章节迁移对照（原 USER_GUIDE 编号）
 

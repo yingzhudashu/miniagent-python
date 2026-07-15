@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from types import SimpleNamespace
 from typing import Any
 
 from miniagent.core.config import get_default_model_config
@@ -32,9 +33,43 @@ def _wire_api(override: WireAPI | None) -> WireAPI:
     return override or get_default_model_config().wire_api
 
 
-def resolve_wire_api(override: WireAPI | None = None) -> WireAPI:
-    """Return the effective wire protocol used by transport calls."""
-    return _wire_api(override)
+def _gateway_role_model(client: Any | None, role: str) -> Any | None:
+    if client is None or getattr(type(client), "_miniagent_llm_gateway", False) is not True:
+        return None
+    try:
+        return client.model_for_role(role)
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
+def resolve_wire_api(
+    override: WireAPI | None = None,
+    *,
+    client: Any | None = None,
+    role: str = "default",
+) -> WireAPI:
+    """Return the effective protocol, preferring the v3 gateway role binding."""
+    if override is not None:
+        return override
+    model = _gateway_role_model(client, role)
+    if model is not None:
+        return "responses" if getattr(model, "api", None) == "openai_responses" else "chat_completions"
+    return _wire_api(None)
+
+
+def resolve_model_max_output_tokens(
+    client: Any | None,
+    *,
+    role: str,
+    fallback: int,
+) -> int:
+    """Resolve the selected v3 profile limit without coupling core to adapters."""
+    model = _gateway_role_model(client, role)
+    value = getattr(model, "max_output_tokens", None) if model is not None else None
+    try:
+        return int(value) if value is not None else int(fallback)
+    except (TypeError, ValueError):
+        return int(fallback)
 
 
 def _normalize_gateway_error(exc: Exception) -> LLMTransportError | None:
@@ -161,6 +196,8 @@ def _chat_params(params: dict[str, Any], *, stream: bool) -> dict[str, Any]:
     result["stream"] = stream
     result.pop("_thinking_level", None)
     result.pop("_thinking_budget", None)
+    result.pop("thinking_level", None)
+    result.pop("thinking_budget", None)
     return result
 
 
@@ -186,12 +223,21 @@ def _responses_params(
     source.pop("stream", None)
     source.pop("response_format", None)
     thinking_level = source.pop("_thinking_level", None)
+    raw_thinking_level = source.pop("thinking_level", None)
+    if thinking_level is None:
+        thinking_level = raw_thinking_level
     source.pop("_thinking_budget", None)
+    source.pop("thinking_budget", None)
     if "max_tokens" in source:
         source["max_output_tokens"] = source.pop("max_tokens")
     effort = _reasoning_effort(thinking_level, json_mode=json_mode)
     if effort:
         source["reasoning"] = {"effort": effort}
+    if json_mode:
+        text_config = source.get("text")
+        normalized_text = dict(text_config) if isinstance(text_config, dict) else {}
+        normalized_text.setdefault("format", {"type": "json_object"})
+        source["text"] = normalized_text
     source["stream"] = stream
     return source
 
@@ -321,6 +367,14 @@ async def create_completion(
     wire_api: WireAPI | None = None,
 ) -> LLMCompletion:
     """Create one normalized non-streaming completion."""
+    if getattr(type(client), "_miniagent_llm_gateway", False) is True:
+        return await client.create_completion(
+            messages=messages,
+            params=params,
+            tools=tools,
+            json_mode=json_mode,
+            wire_api=wire_api,
+        )
     selected = _wire_api(wire_api)
     effective_params, _adjustments = _apply_learned_capabilities(client, params, selected)
     if selected == "chat_completions":
@@ -362,7 +416,7 @@ async def create_completion(
         wire_api=selected,
     )
     if isinstance(response, str):
-        return LLMCompletion(content=response)
+        return _completion_from_events(_response_fallback_events(response))
     output = _field(response, "output", []) or []
     calls = [
         _tool_call(_field(item, "call_id"), _field(item, "name"), _field(item, "arguments"))
@@ -424,9 +478,106 @@ async def _stream_chat_completion(
     yield LLMStreamEvent(completed=True)
 
 
+def _namespace_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return SimpleNamespace(**{str(key): _namespace_value(item) for key, item in value.items()})
+    if isinstance(value, list):
+        return [_namespace_value(item) for item in value]
+    return value
+
+
+def _raw_sse_response_events(payload: str) -> list[Any]:
+    """Parse gateways that return a complete Responses SSE stream as one string."""
+    if "data:" not in payload or not any(
+        marker in payload
+        for marker in ("response.output_text.", "response.output_item.", "response.completed")
+    ):
+        return []
+    parsed: list[Any] = []
+    event_name = ""
+    data_lines: list[str] = []
+
+    def flush() -> None:
+        nonlocal event_name, data_lines
+        data = "\n".join(data_lines).strip()
+        if data and data != "[DONE]":
+            try:
+                value = json.loads(data)
+            except json.JSONDecodeError:
+                value = None
+            if isinstance(value, dict):
+                if event_name and not value.get("type"):
+                    value["type"] = event_name
+                parsed.append(_namespace_value(value))
+        event_name = ""
+        data_lines = []
+
+    for line in payload.replace("\r\n", "\n").split("\n"):
+        if not line:
+            flush()
+        elif line.startswith("event:"):
+            event_name = line[6:].strip()
+        elif line.startswith("data:"):
+            data_lines.append(line[5:].lstrip())
+    flush()
+    return parsed
+
+
+def _completion_from_events(events: list[LLMStreamEvent]) -> LLMCompletion:
+    fragments: list[str] = []
+    calls: dict[int, dict[str, str]] = {}
+    usage: Any | None = None
+    status: str | None = None
+    output_types: tuple[str, ...] = ()
+    incomplete_reason: str | None = None
+    model: str | None = None
+    for event in events:
+        if event.content_delta:
+            fragments.append(event.content_delta)
+        if event.tool_call_delta is not None:
+            delta = event.tool_call_delta
+            call = calls.setdefault(delta.index, {"id": "", "name": "", "arguments": ""})
+            if delta.id:
+                call["id"] = delta.id
+            if delta.name:
+                call["name"] = delta.name
+            if delta.arguments:
+                call["arguments"] += delta.arguments
+        if event.usage is not None:
+            usage = event.usage
+        if event.status is not None:
+            status = event.status
+        if event.output_item_types:
+            output_types = event.output_item_types
+        if event.incomplete_reason is not None:
+            incomplete_reason = event.incomplete_reason
+        if event.model is not None:
+            model = event.model
+    return LLMCompletion(
+        content="".join(fragments) or None,
+        tool_calls=[
+            _tool_call(call["id"], call["name"], call["arguments"] or "{}")
+            for _, call in sorted(calls.items())
+        ],
+        usage=usage,
+        model=model,
+        status=status,
+        output_item_types=output_types,
+        incomplete_reason=incomplete_reason,
+    )
+
+
 def _response_fallback_events(response: Any) -> list[LLMStreamEvent]:
     """把不支持异步迭代的 Responses 兼容响应展开为稳定事件。"""
     if isinstance(response, str):
+        raw_events = _raw_sse_response_events(response)
+        if raw_events:
+            state = _ResponseEventState()
+            normalized: list[LLMStreamEvent] = []
+            for raw_event in raw_events:
+                normalized.extend(_normalize_response_stream_event(raw_event, state))
+            if normalized:
+                return normalized
         text_events = [LLMStreamEvent(content_delta=response)] if response else []
         return [*text_events, LLMStreamEvent(completed=True, status="completed")]
     output = _field(response, "output", []) or []
@@ -584,6 +735,16 @@ async def stream_completion(
     wire_api: WireAPI | None = None,
 ) -> AsyncIterator[LLMStreamEvent]:
     """Yield normalized text, tool-call and usage events."""
+    if getattr(type(client), "_miniagent_llm_gateway", False) is True:
+        async for event in client.stream_completion(
+            messages=messages,
+            params=params,
+            tools=tools,
+            json_mode=json_mode,
+            wire_api=wire_api,
+        ):
+            yield event
+        return
     selected = _wire_api(wire_api)
     effective_params, _adjustments = _apply_learned_capabilities(client, params, selected)
     if selected == "chat_completions":
@@ -625,6 +786,13 @@ async def create_structured_completion(
     wire_api: WireAPI | None = None,
 ) -> LLMCompletion:
     """Create a JSON-oriented completion using the stable Responses stream path."""
+    if getattr(type(client), "_miniagent_llm_gateway", False) is True:
+        return await client.create_completion(
+            messages=messages,
+            params=params,
+            json_mode=True,
+            wire_api=wire_api,
+        )
     selected = _wire_api(wire_api)
     if selected == "chat_completions":
         return await create_completion(
@@ -703,6 +871,7 @@ __all__ = [
     "create_completion",
     "create_structured_completion",
     "messages_to_responses_input",
+    "resolve_model_max_output_tokens",
     "resolve_wire_api",
     "stream_completion",
     "structured_retry_delay",

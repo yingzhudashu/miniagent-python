@@ -55,6 +55,24 @@ def test_types_cannot_eagerly_import_feishu(architecture_module, tmp_path: Path)
     assert violations[0].source_package == "types"
 
 
+def test_core_cannot_import_presentation(architecture_module, tmp_path: Path) -> None:
+    _write_module(tmp_path, "core", "from miniagent.presentation.cli.state import TuiViewState\n")
+    violations = architecture_module.check_architecture(tmp_path)
+    assert [(v.source_package, v.imported_module) for v in violations] == [
+        ("core", "miniagent.presentation.cli.state")
+    ]
+
+
+def test_presentation_cannot_import_runtime_layers(
+    architecture_module, tmp_path: Path
+) -> None:
+    _write_module(tmp_path, "presentation", "from miniagent.engine.main import run_runtime\n")
+    violations = architecture_module.check_architecture(tmp_path)
+    assert [(v.source_package, v.imported_module) for v in violations] == [
+        ("presentation", "miniagent.engine.main")
+    ]
+
+
 def test_type_checking_and_function_local_imports_are_allowed(
     architecture_module, tmp_path: Path
 ) -> None:

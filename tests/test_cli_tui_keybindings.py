@@ -113,7 +113,8 @@ def test_key_bindings_register_and_execute_major_paths(monkeypatch: pytest.Monke
         selection_start=selection_start,
         selection_end=selection_end,
         transcript=[("", "abc")],
-        get_transcript_char_count=lambda _index: 3,
+        rendered_text_length=lambda: 3,
+        has_selection=lambda: bool(selection_text[0]),
         extract_selection_text=lambda: "abc",
         reset_and_reload_transcript=lambda **_kwargs: resets.append(True),
         runtime_context=SimpleNamespace(background_tasks=object()),
@@ -134,7 +135,7 @@ def test_key_bindings_register_and_execute_major_paths(monkeypatch: pytest.Monke
     kb.handlers["c-c"][0](event)
     kb.handlers["a"][0](event)
     kb.handlers["enter"][0](event)
-    selection_start[0] = (0, 0)
+    selection_start[0] = 0
     kb.handlers["escape"][0](event)
 
     buffer.text = "!echo ok"

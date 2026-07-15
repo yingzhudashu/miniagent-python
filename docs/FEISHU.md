@@ -1,6 +1,6 @@
 # 飞书集成文档
 
-> Mini Agent Python | 版本: 2.2.0 | 最后更新: 2026-07-14 | 与 `miniagent.__version__` 对齐 | 飞书 WebSocket 长连接
+> Mini Agent Python | 版本: 3.0.0 | 最后更新: 2026-07-15 | 与 `miniagent.__version__` 对齐 | 飞书 WebSocket 长连接
 
 ## 快速开始
 
@@ -142,6 +142,7 @@ UnifiedEngine.run_agent_with_thinking(...)
 | `feishu.websocket.watchdog_interval` | `30` | 看门狗轮询（秒）；**非**多实例注册心跳 |
 | `feishu.websocket.dead_conn_grace` | `90` | 连接为空超过该秒数则重建 |
 | `feishu.websocket.reconnect_grace` | `300` | 仅 `auto_reconnect=true` 时生效 |
+| `feishu.websocket.stable_reset_after` | `60` | 连接稳定超过该秒数后重置外层指数退避 |
 | `feishu.websocket.refresh_interval` | `0` | 定期主动刷新；不稳定网络可设 `3600` |
 | `feishu.websocket.idle_refresh` | `0` | 无入站超过 N 秒刷新（默认关） |
 | `feishu.message_debounce_ms` | `800` | 同一发送者在同话题内连续文本的合并窗口（毫秒）；`0` 关闭 |
@@ -361,7 +362,7 @@ UnifiedEngine.run_agent_with_thinking()
 
 ### Windows / 长连接
 
-Windows 上可能出现 `OSError: [WinError 121]` 或日志 `receive message loop exit` / `no close frame received or sent`（网络休眠、VPN、NAT、网卡节能等）。增强后这些日志后通常会紧跟 `飞书 WS 会话监督结束` 与 CLI `约 Xs 后重连`，属**预期自愈**，不等于进程崩溃。WebSocket 环境变量表见上文 [运维速查（WebSocket）](#运维速查websocket)。
+Windows 上可能出现 `OSError: [WinError 121]`、`ping_timeout (3003)` 或 `no close frame received or sent`（网络休眠、VPN、NAT、网卡节能等）。3003 会被标记为可恢复心跳超时，并紧跟会话重建与 CLI `约 Xs 后重连`；稳定连接会重置退避，避免偶发断线逐渐累积到 60 秒。上述情况属**预期自愈**，不等于进程崩溃。
 
 运维建议：电源计划中避免网卡「允许计算机关闭此设备以节约电源」；不稳定网络可设 `feishu.websocket.refresh_interval=3600`。
 

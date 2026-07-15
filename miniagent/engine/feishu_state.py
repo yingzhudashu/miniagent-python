@@ -14,6 +14,7 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import get_logger
 
 _logger = get_logger(__name__)
@@ -23,6 +24,22 @@ FeishuHandlerFactory = Callable[
     [dict[str, Any] | None],
     Callable[..., Awaitable[Any]] | tuple[Any, Any],
 ]
+
+
+def _next_reconnect_attempt(
+    current: int,
+    *,
+    session_duration_s: float | None,
+    stable_reset_after_s: float,
+) -> int:
+    """Reset exponential backoff after a connection remained healthy long enough."""
+    if (
+        session_duration_s is not None
+        and stable_reset_after_s > 0
+        and session_duration_s >= stable_reset_after_s
+    ):
+        return 1
+    return current + 1
 
 
 class FeishuRuntime:
@@ -113,13 +130,20 @@ class FeishuRuntime:
                     end_reason, _ = poll_state.ws_health.last_session_end()
                     if end_reason:
                         self._emit_user_line(f"ℹ️ [飞书] 会话结束（{end_reason}），将重连…")
+                    attempt = _next_reconnect_attempt(
+                        attempt,
+                        session_duration_s=poll_state.ws_health.last_session_duration_s,
+                        stable_reset_after_s=float(
+                            get_config("feishu.websocket.stable_reset_after", 60.0)
+                        ),
+                    )
                 except asyncio.CancelledError:
                     self._emit_user_line("ℹ️ [飞书] 已停止")
                     raise
                 except Exception as error:
                     _logger.error("[飞书] 运行异常: %s", error, exc_info=True)
                     self._emit_user_line(f"ℹ️ [飞书] 连接异常，将重试: {error}")
-                attempt += 1
+                    attempt += 1
         finally:
             try:
                 await poll_state.reset()

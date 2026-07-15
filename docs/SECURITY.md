@@ -1,6 +1,6 @@
 # 安全模型
 
-> Mini Agent Python | 版本: 2.2.0 | 最后更新: 2026-07-14 | 与 `miniagent.__version__` 对齐 | 模块: `miniagent/security/` + 全局安全策略
+> Mini Agent Python | 版本: 3.0.0 | 最后更新: 2026-07-15 | 与 `miniagent.__version__` 对齐 | 模块: `miniagent/security/` + 全局安全策略
 
 ## 安全架构概览
 

@@ -110,13 +110,13 @@ async def build_execute_agent_from_engine(
     runtime_ctx = (state or {}).get("runtime_ctx")
     memory = getattr(runtime_ctx, "memory", None)
     knowledge_registry = getattr(runtime_ctx, "knowledge_registry", None)
-    client = getattr(runtime_ctx, "openai_client", None)
+    client = getattr(runtime_ctx, "llm_client", getattr(runtime_ctx, "openai_client", None))
     if memory is None:
         raise ValueError("真实 Agent 自测需要 state.runtime_ctx.memory")
     if knowledge_registry is None:
         raise ValueError("真实 Agent 自测需要 state.runtime_ctx.knowledge_registry")
     if client is None:
-        raise ValueError("真实 Agent 自测需要 state.runtime_ctx.openai_client")
+        raise ValueError("真实 Agent 自测需要 state.runtime_ctx.llm_client")
     if sm is not None:
         await sm.get_or_create(session_key)
 

@@ -31,7 +31,7 @@ async def handle_review(
                 user_message,
                 assistant_message,
                 extra_feedback=" ".join(text.split()[1:]).strip(),
-                client=getattr(runtime, "openai_client", None),
+                client=getattr(runtime, "llm_client", getattr(runtime, "openai_client", None)),
                 term_write=getattr(runtime, "cli_transcript_append", None),
                 capture=capture,
             )
@@ -75,7 +75,7 @@ async def handle_improve(
                 user.get("content", ""),
                 assistant.get("content", ""),
                 suggestions,
-                client=getattr(runtime, "openai_client", None),
+                client=getattr(runtime, "llm_client", getattr(runtime, "openai_client", None)),
                 term_write=getattr(runtime, "cli_transcript_append", None),
                 capture=capture,
             )

@@ -243,7 +243,11 @@ class _FallbackCliRuntime:
                         clawhub=self.ctx.clawhub,
                         memory=self.ctx.memory,
                         knowledge_registry=self.ctx.knowledge_registry,
-                        client=self.ctx.openai_client,
+                        client=getattr(
+                            self.ctx,
+                            "llm_client",
+                            getattr(self.ctx, "openai_client", None),
+                        ),
                         cli_loop_state=self.state,
                         _hold_session_lock=True,
                     )

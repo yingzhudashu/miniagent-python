@@ -16,12 +16,16 @@ _logger = logging.getLogger(__name__)
 
 def create_application_container() -> ApplicationContainer:
     """Construct the process-scoped dependency graph from loaded configuration."""
-    from miniagent.core.openai_client import create_async_openai_client
     from miniagent.engine.background_tasks import BackgroundTaskManager
     from miniagent.engine.engine import UnifiedEngine
     from miniagent.engine.feishu_state import FeishuRuntime
     from miniagent.infrastructure.channel_router import ChannelRouter
-    from miniagent.infrastructure.json_config import get_config, get_config_snapshot
+    from miniagent.infrastructure.json_config import (
+        get_config,
+        get_config_snapshot,
+        get_user_config_section,
+    )
+    from miniagent.infrastructure.llm.factory import create_llm_gateway
     from miniagent.infrastructure.message_queue import MessageQueueManager, QueueMode
     from miniagent.infrastructure.monitor import DefaultToolMonitor
     from miniagent.infrastructure.registry import DefaultToolRegistry
@@ -44,6 +48,9 @@ def create_application_container() -> ApplicationContainer:
 
     channel_router = ChannelRouter()
     channel_router.load()
+    llm_gateway = create_llm_gateway(
+        get_config, user_section_getter=get_user_config_section
+    )
     return ApplicationContainer(
         registry=DefaultToolRegistry(),
         monitor=DefaultToolMonitor(),
@@ -58,7 +65,8 @@ def create_application_container() -> ApplicationContainer:
         background_tasks=BackgroundTaskManager(),
         config=get_config_snapshot(),
         outbound_channels=ChannelRegistry(),
-        openai_client=create_async_openai_client(),
+        llm_gateway=llm_gateway,
+        openai_client=llm_gateway,
     )
 
 

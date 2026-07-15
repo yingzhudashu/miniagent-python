@@ -5,6 +5,28 @@
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- LLM 配置升级为 `llm.providers`、`llm.models`、`llm.roles` 与
+  `secrets.llm`；新增 `python -m miniagent migrate-config --dry-run/--write`，写入前自动
+  备份 2.x 配置。包版本进入 3.0.0。
+
+### Added
+
+- 新增协议无关 `LLMGateway`、显式 provider registry、小型模型目录及
+  `default/reasoning/fast/vision` 角色路由；支持 OpenAI Chat/Responses，并通过可选
+  `providers` extra 支持 Anthropic Messages 与 Google Generate Content。
+- 模型动态刷新采用 last-known-good 原子缓存；provider 错误、工具调用、推理、用量和取消
+  归一化为共享契约。
+- 全屏 TUI 新增多行输入、回答期间继续排队、模型/会话选择器、响应式状态栏、默认折叠推理
+  和可校验快捷键配置；保留 fallback CLI。
+
+### Changed
+
+- 应用组合根持有 LLM gateway 快照；配置热更新不关闭在途请求使用的旧 gateway。
+- 会话历史 schema 升至 v2，并标记跨 provider 的稳定消息格式；旧文件沿用集中备份迁移。
+- 架构检查新增 core、presentation 与 LLM adapter 的依赖方向约束。
+
 ### 体验
 
 - 复杂任务长内容分层：计划即时预览封顶、分步中间步收成状态行（TUI 替换 / 飞书强制 PATCH）；完整细节仍写入会话历史。配置见 `display.*`，说明见 `docs/OUTPUT_FORMAT.md` §1.7。

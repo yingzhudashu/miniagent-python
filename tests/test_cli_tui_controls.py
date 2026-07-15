@@ -4,13 +4,25 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from prompt_toolkit.mouse_events import MouseEventType
+from prompt_toolkit.mouse_events import MouseButton, MouseEventType, MouseModifier
 
 from miniagent.engine import cli_tui_controls as controls
 
 
-def _event(kind: MouseEventType, *, x: int = 0, y: int = 0) -> SimpleNamespace:
-    return SimpleNamespace(event_type=kind, position=SimpleNamespace(x=x, y=y))
+def _event(
+    kind: MouseEventType,
+    *,
+    x: int = 0,
+    y: int = 0,
+    button: MouseButton = MouseButton.LEFT,
+    modifiers=frozenset(),
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        event_type=kind,
+        position=SimpleNamespace(x=x, y=y),
+        button=button,
+        modifiers=modifiers,
+    )
 
 
 def _build(monkeypatch):
@@ -43,16 +55,27 @@ def _build(monkeypatch):
         calls.append(("v", delta, source))
         state["out"][0] += delta
 
+    def clear_selection():
+        state["start"][0] = state["end"][0] = None
+        state["selection"][0] = ""
+        state["down"][0] = False
+
+    def extract_selection():
+        start, end = sorted((state["start"][0], state["end"][0]))
+        return "helloworld"[start:end]
+
     args = dict(
         flatten_transcript_for_pt=lambda: state["transcript"],
         apply_horizontal_scroll=apply_h,
         apply_transcript_scroll=apply_v,
         copy_mode_active=state["copy"],
         copy_mode_mouse_down=state["down"],
-        extract_selection_text=lambda: "selected",
-        get_transcript_char_count=lambda i: len(state["transcript"][i][1]),
-        is_scrollbar_click=lambda event: event.position.x >= 90,
+        clear_selection=clear_selection,
+        extract_selection_text=extract_selection,
+        rendered_position_to_offset=lambda row, column: min(10, row * 5 + column),
+        rendered_text_length=lambda: 10,
         max_output_scroll=lambda: 20,
+        set_transcript_scroll=lambda position, source: calls.append(("set-v", position, source)),
         scroll_pane=lambda: state["pane"],
         selection_end=state["end"],
         selection_start=state["start"],
@@ -66,6 +89,8 @@ def _build(monkeypatch):
         wheel_line_step=lambda: 3,
         horizontal_scroll=state["h"],
         max_horizontal_scroll=lambda: 20,
+        begin_viewport_measure=lambda columns, rows: calls.append(("begin", columns, rows)),
+        finish_viewport_measure=lambda height: calls.append(("finish", height)),
     )
     inner, window, pane, hbar = controls.create_transcript_controls(**args)
     return state, calls, invalidations, inner, window, pane, hbar
@@ -79,22 +104,17 @@ def test_transcript_mouse_scroll_drag_and_copy(monkeypatch) -> None:
     assert control.mouse_handler(_event(MouseEventType.SCROLL_DOWN)) is None
     assert calls[:2] == [("v", -3, "mouse.SCROLL_UP"), ("v", 3, "mouse.SCROLL_DOWN")]
 
-    assert control.mouse_handler(_event(MouseEventType.MOUSE_DOWN, x=95, y=5)) is None
-    assert control.mouse_handler(_event(MouseEventType.MOUSE_MOVE, x=95, y=8)) is None
-    assert control.mouse_handler(_event(MouseEventType.MOUSE_UP, x=95, y=8)) is None
-    assert state["pane"].vertical_scroll >= 0
-
-    assert control.mouse_handler(_event(MouseEventType.MOUSE_DOWN, x=4, y=1)) is None
-    assert control.mouse_handler(_event(MouseEventType.MOUSE_MOVE, x=1, y=1)) is None
-    assert control.mouse_handler(_event(MouseEventType.MOUSE_UP, x=1, y=1)) is None
+    pan = frozenset({MouseModifier.SHIFT})
+    assert control.mouse_handler(_event(MouseEventType.MOUSE_DOWN, x=4, modifiers=pan)) is None
+    assert control.mouse_handler(_event(MouseEventType.MOUSE_MOVE, x=1, modifiers=pan)) is None
+    assert control.mouse_handler(_event(MouseEventType.MOUSE_UP, x=1, modifiers=pan)) is None
     assert any(item[0] == "h" for item in calls)
 
-    state["copy"][0] = True
     assert control.mouse_handler(_event(MouseEventType.MOUSE_DOWN, x=2, y=0)) is None
     assert control.mouse_handler(_event(MouseEventType.MOUSE_MOVE, x=8, y=0)) is None
     assert control.mouse_handler(_event(MouseEventType.MOUSE_UP, x=8, y=0)) is None
     assert state["down"][0] is False
-    assert state["selection"][0] == "selected"
+    assert state["selection"][0] == "lloworl"
     assert invalidations
 
 

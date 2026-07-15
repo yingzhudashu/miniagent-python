@@ -24,14 +24,20 @@ def _scheduled_v1_to_v2(payload: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def _session_history_v1_to_v2(payload: dict[str, Any]) -> dict[str, Any]:
+    """Mark the stable cross-provider conversation shape without rewriting content."""
+    payload["message_format"] = "miniagent-conversation-v1"
+    return payload
+
+
 def install_builtin_state_schemas() -> None:
     """安装内置 schema；模块重复导入时保持幂等。"""
     schemas = (
         StateSchema("session_config", 1, {0: _identity}),
         StateSchema(
             "session_history",
-            1,
-            {0: _identity},
+            2,
+            {0: _identity, 1: _session_history_v1_to_v2},
             legacy_list_key="messages",
         ),
         StateSchema("channel_router", 1, {0: _identity}),

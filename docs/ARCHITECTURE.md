@@ -1,7 +1,24 @@
 # 系统架构
 
 > 架构概览见 [README.md §架构概览](../README.md#架构概览)。本文档为各层深读。  
-> Mini Agent Python | 版本: 2.2.0 | 最后更新: 2026-07-14 | 与 `miniagent.__version__` 对齐
+> Mini Agent Python | 版本: 3.0.0 | 最后更新: 2026-07-15 | 与 `miniagent.__version__` 对齐
+
+## 3.0 分层与 LLM 边界
+
+3.0 在原有问答流水线之外增加显式的 provider 边界：`contracts` 定义无 SDK 的
+LLM DTO/Protocol，`core` 只表达分类、澄清、规划、执行和反思，`application` 负责会话与
+角色用例，`infrastructure/llm` 实现 OpenAI、Anthropic、Google 以及兼容端点，
+`presentation/cli` 只消费应用事件，`bootstrap` 是唯一具体组合根。
+
+```text
+presentation / channels → application → core → contracts
+              bootstrap ↘ infrastructure/llm ↗
+```
+
+`LLMGateway` 按 `default/reasoning/fast/vision` 显式角色选择 model profile，统一文本、
+推理、工具、用量、取消和错误事件。模型切换和配置热更新采用不可变快照：活动回合继续持有
+旧 gateway，新回合使用新 gateway，旧连接在统一关停时释放。完整配置见
+[LLM_PROVIDERS.md](LLM_PROVIDERS.md)。
 
 ## 架构总览
 

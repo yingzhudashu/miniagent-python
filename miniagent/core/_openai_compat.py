@@ -146,19 +146,19 @@ def json_object_requires_json_keyword(err: Exception) -> bool:
 
 
 def json_object_unsupported(err: Exception) -> bool:
-    """Return True if *err* indicates the endpoint rejects ``response_format=json_object``.
+    """Return True when an endpoint rejects Chat or Responses JSON-object mode.
 
     Callers can retry the same prompt without ``response_format`` when this returns
     True.  Errors that :func:`json_object_requires_json_keyword` would match are
     excluded so callers do not silently drop JSON mode when a hint would suffice.
 
-    Detection requires the error text to mention ``response_format`` or
-    ``json_object`` **and** contain a known "unsupported/invalid" marker.
+    Detection requires the error text to mention ``response_format``, Responses
+    ``text.format``, or ``json_object`` and contain a known unsupported marker.
     """
     if json_object_requires_json_keyword(err):
         return False
     low = str(err).lower()
-    if "response_format" not in low and "json_object" not in low:
+    if not any(name in low for name in ("response_format", "text.format", "json_object")):
         return False
     return any(marker in low for marker in _UNSUPPORTED_MARKERS)
 

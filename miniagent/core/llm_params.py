@@ -42,6 +42,7 @@ def resolve_exec_completion_kwargs(
 
     kw: dict[str, Any] = {
         "model": ov.get("model", mc.model),
+        "_role": str(ov.get("role", "default")),
         "temperature": float(ov.get("temperature", mc.temperature)),
         "max_tokens": int(ov.get("max_tokens", mc.max_tokens)),
         "top_p": float(ov.get("top_p", mc.top_p)),
@@ -93,6 +94,7 @@ def resolve_planner_completion_kwargs(
 
     kw: dict[str, Any] = {
         "model": ov.get("model", mc.model),
+        "_role": str(ov.get("role", "reasoning")),
         "temperature": float(ov.get("planner_temperature", ov.get("temperature", 0.3))),
         "max_tokens": int(ov.get("planner_max_tokens", 2048)),
         "top_p": float(ov.get("top_p", mc.top_p)),

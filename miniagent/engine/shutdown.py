@@ -68,13 +68,21 @@ async def _close_protocol_and_process_resources() -> None:
 
 
 async def _close_openai_clients(ctx: ApplicationContainer) -> None:
-    """去重关闭当前与热重载退休的 OpenAI 客户端池。"""
+    """去重关闭当前/退休 gateway 与嵌入式 v2 OpenAI 客户端。"""
     from miniagent.core.openai_client import close_async_openai_client
 
+    gateways = [ctx.llm_gateway, *ctx.retired_llm_gateways]
+    ctx.llm_gateway = None
+    ctx.retired_llm_gateways.clear()
+    seen: set[int] = set()
+    for gateway in gateways:
+        if gateway is None or id(gateway) in seen:
+            continue
+        seen.add(id(gateway))
+        await _shutdown_step("LLM gateway close", gateway.close())
     clients = [ctx.openai_client, *ctx.retired_openai_clients]
     ctx.openai_client = None
     ctx.retired_openai_clients.clear()
-    seen: set[int] = set()
     for client in clients:
         if client is None or id(client) in seen:
             continue

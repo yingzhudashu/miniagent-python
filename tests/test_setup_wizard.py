@@ -99,11 +99,13 @@ def test_run_setup_wizard_collects_user_input() -> None:
     with patch("builtins.input", side_effect=inputs):
         config = run_setup_wizard()
 
-    assert config == {
-        "secrets": {"openai_api_key": "sk-test-key"},
-        "model": {"model": "gpt-4o", "base_url": "https://api.example.com/v1"},
-        "paths": {"state_dir": "my-workspaces"},
-    }
+    assert config["secrets"]["llm"]["openai"]["api_key"] == "sk-test-key"
+    assert config["llm"]["providers"]["openai"]["base_url"] == (
+        "https://api.example.com/v1"
+    )
+    assert config["llm"]["models"]["primary"]["model"] == "gpt-4o"
+    assert config["llm"]["roles"]["default"] == "primary"
+    assert config["paths"] == {"state_dir": "my-workspaces"}
 
 
 def test_run_setup_wizard_empty_api_key_does_not_write_secret() -> None:
@@ -140,7 +142,7 @@ def test_run_interactive_setup_saves_config(tmp_path: Path) -> None:
 
     assert ran is True
     data = json.loads(user_path.read_text(encoding="utf-8"))
-    assert data["secrets"]["openai_api_key"] == "sk-wizard"
+    assert data["secrets"]["llm"]["openai"]["api_key"] == "sk-wizard"
 
 
 def test_apply_saved_config_reloads_config_and_secrets(tmp_path: Path) -> None:

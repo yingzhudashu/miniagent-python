@@ -18,6 +18,8 @@
     python -m miniagent --stop --state-dir <路径> 1  # 多状态根时指定目录
     python -m miniagent --stop --state-dir <路径>  # 交互选择，仅列该状态根下的实例
     python -m miniagent --doctor     # 环境诊断（安装、依赖、配置、状态目录）
+    python -m miniagent migrate-config --dry-run  # 检查 v2→v3 配置迁移
+    python -m miniagent migrate-config --write    # 备份并写入 v3 配置
 
 架构（组合根）:
 - 进程级依赖由 ``bootstrap.entrypoint`` 构造唯一 ``ApplicationContainer``
@@ -63,6 +65,41 @@ def _load_env() -> None:
     from miniagent.infrastructure.env_loader import load_secrets_from_project_root
 
     load_secrets_from_project_root()
+
+
+def _run_migrate_config_command() -> int:
+    """Handle the explicit backup-first v2 to v3 configuration migration."""
+    from miniagent.infrastructure.config_migration import migrate_config_file
+    from miniagent.infrastructure.json_config import get_user_config_path
+
+    tokens = sys.argv[2:]
+    unknown = [token for token in tokens if token not in ("--dry-run", "--write")]
+    if unknown or ("--dry-run" in tokens and "--write" in tokens):
+        print(
+            "[ERROR] 用法: python -m miniagent migrate-config "
+            "[--dry-run|--write]"
+        )
+        return 2
+    path = get_user_config_path()
+    if not path.exists():
+        print(f"[ERROR] 配置文件不存在: {path}")
+        return 1
+    write = "--write" in tokens
+    try:
+        result = migrate_config_file(path, write=write)
+    except (OSError, ValueError) as error:
+        print(f"[ERROR] 配置迁移失败: {error}")
+        return 1
+    if not result.changed:
+        print("[OK] 配置已经是 v3，无需迁移")
+        return 0
+    if not write:
+        print("可迁移配置已验证；将迁移: " + ", ".join(result.migrated_keys))
+        print("运行 `python -m miniagent migrate-config --write` 写入并自动备份。")
+        return 0
+    print("[OK] 配置已迁移到 v3")
+    print(f"备份: {result.backup_path}")
+    return 0
 
 
 def _argv_after_flag(argv: list[str], flag: str) -> list[str]:
@@ -318,6 +355,9 @@ def main() -> None:
     if _wants_help(sys.argv):
         _print_cli_help()
         raise SystemExit(0)
+
+    if len(sys.argv) > 1 and sys.argv[1] == "migrate-config":
+        raise SystemExit(_run_migrate_config_command())
 
     _load_env()
 

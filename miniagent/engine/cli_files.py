@@ -87,7 +87,9 @@ async def _describe_cli_file(path: str, file_type: str, runtime_ctx: Any) -> str
     try:
         from miniagent.feishu.vision_desc import describe_image
 
-        client = getattr(runtime_ctx, "openai_client", None)
+        client = getattr(
+            runtime_ctx, "llm_client", getattr(runtime_ctx, "openai_client", None)
+        )
         if client is not None:
             return await describe_image(
                 path,

@@ -47,7 +47,8 @@ def test_load_range_then_append_persists_history(session_manager: DefaultSession
     assert os.path.isfile(path)
     with open(path, encoding="utf-8") as f:
         saved = json.load(f)
-    assert saved["schema_version"] == 1
+    assert saved["schema_version"] == 2
+    assert saved["message_format"] == "miniagent-conversation-v1"
     assert len(saved["messages"]) == 2
     assert saved["messages"][0]["role"] == "user"
     assert saved["messages"][1]["role"] == "assistant"

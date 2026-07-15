@@ -23,6 +23,31 @@ from miniagent.feishu.ws_health import (
     supervise_feishu_ws_session,
 )
 
+
+def test_lark_ping_timeout_filter_reroutes_only_recoverable_3003() -> None:
+    import logging
+    from unittest.mock import patch
+
+    from miniagent.feishu.ws_client import _RecoverablePingTimeoutFilter
+
+    timeout_record = logging.LogRecord(
+        "Lark",
+        logging.ERROR,
+        "",
+        0,
+        "receive message loop exit, err: received 3003 ping_timeout",
+        (),
+        None,
+    )
+    other_record = logging.LogRecord(
+        "Lark", logging.ERROR, "", 0, "connect failed, err: unauthorized", (), None
+    )
+    filter_ = _RecoverablePingTimeoutFilter()
+    with patch("miniagent.feishu.ws_client._app_logger.warning") as warning:
+        assert filter_.filter(timeout_record) is False
+        warning.assert_called_once()
+    assert filter_.filter(other_record) is True
+
 # ============================================================================
 # Test Health Config
 # ============================================================================

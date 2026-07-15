@@ -26,6 +26,7 @@ from miniagent.core.llm_params import resolve_exec_completion_kwargs
 from miniagent.core.llm_transport import (
     LLMTransportError,
     classify_transport_error,
+    resolve_wire_api,
     stream_completion,
 )
 from miniagent.core.openai_message_sanitize import strip_leading_underscore_keys_from_messages
@@ -563,7 +564,16 @@ class ExecutionTurnStreamer:
         base_exec_kw = resolve_exec_completion_kwargs(
             self.agent_config, stream=True, merge_overrides=merge_overrides
         )
-        responses_wire = self.model_config.wire_api == "responses"
+        if getattr(type(self.llm_client), "_miniagent_llm_gateway", False) is True:
+            responses_wire = (
+                resolve_wire_api(
+                    client=self.llm_client,
+                    role=str(base_exec_kw.get("_role") or "default"),
+                )
+                == "responses"
+            )
+        else:
+            responses_wire = self.model_config.wire_api == "responses"
         completed = await self._request_until_complete(
             base_exec_kwargs=base_exec_kw,
             responses_wire=responses_wire,

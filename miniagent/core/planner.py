@@ -36,6 +36,8 @@ from miniagent.core.llm_transport import (
     completion_failure_category,
     create_completion,
     create_structured_completion,
+    resolve_model_max_output_tokens,
+    resolve_wire_api,
     structured_retry_delay,
     structured_retry_params,
 )
@@ -423,6 +425,12 @@ async def generate_plan(
     from miniagent.core.config import get_default_model_config
 
     model_config = get_default_model_config()
+    wire_api = resolve_wire_api(client=client, role="reasoning")
+    model_max_tokens = resolve_model_max_output_tokens(
+        client,
+        role="reasoning",
+        fallback=model_config.max_tokens,
+    )
     runner = _PlannerRunner(
         user_input=user_input,
         client=client,
@@ -431,8 +439,8 @@ async def generate_plan(
         original_params=dict(planner_kw),
         params=dict(planner_kw),
         session_key=plan_session_key,
-        wire_api=model_config.wire_api,
-        model_max_tokens=model_config.max_tokens,
+        wire_api=wire_api,
+        model_max_tokens=model_max_tokens,
         default_step_thinking=default_step_thinking,
         log_file=log_file,
     )

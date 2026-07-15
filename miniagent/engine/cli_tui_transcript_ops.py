@@ -41,9 +41,13 @@ class _TranscriptOperations:
     should_wrap_lines: Any
     reset_horizontal_scroll: Any
     snap_output_bottom: Any
+    report_content_width: Any
 
     def __init__(self, **values: Any) -> None:
         self.__dict__.update(values)
+        self._rendered_text = ""
+        self._rendered_lines = [""]
+        self._rendered_line_offsets = [0]
 
     def namespace(self) -> SimpleNamespace:
         """返回保持旧调用面的绑定方法集合。"""
@@ -59,6 +63,9 @@ class _TranscriptOperations:
             get_transcript_fragment_text=self.get_transcript_fragment_text,
             get_transcript_char_count=self.get_transcript_char_count,
             extract_selection_text=self.extract_selection_text,
+            rendered_position_to_offset=self.rendered_position_to_offset,
+            rendered_text_length=self.rendered_text_length,
+            has_selection=self.has_selection,
             clear_selection=self.clear_selection,
             toggle_copy_mode=self.toggle_copy_mode,
             apply_selection_highlight=self.apply_selection_highlight,
@@ -75,6 +82,7 @@ class _TranscriptOperations:
         self.transcript.trim()
 
     def transcript_prepend(self, style: Any, text: str) -> None:
+        self.clear_selection()
         self.transcript.prepend((style, text))
 
     def render_history_message(
@@ -170,6 +178,7 @@ class _TranscriptOperations:
 
     def _reset_and_reload_transcript(self, *, reset_scroll_to_top: bool = False) -> None:
         """清空 transcript 并重新加载当前会话首页。"""
+        self.clear_selection()
         self.transcript.clear()
         self.history_loaded_range.update(
             total_messages=0, loaded_start=0, loaded_end=0, all_loaded=False, loading=False
@@ -240,6 +249,8 @@ class _TranscriptOperations:
             return
         if self.last_md_width[0] and width == self.last_md_width[0]:
             return
+        if self.last_md_width[0]:
+            self.clear_selection()
         self.last_md_width[0] = width
         if self.should_wrap_lines():
             self.reset_horizontal_scroll()
@@ -256,10 +267,7 @@ class _TranscriptOperations:
                 )
                 if ansi is not None:
                     fragment.value = ansi
-        try:
-            get_app().invalidate()
-        except Exception:
-            pass
+        # 此方法由当前渲染调用；这里再次 invalidate 会形成尺寸变化重绘循环。
 
     def _truncate_formatted(self, items: list[Any], viewport: int) -> list[Any]:
         result = []
@@ -295,7 +303,7 @@ class _TranscriptOperations:
     def get_transcript_char_count(self, index: int) -> int:
         return len(self.get_transcript_fragment_text(index))
 
-    def _ordered_selection(self) -> tuple[Any, Any]:
+    def _ordered_selection(self) -> tuple[int | None, int | None]:
         start, end = self.selection_start[0], self.selection_end[0]
         if start is not None and end is not None and start > end:
             return end, start
@@ -305,13 +313,22 @@ class _TranscriptOperations:
         start, end = self._ordered_selection()
         if start is None or end is None:
             return ""
-        parts = []
-        for index in range(start[0], end[0] + 1):
-            text = self.get_transcript_fragment_text(index)
-            left = start[1] if index == start[0] else 0
-            right = end[1] if index == end[0] else len(text)
-            parts.append(text[left:right])
-        return "".join(parts)
+        return self._rendered_text[max(0, start) : min(len(self._rendered_text), end)]
+
+    def rendered_position_to_offset(self, row: int, column: int) -> int:
+        """把 FormattedTextControl 的逻辑行列转换为渲染文本绝对偏移。"""
+        if not self._rendered_lines:
+            return 0
+        row = max(0, min(int(row), len(self._rendered_lines) - 1))
+        line = self._rendered_lines[row]
+        column = max(0, min(int(column), len(line)))
+        return min(len(self._rendered_text), self._rendered_line_offsets[row] + column)
+
+    def rendered_text_length(self) -> int:
+        return len(self._rendered_text)
+
+    def has_selection(self) -> bool:
+        return bool(self.selection_text[0])
 
     def clear_selection(self) -> None:
         self.selection_start[0] = self.selection_end[0] = None
@@ -327,39 +344,51 @@ class _TranscriptOperations:
         except Exception:
             pass
 
-    def apply_selection_highlight(self, index: int, text: str) -> list[tuple[str, str]]:
+    def apply_selection_highlight(self, items: list[Any]) -> list[Any]:
+        """按渲染文本绝对偏移切分片段，同时保留原有 Markdown/ANSI 样式。"""
         start, end = self._ordered_selection()
-        if start is None or end is None or index < start[0] or index > end[0]:
-            return [("class:cli-default", text)]
-        left = start[1] if index == start[0] else 0
-        right = end[1] if index == end[0] else len(text)
-        result = []
-        if left:
-            result.append(("class:cli-default", text[:left]))
-        result.append(("class:cli-selection", text[left:right]))
-        if right < len(text):
-            result.append(("class:cli-default", text[right:]))
+        if start is None or end is None or start >= end:
+            return items
+        result: list[Any] = []
+        offset = 0
+        for item in items:
+            if not isinstance(item, tuple) or len(item) < 2:
+                result.append(item)
+                continue
+            style, text = item[0], item[1]
+            item_end = offset + len(text)
+            left = max(0, start - offset)
+            right = min(len(text), end - offset)
+            if left >= right or item_end <= start or offset >= end:
+                result.append((style, text))
+            else:
+                if left:
+                    result.append((style, text[:left]))
+                result.append(("class:cli-selection", text[left:right]))
+                if right < len(text):
+                    result.append((style, text[right:]))
+            offset = item_end
         return result
 
-    def _flatten_selected(self, index: int, fragment: Any, viewport: int) -> list[Any]:
-        from prompt_toolkit.formatted_text.ansi import ANSI as PTANSI
-        from prompt_toolkit.formatted_text.base import to_formatted_text
+    def _cache_rendered_text(self, output: list[Any]) -> None:
+        from prompt_toolkit.formatted_text import split_lines
+        from prompt_toolkit.formatted_text.utils import fragment_list_width
 
-        if isinstance(fragment, tuple) and len(fragment) >= 2:
-            style, text = fragment[0], fragment[1]
-            style = style if self.is_valid_pt_style(style) else ""
-            text = self._border_truncate(text, viewport) if style in _BORDER_CLASSES else text
-        elif isinstance(fragment, PTANSI):
-            from miniagent.engine.markdown_cli import strip_ansi
-
-            style, text = "", strip_ansi(fragment.value)
-        else:
-            safe = self._truncate_formatted(to_formatted_text(fragment), viewport)
-            style, text = "", "".join(item[1] for item in safe if isinstance(item, tuple))
-        return [
-            (highlight_style if highlight_style == "class:cli-selection" else style, value)
-            for highlight_style, value in self.apply_selection_highlight(index, text)
-        ]
+        self._rendered_text = "".join(
+            item[1] for item in output if isinstance(item, tuple) and len(item) >= 2
+        )
+        lines = list(split_lines(output))
+        self._rendered_lines = [
+            "".join(item[1] for item in line if isinstance(item, tuple) and len(item) >= 2)
+            for line in lines
+        ] or [""]
+        offsets: list[int] = []
+        offset = 0
+        for line in self._rendered_lines:
+            offsets.append(offset)
+            offset += len(line) + 1
+        self._rendered_line_offsets = offsets
+        self.report_content_width(max((fragment_list_width(line) for line in lines), default=0))
 
     def flatten_transcript_for_pt(self) -> list[Any]:
         """把混合 tuple/ANSI transcript 展开为安全 formatted text。"""
@@ -369,11 +398,8 @@ class _TranscriptOperations:
 
         viewport = self.viewport_cols()
         output = []
-        selected = self.copy_mode_active[0] and self.selection_start[0] is not None
-        for index, fragment in enumerate(self.transcript):
-            if selected:
-                output.extend(self._flatten_selected(index, fragment, viewport))
-            elif isinstance(fragment, tuple) and len(fragment) >= 2:
+        for fragment in self.transcript:
+            if isinstance(fragment, tuple) and len(fragment) >= 2:
                 style, text = fragment[0], fragment[1]
                 style = style if self.is_valid_pt_style(style) else ""
                 if style in _BORDER_CLASSES:
@@ -383,6 +409,13 @@ class _TranscriptOperations:
                 output.extend(self._truncate_formatted(to_formatted_text(fragment), viewport))
             else:
                 output.extend(self._truncate_formatted(to_formatted_text(fragment), viewport))
+        self._cache_rendered_text(output)
+        start, end = self._ordered_selection()
+        if start is not None and end is not None:
+            if start > len(self._rendered_text) or end > len(self._rendered_text):
+                self.clear_selection()
+            else:
+                output = self.apply_selection_highlight(output)
         return output
 
 
@@ -410,6 +443,7 @@ def create_transcript_operations(
     should_wrap_lines: Any,
     reset_horizontal_scroll: Any,
     snap_output_bottom: Any,
+    report_content_width: Any,
 ) -> SimpleNamespace:
     """构造共享同一 transcript 状态的一组闭包操作。"""
     return _TranscriptOperations(
@@ -435,5 +469,6 @@ def create_transcript_operations(
         should_wrap_lines=should_wrap_lines,
         reset_horizontal_scroll=reset_horizontal_scroll,
         snap_output_bottom=snap_output_bottom,
+        report_content_width=report_content_width,
     ).namespace()
 __all__ = ["create_transcript_operations"]

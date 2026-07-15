@@ -7,6 +7,7 @@ from typing import Any
 from miniagent.engine.cli_history import sync_preload_buffer_working_lines
 from miniagent.engine.cli_shell import run_cli_shell_command
 from miniagent.engine.clipboard import copy_text_to_system_clipboard
+from miniagent.presentation.cli.keybindings import DEFAULT_TUI_KEYBINDINGS
 from miniagent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
 
 
@@ -27,7 +28,8 @@ class _TuiKeyBindingInstaller:
     selection_start: list[Any]
     selection_end: list[Any]
     transcript: Any
-    get_transcript_char_count: Any
+    rendered_text_length: Any
+    has_selection: Any
     extract_selection_text: Any
     reset_and_reload_transcript: Any
     ctx: Any
@@ -39,6 +41,10 @@ class _TuiKeyBindingInstaller:
     horizontal_scroll: list[int]
     max_horizontal_scroll: Any
     wheel_line_step: Any
+    request_model_palette: Any
+    request_session_palette: Any
+    toggle_reasoning: Any
+    keymap: dict[str, str]
 
     def __init__(self, **values: Any) -> None:
         self.__dict__.update(values)
@@ -47,20 +53,24 @@ class _TuiKeyBindingInstaller:
     def install(self) -> None:
         """将具名处理器注册到 prompt_toolkit。"""
         focus = self.has_focus(self.input_buffer)
-        copy_filter = self.condition(self.in_copy_mode)
+        copy_mode_filter = self.condition(self.in_copy_mode)
+        copy_filter = self.condition(self.copy_command_active)
         specs = (
             ("tab", self.on_tab, focus, False),
             ("s-tab", self.on_shift_tab, focus, False),
-            ("c-m", self.on_ctrl_m, None, False),
+            (self.keymap["copy_mode"], self.on_ctrl_m, None, False),
             ("c-c", self.on_copy_ctrl_c, copy_filter, True),
-            ("enter", self.on_copy_enter, copy_filter, True),
+            ("enter", self.on_copy_enter, copy_mode_filter, True),
             ("escape", self.on_copy_escape, copy_filter, True),
-            ("a", self.on_copy_select_all, copy_filter, True),
+            ("a", self.on_copy_select_all, copy_mode_filter, True),
             ("enter", self.on_enter, focus, False),
             ("c-c", self.on_exit, focus, False),
             ("c-d", self.on_exit, focus, False),
             ("c-l", self.on_clear, focus, False),
-            ("c-t", self.on_tasks, focus, False),
+            (self.keymap["tasks"], self.on_tasks, focus, False),
+            (self.keymap["model_selector"], self.on_model_palette, focus, False),
+            (self.keymap["session_selector"], self.on_session_palette, focus, False),
+            (self.keymap["toggle_reasoning"], self.on_toggle_reasoning, focus, False),
             ("pageup", self.on_pageup, focus, False),
             ("pagedown", self.on_pagedown, focus, False),
             ("s-left", self.on_shift_left, focus, False),
@@ -77,9 +87,18 @@ class _TuiKeyBindingInstaller:
             if filter_value is not None:
                 kwargs["filter"] = filter_value
             self.kb.add(key, **kwargs)(handler)
+        newline_keys = self.keymap["newline"].split()
+        try:
+            decorator = self.kb.add(*newline_keys, filter=focus)
+        except TypeError:  # lightweight unit-test registries accept one key only
+            decorator = self.kb.add("-".join(newline_keys), filter=focus)
+        decorator(self.on_newline)
 
     def in_copy_mode(self) -> bool:
         return self.copy_mode_active[0]
+
+    def copy_command_active(self) -> bool:
+        return self.copy_mode_active[0] or self.has_selection()
 
     def on_tab(self, event: Any) -> None:
         event.app.current_buffer.start_completion()
@@ -119,19 +138,18 @@ class _TuiKeyBindingInstaller:
     def on_copy_escape(self, _event: Any) -> None:
         if self.selection_start[0] is not None:
             self.clear_selection()
-        else:
+        elif self.copy_mode_active[0]:
             self.toggle_copy_mode()
 
     def on_copy_select_all(self, _event: Any) -> None:
         if not self.transcript:
             return
-        last_index = len(self.transcript) - 1
-        last_length = self.get_transcript_char_count(last_index)
-        if last_length <= 0:
+        length = self.rendered_text_length()
+        if length <= 0:
             self.append_transcript("class:cli-warn", f"\n{WARNING_PREFIX} 内容为空\n")
             return
-        self.selection_start[0] = (0, 0)
-        self.selection_end[0] = (last_index, last_length)
+        self.selection_start[0] = 0
+        self.selection_end[0] = length
         self.selection_text[0] = self.extract_selection_text()
         self.append_transcript(
             "class:cli-ok", f"\n{SUCCESS_PREFIX} 已全选 {len(self.selection_text[0])} 字符\n"
@@ -153,6 +171,21 @@ class _TuiKeyBindingInstaller:
             return
         self.input_buffer.reset(append_to_history=True)
         event.app.exit(result=text)
+
+    def on_newline(self, event: Any) -> None:
+        """Insert a literal newline; Enter remains the unambiguous submit key."""
+        self.input_buffer.insert_text("\n")
+        event.app.invalidate()
+
+    def on_model_palette(self, event: Any) -> None:
+        self.request_model_palette(event)
+
+    def on_session_palette(self, event: Any) -> None:
+        self.request_session_palette(event)
+
+    def on_toggle_reasoning(self, event: Any) -> None:
+        self.toggle_reasoning()
+        event.app.invalidate()
 
     @staticmethod
     def on_exit(event: Any) -> None:
@@ -247,7 +280,8 @@ def install_tui_key_bindings(
     selection_start: list[Any],
     selection_end: list[Any],
     transcript: Any,
-    get_transcript_char_count: Any,
+    rendered_text_length: Any,
+    has_selection: Any,
     extract_selection_text: Any,
     reset_and_reload_transcript: Any,
     runtime_context: Any,
@@ -259,6 +293,10 @@ def install_tui_key_bindings(
     horizontal_scroll: list[int],
     max_horizontal_scroll: Any,
     wheel_line_step: Any,
+    request_model_palette: Any = lambda _event: None,
+    request_session_palette: Any = lambda _event: None,
+    toggle_reasoning: Any = lambda: None,
+    keymap: dict[str, str] | None = None,
 ) -> None:
     """注册输入、复制、滚动和历史导航快捷键。"""
     _TuiKeyBindingInstaller(
@@ -276,7 +314,8 @@ def install_tui_key_bindings(
         selection_start=selection_start,
         selection_end=selection_end,
         transcript=transcript,
-        get_transcript_char_count=get_transcript_char_count,
+        rendered_text_length=rendered_text_length,
+        has_selection=has_selection,
         extract_selection_text=extract_selection_text,
         reset_and_reload_transcript=reset_and_reload_transcript,
         runtime_context=runtime_context,
@@ -288,6 +327,10 @@ def install_tui_key_bindings(
         horizontal_scroll=horizontal_scroll,
         max_horizontal_scroll=max_horizontal_scroll,
         wheel_line_step=wheel_line_step,
+        request_model_palette=request_model_palette,
+        request_session_palette=request_session_palette,
+        toggle_reasoning=toggle_reasoning,
+        keymap=keymap or DEFAULT_TUI_KEYBINDINGS,
     ).install()
     return
 __all__ = ["install_tui_key_bindings"]

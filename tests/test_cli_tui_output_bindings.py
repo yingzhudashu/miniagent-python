@@ -5,6 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from miniagent.engine import cli_tui_output as output_module
+from miniagent.presentation.cli.state import TuiViewState
 
 
 class _Thinking:
@@ -133,3 +134,60 @@ def test_output_bindings_cover_markdown_stream_and_delivery(monkeypatch) -> None
     bindings.clear_cli_format_widths()
     assert "cli_render_width" not in state and "cli_markdown_width" not in state
 
+
+def test_default_tui_view_shows_evaluation_plan_and_execution_details(monkeypatch) -> None:
+    transcript = []
+    streams = {}
+    view = TuiViewState()
+    thinking = _Thinking()
+    ctx = SimpleNamespace(
+        cli_transcript_coordinator=None,
+        create_feishu_handler_factory=None,
+        register_shutdown_tracked_task=lambda _task: None,
+    )
+
+    def stream_state(key):
+        return streams.setdefault(key, SimpleNamespace(active=False, text="", start_idx=-1))
+
+    monkeypatch.setattr(output_module, "get_config", lambda *_args: True)
+    monkeypatch.setattr(output_module, "get_app", lambda: SimpleNamespace(invalidate=lambda: None))
+    monkeypatch.setattr(
+        "miniagent.engine.markdown_cli.render_markdown_to_ansi",
+        lambda text, **_kwargs: text,
+    )
+    output_module.create_tui_output_bindings(
+        runtime_context=ctx,
+        state={},
+        engine=SimpleNamespace(thinking=thinking),
+        outbound_channels=SimpleNamespace(register=lambda *_args, **_kwargs: None),
+        cli_channel_adapter=_Adapter,
+        transcript_coordinator_class=_Coordinator,
+        cli_outbound_dispatcher=SimpleNamespace(publish=lambda _event: None),
+        build_cli_thinking_event=lambda *args, **kwargs: (args, kwargs),
+        streaming_think_by_session=streams,
+        stream_state=stream_state,
+        transcript=transcript,
+        stick_bottom=[True],
+        safe_ansi=lambda text: [("class:ansi", text)],
+        trim_transcript=lambda: None,
+        append_transcript=lambda style, text: transcript.append((style, text)),
+        append_ansi_transcript=lambda text: transcript.append(("ansi", text)),
+        markdown_render_width=lambda: 80,
+        output_at_bottom=lambda: True,
+        snap_output_bottom=lambda: None,
+        viewport_cols=lambda: 100,
+        rule_line_width_for_vp=lambda cols: cols - 2,
+        reasoning_expanded=lambda: view.reasoning_expanded,
+    )
+
+    sink = thinking.sinks[0]
+    sink("评估与计划\n", "label", session_key="s")
+    sink("先分析需求，再制定步骤。", session_key="s")
+    sink("执行\n", "label", session_key="s")
+    sink("正在调用工具并整理答案。", session_key="s")
+
+    rendered = "".join(str(item[1]) for item in transcript)
+    assert "评估与计划" in rendered
+    assert "先分析需求，再制定步骤。" in rendered
+    assert "执行" in rendered
+    assert "正在调用工具并整理答案。" in rendered

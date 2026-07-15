@@ -103,6 +103,33 @@ DEFAULT_RULES = (
             "miniagent.types",
         ),
     ),
+    DependencyRule(
+        "core",
+        (
+            "miniagent.presentation",
+            "miniagent.infrastructure.llm.providers",
+        ),
+    ),
+    DependencyRule(
+        "presentation",
+        (
+            "miniagent.bootstrap",
+            "miniagent.core",
+            "miniagent.engine",
+            "miniagent.feishu",
+            "miniagent.infrastructure",
+            "miniagent.tools",
+        ),
+    ),
+    DependencyRule(
+        "infrastructure/llm",
+        (
+            "miniagent.bootstrap",
+            "miniagent.engine",
+            "miniagent.feishu",
+            "miniagent.presentation",
+        ),
+    ),
     DependencyRule("types", ("miniagent.feishu",)),
 )
 MAX_FUNCTION_LINES = 100

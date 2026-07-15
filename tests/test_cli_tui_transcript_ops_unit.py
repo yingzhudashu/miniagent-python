@@ -48,6 +48,7 @@ def _make_operations(
     invalidations: list[bool] = []
     resets: list[bool] = []
     snaps: list[bool] = []
+    widths: list[int] = []
 
     def fake_get_app() -> SimpleNamespace:
         return SimpleNamespace(is_running=True, invalidate=lambda: invalidations.append(True))
@@ -80,6 +81,7 @@ def _make_operations(
         should_wrap_lines=lambda: True,
         reset_horizontal_scroll=lambda: resets.append(True),
         snap_output_bottom=lambda: snaps.append(True),
+        report_content_width=widths.append,
     )
     return SimpleNamespace(
         operations=operations,
@@ -95,6 +97,7 @@ def _make_operations(
         invalidations=invalidations,
         resets=resets,
         snaps=snaps,
+        widths=widths,
     )
 
 
@@ -127,17 +130,17 @@ def test_selection_copy_mode_and_flatten(monkeypatch) -> None:
             ("class:cli-default", " world"),
         ]
     )
-    state.selection_start[0] = (1, 1)
-    state.selection_end[0] = (2, 3)
+    ops.flatten_transcript_for_pt()
+    start = ops.rendered_position_to_offset(1, 1)
+    state.selection_start[0] = start
+    state.selection_end[0] = start + 7
     assert ops.extract_selection_text() == "ello wo"
     state.selection_text[0] = ops.extract_selection_text()
 
     ops.toggle_copy_mode()
     assert state.copy_mode[0]
-    highlighted = ops.apply_selection_highlight(1, "hello")
-    assert any(style == "class:cli-selection" for style, _ in highlighted)
     flattened = ops.flatten_transcript_for_pt()
-    assert flattened
+    assert any(style == "class:cli-selection" for style, _ in flattened)
 
     ops.clear_selection()
     assert state.selection_start[0] is None
@@ -183,6 +186,7 @@ def test_fragment_helpers_and_missing_history_degrade(monkeypatch) -> None:
         should_wrap_lines=lambda: False,
         reset_horizontal_scroll=lambda: None,
         snap_output_bottom=lambda: None,
+        report_content_width=lambda _width: None,
     )
     empty.load_initial_history()
     empty.trigger_lazy_load_more_history()
@@ -243,28 +247,26 @@ def test_selection_reverse_multifragment_and_highlight_edges(monkeypatch) -> Non
             ("class:cli-default", "ghi"),
         ]
     )
-    state.selection_start[0] = (2, 2)
-    state.selection_end[0] = (0, 1)
+    ops.flatten_transcript_for_pt()
+    state.selection_start[0] = 8
+    state.selection_end[0] = 1
 
     assert ops.extract_selection_text() == "bcdefgh"
-    assert ops.apply_selection_highlight(9, "outside") == [
-        ("class:cli-default", "outside")
-    ]
-    assert ops.apply_selection_highlight(0, "abc") == [
+    assert ops.apply_selection_highlight([
+        ("class:cli-default", "abc"),
+        ("class:cli-default", "def"),
+        ("class:cli-default", "ghi"),
+    ]) == [
         ("class:cli-default", "a"),
         ("class:cli-selection", "bc"),
-    ]
-    assert ops.apply_selection_highlight(1, "def") == [
-        ("class:cli-selection", "def")
-    ]
-    assert ops.apply_selection_highlight(2, "ghi") == [
+        ("class:cli-selection", "def"),
         ("class:cli-selection", "gh"),
         ("class:cli-default", "i"),
     ]
 
-    state.selection_start[0] = (1, 1)
-    state.selection_end[0] = (1, 2)
-    assert ops.apply_selection_highlight(1, "def") == [
+    state.selection_start[0] = 1
+    state.selection_end[0] = 2
+    assert ops.apply_selection_highlight([("class:cli-default", "def")]) == [
         ("class:cli-default", "d"),
         ("class:cli-selection", "e"),
         ("class:cli-default", "f"),
@@ -272,7 +274,7 @@ def test_selection_reverse_multifragment_and_highlight_edges(monkeypatch) -> Non
 
     state.selection_start[0] = None
     assert ops.extract_selection_text() == ""
-    assert ops.apply_selection_highlight(0, "abc") == [
+    assert ops.apply_selection_highlight([("class:cli-default", "abc")]) == [
         ("class:cli-default", "abc")
     ]
 
@@ -311,12 +313,31 @@ def test_flatten_copy_mode_handles_ansi_and_non_tuple_fragments(monkeypatch) -> 
         ]
     )
     state.copy_mode[0] = True
-    state.selection_start[0] = (0, 1)
-    state.selection_end[0] = (1, 4)
+    state.operations.flatten_transcript_for_pt()
+    state.selection_start[0] = 1
+    state.selection_end[0] = 8
 
     flattened = state.operations.flatten_transcript_for_pt()
 
     assert any(item[0] == "class:cli-selection" for item in flattened)
+
+
+def test_rendered_offsets_cover_wide_combining_and_multiline_text(monkeypatch) -> None:
+    state = _make_operations(monkeypatch)
+    state.transcript.append(("class:cli-default", "你🙂e\u0301\n下一行"))
+    state.operations.flatten_transcript_for_pt()
+
+    start = state.operations.rendered_position_to_offset(0, 1)
+    end = state.operations.rendered_position_to_offset(0, 4)
+    state.selection_start[0] = start
+    state.selection_end[0] = end
+    state.selection_text[0] = state.operations.extract_selection_text()
+
+    assert state.selection_text[0] == "🙂e\u0301"
+    assert state.operations.rendered_position_to_offset(1, 2) == len("你🙂e\u0301\n下一")
+    assert state.widths[-1] == 6
+    highlighted = state.operations.flatten_transcript_for_pt()
+    assert any(style == "class:cli-selection" for style, _text in highlighted)
 
 
 def test_history_empty_exception_and_lazy_load_guards(monkeypatch) -> None:

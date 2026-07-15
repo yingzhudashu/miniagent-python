@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sys
 from dataclasses import dataclass
@@ -44,26 +45,35 @@ class _TuiViewport:
         self.transcript_window_ref: list[Any] = [None]
         self.horizontal_scroll = [0]
         self.wrap_threshold = CLI_WRAP_THRESHOLD
+        self._rows = 0
+        self._columns = 0
+        self._content_height = 0
+        self._content_width = 0
+        self._geometry_measured = False
+        self._previous_geometry: tuple[int, int, int, int] | None = None
 
     def pane(self) -> Any:
         """返回当前可滚动输出面板。"""
         return self.output_scroll_ref[0]
 
     def rows(self) -> int:
-        """返回扣除输入区后的保守可见行数。"""
+        """返回最近一次实际渲染得到的输出区行数。"""
+        if self._geometry_measured:
+            return self._rows
         try:
-            return max(6, (self.get_app().output.get_size().rows or 24) - 4)
+            return max(1, (self.get_app().output.get_size().rows or 24) - 4)
         except Exception:
             return 20
 
     def columns(self) -> int:
-        """返回扣除滚动条后的可用列数。"""
+        """返回最近一次实际渲染得到的正文列数。"""
+        if self._geometry_measured:
+            return self._columns
         try:
             pane = self.pane()
-            if pane is None:
-                return 79
-            columns = max(40, self.get_app().output.get_size().columns or 80)
-            return max(1, columns - (1 if pane.show_scrollbar() else 0))
+            columns = max(1, self.get_app().output.get_size().columns or 80)
+            show_scrollbar = pane is None or pane.show_scrollbar()
+            return max(1, columns - (1 if show_scrollbar else 0))
         except Exception:
             return 79
 
@@ -72,8 +82,15 @@ class _TuiViewport:
         return self.columns() >= self.wrap_threshold
 
     def max_horizontal(self) -> int:
-        """返回有界水平滚动上限。"""
-        return max(0, self.columns() * 2)
+        """返回由最长实际显示行决定的水平滚动上限。"""
+        if self.should_wrap():
+            return 0
+        return max(0, self._content_width - self.columns())
+
+    def report_content_width(self, width: int) -> None:
+        """记录格式化 transcript 的最长显示宽度并钳制水平偏移。"""
+        self._content_width = max(0, int(width))
+        self.apply_horizontal(0)
 
     def apply_horizontal(self, delta: int) -> None:
         """应用有界水平滚动增量。"""
@@ -88,12 +105,10 @@ class _TuiViewport:
         if self.transcript_window_ref[0] is not None:
             self.transcript_window_ref[0].horizontal_scroll = 0
 
-    def is_scrollbar_click(self, event: Any) -> bool:
-        """判断鼠标事件是否落在右侧滚动条。"""
-        return getattr(event.position, "x", 0) >= self.columns() - 2
-
     def content_height(self) -> int:
-        """返回当前 transcript 的渲染高度。"""
+        """返回最近一次实际渲染得到的 transcript 高度。"""
+        if self._geometry_measured:
+            return self._content_height
         try:
             pane = self.pane()
             if pane is None:
@@ -102,6 +117,10 @@ class _TuiViewport:
             return int(getattr(height, "preferred", height) or 0)
         except Exception:
             return 0
+
+    def is_scrollbar_click(self, event: Any) -> bool:
+        """兼容旧内部调用；正文控件不再用该估算处理滚动条。"""
+        return getattr(event.position, "x", 0) >= self.columns() - 1
 
     def max_output(self) -> int:
         """返回最大纵向滚动位置。"""
@@ -117,6 +136,60 @@ class _TuiViewport:
         if self.pane() is not None:
             self.pane().vertical_scroll = self.max_output()
 
+    def begin_measure(self, columns: int, rows: int) -> None:
+        """在内容重排前记录旧锚点，并发布本轮真实可用尺寸。"""
+        columns = max(1, int(columns))
+        rows = max(0, int(rows))
+        if (columns, rows) == (self._columns, self._rows):
+            self._previous_geometry = None
+            return
+        pane = self.pane()
+        old_scroll = int(getattr(pane, "vertical_scroll", 0))
+        self._previous_geometry = (
+            self._columns,
+            self._rows,
+            self.max_output(),
+            old_scroll,
+        )
+        self._columns = columns
+        self._rows = rows
+        self._geometry_measured = True
+        if self.should_wrap():
+            self.reset_horizontal()
+
+    def finish_measure(self, content_height: int) -> None:
+        """内容重排后恢复阅读位置并确保所有偏移处于合法范围。"""
+        self._content_height = max(0, int(content_height))
+        pane = self.pane()
+        if pane is None:
+            self._previous_geometry = None
+            return
+        maximum = self.max_output()
+        previous = self._previous_geometry
+        current = int(getattr(pane, "vertical_scroll", 0))
+        if previous is not None:
+            old_columns, _old_rows, old_maximum, old_scroll = previous
+            was_at_bottom = self.stick_bottom[0] or old_scroll >= max(0, old_maximum - 1)
+            if was_at_bottom:
+                current = maximum
+            elif old_columns and old_columns != self._columns and old_maximum > 0:
+                current = round(maximum * old_scroll / old_maximum)
+            else:
+                current = old_scroll
+        elif self.stick_bottom[0]:
+            current = maximum
+        pane.vertical_scroll = max(0, min(maximum, current))
+        self.apply_horizontal(0)
+        self._previous_geometry = None
+
+    def set_vertical(self, position: int, source: str = "direct") -> None:
+        """把输出滚动到绝对位置，并关闭自动粘底。"""
+        pane = self.pane()
+        if pane is None:
+            return
+        self.stick_bottom[0] = False
+        pane.vertical_scroll = max(0, min(self.max_output(), int(position)))
+
     def wheel_step(self) -> int:
         """按视口高度计算滚轮步长。"""
         return max(1, self.rows() // 6)
@@ -127,12 +200,9 @@ class _TuiViewport:
         if pane is None:
             _logger.debug("滚动失败: ScrollablePane 引用为 None (source=%s)", source)
             return
-        self.stick_bottom[0] = False
         step = max(1, abs(signed_step))
-        if signed_step < 0:
-            pane.vertical_scroll = max(0, pane.vertical_scroll - step)
-        else:
-            pane.vertical_scroll = min(self.max_output(), pane.vertical_scroll + step)
+        delta = -step if signed_step < 0 else step
+        self.set_vertical(pane.vertical_scroll + delta, source)
         if pane.vertical_scroll < 5 and signed_step < 0:
             self.lazy_load()
 
@@ -157,6 +227,14 @@ async def _run_tui_interaction(**runtime: Any) -> bool:
                 runtime["skill_prompts"],
             )
             return True
+        if user_input == "__model_palette__":
+            await runtime["open_model_palette"]()
+            continue
+        if user_input == "__session_palette__":
+            session_id = await runtime["open_session_palette"]()
+            if session_id:
+                await _handle_tui_input(f"/session switch {session_id}", runtime)
+            continue
         normalized = (user_input or "").strip()
         if user_input == "__exit__" or normalized.lower() in ("quit", "exit"):
             break
@@ -246,7 +324,36 @@ async def _submit_tui_agent_input(user_input: str, runtime: dict[str, Any]) -> b
             confirmation.respond(ConfirmationResult.clarification_reply(user_input))
             return False
     message = runtime["build_cli_inbound_message"](user_input, session_key, interface="tui")
-    await runtime["inbound_turns"].submit(message, runtime["process_input"])
+    submit = runtime["inbound_turns"].submit(message, runtime["process_input"])
+    if runtime.get("interactive_background"):
+        view = runtime.get("view_state")
+        if view is not None:
+            if view.busy:
+                view.queued_messages += 1
+            view.busy = True
+            view.status = "处理中"
+
+        async def _tracked_submit() -> None:
+            try:
+                await submit
+            finally:
+                if view is not None:
+                    if view.queued_messages:
+                        view.queued_messages -= 1
+                    else:
+                        view.busy = False
+                        view.status = "就绪"
+                try:
+                    runtime["app"].invalidate()
+                except Exception:
+                    pass
+
+        task = asyncio.create_task(_tracked_submit(), name=f"tui-turn:{session_key}")
+        register = getattr(runtime["ctx"], "register_shutdown_tracked_task", None)
+        if callable(register):
+            register(task)
+    else:
+        await submit
     try:
         heartbeat()
     except Exception:

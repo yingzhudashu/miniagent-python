@@ -30,6 +30,39 @@ def detect_first_time_setup() -> bool:
     return not get_user_config_path().exists()
 
 
+def _openai_llm_config(model: str, base_url: str) -> dict[str, Any]:
+    """Build the v3 provider/profile/role section selected by the basic wizard."""
+    return {
+        "providers": {
+            "openai": {
+                "driver": "openai",
+                "base_url": base_url or "https://api.openai.com/v1",
+                "credential": "openai",
+                "api_key_env": "OPENAI_API_KEY",
+            }
+        },
+        "models": {
+            "primary": {
+                "provider": "openai",
+                "model": model,
+                "api": "openai_responses",
+                "capabilities": {
+                    "tools": True,
+                    "vision": True,
+                    "reasoning": False,
+                    "structured_output": True,
+                },
+            }
+        },
+        "roles": {
+            "default": "primary",
+            "reasoning": "primary",
+            "fast": "primary",
+            "vision": "primary",
+        },
+    }
+
+
 def run_setup_wizard() -> dict[str, Any]:
     """运行交互式配置引导。
 
@@ -37,8 +70,8 @@ def run_setup_wizard() -> dict[str, Any]:
         配置字典（用于保存到 config.user.json）。结构示例::
 
             {
-                "secrets": {"openai_api_key": "sk-..."},
-                "model": {"model": "gpt-4o", "base_url": "https://..."},
+                "secrets": {"llm": {"openai": {"api_key": "sk-..."}}},
+                "llm": {"providers": {...}, "models": {...}, "roles": {...}},
                 "paths": {"state_dir": "workspaces"},
             }
 
@@ -64,13 +97,13 @@ def run_setup_wizard() -> dict[str, Any]:
     if choice == "1":
         key = input("请输入 OpenAI API 密钥: ").strip()
         if key:
-            config["secrets"] = {"openai_api_key": key}
+            config["secrets"] = {"llm": {"openai": {"api_key": key}}}
             print("✅ API 密钥已记录，将在保存后加载")
         else:
             print("⚠️  未输入 API 密钥，LLM 功能将无法使用")
     elif choice == "2":
         print("\n请稍后手动创建 config.user.json：")
-        print('  {"secrets": {"openai_api_key": "..."}}')
+        print('  {"secrets": {"llm": {"openai": {"api_key": "..."}}}}')
     else:
         print("⚠️  未配置 API 密钥，LLM 功能将无法使用")
 
@@ -79,10 +112,8 @@ def run_setup_wizard() -> dict[str, Any]:
     print("默认模型: gpt-4o-mini")
     print("常用模型: gpt-4o, gpt-4o-mini, gpt-3.5-turbo")
 
-    model = input("模型名称 (或按 Enter 使用默认): ").strip()
-    if model:
-        config.setdefault("model", {})
-        config["model"]["model"] = model
+    model = input("模型名称 (或按 Enter 使用默认): ").strip() or "gpt-4o-mini"
+    if model != "gpt-4o-mini":
         print(f"{SUCCESS_PREFIX} 模型设置为: {model}")
 
     # 3. API 端点（用于第三方服务）
@@ -94,9 +125,8 @@ def run_setup_wizard() -> dict[str, Any]:
 
     base_url = input("自定义端点 (或按 Enter 使用默认): ").strip()
     if base_url:
-        config.setdefault("model", {})
-        config["model"]["base_url"] = base_url
         print(f"{SUCCESS_PREFIX} API 端点设置为: {base_url}")
+    config["llm"] = _openai_llm_config(model, base_url)
 
     # 4. 工作目录
     print("\n📁 工作目录")
@@ -141,7 +171,7 @@ def save_setup_config(config: dict[str, Any]) -> None:
     Note:
         如果文件已存在，会合并配置（保留现有内容）。
         写入后会调用 ``reload_config()`` 与 ``load_secrets_from_project_root()``，
-        入口随后会按新配置创建由 ``ApplicationContainer`` 独占的 AsyncOpenAI 客户端。
+        入口随后会按新配置创建由 ``ApplicationContainer`` 独占的 LLM gateway。
     """
     config_path = get_user_config_path()
 
@@ -182,7 +212,7 @@ def run_interactive_setup() -> bool:
     Note:
         - 仅在首次运行时触发（无 config.user.json）
         - 用户可以在入口处选择跳过整个引导
-        - 须在 ``load_secrets_from_project_root()`` 与 ``create_async_openai_client()``
+        - 须在 ``load_secrets_from_project_root()`` 与 ``create_llm_gateway()``
           之前调用，以便向导中填写的 API 密钥在本进程内生效
     """
     if not detect_first_time_setup():

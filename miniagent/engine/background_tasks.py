@@ -252,7 +252,11 @@ class BackgroundTaskManager:
             "session_manager": session_manager,
             "memory": getattr(runtime_ctx, "memory", None),
             "knowledge_registry": getattr(runtime_ctx, "knowledge_registry", None),
-            "client": getattr(runtime_ctx, "openai_client", None),
+            "client": getattr(
+                runtime_ctx,
+                "llm_client",
+                getattr(runtime_ctx, "openai_client", None),
+            ),
         }
 
     async def _execute_task(

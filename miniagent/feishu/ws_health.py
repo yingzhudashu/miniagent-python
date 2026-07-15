@@ -30,13 +30,25 @@ class FeishuWsHealthState:
     last_inbound_monotonic: float | None = None
     last_session_end_reason: str | None = None
     last_session_end_at: float | None = None
+    session_started_monotonic: float | None = None
+    last_session_duration_s: float | None = None
 
     def touch_inbound(self) -> None:
         """Record activity from an inbound SDK callback."""
         self.last_inbound_monotonic = time.monotonic()
 
+    def record_session_start(self) -> None:
+        """Start duration tracking for one physical WebSocket connection."""
+        self.session_started_monotonic = time.monotonic()
+
     def record_session_end(self, reason: str) -> None:
         """Record why and when the supervised WebSocket session ended."""
+        if self.session_started_monotonic is not None:
+            self.last_session_duration_s = max(
+                0.0,
+                time.monotonic() - self.session_started_monotonic,
+            )
+        self.session_started_monotonic = None
         self.last_session_end_reason = reason
         self.last_session_end_at = time.time()
 
@@ -74,6 +86,9 @@ def _receive_loop_exit_reason(task: asyncio.Task[Any]) -> str:
     exc = task.exception()
     if exc is None:
         return "receive_loop_exit"
+    message = str(exc).lower()
+    if getattr(exc, "code", None) == 3003 or "ping_timeout" in message:
+        return "receive_loop_ping_timeout"
     return f"receive_loop_exit:{type(exc).__name__}"
 
 
@@ -152,6 +167,7 @@ async def supervise_feishu_ws_session(
     """监督 WebSocket 会话直至应结束；返回结束原因字符串。"""
     config = read_feishu_ws_health_config()
     session_start = time.monotonic()
+    health_state.record_session_start()
     exit_event = asyncio.Event()
     reason_holder: list[str] = ["unknown"]
 

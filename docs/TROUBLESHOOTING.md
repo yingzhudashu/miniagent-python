@@ -1,6 +1,6 @@
 # Mini Agent Python 故障排查手册
 
-> Mini Agent Python | 版本: 2.2.0 | 最后更新: 2026-07-14 | 与 `miniagent.__version__` 对齐
+> Mini Agent Python | 版本: 3.0.0 | 最后更新: 2026-07-15 | 与 `miniagent.__version__` 对齐
 
 本手册提供常见问题的诊断方法和解决方案，帮助用户快速定位和解决问题。
 

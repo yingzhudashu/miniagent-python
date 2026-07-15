@@ -55,13 +55,21 @@ class ApplicationContainer:
     outbound_channels: ChannelRegistryProtocol = field(default_factory=ChannelRegistry)
     cli_outbound_dispatcher: OrderedOutboundDispatcherProtocol | None = None
     lifecycle_manager: LifecycleManager | None = field(default=None, repr=False)
-    openai_client: Any | None = None
+    llm_gateway: Any | None = None
+    retired_llm_gateways: list[Any] = field(default_factory=list, repr=False)
+    # Constructor compatibility for embedded v2 callers. Runtime code uses llm_client.
+    openai_client: Any | None = field(default=None, repr=False)
     retired_openai_clients: list[Any] = field(default_factory=list, repr=False)
     create_feishu_handler_factory: Callable[..., Any] | None = field(default=None, repr=False)
     cli_transcript_append_ansi: Callable[[Any], None] | None = field(default=None, repr=False)
     cli_transcript_append: Callable[[str, str], None] | None = field(default=None, repr=False)
     cli_transcript_coordinator: Any | None = field(default=None, repr=False)
     shutdown_tracked_tasks: set[asyncio.Task[Any]] = field(default_factory=set, repr=False)
+
+    @property
+    def llm_client(self) -> Any | None:
+        """Return the v3 gateway, falling back only for an embedded v2 container."""
+        return self.llm_gateway if self.llm_gateway is not None else self.openai_client
 
     def register_shutdown_tracked_task(self, task: asyncio.Task[Any]) -> None:
         """Track a live task until completion so shutdown can cancel and await it."""

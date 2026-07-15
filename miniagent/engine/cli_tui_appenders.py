@@ -8,12 +8,23 @@ from typing import Any
 from prompt_toolkit.application import get_app
 
 
+def _clear_selection_if_trimmed(
+    transcript: Any,
+    expected_count: int,
+    clear_selection: Any,
+) -> None:
+    """仅在字符预算确实移除了头部内容时废弃绝对偏移选区。"""
+    if len(transcript) < expected_count:
+        clear_selection()
+
+
 def create_transcript_appenders(
     *,
     is_valid_pt_style: Any,
     output_at_bottom: Any,
     transcript: Any,
     trim_transcript: Any,
+    clear_selection: Any,
     stick_bottom: list[bool],
     snap_output_bottom: Any,
     safe_ansi: Any,
@@ -23,6 +34,7 @@ def create_transcript_appenders(
     _output_at_bottom = output_at_bottom
     _transcript = transcript
     _trim_transcript = trim_transcript
+    _clear_selection = clear_selection
     _stick_bottom = stick_bottom
     _snap_output_bottom = snap_output_bottom
     _safe_ansi = safe_ansi
@@ -41,12 +53,14 @@ def create_transcript_appenders(
         if not _is_valid_pt_style(style_cls):
             style_cls = ""
         at_bottom = _output_at_bottom()
-        if (
+        before_count = len(_transcript)
+        merged = (
             _transcript
             and isinstance(_transcript[-1], tuple)
             and len(_transcript[-1]) >= 2
             and _transcript[-1][0] == style_cls
-        ):
+        )
+        if merged:
             st, prev = _transcript[-1]
             new_text = prev + text
             _transcript[-1] = (st, new_text)
@@ -56,6 +70,8 @@ def create_transcript_appenders(
             else:
                 _transcript.append((style_cls, text))
         _trim_transcript()
+        expected_count = before_count if merged else before_count + 1
+        _clear_selection_if_trimmed(_transcript, expected_count, _clear_selection)
         try:
             get_app().invalidate()
         except Exception:
@@ -79,8 +95,10 @@ def create_transcript_appenders(
         性能优化：更新累计长度计数器。
         """
         at_bottom = _output_at_bottom()
+        before_count = len(_transcript)
         _transcript.append(ansi_obj)
         _trim_transcript()
+        _clear_selection_if_trimmed(_transcript, before_count + 1, _clear_selection)
         try:
             get_app().invalidate()
         except Exception:
@@ -101,4 +119,3 @@ def create_transcript_appenders(
 
 
 __all__ = ["create_transcript_appenders"]
-

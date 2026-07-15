@@ -4,12 +4,38 @@ from __future__ import annotations
 
 import logging
 import sys
-from typing import Any
+from typing import Any, cast
 
 from miniagent.engine.cli_history import create_cli_file_history, reload_cli_input_history
 from miniagent.engine.cli_transcript import TranscriptBuffer
 from miniagent.infrastructure.json_config import get_config
 from miniagent.infrastructure.logger import set_console_log_threshold
+
+
+def _create_input_prompt(input_buffer: Any) -> Any:
+    """创建按视觉行数增长、最多占用六行的输入区。"""
+    from prompt_toolkit.formatted_text import HTML
+    from prompt_toolkit.layout import VSplit, Window
+    from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
+    from prompt_toolkit.layout.dimension import LayoutDimension as D
+
+    return VSplit(
+        [
+            Window(
+                FormattedTextControl(
+                    HTML("<prompt-prefix>❯ </prompt-prefix><cli-muted>↑↓历史</cli-muted>")
+                ),
+                width=D.exact(4),
+                dont_extend_height=True,
+            ),
+            Window(
+                BufferControl(buffer=input_buffer),
+                wrap_lines=True,
+                height=D(min=1, max=6),
+                dont_extend_height=True,
+            ),
+        ]
+    )
 
 
 class _TuiApplication:
@@ -41,8 +67,8 @@ class _TuiApplication:
         self.last_md_width = [0]
         self.copy_mode_active = [False]
         self.copy_mode_mouse_down = [False]
-        self.selection_start: list[tuple[int, int] | None] = [None]
-        self.selection_end: list[tuple[int, int] | None] = [None]
+        self.selection_start: list[int | None] = [None]
+        self.selection_end: list[int | None] = [None]
         self.selection_text = [""]
         self.history_range: dict[str, Any] = {
             "total_messages": 0,
@@ -58,6 +84,15 @@ class _TuiApplication:
         self.append_transcript: Any = None
         self.append_ansi_transcript: Any = None
         self.trigger_lazy_load: Any = lambda: None
+        from miniagent.presentation.cli.state import TuiTheme, TuiViewState
+
+        theme_value = str(get_config("cli.theme", "auto"))
+        self.view_state = TuiViewState(
+            theme=cast(
+                TuiTheme,
+                theme_value if theme_value in ("auto", "dark", "light") else "auto",
+            )
+        )
 
     def stream_state(self, session_key: str = "") -> Any:
         """按会话获取隔离的流式 Markdown 片段状态。"""
@@ -153,6 +188,7 @@ class _TuiApplication:
             should_wrap_lines=self.viewport.should_wrap,
             reset_horizontal_scroll=self.viewport.reset_horizontal,
             snap_output_bottom=self.viewport.snap_bottom,
+            report_content_width=self.viewport.report_content_width,
         )
         self.trigger_lazy_load = self.transcript_ops.trigger_lazy_load_more_history
 
@@ -168,10 +204,12 @@ class _TuiApplication:
             apply_transcript_scroll=self.viewport.scroll,
             copy_mode_active=self.copy_mode_active,
             copy_mode_mouse_down=self.copy_mode_mouse_down,
+            clear_selection=self.transcript_ops.clear_selection,
             extract_selection_text=self.transcript_ops.extract_selection_text,
-            get_transcript_char_count=self.transcript_ops.get_transcript_char_count,
-            is_scrollbar_click=self.viewport.is_scrollbar_click,
+            rendered_position_to_offset=self.transcript_ops.rendered_position_to_offset,
+            rendered_text_length=self.transcript_ops.rendered_text_length,
             max_output_scroll=self.viewport.max_output,
+            set_transcript_scroll=self.viewport.set_vertical,
             scroll_pane=self.viewport.pane,
             selection_end=self.selection_end,
             selection_start=self.selection_start,
@@ -185,6 +223,8 @@ class _TuiApplication:
             wheel_line_step=self.viewport.wheel_step,
             horizontal_scroll=self.viewport.horizontal_scroll,
             max_horizontal_scroll=self.viewport.max_horizontal,
+            begin_viewport_measure=self.viewport.begin_measure,
+            finish_viewport_measure=self.viewport.finish_measure,
         )
         _, _, self.output_scroll, self.horizontal_scrollbar = controls
         appenders = create_transcript_appenders(
@@ -192,6 +232,7 @@ class _TuiApplication:
             output_at_bottom=self.viewport.at_bottom,
             transcript=self.transcript,
             trim_transcript=self.transcript_ops.trim_transcript,
+            clear_selection=self.transcript_ops.clear_selection,
             stick_bottom=self.stick_bottom,
             snap_output_bottom=self.viewport.snap_bottom,
             safe_ansi=self.safe_ansi,
@@ -207,8 +248,13 @@ class _TuiApplication:
         from prompt_toolkit.keys import Keys
 
         from miniagent.engine.cli_tui_keybindings import install_tui_key_bindings
+        from miniagent.presentation.cli.keybindings import resolve_tui_keybindings
 
         self.key_bindings = KeyBindings()
+        cli_config = get_config("cli", {})
+        keymap = resolve_tui_keybindings(
+            cli_config.get("keybindings") if isinstance(cli_config, dict) else None
+        )
         install_tui_key_bindings(
             kb=self.key_bindings,
             has_focus=has_focus,
@@ -224,7 +270,8 @@ class _TuiApplication:
             selection_start=self.selection_start,
             selection_end=self.selection_end,
             transcript=self.transcript,
-            get_transcript_char_count=self.transcript_ops.get_transcript_char_count,
+            rendered_text_length=self.transcript_ops.rendered_text_length,
+            has_selection=self.transcript_ops.has_selection,
             extract_selection_text=self.transcript_ops.extract_selection_text,
             reset_and_reload_transcript=self.transcript_ops.reset_and_reload_transcript,
             runtime_context=self.ctx,
@@ -236,6 +283,14 @@ class _TuiApplication:
             horizontal_scroll=self.viewport.horizontal_scroll,
             max_horizontal_scroll=self.viewport.max_horizontal,
             wheel_line_step=self.viewport.wheel_step,
+            request_model_palette=lambda event: event.app.exit(
+                result="__model_palette__"
+            ),
+            request_session_palette=lambda event: event.app.exit(
+                result="__session_palette__"
+            ),
+            toggle_reasoning=self.view_state.toggle_reasoning,
+            keymap=keymap,
         )
 
     def create_style(self) -> Any:
@@ -261,6 +316,7 @@ class _TuiApplication:
                 "cli-err": "ansired bold",
                 "cli-warn": "ansiyellow",
                 "cli-hint": "ansibrightblack dim",
+                "cli-footer": "ansibrightblack dim",
                 "cli-spacer": "",
                 "cli-selection": "bg:ansicyan fg:ansiblack bold",
                 "cli-copy-mode-hint": "ansiyellow bold",
@@ -283,40 +339,46 @@ class _TuiApplication:
         """建立固定底部输入框、提示栏、滚动输出与补全浮层。"""
         from prompt_toolkit.application import Application
         from prompt_toolkit.formatted_text import HTML
-        from prompt_toolkit.layout import Float, FloatContainer, HSplit, Layout, VSplit, Window
-        from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
+        from prompt_toolkit.layout import Float, FloatContainer, HSplit, Layout, Window
+        from prompt_toolkit.layout.controls import FormattedTextControl
         from prompt_toolkit.layout.dimension import LayoutDimension as D
         from prompt_toolkit.layout.menus import CompletionsMenu
+
+        from miniagent.presentation.cli.components import footer_text
 
         hint = Window(
             FormattedTextControl(
                 HTML(
                     "<cli-hint>PgUp/PgDn · 滚轮 · Shift+←/→ 水平滚动 · Ctrl+Home/End 移光标 · "
-                    "Ctrl+M 复制模式 · /copy 复制全部对话 · 新消息时自动跟随输出</cli-hint>"
+                    "Alt+Enter 换行 · Ctrl+P 模型 · Ctrl+O 会话 · Ctrl+R 推理 · "
+                    "拖动选择 · Ctrl+C复制 · Ctrl+M复制模式</cli-hint>"
                 )
             ),
             height=D.exact(1),
         )
-        prompt = VSplit(
-            [
-                Window(
-                    FormattedTextControl(
-                        HTML("<prompt-prefix>❯ </prompt-prefix><cli-muted>↑↓历史</cli-muted>")
-                    ),
-                    width=D.exact(4),
-                    height=D.exact(1),
-                ),
-                Window(
-                    BufferControl(buffer=self.input_buffer), height=D.exact(1), wrap_lines=False
-                ),
-            ],
+        footer = Window(
+            FormattedTextControl(
+                text=lambda: [
+                    (
+                        "class:cli-footer",
+                        footer_text(
+                            self.ctx,
+                            self.state,
+                            self.view_state,
+                            self.viewport.columns(),
+                        ),
+                    )
+                ]
+            ),
             height=D.exact(1),
         )
+        prompt = _create_input_prompt(self.input_buffer)
         body = FloatContainer(
             HSplit(
                 [
                     self.output_scroll,
                     self.horizontal_scrollbar,
+                    footer,
                     hint,
                     Window(height=1, char="─", style="class:cli-border"),
                     prompt,
@@ -371,6 +433,7 @@ class _TuiApplication:
             snap_output_bottom=self.viewport.snap_bottom,
             viewport_cols=self.viewport.columns,
             rule_line_width_for_vp=rule_line_width,
+            reasoning_expanded=lambda: self.view_state.reasoning_expanded,
         )
         self.output_bindings = output
         self.term_write = output.term_write
@@ -437,7 +500,40 @@ class _TuiApplication:
             "input_buffer": self.input_buffer,
             "history_file": self.history_file,
             "clear_widths": self.output_bindings.clear_cli_format_widths,
+            "open_model_palette": self.open_model_palette,
+            "open_session_palette": self.open_session_palette,
+            "interactive_background": True,
+            "view_state": self.view_state,
         }
+
+    async def open_model_palette(self) -> None:
+        """Select and atomically activate the default role model."""
+        from miniagent.engine.model_cmd import switch_model_profile
+        from miniagent.infrastructure.json_config import reload_runtime_config
+        from miniagent.presentation.cli.model_selector import choose_model_profile
+
+        profile = await choose_model_profile(self.ctx)
+        if not profile:
+            return
+        descriptor = self.ctx.llm_gateway.catalog.get(profile)
+        result = switch_model_profile(profile, descriptor=descriptor)
+        if result.startswith("❌"):
+            self.append_transcript("class:cli-err", f"\n{result}\n")
+            return
+        try:
+            await reload_runtime_config(self.ctx)
+        except Exception as error:
+            self.append_transcript(
+                "class:cli-err", f"\n模型切换验证失败: {error}\n"
+            )
+            return
+        self.append_transcript("class:cli-ok", f"\n{result}\n")
+
+    async def open_session_palette(self) -> str | None:
+        """Return a selected session id; command dispatch performs the switch."""
+        from miniagent.presentation.cli.session_selector import choose_session
+
+        return await choose_session(self.state)
 
     def close(self) -> None:
         """幂等释放渲染缓存、会话锁和实例登记。"""

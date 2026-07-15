@@ -1,6 +1,6 @@
 # CLI 命令手册
 
-> Mini Agent Python | 版本: 2.2.0 | 最后更新: 2026-07-14 | 与 `miniagent.__version__` 对齐 | 命令使用 `/` 前缀；多数命令在 CLI 与飞书均可使用
+> Mini Agent Python | 版本: 3.0.0 | 最后更新: 2026-07-15 | 与 `miniagent.__version__` 对齐 | 命令使用 `/` 前缀；多数命令在 CLI 与飞书均可使用
 
 **命令前缀**：系统统一使用 `/` 前缀（更符合CLI惯例）。例如：`/help`、`/status`、`/session list`。
 
@@ -57,6 +57,10 @@ transcript 是显示缓冲，不是历史真相源。会话历史仍保存在当
 | `Ctrl+D` | 退出程序（备选方式） |
 | `Ctrl+L` | 清屏重绘（清空transcript） |
 | `Ctrl+T` | 显示后台任务列表（预览） |
+| `Ctrl+P` | 打开已配置 provider 的模型选择器 |
+| `Ctrl+O` | 打开活动会话选择器 |
+| `Ctrl+R` | 展开或折叠模型推理正文；阶段状态始终可见 |
+| `Alt+Enter` | 在输入编辑器中换行；`Enter` 提交 |
 | `PageUp` | 上翻输出区约半屏 |
 | `PageDown` | 下翻输出区约半屏 |
 | `Ctrl+Home` | 光标跳到输入开头 |
@@ -71,6 +75,10 @@ transcript 是显示缓冲，不是历史真相源。会话历史仍保存在当
 **水平滚动说明**：当终端宽度小于 60 列时，自动禁用折行，启用水平滚动。`Shift+Left/Right` 每步滚动约 10 字符。
 
 **退出说明**：Ctrl+C 和 Ctrl+D 都可退出程序，效果相同。Ctrl+C 也可用于中断正在运行的Agent操作。
+
+全屏 TUI 在回答期间保持可交互；此时提交的新问题进入正常的下一轮消息队列，
+不会作为 coding-agent 式 steering 修改正在执行的回合。快捷键可在
+`cli.keybindings` 中按 action 覆盖，启动时会拒绝未知 action、空按键和冲突绑定。
 
 **Tab 补全说明**：
 - 输入 `/` 开头时补全命令（如 `/st` → `/status`）

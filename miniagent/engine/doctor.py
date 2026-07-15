@@ -16,7 +16,11 @@ import os
 import sys
 from pathlib import Path
 
-from miniagent.infrastructure.json_config import get_config, get_config_paths
+from miniagent.infrastructure.json_config import (
+    get_config,
+    get_config_paths,
+    get_user_config_section,
+)
 
 # 与 pyproject.toml [project.dependencies] 对齐（import 名可能与包名不同）
 REQUIRED_DEPENDENCIES: tuple[tuple[str, str], ...] = (
@@ -59,6 +63,14 @@ OPTIONAL_DEPENDENCY_GROUPS: tuple[tuple[str, str, tuple[tuple[str, str], ...]], 
         "MCP 集成（``pip install -e '.[mcp]'``）",
         (("mcp", "Model Context Protocol (mcp)"),),
     ),
+    (
+        "providers",
+        "Anthropic / Google provider（``pip install -e '.[providers]'``）",
+        (
+            ("anthropic", "Anthropic SDK"),
+            ("google.genai", "Google Gen AI SDK"),
+        ),
+    ),
 )
 
 _DEFAULT_KNOWLEDGE_ROOT = "workspaces/knowledge"
@@ -87,7 +99,9 @@ def _resolve_api_key() -> tuple[str | None, str]:
     Returns:
         ``(密钥值或 None, 来源标签)``；来源为 ``json``、``env`` 或空串。
     """
-    json_key = get_config("secrets.openai_api_key", "")
+    json_key = get_config("secrets.llm.openai.api_key", "") or get_config(
+        "secrets.openai_api_key", ""
+    )
     if json_key and str(json_key).strip():
         return str(json_key).strip(), "json"
 
@@ -166,19 +180,45 @@ def _append_api_diagnostics(lines: list[str]) -> bool:
     lines.append("### API 与模型配置")
     if api_key:
         source_label = {
-            "json": "config.user.json secrets.openai_api_key",
+            "json": "config.user.json secrets.llm.openai.api_key",
             "env": "环境变量 OPENAI_API_KEY",
         }.get(api_source, "未知来源")
         lines.append(f"- ✅ API 密钥 ({source_label}): {_format_masked_secret(api_key)}")
     else:
-        lines.append("- ❌ API 密钥: 未设置（需 config.user.json 或 OPENAI_API_KEY）")
+        lines.append("- ❌ API 密钥: 未设置（需 secrets.llm 或 provider 环境变量）")
+    from miniagent.infrastructure.llm.factory import effective_llm_config
+
+    llm = effective_llm_config(get_config, get_user_config_section)
+    roles_raw = llm.get("roles")
+    models_raw = llm.get("models")
+    providers_raw = llm.get("providers")
+    roles = roles_raw if isinstance(roles_raw, dict) else {}
+    models = models_raw if isinstance(models_raw, dict) else {}
+    providers = providers_raw if isinstance(providers_raw, dict) else {}
+    default_profile = str(roles.get("default") or "primary")
+    default_model = models.get(default_profile, {})
+    if not isinstance(default_model, dict):
+        default_model = {}
+    provider_entry = providers.get(str(default_model.get("provider") or ""), {})
+    if not isinstance(provider_entry, dict):
+        provider_entry = {}
+    headers = provider_entry.get("headers")
+    has_user_agent = isinstance(headers, dict) and any(
+        str(key).lower() == "user-agent" and bool(str(value).strip())
+        for key, value in headers.items()
+    )
+    api = str(default_model.get("api", "未配置"))
+    api_display = {
+        "openai_responses": "responses",
+        "openai_chat": "chat_completions",
+    }.get(api, api)
     lines.extend(
         [
-            f"- 模型: {get_config('model.model', 'gpt-4o-mini')}",
-            f"- API 地址: {get_config('model.base_url', 'https://api.openai.com/v1')}",
-            f"- 传输协议: {get_config('model.wire_api', 'chat_completions')}",
-            "- 自定义 User-Agent: "
-            + ("已设置" if str(get_config("model.user_agent", "") or "").strip() else "未设置"),
+            f"- 默认 profile: {default_profile}",
+            f"- Provider: {default_model.get('provider', '未配置')}",
+            f"- 模型: {default_model.get('model', '未配置')}",
+            f"- 传输协议: {api_display}",
+            f"- 自定义 User-Agent: {'已设置' if has_user_agent else '未设置'}",
             "",
         ]
     )

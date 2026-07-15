@@ -11,7 +11,7 @@ from prompt_toolkit.layout import Window
 from prompt_toolkit.layout.controls import FormattedTextControl, UIContent, UIControl
 from prompt_toolkit.layout.dimension import LayoutDimension as D
 from prompt_toolkit.layout.scrollable_pane import ScrollablePane
-from prompt_toolkit.mouse_events import MouseEvent, MouseEventType
+from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType, MouseModifier
 
 if TYPE_CHECKING:
     from prompt_toolkit.key_binding.key_bindings import NotImplementedOrNone
@@ -23,8 +23,8 @@ class _ControlContext:
 
     values: dict[str, Any]
     drag_start_x: int | None = None
-    dragging_scrollbar: bool = False
-    drag_start_y: int = 0
+    selection_anchor: int | None = None
+    selection_dragged: bool = False
 
     def __getattr__(self, name: str) -> Any:
         return self.values[name]
@@ -51,8 +51,6 @@ class _TranscriptPaneControl(UIControl):
     def mouse_handler(self, event: MouseEvent) -> NotImplementedOrNone:
         """分派复制、滚轮、滚动条拖动与水平拖动事件。"""
         context = self._context
-        if context.copy_mode_active[0]:
-            return self._handle_copy(event)
         if event.event_type == MouseEventType.SCROLL_UP:
             context.apply_transcript_scroll(-context.wheel_line_step(), "mouse.SCROLL_UP")
             get_app().invalidate()
@@ -61,54 +59,29 @@ class _TranscriptPaneControl(UIControl):
             context.apply_transcript_scroll(context.wheel_line_step(), "mouse.SCROLL_DOWN")
             get_app().invalidate()
             return None
-        handled = self._handle_vertical_drag(event)
-        if handled:
-            return None
         handled = self._handle_horizontal_drag(event)
         if handled:
             return None
-        if context.is_scrollbar_click(event) and event.event_type == MouseEventType.MOUSE_DOWN:
-            self._start_vertical_drag(event)
-            return None
-        if not context.should_wrap_lines() and event.event_type == MouseEventType.MOUSE_DOWN:
+        if (
+            not context.should_wrap_lines()
+            and event.event_type == MouseEventType.MOUSE_DOWN
+            and self._wants_horizontal_pan(event)
+        ):
             context.drag_start_x = getattr(event.position, "x", 0)
             return None
+        if event.event_type in {
+            MouseEventType.MOUSE_DOWN,
+            MouseEventType.MOUSE_MOVE,
+            MouseEventType.MOUSE_UP,
+        }:
+            return self._handle_copy(event)
         return self._inner.mouse_handler(event)
 
-    def _handle_vertical_drag(self, event: MouseEvent) -> bool:
-        context = self._context
-        if not context.dragging_scrollbar:
-            return False
-        pane = context.scroll_pane()
-        if pane is None:
-            context.dragging_scrollbar = False
-            return False
-        if event.event_type == MouseEventType.MOUSE_MOVE:
-            current_y = getattr(event.position, "y", 0)
-            rows = context.viewport_rows()
-            maximum = context.max_output_scroll()
-            delta = int((current_y - context.drag_start_y) * maximum / rows) if rows else 0
-            pane.vertical_scroll = max(0, min(maximum, pane.vertical_scroll + delta))
-            context.drag_start_y = current_y
-            get_app().invalidate()
-            return True
-        if event.event_type == MouseEventType.MOUSE_UP:
-            context.dragging_scrollbar = False
-            return True
-        return False
-
-    def _start_vertical_drag(self, event: MouseEvent) -> None:
-        context = self._context
-        pane = context.scroll_pane()
-        if pane is None:
-            return
-        context.dragging_scrollbar = True
-        context.drag_start_y = getattr(event.position, "y", 0)
-        rows = context.viewport_rows()
-        maximum = context.max_output_scroll()
-        fraction = context.drag_start_y / rows if rows else 0
-        pane.vertical_scroll = max(0, min(maximum, int(fraction * maximum)))
-        get_app().invalidate()
+    @staticmethod
+    def _wants_horizontal_pan(event: MouseEvent) -> bool:
+        modifiers = getattr(event, "modifiers", frozenset()) or frozenset()
+        button = getattr(event, "button", None)
+        return button == MouseButton.MIDDLE or MouseModifier.SHIFT in modifiers
 
     def _handle_horizontal_drag(self, event: MouseEvent) -> bool:
         context = self._context
@@ -125,42 +98,142 @@ class _TranscriptPaneControl(UIControl):
             return True
         return False
 
-    def _selection_target(self, event: MouseEvent) -> tuple[int, int] | None:
+    def _selection_target(self, event: MouseEvent) -> int | None:
         context = self._context
         if not context.transcript or context.scroll_pane() is None:
             return None
-        x = getattr(event.position, "x", 0)
-        y = getattr(event.position, "y", 0)
-        rows = context.viewport_rows()
-        position = (context.scroll_pane().vertical_scroll + y) * context.viewport_cols() + x if rows else x
-        accumulated = 0
-        last_index = len(context.transcript) - 1
-        target = (last_index, context.get_transcript_char_count(last_index))
-        for index in range(len(context.transcript)):
-            length = context.get_transcript_char_count(index)
-            if accumulated + length > position:
-                return index, max(0, min(length, position - accumulated))
-            accumulated += length
-        return target
+        # Window 已把屏幕坐标（含滚动、折行和宽字符）转换成 UIContent 的
+        # 逻辑 row/column；这里不能再次叠加 ScrollablePane.vertical_scroll。
+        return context.rendered_position_to_offset(
+            getattr(event.position, "y", 0),
+            getattr(event.position, "x", 0),
+        )
+
+    @staticmethod
+    def _is_primary_button(event: MouseEvent) -> bool:
+        return getattr(event, "button", None) in {
+            None,
+            MouseButton.LEFT,
+            MouseButton.NONE,
+            MouseButton.UNKNOWN,
+        }
+
+    def _update_selection(self, target: int) -> None:
+        context = self._context
+        anchor = context.selection_anchor
+        if anchor is None:
+            return
+        length = context.rendered_text_length()
+        if target >= anchor:
+            context.selection_start[0] = anchor
+            context.selection_end[0] = min(length, target + 1)
+        else:
+            context.selection_start[0] = min(length, anchor + 1)
+            context.selection_end[0] = target
+        context.selection_text[0] = context.extract_selection_text()
 
     def _handle_copy(self, event: MouseEvent) -> NotImplementedOrNone:
         context = self._context
+        if not self._is_primary_button(event):
+            return NotImplemented
         target = self._selection_target(event)
         if target is None:
             return NotImplemented
         if event.event_type == MouseEventType.MOUSE_DOWN:
             context.selection_start[0] = context.selection_end[0] = target
             context.copy_mode_mouse_down[0] = True
+            context.selection_anchor = target
+            context.selection_dragged = False
+            context.selection_text[0] = ""
         elif event.event_type == MouseEventType.MOUSE_MOVE and context.copy_mode_mouse_down[0]:
-            context.selection_end[0] = target
-            context.selection_text[0] = context.extract_selection_text()
+            context.selection_dragged = context.selection_dragged or target != context.selection_anchor
+            if context.selection_dragged:
+                self._update_selection(target)
         elif event.event_type == MouseEventType.MOUSE_UP:
             context.copy_mode_mouse_down[0] = False
-            if context.selection_start[0] is not None:
-                context.selection_end[0] = target
-                context.selection_text[0] = context.extract_selection_text()
+            if context.selection_anchor is not None and context.selection_dragged:
+                self._update_selection(target)
+            else:
+                context.clear_selection()
+            context.selection_anchor = None
+            context.selection_dragged = False
         else:
             return NotImplemented
+        get_app().invalidate()
+        return None
+
+
+class _MeasuredScrollablePane(ScrollablePane):
+    """在绘制前发布真实几何数据，并为右侧滚动条补充鼠标交互。"""
+
+    def __init__(self, content: Any, context: _ControlContext, **kwargs: Any) -> None:
+        super().__init__(content, **kwargs)
+        self._context = context
+        self._dragging_scrollbar = False
+
+    def write_to_screen(
+        self,
+        screen: Any,
+        mouse_handlers: Any,
+        write_position: Any,
+        parent_style: str,
+        erase_bg: bool,
+        z_index: int | None,
+    ) -> None:
+        scrollbar_width = 1 if self.show_scrollbar() else 0
+        content_width = max(1, write_position.width - scrollbar_width)
+        self._context.begin_viewport_measure(content_width, write_position.height)
+        preferred = self.content.preferred_height(
+            content_width, self.max_available_height
+        ).preferred
+        content_height = min(
+            self.max_available_height,
+            max(preferred, write_position.height),
+        )
+        self._context.finish_viewport_measure(content_height)
+        super().write_to_screen(
+            screen,
+            mouse_handlers,
+            write_position,
+            parent_style,
+            erase_bg,
+            z_index,
+        )
+        if self.show_scrollbar() and write_position.width > 0 and write_position.height > 0:
+            xpos = write_position.xpos + write_position.width - 1
+            mouse_handlers.set_mouse_handler_for_range(
+                x_min=xpos,
+                x_max=xpos + 1,
+                y_min=write_position.ypos,
+                y_max=write_position.ypos + write_position.height,
+                handler=lambda event: self._handle_scrollbar_mouse(event, write_position),
+            )
+
+    def _handle_scrollbar_mouse(self, event: MouseEvent, write_position: Any) -> None:
+        event_type = event.event_type
+        if event_type == MouseEventType.MOUSE_UP:
+            self._dragging_scrollbar = False
+            return None
+        if event_type == MouseEventType.MOUSE_DOWN:
+            self._dragging_scrollbar = True
+        elif event_type != MouseEventType.MOUSE_MOVE or not self._dragging_scrollbar:
+            return None
+        local_y = max(0, min(write_position.height - 1, event.position.y - write_position.ypos))
+        if self.display_arrows() and event_type == MouseEventType.MOUSE_DOWN:
+            if local_y == 0:
+                self._context.apply_transcript_scroll(-self._context.wheel_line_step(), "scrollbar.up")
+                get_app().invalidate()
+                return None
+            if local_y == write_position.height - 1:
+                self._context.apply_transcript_scroll(self._context.wheel_line_step(), "scrollbar.down")
+                get_app().invalidate()
+                return None
+        inset = 1 if self.display_arrows() else 0
+        track_height = max(1, write_position.height - inset * 2)
+        fraction = max(0.0, min(1.0, (local_y - inset) / max(1, track_height - 1)))
+        self._context.set_transcript_scroll(
+            round(self._context.max_output_scroll() * fraction), "scrollbar.drag"
+        )
         get_app().invalidate()
         return None
 
@@ -233,10 +306,12 @@ def create_transcript_controls(
     apply_transcript_scroll: Any,
     copy_mode_active: list[bool],
     copy_mode_mouse_down: list[bool],
+    clear_selection: Any,
     extract_selection_text: Any,
-    get_transcript_char_count: Any,
-    is_scrollbar_click: Any,
+    rendered_position_to_offset: Any,
+    rendered_text_length: Any,
     max_output_scroll: Any,
+    set_transcript_scroll: Any,
     scroll_pane: Any,
     selection_end: list[Any],
     selection_start: list[Any],
@@ -250,6 +325,8 @@ def create_transcript_controls(
     wheel_line_step: Any,
     horizontal_scroll: list[int],
     max_horizontal_scroll: Any,
+    begin_viewport_measure: Any,
+    finish_viewport_measure: Any,
 ) -> tuple[Any, Any, Any, Any]:
     """构造 transcript 内容窗格、可滚动容器和水平滚动条。"""
     context = _ControlContext(locals())
@@ -259,8 +336,9 @@ def create_transcript_controls(
         wrap_lines=Condition(should_wrap_lines),
     )
     transcript_window_ref[0] = transcript_window
-    output_scroll = ScrollablePane(
+    output_scroll = _MeasuredScrollablePane(
         transcript_window,
+        context,
         height=D(weight=1),
         keep_cursor_visible=False,
         keep_focused_window_visible=False,

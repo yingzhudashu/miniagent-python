@@ -47,11 +47,13 @@ class _TuiOutputBindings:
     snap_output_bottom: Any
     viewport_cols: Any
     rule_line_width_for_vp: Any
+    reasoning_expanded: Any
 
     def __init__(self, **values: Any) -> None:
         """保存组合根注入的 UI 回调和状态引用。"""
         self.__dict__.update(values)
         self.ctx = values["runtime_context"]
+        self.reasoning_expanded = values.get("reasoning_expanded", lambda: True)
         coordinator_class = values["transcript_coordinator_class"]
         self.coordinator = coordinator_class(
             self.append_transcript,
@@ -130,7 +132,7 @@ class _TuiOutputBindings:
         from miniagent.engine.markdown_cli import render_markdown_to_ansi
 
         stream = self.stream_state(session_key)
-        full_text = stream.text + fragment if stream.active and stream.start_idx >= 0 else fragment
+        full_text = stream.text + fragment if stream.active else fragment
         safe_fragments = self.safe_ansi(
             render_markdown_to_ansi(
                 full_text, width=self.markdown_render_width(), justify="left"
@@ -161,7 +163,8 @@ class _TuiOutputBindings:
         session_key = session_key.strip() or "default"
         stream = self.stream_state(session_key)
         if ansi_markdown is not None:
-            self._append_ansi_thinking(ansi_markdown)
+            if getattr(self, "reasoning_expanded", lambda: True)():
+                self._append_ansi_thinking(ansi_markdown)
             return
         style = "class:cli-think-head" if kind == "label" else "class:cli-think-body"
         if kind == "label":
@@ -169,6 +172,11 @@ class _TuiOutputBindings:
             stream.text = ""
             stream.start_idx = -1
             self.append_transcript(style, fragment)
+            return
+        if not getattr(self, "reasoning_expanded", lambda: True)():
+            stream.text = stream.text + fragment if stream.active else fragment
+            stream.active = True
+            stream.start_idx = -1
             return
         try:
             self._append_streaming_thinking(fragment, session_key)
@@ -307,6 +315,7 @@ def create_tui_output_bindings(
     snap_output_bottom: Any,
     viewport_cols: Any,
     rule_line_width_for_vp: Any,
+    reasoning_expanded: Any = lambda: True,
 ) -> SimpleNamespace:
     """注册 CLI 出站适配器并返回 transcript 输出闭包。"""
     return _TuiOutputBindings(
@@ -331,5 +340,6 @@ def create_tui_output_bindings(
         snap_output_bottom=snap_output_bottom,
         viewport_cols=viewport_cols,
         rule_line_width_for_vp=rule_line_width_for_vp,
+        reasoning_expanded=reasoning_expanded,
     ).setup()
 __all__ = ["create_tui_output_bindings"]

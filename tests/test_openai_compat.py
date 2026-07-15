@@ -127,6 +127,7 @@ class TestJsonObjectUnsupported:
             "response_format json_object not supported",
             "Model does not support response_format.type=json_object",
             "unknown parameter: response_format",
+            "unsupported parameter: text.format",
             "json_object is unavailable for this model",
         ],
     )

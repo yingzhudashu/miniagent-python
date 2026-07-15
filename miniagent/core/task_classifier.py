@@ -26,6 +26,7 @@ from miniagent.core.llm_transport import (
     completion_failure_category,
     create_completion,
     create_structured_completion,
+    resolve_model_max_output_tokens,
     resolve_wire_api,
     structured_retry_delay,
     structured_retry_params,
@@ -440,6 +441,7 @@ async def classify_task_difficulty(
     kw = resolve_planner_completion_kwargs(
         agent_config,
         merge_overrides={
+            "role": "fast",
             "planner_max_tokens": 128,
             "planner_temperature": 0.0,
             "thinking_level": "disabled",
@@ -455,7 +457,7 @@ async def classify_task_difficulty(
     from miniagent.core.config import get_default_model_config
 
     model_config = get_default_model_config()
-    responses_wire = resolve_wire_api() == "responses"
+    responses_wire = resolve_wire_api(client=client, role="fast") == "responses"
     runner = _ClassifierRunner(
         client=client,
         messages=messages,
@@ -463,7 +465,11 @@ async def classify_task_difficulty(
         params=dict(kw),
         session_key=classify_session_key,
         responses_wire=responses_wire,
-        model_max_tokens=model_config.max_tokens,
+        model_max_tokens=resolve_model_max_output_tokens(
+            client,
+            role="fast",
+            fallback=model_config.max_tokens,
+        ),
     )
     return await runner.run()
 

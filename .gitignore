@@ -17,6 +17,7 @@ state/
 
 # 用户配置（敏感凭据）
 config.user.json
+config.user.json.*.bak
 
 # 本地调试日志与性能剖析产物（勿提交）
 debug-*.log

@@ -408,7 +408,8 @@ async def llm_json(
     from miniagent.core.config import get_default_model_config
 
     model_config = get_default_model_config()
-    responses_wire = resolve_wire_api() == "responses"
+    role = str(create_kwargs.get("_role") or "default")
+    responses_wire = resolve_wire_api(client=client, role=role) == "responses"
     max_attempts = 3 if responses_wire else 2
     attempt_state = _JsonAttemptState(dict(create_kwargs))
     trace = _JsonTrace(

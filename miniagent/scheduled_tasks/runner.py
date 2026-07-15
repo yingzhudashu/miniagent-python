@@ -80,7 +80,11 @@ class _ScheduledJobRunner:
                 clawhub=self.ctx.clawhub,
                 memory=self.ctx.memory,
                 knowledge_registry=self.ctx.knowledge_registry,
-                client=self.ctx.openai_client,
+                client=getattr(
+                    self.ctx,
+                    "llm_client",
+                    getattr(self.ctx, "openai_client", None),
+                ),
                 feishu_receive_chat_id=self.feishu_receive_id,
                 cli_loop_state=self.state,
             )

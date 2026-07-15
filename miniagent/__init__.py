@@ -23,7 +23,7 @@
     python -m miniagent --feishu --continue  # CLI + 飞书，并继续上次会话
 """
 
-__version__ = "2.2.0"
+__version__ = "3.0.0"
 __author__ = "mini-agent"
 __description__ = "基于 LLM 的智能个人助手，采用多阶段架构（分类→澄清→规划→执行）"
 

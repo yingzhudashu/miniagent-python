@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "_config_guide": {
     "usage": "复制为 config.user.json，仅覆盖 User 层中需个性化的键；Advanced 层一般保持默认",
     "user_sections": [
       "secrets",
-      "model",
+      "llm",
       "paths",
       "features",
       "embedding",
@@ -32,6 +32,11 @@
 
   "secrets": {
     "description": "敏感凭据（⚠️ 在 config.user.json 中填写，切勿提交到 git）",
+    "llm": {
+      "openai": {"api_key": null},
+      "anthropic": {"api_key": null},
+      "google": {"api_key": null}
+    },
     "openai_api_key": null,
     "tavily_api_key": null,
     "web_search_api_key": null,
@@ -46,8 +51,51 @@
     "agent_html_api_key": null
   },
 
+  "llm": {
+    "description": "LLM provider、模型 profile 与阶段角色绑定（User 层）",
+    "providers": {
+      "openai": {
+        "driver": "openai",
+        "base_url": "https://api.openai.com/v1",
+        "credential": "openai",
+        "api_key_env": "OPENAI_API_KEY",
+        "headers": {},
+        "options": {}
+      }
+    },
+    "models": {
+      "primary": {
+        "provider": "openai",
+        "model": "gpt-4o-mini",
+        "api": "openai_responses",
+        "context_window": 128000,
+        "max_output_tokens": 16384,
+        "capabilities": {
+          "tools": true,
+          "vision": true,
+          "reasoning": false,
+          "structured_output": true
+        },
+        "defaults": {},
+        "pricing": {},
+        "compatibility": {}
+      }
+    },
+    "roles": {
+      "default": "primary",
+      "reasoning": "primary",
+      "fast": "primary",
+      "vision": "primary"
+    },
+    "catalog": {
+      "refresh": "manual",
+      "cache_ttl_hours": 24
+    },
+    "max_retries": 2
+  },
+
   "model": {
-    "description": "模型配置（User 层）",
+    "description": "内部兼容参数；3.0 用户模型选择请使用 llm 节",
     "base_url": "https://api.openai.com/v1",
     "model": "gpt-4o-mini",
     "temperature": 0.7,
@@ -200,7 +248,16 @@
     "input_history_max": 100,
     "force_fallback": false,
     "raw_markdown": false,
-    "thinking_rich": false
+    "thinking_rich": false,
+    "theme": "auto",
+    "keybindings": {
+      "model_selector": "c-p",
+      "session_selector": "c-o",
+      "toggle_reasoning": "c-r",
+      "tasks": "c-t",
+      "copy_mode": "c-m",
+      "newline": "escape enter"
+    }
   },
 
   "feishu": {
@@ -232,6 +289,7 @@
       "watchdog_interval": 30,
       "dead_conn_grace": 90,
       "reconnect_grace": 300,
+      "stable_reset_after": 60,
       "refresh_interval": 0,
       "idle_refresh": 0
     },

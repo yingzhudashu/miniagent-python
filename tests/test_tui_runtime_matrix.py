@@ -19,7 +19,7 @@ def test_viewport_scroll_width_and_fallbacks() -> None:
     lazy = MagicMock()
     viewport = cli_tui._TuiViewport(lambda: _app(rows=30, columns=100), [True], lazy)
     assert viewport.rows() == 26
-    assert viewport.columns() == 79
+    assert viewport.columns() == 99
     assert viewport.at_bottom() is True
     assert viewport.content_height() == 0
 
@@ -34,11 +34,18 @@ def test_viewport_scroll_width_and_fallbacks() -> None:
     )
     viewport.output_scroll_ref[0] = pane
     viewport.transcript_window_ref[0] = window
+    viewport.stick_bottom[0] = False
+    viewport.begin_measure(99, 26)
+    viewport.finish_measure(50)
     assert viewport.columns() == 99
     assert viewport.content_height() == 50
     assert viewport.max_output() == 24
     assert viewport.at_bottom() is False
     assert viewport.wheel_step() == 4
+    assert viewport.max_horizontal() == 0
+    viewport.begin_measure(29, 26)
+    viewport.finish_measure(50)
+    viewport.report_content_width(80)
     viewport.apply_horizontal(15)
     assert window.horizontal_scroll == 15
     viewport.reset_horizontal()
@@ -50,8 +57,7 @@ def test_viewport_scroll_width_and_fallbacks() -> None:
     lazy.assert_called_once()
     viewport.scroll(8, "test")
     assert pane.vertical_scroll == 8
-    event = SimpleNamespace(position=SimpleNamespace(x=98))
-    assert viewport.is_scrollbar_click(event) is True
+    assert viewport.is_scrollbar_click(SimpleNamespace(position=SimpleNamespace(x=28))) is True
 
     broken = cli_tui._TuiViewport(
         lambda: (_ for _ in ()).throw(RuntimeError("tty")), [True], lazy
@@ -240,6 +246,8 @@ def _key_installer():
     installer.toggle_copy_mode = lambda: installer.copy_mode_active.__setitem__(0, not installer.copy_mode_active[0])
     installer.clear_selection = MagicMock()
     installer.get_transcript_char_count = lambda _index: 3
+    installer.rendered_text_length = lambda: 3
+    installer.has_selection = lambda: bool(installer.selection_text[0])
     installer.extract_selection_text = lambda: "abc"
     installer.viewport_rows = lambda: 20
     installer.apply_transcript_scroll = MagicMock()

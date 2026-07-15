@@ -13,9 +13,28 @@ from miniagent.core.llm_transport import (
     create_completion,
     create_structured_completion,
     messages_to_responses_input,
+    resolve_model_max_output_tokens,
+    resolve_wire_api,
     stream_completion,
     tools_to_responses,
 )
+
+
+def test_gateway_role_metadata_overrides_legacy_wire_defaults() -> None:
+    class Gateway:
+        _miniagent_llm_gateway = True
+
+        @staticmethod
+        def model_for_role(role: str) -> SimpleNamespace:
+            assert role == "reasoning"
+            return SimpleNamespace(api="openai_responses", max_output_tokens=128000)
+
+    gateway = Gateway()
+    assert resolve_wire_api(client=gateway, role="reasoning") == "responses"
+    assert (
+        resolve_model_max_output_tokens(gateway, role="reasoning", fallback=4096)
+        == 128000
+    )
 
 
 @pytest.mark.parametrize(
@@ -183,7 +202,89 @@ async def test_create_completion_responses_maps_params_and_normalizes_string() -
     assert kwargs["stream"] is False
     assert "max_tokens" not in kwargs
     assert "response_format" not in kwargs
-    assert "text" not in kwargs
+    assert kwargs["text"] == {"format": {"type": "json_object"}}
+
+
+@pytest.mark.asyncio
+async def test_responses_parses_gateway_sse_returned_as_one_string() -> None:
+    raw_sse = "\n\n".join(
+        [
+            'event: response.output_item.added\ndata: {"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"msg-1"}}',
+            'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"{\\"ok\\":true}"}',
+            'event: response.output_text.done\ndata: {"type":"response.output_text.done","output_index":0,"content_index":0,"text":"{\\"ok\\":true}"}',
+            'event: response.completed\ndata: {"type":"response.completed","response":{"status":"completed","model":"response-model","output":[{"type":"message"}],"usage":{"input_tokens":3,"output_tokens":4}}}',
+            "data: [DONE]",
+        ]
+    )
+    client = MagicMock()
+    client.responses.create = AsyncMock(return_value=raw_sse)
+
+    result = await create_completion(
+        client,
+        messages=[{"role": "user", "content": "json"}],
+        params={"model": "response-model"},
+        json_mode=True,
+        wire_api="responses",
+    )
+
+    assert result.content == '{"ok":true}'
+    assert result.status == "completed"
+    assert result.output_item_types == ("message",)
+    assert result.model == "response-model"
+
+
+@pytest.mark.asyncio
+async def test_responses_stream_parses_gateway_sse_returned_as_one_string() -> None:
+    raw_sse = "\n\n".join(
+        [
+            'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"{\\"ok\\":true}"}',
+            'event: response.completed\ndata: {"type":"response.completed","response":{"status":"completed","output":[{"type":"message"}]}}',
+        ]
+    )
+    client = MagicMock()
+    client.responses.create = AsyncMock(return_value=raw_sse)
+
+    events = [
+        event
+        async for event in stream_completion(
+            client,
+            messages=[{"role": "user", "content": "json"}],
+            params={"model": "response-model"},
+            json_mode=True,
+            wire_api="responses",
+        )
+    ]
+
+    assert "".join(event.content_delta or "" for event in events) == '{"ok":true}'
+    assert events[-1].completed is True
+    assert events[-1].status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_responses_json_mode_preserves_explicit_json_schema_format() -> None:
+    client = MagicMock()
+    client.responses.create = AsyncMock(return_value='{"ok":true}')
+    schema_format = {
+        "type": "json_schema",
+        "name": "answer",
+        "schema": {
+            "type": "object",
+            "properties": {"ok": {"type": "boolean"}},
+            "required": ["ok"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    }
+
+    await create_completion(
+        client,
+        messages=[{"role": "user", "content": "json"}],
+        params={"model": "response-model", "text": {"format": schema_format}},
+        json_mode=True,
+        wire_api="responses",
+    )
+
+    assert client.responses.create.await_args.kwargs["text"] == {"format": schema_format}
 
 
 @pytest.mark.asyncio
@@ -389,6 +490,28 @@ async def test_responses_non_json_disabled_reasoning_remains_omitted() -> None:
     )
 
     assert "reasoning" not in client.responses.create.await_args.kwargs
+
+
+@pytest.mark.asyncio
+async def test_responses_normalizes_public_thinking_aliases_without_sdk_leak() -> None:
+    client = MagicMock()
+    client.responses.create = AsyncMock(return_value="ok")
+
+    await create_completion(
+        client,
+        messages=[{"role": "user", "content": "plan"}],
+        params={
+            "model": "response-model",
+            "thinking_level": "medium",
+            "thinking_budget": 81920,
+        },
+        wire_api="responses",
+    )
+
+    kwargs = client.responses.create.await_args.kwargs
+    assert kwargs["reasoning"] == {"effort": "medium"}
+    assert "thinking_level" not in kwargs
+    assert "thinking_budget" not in kwargs
 
 
 @pytest.mark.asyncio

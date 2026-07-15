@@ -1,7 +1,7 @@
 # Mini Agent Python — 文档索引
 
 > 用户入门以 **[README.md](../README.md)** 为准。  
-> Mini Agent Python | 版本: 2.2.0 | 最后更新: 2026-07-14 | 与 `miniagent.__version__` 对齐 | 未发版行为以 [CHANGELOG](../CHANGELOG.md) `[Unreleased]` 为准
+> Mini Agent Python | 版本: 3.0.0 | 最后更新: 2026-07-15 | 与 `miniagent.__version__` 对齐 | 未发版行为以 [CHANGELOG](../CHANGELOG.md) `[Unreleased]` 为准
 
 ---
 
@@ -10,6 +10,7 @@
 | 主题 | 权威文档 |
 |------|----------|
 | 用户安装与配置 | [README.md](../README.md) §安装、§配置 |
+| LLM provider、模型与角色 | [LLM_PROVIDERS.md](LLM_PROVIDERS.md) |
 | 架构概览 | [README.md](../README.md) §架构概览；深读 [ARCHITECTURE.md](ARCHITECTURE.md) |
 | 通道绑定 | [FEISHU.md](FEISHU.md) §通道绑定 |
 | 多实例 / `--stop` | [ENGINEERING.md](ENGINEERING.md) §3.3 |
@@ -45,7 +46,7 @@ pytest tests/ --cov=miniagent --cov-report=html
 [README](../README.md) · [USER_GUIDE.md](USER_GUIDE.md) · [CHANGELOG](../CHANGELOG.md)
 
 ### 用户与运维
-[CLI.md](CLI.md) · [DEPLOYMENT.md](DEPLOYMENT.md) · [TROUBLESHOOTING.md](TROUBLESHOOTING.md) · [FEISHU.md](FEISHU.md)（含通道绑定） · [KNOWLEDGE_BASE.md](KNOWLEDGE_BASE.md)
+[CLI.md](CLI.md) · [LLM_PROVIDERS.md](LLM_PROVIDERS.md) · [DEPLOYMENT.md](DEPLOYMENT.md) · [TROUBLESHOOTING.md](TROUBLESHOOTING.md) · [FEISHU.md](FEISHU.md)（含通道绑定） · [KNOWLEDGE_BASE.md](KNOWLEDGE_BASE.md)
 
 ### 架构与专题
 [ARCHITECTURE.md](ARCHITECTURE.md) · [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md) · [SECURITY.md](SECURITY.md) · [SELF_OPT.md](SELF_OPT.md) · [OUTPUT_FORMAT.md](OUTPUT_FORMAT.md)

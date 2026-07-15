@@ -220,11 +220,25 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
 
 def _validate_user_keys(defaults: dict[str, Any], user: dict[str, Any], prefix: str = "") -> None:
     """严格校验用户配置键，并在错误中报告完整点路径。"""
+    if prefix.endswith(
+        (".headers", ".options", ".compatibility", ".pricing", ".defaults")
+    ):
+        return
+    dynamic_template = None
+    if prefix == "llm.providers":
+        dynamic_template = defaults.get("openai")
+    elif prefix == "llm.models":
+        dynamic_template = defaults.get("primary")
+    elif prefix == "secrets.llm":
+        dynamic_template = defaults.get("openai")
     for key, value in user.items():
         path = f"{prefix}.{key}" if prefix else key
-        if key not in defaults:
+        if key in defaults:
+            default_value = defaults[key]
+        elif isinstance(dynamic_template, dict):
+            default_value = dynamic_template
+        else:
             raise ValueError(f"未知配置项: {path}")
-        default_value = defaults[key]
         if isinstance(value, dict):
             if not isinstance(default_value, dict):
                 raise ValueError(f"配置项类型错误: {path} 应为 {type(default_value).__name__}")
@@ -310,27 +324,38 @@ def reload_config() -> None:
 
 
 async def reload_runtime_config(container: ApplicationContainer) -> None:
-    """Validate a candidate configuration, then atomically publish it and its client."""
+    """Validate a candidate configuration, then atomically publish its LLM gateway."""
     candidate = _config_loader.reloaded_copy(strict=True)
-    from miniagent.core.openai_client import (
-        create_async_openai_client,
-        install_async_openai_client,
-    )
     from miniagent.infrastructure.env_loader import load_secrets_from_project_root
+    from miniagent.infrastructure.llm.factory import create_llm_gateway
 
-    secrets = candidate.get_section("secrets")
-    candidate_api_key = secrets.get("openai_api_key")
-    replacement = create_async_openai_client(
-        api_key=candidate_api_key if isinstance(candidate_api_key, str) else None,
-        config_getter=candidate.get,
+    if container.llm_gateway is None:
+        from miniagent.core.openai_client import (
+            create_async_openai_client,
+            install_async_openai_client,
+        )
+
+        secrets = candidate.get_section("secrets")
+        candidate_api_key = secrets.get("openai_api_key")
+        replacement_client = create_async_openai_client(
+            api_key=candidate_api_key if isinstance(candidate_api_key, str) else None,
+            config_getter=candidate.get,
+        )
+        install_config_loader(candidate)
+        load_secrets_from_project_root()
+        await install_async_openai_client(
+            container, replacement_client, retire_previous=True
+        )
+        return
+    replacement = create_llm_gateway(
+        candidate.get, user_section_getter=candidate.get_user_section
     )
+    previous = container.llm_gateway
     install_config_loader(candidate)
     load_secrets_from_project_root()
-    await install_async_openai_client(
-        container,
-        replacement,
-        retire_previous=True,
-    )
+    container.llm_gateway = replacement
+    if previous is not None and previous is not replacement:
+        container.retired_llm_gateways.append(previous)
 
 
 def get_user_config_path() -> Path:

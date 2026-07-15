@@ -82,7 +82,7 @@ async def describe_image(
 
         resp = await create_completion(
             client,
-            params={"model": model, "max_tokens": 500},
+            params={"model": model, "max_tokens": 500, "_role": "vision"},
             messages=[
                 {
                     "role": "user",

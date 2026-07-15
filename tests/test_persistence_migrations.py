@@ -102,7 +102,11 @@ def test_legacy_session_history_is_wrapped_and_backed_up(tmp_path) -> None:
 
     loaded = load_state_file("session_history", target)
 
-    assert loaded == {"messages": legacy, "schema_version": 1}
+    assert loaded == {
+        "messages": legacy,
+        "message_format": "miniagent-conversation-v1",
+        "schema_version": 2,
+    }
     assert json.loads((tmp_path / "history.json.bak").read_text(encoding="utf-8")) == legacy
 
 

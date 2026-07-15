@@ -2,7 +2,7 @@
 
 ![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-2.2.0-blue)
+![Version](https://img.shields.io/badge/version-3.0.0-blue)
 ![Tests](https://img.shields.io/badge/tests-dynamic-blue)
 > **测试数量**：以 `pytest --collect-only -q` 为准，不硬编码以避免漂移（见 [CONTRIBUTING.md](docs/CONTRIBUTING.md) §文档与版本对齐清单）
 ![Coverage](https://img.shields.io/badge/coverage-%E2%89%A580%25%20%E7%9B%AE%E6%A0%87-yellow)
@@ -152,7 +152,9 @@ miniagent
 ```json
 {
   "secrets": {
-    "openai_api_key": "你的密钥"
+    "llm": {
+      "openai": {"api_key": "你的密钥"}
+    }
   }
 }
 ```
@@ -182,22 +184,37 @@ Agent 会自动调用文件工具完成任务。
 ```json
 {
   "secrets": {
-    "openai_api_key": "sk-your-api-key"
+    "llm": {
+      "openai": {"api_key": "sk-your-api-key"}
+    }
   },
-  "model": {
-    "base_url": "https://api.openai.com/v1",
-    "model": "gpt-4o-mini"
+  "llm": {
+    "providers": {
+      "openai": {"driver": "openai", "credential": "openai"}
+    },
+    "models": {
+      "primary": {
+        "provider": "openai",
+        "model": "gpt-4o-mini",
+        "api": "openai_responses"
+      }
+    },
+    "roles": {
+      "default": "primary",
+      "reasoning": "primary",
+      "fast": "primary",
+      "vision": "primary"
+    }
   }
 }
 ```
 
 | 字段 | 含义 |
 |------|------|
-| `secrets.openai_api_key` | API 密钥（勿在截图中泄露） |
-| `model.base_url` | 可选，兼容网关地址 |
-| `model.model` | 可选，模型 id |
-| `model.wire_api` | 传输协议：`chat_completions`（默认）或 `responses` |
-| `model.user_agent` | 可选，仅在兼容网关/WAF 明确要求自定义 User-Agent 时设置 |
+| `secrets.llm.<credential>.api_key` | provider 凭据（勿在截图中泄露） |
+| `llm.providers` | provider driver、兼容端点、认证引用与请求头 |
+| `llm.models` | 模型 profile、wire API、上下文与能力元数据 |
+| `llm.roles` | `default/reasoning/fast/vision` 的显式模型绑定 |
 
 ### 常用可选配置
 
@@ -205,9 +222,9 @@ Agent 会自动调用文件工具完成任务。
 
 | 配置路径 | 用途 |
 |----------|------|
-| `model.temperature` | 模型温度，默认 0.7 |
-| `model.thinking_level` | 思考档位：`light` / `medium` / `heavy` |
-| `model.wire_api` | OpenAI Chat Completions / Responses 双协议选择 |
+| `llm.roles.reasoning` | 澄清、规划和反思所用模型 profile |
+| `llm.roles.fast` | 分类等轻量控制请求所用模型 profile |
+| `llm.roles.vision` | 图片理解所用模型 profile |
 | `agent.max_turns` | 单轮 ReAct 最大轮数，默认 400 |
 | `agent.debug` | `true` 时更啰嗦的日志 |
 | `secrets.tavily_api_key` | 启用联网搜索（Tavily） |
@@ -216,6 +233,10 @@ Agent 会自动调用文件工具完成任务。
 | `paths.state_dir` | 状态根目录，默认 `workspaces`（canonical 布局：`workspaces/projects/{project_key}/`，见 [ENGINEERING.md](docs/ENGINEERING.md) §3） |
 
 **配置分层**：包内 `miniagent/resources/config.defaults.json` 顶部 `_config_guide` 列出 User 层与 Advanced 层。普通用户只需在 `config.user.json` 覆盖 User 层；Advanced 节（`memory`、`trace` 等）一般保持默认。优先级：**config.user.json > 包内 defaults**。运维/调试类环境变量（如 `MINIAGENT_PATHS_STATE_DIR`、`AGENT_DEBUG`）见 [ENGINEERING.md](docs/ENGINEERING.md) §1.2。
+
+从 2.x 升级时先运行 `python -m miniagent migrate-config --dry-run`，确认后使用
+`python -m miniagent migrate-config --write`。写入前会创建带 UTC 时间戳的 v2 备份。
+provider 配置、可选依赖和模型目录详见 [LLM_PROVIDERS.md](docs/LLM_PROVIDERS.md)。
 
 ## 启动与退出
 

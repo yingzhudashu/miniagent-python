@@ -437,7 +437,9 @@ class _FeishuHandlerRuntime:
             clawhub=self.ctx.clawhub,
             memory=self.ctx.memory,
             knowledge_registry=self.ctx.knowledge_registry,
-            client=self.ctx.openai_client,
+            client=getattr(
+                self.ctx, "llm_client", getattr(self.ctx, "openai_client", None)
+            ),
             feishu_receive_chat_id=message.conversation_id,
             feishu_trigger_message_id=str(message.metadata.get("message_id") or "") or None,
             feishu_root_id=message.metadata.get("root_id") if isinstance(message.metadata.get("root_id"), str) else None,
@@ -639,11 +641,14 @@ class _FeishuHandlerRuntime:
         if message_type != "image" or not get_config("feishu.media.vision_desc", True):
             return default
         model = get_config("model.model", "")
-        if not model or not self.ctx.openai_client:
+        llm_client = getattr(
+            self.ctx, "llm_client", getattr(self.ctx, "openai_client", None)
+        )
+        if not model or not llm_client:
             return default
         from miniagent.feishu.vision_desc import describe_image
 
-        description = await describe_image(path, self.ctx.openai_client, model)
+        description = await describe_image(path, llm_client, model)
         return (
             f"[飞书入站] 用户上传了一张图片，已保存到 {relative_path}\n图片内容：{description}"
             if description
