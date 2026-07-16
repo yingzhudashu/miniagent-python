@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from miniagent.agent.execution_prompts import build_current_turn_user_context
-from miniagent.agent.execution_stream import StreamingBuffer
+from miniagent.agent.execution_turn import StreamingBuffer
 from miniagent.agent.types.tool import ToolContext
 from miniagent.assistant.engine.commands.instance_commands import handle_instance
 from miniagent.assistant.engine.commands.markdown import escape_markdown_cell

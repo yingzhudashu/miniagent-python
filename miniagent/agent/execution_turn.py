@@ -13,7 +13,6 @@ from miniagent.agent.constants import (
     EXECUTION_CALLBACK_MIN_CHARS,
     EXECUTION_CALLBACK_MIN_INTERVAL_MS,
 )
-from miniagent.agent.execution_stream import StreamingBuffer
 from miniagent.agent.executor import (
     _EXEC_LLM_MAX_ATTEMPTS,
     _exec_retry_params,
@@ -30,6 +29,42 @@ from miniagent.llm.gateway import LLMGateway
 from miniagent.llm.message_sanitize import strip_leading_underscore_keys_from_messages
 from miniagent.llm.recovery import classify_transport_error
 from miniagent.llm.types import LLMTransportError
+
+
+class StreamingBuffer:
+    """Aggregate streamed text chunks without quadratic concatenation."""
+
+    __slots__ = ("_chunks", "_length", "_consolidated")
+
+    def __init__(self) -> None:
+        self._chunks: list[str] = []
+        self._length = 0
+        self._consolidated: str | None = None
+
+    def append(self, chunk: str) -> None:
+        """Append one stream chunk and occasionally consolidate the chunk list."""
+        self._chunks.append(chunk)
+        self._length += len(chunk)
+        if len(self._chunks) > 50:
+            self._consolidated = "".join(self._chunks)
+            self._chunks = [self._consolidated]
+
+    def getvalue(self) -> str:
+        """Return accumulated text without mutating the buffer."""
+        if self._consolidated is None:
+            return "".join(self._chunks)
+        if len(self._chunks) == 1:
+            return self._consolidated
+        return self._consolidated + "".join(self._chunks[1:])
+
+    def __len__(self) -> int:
+        return self._length
+
+    def clear(self) -> None:
+        """Reset all text and consolidation state for safe reuse."""
+        self._chunks.clear()
+        self._length = 0
+        self._consolidated = None
 
 
 @dataclass

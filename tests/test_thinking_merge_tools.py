@@ -92,15 +92,15 @@ async def test_engine_history_merges_two_tools_under_turn(monkeypatch):
     from miniagent.assistant.engine.turn_service import AssistantTurnService
     from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
-    async def fake_run_agent(*args, **kwargs):
-        ot = kwargs.get("on_thinking")
+    async def fake_run_agent(turn):
+        ot = turn.on_thinking
         await ot("[第 1 轮]", True, "[第 1 轮]")
         await ot("[第 1 轮]x", True, "[第 1 轮]")
         await ot("🔧 a — 1", False, "[第 1 轮]")
         await ot("🔧 b — 2", False, "[第 1 轮]")
         return AgentRunResult(reply="ok")
 
-    monkeypatch.setattr("miniagent.assistant.engine.turn_service.run_agent", fake_run_agent)
+    monkeypatch.setattr("miniagent.agent.agent._run_agent_turn", fake_run_agent)
 
     ctx = type("Ctx", (), {})()
     ctx.conversation_history = []
@@ -146,14 +146,14 @@ async def test_engine_history_merges_tool_under_turn(monkeypatch):
     from miniagent.assistant.engine.turn_service import AssistantTurnService
     from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
-    async def fake_run_agent(*args, **kwargs):
-        ot = kwargs.get("on_thinking")
+    async def fake_run_agent(turn):
+        ot = turn.on_thinking
         await ot("[第 1 轮]", True, "[第 1 轮]")
         await ot("[第 1 轮]brain text", True, "[第 1 轮]")
         await ot("🔧 web_search — q", False, "[第 1 轮]")
         return AgentRunResult(reply="reply")
 
-    monkeypatch.setattr("miniagent.assistant.engine.turn_service.run_agent", fake_run_agent)
+    monkeypatch.setattr("miniagent.agent.agent._run_agent_turn", fake_run_agent)
 
     ctx = type("Ctx", (), {})()
     ctx.conversation_history = []

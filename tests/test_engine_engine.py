@@ -111,7 +111,7 @@ class TestAssistantTurnServiceToolboxAssembly:
         _mock_engine_thinking(engine)
         mock_session_manager, _ = _create_mock_session_manager()
 
-        with patch("miniagent.assistant.engine.turn_service.run_agent", new_callable=AsyncMock) as mock_run:
+        with patch("miniagent.agent.agent._run_agent_turn", new_callable=AsyncMock) as mock_run:
             mock_run.return_value = AgentRunResult(reply="Test reply")
 
             result = await engine.run_agent_with_thinking(
@@ -134,7 +134,7 @@ class TestAssistantTurnServiceToolboxAssembly:
         _mock_engine_thinking(engine)
         mock_session_manager, _ = _create_mock_session_manager()
 
-        with patch("miniagent.assistant.engine.turn_service.run_agent", new_callable=AsyncMock) as mock_run:
+        with patch("miniagent.agent.agent._run_agent_turn", new_callable=AsyncMock) as mock_run:
             mock_run.return_value = AgentRunResult(reply="Test reply")
             toolboxes = ["filesystem", "exec"]
 
@@ -149,8 +149,8 @@ class TestAssistantTurnServiceToolboxAssembly:
                 session_manager=mock_session_manager,
             )
 
-            call_kwargs = mock_run.call_args[1]
-            assert call_kwargs["toolboxes"] == toolboxes
+            turn = mock_run.call_args.args[0]
+            assert turn.toolboxes == tuple(toolboxes)
 
 
 class TestAssistantTurnServiceThinkingCallback:
@@ -163,7 +163,7 @@ class TestAssistantTurnServiceThinkingCallback:
         _mock_engine_thinking(engine)
         mock_session_manager, _ = _create_mock_session_manager()
 
-        with patch("miniagent.assistant.engine.turn_service.run_agent", new_callable=AsyncMock) as mock_run:
+        with patch("miniagent.agent.agent._run_agent_turn", new_callable=AsyncMock) as mock_run:
             mock_run.return_value = AgentRunResult(reply="Test reply")
             session_key = "test_session_reset"
 
@@ -191,13 +191,13 @@ class TestAssistantTurnServiceToolFinish:
         _mock_engine_thinking(engine)
         mock_session_manager, mock_ctx = _create_mock_session_manager()
 
-        async def mock_run_with_tool(*args, **kwargs):
-            on_tool_finish = kwargs.get("on_tool_finish")
+        async def mock_run_with_tool(turn):
+            on_tool_finish = turn.on_tool_finish
             if on_tool_finish:
                 await on_tool_finish("test_tool", '{"arg": "value"}', "output", True)
             return AgentRunResult(reply="Reply")
 
-        with patch("miniagent.assistant.engine.turn_service.run_agent", new_callable=AsyncMock) as mock_run:
+        with patch("miniagent.agent.agent._run_agent_turn", new_callable=AsyncMock) as mock_run:
             mock_run.side_effect = mock_run_with_tool
 
             await engine.run_agent_with_thinking(
@@ -226,7 +226,7 @@ class TestAssistantTurnServiceHistoryUpdate:
         _mock_engine_thinking(engine)
         mock_session_manager, mock_ctx = _create_mock_session_manager()
 
-        with patch("miniagent.assistant.engine.turn_service.run_agent", new_callable=AsyncMock) as mock_run:
+        with patch("miniagent.agent.agent._run_agent_turn", new_callable=AsyncMock) as mock_run:
             mock_run.return_value = AgentRunResult(reply="Reply")
             user_input = "Hello!"
 
@@ -253,7 +253,7 @@ class TestAssistantTurnServiceHistoryUpdate:
         mock_session_manager, mock_ctx = _create_mock_session_manager()
         reply = "Assistant reply."
 
-        with patch("miniagent.assistant.engine.turn_service.run_agent", new_callable=AsyncMock) as mock_run:
+        with patch("miniagent.agent.agent._run_agent_turn", new_callable=AsyncMock) as mock_run:
             mock_run.return_value = AgentRunResult(reply=reply)
 
             await engine.run_agent_with_thinking(
@@ -342,7 +342,7 @@ class TestAssistantTurnServiceExecLock:
             call_order.append("end")
             return AgentRunResult(reply="Reply")
 
-        with patch("miniagent.assistant.engine.turn_service.run_agent", new_callable=AsyncMock) as mock_run:
+        with patch("miniagent.agent.agent._run_agent_turn", new_callable=AsyncMock) as mock_run:
             mock_run.side_effect = slow_run
 
             import asyncio
@@ -376,7 +376,7 @@ class TestAssistantTurnServiceExecLock:
             in_flight -= 1
             return AgentRunResult(reply="Reply")
 
-        with patch("miniagent.assistant.engine.turn_service.run_agent", new_callable=AsyncMock) as mock_run:
+        with patch("miniagent.agent.agent._run_agent_turn", new_callable=AsyncMock) as mock_run:
             mock_run.side_effect = slow_run
 
             import asyncio
@@ -496,7 +496,7 @@ class TestAssistantTurnServiceIntegration:
         mock_session_manager.save_session_history_async = AsyncMock()
         memory_runtime = make_memory_runtime()
 
-        with patch("miniagent.assistant.engine.turn_service.run_agent", new_callable=AsyncMock) as mock_run:
+        with patch("miniagent.agent.agent._run_agent_turn", new_callable=AsyncMock) as mock_run:
             mock_run.return_value = AgentRunResult(reply="Final reply")
 
             result = await engine.run_agent_with_thinking(
@@ -528,7 +528,7 @@ class TestAssistantTurnServiceIntegration:
         mock_router = MagicMock()
         mock_router.get_bound_channels.return_value = []
 
-        with patch("miniagent.assistant.engine.turn_service.run_agent", new_callable=AsyncMock) as mock_run:
+        with patch("miniagent.agent.agent._run_agent_turn", new_callable=AsyncMock) as mock_run:
             mock_run.return_value = AgentRunResult(reply="Feishu reply")
 
 

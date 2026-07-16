@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from miniagent.agent.settings import AgentSettings
 from miniagent.assistant.contracts.configuration import ConfigSnapshot
 from miniagent.assistant.infrastructure.json_config import JsonConfigLoader
 
@@ -19,6 +20,12 @@ def test_config_snapshot_recursively_freezes_input() -> None:
     assert snapshot.get_path("missing", "fallback") == "fallback"
     with pytest.raises(TypeError):
         snapshot["model"]["new"] = 1
+
+
+def test_agent_settings_reuses_an_existing_frozen_snapshot() -> None:
+    snapshot = ConfigSnapshot({"agent": {"max_turns": 3}})
+    settings = AgentSettings(snapshot)
+    assert settings._values is snapshot._values
 
 
 def test_runtime_overrides_survive_snapshot_without_disk_rewrite(tmp_path) -> None:

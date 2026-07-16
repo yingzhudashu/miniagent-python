@@ -79,7 +79,23 @@ class FunctionLengthViolation:
         )
 
 
-ArchitectureViolation = Violation | TopologyViolation | CycleViolation | FunctionLengthViolation
+@dataclass(frozen=True, slots=True)
+class ModuleDependencyViolation:
+    path: Path
+    line: int
+    message: str
+
+    def format(self, root: Path) -> str:
+        return f"{_display(self.path, root)}:{self.line}: {self.message}"
+
+
+ArchitectureViolation = (
+    Violation
+    | TopologyViolation
+    | CycleViolation
+    | FunctionLengthViolation
+    | ModuleDependencyViolation
+)
 
 
 def _display(path: Path, root: Path) -> str:
@@ -134,6 +150,51 @@ def _target_layer(module: str) -> str | None:
     return parts[1] if parts[1] in LAYERS else "__unknown__"
 
 
+def _check_internal_dependency(
+    package_root: Path,
+    path: Path,
+    node: ast.Import | ast.ImportFrom,
+) -> ModuleDependencyViolation | None:
+    relative = path.relative_to(package_root)
+    imported = tuple(_absolute_imports(package_root, path, node))
+    if (
+        relative.parts[:3] == ("assistant", "engine", "commands")
+        and "miniagent.assistant.engine.command_dispatch" in imported
+    ):
+        return ModuleDependencyViolation(
+            path,
+            node.lineno,
+            "command modules must not import the command dispatcher",
+        )
+    if relative.parts[:2] == ("assistant", "testing"):
+        return None
+    if (
+        relative.parts[:1] == ("assistant",)
+        and isinstance(node, ast.ImportFrom)
+        and "miniagent.agent.agent" in imported
+        and any(alias.name == "run_agent" for alias in node.names)
+    ):
+        return ModuleDependencyViolation(
+            path,
+            node.lineno,
+            "assistant production code must invoke the object-oriented Agent facade",
+        )
+    return None
+
+
+def _internal_dependency_violations(
+    package_root: Path,
+    path: Path,
+    tree: ast.AST,
+) -> Iterator[ModuleDependencyViolation]:
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Import | ast.ImportFrom):
+            continue
+        violation = _check_internal_dependency(package_root, path, node)
+        if violation is not None:
+            yield violation
+
+
 def _find_cycles(graph: dict[str, set[str]]) -> list[tuple[str, ...]]:
     cycles: set[tuple[str, ...]] = set()
     active: list[str] = []
@@ -181,6 +242,7 @@ def check_architecture(
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         source = _source_layer(package_root, path)
+        violations.extend(_internal_dependency_violations(package_root, path, tree))
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                 length = (node.end_lineno or node.lineno) - node.lineno + 1

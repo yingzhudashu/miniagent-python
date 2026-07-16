@@ -7,11 +7,10 @@
 
 from __future__ import annotations
 
-import io
-from contextlib import redirect_stdout
 from typing import Any
 
 from miniagent.agent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
+from miniagent.assistant.engine.commands.output import capture_output
 
 
 def _respond(output: str, *, capture: bool) -> str | None:
@@ -30,9 +29,55 @@ async def handle_status(
     **_kwargs: Any,
 ) -> str | None:
     """显示当前 Agent、会话和队列状态。"""
-    from miniagent.assistant.engine.command_dispatch import _format_status
+    return _respond(format_status(state), capture=capture)
 
-    return _respond(_format_status(state), capture=capture)
+
+def format_status(state: dict[str, Any]) -> str:
+    """Format the current runtime, channel, session, and queue state."""
+    runtime = state.get("runtime_ctx")
+    if runtime is None:
+        return f"{WARNING_PREFIX} 运行时上下文未初始化（缺少 runtime_ctx）"
+    lines: list[str] = []
+    instance_id = state.get("instance_id")
+    if instance_id:
+        lines.append(f"🏭 实例: #{instance_id}")
+    active = state.get("active_session_id", "")
+    manager = state.get("session_manager")
+    if manager and active:
+        display = (
+            manager.get_session_display_name(active)
+            if hasattr(manager, "get_session_display_name")
+            else active
+        )
+        lines.append(f"📁 当前会话: {display}")
+    lines.append(f"💬 飞书: {'🟢 运行中' if runtime.feishu.is_running() else '⚪ 未启用'}")
+    router = runtime.channel_router
+    if router is not None:
+        bindings = router.get_all_bindings()
+        if bindings:
+            lines.append(f"📡 通道绑定: {len(bindings)} 个通道已绑定")
+            lines.extend(
+                f"   {str(channel)[:20]} → {session}" for channel, session in bindings.items()
+            )
+        from miniagent.assistant.infrastructure.cli_feishu_policy import focus_mode_status_line
+
+        focus = focus_mode_status_line(router).strip()
+        if focus:
+            lines.append(focus)
+    lines.extend(("", "📬 消息队列:"))
+    status = runtime.message_queue.get_status()
+    mode_icon = "🟢" if status["mode"] == "queue" else "🔴"
+    lines.append(f"  模式: {mode_icon} {status['mode']}")
+    for label, info in status["chats"].items():
+        if not info["busy"]:
+            lines.append(f"  {label}: ⚪ 空闲")
+            continue
+        elapsed = info.get("elapsed")
+        elapsed_text = f" ({elapsed:.0f}s)" if elapsed else ""
+        lines.append(f"  {label}: 🔴 处理中{elapsed_text}")
+        if info["pending"] > 0:
+            lines.append(f"    等待: {info['pending']} 条")
+    return "\n".join(lines)
 
 
 async def handle_model(
@@ -103,10 +148,7 @@ async def handle_help(
     if not capture:
         cmd_help(runtime.message_queue, state.get("instance_id"))
         return None
-    buffer = io.StringIO()
-    with redirect_stdout(buffer):
-        cmd_help(runtime.message_queue, state.get("instance_id"))
-    return buffer.getvalue().strip()
+    return capture_output(cmd_help, runtime.message_queue, state.get("instance_id"))
 
 
 async def handle_schedule(
@@ -160,4 +202,5 @@ __all__ = [
     "handle_schedule",
     "handle_stats",
     "handle_status",
+    "format_status",
 ]

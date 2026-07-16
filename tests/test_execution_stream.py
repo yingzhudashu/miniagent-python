@@ -1,6 +1,6 @@
 """执行器流式文本缓冲组件测试。"""
 
-from miniagent.agent.execution_stream import StreamingBuffer
+from miniagent.agent.execution_turn import StreamingBuffer
 
 
 def test_streaming_buffer_consolidates_without_changing_content() -> None:

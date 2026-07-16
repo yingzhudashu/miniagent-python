@@ -38,44 +38,31 @@ from datetime import datetime, timezone
 from typing import Any
 
 from miniagent.agent.logging import get_logger
-from miniagent.agent.types.config import normalize_conversation_history
 from miniagent.agent.types.memory import Session, SessionOptions
 from miniagent.agent.types.skill import Skill
 from miniagent.agent.types.tool import Toolbox, ToolContext, ToolDefinition
-from miniagent.assistant.infrastructure.atomic_json import atomic_dump_json
 from miniagent.assistant.infrastructure.json_config import get_config
-from miniagent.assistant.infrastructure.persistence import dump_state_file, load_state_file
+from miniagent.assistant.infrastructure.persistence import load_state_file
 from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 from miniagent.assistant.infrastructure.state_schemas import install_builtin_state_schemas
+from miniagent.assistant.session.storage import (
+    SessionConfig,
+    SessionDiskStorage,
+    _DiskConfigCacheEntry,
+    _DiskSessionConfig,
+    load_history_json_file,
+    truncate_history,
+)
 from miniagent.assistant.utils.session_id import safe_session_id
 
 _logger = get_logger(__name__)
 install_builtin_state_schemas()
 
-# ─── 会话历史硬限制（性能优化：防止内存膨胀）──
-
-MAX_HISTORY_MESSAGES = 200
-
-
 def _truncate_history(
     history: list[dict[str, Any]], max_messages: int | None = None
 ) -> list[dict[str, Any]]:
-    """截断历史消息，保留 system + 首条用户 + 最后 N-2 条消息。"""
-    if max_messages is None:
-        max_messages = int(get_config("memory.max_history_messages", MAX_HISTORY_MESSAGES))
-    max_messages = max(1, max_messages)
-    if len(history) <= max_messages:
-        return history
-    # 保留 system 消息（通常是第一条）
-    system_msgs = [m for m in history if m.get("role") == "system"]
-    other_msgs = [m for m in history if m.get("role") != "system"]
-    if len(system_msgs) > 0 and len(other_msgs) > max_messages - 1:
-        # 保留首条用户消息 + 最后剩余消息
-        first_user = next((m for m in other_msgs if m.get("role") == "user"), None)
-        remaining = other_msgs[-(max_messages - len(system_msgs) - (1 if first_user else 0)) :]
-        return system_msgs + ([first_user] if first_user else []) + remaining
-    # 简单截断：保留最后 max_messages 条
-    return history[-max_messages:]
+    """Compatibility hook delegating history bounds to session storage."""
+    return truncate_history(history, max_messages=max_messages)
 
 
 def _get_history(ctx: dict[str, Any]) -> list[dict[str, Any]]:
@@ -94,38 +81,9 @@ def _set_history(ctx: dict[str, Any], history: list[dict[str, Any]]) -> None:
 
 
 def _load_history_json_file(path: str) -> list[dict[str, Any]]:
-    """从 ``history.json`` 路径读取、规范化并截断历史（不修改会话内存）。"""
-    if not os.path.isfile(path):
-        return []
-    try:
-        file_size = os.path.getsize(path)
-        document = load_state_file("session_history", path)
-        history = normalize_conversation_history(document.get("messages"))
-        original_count = len(history)
-        max_msgs = int(get_config("memory.max_history_messages", MAX_HISTORY_MESSAGES))
-        history = _truncate_history(history, max_messages=max_msgs)
-        if original_count > len(history):
-            _logger.info(
-                "history.json 已截断加载: %s (%d → %d 条)",
-                path,
-                original_count,
-                len(history),
-            )
-        elif file_size > 5 * 1024 * 1024:
-            _logger.info(
-                "history.json 较大 (%d MB)，已加载最近 %d 条: %s",
-                file_size // (1024 * 1024),
-                len(history),
-                path,
-            )
-        return history
-    except json.JSONDecodeError as e:
-        _logger.warning("history.json JSON 格式无效，将使用空历史: %s → %s", path, e)
-    except OSError as e:
-        _logger.warning("history.json 读取失败，将使用空历史: %s → %s", path, e)
-    except Exception as e:
-        _logger.warning("history.json 加载失败，将使用空历史: %s → %s", path, e)
-    return []
+    """Compatibility hook delegating schema loading to session storage."""
+    limit = int(get_config("memory.max_history_messages", 200))
+    return load_history_json_file(path, max_messages=limit)
 
 
 def _load_history_from_disk(ctx: dict[str, Any]) -> list[dict[str, Any]]:
@@ -171,64 +129,6 @@ def _get_workspaces_dir() -> str:
     返回 workspaces/sessions/ 目录，会话数据存储在 workspaces/sessions/<sessionId>/
     """
     return os.path.join(_get_state_dir(), "sessions")
-
-
-# ============================================================================
-# 会话配置
-# ============================================================================
-
-
-@dataclass
-class SessionConfig:
-    """会话配置
-
-    Attributes:
-        session_id: 会话 ID
-        session_number: 会话编号（用于显示，如 #1, #2）
-        workspace_path: 工作空间路径
-        files_path: 文件目录（工具操作默认位置）
-        skills_path: 技能目录
-        created_at: 创建时间
-        last_active: 最后活跃时间
-        title: 会话标题（可重命名）
-        description: 描述
-        chat_id: 关联的 chatId
-        sender_id: 关联的 senderId
-    """
-
-    session_id: str
-    workspace_path: str
-    files_path: str
-    skills_path: str
-    created_at: str
-    last_active: str
-    session_number: int = 0
-    title: str = ""
-    description: str = ""
-    chat_id: str | None = None
-    sender_id: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class _DiskSessionConfig:
-    """Compact metadata needed by session discovery commands."""
-
-    dir_name: str
-    workspace_path: str
-    session_id: str
-    session_number: int
-    title: str
-    created_at: str
-    last_active: str
-
-
-@dataclass(frozen=True, slots=True)
-class _DiskConfigCacheEntry:
-    """One fingerprinted parse result; ``config=None`` caches invalid JSON."""
-
-    mtime_ns: int
-    size: int
-    config: _DiskSessionConfig | None
 
 
 @dataclass
@@ -316,9 +216,13 @@ class DefaultSessionManager:
         self._session_locks_meta = threading.Lock()
         from miniagent.agent.constants import SESSION_CONFIG_CACHE_MAX_SIZE
 
-        self._disk_config_cache: dict[str, _DiskConfigCacheEntry] = {}
+        self._storage = SessionDiskStorage(
+            _get_workspaces_dir(),
+            config_cache_max=SESSION_CONFIG_CACHE_MAX_SIZE,
+        )
+        self._disk_config_cache: dict[str, _DiskConfigCacheEntry] = self._storage.config_cache
         self._disk_config_cache_max = SESSION_CONFIG_CACHE_MAX_SIZE
-        self._disk_config_cache_lock = threading.Lock()
+        self._disk_config_cache_lock = self._storage.config_cache_lock
         self._ensure_workspaces_dir()
         self._scan_existing_numbers()
 
@@ -358,7 +262,7 @@ class DefaultSessionManager:
 
     def _ensure_workspaces_dir(self) -> None:
         """确保工作空间目录存在"""
-        os.makedirs(_get_workspaces_dir(), exist_ok=True)
+        self._storage.ensure_dir()
 
     def _evict_oldest_if_needed(self) -> None:
         """性能优化：LRU 驎出最旧的会话，保持内存使用在 max_sessions 限制内。
@@ -425,84 +329,8 @@ class DefaultSessionManager:
         return registry, core_count
 
     def _scan_disk_configs(self) -> list[_DiskSessionConfig]:
-        """统一磁盘扫描：读取所有会话 config.json。
-
-        替代之前 3 处重复的磁盘扫描逻辑：
-        - _scan_existing_numbers()
-        - _scan_disk_sessions()
-        - list_all_sessions_with_info() 的磁盘部分
-
-        Returns:
-            紧凑且只读的会话元数据；未变化文件复用指纹缓存。
-        """
-        workspaces = _get_workspaces_dir()
-        result: list[_DiskSessionConfig] = []
-        seen_paths: set[str] = set()
-        with self._disk_config_cache_lock:
-            try:
-                entries = os.scandir(workspaces)
-            except OSError:
-                return result
-
-            with entries:
-                for entry in entries:
-                    try:
-                        if not entry.is_dir():
-                            continue
-                    except OSError:
-                        continue
-
-                    config_path = os.path.join(entry.path, "config.json")
-                    try:
-                        stat = os.stat(config_path)
-                    except OSError:
-                        continue
-                    seen_paths.add(config_path)
-
-                    cached = self._disk_config_cache.get(config_path)
-                    if (
-                        cached is not None
-                        and cached.mtime_ns == stat.st_mtime_ns
-                        and cached.size == stat.st_size
-                    ):
-                        if cached.config is not None:
-                            result.append(cached.config)
-                        continue
-
-                    parsed: _DiskSessionConfig | None = None
-                    try:
-                        raw = load_state_file("session_config", config_path)
-                        if not isinstance(raw, dict):
-                            raise ValueError("config root must be an object")
-                        number = raw.get("session_number", 0)
-                        parsed = _DiskSessionConfig(
-                            dir_name=entry.name,
-                            workspace_path=entry.path,
-                            session_id=str(raw.get("session_id") or ""),
-                            session_number=number if isinstance(number, int) else 0,
-                            title=str(raw.get("title") or ""),
-                            created_at=str(raw.get("created_at") or ""),
-                            last_active=str(raw.get("last_active") or ""),
-                        )
-                    except Exception as e:
-                        _logger.debug("扫描磁盘配置失败: %s", e)
-
-                    if (
-                        cached is not None
-                        or len(self._disk_config_cache) < self._disk_config_cache_max
-                    ):
-                        self._disk_config_cache[config_path] = _DiskConfigCacheEntry(
-                            mtime_ns=stat.st_mtime_ns,
-                            size=stat.st_size,
-                            config=parsed,
-                        )
-                    if parsed is not None:
-                        result.append(parsed)
-
-            stale_paths = self._disk_config_cache.keys() - seen_paths
-            for path in stale_paths:
-                self._disk_config_cache.pop(path, None)
-        return result
+        """Return cached, schema-validated session metadata from disk storage."""
+        return self._storage.scan_configs(cache_max=self._disk_config_cache_max)
 
     def _scan_existing_numbers(self) -> None:
         """扫描已有会话编号，确定下一个可用编号。"""
@@ -526,59 +354,8 @@ class DefaultSessionManager:
         return safe_session_id(session_id)
 
     def _save_config(self, config: SessionConfig) -> None:
-        """保存会话配置到磁盘
-
-        Args:
-            config: 会话配置
-        """
-        try:
-            config_path = os.path.join(config.workspace_path, "config.json")
-            atomic_dump_json(
-                config_path,
-                {
-                    "schema_version": 1,
-                    "session_id": config.session_id,
-                    "workspace_path": config.workspace_path,
-                    "files_path": config.files_path,
-                    "skills_path": config.skills_path,
-                    "created_at": config.created_at,
-                    "last_active": config.last_active,
-                    "session_number": config.session_number,
-                    "title": config.title,
-                    "description": config.description,
-                    "chat_id": config.chat_id,
-                    "sender_id": config.sender_id,
-                },
-                indent=2,
-                ensure_ascii=False,
-            )
-            try:
-                stat = os.stat(config_path)
-            except OSError:
-                with self._disk_config_cache_lock:
-                    self._disk_config_cache.pop(config_path, None)
-            else:
-                cached_config = _DiskSessionConfig(
-                    dir_name=os.path.basename(config.workspace_path),
-                    workspace_path=config.workspace_path,
-                    session_id=config.session_id,
-                    session_number=config.session_number,
-                    title=config.title,
-                    created_at=config.created_at,
-                    last_active=config.last_active,
-                )
-                with self._disk_config_cache_lock:
-                    if (
-                        config_path in self._disk_config_cache
-                        or len(self._disk_config_cache) < self._disk_config_cache_max
-                    ):
-                        self._disk_config_cache[config_path] = _DiskConfigCacheEntry(
-                            mtime_ns=stat.st_mtime_ns,
-                            size=stat.st_size,
-                            config=cached_config,
-                        )
-        except Exception:
-            _logger.exception("会话配置保存失败: %s", config.workspace_path)
+        """Persist config through the session storage boundary."""
+        self._storage.save_config(config, cache_max=self._disk_config_cache_max)
 
     # -----------------------------------------------------------------------
     # 会话历史持久化（Persistence Layer）
@@ -620,21 +397,10 @@ class DefaultSessionManager:
                 return
             try:
                 history = _get_history(ctx)
-                # 截断历史防止内存膨胀
                 history = _truncate_history(history)
                 _set_history(ctx, history)
                 history_snapshot = [dict(message) for message in history]
-                path = os.path.join(ctx["config"].workspace_path, "history.json")
-                dump_state_file(
-                    "session_history",
-                    path,
-                    {
-                        "message_format": "miniagent-conversation-v1",
-                        "messages": history_snapshot,
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                )
+                self._storage.save_history(ctx["config"], history_snapshot)
             except Exception as e:
                 _logger.warning("保存会话历史失败 (session=%s): %s", session_id, e)
 
@@ -654,7 +420,8 @@ class DefaultSessionManager:
         ctx = self._sessions.get(session_id)
         if not ctx:
             return []
-        return _load_history_from_disk(ctx)
+        limit = int(get_config("memory.max_history_messages", 200))
+        return self._storage.load_history(ctx["config"], max_messages=limit)
 
     async def save_session_history_async(self, session_id: str) -> None:
         """异步持久化会话历史到磁盘（性能优化：不阻塞事件循环）。
@@ -683,7 +450,12 @@ class DefaultSessionManager:
         if not ctx:
             return []
 
-        return await asyncio.to_thread(_load_history_from_disk, ctx)
+        limit = int(get_config("memory.max_history_messages", 200))
+        return await asyncio.to_thread(
+            self._storage.load_history,
+            ctx["config"],
+            max_messages=limit,
+        )
 
     def load_session_history_range(
         self,
@@ -710,7 +482,8 @@ class DefaultSessionManager:
 
         history = _get_history(ctx)
         if len(history) == 0:
-            disk_history = _load_history_from_disk(ctx)
+            limit = int(get_config("memory.max_history_messages", 200))
+            disk_history = self._storage.load_history(ctx["config"], max_messages=limit)
             if disk_history:
                 _set_history(ctx, disk_history)
                 history = disk_history
@@ -743,20 +516,7 @@ class DefaultSessionManager:
         Returns:
             已保存的会话 ID 列表（磁盘目录名，即 safe_id）
         """
-        workspaces = _get_workspaces_dir()
-        ids: list[str] = []
-        try:
-            entries = os.scandir(workspaces)
-        except OSError:
-            return ids
-        with entries:
-            for entry in entries:
-                try:
-                    if entry.is_dir() and os.path.isfile(os.path.join(entry.path, "config.json")):
-                        ids.append(entry.name)
-                except OSError:
-                    continue
-        return ids
+        return self._storage.list_session_ids()
 
     def get_or_create(self, id: str, options: SessionOptions | None = None) -> Session:
         """获取或创建会话

@@ -25,13 +25,46 @@ from miniagent.agent.prompts.identity import AGENT_IDENTITY
 from miniagent.agent.timezone import format_agent_timezone_context
 from miniagent.agent.types.agent import LoopDetectionConfig
 from miniagent.agent.types.config import AgentConfig
-from miniagent.agent.types.planning import StructuredPlan
+from miniagent.agent.types.planning import PlanStep, StructuredPlan
 from miniagent.agent.types.skill import ClawHubClientProtocol
-from miniagent.agent.types.tool import ToolContext
+from miniagent.agent.types.tool import ToolContext, ToolRegistryProtocol
 from miniagent.agent.workspace import get_default_workspace
 from miniagent.llm.gateway import LLMGateway
 
 _logger = get_logger(__name__)
+
+
+def resolve_exec_tools(
+    effective_registry: ToolRegistryProtocol,
+    agent_config: AgentConfig,
+    plan: StructuredPlan,
+    step: PlanStep | None,
+) -> list[Any]:
+    """Resolve the tool schemas visible to the current plan or step."""
+    if not plan.tools_enabled:
+        return []
+    step_toolboxes = list(step.required_toolboxes) if step and step.required_toolboxes else None
+    plan_toolboxes = plan.required_toolboxes
+    if agent_config.tool_selection_strategy == "all":
+        return effective_registry.get_schemas()
+    if agent_config.tool_selection_strategy == "auto":
+        toolboxes = step_toolboxes or plan_toolboxes
+        if toolboxes:
+            return effective_registry.get_schemas_by_toolboxes(toolboxes)
+        tools = [
+            tool.schema for tool in effective_registry.get_all().values() if tool.toolbox is None
+        ]
+        return tools or effective_registry.get_schemas()
+    return effective_registry.get_schemas_by_toolboxes(step_toolboxes or plan_toolboxes)
+
+
+def step_thinking_header(index: int, total: int, step: PlanStep) -> str:
+    """Build the bounded progress header for one phased execution step."""
+    number = int(step.step_number) if step.step_number is not None else index + 1
+    description = (step.description or "").strip().replace("\n", " ")
+    if len(description) > 72:
+        description = description[:69] + "…"
+    return f"[步骤 {number}/{total}] {description}".strip()
 
 
 def build_tool_context(
@@ -136,4 +169,10 @@ async def build_execution_context(
     return context, ephemeral, activity_enabled
 
 
-__all__ = ["build_execution_context", "build_loop_detector", "build_tool_context"]
+__all__ = [
+    "build_execution_context",
+    "build_loop_detector",
+    "build_tool_context",
+    "resolve_exec_tools",
+    "step_thinking_header",
+]

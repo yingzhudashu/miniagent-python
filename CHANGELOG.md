@@ -27,6 +27,10 @@
 
 ### Changed
 
+- Agent 对象 API 与兼容 `run_agent()` 函数 API 归一到同一冻结回合上下文；Assistant 生产路径不再把对象调用绕回函数入口。执行阶段的单调用点辅助模块已就近合并，同时保持全部公开签名和阶段行为不变。
+- `AssistantTurnService` 以不可变回合快照传递 CLI/飞书元数据；命令调度器只负责解析与调用，状态、质量审查和测试逻辑由各自命令模块拥有，并移除命令到调度器的反向依赖。
+- 会话配置扫描、缓存、原子配置写入与历史 schema I/O 收敛到私有 `SessionDiskStorage`；`DefaultSessionManager` 的公开方法、目录布局、config schema 1 和 history schema 2 保持不变。
+- `ConfigSnapshot` 复用 `AgentSettings` 的递归冻结语义，已有冻结快照进入 Agent 时不再重复复制。
 - Trace 配置改由组合根以不可变 `TraceRuntimeConfig` 显式注入；初始化失败可回滚重试，writer 关停超时保留可重试状态，维护命令在溢出竞争下保持 FIFO。CPU/RSS 资源采样不再隐式启动 tracemalloc，Python 分配跟踪由独立配置按需启用。
 - Dream 文件维护、配置 watcher 的文件状态读取和索引持久化移出事件循环；embedding cache/single-flight 按 endpoint 与 model 隔离，运行期配置覆盖不再被快照磁盘重读覆盖。
 - 内存剖析脚本复用单一事件循环并覆盖正式 `record_turn` 路径；稳定性报告增加预热/末尾 RSS 与 Python 分配中位平台变化，避免用启动峰值误判长驻泄漏。

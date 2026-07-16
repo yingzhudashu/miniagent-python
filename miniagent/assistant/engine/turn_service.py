@@ -1,7 +1,7 @@
 """Engine — AssistantTurnService 核心引擎
 
 从原 ``unified`` 单文件拆分而来。**职责**：按 ``session_key`` 绑定 ``SessionManager`` 与会话历史；
-组装技能工具箱与系统提示片段；调用 :func:`miniagent.agent.agent.run_agent` 并串联 ``ThinkingDisplay``
+组装技能工具箱与系统提示片段；调用对象化 :class:`miniagent.agent.Agent` 并串联 ``ThinkingDisplay``
 （CLI 实时打印 / 飞书侧缓冲后卡片）；记忆服务由组合根以单一 ``MemoryRuntime`` 注入。
 
 **非职责**：不实现飞书 WebSocket 协议细节（见 :mod:`miniagent.assistant.feishu.poll_server`）；不解析 ``.`` 命令
@@ -28,7 +28,6 @@ _STEP_NUMBER_PATTERN = re.compile(r"\[步骤\s*(\d+)\s*/\s*(\d+)\s*\]")
 _ROUND_NUMBER_PATTERN = re.compile(r"第\s*(\d+)\s*轮")
 
 from miniagent.agent import Agent, AgentRequest, AgentServices, AgentSettings
-from miniagent.agent.agent import run_agent
 from miniagent.agent.logging import get_logger
 from miniagent.agent.ports.knowledge import KnowledgeRegistryProtocol
 from miniagent.agent.ports.memory import MemoryRuntimeProtocol
@@ -330,6 +329,36 @@ async def _finalize_engine_turn(
         _logger.warning("Dream scheduler scheduling failed: %s", error)
 
 
+@dataclass(frozen=True, slots=True)
+class _AssistantTurnRequest:
+    """Immutable snapshot of all product inputs needed for one assistant turn."""
+
+    user_input: str
+    session_key: str
+    skill_toolboxes: tuple[Any, ...]
+    skill_prompts: str | None
+    memory: MemoryRuntimeProtocol
+    knowledge_registry: KnowledgeRegistryProtocol
+    client: Any
+    is_feishu: bool = False
+    registry: Any = None
+    monitor: Any = None
+    session_manager: Any = None
+    feishu_config: Any = None
+    channel_router: Any = None
+    clawhub: Any | None = None
+    feishu_receive_chat_id: str | None = None
+    feishu_trigger_message_id: str | None = None
+    feishu_root_id: str | None = None
+    feishu_parent_id: str | None = None
+    feishu_thread_id: str | None = None
+    feishu_im_receive_id_type: str | None = None
+    feishu_im_receive_id: str | None = None
+    cli_loop_state: Any | None = None
+    agent_config_overrides: dict[str, Any] | None = None
+    feishu_mirror_cli: bool = True
+
+
 class AssistantTurnService:
     """统一管理引擎。
 
@@ -392,11 +421,6 @@ class AssistantTurnService:
         CLI: 终端实时显示
         飞书: 缓冲思考步骤，完成后发送
 
-        Args:
-            user_input: 用户输入
-            session_key: 会话标识符
-            skill_toolboxes: 可用工具箱
-            skill_prompts: 技能系统提示词
             memory: 由应用组合根注入的完整记忆运行时
             knowledge_registry: 由应用组合根注入的知识库注册表
             is_feishu: 当前请求是否来自飞书通道（非独立启动形态；进程始终带 CLI）
@@ -427,37 +451,39 @@ class AssistantTurnService:
             raise ValueError(
                 "run_agent_with_thinking 需要注入 session_manager（会话历史与工作区依赖 SessionManager）"
             )
-        locked_kwargs = {
-            "is_feishu": is_feishu,
-            "registry": registry,
-            "monitor": monitor,
-            "session_manager": session_manager,
-            "feishu_config": feishu_config,
-            "channel_router": channel_router,
-            "clawhub": clawhub,
-            "memory": memory,
-            "knowledge_registry": knowledge_registry,
-            "client": client,
-            "feishu_receive_chat_id": feishu_receive_chat_id,
-            "feishu_trigger_message_id": feishu_trigger_message_id,
-            "feishu_root_id": feishu_root_id,
-            "feishu_parent_id": feishu_parent_id,
-            "feishu_thread_id": feishu_thread_id,
-            "feishu_im_receive_id_type": feishu_im_receive_id_type,
-            "feishu_im_receive_id": feishu_im_receive_id,
-            "cli_loop_state": cli_loop_state,
-            "agent_config_overrides": agent_config_overrides,
-            "feishu_mirror_cli": feishu_mirror_cli,
-        }
+        request = _AssistantTurnRequest(
+            user_input=user_input,
+            session_key=session_key,
+            skill_toolboxes=tuple(skill_toolboxes),
+            skill_prompts=skill_prompts,
+            memory=memory,
+            knowledge_registry=knowledge_registry,
+            client=client,
+            is_feishu=is_feishu,
+            registry=registry,
+            monitor=monitor,
+            session_manager=session_manager,
+            feishu_config=feishu_config,
+            channel_router=channel_router,
+            clawhub=clawhub,
+            feishu_receive_chat_id=feishu_receive_chat_id,
+            feishu_trigger_message_id=feishu_trigger_message_id,
+            feishu_root_id=feishu_root_id,
+            feishu_parent_id=feishu_parent_id,
+            feishu_thread_id=feishu_thread_id,
+            feishu_im_receive_id_type=feishu_im_receive_id_type,
+            feishu_im_receive_id=feishu_im_receive_id,
+            cli_loop_state=cli_loop_state,
+            agent_config_overrides=(
+                dict(agent_config_overrides) if agent_config_overrides is not None else None
+            ),
+            feishu_mirror_cli=feishu_mirror_cli,
+        )
         if _hold_session_lock:
-            return await self._run_agent_with_thinking_locked(
-                user_input, session_key, skill_toolboxes, skill_prompts, **locked_kwargs
-            )
+            return await self._run_agent_with_thinking_locked(request)
 
         async with self._session_exec.acquire(session_key):
-            return await self._run_agent_with_thinking_locked(
-                user_input, session_key, skill_toolboxes, skill_prompts, **locked_kwargs
-            )
+            return await self._run_agent_with_thinking_locked(request)
 
     @asynccontextmanager
     async def session_turn(self, session_key: str) -> AsyncIterator[None]:
@@ -560,68 +586,53 @@ class AssistantTurnService:
         return receive_id
 
     async def _run_agent_with_thinking_locked(
-        self, user_input: str,
-        session_key: str,
-        skill_toolboxes: list,
-        skill_prompts: str | None,
-        *,
-        memory: MemoryRuntimeProtocol,
-        knowledge_registry: KnowledgeRegistryProtocol,
-        client: Any,
-        is_feishu: bool = False,
-        registry: Any = None,
-        monitor: Any = None,
-        session_manager: Any = None,
-        feishu_config: Any = None,
-        channel_router: Any = None,
-        clawhub: Any | None = None,
-        feishu_receive_chat_id: str | None = None,
-        feishu_trigger_message_id: str | None = None,
-        feishu_root_id: str | None = None,
-        feishu_parent_id: str | None = None,
-        feishu_thread_id: str | None = None,
-        feishu_im_receive_id_type: str | None = None,
-        feishu_im_receive_id: str | None = None,
-        cli_loop_state: Any | None = None,
-        agent_config_overrides: dict[str, Any] | None = None,
-        feishu_mirror_cli: bool = True,
+        self,
+        request: _AssistantTurnRequest,
     ) -> str:
         """在已持有会话执行锁时运行一轮 Agent，并完成通道与历史收尾。"""
-        history, session_workspace = _open_engine_session(session_manager, session_key, is_feishu=is_feishu)
-        system_prompt = _build_turn_system_prompt(session_key, user_input, skill_prompts)
-        self.thinking.reset_counter(session_key)
-        im_recv = (feishu_receive_chat_id or "").strip()
-        if is_feishu and feishu_config:
-            im_recv = await self._enable_feishu_thinking(
-                session_key,
-                feishu_config,
-                channel_router,
-                feishu_receive_chat_id,
-                feishu_trigger_message_id,
-                feishu_thread_id,
-                feishu_mirror_cli,
+        history, session_workspace = _open_engine_session(
+            request.session_manager,
+            request.session_key,
+            is_feishu=request.is_feishu,
+        )
+        system_prompt = _build_turn_system_prompt(
+            request.session_key,
+            request.user_input,
+            request.skill_prompts,
+        )
+        self.thinking.reset_counter(request.session_key)
+        receive_id = (request.feishu_receive_chat_id or "").strip()
+        if request.is_feishu and request.feishu_config:
+            receive_id = await self._enable_feishu_thinking(
+                request.session_key,
+                request.feishu_config,
+                request.channel_router,
+                request.feishu_receive_chat_id,
+                request.feishu_trigger_message_id,
+                request.feishu_thread_id,
+                request.feishu_mirror_cli,
             )
-        thinking_recorder = _TurnThinkingRecorder(self.thinking, session_key)
+        thinking_recorder = _TurnThinkingRecorder(self.thinking, request.session_key)
         agent_cfg_in = _build_turn_agent_config(
-            session_key,
+            request.session_key,
             session_workspace,
             history,
-            is_feishu=is_feishu,
-            feishu_receive_chat_id=feishu_receive_chat_id,
-            feishu_trigger_message_id=feishu_trigger_message_id,
-            feishu_root_id=feishu_root_id,
-            feishu_parent_id=feishu_parent_id,
-            feishu_thread_id=feishu_thread_id,
-            feishu_im_receive_id_type=feishu_im_receive_id_type,
-            feishu_im_receive_id=feishu_im_receive_id,
-            cli_loop_state=cli_loop_state,
-            overrides=agent_config_overrides,
+            is_feishu=request.is_feishu,
+            feishu_receive_chat_id=request.feishu_receive_chat_id,
+            feishu_trigger_message_id=request.feishu_trigger_message_id,
+            feishu_root_id=request.feishu_root_id,
+            feishu_parent_id=request.feishu_parent_id,
+            feishu_thread_id=request.feishu_thread_id,
+            feishu_im_receive_id_type=request.feishu_im_receive_id_type,
+            feishu_im_receive_id=request.feishu_im_receive_id,
+            cli_loop_state=request.cli_loop_state,
+            overrides=request.agent_config_overrides,
         )
         from miniagent.agent.config import get_default_agent_config, merge_agent_config
 
         merged_for_prog = merge_agent_config(get_default_agent_config(), agent_cfg_in)
-        effective_registry = merged_for_prog.session_config.session_registry or registry
-        if is_feishu and effective_registry is not None:
+        effective_registry = merged_for_prog.session_config.session_registry or request.registry
+        if request.is_feishu and effective_registry is not None:
             from miniagent.assistant.feishu.agent_channel_prompts import (
                 append_feishu_channel_system,
             )
@@ -630,84 +641,65 @@ class AssistantTurnService:
                 system_prompt, is_feishu=True, registry=effective_registry
             )
         reply = await self._invoke_core_agent(
-            user_input,
-            session_key=session_key,
-            registry=registry,
-            memory=memory,
-            knowledge_registry=knowledge_registry,
-            monitor=monitor,
-            skill_toolboxes=skill_toolboxes,
+            request,
             agent_config=agent_cfg_in,
             system_prompt=system_prompt,
             recorder=thinking_recorder,
-            clawhub=clawhub,
-            client=client,
-            is_feishu=is_feishu,
         )
         await _finalize_engine_turn(
             self,
-            user_input=user_input,
+            user_input=request.user_input,
             reply=reply,
-            session_key=session_key,
+            session_key=request.session_key,
             history=history,
             recorder=thinking_recorder,
             merged_config=merged_for_prog,
-            memory=memory,
-            session_manager=session_manager,
-            is_feishu=is_feishu,
-            feishu_config=feishu_config,
-            feishu_receive_id=im_recv,
+            memory=request.memory,
+            session_manager=request.session_manager,
+            is_feishu=request.is_feishu,
+            feishu_config=request.feishu_config,
+            feishu_receive_id=receive_id,
         )
         return reply
 
     async def _invoke_core_agent(
         self,
-        user_input: str,
+        request: _AssistantTurnRequest,
         *,
-        session_key: str,
-        registry: Any,
-        memory: MemoryRuntimeProtocol,
-        knowledge_registry: KnowledgeRegistryProtocol,
-        monitor: Any,
-        skill_toolboxes: list[Any],
         agent_config: dict[str, Any],
         system_prompt: str | None,
         recorder: _TurnThinkingRecorder,
-        clawhub: Any | None,
-        client: Any,
-        is_feishu: bool,
     ) -> str:
         """调用纯核心 Agent，并注入当前会话的确认与思考回调。"""
         _logger.debug(
             "run_agent 调度: session_key=%s source=%s input=%.40s",
-            session_key,
-            "feishu" if is_feishu else "cli",
-            (user_input or "").replace("\n", " "),
+            request.session_key,
+            "feishu" if request.is_feishu else "cli",
+            (request.user_input or "").replace("\n", " "),
         )
         observer = _EngineAgentObserver(
             self,
-            session_key,
+            request.session_key,
             recorder,
-            self._on_plan_handler(session_key),
+            self._on_plan_handler(request.session_key),
         )
         agent = Agent(AgentServices(
-            llm=client,
+            llm=request.client,
             settings=AgentSettings(get_config_snapshot()),
-            registry=registry,
-            memory=memory,
-            knowledge=knowledge_registry,
-            monitor=monitor,
+            registry=request.registry,
+            memory=request.memory,
+            knowledge=request.knowledge_registry,
+            monitor=request.monitor,
             observer=observer,
-            clawhub=clawhub,
+            clawhub=request.clawhub,
             clarifier=self._get_clarifier(),
-            confirmation_channel=self._get_confirmation_channel(session_key),
+            confirmation_channel=self._get_confirmation_channel(request.session_key),
             tool_semaphore=self._tool_semaphore,
-            runner=run_agent,
         ))
         agent_result = await agent.run(AgentRequest(
-            user_input=user_input,
-            session_key=session_key,
-            toolboxes=tuple(skill_toolboxes),
+            user_input=request.user_input,
+            session_key=request.session_key,
+            toolboxes=request.skill_toolboxes,
             system_prompt=system_prompt,
             config=agent_config,
         ))

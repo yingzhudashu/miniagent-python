@@ -544,7 +544,7 @@ class TestReviewCommand:
         state["session_manager"].get.return_value = session
 
         with patch(
-            "miniagent.assistant.engine.command_dispatch._run_review",
+            "miniagent.assistant.engine.commands.quality_commands._run_review",
             new_callable=AsyncMock,
             return_value=None,
         ):

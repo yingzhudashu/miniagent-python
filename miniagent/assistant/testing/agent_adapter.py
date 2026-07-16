@@ -52,7 +52,7 @@ def build_execute_agent(
         monitor = DefaultToolMonitor()
         captured_calls: list[dict[str, Any]] = []
 
-        def on_tool_finish(
+        async def on_tool_finish(
             name: str,
             args_json: str,
             result: str,
@@ -129,7 +129,7 @@ async def build_execute_agent_from_engine(
         run_monitor = DefaultToolMonitor()
         captured_calls: list[dict[str, Any]] = []
 
-        def on_tool_finish(
+        async def on_tool_finish(
             name: str,
             args_json: str,
             result: str,

@@ -18,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, TypedDict, runtime_checkable
 
-from miniagent.agent.defaults import AGENT_HISTORY_SIZE_DEFAULT
+from miniagent.agent.constants import AGENT_HISTORY_SIZE_DEFAULT
 
 _HISTORY_SIZE_DEFAULT = AGENT_HISTORY_SIZE_DEFAULT
 

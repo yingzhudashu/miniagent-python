@@ -39,7 +39,6 @@ from miniagent.agent.constants import (
     MAX_ARGS_LOG_LEN,
 )
 from miniagent.agent.context import ContextBudgetExceeded, DefaultContextManager
-from miniagent.agent.execution_intent import extract_tool_intent
 from miniagent.agent.execution_prompts import (
     build_current_turn_user_context,
     build_stable_execution_system_prompt,
@@ -66,6 +65,21 @@ from miniagent.llm.gateway import LLMGateway
 
 _logger = get_logger(__name__)
 _EXEC_LLM_MAX_ATTEMPTS = 3
+_TOOL_INTENT_MAP: dict[str, str] = {
+    "read_file": "读取文件",
+    "write_file": "写入文件",
+    "edit_file": "编辑文件",
+    "list_dir": "列出目录",
+    "exec_command": "执行命令",
+    "web_search": "搜索网页",
+    "browser_extract_text": "浏览器提取正文",
+    "fetch_url": "抓取网页",
+    "read_memory": "读取记忆",
+    "write_memory": "写入记忆",
+    "search_memory": "搜索记忆",
+    "git_status": "Git 状态",
+    "git_diff": "Git 差异",
+}
 
 
 def _exec_retry_params(base: dict[str, Any], *, attempt: int, responses: bool) -> dict[str, Any]:
@@ -142,7 +156,12 @@ def _reset_env_caches_for_tests() -> None:
     _tool_intent_max_chars.cache_clear()
 
 
-from miniagent.agent.execution_setup import _resolve_exec_tools, _step_thinking_header
+from miniagent.agent.execution_runtime_setup import (
+    resolve_exec_tools as _resolve_exec_tools,
+)
+from miniagent.agent.execution_runtime_setup import (
+    step_thinking_header as _step_thinking_header,
+)
 
 
 def _append_context_or_return(
@@ -747,7 +766,16 @@ async def execute_plan(
 
 def _extract_tool_intent(tool_name: str, args: dict[str, Any]) -> str:
     """从工具名称与关键参数生成有界意图摘要。"""
-    return extract_tool_intent(tool_name, args, max_chars=_tool_intent_max_chars)
+    base = _TOOL_INTENT_MAP.get(tool_name, f"调用 {tool_name}")
+    for key in ("path", "query", "command", "content", "url"):
+        if key not in args:
+            continue
+        value = str(args[key])
+        cap = _tool_intent_max_chars()
+        if cap > 0 and len(value) > cap:
+            value = value[:cap] + f"…（共 {len(value)} 字）"
+        return f"{base}: {value}"
+    return base
 
 
 __all__ = [

@@ -2,22 +2,10 @@
 
 from __future__ import annotations
 
-import io
-from contextlib import redirect_stdout
 from typing import Any
 
-from miniagent.agent.types.error_prefix import ERROR_PREFIX, WARNING_PREFIX
-
-
-def _capture(callable_: Any, *args: Any, **kwargs: Any) -> str:
-    """捕获知识库叶子命令输出，并保留可操作错误。"""
-    buffer = io.StringIO()
-    try:
-        with redirect_stdout(buffer):
-            result = callable_(*args, **kwargs)
-    except Exception as error:
-        return f"{ERROR_PREFIX} 命令执行失败: {error}"
-    return str(result) if isinstance(result, str) else buffer.getvalue().strip()
+from miniagent.agent.types.error_prefix import WARNING_PREFIX
+from miniagent.assistant.engine.commands.output import capture_output as _capture
 
 
 async def handle_knowledge(

@@ -80,9 +80,13 @@ async def test_confirmation_handler_matrix(capsys) -> None:
 @pytest.mark.asyncio
 async def test_test_command_parsing_and_dispatch(monkeypatch, capsys) -> None:
     run = AsyncMock(return_value="run-output")
-    monkeypatch.setattr("miniagent.assistant.engine.command_dispatch._run_test", run)
-    monkeypatch.setattr("miniagent.assistant.engine.command_dispatch._list_test_samples", lambda: "list")
-    monkeypatch.setattr("miniagent.assistant.engine.command_dispatch._get_test_status", lambda: "status")
+    monkeypatch.setattr("miniagent.assistant.engine.commands.test_commands._run_test", run)
+    monkeypatch.setattr(
+        "miniagent.assistant.engine.commands.test_commands._list_test_samples", lambda: "list"
+    )
+    monkeypatch.setattr(
+        "miniagent.assistant.engine.commands.test_commands._get_test_status", lambda: "status"
+    )
     runtime = SimpleNamespace(cli_transcript_append=MagicMock())
     state = {"runtime_ctx": runtime}
 
@@ -116,12 +120,16 @@ async def test_quality_handlers_and_persistence(monkeypatch, capsys) -> None:
         "active_session_id": "s",
     }
     monkeypatch.setattr(
-        "miniagent.assistant.engine.command_dispatch._get_last_qa", lambda *_args: (None, None)
+        "miniagent.assistant.engine.commands.quality_commands._get_last_qa",
+        lambda *_args: (None, None),
     )
     assert "无历史" in await quality_commands.handle_review("/review", state=state, capture=True)
-    monkeypatch.setattr("miniagent.assistant.engine.command_dispatch._get_last_qa", lambda *_args: ("q", "a"))
+    monkeypatch.setattr(
+        "miniagent.assistant.engine.commands.quality_commands._get_last_qa",
+        lambda *_args: ("q", "a"),
+    )
     review = AsyncMock(return_value="reviewed")
-    monkeypatch.setattr("miniagent.assistant.engine.command_dispatch._run_review", review)
+    monkeypatch.setattr("miniagent.assistant.engine.commands.quality_commands._run_review", review)
     assert (
         await quality_commands.handle_review("/review focus", state=state, capture=True)
         == "reviewed"
@@ -142,7 +150,7 @@ async def test_quality_handlers_and_persistence(monkeypatch, capsys) -> None:
         lambda *_args, **_kwargs: ({"content": "q"}, previous, ["better"]),
     )
     improve = AsyncMock(return_value="new")
-    monkeypatch.setattr("miniagent.assistant.engine.command_dispatch._run_improve", improve)
+    monkeypatch.setattr("miniagent.assistant.engine.commands.quality_commands._run_improve", improve)
     session = SimpleNamespace(conversation_history=[])
     manager = SimpleNamespace(
         get=lambda _sid: session,

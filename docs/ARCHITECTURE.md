@@ -118,7 +118,7 @@ Mini Agent Python 的 **Agent 问答流水线**为 Phase 0 分类 → Phase 0.5 
 | `cli_files.py` | `@file:` / `file:` 解析、文件元数据和记忆摄取 |
 | `cli_shell.py` | `!` shell 命令执行与结果格式化 |
 | `engine.py` | `AssistantTurnService`：会话上下文管理、Agent 编排、思考回调、历史持久化 |
-| `command_dispatch.py` | 统一命令调度器：CLI 和飞书共享 `/` 命令（支持双前缀），输出捕获（StringIO） |
+| `command_dispatch.py` | 统一命令入口：CLI 和飞书共享 `/` 命令，只负责规范化、注册表查找和处理器调用 |
 | `commands/` | CLI 命令按 session、queue、knowledge、schedule 等领域由单一模块拥有 |
 | `background_tasks.py` | `BackgroundTaskManager`：后台任务生命周期管理、并行上限控制 |
 | `btw_cmd.py` | /btw 命令实现：启动、查询、取消后台任务 |
@@ -203,7 +203,7 @@ Agent 的大脑，采用 **多阶段架构**（Phase 0.5 需求澄清 → Phase 
 
 | 文件 | 职责 |
 |------|------|
-| `agent.py` | 多阶段主入口：`run_agent()` (Clarify→Plan→Execute), `run_pipeline()` (线性管线) |
+| `agent.py` | 唯一多阶段回合实现；`Agent.run()` 与兼容 `run_agent()` 均归一到同一冻结上下文后执行 Clarify→Plan→Execute→Reflect |
 | `requirement_clarifier.py` | Phase 0.5 需求澄清器：三步法（Wittgenstein→Socrates→Polanyi）将模糊输入转化为结构化需求 |
 | `planner.py` | Phase 1 规划器：LLM 分析需求 → 生成 `StructuredPlan` → 本地最小路径 normalization → 选择工具箱 → 估算 tokens |
 | `executor.py` | Phase 2 执行器：ReAct 循环；在 `plan.steps` 非空且 Internal 常量 `PHASED_EXECUTION` 开启时按步骤分子循环，每步单独解析 `thinking_level`/`thinking_budget` |
@@ -360,7 +360,8 @@ ClarifiedRequirement（澄清后的需求规格）
 
 | 文件 | 职责 |
 |------|------|
-| `manager.py` | `SessionManager`：创建/切换/重命名/列出会话，编号↔ID 双重解析，内存+磁盘双查找 |
+| `manager.py` | `SessionManager`：创建/切换/重命名/列出会话，拥有会话锁、LRU、工具与技能隔离 |
+| `storage.py` | 私有 `SessionDiskStorage`：配置扫描缓存、原子配置写入、历史 schema 校验与磁盘列表；不改变既有文件格式 |
 | `workspace.py` | 工作空间管理：会话目录结构、config.json、history.json |
 
 ### 7. 技能层 (Skills)
@@ -467,7 +468,7 @@ LLM 可通过 function calling 调用的工具：
   - 默认实现：`memory/memory_context_service.py`（`DefaultMemoryContext`），作为 `ApplicationContainer.memory.context` 注入
   - 遵循依赖倒置原则（DIP），`executor` 通过 Protocol 检索/持久化，不内联记忆逻辑
 
-依赖边界由 `scripts/check_architecture.py` 在 CI 中检查：顶层只允许 `llm`、`agent`、`ui`、`assistant`；`llm` 和 `ui` 不依赖其他层，`agent` 只可依赖 `llm`，`assistant` 可依赖前三层。检查器覆盖模块顶层、函数内、`TYPE_CHECKING` 和相对导入，并检测跨层循环。
+依赖边界由 `scripts/check_architecture.py` 在 CI 中检查：顶层只允许 `llm`、`agent`、`ui`、`assistant`；`llm` 和 `ui` 不依赖其他层，`agent` 只可依赖 `llm`，`assistant` 可依赖前三层。检查器覆盖模块顶层、函数内、`TYPE_CHECKING` 和相对导入，并检测跨层循环；额外禁止命令处理器反向导入调度器，以及 Assistant 生产代码绕过对象化 Agent 入口。
 
 ## 数据流
 
@@ -479,7 +480,7 @@ LLM 可通过 function calling 调用的工具：
     → build_cli_inbound_message() → InboundMessage(channel="cli")
     → InboundTurnCoordinator → message_queue.dispatch("__cli__", ...)
     → _process_input(InboundMessage) → engine.run_agent_with_thinking()
-    → run_agent() → planner → executor (ReAct)
+    → Agent.run(AgentRequest) → 统一回合上下文 → planner → executor (ReAct)
     → 工具调用 → LLM 最终回复 → OutboundEvent(channel="cli")
     → ChannelRegistry → CliChannelAdapter → TUI/fallback 渲染器
 ```
@@ -503,7 +504,7 @@ CLI 入站、飞书文本/媒体和定时任务均在边界构造标准 `Inbound
     → file/image/post: media_handler() → 资源下载 → 会话 files/feishu_incoming/
         → channel_router.resolve_feishu_message(chat_id, sender_id, chat_type)
         → InboundMessage + Attachment（启用 media.run_agent 时）
-        → run_agent() → planner → executor (ReAct)
+        → Agent.run(AgentRequest) → 统一回合上下文 → planner → executor (ReAct)
         → 工具调用 → LLM 普通文本回复 → OutboundEvent(FINAL)
         → ChannelRegistry → FeishuChannelAdapter → 原飞书卡片/text fallback 发送器
 ```
@@ -522,8 +523,10 @@ CLI 入站、飞书文本/媒体和定时任务均在边界构造标准 `Inbound
 用户输入 "/status"
     ↓
 command_dispatch.dispatch_command()
+    ↓ CommandRegistry 查找
+commands/* 领域处理器
     ↓ capture=True (飞书) / False (CLI)
-_format_status(state, message_queue)
+统一 output capture / transcript writer
     ↓
 返回字符串 → 飞书回复 / CLI print
 ```
@@ -675,7 +678,7 @@ flowchart LR
 |--------|------|------|
 | 添加工具 | `miniagent/assistant/tools/` 新增文件 | 实现 handler + register 函数 |
 | 添加技能 | `workspaces/skills/<pkg>/` | 包级 `SKILL.md`，工具见 `skills/<name>/SKILL.md` 与 `tools.py`（约定见 `miniagent/assistant/skills/loader.py`、`workspaces/skills/skill-creator/SKILL.md`）；`install_skill` / `/reload-skills` / `refresh_skills` 可热加载，无需重启 |
-| 添加命令 | `command_dispatch.py` | 注册新路由 |
+| 添加命令 | `command_registry.py` + `commands/<domain>.py` | 声明命令元数据并绑定领域处理器；调度器无需加入业务逻辑 |
 | 自定义模型 | `config.user.json` | 支持任何 OpenAI 兼容 API |
 | 新通道 | 仿照 `feishu/` | 实现消息接收 + 回复发送 |
 

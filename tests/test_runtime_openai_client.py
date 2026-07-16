@@ -12,11 +12,11 @@ from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 
 
 @pytest.mark.asyncio
-async def test_run_agent_with_thinking_forwards_client_to_run_agent() -> None:
+async def test_run_agent_with_thinking_forwards_client_to_agent() -> None:
     captured: dict = {}
 
-    async def fake_run_agent(*_a, **kwargs: object) -> AgentRunResult:
-        captured["client"] = kwargs.get("client")
+    async def fake_run_agent(turn: object) -> AgentRunResult:
+        captured["client"] = getattr(turn, "client", None)
         return AgentRunResult(reply="ok")
 
     fake_llm = MagicMock(name="injected_llm")
@@ -27,7 +27,7 @@ async def test_run_agent_with_thinking_forwards_client_to_run_agent() -> None:
     sm.get_or_create = MagicMock(return_value=sess)
     sm.save_session_history_async = AsyncMock()
 
-    with patch("miniagent.assistant.engine.turn_service.run_agent", new=fake_run_agent):
+    with patch("miniagent.agent.agent._run_agent_turn", new=fake_run_agent):
         engine = AssistantTurnService()
         await engine.run_agent_with_thinking(
             "hello",

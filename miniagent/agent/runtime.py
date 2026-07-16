@@ -7,7 +7,6 @@ import inspect
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
-from miniagent.agent.agent import run_agent
 from miniagent.agent.ports.knowledge import KnowledgeRegistryProtocol
 from miniagent.agent.ports.memory import MemoryRuntimeProtocol
 from miniagent.agent.settings import AgentSettings, use_agent_settings
@@ -95,7 +94,7 @@ class Agent:
         self._services = services
 
     async def run(self, request: AgentRequest) -> AgentResult:
-        """在隔离配置作用域内执行一个完整 Agent 回合。"""
+        """Run one request through the canonical normalized Agent turn."""
         observer = self._services.observer
         on_reflection = _method(observer, "on_reflection")
 
@@ -106,30 +105,58 @@ class Agent:
             if inspect.isawaitable(result):
                 await result
 
-        runner = self._services.runner or run_agent
         with use_agent_settings(self._services.settings):
-            return await runner(
-                request.user_input,
-                registry=self._services.registry,
-                memory=self._services.memory,
-                knowledge_registry=self._services.knowledge,
-                client=self._services.llm,
-                monitor=self._services.monitor,
-                toolboxes=list(request.toolboxes),
-                agent_config=request.config,
-                options=request.options,
-                system_prompt=request.system_prompt,
-                skip_planning=request.skip_planning,
-                on_tool_call=_method(observer, "on_tool_call"),
-                on_tool_finish=_method(observer, "on_tool_finish"),
-                on_plan=_method(observer, "on_plan"),
-                on_thinking=_method(observer, "on_thinking"),
-                on_reflection=reflection_callback if on_reflection is not None else None,
-                clawhub=self._services.clawhub,
-                clarifier=self._services.clarifier,
-                session_key=request.session_key,
-                confirmation_channel=self._services.confirmation_channel,
-                tool_semaphore=self._services.tool_semaphore,
+            if self._services.runner is not None:
+                return await self._services.runner(
+                    request.user_input,
+                    registry=self._services.registry,
+                    memory=self._services.memory,
+                    knowledge_registry=self._services.knowledge,
+                    client=self._services.llm,
+                    monitor=self._services.monitor,
+                    toolboxes=list(request.toolboxes),
+                    agent_config=request.config,
+                    options=request.options,
+                    system_prompt=request.system_prompt,
+                    skip_planning=request.skip_planning,
+                    on_tool_call=_method(observer, "on_tool_call"),
+                    on_tool_finish=_method(observer, "on_tool_finish"),
+                    on_plan=_method(observer, "on_plan"),
+                    on_thinking=_method(observer, "on_thinking"),
+                    on_reflection=reflection_callback if on_reflection is not None else None,
+                    clawhub=self._services.clawhub,
+                    clarifier=self._services.clarifier,
+                    session_key=request.session_key,
+                    confirmation_channel=self._services.confirmation_channel,
+                    tool_semaphore=self._services.tool_semaphore,
+                )
+
+            from miniagent.agent.agent import _AgentTurnContext, _run_agent_turn
+
+            return await _run_agent_turn(
+                _AgentTurnContext(
+                    user_input=request.user_input,
+                    registry=self._services.registry,
+                    memory=self._services.memory,
+                    knowledge_registry=self._services.knowledge,
+                    client=self._services.llm,
+                    monitor=self._services.monitor,
+                    toolboxes=request.toolboxes,
+                    agent_config=dict(request.config) if request.config is not None else None,
+                    options=request.options,
+                    system_prompt=request.system_prompt,
+                    skip_planning=request.skip_planning,
+                    on_tool_call=_method(observer, "on_tool_call"),
+                    on_tool_finish=_method(observer, "on_tool_finish"),
+                    on_plan=_method(observer, "on_plan"),
+                    on_thinking=_method(observer, "on_thinking"),
+                    on_reflection=reflection_callback if on_reflection is not None else None,
+                    clawhub=self._services.clawhub,
+                    clarifier=self._services.clarifier,
+                    session_key=request.session_key,
+                    confirmation_channel=self._services.confirmation_channel,
+                    tool_semaphore=self._services.tool_semaphore,
+                )
             )
 
 

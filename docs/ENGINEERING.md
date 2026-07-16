@@ -107,7 +107,7 @@ CI 说明：
 说明：
 
 - **Ruff**：规则集见 `pyproject.toml`，包含 Pyflakes、isort、pyupgrade、Bugbear、async、性能与 C901；圈复杂度上限 15。
-- **架构检查**：顶层只允许 `llm`、`agent`、`ui`、`assistant`，完整扫描函数内、相对及 `TYPE_CHECKING` 导入，校验 `assistant → agent → llm` 与 `assistant → ui` 的无环方向；AST 同时零豁免要求生产函数/方法不超过 100 行。
+- **架构检查**：顶层只允许 `llm`、`agent`、`ui`、`assistant`，完整扫描函数内、相对及 `TYPE_CHECKING` 导入，校验 `assistant → agent → llm` 与 `assistant → ui` 的无环方向；同时禁止 commands 反向导入 dispatcher、禁止 Assistant 生产路径直接调用函数式 Agent 内核，并零豁免要求生产函数/方法不超过 100 行。
 - **compileall**：全包语法编译，可捕获部分「仅某测试未覆盖路径」的语法错误。
 - **mypy**：CI 与本地均对整个 `miniagent` 包执行有类型函数体检查；可选 SDK 通过 Protocol/适配器隔离，不使用全局忽略掩盖内部错误。需安装 `.[dev,typing]`。
 - **Pytest**：默认 `asyncio_mode = auto`；`tests/evaluation/` 下用例由 `conftest` 统一打上 `evaluation` marker，与主 CI 隔离；本地若要一次跑全量可执行 `python -m pytest tests/ -q`（含评测）。未装 `lark-oapi` 时部分飞书路径可能跳过；本地可改用 `pip install -e ".[dev,feishu]"` 与 CI 飞书 job 对齐。

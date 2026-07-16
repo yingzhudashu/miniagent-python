@@ -28,12 +28,6 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, TypeAlias
 
-from miniagent.agent.agent_defaults import (
-    create_default_plan as _create_default_plan,
-)
-from miniagent.agent.agent_defaults import (
-    user_forbids_tools as _user_forbids_tools,
-)
 from miniagent.agent.agent_display import (
     format_plan_display_short as _format_plan_display_short,
 )
@@ -87,12 +81,45 @@ from miniagent.agent.types.confirmation import (
 from miniagent.agent.types.error_prefix import WARNING_PREFIX
 from miniagent.agent.types.planning import (
     ContextStrategy,
+    EstimatedTokens,
     StructuredPlan,
     SuggestedConfig,
 )
 from miniagent.agent.types.tool import Toolbox, ToolRegistryProtocol
 
 _logger = get_logger(__name__)
+
+_NO_TOOL_PATTERNS = (
+    "不调用工具",
+    "不要调用工具",
+    "无需调用工具",
+    "禁止调用工具",
+    "do not use tools",
+    "don't use tools",
+    "without tools",
+    "no tools",
+)
+
+
+def _user_forbids_tools(user_input: str) -> bool:
+    """Return whether the user explicitly requests a text-only answer."""
+    normalized = " ".join((user_input or "").lower().split())
+    return any(pattern in normalized for pattern in _NO_TOOL_PATTERNS)
+
+
+def _create_default_plan(*, tools_enabled: bool = True) -> StructuredPlan:
+    """Create the deterministic direct-execution plan used without planning."""
+    return StructuredPlan(
+        summary="直接执行模式",
+        steps=[],
+        required_toolboxes=[],
+        suggested_config=SuggestedConfig(max_turns=None, tool_timeout=30, risk_level="low"),
+        estimated_tokens=EstimatedTokens(),
+        context_strategy=ContextStrategy(mode="normal", reason="跳过规划"),
+        requires_confirmation=False,
+        risk_level="low",
+        tools_enabled=tools_enabled,
+    )
 
 
 def _announce_difficulty_and_plan_enabled() -> bool:
@@ -199,14 +226,14 @@ def _build_agent_run_result(reply: str, monitor: ToolMonitorProtocol) -> AgentRu
     )
 
 
-def _trace_agent_run(func: Any) -> Any:
-    """Add an exception-safe end-to-end span while preserving the public signature."""
+def _trace_agent_turn(func: Any) -> Any:
+    """Add one exception-safe span around the normalized Agent turn."""
 
     @functools.wraps(func)
-    async def wrapped(user_input: str, *args: Any, **kwargs: Any) -> AgentRunResult:
+    async def wrapped(turn: _AgentTurnContext) -> AgentRunResult:
         from miniagent.agent.observability import emit_trace, new_trace_id, trace_parent
 
-        session_key = str(kwargs.get("session_key") or "")
+        session_key = str(turn.session_key or "")
         span_id = new_trace_id("agent")
         wall_start = time.monotonic_ns()
         cpu_start = time.process_time_ns()
@@ -215,13 +242,13 @@ def _trace_agent_run(func: Any) -> Any:
                 "type": "agent.run_start",
                 "session_key": session_key,
                 "span_id": span_id,
-                "input_chars": len(user_input),
+                "input_chars": len(turn.user_input),
             }
         )
         success = False
         try:
             with trace_parent(span_id, session_key=session_key):
-                result = await func(user_input, *args, **kwargs)
+                result = await func(turn)
             success = True
             return result
         finally:
@@ -675,7 +702,115 @@ async def _announce_plan(
     )
 
 
-@_trace_agent_run
+@dataclass(frozen=True, slots=True)
+class _AgentTurnContext:
+    """Normalized dependencies, options, and callbacks for one Agent turn."""
+
+    user_input: str
+    registry: ToolRegistryProtocol
+    memory: MemoryRuntimeProtocol
+    knowledge_registry: KnowledgeRegistryProtocol
+    client: Any
+    monitor: ToolMonitorProtocol | None = None
+    toolboxes: tuple[Toolbox, ...] = ()
+    agent_config: dict[str, Any] | None = None
+    options: AgentRunOptions | None = None
+    system_prompt: str | None = None
+    skip_planning: bool = False
+    on_tool_call: OnToolCall | None = None
+    on_tool_finish: OnToolFinish | None = None
+    on_plan: OnPlan | None = None
+    on_thinking: OnThinking | None = None
+    clawhub: Any | None = None
+    clarifier: Any | None = None
+    session_key: str | None = None
+    confirmation_channel: Any | None = None
+    engine: Any | None = None
+    on_reflection: Callable[[Any], Any] | None = None
+    tool_semaphore: asyncio.Semaphore | None = None
+
+
+@_trace_agent_turn
+async def _run_agent_turn(turn: _AgentTurnContext) -> AgentRunResult:
+    """Run the single normalized classify-to-reflect implementation."""
+    invocation = _create_agent_invocation(
+        turn.user_input,
+        memory=turn.memory,
+        monitor=turn.monitor,
+        toolboxes=list(turn.toolboxes),
+        agent_config=turn.agent_config,
+        options=turn.options,
+        system_prompt=turn.system_prompt,
+        session_key=turn.session_key,
+    )
+    await invocation.start()
+    controlled_input, difficulty, effective_skip = await _prepare_control_stages(
+        invocation.user_input,
+        toolboxes=invocation.toolboxes,
+        skip_planning=turn.skip_planning,
+        clarifier=turn.clarifier,
+        confirmation_channel=turn.confirmation_channel,
+        on_thinking=turn.on_thinking,
+        knowledge_registry=turn.knowledge_registry,
+        memory=turn.memory,
+        client=turn.client,
+        config=invocation.config,
+        session_key=invocation.session_key,
+    )
+    plan, execution_config, from_llm_planner, early_reply = await _prepare_plan(
+        controlled_input,
+        toolboxes=invocation.toolboxes,
+        skip_planning=effective_skip,
+        difficulty=difficulty,
+        config=invocation.config,
+        registry=turn.registry,
+        knowledge_registry=turn.knowledge_registry,
+        client=turn.client,
+        on_plan=turn.on_plan,
+        on_thinking=turn.on_thinking,
+        session_key=invocation.session_key,
+    )
+    if early_reply is not None:
+        return await invocation.finish(early_reply)
+    assert plan is not None
+    await _announce_plan(
+        plan,
+        toolboxes=invocation.toolboxes,
+        skip_planning=turn.skip_planning,
+        difficulty=difficulty,
+        from_llm_planner=from_llm_planner,
+        on_thinking=turn.on_thinking,
+    )
+    reply = await _execute_agent_plan(
+        plan,
+        controlled_input,
+        registry=turn.registry,
+        monitor=invocation.monitor,
+        config=execution_config,
+        system_prompt=invocation.system_prompt,
+        memory=turn.memory,
+        knowledge_registry=turn.knowledge_registry,
+        client=turn.client,
+        on_tool_call=turn.on_tool_call,
+        on_tool_finish=turn.on_tool_finish,
+        on_thinking=turn.on_thinking,
+        clawhub=turn.clawhub,
+        confirmation_channel=turn.confirmation_channel,
+        tool_semaphore=turn.tool_semaphore,
+        session_key=invocation.session_key,
+    )
+    reply = await _reflect_agent_reply(
+        controlled_input,
+        reply,
+        knowledge_registry=turn.knowledge_registry,
+        client=turn.client,
+        session_key=invocation.session_key,
+        engine=turn.engine,
+        on_reflection=turn.on_reflection,
+    )
+    return await invocation.finish(reply)
+
+
 async def run_agent(user_input: str, *,
     registry: ToolRegistryProtocol,
     memory: MemoryRuntimeProtocol,
@@ -699,83 +834,33 @@ async def run_agent(user_input: str, *,
     on_reflection: Callable[[Any], Any] | None = None,
     tool_semaphore: asyncio.Semaphore | None = None,
 ) -> AgentRunResult:
-    """运行分类、澄清、规划、确认、ReAct 执行和可选反思管线。"""
-    invocation = _create_agent_invocation(
-        user_input,
-        memory=memory,
-        monitor=monitor,
-        toolboxes=toolboxes,
-        agent_config=agent_config,
-        options=options,
-        system_prompt=system_prompt,
-        session_key=session_key,
+    """Run the stable function API through the normalized Agent turn path."""
+    return await _run_agent_turn(
+        _AgentTurnContext(
+            user_input=user_input,
+            registry=registry,
+            memory=memory,
+            knowledge_registry=knowledge_registry,
+            client=client,
+            monitor=monitor,
+            toolboxes=tuple(toolboxes or ()),
+            agent_config=dict(agent_config) if agent_config is not None else None,
+            options=options,
+            system_prompt=system_prompt,
+            skip_planning=skip_planning,
+            on_tool_call=on_tool_call,
+            on_tool_finish=on_tool_finish,
+            on_plan=on_plan,
+            on_thinking=on_thinking,
+            clawhub=clawhub,
+            clarifier=clarifier,
+            session_key=session_key,
+            confirmation_channel=confirmation_channel,
+            engine=engine,
+            on_reflection=on_reflection,
+            tool_semaphore=tool_semaphore,
+        )
     )
-    await invocation.start()
-    controlled_input, difficulty, effective_skip = await _prepare_control_stages(
-        invocation.user_input,
-        toolboxes=invocation.toolboxes,
-        skip_planning=skip_planning,
-        clarifier=clarifier,
-        confirmation_channel=confirmation_channel,
-        on_thinking=on_thinking,
-        knowledge_registry=knowledge_registry,
-        memory=memory,
-        client=client,
-        config=invocation.config,
-        session_key=invocation.session_key,
-    )
-    plan, execution_config, from_llm_planner, early_reply = await _prepare_plan(
-        controlled_input,
-        toolboxes=invocation.toolboxes,
-        skip_planning=effective_skip,
-        difficulty=difficulty,
-        config=invocation.config,
-        registry=registry,
-        knowledge_registry=knowledge_registry,
-        client=client,
-        on_plan=on_plan,
-        on_thinking=on_thinking,
-        session_key=invocation.session_key,
-    )
-    if early_reply is not None:
-        return await invocation.finish(early_reply)
-    assert plan is not None
-    await _announce_plan(
-        plan,
-        toolboxes=invocation.toolboxes,
-        skip_planning=skip_planning,
-        difficulty=difficulty,
-        from_llm_planner=from_llm_planner,
-        on_thinking=on_thinking,
-    )
-    reply = await _execute_agent_plan(
-        plan,
-        controlled_input,
-        registry=registry,
-        monitor=invocation.monitor,
-        config=execution_config,
-        system_prompt=invocation.system_prompt,
-        memory=memory,
-        knowledge_registry=knowledge_registry,
-        client=client,
-        on_tool_call=on_tool_call,
-        on_tool_finish=on_tool_finish,
-        on_thinking=on_thinking,
-        clawhub=clawhub,
-        confirmation_channel=confirmation_channel,
-        tool_semaphore=tool_semaphore,
-        session_key=invocation.session_key,
-    )
-    reply = await _reflect_agent_reply(
-        controlled_input,
-        reply,
-        knowledge_registry=knowledge_registry,
-        client=client,
-        session_key=invocation.session_key,
-        engine=engine,
-        on_reflection=on_reflection,
-    )
-    return await invocation.finish(reply)
 
 
 __all__ = ["run_agent", "run_pipeline", "PLANNING_STREAM_HEADER"]

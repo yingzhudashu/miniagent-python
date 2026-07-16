@@ -21,6 +21,10 @@ class AgentSettings(Mapping[str, Any]):
     """Read-only Agent-owned view of the current application configuration."""
 
     def __init__(self, values: Mapping[str, Any]) -> None:
+        self._values: Mapping[str, Any]
+        if isinstance(values, AgentSettings):
+            self._values = values._values
+            return
         frozen = _freeze(values)
         if not isinstance(frozen, Mapping):  # pragma: no cover
             raise TypeError("AgentSettings requires a mapping")

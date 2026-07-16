@@ -53,6 +53,8 @@ def _tracked_paths() -> list[Path]:
         if not raw or raw in EXCLUDED_PATHS:
             continue
         path = Path(raw)
+        if not (ROOT / path).is_file():
+            continue
         if path.name in AUDITED_ROOT_FILES or (
             path.suffix.lower() in AUDITED_SUFFIXES
             and path.parts

@@ -56,8 +56,8 @@ async def test_feishu_merge_tools_uses_append_not_second_send_thinking(
     )
     monkeypatch.setattr("miniagent.assistant.feishu.poll_server._send_thinking", fake_send_thinking)
 
-    async def fake_run_agent(*args: Any, **kwargs: Any) -> AgentRunResult:
-        ot = kwargs.get("on_thinking")
+    async def fake_run_agent(turn: Any) -> AgentRunResult:
+        ot = turn.on_thinking
         lab = "[第 1 轮]"
         await ot(lab, True, lab)
         await ot(lab + "正文", True, lab)
@@ -65,7 +65,7 @@ async def test_feishu_merge_tools_uses_append_not_second_send_thinking(
         await ot("🔧 b — 2", False, lab)
         return AgentRunResult(reply="ok")
 
-    monkeypatch.setattr("miniagent.assistant.engine.turn_service.run_agent", fake_run_agent)
+    monkeypatch.setattr("miniagent.agent.agent._run_agent_turn", fake_run_agent)
 
     ctx = type("Ctx", (), {})()
     ctx.conversation_history = []

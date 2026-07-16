@@ -100,6 +100,34 @@ def test_cross_layer_cycle_is_reported(architecture_module, tmp_path: Path) -> N
     assert any(isinstance(item, architecture_module.CycleViolation) for item in violations)
 
 
+def test_command_module_cannot_import_dispatcher(architecture_module, tmp_path: Path) -> None:
+    _write_module(
+        tmp_path,
+        "assistant/engine/commands",
+        "from miniagent.assistant.engine.command_dispatch import dispatch_command\n",
+    )
+    violations = architecture_module.check_architecture(tmp_path)
+    assert any(
+        isinstance(item, architecture_module.ModuleDependencyViolation)
+        and "command dispatcher" in item.message
+        for item in violations
+    )
+
+
+def test_assistant_production_uses_agent_facade(architecture_module, tmp_path: Path) -> None:
+    _write_module(
+        tmp_path,
+        "assistant/engine",
+        "from miniagent.agent.agent import run_agent\n",
+    )
+    violations = architecture_module.check_architecture(tmp_path)
+    assert any(
+        isinstance(item, architecture_module.ModuleDependencyViolation)
+        and "Agent facade" in item.message
+        for item in violations
+    )
+
+
 def test_current_repository_obeys_four_module_rules(architecture_module) -> None:
     assert architecture_module.check_architecture(REPO_ROOT / "miniagent") == []
 

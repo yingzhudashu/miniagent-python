@@ -7,22 +7,12 @@ from contextlib import redirect_stdout
 from typing import Any
 
 from miniagent.agent.types.error_prefix import ERROR_PREFIX, WARNING_PREFIX
+from miniagent.assistant.engine.commands.output import capture_output as _capture
 
 _REMOTE_SESSION_HINT = (
     "⚠️ 该命令会修改与 CLI 共享的会话状态，请在本地 MiniAgent 终端执行。\n"
     "飞书上可使用 /session list 查看会话列表。"
 )
-
-
-def _capture(callable_: Any, *args: Any, **kwargs: Any) -> str:
-    """捕获同步会话叶子命令的输出。"""
-    buffer = io.StringIO()
-    try:
-        with redirect_stdout(buffer):
-            result = callable_(*args, **kwargs)
-    except Exception as error:
-        return f"{ERROR_PREFIX} 命令执行失败: {error}"
-    return str(result) if isinstance(result, str) else buffer.getvalue().strip()
 
 
 async def handle_session(
