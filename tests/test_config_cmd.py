@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from miniagent.agent.types.error_prefix import WARNING_PREFIX
 from miniagent.assistant.engine.config_cmd import (
     _append_value_lines,
@@ -84,17 +86,11 @@ def test_format_config_info_agent_nested_dict(isolated_config_loader) -> None:
 
 
 def test_format_config_info_list_section(isolated_config_loader) -> None:
-    isolated_config_loader({
-        "cli": {
-            "dot_tools_enabled": True,
-            "welcome_hint": True,
-            "extra_hosts": ["host-a", "host-b"],
-        },
-    })
-    out = format_config_info("cli")
-    assert "- `extra_hosts`: `2 项`" in out
-    assert "  - `[0]`: `host-a`" in out
-    assert "  - `[1]`: `host-b`" in out
+    isolated_config_loader(
+        {"cli": {"dot_tools_enabled": True, "extra_hosts": ["host-a", "host-b"]}}
+    )
+    with pytest.raises(ValueError, match="未知配置项"):
+        format_config_info("cli")
 
 
 def test_format_config_info_overview_includes_agent_html(isolated_config_loader) -> None:
@@ -144,7 +140,7 @@ def test_format_config_info_unknown_section(isolated_config_loader) -> None:
 def test_format_config_info_masks_secrets(isolated_config_loader) -> None:
     isolated_config_loader({
         "secrets": {
-            "openai_api_key": "sk-testsecretvalue12345",
+            "llm": {"openai": {"api_key": "sk-testsecretvalue12345"}},
         },
     })
     out = format_config_info("secrets")

@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.assistant.application.messaging import ChannelRegistry
-from miniagent.assistant.contracts import OutboundEvent
+from miniagent.assistant.application.messaging.channels import ChannelRegistry
+from miniagent.assistant.contracts.messages import OutboundEvent
 from miniagent.assistant.infrastructure.channel_router import ChannelRouter
 from miniagent.assistant.scheduled_tasks.feishu_delivery import (
     FeishuDeliveryTarget,
@@ -307,7 +307,7 @@ def test_cmd_schedule_add_uses_tz_fallback(
         },
     )
     monkeypatch.setenv("TZ", "Asia/Shanghai")
-    from miniagent.assistant.engine.cli_commands import cmd_schedule
+    from miniagent.assistant.engine.commands.session_management import cmd_schedule
     from miniagent.assistant.scheduled_tasks.store import load_tasks
 
     msg = cmd_schedule(

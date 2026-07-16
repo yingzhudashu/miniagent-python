@@ -9,7 +9,6 @@ from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any
 
-from miniagent.agent.activity import invoke_activity_log
 from miniagent.agent.constants import (
     EXECUTION_CALLBACK_MIN_CHARS,
     EXECUTION_CALLBACK_MIN_INTERVAL_MS,
@@ -23,17 +22,14 @@ from miniagent.agent.executor import (
     _raise_if_task_cancelled,
     _tool_intent_in_thinking_enabled,
 )
-from miniagent.agent.llm_params import resolve_exec_completion_kwargs
+from miniagent.agent.llm_params import resolve_exec_completion_kwargs, resolve_request_profile
 from miniagent.agent.logging import append_log, truncate
 from miniagent.agent.observability import emit_trace, llm_request_size_metrics, new_trace_id
 from miniagent.agent.thinking_callback import invoke_on_thinking
-from miniagent.llm.legacy_transport import (
-    LLMTransportError,
-    classify_transport_error,
-    resolve_wire_api,
-    stream_completion,
-)
+from miniagent.llm.gateway import LLMGateway
 from miniagent.llm.message_sanitize import strip_leading_underscore_keys_from_messages
+from miniagent.llm.recovery import classify_transport_error
+from miniagent.llm.types import LLMTransportError
 
 
 @dataclass
@@ -68,9 +64,8 @@ class ExecutionTurnStreamer:
         agent_config: Any,
         on_thinking: Any,
         phase_header_sent: set[str],
-        model_config: Any,
         session_key: str,
-        llm_client: Any,
+        llm_client: LLMGateway,
         exec_hist_segments: dict[str, list[str]],
         activity_log_enabled: bool,
         activity_log: Any,
@@ -80,7 +75,6 @@ class ExecutionTurnStreamer:
         self.agent_config = agent_config
         self.on_thinking = on_thinking
         self._phase_header_sent = phase_header_sent
-        self.model_config = model_config
         self.session_key = session_key
         self.llm_client = llm_client
         self._exec_hist_segments = exec_hist_segments
@@ -88,6 +82,16 @@ class ExecutionTurnStreamer:
         self.al = activity_log
         self.sep = separator
         self.exec_turn_no = 0
+        self.profile = resolve_request_profile(agent_config, "default")
+        descriptor = (
+            llm_client.catalog.get(self.profile)
+            if self.profile
+            else llm_client.model_for_role("default")
+        )
+        if descriptor is None:
+            raise ValueError(f"Unknown default model profile: {self.profile}")
+        self.model_name = descriptor.model
+        self.responses_wire = descriptor.api == "openai_responses"
 
     def joined_phase_cumulative(self, label: str, current_body: str) -> str:
         """将同一 ``label`` 下历史执行轮正文与 ``current_body`` 用分段符拼接，供思考流 cumulative 展示。
@@ -136,7 +140,7 @@ class ExecutionTurnStreamer:
                 "session_key": self.session_key,
                 "turn": turn,
                 "attempt": attempt + 1,
-                "model": exec_kwargs["model"],
+                "model": self.model_name,
                 "message_count": len(messages),
                 "tool_count": len(tools),
                 **llm_request_size_metrics(messages, tools),
@@ -222,8 +226,9 @@ class ExecutionTurnStreamer:
         is_last_step: bool,
     ) -> None:
         """执行一次网络流读取；异常原样交由重试策略分类。"""
-        async for event in stream_completion(
-            self.llm_client,
+        async for event in self.llm_client.stream_completion(
+            role="default",
+            profile=self.profile,
             messages=messages,
             tools=tools if tools else None,
             params=exec_kwargs,
@@ -475,7 +480,7 @@ class ExecutionTurnStreamer:
                 "session_key": self.session_key,
                 "turn": turn,
                 "attempt": completed.attempt + 1,
-                "model": completed.exec_kwargs["model"],
+                "model": self.model_name,
                 "has_tool_calls": bool(tool_calls),
                 "duration_ms": completed.duration_ms,
                 "usage": usage_dict,
@@ -489,7 +494,7 @@ class ExecutionTurnStreamer:
                     "phase": "exec",
                     "turn": turn,
                     "req": {
-                        "model": completed.exec_kwargs["model"],
+                        "model": self.model_name,
                         "messageCount": len(messages),
                         "toolCount": len(tools),
                     },
@@ -508,12 +513,10 @@ class ExecutionTurnStreamer:
                 },
             )
         if self.activity_log_enabled:
-            await invoke_activity_log(
-                self.al,
-                "log_llm_call",
+            await self.al.log_llm_call(
                 session_key=self.session_key,
                 turn=turn,
-                model=completed.exec_kwargs["model"],
+                model=self.model_name,
                 message_count=len(messages),
                 tool_count=len(tools),
                 thinking=content,
@@ -564,19 +567,9 @@ class ExecutionTurnStreamer:
         base_exec_kw = resolve_exec_completion_kwargs(
             self.agent_config, stream=True, merge_overrides=merge_overrides
         )
-        if getattr(type(self.llm_client), "_miniagent_llm_gateway", False) is True:
-            responses_wire = (
-                resolve_wire_api(
-                    client=self.llm_client,
-                    role=str(base_exec_kw.get("_role") or "default"),
-                )
-                == "responses"
-            )
-        else:
-            responses_wire = self.model_config.wire_api == "responses"
         completed = await self._request_until_complete(
             base_exec_kwargs=base_exec_kw,
-            responses_wire=responses_wire,
+            responses_wire=self.responses_wire,
             messages=messages,
             tools=tools_arg,
             label=thinking_phase_label,

@@ -18,6 +18,7 @@ from miniagent.agent.task_classifier import (
 from miniagent.agent.thinking_presets import THINKING_LEVEL_PRESETS
 from miniagent.llm.openai_compat import json_object_unsupported
 from tests.memory_helpers import make_knowledge_registry
+from tests.mock_strategies import MockGateway
 
 
 def test_task_classifier_enabled_reads_internal_constant() -> None:
@@ -63,14 +64,14 @@ def test_json_object_unsupported_ignores_missing_json_keyword() -> None:
     assert not json_object_unsupported(err)
 
 
-def _mock_client(content: str) -> MagicMock:
+def _mock_client(content: str) -> MockGateway:
     ok = SimpleNamespace(
         choices=[SimpleNamespace(message=SimpleNamespace(content=content))],
         usage=None,
     )
     client = MagicMock()
     client.chat.completions.create = AsyncMock(return_value=ok)
-    return client
+    return MockGateway(client)
 
 
 @pytest.mark.asyncio
@@ -94,7 +95,7 @@ async def test_classifier_retries_without_json_object() -> None:
         "hello",
         ["tb1"],
         knowledge_registry=make_knowledge_registry(),
-        client=client,
+        client=MockGateway(client),
         agent_config=None,
     )
     assert d == TaskDifficulty.MEDIUM
@@ -120,7 +121,7 @@ async def test_classifier_json_object_user_message_mentions_json() -> None:
         "hello",
         ["tb1"],
         knowledge_registry=make_knowledge_registry(),
-        client=client,
+        client=MockGateway(client),
         agent_config=None,
     )
 
@@ -159,7 +160,7 @@ async def test_classifier_unknown_difficulty_fallback() -> None:
         "hello",
         ["tb1"],
         knowledge_registry=make_knowledge_registry(),
-        client=client,
+        client=MockGateway(client),
     )
     assert d == TaskDifficulty.NORMAL
     assert client.chat.completions.create.await_count == 1
@@ -172,7 +173,7 @@ async def test_classifier_malformed_json_fallback() -> None:
         "hello",
         ["tb1"],
         knowledge_registry=make_knowledge_registry(),
-        client=client,
+        client=MockGateway(client),
     )
     assert d == TaskDifficulty.NORMAL
     assert client.chat.completions.create.await_count == 2
@@ -204,7 +205,7 @@ async def test_classifier_retries_empty_or_malformed_response(
         "hello",
         ["tb1"],
         knowledge_registry=make_knowledge_registry(),
-        client=client,
+        client=MockGateway(client),
     )
 
     assert result == TaskDifficulty.MEDIUM
@@ -235,14 +236,14 @@ async def test_classifier_responses_json_uses_low_reasoning() -> None:
     client.responses.create = AsyncMock(return_value=events())
 
     with (
-        patch("miniagent.llm.legacy_transport._wire_api", return_value="responses"),
+        patch("miniagent.llm.providers.openai_transport._wire_api", return_value="responses"),
         patch("miniagent.agent.observability.emit_trace", side_effect=trace_events.append),
     ):
         result = await classify_task_difficulty(
             "hello",
             ["tb1"],
             knowledge_registry=make_knowledge_registry(),
-            client=client,
+            client=MockGateway(client, responses=True),
         )
 
     assert result == TaskDifficulty.SIMPLE
@@ -300,14 +301,14 @@ async def test_classifier_responses_recovers_reasoning_only_stream() -> None:
         side_effect=[reasoning_only(), valid()]
     )
     with (
-        patch("miniagent.llm.legacy_transport._wire_api", return_value="responses"),
+        patch("miniagent.llm.providers.openai_transport._wire_api", return_value="responses"),
         patch("miniagent.agent.task_classifier.asyncio.sleep", new_callable=AsyncMock),
     ):
         result = await classify_task_difficulty(
             "complex task",
             ["tb1"],
             knowledge_registry=make_knowledge_registry(),
-            client=client,
+            client=MockGateway(client, responses=True),
         )
 
     assert result == TaskDifficulty.COMPLEX
@@ -347,14 +348,14 @@ async def test_classifier_responses_third_attempt_uses_low() -> None:
         ]
     )
     with (
-        patch("miniagent.llm.legacy_transport._wire_api", return_value="responses"),
+        patch("miniagent.llm.providers.openai_transport._wire_api", return_value="responses"),
         patch("miniagent.agent.task_classifier.asyncio.sleep", new_callable=AsyncMock),
     ):
         result = await classify_task_difficulty(
             "medium task",
             ["tb1"],
             knowledge_registry=make_knowledge_registry(),
-            client=client,
+            client=MockGateway(client, responses=True),
         )
 
     assert result == TaskDifficulty.MEDIUM
@@ -370,12 +371,12 @@ async def test_classifier_responses_does_not_retry_auth_failure() -> None:
 
     client = MagicMock()
     client.responses.create = AsyncMock(side_effect=AuthenticationFailure("unauthorized"))
-    with patch("miniagent.llm.legacy_transport._wire_api", return_value="responses"):
+    with patch("miniagent.llm.providers.openai_transport._wire_api", return_value="responses"):
         result = await classify_task_difficulty(
             "task",
             ["tb1"],
             knowledge_registry=make_knowledge_registry(),
-            client=client,
+            client=MockGateway(client, responses=True),
         )
 
     assert result == TaskDifficulty.NORMAL
@@ -391,7 +392,7 @@ async def test_classifier_api_failure_fallback() -> None:
         "hello",
         ["tb1"],
         knowledge_registry=make_knowledge_registry(),
-        client=client,
+        client=MockGateway(client),
         agent_config=None,
     )
     assert d == TaskDifficulty.NORMAL

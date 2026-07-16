@@ -18,12 +18,12 @@ async def handle_test(
     **_kwargs: Any,
 ) -> str | None:
     """运行、列出或查询内置评测样例。"""
-    from miniagent.assistant.engine.cli_commands import format_test_command_usage
     from miniagent.assistant.engine.command_dispatch import (
         _get_test_status,
         _list_test_samples,
         _run_test,
     )
+    from miniagent.assistant.engine.commands.session_management import format_test_command_usage
 
     parts = text.split()
     subcommand = parts[1].lower() if len(parts) > 1 else ""

@@ -24,61 +24,26 @@ _DRIVER_ENV = {
 
 
 def _mapping(value: Any) -> dict[str, Any]:
-    return dict(value) if isinstance(value, Mapping) else {}
+    if not isinstance(value, Mapping):
+        return {}
 
+    def thaw(item: Any) -> Any:
+        if isinstance(item, Mapping):
+            return {str(key): thaw(child) for key, child in item.items()}
+        if isinstance(item, tuple):
+            return [thaw(child) for child in item]
+        return item
 
-def _legacy_llm_config(getter: Callable[[str, Any], Any]) -> dict[str, Any]:
-    """Translate the active v2 model section in memory for migration/startup safety."""
-    model = str(getter("model.model", "gpt-4o-mini"))
-    wire = str(getter("model.wire_api", "chat_completions"))
-    return {
-        "providers": {
-            "openai": {
-                "driver": "openai",
-                "base_url": getter("model.base_url", "https://api.openai.com/v1"),
-                "credential": "openai",
-                "headers": (
-                    {"User-Agent": str(getter("model.user_agent", ""))}
-                    if getter("model.user_agent", None)
-                    else {}
-                ),
-            }
-        },
-        "models": {
-            "primary": {
-                "provider": "openai",
-                "model": model,
-                "api": "openai_responses" if wire == "responses" else "openai_chat",
-                "context_window": int(getter("model.context_window", 128_000)),
-                "max_output_tokens": int(getter("model.max_tokens", 4_096)),
-                "capabilities": {
-                    "tools": True,
-                    "vision": True,
-                    "reasoning": True,
-                    "structured_output": True,
-                },
-            }
-        },
-        "roles": {
-            "default": "primary",
-            "reasoning": "primary",
-            "fast": "primary",
-            "vision": "primary",
-        },
-    }
+    return {str(key): thaw(child) for key, child in value.items()}
 
 
 def effective_llm_config(
     getter: Callable[[str, Any], Any],
-    user_section_getter: Callable[[str], Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    if user_section_getter is not None:
-        user_llm = user_section_getter("llm")
-        user_model = user_section_getter("model")
-        if user_model and not user_llm:
-            return _legacy_llm_config(getter)
     value = getter("llm", None)
-    return _mapping(value) if isinstance(value, Mapping) else _legacy_llm_config(getter)
+    if not isinstance(value, Mapping):
+        raise ValueError("llm configuration section is required")
+    return _mapping(value)
 
 
 def _provider_configs(llm: Mapping[str, Any]) -> tuple[ProviderConfig, ...]:
@@ -116,8 +81,7 @@ def _credential_key(
         value = os.environ.get(env_name, "").strip()
         if value:
             return value
-    legacy = secrets.get("openai_api_key") if provider.driver == "openai" else None
-    return legacy.strip() if isinstance(legacy, str) and legacy.strip() else None
+    return None
 
 
 def _build_provider(
@@ -163,12 +127,11 @@ def _build_provider(
 def create_llm_gateway(
     getter: Callable[[str, Any], Any],
     *,
-    user_section_getter: Callable[[str], Mapping[str, Any]] | None = None,
     strict_selected: bool = True,
     cache_path: Path | None = None,
 ) -> LLMGateway:
     """Create providers and role bindings without publishing partial state."""
-    llm = effective_llm_config(getter, user_section_getter)
+    llm = effective_llm_config(getter)
     model_values = _mapping(llm.get("models"))
     models = tuple(model_from_config(str(name), _mapping(value)) for name, value in model_values.items())
     catalog = ModelCatalog(models)
@@ -180,7 +143,7 @@ def create_llm_gateway(
     router = RoleRouter(catalog, roles)
     secrets = _mapping(getter("secrets", {}))
     timeout = float(getter("agent.http_timeout", 120.0))
-    retries = int(getter("model.retry_count", getter("llm.max_retries", 2)))
+    retries = int(getter("llm.max_retries", 2))
     providers = []
     missing: dict[str, str] = {}
     for config in _provider_configs(llm):

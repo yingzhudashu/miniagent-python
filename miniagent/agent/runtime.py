@@ -10,10 +10,12 @@ from typing import Any, Protocol, runtime_checkable
 from miniagent.agent.agent import run_agent
 from miniagent.agent.ports.knowledge import KnowledgeRegistryProtocol
 from miniagent.agent.ports.memory import MemoryRuntimeProtocol
+from miniagent.agent.settings import AgentSettings, use_agent_settings
 from miniagent.agent.types.agent import AgentRunOptions, AgentRunResult, ToolMonitorProtocol
 from miniagent.agent.types.confirmation import ConfirmationResult
 from miniagent.agent.types.planning import StructuredPlan
 from miniagent.agent.types.tool import Toolbox, ToolRegistryProtocol
+from miniagent.llm.gateway import LLMGateway
 
 AgentResult = AgentRunResult
 
@@ -54,7 +56,8 @@ class AgentObserver(Protocol):
 class AgentServices:
     """Injected capabilities required by an Agent instance."""
 
-    llm: Any
+    llm: LLMGateway
+    settings: AgentSettings
     registry: ToolRegistryProtocol
     memory: MemoryRuntimeProtocol
     knowledge: KnowledgeRegistryProtocol
@@ -103,29 +106,37 @@ class Agent:
                 await result
 
         runner = self._services.runner or run_agent
-        return await runner(
-            request.user_input,
-            registry=self._services.registry,
-            memory=self._services.memory,
-            knowledge_registry=self._services.knowledge,
-            client=self._services.llm,
-            monitor=self._services.monitor,
-            toolboxes=list(request.toolboxes),
-            agent_config=request.config,
-            options=request.options,
-            system_prompt=request.system_prompt,
-            skip_planning=request.skip_planning,
-            on_tool_call=_method(observer, "on_tool_call"),
-            on_tool_finish=_method(observer, "on_tool_finish"),
-            on_plan=_method(observer, "on_plan"),
-            on_thinking=_method(observer, "on_thinking"),
-            on_reflection=reflection_callback if on_reflection is not None else None,
-            clawhub=self._services.clawhub,
-            clarifier=self._services.clarifier,
-            session_key=request.session_key,
-            confirmation_channel=self._services.confirmation_channel,
-            tool_semaphore=self._services.tool_semaphore,
-        )
+        with use_agent_settings(self._services.settings):
+            return await runner(
+                request.user_input,
+                registry=self._services.registry,
+                memory=self._services.memory,
+                knowledge_registry=self._services.knowledge,
+                client=self._services.llm,
+                monitor=self._services.monitor,
+                toolboxes=list(request.toolboxes),
+                agent_config=request.config,
+                options=request.options,
+                system_prompt=request.system_prompt,
+                skip_planning=request.skip_planning,
+                on_tool_call=_method(observer, "on_tool_call"),
+                on_tool_finish=_method(observer, "on_tool_finish"),
+                on_plan=_method(observer, "on_plan"),
+                on_thinking=_method(observer, "on_thinking"),
+                on_reflection=reflection_callback if on_reflection is not None else None,
+                clawhub=self._services.clawhub,
+                clarifier=self._services.clarifier,
+                session_key=request.session_key,
+                confirmation_channel=self._services.confirmation_channel,
+                tool_semaphore=self._services.tool_semaphore,
+            )
 
 
-__all__ = ["Agent", "AgentObserver", "AgentRequest", "AgentResult", "AgentServices"]
+__all__ = [
+    "Agent",
+    "AgentObserver",
+    "AgentRequest",
+    "AgentResult",
+    "AgentServices",
+    "AgentSettings",
+]

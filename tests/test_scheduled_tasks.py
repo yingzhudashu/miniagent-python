@@ -88,7 +88,7 @@ def test_recompute_once_disables(state_dir: str) -> None:
 
 
 def test_cmd_schedule_remote_blocks_mutations() -> None:
-    from miniagent.assistant.engine.cli_commands import cmd_schedule
+    from miniagent.assistant.engine.commands.session_management import cmd_schedule
 
     out = cmd_schedule(
         "/schedule add x every 60 primary -- hello",
@@ -98,7 +98,7 @@ def test_cmd_schedule_remote_blocks_mutations() -> None:
 
 
 def test_cmd_schedule_once_insufficient_args(state_dir: str) -> None:
-    from miniagent.assistant.engine.cli_commands import cmd_schedule
+    from miniagent.assistant.engine.commands.session_management import cmd_schedule
 
     out = cmd_schedule(
         "/schedule add bad once 2030-01-01 -- oops",
@@ -108,7 +108,7 @@ def test_cmd_schedule_once_insufficient_args(state_dir: str) -> None:
 
 
 def test_cmd_schedule_add_parses(state_dir: str) -> None:
-    from miniagent.assistant.engine.cli_commands import cmd_schedule
+    from miniagent.assistant.engine.commands.session_management import cmd_schedule
 
     line = "/schedule add t99 every 5 primary -- integration test prompt"
     msg = cmd_schedule(line, allow_mutations=True)
@@ -119,7 +119,7 @@ def test_cmd_schedule_add_parses(state_dir: str) -> None:
 
 
 def test_cmd_schedule_add_once_with_tz_naive(state_dir: str) -> None:
-    from miniagent.assistant.engine.cli_commands import cmd_schedule
+    from miniagent.assistant.engine.commands.session_management import cmd_schedule
 
     line = "/schedule add tz1 once 2030-06-15T08:00:00 primary --tz Asia/Shanghai -- remind me"
     msg = cmd_schedule(line, allow_mutations=True)
@@ -315,7 +315,7 @@ def test_repair_invalid_cron_sets_error(state_dir: str) -> None:
 
 
 def test_cmd_schedule_add_cron(state_dir: str) -> None:
-    from miniagent.assistant.engine.cli_commands import cmd_schedule
+    from miniagent.assistant.engine.commands.session_management import cmd_schedule
 
     line = '/schedule add cron1 cron "10 8 * * *" primary --tz Asia/Shanghai -- daily job'
     msg = cmd_schedule(line, allow_mutations=True)
@@ -481,7 +481,7 @@ def test_resolve_feishu_p2p_without_chat_id(state_dir: str) -> None:
 
 
 def test_cmd_schedule_list_and_show(state_dir: str) -> None:
-    from miniagent.assistant.engine.cli_commands import cmd_schedule
+    from miniagent.assistant.engine.commands.session_management import cmd_schedule
 
     save_tasks(
         [
@@ -504,7 +504,7 @@ def test_cmd_schedule_list_and_show(state_dir: str) -> None:
 
 
 def test_cmd_schedule_remove_enable_disable(state_dir: str) -> None:
-    from miniagent.assistant.engine.cli_commands import cmd_schedule
+    from miniagent.assistant.engine.commands.session_management import cmd_schedule
 
     save_tasks(
         [
@@ -634,7 +634,7 @@ def test_dispatch_failure_backoff_seconds_from_config(tmp_path) -> None:
 
 
 def test_cmd_schedule_update_interval(state_dir: str) -> None:
-    from miniagent.assistant.engine.cli_commands import cmd_schedule
+    from miniagent.assistant.engine.commands.session_management import cmd_schedule
 
     add = cmd_schedule(
         "/schedule add upd_cli every 60 primary -- old prompt",

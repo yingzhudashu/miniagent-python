@@ -44,7 +44,6 @@ from miniagent.assistant.infrastructure.instance import (
     format_project_conflict_message,
     register_instance,
 )
-from miniagent.assistant.infrastructure.json_config import get_config
 
 _logger = logging.getLogger(__name__)
 
@@ -179,7 +178,9 @@ async def run_runtime(ctx: ApplicationContainer) -> None:
     """
     _configure_console_encoding()
     _enable_windows_vt()
-    model = get_config("model.model", "gpt-4o-mini")
+    if ctx.llm_gateway is None:
+        raise RuntimeError("AssistantApplication requires an LLMGateway")
+    model = ctx.llm_gateway.model_for_role("default").model
     from miniagent.assistant.engine.welcome import print_welcome
     feishu_mode = "--feishu" in sys.argv
     state = _initial_runtime_state(ctx, feishu_mode)

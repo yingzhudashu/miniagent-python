@@ -245,6 +245,21 @@ class MemoryStoreProtocol(Protocol):
         """
         ...
 
+    async def record_turn(
+        self,
+        session_key: str,
+        summary: str,
+        facts: list[str],
+        entry: MemoryEntryInput,
+    ) -> None:
+        """Atomically persist one completed assistant turn."""
+        ...
+
+    async def flush_keyword_index_async(self) -> None:
+        """Persist pending keyword-index updates without blocking the event loop."""
+        ...
+
+
 
 @dataclass
 class SessionOptions:
@@ -340,17 +355,6 @@ class SessionManagerProtocol(Protocol):
         """
         ...
 
-    def destroy(self, id: str) -> bool:
-        """销毁会话
-
-        Args:
-            id: 会话唯一标识
-
-        Returns:
-            是否成功销毁
-        """
-        ...
-
     def get_active_id(self) -> str:
         """获取当前活跃会话 ID
 
@@ -394,8 +398,12 @@ class SessionManagerProtocol(Protocol):
         """
         ...
 
-    def save_session_history(self, session_id: str) -> None:
-        """把指定会话的内存历史原子持久化。"""
+    async def save_session_history_async(self, session_id: str) -> None:
+        """异步把指定会话的内存历史原子持久化。"""
+        ...  # pragma: no cover - Protocol 声明无运行时实现
+
+    async def delete_session(self, session_id: str, keep_files: bool = True) -> bool:
+        """异步删除指定会话及可选工作空间。"""
         ...  # pragma: no cover - Protocol 声明无运行时实现
 
     def load_session_history_range(

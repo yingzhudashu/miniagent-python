@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from miniagent.assistant.engine.cli_commands import _resolve_session, sync_channel_router_to_session
+from miniagent.assistant.engine.commands.session_management import (
+    _resolve_session,
+    sync_channel_router_to_session,
+)
 from miniagent.assistant.infrastructure.channel_router import ChannelRouter
 from miniagent.assistant.infrastructure.cli_feishu_policy import (
     get_cli_focus_mode,

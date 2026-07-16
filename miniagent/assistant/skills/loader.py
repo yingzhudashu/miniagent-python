@@ -451,7 +451,11 @@ async def load_skill_package(package_dir: str) -> SkillPackage | None:
 # ─── 自动发现 ───────────────────────────────────────────
 
 
-async def discover_skill_packages(skills_root: str) -> list[SkillPackage]:
+async def discover_skill_packages(
+    skills_root: str,
+    *,
+    exclude_ids: set[str] | None = None,
+) -> list[SkillPackage]:
     """发现并加载 skills/ 目录下的所有技能包。
 
     扫描指定目录下的一级子目录，每个子目录视为一个 SkillPackage。
@@ -462,11 +466,15 @@ async def discover_skill_packages(skills_root: str) -> list[SkillPackage]:
     Returns:
         成功加载的 SkillPackage 列表
     """
+    excluded = frozenset(exclude_ids or ())
+
     def _discover_sync() -> list[SkillPackage]:
         if not os.path.isdir(skills_root):
             return []
         packages: list[SkillPackage] = []
         for entry in sorted(os.listdir(skills_root)):
+            if entry in excluded:
+                continue
             pkg_dir = os.path.join(skills_root, entry)
             if not os.path.isdir(pkg_dir):
                 continue

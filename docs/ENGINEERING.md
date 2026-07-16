@@ -60,7 +60,7 @@
 
 **加载机制**（见 [`json_config.py`](../miniagent/assistant/infrastructure/json_config.py)）：`defaults → user`（仅两层 JSON）。`secrets` 经 [`env_loader.py`](../miniagent/assistant/infrastructure/env_loader.py) 桥接到 `OPENAI_API_KEY` 等 SDK 变量，**不是**用户配置入口。`/config` 命令与 USER_GUIDE 仅展示 User 层子集。
 
-**模型协议**：`model.wire_api` 默认 `chat_completions`，可显式设为 `responses`；统一 transport 负责消息、图片、工具调用、结束状态和流式事件转换。结构化 JSON 请求通过 `create_structured_completion` 路由：Responses 使用流式聚合，Chat 使用非流式 `json_object`。两条路径均返回统一的 `status`、output item 类型和 `incomplete_reason`。`model.user_agent` 只用于需要客户端标识白名单的兼容网关，空值继续使用 OpenAI SDK 默认值；含 CR/LF 的值会在客户端构造时拒绝。
+**模型协议**：模型 API 由 `llm.models.<profile>.api` 显式声明，角色由 `llm.roles` 路由；统一 Gateway 负责消息、图片、工具调用、结束状态和流式事件转换。结构化 JSON 请求在 Responses 使用流式聚合，在 Chat 使用非流式 `json_object`。自定义请求头配置在 provider 的 `headers`，含 CR/LF 的值会在客户端构造时拒绝。
 
 **结构化控制链恢复**：分类、澄清、规划与反思的 Responses 请求从首次调用即使用流式聚合。首次请求不改写现有 reasoning、采样或 token 配置；第二次移除采样参数；第三次分类/`llm_json` 使用 low、规划使用 medium。明确的输出 token 截断才提高预算。中间恢复只记 INFO 和安全 trace，最终失败才记汇总 WARNING；不记录提示词、响应正文或凭据。
 

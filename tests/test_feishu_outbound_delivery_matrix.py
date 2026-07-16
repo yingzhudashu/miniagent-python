@@ -66,18 +66,22 @@ def test_interactive_cards_and_plain_chunks_matrix(monkeypatch, config) -> None:
         config, "chat", ["one", "two", "three"]
     ) == (1, 3)
 
-    monkeypatch.setattr(delivery, "_chunk_feishu_card_markdown", lambda _text: [])
+    monkeypatch.setattr(delivery._card_rendering, "chunk_card_markdown", lambda _text: [])
     text_post = MagicMock()
     monkeypatch.setattr(delivery, "_post_text_message", text_post)
     delivery._send_plain_text_chunks(config, "chat", "")
     text_post.assert_not_called()
 
-    monkeypatch.setattr(delivery, "_chunk_feishu_card_markdown", lambda _text: ["a", "b"])
+    monkeypatch.setattr(
+        delivery._card_rendering, "chunk_card_markdown", lambda _text: ["a", "b"]
+    )
     text_post.side_effect = [True, False]
     delivery._send_plain_text_chunks(config, "chat", "body", reason="fallback")
     assert text_post.call_count == 2
     monkeypatch.setattr(
-        delivery, "_chunk_feishu_card_markdown", MagicMock(side_effect=RuntimeError("bad"))
+        delivery._card_rendering,
+        "chunk_card_markdown",
+        MagicMock(side_effect=RuntimeError("bad")),
     )
     delivery._send_plain_text_chunks(config, "chat", "body")
 
@@ -86,13 +90,21 @@ def test_interactive_cards_and_plain_chunks_matrix(monkeypatch, config) -> None:
 async def test_send_reply_invalid_success_partial_and_full_fallback(monkeypatch, config) -> None:
     fallback = MagicMock()
     monkeypatch.setattr(delivery, "_send_plain_text_chunks", fallback)
-    monkeypatch.setattr(delivery, "_is_valid_im_receive_id", lambda value: value != "bad")
+    monkeypatch.setattr(
+        delivery._card_rendering, "is_valid_im_receive_id", lambda value: value != "bad"
+    )
     await delivery._send_reply(config, "bad", "ignored")
     fallback.assert_not_called()
 
-    monkeypatch.setattr(delivery, "_chunk_feishu_card_markdown", lambda _text: ["a", "b"])
+    monkeypatch.setattr(
+        delivery._card_rendering, "chunk_card_markdown", lambda _text: ["a", "b"]
+    )
     monkeypatch.setattr(delivery, "_feishu_reply_plain_enabled", lambda: True)
-    monkeypatch.setattr(delivery, "_strip_light_markdown_for_feishu_plain", lambda value: value.strip("*"))
+    monkeypatch.setattr(
+        delivery._card_rendering,
+        "strip_light_markdown_for_plain",
+        lambda value: value.strip("*"),
+    )
     send = MagicMock(return_value=(2, 2))
     monkeypatch.setattr(delivery, "_send_interactive_reply_cards", send)
     await delivery._send_reply(config, "chat", "**body**")
@@ -113,4 +125,3 @@ async def test_send_reply_invalid_success_partial_and_full_fallback(monkeypatch,
     send.side_effect = RuntimeError("failed")
     await delivery._send_reply(config, "chat", "body")
     assert fallback.call_args.kwargs["reason"] == "interactive_reply_failed_full_fallback"
-

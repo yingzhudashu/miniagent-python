@@ -25,7 +25,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 import os
 import re
@@ -33,22 +32,6 @@ import threading
 import time
 from datetime import datetime, timezone
 from typing import Any
-
-
-async def invoke_activity_log(
-    activity_log: Any,
-    method_name: str,
-    *args: Any,
-    **kwargs: Any,
-) -> None:
-    """Invoke native async logging or offload a legacy sync implementation."""
-    async_method = getattr(activity_log, f"{method_name}_async", None)
-    if callable(async_method) and inspect.iscoroutinefunction(async_method):
-        await async_method(*args, **kwargs)
-        return
-    sync_method = getattr(activity_log, method_name, None)
-    if callable(sync_method):
-        await asyncio.to_thread(sync_method, *args, **kwargs)
 
 
 class ActivityLogger:
@@ -140,7 +123,7 @@ class ActivityLogger:
                 f.write(content)
             self._read_cache = None
 
-    def log_session_start(self, session_key: str, user_input: str, source: str = "cli") -> None:
+    def _log_session_start_sync(self, session_key: str, user_input: str, source: str = "cli") -> None:
         """同步记录会话开始。
 
         检查今日日志中是否已有该会话的 header，避免重复。
@@ -157,7 +140,7 @@ class ActivityLogger:
             self._append(header)
         self._append(f"### 用户输入\n\n{user_input}\n\n")
 
-    async def log_session_start_async(self, session_key: str, user_input: str, source: str = "cli") -> None:
+    async def log_session_start(self, session_key: str, user_input: str, source: str = "cli") -> None:
         """异步记录会话开始（性能优化）。
 
         性能优化：使用asyncio.to_thread包装文件I/O，消除事件循环阻塞。
@@ -167,9 +150,9 @@ class ActivityLogger:
             user_input: 用户原始输入
             source: 来源标识（"cli" 或 "feishu"）
         """
-        await asyncio.to_thread(self.log_session_start, session_key, user_input, source)
+        await asyncio.to_thread(self._log_session_start_sync, session_key, user_input, source)
 
-    def log_llm_call(
+    def _log_llm_call_sync(
         self,
         session_key: str,
         turn: int,
@@ -197,7 +180,7 @@ class ActivityLogger:
         lines = _format_llm_call_lines(turn, model, message_count, tool_count, thinking, token_usage)
         self._append("\n".join(lines))
 
-    async def log_llm_call_async(
+    async def log_llm_call(
         self,
         session_key: str,
         turn: int,
@@ -223,7 +206,7 @@ class ActivityLogger:
         lines = _format_llm_call_lines(turn, model, message_count, tool_count, thinking, token_usage)
         await self._append_async("\n".join(lines))
 
-    def log_tool_call(
+    def _log_tool_call_sync(
         self,
         session_key: str,
         tool_name: str,
@@ -254,7 +237,7 @@ class ActivityLogger:
         )
         self._append("\n".join(lines))
 
-    async def log_tool_call_async(
+    async def log_tool_call(
         self,
         session_key: str,
         tool_name: str,
@@ -284,7 +267,7 @@ class ActivityLogger:
         )
         await self._append_async("\n".join(lines))
 
-    def log_final_reply(self, session_key: str, reply: str) -> None:
+    def _log_final_reply_sync(self, session_key: str, reply: str) -> None:
         """记录最终回复（截断 1000 字）。
 
         注意：会话标识由 ``log_session_start`` 写入，此方法仅追加回复内容。
@@ -295,7 +278,7 @@ class ActivityLogger:
         """
         self._append(f"### 最终回复\n\n{reply[:1000]}\n\n")
 
-    async def log_final_reply_async(self, session_key: str, reply: str) -> None:
+    async def log_final_reply(self, session_key: str, reply: str) -> None:
         """异步记录最终回复（截断 1000 字）（性能优化）。
 
         性能优化：使用asyncio.to_thread包装文件I/O，消除事件循环阻塞。
@@ -306,7 +289,7 @@ class ActivityLogger:
         """
         await self._append_async(f"### 最终回复\n\n{reply[:1000]}\n\n")
 
-    def log_incomplete(self, session_key: str, reason: str) -> None:
+    def _log_incomplete_sync(self, session_key: str, reason: str) -> None:
         """记录未完成状态（达到最大轮数等异常退出）。
 
         Args:
@@ -315,7 +298,7 @@ class ActivityLogger:
         """
         self._append(f"### 未完成\n\n{reason}\n\n")
 
-    async def log_incomplete_async(self, session_key: str, reason: str) -> None:
+    async def log_incomplete(self, session_key: str, reason: str) -> None:
         """异步记录未完成状态（性能优化）。
 
         性能优化：使用asyncio.to_thread包装文件I/O，消除事件循环阻塞。

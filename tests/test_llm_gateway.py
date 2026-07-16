@@ -99,8 +99,9 @@ async def test_gateway_normalizes_thinking_defaults_and_keeps_runtime_override()
     )
 
     await gateway.create_completion(
+        role="reasoning",
         messages=[],
-        params={"_role": "reasoning", "_thinking_level": "medium"},
+        params={"_thinking_level": "medium"},
     )
 
     assert provider.requests[0][1] == {

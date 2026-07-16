@@ -11,10 +11,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from miniagent.agent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX
-from miniagent.assistant.application.messaging import (
-    InboundTurnCoordinator,
-    OrderedOutboundDispatcher,
-)
+from miniagent.assistant.application.messaging.inbound import InboundTurnCoordinator
+from miniagent.assistant.application.messaging.ordered import OrderedOutboundDispatcher
 from miniagent.assistant.bootstrap.application import ApplicationContainer
 from miniagent.assistant.contracts.messages import (
     ChannelTarget,
@@ -308,7 +306,9 @@ class _FallbackCliRuntime:
         return False
 
     def _copy_history(self) -> None:
-        from miniagent.assistant.engine.cli_commands import build_session_history_plaintext
+        from miniagent.assistant.engine.commands.session_management import (
+            build_session_history_plaintext,
+        )
 
         plain = build_session_history_plaintext(
             self.state.get("session_manager"), self.state.get("active_session_id", "")

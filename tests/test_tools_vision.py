@@ -9,6 +9,7 @@ import pytest
 
 from miniagent.agent.types.tool import ToolContext
 from miniagent.assistant.tools.vision import _analyze_image_handler
+from tests.mock_strategies import MockGateway
 
 
 @pytest.fixture
@@ -68,7 +69,7 @@ async def test_analyze_image_success(
 
     monkeypatch.setenv("MINIAGENT_MODEL_MODEL", "gpt-4o")
 
-    ctx.llm_client = mock_client
+    ctx.llm_client = MockGateway(mock_client, vision=True)
     r = await _analyze_image_handler({"path": "test.png"}, ctx)
 
     assert r.success
@@ -91,7 +92,7 @@ async def test_analyze_image_custom_prompt(
 
     monkeypatch.setenv("MINIAGENT_MODEL_MODEL", "gpt-4o")
 
-    ctx.llm_client = mock_client
+    ctx.llm_client = MockGateway(mock_client, vision=True)
     r = await _analyze_image_handler(
         {"path": "test.jpg", "prompt": "识别图中的文字"}, ctx
     )
@@ -155,7 +156,7 @@ async def test_analyze_image_no_model(
     r = await _analyze_image_handler({"path": "test.png"}, ctx)
 
     assert not r.success
-    assert "未配置" in r.content or "model" in r.content.lower()
+    assert "vision" in r.content.lower()
 
 
 async def test_vision_tools_export() -> None:
@@ -171,6 +172,6 @@ async def test_vision_tools_export() -> None:
 
 async def test_vision_tools_in_all_tools() -> None:
     """vision_tools 应在 ALL_TOOLS 中。"""
-    from miniagent.assistant.tools import ALL_TOOLS
+    from miniagent.assistant.tools.registry import ALL_TOOLS
 
     assert "analyze_image" in ALL_TOOLS

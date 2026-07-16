@@ -8,8 +8,10 @@ from typing import Any, Protocol, runtime_checkable
 
 @runtime_checkable
 class ActivityLogProtocol(Protocol):
-    def log_session_start(self, session_key: str, user_input: str, source: str) -> None: ...
-    def log_llm_call(
+    async def log_session_start(
+        self, session_key: str, user_input: str, source: str
+    ) -> None: ...
+    async def log_llm_call(
         self,
         session_key: str,
         turn: int,
@@ -19,7 +21,7 @@ class ActivityLogProtocol(Protocol):
         thinking: str | None,
         token_usage: dict[str, Any] | None,
     ) -> None: ...
-    def log_tool_call(
+    async def log_tool_call(
         self,
         session_key: str,
         tool_name: str,
@@ -29,7 +31,8 @@ class ActivityLogProtocol(Protocol):
         duration_ms: int,
         success: bool,
     ) -> None: ...
-    def log_final_reply(self, session_key: str, reply: str) -> None: ...
+    async def log_final_reply(self, session_key: str, reply: str) -> None: ...
+    async def log_incomplete(self, session_key: str, reason: str) -> None: ...
     def get_stats(self) -> dict[str, Any]: ...
     def clear_old_entries(self, days: int = 30) -> int: ...
 

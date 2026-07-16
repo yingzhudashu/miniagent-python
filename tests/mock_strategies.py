@@ -6,6 +6,62 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
+from miniagent.llm.gateway import LLMGateway
+from miniagent.llm.providers.openai_transport import (
+    create_completion as create_openai_completion,
+)
+from miniagent.llm.providers.openai_transport import (
+    stream_completion as stream_openai_completion,
+)
+from miniagent.llm.types import ModelCapabilities, ModelDescriptor
+
+
+class MockGateway:
+    """Test-only Gateway double around a raw OpenAI-compatible SDK mock."""
+
+    def __init__(
+        self, raw: MagicMock, *, responses: bool = False, vision: bool = False
+    ) -> None:
+        self.raw = raw
+        self.chat = raw.chat
+        self.responses = raw.responses
+        self._call_count = getattr(raw, "_call_count", {"n": 0})
+        self.descriptor = ModelDescriptor(
+            profile="test",
+            provider="test",
+            model="test-model",
+            api="openai_responses" if responses else "openai_chat_completions",
+            capabilities=ModelCapabilities(vision=vision),
+            defaults={"temperature": 0.7, "top_p": 1.0, "max_tokens": 4096},
+        )
+        self.catalog = self
+
+    def get(self, _profile: str):
+        return self.descriptor
+
+    def model_for_role(self, _role: str = "default") -> ModelDescriptor:
+        return self.descriptor
+
+    async def create_completion(self, **kwargs: Any):
+        return await create_openai_completion(
+            self.raw,
+            messages=kwargs["messages"],
+            params=LLMGateway._provider_params(kwargs["params"], self.descriptor),
+            tools=kwargs.get("tools"),
+            json_mode=kwargs.get("json_mode", False),
+            wire_api="responses" if self.descriptor.api == "openai_responses" else "chat_completions",
+        )
+
+    def stream_completion(self, **kwargs: Any):
+        return stream_openai_completion(
+            self.raw,
+            messages=kwargs["messages"],
+            params=LLMGateway._provider_params(kwargs["params"], self.descriptor),
+            tools=kwargs.get("tools"),
+            json_mode=kwargs.get("json_mode", False),
+            wire_api="responses" if self.descriptor.api == "openai_responses" else "chat_completions",
+        )
+
 
 def make_ping_tool_registry() -> tuple[Any, Any]:
     """Create main/session registries with one successful session tool."""
@@ -45,6 +101,11 @@ def mock_memory_bundle() -> tuple[MagicMock, MagicMock, MagicMock]:
     """Create the three collaborators overridden by executor tests."""
     store = MagicMock()
     activity_log = MagicMock()
+    activity_log.log_session_start = AsyncMock()
+    activity_log.log_llm_call = AsyncMock()
+    activity_log.log_tool_call = AsyncMock()
+    activity_log.log_final_reply = AsyncMock()
+    activity_log.log_incomplete = AsyncMock()
     keyword_index = MagicMock()
     keyword_index.get_stats.return_value = {"total_keywords": 0}
     return store, activity_log, keyword_index
@@ -81,7 +142,7 @@ def mock_streaming_client(
     tool_args: str = "{}",
     final_text: str = "done",
     extra_streams: list[Any] | None = None,
-) -> MagicMock:
+) -> MockGateway:
     """Create a client that emits a tool call followed by final text."""
     client = MagicMock()
 
@@ -123,7 +184,7 @@ def mock_streaming_client(
 
     client.chat.completions.create = AsyncMock(side_effect=create_side_effect)
     client._call_count = call_count
-    return client
+    return MockGateway(client)
 
 
 __all__ = [

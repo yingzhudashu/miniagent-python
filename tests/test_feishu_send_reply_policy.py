@@ -17,7 +17,7 @@ def _clear_lark_client_cache():
 
 
 def test_send_interactive_reply_cards_stops_after_failed_shard() -> None:
-    from miniagent.assistant.feishu.poll_server import _send_interactive_reply_cards
+    from miniagent.assistant.feishu.outbound_delivery import _send_interactive_reply_cards
     from miniagent.assistant.feishu.types import FeishuConfig
 
     cfg = FeishuConfig(app_id="a", app_secret="b", verification_token="t")
@@ -44,8 +44,8 @@ def test_send_interactive_reply_cards_stops_after_failed_shard() -> None:
 def test_send_plain_text_chunks_sends_multiple(monkeypatch: pytest.MonkeyPatch) -> None:
     import miniagent.assistant.feishu.outbound_delivery as ps
 
-    monkeypatch.setattr(ps, "feishu_card_body_max", lambda: 8)
-    from miniagent.assistant.feishu.poll_server import _send_plain_text_chunks
+    monkeypatch.setattr(ps._card_rendering, "feishu_card_body_max", lambda: 8)
+    from miniagent.assistant.feishu.outbound_delivery import _send_plain_text_chunks
     from miniagent.assistant.feishu.types import FeishuConfig
 
     cfg = FeishuConfig(app_id="a", app_secret="b", verification_token="t")

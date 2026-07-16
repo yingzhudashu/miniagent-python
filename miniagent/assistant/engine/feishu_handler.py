@@ -298,8 +298,10 @@ class _FeishuHandlerRuntime:
         """执行飞书点命令；返回是否已处理及其发送结果。"""
         if not inbound.text.startswith("/"):
             return False, ""
-        from miniagent.assistant.engine.cli_commands import feishu_dot_commands_full_enabled
         from miniagent.assistant.engine.command_dispatch import dispatch_command
+        from miniagent.assistant.engine.commands.session_management import (
+            feishu_dot_commands_full_enabled,
+        )
 
         session_key = self.channel_router.resolve_feishu_message(
             inbound.chat_id, inbound.sender_id, inbound.chat_type or "group"
@@ -643,15 +645,14 @@ class _FeishuHandlerRuntime:
         )
         if message_type != "image" or not get_config("feishu.media.vision_desc", True):
             return default
-        model = get_config("model.model", "")
         llm_client = getattr(
             self.ctx, "llm_client", getattr(self.ctx, "llm_gateway", None)
         )
-        if not model or not llm_client:
+        if not llm_client:
             return default
         from miniagent.assistant.feishu.vision_desc import describe_image
 
-        description = await describe_image(path, llm_client, model)
+        description = await describe_image(path, llm_client)
         return (
             f"[飞书入站] 用户上传了一张图片，已保存到 {relative_path}\n图片内容：{description}"
             if description

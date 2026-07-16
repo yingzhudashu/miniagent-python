@@ -29,8 +29,6 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, TypeAlias
 
-from miniagent.agent.activity import invoke_activity_log
-from miniagent.agent.config import get_default_model_config
 from miniagent.agent.constants import (
     EXECUTION_MAX_CONCURRENT_TOOLS,
     EXECUTION_PHASED_ENABLED,
@@ -64,6 +62,7 @@ from miniagent.agent.types.error_prefix import WARNING_PREFIX
 from miniagent.agent.types.planning import StructuredPlan
 from miniagent.agent.types.skill import ClawHubClientProtocol
 from miniagent.agent.types.tool import ToolRegistryProtocol
+from miniagent.llm.gateway import LLMGateway
 
 _logger = get_logger(__name__)
 _EXEC_LLM_MAX_ATTEMPTS = 3
@@ -76,6 +75,7 @@ def _exec_retry_params(base: dict[str, Any], *, attempt: int, responses: bool) -
         return params
     params.pop("temperature", None)
     params.pop("top_p", None)
+    params["_omit_parameters"] = ("temperature", "top_p")
     if attempt == _EXEC_LLM_MAX_ATTEMPTS - 1:
         params["_thinking_level"] = "medium"
     return params
@@ -477,6 +477,7 @@ async def _build_execution_context(
     memory: MemoryRuntimeProtocol,
     knowledge_registry: KnowledgeRegistryProtocol,
     system_prompt: str | None,
+    client: LLMGateway,
 ) -> tuple[DefaultContextManager, bool, bool]:
     """注入本轮记忆与知识，并按稳定前缀顺序恢复会话历史。"""
     from miniagent.agent.execution_runtime_setup import build_execution_context
@@ -490,6 +491,7 @@ async def _build_execution_context(
         knowledge_registry=knowledge_registry,
         system_prompt=system_prompt,
         ephemeral_resolver=_is_ephemeral_session,
+        llm_gateway=client,
     )
 
 
@@ -523,9 +525,7 @@ class _ExecutionRuntime:
         """记录直接执行入口的会话开始事件并输出调试摘要。"""
         if self.manage_activity and self.activity_enabled:
             source = "feishu" if self.session_key.startswith("feishu:") else "cli"
-            await invoke_activity_log(
-                self.memory.activity_log,
-                "log_session_start",
+            await self.memory.activity_log.log_session_start(
                 self.session_key,
                 self.user_input,
                 source,
@@ -557,9 +557,7 @@ class _ExecutionRuntime:
                 tool_calls=self.turn_tool_calls,
             )
         if self.manage_activity:
-            await invoke_activity_log(
-                self.memory.activity_log, "log_final_reply", self.session_key, final_reply
-            )
+            await self.memory.activity_log.log_final_reply(self.session_key, final_reply)
 
     async def run(self) -> str:
         """选择分步或普通路径，并统一处理最大轮次耗尽。"""
@@ -592,9 +590,7 @@ class _ExecutionRuntime:
         if result is not None:
             return result
         if self.manage_activity and self.activity_enabled:
-            await invoke_activity_log(
-                self.memory.activity_log,
-                "log_incomplete",
+            await self.memory.activity_log.log_incomplete(
                 self.session_key,
                 f"达到最大轮数 {self.config.max_turns}",
             )
@@ -616,7 +612,7 @@ async def _create_execution_runtime(
     *,
     memory: MemoryRuntimeProtocol,
     knowledge_registry: KnowledgeRegistryProtocol,
-    client: Any,
+    client: LLMGateway,
     system_prompt: str | None,
     clawhub: ClawHubClientProtocol | None,
     on_tool_call: OnToolCall | None,
@@ -640,6 +636,7 @@ async def _create_execution_runtime(
         memory=memory,
         knowledge_registry=knowledge_registry,
         system_prompt=system_prompt,
+        client=client,
     )
     loop_detector, loop_config = _build_loop_detector(agent_config)
     session_key = agent_config.session_config.session_key or "default"
@@ -649,7 +646,6 @@ async def _create_execution_runtime(
         agent_config=agent_config,
         on_thinking=on_thinking,
         phase_header_sent=set(),
-        model_config=get_default_model_config(),
         session_key=session_key,
         llm_client=client,
         exec_hist_segments={},

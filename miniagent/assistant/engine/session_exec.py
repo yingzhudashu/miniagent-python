@@ -5,8 +5,8 @@
 
 ``parallel_sessions=false`` 时：使用单一全局 Lock，所有会话严格串行。
 
-由 :class:`UnifiedEngine` 在初始化时创建，经 :meth:`SessionExecCoordinator.acquire` 或
-:meth:`~miniagent.assistant.engine.engine.UnifiedEngine.session_turn` 进入 Agent 执行前获取锁。
+由 :class:`AssistantTurnService` 在初始化时创建，经 :meth:`SessionExecCoordinator.acquire` 或
+:meth:`~miniagent.assistant.engine.turn_service.AssistantTurnService.session_turn` 进入 Agent 执行前获取锁。
 ``asyncio.Lock`` **不可重入**；若调用方已通过 ``session_turn`` 持有锁，须传
 ``_hold_session_lock=True`` 给 ``run_agent_with_thinking``，避免二次 ``acquire`` 死锁。
 """
@@ -94,7 +94,7 @@ class SessionExecCoordinator:
 
         Note:
             **不可重入**：同一线程/任务对同一 ``session_key`` 嵌套 ``acquire`` 会死锁。
-            调用方若已通过 :meth:`~miniagent.assistant.engine.engine.UnifiedEngine.session_turn`
+            调用方若已通过 :meth:`~miniagent.assistant.engine.turn_service.AssistantTurnService.session_turn`
             持有锁，应传 ``_hold_session_lock=True`` 跳过二次获取。
 
             无论 ``yield`` 正常结束、抛异常还是被取消，会话锁与 Semaphore 均会在

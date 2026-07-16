@@ -109,6 +109,7 @@ def test_bootstrap_conflict_exits(
     stale = Path(reg) / "instances" / "1"
     stale.mkdir(parents=True)
     meta = {
+        "schema_version": 1,
         "pid": other_pid,
         "instance_id": 1,
         "mode": "cli",

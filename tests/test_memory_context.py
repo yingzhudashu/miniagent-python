@@ -124,22 +124,6 @@ async def test_save_after_turn_flush_does_not_block_event_loop(memory_bundle) ->
     assert tick_time < save_returned_at
 
 
-@pytest.mark.asyncio
-async def test_save_after_turn_keeps_legacy_store_compatibility() -> None:
-    store = MagicMock()
-    store.record_turn = None
-    store.flush_keyword_index_async = None
-    store.flush_keyword_index = None
-    store.update_summary = AsyncMock()
-    store.add_entry = AsyncMock()
-    ctx = DefaultMemoryContext(store, MagicMock())
-
-    await ctx.save_memory_after_turn("legacy", "hello", "world", store)
-
-    store.update_summary.assert_awaited_once()
-    store.add_entry.assert_awaited_once()
-
-
 def test_memory_injection_result_from_tuple() -> None:
     result = MemoryInjectionResult.from_tuple(([], {"relevant_count": 0}))
     assert result.messages == []
@@ -176,15 +160,14 @@ async def test_default_memory_history_load_with_manager() -> None:
 
 
 @pytest.mark.asyncio
-async def test_default_memory_history_sync_loader_does_not_block_loop() -> None:
+async def test_default_memory_history_async_loader_does_not_block_loop() -> None:
     manager = MagicMock()
 
-    def slow_load(_session_key: str):
-        time.sleep(0.1)
+    async def slow_load(_session_key: str):
+        await asyncio.sleep(0.1)
         return [{"role": "user", "content": "hi"}]
 
-    manager.load_session_history_async = None
-    manager.load_session_history = slow_load
+    manager.load_session_history_async = slow_load
     history = DefaultMemoryHistory(manager)
     heartbeat_time: float | None = None
 

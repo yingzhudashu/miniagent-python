@@ -91,7 +91,8 @@ def test_types_config_does_not_import_openai_sdk() -> None:
 
 def test_types_lazy_export_remains_compatible() -> None:
     result = _fresh_import(
-        "from miniagent.agent.types import AgentConfig, ToolDefinition",
+        "from miniagent.agent.types.config import AgentConfig",
+        "from miniagent.agent.types.tool import ToolDefinition",
         "assert AgentConfig.__name__ == 'AgentConfig'",
         "assert ToolDefinition.__name__ == 'ToolDefinition'",
     )
@@ -135,7 +136,7 @@ def test_single_tool_module_does_not_import_all_tool_collections() -> None:
 
 def test_all_tools_lazy_export_builds_complete_mapping() -> None:
     result = _fresh_import(
-        "from miniagent.assistant.tools import ALL_TOOLS",
+        "from miniagent.assistant.tools.registry import ALL_TOOLS",
         "assert 'read_file' in ALL_TOOLS",
         "assert 'json_read' in ALL_TOOLS",
     )

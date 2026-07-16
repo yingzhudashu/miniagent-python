@@ -7,8 +7,11 @@ from contextlib import redirect_stdout
 
 import pytest
 
-from miniagent.assistant.engine.cli_commands import cmd_queue_status, cmd_session_list
 from miniagent.assistant.engine.commands.config_commands import feishu_markdown_commands_enabled
+from miniagent.assistant.engine.commands.session_management import (
+    cmd_queue_status,
+    cmd_session_list,
+)
 from miniagent.assistant.infrastructure.message_queue import MessageQueueManager
 from tests.config_helpers import install_test_config
 
@@ -50,8 +53,8 @@ def test_feishu_markdown_commands_string_false(
 ) -> None:
     """字符串 ``\"false\"`` 应解析为关，避免 bool(\"false\") 误判。"""
     monkeypatch.delenv("MINIAGENT_FEISHU_MARKDOWN_COMMANDS", raising=False)
-    install_test_config(tmp_path, {"feishu": {"markdown_commands": "false"}})
-    assert feishu_markdown_commands_enabled() is False
+    with pytest.raises(ValueError, match="应为 bool"):
+        install_test_config(tmp_path, {"feishu": {"markdown_commands": "false"}})
 
 
 def test_cmd_session_list_markdown_table() -> None:

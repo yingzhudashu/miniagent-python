@@ -3,45 +3,14 @@
 from __future__ import annotations
 
 import json
-from typing import Any
 
 from miniagent.agent.logging import get_logger
 from miniagent.assistant.feishu import card_rendering as _card_rendering
+from miniagent.assistant.feishu.cards.builder import build_interactive_card
 from miniagent.assistant.feishu.types import FeishuConfig
 from miniagent.assistant.infrastructure.json_config import get_config
 
 _logger = get_logger(__name__)
-feishu_card_body_max = _card_rendering.feishu_card_body_max
-_normalize_im_receive_chat_id = _card_rendering.normalize_im_receive_chat_id
-_is_valid_im_receive_id = _card_rendering.is_valid_im_receive_id
-_prepare_card_markdown = _card_rendering.prepare_card_markdown
-_strip_light_markdown_for_feishu_plain = _card_rendering.strip_light_markdown_for_plain
-
-
-def _feishu_interactive_card_dict(
-    header_title: str, body_markdown: str, template: str
-) -> dict[str, Any]:
-    """构造飞书交互卡片 JSON 结构。"""
-    from miniagent.assistant.feishu.cards.builder import build_interactive_card
-
-    return build_interactive_card(header_title, body_markdown, template)
-
-
-def _chunk_feishu_card_markdown(
-    reply: str,
-    max_len: int | None = None,
-    *,
-    already_normalized: bool = False,
-) -> list[str]:
-    """按当前卡片上限分块，并保持代码围栏闭合。"""
-    cap = feishu_card_body_max() if max_len is None else max_len
-    return _card_rendering.chunk_card_markdown(
-        reply,
-        cap,
-        already_normalized=already_normalized,
-    )
-
-
 def _post_interactive_message(
     config: FeishuConfig,
     *,
@@ -133,6 +102,22 @@ def _feishu_reply_plain_enabled() -> bool:
     return bool(get_config("feishu.reply_plain", False))
 
 
+def feishu_outbound_reply_params(
+    trigger_message_id: str | None,
+    thread_id: str | None = None,
+) -> tuple[str | None, bool]:
+    """Resolve the current reply target without coupling delivery to the poller."""
+    mode = str(get_config("feishu.reply_target", "reply")).lower()
+    if mode != "reply":
+        return None, False
+    message_id = (trigger_message_id or "").strip()
+    if not message_id:
+        return None, False
+    configured = get_config("feishu.reply_in_thread", None)
+    in_thread = bool((thread_id or "").strip()) if configured is None else bool(configured)
+    return message_id, in_thread
+
+
 
 
 def _send_interactive_reply_cards(
@@ -150,9 +135,9 @@ def _send_interactive_reply_cards(
         return (0, 0)
     sent = 0
     for i, part in enumerate(parts):
-        body = _prepare_card_markdown(part, normalize=not already_normalized)
+        body = _card_rendering.prepare_card_markdown(part, normalize=not already_normalized)
         title = "🤖 Mini Agent" if n == 1 else f"🤖 Mini Agent ({i + 1}/{n})"
-        card = _feishu_interactive_card_dict(title, body, "blue")
+        card = build_interactive_card(title, body, "blue")
         card_json = json.dumps(card, ensure_ascii=False)
         ok, _mid = _post_interactive_message(
             config,
@@ -185,7 +170,7 @@ def _send_plain_text_chunks(
             (cid or "")[:12],
         )
     try:
-        chunks = _chunk_feishu_card_markdown(text or "")
+        chunks = _card_rendering.chunk_card_markdown(text or "")
         if not chunks:
             return
         for i, ch in enumerate(chunks):
@@ -213,15 +198,15 @@ async def _send_reply(
     reply_in_thread: bool = False,
 ) -> None:
     """通过飞书 API 发送回复（交互式卡片 + lark_md，与思考卡片同一套构建逻辑）。"""
-    cid = _normalize_im_receive_chat_id(chat_id)
-    if not _is_valid_im_receive_id(cid):
+    cid = _card_rendering.normalize_im_receive_chat_id(chat_id)
+    if not _card_rendering.is_valid_im_receive_id(cid):
         _logger.debug("跳过发送回复：无效的 chat_id (%s)", chat_id)
         return
 
     body = reply or ""
     if _feishu_reply_plain_enabled():
-        body = _strip_light_markdown_for_feishu_plain(body)
-    parts = _chunk_feishu_card_markdown(body)
+        body = _card_rendering.strip_light_markdown_for_plain(body)
+    parts = _card_rendering.chunk_card_markdown(body)
     n = len(parts)
     sent = 0
     try:

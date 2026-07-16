@@ -49,11 +49,11 @@ def test_configure_parallel_clears_existing_exec_lock() -> None:
     assert mq.exec_lock is None
 
 
-def test_configure_serial_string_false_treated_as_off() -> None:
+def test_configure_serial_uses_strict_boolean_setting() -> None:
     mq = MessageQueueManager()
     with patch(
-        "miniagent.assistant.infrastructure.json_config.get_config",
-        side_effect=lambda key, default=None: "false" if key == "agent.parallel_sessions" else default,
+        "miniagent.assistant.engine.parallel_config.get_config_bool",
+        return_value=False,
     ):
         configure_message_queue_for_parallel(mq)
     assert mq.cross_queue_serial is True
@@ -66,9 +66,9 @@ def test_configure_serial_string_false_treated_as_off() -> None:
         (True, True),
         (False, False),
         (1, True),
-        (0, False),
+        (0, True),
         ("true", True),
-        ("false", False),
+        ("false", True),
         ("maybe", True),
     ],
 )

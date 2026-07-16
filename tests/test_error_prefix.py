@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import miniagent.agent.types.error_prefix as error_prefix_module
-from miniagent.agent.types import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
+from miniagent.agent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
 from miniagent.agent.types.error_prefix import (
     ERROR_PREFIX as DIRECT_ERROR_PREFIX,
 )

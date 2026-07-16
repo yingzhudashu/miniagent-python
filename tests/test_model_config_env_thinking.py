@@ -1,32 +1,31 @@
-"""model thinking 配置从 config.user.json 加载。"""
+"""Thinking compatibility is descriptor-driven, never inferred from endpoint URLs."""
+
+from miniagent.llm.gateway import LLMGateway
+from miniagent.llm.types import ModelDescriptor
 
 
-from miniagent.agent.config import get_default_model_config
-from tests.test_config import _install_loader
-
-
-def test_user_thinking_level_sets_budget(tmp_path) -> None:
-    _install_loader(tmp_path, {"model": {"thinking_level": "medium"}})
-    mc = get_default_model_config()
-    assert mc.thinking_level == "medium"
-    assert mc.thinking_budget == 8192
-
-
-def test_user_thinking_budget_overrides_derived(tmp_path) -> None:
-    _install_loader(
-        tmp_path,
-        {"model": {"thinking_level": "high", "thinking_budget": 12345}},
+def test_qwen_thinking_adapter_is_explicit() -> None:
+    descriptor = ModelDescriptor(
+        profile="qwen",
+        provider="openai-compatible",
+        model="qwen-plus",
+        api="openai_chat_completions",
+        compatibility={"thinking_adapter": "qwen"},
     )
-    mc = get_default_model_config()
-    assert mc.thinking_level == "heavy"
-    assert mc.thinking_budget == 12345
-
-
-def test_user_context_and_max_tokens(tmp_path) -> None:
-    _install_loader(
-        tmp_path,
-        {"model": {"context_window": 40000, "max_tokens": 9000}},
+    params = LLMGateway._provider_params(
+        {"_thinking_level": "medium", "_thinking_budget": 512}, descriptor
     )
-    mc = get_default_model_config()
-    assert mc.context_window == 40000
-    assert mc.max_tokens == 9000
+    assert params["extra_body"] == {"enable_thinking": True, "thinking_budget": 512}
+
+
+def test_endpoint_name_does_not_enable_qwen_adapter() -> None:
+    descriptor = ModelDescriptor(
+        profile="plain",
+        provider="openai-compatible",
+        model="qwen-plus",
+        api="openai_chat_completions",
+    )
+    params = LLMGateway._provider_params(
+        {"_thinking_level": "medium", "_thinking_budget": 512}, descriptor
+    )
+    assert "extra_body" not in params

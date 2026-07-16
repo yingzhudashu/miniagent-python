@@ -7,16 +7,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from miniagent.agent.monitor import DefaultToolMonitor
-from miniagent.assistant.application.messaging import (
-    ChannelRegistry,
-    OrderedOutboundDispatcher,
-)
+from miniagent.assistant.application.messaging.channels import ChannelRegistry
+from miniagent.assistant.application.messaging.ordered import OrderedOutboundDispatcher
 from miniagent.assistant.bootstrap.application import ApplicationContainer
-from miniagent.assistant.contracts import OutboundEventKind
+from miniagent.assistant.contracts.messages import OutboundEventKind
 from miniagent.assistant.engine.cli_outbound import build_cli_thinking_event
-from miniagent.assistant.engine.engine import UnifiedEngine
 from miniagent.assistant.engine.feishu_handler import create_feishu_handler
 from miniagent.assistant.engine.feishu_state import FeishuRuntime
+from miniagent.assistant.engine.turn_service import AssistantTurnService
 from miniagent.assistant.feishu.types import FeishuInboundText
 from miniagent.assistant.infrastructure.channel_router import ChannelRouter
 from miniagent.assistant.infrastructure.cli_transcript_coordinator import CliTranscriptCoordinator
@@ -40,7 +38,7 @@ def _make_ctx(router: ChannelRouter) -> ApplicationContainer:
         monitor=DefaultToolMonitor(),
         skill_registry=DefaultSkillRegistry(),
         clawhub=create_clawhub_client(),
-        engine=UnifiedEngine(),
+        engine=AssistantTurnService(),
         channel_router=router,
         message_queue=mq,
         feishu=FeishuRuntime(mq),

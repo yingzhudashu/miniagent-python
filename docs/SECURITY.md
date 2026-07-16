@@ -92,6 +92,10 @@ resolve_sandbox_path("/app/workspace/data/output.txt", ["/app/workspace"])
 # 3. 命令 basename 白名单（可配置 security.allowed_commands）
 ```
 
+Windows 下命令名按系统语义进行大小写无关匹配，并将 `.exe`、`.com`、`.bat`、`.cmd`
+视为同一 basename 的标准可执行别名；例如白名单中的 `curl` 可匹配 `curl.exe`。
+其他扩展名仍须显式加入白名单。
+
 ## 3. 多实例安全
 
 **位置**: `miniagent/assistant/engine/session_lock.py` + `miniagent/assistant/infrastructure/instance.py`

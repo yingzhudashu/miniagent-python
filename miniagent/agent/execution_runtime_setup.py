@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from miniagent.agent.config import get_default_agent_config, get_default_model_config
+from miniagent.agent.config import get_default_agent_config
 from miniagent.agent.context import DefaultContextManager
 from miniagent.agent.execution_prompts import (
     build_current_turn_user_context,
@@ -29,6 +29,7 @@ from miniagent.agent.types.planning import StructuredPlan
 from miniagent.agent.types.skill import ClawHubClientProtocol
 from miniagent.agent.types.tool import ToolContext
 from miniagent.agent.workspace import get_default_workspace
+from miniagent.llm.gateway import LLMGateway
 
 _logger = get_logger(__name__)
 
@@ -78,12 +79,13 @@ async def build_execution_context(
     knowledge_registry: KnowledgeRegistryProtocol,
     system_prompt: str | None,
     ephemeral_resolver: Any,
+    llm_gateway: LLMGateway,
 ) -> tuple[DefaultContextManager, bool, bool]:
     """注入本轮记忆与知识，并按稳定前缀顺序恢复会话历史。"""
     from miniagent.agent.knowledge import retrieve_knowledge_context
 
     session = agent_config.session_config
-    model = get_default_model_config()
+    model = llm_gateway.model_for_role("default")
     context = DefaultContextManager(
         context_window=model.context_window,
         compress_threshold=resolve_chunk_compress_threshold(

@@ -43,6 +43,7 @@ from miniagent.assistant.feishu.outbound_delivery import (
     _send_interactive_reply_cards,
     _send_plain_text_chunks,
     _send_reply,
+    feishu_outbound_reply_params,
 )
 from miniagent.assistant.feishu.poll_state import (
     FeishuMediaHandler,
@@ -52,22 +53,13 @@ from miniagent.assistant.feishu.poll_state import (
     _parse_feishu_media_payload,
 )
 from miniagent.assistant.feishu.thinking_delivery import (
-    FEISHU_THINKING_PATCH_BUDGET,
-    _adjust_patch_budget_dynamically,
-    _chunk_feishu_card_markdown,
     _create_interactive_thinking_message,
     _create_interactive_thinking_message_async,
-    _is_important_content_for_immediate_patch,
-    _normalize_lark_md,
     _patch_interactive_thinking_message,
     _patch_interactive_thinking_message_async,
-    _prepare_card_markdown,
-    _prepare_thinking_markdown,
     _send_thinking,
-    _strip_light_markdown_for_feishu_plain,
     _thinking_card_json_cached,
     append_feishu_thinking_same_card,
-    feishu_card_body_max,
     finalize_feishu_thinking_stream,
     push_feishu_thinking_stream,
     send_reflection_card,
@@ -499,34 +491,6 @@ def _resolve_feishu_confirmation_channel(
     return getattr(eng, "confirmation_channel", None)
 
 
-def feishu_outbound_reply_params(
-    trigger_message_id: str | None,
-    thread_id: str | None = None,
-) -> tuple[str | None, bool]:
-    """是否使用飞书「回复消息」API（``im/v1/messages/:message_id/reply``）。
-
-    环境变量：
-    - ``MINIAGENT_FEISHU_REPLY_TARGET``：``reply``（默认，回复入站消息）或 ``create``（会话内新消息）；其它值视为 ``create``。
-    - ``MINIAGENT_FEISHU_REPLY_IN_THREAD``：显式 ``1``/``true`` 等为真；``0``/``false`` 等为假；**未设置**且入站
-      ``thread_id`` 非空时，在 ``reply`` 模式下默认 ``reply_in_thread=True``。
-
-    Returns:
-        ``(reply_parent_message_id_or_None, reply_in_thread)``
-    """
-    mode = str(get_config("feishu.reply_target", "reply")).lower()
-    if mode != "reply":
-        return None, False
-    mid = (trigger_message_id or "").strip()
-    if not mid:
-        return None, False
-    thr_cfg = get_config("feishu.reply_in_thread", None)
-    if thr_cfg is None:
-        thr = bool((thread_id or "").strip())
-    else:
-        thr = bool(thr_cfg)
-    return mid, thr
-
-
 async def _cleanup_feishu_ws_tasks(ws_client: Any, ping_task: asyncio.Task[Any] | None) -> None:
     """取消并消费 SDK ping/receive 任务，避免未检索异常。"""
     if ping_task is not None and not ping_task.done():
@@ -681,32 +645,22 @@ async def start_feishu_poll_server(
 # 节流参数从JSON配置读取，默认值已优化为更流畅的流式体验（间隔更短、字符增量更小）
 
 __all__ = [
-    "FEISHU_THINKING_PATCH_BUDGET",
-    "_adjust_patch_budget_dynamically",
-    "_chunk_feishu_card_markdown",
     "_create_interactive_thinking_message",
     "_create_interactive_thinking_message_async",
     "_feishu_reply_plain_enabled",
-    "_is_important_content_for_immediate_patch",
-    "_normalize_lark_md",
     "_patch_interactive_thinking_message",
     "_patch_interactive_thinking_message_async",
     "_post_interactive_message",
     "_post_interactive_message_async",
     "_post_text_message",
-    "_prepare_card_markdown",
-    "_prepare_thinking_markdown",
     "_send_reply",
     "_send_interactive_reply_cards",
     "_send_plain_text_chunks",
     "_send_thinking",
-    "_strip_light_markdown_for_feishu_plain",
     "_thinking_card_json_cached",
-    "feishu_outbound_reply_params",
     "FeishuMediaHandler",
     "FeishuPollState",
     "start_feishu_poll_server",
-    "feishu_card_body_max",
     "push_feishu_thinking_stream",
     "finalize_feishu_thinking_stream",
     "append_feishu_thinking_same_card",

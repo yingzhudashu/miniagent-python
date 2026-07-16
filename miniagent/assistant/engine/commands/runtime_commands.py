@@ -49,7 +49,7 @@ async def handle_abort(
     **_kwargs: Any,
 ) -> str | None:
     """中止当前渠道队列，但不终止 MiniAgent 进程。"""
-    from miniagent.assistant.engine.cli_commands import format_queue_abort_message
+    from miniagent.assistant.engine.commands.session_management import format_queue_abort_message
 
     runtime = _runtime(state)
     if runtime is None:
@@ -136,7 +136,7 @@ async def handle_query(
     **_kwargs: Any,
 ) -> str | None:
     """显示当前渠道队列状态（``/queue status`` 的只读别名）。"""
-    from miniagent.assistant.engine.cli_commands import cmd_queue_status
+    from miniagent.assistant.engine.commands.session_management import cmd_queue_status
 
     runtime = _runtime(state)
     if runtime is None:
@@ -154,7 +154,7 @@ async def handle_queue(
     **_kwargs: Any,
 ) -> str | None:
     """查询、切换或中止消息队列。"""
-    from miniagent.assistant.engine.cli_commands import (
+    from miniagent.assistant.engine.commands.session_management import (
         cmd_queue_set,
         cmd_queue_status,
         format_queue_abort_message,
@@ -226,7 +226,9 @@ async def handle_stop(
     **_kwargs: Any,
 ) -> str | None:
     """按统一关闭顺序停止当前运行时。"""
-    from miniagent.assistant.engine.cli_commands import feishu_dot_commands_full_enabled
+    from miniagent.assistant.engine.commands.session_management import (
+        feishu_dot_commands_full_enabled,
+    )
     from miniagent.assistant.engine.shutdown import shutdown_runtime
 
     runtime = _runtime(state)

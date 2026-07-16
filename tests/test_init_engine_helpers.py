@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from miniagent.assistant.engine.init import (
-    _ensure_baseline_skills,
     _init_default_session,
     _is_mcp_missing_error,
     _parse_mcp_stdio_command,
@@ -116,41 +115,6 @@ async def test_register_mcp_tools_missing_package_logs_warning(
     with patch("miniagent.assistant.mcp.runtime.register_mcp_stdio_tools", _raise_missing):
         n = await _register_mcp_tools_from_config(MagicMock())
     assert n == 0
-
-
-def test_ensure_baseline_skills_restores_missing(tmp_path, monkeypatch) -> None:
-    skills_root = tmp_path / "skills"
-    monkeypatch.setattr(
-        "miniagent.assistant.engine.init._get_skills_root_for_baseline",
-        lambda: str(skills_root),
-    )
-
-    _ensure_baseline_skills()
-
-    for name in (
-        "skill-vetter",
-        "skill-creator",
-        "builtin-web",
-        "builtin-stackexchange",
-    ):
-        assert (skills_root / name).is_dir()
-
-
-def test_replace_known_managed_file_upgrades_only_exact_known_blob(tmp_path) -> None:
-    from miniagent.assistant.engine.init import _git_blob_id, _replace_known_managed_file
-
-    source = tmp_path / "source.py"
-    target = tmp_path / "target.py"
-    source.write_text("new canonical\n", encoding="utf-8")
-    target.write_text("old canonical\n", encoding="utf-8")
-    known = frozenset({_git_blob_id(target)})
-
-    assert _replace_known_managed_file(source, target, known) is True
-    assert target.read_text(encoding="utf-8") == "new canonical\n"
-
-    target.write_text("user customized\n", encoding="utf-8")
-    assert _replace_known_managed_file(source, target, known) is False
-    assert target.read_text(encoding="utf-8") == "user customized\n"
 
 
 def test_init_default_session_lock_fallback(

@@ -85,7 +85,7 @@ class SuggestedConfig:
         tool_timeout: 推荐的单工具超时（秒）
         context_overflow_strategy: 上下文溢出策略（``summarize`` / ``truncate`` / ``error``）
         tool_selection_strategy: 工具选择策略
-        model_overrides: 模型参数覆盖（如 temperature）
+        llm_overrides: 模型参数覆盖（如 temperature）
         thinking_level: 全局推荐思考档位（``low`` / ``medium`` / ``high``）
         chunk_execution: 是否启用分块执行语义
         chunk_token_budget: 分块 token 预算（收紧上下文压缩阈值）
@@ -97,7 +97,7 @@ class SuggestedConfig:
     tool_timeout: int | None = None
     context_overflow_strategy: str | None = None
     tool_selection_strategy: str | None = None
-    model_overrides: dict[str, object] | None = None
+    llm_overrides: dict[str, object] | None = None
     thinking_level: ThinkingLevel | None = None
     chunk_execution: bool = False
     chunk_token_budget: int | None = None

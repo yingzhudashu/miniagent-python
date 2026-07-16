@@ -8,7 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from miniagent.agent.execution_turn import ExecutionTurnStreamer
-from miniagent.llm.legacy_transport import LLMTransportError
+from miniagent.llm.providers.openai_transport import LLMTransportError
+from miniagent.llm.types import ModelDescriptor
 
 
 def _event(*, content: str | None = None, tool: object | None = None, usage: object = None):
@@ -36,21 +37,32 @@ def _streamer(
 ) -> ExecutionTurnStreamer:
     context = MagicMock()
     context.get_messages.return_value = [{"role": "user", "content": "hello"}]
+    gateway = MagicMock()
+    descriptor = ModelDescriptor(
+        profile="test",
+        provider="test",
+        model="model-x",
+        api="openai_responses" if responses else "openai_chat_completions",
+    )
+    gateway.model_for_role.return_value = descriptor
+    gateway.catalog.get.return_value = descriptor
+    activity_log = MagicMock()
+    activity_log.log_llm_call = AsyncMock()
     return ExecutionTurnStreamer(
         context_manager=context,
         agent_config=SimpleNamespace(
             debug=debug,
             log_file=log_file,
             log_token_usage=True,
+            llm_overrides={},
         ),
         on_thinking=thinking,
         phase_header_sent=set(),
-        model_config=SimpleNamespace(wire_api="responses" if responses else "chat_completions"),
         session_key="session-1",
-        llm_client=object(),
+        llm_client=gateway,
         exec_hist_segments=history if history is not None else {},
         activity_log_enabled=activity,
-        activity_log=object(),
+        activity_log=activity_log,
         separator="\n---\n",
     )
 
@@ -83,19 +95,16 @@ async def test_stream_exec_turn_aggregates_tools_and_records_observability() -> 
 
     traces: list[dict[str, object]] = []
     with (
-        patch("miniagent.agent.execution_turn.stream_completion", side_effect=events),
+        patch.object(streamer.llm_client, "stream_completion", side_effect=events),
         patch(
             "miniagent.agent.execution_turn.resolve_exec_completion_kwargs",
-            return_value={"model": "model-x"},
+            return_value={"temperature": 0.1},
         ),
         patch("miniagent.agent.execution_turn.invoke_on_thinking", thinking_calls),
         patch("miniagent.agent.execution_turn._tool_intent_in_thinking_enabled", return_value=True),
         patch("miniagent.agent.execution_turn._extract_tool_intent", return_value="读取内容"),
         patch("miniagent.agent.execution_turn.emit_trace", side_effect=traces.append),
         patch("miniagent.agent.execution_turn.asyncio.to_thread", side_effect=fake_to_thread),
-        patch(
-            "miniagent.agent.execution_turn.invoke_activity_log", new_callable=AsyncMock
-        ) as activity,
     ):
         message, kwargs, _, actual_usage, content, label = await streamer.stream_exec_turn(
             None, ["tool-schema"], "[执行]"
@@ -103,7 +112,7 @@ async def test_stream_exec_turn_aggregates_tools_and_records_observability() -> 
 
     assert content == "answer"
     assert label == "[执行]"
-    assert kwargs["model"] == "model-x"
+    assert kwargs["temperature"] == 0.1
     assert actual_usage is usage
     assert [call.function.name for call in message.tool_calls] == ["read", "broken"]
     assert message.tool_calls[0]._args_dict == {"p": 1}
@@ -111,7 +120,7 @@ async def test_stream_exec_turn_aggregates_tools_and_records_observability() -> 
     assert history["[执行]"] == ["earlier", " ", "answer"]
     assert thinking_calls.await_count == 4
     assert log_calls and log_calls[0][1] == "trace.jsonl"
-    activity.assert_awaited_once()
+    streamer.al.log_llm_call.assert_awaited_once()
     assert all(event.get("session_key") == "session-1" for event in traces)
     assert all("self.session_key" not in event for event in traces)
 
@@ -131,10 +140,10 @@ async def test_stream_exec_turn_retries_transient_responses_error_without_output
     streamer = _streamer(responses=True)
     failure = SimpleNamespace(retryable=True, category="gateway")
     with (
-        patch("miniagent.agent.execution_turn.stream_completion", side_effect=events),
+        patch.object(streamer.llm_client, "stream_completion", side_effect=events),
         patch(
             "miniagent.agent.execution_turn.resolve_exec_completion_kwargs",
-            return_value={"model": "model-x"},
+            return_value={"temperature": 0.1},
         ),
         patch("miniagent.agent.execution_turn.classify_transport_error", return_value=failure),
         patch("miniagent.agent.execution_turn.emit_trace"),
@@ -159,10 +168,10 @@ async def test_stream_exec_turn_never_replays_after_partial_output() -> None:
     streamer = _streamer(responses=True)
     failure = SimpleNamespace(retryable=True, category="gateway")
     with (
-        patch("miniagent.agent.execution_turn.stream_completion", side_effect=events),
+        patch.object(streamer.llm_client, "stream_completion", side_effect=events),
         patch(
             "miniagent.agent.execution_turn.resolve_exec_completion_kwargs",
-            return_value={"model": "model-x"},
+            return_value={"temperature": 0.1},
         ),
         patch("miniagent.agent.execution_turn.classify_transport_error", return_value=failure),
         patch("miniagent.agent.execution_turn.emit_trace"),
@@ -183,10 +192,10 @@ async def test_stream_exec_turn_wraps_repeated_transient_responses_error() -> No
     streamer = _streamer(responses=True)
     failure = SimpleNamespace(retryable=True, category="gateway")
     with (
-        patch("miniagent.agent.execution_turn.stream_completion", side_effect=events),
+        patch.object(streamer.llm_client, "stream_completion", side_effect=events),
         patch(
             "miniagent.agent.execution_turn.resolve_exec_completion_kwargs",
-            return_value={"model": "model-x"},
+            return_value={"temperature": 0.1},
         ),
         patch("miniagent.agent.execution_turn.classify_transport_error", return_value=failure),
         patch("miniagent.agent.execution_turn.emit_trace"),
@@ -204,10 +213,10 @@ async def test_stream_exec_turn_rejects_repeated_empty_responses() -> None:
 
     streamer = _streamer(responses=True)
     with (
-        patch("miniagent.agent.execution_turn.stream_completion", side_effect=events),
+        patch.object(streamer.llm_client, "stream_completion", side_effect=events),
         patch(
             "miniagent.agent.execution_turn.resolve_exec_completion_kwargs",
-            return_value={"model": "model-x"},
+            return_value={"temperature": 0.1},
         ),
         patch("miniagent.agent.execution_turn.emit_trace"),
         pytest.raises(LLMTransportError, match="no text or tool calls"),
@@ -224,10 +233,10 @@ async def test_thinking_failures_are_non_fatal_and_phase_can_retry_later() -> No
     streamer = _streamer(thinking=object())
     callback = AsyncMock(side_effect=RuntimeError("display unavailable"))
     with (
-        patch("miniagent.agent.execution_turn.stream_completion", side_effect=events),
+        patch.object(streamer.llm_client, "stream_completion", side_effect=events),
         patch(
             "miniagent.agent.execution_turn.resolve_exec_completion_kwargs",
-            return_value={"model": "model-x"},
+            return_value={"temperature": 0.1},
         ),
         patch("miniagent.agent.execution_turn.invoke_on_thinking", callback),
         patch("miniagent.agent.execution_turn.emit_trace"),

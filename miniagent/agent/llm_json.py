@@ -21,21 +21,19 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from miniagent.agent.settings import get_config
-from miniagent.llm.legacy_transport import (
-    LLMCompletion,
-    classify_transport_error,
-    completion_failure_category,
-    create_completion,
-    create_structured_completion,
-    resolve_wire_api,
-    structured_retry_delay,
-    structured_retry_params,
-)
+from miniagent.llm.gateway import LLMGateway
 from miniagent.llm.openai_compat import (
     ensure_json_object_user_message,
     json_object_unsupported,
 )
+from miniagent.llm.recovery import (
+    classify_transport_error,
+    completion_failure_category,
+    structured_retry_delay,
+    structured_retry_params,
+)
+from miniagent.llm.requests import create_structured_completion
+from miniagent.llm.types import LLMCompletion, LLMRole
 
 _logger = logging.getLogger(__name__)
 
@@ -117,42 +115,27 @@ class _JsonTrace:
 
 
 def _build_json_completion_kwargs(
-    model: str,
     *,
     max_tokens: int | None,
     thinking_level: str | None,
     thinking_budget: int | None,
-    model_overrides: dict[str, Any] | None,
+    llm_overrides: dict[str, Any] | None,
 ) -> dict[str, Any]:
     """构建 JSON 调用参数，并按需注入供应商思考字段。"""
-    kwargs: dict[str, Any] = {"model": model}
+    kwargs: dict[str, Any] = {}
     if max_tokens is not None:
         kwargs["max_tokens"] = int(max_tokens)
     if thinking_level is None:
         return kwargs
-    from miniagent.agent.config import get_default_agent_config
-    from miniagent.agent.vendor.qwen_extra import build_thinking_extra_body
-
-    overrides = (
-        dict(model_overrides)
-        if model_overrides is not None
-        else dict(get_default_agent_config().model_overrides)
-    )
-    extra = build_thinking_extra_body(
-        get_config("model.base_url", None),
-        thinking_level,
-        int(thinking_budget or 0),
-        model_overrides_extra=overrides,
-    )
-    if extra:
-        kwargs["extra_body"] = extra
+    if llm_overrides:
+        kwargs.update(llm_overrides)
     kwargs["_thinking_level"] = thinking_level
     kwargs["_thinking_budget"] = int(thinking_budget or 0)
     return kwargs
 
 
 async def _request_json_once(
-    client: Any,
+    client: LLMGateway,
     *,
     base_messages: list[dict[str, str]],
     json_messages: list[dict[str, str]],
@@ -160,6 +143,8 @@ async def _request_json_once(
     use_json_object: bool,
     attempt: int,
     trace: _JsonTrace,
+    role: LLMRole,
+    profile: str | None,
 ) -> tuple[LLMCompletion, bool, int]:
     """执行一次逻辑请求；不支持 json_object 时同一 attempt 内降级。"""
     trace.new_call()
@@ -169,16 +154,17 @@ async def _request_json_once(
         response = (
             await create_structured_completion(
                 client,
+                role=role,
+                profile=profile,
                 messages=json_messages,
                 params=params,
-                wire_api="responses" if trace.responses_wire else "chat_completions",
             )
             if use_json_object
-            else await create_completion(
-                client,
+            else await client.create_completion(
+                role=role,
+                profile=profile,
                 messages=base_messages,
                 params=params,
-                wire_api="responses" if trace.responses_wire else "chat_completions",
             )
         )
         trace.response = response
@@ -199,11 +185,11 @@ async def _request_json_once(
     fallback_start_ns = time.monotonic_ns()
     trace.emit("llm.request", json_object=False, attempt=attempt)
     try:
-        response = await create_completion(
-            client,
+        response = await client.create_completion(
+            role=role,
+            profile=profile,
             messages=base_messages,
             params=params,
-            wire_api="responses" if trace.responses_wire else "chat_completions",
         )
     except Exception as error:
         failure = classify_transport_error(error)
@@ -242,7 +228,7 @@ class _JsonAttemptState:
 
 
 async def _run_json_attempt(
-    client: Any,
+    client: LLMGateway,
     *,
     base_messages: list[dict[str, str]],
     json_messages: list[dict[str, str]],
@@ -252,6 +238,8 @@ async def _run_json_attempt(
     responses_wire: bool,
     model_max_tokens: int,
     trace: _JsonTrace,
+    role: LLMRole,
+    profile: str | None,
 ) -> tuple[dict[str, Any] | None, Exception | None, str | None]:
     """执行一次 JSON 请求并更新下一次重试参数。"""
     try:
@@ -263,6 +251,8 @@ async def _run_json_attempt(
             use_json_object=state.use_json_object,
             attempt=attempt_number,
             trace=trace,
+            role=role,
+            profile=profile,
         )
     except Exception as error:
         failure = classify_transport_error(error)
@@ -381,16 +371,17 @@ def parse_llm_json_response(content: str, *, strip_fence: bool = True) -> dict[s
 async def llm_json(
     prompt: str,
     system: str,
-    client: Any,
-    model: str | None = None,
+    client: LLMGateway,
     raise_on_error: bool = False,
     *,
     max_tokens: int | None = None,
     thinking_level: str | None = None,
     thinking_budget: int | None = None,
-    model_overrides: dict[str, Any] | None = None,
+    llm_overrides: dict[str, Any] | None = None,
     trace_phase: str | None = None,
     trace_session_key: str | None = None,
+    role: LLMRole = "reasoning",
+    profile: str | None = None,
 ) -> dict[str, Any]:
     """调用 LLM 并解析 JSON 对象。
 
@@ -398,10 +389,6 @@ async def llm_json(
     JSON Object 不受支持时同轮降级。最终解析错误默认返回空字典，
     ``raise_on_error=True`` 时抛出原始解析异常。
     """
-    llm = client
-    if model is None:
-        model = get_config("model.model", "gpt-4o-mini")
-
     base_messages: list[dict[str, str]] = [
         {"role": "system", "content": system},
         {"role": "user", "content": prompt},
@@ -409,28 +396,22 @@ async def llm_json(
     json_object_messages = ensure_json_object_user_message(base_messages)
 
     create_kwargs = _build_json_completion_kwargs(
-        model,
         max_tokens=max_tokens,
         thinking_level=thinking_level,
         thinking_budget=thinking_budget,
-        model_overrides=model_overrides,
+        llm_overrides=llm_overrides,
     )
 
-    from miniagent.agent.config import get_default_model_config
-
-    model_config = get_default_model_config()
-    role = str(create_kwargs.get("_role") or "default")
-    responses_wire = resolve_wire_api(
-        get_config("model.wire_api", "chat_completions"),
-        client=client,
-        role=role,
-    ) == "responses"
+    descriptor = client.catalog.get(profile) if profile else client.model_for_role(role)
+    if descriptor is None:
+        raise ValueError(f"Unknown model profile: {profile}")
+    responses_wire = descriptor.api == "openai_responses"
     max_attempts = 3 if responses_wire else 2
     attempt_state = _JsonAttemptState(dict(create_kwargs))
     trace = _JsonTrace(
         phase=trace_phase,
         session_key=trace_session_key,
-        model=model,
+        model=descriptor.model,
         responses_wire=responses_wire,
         base_messages=base_messages,
         json_messages=json_object_messages,
@@ -438,15 +419,17 @@ async def llm_json(
 
     for attempt_number in range(1, max_attempts + 1):
         parsed, error, failure_category = await _run_json_attempt(
-            llm,
+            client,
             base_messages=base_messages,
             json_messages=json_object_messages,
             state=attempt_state,
             attempt_number=attempt_number,
             max_attempts=max_attempts,
             responses_wire=responses_wire,
-            model_max_tokens=model_config.max_tokens,
+            model_max_tokens=descriptor.max_output_tokens,
             trace=trace,
+            role=role,
+            profile=profile,
         )
         if parsed is not None:
             return parsed

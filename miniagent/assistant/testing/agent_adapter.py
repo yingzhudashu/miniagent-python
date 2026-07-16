@@ -105,7 +105,7 @@ async def build_execute_agent_from_engine(
     state: dict[str, Any] | None = None,
     session_key: str = "__self_test__",
 ) -> ExecuteAgentFn:
-    """从 UnifiedEngine 上下文构建 execute_agent（供 CLI ``/test run real`` 使用）。"""
+    """从 AssistantTurnService 上下文构建 execute_agent（供 CLI ``/test run real`` 使用）。"""
     sm = (state or {}).get("session_manager")
     runtime_ctx = (state or {}).get("runtime_ctx")
     memory = getattr(runtime_ctx, "memory", None)

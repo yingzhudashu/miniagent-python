@@ -48,39 +48,37 @@ def _make_memory_bundle():
 def test_import_smoke():
     """正式入口、组合根与核心运行模块可正常 import。"""
     from miniagent.agent.monitor import DefaultToolMonitor
+    from miniagent.assistant import create_assistant_application, run_assistant
     from miniagent.assistant.bootstrap.application import ApplicationContainer
-    from miniagent.assistant.bootstrap.entrypoint import (
-        create_application_container,
-        run_application,
-    )
-    from miniagent.assistant.engine.cli_commands import (
+    from miniagent.assistant.bootstrap.entrypoint import create_application_container
+    from miniagent.assistant.engine.cli_tui import run_cli_loop
+    from miniagent.assistant.engine.command_dispatch import dispatch_command
+    from miniagent.assistant.engine.commands.session_management import (
         cmd_help,
         cmd_session_list,
     )
-    from miniagent.assistant.engine.cli_tui import run_cli_loop
-    from miniagent.assistant.engine.command_dispatch import dispatch_command
-    from miniagent.assistant.engine.engine import UnifiedEngine
     from miniagent.assistant.engine.feishu_state import FeishuRuntime
     from miniagent.assistant.engine.main import run_runtime
     from miniagent.assistant.engine.thinking import ThinkingDisplay
+    from miniagent.assistant.engine.turn_service import AssistantTurnService
     from miniagent.assistant.feishu.poll_server import start_feishu_poll_server
     from miniagent.assistant.feishu.types import FeishuConfig, FeishuInboundText
     from miniagent.assistant.infrastructure.channel_router import ChannelRouter
     from miniagent.assistant.infrastructure.message_queue import MessageQueueManager, QueueMode
     from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
-    from miniagent.assistant.runner import main
     from miniagent.assistant.skills import DefaultSkillRegistry, create_clawhub_client
 
-    assert callable(run_application)
+    assert callable(run_assistant)
+    assert callable(create_assistant_application)
     assert callable(create_application_container)
     assert callable(run_runtime)
     assert callable(run_cli_loop)
     assert all(
         [
-            main,
+            run_assistant,
             ApplicationContainer,
             FeishuRuntime,
-            UnifiedEngine,
+            AssistantTurnService,
             ThinkingDisplay,
             dispatch_command,
             cmd_session_list,
@@ -99,7 +97,11 @@ def test_import_smoke():
     )
 
     result = subprocess.run(
-        [sys.executable, "-c", "from miniagent.assistant.runner import main; print('OK')"],
+        [
+            sys.executable,
+            "-c",
+            "from miniagent.assistant import run_assistant; print('OK')",
+        ],
         capture_output=True,
         text=True,
         timeout=10,
@@ -165,7 +167,7 @@ def test_core_components_constructible():
     """组合根依赖（registry/monitor/skills/engine）可构造。"""
     from miniagent.agent.monitor import DefaultToolMonitor
     from miniagent.assistant.bootstrap.entrypoint import create_application_container
-    from miniagent.assistant.engine.engine import UnifiedEngine
+    from miniagent.assistant.engine.turn_service import AssistantTurnService
     from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
     from miniagent.assistant.skills import DefaultSkillRegistry, create_clawhub_client
 
@@ -175,7 +177,7 @@ def test_core_components_constructible():
             DefaultToolMonitor(),
             DefaultSkillRegistry(),
             create_clawhub_client(),
-            UnifiedEngine(),
+            AssistantTurnService(),
         )
     )
     assert callable(create_application_container)
@@ -185,9 +187,9 @@ def test_feishu_handler_creation():
     """飞书 handler 可以正常创建。"""
     from miniagent.agent.monitor import DefaultToolMonitor
     from miniagent.assistant.bootstrap.application import ApplicationContainer
-    from miniagent.assistant.engine.engine import UnifiedEngine
     from miniagent.assistant.engine.feishu_handler import create_feishu_handler
     from miniagent.assistant.engine.feishu_state import FeishuRuntime
+    from miniagent.assistant.engine.turn_service import AssistantTurnService
     from miniagent.assistant.infrastructure.channel_router import ChannelRouter
     from miniagent.assistant.infrastructure.message_queue import MessageQueueManager
     from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
@@ -200,7 +202,7 @@ def test_feishu_handler_creation():
         monitor=DefaultToolMonitor(),
         skill_registry=DefaultSkillRegistry(),
         clawhub=create_clawhub_client(),
-        engine=UnifiedEngine(),
+        engine=AssistantTurnService(),
         channel_router=ChannelRouter(),
         message_queue=mq,
         feishu=FeishuRuntime(mq),
@@ -241,8 +243,8 @@ def test_feishu_user_status_fn_uses_cli_transcript_append():
     """全屏注册 cli_transcript_append 时，飞书状态行走 transcript 而非裸 print。"""
     from miniagent.agent.monitor import DefaultToolMonitor
     from miniagent.assistant.bootstrap.application import ApplicationContainer
-    from miniagent.assistant.engine.engine import UnifiedEngine
     from miniagent.assistant.engine.feishu_state import FeishuRuntime
+    from miniagent.assistant.engine.turn_service import AssistantTurnService
 
     # 修复：函数已重命名并移动到utils.py
     from miniagent.assistant.engine.utils import feishu_user_status_fn
@@ -258,7 +260,7 @@ def test_feishu_user_status_fn_uses_cli_transcript_append():
         monitor=DefaultToolMonitor(),
         skill_registry=DefaultSkillRegistry(),
         clawhub=create_clawhub_client(),
-        engine=UnifiedEngine(),
+        engine=AssistantTurnService(),
         channel_router=ChannelRouter(),
         message_queue=mq,
         feishu=FeishuRuntime(mq),
@@ -362,8 +364,8 @@ def test_command_dispatch_all_commands():
     from miniagent.agent.monitor import DefaultToolMonitor
     from miniagent.assistant.bootstrap.application import ApplicationContainer
     from miniagent.assistant.engine.command_dispatch import dispatch_command
-    from miniagent.assistant.engine.engine import UnifiedEngine
     from miniagent.assistant.engine.feishu_state import FeishuRuntime
+    from miniagent.assistant.engine.turn_service import AssistantTurnService
     from miniagent.assistant.infrastructure.channel_router import ChannelRouter
     from miniagent.assistant.infrastructure.message_queue import MessageQueueManager
     from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
@@ -376,7 +378,7 @@ def test_command_dispatch_all_commands():
         monitor=DefaultToolMonitor(),
         skill_registry=DefaultSkillRegistry(),
         clawhub=create_clawhub_client(),
-        engine=UnifiedEngine(),
+        engine=AssistantTurnService(),
         channel_router=ChannelRouter(),
         message_queue=mq,
         feishu=FeishuRuntime(mq),
@@ -419,8 +421,8 @@ def test_dispatch_queue_set_async_capture():
     from miniagent.agent.monitor import DefaultToolMonitor
     from miniagent.assistant.bootstrap.application import ApplicationContainer
     from miniagent.assistant.engine.command_dispatch import dispatch_command
-    from miniagent.assistant.engine.engine import UnifiedEngine
     from miniagent.assistant.engine.feishu_state import FeishuRuntime
+    from miniagent.assistant.engine.turn_service import AssistantTurnService
     from miniagent.assistant.infrastructure.channel_router import ChannelRouter
     from miniagent.assistant.infrastructure.message_queue import MessageQueueManager, QueueMode
     from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
@@ -433,7 +435,7 @@ def test_dispatch_queue_set_async_capture():
         monitor=DefaultToolMonitor(),
         skill_registry=DefaultSkillRegistry(),
         clawhub=create_clawhub_client(),
-        engine=UnifiedEngine(),
+        engine=AssistantTurnService(),
         channel_router=ChannelRouter(),
         message_queue=mq,
         feishu=FeishuRuntime(mq),
@@ -467,8 +469,8 @@ def test_dispatch_feishu_blocks_session_mutations():
     from miniagent.agent.monitor import DefaultToolMonitor
     from miniagent.assistant.bootstrap.application import ApplicationContainer
     from miniagent.assistant.engine.command_dispatch import dispatch_command
-    from miniagent.assistant.engine.engine import UnifiedEngine
     from miniagent.assistant.engine.feishu_state import FeishuRuntime
+    from miniagent.assistant.engine.turn_service import AssistantTurnService
     from miniagent.assistant.infrastructure.channel_router import ChannelRouter
     from miniagent.assistant.infrastructure.message_queue import MessageQueueManager
     from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
@@ -481,7 +483,7 @@ def test_dispatch_feishu_blocks_session_mutations():
         monitor=DefaultToolMonitor(),
         skill_registry=DefaultSkillRegistry(),
         clawhub=create_clawhub_client(),
-        engine=UnifiedEngine(),
+        engine=AssistantTurnService(),
         channel_router=ChannelRouter(),
         message_queue=mq,
         feishu=FeishuRuntime(mq),

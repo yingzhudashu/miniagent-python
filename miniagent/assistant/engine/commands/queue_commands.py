@@ -5,11 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from miniagent.agent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX
+from miniagent.assistant.engine.commands.markdown import escape_markdown_cell
 
-
-def _md_escape_cell(text: str) -> str:
-    """转义 GFM 表格单元格中的分隔符与换行。"""
-    return str(text).replace("|", "\\|").replace("\r", " ").replace("\n", " ")
 
 def format_queue_command_usage(message_queue: Any) -> str:
     """与帮助中队列小节一致的用法说明。"""
@@ -75,7 +72,7 @@ def cmd_queue_status(message_queue: Any, *, markdown: bool = False) -> None:
         for label, info in status["chats"].items():
             busy = "处理中" if info["busy"] else "空闲"
             pend = str(info["pending"])
-            lines.append(f"| {_md_escape_cell(label)} | {busy} | {pend} |")
+            lines.append(f"| {escape_markdown_cell(label)} | {busy} | {pend} |")
         print("\n".join(lines))
         print()
         return

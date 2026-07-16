@@ -26,7 +26,8 @@ def _history_path(sm: DefaultSessionManager, session_id: str) -> str:
     return os.path.join(ctx["config"].workspace_path, "history.json")
 
 
-def test_load_range_then_append_persists_history(session_manager: DefaultSessionManager) -> None:
+@pytest.mark.asyncio
+async def test_load_range_then_append_persists_history(session_manager: DefaultSessionManager) -> None:
     """模拟 CLI 启动 load_range 后引擎追加历史，save 应写入非空 history.json。"""
     session_id = "default"
     session = session_manager.get_or_create(session_id, SessionOptions(description="test"))
@@ -37,11 +38,11 @@ def test_load_range_then_append_persists_history(session_manager: DefaultSession
     assert messages == []
     assert total == 0
 
-    # 引擎通过 Session 对象追加（与 UnifiedEngine 行为一致）
+    # 引擎通过 Session 对象追加（与 AssistantTurnService 行为一致）
     session.conversation_history.append({"role": "user", "content": "你好"})
     session.conversation_history.append({"role": "assistant", "content": "你好！"})
 
-    session_manager.save_session_history(session_id)
+    await session_manager.save_session_history_async(session_id)
 
     path = _history_path(session_manager, session_id)
     assert os.path.isfile(path)
@@ -70,7 +71,14 @@ def test_load_range_loads_disk_when_memory_empty(session_manager: DefaultSession
     path = _history_path(session_manager, session_id)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(disk_data, f)
+        json.dump(
+            {
+                "schema_version": 2,
+                "message_format": "miniagent-conversation-v1",
+                "messages": disk_data,
+            },
+            f,
+        )
 
     messages, total = session_manager.load_session_history_range(session_id, start_idx=0, count=10)
     assert total == 2
@@ -79,7 +87,8 @@ def test_load_range_loads_disk_when_memory_empty(session_manager: DefaultSession
     assert ctx["conversation_history"] == disk_data
 
 
-def test_save_after_truncate_keeps_session_and_ctx_in_sync(
+@pytest.mark.asyncio
+async def test_save_after_truncate_keeps_session_and_ctx_in_sync(
     session_manager: DefaultSessionManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """截断后 save 应同步 Session 与 ctx，落盘内容与内存一致。"""
@@ -98,7 +107,7 @@ def test_save_after_truncate_keeps_session_and_ctx_in_sync(
         session.conversation_history.append({"role": "user", "content": f"q{i}"})
         session.conversation_history.append({"role": "assistant", "content": f"a{i}"})
 
-    session_manager.save_session_history(session_id)
+    await session_manager.save_session_history_async(session_id)
 
     assert ctx["conversation_history"] is session.conversation_history
     path = _history_path(session_manager, session_id)
@@ -163,7 +172,8 @@ def test_consecutive_history_ranges_do_not_skip_or_duplicate_turns(
     assert history_loaded_end(first_loaded_end, len(older), total) == 4
 
 
-def test_load_range_preserves_long_assistant_content_on_disk(
+@pytest.mark.asyncio
+async def test_load_range_preserves_long_assistant_content_on_disk(
     session_manager: DefaultSessionManager,
 ) -> None:
     """显示层截断策略不应改变 history.json 中的长答案内容。"""
@@ -178,7 +188,7 @@ def test_load_range_preserves_long_assistant_content_on_disk(
     )
 
     messages, total = session_manager.load_session_history_range(session_id, start_idx=0, count=2)
-    session_manager.save_session_history(session_id)
+    await session_manager.save_session_history_async(session_id)
 
     assert total == 2
     assert messages[-1]["content"] == long_answer
@@ -216,7 +226,14 @@ def test_restore_truncates_large_disk_history(
 
     path = os.path.join(workspace, "history.json")
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(disk_data, f)
+        json.dump(
+            {
+                "schema_version": 2,
+                "message_format": "miniagent-conversation-v1",
+                "messages": disk_data,
+            },
+            f,
+        )
 
     # 驱逐内存后从磁盘恢复
     del sm._sessions[session_id]

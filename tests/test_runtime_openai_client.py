@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from miniagent.agent.types.agent import AgentRunResult
-from miniagent.assistant.engine.engine import UnifiedEngine
+from miniagent.assistant.engine.turn_service import AssistantTurnService
 from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 
 
@@ -25,9 +25,10 @@ async def test_run_agent_with_thinking_forwards_client_to_run_agent() -> None:
     sess = MagicMock()
     sess.conversation_history = []
     sm.get_or_create = MagicMock(return_value=sess)
+    sm.save_session_history_async = AsyncMock()
 
-    with patch("miniagent.assistant.engine.engine.run_agent", new=fake_run_agent):
-        engine = UnifiedEngine()
+    with patch("miniagent.assistant.engine.turn_service.run_agent", new=fake_run_agent):
+        engine = AssistantTurnService()
         await engine.run_agent_with_thinking(
             "hello",
             "session-a",
@@ -46,7 +47,7 @@ async def test_run_agent_with_thinking_forwards_client_to_run_agent() -> None:
 
 @pytest.mark.asyncio
 async def test_run_agent_with_thinking_requires_session_manager() -> None:
-    engine = UnifiedEngine()
+    engine = AssistantTurnService()
     with pytest.raises(ValueError, match="session_manager"):
         await engine.run_agent_with_thinking(
             "hello",

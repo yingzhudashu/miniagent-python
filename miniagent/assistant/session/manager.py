@@ -21,7 +21,7 @@
 
 设计背景见 ``docs/ARCHITECTURE.md``（会话与记忆）；长期记忆文件布局见 ``docs/MEMORY_SYSTEM.md``。
 
-**与引擎的衔接**：进程内在 ``miniagent.assistant.engine.init.init_subsystems`` 中构造默认实现；``UnifiedEngine.run_agent_with_thinking`` 按 ``session_key`` 解析 ``files/`` 根目录、会话级工具注册表与历史落盘路径，勿在业务层绕过 ``SessionManager`` 直接写 ``workspaces/sessions/<id>`` 以免与锁、索引不一致。
+**与引擎的衔接**：进程内在 ``miniagent.assistant.engine.init.init_subsystems`` 中构造默认实现；``AssistantTurnService.run_agent_with_thinking`` 按 ``session_key`` 解析 ``files/`` 根目录、会话级工具注册表与历史落盘路径，勿在业务层绕过 ``SessionManager`` 直接写 ``workspaces/sessions/<id>`` 以免与锁、索引不一致。
 """
 
 from __future__ import annotations
@@ -378,7 +378,7 @@ class DefaultSessionManager:
                 else:
                     break  # 只有一个活跃会话，不驱逐
             # 保存历史到磁盘
-            self.save_session_history(oldest_id)
+            self._save_session_history_sync(oldest_id)
             # 移除内存中的会话
             del self._sessions[oldest_id]
             self._discard_session_lock_if_idle(oldest_id)
@@ -586,8 +586,8 @@ class DefaultSessionManager:
     #   格式：[{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
     #
     # 保存时机：
-    #   - CLI 输入：每次 agent turn 完成后调用 save_session_history()
-    #   - 飞书通道消息：每条消息处理完成后调用 save_session_history()
+    #   - CLI 输入：每次 agent turn 完成后调用 save_session_history_async()
+    #   - 飞书通道消息：每条消息处理完成后调用 save_session_history_async()
     #   - run_agent_with_thinking() 内部对上述路径统一触发保存
     #
     # 加载时机：
@@ -598,8 +598,8 @@ class DefaultSessionManager:
     #   state/workspaces/<safe_session_id>/history.json
     # -----------------------------------------------------------------------
 
-    def save_session_history(self, session_id: str) -> None:
-        """持久化会话历史到磁盘
+    def _save_session_history_sync(self, session_id: str) -> None:
+        """在线程工作器中持久化会话历史到磁盘。
 
         将内存中的 conversation_history 写入工作空间的 history.json 文件。
         此方法在每次 agent turn 后调用，确保历史不会因重启丢失。
@@ -625,7 +625,10 @@ class DefaultSessionManager:
                 dump_state_file(
                     "session_history",
                     path,
-                    {"messages": history_snapshot},
+                    {
+                        "message_format": "miniagent-conversation-v1",
+                        "messages": history_snapshot,
+                    },
                     ensure_ascii=False,
                     indent=2,
                 )
@@ -662,7 +665,7 @@ class DefaultSessionManager:
         Note:
             异步版本，在异步上下文中使用，不阻塞主事件循环。
         """
-        await asyncio.to_thread(self.save_session_history, session_id)
+        await asyncio.to_thread(self._save_session_history_sync, session_id)
 
     async def load_session_history_async(self, session_id: str) -> list:
         """异步从磁盘加载会话历史（性能优化：不阻塞事件循环）。
@@ -953,18 +956,18 @@ class DefaultSessionManager:
         """
         return [ctx["session"] for ctx in self._sessions.values()]
 
-    def destroy(self, id: str, keep_files: bool = True) -> bool:
-        """销毁会话
+    def _delete_session_sync(self, session_id: str, keep_files: bool = True) -> bool:
+        """在线程工作器中删除一个会话及其可选工作空间。
 
         Args:
-            id: 要销毁的会话 ID
+            session_id: 要删除的会话 ID
             keep_files: 是否保留工作空间文件（默认 True）
 
         Returns:
             成功返回 True，会话不存在返回 False
         """
-        with self._session_guard(id):
-            ctx = self._sessions.get(id)
+        with self._session_guard(session_id):
+            ctx = self._sessions.get(session_id)
             if not ctx:
                 return False
 
@@ -974,7 +977,9 @@ class DefaultSessionManager:
             if keep_files:
                 ctx["config"].last_active = datetime.now(timezone.utc).isoformat()
                 self._save_config(ctx["config"])
-            del self._sessions[id]
+            del self._sessions[session_id]
+            if self._active_session_id == session_id:
+                self._active_session_id = None
 
         if not keep_files:
             try:
@@ -984,8 +989,12 @@ class DefaultSessionManager:
             except Exception as e:
                 _logger.debug("删除会话文件失败: %s", e)
 
-        _logger.info("会话已销毁: %s", id)
+        _logger.info("会话已删除: %s", session_id)
         return True
+
+    async def delete_session(self, session_id: str, keep_files: bool = True) -> bool:
+        """异步删除会话；所有文件系统工作均在线程工作器中完成。"""
+        return await asyncio.to_thread(self._delete_session_sync, session_id, keep_files)
 
     def forget_session(self, id: str) -> bool:
         """Remove one in-memory session without performing filesystem I/O.

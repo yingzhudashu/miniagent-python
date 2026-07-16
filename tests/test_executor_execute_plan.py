@@ -12,10 +12,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from miniagent.agent.executor import execute_plan
-from miniagent.agent.types.config import ModelConfig
 from miniagent.agent.types.planning import PlanStep, StructuredPlan
 from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 from tests.mock_strategies import (
+    MockGateway,
     agent_config_with_session,
     empty_plan,
     make_ping_tool_registry,
@@ -26,18 +26,7 @@ from tests.mock_strategies import (
 
 @contextmanager
 def _responses_execution_config() -> Iterator[None]:
-    config = ModelConfig(
-        model="response-model",
-        wire_api="responses",
-        thinking_level="heavy",
-        max_tokens=4096,
-    )
-    with (
-        patch("miniagent.agent.executor.get_default_model_config", return_value=config),
-        patch("miniagent.agent.llm_params.get_default_model_config", return_value=config),
-        patch("miniagent.llm.legacy_transport._wire_api", return_value="responses"),
-    ):
-        yield
+    yield
 
 
 @pytest.mark.asyncio
@@ -161,14 +150,14 @@ async def test_execute_plan_responses_tool_round_trip() -> None:
     client = MagicMock()
     client.responses.create = AsyncMock(side_effect=create_response)
     ms, al, ki = mock_memory_bundle()
-    with patch("miniagent.llm.legacy_transport._wire_api", return_value="responses"):
+    with patch("miniagent.llm.providers.openai_transport._wire_api", return_value="responses"):
         out = await execute_plan(
             empty_plan(),
             "hi",
             main,
             MagicMock(),
             agent_config_with_session(sess),
-            client=client,
+            client=MockGateway(client, responses=True),
             memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki),
             knowledge_registry=make_knowledge_registry(),
         )
@@ -216,7 +205,7 @@ async def test_execute_plan_responses_retries_transient_400_before_output() -> N
             main,
             MagicMock(),
             agent_config_with_session(sess),
-            client=client,
+            client=MockGateway(client, responses=True),
             memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki),
             knowledge_registry=make_knowledge_registry(),
         )
@@ -268,7 +257,7 @@ async def test_execute_plan_responses_retries_completed_empty_stream() -> None:
             main,
             MagicMock(),
             agent_config_with_session(sess),
-            client=client,
+            client=MockGateway(client, responses=True),
             memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki),
             knowledge_registry=make_knowledge_registry(),
         )
@@ -315,7 +304,7 @@ async def test_execute_plan_does_not_retry_after_partial_stream_output() -> None
             main,
             MagicMock(),
             agent_config_with_session(sess),
-            client=client,
+            client=MockGateway(client, responses=True),
             memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki),
             knowledge_registry=make_knowledge_registry(),
         )
@@ -403,7 +392,7 @@ async def test_execute_plan_phased_last_step_no_turns_left_still_warns() -> None
             main,
             MagicMock(),
             agent_config_with_session(sess, max_turns=1),
-            client=mock_client,
+            client=MockGateway(mock_client),
             memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki),
             knowledge_registry=make_knowledge_registry(),
         )
@@ -515,7 +504,7 @@ async def test_execute_plan_respects_asyncio_cancel() -> None:
             main,
             MagicMock(),
             agent_config_with_session(sess),
-            client=mock_client,
+            client=MockGateway(mock_client),
             memory=make_memory_runtime(store=ms, activity_log=al, keyword_index=ki),
             knowledge_registry=make_knowledge_registry(),
         )

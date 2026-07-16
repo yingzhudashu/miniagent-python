@@ -75,6 +75,7 @@ class TestInstanceRegistry:
             stale = Path(tmpdir) / "instances" / "1"
             stale.mkdir(parents=True)
             meta = {
+                "schema_version": 1,
                 "pid": dead_pid,
                 "instance_id": 1,
                 "mode": "cli",
@@ -110,6 +111,7 @@ class TestInstanceRegistry:
             other = Path(tmpdir) / "instances" / "1"
             other.mkdir(parents=True)
             meta = {
+                "schema_version": 1,
                 "pid": other_pid,
                 "instance_id": 1,
                 "mode": "cli",
@@ -198,6 +200,8 @@ class TestInstanceRegistry:
         assert str(tmp_path / "custom-ws") in msg
 
         stale_meta = {
+
+            "schema_version": 1,
             "instance_id": 2,
             "pid": 1000,
             "project_dir": str(project),
@@ -233,6 +237,7 @@ class TestInstanceRegistry:
             alive = Path(regdir) / "instances" / "1"
             alive.mkdir(parents=True)
             meta = {
+                "schema_version": 1,
                 "pid": other_pid,
                 "instance_id": 1,
                 "mode": "cli",
@@ -262,6 +267,7 @@ class TestInstanceRegistry:
             other = Path(regdir) / "instances" / "1"
             other.mkdir(parents=True)
             meta = {
+                "schema_version": 1,
                 "pid": other_pid,
                 "instance_id": 1,
                 "mode": "cli",
@@ -349,6 +355,7 @@ class TestInstanceRegistry:
             alive = Path(tmpdir) / "instances" / "1"
             alive.mkdir(parents=True)
             meta = {
+                "schema_version": 1,
                 "pid": other_pid,
                 "instance_id": 1,
                 "mode": "both",

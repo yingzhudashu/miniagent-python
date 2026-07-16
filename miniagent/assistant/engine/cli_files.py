@@ -94,7 +94,6 @@ async def _describe_cli_file(path: str, file_type: str, runtime_ctx: Any) -> str
             return await describe_image(
                 path,
                 client,
-                get_config("model.model", "gpt-4o-mini"),
             )
     except Exception as error:
         _logger.debug("图片描述生成失败 (%s): %s", path, error, exc_info=True)

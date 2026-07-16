@@ -17,26 +17,23 @@ from miniagent.agent.llm_json import parse_llm_json_response
 from miniagent.agent.logging import get_logger
 from miniagent.agent.ports.knowledge import KnowledgeRegistryProtocol
 from miniagent.agent.prompts.classifier import CLASSIFIER_PROMPT
-from miniagent.agent.settings import get_config
 from miniagent.agent.thinking_presets import map_thinking_level_to_model
 from miniagent.agent.types.config import AgentConfig
-from miniagent.llm.legacy_transport import (
-    LLMCompletion,
-    classify_transport_error,
-    completion_failure_category,
-    create_completion,
-    create_structured_completion,
-    resolve_model_max_output_tokens,
-    resolve_wire_api,
-    structured_retry_delay,
-    structured_retry_params,
-)
+from miniagent.llm.gateway import LLMGateway
 from miniagent.llm.openai_compat import (
     ensure_json_object_user_message,
 )
 from miniagent.llm.openai_compat import (
     json_object_unsupported as _json_object_unsupported,
 )
+from miniagent.llm.recovery import (
+    classify_transport_error,
+    completion_failure_category,
+    structured_retry_delay,
+    structured_retry_params,
+)
+from miniagent.llm.requests import create_structured_completion
+from miniagent.llm.types import LLMCompletion
 
 _logger = get_logger(__name__)
 
@@ -72,7 +69,7 @@ def task_classifier_enabled() -> bool:
 
 
 def planner_merge_for_difficulty(d: TaskDifficulty) -> dict[str, Any]:
-    """规划阶段 ``model_overrides`` 合并片段（``thinking_level`` / ``thinking_budget``）。
+    """规划阶段 ``llm_overrides`` 合并片段（``thinking_level`` / ``thinking_budget``）。
 
     Args:
         d: 任务难度档位。
@@ -148,11 +145,13 @@ def _parse_difficulty(response: LLMCompletion) -> tuple[TaskDifficulty | None, s
 class _ClassifierRunner:
     """持有一次任务分类调用序列的协议状态与恢复参数。"""
 
-    client: Any
+    client: LLMGateway
     messages: list[dict[str, str]]
     json_messages: list[dict[str, str]]
     params: dict[str, Any]
     session_key: str
+    profile: str | None
+    model_name: str
     responses_wire: bool
     model_max_tokens: int
     use_json_object: bool = True
@@ -175,7 +174,7 @@ class _ClassifierRunner:
                 "phase": "classify",
                 "session_key": self.session_key,
                 "attempt": attempt,
-                "model": self.params.get("model"),
+                "model": self.model_name,
                 "json_object": self.use_json_object,
                 "structured_stream": self.responses_wire and self.use_json_object,
                 "message_count": len(request_messages),
@@ -189,15 +188,16 @@ class _ClassifierRunner:
         if self.use_json_object:
             return await create_structured_completion(
                 self.client,
+                role="fast",
+                profile=self.profile,
                 messages=self.json_messages,
                 params=self.params,
-                wire_api="responses" if self.responses_wire else "chat_completions",
             )
-        return await create_completion(
-            self.client,
+        return await self.client.create_completion(
+            role="fast",
+            profile=self.profile,
             messages=self.messages,
             params=self.params,
-            wire_api="responses" if self.responses_wire else "chat_completions",
         )
 
     def emit_response(
@@ -220,7 +220,7 @@ class _ClassifierRunner:
             "phase": "classify",
             "session_key": self.session_key,
             "attempt": attempt,
-            "model": self.params.get("model"),
+            "model": self.model_name,
             "failure_category": failure_category,
             "retrying": retrying,
             "duration_ms": (time.monotonic_ns() - started_ns) // 1_000_000,
@@ -356,7 +356,7 @@ class _ClassifierRunner:
                 message="before_structured_completion",
                 data={
                     "attempt": attempt,
-                    "model": self.params.get("model"),
+                    "model": self.model_name,
                     "json_object": self.use_json_object,
                     "structured_stream": self.responses_wire and self.use_json_object,
                 },
@@ -382,7 +382,7 @@ async def classify_task_difficulty(
     toolbox_ids: list[str],
     *,
     knowledge_registry: KnowledgeRegistryProtocol,
-    client: Any,
+    client: LLMGateway,
     agent_config: AgentConfig | None = None,
 ) -> TaskDifficulty:
     """使用低开销 LLM 调用估算任务难度，失败时降级为 NORMAL。
@@ -416,7 +416,10 @@ async def classify_task_difficulty(
         若知识库有直接答案，建议分类为 simple。受 ``knowledge.classifier_*`` 配置控制。
     """
     from miniagent.agent.knowledge import retrieve_knowledge_context
-    from miniagent.agent.llm_params import resolve_planner_completion_kwargs
+    from miniagent.agent.llm_params import (
+        resolve_planner_completion_kwargs,
+        resolve_request_profile,
+    )
 
     classify_session_key = (
         agent_config.session_config.session_key
@@ -444,7 +447,6 @@ async def classify_task_difficulty(
     kw = resolve_planner_completion_kwargs(
         agent_config,
         merge_overrides={
-            "role": "fast",
             "planner_max_tokens": 128,
             "planner_temperature": 0.0,
             "thinking_level": "disabled",
@@ -457,24 +459,20 @@ async def classify_task_difficulty(
         {"role": "user", "content": user_msg},
     ]
     json_object_messages = ensure_json_object_user_message(messages)
-    from miniagent.agent.config import get_default_model_config
-
-    model_config = get_default_model_config()
-    responses_wire = resolve_wire_api(
-        get_config("model.wire_api", "chat_completions"), client=client, role="fast"
-    ) == "responses"
+    profile = resolve_request_profile(agent_config, "fast")
+    model = client.catalog.get(profile) if profile else client.model_for_role("fast")
+    if model is None:
+        raise ValueError(f"Unknown fast model profile: {profile}")
     runner = _ClassifierRunner(
         client=client,
         messages=messages,
         json_messages=json_object_messages,
         params=dict(kw),
         session_key=classify_session_key,
-        responses_wire=responses_wire,
-        model_max_tokens=resolve_model_max_output_tokens(
-            client,
-            role="fast",
-            fallback=model_config.max_tokens,
-        ),
+        profile=profile,
+        model_name=model.model,
+        responses_wire=model.api == "openai_responses",
+        model_max_tokens=model.max_output_tokens,
     )
     return await runner.run()
 

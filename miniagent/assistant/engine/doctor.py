@@ -19,7 +19,6 @@ from pathlib import Path
 from miniagent.assistant.infrastructure.json_config import (
     get_config,
     get_config_paths,
-    get_user_config_section,
 )
 
 # 与 pyproject.toml [project.dependencies] 对齐（import 名可能与包名不同）
@@ -99,9 +98,7 @@ def _resolve_api_key() -> tuple[str | None, str]:
     Returns:
         ``(密钥值或 None, 来源标签)``；来源为 ``json``、``env`` 或空串。
     """
-    json_key = get_config("secrets.llm.openai.api_key", "") or get_config(
-        "secrets.openai_api_key", ""
-    )
+    json_key = get_config("secrets.llm.openai.api_key", "")
     if json_key and str(json_key).strip():
         return str(json_key).strip(), "json"
 
@@ -188,7 +185,7 @@ def _append_api_diagnostics(lines: list[str]) -> bool:
         lines.append("- ❌ API 密钥: 未设置（需 secrets.llm 或 provider 环境变量）")
     from miniagent.llm.factory import effective_llm_config
 
-    llm = effective_llm_config(get_config, get_user_config_section)
+    llm = effective_llm_config(get_config)
     roles_raw = llm.get("roles")
     models_raw = llm.get("models")
     providers_raw = llm.get("providers")
@@ -287,7 +284,7 @@ def diagnose_environment() -> str:
     if not has_api_key:
         issues.append("未配置 OpenAI API 密钥")
         tips.append(
-            "运行 `python -m miniagent` 生成 config.user.json，并在 secrets 中填写 openai_api_key"
+            "运行 `python -m miniagent` 生成 config.user.json，并填写 secrets.llm.openai.api_key"
         )
         tips.append("或设置环境变量 OPENAI_API_KEY")
 

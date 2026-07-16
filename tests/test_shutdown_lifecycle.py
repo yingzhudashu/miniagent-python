@@ -9,8 +9,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.assistant.bootstrap import LifecycleManager
 from miniagent.assistant.bootstrap.application import ApplicationContainer
+from miniagent.assistant.bootstrap.lifecycle import LifecycleManager
 from miniagent.assistant.contracts.messages import InboundMessage
 from miniagent.assistant.engine.cli_state import CliLoopState
 from miniagent.assistant.engine.feishu_lifecycle import FeishuRuntimeLifecycleService
@@ -378,6 +378,8 @@ async def test_shutdown_runtime_invokes_resource_teardown() -> None:
 @pytest.mark.asyncio
 async def test_shutdown_sync_persistence_does_not_block_event_loop() -> None:
     ctx = _minimal_ctx()
+    ctx.llm_gateway = MagicMock()
+    ctx.llm_gateway.model_for_role.return_value.model = "test-model"
     heartbeat_time: float | None = None
 
     def slow_memory_close() -> None:
@@ -434,6 +436,8 @@ async def test_run_runtime_failure_always_invokes_unified_shutdown() -> None:
     from miniagent.assistant.engine.main import run_runtime
 
     ctx = _minimal_ctx()
+    ctx.llm_gateway = MagicMock()
+    ctx.llm_gateway.model_for_role.return_value.model = "test-model"
     shutdown = AsyncMock()
     init_failure = RuntimeError("init failed")
 

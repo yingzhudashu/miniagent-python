@@ -64,7 +64,8 @@ def test_session_identity_active_rename_and_disk_resolution(manager: DefaultSess
     assert second.id == "beta"
 
 
-def test_session_listing_destroy_and_lock_metadata(manager: DefaultSessionManager) -> None:
+@pytest.mark.asyncio
+async def test_session_listing_destroy_and_lock_metadata(manager: DefaultSessionManager) -> None:
     session = manager.get_or_create("locked")
     workspace = Path(manager._sessions[session.id]["config"].workspace_path)
     (workspace / ".lock").write_text("123", encoding="utf-8")
@@ -75,9 +76,9 @@ def test_session_listing_destroy_and_lock_metadata(manager: DefaultSessionManage
 
     (workspace / ".lock").write_text("invalid", encoding="utf-8")
     assert _get_session_lock_owner(str(workspace)) is None
-    assert manager.destroy("locked", keep_files=False)
+    assert await manager.delete_session("locked", keep_files=False)
     assert not workspace.exists()
-    assert not manager.destroy("locked")
+    assert not await manager.delete_session("locked")
 
 
 def test_tool_registration_promotion_context_and_snapshots(manager: DefaultSessionManager) -> None:

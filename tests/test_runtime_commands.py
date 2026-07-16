@@ -41,7 +41,7 @@ def _state(queue: _Queue | None = None) -> dict[str, object]:
 async def test_abort_uses_channel_id_then_cli_default() -> None:
     queue = _Queue()
     state = _state(queue)
-    with patch("miniagent.assistant.engine.cli_commands.format_queue_abort_message", return_value="aborted"):
+    with patch("miniagent.assistant.engine.commands.session_management.format_queue_abort_message", return_value="aborted"):
         assert (
             await handle_abort(
                 "/abort",
@@ -67,14 +67,14 @@ async def test_query_and_queue_cover_read_write_abort_and_usage() -> None:
         print("queue-set")
 
     with (
-        patch("miniagent.assistant.engine.cli_commands.cmd_queue_status", side_effect=print_status),
-        patch("miniagent.assistant.engine.cli_commands.cmd_queue_set", side_effect=set_mode),
+        patch("miniagent.assistant.engine.commands.session_management.cmd_queue_status", side_effect=print_status),
+        patch("miniagent.assistant.engine.commands.session_management.cmd_queue_set", side_effect=set_mode),
         patch(
-            "miniagent.assistant.engine.cli_commands.format_queue_abort_message",
+            "miniagent.assistant.engine.commands.session_management.format_queue_abort_message",
             return_value="queue-abort",
         ),
         patch(
-            "miniagent.assistant.engine.cli_commands.format_queue_command_usage",
+            "miniagent.assistant.engine.commands.session_management.format_queue_command_usage",
             return_value="queue-usage",
         ),
     ):
@@ -88,7 +88,7 @@ async def test_query_and_queue_cover_read_write_abort_and_usage() -> None:
 @pytest.mark.asyncio
 async def test_queue_maps_set_failure() -> None:
     with patch(
-        "miniagent.assistant.engine.cli_commands.cmd_queue_set",
+        "miniagent.assistant.engine.commands.session_management.cmd_queue_set",
         AsyncMock(side_effect=ValueError("invalid mode")),
     ):
         output = await handle_queue("/queue set bad", state=_state(), capture=True)
@@ -128,7 +128,7 @@ async def test_stop_enforces_channel_policy_and_shutdown_contract() -> None:
     shutdown = AsyncMock()
     with (
         patch(
-            "miniagent.assistant.engine.cli_commands.feishu_dot_commands_full_enabled",
+            "miniagent.assistant.engine.commands.session_management.feishu_dot_commands_full_enabled",
             return_value=False,
         ),
         patch("miniagent.assistant.engine.shutdown.shutdown_runtime", shutdown),

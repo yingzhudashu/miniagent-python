@@ -95,7 +95,7 @@ async def handle_help(
     **_kwargs: Any,
 ) -> str | None:
     """从命令元数据生成并显示帮助。"""
-    from miniagent.assistant.engine.cli_commands import cmd_help
+    from miniagent.assistant.engine.commands.session_management import cmd_help
 
     runtime = state.get("runtime_ctx")
     if runtime is None:
@@ -117,7 +117,7 @@ async def handle_schedule(
     **_kwargs: Any,
 ) -> str | None:
     """查询或修改定时任务；受限远程渠道只能执行只读子命令。"""
-    from miniagent.assistant.engine.cli_commands import (
+    from miniagent.assistant.engine.commands.session_management import (
         cmd_schedule,
         feishu_dot_commands_full_enabled,
     )

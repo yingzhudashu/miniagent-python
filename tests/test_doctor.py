@@ -29,7 +29,7 @@ def test_format_masked_secret_truncates_long_values() -> None:
 
 def test_resolve_api_key_prefers_json(isolated_config_loader, monkeypatch) -> None:
     isolated_config_loader({
-        "secrets": {"openai_api_key": "sk-from-json-key"},
+        "secrets": {"llm": {"openai": {"api_key": "sk-from-json-key"}}},
     })
     monkeypatch.setenv("OPENAI_API_KEY", "sk-from-env-key")
     value, source = _resolve_api_key()
@@ -79,9 +79,21 @@ def test_diagnose_environment_reports_missing_api_key(isolated_config_loader, mo
 def test_diagnose_environment_reports_env_api_key(isolated_config_loader, monkeypatch) -> None:
     isolated_config_loader(
         {
-            "model": {
-                "wire_api": "responses",
-                "user_agent": "MiniAgent-Test",
+            "llm": {
+                "providers": {
+                    "openai": {
+                        "driver": "openai",
+                        "headers": {"User-Agent": "MiniAgent-Test"},
+                    }
+                },
+                "models": {
+                    "primary": {
+                        "provider": "openai",
+                        "model": "test-model",
+                        "api": "openai_responses",
+                    }
+                },
+                "roles": {"default": "primary"},
             }
         }
     )

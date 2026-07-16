@@ -115,9 +115,7 @@ class ProviderRegistry:
 
 
 class LLMGateway:
-    """Route stage-role requests and expose the legacy transport call shape."""
-
-    _miniagent_llm_gateway = True
+    """Route explicit role/profile requests to one provider snapshot."""
 
     def __init__(
         self,
@@ -136,10 +134,11 @@ class LLMGateway:
     def model_for_role(self, role: LLMRole = "default") -> ModelDescriptor:
         return self.router.resolve(role)
 
-    def _request_model(self, params: dict[str, Any]) -> ModelDescriptor:
-        role_value = str(params.get("_role") or "default")
-        role: LLMRole = role_value if role_value in RoleRouter._ROLES else "default"  # type: ignore[assignment]
-        profile = params.get("_model_profile")
+    def _request_model(
+        self,
+        role: LLMRole,
+        profile: str | None,
+    ) -> ModelDescriptor:
         if profile:
             model = self.catalog.get(str(profile))
             if model is None:
@@ -163,6 +162,7 @@ class LLMGateway:
         )
         compatibility = dict(model.compatibility)
         omitted = {str(name) for name in compatibility.get("omit_parameters", ())}
+        omitted.update(str(name) for name in params.get("_omit_parameters", ()))
         for name in omitted:
             clean.pop(name, None)
         if compatibility.get("supports_temperature") is False:
@@ -190,19 +190,29 @@ class LLMGateway:
                 clean[internal_name] = params[internal_name]
             elif internal_name not in clean and default_value is not None:
                 clean[internal_name] = default_value
+        if compatibility.get("thinking_adapter") == "qwen":
+            level = str(clean.get("_thinking_level") or "").strip().lower()
+            budget = int(clean.get("_thinking_budget") or 0)
+            qwen_body: dict[str, Any] = {
+                "enable_thinking": level not in {"", "none", "disabled", "off"}
+            }
+            if qwen_body["enable_thinking"] and budget > 0:
+                qwen_body["thinking_budget"] = budget
+            clean["extra_body"] = {**clean.get("extra_body", {}), **qwen_body}
         return clean
 
     async def create_completion(
         self,
         *,
+        role: LLMRole = "default",
+        profile: str | None = None,
         messages: list[dict[str, Any]],
         params: dict[str, Any],
         tools: list[dict[str, Any]] | None = None,
         json_mode: bool = False,
-        wire_api: Any | None = None,
     ) -> LLMCompletion:
         self._ensure_open()
-        model = self._request_model(params)
+        model = self._request_model(role, profile)
         provider = self.registry.require(model.provider)
         response = await provider.create_completion(
             model,
@@ -218,14 +228,15 @@ class LLMGateway:
     async def stream_completion(
         self,
         *,
+        role: LLMRole = "default",
+        profile: str | None = None,
         messages: list[dict[str, Any]],
         params: dict[str, Any],
         tools: list[dict[str, Any]] | None = None,
         json_mode: bool = False,
-        wire_api: Any | None = None,
     ) -> AsyncIterator[LLMStreamEvent]:
         self._ensure_open()
-        model = self._request_model(params)
+        model = self._request_model(role, profile)
         provider = self.registry.require(model.provider)
         async for event in provider.stream_completion(
             model,

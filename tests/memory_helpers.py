@@ -27,8 +27,15 @@ def make_memory_runtime(
         store.update_summary = AsyncMock()
         store.add_entry = AsyncMock()
         store.add_file = AsyncMock()
+        store.record_turn = AsyncMock()
+        store.flush_keyword_index_async = AsyncMock()
     if activity_log is None:
         activity_log = MagicMock()
+        activity_log.log_session_start = AsyncMock()
+        activity_log.log_llm_call = AsyncMock()
+        activity_log.log_tool_call = AsyncMock()
+        activity_log.log_final_reply = AsyncMock()
+        activity_log.log_incomplete = AsyncMock()
     if keyword_index is None:
         keyword_index = MagicMock()
         keyword_index.get_stats.return_value = {"total_entries": 0}

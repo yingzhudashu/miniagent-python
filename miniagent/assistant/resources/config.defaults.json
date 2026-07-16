@@ -37,7 +37,6 @@
       "anthropic": {"api_key": null},
       "google": {"api_key": null}
     },
-    "openai_api_key": null,
     "tavily_api_key": null,
     "web_search_api_key": null,
     "stack_exchange_key": null,
@@ -76,7 +75,13 @@
           "reasoning": false,
           "structured_output": true
         },
-        "defaults": {},
+        "defaults": {
+          "temperature": 0.7,
+          "top_p": 1.0,
+          "max_tokens": 4096,
+          "thinking_level": "light",
+          "thinking_budget": 1024
+        },
         "pricing": {},
         "compatibility": {}
       }
@@ -92,27 +97,6 @@
       "cache_ttl_hours": 24
     },
     "max_retries": 2
-  },
-
-  "model": {
-    "description": "内部兼容参数；3.0 用户模型选择请使用 llm 节",
-    "base_url": "https://api.openai.com/v1",
-    "model": "gpt-4o-mini",
-    "temperature": 0.7,
-    "top_p": 1.0,
-    "max_tokens": 4096,
-    "thinking_level": "light",
-    "thinking_budget": 1024,
-    "context_window": 128000,
-    "retry_count": 2,
-    "service_tier": null,
-    "wire_api": "chat_completions",
-    "user_agent": null,
-    "_guide": {
-      "service_tier": "服务层级：auto(自动选择)、default(标准)、flex(灵活/低成本)",
-      "wire_api": "传输协议：chat_completions（默认）或 responses",
-      "user_agent": "可选 HTTP User-Agent；仅在兼容网关明确要求时设置"
-    }
   },
 
   "paths": {
@@ -300,8 +284,7 @@
   },
 
   "debug": {
-    "description": "调试（User：perf_metrics；Advanced：session_id/log_path）",
-    "perf_metrics": false,
+    "description": "调试（User：session_id/log_path）",
     "session_id": null,
     "log_path": null
   },

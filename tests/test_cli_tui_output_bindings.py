@@ -5,7 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from miniagent.assistant.engine import cli_tui_output as output_module
-from miniagent.ui.cli.state import TuiViewState
+from miniagent.ui import TuiSnapshot
 
 
 class _Thinking:
@@ -138,7 +138,7 @@ def test_output_bindings_cover_markdown_stream_and_delivery(monkeypatch) -> None
 def test_default_tui_view_shows_evaluation_plan_and_execution_details(monkeypatch) -> None:
     transcript = []
     streams = {}
-    view = TuiViewState()
+    view = TuiSnapshot()
     thinking = _Thinking()
     ctx = SimpleNamespace(
         cli_transcript_coordinator=None,

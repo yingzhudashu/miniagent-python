@@ -39,7 +39,7 @@ async def cmd_btw_start(
     """启动后台任务。
 
     Args:
-        engine: 需实现 ``run_agent_with_thinking`` 的引擎实例（如 UnifiedEngine）
+        engine: 需实现 ``run_agent_with_thinking`` 的引擎实例（如 AssistantTurnService）
         prompt: 用户输入
         state: 主 session 状态（含 skill_toolboxes、runtime_ctx 等）
 

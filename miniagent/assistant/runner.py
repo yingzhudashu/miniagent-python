@@ -18,14 +18,12 @@
     python -m miniagent --stop --state-dir <路径> 1  # 多状态根时指定目录
     python -m miniagent --stop --state-dir <路径>  # 交互选择，仅列该状态根下的实例
     python -m miniagent --doctor     # 环境诊断（安装、依赖、配置、状态目录）
-    python -m miniagent migrate-config --dry-run  # 检查 v2→v3 配置迁移
-    python -m miniagent migrate-config --write    # 备份并写入 v3 配置
 
 架构（组合根）:
 - 进程级依赖由 ``bootstrap.entrypoint`` 构造唯一 ``ApplicationContainer``
 - ``--feishu`` 等运行时开关由 ``engine.main`` 读取 ``sys.argv``（本模块不解析）
 - CLI 经 ``run_cli_loop``；飞书经 ``FeishuRuntime`` + ``poll_server``（同进程可插拔）
-- ``UnifiedEngine`` 编排 ``run_agent`` 与思考回调；会话由 ``SessionManager`` 单一数据源
+- ``AssistantTurnService`` 编排 ``run_agent`` 与思考回调；会话由 ``SessionManager`` 单一数据源
 
 文档索引见 ``docs/INDEX.md``；架构详见 ``docs/ARCHITECTURE.md``。
 """
@@ -65,41 +63,6 @@ def _load_env() -> None:
     from miniagent.assistant.infrastructure.env_loader import load_secrets_from_project_root
 
     load_secrets_from_project_root()
-
-
-def _run_migrate_config_command() -> int:
-    """Handle the explicit backup-first v2 to v3 configuration migration."""
-    from miniagent.assistant.infrastructure.config_migration import migrate_config_file
-    from miniagent.assistant.infrastructure.json_config import get_user_config_path
-
-    tokens = sys.argv[2:]
-    unknown = [token for token in tokens if token not in ("--dry-run", "--write")]
-    if unknown or ("--dry-run" in tokens and "--write" in tokens):
-        print(
-            "[ERROR] 用法: python -m miniagent migrate-config "
-            "[--dry-run|--write]"
-        )
-        return 2
-    path = get_user_config_path()
-    if not path.exists():
-        print(f"[ERROR] 配置文件不存在: {path}")
-        return 1
-    write = "--write" in tokens
-    try:
-        result = migrate_config_file(path, write=write)
-    except (OSError, ValueError) as error:
-        print(f"[ERROR] 配置迁移失败: {error}")
-        return 1
-    if not result.changed:
-        print("[OK] 配置已经是 v3，无需迁移")
-        return 0
-    if not write:
-        print("可迁移配置已验证；将迁移: " + ", ".join(result.migrated_keys))
-        print("运行 `python -m miniagent migrate-config --write` 写入并自动备份。")
-        return 0
-    print("[OK] 配置已迁移到 v3")
-    print(f"备份: {result.backup_path}")
-    return 0
 
 
 def _argv_after_flag(argv: list[str], flag: str) -> list[str]:
@@ -347,20 +310,17 @@ def _consume_session_arg() -> None:
     del sys.argv[i : i + 2]
 
 
-def main() -> None:
+def _run_current_argv() -> None:
     """统一入口：解析 CLI 开关后启动正式应用入口。
 
     处理顺序：``--help`` / ``-h``（早退）→ 加载凭据 → ``--no-continue`` / ``--continue``
-    → ``--session`` → ``--stop`` / ``--doctor``（早退）→ 绑定项目路径 → ``run_application()``。
+    → ``--session`` → ``--stop`` / ``--doctor``（早退）→ 绑定项目路径 → 构造并运行应用。
     """
     import os
 
     if _wants_help(sys.argv):
         _print_cli_help()
         raise SystemExit(0)
-
-    if len(sys.argv) > 1 and sys.argv[1] == "migrate-config":
-        raise SystemExit(_run_migrate_config_command())
 
     _load_env()
 
@@ -400,10 +360,30 @@ def main() -> None:
         )
     )
 
-    from miniagent.assistant.bootstrap.entrypoint import run_application
+    from miniagent.assistant.engine.setup_wizard import run_interactive_setup
+    from miniagent.assistant.infrastructure.env_loader import load_secrets_from_project_root
 
-    run_application()
+    run_interactive_setup()
+    load_secrets_from_project_root()
+    from miniagent.assistant.app import create_assistant_application
+
+    create_assistant_application().run()
+
+
+def run_cli_boundary(argv: list[str] | None = None) -> None:
+    """Implement the internal CLI boundary owned by public ``run_assistant``."""
+    if argv is None:
+        _run_current_argv()
+        return
+    previous = sys.argv
+    sys.argv = [previous[0], *argv]
+    try:
+        _run_current_argv()
+    finally:
+        sys.argv = previous
 
 
 if __name__ == "__main__":
-    main()
+    from miniagent.assistant.app import run_assistant
+
+    run_assistant()

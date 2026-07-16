@@ -19,6 +19,7 @@ from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 from miniagent.assistant.memory.keyword_index import KeywordIndex
 from miniagent.assistant.memory.store import DefaultMemoryStore
 from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
+from tests.mock_strategies import MockGateway
 from tests.perf_helpers import (
     assert_two_medians_within_ratio,
     median_wall_seconds,
@@ -138,7 +139,7 @@ async def test_s1_execute_plan_mock_median_under_cap() -> None:
             main,
             system_prompt,
             ac,
-            client=mock_client,
+                client=MockGateway(mock_client),
             memory=memory_runtime,
             knowledge_registry=knowledge_registry,
         )
@@ -252,7 +253,7 @@ def test_s4_tool_budget_burst_median_under_cap() -> None:
 @pytest.mark.perf
 def test_s5_normalize_lark_md_median_under_cap() -> None:
     """S5：飞书 lark_md 规范化纯 CPU 路径（不访问网络；与 poll_server 热点对照）。"""
-    from miniagent.assistant.feishu.poll_server import _normalize_lark_md
+    from miniagent.assistant.feishu.card_rendering import normalize_lark_md
 
     lines: list[str] = []
     for i in range(450):
@@ -260,7 +261,7 @@ def test_s5_normalize_lark_md_median_under_cap() -> None:
     body = "\n\n".join(lines)
 
     def once() -> None:
-        _normalize_lark_md(body)
+        normalize_lark_md(body)
 
     med = median_wall_seconds(5, once)
     assert med < 8.0, f"S5 normalize_lark_md too slow: {med:.3f}s"
@@ -313,7 +314,7 @@ def test_s6_memory_store_batch_tracemalloc_peak_loose() -> None:
 @pytest.mark.perf
 def test_s7_exec_payload_json_serialize_median_under_cap() -> None:
     """S7：messages + tools 的 json.dumps 本地耗时上界（与 execute_plan 组装路径对齐）。"""
-    from miniagent.agent.request_payload import serialize_exec_payload_sample
+    from tests.request_payload_helper import serialize_exec_payload_sample
 
     tools = _large_tool_schemas(28)
 

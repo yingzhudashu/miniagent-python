@@ -12,8 +12,8 @@ import pytest
 
 from miniagent.agent.plan_utils import _parse_depends_on, _resolve_step_depends_on
 from miniagent.agent.planner import _dict_to_plan
-from miniagent.assistant.engine.cli_commands import cmd_schedule
 from miniagent.assistant.engine.cli_shell import _shell_argv
+from miniagent.assistant.engine.commands.session_management import cmd_schedule
 from miniagent.assistant.feishu.drive_extra import SearchApiError, search_docs
 from miniagent.assistant.feishu.feishu_dedup import FeishuDeduplicator
 from miniagent.assistant.feishu.types import FeishuConfig

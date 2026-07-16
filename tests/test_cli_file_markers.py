@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.assistant.application.messaging import ChannelRegistry
+from miniagent.assistant.application.messaging.channels import ChannelRegistry
 from miniagent.assistant.engine.cli_files import process_cli_file_markers
 from miniagent.assistant.engine.cli_history import (
     create_cli_file_history,
@@ -173,8 +173,8 @@ def test_reset_and_reload_transcript_does_not_reset_input_history() -> None:
     source = Path(__file__).resolve().parent.parent.joinpath(
         "miniagent", "assistant", "engine", "cli_tui_transcript_ops.py"
     ).read_text(encoding="utf-8")
-    start = source.index("def _reset_and_reload_transcript(")
-    end = source.index("def _trigger_lazy_load_more_history(", start)
+    start = source.index("def reset_and_reload_transcript(")
+    end = source.index("def trigger_lazy_load_more_history(", start)
     block = source[start:end]
     assert "input_buffer.history" not in block
     assert "_prime_cli_input_history_from_session" not in block

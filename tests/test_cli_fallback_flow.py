@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniagent.assistant.application.messaging import ChannelRegistry
+from miniagent.assistant.application.messaging.channels import ChannelRegistry
 from miniagent.assistant.engine.cli_fallback import run_cli_loop_fallback
 
 
@@ -106,7 +106,7 @@ async def test_fallback_shell_command_status_and_agent_turn(monkeypatch, capsys)
 async def test_fallback_copy_outcomes(monkeypatch, capsys, plain, copied, expected) -> None:
     ctx = _context()
     _patch_lifecycle(monkeypatch, ["/copy", "quit"])
-    monkeypatch.setattr("miniagent.assistant.engine.cli_commands.build_session_history_plaintext", lambda *_: plain)
+    monkeypatch.setattr("miniagent.assistant.engine.commands.session_management.build_session_history_plaintext", lambda *_: plain)
     monkeypatch.setattr("miniagent.assistant.engine.cli_fallback.copy_text_to_system_clipboard", lambda _text: copied)
     state = {"active_session_id": "default", "session_manager": None, "instance_id": 1}
     await run_cli_loop_fallback(ctx, state, [], [])

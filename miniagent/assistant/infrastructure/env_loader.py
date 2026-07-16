@@ -2,7 +2,6 @@
 
 从config.user.json的secrets部分读取敏感凭据并设置到环境变量。
 支持的环境变量：
-- OPENAI_API_KEY
 - TAVILY_API_KEY
 - WEB_SEARCH_API_KEY
 - STACK_EXCHANGE_KEY
@@ -28,7 +27,6 @@ _logger = get_logger(__name__)
 
 # secrets字段到环境变量名的映射
 _SECRETS_TO_ENV = {
-    "openai_api_key": "OPENAI_API_KEY",
     "tavily_api_key": "TAVILY_API_KEY",
     "web_search_api_key": "WEB_SEARCH_API_KEY",
     "stack_exchange_key": "STACK_EXCHANGE_KEY",

@@ -7,8 +7,8 @@ from typing import Any
 
 import pytest
 
-from miniagent.assistant.application.messaging import InboundTurnCoordinator
-from miniagent.assistant.contracts import InboundMessage
+from miniagent.assistant.application.messaging.inbound import InboundTurnCoordinator
+from miniagent.assistant.contracts.messages import InboundMessage
 from miniagent.assistant.engine.cli_inbound import (
     CLI_CHANNEL,
     CLI_CONVERSATION_ID,

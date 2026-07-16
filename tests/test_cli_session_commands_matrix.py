@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from miniagent.assistant.engine import cli_commands
+from miniagent.assistant.engine.commands import session_management as cli_commands
 
 
 class _Manager:
@@ -44,7 +44,7 @@ class _Manager:
         self.sessions[value]["title"] = title
         return True
 
-    def destroy(self, value, *, keep_files=True):
+    async def delete_session(self, value, *, keep_files=True):
         del keep_files
         return self.destroy_result and self.sessions.pop(value, None) is not None
 
@@ -114,11 +114,12 @@ async def test_create_rename_delete_outcomes(capsys) -> None:
     cli_commands.cmd_session_rename(None, "one", "x")
     cli_commands.cmd_session_rename(manager, "missing", "x")
     cli_commands.cmd_session_rename(manager, "one", "Renamed")
-    cli_commands.cmd_session_delete(None, "one", "two", lambda _sid: None)
-    cli_commands.cmd_session_delete(manager, "one", "missing", lambda _sid: None)
-    cli_commands.cmd_session_delete(manager, "one", "one", lambda _sid: None)
-    cli_commands.cmd_session_delete(manager, "one", "two", lambda _sid: None, keep_files=False)
+    await cli_commands.cmd_session_delete(None, "one", "two", lambda _sid: None)
+    await cli_commands.cmd_session_delete(manager, "one", "missing", lambda _sid: None)
+    await cli_commands.cmd_session_delete(manager, "one", "one", lambda _sid: None)
+    await cli_commands.cmd_session_delete(
+        manager, "one", "two", lambda _sid: None, keep_files=False
+    )
     output = capsys.readouterr().out
     assert "加锁失败" in output and "已创建会话" in output and "已重命名" in output
     assert "不能删除" in output and "清除文件" in output
-

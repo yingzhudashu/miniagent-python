@@ -72,7 +72,7 @@ def real_api_config():
     # 验证API Key已加载
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key or api_key == "your-api-key-here":
-        pytest.skip("需要配置真实API Key（在config.user.json的secrets.openai_api_key或环境变量OPENAI_API_KEY）")
+        pytest.skip("需要配置真实 API Key（secrets.llm 或 provider 环境变量）")
 
     # 返回完整配置供测试使用
     return {
@@ -351,14 +351,14 @@ class TestRealAPIPerformance:
         assert api_key and api_key != "your-api-key-here", "API Key应已加载到环境变量"
 
         # 验证模型配置
-        model_config = real_api_config.get("model", {})
-        assert "model" in model_config or "base_url" in model_config, "应有模型配置"
+        llm_overrides = real_api_config.get("model", {})
+        assert "model" in llm_overrides or "base_url" in llm_overrides, "应有模型配置"
 
         # 记录配置信息（不含密钥）
         emit_trace({
             "type": "perf.api_config_valid",
-            "model": model_config.get("model", "unknown"),
-            "base_url": model_config.get("base_url", "unknown")[:50] if model_config.get("base_url") else "default",
+            "model": llm_overrides.get("model", "unknown"),
+            "base_url": llm_overrides.get("base_url", "unknown")[:50] if llm_overrides.get("base_url") else "default",
         })
 
 

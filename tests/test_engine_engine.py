@@ -1,4 +1,4 @@
-"""Tests for UnifiedEngine core functionality.
+"""Tests for AssistantTurnService core functionality.
 
 Tests cover:
 - Engine initialization
@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from miniagent.agent.types.agent import AgentRunResult
-from miniagent.assistant.engine.engine import UnifiedEngine
+from miniagent.assistant.engine.turn_service import AssistantTurnService
 from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 
 # ============================================================================
@@ -25,7 +25,7 @@ from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 # ============================================================================
 
 
-def _mock_engine_thinking(engine: UnifiedEngine) -> None:
+def _mock_engine_thinking(engine: AssistantTurnService) -> None:
     """Mock ThinkingDisplay 避免控制台输出。"""
     engine.thinking.show = AsyncMock()
     engine.thinking.end_thinking = MagicMock()
@@ -43,6 +43,7 @@ def _create_mock_session_manager() -> tuple[MagicMock, MagicMock]:
     mock_ctx.files_path = "/tmp/test"
     mock_session_manager.get_or_create.return_value = mock_ctx
     mock_session_manager.get_session_files_path.return_value = mock_ctx.files_path
+    mock_session_manager.save_session_history_async = AsyncMock()
     return mock_session_manager, mock_ctx
 
 
@@ -51,12 +52,12 @@ def _create_mock_session_manager() -> tuple[MagicMock, MagicMock]:
 # ============================================================================
 
 
-class TestUnifiedEngineInit:
-    """测试 UnifiedEngine 初始化。"""
+class TestAssistantTurnServiceInit:
+    """测试 AssistantTurnService 初始化。"""
 
     def test_engine_initialization(self) -> None:
         """引擎初始化应创建 ThinkingDisplay 和内部锁。"""
-        engine = UnifiedEngine()
+        engine = AssistantTurnService()
 
         assert engine.thinking is not None
         assert hasattr(engine.thinking, "show")
@@ -67,24 +68,24 @@ class TestUnifiedEngineInit:
 
     def test_engine_has_run_method(self) -> None:
         """引擎应有 run_agent_with_thinking 方法。"""
-        engine = UnifiedEngine()
+        engine = AssistantTurnService()
         assert hasattr(engine, "run_agent_with_thinking")
         assert callable(engine.run_agent_with_thinking)
 
     def test_engine_has_inject_message_method(self) -> None:
         """引擎应有 inject_message 方法。"""
-        engine = UnifiedEngine()
+        engine = AssistantTurnService()
         assert hasattr(engine, "inject_message")
         assert callable(engine.inject_message)
 
 
-class TestUnifiedEngineSessionBinding:
+class TestAssistantTurnServiceSessionBinding:
     """测试会话绑定逻辑。"""
 
     @pytest.mark.asyncio
     async def test_missing_session_manager_raises_error(self) -> None:
         """缺少 session_manager 时应抛出 ValueError。"""
-        engine = UnifiedEngine()
+        engine = AssistantTurnService()
 
         with pytest.raises(ValueError) as exc_info:
             await engine.run_agent_with_thinking(
@@ -100,17 +101,17 @@ class TestUnifiedEngineSessionBinding:
         assert "session_manager" in str(exc_info.value)
 
 
-class TestUnifiedEngineToolboxAssembly:
+class TestAssistantTurnServiceToolboxAssembly:
     """测试工具箱组装。"""
 
     @pytest.mark.asyncio
     async def test_empty_toolboxes_accepted(self) -> None:
         """空工具箱列表应被接受。"""
-        engine = UnifiedEngine()
+        engine = AssistantTurnService()
         _mock_engine_thinking(engine)
         mock_session_manager, _ = _create_mock_session_manager()
 
-        with patch("miniagent.assistant.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
+        with patch("miniagent.assistant.engine.turn_service.run_agent", new_callable=AsyncMock) as mock_run:
             mock_run.return_value = AgentRunResult(reply="Test reply")
 
             result = await engine.run_agent_with_thinking(
@@ -129,11 +130,11 @@ class TestUnifiedEngineToolboxAssembly:
     @pytest.mark.asyncio
     async def test_toolboxes_passed_to_run_agent(self) -> None:
         """工具箱应传递给 run_agent。"""
-        engine = UnifiedEngine()
+        engine = AssistantTurnService()
         _mock_engine_thinking(engine)
         mock_session_manager, _ = _create_mock_session_manager()
 
-        with patch("miniagent.assistant.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
+        with patch("miniagent.assistant.engine.turn_service.run_agent", new_callable=AsyncMock) as mock_run:
             mock_run.return_value = AgentRunResult(reply="Test reply")
             toolboxes = ["filesystem", "exec"]
 
@@ -152,17 +153,17 @@ class TestUnifiedEngineToolboxAssembly:
             assert call_kwargs["toolboxes"] == toolboxes
 
 
-class TestUnifiedEngineThinkingCallback:
+class TestAssistantTurnServiceThinkingCallback:
     """测试思考回调集成。"""
 
     @pytest.mark.asyncio
     async def test_thinking_counter_reset_per_session(self) -> None:
         """每个会话的思考计数器应重置。"""
-        engine = UnifiedEngine()
+        engine = AssistantTurnService()
         _mock_engine_thinking(engine)
         mock_session_manager, _ = _create_mock_session_manager()
 
-        with patch("miniagent.assistant.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
+        with patch("miniagent.assistant.engine.turn_service.run_agent", new_callable=AsyncMock) as mock_run:
             mock_run.return_value = AgentRunResult(reply="Test reply")
             session_key = "test_session_reset"
 
@@ -180,13 +181,13 @@ class TestUnifiedEngineThinkingCallback:
             engine.thinking.reset_counter.assert_called_once_with(session_key)
 
 
-class TestUnifiedEngineToolFinish:
+class TestAssistantTurnServiceToolFinish:
     """测试工具完成回调。"""
 
     @pytest.mark.asyncio
     async def test_tool_finish_collects_data(self) -> None:
         """工具完成回调应收集调用数据。"""
-        engine = UnifiedEngine()
+        engine = AssistantTurnService()
         _mock_engine_thinking(engine)
         mock_session_manager, mock_ctx = _create_mock_session_manager()
 
@@ -196,7 +197,7 @@ class TestUnifiedEngineToolFinish:
                 await on_tool_finish("test_tool", '{"arg": "value"}', "output", True)
             return AgentRunResult(reply="Reply")
 
-        with patch("miniagent.assistant.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
+        with patch("miniagent.assistant.engine.turn_service.run_agent", new_callable=AsyncMock) as mock_run:
             mock_run.side_effect = mock_run_with_tool
 
             await engine.run_agent_with_thinking(
@@ -215,17 +216,17 @@ class TestUnifiedEngineToolFinish:
             assert history[0]["role"] == "user"
 
 
-class TestUnifiedEngineHistoryUpdate:
+class TestAssistantTurnServiceHistoryUpdate:
     """测试历史更新逻辑。"""
 
     @pytest.mark.asyncio
     async def test_history_updated_with_user_input(self) -> None:
         """历史应包含用户输入。"""
-        engine = UnifiedEngine()
+        engine = AssistantTurnService()
         _mock_engine_thinking(engine)
         mock_session_manager, mock_ctx = _create_mock_session_manager()
 
-        with patch("miniagent.assistant.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
+        with patch("miniagent.assistant.engine.turn_service.run_agent", new_callable=AsyncMock) as mock_run:
             mock_run.return_value = AgentRunResult(reply="Reply")
             user_input = "Hello!"
 
@@ -247,12 +248,12 @@ class TestUnifiedEngineHistoryUpdate:
     @pytest.mark.asyncio
     async def test_history_updated_with_assistant_reply(self) -> None:
         """历史应包含助手回复。"""
-        engine = UnifiedEngine()
+        engine = AssistantTurnService()
         _mock_engine_thinking(engine)
         mock_session_manager, mock_ctx = _create_mock_session_manager()
         reply = "Assistant reply."
 
-        with patch("miniagent.assistant.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
+        with patch("miniagent.assistant.engine.turn_service.run_agent", new_callable=AsyncMock) as mock_run:
             mock_run.return_value = AgentRunResult(reply=reply)
 
             await engine.run_agent_with_thinking(
@@ -271,12 +272,12 @@ class TestUnifiedEngineHistoryUpdate:
             assert assistant_messages[0]["content"] == reply
 
 
-class TestUnifiedEngineMessageInjection:
+class TestAssistantTurnServiceMessageInjection:
     """测试消息注入功能。"""
 
     def test_inject_message_adds_to_history(self) -> None:
         """inject_message 应将消息添加到历史。"""
-        engine = UnifiedEngine()
+        engine = AssistantTurnService()
         mock_session_manager, mock_ctx = _create_mock_session_manager()
 
         engine.inject_message(
@@ -291,17 +292,17 @@ class TestUnifiedEngineMessageInjection:
 
     def test_inject_message_without_session_manager(self) -> None:
         """无 session_manager 时应静默跳过。"""
-        engine = UnifiedEngine()
+        engine = AssistantTurnService()
         engine.inject_message(session_key="test", content="msg", session_manager=None)
 
 
-class TestUnifiedEngineFeishuChannel:
+class TestAssistantTurnServiceFeishuChannel:
     """测试飞书通道特有逻辑。"""
 
     @pytest.mark.asyncio
     async def test_feishu_requires_channel_router(self) -> None:
         """飞书通道需要 channel_router。"""
-        engine = UnifiedEngine()
+        engine = AssistantTurnService()
         mock_session_manager, _ = _create_mock_session_manager()
 
         with pytest.raises(ValueError) as exc_info:
@@ -322,13 +323,13 @@ class TestUnifiedEngineFeishuChannel:
         assert "channel_router" in str(exc_info.value)
 
 
-class TestUnifiedEngineExecLock:
+class TestAssistantTurnServiceExecLock:
     """测试执行锁机制。"""
 
     @pytest.mark.asyncio
     async def test_same_session_serial(self) -> None:
         """同 session_key 应串行执行。"""
-        engine = UnifiedEngine()
+        engine = AssistantTurnService()
         _mock_engine_thinking(engine)
         mock_session_manager, _ = _create_mock_session_manager()
 
@@ -341,7 +342,7 @@ class TestUnifiedEngineExecLock:
             call_order.append("end")
             return AgentRunResult(reply="Reply")
 
-        with patch("miniagent.assistant.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
+        with patch("miniagent.assistant.engine.turn_service.run_agent", new_callable=AsyncMock) as mock_run:
             mock_run.side_effect = slow_run
 
             import asyncio
@@ -358,7 +359,7 @@ class TestUnifiedEngineExecLock:
     @pytest.mark.asyncio
     async def test_different_sessions_can_overlap(self) -> None:
         """不同 session_key 在 parallel_sessions 开启时可并行。"""
-        engine = UnifiedEngine()
+        engine = AssistantTurnService()
         _mock_engine_thinking(engine)
         mock_session_manager, _ = _create_mock_session_manager()
 
@@ -375,7 +376,7 @@ class TestUnifiedEngineExecLock:
             in_flight -= 1
             return AgentRunResult(reply="Reply")
 
-        with patch("miniagent.assistant.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
+        with patch("miniagent.assistant.engine.turn_service.run_agent", new_callable=AsyncMock) as mock_run:
             mock_run.side_effect = slow_run
 
             import asyncio
@@ -390,19 +391,19 @@ class TestUnifiedEngineExecLock:
             assert overlap is True
 
 
-class TestUnifiedEngineClarifier:
+class TestAssistantTurnServiceClarifier:
     """测试澄清器懒加载。"""
 
     def test_clarifier_none_initially(self) -> None:
         """初始时 clarifier 应为 None。"""
-        engine = UnifiedEngine()
+        engine = AssistantTurnService()
         assert engine._clarifier is None
 
     def test_clarifier_lazy_loaded(self) -> None:
         """启用时 clarifier 应懒加载。"""
-        engine = UnifiedEngine()
+        engine = AssistantTurnService()
 
-        with patch("miniagent.assistant.engine.engine.get_config", return_value=True):
+        with patch("miniagent.assistant.engine.turn_service.get_config", return_value=True):
             with patch("miniagent.agent.requirement_clarifier.RequirementClarifier") as mock_c:
                 mock_c.return_value = MagicMock()
                 c1 = engine._get_clarifier()
@@ -411,19 +412,19 @@ class TestUnifiedEngineClarifier:
                 assert c1 is c2
 
 
-class TestUnifiedEngineConfirmationChannel:
+class TestAssistantTurnServiceConfirmationChannel:
     """测试确认通道。"""
 
     def test_confirmation_channel_lazy_created(self) -> None:
         """确认通道应懒加载创建。"""
-        engine = UnifiedEngine()
+        engine = AssistantTurnService()
         assert engine._confirmation_channels == {}
         channel = engine._get_confirmation_channel("s1")
         assert channel is not None
 
     def test_confirmation_channel_per_session(self) -> None:
         """不同 session_key 应有独立确认通道。"""
-        engine = UnifiedEngine()
+        engine = AssistantTurnService()
         c1 = engine._get_confirmation_channel("s1")
         c2 = engine._get_confirmation_channel("s2")
         c1_again = engine._get_confirmation_channel("s1")
@@ -431,11 +432,11 @@ class TestUnifiedEngineConfirmationChannel:
         assert c1 is not c2
 
 
-class TestUnifiedEngineReflectionCache:
+class TestAssistantTurnServiceReflectionCache:
     """测试反思评估缓存。"""
 
     def test_get_and_clear_last_reflection(self) -> None:
-        engine = UnifiedEngine()
+        engine = AssistantTurnService()
         engine._last_reflection["s1"] = {"score": 0.9}
         assert engine.get_last_reflection("s1") == {"score": 0.9}
         assert engine.get_last_reflection("missing") is None
@@ -443,11 +444,11 @@ class TestUnifiedEngineReflectionCache:
         assert engine.get_last_reflection("s1") is None
 
 
-class TestUnifiedEngineActiveSessionRouting:
+class TestAssistantTurnServiceActiveSessionRouting:
     """测试 CLI 活跃会话与确认通道路由。"""
 
     def test_set_active_session_key_routes_confirmation_channel(self) -> None:
-        engine = UnifiedEngine()
+        engine = AssistantTurnService()
         c_default = engine.get_confirmation_channel("default")
         c_other = engine.get_confirmation_channel("other")
         engine.set_active_session_key("other")
@@ -455,14 +456,14 @@ class TestUnifiedEngineActiveSessionRouting:
         assert engine.confirmation_channel is not c_default
 
 
-class TestUnifiedEnginePlanHandler:
+class TestAssistantTurnServicePlanHandler:
     """测试计划确认回调。"""
 
     @pytest.mark.asyncio
     async def test_on_plan_handler_uses_confirmation_channel(self) -> None:
         from miniagent.agent.types.confirmation import ConfirmationResult
 
-        engine = UnifiedEngine()
+        engine = AssistantTurnService()
         channel = engine.get_confirmation_channel("plan_session")
         channel.request_confirmation = AsyncMock(
             return_value=ConfirmationResult(approved=False)
@@ -483,19 +484,19 @@ class TestUnifiedEnginePlanHandler:
         assert req.context.get("requires_confirmation") is True
 
 
-class TestUnifiedEngineIntegration:
+class TestAssistantTurnServiceIntegration:
     """集成测试。"""
 
     @pytest.mark.asyncio
     async def test_full_cli_flow(self) -> None:
         """CLI 模式完整流程。"""
-        engine = UnifiedEngine()
+        engine = AssistantTurnService()
         _mock_engine_thinking(engine)
         mock_session_manager, mock_ctx = _create_mock_session_manager()
-        mock_session_manager.save_session_history = MagicMock()
+        mock_session_manager.save_session_history_async = AsyncMock()
         memory_runtime = make_memory_runtime()
 
-        with patch("miniagent.assistant.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
+        with patch("miniagent.assistant.engine.turn_service.run_agent", new_callable=AsyncMock) as mock_run:
             mock_run.return_value = AgentRunResult(reply="Final reply")
 
             result = await engine.run_agent_with_thinking(
@@ -511,7 +512,7 @@ class TestUnifiedEngineIntegration:
             )
 
             assert result == "Final reply"
-            mock_session_manager.save_session_history.assert_called_once()
+            mock_session_manager.save_session_history_async.assert_awaited_once()
             memory_runtime.store.update_summary.assert_not_awaited()
             memory_runtime.activity_log.log_session_start.assert_not_called()
             memory_runtime.activity_log.log_final_reply.assert_not_called()
@@ -519,16 +520,17 @@ class TestUnifiedEngineIntegration:
     @pytest.mark.asyncio
     async def test_full_feishu_flow(self) -> None:
         """飞书模式完整流程。"""
-        engine = UnifiedEngine()
+        engine = AssistantTurnService()
         _mock_engine_thinking(engine)
         mock_session_manager, mock_ctx = _create_mock_session_manager()
-        mock_session_manager.save_session_history = MagicMock()
+        mock_session_manager.save_session_history_async = AsyncMock()
 
         mock_router = MagicMock()
         mock_router.get_bound_channels.return_value = []
 
-        with patch("miniagent.assistant.engine.engine.run_agent", new_callable=AsyncMock) as mock_run:
+        with patch("miniagent.assistant.engine.turn_service.run_agent", new_callable=AsyncMock) as mock_run:
             mock_run.return_value = AgentRunResult(reply="Feishu reply")
+
 
             # Mock finalize_feishu_thinking_stream from poll_server
             with patch("miniagent.assistant.feishu.poll_server.finalize_feishu_thinking_stream", new_callable=AsyncMock):
@@ -550,19 +552,19 @@ class TestUnifiedEngineIntegration:
 
 
 __all__ = [
-    "TestUnifiedEngineInit",
-    "TestUnifiedEngineSessionBinding",
-    "TestUnifiedEngineToolboxAssembly",
-    "TestUnifiedEngineThinkingCallback",
-    "TestUnifiedEngineToolFinish",
-    "TestUnifiedEngineHistoryUpdate",
-    "TestUnifiedEngineMessageInjection",
-    "TestUnifiedEngineFeishuChannel",
-    "TestUnifiedEngineExecLock",
-    "TestUnifiedEngineClarifier",
-    "TestUnifiedEngineConfirmationChannel",
-    "TestUnifiedEngineReflectionCache",
-    "TestUnifiedEngineActiveSessionRouting",
-    "TestUnifiedEnginePlanHandler",
-    "TestUnifiedEngineIntegration",
+    "TestAssistantTurnServiceInit",
+    "TestAssistantTurnServiceSessionBinding",
+    "TestAssistantTurnServiceToolboxAssembly",
+    "TestAssistantTurnServiceThinkingCallback",
+    "TestAssistantTurnServiceToolFinish",
+    "TestAssistantTurnServiceHistoryUpdate",
+    "TestAssistantTurnServiceMessageInjection",
+    "TestAssistantTurnServiceFeishuChannel",
+    "TestAssistantTurnServiceExecLock",
+    "TestAssistantTurnServiceClarifier",
+    "TestAssistantTurnServiceConfirmationChannel",
+    "TestAssistantTurnServiceReflectionCache",
+    "TestAssistantTurnServiceActiveSessionRouting",
+    "TestAssistantTurnServicePlanHandler",
+    "TestAssistantTurnServiceIntegration",
 ]

@@ -16,7 +16,7 @@ def _compact_tokens(value: int) -> str:
 def _active_model(ctx: Any) -> tuple[str, str, int]:
     gateway = getattr(ctx, "llm_gateway", None)
     if gateway is None:
-        return "openai", "legacy", 0
+        return "未配置", "no-model", 0
     try:
         model = gateway.model_for_role("default")
     except Exception:

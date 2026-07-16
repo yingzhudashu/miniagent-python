@@ -11,10 +11,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from miniagent.agent.planner import _fallback_plan, generate_plan
-from miniagent.agent.types.config import AgentConfig, ModelConfig, SessionBindingConfig, WireAPI
+from miniagent.agent.types.config import AgentConfig, SessionBindingConfig
 from miniagent.agent.types.planning import PlanStep, StructuredPlan
 from miniagent.agent.types.tool import Toolbox
 from tests.memory_helpers import make_knowledge_registry
+from tests.mock_strategies import MockGateway
 
 _VALID_PLAN_CONTENT = (
     '{"summary":"configured","steps":[],"requiredToolboxes":[],'
@@ -64,24 +65,10 @@ def _responses_stream(content: str | None) -> object:
 
 @contextmanager
 def _model_protocol(
-    wire_api: WireAPI, *, max_tokens: int = 4096
+    wire_api: str, *, max_tokens: int = 4096
 ) -> Iterator[None]:
-    config = ModelConfig(
-        model="response-model",
-        wire_api=wire_api,
-        max_tokens=max_tokens,
-    )
-    with (
-        patch("miniagent.agent.config.get_default_model_config", return_value=config),
-        patch("miniagent.agent.llm_params.get_default_model_config", return_value=config),
-        patch(
-            "miniagent.agent.planner.get_config",
-            side_effect=lambda path, default=None: wire_api
-            if path == "model.wire_api"
-            else default,
-        ),
-    ):
-        yield
+    del wire_api, max_tokens
+    yield
 
 
 @pytest.mark.asyncio
@@ -99,7 +86,7 @@ async def test_generate_plan_fallback():
         user_input="失败测试",
         toolboxes=[toolbox],
         knowledge_registry=make_knowledge_registry(),
-        client=mock_client,
+        client=MockGateway(mock_client),
     )
 
     # 应返回fallback计划
@@ -129,7 +116,7 @@ async def test_generate_plan_basic_call():
         user_input="测试输入",
         toolboxes=[toolbox],
         knowledge_registry=make_knowledge_registry(),
-        client=mock_client,
+        client=MockGateway(mock_client),
     )
 
     # 应返回StructuredPlan对象
@@ -170,7 +157,7 @@ async def test_generate_plan_json_object_user_message_mentions_json():
         "hello",
         [toolbox],
         knowledge_registry=make_knowledge_registry(),
-        client=mock_client,
+        client=MockGateway(mock_client),
     )
 
     assert plan.summary == "t"
@@ -216,7 +203,7 @@ async def test_generate_plan_json_object_unsupported_downgrades_in_same_attempt(
         "hello",
         [toolbox],
         knowledge_registry=make_knowledge_registry(),
-        client=mock_client,
+        client=MockGateway(mock_client),
     )
 
     assert plan.summary == "downgraded"
@@ -247,8 +234,8 @@ async def test_responses_planner_recovers_reasoning_only_without_sampling() -> N
             "recover",
             [],
             knowledge_registry=make_knowledge_registry(),
-            client=client,
-            planner_model_overrides={"thinking_level": "heavy"},
+            client=MockGateway(client, responses=True),
+            planner_llm_overrides={"thinking_level": "heavy"},
         )
 
     assert plan.summary == "configured"
@@ -298,7 +285,7 @@ async def test_responses_planner_only_expands_budget_for_incomplete_output() -> 
             "expand budget",
             [],
             knowledge_registry=make_knowledge_registry(),
-            client=client,
+            client=MockGateway(client, responses=True),
         )
 
     assert plan.summary == "configured"
@@ -325,8 +312,8 @@ async def test_responses_planner_uses_medium_for_final_empty_recovery() -> None:
             "final recovery",
             [],
             knowledge_registry=make_knowledge_registry(),
-            client=client,
-            planner_model_overrides={"thinking_level": "heavy"},
+            client=MockGateway(client, responses=True),
+            planner_llm_overrides={"thinking_level": "heavy"},
         )
 
     assert plan.summary == "configured"
@@ -360,8 +347,8 @@ async def test_responses_planner_uses_medium_after_repeated_invalid_plan(
             "repair invalid plan",
             [],
             knowledge_registry=make_knowledge_registry(),
-            client=client,
-            planner_model_overrides={"thinking_level": "heavy"},
+            client=MockGateway(client, responses=True),
+            planner_llm_overrides={"thinking_level": "heavy"},
         )
 
     assert plan.summary == "configured"
@@ -391,7 +378,7 @@ async def test_responses_planner_falls_back_after_three_reasoning_only_responses
             secret_marker,
             [],
             knowledge_registry=make_knowledge_registry(),
-            client=client,
+            client=MockGateway(client, responses=True),
         )
 
     assert plan.summary == "直接执行模式：跳过详细规划"
@@ -416,7 +403,7 @@ async def test_responses_planner_recovers_generic_400_without_sampling() -> None
             "retry generic request failure",
             [],
             knowledge_registry=make_knowledge_registry(),
-            client=client,
+            client=MockGateway(client, responses=True),
         )
 
     assert plan.summary == "configured"
@@ -438,7 +425,7 @@ async def test_planner_does_not_retry_deterministic_authentication_error() -> No
             "authentication failure",
             [],
             knowledge_registry=make_knowledge_registry(),
-            client=client,
+            client=MockGateway(client, responses=True),
         )
 
     assert plan.summary == "直接执行模式：跳过详细规划"
@@ -457,7 +444,7 @@ async def test_chat_planner_retries_without_changing_sampling_parameters() -> No
             "chat retry",
             [],
             knowledge_registry=make_knowledge_registry(),
-            client=client,
+            client=MockGateway(client),
         )
 
     assert plan.summary == "configured"
@@ -489,7 +476,7 @@ async def test_generate_plan_uses_grouped_session_config_and_history() -> None:
             "继续完成任务",
             [],
             knowledge_registry=make_knowledge_registry(),
-            client=mock_client,
+            client=MockGateway(mock_client),
             agent_config=config,
         )
 
@@ -521,7 +508,7 @@ async def test_generate_plan_defaults_missing_or_empty_session_key(
             "普通任务",
             [],
             knowledge_registry=make_knowledge_registry(),
-            client=mock_client,
+            client=MockGateway(mock_client),
             agent_config=config,
         )
 

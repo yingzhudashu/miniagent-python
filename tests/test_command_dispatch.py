@@ -54,7 +54,7 @@ def _create_mock_state() -> dict:
         "feishu_p2p_synced_senders": set(),
     }
 
-    from miniagent.assistant.bootstrap import LifecycleManager
+    from miniagent.assistant.bootstrap.lifecycle import LifecycleManager
     from miniagent.assistant.engine.feishu_lifecycle import FeishuRuntimeLifecycleService
 
     feishu_service = FeishuRuntimeLifecycleService(
@@ -136,7 +136,7 @@ class TestSessionCommand:
         """/session list 应返回会话列表。"""
         state = _create_mock_state()
 
-        with patch("miniagent.assistant.engine.cli_commands.cmd_session_list") as mock_list:
+        with patch("miniagent.assistant.engine.commands.session_management.cmd_session_list") as mock_list:
             mock_list.return_value = "Sessions: default, test"
 
             await dispatch_command("/session list", state=state, capture=True)
@@ -149,7 +149,7 @@ class TestSessionCommand:
         state = _create_mock_state()
 
         with patch(
-            "miniagent.assistant.engine.cli_commands.feishu_dot_commands_full_enabled",
+            "miniagent.assistant.engine.commands.session_management.feishu_dot_commands_full_enabled",
             return_value=False,
         ):
             result = await dispatch_command(
@@ -166,8 +166,8 @@ class TestSessionCommand:
         """MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1 时允许 session switch。"""
         state = _create_mock_state()
 
-        with patch("miniagent.assistant.engine.cli_commands.feishu_dot_commands_full_enabled", return_value=True):
-            with patch("miniagent.assistant.engine.cli_commands.cmd_session_switch", new_callable=AsyncMock) as mock_switch:
+        with patch("miniagent.assistant.engine.commands.session_management.feishu_dot_commands_full_enabled", return_value=True):
+            with patch("miniagent.assistant.engine.commands.session_management.cmd_session_switch", new_callable=AsyncMock) as mock_switch:
                 mock_switch.return_value = "test_session"
 
                 await dispatch_command(
@@ -231,7 +231,7 @@ class TestQueueCommand:
         """/queue status 应返回队列状态。"""
         state = _create_mock_state()
 
-        with patch("miniagent.assistant.engine.cli_commands.cmd_queue_status") as mock_status:
+        with patch("miniagent.assistant.engine.commands.session_management.cmd_queue_status") as mock_status:
             mock_status.return_value = "Queue: preemptive"
 
             await dispatch_command("/queue status", state=state, capture=True)
@@ -300,7 +300,7 @@ class TestHelpCommand:
         """/help 应返回使用信息。"""
         state = _create_mock_state()
 
-        with patch("miniagent.assistant.engine.cli_commands.cmd_help") as mock_help:
+        with patch("miniagent.assistant.engine.commands.session_management.cmd_help") as mock_help:
             mock_help.return_value = "Help: available commands..."
 
             await dispatch_command("/help", state=state, capture=True)
@@ -384,7 +384,7 @@ class TestKbCommand:
         """/kb list 应返回知识库列表。"""
         state = _create_mock_state()
 
-        with patch("miniagent.assistant.engine.cli_commands.cmd_kb_list") as mock_list:
+        with patch("miniagent.assistant.engine.commands.session_management.cmd_kb_list") as mock_list:
             mock_list.return_value = "Knowledge bases: docs, api"
 
             await dispatch_command("/kb list", state=state, capture=True)

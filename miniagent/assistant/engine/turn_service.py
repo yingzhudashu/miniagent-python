@@ -1,4 +1,4 @@
-"""Engine — UnifiedEngine 核心引擎
+"""Engine — AssistantTurnService 核心引擎
 
 从原 ``unified`` 单文件拆分而来。**职责**：按 ``session_key`` 绑定 ``SessionManager`` 与会话历史；
 组装技能工具箱与系统提示片段；调用 :func:`miniagent.agent.agent.run_agent` 并串联 ``ThinkingDisplay``
@@ -11,7 +11,7 @@
 :class:`miniagent.assistant.infrastructure.message_queue.MessageQueueManager` 按 ``chat_id`` 串行或抢占；本类不替代队列，
 仅在被调用的协程内完成单次回合的 LLM/工具编排。
 
-详见 ``docs/ARCHITECTURE.md``（UnifiedEngine 与会话管线）。
+详见 ``docs/ARCHITECTURE.md``（AssistantTurnService 与会话管线）。
 """
 
 from __future__ import annotations
@@ -27,14 +27,14 @@ from typing import Any
 _STEP_NUMBER_PATTERN = re.compile(r"\[步骤\s*(\d+)\s*/\s*(\d+)\s*\]")
 _ROUND_NUMBER_PATTERN = re.compile(r"第\s*(\d+)\s*轮")
 
-from miniagent.agent import Agent, AgentRequest, AgentServices
+from miniagent.agent import Agent, AgentRequest, AgentServices, AgentSettings
 from miniagent.agent.agent import run_agent
 from miniagent.agent.logging import get_logger
 from miniagent.agent.ports.knowledge import KnowledgeRegistryProtocol
 from miniagent.agent.ports.memory import MemoryRuntimeProtocol
 from miniagent.agent.types.confirmation import ConfirmationResult
-from miniagent.assistant.engine.cli_commands import feishu_dot_commands_full_enabled
-from miniagent.assistant.infrastructure.json_config import get_config
+from miniagent.assistant.engine.commands.session_management import feishu_dot_commands_full_enabled
+from miniagent.assistant.infrastructure.json_config import get_config, get_config_snapshot
 from miniagent.assistant.session.manager import SessionOptions
 
 _logger = get_logger(__name__)
@@ -83,17 +83,8 @@ def _tool_finish_verbose_history() -> bool:
 
 
 async def _persist_session_history(session_manager: Any, session_key: str) -> None:
-    """Persist history without blocking the event loop on filesystem I/O.
-
-    The concrete manager exposes an async wrapper. Lightweight integrations
-    and older test doubles may only implement the synchronous method, which is
-    delegated to the default executor as a compatibility fallback.
-    """
-    async_method = getattr(type(session_manager), "save_session_history_async", None)
-    if async_method is not None and asyncio.iscoroutinefunction(async_method):
-        await session_manager.save_session_history_async(session_key)
-        return
-    await asyncio.to_thread(session_manager.save_session_history, session_key)
+    """Persist history through the required asynchronous session protocol."""
+    await session_manager.save_session_history_async(session_key)
 
 
 def _turn_label_sort_key(item: tuple[str, str]) -> tuple[int, int, str]:
@@ -339,7 +330,7 @@ async def _finalize_engine_turn(
         _logger.warning("Dream scheduler scheduling failed: %s", error)
 
 
-class UnifiedEngine:
+class AssistantTurnService:
     """统一管理引擎。
 
     将用户输入传递给 Agent，管理会话历史和思考显示。
@@ -499,7 +490,7 @@ class UnifiedEngine:
         receive_id = (receive_chat_id or "").strip()
         if not receive_id and session_key.startswith("feishu:"):
             receive_id = session_key[len("feishu:") :]
-        from miniagent.assistant.feishu.poll_server import feishu_outbound_reply_params
+        from miniagent.assistant.feishu.outbound_delivery import feishu_outbound_reply_params
 
         reply_message_id, reply_in_thread = feishu_outbound_reply_params(
             trigger_message_id, thread_id
@@ -701,6 +692,7 @@ class UnifiedEngine:
         )
         agent = Agent(AgentServices(
             llm=client,
+            settings=AgentSettings(get_config_snapshot()),
             registry=registry,
             memory=memory,
             knowledge=knowledge_registry,
@@ -789,7 +781,7 @@ class UnifiedEngine:
         self._last_reflection.pop(session_key, None)
 
     def get_thinking_display(self) -> Any:
-        """返回思考显示器实例（:class:`UnifiedEngineProtocol`）。"""
+        """返回思考显示器实例（:class:`AssistantTurnServiceProtocol`）。"""
         return self.thinking
 
     def inject_message(self, session_key: str, content: str, *, session_manager: Any) -> None:
@@ -824,4 +816,4 @@ class UnifiedEngine:
         return self._clarifier
 
 
-__all__ = ["UnifiedEngine"]
+__all__ = ["AssistantTurnService"]

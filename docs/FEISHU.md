@@ -123,7 +123,7 @@ ChannelRouter.resolve() → session_key
     ↓
 SessionManager.get_or_create(session_key)
     ↓
-UnifiedEngine.run_agent_with_thinking(...)
+AssistantTurnService.run_agent_with_thinking(...)
 ```
 
 **约束**：
@@ -168,7 +168,7 @@ ChannelRouter.resolve_feishu_message(chat_id, sender_id, chat_type)
     └── 私聊: 未绑定时自动绑到当前 CLI 活跃会话后再 resolve
     │
     ▼
-UnifiedEngine.run_agent_with_thinking()
+AssistantTurnService.run_agent_with_thinking()
     │
     ├── CLI: 终端流式打印思考过程
     └── 飞书（群聊与私聊）: 每轮 LLM 思考 **一条交互卡片**（流式 PATCH 节流；`finalize` 时若超长则 **首张 PATCH + 后续多张「思考中 (k/n)」续页**）；同轮工具意图默认 **追加到该卡片**（Internal 常量 `EXECUTION_THINKING_MERGE_TOOLS`）。最终回复按 `feishu.card.body_max_chars`（默认约 48k 字符）**分片多张卡片**；任一分片发送失败则 **中止后续分片**，已发部分不再用整条 `text` 重复回退；仅当交互消息 **一条都未成功** 时才按同上限 **分条 text** 回退全文（由 ``feishu_handler`` 委托 ``poll_server._send_reply``）。**Phase 3 反思评估**（`features.reflection` 默认开启）完成后，评估结果以 **尾部文本** 并入最终回复卡片/正文，**不再**单独发送质量评估卡片。

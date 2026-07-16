@@ -53,8 +53,8 @@ from miniagent.assistant.engine.commands.kb_commands import (
     cmd_kb_unmount,
     format_kb_command_usage,
 )
+from miniagent.assistant.engine.commands.markdown import escape_markdown_cell
 from miniagent.assistant.engine.commands.queue_commands import (
-    _md_escape_cell,
     cmd_queue_set,
     cmd_queue_status,
     format_queue_abort_message,
@@ -314,9 +314,9 @@ def cmd_session_list(
                 else:
                     lock_info = f"PID {s['lock_pid']} 锁定"
             remark = " · ".join(x for x in (marker, lock_info) if x)
-            title_cell = _md_escape_cell(f"#{s['number']} {s['title']}")
+            title_cell = escape_markdown_cell(f"#{s['number']} {s['title']}")
             lines.append(
-                f"| {s['number']} | {title_cell} | {s['turn_count']} | {_md_escape_cell(remark)} |"
+                f"| {s['number']} | {title_cell} | {s['turn_count']} | {escape_markdown_cell(remark)} |"
             )
         print("\n".join(lines))
         print()
@@ -495,7 +495,7 @@ def cmd_session_rename(session_manager: Any, id_or_number: str, new_title: str) 
         print(f"{ERROR_PREFIX} 重命名失败")
 
 
-def cmd_session_delete(
+async def cmd_session_delete(
     session_manager: Any,
     active_session_id: str,
     id_or_number: str,
@@ -533,7 +533,7 @@ def cmd_session_delete(
     except Exception as e:
         _logger.debug("释放会话锁失败: %s", e)
 
-    ok = session_manager.destroy(session_id, keep_files=keep_files)
+    ok = await session_manager.delete_session(session_id, keep_files=keep_files)
     if ok:
         action = "已删除（保留文件）" if keep_files else "已删除（清除文件）"
         print(f"{SUCCESS_PREFIX} {display} {action}")

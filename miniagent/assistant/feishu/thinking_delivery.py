@@ -13,6 +13,7 @@ from miniagent.assistant.feishu.card_rendering import (
     FEISHU_THINKING_PATCH_MIN_CHAR_DELTA,
     FEISHU_THINKING_PATCH_MIN_INTERVAL_S,
 )
+from miniagent.assistant.feishu.cards.builder import build_interactive_card
 from miniagent.assistant.feishu.outbound_delivery import (
     _post_interactive_message,
     _post_interactive_message_async,
@@ -46,7 +47,7 @@ def _thinking_card_json_cached(
         cached = getattr(st, "feishu_cached_card_json", None)
         if isinstance(cached, str):
             return cached
-    cleaned = _prepare_thinking_markdown(raw)
+    cleaned = _card_rendering.prepare_thinking_markdown(raw)
     card_json = json.dumps(
         _thinking_interactive_card_dict(
             cleaned,
@@ -77,55 +78,6 @@ def _reset_feishu_thinking_state(st: Any) -> None:
     st.feishu_pending_tool_lines = []
     st.feishu_stream_llm_len = 0
     _reset_feishu_thinking_cache(st)
-
-
-# 渲染职责已迁移到 ``card_rendering``。保留这些模块级私有名称，避免既有扩展和
-# 测试在一次发布内同时承担 import 路径迁移；实际调用统一进入新模块。
-_normalize_im_receive_chat_id = _card_rendering.normalize_im_receive_chat_id
-_is_valid_im_receive_id = _card_rendering.is_valid_im_receive_id
-_adjust_patch_budget_dynamically = _card_rendering.adjust_patch_budget_dynamically
-feishu_card_body_max = _card_rendering.feishu_card_body_max
-feishu_card_thinking_max = _card_rendering.feishu_card_thinking_max
-_normalize_lark_md = _card_rendering.normalize_lark_md
-_prepare_thinking_body_for_card = _card_rendering.prepare_thinking_body_for_card
-_prepare_card_markdown = _card_rendering.prepare_card_markdown
-_prepare_thinking_markdown = _card_rendering.prepare_thinking_markdown
-_strip_light_markdown_for_feishu_plain = _card_rendering.strip_light_markdown_for_plain
-
-
-def _important_content_compat(text: str) -> bool:
-    """保留旧模块可注入 PATCH 开关，同时复用新策略实现。"""
-    if not FEISHU_PATCH_IMPORTANT_CONTENT_IMMEDIATE:
-        return False
-    return _card_rendering.is_important_content_for_immediate_patch(text)
-
-
-def _chunk_card_compat(
-    reply: str,
-    max_len: int | None = None,
-    *,
-    already_normalized: bool = False,
-) -> list[str]:
-    """保留旧模块可注入卡片上限，同时复用新分片实现。"""
-    cap = feishu_card_body_max() if max_len is None else max_len
-    return _card_rendering.chunk_card_markdown(
-        reply,
-        cap,
-        already_normalized=already_normalized,
-    )
-
-
-_is_important_content_for_immediate_patch = _important_content_compat
-_chunk_feishu_card_markdown = _chunk_card_compat
-
-
-def _feishu_interactive_card_dict(
-    header_title: str, body_markdown: str, template: str
-) -> dict[str, Any]:
-    """构造飞书交互卡片 JSON 结构。"""
-    from miniagent.assistant.feishu.cards.builder import build_interactive_card
-
-    return build_interactive_card(header_title, body_markdown, template)
 
 
 def _thinking_interactive_card_dict(
@@ -333,9 +285,9 @@ async def _patch_thinking_card(
     need_patch = (
         now - st.feishu_last_patch_monotonic >= FEISHU_THINKING_PATCH_MIN_INTERVAL_S
         or len(markdown) - st.feishu_last_patched_char_len >= FEISHU_THINKING_PATCH_MIN_CHAR_DELTA
-        or _is_important_content_for_immediate_patch(markdown)
+        or (FEISHU_PATCH_IMPORTANT_CONTENT_IMMEDIATE and _card_rendering.is_important_content_for_immediate_patch(markdown))
     )
-    st.feishu_patch_budget = _adjust_patch_budget_dynamically(
+    st.feishu_patch_budget = _card_rendering.adjust_patch_budget_dynamically(
         len(st.feishu_stream_accumulated), st.feishu_patch_budget
     )
     changed = card_json != getattr(st, "feishu_last_sent_card_json", None)
@@ -361,7 +313,7 @@ async def push_feishu_thinking_stream(
     confirmation_engine: Any | None = None,
 ) -> None:
     """ReAct 单轮 LLM 流式思考：同一会话只保留一条卡片，用 PATCH 节流更新（避免每条 chunk 新建消息）。"""
-    chat_id = _normalize_im_receive_chat_id(chat_id)
+    chat_id = _card_rendering.normalize_im_receive_chat_id(chat_id)
     if not chat_id:
         return
     _update_thinking_round(st, markdown, new_round=new_round)
@@ -390,7 +342,7 @@ async def finalize_feishu_thinking_stream(
     confirmation_engine: Any | None = None,
 ) -> None:
     """一轮 LLM 流结束或非合并的非流式块前：PATCH 首张卡片为正文第一段；超长则追加多张「思考续页」卡片。"""
-    chat_id = _normalize_im_receive_chat_id(chat_id)
+    chat_id = _card_rendering.normalize_im_receive_chat_id(chat_id)
     mid = getattr(st, "feishu_thinking_message_id", None)
     acc = getattr(st, "feishu_stream_accumulated", "") or ""
     if not chat_id or not mid:
@@ -401,12 +353,12 @@ async def finalize_feishu_thinking_stream(
         # 无累积内容，直接清理状态
         _reset_feishu_thinking_state(st)
         return
-    prep = _prepare_thinking_body_for_card(acc, apply_cap=False)
-    chunks = _chunk_feishu_card_markdown(prep, already_normalized=True)
+    prep = _card_rendering.prepare_thinking_body_for_card(acc, apply_cap=False)
+    chunks = _card_rendering.chunk_card_markdown(prep, already_normalized=True)
     if not chunks:
         return
     nch = len(chunks)
-    first_body = _prepare_card_markdown(chunks[0], normalize=False)
+    first_body = _card_rendering.prepare_card_markdown(chunks[0], normalize=False)
     _sk = getattr(st, "feishu_session_key", None) or None
     card_json = json.dumps(
         _thinking_interactive_card_dict(
@@ -430,9 +382,9 @@ async def finalize_feishu_thinking_stream(
         r_mid = getattr(st, "feishu_reply_to_message_id", None)
         r_thr = bool(getattr(st, "feishu_reply_in_thread", False))
         for j in range(1, nch):
-            body = _prepare_card_markdown(chunks[j], normalize=False)
+            body = _card_rendering.prepare_card_markdown(chunks[j], normalize=False)
             title = f"💭 思考中 ({j + 1}/{nch})"
-            card = _feishu_interactive_card_dict(title, body, template)
+            card = build_interactive_card(title, body, template)
             req_json = json.dumps(card, ensure_ascii=False)
             # ✅ 使用异步版本：发送续页时不阻塞事件循环
             ok, _ = await _post_interactive_message_async(
@@ -459,7 +411,7 @@ async def append_feishu_thinking_same_card(
     confirmation_engine: Any | None = None,
 ) -> None:
     """同轮工具意图：追加到当前思考卡片的 lark_md 正文并 PATCH（不新建消息、不计入流式 PATCH 预算）。"""
-    chat_id = _normalize_im_receive_chat_id(chat_id)
+    chat_id = _card_rendering.normalize_im_receive_chat_id(chat_id)
     line = (tool_line or "").strip()
     if not chat_id or not line:
         return
@@ -519,13 +471,13 @@ async def _send_thinking(
 
     默认与流式思考合并为同卡；本函数仅在 ``merge_tools`` 关闭或非同轮 header 等场景下发送**独立**短卡片。
     """
-    chat_id = _normalize_im_receive_chat_id(chat_id)
+    chat_id = _card_rendering.normalize_im_receive_chat_id(chat_id)
     if not chat_id:
         _logger.debug("跳过发送思考：空的 chat_id")
         return
 
     try:
-        cleaned = _prepare_thinking_markdown(thinking)
+        cleaned = _card_rendering.prepare_thinking_markdown(thinking)
         card_json = json.dumps(
             _thinking_interactive_card_dict(cleaned, template), ensure_ascii=False
         )
@@ -560,7 +512,7 @@ async def send_reflection_card(
         reply_to_message_id: 回复的目标消息 ID
         thread_id: 话题 ID
     """
-    chat_id = _normalize_im_receive_chat_id(chat_id)
+    chat_id = _card_rendering.normalize_im_receive_chat_id(chat_id)
     if not chat_id:
         return
 
@@ -587,10 +539,10 @@ async def send_reflection_card(
             lines.append(f"- {s}")
 
     body = "\n".join(lines)
-    cleaned = _prepare_thinking_markdown(body)
+    cleaned = _card_rendering.prepare_thinking_markdown(body)
     # 使用 "🤖 Mini Agent" 卡片头，与 .help 命令输出格式一致
     card_json = json.dumps(
-        _feishu_interactive_card_dict("🤖 Mini Agent", cleaned, template), ensure_ascii=False
+        build_interactive_card("🤖 Mini Agent", cleaned, template), ensure_ascii=False
     )
 
     ok, _ = await _post_interactive_message_async(
@@ -606,7 +558,6 @@ async def send_reflection_card(
 
 __all__ = [
     "append_feishu_thinking_same_card",
-    "feishu_card_body_max",
     "finalize_feishu_thinking_stream",
     "push_feishu_thinking_stream",
     "send_reflection_card",

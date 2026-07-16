@@ -58,19 +58,11 @@ async def _release_background_session_lock(session_key: str) -> None:
 
 
 async def _forget_background_session(session_key: str, session_manager: Any | None) -> None:
-    """从会话管理器缓存移除会话，必要时回退到销毁旧接口。"""
+    """从会话管理器缓存移除后台会话。"""
     if session_manager is None:
         return
     try:
-        forget_session = getattr(session_manager, "forget_session", None)
-        if callable(forget_session):
-            forget_session(session_key)
-        else:
-            await asyncio.to_thread(
-                session_manager.destroy,
-                session_key,
-                keep_files=False,
-            )
+        session_manager.forget_session(session_key)
     except Exception as error:
         _logger.debug("destroy 后台 session 失败 (%s): %s", session_key, error, exc_info=True)
 

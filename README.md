@@ -233,9 +233,9 @@ Agent 会自动调用文件工具完成任务。
 
 **配置分层**：包内 `miniagent/assistant/resources/config.defaults.json` 顶部 `_config_guide` 列出 User 层与 Advanced 层。普通用户只需在 `config.user.json` 覆盖 User 层；Advanced 节（`memory`、`trace` 等）一般保持默认。优先级：**config.user.json > 包内 defaults**。运维/调试类环境变量（如 `MINIAGENT_PATHS_STATE_DIR`、`AGENT_DEBUG`）见 [ENGINEERING.md](docs/ENGINEERING.md) §1.2。
 
-从 2.x 升级时先运行 `python -m miniagent migrate-config --dry-run`，确认后使用
-`python -m miniagent migrate-config --write`。写入前会创建带 UTC 时间戳的 v2 备份。
-provider 配置、可选依赖和模型目录详见 [LLM_PROVIDERS.md](docs/LLM_PROVIDERS.md)。
+3.0 只接受当前配置和状态 schema，不执行自动迁移或写回。旧版本用户请按
+[MIGRATION.md](docs/MIGRATION.md) 手工迁移。provider 配置、可选依赖和模型目录详见
+[LLM_PROVIDERS.md](docs/LLM_PROVIDERS.md)。
 
 ## 启动与退出
 
@@ -288,7 +288,7 @@ python -m miniagent --stop
 
 | 配置项 | 说明 | 专题文档 |
 |--------|------|----------|
-| `secrets.openai_api_key` | LLM API 密钥 | 本文 §配置 |
+| `secrets.llm.<provider>.api_key` | LLM API 密钥（也可只用 provider 环境变量） | [MIGRATION.md](docs/MIGRATION.md) |
 | `secrets.tavily_api_key` | 联网搜索 | [USER_GUIDE.md §6](docs/USER_GUIDE.md#6-联网搜索与浏览器工具可选) |
 | `secrets.stack_exchange_key` | Stack Exchange 可选配额 Key | [USER_GUIDE.md §6](docs/USER_GUIDE.md#6-联网搜索与浏览器工具可选) |
 | `feishu.*` | 飞书配置 | [FEISHU.md](docs/FEISHU.md) |

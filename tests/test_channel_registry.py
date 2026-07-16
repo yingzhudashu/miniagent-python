@@ -6,14 +6,14 @@ import asyncio
 
 import pytest
 
-from miniagent.assistant.application.messaging import (
+from miniagent.assistant.application.messaging.channels import (
     ChannelDeliveryError,
     ChannelNotRegisteredError,
     ChannelRegistrationError,
     ChannelRegistry,
 )
-from miniagent.assistant.contracts import (
-    ChannelAdapter,
+from miniagent.assistant.contracts.channels import ChannelAdapter
+from miniagent.assistant.contracts.messages import (
     ChannelTarget,
     OutboundEvent,
     OutboundEventKind,
@@ -55,7 +55,8 @@ async def test_ordered_delivery_never_overtakes_prior_event() -> None:
         delivered.append((event.sequence, event.content))
 
     registry = ChannelRegistry([FunctionChannelAdapter("cli", sender)])
-    await registry.send_ordered([_event("cli", "first", 1), _event("cli", "second", 2)])
+    for event in (_event("cli", "first", 1), _event("cli", "second", 2)):
+        await registry.send(event)
     assert delivered == [(1, "first"), (2, "second")]
 
 

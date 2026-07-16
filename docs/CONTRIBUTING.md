@@ -491,7 +491,7 @@ async def test_read_config_success(tool_context):
 命令元数据 SSOT 为 [`command_registry.py`](../miniagent/assistant/engine/command_registry.py) 中的 `CommandSpec` / `COMMAND_REGISTRY`（名称、别名、摘要、用法、`channels`、`mutates_state`、`handler_key`）。
 
 1. 在 `COMMAND_REGISTRY` 增加一条 `CommandSpec`（`handler_key` 为稳定标识）。
-2. 在 `miniagent/assistant/engine/commands/` 实现异步 handler（可按域拆分；`cli_commands.py` 仍可作为兼容聚合入口导入部分 helper）。
+2. 在 `miniagent/assistant/engine/commands/` 的对应领域模块实现异步 handler；不要新增聚合转发模块。
 3. 在 [`command_dispatch.py`](../miniagent/assistant/engine/command_dispatch.py) 的 `_BOUND_HANDLERS` 中按 `handler_key` 绑定处理器，然后 `COMMAND_REGISTRY.bind_handlers(...)`（缺一或多一都会在启动期失败）。
 4. 帮助文案来自 `CommandSpec.summary` / `usage`（经 help 命令渲染）；补充 [CLI.md](CLI.md) 用户说明。
 5. CLI 与飞书共享同一注册表；用 `channels=frozenset({"cli"})` 等限制可用通道（如 `/stop`）。

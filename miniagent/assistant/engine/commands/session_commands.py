@@ -34,7 +34,7 @@ async def handle_session(
     **_kwargs: Any,
 ) -> str | None:
     """列出或安全修改会话，并同步活动会话 ID。"""
-    from miniagent.assistant.engine.cli_commands import (
+    from miniagent.assistant.engine.commands.session_management import (
         feishu_dot_commands_full_enabled,
         feishu_markdown_commands_enabled,
         format_session_command_usage,
@@ -78,7 +78,7 @@ async def _dispatch_session_subcommand(
     markdown: bool,
 ) -> str | None:
     """执行一个已授权的会话子命令。"""
-    from miniagent.assistant.engine.cli_commands import (
+    from miniagent.assistant.engine.commands.session_management import (
         cmd_session_delete,
         cmd_session_list,
         cmd_session_rename,
@@ -119,13 +119,19 @@ async def _dispatch_session_subcommand(
     if subcommand == "rename" and len(parts) >= 4:
         return _capture(cmd_session_rename, manager, parts[2], " ".join(parts[3:]))
     if subcommand == "delete" and len(parts) >= 3:
-        return _capture(cmd_session_delete, manager, active, parts[2], release_session_lock)
+        buffer = io.StringIO()
+        try:
+            with redirect_stdout(buffer):
+                await cmd_session_delete(manager, active, parts[2], release_session_lock)
+            return buffer.getvalue().strip()
+        except Exception as error:
+            return f"{ERROR_PREFIX} 命令执行失败: {error}"
     return None
 
 
 async def _create_session(parts: list[str], manager: Any, lock: Any) -> str:
     """创建会话并捕获异步叶子命令输出。"""
-    from miniagent.assistant.engine.cli_commands import cmd_session_create
+    from miniagent.assistant.engine.commands.session_management import cmd_session_create
 
     buffer = io.StringIO()
     try:

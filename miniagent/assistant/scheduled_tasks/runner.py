@@ -2,7 +2,7 @@
 
 不负责持久化更新；由 :mod:`miniagent.assistant.scheduled_tasks.ticker` 在任务结束后写回 ``last_run_at`` / ``next_run_at``。
 
-执行路径最终调用 ``UnifiedEngine``，与会话人工消息共用队列模型（见 ``docs/ARCHITECTURE.md``）。"""
+执行路径最终调用 ``AssistantTurnService``，与会话人工消息共用队列模型（见 ``docs/ARCHITECTURE.md``）。"""
 
 from __future__ import annotations
 
@@ -160,7 +160,7 @@ def build_scheduled_job(
 ) -> ScheduledJob:
     """Compile one task into a normalized inbound turn and Agent handler.
 
-    构建执行协程，最终调用 UnifiedEngine.run_agent_with_thinking，
+    构建执行协程，最终调用 AssistantTurnService.run_agent_with_thinking，
     并在完成后可选向飞书镜像推送执行结果。
 
     Args:

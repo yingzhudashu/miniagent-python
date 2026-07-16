@@ -17,7 +17,7 @@ async def test_feishu_merge_tools_uses_append_not_second_send_thinking(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from miniagent.agent.monitor import DefaultToolMonitor
-    from miniagent.assistant.engine.engine import UnifiedEngine
+    from miniagent.assistant.engine.turn_service import AssistantTurnService
     from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
     calls: list[tuple[str, Any]] = []
@@ -65,7 +65,7 @@ async def test_feishu_merge_tools_uses_append_not_second_send_thinking(
         await ot("🔧 b — 2", False, lab)
         return AgentRunResult(reply="ok")
 
-    monkeypatch.setattr("miniagent.assistant.engine.engine.run_agent", fake_run_agent)
+    monkeypatch.setattr("miniagent.assistant.engine.turn_service.run_agent", fake_run_agent)
 
     ctx = type("Ctx", (), {})()
     ctx.conversation_history = []
@@ -77,13 +77,13 @@ async def test_feishu_merge_tools_uses_append_not_second_send_thinking(
         def get_session_files_path(self, sk: str) -> None:
             return None
 
-        def save_session_history(self, sk: str) -> None:
+        async def save_session_history_async(self, sk: str) -> None:
             pass
 
     from miniagent.assistant.infrastructure.channel_router import ChannelRouter
 
     router = ChannelRouter()
-    engine = UnifiedEngine()
+    engine = AssistantTurnService()
     engine.thinking.set_output_sink(lambda *_a, **_k: None)
 
     cfg = FeishuConfig(app_id="x", app_secret="y")
@@ -206,7 +206,7 @@ def test_thinking_card_json_cache_reuses_same_body(monkeypatch: pytest.MonkeyPat
         calls["n"] += 1
         return f"clean:{raw}"
 
-    monkeypatch.setattr(ps, "_prepare_thinking_markdown", fake_prepare)
+    monkeypatch.setattr(ps._card_rendering, "prepare_thinking_markdown", fake_prepare)
 
     first = ps._thinking_card_json_cached(st, "body", "gray", "sk-cache")
     second = ps._thinking_card_json_cached(st, "body", "gray", "sk-cache")

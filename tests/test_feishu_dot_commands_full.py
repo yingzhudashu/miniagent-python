@@ -9,10 +9,10 @@ import pytest
 
 from miniagent.agent.monitor import DefaultToolMonitor
 from miniagent.assistant.bootstrap.application import ApplicationContainer
-from miniagent.assistant.engine.cli_commands import feishu_dot_commands_full_enabled
 from miniagent.assistant.engine.command_dispatch import dispatch_command
-from miniagent.assistant.engine.engine import UnifiedEngine
+from miniagent.assistant.engine.commands.session_management import feishu_dot_commands_full_enabled
 from miniagent.assistant.engine.feishu_state import FeishuRuntime
+from miniagent.assistant.engine.turn_service import AssistantTurnService
 from miniagent.assistant.infrastructure.channel_router import ChannelRouter
 from miniagent.assistant.infrastructure.message_queue import MessageQueueManager
 from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
@@ -32,7 +32,7 @@ def _minimal_dispatch_state() -> dict:
         monitor=DefaultToolMonitor(),
         skill_registry=DefaultSkillRegistry(),
         clawhub=create_clawhub_client(),
-        engine=UnifiedEngine(),
+        engine=AssistantTurnService(),
         channel_router=ChannelRouter(),
         message_queue=mq,
         feishu=FeishuRuntime(mq),
@@ -84,8 +84,8 @@ def test_feishu_dot_commands_full_string_false(
 ) -> None:
     """字符串 ``\"false\"`` 应解析为关，避免 bool(\"false\") 误判。"""
     monkeypatch.delenv("MINIAGENT_FEISHU_DOT_COMMANDS_FULL", raising=False)
-    install_test_config(tmp_path, {"feishu": {"dot_commands_full": "false"}})
-    assert feishu_dot_commands_full_enabled() is False
+    with pytest.raises(ValueError, match="应为 bool"):
+        install_test_config(tmp_path, {"feishu": {"dot_commands_full": "false"}})
 
 
 @pytest.mark.asyncio
@@ -146,7 +146,7 @@ async def test_capture_schedule_mutations_blocked_by_default(tmp_path) -> None:
 async def test_capture_schedule_mutations_allowed_when_flag_true(
     state_dir: str,
 ) -> None:
-    from miniagent.assistant.engine.cli_commands import cmd_schedule
+    from miniagent.assistant.engine.commands.session_management import cmd_schedule
     from miniagent.assistant.scheduled_tasks.store import load_tasks, save_tasks
 
     out = await dispatch_command(

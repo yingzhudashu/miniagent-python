@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from types import SimpleNamespace
 from typing import Any
 
 from prompt_toolkit.application import get_app
@@ -61,8 +60,8 @@ class _TuiOutputBindings:
             on_turn_end=self._clear_stream_state,
         )
 
-    def setup(self) -> SimpleNamespace:
-        """注册渠道、显示宽度与思考 sink，并返回兼容绑定接口。"""
+    def setup(self) -> _TuiOutputBindings:
+        """注册渠道、显示宽度与思考 sink，并返回操作对象。"""
         self.ctx.cli_transcript_coordinator = self.coordinator
         self.ctx.create_feishu_handler_factory = lambda state: create_feishu_handler(
             state, self.ctx, self.stick_bottom
@@ -81,16 +80,8 @@ class _TuiOutputBindings:
         )
         self.outbound_channels.register(adapter, replace=True)
         self.engine.thinking.set_output_sink(self.publish_cli_thinking)
-        return SimpleNamespace(
-            transcript_coordinator=self.coordinator,
-            term_write=self.term_write,
-            clear_cli_format_widths=self.clear_cli_format_widths,
-            cli_rule_heavy=self.cli_rule_heavy,
-            cli_rule_light=self.cli_rule_light,
-            cli_block_user=self.cli_block_user,
-            cli_block_reply=self.cli_block_reply,
-            rule_line_width=self.rule_line_width,
-        )
+        self.transcript_coordinator = self.coordinator
+        return self
 
     def _clear_stream_state(self, session_key: str) -> None:
         self.streaming_think_by_session.pop(session_key, None)
@@ -316,7 +307,7 @@ def create_tui_output_bindings(
     viewport_cols: Any,
     rule_line_width_for_vp: Any,
     reasoning_expanded: Any = lambda: True,
-) -> SimpleNamespace:
+) -> _TuiOutputBindings:
     """注册 CLI 出站适配器并返回 transcript 输出闭包。"""
     return _TuiOutputBindings(
         runtime_context=runtime_context,

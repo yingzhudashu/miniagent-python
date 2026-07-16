@@ -109,7 +109,7 @@ async def test_submit_clarification_and_maintenance(monkeypatch) -> None:
 
 def test_copy_history_outcomes(monkeypatch, capsys) -> None:
     runtime = _runtime()
-    import miniagent.assistant.engine.cli_commands as commands
+    import miniagent.assistant.engine.commands.session_management as commands
 
     monkeypatch.setattr(commands, "build_session_history_plaintext", lambda *_args: "plain")
     monkeypatch.setattr(cli_fallback, "copy_text_to_system_clipboard", lambda _text: True)

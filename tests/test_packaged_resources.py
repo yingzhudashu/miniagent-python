@@ -29,7 +29,7 @@ def test_loader_can_use_packaged_defaults_without_source_checkout() -> None:
         defaults_path=_packaged_defaults_path(),
         user_path=str(PROJECT_ROOT / "__missing_config_user__.json"),
     )
-    assert loader.get("model.model")
+    assert loader.get("llm.roles.default")
     assert loader.get("agent.max_turns") > 0
 
 

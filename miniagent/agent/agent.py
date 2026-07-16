@@ -9,7 +9,7 @@
 - 任务分类（Phase 0）、需求澄清（Phase 0.5）、执行后反思（Phase 3）。
 
 **边界**：本模块不处理 stdin/stdout、消息队列或飞书 HTTP；仅编排 LLM 与工具。通道相关回调通过
-``on_thinking`` / ``on_tool_call`` 等注入，由 :class:`miniagent.assistant.engine.engine.UnifiedEngine` 等上层接线。
+``on_thinking`` / ``on_tool_call`` 等注入，由 :class:`miniagent.assistant.engine.turn_service.AssistantTurnService` 等上层接线。
 规划可见输出合并为 ``[评估与计划]`` 流式段；可选关键字参数 ``full_record`` 由引擎用于会话历史全量落盘（见 ``miniagent.agent.thinking_callback.invoke_on_thinking``）。
 
 **轮数上限（与执行器一致）**：全局 ReAct 上限由 ``agent.max_turns``（默认 400）控制；分步模式下单步上限为 Internal 常量 ``EXECUTION_STEP_MAX_TURNS``。规划器给出的建议轮数**不会**把上述硬上限压低。
@@ -28,7 +28,6 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, TypeAlias
 
-from miniagent.agent.activity import invoke_activity_log
 from miniagent.agent.agent_defaults import (
     create_default_plan as _create_default_plan,
 )
@@ -156,10 +155,10 @@ def _merge_plan_suggested_config(plan: StructuredPlan, merged_config: AgentConfi
             tl, tb = map_business_depth(sc.thinking_level)
             mo["thinking_level"] = tl
             mo["thinking_budget"] = tb
-        if sc.model_overrides:
-            mo.update(sc.model_overrides)
+        if sc.llm_overrides:
+            mo.update(sc.llm_overrides)
         if mo:
-            overrides["model_overrides"] = mo
+            overrides["llm_overrides"] = mo
         if sc.parallelism == "sequential":
             overrides["allow_parallel_tools"] = False
         elif sc.parallelism in ("safe-parallel", "full-parallel"):
@@ -505,7 +504,7 @@ async def _prepare_plan(
         if toolboxes and skip_planning and difficulty == TaskDifficulty.SIMPLE:
             config = merge_agent_config(
                 config,
-                {"model_overrides": exec_merge_for_simple_path()},
+                {"llm_overrides": exec_merge_for_simple_path()},
             )
         return plan, config, False, None
     plan_input = user_input
@@ -520,7 +519,7 @@ async def _prepare_plan(
                 agent_config=config,
                 registry=registry,
                 knowledge_registry=knowledge_registry,
-                planner_model_overrides=planner_merge_for_difficulty(difficulty),
+                planner_llm_overrides=planner_merge_for_difficulty(difficulty),
                 default_step_thinking=default_step_thinking_for_difficulty(difficulty),
             )
         config = _merge_plan_suggested_config(plan, config)
@@ -558,10 +557,10 @@ def _merge_invocation_config(
     overlay: dict[str, Any] = {}
     if options is not None and options.agent_config:
         overlay.update(options.agent_config)
-    if options is not None and options.model_config:
-        model_overrides = dict(overlay.get("model_overrides") or {})
-        model_overrides.update(options.model_config)
-        overlay["model_overrides"] = model_overrides
+    if options is not None and options.llm_overrides:
+        llm_overrides = dict(overlay.get("llm_overrides") or {})
+        llm_overrides.update(options.llm_overrides)
+        overlay["llm_overrides"] = llm_overrides
     if overlay:
         config = merge_agent_config(config, overlay)
     config = merge_agent_config(config, agent_config or {})
@@ -596,9 +595,7 @@ class _AgentInvocation:
         if not self.activity_enabled or not self.session_key:
             return
         source = "feishu" if self.session_key.startswith("feishu:") else "cli"
-        await invoke_activity_log(
-            self.memory.activity_log,
-            "log_session_start",
+        await self.memory.activity_log.log_session_start(
             self.session_key,
             self.user_input,
             source,
@@ -607,9 +604,7 @@ class _AgentInvocation:
     async def finish(self, reply: str) -> AgentRunResult:
         """记录最终回复并从监控器生成稳定结果 DTO。"""
         if self.activity_enabled and self.session_key:
-            await invoke_activity_log(
-                self.memory.activity_log,
-                "log_final_reply",
+            await self.memory.activity_log.log_final_reply(
                 self.session_key,
                 reply,
             )

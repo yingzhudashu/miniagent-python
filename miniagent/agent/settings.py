@@ -1,84 +1,83 @@
-"""Runtime settings port used by the reusable agent layer.
-
-The agent package deliberately does not know where configuration is stored.
-The assistant composition root installs its getters during bootstrap; importing
-the agent package on its own remains side-effect free and uses caller defaults.
-"""
+"""Immutable settings supplied to an Agent instance by the product layer."""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
+from types import MappingProxyType
 from typing import Any
 
-ConfigGetter = Callable[[str, Any], Any]
-BoolGetter = Callable[[str, bool], bool]
-SectionGetter = Callable[[str], Mapping[str, Any]]
+
+def _freeze(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return MappingProxyType({str(key): _freeze(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze(item) for item in value)
+    return value
 
 
-def _default_getter(_path: str, default: Any = None) -> Any:
-    return default
+class AgentSettings(Mapping[str, Any]):
+    """Read-only Agent-owned view of the current application configuration."""
+
+    def __init__(self, values: Mapping[str, Any]) -> None:
+        frozen = _freeze(values)
+        if not isinstance(frozen, Mapping):  # pragma: no cover
+            raise TypeError("AgentSettings requires a mapping")
+        self._values = frozen
+
+    def __getitem__(self, key: str) -> Any:
+        return self._values[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._values)
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+    def get_path(self, path: str, default: Any = None) -> Any:
+        current: Any = self._values
+        for part in path.split("."):
+            if not isinstance(current, Mapping) or part not in current:
+                return default
+            current = current[part]
+        return current
+
+    def section(self, name: str) -> dict[str, Any]:
+        value = self.get_path(name, {})
+        return dict(value) if isinstance(value, Mapping) else {}
 
 
-def _default_bool_getter(_path: str, default: bool = False) -> bool:
-    return default
+_CURRENT_SETTINGS: ContextVar[AgentSettings | None] = ContextVar(
+    "miniagent_agent_settings", default=None
+)
 
 
-def _default_section_getter(_name: str) -> Mapping[str, Any]:
-    return {}
+def _current() -> AgentSettings:
+    return _CURRENT_SETTINGS.get() or AgentSettings({})
 
 
-_getter: ConfigGetter = _default_getter
-_bool_getter: BoolGetter = _default_bool_getter
-_section_getter: SectionGetter = _default_section_getter
-_user_section_getter: SectionGetter = _default_section_getter
-
-
-def configure_agent_settings(
-    *,
-    getter: ConfigGetter,
-    bool_getter: BoolGetter,
-    section_getter: SectionGetter,
-    user_section_getter: SectionGetter,
-) -> None:
-    """Install Assistant-owned configuration readers for future agent calls."""
-    global _getter, _bool_getter, _section_getter, _user_section_getter
-    _getter = getter
-    _bool_getter = bool_getter
-    _section_getter = section_getter
-    _user_section_getter = user_section_getter
-
-
-def reset_agent_settings() -> None:
-    """Restore standalone defaults, primarily for isolated import tests."""
-    configure_agent_settings(
-        getter=_default_getter,
-        bool_getter=_default_bool_getter,
-        section_getter=_default_section_getter,
-        user_section_getter=_default_section_getter,
-    )
+@contextmanager
+def use_agent_settings(settings: AgentSettings):
+    """Scope settings to one Agent call and all child async tasks."""
+    token = _CURRENT_SETTINGS.set(settings)
+    try:
+        yield
+    finally:
+        _CURRENT_SETTINGS.reset(token)
 
 
 def get_config(path: str, default: Any = None) -> Any:
-    return _getter(path, default)
+    return _current().get_path(path, default)
 
 
 def get_config_bool(path: str, default: bool = False) -> bool:
-    return _bool_getter(path, default)
+    value = _current().get_path(path, default)
+    return value if isinstance(value, bool) else default
 
 
 def get_config_section(name: str) -> dict[str, Any]:
-    return dict(_section_getter(name))
+    return _current().section(name)
 
 
-def get_user_config_section(name: str) -> dict[str, Any]:
-    return dict(_user_section_getter(name))
-
-
-__all__ = [
-    "configure_agent_settings",
-    "get_config",
-    "get_config_bool",
-    "get_config_section",
-    "get_user_config_section",
-    "reset_agent_settings",
-]
+__all__ = ["AgentSettings"]

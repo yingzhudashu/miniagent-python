@@ -95,7 +95,7 @@ def test_load_tasks_skips_invalid_task_entries(state_dir: str) -> None:
     with open(p, "w", encoding="utf-8") as f:
         json.dump(
             {
-                "version": 2,
+                "schema_version": 2,
                 "tasks": [
                     {
                         "id": "ok",

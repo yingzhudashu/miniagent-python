@@ -23,7 +23,7 @@ _ADVANCED_SECTIONS_FALLBACK = frozenset({"memory", "dream", "trace", "self_optim
 
 _SENSITIVE_KEYS = frozenset({
     "api_key", "secret", "password", "token", "credential",
-    "openai_api_key", "tavily_api_key", "feishu_app_secret",
+    "tavily_api_key", "feishu_app_secret",
 })
 
 _SENSITIVE_PARTS = frozenset({"key", "secret", "password", "token", "credential"})

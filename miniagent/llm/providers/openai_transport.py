@@ -13,10 +13,7 @@ from miniagent.llm.capabilities import (
 from miniagent.llm.capabilities import (
     learn_unsupported_params as _learn_unsupported_params,
 )
-from miniagent.llm.capabilities import (
-    unsupported_parameter_names as _unsupported_parameter_names,
-)
-from miniagent.llm.legacy_models import (
+from miniagent.llm.types import (
     LLMCompletion,
     LLMFailureInfo,
     LLMFunctionCall,
@@ -24,51 +21,12 @@ from miniagent.llm.legacy_models import (
     LLMToolCall,
     LLMToolCallDelta,
     LLMTransportError,
+    OpenAIWireAPI,
 )
-from miniagent.llm.types import LegacyWireAPI
 
 
-def _wire_api(override: LegacyWireAPI | None) -> LegacyWireAPI:
+def _wire_api(override: OpenAIWireAPI | None) -> OpenAIWireAPI:
     return override or "chat_completions"
-
-
-def _gateway_role_model(client: Any | None, role: str) -> Any | None:
-    if client is None or getattr(type(client), "_miniagent_llm_gateway", False) is not True:
-        return None
-    try:
-        return client.model_for_role(role)
-    except (AttributeError, TypeError, ValueError):
-        return None
-
-
-def resolve_wire_api(
-    override: LegacyWireAPI | None = None,
-    *,
-    client: Any | None = None,
-    role: str = "default",
-) -> LegacyWireAPI:
-    """Return the effective protocol, preferring the v3 gateway role binding."""
-    model = _gateway_role_model(client, role)
-    if model is not None:
-        return "responses" if getattr(model, "api", None) == "openai_responses" else "chat_completions"
-    if override is not None:
-        return _wire_api(override)
-    return _wire_api(None)
-
-
-def resolve_model_max_output_tokens(
-    client: Any | None,
-    *,
-    role: str,
-    fallback: int,
-) -> int:
-    """Resolve the selected v3 profile limit without coupling core to adapters."""
-    model = _gateway_role_model(client, role)
-    value = getattr(model, "max_output_tokens", None) if model is not None else None
-    try:
-        return int(value) if value is not None else int(fallback)
-    except (TypeError, ValueError):
-        return int(fallback)
 
 
 def _normalize_gateway_error(exc: Exception) -> LLMTransportError | None:
@@ -78,98 +36,14 @@ def _normalize_gateway_error(exc: Exception) -> LLMTransportError | None:
     if status == 403 and ("cloudflare" in lowered or "attention required" in lowered):
         return LLMTransportError(
             "LLM endpoint rejected the SDK client at its Cloudflare/WAF layer (HTTP 403). "
-            "Configure model.user_agent with a value accepted by the endpoint."
+            "Configure the provider User-Agent header with a value accepted by the endpoint."
         )
     if "no_available_providers" in lowered:
         return LLMTransportError(
             "LLM endpoint has no provider available for this model/client "
-            "(no_available_providers). Check model.wire_api, model.model and gateway access."
+            "(no_available_providers). Check the selected provider/profile and gateway access."
         )
     return None
-
-
-def classify_transport_error(error: Exception) -> LLMFailureInfo:
-    """Classify one API/transport error without exposing its raw payload."""
-    status_raw = getattr(error, "status_code", None)
-    try:
-        status = int(status_raw) if status_raw is not None else None
-    except (TypeError, ValueError):
-        status = None
-    message = str(error).lower()
-    if _unsupported_parameter_names(error):
-        return LLMFailureInfo("unsupported_parameter", True, status)
-    deterministic_markers = (
-        "invalid api key",
-        "incorrect api key",
-        "authentication",
-        "permission denied",
-        "model_not_found",
-        "model does not exist",
-        "no_available_providers",
-        "cloudflare/waf",
-        "http 403",
-    )
-    if status in (401, 403) or any(marker in message for marker in deterministic_markers):
-        return LLMFailureInfo("deterministic_api_error", False, status)
-    if status == 404 and ("model" in message or "not found" in message):
-        return LLMFailureInfo("deterministic_api_error", False, status)
-    generic_invalid_request = status == 400 and (
-        "invalid_request_error" in message
-        or "cch_session_id" in message
-        or "上游请求参数无效" in message
-    )
-    if generic_invalid_request or status == 429 or bool(status and status >= 500):
-        return LLMFailureInfo("transient_api_error", True, status)
-    if status is None:
-        return LLMFailureInfo("network_error", True, None)
-    return LLMFailureInfo("api_error", False, status)
-
-
-def completion_failure_category(completion: LLMCompletion) -> str | None:
-    """Classify an empty normalized completion; non-empty text returns ``None``."""
-    if (completion.content or "").strip():
-        return None
-    output_types = set(completion.output_item_types)
-    if completion.status == "incomplete":
-        return "incomplete_output"
-    if completion.status == "failed":
-        return "failed_response"
-    if output_types and output_types <= {"reasoning"}:
-        return "reasoning_only"
-    if completion.status == "completed":
-        return "completed_without_text"
-    return "empty_gateway_response"
-
-
-def structured_retry_params(
-    current: dict[str, Any],
-    *,
-    next_attempt: int,
-    max_attempts: int,
-    final_reasoning: str,
-    model_max_tokens: int,
-    incomplete_reason: str | None = None,
-) -> dict[str, Any]:
-    """Adapt a Responses structured retry while preserving its first request."""
-    recovered = dict(current)
-    recovered.pop("temperature", None)
-    recovered.pop("top_p", None)
-    if next_attempt == max_attempts:
-        recovered["_thinking_level"] = final_reasoning
-    normalized_reason = str(incomplete_reason or "").strip().lower()
-    if any(
-        marker in normalized_reason
-        for marker in ("max_output_tokens", "max_tokens", "token_limit", "length")
-    ):
-        current_budget = int(recovered.get("max_tokens", 0) or 0)
-        if current_budget > 0 and model_max_tokens > current_budget:
-            recovered["max_tokens"] = min(current_budget * 2, model_max_tokens)
-    return recovered
-
-
-def structured_retry_delay(next_attempt: int) -> float:
-    """Return the bounded delay before a 1-based structured retry attempt."""
-    return 0.2 if next_attempt == 2 else 0.5
 
 
 async def _await_with_gateway_errors(
@@ -177,7 +51,7 @@ async def _await_with_gateway_errors(
     *,
     client: Any | None = None,
     params: dict[str, Any] | None = None,
-    wire_api: LegacyWireAPI | None = None,
+    wire_api: OpenAIWireAPI | None = None,
 ) -> Any:
     try:
         return await call
@@ -363,17 +237,9 @@ async def create_completion(
     params: dict[str, Any],
     tools: list[dict[str, Any]] | None = None,
     json_mode: bool = False,
-    wire_api: LegacyWireAPI | None = None,
+    wire_api: OpenAIWireAPI | None = None,
 ) -> LLMCompletion:
     """Create one normalized non-streaming completion."""
-    if getattr(type(client), "_miniagent_llm_gateway", False) is True:
-        return await client.create_completion(
-            messages=messages,
-            params=params,
-            tools=tools,
-            json_mode=json_mode,
-            wire_api=wire_api,
-        )
     selected = _wire_api(wire_api)
     effective_params, _adjustments = _apply_learned_capabilities(client, params, selected)
     if selected == "chat_completions":
@@ -731,19 +597,9 @@ async def stream_completion(
     params: dict[str, Any],
     tools: list[dict[str, Any]] | None = None,
     json_mode: bool = False,
-    wire_api: LegacyWireAPI | None = None,
+    wire_api: OpenAIWireAPI | None = None,
 ) -> AsyncIterator[LLMStreamEvent]:
     """Yield normalized text, tool-call and usage events."""
-    if getattr(type(client), "_miniagent_llm_gateway", False) is True:
-        async for event in client.stream_completion(
-            messages=messages,
-            params=params,
-            tools=tools,
-            json_mode=json_mode,
-            wire_api=wire_api,
-        ):
-            yield event
-        return
     selected = _wire_api(wire_api)
     effective_params, _adjustments = _apply_learned_capabilities(client, params, selected)
     if selected == "chat_completions":
@@ -777,86 +633,6 @@ async def stream_completion(
             yield event
 
 
-async def create_structured_completion(
-    client: Any,
-    *,
-    messages: list[dict[str, Any]],
-    params: dict[str, Any],
-    wire_api: LegacyWireAPI | None = None,
-) -> LLMCompletion:
-    """Create a JSON-oriented completion using the stable Responses stream path."""
-    if getattr(type(client), "_miniagent_llm_gateway", False) is True:
-        return await client.create_completion(
-            messages=messages,
-            params=params,
-            json_mode=True,
-            wire_api=wire_api,
-        )
-    selected = _wire_api(wire_api)
-    if selected == "chat_completions":
-        return await create_completion(
-            client,
-            messages=messages,
-            params=params,
-            json_mode=True,
-            wire_api=selected,
-        )
-
-    fragments: list[str] = []
-    call_state: dict[int, dict[str, str]] = {}
-    usage: Any | None = None
-    status: str | None = None
-    output_item_types: tuple[str, ...] = ()
-    incomplete_reason: str | None = None
-    model: str | None = None
-    async for event in stream_completion(
-        client,
-        messages=messages,
-        params=params,
-        json_mode=True,
-        wire_api=selected,
-    ):
-        if event.content_delta:
-            fragments.append(event.content_delta)
-        if event.usage is not None:
-            usage = event.usage
-        if event.status is not None:
-            status = event.status
-        if event.output_item_types:
-            output_item_types = event.output_item_types
-        if event.incomplete_reason is not None:
-            incomplete_reason = event.incomplete_reason
-        if event.model is not None:
-            model = event.model
-        delta = event.tool_call_delta
-        if delta is not None:
-            state = call_state.setdefault(
-                delta.index,
-                {"id": "", "name": "", "arguments": ""},
-            )
-            if delta.id:
-                state["id"] = delta.id
-            if delta.name:
-                state["name"] = delta.name
-            if delta.arguments:
-                state["arguments"] += delta.arguments
-
-    calls = [
-        _tool_call(state["id"], state["name"], state["arguments"])
-        for _, state in sorted(call_state.items())
-    ]
-    content = "".join(fragments)
-    return LLMCompletion(
-        content=content or None,
-        tool_calls=calls,
-        usage=usage,
-        model=model,
-        status=status,
-        output_item_types=output_item_types,
-        incomplete_reason=incomplete_reason,
-    )
-
-
 __all__ = [
     "LLMCompletion",
     "LLMFailureInfo",
@@ -865,15 +641,8 @@ __all__ = [
     "LLMToolCall",
     "LLMToolCallDelta",
     "LLMTransportError",
-    "classify_transport_error",
-    "completion_failure_category",
     "create_completion",
-    "create_structured_completion",
     "messages_to_responses_input",
-    "resolve_model_max_output_tokens",
-    "resolve_wire_api",
     "stream_completion",
-    "structured_retry_delay",
-    "structured_retry_params",
     "tools_to_responses",
 ]

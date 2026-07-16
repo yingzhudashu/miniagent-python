@@ -19,7 +19,7 @@ from miniagent.assistant.engine.commands.basic_commands import (
 
 
 @pytest.mark.asyncio
-async def test_model_config_and_doctor_capture_results() -> None:
+async def test_llm_overrides_and_doctor_capture_results() -> None:
     with (
         patch("miniagent.assistant.engine.model_cmd.format_model_info", return_value="model-info"),
         patch("miniagent.assistant.engine.model_cmd.switch_model", return_value="switched") as switch,
@@ -52,15 +52,15 @@ async def test_help_and_stats_degrade_without_runtime_or_monitor() -> None:
 @pytest.mark.asyncio
 async def test_help_captures_builtin_print_contract() -> None:
     runtime = SimpleNamespace(message_queue=object())
-    with patch("miniagent.assistant.engine.cli_commands.cmd_help", side_effect=lambda *_: print("help")):
+    with patch("miniagent.assistant.engine.commands.session_management.cmd_help", side_effect=lambda *_: print("help")):
         assert await handle_help("/help", state={"runtime_ctx": runtime}, capture=True) == "help"
 
 
 @pytest.mark.asyncio
 async def test_schedule_forwards_remote_mutation_policy() -> None:
     with (
-        patch("miniagent.assistant.engine.cli_commands.cmd_schedule", return_value="schedule") as command,
-        patch("miniagent.assistant.engine.cli_commands.feishu_dot_commands_full_enabled", return_value=False),
+        patch("miniagent.assistant.engine.commands.session_management.cmd_schedule", return_value="schedule") as command,
+        patch("miniagent.assistant.engine.commands.session_management.feishu_dot_commands_full_enabled", return_value=False),
     ):
         result = await handle_schedule(
             "/schedule add daily",

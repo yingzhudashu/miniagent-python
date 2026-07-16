@@ -1,283 +1,38 @@
-"""Tests for miniagent.agent.config — 模型与 Agent 配置管理（双 JSON）。"""
+"""Agent configuration reads only immutable injected settings."""
 
-import json
-import pathlib
-
-import pytest
-
-from miniagent.agent.config import (
-    get_default_agent_config,
-    get_default_model_config,
-    merge_agent_config,
-)
-from miniagent.assistant.infrastructure.json_config import (
-    JsonConfigLoader,
-    get_config,
-    get_config_section,
-    get_config_snapshot,
-    install_config_loader,
-    reload_config,
-)
-
-PROJECT_ROOT = pathlib.Path(__file__).parent.parent
-from miniagent.assistant.infrastructure.json_config import _packaged_defaults_path
-
-DEFAULTS_PATH = _packaged_defaults_path()
+from miniagent.agent.config import get_default_agent_config, merge_agent_config
+from miniagent.agent.settings import AgentSettings, use_agent_settings
 
 
-def _install_loader(tmp_path: pathlib.Path, user_overrides: dict | None = None) -> str:
-    user_path = tmp_path / "config.user.json"
-    if user_overrides:
-        user_path.write_text(json.dumps(user_overrides), encoding="utf-8")
-    else:
-        user_path.write_text("{}", encoding="utf-8")
-    install_config_loader(
-        JsonConfigLoader(defaults_path=DEFAULTS_PATH, user_path=str(user_path))
+def test_default_agent_config_reads_injected_snapshot() -> None:
+    settings = AgentSettings(
+        {
+            "agent": {
+                "max_turns": 12,
+                "tool_timeout": 8,
+                "allow_parallel_tools": False,
+                "debug": True,
+            },
+            "memory": {"history_progressive": False},
+        }
     )
-    return str(user_path)
+    with use_agent_settings(settings):
+        config = get_default_agent_config()
+    assert config.max_turns == 12
+    assert config.tool_timeout == 8
+    assert config.allow_parallel_tools is False
+    assert config.debug is True
+    assert config.history_progressive_compression is False
 
 
-class TestGetDefaultModelConfig:
-    def test_defaults(self, tmp_path):
-        _install_loader(tmp_path)
-        cfg = get_default_model_config()
-        assert cfg.base_url == "https://api.openai.com/v1"
-        assert cfg.model == "gpt-4o-mini"
-        assert cfg.max_tokens == 4096
-        assert cfg.context_window == 128000
-        assert cfg.temperature == 0.7
-        assert cfg.top_p == 1.0
-        assert cfg.thinking_level == "light"
-        assert cfg.thinking_budget == 1024
-        assert cfg.retry_count == 2
-        assert cfg.wire_api == "chat_completions"
-        assert cfg.user_agent is None
-
-    def test_user_json_override(self, tmp_path):
-        _install_loader(
-            tmp_path,
-            {
-                "model": {
-                    "model": "gpt-4",
-                    "temperature": 0.5,
-                    "wire_api": "responses",
-                    "user_agent": "MiniAgent-Test",
-                }
-            },
-        )
-        cfg = get_default_model_config()
-        assert cfg.model == "gpt-4"
-        assert cfg.temperature == 0.5
-        assert cfg.wire_api == "responses"
-        assert cfg.user_agent == "MiniAgent-Test"
-
-    def test_invalid_wire_api_rejected(self, tmp_path):
-        _install_loader(tmp_path, {"model": {"wire_api": "legacy"}})
-        with pytest.raises(ValueError, match="model.wire_api"):
-            get_default_model_config()
-
-    def test_env_ignored(self, tmp_path, monkeypatch: pytest.MonkeyPatch):
-        _install_loader(tmp_path)
-        monkeypatch.setenv("MINIAGENT_MODEL_MODEL", "gpt-4o")
-        monkeypatch.setenv("MINIAGENT_MODEL_TEMPERATURE", "0.1")
-        reload_config()
-        cfg = get_default_model_config()
-        assert cfg.model == "gpt-4o-mini"
-        assert cfg.temperature == 0.7
-
-    def test_thinking_levels(self, tmp_path):
-        for input_level, expected_level, expected_budget in [
-            ("low", "light", 1024),
-            ("medium", "medium", 8192),
-            ("high", "heavy", 81920),
-        ]:
-            _install_loader(tmp_path, {"model": {"thinking_level": input_level}})
-            cfg = get_default_model_config()
-            assert cfg.thinking_level == expected_level
-            assert cfg.thinking_budget == expected_budget
-
-    def test_thinking_budget_override(self, tmp_path):
-        _install_loader(
-            tmp_path,
-            {"model": {"thinking_level": "light", "thinking_budget": 4096}},
-        )
-        cfg = get_default_model_config()
-        assert cfg.thinking_level == "light"
-        assert cfg.thinking_budget == 4096
+def test_agent_settings_are_immutable() -> None:
+    source = {"agent": {"max_turns": 3}}
+    settings = AgentSettings(source)
+    source["agent"]["max_turns"] = 99
+    assert settings.get_path("agent.max_turns") == 3
 
 
-class TestGetDefaultAgentConfig:
-    def test_defaults(self, tmp_path):
-        _install_loader(tmp_path)
-        cfg = get_default_agent_config()
-        assert cfg.max_turns == 400
-        assert cfg.tool_timeout == 60
-        assert cfg.http_timeout == 120
-        assert cfg.debug is False
-        assert cfg.history_progressive_compression is True
-
-    def test_user_json_override(self, tmp_path):
-        _install_loader(tmp_path, {"agent": {"max_turns": 100, "debug": True}})
-        cfg = get_default_agent_config()
-        assert cfg.max_turns == 100
-        assert cfg.debug is True
-
-    def test_loop_detection_copy(self, tmp_path):
-        _install_loader(tmp_path)
-        cfg = get_default_agent_config()
-        agent_section = get_config_section("agent")
-        default_loop_detection = agent_section.get("loop_detection", {})
-        assert cfg.loop_detection is not default_loop_detection
-        assert cfg.loop_detection == default_loop_detection
-
-    def test_cfg_bool_string_false(self, tmp_path):
-        _install_loader(tmp_path, {"agent": {"debug": "false", "allow_parallel_tools": "false"}})
-        cfg = get_default_agent_config()
-        assert cfg.debug is False
-        assert cfg.allow_parallel_tools is False
-
-    def test_cfg_bool_string_true(self, tmp_path):
-        _install_loader(tmp_path, {"agent": {"debug": "true"}})
-        cfg = get_default_agent_config()
-        assert cfg.debug is True
-
-    def test_hardcoded_fields_not_from_json(self, tmp_path):
-        _install_loader(
-            tmp_path,
-            {
-                "agent": {
-                    "context_overflow_strategy": "truncate",
-                    "compress_messages": False,
-                    "tool_selection_strategy": "all",
-                    "auto_execute_confirmed": True,
-                    "response_language": "en-US",
-                    "response_format": "text",
-                    "log_file": "/tmp/agent.log",
-                }
-            },
-        )
-        cfg = get_default_agent_config()
-        assert cfg.context_overflow_strategy == "summarize"
-        assert cfg.compress_messages is True
-        assert cfg.tool_selection_strategy == "toolbox"
-        assert cfg.auto_execute_confirmed is False
-        assert cfg.response_language == "zh-CN"
-        assert cfg.response_format == "markdown"
-        assert cfg.log_file is None
-
-
-class TestJsonConfigLoader:
-    def test_metadata_keys_filtered(self, tmp_path):
-        _install_loader(tmp_path)
-        assert get_config("_config_guide.usage") is None
-
-    def test_user_overrides_defaults(self, tmp_path):
-        _install_loader(tmp_path, {"paths": {"state_dir": "custom-ws"}})
-        assert get_config("paths.state_dir") == "custom-ws"
-
-    def test_runtime_overrides_are_isolated_and_never_written(self, tmp_path):
-        user_path = tmp_path / "config.user.json"
-        original = {
-            "trace": {"enabled": False, "record_payload": "metrics_only"},
-            "paths": {"state_dir": "original"},
-        }
-        user_path.write_text(json.dumps(original), encoding="utf-8")
-        loader = JsonConfigLoader(DEFAULTS_PATH, str(user_path))
-        overrides = {
-            "trace": {"enabled": True, "output_dir": "isolated"},
-            "paths": {"state_dir": "runtime"},
-        }
-
-        candidate = loader.with_runtime_overrides(overrides)
-        overrides["trace"]["output_dir"] = "mutated-after-copy"
-
-        assert loader.get("trace.enabled") is False
-        assert loader.get("paths.state_dir") == "original"
-        assert candidate.get("trace.enabled") is True
-        assert candidate.get("trace.record_payload") == "metrics_only"
-        assert candidate.get("trace.output_dir") == "isolated"
-        assert candidate.get("paths.state_dir") == "runtime"
-        assert json.loads(user_path.read_text(encoding="utf-8")) == original
-
-    def test_strict_reload_reports_unknown_nested_path(self, tmp_path):
-        user_path = tmp_path / "config.user.json"
-        user_path.write_text('{"model":{"typo_model":"x"}}', encoding="utf-8")
-        loader = JsonConfigLoader(DEFAULTS_PATH, str(user_path))
-        with pytest.raises(ValueError, match=r"model\.typo_model"):
-            loader.reload(strict=True)
-
-    def test_config_snapshot_is_deeply_immutable(self, tmp_path):
-        _install_loader(tmp_path, {"model": {"model": "snapshot-model"}})
-        snapshot = get_config_snapshot()
-        assert snapshot.get_path("model.model") == "snapshot-model"
-        with pytest.raises(TypeError):
-            snapshot["model"]["model"] = "mutated"
-        assert "model" in tuple(snapshot)
-        assert len(snapshot) > 1
-        assert snapshot.get_path("missing.path", "fallback") == "fallback"
-
-
-class TestMergeAgentConfig:
-    def test_override_single_field(self, tmp_path):
-        _install_loader(tmp_path)
-        base = get_default_agent_config()
-        merged = merge_agent_config(base, {"max_turns": 50})
-        assert merged.max_turns == 50
-        assert merged.tool_timeout == base.tool_timeout
-
-    def test_loop_detection_partial_merge(self, tmp_path):
-        _install_loader(tmp_path)
-        base = get_default_agent_config()
-        assert base.loop_detection.get("enabled") is True
-        merged = merge_agent_config(base, {"loop_detection": {"enabled": False, "warning_threshold": 99}})
-        assert merged.loop_detection["enabled"] is False
-        assert merged.loop_detection["warning_threshold"] == 99
-        assert merged.loop_detection.get("history_size") == base.loop_detection.get("history_size")
-
-    def test_unknown_override_key_ignored(self, tmp_path):
-        from unittest.mock import patch
-
-        _install_loader(tmp_path)
-        base = get_default_agent_config()
-        with patch("miniagent.agent.config._logger.debug") as mock_debug:
-            merged = merge_agent_config(base, {"unknown_field": 1, "max_turns": 10})
-        assert merged.max_turns == 10
-        mock_debug.assert_any_call("merge_agent_config: 忽略未知覆盖键 %r", "unknown_field")
-
-    def test_model_overrides_partial_merge(self, tmp_path):
-        _install_loader(tmp_path)
-        base = merge_agent_config(
-            get_default_agent_config(),
-            {"model_overrides": {"model": "gpt-base", "temperature": 0.2}},
-        )
-        merged = merge_agent_config(base, {"model_overrides": {"temperature": 0.9, "max_tokens": 256}})
-        assert merged.model_overrides["model"] == "gpt-base"
-        assert merged.model_overrides["temperature"] == 0.9
-        assert merged.model_overrides["max_tokens"] == 256
-
-    def test_merge_can_override_hardcoded_defaults(self, tmp_path):
-        _install_loader(tmp_path)
-        base = get_default_agent_config()
-        assert base.response_language == "zh-CN"
-        merged = merge_agent_config(
-            base,
-            {
-                "response_language": "en-US",
-                "tool_selection_strategy": "all",
-                "context_overflow_strategy": "truncate",
-            },
-        )
-        assert merged.response_language == "en-US"
-        assert merged.tool_selection_strategy == "all"
-        assert merged.context_overflow_strategy == "truncate"
-
-
-def test_strict_user_config_rejects_nested_mapping_for_scalar(tmp_path) -> None:
-    defaults = tmp_path / "defaults.json"
-    user = tmp_path / "user.json"
-    defaults.write_text(json.dumps({"feature": False}), encoding="utf-8")
-    user.write_text(json.dumps({"feature": {"enabled": True}}), encoding="utf-8")
-
-    loader = JsonConfigLoader(defaults_path=str(defaults), user_path=str(user))
-    with pytest.raises(ValueError, match="配置项类型错误: feature"):
-        loader.reload(strict=True)
+def test_merge_agent_config_uses_llm_overrides_only() -> None:
+    base = get_default_agent_config()
+    merged = merge_agent_config(base, {"llm_overrides": {"profile": "fast"}})
+    assert merged.llm_overrides == {"profile": "fast"}

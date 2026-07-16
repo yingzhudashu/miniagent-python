@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import importlib
 import json
-import threading
 from pathlib import Path
 
 from miniagent.agent import debug as debug_ndjson
@@ -13,69 +12,7 @@ from miniagent.assistant.infrastructure.feishu_inbound_lock import (
     release_feishu_inbound_owner,
     try_acquire_feishu_inbound_owner,
 )
-from miniagent.assistant.infrastructure.metrics import PerformanceMetrics
 from tests.config_helpers import install_test_config
-
-
-def test_performance_metrics_thread_safe_append() -> None:
-    metrics = PerformanceMetrics(enabled=True)
-    errors: list[Exception] = []
-
-    def worker() -> None:
-        try:
-            for i in range(100):
-                metrics.add_record("op", float(i))
-        except Exception as e:
-            errors.append(e)
-
-    threads = [threading.Thread(target=worker) for _ in range(4)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
-    assert not errors
-    summary = metrics.get_summary()
-    assert summary["op"].count == 400
-
-
-def test_performance_metrics_retains_exact_totals_after_sample_eviction(
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(
-        "miniagent.assistant.infrastructure.metrics.get_config",
-        lambda key, default: {
-            "debug.perf_metrics_max_records": 100,
-            "debug.perf_metrics_max_names": 8,
-        }.get(key, default),
-    )
-    metrics = PerformanceMetrics(enabled=True)
-    metrics.add_record("rare", 25.0)
-    for _ in range(150):
-        metrics.add_record("busy", 1.0)
-
-    summary = metrics.get_summary()
-
-    assert summary["rare"].count == 1
-    assert summary["rare"].avg_ms == 25.0
-    assert summary["rare"].p50_ms == 25.0
-
-
-def test_performance_metrics_bounds_metric_names(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "miniagent.assistant.infrastructure.metrics.get_config",
-        lambda key, default: {
-            "debug.perf_metrics_max_records": 100,
-            "debug.perf_metrics_max_names": 2,
-        }.get(key, default),
-    )
-    metrics = PerformanceMetrics(enabled=True)
-    for index in range(10):
-        metrics.add_record(f"metric-{index}", float(index))
-
-    summary = metrics.get_summary()
-
-    assert set(summary) == {"metric-0", "__other__"}
-    assert summary["__other__"].count == 9
 
 
 def test_feishu_inbound_lock_acquire_and_release(tmp_path: Path) -> None:

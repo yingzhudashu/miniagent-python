@@ -8,7 +8,7 @@ import weakref
 from collections import OrderedDict
 from typing import Any
 
-from miniagent.llm.types import LegacyWireAPI
+from miniagent.llm.types import OpenAIWireAPI
 
 _LOCK = threading.Lock()
 _CLIENT_BUCKETS: weakref.WeakKeyDictionary[
@@ -59,7 +59,7 @@ def _bucket(client: Any, *, create: bool) -> OrderedDict[tuple[str, str, str], s
 def learn_unsupported_params(
     client: Any,
     params: dict[str, Any],
-    wire_api: LegacyWireAPI,
+    wire_api: OpenAIWireAPI,
     error: Exception,
 ) -> None:
     """记录一次明确的参数不支持响应，并执行有界 LRU 驱逐。"""
@@ -87,7 +87,7 @@ def learn_unsupported_params(
 def apply_learned_capabilities(
     client: Any,
     params: dict[str, Any],
-    wire_api: LegacyWireAPI,
+    wire_api: OpenAIWireAPI,
 ) -> tuple[dict[str, Any], tuple[str, ...]]:
     """移除已知不支持参数，并发出不含正文的调整 Trace。"""
     model = str(params.get("model") or "")

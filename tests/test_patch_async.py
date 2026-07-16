@@ -5,7 +5,7 @@
 - _post_interactive_message_async：异步发送交互消息
 - _patch_interactive_thinking_message_async：异步 PATCH 思考卡片
 - _create_interactive_thinking_message_async：异步创建思考卡片
-- 智能节流逻辑：_is_important_content_for_immediate_patch
+- 智能节流逻辑：is_important_content_for_immediate_patch
 - 动态预算调整：_adjust_patch_budget_dynamically
 """
 
@@ -98,7 +98,7 @@ class TestPostInteractiveMessageAsync:
     @pytest.mark.asyncio
     async def test_post_interactive_success(self) -> None:
         """异步发送交互消息成功。"""
-        from miniagent.assistant.feishu.poll_server import _post_interactive_message_async
+        from miniagent.assistant.feishu.outbound_delivery import _post_interactive_message_async
         from miniagent.assistant.feishu.types import FeishuConfig
 
         cfg = FeishuConfig(app_id="test_app", app_secret="test_secret", verification_token="test_token")
@@ -118,7 +118,7 @@ class TestPostInteractiveMessageAsync:
     @pytest.mark.asyncio
     async def test_post_interactive_failure(self) -> None:
         """异步发送交互消息失败。"""
-        from miniagent.assistant.feishu.poll_server import _post_interactive_message_async
+        from miniagent.assistant.feishu.outbound_delivery import _post_interactive_message_async
         from miniagent.assistant.feishu.types import FeishuConfig
 
         cfg = FeishuConfig(app_id="test_app", app_secret="test_secret", verification_token="test_token")
@@ -142,7 +142,9 @@ class TestPatchInteractiveThinkingMessageAsync:
     @pytest.mark.asyncio
     async def test_patch_thinking_success(self) -> None:
         """异步 PATCH 思考卡片成功。"""
-        from miniagent.assistant.feishu.poll_server import _patch_interactive_thinking_message_async
+        from miniagent.assistant.feishu.thinking_delivery import (
+            _patch_interactive_thinking_message_async,
+        )
         from miniagent.assistant.feishu.types import FeishuConfig
 
         cfg = FeishuConfig(app_id="test_app", app_secret="test_secret", verification_token="test_token")
@@ -161,7 +163,9 @@ class TestPatchInteractiveThinkingMessageAsync:
     @pytest.mark.asyncio
     async def test_patch_thinking_failure(self) -> None:
         """异步 PATCH 思考卡片失败。"""
-        from miniagent.assistant.feishu.poll_server import _patch_interactive_thinking_message_async
+        from miniagent.assistant.feishu.thinking_delivery import (
+            _patch_interactive_thinking_message_async,
+        )
         from miniagent.assistant.feishu.types import FeishuConfig
 
         cfg = FeishuConfig(app_id="test_app", app_secret="test_secret", verification_token="test_token")
@@ -188,102 +192,98 @@ class TestSmartThrottling:
 
     def test_important_content_code_block_start(self) -> None:
         """代码块开始应该立即 PATCH。"""
-        from miniagent.assistant.feishu.poll_server import _is_important_content_for_immediate_patch
+        from miniagent.assistant.feishu.card_rendering import (
+            is_important_content_for_immediate_patch,
+        )
 
         # 未闭合的代码块
         text = "Here is some code:\n```python\ndef hello():"
-        assert _is_important_content_for_immediate_patch(text) is True
+        assert is_important_content_for_immediate_patch(text) is True
 
         # 已闭合的代码块（不紧急）
         text = "```python\ndef hello():\n```"
-        assert _is_important_content_for_immediate_patch(text) is False
+        assert is_important_content_for_immediate_patch(text) is False
 
     def test_important_content_heading(self) -> None:
         """Markdown 标题应该立即 PATCH。"""
-        from miniagent.assistant.feishu.poll_server import _is_important_content_for_immediate_patch
+        from miniagent.assistant.feishu.card_rendering import (
+            is_important_content_for_immediate_patch,
+        )
 
-        assert _is_important_content_for_immediate_patch("# Title") is True
-        assert _is_important_content_for_immediate_patch("## Subtitle") is True
-        assert _is_important_content_for_immediate_patch("### Section") is True
-        assert _is_important_content_for_immediate_patch("Normal text") is False
+        assert is_important_content_for_immediate_patch("# Title") is True
+        assert is_important_content_for_immediate_patch("## Subtitle") is True
+        assert is_important_content_for_immediate_patch("### Section") is True
+        assert is_important_content_for_immediate_patch("Normal text") is False
 
     def test_important_content_table(self) -> None:
         """表格行应该立即 PATCH。"""
-        from miniagent.assistant.feishu.poll_server import _is_important_content_for_immediate_patch
+        from miniagent.assistant.feishu.card_rendering import (
+            is_important_content_for_immediate_patch,
+        )
 
-        assert _is_important_content_for_immediate_patch("| Col1 | Col2 |") is True
-        assert _is_important_content_for_immediate_patch("|---|---|") is True
-        assert _is_important_content_for_immediate_patch("No table here") is False
+        assert is_important_content_for_immediate_patch("| Col1 | Col2 |") is True
+        assert is_important_content_for_immediate_patch("|---|---|") is True
+        assert is_important_content_for_immediate_patch("No table here") is False
 
     def test_important_content_list(self) -> None:
         """列表开始应该立即 PATCH。"""
-        from miniagent.assistant.feishu.poll_server import _is_important_content_for_immediate_patch
+        from miniagent.assistant.feishu.card_rendering import (
+            is_important_content_for_immediate_patch,
+        )
 
-        assert _is_important_content_for_immediate_patch("- First item") is True
-        assert _is_important_content_for_immediate_patch("* Another item") is True
-        assert _is_important_content_for_immediate_patch("1. Numbered item") is True
-        assert _is_important_content_for_immediate_patch("Not a list") is False
-
-    def test_important_content_disabled(self) -> None:
-        """禁用重要内容立即 PATCH 时返回 False。"""
-        from miniagent.assistant.feishu.poll_server import _is_important_content_for_immediate_patch
-
-        with patch(
-            "miniagent.assistant.feishu.thinking_delivery.FEISHU_PATCH_IMPORTANT_CONTENT_IMMEDIATE",
-            False,
-        ):
-            text = "```python\ndef hello():"
-            assert _is_important_content_for_immediate_patch(text) is False
-
+        assert is_important_content_for_immediate_patch("- First item") is True
+        assert is_important_content_for_immediate_patch("* Another item") is True
+        assert is_important_content_for_immediate_patch("1. Numbered item") is True
+        assert is_important_content_for_immediate_patch("Not a list") is False
 
 class TestDynamicBudgetAdjustment:
     """动态预算调整测试。"""
 
     def test_budget_adjustment_short_text(self) -> None:
         """短文本不调整预算。"""
-        from miniagent.assistant.feishu.poll_server import (
+        from miniagent.assistant.feishu.card_rendering import (
             FEISHU_THINKING_PATCH_BUDGET,
-            _adjust_patch_budget_dynamically,
+            adjust_patch_budget_dynamically,
         )
 
-        budget = _adjust_patch_budget_dynamically(1000, FEISHU_THINKING_PATCH_BUDGET)
+        budget = adjust_patch_budget_dynamically(1000, FEISHU_THINKING_PATCH_BUDGET)
         assert budget == FEISHU_THINKING_PATCH_BUDGET
 
     def test_budget_adjustment_medium_text(self) -> None:
         """中等长度文本增加预算。"""
-        from miniagent.assistant.feishu.poll_server import (
+        from miniagent.assistant.feishu.card_rendering import (
             FEISHU_THINKING_PATCH_BUDGET,
-            _adjust_patch_budget_dynamically,
+            adjust_patch_budget_dynamically,
         )
 
         # 使用当前配置的预算值进行测试
         base_budget = FEISHU_THINKING_PATCH_BUDGET
-        budget = _adjust_patch_budget_dynamically(6000, base_budget)
+        budget = adjust_patch_budget_dynamically(6000, base_budget)
         assert budget == base_budget + 20
 
     def test_budget_adjustment_long_text(self) -> None:
         """长文本大幅增加预算。"""
-        from miniagent.assistant.feishu.poll_server import (
+        from miniagent.assistant.feishu.card_rendering import (
             FEISHU_THINKING_PATCH_BUDGET,
-            _adjust_patch_budget_dynamically,
+            adjust_patch_budget_dynamically,
         )
 
         # 使用当前配置的预算值进行测试
         base_budget = FEISHU_THINKING_PATCH_BUDGET
-        budget = _adjust_patch_budget_dynamically(12000, base_budget)
+        budget = adjust_patch_budget_dynamically(12000, base_budget)
         assert budget == base_budget + 40
 
     def test_budget_adjustment_preserves_higher_budget(self) -> None:
         """已有更高预算时保持不变。"""
-        from miniagent.assistant.feishu.poll_server import (
+        from miniagent.assistant.feishu.card_rendering import (
             FEISHU_THINKING_PATCH_BUDGET,
-            _adjust_patch_budget_dynamically,
+            adjust_patch_budget_dynamically,
         )
 
         # 使用当前配置的预算值进行测试
         base_budget = FEISHU_THINKING_PATCH_BUDGET
         # 当前预算已经很高，不需要增加
-        budget = _adjust_patch_budget_dynamically(6000, base_budget + 50)
+        budget = adjust_patch_budget_dynamically(6000, base_budget + 50)
         assert budget == base_budget + 50
 
 

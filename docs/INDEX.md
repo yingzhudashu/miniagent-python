@@ -10,6 +10,7 @@
 | 主题 | 权威文档 |
 |------|----------|
 | 用户安装与配置 | [README.md](../README.md) §安装、§配置 |
+| 从 2.x 人工迁移到 3.0 | [MIGRATION.md](MIGRATION.md) |
 | LLM provider、模型与角色 | [LLM_PROVIDERS.md](LLM_PROVIDERS.md) |
 | 架构概览 | [README.md](../README.md) §架构概览；深读 [ARCHITECTURE.md](ARCHITECTURE.md) |
 | 通道绑定 | [FEISHU.md](FEISHU.md) §通道绑定 |
@@ -43,7 +44,7 @@ pytest tests/ --cov=miniagent --cov-report=html
 ## 文档分类
 
 ### 核心文档
-[README](../README.md) · [USER_GUIDE.md](USER_GUIDE.md) · [CHANGELOG](../CHANGELOG.md)
+[README](../README.md) · [USER_GUIDE.md](USER_GUIDE.md) · [MIGRATION.md](MIGRATION.md) · [CHANGELOG](../CHANGELOG.md)
 
 ### 用户与运维
 [CLI.md](CLI.md) · [LLM_PROVIDERS.md](LLM_PROVIDERS.md) · [DEPLOYMENT.md](DEPLOYMENT.md) · [TROUBLESHOOTING.md](TROUBLESHOOTING.md) · [FEISHU.md](FEISHU.md)（含通道绑定） · [KNOWLEDGE_BASE.md](KNOWLEDGE_BASE.md)

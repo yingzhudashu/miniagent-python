@@ -175,7 +175,7 @@ class TestOpenAiClientTimeout:
 
         # 验证配置值被读取
         http_timeout = get_config("agent.http_timeout", 120.0)
-        retry_count = get_config("model.retry_count", 2)
+        retry_count = get_config("llm.max_retries", 2)
 
         assert http_timeout > 0
         assert retry_count >= 0

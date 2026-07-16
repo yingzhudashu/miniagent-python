@@ -88,7 +88,7 @@ async def discover_packages(
         if not os.path.isdir(root):
             continue
         scope = resolve_scope_for_root(root)
-        for pkg in await discover_skill_packages(root):
+        for pkg in await discover_skill_packages(root, exclude_ids=seen_ids):
             if pkg.id not in seen_ids:
                 pkg.scope = scope
                 seen_ids.add(pkg.id)

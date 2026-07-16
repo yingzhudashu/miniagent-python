@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from miniagent.agent.types.error_prefix import SUCCESS_PREFIX, WARNING_PREFIX
-from miniagent.assistant.engine.cli_commands import (
+from miniagent.assistant.engine.commands.session_management import (
     _extract_improve_suggestions,
     _get_last_qa_with_metadata,
     _has_quality_evaluation,

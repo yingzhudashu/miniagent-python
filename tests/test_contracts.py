@@ -9,11 +9,10 @@ from datetime import datetime
 
 import pytest
 
-from miniagent.assistant.contracts import (
+from miniagent.assistant.contracts.lifecycle import HealthReport, HealthState
+from miniagent.assistant.contracts.messages import (
     Attachment,
     ChannelTarget,
-    HealthReport,
-    HealthState,
     InboundMessage,
     OutboundEvent,
     OutboundEventKind,

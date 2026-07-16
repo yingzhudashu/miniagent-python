@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 class _CliLoopStateRequired(TypedDict):
     """``CliLoopState`` 必填键（``run_runtime`` 启动时写入）。"""
 
-    active_session_id: str  # 当前活跃会话 ID（与 UnifiedEngine 的 session_key 对齐）
+    active_session_id: str  # 当前活跃会话 ID（与 AssistantTurnService 的 session_key 对齐）
     skill_toolboxes: list[Toolbox]  # 技能工具箱快照；热加载后由 apply_skill_snapshots_to_state 更新
     skill_prompts: list[str]  # 技能系统提示词快照（字符串列表，合并后注入 Agent）
     feishu_enabled: bool  # 是否启用飞书 WebSocket 模式

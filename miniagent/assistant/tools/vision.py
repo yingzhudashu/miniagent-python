@@ -21,7 +21,6 @@ from typing import Any
 from miniagent.agent.constants import FEISHU_VISION_MAX_BYTES
 from miniagent.agent.types.error_prefix import ERROR_PREFIX
 from miniagent.agent.types.tool import ToolContext, ToolDefinition, ToolResult
-from miniagent.assistant.infrastructure.json_config import get_config
 from miniagent.assistant.tools.base import tool
 from miniagent.assistant.tools.path_utils import resolve_path_for_tool
 
@@ -55,10 +54,6 @@ async def _analyze_image_handler(args: dict[str, Any], ctx: ToolContext) -> Tool
     if client is None:
         return ToolResult(success=False, content=f"{ERROR_PREFIX} LLM 客户端未注入")
 
-    model = get_config("model.model", "")
-    if not model:
-        return ToolResult(success=False, content=f"{ERROR_PREFIX} 未配置模型(model.model)")
-
     prompt = str(args.get("prompt", "") or "请简洁描述这张图片的内容，不超过 150 字。")
 
     from miniagent.assistant.feishu.vision_desc import describe_image
@@ -66,14 +61,13 @@ async def _analyze_image_handler(args: dict[str, Any], ctx: ToolContext) -> Tool
     description = await describe_image(
         file_path=image_path,
         client=client,
-        model=model,
         prompt=prompt,
     )
 
     if not description:
         return ToolResult(
             success=False,
-            content=f"{ERROR_PREFIX} 图片分析失败（可能是模型不支持视觉理解，请确认 model.model 配置）",
+            content=f"{ERROR_PREFIX} 图片分析失败（请确认 vision 角色模型支持视觉理解）",
         )
 
     return ToolResult(

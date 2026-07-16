@@ -11,13 +11,13 @@ from miniagent.agent.ports.runtime import (
     KeywordIndexProtocol,
 )
 from miniagent.assistant.contracts.runtime import (
+    AssistantTurnServiceProtocol,
     ChannelRouterProtocol,
     FeishuRuntimeProtocol,
     MessageQueueProtocol,
-    UnifiedEngineProtocol,
 )
-from miniagent.assistant.engine.engine import UnifiedEngine
 from miniagent.assistant.engine.feishu_state import FeishuRuntime
+from miniagent.assistant.engine.turn_service import AssistantTurnService
 from miniagent.assistant.infrastructure.channel_router import ChannelRouter
 from miniagent.assistant.infrastructure.message_queue import MessageQueueManager
 from miniagent.assistant.memory.activity_log import ActivityLogger
@@ -29,7 +29,7 @@ from miniagent.assistant.memory.keyword_index import KeywordIndex
     [
         (ActivityLogger(), ActivityLogProtocol),
         (KeywordIndex(state_dir="workspaces"), KeywordIndexProtocol),
-        (UnifiedEngine(), UnifiedEngineProtocol),
+        (AssistantTurnService(), AssistantTurnServiceProtocol),
         (ChannelRouter(), ChannelRouterProtocol),
         (MessageQueueManager(), MessageQueueProtocol),
         (FeishuRuntime(MessageQueueManager()), FeishuRuntimeProtocol),
@@ -47,31 +47,33 @@ class TestActivityLogProtocolExtras:
         assert stats["sessions"] == 0
         assert stats["date_range"] is None
 
-    def test_get_stats_after_logging(self, tmp_path: pytest.TempPathFactory) -> None:
+    @pytest.mark.asyncio
+    async def test_get_stats_after_logging(self, tmp_path: pytest.TempPathFactory) -> None:
         logger = ActivityLogger(base_dir=str(tmp_path))
-        logger.log_session_start("s1", "hello", "cli")
-        logger.log_llm_call("s1", 1, "gpt-4o-mini", 1, 0, "think", None)
+        await logger.log_session_start("s1", "hello", "cli")
+        await logger.log_llm_call("s1", 1, "gpt-4o-mini", 1, 0, "think", None)
         stats = logger.get_stats()
         assert stats["total_entries"] >= 2
         assert stats["sessions"] == 1
         assert stats["date_range"] is not None
         assert stats["last_updated"] is not None
 
-    def test_clear_old_entries(self, tmp_path: pytest.TempPathFactory) -> None:
+    @pytest.mark.asyncio
+    async def test_clear_old_entries(self, tmp_path: pytest.TempPathFactory) -> None:
         logger = ActivityLogger(base_dir=str(tmp_path))
         old_date = (datetime.now(timezone.utc) - timedelta(days=60)).strftime("%Y-%m-%d")
         old_path = tmp_path / f"{old_date}.md"
         old_path.write_text("## old\n", encoding="utf-8")
-        logger.log_session_start("s1", "recent", "cli")
+        await logger.log_session_start("s1", "recent", "cli")
         removed = logger.clear_old_entries(days=30)
         assert removed == 1
         assert not old_path.exists()
         assert logger.get_stats()["sessions"] == 1
 
 
-class TestUnifiedEngineThinkingDisplay:
+class TestAssistantTurnServiceThinkingDisplay:
     def test_get_thinking_display_returns_thinking(self) -> None:
-        engine = UnifiedEngine()
+        engine = AssistantTurnService()
         assert engine.get_thinking_display() is engine.thinking
 
 

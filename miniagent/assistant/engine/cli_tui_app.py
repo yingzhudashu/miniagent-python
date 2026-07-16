@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 import sys
 from typing import Any, cast
@@ -9,6 +10,8 @@ from typing import Any, cast
 from miniagent.agent.logging import set_console_log_threshold
 from miniagent.assistant.engine.cli_history import create_cli_file_history, reload_cli_input_history
 from miniagent.assistant.infrastructure.json_config import get_config
+from miniagent.ui import TuiApp, TuiSnapshot
+from miniagent.ui.runtime import TuiTheme
 from miniagent.ui.tui.transcript import TranscriptBuffer
 
 
@@ -38,7 +41,7 @@ def _create_input_prompt(input_buffer: Any) -> Any:
     )
 
 
-class _TuiApplication:
+class AssistantTuiApplication(TuiApp):
     """持有全屏 CLI 的控件、transcript、输出接线与关闭生命周期。"""
 
     def __init__(
@@ -51,6 +54,12 @@ class _TuiApplication:
         history_file: str,
         unregister: Any,
     ) -> None:
+        theme_value = str(get_config("cli.theme", "auto"))
+        theme = cast(
+            TuiTheme,
+            theme_value if theme_value in ("auto", "dark", "light") else "auto",
+        )
+        super().__init__(self, TuiSnapshot(theme=theme))
         self.ctx = ctx
         self.state = state
         self.skill_toolboxes = skill_toolboxes
@@ -84,15 +93,33 @@ class _TuiApplication:
         self.append_transcript: Any = None
         self.append_ansi_transcript: Any = None
         self.trigger_lazy_load: Any = lambda: None
-        from miniagent.ui.cli.state import TuiTheme, TuiViewState
+        self.view_state = self
 
-        theme_value = str(get_config("cli.theme", "auto"))
-        self.view_state = TuiViewState(
-            theme=cast(
-                TuiTheme,
-                theme_value if theme_value in ("auto", "dark", "light") else "auto",
-            )
-        )
+    async def submit(self, text: str) -> None:
+        result = self.process_input(text)
+        if inspect.isawaitable(result):
+            await result
+
+    async def cancel(self) -> None:
+        self.input_buffer.reset()
+
+    async def command(self, text: str) -> None:
+        await self.submit(text)
+
+    async def select_model(self, profile: str) -> None:
+        from miniagent.assistant.engine.model_cmd import switch_model_profile
+        from miniagent.assistant.infrastructure.json_config import reload_runtime_config
+
+        switch_model_profile(profile)
+        await reload_runtime_config(self.ctx)
+
+    async def select_session(self, session_id: str) -> None:
+        await self.submit(f"/session switch {session_id}")
+
+    async def copy(self, text: str) -> None:
+        from miniagent.ui.tui.clipboard import copy_text_to_system_clipboard
+
+        copy_text_to_system_clipboard(text)
 
     def stream_state(self, session_key: str = "") -> Any:
         """按会话获取隔离的流式 Markdown 片段状态。"""
@@ -118,10 +145,8 @@ class _TuiApplication:
 
     def setup_messaging(self) -> None:
         """建立 CLI 入站串行协调器和有序出站分派器。"""
-        from miniagent.assistant.application.messaging import (
-            InboundTurnCoordinator,
-            OrderedOutboundDispatcher,
-        )
+        from miniagent.assistant.application.messaging.inbound import InboundTurnCoordinator
+        from miniagent.assistant.application.messaging.ordered import OrderedOutboundDispatcher
         from miniagent.assistant.engine.cli_inbound import CLI_CONVERSATION_ID
 
         self.inbound_turns = InboundTurnCoordinator(
@@ -569,7 +594,7 @@ async def run_fullscreen_cli(
     """构建、运行并关闭全屏应用；交互异常回退时由输入循环负责清理。"""
     from miniagent.assistant.engine.cli_tui import _run_tui_interaction
 
-    application = _TuiApplication(
+    application = AssistantTuiApplication(
         ctx,
         state,
         skill_toolboxes,

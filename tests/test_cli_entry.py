@@ -50,10 +50,10 @@ def test_help_flag_exits_zero(argv: list[str]) -> None:
 def test_cli_main_delegates_to_entry(monkeypatch: pytest.MonkeyPatch) -> None:
     called: list[bool] = []
 
-    def fake_entry() -> None:
+    def fake_entry(_argv=None) -> None:
         called.append(True)
 
-    monkeypatch.setattr("miniagent.assistant.runner.main", fake_entry)
+    monkeypatch.setattr("miniagent.assistant.run_assistant", fake_entry)
 
     from miniagent.assistant.cli.cli import main
 

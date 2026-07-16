@@ -74,12 +74,6 @@ class ChannelRegistry:
         except BaseException as error:
             raise ChannelDeliveryError(event, error) from error
 
-    async def send_ordered(self, events: Iterable[OutboundEvent]) -> None:
-        """Deliver events sequentially, preserving caller-provided stream order."""
-        for event in events:
-            await self.send(event)
-
-
 __all__ = [
     "ChannelDeliveryError",
     "ChannelNotRegisteredError",

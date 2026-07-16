@@ -43,7 +43,9 @@ jobs:
         run: python -m bandit -q -r miniagent -x miniagent/assistant/skills/templates -lll
 
       - name: Architecture dependency rules
-        run: python scripts/check_architecture.py
+        run: |
+          python scripts/check_architecture.py
+          python scripts/check_current_version.py
 
       - name: Mypy (entire package, including untyped bodies)
         run: python -m mypy miniagent

@@ -89,7 +89,7 @@ async def test_thinking_display_merge_disabled_extra_label(monkeypatch):
 async def test_engine_history_merges_two_tools_under_turn(monkeypatch):
     from miniagent.agent.monitor import DefaultToolMonitor
     from miniagent.agent.types.agent import AgentRunResult
-    from miniagent.assistant.engine.engine import UnifiedEngine
+    from miniagent.assistant.engine.turn_service import AssistantTurnService
     from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
     async def fake_run_agent(*args, **kwargs):
@@ -100,7 +100,7 @@ async def test_engine_history_merges_two_tools_under_turn(monkeypatch):
         await ot("🔧 b — 2", False, "[第 1 轮]")
         return AgentRunResult(reply="ok")
 
-    monkeypatch.setattr("miniagent.assistant.engine.engine.run_agent", fake_run_agent)
+    monkeypatch.setattr("miniagent.assistant.engine.turn_service.run_agent", fake_run_agent)
 
     ctx = type("Ctx", (), {})()
     ctx.conversation_history = []
@@ -112,10 +112,10 @@ async def test_engine_history_merges_two_tools_under_turn(monkeypatch):
         def get_session_files_path(self, sk: str) -> None:
             return None
 
-        def save_session_history(self, sk: str) -> None:
+        async def save_session_history_async(self, sk: str) -> None:
             pass
 
-    engine = UnifiedEngine()
+    engine = AssistantTurnService()
     engine.thinking.set_output_sink(lambda *_a, **_k: None)
 
     await engine.run_agent_with_thinking(
@@ -143,7 +143,7 @@ async def test_engine_history_merges_two_tools_under_turn(monkeypatch):
 async def test_engine_history_merges_tool_under_turn(monkeypatch):
     from miniagent.agent.monitor import DefaultToolMonitor
     from miniagent.agent.types.agent import AgentRunResult
-    from miniagent.assistant.engine.engine import UnifiedEngine
+    from miniagent.assistant.engine.turn_service import AssistantTurnService
     from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
     async def fake_run_agent(*args, **kwargs):
@@ -153,7 +153,7 @@ async def test_engine_history_merges_tool_under_turn(monkeypatch):
         await ot("🔧 web_search — q", False, "[第 1 轮]")
         return AgentRunResult(reply="reply")
 
-    monkeypatch.setattr("miniagent.assistant.engine.engine.run_agent", fake_run_agent)
+    monkeypatch.setattr("miniagent.assistant.engine.turn_service.run_agent", fake_run_agent)
 
     ctx = type("Ctx", (), {})()
     ctx.conversation_history = []
@@ -165,10 +165,10 @@ async def test_engine_history_merges_tool_under_turn(monkeypatch):
         def get_session_files_path(self, sk: str) -> None:
             return None
 
-        def save_session_history(self, sk: str) -> None:
+        async def save_session_history_async(self, sk: str) -> None:
             pass
 
-    engine = UnifiedEngine()
+    engine = AssistantTurnService()
     engine.thinking.set_output_sink(lambda *_a, **_k: None)
 
     await engine.run_agent_with_thinking(

@@ -51,8 +51,8 @@ async def handle_improve(
     **_kwargs: Any,
 ) -> str | None:
     """依据质量建议重写当前会话最后一轮回答并持久化。"""
-    from miniagent.assistant.engine.cli_commands import cmd_improve
     from miniagent.assistant.engine.command_dispatch import _run_improve
+    from miniagent.assistant.engine.commands.session_management import cmd_improve
 
     runtime = state.get("runtime_ctx")
     manager = state.get("session_manager")
@@ -81,7 +81,7 @@ async def handle_improve(
             )
             output = improved_output or ""
             if output:
-                _persist_improved_answer(manager, session_id, assistant, output)
+                await _persist_improved_answer(manager, session_id, assistant, output)
     if capture:
         return output
     if output:
@@ -89,7 +89,7 @@ async def handle_improve(
     return None
 
 
-def _persist_improved_answer(
+async def _persist_improved_answer(
     manager: Any,
     session_id: str,
     previous: dict[str, Any],
@@ -108,7 +108,7 @@ def _persist_improved_answer(
             "metadata": {"improved": True, "improve_round": round_number},
         }
     )
-    manager.save_session_history(session_id)
+    await manager.save_session_history_async(session_id)
 
 
 __all__ = ["handle_improve", "handle_review"]

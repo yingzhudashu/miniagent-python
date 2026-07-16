@@ -9,9 +9,9 @@
 
 - 源码包收敛为 `llm`、`agent`、`ui`、`assistant` 四个主模块；旧的 `core`、`engine`、
   `contracts`、`types`、`infrastructure` 等顶层导入路径已移除，不提供转发兼容层。
-- LLM 配置升级为 `llm.providers`、`llm.models`、`llm.roles` 与
-  `secrets.llm`；新增 `python -m miniagent migrate-config --dry-run/--write`，写入前自动
-  备份 2.x 配置。包版本进入 3.0.0。
+- LLM 配置只接受 `llm.providers`、`llm.models`、`llm.roles` 与 `secrets.llm`；运行时
+  不迁移或写回旧配置和状态，人工升级步骤见 [docs/MIGRATION.md](docs/MIGRATION.md)。
+  包版本进入 3.0.0。
 
 ### Added
 
@@ -26,7 +26,7 @@
 ### Changed
 
 - 应用组合根持有 LLM gateway 快照；配置热更新不关闭在途请求使用的旧 gateway。
-- 会话历史 schema 升至 v2，并标记跨 provider 的稳定消息格式；旧文件沿用集中备份迁移。
+- 会话历史 schema 升至 v2，并标记跨 provider 的稳定消息格式；旧格式直接拒绝且文件不变。
 - 架构检查升级为四模块白名单、完整 AST 导入扫描和跨层循环检测；函数内、相对及
   `TYPE_CHECKING` 导入均不能绕过规则。
 

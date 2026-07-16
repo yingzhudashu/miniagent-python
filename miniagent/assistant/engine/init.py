@@ -17,13 +17,9 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
-import os
 import random
-import shutil
-import tempfile
-from pathlib import Path
+from collections.abc import Mapping
 from typing import Any
 
 from miniagent.agent.logging import get_logger
@@ -61,9 +57,6 @@ async def init_subsystems(
     from miniagent.assistant.skills.snapshots import build_skill_snapshots
 
     auto_register_trace_file_hook()
-
-    # 0.5. 检查并恢复 baseline skills（skill-vetter / skill-creator）
-    _ensure_baseline_skills()
 
     # 1. 内置工具（ALL_TOOLS）先于技能包；同名时内置优先（技能注册遇 ValueError 则跳过）
     # session_memory_tools 已在 ALL_TOOLS 中统一注册
@@ -239,123 +232,13 @@ def _init_default_session(
     return fallback
 
 
-_BASELINE_SKILLS = (
-    "skill-vetter",
-    "skill-creator",
-    "builtin-web",
-    "builtin-stackexchange",
-)
-
-# Git blob IDs of every previously shipped canonical builtin-web tools.py.
-# Identity comparison is migration gating, not a cryptographic trust decision:
-# any local edit changes the blob and is therefore preserved.
-_BUILTIN_WEB_MANAGED_TOOL_BLOBS = frozenset(
-    {
-        "59b3cc3306e0db6ec8aa3e6606de7c1299900556",
-        "09cef9c23b475c64e24f579e8aaabe8784d6e421",
-        "85cab56011efc29acc233e26b10f1311dbdd0ef8",
-        "cffd180e02b5ba5c53d4841482a4cd4012c956f9",
-        "1f8cf9491a97f73a0f7ea44452e16c554997baed",
-        "edd2fb1ad86456def31d59b3ad3707dcee2532d5",
-        "3d5e3bc01b9dc9fa03ca4902957f8d7a1888b967",
-        "4745e4a43aefa76d4e9c3ed2847147ff1f8b49fd",
-        "49c3e931cb69e174a8138d4376c94f853b5bf1f0",
-        "89c3aaf272578c4f09c519f40517646bc283dd7f",
-        "cabf3502d203924308ecdadfb57ef2640d8b93c7",
-        "c03e2aeb0db97e38d195043e51ae4a1e9e3641d5",
-        "873be94bdea9f5cf9744d2209b101ebb1a350414",
-    }
-)
-
-
-def _git_blob_id(path: str | os.PathLike[str]) -> str:
-    """Compute Git's content identity without requiring a Git executable."""
-    payload = Path(path).read_bytes()
-    digest = hashlib.sha1(usedforsecurity=False)
-    digest.update(f"blob {len(payload)}\0".encode())
-    digest.update(payload)
-    return digest.hexdigest()
-
-
-def _replace_known_managed_file(
-    source: str | os.PathLike[str],
-    target: str | os.PathLike[str],
-    known_blobs: frozenset[str],
-) -> bool:
-    """Atomically upgrade an unchanged historical template; preserve custom files."""
-    source_path = Path(source)
-    target_path = Path(target)
-    if not source_path.is_file() or not target_path.is_file():
-        return False
-    try:
-        target_blob = _git_blob_id(target_path)
-        if target_blob not in known_blobs or _git_blob_id(source_path) == target_blob:
-            return False
-        temp_path: Path | None = None
-        try:
-            with tempfile.NamedTemporaryFile(
-                dir=target_path.parent,
-                prefix=f".{target_path.name}.",
-                suffix=".tmp",
-                delete=False,
-            ) as handle:
-                temp_path = Path(handle.name)
-            shutil.copy2(source_path, temp_path)
-            os.replace(temp_path, target_path)
-            temp_path = None
-            return True
-        finally:
-            if temp_path is not None:
-                temp_path.unlink(missing_ok=True)
-    except OSError as error:
-        _logger.debug("托管 baseline skill 文件升级失败 %s: %s", target_path, error)
-        return False
-
-
-def _ensure_baseline_skills() -> None:
-    """检查 baseline skills 是否存在，缺失则从模板恢复。
-
-    若技能根目录不存在，会自动创建后再恢复。
-    """
-    skills_root = _get_skills_root_for_baseline()
-    if not skills_root:
-        return
-
-    os.makedirs(skills_root, exist_ok=True)
-
-    templates_dir = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills", "templates"
-    )
-    if not os.path.isdir(templates_dir):
-        return
-
-    for name in _BASELINE_SKILLS:
-        target = os.path.join(skills_root, name)
-        src = os.path.join(templates_dir, name)
-        if not os.path.isdir(target):
-            if os.path.isdir(src):
-                try:
-                    shutil.copytree(src, target)
-                    _logger.info("已恢复 baseline skill: %s", name)
-                except OSError as e:
-                    _logger.warning("恢复 baseline skill %s 失败: %s", name, e)
-        elif name == "builtin-web":
-            relative_tools = os.path.join("skills", "web-tools", "tools.py")
-            if _replace_known_managed_file(
-                os.path.join(src, relative_tools),
-                os.path.join(target, relative_tools),
-                _BUILTIN_WEB_MANAGED_TOOL_BLOBS,
-            ):
-                _logger.info("已升级未修改的托管 baseline skill: builtin-web/tools.py")
-
-
 def _parse_mcp_stdio_command(raw: Any) -> list[str] | None:
     """解析 ``mcp.stdio_command``（config.user.json 原生数组或 JSON 字符串）。"""
     if not raw:
         return None
     spec: Any
-    if isinstance(raw, list):
-        spec = raw
+    if isinstance(raw, (list, tuple)):
+        spec = list(raw)
     elif isinstance(raw, str):
         text = raw.strip()
         if not text:
@@ -373,8 +256,8 @@ def _parse_mcp_stdio_env(raw: Any) -> dict[str, str] | None:
     if not raw:
         return None
     spec: Any
-    if isinstance(raw, dict):
-        spec = raw
+    if isinstance(raw, Mapping):
+        spec = dict(raw)
     elif isinstance(raw, str):
         text = raw.strip()
         if not text:
@@ -440,17 +323,6 @@ async def _register_mcp_tools_from_config(registry: Any) -> int:
     except Exception as e:
         _logger.warning("mcp.stdio_command: %s", e)
     return 0
-
-
-def _get_skills_root_for_baseline() -> str | None:
-    """获取技能根目录路径（用于基线比较）；失败时返回 None。"""
-    try:
-        from miniagent.assistant.skills.paths import get_skills_root
-
-        return get_skills_root()
-    except Exception as e:
-        _logger.debug("无法解析技能根目录（跳过 baseline 恢复）: %s", e)
-        return None
 
 
 __all__ = ["init_subsystems"]

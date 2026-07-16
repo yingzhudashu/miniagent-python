@@ -10,11 +10,11 @@ from openai import AsyncOpenAI
 
 from miniagent.llm.catalog import with_provider_profile
 from miniagent.llm.types import (
-    LegacyWireAPI,
     LLMCompletion,
     LLMStreamEvent,
     ModelCapabilities,
     ModelDescriptor,
+    OpenAIWireAPI,
 )
 
 
@@ -76,9 +76,9 @@ class OpenAIProvider:
         tools: list[dict[str, Any]] | None = None,
         json_mode: bool = False,
     ) -> LLMCompletion:
-        from miniagent.llm.legacy_transport import create_completion
+        from miniagent.llm.providers.openai_transport import create_completion
 
-        wire_api: LegacyWireAPI = (
+        wire_api: OpenAIWireAPI = (
             "responses" if model.api == "openai_responses" else "chat_completions"
         )
         return await create_completion(
@@ -99,9 +99,9 @@ class OpenAIProvider:
         tools: list[dict[str, Any]] | None = None,
         json_mode: bool = False,
     ) -> AsyncIterator[LLMStreamEvent]:
-        from miniagent.llm.legacy_transport import stream_completion
+        from miniagent.llm.providers.openai_transport import stream_completion
 
-        wire_api: LegacyWireAPI = (
+        wire_api: OpenAIWireAPI = (
             "responses" if model.api == "openai_responses" else "chat_completions"
         )
         async for event in stream_completion(

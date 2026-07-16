@@ -5,13 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 
-def _md_escape_cell(text: str) -> str:
-    """Markdown 单元格文本：去掉换行并转义管道符（``cmd_session_list`` 等 GFM 表格用）。"""
-    s = (text or "").replace("\r\n", "\n").replace("\r", "\n")
-    s = s.replace("|", "\\|").replace("\n", " ").strip()
-    return s
-
-
 def _md_help_section(title: str, hint: str | None, rows: list[tuple[str, str]]) -> str:
     """生成分组 Markdown：可选引用提示 + 粗体命令列表（飞书 lark_md 友好）。
 

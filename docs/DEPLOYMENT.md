@@ -139,7 +139,7 @@ Register-ScheduledTask -TaskName "MiniAgent" -Action $action -Trigger $trigger
 | 问题 | 解决方案 |
 |------|---------|
 | 飞书连接失败 | 优先检查 `config.user.json` 的 `secrets.feishu_app_id` / `secrets.feishu_app_secret`；详见 [TROUBLESHOOTING.md](TROUBLESHOOTING.md) §飞书集成问题 |
-| LLM 调用超时 | 优先检查 `config.user.json` 的 `secrets.openai_api_key` 与网络连接 |
+| LLM 调用超时 | 优先检查 `secrets.llm.<provider>.api_key`（或 provider 环境变量）与网络连接 |
 | 会话锁冲突 | 运行 `python -m miniagent --stop` 清理 |
 | Agent 卡死 | 使用 `/status` 检查；`Ctrl+C` 结束进程后重新 `python -m miniagent` 启动 |
 | 编码问题 | 确保 `PYTHONIOENCODING=utf-8` |

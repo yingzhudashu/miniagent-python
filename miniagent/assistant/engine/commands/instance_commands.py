@@ -26,7 +26,9 @@ async def handle_instance(
     **_kwargs: Any,
 ) -> str | None:
     """解析实例子命令，并按渠道返回或打印叶子处理器输出。"""
-    from miniagent.assistant.engine.cli_commands import feishu_markdown_commands_enabled
+    from miniagent.assistant.engine.commands.session_management import (
+        feishu_markdown_commands_enabled,
+    )
 
     parts = text.split()
     subcommand = parts[1].lower() if len(parts) > 1 else ""

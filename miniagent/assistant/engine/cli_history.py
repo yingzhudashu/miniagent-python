@@ -70,7 +70,9 @@ def session_user_inputs_for_cli_history(
     if session is None:
         return []
 
-    from miniagent.assistant.engine.cli_commands import _load_session_history_messages
+    from miniagent.assistant.engine.commands.session_management import (
+        _load_session_history_messages,
+    )
 
     result = [
         str(message.get("content") or "").strip()

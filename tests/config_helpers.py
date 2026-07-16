@@ -33,6 +33,10 @@ def install_test_config(
     )
     loader.reload()
     install_config_loader(loader)
+    from miniagent.agent.settings import _CURRENT_SETTINGS, AgentSettings
+    from miniagent.assistant.infrastructure.json_config import get_config_snapshot
+
+    _CURRENT_SETTINGS.set(AgentSettings(get_config_snapshot()))
 
 
 def deep_merge(base: dict, patch: dict) -> dict:

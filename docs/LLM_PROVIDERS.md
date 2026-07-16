@@ -84,16 +84,10 @@ DeepSeek、OpenRouter、Qwen、Ollama、vLLM、LM Studio 等 OpenAI 兼容服务
 - 用户 profile 覆盖动态缓存，动态缓存覆盖小型内置目录。
 - 只有存在可信价格元数据时才计算成本；未知价格显示为未知，而不是 `$0`。
 
-## 2.x 配置迁移
+## 从旧版本升级
 
-```powershell
-python -m miniagent migrate-config --dry-run
-python -m miniagent migrate-config --write
-```
-
-迁移会把 `model` 转为一个 `primary` profile，把 `secrets.openai_api_key` 移到
-`secrets.llm.openai.api_key`，保留其它配置，并在写入前生成
-`config.user.json.v2.<UTC>.bak`。重复运行是幂等的。
+3.0 运行时不包含迁移器。provider/profile/role、嵌套凭据与状态 schema 的人工迁移步骤
+统一见 [MIGRATION.md](MIGRATION.md)。
 
 ## 错误与可选依赖
 

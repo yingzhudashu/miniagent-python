@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.agent import Agent, AgentRequest, AgentServices
+from miniagent.agent import Agent, AgentRequest, AgentServices, AgentSettings
 from miniagent.agent.types.agent import AgentRunResult
 from miniagent.assistant import (
     AssistantApplication,
@@ -45,6 +45,7 @@ async def test_agent_public_facade_delegates_one_request() -> None:
     agent = Agent(
         AgentServices(
             llm=object(),
+            settings=AgentSettings({}),
             registry=MagicMock(),
             memory=MagicMock(),
             knowledge=MagicMock(),

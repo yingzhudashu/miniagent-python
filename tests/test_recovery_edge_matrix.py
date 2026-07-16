@@ -16,7 +16,7 @@ from miniagent.assistant.scheduled_tasks import ticker
 from miniagent.assistant.scheduled_tasks.models import ScheduledTask, ScheduleSpec
 from miniagent.assistant.self_opt import auto_optimizer
 from miniagent.assistant.tools import filesystem
-from miniagent.llm import legacy_transport as llm_transport
+from miniagent.llm.providers import openai_transport as llm_transport
 
 
 def test_responses_fallback_and_stream_event_edges() -> None:

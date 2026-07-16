@@ -5,7 +5,7 @@
 Responses 空文本会按 reasoning-only、截断和 completed-empty 分类并有界恢复，全部失败才降级为内置
 fallback 计划，保证执行阶段始终有可消费的结构。
 
-``planner_model_overrides`` 与 :func:`miniagent.agent.llm_params.resolve_planner_completion_kwargs` 合并，
+``planner_llm_overrides`` 与 :func:`miniagent.agent.llm_params.resolve_planner_completion_kwargs` 合并，
 用于低温、较小 ``max_tokens`` 等规划专用参数。LLM 客户端由组合根创建，
 并通过 ``generate_plan(..., client=...)`` 显式注入。
 
@@ -37,8 +37,7 @@ from miniagent.agent.planner_support import (
 )
 from miniagent.agent.ports.knowledge import KnowledgeRegistryProtocol
 from miniagent.agent.prompts.planner import PLAN_SYSTEM_PROMPT
-from miniagent.agent.settings import get_config
-from miniagent.agent.types.config import AgentConfig, WireAPI
+from miniagent.agent.types.config import AgentConfig
 from miniagent.agent.types.planning import (
     ContextMode,
     ContextStrategy,
@@ -54,23 +53,21 @@ from miniagent.agent.types.planning import (
     ThinkingLevel,
 )
 from miniagent.agent.types.tool import Toolbox
-from miniagent.llm.legacy_transport import (
-    LLMCompletion,
-    classify_transport_error,
-    completion_failure_category,
-    create_completion,
-    create_structured_completion,
-    resolve_model_max_output_tokens,
-    resolve_wire_api,
-    structured_retry_delay,
-    structured_retry_params,
-)
+from miniagent.llm.gateway import LLMGateway
 from miniagent.llm.openai_compat import (
     ensure_json_object_user_message,
 )
 from miniagent.llm.openai_compat import (
     json_object_unsupported as _json_object_unsupported,
 )
+from miniagent.llm.recovery import (
+    classify_transport_error,
+    completion_failure_category,
+    structured_retry_delay,
+    structured_retry_params,
+)
+from miniagent.llm.requests import create_structured_completion
+from miniagent.llm.types import LLMCompletion
 
 _logger = get_logger(__name__)
 
@@ -173,13 +170,15 @@ class _PlannerRunner:
     """执行规划请求序列并维护协议降级、恢复参数和追踪关联。"""
 
     user_input: str
-    client: Any
+    client: LLMGateway
     messages: list[dict[str, str]]
     json_messages: list[dict[str, str]]
     original_params: dict[str, Any]
     params: dict[str, Any]
     session_key: str
-    wire_api: WireAPI
+    profile: str | None
+    model_name: str
+    responses_wire: bool
     model_max_tokens: int
     default_step_thinking: str
     log_file: str | None
@@ -204,13 +203,13 @@ class _PlannerRunner:
                 "phase": "plan",
                 "session_key": self.session_key,
                 "attempt": attempt,
-                "model": self.params["model"],
+                "model": self.model_name,
                 "json_object": self.use_json_object,
                 "protocol_fallback": protocol_fallback or None,
                 "reasoning_level": self.params.get("_thinking_level"),
                 "max_tokens": self.params.get("max_tokens"),
                 "sampling_removed": "temperature" not in self.params and "top_p" not in self.params,
-                "structured_stream": self.wire_api == "responses" and self.use_json_object,
+                "structured_stream": self.responses_wire and self.use_json_object,
                 "message_count": len(request_messages),
                 "tool_count": 0,
                 **llm_request_size_metrics(request_messages),
@@ -234,7 +233,7 @@ class _PlannerRunner:
             "phase": "plan",
             "session_key": self.session_key,
             "attempt": attempt,
-            "model": self.params["model"],
+            "model": self.model_name,
             "failure_category": failure.category if failure else None,
             "retrying": retrying,
             "duration_ms": (time.monotonic_ns() - self.started_ns) // 1_000_000,
@@ -268,24 +267,25 @@ class _PlannerRunner:
             message="before_planner_completion",
             data={
                 "attempt": attempt,
-                "model": self.params.get("model"),
+                "model": self.model_name,
                 "json_object": self.use_json_object,
-                "wire_api": self.wire_api,
+                "wire_api": "responses" if self.responses_wire else "chat_completions",
             },
         )
         try:
             if self.use_json_object:
                 return await create_structured_completion(
                     self.client,
+                    role="reasoning",
+                    profile=self.profile,
                     messages=self.json_messages,
                     params=self.params,
-                    wire_api=self.wire_api,
                 )
-            return await create_completion(
-                self.client,
+            return await self.client.create_completion(
+                role="reasoning",
+                profile=self.profile,
                 messages=self.messages,
                 params=self.params,
-                wire_api=self.wire_api,
             )
         except Exception as error:
             if not self.use_json_object or not _json_object_unsupported(error):
@@ -300,11 +300,11 @@ class _PlannerRunner:
         self.call_id = new_trace_id("llm")
         self.started_ns = time.monotonic_ns()
         self.emit_request(attempt, protocol_fallback=True)
-        return await create_completion(
-            self.client,
+        return await self.client.create_completion(
+            role="reasoning",
+            profile=self.profile,
             messages=self.messages,
             params=self.params,
-            wire_api=self.wire_api,
         )
 
     def append_log(self, attempt: int, response: LLMCompletion) -> None:
@@ -317,7 +317,7 @@ class _PlannerRunner:
                 "phase": "plan",
                 "attempt": attempt,
                 "req": {
-                    "model": self.params["model"],
+                    "model": self.model_name,
                     "messages": [
                         {"role": message["role"], "content": truncate(message.get("content", ""), 500)}
                         for message in self.messages
@@ -336,10 +336,10 @@ class _PlannerRunner:
             current=self.params,
             failure=failure,
             next_attempt=next_attempt,
-            wire_api=self.wire_api,
+            responses_wire=self.responses_wire,
             model_max_tokens=self.model_max_tokens,
         )
-        if self.wire_api == "responses":
+        if self.responses_wire:
             await asyncio.sleep(structured_retry_delay(next_attempt))
 
     async def run(self) -> StructuredPlan:
@@ -408,10 +408,10 @@ async def generate_plan(
     log_file: str | None = None,
     *,
     knowledge_registry: KnowledgeRegistryProtocol,
-    client: Any,
+    client: LLMGateway,
     agent_config: AgentConfig | None = None,
     registry: Any | None = None,
-    planner_model_overrides: dict[str, Any] | None = None,
+    planner_llm_overrides: dict[str, Any] | None = None,
     default_step_thinking: str = "medium",
 ) -> StructuredPlan:
     """生成结构化计划；协议或内容最终失败时返回可执行的内置计划。
@@ -419,10 +419,13 @@ async def generate_plan(
     工具元数据、知识库和会话历史会进入规划上下文。JSON Object 不受支持时在
     同一逻辑轮次降级，Responses 暂态/空响应最多尝试三次，Chat 尝试两次。
     """
-    from miniagent.agent.llm_params import resolve_planner_completion_kwargs
+    from miniagent.agent.llm_params import (
+        resolve_planner_completion_kwargs,
+        resolve_request_profile,
+    )
 
     ac: AgentConfig | None = agent_config if isinstance(agent_config, AgentConfig) else None
-    planner_kw = resolve_planner_completion_kwargs(ac, merge_overrides=planner_model_overrides)
+    planner_kw = resolve_planner_completion_kwargs(ac, merge_overrides=planner_llm_overrides)
     plan_session_key = (
         ac.session_config.session_key if ac and ac.session_config.session_key else "default"
     )
@@ -436,19 +439,12 @@ async def generate_plan(
     )
     json_object_messages = ensure_json_object_user_message(messages)
 
-    from miniagent.agent.config import get_default_model_config
-
-    model_config = get_default_model_config()
-    wire_api = resolve_wire_api(
-        get_config("model.wire_api", "chat_completions"),
-        client=client,
-        role="reasoning",
+    profile = resolve_request_profile(
+        ac, "reasoning", merge_overrides=planner_llm_overrides
     )
-    model_max_tokens = resolve_model_max_output_tokens(
-        client,
-        role="reasoning",
-        fallback=model_config.max_tokens,
-    )
+    model = client.catalog.get(profile) if profile else client.model_for_role("reasoning")
+    if model is None:
+        raise ValueError(f"Unknown reasoning model profile: {profile}")
     runner = _PlannerRunner(
         user_input=user_input,
         client=client,
@@ -457,8 +453,10 @@ async def generate_plan(
         original_params=dict(planner_kw),
         params=dict(planner_kw),
         session_key=plan_session_key,
-        wire_api=wire_api,
-        model_max_tokens=model_max_tokens,
+        profile=profile,
+        model_name=model.model,
+        responses_wire=model.api == "openai_responses",
+        model_max_tokens=model.max_output_tokens,
         default_step_thinking=default_step_thinking,
         log_file=log_file,
     )
@@ -489,11 +487,11 @@ def _planner_retry_params(
     current: dict[str, Any],
     failure: _PlannerAttemptFailure,
     next_attempt: int,
-    wire_api: WireAPI,
+    responses_wire: bool,
     model_max_tokens: int,
 ) -> dict[str, Any]:
     """Build bounded recovery parameters without changing the first request."""
-    if wire_api != "responses":
+    if not responses_wire:
         return dict(current)
     return structured_retry_params(
         current,
@@ -629,7 +627,7 @@ class _PlanDictParser:
                 risk_level=suggested.get("riskLevel"),
                 context_overflow_strategy=suggested.get("contextOverflowStrategy"),
                 tool_selection_strategy=suggested.get("toolSelectionStrategy"),
-                model_overrides=overrides if isinstance(overrides, dict) else None,
+                llm_overrides=overrides if isinstance(overrides, dict) else None,
                 thinking_level=suggested.get("thinkingLevel"),
                 chunk_execution=bool(suggested.get("chunkExecution", False)),
                 chunk_token_budget=suggested.get("chunkTokenBudget"),

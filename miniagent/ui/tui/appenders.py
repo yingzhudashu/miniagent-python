@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
+from dataclasses import dataclass
 from typing import Any
 
 from prompt_toolkit.application import get_app
+
+
+@dataclass(frozen=True, slots=True)
+class TranscriptAppenders:
+    append_transcript: Any
+    transcript_plain: Any
+    append_ansi_transcript: Any
 
 
 def _clear_selection_if_trimmed(
@@ -28,7 +35,7 @@ def create_transcript_appenders(
     stick_bottom: list[bool],
     snap_output_bottom: Any,
     safe_ansi: Any,
-) -> SimpleNamespace:
+) -> TranscriptAppenders:
     """创建维护裁剪计数和粘底语义的追加闭包。"""
     _is_valid_pt_style = is_valid_pt_style
     _output_at_bottom = output_at_bottom
@@ -111,11 +118,11 @@ def create_transcript_appenders(
             _stick_bottom[0] = False
 
 
-    return SimpleNamespace(
+    return TranscriptAppenders(
         append_transcript=_append_transcript,
         transcript_plain=_transcript_plain,
         append_ansi_transcript=_append_ansi_transcript,
     )
 
 
-__all__ = ["create_transcript_appenders"]
+__all__ = ["TranscriptAppenders", "create_transcript_appenders"]

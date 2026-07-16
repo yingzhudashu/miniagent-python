@@ -26,10 +26,12 @@ from miniagent.assistant.tools.exec import (
     _BLOCKED_PATTERNS,
     _DEFAULT_ALLOWED_COMMANDS,
     _EXEC_MAX_OUTPUT_BYTES,
+    _apply_command_security,
     _communicate_limited,
     _deny,
     _exec_handler,
     _get_allowed_commands,
+    _is_command_allowed,
     exec_tools,
 )
 
@@ -248,6 +250,34 @@ class TestExecSandboxSecurity:
         assert result.success is False
         assert "拒绝" in result.content or "危险" in result.content
 
+    def test_security_allows_python_code_and_query_string_inside_quotes(self) -> None:
+        """Quoted Python syntax and URL query separators are not shell operators."""
+        from miniagent.assistant.tools.exec import _apply_command_security
+
+        command = (
+            'python -c "import urllib.request; '
+            "u='https://api.open-meteo.com/v1/forecast?latitude=22.5&longitude=114.0'; "
+            'print(urllib.request.urlopen(u).read())"'
+        )
+
+        assert _apply_command_security(command, windows=True) is None
+
+    def test_security_still_blocks_unquoted_chain_after_python_code(self) -> None:
+        from miniagent.assistant.tools.exec import _apply_command_security
+
+        result = _apply_command_security('python -c "print(1)" ; rm file', windows=False)
+
+        assert result is not None
+        assert result.success is False
+
+    def test_security_blocks_substitution_inside_double_quotes(self) -> None:
+        from miniagent.assistant.tools.exec import _apply_command_security
+
+        result = _apply_command_security('echo "$(rm file)"', windows=False)
+
+        assert result is not None
+        assert result.success is False
+
     @pytest.mark.asyncio
     async def test_sandbox_blocks_unallowed_command(self) -> None:
         """沙箱应阻止不在允许列表中的命令。"""
@@ -325,6 +355,36 @@ class TestAllowedCommands:
             assert "cat" in result
             assert "grep" in result
             assert len(result) == 3
+
+    @pytest.mark.parametrize("command", ["curl.exe", "CURL.EXE", "curl"])
+    def test_windows_executable_alias_matches_portable_allowlist(self, command: str) -> None:
+        """Windows 显式可执行扩展名应匹配无扩展名的跨平台白名单。"""
+        assert _is_command_allowed(command, frozenset({"curl"}), windows=True)
+
+    def test_windows_custom_allowlist_is_normalized_symmetrically(self) -> None:
+        """自定义白名单使用带扩展名时，也应接受等价的无扩展名命令。"""
+        assert _is_command_allowed("curl", frozenset({"CURL.EXE"}), windows=True)
+
+    def test_windows_curl_exe_command_passes_security_validation(self) -> None:
+        """回归：模型生成 curl.exe 时不应被默认 curl 白名单误拒绝。"""
+        with patch("miniagent.assistant.tools.exec.get_config", return_value=""):
+            result = _apply_command_security(
+                'curl.exe "https://api.open-meteo.com/v1/forecast?latitude=24.4"',
+                windows=True,
+            )
+        assert result is None
+
+    @pytest.mark.parametrize("command", ["curl.ps1", "curl.py", "not-curl.exe"])
+    def test_windows_alias_does_not_allow_unrelated_commands(self, command: str) -> None:
+        """只放行标准 Windows 可执行扩展名，不能扩大到任意脚本或命令。"""
+        assert not _is_command_allowed(command, frozenset({"curl"}), windows=True)
+
+    def test_non_windows_matching_remains_exact_and_case_sensitive(self) -> None:
+        """非 Windows 平台继续保持原有的精确匹配语义。"""
+        allowed = frozenset({"curl"})
+        assert _is_command_allowed("curl", allowed, windows=False)
+        assert not _is_command_allowed("curl.exe", allowed, windows=False)
+        assert not _is_command_allowed("CURL", allowed, windows=False)
 
 
 # ============================================================================

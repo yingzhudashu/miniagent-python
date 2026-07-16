@@ -8,7 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from miniagent.assistant.application.messaging import ChannelRegistry
+from miniagent.assistant.application.messaging.channels import ChannelRegistry
 
 _logger = logging.getLogger(__name__)
 
@@ -20,14 +20,14 @@ if TYPE_CHECKING:
     from miniagent.agent.types.tool import ToolRegistryProtocol
     from miniagent.assistant.bootstrap.lifecycle import LifecycleManager
     from miniagent.assistant.contracts.channels import ChannelRegistryProtocol
-    from miniagent.assistant.contracts.configuration import ConfigSnapshot
     from miniagent.assistant.contracts.messaging import OrderedOutboundDispatcherProtocol
     from miniagent.assistant.contracts.runtime import (
+        AssistantTurnServiceProtocol,
         ChannelRouterProtocol,
         FeishuRuntimeProtocol,
         MessageQueueProtocol,
-        UnifiedEngineProtocol,
     )
+    from miniagent.assistant.infrastructure.json_config import ConfigurationService
 
 
 @dataclass
@@ -44,14 +44,14 @@ class ApplicationContainer:
     monitor: ToolMonitorProtocol
     skill_registry: SkillRegistryProtocol
     clawhub: ClawHubClientProtocol | None
-    engine: UnifiedEngineProtocol
+    engine: AssistantTurnServiceProtocol
     channel_router: ChannelRouterProtocol
     message_queue: MessageQueueProtocol
     feishu: FeishuRuntimeProtocol
     memory: MemoryRuntimeProtocol
     knowledge_registry: KnowledgeRegistryProtocol
     background_tasks: Any
-    config: ConfigSnapshot | None = None
+    config: ConfigurationService | None = None
     outbound_channels: ChannelRegistryProtocol = field(default_factory=ChannelRegistry)
     cli_outbound_dispatcher: OrderedOutboundDispatcherProtocol | None = None
     lifecycle_manager: LifecycleManager | None = field(default=None, repr=False)

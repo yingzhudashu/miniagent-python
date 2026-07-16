@@ -50,14 +50,16 @@ class TestDefaultSessionManager:
         sessions = self.manager.list()
         assert len(sessions) == 2
 
-    def test_destroy_session(self):
+    @pytest.mark.asyncio
+    async def test_destroy_session(self):
         self.manager.get_or_create("to-destroy")
-        result = self.manager.destroy("to-destroy")
+        result = await self.manager.delete_session("to-destroy")
         assert result is True
         assert self.manager.get("to-destroy") is None
 
-    def test_destroy_nonexistent(self):
-        result = self.manager.destroy("ghost")
+    @pytest.mark.asyncio
+    async def test_destroy_nonexistent(self):
+        result = await self.manager.delete_session("ghost")
         assert result is False
 
     def test_session_has_workspace(self):

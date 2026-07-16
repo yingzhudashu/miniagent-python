@@ -13,6 +13,7 @@ from miniagent.agent.types.tool import Toolbox
 from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 from tests.config_helpers import install_test_config
 from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
+from tests.mock_strategies import MockGateway
 
 
 @pytest.mark.asyncio
@@ -151,7 +152,7 @@ async def test_run_agent_real_planner_accepts_grouped_session_config(tmp_path) -
     """生产规划链路应直接消费分组 AgentConfig，不依赖已删除的平铺字段。"""
     install_test_config(tmp_path, {"features": {"reflection": False}})
     toolbox = Toolbox(id="fs", name="fs", description="files", keywords=[])
-    mock_client = AsyncMock()
+    raw_client = MagicMock()
     response = MagicMock(
         choices=[
             MagicMock(
@@ -168,7 +169,8 @@ async def test_run_agent_real_planner_accepts_grouped_session_config(tmp_path) -
         ]
     )
     response.usage = None
-    mock_client.chat.completions.create = AsyncMock(return_value=response)
+    raw_client.chat.completions.create = AsyncMock(return_value=response)
+    mock_client = MockGateway(raw_client)
 
     with patch("miniagent.agent.constants.EXECUTION_TASK_CLASSIFIER_ENABLED", False):
         with patch("miniagent.agent.agent.execute_plan", new_callable=AsyncMock) as execute:
@@ -191,7 +193,7 @@ async def test_run_agent_real_planner_accepts_grouped_session_config(tmp_path) -
             )
 
     assert result.reply == "done"
-    mock_client.chat.completions.create.assert_awaited_once()
+    raw_client.chat.completions.create.assert_awaited_once()
     execute.assert_awaited_once()
 
 
@@ -199,7 +201,7 @@ async def test_run_agent_real_planner_accepts_grouped_session_config(tmp_path) -
 async def test_run_agent_real_planner_supports_responses_wire_api(tmp_path) -> None:
     install_test_config(
         tmp_path,
-        {"features": {"reflection": False}, "model": {"wire_api": "responses"}},
+        {"features": {"reflection": False}},
     )
     toolbox = Toolbox(id="fs", name="fs", description="files", keywords=[])
     content = (
@@ -237,7 +239,7 @@ async def test_run_agent_real_planner_supports_responses_wire_api(tmp_path) -> N
                 registry=DefaultToolRegistry(),
                 memory=make_memory_runtime(),
                 knowledge_registry=make_knowledge_registry(),
-                client=client,
+                client=MockGateway(client, responses=True),
                 toolboxes=[toolbox],
             )
 
@@ -256,7 +258,6 @@ async def test_run_agent_responses_control_chain_streams_all_json_stages(
         tmp_path,
         {
             "features": {"reflection": True, "requirement_clarify": True},
-            "model": {"wire_api": "responses"},
         },
     )
     toolbox = Toolbox(id="fs", name="fs", description="files", keywords=[])
@@ -315,7 +316,7 @@ async def test_run_agent_responses_control_chain_streams_all_json_stages(
             registry=DefaultToolRegistry(),
             memory=make_memory_runtime(),
             knowledge_registry=make_knowledge_registry(),
-            client=client,
+            client=MockGateway(client, responses=True),
             toolboxes=[toolbox],
             clarifier=RequirementClarifier(interactive=False),
         )
@@ -330,7 +331,7 @@ async def test_run_agent_responses_control_chain_streams_all_json_stages(
 
 
 @pytest.mark.asyncio
-async def test_suggested_thinking_level_merges_into_model_overrides(tmp_path) -> None:
+async def test_suggested_thinking_level_merges_into_llm_overrides(tmp_path) -> None:
     install_test_config(tmp_path, {"features": {"reflection": False}})
     tb = Toolbox(id="fs", name="fs", description="files", keywords=[])
 
@@ -354,10 +355,10 @@ async def test_suggested_thinking_level_merges_into_model_overrides(tmp_path) ->
         *_a: object,
         **_k: object,
     ) -> str:
-        captured["thinking_level"] = getattr(merged_config, "model_overrides", {}).get(
+        captured["thinking_level"] = getattr(merged_config, "llm_overrides", {}).get(
             "thinking_level"
         )
-        captured["thinking_budget"] = getattr(merged_config, "model_overrides", {}).get(
+        captured["thinking_budget"] = getattr(merged_config, "llm_overrides", {}).get(
             "thinking_budget"
         )
         return "ok"

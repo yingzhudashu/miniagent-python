@@ -30,7 +30,7 @@ def test_detect_first_time_setup_when_user_file_missing(tmp_path: Path) -> None:
 
 
 def test_detect_first_time_setup_when_user_file_exists(tmp_path: Path) -> None:
-    install_test_config(tmp_path, {"model": {"model": "gpt-4o-mini"}})
+    install_test_config(tmp_path, {"llm": {"roles": {"default": "primary"}}})
 
     from miniagent.assistant.engine.setup_wizard import detect_first_time_setup
 
@@ -42,8 +42,12 @@ def test_save_setup_config_merges_sections(tmp_path: Path) -> None:
     user_path.write_text(
         json.dumps(
             {
-                "secrets": {"openai_api_key": "sk-old"},
-                "model": {"model": "old-model", "base_url": "http://keep"},
+                "secrets": {"llm": {"openai": {"api_key": "sk-old"}}},
+                "llm": {
+                    "providers": {"openai": {"base_url": "http://keep"}},
+                    "models": {"primary": {"model": "old-model"}},
+                    "roles": {"default": "primary"},
+                },
             }
         ),
         encoding="utf-8",
@@ -55,15 +59,15 @@ def test_save_setup_config_merges_sections(tmp_path: Path) -> None:
     save_setup_config(
         {
             "secrets": {"tavily_api_key": "tv-key"},
-            "model": {"model": "gpt-4o"},
+            "llm": {"models": {"primary": {"model": "gpt-4o"}}},
         }
     )
 
     data = json.loads(user_path.read_text(encoding="utf-8"))
-    assert data["secrets"]["openai_api_key"] == "sk-old"
+    assert data["secrets"]["llm"]["openai"]["api_key"] == "sk-old"
     assert data["secrets"]["tavily_api_key"] == "tv-key"
-    assert data["model"]["model"] == "gpt-4o"
-    assert data["model"]["base_url"] == "http://keep"
+    assert data["llm"]["models"]["primary"]["model"] == "gpt-4o"
+    assert data["llm"]["providers"]["openai"]["base_url"] == "http://keep"
 
 
 def test_save_setup_config_applies_reload_and_secrets(tmp_path: Path) -> None:
@@ -78,7 +82,9 @@ def test_save_setup_config_applies_reload_and_secrets(tmp_path: Path) -> None:
         ) as secrets_mock,
         patch.object(setup_wizard, "_apply_saved_config", wraps=setup_wizard._apply_saved_config) as apply_mock,
     ):
-        setup_wizard.save_setup_config({"secrets": {"openai_api_key": "sk-new"}})
+        setup_wizard.save_setup_config(
+            {"secrets": {"llm": {"openai": {"api_key": "sk-new"}}}}
+        )
 
     assert user_path.exists()
     reload_mock.assert_called_once()
@@ -146,7 +152,10 @@ def test_run_interactive_setup_saves_config(tmp_path: Path) -> None:
 
 
 def test_apply_saved_config_reloads_config_and_secrets(tmp_path: Path) -> None:
-    install_test_config(tmp_path, {"secrets": {"openai_api_key": "sk-x"}})
+    install_test_config(
+        tmp_path,
+        {"secrets": {"llm": {"openai": {"api_key": "sk-x"}}}},
+    )
 
     with (
         patch("miniagent.assistant.engine.setup_wizard.reload_config") as reload_mock,

@@ -1,6 +1,6 @@
 """记忆子系统（跨会话持久化、检索与分层摘要）
 
-与 ``UnifiedEngine`` 内按会话维护的 ``conversation_history`` 不同：本包提供 **可写入磁盘的
+与 ``AssistantTurnService`` 内按会话维护的 ``conversation_history`` 不同：本包提供 **可写入磁盘的
 长期记忆、活动日志、关键词索引** 以及 **归档 / 分层长期记忆 / 周期精炼**（见同包内
 ``history_archive``、``history_bridge``、``layered_memory``、``memory_pipeline``、
 ``dream_scheduler``；它们由引擎在适当时机调用，不必经本 ``__all__`` 再导出）。

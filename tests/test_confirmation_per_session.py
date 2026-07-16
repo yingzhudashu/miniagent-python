@@ -12,12 +12,12 @@ from miniagent.agent.types.confirmation import (
     ConfirmationResult,
     ConfirmationStage,
 )
-from miniagent.assistant.engine.engine import UnifiedEngine
+from miniagent.assistant.engine.turn_service import AssistantTurnService
 
 
 @pytest.mark.asyncio
 async def test_two_sessions_pending_independently() -> None:
-    engine = UnifiedEngine()
+    engine = AssistantTurnService()
     c1 = engine.get_confirmation_channel("session_a")
     c2 = engine.get_confirmation_channel("session_b")
     assert c1 is not c2
@@ -51,7 +51,7 @@ def test_resolve_feishu_confirmation_channel_routes_by_session() -> None:
 
     from miniagent.assistant.feishu import poll_server as ps
 
-    engine = UnifiedEngine()
+    engine = AssistantTurnService()
     router = MagicMock()
     router.resolve_feishu_message.side_effect = (
         lambda cid, sid, ct: f"feishu:{cid}"

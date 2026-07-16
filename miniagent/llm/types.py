@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, runtime_checkable
 
 LLMRole = Literal["default", "reasoning", "fast", "vision"]
-LegacyWireAPI = Literal["chat_completions", "responses"]
+OpenAIWireAPI = Literal["chat_completions", "responses"]
 WireAPI = Literal[
     "openai_chat",
     "openai_responses",
@@ -215,7 +215,7 @@ __all__ = [
     "LLMFunctionCall",
     "LLMProvider",
     "LLMRole",
-    "LegacyWireAPI",
+    "OpenAIWireAPI",
     "LLMStreamEvent",
     "LLMToolCall",
     "LLMToolCallDelta",

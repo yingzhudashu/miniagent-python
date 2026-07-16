@@ -12,17 +12,16 @@ import pytest
 from miniagent.agent.execution_prompts import build_current_turn_user_context
 from miniagent.agent.execution_stream import StreamingBuffer
 from miniagent.agent.types.tool import ToolContext
-from miniagent.assistant.engine.commands.help_commands import _md_escape_cell
 from miniagent.assistant.engine.commands.instance_commands import handle_instance
+from miniagent.assistant.engine.commands.markdown import escape_markdown_cell
 from miniagent.assistant.engine.commands.runtime_commands import _capture_call, _respond
-from miniagent.assistant.infrastructure import persistence
 from miniagent.assistant.infrastructure.json_config import (
     _compatible_config_type,
     _validate_user_keys,
 )
 from miniagent.assistant.infrastructure.persistence import (
-    StateMigrationError,
     StateSchema,
+    StateSchemaError,
     load_state_file,
 )
 from miniagent.assistant.tools import exec as exec_module
@@ -68,20 +67,15 @@ def test_config_type_and_object_conflict_validation() -> None:
         _validate_user_keys({"nested": {"enabled": True}}, {"nested": "bad"})
 
 
-def test_state_schema_rejects_invalid_migration_and_load_shape(tmp_path: Path) -> None:
-    schema = StateSchema(name="bad", current_version=1, migrations={0: lambda _doc: []})  # type: ignore[dict-item]
-    with pytest.raises(StateMigrationError, match="返回了非对象"):
-        schema.migrate({})
+def test_state_schema_rejects_invalid_current_shape(tmp_path: Path) -> None:
+    schema = StateSchema(name="bad", current_version=1)
+    with pytest.raises(StateSchemaError, match="schema_version"):
+        schema.validate({})
 
     path = tmp_path / "state.json"
     path.write_text("[]", encoding="utf-8")
-    with pytest.raises(StateMigrationError, match="顶层必须是 JSON 对象"):
+    with pytest.raises(StateSchemaError, match="顶层必须是 JSON 对象"):
         load_state_file("session_config", path)
-
-    with pytest.MonkeyPatch.context() as monkeypatch:
-        monkeypatch.setattr(persistence, "migrate_state_file", lambda *_args, **_kwargs: None)
-        with pytest.raises(StateMigrationError, match="顶层必须是 JSON 对象"):
-            load_state_file("session_config", path)
 
 
 @pytest.mark.asyncio
@@ -98,7 +92,7 @@ async def test_runtime_response_capture_and_instance_print(monkeypatch: pytest.M
     result = await handle_instance("/instance list", state={}, capture=False)
     assert result is None
     assert "instances" in capsys.readouterr().out
-    assert _md_escape_cell(" a|b\r\nc ") == "a\\|b c"
+    assert escape_markdown_cell(" a|b\r\nc ") == "a\\|b c"
 
 
 @pytest.mark.asyncio

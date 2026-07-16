@@ -7,10 +7,9 @@ import base64
 import logging
 import os
 from pathlib import Path
-from typing import Any
 
 from miniagent.agent.constants import FEISHU_VISION_MAX_BYTES
-from miniagent.llm.legacy_transport import create_completion
+from miniagent.llm.gateway import LLMGateway
 
 _logger = logging.getLogger(__name__)
 
@@ -45,8 +44,7 @@ def _image_mime_hint(file_path: str) -> str:
 
 async def describe_image(
     file_path: str,
-    client: Any,
-    model: str,
+    client: LLMGateway,
     *,
     prompt: str = "请简洁描述这张图片的内容，不超过 150 字。",
 ) -> str:
@@ -54,8 +52,7 @@ async def describe_image(
 
     Args:
         file_path: 图片文件路径
-        client: OpenAI 异步客户端
-        model: 要使用的模型名（用户配置的 MINIAGENT_MODEL_MODEL）
+        client: 应用持有的 LLM Gateway
         prompt: 描述提示词
 
     Returns:
@@ -75,9 +72,12 @@ async def describe_image(
         )
         data_uri = f"data:{mime};base64,{b64}"
 
-        resp = await create_completion(
-            client,
-            params={"model": model, "max_tokens": 500, "_role": "vision"},
+        descriptor = client.model_for_role("vision")
+        if not descriptor.capabilities.vision:
+            return ""
+        resp = await client.create_completion(
+            role="vision",
+            params={"max_tokens": 500},
             messages=[
                 {
                     "role": "user",
@@ -95,7 +95,7 @@ async def describe_image(
     except Exception as e:
         err_str = str(e).lower()
         if any(kw in err_str for kw in _VISION_UNSUPPORTED_KEYWORDS):
-            _logger.info("模型 %s 不支持视觉理解: %s", model, e)
+            _logger.info("视觉模型不支持图片理解: %s", e)
             return ""
         _logger.warning("图片描述生成失败: %s", e)
         return ""

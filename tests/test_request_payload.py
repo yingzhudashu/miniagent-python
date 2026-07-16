@@ -1,10 +1,10 @@
-"""``miniagent.agent.request_payload`` 单元测试（非 perf）。"""
+"""Test-only request payload workload tests."""
 
 from __future__ import annotations
 
 import pytest
 
-from miniagent.agent.request_payload import serialize_exec_payload_sample
+from tests.request_payload_helper import serialize_exec_payload_sample
 
 
 def _minimal_tools() -> list[dict]:

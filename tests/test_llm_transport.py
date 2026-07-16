@@ -7,34 +7,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.llm.legacy_transport import (
+from miniagent.llm.providers.openai_transport import (
     LLMTransportError,
-    classify_transport_error,
     create_completion,
-    create_structured_completion,
     messages_to_responses_input,
-    resolve_model_max_output_tokens,
-    resolve_wire_api,
     stream_completion,
     tools_to_responses,
 )
-
-
-def test_gateway_role_metadata_overrides_legacy_wire_defaults() -> None:
-    class Gateway:
-        _miniagent_llm_gateway = True
-
-        @staticmethod
-        def model_for_role(role: str) -> SimpleNamespace:
-            assert role == "reasoning"
-            return SimpleNamespace(api="openai_responses", max_output_tokens=128000)
-
-    gateway = Gateway()
-    assert resolve_wire_api(client=gateway, role="reasoning") == "responses"
-    assert (
-        resolve_model_max_output_tokens(gateway, role="reasoning", fallback=4096)
-        == 128000
-    )
+from miniagent.llm.recovery import classify_transport_error
 
 
 @pytest.mark.parametrize(
@@ -661,131 +641,6 @@ async def test_stream_completion_responses_uses_done_text_without_duplicates(
 
     assert "".join(event.content_delta or "" for event in normalized) == "done-only"
     assert normalized[-1].completed is True
-
-
-@pytest.mark.asyncio
-async def test_structured_completion_responses_streams_and_preserves_metadata() -> None:
-    usage = SimpleNamespace(output_tokens=9)
-
-    async def events():
-        yield SimpleNamespace(
-            type="response.output_item.added",
-            output_index=0,
-            item=SimpleNamespace(type="reasoning", id="reasoning-1"),
-        )
-        yield SimpleNamespace(
-            type="response.output_text.done",
-            output_index=1,
-            content_index=0,
-            text='{"ok":true}',
-        )
-        yield SimpleNamespace(
-            type="response.completed",
-            response=SimpleNamespace(
-                status="completed",
-                output=[
-                    SimpleNamespace(type="reasoning"),
-                    SimpleNamespace(type="message"),
-                ],
-                usage=usage,
-                model="response-model",
-            ),
-        )
-
-    client = MagicMock()
-    client.responses.create = AsyncMock(return_value=events())
-    result = await create_structured_completion(
-        client,
-        messages=[{"role": "user", "content": "json"}],
-        params={"model": "response-model", "_thinking_level": "disabled"},
-        wire_api="responses",
-    )
-
-    assert result.content == '{"ok":true}'
-    assert result.status == "completed"
-    assert result.output_item_types == ("reasoning", "message")
-    assert result.usage is usage
-    kwargs = client.responses.create.await_args.kwargs
-    assert kwargs["stream"] is True
-    assert kwargs["reasoning"] == {"effort": "low"}
-
-
-@pytest.mark.asyncio
-async def test_structured_completion_chat_keeps_json_object_contract() -> None:
-    client = MagicMock()
-    client.chat.completions.create = AsyncMock(
-        return_value=SimpleNamespace(
-            choices=[
-                SimpleNamespace(
-                    message=SimpleNamespace(content='{"ok":true}', tool_calls=[]),
-                    finish_reason="stop",
-                )
-            ],
-            usage=None,
-            model="chat-model",
-        )
-    )
-
-    result = await create_structured_completion(
-        client,
-        messages=[{"role": "user", "content": "json"}],
-        params={"model": "chat-model"},
-        wire_api="chat_completions",
-    )
-
-    assert result.content == '{"ok":true}'
-    kwargs = client.chat.completions.create.await_args.kwargs
-    assert kwargs["stream"] is False
-    assert kwargs["response_format"] == {"type": "json_object"}
-
-
-@pytest.mark.asyncio
-async def test_structured_completion_preserves_incomplete_stream_metadata() -> None:
-    async def events():
-        yield SimpleNamespace(
-            type="response.incomplete",
-            response=SimpleNamespace(
-                output=[SimpleNamespace(type="reasoning")],
-                incomplete_details=SimpleNamespace(reason="max_output_tokens"),
-                usage=None,
-                model="response-model",
-            ),
-        )
-
-    client = MagicMock()
-    client.responses.create = AsyncMock(return_value=events())
-    result = await create_structured_completion(
-        client,
-        messages=[{"role": "user", "content": "json"}],
-        params={"model": "response-model"},
-        wire_api="responses",
-    )
-
-    assert result.content is None
-    assert result.status == "incomplete"
-    assert result.output_item_types == ("reasoning",)
-    assert result.incomplete_reason == "max_output_tokens"
-
-
-@pytest.mark.asyncio
-async def test_structured_completion_failed_stream_is_sanitized() -> None:
-    async def events():
-        yield SimpleNamespace(
-            type="response.failed",
-            response=SimpleNamespace(error=SimpleNamespace(message="secret raw error")),
-        )
-
-    client = MagicMock()
-    client.responses.create = AsyncMock(return_value=events())
-    with pytest.raises(LLMTransportError, match="failed before completion") as caught:
-        await create_structured_completion(
-            client,
-            messages=[{"role": "user", "content": "json"}],
-            params={"model": "response-model"},
-            wire_api="responses",
-        )
-
-    assert "secret raw error" not in str(caught.value)
 
 
 @pytest.mark.asyncio

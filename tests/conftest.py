@@ -36,16 +36,20 @@ def _isolate_json_config_from_user_file(request: pytest.FixtureRequest, tmp_path
 
     from miniagent.assistant.infrastructure import json_config
 
-    previous = json_config._config_loader
+    previous = json_config.get_configuration_service()
     user_path = tmp_path / "default-user-config.json"
     user_path.write_text(json.dumps({}), encoding="utf-8")
     json_config.install_config_loader(
         json_config.JsonConfigLoader(defaults_path=None, user_path=str(user_path))
     )
+    from miniagent.agent.settings import _CURRENT_SETTINGS, AgentSettings
+
+    token = _CURRENT_SETTINGS.set(AgentSettings(json_config.get_config_snapshot()))
     try:
         yield
     finally:
-        json_config.install_config_loader(previous)
+        _CURRENT_SETTINGS.reset(token)
+        json_config.install_configuration_service(previous)
 
 
 @pytest.fixture()

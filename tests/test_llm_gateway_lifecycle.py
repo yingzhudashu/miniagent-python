@@ -36,7 +36,7 @@ def _minimal_container(gateway: object | None) -> ApplicationContainer:
 async def test_reload_atomically_replaces_and_retires_gateway(tmp_path) -> None:
     from miniagent.assistant.infrastructure.json_config import reload_runtime_config
 
-    install_test_config(tmp_path, {"model": {"model": "new-model"}})
+    install_test_config(tmp_path, {"llm": {"models": {"primary": {"model": "new-model"}}}})
     previous = MagicMock()
     replacement = MagicMock()
     container = _minimal_container(previous)
@@ -55,7 +55,9 @@ async def test_reload_invalid_json_preserves_gateway(tmp_path) -> None:
         reload_runtime_config,
     )
 
-    install_test_config(tmp_path, {"model": {"model": "working-model"}})
+    install_test_config(
+        tmp_path, {"llm": {"models": {"primary": {"model": "working-model"}}}}
+    )
     previous = MagicMock()
     container = _minimal_container(previous)
     get_config_paths()[1].write_text("{invalid", encoding="utf-8")

@@ -15,7 +15,7 @@ from miniagent.assistant.infrastructure.json_config import get_config
 
 _logger = get_logger(__name__)
 
-# 与 UnifiedEngine._tool_finish 输出对齐的占位符（幂等检测用）
+# 与 AssistantTurnService._tool_finish 输出对齐的占位符（幂等检测用）
 TOOL_OUTPUT_REDACTED_PLACEHOLDER = "（工具输出已压缩；完整内容见会话日记或 read_session_diary。）"
 STEP_BODY_REDACTED_MARKER = "（本步骤推理与工具细节已压缩；结论见助手回复。）"
 TURN_THINKING_REDACTED_MARKER = "（本轮思考与中间步骤已压缩。）"

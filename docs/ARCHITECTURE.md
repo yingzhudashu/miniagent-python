@@ -36,7 +36,7 @@ Mini Agent Python 的 **Agent 问答流水线**为 Phase 0 分类 → Phase 0.5 
                       ↓
         ┌─────── 引擎层 (Engine) ─────┐
         │  main.py: 生命周期管理       │
-        │  engine.py: UnifiedEngine   │
+        │  engine.py: AssistantTurnService   │
         │  command_dispatch.py: 命令  │
         │  message_queue: 消息调度    │
         └─────────────┬───────────────┘
@@ -81,11 +81,11 @@ Mini Agent Python 的 **Agent 问答流水线**为 Phase 0 分类 → Phase 0.5 
 - **配置层级**：`miniagent/assistant/resources/config.defaults.json`（随 wheel 发布）→ `config.user.json`（用户覆盖）。用户配置项**不支持** `MINIAGENT_*` 覆盖 defaults；运维/调试类 env 见 [ENGINEERING.md](ENGINEERING.md) §1.2。
 - **敏感凭据**：API 密钥等放在 `config.user.json` 的 `secrets` 部分，由 [`env_loader.py`](../miniagent/assistant/infrastructure/env_loader.py) 桥接到 `OPENAI_API_KEY` 等 SDK 环境变量（非用户配置入口）。
 - **配置加载**：[`JsonConfigLoader`](../miniagent/assistant/infrastructure/json_config.py) 统一管理；[`get_config`](../miniagent/assistant/infrastructure/json_config.py) 支持点路径访问。Internal 常量见 [`core/constants.py`](../miniagent/agent/constants.py)。
-- **模型传输**：`model.wire_api` 显式选择 `chat_completions`（默认）或 `responses`；`model.user_agent` 仅覆盖 SDK 的 User-Agent，不允许注入任意认证头。两种协议由统一 transport 归一化为文本、工具调用、usage、结束状态与流事件。分类、澄清、规划和反思等结构化 JSON 请求在 Responses 下从首次调用即使用流式聚合；Chat 继续使用非流式 `json_object`。
+- **模型传输**：`llm.models.<profile>.api` 显式选择 Chat、Responses、Anthropic 或 Google 协议，`llm.roles` 完成分类、规划、执行和视觉路由。统一 Gateway 将它们归一化为文本、工具调用、usage、结束状态与流事件。
 - **Responses 控制链恢复**：分类器、`llm_json` 与规划器共享状态、空响应和错误分类。第二次请求保持 reasoning 并移除采样参数；第三次分类/澄清/反思使用 low，规划使用 medium。只有 `incomplete_reason` 明确表示输出 token 耗尽时才扩大预算；确定性鉴权/模型错误不重试。分类最终降级、`llm_json` 最终异常和 planner fallback 的公开语义不变。
 - **Responses 执行恢复**：执行器首次流式请求保持原参数；只有在尚未产生任何文本或工具调用时，才对网关泛化 400、429、5xx 或 completed-empty 做最多两次恢复。恢复请求移除采样参数，最后一次使用 medium；出现部分文本或工具调用后禁止自动重试，避免重复展示或重复动作。统一 transport 同时兼容仅发送 `response.output_text.done`、不发送 delta 的网关流。
 - **嵌入调用**：可调用 [`create_application_container`](../miniagent/assistant/bootstrap/entrypoint.py) 构造依赖，再 `await run_runtime(container)`；调用前须加载 secrets。
-- **任务难度预分类与规划可见输出**：Internal 常量 `EXECUTION_TASK_CLASSIFIER_ENABLED`（默认开启）；关闭则始终走完整规划。当 Internal 常量 `EXECUTION_ANNOUNCE_DIFFICULTY` 为真且存在 `on_thinking` 时，[`run_agent`](../miniagent/agent/agent.py) 将「评估中 → 难度结论 → 执行计划」合并为**同一条**流式思考，统一 header 为 **`[评估与计划]`**；展示为精简 Markdown，完整难度/计划正文经可选关键字参数 **`full_record`** 由 [`UnifiedEngine`](../miniagent/assistant/engine/engine.py) 写入会话 `thinking` 历史。飞书侧由 `ThinkingDisplay` + `push_feishu_thinking_stream` PATCH 同一张交互卡；进入执行阶段时若 header 切换，则 **`finalize_only`** 收尾当前卡再开新段（见 [`thinking.py`](../miniagent/assistant/engine/thinking.py) / [`engine._feishu_send`](../miniagent/assistant/engine/engine.py)）。`EXECUTION_ANNOUNCE_DIFFICULTY=false`（Internal，见 `constants.py`）可关闭上述规划段推送。
+- **任务难度预分类与规划可见输出**：Internal 常量 `EXECUTION_TASK_CLASSIFIER_ENABLED`（默认开启）；关闭则始终走完整规划。当 Internal 常量 `EXECUTION_ANNOUNCE_DIFFICULTY` 为真且存在 `on_thinking` 时，[`run_agent`](../miniagent/agent/agent.py) 将「评估中 → 难度结论 → 执行计划」合并为**同一条**流式思考，统一 header 为 **`[评估与计划]`**；展示为精简 Markdown，完整难度/计划正文经可选关键字参数 **`full_record`** 由 [`AssistantTurnService`](../miniagent/assistant/engine/turn_service.py) 写入会话 `thinking` 历史。飞书侧由 `ThinkingDisplay` + `push_feishu_thinking_stream` PATCH 同一张交互卡；进入执行阶段时若 header 切换，则 **`finalize_only`** 收尾当前卡再开新段（见 [`thinking.py`](../miniagent/assistant/engine/thinking.py) / [`engine._feishu_send`](../miniagent/assistant/engine/turn_service.py)）。`EXECUTION_ANNOUNCE_DIFFICULTY=false`（Internal，见 `constants.py`）可关闭上述规划段推送。
 - **分步执行**：Internal 常量 `PHASED_EXECUTION`（默认开启）、`STEP_MAX_TURNS`（默认 **48**）、`AGENT_MAX_TURNS`（默认 **400**，用户可在 `agent.max_turns` 覆盖）。若最后一步在单步子轮次内未以无工具回复结束，且全局轮数仍有余量，执行器会先追加一轮不传 tools 的收尾 synthesis；若全局轮数也已用尽或收尾仍异常，则返回**专用说明**。执行阶段 `on_thinking` 的合并 header 为 **`[执行]`**（单循环）或 **`[步骤 i/n]` + 描述摘要**（分步）。
 - **Phase 3 反思评估**：`features.reflection` 默认开启；设为 `false` 可关闭。执行完成后，[`run_agent`](../miniagent/agent/agent.py) 调用 [`reflect_on_result`](../miniagent/agent/problem_solver.py) 对回复做自我反驳式审查。`on_thinking=None` 确保反思过程不产生额外的思考步骤。
 - **思考深度与供应商**：[`resolve_exec_completion_kwargs`](../miniagent/agent/llm_params.py) / [`resolve_planner_completion_kwargs`](../miniagent/agent/llm_params.py) 合并 `model.thinking_level` / `model.thinking_budget`；DashScope/Qwen 兼容 `base_url` 时通过 [`build_thinking_extra_body`](../miniagent/agent/vendor/qwen_extra.py) 注入 `extra_body`。`model.max_tokens` 覆盖输出 token 上限。
@@ -111,15 +111,15 @@ Mini Agent Python 的 **Agent 问答流水线**为 Phase 0 分类 → Phase 0.5 
 |------|------|
 | `main.py` | 进程编排：实例注册、信号、子系统初始化、生命周期启动与 `finally` 统一关停 |
 | `cli_tui.py` | 全屏 CLI 公共入口、TTY/fallback 判定、视口模型与输入命令分派 |
-| `cli_tui_app.py` | `_TuiApplication` owner：布局、输入、transcript、输出接线与幂等关闭 |
+| `cli_tui_app.py` | `AssistantTuiApplication(TuiApp)`：产品 actions 与可复用 UI 的生产接线 |
 | `cli_tui_*` | 控件、按键、输出、历史/transcript 与单轮输入处理组件 |
 | `cli_fallback.py` | 无 TTY/prompt_toolkit 时的行式 CLI，复用同一入站、出站和会话协调契约 |
 | `cli_history.py` | TUI/readline 共用历史文件与会话 user 消息预加载 |
 | `cli_files.py` | `@file:` / `file:` 解析、文件元数据和记忆摄取 |
 | `cli_shell.py` | `!` shell 命令执行与结果格式化 |
-| `engine.py` | `UnifiedEngine`：会话上下文管理、Agent 编排、思考回调、历史持久化 |
+| `engine.py` | `AssistantTurnService`：会话上下文管理、Agent 编排、思考回调、历史持久化 |
 | `command_dispatch.py` | 统一命令调度器：CLI 和飞书共享 `/` 命令（支持双前缀），输出捕获（StringIO） |
-| `cli_commands.py` | CLI 命令实现：/session, /instance, /queue, /help, /copy（全屏）等 |
+| `commands/` | CLI 命令按 session、queue、knowledge、schedule 等领域由单一模块拥有 |
 | `background_tasks.py` | `BackgroundTaskManager`：后台任务生命周期管理、并行上限控制 |
 | `btw_cmd.py` | /btw 命令实现：启动、查询、取消后台任务 |
 | `doctor.py` | 环境诊断：Python 版本、依赖、配置检查 |
@@ -400,7 +400,7 @@ LLM 可通过 function calling 调用的工具：
 | `feishu_bitable_tools.py` | 飞书多维表格操作（get_meta/list_fields/list_records/create_record 等） |
 | `feishu_card_tools.py` | 飞书卡片消息更新（update_message_card） |
 
-**run_dot_command 与进程状态**：[`UnifiedEngine.run_agent_with_thinking`](../miniagent/assistant/engine/engine.py) 将共享 [`CliLoopState`](../miniagent/assistant/engine/cli_state.py) 写入 `AgentConfig.feishu_config.cli_loop_state`，[`execute_plan`](../miniagent/agent/executor.py) 再注入 `ToolContext`。飞书入站路径下默认 `cli_dispatch_allow_mutations=False`（与飞书里直接发 `/session` / `/schedule` 变异一致）；**`feishu.dot_commands_full=true`** 时为 True，与 CLI 同等。若嵌入代码只调用 [`run_agent`](../miniagent/agent/agent.py) 而不经 `run_agent_with_thinking`，需在 `agent_config.feishu_config` 中自行传入 `cli_loop_state`（及按需的 `cli_dispatch_allow_mutations`），否则工具会返回不可用说明。注册开关：**`cli.dot_tools_enabled`**（默认开启，`false` 跳过注册，见包内 defaults）。
+**run_dot_command 与进程状态**：[`AssistantTurnService.run_agent_with_thinking`](../miniagent/assistant/engine/turn_service.py) 将共享 [`CliLoopState`](../miniagent/assistant/engine/cli_state.py) 写入 `AgentConfig.feishu_config.cli_loop_state`，[`execute_plan`](../miniagent/agent/executor.py) 再注入 `ToolContext`。飞书入站路径下默认 `cli_dispatch_allow_mutations=False`（与飞书里直接发 `/session` / `/schedule` 变异一致）；**`feishu.dot_commands_full=true`** 时为 True，与 CLI 同等。若嵌入代码只调用 [`run_agent`](../miniagent/agent/agent.py) 而不经 `run_agent_with_thinking`，需在 `agent_config.feishu_config` 中自行传入 `cli_loop_state`（及按需的 `cli_dispatch_allow_mutations`），否则工具会返回不可用说明。注册开关：**`cli.dot_tools_enabled`**（默认开启，`false` 跳过注册，见包内 defaults）。
 
 ### 8b. MCP（可选）
 
@@ -530,7 +530,7 @@ _format_status(state, message_queue)
 
 ## 定时任务子系统
 
-与「记忆层 `dream_scheduler`」不同，本节的 **定时任务**指用户配置的 **周期性/一次性 Agent 回合**：任务定义持久化在磁盘，由进程内后台循环触发，经与聊天相同的 **消息队列** 进入 `UnifiedEngine.run_agent_with_thinking`。
+与「记忆层 `dream_scheduler`」不同，本节的 **定时任务**指用户配置的 **周期性/一次性 Agent 回合**：任务定义持久化在磁盘，由进程内后台循环触发，经与聊天相同的 **消息队列** 进入 `AssistantTurnService.run_agent_with_thinking`。
 
 ### 持久化与路径
 
@@ -542,7 +542,7 @@ _format_status(state, message_queue)
 1. **启动**：[`runtime_services.py`](../miniagent/assistant/bootstrap/runtime_services.py) 将 [`start_scheduled_tasks_ticker`](../miniagent/assistant/scheduled_tasks/ticker.py) 包装为 `AsyncTaskLifecycleService`；task 与 stop event 仅由 service 持有。
 2. **Ticker**：[`tick_once`](../miniagent/assistant/scheduled_tasks/ticker.py) 在取得 `scheduler.lock` 后 `load_tasks()`，经 `repair_invalid_schedules` 补齐/校验 cron；对到期任务先取 `job_<id>.lock` 再投递协程；同进程 `_inflight` 防重入；每 tick 最多 `_MAX_DUE_PER_TICK` 条。
 3. **Runner**：[`build_scheduled_job`](../miniagent/assistant/scheduled_tasks/runner.py) 经 [`resolve_execution_target`](../miniagent/assistant/scheduled_tasks/resolve.py) 与 [`resolve_feishu_delivery`](../miniagent/assistant/scheduled_tasks/feishu_delivery.py) 解析 `session_key`、队列键和飞书目标，构造 `InboundMessage(channel="scheduler")`；ticker 通过 `InboundTurnCoordinator(wait=True)` 投递，飞书结果只经注册的 `FeishuChannelAdapter` 发送。
-4. **用户入口**：终端与 CLI 侧 **`/schedule`** 子命令（`every` / `once` / **`cron`** 五段表达式，实现见 [`cli_commands.py`](../miniagent/assistant/engine/cli_commands.py)）；Agent 可选 **`manage_scheduled_task`**（含 `add_cron`，[`schedule_tools.py`](../miniagent/assistant/tools/schedule_tools.py)）；下一触发时间由 [`cron.py`](../miniagent/assistant/scheduled_tasks/cron.py) + **croniter** 计算。
+4. **用户入口**：终端与 CLI 侧 **`/schedule`** 子命令（`every` / `once` / **`cron`** 五段表达式，实现见 [`schedule_commands.py`](../miniagent/assistant/engine/commands/schedule_commands.py)）；Agent 可选 **`manage_scheduled_task`**（含 `add_cron`，[`schedule_tools.py`](../miniagent/assistant/tools/schedule_tools.py)）；下一触发时间由 [`cron.py`](../miniagent/assistant/scheduled_tasks/cron.py) + **croniter** 计算。
 5. **并发**：`scheduler.lock`（tick）+ `job_<id>.lock`（执行）+ `tasks.json.lock`（读写）；dispatch 失败时 `next_run_at` 默认退避 60s，可由 **`scheduled_tasks.dispatch_backoff`** 覆盖（见 [`store.py`](../miniagent/assistant/scheduled_tasks/store.py) 与包内 defaults）。
 
 ### 配置项（JSON）
@@ -568,14 +568,14 @@ flowchart LR
   tasksJson[tasks_json]
   ticker[Ticker_tick_once]
   runner[Runner_build_job]
-  engineNode[UnifiedEngine]
+  engineNode[AssistantTurnService]
   mq[MessageQueue]
   tasksJson --> ticker
   ticker --> runner
   runner --> inbound[InboundMessage]
   inbound --> coordinator[InboundTurnCoordinator_wait]
   coordinator --> mq[MessageQueue]
-  mq --> engineNode[UnifiedEngine]
+  mq --> engineNode[AssistantTurnService]
 ```
 
 ## 关键设计决策

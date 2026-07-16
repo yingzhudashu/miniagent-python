@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import patch
 
 import pytest
@@ -12,18 +11,6 @@ from miniagent.assistant.infrastructure.message_queue import QueueMode
 
 
 def _run_entrypoint_with_mock_runtime(*, queue_mode: str | None = None) -> ApplicationContainer:
-    captured: dict[str, ApplicationContainer] = {}
-
-    async def fake_run_runtime(container: ApplicationContainer) -> None:
-        captured["container"] = container
-
-    def run_coroutine(coro: object) -> None:
-        loop = asyncio.new_event_loop()
-        try:
-            loop.run_until_complete(coro)  # type: ignore[arg-type]
-        finally:
-            loop.close()
-
     from miniagent.assistant.infrastructure import json_config as config_module
 
     real_get_config = config_module.get_config
@@ -33,18 +20,10 @@ def _run_entrypoint_with_mock_runtime(*, queue_mode: str | None = None) -> Appli
             return queue_mode
         return real_get_config(key, default)
 
-    with (
-        patch("miniagent.assistant.engine.main.run_runtime", fake_run_runtime),
-        patch("asyncio.run", run_coroutine),
-        patch("miniagent.assistant.engine.setup_wizard.run_interactive_setup"),
-        patch("miniagent.assistant.infrastructure.env_loader.load_secrets_from_project_root"),
-        patch.object(config_module, "get_config", side_effect=get_config),
-    ):
-        from miniagent.assistant.bootstrap.entrypoint import run_application
+    with patch.object(config_module, "get_config", side_effect=get_config):
+        from miniagent.assistant.bootstrap.entrypoint import create_application_container
 
-        run_application()
-
-    return captured["container"]
+        return create_application_container()
 
 
 def test_entrypoint_builds_complete_application_container(

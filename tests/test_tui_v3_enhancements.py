@@ -9,9 +9,9 @@ import pytest
 
 from miniagent.assistant.engine.model_cmd import get_current_model, switch_model_profile
 from miniagent.llm.types import ModelCapabilities, ModelDescriptor
+from miniagent.ui import TuiApp, TuiSnapshot
 from miniagent.ui.cli.components import footer_text
 from miniagent.ui.cli.keybindings import resolve_tui_keybindings
-from miniagent.ui.cli.state import TuiViewState
 from tests.config_helpers import install_test_config
 
 
@@ -36,7 +36,7 @@ def test_footer_sheds_fields_for_narrow_terminals() -> None:
         llm_gateway=SimpleNamespace(model_for_role=lambda _role: model)
     )
     state = {"active_session_id": "personal", "session_manager": None}
-    view = TuiViewState(status="就绪")
+    view = TuiSnapshot(status="就绪")
     wide = footer_text(ctx, state, view, 120)
     narrow = footer_text(ctx, state, view, 28)
     assert "openai/answer-model" in wide
@@ -45,7 +45,7 @@ def test_footer_sheds_fields_for_narrow_terminals() -> None:
 
 
 def test_reasoning_visibility_is_explicit_state() -> None:
-    view = TuiViewState()
+    view = TuiApp(SimpleNamespace(), TuiSnapshot())
     assert view.reasoning_expanded is True
     assert view.toggle_reasoning() is False
 

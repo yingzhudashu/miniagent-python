@@ -18,12 +18,7 @@ from __future__ import annotations
 
 from miniagent.agent.ports.knowledge import KnowledgeRegistryProtocol
 from miniagent.agent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
-
-
-def _md_escape_cell(text: str) -> str:
-    """Markdown 表格单元格：去掉换行并转义管道符。"""
-    s = (text or "").replace("\r\n", "\n").replace("\r", "\n")
-    return s.replace("|", "\\|").replace("\n", " ").strip()
+from miniagent.assistant.engine.commands.markdown import escape_markdown_cell
 
 
 def format_kb_command_usage() -> str:
@@ -66,8 +61,8 @@ def cmd_kb_list(registry: KnowledgeRegistryProtocol, *, markdown: bool = False) 
             "| --- | --- | --- | --- |",
         ]
         for kb in kb_list:
-            name = _md_escape_cell(str(kb["name"]))
-            path = _md_escape_cell(str(kb["path"]))
+            name = escape_markdown_cell(str(kb["name"]))
+            path = escape_markdown_cell(str(kb["path"]))
             lines.append(
                 f"| {name} | {kb['entries']} | {kb['keywords']} | `{path}` |"
             )

@@ -15,6 +15,7 @@ TuiEventKind = Literal[
     "copy",
     "resize",
 ]
+TuiTheme = Literal["auto", "dark", "light"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +38,15 @@ class TuiSnapshot:
     context_window: int = 0
     provider: str = ""
     model: str = ""
+    theme: TuiTheme = "auto"
+    input_mode: str = "single-turn"
+
+
+@dataclass(frozen=True, slots=True)
+class TuiUpdate:
+    """Explicit partial state update emitted by an Assistant adapter."""
+
+    changes: dict[str, Any]
 
 
 @runtime_checkable
@@ -65,9 +75,23 @@ class TuiApp:
     def publish(self, snapshot: TuiSnapshot) -> None:
         self._snapshot = snapshot
 
+    def apply(self, update: TuiUpdate) -> TuiSnapshot:
+        return self.update(**update.changes)
+
     def update(self, **changes: Any) -> TuiSnapshot:
         self._snapshot = replace(self._snapshot, **changes)
         return self._snapshot
+
+    def toggle_reasoning(self) -> bool:
+        value = not self._snapshot.reasoning_expanded
+        self.update(reasoning_expanded=value)
+        return value
+
+    def __getattr__(self, name: str) -> Any:
+        snapshot = self.__dict__.get("_snapshot")
+        if snapshot is not None and hasattr(snapshot, name):
+            return getattr(snapshot, name)
+        raise AttributeError(name)
 
     async def dispatch(self, event: TuiEvent) -> None:
         if event.kind == "resize":
@@ -84,4 +108,12 @@ class TuiApp:
             await result
 
 
-__all__ = ["TuiActions", "TuiApp", "TuiEvent", "TuiEventKind", "TuiSnapshot"]
+__all__ = [
+    "TuiActions",
+    "TuiApp",
+    "TuiEvent",
+    "TuiEventKind",
+    "TuiSnapshot",
+    "TuiTheme",
+    "TuiUpdate",
+]

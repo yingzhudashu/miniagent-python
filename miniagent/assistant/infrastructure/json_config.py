@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections.abc import Mapping
 from copy import deepcopy
 from importlib.resources import files
 from pathlib import Path
@@ -23,8 +24,6 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from miniagent.assistant.bootstrap.application import ApplicationContainer
     from miniagent.assistant.contracts.configuration import ConfigSnapshot
-
-from miniagent.assistant.infrastructure.env_parse import FALSY, TRUTHY
 
 _logger = logging.getLogger(__name__)
 
@@ -111,7 +110,7 @@ class JsonConfigLoader:
             return {}
 
     def get(self, key: str, default: Any = None) -> Any:
-        """获取配置值。支持点路径，如 ``model.temperature``。"""
+        """获取配置值。支持点路径，如 ``llm.roles.default``。"""
         self._load()
 
         user_value = self._get_nested(self._user, key)
@@ -205,25 +204,53 @@ class JsonConfigLoader:
         return Path(self._defaults_path), Path(self._user_path)
 
 
-_config_loader = JsonConfigLoader()
+class ConfigurationService:
+    """Single owner for the effective loader and immutable configuration snapshot."""
+
+    def __init__(self, loader: JsonConfigLoader | None = None) -> None:
+        self.loader = loader or JsonConfigLoader()
+        self._snapshot: ConfigSnapshot | None = None
+
+    def get(self, path: str, default: Any = None) -> Any:
+        value = self.snapshot().get_path(path, default)
+        return default if value is None else value
+
+    def get_section(self, name: str) -> dict[str, Any]:
+        value = self.snapshot().get_path(name, {})
+        return _thaw_mapping(value) if isinstance(value, Mapping) else {}
+
+    def get_user_section(self, name: str) -> dict[str, Any]:
+        return self.loader.get_user_section(name)
+
+    @property
+    def paths(self) -> tuple[Path, Path]:
+        return self.loader.paths
+
+    def snapshot(self) -> ConfigSnapshot:
+        if self._snapshot is None:
+            self._snapshot = self.loader.snapshot()
+        return self._snapshot
+
+    def reload(self, *, strict: bool = False) -> None:
+        self.loader.reload(strict=strict)
+        self._snapshot = None
+
+    def reloaded(self, *, strict: bool = True) -> ConfigurationService:
+        return ConfigurationService(self.loader.reloaded_copy(strict=strict))
 
 
-def _configure_agent_settings_port() -> None:
-    """Bind the reusable agent layer to this application's config loader."""
-    from miniagent.agent.settings import configure_agent_settings
+_configuration_service = ConfigurationService()
 
-    def getter(path: str, default: Any = None) -> Any:
-        return get_config(path, default)
 
-    def bool_getter(path: str, default: bool = False) -> bool:
-        return get_config_bool(path, default)
+def _thaw_mapping(value: Mapping[str, Any]) -> dict[str, Any]:
+    def thaw(item: Any) -> Any:
+        if isinstance(item, Mapping):
+            return {str(key): thaw(child) for key, child in item.items()}
+        if isinstance(item, tuple):
+            return [thaw(child) for child in item]
+        return item
 
-    configure_agent_settings(
-        getter=getter,
-        bool_getter=bool_getter,
-        section_getter=get_config_section,
-        user_section_getter=get_user_config_section,
-    )
+    return {str(key): thaw(item) for key, item in value.items()}
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -279,19 +306,29 @@ def _compatible_config_type(default: Any, value: Any) -> bool:
     if isinstance(default, float):
         return isinstance(value, int | float) and not isinstance(value, bool)
     if isinstance(default, int):
-        return isinstance(value, int) and not isinstance(value, bool)
+        return isinstance(value, int | float) and not isinstance(value, bool)
     return isinstance(value, type(default))
 
 
 def get_config_snapshot() -> ConfigSnapshot:
-    """返回当前已安装配置加载器的不可变快照。"""
-    return _config_loader.snapshot()
+    """Return the immutable snapshot owned by the active configuration service."""
+    return _configuration_service.snapshot()
+
+
+def get_configuration_service() -> ConfigurationService:
+    """Return the single configuration owner used by this application process."""
+    return _configuration_service
+
+
+def install_configuration_service(service: ConfigurationService) -> None:
+    """Install an isolated configuration owner."""
+    global _configuration_service
+    _configuration_service = service
 
 
 def install_config_loader(loader: JsonConfigLoader) -> None:
-    """Install an explicit loader, primarily for an isolated application/test scope."""
-    global _config_loader
-    _config_loader = loader
+    """Install a loader as the active configuration service."""
+    install_configuration_service(ConfigurationService(loader))
 
 
 def reset_config_loader() -> None:
@@ -301,62 +338,49 @@ def reset_config_loader() -> None:
 
 def get_config(key: str, default: Any = None) -> Any:
     """读取配置项；支持 ``section.key`` 点路径，user 覆盖 defaults。"""
-    return _config_loader.get(key, default)
+    return _configuration_service.get(key, default)
 
 
 def get_config_bool(key: str, default: bool = False) -> bool:
-    """读取布尔配置项，兼容 JSON bool、数字及常见字符串真值/假值。"""
+    """Read a native JSON boolean; other types are rejected by strict loading."""
     value = get_config(key, default)
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return bool(value)
-    if isinstance(value, str):
-        s = value.strip().lower()
-        if s in TRUTHY:
-            return True
-        if s in FALSY:
-            return False
-        return default
-    if value is None:
-        return default
-    return default
+    return value if isinstance(value, bool) else default
 
 
 def get_config_section(section: str) -> dict[str, Any]:
     """读取顶层配置节（defaults 与 user 浅合并）。"""
-    return _config_loader.get_section(section)
+    return _configuration_service.get_section(section)
 
 
 def get_user_config_section(section: str) -> dict[str, Any]:
     """Read a section from ``config.user.json`` without inherited defaults."""
-    return _config_loader.get_user_section(section)
+    return _configuration_service.get_user_section(section)
 
 
 def get_config_paths() -> tuple[Path, Path]:
     """Return the active defaults and user configuration paths."""
-    return _config_loader.paths
+    return _configuration_service.paths
 
 
 def reload_config() -> None:
     """重新加载 JSON 配置（不刷新 secrets 环境变量或 LLM 客户端）。"""
-    _config_loader.reload()
+    _configuration_service.reload()
 
 
 async def reload_runtime_config(container: ApplicationContainer) -> None:
     """Validate a candidate configuration, then atomically publish its LLM gateway."""
-    candidate = _config_loader.reloaded_copy(strict=True)
+    candidate = _configuration_service.reloaded(strict=True)
     from miniagent.assistant.infrastructure.env_loader import load_secrets_from_project_root
     from miniagent.llm.factory import create_llm_gateway
 
     replacement = create_llm_gateway(
         candidate.get,
-        user_section_getter=candidate.get_user_section,
         cache_path=get_config_paths()[1].parent / "llm-model-catalog.json",
     )
     previous = container.llm_gateway
-    install_config_loader(candidate)
+    install_configuration_service(candidate)
     load_secrets_from_project_root()
+    container.config = candidate
     container.llm_gateway = replacement
     if previous is not None and previous is not replacement:
         container.retired_llm_gateways.append(previous)
@@ -364,24 +388,24 @@ async def reload_runtime_config(container: ApplicationContainer) -> None:
 
 def get_user_config_path() -> Path:
     """返回当前 ``config.user.json`` 路径（与 :class:`JsonConfigLoader` 一致）。"""
-    return _config_loader.paths[1]
-
-
-_configure_agent_settings_port()
+    return _configuration_service.paths[1]
 
 
 __all__ = [
     "JsonConfigLoader",
+    "ConfigurationService",
     "_packaged_defaults_path",
     "_resolve_defaults_path",
     "get_config",
     "get_config_bool",
+    "get_configuration_service",
     "get_config_paths",
     "get_config_section",
     "get_config_snapshot",
     "get_user_config_section",
     "get_user_config_path",
     "install_config_loader",
+    "install_configuration_service",
     "reload_config",
     "reload_runtime_config",
     "reset_config_loader",

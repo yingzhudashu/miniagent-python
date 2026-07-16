@@ -136,13 +136,7 @@ class DefaultMemoryHistory:
         """从 ``SessionManager`` 加载会话历史，可选保留最近 ``max_messages`` 条。"""
         history: list[dict[str, Any]] = []
         if self._session_manager is not None:
-            loader = getattr(self._session_manager, "load_session_history_async", None)
-            if callable(loader):
-                history = await loader(session_key)
-            else:
-                sync_loader = getattr(self._session_manager, "load_session_history", None)
-                if callable(sync_loader):
-                    history = await asyncio.to_thread(sync_loader, session_key)
+            history = await self._session_manager.load_session_history_async(session_key)
         if max_messages is not None and max_messages > 0:
             history = history[-max_messages:]
         return history
@@ -285,21 +279,8 @@ class DefaultMemoryContext:
             summary=summary,
             facts=facts,
         )
-        record_turn = getattr(store, "record_turn", None)
-        if callable(record_turn):
-            await record_turn(session_key, summary, facts, entry)
-        else:
-            # Compatibility for injected third-party stores implementing only
-            # the stable MemoryStoreProtocol surface.
-            await store.update_summary(session_key, summary, facts)
-            await store.add_entry(session_key, entry)
-        flush_ki_async = getattr(store, "flush_keyword_index_async", None)
-        if callable(flush_ki_async):
-            await flush_ki_async()
-        else:
-            flush_ki = getattr(store, "flush_keyword_index", None)
-            if callable(flush_ki):
-                flush_ki()
+        await store.record_turn(session_key, summary, facts, entry)
+        await store.flush_keyword_index_async()
 
 
 def create_default_memory_context(

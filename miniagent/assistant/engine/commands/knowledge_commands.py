@@ -28,7 +28,7 @@ async def handle_knowledge(
     **_kwargs: Any,
 ) -> str | None:
     """列出、挂载、卸载、搜索或重载知识库。"""
-    from miniagent.assistant.engine.cli_commands import (
+    from miniagent.assistant.engine.commands.session_management import (
         cmd_kb_list,
         cmd_kb_mount,
         cmd_kb_reload,

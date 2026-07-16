@@ -184,7 +184,9 @@ class FeishuRuntime:
     def _report_started_mode() -> None:
         """记录远程变异命令开关，并更新实例运行模式。"""
         try:
-            from miniagent.assistant.engine.cli_commands import feishu_dot_commands_full_enabled
+            from miniagent.assistant.engine.commands.session_management import (
+                feishu_dot_commands_full_enabled,
+            )
 
             if feishu_dot_commands_full_enabled():
                 _logger.warning(

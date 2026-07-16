@@ -62,9 +62,10 @@ _BLOCKED_PATTERNS = [
 
 # Shell 注入检测正则
 _SHELL_INJECTION_RE = re.compile(
-    r"(\|\s*\w|;\s*\w|`[^`]+`|\$\([^)]+\)|\$\{[^}]+\}|\$\(\(|eval\s|exec\s|"
+    r"(\|\s*\w|;\s*\w|(?:^|\s)&{1,2}\s*\w|\|\||eval\s|exec\s|"
     r"curl\s.*\|\s*(bash|sh)|wget\s.*\|\s*(bash|sh)|chmod\s+777|nc\s+-e|base64\s+-d\s*\||<>|<\s*>)"
 )
+_SHELL_EXPANSION_RE = re.compile(r"(`[^`]+`|\$\([^)]+\)|\$\{[^}]+\}|\$\(\()")
 
 # 沙箱模式下允许的命令基础名
 _DEFAULT_ALLOWED_COMMANDS = frozenset(
@@ -123,6 +124,13 @@ _DEFAULT_ALLOWED_COMMANDS = frozenset(
     }
 )
 
+# Windows shells commonly surface executables with an explicit PATHEXT suffix
+# (for example ``curl.exe``), while the allowlist intentionally stores portable
+# command names such as ``curl``.  Only these well-known executable suffixes are
+# treated as aliases; arbitrary suffixes (for example ``curl.ps1``) remain
+# subject to an explicit allowlist entry.
+_WINDOWS_EXECUTABLE_SUFFIXES = frozenset({".bat", ".cmd", ".com", ".exe"})
+
 
 def _get_allowed_commands() -> frozenset[str]:
     """从配置读取允许的命令列表，默认为内置列表。"""
@@ -130,6 +138,46 @@ def _get_allowed_commands() -> frozenset[str]:
     if env:
         return frozenset(c.strip() for c in env.split(",") if c.strip())
     return _DEFAULT_ALLOWED_COMMANDS
+
+
+def _command_allowlist_keys(
+    command_name: str,
+    *,
+    windows: bool | None = None,
+) -> frozenset[str]:
+    """Return equivalent allowlist keys for a command basename.
+
+    Windows command lookup is case-insensitive and accepts executables both
+    with and without their PATHEXT suffix.  Other platforms retain their
+    existing case-sensitive, exact-name semantics.
+    """
+    if windows is None:
+        windows = os.name == "nt"
+    if not windows:
+        return frozenset({command_name})
+
+    normalized = command_name.casefold()
+    keys = {normalized}
+    stem, suffix = os.path.splitext(normalized)
+    if stem and suffix in _WINDOWS_EXECUTABLE_SUFFIXES:
+        keys.add(stem)
+    return frozenset(keys)
+
+
+def _is_command_allowed(
+    base_cmd: str,
+    allowed: frozenset[str],
+    *,
+    windows: bool | None = None,
+) -> bool:
+    """Match a command basename against the configured cross-platform list."""
+    command_keys = _command_allowlist_keys(base_cmd, windows=windows)
+    allowed_keys = {
+        key
+        for command in allowed
+        for key in _command_allowlist_keys(command, windows=windows)
+    }
+    return not command_keys.isdisjoint(allowed_keys)
 
 
 def _deny(command: str, reason: str) -> ToolResult:
@@ -143,6 +191,50 @@ def _command_security_enabled(ctx: ToolContext) -> bool:
     return getattr(ctx, "permission", "sandbox") != _EXEC_DEBUG_PERMISSION
 
 
+def _shell_syntax_views(command: str) -> tuple[str, str]:
+    """Return shell-active text outside quotes and outside single quotes.
+
+    Control operators inside either quote style are data. Command substitution
+    remains active inside double quotes, so the second view preserves that text.
+    Escaped characters are masked in both views.
+    """
+    unquoted: list[str] = []
+    expandable: list[str] = []
+    quote: str | None = None
+    escaped = False
+    for char in command:
+        if escaped:
+            unquoted.append(" ")
+            expandable.append(" ")
+            escaped = False
+            continue
+        if char == "\\" and quote != "'":
+            unquoted.append(" ")
+            expandable.append(" ")
+            escaped = True
+            continue
+        if quote is None:
+            if char in ("'", '"'):
+                quote = char
+                unquoted.append(" ")
+                expandable.append(" ")
+            else:
+                unquoted.append(char)
+                expandable.append(char)
+            continue
+        if char == quote:
+            quote = None
+            unquoted.append(" ")
+            expandable.append(" ")
+        elif quote == "'":
+            unquoted.append(" ")
+            expandable.append(" ")
+        else:
+            unquoted.append(" ")
+            expandable.append(char)
+    return "".join(unquoted), "".join(expandable)
+
+
 def _validate_exec_cwd(cwd: str, ctx: ToolContext) -> tuple[str | None, ToolResult | None]:
     """校验工作目录在沙箱 ``allowed_paths`` 内。"""
     resolved, err = resolve_path_for_tool(cwd, ctx)
@@ -154,13 +246,18 @@ def _validate_exec_cwd(cwd: str, ctx: ToolContext) -> tuple[str | None, ToolResu
     return resolved, None
 
 
-def _apply_command_security(command: str) -> ToolResult | None:
+def _apply_command_security(
+    command: str,
+    *,
+    windows: bool | None = None,
+) -> ToolResult | None:
     """黑名单 + 注入检测 + 命令白名单；通过则返回 None。"""
+    unquoted, expandable = _shell_syntax_views(command)
     for pattern in _BLOCKED_PATTERNS:
-        if pattern in command:
+        if pattern in unquoted:
             return _deny(command, f'包含危险操作 "{pattern}"')
 
-    if _SHELL_INJECTION_RE.search(command):
+    if _SHELL_INJECTION_RE.search(unquoted) or _SHELL_EXPANSION_RE.search(expandable):
         return _deny(command, "检测到可能的 shell 注入模式")
 
     allowed = _get_allowed_commands()
@@ -173,7 +270,7 @@ def _apply_command_security(command: str) -> ToolResult | None:
 
     if parts:
         base_cmd = os.path.basename(parts[0])
-        if base_cmd not in allowed:
+        if not _is_command_allowed(base_cmd, allowed, windows=windows):
             return _deny(command, f"'{base_cmd}' 不在允许的命令列表中")
     return None
 

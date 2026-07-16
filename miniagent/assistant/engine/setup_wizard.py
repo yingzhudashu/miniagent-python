@@ -184,13 +184,18 @@ def save_setup_config(config: dict[str, Any]) -> None:
             existing = {}
 
     # 合并配置
-    merged: dict[str, Any] = {**existing}
+    def merge(base: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]:
+        result = dict(base)
+        for key, value in update.items():
+            current = result.get(key)
+            result[key] = (
+                merge(current, value)
+                if isinstance(current, dict) and isinstance(value, dict)
+                else value
+            )
+        return result
 
-    for key, value in config.items():
-        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
-            merged[key] = {**merged[key], **value}
-        else:
-            merged[key] = value
+    merged = merge(existing, config)
 
     from miniagent.assistant.infrastructure.atomic_json import atomic_dump_json
 

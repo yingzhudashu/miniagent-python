@@ -11,7 +11,7 @@ import time
 from typing import Any
 
 from miniagent.agent.logging import get_logger
-from miniagent.assistant.application.messaging import InboundTurnCoordinator
+from miniagent.assistant.application.messaging.inbound import InboundTurnCoordinator
 from miniagent.assistant.bootstrap.application import ApplicationContainer
 from miniagent.assistant.contracts.messages import InboundMessage
 from miniagent.assistant.engine.cli_state import CliLoopState

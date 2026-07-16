@@ -7,7 +7,7 @@ from typing import Any, Protocol, runtime_checkable
 
 
 @runtime_checkable
-class UnifiedEngineProtocol(Protocol):
+class AssistantTurnServiceProtocol(Protocol):
     thinking: Any
 
     async def run_agent_with_thinking(
@@ -84,5 +84,5 @@ __all__ = [
     "ChannelRouterProtocol",
     "FeishuRuntimeProtocol",
     "MessageQueueProtocol",
-    "UnifiedEngineProtocol",
+    "AssistantTurnServiceProtocol",
 ]

@@ -331,10 +331,8 @@ async def _submit_tui_agent_input(user_input: str, runtime: dict[str, Any]) -> b
     if runtime.get("interactive_background"):
         view = runtime.get("view_state")
         if view is not None:
-            if view.busy:
-                view.queued_messages += 1
-            view.busy = True
-            view.status = "处理中"
+            queued = view.queued_messages + 1 if view.busy else view.queued_messages
+            view.update(busy=True, status="处理中", queued_messages=queued)
 
         async def _tracked_submit() -> None:
             try:
@@ -342,10 +340,9 @@ async def _submit_tui_agent_input(user_input: str, runtime: dict[str, Any]) -> b
             finally:
                 if view is not None:
                     if view.queued_messages:
-                        view.queued_messages -= 1
+                        view.update(queued_messages=view.queued_messages - 1)
                     else:
-                        view.busy = False
-                        view.status = "就绪"
+                        view.update(busy=False, status="就绪")
                 try:
                     runtime["app"].invalidate()
                 except Exception:

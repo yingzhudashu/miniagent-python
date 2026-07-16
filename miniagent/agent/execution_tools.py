@@ -8,7 +8,6 @@ import time
 import traceback
 from typing import Any
 
-from miniagent.agent.activity import invoke_activity_log
 from miniagent.agent.constants import MAX_ARGS_LOG_LEN
 from miniagent.agent.executor import (
     _append_context_or_return,
@@ -555,9 +554,7 @@ class ToolPhaseRunner:
             {"role": "tool", "tool_call_id": tool_call.id, "content": result.content},
         )
         if self.activity_log_enabled:
-            await invoke_activity_log(
-                self.al,
-                "log_tool_call",
+            await self.al.log_tool_call(
                 session_key=self.session_key,
                 tool_name=tool_call.function.name,
                 intent=_extract_tool_intent(tool_call.function.name, args),

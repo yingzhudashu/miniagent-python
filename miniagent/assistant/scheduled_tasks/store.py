@@ -83,7 +83,6 @@ def save_tasks(tasks: list[ScheduledTask]) -> None:
     p = tasks_file_path()
     os.makedirs(os.path.dirname(p), exist_ok=True)
     payload = {
-        "version": _FILE_VERSION,
         "schema_version": _FILE_VERSION,
         "tasks": [t.to_json() for t in tasks],
     }

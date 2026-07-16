@@ -12,6 +12,7 @@ from miniagent.agent.problem_solver import (
     reflect_on_result,
 )
 from tests.memory_helpers import make_knowledge_registry
+from tests.mock_strategies import MockGateway
 
 
 @pytest.mark.asyncio
@@ -34,7 +35,7 @@ async def test_reflect_on_result_acceptable():
         user_input="帮我查找天气",
         reply="今天天气晴朗，温度25°C",
         knowledge_registry=make_knowledge_registry(),
-        client=mock_client,
+        client=MockGateway(mock_client),
     )
 
     assert result.acceptable is True
@@ -63,7 +64,7 @@ async def test_reflect_on_result_with_issues():
         user_input="查询北京天气",
         reply="天气晴",
         knowledge_registry=make_knowledge_registry(),
-        client=mock_client,
+        client=MockGateway(mock_client),
     )
 
     assert result.acceptable is False
@@ -95,7 +96,7 @@ async def test_reflect_on_result_with_thinking_callback():
         user_input="测试输入",
         reply="测试回复",
         knowledge_registry=make_knowledge_registry(),
-        client=mock_client,
+        client=MockGateway(mock_client),
         on_thinking=mock_thinking,
     )
 
@@ -118,7 +119,7 @@ async def test_reflect_on_result_default_values():
         user_input="测试",
         reply="回复",
         knowledge_registry=make_knowledge_registry(),
-        client=mock_client,
+        client=MockGateway(mock_client),
     )
 
     # 应使用默认值
@@ -142,7 +143,7 @@ async def test_reflect_on_result_single_quality_score():
         user_input="test",
         reply="reply",
         knowledge_registry=make_knowledge_registry(),
-        client=mock_client,
+        client=MockGateway(mock_client),
     )
 
     assert 0.0 <= result.quality_score <= 1.0

@@ -29,19 +29,19 @@ def _ctrl_l_handler_block(source: str) -> str:
 
 
 def _reset_and_reload_transcript_block(source: str) -> str:
-    start = source.index("def _reset_and_reload_transcript(")
-    end = source.index("def _trigger_lazy_load_more_history(", start)
+    start = source.index("def reset_and_reload_transcript(")
+    end = source.index("def trigger_lazy_load_more_history(", start)
     return source[start:end]
 
 
 def _load_initial_history_block(source: str) -> str:
     start = source.index("def load_initial_history(")
-    end = source.index("def _reset_and_reload_transcript(", start)
+    end = source.index("def reset_and_reload_transcript(", start)
     return source[start:end]
 
 
 def _lazy_load_history_block(source: str) -> str:
-    start = source.index("def _trigger_lazy_load_more_history(")
+    start = source.index("def trigger_lazy_load_more_history(")
     end = source.index("def recheck_md_width(", start)
     return source[start:end]
 

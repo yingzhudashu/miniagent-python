@@ -13,6 +13,16 @@ import pytest
 
 from miniagent.agent.llm_json import llm_json, parse_llm_json_response
 from miniagent.agent.observability import clear_trace_hooks, register_trace_hook
+from tests.mock_strategies import MockGateway
+
+
+def _gateway(client):
+    if isinstance(client, MockGateway):
+        return client
+    return MockGateway(
+        client,
+        responses=isinstance(getattr(client.responses, "create", None), AsyncMock),
+    )
 
 
 class TestParseLlmJsonResponse:
@@ -64,7 +74,7 @@ class TestLlmJson:
     def setup_method(self) -> None:
         clear_trace_hooks()
 
-    def _make_mock_client(self, json_str: str | None) -> MagicMock:
+    def _make_mock_client(self, json_str: str | None) -> MockGateway:
         """构造返回指定 JSON 字符串的 Mock LLM client。"""
         mock_choice = MagicMock()
         mock_choice.message.content = json_str
@@ -76,13 +86,13 @@ class TestLlmJson:
 
         mock_client = MagicMock()
         mock_client.chat.completions.create = fake_create
-        return mock_client
+        return MockGateway(mock_client)
 
     @pytest.mark.asyncio
     async def test_valid_json_parsed(self) -> None:
         """有效 JSON 应正确解析为字典。"""
         client = self._make_mock_client('{"key": "value", "num": 42}')
-        result = await llm_json("test", "system", client=client)
+        result = await llm_json("test", "system", client=_gateway(client))
         assert result == {"key": "value", "num": 42}
 
     @pytest.mark.asyncio
@@ -101,7 +111,7 @@ class TestLlmJson:
         client = MagicMock()
         client.chat.completions.create = fake_create
 
-        await llm_json("hello", "system", client=client)
+        await llm_json("hello", "system", client=_gateway(client))
 
         assert captured["response_format"] == {"type": "json_object"}
         messages = captured["messages"]
@@ -129,7 +139,7 @@ class TestLlmJson:
         client = MagicMock()
         client.chat.completions.create = fake_create
 
-        result = await llm_json("hello", "system", client=client)
+        result = await llm_json("hello", "system", client=_gateway(client))
 
         assert result == {"ok": True}
         assert len(calls) == 2
@@ -157,7 +167,7 @@ class TestLlmJson:
                 await llm_json(
                     "hello",
                     "system",
-                    client=client,
+                    client=_gateway(client),
                     trace_phase="test",
                     trace_session_key="session",
                 )
@@ -174,27 +184,27 @@ class TestLlmJson:
     async def test_parses_markdown_wrapped_json_via_shared_parser(self) -> None:
         """降级或自由格式输出中的 markdown 围栏应被 parse_llm_json_response 剥离。"""
         client = self._make_mock_client('```json\n{"wrapped": true}\n```')
-        result = await llm_json("test", "system", client=client)
+        result = await llm_json("test", "system", client=_gateway(client))
         assert result == {"wrapped": True}
 
     @pytest.mark.asyncio
     async def test_invalid_json_returns_empty_dict(self) -> None:
         """无效 JSON 应回退为空字典。"""
         client = self._make_mock_client("not valid json {{{")
-        result = await llm_json("test", "system", client=client)
+        result = await llm_json("test", "system", client=_gateway(client))
         assert result == {}
 
     @pytest.mark.asyncio
     async def test_raise_on_error_propagates_json_decode_error(self) -> None:
         client = self._make_mock_client("not valid json {{{")
         with pytest.raises(json.JSONDecodeError):
-            await llm_json("test", "system", client=client, raise_on_error=True)
+            await llm_json("test", "system", client=_gateway(client), raise_on_error=True)
 
     @pytest.mark.asyncio
     async def test_raise_on_error_propagates_type_error_for_array(self) -> None:
         client = self._make_mock_client("[1, 2]")
         with pytest.raises(TypeError, match="JSON object"):
-            await llm_json("test", "system", client=client, raise_on_error=True)
+            await llm_json("test", "system", client=_gateway(client), raise_on_error=True)
 
     @pytest.mark.asyncio
     async def test_null_content_returns_empty_dict(self) -> None:
@@ -209,7 +219,7 @@ class TestLlmJson:
 
         client = MagicMock()
         client.chat.completions.create = fake_create
-        result = await llm_json("test", "system", client=client)
+        result = await llm_json("test", "system", client=_gateway(client))
         assert result == {}
 
     @pytest.mark.asyncio
@@ -234,7 +244,7 @@ class TestLlmJson:
         client = MagicMock()
         client.chat.completions.create = fake_create
 
-        result = await llm_json("test", "system", client=client)
+        result = await llm_json("test", "system", client=_gateway(client))
 
         assert result == {"ok": True}
         assert calls == 2
@@ -246,7 +256,7 @@ class TestLlmJson:
             await llm_json(
                 "test",
                 "system",
-                client=client,
+                client=_gateway(client),
                 raise_on_error=True,
             )
 
@@ -272,8 +282,8 @@ class TestLlmJson:
         client = MagicMock()
         client.responses.create = AsyncMock(return_value=events())
 
-        with patch("miniagent.llm.legacy_transport._wire_api", return_value="responses"):
-            result = await llm_json("test", "system", client=client)
+        with patch("miniagent.llm.providers.openai_transport._wire_api", return_value="responses"):
+            result = await llm_json("test", "system", client=_gateway(client))
 
         assert result == {"ok": True}
         assert client.responses.create.await_args.kwargs["reasoning"] == {
@@ -321,10 +331,10 @@ class TestLlmJson:
             side_effect=[reasoning_only(), valid()]
         )
         with (
-            patch("miniagent.llm.legacy_transport._wire_api", return_value="responses"),
+            patch("miniagent.llm.providers.openai_transport._wire_api", return_value="responses"),
             patch("miniagent.agent.llm_json.asyncio.sleep", new_callable=AsyncMock),
         ):
-            result = await llm_json("test", "system", client=client)
+            result = await llm_json("test", "system", client=_gateway(client))
 
         assert result == {"ok": True}
         assert client.responses.create.await_count == 2
@@ -360,10 +370,10 @@ class TestLlmJson:
             ]
         )
         with (
-            patch("miniagent.llm.legacy_transport._wire_api", return_value="responses"),
+            patch("miniagent.llm.providers.openai_transport._wire_api", return_value="responses"),
             patch("miniagent.agent.llm_json.asyncio.sleep", new_callable=AsyncMock),
         ):
-            result = await llm_json("test", "system", client=client)
+            result = await llm_json("test", "system", client=_gateway(client))
 
         assert result == {"ok": True}
         third = client.responses.create.await_args_list[2].kwargs
@@ -380,9 +390,9 @@ class TestLlmJson:
         client.responses.create = AsyncMock(
             side_effect=AuthenticationFailure("unauthorized")
         )
-        with patch("miniagent.llm.legacy_transport._wire_api", return_value="responses"):
+        with patch("miniagent.llm.providers.openai_transport._wire_api", return_value="responses"):
             with pytest.raises(AuthenticationFailure):
-                await llm_json("test", "system", client=client)
+                await llm_json("test", "system", client=_gateway(client))
 
         assert client.responses.create.await_count == 1
 
@@ -396,14 +406,14 @@ class TestLlmJson:
 
         client = MagicMock()
         client.chat.completions.create = fake_create
-        result = await llm_json("test", "system", client=client)
+        result = await llm_json("test", "system", client=_gateway(client))
         assert result == {}
 
     @pytest.mark.asyncio
     async def test_nested_json_preserved(self) -> None:
         """嵌套 JSON 结构应完整保留。"""
         client = self._make_mock_client('{"outer": {"inner": [1, 2, 3]}, "flag": true}')
-        result = await llm_json("test", "system", client=client)
+        result = await llm_json("test", "system", client=_gateway(client))
         assert result["outer"]["inner"] == [1, 2, 3]
         assert result["flag"] is True
 
@@ -411,14 +421,14 @@ class TestLlmJson:
     async def test_empty_object_parsed(self) -> None:
         """空对象 {} 应解析为空字典。"""
         client = self._make_mock_client("{}")
-        result = await llm_json("test", "system", client=client)
+        result = await llm_json("test", "system", client=_gateway(client))
         assert result == {}
 
     @pytest.mark.asyncio
     async def test_chinese_content(self) -> None:
         """含中文内容的 JSON 应正确解析。"""
         client = self._make_mock_client('{"目标": "获取天气", "城市": ["北京", "上海"]}')
-        result = await llm_json("测试", "系统", client=client)
+        result = await llm_json("测试", "系统", client=_gateway(client))
         assert result["目标"] == "获取天气"
         assert "北京" in result["城市"]
 
@@ -437,7 +447,7 @@ class TestLlmJson:
         client = MagicMock()
         client.chat.completions.create = fake_create
 
-        await llm_json("test", "system", client=client, max_tokens=128)
+        await llm_json("test", "system", client=_gateway(client), max_tokens=128)
         assert captured["max_tokens"] == 128
 
     @pytest.mark.asyncio
@@ -460,7 +470,7 @@ class TestLlmJson:
         result = await llm_json(
             "test",
             "system",
-            client=client,
+            client=_gateway(client),
             trace_phase="reflect",
             trace_session_key="sess-1",
         )
@@ -478,21 +488,7 @@ class TestLlmJson:
         assert events[1]["duration_ms"] >= 0
 
     @pytest.mark.asyncio
-    async def test_thinking_level_forwards_model_overrides_extra_body(
-        self, tmp_path, monkeypatch
-    ) -> None:
-        """thinking_level 路径应合并 model_overrides.extra_body。"""
-        from tests.config_helpers import install_test_config
-
-        install_test_config(
-            tmp_path,
-            {
-                "model": {
-                    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-                },
-            },
-        )
-
+    async def test_thinking_level_keeps_provider_neutral_extra_body(self) -> None:
         captured: dict[str, object] = {}
         mock_choice = MagicMock()
         mock_choice.message.content = "{}"
@@ -509,14 +505,14 @@ class TestLlmJson:
         await llm_json(
             "test",
             "system",
-            client=client,
+            client=_gateway(client),
             thinking_level="low",
             thinking_budget=512,
-            model_overrides={"extra_body": {"custom_field": "value"}},
+            llm_overrides={"extra_body": {"custom_field": "value"}},
         )
 
         extra_body = captured.get("extra_body")
         assert isinstance(extra_body, dict)
         assert extra_body.get("custom_field") == "value"
-        assert extra_body.get("enable_thinking") is True
-        assert extra_body.get("thinking_budget") == 512
+        assert "enable_thinking" not in extra_body
+        assert "thinking_budget" not in extra_body

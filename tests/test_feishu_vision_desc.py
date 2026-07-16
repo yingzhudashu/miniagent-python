@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from miniagent.assistant.feishu import vision_desc
+from tests.mock_strategies import MockGateway
 
 
 @pytest.mark.asyncio
@@ -22,7 +23,7 @@ async def test_describe_image_success(tmp_path: Path) -> None:
         )
     )
 
-    out = await vision_desc.describe_image(str(img), client, "gpt-4o")
+    out = await vision_desc.describe_image(str(img), MockGateway(client, vision=True))
     assert out == "一张示意图"
     client.chat.completions.create.assert_awaited_once()
 
@@ -37,7 +38,7 @@ async def test_describe_image_unsupported_model_returns_empty(tmp_path: Path) ->
         side_effect=RuntimeError("invalid_request_error: does not support image_url")
     )
 
-    out = await vision_desc.describe_image(str(img), client, "text-only")
+    out = await vision_desc.describe_image(str(img), MockGateway(client, vision=True))
     assert out == ""
 
 
@@ -50,6 +51,6 @@ async def test_describe_image_skips_oversized_file(
     monkeypatch.setattr(vision_desc, "_max_image_bytes", lambda: 10)
 
     client = MagicMock()
-    out = await vision_desc.describe_image(str(img), client, "gpt-4o")
+    out = await vision_desc.describe_image(str(img), MockGateway(client, vision=True))
     assert out == ""
     client.chat.completions.create.assert_not_called()

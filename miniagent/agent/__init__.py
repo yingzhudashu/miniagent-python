@@ -17,7 +17,6 @@
 from miniagent.agent.config import (
     AGENT_NAME,
     get_default_agent_config,
-    get_default_model_config,
     merge_agent_config,
 )
 from miniagent.agent.constants import (  # noqa: F401
@@ -32,6 +31,7 @@ _lazy_symbols = {
     "AgentRequest": "miniagent.agent.runtime:AgentRequest",
     "AgentResult": "miniagent.agent.runtime:AgentResult",
     "AgentServices": "miniagent.agent.runtime:AgentServices",
+    "AgentSettings": "miniagent.agent.runtime:AgentSettings",
     "AGENT_IDENTITY": "miniagent.agent.executor:AGENT_IDENTITY",
     "TaskDifficulty": "miniagent.agent.task_classifier:TaskDifficulty",
     "execute_plan": "miniagent.agent.executor:execute_plan",
@@ -60,13 +60,13 @@ __all__ = [
     "AgentRequest",
     "AgentResult",
     "AgentServices",
+    "AgentSettings",
     "DEFAULT_AGENT_MAX_TURNS",
     "DEFAULT_AGENT_TOOL_TIMEOUT",
     "TaskDifficulty",
     "execute_plan",
     "generate_plan",
     "get_default_agent_config",
-    "get_default_model_config",
     "merge_agent_config",
     "run_agent",
     "run_pipeline",

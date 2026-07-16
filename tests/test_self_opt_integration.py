@@ -771,7 +771,7 @@ class TestCLICommands:
 
     def test_cmd_self_opt_status(self) -> None:
         """Test /self-opt status command."""
-        from miniagent.assistant.engine.cli_commands import cmd_self_opt_status
+        from miniagent.assistant.engine.commands.session_management import cmd_self_opt_status
 
         # Execute command
         cmd_self_opt_status()
@@ -781,7 +781,7 @@ class TestCLICommands:
 
     def test_cmd_self_opt_proposals(self, tmp_path: Path, proposal_output_dir: Path) -> None:
         """Test /self-opt proposals command."""
-        from miniagent.assistant.engine.cli_commands import cmd_self_opt_proposals
+        from miniagent.assistant.engine.commands.session_management import cmd_self_opt_proposals
 
         install_test_config(
             tmp_path,
@@ -806,7 +806,7 @@ class TestCLICommands:
 
     def test_cmd_self_opt_show(self, tmp_path: Path, proposal_output_dir: Path) -> None:
         """Test /self-opt show command."""
-        from miniagent.assistant.engine.cli_commands import cmd_self_opt_show
+        from miniagent.assistant.engine.commands.session_management import cmd_self_opt_show
 
         install_test_config(
             tmp_path,

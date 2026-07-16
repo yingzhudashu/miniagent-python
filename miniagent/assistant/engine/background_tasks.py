@@ -168,7 +168,7 @@ class BackgroundTaskManager:
         """启动后台任务
 
         Args:
-            engine: UnifiedEngine实例
+            engine: AssistantTurnService实例
             prompt: 用户输入
             state: 主session状态
             **kwargs: 其他参数传递给run_agent_with_thinking
@@ -270,7 +270,7 @@ class BackgroundTaskManager:
         """执行后台任务（内部方法）
 
         Args:
-            engine: UnifiedEngine实例
+            engine: AssistantTurnService实例
             task: 任务条目
             message: 标准后台入站消息
             state: 主session状态

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import Any
 
 from prompt_toolkit.application import get_app
@@ -48,29 +47,6 @@ class _TranscriptOperations:
         self._rendered_text = ""
         self._rendered_lines = [""]
         self._rendered_line_offsets = [0]
-
-    def namespace(self) -> SimpleNamespace:
-        """返回保持旧调用面的绑定方法集合。"""
-        return SimpleNamespace(
-            transcript_fragment_len=self.transcript_fragment_len,
-            trim_transcript=self.trim_transcript,
-            transcript_prepend=self.transcript_prepend,
-            render_history_message=self.render_history_message,
-            load_initial_history=self.load_initial_history,
-            reset_and_reload_transcript=self._reset_and_reload_transcript,
-            trigger_lazy_load_more_history=self._trigger_lazy_load_more_history,
-            recheck_md_width=self.recheck_md_width,
-            get_transcript_fragment_text=self.get_transcript_fragment_text,
-            get_transcript_char_count=self.get_transcript_char_count,
-            extract_selection_text=self.extract_selection_text,
-            rendered_position_to_offset=self.rendered_position_to_offset,
-            rendered_text_length=self.rendered_text_length,
-            has_selection=self.has_selection,
-            clear_selection=self.clear_selection,
-            toggle_copy_mode=self.toggle_copy_mode,
-            apply_selection_highlight=self.apply_selection_highlight,
-            flatten_transcript_for_pt=self.flatten_transcript_for_pt,
-        )
 
     @staticmethod
     def transcript_fragment_len(fragment: Any) -> int:
@@ -176,7 +152,7 @@ class _TranscriptOperations:
         except Exception as error:
             _logger.exception("历史加载异常: %s", error)
 
-    def _reset_and_reload_transcript(self, *, reset_scroll_to_top: bool = False) -> None:
+    def reset_and_reload_transcript(self, *, reset_scroll_to_top: bool = False) -> None:
         """清空 transcript 并重新加载当前会话首页。"""
         self.clear_selection()
         self.transcript.clear()
@@ -198,7 +174,7 @@ class _TranscriptOperations:
         except Exception:
             pass
 
-    def _trigger_lazy_load_more_history(self) -> None:
+    def trigger_lazy_load_more_history(self) -> None:
         """防重入地在 transcript 顶部加载下一页更旧历史。"""
         page = self.history_loaded_range
         if page["loading"] or page["all_loaded"]:
@@ -444,7 +420,7 @@ def create_transcript_operations(
     reset_horizontal_scroll: Any,
     snap_output_bottom: Any,
     report_content_width: Any,
-) -> SimpleNamespace:
+) -> _TranscriptOperations:
     """构造共享同一 transcript 状态的一组闭包操作。"""
     return _TranscriptOperations(
         state=state,
@@ -470,5 +446,5 @@ def create_transcript_operations(
         reset_horizontal_scroll=reset_horizontal_scroll,
         snap_output_bottom=snap_output_bottom,
         report_content_width=report_content_width,
-    ).namespace()
+    )
 __all__ = ["create_transcript_operations"]

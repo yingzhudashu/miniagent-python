@@ -88,7 +88,11 @@ async def test_push_new_round_preserves_tool_section_and_patch_budget(
     state.feishu_patch_budget = 1
     patch = AsyncMock(return_value=True)
     monkeypatch.setattr(delivery, "_patch_interactive_thinking_message_async", patch)
-    monkeypatch.setattr(delivery, "_is_important_content_for_immediate_patch", lambda _text: True)
+    monkeypatch.setattr(
+        delivery._card_rendering,
+        "is_important_content_for_immediate_patch",
+        lambda _text: True,
+    )
 
     await delivery.push_feishu_thinking_stream(
         config, "chat", "new reasoning", "gray", state, new_round=True
@@ -121,13 +125,15 @@ async def test_finalize_guards_patch_failure_and_continuations(monkeypatch, conf
 
     state.feishu_thinking_message_id = "mid"
     state.feishu_stream_accumulated = "body"
-    monkeypatch.setattr(delivery, "_chunk_feishu_card_markdown", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        delivery._card_rendering, "chunk_card_markdown", lambda *_args, **_kwargs: []
+    )
     await delivery.finalize_feishu_thinking_stream(config, "chat", "gray", state)
     assert state.feishu_thinking_message_id == "mid"
 
     monkeypatch.setattr(
-        delivery,
-        "_chunk_feishu_card_markdown",
+        delivery._card_rendering,
+        "chunk_card_markdown",
         lambda *_args, **_kwargs: ["first", "second", "third"],
     )
     patch = AsyncMock(return_value=False)
@@ -206,4 +212,3 @@ def test_thinking_card_cache_tracks_confirmation_state(monkeypatch) -> None:
     assert first == second
     channel.has_pending = False
     assert delivery._thinking_card_json_cached(state, "body", "gray", "s", engine) != first
-

@@ -63,18 +63,18 @@ class AgentRunOptions:
     1. ``run_agent`` 直接传入的 ``system_prompt`` / ``agent_config``
     2. 本对象中的对应字段（若不为 ``None``）
 
-    ``model_config`` 会合并进 ``agent_config["model_overrides"]``，
+    ``llm_overrides`` 会合并进 ``agent_config["llm_overrides"]``，
     由 :func:`miniagent.agent.llm_params.resolve_completion_kwargs` 消费。
 
     Attributes:
         system_prompt: 系统提示词覆盖
         agent_config: Agent 层配置覆盖
-        model_config: 模型层配置覆盖（写入 ``model_overrides``）
+        llm_overrides: 模型层配置覆盖（写入 ``llm_overrides``）
     """
 
     system_prompt: str | None = None
     agent_config: dict[str, Any] | None = None
-    model_config: dict[str, Any] | None = None
+    llm_overrides: dict[str, Any] | None = None
 
 
 @dataclass

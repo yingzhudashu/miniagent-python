@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniagent.assistant.application.messaging import ChannelRegistry
+from miniagent.assistant.application.messaging.channels import ChannelRegistry
 from miniagent.assistant.engine.cli_state import CliLoopState
 from miniagent.assistant.infrastructure.message_queue import MessageQueueManager
 from tests.memory_helpers import (

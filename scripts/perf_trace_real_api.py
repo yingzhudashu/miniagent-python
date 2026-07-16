@@ -152,19 +152,22 @@ async def _one_run(
     )
 
     t0 = time.perf_counter()
-    reply = await run_agent(
-        prompt,
-        registry=ctx.registry,
-        memory=ctx.memory,
-        knowledge_registry=ctx.knowledge_registry,
-        client=ctx.openai_client,
-        monitor=ctx.monitor,
-        toolboxes=toolboxes,
-        agent_config={"max_turns": 6, "streaming": True, "debug": False},
-        session_key=session_key,
-        clawhub=ctx.clawhub,
-        engine=ctx.engine,
-    )
+    from miniagent.agent.settings import AgentSettings, use_agent_settings
+
+    with use_agent_settings(AgentSettings(ctx.config.snapshot())):
+        reply = await run_agent(
+            prompt,
+            registry=ctx.registry,
+            memory=ctx.memory,
+            knowledge_registry=ctx.knowledge_registry,
+            client=ctx.llm_gateway,
+            monitor=ctx.monitor,
+            toolboxes=toolboxes,
+            agent_config={"max_turns": 6, "streaming": True, "debug": False},
+            session_key=session_key,
+            clawhub=ctx.clawhub,
+            engine=ctx.engine,
+        )
     elapsed = time.perf_counter() - t0
     missing_tools = sorted(set(required_tools) - set(reply.used_tools))
     if missing_tools:
@@ -191,14 +194,12 @@ async def _one_run(
 
 async def _close_container_resources(ctx: Any) -> None:
     """Close every process-owned resource constructed by the composition root."""
-    from miniagent.llm.openai_client_compat import close_async_openai_client
-
     failures: list[str] = []
     async_closers = [
         ("background_tasks", ctx.background_tasks.shutdown),
         ("message_queue", ctx.message_queue.shutdown),
         ("memory_async", ctx.memory.shutdown),
-        ("openai_client", lambda: close_async_openai_client(ctx.openai_client)),
+        ("llm_gateway", ctx.llm_gateway.close),
     ]
     if ctx.clawhub is not None:
         async_closers.append(("clawhub", ctx.clawhub.close))
@@ -207,7 +208,7 @@ async def _close_container_resources(ctx: Any) -> None:
             await close()
         except Exception:
             failures.append(name)
-    ctx.openai_client = None
+    ctx.llm_gateway = None
     try:
         ctx.memory.close()
     except Exception:

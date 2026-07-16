@@ -29,11 +29,11 @@ def create_assistant_application() -> AssistantApplication:
     return AssistantApplication(create_application_container())
 
 
-def run_assistant() -> None:
-    """Run the supported CLI entry, including migration and diagnostics commands."""
-    from miniagent.assistant.runner import main
+def run_assistant(argv: list[str] | None = None) -> None:
+    """Handle the command-line boundary and run the single application lifecycle."""
+    from miniagent.assistant.runner import run_cli_boundary
 
-    main()
+    run_cli_boundary(argv)
 
 
 __all__ = ["AssistantApplication", "create_assistant_application", "run_assistant"]

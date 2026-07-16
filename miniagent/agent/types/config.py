@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from miniagent.agent.types.tool import Toolbox, ToolRegistryProtocol
@@ -23,72 +23,6 @@ if TYPE_CHECKING:
 # 数据类占位默认值（与包内 defaults 对齐；运行时请用 get_default_*_config()）
 _MAX_TURNS_DEFAULT = 400
 _TOOL_TIMEOUT_DEFAULT = 60
-
-WireAPI = Literal["chat_completions", "responses"]
-
-
-def normalize_wire_api(value: Any) -> WireAPI:
-    """Validate and normalize the configured OpenAI wire protocol."""
-    normalized = str(value or "chat_completions").strip().lower()
-    if normalized not in ("chat_completions", "responses"):
-        raise ValueError(
-            "model.wire_api must be 'chat_completions' or 'responses', "
-            f"got {value!r}"
-        )
-    return normalized  # type: ignore[return-value]
-
-
-# ============================================================================
-# ModelConfig — 模型层配置
-# ============================================================================
-
-
-@dataclass
-class ModelConfig:
-    """模型配置
-
-    运行时默认值由 ``get_default_model_config()`` 从包内 defaults 加载；
-    下列字段仅为直接构造 ``ModelConfig()`` 时的占位，勿与 JSON / 环境变量混为一谈。
-
-    Attributes:
-        base_url: API 端点
-        model: 模型名称
-        temperature: 温度（0.0-2.0）
-        top_p: top_p 采样（0.0-1.0）
-        max_tokens: 最大输出 token 数
-        thinking_level: thinking 级别（none/light/medium/high）
-        thinking_budget: thinking token 预算
-        context_window: 上下文窗口大小（token）
-        retry_count: API 调用重试次数
-        service_tier: 服务层级（auto/default/flex）
-        wire_api: OpenAI 传输协议（chat_completions/responses）
-        user_agent: 可选 HTTP User-Agent 覆盖
-
-    Example:
-        >>> config = ModelConfig(model="gpt-4o", temperature=0.7)
-        >>> config.model
-        'gpt-4o'
-
-    Note:
-        - 运行时推荐使用 get_default_model_config() 获取完整配置
-        - thinking_level 控制模型思考深度
-        - thinking_budget 仅在 thinking_level 非 none 时生效
-        - service_tier 控制请求的服务层级和延迟优先级
-    """
-
-    base_url: str = "https://api.openai.com/v1"
-    model: str = "gpt-4o-mini"
-    temperature: float = 0.7
-    top_p: float = 1.0
-    max_tokens: int = 4096
-    thinking_level: str = "light"
-    thinking_budget: int = 1024
-    context_window: int = 128000
-    retry_count: int = 2
-    service_tier: str | None = None  # auto/default/flex
-    wire_api: WireAPI = "chat_completions"
-    user_agent: str | None = None
-
 
 # ============================================================================
 # SessionBindingConfig — 会话绑定配置分组
@@ -167,7 +101,7 @@ class FeishuChannelConfig:
     Note:
         - receive_chat_id 注入工具上下文，使 .abort 等命令作用于当前群队列
         - 本 dataclass 字段 ``cli_dispatch_allow_mutations`` 默认 ``True``（CLI 友好）
-        - 飞书入站路径由 ``UnifiedEngine.run_agent_with_thinking`` 在 merge 前注入
+        - 飞书入站路径由 ``AssistantTurnService.run_agent_with_thinking`` 在 merge 前注入
           ``False``（或 ``feishu.dot_commands_full=true`` 时为 ``True``），见 ``docs/FEISHU.md``
 
     See Also:
@@ -233,7 +167,7 @@ class AgentConfig:
         log_token_usage: 是否记录 token 用量
         log_file: 增量日志文件路径
         loop_detection: 循环检测配置
-        model_overrides: 模型覆盖
+        llm_overrides: 模型覆盖
         session_config: 会话绑定配置
         feishu_config: 飞书通道配置
         risk_level: 风险等级（low/medium/high）
@@ -288,7 +222,7 @@ class AgentConfig:
     # ── 高级配置 ──
     tool_selection_strategy: str = "toolbox"  # "all" | "toolbox" | "auto"
     loop_detection: dict[str, Any] = field(default_factory=dict)
-    model_overrides: dict[str, Any] = field(default_factory=dict)
+    llm_overrides: dict[str, Any] = field(default_factory=dict)
     risk_level: str | None = None  # "low" | "medium" | "high"
     history_progressive_compression: bool = True
 
@@ -306,11 +240,8 @@ def normalize_conversation_history(value: Any) -> list[dict[str, Any]]:
 
 
 __all__ = [
-    "ModelConfig",
     "SessionBindingConfig",
     "FeishuChannelConfig",
     "AgentConfig",
-    "WireAPI",
-    "normalize_wire_api",
     "normalize_conversation_history",
 ]

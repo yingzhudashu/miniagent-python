@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from miniagent.assistant.engine import command_dispatch
-from miniagent.assistant.engine.engine import _turn_label_sort_key, _TurnThinkingRecorder
+from miniagent.assistant.engine.turn_service import _turn_label_sort_key, _TurnThinkingRecorder
 from miniagent.assistant.feishu import card_rendering
 from miniagent.assistant.scheduled_tasks.models import ScheduledTask, ScheduleSpec
 

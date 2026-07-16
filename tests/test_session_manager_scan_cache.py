@@ -29,6 +29,7 @@ def _write_config(workspaces: Path, index: int, *, title: str = "") -> Path:
     config.write_text(
         json.dumps(
             {
+                "schema_version": 1,
                 "session_id": session_id,
                 "workspace_path": str(workspace),
                 "files_path": str(workspace / "files"),
@@ -84,7 +85,8 @@ def test_session_config_cache_has_hard_entry_limit(workspaces: Path) -> None:
     assert len(manager._disk_config_cache) <= 3
 
 
-def test_lru_eviction_and_destroy_release_idle_session_locks(workspaces: Path) -> None:
+@pytest.mark.asyncio
+async def test_lru_eviction_and_destroy_release_idle_session_locks(workspaces: Path) -> None:
     manager = DefaultSessionManager(DefaultToolRegistry(), max_sessions=3)
     for index in range(20):
         manager.get_or_create(f"ephemeral-{index}")
@@ -93,7 +95,7 @@ def test_lru_eviction_and_destroy_release_idle_session_locks(workspaces: Path) -
     assert set(manager._session_locks) == set(manager._sessions)
 
     for session_id in list(manager._sessions):
-        assert manager.destroy(session_id, keep_files=False)
+        assert await manager.delete_session(session_id, keep_files=False)
 
     assert manager._session_locks == {}
     assert manager._session_lock_users == {}

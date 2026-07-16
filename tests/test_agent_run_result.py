@@ -73,7 +73,7 @@ async def test_run_agent_returns_agent_run_result(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_agent_options_merge_model_config(tmp_path) -> None:
+async def test_run_agent_options_merge_llm_overrides(tmp_path) -> None:
     from tests.config_helpers import install_test_config
 
     install_test_config(tmp_path, {"features": {"reflection": False}})
@@ -115,13 +115,13 @@ async def test_run_agent_options_merge_model_config(tmp_path) -> None:
                         client=MagicMock(),
                         skip_planning=True,
                         options=AgentRunOptions(
-                            model_config={"temperature": 0.2},
+                            llm_overrides={"temperature": 0.2},
                             system_prompt="from-options",
                         ),
                         system_prompt="from-kwarg",
                         agent_config={"max_turns": 99},
                     )
 
-    assert merge_calls[0]["model_overrides"]["temperature"] == 0.2
+    assert merge_calls[0]["llm_overrides"]["temperature"] == 0.2
     assert merge_calls[1]["max_turns"] == 99
     assert execute_kwargs["system_prompt"] == "from-kwarg"

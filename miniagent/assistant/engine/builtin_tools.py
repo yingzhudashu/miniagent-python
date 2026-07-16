@@ -30,12 +30,12 @@ from miniagent.agent.types.tool import ToolRegistryProtocol
 from miniagent.assistant.feishu.feishu_tool_policy import FEISHU_EXT_TOOL_NAMES
 from miniagent.assistant.feishu.im_tool_policy import feishu_im_tools_should_register
 from miniagent.assistant.infrastructure.json_config import get_config
-from miniagent.assistant.tools import ALL_TOOLS
 from miniagent.assistant.tools.cli_dispatch_tools import CLI_DOT_TOOL_NAMES
 from miniagent.assistant.tools.knowledge_tools import (
     KNOWLEDGE_TOOL_NAMES,
     apply_knowledge_toolbox_policy,
 )
+from miniagent.assistant.tools.registry import ALL_TOOLS
 from miniagent.assistant.tools.schedule_tools import SCHEDULE_TOOL_NAMES
 
 _logger = get_logger(__name__)
