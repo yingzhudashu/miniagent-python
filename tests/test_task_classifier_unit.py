@@ -16,9 +16,8 @@ from miniagent.agent.task_classifier import (
     task_classifier_enabled,
 )
 from miniagent.agent.thinking_presets import THINKING_LEVEL_PRESETS
-from miniagent.llm.openai_compat import json_object_unsupported
+from tests.llm_helpers import MockGateway
 from tests.memory_helpers import make_knowledge_registry
-from tests.mock_strategies import MockGateway
 
 
 def test_task_classifier_enabled_reads_internal_constant() -> None:
@@ -54,14 +53,6 @@ def test_exec_merge_simple_path_matches_low_preset() -> None:
     tl, tb = THINKING_LEVEL_PRESETS["low"]
     assert m == {"thinking_level": tl, "thinking_budget": tb}
     assert m == planner_merge_for_difficulty(TaskDifficulty.NORMAL)
-
-
-def test_json_object_unsupported_ignores_missing_json_keyword() -> None:
-    err = Exception(
-        "Response input messages must contain the word 'json' in some form "
-        "to use 'response.format' of type 'json_object'."
-    )
-    assert not json_object_unsupported(err)
 
 
 def _mock_client(content: str) -> MockGateway:

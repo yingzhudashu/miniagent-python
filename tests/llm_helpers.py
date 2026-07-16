@@ -1,4 +1,4 @@
-"""Focused test doubles shared by executor integration tests."""
+"""LLM test doubles shared by focused agent tests."""
 
 from __future__ import annotations
 
@@ -17,10 +17,14 @@ from miniagent.llm.types import ModelCapabilities, ModelDescriptor
 
 
 class MockGateway:
-    """Test-only Gateway double around a raw OpenAI-compatible SDK mock."""
+    """Gateway double around a raw OpenAI-compatible SDK mock."""
 
     def __init__(
-        self, raw: MagicMock, *, responses: bool = False, vision: bool = False
+        self,
+        raw: MagicMock,
+        *,
+        responses: bool = False,
+        vision: bool = False,
     ) -> None:
         self.raw = raw
         self.chat = raw.chat
@@ -49,7 +53,11 @@ class MockGateway:
             params=LLMGateway._provider_params(kwargs["params"], self.descriptor),
             tools=kwargs.get("tools"),
             json_mode=kwargs.get("json_mode", False),
-            wire_api="responses" if self.descriptor.api == "openai_responses" else "chat_completions",
+            wire_api=(
+                "responses"
+                if self.descriptor.api == "openai_responses"
+                else "chat_completions"
+            ),
         )
 
     def stream_completion(self, **kwargs: Any):
@@ -59,81 +67,12 @@ class MockGateway:
             params=LLMGateway._provider_params(kwargs["params"], self.descriptor),
             tools=kwargs.get("tools"),
             json_mode=kwargs.get("json_mode", False),
-            wire_api="responses" if self.descriptor.api == "openai_responses" else "chat_completions",
+            wire_api=(
+                "responses"
+                if self.descriptor.api == "openai_responses"
+                else "chat_completions"
+            ),
         )
-
-
-def make_ping_tool_registry() -> tuple[Any, Any]:
-    """Create main/session registries with one successful session tool."""
-    from miniagent.agent.types.tool import ToolDefinition, ToolResult
-    from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
-
-    async def handler(_args: dict[str, Any], _ctx: Any) -> ToolResult:
-        return ToolResult(success=True, content="pong")
-
-    ping_tool = ToolDefinition(
-        schema={
-            "type": "function",
-            "function": {
-                "name": "ping_tool",
-                "description": "Return pong",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "path": {"type": "string", "description": "Optional path"},
-                    },
-                    "required": [],
-                },
-            },
-        },
-        handler=handler,
-        permission="allowlist",
-        help_text="Return pong",
-        toolbox="filesystem",
-    )
-    main = DefaultToolRegistry()
-    session = DefaultToolRegistry()
-    session.register("ping_tool", ping_tool)
-    return main, session
-
-
-def mock_memory_bundle() -> tuple[MagicMock, MagicMock, MagicMock]:
-    """Create the three collaborators overridden by executor tests."""
-    store = MagicMock()
-    activity_log = MagicMock()
-    activity_log.log_session_start = AsyncMock()
-    activity_log.log_llm_call = AsyncMock()
-    activity_log.log_tool_call = AsyncMock()
-    activity_log.log_final_reply = AsyncMock()
-    activity_log.log_incomplete = AsyncMock()
-    keyword_index = MagicMock()
-    keyword_index.get_stats.return_value = {"total_keywords": 0}
-    return store, activity_log, keyword_index
-
-
-def agent_config_with_session(
-    session_registry: Any,
-    *,
-    max_turns: int = 3,
-    debug: bool = False,
-) -> Any:
-    """Create an AgentConfig bound to a session tool registry."""
-    from miniagent.agent.types.config import AgentConfig, SessionBindingConfig
-
-    return AgentConfig(
-        max_turns=max_turns,
-        allow_parallel_tools=True,
-        tool_selection_strategy="all",
-        session_config=SessionBindingConfig(session_registry=session_registry),
-        debug=debug,
-    )
-
-
-def empty_plan() -> Any:
-    """Create the minimal direct-execution plan."""
-    from miniagent.agent.types.planning import StructuredPlan
-
-    return StructuredPlan(summary="s", steps=[], required_toolboxes=[])
 
 
 def mock_streaming_client(
@@ -143,7 +82,7 @@ def mock_streaming_client(
     final_text: str = "done",
     extra_streams: list[Any] | None = None,
 ) -> MockGateway:
-    """Create a client that emits a tool call followed by final text."""
+    """Create a gateway that emits a tool call followed by final text."""
     client = MagicMock()
 
     class _Chunk:
@@ -187,10 +126,4 @@ def mock_streaming_client(
     return MockGateway(client)
 
 
-__all__ = [
-    "agent_config_with_session",
-    "empty_plan",
-    "make_ping_tool_registry",
-    "mock_memory_bundle",
-    "mock_streaming_client",
-]
+__all__ = ["MockGateway", "mock_streaming_client"]

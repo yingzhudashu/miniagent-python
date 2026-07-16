@@ -329,6 +329,18 @@ class TestEmbeddingIndex:
 
 class TestEmbeddingSearchProvider:
     @pytest.mark.asyncio
+    async def test_http_client_reused_until_provider_closes(self, tmp_path):
+        provider = EmbeddingSearchProvider(state_dir=str(tmp_path))
+
+        first = provider._get_http_client()
+        assert provider._get_http_client() is first
+
+        await provider.close()
+        replacement = provider._get_http_client()
+        assert replacement is not first
+        await provider.close()
+
+    @pytest.mark.asyncio
     async def test_empty_index_skips_query_embedding_api(self, tmp_path, monkeypatch):
         provider = EmbeddingSearchProvider(state_dir=str(tmp_path))
 

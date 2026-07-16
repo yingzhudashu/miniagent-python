@@ -9,7 +9,7 @@ import pytest
 
 from miniagent.agent.types.tool import ToolContext
 from miniagent.assistant.tools.vision import _analyze_image_handler
-from tests.mock_strategies import MockGateway
+from tests.llm_helpers import MockGateway
 
 
 @pytest.fixture

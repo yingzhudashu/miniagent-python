@@ -14,6 +14,24 @@ from miniagent.assistant.feishu import drive_client
 from miniagent.assistant.feishu.types import FeishuConfig
 
 
+@pytest.mark.asyncio
+async def test_shared_http_client_reused_and_closed(monkeypatch) -> None:
+    client = MagicMock()
+    client.aclose = AsyncMock()
+    factory = MagicMock(return_value=client)
+    drive_client.reset_http_client()
+    monkeypatch.setattr(drive_client.httpx, "AsyncClient", factory)
+
+    assert drive_client._get_http_client() is client
+    assert drive_client._get_http_client() is client
+    factory.assert_called_once_with(timeout=30.0)
+
+    await drive_client.close_http_client()
+
+    client.aclose.assert_awaited_once()
+    assert drive_client._http_client is None
+
+
 def test_concurrent_sync_token_misses_share_one_fetch(monkeypatch) -> None:
     config = FeishuConfig(app_id="sync-app", app_secret="secret")
     calls = 0

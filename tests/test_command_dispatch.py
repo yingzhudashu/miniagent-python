@@ -19,6 +19,7 @@ import pytest
 from miniagent.agent.types.error_prefix import WARNING_PREFIX
 from miniagent.assistant.engine.command_dispatch import (
     _REGISTERED_COMMANDS,
+    _find_closest_command,
     _find_command_by_prefix,
     _format_status,
     _get_last_qa,
@@ -572,8 +573,37 @@ class TestReviewCommand:
 class TestPrefixMatchAmbiguity:
     """前缀匹配歧义（文档化行为）。"""
 
-    def test_sta_matches_stats_first_in_registry(self) -> None:
-        assert _find_command_by_prefix("/sta") == "/stats"
+    @pytest.mark.parametrize(
+        ("command", "expected"),
+        [
+            ("/sta", "/stats"),
+            ("/ses", "/session"),
+            ("/ins", "/instance"),
+            ("/hel", "/help"),
+            ("/st", None),
+            ("/se", None),
+            ("/h", None),
+        ],
+        ids=["stats", "session", "instance", "help", "short-st", "short-se", "short-h"],
+    )
+    def test_prefix_matching(self, command: str, expected: str | None) -> None:
+        assert _find_command_by_prefix(command) == expected
+
+    @pytest.mark.parametrize(
+        ("command", "expected"),
+        [
+            ("/sttatus", "/status"),
+            ("/hlep", "/help"),
+            ("/sesion", "/session"),
+            ("/insance", "/instance"),
+            ("/xyz", None),
+            ("/123", None),
+            ("/unknown", None),
+        ],
+        ids=["status-typo", "help-typo", "session-typo", "instance-typo", "xyz", "digits", "unknown"],
+    )
+    def test_fuzzy_matching(self, command: str, expected: str | None) -> None:
+        assert _find_closest_command(command) == expected
 
 
 __all__ = [

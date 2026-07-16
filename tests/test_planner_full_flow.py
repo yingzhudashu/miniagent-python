@@ -14,8 +14,8 @@ from miniagent.agent.planner import _fallback_plan, generate_plan
 from miniagent.agent.types.config import AgentConfig, SessionBindingConfig
 from miniagent.agent.types.planning import PlanStep, StructuredPlan
 from miniagent.agent.types.tool import Toolbox
+from tests.llm_helpers import MockGateway
 from tests.memory_helpers import make_knowledge_registry
-from tests.mock_strategies import MockGateway
 
 _VALID_PLAN_CONTENT = (
     '{"summary":"configured","steps":[],"requiredToolboxes":[],'

@@ -13,7 +13,7 @@ import pytest
 
 from miniagent.agent.llm_json import llm_json, parse_llm_json_response
 from miniagent.agent.observability import clear_trace_hooks, register_trace_hook
-from tests.mock_strategies import MockGateway
+from tests.llm_helpers import MockGateway
 
 
 def _gateway(client):

@@ -11,8 +11,8 @@ from miniagent.agent.problem_solver import (
     ReflectionResult,
     reflect_on_result,
 )
+from tests.llm_helpers import MockGateway
 from tests.memory_helpers import make_knowledge_registry
-from tests.mock_strategies import MockGateway
 
 
 @pytest.mark.asyncio

@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from miniagent.assistant.feishu import vision_desc
-from tests.mock_strategies import MockGateway
+from tests.llm_helpers import MockGateway
 
 
 @pytest.mark.asyncio

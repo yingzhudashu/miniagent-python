@@ -18,8 +18,8 @@ from miniagent.agent.types.tool import ToolContext, ToolDefinition, ToolResult
 from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 from miniagent.assistant.memory.keyword_index import KeywordIndex
 from miniagent.assistant.memory.store import DefaultMemoryStore
+from tests.llm_helpers import MockGateway
 from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
-from tests.mock_strategies import MockGateway
 from tests.perf_helpers import (
     assert_two_medians_within_ratio,
     median_wall_seconds,
