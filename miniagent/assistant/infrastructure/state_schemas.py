@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from miniagent.assistant.infrastructure.persistence import (
     StateSchema,
+    StateSchemaError,
     get_state_schema,
     register_state_schema,
 )
@@ -29,7 +30,7 @@ def install_builtin_state_schemas() -> None:
     for schema in _BUILTIN_SCHEMAS:
         try:
             existing = get_state_schema(schema.name)
-        except Exception:
+        except StateSchemaError:
             register_state_schema(schema)
         else:
             if existing != schema:

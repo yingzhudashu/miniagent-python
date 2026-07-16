@@ -1,5 +1,6 @@
 __pycache__/
 **/__pycache__/
+.venv/
 .mypy_cache/
 .ruff_cache/
 *.pyc
@@ -24,11 +25,15 @@ perf-snapshot.json
 real-api-snapshot.json
 perf.out
 profile.svg
+trace-overhead.json
+stability-soak.json
 
 # 测试覆盖率产物
 .coverage
 .coverage.*
 htmlcov/
+coverage.xml
+wheelhouse/
 
 # Claude Code session 目录
 .claude/
@@ -37,6 +42,10 @@ htmlcov/
 .vscode/
 .idea/
 .cursor/plans/
+
+# 用户私有维护脚本（只保留目录说明）
+scripts/user/*
+!scripts/user/README.md
 
 # 运行时工作目录（全部忽略，但保留示例文件）
 workspaces/*

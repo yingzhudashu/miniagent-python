@@ -13,19 +13,29 @@ from miniagent.assistant.engine.command_registry import (
 
 
 def test_legacy_command_list_is_derived_from_registry() -> None:
-    assert _REGISTERED_COMMANDS == list(COMMAND_REGISTRY.names)
+    assert _REGISTERED_COMMANDS == list(COMMAND_REGISTRY.dispatch_names)
     assert len(COMMAND_REGISTRY.names) == len(set(COMMAND_REGISTRY.names))
+    assert "/copy" in COMMAND_REGISTRY.names_for("cli")
+    assert "/copy" not in COMMAND_REGISTRY.names_for("feishu")
 
 
 def test_every_command_has_handler_help_and_channel_policy() -> None:
     for spec in COMMAND_REGISTRY.specs:
-        assert spec.handler_key
         handler = BOUND_COMMAND_REGISTRY.handler_for(spec.name)
-        assert callable(handler)
-        assert handler.__module__.startswith("miniagent.assistant.engine.commands.")
+        if spec.owner == "dispatcher":
+            assert spec.handler_key
+            assert callable(handler)
+            assert handler.__module__.startswith("miniagent.assistant.engine.commands.")
+        else:
+            assert spec.handler_key is None
+            assert handler is None
         assert spec.summary
         assert spec.usage.startswith(spec.name)
         assert spec.channels
+
+    query = COMMAND_REGISTRY.resolve("/query")
+    assert query is not None
+    assert "queue status" in query.summary
 
 
 def test_prefix_priority_preserves_existing_stats_before_status() -> None:
@@ -51,7 +61,13 @@ def test_command_spec_rejects_invalid_names_and_incomplete_metadata() -> None:
     with pytest.raises(ValueError, match="/ 前缀"):
         CommandSpec("help", "help", "help", "help")
     with pytest.raises(ValueError, match="元数据不完整"):
-        CommandSpec("/empty", "", "summary", "/empty")
+        CommandSpec("/empty", "empty", "", "/empty")
+    with pytest.raises(ValueError, match="缺少处理器"):
+        CommandSpec("/empty", None, "summary", "/empty")
+    with pytest.raises(ValueError, match="不得绑定"):
+        CommandSpec("/copy", "copy", "copy", "/copy", owner="cli_frontend")
+    with pytest.raises(ValueError, match="只能声明 cli"):
+        CommandSpec("/copy", None, "copy", "/copy", owner="cli_frontend")
 
 
 def test_handler_binding_rejects_missing_and_extra_keys() -> None:

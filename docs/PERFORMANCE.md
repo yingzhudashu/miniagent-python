@@ -145,14 +145,9 @@ python scripts/perf_stability_soak.py --duration-seconds 1800 --interval-seconds
 
 2026-07-16 最终 1800 秒验收完成 16703 次稳态迭代和 200 次预热，67838/67838 个事件写入成功；RSS warm-to-final 为 -0.25%，Python traced 为 +1.07%，进程 CPU 累计 40.45 秒，线程由预热后的 4 回落到 3、峰值 5。span failure、drop、序列化错误、写入错误、关停不完整和验证错误均为 0。
 
-#### 3.7 全仓逐文件审计台账
+#### 3.7 可执行质量证据
 
-```bash
-python scripts/performance_audit.py --write
-python scripts/performance_audit.py --check
-```
-
-脚本枚举 Git 已跟踪及未忽略的一方文本文件，逐文件记录 SHA256、字节数、行数和已审查行数；Python 文件额外做 AST 扫描，标记模块导入期配置冻结、async 中同步 I/O 候选、宽泛异常和大型模块。产物为 `docs/performance-audit.json` 与摘要 `docs/PERFORMANCE_AUDIT.md`，任一受审文件变化都会使 `--check` 失败。自动台账用于证明覆盖面，风险项仍须结合针对性行为测试和人工差异审阅。
+性能结论只由调用真实实现的基准、Trace 开销、稳定性浸泡和资源曲线支撑。仓库不提交逐文件哈希或“已审查行数”生成台账，因为它们只能证明文件被扫描，不能证明实现正确，并会在普通代码变更后立即漂移。文档版本、命令覆盖、仓库卫生和链接由 `scripts/check_docs.py` 当次检查；代码正确性由 Ruff、Mypy、Bandit、架构门禁、分支覆盖率和行为测试共同验证。
 
 ### 4. 基线文件格式（`tests/perf_baselines/`）
 
@@ -274,7 +269,6 @@ async def good_example():
 | [`scripts/compare_perf_snapshots.py`](../scripts/compare_perf_snapshots.py) | 对比两次 `--json-out` JSON（峰值比例告警） |
 | [`scripts/perf_trace_overhead.py`](../scripts/perf_trace_overhead.py) | Trace 禁用/启用路径开销与完整写入校验 |
 | [`scripts/perf_stability_soak.py`](../scripts/perf_stability_soak.py) | 有界混合负载的 RSS、Python 分配和线程稳定性浸泡 |
-| [`scripts/performance_audit.py`](../scripts/performance_audit.py) | 全仓逐文件/逐行覆盖台账及 AST 风险扫描 |
 
 ---
 

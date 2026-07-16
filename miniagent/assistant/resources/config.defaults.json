@@ -326,7 +326,7 @@
   },
 
   "dream": {
-    "description": "记忆精炼调度（Advanced 层）",
+    "description": "记忆索引与裁剪维护（Advanced 层；不调用 LLM）",
     "diary_refine_sec": 604800,
     "session_lt_refine_sec": 2592000,
     "agent_lt_refine_sec": 31536000,

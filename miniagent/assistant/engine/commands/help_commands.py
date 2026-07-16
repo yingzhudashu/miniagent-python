@@ -4,6 +4,16 @@ from __future__ import annotations
 
 from typing import Any
 
+from miniagent.assistant.engine.command_registry import COMMAND_REGISTRY
+
+
+def _command_help_row(name: str, detail: str | None = None) -> tuple[str, str]:
+    """从注册表生成顶层命令行；详细子命令仍由本模块说明。"""
+    spec = COMMAND_REGISTRY.resolve(name)
+    if spec is None:  # 注册表和帮助必须一起维护；此分支只提供可操作错误。
+        raise ValueError(f"帮助引用了未注册命令: {name}")
+    return f"`{spec.usage}`", detail or spec.summary
+
 
 def _md_help_section(title: str, hint: str | None, rows: list[tuple[str, str]]) -> str:
     """生成分组 Markdown：可选引用提示 + 粗体命令列表（飞书 lark_md 友好）。
@@ -74,7 +84,7 @@ def _runtime_help_sections() -> list[str]:
             "`queue` 为默认；`preemptive` 允许新消息插队。`/queue abort` / `/abort` 取消本 `chat_id` 上经 `dispatch` / `dispatch_wait` 投递的任务，**不是** `/stop`（停实例）。飞书侧可随时发送以打断卡住的 Agent；全屏 CLI 在单轮 Agent 执行中无法再次输入命令。",
             [
                 ("`/queue status`", "查看队列状态"),
-                ("`/query`", "同上（短命令）"),
+                _command_help_row("/query"),
                 ("`/queue set <模式>`", "切换 `queue` / `preemptive`"),
                 ("`/queue abort`", "中止本通道队列内运行中与排队的任务；不退出进程"),
                 ("`/abort`", "同上（短命令）"),
@@ -217,7 +227,9 @@ def _maintenance_help_sections(instance_id: int | None) -> list[str]:
             [
                 ("`/help`", "显示本帮助"),
                 ("`/reload-skills`", "从磁盘重新加载技能（无需重启）"),
-                ("`/copy`", "复制当前会话全文到剪贴板（全屏 transcript / 简易 history）"),
+                _command_help_row(
+                    "/copy", "复制 CLI 当前已加载内容到剪贴板（全屏 transcript / 简易 history）"
+                ),
                 ("`quit` / `exit`", "退出程序"),
             ],
         ),

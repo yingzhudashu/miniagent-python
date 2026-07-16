@@ -32,11 +32,14 @@
 
 ### 路径白名单
 
-所有文件操作（读、写、删除）必须在白名单目录内执行：
+所有文件操作（读、写、删除）必须在当前工具上下文的白名单目录内执行。正式会话通常把
+`{paths.state_dir}/sessions/<safe_session_id>/files/` 作为 `ToolContext.cwd` 和允许目录；
+`paths.state_dir` 默认已解析到 `workspaces/projects/{project_key}/`。独立嵌入 Agent 时，
+`get_default_workspace()` 只返回显式 `paths.workspace` 或进程 cwd，不能替代会话目录解析：
 
 ```python
-# 默认工作空间
-workspace = get_default_workspace()  # {paths.state_dir}/sessions/<session_id>/files/（见 [ENGINEERING.md](ENGINEERING.md) §3）
+# 正式 Assistant 会话：由 SessionManager 解析，而不是调用 get_default_workspace()
+workspace = session.config.files_path
 
 # 路径验证
 resolved = resolve_sandbox_path(path, ["/app/workspace"])
@@ -46,7 +49,7 @@ resolved = resolve_sandbox_path(path, ["/app/workspace"])
 ### 父目录遍历拦截
 
 ```python
-# ❌ 被拦截（相对路径基于进程 cwd 解析）
+# ❌ 被拦截（工具层先相对 ToolContext.cwd 解析，再校验允许目录）
 resolve_sandbox_path("../../etc/passwd", ["/app/workspace"])
 # → SandboxViolationError
 

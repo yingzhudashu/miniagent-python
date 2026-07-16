@@ -15,7 +15,7 @@
 
 ### Added
 
-- 新增 Trace 开销基准、有界稳定性浸泡和全仓逐文件性能审计台账；CI 覆盖 Python 3.10/3.12/3.13、Windows 与 macOS 冒烟、Anthropic/Google provider extras，并执行新增审计门禁。
+- 新增 Trace 开销基准与有界稳定性浸泡；CI 覆盖 Python 3.10/3.12/3.13、Windows 与 macOS 冒烟，以及 Anthropic、Google、Playwright 等可选依赖。
 - Trace 事件增加显式 schema 版本与集中事件注册表，真实 API harness 产出 schema v3 摘要，并将缺失/空 Trace、writer 终态计数不一致和秘密命中视为硬失败。
 - 新增协议无关 `LLMGateway`、显式 provider registry、小型模型目录及
   `default/reasoning/fast/vision` 角色路由；支持 OpenAI Chat/Responses，并通过可选
@@ -26,6 +26,10 @@
   和可校验快捷键配置；保留 fallback CLI。
 
 ### Changed
+
+- 移除易漂移的逐文件哈希审计账本，改由文档版本、命令覆盖、仓库卫生、静态分析、覆盖率和真实性能测试直接提供可执行质量证据。
+- 命令元数据显式区分共享 dispatcher 与 CLI 前端本地命令；`/copy` 进入 CLI 帮助和补全事实源，`/query` 明确为 `/queue status` 的只读别名。
+- 文档统一说明 3.0 状态 schema 严格拒绝旧格式且不自动迁移，并将 Dream 能力准确描述为不调用 LLM 的索引与裁剪维护。
 
 - Agent 对象 API 与兼容 `run_agent()` 函数 API 归一到同一冻结回合上下文；Assistant 生产路径不再把对象调用绕回函数入口。执行阶段的单调用点辅助模块已就近合并，同时保持全部公开签名和阶段行为不变。
 - `AssistantTurnService` 以不可变回合快照传递 CLI/飞书元数据；命令调度器只负责解析与调用，状态、质量审查和测试逻辑由各自命令模块拥有，并移除命令到调度器的反向依赖。

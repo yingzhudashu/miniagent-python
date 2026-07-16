@@ -174,7 +174,7 @@ class AssistantTuiApplication(TuiApp):
 
         self.input_buffer = Buffer(
             history=create_cli_file_history(self.history_file),
-            completer=create_cli_completer(COMMAND_REGISTRY.names),
+            completer=create_cli_completer(COMMAND_REGISTRY.names_for("cli")),
             complete_while_typing=False,
         )
         reload_cli_input_history(self.state, self.input_buffer, self.history_file)

@@ -15,10 +15,13 @@ from __future__ import annotations
 import math
 import time
 from collections import OrderedDict
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
+from miniagent.ui.tui.appenders import create_transcript_appenders
+from miniagent.ui.tui.transcript import TranscriptBuffer
 from tests.perf_helpers import (
     median_wall_seconds,
     tracemalloc_peak_diff_mb,
@@ -109,38 +112,40 @@ class TestRenderPerformance:
     """B2: 终端渲染帧率测试"""
 
     @pytest.mark.perf
-    def test_invalidate_debounce_pattern(self):
-        """渲染调度 debounce 性能"""
-        # 模拟高频 invalidate 场景
-        invalidate_count_old = 0
-        invalidate_count_new = 0
+    def test_real_transcript_append_and_invalidate_budget(self, monkeypatch):
+        """真实追加器每次有效更新只触发一次重绘，并保持字符预算。"""
+        invalidations: list[bool] = []
+        monkeypatch.setattr(
+            "miniagent.ui.tui.appenders.get_app",
+            lambda: SimpleNamespace(invalidate=lambda: invalidations.append(True)),
+        )
 
-        def old_pattern():
-            # 直接 invalidate
-            nonlocal invalidate_count_old
-            for _ in range(100):
-                invalidate_count_old += 1
+        def exercise() -> TranscriptBuffer:
+            transcript = TranscriptBuffer(2048, min_fragments=16)
+            appenders = create_transcript_appenders(
+                is_valid_pt_style=lambda _style: True,
+                output_at_bottom=lambda: False,
+                transcript=transcript,
+                trim_transcript=transcript.trim,
+                clear_selection=lambda: None,
+                stick_bottom=[False],
+                snap_output_bottom=lambda: None,
+                safe_ansi=lambda value: value,
+            )
+            for index in range(400):
+                appenders.append_transcript(f"class:line-{index % 2}", f"{index:04d}:" + "x" * 20)
+            return transcript
 
-        def new_pattern():
-            # debounce 模式
-            nonlocal invalidate_count_new
-            last_time = 0
-            min_interval = 0.05  # 50ms
-            for _ in range(100):
-                now = time.monotonic()
-                if now - last_time >= min_interval:
-                    invalidate_count_new += 1
-                    last_time = now
+        exercise()  # 预热 prompt_toolkit 与闭包构造路径。
+        invalidations.clear()
+        elapsed = median_wall_seconds(7, exercise)
+        invalidations.clear()
+        transcript = exercise()
 
-        old_time = median_wall_seconds(100, old_pattern)
-        new_time = median_wall_seconds(100, new_pattern)
-
-        print("\n渲染调度对比:")
-        print(f"  旧模式: {old_time*1000:.3f}ms (无 debounce)")
-        print(f"  新模式: {new_time*1000:.3f}ms (debounce)")
-
-        # debounce 模式时间应该相近但实际 invalidate 更少
-        assert new_time <= old_time * 2, "debounce 不应显著增加开销"
+        assert elapsed < 0.1, f"400 次真实 transcript 追加耗时过高: {elapsed:.4f}s"
+        assert len(invalidations) == 400
+        assert transcript.total_len <= transcript.max_chars
+        assert len(transcript) >= transcript.min_fragments
 
     @pytest.mark.perf
     def test_terminal_width_cache_pattern(self):

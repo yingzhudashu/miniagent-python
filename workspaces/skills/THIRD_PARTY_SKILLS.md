@@ -1,26 +1,26 @@
 # 第三方技能许可与合规清单
 
 > 本文件是 `workspaces/skills/` 下第三方/模板技能来源与许可说明的 **SSOT**。  
-> 运行时技能包默认放在本目录；仓库预置模板位于 `miniagent/skills/templates/`。
+> 运行时技能包默认放在本目录；仓库预置模板位于 `miniagent/assistant/skills/templates/`。
 
 ## 目录约定
 
 | 路径 | 用途 |
 |------|------|
 | `workspaces/skills/` | 用户本机已安装/复制的技能包（默认运行时根，多数内容被 gitignore） |
-| `miniagent/skills/templates/` | 随源码/wheel 发布的模板与基线技能（可复制或 `install-skill` 到上表目录） |
+| `miniagent/assistant/skills/templates/` | 随源码/wheel 发布的模板与基线技能（可复制或 `install_skill` 到上表目录） |
 
-仅从 PyPI 安装 wheel、无完整仓库树时，本目录可能为空；需要基线技能时请克隆仓库、editable 安装，或从 `miniagent/skills/templates/` 手动复制。
+仅从 PyPI 安装 wheel、无完整仓库树时，本目录可能为空；需要基线技能时可由运行时从已打包的 `miniagent/assistant/skills/templates/` 引导安装，或克隆仓库后查看模板源码。
 
 ## 模板与基线技能
 
 | 技能 | 模板路径 | 来源 | 许可摘要 |
 |------|----------|------|----------|
-| `skill-creator` | `miniagent/skills/templates/skill-creator/` | [anthropics/skills](https://github.com/anthropics/skills)（含 `LICENSE.txt`） | Apache-2.0（见模板内 `LICENSE.txt`） |
-| `skill-vetter` | `miniagent/skills/templates/skill-vetter/` | 本仓库维护的指令型安全审查技能 | 与本仓库相同（MIT）；不含可执行第三方代码 |
-| `builtin-web` | `miniagent/skills/templates/builtin-web/` | 本仓库维护的联网工具技能（Tavily / fetch / Playwright） | 与本仓库相同（MIT）；调用方需自行遵守 Tavily 等第三方 API 条款 |
+| `skill-creator` | `miniagent/assistant/skills/templates/skill-creator/` | [anthropics/skills](https://github.com/anthropics/skills)（含 `LICENSE.txt`） | Apache-2.0（见模板内 `LICENSE.txt`） |
+| `skill-vetter` | `miniagent/assistant/skills/templates/skill-vetter/` | 本仓库维护的指令型安全审查技能 | 与本仓库相同（MIT）；不含可执行第三方代码 |
+| `builtin-web` | `miniagent/assistant/skills/templates/builtin-web/` | 本仓库维护的联网工具技能（Tavily / fetch / Playwright） | 与本仓库相同（MIT）；调用方需自行遵守 Tavily 等第三方 API 条款 |
 
-`skill-creator` 首次使用时可复制整个模板目录到 `workspaces/skills/skill-creator/`，或按 [USER_GUIDE.md §7](../../docs/USER_GUIDE.md#7-技能与-clawhub可选) 的安装指引操作。`skill-vetter` 同理（可用 `miniagent install-skill skill-vetter` 或手动复制）。
+`skill-creator` 首次使用时可复制整个模板目录到 `workspaces/skills/skill-creator/`，或按 [USER_GUIDE.md §7](../../docs/USER_GUIDE.md#7-技能与-clawhub可选) 的安装指引操作。`skill-vetter` 同理，可由 Agent 的 `install_skill` 工具安装或手动复制；项目没有 `miniagent install-skill` 控制台子命令。
 
 ## ClawHub / 自行安装的技能
 

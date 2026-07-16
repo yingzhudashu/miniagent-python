@@ -1,18 +1,23 @@
-# Migration to MiniAgent 3.0
+# 迁移到 MiniAgent 3.0
 
-MiniAgent 3.0 is the only supported runtime format. It does not automatically
-convert, back up, or rewrite older configuration and state files. Make a copy
-of your data and migrate it manually before starting 3.0.
+> Mini Agent Python | 版本: 3.0.0 | 最后更新: 2026-07-16 | 3.0 只支持当前配置与状态格式
 
-## Configuration
+MiniAgent 3.0 不会自动转换、备份或改写旧配置和状态文件。迁移前先停止旧实例，完整复制
+`config.user.json` 与旧状态目录，再让 3.0 使用一个新的空状态目录；不要直接在唯一副本上试跑。
 
-Replace the old single-model section with provider, profile, and role entries:
+## 配置迁移
+
+把旧的单模型配置改为 provider、model profile 和 role 三层结构：
 
 ```json
 {
   "llm": {
     "providers": {
-      "openai": {"driver": "openai", "api_key_env": "OPENAI_API_KEY"}
+      "openai": {
+        "driver": "openai",
+        "credential": "openai",
+        "api_key_env": "OPENAI_API_KEY"
+      }
     },
     "models": {
       "primary": {
@@ -35,34 +40,39 @@ Replace the old single-model section with provider, profile, and role entries:
 }
 ```
 
-Credentials may instead remain solely in the provider environment variable.
-Provider-specific behavior belongs in the selected profile's `compatibility`
-object. For Qwen thinking, set `"thinking_adapter": "qwen"` explicitly.
+密钥也可以只保存在 provider 的环境变量中。厂商兼容差异写入所选 model profile 的
+`compatibility` 对象；Qwen thinking 需显式设置 `"thinking_adapter": "qwen"`。完整字段见
+[LLM_PROVIDERS.md](LLM_PROVIDERS.md) 和包内 `config.defaults.json`。
 
-## State files
+## 状态文件迁移
 
-Every JSON state file must be an object with the exact current
-`schema_version`. Documents with a `version` field, no version, a different
-version, or an array root are rejected without modification. Create a fresh
-3.0 state directory and manually copy the user data you need into documents
-written with the current schemas. Session history currently uses schema 2;
-other schema numbers are defined by the 3.0 writer that owns each file.
+每个 JSON 状态文件都必须是对象，并带有该写入方当前精确的 `schema_version`。使用旧
+`version` 字段、缺少版本、版本不一致或数组根的文件都会在不修改原文的情况下被拒绝。
 
-MiniAgent never deletes old `.bak`, session, or workspace files. After you have
-verified the new installation, archive or remove old files yourself.
+当前内置 schema：
 
-## Embedded Python API
+| 状态 | schema_version |
+|------|----------------|
+| 会话配置、路由、知识库、Dream、长期记忆、自优化、测试报告、实例元数据 | `1` |
+| 会话历史、定时任务 | `2` |
 
-Only these package entry modules are public:
+推荐流程：
+
+1. 使用新状态目录启动 3.0，让当前写入方生成合法空文件。
+2. 只复制仍需保留的用户数据，并按新文件字段逐项转换；不要复制旧版本字段或锁/PID。
+3. 运行 `/doctor`、`/session list`、`/schedule list` 和相关功能的只读检查。
+4. 验证成功后再归档旧目录。MiniAgent 不会替用户删除旧 `.bak`、会话或 workspace。
+
+## 嵌入式 Python API
+
+仅以下包入口属于公开 API：
 
 - `miniagent.llm`
 - `miniagent.agent`
 - `miniagent.ui`
 - `miniagent.assistant`
 
-Call models through `LLMGateway` with explicit `role` and optional `profile`.
-Construct `AgentServices` with an `LLMGateway`, immutable `AgentSettings`, and
-the required ports. Start the product through `run_assistant(argv)`, or compose
-it with `create_assistant_application()` and call `AssistantApplication.run()`.
-
-There are no compatibility import modules for pre-3.0 internal paths.
+模型调用通过 `LLMGateway` 并显式指定 `role` 与可选 `profile`。核心 Agent 使用
+`AgentServices`、不可变 `AgentSettings` 和必要端口构造。完整产品通过
+`run_assistant(argv)` 启动，或由 `create_assistant_application()` 创建后调用
+`AssistantApplication.run()`。3.0 不提供 2.x 内部模块路径的兼容导入。

@@ -7,6 +7,7 @@ import pytest
 from miniagent.agent.monitor import DefaultToolMonitor
 from miniagent.assistant.bootstrap.application import ApplicationContainer
 from miniagent.assistant.engine.command_dispatch import _REGISTERED_COMMANDS, dispatch_command
+from miniagent.assistant.engine.command_registry import COMMAND_REGISTRY
 from miniagent.assistant.engine.commands.help_commands import _md_help_section, format_help_markdown
 from miniagent.assistant.engine.feishu_state import FeishuRuntime
 from miniagent.assistant.engine.turn_service import AssistantTurnService
@@ -45,12 +46,13 @@ def test_format_help_markdown_has_sections_and_commands() -> None:
     assert "当前实例：**#7**" in md
 
 
-def test_help_covers_all_registered_commands() -> None:
-    """_REGISTERED_COMMANDS 中每个顶层命令均出现在 /help 输出中。"""
+def test_help_covers_all_cli_commands() -> None:
+    """共享命令和 CLI 前端本地命令均出现在 ``/help`` 输出中。"""
     md = format_help_markdown(MessageQueueManager())
-    for cmd in _REGISTERED_COMMANDS:
+    for cmd in COMMAND_REGISTRY.names_for("cli"):
         assert cmd in md, f"{cmd} missing from /help"
     assert "/btw clear" in md, "/btw clear missing from /help"
+    assert "/copy" not in _REGISTERED_COMMANDS
 
 
 def test_md_help_header_separated_from_first_section() -> None:

@@ -354,7 +354,7 @@ ClarifiedRequirement（澄清后的需求规格）
 | 桥接 | `history_bridge.py` | 会话历史与记忆层之间的衔接 |
 | 渐进式 | `history_progressive.py` | 渐进式历史披露与按需加载 |
 | 分层视图 | `layered_memory.py` | 多层记忆抽象与组装 |
-| 周期任务 | `dream_scheduler.py` | 轻量后台精炼 / 长时记忆触发的调度 |
+| 周期任务 | `dream_scheduler.py` | 不调用 LLM 的日记索引登记与长期列表裁剪调度 |
 
 ### 6. 会话层 (Session)
 
@@ -646,9 +646,9 @@ flowchart LR
 
 `miniagent/assistant/engine/command_registry.py` 中的 `CommandSpec` 是命令名称、别名、参数、权限、渠道限制、帮助文本和处理器的唯一事实来源。`command_dispatch.py` 只负责解析、授权、调用和统一错误映射；CLI 帮助、飞书命令策略和文档清单由注册表校验。
 
-### 状态 schema 与迁移
+### 状态 schema 与人工迁移
 
-持久化 JSON 通过 `miniagent/assistant/infrastructure/persistence.py` 和 `state_schemas.py` 读写。每个文件包含 `schema_version`；读取旧版本时先验证并创建备份，再使用集中迁移注册表原子替换。迁移失败保留原文件并返回带路径的可操作错误。测试只使用临时目录，不会迁移本机 `workspaces/`。
+持久化 JSON 通过 `miniagent/assistant/infrastructure/persistence.py` 和 `state_schemas.py` 读写。每个文件必须包含当前精确的 `schema_version`；缺失、旧版、未来版本或非对象根均直接报错，运行时不会备份、改写或自动迁移原文件。旧版本数据应先复制备份，再按 [MIGRATION.md](MIGRATION.md) 在独立状态目录中人工迁移。
 
 `bootstrap.entrypoint` 加载 secrets 后构造唯一 `ApplicationContainer`，随后执行 `run_runtime(container)`。容器集中持有工具、引擎、路由、队列、出站注册表、生命周期 manager、飞书、记忆与 LLM 客户端；所有业务路径显式接收容器或所需依赖，不存在进程级 context locator。`runtime_services.build_runtime_lifecycle_manager()` 按 config watcher→Feishu→ticker→skills watcher 启动，并严格逆序关停。`FeishuRuntimeLifecycleService` 只编排既有 runtime API；退避重连、入站 owner lock 与 SDK 客户端均由 `FeishuRuntime` 自身负责并在 task `finally` 释放。`FeishuPollState` 同时持有消息去重、防抖、卡片动作去重、WebSocket 健康观测和确认路由依赖，不跨运行时共享业务状态。
 

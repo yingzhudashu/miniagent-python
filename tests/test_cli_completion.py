@@ -10,6 +10,7 @@ from miniagent.assistant.engine.cli_completion import (
     FileMarkerCompleter,
     create_cli_completer,
 )
+from miniagent.assistant.engine.command_registry import COMMAND_REGISTRY
 
 
 def test_command_completer_uses_injected_registry_names() -> None:
@@ -17,6 +18,12 @@ def test_command_completer_uses_injected_registry_names() -> None:
     results = list(completer.get_completions(Document("/sta"), CompleteEvent()))
     assert [item.text for item in results] == ["/stats", "/status"]
     assert all(item.start_position == -4 for item in results)
+
+
+def test_cli_registry_completion_includes_frontend_copy_command() -> None:
+    completer = CommandCompleter(COMMAND_REGISTRY.names_for("cli"))
+    results = list(completer.get_completions(Document("/cop"), CompleteEvent()))
+    assert [item.text for item in results] == ["/copy"]
 
 
 def test_command_completer_ignores_non_command_text() -> None:

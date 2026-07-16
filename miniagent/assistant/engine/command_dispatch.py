@@ -53,7 +53,7 @@ from miniagent.assistant.engine.commands.test_commands import (
     handle_test,
 )
 
-_REGISTERED_COMMANDS = list(COMMAND_REGISTRY.names)
+_REGISTERED_COMMANDS = list(COMMAND_REGISTRY.dispatch_names)
 
 
 def _find_closest_command(input_cmd: str, threshold: float = 0.6) -> str | None:

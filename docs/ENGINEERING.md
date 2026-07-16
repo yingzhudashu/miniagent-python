@@ -99,10 +99,11 @@ python -m pytest tests/ -q -m "not evaluation and not perf"
 
 CI 说明：
 
-- **`test` job**（矩阵 Python 3.10 / 3.12 / 3.13）：`pip install -e ".[dev,typing]"`，跑 `compileall`、Ruff、文档/docstring、Bandit、架构/函数长度、全仓性能审计、全包 Mypy、wheel 资源检查（仅 3.12）及离线非性能测试。
+- **`test` job**（矩阵 Python 3.10 / 3.12 / 3.13）：`pip install -e ".[dev,typing]"`，跑 `compileall`、Ruff、文档与仓库卫生/docstring、Bandit、架构/函数长度、全包 Mypy、wheel 资源检查（仅 3.12）及离线非性能测试。
 - **`test-feishu-extra` job**（仅 3.12）：`pip install -e ".[dev,feishu]"` 后再跑 `compileall`、`ruff` 与 `pytest -m "not evaluation"`，确保安装 `lark-oapi` 时仍通过（与主矩阵并行，不拖慢双版本安装）。
 - **`test-mcp-extra` job**（仅 3.12）：`pip install -e ".[dev,mcp]"`，对官方 `mcp` SDK 做 `import` 冒烟，再跑 `compileall`、`ruff` 与 `pytest -m "not evaluation"`，防止 `[mcp]` extra 与代码导入漂移。
 - **`test-provider-extra` job**（仅 3.12）：`pip install -e ".[dev,providers]"`，对 Anthropic 与 Google SDK 做 import 冒烟，并运行完整非 evaluation 回归，验证三类 provider 适配器可与可选依赖共存。
+- **`test-browser-extra` job**（仅 3.12）：`pip install -e ".[dev,browser]"`，导入 Playwright 并运行浏览器池与网页工具的离线契约测试；不下载浏览器二进制，也不访问外网。
 
 说明：
 

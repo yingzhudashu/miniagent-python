@@ -8,6 +8,7 @@ from types import MappingProxyType
 from typing import Literal
 
 CommandChannel = Literal["cli", "feishu"]
+CommandOwner = Literal["dispatcher", "cli_frontend"]
 CommandHandler = Callable[..., Awaitable[str | None]]
 
 
@@ -16,20 +17,27 @@ class CommandSpec:
     """描述一个顶层命令的解析、权限、帮助和处理器身份。"""
 
     name: str
-    handler_key: str
+    handler_key: str | None
     summary: str
     usage: str
     aliases: tuple[str, ...] = ()
     channels: frozenset[CommandChannel] = frozenset({"cli", "feishu"})
     mutates_state: bool = False
+    owner: CommandOwner = "dispatcher"
 
     def __post_init__(self) -> None:
         """在注册阶段拒绝含糊或不可解析的命令元数据。"""
         names = (self.name, *self.aliases)
         if any(not value.startswith("/") or " " in value for value in names):
             raise ValueError(f"命令名必须是无空格的 / 前缀标识: {names!r}")
-        if not self.handler_key.strip() or not self.summary.strip() or not self.usage.strip():
+        if not self.summary.strip() or not self.usage.strip():
             raise ValueError(f"命令元数据不完整: {self.name}")
+        if self.owner == "dispatcher" and not (self.handler_key or "").strip():
+            raise ValueError(f"dispatcher 命令缺少处理器: {self.name}")
+        if self.owner == "cli_frontend" and self.handler_key is not None:
+            raise ValueError(f"CLI 前端命令不得绑定 dispatcher 处理器: {self.name}")
+        if self.owner == "cli_frontend" and self.channels != frozenset({"cli"}):
+            raise ValueError(f"CLI 前端命令只能声明 cli 通道: {self.name}")
 
 
 class CommandRegistry:
@@ -57,6 +65,15 @@ class CommandRegistry:
         """返回规范命令名，不包含别名。"""
         return tuple(spec.name for spec in self._specs)
 
+    @property
+    def dispatch_names(self) -> tuple[str, ...]:
+        """返回由共享 dispatcher 执行的规范命令名。"""
+        return tuple(spec.name for spec in self._specs if spec.owner == "dispatcher")
+
+    def names_for(self, channel: CommandChannel) -> tuple[str, ...]:
+        """返回指定通道可见的规范命令名，供帮助和补全复用。"""
+        return tuple(spec.name for spec in self._specs if channel in spec.channels)
+
     def resolve(self, command_name: str) -> CommandSpec | None:
         """按规范名或别名解析命令。"""
         return self._by_name.get(command_name.lower())
@@ -72,7 +89,11 @@ class CommandRegistry:
         绑定必须一次性覆盖每个 ``handler_key``，同时拒绝无对应命令的多余处理器。
         该方法返回新视图，不修改命令元数据注册表本身。
         """
-        expected = {spec.handler_key for spec in self._specs}
+        expected = {
+            spec.handler_key
+            for spec in self._specs
+            if spec.owner == "dispatcher" and spec.handler_key is not None
+        }
         actual = set(handlers)
         if expected != actual:
             missing = sorted(expected - actual)
@@ -93,7 +114,9 @@ class BoundCommandRegistry:
     def handler_for(self, command_name: str) -> CommandHandler | None:
         """按规范命令名或别名返回处理器；未知命令返回 ``None``。"""
         spec = self.registry.resolve(command_name)
-        return self.handlers.get(spec.handler_key) if spec is not None else None
+        if spec is None or spec.owner != "dispatcher" or spec.handler_key is None:
+            return None
+        return self.handlers.get(spec.handler_key)
 
 
 COMMAND_REGISTRY = CommandRegistry(
@@ -104,7 +127,7 @@ COMMAND_REGISTRY = CommandRegistry(
         CommandSpec("/feishu", "feishu", "管理飞书连接", "/feishu <status|start|stop>", mutates_state=True),
         CommandSpec("/queue", "queue", "管理消息队列", "/queue <status|mode|abort>", mutates_state=True),
         CommandSpec("/abort", "abort", "中止当前任务", "/abort", mutates_state=True),
-        CommandSpec("/query", "query", "查询活动日志", "/query [条件]"),
+        CommandSpec("/query", "query", "查看消息队列状态（/queue status 的只读别名）", "/query"),
         CommandSpec("/btw", "background_task", "管理后台任务", "/btw <start|status|result|cancel|clear>", mutates_state=True),
         CommandSpec("/schedule", "schedule", "管理定时任务", "/schedule <list|show|add|remove|enable|disable>", mutates_state=True),
         CommandSpec("/self-opt", "self_opt", "管理自优化提案", "/self-opt <status|proposals|show|approve|reject|apply|analyze|report>", mutates_state=True),
@@ -123,6 +146,14 @@ COMMAND_REGISTRY = CommandRegistry(
         CommandSpec("/test", "test", "运行评测样例", "/test <run|list|status>"),
         CommandSpec("/reload-skills", "reload_skills", "重新加载技能", "/reload-skills", mutates_state=True),
         CommandSpec("/reload-config", "reload_config", "重新加载配置", "/reload-config", mutates_state=True),
+        CommandSpec(
+            "/copy",
+            None,
+            "复制当前 CLI 已加载的会话内容",
+            "/copy",
+            channels=frozenset({"cli"}),
+            owner="cli_frontend",
+        ),
     )
 )
 
@@ -131,6 +162,7 @@ __all__ = [
     "BoundCommandRegistry",
     "CommandChannel",
     "CommandHandler",
+    "CommandOwner",
     "CommandRegistry",
     "CommandSpec",
 ]

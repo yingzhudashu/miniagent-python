@@ -1,6 +1,6 @@
 # Mini Agent Python
 
-![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)
+![Python Version](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Version](https://img.shields.io/badge/version-3.0.0-blue)
 ![Tests](https://img.shields.io/badge/tests-dynamic-blue)

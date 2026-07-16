@@ -20,17 +20,18 @@ tests/
 ## Common Commands
 
 ```bash
-# Default local gate, matching CI intent.
-python -m pytest tests/ -q -m "not evaluation"
+# Default local gate, matching the main CI test selection.
+python -m pytest tests/ -q -m "not evaluation and not perf"
 
 # Include evaluation tests; real API tests still require explicit environment gates.
 python -m pytest tests/ -q
 
-# Synthetic local performance smoke.
-python -m pytest tests/test_perf_synthetic.py -q -m perf --durations=13
+# Deterministic local performance smoke over real runtime paths.
+python -m pytest tests/test_perf_synthetic.py tests/test_trace_performance.py \
+  tests/performance/benchmarks.py -q -m perf --durations=13
 
 # Coverage report; generated .coverage/htmlcov files are ignored artifacts.
-python -m pytest tests/ -q -m "not evaluation" \
+python -m pytest tests/ -q -m "not evaluation and not perf" \
   --cov=miniagent --cov-report=html --cov-report=term-missing
 
 # Inspect the current collected tests. Do not hard-code this count in documentation.

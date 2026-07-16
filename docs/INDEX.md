@@ -53,7 +53,7 @@ pytest tests/ --cov=miniagent --cov-report=html
 [ARCHITECTURE.md](ARCHITECTURE.md) · [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md) · [SECURITY.md](SECURITY.md) · [SELF_OPT.md](SELF_OPT.md) · [OUTPUT_FORMAT.md](OUTPUT_FORMAT.md)
 
 ### 性能
-[PERFORMANCE.md](PERFORMANCE.md) — Part A 度量与测试 · Part B 运行时调优 · [PERFORMANCE_AUDIT.md](PERFORMANCE_AUDIT.md)（可再生逐文件审计摘要）
+[PERFORMANCE.md](PERFORMANCE.md) — Part A 度量与测试 · Part B 运行时调优
 
 ### 开发者路径
 [CONTRIBUTING.md](CONTRIBUTING.md)（Part 1 贡献 · Part 2 扩展 · Part 3 API）→ [PROMPT_GUIDELINES.md](PROMPT_GUIDELINES.md)
