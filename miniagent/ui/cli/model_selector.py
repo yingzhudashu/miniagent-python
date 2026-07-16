@@ -6,6 +6,7 @@ from typing import Any
 
 
 async def choose_model_profile(ctx: Any) -> str | None:
+    """展示当前可用 provider 的模型档案选择对话框。"""
     gateway = getattr(ctx, "llm_gateway", None)
     if gateway is None:
         return None

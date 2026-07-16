@@ -14,18 +14,21 @@ from miniagent.llm.types import (
 
 
 def field(value: Any, name: str, default: Any = None) -> Any:
+    """统一读取 SDK 对象属性或字典字段。"""
     if isinstance(value, dict):
         return value.get(name, default)
     return getattr(value, name, default)
 
 
 def json_arguments(value: Any) -> str:
+    """将工具参数归一化为紧凑 JSON 字符串。"""
     if isinstance(value, str):
         return value
     return json.dumps(value or {}, ensure_ascii=False, separators=(",", ":"))
 
 
 def tool_call(call_id: Any, name: Any, arguments: Any) -> LLMToolCall:
+    """由 provider 原始字段构造共享工具调用对象。"""
     raw = json_arguments(arguments)
     try:
         parsed = json.loads(raw)
@@ -46,6 +49,7 @@ def usage_from_fields(
     cache_write_tokens: Any = 0,
     reasoning_tokens: Any = 0,
 ) -> LLMUsage:
+    """容错归一化各 provider 的 token 用量字段。"""
     values = [input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens]
     normalized = []
     for value in values:
@@ -65,6 +69,7 @@ def usage_from_fields(
 
 
 def normalize_provider_error(error: Exception, provider: str) -> LLMTransportError:
+    """将 SDK 异常映射为不泄露响应正文的共享错误。"""
     status_raw = getattr(error, "status_code", None)
     try:
         status = int(status_raw) if status_raw is not None else None

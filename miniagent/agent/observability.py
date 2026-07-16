@@ -24,12 +24,58 @@ import time
 from collections.abc import Callable
 from contextlib import contextmanager
 from contextvars import ContextVar
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 TraceHook = Callable[[dict[str, Any]], None]
+ConfigGetter = Callable[[str, Any], Any]
+
+
+@dataclass(frozen=True, slots=True)
+class TraceRuntimeConfig:
+    """Process-scoped trace configuration supplied by the composition root."""
+
+    enabled: bool = False
+    debug_log_path: str = ""
+    output_dir: str = "workspaces/logs"
+    writer_batch_interval: float = 0.1
+    writer_batch_size: int = 50
+    writer_queue_max_size: int = 10_000
+    writer_overflow_policy: str = "drop_oldest"
+    writer_shutdown_timeout_seconds: float = 5.0
+    record_payload: str = "metrics_only"
+    resource_sample_interval_seconds: float = 0.0
+    track_python_allocations: bool = False
+
+    @classmethod
+    def from_getter(cls, get_config: ConfigGetter) -> TraceRuntimeConfig:
+        """Build a validated-by-owner snapshot without importing product config."""
+        return cls(
+            enabled=bool(get_config("trace.enabled", False)),
+            debug_log_path=str(get_config("debug.log_path", "") or "").strip(),
+            output_dir=str(get_config("trace.output_dir", "workspaces/logs")),
+            writer_batch_interval=float(get_config("trace.writer_batch_interval", 0.1)),
+            writer_batch_size=int(get_config("trace.writer_batch_size", 50)),
+            writer_queue_max_size=int(get_config("trace.writer_queue_max_size", 10_000)),
+            writer_overflow_policy=str(
+                get_config("trace.writer_overflow_policy", TRACE_OVERFLOW_DROP_OLDEST)
+            ),
+            writer_shutdown_timeout_seconds=float(
+                get_config("trace.writer_shutdown_timeout_seconds", 5.0)
+            ),
+            record_payload=str(
+                get_config("trace.record_payload", TRACE_RECORD_PAYLOAD_METRICS_ONLY)
+            ),
+            resource_sample_interval_seconds=float(
+                get_config("trace.resource_sample_interval_seconds", 0) or 0
+            ),
+            track_python_allocations=bool(
+                get_config("trace.track_python_allocations", False)
+            ),
+        )
 
 
 class _ExcludeSessionCommand:
@@ -49,6 +95,7 @@ _hooks: list[TraceHook] = []
 # 可选持久化配置
 _TRACE_LOG_FILE: Path | None = None
 _TRACE_RECORD_PAYLOAD = "metrics_only"
+_TRACE_SHUTDOWN_TIMEOUT_SECONDS = 5.0
 
 # 异步写入器实例
 _trace_writer: AsyncTraceWriter | None = None
@@ -59,6 +106,7 @@ _auto_initialized = False
 
 # Logger
 from miniagent.agent.logging import get_logger
+from miniagent.agent.trace_events import TRACE_SCHEMA_VERSION
 
 _logger = get_logger(__name__)
 
@@ -185,6 +233,7 @@ _PERSISTENCE_SAFE_SCALAR_KEYS = {
     "validation_error",
     "warning_count",
     "written_blocks",
+    "trace_schema_version",
 }
 _TRACE_DATE_RE = re.compile(r"trace-(\d{4}-\d{2}-\d{2})")
 _CURRENT_TRACE_SPAN: ContextVar[str | None] = ContextVar(
@@ -353,7 +402,12 @@ def trace_span(
 class TraceResourceSampler:
     """Optional process-resource sampler owned by the trace runtime."""
 
-    def __init__(self, interval_seconds: float) -> None:
+    def __init__(
+        self,
+        interval_seconds: float,
+        *,
+        track_python_allocations: bool = False,
+    ) -> None:
         self.interval_seconds = max(0.05, float(interval_seconds))
         self._started_ns = time.monotonic_ns()
         self._stop = threading.Event()
@@ -367,15 +421,16 @@ class TraceResourceSampler:
             self._process = psutil.Process()
         except (ImportError, OSError):
             self._process = None
-        try:
-            import tracemalloc
+        if track_python_allocations:
+            try:
+                import tracemalloc
 
-            self._tracemalloc = tracemalloc
-            if not tracemalloc.is_tracing():
-                tracemalloc.start(1)
-                self._owns_tracemalloc = True
-        except (ImportError, RuntimeError):
-            self._tracemalloc = None
+                self._tracemalloc = tracemalloc
+                if not tracemalloc.is_tracing():
+                    tracemalloc.start(1)
+                    self._owns_tracemalloc = True
+            except (ImportError, RuntimeError):
+                self._tracemalloc = None
 
     def start(self) -> None:
         """启动唯一的后台采样线程；重复调用保持幂等。"""
@@ -507,6 +562,7 @@ class AsyncTraceWriter:
         self._redacted_count = 0
         self._rotation_count = 0
         self._shutdown_incomplete = False
+        self._enqueue_lock = threading.Lock()
 
     def start(self, file_path: Path) -> None:
         """启动后台写入线程。
@@ -602,7 +658,9 @@ class AsyncTraceWriter:
         Args:
             event: trace 事件字典
         """
-        if not self._shutdown:
+        with self._enqueue_lock:
+            if self._shutdown:
+                return
             self._emitted_count += 1
             try:
                 self._queue.put_nowait(event)
@@ -656,10 +714,11 @@ class AsyncTraceWriter:
         if reject_future:
             self._excluded_sessions.add(normalized)
         command = _ExcludeSessionCommand(normalized, reject_future=reject_future)
-        try:
-            self._queue.put(command, timeout=max(0.01, timeout))
-        except queue.Full:
-            return 0
+        with self._enqueue_lock:
+            try:
+                self._queue.put(command, timeout=max(0.01, timeout))
+            except queue.Full:
+                return 0
         command.done.wait(timeout=max(0.01, timeout))
         return command.removed
 
@@ -839,7 +898,7 @@ class AsyncTraceWriter:
                     type(error).__name__,
                 )
 
-    def shutdown(self) -> None:
+    def shutdown(self, timeout_seconds: float = 5.0) -> bool:
         """优雅关闭：等待队列清空。"""
         self._shutdown = True
         try:
@@ -850,14 +909,14 @@ class AsyncTraceWriter:
             pass
 
         if self._writer_thread:
-            self._writer_thread.join(timeout=5.0)
+            self._writer_thread.join(timeout=max(0.01, float(timeout_seconds)))
 
         if self._writer_thread and self._writer_thread.is_alive():
             # Never close or rewrite a handle that the writer may still be
             # using.  The daemon remains responsible for draining it.
             self._shutdown_incomplete = True
-            _logger.error("Trace writer did not stop within 5 seconds; handle left open")
-            return
+            _logger.error("Trace writer did not stop before timeout; handle left open")
+            return False
 
         # A maintenance command may have timed out while the queue was full;
         # shutdown is the final deterministic opportunity to redact it.
@@ -872,6 +931,8 @@ class AsyncTraceWriter:
 
         self._file_handle = None
         self._writer_thread = None
+        self._shutdown_incomplete = False
+        return True
 
     @property
     def file_path(self) -> Path | None:
@@ -938,7 +999,7 @@ def _sanitize_trace_event_for_persistence(event: dict[str, Any]) -> dict[str, An
     return sanitized
 
 
-def _get_default_trace_file() -> Path:
+def _get_default_trace_file(config: TraceRuntimeConfig | None = None) -> Path:
     """获取默认的 trace 文件路径（基于日期）。
 
     文件命名：trace-YYYY-MM-DD.jsonl
@@ -947,10 +1008,11 @@ def _get_default_trace_file() -> Path:
     Returns:
         今日 trace 文件路径
     """
-    from miniagent.agent.settings import get_config
+    if config is None:
+        from miniagent.agent.settings import get_config
 
-    # 从配置获取目录
-    output_dir = get_config("trace.output_dir", "workspaces/logs")
+        config = TraceRuntimeConfig.from_getter(get_config)
+    output_dir = config.output_dir
     trace_dir = Path(output_dir)
     trace_dir.mkdir(parents=True, exist_ok=True)
 
@@ -986,6 +1048,7 @@ def clear_trace_hooks() -> None:
     global \
         _TRACE_LOG_FILE, \
         _TRACE_RECORD_PAYLOAD, \
+        _TRACE_SHUTDOWN_TIMEOUT_SECONDS, \
         _auto_initialized, \
         _resource_sampler, \
         _trace_writer
@@ -996,15 +1059,21 @@ def clear_trace_hooks() -> None:
 
     # 关闭异步写入器
     if _trace_writer:
-        _trace_writer.shutdown()
-        _trace_writer = None
+        stopped = _trace_writer.shutdown(_TRACE_SHUTDOWN_TIMEOUT_SECONDS)
+        if stopped:
+            _trace_writer = None
+
+    if _trace_writer is not None:
+        _auto_initialized = True
+        return
 
     _TRACE_LOG_FILE = None
     _TRACE_RECORD_PAYLOAD = TRACE_RECORD_PAYLOAD_METRICS_ONLY
+    _TRACE_SHUTDOWN_TIMEOUT_SECONDS = 5.0
     _auto_initialized = False
 
 
-def auto_register_trace_file_hook() -> None:
+def auto_register_trace_file_hook(config: TraceRuntimeConfig | None = None) -> None:
     """自动注册 trace 文件持久化钩子（使用异步写入器）。
 
     启用条件（任一满足）：
@@ -1029,54 +1098,69 @@ def auto_register_trace_file_hook() -> None:
         _auto_initialized, \
         _TRACE_LOG_FILE, \
         _TRACE_RECORD_PAYLOAD, \
+        _TRACE_SHUTDOWN_TIMEOUT_SECONDS, \
         _resource_sampler, \
         _trace_writer
 
     if _auto_initialized:
         return
 
-    _auto_initialized = True
-
-    from miniagent.agent.settings import get_config
-
-    log_path = str(get_config("debug.log_path", "") or "").strip()
-    if log_path:
-        _TRACE_LOG_FILE = Path(log_path)
-    elif get_config("trace.enabled", False):
-        _TRACE_LOG_FILE = _get_default_trace_file()
-
-    # 启动异步写入器（替代同步文件 hook）
-    if _TRACE_LOG_FILE is not None:
-        # 从配置读取批处理参数
+    if config is None:
         from miniagent.agent.settings import get_config
 
-        batch_interval = get_config("trace.writer_batch_interval", 0.1)
-        batch_size = get_config("trace.writer_batch_size", 50)
-        queue_max_size = get_config("trace.writer_queue_max_size", 10000)
-        overflow_policy = get_config("trace.writer_overflow_policy", TRACE_OVERFLOW_DROP_OLDEST)
-        _TRACE_RECORD_PAYLOAD = get_config(
-            "trace.record_payload", TRACE_RECORD_PAYLOAD_METRICS_ONLY
-        )
+        config = TraceRuntimeConfig.from_getter(get_config)
 
-        _trace_writer = AsyncTraceWriter(
-            batch_interval=batch_interval,
-            batch_size=batch_size,
-            queue_max_size=queue_max_size,
-            overflow_policy=overflow_policy,
-        )
-        _trace_writer.start(_TRACE_LOG_FILE)
-        resource_interval = float(get_config("trace.resource_sample_interval_seconds", 0) or 0)
-        if resource_interval > 0:
-            _resource_sampler = TraceResourceSampler(resource_interval)
-            _resource_sampler.start()
-        _logger.info(
-            "Trace异步写入器已启动: %s (actual=%s, batch_interval=%ss, batch_size=%d, queue_max=%s)",
-            _TRACE_LOG_FILE,
-            _trace_writer.file_path,
-            batch_interval,
-            batch_size,
-            queue_max_size,
-        )
+    log_path = config.debug_log_path
+    target: Path | None = None
+    if log_path:
+        target = Path(log_path)
+    elif config.enabled:
+        target = _get_default_trace_file(config)
+
+    if target is None:
+        return
+
+    writer = AsyncTraceWriter(
+        batch_interval=config.writer_batch_interval,
+        batch_size=config.writer_batch_size,
+        queue_max_size=config.writer_queue_max_size,
+        overflow_policy=config.writer_overflow_policy,
+    )
+    sampler: TraceResourceSampler | None = None
+    try:
+        writer.start(target)
+        _trace_writer = writer
+        if config.resource_sample_interval_seconds > 0:
+            sampler = TraceResourceSampler(
+                config.resource_sample_interval_seconds,
+                track_python_allocations=config.track_python_allocations,
+            )
+            sampler.start()
+    except Exception:
+        if sampler is not None:
+            sampler.shutdown()
+        writer.shutdown(config.writer_shutdown_timeout_seconds)
+        _trace_writer = None
+        _resource_sampler = None
+        _TRACE_LOG_FILE = None
+        _auto_initialized = False
+        raise
+
+    _TRACE_LOG_FILE = target
+    _TRACE_RECORD_PAYLOAD = config.record_payload
+    _TRACE_SHUTDOWN_TIMEOUT_SECONDS = max(
+        0.01, config.writer_shutdown_timeout_seconds
+    )
+    _resource_sampler = sampler
+    _auto_initialized = True
+    _logger.info(
+        "Trace writer started: %s (actual=%s, batch_interval=%ss, batch_size=%d, queue_max=%s)",
+        target,
+        writer.file_path,
+        config.writer_batch_interval,
+        config.writer_batch_size,
+        config.writer_queue_max_size,
+    )
 
 
 def get_actual_trace_file() -> Path | None:
@@ -1135,6 +1219,7 @@ def emit_trace(event: dict[str, Any]) -> None:
 
     # 添加时间戳；调用方显式关联字段始终优先于上下文继承值。
     event_with_ts = {
+        "trace_schema_version": TRACE_SCHEMA_VERSION,
         "ts": datetime.now(timezone.utc).isoformat(),
         **inherited,
         **event,
@@ -1155,7 +1240,7 @@ def emit_trace(event: dict[str, Any]) -> None:
             _logger.debug("trace hook执行失败: %s", e)
 
 
-def shutdown_trace_writer() -> dict[str, Any] | None:
+def shutdown_trace_writer(timeout_seconds: float | None = None) -> dict[str, Any] | None:
     """关闭 trace 异步写入器（优雅退出）。
 
     应在进程退出前调用，确保所有 trace 事件都已写入文件。
@@ -1165,16 +1250,25 @@ def shutdown_trace_writer() -> dict[str, Any] | None:
         from miniagent.agent.observability import shutdown_trace_writer
         shutdown_trace_writer()
     """
-    global _auto_initialized, _resource_sampler, _trace_writer
+    global \
+        _TRACE_LOG_FILE, \
+        _auto_initialized, \
+        _resource_sampler, \
+        _trace_writer
     if _resource_sampler is not None:
         _resource_sampler.shutdown()
         _resource_sampler = None
     if _trace_writer is None:
         return None
     writer = _trace_writer
-    writer.shutdown()
+    writer.shutdown(
+        _TRACE_SHUTDOWN_TIMEOUT_SECONDS if timeout_seconds is None else timeout_seconds
+    )
     stats = writer.stats()
+    if stats["shutdown_incomplete"]:
+        return stats
     _trace_writer = None
+    _TRACE_LOG_FILE = None
     _auto_initialized = False
     _logger.info("Trace异步写入器已关闭")
     return stats
@@ -1182,6 +1276,8 @@ def shutdown_trace_writer() -> dict[str, Any] | None:
 
 __all__ = [
     "TraceHook",
+    "TraceResourceSampler",
+    "TraceRuntimeConfig",
     "register_trace_hook",
     "unregister_trace_hook",
     "clear_trace_hooks",

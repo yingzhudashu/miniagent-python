@@ -9,6 +9,7 @@ from miniagent.llm.types import LLMCompletion, LLMFailureInfo
 
 
 def classify_transport_error(error: Exception) -> LLMFailureInfo:
+    """按状态码和安全错误特征判断失败类别与可重试性。"""
     status_raw = getattr(error, "status_code", None)
     try:
         status = int(status_raw) if status_raw is not None else None
@@ -45,6 +46,7 @@ def classify_transport_error(error: Exception) -> LLMFailureInfo:
 
 
 def completion_failure_category(completion: LLMCompletion) -> str | None:
+    """识别无可用正文 completion 的结构化失败类别。"""
     if (completion.content or "").strip():
         return None
     output_types = set(completion.output_item_types)
@@ -68,6 +70,7 @@ def structured_retry_params(
     model_max_tokens: int,
     incomplete_reason: str | None = None,
 ) -> dict[str, Any]:
+    """为下一次结构化恢复请求生成有界兼容参数。"""
     recovered = dict(current)
     recovered.pop("temperature", None)
     recovered.pop("top_p", None)
@@ -86,6 +89,7 @@ def structured_retry_params(
 
 
 def structured_retry_delay(next_attempt: int) -> float:
+    """返回短且有界的结构化恢复退避时间。"""
     return 0.2 if next_attempt == 2 else 0.5
 
 

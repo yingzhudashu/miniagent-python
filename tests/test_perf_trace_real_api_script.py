@@ -9,6 +9,7 @@ from scripts.perf_trace_real_api import (
     _phase_latency_breakdown,
     _scan_trace_for_secrets,
     _summarize_runs,
+    _validate_trace_artifacts,
 )
 
 
@@ -100,3 +101,48 @@ def test_run_summary_reports_median_and_p95() -> None:
     )
 
     assert summary["pure"] == {"count": 3, "median_s": 2.0, "p95_s": 3.0}
+
+
+def test_trace_artifact_validation_rejects_completely_missing_trace() -> None:
+    errors = _validate_trace_artifacts(
+        trace_file=None,
+        writer_stats=None,
+        report={"total_events": 0},
+        breakdown={"total_events": 0, "missing_trace": True},
+        secret_scan={"hit_count": 0, "labels": []},
+    )
+
+    assert errors == [
+        "missing trace file",
+        "missing writer stats",
+        "trace contains no events",
+        "daily report contains no events",
+    ]
+
+
+def test_trace_artifact_validation_accepts_consistent_complete_run(tmp_path: Path) -> None:
+    trace_file = tmp_path / "trace.jsonl"
+    trace_file.write_text("{}\n", encoding="utf-8")
+
+    errors = _validate_trace_artifacts(
+        trace_file=trace_file,
+        writer_stats={
+            "emitted_count": 3,
+            "written_count": 3,
+            "redacted_count": 0,
+            "dropped_count": 0,
+            "serialization_error_count": 0,
+            "write_error_count": 0,
+            "shutdown_incomplete": False,
+        },
+        report={"total_events": 3},
+        breakdown={
+            "total_events": 3,
+            "unmatched_llm_requests": 0,
+            "unmatched_llm_responses": 0,
+            "event_counts": {},
+        },
+        secret_scan={"hit_count": 0, "labels": []},
+    )
+
+    assert errors == []

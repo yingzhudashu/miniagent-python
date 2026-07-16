@@ -96,17 +96,21 @@ class AssistantTuiApplication(TuiApp):
         self.view_state = self
 
     async def submit(self, text: str) -> None:
+        """提交输入并等待同步或异步处理结果。"""
         result = self.process_input(text)
         if inspect.isawaitable(result):
             await result
 
     async def cancel(self) -> None:
+        """清空当前输入缓冲区。"""
         self.input_buffer.reset()
 
     async def command(self, text: str) -> None:
+        """通过统一输入路径执行一条 TUI 命令。"""
         await self.submit(text)
 
     async def select_model(self, profile: str) -> None:
+        """切换模型配置并原子重载应用运行时。"""
         from miniagent.assistant.engine.model_cmd import switch_model_profile
         from miniagent.assistant.infrastructure.json_config import reload_runtime_config
 
@@ -114,9 +118,11 @@ class AssistantTuiApplication(TuiApp):
         await reload_runtime_config(self.ctx)
 
     async def select_session(self, session_id: str) -> None:
+        """通过会话命令切换当前 TUI 会话。"""
         await self.submit(f"/session switch {session_id}")
 
     async def copy(self, text: str) -> None:
+        """将文本写入系统剪贴板。"""
         from miniagent.ui.tui.clipboard import copy_text_to_system_clipboard
 
         copy_text_to_system_clipboard(text)

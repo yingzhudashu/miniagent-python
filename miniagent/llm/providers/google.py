@@ -143,9 +143,11 @@ class GoogleProvider:
 
     @property
     def provider_id(self) -> str:
+        """返回注册表中的稳定 provider 标识。"""
         return self._provider_id
 
     async def list_models(self) -> Sequence[ModelDescriptor]:
+        """兼容同步或异步 pager 发现 Gemini 模型目录。"""
         pager = await self._client.aio.models.list()
         result = []
         async for item in pager if hasattr(pager, "__aiter__") else _empty_async():
@@ -222,6 +224,7 @@ class GoogleProvider:
         tools: list[dict[str, Any]] | None = None,
         json_mode: bool = False,
     ) -> LLMCompletion:
+        """执行 Gemini 非流式请求并转为共享 completion。"""
         contents, config = self._request(model, messages, params, tools, json_mode)
         try:
             response = await self._client.aio.models.generate_content(
@@ -258,6 +261,7 @@ class GoogleProvider:
         tools: list[dict[str, Any]] | None = None,
         json_mode: bool = False,
     ) -> AsyncIterator[LLMStreamEvent]:
+        """将 Gemini 内容流转换为共享文本、思考和工具事件。"""
         contents, config = self._request(model, messages, params, tools, json_mode)
         try:
             stream = await self._client.aio.models.generate_content_stream(
@@ -297,6 +301,7 @@ class GoogleProvider:
             raise normalize_provider_error(error, self.provider_id) from None
 
     async def close(self) -> None:
+        """兼容同步或异步 SDK close 并释放连接资源。"""
         close = getattr(self._client, "close", None)
         if callable(close):
             result = close()

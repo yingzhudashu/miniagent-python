@@ -17,6 +17,7 @@ class AssistantApplication:
     container: ApplicationContainer
 
     def run(self) -> None:
+        """运行容器拥有的单一异步应用生命周期。"""
         from miniagent.assistant.engine.main import run_runtime
 
         asyncio.run(run_runtime(self.container))

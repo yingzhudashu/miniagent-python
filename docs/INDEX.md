@@ -1,7 +1,7 @@
 # Mini Agent Python — 文档索引
 
 > 用户入门以 **[README.md](../README.md)** 为准。  
-> Mini Agent Python | 版本: 3.0.0 | 最后更新: 2026-07-15 | 与 `miniagent.__version__` 对齐 | 未发版行为以 [CHANGELOG](../CHANGELOG.md) `[Unreleased]` 为准
+> Mini Agent Python | 版本: 3.0.0 | 最后更新: 2026-07-16 | 与 `miniagent.__version__` 对齐 | 未发版行为以 [CHANGELOG](../CHANGELOG.md) `[Unreleased]` 为准
 
 ---
 
@@ -53,7 +53,7 @@ pytest tests/ --cov=miniagent --cov-report=html
 [ARCHITECTURE.md](ARCHITECTURE.md) · [MEMORY_SYSTEM.md](MEMORY_SYSTEM.md) · [SECURITY.md](SECURITY.md) · [SELF_OPT.md](SELF_OPT.md) · [OUTPUT_FORMAT.md](OUTPUT_FORMAT.md)
 
 ### 性能
-[PERFORMANCE.md](PERFORMANCE.md) — Part A 度量与测试 · Part B 运行时调优
+[PERFORMANCE.md](PERFORMANCE.md) — Part A 度量与测试 · Part B 运行时调优 · [PERFORMANCE_AUDIT.md](PERFORMANCE_AUDIT.md)（可再生逐文件审计摘要）
 
 ### 开发者路径
 [CONTRIBUTING.md](CONTRIBUTING.md)（Part 1 贡献 · Part 2 扩展 · Part 3 API）→ [PROMPT_GUIDELINES.md](PROMPT_GUIDELINES.md)

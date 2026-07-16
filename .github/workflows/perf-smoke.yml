@@ -20,20 +20,38 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install -e ".[dev,perf]"
 
       - name: Pytest perf marker
         env:
           PYTHONHASHSEED: "0"
-        run: python -m pytest tests/test_perf_synthetic.py tests/test_trace_performance.py -q -m perf --tb=short
+        run: >-
+          python -m pytest
+          tests/test_perf_synthetic.py
+          tests/test_trace_performance.py
+          tests/performance/benchmarks.py
+          -q -m perf --tb=short
 
       - name: Tracemalloc profile script
         env:
           PYTHONHASHSEED: "0"
         run: python scripts/perf_profile_tracemalloc.py --inner-repeat 4 --json-out perf-snapshot.json
 
+      - name: Trace overhead profile
+        run: python scripts/perf_trace_overhead.py --json-out trace-overhead.json
+
+      - name: Stability soak smoke
+        run: >-
+          python scripts/perf_stability_soak.py
+          --duration-seconds 5
+          --interval-seconds 0.02
+          --json-out stability-soak.json
+
       - name: Upload perf artifact
         uses: actions/upload-artifact@v4
         with:
           name: perf-snapshot-${{ github.sha }}
-          path: perf-snapshot.json
+          path: |
+            perf-snapshot.json
+            trace-overhead.json
+            stability-soak.json

@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -39,15 +40,54 @@ _STATE_NAME = "dream_state.json"
 
 
 # 从JSON配置获取默认值（环境变量覆盖由JsonConfigLoader自动处理）
-DIARY_REFINE_SEC = get_config("dream.diary_refine_sec", 7 * 86400)
-SESSION_LT_REFINE_SEC = get_config("dream.session_lt_refine_sec", 30 * 86400)
-AGENT_LT_REFINE_SEC = get_config("dream.agent_lt_refine_sec", 365 * 86400)
+DIARY_REFINE_SEC = 7 * 86400
+SESSION_LT_REFINE_SEC = 30 * 86400
+AGENT_LT_REFINE_SEC = 365 * 86400
 
 # 体量闸门：超过则忽略最小间隔立刻标记需要精炼（由后台任务合并去重）
-SIZE_FORCE_BYTES = get_config("dream.size_force_bytes", 800_000)
+SIZE_FORCE_BYTES = 800_000
 
 # 两次调度之间的最短间隔（秒），减轻每回合 create_task 压力
-_MIN_SCHEDULE_INTERVAL = float(get_config("dream.min_schedule_interval_sec", 60.0) or 60.0)
+_MIN_SCHEDULE_INTERVAL = 60.0
+
+
+@dataclass(frozen=True, slots=True)
+class _DreamPolicy:
+    diary_refine_seconds: float
+    session_refine_seconds: float
+    agent_refine_seconds: float
+    size_force_bytes: int
+    min_schedule_interval: float
+
+    @classmethod
+    def from_config(cls) -> _DreamPolicy:
+        return cls(
+            diary_refine_seconds=float(
+                get_config("dream.diary_refine_sec", DIARY_REFINE_SEC)
+            ),
+            session_refine_seconds=float(
+                get_config("dream.session_lt_refine_sec", SESSION_LT_REFINE_SEC)
+            ),
+            agent_refine_seconds=float(
+                get_config("dream.agent_lt_refine_sec", AGENT_LT_REFINE_SEC)
+            ),
+            size_force_bytes=int(get_config("dream.size_force_bytes", SIZE_FORCE_BYTES)),
+            min_schedule_interval=float(
+                get_config("dream.min_schedule_interval_sec", _MIN_SCHEDULE_INTERVAL)
+                or _MIN_SCHEDULE_INTERVAL
+            ),
+        )
+
+
+def _legacy_policy() -> _DreamPolicy:
+    """Resolve module constants at call time for backward-compatible direct tests."""
+    return _DreamPolicy(
+        diary_refine_seconds=float(DIARY_REFINE_SEC),
+        session_refine_seconds=float(SESSION_LT_REFINE_SEC),
+        agent_refine_seconds=float(AGENT_LT_REFINE_SEC),
+        size_force_bytes=int(SIZE_FORCE_BYTES),
+        min_schedule_interval=float(_MIN_SCHEDULE_INTERVAL),
+    )
 
 def _state_path(state_root: str | None = None) -> str:
     """``memory/dream_state.json`` 绝对路径（确保 ``memory`` 目录存在）。"""
@@ -140,19 +180,23 @@ def _release_file_lock(state_root: str | None = None) -> None:
         _logger.debug("释放锁文件失败: %s", e)
 
 
-async def _refine_session(session_key: str, state_root: str | None = None) -> None:
-    """合并日记体量信号、更新 session_lt 日索引占位、压缩 agent_lt 列表长度。"""
+def _refine_session_sync(
+    session_key: str,
+    state_root: str | None,
+    policy: _DreamPolicy,
+) -> None:
+    """Perform the complete file-backed refinement on a worker thread."""
     st = _load_dream_state(state_root)
     sk = st.setdefault("per_session", {})
     ent = sk.setdefault(session_key, {})
     now = time.time()
 
     diary_sz = _diary_dir_size(session_key, state_root)
-    force = diary_sz >= SIZE_FORCE_BYTES
+    force = diary_sz >= policy.size_force_bytes
 
     last_d = float(ent.get("last_diary_refine", 0) or 0)
     day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    if force or now - last_d >= DIARY_REFINE_SEC:
+    if force or now - last_d >= policy.diary_refine_seconds:
         if ent.get("last_rollup_day") == day:
             ent["last_diary_refine"] = now
         else:
@@ -179,7 +223,7 @@ async def _refine_session(session_key: str, state_root: str | None = None) -> No
             ent["last_rollup_day"] = day
 
     last_s = float(ent.get("last_session_lt_refine", 0) or 0)
-    if force or now - last_s >= SESSION_LT_REFINE_SEC:
+    if force or now - last_s >= policy.session_refine_seconds:
         doc = load_session_longterm(session_key)
         days = doc.get("day_entries") or []
         if len(days) > 200:
@@ -188,7 +232,7 @@ async def _refine_session(session_key: str, state_root: str | None = None) -> No
         ent["last_session_lt_refine"] = now
 
     last_a = float(st.get("last_agent_lt_refine", 0) or 0)
-    if force or now - last_a >= AGENT_LT_REFINE_SEC:
+    if force or now - last_a >= policy.agent_refine_seconds:
         ag = load_agent_longterm()
         items = ag.get("entries") or []
         if len(items) > 500:
@@ -200,11 +244,22 @@ async def _refine_session(session_key: str, state_root: str | None = None) -> No
     _save_dream_state(st, state_root)
 
 
+async def _refine_session(session_key: str, state_root: str | None = None) -> None:
+    """Compatibility wrapper that keeps filesystem work off the event loop."""
+    await asyncio.to_thread(
+        _refine_session_sync,
+        session_key,
+        state_root,
+        _legacy_policy(),
+    )
+
+
 class DreamScheduler:
     """Own throttling state and maintenance tasks for one memory runtime."""
 
     def __init__(self, state_root: str) -> None:
         self._state_root = state_root
+        self._policy = _DreamPolicy.from_config()
         self._last_schedule_monotonic = 0.0
         self._pending_tasks: set[asyncio.Task[Any]] = set()
 
@@ -213,7 +268,7 @@ class DreamScheduler:
         if not session_key:
             return
         now = time.monotonic()
-        if now - self._last_schedule_monotonic < _MIN_SCHEDULE_INTERVAL:
+        if now - self._last_schedule_monotonic < self._policy.min_schedule_interval:
             return
         self._last_schedule_monotonic = now
         try:
@@ -221,13 +276,19 @@ class DreamScheduler:
         except RuntimeError:
             return
 
-        async def _job() -> None:
+        def _run_locked_refinement() -> None:
             if not _try_file_lock(self._state_root):
                 return
             try:
-                await _refine_session(session_key, self._state_root)
+                _refine_session_sync(session_key, self._state_root, self._policy)
             finally:
                 _release_file_lock(self._state_root)
+
+        async def _job() -> None:
+            from miniagent.agent.observability import trace_span
+
+            with trace_span("memory.dream_refine", session_key=session_key):
+                await asyncio.to_thread(_run_locked_refinement)
 
         task = loop.create_task(_job())
         self._pending_tasks.add(task)

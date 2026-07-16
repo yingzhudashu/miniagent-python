@@ -23,9 +23,12 @@ import pytest
 
 from miniagent.agent.observability import (
     AsyncTraceWriter,
+    TraceRuntimeConfig,
+    auto_register_trace_file_hook,
     clear_trace_hooks,
     emit_trace,
     llm_request_size_metrics,
+    shutdown_trace_writer,
 )
 from miniagent.assistant.infrastructure import trace_stats
 
@@ -222,6 +225,27 @@ def test_trace_stats_resource_span_and_empty_report_dimensions() -> None:
     assert empty["memory"] == {"read_count": 0}
     assert empty["context"] == {"compress_count": 0}
     assert empty["resources"] == {"sample_count": 0}
+
+
+def test_trace_stats_reports_bounded_warm_to_final_resource_plateaus() -> None:
+    events = [
+        {
+            "type": "perf.resource_sample",
+            "rss_bytes": 100 if index < 40 else 105,
+            "python_traced_bytes": 50 if index < 40 else 52,
+            "python_traced_peak_bytes": 60,
+        }
+        for index in range(56)
+    ]
+
+    resources = trace_stats.aggregate_trace_stats(events)["resources"]
+
+    assert resources["rss_warm_median_bytes"] == 100
+    assert resources["rss_final_median_bytes"] == 105
+    assert resources["rss_warm_to_final_growth_ratio"] == 0.05
+    assert resources["python_warm_median_bytes"] == 50
+    assert resources["python_final_median_bytes"] == 52
+    assert resources["python_warm_to_final_growth_ratio"] == 0.04
 
 
 def test_trace_stats_memory_context_error_and_llm_edge_metrics(monkeypatch) -> None:
@@ -707,9 +731,14 @@ def test_emit_trace_performance():
     with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
         test_file = Path(f.name)
 
-    # 创建异步写入器并启动
-    writer = AsyncTraceWriter(batch_interval=0.1, batch_size=50)
-    writer.start(test_file)
+    auto_register_trace_file_hook(
+        TraceRuntimeConfig(
+            enabled=True,
+            debug_log_path=str(test_file),
+            writer_batch_interval=0.1,
+            writer_batch_size=50,
+        )
+    )
 
     # 测量异步写入路径
     async_samples: list[float] = []
@@ -724,7 +753,9 @@ def test_emit_trace_performance():
     assert elapsed_async < 0.02, f"异步路径过慢: {elapsed_async}s（预期 <0.02s）"
 
     # 清理
-    writer.shutdown()
+    stats = shutdown_trace_writer()
+    assert stats is not None
+    assert stats["emitted_count"] == stats["written_count"] == 700
 
     # 进程隔离优化：清理pid后缀版本文件
     pid_suffix = f"-pid{os.getpid()}"

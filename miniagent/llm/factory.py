@@ -40,6 +40,7 @@ def _mapping(value: Any) -> dict[str, Any]:
 def effective_llm_config(
     getter: Callable[[str, Any], Any],
 ) -> dict[str, Any]:
+    """读取并解冻必需的 LLM 配置段。"""
     value = getter("llm", None)
     if not isinstance(value, Mapping):
         raise ValueError("llm configuration section is required")

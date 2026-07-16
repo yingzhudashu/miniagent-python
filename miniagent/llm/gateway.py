@@ -31,6 +31,7 @@ def _usage_value(usage: Any, *names: str) -> int:
 
 
 def normalize_usage(usage: Any, model: ModelDescriptor) -> LLMUsage | None:
+    """将 provider usage 归一化，并按模型价格计算可选成本。"""
     if usage is None:
         return None
     if isinstance(usage, LLMUsage):
@@ -82,15 +83,18 @@ class ProviderRegistry:
             self.register(provider)
 
     def register(self, provider: LLMProvider) -> None:
+        """按非空 provider id 注册或替换客户端。"""
         provider_id = provider.provider_id.strip()
         if not provider_id:
             raise ValueError("provider_id must not be empty")
         self._providers[provider_id] = provider
 
     def get(self, provider_id: str) -> LLMProvider | None:
+        """返回已注册 provider，不存在时返回 ``None``。"""
         return self._providers.get(provider_id)
 
     def require(self, provider_id: str) -> LLMProvider:
+        """返回必需 provider，不存在时抛出归一化传输错误。"""
         provider = self.get(provider_id)
         if provider is None:
             raise LLMTransportError(
@@ -100,9 +104,11 @@ class ProviderRegistry:
         return provider
 
     def all(self) -> tuple[LLMProvider, ...]:
+        """返回当前 provider 快照。"""
         return tuple(self._providers.values())
 
     async def close(self) -> None:
+        """并发关闭全部 provider，并聚合关闭异常。"""
         results = await asyncio.gather(
             *(provider.close() for provider in self._providers.values()),
             return_exceptions=True,
@@ -132,6 +138,7 @@ class LLMGateway:
         self.last_usage: LLMUsage | None = None
 
     def model_for_role(self, role: LLMRole = "default") -> ModelDescriptor:
+        """返回指定角色当前绑定的模型档案。"""
         return self.router.resolve(role)
 
     def _request_model(
@@ -211,6 +218,7 @@ class LLMGateway:
         tools: list[dict[str, Any]] | None = None,
         json_mode: bool = False,
     ) -> LLMCompletion:
+        """路由一次非流式请求并归一化返回用量。"""
         self._ensure_open()
         model = self._request_model(role, profile)
         provider = self.registry.require(model.provider)
@@ -235,6 +243,7 @@ class LLMGateway:
         tools: list[dict[str, Any]] | None = None,
         json_mode: bool = False,
     ) -> AsyncIterator[LLMStreamEvent]:
+        """路由流式请求并逐事件归一化用量。"""
         self._ensure_open()
         model = self._request_model(role, profile)
         provider = self.registry.require(model.provider)
@@ -251,6 +260,7 @@ class LLMGateway:
             yield event
 
     async def refresh(self, provider_id: str | None = None) -> None:
+        """刷新一个或全部 provider 的 last-known-good 模型目录。"""
         providers = (
             (self.registry.require(provider_id),)
             if provider_id is not None
@@ -270,6 +280,7 @@ class LLMGateway:
             save_catalog_cache(self.cache_path, self.catalog.refreshed())
 
     async def close(self) -> None:
+        """幂等关闭网关拥有的全部 provider。"""
         if self._closed:
             return
         self._closed = True

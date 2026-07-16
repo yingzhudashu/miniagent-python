@@ -22,6 +22,7 @@ from miniagent.llm.types import (
 def _anthropic_messages(
     messages: list[dict[str, Any]],
 ) -> tuple[str | None, list[dict[str, Any]]]:
+    """将共享消息序列转换为 Anthropic system 与 content blocks。"""
     system_parts: list[str] = []
     result: list[dict[str, Any]] = []
     pending_tool_results: list[dict[str, Any]] = []
@@ -122,9 +123,11 @@ class AnthropicProvider:
 
     @property
     def provider_id(self) -> str:
+        """返回注册表中的稳定 provider 标识。"""
         return self._provider_id
 
     async def list_models(self) -> Sequence[ModelDescriptor]:
+        """在 SDK 支持时发现 Anthropic 模型目录。"""
         models_api = getattr(self._client, "models", None)
         if models_api is None or not callable(getattr(models_api, "list", None)):
             return ()
@@ -175,6 +178,7 @@ class AnthropicProvider:
         tools: list[dict[str, Any]] | None = None,
         json_mode: bool = False,
     ) -> LLMCompletion:
+        """执行 Anthropic Messages 请求并转为共享 completion。"""
         try:
             response = await self._client.messages.create(
                 **self._kwargs(model, messages, params, tools, stream=False)
@@ -215,6 +219,7 @@ class AnthropicProvider:
         tools: list[dict[str, Any]] | None = None,
         json_mode: bool = False,
     ) -> AsyncIterator[LLMStreamEvent]:
+        """将 Anthropic Messages 流转换为共享增量事件。"""
         try:
             stream = await self._client.messages.create(
                 **self._kwargs(model, messages, params, tools, stream=True)
@@ -272,6 +277,7 @@ class AnthropicProvider:
             raise normalize_provider_error(error, self.provider_id) from None
 
     async def close(self) -> None:
+        """兼容同步或异步 SDK close 并释放连接资源。"""
         close = getattr(self._client, "close", None)
         if callable(close):
             result = close()

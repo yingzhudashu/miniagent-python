@@ -36,6 +36,7 @@ class AgentSettings(Mapping[str, Any]):
         return len(self._values)
 
     def get_path(self, path: str, default: Any = None) -> Any:
+        """按点分路径读取冻结配置，路径不存在时返回默认值。"""
         current: Any = self._values
         for part in path.split("."):
             if not isinstance(current, Mapping) or part not in current:
@@ -44,6 +45,7 @@ class AgentSettings(Mapping[str, Any]):
         return current
 
     def section(self, name: str) -> dict[str, Any]:
+        """返回指定顶层配置段的可变浅副本。"""
         value = self.get_path(name, {})
         return dict(value) if isinstance(value, Mapping) else {}
 
@@ -68,15 +70,18 @@ def use_agent_settings(settings: AgentSettings):
 
 
 def get_config(path: str, default: Any = None) -> Any:
+    """读取当前 Agent 调用作用域内的配置值。"""
     return _current().get_path(path, default)
 
 
 def get_config_bool(path: str, default: bool = False) -> bool:
+    """读取布尔配置，并拒绝非布尔值的隐式转换。"""
     value = _current().get_path(path, default)
     return value if isinstance(value, bool) else default
 
 
 def get_config_section(name: str) -> dict[str, Any]:
+    """读取当前 Agent 调用作用域内的配置段副本。"""
     return _current().section(name)
 
 

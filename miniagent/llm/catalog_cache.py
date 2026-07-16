@@ -13,6 +13,7 @@ from miniagent.llm.types import ModelDescriptor
 
 
 def load_catalog_cache(path: Path) -> tuple[ModelDescriptor, ...]:
+    """容错读取 last-known-good 模型目录缓存。"""
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -57,6 +58,7 @@ def _model_data(model: ModelDescriptor) -> dict[str, Any]:
 
 
 def save_catalog_cache(path: Path, models: tuple[ModelDescriptor, ...]) -> None:
+    """将动态模型目录以 fsync 加原子替换方式持久化。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     document = {"schema_version": 1, "models": [_model_data(model) for model in models]}
     with NamedTemporaryFile(

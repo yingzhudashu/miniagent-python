@@ -29,6 +29,17 @@ _DEBOUNCE_SEC = 2.0
 _CHECK_INTERVAL = 5.0
 
 
+def _config_mtime(path: Path) -> float | None:
+    try:
+        return path.stat().st_mtime
+    except FileNotFoundError:
+        return None
+
+
+async def _config_mtime_async(path: Path) -> float | None:
+    return await asyncio.to_thread(_config_mtime, path)
+
+
 async def _config_watch_loop(ctx: Any, stop_event: asyncio.Event) -> None:
     """监听 config.user.json 的修改并触发热更新。
 
@@ -48,11 +59,10 @@ async def _config_watch_loop(ctx: Any, stop_event: asyncio.Event) -> None:
     prev_mtime: float = 0.0
 
     # 初始 mtime
-    if config_path.exists():
-        try:
-            prev_mtime = config_path.stat().st_mtime
-        except Exception as e:
-            _logger.debug("获取配置文件mtime失败: %s", e)
+    try:
+        prev_mtime = await _config_mtime_async(config_path) or 0.0
+    except OSError as e:
+        _logger.debug("获取配置文件mtime失败: %s", e)
 
     while not stop_event.is_set():
         # 等待检查间隔或停止信号
@@ -68,8 +78,8 @@ async def _config_watch_loop(ctx: Any, stop_event: asyncio.Event) -> None:
 
         # 检查配置文件是否存在及 mtime
         try:
-            if config_path.exists():
-                cur_mtime = config_path.stat().st_mtime
+            cur_mtime = await _config_mtime_async(config_path)
+            if cur_mtime is not None:
 
                 # 检测到修改
                 if cur_mtime != prev_mtime:
@@ -83,7 +93,9 @@ async def _config_watch_loop(ctx: Any, stop_event: asyncio.Event) -> None:
 
                     # 再次检查 mtime（可能仍在写入）
                     try:
-                        cur_mtime2 = config_path.stat().st_mtime
+                        cur_mtime2 = await _config_mtime_async(config_path)
+                        if cur_mtime2 is None:
+                            continue
                         if cur_mtime2 != cur_mtime:
                             prev_mtime = cur_mtime2
                             continue  # 继续等待

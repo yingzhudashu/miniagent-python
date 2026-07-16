@@ -572,6 +572,7 @@ class _FeishuHandlerRuntime:
         suggested_name: str,
         resource_type: Literal["file", "image"],
     ) -> tuple[str, str, str, bytes, str]:
+        """下载飞书媒体并以去冲突名称持久化到会话工作区。"""
         from miniagent.assistant.feishu.resource_io import (
             download_message_resource,
             sanitize_filename,

@@ -105,12 +105,16 @@ class LLMUsage:
 
 @dataclass(frozen=True, slots=True)
 class LLMFunctionCall:
+    """共享工具函数名及其 JSON 参数。"""
+
     name: str
     arguments: str
 
 
 @dataclass(slots=True)
 class LLMToolCall:
+    """共享工具调用标识、函数与已解析参数。"""
+
     id: str
     function: LLMFunctionCall
     _args_dict: dict[str, Any] = field(default_factory=dict)
@@ -118,6 +122,8 @@ class LLMToolCall:
 
 @dataclass(slots=True)
 class LLMCompletion:
+    """provider 无关的完整模型响应。"""
+
     content: str | None
     tool_calls: list[LLMToolCall] = field(default_factory=list)
     usage: Any | None = None
@@ -130,6 +136,8 @@ class LLMCompletion:
 
 @dataclass(slots=True)
 class LLMToolCallDelta:
+    """流式工具调用的增量片段。"""
+
     index: int
     id: str = ""
     name: str = ""
@@ -154,6 +162,8 @@ class LLMStreamEvent:
 
 @dataclass(frozen=True, slots=True)
 class LLMFailureInfo:
+    """用于恢复策略的安全失败分类。"""
+
     category: str
     retryable: bool
     status_code: int | None = None

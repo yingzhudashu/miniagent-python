@@ -3,6 +3,7 @@
 验证 trace 钩子系统，包括可选的持久化功能。
 """
 
+import builtins
 import os
 import time
 from pathlib import Path
@@ -14,6 +15,7 @@ import pytest
 from miniagent.agent import observability as tracing
 from miniagent.agent.observability import (
     AsyncTraceWriter,
+    TraceRuntimeConfig,
     auto_register_trace_file_hook,
     clear_trace_hooks,
     emit_trace,
@@ -148,6 +150,44 @@ class TestTraceFilePersistence:
 
         log_path.unlink(missing_ok=True)
         expected_file.unlink(missing_ok=True)
+
+    def test_explicit_runtime_config_starts_outside_agent_context(
+        self, tmp_path: Path
+    ) -> None:
+        config = TraceRuntimeConfig(enabled=True, output_dir=str(tmp_path / "explicit"))
+
+        auto_register_trace_file_hook(config)
+        emit_trace({"type": "explicit_config"})
+        actual_path = get_actual_trace_file()
+        stats = shutdown_trace_writer()
+
+        assert actual_path is not None and actual_path.is_file()
+        assert stats is not None
+        assert stats["emitted_count"] == stats["written_count"] == 1
+        assert "explicit_config" in actual_path.read_text(encoding="utf-8")
+
+    def test_failed_start_rolls_back_and_allows_retry(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        original_start = AsyncTraceWriter.start
+
+        def fail_start(self, file_path):
+            raise OSError("read only")
+
+        monkeypatch.setattr(AsyncTraceWriter, "start", fail_start)
+        with pytest.raises(OSError, match="read only"):
+            auto_register_trace_file_hook(
+                TraceRuntimeConfig(enabled=True, output_dir=str(tmp_path / "failed"))
+            )
+        assert tracing._auto_initialized is False
+        assert tracing._trace_writer is None
+
+        monkeypatch.setattr(AsyncTraceWriter, "start", original_start)
+        auto_register_trace_file_hook(
+            TraceRuntimeConfig(enabled=True, output_dir=str(tmp_path / "retry"))
+        )
+        assert get_actual_trace_file() is not None
+        shutdown_trace_writer()
 
     def test_auto_register_skips_without_config(self, tmp_path: Path) -> None:
         """测试无配置时不注册文件持久化"""
@@ -428,6 +468,121 @@ def test_resource_sampler_collects_optional_metrics_and_errors(monkeypatch) -> N
     sampler.start()
     sampler.shutdown()
     assert events
+
+
+def test_resource_sampler_does_not_enable_tracemalloc_by_default() -> None:
+    sampler = tracing.TraceResourceSampler(0.05)
+    try:
+        assert sampler._tracemalloc is None
+        event = sampler._sample()
+        assert "python_traced_bytes" not in event
+    finally:
+        sampler.shutdown()
+
+
+def test_resource_sampler_tolerates_unavailable_tracemalloc(monkeypatch) -> None:
+    original_import = builtins.__import__
+
+    def guarded_import(name, *args, **kwargs):
+        if name == "tracemalloc":
+            raise ImportError("disabled")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+    sampler = tracing.TraceResourceSampler(0.05, track_python_allocations=True)
+    try:
+        assert sampler._tracemalloc is None
+    finally:
+        sampler.shutdown()
+
+
+def test_writer_rejects_events_and_maintenance_after_terminal_states() -> None:
+    writer = AsyncTraceWriter(queue_max_size=1)
+    writer._shutdown = True
+    writer.emit({"type": "ignored"})
+    assert writer.stats()["emitted_count"] == 0
+
+    writer._shutdown = False
+    writer._queue.put_nowait({"type": "occupies-queue"})
+    assert writer.exclude_session("session", timeout=0.001) == 0
+
+
+def test_writer_shutdown_timeout_leaves_background_handle_open() -> None:
+    writer = AsyncTraceWriter()
+    thread = MagicMock()
+    thread.is_alive.return_value = True
+    writer._writer_thread = thread
+
+    assert writer.shutdown(timeout_seconds=0.001) is False
+    assert writer.stats()["shutdown_incomplete"] is True
+    thread.join.assert_called_once()
+
+
+def test_default_trace_file_uses_scoped_agent_settings(tmp_path: Path) -> None:
+    from miniagent.agent.settings import AgentSettings, use_agent_settings
+
+    with use_agent_settings(AgentSettings({"trace": {"output_dir": str(tmp_path)}})):
+        path = tracing._get_default_trace_file()
+
+    assert path.parent == tmp_path
+
+
+def test_sampler_start_failure_rolls_back_writer_and_sampler(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shutdowns: list[bool] = []
+
+    def fail_start(_self) -> None:
+        raise RuntimeError("sampler failed")
+
+    monkeypatch.setattr(tracing.TraceResourceSampler, "start", fail_start)
+    monkeypatch.setattr(
+        tracing.TraceResourceSampler,
+        "shutdown",
+        lambda _self: shutdowns.append(True),
+    )
+
+    with pytest.raises(RuntimeError, match="sampler failed"):
+        auto_register_trace_file_hook(
+            TraceRuntimeConfig(
+                enabled=True,
+                output_dir=str(tmp_path),
+                resource_sample_interval_seconds=0.1,
+            )
+        )
+
+    assert shutdowns == [True]
+    assert tracing._trace_writer is None
+    assert tracing._resource_sampler is None
+
+
+def test_incomplete_global_shutdown_keeps_writer_for_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clear_trace_hooks()
+    auto_register_trace_file_hook(
+        TraceRuntimeConfig(enabled=True, output_dir=str(tmp_path / "trace"))
+    )
+    writer = tracing._trace_writer
+    assert writer is not None
+    original_shutdown = writer.shutdown
+
+    def incomplete(timeout_seconds=5.0):
+        writer._shutdown_incomplete = True
+        return False
+
+    monkeypatch.setattr(writer, "shutdown", incomplete)
+    stats = shutdown_trace_writer(timeout_seconds=0.01)
+    assert stats is not None and stats["shutdown_incomplete"] is True
+    assert tracing._trace_writer is writer
+    clear_trace_hooks()
+    assert tracing._trace_writer is writer
+    assert tracing._auto_initialized is True
+
+    monkeypatch.setattr(writer, "shutdown", original_shutdown)
+    writer._shutdown_incomplete = False
+    shutdown_trace_writer()
+    assert tracing._trace_writer is None
 
 
 def test_persistence_sanitizer_allows_only_declared_shapes() -> None:

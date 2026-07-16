@@ -389,6 +389,7 @@ def _raw_sse_response_events(payload: str) -> list[Any]:
 
 
 def _completion_from_events(events: list[LLMStreamEvent]) -> LLMCompletion:
+    """合并规范化流事件，构造稳定的完整 completion。"""
     fragments: list[str] = []
     calls: dict[int, dict[str, str]] = {}
     usage: Any | None = None

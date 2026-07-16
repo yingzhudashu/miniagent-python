@@ -7,6 +7,7 @@ from miniagent.agent.types.memory import SessionMemory
 
 
 def format_memory_for_prompt(memory: SessionMemory | None) -> str:
+    """将结构化会话记忆格式化为有界的提示词片段。"""
     if not memory:
         return ""
     parts: list[str] = []

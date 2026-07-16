@@ -15,6 +15,8 @@
 
 ### Added
 
+- 新增 Trace 开销基准、有界稳定性浸泡和全仓逐文件性能审计台账；CI 覆盖 Python 3.10/3.12/3.13、Windows 与 macOS 冒烟、Anthropic/Google provider extras，并执行新增审计门禁。
+- Trace 事件增加显式 schema 版本与集中事件注册表，真实 API harness 产出 schema v3 摘要，并将缺失/空 Trace、writer 终态计数不一致和秘密命中视为硬失败。
 - 新增协议无关 `LLMGateway`、显式 provider registry、小型模型目录及
   `default/reasoning/fast/vision` 角色路由；支持 OpenAI Chat/Responses，并通过可选
   `providers` extra 支持 Anthropic Messages 与 Google Generate Content。
@@ -25,6 +27,10 @@
 
 ### Changed
 
+- Trace 配置改由组合根以不可变 `TraceRuntimeConfig` 显式注入；初始化失败可回滚重试，writer 关停超时保留可重试状态，维护命令在溢出竞争下保持 FIFO。CPU/RSS 资源采样不再隐式启动 tracemalloc，Python 分配跟踪由独立配置按需启用。
+- Dream 文件维护、配置 watcher 的文件状态读取和索引持久化移出事件循环；embedding cache/single-flight 按 endpoint 与 model 隔离，运行期配置覆盖不再被快照磁盘重读覆盖。
+- 内存剖析脚本复用单一事件循环并覆盖正式 `record_turn` 路径；稳定性报告增加预热/末尾 RSS 与 Python 分配中位平台变化，避免用启动峰值误判长驻泄漏。
+- 真实 API evaluation 改由所选 provider gateway 验证凭据，移除 OpenAI 专属环境变量和已退役执行器参数；稳定性浸泡在完整对象图与 Trace 路径预热后再开始资源采样。
 - 应用组合根持有 LLM gateway 快照；配置热更新不关闭在途请求使用的旧 gateway。
 - 会话历史 schema 升至 v2，并标记跨 provider 的稳定消息格式；旧格式直接拒绝且文件不变。
 - 架构检查升级为四模块白名单、完整 AST 导入扫描和跨层循环检测；函数内、相对及

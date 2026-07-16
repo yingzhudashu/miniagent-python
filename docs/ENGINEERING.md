@@ -99,9 +99,10 @@ python -m pytest tests/ -q -m "not evaluation and not perf"
 
 CI 说明：
 
-- **`test` job**（矩阵 Python 3.10 / 3.12）：`pip install -e ".[dev,typing]"`，跑 `compileall`、Ruff、文档/docstring、Bandit、架构/函数长度、全包 Mypy、wheel 资源检查（仅 3.12）及离线非性能测试。
+- **`test` job**（矩阵 Python 3.10 / 3.12 / 3.13）：`pip install -e ".[dev,typing]"`，跑 `compileall`、Ruff、文档/docstring、Bandit、架构/函数长度、全仓性能审计、全包 Mypy、wheel 资源检查（仅 3.12）及离线非性能测试。
 - **`test-feishu-extra` job**（仅 3.12）：`pip install -e ".[dev,feishu]"` 后再跑 `compileall`、`ruff` 与 `pytest -m "not evaluation"`，确保安装 `lark-oapi` 时仍通过（与主矩阵并行，不拖慢双版本安装）。
 - **`test-mcp-extra` job**（仅 3.12）：`pip install -e ".[dev,mcp]"`，对官方 `mcp` SDK 做 `import` 冒烟，再跑 `compileall`、`ruff` 与 `pytest -m "not evaluation"`，防止 `[mcp]` extra 与代码导入漂移。
+- **`test-provider-extra` job**（仅 3.12）：`pip install -e ".[dev,providers]"`，对 Anthropic 与 Google SDK 做 import 冒烟，并运行完整非 evaluation 回归，验证三类 provider 适配器可与可选依赖共存。
 
 说明：
 
@@ -122,7 +123,7 @@ CI 说明：
 
 可选增强（未默认纳入 CI，团队可自行约定）：
 
-- 性能合成与剖析流程见 [PERFORMANCE.md](PERFORMANCE.md)；可选 workflow **Perf smoke**（`workflow_dispatch` / 定时）跑 `pytest -m perf` 与 `scripts/perf_profile_tracemalloc.py` 并上传带 commit SHA 的 artifact；离线对比两次 JSON 可用 `scripts/compare_perf_snapshots.py`。
+- 性能合成与剖析流程见 [PERFORMANCE.md](PERFORMANCE.md)；可选 workflow **Perf smoke**（`workflow_dispatch` / 定时）跑完整 perf marker（含 `tests/performance/benchmarks.py`）、内存剖析、Trace 开销和短稳定性浸泡，并上传带 commit SHA 的 artifact；离线对比两次 JSON 可用 `scripts/compare_perf_snapshots.py`。
 - **可选 pre-commit**：仓库根 [`.pre-commit-config.yaml`](../.pre-commit-config.yaml) 提供 `ruff` hook（路径 `miniagent`、`tests`）；本地执行 `pip install pre-commit && pre-commit install` 后随 commit 检查。
 - **维护脚本清单**见 [scripts/README.md](../scripts/README.md)；自 v2.0.3 起，手工 verify 脚本已移除，性能回归用 `pytest -m perf` 与 `scripts/perf_profile_tracemalloc.py`。
 
@@ -227,14 +228,15 @@ Trace 系统为自我优化提供运行数据源，同时支持外部 APM 接入
 ```
 miniagent.agent.observability
 ├── emit_trace(event)              # 派发事件到钩子列表
+├── TraceRuntimeConfig             # 组合根注入的不可变运行时配置
 ├── register_trace_hook(hook)      # 注册回调钩子
 ├── clear_trace_hooks()            # 清空钩子（测试隔离）
-├── auto_register_trace_file_hook() # 自动注册文件持久化钩子
-├── get_actual_trace_file()        # 获取当前进程实际写入路径
+├── auto_register_trace_file_hook(config) # 初始化资源采样与文件 writer
 ├── get_actual_trace_file()        # 获取当前进程实际写入文件
 └── get_trace_writer_stats()       # 获取队列深度、写入/丢弃计数等 writer 指标
 
 miniagent.agent.trace_events
+├── TRACE_SCHEMA_VERSION / TRACE_EVENT_TYPES # schema 与事件注册表
 ├── 事件类型常量（EVENT_LLM_REQUEST 等）
 └── 事件构建函数（make_error_event 等）
 
@@ -265,6 +267,7 @@ miniagent.assistant.infrastructure.trace_stats
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
+| `trace_schema_version` | int | 持久化契约版本（由 `emit_trace` 自动添加） |
 | `type` | string | 事件类型（必填） |
 | `ts` | string ISO 8601 | 时间戳（由 `emit_trace` 自动添加） |
 | `session_key` | string | 会话标识 |
@@ -288,7 +291,10 @@ miniagent.assistant.infrastructure.trace_stats
     "writer_batch_size": 50,
     "writer_queue_max_size": 10000,
     "writer_overflow_policy": "drop_oldest",
-    "record_payload": "metrics_only"
+    "writer_shutdown_timeout_seconds": 5.0,
+    "record_payload": "metrics_only",
+    "resource_sample_interval_seconds": 0,
+    "track_python_allocations": false
   }
 }
 ```
@@ -306,7 +312,9 @@ miniagent.assistant.infrastructure.trace_stats
 
 `get_actual_trace_file()` 返回异步 writer 实际写入的 `trace-{YYYY-MM-DD}-pid{pid}.jsonl`，避免多进程同时追加同一文件。`trace_stats.get_trace_files(date)` 和 `load_trace_events(date)` 会聚合同一天的基础文件与全部 pid 分片，日报和自我优化分析不会漏读历史格式或真实运行分片。
 
-writer 使用有界队列保护内存，并按 `writer_batch_interval` / `writer_batch_size` 聚合真实批次；关闭状态只排空已接收队列，不再等待批次窗口。默认 `writer_queue_max_size=10000`、`writer_overflow_policy=drop_oldest`；队列满时不阻塞主流程，而是按策略丢弃事件。`get_trace_writer_stats()` 和 `shutdown_trace_writer()` 的最终返回值包含 `emitted_count`、`written_count`、`dropped_count`、`serialization_error_count` 与 `write_error_count`。这些是 writer 内部状态，不通过 `emit_trace()` 递归上报。
+writer 使用有界队列保护内存，并按 `writer_batch_interval` / `writer_batch_size` 聚合真实批次；关闭状态只排空已接收队列，不再等待批次窗口。默认 `writer_queue_max_size=10000`、`writer_overflow_policy=drop_oldest`；队列满时不阻塞主流程，而是按策略丢弃事件。维护命令和普通事件共用 enqueue 锁，避免并发溢出破坏 FIFO 顺序。`get_trace_writer_stats()` 和 `shutdown_trace_writer()` 的最终返回值包含 `emitted_count`、`written_count`、`dropped_count`、`serialization_error_count`、`write_error_count` 与 `shutdown_incomplete`。关停超时时 writer 保持可重试，不会关闭仍由后台线程使用的句柄。
+
+`resource_sample_interval_seconds > 0` 只开启 CPU、线程和可用时的 psutil RSS 采样；`track_python_allocations=true` 才额外开启 tracemalloc。生产默认两者均关闭，避免把高开销分配跟踪隐式带入长驻进程。
 
 真实 API 压测和默认 trace 策略采用 `record_payload: "metrics_only"`：trace 只应保存模型、时延、token、状态、会话/请求关联 ID、错误类型等指标，不落完整 prompt、response 或 API key。
 

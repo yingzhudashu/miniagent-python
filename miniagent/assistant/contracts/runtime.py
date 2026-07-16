@@ -8,6 +8,8 @@ from typing import Any, Protocol, runtime_checkable
 
 @runtime_checkable
 class AssistantTurnServiceProtocol(Protocol):
+    """定义通道适配器调用助手回合服务所需的最小接口。"""
+
     thinking: Any
 
     async def run_agent_with_thinking(
@@ -25,6 +27,8 @@ class AssistantTurnServiceProtocol(Protocol):
 
 @runtime_checkable
 class ChannelRouterProtocol(Protocol):
+    """定义外部通道与内部会话之间的绑定和解析接口。"""
+
     CLI_CHANNEL: str
     FEISHU_P2P_PREFIX: str
     FEISHU_GROUP_PREFIX: str
@@ -45,6 +49,8 @@ class ChannelRouterProtocol(Protocol):
 
 @runtime_checkable
 class MessageQueueProtocol(Protocol):
+    """定义按会话调度、取消和关停消息任务的队列接口。"""
+
     exec_lock: Any | None
     CLI_CHAT_ID: str
     mode: Any
@@ -66,6 +72,8 @@ class MessageQueueProtocol(Protocol):
 
 @runtime_checkable
 class FeishuRuntimeProtocol(Protocol):
+    """定义飞书长连接运行时的启动、状态与关停接口。"""
+
     def start(
         self,
         create_handler: Any,

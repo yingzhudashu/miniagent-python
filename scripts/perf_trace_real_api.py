@@ -219,15 +219,17 @@ async def _close_container_resources(ctx: Any) -> None:
 
 async def _main_async(args: argparse.Namespace, run_dir: Path) -> None:
     from miniagent.agent.observability import (
+        TraceRuntimeConfig,
         auto_register_trace_file_hook,
         get_actual_trace_file,
         shutdown_trace_writer,
     )
     from miniagent.assistant.bootstrap.entrypoint import create_application_container
     from miniagent.assistant.engine.builtin_tools import register_builtin_tools
+    from miniagent.assistant.infrastructure.json_config import get_config
     from miniagent.assistant.skills.builtin_toolboxes import BUILTIN_TOOLBOXES
 
-    auto_register_trace_file_hook()
+    auto_register_trace_file_hook(TraceRuntimeConfig.from_getter(get_config))
     results: list[dict[str, Any]] = []
     trace_file: Path | None = None
     writer_stats: dict[str, Any] | None = None
@@ -323,48 +325,76 @@ async def _main_async(args: argparse.Namespace, run_dir: Path) -> None:
         print(f"\nTrace file: {trace_file}")
         breakdown = _phase_latency_breakdown(Path(str(trace_file)))
         secret_scan = _scan_trace_for_secrets(Path(str(trace_file)))
-        validation_errors: list[str] = []
-        if writer_stats is None:
-            validation_errors.append("missing writer stats")
-        else:
-            for key in (
-                "dropped_count",
-                "serialization_error_count",
-                "write_error_count",
-            ):
-                if int(writer_stats.get(key, 0) or 0) != 0:
-                    validation_errors.append(f"writer {key} is non-zero")
-            if writer_stats.get("shutdown_incomplete"):
-                validation_errors.append("writer shutdown incomplete")
-        if breakdown.get("unmatched_llm_requests"):
-            validation_errors.append("unmatched LLM requests")
-        if breakdown.get("unmatched_llm_responses"):
-            validation_errors.append("unmatched LLM responses")
-        event_counts = breakdown.get("event_counts", {})
-        if event_counts.get("error.collect", 0):
-            validation_errors.append("terminal error trace events present")
-        if secret_scan["hit_count"]:
-            validation_errors.append("persisted trace contains a secret pattern")
-        summary_payload = {
-            "environment": _environment_metadata(),
-            "runs": results,
-            "run_summary": _summarize_runs(results),
-            "writer": writer_stats,
-            "report": report,
-            "breakdown": breakdown,
-            "secret_scan": secret_scan,
-            "validation_errors": validation_errors,
-        }
-        (run_dir / "summary.json").write_text(
-            json.dumps(
-                summary_payload,
-                ensure_ascii=False,
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
-        if validation_errors:
-            raise RuntimeError("real API trace validation failed: " + "; ".join(validation_errors))
+    else:
+        breakdown = {"total_events": 0, "missing_trace": True}
+        secret_scan = {"hit_count": 0, "labels": []}
+
+    validation_errors = _validate_trace_artifacts(
+        trace_file=trace_file,
+        writer_stats=writer_stats,
+        report=report,
+        breakdown=breakdown,
+        secret_scan=secret_scan,
+    )
+    summary_payload = {
+        "schema_version": 3,
+        "environment": _environment_metadata(),
+        "runs": results,
+        "run_summary": _summarize_runs(results),
+        "writer": writer_stats,
+        "report": report,
+        "breakdown": breakdown,
+        "secret_scan": secret_scan,
+        "validation_errors": validation_errors,
+    }
+    await asyncio.to_thread(
+        (run_dir / "summary.json").write_text,
+        json.dumps(summary_payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    if validation_errors:
+        raise RuntimeError("real API trace validation failed: " + "; ".join(validation_errors))
+
+
+def _validate_trace_artifacts(
+    *,
+    trace_file: Path | None,
+    writer_stats: dict[str, Any] | None,
+    report: dict[str, Any],
+    breakdown: dict[str, Any],
+    secret_scan: dict[str, Any],
+) -> list[str]:
+    """Return deterministic integrity failures for one completed harness run."""
+    errors: list[str] = []
+    if trace_file is None or not trace_file.is_file():
+        errors.append("missing trace file")
+    if writer_stats is None:
+        errors.append("missing writer stats")
+    else:
+        for key in ("dropped_count", "serialization_error_count", "write_error_count"):
+            if int(writer_stats.get(key, 0) or 0) != 0:
+                errors.append(f"writer {key} is non-zero")
+        if writer_stats.get("shutdown_incomplete"):
+            errors.append("writer shutdown incomplete")
+        emitted = int(writer_stats.get("emitted_count", 0) or 0)
+        written = int(writer_stats.get("written_count", 0) or 0)
+        redacted = int(writer_stats.get("redacted_count", 0) or 0)
+        dropped = int(writer_stats.get("dropped_count", 0) or 0)
+        if emitted != written + redacted + dropped:
+            errors.append("writer terminal counts are inconsistent")
+    if int(breakdown.get("total_events", 0) or 0) <= 0:
+        errors.append("trace contains no events")
+    if int(report.get("total_events", 0) or 0) <= 0:
+        errors.append("daily report contains no events")
+    if breakdown.get("unmatched_llm_requests"):
+        errors.append("unmatched LLM requests")
+    if breakdown.get("unmatched_llm_responses"):
+        errors.append("unmatched LLM responses")
+    if breakdown.get("event_counts", {}).get("error.collect", 0):
+        errors.append("terminal error trace events present")
+    if secret_scan.get("hit_count"):
+        errors.append("persisted trace contains a secret pattern")
+    return errors
 
 
 def _phase_latency_breakdown(trace_file: Path) -> dict[str, Any]:

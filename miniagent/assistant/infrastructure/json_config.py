@@ -189,13 +189,16 @@ class JsonConfigLoader:
         return dict(value) if isinstance(value, dict) else {}
 
     def snapshot(self) -> ConfigSnapshot:
-        """返回 defaults 与 user 深度合并后的不可变配置快照。"""
+        """Return an immutable snapshot of the currently loaded layers.
+
+        Filesystem refresh is intentionally owned by :meth:`reload`.  Re-reading
+        here would discard in-memory runtime overrides used by isolated
+        harnesses and embedded runtimes.
+        """
         from miniagent.assistant.contracts.configuration import ConfigSnapshot
 
-        defaults, user = self._read_layers(strict=True)
-        self._defaults = defaults
-        self._user = user
-        self._loaded = True
+        self._load()
+        _validate_user_keys(self._defaults, self._user)
         return ConfigSnapshot(_deep_merge(self._defaults, self._user))
 
     @property
@@ -212,30 +215,37 @@ class ConfigurationService:
         self._snapshot: ConfigSnapshot | None = None
 
     def get(self, path: str, default: Any = None) -> Any:
+        """从当前不可变快照读取点分路径配置。"""
         value = self.snapshot().get_path(path, default)
         return default if value is None else value
 
     def get_section(self, name: str) -> dict[str, Any]:
+        """返回当前有效配置段的解冻副本。"""
         value = self.snapshot().get_path(name, {})
         return _thaw_mapping(value) if isinstance(value, Mapping) else {}
 
     def get_user_section(self, name: str) -> dict[str, Any]:
+        """返回不含默认值继承的用户配置段。"""
         return self.loader.get_user_section(name)
 
     @property
     def paths(self) -> tuple[Path, Path]:
+        """返回默认配置与用户配置文件路径。"""
         return self.loader.paths
 
     def snapshot(self) -> ConfigSnapshot:
+        """返回缓存的不可变配置快照，直到显式 reload。"""
         if self._snapshot is None:
             self._snapshot = self.loader.snapshot()
         return self._snapshot
 
     def reload(self, *, strict: bool = False) -> None:
+        """从磁盘重载配置并使服务级快照失效。"""
         self.loader.reload(strict=strict)
         self._snapshot = None
 
     def reloaded(self, *, strict: bool = True) -> ConfigurationService:
+        """基于磁盘最新内容构造独立配置服务。"""
         return ConfigurationService(self.loader.reloaded_copy(strict=strict))
 
 

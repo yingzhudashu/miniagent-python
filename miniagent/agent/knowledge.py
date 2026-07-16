@@ -16,6 +16,7 @@ def retrieve_knowledge_context(
     default_top_k: int = 3,
     default_max_chars: int = 4000,
 ) -> str:
+    """按阶段配置从注入的知识注册表构造提示词上下文。"""
     if not get_config(f"knowledge.{phase}_enabled", True):
         return ""
     try:

@@ -51,12 +51,12 @@ async def init_subsystems(
         (loaded_skills, skill_toolboxes, skill_prompts, active_session_id, session_manager)
     """
     # 0. 自动注册 trace 持久化钩子（如果设置了 MINIAGENT_TRACE_LOG_FILE）
-    from miniagent.agent.observability import auto_register_trace_file_hook
+    from miniagent.agent.observability import TraceRuntimeConfig, auto_register_trace_file_hook
     from miniagent.assistant.engine.builtin_tools import register_builtin_tools
     from miniagent.assistant.skills.load_runtime import bootstrap_skill_packages
     from miniagent.assistant.skills.snapshots import build_skill_snapshots
 
-    auto_register_trace_file_hook()
+    auto_register_trace_file_hook(TraceRuntimeConfig.from_getter(get_config))
 
     # 1. 内置工具（ALL_TOOLS）先于技能包；同名时内置优先（技能注册遇 ValueError 则跳过）
     # session_memory_tools 已在 ALL_TOOLS 中统一注册

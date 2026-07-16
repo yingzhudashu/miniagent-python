@@ -6,6 +6,7 @@ from typing import Any
 
 
 async def choose_session(state: Any) -> str | None:
+    """展示未销毁会话的选择对话框。"""
     manager = state.get("session_manager") if isinstance(state, dict) else None
     if manager is None:
         return None

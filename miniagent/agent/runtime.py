@@ -95,6 +95,7 @@ class Agent:
         self._services = services
 
     async def run(self, request: AgentRequest) -> AgentResult:
+        """在隔离配置作用域内执行一个完整 Agent 回合。"""
         observer = self._services.observer
         on_reflection = _method(observer, "on_reflection")
 

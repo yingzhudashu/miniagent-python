@@ -62,9 +62,11 @@ class ModelCatalog:
         self._user = {model.profile: model for model in models}
 
     def get(self, profile: str) -> ModelDescriptor | None:
+        """按用户、动态刷新、内置的优先级查找模型档案。"""
         return self._user.get(profile) or self._refreshed.get(profile) or self._builtin.get(profile)
 
     def all(self, provider: str | None = None) -> tuple[ModelDescriptor, ...]:
+        """返回稳定排序的有效模型目录，可按 provider 过滤。"""
         merged = {**self._builtin, **self._refreshed, **self._user}
         values: Iterable[ModelDescriptor] = merged.values()
         if provider is not None:
@@ -81,9 +83,11 @@ class ModelCatalog:
         self._refreshed.update({model.profile: model for model in models})
 
     def load_refreshed(self, models: Iterable[ModelDescriptor]) -> None:
+        """加载持久化的 last-known-good 动态模型条目。"""
         self._refreshed.update({model.profile: model for model in models})
 
     def refreshed(self) -> tuple[ModelDescriptor, ...]:
+        """返回适合持久化的动态模型条目快照。"""
         return tuple(sorted(self._refreshed.values(), key=lambda model: model.profile))
 
 
@@ -97,6 +101,7 @@ class RoleRouter:
         self.bindings = {str(key): str(value) for key, value in bindings.items()}
 
     def resolve(self, role: LLMRole = "default") -> ModelDescriptor:
+        """解析角色绑定并校验模型能力。"""
         profile = self.bindings.get(role) or self.bindings.get("default")
         if not profile:
             profile = "openai-gpt-4o-mini"

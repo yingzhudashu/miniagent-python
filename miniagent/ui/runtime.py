@@ -20,6 +20,8 @@ TuiTheme = Literal["auto", "dark", "light"]
 
 @dataclass(frozen=True, slots=True)
 class TuiEvent:
+    """从 TUI 控件发送到应用动作边界的不可变事件。"""
+
     kind: TuiEventKind
     value: Any = None
 
@@ -70,19 +72,24 @@ class TuiApp:
 
     @property
     def snapshot(self) -> TuiSnapshot:
+        """返回当前不可变渲染快照。"""
         return self._snapshot
 
     def publish(self, snapshot: TuiSnapshot) -> None:
+        """整体发布新的渲染快照。"""
         self._snapshot = snapshot
 
     def apply(self, update: TuiUpdate) -> TuiSnapshot:
+        """应用显式的部分状态更新。"""
         return self.update(**update.changes)
 
     def update(self, **changes: Any) -> TuiSnapshot:
+        """替换指定快照字段并返回新快照。"""
         self._snapshot = replace(self._snapshot, **changes)
         return self._snapshot
 
     def toggle_reasoning(self) -> bool:
+        """切换推理内容展开状态并返回新值。"""
         value = not self._snapshot.reasoning_expanded
         self.update(reasoning_expanded=value)
         return value
@@ -94,6 +101,7 @@ class TuiApp:
         raise AttributeError(name)
 
     async def dispatch(self, event: TuiEvent) -> None:
+        """将框架无关事件分派到 Assistant 动作接口。"""
         if event.kind == "resize":
             return
         method_name = {

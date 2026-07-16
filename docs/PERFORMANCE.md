@@ -1,6 +1,6 @@
 # 性能测试与优化
 
-> Mini Agent Python | 版本: 3.0.0 | 最后更新: 2026-07-15 | 与 `miniagent.__version__` 对齐 | 补充 [ENGINEERING.md](ENGINEERING.md)
+> Mini Agent Python | 版本: 3.0.0 | 最后更新: 2026-07-16 | 与 `miniagent.__version__` 对齐 | 补充 [ENGINEERING.md](ENGINEERING.md)
 
 本文分两部分：
 
@@ -21,7 +21,11 @@
 
 **注意**：线上感知的 p95 延迟通常由 **LLM/HTTP** 主导；L1 回归用于防止 Python 侧退化，不替代端到端评测。
 
-#### 1.1 进程关闭顺序（`shutdown_runtime`）
+#### 1.1 性能变更验收门槛
+
+对声明为性能优化的热路径，在同一机器、Python 版本、依赖、参数和预热策略下重复测量：主热点的中位指标必须至少改善 10%，相关 wall/CPU/RSS/分配指标不得回退超过 5%，并且功能、Trace 完整性和稳定性门禁全部通过。低于 10% 的变化按噪声处理，不宣称收益；超过 5% 的相关回退必须回滚或给出经评审的功能收益依据。真实 API p95 受网络和模型排队影响，只验证端到端行为与 Trace 契约，不单独作为 Python 热路径回归判据。
+
+#### 1.2 进程关闭顺序（`shutdown_runtime`）
 
 与 [miniagent/assistant/engine/shutdown.py](../miniagent/assistant/engine/shutdown.py) 实现一致，供排障与代码审阅对齐：
 
@@ -43,7 +47,7 @@
 | S3 | `DefaultContextManager` + 较多工具 schema 的 token 估算 | 上下文/序列化路径冒烟（阈值宽松） |
 | S4 | 多工具下反复 `get_token_report`（burst） | 预算与报告路径；依赖工具 schema token **缓存**，防 `needs_compression` 相关路径退化 |
 | S5 | `_normalize_lark_md` 大段正文 | 飞书 **纯 CPU** 规范化；不访问网络，与 `poll_server` 侧热点对照 |
-| S6 | 批量 `add_entry` + `flush` 的 tracemalloc 峰值 | 分配量宽松上界；与 `scripts/perf_profile_tracemalloc.py` 场景一致 |
+| S6 | 批量 `add_entry` + `flush` 的 tracemalloc 峰值 | 旧兼容入口的分配量宽松上界；剖析脚本另覆盖正式 `record_turn` 路径 |
 | S7 | `serialize_exec_payload_sample`（DefaultContextManager + messages/tools `json.dumps`） | 与 `execute_plan` 请求组装对齐的 Python 序列化冒烟 |
 | S8 | 连续加载 260 个会话到 `DefaultMemoryStore` | 验证 LRU cache 驱逐（`memory.store_cache_max` 默认 200） |
 | S9 | `EmbeddingIndex` 连续添加 250 条目 | 验证 `max_entries` 上限驱逐（200） |
@@ -99,32 +103,56 @@ python scripts/perf_trace_real_api.py --scenario matrix --runs 3
 
 压测使用当前 OpenAI-compatible 配置。`matrix` 运行纯回复、单 `read_file`、`list_dir + read_file` 各 3 次，再运行一轮 3 并发请求；工具矩阵只开放只读工具箱，不执行飞书、上传、命令或文件写操作。`perf_trace_real_api.py` 通过正式应用组合根构造依赖，在每次运行独立的 state、knowledge 和 trace 目录中执行，并在退出时关闭 OpenAI、memory、ClawHub、队列与 Trace writer；它只在内存中叠加隔离路径，不改写或复制 `config.user.json`。产物默认写入 `workspaces/logs/perf/`，属于过程性文件，不提交到仓库。
 
-脚本强制 `metrics_only` 与 250ms 资源采样，并自动验证 LLM `call_id` 配对、工具断言、terminal error、Trace drop/序列化/写入错误、秘密扫描和 writer 完整关闭。`summary.json` 包含 Git SHA、Python/平台、原始样本、中位数/p95、CPU、RSS、Python traced peak、phase/span 和验证错误列表；不包含 prompt、response、工具参数或凭据。
+脚本强制 `metrics_only` 与 250ms CPU/RSS 资源采样，并自动验证 LLM `call_id` 配对、工具断言、terminal error、Trace drop/序列化/写入错误、秘密扫描和 writer 完整关闭。`summary.json` schema v3 包含 Git SHA、Python/平台、原始样本、中位数/p95、CPU、RSS、phase/span 和验证错误列表；只有显式启用 `trace.track_python_allocations` 时才包含 Python traced 指标。文件缺失、事件为空或 writer 终态计数不一致均会使脚本失败。产物不包含 prompt、response、工具参数或凭据。
 
-#### 3.5.1 2026-07-12 真实验收摘要
+#### 3.5.1 2026-07-16 真实验收摘要
 
-环境：Windows 11、Python 3.12.7；旧/新均使用当前配置端点。过程产物位于 Git 忽略的 `workspaces/logs/perf/`。
+环境：Windows 11、Python 3.12.7，使用当前 OpenAI-compatible 配置端点。过程产物位于 Git 忽略的 `workspaces/logs/perf-final/`。
 
 | 场景 | 样本 | 中位数 | p95 | 结果 |
 |---|---:|---:|---:|---|
-| 纯回复 | 3 | 6.66s | 9.28s | 3/3 成功 |
-| 单 `read_file` | 3 | 18.44s | 19.35s | 3/3 工具与回复成功 |
-| `list_dir + read_file` | 3 | 58.89s | 59.19s | 3/3 两工具与回复成功 |
-| 3 并发 | 3 | 6.91s | 7.72s | 3/3 成功 |
-| 旧基线同提示 | 1 | 46.59s | — | 10/10 LLM 配对 |
-| 新实现同提示 | 3 | 31.33s | 39.97s | 3/3 `read_file` 成功；中位数下降 32.8% |
+| 纯回复 | 3 | 8.48s | 17.37s | 3/3 成功 |
+| 单 `read_file` | 3 | 22.79s | 24.34s | 3/3 工具与回复成功 |
+| `list_dir + read_file` | 3 | 75.21s | 95.81s | 3/3 两工具与回复成功 |
+| 3 并发 | 3 | 7.72s | 10.79s | 3/3 成功 |
 
-长矩阵共写入 1357/1357 个事件，55/55 LLM 请求响应配对，`read_file` 6/6、`list_dir` 3/3，terminal error、drop、序列化错误、写入错误和秘密命中均为 0。预热区间到末尾的 RSS 中位平台增长 0.14%，Python traced 平台增长 0.41%；线程峰值 6。旧同提示运行的两个 embedding 请求合计约 16.66s（含空索引 query），新实现空索引不请求 API，实际 query/index 中位约 202ms，index 在有界队列中与后续网络阶段重叠。
+矩阵共写入 1702/1702 个事件，48/48 LLM 请求响应配对，`read_file` 6/6、`list_dir` 3/3；terminal error、drop、序列化错误、写入错误、关停不完整和秘密命中均为 0。工具平均耗时约 5ms，记忆持久化平均 27.2ms；主要耗时仍在 LLM/网络阶段，未通过删除规划、反思或工具效果换取数字。矩阵的 RSS 预热窗发生在首个应用对象图完成惰性加载前，warm-to-final 为 +33.64%，因此不作为泄漏判定；稳定性结论必须使用 §3.6 的有界重复负载浸泡。
+
+同日另以 `MINIAGENT_REAL_API_STRESS=1` 执行 `tests/evaluation/test_perf_real_api.py`，provider-neutral 的纯模型、真实 `read_file`、三并发、模型配置和产物目录 5/5 通过。该入口不再硬编码 `OPENAI_API_KEY` 或已删除的执行器参数；有效凭据由所选 provider 的 gateway 构造统一验证。
 
 新增高级配置均保持向后兼容：
 
 | 配置 | 默认值 | 作用 |
 |---|---:|---|
 | `trace.resource_sample_interval_seconds` | `0` | 0 表示不启动资源采样线程；真实基准使用 0.25 |
+| `trace.track_python_allocations` | `false` | 独立控制 tracemalloc；CPU/RSS 采样不再隐式开启 Python 分配跟踪 |
+| `trace.writer_shutdown_timeout_seconds` | `5.0` | writer drain 超时；超时后保留 writer 引用并返回 `shutdown_incomplete`，允许调用方重试 |
 | `trace.stats_max_latency_samples` | `100000` | 日报全局延迟 reservoir 上限，并按 phase 分配固定子预算 |
 | `trace.stats_max_session_samples` | `1000` | 报告中保留的 session 列表上限；总数使用固定 bitmap 估计 |
 | `embedding.index_queue_max_size` | `256` | 等待/执行中的异步向量索引任务容量；满载时调用方等待 |
 | `embedding.index_concurrency` | `2` | embedding index 网络与写入并发上限 |
+
+#### 3.6 Trace 开销与稳定性浸泡
+
+```bash
+python scripts/perf_trace_overhead.py --json-out workspaces/logs/trace-overhead.json
+python scripts/perf_stability_soak.py --duration-seconds 1800 --interval-seconds 0.1 --json-out workspaces/logs/stability-soak.json
+```
+
+开销脚本分别测量无 hook 的禁用快路径与 `metrics_only` 持久化路径，并要求 writer 无 drop、序列化或写入错误；启用路径的宽松防灾难性门槛为 50µs/event。2026-07-16 最终同机样本为禁用 92.3ns/event、启用 5.31µs/event，14000/14000 写入成功。
+
+浸泡脚本先执行 200 次有界工作单元，预热会话、上下文、关键词索引、tracemalloc、Trace writer/序列化/span，再启动资源采样；报告第 9–24 个稳态样本与末 16 个样本的 RSS/Python traced 中位平台变化，并检查线程回收和 writer 完整性。CI 每周运行 5 秒冒烟；发布验收使用 30 分钟，warm-to-final 平台增长门槛均为 5%。峰值减最小值包含惰性初始化，不能替代平台对比。
+
+2026-07-16 最终 1800 秒验收完成 16703 次稳态迭代和 200 次预热，67838/67838 个事件写入成功；RSS warm-to-final 为 -0.25%，Python traced 为 +1.07%，进程 CPU 累计 40.45 秒，线程由预热后的 4 回落到 3、峰值 5。span failure、drop、序列化错误、写入错误、关停不完整和验证错误均为 0。
+
+#### 3.7 全仓逐文件审计台账
+
+```bash
+python scripts/performance_audit.py --write
+python scripts/performance_audit.py --check
+```
+
+脚本枚举 Git 已跟踪及未忽略的一方文本文件，逐文件记录 SHA256、字节数、行数和已审查行数；Python 文件额外做 AST 扫描，标记模块导入期配置冻结、async 中同步 I/O 候选、宽泛异常和大型模块。产物为 `docs/performance-audit.json` 与摘要 `docs/PERFORMANCE_AUDIT.md`，任一受审文件变化都会使 `--check` 失败。自动台账用于证明覆盖面，风险项仍须结合针对性行为测试和人工差异审阅。
 
 ### 4. 基线文件格式（`tests/perf_baselines/`）
 
@@ -173,7 +201,8 @@ CI **不**依赖基线文件是否存在；可选 workflow 仅上传当次脚本
 - **后台任务并发槽位**：后台任务在创建协程时即预留槽位，避免多个并发 `start_task()` 在协程尚未调度时共同绕过上限；正常、失败、启动前取消和 shutdown 都幂等释放槽位。
 - **飞书缓存与连接复用**：消息去重按单键严格执行 5 分钟 TTL 并原子 flush；tenant token 的同步/异步并发 miss 各自合并为一次请求；HTML 上传三类操作按事件循环复用 aiohttp 连接池并在统一 shutdown 中关闭。
 - **Trace 重试与终态语义**：`failed_response_count` 与 `attempt_error_rate` 保留失败尝试诊断；`retrying_response_count`、`terminal_failed_response_count` 和 `error_rate` 描述操作终态。真实运行中 2 次网关重试恢复后，尝试失败率为 33.3%，终态失败率正确为 0，且请求/响应无失配。
-- **Trace 资源与安全白名单**：生产默认 `trace.resource_sample_interval_seconds=0`，真实基准显式设为 0.25s；惰性加载 psutil，并仅在采样启用时启动 tracemalloc。持久化只接受事件类型/模型/phase 等安全字符串和已登记的数字/布尔指标；未知字符串、未知数字标识、嵌套对象、错误正文、prompt/response/args 一律丢弃。hook 仍收到原事件。
+- **Trace 资源与安全白名单**：生产默认 `trace.resource_sample_interval_seconds=0`；真实基准显式设为 0.25s 并惰性加载 psutil。CPU/RSS 采样与 tracemalloc 已拆分，后者只在 `trace.track_python_allocations=true` 时启用。持久化只接受事件类型/模型/phase 等安全字符串和已登记的数字/布尔指标；未知字符串、未知数字标识、嵌套对象、错误正文、prompt/response/args 一律丢弃。hook 仍收到原事件。
+- **Trace 配置、schema 与生命周期**：组合根显式构造不可变 `TraceRuntimeConfig`，避免 observability 反向读取应用配置；初始化失败会完整回滚并允许重试。所有持久化事件自动带 `trace_schema_version`，`TRACE_EVENT_TYPES` 是生产 emitter 的静态契约。writer 关停超时会报告 `shutdown_incomplete` 并保留可重试状态，维护命令与普通事件通过同一 enqueue 锁保持顺序。
 - **Trace 跨日与大分片**：writer 按事件 UTC 日期安全切换分片，自定义无日期路径也能跨日；关闭超时时不关闭仍被线程使用的句柄。日报对延迟、session、phase/tool/error/span 基数均设固定容量，坏 JSON、NaN 和畸形字段不会中止聚合。
 - **LLM 参数能力学习**：仅对明确 HTTP 400 “参数不受支持”学习 `temperature/top_p`，缓存键包含弱引用 client、endpoint、model 与 wire API，并有 LRU 上限；非法参数值和其他 400 不会污染能力缓存。后续请求直接采用已学习的兼容参数，保留现有重试、协议降级与思考等级。
 - **Embedding 异步索引**：空索引在 query embedding 前直接返回；耐久记忆和关键词索引完成后，向量索引进入默认容量 256、并发 2 的队列。满队列反压而不丢条目，下一次搜索和 shutdown 均完整 drain；Trace 区分 query/index、缓存、queue wait、network 和 index duration，并继承 session/span。
@@ -243,6 +272,9 @@ async def good_example():
 | [`tests/test_perf_synthetic.py`](../tests/test_perf_synthetic.py) | 合成 perf 用例（默认参与 `pytest -m "not evaluation"`） |
 | [`scripts/perf_profile_tracemalloc.py`](../scripts/perf_profile_tracemalloc.py) | 本地可重复剖析入口（支持 `--inner-repeat`） |
 | [`scripts/compare_perf_snapshots.py`](../scripts/compare_perf_snapshots.py) | 对比两次 `--json-out` JSON（峰值比例告警） |
+| [`scripts/perf_trace_overhead.py`](../scripts/perf_trace_overhead.py) | Trace 禁用/启用路径开销与完整写入校验 |
+| [`scripts/perf_stability_soak.py`](../scripts/perf_stability_soak.py) | 有界混合负载的 RSS、Python 分配和线程稳定性浸泡 |
+| [`scripts/performance_audit.py`](../scripts/performance_audit.py) | 全仓逐文件/逐行覆盖台账及 AST 风险扫描 |
 
 ---
 

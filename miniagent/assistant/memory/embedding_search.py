@@ -75,13 +75,28 @@ import time
 _EMBEDDING_CACHE: collections.OrderedDict[str, tuple[array[float], float]] = (
     collections.OrderedDict()
 )
-_EMBEDDING_CACHE_MAX_SIZE = get_config("embedding.cache_max_size", 1000)
-_EMBEDDING_CACHE_TTL_SECONDS = get_config("embedding.cache_ttl_seconds", 3600)  # 1小时TTL
+_EMBEDDING_CACHE_MAX_SIZE = 1000
+_EMBEDDING_CACHE_TTL_SECONDS = 3600
 _EMBEDDING_BATCH_CHUNK_SIZE = 256
 _EMBEDDING_CACHE_LOCK = threading.RLock()
 
 
-def _get_cached_embedding(text: str) -> array[float] | None:
+def _embedding_cache_namespace() -> str:
+    base_url = str(get_config("embedding.base_url", "")).rstrip("/")
+    model = str(get_config("embedding.model", ""))
+    return f"{base_url}\0{model}"
+
+
+def _embedding_cache_key(text: str, namespace: str | None = None) -> str:
+    scoped = f"{namespace or _embedding_cache_namespace()}\0{text}"
+    return hashlib.blake2s(scoped.encode(), digest_size=16).hexdigest()
+
+
+def _get_cached_embedding(
+    text: str,
+    *,
+    namespace: str | None = None,
+) -> array[float] | None:
     """从缓存获取embedding（LRU + TTL）。
 
     性能优化：
@@ -98,13 +113,16 @@ def _get_cached_embedding(text: str) -> array[float] | None:
     if not text:
         return None
 
-    cache_key = hashlib.blake2s(text.encode(), digest_size=16).hexdigest()
+    cache_key = _embedding_cache_key(text, namespace)
 
     with _EMBEDDING_CACHE_LOCK:
         if cache_key in _EMBEDDING_CACHE:
             embedding, timestamp = _EMBEDDING_CACHE[cache_key]
             now = time.monotonic()
-            if now - timestamp < _EMBEDDING_CACHE_TTL_SECONDS:
+            ttl_seconds = float(
+                get_config("embedding.cache_ttl_seconds", _EMBEDDING_CACHE_TTL_SECONDS)
+            )
+            if now - timestamp < ttl_seconds:
                 _EMBEDDING_CACHE.move_to_end(cache_key)
                 return embedding
             _EMBEDDING_CACHE.pop(cache_key)
@@ -112,7 +130,12 @@ def _get_cached_embedding(text: str) -> array[float] | None:
     return None
 
 
-def _cache_embedding(text: str, embedding: Sequence[float]) -> array[float] | None:
+def _cache_embedding(
+    text: str,
+    embedding: Sequence[float],
+    *,
+    namespace: str | None = None,
+) -> array[float] | None:
     """缓存embedding向量。
 
     Args:
@@ -122,14 +145,17 @@ def _cache_embedding(text: str, embedding: Sequence[float]) -> array[float] | No
     if not text or not embedding:
         return None
 
-    cache_key = hashlib.blake2s(text.encode(), digest_size=16).hexdigest()
+    cache_key = _embedding_cache_key(text, namespace)
     now = time.monotonic()
     compact = embedding if isinstance(embedding, array) else array("d", embedding)
 
     with _EMBEDDING_CACHE_LOCK:
         _EMBEDDING_CACHE[cache_key] = (compact, now)
         _EMBEDDING_CACHE.move_to_end(cache_key)
-        while len(_EMBEDDING_CACHE) > _EMBEDDING_CACHE_MAX_SIZE:
+        max_size = max(
+            1, int(get_config("embedding.cache_max_size", _EMBEDDING_CACHE_MAX_SIZE))
+        )
+        while len(_EMBEDDING_CACHE) > max_size:
             _EMBEDDING_CACHE.popitem(last=False)
     return compact
 
@@ -703,6 +729,15 @@ class EmbeddingSearchProvider:
         if embed["base_url"] and embed["model"] and embed["api_key"]:
             self._providers.append(embed)
 
+    @staticmethod
+    def _provider_namespace(provider: dict[str, str | int]) -> str:
+        return f"{str(provider['base_url']).rstrip('/')}\0{provider['model']}"
+
+    def _primary_namespace(self) -> str:
+        if not self._providers:
+            return _embedding_cache_namespace()
+        return self._provider_namespace(self._providers[0])
+
     @property
     def index(self) -> EmbeddingIndex:
         """底层 ``EmbeddingIndex`` 实例（持久化与 ``index_entry`` 入口）。"""
@@ -746,7 +781,11 @@ class EmbeddingSearchProvider:
                     model=str(provider["model"]),
                     api_key=str(provider["api_key"]),
                 )
-                compact = _cache_embedding(clean, embedding)
+                compact = _cache_embedding(
+                    clean,
+                    embedding,
+                    namespace=self._provider_namespace(provider),
+                )
                 elapsed_ms = int((time.monotonic() - start_time) * 1000)
                 emit_trace({
                     "type": EVENT_EMBEDDING_API_CALL,
@@ -800,8 +839,9 @@ class EmbeddingSearchProvider:
         finally:
             current = asyncio.current_task()
             async with self._inflight_lock:
-                if self._inflight_embeddings.get(clean) is current:
-                    self._inflight_embeddings.pop(clean, None)
+                inflight_key = f"{self._primary_namespace()}\0{clean}"
+                if self._inflight_embeddings.get(inflight_key) is current:
+                    self._inflight_embeddings.pop(inflight_key, None)
 
     async def get_embedding(self, text: str, *, purpose: str = "query") -> Sequence[float] | None:
         """获取文本的嵌入向量（带缓存）。
@@ -821,7 +861,9 @@ class EmbeddingSearchProvider:
             return None
 
         # 性能优化：先检查缓存
-        cached = _get_cached_embedding(clean)
+        namespace = self._primary_namespace()
+        inflight_key = f"{namespace}\0{clean}"
+        cached = _get_cached_embedding(clean, namespace=namespace)
         if cached is not None:
             emit_trace({
                 "type": EVENT_EMBEDDING_CACHE_HIT,
@@ -834,7 +876,7 @@ class EmbeddingSearchProvider:
         async with self._inflight_lock:
             # A previous owner may have filled the process cache while this
             # caller was waiting for the single-flight lock.
-            cached = _get_cached_embedding(clean)
+            cached = _get_cached_embedding(clean, namespace=namespace)
             if cached is not None:
                 emit_trace({
                     "type": EVENT_EMBEDDING_CACHE_HIT,
@@ -843,13 +885,13 @@ class EmbeddingSearchProvider:
                     "cache_size": _embedding_cache_size(),
                 })
                 return cached
-            task = self._inflight_embeddings.get(clean)
+            task = self._inflight_embeddings.get(inflight_key)
             if task is None:
                 task = asyncio.create_task(
                     self._run_embedding_request(clean, purpose=purpose),
                     name="embedding-fetch",
                 )
-                self._inflight_embeddings[clean] = task
+                self._inflight_embeddings[inflight_key] = task
 
         return await asyncio.shield(task)
 

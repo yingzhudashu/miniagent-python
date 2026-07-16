@@ -7,10 +7,12 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import sys
 import tempfile
+import time
 import tracemalloc
 from datetime import datetime, timezone
 
@@ -20,53 +22,42 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 
-def _run_keyword_index_batch(tmp: str) -> None:
-    import asyncio
-
+async def _run_memory_turn_batch(tmp: str) -> None:
     from miniagent.agent.types.memory import MemoryEntryInput, SessionMemory
     from miniagent.assistant.memory.keyword_index import KeywordIndex
     from miniagent.assistant.memory.store import DefaultMemoryStore
 
-    async def _body() -> None:
-        ki = KeywordIndex(state_dir=tmp)
-        store = DefaultMemoryStore(state_dir=tmp, keyword_index=ki)
-        sid = "profile-session"
-        now = datetime.now(timezone.utc).isoformat()
-        mem = SessionMemory(
-            session_id=sid,
-            cumulative_summary="",
-            key_facts=[],
-            entries=[],
-            total_turns=0,
-            first_seen=now,
-            last_active=now,
+    ki = KeywordIndex(state_dir=tmp)
+    store = DefaultMemoryStore(state_dir=tmp, keyword_index=ki)
+    sid = "profile-session"
+    now = datetime.now(timezone.utc).isoformat()
+    mem = SessionMemory(
+        session_id=sid,
+        cumulative_summary="",
+        key_facts=[],
+        entries=[],
+        total_turns=0,
+        first_seen=now,
+        last_active=now,
+    )
+    await store.save(mem)
+    for i in range(20):
+        entry = MemoryEntryInput(
+            timestamp=now,
+            user_snippet=f"user input {i} investment preference",
+            summary=f"summary {i}",
+            facts=[f"fact {i}"],
         )
-        await store.save(mem)
-        for i in range(20):
-            await store.add_entry(
-                sid,
-                MemoryEntryInput(
-                    timestamp=now,
-                    user_snippet=f"用户输入片段{i} 投资 偏好",
-                    summary=f"摘要{i}",
-                    facts=[f"事实{i}"],
-                ),
-            )
-        store.flush_keyword_index()
+        await store.record_turn(sid, entry.summary, entry.facts, entry)
+    await store.flush_keyword_index_async()
 
-    asyncio.run(_body())
-
-
-def _run_keyword_index_batch_repeated(tmp: str, repeat: int) -> None:
-    """重复跑热路径，便于 cProfile 下减少冷启动占比（见 docs/PERFORMANCE.md §3）。
-
-    每次迭代使用独立子目录，避免在同一 state_dir 上无限累积条目。
-    """
+async def _run_memory_turn_batch_repeated(tmp: str, repeat: int) -> None:
+    """Run all repetitions in one event loop using isolated state directories."""
     n = max(1, repeat)
     for i in range(n):
         sub = os.path.join(tmp, f"run_{i}")
         os.makedirs(sub, exist_ok=True)
-        _run_keyword_index_batch(sub)
+        await _run_memory_turn_batch(sub)
 
 
 def main() -> int:
@@ -84,14 +75,16 @@ def main() -> int:
     args = p.parse_args()
 
     with tempfile.TemporaryDirectory() as tmp:
+        wall_started = time.perf_counter()
+        cpu_started = time.process_time()
         if args.no_tracemalloc:
-            _run_keyword_index_batch_repeated(tmp, args.inner_repeat)
+            asyncio.run(_run_memory_turn_batch_repeated(tmp, args.inner_repeat))
             peak_mb = None
         else:
             tracemalloc.start()
             try:
                 tracemalloc.reset_peak()
-                _run_keyword_index_batch_repeated(tmp, args.inner_repeat)
+                asyncio.run(_run_memory_turn_batch_repeated(tmp, args.inner_repeat))
                 _cur, peak = tracemalloc.get_traced_memory()
                 peak_mb = round(peak / (1024 * 1024), 4)
                 snap = tracemalloc.take_snapshot()
@@ -101,10 +94,16 @@ def main() -> int:
                     print(s)
             finally:
                 tracemalloc.stop()
+        wall_seconds = time.perf_counter() - wall_started
+        cpu_seconds = time.process_time() - cpu_started
 
     payload = {
-        "scenario": "keyword_index_batch_20",
+        "schema_version": 2,
+        "scenario": "memory_record_turn_20",
         "inner_repeat": int(args.inner_repeat),
+        "wall_seconds": round(wall_seconds, 6),
+        "cpu_seconds": round(cpu_seconds, 6),
+        "wall_seconds_per_repeat": round(wall_seconds / max(1, args.inner_repeat), 6),
         "tracemalloc_peak_mib": peak_mb,
         "no_tracemalloc": bool(args.no_tracemalloc),
     }

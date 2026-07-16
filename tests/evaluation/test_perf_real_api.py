@@ -25,11 +25,12 @@ import pytest_asyncio
 
 from miniagent.agent.executor import execute_plan
 from miniagent.agent.observability import (
+    TraceRuntimeConfig,
     auto_register_trace_file_hook,
     emit_trace,
     shutdown_trace_writer,
 )
-from miniagent.assistant.infrastructure.json_config import get_config, get_user_config_section
+from miniagent.assistant.infrastructure.json_config import get_config
 from miniagent.llm.factory import create_llm_gateway
 
 
@@ -67,16 +68,11 @@ def real_api_config():
             }
         )
     )
-    auto_register_trace_file_hook()
-
-    # 验证API Key已加载
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key or api_key == "your-api-key-here":
-        pytest.skip("需要配置真实 API Key（secrets.llm 或 provider 环境变量）")
+    auto_register_trace_file_hook(TraceRuntimeConfig.from_getter(get_config))
 
     # 返回完整配置供测试使用
     return {
-        "model": get_config("model", {}),
+        "model": get_config("llm.models.primary", {}),
         "agent": get_config("agent", {}),
     }
 
@@ -84,7 +80,10 @@ def real_api_config():
 @pytest_asyncio.fixture
 async def real_api_client(real_api_config):
     """Own one provider-neutral gateway per test and close it afterward."""
-    client = create_llm_gateway(get_config, user_section_getter=get_user_config_section)
+    try:
+        client = create_llm_gateway(get_config)
+    except RuntimeError as error:
+        pytest.skip(f"所选 provider 凭据不可用: {type(error).__name__}")
     try:
         yield client
     finally:
@@ -302,7 +301,6 @@ class TestRealAPIPerformance:
                     memory=memory_runtime,
                     knowledge_registry=knowledge_registry,
                     client=real_api_client,
-                    session_key=f"real-api-concurrent-{i}",
                 )
             )
 
@@ -344,15 +342,10 @@ class TestRealAPIPerformance:
 
     def test_api_configuration_valid(self, real_api_config):
         """验证API配置有效。"""
-        import os
-
-        # 验证API Key已加载到环境变量
-        api_key = os.environ.get("OPENAI_API_KEY")
-        assert api_key and api_key != "your-api-key-here", "API Key应已加载到环境变量"
-
         # 验证模型配置
         llm_overrides = real_api_config.get("model", {})
-        assert "model" in llm_overrides or "base_url" in llm_overrides, "应有模型配置"
+        assert llm_overrides.get("provider"), "应配置模型 provider"
+        assert llm_overrides.get("model"), "应配置模型名称"
 
         # 记录配置信息（不含密钥）
         emit_trace({

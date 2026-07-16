@@ -204,6 +204,29 @@ class TestEmbeddingIndex:
         assert sys.getsizeof(stored) < list_deep_size / 3
         _EMBEDDING_CACHE.clear()
 
+    def test_embedding_cache_is_namespaced_by_provider_model(self, monkeypatch):
+        config = {
+            "embedding.base_url": "https://provider.example/v1",
+            "embedding.model": "model-a",
+            "embedding.cache_ttl_seconds": 3600,
+            "embedding.cache_max_size": 1000,
+        }
+        monkeypatch.setattr(
+            embedding_module,
+            "get_config",
+            lambda key, default=None: config.get(key, default),
+        )
+        _EMBEDDING_CACHE.clear()
+        _cache_embedding("same text", [0.1, 0.2])
+        assert embedding_module._get_cached_embedding("same text") is not None
+
+        config["embedding.model"] = "model-b"
+        assert embedding_module._get_cached_embedding("same text") is None
+        config["embedding.base_url"] = ""
+        provider = EmbeddingSearchProvider()
+        assert provider._primary_namespace() == embedding_module._embedding_cache_namespace()
+        _EMBEDDING_CACHE.clear()
+
     def test_chunked_batch_search_matches_scalar_top_k(self, tmp_path, monkeypatch):
         idx = self._make_index(str(tmp_path))
         idx._dim = 32

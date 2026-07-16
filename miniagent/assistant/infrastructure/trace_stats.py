@@ -37,9 +37,10 @@ import json
 import math
 import os
 import re
+import statistics
 import tempfile
 import zlib
-from collections import defaultdict
+from collections import defaultdict, deque
 from collections.abc import Iterable, Iterator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -335,10 +336,14 @@ class _TraceStatsAccumulator:
         self.resource_sample_count = 0
         self.resource_rss_peak = 0
         self.resource_rss_min: int | None = None
+        self.resource_rss_warm: list[int] = []
+        self.resource_rss_final: deque[int] = deque(maxlen=16)
         self.resource_cpu_first: float | None = None
         self.resource_cpu_last: float | None = None
         self.resource_thread_peak = 0
         self.resource_python_traced_peak = 0
+        self.resource_python_warm: list[int] = []
+        self.resource_python_final: deque[int] = deque(maxlen=16)
         self.span_stats: dict[str, dict[str, float | int]] = defaultdict(
             lambda: {"count": 0, "total_ms": 0.0, "cpu_ms": 0.0, "fail": 0}
         )
@@ -572,6 +577,9 @@ class _TraceStatsAccumulator:
             self.resource_rss_min = (
                 rss_int if self.resource_rss_min is None else min(self.resource_rss_min, rss_int)
             )
+            if 9 <= self.resource_sample_count <= 24:
+                self.resource_rss_warm.append(rss_int)
+            self.resource_rss_final.append(rss_int)
         cpu = _numeric_metric(event.get("process_cpu_ms"))
         if cpu is not None:
             if self.resource_cpu_first is None:
@@ -586,6 +594,12 @@ class _TraceStatsAccumulator:
                 self.resource_python_traced_peak,
                 int(python_peak),
             )
+        python_current = _numeric_metric(event.get("python_traced_bytes"))
+        if python_current is not None and python_current >= 0:
+            current_int = int(python_current)
+            if 9 <= self.resource_sample_count <= 24:
+                self.resource_python_warm.append(current_int)
+            self.resource_python_final.append(current_int)
 
     def resource_report(self) -> dict[str, Any]:
         """生成 CPU、内存和事件循环资源采样摘要。"""
@@ -594,6 +608,15 @@ class _TraceStatsAccumulator:
             result["rss_peak_bytes"] = self.resource_rss_peak
             result["rss_min_bytes"] = self.resource_rss_min or 0
             result["rss_growth_bytes"] = self.resource_rss_peak - (self.resource_rss_min or 0)
+            if len(self.resource_rss_warm) == 16 and len(self.resource_rss_final) == 16:
+                warm = int(statistics.median(self.resource_rss_warm))
+                final = int(statistics.median(self.resource_rss_final))
+                result["rss_warm_median_bytes"] = warm
+                result["rss_final_median_bytes"] = final
+                result["rss_warm_to_final_growth_ratio"] = round(
+                    (final - warm) / warm if warm else 0.0,
+                    4,
+                )
         if self.resource_cpu_first is not None and self.resource_cpu_last is not None:
             result["process_cpu_delta_ms"] = round(
                 max(0.0, self.resource_cpu_last - self.resource_cpu_first), 1
@@ -602,6 +625,15 @@ class _TraceStatsAccumulator:
             result["thread_peak"] = self.resource_thread_peak
         if self.resource_python_traced_peak:
             result["python_traced_peak_bytes"] = self.resource_python_traced_peak
+        if len(self.resource_python_warm) == 16 and len(self.resource_python_final) == 16:
+            warm = int(statistics.median(self.resource_python_warm))
+            final = int(statistics.median(self.resource_python_final))
+            result["python_warm_median_bytes"] = warm
+            result["python_final_median_bytes"] = final
+            result["python_warm_to_final_growth_ratio"] = round(
+                (final - warm) / warm if warm else 0.0,
+                4,
+            )
         return result
 
     def _add_span_end(self, event: dict[str, Any]) -> None:

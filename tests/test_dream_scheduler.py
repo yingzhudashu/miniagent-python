@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -42,6 +43,32 @@ async def test_scheduler_throttles_and_shuts_down(tmp_path: Path) -> None:
     scheduler.schedule("test-session")
     assert len(scheduler._pending_tasks) <= 1
     await scheduler.shutdown()
+    assert scheduler._pending_tasks == set()
+
+
+@pytest.mark.asyncio
+async def test_scheduler_runs_complete_locked_refinement_in_worker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scheduler = dream_scheduler.DreamScheduler(str(tmp_path))
+    scheduler._policy = dream_scheduler._DreamPolicy(0, 0, 0, 1, 0)
+    calls: list[str] = []
+    monkeypatch.setattr(dream_scheduler, "_try_file_lock", lambda _root: True)
+    monkeypatch.setattr(
+        dream_scheduler,
+        "_refine_session_sync",
+        lambda *_args: calls.append("refine"),
+    )
+    monkeypatch.setattr(
+        dream_scheduler,
+        "_release_file_lock",
+        lambda _root: calls.append("release"),
+    )
+
+    scheduler.schedule("session")
+    await asyncio.gather(*tuple(scheduler._pending_tasks))
+
+    assert calls == ["refine", "release"]
     assert scheduler._pending_tasks == set()
 
 

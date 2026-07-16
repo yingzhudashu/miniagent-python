@@ -11,7 +11,7 @@ _LINK_RE = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 _HEADING_RE = re.compile(r"^#{1,6}\s+(.+?)\s*#*$")
 _HTML_ANCHOR_RE = re.compile(r"<a\s+(?:name|id)=[\"']([^\"']+)[\"']", re.IGNORECASE)
 _INLINE_CODE_RE = re.compile(r"`[^`]*`")
-_RETIRED_DOCS = {"PERFORMANCE_AUDIT.md", "TEST_COVERAGE_MATRIX.md"}
+_RETIRED_DOCS = {"TEST_COVERAGE_MATRIX.md"}
 
 
 def _slug(value: str) -> str:

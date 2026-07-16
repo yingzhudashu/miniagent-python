@@ -54,13 +54,16 @@ install_builtin_state_schemas()
 
 # ─── 会话历史硬限制（性能优化：防止内存膨胀）──
 
-MAX_HISTORY_MESSAGES = get_config("memory.max_history_messages", 200)
+MAX_HISTORY_MESSAGES = 200
 
 
 def _truncate_history(
-    history: list[dict[str, Any]], max_messages: int = MAX_HISTORY_MESSAGES
+    history: list[dict[str, Any]], max_messages: int | None = None
 ) -> list[dict[str, Any]]:
     """截断历史消息，保留 system + 首条用户 + 最后 N-2 条消息。"""
+    if max_messages is None:
+        max_messages = int(get_config("memory.max_history_messages", MAX_HISTORY_MESSAGES))
+    max_messages = max(1, max_messages)
     if len(history) <= max_messages:
         return history
     # 保留 system 消息（通常是第一条）

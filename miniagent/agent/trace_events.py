@@ -24,6 +24,8 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
+TRACE_SCHEMA_VERSION = 1
+
 # ============================================================================
 # 事件类型常量
 # ============================================================================
@@ -79,6 +81,38 @@ EVENT_AGENT_PHASE_END = "agent.phase_end"
 EVENT_PERF_RESOURCE_SAMPLE = "perf.resource_sample"
 EVENT_EMBEDDING_INDEX_QUEUED = "embedding.index_queued"
 EVENT_EMBEDDING_INDEX_COMPLETED = "embedding.index_completed"
+
+TRACE_EVENT_TYPES = frozenset(
+    {
+        EVENT_AGENT_PHASE_END,
+        EVENT_AGENT_PHASE_START,
+        EVENT_AGENT_RUN_END,
+        EVENT_AGENT_RUN_START,
+        EVENT_BROWSER_CLOSE,
+        EVENT_BROWSER_CREATE,
+        EVENT_BROWSER_REUSE,
+        EVENT_CONTEXT_COMPRESS,
+        EVENT_EMBEDDING_API_CALL,
+        EVENT_EMBEDDING_CACHE_HIT,
+        EVENT_EMBEDDING_INDEX_COMPLETED,
+        EVENT_EMBEDDING_INDEX_QUEUED,
+        EVENT_ERROR_COLLECT,
+        EVENT_FEISHU_DOCX_RENDER,
+        EVENT_KNOWLEDGE_FILE_INGEST,
+        EVENT_LLM_REQUEST,
+        EVENT_LLM_RESPONSE,
+        EVENT_MEMORY_READ,
+        EVENT_PERF_RESOURCE_SAMPLE,
+        EVENT_PROPOSAL_APPLY,
+        EVENT_PROPOSAL_APPROVE,
+        EVENT_PROPOSAL_CREATE,
+        EVENT_PROPOSAL_REJECT,
+        EVENT_REQUIREMENT_CLARIFY,
+        EVENT_TOOL_END,
+        EVENT_TOOL_ERROR,
+        EVENT_TOOL_START,
+    }
+)
 
 # ============================================================================
 # 执行阶段常量
@@ -184,6 +218,8 @@ def make_error_event(
 
 
 __all__ = [
+    "TRACE_SCHEMA_VERSION",
+    "TRACE_EVENT_TYPES",
     # 事件类型常量
     "EVENT_LLM_REQUEST",
     "EVENT_LLM_RESPONSE",

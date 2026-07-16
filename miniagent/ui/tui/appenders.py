@@ -10,6 +10,8 @@ from prompt_toolkit.application import get_app
 
 @dataclass(frozen=True, slots=True)
 class TranscriptAppenders:
+    """持有样式文本、纯文本快照和 ANSI 三类追加闭包。"""
+
     append_transcript: Any
     transcript_plain: Any
     append_ansi_transcript: Any

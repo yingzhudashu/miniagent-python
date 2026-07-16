@@ -42,6 +42,7 @@ class OpenAIProvider:
 
     @property
     def provider_id(self) -> str:
+        """返回注册表中的稳定 provider 标识。"""
         return self._provider_id
 
     async def list_models(self) -> Sequence[ModelDescriptor]:
@@ -76,6 +77,7 @@ class OpenAIProvider:
         tools: list[dict[str, Any]] | None = None,
         json_mode: bool = False,
     ) -> LLMCompletion:
+        """通过选定 OpenAI wire API 执行非流式请求。"""
         from miniagent.llm.providers.openai_transport import create_completion
 
         wire_api: OpenAIWireAPI = (
@@ -99,6 +101,7 @@ class OpenAIProvider:
         tools: list[dict[str, Any]] | None = None,
         json_mode: bool = False,
     ) -> AsyncIterator[LLMStreamEvent]:
+        """通过选定 OpenAI wire API 产出共享流式事件。"""
         from miniagent.llm.providers.openai_transport import stream_completion
 
         wire_api: OpenAIWireAPI = (
@@ -115,6 +118,7 @@ class OpenAIProvider:
             yield event
 
     async def close(self) -> None:
+        """关闭底层 AsyncOpenAI 连接池。"""
         await self._client.close()
 
 
