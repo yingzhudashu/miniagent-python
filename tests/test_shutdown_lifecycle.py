@@ -9,9 +9,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from miniagent.agent.lifecycle import LifecycleManager
 from miniagent.assistant.bootstrap.application import ApplicationContainer
-from miniagent.assistant.bootstrap.lifecycle import LifecycleManager
-from miniagent.assistant.contracts.messages import InboundMessage
 from miniagent.assistant.engine.cli_state import CliLoopState
 from miniagent.assistant.engine.feishu_lifecycle import FeishuRuntimeLifecycleService
 from miniagent.assistant.engine.feishu_state import FeishuRuntime
@@ -22,6 +21,7 @@ from miniagent.assistant.scheduled_tasks.models import ScheduledTask, ScheduleSp
 from miniagent.assistant.scheduled_tasks.runner import ScheduledJob
 from miniagent.assistant.scheduled_tasks.store import save_tasks
 from miniagent.assistant.scheduled_tasks.ticker import tick_once
+from miniagent.ui.messages import InboundMessage
 from tests.memory_helpers import (
     make_background_task_manager,
     make_knowledge_registry,

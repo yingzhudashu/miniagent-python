@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from miniagent.agent.tools.registry import DefaultToolRegistry
 from miniagent.agent.types.memory import SessionOptions
 from miniagent.assistant.engine.cli_history import (
     create_cli_file_history,
@@ -15,7 +16,6 @@ from miniagent.assistant.engine.cli_history import (
     session_user_inputs_for_cli_history,
     sync_preload_buffer_working_lines,
 )
-from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 from miniagent.assistant.session.manager import DefaultSessionManager
 
 

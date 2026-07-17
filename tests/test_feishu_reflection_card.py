@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from miniagent.assistant.feishu.poll_server import send_reflection_card
-from miniagent.assistant.feishu.types import FeishuConfig
+from miniagent.ui.feishu.types import FeishuConfig
 
 
 @dataclass

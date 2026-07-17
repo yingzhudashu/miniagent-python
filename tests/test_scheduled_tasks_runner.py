@@ -7,13 +7,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from miniagent.assistant.engine.cli_state import CliLoopState
-from miniagent.assistant.feishu.types import FeishuConfig
 from miniagent.assistant.infrastructure.message_queue import MessageQueueManager
 from miniagent.assistant.scheduled_tasks.models import ScheduledTask, SessionSpec
 from miniagent.assistant.scheduled_tasks.runner import (
     SCHEDULER_CHANNEL,
     build_scheduled_job,
 )
+from miniagent.ui.feishu.types import FeishuConfig
 from tests.scheduled_tasks_helpers import minimal_cli_state, minimal_tick_ctx
 
 

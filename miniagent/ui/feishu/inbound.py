@@ -1,18 +1,17 @@
-"""Map Feishu SDK-neutral payloads into platform-neutral inbound contracts."""
+"""Map Feishu SDK-neutral payloads into UI-owned inbound contracts."""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
 
-from miniagent.assistant.contracts.messages import Attachment, InboundMessage
-from miniagent.assistant.feishu.types import FeishuInboundText
+from miniagent.ui.feishu.types import FeishuInboundText
+from miniagent.ui.messages import Attachment, InboundMessage
 
 FEISHU_CHANNEL = "feishu"
 
 
 def _received_at(create_time: int) -> datetime | None:
-    """Convert the validated Feishu epoch seconds when one is available."""
     if create_time <= 0:
         return None
     try:
@@ -25,10 +24,7 @@ def build_feishu_inbound_message(
     inbound: FeishuInboundText,
     session_key: str,
 ) -> InboundMessage:
-    """Normalize one routed Feishu text event without changing transport policy."""
     message_id = (inbound.message_id or "").strip()
-    chat_type = (inbound.chat_type or "group").strip().lower() or "group"
-    received_at = _received_at(inbound.create_time)
     kwargs: dict[str, Any] = {
         "channel": FEISHU_CHANNEL,
         "conversation_id": inbound.chat_id,
@@ -40,13 +36,14 @@ def build_feishu_inbound_message(
         "idempotency_key": message_id or None,
         "trace_id": message_id or None,
         "metadata": {
-            "chat_type": chat_type,
+            "chat_type": (inbound.chat_type or "group").strip().lower() or "group",
             "message_id": message_id,
             "root_id": (inbound.root_id or "").strip() or None,
             "parent_id": (inbound.parent_id or "").strip() or None,
             "create_time": inbound.create_time,
         },
     }
+    received_at = _received_at(inbound.create_time)
     if received_at is not None:
         kwargs["received_at"] = received_at
     return InboundMessage.create(event_id=message_id or None, **kwargs)
@@ -70,15 +67,11 @@ def build_feishu_media_inbound_message(
     relative_path: str,
     thread_id: str | None = None,
 ) -> InboundMessage:
-    """Normalize one downloaded Feishu resource as an attachment message."""
     normalized_message_id = (message_id or "").strip()
-    attachment_id = (
-        (file_key or "").strip()
-        or normalized_message_id
-        or (relative_path or "").strip()
-    )
     attachment = Attachment(
-        attachment_id=attachment_id,
+        attachment_id=(file_key or "").strip()
+        or normalized_message_id
+        or (relative_path or "").strip(),
         name=name,
         mime_type=mime_type,
         size=size,

@@ -9,7 +9,7 @@ from collections import OrderedDict
 from typing import Any
 
 from miniagent.agent.constants import FEISHU_SDK_CLIENT_CACHE_MAX_SIZE
-from miniagent.assistant.feishu.types import FeishuConfig
+from miniagent.ui.feishu.types import FeishuConfig
 
 # ─── 客户端缓存（性能优化：避免每次 API 调用重建连接）──
 

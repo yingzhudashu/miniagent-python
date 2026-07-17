@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from miniagent.assistant.contracts.messages import InboundMessage
 from miniagent.assistant.contracts.messaging import (
     InboundQueueProtocol,
     InboundTurnHandler,
     QueueKeyResolver,
 )
+from miniagent.ui.messages import InboundMessage
 
 
 def _route_key(message: InboundMessage) -> str:

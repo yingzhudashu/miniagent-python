@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from miniagent.assistant.contracts.messages import InboundMessage
 from miniagent.assistant.scheduled_tasks.models import ScheduledTask, ScheduleSpec, SessionSpec
 from miniagent.assistant.scheduled_tasks.runner import ScheduledJob
 from miniagent.assistant.scheduled_tasks.store import save_tasks
@@ -17,6 +16,7 @@ from miniagent.assistant.scheduled_tasks.ticker import (
     start_scheduled_tasks_ticker,
     tick_once,
 )
+from miniagent.ui.messages import InboundMessage
 from tests.scheduled_tasks_helpers import minimal_cli_state, minimal_tick_ctx, patch_tick_once_locks
 
 

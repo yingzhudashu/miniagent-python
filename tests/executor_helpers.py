@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 def make_ping_tool_registry() -> tuple[Any, Any]:
     """Create main/session registries with one successful session tool."""
+    from miniagent.agent.tools.registry import DefaultToolRegistry
     from miniagent.agent.types.tool import ToolDefinition, ToolResult
-    from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
     async def handler(_args: dict[str, Any], _ctx: Any) -> ToolResult:
         return ToolResult(success=True, content="pong")

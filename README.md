@@ -2,7 +2,7 @@
 
 ![Python Version](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-3.0.0-blue)
+![Version](https://img.shields.io/badge/version-4.0.0-blue)
 ![Tests](https://img.shields.io/badge/tests-dynamic-blue)
 > **测试数量**：以 `pytest --collect-only -q` 为准，不硬编码以避免漂移（见 [CONTRIBUTING.md](docs/CONTRIBUTING.md) §文档与版本对齐清单）
 ![Coverage](https://img.shields.io/badge/coverage-%E2%89%A580%25%20%E7%9B%AE%E6%A0%87-yellow)
@@ -51,16 +51,16 @@
 
 ## 架构概览
 
-Mini Agent Python 采用单发行包内的四模块架构，并保持个人高质量问答助手定位。Agent 内部仍使用 Phase 0 分类 → Phase 0.5 需求澄清 → Phase 1 规划 → Phase 2 ReAct 执行 → Phase 3 反思，但产品渠道、持久化和工具实现不进入 Agent 核心。
+Mini Agent Python 采用单发行包内的四模块架构。Agent 内部仍使用 Phase 0 分类 → Phase 0.5 需求澄清 → Phase 1 规划 → Phase 2 ReAct 执行 → Phase 3 反思；V4 的 AgentRuntime 同时拥有会话、工具、Memory/RAG、Trace、并发、取消和扩展生命周期，Assistant 只负责实例编排。
 
 ```
-CLI / 飞书 → assistant → agent → llm
-                 └──────→ ui
+assistant → ui → agent → llm
+    └────────→ agent / llm
 ```
 
-CLI、飞书文本、媒体和定时任务统一使用平台无关 `InboundMessage`；CLI、飞书和定时结果统一使用 `OutboundEvent` 经 `ChannelRegistry` 投递。唯一 `ApplicationContainer` 由正式入口构造，长期服务全部由 `LifecycleManager` 管理；实例 heartbeat 仅用于存活诊断，不属于 Agent 消息通道。
+CLI、TUI 和飞书通过 `UISurface` 产生 `UIInput` 并渲染统一 `AgentEvent`。`AgentRuntime` 对每个 session 串行、跨 session 并行，并通过 `run_id` 精确取消。`AssistantSpec` 声明 LLM、Agent 扩展、UI surfaces 与实例服务；`PersonalAssistantSpec` 是内置个人助手 recipe。
 
-`llm` 与 `ui` 相互独立，`agent` 只依赖 `llm`，`assistant` 是唯一组合根。完整依赖规则、数据流与扩展点见 **[ARCHITECTURE.md](docs/ARCHITECTURE.md)**。
+依赖方向固定为 `llm ← agent ← ui ← assistant`，Assistant 也可直接装配 Agent/LLM；任何反向依赖都会被 AST 架构门禁拒绝。完整规则见 **[ARCHITECTURE.md](docs/ARCHITECTURE.md)**。
 
 **与 OpenClaw 的关系**：[OpenClaw](https://docs.openclaw.ai) 是自托管 Gateway，将多种渠道接到 Agent；本仓库是 **Python Agent 核心**（多阶段架构、ReAct、技能与 ClawHub、飞书与 CLI、本地记忆），可与 ClawHub 技能生态对齐，但不是 OpenClaw Gateway 的等价实现。
 
@@ -233,8 +233,8 @@ Agent 会自动调用文件工具完成任务。
 
 **配置分层**：包内 `miniagent/assistant/resources/config.defaults.json` 顶部 `_config_guide` 列出 User 层与 Advanced 层。普通用户只需在 `config.user.json` 覆盖 User 层；Advanced 节（`memory`、`trace` 等）一般保持默认。优先级：**config.user.json > 包内 defaults**。运维/调试类环境变量（如 `MINIAGENT_PATHS_STATE_DIR`、`AGENT_DEBUG`）见 [ENGINEERING.md](docs/ENGINEERING.md) §1.2。
 
-3.0 只接受当前配置和状态 schema，不执行自动迁移或写回。旧版本用户请按
-[MIGRATION.md](docs/MIGRATION.md) 手工迁移。provider 配置、可选依赖和模型目录详见
+4.0 保持 3.0 的 `llm.*` 配置和状态 schema；升级前仍应备份本地配置与状态目录。
+从 2.x 升级的用户请先按 [MIGRATION.md](docs/MIGRATION.md) 手工迁移。provider 配置、可选依赖和模型目录详见
 [LLM_PROVIDERS.md](docs/LLM_PROVIDERS.md)。
 
 ## 启动与退出
@@ -299,10 +299,10 @@ python -m miniagent --stop
 ```
 miniagent-python/
 ├── miniagent/
-│   ├── llm/               # 多提供商 Gateway、模型目录、流事件和 Provider
-│   ├── agent/             # 分类、澄清、规划、执行、反思及注入端口
-│   ├── ui/                # 独立 TUI 控件、transcript、滚动、选择与复制
-│   ├── assistant/         # 会话、记忆、工具、渠道、配置、持久化与组合根
+│   ├── llm/               # Provider、Gateway、Embedding、多模态和流式协议
+│   ├── agent/             # AgentRuntime、生命周期、工具、Memory/RAG、Trace 和扩展
+│   ├── ui/                # CLI/TUI/飞书 surface、消息、渠道和渲染
+│   ├── assistant/         # AssistantSpec、默认 personal recipe 与进程组合根
 │   ├── __init__.py
 │   └── __main__.py        # 仅委托 assistant.run_assistant()
 ├── docs/                  # 文档

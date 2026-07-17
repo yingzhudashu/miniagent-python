@@ -7,8 +7,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.assistant.application.messaging.channels import ChannelRegistry
-from miniagent.assistant.contracts.messages import OutboundEvent
 from miniagent.assistant.infrastructure.channel_router import ChannelRouter
 from miniagent.assistant.scheduled_tasks.feishu_delivery import (
     FeishuDeliveryTarget,
@@ -19,6 +17,8 @@ from miniagent.assistant.scheduled_tasks.feishu_delivery import (
 )
 from miniagent.assistant.scheduled_tasks.models import ScheduledTask, ScheduleSpec, SessionSpec
 from miniagent.assistant.scheduled_tasks.timezone_util import default_schedule_timezone
+from miniagent.ui.channels import ChannelRegistry
+from miniagent.ui.messages import OutboundEvent
 from tests.channel_helpers import FunctionChannelAdapter
 from tests.config_helpers import install_test_config
 

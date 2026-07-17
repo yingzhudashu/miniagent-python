@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "_config_guide": {
     "usage": "复制为 config.user.json，仅覆盖 User 层中需个性化的键；Advanced 层一般保持默认",
     "user_sections": [

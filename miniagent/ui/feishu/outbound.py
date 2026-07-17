@@ -1,4 +1,4 @@
-"""Adapter from standard outbound events to Feishu reply senders."""
+"""Deliver standard UI outbound events through a Feishu reply sender."""
 
 from __future__ import annotations
 
@@ -6,25 +6,22 @@ import inspect
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
-from miniagent.assistant.contracts.messages import ChannelTarget, OutboundEvent, OutboundEventKind
-from miniagent.assistant.feishu.inbound_adapter import FEISHU_CHANNEL
+from miniagent.ui.feishu.inbound import FEISHU_CHANNEL
+from miniagent.ui.messages import ChannelTarget, OutboundEvent, OutboundEventKind
 
 FeishuReplySender = Callable[[str, str, str | None, bool], Awaitable[None] | None]
 
 
 class UnsupportedFeishuEventError(ValueError):
-    """The Feishu sender cannot represent an event kind's behavior."""
+    pass
 
 
 @dataclass(frozen=True, slots=True)
 class FeishuChannelAdapter:
-    """Deliver migrated reply events through the existing card/text sender."""
-
     reply_sender: FeishuReplySender
     channel_id: str = field(default=FEISHU_CHANNEL, init=False)
 
     async def send(self, event: OutboundEvent) -> None:
-        """Project supported reply events onto the Feishu sender signature."""
         if event.kind not in {
             OutboundEventKind.FINAL,
             OutboundEventKind.STATUS,
@@ -43,25 +40,6 @@ class FeishuChannelAdapter:
             await result
 
 
-def build_feishu_final_event(
-    content: str,
-    chat_id: str,
-    *,
-    reply_to_message_id: str | None = None,
-    thread_id: str | None = None,
-    trace_id: str | None = None,
-) -> OutboundEvent:
-    """Build a final Feishu event retaining reply and thread targeting."""
-    return build_feishu_reply_event(
-        OutboundEventKind.FINAL,
-        content,
-        chat_id,
-        reply_to_message_id=reply_to_message_id,
-        thread_id=thread_id,
-        trace_id=trace_id,
-    )
-
-
 def build_feishu_reply_event(
     kind: OutboundEventKind,
     content: str,
@@ -71,7 +49,6 @@ def build_feishu_reply_event(
     thread_id: str | None = None,
     trace_id: str | None = None,
 ) -> OutboundEvent:
-    """Build one Feishu reply event with stable target metadata."""
     return OutboundEvent.create(
         kind=kind,
         target=ChannelTarget(
@@ -82,6 +59,24 @@ def build_feishu_reply_event(
         ),
         content=content,
         trace_id=(trace_id or "").strip() or None,
+    )
+
+
+def build_feishu_final_event(
+    content: str,
+    chat_id: str,
+    *,
+    reply_to_message_id: str | None = None,
+    thread_id: str | None = None,
+    trace_id: str | None = None,
+) -> OutboundEvent:
+    return build_feishu_reply_event(
+        OutboundEventKind.FINAL,
+        content,
+        chat_id,
+        reply_to_message_id=reply_to_message_id,
+        thread_id=thread_id,
+        trace_id=trace_id,
     )
 
 

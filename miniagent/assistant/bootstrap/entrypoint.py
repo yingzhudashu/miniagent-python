@@ -7,9 +7,9 @@ from pathlib import Path
 from typing import cast
 
 from miniagent.agent.ports.memory import MemoryRuntimeProtocol
-from miniagent.assistant.application.messaging.channels import ChannelRegistry
 from miniagent.assistant.bootstrap.application import ApplicationContainer
 from miniagent.assistant.contracts.runtime import MessageQueueProtocol
+from miniagent.ui.channels import ChannelRegistry
 
 _logger = logging.getLogger(__name__)
 
@@ -17,6 +17,7 @@ _logger = logging.getLogger(__name__)
 def create_application_container() -> ApplicationContainer:
     """Construct the process-scoped dependency graph from loaded configuration."""
     from miniagent.agent.monitor import DefaultToolMonitor
+    from miniagent.agent.tools.registry import DefaultToolRegistry
     from miniagent.assistant.engine.background_tasks import BackgroundTaskManager
     from miniagent.assistant.engine.feishu_state import FeishuRuntime
     from miniagent.assistant.engine.turn_service import AssistantTurnService
@@ -27,7 +28,6 @@ def create_application_container() -> ApplicationContainer:
     )
     from miniagent.assistant.infrastructure.message_queue import MessageQueueManager, QueueMode
     from miniagent.assistant.infrastructure.paths import resolve_state_dir
-    from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
     from miniagent.assistant.knowledge.registry import KnowledgeRegistry
     from miniagent.assistant.memory.runtime import create_memory_runtime
     from miniagent.assistant.skills import DefaultSkillRegistry, create_clawhub_client

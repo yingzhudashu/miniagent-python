@@ -27,7 +27,7 @@ class TestPatchImMessageAsync:
     async def test_patch_im_message_async_success(self) -> None:
         """异步 PATCH 成功场景。"""
         from miniagent.assistant.feishu.im_send import patch_im_message_async
-        from miniagent.assistant.feishu.types import FeishuConfig
+        from miniagent.ui.feishu.types import FeishuConfig
 
         cfg = FeishuConfig(app_id="test_app", app_secret="test_secret", verification_token="test_token")
 
@@ -50,7 +50,7 @@ class TestPatchImMessageAsync:
     async def test_patch_im_message_async_failure(self) -> None:
         """异步 PATCH 失败场景。"""
         from miniagent.assistant.feishu.im_send import patch_im_message_async
-        from miniagent.assistant.feishu.types import FeishuConfig
+        from miniagent.ui.feishu.types import FeishuConfig
 
         cfg = FeishuConfig(app_id="test_app", app_secret="test_secret", verification_token="test_token")
 
@@ -70,7 +70,7 @@ class TestPatchImMessageAsync:
     async def test_patch_im_message_async_timeout(self) -> None:
         """异步 PATCH 超时场景。"""
         from miniagent.assistant.feishu.im_send import patch_im_message_async
-        from miniagent.assistant.feishu.types import FeishuConfig
+        from miniagent.ui.feishu.types import FeishuConfig
 
         cfg = FeishuConfig(app_id="test_app", app_secret="test_secret", verification_token="test_token")
 
@@ -99,7 +99,7 @@ class TestPostInteractiveMessageAsync:
     async def test_post_interactive_success(self) -> None:
         """异步发送交互消息成功。"""
         from miniagent.assistant.feishu.outbound_delivery import _post_interactive_message_async
-        from miniagent.assistant.feishu.types import FeishuConfig
+        from miniagent.ui.feishu.types import FeishuConfig
 
         cfg = FeishuConfig(app_id="test_app", app_secret="test_secret", verification_token="test_token")
 
@@ -119,7 +119,7 @@ class TestPostInteractiveMessageAsync:
     async def test_post_interactive_failure(self) -> None:
         """异步发送交互消息失败。"""
         from miniagent.assistant.feishu.outbound_delivery import _post_interactive_message_async
-        from miniagent.assistant.feishu.types import FeishuConfig
+        from miniagent.ui.feishu.types import FeishuConfig
 
         cfg = FeishuConfig(app_id="test_app", app_secret="test_secret", verification_token="test_token")
 
@@ -145,7 +145,7 @@ class TestPatchInteractiveThinkingMessageAsync:
         from miniagent.assistant.feishu.thinking_delivery import (
             _patch_interactive_thinking_message_async,
         )
-        from miniagent.assistant.feishu.types import FeishuConfig
+        from miniagent.ui.feishu.types import FeishuConfig
 
         cfg = FeishuConfig(app_id="test_app", app_secret="test_secret", verification_token="test_token")
 
@@ -166,7 +166,7 @@ class TestPatchInteractiveThinkingMessageAsync:
         from miniagent.assistant.feishu.thinking_delivery import (
             _patch_interactive_thinking_message_async,
         )
-        from miniagent.assistant.feishu.types import FeishuConfig
+        from miniagent.ui.feishu.types import FeishuConfig
 
         cfg = FeishuConfig(app_id="test_app", app_secret="test_secret", verification_token="test_token")
 

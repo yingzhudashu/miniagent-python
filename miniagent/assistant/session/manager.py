@@ -38,12 +38,12 @@ from datetime import datetime, timezone
 from typing import Any
 
 from miniagent.agent.logging import get_logger
+from miniagent.agent.tools.registry import DefaultToolRegistry
 from miniagent.agent.types.memory import Session, SessionOptions
 from miniagent.agent.types.skill import Skill
 from miniagent.agent.types.tool import Toolbox, ToolContext, ToolDefinition
 from miniagent.assistant.infrastructure.json_config import get_config
 from miniagent.assistant.infrastructure.persistence import load_state_file
-from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 from miniagent.assistant.infrastructure.state_schemas import install_builtin_state_schemas
 from miniagent.assistant.session.storage import (
     SessionConfig,

@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from miniagent.assistant.application.messaging.channels import ChannelRegistry
-from miniagent.assistant.contracts.channels import ChannelAdapter
-from miniagent.assistant.contracts.messages import OutboundEventKind
 from miniagent.assistant.engine.cli_outbound import (
     CliChannelAdapter,
     UnsupportedCliEventError,
     build_cli_outbound_event,
     build_cli_thinking_event,
 )
+from miniagent.ui.channels import ChannelAdapter, ChannelRegistry
+from miniagent.ui.messages import OutboundEventKind
 
 
 def test_build_cli_outbound_event_retains_session_and_interface() -> None:

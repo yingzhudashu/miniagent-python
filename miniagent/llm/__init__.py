@@ -5,6 +5,12 @@ provider SDKs. Concrete adapters live under :mod:`miniagent.llm.providers`.
 """
 
 from miniagent.llm.catalog import ModelCatalog, RoleRouter
+from miniagent.llm.embeddings import (
+    EmbeddingClient,
+    EmbeddingConfig,
+    EmbeddingRequest,
+    EmbeddingResponse,
+)
 from miniagent.llm.gateway import LLMGateway, ProviderRegistry
 from miniagent.llm.types import (
     LLMCompletion,
@@ -19,6 +25,10 @@ from miniagent.llm.types import (
 
 __all__ = [
     "LLMCompletion",
+    "EmbeddingClient",
+    "EmbeddingConfig",
+    "EmbeddingRequest",
+    "EmbeddingResponse",
     "LLMGateway",
     "LLMProvider",
     "LLMRole",

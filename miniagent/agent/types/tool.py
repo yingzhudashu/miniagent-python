@@ -23,7 +23,7 @@ mypy 会将 ``list`` 解析为该方法而非类型构造器并报 ``valid-type`
 **Protocol 最佳实践**：
 - Protocol 不使用 @abstractmethod（Python Protocol 仅定义方法签名）
 - 使用 @runtime_checkable 支持 isinstance() 检查
-- 默认实现：:class:`miniagent.assistant.infrastructure.registry.DefaultToolRegistry`、
+- 默认实现：:class:`miniagent.agent.tools.registry.DefaultToolRegistry`、
   :class:`miniagent.agent.context.DefaultContextManager`
 
 **类型改进**：
@@ -173,7 +173,7 @@ class ToolDefinition:
 class RegisteredTool(ToolDefinition):
     """已注册的工具（在 ToolDefinition 基础上增加名称）
 
-    ``name`` 由 :meth:`miniagent.assistant.infrastructure.registry.DefaultToolRegistry.register`
+    ``name`` 由 :meth:`miniagent.agent.tools.registry.DefaultToolRegistry.register`
     赋值；注册前不应手动构造带空 name 的实例。
 
     Attributes:
@@ -189,7 +189,7 @@ class ToolRegistryProtocol(Protocol):
 
     管理工具的注册、注销、查询和按工具箱筛选。
 
-    默认实现：:class:`miniagent.assistant.infrastructure.registry.DefaultToolRegistry`
+    默认实现：:class:`miniagent.agent.tools.registry.DefaultToolRegistry`
     用于 ``ApplicationContainer.registry`` 字段，支持依赖注入。
 
     实现约定：

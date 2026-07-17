@@ -10,7 +10,7 @@ from miniagent.assistant.feishu.message_debounce import (
     FeishuMessageDebouncer,
     feishu_message_debounce_ms,
 )
-from miniagent.assistant.feishu.types import FeishuInboundText
+from miniagent.ui.feishu.types import FeishuInboundText
 
 
 def _inbound(text: str, *, mid: str = "om_1") -> FeishuInboundText:

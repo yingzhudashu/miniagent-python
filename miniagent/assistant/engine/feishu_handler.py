@@ -29,7 +29,6 @@ from typing import Any, Literal, cast
 from miniagent.agent.logging import get_logger
 from miniagent.agent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX, WARNING_PREFIX
 from miniagent.assistant.bootstrap.application import ApplicationContainer
-from miniagent.assistant.contracts.messages import ChannelTarget, OutboundEventKind
 from miniagent.assistant.engine.cli_format import (
     format_cli_reply_block,
     format_cli_user_block,
@@ -43,12 +42,13 @@ from miniagent.assistant.engine.utils import (
     detect_mime_from_magic,
     feishu_user_status_fn,
 )
-from miniagent.assistant.feishu.inbound_adapter import (
+from miniagent.assistant.infrastructure.json_config import get_config
+from miniagent.ui.feishu.inbound import (
     FEISHU_CHANNEL,
     build_feishu_inbound_message,
     build_feishu_media_inbound_message,
 )
-from miniagent.assistant.infrastructure.json_config import get_config
+from miniagent.ui.messages import ChannelTarget, OutboundEventKind
 
 _logger = get_logger(__name__)
 
@@ -196,7 +196,7 @@ class _FeishuHandlerRuntime:
         self._register_channel()
 
     def _register_channel(self) -> None:
-        from miniagent.assistant.feishu.outbound_adapter import FeishuChannelAdapter
+        from miniagent.ui.feishu.outbound import FeishuChannelAdapter
 
         async def send_final(chat_id: str, text: str, message_id: str | None, in_thread: bool) -> None:
             await _send_feishu_agent_reply(
@@ -280,7 +280,7 @@ class _FeishuHandlerRuntime:
         message_id: str,
         thread_id: str | None,
     ) -> str:
-        from miniagent.assistant.feishu.outbound_adapter import build_feishu_reply_event
+        from miniagent.ui.feishu.outbound import build_feishu_reply_event
 
         await self.outbound_channels.send(
             build_feishu_reply_event(
@@ -456,7 +456,7 @@ class _FeishuHandlerRuntime:
     async def _finish_agent_turn(
         self, message: Any, session_key: str, turn: _FeishuCliTurn, reply: str
     ) -> str:
-        from miniagent.assistant.feishu.outbound_adapter import build_feishu_final_event
+        from miniagent.ui.feishu.outbound import build_feishu_final_event
 
         if turn.mirror_cli:
             await _drain_feishu_cli_events(self.ctx, session_key)

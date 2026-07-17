@@ -14,12 +14,6 @@ from miniagent.agent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX
 from miniagent.assistant.application.messaging.inbound import InboundTurnCoordinator
 from miniagent.assistant.application.messaging.ordered import OrderedOutboundDispatcher
 from miniagent.assistant.bootstrap.application import ApplicationContainer
-from miniagent.assistant.contracts.messages import (
-    ChannelTarget,
-    InboundMessage,
-    OutboundEvent,
-    OutboundEventKind,
-)
 from miniagent.assistant.engine.cli_files import process_cli_file_markers
 from miniagent.assistant.engine.cli_history import (
     prime_fallback_readline_history,
@@ -41,6 +35,12 @@ from miniagent.assistant.engine.shutdown import shutdown_runtime
 from miniagent.assistant.engine.utils import feishu_user_status_fn, get_render_width
 from miniagent.assistant.infrastructure.instance import heartbeat, unregister_instance
 from miniagent.assistant.infrastructure.json_config import get_config
+from miniagent.ui.messages import (
+    ChannelTarget,
+    InboundMessage,
+    OutboundEvent,
+    OutboundEventKind,
+)
 from miniagent.ui.tui.clipboard import copy_text_to_system_clipboard
 
 _logger = logging.getLogger(__name__)

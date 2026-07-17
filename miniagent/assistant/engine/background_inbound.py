@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from miniagent.assistant.contracts.messages import InboundMessage
+from miniagent.ui.messages import InboundMessage
 
 BACKGROUND_CHANNEL = "background"
 BACKGROUND_SENDER_ID = "background-task-manager"

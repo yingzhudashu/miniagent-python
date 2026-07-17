@@ -35,7 +35,6 @@ def _write_module(root: Path, package: str, source: str, name: str = "sample.py"
         ("llm", "assistant"),
         ("agent", "assistant"),
         ("agent", "ui"),
-        ("ui", "agent"),
         ("ui", "assistant"),
     ],
 )
@@ -76,10 +75,10 @@ def test_relative_import_cannot_bypass_rule(architecture_module, tmp_path: Path)
 def test_type_checking_import_still_obeys_layering(architecture_module, tmp_path: Path) -> None:
     _write_module(
         tmp_path,
-        "ui",
+        "agent",
         "from typing import TYPE_CHECKING\n"
         "if TYPE_CHECKING:\n"
-        "    from miniagent.agent.runtime import Agent\n",
+        "    from miniagent.ui.runtime import TuiApp\n",
     )
     assert any(
         isinstance(item, architecture_module.Violation)

@@ -11,7 +11,7 @@ import pytest
 
 from miniagent.assistant.engine import feishu_handler
 from miniagent.assistant.feishu import poll_server
-from miniagent.assistant.feishu.types import FeishuConfig, FeishuInboundText
+from miniagent.ui.feishu.types import FeishuConfig, FeishuInboundText
 
 
 class _Dedup:

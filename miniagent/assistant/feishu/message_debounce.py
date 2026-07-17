@@ -15,8 +15,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from miniagent.agent.logging import get_logger
-from miniagent.assistant.feishu.types import FeishuInboundText
 from miniagent.assistant.infrastructure.json_config import get_config
+from miniagent.ui.feishu.types import FeishuInboundText
 
 _logger = get_logger(__name__)
 

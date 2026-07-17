@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 
 from miniagent.agent.types.error_prefix import WARNING_PREFIX
-from miniagent.assistant.feishu.types import FeishuConfig
 from miniagent.assistant.infrastructure.json_config import get_config
+from miniagent.ui.feishu.types import FeishuConfig
 
 # 飞书云盘文件夹路径常见形态：.../folder/<token>、.../drive/folder/<token>、...#/folder/<token>
 _FOLDER_IN_PATH = re.compile(

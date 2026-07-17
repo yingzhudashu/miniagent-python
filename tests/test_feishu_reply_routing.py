@@ -61,7 +61,7 @@ def test_feishu_outbound_reply_params(
 def test_send_interactive_reply_cards_uses_reply_api_when_configured() -> None:
     from miniagent.assistant.feishu.lark_client import clear_client_cache
     from miniagent.assistant.feishu.poll_server import _send_interactive_reply_cards
-    from miniagent.assistant.feishu.types import FeishuConfig
+    from miniagent.ui.feishu.types import FeishuConfig
 
     clear_client_cache()
     config = FeishuConfig(app_id="a", app_secret="b", verification_token="t")

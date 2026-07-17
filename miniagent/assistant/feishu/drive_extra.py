@@ -6,8 +6,8 @@ from typing import Any
 
 from miniagent.assistant.feishu.lark_client import build_client
 from miniagent.assistant.feishu.lark_response import format_lark_response_error
-from miniagent.assistant.feishu.types import FeishuConfig
 from miniagent.assistant.infrastructure.json_config import get_config
+from miniagent.ui.feishu.types import FeishuConfig
 
 
 def user_access_token_from_env() -> str | None:

@@ -5,8 +5,8 @@ import tempfile
 
 import pytest
 
+from miniagent.agent.tools.registry import DefaultToolRegistry
 from miniagent.agent.types.config import normalize_conversation_history
-from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 from miniagent.assistant.session.manager import DefaultSessionManager
 
 

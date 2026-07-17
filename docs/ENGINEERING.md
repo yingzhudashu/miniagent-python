@@ -1,6 +1,6 @@
 # 软件工程实践与仓库卫生
 
-> Mini Agent Python | 版本: 3.0.0 | 最后更新: 2026-07-16 | 与 `miniagent.__version__` 对齐
+> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-17 | 与 `miniagent.__version__` 对齐
 
 本文档汇总本仓库在**可维护性、可重复构建、安全与协作**上的约定，作为 [CONTRIBUTING.md](CONTRIBUTING.md) 的补充：后者偏「如何写代码」，本文偏「仓库与发布如何保持健康」。
 

@@ -11,7 +11,7 @@ pytest.importorskip("lark_oapi")
 
 def test_search_docs_requires_user_token(monkeypatch: pytest.MonkeyPatch) -> None:
     from miniagent.assistant.feishu.drive_extra import SearchRequiresUserTokenError, search_docs
-    from miniagent.assistant.feishu.types import FeishuConfig
+    from miniagent.ui.feishu.types import FeishuConfig
 
     monkeypatch.delenv("MINIAGENT_FEISHU_USER_ACCESS_TOKEN", raising=False)
     cfg = FeishuConfig(app_id="a", app_secret="b")
@@ -36,7 +36,7 @@ async def test_feishu_doc_search_no_token_json(monkeypatch: pytest.MonkeyPatch) 
 
 def test_add_permission_mock() -> None:
     from miniagent.assistant.feishu.drive_extra import add_permission
-    from miniagent.assistant.feishu.types import FeishuConfig
+    from miniagent.ui.feishu.types import FeishuConfig
 
     cfg = FeishuConfig(app_id="a", app_secret="b")
     mock_resp = MagicMock()

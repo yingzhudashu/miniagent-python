@@ -12,6 +12,7 @@ from miniagent.agent.agent import (
     _merge_plan_suggested_config,
     run_agent,
 )
+from miniagent.agent.tools.registry import DefaultToolRegistry
 from miniagent.agent.types.config import AgentConfig
 from miniagent.agent.types.confirmation import ConfirmationResult
 from miniagent.agent.types.error_prefix import WARNING_PREFIX
@@ -23,7 +24,6 @@ from miniagent.agent.types.planning import (
     SuggestedConfig,
 )
 from miniagent.agent.types.tool import Toolbox
-from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 from tests.config_helpers import install_test_config
 from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 

@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from miniagent.agent.agent import _create_default_plan, _user_forbids_tools
+from miniagent.agent.tools.registry import DefaultToolRegistry
 from miniagent.agent.types.config import AgentConfig
 from miniagent.agent.types.planning import StructuredPlan
 from miniagent.agent.types.tool import ToolDefinition, ToolResult
-from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
 
 async def _h(args: dict, ctx) -> ToolResult:

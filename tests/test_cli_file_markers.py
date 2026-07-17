@@ -8,13 +8,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.assistant.application.messaging.channels import ChannelRegistry
 from miniagent.assistant.engine.cli_files import process_cli_file_markers
 from miniagent.assistant.engine.cli_history import (
     create_cli_file_history,
     resolve_cli_history_file,
 )
 from miniagent.assistant.engine.cli_shell import run_cli_shell_command
+from miniagent.ui.channels import ChannelRegistry
 from tests.memory_helpers import make_memory_runtime
 
 

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from miniagent.assistant.feishu import outbound_delivery as delivery
-from miniagent.assistant.feishu.types import FeishuConfig
+from miniagent.ui.feishu.types import FeishuConfig
 
 
 @pytest.fixture

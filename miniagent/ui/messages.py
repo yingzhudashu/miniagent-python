@@ -1,4 +1,4 @@
-"""Platform-neutral message contracts shared by channels and application services."""
+"""Channel-neutral immutable input and output messages."""
 
 from __future__ import annotations
 
@@ -12,19 +12,15 @@ from uuid import uuid4
 
 
 def _utc_now() -> datetime:
-    """Return an aware UTC timestamp for message creation helpers."""
     return datetime.now(timezone.utc)
 
 
 def _frozen_metadata(value: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
-    """Copy metadata into an immutable mapping to protect frozen contracts."""
     return MappingProxyType(dict(value or {}))
 
 
 @dataclass(frozen=True, slots=True)
 class Attachment:
-    """Channel-neutral attachment reference without transport-specific SDK objects."""
-
     attachment_id: str
     name: str = ""
     mime_type: str = "application/octet-stream"
@@ -34,7 +30,6 @@ class Attachment:
     metadata: Mapping[str, Any] = field(default_factory=_frozen_metadata)
 
     def __post_init__(self) -> None:
-        """Normalize metadata and reject invalid sizes."""
         if not self.attachment_id.strip():
             raise ValueError("attachment_id must not be empty")
         if self.size is not None and self.size < 0:
@@ -44,15 +39,12 @@ class Attachment:
 
 @dataclass(frozen=True, slots=True)
 class ChannelTarget:
-    """Destination understood by a registered outbound channel adapter."""
-
     channel: str
     conversation_id: str
     thread_id: str | None = None
     reply_to: str | None = None
 
     def __post_init__(self) -> None:
-        """Ensure the destination can be routed unambiguously."""
         if not self.channel.strip():
             raise ValueError("channel must not be empty")
         if not self.conversation_id.strip():
@@ -61,8 +53,6 @@ class ChannelTarget:
 
 @dataclass(frozen=True, slots=True)
 class InboundMessage:
-    """Normalized message accepted by the application inbound bus."""
-
     event_id: str
     channel: str
     conversation_id: str
@@ -78,10 +68,9 @@ class InboundMessage:
     trace_id: str | None = None
 
     def __post_init__(self) -> None:
-        """Validate routing fields and make mutable inputs immutable."""
-        for field_name in ("event_id", "channel", "conversation_id", "sender_id"):
-            if not str(getattr(self, field_name)).strip():
-                raise ValueError(f"{field_name} must not be empty")
+        for name in ("event_id", "channel", "conversation_id", "sender_id"):
+            if not str(getattr(self, name)).strip():
+                raise ValueError(f"{name} must not be empty")
         if self.received_at.tzinfo is None:
             raise ValueError("received_at must be timezone-aware")
         if not self.content and not self.attachments:
@@ -91,7 +80,6 @@ class InboundMessage:
 
     @property
     def route_key(self) -> str:
-        """Return the explicit session key or a collision-safe channel key."""
         return self.session_key or f"{self.channel}:{self.conversation_id}"
 
     @classmethod
@@ -106,7 +94,6 @@ class InboundMessage:
         received_at: datetime | None = None,
         **kwargs: Any,
     ) -> InboundMessage:
-        """Create a message with generated identity and UTC timestamp defaults."""
         return cls(
             event_id=event_id or uuid4().hex,
             channel=channel,
@@ -119,8 +106,6 @@ class InboundMessage:
 
 
 class OutboundEventKind(str, Enum):
-    """Stable event categories consumed by channel adapters and observers."""
-
     STATUS = "status"
     THINKING_DELTA = "thinking_delta"
     THINKING_FINAL = "thinking_final"
@@ -131,8 +116,6 @@ class OutboundEventKind(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class OutboundEvent:
-    """Normalized application event routed to a channel destination."""
-
     event_id: str
     kind: OutboundEventKind
     target: ChannelTarget
@@ -144,7 +127,6 @@ class OutboundEvent:
     trace_id: str | None = None
 
     def __post_init__(self) -> None:
-        """Validate event identity, time and ordering metadata."""
         if not self.event_id.strip():
             raise ValueError("event_id must not be empty")
         if self.occurred_at.tzinfo is None:
@@ -164,7 +146,6 @@ class OutboundEvent:
         occurred_at: datetime | None = None,
         **kwargs: Any,
     ) -> OutboundEvent:
-        """Create an event with generated identity and UTC timestamp defaults."""
         return cls(
             event_id=event_id or uuid4().hex,
             kind=kind,

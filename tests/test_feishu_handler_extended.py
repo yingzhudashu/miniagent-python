@@ -8,8 +8,8 @@ import pytest
 
 from miniagent.agent.types.error_prefix import SUCCESS_PREFIX
 from miniagent.assistant.engine.feishu_handler import create_feishu_handler
-from miniagent.assistant.feishu.types import FeishuInboundText
 from miniagent.assistant.infrastructure.channel_router import ChannelRouter
+from miniagent.ui.feishu.types import FeishuInboundText
 from tests.test_feishu_handler_cli_mirror import _make_ctx
 
 

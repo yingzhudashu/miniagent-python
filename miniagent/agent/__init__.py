@@ -1,9 +1,9 @@
 """高质量问答 Agent 核心。
 
 职责边界：
-- **本包**：分类、澄清、规划、ReAct 执行、反思、提示词、通用工具契约与注入端口。
-- **公开入口**：``Agent(AgentServices)`` 与 ``Agent.run(AgentRequest)``。
-- **非本包**：主循环与通道在 ``miniagent.assistant.engine``；持久记忆在 ``miniagent.assistant.memory``。
+- **本包**：分类、澄清、规划、ReAct 执行、反思，以及生命周期、工具、Memory/RAG、Trace 与扩展契约。
+- **公开入口**：``AgentRuntime(AgentSpec, llm, extensions)`` 与 ``AgentRuntime.run(AgentRequest)``。
+- **非本包**：CLI/TUI/飞书输入展示在 ``miniagent.ui``；实例装配与进程信号在 ``miniagent.assistant``。
 
 完整问答流水线与配置合并细节见 ``docs/ARCHITECTURE.md``。
 
@@ -26,18 +26,19 @@ from miniagent.agent.constants import (  # noqa: F401
 
 # 延迟导入的符号
 _lazy_symbols = {
-    "Agent": "miniagent.agent.runtime:Agent",
-    "AgentObserver": "miniagent.agent.runtime:AgentObserver",
     "AgentRequest": "miniagent.agent.runtime:AgentRequest",
     "AgentResult": "miniagent.agent.runtime:AgentResult",
-    "AgentServices": "miniagent.agent.runtime:AgentServices",
+    "AgentRuntime": "miniagent.agent.runtime:AgentRuntime",
+    "AgentSpec": "miniagent.agent.runtime:AgentSpec",
     "AgentSettings": "miniagent.agent.runtime:AgentSettings",
-    "AGENT_IDENTITY": "miniagent.agent.executor:AGENT_IDENTITY",
+    "AgentEvent": "miniagent.agent.events:AgentEvent",
+    "AgentEventKind": "miniagent.agent.events:AgentEventKind",
+    "AgentExtension": "miniagent.agent.extensions:AgentExtension",
+    "HybridRAGExtension": "miniagent.agent.rag:HybridRAGExtension",
+    "JsonlTraceExporter": "miniagent.agent.tracing:JsonlTraceExporter",
+    "RAGDocument": "miniagent.agent.rag:RAGDocument",
+    "RetrievedDocument": "miniagent.agent.rag:RetrievedDocument",
     "TaskDifficulty": "miniagent.agent.task_classifier:TaskDifficulty",
-    "execute_plan": "miniagent.agent.executor:execute_plan",
-    "generate_plan": "miniagent.agent.planner:generate_plan",
-    "run_agent": "miniagent.agent.agent:run_agent",
-    "run_pipeline": "miniagent.agent.agent:run_pipeline",
 }
 
 
@@ -53,21 +54,22 @@ def __getattr__(name: str):
 
 
 __all__ = [
-    "Agent",
-    "AGENT_IDENTITY",
     "AGENT_NAME",
-    "AgentObserver",
     "AgentRequest",
     "AgentResult",
-    "AgentServices",
+    "AgentRuntime",
+    "AgentSpec",
     "AgentSettings",
+    "AgentEvent",
+    "AgentEventKind",
+    "AgentExtension",
+    "HybridRAGExtension",
+    "JsonlTraceExporter",
+    "RAGDocument",
+    "RetrievedDocument",
     "DEFAULT_AGENT_MAX_TURNS",
     "DEFAULT_AGENT_TOOL_TIMEOUT",
     "TaskDifficulty",
-    "execute_plan",
-    "generate_plan",
     "get_default_agent_config",
     "merge_agent_config",
-    "run_agent",
-    "run_pipeline",
 ]

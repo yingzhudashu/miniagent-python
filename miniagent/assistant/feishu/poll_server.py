@@ -64,8 +64,8 @@ from miniagent.assistant.feishu.thinking_delivery import (
     push_feishu_thinking_stream,
     send_reflection_card,
 )
-from miniagent.assistant.feishu.types import FeishuConfig, FeishuInboundText
 from miniagent.assistant.infrastructure.json_config import get_config
+from miniagent.ui.feishu.types import FeishuConfig, FeishuInboundText
 
 _logger = get_logger(__name__)
 

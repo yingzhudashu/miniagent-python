@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.assistant.contracts.messages import InboundMessage
 from miniagent.assistant.engine.cli_state import CliLoopState
 from miniagent.assistant.scheduled_tasks.models import ScheduledTask, ScheduleSpec, SessionSpec
 from miniagent.assistant.scheduled_tasks.resolve import resolve_execution_target, should_run_feishu
@@ -25,6 +24,7 @@ from miniagent.assistant.scheduled_tasks.store import (
     save_tasks_async,
 )
 from miniagent.assistant.scheduled_tasks.ticker import tick_once
+from miniagent.ui.messages import InboundMessage
 from tests.config_helpers import install_test_config
 from tests.scheduled_tasks_helpers import (
     minimal_cli_state,

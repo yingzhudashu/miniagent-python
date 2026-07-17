@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol, runtime_checkable
 
-from miniagent.assistant.contracts.messages import ChannelTarget, InboundMessage, OutboundEvent
+from miniagent.ui.messages import ChannelTarget, InboundMessage, OutboundEvent
 
 InboundTurnHandler = Callable[[InboundMessage], Awaitable[None]]
 QueueKeyResolver = Callable[[InboundMessage], str]

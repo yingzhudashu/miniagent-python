@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from miniagent.agent.types.agent import AgentRunResult
-from miniagent.assistant.feishu.types import FeishuConfig
+from miniagent.ui.feishu.types import FeishuConfig
 from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 
 
@@ -17,8 +17,8 @@ async def test_feishu_merge_tools_uses_append_not_second_send_thinking(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from miniagent.agent.monitor import DefaultToolMonitor
+    from miniagent.agent.tools.registry import DefaultToolRegistry
     from miniagent.assistant.engine.turn_service import AssistantTurnService
-    from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
     calls: list[tuple[str, Any]] = []
 

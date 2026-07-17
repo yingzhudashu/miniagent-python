@@ -7,7 +7,7 @@ from typing import Any
 from miniagent.agent.constants import BITABLE_DEFAULT_PAGE_SIZE, BITABLE_LIST_RECORDS_MAX
 from miniagent.assistant.feishu.lark_client import build_client
 from miniagent.assistant.feishu.lark_response import format_lark_response_error
-from miniagent.assistant.feishu.types import FeishuConfig
+from miniagent.ui.feishu.types import FeishuConfig
 
 _BITABLE_LIST_RECORDS_MAX = BITABLE_LIST_RECORDS_MAX
 

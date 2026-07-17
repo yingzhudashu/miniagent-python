@@ -6,8 +6,8 @@ import tempfile
 
 import pytest
 
+from miniagent.agent.tools.registry import DefaultToolRegistry
 from miniagent.agent.types.memory import MemoryStoreProtocol, SessionManagerProtocol
-from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 from miniagent.assistant.memory.store import DefaultMemoryStore
 from miniagent.assistant.session.manager import DefaultSessionManager
 

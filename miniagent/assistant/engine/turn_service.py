@@ -27,7 +27,7 @@ from typing import Any
 _STEP_NUMBER_PATTERN = re.compile(r"\[步骤\s*(\d+)\s*/\s*(\d+)\s*\]")
 _ROUND_NUMBER_PATTERN = re.compile(r"第\s*(\d+)\s*轮")
 
-from miniagent.agent import Agent, AgentRequest, AgentServices, AgentSettings
+from miniagent.agent import AgentRequest, AgentRuntime, AgentSettings, AgentSpec
 from miniagent.agent.logging import get_logger
 from miniagent.agent.ports.knowledge import KnowledgeRegistryProtocol
 from miniagent.agent.ports.memory import MemoryRuntimeProtocol
@@ -683,8 +683,7 @@ class AssistantTurnService:
             recorder,
             self._on_plan_handler(request.session_key),
         )
-        agent = Agent(AgentServices(
-            llm=request.client,
+        runtime = AgentRuntime(AgentSpec(
             settings=AgentSettings(get_config_snapshot()),
             registry=request.registry,
             memory=request.memory,
@@ -695,15 +694,23 @@ class AssistantTurnService:
             clarifier=self._get_clarifier(),
             confirmation_channel=self._get_confirmation_channel(request.session_key),
             tool_semaphore=self._tool_semaphore,
-        ))
-        agent_result = await agent.run(AgentRequest(
-            user_input=request.user_input,
-            session_key=request.session_key,
-            toolboxes=request.skill_toolboxes,
-            system_prompt=system_prompt,
-            config=agent_config,
-        ))
-        return agent_result.reply
+            owns_llm=False,
+            owns_memory=False,
+        ), request.client)
+        await runtime.start()
+        try:
+            agent_result = await runtime.run(
+                AgentRequest(
+                    user_input=request.user_input,
+                    session_key=request.session_key,
+                    toolboxes=request.skill_toolboxes,
+                    system_prompt=system_prompt,
+                    config=agent_config,
+                ),
+            )
+            return agent_result.reply
+        finally:
+            await runtime.stop()
 
     def _on_plan_handler(self, session_key: str) -> Callable[[Any], Awaitable[ConfirmationResult]]:
         """创建计划确认回调。

@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
-from miniagent.assistant.contracts.channels import ChannelRegistryProtocol
-from miniagent.assistant.contracts.messages import ChannelTarget, OutboundEvent
+from miniagent.ui.channels import ChannelRegistryProtocol
+from miniagent.ui.messages import ChannelTarget, OutboundEvent
 
 
 @dataclass(frozen=True, slots=True)

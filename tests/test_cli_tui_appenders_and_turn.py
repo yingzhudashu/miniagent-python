@@ -10,8 +10,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from prompt_toolkit.formatted_text.ansi import ANSI
 
-from miniagent.assistant.contracts.messages import InboundMessage
 from miniagent.assistant.engine.cli_tui_turn import create_tui_process_input
+from miniagent.ui.messages import InboundMessage
 from miniagent.ui.tui.appenders import create_transcript_appenders
 from miniagent.ui.tui.transcript import TranscriptBuffer
 

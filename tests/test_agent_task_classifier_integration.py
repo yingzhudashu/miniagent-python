@@ -9,8 +9,8 @@ import pytest
 
 from miniagent.agent.agent import run_agent
 from miniagent.agent.requirement_clarifier import RequirementClarifier
+from miniagent.agent.tools.registry import DefaultToolRegistry
 from miniagent.agent.types.tool import Toolbox
-from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 from tests.config_helpers import install_test_config
 from tests.llm_helpers import MockGateway
 from tests.memory_helpers import make_knowledge_registry, make_memory_runtime

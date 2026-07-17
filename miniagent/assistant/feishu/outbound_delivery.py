@@ -7,8 +7,8 @@ import json
 from miniagent.agent.logging import get_logger
 from miniagent.assistant.feishu import card_rendering as _card_rendering
 from miniagent.assistant.feishu.cards.builder import build_interactive_card
-from miniagent.assistant.feishu.types import FeishuConfig
 from miniagent.assistant.infrastructure.json_config import get_config
+from miniagent.ui.feishu.types import FeishuConfig
 
 _logger = get_logger(__name__)
 def _post_interactive_message(

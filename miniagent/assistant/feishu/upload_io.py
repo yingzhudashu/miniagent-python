@@ -9,7 +9,7 @@ from typing import Literal
 
 from miniagent.agent.logging import get_logger
 from miniagent.assistant.feishu.lark_response import format_lark_response_error
-from miniagent.assistant.feishu.types import FeishuConfig
+from miniagent.ui.feishu.types import FeishuConfig
 
 _logger = get_logger(__name__)
 

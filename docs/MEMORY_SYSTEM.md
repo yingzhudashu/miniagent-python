@@ -1,6 +1,6 @@
 # 三层记忆系统
 
-> Mini Agent Python | 版本: 3.0.0 | 最后更新: 2026-07-15 | 与 `miniagent.__version__` 对齐 | 模块: `miniagent/assistant/memory/`
+> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-17 | 与 `miniagent.__version__` 对齐 | Agent Memory/RAG 基础设施
 
 ## 架构概览
 

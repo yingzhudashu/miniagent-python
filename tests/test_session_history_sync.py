@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from miniagent.agent.tools.registry import DefaultToolRegistry
 from miniagent.agent.types.memory import SessionOptions
-from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 from miniagent.assistant.session.manager import DefaultSessionManager
 from miniagent.ui.tui.transcript import history_loaded_end
 

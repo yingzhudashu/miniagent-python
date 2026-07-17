@@ -8,7 +8,7 @@ from collections.abc import Awaitable
 from typing import Any, Protocol
 
 from miniagent.agent.logging import get_logger
-from miniagent.assistant.feishu.types import FeishuConfig
+from miniagent.ui.feishu.types import FeishuConfig
 
 _logger = get_logger(__name__)
 
@@ -187,4 +187,3 @@ __all__ = [
     "_feishu_media_reply_indicates_failure",
     "_parse_feishu_media_payload",
 ]
-

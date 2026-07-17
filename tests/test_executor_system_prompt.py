@@ -13,9 +13,9 @@ from miniagent.agent.executor import (
 )
 from miniagent.agent.llm_json import parse_llm_json_response
 from miniagent.agent.planner import _format_toolbox_tool_names
+from miniagent.agent.tools.registry import DefaultToolRegistry
 from miniagent.agent.types.planning import StructuredPlan
 from miniagent.agent.types.tool import ToolDefinition
-from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 from tests.executor_helpers import (
     agent_config_with_session,
     make_ping_tool_registry,

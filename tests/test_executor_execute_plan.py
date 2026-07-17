@@ -526,8 +526,8 @@ def _confirm_tool_schema(name: str = "danger_tool") -> dict:
 
 
 def _make_confirm_registry(*, handler=None) -> tuple[Any, list[int]]:
+    from miniagent.agent.tools.registry import DefaultToolRegistry
     from miniagent.agent.types.tool import ToolDefinition, ToolResult
-    from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
     calls: list[int] = []
 

@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from miniagent.assistant.feishu.bitable import client as bitable
-from miniagent.assistant.feishu.types import FeishuConfig
+from miniagent.ui.feishu.types import FeishuConfig
 
 
 def _response(data=None, *, success: bool = True):

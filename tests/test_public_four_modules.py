@@ -10,15 +10,18 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.agent import Agent, AgentRequest, AgentServices, AgentSettings
+from miniagent.agent import AgentRequest, AgentRuntime, AgentSettings, AgentSpec
 from miniagent.agent.types.agent import AgentRunResult
 from miniagent.assistant import (
     AssistantApplication,
+    AssistantSpec,
+    create_assistant,
     create_assistant_application,
+    create_personal_assistant,
     run_assistant,
 )
-from miniagent.llm import LLMGateway, LLMProvider, LLMStreamEvent
-from miniagent.ui import TuiApp, TuiEvent, TuiSnapshot
+from miniagent.llm import EmbeddingClient, LLMGateway, LLMProvider, LLMStreamEvent
+from miniagent.ui import TuiApp, TuiEvent, TuiSnapshot, UIInput, UISurface
 
 
 def test_llm_public_import_is_provider_sdk_side_effect_free() -> None:
@@ -40,22 +43,26 @@ def test_llm_public_import_is_provider_sdk_side_effect_free() -> None:
 
 
 @pytest.mark.asyncio
-async def test_agent_public_facade_delegates_one_request() -> None:
+async def test_agent_public_runtime_delegates_one_request() -> None:
     runner = AsyncMock(return_value=AgentRunResult(reply="answer"))
-    agent = Agent(
-        AgentServices(
-            llm=object(),
+    runtime = AgentRuntime(
+        AgentSpec(
             settings=AgentSettings({}),
             registry=MagicMock(),
             memory=MagicMock(),
             knowledge=MagicMock(),
             runner=runner,
-        )
+            owns_llm=False,
+            owns_memory=False,
+        ),
+        object(),
     )
-    result = await agent.run(AgentRequest("question", session_key="s1"))
+    await runtime.start()
+    result = await runtime.run(AgentRequest("question", session_key="s1"))
     assert result.reply == "answer"
     assert runner.await_count == 1
     assert runner.await_args.kwargs["session_key"] == "s1"
+    await runtime.stop()
 
 
 @pytest.mark.asyncio
@@ -76,8 +83,15 @@ async def test_ui_public_facade_dispatches_without_product_imports() -> None:
 
 def test_assistant_public_entry_points_are_exposed() -> None:
     assert AssistantApplication
+    assert AssistantSpec
+    assert callable(create_assistant)
     assert callable(create_assistant_application)
+    assert callable(create_personal_assistant)
     assert callable(run_assistant)
+
+
+def test_v4_capability_contracts_are_public() -> None:
+    assert EmbeddingClient and UIInput and UISurface
 
 
 @pytest.mark.parametrize(

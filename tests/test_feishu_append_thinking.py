@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from miniagent.assistant.feishu.poll_server import append_feishu_thinking_same_card
-from miniagent.assistant.feishu.types import FeishuConfig
+from miniagent.ui.feishu.types import FeishuConfig
 
 
 @pytest.mark.asyncio

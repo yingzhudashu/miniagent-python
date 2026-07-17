@@ -88,9 +88,9 @@ async def test_thinking_display_merge_disabled_extra_label(monkeypatch):
 @pytest.mark.asyncio
 async def test_engine_history_merges_two_tools_under_turn(monkeypatch):
     from miniagent.agent.monitor import DefaultToolMonitor
+    from miniagent.agent.tools.registry import DefaultToolRegistry
     from miniagent.agent.types.agent import AgentRunResult
     from miniagent.assistant.engine.turn_service import AssistantTurnService
-    from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
     async def fake_run_agent(turn):
         ot = turn.on_thinking
@@ -142,9 +142,9 @@ async def test_engine_history_merges_two_tools_under_turn(monkeypatch):
 @pytest.mark.asyncio
 async def test_engine_history_merges_tool_under_turn(monkeypatch):
     from miniagent.agent.monitor import DefaultToolMonitor
+    from miniagent.agent.tools.registry import DefaultToolRegistry
     from miniagent.agent.types.agent import AgentRunResult
     from miniagent.assistant.engine.turn_service import AssistantTurnService
-    from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
     async def fake_run_agent(turn):
         ot = turn.on_thinking

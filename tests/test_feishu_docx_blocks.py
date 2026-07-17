@@ -40,7 +40,7 @@ class _Client:
 
 def test_batch_create_blocks_raises_on_first_invalid_param(monkeypatch: pytest.MonkeyPatch):
     from miniagent.assistant.feishu.docx import blocks
-    from miniagent.assistant.feishu.types import FeishuConfig
+    from miniagent.ui.feishu.types import FeishuConfig
 
     client = _Client([_Resp(False, code=1770001, msg="invalid param", log_id="log_x")])
     monkeypatch.setattr(blocks, "build_client", lambda _cfg: client)
@@ -59,7 +59,7 @@ def test_batch_create_blocks_raises_on_first_invalid_param(monkeypatch: pytest.M
 
 def test_batch_create_blocks_returns_partial_success_warning(monkeypatch: pytest.MonkeyPatch):
     from miniagent.assistant.feishu.docx import blocks
-    from miniagent.assistant.feishu.types import FeishuConfig
+    from miniagent.ui.feishu.types import FeishuConfig
 
     client = _Client(
         [_Resp(True), _Resp(False, code=99992402, msg="field validation failed")]
@@ -82,7 +82,7 @@ def test_append_markdown_falls_back_to_plain_text_on_invalid_param(
     monkeypatch: pytest.MonkeyPatch,
 ):
     from miniagent.assistant.feishu.docx import blocks
-    from miniagent.assistant.feishu.types import FeishuConfig
+    from miniagent.ui.feishu.types import FeishuConfig
 
     monkeypatch.setattr(
         blocks,
@@ -108,7 +108,7 @@ def test_append_markdown_falls_back_to_plain_text_on_invalid_param(
 
 def test_append_markdown_reports_plain_fallback_failure(monkeypatch: pytest.MonkeyPatch):
     from miniagent.assistant.feishu.docx import blocks
-    from miniagent.assistant.feishu.types import FeishuConfig
+    from miniagent.ui.feishu.types import FeishuConfig
 
     monkeypatch.setattr(
         blocks,
@@ -161,7 +161,7 @@ def test_docx_render_trace_is_metrics_only():
 
 def test_append_markdown_with_stats_parses_once(monkeypatch: pytest.MonkeyPatch):
     from miniagent.assistant.feishu.docx import blocks, markdown_renderer
-    from miniagent.assistant.feishu.types import FeishuConfig
+    from miniagent.ui.feishu.types import FeishuConfig
 
     monkeypatch.setattr(
         blocks,

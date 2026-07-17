@@ -74,7 +74,7 @@ class TestRunAgentClarification:
                         registry.get_all.return_value = {}
                         registry.list.return_value = []
 
-                        from miniagent.agent import run_agent
+                        from miniagent.agent.agent import run_agent
 
                         reply = await run_agent(
                             "查天气",
@@ -114,7 +114,7 @@ class TestRunAgentClarification:
                         registry.get_all.return_value = {}
                         registry.list.return_value = []
 
-                        from miniagent.agent import run_agent
+                        from miniagent.agent.agent import run_agent
 
                         reply = await run_agent(
                             "查天气",
@@ -144,7 +144,7 @@ class TestRunAgentClarification:
                         registry.get_all.return_value = {}
                         registry.list.return_value = []
 
-                        from miniagent.agent import run_agent
+                        from miniagent.agent.agent import run_agent
 
                         reply = await run_agent(
                             "test",
@@ -185,7 +185,7 @@ class TestClarificationMaxQuestionsByDifficulty:
                         ex.return_value = "ok"
 
                         from miniagent.agent.agent import run_agent
-                        from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
+                        from miniagent.agent.tools.registry import DefaultToolRegistry
 
                         await run_agent(
                             "task",
@@ -226,7 +226,7 @@ class TestClarificationMaxQuestionsByDifficulty:
                         ex.return_value = "ok"
 
                         from miniagent.agent.agent import run_agent
-                        from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
+                        from miniagent.agent.tools.registry import DefaultToolRegistry
 
                         await run_agent(
                             "task",
@@ -267,7 +267,7 @@ class TestClarificationMaxQuestionsByDifficulty:
                         ex.return_value = "ok"
 
                         from miniagent.agent.agent import run_agent
-                        from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
+                        from miniagent.agent.tools.registry import DefaultToolRegistry
 
                         await run_agent(
                             "task",
@@ -318,7 +318,7 @@ class TestRunAgentReflection:
                             registry.get_all.return_value = {}
                             registry.list.return_value = []
 
-                            from miniagent.agent import run_agent
+                            from miniagent.agent.agent import run_agent
 
                             reply = await run_agent(
                                 "test input",
@@ -350,7 +350,7 @@ class TestRunAgentReflection:
                         registry.list.return_value = []
 
                         with patch(_REFLECT_PATH, new_callable=AsyncMock) as mock_reflect:
-                            from miniagent.agent import run_agent
+                            from miniagent.agent.agent import run_agent
 
                             reply = await run_agent(
                                 "test",

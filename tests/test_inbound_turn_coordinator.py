@@ -8,7 +8,6 @@ from typing import Any
 import pytest
 
 from miniagent.assistant.application.messaging.inbound import InboundTurnCoordinator
-from miniagent.assistant.contracts.messages import InboundMessage
 from miniagent.assistant.engine.cli_inbound import (
     CLI_CHANNEL,
     CLI_CONVERSATION_ID,
@@ -16,6 +15,7 @@ from miniagent.assistant.engine.cli_inbound import (
     build_cli_inbound_message,
 )
 from miniagent.assistant.infrastructure.message_queue import MessageQueueManager, QueueMode
+from miniagent.ui.messages import InboundMessage
 
 
 class RecordingQueue:

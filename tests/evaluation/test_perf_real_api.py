@@ -113,9 +113,9 @@ class TestRealAPIPerformance:
     ):
         """测量真实LLM流式响应延迟。"""
         from miniagent.agent.monitor import DefaultToolMonitor
+        from miniagent.agent.tools.registry import DefaultToolRegistry
         from miniagent.agent.types.config import AgentConfig  # 修复导入路径
         from miniagent.agent.types.planning import StructuredPlan
-        from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
         # 准备测试输入
         user_input = "请分析以下代码的性能瓶颈：def slow_func(n): return sum(range(n))"
@@ -192,9 +192,9 @@ class TestRealAPIPerformance:
     ):
         """测量真实工具执行延迟（带LLM）。"""
         from miniagent.agent.monitor import DefaultToolMonitor
+        from miniagent.agent.tools.registry import DefaultToolRegistry
         from miniagent.agent.types.config import AgentConfig  # 修复导入路径
         from miniagent.agent.types.planning import StructuredPlan
-        from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
         # 准备测试输入（触发工具调用）
         user_input = "请读取README.md文件的前10行内容"
@@ -268,9 +268,9 @@ class TestRealAPIPerformance:
     ):
         """测量并发请求吞吐量。"""
         from miniagent.agent.monitor import DefaultToolMonitor
+        from miniagent.agent.tools.registry import DefaultToolRegistry
         from miniagent.agent.types.config import AgentConfig  # 修复导入路径
         from miniagent.agent.types.planning import StructuredPlan
-        from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
         # 并发发送3个请求（避免API限流）
         num_requests = 3

@@ -16,7 +16,6 @@ from miniagent.assistant.engine.cli_shell import _shell_argv
 from miniagent.assistant.engine.commands.session_management import cmd_schedule
 from miniagent.assistant.feishu.drive_extra import SearchApiError, search_docs
 from miniagent.assistant.feishu.feishu_dedup import FeishuDeduplicator
-from miniagent.assistant.feishu.types import FeishuConfig
 from miniagent.assistant.infrastructure.cli_transcript_coordinator import CliTranscriptCoordinator
 from miniagent.assistant.infrastructure.trace_stats import _TraceStatsAccumulator
 from miniagent.assistant.scheduled_tasks.models import ScheduledTask, ScheduleSpec
@@ -24,6 +23,7 @@ from miniagent.assistant.self_opt.proposal_engine import _pain_point_to_proposal
 from miniagent.assistant.self_opt.types import PainPoint
 from miniagent.assistant.tools.path_utils import resolve_path_simple
 from miniagent.assistant.tools.schedule_tools import _manage_scheduled_task_handler
+from miniagent.ui.feishu.types import FeishuConfig
 from miniagent.ui.tui.transcript import TranscriptBuffer
 
 

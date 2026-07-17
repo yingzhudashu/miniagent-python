@@ -12,7 +12,7 @@ from miniagent.assistant.feishu.folder_token_resolve import (
     resolve_parent_folder_token,
     root_meta_fallback_enabled,
 )
-from miniagent.assistant.feishu.types import FeishuConfig
+from miniagent.ui.feishu.types import FeishuConfig
 from tests.config_helpers import install_test_config
 
 

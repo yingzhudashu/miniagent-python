@@ -1,6 +1,6 @@
 # LLM 提供商与模型角色
 
-> Mini Agent Python | 版本: 3.0.0 | 最后更新: 2026-07-15
+> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-17
 
 MiniAgent 3.0 将“提供商”“wire API”“模型 profile”和“助手阶段角色”分开管理。
 默认回答不会按价格或厂商自动换模型；只有 `llm.roles` 中的显式绑定可以跨模型或提供商。

@@ -135,7 +135,33 @@ class LLMGateway:
         self.router = router
         self.cache_path = cache_path
         self._closed = False
+        self._ready = False
         self.last_usage: LLMUsage | None = None
+
+    async def initialize(self) -> None:
+        """Validate the immutable provider/catalog snapshot without network I/O."""
+        self._ensure_open()
+        for role in ("default", "reasoning", "fast", "vision"):
+            model = self.router.resolve(role)
+            self.registry.require(model.provider)
+
+    async def start(self) -> None:
+        """Mark the validated gateway ready for an AgentRuntime."""
+        await self.initialize()
+        self._ready = True
+
+    async def stop(self) -> None:
+        """Lifecycle alias for :meth:`close`."""
+        await self.close()
+
+    def health(self) -> dict[str, Any]:
+        """Return a provider-neutral, non-blocking health snapshot."""
+        return {
+            "ready": self._ready and not self._closed,
+            "closed": self._closed,
+            "providers": tuple(provider.provider_id for provider in self.registry.all()),
+            "models": tuple(model.profile for model in self.catalog.all()),
+        }
 
     def model_for_role(self, role: LLMRole = "default") -> ModelDescriptor:
         """返回指定角色当前绑定的模型档案。"""
@@ -284,6 +310,7 @@ class LLMGateway:
         if self._closed:
             return
         self._closed = True
+        self._ready = False
         await self.registry.close()
 
     def _ensure_open(self) -> None:

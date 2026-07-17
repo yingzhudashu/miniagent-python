@@ -1,6 +1,6 @@
 # 飞书集成文档
 
-> Mini Agent Python | 版本: 3.0.0 | 最后更新: 2026-07-15 | 与 `miniagent.__version__` 对齐 | 飞书 WebSocket 长连接
+> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-17 | 与 `miniagent.__version__` 对齐 | 飞书 WebSocket 长连接
 
 ## 快速开始
 
@@ -347,7 +347,7 @@ AssistantTurnService.run_agent_with_thinking()
 
 ## chat_type 与入站结构体
 
-生产路径中文本入站使用单参 **`FeishuInboundText`**（定义见 [`miniagent/assistant/feishu/types.py`](../miniagent/assistant/feishu/types.py)），其中字段 **`chat_type`** 区分群聊与私聊；不再向 handler 单独传入 `chat_type` 位置参数。
+生产路径中文本入站使用单参 **`FeishuInboundText`**（定义见 [`miniagent/ui/feishu/types.py`](../miniagent/ui/feishu/types.py)），其中字段 **`chat_type`** 区分群聊与私聊；不再向 handler 单独传入 `chat_type` 位置参数。
 
 | chat_type | 行为 | session_key |
 |-----------|------|------------|

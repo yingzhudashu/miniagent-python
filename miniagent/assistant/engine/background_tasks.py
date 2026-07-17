@@ -29,13 +29,13 @@ from miniagent.agent.constants import (
     BACKGROUND_TASKS_TASK_TTL_SECONDS,
 )
 from miniagent.agent.logging import get_logger
-from miniagent.assistant.contracts.messages import InboundMessage
 from miniagent.assistant.engine.background_inbound import (
     background_prompt,
     build_background_inbound_message,
 )
 from miniagent.assistant.engine.bg_session_cleanup import cleanup_background_session_artifacts
 from miniagent.assistant.infrastructure.json_config import get_config
+from miniagent.ui.messages import InboundMessage
 
 _logger = get_logger(__name__)
 

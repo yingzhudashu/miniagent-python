@@ -5,9 +5,9 @@ from __future__ import annotations
 import pytest
 
 from miniagent.agent.agent import run_pipeline
+from miniagent.agent.tools.registry import DefaultToolRegistry
 from miniagent.agent.types.agent import PipelineStep
 from miniagent.agent.types.tool import ToolDefinition, ToolResult
-from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 
 
 def _schema(name: str) -> dict:

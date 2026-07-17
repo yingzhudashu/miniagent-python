@@ -1,6 +1,6 @@
 # 性能测试与优化
 
-> Mini Agent Python | 版本: 3.0.0 | 最后更新: 2026-07-16 | 与 `miniagent.__version__` 对齐 | 补充 [ENGINEERING.md](ENGINEERING.md)
+> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-17 | 与 `miniagent.__version__` 对齐 | 补充 [ENGINEERING.md](ENGINEERING.md)
 
 本文分两部分：
 

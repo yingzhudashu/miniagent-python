@@ -5,12 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from miniagent.assistant.contracts.channels import ChannelRegistryProtocol
-from miniagent.assistant.feishu.inbound_adapter import FEISHU_CHANNEL
-from miniagent.assistant.feishu.outbound_adapter import build_feishu_final_event
 from miniagent.assistant.infrastructure.json_config import get_config
 from miniagent.assistant.scheduled_tasks.models import ScheduledTask
 from miniagent.assistant.scheduled_tasks.resolve import should_run_feishu
+from miniagent.ui.channels import ChannelRegistryProtocol
+from miniagent.ui.feishu.inbound import FEISHU_CHANNEL
+from miniagent.ui.feishu.outbound import build_feishu_final_event
 
 if TYPE_CHECKING:
     from miniagent.assistant.engine.cli_state import CliLoopState

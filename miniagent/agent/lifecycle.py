@@ -1,18 +1,54 @@
-"""Deterministic application service startup, rollback and shutdown coordination."""
+"""Reusable lifecycle contracts and deterministic service coordination."""
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterable
-from dataclasses import dataclass
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, field
 from enum import Enum
+from types import MappingProxyType
+from typing import Any, Protocol, runtime_checkable
 
-from miniagent.assistant.contracts.lifecycle import HealthReport, LifecycleService
+
+class HealthState(str, Enum):
+    """Stable health states shared by Agent extensions and UI surfaces."""
+
+    STARTING = "starting"
+    READY = "ready"
+    DEGRADED = "degraded"
+    STOPPED = "stopped"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True, slots=True)
+class HealthReport:
+    """Immutable non-blocking health snapshot."""
+
+    state: HealthState
+    detail: str = ""
+    metadata: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
+
+
+@runtime_checkable
+class LifecycleService(Protocol):
+    """Lifecycle implemented by Agent extensions and infrastructure services."""
+
+    @property
+    def name(self) -> str: ...
+
+    async def initialize(self) -> None: ...
+
+    async def start(self) -> None: ...
+
+    async def stop(self) -> None: ...
+
+    def health(self) -> HealthReport: ...
 
 
 class LifecyclePhase(str, Enum):
-    """Aggregate lifecycle phase for the application service graph."""
-
     NEW = "new"
     INITIALIZED = "initialized"
     READY = "ready"
@@ -23,14 +59,12 @@ class LifecyclePhase(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class ServiceFailure:
-    """Failure captured while rolling back or stopping a service graph."""
-
     service_name: str
     error: BaseException
 
 
 class LifecycleStartupError(RuntimeError):
-    """Initialization or startup failed after all attempted services were rolled back."""
+    """A service failed to initialize/start after rollback was attempted."""
 
     def __init__(
         self,
@@ -39,7 +73,6 @@ class LifecycleStartupError(RuntimeError):
         cause: BaseException,
         rollback_failures: tuple[ServiceFailure, ...] = (),
     ) -> None:
-        """Record the primary failure and any best-effort rollback failures."""
         self.stage = stage
         self.service_name = service_name
         self.cause = cause
@@ -49,20 +82,18 @@ class LifecycleStartupError(RuntimeError):
 
 
 class LifecycleShutdownError(RuntimeError):
-    """One or more services failed to stop after every service was attempted."""
+    """Every service was stopped, but at least one stop operation failed."""
 
     def __init__(self, failures: tuple[ServiceFailure, ...]) -> None:
-        """Expose all failures without relying on Python 3.11 ExceptionGroup."""
         self.failures = failures
         names = ", ".join(failure.service_name for failure in failures)
         super().__init__(f"failed to stop {len(failures)} service(s): {names}")
 
 
 class LifecycleManager:
-    """Start services in registration order and stop them exactly once in reverse order."""
+    """Start in registration order and stop exactly once in reverse order."""
 
     def __init__(self, services: Iterable[LifecycleService]) -> None:
-        """Create a manager and reject ambiguous duplicate service names."""
         self._services = tuple(services)
         names = [service.name for service in self._services]
         if any(not name.strip() for name in names):
@@ -77,28 +108,23 @@ class LifecycleManager:
 
     @property
     def phase(self) -> LifecyclePhase:
-        """Return the current aggregate phase without blocking."""
         return self._phase
 
     @property
     def service_names(self) -> tuple[str, ...]:
-        """Return services in their deterministic startup order."""
         return tuple(service.name for service in self._services)
 
     def service(self, name: str) -> LifecycleService:
-        """Return a registered service by its stable name."""
         for service in self._services:
             if service.name == name:
                 return service
         raise KeyError(f"unknown lifecycle service: {name}")
 
     async def initialize(self) -> None:
-        """Initialize every service or roll back all attempted services."""
         async with self._lock:
             await self._initialize_locked()
 
     async def _initialize_locked(self) -> None:
-        """Initialize while the caller holds ``_lock``."""
         if self._phase in (LifecyclePhase.INITIALIZED, LifecyclePhase.READY):
             return
         self._ensure_startable()
@@ -121,7 +147,6 @@ class LifecycleManager:
         self._phase = LifecyclePhase.INITIALIZED
 
     async def start(self) -> None:
-        """Initialize if needed, then start every service with rollback on failure."""
         async with self._lock:
             if self._phase is LifecyclePhase.READY:
                 return
@@ -136,12 +161,13 @@ class LifecycleManager:
                     failures = await self._stop_attempted()
                     if isinstance(error, asyncio.CancelledError):
                         raise
-                    raise LifecycleStartupError("start", service.name, error, failures) from error
+                    raise LifecycleStartupError(
+                        "start", service.name, error, failures
+                    ) from error
                 self._started.add(service.name)
             self._phase = LifecyclePhase.READY
 
     async def stop(self) -> None:
-        """Stop all attempted services in reverse order; repeated calls are no-ops."""
         async with self._lock:
             if self._phase is LifecyclePhase.STOPPED:
                 return
@@ -153,16 +179,13 @@ class LifecycleManager:
             self._phase = LifecyclePhase.STOPPED
 
     def health(self) -> dict[str, HealthReport]:
-        """Return one health snapshot per service in registration order."""
         return {service.name: service.health() for service in self._services}
 
     def _ensure_startable(self) -> None:
-        """Reject attempts to reuse a terminal lifecycle manager."""
         if self._phase in (LifecyclePhase.STOPPED, LifecyclePhase.FAILED):
             raise RuntimeError(f"lifecycle manager cannot start from {self._phase.value}")
 
     async def _stop_attempted(self) -> tuple[ServiceFailure, ...]:
-        """Best-effort stop attempted services and clear active bookkeeping."""
         failures: list[ServiceFailure] = []
         attempted = tuple(reversed(self._attempted))
         self._attempted.clear()
@@ -177,8 +200,11 @@ class LifecycleManager:
 
 
 __all__ = [
+    "HealthReport",
+    "HealthState",
     "LifecycleManager",
     "LifecyclePhase",
+    "LifecycleService",
     "LifecycleShutdownError",
     "LifecycleStartupError",
     "ServiceFailure",

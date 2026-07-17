@@ -31,10 +31,10 @@ from miniagent.assistant.feishu._utils import fmt_json, resolve_under_workspace
 from miniagent.assistant.feishu.folder_token_resolve import resolve_parent_folder_token
 from miniagent.assistant.feishu.lark_client import config_from_env
 from miniagent.assistant.feishu.token_resolve import extract_doc_token
-from miniagent.assistant.feishu.types import FeishuConfig
 from miniagent.assistant.infrastructure.json_config import get_config
 from miniagent.assistant.tools.feishu_doc_schema import build_feishu_doc_schema
 from miniagent.assistant.tools.feishu_utils import check_lark_oapi
+from miniagent.ui.feishu.types import FeishuConfig
 
 FEISHU_DOC_TOOL_NAMES = frozenset({"feishu_doc"})
 

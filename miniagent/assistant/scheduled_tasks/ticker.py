@@ -13,7 +13,6 @@ from typing import Any
 from miniagent.agent.logging import get_logger
 from miniagent.assistant.application.messaging.inbound import InboundTurnCoordinator
 from miniagent.assistant.bootstrap.application import ApplicationContainer
-from miniagent.assistant.contracts.messages import InboundMessage
 from miniagent.assistant.engine.cli_state import CliLoopState
 from miniagent.assistant.infrastructure.json_config import get_config
 from miniagent.assistant.scheduled_tasks.lock import (
@@ -31,6 +30,7 @@ from miniagent.assistant.scheduled_tasks.store import (
     repair_invalid_schedules,
     save_tasks_async,
 )
+from miniagent.ui.messages import InboundMessage
 
 _logger = get_logger(__name__)
 

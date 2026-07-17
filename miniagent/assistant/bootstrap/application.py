@@ -8,18 +8,17 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from miniagent.assistant.application.messaging.channels import ChannelRegistry
+from miniagent.ui.channels import ChannelRegistry
 
 _logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
+    from miniagent.agent.lifecycle import LifecycleManager
     from miniagent.agent.ports.knowledge import KnowledgeRegistryProtocol
     from miniagent.agent.ports.memory import MemoryRuntimeProtocol
     from miniagent.agent.types.agent import ToolMonitorProtocol
     from miniagent.agent.types.skill import ClawHubClientProtocol, SkillRegistryProtocol
     from miniagent.agent.types.tool import ToolRegistryProtocol
-    from miniagent.assistant.bootstrap.lifecycle import LifecycleManager
-    from miniagent.assistant.contracts.channels import ChannelRegistryProtocol
     from miniagent.assistant.contracts.messaging import OrderedOutboundDispatcherProtocol
     from miniagent.assistant.contracts.runtime import (
         AssistantTurnServiceProtocol,
@@ -28,6 +27,7 @@ if TYPE_CHECKING:
         MessageQueueProtocol,
     )
     from miniagent.assistant.infrastructure.json_config import ConfigurationService
+    from miniagent.ui.channels import ChannelRegistryProtocol
 
 
 @dataclass

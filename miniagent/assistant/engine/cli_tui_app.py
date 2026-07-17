@@ -431,7 +431,6 @@ class AssistantTuiApplication(TuiApp):
 
     def setup_output_and_turn(self) -> None:
         """连接通道输出协调器与单轮 Agent 输入处理器。"""
-        from miniagent.assistant.contracts.messages import OutboundEventKind
         from miniagent.assistant.engine.cli_inbound import build_cli_inbound_message
         from miniagent.assistant.engine.cli_outbound import (
             CliChannelAdapter,
@@ -443,6 +442,7 @@ class AssistantTuiApplication(TuiApp):
         from miniagent.assistant.infrastructure.cli_transcript_coordinator import (
             CliTranscriptCoordinator,
         )
+        from miniagent.ui.messages import OutboundEventKind
         from miniagent.ui.tui.transcript import rule_line_width
 
         self.ctx.cli_transcript_append = self.append_transcript

@@ -8,7 +8,7 @@ import json
 import pytest
 
 from miniagent.agent.types.tool import ToolContext
-from miniagent.assistant.feishu.types import FeishuConfig
+from miniagent.ui.feishu.types import FeishuConfig
 
 CFG = FeishuConfig("app", "secret")
 tools = importlib.import_module("miniagent.assistant.tools.feishu_doc_tools")

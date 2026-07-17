@@ -7,8 +7,8 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from miniagent.assistant.contracts.messages import ChannelTarget, OutboundEvent, OutboundEventKind
 from miniagent.assistant.engine.cli_inbound import CLI_CHANNEL
+from miniagent.ui.messages import ChannelTarget, OutboundEvent, OutboundEventKind
 
 CliEventRenderer = Callable[[str, str], Awaitable[None] | None]
 CliThinkingRenderer = Callable[[OutboundEvent], Awaitable[None] | None]

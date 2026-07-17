@@ -14,7 +14,6 @@ from typing import Any
 from miniagent.agent.logging import get_logger
 from miniagent.agent.types.error_prefix import ERROR_PREFIX
 from miniagent.assistant.bootstrap.application import ApplicationContainer
-from miniagent.assistant.contracts.messages import InboundMessage
 from miniagent.assistant.engine.cli_state import CliLoopState
 from miniagent.assistant.scheduled_tasks.feishu_delivery import (
     resolve_feishu_delivery,
@@ -22,6 +21,7 @@ from miniagent.assistant.scheduled_tasks.feishu_delivery import (
 )
 from miniagent.assistant.scheduled_tasks.models import ScheduledTask
 from miniagent.assistant.scheduled_tasks.resolve import resolve_execution_target, should_run_feishu
+from miniagent.ui.messages import InboundMessage
 
 _logger = get_logger(__name__)
 

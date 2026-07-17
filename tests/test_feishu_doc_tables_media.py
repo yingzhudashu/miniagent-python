@@ -12,7 +12,7 @@ pytest.importorskip("lark_oapi")
 
 def test_download_media_bytes_passes_sdk_extra(monkeypatch) -> None:
     from miniagent.assistant.feishu.docx import media
-    from miniagent.assistant.feishu.types import FeishuConfig
+    from miniagent.ui.feishu.types import FeishuConfig
 
     builder = MagicMock()
     builder.file_token.return_value = builder
@@ -96,7 +96,7 @@ def test_remove_permission_mock() -> None:
     from unittest.mock import MagicMock, patch
 
     from miniagent.assistant.feishu.drive_extra import remove_permission
-    from miniagent.assistant.feishu.types import FeishuConfig
+    from miniagent.ui.feishu.types import FeishuConfig
 
     cfg = FeishuConfig(app_id="a", app_secret="b")
     mock_resp = MagicMock()

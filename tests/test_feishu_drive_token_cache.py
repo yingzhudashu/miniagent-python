@@ -11,7 +11,7 @@ import httpx
 import pytest
 
 from miniagent.assistant.feishu import drive_client
-from miniagent.assistant.feishu.types import FeishuConfig
+from miniagent.ui.feishu.types import FeishuConfig
 
 
 @pytest.mark.asyncio

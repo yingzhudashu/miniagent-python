@@ -24,7 +24,7 @@ from typing import Any
 _LAZY_EXPORTS = {
     "ChannelRouter": "miniagent.assistant.infrastructure.channel_router",
     "DefaultToolMonitor": "miniagent.agent.monitor",
-    "DefaultToolRegistry": "miniagent.assistant.infrastructure.registry",
+    "DefaultToolRegistry": "miniagent.agent.tools.registry",
     "InstanceRegistry": "miniagent.assistant.infrastructure.instance",
     "LoopDetector": "miniagent.agent.loop_detector",
     "MessageQueueManager": "miniagent.assistant.infrastructure.message_queue",

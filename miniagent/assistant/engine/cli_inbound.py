@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from miniagent.assistant.contracts.messages import InboundMessage
+from miniagent.ui.messages import InboundMessage
 
 CLI_CHANNEL = "cli"
 CLI_CONVERSATION_ID = "__cli__"

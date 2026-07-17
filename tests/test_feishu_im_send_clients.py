@@ -32,7 +32,7 @@ def test_resolve_im_receive_id_type_env_and_explicit(tmp_path) -> None:
 
 def test_post_im_message_reply_uses_reply_api() -> None:
     from miniagent.assistant.feishu.im_send import post_im_message
-    from miniagent.assistant.feishu.types import FeishuConfig
+    from miniagent.ui.feishu.types import FeishuConfig
 
     cfg = FeishuConfig(app_id="a", app_secret="b")
     client = MagicMock()
@@ -62,7 +62,7 @@ def test_post_im_message_reply_uses_reply_api() -> None:
 
 def test_post_im_message_create_returns_message_id() -> None:
     from miniagent.assistant.feishu.im_send import post_im_message
-    from miniagent.assistant.feishu.types import FeishuConfig
+    from miniagent.ui.feishu.types import FeishuConfig
 
     cfg = FeishuConfig(app_id="a", app_secret="b")
     client = MagicMock()
@@ -91,7 +91,7 @@ def test_post_im_message_create_returns_message_id() -> None:
 
 def test_post_im_message_create_uses_receive_id_type_open_id() -> None:
     from miniagent.assistant.feishu.im_send import post_im_message
-    from miniagent.assistant.feishu.types import FeishuConfig
+    from miniagent.ui.feishu.types import FeishuConfig
 
     cfg = FeishuConfig(app_id="a", app_secret="b")
     client = MagicMock()
@@ -119,7 +119,7 @@ def test_post_im_message_create_uses_receive_id_type_open_id() -> None:
 
 def test_list_folder_files_page_returns_entries() -> None:
     from miniagent.assistant.feishu.drive_client import list_folder_files_page
-    from miniagent.assistant.feishu.types import FeishuConfig
+    from miniagent.ui.feishu.types import FeishuConfig
 
     cfg = FeishuConfig(app_id="a", app_secret="b")
     client = MagicMock()
@@ -148,7 +148,7 @@ def test_list_folder_files_page_returns_entries() -> None:
 
 def test_append_plain_text_calls_create_children() -> None:
     from miniagent.assistant.feishu.docx.blocks import append_plain_text_to_document
-    from miniagent.assistant.feishu.types import FeishuConfig
+    from miniagent.ui.feishu.types import FeishuConfig
 
     cfg = FeishuConfig(app_id="a", app_secret="b")
     client = MagicMock()
@@ -187,8 +187,8 @@ def test_append_plain_text_calls_create_children() -> None:
 
 
 def test_send_im_image_message_success() -> None:
-    from miniagent.assistant.feishu.types import FeishuConfig
     from miniagent.assistant.feishu.upload_io import send_im_image_message
+    from miniagent.ui.feishu.types import FeishuConfig
 
     cfg = FeishuConfig(app_id="a", app_secret="b")
     with patch("miniagent.assistant.feishu.upload_io._post_im_message", return_value=(True, None)):
@@ -197,8 +197,8 @@ def test_send_im_image_message_success() -> None:
 
 
 def test_delete_im_message_success() -> None:
-    from miniagent.assistant.feishu.types import FeishuConfig
     from miniagent.assistant.feishu.upload_io import delete_im_message
+    from miniagent.ui.feishu.types import FeishuConfig
 
     cfg = FeishuConfig(app_id="a", app_secret="b")
     client = MagicMock()
@@ -217,8 +217,8 @@ def test_delete_im_message_success() -> None:
 
 
 def test_upload_im_file_uses_file_create() -> None:
-    from miniagent.assistant.feishu.types import FeishuConfig
     from miniagent.assistant.feishu.upload_io import upload_im_file
+    from miniagent.ui.feishu.types import FeishuConfig
 
     cfg = FeishuConfig(app_id="a", app_secret="b")
     client = MagicMock()
@@ -241,7 +241,7 @@ def test_upload_im_file_uses_file_create() -> None:
 
 def test_create_document_returns_ids() -> None:
     from miniagent.assistant.feishu.docx.client import create_document
-    from miniagent.assistant.feishu.types import FeishuConfig
+    from miniagent.ui.feishu.types import FeishuConfig
 
     cfg = FeishuConfig(app_id="a", app_secret="b")
     client = MagicMock()
@@ -267,7 +267,7 @@ def test_create_document_returns_ids() -> None:
 
 def test_get_root_folder_meta_returns_token() -> None:
     from miniagent.assistant.feishu.drive_client import get_root_folder_meta
-    from miniagent.assistant.feishu.types import FeishuConfig
+    from miniagent.ui.feishu.types import FeishuConfig
 
     cfg = FeishuConfig(app_id="a", app_secret="b")
     with (
@@ -286,7 +286,7 @@ def test_get_root_folder_meta_returns_token() -> None:
 
 def test_get_root_folder_meta_raises_on_nonzero_code() -> None:
     from miniagent.assistant.feishu.drive_client import get_root_folder_meta
-    from miniagent.assistant.feishu.types import FeishuConfig
+    from miniagent.ui.feishu.types import FeishuConfig
 
     cfg = FeishuConfig(app_id="a", app_secret="b")
     with (

@@ -161,7 +161,7 @@ class FeishuRuntime:
     @staticmethod
     def _build_start_config() -> Any:
         """从环境变量构造飞书启动配置。"""
-        from miniagent.assistant.feishu.types import FeishuConfig
+        from miniagent.ui.feishu.types import FeishuConfig
 
         return FeishuConfig(
             app_id=os.environ.get("FEISHU_APP_ID", ""),
@@ -431,7 +431,7 @@ class FeishuRuntime:
         return self._running
 
     def get_config(self) -> Any:
-        """返回最近一次构造的 :class:`~miniagent.assistant.feishu.types.FeishuConfig` 或 ``None``。"""
+        """返回最近一次构造的 :class:`~miniagent.ui.feishu.types.FeishuConfig` 或 ``None``。"""
         return self._config
 
     def get_task(self) -> asyncio.Task | None:

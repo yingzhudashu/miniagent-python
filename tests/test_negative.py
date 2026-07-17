@@ -30,7 +30,7 @@ class TestExecutorNegative:
     @pytest.mark.asyncio
     async def test_executor_handles_llm_api_error(self) -> None:
         """LLM API 错误应被正确处理。"""
-        from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
+        from miniagent.agent.tools.registry import DefaultToolRegistry
 
         # Mock LLM client 抛出错误
         mock_client = MagicMock()
@@ -211,7 +211,7 @@ class TestFeishuNegative:
     @pytest.mark.asyncio
     async def test_feishu_handles_message_send_failure(self) -> None:
         """飞书消息发送失败应被正确处理。"""
-        from miniagent.assistant.feishu.types import FeishuConfig
+        from miniagent.ui.feishu.types import FeishuConfig
 
         cfg = FeishuConfig(
             app_id="test",

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
-from miniagent.assistant.contracts.messages import OutboundEvent
+from miniagent.ui.messages import OutboundEvent
 
 
 @dataclass(frozen=True, slots=True)

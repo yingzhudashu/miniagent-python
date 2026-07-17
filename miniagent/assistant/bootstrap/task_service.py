@@ -6,7 +6,7 @@ import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from miniagent.assistant.contracts.lifecycle import HealthReport, HealthState
+from miniagent.agent.lifecycle import HealthReport, HealthState
 
 TaskStarter = Callable[[], asyncio.Task | None]
 StopSignaler = Callable[[], None]

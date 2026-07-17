@@ -9,7 +9,7 @@ from typing import Any
 from miniagent.agent.constants import DOCX_APPEND_MAX_BLOCKS, DOCX_LIST_BLOCKS_MAX
 from miniagent.assistant.feishu.lark_client import build_client
 from miniagent.assistant.feishu.lark_response import format_lark_response_error
-from miniagent.assistant.feishu.types import FeishuConfig
+from miniagent.ui.feishu.types import FeishuConfig
 
 DOCX_APPEND_MAX_CHARS = 12_000
 _TEXT_RUN_MAX = 1800

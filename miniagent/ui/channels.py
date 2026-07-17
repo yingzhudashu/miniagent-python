@@ -1,27 +1,41 @@
-"""Channel registration and ordered outbound event delivery."""
+"""Channel adapter contract and ordered destination registry."""
 
 from __future__ import annotations
 
 import asyncio
 from collections.abc import Iterable
+from typing import Protocol, runtime_checkable
 
-from miniagent.assistant.contracts.channels import ChannelAdapter
-from miniagent.assistant.contracts.messages import OutboundEvent
+from miniagent.ui.messages import OutboundEvent
+
+
+@runtime_checkable
+class ChannelAdapter(Protocol):
+    @property
+    def channel_id(self) -> str: ...
+
+    async def send(self, event: OutboundEvent) -> None: ...
+
+
+@runtime_checkable
+class ChannelRegistryProtocol(Protocol):
+    def register(self, adapter: ChannelAdapter, *, replace: bool = False) -> None: ...
+
+    def get(self, channel_id: str) -> ChannelAdapter: ...
+
+    async def send(self, event: OutboundEvent) -> None: ...
 
 
 class ChannelRegistrationError(ValueError):
-    """A channel identifier is empty or already registered."""
+    pass
 
 
 class ChannelNotRegisteredError(LookupError):
-    """No outbound adapter exists for the requested channel identifier."""
+    pass
 
 
 class ChannelDeliveryError(RuntimeError):
-    """An adapter failed while delivering a normalized outbound event."""
-
     def __init__(self, event: OutboundEvent, cause: BaseException) -> None:
-        """Retain the failed event and original adapter error for policy decisions."""
         self.event = event
         self.cause = cause
         super().__init__(
@@ -30,16 +44,14 @@ class ChannelDeliveryError(RuntimeError):
 
 
 class ChannelRegistry:
-    """Explicit channel adapter catalog with no imports of concrete channels."""
+    """Explicit adapter catalog; delivery failure never re-executes Agent work."""
 
     def __init__(self, adapters: Iterable[ChannelAdapter] = ()) -> None:
-        """Register initial adapters and reject duplicate identifiers."""
         self._adapters: dict[str, ChannelAdapter] = {}
         for adapter in adapters:
             self.register(adapter)
 
     def register(self, adapter: ChannelAdapter, *, replace: bool = False) -> None:
-        """Register an adapter, optionally replacing an existing implementation."""
         channel_id = adapter.channel_id.strip()
         if not channel_id:
             raise ChannelRegistrationError("channel_id must not be empty")
@@ -48,22 +60,20 @@ class ChannelRegistry:
         self._adapters[channel_id] = adapter
 
     def unregister(self, channel_id: str) -> ChannelAdapter | None:
-        """Remove and return an adapter; unknown identifiers are a no-op."""
         return self._adapters.pop(channel_id, None)
 
     def get(self, channel_id: str) -> ChannelAdapter:
-        """Return an adapter or raise a stable lookup error."""
         try:
             return self._adapters[channel_id]
         except KeyError as error:
-            raise ChannelNotRegisteredError(f"channel {channel_id!r} is not registered") from error
+            raise ChannelNotRegisteredError(
+                f"channel {channel_id!r} is not registered"
+            ) from error
 
     def list_channel_ids(self) -> tuple[str, ...]:
-        """Return identifiers in deterministic registration order."""
         return tuple(self._adapters)
 
     async def send(self, event: OutboundEvent) -> None:
-        """Route an event and normalize concrete adapter failures."""
         adapter = self.get(event.target.channel)
         try:
             await adapter.send(event)
@@ -74,9 +84,12 @@ class ChannelRegistry:
         except BaseException as error:
             raise ChannelDeliveryError(event, error) from error
 
+
 __all__ = [
+    "ChannelAdapter",
     "ChannelDeliveryError",
     "ChannelNotRegisteredError",
     "ChannelRegistrationError",
     "ChannelRegistry",
+    "ChannelRegistryProtocol",
 ]

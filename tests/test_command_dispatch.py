@@ -55,7 +55,7 @@ def _create_mock_state() -> dict:
         "feishu_p2p_synced_senders": set(),
     }
 
-    from miniagent.assistant.bootstrap.lifecycle import LifecycleManager
+    from miniagent.agent.lifecycle import LifecycleManager
     from miniagent.assistant.engine.feishu_lifecycle import FeishuRuntimeLifecycleService
 
     feishu_service = FeishuRuntimeLifecycleService(

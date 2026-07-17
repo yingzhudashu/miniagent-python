@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from miniagent.agent.monitor import DefaultToolMonitor
+from miniagent.agent.tools.registry import DefaultToolRegistry
 from miniagent.assistant.bootstrap.application import ApplicationContainer
 from miniagent.assistant.engine.command_dispatch import dispatch_command
 from miniagent.assistant.engine.commands.session_management import feishu_dot_commands_full_enabled
@@ -15,7 +16,6 @@ from miniagent.assistant.engine.feishu_state import FeishuRuntime
 from miniagent.assistant.engine.turn_service import AssistantTurnService
 from miniagent.assistant.infrastructure.channel_router import ChannelRouter
 from miniagent.assistant.infrastructure.message_queue import MessageQueueManager
-from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 from miniagent.assistant.skills import DefaultSkillRegistry, create_clawhub_client
 from tests.config_helpers import install_test_config
 from tests.memory_helpers import (

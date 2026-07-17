@@ -6,7 +6,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniagent.agent import Agent, AgentRequest, AgentServices, AgentSettings, run_agent
+from miniagent.agent.agent import run_agent
+from miniagent.agent.runtime import AgentRequest, AgentRuntime, AgentSettings, AgentSpec
 from miniagent.agent.types.agent import AgentRunResult
 
 
@@ -35,21 +36,26 @@ async def test_agent_apis_share_the_normalized_turn_path(monkeypatch: pytest.Mon
         agent_config=config,
         session_key="session-a",
     )
-    object_result = await Agent(
-        AgentServices(
-            llm=llm,
+    runtime = AgentRuntime(
+        AgentSpec(
             settings=AgentSettings({}),
             registry=registry,
             memory=memory,
             knowledge=knowledge,
-        )
-    ).run(
+            owns_llm=False,
+            owns_memory=False,
+        ),
+        llm,
+    )
+    await runtime.start()
+    object_result = await runtime.run(
         AgentRequest(
             "question",
             session_key="session-a",
             config=config,
         )
     )
+    await runtime.stop()
 
     assert function_result == object_result == AgentRunResult(reply="same")
     assert len(turns) == 2

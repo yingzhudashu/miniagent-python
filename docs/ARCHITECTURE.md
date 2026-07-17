@@ -1,19 +1,31 @@
 # 系统架构
 
 > 架构概览见 [README.md §架构概览](../README.md#架构概览)。本文档为各层深读。  
-> Mini Agent Python | 版本: 3.0.0 | 最后更新: 2026-07-16 | 与 `miniagent.__version__` 对齐
+> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-17 | 与 `miniagent.__version__` 对齐
 
-## 3.0 四模块边界
+## 4.0 四模块边界
 
 发行包只包含 `llm`、`agent`、`ui`、`assistant` 四个主模块。`llm` 提供无上层依赖的
-多 Provider Gateway；`agent` 表达分类、澄清、规划、执行和反思，并通过端口接收配置、
-记忆、知识库、工具和观测能力；`ui` 提供与产品状态无关的终端控件；`assistant` 负责
-会话、持久化、具体工具、CLI/飞书渠道及进程生命周期，是唯一组合根。
+多 Provider Gateway、Embedding 与统一流协议；`agent` 拥有分类、澄清、规划、执行、反思，
+以及会话、工具、Memory/RAG、Trace、并发、取消和可选扩展的完整运行时；`ui` 提供
+CLI、TUI、飞书等输入与展示 surface；`assistant` 通过 recipe 组合前三层，不实现通用基础设施。
 
 ```text
-assistant → agent → llm
-assistant → ui
+assistant → ui → agent → llm
+assistant → agent / llm
 ```
+
+允许依赖矩阵为：`llm → llm`、`agent → agent/llm`、`ui → ui/agent`、
+`assistant → assistant/ui/agent/llm`。`scripts/check_architecture.py` 对普通导入、函数局部导入、
+相对导入和 `TYPE_CHECKING` 导入执行同一规则。
+
+### V4 稳定入口
+
+- `LLMGateway` 与 `EmbeddingClient`：模型生成和向量生成；不感知 Agent、UI 或实例。
+- `AgentRuntime(AgentSpec, llm, extensions)`：`initialize/start/run/cancel/health/stop`，并发布
+  带 `run_id/session_id/trace_id/sequence` 的不可变 `AgentEvent`。
+- `UISurface`：`inputs()` 产生 `UIInput`，`render()` 消费 `AgentEvent`。
+- `AssistantSpec` / `create_assistant()`：声明并构造隔离实例；`PersonalAssistantSpec` 保留默认产品。
 
 `LLMGateway` 按 `default/reasoning/fast/vision` 显式角色选择 model profile，统一文本、
 推理、工具、用量、取消和错误事件。模型切换和配置热更新采用不可变快照：活动回合继续持有

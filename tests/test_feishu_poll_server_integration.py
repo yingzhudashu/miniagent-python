@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from miniagent.assistant.feishu import poll_server
-from miniagent.assistant.feishu.types import FeishuConfig
+from miniagent.ui.feishu.types import FeishuConfig
 
 
 class _Deduplicator:

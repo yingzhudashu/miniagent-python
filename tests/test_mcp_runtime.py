@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from miniagent.agent.tools.registry import DefaultToolRegistry
 from miniagent.agent.types.tool import ToolResult
-from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 from miniagent.assistant.mcp.bridge import is_mcp_available, mcp_tool_to_openai_param
 from miniagent.assistant.mcp.runtime import (
     _call_tool_to_result,

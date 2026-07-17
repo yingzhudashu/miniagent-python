@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from miniagent.assistant.contracts.lifecycle import HealthReport, HealthState
+from miniagent.agent.lifecycle import HealthReport, HealthState
 
 if TYPE_CHECKING:
     from miniagent.assistant.contracts.runtime import FeishuRuntimeProtocol

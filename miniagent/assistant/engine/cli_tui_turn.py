@@ -8,10 +8,10 @@ from typing import Any
 from prompt_toolkit.application import get_app
 
 from miniagent.agent.types.error_prefix import ERROR_PREFIX
-from miniagent.assistant.contracts.messages import ChannelTarget, InboundMessage
 from miniagent.assistant.engine.cli_files import process_cli_file_markers
 from miniagent.assistant.engine.cli_inbound import CLI_CHANNEL
 from miniagent.assistant.engine.cli_state import CliLoopState
+from miniagent.ui.messages import ChannelTarget, InboundMessage
 
 
 class _TuiTurnProcessor:

@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### 4.0 Architecture
+
+- Agent 新增生命周期完整的 `AgentRuntime`、不可变 `AgentEvent`、run 级取消、按会话串行和跨会话并行执行；RAG 与 JSONL Trace 作为实例隔离的 `AgentExtension` 接入。
+- LLM 保留原模块与公开命名，并新增统一 `EmbeddingClient`；现有 `llm.*` 配置、Session、Memory、知识库与 Trace 数据格式不因模块重构而改名。
+- UI 成为消息、渠道、CLI/TUI/飞书 surface 和飞书标准化适配的所有者；Assistant 通过 `AssistantSpec`、`PersonalAssistantSpec` 与 `create_assistant()` 组合实例。
+- 架构门禁更新为 `llm ← agent ← ui ← assistant`，其中 Assistant 可直接装配 Agent/LLM，禁止所有反向依赖。
+
 ### Breaking Changes
 
 - 源码包收敛为 `llm`、`agent`、`ui`、`assistant` 四个主模块；旧的 `core`、`engine`、

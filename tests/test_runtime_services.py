@@ -8,8 +8,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from miniagent.agent.lifecycle import LifecycleStartupError
 from miniagent.assistant.bootstrap.application import ApplicationContainer
-from miniagent.assistant.bootstrap.lifecycle import LifecycleStartupError
 from miniagent.assistant.bootstrap.runtime_services import build_runtime_lifecycle_manager
 from miniagent.assistant.engine.cli_state import CliLoopState
 from tests.memory_helpers import (

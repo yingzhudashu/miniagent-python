@@ -8,8 +8,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniagent.assistant.application.messaging.channels import ChannelRegistry
 from miniagent.assistant.engine.cli_fallback import run_cli_loop_fallback
+from miniagent.ui.channels import ChannelRegistry
 
 
 class _Queue:

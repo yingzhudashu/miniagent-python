@@ -11,11 +11,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from miniagent.agent.executor import execute_plan
+from miniagent.agent.tools.registry import DefaultToolRegistry
 from miniagent.agent.types.config import AgentConfig, SessionBindingConfig
 from miniagent.agent.types.memory import MemoryEntryInput, SessionMemory
 from miniagent.agent.types.planning import StructuredPlan
 from miniagent.agent.types.tool import ToolContext, ToolDefinition, ToolResult
-from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 from miniagent.assistant.memory.keyword_index import KeywordIndex
 from miniagent.assistant.memory.store import DefaultMemoryStore
 from tests.llm_helpers import MockGateway

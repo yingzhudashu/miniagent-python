@@ -80,7 +80,7 @@ class TestHypothesisA_DoubleCall:
                             mock_reflect.return_value = ReflectionResult(
                                 acceptable=True, quality_score=0.8
                             )
-                            from miniagent.agent import run_agent
+                            from miniagent.agent.agent import run_agent
 
                             reply = await run_agent(
                                 "问题",
@@ -112,7 +112,7 @@ class TestHypothesisA_DoubleCall:
                     with patch("miniagent.agent.agent.execute_plan", new_callable=AsyncMock) as mock_exec:
                         mock_exec.return_value = "这是答案正文。"
                         with patch(_REFLECT_PATH, side_effect=_capture_reflect):
-                            from miniagent.agent import run_agent
+                            from miniagent.agent.agent import run_agent
 
                             await run_agent(
                                 "问题",
@@ -158,7 +158,7 @@ class TestHypothesisB_ReflectThinkingSink:
                     with patch("miniagent.agent.agent.execute_plan", new_callable=AsyncMock) as mock_exec:
                         mock_exec.return_value = "答案正文。"
                         with patch(_REFLECT_PATH, side_effect=_capture_reflect):
-                            from miniagent.agent import run_agent
+                            from miniagent.agent.agent import run_agent
 
                             await run_agent(
                                 "问题",
@@ -224,7 +224,7 @@ class TestHypothesisD_FooterAccumulatesInHistory:
                             mock_reflect.return_value = ReflectionResult(
                                 acceptable=True, quality_score=0.9
                             )
-                            from miniagent.agent import run_agent
+                            from miniagent.agent.agent import run_agent
 
                             reply = await run_agent(
                                 "本轮问题",

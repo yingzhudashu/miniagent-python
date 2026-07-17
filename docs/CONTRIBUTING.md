@@ -1,6 +1,6 @@
 # 贡献指南
 
-> Mini Agent Python | 版本: 3.0.0 | 最后更新: 2026-07-15 | 与 `miniagent.__version__` 对齐
+> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-17 | 与 `miniagent.__version__` 对齐
 
 本文档为开发者单一入口，分三部分：
 
@@ -161,7 +161,7 @@ python -m pytest tests/ -k "test_register"               # 匹配名称
 
 | 源文件 | 测试文件 |
 |--------|---------|
-| `miniagent/assistant/infrastructure/registry.py` | `tests/test_registry.py` |
+| `miniagent/agent/tools/registry.py` | `tests/test_registry.py` |
 | `miniagent/assistant/session/manager.py` | `tests/test_session.py` |
 | `miniagent/assistant/security/sandbox.py` | `tests/test_sandbox.py` |
 
@@ -472,7 +472,7 @@ version: 1.0.0
 
 ### 通道扩展
 
-出站通道实现 [`ChannelAdapter`](../miniagent/assistant/contracts/channels.py)（`channel_id` + `async send(OutboundEvent)`），并注册到 `ChannelRegistry`。入站侧在 adapter 边界构造平台无关 [`InboundMessage`](../miniagent/assistant/contracts/messages.py)，交给 `InboundTurnCoordinator`；队列键必须显式定义并发/抢占语义。参考实现：`CliChannelAdapter`、`FeishuChannelAdapter`。
+出站通道实现 [`ChannelAdapter`](../miniagent/ui/channels.py)（`channel_id` + `async send(OutboundEvent)`），并注册到 `ChannelRegistry`。入站侧在 adapter 边界构造平台无关 [`InboundMessage`](../miniagent/ui/messages.py)，交给 `InboundTurnCoordinator`；队列键必须显式定义并发/抢占语义。参考实现：`CliChannelAdapter`、`FeishuChannelAdapter`。
 
 不要再自造 `send_message`/`receive_message` 的平行 Protocol；会话映射与绑定见 [FEISHU.md §通道绑定](FEISHU.md#通道绑定)、数据流见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
@@ -524,7 +524,7 @@ print(result.reply)
 
 ```python
 from miniagent.agent.agent import run_agent
-from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
+from miniagent.agent.tools.registry import DefaultToolRegistry
 from miniagent.assistant.memory.runtime import create_memory_runtime
 
 registry = DefaultToolRegistry()

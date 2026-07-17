@@ -29,7 +29,7 @@ from miniagent.agent.types.error_prefix import WARNING_PREFIX
 from miniagent.agent.types.errors import FeishuConfigMissingError, LarkOapiMissingError
 from miniagent.agent.types.tool import ToolResult
 from miniagent.assistant.feishu.lark_client import config_from_env
-from miniagent.assistant.feishu.types import FeishuConfig
+from miniagent.ui.feishu.types import FeishuConfig
 
 
 def require_feishu_config() -> FeishuConfig:

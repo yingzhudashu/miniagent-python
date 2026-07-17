@@ -13,7 +13,7 @@ LAYERS = ("llm", "agent", "ui", "assistant")
 ALLOWED_DEPENDENCIES: dict[str, frozenset[str]] = {
     "llm": frozenset({"llm"}),
     "agent": frozenset({"agent", "llm"}),
-    "ui": frozenset({"ui"}),
+    "ui": frozenset({"ui", "agent"}),
     "assistant": frozenset({"assistant", "agent", "llm", "ui"}),
     "__root__": frozenset({"assistant"}),
 }

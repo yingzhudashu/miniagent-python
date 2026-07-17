@@ -14,8 +14,8 @@ from miniagent.agent.constants import FEISHU_PATCH_TIMEOUT_S, FEISHU_SEND_TIMEOU
 from miniagent.agent.logging import get_logger
 from miniagent.assistant.feishu.lark_client import build_client, clear_client_cache
 from miniagent.assistant.feishu.lark_response import format_lark_response_error
-from miniagent.assistant.feishu.types import FeishuConfig
 from miniagent.assistant.infrastructure.json_config import get_config
+from miniagent.ui.feishu.types import FeishuConfig
 
 _logger = get_logger(__name__)
 

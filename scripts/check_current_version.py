@@ -1,4 +1,4 @@
-"""Reject pre-3.0 compatibility and known duplicate runtime designs."""
+"""Reject pre-4.0 topology drift and known duplicate runtime designs."""
 
 from __future__ import annotations
 

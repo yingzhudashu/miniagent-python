@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from miniagent.agent.tools.registry import DefaultToolRegistry
 from miniagent.agent.types.tool import ToolDefinition, ToolResult
-from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 from miniagent.assistant.mcp.toolbox import (
     MCP_TOOLBOX,
     ensure_mcp_toolbox,

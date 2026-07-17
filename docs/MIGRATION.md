@@ -1,9 +1,10 @@
-# 迁移到 MiniAgent 3.0
+# 迁移到 MiniAgent 4.0
 
-> Mini Agent Python | 版本: 3.0.0 | 最后更新: 2026-07-16 | 3.0 只支持当前配置与状态格式
+> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-17 | 4.0 保持 `llm.*` 配置与 3.0 状态数据兼容
 
-MiniAgent 3.0 不会自动转换、备份或改写旧配置和状态文件。迁移前先停止旧实例，完整复制
-`config.user.json` 与旧状态目录，再让 3.0 使用一个新的空状态目录；不要直接在唯一副本上试跑。
+MiniAgent 4.0 保留 3.0 的 `llm.*` 配置、会话、Memory、知识库和 Trace 文件格式，不执行
+`llm → ai` 改名。迁移前仍应停止旧实例并备份 `config.user.json` 与状态目录。2.x 用户须先完成
+下述 provider/model/role 和状态 schema 转换；3.0 用户可以直接使用原状态目录。
 
 ## 配置迁移
 
@@ -58,7 +59,7 @@ MiniAgent 3.0 不会自动转换、备份或改写旧配置和状态文件。迁
 
 推荐流程：
 
-1. 使用新状态目录启动 3.0，让当前写入方生成合法空文件。
+1. 从 2.x 升级时使用新状态目录启动 4.0，让当前写入方生成合法空文件。
 2. 只复制仍需保留的用户数据，并按新文件字段逐项转换；不要复制旧版本字段或锁/PID。
 3. 运行 `/doctor`、`/session list`、`/schedule list` 和相关功能的只读检查。
 4. 验证成功后再归档旧目录。MiniAgent 不会替用户删除旧 `.bak`、会话或 workspace。
@@ -72,7 +73,7 @@ MiniAgent 3.0 不会自动转换、备份或改写旧配置和状态文件。迁
 - `miniagent.ui`
 - `miniagent.assistant`
 
-模型调用通过 `LLMGateway` 并显式指定 `role` 与可选 `profile`。核心 Agent 使用
-`AgentServices`、不可变 `AgentSettings` 和必要端口构造。完整产品通过
-`run_assistant(argv)` 启动，或由 `create_assistant_application()` 创建后调用
-`AssistantApplication.run()`。3.0 不提供 2.x 内部模块路径的兼容导入。
+模型调用继续通过 `LLMGateway`，Embedding 通过 `EmbeddingClient`。可复用 Agent 使用
+`AgentRuntime(AgentSpec, llm, extensions)`，通过统一 `AgentEvent` 输出状态。UI 实现
+`UISurface`；实例由 `AssistantSpec` 和 `create_assistant()` 构造。默认产品仍可通过
+`run_assistant(argv)` 或 `create_personal_assistant()` 启动。4.0 不恢复 2.x 内部导入路径。

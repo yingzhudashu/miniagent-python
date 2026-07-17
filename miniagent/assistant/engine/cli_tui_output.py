@@ -8,10 +8,10 @@ from typing import Any
 from prompt_toolkit.application import get_app
 
 from miniagent.agent.logging import set_console_log_threshold
-from miniagent.assistant.contracts.messages import OutboundEvent
 from miniagent.assistant.engine.cli_state import CliLoopState
 from miniagent.assistant.engine.feishu_handler import create_feishu_handler
 from miniagent.assistant.infrastructure.json_config import get_config
+from miniagent.ui.messages import OutboundEvent
 
 _ANSI_COLOR_STYLE_MAP: dict[str, str] = {
     "ansiblue": "class:cli-border",

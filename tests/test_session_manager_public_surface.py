@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
+from miniagent.agent.tools.registry import DefaultToolRegistry
 from miniagent.agent.types.skill import Skill
 from miniagent.agent.types.tool import Toolbox, ToolDefinition, ToolResult
-from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 from miniagent.assistant.session import manager as manager_module
 from miniagent.assistant.session.manager import DefaultSessionManager, _get_session_lock_owner
 

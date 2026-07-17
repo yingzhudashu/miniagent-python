@@ -13,10 +13,10 @@ from miniagent.agent.agent import (
     run_agent,
 )
 from miniagent.agent.task_classifier import TaskDifficulty
+from miniagent.agent.tools.registry import DefaultToolRegistry
 from miniagent.agent.types.confirmation import ConfirmationResult
 from miniagent.agent.types.planning import PlanStep, StructuredPlan
 from miniagent.agent.types.tool import Toolbox
-from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
 from tests.config_helpers import install_test_config
 from tests.memory_helpers import make_knowledge_registry, make_memory_runtime
 

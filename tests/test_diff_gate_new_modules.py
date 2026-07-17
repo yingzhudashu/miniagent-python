@@ -327,7 +327,7 @@ def test_docx_rendered_table_and_block_edge_paths(monkeypatch: pytest.MonkeyPatc
     import miniagent.assistant.feishu.docx.markdown_renderer as renderer
     import miniagent.assistant.feishu.docx.tables as tables
     from miniagent.assistant.feishu.docx import blocks
-    from miniagent.assistant.feishu.types import FeishuConfig
+    from miniagent.ui.feishu.types import FeishuConfig
 
     warnings: list[str] = []
     empty = SimpleNamespace(table_data=[])

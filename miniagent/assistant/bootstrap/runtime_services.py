@@ -6,7 +6,7 @@ import asyncio
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, cast
 
-from miniagent.assistant.bootstrap.lifecycle import LifecycleManager
+from miniagent.agent.lifecycle import LifecycleManager
 from miniagent.assistant.bootstrap.task_service import AsyncTaskLifecycleService
 from miniagent.assistant.engine.cli_state import CliLoopState
 from miniagent.assistant.engine.feishu_lifecycle import FeishuRuntimeLifecycleService

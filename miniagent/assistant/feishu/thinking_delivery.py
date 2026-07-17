@@ -18,7 +18,7 @@ from miniagent.assistant.feishu.outbound_delivery import (
     _post_interactive_message,
     _post_interactive_message_async,
 )
-from miniagent.assistant.feishu.types import FeishuConfig
+from miniagent.ui.feishu.types import FeishuConfig
 
 _logger = get_logger(__name__)
 

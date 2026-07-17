@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from miniagent.assistant.infrastructure.registry import DefaultToolRegistry
+from miniagent.agent.tools.registry import DefaultToolRegistry
 from miniagent.assistant.session.manager import DefaultSessionManager, SessionOptions
 
 

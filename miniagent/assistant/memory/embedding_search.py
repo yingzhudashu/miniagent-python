@@ -29,6 +29,7 @@ from typing import Any
 import httpx
 
 from miniagent.assistant.infrastructure.atomic_json import atomic_dump_json
+from miniagent.llm.embeddings import EmbeddingClient, EmbeddingConfig
 
 # numpy is an optional acceleration path. Importing it eagerly adds substantial
 # startup RSS even when embedding search is disabled or the index is small.
@@ -234,35 +235,19 @@ async def _get_embedding(
     api_key: str,
     timeout: float = 15.0,
 ) -> list[float]:
-    """调用 OpenAI 兼容的 embedding 端点（带重试机制）。"""
-    if not base_url or not model or not api_key:
-        raise ValueError("嵌入配置不完整：需要 base_url、model 和 api_key")
-
-    url = base_url.rstrip("/") + "/embeddings"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "model": model,
-        "input": text,
-    }
-
-    # 网络可靠性：使用重试机制
-    from miniagent.assistant.infrastructure.http_retry import async_http_request_with_retry
-
-    resp = await async_http_request_with_retry(
-        client,
-        "POST",
-        url,
-        payload=payload,
-        headers=headers,
-        max_retries=3,
-        backoff_factor=1.0,
+    """通过 LLM 层统一的 embedding transport 获取向量。"""
+    embedding_client = EmbeddingClient(
+        EmbeddingConfig(
+            base_url=base_url,
+            model=model,
+            api_key=api_key,
+            timeout=timeout,
+            max_retries=3,
+            backoff_factor=1.0,
+        ),
+        client=client,
     )
-
-    data = resp.json()
-    return data["data"][0]["embedding"]
+    return await embedding_client.embed(text)
 
 
 # ============================================================================
