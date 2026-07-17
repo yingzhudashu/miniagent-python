@@ -1,89 +1,70 @@
 # MiniAgent Test Guide
 
-This directory contains MiniAgent's local unit, integration, performance smoke, and gated
-evaluation tests.
+The test suite is organized by product capability. The repository-level pytest configuration
+runs the deterministic local gate by default and keeps performance and real-API evaluation tests
+explicitly opt-in.
 
 ## Layout
 
 ```text
 tests/
-|- conftest.py             # suite-wide isolation fixtures only
-|- llm_helpers.py          # deterministic LLM gateway doubles
-|- executor_helpers.py     # explicit executor collaborator factories
-|- *_helpers.py            # narrowly scoped shared test utilities
-|- test_*.py               # default local suite, organized by behavior
-|- evaluation/             # explicit opt-in API and evaluation tests
-|- perf_baselines/         # hand-maintained reference baselines
-`- performance/            # optional benchmark helpers
+|- agent/           # planning, execution, reflection, confirmation, agent types
+|- runtime/         # assistant composition, engine, lifecycle, config, self-optimization
+|- cli/             # CLI, TUI, commands, welcome and platform interaction
+|- feishu/          # messaging, routing, cards, Docx, Bitable and Drive
+|- llm/             # gateways, providers, transports and request protocols
+|- memory/          # memory, knowledge, history, indexes and persistence
+|- scheduling/      # scheduled tasks, cron and timezone behavior
+|- session/         # sessions, locks, workspaces and background cleanup
+|- skills/          # skill loading, registration, installation and ClawHub
+|- tools/           # filesystem, exec, web, browser, MCP and sandbox behavior
+|- observability/   # tracing, logs, monitoring and statistics
+|- quality/         # architecture, docs, packaging and public API contracts
+|- integration/     # workflows that genuinely cross capability boundaries
+|- performance/     # opt-in benchmarks, performance support and baselines
+|- evaluation/      # opt-in real-API evaluation and samples
+|- support/         # shared test doubles and factories
+`- conftest.py      # suite-wide isolation fixtures only
 ```
 
-## Common Commands
+## Commands
 
 ```bash
-# Default local gate, matching the main CI test selection.
-python -m pytest tests/ -q -m "not evaluation and not perf"
+# Complete deterministic local gate (evaluation and perf are excluded by pyproject.toml).
+python -m pytest
 
-# Include evaluation tests; real API tests still require explicit environment gates.
-python -m pytest tests/ -q
+# Run one capability directly.
+python -m pytest tests/agent
+python -m pytest tests/feishu
+python -m pytest tests/session
 
-# Deterministic local performance smoke over real runtime paths.
-python -m pytest tests/test_perf_synthetic.py tests/test_trace_performance.py \
-  tests/performance/benchmarks.py -q -m perf --durations=13
+# Select a file or test as usual.
+python -m pytest tests/agent/test_planner_full_flow.py -k normalization
 
-# Coverage report; generated .coverage/htmlcov files are ignored artifacts.
-python -m pytest tests/ -q -m "not evaluation and not perf" \
-  --cov=miniagent --cov-report=html --cov-report=term-missing
+# Opt-in performance and evaluation suites.
+python -m pytest tests/performance -m perf
+python -m pytest tests/evaluation -m evaluation
 
-# Inspect the current collected tests. Do not hard-code this count in documentation.
-python -m pytest tests/ --collect-only -q
+# Coverage for the deterministic gate.
+python -m pytest --cov=miniagent --cov-branch --cov-report=term-missing
+
+# Inspect collection without maintaining a hard-coded test count.
+python -m pytest --collect-only
 ```
 
-## Markers
+Real API tests additionally require `MINIAGENT_REAL_API_STRESS=1` and valid provider credentials.
+Generated API performance output belongs in `workspaces/logs/perf/`, while hand-maintained
+references belong in `tests/performance/baselines/`.
 
-Markers are declared in `pyproject.toml`:
+## Organization Rules
 
-- `evaluation`: gated tests under `tests/evaluation`, often using network/API access.
-- `perf`: deterministic local performance smoke tests.
-- `slow`: tests that may take more than a few seconds.
-- `dot_help_dispatch`: real `.help` dispatch path coverage.
-
-Most tests intentionally avoid `unit` and `integration` markers. Use explicit file paths for
-focused runs instead of relying on undeclared markers.
-
-## Test Organization
-
-- Give each behavior one canonical test home. Do not repeat a unit-level assertion in a consumer
-  test unless the consumer exercises a distinct integration path.
-- When merging test files, delete the superseded files in the same change. Preserve unique cases
-  in a focused behavior file before removing an aggregate file.
-- Put regressions beside the behavior they protect. Use a dedicated regression file only when the
-  scenario crosses multiple subsystem boundaries.
-- Keep `conftest.py` limited to fixtures that provide suite-wide isolation. Put domain-specific
-  factories in explicit helper modules and import them only where needed.
-- Extract a helper only when at least three callers share the same setup or when it owns a complex
-  lifecycle. Inline one-off setup so the behavior remains visible in the test.
-- Parameterize cases only when control flow is identical and inputs or expected outputs vary. Add
-  stable `ids` that identify the behavior represented by each case.
-- Test observable behavior. Avoid tests that only check `callable`, positive constants, or a helper
-  that reimplements production logic inside the test.
-- Network, SDK, and LLM tests must use deterministic fakes or mocks and explicitly clean up clients,
-  tasks, temporary state, and process-level hooks.
-
-## Real API Tests
-
-Real API tests are outside the default local and CI gate. Run them only with explicit opt-in:
-
-```powershell
-$env:MINIAGENT_REAL_API_STRESS = "1"
-$env:MINIAGENT_REAL_API_PERF_DIR = "workspaces/logs/perf"
-python -m pytest tests/evaluation/test_perf_real_api.py -q
-```
-
-Generated real API output belongs in `workspaces/logs/perf/`, not in `tests/perf_baselines/`.
-
-## Test Hygiene
-
-- Keep tests deterministic and isolated with temporary state directories.
-- Mock network, SDK, and LLM clients unless a test is explicitly marked `evaluation`.
-- Clear process-level singletons and trace hooks when a test mutates them.
-- Keep generated logs, traces, coverage files, and performance snapshots out of the repository.
+- Put a test in the capability that owns the observable behavior. Use `integration/` only when no
+  single capability owns the scenario.
+- Give each behavior one canonical test home. Preserve unique regression cases when merging files,
+  but remove assertions already covered by the canonical behavior test.
+- Keep `conftest.py` limited to suite-wide isolation. Shared doubles and lifecycle factories belong
+  in `support/`; capability-specific helpers stay beside their tests.
+- Do not import private helpers from another `test_*.py` module.
+- Parameterize cases only when control flow is identical, and use stable case IDs.
+- Mock network, SDK and LLM calls unless a test is explicitly in `evaluation/`.
+- Keep generated logs, traces, coverage files and performance snapshots out of the repository.

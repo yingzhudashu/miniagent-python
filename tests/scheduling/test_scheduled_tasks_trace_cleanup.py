@@ -1,0 +1,91 @@
+"""trace_cleanup 节流与 ticker 集成。"""
+
+from __future__ import annotations
+
+import asyncio
+from unittest.mock import AsyncMock
+
+import pytest
+
+from miniagent.assistant.scheduled_tasks import trace_cleanup as tc_mod
+from miniagent.assistant.scheduled_tasks.ticker import scheduled_tasks_loop
+from miniagent.assistant.scheduled_tasks.trace_cleanup import TraceHousekeeping
+from tests.support.config import install_test_config
+from tests.support.scheduling import minimal_cli_state, minimal_tick_ctx
+
+
+def test_trace_housekeeping_runs_cleanup_when_due(monkeypatch: pytest.MonkeyPatch) -> None:
+    housekeeping = TraceHousekeeping()
+    calls: list[int] = []
+
+    def _fake_cleanup() -> dict[str, object]:
+        calls.append(1)
+        return {"success": True, "deleted_count": 2}
+
+    monkeypatch.setattr(tc_mod, "scheduled_cleanup_traces", _fake_cleanup)
+    result = housekeeping.maybe_cleanup()
+    assert result == {"success": True, "deleted_count": 2}
+    assert len(calls) == 1
+
+
+def test_trace_housekeeping_throttles_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
+    housekeeping = TraceHousekeeping()
+    calls: list[int] = []
+
+    def _fake_cleanup() -> dict[str, object]:
+        calls.append(1)
+        return {"success": True, "deleted_count": 0}
+
+    monkeypatch.setattr(tc_mod, "scheduled_cleanup_traces", _fake_cleanup)
+    assert housekeeping.maybe_cleanup() is not None
+    assert housekeeping.maybe_cleanup() is None
+    assert len(calls) == 1
+
+
+def test_trace_housekeeping_skips_disabled_cleanup(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    housekeeping = TraceHousekeeping()
+    install_test_config(tmp_path, {"trace": {"auto_cleanup": False}})
+    calls: list[int] = []
+    monkeypatch.setattr(
+        tc_mod,
+        "scheduled_cleanup_traces",
+        lambda: calls.append(1) or {"success": True},
+    )
+    assert housekeeping.maybe_cleanup() is None
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_scheduled_tasks_loop_invokes_trace_housekeeping(
+    state_dir: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cleanup_calls: list[int] = []
+    stats_calls: list[int] = []
+
+    monkeypatch.setattr(
+        "miniagent.assistant.scheduled_tasks.trace_cleanup.TraceHousekeeping.maybe_cleanup",
+        lambda _self: cleanup_calls.append(1),
+    )
+    monkeypatch.setattr(
+        "miniagent.assistant.scheduled_tasks.trace_cleanup.TraceHousekeeping.maybe_report",
+        lambda _self: stats_calls.append(1),
+    )
+    monkeypatch.setattr(
+        "miniagent.assistant.scheduled_tasks.ticker.tick_once",
+        AsyncMock(),
+    )
+    monkeypatch.setattr(
+        "miniagent.assistant.scheduled_tasks.ticker._sleep_seconds_until", lambda _tasks: 0.01
+    )
+
+    ctx = minimal_tick_ctx()
+    st = minimal_cli_state(ctx)
+    stop = asyncio.Event()
+    loop_task = asyncio.create_task(scheduled_tasks_loop(ctx, st, [], [], stop))
+    await asyncio.sleep(0.05)
+    stop.set()
+    await asyncio.wait_for(loop_task, timeout=2.0)
+    assert len(cleanup_calls) >= 1
+    assert len(stats_calls) >= 1

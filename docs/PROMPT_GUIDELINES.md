@@ -268,7 +268,7 @@ from miniagent.agent.prompts import AGENT_IDENTITY, PLAN_SYSTEM_PROMPT
 
 ### 5.1 结构测试
 
-每个提示词应通过 `tests/test_prompts_structure.py` 的验证：
+每个提示词应通过 `tests/quality/test_prompts_structure.py` 的验证：
 
 - 包含必需的 XML 标签
 - 示例数量 ≥ 3
@@ -280,7 +280,7 @@ from miniagent.agent.prompts import AGENT_IDENTITY, PLAN_SYSTEM_PROMPT
 运行现有测试确保行为正确（命令见 [INDEX.md §测试与质量](INDEX.md#测试与质量)）：
 
 ```bash
-python -m pytest tests/test_prompts_structure.py -v
+python -m pytest tests/quality/test_prompts_structure.py -v
 ```
 
 ---
@@ -315,4 +315,4 @@ python -m pytest tests/test_prompts_structure.py -v
 - [Claude 提示词最佳实践](https://platform.claude.com/docs/zh-CN/build-with-claude/prompt-engineering/claude-prompting-best-practices)
 - [ARCHITECTURE.md](ARCHITECTURE.md) §提示词模块
 - [CONTRIBUTING.md](CONTRIBUTING.md) — 贡献指南（Part 2 扩展开发、Part 3 API 示例）
-- [tests/test_prompts_structure.py](../tests/test_prompts_structure.py)
+- [tests/quality/test_prompts_structure.py](../tests/quality/test_prompts_structure.py)

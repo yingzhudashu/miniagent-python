@@ -30,13 +30,13 @@
 
 ## 测试与质量
 
-- **测试数量**：以 `pytest tests/ --collect-only -q` 收集结果为准
+- **测试数量**：以 `python -m pytest --collect-only` 收集结果为准
 - **覆盖率**：CI 使用分支模式并以 80% 作为整体门禁，同时要求本次修改行覆盖率 ≥95%；当前实测值和命令见 [ENGINEERING.md](ENGINEERING.md) §2
 - **测试矩阵**：测试文件和 CI workflow 是可执行事实来源，不再维护人工状态表
 
 ```bash
-pytest tests/ -q -m "not evaluation"
-pytest tests/ --cov=miniagent --cov-report=html
+python -m pytest
+python -m pytest --cov=miniagent --cov-report=html
 ```
 
 ---

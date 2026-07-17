@@ -2,7 +2,7 @@
 """对比两次 ``scripts/perf_profile_tracemalloc.py --json-out`` 的输出（基线 vs 当前）。
 
 用法:
-  python scripts/compare_perf_snapshots.py tests/perf_baselines/local.json perf-snapshot.json
+  python scripts/compare_perf_snapshots.py tests/performance/baselines/local.json perf-snapshot.json
   python scripts/compare_perf_snapshots.py perf-snapshot.json perf-snapshot.json --warn-ratio 1.25
 
 退出码: 0 正常；1 超出 --warn-ratio；2 文件缺失、JSON 无效或根类型非对象。

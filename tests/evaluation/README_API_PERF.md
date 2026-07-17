@@ -27,23 +27,23 @@ full prompts, responses, or API keys.
 ```powershell
 $env:MINIAGENT_REAL_API_STRESS = "1"
 $env:MINIAGENT_REAL_API_PERF_DIR = "workspaces/logs/perf"
-python -m pytest tests/evaluation/test_perf_real_api.py -q
+python -m pytest tests/evaluation/test_perf_real_api.py -m evaluation
 Remove-Item Env:MINIAGENT_REAL_API_STRESS
 Remove-Item Env:MINIAGENT_REAL_API_PERF_DIR
 ```
 
 `MINIAGENT_REAL_API_PERF_DIR` defaults to `workspaces/logs/perf`, which is ignored by Git. Keep
 generated `real-api-test-results.json`, `concurrent-test-results.json`, trace files, and snapshots
-out of `tests/perf_baselines/`.
+out of `tests/performance/baselines/`.
 
 ## Optional Local Comparison
 
-`tests/perf_baselines/real-api-baseline.json` is a small, hand-maintained reference baseline. It is
+`tests/performance/baselines/real-api-baseline.json` is a small, hand-maintained reference baseline. It is
 not a raw test output file.
 
 ```powershell
 python scripts/perf_profile_tracemalloc.py --inner-repeat 10 --json-out real-api-snapshot.json
-python scripts/compare_perf_snapshots.py tests/perf_baselines/real-api-baseline.json real-api-snapshot.json
+python scripts/compare_perf_snapshots.py tests/performance/baselines/real-api-baseline.json real-api-snapshot.json
 ```
 
 For the full performance workflow and trace policy, see

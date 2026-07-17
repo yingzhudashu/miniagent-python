@@ -1,6 +1,6 @@
 """评测子目录共用 fixture / 收集钩子。
 
-默认 CI 使用 ``pytest -m "not evaluation"`` 排除本目录下用例（可能依赖网络或真实 API Key）。
+默认 ``python -m pytest`` 排除本目录下用例（可能依赖网络或真实 API Key）。
 新增 ``tests/evaluation/test_*.py`` 时无需逐文件打标：收集阶段会自动附加 ``evaluation`` marker。
 """
 

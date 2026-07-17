@@ -27,10 +27,8 @@ jobs:
           PYTHONHASHSEED: "0"
         run: >-
           python -m pytest
-          tests/test_perf_synthetic.py
-          tests/test_trace_performance.py
-          tests/performance/benchmarks.py
-          -q -m perf --tb=short
+          tests/performance
+          -m perf --tb=short
 
       - name: Tracemalloc profile script
         env:

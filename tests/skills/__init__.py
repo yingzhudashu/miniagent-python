@@ -1,0 +1,1 @@
+"""Skills capability tests."""

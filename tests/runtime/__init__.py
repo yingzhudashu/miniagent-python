@@ -1,0 +1,1 @@
+"""Assistant runtime capability tests."""

@@ -98,7 +98,7 @@ def memory_runtime(state_dir: str):
 @pytest.fixture
 def knowledge_registry():
     """Return an explicitly injected empty knowledge registry."""
-    from tests.memory_helpers import make_knowledge_registry
+    from tests.support.memory import make_knowledge_registry
 
     return make_knowledge_registry()
 

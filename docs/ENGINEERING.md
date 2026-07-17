@@ -94,14 +94,14 @@ python scripts/check_architecture.py
 python scripts/docstring_inventory.py --check
 python scripts/check_docs.py
 python -m bandit -q -r miniagent -x miniagent/assistant/skills/templates -lll
-python -m pytest tests/ -q -m "not evaluation and not perf"
+python -m pytest
 ```
 
 CI 说明：
 
 - **`test` job**（矩阵 Python 3.10 / 3.12 / 3.13）：`pip install -e ".[dev,typing]"`，跑 `compileall`、Ruff、文档与仓库卫生/docstring、Bandit、架构/函数长度、全包 Mypy、wheel 资源检查（仅 3.12）及离线非性能测试。
-- **`test-feishu-extra` job**（仅 3.12）：`pip install -e ".[dev,feishu]"` 后再跑 `compileall`、`ruff` 与 `pytest -m "not evaluation"`，确保安装 `lark-oapi` 时仍通过（与主矩阵并行，不拖慢双版本安装）。
-- **`test-mcp-extra` job**（仅 3.12）：`pip install -e ".[dev,mcp]"`，对官方 `mcp` SDK 做 `import` 冒烟，再跑 `compileall`、`ruff` 与 `pytest -m "not evaluation"`，防止 `[mcp]` extra 与代码导入漂移。
+- **`test-feishu-extra` job**（仅 3.12）：`pip install -e ".[dev,feishu]"` 后再跑 `compileall`、`ruff` 与默认 pytest 门禁，确保安装 `lark-oapi` 时仍通过（与主矩阵并行，不拖慢多版本安装）。
+- **`test-mcp-extra` job**（仅 3.12）：`pip install -e ".[dev,mcp]"`，对官方 `mcp` SDK 做 `import` 冒烟，再跑 `compileall`、`ruff` 与默认 pytest 门禁，防止 `[mcp]` extra 与代码导入漂移。
 - **`test-provider-extra` job**（仅 3.12）：`pip install -e ".[dev,providers]"`，对 Anthropic 与 Google SDK 做 import 冒烟，并运行完整非 evaluation 回归，验证三类 provider 适配器可与可选依赖共存。
 - **`test-browser-extra` job**（仅 3.12）：`pip install -e ".[dev,browser]"`，导入 Playwright 并运行浏览器池与网页工具的离线契约测试；不下载浏览器二进制，也不访问外网。
 
@@ -111,20 +111,19 @@ CI 说明：
 - **架构检查**：顶层只允许 `llm`、`agent`、`ui`、`assistant`，完整扫描函数内、相对及 `TYPE_CHECKING` 导入，校验 `assistant → agent → llm` 与 `assistant → ui` 的无环方向；同时禁止 commands 反向导入 dispatcher、禁止 Assistant 生产路径直接调用函数式 Agent 内核，并零豁免要求生产函数/方法不超过 100 行。
 - **compileall**：全包语法编译，可捕获部分「仅某测试未覆盖路径」的语法错误。
 - **mypy**：CI 与本地均对整个 `miniagent` 包执行有类型函数体检查；可选 SDK 通过 Protocol/适配器隔离，不使用全局忽略掩盖内部错误。需安装 `.[dev,typing]`。
-- **Pytest**：默认 `asyncio_mode = auto`；`tests/evaluation/` 下用例由 `conftest` 统一打上 `evaluation` marker，与主 CI 隔离；本地若要一次跑全量可执行 `python -m pytest tests/ -q`（含评测）。未装 `lark-oapi` 时部分飞书路径可能跳过；本地可改用 `pip install -e ".[dev,feishu]"` 与 CI 飞书 job 对齐。
+- **Pytest**：默认 `asyncio_mode = auto`，`python -m pytest` 运行确定性的本地门禁；`tests/evaluation/` 和带 `perf` marker 的性能用例显式排除，分别通过 `python -m pytest tests/evaluation -m evaluation` 与 `python -m pytest tests/performance -m perf` 运行。未装 `lark-oapi` 时部分飞书路径可能跳过；本地可改用 `pip install -e ".[dev,feishu]"` 与 CI 飞书 job 对齐。
 - **覆盖率门禁**：CI 运行 `pytest-cov --cov-branch --cov-fail-under=80`；PR 使用 `diff-cover` 要求修改行覆盖率 ≥95%。实时数值以 CI 产物为准；测试代码必须验证行为，不能通过扩大 omit 或生成无断言测试达成。本地命令见 [INDEX.md](INDEX.md) §测试与质量。
 
 ### 2.1 测试责任矩阵
 
-- Agent 阶段、模型协议与工具执行由 `test_agent_*`、`test_planner_*`、`test_executor_*` 和 `test_llm_*` 覆盖。
-- CLI/TUI、历史与命令由 `test_cli_*`、`test_command_dispatch.py` 和 `test_help_markdown.py` 覆盖。
-- 飞书接收、路由、卡片、Docx/Bitable/Drive 与降级由 `test_feishu_*` 覆盖。
-- 会话、记忆、知识库、调度、Trace 和生命周期分别由同名测试模块覆盖。
+- Agent 阶段、规划、执行和确认由 `tests/agent/` 覆盖，模型协议由 `tests/llm/` 覆盖。
+- CLI/TUI 与命令由 `tests/cli/` 覆盖，飞书渠道由 `tests/feishu/` 覆盖。
+- 会话、记忆、调度、工具、Trace 和生命周期分别由同名能力目录覆盖。
 - 新功能必须在同一变更中增加行为测试；删除测试前必须证明它与仍保留的测试断言完全重复。
 
 可选增强（未默认纳入 CI，团队可自行约定）：
 
-- 性能合成与剖析流程见 [PERFORMANCE.md](PERFORMANCE.md)；可选 workflow **Perf smoke**（`workflow_dispatch` / 定时）跑完整 perf marker（含 `tests/performance/benchmarks.py`）、内存剖析、Trace 开销和短稳定性浸泡，并上传带 commit SHA 的 artifact；离线对比两次 JSON 可用 `scripts/compare_perf_snapshots.py`。
+- 性能合成与剖析流程见 [PERFORMANCE.md](PERFORMANCE.md)；可选 workflow **Perf smoke**（`workflow_dispatch` / 定时）运行 `tests/performance/` 的完整 perf marker、内存剖析、Trace 开销和短稳定性浸泡，并上传带 commit SHA 的 artifact；离线对比两次 JSON 可用 `scripts/compare_perf_snapshots.py`。
 - **可选 pre-commit**：仓库根 [`.pre-commit-config.yaml`](../.pre-commit-config.yaml) 提供 `ruff` hook（路径 `miniagent`、`tests`）；本地执行 `pip install pre-commit && pre-commit install` 后随 commit 检查。
 - **维护脚本清单**见 [scripts/README.md](../scripts/README.md)；自 v2.0.3 起，手工 verify 脚本已移除，性能回归用 `pytest -m perf` 与 `scripts/perf_profile_tracemalloc.py`。
 

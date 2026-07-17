@@ -1,0 +1,1 @@
+"""Session capability tests."""
