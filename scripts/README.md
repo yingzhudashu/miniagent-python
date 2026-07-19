@@ -1,7 +1,7 @@
 # 维护脚本
 
 - `check_architecture.py`：校验核心分层依赖方向与生产函数 100 行零豁免上限。
-- `check_docs.py`：校验 Markdown 本地链接、锚点、索引和易漂移事实。
+- `check_docs.py`：校验 Markdown 本地链接、锚点、索引、配置键、环境变量声明和易漂移事实。
 - `check_wheel_resources.py`：检查构建 Wheel 中的默认配置、技能资源，以及 Python 模块清单是否与当前源码树完全一致，防止旧构建缓存夹带已删除模块。
 - `docstring_inventory.py --check`：强制模块、公开接口、复杂顶层私有实现与关键状态机具备有效说明。
 - `perf_profile_tracemalloc.py` / `compare_perf_snapshots.py`：生成并比较本地性能快照。
@@ -13,10 +13,15 @@
 |------|------|------|
 | `bootstrap_clawhub_skills.py` | 从 ClawHub 安装额外技能 | README、USER_GUIDE §7 |
 | `vendor_skill_from_github.py` | GitHub 拉取技能目录（ClawHub 备选） | `clawhub_client` 错误提示 |
+| `check_architecture.py` | 四模块依赖、内部边界和函数长度门禁 | [ARCHITECTURE.md](../docs/ARCHITECTURE.md) |
+| `check_current_version.py` | 拒绝当前版本源码继续引用退役顶层模块 | [ENGINEERING.md](../docs/ENGINEERING.md) |
+| `check_docs.py` | 文档链接、索引、配置、环境变量与仓库产物检查 | [CONTRIBUTING.md](../docs/CONTRIBUTING.md) |
+| `check_wheel_resources.py` | 对照源码检查 wheel 模块和运行资源 | [ENGINEERING.md](../docs/ENGINEERING.md) |
 | `perf_profile_tracemalloc.py` | 正式 `record_turn` 路径的 wall/CPU/tracemalloc 剖析 | [PERFORMANCE.md](../docs/PERFORMANCE.md) |
 | `compare_perf_snapshots.py` | 对比两次剖析 JSON | [PERFORMANCE.md](../docs/PERFORMANCE.md) |
 | `perf_trace_overhead.py` | Trace 禁用/启用路径开销与 writer 完整性 | [PERFORMANCE.md](../docs/PERFORMANCE.md) |
 | `perf_stability_soak.py` | 预热后测量 RSS、Python 分配、线程和 Trace 的稳定性浸泡 | [PERFORMANCE.md](../docs/PERFORMANCE.md) |
+| `perf_trace_real_api.py` | 显式 opt-in 的真实 API 全链路 Trace 验证 | [PERFORMANCE.md](../docs/PERFORMANCE.md) |
 | `docstring_inventory.py` | docstring 缺失扫描 | [CONTRIBUTING.md](../docs/CONTRIBUTING.md) |
 | `user/` | 用户私有脚本目录（不入库） | user/README.md |
 

@@ -15,7 +15,11 @@ def _received_at(create_time: int) -> datetime | None:
     if create_time <= 0:
         return None
     try:
-        return datetime.fromtimestamp(create_time, timezone.utc)
+        # Lark message events use milliseconds, while normalized/test payloads may
+        # already use POSIX seconds. Values above year 2286 in seconds are treated
+        # as milliseconds so current and foreseeable timestamps are unambiguous.
+        timestamp = create_time / 1000 if create_time >= 10_000_000_000 else create_time
+        return datetime.fromtimestamp(timestamp, timezone.utc)
     except (OverflowError, OSError, ValueError):
         return None
 
@@ -24,6 +28,7 @@ def build_feishu_inbound_message(
     inbound: FeishuInboundText,
     session_key: str,
 ) -> InboundMessage:
+    """Normalize one Feishu text/card event into a channel-neutral message."""
     message_id = (inbound.message_id or "").strip()
     kwargs: dict[str, Any] = {
         "channel": FEISHU_CHANNEL,
@@ -67,6 +72,7 @@ def build_feishu_media_inbound_message(
     relative_path: str,
     thread_id: str | None = None,
 ) -> InboundMessage:
+    """Normalize downloaded Feishu media and preserve its workspace metadata."""
     normalized_message_id = (message_id or "").strip()
     attachment = Attachment(
         attachment_id=(file_key or "").strip()

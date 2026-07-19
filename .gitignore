@@ -11,7 +11,7 @@ dist/
 build/
 state/
 
-# 环境变量配置（敏感凭据）
+# 常见本地凭据文件（项目配置仍以 config.user.json 为准）
 .env
 .env.secrets
 .env.backup

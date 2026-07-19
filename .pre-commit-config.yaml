@@ -1,8 +1,0 @@
-# 可选：仓库根执行 `pre-commit install` 后在 commit 前跑与 CI 一致的 ruff check。
-# 版本号可与本地 `ruff --version` 对齐后按需更新 rev。
-repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.11.2
-    hooks:
-      - id: ruff
-        args: [miniagent, tests]

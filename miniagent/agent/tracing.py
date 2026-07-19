@@ -52,6 +52,7 @@ class JsonlTraceExporter:
         self._dropped = 0
 
     def bind(self, runtime: AgentRuntime) -> None:
+        """Subscribe to exactly one Agent runtime before lifecycle startup."""
         if self._runtime is not None and self._runtime is not runtime:
             raise RuntimeError("trace exporter is already bound to another AgentRuntime")
         self._runtime = runtime
@@ -59,16 +60,19 @@ class JsonlTraceExporter:
             self._unsubscribe = runtime.subscribe(self._on_event)
 
     async def initialize(self) -> None:
+        """Create the output directory without starting background work."""
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
         self._state = HealthState.STARTING
 
     async def start(self) -> None:
+        """Start the single queue writer after the runtime has been bound."""
         if self._runtime is None:
             raise RuntimeError("trace exporter must be bound before start")
         self._writer = asyncio.create_task(self._write_loop(), name="agent-trace-writer")
         self._state = HealthState.READY
 
     async def stop(self) -> None:
+        """Flush queued events, stop the writer and unsubscribe idempotently."""
         if self._writer is not None:
             await self._queue.put(None)
             await self._writer
@@ -79,6 +83,7 @@ class JsonlTraceExporter:
         self._state = HealthState.STOPPED
 
     def health(self) -> HealthReport:
+        """Report writer readiness, overflow degradation and counters."""
         state = self._state
         if state is HealthState.READY and self._dropped:
             state = HealthState.DEGRADED

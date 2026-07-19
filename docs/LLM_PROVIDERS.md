@@ -1,8 +1,8 @@
 # LLM 提供商与模型角色
 
-> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-17
+> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-19 | 与 `miniagent.__version__` 对齐
 
-MiniAgent 3.0 将“提供商”“wire API”“模型 profile”和“助手阶段角色”分开管理。
+MiniAgent 4.0 将“提供商”“wire API”“模型 profile”和“助手阶段角色”分开管理。
 默认回答不会按价格或厂商自动换模型；只有 `llm.roles` 中的显式绑定可以跨模型或提供商。
 
 ## 支持范围
@@ -86,7 +86,7 @@ DeepSeek、OpenRouter、Qwen、Ollama、vLLM、LM Studio 等 OpenAI 兼容服务
 
 ## 从旧版本升级
 
-3.0 运行时不包含迁移器。provider/profile/role、嵌套凭据与状态 schema 的人工迁移步骤
+4.0 运行时不包含自动迁移器。provider/profile/role、嵌套凭据与状态 schema 的人工迁移步骤
 统一见 [MIGRATION.md](MIGRATION.md)。
 
 ## 错误与可选依赖

@@ -109,3 +109,15 @@ async def test_delivery_cancellation_is_not_wrapped() -> None:
     registry = ChannelRegistry([FunctionChannelAdapter("cli", sender)])
     with pytest.raises(asyncio.CancelledError):
         await registry.send(_event("cli", "cancel"))
+
+
+@pytest.mark.asyncio
+async def test_process_control_exceptions_are_not_wrapped() -> None:
+    """Channel error isolation must not consume interpreter control signals."""
+
+    async def sender(event: OutboundEvent) -> None:
+        raise SystemExit(2)
+
+    registry = ChannelRegistry([FunctionChannelAdapter("cli", sender)])
+    with pytest.raises(SystemExit, match="2"):
+        await registry.send(_event("cli", "stop"))

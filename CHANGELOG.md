@@ -5,6 +5,17 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- AgentRuntime 同一 session 的排队请求不再占用跨 session 并发槽；排队取消会回收会话锁计数，异步事件投递受关停超时约束。
+- ComposedAssistantRuntime 串行化并发 start/stop，关停后清理 run/target 索引，并在聚合普通错误时保留组件名称与控制流异常。
+- 修复命令白名单与关停任务集合的静态类型错误，以及非有限 embedding 测试在 httpx 响应构造阶段提前失败的问题。
+- 文档门禁新增 defaults 配置键与环境变量声明核对；修正组合模式、LLM 重试键、飞书 PATCH 常量、evaluation 配置和第三方技能清单漂移。
+- 命令白名单接受 JSON 数组，并将显式空数组解释为“禁用全部命令”；无效类型失败关闭，不再意外恢复默认允许列表。
+- 飞书入站兼容 Lark 毫秒时间戳，消息过期过滤与标准入站时间保持一致。
+- AgentRuntime 回收空闲会话锁，并以关停超时约束异步事件投递；CLI surface 恢复目标校验，RAG 文档替换不再保留旧向量，Embedding 拒绝 NaN/Infinity。
+- 公共四模块 docstring 门禁恢复通过；架构、配置、coverage、可选依赖和安全文档与当前源码同步。
+
 ### 4.0 Architecture
 
 - Agent 新增生命周期完整的 `AgentRuntime`、不可变 `AgentEvent`、run 级取消、按会话串行和跨会话并行执行；RAG 与 JSONL Trace 作为实例隔离的 `AgentExtension` 接入。
@@ -18,7 +29,7 @@
   `contracts`、`types`、`infrastructure` 等顶层导入路径已移除，不提供转发兼容层。
 - LLM 配置只接受 `llm.providers`、`llm.models`、`llm.roles` 与 `secrets.llm`；运行时
   不迁移或写回旧配置和状态，人工升级步骤见 [docs/MIGRATION.md](docs/MIGRATION.md)。
-  包版本进入 3.0.0。
+  包版本进入 4.0.0；3.0 状态 schema 保持不变。
 
 ### Added
 
@@ -53,7 +64,7 @@
 
 ### 体验
 
-- 复杂任务长内容分层：计划即时预览封顶、分步中间步收成状态行（TUI 替换 / 飞书强制 PATCH）；完整细节仍写入会话历史。配置见 `display.*`，说明见 `docs/OUTPUT_FORMAT.md` §1.7。
+- 复杂任务长内容分层：计划即时预览封顶、分步中间步收成状态行（TUI 替换 / 飞书强制 PATCH）；完整细节仍写入会话历史。显示与通道配置见 `features.*`、`cli.*`、`feishu.card.*`，说明见 `docs/OUTPUT_FORMAT.md`。
 - 最终回复结论先行改由执行 prompt「回复结构」约束，展示层不再硬插 `## 结论`。
 - 新增独立 `builtin-stackexchange` 基线技能：软硬件排障时主动检索 Stack Overflow 及对应 Stack Exchange 站点，结构化返回采纳/高票答案、作者、日期、票数和来源链接；匿名模式可用，并包含查询脱敏、缓存、配额与 API backoff 保护。
 

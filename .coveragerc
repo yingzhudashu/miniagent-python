@@ -8,8 +8,7 @@ omit =
     miniagent/__pycache__/*
     miniagent/*/__pycache__/*
     miniagent/*/vendor/*
-    miniagent/testing/*
-    miniagent/cli/cli.py  # 入口脚本
+    miniagent/assistant/cli/cli.py  # 打包入口脚本
 
 [report]
 precision = 2

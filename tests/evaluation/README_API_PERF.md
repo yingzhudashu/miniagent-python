@@ -1,7 +1,7 @@
 # Real API Performance Smoke
 
-These tests exercise the configured OpenAI-compatible API and are intentionally excluded from
-default CI. They can incur API cost and require an explicit opt-in.
+These tests exercise the configured provider-neutral LLM Gateway and are intentionally excluded
+from default CI. They can incur API cost and require an explicit opt-in.
 
 ## Configuration
 
@@ -9,12 +9,27 @@ Use `config.user.json` or environment variables. Do not commit secrets.
 
 ```json
 {
-  "model": {
-    "base_url": "https://api.openai.com/v1",
-    "model": "gpt-4o-mini"
-  },
   "secrets": {
-    "openai_api_key": "your-real-api-key"
+    "llm": {
+      "openai": {"api_key": "your-real-api-key"}
+    }
+  },
+  "llm": {
+    "providers": {
+      "openai": {
+        "driver": "openai",
+        "base_url": "https://api.openai.com/v1",
+        "credential": "openai"
+      }
+    },
+    "models": {
+      "primary": {
+        "provider": "openai",
+        "model": "gpt-4o-mini",
+        "api": "openai_responses"
+      }
+    },
+    "roles": {"default": "primary", "reasoning": "primary", "fast": "primary"}
   }
 }
 ```
@@ -36,14 +51,17 @@ Remove-Item Env:MINIAGENT_REAL_API_PERF_DIR
 generated `real-api-test-results.json`, `concurrent-test-results.json`, trace files, and snapshots
 out of `tests/performance/baselines/`.
 
-## Optional Local Comparison
+## Baseline Policy
 
 `tests/performance/baselines/real-api-baseline.json` is a small, hand-maintained reference baseline. It is
-not a raw test output file.
+not a raw test output file and is not an input for `compare_perf_snapshots.py`, which compares two
+local `perf_profile_tracemalloc.py` snapshots with a different schema. Compare real-API scenario
+latencies and Trace integrity fields explicitly when refreshing the reference.
 
 ```powershell
-python scripts/perf_profile_tracemalloc.py --inner-repeat 10 --json-out real-api-snapshot.json
-python scripts/compare_perf_snapshots.py tests/performance/baselines/real-api-baseline.json real-api-snapshot.json
+python scripts/perf_profile_tracemalloc.py --inner-repeat 10 --json-out before.json
+python scripts/perf_profile_tracemalloc.py --inner-repeat 10 --json-out after.json
+python scripts/compare_perf_snapshots.py before.json after.json
 ```
 
 For the full performance workflow and trace policy, see

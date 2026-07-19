@@ -1,7 +1,7 @@
 # Mini Agent Python — 日常使用指南
 
 > 安装、配置、首次启动见 **[README.md](../README.md)**。本文从日常使用起，面向已能跑通 Agent 的用户。  
-> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-17 | 与 `miniagent.__version__` 对齐 | 未发版行为见 [CHANGELOG](../CHANGELOG.md) `[Unreleased]`
+> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-19 | 与 `miniagent.__version__` 对齐 | 未发版行为见 [CHANGELOG](../CHANGELOG.md) `[Unreleased]`
 
 ### 章节迁移对照（原 USER_GUIDE 编号）
 
@@ -136,7 +136,7 @@
 3. 可选：在 `mcp.stdio_env` 中设置传给 MCP 子进程的环境变量，例如 `{"API_KEY": "..."}`。  
 4. 重启进程后，工具以 `mcp_*` 名称注册，并自动加入 **`mcp` 工具箱** 供规划器选用。  
 
-**工具可见性**（与 `agent.tool_selection_strategy` 相关）：
+**工具可见性**（由内部 `AgentConfig.tool_selection_strategy` 与规划结果共同决定；该策略当前不是 `config.user.json` 键）：
 
 | 策略 | MCP 工具何时对 LLM 可见 |
 |------|-------------------------|

@@ -12,6 +12,8 @@ from uuid import uuid4
 
 
 class AgentEventKind(str, Enum):
+    """Stable semantic event names emitted during one Agent run."""
+
     RUN_STARTED = "run_started"
     PHASE_STARTED = "phase_started"
     PHASE_FINISHED = "phase_finished"

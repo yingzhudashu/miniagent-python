@@ -1,6 +1,6 @@
 # 贡献指南
 
-> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-17 | 与 `miniagent.__version__` 对齐
+> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-19 | 与 `miniagent.__version__` 对齐
 
 本文档为开发者单一入口，分三部分：
 
@@ -18,7 +18,7 @@
 
 **20 个核心子包**（含用例协调 `application/`、启动协调 `bootstrap/`、纯契约 `contracts/`、包内资源 `resources/` 与可选 `mcp/`）的完整目录树见 **[README.md §项目结构](../README.md#项目结构)**。逻辑分层见 [README.md §架构概览](../README.md#架构概览) 与 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
-新增跨包依赖前运行 `python scripts/check_architecture.py`。`contracts/` 必须保持平台无关且只依赖标准库；`application/` 只依赖 contracts；通道、持久化等实现层不得经 `types/__init__.py` 反向进入基础类型导入路径。
+新增跨包依赖前运行 `python scripts/check_architecture.py`。四模块允许方向为 `llm ← agent ← ui ← assistant`，其中 Assistant 可直接装配 Agent/LLM；各模块内的 `contracts` / `ports` 只能依赖该层允许的下层稳定类型。通道、持久化等实现不得通过聚合 `__init__.py` 绕过依赖门禁。
 
 新增入站通道时，在 adapter 边界构造 `InboundMessage` 后交给 `InboundTurnCoordinator`；队列键必须显式定义并发/抢占语义。出站通道必须直接实现 `ChannelAdapter` 并注册到 `ChannelRegistry`。
 
@@ -190,10 +190,10 @@ class TestYourClass:
 
 ### 测试覆盖率目标
 
-- 核心模块 (`core/`, `infrastructure/`): ≥ 95%
-- 整体包 (`miniagent/`): ≥ 80%
-- 工具模块 (`tools/`): ≥ 60%
-- 集成测试: 覆盖主要工作流
+- 整体包综合分支覆盖率：≥ 80%
+- 相对目标分支的修改行覆盖率：≥ 95%
+- 安全、持久化、生命周期、并发和公开 API 变更必须增加直接行为测试
+- 集成测试覆盖跨能力主工作流，不能用大量 mock 替代所有边界行为
 
 权威说明见 [INDEX.md](INDEX.md) §测试与质量；测试文件和 CI workflow 是覆盖关系的可执行事实来源。
 

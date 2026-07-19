@@ -1,6 +1,6 @@
 # 迁移到 MiniAgent 4.0
 
-> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-17 | 4.0 保持 `llm.*` 配置与 3.0 状态数据兼容
+> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-19 | 4.0 保持 `llm.*` 配置与 3.0 状态数据兼容
 
 MiniAgent 4.0 保留 3.0 的 `llm.*` 配置、会话、Memory、知识库和 Trace 文件格式，不执行
 `llm → ai` 改名。迁移前仍应停止旧实例并备份 `config.user.json` 与状态目录。2.x 用户须先完成

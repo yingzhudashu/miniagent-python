@@ -70,6 +70,7 @@ def test_poll_callback_malformed_and_expired(monkeypatch) -> None:
     callbacks.on_message_receive(SimpleNamespace(event=SimpleNamespace(message=None)))
     callbacks.on_message_receive(_event(message_id=""))
     assert callbacks._create_time(SimpleNamespace(create_time="bad")) == 0
+    assert callbacks._create_time(SimpleNamespace(create_time="1700000000123")) == 1_700_000_000
     assert callbacks._extract_text("text", "not-json") == "not-json"
     assert callbacks._extract_text("file", "x") == ""
 

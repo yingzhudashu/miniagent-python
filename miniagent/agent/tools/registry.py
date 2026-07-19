@@ -24,6 +24,7 @@ class DefaultToolRegistry:
         ] = collections.OrderedDict()
 
     def register(self, name: str, tool: ToolDefinition) -> None:
+        """Register one uniquely named tool and invalidate schema caches."""
         if not name.strip():
             raise ValueError("tool name must not be empty")
         if name in self._tools:
@@ -39,6 +40,7 @@ class DefaultToolRegistry:
         self._invalidate()
 
     def unregister(self, name: str) -> bool:
+        """Remove a tool, returning whether the registry changed."""
         if name not in self._tools:
             return False
         del self._tools[name]
@@ -46,22 +48,27 @@ class DefaultToolRegistry:
         return True
 
     def get(self, name: str) -> RegisteredTool | None:
+        """Return one registered tool without raising for a miss."""
         return self._tools.get(name)
 
     def get_all(self) -> dict[str, RegisteredTool]:
+        """Return a shallow snapshot of every registered tool."""
         return dict(self._tools)
 
     def get_schemas(self) -> builtins.list[ChatCompletionToolParam]:
+        """Return cached provider schemas for the complete registry."""
         if self._schema_cache is None:
             self._schema_cache = [tool.schema for tool in self._tools.values()]
         return self._schema_cache
 
     def list(self) -> builtins.list[str]:
+        """List tool names in registration order."""
         return builtins.list(self._tools)
 
     def get_schemas_by_toolboxes(
         self, ids: Sequence[str]
     ) -> builtins.list[ChatCompletionToolParam]:
+        """Return cached schemas whose toolbox belongs to the selection."""
         if not ids:
             return self.get_schemas()
         key = frozenset(ids)
@@ -80,6 +87,7 @@ class DefaultToolRegistry:
         return selected
 
     def get_by_toolboxes(self, ids: Sequence[str]) -> dict[str, RegisteredTool]:
+        """Return the named tools belonging to any selected toolbox."""
         if not ids:
             return self.get_all()
         selected = frozenset(ids)

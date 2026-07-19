@@ -93,3 +93,35 @@ def test_check_docs_reports_version_command_and_process_artifact_drift(
     assert any("文档版本 2.0.0" in issue for issue in issues)
     assert any("未说明注册命令 /copy" in issue for issue in issues)
     assert any("过程性产物" in issue for issue in issues)
+
+
+def test_check_docs_validates_config_tables_and_environment_claims(tmp_path: Path) -> None:
+    checker = _load_checker()
+    docs = tmp_path / "docs"
+    resources = tmp_path / "miniagent" / "assistant" / "resources"
+    runtime = tmp_path / "miniagent" / "runtime.py"
+    docs.mkdir()
+    resources.mkdir(parents=True)
+    (tmp_path / "README.md").write_text("# Project\n", encoding="utf-8")
+    (tmp_path / "CHANGELOG.md").write_text("# Changelog\n", encoding="utf-8")
+    (docs / "INDEX.md").write_text("# Index\n\n[Guide](GUIDE.md)\n", encoding="utf-8")
+    (docs / "GUIDE.md").write_text(
+        "# Guide\n\n"
+        "| 配置 | 默认 |\n|---|---|\n"
+        "| `agent.max_turns` | 4 |\n"
+        "| `agent.missing` | false |\n\n"
+        "`MINIAGENT_REAL_FLAG` 可用。\n"
+        "`MINIAGENT_PHANTOM_FLAG` 可用。\n"
+        "历史 `MINIAGENT_REMOVED_FLAG` 已迁移。\n",
+        encoding="utf-8",
+    )
+    (resources / "config.defaults.json").write_text(
+        '{"agent":{"max_turns":4}}', encoding="utf-8"
+    )
+    runtime.write_text('ENV = "MINIAGENT_REAL_FLAG"\n', encoding="utf-8")
+
+    issues = checker.check_docs(tmp_path)
+
+    assert any("配置键未在 defaults 声明: agent.missing" in issue for issue in issues)
+    assert any("环境变量未被源码使用: MINIAGENT_PHANTOM_FLAG" in issue for issue in issues)
+    assert not any("MINIAGENT_REMOVED_FLAG" in issue for issue in issues)

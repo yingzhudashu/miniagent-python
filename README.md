@@ -58,7 +58,7 @@ assistant → ui → agent → llm
     └────────→ agent / llm
 ```
 
-CLI、TUI 和飞书通过 `UISurface` 产生 `UIInput` 并渲染统一 `AgentEvent`。`AgentRuntime` 对每个 session 串行、跨 session 并行，并通过 `run_id` 精确取消。`AssistantSpec` 声明 LLM、Agent 扩展、UI surfaces 与实例服务；`PersonalAssistantSpec` 是内置个人助手 recipe。
+仓库提供两种明确的组合模式。默认 CLI/TUI/飞书个人助手由 `PersonalAssistantSpec` 构造进程级 `ApplicationContainer`，通道在边界生成 `InboundMessage`，并通过 `ChannelRegistry` 有序发送 `OutboundEvent`；进程级 `SessionExecCoordinator` 保证同 session 串行、跨 session 有界并行。嵌入式自定义应用使用 `AssistantSpec + UISurface + ComposedAssistantRuntime`，由 surface 产生 `UIInput` 并渲染统一 `AgentEvent`。两种模式共享 `AgentRuntime`、消息类型和生命周期契约，但不把成熟的默认产品入口伪装成 surface 实现。
 
 依赖方向固定为 `llm ← agent ← ui ← assistant`，Assistant 也可直接装配 Agent/LLM；任何反向依赖都会被 AST 架构门禁拒绝。完整规则见 **[ARCHITECTURE.md](docs/ARCHITECTURE.md)**。
 
@@ -127,8 +127,11 @@ pip install -e ".[dev,typing]"
 | `cli` | 终端 Rich Markdown 渲染 |
 | `browser` | Playwright 无头浏览器 |
 | `mcp` | 官方 MCP SDK |
-| `dev` | pytest、ruff、pytest-cov |
+| `providers` | Anthropic 与 Google 原生 SDK |
+| `dev` | build、pytest、ruff、Bandit、coverage/diff-cover |
 | `typing` | mypy（与 CI `test` job 一致） |
+| `perf` | 本地性能与稳定性采样（psutil） |
+| `all` | 所有运行时可选能力（不含开发、类型和性能工具） |
 
 可同时叠加：`pip install -e ".[dev,feishu]"` 等。
 

@@ -31,7 +31,7 @@ class AssistantApplication:
         """Start a V4 composed application without owning the event loop."""
         start = getattr(self.container, "start", None)
         if not callable(start):
-            raise RuntimeError("legacy personal application must be started with run()")
+            raise RuntimeError("bundled container application must be started with run()")
         await start()
 
     async def stop(self) -> None:

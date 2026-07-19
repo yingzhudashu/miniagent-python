@@ -36,12 +36,15 @@ class QueueUISurface:
         self._rendered = 0
 
     async def initialize(self) -> None:
+        """Move the surface into its initialized, not-yet-ready state."""
         self._state = HealthState.STARTING
 
     async def start(self) -> None:
+        """Accept input publication and event rendering."""
         self._state = HealthState.READY
 
     async def stop(self) -> None:
+        """Stop input consumption and wake a blocked iterator."""
         if self._state is HealthState.STOPPED:
             return
         self._state = HealthState.STOPPED
@@ -52,12 +55,14 @@ class QueueUISurface:
             self._queue.put_nowait(None)
 
     def health(self) -> HealthReport:
+        """Return queue depth and rendered-event counters without blocking."""
         return HealthReport(
             self._state,
             metadata={"queued_inputs": self._queue.qsize(), "rendered": self._rendered},
         )
 
     async def publish(self, input_: UIInput) -> None:
+        """Queue one input after validating lifecycle and surface ownership."""
         if self._state is not HealthState.READY:
             raise RuntimeError(f"UI surface {self.surface_id!r} is not ready")
         if input_.target.surface_id != self.surface_id:
@@ -65,6 +70,7 @@ class QueueUISurface:
         await self._queue.put(input_)
 
     async def inputs(self):
+        """Yield queued inputs until :meth:`stop` publishes the sentinel."""
         while True:
             item = await self._queue.get()
             if item is None:
@@ -72,6 +78,7 @@ class QueueUISurface:
             yield item
 
     async def render(self, event: AgentEvent, target: UITarget) -> None:
+        """Validate the target and invoke the optional transport renderer."""
         if target.surface_id != self.surface_id:
             raise ValueError("UI target does not match surface")
         if self._renderer is not None:
@@ -95,6 +102,9 @@ class CLISurface(QueueUISurface):
         self._output = output
 
     async def render(self, event: AgentEvent, target: UITarget) -> None:
+        """Render through the injected renderer or the line-oriented fallback."""
+        if target.surface_id != self.surface_id:
+            raise ValueError("UI target does not match surface")
         if self._renderer is not None:
             await super().render(event, target)
             return

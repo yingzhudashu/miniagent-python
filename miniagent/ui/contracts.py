@@ -16,6 +16,8 @@ from miniagent.ui.messages import Attachment
 
 
 class UIInputKind(str, Enum):
+    """Kinds of normalized interaction a UI surface can publish."""
+
     MESSAGE = "message"
     COMMAND = "command"
     CANCEL = "cancel"
@@ -24,6 +26,8 @@ class UIInputKind(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class UITarget:
+    """Surface-owned destination and optional thread/reply correlation."""
+
     surface_id: str
     conversation_id: str
     thread_id: str | None = None
@@ -36,6 +40,8 @@ class UITarget:
 
 @dataclass(frozen=True, slots=True)
 class UIInput:
+    """Immutable input crossing from a UI surface into Assistant composition."""
+
     kind: UIInputKind
     target: UITarget
     content: str = ""

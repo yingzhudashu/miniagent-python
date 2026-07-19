@@ -14,7 +14,10 @@ from miniagent.assistant.engine.session_lock import (
     try_lock_session,
     try_lock_session_async,
 )
-from miniagent.assistant.infrastructure.process_utils import is_process_running
+from miniagent.assistant.infrastructure.process_utils import (
+    is_process_running,
+    is_process_running_async,
+)
 
 
 @pytest.fixture
@@ -182,6 +185,12 @@ def test_is_session_locked_stale_returns_none(mock_workspaces: Path) -> None:
 
 def test_is_process_running_current() -> None:
     assert is_process_running(os.getpid())
+
+
+@pytest.mark.asyncio
+async def test_is_process_running_async_current() -> None:
+    """Current PID checks must not depend on an external process listing."""
+    assert await is_process_running_async(os.getpid()) is True
 
 
 def test_is_process_running_fake() -> None:

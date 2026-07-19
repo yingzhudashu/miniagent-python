@@ -1,6 +1,6 @@
 # Mini Agent Python 故障排查手册
 
-> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-17 | 与 `miniagent.__version__` 对齐
+> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-19 | 与 `miniagent.__version__` 对齐
 
 本手册提供常见问题的诊断方法和解决方案，帮助用户快速定位和解决问题。
 
@@ -204,7 +204,8 @@ PermissionError: [Errno 13] Permission denied
    }
    ```
 
-3. 命令执行白名单：在 `config.user.json` 的 `security.allowed_commands` 中配置（见 [SECURITY.md](SECURITY.md)）。
+3. 命令执行白名单：在 `config.user.json` 的 `security.allowed_commands` 中配置 JSON 数组；
+   `null` 使用默认列表，`[]` 禁用全部命令（见 [SECURITY.md](SECURITY.md)）。
 
 **安全提醒**：
 - 勿将系统关键目录设为工作区
@@ -429,17 +430,17 @@ python -m miniagent
 
 **查看日志**：
 ```bash
-# Trace（默认 trace.output_dir=workspaces/logs，相对 miniagent 包根，与 {paths.state_dir} 不同）
+# Trace（默认 trace.output_dir=workspaces/logs，相对进程 cwd，与 {paths.state_dir} 分别解析）
 tail -f workspaces/logs/trace-$(date +%Y-%m-%d)-pid*.jsonl
 # 活动日志（Markdown，供自我优化分析）
 ls {paths.state_dir}/memory/*.md
-# 可选 Agent NDJSON：仅在 config.user.json 配置 agent.log_file 后存在
+# 可选 Agent NDJSON：在 config.user.json 配置 debug.log_path 后写入指定位置
 ```
 
 **日志位置**：
 - `{trace.output_dir}/trace-YYYY-MM-DD-pid*.jsonl` — 全链路 Trace（默认 `workspaces/logs/`，见 [ENGINEERING.md §5](ENGINEERING.md#5-trace-系统全链路监控)）
 - `{paths.state_dir}/memory/YYYY-MM-DD.md`[^paths] — 活动日志（Markdown）
-- `agent.log_file`（可选）— 在 `config.user.json` 的 `agent` 节配置后写入 NDJSON（如 `logs/agent.jsonl`）
+- `debug.log_path`（可选）— 在 `config.user.json` 的 `debug` 节配置 NDJSON 路径（如 `logs/agent.jsonl`）
 - `{paths.state_dir}/sessions/*/history.json` — 会话历史
 
 [^paths]: canonical 路径布局见 [ENGINEERING.md §3](ENGINEERING.md#3-状态目录与测试隔离)。

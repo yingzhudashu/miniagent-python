@@ -21,6 +21,8 @@ def _frozen_metadata(value: Mapping[str, Any] | None = None) -> Mapping[str, Any
 
 @dataclass(frozen=True, slots=True)
 class Attachment:
+    """Immutable attachment identity plus local/remote location metadata."""
+
     attachment_id: str
     name: str = ""
     mime_type: str = "application/octet-stream"
@@ -39,6 +41,8 @@ class Attachment:
 
 @dataclass(frozen=True, slots=True)
 class ChannelTarget:
+    """Channel-neutral destination for one outbound event."""
+
     channel: str
     conversation_id: str
     thread_id: str | None = None
@@ -53,6 +57,8 @@ class ChannelTarget:
 
 @dataclass(frozen=True, slots=True)
 class InboundMessage:
+    """Validated, immutable message accepted by the application layer."""
+
     event_id: str
     channel: str
     conversation_id: str
@@ -80,6 +86,7 @@ class InboundMessage:
 
     @property
     def route_key(self) -> str:
+        """Return the explicit session key or a collision-safe channel key."""
         return self.session_key or f"{self.channel}:{self.conversation_id}"
 
     @classmethod
@@ -94,6 +101,7 @@ class InboundMessage:
         received_at: datetime | None = None,
         **kwargs: Any,
     ) -> InboundMessage:
+        """Construct a message with generated identity and UTC receipt time."""
         return cls(
             event_id=event_id or uuid4().hex,
             channel=channel,
@@ -106,6 +114,8 @@ class InboundMessage:
 
 
 class OutboundEventKind(str, Enum):
+    """Stable presentation intents supported by channel adapters."""
+
     STATUS = "status"
     THINKING_DELTA = "thinking_delta"
     THINKING_FINAL = "thinking_final"
@@ -116,6 +126,8 @@ class OutboundEventKind(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class OutboundEvent:
+    """Immutable, ordered output destined for one channel target."""
+
     event_id: str
     kind: OutboundEventKind
     target: ChannelTarget
@@ -146,6 +158,7 @@ class OutboundEvent:
         occurred_at: datetime | None = None,
         **kwargs: Any,
     ) -> OutboundEvent:
+        """Construct an event with generated identity and UTC occurrence time."""
         return cls(
             event_id=event_id or uuid4().hex,
             kind=kind,

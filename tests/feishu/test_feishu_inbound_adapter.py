@@ -66,6 +66,21 @@ def test_missing_message_id_and_invalid_time_use_safe_defaults() -> None:
     assert message.received_at.tzinfo is not None
 
 
+def test_lark_millisecond_timestamp_is_normalized_to_utc_seconds() -> None:
+    """Lark's wire timestamp must not overflow or bypass age-based routing checks."""
+    inbound = FeishuInboundText(
+        text="hello",
+        chat_id="oc_chat",
+        sender_id="ou_sender",
+        chat_type="group",
+        create_time=1_700_000_000_123,
+    )
+
+    message = build_feishu_inbound_message(inbound, "session-ms")
+
+    assert message.received_at == datetime.fromtimestamp(1_700_000_000.123, timezone.utc)
+
+
 def test_media_mapping_builds_immutable_attachment_contract() -> None:
     """Downloaded media becomes a standard attachment with workspace metadata."""
     message = build_feishu_media_inbound_message(

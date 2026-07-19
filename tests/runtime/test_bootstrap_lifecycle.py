@@ -27,6 +27,7 @@ class FakeService:
     fail_start: bool = False
     fail_stop: bool = False
     cancel_initialize: bool = False
+    cancel_stop: bool = False
     stop_calls: int = 0
     state: HealthState = field(default=HealthState.STOPPED)
 
@@ -53,6 +54,8 @@ class FakeService:
         self.state = HealthState.STOPPED
         if self.fail_stop:
             raise ValueError(f"stop failed: {self.name}")
+        if self.cancel_stop:
+            raise asyncio.CancelledError
 
     def health(self) -> HealthReport:
         """Return the fake's current state."""
@@ -135,6 +138,22 @@ async def test_cancellation_still_rolls_back_and_is_not_wrapped() -> None:
         await manager.initialize()
 
     assert events == ["init:cancelled", "stop:cancelled"]
+    assert manager.phase is LifecyclePhase.FAILED
+
+
+@pytest.mark.asyncio
+async def test_shutdown_cancellation_still_attempts_remaining_services() -> None:
+    """A control-flow exception wins after reverse-order cleanup is attempted."""
+    events: list[str] = []
+    first = FakeService("first", events)
+    second = FakeService("second", events, cancel_stop=True)
+    manager = LifecycleManager([first, second])
+    await manager.start()
+
+    with pytest.raises(asyncio.CancelledError):
+        await manager.stop()
+
+    assert events[-2:] == ["stop:second", "stop:first"]
     assert manager.phase is LifecyclePhase.FAILED
 
 

@@ -356,6 +356,20 @@ class TestAllowedCommands:
             assert "grep" in result
             assert len(result) == 3
 
+    def test_get_allowed_commands_accepts_json_array_and_preserves_deny_all(self) -> None:
+        """JSON configuration can explicitly narrow or disable command execution."""
+        with patch(
+            "miniagent.assistant.tools.exec.get_config", return_value=["ls", " git "]
+        ):
+            assert _get_allowed_commands() == frozenset({"ls", "git"})
+        with patch("miniagent.assistant.tools.exec.get_config", return_value=[]):
+            assert _get_allowed_commands() == frozenset()
+
+    def test_invalid_allowed_commands_configuration_fails_closed(self) -> None:
+        """A malformed security value must not silently restore permissive defaults."""
+        with patch("miniagent.assistant.tools.exec.get_config", return_value={"ls": True}):
+            assert _get_allowed_commands() == frozenset()
+
     @pytest.mark.parametrize("command", ["curl.exe", "CURL.EXE", "curl"])
     def test_windows_executable_alias_matches_portable_allowlist(self, command: str) -> None:
         """Windows 显式可执行扩展名应匹配无扩展名的跨平台白名单。"""

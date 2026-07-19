@@ -1,6 +1,6 @@
 # Mini Agent Python — 知识库系统
 
-> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-17 | 与 `miniagent.__version__` 对齐
+> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-19 | 与 `miniagent.__version__` 对齐
 
 Mini Agent 支持快速挂载本地知识库、文档、资料，通过关键词索引检索并拼入 Agent 上下文。
 

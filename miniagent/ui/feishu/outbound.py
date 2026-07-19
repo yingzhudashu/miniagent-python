@@ -13,15 +13,18 @@ FeishuReplySender = Callable[[str, str, str | None, bool], Awaitable[None] | Non
 
 
 class UnsupportedFeishuEventError(ValueError):
-    pass
+    """The migrated Feishu sender cannot represent an outbound event kind."""
 
 
 @dataclass(frozen=True, slots=True)
 class FeishuChannelAdapter:
+    """Channel adapter backed by an SDK-independent Feishu reply callable."""
+
     reply_sender: FeishuReplySender
     channel_id: str = field(default=FEISHU_CHANNEL, init=False)
 
     async def send(self, event: OutboundEvent) -> None:
+        """Deliver supported final/status/error events to the target chat."""
         if event.kind not in {
             OutboundEventKind.FINAL,
             OutboundEventKind.STATUS,
@@ -49,6 +52,7 @@ def build_feishu_reply_event(
     thread_id: str | None = None,
     trace_id: str | None = None,
 ) -> OutboundEvent:
+    """Build a normalized Feishu event while preserving reply/thread routing."""
     return OutboundEvent.create(
         kind=kind,
         target=ChannelTarget(
@@ -70,6 +74,7 @@ def build_feishu_final_event(
     thread_id: str | None = None,
     trace_id: str | None = None,
 ) -> OutboundEvent:
+    """Build the common final-answer specialization of a Feishu reply event."""
     return build_feishu_reply_event(
         OutboundEventKind.FINAL,
         content,

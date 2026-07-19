@@ -19,6 +19,7 @@
 | `skill-creator` | `miniagent/assistant/skills/templates/skill-creator/` | [anthropics/skills](https://github.com/anthropics/skills)（含 `LICENSE.txt`） | Apache-2.0（见模板内 `LICENSE.txt`） |
 | `skill-vetter` | `miniagent/assistant/skills/templates/skill-vetter/` | 本仓库维护的指令型安全审查技能 | 与本仓库相同（MIT）；不含可执行第三方代码 |
 | `builtin-web` | `miniagent/assistant/skills/templates/builtin-web/` | 本仓库维护的联网工具技能（Tavily / fetch / Playwright） | 与本仓库相同（MIT）；调用方需自行遵守 Tavily 等第三方 API 条款 |
+| `builtin-stackexchange` | `miniagent/assistant/skills/templates/builtin-stackexchange/` | 本仓库维护的 Stack Exchange 排障检索技能 | 与本仓库相同（MIT）；调用方需遵守 Stack Exchange API 条款及署名要求 |
 
 `skill-creator` 首次使用时可复制整个模板目录到 `workspaces/skills/skill-creator/`，或按 [USER_GUIDE.md §7](../../docs/USER_GUIDE.md#7-技能与-clawhub可选) 的安装指引操作。`skill-vetter` 同理，可由 Agent 的 `install_skill` 工具安装或手动复制；项目没有 `miniagent install-skill` 控制台子命令。
 

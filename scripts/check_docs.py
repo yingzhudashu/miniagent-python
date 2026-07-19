@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -12,6 +13,11 @@ _LINK_RE = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 _HEADING_RE = re.compile(r"^#{1,6}\s+(.+?)\s*#*$")
 _HTML_ANCHOR_RE = re.compile(r"<a\s+(?:name|id)=[\"']([^\"']+)[\"']", re.IGNORECASE)
 _INLINE_CODE_RE = re.compile(r"`[^`]*`")
+_INLINE_VALUE_RE = re.compile(r"`([^`]+)`")
+_ENV_RE = re.compile(r"\bMINIAGENT_[A-Z0-9_]+\b")
+_CONFIG_PATH_RE = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$")
+_NON_CONFIG_SUFFIXES = (".json", ".lock", ".md", ".py", ".toml", ".yaml", ".yml")
+_HISTORICAL_ENV_MARKERS = ("历史", "迁移", "不存在", "不支持", "不再", "移除", "废弃", "无")
 _RETIRED_DOCS = {
     "PERFORMANCE_AUDIT.md",
     "performance-audit.json",
@@ -40,6 +46,7 @@ def _markdown_files(root: Path) -> list[Path]:
     candidates = [root / "README.md", root / "CHANGELOG.md"]
     for directory in ("docs", "scripts", "tests"):
         candidates.extend((root / directory).rglob("*.md"))
+    candidates.append(root / "workspaces" / "skills" / "THIRD_PARTY_SKILLS.md")
     return sorted(path for path in candidates if path.is_file())
 
 
@@ -124,6 +131,77 @@ def _check_command_documentation(root: Path) -> list[str]:
     return [f"{manual}: 未说明注册命令 {name}" for name in names if name not in text]
 
 
+def _configuration_paths(root: Path) -> set[str]:
+    """Return every dotted path declared by the packaged JSON defaults."""
+    defaults = root / "miniagent" / "assistant" / "resources" / "config.defaults.json"
+    if not defaults.is_file():
+        return set()
+    payload = json.loads(defaults.read_text(encoding="utf-8"))
+    paths: set[str] = set()
+
+    def visit(value: object, prefix: str = "") -> None:
+        if not isinstance(value, dict):
+            return
+        for key, child in value.items():
+            path = f"{prefix}.{key}" if prefix else str(key)
+            paths.add(path)
+            visit(child, path)
+
+    visit(payload)
+    return paths
+
+
+def _check_configuration_references(root: Path, files: list[Path]) -> list[str]:
+    """Validate exact configuration paths presented in Markdown table keys."""
+    known = _configuration_paths(root)
+    if not known:
+        return []
+    roots = {path.partition(".")[0] for path in known}
+    issues: list[str] = []
+    for path in files:
+        for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if not line.lstrip().startswith("|"):
+                continue
+            first_cell = line.split("|", 2)[1]
+            for value in _INLINE_VALUE_RE.findall(first_cell):
+                if (
+                    value.partition(".")[0] not in roots
+                    or not _CONFIG_PATH_RE.fullmatch(value)
+                    or value.endswith(_NON_CONFIG_SUFFIXES)
+                ):
+                    continue
+                if value not in known:
+                    issues.append(f"{path}:{line_number}: 配置键未在 defaults 声明: {value}")
+    return issues
+
+
+def _source_environment_names(root: Path) -> set[str]:
+    """Collect environment names referenced by runtime, scripts, or test harnesses."""
+    names: set[str] = set()
+    for directory in ("miniagent", "scripts", "tests"):
+        base = root / directory
+        if not base.is_dir():
+            continue
+        for path in base.rglob("*.py"):
+            names.update(_ENV_RE.findall(path.read_text(encoding="utf-8")))
+    return names
+
+
+def _check_environment_references(root: Path, files: list[Path]) -> list[str]:
+    """Reject undocumented phantom env controls while allowing migration notes."""
+    known = _source_environment_names(root)
+    issues: list[str] = []
+    for path in files:
+        lines = path.read_text(encoding="utf-8").splitlines()
+        for line_number, line in enumerate(lines, 1):
+            context = " ".join(lines[max(0, line_number - 5) : line_number])
+            historical = any(marker in context for marker in _HISTORICAL_ENV_MARKERS)
+            for name in _ENV_RE.findall(line):
+                if name not in known and not historical:
+                    issues.append(f"{path}:{line_number}: 环境变量未被源码使用: {name}")
+    return issues
+
+
 def _git_review_surface(root: Path) -> tuple[str, ...]:
     """返回 Git 已跟踪或未忽略的文件；非 Git 测试目录返回空集合。"""
     result = subprocess.run(
@@ -171,6 +249,8 @@ def check_docs(root: Path) -> list[str]:
 
     issues.extend(_check_versions(root, files))
     issues.extend(_check_command_documentation(root))
+    issues.extend(_check_configuration_references(root, files))
+    issues.extend(_check_environment_references(root, files))
     issues.extend(_check_repository_artifacts(root))
 
     for retired in _RETIRED_DOCS:

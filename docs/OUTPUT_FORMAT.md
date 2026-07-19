@@ -1,6 +1,6 @@
 # 输出格式规范
 
-> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-17 | 与 `miniagent.__version__` 对齐
+> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-19 | 与 `miniagent.__version__` 对齐
 > CLI 与飞书通道的输出格式、流式输出、间距规则
 
 ## 概述
@@ -150,19 +150,20 @@ Assistant
 
 ### 3.2 节流策略
 
-通过环境变量可调整 PATCH 节流参数，优化流式体验（运维/调试类，分类见 [ENGINEERING.md](ENGINEERING.md) §1.2）：
+PATCH 节流当前属于 Internal 实现参数，不接受 `config.user.json` 或环境变量覆盖；
+权威值位于 `miniagent/agent/constants.py`，由 `card_rendering.py` 读取：
 
-| 环境变量 | 默认值 | 说明 |
-|----------|--------|------|
-| `MINIAGENT_FEISHU_PATCH_INTERVAL` | 0.12s | PATCH 最小时间间隔（越小更新越频繁） |
-| `MINIAGENT_FEISHU_PATCH_CHAR_DELTA` | 30 chars | PATCH 最小字符增量（越小更新越频繁） |
-| `MINIAGENT_FEISHU_PATCH_BUDGET` | 40 | 单阶段最大 PATCH 次数 |
+| Internal 常量 | 默认值 | 说明 |
+|---------------|--------|------|
+| `FEISHU_PATCH_INTERVAL_S` | 0.08s | PATCH 最小时间间隔（越小更新越频繁） |
+| `FEISHU_PATCH_CHAR_DELTA` | 20 chars | PATCH 最小字符增量（越小更新越频繁） |
+| `FEISHU_PATCH_BUDGET` | 60 | 单轮流式输出初始 PATCH 预算；长正文可动态增加 |
 
-默认值已优化为更流畅的流式体验（间隔更短、增量更小、预算更大）。
+这些值属于渲染算法约束；调整时必须同步更新卡片节流与性能测试。
 
 ### 3.3 工具意图合并
 
-当 `MINIAGENT_THINKING_MERGE_TOOLS=1`（默认开启）时，同一思考阶段内的工具调用意图行（🔧）合并到当前卡片，不新建独立消息：
+Internal 常量 `EXECUTION_THINKING_MERGE_TOOLS=True`（默认开启）时，同一思考阶段内的工具调用意图行（🔧）合并到当前卡片，不新建独立消息。该行为当前不接受环境变量或 JSON 覆盖：
 
 ```
 [评估与计划]
@@ -202,14 +203,14 @@ CLI 与飞书共进程时：
 3. 重置 `stream_step`、`stream_header`、`stream_printed` 状态
 4. 新阶段以新 header 开始
 
-### 4.3 相关环境变量
+### 4.3 相关控制项
 
 运维/调试类环境变量分类见 [ENGINEERING.md](ENGINEERING.md) §1.2。
 
-| 变量 | 默认 | 说明 |
-|------|------|------|
-| `MINIAGENT_THINKING_MERGE_TOOLS` | `1` | 同阶段工具意图行是否合并到思考卡片 |
-| `MINIAGENT_CLI_THINKING_RICH` | 关 | 是否对思考正文使用 Rich→ANSI 渲染（亦可设 `cli.thinking_rich`） |
+| 控制项 | 默认 | 说明 |
+|--------|------|------|
+| `EXECUTION_THINKING_MERGE_TOOLS` | `True` | Internal 常量；同阶段工具意图行是否合并到思考卡片 |
+| `MINIAGENT_CLI_THINKING_RICH` | 关 | 运维环境变量；是否对思考正文使用 Rich→ANSI 渲染（亦可设 `cli.thinking_rich`） |
 
 难度与规划段（`[评估与计划]`）是否推送由 Internal 常量 **`EXECUTION_ANNOUNCE_DIFFICULTY`**（`miniagent/agent/constants.py`，默认 `True`）控制，非环境变量。
 
@@ -223,7 +224,7 @@ CLI 与飞书共进程时：
 4. `第 n 轮` ReAct 轮次内容
 5. 工具意图行
 
-排序键见 `engine.py` 的 `_turn_label_sort_key`。
+排序键见 `miniagent/assistant/engine/turn_service.py` 的 `_turn_label_sort_key`。
 
 ## 相关文档
 

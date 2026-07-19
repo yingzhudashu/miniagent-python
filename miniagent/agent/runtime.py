@@ -338,6 +338,7 @@ class AgentRuntime:
         self._accepting = False
         self._active: dict[str, asyncio.Task[AgentResult]] = {}
         self._session_locks: dict[str, asyncio.Lock] = {}
+        self._session_lock_users: dict[str, int] = {}
         self._session_slots = asyncio.Semaphore(spec.max_parallel_sessions)
         self._subscribers: dict[int, AgentEventSubscriber] = {}
         self._sequences: dict[str, int] = {}
@@ -351,13 +352,16 @@ class AgentRuntime:
 
     @property
     def phase(self) -> LifecyclePhase:
+        """Current aggregate lifecycle phase for the runtime and extensions."""
         return self._lifecycle.phase
 
     @property
     def active_run_ids(self) -> tuple[str, ...]:
+        """Snapshot the run identifiers that can currently be cancelled."""
         return tuple(self._active)
 
     async def initialize(self) -> None:
+        """Initialize owned LLM resources and extensions with rollback."""
         try:
             if self.spec.owns_llm:
                 initialize = getattr(self.llm, "initialize", None)
@@ -366,10 +370,14 @@ class AgentRuntime:
             await self._lifecycle.initialize()
         except BaseException:
             if self.spec.owns_llm:
-                await self._stop_llm()
+                try:
+                    await self._stop_llm()
+                except BaseException:
+                    _logger.exception("Failed to close owned LLM after initialization failure")
             raise
 
     async def start(self) -> None:
+        """Start owned resources and begin accepting requests."""
         try:
             if self.spec.owns_llm:
                 start = getattr(self.llm, "start", None)
@@ -378,7 +386,10 @@ class AgentRuntime:
             await self._lifecycle.start()
         except BaseException:
             if self.spec.owns_llm:
-                await self._stop_llm()
+                try:
+                    await self._stop_llm()
+                except BaseException:
+                    _logger.exception("Failed to close owned LLM after startup failure")
             raise
         self._accepting = True
 
@@ -438,38 +449,51 @@ class AgentRuntime:
         trace_id: str,
     ) -> AgentResult:
         lock = self._session_locks.setdefault(session_id, asyncio.Lock())
-        async with self._session_slots, lock:
-            await self._emit(
-                AgentEventKind.RUN_STARTED, run_id, session_id, trace_id, {}
-            )
-            observer = _RuntimeObserver(self, run_id, session_id, trace_id)
-            agent = _CoreAgent(self.spec._services(self.llm, observer))
-            try:
-                result = await agent.run(request)
-            except asyncio.CancelledError:
+        self._session_lock_users[session_id] = self._session_lock_users.get(session_id, 0) + 1
+        try:
+            # A queued request must not consume a cross-session slot while it waits
+            # behind earlier work for the same session.
+            async with lock, self._session_slots:
                 await self._emit(
-                    AgentEventKind.RUN_CANCELLED, run_id, session_id, trace_id, {}
+                    AgentEventKind.RUN_STARTED, run_id, session_id, trace_id, {}
                 )
-                raise
-            except BaseException as error:
+                observer = _RuntimeObserver(self, run_id, session_id, trace_id)
+                agent = _CoreAgent(self.spec._services(self.llm, observer))
+                try:
+                    result = await agent.run(request)
+                except asyncio.CancelledError:
+                    await self._emit(
+                        AgentEventKind.RUN_CANCELLED, run_id, session_id, trace_id, {}
+                    )
+                    raise
+                except BaseException as error:
+                    await self._emit(
+                        AgentEventKind.RUN_FAILED,
+                        run_id,
+                        session_id,
+                        trace_id,
+                        {"error_type": type(error).__name__, "message": str(error)},
+                    )
+                    raise
                 await self._emit(
-                    AgentEventKind.RUN_FAILED,
+                    AgentEventKind.RUN_COMPLETED,
                     run_id,
                     session_id,
                     trace_id,
-                    {"error_type": type(error).__name__, "message": str(error)},
+                    {"reply": result.reply},
                 )
-                raise
-            await self._emit(
-                AgentEventKind.RUN_COMPLETED,
-                run_id,
-                session_id,
-                trace_id,
-                {"reply": result.reply},
-            )
-            return result
+                return result
+        finally:
+            remaining = self._session_lock_users[session_id] - 1
+            if remaining:
+                self._session_lock_users[session_id] = remaining
+            else:
+                self._session_lock_users.pop(session_id, None)
+                if self._session_locks.get(session_id) is lock:
+                    self._session_locks.pop(session_id, None)
 
     async def cancel(self, run_id: str) -> bool:
+        """Request cancellation of exactly one active or queued run."""
         task = self._active.get(run_id)
         if task is None or task.done():
             return False
@@ -477,6 +501,7 @@ class AgentRuntime:
         return True
 
     def health(self) -> HealthReport:
+        """Return aggregate readiness plus bounded runtime counters."""
         state = {
             LifecyclePhase.READY: HealthState.READY,
             LifecyclePhase.FAILED: HealthState.FAILED,
@@ -492,6 +517,7 @@ class AgentRuntime:
             state,
             metadata={
                 "active_runs": len(self._active),
+                "session_locks": len(self._session_locks),
                 "accepting": self._accepting,
                 "extensions": {
                     name: report.state.value for name, report in extension_health.items()
@@ -500,6 +526,7 @@ class AgentRuntime:
         )
 
     async def stop(self) -> None:
+        """Drain or cancel in-flight work, then release all owned resources."""
         async with self._stop_lock:
             if self.phase is LifecyclePhase.STOPPED:
                 return
@@ -513,30 +540,62 @@ class AgentRuntime:
                     await asyncio.gather(*pending, return_exceptions=True)
             deliveries = tuple(task for task in self._delivery_tasks if not task.done())
             if deliveries:
-                await asyncio.gather(*deliveries, return_exceptions=True)
+                _, pending_deliveries = await asyncio.wait(
+                    deliveries, timeout=self.spec.shutdown_timeout
+                )
+                for delivery_task in pending_deliveries:
+                    delivery_task.cancel()
+                if pending_deliveries:
+                    await asyncio.gather(*pending_deliveries, return_exceptions=True)
             lifecycle_error: BaseException | None = None
             try:
                 await self._lifecycle.stop()
             except BaseException as error:
                 lifecycle_error = error
-            await self._close_owned_resources()
+            resource_error: BaseException | None = None
+            try:
+                await self._close_owned_resources()
+            except BaseException as error:
+                resource_error = error
+            if resource_error is not None and not isinstance(resource_error, Exception):
+                raise resource_error
             if lifecycle_error is not None:
                 raise lifecycle_error
+            if resource_error is not None:
+                raise resource_error
 
     async def _close_owned_resources(self) -> None:
+        """Attempt every owned resource cleanup before propagating failures."""
+        operations: list[tuple[str, Callable[[], Any]]] = []
         if self.spec.owns_memory:
             shutdown = getattr(self.spec.memory, "shutdown", None)
             if callable(shutdown):
-                value = shutdown()
-                if inspect.isawaitable(value):
-                    await value
+                operations.append(("memory.shutdown", shutdown))
             close = getattr(self.spec.memory, "close", None)
             if callable(close):
-                value = close()
+                operations.append(("memory.close", close))
+        if self.spec.owns_llm:
+            operations.append(("llm.stop", self._stop_llm))
+
+        failures: list[tuple[str, Exception]] = []
+        control_error: BaseException | None = None
+        for name, operation in operations:
+            try:
+                value = operation()
                 if inspect.isawaitable(value):
                     await value
-        if self.spec.owns_llm:
-            await self._stop_llm()
+            except BaseException as error:
+                if isinstance(error, Exception):
+                    failures.append((name, error))
+                elif control_error is None:
+                    control_error = error
+        if control_error is not None:
+            raise control_error
+        if len(failures) == 1:
+            raise failures[0][1]
+        if failures:
+            names = ", ".join(name for name, _error in failures)
+            raise RuntimeError(f"failed to close owned Agent resources: {names}") from failures[0][1]
 
     async def _stop_llm(self) -> None:
         stop = getattr(self.llm, "stop", None)

@@ -1,7 +1,7 @@
 # Mini Agent Python — 文档索引
 
 > 用户入门以 **[README.md](../README.md)** 为准。  
-> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-17 | 与 `miniagent.__version__` 对齐 | 未发版行为以 [CHANGELOG](../CHANGELOG.md) `[Unreleased]` 为准
+> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-19 | 与 `miniagent.__version__` 对齐 | 未发版行为以 [CHANGELOG](../CHANGELOG.md) `[Unreleased]` 为准
 
 ---
 
@@ -10,7 +10,7 @@
 | 主题 | 权威文档 |
 |------|----------|
 | 用户安装与配置 | [README.md](../README.md) §安装、§配置 |
-| 从 2.x 人工迁移到 3.0 | [MIGRATION.md](MIGRATION.md) |
+| 从 2.x / 3.x 迁移到 4.0 | [MIGRATION.md](MIGRATION.md) |
 | LLM provider、模型与角色 | [LLM_PROVIDERS.md](LLM_PROVIDERS.md) |
 | 架构概览 | [README.md](../README.md) §架构概览；深读 [ARCHITECTURE.md](ARCHITECTURE.md) |
 | 通道绑定 | [FEISHU.md](FEISHU.md) §通道绑定 |

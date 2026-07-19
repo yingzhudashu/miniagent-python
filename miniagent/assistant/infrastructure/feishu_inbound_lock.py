@@ -6,7 +6,7 @@
 获取/释放均在 ``.feishu_inbound.lock`` 文件锁保护下进行，避免并发 ``try_acquire`` 竞态。
 
 **重构说明**：
-- PID 检测函数已提取到公共模块 ``miniagent/infrastructure/process_utils.py``
+- PID 检测函数位于 ``miniagent/assistant/infrastructure/process_utils.py``
 """
 
 from __future__ import annotations

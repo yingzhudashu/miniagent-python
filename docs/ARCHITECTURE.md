@@ -1,23 +1,18 @@
 # 系统架构
 
 > 架构概览见 [README.md §架构概览](../README.md#架构概览)。本文档为各层深读。  
-> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-17 | 与 `miniagent.__version__` 对齐
+> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-19 | 与 `miniagent.__version__` 对齐
 
 ## 4.0 四模块边界
 
-发行包只包含 `llm`、`agent`、`ui`、`assistant` 四个主模块。`llm` 提供无上层依赖的
-多 Provider Gateway、Embedding 与统一流协议；`agent` 拥有分类、澄清、规划、执行、反思，
-以及会话、工具、Memory/RAG、Trace、并发、取消和可选扩展的完整运行时；`ui` 提供
-CLI、TUI、飞书等输入与展示 surface；`assistant` 通过 recipe 组合前三层，不实现通用基础设施。
+发行包只包含 `llm`、`agent`、`ui`、`assistant` 四个主模块。`llm` 提供无上层依赖的多 Provider Gateway、Embedding 与统一流协议；`agent` 拥有分类、澄清、规划、执行、反思，以及会话、工具、Memory/RAG、Trace、并发、取消和可选扩展的完整运行时；`ui` 拥有平台无关消息、通道注册表及可复用 CLI/TUI/飞书 surface；`assistant` 负责默认产品和嵌入式应用的组合与基础设施实现。
 
 ```text
 assistant → ui → agent → llm
 assistant → agent / llm
 ```
 
-允许依赖矩阵为：`llm → llm`、`agent → agent/llm`、`ui → ui/agent`、
-`assistant → assistant/ui/agent/llm`。`scripts/check_architecture.py` 对普通导入、函数局部导入、
-相对导入和 `TYPE_CHECKING` 导入执行同一规则。
+允许依赖矩阵为：`llm → llm`、`agent → agent/llm`、`ui → ui/agent`、`assistant → assistant/ui/agent/llm`。`scripts/check_architecture.py` 对普通导入、函数局部导入、相对导入和 `TYPE_CHECKING` 导入执行同一规则。
 
 ### V4 稳定入口
 
@@ -25,10 +20,12 @@ assistant → agent / llm
 - `AgentRuntime(AgentSpec, llm, extensions)`：`initialize/start/run/cancel/health/stop`，并发布
   带 `run_id/session_id/trace_id/sequence` 的不可变 `AgentEvent`。
 - `UISurface`：`inputs()` 产生 `UIInput`，`render()` 消费 `AgentEvent`。
-- `AssistantSpec` / `create_assistant()`：声明并构造隔离实例；`PersonalAssistantSpec` 保留默认产品。
+- `AssistantSpec` / `create_assistant()`：通过 `ComposedAssistantRuntime` 构造使用 `UISurface` 的嵌入式隔离实例。
+- `PersonalAssistantSpec` / `create_personal_assistant()`：通过 `container_factory` 构造默认产品的进程级 `ApplicationContainer`；CLI/TUI/飞书使用 `InboundMessage` / `OutboundEvent` 通道链。
 
-`LLMGateway` 按 `default/reasoning/fast/vision` 显式角色选择 model profile，统一文本、
-推理、工具、用量、取消和错误事件。模型切换和配置热更新采用不可变快照：活动回合继续持有
+两种组合模式都调用对象化 `AgentRuntime`。`AgentRuntime.max_parallel_sessions` 只约束该 runtime 实例；默认产品的进程级并发由 `SessionExecCoordinator` 和后台任务管理器按同名配置实施。
+
+`LLMGateway` 按 `default/reasoning/fast/vision` 显式角色选择 model profile，统一文本、推理、工具、用量、取消和错误事件。模型切换和配置热更新采用不可变快照：活动回合继续持有
 旧 gateway，新回合使用新 gateway，旧连接在统一关停时释放。完整配置见
 [LLM_PROVIDERS.md](LLM_PROVIDERS.md)。
 
@@ -48,7 +45,7 @@ Mini Agent Python 的 **Agent 问答流水线**为 Phase 0 分类 → Phase 0.5 
                       ↓
         ┌─────── 引擎层 (Engine) ─────┐
         │  main.py: 生命周期管理       │
-        │  engine.py: AssistantTurnService   │
+        │  turn_service.py: AssistantTurnService │
         │  command_dispatch.py: 命令  │
         │  message_queue: 消息调度    │
         └─────────────┬───────────────┘
@@ -82,25 +79,19 @@ Mini Agent Python 的 **Agent 问答流水线**为 Phase 0 分类 → Phase 0.5 
         └─────────────────────────────┘
 ```
 
-## 与 OpenClaw 的关系
-
-- **OpenClaw**：自托管 **Gateway**，将 Discord、Telegram、飞书等多种渠道接到「口袋里的」Agent，强调多通道、会话隔离与控制中心 UI；官方文档见 [https://docs.openclaw.ai](https://docs.openclaw.ai)。
-- **本仓库（Mini Agent Python）**：定位是 **Python Agent 核心**——多阶段架构（需求澄清→规划→执行）、ReAct、`ToolRegistry`、技能与 ClawHub、飞书与 CLI、本地记忆与工作空间。它**不是** OpenClaw Gateway 的等价实现，但可与同一生态（如 ClawHub 技能）对齐使用习惯。
-- **可选 MCP**：`config.user.json` 中 `mcp.stdio_command` 设为 JSON 数组 `[command, arg1, ...]`（与 `stdio` 启动参数一致）；可选 `mcp.stdio_env` 为子进程环境变量对象。进程启动时在 [`engine/init.py`](../miniagent/assistant/engine/init.py) 中调用 [`register_mcp_stdio_tools`](../miniagent/assistant/mcp/runtime.py) 连接 MCP 服务端并注册 `mcp_*` 工具（`toolbox="mcp"`），随后 [`ensure_mcp_toolbox`](../miniagent/assistant/mcp/toolbox.py) 将 `mcp` 工具箱加入规划器可见列表；需安装可选依赖 `pip install miniagent-python[mcp]`。默认 `tool_selection_strategy="toolbox"` 时，规划器需在 `required_toolboxes` 中包含 `mcp` 才会向 LLM 暴露这些工具。
-
 ### 配置（JSON 格式）
 
 - **配置层级**：`miniagent/assistant/resources/config.defaults.json`（随 wheel 发布）→ `config.user.json`（用户覆盖）。用户配置项**不支持** `MINIAGENT_*` 覆盖 defaults；运维/调试类 env 见 [ENGINEERING.md](ENGINEERING.md) §1.2。
 - **敏感凭据**：API 密钥等放在 `config.user.json` 的 `secrets` 部分，由 [`env_loader.py`](../miniagent/assistant/infrastructure/env_loader.py) 桥接到 `OPENAI_API_KEY` 等 SDK 环境变量（非用户配置入口）。
-- **配置加载**：[`JsonConfigLoader`](../miniagent/assistant/infrastructure/json_config.py) 统一管理；[`get_config`](../miniagent/assistant/infrastructure/json_config.py) 支持点路径访问。Internal 常量见 [`core/constants.py`](../miniagent/agent/constants.py)。
+- **配置加载**：[`JsonConfigLoader`](../miniagent/assistant/infrastructure/json_config.py) 统一管理；[`get_config`](../miniagent/assistant/infrastructure/json_config.py) 支持点路径访问。Internal 常量见 [`agent/constants.py`](../miniagent/agent/constants.py)。
 - **模型传输**：`llm.models.<profile>.api` 显式选择 Chat、Responses、Anthropic 或 Google 协议，`llm.roles` 完成分类、规划、执行和视觉路由。统一 Gateway 将它们归一化为文本、工具调用、usage、结束状态与流事件。
 - **Responses 控制链恢复**：分类器、`llm_json` 与规划器共享状态、空响应和错误分类。第二次请求保持 reasoning 并移除采样参数；第三次分类/澄清/反思使用 low，规划使用 medium。只有 `incomplete_reason` 明确表示输出 token 耗尽时才扩大预算；确定性鉴权/模型错误不重试。分类最终降级、`llm_json` 最终异常和 planner fallback 的公开语义不变。
 - **Responses 执行恢复**：执行器首次流式请求保持原参数；只有在尚未产生任何文本或工具调用时，才对网关泛化 400、429、5xx 或 completed-empty 做最多两次恢复。恢复请求移除采样参数，最后一次使用 medium；出现部分文本或工具调用后禁止自动重试，避免重复展示或重复动作。统一 transport 同时兼容仅发送 `response.output_text.done`、不发送 delta 的网关流。
-- **嵌入调用**：可调用 [`create_application_container`](../miniagent/assistant/bootstrap/entrypoint.py) 构造依赖，再 `await run_runtime(container)`；调用前须加载 secrets。
-- **任务难度预分类与规划可见输出**：Internal 常量 `EXECUTION_TASK_CLASSIFIER_ENABLED`（默认开启）；关闭则始终走完整规划。当 Internal 常量 `EXECUTION_ANNOUNCE_DIFFICULTY` 为真且存在 `on_thinking` 时，[`run_agent`](../miniagent/agent/agent.py) 将「评估中 → 难度结论 → 执行计划」合并为**同一条**流式思考，统一 header 为 **`[评估与计划]`**；展示为精简 Markdown，完整难度/计划正文经可选关键字参数 **`full_record`** 由 [`AssistantTurnService`](../miniagent/assistant/engine/turn_service.py) 写入会话 `thinking` 历史。飞书侧由 `ThinkingDisplay` + `push_feishu_thinking_stream` PATCH 同一张交互卡；进入执行阶段时若 header 切换，则 **`finalize_only`** 收尾当前卡再开新段（见 [`thinking.py`](../miniagent/assistant/engine/thinking.py) / [`engine._feishu_send`](../miniagent/assistant/engine/turn_service.py)）。`EXECUTION_ANNOUNCE_DIFFICULTY=false`（Internal，见 `constants.py`）可关闭上述规划段推送。
+- **默认产品嵌入**：可调用 [`create_application_container`](../miniagent/assistant/bootstrap/entrypoint.py) 构造依赖，再 `await run_runtime(container)`；调用前须加载 secrets。自定义 surface 应用则使用 `create_assistant(AssistantSpec(...))`。
+- **任务难度预分类与规划可见输出**：Internal 常量 `EXECUTION_TASK_CLASSIFIER_ENABLED`（默认开启）；关闭则始终走完整规划。当 Internal 常量 `EXECUTION_ANNOUNCE_DIFFICULTY` 为真且存在 `on_thinking` 时，[`run_agent`](../miniagent/agent/agent.py) 将「评估中 → 难度结论 → 执行计划」合并为**同一条**流式思考，统一 header 为 **`[评估与计划]`**；展示为精简 Markdown，完整难度/计划正文经可选关键字参数 **`full_record`** 由 [`AssistantTurnService`](../miniagent/assistant/engine/turn_service.py) 写入会话 `thinking` 历史。飞书侧由 `ThinkingDisplay` + `push_feishu_thinking_stream` PATCH 同一张交互卡；进入执行阶段时若 header 切换，则 **`finalize_only`** 收尾当前卡再开新段（见 [`thinking.py`](../miniagent/assistant/engine/thinking.py) / `AssistantTurnService._feishu_send`）。`EXECUTION_ANNOUNCE_DIFFICULTY=false`（Internal，见 `constants.py`）可关闭上述规划段推送。
 - **分步执行**：Internal 常量 `PHASED_EXECUTION`（默认开启）、`STEP_MAX_TURNS`（默认 **48**）、`AGENT_MAX_TURNS`（默认 **400**，用户可在 `agent.max_turns` 覆盖）。若最后一步在单步子轮次内未以无工具回复结束，且全局轮数仍有余量，执行器会先追加一轮不传 tools 的收尾 synthesis；若全局轮数也已用尽或收尾仍异常，则返回**专用说明**。执行阶段 `on_thinking` 的合并 header 为 **`[执行]`**（单循环）或 **`[步骤 i/n]` + 描述摘要**（分步）。
 - **Phase 3 反思评估**：`features.reflection` 默认开启；设为 `false` 可关闭。执行完成后，[`run_agent`](../miniagent/agent/agent.py) 调用 [`reflect_on_result`](../miniagent/agent/problem_solver.py) 对回复做自我反驳式审查。`on_thinking=None` 确保反思过程不产生额外的思考步骤。
-- **思考深度与供应商**：[`resolve_exec_completion_kwargs`](../miniagent/agent/llm_params.py) / [`resolve_planner_completion_kwargs`](../miniagent/agent/llm_params.py) 合并 `model.thinking_level` / `model.thinking_budget`；DashScope/Qwen 兼容 `base_url` 时通过 [`build_thinking_extra_body`](../miniagent/agent/vendor/qwen_extra.py) 注入 `extra_body`。`model.max_tokens` 覆盖输出 token 上限。
+- **思考深度与供应商**：[`resolve_exec_completion_kwargs`](../miniagent/agent/llm_params.py) / [`resolve_planner_completion_kwargs`](../miniagent/agent/llm_params.py) 合并所选 `llm.models.<profile>.defaults` 与回合级覆盖；模型 profile 将 `compatibility.thinking_adapter` 设为 `qwen` 时，由 [`LLMGateway`](../miniagent/llm/gateway.py) 注入 `enable_thinking` / `thinking_budget`。`defaults.max_tokens` 是请求默认值，`max_output_tokens` 是 profile 输出硬上限。
 
 ## 四模块内部能力说明
 
@@ -129,7 +120,7 @@ Mini Agent Python 的 **Agent 问答流水线**为 Phase 0 分类 → Phase 0.5 
 | `cli_history.py` | TUI/readline 共用历史文件与会话 user 消息预加载 |
 | `cli_files.py` | `@file:` / `file:` 解析、文件元数据和记忆摄取 |
 | `cli_shell.py` | `!` shell 命令执行与结果格式化 |
-| `engine.py` | `AssistantTurnService`：会话上下文管理、Agent 编排、思考回调、历史持久化 |
+| `turn_service.py` | `AssistantTurnService`：会话上下文管理、Agent 编排、思考回调、历史持久化 |
 | `command_dispatch.py` | 统一命令入口：CLI 和飞书共享 `/` 命令，只负责规范化、注册表查找和处理器调用 |
 | `commands/` | CLI 命令按 session、queue、knowledge、schedule 等领域由单一模块拥有 |
 | `background_tasks.py` | `BackgroundTaskManager`：后台任务生命周期管理、并行上限控制 |
@@ -219,13 +210,13 @@ Agent 的大脑，采用 **多阶段架构**（Phase 0.5 需求澄清 → Phase 
 | `requirement_clarifier.py` | Phase 0.5 需求澄清器：三步法（Wittgenstein→Socrates→Polanyi）将模糊输入转化为结构化需求 |
 | `planner.py` | Phase 1 规划器：LLM 分析需求 → 生成 `StructuredPlan` → 本地最小路径 normalization → 选择工具箱 → 估算 tokens |
 | `executor.py` | Phase 2 执行器：ReAct 循环；在 `plan.steps` 非空且 Internal 常量 `PHASED_EXECUTION` 开启时按步骤分子循环，每步单独解析 `thinking_level`/`thinking_budget` |
-| `config.py` | 配置管理：`MODEL_PROFILES`, `AgentConfig` 合并, 循环检测默认值 |
+| `config.py` | 将 JSON 快照映射为 `AgentConfig`，合并回合覆盖并提供循环检测配置；模型 profile 由 `llm` 模块拥有 |
 | `llm/factory.py` | Provider-neutral Gateway 工厂；由组合根创建、热重载原子替换、关停显式关闭 |
 | `llm_params.py` | 合并规划/执行阶段的 `max_tokens`、thinking 等与供应商相关参数 |
-| `llm_transport.py` | Chat Completions / Responses 双协议适配：消息与工具 schema 转换、流事件归一化、网关错误脱敏 |
+| `llm/providers/openai_transport.py` | Chat Completions / Responses 双协议适配：消息与工具 schema 转换、流事件归一化、网关错误脱敏 |
 | `thinking_presets.py` | 业务描述深度 → `thinking_level` 等档位映射 |
 | `task_classifier.py` | 任务难度预分类（简单任务可跳过结构化规划） |
-| `vendor/qwen_extra.py` | 兼容 Qwen/DashScope 时在 `extra_body` 注入 thinking 字段 |
+| `llm/gateway.py` | 根据 model profile 的兼容配置注入 Qwen/DashScope thinking 字段 |
 | `self_opt/` | 自我优化子系统（详见 [SELF_OPT.md](SELF_OPT.md)） |
 | `prompts/` | 系统提示词模块（详见下方 §提示词模块） |
 
@@ -336,7 +327,7 @@ ClarifiedRequirement（澄清后的需求规格）
 | `ws_health.py` | 会话监督：看门狗、死连接/空闲刷新、与 `FeishuRuntime` 外层退避重连配合 |
 | `engine/feishu_handler.py` | 飞书文本/媒体入站处理器：标准消息 → Agent → 标准出站事件 |
 | `agent_channel_prompts.py` | 通道级提示词配置 |
-| `types.py` | `FeishuConfig`, `FeishuEvent` 类型定义 |
+| `ui/feishu/types.py` | `FeishuConfig`、`FeishuInboundText` 传输类型定义 |
 | `resource_io.py` | 飞书媒体/资源下载与会话落盘 |
 | `im_send.py` | IM 发送客户端封装 |
 | `im_tool_policy.py` | 内置飞书工具策略 |
@@ -363,7 +354,6 @@ ClarifiedRequirement（澄清后的需求规格）
 | 运行时资源 | `runtime.py` | 显式构造并统一关闭 `MemoryRuntime` 对象图 |
 | 管线 | `memory_pipeline.py` | 将低频分层摘要拼入执行器稳定 system augment 的管线步骤 |
 | 归档 | `history_archive.py` | 历史归档与裁剪策略 |
-| 桥接 | `history_bridge.py` | 会话历史与记忆层之间的衔接 |
 | 渐进式 | `history_progressive.py` | 渐进式历史披露与按需加载 |
 | 分层视图 | `layered_memory.py` | 多层记忆抽象与组装 |
 | 周期任务 | `dream_scheduler.py` | 不调用 LLM 的日记索引登记与长期列表裁剪调度 |
@@ -423,7 +413,7 @@ LLM 可通过 function calling 调用的工具：
 | `mcp/runtime.py` | stdio 长连接、注册 `mcp_*` 工具；需 `pip install miniagent-python[mcp]` |
 | `mcp/toolbox.py` | `mcp` 工具箱元数据；注册后供规划器选用 |
 
-`config.user.json` 中 `mcp.stdio_command`（JSON 数组）在 [`engine/init.py`](../miniagent/assistant/engine/init.py) 启动时解析；详见上文「与 OpenClaw 的关系」中的 MCP 说明。
+`config.user.json` 中 `mcp.stdio_command`（JSON 数组）在 [`engine/init.py`](../miniagent/assistant/engine/init.py) 启动时解析；安装方式与 provider/角色配置见 [LLM_PROVIDERS.md](LLM_PROVIDERS.md)，运行时工具箱行为见本节表格。
 
 ### 8c. 知识库层 (Knowledge)
 
@@ -453,12 +443,12 @@ LLM 可通过 function calling 调用的工具：
 | `env_loader.py` | 加载 `config.user.json` 的 `secrets` 部分到环境变量 |
 | `json_config.py` | JSON 配置加载器：包内 defaults → `config.user.json` 两层合并、点路径访问 |
 | `env_parse.py` | `env_flag` / `env_flag_strict` 环境变量解析 |
-| `timezone_config.py` | `process_timezone()`（`timezone.default` / `TZ`） |
-| `tracing.py` | 轻量追踪/跨度钩子（与日志配合） |
-| `logger.py` | 日志系统：`append_log()`, `get_logger()` |
-| `loop_detector.py` | 循环检测器：相似度检测、warning/critical 分级 |
+| `agent/timezone.py` | `process_timezone()`（`timezone.default` / `TZ`） |
+| `agent/observability.py` / `agent/tracing.py` | 进程 Trace 统计与实例级 JSONL 事件导出 |
+| `agent/logging.py` | 日志系统与 `get_logger()` |
+| `agent/loop_detector.py` | 循环检测器：相似度检测、warning/critical 分级 |
 | `process.py` | 进程管理：子进程追踪、孤儿进程清理 |
-| `debug_ndjson.py` | 可选 NDJSON 调试落盘 |
+| `agent/debug.py` | 可选 NDJSON 调试落盘 |
 | `http_retry.py` | HTTP 重试工具：指数退避、5xx 重试、网络错误重试 |
 | `config_watch.py` | 配置热更新：监听文件 mtime、防抖触发 reload |
 
@@ -480,7 +470,7 @@ LLM 可通过 function calling 调用的工具：
   - 默认实现：`memory/memory_context_service.py`（`DefaultMemoryContext`），作为 `ApplicationContainer.memory.context` 注入
   - 遵循依赖倒置原则（DIP），`executor` 通过 Protocol 检索/持久化，不内联记忆逻辑
 
-依赖边界由 `scripts/check_architecture.py` 在 CI 中检查：顶层只允许 `llm`、`agent`、`ui`、`assistant`；`llm` 和 `ui` 不依赖其他层，`agent` 只可依赖 `llm`，`assistant` 可依赖前三层。检查器覆盖模块顶层、函数内、`TYPE_CHECKING` 和相对导入，并检测跨层循环；额外禁止命令处理器反向导入调度器，以及 Assistant 生产代码绕过对象化 Agent 入口。
+依赖边界由 `scripts/check_architecture.py` 在 CI 中检查：顶层只允许 `llm`、`agent`、`ui`、`assistant`；`llm` 不依赖上层，`agent` 只可依赖 `agent/llm`，`ui` 只可依赖 `ui/agent`，`assistant` 可依赖四层。检查器覆盖模块顶层、函数内、`TYPE_CHECKING` 和相对导入，并检测跨层循环；额外禁止命令处理器反向导入调度器，以及 Assistant 生产代码绕过对象化 Agent 入口。
 
 ## 数据流
 
@@ -652,7 +642,7 @@ flowchart LR
 
 ## 运行时组合根
 
-`miniagent/assistant/bootstrap/entrypoint.py` 是唯一启动组合根：它加载不可变 `ApplicationConfig`，创建端口实现并显式注入应用用例。CLI、飞书和 MCP 适配器只依赖契约，不反向读取具体基础设施或进程级单例。
+`miniagent/assistant/bootstrap/entrypoint.py` 是默认个人助手的唯一启动组合根：它加载不可变 `ApplicationConfig`，创建端口实现并显式注入应用用例。嵌入式 surface 应用由 `create_assistant()` 组合。CLI、飞书和 MCP 适配器只依赖允许层级内的契约，不反向读取进程级单例。
 
 ### 命令注册表
 
@@ -675,7 +665,7 @@ flowchart LR
 业务对象图不得通过模块全局或 service locator 获取。以下状态因其语义本来就是“当前 Python 进程”或底层库缓存而有意保留；它们不承载会话业务状态，并具有明确清理方式：
 
 - **`infrastructure/instance.py`**：当前进程的实例注册记录与短 TTL 列表缓存；注册、心跳、注销均围绕一个 OS 进程，测试通过 `reset_instance_registry_for_tests()` 隔离。
-- **`infrastructure/tracing.py`**：进程级 trace hooks 与异步 writer；入口初始化，`shutdown_trace_writer()` 统一关闭。
+- **`agent/observability.py` / `agent/tracing.py`**：前者提供默认产品的进程级 Trace hooks 与异步 writer，后者提供按 `AgentRuntime` 隔离的 JSONL exporter；两者均由各自所有者显式关闭。
 - **`feishu/drive_client.py` 与 `feishu/lark_client.py`**：无状态飞书 API facade 下的 HTTP/SDK 客户端和 tenant token 缓存；跨大量同步工具调用复用，`shutdown_runtime` 关闭 HTTP 池，鉴权失败时清空 SDK/token 缓存。它们不保存消息、会话或路由状态。
 - **`mcp/runtime.py`**：当前进程打开的 MCP stdio 上下文集合；显式异步关闭，`atexit` 仅作为解释器异常退出兜底。
 - **日志级别、终端宽度、启动提示**：只影响本进程展示或避免重复日志的轻量缓存，不参与业务决策。

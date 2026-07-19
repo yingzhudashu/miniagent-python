@@ -137,11 +137,15 @@ class _FeishuPollCallbacks:
 
     @staticmethod
     def _create_time(message: Any) -> int:
+        """Return a POSIX-second timestamp from Lark's millisecond wire value."""
         raw = getattr(message, "create_time", None) or 0
         try:
-            return int(raw) if raw else 0
+            value = int(raw) if raw else 0
         except (ValueError, TypeError):
             return 0
+        if value <= 0:
+            return 0
+        return value // 1000 if value >= 10_000_000_000 else value
 
     @staticmethod
     def _extract_text(message_type: str, content: str) -> str:

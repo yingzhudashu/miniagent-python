@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -23,12 +24,15 @@ class EmbeddingConfig:
     backoff_factor: float = 1.0
 
     def validate(self) -> None:
+        """Reject incomplete connection settings and invalid retry limits."""
         if not self.base_url.strip() or not self.model.strip() or not self.api_key.strip():
             raise ValueError("embedding requires base_url, model and api_key")
         if self.timeout <= 0:
             raise ValueError("embedding timeout must be positive")
         if self.max_retries < 0:
             raise ValueError("embedding max_retries must not be negative")
+        if self.backoff_factor < 0:
+            raise ValueError("embedding backoff_factor must not be negative")
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,15 +69,19 @@ class EmbeddingClient:
 
     @property
     def closed(self) -> bool:
+        """Whether this client has permanently released its owned transport."""
         return self._closed
 
     async def create_embedding(self, request: EmbeddingRequest) -> EmbeddingResponse:
+        """Validate, send and normalize one embedding request."""
         if self._closed:
             raise RuntimeError("EmbeddingClient is closed")
         text = request.text.strip()
         if not text:
             raise ValueError("embedding input must not be empty")
-        model = request.model or self.config.model
+        model = (request.model or self.config.model).strip()
+        if not model:
+            raise ValueError("embedding model must not be empty")
         response = await self._request(text, model)
         return self._normalize(response, model)
 
@@ -149,6 +157,11 @@ class EmbeddingClient:
                 "embedding provider returned an empty vector",
                 category="unknown",
             )
+        if not all(math.isfinite(value) for value in vector):
+            raise LLMTransportError(
+                "embedding provider returned a non-finite vector",
+                category="unknown",
+            )
         raw_usage = payload.get("usage", {}) if isinstance(payload, dict) else {}
         usage = {
             str(key): int(value)
@@ -158,6 +171,7 @@ class EmbeddingClient:
         return EmbeddingResponse(vector, str(payload.get("model") or model), usage)
 
     async def close(self) -> None:
+        """Idempotently close the internally created HTTP client."""
         if self._closed:
             return
         self._closed = True

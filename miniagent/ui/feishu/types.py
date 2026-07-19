@@ -7,6 +7,8 @@ from dataclasses import dataclass
 
 @dataclass
 class FeishuConfig:
+    """Credentials and optional verification material for a Feishu app."""
+
     app_id: str
     app_secret: str
     encrypt_key: str | None = None
@@ -15,6 +17,8 @@ class FeishuConfig:
 
 @dataclass
 class FeishuInboundText:
+    """SDK-neutral subset of a Feishu text or interactive message event."""
+
     text: str
     chat_id: str
     sender_id: str

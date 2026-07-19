@@ -41,6 +41,11 @@ def is_process_running(pid: int) -> bool:
     """
     if pid <= 0:
         return False
+    # The caller process is necessarily alive. Avoid spawning ``tasklist`` on
+    # Windows for this common ownership check, where process pressure or locale
+    # differences can otherwise turn a healthy current PID into a false negative.
+    if pid == os.getpid():
+        return True
     try:
         if sys.platform == "win32":
             output = subprocess.check_output(
@@ -77,6 +82,8 @@ async def is_process_running_async(pid: int) -> bool:
     """
     if pid <= 0:
         return False
+    if pid == os.getpid():
+        return True
     try:
         if sys.platform == "win32":
             proc = await asyncio.create_subprocess_exec(

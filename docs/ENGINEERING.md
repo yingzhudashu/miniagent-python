@@ -1,6 +1,6 @@
 # 软件工程实践与仓库卫生
 
-> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-17 | 与 `miniagent.__version__` 对齐
+> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-19 | 与 `miniagent.__version__` 对齐
 
 本文档汇总本仓库在**可维护性、可重复构建、安全与协作**上的约定，作为 [CONTRIBUTING.md](CONTRIBUTING.md) 的补充：后者偏「如何写代码」，本文偏「仓库与发布如何保持健康」。
 
@@ -52,11 +52,11 @@
 | **Advanced / Operator** | 超时、并发、记忆容量、飞书运维、Trace 保留 | 本文 §5、 [DEPLOYMENT.md](DEPLOYMENT.md)、各专题文档 | 按需 |
 | **Internal** | 第三方 API 端点、节流毫秒、渲染边距、算法阈值 | 代码常量或 defaults 中的 dev 默认；**不**写入 user 示例 | 否 |
 
-**典型 User-facing 节**：`secrets`、`model`、`paths`、`features`、以及 `feishu` / `agent` / `execution` 中的行为边界项。
+**典型 User-facing 节**：`secrets`、`llm`、`paths`、`features`、`feishu`、`agent`、`scheduled_tasks` 与 `scheduled_tools`。
 
-**典型 Advanced 节**：`memory.*`、`dream.*`、`trace.*`、`feishu.websocket.*`、`feishu.card.*`、`agent.loop_detection.*`、`background_tasks.*`。
+**典型 Advanced 节**：`memory.*`、`dream.*`、`trace.*`、`self_optimization.*`、`feishu.websocket.*`、`feishu.card.*` 与 `agent.loop_detection.*`。
 
-**典型 Internal（写入 [`core/constants.py`](../miniagent/agent/constants.py)，不可通过 JSON 覆盖）**：`feishu.api_urls`、`feishu.patch.*`（流式卡片节流）、`clawhub.api_url`、`web_search.tavily_url`、`execution.*`（含 `EXECUTION_MAX_CONCURRENT_TOOLS` 工具并发硬上限）、`render.*`、`cli` 实现细节（`CLI_RAW_MARKDOWN` / `CLI_THINKING_RICH` 可被 ENV 或 `cli.*` 覆盖）、`browser.*`、`keyword_index.*` 算法阈值等。JSON 默认值种子（如 `DEFAULT_AGENT_MAX_TURNS`、`HISTORY_ARCHIVE_MAX_MESSAGES`）与包内 defaults 同步，用户 JSON 可覆盖对应键。输出前缀 emoji 见 [`types/error_prefix.py`](../miniagent/agent/types/error_prefix.py)。
+**典型 Internal（主要写入 [`agent/constants.py`](../miniagent/agent/constants.py)，不可通过 JSON 覆盖）**：飞书 API 路径与 PATCH 节流、ClawHub / Tavily 端点、执行并发硬上限、渲染边距和关键词索引算法阈值等。JSON 默认值种子（如 `DEFAULT_AGENT_MAX_TURNS`、`HISTORY_ARCHIVE_MAX_MESSAGES`）与包内 defaults 同步，用户 JSON 可覆盖对应公开键。输出前缀见 [`agent/types/error_prefix.py`](../miniagent/agent/types/error_prefix.py)。
 
 **加载机制**（见 [`json_config.py`](../miniagent/assistant/infrastructure/json_config.py)）：`defaults → user`（仅两层 JSON）。`secrets` 经 [`env_loader.py`](../miniagent/assistant/infrastructure/env_loader.py) 桥接到 `OPENAI_API_KEY` 等 SDK 变量，**不是**用户配置入口。`/config` 命令与 USER_GUIDE 仅展示 User 层子集。
 
@@ -124,7 +124,7 @@ CI 说明：
 可选增强（未默认纳入 CI，团队可自行约定）：
 
 - 性能合成与剖析流程见 [PERFORMANCE.md](PERFORMANCE.md)；可选 workflow **Perf smoke**（`workflow_dispatch` / 定时）运行 `tests/performance/` 的完整 perf marker、内存剖析、Trace 开销和短稳定性浸泡，并上传带 commit SHA 的 artifact；离线对比两次 JSON 可用 `scripts/compare_perf_snapshots.py`。
-- **可选 pre-commit**：仓库根 [`.pre-commit-config.yaml`](../.pre-commit-config.yaml) 提供 `ruff` hook（路径 `miniagent`、`tests`）；本地执行 `pip install pre-commit && pre-commit install` 后随 commit 检查。
+- **可选提交前检查**：仓库不维护独立 pre-commit 配置；提交前直接运行本节完整门禁，避免本地 hook 与 CI 命令漂移。
 - **维护脚本清单**见 [scripts/README.md](../scripts/README.md)；自 v2.0.3 起，手工 verify 脚本已移除，性能回归用 `pytest -m perf` 与 `scripts/perf_profile_tracemalloc.py`。
 
 ---

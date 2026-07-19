@@ -7,9 +7,10 @@ import math
 import os
 import re
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import MappingProxyType
 from typing import Protocol, runtime_checkable
 
 from miniagent.agent.lifecycle import HealthReport, HealthState
@@ -20,18 +21,22 @@ _TOKEN_RE = re.compile(r"[\w\u4e00-\u9fff]+", re.UNICODE)
 
 @dataclass(frozen=True, slots=True)
 class RAGDocument:
+    """Immutable local document stored and retrieved by the RAG extension."""
+
     document_id: str
     text: str
-    metadata: dict[str, str] = field(default_factory=dict)
+    metadata: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.document_id.strip() or not self.text.strip():
             raise ValueError("RAG document id and text must not be empty")
-        object.__setattr__(self, "metadata", dict(self.metadata))
+        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
 
 
 @dataclass(frozen=True, slots=True)
 class RetrievedDocument:
+    """A ranked document with its combined and component relevance scores."""
+
     document: RAGDocument
     score: float
     keyword_score: float = 0.0
@@ -40,6 +45,8 @@ class RetrievedDocument:
 
 @runtime_checkable
 class Retriever(Protocol):
+    """Minimal asynchronous retrieval contract consumed by Agent extensions."""
+
     async def retrieve(
         self, query: str, *, top_k: int | None = None
     ) -> Sequence[RetrievedDocument]: ...
@@ -78,21 +85,25 @@ class HybridRAGExtension:
         self._dirty = False
 
     async def initialize(self) -> None:
+        """Validate vector dependencies and restore persisted local state."""
         self._state = HealthState.STARTING
         if self.enabled and self.vector_enabled and self.embedding_client is None:
             raise ValueError("vector RAG is enabled but no EmbeddingClient was provided")
         self._load()
 
     async def start(self) -> None:
+        """Expose the configured enabled/disabled health state."""
         self._state = HealthState.READY if self.enabled else HealthState.STOPPED
 
     async def stop(self) -> None:
+        """Persist dirty state and close the extension-owned embedding client."""
         self._save()
         if self.embedding_client is not None:
             await self.embedding_client.close()
         self._state = HealthState.STOPPED
 
     def health(self) -> HealthReport:
+        """Return readiness and current document/vector counts."""
         return HealthReport(
             self._state,
             self._detail,
@@ -100,12 +111,17 @@ class HybridRAGExtension:
         )
 
     async def add(self, document: RAGDocument) -> None:
+        """Insert or replace a document and refresh its vector when enabled."""
         self._documents[document.document_id] = document
+        # Replacing text must never retain the previous text's vector if embedding
+        # is disabled or the new embedding request fails open.
+        self._vectors.pop(document.document_id, None)
         self._dirty = True
         if self.enabled and self.vector_enabled:
             await self._embed_document(document)
 
     def remove(self, document_id: str) -> bool:
+        """Remove a document and any vector, returning whether it existed."""
         existed = self._documents.pop(document_id, None) is not None
         self._vectors.pop(document_id, None)
         self._dirty = self._dirty or existed
@@ -114,6 +130,7 @@ class HybridRAGExtension:
     async def retrieve(
         self, query: str, *, top_k: int | None = None
     ) -> tuple[RetrievedDocument, ...]:
+        """Rank documents using keyword/vector scores with fail-open embeddings."""
         clean = query.strip()
         if not self.enabled or not clean or not self._documents:
             return ()
@@ -226,7 +243,7 @@ class HybridRAGExtension:
                 {
                     "document_id": item.document_id,
                     "text": item.text,
-                    "metadata": item.metadata,
+                    "metadata": dict(item.metadata),
                 }
                 for item in self._documents.values()
             ],

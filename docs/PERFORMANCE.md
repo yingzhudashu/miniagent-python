@@ -1,6 +1,6 @@
 # 性能测试与优化
 
-> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-17 | 与 `miniagent.__version__` 对齐 | 补充 [ENGINEERING.md](ENGINEERING.md)
+> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-19 | 与 `miniagent.__version__` 对齐 | 补充 [ENGINEERING.md](ENGINEERING.md)
 
 本文分两部分：
 
@@ -218,10 +218,10 @@ CI **不**依赖基线文件是否存在；可选 workflow 仅上传当次脚本
 | `is_process_running()` | `is_process_running_async()` | `infrastructure/instance.py` |
 | `InstanceRegistry.stop()` | `InstanceRegistry.stop_async()` | `infrastructure/instance.py` |
 | `save_tasks()` | `save_tasks_async()` | `scheduled_tasks/store.py` |
-| `is_in_git_repo()` | `is_in_git_repo_async()` | `core/self_opt/git_snapshot.py` |
-| `has_uncommitted_changes()` | `has_uncommitted_changes_async()` | `core/self_opt/git_snapshot.py` |
-| `create_snapshot()` | `create_snapshot_async()` | `core/self_opt/git_snapshot.py` |
-| `rollback_snapshot()` | `rollback_snapshot_async()` | `core/self_opt/git_snapshot.py` |
+| `is_in_git_repo()` | `is_in_git_repo_async()` | `assistant/self_opt/git_snapshot.py` |
+| `has_uncommitted_changes()` | `has_uncommitted_changes_async()` | `assistant/self_opt/git_snapshot.py` |
+| `create_snapshot()` | `create_snapshot_async()` | `assistant/self_opt/git_snapshot.py` |
+| `rollback_snapshot()` | `rollback_snapshot_async()` | `assistant/self_opt/git_snapshot.py` |
 | `post_im_message()` | `post_im_message_async()` | `feishu/im_send.py` |
 
 **关键规则**：
@@ -347,14 +347,21 @@ CLI 与飞书默认以流式展示思考过程（引擎层行为，无 `agent.st
 
 #### Token 估算优化
 
-1. 使用 tiktoken 库精确计数（见 `executor.py`）。
+1. 使用 `agent/context.py` 的中英文字符启发式估算并缓存结果；这是预算保护值，不宣称与供应商 tokenizer 精确一致。
 2. 调整预算：
    ```json
    {
-     "model": { "context_window": 128000, "max_tokens": 4096 }
+     "llm": {
+       "models": {
+         "primary": {
+           "context_window": 128000,
+           "defaults": { "max_tokens": 4096 }
+         }
+       }
+     }
    }
    ```
-3. 上下文压缩由 `agent.context_compress_threshold`（默认 0.6）与 `memory/context.py` 自动触发，可调：
+3. 上下文压缩由 `agent.context_compress_threshold`（默认 0.6）与 `agent/context.py` 自动触发，可调：
    ```json
    {
      "agent": { "context_compress_threshold": 0.5 },
@@ -373,7 +380,7 @@ CLI 与飞书默认以流式展示思考过程（引擎层行为，无 `agent.st
 }
 ```
 
-用户 JSON 键为 **`model.retry_count`**（非 `max_retries`）。`infrastructure/http_retry.py` 与 OpenAI SDK 内部参数名也可能叫 `max_retries`，属于实现细节，勿写成 `config.user.json` 键。OpenAI SDK 超时在 `core/openai_client.py` 中配置为 120 秒。
+用户 JSON 键为 **`llm.max_retries`**；连接超时由 `agent.http_timeout` 提供默认值，也可由 `llm.providers.<name>.options.timeout` 覆盖。`assistant/infrastructure/http_retry.py` 与第三方 SDK 内部同名参数属于各自实现细节，勿混作用户配置。
 
 #### 飞书连接优化
 

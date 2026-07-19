@@ -49,6 +49,8 @@ class LifecycleService(Protocol):
 
 
 class LifecyclePhase(str, Enum):
+    """Coordinator phases exposed for readiness and shutdown decisions."""
+
     NEW = "new"
     INITIALIZED = "initialized"
     READY = "ready"
@@ -59,6 +61,8 @@ class LifecyclePhase(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class ServiceFailure:
+    """One ordinary service exception retained during best-effort cleanup."""
+
     service_name: str
     error: BaseException
 
@@ -108,19 +112,23 @@ class LifecycleManager:
 
     @property
     def phase(self) -> LifecyclePhase:
+        """Current aggregate lifecycle phase."""
         return self._phase
 
     @property
     def service_names(self) -> tuple[str, ...]:
+        """Return service identifiers in deterministic startup order."""
         return tuple(service.name for service in self._services)
 
     def service(self, name: str) -> LifecycleService:
+        """Look up a registered service or raise ``KeyError``."""
         for service in self._services:
             if service.name == name:
                 return service
         raise KeyError(f"unknown lifecycle service: {name}")
 
     async def initialize(self) -> None:
+        """Initialize every service in order, rolling back on failure."""
         async with self._lock:
             await self._initialize_locked()
 
@@ -138,7 +146,7 @@ class LifecycleManager:
             except BaseException as error:
                 self._phase = LifecyclePhase.FAILED
                 failures = await self._stop_attempted()
-                if isinstance(error, asyncio.CancelledError):
+                if not isinstance(error, Exception):
                     raise
                 raise LifecycleStartupError(
                     "initialize", service.name, error, failures
@@ -147,6 +155,7 @@ class LifecycleManager:
         self._phase = LifecyclePhase.INITIALIZED
 
     async def start(self) -> None:
+        """Initialize as needed, then start every service in order."""
         async with self._lock:
             if self._phase is LifecyclePhase.READY:
                 return
@@ -159,7 +168,7 @@ class LifecycleManager:
                 except BaseException as error:
                     self._phase = LifecyclePhase.FAILED
                     failures = await self._stop_attempted()
-                    if isinstance(error, asyncio.CancelledError):
+                    if not isinstance(error, Exception):
                         raise
                     raise LifecycleStartupError(
                         "start", service.name, error, failures
@@ -168,17 +177,23 @@ class LifecycleManager:
             self._phase = LifecyclePhase.READY
 
     async def stop(self) -> None:
+        """Stop all attempted services once, in reverse registration order."""
         async with self._lock:
             if self._phase is LifecyclePhase.STOPPED:
                 return
             self._phase = LifecyclePhase.STOPPING
-            failures = await self._stop_attempted()
+            try:
+                failures = await self._stop_attempted()
+            except BaseException:
+                self._phase = LifecyclePhase.FAILED
+                raise
             if failures:
                 self._phase = LifecyclePhase.FAILED
                 raise LifecycleShutdownError(failures)
             self._phase = LifecyclePhase.STOPPED
 
     def health(self) -> dict[str, HealthReport]:
+        """Collect non-blocking health snapshots keyed by service name."""
         return {service.name: service.health() for service in self._services}
 
     def _ensure_startable(self) -> None:
@@ -187,6 +202,7 @@ class LifecycleManager:
 
     async def _stop_attempted(self) -> tuple[ServiceFailure, ...]:
         failures: list[ServiceFailure] = []
+        control_error: BaseException | None = None
         attempted = tuple(reversed(self._attempted))
         self._attempted.clear()
         self._initialized.clear()
@@ -195,7 +211,12 @@ class LifecycleManager:
             try:
                 await service.stop()
             except BaseException as error:
-                failures.append(ServiceFailure(service.name, error))
+                if isinstance(error, Exception):
+                    failures.append(ServiceFailure(service.name, error))
+                elif control_error is None:
+                    control_error = error
+        if control_error is not None:
+            raise control_error
         return tuple(failures)
 
 
