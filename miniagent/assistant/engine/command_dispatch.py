@@ -157,9 +157,13 @@ async def dispatch_command(
     closest = _find_command_by_prefix(command_name) or _find_closest_command(command_name)
     if closest and closest.lower() != command_name:
         suggestion = f"{WARNING_PREFIX} 未找到命令 '{command_name}'，您是否想输入 '{closest}'？"
-        if capture:
-            return suggestion
-        print(suggestion)
+    else:
+        suggestion = (
+            f"{WARNING_PREFIX} 未找到命令 '{command_name}'。输入 /help 查看可用命令。"
+        )
+    if capture:
+        return suggestion
+    print(suggestion)
     return None
 
 

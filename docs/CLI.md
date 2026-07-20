@@ -2,7 +2,7 @@
 
 > Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-19 | 与 `miniagent.__version__` 对齐 | 命令使用 `/` 前缀；多数命令在 CLI 与飞书均可使用
 
-**命令前缀**：系统统一使用 `/` 前缀（更符合CLI惯例）。例如：`/help`、`/status`、`/session list`。
+**命令前缀**：系统统一使用 `/` 前缀（更符合CLI惯例）。例如：`/help`、`/status`、`/session list`。行首 `/` 是命令专用前缀：命令无论成功、失败或无输出，都不会再作为普通消息提交给 Agent；未知命令会提示使用 `/help`。
 
 在 **本地 CLI** 执行 `/session switch` 时，会同步更新 **CLI 通道绑定** 与已自动跟随的 **飞书私聊 sender**，使二者与 `active_session_id` 一致（在飞书内发 `/session switch` / `create` / `rename` 等变异子命令不会修改共享状态，见 [FEISHU.md](FEISHU.md)）。飞书多实例场景下，仅一个进程可持有入站连接（见 `feishu_inbound_owner.json`）。
 
@@ -565,6 +565,7 @@ CLI 思考块标题与正文默认使用亮青色（`ansibrightcyan`）。颜色
 - **前缀匹配**：输入至少3字符时优先匹配前缀（如 `/sta` → `/stats`）
 - **模糊匹配**：相似度阈值 0.6，使用 `difflib.get_close_matches()`
 - **建议而非自动执行**：用户需手动确认后重新输入
+- **未知命令**：没有合适建议时显示 `/help` 引导；不会回落为 Agent 消息
 
 ### Tab 自动补全
 

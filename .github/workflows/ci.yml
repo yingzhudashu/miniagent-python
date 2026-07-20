@@ -176,7 +176,7 @@ jobs:
       - name: Windows entrypoint and platform tests
         run: |
           python -m miniagent --help
-          python -m pytest tests/cli/test_cli_entry.py tests/cli/test_clipboard.py tests/session/test_session_lock.py
+          python -m pytest tests/cli/test_cli_entry.py tests/cli/test_clipboard.py tests/cli/test_cli_tui_output_bindings.py tests/cli/test_cli_tui_fullscreen_smoke.py tests/cli/test_tui_runtime_matrix.py tests/cli/test_command_dispatch.py tests/session/test_session_lock.py
 
   macos-smoke:
     runs-on: macos-latest

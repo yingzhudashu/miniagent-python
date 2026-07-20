@@ -33,6 +33,9 @@ class _StreamingThinkState:
     active: bool = False
     text: str = ""
     start_idx: int = -1
+    pending_label: str = ""
+    label_visible: bool = False
+    collapse_notice_visible: bool = False
 
 
 class _TuiViewport:
@@ -267,8 +270,8 @@ async def _handle_tui_input(user_input: str, runtime: dict[str, Any]) -> bool:
         )
         runtime["term_write"](f"{SUCCESS_PREFIX} 当前实例已停止", "ansigreen")
         return True
-    if user_input.startswith("/") and await _dispatch_tui_command(user_input, runtime):
-        return True
+    if user_input.startswith("/"):
+        return await _dispatch_tui_command(user_input, runtime)
     return await _submit_tui_agent_input(user_input, runtime)
 
 

@@ -388,7 +388,7 @@ class ThinkingDisplay:
         self, state: _SessionThinkingState, text: str, *, session_key: str = ""
     ) -> None:
         """流式思考正文增量输出（带内容连续性校验，防止丢字）。"""
-        full = text.replace("\r\n", "\n")
+        full = text.replace("\r\n", "\n").replace("\r", "\n")
 
         # 首次流式纯 header 标注（如 "[执行]"），不打印正文，标记等待正文
         if state.stream_printed == 0 and full == state.stream_header:

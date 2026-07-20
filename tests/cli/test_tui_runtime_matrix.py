@@ -112,12 +112,21 @@ async def test_handle_tui_copy_stop_and_command(monkeypatch) -> None:
     import miniagent.assistant.engine.command_dispatch as dispatch_module
     import miniagent.assistant.engine.parallel_config as parallel_module
 
-    monkeypatch.setattr(dispatch_module, "dispatch_command", AsyncMock(return_value="status"))
+    dispatch = AsyncMock(return_value="status")
+    monkeypatch.setattr(dispatch_module, "dispatch_command", dispatch)
     monkeypatch.setattr(parallel_module, "resolve_active_session_key", lambda *_args: "s1")
-    assert await cli_tui._dispatch_tui_command("/status", runtime) is False
+    assert await cli_tui._handle_tui_input("/status", runtime) is False
     runtime["outbound_channels"].send.assert_awaited_once()
+    dispatch.assert_awaited_once()
+    runtime["inbound_turns"].submit.assert_not_awaited()
 
-    monkeypatch.setattr(dispatch_module, "dispatch_command", AsyncMock(return_value="__EXIT__"))
+    dispatch.reset_mock()
+    dispatch.return_value = None
+    assert await cli_tui._handle_tui_input("/silent", runtime) is False
+    dispatch.assert_awaited_once()
+    runtime["inbound_turns"].submit.assert_not_awaited()
+
+    dispatch.return_value = "__EXIT__"
     assert await cli_tui._dispatch_tui_command("/exit", runtime) is True
 
 
@@ -231,7 +240,79 @@ def test_output_binding_stream_fallback_and_delivery(monkeypatch) -> None:
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("render")),
     )
     binding.thinking_sink_inner("plain", session_key="broken")
-    assert streams["broken"].active is False
+    assert streams["broken"].active is True
+    assert streams["broken"].text == "plain"
+    assert transcript[-1] == ("class:cli-think-body", "plain")
+
+
+@pytest.mark.parametrize("rendered", [None, ""])
+def test_streaming_thinking_falls_back_when_render_has_no_body(
+    monkeypatch, rendered
+) -> None:
+    binding, transcript, _appended, streams = _output_bindings()
+    monkeypatch.setattr(
+        "miniagent.assistant.engine.markdown_cli.render_markdown_to_ansi",
+        lambda *_args, **_kwargs: rendered,
+    )
+
+    binding.thinking_sink_inner("任务难度：普通\r\n", session_key="s")
+    binding.thinking_sink_inner("计划：检查 Windows\r执行：验证", session_key="s")
+
+    expected = "任务难度：普通\n计划：检查 Windows\n执行：验证"
+    assert streams["s"].text == expected
+    assert transcript == [("class:cli-think-body", expected)]
+
+
+def test_streaming_thinking_falls_back_when_ansi_has_no_visible_fragments(
+    monkeypatch,
+) -> None:
+    binding, transcript, _appended, _streams = _output_bindings()
+    binding.safe_ansi = lambda _value: []
+    monkeypatch.setattr(
+        "miniagent.assistant.engine.markdown_cli.render_markdown_to_ansi",
+        lambda text, **_kwargs: text,
+    )
+
+    binding.thinking_sink_inner("分步执行正文", session_key="s")
+
+    assert transcript == [("class:cli-think-body", "分步执行正文")]
+
+
+def test_reasoning_fold_buffers_complete_block_and_replays_immediately(monkeypatch) -> None:
+    binding, transcript, _appended, streams = _output_bindings()
+    expanded = [False]
+    binding.reasoning_expanded = lambda: expanded[0]
+    binding.append_transcript = lambda style, text: transcript.append((style, text))
+    monkeypatch.setattr(
+        "miniagent.assistant.engine.markdown_cli.render_markdown_to_ansi",
+        lambda *_args, **_kwargs: None,
+    )
+
+    binding.thinking_sink_inner("💭 [1] [评估与计划]\r\n", "label", session_key="s")
+    binding.thinking_sink_inner("任务难度与计划正文", session_key="s")
+    binding.thinking_sink_inner("💭 [1] [后台执行]\n", "label", session_key="other")
+    binding.thinking_sink_inner("后台正文", session_key="other")
+    assert transcript == []
+    assert streams["s"].pending_label
+
+    expanded[0] = True
+    binding.set_reasoning_expanded(True, session_key="s")
+
+    assert "评估与计划" in transcript[0][1]
+    assert transcript[1] == ("class:cli-think-body", "任务难度与计划正文")
+    assert streams["s"].pending_label == ""
+    assert streams["other"].pending_label
+    assert all("后台" not in fragment[1] for fragment in transcript)
+
+
+def test_collapsing_after_header_adds_explicit_state() -> None:
+    binding, _transcript, appended, streams = _output_bindings()
+    binding.thinking_sink_inner("💭 [1] [执行]\n", "label", session_key="s")
+
+    binding.set_reasoning_expanded(False)
+
+    assert appended[-1] == ("class:cli-hint", "（推理内容已折叠）\n")
+    assert streams["s"].collapse_notice_visible is True
 
 
 def _key_installer():

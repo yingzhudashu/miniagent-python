@@ -324,7 +324,7 @@ class _FeishuHandlerRuntime:
             if reply == "__EXIT__":
                 return True, ""
             if reply is None:
-                return False, ""
+                return True, ""
             self.maybe_auto_bind(inbound.chat_type or "group", inbound.sender_id)
             self.emit_preview(
                 inbound.chat_type or "group",

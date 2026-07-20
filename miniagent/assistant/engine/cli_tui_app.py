@@ -134,6 +134,19 @@ class AssistantTuiApplication(TuiApp):
         key = (session_key or "").strip() or "default"
         return self.streaming_states.setdefault(key, _StreamingThinkState())
 
+    def toggle_reasoning_visibility(self) -> bool:
+        """切换推理可见性，并立即恢复折叠期间累计的当前正文。"""
+        from miniagent.assistant.engine.parallel_config import resolve_active_session_key
+
+        expanded = self.view_state.toggle_reasoning()
+        output = getattr(self, "output_bindings", None)
+        if output is not None:
+            session_key = resolve_active_session_key(
+                self.channel_router, self.state.get("active_session_id") or "default"
+            )
+            output.set_reasoning_expanded(expanded, session_key=session_key)
+        return expanded
+
     def skill_toolbox_snapshot(self) -> list[Any]:
         """优先返回热加载状态中的技能工具箱。"""
         from miniagent.assistant.skills.snapshots import get_skill_toolboxes_from_state
@@ -323,7 +336,7 @@ class AssistantTuiApplication(TuiApp):
             request_session_palette=lambda event: event.app.exit(
                 result="__session_palette__"
             ),
-            toggle_reasoning=self.view_state.toggle_reasoning,
+            toggle_reasoning=self.toggle_reasoning_visibility,
             keymap=keymap,
         )
 

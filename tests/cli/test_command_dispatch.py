@@ -274,7 +274,8 @@ class TestRemovedCommands:
     async def test_bind_not_handled_by_dispatch(self) -> None:
         state = _create_mock_state()
         result = await dispatch_command("/bind status", state=state, capture=True)
-        assert result is None
+        assert result is not None
+        assert "未找到命令 '/bind'" in result
 
 
 class TestStatusFocusLine:
@@ -445,13 +446,23 @@ class TestUnknownCommand:
     """测试未知命令处理。"""
 
     @pytest.mark.asyncio
-    async def test_unknown_command_returns_none(self) -> None:
-        """未知命令应返回 None（交给 agent 处理）。"""
+    async def test_unknown_command_prints_help_without_capture(self, capsys) -> None:
+        """未知命令应明确提示，且由输入边界直接消费。"""
         state = _create_mock_state()
 
         result = await dispatch_command("/unknown_command", state=state)
 
         assert result is None
+        assert "输入 /help 查看可用命令" in capsys.readouterr().out
+
+    @pytest.mark.asyncio
+    async def test_unknown_command_returns_help_when_captured(self) -> None:
+        state = _create_mock_state()
+
+        result = await dispatch_command("/unknown_command", state=state, capture=True)
+
+        assert result is not None
+        assert "输入 /help 查看可用命令" in result
 
 
 class TestSelfOptCommand:

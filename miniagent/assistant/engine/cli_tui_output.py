@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from typing import Any
 
 from prompt_toolkit.application import get_app
@@ -20,6 +21,11 @@ _ANSI_COLOR_STYLE_MAP: dict[str, str] = {
     "ansiyellow": "class:cli-warn",
     "ansicyan": "class:cli-user-title",
 }
+
+
+def _normalize_stream_text(text: str) -> str:
+    """Normalize platform line endings before cumulative stream accounting."""
+    return (text or "").replace("\r\n", "\n").replace("\r", "\n")
 
 
 class _TuiOutputBindings:
@@ -86,6 +92,38 @@ class _TuiOutputBindings:
     def _clear_stream_state(self, session_key: str) -> None:
         self.streaming_think_by_session.pop(session_key, None)
 
+    def _visible_stream_fragments(self, full_text: str, session_key: str) -> list[Any]:
+        """Render one complete stream snapshot, falling back when it has no visible body."""
+        from miniagent.assistant.engine.markdown_cli import render_markdown_to_ansi
+        from miniagent.ui.tui.transcript import transcript_plain
+
+        reason = ""
+        fragments: list[Any] = []
+        try:
+            rendered = render_markdown_to_ansi(
+                full_text, width=self.markdown_render_width(), justify="left"
+            )
+            if rendered is None:
+                reason = "renderer_unavailable"
+            elif full_text.strip() and not rendered.strip():
+                reason = "empty_render"
+            else:
+                fragments = list(self.safe_ansi(rendered))
+                if full_text.strip() and not transcript_plain(fragments).strip():
+                    reason = "empty_visible_fragments"
+        except Exception as error:
+            reason = f"{type(error).__name__}"
+
+        if not reason:
+            return fragments
+        logging.getLogger(__name__).debug(
+            "TUI thinking正文降级为纯文本: reason=%s platform=%s session=%s",
+            reason,
+            sys.platform,
+            session_key,
+        )
+        return [("class:cli-think-body", full_text)] if full_text else []
+
     def term_write(self, text: str = "", color: str = "") -> None:
         """写入 transcript，优先 Markdown 渲染并安全回退。"""
         from miniagent.assistant.engine.markdown_cli import render_markdown_to_ansi
@@ -120,15 +158,10 @@ class _TuiOutputBindings:
             self.stick_bottom[0] = False
 
     def _append_streaming_thinking(self, fragment: str, session_key: str) -> None:
-        from miniagent.assistant.engine.markdown_cli import render_markdown_to_ansi
-
         stream = self.stream_state(session_key)
-        full_text = stream.text + fragment if stream.active else fragment
-        safe_fragments = self.safe_ansi(
-            render_markdown_to_ansi(
-                full_text, width=self.markdown_render_width(), justify="left"
-            ) or ""
-        )
+        normalized = _normalize_stream_text(fragment)
+        full_text = stream.text + normalized if stream.active else normalized
+        safe_fragments = self._visible_stream_fragments(full_text, session_key)
         if stream.active and stream.start_idx >= 0:
             while len(self.transcript) > stream.start_idx:
                 self.transcript.pop()
@@ -142,6 +175,37 @@ class _TuiOutputBindings:
         if self.output_at_bottom() or self.stick_bottom[0]:
             self.snap_output_bottom()
 
+    def set_reasoning_expanded(
+        self, expanded: bool, *, session_key: str | None = None
+    ) -> None:
+        """Apply reasoning visibility and replay text accumulated while collapsed."""
+        normalized_key = (session_key or "").strip()
+        streams: tuple[tuple[str, Any], ...]
+        if normalized_key:
+            stream = self.streaming_think_by_session.get(normalized_key)
+            streams = ((normalized_key, stream),) if stream is not None else ()
+        else:
+            streams = tuple(self.streaming_think_by_session.items())
+        if not expanded:
+            for _key, stream in streams:
+                if (
+                    bool(getattr(stream, "label_visible", False))
+                    and not str(getattr(stream, "text", "") or "").strip()
+                    and not bool(getattr(stream, "collapse_notice_visible", False))
+                ):
+                    self.append_transcript("class:cli-hint", "（推理内容已折叠）\n")
+                    stream.collapse_notice_visible = True
+            return
+        for stream_key, stream in streams:
+            pending_label = str(getattr(stream, "pending_label", "") or "")
+            if pending_label:
+                self.append_transcript("class:cli-think-head", pending_label)
+                stream.pending_label = ""
+                stream.label_visible = True
+                stream.collapse_notice_visible = False
+            if stream.active and stream.text:
+                self._append_streaming_thinking("", stream_key)
+
     def thinking_sink_inner(
         self,
         fragment: str,
@@ -153,6 +217,7 @@ class _TuiOutputBindings:
         """按会话维护流式思考累积器。"""
         session_key = session_key.strip() or "default"
         stream = self.stream_state(session_key)
+        fragment = _normalize_stream_text(fragment)
         if ansi_markdown is not None:
             if getattr(self, "reasoning_expanded", lambda: True)():
                 self._append_ansi_thinking(ansi_markdown)
@@ -162,7 +227,14 @@ class _TuiOutputBindings:
             stream.active = False
             stream.text = ""
             stream.start_idx = -1
-            self.append_transcript(style, fragment)
+            stream.collapse_notice_visible = False
+            if getattr(self, "reasoning_expanded", lambda: True)():
+                stream.pending_label = ""
+                stream.label_visible = True
+                self.append_transcript(style, fragment)
+            else:
+                stream.pending_label = fragment
+                stream.label_visible = False
             return
         if not getattr(self, "reasoning_expanded", lambda: True)():
             stream.text = stream.text + fragment if stream.active else fragment

@@ -182,6 +182,21 @@ async def test_handler_command_and_clarification_matrix(tmp_path, monkeypatch) -
     assert handled and result == ""
     ctx.outbound_channels.send.assert_awaited_once()
 
+    ctx.outbound_channels.send.reset_mock()
+    monkeypatch.setattr(dispatch_module, "dispatch_command", AsyncMock(return_value=None))
+    handled, result = await runtime._handle_command(
+        FeishuInboundText("/silent", "chat", "user", "group", message_id="m2")
+    )
+    assert handled and result == ""
+    ctx.outbound_channels.send.assert_not_awaited()
+
+    runtime._run_text_turn = AsyncMock()
+    result = await runtime.handler(
+        FeishuInboundText("/silent", "chat", "user", "group", message_id="m3")
+    )
+    assert result == ""
+    runtime._run_text_turn.assert_not_awaited()
+
     from miniagent.agent.types.confirmation import ConfirmationStage
 
     channel = SimpleNamespace(
