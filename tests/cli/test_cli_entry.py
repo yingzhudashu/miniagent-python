@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -59,3 +60,38 @@ def test_cli_main_delegates_to_entry(monkeypatch: pytest.MonkeyPatch) -> None:
 
     main()
     assert called == [True]
+
+
+def test_secret_loader_delegates_to_bootstrap_use_case(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import miniagent.assistant.bootstrap.configuration as configuration
+    import miniagent.assistant.runner as runner
+
+    load = MagicMock()
+    monkeypatch.setattr(configuration, "load_secrets_from_project_root", load)
+    runner._load_env()
+    load.assert_called_once_with()
+
+
+def test_normal_cli_path_builds_and_runs_personal_application(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import miniagent.assistant.app as app_module
+    import miniagent.assistant.bootstrap.configuration as configuration
+    import miniagent.assistant.engine.setup_wizard as setup_wizard
+    import miniagent.assistant.runner as runner
+
+    application = MagicMock()
+    monkeypatch.setattr(runner, "_load_env", MagicMock())
+    monkeypatch.setattr(runner, "_bootstrap_project_paths", MagicMock())
+    monkeypatch.setattr(setup_wizard, "run_interactive_setup", MagicMock())
+    monkeypatch.setattr(configuration, "load_secrets_from_project_root", MagicMock())
+    monkeypatch.setattr(app_module, "create_personal_assistant", lambda: application)
+    monkeypatch.setattr(sys, "argv", ["miniagent", "--no-continue"])
+
+    runner._run_current_argv()
+
+    setup_wizard.run_interactive_setup.assert_called_once_with()
+    configuration.load_secrets_from_project_root.assert_called_once_with()
+    application.run.assert_called_once_with()

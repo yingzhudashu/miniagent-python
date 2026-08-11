@@ -1,23 +1,14 @@
-"""ChannelRouter 磁盘持久化。"""
-
-import json
-import os
+"""ChannelRouter SQLite persistence."""
 
 from miniagent.assistant.infrastructure.channel_router import ChannelRouter
 
 
 def test_save_and_load_roundtrip(state_dir: str) -> None:
-    """绑定保存到文件并从磁盘恢复。"""
     router = ChannelRouter()
     router.bind("__cli__", "default")
     router.bind("feishu_p2p:ou_abc", "default")
     router.set_primary("default")
-    router.save()
 
-    path = os.path.join(state_dir, "channel-router.json")
-    assert os.path.isfile(path)
-
-    # 新实例从磁盘加载
     router2 = ChannelRouter()
     assert router2.load() is True
     assert router2.resolve("__cli__") == "default"
@@ -25,59 +16,34 @@ def test_save_and_load_roundtrip(state_dir: str) -> None:
     assert router2.primary == "default"
 
 
-def test_load_returns_false_when_no_file(state_dir: str) -> None:
-    """无文件时 load() 返回 False。"""
-    router = ChannelRouter()
-    assert router.load() is False
+def test_load_returns_false_when_database_has_no_router_state(state_dir: str) -> None:
+    assert ChannelRouter().load() is False
 
 
-def test_bind_auto_saves(state_dir: str) -> None:
-    """bind() 调用后自动写入磁盘。"""
-    router = ChannelRouter()
-    router.bind("__cli__", "session-1")
-    path = os.path.join(state_dir, "channel-router.json")
-    assert os.path.isfile(path)
-    with open(path, encoding="utf-8") as f:
-        data = json.load(f)
-    assert data["bindings"]["__cli__"] == "session-1"
-
-
-def test_unbind_auto_saves(state_dir: str) -> None:
-    """unbind() 调用后自动更新磁盘文件。"""
+def test_bind_and_unbind_are_immediately_durable(state_dir: str) -> None:
     router = ChannelRouter()
     router.bind("ch1", "sess1")
-    path = os.path.join(state_dir, "channel-router.json")
-    assert os.path.isfile(path)
+    loaded = ChannelRouter()
+    assert loaded.load() is True
+    assert loaded.resolve("ch1") == "sess1"
+
     router.unbind("ch1")
-    with open(path, encoding="utf-8") as f:
-        data = json.load(f)
-    assert "ch1" not in data["bindings"]
+    reloaded = ChannelRouter()
+    assert reloaded.load() is True
+    assert reloaded.resolve("ch1") == "ch1"
 
 
-def test_startup_load_restores_p2p_binding(state_dir: str) -> None:
-    """模拟重启后 P2P 绑定恢复——这是修复的核心场景。"""
-    # 第 1 次运行：创建绑定
-    router1 = ChannelRouter()
-    router1.bind("__cli__", "default")
-    router1.bind("feishu_p2p:ou_test123", "default")
-    router1.set_primary("default")
-
-    # 模拟重启：全新实例
-    router2 = ChannelRouter()
-    # 加载前无绑定
-    assert router2.resolve("feishu_p2p:ou_test123") == "feishu_p2p:ou_test123"
-    # 加载后恢复
-    router2.load()
-    assert router2.resolve("feishu_p2p:ou_test123") == "default"
-    assert router2.resolve("__cli__") == "default"
-
-
-def test_set_primary_auto_saves(state_dir: str) -> None:
-    """set_primary() 调用后自动写入磁盘。"""
+def test_primary_and_cli_continue_state_survive_restart(state_dir: str) -> None:
     router = ChannelRouter()
-    router.bind("__cli__", "default")
-    path = os.path.join(state_dir, "channel-router.json")
     router.set_primary("primary-session")
-    with open(path, encoding="utf-8") as f:
-        data = json.load(f)
-    assert data["primary"] == "primary-session"
+    router.save_cli_session_state("work", 2, "Work", "2026-01-01T00:00:00+00:00")
+
+    loaded = ChannelRouter()
+    assert loaded.load() is True
+    assert loaded.primary == "primary-session"
+    assert loaded.load_cli_session_state() == {
+        "last_cli_session": "work",
+        "last_cli_session_number": 2,
+        "last_cli_session_title": "Work",
+        "last_cli_exit_time": "2026-01-01T00:00:00+00:00",
+    }

@@ -45,7 +45,8 @@ async def test_fullscreen_tui_builds_and_exits_without_user_state(
     from prompt_toolkit.input import DummyInput
     from prompt_toolkit.output import DummyOutput
 
-    import miniagent.assistant.engine.cli_tui as tui
+    import miniagent.assistant.engine.cli_tui as tui_interaction
+    import miniagent.assistant.engine.cli_tui_app as tui
     import miniagent.assistant.engine.session_continue as session_continue
     import miniagent.assistant.engine.session_lock as session_lock
 
@@ -71,7 +72,7 @@ async def test_fullscreen_tui_builds_and_exits_without_user_state(
     monkeypatch.setattr(session_lock, "release_session_lock", lambda _session_id: None)
     monkeypatch.setattr(session_continue, "save_cli_session_state", lambda *_args: None)
     monkeypatch.setattr(tui, "unregister_instance", lambda: None)
-    monkeypatch.setattr(tui, "copy_text_to_system_clipboard", lambda _text: True)
+    monkeypatch.setattr(tui_interaction, "copy_text_to_system_clipboard", lambda _text: True)
 
     engine = SimpleNamespace(thinking=_ThinkingDisplayStub())
     router = ChannelRouter()

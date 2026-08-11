@@ -203,3 +203,17 @@ def test_result_record_truncates_output_in_report() -> None:
     rec = ResultRecord(sample_name="x", passed=True, actual_output="a" * 300)
     dumped = rec.to_dict(output_max_len=50)
     assert len(dumped["actual_output"]) == 50
+
+
+def test_last_report_reads_only_current_valid_object(tmp_path: Path) -> None:
+    report_path = tmp_path / "report.json"
+    runner = TestRunner(report_path=str(report_path))
+
+    report_path.write_text('{"total": 1}', encoding="utf-8")
+    assert runner.get_last_report() == {"total": 1}
+
+    report_path.write_text("[]", encoding="utf-8")
+    assert runner.get_last_report() is None
+
+    report_path.write_text("not-json", encoding="utf-8")
+    assert runner.get_last_report() is None

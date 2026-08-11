@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from miniagent.assistant.feishu.docx.blocks import _paragraph_blocks_for_text
+from miniagent.assistant.feishu.docx.payloads import paragraph_blocks_for_text
 
 _HEADING = ("#", "##", "###", "####", "#####", "######")
 
@@ -34,7 +34,7 @@ def markdown_to_plain_text(md: str) -> str:
 
 def markdown_to_blocks(md: str) -> list:
     """转为 docx 文本块列表（段落级）。"""
-    return _paragraph_blocks_for_text(markdown_to_plain_text(md))
+    return paragraph_blocks_for_text(markdown_to_plain_text(md))
 
 
 __all__ = ["markdown_to_blocks", "markdown_to_plain_text"]

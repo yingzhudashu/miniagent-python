@@ -78,7 +78,7 @@ def test_save_setup_config_applies_reload_and_secrets(tmp_path: Path) -> None:
     with (
         patch("miniagent.assistant.engine.setup_wizard.reload_config") as reload_mock,
         patch(
-            "miniagent.assistant.infrastructure.env_loader.load_secrets_from_project_root"
+            "miniagent.assistant.bootstrap.configuration.load_secrets_from_project_root"
         ) as secrets_mock,
         patch.object(setup_wizard, "_apply_saved_config", wraps=setup_wizard._apply_saved_config) as apply_mock,
     ):
@@ -160,7 +160,7 @@ def test_apply_saved_config_reloads_config_and_secrets(tmp_path: Path) -> None:
     with (
         patch("miniagent.assistant.engine.setup_wizard.reload_config") as reload_mock,
         patch(
-            "miniagent.assistant.infrastructure.env_loader.load_secrets_from_project_root"
+            "miniagent.assistant.bootstrap.configuration.load_secrets_from_project_root"
         ) as secrets_mock,
     ):
         from miniagent.assistant.engine.setup_wizard import _apply_saved_config

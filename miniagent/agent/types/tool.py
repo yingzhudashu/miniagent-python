@@ -39,8 +39,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
+    from miniagent.agent.ports.clawhub import ClawHubClientProtocol
     from miniagent.agent.ports.knowledge import KnowledgeRegistryProtocol
-    from miniagent.agent.types.skill import ClawHubClientProtocol
 
 ChatCompletionMessageParam = dict[str, Any]
 ChatCompletionToolParam = dict[str, Any]

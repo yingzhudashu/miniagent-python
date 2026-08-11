@@ -180,7 +180,7 @@ async def handle_reload_config(
     **_kwargs: Any,
 ) -> str | None:
     """原子重载运行时配置，并把校验错误映射为用户错误。"""
-    from miniagent.assistant.infrastructure.json_config import reload_runtime_config
+    from miniagent.assistant.bootstrap.configuration import reload_runtime_config
 
     runtime = state.get("runtime_ctx")
     if runtime is None:

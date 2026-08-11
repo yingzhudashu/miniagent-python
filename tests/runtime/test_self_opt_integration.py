@@ -586,7 +586,6 @@ class TestRuntimeAnalyzer:
         monkeypatch.setattr(proposal_store, "get_reports_dir", lambda: reports)
         path = RuntimeAnalyzer().save_report({"date": "2026-07-13", "issues": []})
         payload = json.loads(path.read_text(encoding="utf-8"))
-        assert payload["schema_version"] == 1
         assert payload["date"] == "2026-07-13"
 
 

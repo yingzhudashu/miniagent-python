@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from miniagent.assistant.engine.commands.instance_commands import handle_instance
@@ -12,11 +10,6 @@ from miniagent.assistant.engine.commands.runtime_commands import _capture_call, 
 from miniagent.assistant.infrastructure.json_config import (
     _compatible_config_type,
     _validate_user_keys,
-)
-from miniagent.assistant.infrastructure.persistence import (
-    StateSchema,
-    StateSchemaError,
-    load_state_file,
 )
 
 
@@ -30,16 +23,6 @@ def test_config_type_and_object_conflict_validation() -> None:
     assert _compatible_config_type("x", "y")
     with pytest.raises(ValueError, match="nested 应为 object"):
         _validate_user_keys({"nested": {"enabled": True}}, {"nested": "bad"})
-
-def test_state_schema_rejects_invalid_current_shape(tmp_path: Path) -> None:
-    schema = StateSchema(name="bad", current_version=1)
-    with pytest.raises(StateSchemaError, match="schema_version"):
-        schema.validate({})
-
-    path = tmp_path / "state.json"
-    path.write_text("[]", encoding="utf-8")
-    with pytest.raises(StateSchemaError, match="顶层必须是 JSON 对象"):
-        load_state_file("session_config", path)
 
 @pytest.mark.asyncio
 async def test_runtime_response_capture_and_instance_print(monkeypatch: pytest.MonkeyPatch, capsys) -> None:

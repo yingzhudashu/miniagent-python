@@ -20,8 +20,6 @@ class ComposedAssistantRuntime:
     """Thin composition host; business execution remains inside AgentRuntime."""
 
     def __init__(self, spec: AssistantSpec) -> None:
-        if spec.agent_factory is None:
-            raise ValueError("composed runtime requires agent_factory")
         self.spec = spec
         self.agent = spec.agent_factory()
         self.surfaces = tuple(factory() for factory in spec.surface_factories)

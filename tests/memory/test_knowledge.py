@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import tempfile
 from unittest.mock import MagicMock, patch
@@ -226,7 +225,7 @@ class TestKnowledgeRegistryExtended:
             result = registry.search("alpha beta", top_k=1)
             assert result.count("###") == 1
 
-    def test_mount_custom_name_persisted_in_registry_file(self):
+    def test_mount_custom_name_persisted_in_database(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             kb_root = os.path.join(tmpdir, "kb_root")
             os.makedirs(kb_root)
@@ -241,9 +240,7 @@ class TestKnowledgeRegistryExtended:
                 registry._mounted.clear()
                 registry.mount(kb_dir, "alias_name")
 
-                registry_path = os.path.join(kb_root, "kb_registry.json")
-                data = json.loads(open(registry_path, encoding="utf-8").read())
-                assert data["mounted"][0]["name"] == "alias_name"
+                assert not os.path.exists(os.path.join(kb_root, "kb_registry.json"))
 
                 registry2 = KnowledgeRegistry(state_dir=tmpdir)
                 assert "alias_name" in registry2._mounted

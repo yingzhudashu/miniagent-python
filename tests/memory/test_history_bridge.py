@@ -29,7 +29,7 @@ def test_thinking_compact_truncated_for_llm_only(tmp_path) -> None:
     raw_copy = hist[0]["content"]
     out = hb.conversation_history_for_llm(hist)
     assert hist[0]["content"] == raw_copy
-    assert "history.json" in out[0]["content"]
+    assert "会话历史" in out[0]["content"]
     assert long_body not in out[0]["content"]
 
 
@@ -68,7 +68,7 @@ def test_thinking_full_uses_full_cap(tmp_path) -> None:
     long_body = "z" * 50
     out = hb.conversation_history_for_llm([{"role": "thinking", "content": long_body}])
     assert "思考过程）" in out[0]["content"]
-    assert "history.json" in out[0]["content"]
+    assert "会话历史" in out[0]["content"]
     assert long_body not in out[0]["content"]
 
 

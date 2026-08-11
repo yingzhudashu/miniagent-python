@@ -18,6 +18,27 @@ ALLOWED_DEPENDENCIES: dict[str, frozenset[str]] = {
     "__root__": frozenset({"assistant"}),
 }
 MAX_FUNCTION_LINES = 100
+REMOVED_API_NAMES = frozenset(
+    {
+        "AssistantApplication",
+        "PersonalAssistantSpec",
+        "personal_assistant_spec",
+        "create_assistant_application",
+        "run_agent",
+    }
+)
+REMOVED_COMMAND_EXPORTS = frozenset(
+    {
+        "_capture",
+        "_format_status",
+        "_get_last_qa",
+        "_get_test_status",
+        "_list_test_samples",
+        "_run_improve",
+        "_run_review",
+        "_run_test",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +86,15 @@ class CycleViolation:
 
 
 @dataclass(frozen=True, slots=True)
+class ModuleCycleViolation:
+    modules: tuple[str, ...]
+
+    def format(self, root: Path) -> str:
+        del root
+        return "module dependency cycle: " + " -> ".join(self.modules)
+
+
+@dataclass(frozen=True, slots=True)
 class FunctionLengthViolation:
     path: Path
     line: int
@@ -93,6 +123,7 @@ ArchitectureViolation = (
     Violation
     | TopologyViolation
     | CycleViolation
+    | ModuleCycleViolation
     | FunctionLengthViolation
     | ModuleDependencyViolation
 )
@@ -188,6 +219,26 @@ def _internal_dependency_violations(
     tree: ast.AST,
 ) -> Iterator[ModuleDependencyViolation]:
     for node in ast.walk(tree):
+        symbol_name = getattr(node, "name", None)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and (
+            symbol_name in REMOVED_API_NAMES or str(symbol_name).startswith("_legacy_")
+        ):
+            yield ModuleDependencyViolation(
+                path, node.lineno, f"removed current-version symbol: {symbol_name}"
+            )
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name in REMOVED_API_NAMES:
+                    yield ModuleDependencyViolation(
+                        path, node.lineno, f"removed current-version import: {alias.name}"
+                    )
+                if (
+                    path.name == "command_dispatch.py"
+                    and alias.name in REMOVED_COMMAND_EXPORTS
+                ):
+                    yield ModuleDependencyViolation(
+                        path, node.lineno, f"removed command compatibility export: {alias.name}"
+                    )
         if not isinstance(node, ast.Import | ast.ImportFrom):
             continue
         violation = _check_internal_dependency(package_root, path, node)
@@ -223,6 +274,68 @@ def _find_cycles(graph: dict[str, set[str]]) -> list[tuple[str, ...]]:
     return sorted(cycles)
 
 
+def _strongly_connected_components(graph: dict[str, set[str]]) -> list[tuple[str, ...]]:
+    """Return every deterministic multi-module strongly connected component."""
+    index = 0
+    indices: dict[str, int] = {}
+    lowlinks: dict[str, int] = {}
+    stack: list[str] = []
+    stacked: set[str] = set()
+    components: list[tuple[str, ...]] = []
+
+    def visit(node: str) -> None:
+        nonlocal index
+        indices[node] = index
+        lowlinks[node] = index
+        index += 1
+        stack.append(node)
+        stacked.add(node)
+        for target in sorted(graph.get(node, ())):
+            if target not in indices:
+                visit(target)
+                lowlinks[node] = min(lowlinks[node], lowlinks[target])
+            elif target in stacked:
+                lowlinks[node] = min(lowlinks[node], indices[target])
+        if lowlinks[node] != indices[node]:
+            return
+        component: list[str] = []
+        while stack:
+            member = stack.pop()
+            stacked.remove(member)
+            component.append(member)
+            if member == node:
+                break
+        if len(component) > 1:
+            components.append(tuple(sorted(component)))
+
+    for node in sorted(graph):
+        if node not in indices:
+            visit(node)
+    return sorted(components)
+
+
+def _module_name(package_root: Path, path: Path) -> str:
+    return ".".join(_module_parts(package_root, path))
+
+
+def _module_import_targets(
+    package_root: Path,
+    path: Path,
+    node: ast.Import | ast.ImportFrom,
+    known_modules: frozenset[str],
+) -> set[str]:
+    targets: set[str] = set()
+    for imported in _absolute_imports(package_root, path, node):
+        if imported in known_modules:
+            targets.add(imported)
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                candidate = f"{imported}.{alias.name}"
+                if candidate in known_modules:
+                    targets.add(candidate)
+    return targets
+
+
 def check_architecture(
     package_root: Path,
     rules: Iterable[DependencyRule] = DEFAULT_RULES,
@@ -231,6 +344,13 @@ def check_architecture(
     dependency_checks = bool(tuple(rules))
     violations: list[ArchitectureViolation] = []
     graph = {layer: set() for layer in LAYERS}
+    module_paths = {
+        _module_name(package_root, path): path
+        for path in sorted(package_root.rglob("*.py"))
+        if "templates" not in path.parts
+    }
+    module_graph = {module: set() for module in module_paths}
+    known_modules = frozenset(module_paths)
 
     if dependency_checks:
         for child in sorted(package_root.iterdir()):
@@ -242,6 +362,7 @@ def check_architecture(
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         source = _source_layer(package_root, path)
+        source_module = _module_name(package_root, path)
         violations.extend(_internal_dependency_violations(package_root, path, tree))
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
@@ -254,6 +375,13 @@ def check_architecture(
                     )
             if not dependency_checks or not isinstance(node, ast.Import | ast.ImportFrom):
                 continue
+            module_graph[source_module].update(
+                target
+                for target in _module_import_targets(
+                    package_root, path, node, known_modules
+                )
+                if target != source_module
+            )
             for imported in _absolute_imports(package_root, path, node):
                 target = _target_layer(imported)
                 if target is None:
@@ -265,6 +393,10 @@ def check_architecture(
 
     if dependency_checks:
         violations.extend(CycleViolation(cycle) for cycle in _find_cycles(graph))
+        violations.extend(
+            ModuleCycleViolation(component)
+            for component in _strongly_connected_components(module_graph)
+        )
     return violations
 
 

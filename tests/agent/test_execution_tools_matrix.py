@@ -178,11 +178,12 @@ async def test_loop_warning_critical_and_parse_failure() -> None:
     critical.monitor.record.assert_called_once()
 
     warning = _runner(tools={"tool": tool}, loop_level="warning")
-    await warning.run_tool_calls_phase(
+    result = await warning.run_tool_calls_phase(
         SimpleNamespace(content="", tool_calls=[_tool_call("tool", "not-json")]), 0, "step"
     )
     assert warning.loop_warning_shown is False
-    assert warning.turn_tool_calls[-1]["result"] == "ok"
+    assert result and "JSON object" in result
+    assert warning.turn_tool_calls == []
 
 
 @pytest.mark.asyncio
@@ -239,4 +240,3 @@ async def test_tool_timeout_parallel_and_finish_callback_failure(monkeypatch) ->
     assert len(runner.turn_tool_calls) == 2
     assert any("超时" in item["result"] for item in runner.turn_tool_calls)
     assert finish.await_count == 2
-

@@ -14,10 +14,11 @@ _logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from miniagent.agent.lifecycle import LifecycleManager
+    from miniagent.agent.ports.clawhub import ClawHubClientProtocol
     from miniagent.agent.ports.knowledge import KnowledgeRegistryProtocol
     from miniagent.agent.ports.memory import MemoryRuntimeProtocol
     from miniagent.agent.types.agent import ToolMonitorProtocol
-    from miniagent.agent.types.skill import ClawHubClientProtocol, SkillRegistryProtocol
+    from miniagent.agent.types.skill import SkillRegistryProtocol
     from miniagent.agent.types.tool import ToolRegistryProtocol
     from miniagent.assistant.contracts.messaging import OrderedOutboundDispatcherProtocol
     from miniagent.assistant.contracts.runtime import (

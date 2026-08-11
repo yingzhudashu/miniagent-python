@@ -62,7 +62,7 @@ async def test_download_installs_files_and_metadata(tmp_path: Path, monkeypatch)
     client = _ClawHubClientImpl("https://hub.test")
 
     async def detail(_slug):
-        from miniagent.agent.types.skill import ClawHubSkillDetail
+        from miniagent.agent.ports.clawhub import ClawHubSkillDetail
 
         return ClawHubSkillDetail(
             slug="author/example",
@@ -87,7 +87,7 @@ async def test_download_rejects_unsafe_paths(tmp_path: Path, monkeypatch, unsafe
     client = _ClawHubClientImpl("https://hub.test")
 
     async def detail(_slug):
-        from miniagent.agent.types.skill import ClawHubSkillDetail
+        from miniagent.agent.ports.clawhub import ClawHubSkillDetail
 
         return ClawHubSkillDetail(
             slug="example",
@@ -121,4 +121,3 @@ async def test_download_endpoint_fallback_and_missing_files(tmp_path: Path, monk
     monkeypatch.setattr(client, "_fetch_json", no_files)
     with pytest.raises(RuntimeError, match="未返回"):
         await client.download("empty", skills_root=str(tmp_path))
-

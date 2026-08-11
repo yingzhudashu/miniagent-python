@@ -6,13 +6,10 @@ from typing import Any
 
 _PUBLIC = frozenset(
     {
-        "AssistantApplication",
+        "PersonalAssistantApplication",
         "AssistantSpec",
-        "PersonalAssistantSpec",
         "create_assistant",
-        "create_assistant_application",
         "create_personal_assistant",
-        "personal_assistant_spec",
         "run_assistant",
     }
 )
@@ -21,12 +18,17 @@ _PUBLIC = frozenset(
 def __getattr__(name: str) -> Any:
     if name not in _PUBLIC:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    if name in {"AssistantSpec", "PersonalAssistantSpec"}:
+    if name == "AssistantSpec":
         from miniagent.assistant import spec
 
         value = getattr(spec, name)
         globals()[name] = value
         return value
+    if name == "run_assistant":
+        from miniagent.assistant.runner import run_assistant
+
+        globals()[name] = run_assistant
+        return run_assistant
     from miniagent.assistant import app
 
     value = getattr(app, name)
@@ -34,12 +36,9 @@ def __getattr__(name: str) -> Any:
     return value
 
 __all__ = [
-    "AssistantApplication",
+    "PersonalAssistantApplication",
     "AssistantSpec",
-    "PersonalAssistantSpec",
     "create_assistant",
-    "create_assistant_application",
     "create_personal_assistant",
-    "personal_assistant_spec",
     "run_assistant",
 ]

@@ -1,12 +1,12 @@
 # 贡献指南
 
-> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-19 | 与 `miniagent.__version__` 对齐
+> Mini Agent Python | 版本: 5.0.0 | 最后更新: 2026-08-10 | 与 `miniagent.__version__` 对齐
 
 本文档为开发者单一入口，分三部分：
 
 - **Part 1 — 参与贡献**：环境、规范、测试、docstring、Git 与发布
 - **Part 2 — 扩展开发**：工具 / 技能 / 通道扩展
-- **Part 3 — API 编程示例**：`run_agent` 集成与 Mock 测试
+- **Part 3 — API 编程示例**：`AgentRuntime` 集成与 Mock 测试
 
 提示词规范见 [PROMPT_GUIDELINES.md](PROMPT_GUIDELINES.md)；仓库卫生与 CI 见 [ENGINEERING.md](ENGINEERING.md)。
 
@@ -335,7 +335,7 @@ refactor: 拆分 unified.py 为 engine/ 包
 
 ### 文档写作约定
 
-- **页眉**：``> Mini Agent Python | 版本: x.y.z | 最后更新: YYYY-MM-DD | 与 miniagent.__version__ 对齐``；**仅** [INDEX.md](INDEX.md) 与 [USER_GUIDE.md](USER_GUIDE.md) 追加「未发版行为见 CHANGELOG `[Unreleased]`」注记；[README.md](../README.md) §配置 的升级迁移提示除外。
+- **页眉**：``> Mini Agent Python | 版本: x.y.z | 最后更新: YYYY-MM-DD | 与 miniagent.__version__ 对齐``；**仅** [INDEX.md](INDEX.md) 与 [USER_GUIDE.md](USER_GUIDE.md) 追加「未发版行为见 CHANGELOG `[Unreleased]`」注记。
 - **SSOT**：同一主题只在一处写全；卫星文档用 1–3 句摘要 + 链接。对照表见 [ENGINEERING.md §1](ENGINEERING.md#1-单一事实来源single-source-of-truth) 与 [INDEX.md §SSOT 速查](INDEX.md#ssot-速查单一事实来源)。
 - **交叉引用**：优先 ``[文档名](路径) §节号`` 或 markdown 锚点（如 ``[FEISHU.md §通道绑定](FEISHU.md#通道绑定)``）；深度专题用 Part/§，用户指南用章号。
 - **路径术语**：首次出现 ``{paths.state_dir}/sessions/`` 等简写时，脚注「canonical 路径见 [ENGINEERING.md §3](ENGINEERING.md#3-状态目录与测试隔离)」。
@@ -500,55 +500,41 @@ async def test_read_config_success(tool_context):
 
 ## Part 3 — API 编程示例
 
-进程级依赖集中在 [`ApplicationContainer`](../miniagent/assistant/bootstrap/application.py)；以下示例中的 `registry` 与 `memory` 均应来自同一个容器。自我优化 API 见 [SELF_OPT.md](SELF_OPT.md)。
+嵌入式调用统一使用 `AgentRuntime.run(AgentRequest(...))`。以下片段假定 `runtime` 已按 `AgentSpec` 注入 LLM、registry、memory、knowledge 与 observer，并已执行 `await runtime.start()`。
 
 ### 基础用法
 
 #### 简单命令执行（内置工具）
 
 ```python
-from miniagent.agent.agent import run_agent
-from miniagent.assistant.bootstrap.entrypoint import create_application_container
+from miniagent.agent import AgentRequest
 
-container = create_application_container()
-registry = container.registry
-memory = container.memory
-
-result = await run_agent(user_input="读取README.md文件", registry=registry, memory=memory)
+result = await runtime.run(AgentRequest("读取README.md文件"))
 print(result.reply)
 ```
 
 #### 最小测试注册表
 
-单元测试或无需完整子系统时，可直接构造空注册表（与 `run_agent` docstring 示例一致）：
+单元测试或无需完整子系统时，可用最小 `AgentSpec` 构造独立 runtime：
 
 ```python
-from miniagent.agent.agent import run_agent
+from miniagent.agent import AgentRequest, AgentRuntime, AgentSpec
 from miniagent.agent.tools.registry import DefaultToolRegistry
 from miniagent.assistant.memory.runtime import create_memory_runtime
 
 registry = DefaultToolRegistry()
 memory = create_memory_runtime("/tmp/miniagent-test-state")
-result = await run_agent(
-    "帮我分析当前目录", registry=registry, memory=memory, session_key="test-001"
-)
+runtime = AgentRuntime(AgentSpec(settings=settings, registry=registry, memory=memory,
+                                 knowledge=knowledge), llm_gateway)
+await runtime.start()
+result = await runtime.run(AgentRequest("帮我分析当前目录", session_key="test-001"))
 ```
 
 #### 会话管理
 
 ```python
-result1 = await run_agent(
-    user_input="当前目录有什么文件？",
-    registry=registry,
-    memory=memory,
-    session_key="my-session-123",
-)
-result2 = await run_agent(
-    user_input="读取README.md文件",
-    registry=registry,
-    memory=memory,
-    session_key="my-session-123",
-)
+result1 = await runtime.run(AgentRequest("当前目录有什么文件？", session_key="my-session-123"))
+result2 = await runtime.run(AgentRequest("读取README.md文件", session_key="my-session-123"))
 ```
 
 #### 流式输出回调
@@ -558,12 +544,8 @@ async def my_thinking_callback(text: str, streaming: bool, header: str, **kwargs
     if streaming:
         print(f"[{header}] {text}")
 
-result = await run_agent(
-    user_input="分析代码性能",
-    registry=registry,
-    memory=memory,
-    on_thinking=my_thinking_callback,
-)
+runtime.subscribe(event_handler)
+result = await runtime.run(AgentRequest("分析代码性能"))
 ```
 
 ### 配置管理
@@ -577,19 +559,14 @@ custom_config = {
     "allow_parallel_tools": False,
     "debug": True,
 }
-result = await run_agent(
-    user_input="执行任务", registry=registry, memory=memory, agent_config=custom_config
-)
+result = await runtime.run(AgentRequest("执行任务", config=custom_config))
 ```
 
 #### 自定义系统提示词
 
 ```python
-result = await run_agent(
-    user_input="审查src/main.py代码",
-    registry=registry,
-    memory=memory,
-    system_prompt="你是一个专业的代码审查助手...",
+result = await runtime.run(
+    AgentRequest("审查src/main.py代码", system_prompt="你是一个专业的代码审查助手...")
 )
 ```
 
@@ -607,24 +584,13 @@ max_turns = get_config("agent.max_turns", 400)
 
 #### 从 ApplicationContainer 注入
 
-与正式入口一致：显式加载 secrets 并构造 `ApplicationContainer`，然后将依赖传给 API：
+默认产品使用公开应用工厂：
 
 ```python
-from miniagent.assistant.bootstrap.entrypoint import create_application_container
-from miniagent.agent.agent import run_agent
-from miniagent.assistant.infrastructure.env_loader import load_secrets_from_project_root
+from miniagent.assistant import create_personal_assistant
 
-load_secrets_from_project_root()
-container = create_application_container()
-result = await run_agent(
-    user_input="分析代码性能",
-    registry=container.registry,
-    memory=container.memory,
-    knowledge_registry=container.knowledge_registry,
-    session_key="perf-analysis-session",
-    agent_config={"max_turns": 50},
-    client=container.openai_client,
-)
+application = create_personal_assistant()
+await application.run(["--session", "perf-analysis-session"])
 ```
 
 #### 工具执行回调
@@ -633,27 +599,14 @@ result = await run_agent(
 async def my_tool_finish_callback(tool_name, args_json, result, success, thinking_header):
     print(f"[{thinking_header}] 工具 {tool_name} {'成功' if success else '失败'}")
 
-result = await run_agent(
-    user_input="读取README.md",
-    registry=container.registry,
-    memory=container.memory,
-    knowledge_registry=container.knowledge_registry,
-    client=container.openai_client,
-    on_tool_finish=my_tool_finish_callback,
-)
+runtime.subscribe(my_event_handler)
+result = await runtime.run(AgentRequest("读取README.md"))
 ```
 
 #### 跳过规划阶段
 
 ```python
-result = await run_agent(
-    user_input="读取README.md",
-    registry=container.registry,
-    memory=container.memory,
-    knowledge_registry=container.knowledge_registry,
-    client=container.openai_client,
-    skip_planning=True,
-)
+result = await runtime.run(AgentRequest("读取README.md", skip_planning=True))
 ```
 
 ### API 测试场景
@@ -664,13 +617,11 @@ result = await run_agent(
 from unittest.mock import Mock
 
 mock_registry = Mock()
-result = await run_agent(
-    user_input="测试命令",
-    registry=mock_registry,
-    memory=memory,
-    knowledge_registry=mock_knowledge_registry,
-    client=mock_client,
-)
+spec = AgentSpec(settings=settings, registry=mock_registry, memory=memory,
+                 knowledge=mock_knowledge_registry)
+runtime = AgentRuntime(spec, mock_gateway)
+await runtime.start()
+result = await runtime.run(AgentRequest("测试命令"))
 ```
 
 #### Mock LLM 客户端
@@ -678,13 +629,9 @@ result = await run_agent(
 ```python
 mock_client = AsyncMock(spec=AsyncOpenAI)
 mock_client.chat.completions.create.return_value = MockLLMResponse(content="Mock response")
-result = await run_agent(
-    user_input="测试输入",
-    registry=registry,
-    memory=memory,
-    knowledge_registry=mock_knowledge_registry,
-    client=mock_client,
-)
+runtime = AgentRuntime(spec, mock_gateway)
+await runtime.start()
+result = await runtime.run(AgentRequest("测试输入"))
 ```
 
 #### 测试工具执行器
@@ -707,7 +654,7 @@ results = await execute_tools_concurrent(
 
 ```python
 try:
-    result = await run_agent(user_input="执行任务", registry=registry, memory=memory)
+    result = await runtime.run(AgentRequest("执行任务"))
 except ContextBudgetExceeded as e:
     print(f"上下文超限: {e}")
 except LLMError as e:
@@ -727,7 +674,7 @@ except ToolExecutionError as e:
 - **工具**：单一职责、异步处理、沙箱检查、清晰错误信息
 - **技能**：指令清晰、README 完整、通过 `/reload-skills` 热加载验证
 - **通道**：`ChannelAdapter` + `InboundMessage`/`OutboundEvent`；`ChannelRouter` 管理会话映射
-- **API**：通过 `run_agent()` 关键字参数注入依赖；`registry` 与 `memory` 来自同一个 `ApplicationContainer`；模块化引用 `executor_*` 子模块
+- **API**：依赖在 `AgentSpec` 中一次注入；每回合只通过 `AgentRequest` 提供输入、session、工具箱和回合配置
 
 ### 开发清单
 
@@ -737,7 +684,7 @@ except ToolExecutionError as e:
 | 技能 | 创建 SKILL.md（frontmatter + 指令）→ 实现 tools.py（可选）→ `/reload-skills` 验证 → 集成测试 |
 | 通道 | 实现 `ChannelAdapter` → 入站映射 `InboundMessage` → 注册 `ChannelRegistry` → 更新 ARCHITECTURE |
 | CLI 命令 | `CommandSpec` → `commands/` handler → `command_dispatch` 绑定 → CLI.md / 测试 |
-| API 集成 | `create_application_container` 或显式构造依赖 → `run_agent` → 添加回调 → Mock 测试 |
+| API 集成 | `create_assistant` / `create_personal_assistant` 或显式 `AgentRuntime` → `AgentRequest` → Mock 测试 |
 
 ---
 

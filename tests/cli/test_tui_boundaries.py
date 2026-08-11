@@ -36,7 +36,7 @@ def test_buffered_ansi_fragment_flushes_after_live_turn() -> None:
 async def test_tui_force_fallback_after_optional_imports(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import miniagent.assistant.engine.cli_tui as tui
+    import miniagent.assistant.engine.cli_tui_app as tui
 
     fallback = AsyncMock()
     monkeypatch.setattr(tui, "run_cli_loop_fallback", fallback)

@@ -78,7 +78,7 @@ async def test_reload_config_maps_success_failure_and_missing_runtime() -> None:
     )
     runtime = object()
     reload_mock = AsyncMock()
-    with patch("miniagent.assistant.infrastructure.json_config.reload_runtime_config", reload_mock):
+    with patch("miniagent.assistant.bootstrap.configuration.reload_runtime_config", reload_mock):
         assert "重新加载" in (
             await handle_reload_config(
                 "/reload-config", state={"runtime_ctx": runtime}, capture=True
@@ -88,7 +88,7 @@ async def test_reload_config_maps_success_failure_and_missing_runtime() -> None:
     reload_mock.assert_awaited_once_with(runtime)
 
     reload_mock = AsyncMock(side_effect=ValueError("bad config"))
-    with patch("miniagent.assistant.infrastructure.json_config.reload_runtime_config", reload_mock):
+    with patch("miniagent.assistant.bootstrap.configuration.reload_runtime_config", reload_mock):
         assert "bad config" in (
             await handle_reload_config(
                 "/reload-config", state={"runtime_ctx": runtime}, capture=True

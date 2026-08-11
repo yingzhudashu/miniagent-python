@@ -34,7 +34,7 @@ def _minimal_container(gateway: object | None) -> ApplicationContainer:
 
 @pytest.mark.asyncio
 async def test_reload_atomically_replaces_and_retires_gateway(tmp_path) -> None:
-    from miniagent.assistant.infrastructure.json_config import reload_runtime_config
+    from miniagent.assistant.bootstrap.configuration import reload_runtime_config
 
     install_test_config(tmp_path, {"llm": {"models": {"primary": {"model": "new-model"}}}})
     previous = MagicMock()
@@ -50,10 +50,8 @@ async def test_reload_atomically_replaces_and_retires_gateway(tmp_path) -> None:
 
 @pytest.mark.asyncio
 async def test_reload_invalid_json_preserves_gateway(tmp_path) -> None:
-    from miniagent.assistant.infrastructure.json_config import (
-        get_config_paths,
-        reload_runtime_config,
-    )
+    from miniagent.assistant.bootstrap.configuration import reload_runtime_config
+    from miniagent.assistant.infrastructure.json_config import get_config_paths
 
     install_test_config(
         tmp_path, {"llm": {"models": {"primary": {"model": "working-model"}}}}

@@ -1,181 +1,138 @@
-"""Instance-owned Feishu message deduplication with explicit persistence."""
+"""Transactional Feishu inbound-message deduplication."""
 
 from __future__ import annotations
 
-import asyncio
-import json
 import time
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from miniagent.agent.constants import DEDUP_FLUSH_INTERVAL, DEDUP_FLUSH_THRESHOLD
-from miniagent.agent.logging import get_logger
-from miniagent.assistant.infrastructure.atomic_json import atomic_dump_json
 from miniagent.assistant.infrastructure.paths import resolve_state_dir
-
-_logger = get_logger(__name__)
+from miniagent.assistant.state.sync import immediate_transaction, open_state_database
 
 DEDUP_TTL_MS = 5 * 60 * 1000
 DEDUP_MAX_SIZE = 2000
 
 
 class FeishuDeduplicator:
-    """Claim inbound messages and persist recently completed message IDs."""
+    """Claim inbound messages across processes using the project database."""
 
     def __init__(self, state_dir: str | None = None) -> None:
-        root = Path(state_dir or resolve_state_dir()) / "feishu" / "dedup"
-        self._state_dir = root
-        self._dedup_file = root / "processed.json"
-        self._processing_claims: dict[str, float] = {}
-        self._processed: dict[str, float] = {}
-        self._dirty = False
-        self._generation = 0
-        self._last_flush_time = 0.0
-        self._flush_task: asyncio.Task[None] | None = None
-        self._flush_lock = asyncio.Lock()
-        self._load()
+        self._state_dir = Path(state_dir or resolve_state_dir())
+        self._owner = f"feishu:{uuid4().hex}"
 
     @staticmethod
     def _key(message_id: str) -> str:
         value = message_id.strip()
         return f"mini-agent:{value}" if value else ""
 
-    def _load(self) -> None:
-        try:
-            if self._dedup_file.is_file():
-                data = json.loads(self._dedup_file.read_text(encoding="utf-8"))
-                if isinstance(data, dict):
-                    loaded = {
-                        str(key): float(value)
-                        for key, value in data.items()
-                        if isinstance(value, (int, float))
-                    }
-                    cutoff = time.time() - DEDUP_TTL_MS / 1000.0
-                    self._processed = {
-                        key: value for key, value in loaded.items() if value >= cutoff
-                    }
-                    if len(self._processed) != len(loaded):
-                        self._dirty = True
-                        self._generation += 1
-        except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
-            _logger.debug("加载飞书去重状态失败: %s", error)
-            self._processed = {}
-
     def try_begin_processing(self, message_id: str) -> bool:
-        """Claim a message unless it is active or already completed."""
+        """Claim a message unless another live claim or completion exists."""
         key = self._key(message_id)
         if not key:
             return True
-        self._prune_if_needed()
-        cutoff = time.time() - DEDUP_TTL_MS / 1000.0
-        processed_at = self._processed.get(key)
-        if processed_at is not None and processed_at < cutoff:
-            self._processed.pop(key, None)
-            self._dirty = True
-            self._generation += 1
-            self._maybe_schedule_flush()
-        claimed_at = self._processing_claims.get(key)
-        if claimed_at is not None and claimed_at < cutoff:
-            self._processing_claims.pop(key, None)
-        if key in self._processed or key in self._processing_claims:
-            return False
-        self._processing_claims[key] = time.time()
-        return True
+        now_ms = int(time.time() * 1000)
+        cutoff_ms = now_ms - DEDUP_TTL_MS
+        with open_state_database(self._state_dir) as connection:
+            with immediate_transaction(connection):
+                connection.execute(
+                    "DELETE FROM feishu_message_claims WHERE completed_at_ms < ?",
+                    (cutoff_ms,),
+                )
+                row = connection.execute(
+                    """SELECT owner, claim_until_ms, completed_at_ms
+                       FROM feishu_message_claims WHERE message_id=?""",
+                    (key,),
+                ).fetchone()
+                if row is not None:
+                    if row[2] is not None:
+                        return False
+                    if row[1] is not None and int(row[1]) > now_ms:
+                        return False
+                connection.execute(
+                    """INSERT INTO feishu_message_claims VALUES (?, ?, ?, NULL)
+                       ON CONFLICT(message_id) DO UPDATE SET owner=excluded.owner,
+                         claim_until_ms=excluded.claim_until_ms, completed_at_ms=NULL""",
+                    (key, self._owner, now_ms + DEDUP_TTL_MS),
+                )
+                return True
 
     def release_processing(self, message_id: str) -> None:
-        """Complete a claim and mark the message for persistent deduplication."""
+        """Complete a claim owned by this deduplicator."""
         key = self._key(message_id)
         if not key:
             return
-        self._processing_claims.pop(key, None)
-        self._processed[key] = time.time()
-        self._dirty = True
-        self._generation += 1
-        if len(self._processed) > DEDUP_MAX_SIZE:
-            oldest = sorted(self._processed, key=lambda item: self._processed[item])
-            for stale in oldest[: max(1, len(oldest) // 5)]:
-                del self._processed[stale]
-        self._maybe_schedule_flush()
+        with open_state_database(self._state_dir) as connection:
+            with immediate_transaction(connection):
+                connection.execute(
+                    """UPDATE feishu_message_claims
+                       SET claim_until_ms=NULL, completed_at_ms=?
+                       WHERE message_id=? AND owner=? AND completed_at_ms IS NULL""",
+                    (int(time.time() * 1000), key, self._owner),
+                )
+                connection.execute(
+                    """DELETE FROM feishu_message_claims WHERE message_id IN (
+                           SELECT message_id FROM feishu_message_claims
+                           WHERE completed_at_ms IS NOT NULL
+                           ORDER BY completed_at_ms DESC, message_id DESC
+                           LIMIT -1 OFFSET ?
+                       )""",
+                    (max(0, DEDUP_MAX_SIZE),),
+                )
 
     def abandon_processing_claim(self, message_id: str) -> None:
-        """Release an in-flight claim without marking the message complete."""
+        """Release an unfinished claim owned by this deduplicator."""
         key = self._key(message_id)
-        if key:
-            self._processing_claims.pop(key, None)
+        if not key:
+            return
+        with open_state_database(self._state_dir) as connection:
+            connection.execute(
+                """DELETE FROM feishu_message_claims
+                   WHERE message_id=? AND owner=? AND completed_at_ms IS NULL""",
+                (key, self._owner),
+            )
 
     def stats(self) -> dict[str, Any]:
-        """Return operational counts without exposing mutable dictionaries."""
+        """Return current durable claim counts."""
+        now_ms = int(time.time() * 1000)
+        with open_state_database(self._state_dir) as connection:
+            processing = int(
+                connection.execute(
+                    """SELECT count(*) FROM feishu_message_claims
+                       WHERE completed_at_ms IS NULL AND claim_until_ms > ?""",
+                    (now_ms,),
+                ).fetchone()[0]
+            )
+            processed = int(
+                connection.execute(
+                    "SELECT count(*) FROM feishu_message_claims WHERE completed_at_ms IS NOT NULL"
+                ).fetchone()[0]
+            )
         return {
-            "processing_claims": len(self._processing_claims),
-            "disk_dedup": len(self._processed),
-            "dirty": self._dirty,
+            "processing_claims": processing,
+            "disk_dedup": processed,
+            "dirty": False,
             "state_dir": str(self._state_dir),
         }
 
-    def _prune_if_needed(self) -> None:
-        threshold = int(DEDUP_MAX_SIZE * 0.8)
-        if (
-            len(self._processing_claims) <= threshold
-            and len(self._processed) <= threshold
-        ):
-            return
-        cutoff = time.time() - DEDUP_TTL_MS / 1000.0
-        self._processing_claims = {
-            key: value
-            for key, value in self._processing_claims.items()
-            if value >= cutoff
-        }
-        before = len(self._processed)
-        self._processed = {
-            key: value for key, value in self._processed.items() if value >= cutoff
-        }
-        if len(self._processed) != before:
-            self._dirty = True
-            self._generation += 1
-            self._maybe_schedule_flush()
-
-    def _maybe_schedule_flush(self) -> None:
-        now = time.monotonic()
-        due = (
-            len(self._processed) >= DEDUP_FLUSH_THRESHOLD
-            or now - self._last_flush_time >= DEDUP_FLUSH_INTERVAL
-        )
-        if not due or not self._dirty:
-            return
-        self._last_flush_time = now
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            return
-        if self._flush_task is None or self._flush_task.done():
-            self._flush_task = loop.create_task(self.flush())
-
-    def _write_snapshot(self, snapshot: dict[str, float]) -> None:
-        try:
-            atomic_dump_json(self._dedup_file, snapshot)
-        except OSError as error:
-            _logger.debug("保存飞书去重状态失败: %s", error)
-            raise
-
     async def flush(self) -> None:
-        """Persist dirty state without blocking the event loop."""
-        async with self._flush_lock:
-            if not self._dirty:
-                return
-            generation = self._generation
-            snapshot = dict(self._processed)
-            try:
-                await asyncio.to_thread(self._write_snapshot, snapshot)
-            except OSError:
-                return
-            if self._generation == generation:
-                self._dirty = False
+        """Prune expired completions; writes are already committed per operation."""
+        cutoff_ms = int(time.time() * 1000) - DEDUP_TTL_MS
+        with open_state_database(self._state_dir) as connection:
+            connection.execute(
+                "DELETE FROM feishu_message_claims WHERE completed_at_ms < ?",
+                (cutoff_ms,),
+            )
 
     async def close(self) -> None:
-        """Wait for any scheduled flush and persist remaining dirty state."""
-        task = self._flush_task
-        if task is not None and task is not asyncio.current_task():
-            await asyncio.gather(task, return_exceptions=True)
+        """Release unfinished claims owned by this process."""
+        with open_state_database(self._state_dir) as connection:
+            connection.execute(
+                """DELETE FROM feishu_message_claims
+                   WHERE owner=? AND completed_at_ms IS NULL""",
+                (self._owner,),
+            )
         await self.flush()
 
 

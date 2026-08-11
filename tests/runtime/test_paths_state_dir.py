@@ -20,8 +20,9 @@ from tests.support.config import install_test_config
 
 
 @pytest.fixture(autouse=True)
-def _reset_loader():
+def _reset_loader(monkeypatch):
     reset_config_loader()
+    monkeypatch.delenv("MINIAGENT_PATHS_STATE_DIR", raising=False)
     yield
     reset_config_loader()
 

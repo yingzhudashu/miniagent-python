@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from miniagent.agent.ports.clawhub import ClawHubSkillDetail
 from miniagent.agent.tools.registry import DefaultToolRegistry
-from miniagent.agent.types.skill import ClawHubSkillDetail
 from miniagent.agent.types.tool import ToolContext
 from miniagent.assistant.skills.registry import DefaultSkillRegistry
 from miniagent.assistant.tools import skills as skills_module

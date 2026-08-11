@@ -156,7 +156,7 @@ def run_setup_wizard() -> dict[str, Any]:
 
 def _apply_saved_config() -> None:
     """将磁盘上的 config.user.json 同步到内存配置与环境变量。"""
-    from miniagent.assistant.infrastructure.env_loader import load_secrets_from_project_root
+    from miniagent.assistant.bootstrap.configuration import load_secrets_from_project_root
 
     reload_config()
     load_secrets_from_project_root()

@@ -23,7 +23,7 @@
 - 进程级依赖由 ``bootstrap.entrypoint`` 构造唯一 ``ApplicationContainer``
 - ``--feishu`` 等运行时开关由 ``engine.main`` 读取 ``sys.argv``（本模块不解析）
 - CLI 经 ``run_cli_loop``；飞书经 ``FeishuRuntime`` + ``poll_server``（同进程可插拔）
-- ``AssistantTurnService`` 编排 ``run_agent`` 与思考回调；会话由 ``SessionManager`` 单一数据源
+- ``AssistantTurnService`` 编排 ``AgentRuntime`` 与思考回调；会话由 ``SessionManager`` 单一数据源
 
 文档索引见 ``docs/INDEX.md``；架构详见 ``docs/ARCHITECTURE.md``。
 """
@@ -60,7 +60,7 @@ def _load_env() -> None:
 
     幂等；正式入口在创建 LLM 客户端前会再次加载，重复调用无害。
     """
-    from miniagent.assistant.infrastructure.env_loader import load_secrets_from_project_root
+    from miniagent.assistant.bootstrap.configuration import load_secrets_from_project_root
 
     load_secrets_from_project_root()
 
@@ -360,14 +360,14 @@ def _run_current_argv() -> None:
         )
     )
 
+    from miniagent.assistant.bootstrap.configuration import load_secrets_from_project_root
     from miniagent.assistant.engine.setup_wizard import run_interactive_setup
-    from miniagent.assistant.infrastructure.env_loader import load_secrets_from_project_root
 
     run_interactive_setup()
     load_secrets_from_project_root()
-    from miniagent.assistant.app import create_assistant_application
+    from miniagent.assistant.app import create_personal_assistant
 
-    create_assistant_application().run()
+    create_personal_assistant().run()
 
 
 def run_cli_boundary(argv: list[str] | None = None) -> None:
@@ -383,7 +383,13 @@ def run_cli_boundary(argv: list[str] | None = None) -> None:
         sys.argv = previous
 
 
-if __name__ == "__main__":
-    from miniagent.assistant.app import run_assistant
+def run_assistant(argv: list[str] | None = None) -> None:
+    """Handle the public command-line boundary for the bundled product."""
+    run_cli_boundary(argv)
 
+
+if __name__ == "__main__":
     run_assistant()
+
+
+__all__ = ["run_assistant"]

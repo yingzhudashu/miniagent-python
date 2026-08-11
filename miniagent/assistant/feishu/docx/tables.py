@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from miniagent.assistant.feishu.docx.blocks import _find_page_block_id, batch_update_blocks
+from miniagent.assistant.feishu.docx.client import batch_update_blocks, find_page_block_id
 from miniagent.assistant.feishu.lark_client import build_client
 from miniagent.ui.feishu.types import FeishuConfig
 
@@ -20,7 +20,7 @@ def create_table_block(
 ) -> str:
     """创建空表块，返回 table block_id。"""
     client = build_client(config)
-    parent = parent_block_id or _find_page_block_id(client, document_id)
+    parent = parent_block_id or find_page_block_id(client, document_id)
     body: dict[str, Any] = {
         "block_id": parent,
         "insert_table": {

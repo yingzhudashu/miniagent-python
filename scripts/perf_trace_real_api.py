@@ -123,7 +123,7 @@ def _setup(perf_root: Path) -> Path:
     )
     install_config_loader(loader)
 
-    from miniagent.assistant.infrastructure.env_loader import load_secrets_from_project_root
+    from miniagent.assistant.bootstrap.configuration import load_secrets_from_project_root
 
     load_secrets_from_project_root()
     return run_dir
@@ -138,7 +138,7 @@ async def _one_run(
     scenario: str = "custom",
     required_tools: tuple[str, ...] = (),
 ) -> dict[str, Any]:
-    from miniagent.agent.agent import run_agent
+    from miniagent.agent import AgentRequest, AgentRuntime, AgentSpec
     from miniagent.agent.observability import emit_trace
 
     session_key = f"perf-trace-{os.getpid()}-{scenario}-{run_idx}"
@@ -152,22 +152,34 @@ async def _one_run(
     )
 
     t0 = time.perf_counter()
-    from miniagent.agent.settings import AgentSettings, use_agent_settings
+    from miniagent.agent.settings import AgentSettings
 
-    with use_agent_settings(AgentSettings(ctx.config.snapshot())):
-        reply = await run_agent(
-            prompt,
+    runtime = AgentRuntime(
+        AgentSpec(
+            settings=AgentSettings(ctx.config.snapshot()),
             registry=ctx.registry,
             memory=ctx.memory,
-            knowledge_registry=ctx.knowledge_registry,
-            client=ctx.llm_gateway,
+            knowledge=ctx.knowledge_registry,
             monitor=ctx.monitor,
-            toolboxes=toolboxes,
-            agent_config={"max_turns": 6, "streaming": True, "debug": False},
-            session_key=session_key,
             clawhub=ctx.clawhub,
             engine=ctx.engine,
+            owns_llm=False,
+            owns_memory=False,
+        ),
+        ctx.llm_gateway,
+    )
+    await runtime.start()
+    try:
+        reply = await runtime.run(
+            AgentRequest(
+                prompt,
+                session_key=session_key,
+                toolboxes=toolboxes,
+                config={"max_turns": 6, "streaming": True, "debug": False},
+            )
         )
+    finally:
+        await runtime.stop()
     elapsed = time.perf_counter() - t0
     missing_tools = sorted(set(required_tools) - set(reply.used_tools))
     if missing_tools:

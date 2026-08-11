@@ -7,11 +7,15 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from miniagent.assistant.engine import command_dispatch
+from miniagent.assistant.engine.commands.basic_commands import format_status
+from miniagent.assistant.engine.commands.output import capture_output
+from miniagent.assistant.engine.commands.quality_commands import _run_improve, _run_review
+from miniagent.assistant.engine.commands.test_commands import _run_test
 from miniagent.assistant.engine.thinking import ThinkingDisplay
 
 
 @pytest.mark.asyncio
-async def test_thinking_phase_finalize_legacy_callback_and_send_failure() -> None:
+async def test_thinking_phase_finalize_propagates_callback_contract_errors() -> None:
     sink: list[tuple[str, str]] = []
 
     def capture(text: str, kind: str = "chunk", **_kwargs: object) -> None:
@@ -25,10 +29,10 @@ async def test_thinking_phase_finalize_legacy_callback_and_send_failure() -> Non
     state.stream_done = False
     state.feishu_chat_id = "chat"
     state.feishu_thinking_message_id = "message"
-    state.feishu_send = AsyncMock(side_effect=TypeError("legacy callback"))
+    state.feishu_send = AsyncMock(side_effect=TypeError("invalid callback"))
 
-    await display._reset_stream_phase(state, "execute", False)
-    assert state.stream_step is None and state.stream_done
+    with pytest.raises(TypeError, match="invalid callback"):
+        await display._reset_stream_phase(state, "execute", False)
 
     state.feishu_send = AsyncMock(side_effect=RuntimeError("network"))
     await display._push_feishu_update(
@@ -85,6 +89,9 @@ async def test_thinking_render_merge_last_step_and_finish(monkeypatch: pytest.Mo
     state.stream_header = "execute"
     state.feishu_chat_id = "chat"
     state.feishu_send = AsyncMock(side_effect=TypeError("old"))
+    with pytest.raises(TypeError, match="old"):
+        await display._finish_active_stream(state, session_key="s")
+    state.feishu_send = None
     assert await display._finish_active_stream(state, session_key="s") == "execute"
 
     before = state.step_counter
@@ -120,23 +127,21 @@ async def test_review_and_improve_non_capture_outputs(
         return next(review_responses)
 
     monkeypatch.setattr(llm_module, "llm_json", review)
-    assert await command_dispatch._run_review(
-        "q", "a", capture=False, max_iterations=1
-    ) is None
+    assert await _run_review("q", "a", capture=False, max_iterations=1) is None
     assert "达到最大迭代次数" in capsys.readouterr().out
 
     async def improve(**_kwargs):
         return {"improved_answer": "better"}
 
     monkeypatch.setattr(llm_module, "llm_json", improve)
-    assert await command_dispatch._run_improve("q", "a", ["clear"], capture=False) == "better"
+    assert await _run_improve("q", "a", ["clear"], capture=False) == "better"
     assert "better" in capsys.readouterr().out
 
 
 @pytest.mark.asyncio
 async def test_self_test_non_capture_missing_registry(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
     broken_sink = MagicMock(side_effect=RuntimeError("closed"))
-    result = await command_dispatch._run_test(
+    result = await _run_test(
         mock=False,
         registry=None,
         capture=False,
@@ -147,5 +152,5 @@ async def test_self_test_non_capture_missing_registry(monkeypatch: pytest.Monkey
 
 
 def test_status_without_runtime() -> None:
-    assert "未初始化" in command_dispatch._format_status({})
-    assert command_dispatch._capture(lambda: print("ok")) == "ok"
+    assert "未初始化" in format_status({})
+    assert capture_output(lambda: print("ok")) == "ok"

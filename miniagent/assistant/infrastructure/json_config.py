@@ -22,7 +22,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from miniagent.assistant.bootstrap.application import ApplicationContainer
     from miniagent.assistant.contracts.configuration import ConfigSnapshot
 
 _logger = logging.getLogger(__name__)
@@ -377,25 +376,6 @@ def reload_config() -> None:
     _configuration_service.reload()
 
 
-async def reload_runtime_config(container: ApplicationContainer) -> None:
-    """Validate a candidate configuration, then atomically publish its LLM gateway."""
-    candidate = _configuration_service.reloaded(strict=True)
-    from miniagent.assistant.infrastructure.env_loader import load_secrets_from_project_root
-    from miniagent.llm.factory import create_llm_gateway
-
-    replacement = create_llm_gateway(
-        candidate.get,
-        cache_path=get_config_paths()[1].parent / "llm-model-catalog.json",
-    )
-    previous = container.llm_gateway
-    install_configuration_service(candidate)
-    load_secrets_from_project_root()
-    container.config = candidate
-    container.llm_gateway = replacement
-    if previous is not None and previous is not replacement:
-        container.retired_llm_gateways.append(previous)
-
-
 def get_user_config_path() -> Path:
     """返回当前 ``config.user.json`` 路径（与 :class:`JsonConfigLoader` 一致）。"""
     return _configuration_service.paths[1]
@@ -417,6 +397,5 @@ __all__ = [
     "install_config_loader",
     "install_configuration_service",
     "reload_config",
-    "reload_runtime_config",
     "reset_config_loader",
 ]

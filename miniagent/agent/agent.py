@@ -5,7 +5,7 @@
   ``skip_planning``、无工具箱、或任务分类为「简单」时可跳过并回落默认计划。
 - **Phase 2（Execution）**：调用 :mod:`miniagent.agent.executor` 的 ReAct 循环直至无工具调用或达上限。
 
-**可选编排步骤**（由 ``run_agent`` 串联，不改变上述两阶段定义）：
+**可选编排步骤**（由 ``AgentRuntime.run`` 调用的当前管线串联，不改变上述两阶段定义）：
 - 任务分类（Phase 0）、需求澄清（Phase 0.5）、执行后反思（Phase 3）。
 
 **边界**：本模块不处理 stdin/stdout、消息队列或飞书 HTTP；仅编排 LLM 与工具。通道相关回调通过
@@ -14,7 +14,8 @@
 
 **轮数上限（与执行器一致）**：全局 ReAct 上限由 ``agent.max_turns``（默认 400）控制；分步模式下单步上限为 Internal 常量 ``EXECUTION_STEP_MAX_TURNS``。规划器给出的建议轮数**不会**把上述硬上限压低。
 
-**导出**：``run_agent``、``run_pipeline``、常量 ``PLANNING_STREAM_HEADER``。
+**导出**：``run_pipeline`` 与常量 ``PLANNING_STREAM_HEADER``；完整回合通过
+``AgentRuntime.run(AgentRequest(...))`` 调用。
 
 设计背景见 ``docs/ARCHITECTURE.md``（两阶段管线）。
 """
@@ -811,56 +812,4 @@ async def _run_agent_turn(turn: _AgentTurnContext) -> AgentRunResult:
     return await invocation.finish(reply)
 
 
-async def run_agent(user_input: str, *,
-    registry: ToolRegistryProtocol,
-    memory: MemoryRuntimeProtocol,
-    knowledge_registry: KnowledgeRegistryProtocol,
-    client: Any,
-    monitor: ToolMonitorProtocol | None = None,
-    toolboxes: list[Toolbox] | None = None,
-    agent_config: dict[str, Any] | None = None,
-    options: AgentRunOptions | None = None,
-    system_prompt: str | None = None,
-    skip_planning: bool = False,
-    on_tool_call: OnToolCall | None = None,
-    on_tool_finish: OnToolFinish | None = None,
-    on_plan: OnPlan | None = None,
-    on_thinking: OnThinking | None = None,
-    clawhub: Any | None = None,
-    clarifier: Any | None = None,
-    session_key: str | None = None,
-    confirmation_channel: Any | None = None,
-    engine: Any | None = None,
-    on_reflection: Callable[[Any], Any] | None = None,
-    tool_semaphore: asyncio.Semaphore | None = None,
-) -> AgentRunResult:
-    """Run the stable function API through the normalized Agent turn path."""
-    return await _run_agent_turn(
-        _AgentTurnContext(
-            user_input=user_input,
-            registry=registry,
-            memory=memory,
-            knowledge_registry=knowledge_registry,
-            client=client,
-            monitor=monitor,
-            toolboxes=tuple(toolboxes or ()),
-            agent_config=dict(agent_config) if agent_config is not None else None,
-            options=options,
-            system_prompt=system_prompt,
-            skip_planning=skip_planning,
-            on_tool_call=on_tool_call,
-            on_tool_finish=on_tool_finish,
-            on_plan=on_plan,
-            on_thinking=on_thinking,
-            clawhub=clawhub,
-            clarifier=clarifier,
-            session_key=session_key,
-            confirmation_channel=confirmation_channel,
-            engine=engine,
-            on_reflection=on_reflection,
-            tool_semaphore=tool_semaphore,
-        )
-    )
-
-
-__all__ = ["run_agent", "run_pipeline", "PLANNING_STREAM_HEADER"]
+__all__ = ["run_pipeline", "PLANNING_STREAM_HEADER"]

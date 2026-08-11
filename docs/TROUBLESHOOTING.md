@@ -1,6 +1,6 @@
 # Mini Agent Python 故障排查手册
 
-> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-19 | 与 `miniagent.__version__` 对齐
+> Mini Agent Python | 版本: 5.0.0 | 最后更新: 2026-08-10 | 与 `miniagent.__version__` 对齐
 
 本手册提供常见问题的诊断方法和解决方案，帮助用户快速定位和解决问题。
 
@@ -295,11 +295,7 @@ TimeoutError: Tool execution timeout after X seconds
    - 飞书开放平台 → 应用 → 事件订阅
    - 是否订阅了 `im.message.receive_v1`
 
-4. 检查入站锁：
-   ```bash
-   cat {paths.state_dir}/feishu_inbound_owner.json
-   ```
-   `{paths.state_dir}` 默认为 `{miniagent}/workspaces/projects/{project_key}/`（见 [ENGINEERING.md](ENGINEERING.md) §3）。
+4. 在 CLI 执行 `/feishu status` 检查入站 owner 与最近一次 WebSocket 会话状态。入站所有权保存在项目 `state.sqlite3` 的 `process_leases` 表中；`{paths.state_dir}` 默认为 `{miniagent}/workspaces/projects/{project_key}/`（见 [ENGINEERING.md](ENGINEERING.md) §3）。
 
 ---
 
@@ -342,7 +338,7 @@ TimeoutError: Tool execution timeout after X seconds
 
 ```bash
 /session list
-ls -lh {paths.state_dir}/sessions/*/history.json   # canonical 路径见 [ENGINEERING.md](ENGINEERING.md) §3
+ls -lh {paths.state_dir}/state.sqlite3
 ls -lh {paths.state_dir}/memory/*.md
 ```
 
@@ -451,7 +447,7 @@ ls {paths.state_dir}/memory/*.md
 - `{trace.output_dir}/trace-YYYY-MM-DD-pid*.jsonl` — 全链路 Trace（默认 `workspaces/logs/`，见 [ENGINEERING.md §5](ENGINEERING.md#5-trace-系统全链路监控)）
 - `{paths.state_dir}/memory/YYYY-MM-DD.md`[^paths] — 活动日志（Markdown）
 - `debug.log_path`（可选）— 在 `config.user.json` 的 `debug` 节配置 NDJSON 路径（如 `logs/agent.jsonl`）
-- `{paths.state_dir}/sessions/*/history.json` — 会话历史
+- `{paths.state_dir}/state.sqlite3` — 会话、记忆、知识库、调度与渠道状态
 
 [^paths]: canonical 路径布局见 [ENGINEERING.md §3](ENGINEERING.md#3-状态目录与测试隔离)。
 

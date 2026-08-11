@@ -8,7 +8,7 @@ import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol, TypeAlias, runtime_checkable
 from uuid import uuid4
 
 from miniagent.agent.events import AgentEvent, AgentEventKind
@@ -28,7 +28,7 @@ from miniagent.agent.types.planning import StructuredPlan
 from miniagent.agent.types.tool import Toolbox, ToolRegistryProtocol
 from miniagent.llm.gateway import LLMGateway
 
-AgentResult = AgentRunResult
+AgentResult: TypeAlias = AgentRunResult
 AgentEventSubscriber = Callable[[AgentEvent], Awaitable[None] | None]
 
 _logger = logging.getLogger(__name__)
@@ -80,6 +80,7 @@ class _CoreAgentServices:
     clawhub: Any | None = None
     clarifier: Any | None = None
     confirmation_channel: Any | None = None
+    engine: Any | None = None
     tool_semaphore: asyncio.Semaphore | None = None
     runner: Any | None = None
 
@@ -151,6 +152,7 @@ class _CoreAgent:
                     clarifier=self._services.clarifier,
                     session_key=request.session_key,
                     confirmation_channel=self._services.confirmation_channel,
+                    engine=self._services.engine,
                     tool_semaphore=self._services.tool_semaphore,
                 )
 
@@ -178,6 +180,7 @@ class _CoreAgent:
                     clarifier=self._services.clarifier,
                     session_key=request.session_key,
                     confirmation_channel=self._services.confirmation_channel,
+                    engine=self._services.engine,
                     tool_semaphore=self._services.tool_semaphore,
                 )
             )
@@ -196,6 +199,7 @@ class AgentSpec:
     clawhub: Any | None = None
     clarifier: Any | None = None
     confirmation_channel: Any | None = None
+    engine: Any | None = None
     tool_semaphore: asyncio.Semaphore | None = None
     runner: Any | None = None
     max_parallel_sessions: int = 4
@@ -210,7 +214,7 @@ class AgentSpec:
             raise ValueError("shutdown_timeout must not be negative")
 
     def _services(self, llm: LLMGateway, observer: AgentObserver) -> _CoreAgentServices:
-        """Materialize execution dependencies behind the V4 facade."""
+        """Materialize the execution dependencies owned by this runtime."""
         return _CoreAgentServices(
             llm=llm,
             settings=self.settings,
@@ -222,6 +226,7 @@ class AgentSpec:
             clawhub=self.clawhub,
             clarifier=self.clarifier,
             confirmation_channel=self.confirmation_channel,
+            engine=self.engine,
             tool_semaphore=self.tool_semaphore,
             runner=self.runner,
         )

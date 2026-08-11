@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from miniagent.assistant.feishu.docx.blocks import _find_page_block_id, batch_update_blocks
+from miniagent.assistant.feishu.docx.client import batch_update_blocks, find_page_block_id
 from miniagent.assistant.feishu.lark_client import build_client
 from miniagent.assistant.feishu.lark_response import format_lark_response_error
 from miniagent.ui.feishu.types import FeishuConfig
@@ -54,7 +54,7 @@ def insert_image_block(
 ) -> None:
     """在文档中插入图片块。"""
     client = build_client(config)
-    parent = parent_block_id or _find_page_block_id(client, document_id)
+    parent = parent_block_id or find_page_block_id(client, document_id)
     req_body: dict[str, Any] = {
         "block_id": parent,
         "insert_image": {"image_token": file_token},

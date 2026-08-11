@@ -49,14 +49,12 @@ from miniagent.agent.trace_events import (
     RiskLevel,
     make_proposal_event,
 )
+from miniagent.assistant.infrastructure.atomic_json import atomic_dump_json
 from miniagent.assistant.infrastructure.json_config import get_config
-from miniagent.assistant.infrastructure.persistence import dump_state_file, load_state_file
-from miniagent.assistant.infrastructure.state_schemas import install_builtin_state_schemas
 from miniagent.assistant.self_opt.auto_optimizer import apply_proposal
 from miniagent.assistant.self_opt.types import OptimizationProposal, OptimizationResult
 
 _logger = get_logger(__name__)
-install_builtin_state_schemas()
 
 
 def get_proposal_output_dir() -> Path:
@@ -110,7 +108,7 @@ def _update_history_index(record: dict[str, Any]) -> None:
     index: list[dict[str, Any]] = []
     if history_file.exists():
         try:
-            loaded = load_state_file("self_opt_proposal_index", history_file)
+            loaded = json.loads(history_file.read_text(encoding="utf-8"))
             entries = loaded.get("entries", [])
             if isinstance(entries, list):
                 index = [item for item in entries if isinstance(item, dict)]
@@ -133,11 +131,7 @@ def _update_history_index(record: dict[str, Any]) -> None:
     index.sort(key=lambda e: e.get("updated_at", ""), reverse=True)
 
     try:
-        dump_state_file(
-            "self_opt_proposal_index",
-            history_file,
-            {"entries": index},
-        )
+        atomic_dump_json(history_file, {"entries": index}, ensure_ascii=False, indent=2)
     except OSError as e:
         _logger.warning("更新提案索引失败: %s", e)
 

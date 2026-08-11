@@ -103,6 +103,10 @@ async def test_runtime_graph_preserves_production_order_and_dependencies(
         captured["config"] = (actual_ctx,)
         return asyncio.create_task(run_task("config_watch", stop_event))
 
+    def start_heartbeat(stop_event: asyncio.Event) -> asyncio.Task[Any]:
+        events.append("start:instance_heartbeat")
+        return asyncio.create_task(run_task("instance_heartbeat", stop_event))
+
     def start_scheduled(
         actual_ctx: ApplicationContainer,
         actual_state: CliLoopState,
@@ -132,6 +136,10 @@ async def test_runtime_graph_preserves_production_order_and_dependencies(
         return task
 
     monkeypatch.setattr(
+        "miniagent.assistant.bootstrap.runtime_services._start_runtime_heartbeat",
+        start_heartbeat,
+    )
+    monkeypatch.setattr(
         "miniagent.assistant.bootstrap.runtime_services.start_config_watch",
         start_config,
     )
@@ -152,6 +160,7 @@ async def test_runtime_graph_preserves_production_order_and_dependencies(
         feishu_user_status=status,
     )
     assert manager.service_names == (
+        "instance_heartbeat",
         "config_watch",
         "feishu",
         "scheduled_tasks",
@@ -161,6 +170,7 @@ async def test_runtime_graph_preserves_production_order_and_dependencies(
     await manager.start()
     await asyncio.sleep(0)
     assert events == [
+        "start:instance_heartbeat",
         "start:config_watch",
         "start:feishu",
         "start:scheduled_tasks",
@@ -173,11 +183,12 @@ async def test_runtime_graph_preserves_production_order_and_dependencies(
     assert captured["skills"] == (ctx.registry, ctx.skill_registry, state)
 
     await manager.stop()
-    assert events[-4:] == [
+    assert events[-5:] == [
         "stop:skills_watch",
         "stop:scheduled_tasks",
         "stop:feishu",
         "stop:config_watch",
+        "stop:instance_heartbeat",
     ]
 
 
@@ -196,6 +207,10 @@ async def test_runtime_graph_rolls_back_feishu_when_ticker_start_fails(
         events.append("start:scheduled_tasks")
         raise RuntimeError("ticker failed")
 
+    monkeypatch.setattr(
+        "miniagent.assistant.bootstrap.runtime_services._start_runtime_heartbeat",
+        lambda *_args: None,
+    )
     monkeypatch.setattr(
         "miniagent.assistant.bootstrap.runtime_services.start_config_watch",
         lambda *_args: None,
@@ -227,6 +242,10 @@ async def test_runtime_graph_keeps_disabled_feishu_as_safe_service(
     state = _make_state(ctx, feishu_enabled=False)
     ctx.create_feishu_handler_factory = MagicMock()
     monkeypatch.setattr(
+        "miniagent.assistant.bootstrap.runtime_services._start_runtime_heartbeat",
+        lambda *_args: None,
+    )
+    monkeypatch.setattr(
         "miniagent.assistant.bootstrap.runtime_services.start_config_watch",
         lambda *_args: None,
     )
@@ -244,4 +263,40 @@ async def test_runtime_graph_keeps_disabled_feishu_as_safe_service(
     await manager.stop()
 
     assert events == []
-    assert manager.service_names[1] == "feishu"
+    assert manager.service_names[2] == "feishu"
+
+
+@pytest.mark.asyncio
+async def test_runtime_heartbeat_renews_every_owned_lease(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import miniagent.assistant.bootstrap.runtime_services as runtime_services
+
+    stop_event = asyncio.Event()
+    calls: list[str] = []
+
+    async def timeout_once(awaitable: Any, *, timeout: float) -> None:
+        assert timeout >= 1.0
+        awaitable.close()
+        raise TimeoutError
+
+    def heartbeat() -> None:
+        calls.append("instance")
+        stop_event.set()
+
+    monkeypatch.setattr(runtime_services.asyncio, "wait_for", timeout_once)
+    monkeypatch.setattr(runtime_services, "heartbeat", heartbeat)
+    monkeypatch.setattr(
+        runtime_services,
+        "renew_feishu_inbound_owner",
+        lambda: calls.append("feishu"),
+    )
+    monkeypatch.setattr(
+        runtime_services,
+        "renew_session_leases",
+        lambda: calls.append("sessions"),
+    )
+
+    task = runtime_services._start_runtime_heartbeat(stop_event)
+    await task
+    assert calls == ["instance", "feishu", "sessions"]

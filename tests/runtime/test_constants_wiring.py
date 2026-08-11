@@ -17,7 +17,7 @@ from miniagent.agent.constants import (
 )
 from miniagent.agent.planner import PLANNER_MAX_RETRIES as PLANNER_RETRIES_IN_PLANNER
 from miniagent.agent.task_classifier import TaskDifficulty
-from miniagent.assistant.engine import command_dispatch
+from miniagent.assistant.engine.commands import quality_commands
 from miniagent.assistant.feishu.bitable import client as bitable_client
 from miniagent.assistant.memory import history_archive, keyword_index
 
@@ -77,5 +77,5 @@ def test_cli_thinking_rich_env_override(monkeypatch) -> None:
 def test_improve_max_iterations_wired() -> None:
     import inspect
 
-    sig = inspect.signature(command_dispatch._run_review)
+    sig = inspect.signature(quality_commands._run_review)
     assert sig.parameters["max_iterations"].default == IMPROVE_MAX_ITERATIONS

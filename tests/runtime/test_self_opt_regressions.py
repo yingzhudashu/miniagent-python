@@ -8,7 +8,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from miniagent.assistant.engine import command_dispatch
+from miniagent.assistant.engine.commands.quality_commands import _run_review
+from miniagent.assistant.engine.commands.test_commands import _run_test
 
 schedule_tools = importlib.import_module("miniagent.assistant.tools.schedule_tools")
 
@@ -32,8 +33,8 @@ async def test_review_iterative_update_and_missing_improvement(
         return next(responses)
 
     monkeypatch.setattr(llm_module, "llm_json", fake)
-    assert "v2" in (await command_dispatch._run_review("q", "a", capture=True) or "")
-    assert "v1" in (await command_dispatch._run_review("q", "a", capture=True) or "")
+    assert "v2" in (await _run_review("q", "a", capture=True) or "")
+    assert "v1" in (await _run_review("q", "a", capture=True) or "")
 
 @pytest.mark.asyncio
 async def test_self_test_real_builder_and_non_capture_return(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -47,7 +48,7 @@ async def test_self_test_real_builder_and_non_capture_return(monkeypatch: pytest
         AsyncMock(return_value=SimpleNamespace(passed=1, total=1, pass_rate=1.0, failed=0,
                                                skipped=0, duration_seconds=0.0, results=[])),
     )
-    result = await command_dispatch._run_test(
+    result = await _run_test(
         mock=False, registry=object(), capture=False, term_write=MagicMock()
     )
     assert result == ""

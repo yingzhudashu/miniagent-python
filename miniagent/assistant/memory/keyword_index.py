@@ -14,7 +14,7 @@
 - 英文：按空格和标点分词，去停用词
 - 混合：同时应用两种策略
 
-存储：索引文件为 ``{state_dir}/keyword-index.json``。
+该倒排结构是可重建的进程内加速层；持久真相源是 SQLite memory 表与 FTS5。
 
 Layer 3 检索与注入顺序见 ``docs/MEMORY_SYSTEM.md``。
 """
@@ -23,8 +23,6 @@ from __future__ import annotations
 
 import collections
 import heapq
-import json
-import os
 import re
 import time
 from dataclasses import dataclass, field
@@ -38,7 +36,6 @@ from miniagent.agent.constants import (
 )
 from miniagent.agent.logging import get_logger
 from miniagent.agent.types.memory import MemoryEntry, MemoryEntryInput
-from miniagent.assistant.infrastructure.atomic_json import atomic_dump_json
 from miniagent.assistant.infrastructure.json_config import get_config
 from miniagent.assistant.memory.shared_registry import MemoryEntryRegistry
 
@@ -319,9 +316,7 @@ class KeywordIndex:
         self._loaded = False
         self._dirty = False
         self._generation = 0
-        self._index_file = os.path.join(state_dir, "keyword-index.json")
         self._index_lock = threading.RLock()
-        self._save_lock = threading.Lock()
         # 性能优化：自动清理过期索引
         self._last_prune_time: float = time.time()
         self._prune_interval_seconds = get_config("memory.keyword_prune_interval", 86400)  # 24小时
@@ -351,35 +346,22 @@ class KeywordIndex:
                 _logger.debug("自动清理失败: %s", e)
 
     def _load(self) -> None:
-        """从磁盘加载索引（内部方法，需在锁内调用）。"""
-        try:
-            if not os.path.exists(self._index_file):
-                self._loaded = True
-                return
-
-            with open(self._index_file, encoding="utf-8") as f:
-                disk = json.load(f)
-
-            self._index.clear()
-            for keyword, data in disk.get("index", {}).items():
-                # 性能优化：直接使用 dict 存储 entry_key -> weight
-                refs_dict: dict[str, float] = {}
-                for r in data.get("references", []):
-                    entry_key = r.get("entry_key", "")
-                    weight = r.get("weight", 1.0)
-                    if entry_key:
-                        refs_dict[entry_key] = weight
-                self._index[keyword] = _IndexEntry(keyword=keyword, references=refs_dict)
-
-            self._loaded = True
-            self._dirty = False
-            self._generation = 0
-        except Exception as e:
-            _logger.warning("加载索引失败，重建中: %s", e)
-            self._index.clear()
-            self._loaded = True
-            self._dirty = False
-            self._generation = 0
+        """Rebuild the in-memory accelerator from durable memory entries."""
+        self._index.clear()
+        for entry_key, entry in self._registry.all_entries():
+            full_text = " ".join(
+                [entry.user_snippet, entry.summary, *(entry.facts or [])]
+            )
+            for keyword in extract_keywords(
+                full_text, max_keywords=KEYWORD_INDEX_MAX_KEYWORDS
+            ):
+                index_entry = self._index.setdefault(keyword, _IndexEntry(keyword=keyword))
+                index_entry.references[entry_key] = 1.0
+        while len(self._index) > self._max_entries:
+            self._index.popitem(last=False)
+        self._loaded = True
+        self._dirty = False
+        self._generation = 0
 
     def load(self) -> None:
         """从磁盘加载索引（公开接口）。"""
@@ -387,44 +369,10 @@ class KeywordIndex:
             self._load()
 
     def save(self) -> None:
-        """保存索引到磁盘
-
-        无未提交变更时快速返回（避免重复重写整文件）。
-        通常在批次末尾、进程退出或维护清理后调用。
-        """
+        """Mark the rebuildable accelerator clean; entries are already durable."""
         self._ensure_loaded()
-        try:
-            with self._save_lock:
-                with self._index_lock:
-                    if not self._dirty:
-                        return
-                    generation = self._generation
-                    index_snapshot = {
-                        keyword: {
-                            "references": [
-                                {"entry_key": entry_key, "weight": weight}
-                                for entry_key, weight in entry.references.items()
-                            ]
-                        }
-                        for keyword, entry in self._index.items()
-                    }
-                disk = {
-                    "version": 2,
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
-                    "total_entries": len(index_snapshot),
-                    "index": index_snapshot,
-                }
-                atomic_dump_json(
-                    self._index_file,
-                    disk,
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                )
-                with self._index_lock:
-                    if self._generation == generation:
-                        self._dirty = False
-        except Exception as e:
-            _logger.error("保存索引失败: %s", e)
+        with self._index_lock:
+            self._dirty = False
 
     def remove_entry_keys(self, entry_keys: list[str]) -> int:
         """从索引中移除指定 entry_key 的全部引用。

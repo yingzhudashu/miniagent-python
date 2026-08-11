@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from miniagent.llm.gateway import LLMGateway
-from miniagent.llm.openai_compat import (
+from miniagent.llm.openai_wire import (
     ensure_json_object_user_message,
     json_object_unsupported,
 )

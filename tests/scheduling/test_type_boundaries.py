@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from contextlib import nullcontext
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -54,18 +52,3 @@ def test_cli_schedule_list_and_update_kinds(monkeypatch: pytest.MonkeyPatch) -> 
         allow_mutations=True,
     )
     assert "已更新" in cron
-
-def test_scheduled_task_save_preserves_primary_error_when_cleanup_fails(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import miniagent.assistant.scheduled_tasks.store as store
-
-    monkeypatch.setattr(store, "tasks_file_path", lambda: str(tmp_path / "tasks.json"))
-    monkeypatch.setattr(store, "tasks_json_lock", lambda: nullcontext())
-    monkeypatch.setattr(
-        store,
-        "atomic_dump_json",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("replace")),
-    )
-    with pytest.raises(OSError, match="replace"):
-        store.save_tasks([])

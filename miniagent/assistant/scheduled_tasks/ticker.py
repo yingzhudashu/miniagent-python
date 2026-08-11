@@ -1,12 +1,13 @@
-"""进程内 asyncio 调度循环：周期性 ``tick_once``、加锁、将到期任务经 ``message_queue`` 投递执行。
+"""进程内 asyncio 调度循环：原子 claim 到期任务并经 ``message_queue`` 投递执行。
 
 与 ``engine.main`` 中启动的 ``start_scheduled_tasks_ticker`` 配套；配置 ``scheduled_tasks.disabled`` 可关闭。
 
-并发语义：同一进程内单 ticker 循环；跨进程通过 ``scheduler.lock``（tick）与 ``job_<id>.lock``（执行）避免重复触发。"""
+并发语义：同一进程内单 ticker 循环；跨进程由 SQLite 写事务和 task claim 保证唯一执行。"""
 
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from typing import Any
 
@@ -15,17 +16,12 @@ from miniagent.assistant.application.messaging.inbound import InboundTurnCoordin
 from miniagent.assistant.bootstrap.application import ApplicationContainer
 from miniagent.assistant.engine.cli_state import CliLoopState
 from miniagent.assistant.infrastructure.json_config import get_config
-from miniagent.assistant.scheduled_tasks.lock import (
-    release_job_lock,
-    release_scheduler_lock,
-    try_acquire_job_lock,
-    try_acquire_scheduler_lock,
-)
 from miniagent.assistant.scheduled_tasks.models import ScheduledTask
 from miniagent.assistant.scheduled_tasks.runner import build_scheduled_job
 from miniagent.assistant.scheduled_tasks.store import (
     TaskRunOutcome,
-    finalize_task_after_run,
+    claim_due_tasks,
+    finalize_claimed_task,
     load_tasks,
     repair_invalid_schedules,
     save_tasks_async,
@@ -34,7 +30,7 @@ from miniagent.ui.messages import InboundMessage
 
 _logger = get_logger(__name__)
 
-# 同进程内已投递、尚未写完状态的 task id；与 job_<id>.lock 互补防重复触发
+# 同进程内已投递、尚未写完状态的 task id；持久化唯一性由 claim 保证。
 _inflight: set[str] = set()
 _MAX_DUE_PER_TICK = 5
 
@@ -49,45 +45,31 @@ def _sleep_seconds_until(tasks: list[ScheduledTask]) -> float:
     return max(0.5, min(60.0, nxt - now))
 
 
-def _select_due_tasks(tasks: list[ScheduledTask], now: float) -> list[ScheduledTask]:
-    """获取任务锁并返回本 tick 可投递的有界任务列表。"""
-    due: list[ScheduledTask] = []
-    for task in tasks:
-        if not task.enabled or task.id in _inflight:
-            continue
-        if task.next_run_at is None or task.next_run_at > now:
-            continue
-        if try_acquire_job_lock(task.id):
-            due.append(task)
-    due.sort(key=lambda item: float(item.next_run_at or 0))
-    selected = due[:_MAX_DUE_PER_TICK]
-    for task in due[_MAX_DUE_PER_TICK:]:
-        release_job_lock(task.id)
-    return selected
-
-
 async def _finalize_scheduled_job(
     task_id: str,
+    owner: str,
     *,
     outcome: TaskRunOutcome,
     agent_error: str | None,
 ) -> None:
-    """尽力写回任务结果，并无条件释放进程内标记和跨进程锁。"""
+    """Write one owned result and unconditionally release the in-process marker."""
     try:
-        tasks = load_tasks()
-        task = next((item for item in tasks if item.id == task_id), None)
-        if task:
-            finalize_task_after_run(task, outcome=outcome, agent_error=agent_error)
-            await save_tasks_async(tasks)
+        await asyncio.to_thread(
+            finalize_claimed_task,
+            task_id,
+            owner,
+            outcome=outcome,
+            agent_error=agent_error,
+        )
     except Exception:
         _logger.exception("定时任务写回状态失败: %s", task_id)
     finally:
         _inflight.discard(task_id)
-        release_job_lock(task_id)
 
 
 async def _run_scheduled_job(
-    task_id: str,
+    task: ScheduledTask,
+    owner: str,
     *,
     ctx: ApplicationContainer,
     state: CliLoopState,
@@ -95,13 +77,12 @@ async def _run_scheduled_job(
     skill_toolboxes: list[Any],
     skill_prompts: list[Any],
 ) -> None:
-    """执行单个已锁定任务；取消继续传播，最终状态始终写回。"""
+    """Execute one claimed task; cancellation propagates and releases its claim."""
+    task_id = task.id
     outcome: TaskRunOutcome = "skipped"
     agent_error: str | None = None
     try:
-        tasks = load_tasks()
-        task = next((item for item in tasks if item.id == task_id), None)
-        if task is None or not task.enabled:
+        if not task.enabled:
             return
         job = build_scheduled_job(ctx, state, task, skill_toolboxes, skill_prompts)
         errors: list[str | None] = [None]
@@ -121,6 +102,7 @@ async def _run_scheduled_job(
     finally:
         await _finalize_scheduled_job(
             task_id,
+            owner,
             outcome=outcome,
             agent_error=agent_error,
         )
@@ -132,15 +114,13 @@ async def tick_once(
     skill_toolboxes: list[Any] | None = None,
     skill_prompts: list[Any] | None = None,
 ) -> None:
-    """单次调度：加锁、选出到期任务、经 message_queue 异步投递执行协程。
+    """单次调度：原子 claim 到期任务并经 message_queue 异步投递执行协程。
 
     执行流程：
-    1. 获取调度锁（防止多进程并发调度）
-    2. 加载任务列表，修复无效 cron
-    3. 选出到期任务（next_run_at <= now）
-    4. 尝试获取任务级锁
-    5. 构建 job 协程并投递到 message_queue
-    6. 等待执行完成，更新任务状态
+    1. 加载任务列表并修复无效 cron
+    2. 事务内 claim 到期任务
+    3. 构建 job 协程并投递到 message_queue
+    4. 按 owner 原子写回执行状态并释放 claim
 
     Args:
         ctx: 运行时上下文（含 message_queue、engine 等）
@@ -149,8 +129,6 @@ async def tick_once(
         skill_prompts: 技能提示列表（可选，优先从 state 读取）
 
     Note:
-        - 调度锁是进程级的（tasks.json.lock）
-        - 任务锁是 job 级的（job_<id>.lock）
         - 单次最多处理 _MAX_DUE_PER_TICK 个任务
         - 执行完成后自动重算 next_run_at
     """
@@ -164,38 +142,40 @@ async def tick_once(
     if get_config("scheduled_tasks.disabled", False):
         return
 
-    if not try_acquire_scheduler_lock():
-        return
-    try:
-        tasks = load_tasks()
-        if repair_invalid_schedules(tasks):
-            await save_tasks_async(tasks)
+    tasks = load_tasks()
+    if repair_invalid_schedules(tasks):
+        await save_tasks_async(tasks)
 
-        due = _select_due_tasks(tasks, time.time())
+    owner = f"scheduler:{os.getpid()}:{id(ctx)}"
+    due = await asyncio.to_thread(
+        claim_due_tasks,
+        owner,
+        now_ts=time.time(),
+        limit=_MAX_DUE_PER_TICK,
+    )
 
-        mq = ctx.message_queue
-        inbound_turns = InboundTurnCoordinator(
-            mq,
-            queue_key=lambda message: str(message.metadata.get("queue_key") or ""),
-        )
-        for task in due:
-            job_id = task.id
-            _inflight.add(job_id)
-            jt = asyncio.create_task(
-                _run_scheduled_job(
-                    job_id,
-                    ctx=ctx,
-                    state=state,
-                    inbound_turns=inbound_turns,
-                    skill_toolboxes=skill_toolboxes,
-                    skill_prompts=skill_prompts,
-                )
+    mq = ctx.message_queue
+    inbound_turns = InboundTurnCoordinator(
+        mq,
+        queue_key=lambda message: str(message.metadata.get("queue_key") or ""),
+    )
+    for task in due:
+        job_id = task.id
+        _inflight.add(job_id)
+        jt = asyncio.create_task(
+            _run_scheduled_job(
+                task,
+                owner,
+                ctx=ctx,
+                state=state,
+                inbound_turns=inbound_turns,
+                skill_toolboxes=skill_toolboxes,
+                skill_prompts=skill_prompts,
             )
-            reg = getattr(ctx, "register_shutdown_tracked_task", None)
-            if callable(reg):
-                reg(jt)
-    finally:
-        release_scheduler_lock()
+        )
+        reg = getattr(ctx, "register_shutdown_tracked_task", None)
+        if callable(reg):
+            reg(jt)
 
 
 async def scheduled_tasks_loop(

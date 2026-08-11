@@ -6,9 +6,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.agent.agent import _build_agent_run_result, run_agent
+from miniagent.agent.agent import _build_agent_run_result
 from miniagent.agent.monitor import DefaultToolMonitor
 from miniagent.agent.types.agent import AgentRunOptions, AgentRunResult
+from tests.support.agent_runtime import run_agent
 from tests.support.memory import make_knowledge_registry, make_memory_runtime
 
 

@@ -16,7 +16,7 @@ import pytest
 
 class _Response:
     def __init__(self, status: int, payload: dict) -> None:
-        self.status = status
+        self.status_code = status
         self.payload = payload
 
     async def __aenter__(self):
@@ -25,7 +25,7 @@ class _Response:
     async def __aexit__(self, *_args):
         return None
 
-    async def json(self):
+    def json(self):
         return self.payload
 
 
@@ -33,10 +33,10 @@ class _Session:
     def __init__(self, responses: list[_Response]) -> None:
         self.responses = responses
 
-    def post(self, *_args, **_kwargs):
+    async def post(self, *_args, **_kwargs):
         return self.responses.pop(0)
 
-    def get(self, *_args, **_kwargs):
+    async def get(self, *_args, **_kwargs):
         return self.responses.pop(0)
 
 
@@ -121,7 +121,7 @@ async def test_http_session_reused_and_closed(monkeypatch) -> None:
         async def close(self) -> None:
             self.closed = True
 
-    monkeypatch.setattr(html_upload.aiohttp, "ClientSession", FakeSession)
+    monkeypatch.setattr(html_upload.httpx, "AsyncClient", FakeSession)
 
     first = html_upload._get_http_session()
     second = html_upload._get_http_session()

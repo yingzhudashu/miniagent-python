@@ -3,32 +3,20 @@
 每个会话拥有独立的工作空间、工具注册表、技能、记忆。
 会话间默认完全隔离，除非显式"升维"才共享到主空间。
 
-工作空间结构：
-    workspaces/
-    ├── sessions/
-    │   └── <sessionId>/
-    │       ├── files/        — 会话文件（工具操作默认目录）
-    │       ├── skills/       — 会话级技能
-    │       ├── history_snapshots/ — 编号历史快照
-    │       └── config.json   — 会话配置
-    ├── memory/
-    │   ├── <sessionId>.json
-    │   └── keyword-index.json
-    └── instances/            — 多实例注册表
-        └── <instanceId>/
-            ├── meta.json
-            └── heartbeat
+项目状态保存到 ``state.sqlite3``；会话目录只保留 ``files/`` 与会话级
+``skills/`` 等文件系统内容。会话、消息、记忆、FTS 和向量记录均由当前
+SQLite schema 5 管理；全局实例信息保存到独立 ``registry.sqlite3``。
 
 设计背景见 ``docs/ARCHITECTURE.md``（会话与记忆）；长期记忆文件布局见 ``docs/MEMORY_SYSTEM.md``。
 
-**与引擎的衔接**：进程内在 ``miniagent.assistant.engine.init.init_subsystems`` 中构造默认实现；``AssistantTurnService.run_agent_with_thinking`` 按 ``session_key`` 解析 ``files/`` 根目录、会话级工具注册表与历史落盘路径，勿在业务层绕过 ``SessionManager`` 直接写 ``workspaces/sessions/<id>`` 以免与锁、索引不一致。
+**与引擎的衔接**：进程内在 ``init_subsystems`` 中构造默认实现；
+``AssistantTurnService`` 按 ``session_key`` 解析工作区与当前持久化状态。
 """
 
 from __future__ import annotations
 
 import asyncio
 import builtins
-import json
 import os
 import threading
 from collections.abc import Iterator
@@ -43,25 +31,19 @@ from miniagent.agent.types.memory import Session, SessionOptions
 from miniagent.agent.types.skill import Skill
 from miniagent.agent.types.tool import Toolbox, ToolContext, ToolDefinition
 from miniagent.assistant.infrastructure.json_config import get_config
-from miniagent.assistant.infrastructure.persistence import load_state_file
-from miniagent.assistant.infrastructure.state_schemas import install_builtin_state_schemas
 from miniagent.assistant.session.storage import (
     SessionConfig,
-    SessionDiskStorage,
-    _DiskConfigCacheEntry,
-    _DiskSessionConfig,
-    load_history_json_file,
+    SessionStorage,
+    StoredSessionConfig,
     truncate_history,
 )
 from miniagent.assistant.utils.session_id import safe_session_id
 
 _logger = get_logger(__name__)
-install_builtin_state_schemas()
-
 def _truncate_history(
     history: list[dict[str, Any]], max_messages: int | None = None
 ) -> list[dict[str, Any]]:
-    """Compatibility hook delegating history bounds to session storage."""
+    """Apply the current session-history bound."""
     return truncate_history(history, max_messages=max_messages)
 
 
@@ -78,18 +60,6 @@ def _set_history(ctx: dict[str, Any], history: list[dict[str, Any]]) -> None:
     """同步 Session 与 ctx 的 conversation_history 引用。"""
     ctx["session"].conversation_history = history
     ctx["conversation_history"] = history
-
-
-def _load_history_json_file(path: str) -> list[dict[str, Any]]:
-    """Compatibility hook delegating schema loading to session storage."""
-    limit = int(get_config("memory.max_history_messages", 200))
-    return load_history_json_file(path, max_messages=limit)
-
-
-def _load_history_from_disk(ctx: dict[str, Any]) -> list[dict[str, Any]]:
-    """从磁盘读取 history.json（不修改内存）。"""
-    path = os.path.join(ctx["config"].workspace_path, "history.json")
-    return _load_history_json_file(path)
 
 
 # ============================================================================
@@ -214,15 +184,7 @@ class DefaultSessionManager:
         self._session_locks: dict[str, threading.RLock] = {}
         self._session_lock_users: dict[str, int] = {}
         self._session_locks_meta = threading.Lock()
-        from miniagent.agent.constants import SESSION_CONFIG_CACHE_MAX_SIZE
-
-        self._storage = SessionDiskStorage(
-            _get_workspaces_dir(),
-            config_cache_max=SESSION_CONFIG_CACHE_MAX_SIZE,
-        )
-        self._disk_config_cache: dict[str, _DiskConfigCacheEntry] = self._storage.config_cache
-        self._disk_config_cache_max = SESSION_CONFIG_CACHE_MAX_SIZE
-        self._disk_config_cache_lock = self._storage.config_cache_lock
+        self._storage = SessionStorage(_get_workspaces_dir())
         self._ensure_workspaces_dir()
         self._scan_existing_numbers()
 
@@ -328,14 +290,14 @@ class DefaultSessionManager:
                     _logger.debug("工具已存在，跳过: %s", e)
         return registry, core_count
 
-    def _scan_disk_configs(self) -> list[_DiskSessionConfig]:
-        """Return cached, schema-validated session metadata from disk storage."""
-        return self._storage.scan_configs(cache_max=self._disk_config_cache_max)
+    def _scan_stored_configs(self) -> list[StoredSessionConfig]:
+        """Return current session metadata from SQLite."""
+        return self._storage.scan_configs()
 
     def _scan_existing_numbers(self) -> None:
         """扫描已有会话编号，确定下一个可用编号。"""
         max_num = 0
-        for entry in self._scan_disk_configs():
+        for entry in self._scan_stored_configs():
             if entry.session_number > max_num:
                 max_num = entry.session_number
         self._next_number = max_num + 1
@@ -355,14 +317,14 @@ class DefaultSessionManager:
 
     def _save_config(self, config: SessionConfig) -> None:
         """Persist config through the session storage boundary."""
-        self._storage.save_config(config, cache_max=self._disk_config_cache_max)
+        self._storage.save_config(config)
 
     # -----------------------------------------------------------------------
     # 会话历史持久化（Persistence Layer）
     # -----------------------------------------------------------------------
     #
     # 历史持久化机制：
-    #   每个会话的对话历史保存在工作空间下的 history.json 文件中。
+    #   每个会话的对话历史保存在项目 SQLite 数据库中。
     #   格式：[{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
     #
     # 保存时机：
@@ -374,14 +336,13 @@ class DefaultSessionManager:
     #   - _restore() 中自动加载：当检测到已有工作空间配置时，恢复历史
     #   - load_session_history() 显式加载：桥接模式启动时手动加载
     #
-    # 存储路径：
-    #   state/workspaces/<safe_session_id>/history.json
+    # 存储位置：项目状态数据库的 sessions/messages 表
     # -----------------------------------------------------------------------
 
     def _save_session_history_sync(self, session_id: str) -> None:
-        """在线程工作器中持久化会话历史到磁盘。
+        """在线程工作器中持久化会话历史到 SQLite。
 
-        将内存中的 conversation_history 写入工作空间的 history.json 文件。
+        将内存中的 conversation_history 写入项目状态数据库。
         此方法在每次 agent turn 后调用，确保历史不会因重启丢失。
 
         Args:
@@ -405,9 +366,9 @@ class DefaultSessionManager:
                 _logger.warning("保存会话历史失败 (session=%s): %s", session_id, e)
 
     def load_session_history(self, session_id: str) -> list:
-        """从磁盘加载会话历史
+        """从 SQLite 加载会话历史。
 
-        读取工作空间中的 history.json，返回解析后的消息列表。
+        从项目状态数据库读取并返回消息列表。
         用于桥接模式启动时恢复历史上下文。
 
         Args:
@@ -539,12 +500,9 @@ class DefaultSessionManager:
                 ctx["config"].last_active = datetime.now(timezone.utc).isoformat()
                 return ctx["session"]
 
-            # 检查是否有持久化的工作空间（重启后恢复）
-            safe_id = self._make_safe_id(id)
-            workspace_path = os.path.join(_get_workspaces_dir(), safe_id)
-            config_path = os.path.join(workspace_path, "config.json")
-            if os.path.isfile(config_path):
-                return self._restore(id, workspace_path, options)
+            stored_config = self._storage.get_config(id)
+            if stored_config is not None:
+                return self._restore(stored_config, options)
 
             return self._create(id, options)
 
@@ -602,17 +560,14 @@ class DefaultSessionManager:
         self._evict_oldest_if_needed()
         return ctx, core_count
 
-    def _restore(
-        self, session_id: str, workspace_path: str, options: SessionOptions | None
-    ) -> Session:
-        """从磁盘恢复已有会话（含历史）
+    def _restore(self, config: SessionConfig, options: SessionOptions | None) -> Session:
+        """从 SQLite 恢复已有会话（含历史）。
 
-        当检测到工作空间中已存在 config.json 时调用此方法。
-        典型场景：应用重启后，恢复之前创建的会话。
+        应用重启后从当前数据库契约恢复已有会话。
 
         恢复流程：
-        1. 读取 config.json，重建 SessionConfig
-        2. 加载 history.json（如果存在）
+        1. 读取 sessions 行，重建 SessionConfig
+        2. 按 sequence 加载 messages
         3. 调用 _build_session_ctx 统一构建上下文
 
         Args:
@@ -623,30 +578,10 @@ class DefaultSessionManager:
         Returns:
             恢复后的 Session 对象
         """
-        # 1. 读取配置
-        config_path = os.path.join(workspace_path, "config.json")
-        try:
-            raw = load_state_file("session_config", config_path)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"会话配置 {config_path} JSON 格式无效: {e}") from e
-
-        config = SessionConfig(
-            session_id=raw["session_id"],
-            workspace_path=raw["workspace_path"],
-            files_path=raw["files_path"],
-            skills_path=raw["skills_path"],
-            created_at=raw["created_at"],
-            last_active=datetime.now(timezone.utc).isoformat(),
-            session_number=raw.get("session_number", 0),
-            title=raw.get("title", ""),
-            description=raw.get("description", ""),
-            chat_id=raw.get("chat_id"),
-            sender_id=raw.get("sender_id"),
-        )
-
-        # 2. 加载历史（截断至 max_history_messages，避免大文件拖慢启动）
-        history_path = os.path.join(workspace_path, "history.json")
-        conversation_history = _load_history_json_file(history_path)
+        session_id = config.session_id
+        config.last_active = datetime.now(timezone.utc).isoformat()
+        limit = int(get_config("memory.max_history_messages", 200))
+        conversation_history = self._storage.load_history(config, max_messages=limit)
 
         # 3. 统一构建上下文
         ctx, core_count = self._build_session_ctx(session_id, config, conversation_history)
@@ -740,6 +675,8 @@ class DefaultSessionManager:
             if keep_files:
                 ctx["config"].last_active = datetime.now(timezone.utc).isoformat()
                 self._save_config(ctx["config"])
+            else:
+                self._storage.delete_session(session_id)
             del self._sessions[session_id]
             if self._active_session_id == session_id:
                 self._active_session_id = None
@@ -811,11 +748,9 @@ class DefaultSessionManager:
         ctx = self._sessions.get(session_id)
         if not ctx:
             # 尝试从磁盘恢复
-            safe_id = self._make_safe_id(session_id)
-            workspace_path = os.path.join(_get_workspaces_dir(), safe_id)
-            config_path = os.path.join(workspace_path, "config.json")
-            if os.path.isfile(config_path):
-                self._restore(session_id, workspace_path, None)
+            stored_config = self._storage.get_config(session_id)
+            if stored_config is not None:
+                self._restore(stored_config, None)
                 ctx = self._sessions.get(session_id)
             if not ctx:
                 return False
@@ -846,7 +781,7 @@ class DefaultSessionManager:
         用于在会话未加载到内存时，仍然能通过编号找到它们。
         """
         result = {}
-        for entry in self._scan_disk_configs():
+        for entry in self._scan_stored_configs():
             if entry.session_number > 0 and entry.session_id:
                 result[entry.session_number] = entry.session_id
         return result
@@ -935,7 +870,7 @@ class DefaultSessionManager:
             seen_ids.add(config.session_id)
 
         # 再添加磁盘上存在但内存中没有的会话
-        for entry in self._scan_disk_configs():
+        for entry in self._scan_stored_configs():
             sid = entry.session_id
             if sid in seen_ids:
                 continue
@@ -1137,15 +1072,26 @@ class DefaultSessionManager:
 
 
 def _get_session_lock_owner(workspace_path: str) -> int | None:
-    """获取会话的实例锁 PID（如果有）"""
-    lock_file = os.path.join(workspace_path, ".lock")
-    if os.path.isfile(lock_file):
-        try:
-            with open(lock_file) as f:
-                return int(f.read().strip())
-        except Exception as e:
-            _logger.debug("读取锁文件失败: %s", e)
-    return None
+    """Return the live database-lease owner for a session workspace."""
+    import time
+    from pathlib import Path
+
+    from miniagent.assistant.infrastructure.process_utils import is_process_running
+    from miniagent.assistant.state.sync import open_state_database
+
+    workspace = Path(workspace_path)
+    with open_state_database(workspace.parent.parent) as connection:
+        row = connection.execute(
+            "SELECT owner, expires_at_ms FROM process_leases WHERE resource=?",
+            (f"session:{workspace.name}",),
+        ).fetchone()
+    if row is None or int(row[1]) <= int(time.time() * 1000):
+        return None
+    try:
+        owner = int(row[0])
+    except ValueError:
+        return None
+    return owner if is_process_running(owner) else None
 
 
 __all__ = [

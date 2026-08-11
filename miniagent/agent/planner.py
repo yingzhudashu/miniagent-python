@@ -54,10 +54,10 @@ from miniagent.agent.types.planning import (
 )
 from miniagent.agent.types.tool import Toolbox
 from miniagent.llm.gateway import LLMGateway
-from miniagent.llm.openai_compat import (
+from miniagent.llm.openai_wire import (
     ensure_json_object_user_message,
 )
-from miniagent.llm.openai_compat import (
+from miniagent.llm.openai_wire import (
     json_object_unsupported as _json_object_unsupported,
 )
 from miniagent.llm.recovery import (

@@ -95,12 +95,6 @@ class SampleSpec:
     tags: list[str] = field(default_factory=list)
     priority: int = 1  # 1=高, 2=中, 3=低
 
-    def validate_schema(self) -> list[str]:
-        """校验样本字段（委托 :mod:`miniagent.assistant.testing.validation`）。"""
-        from miniagent.assistant.testing.validation import validate_sample_schema
-
-        return validate_sample_schema(self)
-
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> SampleSpec:
         """从字典创建测试样本（不做校验；加载后由 TestRunner 统一校验）。"""

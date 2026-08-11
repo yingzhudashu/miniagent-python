@@ -2,7 +2,7 @@
 
 包含：
 
-- ``AgentRunResult`` / ``AgentRunOptions``：单次 ``run_agent`` 的输出与运行覆盖项
+- ``AgentRunResult`` / ``AgentRunOptions``：单次 ``AgentRuntime.run`` 的输出与运行覆盖项
 - ``ToolStats``、``ToolMonitorProtocol``：工具耗时与成功率统计（默认实现见
   ``miniagent.agent.monitor``）
 - ``LoopDetection*``：执行器内循环检测配置与结果（检测器见 ``loop_detector``）
@@ -40,7 +40,7 @@ class PipelineStepRecord(TypedDict):
 
 @dataclass
 class AgentRunResult:
-    """Agent 运行结果（``run_agent`` 返回值）
+    """Agent 运行结果（``AgentRuntime.run`` 返回值）
 
     Attributes:
         reply: 最终回复（含可选反思 footer）
@@ -57,10 +57,10 @@ class AgentRunResult:
 
 @dataclass
 class AgentRunOptions:
-    """Agent 运行选项（合并进 ``run_agent`` 的同名参数）
+    """Agent 运行选项（合并进当前 ``AgentRequest``）
 
     优先级（高覆盖低）：
-    1. ``run_agent`` 直接传入的 ``system_prompt`` / ``agent_config``
+    1. ``AgentRequest`` 直接传入的 ``system_prompt`` / ``config``
     2. 本对象中的对应字段（若不为 ``None``）
 
     ``llm_overrides`` 会合并进 ``agent_config["llm_overrides"]``，

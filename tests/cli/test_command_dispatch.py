@@ -21,10 +21,10 @@ from miniagent.assistant.engine.command_dispatch import (
     _REGISTERED_COMMANDS,
     _find_closest_command,
     _find_command_by_prefix,
-    _format_status,
-    _get_last_qa,
     dispatch_command,
 )
+from miniagent.assistant.engine.commands.basic_commands import format_status as _format_status
+from miniagent.assistant.engine.commands.quality_commands import _get_last_qa
 
 # ============================================================================
 # Helper Functions

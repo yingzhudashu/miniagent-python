@@ -9,7 +9,6 @@ from miniagent.assistant.scheduled_tasks.store import (
     load_tasks,
     save_tasks,
     save_tasks_async,
-    tasks_file_path,
 )
 from miniagent.assistant.scheduled_tasks.ticker import start_scheduled_tasks_ticker
 from miniagent.assistant.scheduled_tasks.timezone_util import default_schedule_timezone
@@ -21,7 +20,6 @@ __all__ = [
     "load_tasks",
     "save_tasks",
     "save_tasks_async",
-    "tasks_file_path",
     "start_scheduled_tasks_ticker",
     # cron 验证
     "validate_cron_expr",

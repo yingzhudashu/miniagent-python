@@ -15,13 +15,13 @@ from miniagent.assistant.feishu.docx.blocks import (
     DOCX_APPEND_MAX_CHARS,
     append_markdown_to_document,
     append_plain_text_to_document,
-    batch_update_blocks,
     delete_block,
     get_block,
     list_document_blocks,
     update_block_text,
 )
 from miniagent.assistant.feishu.docx.client import (
+    batch_update_blocks,
     create_document,
     delete_document,
     get_document,

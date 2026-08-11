@@ -1,6 +1,6 @@
 """定时任务领域模型：调度规格、会话绑定与可序列化的任务实体。
 
-与 :mod:`miniagent.assistant.scheduled_tasks.store` 的 JSON 结构一一对应；字段变更需同步迁移读写逻辑。
+与 :mod:`miniagent.assistant.scheduled_tasks.store` 的当前 SQLite 载荷契约一一对应。
 
 用户可见字段语义见 ``docs/USER_GUIDE.md``（定时任务）。"""
 
@@ -69,7 +69,7 @@ class ScheduledTask:
     last_error: str | None = None
 
     def to_json(self) -> dict[str, Any]:
-        """转为可写入 ``tasks.json`` 的纯 dict 结构。"""
+        """转为可写入当前 scheduled_tasks 表的纯 dict 载荷。"""
         return asdict(self)
 
     @staticmethod

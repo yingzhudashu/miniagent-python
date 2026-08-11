@@ -27,7 +27,6 @@ from tests.support.memory import (
     make_knowledge_registry,
     make_memory_runtime,
 )
-from tests.support.scheduling import patch_tick_once_locks
 
 
 def _minimal_ctx() -> ApplicationContainer:
@@ -243,8 +242,6 @@ async def test_tick_once_job_registered_then_shutdown_cancels(
         "miniagent.assistant.scheduled_tasks.ticker.build_scheduled_job",
         _fake_build,
     )
-    patch_tick_once_locks(monkeypatch)
-
     ctx = _minimal_ctx()
     st: CliLoopState = {
         "active_session_id": "default",

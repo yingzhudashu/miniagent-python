@@ -71,7 +71,7 @@ def get_default_agent_config() -> AgentConfig:
     - ``response_format`` = ``"markdown"``
     - ``log_file`` = ``None``
 
-    运行时覆盖请使用 ``merge_agent_config()`` 或 ``run_agent(options.agent_config)``。
+    回合级覆盖由 ``AgentRequest.config`` 传入。
     """
     agent_section = get_config_section("agent")
     loop_detection = dict(agent_section.get("loop_detection", {}))

@@ -33,7 +33,7 @@ import json
 import threading
 from typing import Any
 
-import aiohttp
+import httpx
 
 from miniagent.agent.logging import get_logger
 from miniagent.agent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX
@@ -48,17 +48,17 @@ DEFAULT_BASE_URL = "https://robotclaw.site"
 DEFAULT_MAX_SIZE = 2 * 1024 * 1024  # 2MB
 DEFAULT_TIMEOUT = 30  # 秒
 
-_http_sessions: dict[asyncio.AbstractEventLoop, aiohttp.ClientSession] = {}
+_http_sessions: dict[asyncio.AbstractEventLoop, httpx.AsyncClient] = {}
 _http_sessions_lock = threading.Lock()
 
 
-def _get_http_session() -> aiohttp.ClientSession:
+def _get_http_session() -> httpx.AsyncClient:
     """Return a reusable connection pool owned by the current event loop."""
     loop = asyncio.get_running_loop()
     with _http_sessions_lock:
         session = _http_sessions.get(loop)
         if session is None or session.closed:
-            session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT))
+            session = httpx.AsyncClient(timeout=DEFAULT_TIMEOUT)
             _http_sessions[loop] = session
         return session
 
@@ -150,41 +150,41 @@ async def _upload_html_handler(args: dict[str, Any], ctx: ToolContext) -> ToolRe
     # 发送请求
     try:
         session = _get_http_session()
-        async with session.post(url, headers=headers, json=payload) as response:
-            result = await response.json()
+        response = await session.post(url, headers=headers, json=payload)
+        result = response.json()
 
-            if response.status == 201 and result.get("success"):
-                full_url = f"{base_url}{result['url']}"
-                meta = {
-                    "id": result.get("id"),
-                    "filename": result.get("filename"),
-                    "url": result.get("url"),
-                    "full_url": full_url,
-                }
-                return ToolResult(
-                    success=True,
-                    content=f"{SUCCESS_PREFIX} HTML 已上传\n访问地址: {full_url}",
-                    meta=meta,
-                )
-
-            # 处理错误
-            error_code = result.get("error_code", "UNKNOWN")
-            error_msg = result.get("error", "未知错误")
-
-            error_messages = {
-                "INVALID_API_KEY": "API Key 无效",
-                "MISSING_HTML": "缺少 html 字段",
-                "SIZE_EXCEEDED": "HTML 超过 2MB 限制",
-                "SANITIZATION_FAILED": "HTML 包含危险内容（script、iframe、事件处理器等）",
-                "SAVE_FAILED": "文件保存失败",
+        if response.status_code == 201 and result.get("success"):
+            full_url = f"{base_url}{result['url']}"
+            meta = {
+                "id": result.get("id"),
+                "filename": result.get("filename"),
+                "url": result.get("url"),
+                "full_url": full_url,
             }
-
-            friendly_msg = error_messages.get(error_code, error_msg)
             return ToolResult(
-                success=False, content=f"{ERROR_PREFIX} 上传失败: {friendly_msg} ({error_code})"
+                success=True,
+                content=f"{SUCCESS_PREFIX} HTML 已上传\n访问地址: {full_url}",
+                meta=meta,
             )
 
-    except aiohttp.ClientError as e:
+        # 处理错误
+        error_code = result.get("error_code", "UNKNOWN")
+        error_msg = result.get("error", "未知错误")
+
+        error_messages = {
+            "INVALID_API_KEY": "API Key 无效",
+            "MISSING_HTML": "缺少 html 字段",
+            "SIZE_EXCEEDED": "HTML 超过 2MB 限制",
+            "SANITIZATION_FAILED": "HTML 包含危险内容（script、iframe、事件处理器等）",
+            "SAVE_FAILED": "文件保存失败",
+        }
+
+        friendly_msg = error_messages.get(error_code, error_msg)
+        return ToolResult(
+            success=False, content=f"{ERROR_PREFIX} 上传失败: {friendly_msg} ({error_code})"
+        )
+
+    except httpx.HTTPError as e:
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 网络请求失败: {e}")
     except json.JSONDecodeError as e:
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 响应解析失败: {e}")
@@ -218,34 +218,34 @@ async def _list_html_files_handler(args: dict[str, Any], ctx: ToolContext) -> To
 
     try:
         session = _get_http_session()
-        async with session.get(url, headers=headers) as response:
-            result = await response.json()
+        response = await session.get(url, headers=headers)
+        result = response.json()
 
-            if response.status == 200:
-                files = result.get("files", [])
-                count = result.get("count", 0)
+        if response.status_code == 200:
+            files = result.get("files", [])
+            count = result.get("count", 0)
 
-                if count == 0:
-                    return ToolResult(
-                        success=True,
-                        content=f"{SUCCESS_PREFIX} 无已上传的 HTML 文件",
-                        meta={"files": [], "count": 0},
-                    )
-
-                # 格式化文件列表
-                lines = [f"{SUCCESS_PREFIX} 已上传 {count} 个 HTML 文件:\n"]
-                for f in files:
-                    full_url = f"{base_url}{f['url']}"
-                    lines.append(f"  - {f['filename']} -> {full_url}")
-
+            if count == 0:
                 return ToolResult(
-                    success=True, content="\n".join(lines), meta={"files": files, "count": count}
+                    success=True,
+                    content=f"{SUCCESS_PREFIX} 无已上传的 HTML 文件",
+                    meta={"files": [], "count": 0},
                 )
 
-            error_msg = result.get("error", "未知错误")
-            return ToolResult(success=False, content=f"{ERROR_PREFIX} 获取列表失败: {error_msg}")
+            # 格式化文件列表
+            lines = [f"{SUCCESS_PREFIX} 已上传 {count} 个 HTML 文件:\n"]
+            for f in files:
+                full_url = f"{base_url}{f['url']}"
+                lines.append(f"  - {f['filename']} -> {full_url}")
 
-    except aiohttp.ClientError as e:
+            return ToolResult(
+                success=True, content="\n".join(lines), meta={"files": files, "count": count}
+            )
+
+        error_msg = result.get("error", "未知错误")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 获取列表失败: {error_msg}")
+
+    except httpx.HTTPError as e:
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 网络请求失败: {e}")
     except Exception as e:
         _logger.exception("list_html_files 异常")
@@ -285,30 +285,30 @@ async def _cleanup_html_files_handler(args: dict[str, Any], ctx: ToolContext) ->
 
     try:
         session = _get_http_session()
-        async with session.post(url, headers=headers, json=payload) as response:
-            result = await response.json()
+        response = await session.post(url, headers=headers, json=payload)
+        result = response.json()
 
-            if response.status == 200 and result.get("success"):
-                deleted_count = result.get("deleted_count", 0)
-                deleted_files = result.get("deleted_files", [])
+        if response.status_code == 200 and result.get("success"):
+            deleted_count = result.get("deleted_count", 0)
+            deleted_files = result.get("deleted_files", [])
 
-                if deleted_count == 0:
-                    return ToolResult(
-                        success=True,
-                        content=f"{SUCCESS_PREFIX} 无需清理，没有超过 {days} 天的文件",
-                        meta={"deleted_count": 0, "deleted_files": []},
-                    )
-
+            if deleted_count == 0:
                 return ToolResult(
                     success=True,
-                    content=f"{SUCCESS_PREFIX} 已清理 {deleted_count} 个过期文件（超过 {days} 天）",
-                    meta={"deleted_count": deleted_count, "deleted_files": deleted_files},
+                    content=f"{SUCCESS_PREFIX} 无需清理，没有超过 {days} 天的文件",
+                    meta={"deleted_count": 0, "deleted_files": []},
                 )
 
-            error_msg = result.get("error", "未知错误")
-            return ToolResult(success=False, content=f"{ERROR_PREFIX} 清理失败: {error_msg}")
+            return ToolResult(
+                success=True,
+                content=f"{SUCCESS_PREFIX} 已清理 {deleted_count} 个过期文件（超过 {days} 天）",
+                meta={"deleted_count": deleted_count, "deleted_files": deleted_files},
+            )
 
-    except aiohttp.ClientError as e:
+        error_msg = result.get("error", "未知错误")
+        return ToolResult(success=False, content=f"{ERROR_PREFIX} 清理失败: {error_msg}")
+
+    except httpx.HTTPError as e:
         return ToolResult(success=False, content=f"{ERROR_PREFIX} 网络请求失败: {e}")
     except Exception as e:
         _logger.exception("cleanup_html_files 异常")

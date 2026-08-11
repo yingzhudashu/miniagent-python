@@ -66,9 +66,9 @@ async def test_run_agent_with_thinking_requires_session_manager() -> None:
 @pytest.mark.asyncio
 async def test_run_agent_forwards_client_to_execute_plan(tmp_path) -> None:
     """run_agent 传入的 client 应传入 execute_plan（空 toolboxes 走默认计划，不调用规划 LLM）。"""
-    from miniagent.agent.agent import run_agent
     from miniagent.agent.monitor import DefaultToolMonitor
     from miniagent.agent.tools.registry import DefaultToolRegistry
+    from tests.support.agent_runtime import run_agent
     from tests.support.config import install_test_config
 
     install_test_config(tmp_path, {"features": {"reflection": False}})

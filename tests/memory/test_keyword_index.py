@@ -214,8 +214,7 @@ class TestKeywordIndex:
             )
             idx1.index_entry("session-1", entry)
             idx1.save()
-            index_text = Path(tmpdir, "keyword-index.json").read_text(encoding="utf-8")
-            assert "\n  " not in index_text
+            assert not (Path(tmpdir) / "keyword-index.json").exists()
 
             # 加载新索引
             idx2 = KeywordIndex(state_dir=tmpdir)

@@ -1,4 +1,4 @@
-"""Behavioral contracts for the V4 four-module runtime architecture."""
+"""Behavioral contracts for the current four-module runtime architecture."""
 
 from __future__ import annotations
 
@@ -463,25 +463,24 @@ async def test_assistant_spec_routes_ui_without_channel_logic_in_agent() -> None
             runtime_spec(runner), FakeLLM()  # type: ignore[arg-type]
         ),
         surface_factories=(SurfaceFactory(rendered, instances),),
-        state_dir="isolated",
     )
     application = create_assistant(spec)
     target = UITarget("test", "conversation")
     with pytest.raises(RuntimeError, match="not accepting"):
-        await application.container.dispatch(
+        await application.dispatch(
             UIInput(UIInputKind.MESSAGE, target, "too early", session_id="session")
         )
     await application.start()
     assert instances
     with pytest.raises(RuntimeError, match="command handler"):
-        await application.container.dispatch(
+        await application.dispatch(
             UIInput(UIInputKind.COMMAND, target, "/help", session_id="session")
         )
     with pytest.raises(RuntimeError, match="confirmation handler"):
-        await application.container.dispatch(
+        await application.dispatch(
             UIInput(UIInputKind.CONFIRMATION, target, "confirm", session_id="session")
         )
-    run_id = await application.container.dispatch(
+    run_id = await application.dispatch(
         UIInput(
             UIInputKind.MESSAGE,
             target,
@@ -559,7 +558,7 @@ async def test_composed_runtime_keeps_run_targets_and_cancels_oldest_session_run
         )
     )
     await application.start()
-    first = await application.container.dispatch(
+    first = await application.dispatch(
         UIInput(
             UIInputKind.MESSAGE,
             UITarget("one", "conversation-1"),
@@ -568,7 +567,7 @@ async def test_composed_runtime_keeps_run_targets_and_cancels_oldest_session_run
         )
     )
     await first_entered.wait()
-    second = await application.container.dispatch(
+    second = await application.dispatch(
         UIInput(
             UIInputKind.MESSAGE,
             UITarget("two", "conversation-2"),
@@ -577,7 +576,7 @@ async def test_composed_runtime_keeps_run_targets_and_cancels_oldest_session_run
         )
     )
 
-    cancelled = await application.container.dispatch(
+    cancelled = await application.dispatch(
         UIInput(
             UIInputKind.CANCEL,
             UITarget("two", "conversation-2"),

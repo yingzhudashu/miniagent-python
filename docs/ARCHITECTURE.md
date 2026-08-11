@@ -1,7 +1,7 @@
 # 系统架构
 
 > 架构概览见 [README.md §架构概览](../README.md#架构概览)。本文档为各层深读。  
-> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-19 | 与 `miniagent.__version__` 对齐
+> Mini Agent Python | 版本: 5.0.0 | 最后更新: 2026-08-10 | 与 `miniagent.__version__` 对齐
 
 ## 4.0 四模块边界
 
@@ -14,14 +14,14 @@ assistant → agent / llm
 
 允许依赖矩阵为：`llm → llm`、`agent → agent/llm`、`ui → ui/agent`、`assistant → assistant/ui/agent/llm`。`scripts/check_architecture.py` 对普通导入、函数局部导入、相对导入和 `TYPE_CHECKING` 导入执行同一规则。
 
-### V4 稳定入口
+### 5.0 稳定入口
 
 - `LLMGateway` 与 `EmbeddingClient`：模型生成和向量生成；不感知 Agent、UI 或实例。
 - `AgentRuntime(AgentSpec, llm, extensions)`：`initialize/start/run/cancel/health/stop`，并发布
   带 `run_id/session_id/trace_id/sequence` 的不可变 `AgentEvent`。
 - `UISurface`：`inputs()` 产生 `UIInput`，`render()` 消费 `AgentEvent`。
 - `AssistantSpec` / `create_assistant()`：通过 `ComposedAssistantRuntime` 构造使用 `UISurface` 的嵌入式隔离实例。
-- `PersonalAssistantSpec` / `create_personal_assistant()`：通过 `container_factory` 构造默认产品的进程级 `ApplicationContainer`；CLI/TUI/飞书使用 `InboundMessage` / `OutboundEvent` 通道链。
+- `create_personal_assistant()`：构造默认产品的 `PersonalAssistantApplication` 与进程级 `ApplicationContainer`；CLI/TUI/飞书使用 `InboundMessage` / `OutboundEvent` 通道链。
 
 两种组合模式都调用对象化 `AgentRuntime`。`AgentRuntime.max_parallel_sessions` 只约束该 runtime 实例；默认产品的进程级并发由 `SessionExecCoordinator` 和后台任务管理器按同名配置实施。
 
@@ -82,15 +82,15 @@ Mini Agent Python 的 **Agent 问答流水线**为 Phase 0 分类 → Phase 0.5 
 ### 配置（JSON 格式）
 
 - **配置层级**：`miniagent/assistant/resources/config.defaults.json`（随 wheel 发布）→ `config.user.json`（用户覆盖）。用户配置项**不支持** `MINIAGENT_*` 覆盖 defaults；运维/调试类 env 见 [ENGINEERING.md](ENGINEERING.md) §1.2。
-- **敏感凭据**：API 密钥等放在 `config.user.json` 的 `secrets` 部分，由 [`env_loader.py`](../miniagent/assistant/infrastructure/env_loader.py) 桥接到 `OPENAI_API_KEY` 等 SDK 环境变量（非用户配置入口）。
+- **敏感凭据**：API 密钥等放在 `config.user.json` 的 `secrets` 部分，由 [`bootstrap/configuration.py`](../miniagent/assistant/bootstrap/configuration.py) 桥接到 SDK 环境变量（非用户配置入口）。
 - **配置加载**：[`JsonConfigLoader`](../miniagent/assistant/infrastructure/json_config.py) 统一管理；[`get_config`](../miniagent/assistant/infrastructure/json_config.py) 支持点路径访问。Internal 常量见 [`agent/constants.py`](../miniagent/agent/constants.py)。
 - **模型传输**：`llm.models.<profile>.api` 显式选择 Chat、Responses、Anthropic 或 Google 协议，`llm.roles` 完成分类、规划、执行和视觉路由。统一 Gateway 将它们归一化为文本、工具调用、usage、结束状态与流事件。
 - **Responses 控制链恢复**：分类器、`llm_json` 与规划器共享状态、空响应和错误分类。第二次请求保持 reasoning 并移除采样参数；第三次分类/澄清/反思使用 low，规划使用 medium。只有 `incomplete_reason` 明确表示输出 token 耗尽时才扩大预算；确定性鉴权/模型错误不重试。分类最终降级、`llm_json` 最终异常和 planner fallback 的公开语义不变。
 - **Responses 执行恢复**：执行器首次流式请求保持原参数；只有在尚未产生任何文本或工具调用时，才对网关泛化 400、429、5xx 或 completed-empty 做最多两次恢复。恢复请求移除采样参数，最后一次使用 medium；出现部分文本或工具调用后禁止自动重试，避免重复展示或重复动作。统一 transport 同时兼容仅发送 `response.output_text.done`、不发送 delta 的网关流。
 - **默认产品嵌入**：可调用 [`create_application_container`](../miniagent/assistant/bootstrap/entrypoint.py) 构造依赖，再 `await run_runtime(container)`；调用前须加载 secrets。自定义 surface 应用则使用 `create_assistant(AssistantSpec(...))`。
-- **任务难度预分类与规划可见输出**：Internal 常量 `EXECUTION_TASK_CLASSIFIER_ENABLED`（默认开启）；关闭则始终走完整规划。当 Internal 常量 `EXECUTION_ANNOUNCE_DIFFICULTY` 为真且存在 `on_thinking` 时，[`run_agent`](../miniagent/agent/agent.py) 将「评估中 → 难度结论 → 执行计划」合并为**同一条**流式思考，统一 header 为 **`[评估与计划]`**；展示为精简 Markdown，完整难度/计划正文经可选关键字参数 **`full_record`** 由 [`AssistantTurnService`](../miniagent/assistant/engine/turn_service.py) 写入会话 `thinking` 历史。飞书侧由 `ThinkingDisplay` + `push_feishu_thinking_stream` PATCH 同一张交互卡；进入执行阶段时若 header 切换，则 **`finalize_only`** 收尾当前卡再开新段（见 [`thinking.py`](../miniagent/assistant/engine/thinking.py) / `AssistantTurnService._feishu_send`）。`EXECUTION_ANNOUNCE_DIFFICULTY=false`（Internal，见 `constants.py`）可关闭上述规划段推送。
+- **任务难度预分类与规划可见输出**：Internal 常量 `EXECUTION_TASK_CLASSIFIER_ENABLED`（默认开启）；关闭则始终走完整规划。当 `EXECUTION_ANNOUNCE_DIFFICULTY` 为真且存在 `on_thinking` 时，`AgentRuntime.run(AgentRequest(...))` 将「评估中 → 难度结论 → 执行计划」合并为同一条流式思考；`AssistantTurnService` 将完整记录写入会话历史。
 - **分步执行**：Internal 常量 `PHASED_EXECUTION`（默认开启）、`STEP_MAX_TURNS`（默认 **48**）、`AGENT_MAX_TURNS`（默认 **400**，用户可在 `agent.max_turns` 覆盖）。若最后一步在单步子轮次内未以无工具回复结束，且全局轮数仍有余量，执行器会先追加一轮不传 tools 的收尾 synthesis；若全局轮数也已用尽或收尾仍异常，则返回**专用说明**。执行阶段 `on_thinking` 的合并 header 为 **`[执行]`**（单循环）或 **`[步骤 i/n]` + 描述摘要**（分步）。
-- **Phase 3 反思评估**：`features.reflection` 默认开启；设为 `false` 可关闭。执行完成后，[`run_agent`](../miniagent/agent/agent.py) 调用 [`reflect_on_result`](../miniagent/agent/problem_solver.py) 对回复做自我反驳式审查。`on_thinking=None` 确保反思过程不产生额外的思考步骤。
+- **Phase 3 反思评估**：`features.reflection` 默认开启；设为 `false` 可关闭。Agent 回合执行完成后调用 [`reflect_on_result`](../miniagent/agent/problem_solver.py) 对回复做自我反驳式审查。
 - **思考深度与供应商**：[`resolve_exec_completion_kwargs`](../miniagent/agent/llm_params.py) / [`resolve_planner_completion_kwargs`](../miniagent/agent/llm_params.py) 合并所选 `llm.models.<profile>.defaults` 与回合级覆盖；模型 profile 将 `compatibility.thinking_adapter` 设为 `qwen` 时，由 [`LLMGateway`](../miniagent/llm/gateway.py) 注入 `enable_thinking` / `thinking_budget`。`defaults.max_tokens` 是请求默认值，`max_output_tokens` 是 profile 输出硬上限。
 
 ## 四模块内部能力说明
@@ -100,10 +100,10 @@ Mini Agent Python 的 **Agent 问答流水线**为 Phase 0 分类 → Phase 0.5 
 | 文件 | 职责 |
 |------|------|
 | `__main__.py` | 仅委托 `assistant.run_assistant()` |
-| `assistant/runner.py` | 解析 CLI 参数、配置迁移、实例停止与诊断命令 |
+| `assistant/runner.py` | 唯一 CLI 启动流程、参数解析、实例停止与诊断命令 |
 | `assistant/bootstrap/entrypoint.py` | 构造唯一 `ApplicationContainer` |
 | `assistant/bootstrap/runtime_services.py` | 装配 config watcher、飞书、ticker、skills watcher 生命周期图 |
-| `assistant/app.py` | `AssistantApplication`、应用工厂与统一公开入口 |
+| `assistant/app.py` | `PersonalAssistantApplication` 与应用工厂 |
 | `llm/factory.py` | 从显式配置、凭据和缓存路径构造 `LLMGateway` |
 
 ### 2. 引擎层 (Engine)
@@ -155,7 +155,7 @@ BackgroundTaskManager
 asyncio.create_task(_execute_task(message))
        │
        ├─ 子 session 独立运行 Agent
-       ├─ 不写入主 session history.json
+       ├─ 不写入主 session 消息流
        │
        ↓
 TaskStatus 状态追踪
@@ -206,7 +206,7 @@ Agent 的大脑，采用 **多阶段架构**（Phase 0.5 需求澄清 → Phase 
 
 | 文件 | 职责 |
 |------|------|
-| `agent.py` | 唯一多阶段回合实现；`Agent.run()` 与兼容 `run_agent()` 均归一到同一冻结上下文后执行 Clarify→Plan→Execute→Reflect |
+| `agent.py` | 唯一多阶段回合实现；由 `AgentRuntime.run()` 进入冻结回合上下文并执行 Clarify→Plan→Execute→Reflect |
 | `requirement_clarifier.py` | Phase 0.5 需求澄清器：三步法（Wittgenstein→Socrates→Polanyi）将模糊输入转化为结构化需求 |
 | `planner.py` | Phase 1 规划器：LLM 分析需求 → 生成 `StructuredPlan` → 本地最小路径 normalization → 选择工具箱 → 估算 tokens |
 | `executor.py` | Phase 2 执行器：ReAct 循环；在 `plan.steps` 非空且 Internal 常量 `PHASED_EXECUTION` 开启时按步骤分子循环，每步单独解析 `thinking_level`/`thinking_budget` |
@@ -364,7 +364,7 @@ ClarifiedRequirement（澄清后的需求规格）
 |------|------|
 | `manager.py` | `SessionManager`：创建/切换/重命名/列出会话，拥有会话锁、LRU、工具与技能隔离 |
 | `storage.py` | 私有 `SessionDiskStorage`：配置扫描缓存、原子配置写入、历史 schema 校验与磁盘列表；不改变既有文件格式 |
-| `workspace.py` | 工作空间管理：会话目录结构、config.json、history.json |
+| `workspace.py` | 工作空间文件目录管理；会话元数据与消息由 SQLite 保存 |
 
 ### 7. 技能层 (Skills)
 
@@ -403,7 +403,7 @@ LLM 可通过 function calling 调用的工具：
 | `feishu_bitable_tools.py` | 飞书多维表格操作（get_meta/list_fields/list_records/create_record 等） |
 | `feishu_card_tools.py` | 飞书卡片消息更新（update_message_card） |
 
-**run_dot_command 与进程状态**：[`AssistantTurnService.run_agent_with_thinking`](../miniagent/assistant/engine/turn_service.py) 将共享 [`CliLoopState`](../miniagent/assistant/engine/cli_state.py) 写入 `AgentConfig.feishu_config.cli_loop_state`，[`execute_plan`](../miniagent/agent/executor.py) 再注入 `ToolContext`。飞书入站路径下默认 `cli_dispatch_allow_mutations=False`（与飞书里直接发 `/session` / `/schedule` 变异一致）；**`feishu.dot_commands_full=true`** 时为 True，与 CLI 同等。若嵌入代码只调用 [`run_agent`](../miniagent/agent/agent.py) 而不经 `run_agent_with_thinking`，需在 `agent_config.feishu_config` 中自行传入 `cli_loop_state`（及按需的 `cli_dispatch_allow_mutations`），否则工具会返回不可用说明。注册开关：**`cli.dot_tools_enabled`**（默认开启，`false` 跳过注册，见包内 defaults）。
+**run_dot_command 与进程状态**：[`AssistantTurnService.run_agent_with_thinking`](../miniagent/assistant/engine/turn_service.py) 将共享 [`CliLoopState`](../miniagent/assistant/engine/cli_state.py) 写入 `AgentConfig.feishu_config.cli_loop_state`，[`execute_plan`](../miniagent/agent/executor.py) 再注入 `ToolContext`。飞书入站路径默认禁止远程变异命令；`feishu.dot_commands_full=true` 时与 CLI 同等。嵌入式调用方通过 `AgentRequest.config` 明确提供所需状态。
 
 ### 8b. MCP（可选）
 
@@ -439,8 +439,8 @@ LLM 可通过 function calling 调用的工具：
 | `message_queue.py` | 消息队列：按 chat_id 隔离、queue/preemptive 双模式、耗时追踪 |
 | `channel_router.py` | CLI / 飞书私聊 / 群聊 → `session_key` 与绑定关系 |
 | `instance.py` | 多实例注册表：自增 ID、心跳（观测）、PID 僵尸目录清理（非心跳超时） |
-| `feishu_inbound_lock.py` | 飞书 WebSocket 入站跨进程独占（磁盘锁） |
-| `env_loader.py` | 加载 `config.user.json` 的 `secrets` 部分到环境变量 |
+| `feishu_inbound_lock.py` | 飞书 WebSocket 入站跨进程独占（SQLite lease） |
+| `bootstrap/configuration.py` | 发布配置并将 `secrets` 桥接到 SDK 环境变量 |
 | `json_config.py` | JSON 配置加载器：包内 defaults → `config.user.json` 两层合并、点路径访问 |
 | `env_parse.py` | `env_flag` / `env_flag_strict` 环境变量解析 |
 | `agent/timezone.py` | `process_timezone()`（`timezone.default` / `TZ`） |
@@ -482,7 +482,7 @@ LLM 可通过 function calling 调用的工具：
     → build_cli_inbound_message() → InboundMessage(channel="cli")
     → InboundTurnCoordinator → message_queue.dispatch("__cli__", ...)
     → _process_input(InboundMessage) → engine.run_agent_with_thinking()
-    → Agent.run(AgentRequest) → 统一回合上下文 → planner → executor (ReAct)
+    → AgentRuntime.run(AgentRequest) → 统一回合上下文 → planner → executor (ReAct)
     → 工具调用 → LLM 最终回复 → OutboundEvent(channel="cli")
     → ChannelRegistry → CliChannelAdapter → TUI/fallback 渲染器
 ```
@@ -506,14 +506,14 @@ CLI 入站、飞书文本/媒体和定时任务均在边界构造标准 `Inbound
     → file/image/post: media_handler() → 资源下载 → 会话 files/feishu_incoming/
         → channel_router.resolve_feishu_message(chat_id, sender_id, chat_type)
         → InboundMessage + Attachment（启用 media.run_agent 时）
-        → Agent.run(AgentRequest) → 统一回合上下文 → planner → executor (ReAct)
+        → AgentRuntime.run(AgentRequest) → 统一回合上下文 → planner → executor (ReAct)
         → 工具调用 → LLM 普通文本回复 → OutboundEvent(FINAL)
         → ChannelRegistry → FeishuChannelAdapter → 原飞书卡片/text fallback 发送器
 ```
 
 飞书标准化刻意位于 `poll_server` 的去重、debounce 与 `MessageQueueManager` 之后，避免二次排队或改变 claim 的完成/释放语义。`message_id` 同时作为标准事件 identity、idempotency key 与 trace id；root/parent/thread 及原始 create time 保留在契约字段或不可变 metadata 中。媒体附件还保留 file key、资源类型、MIME、大小、绝对落盘路径和相对会话路径。命令/异常事件若发送成功则 handler 返回空串，避免 poll_server 重复回复；若适配器失败则返回原正文，继续使用既有回退。
 
-`FeishuRuntime` 在同进程内对 `start_feishu_poll_server` 做**退避重连**；`feishu_inbound_owner` 锁在重连期间仍由该实例持有。连接成功后由 `miniagent/assistant/feishu/ws_health.py` 的**会话监督**（收包 task、看门狗、可选定期刷新）替代裸阻塞；断线或收包循环结束会在数秒内结束当前会话并触发外层重建，详见 `docs/FEISHU.md`「Windows / 长连接」。
+`FeishuRuntime` 在同进程内对 `start_feishu_poll_server` 做**退避重连**；`process_leases` 中的 `feishu:inbound` lease 在重连期间仍由该实例续期持有。连接成功后由 `miniagent/assistant/feishu/ws_health.py` 的**会话监督**（收包 task、看门狗、可选定期刷新）替代裸阻塞；断线或收包循环结束会在数秒内结束当前会话并触发外层重建，详见 `docs/FEISHU.md`「Windows / 长连接」。
 
 **通道绑定影响**：飞书私聊消息通过 `resolve_feishu_message()` 解析：
 - 若 `feishu_p2p:<sender_id>` 已绑定，则使用绑定的 session_key
@@ -539,16 +539,16 @@ commands/* 领域处理器
 
 ### 持久化与路径
 
-- **文件**：`{paths.state_dir}/scheduled_tasks/tasks.json`。读写见 [`miniagent/assistant/scheduled_tasks/store.py`](../miniagent/assistant/scheduled_tasks/store.py)。
+- **存储**：项目 `state.sqlite3` 的 `scheduled_tasks` 表。读写见 [`miniagent/assistant/scheduled_tasks/store.py`](../miniagent/assistant/scheduled_tasks/store.py)。
 - **Git**：该目录为运行时状态，应在 `.gitignore` 中排除（与 [ENGINEERING.md](ENGINEERING.md) §3.1 一致）。
 
 ### 运行时链路
 
 1. **启动**：[`runtime_services.py`](../miniagent/assistant/bootstrap/runtime_services.py) 将 [`start_scheduled_tasks_ticker`](../miniagent/assistant/scheduled_tasks/ticker.py) 包装为 `AsyncTaskLifecycleService`；task 与 stop event 仅由 service 持有。
-2. **Ticker**：[`tick_once`](../miniagent/assistant/scheduled_tasks/ticker.py) 在取得 `scheduler.lock` 后 `load_tasks()`，经 `repair_invalid_schedules` 补齐/校验 cron；对到期任务先取 `job_<id>.lock` 再投递协程；同进程 `_inflight` 防重入；每 tick 最多 `_MAX_DUE_PER_TICK` 条。
+2. **Ticker**：[`tick_once`](../miniagent/assistant/scheduled_tasks/ticker.py) 在事务中 claim 到期任务；多个进程竞争时只有一个 winner，过期 claim 可被接管；同进程 `_inflight` 防重入。
 3. **Runner**：[`build_scheduled_job`](../miniagent/assistant/scheduled_tasks/runner.py) 经 [`resolve_execution_target`](../miniagent/assistant/scheduled_tasks/resolve.py) 与 [`resolve_feishu_delivery`](../miniagent/assistant/scheduled_tasks/feishu_delivery.py) 解析 `session_key`、队列键和飞书目标，构造 `InboundMessage(channel="scheduler")`；ticker 通过 `InboundTurnCoordinator(wait=True)` 投递，飞书结果只经注册的 `FeishuChannelAdapter` 发送。
 4. **用户入口**：终端与 CLI 侧 **`/schedule`** 子命令（`every` / `once` / **`cron`** 五段表达式，实现见 [`schedule_commands.py`](../miniagent/assistant/engine/commands/schedule_commands.py)）；Agent 可选 **`manage_scheduled_task`**（含 `add_cron`，[`schedule_tools.py`](../miniagent/assistant/tools/schedule_tools.py)）；下一触发时间由 [`cron.py`](../miniagent/assistant/scheduled_tasks/cron.py) + **croniter** 计算。
-5. **并发**：`scheduler.lock`（tick）+ `job_<id>.lock`（执行）+ `tasks.json.lock`（读写）；dispatch 失败时 `next_run_at` 默认退避 60s，可由 **`scheduled_tasks.dispatch_backoff`** 覆盖（见 [`store.py`](../miniagent/assistant/scheduled_tasks/store.py) 与包内 defaults）。
+5. **并发**：任务定义、执行状态、下次触发时间和 claim 所有权在同一数据库事务内更新；dispatch 失败时 `next_run_at` 默认退避 60s。
 
 ### 配置项（JSON）
 
@@ -634,9 +634,9 @@ flowchart LR
 
 6. **SessionManager / 记忆写锁**：进程内 per-session 锁保护 history RMW 与 `DefaultMemoryStore` 写入。
 
-7. **跨实例会话锁**：每个会话工作空间 `.lock` 文件（PID）防止多实例抢同一 session。
+7. **跨实例会话锁**：项目 `state.sqlite3` 的 `process_leases` 表按 `session:<id>` 资源名防止多实例抢同一 session，并通过过期时间与 generation 支持安全接管。
 
-8. **飞书私聊与 CLI 同会话**：首条私聊自动 `bind` 到 `active_session_id`；飞书 WebSocket 入站由 `feishu_inbound_owner.json` 做跨进程独占。
+8. **飞书私聊与 CLI 同会话**：首条私聊自动 `bind` 到 `active_session_id`；飞书 WebSocket 入站由 `process_leases` 中的 `feishu:inbound` 资源做跨进程独占。
 
 9. **回退**：`agent.parallel_sessions: false` 恢复全局串行（`MessageQueueManager.exec_lock` + 单全局 Lock），协调器退化为直写。
 
@@ -648,9 +648,9 @@ flowchart LR
 
 `miniagent/assistant/engine/command_registry.py` 中的 `CommandSpec` 是命令名称、别名、参数、权限、渠道限制、帮助文本和处理器的唯一事实来源。`command_dispatch.py` 只负责解析、授权、调用和统一错误映射；CLI 帮助、飞书命令策略和文档清单由注册表校验。
 
-### 状态 schema 与人工迁移
+### 状态 schema
 
-持久化 JSON 通过 `miniagent/assistant/infrastructure/persistence.py` 和 `state_schemas.py` 读写。每个文件必须包含当前精确的 `schema_version`；缺失、旧版、未来版本或非对象根均直接报错，运行时不会备份、改写或自动迁移原文件。旧版本数据应先复制备份，再按 [MIGRATION.md](MIGRATION.md) 在独立状态目录中人工迁移。
+项目运行状态固定保存到 `{project_state_dir}/state.sqlite3`，全局实例注册固定保存到 `{registry_state_dir}/registry.sqlite3`。空库创建 schema 5；非空数据库必须精确为 `PRAGMA user_version=5` 且表结构完整，否则启动立即失败。系统不探测、不导入、不修补任何旧 JSON 或旧数据库。
 
 `bootstrap.entrypoint` 加载 secrets 后构造唯一 `ApplicationContainer`，随后执行 `run_runtime(container)`。容器集中持有工具、引擎、路由、队列、出站注册表、生命周期 manager、飞书、记忆与 LLM 客户端；所有业务路径显式接收容器或所需依赖，不存在进程级 context locator。`runtime_services.build_runtime_lifecycle_manager()` 按 config watcher→Feishu→ticker→skills watcher 启动，并严格逆序关停。`FeishuRuntimeLifecycleService` 只编排既有 runtime API；退避重连、入站 owner lock 与 SDK 客户端均由 `FeishuRuntime` 自身负责并在 task `finally` 释放。`FeishuPollState` 同时持有消息去重、防抖、卡片动作去重、WebSocket 健康观测和确认路由依赖，不跨运行时共享业务状态。
 
@@ -672,8 +672,6 @@ flowchart LR
 
 记忆对象图只由入口调用 `miniagent.assistant.memory.runtime.create_memory_runtime()` 构造，并由 `ApplicationContainer.memory` 持有。知识库注册表同样只由入口构造并显式注入。`ApplicationContainer.llm_gateway` 是当前 LLM 连接池的唯一所有者；planner、classifier、clarifier、executor、reflector、后台任务和 vision tool 均接收同一轮快照。工具并发限制由 Assistant 持有并注入 Agent，trace 清理节流由每个 ticker 循环自己的 `TraceHousekeeping` 持有。
 
-2.x 迁移说明（顶层 `src` 移除、记忆包级导出弃用等）见 [CHANGELOG.md](../CHANGELOG.md) Breaking changes。
-
 ## 扩展点
 
 | 扩展点 | 方式 | 说明 |
@@ -687,6 +685,6 @@ flowchart LR
 ### 技能热加载（`refresh_skills`）
 
 - **入口**：进程启动 `init_subsystems` → `bootstrap_skill_packages`；运行期 `install_skill`（单包）、`/reload-skills` / `features.skills_watch`（全量）。
-- **快照**：`state["skill_toolboxes"]` / `state["skill_prompts"]`；`run_agent` 与飞书 handler 每次从 state 读取，refresh 后**下一回合**生效。
+- **快照**：`state["skill_toolboxes"]` / `state["skill_prompts"]`；AgentRuntime 与飞书 handler 每次从 state 读取，refresh 后下一回合生效。
 - **Gating**：`get_all_toolboxes` / `get_system_prompts` 仅聚合 `get_eligible_skills`；全量 refresh 卸载主 registry 工具时遍历**全部**已注册技能（含被 gating 的），避免幽灵工具。
 - **子会话**：refresh 只更新主空间 `registry`；已创建子会话的克隆工具集不会自动同步，需新建会话或 promote。

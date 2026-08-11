@@ -88,10 +88,7 @@ class _TuiKeyBindingInstaller:
                 kwargs["filter"] = filter_value
             self.kb.add(key, **kwargs)(handler)
         newline_keys = self.keymap["newline"].split()
-        try:
-            decorator = self.kb.add(*newline_keys, filter=focus)
-        except TypeError:  # lightweight unit-test registries accept one key only
-            decorator = self.kb.add("-".join(newline_keys), filter=focus)
+        decorator = self.kb.add(*newline_keys, filter=focus)
         decorator(self.on_newline)
 
     def in_copy_mode(self) -> bool:

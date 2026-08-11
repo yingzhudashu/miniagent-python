@@ -1,8 +1,7 @@
-"""CLI ``--continue`` 会话状态持久化（与 shutdown / 正常退出共用）。
+"""CLI ``--continue`` 状态持久化（与 shutdown / 正常退出共用）。
 
-写入 ``channel-router.json`` 的 ``last_cli_session*`` 字段。读取与回退见
-``miniagent.assistant.engine.init._resolve_continue_session_id`` 与
-``ChannelRouter.load_cli_session_state``。
+写入项目 SQLite 的 ``cli_state``。读取见
+``miniagent.assistant.engine.init._resolve_continue_session_id``。
 
 ``/session switch`` 切换会话时也会更新同一字段，经
 ``cli_commands._save_cli_session_state_on_switch`` 调用 ``persist_cli_session_state``。
@@ -26,7 +25,7 @@ def persist_cli_session_state(
     *,
     log_errors: bool = True,
 ) -> bool:
-    """将会话元数据写入 channel router（``--continue`` 持久化核心逻辑）。
+    """将会话元数据写入当前 CLI state store。
 
     Args:
         session_manager: 会话管理器；需支持 ``list_all_sessions_with_info()``
@@ -64,7 +63,7 @@ def persist_cli_session_state(
 
 
 def save_cli_session_state(ctx: ApplicationContainer, state: CliLoopState) -> None:
-    """保存 CLI 上次活跃会话到 ``channel-router.json``（``--continue`` 功能）。
+    """保存 CLI 上次活跃会话到项目 SQLite（``--continue`` 功能）。
 
     供 ``shutdown_runtime`` 与 ``run_cli_loop`` 正常退出路径调用；失败时不抛异常，
     以免阻塞进程退出。

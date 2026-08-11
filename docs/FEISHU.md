@@ -1,6 +1,6 @@
 # 飞书集成文档
 
-> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-19 | 与 `miniagent.__version__` 对齐 | 飞书 WebSocket 长连接
+> Mini Agent Python | 版本: 5.0.0 | 最后更新: 2026-08-10 | 与 `miniagent.__version__` 对齐 | 飞书 WebSocket 长连接
 
 ## 快速开始
 
@@ -28,7 +28,7 @@
 }
 ```
 
-`env_loader` 会将上述值桥接到 SDK 所需的 `FEISHU_*` 环境变量。依赖：`pip install -e ".[feishu]"`。
+应用启动用例会将上述值桥接到 SDK 所需的 `FEISHU_*` 环境变量。依赖：`pip install -e ".[feishu]"`。
 
 ### 2. 启动
 
@@ -47,7 +47,7 @@ python -m miniagent --feishu
 
 全屏 CLI 运行时会暂时把 ``get_logger`` 控制台输出提高到 **WARNING**（集成终端里 stderr 仍会打乱备用屏）。调试若需要 INFO/DEBUG，可设置 **`features.tui_verbose_log=true`**。
 
-在飞书里发送以 ``/`` 开头的命令时，默认 `/session switch` / `create` / `rename` 以及 `/schedule` 的 `add`/`update`/`remove`/`enable`/`disable` **不会**修改与本地 CLI 共享的 ``active_session_id`` 或 ``tasks.json``，仅返回提示；``/stop`` 亦默认拒绝（避免远程结束进程）。请在本地 MiniAgent 终端执行，或设置 **`feishu.dot_commands_full=true`** 放开全部点命令（启动时会打 WARNING；群聊误触风险需自行管控）。启用 FULL 后飞书侧 `/stop` 成功即进程退出，通常**不会**再收到第二条飞书确认消息。调试 HTTP 栈时请勿开启 ``HTTPX_LOG_LEVEL=debug`` 等会把第三方日志打到终端的配置，以免干扰全屏 UI。
+在飞书里发送以 ``/`` 开头的命令时，默认 `/session` 变异命令与 `/schedule` 写命令不会修改本地共享状态，仅返回提示；`/stop` 亦默认拒绝。设置 `feishu.dot_commands_full=true` 才会放开全部命令。
 
 Agent 在飞书会话中若通过内置工具 **`run_dot_command`** 调点命令，上述限制与直接发点命令一致（默认 `cli_dispatch_allow_mutations=False`；`feishu.dot_commands_full=true` 时为 True）。不需要该能力时可将 **`cli.dot_tools_enabled=false`**，启动时不再注册该工具（见 `miniagent/assistant/resources/config.defaults.json`）。
 
@@ -130,7 +130,7 @@ AssistantTurnService.run_agent_with_thinking(...)
 
 1. 群聊路由键始终为 `feishu:<chat_id>`，不参与私聊自动绑定逻辑。
 2. `/session switch` 到飞书群时，若磁盘尚无该会话，会创建占位会话再绑定 CLI。
-3. 绑定状态持久化在 `{project_state}/channel-router.json`（含 `last_cli_session` 等）。
+3. 绑定状态持久化在项目 `state.sqlite3` 的 `channel_bindings` 与 `cli_state`。
 
 ## 运维速查（WebSocket）
 
@@ -180,7 +180,7 @@ AssistantTurnService.run_agent_with_thinking()
 
 | JSON 路径 | 含义 |
 |-----------|------|
-| `feishu.card.thinking_max_chars` / `feishu.card.body_max_chars` | 单张交互卡片正文上限（Advanced）；完整文本仍在 **history.json** |
+| `feishu.card.thinking_max_chars` / `feishu.card.body_max_chars` | 单张交互卡片正文上限（Advanced）；完整文本仍在 SQLite 会话历史中 |
 | `memory.thinking_for_llm_mode` | `thinking` 历史回灌给 LLM 的模式：`off` / `compact` / `full`；默认 `compact` |
 | `memory.thinking_for_llm_compact_max_chars` | `compact` 模式下 thinking 摘要最大字符数，默认 1200 |
 | `memory.thinking_for_llm_max_chars` | 仅 `full` 模式使用，控制完整 thinking 正文回灌上限 |
@@ -354,7 +354,7 @@ AssistantTurnService.run_agent_with_thinking()
 | `group` | 独立会话，始终创建/使用 `feishu:<chat_id>` | `feishu:<chat_id>` |
 | `p2p` | 若尚未绑定，则自动 `bind(feishu_p2p:<sender>, active_session_id)`；已绑定则使用目标 session_key | 通常为当前 CLI 活跃会话 |
 
-**飞书入站独占**：同一 `paths.state_dir` 下通过 **`{paths.state_dir}/feishu_inbound_owner.json`** 保证**仅一个存活进程**可成功执行 `/feishu start` 并持有常驻重连任务。避免多开实例重复收消息。
+**飞书入站独占**：同一 `paths.state_dir` 下通过项目 `state.sqlite3` 的 `process_leases` 表（资源名 `feishu:inbound`）保证**仅一个存活进程**可成功执行 `/feishu start` 并持有常驻重连任务。避免多开实例重复收消息。
 
 **常驻与锁**：`FeishuRuntime` 在后台任务中循环调用 `start_feishu_poll_server`；单次 WebSocket 断线或启动失败会**指数退避后自动重连**，此期间**不释放入站锁**（其它进程仍无法抢占）。仅在执行 `/feishu stop`、任务被取消或进程退出路径上释放锁。
 

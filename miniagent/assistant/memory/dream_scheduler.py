@@ -1,7 +1,7 @@
 """类 AutoDream 的记忆维护：周期 + 体量闸门。
 
 在每次 agent 回合结束后由引擎触发；带最短间隔节流，避免每轮创建过多后台任务。
-跨进程精炼互斥使用 ``memory/dream.lock``。
+跨进程精炼互斥和维护游标存储在项目 SQLite 数据库。
 
 与三层记忆中「夜间精炼」叙事对应，见 ``docs/MEMORY_SYSTEM.md``。
 
@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import time
 from dataclasses import dataclass
@@ -20,8 +21,6 @@ from typing import Any
 from miniagent.agent.logging import get_logger
 from miniagent.assistant.infrastructure.json_config import get_config
 from miniagent.assistant.infrastructure.paths import resolve_state_dir as get_state_root
-from miniagent.assistant.infrastructure.persistence import dump_state_file, load_state_file
-from miniagent.assistant.infrastructure.state_schemas import install_builtin_state_schemas
 from miniagent.assistant.memory.layered_memory import (
     append_session_day_rollup,
     load_agent_longterm,
@@ -29,11 +28,12 @@ from miniagent.assistant.memory.layered_memory import (
     save_agent_longterm,
     save_session_longterm,
 )
+from miniagent.assistant.state.sync import immediate_transaction, open_state_database
 
 _logger = get_logger(__name__)
-install_builtin_state_schemas()
-
-_STATE_NAME = "dream_state.json"
+_STATE_KEY = "memory:dream"
+_LEASE_RESOURCE = "maintenance:dream"
+_LEASE_TTL_MS = 10 * 60 * 1000
 
 
 # 使用统一的 get_state_root() 函数获取状态根目录
@@ -79,41 +79,31 @@ class _DreamPolicy:
         )
 
 
-def _legacy_policy() -> _DreamPolicy:
-    """Resolve module constants at call time for backward-compatible direct tests."""
-    return _DreamPolicy(
-        diary_refine_seconds=float(DIARY_REFINE_SEC),
-        session_refine_seconds=float(SESSION_LT_REFINE_SEC),
-        agent_refine_seconds=float(AGENT_LT_REFINE_SEC),
-        size_force_bytes=int(SIZE_FORCE_BYTES),
-        min_schedule_interval=float(_MIN_SCHEDULE_INTERVAL),
-    )
-
-def _state_path(state_root: str | None = None) -> str:
-    """``memory/dream_state.json`` 绝对路径（确保 ``memory`` 目录存在）。"""
-    root = state_root or get_state_root()
-    d = os.path.join(root, "memory")
-    os.makedirs(d, exist_ok=True)
-    return os.path.join(d, _STATE_NAME)
-
-
 def _load_dream_state(state_root: str | None = None) -> dict[str, Any]:
-    """读取 dream 状态 JSON；不存在或损坏时返回空 dict。"""
-    p = _state_path(state_root)
-    if not os.path.isfile(p):
+    """Read the current maintenance cursor from SQLite."""
+    with open_state_database(state_root or get_state_root()) as connection:
+        row = connection.execute(
+            "SELECT value_json FROM maintenance_state WHERE state_key=?",
+            (_STATE_KEY,),
+        ).fetchone()
+    if row is None:
         return {}
-    try:
-        return load_state_file("dream_state", p)
-    except Exception:
-        return {}
+    value = json.loads(str(row[0]))
+    if not isinstance(value, dict):
+        raise ValueError("dream maintenance state must be a JSON object")
+    return value
 
 
 def _save_dream_state(data: dict[str, Any], state_root: str | None = None) -> None:
-    """原子写回 dream 状态（失败仅 debug 日志）。"""
-    try:
-        dump_state_file("dream_state", _state_path(state_root), data)
-    except OSError as e:
-        _logger.debug("dream_state 写入失败: %s", e)
+    """Atomically write the current maintenance cursor."""
+    payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+    with open_state_database(state_root or get_state_root()) as connection:
+        connection.execute(
+            """INSERT INTO maintenance_state VALUES (?, ?, ?)
+               ON CONFLICT(state_key) DO UPDATE SET value_json=excluded.value_json,
+                 updated_at_ms=excluded.updated_at_ms""",
+            (_STATE_KEY, payload, int(time.time() * 1000)),
+        )
 
 
 def _diary_dir_size(session_key: str, state_root: str | None = None) -> int:
@@ -139,45 +129,33 @@ def _diary_dir_size(session_key: str, state_root: str | None = None) -> int:
     return total
 
 
-def _try_file_lock(state_root: str | None = None) -> bool:
-    """跨进程互斥：独占文件 + PID（不保证崩溃后强一致，与实例注册表策略一致）。"""
-    from miniagent.assistant.infrastructure.instance import is_process_running
-
-    lock = os.path.join(state_root or get_state_root(), "memory", "dream.lock")
-    os.makedirs(os.path.dirname(lock), exist_ok=True)
-    for _ in range(3):
-        try:
-            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            os.write(fd, str(os.getpid()).encode())
-            os.close(fd)
-            return True
-        except FileExistsError:
-            try:
-                with open(lock, encoding="utf-8") as f:
-                    pid = int(f.read().strip() or "0")
-            except Exception:
+def _try_maintenance_lease(state_root: str, owner: str) -> bool:
+    now_ms = int(time.time() * 1000)
+    with open_state_database(state_root) as connection:
+        with immediate_transaction(connection):
+            row = connection.execute(
+                "SELECT owner, expires_at_ms, generation FROM process_leases WHERE resource=?",
+                (_LEASE_RESOURCE,),
+            ).fetchone()
+            if row is not None and str(row[0]) != owner and int(row[1]) > now_ms:
                 return False
-            if pid and pid != os.getpid() and is_process_running(pid):
-                return False
-            try:
-                os.unlink(lock)
-            except OSError:
-                return False
-    return False
+            generation = int(row[2]) + 1 if row is not None else 1
+            connection.execute(
+                """INSERT INTO process_leases VALUES (?, ?, ?, ?)
+                   ON CONFLICT(resource) DO UPDATE SET owner=excluded.owner,
+                     expires_at_ms=excluded.expires_at_ms,
+                     generation=excluded.generation""",
+                (_LEASE_RESOURCE, owner, now_ms + _LEASE_TTL_MS, generation),
+            )
+    return True
 
 
-def _release_file_lock(state_root: str | None = None) -> None:
-    """若锁文件由本 PID 持有则删除，释放跨进程 dream 互斥。"""
-    lock = os.path.join(state_root or get_state_root(), "memory", "dream.lock")
-    try:
-        if os.path.isfile(lock):
-            with open(lock, encoding="utf-8") as f:
-                owner_pid = f.read().strip()
-            # Windows 不允许删除仍由当前进程打开的文件，因此必须先退出读取上下文。
-            if owner_pid == str(os.getpid()):
-                os.unlink(lock)
-    except OSError as e:
-        _logger.debug("释放锁文件失败: %s", e)
+def _release_maintenance_lease(state_root: str, owner: str) -> None:
+    with open_state_database(state_root) as connection:
+        connection.execute(
+            "DELETE FROM process_leases WHERE resource=? AND owner=?",
+            (_LEASE_RESOURCE, owner),
+        )
 
 
 def _refine_session_sync(
@@ -244,16 +222,6 @@ def _refine_session_sync(
     _save_dream_state(st, state_root)
 
 
-async def _refine_session(session_key: str, state_root: str | None = None) -> None:
-    """Compatibility wrapper that keeps filesystem work off the event loop."""
-    await asyncio.to_thread(
-        _refine_session_sync,
-        session_key,
-        state_root,
-        _legacy_policy(),
-    )
-
-
 class DreamScheduler:
     """Own throttling state and maintenance tasks for one memory runtime."""
 
@@ -262,6 +230,7 @@ class DreamScheduler:
         self._policy = _DreamPolicy.from_config()
         self._last_schedule_monotonic = 0.0
         self._pending_tasks: set[asyncio.Task[Any]] = set()
+        self._lease_owner = f"{os.getpid()}:{id(self)}"
 
     def schedule(self, session_key: str | None) -> None:
         """Schedule non-blocking maintenance after a completed agent turn."""
@@ -277,12 +246,12 @@ class DreamScheduler:
             return
 
         def _run_locked_refinement() -> None:
-            if not _try_file_lock(self._state_root):
+            if not _try_maintenance_lease(self._state_root, self._lease_owner):
                 return
             try:
                 _refine_session_sync(session_key, self._state_root, self._policy)
             finally:
-                _release_file_lock(self._state_root)
+                _release_maintenance_lease(self._state_root, self._lease_owner)
 
         async def _job() -> None:
             from miniagent.agent.observability import trace_span

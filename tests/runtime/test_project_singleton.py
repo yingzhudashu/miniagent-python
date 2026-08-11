@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import os
+import time
 from pathlib import Path
 
 import pytest
@@ -12,6 +12,7 @@ from miniagent.assistant.infrastructure.instance import reset_instance_registry_
 from miniagent.assistant.infrastructure.json_config import reset_config_loader
 from miniagent.assistant.infrastructure.paths import resolve_project_key
 from miniagent.assistant.runner import _bootstrap_project_paths
+from miniagent.assistant.state.registry import ProcessInstanceStore
 from tests.support.config import install_test_config
 
 
@@ -106,19 +107,19 @@ def test_bootstrap_conflict_exits(
         "miniagent.assistant.infrastructure.instance.is_process_running",
         checker,
     )
-    stale = Path(reg) / "instances" / "1"
-    stale.mkdir(parents=True)
-    meta = {
-        "schema_version": 1,
-        "pid": other_pid,
-        "instance_id": 1,
-        "mode": "cli",
-        "active_sessions": [],
-        "hostname": "h",
-        "start_time": "2026-05-09T10:00:00",
-        "project_dir": str(project),
-    }
-    (stale / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    now_ms = int(time.time() * 1000)
+    ProcessInstanceStore(reg).register(
+        project_dir=str(project.resolve()),
+        project_key=resolve_project_key(str(project)),
+        project_state_dir=str(tmp_path / "state"),
+        pid=other_pid,
+        mode="cli",
+        active_sessions=(),
+        hostname="h",
+        now_ms=now_ms,
+        alive_pid=checker,
+        stale_before_ms=now_ms - 30_000,
+    )
 
     with pytest.raises(SystemExit) as exc:
         _bootstrap_project_paths(skip_continue=True)
@@ -141,18 +142,19 @@ def test_bootstrap_for_stop_skips_conflict_check(
         "miniagent.assistant.infrastructure.instance.is_process_running",
         checker,
     )
-    stale = Path(reg) / "instances" / "1"
-    stale.mkdir(parents=True)
-    meta = {
-        "pid": other_pid,
-        "instance_id": 1,
-        "mode": "cli",
-        "active_sessions": [],
-        "hostname": "h",
-        "start_time": "2026-05-09T10:00:00",
-        "project_dir": str(project),
-    }
-    (stale / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    now_ms = int(time.time() * 1000)
+    ProcessInstanceStore(reg).register(
+        project_dir=str(project.resolve()),
+        project_key=resolve_project_key(str(project)),
+        project_state_dir=str(tmp_path / "state"),
+        pid=other_pid,
+        mode="cli",
+        active_sessions=(),
+        hostname="h",
+        now_ms=now_ms,
+        alive_pid=checker,
+        stale_before_ms=now_ms - 30_000,
+    )
 
     _bootstrap_project_paths(for_stop=True)
     assert os.environ["MINIAGENT_PROJECT_DIR"] == _norm_dir(project)

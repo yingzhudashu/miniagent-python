@@ -20,10 +20,10 @@ from miniagent.agent.prompts.classifier import CLASSIFIER_PROMPT
 from miniagent.agent.thinking_presets import map_thinking_level_to_model
 from miniagent.agent.types.config import AgentConfig
 from miniagent.llm.gateway import LLMGateway
-from miniagent.llm.openai_compat import (
+from miniagent.llm.openai_wire import (
     ensure_json_object_user_message,
 )
-from miniagent.llm.openai_compat import (
+from miniagent.llm.openai_wire import (
     json_object_unsupported as _json_object_unsupported,
 )
 from miniagent.llm.recovery import (

@@ -6,11 +6,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from miniagent.agent.agent import run_agent
 from miniagent.agent.tools.registry import DefaultToolRegistry
 from miniagent.agent.types.confirmation import ConfirmationResult
 from miniagent.agent.types.planning import StructuredPlan
 from miniagent.agent.types.tool import Toolbox
+from tests.support.agent_runtime import run_agent
 from tests.support.config import install_test_config
 from tests.support.memory import make_knowledge_registry, make_memory_runtime
 

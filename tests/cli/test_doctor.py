@@ -18,7 +18,9 @@ from miniagent.assistant.engine.doctor import (
 
 def test_required_dependency_inventory_matches_core_runtime() -> None:
     modules = {module_name for module_name, _display_name in REQUIRED_DEPENDENCIES}
-    assert {"croniter", "tzdata", "typing_extensions"} <= modules
+    assert {"aiosqlite", "croniter", "httpx", "openai", "tzdata", "yaml"} <= modules
+    assert "pydantic" not in modules
+    assert "typing_extensions" not in modules
     assert "websockets" not in modules
 
 

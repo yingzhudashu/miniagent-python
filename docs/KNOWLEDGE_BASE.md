@@ -1,6 +1,6 @@
 # Mini Agent Python — 知识库系统
 
-> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-19 | 与 `miniagent.__version__` 对齐
+> Mini Agent Python | 版本: 5.0.0 | 最后更新: 2026-08-10 | 与 `miniagent.__version__` 对齐
 
 Mini Agent 支持快速挂载本地知识库、文档、资料，通过关键词索引检索并拼入 Agent 上下文。
 
@@ -244,7 +244,7 @@ class KnowledgeBase:
 ```python
 class KnowledgeRegistry:
     def mount(self, path: str, name: str | None = None) -> dict:
-        # 挂载知识库（自定义名称会写入 kb_registry.json）
+        # 挂载知识库（自定义名称会写入 state.sqlite3）
 
     def search(self, query: str, kb_name: str | None = None) -> str:
         # 单库或跨库检索（跨库合并全局 top_k）
@@ -255,7 +255,7 @@ class KnowledgeRegistry:
 
 ### 持久化
 
-挂载状态保存到 `kb_registry.json`（使用注册表中的挂载名称，而非仅 KB.yaml 内的 name）：
+挂载状态保存到项目 `state.sqlite3` 的 `knowledge_mounts`（使用注册表中的挂载名称，而非仅 KB.yaml 内的 name）：
 
 ```json
 {

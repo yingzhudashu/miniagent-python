@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import os
 from collections.abc import Callable
 from typing import Any
 
@@ -18,7 +16,7 @@ _logger = get_logger(__name__)
 
 
 def _get_last_qa(session_manager: Any, session_id: str) -> tuple[str | None, str | None]:
-    """Return the latest user/assistant pair from memory or compatible disk history."""
+    """Return the latest user/assistant pair from the current session store."""
     session = session_manager.get(session_id)
     if session is None:
         return None, None
@@ -30,24 +28,6 @@ def _get_last_qa(session_manager: Any, session_id: str) -> tuple[str | None, str
                 history = loader(session_id) or []
             except Exception as error:
                 _logger.debug("读取会话历史失败: %s", error)
-        if not history:
-            files_path = getattr(session, "workspace_path", None) or getattr(
-                session, "files_path", None
-            )
-            if files_path:
-                history_path = os.path.join(os.path.dirname(files_path), "history.json")
-                if os.path.isfile(history_path):
-                    try:
-                        with open(history_path, encoding="utf-8-sig") as handle:
-                            document = json.load(handle)
-                        history = (
-                            document.get("messages", [])
-                            if isinstance(document, dict)
-                            else document
-                        )
-                    except (OSError, ValueError, TypeError) as error:
-                        _logger.debug("读取兼容历史文件失败: %s", error)
-                        history = []
     assistant_index = -1
     assistant_message: str | None = None
     for index in range(len(history) - 1, -1, -1):

@@ -28,7 +28,7 @@
 - 源码包收敛为 `llm`、`agent`、`ui`、`assistant` 四个主模块；旧的 `core`、`engine`、
   `contracts`、`types`、`infrastructure` 等顶层导入路径已移除，不提供转发兼容层。
 - LLM 配置只接受 `llm.providers`、`llm.models`、`llm.roles` 与 `secrets.llm`；运行时
-  不迁移或写回旧配置和状态，人工升级步骤见 [docs/MIGRATION.md](docs/MIGRATION.md)。
+  不迁移或写回旧配置和状态；当时提供过独立人工升级说明。
   包版本进入 4.0.0；3.0 状态 schema 保持不变。
 
 ### Added

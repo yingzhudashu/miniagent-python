@@ -10,13 +10,13 @@ from miniagent.agent.agent import (
     PLANNING_STREAM_HEADER,
     _format_plan_message,
     _format_task_difficulty,
-    run_agent,
 )
 from miniagent.agent.task_classifier import TaskDifficulty
 from miniagent.agent.tools.registry import DefaultToolRegistry
 from miniagent.agent.types.confirmation import ConfirmationResult
 from miniagent.agent.types.planning import PlanStep, StructuredPlan
 from miniagent.agent.types.tool import Toolbox
+from tests.support.agent_runtime import run_agent
 from tests.support.config import install_test_config
 from tests.support.memory import make_knowledge_registry, make_memory_runtime
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib
-import json
 
 import pytest
 
@@ -93,7 +92,7 @@ def test_metadata_blocks_and_batch_actions(monkeypatch) -> None:
     monkeypatch.setattr(blocks, "get_block", lambda *_args: {"block_id": "b"})
     monkeypatch.setattr(blocks, "update_block_text", lambda *_args: calls.append("update"))
     monkeypatch.setattr(blocks, "delete_block", lambda *_args: calls.append("delete-block"))
-    monkeypatch.setattr(blocks, "batch_update_blocks", lambda *_args: {"ok": True})
+    monkeypatch.setattr(client, "batch_update_blocks", lambda *_args: {"ok": True})
 
     assert tools._action_get({"doc_token": "doc"}, CFG).success
     assert tools._action_delete({"doc_token": "doc"}, CFG).success
@@ -106,9 +105,7 @@ def test_metadata_blocks_and_batch_actions(monkeypatch) -> None:
     assert not tools._action_batch_update({"doc_token": "doc"}, CFG).success
     assert not tools._action_batch_update({"doc_token": "doc", "requests": "bad"}, CFG).success
     assert not tools._action_batch_update({"doc_token": "doc", "requests": "{}"}, CFG).success
-    assert tools._action_batch_update(
-        {"doc_token": "doc", "requests": json.dumps([{"x": 1}])}, CFG
-    ).success
+    assert tools._action_batch_update({"doc_token": "doc", "requests": [{"x": 1}]}, CFG).success
     assert calls == ["delete", "update", "delete-block"]
 
 
@@ -169,10 +166,10 @@ def test_table_media_drive_and_permissions(tmp_path, monkeypatch) -> None:
         {"doc_token": "doc", "table_block_id": "t", "values": "{}"}, CFG
     ).success
     assert tools._action_write_table_cells(
-        {"doc_token": "doc", "table_block_id": "t", "values": '[[1, "x"]]'}, CFG
+        {"doc_token": "doc", "table_block_id": "t", "values": [[1, "x"]]}, CFG
     ).success
     assert tools._action_create_table_with_values(
-        {"doc_token": "doc", "values": '[["x"]]'}, CFG
+        {"doc_token": "doc", "values": [["x"]]}, CFG
     ).success
     assert tools._action_upload_image(
         {"doc_token": "doc", "relative_path": "image.png"}, context, CFG

@@ -67,7 +67,7 @@ def test_load_session_history_prefers_memory() -> None:
     assert _load_session_history_messages(session) == mem
 
 
-def test_load_session_history_falls_back_to_disk(tmp_path: Path) -> None:
+def test_load_session_history_ignores_legacy_disk_file(tmp_path: Path) -> None:
     ws = tmp_path / "sess" / "files"
     ws.mkdir(parents=True)
     history = [
@@ -78,7 +78,8 @@ def test_load_session_history_falls_back_to_disk(tmp_path: Path) -> None:
         json.dumps(history), encoding="utf-8"
     )
     session = _StubSession(conversation_history=[], files_path=str(ws))
-    assert _load_session_history_messages(session) == history
+    assert _load_session_history_messages(session) == []
+    assert (tmp_path / "sess" / "history.json").exists()
 
 
 def test_build_session_history_plaintext_from_memory() -> None:

@@ -256,13 +256,13 @@ async def test_packaged_skill_loads_tool_and_system_prompt() -> None:
 
 
 def test_config_secret_bridge_sets_stack_exchange_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    from miniagent.assistant.infrastructure import env_loader
+    from miniagent.assistant.bootstrap import configuration
 
     monkeypatch.delenv("STACK_EXCHANGE_KEY", raising=False)
     with patch.object(
-        env_loader,
+        configuration,
         "get_config_section",
         return_value={"stack_exchange_key": "configured-key"},
     ):
-        env_loader.load_secrets_from_config()
+        configuration.load_secrets_from_config()
     assert os.environ["STACK_EXCHANGE_KEY"] == "configured-key"

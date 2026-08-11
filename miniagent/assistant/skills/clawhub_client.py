@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from miniagent.agent.constants import CLAWHUB_API_URL
-from miniagent.agent.types.skill import (
+from miniagent.agent.ports.clawhub import (
     ClawHubClientProtocol,
     ClawHubSearchResult,
     ClawHubSkillDetail,

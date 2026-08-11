@@ -20,7 +20,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 from collections import Counter
 from typing import Any
@@ -428,7 +427,7 @@ def _action_delete_block(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
 
 def _action_batch_update(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
     """批量更新内容块（支持多种操作类型）。"""
-    from miniagent.assistant.feishu.docx.blocks import batch_update_blocks
+    from miniagent.assistant.feishu.docx.client import batch_update_blocks
 
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
     requests_raw = args.get("requests")
@@ -440,16 +439,9 @@ def _action_batch_update(args: dict[str, Any], cfg: FeishuConfig) -> ToolResult:
         return ToolResult(
             success=False, content=f"{WARNING_PREFIX} 需要 requests（batch_update 请求数组）。"
         )
-    if isinstance(requests_raw, str):
-        try:
-            requests_payload = json.loads(requests_raw)
-        except json.JSONDecodeError as e:
-            return ToolResult(success=False, content=f"{WARNING_PREFIX} requests JSON 无效: {e}")
-    else:
-        requests_payload = requests_raw
-    if not isinstance(requests_payload, list):
+    if not isinstance(requests_raw, list):
         return ToolResult(success=False, content=f"{WARNING_PREFIX} requests 须为数组。")
-    out = batch_update_blocks(cfg, doc_id, requests_payload)
+    out = batch_update_blocks(cfg, doc_id, requests_raw)
     return ToolResult(success=True, content=fmt_json(out))
 
 
@@ -568,8 +560,6 @@ def _action_write_table_cells(args: dict[str, Any], cfg: FeishuConfig) -> ToolRe
         return ToolResult(
             success=False, content=f"{WARNING_PREFIX} 需要 doc_token 与 table_block_id。"
         )
-    if isinstance(values, str):
-        values = json.loads(values)
     if not isinstance(values, list) or not all(isinstance(row, list) for row in values):
         return ToolResult(success=False, content=f"{WARNING_PREFIX} values 必须是二维数组。")
     normalized_values = [[str(cell) for cell in row] for row in values]
@@ -583,8 +573,6 @@ def _action_create_table_with_values(args: dict[str, Any], cfg: FeishuConfig) ->
 
     doc_id = extract_doc_token(str(args.get("doc_token") or args.get("document_id") or ""))
     values = args.get("values")
-    if isinstance(values, str):
-        values = json.loads(values)
     if not doc_id:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} 需要 doc_token。")
     tid = create_table_with_values(

@@ -1,4 +1,4 @@
-"""Failure and boundary contracts for the V4 runtime composition layers."""
+"""Failure and boundary contracts for the current runtime composition layers."""
 
 from __future__ import annotations
 
@@ -15,8 +15,9 @@ from miniagent.agent.settings import AgentSettings
 from miniagent.agent.types.agent import AgentRunResult
 from miniagent.agent.types.confirmation import ConfirmationResult
 from miniagent.agent.types.planning import StructuredPlan
-from miniagent.assistant.app import AssistantApplication, create_assistant, run_assistant
+from miniagent.assistant.app import PersonalAssistantApplication, create_assistant
 from miniagent.assistant.composition import ComposedAssistantRuntime
+from miniagent.assistant.runner import run_assistant
 from miniagent.assistant.spec import AssistantSpec
 from miniagent.llm.gateway import LLMGateway
 from miniagent.ui import CLISurface, QueueUISurface, UIInput, UIInputKind, UITarget
@@ -325,9 +326,8 @@ def assistant_spec(runner: Any, *surfaces: QueueUISurface, **overrides: Any) -> 
 
 
 def test_composed_runtime_rejects_missing_agent_and_duplicate_surface_ids() -> None:
-    container_spec = AssistantSpec(name="container", container_factory=object)
-    with pytest.raises(ValueError, match="agent_factory"):
-        ComposedAssistantRuntime(container_spec)
+    with pytest.raises(ValueError, match="name"):
+        assistant_spec(MagicMock(), name=" ")
 
     async def runner(_user_input: str, **_kwargs: Any) -> AgentRunResult:
         return AgentRunResult(reply="ok")
@@ -410,33 +410,25 @@ async def test_composed_runtime_serve_consumes_surfaces_and_stops() -> None:
     assert runtime.health().state is HealthState.STOPPED
 
 
-def test_assistant_application_delegates_public_entry_points(
+def test_personal_application_and_runner_delegate_current_entry_points(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    class Container:
-        def __init__(self) -> None:
-            self.served = False
+    container = object()
+    served: list[object] = []
 
-        async def serve(self) -> None:
-            self.served = True
+    async def fake_runtime(value: object) -> None:
+        served.append(value)
 
-        def health(self) -> str:
-            return "ready"
-
-    container = Container()
-    application = AssistantApplication(container)  # type: ignore[arg-type]
+    monkeypatch.setattr("miniagent.assistant.engine.main.run_runtime", fake_runtime)
+    application = PersonalAssistantApplication(container)  # type: ignore[arg-type]
     application.run()
-    assert container.served is True
-    assert application.health() == "ready"
+    assert served == [container]
 
-    bare = AssistantApplication(object())  # type: ignore[arg-type]
-    assert bare.health() is None
-    asyncio.run(bare.stop())
-    with pytest.raises(RuntimeError, match="started with run"):
-        asyncio.run(bare.start())
+    async def runner(_user_input: str, **_kwargs: Any) -> AgentRunResult:
+        return AgentRunResult(reply="ok")
 
-    created = create_assistant(AssistantSpec(name="factory", container_factory=lambda: container))
-    assert created.container is container
+    created = create_assistant(assistant_spec(runner))
+    assert isinstance(created, ComposedAssistantRuntime)
     called: list[list[str] | None] = []
     monkeypatch.setattr(
         "miniagent.assistant.runner.run_cli_boundary", lambda argv: called.append(argv)

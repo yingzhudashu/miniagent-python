@@ -19,6 +19,7 @@ from miniagent.agent.plan_utils import (
     resolve_chunk_compress_threshold,
     resolve_effective_overflow_strategy,
 )
+from miniagent.agent.ports.clawhub import ClawHubClientProtocol
 from miniagent.agent.ports.knowledge import KnowledgeRegistryProtocol
 from miniagent.agent.ports.memory import MemoryRuntimeProtocol
 from miniagent.agent.prompts.identity import AGENT_IDENTITY
@@ -26,7 +27,6 @@ from miniagent.agent.timezone import format_agent_timezone_context
 from miniagent.agent.types.agent import LoopDetectionConfig
 from miniagent.agent.types.config import AgentConfig
 from miniagent.agent.types.planning import PlanStep, StructuredPlan
-from miniagent.agent.types.skill import ClawHubClientProtocol
 from miniagent.agent.types.tool import ToolContext, ToolRegistryProtocol
 from miniagent.agent.workspace import get_default_workspace
 from miniagent.llm.gateway import LLMGateway

@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import time
 from typing import Any
@@ -12,18 +14,22 @@ from typing import Any
 from miniagent.agent.logging import get_logger
 from miniagent.agent.types.error_prefix import WARNING_PREFIX
 from miniagent.assistant.infrastructure.json_config import get_config
-from miniagent.assistant.infrastructure.persistence import dump_state_file, load_state_file
-from miniagent.assistant.infrastructure.state_schemas import install_builtin_state_schemas
 from miniagent.assistant.knowledge.base import KnowledgeBase
+from miniagent.assistant.memory.keyword_index import extract_keywords
+from miniagent.assistant.state import StateSchemaError
+from miniagent.assistant.state.sync import immediate_transaction, open_state_database
 
 _logger = get_logger(__name__)
-install_builtin_state_schemas()
 
 # 默认知识库根目录
 _DEFAULT_KB_ROOT = "workspaces/knowledge"
 
-# 注册表文件名
-_REGISTRY_FILE = "kb_registry.json"
+
+def _fts_query(query: str) -> str:
+    terms = extract_keywords(query)
+    if not terms and query.strip():
+        terms = [query.strip()]
+    return " OR ".join(f'"{term.replace(chr(34), chr(34) * 2)}"' for term in terms)
 
 
 class KnowledgeRegistry:
@@ -70,15 +76,14 @@ class KnowledgeRegistry:
         return any(os.path.abspath(kb.path) == abs_path for kb in self._mounted.values())
 
     def _load_registry(self) -> None:
-        """从磁盘加载挂载状态。"""
-        registry_path = os.path.join(self._kb_dir, _REGISTRY_FILE)
-        if not os.path.isfile(registry_path):
-            return
-
+        """Load current mount records from the project database."""
         try:
-            data = load_state_file("knowledge_registry", registry_path)
-            for item in data.get("mounted", []):
-                path = item.get("path", "")
+            with open_state_database(self._state_dir) as connection:
+                rows = connection.execute(
+                    "SELECT name, source_path FROM knowledge_mounts ORDER BY name"
+                ).fetchall()
+            for item in rows:
+                path = str(item[1])
                 if not path or not os.path.exists(path):
                     continue
                 abs_path = os.path.abspath(path)
@@ -86,33 +91,104 @@ class KnowledgeRegistry:
                     continue
                 kb = KnowledgeBase(abs_path)
                 kb.load()
-                mount_name = item.get("name") or kb.name
+                mount_name = str(item[0]) or kb.name
                 self._mounted[mount_name] = kb
+        except StateSchemaError:
+            raise
         except Exception as e:
             _logger.warning("加载知识库注册表失败: %s", e)
 
     def _save_registry(self) -> None:
-        """保存挂载状态到磁盘。"""
-        registry_path = os.path.join(self._kb_dir, _REGISTRY_FILE)
-
-        # 确保目录存在
-        kb_dir = os.path.dirname(registry_path)
-        if kb_dir and not os.path.isdir(kb_dir):
-            try:
-                os.makedirs(kb_dir, exist_ok=True)
-            except Exception as e:
-                _logger.debug("创建知识库目录失败: %s", e)
-
-        data = {
-            "mounted": [
-                {"name": mount_name, "path": kb.path, "mounted_at": time.time()}
-                for mount_name, kb in self._mounted.items()
-            ],
-            "updated_at": time.time(),
-        }
-
+        """Atomically persist the current mount set."""
         try:
-            dump_state_file("knowledge_registry", registry_path, data)
+            now_ms = int(time.time() * 1000)
+            with open_state_database(self._state_dir) as connection:
+                with immediate_transaction(connection):
+                    names = set(self._mounted)
+                    if names:
+                        placeholders = ",".join("?" for _ in names)
+                        # Only generated ``?`` placeholders enter the SQL structure.
+                        stale_query = (
+                            "SELECT d.id FROM knowledge_documents d "  # nosec B608
+                            "JOIN knowledge_mounts m ON m.id=d.mount_id "
+                            f"WHERE m.name NOT IN ({placeholders})"
+                        )
+                        stale_ids = connection.execute(
+                            stale_query,
+                            tuple(sorted(names)),
+                        ).fetchall()
+                        connection.executemany(
+                            "DELETE FROM knowledge_fts WHERE rowid=?",
+                            ((int(row[0]),) for row in stale_ids),
+                        )
+                        delete_mounts_query = (
+                            f"DELETE FROM knowledge_mounts WHERE name NOT IN ({placeholders})"  # nosec B608
+                        )
+                        connection.execute(
+                            delete_mounts_query,
+                            tuple(sorted(names)),
+                        )
+                    else:
+                        connection.execute("DELETE FROM knowledge_fts")
+                        connection.execute("DELETE FROM knowledge_mounts")
+                    for mount_name, kb in self._mounted.items():
+                        connection.execute(
+                            """INSERT INTO knowledge_mounts(name, source_path, updated_at_ms)
+                               VALUES (?, ?, ?)
+                               ON CONFLICT(name) DO UPDATE SET
+                                 source_path=excluded.source_path,
+                                 updated_at_ms=excluded.updated_at_ms""",
+                            (mount_name, kb.path, now_ms),
+                        )
+                        mount_row = connection.execute(
+                            "SELECT id FROM knowledge_mounts WHERE name=?",
+                            (mount_name,),
+                        ).fetchone()
+                        assert mount_row is not None
+                        mount_id = int(mount_row[0])
+                        old_documents = connection.execute(
+                            "SELECT id FROM knowledge_documents WHERE mount_id=?",
+                            (mount_id,),
+                        ).fetchall()
+                        connection.executemany(
+                            "DELETE FROM knowledge_fts WHERE rowid=?",
+                            ((int(row[0]),) for row in old_documents),
+                        )
+                        connection.execute(
+                            "DELETE FROM knowledge_documents WHERE mount_id=?",
+                            (mount_id,),
+                        )
+                        for entry in kb._entries:
+                            content_hash = hashlib.blake2s(
+                                entry.content.encode("utf-8")
+                            ).hexdigest()
+                            cursor = connection.execute(
+                                """INSERT INTO knowledge_documents(
+                                       mount_id, relative_path, title, content,
+                                       content_hash, metadata_json, updated_at_ms
+                                   ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                                (
+                                    mount_id,
+                                    entry.file_path,
+                                    entry.file_path,
+                                    entry.content,
+                                    content_hash,
+                                    json.dumps(
+                                        entry.metadata,
+                                        ensure_ascii=False,
+                                        separators=(",", ":"),
+                                        allow_nan=False,
+                                    ),
+                                    now_ms,
+                                ),
+                            )
+                            document_id = int(cursor.lastrowid or 0)
+                            connection.execute(
+                                "INSERT INTO knowledge_fts(rowid, title, content) VALUES (?, ?, ?)",
+                                (document_id, entry.file_path, entry.content),
+                            )
+        except StateSchemaError:
+            raise
         except Exception as e:
             _logger.warning("保存知识库注册表失败: %s", e)
 
@@ -141,6 +217,8 @@ class KnowledgeRegistry:
                     _logger.info("自动挂载知识库: %s", kb.name)
                 except Exception as e:
                     _logger.warning("自动挂载失败: %s - %s", name, e)
+        if self._mounted:
+            self._save_registry()
 
     def mount(self, path: str, name: str | None = None) -> dict[str, Any]:
         """挂载知识库。
@@ -227,29 +305,50 @@ class KnowledgeRegistry:
             # 单知识库检索
             if kb_name not in self._mounted:
                 return f"{WARNING_PREFIX} 知识库 '{kb_name}' 未挂载"
-            return self._mounted[kb_name].search(query, top_k, max_chars)
-
-        # 跨知识库检索：合并打分后取全局 top_k
-        merged: list[tuple[KnowledgeBase, int, float]] = []
+        # The durable FTS index is the single search implementation for mounted KBs.
         effective_top_k = top_k
         if effective_top_k is None:
             effective_top_k = int(get_config("knowledge.top_k", 5))
-
-        for kb in self._mounted.values():
-            for idx, score in kb.rank_entries(query):
-                merged.append((kb, idx, score))
-
-        merged.sort(key=lambda x: x[2], reverse=True)
-        merged = merged[:effective_top_k]
+        expression = _fts_query(query)
+        if not expression:
+            return ""
+        parameters: list[Any] = [expression]
+        where = "knowledge_fts MATCH ?"
+        if kb_name:
+            where += " AND m.name=?"
+            parameters.append(kb_name)
+        parameters.append(max(0, effective_top_k))
+        # ``where`` contains only the two fixed clauses assembled above.
+        search_query = (
+            "SELECT m.name, d.title, d.content, d.metadata_json, "  # nosec B608
+            "bm25(knowledge_fts) AS rank "
+            "FROM knowledge_fts f "
+            "JOIN knowledge_documents d ON d.id=f.rowid "
+            "JOIN knowledge_mounts m ON m.id=d.mount_id "
+            f"WHERE {where} "
+            "ORDER BY rank, d.id LIMIT ?"
+        )
+        with open_state_database(self._state_dir) as connection:
+            rows = connection.execute(
+                search_query,
+                tuple(parameters),
+            ).fetchall()
 
         results: list[str] = []
         total_chars = 0
         max_chars = max_chars or get_config("knowledge.max_chars", 8000)
-        multi_kb = len(self._mounted) > 1
+        multi_kb = len(self._mounted) > 1 and kb_name is None
 
-        for kb, idx, _score in merged:
-            label = kb.name if multi_kb else None
-            text = kb.format_ranked_entry(idx, kb_label=label)
+        for row in rows:
+            metadata = json.loads(str(row[3]))
+            title = str(row[1])
+            if multi_kb:
+                title = f"[{row[0]}] {title}"
+            content = str(row[2])
+            snippet = content[:500] + ("..." if len(content) > 500 else "")
+            source = metadata.get("source_path") or metadata.get("source")
+            source_line = f"来源: `{source}`\n" if source else ""
+            text = f"### {title}\n{source_line}{snippet}\n"
             if total_chars + len(text) > max_chars:
                 break
             results.append(text)
@@ -258,7 +357,10 @@ class KnowledgeRegistry:
         if not results:
             return ""
 
-        return "\n---\n".join(results)
+        body = "\n---\n".join(results)
+        if kb_name:
+            return f"## 知识库: {self._mounted[kb_name].name}\n\n{body}"
+        return body
 
     def get_kb(self, name: str) -> KnowledgeBase | None:
         """获取指定知识库实例。"""
@@ -299,11 +401,13 @@ class KnowledgeRegistry:
             if name not in self._mounted:
                 return {"success": False, "message": f"知识库 '{name}' 未挂载"}
             self._mounted[name].reload()
+            self._save_registry()
             return {"success": True, "message": f"已重载知识库: {name}"}
 
         # 重载所有
         for kb in self._mounted.values():
             kb.reload()
+        self._save_registry()
         return {"success": True, "message": f"已重载 {len(self._mounted)} 个知识库"}
 
 

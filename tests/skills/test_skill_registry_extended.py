@@ -5,11 +5,13 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from miniagent.agent.types.config import AgentConfig
-from miniagent.agent.types.skill import (
+from miniagent.agent.ports.clawhub import (
     ClawHubClientProtocol,
     ClawHubSearchResult,
     ClawHubSkillDetail,
+)
+from miniagent.agent.types.config import AgentConfig
+from miniagent.agent.types.skill import (
     Skill,
     SkillEntry,
     SkillMetadata,

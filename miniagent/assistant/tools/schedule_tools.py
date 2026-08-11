@@ -1,6 +1,6 @@
 """结构化定时任务工具：供 Agent 以 JSON 参数增删改查，避免拼写 ``.schedule add`` 行。
 
-持久化与 ``tasks.json`` 格式见 ``miniagent.assistant.scheduled_tasks.store``；用户文档见 ``README``、``docs/USER_GUIDE.md``。
+持久化契约见 ``miniagent.assistant.scheduled_tasks.store``；用户文档见 ``README``、``docs/USER_GUIDE.md``。
 """
 
 from __future__ import annotations
@@ -334,7 +334,7 @@ _manage_scheduled_task_schema = {
     "function": {
         "name": "manage_scheduled_task",
         "description": (
-            "以结构化参数管理持久化定时任务（MINIAGENT_PATHS_STATE_DIR/scheduled_tasks/tasks.json），"
+            "以结构化参数管理项目 SQLite 中的持久化定时任务，"
             "不依赖易碎的 .schedule 行格式。飞书默认仅 list/show；MINIAGENT_FEISHU_DOT_COMMANDS_FULL=1 时与 CLI 可增删改。"
             "与 run_dot_command 的 .schedule 操作同一套存储。"
         ),

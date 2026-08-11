@@ -1,4 +1,4 @@
-"""Shared OpenAI compatibility helpers.
+"""Shared OpenAI wire-protocol helpers.
 
 Extracts patterns that were previously duplicated across ``planner.py`` and
 ``task_classifier.py``.  Covers two common ``response_format={"type": "json_object"}``

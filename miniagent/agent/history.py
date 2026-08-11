@@ -42,7 +42,7 @@ def _truncate_thinking_for_llm(content: str, max_chars: int) -> str:
     if max_chars <= 0 or len(content) <= max_chars:
         return content
     tail = content[:max_chars].rstrip()
-    note = "\n\n…（思考记录已截断供上下文窗口使用；完整内容见会话 history.json）"
+    note = "\n\n…（思考记录已截断供上下文窗口使用；完整内容见会话历史）"
     return tail + note
 
 

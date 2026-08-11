@@ -10,9 +10,6 @@ from miniagent.agent.types.error_prefix import WARNING_PREFIX
 from miniagent.assistant.engine.cli_state import CliLoopState
 from miniagent.assistant.engine.command_registry import COMMAND_REGISTRY, CommandHandler
 from miniagent.assistant.engine.commands.basic_commands import (
-    format_status as _format_status,  # noqa: F401 - internal compatibility alias
-)
-from miniagent.assistant.engine.commands.basic_commands import (
     handle_config,
     handle_doctor,
     handle_help,
@@ -25,13 +22,7 @@ from miniagent.assistant.engine.commands.basic_commands import (
 from miniagent.assistant.engine.commands.confirmation_commands import handle_confirmation
 from miniagent.assistant.engine.commands.instance_commands import handle_instance
 from miniagent.assistant.engine.commands.knowledge_commands import handle_knowledge
-from miniagent.assistant.engine.commands.output import (  # noqa: F401
-    capture_output as _capture,
-)
 from miniagent.assistant.engine.commands.quality_commands import (
-    _get_last_qa,  # noqa: F401 - internal compatibility alias
-    _run_improve,  # noqa: F401 - internal compatibility alias
-    _run_review,  # noqa: F401 - internal compatibility alias
     handle_improve,
     handle_review,
 )
@@ -47,9 +38,6 @@ from miniagent.assistant.engine.commands.runtime_commands import (
 from miniagent.assistant.engine.commands.self_opt_commands import handle_self_opt
 from miniagent.assistant.engine.commands.session_commands import handle_session
 from miniagent.assistant.engine.commands.test_commands import (
-    _get_test_status,  # noqa: F401 - internal compatibility alias
-    _list_test_samples,  # noqa: F401 - internal compatibility alias
-    _run_test,  # noqa: F401 - internal compatibility alias
     handle_test,
 )
 

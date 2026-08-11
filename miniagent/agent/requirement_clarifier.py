@@ -224,7 +224,7 @@ class RequirementClarifier:
             knowledge_registry: 由组合根注入的知识库注册表
             ask_user: 交互追问回调（接收问题文本，返回用户回答）
             client: LLM 客户端
-            on_thinking: 思考过程回调；澄清摘要经此输出（``agent.run_agent`` 会传入）
+            on_thinking: 思考过程回调；澄清摘要经此输出（由 ``AgentRuntime`` 注入）
             memory_store: 记忆存储（可选；传入时加载会话记忆注入到澄清 LLM 上下文）
             session_key: 会话标识符（与 memory_store 配合使用）
             max_questions: 交互模式下最多追问数量

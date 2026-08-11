@@ -1,6 +1,6 @@
 # 部署指南
 
-> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-19 | 与 `miniagent.__version__` 对齐
+> Mini Agent Python | 版本: 5.0.0 | 最后更新: 2026-08-10 | 与 `miniagent.__version__` 对齐
 
 ## 环境要求
 
@@ -101,7 +101,7 @@ Register-ScheduledTask -TaskName "MiniAgent" -Action $action -Trigger $trigger
 
 ## 定时任务与状态
 
-定时任务定义持久化在 **`{paths.state_dir}/scheduled_tasks/tasks.json`**[^paths]。用户操作：CLI **`/schedule`**（语法见 [CLI.md](CLI.md)）；运维 env（`MINIAGENT_DISABLE_SCHEDULED_TASKS` 等）见 [ENGINEERING.md §1.2](ENGINEERING.md#12-环境变量分类)。架构数据流与用户要点见 [ARCHITECTURE.md「定时任务子系统」](ARCHITECTURE.md#定时任务子系统)、[USER_GUIDE.md §3](USER_GUIDE.md#3-定时任务)。
+定时任务定义持久化在项目 **`state.sqlite3`** 的 `scheduled_tasks` 表[^paths]。用户操作：CLI **`/schedule`**（语法见 [CLI.md](CLI.md)）；运维 env 见 [ENGINEERING.md §1.2](ENGINEERING.md#12-环境变量分类)。
 
 [^paths]: canonical 路径布局见 [ENGINEERING.md §3](ENGINEERING.md#3-状态目录与测试隔离)。
 

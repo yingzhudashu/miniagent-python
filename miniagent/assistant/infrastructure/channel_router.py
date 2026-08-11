@@ -19,14 +19,12 @@ Example:
 
 from __future__ import annotations
 
-import os
+import json
+import time
+from pathlib import Path
 from typing import Any
 
-from miniagent.assistant.infrastructure.atomic_json import atomic_dump_json
-from miniagent.assistant.infrastructure.persistence import load_state_file
-from miniagent.assistant.infrastructure.state_schemas import install_builtin_state_schemas
-
-install_builtin_state_schemas()
+from miniagent.assistant.state.sync import immediate_transaction, open_state_database
 
 
 class ChannelRouter:
@@ -257,7 +255,7 @@ class ChannelRouter:
         return channel_id
 
     # -----------------------------------------------------------------------
-    # 持久化（可选）
+    # SQLite 持久化
     # -------------------------------------------------------------------
 
     def _state_dir(self) -> str:
@@ -266,91 +264,70 @@ class ChannelRouter:
 
         return resolve_state_dir()
 
-    def _state_file(self) -> str | None:
-        """返回持久化文件路径；未配置 paths.state_dir 时返回 None。"""
-        d = self._state_dir()
-        if not d:
-            return None
-        return os.path.join(d, "channel-router.json")
-
     def _auto_save(self) -> None:
-        """若设置了状态目录则写入磁盘。"""
-        p = self._state_file()
-        if p:
-            self.save(path=p)
+        """Commit the in-memory router snapshot transactionally."""
+        self.save()
 
-    def save(self, path: str | None = None) -> str:
-        """将绑定状态写入磁盘 JSON 文件。
-
-        Args:
-            path: 可选的完整路径；默认使用 `{paths.state_dir}/channel-router.json`
-
-        Returns:
-            写入的文件路径
-        """
-        if path is None:
-            p = self._state_file()
-            if p is None:
-                raise ValueError("未配置 paths.state_dir，需传入 path 参数")
-        else:
-            p = path
-
-        os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
-        atomic_dump_json(p, self.to_dict(), ensure_ascii=False, indent=2)
-        return p
-
-    def load(self, path: str | None = None) -> bool:
-        """从磁盘加载绑定状态。
-
-        Args:
-            path: 可选的完整路径；默认使用 `{paths.state_dir}/channel-router.json`
-
-        Returns:
-            True 如果成功加载，False 如果文件不存在
-        """
-        if path is None:
-            p = self._state_file()
-            if p is None or not os.path.isfile(p):
-                return False
-        else:
-            p = path
-            if not os.path.isfile(p):
-                return False
-
-        data = load_state_file("channel_router", p)
-        self.from_dict(data)
-        return True
-
-    def to_dict(self) -> dict[str, Any]:
-        """序列化绑定状态。
-
-        Returns:
-            可 JSON 序列化的字典
-        """
-        return {
-            "schema_version": 1,
-            "bindings": dict(self._bindings),
-            "reverse": {k: list(v) for k, v in self._reverse.items()},
+    def save(self) -> str:
+        """Store bindings, primary selection and CLI state in SQLite."""
+        state_dir = self._state_dir()
+        now_ms = int(time.time() * 1000)
+        cli_value = {
             "primary": self._primary,
             "last_cli_session": self._last_cli_session,
             "last_cli_session_number": self._last_cli_session_number,
             "last_cli_session_title": self._last_cli_session_title,
             "last_cli_exit_time": self._last_cli_exit_time,
         }
+        with open_state_database(state_dir) as connection:
+            with immediate_transaction(connection):
+                connection.execute(
+                    "DELETE FROM channel_bindings WHERE channel_type='assistant'"
+                )
+                connection.executemany(
+                    """INSERT INTO channel_bindings(
+                           channel_type, channel_id, session_id, metadata_json, updated_at_ms
+                       ) VALUES ('assistant', ?, ?, '{}', ?)""",
+                    [
+                        (channel_id, session_id, now_ms)
+                        for channel_id, session_id in self._bindings.items()
+                    ],
+                )
+                connection.execute(
+                    """INSERT INTO cli_state VALUES ('channel_router', ?, ?)
+                       ON CONFLICT(state_key) DO UPDATE SET
+                         value_json=excluded.value_json,
+                         updated_at_ms=excluded.updated_at_ms""",
+                    (
+                        json.dumps(cli_value, ensure_ascii=False, separators=(",", ":")),
+                        now_ms,
+                    ),
+                )
+        return str(Path(state_dir) / "state.sqlite3")
 
-    def from_dict(self, data: dict[str, Any]) -> None:
-        """从字典恢复绑定状态。
-
-        Args:
-            data: 之前 to_dict() 的输出
-        """
-        self._bindings = dict(data.get("bindings", {}))
-        self._reverse = {k: list(v) for k, v in data.get("reverse", {}).items()}
+    def load(self) -> bool:
+        """Load the current router snapshot; return false when it is empty."""
+        with open_state_database(self._state_dir()) as connection:
+            rows = connection.execute(
+                """SELECT channel_id, session_id FROM channel_bindings
+                   WHERE channel_type='assistant'"""
+            ).fetchall()
+            cli_row = connection.execute(
+                "SELECT value_json FROM cli_state WHERE state_key='channel_router'"
+            ).fetchone()
+        if not rows and cli_row is None:
+            return False
+        self._bindings = {str(row[0]): str(row[1]) for row in rows}
+        self._reverse = {}
+        for channel_id, session_id in self._bindings.items():
+            self._reverse.setdefault(session_id, []).append(channel_id)
+        data = json.loads(str(cli_row[0])) if cli_row is not None else {}
         self._primary = data.get("primary")
         self._last_cli_session = data.get("last_cli_session")
-        self._last_cli_session_number = data.get("last_cli_session_number", 0)
-        self._last_cli_session_title = data.get("last_cli_session_title", "")
-        self._last_cli_exit_time = data.get("last_cli_exit_time", "")
+        self._last_cli_session_number = int(data.get("last_cli_session_number", 0))
+        self._last_cli_session_title = str(data.get("last_cli_session_title", ""))
+        self._last_cli_exit_time = str(data.get("last_cli_exit_time", ""))
+        return True
 
     # -----------------------------------------------------------------------
     # CLI 会话状态持久化（--continue 功能）

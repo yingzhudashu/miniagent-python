@@ -5,6 +5,7 @@ from __future__ import annotations
 from miniagent.assistant.infrastructure.feishu_inbound_lock import (
     read_feishu_inbound_owner,
     release_feishu_inbound_owner,
+    renew_feishu_inbound_owner,
     try_acquire_feishu_inbound_owner,
 )
 
@@ -19,6 +20,9 @@ def test_feishu_inbound_lock_acquire_and_release(tmp_path) -> None:
     owner = read_feishu_inbound_owner(state_dir=str(tmp_path))
     assert owner is not None
     assert owner.get("alive") is True
+    assert renew_feishu_inbound_owner(state_dir=str(tmp_path))
+    assert not (tmp_path / "feishu_inbound_owner.json").exists()
+    assert not (tmp_path / ".feishu_inbound.lock").exists()
 
     release_feishu_inbound_owner(state_dir=str(tmp_path))
     assert read_feishu_inbound_owner(state_dir=str(tmp_path)) is None

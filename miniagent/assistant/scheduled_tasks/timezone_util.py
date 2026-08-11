@@ -7,7 +7,7 @@ from miniagent.assistant.infrastructure.json_config import get_config
 
 
 def default_schedule_timezone() -> str:
-    """未显式 ``--tz`` 时写入 ``tasks.json`` 的时区名。"""
+    """未显式 ``--tz`` 时写入 scheduled task 行的时区名。"""
     sched = get_config("scheduled_tasks.timezone", "")
     if sched:
         ok = _validate_iana(sched)

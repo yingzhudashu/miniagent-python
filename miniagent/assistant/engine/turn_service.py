@@ -430,7 +430,7 @@ class AssistantTurnService:
             feishu_config: 飞书配置（注入）
             channel_router: 通道路由器（飞书思考多通道回调时使用）
             clawhub: ClawHub 客户端（注入至工具上下文，技能搜索/安装复用）
-            client: LLM 客户端（``None`` 时由 ``run_agent`` 回落到共享工厂）
+            client: 由组合根提供的 LLM gateway
             feishu_receive_chat_id: 飞书消息 API 用的会话 ID（如群聊 ``oc_xxx``）。
                 必须与 ``receive_id_type=chat_id`` 一致，**不得**传入内部路由键 ``feishu:oc_xxx``。
                 缺省时若 ``session_key`` 以 ``feishu:`` 开头则自动去掉前缀。
@@ -442,7 +442,7 @@ class AssistantTurnService:
             feishu_im_receive_id_type: 飞书 IM 发消息 ``receive_id_type``（``chat_id`` / ``open_id`` / ``union_id``）；缺省由执行器读环境变量。
             feishu_im_receive_id: 非 ``chat_id`` 时作为默认 ``receive_id``（通常为入站发送者 ``open_id``）。
             cli_loop_state: 与 CLI/飞书主循环共享的 ``CliLoopState``；注入后工具 ``run_dot_command`` 可调度点命令。
-            agent_config_overrides: 合并进 ``run_agent`` 的 ``agent_config``（如 ``history_progressive_compression``）。
+            agent_config_overrides: 合并进 ``AgentRequest.config``（如 ``history_progressive_compression``）。
             feishu_mirror_cli: 飞书会话绑定 CLI 通道时，是否将思考/输出镜像到终端（默认 True）。
             _hold_session_lock: 调用方已通过 :meth:`session_turn` 持有会话锁时为 True，跳过二次
                 ``acquire``，避免 ``asyncio.Lock`` 不可重入死锁。
@@ -672,7 +672,7 @@ class AssistantTurnService:
     ) -> str:
         """调用纯核心 Agent，并注入当前会话的确认与思考回调。"""
         _logger.debug(
-            "run_agent 调度: session_key=%s source=%s input=%.40s",
+            "AgentRuntime 调度: session_key=%s source=%s input=%.40s",
             request.session_key,
             "feishu" if request.is_feishu else "cli",
             (request.user_input or "").replace("\n", " "),
@@ -693,6 +693,7 @@ class AssistantTurnService:
             clawhub=request.clawhub,
             clarifier=self._get_clarifier(),
             confirmation_channel=self._get_confirmation_channel(request.session_key),
+            engine=self,
             tool_semaphore=self._tool_semaphore,
             owns_llm=False,
             owns_memory=False,
@@ -768,7 +769,7 @@ class AssistantTurnService:
         return self._get_confirmation_channel(self._active_session_key)
 
     def get_last_reflection(self, session_key: str) -> Any | None:
-        """获取指定会话最近一次反思评估结果（由 ``run_agent`` Phase 3 写入）。
+        """获取指定会话最近一次反思评估结果（由 Agent 管线 Phase 3 写入）。
 
         反思正文已并入 assistant 回复 footer 供展示；本缓存供外部按需读取。
         飞书 handler 在发送结论卡片后通常调用 :meth:`clear_last_reflection` 清理。

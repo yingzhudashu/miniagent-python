@@ -1,38 +1,24 @@
-"""Mini Agent Python — 记忆条目共享注册表
-
-提供跨索引的共享文本存储，避免 keyword_index 和 embedding_search 重复存储
-user_snippet、summary、facts 等文本字段。
-
-注册表以 "session_id:timestamp" 为键存储条目，两个索引只存储键引用，
-按需从注册表获取完整文本内容。
-
-内存节省估算：
-- 原：每条记忆在两索引各存 ~500 字符文本 → 1000 字符/条
-- 新：每条记忆仅在注册表存 ~500 字符 → 500 字符/条
-- 节省约 50% 文本存储内存
-"""
+"""SQLite-backed shared memory-entry registry."""
 
 from __future__ import annotations
 
-import collections
 import json
-import os
-import threading
+import math
+import time
+from array import array
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
-from miniagent.agent.logging import get_logger
 from miniagent.agent.types.memory import MemoryEntry, MemoryEntryInput
-from miniagent.assistant.infrastructure.atomic_json import atomic_dump_json
 from miniagent.assistant.infrastructure.json_config import get_config
-
-_logger = get_logger(__name__)
+from miniagent.assistant.state.sync import immediate_transaction, open_state_database
 
 
 @dataclass
 class SharedEntry:
-    """共享记忆条目（存储完整文本）。"""
+    """Shared text payload referenced by keyword and embedding search."""
 
     session_id: str
     timestamp: str
@@ -42,214 +28,264 @@ class SharedEntry:
 
 
 class MemoryEntryRegistry:
-    """记忆条目共享注册表。
-
-    以 OrderedDict 存储，支持上限驱逐（LRU）。
-    同一 session_id:timestamp 的条目只存储一份。
-    """
+    """Store each durable memory payload once in the project database."""
 
     def __init__(self, state_dir: str = "workspaces") -> None:
-        """创建注册表；``state_dir`` 决定 ``memory-registry.json`` 路径。"""
         self._state_dir = state_dir
-        self._entries: collections.OrderedDict[str, SharedEntry] = collections.OrderedDict()
-        self._max_entries: int = get_config("memory.registry_max_entries", 3000)
-        self._loaded = False
-        self._dirty = False
-        self._generation = 0
-        self._lock = threading.RLock()
-        self._save_lock = threading.Lock()
-        self._registry_file = os.path.join(state_dir, "memory-registry.json")
+        self._max_entries = int(get_config("memory.registry_max_entries", 3000))
 
-    def _ensure_loaded(self) -> None:
-        """确保注册表已从磁盘加载（延迟加载）。"""
-        with self._lock:
-            if not self._loaded:
-                self._load()
-
-    def _load(self) -> None:
-        """从磁盘加载注册表。"""
-        try:
-            if not os.path.exists(self._registry_file):
-                self._loaded = True
-                return
-
-            with open(self._registry_file, encoding="utf-8") as f:
-                disk = json.load(f)
-
-            self._entries.clear()
-            for key, data in disk.get("entries", {}).items():
-                self._entries[key] = SharedEntry(
-                    session_id=data["session_id"],
-                    timestamp=data["timestamp"],
-                    user_snippet=data.get("user_snippet", ""),
-                    summary=data.get("summary", ""),
-                    facts=data.get("facts", []),
-                )
-
-            self._loaded = True
-            self._dirty = False
-            self._generation = 0
-        except Exception as e:
-            _logger.warning("加载注册表失败，重建中: %s", e)
-            self._entries.clear()
-            self._loaded = True
-            self._dirty = False
-            self._generation = 0
-
-    def save(self) -> None:
-        """保存一致快照；并发注册发生时保留 dirty 供下次刷新。"""
-        self._ensure_loaded()
-        try:
-            with self._save_lock:
-                with self._lock:
-                    if not self._dirty:
-                        return
-                    generation = self._generation
-                    entries = {
-                        key: {
-                            "session_id": entry.session_id,
-                            "timestamp": entry.timestamp,
-                            "user_snippet": entry.user_snippet,
-                            "summary": entry.summary,
-                            "facts": list(entry.facts),
-                        }
-                        for key, entry in self._entries.items()
-                    }
-                disk = {
-                    "version": 1,
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
-                    "total_entries": len(entries),
-                    "entries": entries,
-                }
-                atomic_dump_json(self._registry_file, disk, ensure_ascii=False)
-                with self._lock:
-                    if self._generation == generation:
-                        self._dirty = False
-        except Exception as e:
-            _logger.error("保存注册表失败: %s", e)
-
-    def _make_key(self, session_id: str, timestamp: str) -> str:
-        """构造唯一键。"""
+    @staticmethod
+    def _make_key(session_id: str, timestamp: str) -> str:
         return f"{session_id}:{timestamp}"
+
+    @staticmethod
+    def _metadata(entry: SharedEntry) -> str:
+        return json.dumps(
+            {
+                "timestamp": entry.timestamp,
+                "user_snippet": entry.user_snippet,
+                "summary": entry.summary,
+                "facts": entry.facts,
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+
+    @staticmethod
+    def _from_row(row: Any) -> SharedEntry:
+        data = json.loads(str(row["metadata_json"]))
+        return SharedEntry(
+            session_id=str(row["scope"]),
+            timestamp=str(data.get("timestamp", "")),
+            user_snippet=str(data.get("user_snippet", "")),
+            summary=str(data.get("summary", "")),
+            facts=[str(item) for item in data.get("facts", [])],
+        )
 
     def register(
         self,
         session_id: str,
         entry: MemoryEntryInput | MemoryEntry,
     ) -> str:
-        """注册一条记忆条目，返回键。
-
-        Args:
-            session_id: 会话 ID
-            entry: 记忆条目
-
-        Returns:
-            注册键 "session_id:timestamp"
-        """
-        self._ensure_loaded()
-
         key = self._make_key(session_id, entry.timestamp)
-        new_facts = list(getattr(entry, "facts", []) or [])
-
-        with self._lock:
-            existing = self._entries.get(key)
-            if existing is not None:
-                if (
-                    existing.user_snippet != entry.user_snippet
-                    or existing.summary != entry.summary
-                    or existing.facts != new_facts
-                ):
-                    self._entries[key] = SharedEntry(
-                        session_id=session_id,
-                        timestamp=entry.timestamp,
-                        user_snippet=entry.user_snippet,
-                        summary=entry.summary,
-                        facts=new_facts,
+        shared = SharedEntry(
+            session_id=session_id,
+            timestamp=entry.timestamp,
+            user_snippet=entry.user_snippet,
+            summary=entry.summary,
+            facts=list(getattr(entry, "facts", []) or []),
+        )
+        content = " ".join(
+            [shared.user_snippet, shared.summary, *shared.facts]
+        ).strip()
+        try:
+            created_ms = int(datetime.fromisoformat(entry.timestamp.replace("Z", "+00:00")).timestamp() * 1000)
+        except (TypeError, ValueError):
+            created_ms = int(time.time() * 1000)
+        now_ms = int(time.time() * 1000)
+        with open_state_database(self._state_dir) as connection:
+            with immediate_transaction(connection):
+                connection.execute(
+                    "INSERT OR IGNORE INTO memory_profiles VALUES (?, 'memory', '{}')",
+                    (session_id,),
+                )
+                row = connection.execute(
+                    "SELECT id, content FROM memory_entries WHERE entry_key=?", (key,)
+                ).fetchone()
+                if row is None:
+                    cursor = connection.execute(
+                        """INSERT INTO memory_entries(
+                               entry_key, scope, namespace, content, metadata_json,
+                               created_at_ms, updated_at_ms
+                           ) VALUES (?, ?, 'memory', ?, ?, ?, ?)""",
+                        (key, session_id, content, self._metadata(shared), created_ms, now_ms),
                     )
-                    self._entries.move_to_end(key)
-                    self._generation += 1
-                    self._dirty = True
-                return key
-
-            self._entries[key] = SharedEntry(
-                session_id=session_id,
-                timestamp=entry.timestamp,
-                user_snippet=entry.user_snippet,
-                summary=entry.summary,
-                facts=new_facts,
-            )
-            self._entries.move_to_end(key)
-            while len(self._entries) > self._max_entries:
-                self._entries.popitem(last=False)
-            self._generation += 1
-            self._dirty = True
-
+                    if cursor.lastrowid is None:  # pragma: no cover - SQLite contract
+                        raise RuntimeError("memory insert did not return a row id")
+                    memory_id = int(cursor.lastrowid)
+                else:
+                    memory_id = int(row[0])
+                    if str(row[1]) != content:
+                        connection.execute(
+                            "DELETE FROM memory_embeddings WHERE memory_id=?", (memory_id,)
+                        )
+                    connection.execute(
+                        """UPDATE memory_entries SET content=?, metadata_json=?, updated_at_ms=?
+                           WHERE id=?""",
+                        (content, self._metadata(shared), now_ms, memory_id),
+                    )
+                    connection.execute("DELETE FROM memory_fts WHERE rowid=?", (memory_id,))
+                connection.execute(
+                    "INSERT INTO memory_fts(rowid, content) VALUES (?, ?)",
+                    (memory_id, content),
+                )
+                excess = connection.execute(
+                    """SELECT id FROM memory_entries WHERE namespace='memory'
+                       ORDER BY updated_at_ms DESC, id DESC LIMIT -1 OFFSET ?""",
+                    (self._max_entries,),
+                ).fetchall()
+                if excess:
+                    ids = [int(item[0]) for item in excess]
+                    connection.executemany(
+                        "DELETE FROM memory_fts WHERE rowid=?", [(item,) for item in ids]
+                    )
+                    connection.executemany(
+                        "DELETE FROM memory_entries WHERE id=?", [(item,) for item in ids]
+                    )
         return key
 
     def get(self, key: str) -> SharedEntry | None:
-        """获取条目。"""
-        self._ensure_loaded()
-        with self._lock:
-            return self._entries.get(key)
+        with open_state_database(self._state_dir) as connection:
+            row = connection.execute(
+                """SELECT scope, metadata_json FROM memory_entries
+                   WHERE entry_key=? AND namespace='memory'""",
+                (key,),
+            ).fetchone()
+        return self._from_row(row) if row is not None else None
 
     def contains(self, key: str) -> bool:
-        """检查键是否存在。"""
-        self._ensure_loaded()
-        with self._lock:
-            return key in self._entries
+        return self.get(key) is not None
 
     def evict(self, key: str) -> bool:
-        """驱逐指定键。"""
-        self._ensure_loaded()
-        with self._lock:
-            if key not in self._entries:
-                return False
-            del self._entries[key]
-            self._generation += 1
-            self._dirty = True
-            return True
+        with open_state_database(self._state_dir) as connection:
+            with immediate_transaction(connection):
+                row = connection.execute(
+                    "SELECT id FROM memory_entries WHERE entry_key=?", (key,)
+                ).fetchone()
+                if row is None:
+                    return False
+                connection.execute("DELETE FROM memory_fts WHERE rowid=?", (int(row[0]),))
+                connection.execute("DELETE FROM memory_entries WHERE id=?", (int(row[0]),))
+                return True
 
     def remove_session_entries(self, session_id: str) -> list[str]:
-        """移除指定会话的全部注册条目并持久化。
+        with open_state_database(self._state_dir) as connection:
+            with immediate_transaction(connection):
+                rows = connection.execute(
+                    """SELECT id, entry_key FROM memory_entries
+                       WHERE scope=? AND namespace='memory'""",
+                    (session_id,),
+                ).fetchall()
+                connection.executemany(
+                    "DELETE FROM memory_fts WHERE rowid=?",
+                    [(int(row[0]),) for row in rows],
+                )
+                connection.execute(
+                    "DELETE FROM memory_entries WHERE scope=? AND namespace='memory'",
+                    (session_id,),
+                )
+        return [str(row[1]) for row in rows]
 
-        Args:
-            session_id: 会话 ID
+    def all_entries(self) -> list[tuple[str, SharedEntry]]:
+        with open_state_database(self._state_dir) as connection:
+            rows = connection.execute(
+                """SELECT entry_key, scope, metadata_json FROM memory_entries
+                   WHERE namespace='memory' ORDER BY updated_at_ms, id"""
+            ).fetchall()
+        return [(str(row[0]), self._from_row(row)) for row in rows]
 
-        Returns:
-            被移除的 entry_key 列表
-        """
-        self._ensure_loaded()
-        prefix = f"{session_id}:"
-        removed: list[str] = []
-        with self._lock:
-            for key in list(self._entries.keys()):
-                entry = self._entries[key]
-                if key.startswith(prefix) or entry.session_id == session_id:
-                    del self._entries[key]
-                    removed.append(key)
-            if removed:
-                self._generation += 1
-                self._dirty = True
-        if removed:
-            self.save()
-        return removed
+    def put_embedding(
+        self,
+        entry_key: str,
+        model: str,
+        embedding: Sequence[float],
+        text_hash: str,
+    ) -> None:
+        """Store one finite vector for an existing memory entry."""
+        values = array("d", (float(value) for value in embedding))
+        if not values or any(not math.isfinite(value) for value in values):
+            raise ValueError("embedding must contain finite values")
+        norm = math.sqrt(sum(value * value for value in values))
+        if norm <= 0 or not math.isfinite(norm):
+            raise ValueError("embedding norm must be positive")
+        with open_state_database(self._state_dir) as connection:
+            with immediate_transaction(connection):
+                row = connection.execute(
+                    "SELECT id FROM memory_entries WHERE entry_key=?", (entry_key,)
+                ).fetchone()
+                if row is None:
+                    raise KeyError(entry_key)
+                dimensions = {
+                    int(item[0])
+                    for item in connection.execute(
+                        "SELECT DISTINCT dimension FROM memory_embeddings WHERE model=?",
+                        (model,),
+                    )
+                }
+                if dimensions and dimensions != {len(values)}:
+                    expected = sorted(dimensions)
+                    raise ValueError(
+                        f"embedding dimension mismatch for {model}: "
+                        f"expected {expected}, got {len(values)}"
+                    )
+                connection.execute(
+                    """INSERT INTO memory_embeddings VALUES (?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(memory_id, model) DO UPDATE SET
+                         text_hash=excluded.text_hash,
+                         dimension=excluded.dimension,
+                         vector_blob=excluded.vector_blob,
+                         norm=excluded.norm""",
+                    (int(row[0]), model, text_hash, len(values), values.tobytes(), norm),
+                )
+
+    def list_embeddings(
+        self, model: str
+    ) -> list[tuple[str, array[float], str, float]]:
+        """Load vectors for one explicit model namespace."""
+        with open_state_database(self._state_dir) as connection:
+            rows = connection.execute(
+                """SELECT e.entry_key, v.vector_blob, v.text_hash, v.norm
+                   FROM memory_embeddings v
+                   JOIN memory_entries e ON e.id=v.memory_id
+                   WHERE v.model=? ORDER BY e.updated_at_ms, e.id""",
+                (model,),
+            ).fetchall()
+        result: list[tuple[str, array[float], str, float]] = []
+        for row in rows:
+            vector = array("d")
+            vector.frombytes(bytes(row[1]))
+            result.append((str(row[0]), vector, str(row[2]), float(row[3])))
+        return result
+
+    def remove_embeddings(self, entry_keys: list[str], model: str) -> int:
+        if not entry_keys:
+            return 0
+        with open_state_database(self._state_dir) as connection:
+            with immediate_transaction(connection):
+                removed = 0
+                for entry_key in entry_keys:
+                    cursor = connection.execute(
+                        """DELETE FROM memory_embeddings
+                           WHERE model=? AND memory_id=(
+                             SELECT id FROM memory_entries WHERE entry_key=?
+                           )""",
+                        (model, entry_key),
+                    )
+                    removed += max(0, cursor.rowcount)
+                return removed
 
     def get_stats(self) -> dict[str, Any]:
-        """获取统计信息。"""
-        self._ensure_loaded()
-        with self._lock:
-            return {"total_entries": len(self._entries)}
+        with open_state_database(self._state_dir) as connection:
+            count = int(
+                connection.execute(
+                    "SELECT count(*) FROM memory_entries WHERE namespace='memory'"
+                ).fetchone()[0]
+            )
+        return {"total_entries": count}
+
+    def save(self) -> None:
+        """Writes are committed by each mutation; retained as an explicit flush point."""
 
     def clear(self) -> None:
-        """清空注册表（测试用）。"""
-        with self._lock:
-            self._entries.clear()
-            self._loaded = True
-            self._dirty = False
-            self._generation = 0
+        with open_state_database(self._state_dir) as connection:
+            with immediate_transaction(connection):
+                ids = connection.execute(
+                    "SELECT id FROM memory_entries WHERE namespace='memory'"
+                ).fetchall()
+                connection.executemany(
+                    "DELETE FROM memory_fts WHERE rowid=?", [(int(row[0]),) for row in ids]
+                )
+                connection.execute("DELETE FROM memory_entries WHERE namespace='memory'")
 
 
-__all__ = [
-    "SharedEntry",
-    "MemoryEntryRegistry",
-]
+__all__ = ["MemoryEntryRegistry", "SharedEntry"]

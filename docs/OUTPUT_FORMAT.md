@@ -1,6 +1,6 @@
 # 输出格式规范
 
-> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-19 | 与 `miniagent.__version__` 对齐
+> Mini Agent Python | 版本: 5.0.0 | 最后更新: 2026-08-10 | 与 `miniagent.__version__` 对齐
 > CLI 与飞书通道的输出格式、流式输出、间距规则
 
 ## 概述
@@ -26,7 +26,7 @@
 **约定**：
 - `ToolResult(success=False, content=...)` 应使用 `ERROR_PREFIX` 或 `WARNING_PREFIX`
 - 飞书消息去重机制：`⚠️` 前缀的回复不入磁盘去重（`poll_server.py`）
-- 逐步迁移：新模块使用 `error_prefix` / `error_messages` 常量，旧模块逐步替换硬编码 emoji 与内联文案
+- 所有模块使用 `error_prefix` / `error_messages` 常量，避免重复硬编码 emoji 与内联文案
 
 ## 1. CLI 全屏模式（prompt_toolkit TUI）
 
@@ -216,7 +216,7 @@ CLI 与飞书共进程时：
 
 ## 5. 会话历史中的思考块
 
-会话 `history.json` 中，每轮对话的 thinking 部分按以下顺序拼接（`\n\n` 分隔）：
+项目 SQLite 会话消息中，每轮对话的 thinking 部分按以下顺序拼接（`\n\n` 分隔）：
 
 1. `[步骤 i/n]` 规划步骤（按 step_number 排序）
 2. `[评估与计划]` 难度评估与计划

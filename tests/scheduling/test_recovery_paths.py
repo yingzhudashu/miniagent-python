@@ -24,11 +24,7 @@ def test_scheduler_sleep_selection_and_trace_write_failures(
         schedule=ScheduleSpec(kind="interval", interval_seconds=60),
         next_run_at=101.0,
     )
-    disabled = ScheduledTask(id="disabled", name="d", prompt="p", enabled=False, next_run_at=1)
-    future = ScheduledTask(id="future", name="f", prompt="p", next_run_at=200)
     assert ticker._sleep_seconds_until([active]) == 1.0
-    monkeypatch.setattr(ticker, "try_acquire_job_lock", lambda _id: True)
-    assert ticker._select_due_tasks([disabled, future, active], 150) == [active]
 
     writer = AsyncTraceWriter()
     writer._flush_trace_lines = MagicMock(side_effect=OSError("disk"))
@@ -42,11 +38,16 @@ def test_scheduler_sleep_selection_and_trace_write_failures(
     assert batch is not None
 
 @pytest.mark.asyncio
-async def test_scheduler_finalize_failure_releases_lock(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_scheduler_finalize_failure_releases_inflight_marker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     ticker._inflight.add("job")
-    release = MagicMock()
-    monkeypatch.setattr(ticker, "load_tasks", MagicMock(side_effect=RuntimeError("disk")))
-    monkeypatch.setattr(ticker, "release_job_lock", release)
-    await ticker._finalize_scheduled_job("job", outcome="completed", agent_error=None)
+    monkeypatch.setattr(
+        ticker,
+        "finalize_claimed_task",
+        MagicMock(side_effect=RuntimeError("database")),
+    )
+    await ticker._finalize_scheduled_job(
+        "job", "owner", outcome="completed", agent_error=None
+    )
     assert "job" not in ticker._inflight
-    release.assert_called_once_with("job")

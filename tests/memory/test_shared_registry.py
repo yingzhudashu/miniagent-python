@@ -106,6 +106,46 @@ class TestMemoryEntryRegistry:
         assert retrieved.user_snippet == "Updated"
         assert retrieved.facts == ["fact2"]
 
+    def test_content_update_invalidates_stale_embedding(self, registry, temp_state_dir):
+        entry = MemoryEntryInput(
+            timestamp="2026-05-31T12:00:00Z",
+            user_snippet="Original",
+            summary="Summary",
+        )
+        key = registry.register("s1", entry)
+        registry.put_embedding(key, "model", [1.0, 0.0], "old")
+        registry.register(
+            "s1",
+            MemoryEntryInput(
+                timestamp=entry.timestamp,
+                user_snippet="Changed",
+                summary="Summary",
+            ),
+        )
+        assert registry.list_embeddings("model") == []
+
+    def test_model_namespace_rejects_mixed_dimensions(self, registry):
+        first = registry.register(
+            "s1",
+            MemoryEntryInput(
+                timestamp="2026-05-31T12:00:00Z",
+                user_snippet="first",
+                summary="one",
+            ),
+        )
+        second = registry.register(
+            "s1",
+            MemoryEntryInput(
+                timestamp="2026-05-31T13:00:00Z",
+                user_snippet="second",
+                summary="two",
+            ),
+        )
+        registry.put_embedding(first, "model", [1.0, 0.0], "one")
+        with pytest.raises(ValueError, match="dimension mismatch"):
+            registry.put_embedding(second, "model", [1.0, 0.0, 0.0], "two")
+        assert len(registry.list_embeddings("model")) == 1
+
     def test_register_duplicate_no_change(self, registry):
         """Registering same key with unchanged content keeps existing."""
         entry = MemoryEntryInput(

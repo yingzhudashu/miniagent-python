@@ -30,10 +30,10 @@ def test_save_and_load_dream_state(tmp_path: Path) -> None:
     assert state["last_refine"] == "2026-05-20"
 
 
-def test_state_path_creates_memory_dir(tmp_path: Path) -> None:
-    p = dream_scheduler._state_path()
-    assert p.endswith("dream_state.json")
-    assert (tmp_path / "memory").is_dir()
+def test_state_uses_project_database_without_legacy_file(tmp_path: Path) -> None:
+    dream_scheduler._save_dream_state({"complete": True})
+    assert (tmp_path / "state.sqlite3").is_file()
+    assert not (tmp_path / "memory" / "dream_state.json").exists()
 
 
 @pytest.mark.asyncio
@@ -53,7 +53,11 @@ async def test_scheduler_runs_complete_locked_refinement_in_worker(
     scheduler = dream_scheduler.DreamScheduler(str(tmp_path))
     scheduler._policy = dream_scheduler._DreamPolicy(0, 0, 0, 1, 0)
     calls: list[str] = []
-    monkeypatch.setattr(dream_scheduler, "_try_file_lock", lambda _root: True)
+    monkeypatch.setattr(
+        dream_scheduler,
+        "_try_maintenance_lease",
+        lambda _root, _owner: True,
+    )
     monkeypatch.setattr(
         dream_scheduler,
         "_refine_session_sync",
@@ -61,8 +65,8 @@ async def test_scheduler_runs_complete_locked_refinement_in_worker(
     )
     monkeypatch.setattr(
         dream_scheduler,
-        "_release_file_lock",
-        lambda _root: calls.append("release"),
+        "_release_maintenance_lease",
+        lambda _root, _owner: calls.append("release"),
     )
 
     scheduler.schedule("session")
@@ -80,7 +84,7 @@ def test_dream_constants() -> None:
     assert dream_scheduler.SIZE_FORCE_BYTES > 0
 
 
-def test_diary_size_and_file_lock_lifecycle(tmp_path: Path) -> None:
+def test_diary_size_and_lease_lifecycle(tmp_path: Path) -> None:
     from miniagent.assistant.utils.session_id import safe_session_id
 
     diary = tmp_path / "memory" / "diary" / safe_session_id("session")
@@ -88,23 +92,19 @@ def test_diary_size_and_file_lock_lifecycle(tmp_path: Path) -> None:
     (diary / "a.md").write_bytes(b"1234")
     (diary / "b.md").write_bytes(b"56")
     assert dream_scheduler._diary_dir_size("session", str(tmp_path)) == 6
-    assert dream_scheduler._try_file_lock(str(tmp_path))
-    lock = tmp_path / "memory" / "dream.lock"
-    assert lock.exists()
-    dream_scheduler._release_file_lock(str(tmp_path))
-    assert not lock.exists()
+    assert dream_scheduler._try_maintenance_lease(str(tmp_path), "owner-a")
+    assert not dream_scheduler._try_maintenance_lease(str(tmp_path), "owner-b")
+    dream_scheduler._release_maintenance_lease(str(tmp_path), "owner-a")
+    assert dream_scheduler._try_maintenance_lease(str(tmp_path), "owner-b")
+    assert not (tmp_path / "memory" / "dream.lock").exists()
 
 
-@pytest.mark.asyncio
-async def test_refine_session_updates_all_memory_layers(
+def test_refine_session_updates_all_memory_layers(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     rollups: list[dict] = []
     session_saves: list[dict] = []
     agent_saves: list[dict] = []
-    monkeypatch.setattr(dream_scheduler, "DIARY_REFINE_SEC", 0)
-    monkeypatch.setattr(dream_scheduler, "SESSION_LT_REFINE_SEC", 0)
-    monkeypatch.setattr(dream_scheduler, "AGENT_LT_REFINE_SEC", 0)
     monkeypatch.setattr(dream_scheduler, "_diary_dir_size", lambda *_args: 10)
     monkeypatch.setattr(
         dream_scheduler,
@@ -132,7 +132,8 @@ async def test_refine_session_updates_all_memory_layers(
         lambda document: agent_saves.append(document),
     )
 
-    await dream_scheduler._refine_session("session", str(tmp_path))
+    policy = dream_scheduler._DreamPolicy(0, 0, 0, 1, 0)
+    dream_scheduler._refine_session_sync("session", str(tmp_path), policy)
     assert rollups
     assert len(session_saves[0]["day_entries"]) == 120
     assert len(agent_saves[0]["entries"]) == 300

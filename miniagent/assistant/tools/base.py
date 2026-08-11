@@ -16,10 +16,7 @@
             .build(),
     }
 
-迁移说明：
-- 原定义模式：_xxx_schema (15行) + _xxx_handler + ToolDefinition
-- 新定义模式：tool() + .param() + .build() (约5行)
-- 代码量减少约 67%
+当前定义模式为 ``tool() + .param() + .build()``，schema 与 handler 在同一构建链中声明。
 """
 
 from __future__ import annotations

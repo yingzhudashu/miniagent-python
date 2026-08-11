@@ -1,15 +1,59 @@
-"""Mini Agent Python — 自测 Agent 执行适配器
-
-将 :func:`miniagent.agent.agent.run_agent` 适配为自测框架所需的
-``execute_agent(user_input, capture_tools=True)`` 接口。
-"""
+"""Adapt ``AgentRuntime`` to the self-test execution contract."""
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
+from miniagent.agent.runtime import AgentRequest, AgentRuntime, AgentSpec
+from miniagent.agent.settings import AgentSettings
+from miniagent.assistant.infrastructure.json_config import get_config_snapshot
 from miniagent.assistant.testing.types import AgentExecutionResult, ExecuteAgentFn
 from miniagent.assistant.testing.validation import build_agent_execution_dict, estimate_token_count
+
+
+async def _run_test_agent(
+    user_input: str,
+    *,
+    registry: Any,
+    memory: Any,
+    knowledge_registry: Any,
+    client: Any,
+    monitor: Any,
+    toolboxes: list[Any],
+    system_prompt: str | None,
+    agent_config: dict[str, Any],
+    session_key: str,
+    on_tool_finish: Any,
+    engine: Any = None,
+):
+    runtime = AgentRuntime(
+        AgentSpec(
+            settings=AgentSettings(get_config_snapshot()),
+            registry=registry,
+            memory=memory,
+            knowledge=knowledge_registry,
+            monitor=monitor,
+            observer=SimpleNamespace(on_tool_finish=on_tool_finish),
+            engine=engine,
+            owns_llm=False,
+            owns_memory=False,
+        ),
+        client,
+    )
+    await runtime.start()
+    try:
+        return await runtime.run(
+            AgentRequest(
+                user_input=user_input,
+                session_key=session_key,
+                toolboxes=tuple(toolboxes),
+                system_prompt=system_prompt,
+                config=agent_config,
+            )
+        )
+    finally:
+        await runtime.stop()
 
 
 def build_execute_agent(
@@ -32,7 +76,7 @@ def build_execute_agent(
         skill_toolboxes: 技能工具箱列表
         skill_prompts: 技能系统提示词
         session_key: 隔离用的会话键（避免污染用户会话历史时可专用）
-        agent_config: 合并进 run_agent 的配置覆盖
+        agent_config: 合并进 ``AgentRequest.config`` 的配置覆盖
 
     Returns:
         符合 :class:`ExecuteAgentFn` 的异步 callable
@@ -46,7 +90,6 @@ def build_execute_agent(
         base_config.update(agent_config)
 
     async def execute_agent(user_input: str, *, capture_tools: bool = True) -> AgentExecutionResult:
-        from miniagent.agent.agent import run_agent
         from miniagent.agent.monitor import DefaultToolMonitor
 
         monitor = DefaultToolMonitor()
@@ -64,7 +107,7 @@ def build_execute_agent(
                     {"name": name, "args": args_json, "success": success}
                 )
 
-        result = await run_agent(
+        result = await _run_test_agent(
             user_input,
             registry=registry,
             memory=memory,
@@ -76,7 +119,6 @@ def build_execute_agent(
             agent_config=base_config,
             session_key=session_key,
             on_tool_finish=on_tool_finish,
-            skip_planning=False,
         )
 
         reply = result.reply
@@ -118,12 +160,11 @@ async def build_execute_agent_from_engine(
     if client is None:
         raise ValueError("真实 Agent 自测需要 state.runtime_ctx.llm_client")
     if sm is not None:
-        await sm.get_or_create(session_key)
+        sm.get_or_create(session_key)
 
     toolboxes = skill_toolboxes or []
 
     async def execute_agent(user_input: str, *, capture_tools: bool = True) -> AgentExecutionResult:
-        from miniagent.agent.agent import run_agent
         from miniagent.agent.monitor import DefaultToolMonitor
 
         run_monitor = DefaultToolMonitor()
@@ -143,7 +184,7 @@ async def build_execute_agent_from_engine(
 
         agent_config: dict[str, Any] = {"session_key": session_key, "debug": False}
 
-        result = await run_agent(
+        result = await _run_test_agent(
             user_input,
             registry=registry,
             memory=memory,
@@ -156,7 +197,6 @@ async def build_execute_agent_from_engine(
             session_key=session_key,
             on_tool_finish=on_tool_finish,
             engine=engine,
-            skip_planning=False,
         )
 
         reply = result.reply

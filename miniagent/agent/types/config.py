@@ -132,7 +132,7 @@ class AgentConfig:
 
     配置合并优先级（从低到高，实现见 ``miniagent.agent.config`` / ``miniagent.agent.agent``）：
     1. get_default_agent_config() — 默认值
-    2. run_agent(options.agent_config) — 用户传入
+    2. AgentRequest.config — 调用方的回合级覆盖
     3. plan.suggested_config — 规划器推荐
 
     配置分组说明：
@@ -227,7 +227,7 @@ class AgentConfig:
     history_progressive_compression: bool = True
 
 def normalize_conversation_history(value: Any) -> list[dict[str, Any]]:
-    """将 history.json 或调用方传入的值规范为 Chat API 消息 dict 列表。
+    """将 SQLite 会话消息或调用方传入的值规范为 Chat API 消息 dict 列表。
 
     边界行为：
     - ``None``、非 list → 返回 ``[]``

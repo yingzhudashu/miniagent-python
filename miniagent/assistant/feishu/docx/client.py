@@ -2,11 +2,59 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from miniagent.assistant.feishu.lark_client import build_client
 from miniagent.assistant.feishu.lark_response import format_lark_response_error
 from miniagent.ui.feishu.types import FeishuConfig
+
+
+def find_page_block_id(client: Any, document_id: str) -> str:
+    """Return the document Page block used as the root container."""
+    from lark_oapi.api.docx.v1 import ListDocumentBlockRequest
+
+    response = client.docx.v1.document_block.list(
+        ListDocumentBlockRequest.builder().document_id(document_id).page_size(50).build()
+    )
+    if not response.success() or not response.data or not response.data.items:
+        raise RuntimeError(
+            f"Feishu list document blocks failed: {format_lark_response_error(response)}"
+        )
+    for block in response.data.items:
+        if int(getattr(block, "block_type", 0) or 0) == 1 and getattr(
+            block, "block_id", None
+        ):
+            return str(block.block_id)
+    first = response.data.items[0]
+    if not getattr(first, "block_id", None):
+        raise RuntimeError("Feishu list document blocks: empty block_id")
+    return str(first.block_id)
+
+
+def batch_update_blocks(
+    config: FeishuConfig, document_id: str, requests_payload: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Execute one document-level batch update."""
+    from lark_oapi.api.docx.v1 import (
+        BatchUpdateDocumentBlockRequest,
+        BatchUpdateDocumentBlockRequestBody,
+    )
+
+    client = build_client(config)
+    body = BatchUpdateDocumentBlockRequestBody.builder().requests(requests_payload).build()
+    response = client.docx.v1.document_block.batch_update(
+        BatchUpdateDocumentBlockRequest.builder()
+        .document_id(document_id)
+        .request_body(body)
+        .build()
+    )
+    if not response.success():
+        raise RuntimeError(
+            f"Feishu batch_update failed: {format_lark_response_error(response)}"
+        )
+    raw = getattr(response, "raw", None)
+    return {"ok": True, "data": json.loads(raw.content) if raw else {}}
 
 
 def create_document(config: FeishuConfig, *, folder_token: str, title: str) -> tuple[str, int]:

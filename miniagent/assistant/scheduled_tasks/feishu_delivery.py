@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 class FeishuDeliveryTarget:
     """飞书 IM 投递目标（与 CLI 共享 session_key 记忆）。
 
-    ``receive_chat_id``：IM API ``receive_id``（与入站 ``run_agent`` 一致，常为 ``oc_*`` 聊天室 ID）。
+    ``receive_chat_id``：IM API ``receive_id``（与入站 Agent 回合一致，常为 ``oc_*`` 聊天室 ID）。
     ``mq_chat_id``：``MessageQueueManager`` 串行键（与 ``poll_server`` 的 ``dispatch(chat_id)`` 一致）。
     """
 

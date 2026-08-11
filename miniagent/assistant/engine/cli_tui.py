@@ -4,23 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sys
 from dataclasses import dataclass
 from typing import Any
 
 from miniagent.agent.logging import set_console_log_threshold
 from miniagent.agent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX
-from miniagent.assistant.bootstrap.application import ApplicationContainer
 from miniagent.assistant.engine.cli_fallback import run_cli_loop_fallback
 from miniagent.assistant.engine.cli_history import (
     reload_cli_input_history,
-    resolve_cli_history_file,
 )
-from miniagent.assistant.engine.cli_state import CliLoopState
 from miniagent.assistant.engine.shutdown import shutdown_runtime
 from miniagent.assistant.engine.utils import feishu_user_status_fn as _feishu_user_status_fn
-from miniagent.assistant.infrastructure.instance import heartbeat, unregister_instance
-from miniagent.assistant.infrastructure.json_config import get_config
+from miniagent.assistant.infrastructure.instance import heartbeat
 from miniagent.ui.tui.clipboard import copy_text_to_system_clipboard
 
 _logger = logging.getLogger(__name__)
@@ -364,38 +359,8 @@ async def _submit_tui_agent_input(user_input: str, runtime: dict[str, Any]) -> b
     return False
 
 
-async def run_cli_loop(
-    ctx: ApplicationContainer,
-    state: CliLoopState,
-    skill_toolboxes: list,
-    skill_prompts: list,
-) -> None:
-    """运行全屏 CLI；依赖缺失、强制配置或无 TTY 时回退到行式模式。"""
-    try:
-        from prompt_toolkit.formatted_text import HTML  # noqa: F401
-        from prompt_toolkit.styles import Style  # noqa: F401
-
-        from miniagent.assistant.engine.cli_completion import create_cli_completer  # noqa: F401
-    except ImportError:
-        await run_cli_loop_fallback(ctx, state, skill_toolboxes, skill_prompts)
-        return
-    if get_config("cli.force_fallback", False) or not sys.stdin.isatty() or not sys.stdout.isatty():
-        await run_cli_loop_fallback(ctx, state, skill_toolboxes, skill_prompts)
-        return
-    from miniagent.assistant.engine.cli_tui_app import run_fullscreen_cli
-
-    await run_fullscreen_cli(
-        ctx,
-        state,
-        skill_toolboxes,
-        skill_prompts,
-        history_file=resolve_cli_history_file(),
-        unregister=unregister_instance,
-    )
-
-
 # 源码回归兼容：实际对象在 cli_tui_app 中构造并持有这两个值。
 # _transcript = TranscriptBuffer(_MAX_TRANSCRIPT_CHARS)
 # "scrollbar.button": "bg:ansibrightcyan fg:ansiblack"
 
-__all__ = ["run_cli_loop"]
+__all__: list[str] = []

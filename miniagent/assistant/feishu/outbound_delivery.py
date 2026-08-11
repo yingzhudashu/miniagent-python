@@ -238,7 +238,7 @@ async def _send_reply(
     if sent > 0:
         notice = (
             f"（Mini Agent：本回复共分 {n} 段，已成功发送前 {sent} 段；"
-            "剩余段落未能送达。完整内容见本会话的 history.json。）"
+            "剩余段落未能送达。完整内容仍保存在本会话历史中。）"
         )
         _send_plain_text_chunks(
             config,

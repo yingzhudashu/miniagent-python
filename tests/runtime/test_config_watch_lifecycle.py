@@ -68,12 +68,12 @@ async def test_config_watch_reloads_only_after_stable_threaded_mtime(
         reloaded.append(actual)
         stop_event.set()
 
-    from miniagent.assistant.infrastructure import json_config
+    from miniagent.assistant.bootstrap import configuration
 
     monkeypatch.setattr(config_watch, "_config_mtime_async", mtime)
     monkeypatch.setattr(config_watch, "_CHECK_INTERVAL", 0.001)
     monkeypatch.setattr(config_watch, "_DEBOUNCE_SEC", 0)
-    monkeypatch.setattr(json_config, "reload_runtime_config", reload_runtime_config)
+    monkeypatch.setattr(configuration, "reload_runtime_config", reload_runtime_config)
 
     await config_watch._config_watch_loop(container, stop_event)
 

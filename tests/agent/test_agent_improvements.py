@@ -10,7 +10,6 @@ from miniagent.agent.agent import (
     _format_plan_display_short,
     _format_plan_message,
     _merge_plan_suggested_config,
-    run_agent,
 )
 from miniagent.agent.tools.registry import DefaultToolRegistry
 from miniagent.agent.types.config import AgentConfig
@@ -24,6 +23,7 @@ from miniagent.agent.types.planning import (
     SuggestedConfig,
 )
 from miniagent.agent.types.tool import Toolbox
+from tests.support.agent_runtime import run_agent
 from tests.support.config import install_test_config
 from tests.support.memory import make_knowledge_registry, make_memory_runtime
 

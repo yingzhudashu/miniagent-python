@@ -104,7 +104,7 @@ async def _config_watch_loop(ctx: Any, stop_event: asyncio.Event) -> None:
 
                     # 触发热更新
                     try:
-                        from miniagent.assistant.infrastructure.json_config import (
+                        from miniagent.assistant.bootstrap.configuration import (
                             reload_runtime_config,
                         )
 

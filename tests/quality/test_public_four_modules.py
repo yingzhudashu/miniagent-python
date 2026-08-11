@@ -13,10 +13,9 @@ import pytest
 from miniagent.agent import AgentRequest, AgentRuntime, AgentSettings, AgentSpec
 from miniagent.agent.types.agent import AgentRunResult
 from miniagent.assistant import (
-    AssistantApplication,
     AssistantSpec,
+    PersonalAssistantApplication,
     create_assistant,
-    create_assistant_application,
     create_personal_assistant,
     run_assistant,
 )
@@ -82,20 +81,19 @@ async def test_ui_public_facade_dispatches_without_product_imports() -> None:
 
 
 def test_assistant_public_entry_points_are_exposed() -> None:
-    assert AssistantApplication
+    assert PersonalAssistantApplication
     assert AssistantSpec
     assert callable(create_assistant)
-    assert callable(create_assistant_application)
     assert callable(create_personal_assistant)
     assert callable(run_assistant)
 
 
-def test_v4_capability_contracts_are_public() -> None:
+def test_current_capability_contracts_are_public() -> None:
     assert EmbeddingClient and UIInput and UISurface
 
 
 @pytest.mark.parametrize(
-    "legacy",
+    "removed_module",
     [
         "miniagent.core",
         "miniagent.engine",
@@ -105,6 +103,6 @@ def test_v4_capability_contracts_are_public() -> None:
         "miniagent.types",
     ],
 )
-def test_legacy_top_level_imports_are_gone(legacy: str) -> None:
+def test_removed_top_level_imports_are_gone(removed_module: str) -> None:
     with pytest.raises(ModuleNotFoundError):
-        __import__(legacy)
+        __import__(removed_module)

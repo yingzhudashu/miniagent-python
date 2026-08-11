@@ -1,10 +1,10 @@
-"""Unit tests for miniagent.llm.openai_compat."""
+"""Unit tests for miniagent.llm.openai_wire."""
 
 from __future__ import annotations
 
 import pytest
 
-from miniagent.llm.openai_compat import (
+from miniagent.llm.openai_wire import (
     ensure_json_object_user_message,
     json_object_requires_json_keyword,
     json_object_unsupported,

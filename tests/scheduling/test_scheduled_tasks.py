@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
-import os
 import time
 from unittest.mock import AsyncMock, MagicMock
 
@@ -14,6 +12,7 @@ from miniagent.assistant.scheduled_tasks.resolve import resolve_execution_target
 from miniagent.assistant.scheduled_tasks.runner import ScheduledJob
 from miniagent.assistant.scheduled_tasks.store import (
     apply_dispatch_failure_backoff,
+    claim_due_tasks,
     compute_initial_next_run,
     dispatch_failure_backoff_seconds,
     finalize_task_after_run,
@@ -29,7 +28,6 @@ from tests.support.config import install_test_config
 from tests.support.scheduling import (
     minimal_cli_state,
     minimal_tick_ctx,
-    patch_tick_once_locks,
 )
 
 
@@ -194,20 +192,16 @@ async def test_tick_once_dispatches_and_updates(
     engine.run_agent_with_thinking = AsyncMock(return_value="ok")
     ctx = minimal_tick_ctx(engine=engine)
     st = minimal_cli_state(ctx)
-    patch_tick_once_locks(monkeypatch)
 
     await tick_once(ctx, st, [], [])
     await asyncio.sleep(0.25)
 
     assert engine.run_agent_with_thinking.await_count == 1
 
-    path = os.path.join(state_dir, "scheduled_tasks", "tasks.json")
-    with open(path, encoding="utf-8") as f:
-        data = json.load(f)
-    row = data["tasks"][0]
-    assert row["run_count"] >= 1
-    assert row["last_run_at"] is not None
-    assert row.get("next_run_at") is not None
+    row = load_tasks()[0]
+    assert row.run_count >= 1
+    assert row.last_run_at is not None
+    assert row.next_run_at is not None
 
 
 def test_apply_dispatch_failure_backoff(state_dir: str) -> None:
@@ -262,7 +256,6 @@ async def test_tick_once_dispatch_failure_backoff(
         )
 
     monkeypatch.setattr("miniagent.assistant.scheduled_tasks.ticker.build_scheduled_job", _boom)
-    patch_tick_once_locks(monkeypatch)
 
     before = time.time()
     await tick_once(ctx, st, [], [])
@@ -555,13 +548,12 @@ async def test_tick_once_respects_disable_config(
     engine.run_agent_with_thinking = AsyncMock(return_value="ok")
     ctx = minimal_tick_ctx(engine=engine)
     st = minimal_cli_state(ctx)
-    patch_tick_once_locks(monkeypatch)
     await tick_once(ctx, st, [], [])
     engine.run_agent_with_thinking.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_tick_once_skips_when_scheduler_lock_held(
+async def test_tick_once_skips_task_claimed_by_another_scheduler(
     state_dir: str, tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     install_test_config(
@@ -585,9 +577,7 @@ async def test_tick_once_skips_when_scheduler_lock_held(
     engine.run_agent_with_thinking = AsyncMock(return_value="ok")
     ctx = minimal_tick_ctx(engine=engine)
     st = minimal_cli_state(ctx)
-    monkeypatch.setattr(
-        "miniagent.assistant.scheduled_tasks.ticker.try_acquire_scheduler_lock", lambda: False
-    )
+    assert claim_due_tasks("other-scheduler", limit=1)
     await tick_once(ctx, st, [], [])
     engine.run_agent_with_thinking.assert_not_called()
 

@@ -99,6 +99,18 @@ def test_cross_layer_cycle_is_reported(architecture_module, tmp_path: Path) -> N
     assert any(isinstance(item, architecture_module.CycleViolation) for item in violations)
 
 
+def test_multi_module_cycle_is_reported(architecture_module, tmp_path: Path) -> None:
+    _write_module(tmp_path, "assistant", "from miniagent.assistant.second import value\n")
+    _write_module(
+        tmp_path,
+        "assistant",
+        "from miniagent.assistant.sample import value\n",
+        name="second.py",
+    )
+    violations = architecture_module.check_architecture(tmp_path)
+    assert any(isinstance(item, architecture_module.ModuleCycleViolation) for item in violations)
+
+
 def test_command_module_cannot_import_dispatcher(architecture_module, tmp_path: Path) -> None:
     _write_module(
         tmp_path,
@@ -123,6 +135,19 @@ def test_assistant_production_uses_agent_facade(architecture_module, tmp_path: P
     assert any(
         isinstance(item, architecture_module.ModuleDependencyViolation)
         and "Agent facade" in item.message
+        for item in violations
+    )
+
+
+@pytest.mark.parametrize("name", ["AssistantApplication", "_legacy_policy"])
+def test_removed_current_version_symbol_is_rejected(
+    architecture_module, tmp_path: Path, name: str
+) -> None:
+    _write_module(tmp_path, "assistant", f"def {name}():\n    pass\n")
+    violations = architecture_module.check_architecture(tmp_path)
+    assert any(
+        isinstance(item, architecture_module.ModuleDependencyViolation)
+        and "removed current-version symbol" in item.message
         for item in violations
     )
 

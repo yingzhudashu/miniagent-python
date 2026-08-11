@@ -1,4 +1,4 @@
-"""定时任务持久化：``tasks.json`` 的读写、下次触发时间计算与运行后重算。
+"""定时任务持久化、下次触发时间计算与运行后重算。
 
 路径根由 ``resolve_state_dir()`` 决定（见 ``miniagent.assistant.infrastructure.paths``）。"""
 
@@ -6,26 +6,19 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import time
 from datetime import datetime, timezone, tzinfo
 from typing import Literal
 
 from miniagent.agent.logging import get_logger
 from miniagent.agent.timezone import process_timezone
-from miniagent.assistant.infrastructure.atomic_json import atomic_dump_json
 from miniagent.assistant.infrastructure.json_config import get_config
 from miniagent.assistant.infrastructure.paths import resolve_state_dir as get_state_root
-from miniagent.assistant.infrastructure.persistence import load_state_file
-from miniagent.assistant.infrastructure.state_schemas import install_builtin_state_schemas
-from miniagent.assistant.scheduled_tasks.file_lock import tasks_json_lock
 from miniagent.assistant.scheduled_tasks.models import ScheduledTask, ScheduleSpec
+from miniagent.assistant.state.sync import immediate_transaction, open_state_database
 
 _logger = get_logger(__name__)
 _utc_timezone_hint_logged: set[str] = set()
-
-_FILE_VERSION = 2
-install_builtin_state_schemas()
 
 TaskRunOutcome = Literal[
     "completed",
@@ -42,64 +35,98 @@ def dispatch_failure_backoff_seconds() -> int:
     return max(1, int(sec))
 
 
-def tasks_dir() -> str:
-    """``scheduled_tasks`` 目录路径（不存在则创建）。"""
-    d = os.path.join(get_state_root(), "scheduled_tasks")
-    os.makedirs(d, exist_ok=True)
-    return d
-
-
-def tasks_file_path() -> str:
-    """``tasks.json`` 绝对路径。"""
-    return os.path.join(tasks_dir(), "tasks.json")
-
-
 def load_tasks() -> list[ScheduledTask]:
-    """读取磁盘任务列表；文件缺失或损坏时返回空列表（不抛）。"""
-    p = tasks_file_path()
-    if not os.path.isfile(p):
-        return []
-    with tasks_json_lock():
-        try:
-            raw = load_state_file("scheduled_tasks", p)
-        except (OSError, json.JSONDecodeError) as e:
-            _logger.warning("读取任务文件失败: %s - %s", p, e)
-            return []
-        if not isinstance(raw, dict) or "tasks" not in raw:
-            return []
-        out: list[ScheduledTask] = []
-        for item in raw.get("tasks") or []:
-            if isinstance(item, dict):
-                try:
-                    out.append(ScheduledTask.from_json(item))
-                except (KeyError, TypeError, ValueError) as e:
-                    _logger.debug("解析任务条目失败: %s - %s", item.get("id", "unknown"), e)
-                    continue
-        return out
+    """Read the current task set from the exact project database."""
+    with open_state_database(get_state_root()) as connection:
+        rows = connection.execute(
+            "SELECT task_json FROM scheduled_tasks ORDER BY task_id"
+        ).fetchall()
+    return [ScheduledTask.from_json(json.loads(str(row[0]))) for row in rows]
 
 
 def save_tasks(tasks: list[ScheduledTask]) -> None:
-    """原子写回 ``tasks.json``（唯一临时名 + ``os.replace``；Windows 上带短退避重试）。"""
-    p = tasks_file_path()
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    payload = {
-        "schema_version": _FILE_VERSION,
-        "tasks": [t.to_json() for t in tasks],
-    }
-    delays = (0.0, 0.02, 0.05, 0.1, 0.2, 0.35)
-    last_err: OSError | None = None
-    with tasks_json_lock():
-        for attempt, delay in enumerate(delays):
-            if delay > 0:
-                time.sleep(delay)
-            try:
-                atomic_dump_json(p, payload, ensure_ascii=False, indent=2)
-                return
-            except OSError as e:
-                last_err = e
-                if attempt < len(delays) - 1:
-                    continue
-                raise last_err from e
+    """Atomically replace the current task set in SQLite."""
+    now_ms = int(time.time() * 1000)
+    with open_state_database(get_state_root()) as connection:
+        with immediate_transaction(connection):
+            task_ids = {task.id for task in tasks}
+            if task_ids:
+                placeholders = ",".join("?" for _ in task_ids)
+                # Only generated ``?`` placeholders enter the SQL structure.
+                delete_tasks_query = (
+                    f"DELETE FROM scheduled_tasks WHERE task_id NOT IN ({placeholders})"  # nosec B608
+                )
+                connection.execute(
+                    delete_tasks_query,
+                    tuple(sorted(task_ids)),
+                )
+            else:
+                connection.execute("DELETE FROM scheduled_tasks")
+            connection.executemany(
+                """INSERT INTO scheduled_tasks(
+                       task_id, task_json, next_run_at_ms, claim_owner, claim_until_ms,
+                       updated_at_ms
+                   ) VALUES (?, ?, ?, NULL, NULL, ?)
+                   ON CONFLICT(task_id) DO UPDATE SET
+                     task_json=excluded.task_json,
+                     next_run_at_ms=excluded.next_run_at_ms,
+                     updated_at_ms=excluded.updated_at_ms""",
+                [
+                    (
+                        task.id,
+                        json.dumps(
+                            task.to_json(), ensure_ascii=False, separators=(",", ":")
+                        ),
+                        int(task.next_run_at * 1000)
+                        if task.next_run_at is not None
+                        else None,
+                        now_ms,
+                    )
+                    for task in tasks
+                ],
+            )
+
+
+def claim_due_tasks(
+    owner: str,
+    *,
+    now_ts: float | None = None,
+    lease_seconds: float = 300.0,
+    limit: int = 5,
+) -> list[ScheduledTask]:
+    """Atomically claim due tasks and return the winning snapshots."""
+    now = time.time() if now_ts is None else now_ts
+    now_ms = int(now * 1000)
+    claim_until_ms = int((now + lease_seconds) * 1000)
+    with open_state_database(get_state_root()) as connection:
+        with immediate_transaction(connection):
+            rows = connection.execute(
+                """SELECT task_id, task_json FROM scheduled_tasks
+                   WHERE next_run_at_ms IS NOT NULL
+                     AND next_run_at_ms <= ?
+                     AND (claim_owner IS NULL OR claim_until_ms <= ?)
+                   ORDER BY next_run_at_ms, task_id
+                   LIMIT ?""",
+                (now_ms, now_ms, max(0, int(limit))),
+            ).fetchall()
+            for row in rows:
+                connection.execute(
+                    """UPDATE scheduled_tasks
+                       SET claim_owner=?, claim_until_ms=?, updated_at_ms=?
+                       WHERE task_id=?""",
+                    (owner, claim_until_ms, now_ms, str(row[0])),
+                )
+    return [ScheduledTask.from_json(json.loads(str(row[1]))) for row in rows]
+
+
+def release_task_claim(task_id: str, owner: str) -> None:
+    """Release one claim only when it is still owned by the caller."""
+    with open_state_database(get_state_root()) as connection:
+        connection.execute(
+            """UPDATE scheduled_tasks SET claim_owner=NULL, claim_until_ms=NULL,
+                 updated_at_ms=? WHERE task_id=? AND claim_owner=?""",
+            (int(time.time() * 1000), task_id, owner),
+        )
 
 
 async def save_tasks_async(tasks: list[ScheduledTask]) -> None:
@@ -107,9 +134,6 @@ async def save_tasks_async(tasks: list[ScheduledTask]) -> None:
 
     用于异步上下文（如 ticker）中保存任务，
     将 save_tasks 包装到独立线程执行，避免 time.sleep 阻塞主事件循环。
-
-    注意：tasks_json_lock() 使用 threading.RLock + 文件锁（跨进程），
-    无法改为 asyncio 锁，但整个 save 操作在线程中运行，不阻塞主循环。
 
     Args:
         tasks: 任务列表
@@ -244,6 +268,41 @@ def finalize_task_after_run(
     task.run_count = int(task.run_count or 0) + 1
     task.last_error = agent_error if outcome == "agent_error" else None
     recompute_next_after_run(task, now)
+
+
+def finalize_claimed_task(
+    task_id: str,
+    owner: str,
+    *,
+    outcome: TaskRunOutcome,
+    agent_error: str | None = None,
+) -> bool:
+    """Finalize one claimed task without overwriting concurrent task edits."""
+    with open_state_database(get_state_root()) as connection:
+        with immediate_transaction(connection):
+            row = connection.execute(
+                """SELECT task_json FROM scheduled_tasks
+                   WHERE task_id=? AND claim_owner=?""",
+                (task_id, owner),
+            ).fetchone()
+            if row is None:
+                return False
+            task = ScheduledTask.from_json(json.loads(str(row[0])))
+            finalize_task_after_run(task, outcome=outcome, agent_error=agent_error)
+            connection.execute(
+                """UPDATE scheduled_tasks
+                   SET task_json=?, next_run_at_ms=?, claim_owner=NULL,
+                     claim_until_ms=NULL, updated_at_ms=?
+                   WHERE task_id=? AND claim_owner=?""",
+                (
+                    json.dumps(task.to_json(), ensure_ascii=False, separators=(",", ":")),
+                    int(task.next_run_at * 1000) if task.next_run_at is not None else None,
+                    int(time.time() * 1000),
+                    task_id,
+                    owner,
+                ),
+            )
+            return True
 
 
 def format_next_run_display(task: ScheduledTask, *, now_ts: float | None = None) -> str:

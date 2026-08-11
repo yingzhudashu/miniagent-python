@@ -17,7 +17,7 @@ from miniagent.assistant.scheduled_tasks.ticker import (
     tick_once,
 )
 from miniagent.ui.messages import InboundMessage
-from tests.support.scheduling import minimal_cli_state, minimal_tick_ctx, patch_tick_once_locks
+from tests.support.scheduling import minimal_cli_state, minimal_tick_ctx
 
 
 @pytest.mark.asyncio
@@ -105,7 +105,6 @@ async def test_tick_once_respects_max_due_per_tick(
     monkeypatch.setattr(
         "miniagent.assistant.scheduled_tasks.ticker.build_scheduled_job", _fake_build
     )
-    patch_tick_once_locks(monkeypatch)
 
     ctx = minimal_tick_ctx()
     st = minimal_cli_state(ctx)

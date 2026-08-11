@@ -1,6 +1,6 @@
 # 软件工程实践与仓库卫生
 
-> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-19 | 与 `miniagent.__version__` 对齐
+> Mini Agent Python | 版本: 5.0.0 | 最后更新: 2026-08-10 | 与 `miniagent.__version__` 对齐
 
 本文档汇总本仓库在**可维护性、可重复构建、安全与协作**上的约定，作为 [CONTRIBUTING.md](CONTRIBUTING.md) 的补充：后者偏「如何写代码」，本文偏「仓库与发布如何保持健康」。
 
@@ -58,7 +58,7 @@
 
 **典型 Internal（主要写入 [`agent/constants.py`](../miniagent/agent/constants.py)，不可通过 JSON 覆盖）**：飞书 API 路径与 PATCH 节流、ClawHub / Tavily 端点、执行并发硬上限、渲染边距和关键词索引算法阈值等。JSON 默认值种子（如 `DEFAULT_AGENT_MAX_TURNS`、`HISTORY_ARCHIVE_MAX_MESSAGES`）与包内 defaults 同步，用户 JSON 可覆盖对应公开键。输出前缀见 [`agent/types/error_prefix.py`](../miniagent/agent/types/error_prefix.py)。
 
-**加载机制**（见 [`json_config.py`](../miniagent/assistant/infrastructure/json_config.py)）：`defaults → user`（仅两层 JSON）。`secrets` 经 [`env_loader.py`](../miniagent/assistant/infrastructure/env_loader.py) 桥接到 `OPENAI_API_KEY` 等 SDK 变量，**不是**用户配置入口。`/config` 命令与 USER_GUIDE 仅展示 User 层子集。
+**加载机制**（见 [`json_config.py`](../miniagent/assistant/infrastructure/json_config.py)）：`defaults → user`（仅两层 JSON）。`secrets` 经 [`bootstrap/configuration.py`](../miniagent/assistant/bootstrap/configuration.py) 桥接到 SDK 变量。`/config` 命令与 USER_GUIDE 仅展示 User 层子集。
 
 **模型协议**：模型 API 由 `llm.models.<profile>.api` 显式声明，角色由 `llm.roles` 路由；统一 Gateway 负责消息、图片、工具调用、结束状态和流式事件转换。结构化 JSON 请求在 Responses 使用流式聚合，在 Chat 使用非流式 `json_object`。自定义请求头配置在 provider 的 `headers`，含 CR/LF 的值会在客户端构造时拒绝。
 
@@ -144,7 +144,7 @@ CI 说明：
 | 路径 | 解析函数 | 默认位置 | 用途 |
 |------|----------|----------|------|
 | 项目 workspace | `resolve_state_dir()` / `resolve_project_state_dir()` | `{miniagent 包根}/workspaces/projects/{project_key}/` | 会话、路由、飞书锁、定时任务等业务状态（按 cwd 自动区分） |
-| 全局实例注册表 | `resolve_registry_state_dir()` | `{miniagent 包根}/workspaces` | `instances/<id>/meta.json` + `heartbeat` |
+| 全局实例注册表 | `resolve_registry_state_dir()` | `{miniagent 包根}/workspaces` | `registry.sqlite3` 的 `process_instances` |
 
 - **启动时**：`python -m miniagent` 入口会将 `MINIAGENT_PROJECT_DIR` 设为启动时 cwd，并在未显式设置时写入 `MINIAGENT_PATHS_STATE_DIR`（项目 workspace 根，位于共用 `workspaces/projects/{project_key}/`）。
 - **路径确定性**：解析只依赖显式环境变量、绝对 `paths.state_dir` 与 canonical 注册表，不扫描磁盘残留目录。
@@ -154,7 +154,7 @@ CI 说明：
 
 ### 3.1 `workspaces/` 与 Git 跟踪政策
 
-**运行时生成物默认不入库**：`.gitignore` 已排除 `workspaces/instances/`、`workspaces/sessions/`（canonical：`{paths.state_dir}/sessions/`，默认 `{miniagent}/workspaces/projects/{project_key}/sessions/`）、`workspaces/memory/`、`workspaces/scheduled_tasks/`（定时任务表 `tasks.json`，路径为 `{paths.state_dir}/scheduled_tasks/tasks.json`，默认 `workspaces/scheduled_tasks/`）、`workspaces/self_opt/`（自我优化提案与分析报告）、`workspaces/logs/`（Trace 日志）、`workspaces/keyword-index.json`、`workspaces/perf*.jsonl`、`workspaces/feishu_inbound_owner.json`、`workspaces/feishu/`（含 WebSocket 去重等）、`**/*.lock`、`workspaces/cli/` 等，避免把本机 PID、会话历史、记忆索引、对话落盘、飞书去重状态提交到远程。
+**运行时生成物默认不入库**：项目 `state.sqlite3`、全局 `registry.sqlite3`、workspaces 下的附件/知识源工作区、长期记忆与日记、自优化产物、Trace/性能日志、模型目录缓存和 CLI 输入历史均不提交。配置文件与用户内容遵循各自明确的跟踪策略。
 
 若上述路径被版本跟踪，可在确认无团队依赖后执行 `git rm --cached <路径>` 并保留 `.gitignore` 规则。配置形状以包内 defaults 的 `_config_guide` 与分层节为准；日常开发建议在 `config.user.json` 将 `paths.state_dir` 设为仓库外目录。
 
@@ -175,18 +175,14 @@ CI 说明：
 
 实现位于 [`miniagent/assistant/infrastructure/instance.py`](../miniagent/assistant/infrastructure/instance.py)。注册表根目录由 `resolve_registry_state_dir()` 解析（默认 `{miniagent 包根}/workspaces`），与项目 `paths.state_dir` **分离**。
 
-**目录结构**：
+**存储结构**：
 
 ```
-workspaces/instances/
-├── 1/
-│   ├── meta.json    # pid、instance_id、mode、active_sessions、project_dir 等
-│   └── heartbeat    # 心跳时间戳（仅观测）
-└── 2/
-    └── ...
+workspaces/registry.sqlite3
+└── process_instances(instance_id, project_path, pid, mode, active_session, heartbeat_at_ms, started_at_ms)
 ```
 
-**存活判定**：是否在列表中显示、是否删除磁盘目录，均以 **操作系统 PID 是否存在** 为准（`is_process_running`）。`register()` 在分配新 `instance_id` **之前** 会扫描并删除 PID 已失效的目录；**不会**向其它进程发送终止信号。`heartbeat` 文件仍会更新，便于人工排查；**不参与**存活判定，避免心跳写入滞后导致误删仍在运行的实例。
+**存活判定**：注册表结合操作系统 PID 与 UTC 毫秒 heartbeat 清理过期实例。注册和稳定显示 ID 分配在 SQLite 写事务中完成；同一规范化项目路径只能有一个活动实例。
 
 **一目录一实例**：同一 `project_dir`（启动 cwd）仅允许一个存活 Agent；冲突时启动失败并提示 `python -m miniagent --stop`。不同 cwd 可并行，各自独立 workspace。
 
@@ -203,7 +199,7 @@ python -m miniagent --stop --all    # 停止全部
 
 **`--stop --state-dir`**：参数指向**实例注册表根**（含 `instances/` 子目录），默认 `{miniagent}/workspaces`；**不是**项目会话数据目录（`projects/<key>/`）。该参数用于显式检查或停止指定注册表中的实例。
 
-**会话互斥**：每个会话工作空间 `.lock` 文件（PID）防止多实例抢同一 session；定时任务调度锁见 `scheduled_tasks/*.lock`（详见 [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」）。
+**运行互斥**：项目 `state.sqlite3` 的 `process_leases` 以资源名、owner、过期时间和 generation 管理 session、scheduler、job、飞书入站与 dream maintenance 所有权；定时任务执行 claim 保存在 `scheduled_tasks` 表中（详见 [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」）。
 
 **测试隔离**：`reset_instance_registry_for_tests()` 与 `conftest` fixture 用于重置进程级注册表单例。
 

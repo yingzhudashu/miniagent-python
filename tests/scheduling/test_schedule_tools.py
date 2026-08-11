@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import json
-import os
-
 import pytest
 
 from miniagent.agent.types.tool import ToolContext
+from miniagent.assistant.scheduled_tasks.store import load_tasks
 from miniagent.assistant.tools.schedule_tools import _manage_scheduled_task_handler
 
 
@@ -27,10 +25,7 @@ async def test_manage_scheduled_task_add_interval_roundtrip(state_dir: str) -> N
     assert r.success is True
     assert "已添加" in r.content
 
-    path = os.path.join(state_dir, "scheduled_tasks", "tasks.json")
-    with open(path, encoding="utf-8") as f:
-        data = json.load(f)
-    assert any(t["id"] == "tool_t1" for t in data["tasks"])
+    assert any(task.id == "tool_t1" for task in load_tasks())
 
 
 @pytest.mark.asyncio
@@ -48,12 +43,9 @@ async def test_manage_scheduled_task_add_cron_roundtrip(state_dir: str) -> None:
         ctx,
     )
     assert r.success is True
-    path = os.path.join(state_dir, "scheduled_tasks", "tasks.json")
-    with open(path, encoding="utf-8") as f:
-        data = json.load(f)
-    row = next(t for t in data["tasks"] if t["id"] == "tool_cron1")
-    assert row["schedule"]["kind"] == "cron"
-    assert row["schedule"]["cron_expr"] == "15 9 * * *"
+    row = next(task for task in load_tasks() if task.id == "tool_cron1")
+    assert row.schedule.kind == "cron"
+    assert row.schedule.cron_expr == "15 9 * * *"
 
 
 @pytest.mark.asyncio
@@ -95,10 +87,7 @@ async def test_manage_scheduled_task_show_remove_set_enabled(state_dir: str) -> 
     assert rm.success is True
     assert "已删除" in rm.content
 
-    path = os.path.join(state_dir, "scheduled_tasks", "tasks.json")
-    with open(path, encoding="utf-8") as f:
-        data = json.load(f)
-    assert data["tasks"] == []
+    assert load_tasks() == []
 
 
 @pytest.mark.asyncio
@@ -143,11 +132,9 @@ async def test_manage_scheduled_task_update_prompt(state_dir: str) -> None:
     )
     assert r.success is True
     assert "已更新" in r.content
-    path = os.path.join(state_dir, "scheduled_tasks", "tasks.json")
-    with open(path, encoding="utf-8") as f:
-        row = next(t for t in json.load(f)["tasks"] if t["id"] == "upd1")
-    assert row["prompt"] == "new prompt"
-    assert row["schedule"]["interval_seconds"] == 180
+    row = next(task for task in load_tasks() if task.id == "upd1")
+    assert row.prompt == "new prompt"
+    assert row.schedule.interval_seconds == 180
 
 
 @pytest.mark.asyncio

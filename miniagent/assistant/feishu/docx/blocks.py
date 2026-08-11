@@ -2,17 +2,27 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
 from miniagent.agent.constants import DOCX_APPEND_MAX_BLOCKS, DOCX_LIST_BLOCKS_MAX
+from miniagent.assistant.feishu.docx.client import (
+    batch_update_blocks,
+)
+from miniagent.assistant.feishu.docx.client import (
+    find_page_block_id as _find_page_block_id,
+)
+from miniagent.assistant.feishu.docx.payloads import (
+    chunk_text_runs as _chunk_runs,
+)
+from miniagent.assistant.feishu.docx.payloads import (
+    paragraph_blocks_for_text as _paragraph_blocks_for_text,
+)
 from miniagent.assistant.feishu.lark_client import build_client
 from miniagent.assistant.feishu.lark_response import format_lark_response_error
 from miniagent.ui.feishu.types import FeishuConfig
 
 DOCX_APPEND_MAX_CHARS = 12_000
-_TEXT_RUN_MAX = 1800
 _BLOCK_PAGE = 1
 _BLOCK_TEXT = 2
 
@@ -46,61 +56,6 @@ def _block_type_summary(blocks: list[Any]) -> list[int]:
         except (TypeError, ValueError):
             out.append(0)
     return out
-
-
-def _chunk_runs(line: str) -> list[str]:
-    """将长文本行切分为不超过 _TEXT_RUN_MAX 的片段（飞书 API 单次限制）。"""
-    if not line:
-        return ["\u200b"]
-    parts: list[str] = []
-    s = line
-    while s:
-        parts.append(s[:_TEXT_RUN_MAX])
-        s = s[_TEXT_RUN_MAX:]
-    return parts
-
-
-def _paragraph_blocks_for_text(text: str) -> list[Any]:
-    """将文本转换为飞书文档段落 Block 对象列表（按行分割，每行一个 Block）。"""
-    from lark_oapi.api.docx.v1 import BlockBuilder, Text, TextElement, TextRun
-
-    lines = text.split("\n") or [""]
-    blocks = []
-    for raw in lines[:DOCX_APPEND_MAX_BLOCKS]:
-        runs = _chunk_runs(raw)
-        elements = [
-            TextElement.builder().text_run(TextRun.builder().content(r).build()).build()
-            for r in runs
-        ]
-        blocks.append(
-            BlockBuilder()
-            .block_type(_BLOCK_TEXT)
-            .text(Text.builder().elements(elements).build())
-            .build()
-        )
-    return blocks
-
-
-def _find_page_block_id(client, document_id: str) -> str:
-    """查找文档的 Page Block ID（作为根容器用于追加内容）。"""
-    from lark_oapi.api.docx.v1 import ListDocumentBlockRequest
-
-    resp = client.docx.v1.document_block.list(
-        ListDocumentBlockRequest.builder().document_id(document_id).page_size(50).build()
-    )
-    if not resp.success() or not resp.data or not resp.data.items:
-        raise RuntimeError(
-            f"Feishu list document blocks failed: {format_lark_response_error(resp)}"
-        )
-    for blk in resp.data.items:
-        if int(getattr(blk, "block_type", 0) or 0) == _BLOCK_PAGE and getattr(
-            blk, "block_id", None
-        ):
-            return str(blk.block_id)
-    first = resp.data.items[0]
-    if not getattr(first, "block_id", None):
-        raise RuntimeError("Feishu list document blocks: empty block_id")
-    return str(first.block_id)
 
 
 def _count_children(client, document_id: str, page_block_id: str) -> int:
@@ -272,28 +227,6 @@ def clear_document_content_blocks(config: FeishuConfig, document_id: str) -> tup
         except Exception:
             fail_n += 1
     return ok_n, fail_n
-
-
-def batch_update_blocks(
-    config: FeishuConfig, document_id: str, requests_payload: list[dict]
-) -> dict:
-    """执行 docx batch_update 请求，返回 ``{ok, data}`` 字典。"""
-    from lark_oapi.api.docx.v1 import (
-        BatchUpdateDocumentBlockRequest,
-        BatchUpdateDocumentBlockRequestBody,
-    )
-
-    client = build_client(config)
-    body = BatchUpdateDocumentBlockRequestBody.builder().requests(requests_payload).build()
-    resp = client.docx.v1.document_block.batch_update(
-        BatchUpdateDocumentBlockRequest.builder()
-        .document_id(document_id)
-        .request_body(body)
-        .build()
-    )
-    if not resp.success():
-        raise RuntimeError(f"Feishu batch_update failed: {format_lark_response_error(resp)}")
-    return {"ok": True, "data": json.loads(resp.raw.content) if getattr(resp, "raw", None) else {}}
 
 
 def _append_plain_text_fallback(

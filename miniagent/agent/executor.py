@@ -34,18 +34,28 @@ from miniagent.agent.constants import (
     EXECUTION_PHASED_ENABLED,
     EXECUTION_STEP_MAX_TURNS,
     EXECUTION_THINKING_SEPARATOR,
-    EXECUTION_TOOL_INTENT_IN_THINKING,
-    EXECUTION_TOOL_INTENT_MAX_CHARS,
     MAX_ARGS_LOG_LEN,
 )
-from miniagent.agent.context import ContextBudgetExceeded, DefaultContextManager
+from miniagent.agent.context import DefaultContextManager
 from miniagent.agent.execution_prompts import (
     build_current_turn_user_context,
     build_stable_execution_system_prompt,
 )
-from miniagent.agent.logging import get_logger
+from miniagent.agent.execution_support import (
+    append_context_or_error as _append_context_or_return,
+)
+from miniagent.agent.execution_support import (
+    logger as _logger,
+)
+from miniagent.agent.execution_support import (
+    raise_if_task_cancelled as _raise_if_task_cancelled,
+)
+from miniagent.agent.execution_support import (
+    reset_tool_intent_caches,
+)
 from miniagent.agent.loop_detector import LoopDetector
 from miniagent.agent.plan_utils import resolve_execution_step_groups
+from miniagent.agent.ports.clawhub import ClawHubClientProtocol
 from miniagent.agent.ports.knowledge import KnowledgeRegistryProtocol
 from miniagent.agent.ports.memory import MemoryRuntimeProtocol
 from miniagent.agent.ports.runtime import (
@@ -59,47 +69,8 @@ from miniagent.agent.types.agent import LoopDetectionConfig, ToolMonitorProtocol
 from miniagent.agent.types.config import AgentConfig
 from miniagent.agent.types.error_prefix import WARNING_PREFIX
 from miniagent.agent.types.planning import StructuredPlan
-from miniagent.agent.types.skill import ClawHubClientProtocol
 from miniagent.agent.types.tool import ToolRegistryProtocol
 from miniagent.llm.gateway import LLMGateway
-
-_logger = get_logger(__name__)
-_EXEC_LLM_MAX_ATTEMPTS = 3
-_TOOL_INTENT_MAP: dict[str, str] = {
-    "read_file": "读取文件",
-    "write_file": "写入文件",
-    "edit_file": "编辑文件",
-    "list_dir": "列出目录",
-    "exec_command": "执行命令",
-    "web_search": "搜索网页",
-    "browser_extract_text": "浏览器提取正文",
-    "fetch_url": "抓取网页",
-    "read_memory": "读取记忆",
-    "write_memory": "写入记忆",
-    "search_memory": "搜索记忆",
-    "git_status": "Git 状态",
-    "git_diff": "Git 差异",
-}
-
-
-def _exec_retry_params(base: dict[str, Any], *, attempt: int, responses: bool) -> dict[str, Any]:
-    """Keep the first execution request intact and adapt Responses retries only."""
-    params = dict(base)
-    if not responses or attempt == 0:
-        return params
-    params.pop("temperature", None)
-    params.pop("top_p", None)
-    params["_omit_parameters"] = ("temperature", "top_p")
-    if attempt == _EXEC_LLM_MAX_ATTEMPTS - 1:
-        params["_thinking_level"] = "medium"
-    return params
-
-
-def _raise_if_task_cancelled() -> None:
-    """在 ReAct 循环内协作式响应 asyncio 任务取消。"""
-    task = asyncio.current_task()
-    if task is not None and task.cancelled():
-        raise asyncio.CancelledError()
 
 
 def _is_ephemeral_session(session_key: str | None) -> bool:
@@ -121,12 +92,6 @@ def _env_phased_execution_enabled() -> bool:
 
 
 @lru_cache(maxsize=1)
-def _tool_intent_in_thinking_enabled() -> bool:
-    """是否在工具执行前向 on_thinking 推送 🔧 意图行。"""
-    return EXECUTION_TOOL_INTENT_IN_THINKING
-
-
-@lru_cache(maxsize=1)
 def _step_max_turns_cap() -> int:
     """分步模式下单步内 ReAct 轮数上限（默认 48）。"""
     return EXECUTION_STEP_MAX_TURNS
@@ -141,19 +106,12 @@ def _thinking_segment_separator() -> str:
     return "\n\n"
 
 
-@lru_cache(maxsize=1)
-def _tool_intent_max_chars() -> int:
-    """工具意图摘要写入思考流时的最大字符数。"""
-    return EXECUTION_TOOL_INTENT_MAX_CHARS
-
-
 def _reset_env_caches_for_tests() -> None:
     """重置环境变量缓存（仅供测试使用）。"""
     _env_phased_execution_enabled.cache_clear()
-    _tool_intent_in_thinking_enabled.cache_clear()
+    reset_tool_intent_caches()
     _step_max_turns_cap.cache_clear()
     _thinking_segment_separator.cache_clear()
-    _tool_intent_max_chars.cache_clear()
 
 
 from miniagent.agent.execution_runtime_setup import (
@@ -162,18 +120,6 @@ from miniagent.agent.execution_runtime_setup import (
 from miniagent.agent.execution_runtime_setup import (
     step_thinking_header as _step_thinking_header,
 )
-
-
-def _append_context_or_return(
-    context_manager: DefaultContextManager,
-    msg: dict[str, Any],
-) -> str | None:
-    """追加消息；``error`` 溢出策略触发时返回用户可操作警告。"""
-    try:
-        context_manager.append(msg)
-    except ContextBudgetExceeded as e:
-        return f"{WARNING_PREFIX} {e}"
-    return None
 
 
 def _resolve_feishu_receive_id_type(raw: str) -> str | None:
@@ -759,23 +705,6 @@ async def execute_plan(
         manage_activity_lifecycle=manage_activity_lifecycle,
     )
     return await runtime.run()
-
-
-# ─── 工具意图提取 ────────────────────────────────────────────
-
-
-def _extract_tool_intent(tool_name: str, args: dict[str, Any]) -> str:
-    """从工具名称与关键参数生成有界意图摘要。"""
-    base = _TOOL_INTENT_MAP.get(tool_name, f"调用 {tool_name}")
-    for key in ("path", "query", "command", "content", "url"):
-        if key not in args:
-            continue
-        value = str(args[key])
-        cap = _tool_intent_max_chars()
-        if cap > 0 and len(value) > cap:
-            value = value[:cap] + f"…（共 {len(value)} 字）"
-        return f"{base}: {value}"
-    return base
 
 
 __all__ = [

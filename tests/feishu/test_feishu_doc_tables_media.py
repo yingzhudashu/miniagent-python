@@ -39,6 +39,33 @@ def test_download_media_bytes_passes_sdk_extra(monkeypatch) -> None:
     builder.extra.assert_called_once_with("meta")
 
 
+def test_docx_insertions_resolve_page_root_when_parent_is_omitted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from miniagent.assistant.feishu.docx import media, tables
+    from miniagent.ui.feishu.types import FeishuConfig
+
+    config = FeishuConfig("app", "secret")
+    client = object()
+    monkeypatch.setattr(media, "build_client", lambda _config: client)
+    monkeypatch.setattr(media, "find_page_block_id", lambda *_args: "page")
+    media_batch = MagicMock()
+    monkeypatch.setattr(media, "batch_update_blocks", media_batch)
+    media.insert_image_block(config, "doc", "image")
+    assert media_batch.call_args.args[2][0]["block_id"] == "page"
+
+    monkeypatch.setattr(tables, "build_client", lambda _config: client)
+    monkeypatch.setattr(tables, "find_page_block_id", lambda *_args: "page")
+    monkeypatch.setattr(
+        tables,
+        "batch_update_blocks",
+        lambda *_args: {"data": {"blocks": [{"block_id": "table"}]}},
+    )
+    assert tables.create_table_block(
+        config, "doc", row_size=2, column_size=2
+    ) == "table"
+
+
 @pytest.mark.asyncio
 async def test_feishu_doc_create_table(monkeypatch: pytest.MonkeyPatch) -> None:
     from miniagent.agent.types.tool import ToolContext

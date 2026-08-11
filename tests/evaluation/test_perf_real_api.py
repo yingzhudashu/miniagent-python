@@ -37,7 +37,7 @@ from miniagent.llm.factory import create_llm_gateway
 @pytest.fixture
 def real_api_config():
     """验证API配置存在并加载到环境变量。"""
-    from miniagent.assistant.infrastructure.env_loader import load_secrets_from_project_root
+    from miniagent.assistant.bootstrap.configuration import load_secrets_from_project_root
 
     if os.environ.get("MINIAGENT_REAL_API_STRESS") != "1":
         pytest.skip("真实 API 压测需显式设置 MINIAGENT_REAL_API_STRESS=1")

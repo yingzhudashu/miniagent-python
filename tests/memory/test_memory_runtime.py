@@ -9,6 +9,7 @@ import pytest
 
 from miniagent.agent.types.memory import MemoryEntryInput
 from miniagent.assistant.memory.runtime import create_memory_runtime
+from miniagent.assistant.memory.shared_registry import MemoryEntryRegistry
 
 
 def test_runtime_uses_one_state_root_and_shared_registry(tmp_path) -> None:
@@ -54,8 +55,11 @@ def test_close_persists_registry_and_derived_indexes(tmp_path) -> None:
 
     runtime.close()
 
-    assert os.path.isfile(os.path.join(state_root, "memory-registry.json"))
-    assert os.path.isfile(os.path.join(state_root, "keyword-index.json"))
+    restored = MemoryEntryRegistry(state_dir=state_root)
+    assert restored.get("session:2026-07-12T00:00:00+00:00") is not None
+    assert os.path.isfile(os.path.join(state_root, "state.sqlite3"))
+    assert not os.path.exists(os.path.join(state_root, "memory-registry.json"))
+    assert not os.path.exists(os.path.join(state_root, "keyword-index.json"))
 
 
 @pytest.mark.asyncio

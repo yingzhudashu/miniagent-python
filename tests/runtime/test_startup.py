@@ -33,10 +33,10 @@ def test_import_smoke():
     """正式入口、组合根与核心运行模块可正常 import。"""
     from miniagent.agent.monitor import DefaultToolMonitor
     from miniagent.agent.tools.registry import DefaultToolRegistry
-    from miniagent.assistant import create_assistant_application, run_assistant
+    from miniagent.assistant import create_personal_assistant, run_assistant
     from miniagent.assistant.bootstrap.application import ApplicationContainer
     from miniagent.assistant.bootstrap.entrypoint import create_application_container
-    from miniagent.assistant.engine.cli_tui import run_cli_loop
+    from miniagent.assistant.engine.cli_tui_app import run_cli_loop
     from miniagent.assistant.engine.command_dispatch import dispatch_command
     from miniagent.assistant.engine.commands.session_management import (
         cmd_help,
@@ -53,7 +53,7 @@ def test_import_smoke():
     from miniagent.ui.feishu.types import FeishuConfig, FeishuInboundText
 
     assert callable(run_assistant)
-    assert callable(create_assistant_application)
+    assert callable(create_personal_assistant)
     assert callable(create_application_container)
     assert callable(run_runtime)
     assert callable(run_cli_loop)

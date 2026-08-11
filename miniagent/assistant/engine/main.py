@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
 from miniagent.assistant.bootstrap.application import ApplicationContainer
 from miniagent.assistant.engine.cli_state import CliLoopState
-from miniagent.assistant.engine.cli_tui import run_cli_loop
+from miniagent.assistant.engine.cli_tui_app import run_cli_loop
 from miniagent.assistant.engine.feishu_handler import create_feishu_handler
 from miniagent.assistant.engine.shutdown import shutdown_runtime
 from miniagent.assistant.engine.utils import feishu_user_status_fn as _feishu_user_status_fn
@@ -168,7 +168,7 @@ async def run_runtime(ctx: ApplicationContainer) -> None:
     """主启动流程。
 
     不再检查全局单实例 — 支持多实例并行。
-    每个实例通过会话级 .lock 文件隔离。
+    每个实例通过会话级 SQLite lease 隔离。
 
     嵌入场景若不经正式入口，调用方须先
     ``load_secrets_from_project_root()`` 或预先设置 ``OPENAI_*`` 等敏感凭据环境变量。
@@ -179,7 +179,7 @@ async def run_runtime(ctx: ApplicationContainer) -> None:
     _configure_console_encoding()
     _enable_windows_vt()
     if ctx.llm_gateway is None:
-        raise RuntimeError("AssistantApplication requires an LLMGateway")
+        raise RuntimeError("PersonalAssistantApplication requires an LLMGateway")
     model = ctx.llm_gateway.model_for_role("default").model
     from miniagent.assistant.engine.welcome import print_welcome
     feishu_mode = "--feishu" in sys.argv

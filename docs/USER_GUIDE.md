@@ -1,7 +1,7 @@
 # Mini Agent Python — 日常使用指南
 
 > 安装、配置、首次启动见 **[README.md](../README.md)**。本文从日常使用起，面向已能跑通 Agent 的用户。  
-> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-19 | 与 `miniagent.__version__` 对齐 | 未发版行为见 [CHANGELOG](../CHANGELOG.md) `[Unreleased]`
+> Mini Agent Python | 版本: 5.0.0 | 最后更新: 2026-08-10 | 与 `miniagent.__version__` 对齐 | 未发版行为见 [CHANGELOG](../CHANGELOG.md) `[Unreleased]`
 
 ### 章节迁移对照（原 USER_GUIDE 编号）
 
@@ -73,7 +73,7 @@
 
 ## 3. 定时任务
 
-在本地 CLI 用 **`/schedule`** 管理持久化任务；到达时间后请求经消息队列进入与手动输入相同的 Agent 路径。任务文件：**`{paths.state_dir}/scheduled_tasks/tasks.json`**（canonical 路径见 [ENGINEERING.md §3](ENGINEERING.md#3-状态目录与测试隔离)）。
+在本地 CLI 用 **`/schedule`** 管理持久化任务；任务保存在项目 `state.sqlite3`，到达时间后经消息队列进入与手动输入相同的 Agent 路径。
 
 - **语法与示例**：[CLI.md §/schedule](CLI.md)
 - **飞书限制**：默认仅 `list` / `show`；`add` / `remove` 等须在本地 CLI
@@ -97,7 +97,7 @@
 3. 将凭证填入 `config.user.json` 的 `secrets` 部分（勿泄露）。  
 4. 启动 `python -m miniagent --feishu` 或在 CLI 中 `/feishu start`。  
 
-**通道绑定**（CLI 与飞书私聊共享会话）、入站锁、内置工具、附件路径等运维细节见 [FEISHU.md](FEISHU.md)（含 [§通道绑定](FEISHU.md#通道绑定)）与 [SECURITY.md](SECURITY.md)。升级迁移见 [README.md §配置](../README.md#配置) 与 [CHANGELOG](../CHANGELOG.md) `[Unreleased]`。
+**通道绑定**（CLI 与飞书私聊共享会话）、入站 lease、内置工具、附件路径等运维细节见 [FEISHU.md](FEISHU.md) 与 [SECURITY.md](SECURITY.md)。
 
 ---
 
@@ -156,7 +156,7 @@
 
 ### 10.2 哪些不应提交到 Git
 
-根目录 `.gitignore` 已忽略多数运行时目录与文件（如 `workspaces/sessions/`（即 `{paths.state_dir}/sessions/`，见 [ENGINEERING.md](ENGINEERING.md) §3）、`workspaces/scheduled_tasks/`、`workspaces/memory/`、`workspaces/feishu/`、`keyword-index.json` 等）。**不要** 强行把含隐私对话或密钥的文件 `git add` 进去。政策说明见 [ENGINEERING.md](ENGINEERING.md) §3.1。
+根目录 `.gitignore` 已忽略运行时状态与用户产物（如项目 `state.sqlite3`、全局 `registry.sqlite3`、会话附件、知识源工作区、日记、Trace/性能日志和 CLI 输入历史）。**不要** 强行把含隐私对话或密钥的文件 `git add` 进去。政策说明见 [ENGINEERING.md](ENGINEERING.md) §3.1。
 
 ### 10.3 备份建议
 

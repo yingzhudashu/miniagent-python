@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 from typing import Any
 
@@ -44,17 +43,8 @@ _SUPPORTED_ACTIONS = (
 
 
 def _parse_fields_arg(raw: Any) -> dict[str, Any] | None:
-    """解析 fields 参数（支持 dict、JSON 字符串、None）。"""
-    if raw is None:
-        return None
-    if isinstance(raw, dict):
-        return raw
-    if isinstance(raw, str):
-        s = raw.strip()
-        if not s:
-            return {}
-        return json.loads(s)
-    return None
+    """Accept the current JSON object contract for record fields."""
+    return raw if isinstance(raw, dict) else None
 
 
 def _bitable_get_meta(
@@ -75,11 +65,9 @@ def _bitable_get_meta(
 
 
 def _field_names(raw: Any) -> list[str] | None:
-    """规范化字段名数组或逗号分隔字符串。"""
-    if isinstance(raw, list):
-        return [str(item) for item in raw]
-    if isinstance(raw, str) and raw.strip():
-        return [item.strip() for item in raw.split(",") if item.strip()]
+    """Accept an explicit array of field names."""
+    if isinstance(raw, list) and all(isinstance(item, str) for item in raw):
+        return list(raw)
     return None
 
 
@@ -244,8 +232,6 @@ def _feishu_bitable_sync(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
             )
 
         return _dispatch_bitable_action(action, cfg, app_token, table_id, args, ctx)
-    except json.JSONDecodeError as e:
-        return ToolResult(success=False, content=f"{WARNING_PREFIX} fields JSON 无效: {e}")
     except Exception as e:
         return ToolResult(
             success=False, content=f"{WARNING_PREFIX} feishu_bitable.{action} 失败: {e}"
@@ -278,11 +264,15 @@ _feishu_bitable_schema = {
                 "table_id": {"type": "string"},
                 "record_id": {"type": "string"},
                 "record_ids": {"type": "array", "items": {"type": "string"}},
-                "fields": {"description": "字段名→值 的对象或 JSON 字符串"},
+                "fields": {"type": "object", "description": "字段名→值 的对象"},
                 "page_token": {"type": "string"},
                 "page_size": {"type": "integer"},
                 "view_id": {"type": "string"},
-                "field_names": {"description": "逗号分隔或字符串数组，限定返回列"},
+                "field_names": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "限定返回列",
+                },
                 "filter": {"type": "string", "description": "筛选表达式"},
                 "filter_expr": {"type": "string"},
                 "sort": {"type": "array", "items": {"type": "string"}},

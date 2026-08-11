@@ -343,13 +343,15 @@ class TestAllowedCommands:
 
     def test_get_allowed_commands_returns_default(self) -> None:
         """无配置时应返回默认列表。"""
-        with patch("miniagent.assistant.tools.exec.get_config", return_value=""):
+        with patch("miniagent.assistant.tools.exec.get_config", return_value=None):
             result = _get_allowed_commands()
             assert result == _DEFAULT_ALLOWED_COMMANDS
 
     def test_get_allowed_commands_reads_config(self) -> None:
         """配置时应读取自定义列表。"""
-        with patch("miniagent.assistant.tools.exec.get_config", return_value="ls,cat,grep"):
+        with patch(
+            "miniagent.assistant.tools.exec.get_config", return_value=["ls", "cat", "grep"]
+        ):
             result = _get_allowed_commands()
             assert "ls" in result
             assert "cat" in result
@@ -381,7 +383,7 @@ class TestAllowedCommands:
 
     def test_windows_curl_exe_command_passes_security_validation(self) -> None:
         """回归：模型生成 curl.exe 时不应被默认 curl 白名单误拒绝。"""
-        with patch("miniagent.assistant.tools.exec.get_config", return_value=""):
+        with patch("miniagent.assistant.tools.exec.get_config", return_value=None):
             result = _apply_command_security(
                 'curl.exe "https://api.open-meteo.com/v1/forecast?latitude=24.4"',
                 windows=True,

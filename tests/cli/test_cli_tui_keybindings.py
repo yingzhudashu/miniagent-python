@@ -13,9 +13,10 @@ class _KeyBindings:
     def __init__(self) -> None:
         self.handlers: dict[object, list] = {}
 
-    def add(self, key, **_kwargs):
+    def add(self, *keys, **_kwargs):
         def decorator(handler):
-            self.handlers.setdefault(key, []).append(handler)
+            for key in keys:
+                self.handlers.setdefault(key, []).append(handler)
             return handler
 
         return decorator

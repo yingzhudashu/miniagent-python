@@ -7,7 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from miniagent.assistant.feishu.docx import blocks
+from miniagent.assistant.feishu.docx import blocks, payloads
+from miniagent.assistant.feishu.docx import client as docx_client
 from miniagent.ui.feishu.types import FeishuConfig
 
 CFG = FeishuConfig("app", "secret")
@@ -26,7 +27,7 @@ class _Resp:
 
 
 def test_block_type_summary_chunks_and_paragraphs(monkeypatch) -> None:
-    monkeypatch.setattr(blocks, "_TEXT_RUN_MAX", 3)
+    monkeypatch.setattr(payloads, "_TEXT_RUN_MAX", 3)
     assert blocks._block_type_summary(
         [SimpleNamespace(block_type=2), {"block_type": "3"}, {"block_type": "bad"}]
     ) == [2, 3, 0]
@@ -44,15 +45,15 @@ def test_find_page_block_and_fallback() -> None:
             items=[SimpleNamespace(block_type=1, block_id="page"), SimpleNamespace(block_type=2, block_id="text")]
         )
     )
-    assert blocks._find_page_block_id(client, "doc") == "page"
+    assert docx_client.find_page_block_id(client, "doc") == "page"
     api.list = lambda _req: _Resp(data=SimpleNamespace(items=[SimpleNamespace(block_type=2, block_id="first")]))
-    assert blocks._find_page_block_id(client, "doc") == "first"
+    assert docx_client.find_page_block_id(client, "doc") == "first"
     api.list = lambda _req: _Resp(data=SimpleNamespace(items=[SimpleNamespace(block_type=2, block_id=None)]))
     with pytest.raises(RuntimeError, match="empty block_id"):
-        blocks._find_page_block_id(client, "doc")
+        docx_client.find_page_block_id(client, "doc")
     api.list = lambda _req: _Resp(ok=False)
     with pytest.raises(RuntimeError, match="list document blocks failed"):
-        blocks._find_page_block_id(client, "doc")
+        docx_client.find_page_block_id(client, "doc")
 
 
 def test_count_children_paginates_and_detects_stuck_token() -> None:
@@ -89,16 +90,20 @@ def test_list_get_and_batch_update(monkeypatch) -> None:
     )
     client = SimpleNamespace(docx=SimpleNamespace(v1=SimpleNamespace(document_block=document_api)))
     monkeypatch.setattr(blocks, "build_client", lambda _cfg: client)
+    monkeypatch.setattr(docx_client, "build_client", lambda _cfg: client)
     items, token, more = blocks.list_document_blocks(CFG, "doc", page_token="p", page_size=999)
     assert items[0]["block_id"] == "b" and token == "n" and more
     assert blocks.get_block(CFG, "doc", "b")["text"] == "hello world"
-    assert blocks.batch_update_blocks(CFG, "doc", [{"x": 1}]) == {"ok": True, "data": {"data": 1}}
+    assert docx_client.batch_update_blocks(CFG, "doc", [{"x": 1}]) == {
+        "ok": True,
+        "data": {"data": 1},
+    }
     document_api.get = lambda _req: _Resp(ok=False)
     with pytest.raises(RuntimeError, match="get block failed"):
         blocks.get_block(CFG, "doc", "b")
     document_api.batch_update = lambda _req: _Resp(ok=False)
     with pytest.raises(RuntimeError, match="batch_update failed"):
-        blocks.batch_update_blocks(CFG, "doc", [])
+        docx_client.batch_update_blocks(CFG, "doc", [])
 
 
 def test_clear_document_content_counts_partial_failures(monkeypatch) -> None:
@@ -126,4 +131,3 @@ def test_clear_document_content_counts_partial_failures(monkeypatch) -> None:
 
     monkeypatch.setattr(blocks, "delete_block", delete)
     assert blocks.clear_document_content_blocks(CFG, "doc") == (1, 1)
-

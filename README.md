@@ -2,7 +2,7 @@
 
 ![Python Version](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-4.0.0-blue)
+![Version](https://img.shields.io/badge/version-5.0.0-blue)
 ![Tests](https://img.shields.io/badge/tests-dynamic-blue)
 > **测试数量**：以 `pytest --collect-only -q` 为准，不硬编码以避免漂移（见 [CONTRIBUTING.md](docs/CONTRIBUTING.md) §文档与版本对齐清单）
 ![Coverage](https://img.shields.io/badge/coverage-%E2%89%A580%25%20%E7%9B%AE%E6%A0%87-yellow)
@@ -51,14 +51,14 @@
 
 ## 架构概览
 
-Mini Agent Python 采用单发行包内的四模块架构。Agent 内部仍使用 Phase 0 分类 → Phase 0.5 需求澄清 → Phase 1 规划 → Phase 2 ReAct 执行 → Phase 3 反思；V4 的 AgentRuntime 同时拥有会话、工具、Memory/RAG、Trace、并发、取消和扩展生命周期，Assistant 只负责实例编排。
+Mini Agent Python 采用单发行包内的四模块架构。Agent 内部使用 Phase 0 分类 → Phase 0.5 需求澄清 → Phase 1 规划 → Phase 2 ReAct 执行 → Phase 3 反思；`AgentRuntime` 拥有会话、工具、Memory/RAG、Trace、并发、取消和扩展生命周期，Assistant 只负责实例编排。
 
 ```
 assistant → ui → agent → llm
     └────────→ agent / llm
 ```
 
-仓库提供两种明确的组合模式。默认 CLI/TUI/飞书个人助手由 `PersonalAssistantSpec` 构造进程级 `ApplicationContainer`，通道在边界生成 `InboundMessage`，并通过 `ChannelRegistry` 有序发送 `OutboundEvent`；进程级 `SessionExecCoordinator` 保证同 session 串行、跨 session 有界并行。嵌入式自定义应用使用 `AssistantSpec + UISurface + ComposedAssistantRuntime`，由 surface 产生 `UIInput` 并渲染统一 `AgentEvent`。两种模式共享 `AgentRuntime`、消息类型和生命周期契约，但不把成熟的默认产品入口伪装成 surface 实现。
+仓库提供两种明确的组合模式。`create_personal_assistant()` 构造默认 CLI/TUI/飞书产品的进程级 `PersonalAssistantApplication`；`create_assistant(AssistantSpec(...))` 构造嵌入式 `ComposedAssistantRuntime`。两者共享 `AgentRuntime`、消息类型和生命周期契约；`run_assistant(argv)` 是唯一 CLI 入口。
 
 依赖方向固定为 `llm ← agent ← ui ← assistant`，Assistant 也可直接装配 Agent/LLM；任何反向依赖都会被 AST 架构门禁拒绝。完整规则见 **[ARCHITECTURE.md](docs/ARCHITECTURE.md)**。
 
@@ -236,9 +236,7 @@ Agent 会自动调用文件工具完成任务。
 
 **配置分层**：包内 `miniagent/assistant/resources/config.defaults.json` 顶部 `_config_guide` 列出 User 层与 Advanced 层。普通用户只需在 `config.user.json` 覆盖 User 层；Advanced 节（`memory`、`trace` 等）一般保持默认。优先级：**config.user.json > 包内 defaults**。运维/调试类环境变量（如 `MINIAGENT_PATHS_STATE_DIR`、`AGENT_DEBUG`）见 [ENGINEERING.md](docs/ENGINEERING.md) §1.2。
 
-4.0 保持 3.0 的 `llm.*` 配置和状态 schema；升级前仍应备份本地配置与状态目录。
-从 2.x 升级的用户请先按 [MIGRATION.md](docs/MIGRATION.md) 手工迁移。provider 配置、可选依赖和模型目录详见
-[LLM_PROVIDERS.md](docs/LLM_PROVIDERS.md)。
+5.0 只接受当前配置与 SQLite schema 5，不读取或迁移旧状态。provider 配置、可选依赖和模型目录详见 [LLM_PROVIDERS.md](docs/LLM_PROVIDERS.md)。
 
 ## 启动与退出
 
@@ -291,7 +289,7 @@ python -m miniagent --stop
 
 | 配置项 | 说明 | 专题文档 |
 |--------|------|----------|
-| `secrets.llm.<provider>.api_key` | LLM API 密钥（也可只用 provider 环境变量） | [MIGRATION.md](docs/MIGRATION.md) |
+| `secrets.llm.<provider>.api_key` | LLM API 密钥（也可只用 provider 环境变量） | [LLM_PROVIDERS.md](docs/LLM_PROVIDERS.md) |
 | `secrets.tavily_api_key` | 联网搜索 | [USER_GUIDE.md §6](docs/USER_GUIDE.md#6-联网搜索与浏览器工具可选) |
 | `secrets.stack_exchange_key` | Stack Exchange 可选配额 Key | [USER_GUIDE.md §6](docs/USER_GUIDE.md#6-联网搜索与浏览器工具可选) |
 | `feishu.*` | 飞书配置 | [FEISHU.md](docs/FEISHU.md) |

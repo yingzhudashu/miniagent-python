@@ -1,9 +1,7 @@
-"""回归：Session.conversation_history 与 ctx 引用同步，history.json 正确落盘。"""
+"""回归：Session.conversation_history 与 ctx 引用同步并持久化到 SQLite。"""
 
 from __future__ import annotations
 
-import json
-import os
 from pathlib import Path
 
 import pytest
@@ -21,14 +19,14 @@ def session_manager(tmp_path, monkeypatch: pytest.MonkeyPatch):
     yield sm
 
 
-def _history_path(sm: DefaultSessionManager, session_id: str) -> str:
+def _stored_history(sm: DefaultSessionManager, session_id: str) -> list[dict]:
     ctx = sm._sessions[session_id]
-    return os.path.join(ctx["config"].workspace_path, "history.json")
+    return sm._storage.load_history(ctx["config"], max_messages=10_000)
 
 
 @pytest.mark.asyncio
 async def test_load_range_then_append_persists_history(session_manager: DefaultSessionManager) -> None:
-    """模拟 CLI 启动 load_range 后引擎追加历史，save 应写入非空 history.json。"""
+    """模拟 CLI 启动 load_range 后引擎追加历史，save 应持久化非空历史。"""
     session_id = "default"
     session = session_manager.get_or_create(session_id, SessionOptions(description="test"))
     ctx = session_manager._sessions[session_id]
@@ -44,15 +42,10 @@ async def test_load_range_then_append_persists_history(session_manager: DefaultS
 
     await session_manager.save_session_history_async(session_id)
 
-    path = _history_path(session_manager, session_id)
-    assert os.path.isfile(path)
-    with open(path, encoding="utf-8") as f:
-        saved = json.load(f)
-    assert saved["schema_version"] == 2
-    assert saved["message_format"] == "miniagent-conversation-v1"
-    assert len(saved["messages"]) == 2
-    assert saved["messages"][0]["role"] == "user"
-    assert saved["messages"][1]["role"] == "assistant"
+    saved = _stored_history(session_manager, session_id)
+    assert len(saved) == 2
+    assert saved[0]["role"] == "user"
+    assert saved[1]["role"] == "assistant"
 
     # ctx 与 session 仍指向同一 list
     assert ctx["conversation_history"] is session.conversation_history
@@ -68,17 +61,7 @@ def test_load_range_loads_disk_when_memory_empty(session_manager: DefaultSession
         {"role": "user", "content": "旧消息"},
         {"role": "assistant", "content": "旧回复"},
     ]
-    path = _history_path(session_manager, session_id)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(
-            {
-                "schema_version": 2,
-                "message_format": "miniagent-conversation-v1",
-                "messages": disk_data,
-            },
-            f,
-        )
+    session_manager._storage.save_history(ctx["config"], disk_data)
 
     messages, total = session_manager.load_session_history_range(session_id, start_idx=0, count=10)
     assert total == 2
@@ -110,11 +93,9 @@ async def test_save_after_truncate_keeps_session_and_ctx_in_sync(
     await session_manager.save_session_history_async(session_id)
 
     assert ctx["conversation_history"] is session.conversation_history
-    path = _history_path(session_manager, session_id)
-    with open(path, encoding="utf-8") as f:
-        saved = json.load(f)
-    assert len(saved["messages"]) == 2
-    assert saved["messages"] == session.conversation_history
+    saved = _stored_history(session_manager, session_id)
+    assert len(saved) == 2
+    assert saved == session.conversation_history
 
 
 def test_load_range_expands_assistant_window_to_preserve_user_turn(
@@ -176,7 +157,7 @@ def test_consecutive_history_ranges_do_not_skip_or_duplicate_turns(
 async def test_load_range_preserves_long_assistant_content_on_disk(
     session_manager: DefaultSessionManager,
 ) -> None:
-    """显示层截断策略不应改变 history.json 中的长答案内容。"""
+    """显示层截断策略不应改变 SQLite 中的长答案内容。"""
     session_id = "long-answer"
     session = session_manager.get_or_create(session_id, SessionOptions(description="test"))
     long_answer = "长答案" * 1000
@@ -192,16 +173,14 @@ async def test_load_range_preserves_long_assistant_content_on_disk(
 
     assert total == 2
     assert messages[-1]["content"] == long_answer
-    with open(_history_path(session_manager, session_id), encoding="utf-8") as f:
-        saved = json.load(f)
-    assert saved["messages"][-1]["content"] == long_answer
+    assert _stored_history(session_manager, session_id)[-1]["content"] == long_answer
 
 
 def test_restore_truncates_large_disk_history(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """磁盘 history.json 超过 max_history_messages 时，恢复后内存应截断。"""
+    """SQLite 历史超过 max_history_messages 时，恢复后内存应截断。"""
     monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path))
 
     def _cfg(key: str, default=None):
@@ -217,23 +196,13 @@ def test_restore_truncates_large_disk_history(
     session_id = "big-history"
     sm.get_or_create(session_id, SessionOptions(description="seed"))
     ctx = sm._sessions[session_id]
-    workspace = ctx["config"].workspace_path
 
     disk_data: list[dict[str, str]] = []
     for i in range(120):
         disk_data.append({"role": "user", "content": f"u-{i}"})
         disk_data.append({"role": "assistant", "content": f"a-{i}"})
 
-    path = os.path.join(workspace, "history.json")
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(
-            {
-                "schema_version": 2,
-                "message_format": "miniagent-conversation-v1",
-                "messages": disk_data,
-            },
-            f,
-        )
+    sm._storage.save_history(ctx["config"], disk_data)
 
     # 驱逐内存后从磁盘恢复
     del sm._sessions[session_id]

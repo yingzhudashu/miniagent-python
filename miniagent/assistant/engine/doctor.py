@@ -7,7 +7,7 @@
 - Python 运行时（版本、平台、解释器路径）
 - 必需与可选 Python 依赖（对齐 ``pyproject.toml`` 与 extras）
 - 包内默认配置 / ``config.user.json`` 与 API 密钥（JSON 与环境变量）
-- 项目状态目录（``sessions``、``memory``）与知识库根目录（``knowledge.root``）
+- 项目 SQLite 状态与知识库根目录（``knowledge.root``）
 """
 
 from __future__ import annotations
@@ -24,13 +24,11 @@ from miniagent.assistant.infrastructure.json_config import (
 # 与 pyproject.toml [project.dependencies] 对齐（import 名可能与包名不同）
 REQUIRED_DEPENDENCIES: tuple[tuple[str, str], ...] = (
     ("openai", "OpenAI SDK"),
-    ("aiohttp", "异步 HTTP (aiohttp)"),
     ("httpx", "HTTP 客户端 (httpx)"),
-    ("pydantic", "数据校验 (pydantic)"),
+    ("aiosqlite", "异步 SQLite (aiosqlite)"),
     ("yaml", "YAML 配置 (PyYAML)"),
     ("croniter", "定时表达式 (croniter)"),
     ("tzdata", "时区数据库 (tzdata)"),
-    ("typing_extensions", "类型兼容层 (typing-extensions)"),
 )
 
 # 与 pyproject.toml optional-dependencies 对齐

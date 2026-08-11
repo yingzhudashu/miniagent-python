@@ -7,10 +7,7 @@
 from __future__ import annotations
 
 import asyncio
-import json
-import os
 import sys
-import threading
 from array import array
 
 import pytest
@@ -167,7 +164,7 @@ class TestEmbeddingIndex:
         idx.index_entry("sess-1", entry, embedding=[1.0, 0.0, 0.0])
         stats = idx.get_stats()
         assert stats["total_embeddings"] == 1
-        assert stats["dim"] == 1536  # default
+        assert stats["dim"] == 3
 
     def test_empty_search(self, tmp_path):
         idx = self._make_index(str(tmp_path))
@@ -178,8 +175,8 @@ class TestEmbeddingIndex:
         idx = self._make_index(str(tmp_path))
         idx._loaded = True
         idx._dirty = False
-        idx.save()  # 不应写磁盘
-        assert not os.path.exists(idx._index_file)
+        idx.save()
+        assert not (tmp_path / "embedding-index.json").exists()
 
     def test_compact_vector_storage_preserves_precision_and_shares_cache(self, tmp_path):
         vector = [float(index) / 1536 for index in range(1536)]
@@ -274,11 +271,7 @@ class TestEmbeddingIndex:
             assert len(observed_batch_sizes) > 1
             assert max(observed_batch_sizes) <= 17
 
-    def test_save_keeps_dirty_when_index_changes_during_write(
-        self,
-        tmp_path,
-        monkeypatch,
-    ):
+    def test_index_entry_is_durable_without_explicit_save(self, tmp_path):
         idx = self._make_index(str(tmp_path))
         idx.index_entry(
             "session-1",
@@ -289,20 +282,6 @@ class TestEmbeddingIndex:
             ),
             embedding=[1.0, 0.0],
         )
-        entered = threading.Event()
-        release = threading.Event()
-        real_dump = embedding_module.atomic_dump_json
-
-        def delayed_dump(*args, **kwargs):
-            entered.set()
-            assert release.wait(timeout=5)
-            return real_dump(*args, **kwargs)
-
-        monkeypatch.setattr(embedding_module, "atomic_dump_json", delayed_dump)
-        save_thread = threading.Thread(target=idx.save)
-        save_thread.start()
-        assert entered.wait(timeout=5)
-
         idx.index_entry(
             "session-2",
             MemoryEntryInput(
@@ -312,14 +291,25 @@ class TestEmbeddingIndex:
             ),
             embedding=[0.0, 1.0],
         )
-        release.set()
-        save_thread.join(timeout=5)
 
-        assert not save_thread.is_alive()
-        assert idx._dirty is True
-        idx.save()
-        payload = json.loads((tmp_path / "embedding-index.json").read_text("utf-8"))
-        assert set(payload["entries"]) == {"session-1:1", "session-2:2"}
+        restored = self._make_index(str(tmp_path))
+        stored = {
+            key: (list(vector), text_hash, norm)
+            for key, vector, text_hash, norm in restored._registry.list_embeddings(
+                restored._model
+            )
+        }
+        assert stored == {
+            "session-1:1": ([1.0, 0.0], _text_hash("first first"), 1.0),
+            "session-2:2": ([0.0, 1.0], _text_hash("second second"), 1.0),
+        }
+        assert [
+            result.entry_key
+            for result in restored.search_relevant(
+                [1.0, 0.0], limit=2, min_score=0.0
+            )
+        ] == ["session-1:1", "session-2:2"]
+        assert not (tmp_path / "embedding-index.json").exists()
 
 
 # ============================================================================

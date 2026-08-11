@@ -1,6 +1,6 @@
 # 性能测试与优化
 
-> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-19 | 与 `miniagent.__version__` 对齐 | 补充 [ENGINEERING.md](ENGINEERING.md)
+> Mini Agent Python | 版本: 5.0.0 | 最后更新: 2026-08-10 | 与 `miniagent.__version__` 对齐 | 补充 [ENGINEERING.md](ENGINEERING.md)
 
 本文分两部分：
 
@@ -120,7 +120,7 @@ python scripts/perf_trace_real_api.py --scenario matrix --runs 3
 
 同日另以 `MINIAGENT_REAL_API_STRESS=1` 执行 `tests/evaluation/test_perf_real_api.py`，provider-neutral 的纯模型、真实 `read_file`、三并发、模型配置和产物目录 5/5 通过。该入口不再硬编码 `OPENAI_API_KEY` 或已删除的执行器参数；有效凭据由所选 provider 的 gateway 构造统一验证。
 
-新增高级配置均保持向后兼容：
+当前性能与追踪配置：
 
 | 配置 | 默认值 | 作用 |
 |---|---:|---|
@@ -180,7 +180,7 @@ CI **不**依赖基线文件是否存在；可选 workflow 仅上传当次脚本
 - **表格分隔符正则预编译**：[`miniagent/assistant/feishu/cards/gfm_table.py`](../miniagent/assistant/feishu/cards/gfm_table.py) 使用预编译 `_RE_GFM_SEPARATOR`。
 - **嵌入向量紧凑存储与分块查询**：[`miniagent/assistant/memory/embedding_search.py`](../miniagent/assistant/memory/embedding_search.py) 用连续 float64 数组替代 Python `list[float]`，API 缓存与索引可共享同一向量；500×1536 合成常驻分配由 23.65MiB 降至 6.25MiB（约 73.6%）。numpy 检索按 256 条构造临时矩阵，Top-K 与标量路径等价。索引仍受 `embedding.max_entries`（默认 2000）限制。
 - **活动日志读取缓存**：[`miniagent/assistant/memory/activity_log.py`](../miniagent/assistant/memory/activity_log.py) 的 `_read_today()` 有 30 秒内存缓存，避免每次 `log_session_start` 都读取 Growing 的 Markdown 文件。
-- **活动日志单一所有权**：`run_agent` 统一记录每轮首尾，executor 只在直接调用时兼容管理首尾，engine 不再二次写入或保留第二份完整工具结果。LLM、工具和兼容同步日志方法均通过异步适配器在线程执行。
+- **活动日志单一所有权**：`AgentRuntime` 统一记录每轮首尾，executor 的直接调用边界自行管理首尾，engine 不再二次写入或保留第二份完整工具结果。LLM、工具和同步日志方法均通过异步适配器在线程执行。
 - **历史消息浅拷贝**：[`miniagent/agent/history.py`](../miniagent/agent/history.py) 的 `conversation_history_for_llm()` 用 `v.copy()` 替代 `copy.deepcopy(v)`，对简单 `{role, content}` 消息快 5-10 倍。
 - **历史预算线性裁剪**：`format_history_for_llm()` 只估算每条消息一次，再用单次后缀切片替代反复 `sum()+pop(0)`。同机 1000 条等价输出对比由 2.0751s 降至 0.0049s（约 427×）。`DefaultContextManager` 的 truncate 策略也改为累计待删 token 后一次切片，并发出 `strategy=truncate` 的 `context.compress` Trace。
 - **预编译分词正则**：[`miniagent/assistant/memory/keyword_index.py`](../miniagent/assistant/memory/keyword_index.py) 的 `extract_keywords()` 使用模块级预编译 `_RE_NON_ALNUM_CJK` / `_RE_CJK_ONLY`，避免每次 `re.sub` 重新编译。

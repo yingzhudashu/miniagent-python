@@ -8,7 +8,15 @@ import sys
 from typing import Any, cast
 
 from miniagent.agent.logging import set_console_log_threshold
-from miniagent.assistant.engine.cli_history import create_cli_file_history, reload_cli_input_history
+from miniagent.assistant.bootstrap.application import ApplicationContainer
+from miniagent.assistant.engine.cli_fallback import run_cli_loop_fallback
+from miniagent.assistant.engine.cli_history import (
+    create_cli_file_history,
+    reload_cli_input_history,
+    resolve_cli_history_file,
+)
+from miniagent.assistant.engine.cli_state import CliLoopState
+from miniagent.assistant.infrastructure.instance import unregister_instance
 from miniagent.assistant.infrastructure.json_config import get_config
 from miniagent.ui import TuiApp, TuiSnapshot
 from miniagent.ui.runtime import TuiTheme
@@ -111,8 +119,8 @@ class AssistantTuiApplication(TuiApp):
 
     async def select_model(self, profile: str) -> None:
         """切换模型配置并原子重载应用运行时。"""
+        from miniagent.assistant.bootstrap.configuration import reload_runtime_config
         from miniagent.assistant.engine.model_cmd import switch_model_profile
-        from miniagent.assistant.infrastructure.json_config import reload_runtime_config
 
         switch_model_profile(profile)
         await reload_runtime_config(self.ctx)
@@ -557,8 +565,8 @@ class AssistantTuiApplication(TuiApp):
 
     async def open_model_palette(self) -> None:
         """Select and atomically activate the default role model."""
+        from miniagent.assistant.bootstrap.configuration import reload_runtime_config
         from miniagent.assistant.engine.model_cmd import switch_model_profile
-        from miniagent.assistant.infrastructure.json_config import reload_runtime_config
         from miniagent.ui.cli.model_selector import choose_model_profile
 
         profile = await choose_model_profile(self.ctx)
@@ -627,4 +635,32 @@ async def run_fullscreen_cli(
         application.close()
 
 
-__all__ = ["run_fullscreen_cli"]
+async def run_cli_loop(
+    ctx: ApplicationContainer,
+    state: CliLoopState,
+    skill_toolboxes: list[Any],
+    skill_prompts: list[Any],
+) -> None:
+    """Run the fullscreen CLI, with the supported non-TTY and dependency fallback."""
+    try:
+        from prompt_toolkit.formatted_text import HTML  # noqa: F401
+        from prompt_toolkit.styles import Style  # noqa: F401
+
+        from miniagent.assistant.engine.cli_completion import create_cli_completer  # noqa: F401
+    except ImportError:
+        await run_cli_loop_fallback(ctx, state, skill_toolboxes, skill_prompts)
+        return
+    if get_config("cli.force_fallback", False) or not sys.stdin.isatty() or not sys.stdout.isatty():
+        await run_cli_loop_fallback(ctx, state, skill_toolboxes, skill_prompts)
+        return
+    await run_fullscreen_cli(
+        ctx,
+        state,
+        skill_toolboxes,
+        skill_prompts,
+        history_file=resolve_cli_history_file(),
+        unregister=unregister_instance,
+    )
+
+
+__all__ = ["run_cli_loop"]

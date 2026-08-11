@@ -424,21 +424,15 @@ class ThinkingDisplay:
         if phase_changed and state.feishu_send and state.feishu_chat_id:
             open_feishu = bool(getattr(state, "feishu_thinking_message_id", None))
             if state.stream_step is not None or open_feishu:
-                try:
-                    await state.feishu_send(
-                        state.feishu_chat_id,
-                        "",
-                        "gray",
-                        is_new_round=False,
-                        streaming=False,
-                        merge_tools=False,
-                        finalize_only=True,
-                    )
-                except TypeError:
-                    _logger.debug(
-                        "feishu_send 不支持 finalize_only，阶段切换时可能未收尾思考卡",
-                        exc_info=True,
-                    )
+                await state.feishu_send(
+                    state.feishu_chat_id,
+                    "",
+                    "gray",
+                    is_new_round=False,
+                    streaming=False,
+                    merge_tools=False,
+                    finalize_only=True,
+                )
         if phase_changed or reset:
             state.stream_done = True
             state.stream_step = None
@@ -563,18 +557,15 @@ class ThinkingDisplay:
         if self._should_emit_cli(state):
             self._emit("\n\n", session_key=session_key)
         if state.feishu_send and state.feishu_chat_id:
-            try:
-                await state.feishu_send(
-                    state.feishu_chat_id,
-                    "",
-                    "gray",
-                    is_new_round=False,
-                    streaming=False,
-                    merge_tools=False,
-                    finalize_only=True,
-                )
-            except TypeError as error:
-                _logger.debug("流合并参数不匹配: %s", error)
+            await state.feishu_send(
+                state.feishu_chat_id,
+                "",
+                "gray",
+                is_new_round=False,
+                streaming=False,
+                merge_tools=False,
+                finalize_only=True,
+            )
         state.stream_done = True
         return state.stream_header
 

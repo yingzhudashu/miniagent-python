@@ -9,11 +9,17 @@ import traceback
 from typing import Any
 
 from miniagent.agent.constants import MAX_ARGS_LOG_LEN
-from miniagent.agent.executor import (
-    _append_context_or_return,
-    _extract_tool_intent,
-    _logger,
-    _raise_if_task_cancelled,
+from miniagent.agent.execution_support import (
+    append_context_or_error as _append_context_or_return,
+)
+from miniagent.agent.execution_support import (
+    extract_tool_intent as _extract_tool_intent,
+)
+from miniagent.agent.execution_support import (
+    logger as _logger,
+)
+from miniagent.agent.execution_support import (
+    raise_if_task_cancelled as _raise_if_task_cancelled,
 )
 from miniagent.agent.observability import emit_trace
 from miniagent.agent.ports.runtime import OnThinkingCallback
@@ -301,9 +307,11 @@ class ToolPhaseRunner:
             args = getattr(tool_call, "_args_dict", None) or json.loads(
                 tool_call.function.arguments
             )
+            if not isinstance(args, dict):
+                return f"{WARNING_PREFIX} 工具参数必须是 JSON object"
             loop_check = self.loop_detector.check(tool_call.function.name, args)
         except (json.JSONDecodeError, TypeError, AttributeError):
-            return tool_call, {}, tool
+            return f"{WARNING_PREFIX} 工具参数必须是有效的 JSON object"
         if loop_check.level == "critical":
             elapsed = time.monotonic_ns() // 1_000_000 - start_ms
             self.monitor.record(

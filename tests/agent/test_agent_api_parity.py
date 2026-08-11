@@ -6,9 +6,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from miniagent.agent.agent import run_agent
 from miniagent.agent.runtime import AgentRequest, AgentRuntime, AgentSettings, AgentSpec
 from miniagent.agent.types.agent import AgentRunResult
+from tests.support.agent_runtime import run_agent
 
 
 @pytest.mark.asyncio

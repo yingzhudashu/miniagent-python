@@ -135,19 +135,15 @@ _WINDOWS_EXECUTABLE_SUFFIXES = frozenset({".bat", ".cmd", ".com", ".exe"})
 def _get_allowed_commands() -> frozenset[str]:
     """Read the command allowlist without turning an explicit deny-all into defaults.
 
-    ``None`` means "use the built-in defaults". JSON arrays are the canonical
-    representation; comma-separated strings remain accepted for compatibility.
+    ``None`` means "use the built-in defaults". JSON arrays are the only
+    accepted representation.
     Invalid values fail closed because silently enabling the default commands would
     defeat an operator's attempt to restrict command execution.
     """
     configured = get_config("security.allowed_commands", None)
     if configured is None:
         return _DEFAULT_ALLOWED_COMMANDS
-    if isinstance(configured, str):
-        if not configured.strip():
-            return _DEFAULT_ALLOWED_COMMANDS
-        string_values = configured.split(",")
-    elif isinstance(configured, (list, tuple, set, frozenset)):
+    if isinstance(configured, list):
         if any(not isinstance(value, str) for value in configured):
             _logger.warning(
                 "security.allowed_commands 数组只能包含字符串；禁用命令执行"
@@ -156,7 +152,7 @@ def _get_allowed_commands() -> frozenset[str]:
         string_values = [value for value in configured if isinstance(value, str)]
     else:
         _logger.warning(
-            "security.allowed_commands 类型无效（需要 JSON 数组或逗号分隔字符串）；禁用命令执行"
+            "security.allowed_commands 类型无效（需要 JSON 字符串数组）；禁用命令执行"
         )
         return frozenset()
     return frozenset(value.strip() for value in string_values if value.strip())

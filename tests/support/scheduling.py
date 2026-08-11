@@ -6,8 +6,6 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
 
-import pytest
-
 from miniagent.assistant.engine.cli_state import CliLoopState
 from miniagent.assistant.infrastructure.message_queue import MessageQueueManager
 from miniagent.ui.channels import ChannelRegistry
@@ -16,14 +14,6 @@ from tests.support.memory import (
     make_knowledge_registry,
     make_memory_runtime,
 )
-
-
-def patch_tick_once_locks(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Mock cross-process locks so tick_once tests run without real lock files."""
-    monkeypatch.setattr("miniagent.assistant.scheduled_tasks.ticker.try_acquire_scheduler_lock", lambda: True)
-    monkeypatch.setattr("miniagent.assistant.scheduled_tasks.ticker.release_scheduler_lock", lambda: None)
-    monkeypatch.setattr("miniagent.assistant.scheduled_tasks.ticker.try_acquire_job_lock", lambda _id: True)
-    monkeypatch.setattr("miniagent.assistant.scheduled_tasks.ticker.release_job_lock", lambda _id: None)
 
 
 def minimal_tick_ctx(*, engine: Any | None = None) -> SimpleNamespace:

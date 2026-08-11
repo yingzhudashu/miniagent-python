@@ -66,15 +66,29 @@ def test_session_identity_active_rename_and_disk_resolution(manager: DefaultSess
 
 @pytest.mark.asyncio
 async def test_session_listing_destroy_and_lock_metadata(manager: DefaultSessionManager) -> None:
+    import time
+    from unittest.mock import patch
+
+    from miniagent.assistant.state.sync import open_state_database
+
     session = manager.get_or_create("locked")
     workspace = Path(manager._sessions[session.id]["config"].workspace_path)
-    (workspace / ".lock").write_text("123", encoding="utf-8")
-    assert _get_session_lock_owner(str(workspace)) == 123
-    info = manager.list_all_sessions_with_info()
-    locked = next(item for item in info if item["id"] == "locked")
-    assert locked["locked"] and locked["lock_pid"] == 123
+    with open_state_database(workspace.parent.parent) as connection:
+        connection.execute(
+            "INSERT INTO process_leases VALUES (?, ?, ?, 1)",
+            ("session:locked", "123", int((time.time() + 60) * 1000)),
+        )
+    with patch(
+        "miniagent.assistant.infrastructure.process_utils.is_process_running",
+        return_value=True,
+    ):
+        assert _get_session_lock_owner(str(workspace)) == 123
+        info = manager.list_all_sessions_with_info()
+        locked = next(item for item in info if item["id"] == "locked")
+        assert locked["locked"] and locked["lock_pid"] == 123
 
-    (workspace / ".lock").write_text("invalid", encoding="utf-8")
+    with open_state_database(workspace.parent.parent) as connection:
+        connection.execute("DELETE FROM process_leases WHERE resource='session:locked'")
     assert _get_session_lock_owner(str(workspace)) is None
     assert await manager.delete_session("locked", keep_files=False)
     assert not workspace.exists()

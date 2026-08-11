@@ -19,12 +19,11 @@ def test_deduplicator_evicts_oldest_completed_ids(
 
     monkeypatch.setattr(dedup_module, "DEDUP_MAX_SIZE", 2)
     dedup = FeishuDeduplicator(str(tmp_path))
-    monkeypatch.setattr(dedup, "_maybe_schedule_flush", lambda: None)
     for message_id in ("one", "two", "three"):
         assert dedup.try_begin_processing(message_id)
         dedup.release_processing(message_id)
-    assert len(dedup._processed) <= 2
-    assert "mini-agent:one" not in dedup._processed
+    assert dedup.stats()["disk_dedup"] == 2
+    assert dedup.try_begin_processing("one")
 
 @pytest.mark.asyncio
 async def test_feishu_im_handlers_cover_config_and_filter_boundaries(

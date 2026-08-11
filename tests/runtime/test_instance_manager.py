@@ -1,14 +1,13 @@
 """Tests for instance registry (multi-instance)."""
 
-import json
 import os
 import tempfile
-from pathlib import Path
 
 import pytest
 
 from miniagent.assistant.infrastructure.instance import InstanceRegistry, ProjectDirConflictError
 from miniagent.assistant.infrastructure.paths import normalize_project_dir, resolve_project_key
+from miniagent.assistant.state.registry import REGISTRY_DATABASE_NAME
 
 
 def _fake_pid_checker(pid: int) -> bool:
@@ -28,22 +27,28 @@ class TestInstanceRegistry:
             assert any(i["pid"] == os.getpid() for i in instances)
             mgr.unregister()
 
-    def test_unregister_removes_dir(self):
+    def test_unregister_removes_registry_row(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             mgr = InstanceRegistry(state_dir=tmpdir, pid_checker=_fake_pid_checker)
             mgr.register(mode="cli")
-            my_dir = mgr._my_dir
-            assert my_dir.exists()
+            assert mgr.list_all()
             mgr.unregister()
-            assert not my_dir.exists()
+            assert mgr.list_all() == []
+            assert os.path.isfile(os.path.join(tmpdir, REGISTRY_DATABASE_NAME))
+            assert not os.path.exists(os.path.join(tmpdir, "instances"))
 
-    def test_heartbeat(self):
+    def test_heartbeat_updates_typed_column(self, monkeypatch):
         with tempfile.TemporaryDirectory() as tmpdir:
             mgr = InstanceRegistry(state_dir=tmpdir, pid_checker=_fake_pid_checker)
             mgr.register(mode="cli")
+            assert mgr._my_id is not None
+            before = mgr._store.get(mgr._my_id)
+            assert before is not None
+            monkeypatch.setattr(mgr, "_now_ms", lambda: before.heartbeat_at_ms + 1)
             mgr.heartbeat()
-            heartbeat_file = mgr._my_dir / "heartbeat"
-            assert heartbeat_file.exists()
+            after = mgr._store.get(mgr._my_id)
+            assert after is not None
+            assert after.heartbeat_at_ms == before.heartbeat_at_ms + 1
             mgr.unregister()
 
     def test_list_empty(self):
@@ -65,33 +70,19 @@ class TestInstanceRegistry:
             assert len(instances) == 1  # only itself
             mgr2.unregister()
 
-    def test_register_cleans_dead_instance_dirs(self):
-        dead_pid = 99901
-
-        def checker(pid: int) -> bool:
-            return pid != dead_pid
-
+    def test_old_instance_json_is_not_read_or_modified(self):
         with tempfile.TemporaryDirectory() as tmpdir:
+            from pathlib import Path
+
             stale = Path(tmpdir) / "instances" / "1"
             stale.mkdir(parents=True)
-            meta = {
-                "schema_version": 1,
-                "pid": dead_pid,
-                "instance_id": 1,
-                "mode": "cli",
-                "active_sessions": [],
-                "hostname": "test-host",
-                "start_time": "2026-05-09T10:00:00",
-            }
-            (stale / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+            legacy = stale / "meta.json"
+            legacy.write_text('{"pid": 99901}', encoding="utf-8")
 
-            mgr = InstanceRegistry(state_dir=tmpdir, pid_checker=checker)
-            mgr.register(mode="cli")
-            # 清理后重用 ID 1，目录仍存在但 meta 已是当前进程
-            assert stale.exists()
-            with open(stale / "meta.json", encoding="utf-8") as f:
-                disk = json.load(f)
-            assert disk["pid"] == os.getpid()
+            mgr = InstanceRegistry(state_dir=tmpdir, pid_checker=_fake_pid_checker)
+            result = mgr.register(mode="cli")
+            assert result["instance_id"] == 1
+            assert legacy.read_text(encoding="utf-8") == '{"pid": 99901}'
             instances = mgr.list_all()
             assert len(instances) == 1
             assert instances[0]["pid"] == os.getpid()
@@ -108,29 +99,18 @@ class TestInstanceRegistry:
             return pid in (other_pid, os.getpid())
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            other = Path(tmpdir) / "instances" / "1"
-            other.mkdir(parents=True)
-            meta = {
-                "schema_version": 1,
-                "pid": other_pid,
-                "instance_id": 1,
-                "mode": "cli",
-                "active_sessions": ["s"],
-                "hostname": "other",
-                "start_time": "2026-05-09T11:00:00",
-                "project_dir": str(project_a),
-            }
-            (other / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
-
+            monkeypatch.setenv("MINIAGENT_PROJECT_DIR", str(project_a))
+            first = InstanceRegistry(state_dir=tmpdir, pid_checker=checker)
+            first.register(mode="cli", active_sessions=["s"])
             monkeypatch.setenv("MINIAGENT_PROJECT_DIR", str(project_b))
             mgr = InstanceRegistry(state_dir=tmpdir, pid_checker=checker)
             mgr.register(mode="cli")
-            assert other.exists()
             instances = mgr.list_all()
             assert len(instances) == 2
             ids = {i["instance_id"] for i in instances}
             assert ids == {1, 2}
             mgr.unregister()
+            first.unregister()
 
     def test_format_table_empty(self):
         from miniagent.assistant.infrastructure.instance import format_instances_table
@@ -200,8 +180,6 @@ class TestInstanceRegistry:
         assert str(tmp_path / "custom-ws") in msg
 
         stale_meta = {
-
-            "schema_version": 1,
             "instance_id": 2,
             "pid": 1000,
             "project_dir": str(project),
@@ -234,24 +212,13 @@ class TestInstanceRegistry:
             return pid in (other_pid, os.getpid())
 
         with tempfile.TemporaryDirectory() as regdir:
-            alive = Path(regdir) / "instances" / "1"
-            alive.mkdir(parents=True)
-            meta = {
-                "schema_version": 1,
-                "pid": other_pid,
-                "instance_id": 1,
-                "mode": "cli",
-                "active_sessions": [],
-                "hostname": "other",
-                "start_time": "2026-05-09T12:00:00",
-                "project_dir": str(project),
-            }
-            (alive / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
-
             monkeypatch.setenv("MINIAGENT_PROJECT_DIR", str(project))
+            first = InstanceRegistry(state_dir=regdir, pid_checker=checker)
+            first.register(mode="cli")
             mgr = InstanceRegistry(state_dir=regdir, pid_checker=checker)
             with pytest.raises(ProjectDirConflictError):
                 mgr.register(mode="cli")
+            first.unregister()
 
     def test_register_different_project_dirs_allowed(self, monkeypatch, tmp_path):
         project_a = tmp_path / "a"
@@ -264,26 +231,16 @@ class TestInstanceRegistry:
             return pid in (other_pid, os.getpid())
 
         with tempfile.TemporaryDirectory() as regdir:
-            other = Path(regdir) / "instances" / "1"
-            other.mkdir(parents=True)
-            meta = {
-                "schema_version": 1,
-                "pid": other_pid,
-                "instance_id": 1,
-                "mode": "cli",
-                "active_sessions": [],
-                "hostname": "other",
-                "start_time": "2026-05-09T12:00:00",
-                "project_dir": str(project_a),
-            }
-            (other / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
-
+            monkeypatch.setenv("MINIAGENT_PROJECT_DIR", str(project_a))
+            first = InstanceRegistry(state_dir=regdir, pid_checker=checker)
+            first.register(mode="cli")
             monkeypatch.setenv("MINIAGENT_PROJECT_DIR", str(project_b))
             mgr = InstanceRegistry(state_dir=regdir, pid_checker=checker)
             result = mgr.register(mode="cli")
             assert result["instance_id"] == 2
             assert len(mgr.list_all()) == 2
             mgr.unregister()
+            first.unregister()
 
     def test_register_rejects_invalid_mode(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -297,12 +254,10 @@ class TestInstanceRegistry:
             mgr.register(mode="cli")
             mgr.update_mode("both")
             assert mgr._meta["mode"] == "both"
-            meta_path = mgr._my_dir / "meta.json"
-            import json
-
-            with open(meta_path, encoding="utf-8") as f:
-                disk = json.load(f)
-            assert disk["mode"] == "both"
+            assert mgr._my_id is not None
+            stored = mgr._store.get(mgr._my_id)
+            assert stored is not None
+            assert stored.mode == "both"
             mgr.unregister()
 
     def test_update_mode_noop_without_register(self):
@@ -352,28 +307,18 @@ class TestInstanceRegistry:
             return pid in (other_pid, os.getpid())
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            alive = Path(tmpdir) / "instances" / "1"
-            alive.mkdir(parents=True)
-            meta = {
-                "schema_version": 1,
-                "pid": other_pid,
-                "instance_id": 1,
-                "mode": "both",
-                "active_sessions": [],
-                "hostname": "alive",
-                "start_time": "2026-05-09T12:00:00",
-                "project_dir": str(project_a),
-            }
-            (alive / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
-
+            monkeypatch.setenv("MINIAGENT_PROJECT_DIR", str(project_a))
+            first = InstanceRegistry(state_dir=tmpdir, pid_checker=checker)
+            first.register(mode="both")
             monkeypatch.setenv("MINIAGENT_PROJECT_DIR", str(project_b))
             mgr = InstanceRegistry(state_dir=tmpdir, pid_checker=checker)
             mgr.register(mode="cli")
             assert mgr._my_id == 2
-            with open(alive / "meta.json", encoding="utf-8") as f:
-                disk = json.load(f)
-            assert disk["pid"] == other_pid
+            stored = first._store.get(1)
+            assert stored is not None
+            assert stored.mode == "both"
             mgr.unregister()
+            first.unregister()
 
     def test_register_same_project_dir_raises_conflict(self, monkeypatch, tmp_path):
         project = tmp_path / "same-project"

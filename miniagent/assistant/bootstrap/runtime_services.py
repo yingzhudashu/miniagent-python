@@ -6,16 +6,40 @@ import asyncio
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, cast
 
+from miniagent.agent.constants import INSTANCE_HEARTBEAT_TIMEOUT
 from miniagent.agent.lifecycle import LifecycleManager
 from miniagent.assistant.bootstrap.task_service import AsyncTaskLifecycleService
 from miniagent.assistant.engine.cli_state import CliLoopState
 from miniagent.assistant.engine.feishu_lifecycle import FeishuRuntimeLifecycleService
+from miniagent.assistant.engine.session_lock import renew_session_leases
 from miniagent.assistant.infrastructure.config_watch import start_config_watch
+from miniagent.assistant.infrastructure.feishu_inbound_lock import (
+    renew_feishu_inbound_owner,
+)
+from miniagent.assistant.infrastructure.instance import heartbeat
 from miniagent.assistant.scheduled_tasks.ticker import start_scheduled_tasks_ticker
 from miniagent.assistant.skills.watch import start_skills_watch
 
 if TYPE_CHECKING:
     from miniagent.assistant.bootstrap.application import ApplicationContainer
+
+
+async def _runtime_heartbeat_loop(stop_event: asyncio.Event) -> None:
+    interval = max(1.0, INSTANCE_HEARTBEAT_TIMEOUT / 3)
+    while not stop_event.is_set():
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=interval)
+        except TimeoutError:
+            await asyncio.to_thread(heartbeat)
+            await asyncio.to_thread(renew_feishu_inbound_owner)
+            await asyncio.to_thread(renew_session_leases)
+
+
+def _start_runtime_heartbeat(stop_event: asyncio.Event) -> asyncio.Task[None]:
+    return asyncio.create_task(
+        _runtime_heartbeat_loop(stop_event),
+        name="miniagent_runtime_heartbeat",
+    )
 
 
 def build_runtime_lifecycle_manager(
@@ -28,6 +52,12 @@ def build_runtime_lifecycle_manager(
 ) -> LifecycleManager:
     """Build services in their deterministic production startup order."""
     state_dict = cast(dict[str, Any], state)
+    heartbeat_stop = asyncio.Event()
+    heartbeat_service = AsyncTaskLifecycleService(
+        "instance_heartbeat",
+        starter=lambda: _start_runtime_heartbeat(heartbeat_stop),
+        signal_stop=heartbeat_stop.set,
+    )
     config_watch_stop = asyncio.Event()
     config_watch_service = AsyncTaskLifecycleService(
         "config_watch",
@@ -60,7 +90,13 @@ def build_runtime_lifecycle_manager(
         signal_stop=skills_watch_stop.set,
     )
     return LifecycleManager(
-        [config_watch_service, feishu_service, scheduled_service, skills_watch_service]
+        [
+            heartbeat_service,
+            config_watch_service,
+            feishu_service,
+            scheduled_service,
+            skills_watch_service,
+        ]
     )
 
 

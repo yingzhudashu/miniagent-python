@@ -2,7 +2,7 @@
 
 本模块包含 CLI 斜杠命令的核心实现，从 unified.py 拆分而来。
 
-本模块直接实现或以兼容导入聚合：
+本模块直接实现并组合以下命令：
 - 会话管理：列出、切换、创建、重命名、删除会话
 - 消息队列：查看队列状态、切换队列模式
 - 通道路由：/session switch 同步 CLI 与自动私聊绑定
@@ -23,7 +23,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re
@@ -44,7 +43,6 @@ from miniagent.assistant.engine.commands.config_commands import (
     format_test_command_usage,
 )
 from miniagent.assistant.engine.commands.help_commands import format_help_markdown
-from miniagent.assistant.engine.commands.instance_commands import cmd_instance_handler
 from miniagent.assistant.engine.commands.kb_commands import (
     cmd_kb_list,
     cmd_kb_mount,
@@ -113,26 +111,9 @@ def _save_cli_session_state_on_switch(
 
 
 def _load_session_history_messages(session: Any) -> list[Any]:
-    """从会话对象加载对话历史（内存 ``conversation_history`` 优先，回退 ``history.json``）。"""
+    """从已由 SQLite 恢复的会话对象读取对话历史。"""
     history = getattr(session, "conversation_history", None) or []
-    if history:
-        return history
-
-    files_path = getattr(session, "workspace_path", None) or getattr(session, "files_path", None)
-    if not files_path:
-        return []
-
-    history_path = os.path.join(os.path.dirname(files_path), "history.json")
-    if not os.path.isfile(history_path):
-        return []
-
-    try:
-        with open(history_path, encoding="utf-8-sig") as f:
-            loaded = json.load(f)
-    except Exception:
-        return []
-
-    return loaded if isinstance(loaded, list) else []
+    return history if isinstance(history, list) else []
 
 
 def _get_last_qa_with_metadata(
@@ -338,9 +319,6 @@ def cmd_session_list(
         display = f"#{s['number']} {s['title']}"
         print(f"  - {display}{marker} · {s['turn_count']} 轮{lock_info}")
     print()
-
-
-# cmd_instance_handler 已移至 miniagent/engine/commands/instance_commands.py
 
 
 async def cmd_session_switch(
@@ -595,7 +573,7 @@ def cmd_improve(
 def build_session_history_plaintext(session_manager: Any, session_id: str) -> str:
     """拼接 user/assistant 纯文本（简易 CLI ``/copy`` 用）。
 
-    优先使用内存 ``conversation_history``，否则回退 ``history.json``。
+    历史已由当前 SQLite session store 恢复到 ``conversation_history``。
     """
     if not session_manager or not session_id:
         return ""
@@ -624,7 +602,6 @@ def build_session_history_plaintext(session_manager: Any, session_id: str) -> st
 
 
 
-# 保留历史导入路径，便于第三方扩展平滑迁移。
 from miniagent.assistant.engine.commands.self_opt_commands import (
     cmd_self_opt_analyze,
     cmd_self_opt_apply,
@@ -679,7 +656,6 @@ __all__ = [
     "cmd_kb_search",
     "cmd_kb_reload",
     "build_session_history_plaintext",
-    "cmd_instance_handler",
     "cmd_improve",
     "_get_last_qa_with_metadata",
     "_extract_improve_suggestions",

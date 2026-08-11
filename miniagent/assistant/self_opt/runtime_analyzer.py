@@ -42,13 +42,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from miniagent.assistant.infrastructure.persistence import dump_state_file
-from miniagent.assistant.infrastructure.state_schemas import install_builtin_state_schemas
-
-install_builtin_state_schemas()
-
 from miniagent.agent.logging import get_logger
 from miniagent.agent.trace_events import EVENT_TOOL_END
+from miniagent.assistant.infrastructure.atomic_json import atomic_dump_json
 from miniagent.assistant.infrastructure.trace_stats import (
     aggregate_trace_stats,
     iter_trace_events,
@@ -403,7 +399,7 @@ class RuntimeAnalyzer:
         date = report.get("date", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
         report_file = reports_dir / f"runtime-{date}.json"
 
-        dump_state_file("self_opt_runtime_report", report_file, report)
+        atomic_dump_json(report_file, report, ensure_ascii=False, indent=2)
 
         _logger.info("运行分析报告已保存: %s", report_file)
         return report_file

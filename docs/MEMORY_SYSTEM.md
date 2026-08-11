@@ -1,6 +1,6 @@
 # 三层记忆系统
 
-> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-19 | 与 `miniagent.__version__` 对齐 | Agent Memory/RAG 基础设施
+> Mini Agent Python | 版本: 5.0.0 | 最后更新: 2026-08-10 | 与 `miniagent.__version__` 对齐 | Agent Memory/RAG 基础设施
 
 ## 架构概览
 
@@ -8,7 +8,7 @@ Mini Agent 采用三层记忆架构，确保 Agent 既能记住近期对话，�
 
 > 下文路径简写 `workspaces/...` 表示 `{paths.state_dir}/...`（canonical：`{miniagent}/workspaces/projects/{project_key}/...`，见 [ENGINEERING.md](ENGINEERING.md) §3）。
 
-**运行时注入**：正式入口通过 [`miniagent/assistant/memory/runtime.py`](../miniagent/assistant/memory/runtime.py) 构造唯一 `MemoryRuntime`，其中共享同一个注册表、关键词索引、嵌入索引、存储、活动日志和上下文服务；[`ApplicationContainer.memory`](../miniagent/assistant/bootstrap/application.py) 统一持有它，`AssistantTurnService` / `run_agent` / `execute_plan` 只接受显式注入，不存在模块级默认 bundle。状态根由 `MINIAGENT_PATHS_STATE_DIR` 或 `resolve_project_state_dir()` 决定（默认 `{miniagent}/workspaces/projects/{project_key}/`）。
+**运行时注入**：正式入口通过 [`miniagent/assistant/memory/runtime.py`](../miniagent/assistant/memory/runtime.py) 构造唯一 `MemoryRuntime`，其中共享同一个注册表、关键词索引、嵌入索引、存储、活动日志和上下文服务；[`ApplicationContainer.memory`](../miniagent/assistant/bootstrap/application.py) 统一持有它，`AssistantTurnService` / `AgentRuntime` / `execute_plan` 只接受显式注入，不存在模块级默认 bundle。状态根由 `MINIAGENT_PATHS_STATE_DIR` 或 `resolve_project_state_dir()` 决定（默认 `{miniagent}/workspaces/projects/{project_key}/`）。
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -56,24 +56,24 @@ Mini Agent 采用三层记忆架构，确保 Agent 既能记住近期对话，�
 
 ## 会话历史、按会话日记与分层维护
 
-与上图中的「结构化会话记忆（`DefaultMemoryStore`）」并行，另有**磁盘上的对话轨迹与渐进式披露**管线（实现见 `miniagent/agent/history.py`、`history_archive.py`、`layered_memory.py`、`memory_pipeline.py`、`dream_scheduler.py`）：
+与结构化会话记忆并行，系统还维护对话轨迹与渐进式披露管线：
 
 | 组件 | 路径 / 行为 |
 |------|-------------|
-| **会话历史** | `{paths.state_dir}/sessions/<safe_id>/history.json`（默认 `{miniagent}/workspaces/projects/{project_key}/sessions/…`，见 [ENGINEERING.md](ENGINEERING.md) §3），含 `user` / `thinking` / `assistant`；`thinking` 在调用 LLM 前由 `conversation_history_for_llm()` 映射为合法 `assistant` 文本块。默认 `memory.thinking_for_llm_mode=compact`，按 `memory.thinking_for_llm_compact_max_chars` 截断摘要；`full` 模式才使用 `memory.thinking_for_llm_max_chars`，且**不修改磁盘原文**。 |
-| **工具全文落盘** | `thinking` 中的工具输出依赖执行器回调 `on_tool_finish`；若直接调用 `run_agent()` 而未传入该回调，则不会写入工具全文块。`AssistantTurnService.run_agent_with_thinking` 已默认接线。 |
+| **会话历史** | 项目 `state.sqlite3` 的 `sessions/messages`，含 `user` / `thinking` / `assistant`；`thinking` 在调用 LLM 前由 `conversation_history_for_llm()` 映射为合法消息。 |
+| **工具全文落盘** | 默认产品由 `AssistantTurnService` 将工具完成事件写入当前会话消息流。 |
 | **会话日记（归档）** | `{paths.state_dir}/memory/diary/<safe_session_id>/YYYY-MM-DD.md`（JSON 块原样保存），并在历史中插入 `_history_archive_marker` 衔接说明 |
 | **会话级长期索引** | `{paths.state_dir}/memory/session_lt/<safe_session_id>.json`（日记路径与确定性体量说明，由 `dream_scheduler` 维护） |
 | **Agent 级长期记忆** | `{paths.state_dir}/memory/agent_lt/global.json` |
-| **Dream 式维护** | `{paths.state_dir}/memory/dream_state.json` + `dream.lock`；周期默认 7d / 30d / 365d（兼容配置键仍为 `dream.*_refine_sec`），体量超 `dream.size_force_bytes` 时可跳过周期闸门；只登记索引和裁剪列表，不调用 LLM |
+| **Dream 式维护** | `maintenance_state` + SQLite lease；周期默认 7d / 30d / 365d，只登记索引和裁剪列表，不调用 LLM |
 
 全局 **Activity Log**（`memory/YYYY-MM-DD.md`）仍保留，与会话日记互补：前者偏运维流水，后者按会话隔离存放从 `history` 迁出的原文块。
 
 ## Layer 1: 短期记忆 (Session Memory)
 
-**位置**: `miniagent/assistant/memory/store.py`（`{paths.state_dir}/memory/<safe_session_key>.json` 的摘要与条目）
+**位置**: `miniagent/assistant/memory/store.py`（项目 SQLite 的 `memory_profiles` / `memory_entries` / `memory_fts`）
 
-每个会话（session）独立存储的**结构化**记忆层（与 `sessions/` 下的 `history.json` 对话轨迹不同），包含：
+每个会话独立存储的结构化记忆层包含：
 
 - `cumulative_summary`：会话累计摘要。
 - `key_facts`：便于提示词直接消费的字符串事实摘要。
@@ -84,12 +84,10 @@ Mini Agent 采用三层记忆架构，确保 Agent 既能记住近期对话，�
 ### 存储结构
 
 ```
-{paths.state_dir}/sessions/<safe_session_id>/   # canonical；默认见 [ENGINEERING.md](ENGINEERING.md) §3
-├── history.json          # 当前对话历史（可含 thinking / 归档锚点）
-├── history_snapshots/    # 历史快照（每次会话保存）
-│   └── 0001_<timestamp>.json
-├── files/                # 会话相关文件
-└── skills/               # 会话专属技能
+{paths.state_dir}/state.sqlite3                 # 会话、消息、记忆、FTS、向量和维护状态
+{paths.state_dir}/sessions/<safe_session_id>/
+├── files/                                     # 会话相关文件
+└── skills/                                    # 会话专属技能
 
 {paths.state_dir}/memory/diary/<safe_session_id>/   # 从 history 剪切出的原文归档（按日 .md）
 {paths.state_dir}/memory/session_lt/               # 会话级长期索引 JSON
@@ -276,7 +274,7 @@ Layer 3 包含两个互补的检索后端：关键词索引（始终启用）和
 
 #### 存储与驱逐
 
-- 索引文件：`<state_dir>/embedding-index.json`
+- 索引表：`state.sqlite3.memory_embeddings`，按模型命名空间和维度隔离
 - 每条记忆缓存其 1536 维向量（约 12KB/条）
 - **上限**：`embedding.max_entries` 条（默认 2000，约 24MB），超限驱逐最早条目
 - 使用内容 hash 检测重复，相同内容不重复索引
@@ -374,9 +372,4 @@ messages = [
 
 > 用户配置仅通过 JSON（`config.user.json` > 包内 defaults）。**运维 / 路径类 env 仍有效**（如 `MINIAGENT_PATHS_STATE_DIR`、`AGENT_DEBUG`），完整分类见 [ENGINEERING.md §1.2](ENGINEERING.md#12-环境变量分类)。
 >
-> **迁移示例**（历史 `MINIAGENT_*` 配置键 → JSON）：
-> - `MINIAGENT_MEMORY_STORE_CACHE_MAX` → `memory.store_cache_max`
-> - `MINIAGENT_REGISTRY_MAX_ENTRIES` → `memory.registry_max_entries`
-> - `MINIAGENT_MEMORY_KEYWORD_INDEX_MAX` → `memory.keyword_index_max`
->
-> 完整对照见 `miniagent/assistant/resources/config.defaults.json` 的 `memory`、`embedding`、`dream` 节。
+> 当前配置见 `miniagent/assistant/resources/config.defaults.json` 的 `memory`、`embedding`、`dream` 节。

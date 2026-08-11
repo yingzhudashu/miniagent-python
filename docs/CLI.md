@@ -1,16 +1,16 @@
 # CLI 命令手册
 
-> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-19 | 与 `miniagent.__version__` 对齐 | 命令使用 `/` 前缀；多数命令在 CLI 与飞书均可使用
+> Mini Agent Python | 版本: 5.0.0 | 最后更新: 2026-08-10 | 与 `miniagent.__version__` 对齐 | 命令使用 `/` 前缀；多数命令在 CLI 与飞书均可使用
 
 **命令前缀**：系统统一使用 `/` 前缀（更符合CLI惯例）。例如：`/help`、`/status`、`/session list`。行首 `/` 是命令专用前缀：命令无论成功、失败或无输出，都不会再作为普通消息提交给 Agent；未知命令会提示使用 `/help`。
 
-在 **本地 CLI** 执行 `/session switch` 时，会同步更新 **CLI 通道绑定** 与已自动跟随的 **飞书私聊 sender**，使二者与 `active_session_id` 一致（在飞书内发 `/session switch` / `create` / `rename` 等变异子命令不会修改共享状态，见 [FEISHU.md](FEISHU.md)）。飞书多实例场景下，仅一个进程可持有入站连接（见 `feishu_inbound_owner.json`）。
+在 **本地 CLI** 执行 `/session switch` 时，会同步更新 **CLI 通道绑定** 与已自动跟随的 **飞书私聊 sender**，使二者与 `active_session_id` 一致（在飞书内发 `/session switch` / `create` / `rename` 等变异子命令不会修改共享状态，见 [FEISHU.md](FEISHU.md)）。飞书多实例场景下，入站 SQLite lease 保证仅一个进程持有连接。
 
 ## 启动命令
 
 ```bash
 python -m miniagent                     # CLI 模式（默认）；无冲突时隐式等价 --continue
-python -m miniagent --continue          # 继续上次 CLI 活跃会话（存于 channel-router.json）
+python -m miniagent --continue          # 继续上次 CLI 活跃会话（存于 state.sqlite3）
 python -m miniagent --no-continue       # 禁用隐式继续，使用 default 会话
 python -m miniagent --session <ID>      # 启动并绑定到指定会话
 python -m miniagent --feishu            # CLI + 飞书同时启动
@@ -23,13 +23,13 @@ python -m miniagent --stop --state-dir <路径> 1  # 操作显式指定的实例
 
 **一目录一实例**、PID 存活判定与 `--stop --state-dir` 语义见 **[ENGINEERING.md §3.3](ENGINEERING.md#33-多实例注册表)**。
 
-`--continue` / 隐式继续：将 `last_cli_session` 写入项目 workspace 的 `channel-router.json`（默认 `{miniagent}/workspaces/projects/<key>/channel-router.json`）；在退出（含 `quit`/`exit`、Ctrl+C、SIGTERM）、`/session switch` 时更新。下次启动会恢复该会话 ID；**全屏 CLI** 在 transcript 区加载最近历史，**简易 CLI**（无 TUI）启动时也会打印最近历史摘要；`/session switch` 后会重载对应会话历史。使用 `--no-continue` 可强制从 `default` 会话开始。
+`--continue` / 隐式继续：将 `last_cli_session` 写入项目 `state.sqlite3` 的 `cli_state`；在退出、`/session switch` 时更新。下次启动恢复该会话 ID；全屏与简易 CLI 都从 SQLite 加载最近历史。使用 `--no-continue` 可强制从 `default` 会话开始。
 
 ## 全屏 transcript 历史加载
 
 全屏 CLI 启动或 `/session switch` 后，transcript 先加载最近 `memory.initial_history_count` 条会话消息；如果磁盘历史更多，顶部会显示“向上滚动加载更多历史”的提示。继续向上滚动时会按批次加载更早消息，并保持 user/assistant 轮次顺序，避免只显示答案或把问答插反。
 
-transcript 是显示缓冲，不是历史真相源。会话历史仍保存在当前会话 workspace 的 `history.json`；显示缓冲只按 `memory.max_transcript_chars` 做字符级保护，防止长时间运行后 TUI 占用过多内存。`/copy` 在全屏 CLI 中复制当前 transcript 已加载内容；若需要完整磁盘历史，应从会话 `history.json` 或后续专门导出命令读取。
+transcript 是显示缓冲，不是历史真相源；项目 `state.sqlite3` 的 `messages` 表才是持久化真相源。显示缓冲只按 `memory.max_transcript_chars` 做字符级保护；`/copy` 复制当前 transcript 已加载内容。
 
 ## 输入框历史（↑↓）与 transcript 滚动的区别
 
@@ -364,7 +364,7 @@ On branch main
 
 ### /schedule — 定时任务
 
-任务持久化在 **`{paths.state_dir}/scheduled_tasks/tasks.json`**（canonical 布局见 [ENGINEERING.md](ENGINEERING.md) §3）。触发时与手动输入一样经 **消息队列** 跑一轮 Agent。详见 [ARCHITECTURE.md](ARCHITECTURE.md)「定时任务子系统」与 [USER_GUIDE.md](USER_GUIDE.md) §3。
+任务持久化在项目 **`state.sqlite3`** 的 `scheduled_tasks` 表。触发时与手动输入一样经消息队列跑一轮 Agent。
 
 **语法摘要**（与无参 `/schedule` 打印一致）：
 
@@ -384,7 +384,7 @@ On branch main
 - **`every`**：间隔秒数为正整数；**`once`**：时间为 ISO8601（可含 `Z` 或 `+08:00`）；未带时区的 naive 时间由 **`--tz`** 解释（未写时读 `scheduled_tasks.timezone` → `timezone.default` → `TZ`）。
 - **飞书收结果**：飞书 WebSocket 已连接且任务为 **`primary`** 且已与飞书私聊绑定时，定时任务会镜像思考流与最终回复到飞书（`scheduled_tasks.feishu_mirror=false` 关闭）；详见 [USER_GUIDE.md](USER_GUIDE.md) §3。
 - **会话**：`primary` 使用当前路由的主会话 / 活跃会话；`ephemeral` 每次新建临时会话键；`fixed:会话ID` 固定到某会话（如 `fixed:default` 或 `fixed:feishu:oc_xxx`，后者可用于飞书群任务）。
-- **时区**：cron 墙钟以 `tasks.json` 内 `schedule.timezone` 为准；未写 `--tz` 时新建任务默认时区为 `scheduled_tasks.timezone` → `timezone.default` → `TZ` → `Asia/Shanghai`。
+- **时区**：cron 墙钟以任务行的 `schedule.timezone` 为准；未写 `--tz` 时默认时区为 `scheduled_tasks.timezone` → `timezone.default` → `TZ` → `Asia/Shanghai`。
 - **关闭调度循环**（不删任务表）：`scheduled_tasks.disabled=true`；dispatch 失败退避秒数：`scheduled_tasks.dispatch_backoff`（默认 60，见包内 defaults）。
 
 **飞书渠道**：在飞书里发 `/schedule` 时，通常 **仅允许** `list` / `show`；`add` / `remove` / `enable` / `disable` 须在 **本机 CLI** 执行（与 `/session` 变异限制类似）。

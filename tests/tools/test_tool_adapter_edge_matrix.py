@@ -151,10 +151,12 @@ async def test_bitable_helper_and_dispatch_matrix(monkeypatch: pytest.MonkeyPatc
 
     assert module._parse_fields_arg(None) is None
     assert module._parse_fields_arg(1) is None
-    assert module._parse_fields_arg(" ") == {}
-    assert module._parse_fields_arg('{"a": 1}') == {"a": 1}
-    assert module._field_names([1, "a"]) == ["1", "a"]
-    assert module._field_names(" a, ,b ") == ["a", "b"]
+    assert module._parse_fields_arg(" ") is None
+    assert module._parse_fields_arg('{"a": 1}') is None
+    assert module._parse_fields_arg({"a": 1}) == {"a": 1}
+    assert module._field_names([1, "a"]) is None
+    assert module._field_names(" a, ,b ") is None
+    assert module._field_names(["A", "B"]) == ["A", "B"]
     assert module._field_names(None) is None
 
     missing_token = module._feishu_bitable_sync({"action": "get_meta"}, _ctx())
@@ -181,7 +183,7 @@ async def test_bitable_helper_and_dispatch_matrix(monkeypatch: pytest.MonkeyPatc
                 **common,
                 "action": "list_records",
                 "page_size": 5,
-                "field_names": "A,B",
+                "field_names": ["A", "B"],
                 "sort": ["A desc"],
             },
             _ctx(),
@@ -190,7 +192,7 @@ async def test_bitable_helper_and_dispatch_matrix(monkeypatch: pytest.MonkeyPatc
             {**common, "action": "get_record", "record_id": "r"}, _ctx()
         ),
         module._feishu_bitable_sync(
-            {**common, "action": "update_record", "record_id": "r", "fields": "{}"}, _ctx()
+            {**common, "action": "update_record", "record_id": "r", "fields": {}}, _ctx()
         ),
         module._feishu_bitable_sync(
             {**common, "action": "delete_record", "record_id": "r"}, _ctx()
@@ -203,14 +205,14 @@ async def test_bitable_helper_and_dispatch_matrix(monkeypatch: pytest.MonkeyPatc
 
     missing_record = module._feishu_bitable_sync({**common, "action": "get_record"}, _ctx())
     missing_fields = module._feishu_bitable_sync({**common, "action": "create_record"}, _ctx())
-    invalid_json = module._feishu_bitable_sync(
+    invalid_fields = module._feishu_bitable_sync(
         {**common, "action": "create_record", "fields": "{"}, _ctx()
     )
     missing_delete = module._feishu_bitable_sync({**common, "action": "delete_record"}, _ctx())
     missing_upload = module._feishu_bitable_sync({**common, "action": "upload_attachment"}, _ctx())
     assert not missing_record.success and "record_id" in missing_record.content
     assert not missing_fields.success and "fields" in missing_fields.content
-    assert not invalid_json.success and "JSON 无效" in invalid_json.content
+    assert not invalid_fields.success and "需要 fields" in invalid_fields.content
     assert not missing_delete.success and "record_id" in missing_delete.content
     assert not missing_upload.success and "relative_path" in missing_upload.content
 

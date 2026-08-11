@@ -4,7 +4,7 @@
 使用 JSON配置 ``embedding.*`` 配置专用 embedding 服务；
 未配置时不使用向量搜索，由调用方回退到关键词索引。
 
-存储：轻量 JSON 文件 ``<state_dir>/embedding-index.json``，每条记忆缓存其向量。
+存储：项目 SQLite 数据库中的 ``memory_embeddings``，每条记忆缓存其向量。
 检索：余弦相似度排名，无需外部向量数据库。
 
 配置项见 config.defaults.json 中 embedding 配置节。
@@ -15,20 +15,16 @@ from __future__ import annotations
 import asyncio
 import collections
 import hashlib
-import json
 import math
-import os
 import re
 import threading
 from array import array
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Any
 
 import httpx
 
-from miniagent.assistant.infrastructure.atomic_json import atomic_dump_json
 from miniagent.llm.embeddings import EmbeddingClient, EmbeddingConfig
 
 # numpy is an optional acceleration path. Importing it eagerly adds substantial
@@ -269,16 +265,6 @@ class _EmbeddingEntry:
     norm: float = 0.0  # 性能优化：预计算的向量 norm
 
 
-class _EmbeddingJSONEncoder(json.JSONEncoder):
-    """Encode one compact vector at a time instead of expanding the whole index."""
-
-    def default(self, value: Any) -> Any:
-        """把紧凑向量数组转换成可持久化的 JSON 列表。"""
-        if isinstance(value, array):
-            return value.tolist()
-        return super().default(value)
-
-
 def _cosine_similarity_cached(
     query_embedding: Sequence[float],
     query_norm: float,
@@ -311,7 +297,7 @@ class EmbeddingSearchResult:
 
 
 class EmbeddingIndex:
-    """基于 JSON 文件的轻量嵌入索引。
+    """基于 SQLite 的轻量嵌入索引。
 
     每条记忆缓存其向量表示，避免重复调用 API。
     文本内容存储在共享注册表，索引仅存储键引用。
@@ -334,8 +320,7 @@ class EmbeddingIndex:
         self._dirty = False
         self._generation = 0
         self._index_lock = threading.RLock()
-        self._save_lock = threading.Lock()
-        self._index_file = os.path.join(state_dir, "embedding-index.json")
+        self._model = _embedding_cache_namespace()
 
     def _ensure_loaded(self) -> None:
         """确保索引已从磁盘加载（延迟加载）。"""
@@ -350,77 +335,30 @@ class EmbeddingIndex:
             return bool(self._entries)
 
     def _load(self) -> None:
-        """从磁盘加载嵌入索引 JSON 文件。"""
+        """Load this model namespace from the durable vector table."""
         with self._index_lock:
-            try:
-                if not os.path.exists(self._index_file):
-                    self._loaded = True
-                    self._generation = 0
-                    return
-
-                with open(self._index_file, encoding="utf-8") as f:
-                    disk = json.load(f)
-
-                loaded_entries: collections.OrderedDict[str, _EmbeddingEntry] = (
-                    collections.OrderedDict()
+            loaded: collections.OrderedDict[str, _EmbeddingEntry] = collections.OrderedDict()
+            for entry_key, embedding, text_hash, norm in self._registry.list_embeddings(
+                self._model
+            ):
+                loaded[entry_key] = _EmbeddingEntry(
+                    embedding=embedding,
+                    entry_key=entry_key,
+                    text_hash=text_hash,
+                    norm=norm,
                 )
-                for key, data in disk.get("entries", {}).items():
-                    emb = array("d", data.get("embedding", []))
-                    loaded_entries[key] = _EmbeddingEntry(
-                        embedding=emb,
-                        entry_key=data.get("entry_key", key),
-                        text_hash=data.get("text_hash", ""),
-                        norm=_compute_norm(emb),
-                    )
-                self._dim = disk.get("dim", self._dim)
-                self._entries = loaded_entries
-                self._loaded = True
-                self._dirty = False
-                self._generation = 0
-            except Exception as e:
-                _logger.warning("加载嵌入索引失败，重建中: %s", e)
-                self._entries.clear()
-                self._loaded = True
-                self._dirty = False
-                self._generation = 0
+            if loaded:
+                self._dim = len(next(iter(loaded.values())).embedding)
+            self._entries = loaded
+            self._loaded = True
+            self._dirty = False
+            self._generation = 0
 
     def save(self) -> None:
-        """保存嵌入索引到磁盘。"""
+        """Mark the in-memory accelerator clean; vectors are already durable."""
         self._ensure_loaded()
-        try:
-            with self._save_lock:
-                with self._index_lock:
-                    if not self._dirty:
-                        return
-                    generation = self._generation
-                    dim = self._dim
-                    entries = {
-                        key: {
-                            "embedding": entry.embedding,
-                            "entry_key": entry.entry_key,
-                            "text_hash": entry.text_hash,
-                        }
-                        for key, entry in self._entries.items()
-                    }
-                disk = {
-                    "version": 2,
-                    "dim": dim,
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
-                    "total_entries": len(entries),
-                    "entries": entries,
-                }
-                atomic_dump_json(
-                    self._index_file,
-                    disk,
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                    cls=_EmbeddingJSONEncoder,
-                )
-                with self._index_lock:
-                    if self._generation == generation:
-                        self._dirty = False
-        except Exception as e:
-            _logger.error("保存嵌入索引失败: %s", e)
+        with self._index_lock:
+            self._dirty = False
 
     def remove_entry_keys(self, entry_keys: list[str]) -> int:
         """从嵌入索引中移除指定 entry_key。"""
@@ -436,7 +374,7 @@ class EmbeddingIndex:
             if removed:
                 self._generation += 1
                 self._dirty = True
-            self.save()
+        self._registry.remove_embeddings(entry_keys, self._model)
         return removed
 
     def _make_key(self, session_id: str, timestamp: str) -> str:
@@ -481,12 +419,18 @@ class EmbeddingIndex:
             return
         compact = embedding if isinstance(embedding, array) else array("d", embedding)
         compact_norm = _compute_norm(compact)
+        if not self._entries:
+            self._dim = len(compact)
+        elif len(compact) != self._dim:
+            raise ValueError(
+                f"embedding dimension mismatch: expected {self._dim}, got {len(compact)}"
+            )
         with self._index_lock:
             existing = self._entries.get(entry_key)
             if existing is not None and existing.text_hash == text_hash:
                 return
-            if self._dim == 0:
-                self._dim = len(compact)
+        self._registry.put_embedding(entry_key, self._model, compact, text_hash)
+        with self._index_lock:
             self._entries[entry_key] = _EmbeddingEntry(
                 embedding=compact,
                 entry_key=entry_key,
@@ -494,10 +438,13 @@ class EmbeddingIndex:
                 norm=compact_norm,
             )
             self._entries.move_to_end(entry_key)
+            evicted: list[str] = []
             while len(self._entries) > self._max_entries:
-                self._entries.popitem(last=False)
+                evicted.append(self._entries.popitem(last=False)[0])
             self._generation += 1
             self._dirty = True
+        if evicted:
+            self._registry.remove_embeddings(evicted, self._model)
 
     def search_relevant(
         self,

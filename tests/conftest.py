@@ -16,11 +16,18 @@ from miniagent.assistant.engine.cli_state import CliLoopState  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
-def _isolate_json_config_from_user_file(request: pytest.FixtureRequest, tmp_path):
-    """Keep unit tests independent from the developer's config.user.json."""
+def _isolate_json_config_from_user_file(
+    request: pytest.FixtureRequest,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Keep tests independent from user config and runtime databases."""
     if request.node.get_closest_marker("evaluation") is not None:
         yield
         return
+
+    monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("MINIAGENT_REGISTRY_STATE_DIR", str(tmp_path / "registry"))
 
     from miniagent.agent.settings import _CURRENT_SETTINGS, AgentSettings
     from miniagent.assistant.infrastructure import json_config

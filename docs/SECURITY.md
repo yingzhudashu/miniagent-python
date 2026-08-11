@@ -1,6 +1,6 @@
 # 安全模型
 
-> Mini Agent Python | 版本: 4.0.0 | 最后更新: 2026-07-19 | 与 `miniagent.__version__` 对齐 | Agent 安全策略与 Assistant 实例约束
+> Mini Agent Python | 版本: 5.0.0 | 最后更新: 2026-08-10 | 与 `miniagent.__version__` 对齐 | Agent 安全策略与 Assistant 实例约束
 
 ## 安全架构概览
 
