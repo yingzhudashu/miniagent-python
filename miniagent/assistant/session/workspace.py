@@ -116,7 +116,7 @@ class WorkspaceManager:
 
     @staticmethod
     async def _copy_tree_async(src: str, dst: str) -> None:
-        """异步复制目录树（性能优化：不阻塞事件循环）。
+        """在线程中复制目录树，避免文件系统遍历阻塞事件循环。
 
         大工作空间复制可能耗时数秒，使用 asyncio.to_thread 包装，
         避免 LLM 流式处理被阻塞。
@@ -135,7 +135,7 @@ class WorkspaceManager:
         files_dir: str = "files",
         skills_dir: str = "skills",
     ) -> dict[str, str]:
-        """异步创建工作空间（性能优化：复制文件不阻塞）。
+        """创建工作空间，并在线程中完成可能较大的模板复制。
 
         Args:
             session_id: 会话 ID
@@ -165,7 +165,7 @@ class WorkspaceManager:
         }
 
     async def destroy_workspace_async(self, session_id: str) -> bool:
-        """异步销毁工作空间（性能优化：大目录删除不阻塞）。
+        """在线程中销毁工作空间，避免大目录删除阻塞事件循环。
 
         Args:
             session_id: 会话 ID

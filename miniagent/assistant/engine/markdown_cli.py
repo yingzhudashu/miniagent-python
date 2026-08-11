@@ -9,7 +9,7 @@
 本模块通过自定义渲染强制 ATX 标题（``# `` 前缀）左对齐；fenced code block 内的
 ``#`` 行不会被误判为标题。Setext 标题（``===`` / ``---``）仍由 Rich 默认渲染。
 
-**性能优化**：
+缓存边界：
 - 模块级共享 Console 实例，避免重复创建
 - 渲染结果缓存（LRU），避免相同内容重复渲染
 """
@@ -31,12 +31,12 @@ _STRIP_ANSI = re.compile(r"\x1b\[[0-9;]*m")
 _HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.+)$")
 _FENCE_LINE = re.compile(r"^(`{3,}|~{3,})(.*)$")
 
-# ── 性能优化：模块级共享 Console ──
+# Console 按终端宽度复用，并受固定容量约束。
 _shared_console_cache: OrderedDict[int, Any] = OrderedDict()  # width -> Console
 _shared_console_original_file: dict[int, Any] = {}  # width -> original file
 _CONSOLE_CACHE_MAX_SIZE = 16
 
-# ── 性能优化：渲染结果缓存 ──
+# 渲染缓存的键包含文本、宽度和主题，不跨显示契约复用。
 _RENDER_CACHE_MAX_SIZE = CLI_RENDER_CACHE_MAX_SIZE
 _render_cache: OrderedDict[tuple[str, int, str], str] = OrderedDict()
 _RENDER_CACHE_MAX_BYTES = 8 * 1024 * 1024
@@ -172,7 +172,7 @@ def render_markdown_to_ansi(markdown: str, *, width: int, justify: str = "left")
     Rich Markdown 的 Heading 类硬编码 text.justify = "center"，忽略父级 justify 参数。
     本函数通过分段渲染解决：围栏外的 ATX 标题单独渲染（左对齐），其余块用 Rich Markdown。
 
-    **性能优化**：
+    缓存契约：
     - 使用缓存 Console 实例
     - LRU 缓存渲染结果
 

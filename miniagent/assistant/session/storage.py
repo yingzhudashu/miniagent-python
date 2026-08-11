@@ -85,11 +85,13 @@ class SessionStorage:
         self.state_dir = str(Path(workspaces_dir).parent)
 
     def ensure_dir(self) -> None:
+        """Create the workspace root and validate the exact current database."""
         Path(self.workspaces_dir).mkdir(parents=True, exist_ok=True)
         with open_state_database(self.state_dir):
             pass
 
     def scan_configs(self) -> list[StoredSessionConfig]:
+        """List durable session metadata in stable display order."""
         with open_state_database(self.state_dir) as connection:
             rows = connection.execute(
                 """SELECT session_id, workspace_path, session_number, title,
@@ -110,6 +112,7 @@ class SessionStorage:
         ]
 
     def save_config(self, config: SessionConfig) -> None:
+        """Insert or replace the mutable metadata of one current session."""
         created_ms = _to_ms(config.created_at)
         updated_ms = _to_ms(config.last_active)
         with open_state_database(self.state_dir) as connection:
@@ -145,6 +148,7 @@ class SessionStorage:
             )
 
     def get_config(self, session_id: str) -> SessionConfig | None:
+        """Load one session configuration or return ``None`` when absent."""
         with open_state_database(self.state_dir) as connection:
             row = connection.execute(
                 "SELECT * FROM sessions WHERE session_id=?", (session_id,)
@@ -171,6 +175,7 @@ class SessionStorage:
         *,
         max_messages: int | None = None,
     ) -> list[dict[str, Any]]:
+        """Load normalized, bounded conversation history for one session."""
         with open_state_database(self.state_dir) as connection:
             rows = connection.execute(
                 """SELECT content_json FROM messages
@@ -183,6 +188,7 @@ class SessionStorage:
         return truncate_history(history, max_messages=max_messages)
 
     def save_history(self, config: SessionConfig, history: list[dict[str, Any]]) -> None:
+        """Replace one session's ordered history in a single write transaction."""
         with open_state_database(self.state_dir) as connection:
             with immediate_transaction(connection):
                 connection.execute("DELETE FROM messages WHERE session_id=?", (config.session_id,))
@@ -218,9 +224,11 @@ class SessionStorage:
                 )
 
     def list_session_ids(self) -> list[str]:
+        """Return durable session identifiers in catalog order."""
         return [entry.session_id for entry in self.scan_configs()]
 
     def delete_session(self, session_id: str) -> bool:
+        """Delete one session and its cascaded messages, reporting existence."""
         with open_state_database(self.state_dir) as connection:
             cursor = connection.execute("DELETE FROM sessions WHERE session_id=?", (session_id,))
             return cursor.rowcount == 1

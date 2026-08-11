@@ -53,7 +53,7 @@ def _parse_feishu_media_payload(msg_type: str, content_str: str) -> tuple[str, s
 def _extract_post_media_items(content_str: str) -> list[tuple[str, str, str]]:
     """从 post 富文本 JSON 中收集 (resource_type, file_key_or_image_key, suggested_name)。
 
-    性能优化：迭代替代递归，限制遍历深度（防止恶意深层 JSON）。
+    使用有深度上限的迭代遍历，避免恶意深层 JSON 耗尽调用栈。
     """
     out: list[tuple[str, str, str]] = []
     seen: set[tuple[str, str]] = set()
@@ -64,7 +64,7 @@ def _extract_post_media_items(content_str: str) -> list[tuple[str, str, str]]:
     except (json.JSONDecodeError, TypeError):
         return []
 
-    # 性能优化：迭代遍历替代递归
+    # 栈中同时保存深度，所有分支受同一上限约束。
     stack: list[tuple[Any, int]] = [(root, 0)]  # (node, depth)
     while stack:
         node, depth = stack.pop()

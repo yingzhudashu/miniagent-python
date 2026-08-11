@@ -207,34 +207,40 @@ class _ChatQueue:
             on_start: 开始回调
             on_done: 完成回调
         """
+        from miniagent.agent.observability import trace_span
+
         user_coro_started = False
         try:
-            async with self._lock:
+            with trace_span("queue.wait"):
+                await self._lock.acquire()
+            try:
                 self._processing = True
                 self.mark_task_start()
-                # 跨队列执行锁：parallel_sessions 关闭时在持有队列锁时获取，保证全局 FIFO
-                if (
-                    self._manager is not None
-                    and self._manager.cross_queue_serial
-                    and self._manager.exec_lock is not None
-                ):
-                    await self._manager.exec_lock.acquire()
+                cross_lock_acquired = False
                 try:
-                    if on_start:
-                        on_start()
-                    user_coro_started = True
-                    await coro
-                    if on_done:
-                        on_done()
-                finally:
+                    # 跨队列执行锁：parallel_sessions 关闭时在持有队列锁时获取，保证全局 FIFO
                     if (
                         self._manager is not None
                         and self._manager.cross_queue_serial
                         and self._manager.exec_lock is not None
                     ):
+                        await self._manager.exec_lock.acquire()
+                        cross_lock_acquired = True
+                    with trace_span("queue.execute"):
+                        if on_start:
+                            on_start()
+                        user_coro_started = True
+                        await coro
+                        if on_done:
+                            on_done()
+                finally:
+                    if cross_lock_acquired and self._manager is not None:
+                        assert self._manager.exec_lock is not None
                         self._manager.exec_lock.release()
                     self._processing = False
                     self.mark_task_end()
+            finally:
+                self._lock.release()
         except asyncio.CancelledError:
             if not user_coro_started and asyncio.iscoroutine(coro):
                 coro.close()

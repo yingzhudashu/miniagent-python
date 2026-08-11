@@ -1,8 +1,8 @@
 # LLM 提供商与模型角色
 
-> Mini Agent Python | 版本: 5.0.0 | 最后更新: 2026-08-10 | 与 `miniagent.__version__` 对齐
+> Mini Agent Python | 版本: 5.0.0 | 最后更新: 2026-08-11 | 与 `miniagent.__version__` 对齐
 
-MiniAgent 4.0 将“提供商”“wire API”“模型 profile”和“助手阶段角色”分开管理。
+MiniAgent 5.0 将“提供商”“wire API”“模型 profile”和“助手阶段角色”分开管理。
 默认回答不会按价格或厂商自动换模型；只有 `llm.roles` 中的显式绑定可以跨模型或提供商。
 
 ## 支持范围
@@ -79,14 +79,10 @@ DeepSeek、OpenRouter、Qwen、Ollama、vLLM、LM Studio 等 OpenAI 兼容服务
 
 - `/model`：查看当前模型；TUI 中 `Ctrl+P` 打开可搜索的模型选择浮层。
 - `/model <profile>`：切换 `default` 角色。
-- 动态发现由 `LLMGateway.refresh()` 或后续 `/model refresh` 调用触发；启动时不联网。
+- 动态发现由应用配置发布流程显式调用 `LLMGateway.refresh()`；启动时不联网。
 - 动态目录原子写入状态目录的 `llm-model-catalog.json`。刷新失败保留上次成功缓存。
 - 用户 profile 覆盖动态缓存，动态缓存覆盖小型内置目录。
 - 只有存在可信价格元数据时才计算成本；未知价格显示为未知，而不是 `$0`。
-
-## 从旧版本升级
-
-5.0 只接受本文所述 provider/profile/role 与嵌套凭据结构；不存在旧配置读取或迁移路径。
 
 ## 错误与可选依赖
 

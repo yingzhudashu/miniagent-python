@@ -17,18 +17,36 @@ from miniagent.agent.observability import (
     auto_register_trace_file_hook,
     clear_trace_hooks,
     emit_trace,
+    get_trace_writer_stats,
     shutdown_trace_writer,
+    trace_span,
 )
 
 
-def _sample_ns_per_event(events: int, repeats: int, emit: Callable[[int], None]) -> list[float]:
+def _sample_ns_per_event(
+    events: int,
+    repeats: int,
+    emit: Callable[[int], None],
+    *,
+    after_repeat: Callable[[], None] | None = None,
+) -> list[float]:
     samples: list[float] = []
     for _ in range(repeats):
         started = time.perf_counter_ns()
         for index in range(events):
             emit(index)
         samples.append((time.perf_counter_ns() - started) / events)
+        if after_repeat is not None:
+            after_repeat()
     return samples
+
+
+def _wait_for_writer_drain(timeout_seconds: float = 30.0) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while int((get_trace_writer_stats() or {}).get("queue_depth", 0) or 0):
+        if time.monotonic() >= deadline:
+            raise TimeoutError("Trace writer did not drain during overhead benchmark")
+        time.sleep(0.001)
 
 
 def run_benchmark(*, events: int = 2_000, repeats: int = 7) -> dict[str, Any]:
@@ -43,6 +61,11 @@ def run_benchmark(*, events: int = 2_000, repeats: int = 7) -> dict[str, Any]:
         repeats,
         lambda index: emit_trace({"type": "perf.trace_disabled", "run": index}),
     )
+    disabled_spans = _sample_ns_per_event(
+        events,
+        repeats,
+        lambda _index: _run_span(),
+    )
 
     with tempfile.TemporaryDirectory() as tmp:
         auto_register_trace_file_hook(
@@ -51,7 +74,7 @@ def run_benchmark(*, events: int = 2_000, repeats: int = 7) -> dict[str, Any]:
                 output_dir=tmp,
                 writer_batch_interval=0.01,
                 writer_batch_size=1_000,
-                writer_queue_max_size=events * repeats + 1_000,
+                writer_queue_max_size=events * 2 + 1_000,
                 record_payload="metrics_only",
             )
         )
@@ -66,20 +89,36 @@ def run_benchmark(*, events: int = 2_000, repeats: int = 7) -> dict[str, Any]:
                     "content": "must-not-persist",
                 }
             ),
+            after_repeat=_wait_for_writer_drain,
+        )
+        enabled_spans = _sample_ns_per_event(
+            events,
+            repeats,
+            lambda _index: _run_span(),
+            after_repeat=_wait_for_writer_drain,
         )
         stats = shutdown_trace_writer()
 
     clear_trace_hooks()
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "events_per_repeat": events,
         "repeats": repeats,
         "disabled_median_ns_per_event": statistics.median(disabled),
         "enabled_median_ns_per_event": statistics.median(enabled),
+        "disabled_span_median_ns": statistics.median(disabled_spans),
+        "enabled_span_median_ns": statistics.median(enabled_spans),
         "disabled_samples_ns_per_event": disabled,
         "enabled_samples_ns_per_event": enabled,
+        "disabled_span_samples_ns": disabled_spans,
+        "enabled_span_samples_ns": enabled_spans,
         "writer": stats,
     }
+
+
+def _run_span() -> None:
+    with trace_span("perf.trace_span"):
+        pass
 
 
 def main() -> int:
@@ -103,6 +142,8 @@ def main() -> int:
     ):
         return 1
     if payload["enabled_median_ns_per_event"] > 50_000:
+        return 1
+    if payload["enabled_span_median_ns"] > 50_000:
         return 1
     return 0
 

@@ -8,6 +8,7 @@ from typing import Any, Protocol, runtime_checkable
 
 @dataclass
 class ClawHubSearchResult:
+    """Transport-neutral marketplace search result."""
     slug: str
     name: str
     description: str
@@ -20,6 +21,7 @@ class ClawHubSearchResult:
 
 @dataclass
 class ClawHubSkillDetail:
+    """Current skill manifest and downloadable file metadata."""
     slug: str
     name: str
     description: str
@@ -31,6 +33,7 @@ class ClawHubSkillDetail:
 
 @runtime_checkable
 class ClawHubClientProtocol(Protocol):
+    """Async marketplace boundary implemented by Assistant infrastructure."""
     async def search(self, query: str, limit: int = 10) -> list[ClawHubSearchResult]: ...
 
     async def get_detail(self, slug: str) -> ClawHubSkillDetail: ...

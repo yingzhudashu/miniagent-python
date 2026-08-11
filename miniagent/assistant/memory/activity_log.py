@@ -101,9 +101,7 @@ class ActivityLogger:
     async def _append_async(self, content: str) -> None:
         """异步追加内容到今日日志文件。
 
-        性能优化：
-        - 使用asyncio.to_thread包装文件I/O
-        - 消除事件循环阻塞
+        文件追加在线程中执行，避免日记 I/O 阻塞事件循环。
         - 保持日志完整性
 
         Args:
@@ -141,9 +139,7 @@ class ActivityLogger:
         self._append(f"### 用户输入\n\n{user_input}\n\n")
 
     async def log_session_start(self, session_key: str, user_input: str, source: str = "cli") -> None:
-        """异步记录会话开始（性能优化）。
-
-        性能优化：使用asyncio.to_thread包装文件I/O，消除事件循环阻塞。
+        """在线程中记录会话开始，避免文件 I/O 阻塞事件循环。
 
         Args:
             session_key: 会话标识符
@@ -190,9 +186,7 @@ class ActivityLogger:
         thinking: str | None,
         token_usage: dict | None = None,
     ) -> None:
-        """异步记录 LLM 调用详情（性能优化）。
-
-        性能优化：使用asyncio.to_thread包装文件I/O，消除事件循环阻塞。
+        """在线程中记录 LLM 调用详情，避免文件 I/O 阻塞事件循环。
 
         Args:
             session_key: 会话标识符
@@ -248,9 +242,7 @@ class ActivityLogger:
         success: bool,
         error_type: str | None = None,
     ) -> None:
-        """异步记录工具调用详情（性能优化）。
-
-        性能优化：使用asyncio.to_thread包装文件I/O，消除事件循环阻塞。
+        """在线程中记录工具调用详情，避免文件 I/O 阻塞事件循环。
 
         Args:
             session_key: 会话标识符
@@ -279,9 +271,7 @@ class ActivityLogger:
         self._append(f"### 最终回复\n\n{reply[:1000]}\n\n")
 
     async def log_final_reply(self, session_key: str, reply: str) -> None:
-        """异步记录最终回复（截断 1000 字）（性能优化）。
-
-        性能优化：使用asyncio.to_thread包装文件I/O，消除事件循环阻塞。
+        """在线程中记录截断后的最终回复，避免文件 I/O 阻塞事件循环。
 
         Args:
             session_key: 会话标识符
@@ -299,9 +289,7 @@ class ActivityLogger:
         self._append(f"### 未完成\n\n{reason}\n\n")
 
     async def log_incomplete(self, session_key: str, reason: str) -> None:
-        """异步记录未完成状态（性能优化）。
-
-        性能优化：使用asyncio.to_thread包装文件I/O，消除事件循环阻塞。
+        """在线程中记录未完成状态，避免文件 I/O 阻塞事件循环。
 
         Args:
             session_key: 会话标识符

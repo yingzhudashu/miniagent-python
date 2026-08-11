@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import queue
@@ -49,6 +50,32 @@ class TraceRuntimeConfig:
     record_payload: str = "metrics_only"
     resource_sample_interval_seconds: float = 0.0
     track_python_allocations: bool = False
+
+    def __post_init__(self) -> None:
+        """Reject invalid observability settings instead of silently changing them."""
+        if self.writer_batch_interval <= 0:
+            raise ValueError("trace.writer_batch_interval must be greater than zero")
+        if self.writer_batch_size <= 0:
+            raise ValueError("trace.writer_batch_size must be greater than zero")
+        if self.writer_queue_max_size <= 0:
+            raise ValueError("trace.writer_queue_max_size must be greater than zero")
+        if self.writer_overflow_policy not in {
+            TRACE_OVERFLOW_DROP_NEWEST,
+            TRACE_OVERFLOW_DROP_OLDEST,
+        }:
+            raise ValueError(
+                "trace.writer_overflow_policy must be drop_oldest or drop_newest"
+            )
+        if self.writer_shutdown_timeout_seconds <= 0:
+            raise ValueError("trace.writer_shutdown_timeout_seconds must be greater than zero")
+        if self.record_payload != TRACE_RECORD_PAYLOAD_METRICS_ONLY:
+            raise ValueError("trace.record_payload must be metrics_only")
+        if self.resource_sample_interval_seconds < 0:
+            raise ValueError("trace.resource_sample_interval_seconds cannot be negative")
+        if 0 < self.resource_sample_interval_seconds < 0.05:
+            raise ValueError(
+                "trace.resource_sample_interval_seconds must be zero or at least 0.05"
+            )
 
     @classmethod
     def from_getter(cls, get_config: ConfigGetter) -> TraceRuntimeConfig:
@@ -100,6 +127,7 @@ _TRACE_SHUTDOWN_TIMEOUT_SECONDS = 5.0
 # 异步写入器实例
 _trace_writer: AsyncTraceWriter | None = None
 _resource_sampler: TraceResourceSampler | None = None
+_trace_active = False
 
 # 是否已自动初始化
 _auto_initialized = False
@@ -187,6 +215,7 @@ _PERSISTENCE_SAFE_SCALAR_KEYS = {
     "cpu_user_ms",
     "default_resolved_count",
     "duration_ms",
+    "event_loop_lag_ms",
     "entries_count",
     "fallback_count",
     "has_tool_calls",
@@ -293,7 +322,7 @@ def llm_request_size_metrics(
     force: bool = False,
 ) -> dict[str, int | bool]:
     """Return payload-size scalars safe for metrics-only LLM request traces."""
-    if not force and not _hooks and _trace_writer is None:
+    if not force and not _trace_active:
         return {}
     message_chars, message_truncated = _json_shape_char_count(messages)
     tool_chars, tool_truncated = _json_shape_char_count(tools or [])
@@ -335,6 +364,17 @@ def new_trace_id(prefix: str = "trace") -> str:
     return f"{normalized}-{uuid4().hex[:16]}"
 
 
+def trace_is_active() -> bool:
+    """Return whether emitting a trace can currently reach a consumer."""
+    return _trace_active
+
+
+def _refresh_trace_active() -> None:
+    """Refresh the disabled-path flag after a consumer lifecycle change."""
+    global _trace_active
+    _trace_active = bool(_hooks or _trace_writer is not None)
+
+
 @contextmanager
 def trace_parent(span_id: str, *, session_key: str | None = None):
     """Bind the parent span inherited by nested async work."""
@@ -362,6 +402,10 @@ def trace_span(
     contains ``await`` without introducing another task or altering cancellation
     semantics.
     """
+    if not trace_is_active():
+        yield span_id
+        return
+
     actual_span_id = span_id or new_trace_id("span")
     actual_parent_span_id = parent_span_id or _CURRENT_TRACE_SPAN.get()
     started_wall_ns = time.monotonic_ns()
@@ -415,6 +459,11 @@ class TraceResourceSampler:
         self._process: Any = None
         self._tracemalloc: Any = None
         self._owns_tracemalloc = False
+        try:
+            self._event_loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
+        except RuntimeError:
+            self._event_loop = None
+        self._loop_probe_pending = threading.Event()
         try:
             import psutil
 
@@ -483,9 +532,31 @@ class TraceResourceSampler:
         return event
 
     def _run(self) -> None:
-        emit_trace(self._sample())
+        self._emit_sample_and_probe()
         while not self._stop.wait(self.interval_seconds):
-            emit_trace(self._sample())
+            self._emit_sample_and_probe()
+
+    def _emit_sample_and_probe(self) -> None:
+        emit_trace(self._sample())
+        loop = self._event_loop
+        if loop is None or loop.is_closed() or self._loop_probe_pending.is_set():
+            return
+        scheduled_ns = time.monotonic_ns()
+        self._loop_probe_pending.set()
+
+        def record_lag() -> None:
+            self._loop_probe_pending.clear()
+            emit_trace(
+                {
+                    "type": "perf.event_loop_lag",
+                    "event_loop_lag_ms": (time.monotonic_ns() - scheduled_ns) / 1_000_000,
+                }
+            )
+
+        try:
+            loop.call_soon_threadsafe(record_lag)
+        except RuntimeError:
+            self._loop_probe_pending.clear()
 
     def shutdown(self) -> None:
         """请求采样线程停止，并在限定时间内等待退出。"""
@@ -514,9 +585,7 @@ class AsyncTraceWriter:
     - 背压保护：高频 trace 超过队列上限时丢弃事件并记录计数，避免内存无限增长
     - 进程隔离：每个进程写入独立文件（避免多进程冲突）
 
-    性能优化：
-    - 单事件延迟从 3-11ms 降到 <0.1ms
-    - 文件 I/O 次数减少 50 倍
+    写入契约：调用方只入队；唯一 writer 按批次持久化并拥有文件句柄。
     """
 
     def __init__(
@@ -534,11 +603,17 @@ class AsyncTraceWriter:
             queue_max_size: 等待写入的最大事件数；小于等于 0 表示无界队列
             overflow_policy: 队列满时的策略，支持 ``drop_oldest`` / ``drop_newest``
         """
-        self.batch_interval = max(0.001, float(batch_interval))
-        self.batch_size = max(1, int(batch_size))
-        self.queue_max_size = max(0, int(queue_max_size))
+        self.batch_interval = float(batch_interval)
+        self.batch_size = int(batch_size)
+        self.queue_max_size = int(queue_max_size)
+        if self.batch_interval <= 0:
+            raise ValueError("batch_interval must be greater than zero")
+        if self.batch_size <= 0:
+            raise ValueError("batch_size must be greater than zero")
+        if self.queue_max_size <= 0:
+            raise ValueError("queue_max_size must be greater than zero")
         if overflow_policy not in {TRACE_OVERFLOW_DROP_OLDEST, TRACE_OVERFLOW_DROP_NEWEST}:
-            overflow_policy = TRACE_OVERFLOW_DROP_OLDEST
+            raise ValueError("overflow_policy must be drop_oldest or drop_newest")
         self.overflow_policy = overflow_policy
         self._queue: queue.Queue[dict[str, Any] | _ExcludeSessionCommand | None] = queue.Queue(
             maxsize=self.queue_max_size
@@ -1029,12 +1104,14 @@ def register_trace_hook(hook: TraceHook) -> None:
     """
     if hook not in _hooks:
         _hooks.append(hook)
+        _refresh_trace_active()
 
 
 def unregister_trace_hook(hook: TraceHook) -> None:
     """移除已注册的 trace 钩子（不存在时静默）。"""
     try:
         _hooks.remove(hook)
+        _refresh_trace_active()
     except ValueError as e:
         _logger.debug("trace hook已移除: %s", e)
 
@@ -1064,6 +1141,7 @@ def clear_trace_hooks() -> None:
             _trace_writer = None
 
     if _trace_writer is not None:
+        _refresh_trace_active()
         _auto_initialized = True
         return
 
@@ -1071,6 +1149,7 @@ def clear_trace_hooks() -> None:
     _TRACE_RECORD_PAYLOAD = TRACE_RECORD_PAYLOAD_METRICS_ONLY
     _TRACE_SHUTDOWN_TIMEOUT_SECONDS = 5.0
     _auto_initialized = False
+    _refresh_trace_active()
 
 
 def auto_register_trace_file_hook(config: TraceRuntimeConfig | None = None) -> None:
@@ -1086,10 +1165,7 @@ def auto_register_trace_file_hook(config: TraceRuntimeConfig | None = None) -> N
 
     在进程启动时调用一次（通常由 ``engine.init.init_subsystems`` 调用）。
 
-    性能优化：
-    - 使用异步写入器替代同步文件 hook
-    - 批处理间隔 100ms，批量大小 50 事件
-    - 非阻塞写入，消除 3-11ms 延迟
+    配置校验后注册唯一异步 writer；批处理参数由当前 Trace 配置决定。
 
     示例配置：
         {"trace": {"enabled": true, "output_dir": "workspaces/logs"}}
@@ -1130,6 +1206,7 @@ def auto_register_trace_file_hook(config: TraceRuntimeConfig | None = None) -> N
     try:
         writer.start(target)
         _trace_writer = writer
+        _refresh_trace_active()
         if config.resource_sample_interval_seconds > 0:
             sampler = TraceResourceSampler(
                 config.resource_sample_interval_seconds,
@@ -1141,6 +1218,7 @@ def auto_register_trace_file_hook(config: TraceRuntimeConfig | None = None) -> N
             sampler.shutdown()
         writer.shutdown(config.writer_shutdown_timeout_seconds)
         _trace_writer = None
+        _refresh_trace_active()
         _resource_sampler = None
         _TRACE_LOG_FILE = None
         _auto_initialized = False
@@ -1197,16 +1275,14 @@ def finalize_trace_session(session_key: str) -> tuple[Path | None, int]:
 def emit_trace(event: dict[str, Any]) -> None:
     """派发事件；钩子异常不影响主流程。
 
-    性能优化：
-    - 钩子按注册顺序同步调用
-    - 文件写入改为异步批处理（非阻塞）
-    - 快速路径：无钩子且无写入器时直接返回
+    钩子按注册顺序同步调用；持久化只入有界队列。无消费者时立即返回，
+    不构造额外载荷。
 
     Args:
         event: 结构化事件负载，通常为扁平 dict。
     """
     # 快速路径：无钩子且文件写入器未启用时直接返回
-    if not _hooks and not _trace_writer:
+    if not _trace_active:
         return
 
     inherited: dict[str, Any] = {}
@@ -1268,6 +1344,7 @@ def shutdown_trace_writer(timeout_seconds: float | None = None) -> dict[str, Any
     if stats["shutdown_incomplete"]:
         return stats
     _trace_writer = None
+    _refresh_trace_active()
     _TRACE_LOG_FILE = None
     _auto_initialized = False
     _logger.info("Trace异步写入器已关闭")
@@ -1283,6 +1360,7 @@ __all__ = [
     "clear_trace_hooks",
     "emit_trace",
     "new_trace_id",
+    "trace_is_active",
     "trace_parent",
     "trace_span",
     "llm_request_size_metrics",

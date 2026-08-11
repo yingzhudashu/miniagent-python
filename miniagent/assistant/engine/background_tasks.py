@@ -6,8 +6,8 @@
 - 子 session 执行完成后，结果缓存在内存中供 ``/btw result`` 查询
 - 子 session 的磁盘痕迹（工作区、记忆、日记、trace 等）在回合结束后自动清除
 
-**性能优化**：
-- TTL 自动清理：已完成任务默认 3600 秒后自动清理内存条目
+**资源边界**：
+- 已完成任务按 TTL 清理，默认最多在内存中保留 3600 秒
 
 **配置**：
 - 并行上限受 ``agent.max_parallel_sessions`` 与常量 ``BACKGROUND_TASKS_MAX_CONCURRENT`` 约束
@@ -132,8 +132,7 @@ class BackgroundTaskManager:
             except asyncio.CancelledError:
                 break
             except Exception:
-                # 静默处理异常，避免循环中断
-                pass
+                _logger.debug("后台任务 TTL 清理失败", exc_info=True)
 
     def _cleanup_expired_tasks(self) -> int:
         """清理已过期任务（内部方法）

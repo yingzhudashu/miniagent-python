@@ -271,14 +271,17 @@ class ExecutionTurnStreamer:
         is_last_step: bool,
     ) -> None:
         """执行一次网络流读取；异常原样交由重试策略分类。"""
-        async for event in self.llm_client.stream_completion(
-            role="default",
-            profile=self.profile,
-            messages=messages,
-            tools=tools if tools else None,
-            params=exec_kwargs,
-        ):
-            await self._consume_event(state, event, label, is_last_step=is_last_step)
+        from miniagent.agent.observability import trace_span
+
+        with trace_span("llm.transport", session_key=self.session_key):
+            async for event in self.llm_client.stream_completion(
+                role="default",
+                profile=self.profile,
+                messages=messages,
+                tools=tools if tools else None,
+                params=exec_kwargs,
+            ):
+                await self._consume_event(state, event, label, is_last_step=is_last_step)
 
     def _emit_failure_trace(
         self,

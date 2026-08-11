@@ -1,6 +1,6 @@
 # 三层记忆系统
 
-> Mini Agent Python | 版本: 5.0.0 | 最后更新: 2026-08-10 | 与 `miniagent.__version__` 对齐 | Agent Memory/RAG 基础设施
+> Mini Agent Python | 版本: 5.0.0 | 最后更新: 2026-08-11 | 与 `miniagent.__version__` 对齐 | Agent Memory/RAG 基础设施
 
 ## 架构概览
 
@@ -63,8 +63,8 @@ Mini Agent 采用三层记忆架构，确保 Agent 既能记住近期对话，�
 | **会话历史** | 项目 `state.sqlite3` 的 `sessions/messages`，含 `user` / `thinking` / `assistant`；`thinking` 在调用 LLM 前由 `conversation_history_for_llm()` 映射为合法消息。 |
 | **工具全文落盘** | 默认产品由 `AssistantTurnService` 将工具完成事件写入当前会话消息流。 |
 | **会话日记（归档）** | `{paths.state_dir}/memory/diary/<safe_session_id>/YYYY-MM-DD.md`（JSON 块原样保存），并在历史中插入 `_history_archive_marker` 衔接说明 |
-| **会话级长期索引** | `{paths.state_dir}/memory/session_lt/<safe_session_id>.json`（日记路径与确定性体量说明，由 `dream_scheduler` 维护） |
-| **Agent 级长期记忆** | `{paths.state_dir}/memory/agent_lt/global.json` |
+| **会话级长期索引** | `memory_profiles(scope=session_id, namespace=session_longterm)`（日记路径与确定性体量说明，由 `dream_scheduler` 维护） |
+| **Agent 级长期记忆** | `memory_profiles(scope=__agent__, namespace=agent_longterm)` |
 | **Dream 式维护** | `maintenance_state` + SQLite lease；周期默认 7d / 30d / 365d，只登记索引和裁剪列表，不调用 LLM |
 
 全局 **Activity Log**（`memory/YYYY-MM-DD.md`）仍保留，与会话日记互补：前者偏运维流水，后者按会话隔离存放从 `history` 迁出的原文块。
@@ -90,22 +90,21 @@ Mini Agent 采用三层记忆架构，确保 Agent 既能记住近期对话，�
 └── skills/                                    # 会话专属技能
 
 {paths.state_dir}/memory/diary/<safe_session_id>/   # 从 history 剪切出的原文归档（按日 .md）
-{paths.state_dir}/memory/session_lt/               # 会话级长期索引 JSON
-{paths.state_dir}/memory/agent_lt/                 # Agent 级长期记忆 JSON
+长期摘要与日记锚点位于 state.sqlite3 的 memory_profiles；不创建平行 JSON 状态。
 ```
 
 ### 核心功能
 
 | 函数 | 说明 |
 |------|------|
-| `load(session_key)` | 加载会话记忆（先查 LRU 缓存，未命中则读磁盘） |
-| `save(memory)` | 保存会话记忆到磁盘，同时更新 LRU 缓存 |
+| `load(session_key)` | 加载会话记忆（先查 LRU 缓存，未命中则读项目 SQLite） |
+| `save(memory)` | 在 SQLite 事务中保存 profile、entries 与 FTS，同时更新 LRU 缓存 |
 | `add_entry(session_key, entry)` | 添加记忆条目，自动落盘 + 更新关键词/嵌入索引 |
 | `update_summary(session_key, summary, facts)` | 更新会话摘要，自动落盘 |
 | `extract_facts(text)` | 从文本中提取关键事实 |
 | `ground_truth.apply_ground_truth_updates(memory, text)` | 提取稳定事实并更新 `ground_truth_facts` |
 | `generate_turn_summary(user_input, tool_calls, reply)` | 生成单轮对话摘要 |
-| `flush_keyword_index()` | 将挂起的关键词索引变更写入磁盘 |
+| `flush_keyword_index()` | 刷新可重建的进程内关键词加速器；SQLite 是唯一事实来源 |
 
 ### LRU 缓存
 
@@ -205,7 +204,7 @@ memory/YYYY-MM-DD.md
 ## Layer 3: 语义检索 (Semantic Memory)
 
 Layer 3 包含两个互补的检索后端：关键词索引（始终启用）和嵌入搜索（由 `embedding.*` JSON 配置控制）。
-两者共享一个文本注册表以避免重复存储。
+两者共享一个有界的进程内文本注册表以避免重复存储；SQLite 是唯一事实来源。
 
 ### 共享文本注册表
 
@@ -213,11 +212,11 @@ Layer 3 包含两个互补的检索后端：关键词索引（始终启用）和
 
 关键词索引与嵌入搜索共用 `MemoryEntryRegistry`，避免重复存储 `user_snippet`、`summary`、`facts` 等文本字段：
 
-- **存储结构**：以 `session_id:timestamp` 为键存储完整文本
+- **缓存结构**：以 durable `entry_key` 为键存储完整文本
 - **引用模式**：两个索引只存储键，按需从注册表获取内容
 - **内存节省**：约 50%（原每条记忆在两索引各存 ~500 字符 → 现仅存一份）
 - **上限驱逐**：默认 3000 条（`memory.registry_max_entries`），超限驱逐最早条目
-- **持久化**：`{paths.state_dir}/memory-registry.json`
+- **启动恢复**：`MemoryRuntime.start()` 从 `memory_entries` 与 `memory_embeddings` 一次性加载；缓存本身不落盘
 
 ### 关键词索引
 
@@ -346,7 +345,7 @@ messages = [
 | 上下文压缩 | `context.DefaultContextManager.compress()` | 中间历史压成一行占位说明 | 并非 LLM 摘要 |
 | Token 估算 | `context.estimate_tokens*` | 中英文字符启发式 | 与真实 tokenizer 有偏差，仅用于预算 |
 | 中文关键词 | `keyword_index.extract_keywords()` | n-gram + 英文分词，无 jieba | 检索精度有限 |
-| Dream 维护 | `dream_scheduler._refine_session()` | 登记日记路径和体量说明、截断 `session_lt` / `agent_lt` 列表 | **不是** LLM 夜间精炼，不生成语义摘要 |
+| Dream 维护 | `dream_scheduler._refine_session()` | 登记日记路径和体量说明、裁剪 `session_longterm` / `agent_longterm` profile | **不是** LLM 夜间精炼，不生成语义摘要 |
 | 确定事实 | `ground_truth.extract_ground_truth_facts()` | 保守正则 + 纠正句式 | 只提升稳定偏好/约束，一次性任务细节不入库 |
 | 嵌入检索 | `embedding_search` | 需 `embedding.enabled` 与 API；未配置时回退关键词 | 配置缺失时静默降级，不会报错 |
 | 跨会话检索 | `DefaultMemorySearch.search_relevant_memory()` | 默认忽略 `session_key`，全索引检索 | 非按会话隔离检索 |

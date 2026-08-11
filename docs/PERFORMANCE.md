@@ -1,6 +1,6 @@
 # 性能测试与优化
 
-> Mini Agent Python | 版本: 5.0.0 | 最后更新: 2026-08-10 | 与 `miniagent.__version__` 对齐 | 补充 [ENGINEERING.md](ENGINEERING.md)
+> Mini Agent Python | 版本: 5.0.0 | 最后更新: 2026-08-11 | 与 `miniagent.__version__` 对齐 | 补充 [ENGINEERING.md](ENGINEERING.md)
 
 本文分两部分：
 
@@ -139,7 +139,7 @@ python scripts/perf_trace_overhead.py --json-out workspaces/logs/trace-overhead.
 python scripts/perf_stability_soak.py --duration-seconds 1800 --interval-seconds 0.1 --json-out workspaces/logs/stability-soak.json
 ```
 
-开销脚本分别测量无 hook 的禁用快路径与 `metrics_only` 持久化路径，并要求 writer 无 drop、序列化或写入错误；启用路径的宽松防灾难性门槛为 50µs/event。2026-07-16 最终同机样本为禁用 92.3ns/event、启用 5.31µs/event，14000/14000 写入成功。
+开销脚本分别测量 `emit_trace` 禁用/持久化路径与 `trace_span` 禁用/持久化路径，并在每轮计时后排空 writer；要求 emitted/written 终态一致且无 drop、序列化或写入错误。启用路径的宽松防灾难性门槛为 50µs/event。`trace_span` 无 consumer 时不生成 ID、不读取时钟、不构造事件；显式 ID 原样返回，否则返回 `None`。
 
 浸泡脚本先执行 200 次有界工作单元，预热会话、上下文、关键词索引、tracemalloc、Trace writer/序列化/span，再启动资源采样；报告第 9–24 个稳态样本与末 16 个样本的 RSS/Python traced 中位平台变化，并检查线程回收和 writer 完整性。CI 每周运行 5 秒冒烟；发布验收使用 30 分钟，warm-to-final 平台增长门槛均为 5%。峰值减最小值包含惰性初始化，不能替代平台对比。
 
@@ -147,7 +147,7 @@ python scripts/perf_stability_soak.py --duration-seconds 1800 --interval-seconds
 
 #### 3.7 可执行质量证据
 
-性能结论只由调用真实实现的基准、Trace 开销、稳定性浸泡和资源曲线支撑。仓库不提交逐文件哈希或“已审查行数”生成台账，因为它们只能证明文件被扫描，不能证明实现正确，并会在普通代码变更后立即漂移。文档版本、命令覆盖、仓库卫生和链接由 `scripts/check_docs.py` 当次检查；代码正确性由 Ruff、Mypy、Bandit、架构门禁、分支覆盖率和行为测试共同验证。
+性能结论只由调用真实实现的基准、Trace 开销、稳定性浸泡和资源曲线支撑。`scripts/perf_audit_inventory.py` 以当前工作树 blob 对所有 Git 文件做逐行/AST 风险定位，清单仅写入忽略目录 `workspaces/logs/perf-audit/`；它用于保证审查覆盖和变更失效可见，不能替代语义判断。文档版本、命令覆盖、仓库卫生和链接由 `scripts/check_docs.py` 当次检查；代码正确性由 Ruff、Mypy、Bandit、架构门禁、分支覆盖率和行为测试共同验证。
 
 ### 4. 基线文件格式（`tests/performance/baselines/`）
 
@@ -169,13 +169,13 @@ CI **不**依赖基线文件是否存在；可选 workflow 仅上传当次脚本
 
 #### 5.1 已缓解
 
-- **回合记忆与关键词索引**：标准 `DefaultMemoryStore` 通过 `record_turn()` 在同一会话锁内一次完成摘要、事实和条目更新，把正常回合的会话 JSON 写入从两次降为一次；注入的旧 MemoryStore 仍兼容 `update_summary()` + `add_entry()`。`KeywordIndex` 使用 dirty generation 和锁内一致快照，每轮 `flush_keyword_index_async()` 在线程中写盘，不阻塞事件循环；批量 `add_entry` 后仍可显式 `flush_keyword_index()`。正常关停时 `MemoryRuntime.close()` 统一持久化共享注册表、关键词索引与嵌入索引。关键词索引上限默认 20000（`memory.keyword_index_max`）。
+- **回合记忆与关键词索引**：标准 `DefaultMemoryStore` 复用组合根唯一的异步 `StateStore`；`record_turn()` 在同一会话锁和 SQLite 事务内更新 `memory_profiles`、`memory_entries` 与 `memory_fts`。内容键未变化的条目只刷新 LRU 时间，不重写正文、JSON 或 FTS。旧 memory JSON 不读取、不导入、不双写。正常关停先停止记忆生产者和 embedding 任务，再关闭共享数据库。关键词索引上限默认 20000（`memory.keyword_index_max`）。
 - **上下文预算中的工具 schema**：[`miniagent/agent/context.py`](../miniagent/agent/context.py) 的 `DefaultContextManager` 对 `estimate_tool_tokens`（内部多次 `json.dumps(tool)`）做 **按次失效缓存**（调用 **`set_tools`** 或构造后首次用时计算；之后复用）。若需更新工具列表或 schema 内容，**必须**通过 `set_tools` 传入新列表，勿仅原地修改已绑定列表并依赖预算立即变化。
 - **Prompt cache 友好分层**：执行阶段请求固定为 `stable system -> history -> current turn user context`。Agent 身份、skill prompts、通道级稳定规则和时区解释规则留在稳定前缀；`plan.summary`、结构化会话记忆、`keyword_context`、`kb_context`、当前时间、文件根目录和风险等级进入最后一条 user 消息，减少每轮 system prefix 波动，提升 provider 自然前缀缓存命中机会。
 - **会话记忆缓存（LRU）**：[`miniagent/assistant/memory/store.py`](../miniagent/assistant/memory/store.py) 的 `DefaultMemoryStore._cache` 使用 `OrderedDict` 实现 LRU 驱逐，默认上限 **200 会话**（`memory.store_cache_max`），命中时 `move_to_end` 提升活跃度，超限时 `popitem(last=False)` 驱逐最旧条目。
-- **记忆存储异步 I/O**：[`miniagent/assistant/memory/store.py`](../miniagent/assistant/memory/store.py) 的 `load()` 和 `save()` 使用 `asyncio.to_thread()` 包装文件读写，避免阻塞事件循环。
+- **记忆存储异步 I/O**：[`miniagent/assistant/memory/store.py`](../miniagent/assistant/memory/store.py) 的 `load()` 和 `save()` 通过应用生命周期持有的 `aiosqlite` 连接执行；直接构造的低频适配器才使用一次性 `StateStore` 上下文。
 - **飞书消息异步发送**：[`miniagent/assistant/feishu/im_send.py`](../miniagent/assistant/feishu/im_send.py) 新增 `post_im_message_async()`，使用 `asyncio.to_thread()` 包装同步 SDK 调用，避免阻塞事件循环。
-- **紧凑 JSON 格式**：记忆文件使用紧凑 JSON（移除 `indent=2`），减少约 30% 文件体积和 20% 写入时间。
+- **类型化状态与不透明 JSON**：会话、时间、scope、namespace 和 FTS 使用类型化 SQLite 列；只有摘要、事实和文件元数据等不透明载荷使用紧凑 JSON。
 - **实例列表缓存延长**：缓存 TTL 从 5 秒提高到 **30 秒**，减少频繁目录遍历开销。
 - **表格分隔符正则预编译**：[`miniagent/assistant/feishu/cards/gfm_table.py`](../miniagent/assistant/feishu/cards/gfm_table.py) 使用预编译 `_RE_GFM_SEPARATOR`。
 - **嵌入向量紧凑存储与分块查询**：[`miniagent/assistant/memory/embedding_search.py`](../miniagent/assistant/memory/embedding_search.py) 用连续 float64 数组替代 Python `list[float]`，API 缓存与索引可共享同一向量；500×1536 合成常驻分配由 23.65MiB 降至 6.25MiB（约 73.6%）。numpy 检索按 256 条构造临时矩阵，Top-K 与标量路径等价。索引仍受 `embedding.max_entries`（默认 2000）限制。
@@ -194,11 +194,12 @@ CI **不**依赖基线文件是否存在；可选 workflow 仅上传当次脚本
 - **知识库热路径惰性导入**：仅调用 `retrieve_knowledge_context()` 时不再加载 `KnowledgeRegistry`、PyYAML、文件摄取与索引栈；`KnowledgeRegistry` 的公共导出保持兼容。S1 稳态计时先执行一次明确 warm-up，避免把模块/正则一次性初始化和测试夹具 GC 误判为执行抖动，原阈值不放宽。
 - **索引原子持久化与 embedding single-flight**：共享注册表、关键词索引、embedding 索引和会话历史先写同目录唯一临时文件，再用 `os.replace()` 发布；save 使用串行锁与 generation，旧快照不会清除并发变更的 dirty。相同 embedding 文本的并发 miss 共享一个 API task，取消单个等待者不会取消公共请求。
 - **后台任务并发槽位**：后台任务在创建协程时即预留槽位，避免多个并发 `start_task()` 在协程尚未调度时共同绕过上限；正常、失败、启动前取消和 shutdown 都幂等释放槽位。
-- **飞书缓存与连接复用**：消息去重按单键严格执行 5 分钟 TTL 并原子 flush；tenant token 的同步/异步并发 miss 各自合并为一次请求；HTML 上传三类操作按事件循环复用 aiohttp 连接池并在统一 shutdown 中关闭。
+- **飞书缓存与连接复用**：消息去重按单键严格执行 5 分钟 TTL 并原子 flush；tenant token 的同步/异步并发 miss 各自合并为一次请求；HTML 上传三类操作按事件循环复用共享 `httpx` 客户端并在统一 shutdown 中关闭。
 - **Trace 重试与终态语义**：`failed_response_count` 与 `attempt_error_rate` 保留失败尝试诊断；`retrying_response_count`、`terminal_failed_response_count` 和 `error_rate` 描述操作终态。真实运行中 2 次网关重试恢复后，尝试失败率为 33.3%，终态失败率正确为 0，且请求/响应无失配。
 - **Trace 资源与安全白名单**：生产默认 `trace.resource_sample_interval_seconds=0`；真实基准显式设为 0.25s 并惰性加载 psutil。CPU/RSS 采样与 tracemalloc 已拆分，后者只在 `trace.track_python_allocations=true` 时启用。持久化只接受事件类型/模型/phase 等安全字符串和已登记的数字/布尔指标；未知字符串、未知数字标识、嵌套对象、错误正文、prompt/response/args 一律丢弃。hook 仍收到原事件。
 - **Trace 配置、schema 与生命周期**：组合根显式构造不可变 `TraceRuntimeConfig`，避免 observability 反向读取应用配置；初始化失败会完整回滚并允许重试。所有持久化事件自动带 `trace_schema_version`，`TRACE_EVENT_TYPES` 是生产 emitter 的静态契约。writer 关停超时会报告 `shutdown_incomplete` 并保留可重试状态，维护命令与普通事件通过同一 enqueue 锁保持顺序。
 - **Trace 跨日与大分片**：writer 按事件 UTC 日期安全切换分片，自定义无日期路径也能跨日；关闭超时时不关闭仍被线程使用的句柄。日报对延迟、session、phase/tool/error/span 基数均设固定容量，坏 JSON、NaN 和畸形字段不会中止聚合。
+- **Trace 资源与完整性**：资源报告区分 `cpu_single_core_percent` 与按逻辑 CPU 数归一化的 `cpu_machine_percent`，事件循环 lag 独立采样，不污染 RSS 窗口。span 的 CPU 字段汇总为 `avg_process_cpu_delta_ms`；日报单遍检查未知事件、重复 ID、未配对 start/end、孤立 parent、负时长和跟踪上限截断。
 - **LLM 参数能力学习**：仅对明确 HTTP 400 “参数不受支持”学习 `temperature/top_p`，缓存键包含弱引用 client、endpoint、model 与 wire API，并有 LRU 上限；非法参数值和其他 400 不会污染能力缓存。后续请求直接采用已学习的兼容参数，保留现有重试、协议降级与思考等级。
 - **Embedding 异步索引**：空索引在 query embedding 前直接返回；耐久记忆和关键词索引完成后，向量索引进入默认容量 256、并发 2 的队列。满队列反压而不丢条目，下一次搜索和 shutdown 均完整 drain；Trace 区分 query/index、缓存、queue wait、network 和 index duration，并继承 session/span。
 - **工具大输入与原子发布**：`read_file` 单遍完成分页、准确行数、完整 hash 与有界 RAG 内容；目录列表辅助内存受 `max_entries` 约束；JSONL 逐行解析，CSV/JSON/命令输出有类型与容量上限。文件、CSV、JSON、会话记忆和自动知识镜像均先写同目录临时文件，再原子替换，失败保留旧文件。

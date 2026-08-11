@@ -87,6 +87,25 @@ async def test_shutdown_runtime_feishu_stop_async_noop_when_never_started() -> N
 
 
 @pytest.mark.asyncio
+async def test_shutdown_runtime_closes_process_state_store() -> None:
+    ctx = _minimal_ctx()
+    state_store = MagicMock()
+    state_store.close = AsyncMock()
+    ctx.state_store = state_store
+
+    await shutdown_runtime(
+        ctx,
+        {"active_session_id": ""},  # type: ignore[arg-type]
+        reason="test_state_store",
+        abort_message_queues=False,
+        release_cli_session_lock=False,
+        call_unregister=False,
+    )
+
+    state_store.close.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
 async def test_shutdown_does_not_stop_lifecycle_managed_feishu_twice() -> None:
     ctx = _minimal_ctx()
     runtime = MagicMock()
@@ -439,7 +458,7 @@ async def test_run_runtime_failure_always_invokes_unified_shutdown() -> None:
     init_failure = RuntimeError("init failed")
 
     with (
-        patch("miniagent.assistant.engine.main._configure_console_encoding"),
+        patch("miniagent.assistant.engine.main.configure_console_encoding"),
         patch("miniagent.assistant.engine.main.register_instance", return_value={"instance_id": 1}),
         patch("miniagent.assistant.engine.main.signal.signal"),
         patch(

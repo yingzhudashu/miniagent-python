@@ -39,7 +39,7 @@ from miniagent.assistant.engine.thinking_state import (
     clear_feishu_stream_fields as _clear_feishu_stream_fields,
 )
 
-# ── 性能优化：缓存终端宽度，避免频繁调用 get_terminal_size ──
+# 终端宽度短暂缓存；TTL 到期后重新读取以响应窗口缩放。
 _TERMINAL_WIDTH_CACHE_TTL: float = max(0.0, float(EXECUTION_TERMINAL_WIDTH_CACHE_TTL))
 _TERMINAL_WIDTH_CACHE: int = 0
 _TERMINAL_WIDTH_CACHE_TIME: float = 0.0
@@ -162,11 +162,11 @@ class ThinkingDisplay:
     def __init__(self) -> None:
         """构造显示协调器：按 ``session_key`` 分桶状态（含空字符串默认键）。
 
-        性能优化：Session 状态 LRU 驱逐，防止无限累积（最大 50 个会话状态）。
+        会话状态按最近访问顺序驱逐，长期进程最多保留 50 个桶。
         """
         self._states: OrderedDict[str, _SessionThinkingState] = OrderedDict()
         self._buffer_enabled: bool = False
-        # 性能优化：Session状态最大数量（防止内存泄漏）
+        # 该上限约束未结束或异常会话遗留的显示状态。
         self._max_session_states: int = 50
         # Application 输出缓冲区回调（用于全屏模式）
         self._output_sink: Callable[..., None] | None = None

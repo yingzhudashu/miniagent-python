@@ -1,6 +1,6 @@
 # 部署指南
 
-> Mini Agent Python | 版本: 5.0.0 | 最后更新: 2026-08-10 | 与 `miniagent.__version__` 对齐
+> Mini Agent Python | 版本: 5.0.0 | 最后更新: 2026-08-11 | 与 `miniagent.__version__` 对齐
 
 ## 环境要求
 
@@ -29,7 +29,7 @@ CLI 交互启动、`--feishu` 双通道、`--stop` 停止实例等命令与首�
 
 ### 状态目录与多实例注册
 
-项目数据默认写入 **`workspaces/projects/{project_key}/`**；实例注册表固定在 miniagent 包根的 **`workspaces/instances/`**（与 cwd 无关）。`MINIAGENT_PATHS_STATE_DIR` 仅覆盖项目 workspace 根，**不改变**注册表位置。同一 cwd 仅允许一个存活实例；多项目并行请换目录启动。完整路径布局、PID 存活判定、`--stop` 与 `--state-dir` 语义见 **[ENGINEERING.md §3.3](ENGINEERING.md#33-多实例注册表)**（canonical 路径见 §3）。
+项目数据默认写入 **`workspaces/projects/{project_key}/state.sqlite3`**；实例注册表固定为 miniagent 包根的 **`workspaces/registry.sqlite3`**（与 cwd 无关）。`MINIAGENT_PATHS_STATE_DIR` 仅覆盖项目状态根，**不改变**注册表位置。同一 cwd 仅允许一个存活实例；多项目并行请换目录启动。完整路径布局、PID/heartbeat 存活判定、`--stop` 与 `--state-dir` 语义见 **[ENGINEERING.md §3.3](ENGINEERING.md#33-多实例注册表)**（canonical 路径见 §3）。
 
 对话历史、记忆、飞书去重等可能写入状态根子目录（含敏感内容）；备份与共享主机隔离见 [SECURITY.md](SECURITY.md)。
 

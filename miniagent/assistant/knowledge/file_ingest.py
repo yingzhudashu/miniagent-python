@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import shutil
 import time
@@ -24,6 +25,7 @@ from miniagent.assistant.infrastructure.json_config import get_config
 
 _DEFAULT_KB_NAME = "_auto_file_analysis"
 _METADATA_FILE = "source-metadata.json"
+_logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -203,7 +205,7 @@ def _refresh_registry(registry: Any, kb_name: str, kb_path: str) -> None:
         else:
             registry.mount(kb_path, kb_name)
     except Exception:
-        pass
+        _logger.debug("automatic knowledge registry refresh failed", exc_info=True)
 
 
 def _load_metadata(path: Path) -> dict[str, dict[str, Any]]:
@@ -214,11 +216,12 @@ def _load_metadata(path: Path) -> dict[str, dict[str, Any]]:
             data = json.load(f)
         return data if isinstance(data, dict) else {}
     except Exception:
+        _logger.warning("knowledge metadata is unreadable: %s", path, exc_info=True)
         backup = path.with_suffix(".corrupt.json")
         try:
             shutil.copy2(path, backup)
         except Exception:
-            pass
+            _logger.debug("failed to preserve corrupt knowledge metadata", exc_info=True)
         return {}
 
 

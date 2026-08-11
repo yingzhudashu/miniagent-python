@@ -201,7 +201,10 @@ async def scheduled_tasks_loop(
         if stop_event.is_set():
             break
         try:
-            await tick_once(ctx, state, skill_toolboxes, skill_prompts)
+            from miniagent.agent.observability import trace_span
+
+            with trace_span("scheduler.tick"):
+                await tick_once(ctx, state, skill_toolboxes, skill_prompts)
         except Exception:
             _logger.exception("scheduled_tasks tick 异常")
         try:

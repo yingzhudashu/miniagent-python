@@ -60,6 +60,27 @@ def test_check_docs_rejects_retired_audit_and_matrix(
     assert any("TEST_COVERAGE_MATRIX.md" in issue for issue in issues)
 
 
+def test_check_docs_rejects_retired_current_runtime_descriptions(tmp_path: Path) -> None:
+    checker = _load_checker()
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (tmp_path / "README.md").write_text("# Project\n", encoding="utf-8")
+    (tmp_path / "CHANGELOG.md").write_text(
+        "# Changelog\n\nHistorical memory-registry.json\n",
+        encoding="utf-8",
+    )
+    (docs / "GUIDE.md").write_text(
+        "# Guide\n\nCurrent state: memory/session_lt/\n",
+        encoding="utf-8",
+    )
+    (docs / "INDEX.md").write_text("# Index\n\n[Guide](GUIDE.md)\n", encoding="utf-8")
+
+    issues = checker.check_docs(tmp_path)
+
+    assert any("退役的会话长期记忆目录" in issue for issue in issues)
+    assert not any("memory-registry.json" in issue for issue in issues)
+
+
 def test_check_docs_reports_version_command_and_process_artifact_drift(
     tmp_path: Path,
     monkeypatch,

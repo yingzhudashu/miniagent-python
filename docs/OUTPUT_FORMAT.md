@@ -1,6 +1,6 @@
 # 输出格式规范
 
-> Mini Agent Python | 版本: 5.0.0 | 最后更新: 2026-08-10 | 与 `miniagent.__version__` 对齐
+> Mini Agent Python | 版本: 5.0.0 | 最后更新: 2026-08-11 | 与 `miniagent.__version__` 对齐
 > CLI 与飞书通道的输出格式、流式输出、间距规则
 
 ## 概述

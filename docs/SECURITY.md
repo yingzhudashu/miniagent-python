@@ -1,6 +1,6 @@
 # 安全模型
 
-> Mini Agent Python | 版本: 5.0.0 | 最后更新: 2026-08-10 | 与 `miniagent.__version__` 对齐 | Agent 安全策略与 Assistant 实例约束
+> Mini Agent Python | 版本: 5.0.0 | 最后更新: 2026-08-11 | 与 `miniagent.__version__` 对齐 | Agent 安全策略与 Assistant 实例约束
 
 ## 安全架构概览
 
@@ -99,8 +99,8 @@ Windows 下命令名按系统语义进行大小写无关匹配，并将 `.exe`�
 视为同一 basename 的标准可执行别名；例如白名单中的 `curl` 可匹配 `curl.exe`。
 其他扩展名仍须显式加入白名单。
 
-`security.allowed_commands` 推荐使用 JSON 数组。`null`（默认）使用内置列表；显式空数组
-表示禁用全部命令；为兼容旧配置仍接受逗号分隔字符串。类型无效时系统失败关闭并禁用命令，
+`security.allowed_commands` 只接受 JSON 字符串数组。`null`（默认）使用内置列表；显式空数组
+表示禁用全部命令。逗号字符串或其它类型无效时系统失败关闭并禁用命令，
 不会回退到默认列表：
 
 ```json
@@ -113,15 +113,15 @@ Windows 下命令名按系统语义进行大小写无关匹配，并将 `.exe`�
 
 ## 3. 多实例安全
 
-**位置**: `miniagent/assistant/engine/session_lock.py` + `miniagent/assistant/infrastructure/instance.py`
+**位置**: `miniagent/assistant/engine/session_lock.py`、`miniagent/assistant/state/registry.py`
 
 ### 会话锁
 
-- 每个会话使用 `.lock` 文件互斥
-- 锁文件记录 PID，支持过期锁检测（进程退出后自动清理）
-- 防止多个实例同时修改同一会话（**尽力互斥**，非 flock 级严格锁；极端并发下可能短暂双占）
+- 每个会话在项目 `state.sqlite3` 的 `process_leases` 中使用事务 lease 互斥
+- lease 保存 owner、过期时间与 generation，过期后可由存活实例接管
+- `BEGIN IMMEDIATE` 与资源唯一键保证同一时刻只有一个成功持有者
 - 同步 API（`try_lock_session`）在 Windows 上会阻塞线程；asyncio 上下文请用 `try_lock_session_async`
-- `is_session_locked` 对陈旧锁返回 `None`（视为未占用），实际加锁时由 `try_lock_session*` 清理文件
+- `is_session_locked` 对过期或已退出 owner 返回 `None`；实际获取会原子覆盖过期 lease
 
 ```python
 # 加锁
@@ -136,7 +136,7 @@ release_session_lock("default")
 
 ### 实例注册表
 
-每个实例在 `workspaces/instances/<id>/` 注册；**存活判定**以 OS PID 为准（详见 [ENGINEERING.md §3.3](ENGINEERING.md#33-多实例注册表)）。
+进程实例保存在全局 `registry.sqlite3` 的 `process_instances` 表；PID 与 heartbeat 共同决定存活状态（详见 [ENGINEERING.md §3.3](ENGINEERING.md#33-多实例注册表)）。
 
 ## 4. 循环检测
 
@@ -159,7 +159,7 @@ release_session_lock("default")
 
 ### 消息安全
 
-- 内存 + 磁盘双重去重，防止重复处理
+- `feishu_message_claims` 唯一键与 TTL claim 防止重复处理
 - 消息防抖合并（``feishu.message_debounce_ms``，见 ``message_debounce.py``），防止同一发送者短时连发被拆成多轮 Agent
 - WebSocket 长连接模式，无需暴露公网端口
 
@@ -191,7 +191,7 @@ release_session_lock("default")
 - [ ] `AGENT_DEBUG=false`（生产环境）
 - [ ] 飞书应用已设置 IP 白名单（如适用）
 - [ ] 工作空间目录权限正确；共享机上前缀 `MINIAGENT_PATHS_STATE_DIR` 到用户私有目录
-- [ ] 定期检查 `workspaces/instances/` 无残留死实例
+- [ ] 定期通过 `miniagent --list` 检查全局注册表没有异常存活实例
 
 ## 8. 相关文档
 

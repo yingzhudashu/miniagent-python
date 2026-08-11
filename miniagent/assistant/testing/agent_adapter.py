@@ -27,6 +27,7 @@ async def _run_test_agent(
     on_tool_finish: Any,
     engine: Any = None,
 ):
+    """Run one self-test request through the current ``AgentRuntime`` contract."""
     runtime = AgentRuntime(
         AgentSpec(
             settings=AgentSettings(get_config_snapshot()),

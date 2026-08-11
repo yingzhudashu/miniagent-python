@@ -29,7 +29,7 @@ def temp_state_dir():
 @pytest.fixture
 def registry(temp_state_dir):
     """Create a fresh registry for each test."""
-    r = MemoryEntryRegistry(state_dir=temp_state_dir)
+    r = MemoryEntryRegistry()
     yield r
     r.clear()
 
@@ -164,7 +164,7 @@ class TestMemoryEntryRegistry:
         from tests.support.config import install_test_config
 
         install_test_config(tmp_path, {"memory": {"registry_max_entries": 3}})
-        registry = MemoryEntryRegistry(state_dir=temp_state_dir)
+        registry = MemoryEntryRegistry()
 
         for i in range(5):
             entry = MemoryEntryInput(
@@ -222,20 +222,23 @@ class TestMemoryEntryRegistry:
         registry.clear()
         assert registry.get_stats()["total_entries"] == 0
 
-    def test_save_and_load(self, registry, temp_state_dir):
-        """Save registry to disk and reload."""
-        entry = MemoryEntryInput(
-            timestamp="2026-05-31T12:00:00Z",
-            user_snippet="Persist me",
-            summary="Persistent summary",
-            facts=["persistent fact"],
+    def test_hydrate_rebuilds_cache(self, registry):
+        """Hydration rebuilds the cache from rows supplied by StateStore."""
+        registry.hydrate_entries(
+            [
+                {
+                    "entry_key": "s1:durable",
+                    "scope": "s1",
+                    "metadata": {
+                        "timestamp": "2026-05-31T12:00:00Z",
+                        "user_snippet": "Persist me",
+                        "summary": "Persistent summary",
+                        "facts": ["persistent fact"],
+                    },
+                }
+            ]
         )
-        registry.register("s1", entry)
-        registry.save()
-
-        # Create new registry to test load
-        registry2 = MemoryEntryRegistry(state_dir=temp_state_dir)
-        retrieved = registry2.get("s1:2026-05-31T12:00:00Z")
+        retrieved = registry.get("s1:durable")
         assert retrieved is not None
         assert retrieved.user_snippet == "Persist me"
 

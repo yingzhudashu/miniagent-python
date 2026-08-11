@@ -7,7 +7,7 @@ import json
 import os
 import time
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -17,11 +17,6 @@ from miniagent.assistant.engine.bg_session_cleanup import (
 )
 from miniagent.assistant.infrastructure.trace_stats import remove_session_from_trace_files
 from miniagent.assistant.memory.activity_log import ActivityLogger
-from miniagent.assistant.memory.layered_memory import (
-    load_agent_longterm,
-    promote_to_agent_longterm,
-    remove_agent_longterm_entries_for_session,
-)
 from miniagent.assistant.utils.session_id import safe_session_id
 
 
@@ -34,6 +29,7 @@ class TestIsBackgroundSessionKey:
 class TestCleanupBackgroundSessionArtifacts:
     @pytest.mark.asyncio
     async def test_removes_workspace_memory_and_activity_log(self, state_dir, memory_runtime):
+        await memory_runtime.start()
         session_key = "__bg__deadbeef"
         safe_id = safe_session_id(session_key)
 
@@ -77,8 +73,10 @@ class TestCleanupBackgroundSessionArtifacts:
         )
 
         assert not os.path.exists(workspace_dir)
-        assert not os.path.exists(memory_path)
-        assert not os.path.exists(session_lt)
+        # Retired state is outside the current runtime contract and is neither
+        # imported nor deleted as a side effect of current cleanup.
+        assert os.path.exists(memory_path)
+        assert os.path.exists(session_lt)
         assert not os.path.isdir(diary_dir)
         assert registry.remove_session_entries(session_key) == []
 
@@ -212,28 +210,31 @@ class TestTraceMultiFileCleanup:
 
 
 class TestAgentLongTermCleanup:
-    def test_remove_agent_longterm_entries_for_session(self, state_dir, monkeypatch):
-        monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", state_dir)
-        promote_to_agent_longterm("keep me", source_session="cli-main")
-        promote_to_agent_longterm("remove me", source_session="__bg__agentlt")
+    @pytest.mark.asyncio
+    async def test_remove_agent_longterm_entries_for_session(self, memory_runtime):
+        await memory_runtime.start()
+        await memory_runtime.longterm.promote("keep me", source_session="cli-main")
+        await memory_runtime.longterm.promote("remove me", source_session="__bg__agentlt")
 
-        assert remove_agent_longterm_entries_for_session("__bg__agentlt") == 1
+        assert await memory_runtime.longterm.remove_agent_entries_for_session("__bg__agentlt") == 1
 
-        texts = [entry.get("text") for entry in load_agent_longterm().get("entries", [])]
+        document = await memory_runtime.longterm.load_agent()
+        texts = [entry.get("text") for entry in document.get("entries", [])]
         assert "remove me" not in texts
         assert "keep me" in texts
 
     @pytest.mark.asyncio
-    async def test_cleanup_removes_agent_longterm_entries(self, state_dir, monkeypatch):
-        monkeypatch.setenv("MINIAGENT_PATHS_STATE_DIR", state_dir)
+    async def test_cleanup_removes_agent_longterm_entries(self, memory_runtime):
+        await memory_runtime.start()
         session_key = "__bg__fullclean"
-        promote_to_agent_longterm("bg fact", source_session=session_key)
+        await memory_runtime.longterm.promote("bg fact", source_session=session_key)
 
-        await cleanup_background_session_artifacts(session_key)
+        await cleanup_background_session_artifacts(session_key, memory=memory_runtime)
 
+        document = await memory_runtime.longterm.load_agent()
         assert all(
             entry.get("source_session") != session_key
-            for entry in load_agent_longterm().get("entries", [])
+            for entry in document.get("entries", [])
         )
 
     @pytest.mark.asyncio
@@ -253,9 +254,10 @@ class TestAgentLongTermCleanup:
             state_root = state_dir
             store = SimpleNamespace(evict_session=lambda _key: None)
             activity_log = SimpleNamespace(remove_session=AsyncMock())
+            longterm = SimpleNamespace(remove_agent_entries_for_session=AsyncMock(return_value=0))
 
-            def remove_session_entries(self, _session_key):
-                time.sleep(0.08)
+            async def remove_session_entries(self, _session_key):
+                await asyncio.sleep(0.08)
                 return 0
 
         async def heartbeat() -> None:
@@ -263,10 +265,6 @@ class TestAgentLongTermCleanup:
             await asyncio.sleep(0.02)
             heartbeat_time = time.perf_counter()
 
-        monkeypatch.setattr(
-            "miniagent.assistant.memory.layered_memory.remove_agent_longterm_entries_for_session",
-            MagicMock(return_value=0),
-        )
         heartbeat_task = asyncio.create_task(heartbeat())
         await cleanup_background_session_artifacts(
             "__bg__nonblocking",

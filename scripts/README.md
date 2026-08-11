@@ -5,6 +5,7 @@
 - `check_wheel_resources.py`：检查构建 Wheel 中的默认配置、技能资源，以及 Python 模块清单是否与当前源码树完全一致，防止旧构建缓存夹带已删除模块。
 - `docstring_inventory.py --check`：强制模块、公开接口、复杂顶层私有实现与关键状态机具备有效说明。
 - `perf_profile_tracemalloc.py` / `compare_perf_snapshots.py`：生成并比较本地性能快照。
+- `perf_audit_inventory.py`：按当前工作树 blob 生成逐文件、逐行风险审查清单到忽略目录。
 - `perf_trace_overhead.py` / `perf_stability_soak.py`：测量 Trace 开销并执行有界稳定性浸泡。
 
 本目录脚本不参与 Agent 运行时；在项目根执行 `python scripts/<name>.py`。
@@ -19,6 +20,7 @@
 | `check_wheel_resources.py` | 对照源码检查 wheel 模块和运行资源 | [ENGINEERING.md](../docs/ENGINEERING.md) |
 | `perf_profile_tracemalloc.py` | 正式 `record_turn` 路径的 wall/CPU/tracemalloc 剖析 | [PERFORMANCE.md](../docs/PERFORMANCE.md) |
 | `compare_perf_snapshots.py` | 对比两次剖析 JSON | [PERFORMANCE.md](../docs/PERFORMANCE.md) |
+| `perf_audit_inventory.py` | Git 文件 blob、行数、风险定位、决定和验证清单 | [PERFORMANCE.md](../docs/PERFORMANCE.md) |
 | `perf_trace_overhead.py` | Trace 禁用/启用路径开销与 writer 完整性 | [PERFORMANCE.md](../docs/PERFORMANCE.md) |
 | `perf_stability_soak.py` | 预热后测量 RSS、Python 分配、线程和 Trace 的稳定性浸泡 | [PERFORMANCE.md](../docs/PERFORMANCE.md) |
 | `perf_trace_real_api.py` | 显式 opt-in 的真实 API 全链路 Trace 验证 | [PERFORMANCE.md](../docs/PERFORMANCE.md) |

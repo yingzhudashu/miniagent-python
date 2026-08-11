@@ -39,13 +39,14 @@ def test_help_flag_exits_zero(argv: list[str]) -> None:
     result = subprocess.run(
         argv,
         capture_output=True,
-        text=True,
         timeout=15,
     )
-    assert result.returncode == 0, result.stderr
-    assert "用法:" in result.stdout
-    assert "Traceback" not in result.stderr
-    assert "RuntimeWarning" not in result.stderr
+    stdout = result.stdout.decode("utf-8")
+    stderr = result.stderr.decode("utf-8")
+    assert result.returncode == 0, stderr
+    assert "用法:" in stdout
+    assert "Traceback" not in stderr
+    assert "RuntimeWarning" not in stderr
 
 
 def test_cli_main_delegates_to_entry(monkeypatch: pytest.MonkeyPatch) -> None:

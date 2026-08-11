@@ -43,6 +43,8 @@ def test_entrypoint_builds_complete_application_container(
     assert container.memory.store is not None
     assert container.memory.activity_log is not None
     assert container.memory.keyword_index is not None
+    assert container.state_store is container.memory.state_store
+    assert container.memory.store._state_store is container.state_store
     assert container.outbound_channels is not None
     assert container.outbound_channels.list_channel_ids() == ()
     assert container.llm_gateway is not None

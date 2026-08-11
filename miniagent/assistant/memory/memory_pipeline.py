@@ -10,10 +10,11 @@ JSON配置 ``memory.*`` 控制。依赖 ``layered_memory`` 与按日 ``diary`` �
 
 from __future__ import annotations
 
+import asyncio
 import os
 
 from miniagent.assistant.infrastructure.json_config import get_config
-from miniagent.assistant.memory.layered_memory import load_agent_longterm, load_session_longterm
+from miniagent.assistant.memory.layered_memory import LongTermMemoryStore
 
 
 def _tail_diary_preview(session_key: str, max_chars: int = 2000) -> str:
@@ -56,13 +57,14 @@ def _read_identity() -> str:
         return ""
 
 
-def build_layered_memory_augmentation(
+async def build_layered_memory_augmentation(
     session_key: str,
     *,
     user_input: str,
+    longterm: LongTermMemoryStore,
     include_diary_today: bool = True,
 ) -> str:
-    """返回附加到 system prompt 的文本（不含跨会话 DefaultMemoryStore 部分）。"""
+    """Build bounded system context from SQLite profiles and diary source text."""
     if not get_config("memory.layered_inject", True):
         return ""
 
@@ -72,12 +74,16 @@ def build_layered_memory_augmentation(
 
     if include_diary_today:
         dc = get_config("memory.diary_preview_chars", 2000)
-        prev = _tail_diary_preview(session_key, max_chars=max(0, dc))
+        prev = await asyncio.to_thread(
+            _tail_diary_preview,
+            session_key,
+            max_chars=max(0, dc),
+        )
         if prev.strip():
             parts.append("【本会话今日日记摘录（归档块可能含完整历史）】\n" + prev.strip())
 
     if get_config("memory.layered_session_lt", True):
-        slt = load_session_longterm(session_key)
+        slt = await longterm.load_session(session_key)
         days = slt.get("day_entries") or []
         if days:
             lines = []
@@ -89,7 +95,7 @@ def build_layered_memory_augmentation(
             parts.append("【会话长期记忆 — 日索引】\n" + "\n".join(lines))
 
     if get_config("memory.layered_agent_lt", True):
-        ag = load_agent_longterm()
+        ag = await longterm.load_agent()
         entries = ag.get("entries") or []
         if entries:
             tail = entries[-15:]
@@ -101,7 +107,7 @@ def build_layered_memory_augmentation(
     _ = user_input
 
     # 身份文件前置（始终注入，不受 layered_memory flag 控制）
-    identity = _read_identity()
+    identity = await asyncio.to_thread(_read_identity)
     if identity:
         parts.insert(0, identity)
 

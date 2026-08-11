@@ -23,7 +23,7 @@
     >>> result = await _read_file_handler({"path": "data.txt"}, ctx)
     >>> print(result.content)
 
-性能优化：
+I/O 与资源边界：
 - 使用 asyncio.to_thread 包装阻塞 I/O
 - 分页读取避免大文件过载上下文
 - 目录列表支持 ``max_depth`` / ``max_entries`` 防止递归爆炸

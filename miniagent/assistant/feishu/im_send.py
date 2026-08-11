@@ -1,8 +1,8 @@
 """飞书 IM 消息发送（create / reply）共用实现，供 ``poll_server`` 与 ``upload_io`` 调用。
 
-性能优化：
-- 提供异步版本 ``post_im_message_async()`` 包装同步 SDK 调用，避免阻塞事件循环
-- 建议在异步上下文（async def）中使用异步版本
+异步边界：
+- ``post_im_message_async()`` 在线程中调用同步 SDK，避免阻塞事件循环
+- 异步调用链必须使用异步版本
 """
 
 from __future__ import annotations

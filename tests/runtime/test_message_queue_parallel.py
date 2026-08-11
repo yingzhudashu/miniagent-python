@@ -53,3 +53,44 @@ async def test_cross_queue_serial_global_fifo() -> None:
         mq.dispatch_wait("chat_b", work("chat_b")),
     )
     assert order == ["start:chat_a", "end:chat_a", "start:chat_b", "end:chat_b"]
+
+
+@pytest.mark.asyncio
+async def test_cancellation_while_waiting_for_global_lock_resets_queue_state() -> None:
+    mq = MessageQueueManager()
+    mq.cross_queue_serial = True
+    mq.ensure_exec_lock()
+    assert mq.exec_lock is not None
+    await mq.exec_lock.acquire()
+
+    task = asyncio.create_task(mq.dispatch_wait("chat", asyncio.sleep(60)))
+    for _ in range(100):
+        queue = mq._queues.get("chat")
+        if queue is not None and queue.is_busy:
+            break
+        await asyncio.sleep(0)
+    else:
+        pytest.fail("queue did not begin waiting for the global lock")
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    mq.exec_lock.release()
+
+    assert queue.is_busy is False
+    assert queue.elapsed_seconds is None
+
+
+@pytest.mark.asyncio
+async def test_queue_execution_invokes_start_and_done_callbacks() -> None:
+    mq = MessageQueueManager()
+    callbacks: list[str] = []
+
+    await mq.dispatch_wait(
+        "chat",
+        asyncio.sleep(0),
+        on_start=lambda: callbacks.append("start"),
+        on_done=lambda: callbacks.append("done"),
+    )
+
+    assert callbacks == ["start", "done"]

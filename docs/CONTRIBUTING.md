@@ -1,6 +1,6 @@
 # 贡献指南
 
-> Mini Agent Python | 版本: 5.0.0 | 最后更新: 2026-08-10 | 与 `miniagent.__version__` 对齐
+> Mini Agent Python | 版本: 5.0.0 | 最后更新: 2026-08-11 | 与 `miniagent.__version__` 对齐
 
 本文档为开发者单一入口，分三部分：
 
@@ -22,7 +22,7 @@
 
 新增入站通道时，在 adapter 边界构造 `InboundMessage` 后交给 `InboundTurnCoordinator`；队列键必须显式定义并发/抢占语义。出站通道必须直接实现 `ChannelAdapter` 并注册到 `ChannelRegistry`。
 
-若通道已经在 SDK/transport 层完成去重、debounce 和排队（当前飞书即如此），标准化应放在这些策略之后，不能再套一层 `InboundTurnCoordinator`。迁移前后必须分别验证 message claim 完成/释放、reply/thread target 和失败回退。
+若通道已经在 SDK/transport 层完成去重、debounce 和排队（当前飞书即如此），标准化应放在这些策略之后，不能再套一层 `InboundTurnCoordinator`。边界变更前后必须分别验证 message claim 完成/释放、reply/thread target 和失败回退。
 
 handler 发送标准事件后返回空结果，避免 transport 层重复回复；adapter 发送失败必须传播为可观察错误，不得再走第二套字符串或 transport 发送路径。媒体映射必须在下载和安全落盘后构造 `Attachment`，不能把 SDK resource 对象放入契约 metadata。
 
@@ -51,7 +51,7 @@ python -m pytest
 
 ## 运行时目录与测试隔离
 
-本地开发时，Agent 默认把状态写在仓库下的 `workspaces/`（实例心跳、会话历史、锁文件等）。**默认不应把这些当作必须提交的源码**：仓库根 `.gitignore` 已忽略 `workspaces/instances/`、锁文件、`workspaces/sessions/`（canonical：`{paths.state_dir}/sessions/`，见 [ENGINEERING.md](ENGINEERING.md) §3）等路径；若团队需要提交示例配置，可个案取消跟踪。
+本地开发时，Agent 默认把状态写在仓库下的 `workspaces/`（全局 `registry.sqlite3`、项目 `state.sqlite3`、会话文件等）。**这些运行状态不是源码**：仓库根 `.gitignore` 忽略数据库及其 WAL/SHM、项目会话工作区等可变路径；若团队需要提交示例配置，应使用独立、无凭据的显式夹具。
 
 自动化测试与 CI 使用 [`tests/support/config.py`](../tests/support/config.py) 的 `install_test_config` 写入隔离的 `config.user.json`（设置 `paths.state_dir` 等），避免测试污染本机 `workspaces/` 或与并行运行冲突。`tests/conftest.py` 已提供 `isolated_config_loader` fixture；新用例优先使用该方式，而非环境变量覆盖。
 
@@ -284,7 +284,7 @@ python scripts/docstring_inventory.py --check
 | 模块 | 文件顶部 docstring：职责、主要依赖、async/线程假设；复杂包注明与 ARCHITECTURE 的对应章节 |
 | 公开 API | 类与公开函数：中文 docstring；参数、副作用、可能异常按需说明 |
 | 复杂分支 | 如 CLI 主循环、命令调度、ReAct、多实例：关键分支旁简短说明「为何如此」 |
-| 避免 | 逐行复述代码；大段迁移史放在 CHANGELOG / ARCHITECTURE；显而易见的代码不要写长篇 docstring |
+| 避免 | 逐行复述代码；版本历史放在 CHANGELOG；显而易见的代码不要写长篇 docstring |
 
 ## Git 规范
 

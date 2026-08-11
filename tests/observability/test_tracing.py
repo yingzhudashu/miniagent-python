@@ -3,6 +3,7 @@
 验证 trace 钩子系统，包括可选的持久化功能。
 """
 
+import asyncio
 import builtins
 import os
 import time
@@ -439,6 +440,57 @@ def test_trace_span_reports_success_failure_and_parent() -> None:
     clear_trace_hooks()
 
 
+def test_disabled_trace_span_skips_ids_and_timers(monkeypatch) -> None:
+    clear_trace_hooks()
+    monkeypatch.setattr(
+        tracing,
+        "new_trace_id",
+        MagicMock(side_effect=AssertionError("disabled span generated an id")),
+    )
+    monkeypatch.setattr(
+        tracing.time,
+        "process_time_ns",
+        MagicMock(side_effect=AssertionError("disabled span read a timer")),
+    )
+
+    with tracing.trace_span("disabled") as generated:
+        assert generated is None
+    with tracing.trace_span("disabled", span_id="provided") as provided:
+        assert provided == "provided"
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"batch_interval": 0}, "batch_interval"),
+        ({"batch_size": 0}, "batch_size"),
+        ({"queue_max_size": 0}, "queue_max_size"),
+        ({"overflow_policy": "invalid"}, "overflow_policy"),
+    ],
+)
+def test_trace_writer_rejects_invalid_runtime_parameters(kwargs, message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        AsyncTraceWriter(**kwargs)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("writer_batch_interval", 0, "batch_interval"),
+        ("writer_batch_size", 0, "batch_size"),
+        ("writer_queue_max_size", 0, "queue_max_size"),
+        ("writer_overflow_policy", "unknown", "overflow_policy"),
+        ("writer_shutdown_timeout_seconds", 0, "shutdown_timeout"),
+        ("record_payload", "full", "record_payload"),
+        ("resource_sample_interval_seconds", -1, "sample_interval"),
+        ("resource_sample_interval_seconds", 0.01, "sample_interval"),
+    ],
+)
+def test_trace_runtime_config_rejects_invalid_values(field, value, message) -> None:
+    with pytest.raises(ValueError, match=message):
+        TraceRuntimeConfig(**{field: value})
+
+
 def test_resource_sampler_collects_optional_metrics_and_errors(monkeypatch) -> None:
     sampler = tracing.TraceResourceSampler(0.001)
     sampler._process = SimpleNamespace(
@@ -468,6 +520,19 @@ def test_resource_sampler_collects_optional_metrics_and_errors(monkeypatch) -> N
     sampler.start()
     sampler.shutdown()
     assert events
+
+
+@pytest.mark.asyncio
+async def test_resource_sampler_records_event_loop_lag(monkeypatch) -> None:
+    events: list[dict] = []
+    monkeypatch.setattr(tracing, "emit_trace", events.append)
+    sampler = tracing.TraceResourceSampler(0.05)
+    try:
+        sampler._emit_sample_and_probe()
+        await asyncio.sleep(0)
+    finally:
+        sampler.shutdown()
+    assert any(event.get("type") == "perf.event_loop_lag" for event in events)
 
 
 def test_resource_sampler_does_not_enable_tracemalloc_by_default() -> None:

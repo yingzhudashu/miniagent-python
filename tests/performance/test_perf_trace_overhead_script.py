@@ -8,6 +8,8 @@ def test_trace_overhead_benchmark_uses_real_writer_without_drops() -> None:
 
     assert result["disabled_median_ns_per_event"] > 0
     assert result["enabled_median_ns_per_event"] > 0
-    assert result["writer"]["emitted_count"] == 300
-    assert result["writer"]["written_count"] == 300
+    assert result["disabled_span_median_ns"] > 0
+    assert result["enabled_span_median_ns"] > 0
+    assert result["writer"]["emitted_count"] == 900
+    assert result["writer"]["written_count"] == 900
     assert result["writer"]["dropped_count"] == 0

@@ -34,6 +34,7 @@ import sys
 from typing import Any
 
 from miniagent.agent.types.error_prefix import ERROR_PREFIX, SUCCESS_PREFIX
+from miniagent.assistant.infrastructure.console import configure_console_encoding
 
 
 def _wants_help(argv: list[str]) -> bool:
@@ -372,6 +373,7 @@ def _run_current_argv() -> None:
 
 def run_cli_boundary(argv: list[str] | None = None) -> None:
     """Implement the internal CLI boundary owned by public ``run_assistant``."""
+    configure_console_encoding()
     if argv is None:
         _run_current_argv()
         return

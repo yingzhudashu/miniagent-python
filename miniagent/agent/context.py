@@ -79,7 +79,7 @@ def estimate_tokens(text: str | None) -> int:
     return estimate_token_estimate(text).tokens
 
 
-# Token 估算缓存（性能优化：LRU + TTL）
+# Token 估算只依赖文本；有界 LRU 与 TTL 防止长期进程无限保留内容。
 _TOKEN_ESTIMATE_CACHE: collections.OrderedDict[str, tuple[int, float]] = collections.OrderedDict()
 _CACHE_MAX_SIZE = 1000
 _CACHE_TTL_SECONDS = 1800  # 30分钟TTL
@@ -89,9 +89,9 @@ _TOKEN_ESTIMATE_CACHE_LOCK = threading.RLock()
 def estimate_tokens_cached(text: str | None) -> int:
     """估算文本的 token 数量（带LRU缓存 + TTL）。
 
-    性能优化：
-    - OrderedDict实现真正的LRU驱逐
-    - TTL防止过期数据
+    缓存契约：
+    - OrderedDict 按最近访问顺序驱逐
+    - TTL 限制估算结果的存活时间
     - 缓存命中率提升30%
 
     Args:
@@ -275,7 +275,7 @@ class DefaultContextManager(ContextManagerProtocol):
             msg: 要追加的消息
         """
         self._messages.append(msg)
-        # 增量计算：仅计算新消息的 token（性能优化）
+        # 总量与消息列表同步维护，追加无需重新扫描完整上下文。
         self._total_tokens_estimate += self._message_tokens(msg)
 
         if self.needs_compression():
@@ -319,7 +319,7 @@ class DefaultContextManager(ContextManagerProtocol):
         - 保留：最近 2 轮对话（LLM 回复 + 工具结果）
         - 中间历史：替换为一行摘要
 
-        性能优化：添加trace记录压缩时间和效果。
+        Trace 只记录压缩耗时和规模，不记录消息正文。
         """
         from miniagent.agent.observability import emit_trace
         from miniagent.agent.trace_events import EVENT_CONTEXT_COMPRESS
@@ -366,8 +366,7 @@ class DefaultContextManager(ContextManagerProtocol):
         summary_msg = {"role": "system", "content": summary}
         self._messages[middle_start:middle_end] = [summary_msg]
 
-        # 性能优化：增量更新token估算（避免全量重算）
-        # before_tokens已记录，removed_tokens已计算
+        # 用已计算的移除量维护总量，避免重新扫描未变化的消息。
         summary_tokens = self._message_tokens(summary_msg)
         self._total_tokens_estimate = before_tokens - removed_tokens + summary_tokens
 
@@ -482,7 +481,7 @@ class DefaultContextManager(ContextManagerProtocol):
     def _message_tokens(self, msg: ChatCompletionMessageParam) -> int:
         """估算单条消息的 token 数
 
-        性能优化：缓存 tool_calls 的 token 估算，避免重复 JSON 序列化。
+        tool_calls 在消息生命周期内不可变，其估算值随消息缓存以避免重复序列化。
 
         Args:
             msg: 消息对象
@@ -493,7 +492,7 @@ class DefaultContextManager(ContextManagerProtocol):
         tokens = estimate_tokens_cached(msg.get("content"))  # type: ignore
 
         if msg.get("role") == "assistant" and msg.get("tool_calls"):
-            # 性能优化：使用缓存的 tool_calls token 估算
+            # 缓存属于消息派生数据，不会写入 provider 请求。
             cached = msg.get("_tool_calls_tokens")
             if cached is not None:
                 tokens += cached

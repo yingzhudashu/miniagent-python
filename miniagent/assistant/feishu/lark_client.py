@@ -11,7 +11,7 @@ from typing import Any
 from miniagent.agent.constants import FEISHU_SDK_CLIENT_CACHE_MAX_SIZE
 from miniagent.ui.feishu.types import FeishuConfig
 
-# ─── 客户端缓存（性能优化：避免每次 API 调用重建连接）──
+# 客户端由凭据键控并复用底层连接；缓存容量受固定上限约束。
 
 _client_cache: OrderedDict[tuple[str, bytes], Any] = OrderedDict()
 _client_cache_lock = threading.Lock()

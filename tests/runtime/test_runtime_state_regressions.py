@@ -58,10 +58,12 @@ async def test_runtime_service_start_updates_state_and_starts_lifecycle(
     builder = MagicMock(return_value=lifecycle)
     monkeypatch.setattr(runtime_services, "build_runtime_lifecycle_manager", builder)
     engine = SimpleNamespace(set_active_session_key=MagicMock())
+    state_store = SimpleNamespace(open=AsyncMock())
     ctx = SimpleNamespace(
         registry=object(), skill_registry=object(), channel_router=object(), clawhub=object(),
-        memory=SimpleNamespace(keyword_index=object()), message_queue=object(), engine=engine,
+        memory=SimpleNamespace(keyword_index=object(), start=AsyncMock()), message_queue=object(), engine=engine,
         lifecycle_manager=None, cli_transcript_append=None,
+        state_store=state_store,
     )
     state = {
         "active_session_id": "", "skill_toolboxes": [], "skill_prompts": [],
@@ -74,6 +76,8 @@ async def test_runtime_service_start_updates_state_and_starts_lifecycle(
     configure.assert_called_once_with(ctx.message_queue)
     engine.set_active_session_key.assert_called_once_with("session")
     lifecycle.start.assert_awaited_once()
+    ctx.memory.start.assert_awaited_once_with()
+    state_store.open.assert_not_awaited()
 
 def test_runtime_initial_state_conflict_and_windows_vt_fallback(
     monkeypatch: pytest.MonkeyPatch,

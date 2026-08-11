@@ -368,12 +368,24 @@ class AgentRuntime:
     async def initialize(self) -> None:
         """Initialize owned LLM resources and extensions with rollback."""
         try:
+            if self.spec.owns_memory:
+                await self.spec.memory.start()
             if self.spec.owns_llm:
                 initialize = getattr(self.llm, "initialize", None)
                 if callable(initialize):
                     await initialize()
             await self._lifecycle.initialize()
         except BaseException:
+            if self.spec.owns_memory:
+                state_store = getattr(self.spec.memory, "state_store", None)
+                close_state = getattr(state_store, "close", None)
+                if callable(close_state):
+                    try:
+                        await close_state()
+                    except BaseException:
+                        _logger.exception(
+                            "Failed to close owned memory after initialization failure"
+                        )
             if self.spec.owns_llm:
                 try:
                     await self._stop_llm()
@@ -579,6 +591,10 @@ class AgentRuntime:
             close = getattr(self.spec.memory, "close", None)
             if callable(close):
                 operations.append(("memory.close", close))
+            state_store = getattr(self.spec.memory, "state_store", None)
+            close_state = getattr(state_store, "close", None)
+            if callable(close_state):
+                operations.append(("memory.state_store.close", close_state))
         if self.spec.owns_llm:
             operations.append(("llm.stop", self._stop_llm))
 

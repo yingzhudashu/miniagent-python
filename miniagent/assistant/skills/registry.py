@@ -76,7 +76,7 @@ def _resolve_api_key(
                 if val:
                     return str(val)
             except Exception:
-                pass
+                _logger.debug("skill API-key config lookup failed", exc_info=True)
     return None
 
 

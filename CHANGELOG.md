@@ -45,6 +45,10 @@
 
 ### Changed
 
+- 长期会话摘要与 Agent 全局记忆统一存入 schema 5 的 `memory_profiles`；Dream 游标与 lease 复用进程级 `StateStore`，不再读写 `session_lt` / `agent_lt` JSON。
+- `MemoryEntryRegistry` 收敛为启动时从 SQLite 重建的有界派生缓存；Memory 正文、FTS、向量与 profile 的持久化只经过应用拥有的 `StateStore`。
+- 当前文档统一到 5.0 SQLite、进程 registry、命令白名单和 Provider 契约；文档门禁拒绝退役状态路径及未实现命令重新出现。
+- 补齐生产公开/复杂接口的 docstring，并修正 Session LRU 注释乱码，使注释聚焦所有权、事务和失败边界。
 - 移除易漂移的逐文件哈希审计账本，改由文档版本、命令覆盖、仓库卫生、静态分析、覆盖率和真实性能测试直接提供可执行质量证据。
 - 命令元数据显式区分共享 dispatcher 与 CLI 前端本地命令；`/copy` 进入 CLI 帮助和补全事实源，`/query` 明确为 `/queue status` 的只读别名。
 - 文档统一说明 3.0 状态 schema 严格拒绝旧格式且不自动迁移，并将 Dream 能力准确描述为不调用 LLM 的索引与裁剪维护。

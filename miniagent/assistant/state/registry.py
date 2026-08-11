@@ -141,6 +141,7 @@ class ProcessInstance:
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> ProcessInstance:
+        """Decode and validate one strict registry row."""
         sessions = json.loads(str(row["active_sessions_json"]))
         if not isinstance(sessions, list) or not all(
             isinstance(item, str) for item in sessions
@@ -191,6 +192,7 @@ class ProcessInstanceStore:
         alive_pid: Callable[[int], bool],
         stale_before_ms: int,
     ) -> ProcessInstance:
+        """Atomically remove stale rows and register a non-conflicting process."""
         with open_registry_database(self.state_dir) as connection:
             with _immediate(connection):
                 self._delete_stale(connection, alive_pid, stale_before_ms)
@@ -235,6 +237,7 @@ class ProcessInstanceStore:
         alive_pid: Callable[[int], bool],
         stale_before_ms: int,
     ) -> list[ProcessInstance]:
+        """Prune stale owners and return live instances in display order."""
         with open_registry_database(self.state_dir) as connection:
             with _immediate(connection):
                 self._delete_stale(connection, alive_pid, stale_before_ms)
@@ -244,6 +247,7 @@ class ProcessInstanceStore:
         return [ProcessInstance.from_row(row) for row in rows]
 
     def get(self, instance_id: int) -> ProcessInstance | None:
+        """Load one registered process by stable display identifier."""
         with open_registry_database(self.state_dir) as connection:
             row = connection.execute(
                 "SELECT * FROM process_instances WHERE instance_id=?",
@@ -252,6 +256,7 @@ class ProcessInstanceStore:
         return None if row is None else ProcessInstance.from_row(row)
 
     def heartbeat(self, instance_id: int, now_ms: int) -> bool:
+        """Advance a process heartbeat monotonically."""
         with open_registry_database(self.state_dir) as connection:
             cursor = connection.execute(
                 """UPDATE process_instances
@@ -262,6 +267,7 @@ class ProcessInstanceStore:
             return cursor.rowcount == 1
 
     def update_mode(self, instance_id: int, mode: str) -> bool:
+        """Replace the advertised runtime mode for an existing process."""
         with open_registry_database(self.state_dir) as connection:
             cursor = connection.execute(
                 "UPDATE process_instances SET mode=? WHERE instance_id=?",
@@ -270,6 +276,7 @@ class ProcessInstanceStore:
             return cursor.rowcount == 1
 
     def update_sessions(self, instance_id: int, active_sessions: Sequence[str]) -> bool:
+        """Replace the advertised active-session snapshot."""
         with open_registry_database(self.state_dir) as connection:
             cursor = connection.execute(
                 "UPDATE process_instances SET active_sessions_json=? WHERE instance_id=?",
@@ -278,6 +285,7 @@ class ProcessInstanceStore:
             return cursor.rowcount == 1
 
     def delete(self, instance_id: int) -> bool:
+        """Unregister one process and report whether it existed."""
         with open_registry_database(self.state_dir) as connection:
             cursor = connection.execute(
                 "DELETE FROM process_instances WHERE instance_id=?",

@@ -1,18 +1,7 @@
 # Mini Agent Python — 日常使用指南
 
 > 安装、配置、首次启动见 **[README.md](../README.md)**。本文从日常使用起，面向已能跑通 Agent 的用户。  
-> Mini Agent Python | 版本: 5.0.0 | 最后更新: 2026-08-10 | 与 `miniagent.__version__` 对齐 | 未发版行为见 [CHANGELOG](../CHANGELOG.md) `[Unreleased]`
-
-### 章节迁移对照（原 USER_GUIDE 编号）
-
-| 原 § | 新位置 |
-|------|--------|
-| §1–§6（前言、安装、配置、启动） | [README.md](../README.md) |
-| 原 §7 | 本文 §1 日常对话 |
-| 原 §8 | 本文 §2 点命令速查 |
-| 原 §9–§20 | 本文 §3–§14 |
-
----
+> Mini Agent Python | 版本: 5.0.0 | 最后更新: 2026-08-11 | 与 `miniagent.__version__` 对齐 | 未发版行为见 [CHANGELOG](../CHANGELOG.md) `[Unreleased]`
 
 ## 目录
 
@@ -152,7 +141,7 @@
 
 ### 10.1 默认布局
 
-默认布局下，**项目业务状态**（会话、锁、飞书去重、记忆索引等）写入 miniagent 安装/源码根下的 **`workspaces/projects/{project_key}/`**（按启动 cwd 自动区分）；**实例注册表** 位于 `workspaces/instances/`。可在 `config.user.json` 设置绝对 `paths.state_dir` 或通过 `MINIAGENT_PATHS_STATE_DIR` 将项目数据放到其它磁盘路径，便于备份或多副本隔离。
+默认布局下，**项目业务状态**（会话、lease、飞书 claim、记忆索引等）写入 miniagent 安装/源码根下的 **`workspaces/projects/{project_key}/state.sqlite3`**（按启动 cwd 自动区分）；**实例注册表** 位于 `workspaces/registry.sqlite3`。可在 `config.user.json` 设置绝对 `paths.state_dir` 或通过 `MINIAGENT_PATHS_STATE_DIR` 将项目数据放到其它磁盘路径，便于备份或多副本隔离。
 
 ### 10.2 哪些不应提交到 Git
 

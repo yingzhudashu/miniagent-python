@@ -28,6 +28,7 @@ from miniagent.agent.types.memory import MemoryEntryInput
 from miniagent.assistant.infrastructure.trace_stats import aggregate_trace_stats
 from miniagent.assistant.memory.keyword_index import KeywordIndex
 from miniagent.assistant.memory.store import DefaultMemoryStore
+from miniagent.assistant.state import StateStore
 
 _WARMUP_ITERATIONS = 200
 
@@ -51,6 +52,25 @@ def _wait_for_trace_queue_empty(timeout_seconds: float = 5.0) -> None:
         time.sleep(0.01)
 
 
+def _trace_integrity_errors(integrity: dict[str, Any]) -> list[str]:
+    errors = [
+        f"trace integrity {key} is non-zero"
+        for key in (
+            "unknown_event_count",
+            "duplicate_span_start_count",
+            "duplicate_span_end_count",
+            "unmatched_span_start_count",
+            "unmatched_span_end_count",
+            "orphan_parent_count",
+            "negative_duration_count",
+        )
+        if int(integrity.get(key, 0) or 0)
+    ]
+    if integrity.get("span_tracking_truncated"):
+        errors.append("trace span integrity tracking was truncated")
+    return errors
+
+
 async def run_soak(
     *,
     duration_seconds: float = 1_800,
@@ -62,11 +82,14 @@ async def run_soak(
     clear_trace_hooks()
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        keyword_index = KeywordIndex(state_dir=str(root / "state"))
+        state_root = root / "state"
+        state_store = await StateStore(state_root).open()
+        keyword_index = KeywordIndex(state_dir=str(state_root))
         store = DefaultMemoryStore(
-            state_dir=str(root / "state"),
+            state_dir=str(state_root),
             keyword_index=keyword_index,
             embedding_provider=None,
+            state_store=state_store,
         )
         context = DefaultContextManager(
             context_window=32_000,
@@ -147,6 +170,7 @@ async def run_soak(
             sampler.shutdown()
             trace_file = get_actual_trace_file()
             writer = shutdown_trace_writer()
+            await state_store.close()
         assert trace_file is not None
         report = aggregate_trace_stats(_iter_events(trace_file))
 
@@ -162,6 +186,8 @@ async def run_soak(
         if writer.get("shutdown_incomplete"):
             errors.append("writer shutdown incomplete")
     resources = report.get("resources", {})
+    integrity = report.get("integrity", {})
+    errors.extend(_trace_integrity_errors(integrity))
     growth = resources.get("rss_warm_to_final_growth_ratio")
     if isinstance(growth, int | float) and growth > 0.05:
         errors.append(f"RSS warm-to-final growth exceeds 5%: {growth:.4f}")
@@ -182,6 +208,7 @@ async def run_soak(
         "writer": writer,
         "resources": resources,
         "spans": report.get("spans", {}),
+        "integrity": integrity,
         "validation_errors": errors,
     }
 

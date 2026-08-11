@@ -1,13 +1,13 @@
 """GFM 管道表识别与解析（poll_server 与 CARD_V2 共用）。
 
-性能优化：预编译表格分隔符正则，避免每次调用都重新编译。
+表格分隔符语法固定，因此正则在模块加载时编译一次。
 """
 
 from __future__ import annotations
 
 import re
 
-# 性能优化：预编译正则表达式
+# 该模式无运行时配置，模块级实例可安全复用。
 _RE_GFM_SEPARATOR = re.compile(r"^\s*\|?[\s\-:|]+\|?\s*$")
 
 

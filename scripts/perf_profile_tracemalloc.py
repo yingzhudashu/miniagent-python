@@ -26,9 +26,15 @@ async def _run_memory_turn_batch(tmp: str) -> None:
     from miniagent.agent.types.memory import MemoryEntryInput, SessionMemory
     from miniagent.assistant.memory.keyword_index import KeywordIndex
     from miniagent.assistant.memory.store import DefaultMemoryStore
+    from miniagent.assistant.state import StateStore
 
+    state_store = await StateStore(tmp).open()
     ki = KeywordIndex(state_dir=tmp)
-    store = DefaultMemoryStore(state_dir=tmp, keyword_index=ki)
+    store = DefaultMemoryStore(
+        state_dir=tmp,
+        keyword_index=ki,
+        state_store=state_store,
+    )
     sid = "profile-session"
     now = datetime.now(timezone.utc).isoformat()
     mem = SessionMemory(
@@ -40,16 +46,19 @@ async def _run_memory_turn_batch(tmp: str) -> None:
         first_seen=now,
         last_active=now,
     )
-    await store.save(mem)
-    for i in range(20):
-        entry = MemoryEntryInput(
-            timestamp=now,
-            user_snippet=f"user input {i} investment preference",
-            summary=f"summary {i}",
-            facts=[f"fact {i}"],
-        )
-        await store.record_turn(sid, entry.summary, entry.facts, entry)
-    await store.flush_keyword_index_async()
+    try:
+        await store.save(mem)
+        for i in range(20):
+            entry = MemoryEntryInput(
+                timestamp=now,
+                user_snippet=f"user input {i} investment preference",
+                summary=f"summary {i}",
+                facts=[f"fact {i}"],
+            )
+            await store.record_turn(sid, entry.summary, entry.facts, entry)
+        await store.flush_keyword_index_async()
+    finally:
+        await state_store.close()
 
 async def _run_memory_turn_batch_repeated(tmp: str, repeat: int) -> None:
     """Run all repetitions in one event loop using isolated state directories."""

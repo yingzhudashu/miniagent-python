@@ -1,7 +1,7 @@
 """后台子 session 执行完成后的磁盘与进程内痕迹清理。
 
-清理范围：会话工作区、记忆 JSON、session_lt、diary、agent_lt 来源条目、
-memory-registry / keyword-index / embedding-index、全部日期的 activity log、
+清理范围：会话工作区、SQLite 记忆与 agent 长期记忆来源条目、diary、
+派生关键词/向量索引、全部日期的 activity log、
 全部 trace 分片，以及进程内 session 锁与 MemoryStore 缓存。
 """
 
@@ -81,7 +81,7 @@ async def _remove_background_memory_entries(
         except Exception as error:
             _logger.debug("驱逐记忆缓存失败 (%s): %s", session_key, error, exc_info=True)
     try:
-        await asyncio.to_thread(memory.remove_session_entries, session_key)
+        await memory.remove_session_entries(session_key)
     except Exception as error:
         _logger.debug("清理记忆注册表/索引失败 (%s): %s", session_key, error, exc_info=True)
 
@@ -105,14 +105,15 @@ async def _remove_background_activity_log(
         _logger.debug("清理 activity log 失败 (%s): %s", session_key, error, exc_info=True)
 
 
-async def _remove_background_agent_memory(session_key: str) -> None:
+async def _remove_background_agent_memory(
+    session_key: str,
+    memory: MemoryRuntimeProtocol | None,
+) -> None:
     """删除 agent 长期记忆中由后台会话产生的来源条目。"""
+    if memory is None:
+        return
     try:
-        from miniagent.assistant.memory.layered_memory import (
-            remove_agent_longterm_entries_for_session,
-        )
-
-        removed = await asyncio.to_thread(remove_agent_longterm_entries_for_session, session_key)
+        removed = await memory.longterm.remove_agent_entries_for_session(session_key)
         if removed:
             _logger.debug("已从 agent_lt 移除后台 session 条目: %s (%d)", session_key, removed)
     except Exception as error:
@@ -157,16 +158,10 @@ async def cleanup_background_session_artifacts(
     workspace_path = os.path.join(state_root, "sessions", safe_id)
     await _remove_path_async(workspace_path, is_dir=True)
 
-    memory_path = os.path.join(state_root, "memory", f"{safe_id}.json")
-    await _remove_path_async(memory_path)
-
-    session_lt_path = os.path.join(state_root, "memory", "session_lt", f"{safe_id}.json")
-    await _remove_path_async(session_lt_path)
-
     diary_dir = os.path.join(state_root, "memory", "diary", safe_id)
     await _remove_path_async(diary_dir, is_dir=True)
 
-    await _remove_background_agent_memory(session_key)
+    await _remove_background_agent_memory(session_key, memory)
     await _remove_background_memory_entries(session_key, memory)
     await _remove_background_activity_log(session_key, memory)
     await _remove_background_traces(session_key)

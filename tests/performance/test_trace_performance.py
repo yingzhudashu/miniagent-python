@@ -248,6 +248,114 @@ def test_trace_stats_reports_bounded_warm_to_final_resource_plateaus() -> None:
     assert resources["python_warm_to_final_growth_ratio"] == 0.04
 
 
+def test_trace_stats_reports_cpu_utilization_and_event_loop_lag() -> None:
+    resources = trace_stats.aggregate_trace_stats(
+        [
+            {
+                "type": "perf.resource_sample",
+                "process_cpu_ms": 100,
+                "sampler_elapsed_ms": 200,
+            },
+            {
+                "type": "perf.resource_sample",
+                "process_cpu_ms": 200,
+                "sampler_elapsed_ms": 300,
+            },
+            {"type": "perf.event_loop_lag", "event_loop_lag_ms": 2},
+            {"type": "perf.event_loop_lag", "event_loop_lag_ms": 8},
+        ]
+    )["resources"]
+
+    assert resources["cpu_single_core_percent"] == 100.0
+    assert 0 < resources["cpu_machine_percent"] <= 100.0
+    assert resources["event_loop_lag"] == {
+        "count": 2,
+        "sample_count": 2,
+        "sampled": False,
+        "avg_ms": 5.0,
+        "p50_ms": 2.0,
+        "p95_ms": 8.0,
+        "max_ms": 8.0,
+    }
+
+
+def test_trace_stats_reports_structural_integrity_failures() -> None:
+    report = trace_stats.aggregate_trace_stats(
+        [
+            {
+                "type": "agent.run_start",
+                "span_id": "root",
+            },
+            {
+                "type": "agent.phase_start",
+                "span_id": "child",
+                "parent_span_id": "missing-parent",
+            },
+            {
+                "type": "agent.phase_start",
+                "span_id": "child",
+            },
+            {
+                "type": "agent.phase_end",
+                "span_id": "child",
+                "duration_ms": -1,
+            },
+            {
+                "type": "agent.phase_end",
+                "span_id": "child",
+                "duration_ms": 1,
+            },
+            {
+                "type": "agent.phase_end",
+                "span_id": "never-started",
+                "duration_ms": 1,
+            },
+            {"type": "not.registered"},
+        ]
+    )
+
+    assert report["integrity"] == {
+        "unknown_event_count": 1,
+        "unknown_event_types": ["not.registered"],
+        "unknown_event_types_truncated": False,
+        "duplicate_span_start_count": 1,
+        "duplicate_span_end_count": 1,
+        "unmatched_span_start_count": 1,
+        "unmatched_span_end_count": 1,
+        "orphan_parent_count": 1,
+        "negative_duration_count": 1,
+        "span_tracking_truncated": False,
+    }
+
+
+def test_trace_stats_accepts_complete_parent_child_spans() -> None:
+    report = trace_stats.aggregate_trace_stats(
+        [
+            {"type": "agent.run_start", "span_id": "root"},
+            {
+                "type": "agent.phase_start",
+                "span_id": "child",
+                "parent_span_id": "root",
+            },
+            {
+                "type": "agent.phase_end",
+                "span_id": "child",
+                "parent_span_id": "root",
+                "duration_ms": 1,
+            },
+            {"type": "agent.run_end", "span_id": "root", "duration_ms": 2},
+        ]
+    )
+
+    integrity = report["integrity"]
+    assert all(
+        not value
+        for key, value in integrity.items()
+        if key not in {"unknown_event_types"}
+    )
+    assert integrity["unknown_event_types"] == []
+
+
 def test_trace_stats_memory_context_error_and_llm_edge_metrics(monkeypatch) -> None:
     monkeypatch.setattr(trace_stats, "get_config", lambda *_args, **_kwargs: 10)
     events = [

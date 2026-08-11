@@ -202,6 +202,8 @@ async def shutdown_runtime(
 
     # 5a) 记忆运行时由 ApplicationContainer 独占；退出前统一持久化全部派生索引。
     await _shutdown_thread_step("memory runtime close", ctx.memory.close)
+    if ctx.state_store is not None:
+        await _shutdown_step("state store close", ctx.state_store.close())
 
     # Close the active pool and pools retired by hot reload. Retired pools stay
     # alive until this point so in-flight turns using an old client can finish.

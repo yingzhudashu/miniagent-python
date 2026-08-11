@@ -62,10 +62,11 @@ from miniagent.agent.trace_events import (
 from miniagent.agent.types.memory import MemoryEntry, MemoryEntryInput
 from miniagent.assistant.infrastructure.json_config import get_config
 from miniagent.assistant.memory.shared_registry import MemoryEntryRegistry
+from miniagent.assistant.state import StateStore
 
 _logger = get_logger(__name__)
 
-# ── 性能优化：Embedding API缓存（避免重复调用）──
+# 相同模型命名空间与文本共享一个有界、带 TTL 的 API 结果缓存。
 import time
 
 # 全局embedding缓存（LRU + TTL）
@@ -96,9 +97,7 @@ def _get_cached_embedding(
 ) -> array[float] | None:
     """从缓存获取embedding（LRU + TTL）。
 
-    性能优化：
-    - 减少API调用频率
-    - 节省成本和延迟
+    缓存按最近访问顺序驱逐，并由 TTL 防止长期复用过期结果。
     - TTL防止过期数据
 
     Args:
@@ -184,7 +183,7 @@ def _get_embed_config() -> dict[str, str | int]:
 
 
 # ============================================================================
-# 向量工具（性能优化：可选 numpy 加速）
+# 向量工具；NumPy 可用时批量计算，否则保持等价的纯 Python 路径。
 # ============================================================================
 
 
@@ -203,7 +202,7 @@ def _compute_norm(embedding: Sequence[float]) -> float:
 
 
 def _cosine_similarity(a: Sequence[float], b: Sequence[float]) -> float:
-    """计算两个向量的余弦相似度（性能优化：可选 numpy 加速）。"""
+    """计算两个向量的余弦相似度，拒绝空向量和维度错配。"""
     if not a or not b:
         return 0.0
     norm_a = _compute_norm(a)
@@ -255,14 +254,13 @@ async def _get_embedding(
 class _EmbeddingEntry:
     """嵌入索引中的一条记录（仅存储键和向量，文本从共享注册表获取）。
 
-    **性能优化**：
-    - 预计算 norm 值，避免每次搜索重复计算
+    ``norm`` 与向量同时写入并校验，检索无需重复计算记录范数。
     """
 
     embedding: array[float]
     entry_key: str  # "session_id:timestamp"
     text_hash: str = ""  # 用于检测内容变更
-    norm: float = 0.0  # 性能优化：预计算的向量 norm
+    norm: float = 0.0  # 与 vector 对应的预计算范数
 
 
 def _cosine_similarity_cached(
@@ -270,7 +268,7 @@ def _cosine_similarity_cached(
     query_norm: float,
     entry: _EmbeddingEntry,
 ) -> float:
-    """性能优化：使用预计算的 norm 计算余弦相似度。
+    """使用已校验的记录范数计算余弦相似度。
 
     Args:
         query_embedding: 查询向量
@@ -311,7 +309,7 @@ class EmbeddingIndex:
     ) -> None:
         """创建嵌入索引；``registry`` 缺省时使用 ``state_dir`` 下的共享注册表。"""
         self._state_dir = state_dir
-        self._registry = registry or MemoryEntryRegistry(state_dir=state_dir)
+        self._registry = registry or MemoryEntryRegistry()
         self._entries: collections.OrderedDict[str, _EmbeddingEntry] = collections.OrderedDict()
         self._dim: int = get_config("embedding.dimension", 1536)
         # 降低默认上限以减少内存占用（10000 条目 ≈ 60MB，2000 ≈ 12MB）
@@ -400,6 +398,7 @@ class EmbeddingIndex:
         entry: MemoryEntryInput | MemoryEntry,
         *,
         embedding: Sequence[float] | None = None,
+        registered_key: str | None = None,
     ) -> None:
         """索引一条记忆及其嵌入向量。
 
@@ -410,8 +409,7 @@ class EmbeddingIndex:
         """
         self._ensure_loaded()
 
-        # 注册到共享注册表
-        entry_key = self._registry.register(session_id, entry)
+        entry_key = registered_key or self._registry.register(session_id, entry)
         idx_text = self._indexable_text(entry)
         text_hash = _text_hash(idx_text)
 
@@ -456,9 +454,7 @@ class EmbeddingIndex:
     ) -> list[EmbeddingSearchResult]:
         """基于预计算的查询向量检索相关记忆。
 
-        **性能优化**：
-        - 使用预计算的 norm 值
-        - 使用 heapq 实现 top-k 搜索，避免全量排序
+        记录范数已经持久化；固定大小的 heap 只保留 top-k，避免全量排序。
 
         Args:
             query_embedding: 查询文本的嵌入向量
@@ -481,17 +477,17 @@ class EmbeddingIndex:
         if not entries:
             return []
 
-        # 性能优化：numpy可用且entry数量多时，自动使用批量计算（5-10倍加速）
+        # 小集合避免 NumPy 建表开销；较大集合才进入等价的批量路径。
         if _allow_batch and len(entries) > 20 and _get_numpy() is not None:
             return self.search_relevant_batch(query_embedding, limit=limit, min_score=min_score)
 
         # numpy不可用或entry数量少时，使用普通版本
-        # 性能优化：预计算查询向量的 norm
+        # 查询范数在本次扫描中只计算一次。
         query_norm = _compute_norm(query_embedding)
         if query_norm == 0:
             return []
 
-        # 性能优化：使用 heapq 实现 top-k
+        # 固定大小 heap 使额外空间与 limit 成正比。
         heap: list[tuple[float, str]] = []  # (score, entry_key)
 
         for entry in entries:
@@ -519,9 +515,7 @@ class EmbeddingIndex:
     ) -> list[EmbeddingSearchResult]:
         """批量相似度计算（numpy加速）。
 
-        性能优化：
-        - 使用numpy批量计算替代Python循环
-        - 性能提升：检索时间减少80%
+        NumPy 一次完成矩阵点积；缺少 NumPy 时调用等价的纯 Python 实现。
         - 自动回退到普通版本（numpy不可用时）
 
         Args:
@@ -633,9 +627,11 @@ class EmbeddingSearchProvider:
         self,
         state_dir: str = "workspaces",
         registry: MemoryEntryRegistry | None = None,
+        state_store: StateStore | None = None,
     ) -> None:
         """创建嵌入搜索提供者；未配置 ``embedding.*`` 时 ``get_embedding`` 返回 None。"""
-        self._registry = registry or MemoryEntryRegistry(state_dir=state_dir)
+        self._registry = registry or MemoryEntryRegistry()
+        self._state_store = state_store
         self._index = EmbeddingIndex(state_dir=state_dir, registry=self._registry)
         self._providers: list[dict[str, str | int]] = []
         self._http_client: httpx.AsyncClient | None = None
@@ -653,6 +649,15 @@ class EmbeddingSearchProvider:
         self._pending_index_tasks: set[asyncio.Task[None]] = set()
         self._pending_index_lock = asyncio.Lock()
         self._init_providers()
+
+    async def start(self, state_store: StateStore | None = None) -> None:
+        """Hydrate this provider's vector accelerator from durable state."""
+        store = state_store or self._state_store
+        if store is None:
+            return
+        self._state_store = store
+        rows = await store.list_memory_embeddings(self._index._model)
+        self._registry.hydrate_embeddings(self._index._model, rows)
 
     def _init_providers(self) -> None:
         """仅使用 embedding.* / secrets.embed_api_key 配置；未配置时无 embedding，
@@ -778,9 +783,7 @@ class EmbeddingSearchProvider:
     async def get_embedding(self, text: str, *, purpose: str = "query") -> Sequence[float] | None:
         """获取文本的嵌入向量（带缓存）。
 
-        性能优化：
-        - 缓存命中：减少200-500ms延迟
-        - 缓存未命中：调用API并缓存结果
+        缓存键包含模型命名空间，防止不同模型的向量相互污染。
 
         Args:
             text: 输入文本
@@ -792,7 +795,7 @@ class EmbeddingSearchProvider:
         if not clean:
             return None
 
-        # 性能优化：先检查缓存
+        # 本地命中和同键 in-flight 合并均先于外部 API 调用。
         namespace = self._primary_namespace()
         inflight_key = f"{namespace}\0{clean}"
         cached = _get_cached_embedding(clean, namespace=namespace)
@@ -832,6 +835,8 @@ class EmbeddingSearchProvider:
         session_id: str,
         entry: MemoryEntry,
         text: str,
+        *,
+        registered_key: str | None = None,
     ) -> None:
         """Queue one durable-memory entry for bounded asynchronous vector indexing.
 
@@ -852,7 +857,13 @@ class EmbeddingSearchProvider:
                 if len(self._pending_index_tasks) < self._index_queue_max_size:
                     queued_at_ns = time.monotonic_ns()
                     task = asyncio.create_task(
-                        self._index_one(session_id, entry, text, queued_at_ns),
+                        self._index_one(
+                            session_id,
+                            entry,
+                            text,
+                            queued_at_ns,
+                            registered_key,
+                        ),
                         name="embedding-index",
                     )
                     self._pending_index_tasks.add(task)
@@ -875,6 +886,7 @@ class EmbeddingSearchProvider:
         entry: MemoryEntry,
         text: str,
         queued_at_ns: int,
+        registered_key: str | None,
     ) -> None:
         started_ns = time.monotonic_ns()
         success = False
@@ -886,7 +898,24 @@ class EmbeddingSearchProvider:
                 embedding = await self.get_embedding(text, purpose="index")
                 if embedding is not None:
                     index_started_ns = time.monotonic_ns()
-                    self._index.index_entry(session_id, entry, embedding=embedding)
+                    entry_key = registered_key or self._index._make_key(
+                        session_id,
+                        entry.timestamp,
+                    )
+                    text_hash = _text_hash(self._index._indexable_text(entry))
+                    if self._state_store is not None:
+                        await self._state_store.put_memory_embedding_by_key(
+                            entry_key,
+                            self._index._model,
+                            embedding,
+                            text_hash,
+                        )
+                    self._index.index_entry(
+                        session_id,
+                        entry,
+                        embedding=embedding,
+                        registered_key=registered_key,
+                    )
                     index_duration_ms = (
                         time.monotonic_ns() - index_started_ns
                     ) / 1_000_000
@@ -933,7 +962,7 @@ class EmbeddingSearchProvider:
     ) -> list[EmbeddingSearchResult]:
         """搜索相关记忆。先获取查询向量，再用余弦相似度检索。
 
-        性能优化：使用批量计算版本（numpy加速）。
+        批量实现会在 NumPy 不可用或集合较小时使用纯 Python 路径。
         """
         await self.drain_indexing()
         if not self._index.has_entries():
@@ -941,7 +970,7 @@ class EmbeddingSearchProvider:
         query_embedding = await self.get_embedding(query, purpose="query")
         if query_embedding is None:
             return []
-        # 性能优化：使用批量计算版本（自动回退）
+        # 两条计算路径使用相同的维度与分数契约。
         return self._index.search_relevant_batch(
             query_embedding,
             limit=limit,

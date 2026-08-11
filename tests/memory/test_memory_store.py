@@ -1,6 +1,5 @@
 """Tests for memory store (async)."""
 
-import json
 import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -154,8 +153,8 @@ class TestMemoryStore:
 
         assert [e.get("operation") for e in events].count("memory.read") == 0
 
-    async def test_save_uses_compact_json_and_loads_back(self):
-        sid = "session-compact-json"
+    async def test_save_uses_sqlite_and_loads_back(self):
+        sid = "session-sqlite"
         from datetime import datetime, timezone
 
         from miniagent.agent.types.memory import SessionMemory
@@ -172,40 +171,25 @@ class TestMemoryStore:
         )
         await self.store.save(memory)
 
-        text = Path(self.tmpdir.name, "memory", f"{sid}.json").read_text(encoding="utf-8")
-        assert "\n  " not in text
+        assert Path(self.tmpdir.name, "state.sqlite3").is_file()
+        assert not Path(self.tmpdir.name, "memory", f"{sid}.json").exists()
+        self.store.evict_session(sid)
         loaded = await self.store.load(sid)
         assert loaded is not None
         assert loaded.session_id == sid
         assert loaded.key_facts == ["fact"]
 
-    async def test_load_old_schema_without_ground_truth(self):
-        sid = "session-old-schema"
+    async def test_legacy_json_is_not_loaded_or_modified(self):
+        sid = "session-legacy-json"
         memory_dir = Path(self.tmpdir.name, "memory")
         memory_dir.mkdir(parents=True)
-        Path(memory_dir, f"{sid}.json").write_text(
-            json.dumps(
-                {
-                    "session_id": sid,
-                    "cumulative_summary": "",
-                    "key_facts": ["saved fact"],
-                    "entries": [],
-                    "uploaded_files": [],
-                    "total_turns": 0,
-                    "first_seen": "",
-                    "last_active": "",
-                    "chat_id": None,
-                    "sender_id": None,
-                }
-            ),
-            encoding="utf-8",
-        )
+        legacy = Path(memory_dir, f"{sid}.json")
+        legacy.write_text('{"key_facts":["legacy"]}', encoding="utf-8")
 
         loaded = await self.store.load(sid)
 
-        assert loaded is not None
-        assert loaded.key_facts == ["saved fact"]
-        assert loaded.ground_truth_facts == []
+        assert loaded is None
+        assert legacy.read_text(encoding="utf-8") == '{"key_facts":["legacy"]}'
 
     async def test_update_user_snippet_truncates_and_updates_in_progress(self):
         sid = "session-snippet"
@@ -385,29 +369,24 @@ class TestMemoryStore:
         assert keyword_index.index_entry.call_count == 2
         assert provider.queue_index.await_count == 2
 
-    async def test_embedding_index_compatibility_and_failures(self, monkeypatch):
+    async def test_embedding_queue_contract_and_fail_open(self, monkeypatch):
         monkeypatch.setattr(
             "miniagent.assistant.memory.embedding_search.embedding_search_enabled", lambda: True
         )
-        provider = MagicMock(spec=[])
-        provider.get_embedding = AsyncMock(return_value=[0.1])
-        provider.index = MagicMock()
+        provider = MagicMock()
+        provider.queue_index = AsyncMock()
         store = DefaultMemoryStore(
             state_dir=self.tmpdir.name,
             keyword_index=MagicMock(),
             embedding_provider=provider,
         )
         entry = MemoryEntryInput("t", "user", "summary", [])
-        await store.add_entry("compat", entry)
-        provider.index.index_entry.assert_called_once()
+        await store.add_entry("current", entry)
+        provider.queue_index.assert_awaited_once()
 
-        provider.get_embedding.return_value = None
         store._keyword_index.index_entry.side_effect = RuntimeError("index failed")
-        await store.add_entry("compat-none", entry)
-        assert provider.index.index_entry.call_count == 1
-
-        provider.get_embedding.side_effect = RuntimeError("embedding failed")
-        await store.add_entry("compat-error", entry)
+        provider.queue_index.side_effect = RuntimeError("embedding failed")
+        await store.add_entry("fail-open", entry)
 
     async def test_add_file_limits_history_and_adds_description_fact(self):
         for index in range(52):

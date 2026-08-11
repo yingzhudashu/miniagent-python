@@ -23,6 +23,7 @@ from miniagent.assistant.state import (
 
 
 def _validate(connection: sqlite3.Connection) -> None:
+    """Bootstrap an empty database or reject any non-exact schema shape."""
     version = int(connection.execute("PRAGMA user_version").fetchone()[0])
     objects = {
         (str(row[0]), str(row[1]))

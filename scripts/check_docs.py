@@ -33,6 +33,14 @@ _BAD_ARTIFACT_NAMES = {
     "stability-soak.json",
     "trace-overhead.json",
 }
+_RETIRED_CURRENT_MARKERS = {
+    "memory-registry.json": "退役的记忆注册表文件",
+    "memory/session_lt/": "退役的会话长期记忆目录",
+    "memory/agent_lt/": "退役的 Agent 长期记忆目录",
+    "workspaces/instances/": "退役的实例目录注册表",
+    "/model refresh": "未实现的模型刷新命令",
+    "从旧版本升级": "当前文档中的升级章节",
+}
 
 
 def _slug(value: str) -> str:
@@ -230,6 +238,19 @@ def _check_repository_artifacts(root: Path) -> list[str]:
     return issues
 
 
+def _check_current_contract_markers(files: list[Path]) -> list[str]:
+    """Reject retired runtime descriptions outside the historical changelog."""
+    issues: list[str] = []
+    for path in files:
+        if path.name == "CHANGELOG.md":
+            continue
+        text = path.read_text(encoding="utf-8")
+        for marker, description in _RETIRED_CURRENT_MARKERS.items():
+            if marker in text:
+                issues.append(f"{path}: 仍描述{description}: {marker}")
+    return issues
+
+
 def check_docs(root: Path) -> list[str]:
     """返回文档中的本地链接、索引和事实一致性问题。"""
     files = _markdown_files(root)
@@ -252,6 +273,7 @@ def check_docs(root: Path) -> list[str]:
     issues.extend(_check_configuration_references(root, files))
     issues.extend(_check_environment_references(root, files))
     issues.extend(_check_repository_artifacts(root))
+    issues.extend(_check_current_contract_markers(files))
 
     for retired in _RETIRED_DOCS:
         retired_path = root / "docs" / retired

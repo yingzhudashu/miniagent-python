@@ -48,14 +48,20 @@ def make_memory_runtime(
 
     return SimpleNamespace(
         state_root=state_root,
+        start=AsyncMock(),
         store=store,
         activity_log=activity_log,
         keyword_index=keyword_index,
         context=context,
+        longterm=SimpleNamespace(
+            load_session=AsyncMock(return_value={"day_entries": []}),
+            load_agent=AsyncMock(return_value={"entries": []}),
+            remove_agent_entries_for_session=AsyncMock(return_value=0),
+        ),
         dream_scheduler=SimpleNamespace(schedule=MagicMock()),
         shutdown=AsyncMock(),
         close=MagicMock(),
-        remove_session_entries=MagicMock(return_value=0),
+        remove_session_entries=AsyncMock(return_value=0),
     )
 
 

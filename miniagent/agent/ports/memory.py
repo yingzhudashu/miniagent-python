@@ -22,7 +22,12 @@ class MemoryRuntimeProtocol(Protocol):
     activity_log: Any
     keyword_index: Any
     context: Any
+    longterm: Any
     dream_scheduler: Any
+
+    async def start(self) -> None:
+        """Open and hydrate process-owned durable memory state."""
+        ...
 
     async def shutdown(self) -> None:
         """Stop asynchronous maintenance before durable close."""
@@ -32,7 +37,7 @@ class MemoryRuntimeProtocol(Protocol):
         """Persist all dirty memory indexes before process shutdown."""
         ...
 
-    def remove_session_entries(self, session_key: str) -> int:
+    async def remove_session_entries(self, session_key: str) -> int:
         """Remove one session from the shared registry and derived indexes."""
         ...
 

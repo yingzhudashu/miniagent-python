@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from miniagent.assistant.knowledge.base import KnowledgeBase
-from miniagent.assistant.knowledge.file_ingest import ingest_file_for_analysis
+from miniagent.assistant.knowledge.file_ingest import _load_metadata, ingest_file_for_analysis
 from miniagent.assistant.knowledge.registry import KnowledgeRegistry
 
 
@@ -79,3 +79,14 @@ def test_ingest_changed_file_refreshes_searchable_content(tmp_path: Path) -> Non
     assert "zeta" in result
     assert str(source.resolve()) in result
     assert "zeta" in registry.search("zeta", kb_name=second.kb_name)
+
+
+def test_corrupt_metadata_is_reported_even_when_backup_fails(tmp_path: Path) -> None:
+    metadata = tmp_path / "source-metadata.json"
+    metadata.write_text("not-json", encoding="utf-8")
+
+    with patch(
+        "miniagent.assistant.knowledge.file_ingest.shutil.copy2",
+        side_effect=OSError("backup failed"),
+    ):
+        assert _load_metadata(metadata) == {}

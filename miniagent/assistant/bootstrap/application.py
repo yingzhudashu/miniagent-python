@@ -52,6 +52,7 @@ class ApplicationContainer:
     memory: MemoryRuntimeProtocol
     knowledge_registry: KnowledgeRegistryProtocol
     background_tasks: Any
+    state_store: Any | None = None
     config: ConfigurationService | None = None
     outbound_channels: ChannelRegistryProtocol = field(default_factory=ChannelRegistry)
     cli_outbound_dispatcher: OrderedOutboundDispatcherProtocol | None = None

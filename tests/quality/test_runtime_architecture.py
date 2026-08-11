@@ -6,7 +6,7 @@ import asyncio
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -36,14 +36,56 @@ class FakeLLM:
 
 class FakeMemory:
     def __init__(self) -> None:
+        self.started = False
         self.shutdown_called = False
         self.close_called = False
+
+    async def start(self) -> None:
+        self.started = True
 
     async def shutdown(self) -> None:
         self.shutdown_called = True
 
     def close(self) -> None:
         self.close_called = True
+
+
+@pytest.mark.asyncio
+async def test_agent_initialize_failure_closes_owned_memory_state() -> None:
+    """Initialization rollback closes the database opened by memory startup."""
+
+    class FailingExtension:
+        name = "failing"
+
+        async def initialize(self) -> None:
+            raise RuntimeError("extension init")
+
+        async def start(self) -> None:
+            return None
+
+        async def stop(self) -> None:
+            return None
+
+        def health(self):
+            return None
+
+    async def runner(_user_input: str, **_kwargs):
+        return AgentRunResult(reply="unused")
+
+    memory = FakeMemory()
+    memory.state_store = MagicMock()
+    memory.state_store.close = AsyncMock()
+    runtime = AgentRuntime(
+        runtime_spec(runner, memory=memory),
+        FakeLLM(),  # type: ignore[arg-type]
+        extensions=(FailingExtension(),),  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(RuntimeError, match="extension init"):
+        await runtime.initialize()
+
+    assert memory.started is True
+    memory.state_store.close.assert_awaited_once()
 
 
 def runtime_spec(runner, **overrides):

@@ -225,6 +225,11 @@ async def _close_container_resources(ctx: Any) -> None:
         ctx.memory.close()
     except Exception:
         failures.append("memory_persist")
+    if ctx.state_store is not None:
+        try:
+            await ctx.state_store.close()
+        except Exception:
+            failures.append("state_store")
     if failures:
         print("Resource cleanup warnings: " + ", ".join(failures))
 
@@ -368,6 +373,26 @@ async def _main_async(args: argparse.Namespace, run_dir: Path) -> None:
         raise RuntimeError("real API trace validation failed: " + "; ".join(validation_errors))
 
 
+def _trace_integrity_errors(report: dict[str, Any]) -> list[str]:
+    integrity = report.get("integrity", {})
+    errors = [
+        f"trace integrity {key} is non-zero"
+        for key in (
+            "unknown_event_count",
+            "duplicate_span_start_count",
+            "duplicate_span_end_count",
+            "unmatched_span_start_count",
+            "unmatched_span_end_count",
+            "orphan_parent_count",
+            "negative_duration_count",
+        )
+        if int(integrity.get(key, 0) or 0)
+    ]
+    if integrity.get("span_tracking_truncated"):
+        errors.append("trace span integrity tracking was truncated")
+    return errors
+
+
 def _validate_trace_artifacts(
     *,
     trace_file: Path | None,
@@ -398,6 +423,7 @@ def _validate_trace_artifacts(
         errors.append("trace contains no events")
     if int(report.get("total_events", 0) or 0) <= 0:
         errors.append("daily report contains no events")
+    errors.extend(_trace_integrity_errors(report))
     if breakdown.get("unmatched_llm_requests"):
         errors.append("unmatched LLM requests")
     if breakdown.get("unmatched_llm_responses"):
@@ -468,6 +494,9 @@ def _phase_latency_breakdown(trace_file: Path) -> dict[str, Any]:
 
 
 def main() -> None:
+    from miniagent.assistant.infrastructure.console import configure_console_encoding
+
+    configure_console_encoding()
     p = argparse.ArgumentParser()
     p.add_argument(
         "--prompt",

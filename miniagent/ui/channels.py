@@ -85,9 +85,15 @@ class ChannelRegistry:
 
     async def send(self, event: OutboundEvent) -> None:
         """Deliver once and wrap ordinary transport failures with event context."""
+        from miniagent.agent.observability import trace_span
+
         adapter = self.get(event.target.channel)
         try:
-            await adapter.send(event)
+            with trace_span(
+                "channel.send",
+                session_key=event.target.conversation_id,
+            ):
+                await adapter.send(event)
         except asyncio.CancelledError:
             raise
         except ChannelDeliveryError:

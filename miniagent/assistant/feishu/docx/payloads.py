@@ -11,12 +11,14 @@ _BLOCK_TEXT = 2
 
 
 def chunk_text_runs(line: str) -> list[str]:
+    """Split one line at Feishu's safe text-run limit, preserving empty lines."""
     if not line:
         return ["\u200b"]
     return [line[index : index + _TEXT_RUN_MAX] for index in range(0, len(line), _TEXT_RUN_MAX)]
 
 
 def paragraph_blocks_for_text(text: str) -> list[Any]:
+    """Build at most the supported number of Feishu paragraph blocks."""
     from lark_oapi.api.docx.v1 import BlockBuilder, Text, TextElement, TextRun
 
     blocks = []

@@ -17,10 +17,11 @@ async def test_cleanup_collaborator_failures_are_isolated(monkeypatch: pytest.Mo
             raise RuntimeError("manager")
 
     broken = MagicMock(side_effect=RuntimeError("memory"))
+    broken_async = AsyncMock(side_effect=RuntimeError("memory"))
     memory = SimpleNamespace(
         state_root=str(tmp_path),
         store=SimpleNamespace(evict_session=broken),
-        remove_session_entries=broken,
+        remove_session_entries=broken_async,
         activity_log=SimpleNamespace(remove_session=AsyncMock(side_effect=RuntimeError("log"))),
     )
     monkeypatch.setattr(bg_session_cleanup, "_release_background_session_lock", AsyncMock())
@@ -31,7 +32,8 @@ async def test_cleanup_collaborator_failures_are_isolated(monkeypatch: pytest.Mo
         "__bg__broken", session_manager=BrokenManager(), memory=memory
     )
 
-    assert broken.call_count == 2
+    assert broken.call_count == 1
+    broken_async.assert_awaited_once()
     memory.activity_log.remove_session.assert_awaited_once()
 
 @pytest.mark.asyncio
@@ -46,7 +48,7 @@ async def test_cleanup_helpers_swallow_optional_failures(monkeypatch: pytest.Mon
     memory = SimpleNamespace(
         store=SimpleNamespace(evict_session=None),
         activity_log=SimpleNamespace(remove_session=None),
-        remove_session_entries=MagicMock(),
+        remove_session_entries=AsyncMock(),
     )
     await bg_session_cleanup._remove_background_memory_entries("__bg__x", memory)
     await bg_session_cleanup._remove_background_activity_log("__bg__x", memory)

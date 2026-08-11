@@ -29,7 +29,7 @@ from typing import Any
 from miniagent.agent.constants import ARGS_CACHE_MAX_SIZE
 from miniagent.agent.types.agent import LoopDetectionConfig, LoopDetectionResult, LoopLevel
 
-# ─── JSON 序列化缓存（性能优化：避免重复序列化相同参数）──
+# 工具参数可能跨轮重复；有界缓存复用其规范 JSON 表示。
 
 _args_json_cache: OrderedDict[tuple, str] = OrderedDict()
 _ARGS_CACHE_MAX_SIZE = ARGS_CACHE_MAX_SIZE
@@ -50,7 +50,7 @@ def _normalize_cache_element(value: Any) -> Any:
 
 
 def _make_args_cache_key(args: dict[str, Any]) -> tuple:
-    """为参数字典生成确定性缓存键（性能优化）。
+    """为参数字典生成可哈希且确定性的缓存键。
 
     使用 tuple 替代 repr 作为缓存键，避免字符串序列化开销。
     对于常见参数类型（str, int, float, bool, None），直接使用值；
@@ -84,7 +84,7 @@ def _make_args_cache_key(args: dict[str, Any]) -> tuple:
 def _serialize_args(args: dict[str, Any]) -> str:
     """序列化参数为 JSON，使用缓存避免重复计算。
 
-    性能优化：使用 tuple 缓存键替代 repr，减少序列化开销。
+    tuple 键避免把仅用于查缓存的参数再序列化一次。
     """
     cache_key = _make_args_cache_key(args)
     if cache_key in _args_json_cache:

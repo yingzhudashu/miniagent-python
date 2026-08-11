@@ -1,166 +1,138 @@
-"""分层长期记忆 JSON：会话 rollup（``session_lt``）与全局 Agent 摘要（``agent_lt``）。
+"""SQLite-backed session and agent long-term memory profiles.
 
-与 ``history_archive`` 写出的按日 ``diary`` Markdown 相配合：本模块负责结构化锚点与
-读写的稳定文件名（经 ``safe_session_id`` 净化 ``session_key``）。
-
-Layer 3 摘要语义见 ``docs/MEMORY_SYSTEM.md``。
-
-状态根目录统一由 ``infrastructure.paths.resolve_state_dir()`` 解析。
+The current runtime stores bounded long-term summaries in the project
+``state.sqlite3`` database.  Diary Markdown remains on the filesystem because
+it is user-readable source material; the structured rollup and agent-wide
+index are profiles committed through the process-owned :class:`StateStore`.
+No legacy JSON path is inspected or imported.
 """
 
 from __future__ import annotations
 
-import json
-import os
 from datetime import datetime, timezone
 from typing import Any
 
-from miniagent.agent.logging import get_logger
-from miniagent.assistant.infrastructure.atomic_json import atomic_dump_json
-from miniagent.assistant.infrastructure.paths import resolve_state_dir as get_state_root
-from miniagent.assistant.utils.session_id import safe_session_id
+from miniagent.assistant.state import StateStore
 
-_logger = get_logger(__name__)
-
-
-# 使用统一的 safe_session_id 函数
-_safe_session_id = safe_session_id
+SESSION_LONGTERM_NAMESPACE = "session_longterm"
+AGENT_LONGTERM_NAMESPACE = "agent_longterm"
+AGENT_LONGTERM_SCOPE = "__agent__"
 
 
-# 使用统一的 get_state_root() 函数获取状态根目录
+def _updated(document: dict[str, Any]) -> dict[str, Any]:
+    """Copy a profile and stamp the durable update time in UTC."""
+    result = dict(document)
+    result["updated_at"] = datetime.now(timezone.utc).isoformat()
+    return result
 
 
-def _session_lt_path(session_key: str) -> str:
-    """``memory/session_lt/<safe>.json`` 路径。"""
-    d = os.path.join(get_state_root(), "memory", "session_lt")
-    os.makedirs(d, exist_ok=True)
-    return os.path.join(d, f"{_safe_session_id(session_key)}.json")
+class LongTermMemoryStore:
+    """Own current-version long-term profiles on an open project database.
 
-
-def _agent_lt_path() -> str:
-    """全局 Agent 长期记忆 ``memory/agent_lt/global.json`` 路径。"""
-    d = os.path.join(get_state_root(), "memory", "agent_lt")
-    os.makedirs(d, exist_ok=True)
-    return os.path.join(d, "global.json")
-
-
-def load_session_longterm(session_key: str) -> dict[str, Any]:
-    """会话级长期记忆：日摘要 + 指向日记文件的锚点。"""
-    path = _session_lt_path(session_key)
-    if not os.path.isfile(path):
-        return {"session_key": session_key, "day_entries": []}
-    try:
-        payload = json.loads(open(path, encoding="utf-8").read())
-        return payload if isinstance(payload, dict) else {"session_key": session_key, "day_entries": []}
-    except (OSError, json.JSONDecodeError):
-        return {"session_key": session_key, "day_entries": []}
-
-
-def save_session_longterm(session_key: str, data: dict[str, Any]) -> None:
-    """写入会话级长期记忆 JSON，并刷新 ``updated_at``。"""
-    path = _session_lt_path(session_key)
-    data = dict(data)
-    data["session_key"] = session_key
-    data["updated_at"] = datetime.now(timezone.utc).isoformat()
-    try:
-        atomic_dump_json(path, data, ensure_ascii=False, indent=2)
-    except OSError as e:
-        _logger.warning("写入 session_lt 失败: %s", e)
-
-
-def append_session_day_rollup(
-    session_key: str,
-    *,
-    day: str,
-    diary_relative: str,
-    summary: str,
-) -> None:
-    """追加一条「某日日记」的目录式摘要（由调度器/精炼任务调用）。"""
-    doc = load_session_longterm(session_key)
-    entries: list[dict[str, Any]] = list(doc.get("day_entries") or [])
-    entries.append(
-        {
-            "day": day,
-            "diary_path": diary_relative,
-            "summary": summary,
-            "added_at": datetime.now(timezone.utc).isoformat(),
-        }
-    )
-    doc["day_entries"] = entries
-    save_session_longterm(session_key, doc)
-
-
-def load_agent_longterm() -> dict[str, Any]:
-    """读取全局 Agent 长期记忆；缺省为 ``{"entries": []}``。"""
-    path = _agent_lt_path()
-    if not os.path.isfile(path):
-        return {"entries": []}
-    try:
-        payload = json.loads(open(path, encoding="utf-8").read())
-        return payload if isinstance(payload, dict) else {"entries": []}
-    except (OSError, json.JSONDecodeError):
-        return {"entries": []}
-
-
-def save_agent_longterm(data: dict[str, Any]) -> None:
-    """写入全局 Agent 长期记忆并刷新 ``updated_at``。"""
-    path = _agent_lt_path()
-    data = dict(data)
-    data["updated_at"] = datetime.now(timezone.utc).isoformat()
-    try:
-        atomic_dump_json(path, data, ensure_ascii=False, indent=2)
-    except OSError as e:
-        _logger.warning("写入 agent_lt 失败: %s", e)
-
-
-def promote_to_agent_longterm(
-    text: str,
-    *,
-    source_session: str,
-    priority: int = 0,
-) -> None:
-    """将一条高价值文本写入 Agent 全局长期记忆。"""
-    doc = load_agent_longterm()
-    ent = list(doc.get("entries") or [])
-    ent.append(
-        {
-            "text": text,
-            "source_session": source_session,
-            "priority": priority,
-            "added_at": datetime.now(timezone.utc).isoformat(),
-        }
-    )
-    doc["entries"] = ent
-    save_agent_longterm(doc)
-
-
-def remove_agent_longterm_entries_for_session(source_session: str) -> int:
-    """从全局 agent_lt 中移除指定来源会话的条目。
-
-    Args:
-        source_session: 来源 session_key（如 ``__bg__<task_id>``）
-
-    Returns:
-        移除的条目数量
+    The store does not open or close the database.  That ownership remains at
+    the application composition root, which guarantees Dream, prompt assembly,
+    and cleanup share the same transaction infrastructure.
     """
-    if not source_session:
-        return 0
-    doc = load_agent_longterm()
-    entries = list(doc.get("entries") or [])
-    kept = [e for e in entries if e.get("source_session") != source_session]
-    removed = len(entries) - len(kept)
-    if removed:
-        doc["entries"] = kept
-        save_agent_longterm(doc)
-    return removed
+
+    def __init__(self, state_store: StateStore) -> None:
+        self._state_store = state_store
+
+    async def load_session(self, session_key: str) -> dict[str, Any]:
+        """Load a session rollup, returning an empty current profile if absent."""
+        profile = await self._state_store.load_memory_profile(
+            session_key,
+            SESSION_LONGTERM_NAMESPACE,
+        )
+        if profile is None:
+            return {"session_key": session_key, "day_entries": []}
+        return {"session_key": session_key, **profile}
+
+    async def save_session(self, session_key: str, document: dict[str, Any]) -> None:
+        """Replace one session rollup without retaining a duplicate scope field."""
+        profile = _updated(document)
+        profile.pop("session_key", None)
+        await self._state_store.save_memory_profile(
+            session_key,
+            SESSION_LONGTERM_NAMESPACE,
+            profile,
+        )
+
+    async def append_session_day_rollup(
+        self,
+        session_key: str,
+        *,
+        day: str,
+        diary_relative: str,
+        summary: str,
+    ) -> None:
+        """Append one diary anchor and commit the resulting session profile."""
+        document = await self.load_session(session_key)
+        entries = list(document.get("day_entries") or [])
+        entries.append(
+            {
+                "day": day,
+                "diary_path": diary_relative,
+                "summary": summary,
+                "added_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        document["day_entries"] = entries
+        await self.save_session(session_key, document)
+
+    async def load_agent(self) -> dict[str, Any]:
+        """Load the process-wide agent profile from its fixed namespace."""
+        profile = await self._state_store.load_memory_profile(
+            AGENT_LONGTERM_SCOPE,
+            AGENT_LONGTERM_NAMESPACE,
+        )
+        return profile if profile is not None else {"entries": []}
+
+    async def save_agent(self, document: dict[str, Any]) -> None:
+        """Replace the agent-wide long-term profile."""
+        await self._state_store.save_memory_profile(
+            AGENT_LONGTERM_SCOPE,
+            AGENT_LONGTERM_NAMESPACE,
+            _updated(document),
+        )
+
+    async def promote(
+        self,
+        text: str,
+        *,
+        source_session: str,
+        priority: int = 0,
+    ) -> None:
+        """Append one explicitly promoted fact to the agent-wide profile."""
+        document = await self.load_agent()
+        entries = list(document.get("entries") or [])
+        entries.append(
+            {
+                "text": text,
+                "source_session": source_session,
+                "priority": priority,
+                "added_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        document["entries"] = entries
+        await self.save_agent(document)
+
+    async def remove_agent_entries_for_session(self, source_session: str) -> int:
+        """Remove agent-wide entries originating from one background session."""
+        if not source_session:
+            return 0
+        document = await self.load_agent()
+        entries = list(document.get("entries") or [])
+        kept = [entry for entry in entries if entry.get("source_session") != source_session]
+        removed = len(entries) - len(kept)
+        if removed:
+            document["entries"] = kept
+            await self.save_agent(document)
+        return removed
 
 
 __all__ = [
-    "load_session_longterm",
-    "save_session_longterm",
-    "append_session_day_rollup",
-    "load_agent_longterm",
-    "save_agent_longterm",
-    "promote_to_agent_longterm",
-    "remove_agent_longterm_entries_for_session",
+    "AGENT_LONGTERM_NAMESPACE",
+    "AGENT_LONGTERM_SCOPE",
+    "LongTermMemoryStore",
+    "SESSION_LONGTERM_NAMESPACE",
 ]

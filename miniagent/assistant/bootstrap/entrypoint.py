@@ -31,9 +31,12 @@ def create_application_container() -> ApplicationContainer:
     from miniagent.assistant.knowledge.registry import KnowledgeRegistry
     from miniagent.assistant.memory.runtime import create_memory_runtime
     from miniagent.assistant.skills import DefaultSkillRegistry, create_clawhub_client
+    from miniagent.assistant.state import StateStore
     from miniagent.llm.factory import create_llm_gateway
 
-    memory = create_memory_runtime()
+    state_root = resolve_state_dir()
+    state_store = StateStore(state_root)
+    memory = create_memory_runtime(state_root, state_store=state_store)
 
     message_queue = MessageQueueManager()
     queue_mode = str(get_config("agent.queue_mode", "queue")).strip().lower()
@@ -64,6 +67,7 @@ def create_application_container() -> ApplicationContainer:
         memory=cast(MemoryRuntimeProtocol, memory),
         knowledge_registry=KnowledgeRegistry(),
         background_tasks=BackgroundTaskManager(),
+        state_store=state_store,
         config=get_configuration_service(),
         outbound_channels=ChannelRegistry(),
         llm_gateway=llm_gateway,

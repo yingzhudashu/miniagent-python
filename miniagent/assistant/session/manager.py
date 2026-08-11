@@ -155,7 +155,7 @@ class DefaultSessionManager:
         main_skills: list[Skill] | None = None,
         *,
         clawhub: Any | None = None,
-        max_sessions: int | None = None,  # 性能优化：内存中最多保持的会话数
+        max_sessions: int | None = None,  # 内存中可驻留的会话上限
     ) -> None:
         """创建会话管理器
 
@@ -164,13 +164,13 @@ class DefaultSessionManager:
             main_toolboxes: 主空间工具箱列表
             main_skills: 主空间技能列表
             clawhub: ClawHub 客户端，注入到 :meth:`get_tool_context` 供技能类工具使用
-            max_sessions: 内存中最多保持的会话数，默认 50，超过时 LRU 驎出
+            max_sessions: 内存中最多保持的会话数，默认 50，超过时按 LRU 淘汰
         """
         if max_sessions is None:
             from miniagent.agent.constants import SESSION_MANAGER_MAX_SESSIONS
 
             max_sessions = SESSION_MANAGER_MAX_SESSIONS
-        # 性能优化：使用 OrderedDict 实现 LRU 驎出
+        # OrderedDict 同时表达最近使用顺序和有界缓存所有权。
         from collections import OrderedDict
 
         self._sessions: OrderedDict[str, dict] = OrderedDict()  # sessionId -> context (LRU)
@@ -227,12 +227,12 @@ class DefaultSessionManager:
         self._storage.ensure_dir()
 
     def _evict_oldest_if_needed(self) -> None:
-        """性能优化：LRU 驎出最旧的会话，保持内存使用在 max_sessions 限制内。
+        """按 LRU 淘汰最旧会话，使进程缓存不超过 ``max_sessions``。
 
-        驎出策略：
+        淘汰策略：
         - 当内存中会话数超过 max_sessions 时，保存并移除最旧的会话
         - 不影响活跃会话（active_session_id 不被驱逐）
-        - 驎出前保存会话历史到磁盘
+        - 淘汰前保存会话历史到磁盘
         """
         while len(self._sessions) > self._max_sessions:
             # 获取最旧的会话（OrderedDict 的第一个）
@@ -251,10 +251,10 @@ class DefaultSessionManager:
             # 移除内存中的会话
             del self._sessions[oldest_id]
             self._discard_session_lock_if_idle(oldest_id)
-            _logger.debug("LRU 驎出会话: %s (内存中剩余 %d)", oldest_id, len(self._sessions))
+            _logger.debug("LRU 淘汰会话: %s (内存中剩余 %d)", oldest_id, len(self._sessions))
 
     def _touch_session(self, session_id: str) -> None:
-        """性能优化：将指定会话移动到 OrderedDict 末尾（标记为最近使用）。
+        """将指定会话标记为最近使用，并在需要时驱逐最旧会话。
 
         Args:
             session_id: 会话 ID
@@ -385,7 +385,7 @@ class DefaultSessionManager:
         return self._storage.load_history(ctx["config"], max_messages=limit)
 
     async def save_session_history_async(self, session_id: str) -> None:
-        """异步持久化会话历史到磁盘（性能优化：不阻塞事件循环）。
+        """在线程中持久化会话历史，避免同步 SQLite 阻塞事件循环。
 
         大历史文件写入可能耗时数十毫秒，使用 asyncio.to_thread 包装，
         避免 LLM 流式处理被阻塞。
@@ -399,7 +399,7 @@ class DefaultSessionManager:
         await asyncio.to_thread(self._save_session_history_sync, session_id)
 
     async def load_session_history_async(self, session_id: str) -> list:
-        """异步从磁盘加载会话历史（性能优化：不阻塞事件循环）。
+        """在线程中加载会话历史，避免同步 SQLite 阻塞事件循环。
 
         Args:
             session_id: 会话 ID
@@ -495,7 +495,7 @@ class DefaultSessionManager:
         with self._session_guard(id):
             if id in self._sessions:
                 ctx = self._sessions[id]
-                # 性能优化：标记为最近使用
+                # 活跃会话进入 LRU 尾部，防止被下一次容量驱逐选中。
                 self._touch_session(id)
                 ctx["config"].last_active = datetime.now(timezone.utc).isoformat()
                 return ctx["session"]
@@ -556,7 +556,7 @@ class DefaultSessionManager:
             "conversation_history": history,
         }
         self._sessions[session_id] = ctx
-        # 性能优化：检查是否需要 LRU 驎出
+        # 新会话进入缓存后立即执行上限不变量。
         self._evict_oldest_if_needed()
         return ctx, core_count
 

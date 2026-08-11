@@ -37,6 +37,7 @@ from miniagent.assistant.engine.cli_tui_app import run_cli_loop
 from miniagent.assistant.engine.feishu_handler import create_feishu_handler
 from miniagent.assistant.engine.shutdown import shutdown_runtime
 from miniagent.assistant.engine.utils import feishu_user_status_fn as _feishu_user_status_fn
+from miniagent.assistant.infrastructure.console import configure_console_encoding
 
 # 飞书状态行输出（用于 feishu.start() 的 user_status 参数）
 from miniagent.assistant.infrastructure.instance import (
@@ -46,18 +47,6 @@ from miniagent.assistant.infrastructure.instance import (
 )
 
 _logger = logging.getLogger(__name__)
-
-
-
-
-def _configure_console_encoding() -> None:
-    """在 Windows 平台将 stdout/stderr 设为 UTF-8，避免中文编码异常。"""
-    if sys.platform == "win32":
-        for stream in (sys.stdout, sys.stderr):
-            reconfigure = getattr(stream, "reconfigure", None)
-            if callable(reconfigure):
-                reconfigure(encoding="utf-8", errors="replace")
-
 
 def _enable_windows_vt() -> None:
     """尽力启用 Windows VT；失败时保留 prompt_toolkit 降级。"""
@@ -126,8 +115,26 @@ async def _start_runtime_services(
     ctx: ApplicationContainer, state: CliLoopState
 ) -> tuple[list[Any], list[Any], str]:
     """初始化会话、技能、并行队列与生命周期服务。"""
+    from miniagent.agent.observability import (
+        TraceRuntimeConfig,
+        auto_register_trace_file_hook,
+        trace_span,
+    )
+    from miniagent.assistant.infrastructure.json_config import get_config
+
+    auto_register_trace_file_hook(TraceRuntimeConfig.from_getter(get_config))
+    with trace_span("startup"):
+        return await _start_runtime_services_traced(ctx, state)
+
+
+async def _start_runtime_services_traced(
+    ctx: ApplicationContainer, state: CliLoopState
+) -> tuple[list[Any], list[Any], str]:
+    """Start the process services after Trace owns the startup parent span."""
     from miniagent.assistant.engine.init import init_subsystems
     from miniagent.assistant.session.manager import DefaultSessionManager as SessionManager
+
+    await ctx.memory.start()
 
     _, skill_toolboxes, skill_prompts, active_session_id, session_manager = (
         await init_subsystems(
@@ -176,7 +183,7 @@ async def run_runtime(ctx: ApplicationContainer) -> None:
     Args:
         ctx: 运行时组合根（registry / monitor / skill_registry / clawhub / engine）
     """
-    _configure_console_encoding()
+    configure_console_encoding()
     _enable_windows_vt()
     if ctx.llm_gateway is None:
         raise RuntimeError("PersonalAssistantApplication requires an LLMGateway")

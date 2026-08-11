@@ -45,8 +45,12 @@ class FakeMemory:
     """Minimal owned memory runtime recording both cleanup protocols."""
 
     def __init__(self) -> None:
+        self.started = False
         self.shutdown_called = False
         self.close_called = False
+
+    async def start(self) -> None:
+        self.started = True
 
     async def shutdown(self) -> None:
         self.shutdown_called = True

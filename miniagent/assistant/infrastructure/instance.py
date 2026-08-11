@@ -381,7 +381,7 @@ class InstanceRegistry:
 
 _default_registry: InstanceRegistry | None = None
 
-# ── 性能优化：实例列表缓存（按 cache_key 分键）──
+# 实例列表按注册库路径隔离缓存，TTL 内复用同一存活性快照。
 _instance_list_caches: dict[str | None, tuple[float, list[dict[str, Any]]]] = {}
 # 使用 constants.py 中定义的 TTL
 
@@ -444,7 +444,7 @@ def list_instances(
 def list_instances_cached(
     state_dir: str | None = None,
 ) -> list[dict[str, Any]]:
-    """列出所有存活实例（带缓存，性能优化）。
+    """列出所有存活实例，并在短 TTL 内复用同注册库快照。
 
     缓存 5 秒有效，按 ``state_dir`` 分键。
     注册/注销操作会自动清除缓存。

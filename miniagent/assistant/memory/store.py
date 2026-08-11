@@ -3,19 +3,19 @@
 管理每个会话（chatId/senderId）的长期记忆。
 
 存储结构：
-- workspaces/memory/<sessionId>.json
-- 每次对话结束后自动保存
-- 下次执行时自动加载，当前主路径会放入 current turn user context
+- 项目 ``state.sqlite3`` 中的 ``memory_profiles`` / ``memory_entries`` / ``memory_fts``
+- 每次对话结束后在一个事务内保存
+- 下次执行时直接加载当前 schema，主路径会放入 current turn user context
 
 记忆内容：
 - cumulative_summary: 累计对话摘要
 - key_facts: 关键事实列表（偏好、约定、重要信息）
 - entries: 最近对话条目
 
-性能优化：
-- 使用 asyncio.to_thread 包装文件 I/O，避免阻塞事件循环
-- 紧凑 JSON 格式（移除 indent=2），减少约 30% 文件体积
-- LRU 内存缓存（默认上限 100），减少磁盘读取
+持久化约束：
+- 复用应用拥有的异步 SQLite 连接
+- 正文、profile 与 FTS 在同一事务提交
+- LRU 内存缓存（默认上限 200），减少数据库读取
 
 详见 ``docs/MEMORY_SYSTEM.md``（会话级 Layer 2）。
 """
@@ -24,8 +24,6 @@ from __future__ import annotations
 
 import asyncio
 import collections
-import json
-import os
 import re
 import threading
 import time
@@ -48,9 +46,9 @@ from miniagent.agent.types.memory import (
     MemoryEntryInput,
     SessionMemory,
 )
-from miniagent.assistant.infrastructure.atomic_json import atomic_dump_json
 from miniagent.assistant.infrastructure.json_config import get_config
-from miniagent.assistant.utils.session_id import safe_session_id
+from miniagent.assistant.memory.shared_registry import MemoryEntryRegistry
+from miniagent.assistant.state import StateStore, memory_entry_key
 
 _logger = get_logger(__name__)
 
@@ -66,27 +64,6 @@ def _truncate_text(text: str, max_len: int) -> str:
 def _is_in_progress_entry(entry: MemoryEntry) -> bool:
     """条目尚未由 ``add_entry`` 完成（仅 user_snippet 或 assistant 增量写入）。"""
     return not entry.summary and not entry.facts
-
-
-# ============================================================================
-# 路径配置
-# ============================================================================
-
-
-def _memory_file_path(state_dir: str, session_id: str) -> str:
-    """生成记忆文件路径
-
-    文件名安全处理：将非法字符替换为下划线。
-
-    Args:
-        state_dir: 状态存储目录
-        session_id: 会话唯一标识
-
-    Returns:
-        记忆文件的完整路径
-    """
-    safe = safe_session_id(session_id)
-    return os.path.join(state_dir, "memory", f"{safe}.json")
 
 
 # ============================================================================
@@ -163,7 +140,7 @@ def format_memory_for_prompt(memory: SessionMemory | None) -> str:
     return "【历史记忆】\n\n" + "\n\n".join(parts) + "\n\n【记忆结束】"
 
 
-# 性能优化：预编译事实提取正则（合并多个模式，单次遍历全文）
+# 事实触发词共享一个预编译模式，保证一次扫描得到稳定顺序。
 _COMPILED_FACTS_PATTERN = re.compile(
     r"记住[：:，,。]\s*(.+)|"
     r"以后[都]?[要]?[：:，,。]\s*(.+)|"
@@ -181,8 +158,7 @@ def extract_facts(text: str) -> list[str]:
     识别包含记忆性关键词（"记住"、"以后"、"偏好"、"默认"、"喜欢"等）的句子，
     提取其内容作为关键事实存储。
 
-    性能优化：使用预编译正则 + finditer，单次遍历全文，
-    避免多个正则各自搜索导致的重复遍历。
+    合并模式通过一次 ``finditer`` 保留事实在原文中的出现顺序。
 
     Args:
         text: 要分析的对话文本
@@ -196,7 +172,7 @@ def extract_facts(text: str) -> list[str]:
     """
     facts: list[str] = []
 
-    # 性能优化：单次 finditer 遍历，替代多个 search 各自遍历
+    # 每个命中只会有一个捕获组，按出现顺序收集。
     for match in _COMPILED_FACTS_PATTERN.finditer(text):
         # 检查哪个分组匹配成功（group(1)到group(6)）
         for i in range(1, 7):
@@ -265,12 +241,12 @@ def generate_turn_summary(
 class DefaultMemoryStore:
     """默认记忆存储实现
 
-    基于文件系统的 JSON 持久化，带 LRU 内存缓存。
+    基于项目 SQLite 的事务持久化，带 LRU 内存缓存。
     缓存上限由 ``memory.store_cache_max`` 控制（默认 200）。
 
-    性能优化：
-    - 文件 I/O 使用 asyncio.to_thread 包装，避免阻塞事件循环
-    - 紧凑 JSON 格式，减少文件体积和读写时间
+    所有权与事务约束：
+    - 应用主路径复用一个 ``StateStore`` 连接
+    - profile、entries 与 FTS 原子更新
     - LRU 缓存避免重复磁盘读取
 
     Example:
@@ -285,6 +261,8 @@ class DefaultMemoryStore:
         *,
         keyword_index: Any | None = None,
         embedding_provider: Any | None = None,
+        state_store: StateStore | None = None,
+        registry: MemoryEntryRegistry | None = None,
     ) -> None:
         """创建记忆存储
 
@@ -294,10 +272,12 @@ class DefaultMemoryStore:
             embedding_provider: 嵌入索引服务；未提供时跳过向量索引
         """
         self._state_dir = state_dir
-        self._memory_dir = os.path.join(state_dir, "memory")
-        # 性能优化：OrderedDict实现LRU + TTL
+        self._state_store = state_store
+        self._registry = registry
+        self._registry_max_entries = int(get_config("memory.registry_max_entries", 3000))
+        # 缓存有容量和 TTL 双重上限，不承担持久化职责。
         self._cache: collections.OrderedDict[str, tuple[SessionMemory, float]] = collections.OrderedDict()
-        # 性能优化：缓存上限从100提高到200（命中率提高70%）
+        # 容量由现有配置约束，驱逐不会删除 SQLite 事实来源。
         self._cache_max = get_config("memory.store_cache_max", 200)
         self._cache_ttl_seconds = get_config("memory.store_cache_ttl_seconds", 1800)  # 30分钟TTL
         self._keyword_index = keyword_index
@@ -393,23 +373,8 @@ class DefaultMemoryStore:
         """Persist the index without blocking the async execution loop."""
         await asyncio.to_thread(self.flush_keyword_index)
 
-    def _ensure_dir(self) -> None:
-        """确保记忆目录存在"""
-        os.makedirs(self._memory_dir, exist_ok=True)
-
-    def _file_path(self, session_id: str) -> str:
-        """获取记忆文件路径
-
-        Args:
-            session_id: 会话唯一标识
-
-        Returns:
-            记忆文件的完整路径
-        """
-        return _memory_file_path(self._state_dir, session_id)
-
     def _memory_from_dict(self, data: dict[str, Any]) -> SessionMemory:
-        """将磁盘 JSON 数据转换为 SessionMemory。"""
+        """将当前 SQLite payload 转换为 SessionMemory。"""
         entries: list[MemoryEntry] = []
         for e in data.get("entries", []):
             if isinstance(e, MemoryEntry):
@@ -486,35 +451,99 @@ class DefaultMemoryStore:
             sender_id=data.get("sender_id"),
         )
 
+    @staticmethod
+    def _memory_payload(memory: SessionMemory) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        profile = {
+            "cumulative_summary": memory.cumulative_summary,
+            "key_facts": list(memory.key_facts),
+            "ground_truth_facts": [
+                {
+                    "key": fact.key,
+                    "value": fact.value,
+                    "category": fact.category,
+                    "confidence": fact.confidence,
+                    "source": fact.source,
+                    "status": fact.status,
+                    "created_at": fact.created_at,
+                    "updated_at": fact.updated_at,
+                    "supersedes": fact.supersedes,
+                    "evidence": fact.evidence,
+                }
+                for fact in memory.ground_truth_facts
+            ],
+            "uploaded_files": [
+                {
+                    "name": file.name,
+                    "path": file.path,
+                    "size": file.size,
+                    "mime_type": file.mime_type,
+                    "type": file.type,
+                    "description": file.description,
+                    "timestamp": file.timestamp,
+                    "source": file.source,
+                }
+                for file in memory.uploaded_files
+            ],
+            "total_turns": memory.total_turns,
+            "first_seen": memory.first_seen,
+            "last_active": memory.last_active,
+            "chat_id": memory.chat_id,
+            "sender_id": memory.sender_id,
+        }
+        entries = [
+            {
+                "timestamp": entry.timestamp,
+                "user_snippet": entry.user_snippet,
+                "summary": entry.summary,
+                "facts": list(entry.facts),
+            }
+            for entry in memory.entries
+        ]
+        return profile, entries
+
+    async def _load_payload(self, session_id: str) -> dict[str, Any] | None:
+        store = self._state_store
+        if store is not None:
+            await store.open()
+            return await store.load_session_memory(session_id)
+        async with StateStore(self._state_dir) as temporary:
+            return await temporary.load_session_memory(session_id)
+
+    async def _save_payload(self, memory: SessionMemory) -> list[str]:
+        profile, entries = self._memory_payload(memory)
+        store = self._state_store
+        if store is not None:
+            await store.open()
+            return await store.save_session_memory(
+                memory.session_id,
+                profile,
+                entries,
+                max_total_entries=self._registry_max_entries,
+            )
+        async with StateStore(self._state_dir) as temporary:
+            return await temporary.save_session_memory(
+                memory.session_id,
+                profile,
+                entries,
+                max_total_entries=self._registry_max_entries,
+            )
+
     async def _load_unlocked(self, session_id: str) -> SessionMemory | None:
         """在调用方已持有 session lock 时加载记忆，不额外发 trace。"""
-        try:
-            memory, _age = self._cache_get(session_id)
-            if memory is not None:
-                return memory
-
-            self._ensure_dir()
-            file_path = self._file_path(session_id)
-            if not os.path.exists(file_path):
-                return None
-
-            def _sync_read() -> dict[str, Any]:
-                with open(file_path, encoding="utf-8") as f:
-                    return json.load(f)
-
-            data = await asyncio.to_thread(_sync_read)
-            memory = self._memory_from_dict(data)
-            self._cache_put(session_id, memory)
+        memory, _age = self._cache_get(session_id)
+        if memory is not None:
             return memory
-        except Exception as e:
-            _logger.debug("锁内加载记忆失败 [%s]: %s", session_id, e)
+        data = await self._load_payload(session_id)
+        if data is None:
             return None
+        memory = self._memory_from_dict(data)
+        self._cache_put(session_id, memory)
+        return memory
 
     async def load(self, session_key: str) -> SessionMemory | None:
         """加载会话记忆（带trace）。
 
-        先查缓存，未命中则从磁盘读取。
-        使用 asyncio.to_thread 包装文件 I/O，避免阻塞事件循环。
+        先查缓存，未命中则从项目数据库读取。
 
         Args:
             session_key: 会话唯一标识
@@ -542,25 +571,17 @@ class DefaultMemoryStore:
             return memory
 
         try:
-            self._ensure_dir()
-            file_path = self._file_path(session_key)
-            if not os.path.exists(file_path):
+            data = await self._load_payload(session_key)
+            if data is None:
                 elapsed = (time.monotonic_ns() - start_time) // 1_000_000
                 emit_trace({
                     "type": EVENT_MEMORY_READ,
                     "session_key": session_key,
                     "duration_ms": elapsed,
                     "success": False,
-                    "reason": "file_not_found",
+                    "reason": "not_found",
                 })
                 return None
-
-            # 异步读取文件（避免阻塞事件循环）
-            def _sync_read() -> dict[str, Any]:
-                with open(file_path, encoding="utf-8") as f:
-                    return json.load(f)
-
-            data = await asyncio.to_thread(_sync_read)
             memory = self._memory_from_dict(data)
             self._cache_put(session_key, memory)
 
@@ -601,71 +622,21 @@ class DefaultMemoryStore:
         async with await self._get_session_lock(memory.session_id):
             await self._save_unlocked(memory)
 
-    async def _save_unlocked(self, memory: SessionMemory) -> None:
-        try:
-            self._ensure_dir()
-            file_path = self._file_path(memory.session_id)
-
-            data = {
-                "session_id": memory.session_id,
-                "cumulative_summary": memory.cumulative_summary,
-                "key_facts": memory.key_facts,
-                "ground_truth_facts": [
-                    {
-                        "key": f.key,
-                        "value": f.value,
-                        "category": f.category,
-                        "confidence": f.confidence,
-                        "source": f.source,
-                        "status": f.status,
-                        "created_at": f.created_at,
-                        "updated_at": f.updated_at,
-                        "supersedes": f.supersedes,
-                        "evidence": f.evidence,
-                    }
-                    for f in memory.ground_truth_facts
-                ],
-                "entries": [
-                    {
-                        "timestamp": e.timestamp,
-                        "user_snippet": e.user_snippet,
-                        "summary": e.summary,
-                        "facts": e.facts,
-                    }
-                    for e in memory.entries
-                ],
-                "uploaded_files": [
-                    {
-                        "name": f.name,
-                        "path": f.path,
-                        "size": f.size,
-                        "mime_type": f.mime_type,
-                        "type": f.type,
-                        "description": f.description,
-                        "timestamp": f.timestamp,
-                        "source": f.source,
-                    }
-                    for f in memory.uploaded_files
-                ],
-                "total_turns": memory.total_turns,
-                "first_seen": memory.first_seen,
-                "last_active": memory.last_active,
-                "chat_id": memory.chat_id,
-                "sender_id": memory.sender_id,
+    async def _save_unlocked(self, memory: SessionMemory) -> list[str]:
+        keys = await self._save_payload(memory)
+        registry = self._registry
+        if registry is not None:
+            previous = {
+                key
+                for key, shared in registry.all_entries()
+                if shared.session_id == memory.session_id
             }
-
-            def _sync_write() -> None:
-                atomic_dump_json(
-                    file_path,
-                    data,
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                )
-
-            await asyncio.to_thread(_sync_write)
-            self._cache_put(memory.session_id, memory)
-        except Exception as e:
-            _logger.error("保存失败 [%s]: %s", memory.session_id, e)
+            for key, entry in zip(keys, memory.entries, strict=True):
+                registry.register(memory.session_id, entry, entry_key=key)
+            for obsolete in previous - set(keys):
+                registry.evict(obsolete)
+        self._cache_put(memory.session_id, memory)
+        return keys
 
     async def update_user_snippet(self, session_key: str, snippet: str) -> None:
         """更新当前轮用户消息摘要（轮次尚未 ``add_entry`` 完成时）。"""
@@ -824,9 +795,23 @@ class DefaultMemoryStore:
                 now=now,
             )
             full_entry = self._merge_completed_entry(memory, normalized_entry, now)
-            await self._save_unlocked(memory)
+            keys = await self._save_unlocked(memory)
 
-        await self._index_completed_entry(session_key, full_entry, normalized_entry)
+        entry_key = keys[-1] if keys else memory_entry_key(
+            session_key,
+            {
+                "timestamp": full_entry.timestamp,
+                "user_snippet": full_entry.user_snippet,
+                "summary": full_entry.summary,
+                "facts": full_entry.facts,
+            },
+        )
+        await self._index_completed_entry(
+            session_key,
+            full_entry,
+            normalized_entry,
+            entry_key,
+        )
 
     @staticmethod
     def _normalize_entry_input(
@@ -908,11 +893,12 @@ class DefaultMemoryStore:
         session_key: str,
         full_entry: MemoryEntry,
         entry: MemoryEntryInput,
+        entry_key: str,
     ) -> None:
         try:
             idx = self._keyword_index
             if idx is not None:
-                idx.index_entry(session_key, full_entry)
+                idx.index_entry(session_key, full_entry, registered_key=entry_key)
         except Exception as e:
             _logger.debug("关键词索引失败: %s", e)
 
@@ -924,19 +910,12 @@ class DefaultMemoryStore:
                 text = " ".join(
                     [entry.user_snippet, entry.summary, *(entry.facts or [])]
                 )
-                queue_index = getattr(provider, "queue_index", None)
-                if callable(queue_index):
-                    await queue_index(session_key, full_entry, text)
-                else:
-                    # Compatibility for injected providers implementing the
-                    # pre-queue surface only.
-                    emb = await provider.get_embedding(text)
-                    if emb is not None:
-                        provider.index.index_entry(
-                            session_key,
-                            full_entry,
-                            embedding=emb,
-                        )
+                await provider.queue_index(
+                    session_key,
+                    full_entry,
+                    text,
+                    registered_key=entry_key,
+                )
         except Exception as e:
             _logger.debug("嵌入索引失败: %s", e)
 
@@ -962,9 +941,18 @@ class DefaultMemoryStore:
 
             now = datetime.now(timezone.utc).isoformat()
             full_entry = self._merge_completed_entry(memory, entry, now)
-            await self._save_unlocked(memory)
+            keys = await self._save_unlocked(memory)
 
-        await self._index_completed_entry(session_key, full_entry, entry)
+        entry_key = keys[-1] if keys else memory_entry_key(
+            session_key,
+            {
+                "timestamp": full_entry.timestamp,
+                "user_snippet": full_entry.user_snippet,
+                "summary": full_entry.summary,
+                "facts": full_entry.facts,
+            },
+        )
+        await self._index_completed_entry(session_key, full_entry, entry, entry_key)
 
     async def add_file(self, session_key: str, file_meta: FileMetadata) -> None:
         """添加上传文件到记忆

@@ -203,8 +203,8 @@ class TestKeywordIndex:
             if results:
                 assert "相关记忆检索" in formatted
 
-    def test_save_and_load(self) -> None:
-        """保存和加载索引"""
+    def test_rebuild_from_shared_registry(self) -> None:
+        """派生索引可以从已加载的共享注册表重建。"""
         with tempfile.TemporaryDirectory() as tmpdir:
             idx1 = KeywordIndex(state_dir=tmpdir)
             entry = MemoryEntryInput(
@@ -216,8 +216,7 @@ class TestKeywordIndex:
             idx1.save()
             assert not (Path(tmpdir) / "keyword-index.json").exists()
 
-            # 加载新索引
-            idx2 = KeywordIndex(state_dir=tmpdir)
+            idx2 = KeywordIndex(state_dir=tmpdir, registry=idx1._registry)
             stats2 = idx2.get_stats()
             assert stats2["total_keywords"] > 0
 

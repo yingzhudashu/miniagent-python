@@ -23,7 +23,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
-# 性能优化：预编译高频正则表达式
+# 引用语法固定，预编译模式由所有回合共享。
 _STEP_NUMBER_PATTERN = re.compile(r"\[步骤\s*(\d+)\s*/\s*(\d+)\s*\]")
 _ROUND_NUMBER_PATTERN = re.compile(r"第\s*(\d+)\s*轮")
 
@@ -250,15 +250,20 @@ def _build_turn_agent_config(
     return config
 
 
-def _build_turn_system_prompt(
+async def _build_turn_system_prompt(
     session_key: str,
     user_input: str,
     skill_prompts: str | None,
+    memory: MemoryRuntimeProtocol,
 ) -> str | None:
     """合并技能提示与低频分层记忆摘要，保持执行器稳定前缀。"""
     from miniagent.assistant.memory.memory_pipeline import build_layered_memory_augmentation
 
-    layered = build_layered_memory_augmentation(session_key, user_input=user_input)
+    layered = await build_layered_memory_augmentation(
+        session_key,
+        user_input=user_input,
+        longterm=memory.longterm,
+    )
     combined = f"{skill_prompts}\n\n{layered}" if skill_prompts and layered else skill_prompts or layered
     return combined.strip() if combined else None
 
@@ -595,10 +600,11 @@ class AssistantTurnService:
             request.session_key,
             is_feishu=request.is_feishu,
         )
-        system_prompt = _build_turn_system_prompt(
+        system_prompt = await _build_turn_system_prompt(
             request.session_key,
             request.user_input,
             request.skill_prompts,
+            request.memory,
         )
         self.thinking.reset_counter(request.session_key)
         receive_id = (request.feishu_receive_chat_id or "").strip()

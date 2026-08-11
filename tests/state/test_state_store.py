@@ -4,6 +4,7 @@ import asyncio
 import sqlite3
 from pathlib import Path
 
+import aiosqlite
 import pytest
 
 from miniagent.assistant.state import (
@@ -206,6 +207,86 @@ async def test_cancelled_write_transaction_rolls_back_completely(tmp_path: Path)
 
 
 @pytest.mark.asyncio
+async def test_memory_profile_entry_and_fts_rollback_together(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async with StateStore(tmp_path) as store:
+        original = {
+            "timestamp": "2026-01-01T00:00:00+00:00",
+            "user_snippet": "original user",
+            "summary": "original summary",
+            "facts": ["original fact"],
+        }
+        await store.save_session_memory(
+            "session",
+            {"cumulative_summary": "before"},
+            [original],
+            max_total_entries=100,
+        )
+        original_execute = store.connection.execute
+
+        async def fail_fts_insert(sql: str, parameters=()):
+            if sql.lstrip().startswith("INSERT INTO memory_fts"):
+                raise aiosqlite.OperationalError("forced fts failure")
+            return await original_execute(sql, parameters)
+
+        monkeypatch.setattr(store.connection, "execute", fail_fts_insert)
+
+        changed = {**original, "summary": "changed summary"}
+        with pytest.raises(aiosqlite.DatabaseError, match="forced fts failure"):
+            await store.save_session_memory(
+                "session",
+                {"cumulative_summary": "after"},
+                [changed],
+                max_total_entries=100,
+            )
+
+        monkeypatch.setattr(store.connection, "execute", original_execute)
+        loaded = await store.load_session_memory("session")
+        assert loaded is not None
+        assert loaded["cumulative_summary"] == "before"
+        assert loaded["entries"] == [original]
+        assert [
+            item["content"]
+            for item in await store.search_memory_fts(
+                "original", scope="session", namespace="memory"
+            )
+        ] == ["original user original summary original fact"]
+
+
+@pytest.mark.asyncio
+async def test_memory_entry_global_limit_prunes_body_and_fts_together(
+    tmp_path: Path,
+) -> None:
+    async with StateStore(tmp_path) as store:
+        entries = [
+            {
+                "timestamp": f"2026-01-01T00:00:0{index}+00:00",
+                "user_snippet": f"user {index}",
+                "summary": f"summary {index}",
+                "facts": [f"fact {index}"],
+            }
+            for index in range(3)
+        ]
+        await store.save_session_memory(
+            "session",
+            {},
+            entries,
+            max_total_entries=2,
+        )
+
+        rows = await store.connection.execute_fetchall(
+            "SELECT count(*) FROM memory_entries WHERE namespace='memory'"
+        )
+        fts_rows = await store.connection.execute_fetchall(
+            "SELECT count(*) FROM memory_fts"
+        )
+        assert int(rows[0][0]) == 2
+        assert int(fts_rows[0][0]) == 2
+
+
+@pytest.mark.asyncio
 async def test_fts_and_vector_search_are_explicit(tmp_path: Path) -> None:
     async with StateStore(tmp_path) as store:
         first = await store.add_memory("project", "facts", "the quick fox")
@@ -333,3 +414,112 @@ async def test_knowledge_index_is_replaced_deterministically(tmp_path: Path) -> 
         assert same_document == document
         assert await store.search_knowledge("alpha") == []
         assert [item["id"] for item in await store.search_knowledge("beta")] == [document]
+
+
+@pytest.mark.asyncio
+async def test_generic_profile_and_maintenance_state_require_objects(tmp_path: Path) -> None:
+    async with StateStore(tmp_path) as store:
+        assert await store.load_memory_profile("scope", "summary") is None
+        await store.save_memory_profile("scope", "summary", {"value": 1})
+        assert await store.load_memory_profile("scope", "summary") == {"value": 1}
+
+        assert await store.load_maintenance_state("job") is None
+        await store.save_maintenance_state("job", {"cursor": 2})
+        assert await store.load_maintenance_state("job") == {"cursor": 2}
+
+        await store.connection.execute(
+            "UPDATE memory_profiles SET metadata_json='[]' WHERE scope='scope'"
+        )
+        with pytest.raises(StateSchemaError, match="profile metadata"):
+            await store.load_memory_profile("scope", "summary")
+        await store.connection.execute(
+            "UPDATE maintenance_state SET value_json='[]' WHERE state_key='job'"
+        )
+        with pytest.raises(StateSchemaError, match="maintenance state"):
+            await store.load_maintenance_state("job")
+
+
+@pytest.mark.asyncio
+async def test_accelerator_rows_vectors_and_session_delete_round_trip(tmp_path: Path) -> None:
+    async with StateStore(tmp_path) as store:
+        entry = {
+            "timestamp": "2026-08-11T00:00:00+00:00",
+            "user_snippet": "durable user",
+            "summary": "durable summary",
+            "facts": ["durable fact"],
+        }
+        keys = await store.save_session_memory(
+            "session",
+            {"cumulative_summary": "profile"},
+            [entry],
+            max_total_entries=10,
+        )
+        rows = await store.list_memory_entries(namespace="memory")
+        assert rows == [
+            {"entry_key": keys[0], "scope": "session", "metadata": entry}
+        ]
+
+        await store.put_memory_embedding_by_key(
+            keys[0], "model", [3.0, 4.0], "hash"
+        )
+        vectors = await store.list_memory_embeddings("model")
+        assert len(vectors) == 1
+        assert vectors[0][0] == keys[0]
+        assert list(vectors[0][1]) == [3.0, 4.0]
+        assert vectors[0][2:] == ("hash", 5.0)
+        assert await store.remove_memory_embeddings([], "model") == 0
+        assert await store.remove_memory_embeddings(keys, "model") == 1
+        assert await store.list_memory_embeddings("model") == []
+
+        assert await store.delete_session_memory("missing") == []
+        assert await store.delete_session_memory("session") == keys
+        assert await store.load_session_memory("session") is None
+        assert await store.search_memory_fts(
+            "durable", scope="session", namespace="memory"
+        ) == []
+
+
+@pytest.mark.asyncio
+async def test_embedding_by_key_fails_before_cache_pollution(tmp_path: Path) -> None:
+    async with StateStore(tmp_path) as store:
+        entry = {
+            "timestamp": "2026-08-11T00:00:00+00:00",
+            "user_snippet": "one",
+            "summary": "two",
+            "facts": [],
+        }
+        key = (
+            await store.save_session_memory(
+                "session", {}, [entry], max_total_entries=10
+            )
+        )[0]
+        for invalid in ([], [0.0, 0.0], [float("nan"), 1.0]):
+            with pytest.raises(StateSchemaError):
+                await store.put_memory_embedding_by_key(key, "model", invalid, "bad")
+        with pytest.raises(KeyError):
+            await store.put_memory_embedding_by_key("missing", "model", [1.0], "bad")
+
+        await store.put_memory_embedding_by_key(key, "model", [1.0, 0.0], "ok")
+        second = await store.add_memory("other", "memory", "second")
+        row = await store.connection.execute_fetchall(
+            "SELECT entry_key FROM memory_entries WHERE id=?", (second,)
+        )
+        with pytest.raises(StateSchemaError, match="dimension mismatch"):
+            await store.put_memory_embedding_by_key(
+                str(row[0][0]), "model", [1.0, 0.0, 0.0], "wrong"
+            )
+
+
+@pytest.mark.asyncio
+async def test_lease_release_and_claim_ownership_failures_are_explicit(tmp_path: Path) -> None:
+    async with StateStore(tmp_path) as store:
+        generation = await store.acquire_lease("job", "owner", now=1.0, ttl=10.0)
+        assert generation == 1
+        await store.renew_lease("job", "owner", now=2.0, ttl=20.0)
+        assert not await store.release_lease("job", "other")
+        assert await store.release_lease("job", "owner")
+        assert not await store.release_lease("job", "owner")
+
+        assert await store.claim_feishu_message("event", "owner", now=1.0)
+        with pytest.raises(StateConflictError, match="not owned"):
+            await store.complete_feishu_message("event", "other")

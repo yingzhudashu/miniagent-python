@@ -30,7 +30,7 @@ from typing import Any
 
 _logger = logging.getLogger(__name__)
 
-# 性能优化：预编译高频正则表达式
+# Session 命令语法固定，模块级模式可安全复用。
 _QUALITY_EVAL_SUGGESTIONS_PATTERN = re.compile(
     r"---\n🤖 .*?质量评分.*?\n\n建议：\n((?:- .+\n?)+)"
 )
@@ -175,7 +175,7 @@ def _extract_improve_suggestions(assistant_msg: dict) -> list[str]:
     if not content:
         return []
 
-    # 性能优化：使用预编译正则（避免每次都编译）
+    # 匹配规则与帮助文档共享固定命令语法。
     match = _QUALITY_EVAL_SUGGESTIONS_PATTERN.search(content)
 
     if not match:

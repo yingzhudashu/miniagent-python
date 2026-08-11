@@ -43,7 +43,7 @@ def _validate_feishu_api_url(url: str) -> None:
         raise ValueError(f"不允许的飞书 API URL: {url!r}")
 
 
-# ─── Token 缓存（性能优化）──
+# Token 按应用凭据缓存至过期前，避免每次请求重复鉴权。
 
 # Tenant Access Token 缓存（带 TTL，1.5 小时有效期）
 _token_cache: dict[str, tuple[str, float]] = {}  # app_id -> (token, expiry_timestamp)
@@ -164,7 +164,7 @@ async def _async_http_request(
     max_retries: int = 3,
     backoff_factor: float = 1.0,
 ) -> dict[str, Any]:
-    """异步发送 JSON HTTP 请求并返回解析后的响应体（性能优化：带重试）。
+    """异步发送 JSON HTTP 请求，并按当前网络策略重试后解析响应体。
 
     Args:
         method: HTTP 方法（GET / POST）

@@ -62,12 +62,12 @@ EVENT_PROPOSAL_APPLY = "proposal.apply"
 # 新增事件类型 - 错误收集（已使用）
 EVENT_ERROR_COLLECT = "error.collect"
 
-# 新增事件类型 - 浏览器实例管理（性能优化）
+# 浏览器实例生命周期与复用事件。
 EVENT_BROWSER_CREATE = "browser.create"
 EVENT_BROWSER_REUSE = "browser.reuse"
 EVENT_BROWSER_CLOSE = "browser.close"
 
-# 新增事件类型 - Embedding缓存（性能优化）
+# Embedding 缓存与外部 API 事件。
 EVENT_EMBEDDING_CACHE_HIT = "embedding.cache_hit"
 EVENT_EMBEDDING_API_CALL = "embedding.api_call"
 EVENT_FEISHU_DOCX_RENDER = "feishu.docx_render"
@@ -79,8 +79,19 @@ EVENT_AGENT_RUN_END = "agent.run_end"
 EVENT_AGENT_PHASE_START = "agent.phase_start"
 EVENT_AGENT_PHASE_END = "agent.phase_end"
 EVENT_PERF_RESOURCE_SAMPLE = "perf.resource_sample"
+EVENT_PERF_EVENT_LOOP_LAG = "perf.event_loop_lag"
 EVENT_EMBEDDING_INDEX_QUEUED = "embedding.index_queued"
 EVENT_EMBEDDING_INDEX_COMPLETED = "embedding.index_completed"
+
+# Deterministic performance harness events. Keeping these in the registry lets
+# the same integrity checker validate production and benchmark trace shards.
+EVENT_HARNESS_RUN_START = "harness.run_start"
+EVENT_HARNESS_RUN_END = "harness.run_end"
+EVENT_PERF_SOAK_WARMUP = "perf.soak_warmup"
+EVENT_PERF_SOAK_ITERATION = "perf.soak_iteration"
+EVENT_PERF_TRACE_WARMUP = "perf.trace_warmup"
+EVENT_PERF_TRACE_DISABLED = "perf.trace_disabled"
+EVENT_PERF_TRACE_ENABLED = "perf.trace_enabled"
 
 TRACE_EVENT_TYPES = frozenset(
     {
@@ -98,11 +109,19 @@ TRACE_EVENT_TYPES = frozenset(
         EVENT_EMBEDDING_INDEX_QUEUED,
         EVENT_ERROR_COLLECT,
         EVENT_FEISHU_DOCX_RENDER,
+        EVENT_HARNESS_RUN_END,
+        EVENT_HARNESS_RUN_START,
         EVENT_KNOWLEDGE_FILE_INGEST,
         EVENT_LLM_REQUEST,
         EVENT_LLM_RESPONSE,
         EVENT_MEMORY_READ,
         EVENT_PERF_RESOURCE_SAMPLE,
+        EVENT_PERF_SOAK_ITERATION,
+        EVENT_PERF_SOAK_WARMUP,
+        EVENT_PERF_TRACE_DISABLED,
+        EVENT_PERF_TRACE_ENABLED,
+        EVENT_PERF_TRACE_WARMUP,
+        EVENT_PERF_EVENT_LOOP_LAG,
         EVENT_PROPOSAL_APPLY,
         EVENT_PROPOSAL_APPROVE,
         EVENT_PROPOSAL_CREATE,
@@ -235,7 +254,7 @@ __all__ = [
     "EVENT_PROPOSAL_REJECT",
     "EVENT_PROPOSAL_APPLY",
     "EVENT_ERROR_COLLECT",
-    # 新增性能优化事件类型
+    # 资源复用和缓存事件必须保持低基数字段。
     "EVENT_BROWSER_CREATE",
     "EVENT_BROWSER_REUSE",
     "EVENT_BROWSER_CLOSE",
@@ -247,6 +266,14 @@ __all__ = [
     "EVENT_AGENT_PHASE_START",
     "EVENT_AGENT_PHASE_END",
     "EVENT_PERF_RESOURCE_SAMPLE",
+    "EVENT_PERF_EVENT_LOOP_LAG",
+    "EVENT_HARNESS_RUN_START",
+    "EVENT_HARNESS_RUN_END",
+    "EVENT_PERF_SOAK_WARMUP",
+    "EVENT_PERF_SOAK_ITERATION",
+    "EVENT_PERF_TRACE_WARMUP",
+    "EVENT_PERF_TRACE_DISABLED",
+    "EVENT_PERF_TRACE_ENABLED",
     "EVENT_EMBEDDING_INDEX_QUEUED",
     "EVENT_EMBEDDING_INDEX_COMPLETED",
     # 类型常量

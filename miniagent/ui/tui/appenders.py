@@ -51,7 +51,7 @@ def create_transcript_appenders(
     def _append_transcript(style_cls: str, text: str = "", *, ansi: Any = None) -> None:
         """向 transcript 追加样式化文本；同样式尾部合并；维护粘底与长度裁剪。
 
-        性能优化：维护累计长度计数器，避免每次遍历计算。
+        累计长度随追加原子更新，使截断判断保持 O(1)。
 
         **安全验证**：样式在存储前经过 _is_valid_pt_style 验证，
         无效样式替换为空字符串，防止后续渲染错误。
@@ -101,7 +101,7 @@ def create_transcript_appenders(
     def _append_ansi_transcript(ansi_obj: Any) -> None:
         """向 transcript 直接追加 ANSI 对象，含 trim/scroll 管理。
 
-        性能优化：更新累计长度计数器。
+        同步更新累计长度，保持缓冲区与长度计数一致。
         """
         at_bottom = _output_at_bottom()
         before_count = len(_transcript)

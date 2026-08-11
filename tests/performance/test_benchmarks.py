@@ -208,13 +208,13 @@ class TestMemoryGrowth:
                 sessions[f"session_{i}"] = create_session_data()
             return sessions
 
-        # LRU 驎出模式
+        # LRU 淘汰模式
         def lru_eviction(max_sessions=50):
             sessions = OrderedDict()
             for i in range(100):
                 sessions[f"session_{i}"] = create_session_data()
                 if len(sessions) > max_sessions:
-                    sessions.popitem(last=False)  # 驎出最旧
+                    sessions.popitem(last=False)  # 淘汰最旧
             return sessions
 
         unbounded_mem = tracemalloc_peak_diff_mb(unbounded_growth)

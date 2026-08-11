@@ -55,8 +55,10 @@ from miniagent.agent.trace_events import (
     EVENT_LLM_REQUEST,
     EVENT_LLM_RESPONSE,
     EVENT_MEMORY_READ,
+    EVENT_PERF_EVENT_LOOP_LAG,
     EVENT_TOOL_END,
     EVENT_TOOL_ERROR,
+    TRACE_EVENT_TYPES,
 )
 from miniagent.assistant.infrastructure.json_config import get_config
 
@@ -68,6 +70,8 @@ _MAX_ERROR_GROUPS = 1024
 _MAX_PHASE_GROUPS = 128
 _MAX_LAYER_GROUPS = 128
 _MAX_SPAN_GROUPS = 128
+_MAX_TRACKED_SPANS = 100_000
+_MAX_UNKNOWN_EVENT_TYPES = 128
 
 
 def _bounded_group_key(
@@ -340,13 +344,29 @@ class _TraceStatsAccumulator:
         self.resource_rss_final: deque[int] = deque(maxlen=16)
         self.resource_cpu_first: float | None = None
         self.resource_cpu_last: float | None = None
+        self.resource_elapsed_first: float | None = None
+        self.resource_elapsed_last: float | None = None
         self.resource_thread_peak = 0
         self.resource_python_traced_peak = 0
         self.resource_python_warm: list[int] = []
         self.resource_python_final: deque[int] = deque(maxlen=16)
+        self.event_loop_lag_count = 0
+        self.event_loop_lag_seen = 0
+        self.event_loop_lag_samples: list[float] = []
         self.span_stats: dict[str, dict[str, float | int]] = defaultdict(
             lambda: {"count": 0, "total_ms": 0.0, "cpu_ms": 0.0, "fail": 0}
         )
+        self._active_spans: dict[str, str | None] = {}
+        self._started_span_ids: set[str] = set()
+        self._ended_span_ids: set[str] = set()
+        self._span_tracking_truncated = False
+        self._unknown_event_types: set[str] = set()
+        self._unknown_event_count = 0
+        self._duplicate_span_start_count = 0
+        self._duplicate_span_end_count = 0
+        self._unmatched_span_end_count = 0
+        self._orphan_parent_count = 0
+        self._negative_duration_count = 0
 
     def _add_session(self, session_key: str) -> None:
         session_key = session_key[:256]
@@ -407,7 +427,8 @@ class _TraceStatsAccumulator:
         if isinstance(session_key, str) and session_key:
             self._add_session(session_key)
 
-        event_type = event.get("type", "")
+        event_type = str(event.get("type") or "")
+        self._add_integrity_event(event_type, event)
         if event_type == EVENT_TOOL_END:
             self._add_tool_end(event)
         elif event_type == EVENT_LLM_REQUEST:
@@ -427,8 +448,79 @@ class _TraceStatsAccumulator:
             self.embedding_total_api_latency += _numeric_metric(event.get("duration_ms")) or 0
         elif event_type == "perf.resource_sample":
             self._add_resource_sample(event)
+        elif event_type == EVENT_PERF_EVENT_LOOP_LAG:
+            self._add_event_loop_lag(event)
         elif event_type in {"agent.phase_end", "agent.run_end"}:
             self._add_span_end(event)
+
+    def _add_integrity_event(self, event_type: str, event: dict[str, Any]) -> None:
+        """Validate structural Trace invariants in the existing single pass."""
+        if event_type not in TRACE_EVENT_TYPES:
+            self._unknown_event_count += 1
+            if len(self._unknown_event_types) < _MAX_UNKNOWN_EVENT_TYPES:
+                self._unknown_event_types.add(event_type or "<missing>")
+
+        if event_type not in {
+            "agent.phase_start",
+            "agent.phase_end",
+            "agent.run_start",
+            "agent.run_end",
+        }:
+            return
+        span_id_value = event.get("span_id")
+        if not isinstance(span_id_value, str) or not span_id_value:
+            if event_type.endswith("_end"):
+                self._unmatched_span_end_count += 1
+            return
+        span_id = span_id_value[:256]
+        if event_type.endswith("_start"):
+            if span_id in self._started_span_ids:
+                self._duplicate_span_start_count += 1
+                return
+            if len(self._started_span_ids) >= _MAX_TRACKED_SPANS:
+                self._span_tracking_truncated = True
+                return
+            parent_value = event.get("parent_span_id")
+            parent_id = (
+                parent_value[:256]
+                if isinstance(parent_value, str) and parent_value
+                else None
+            )
+            if parent_id is not None and parent_id not in self._started_span_ids:
+                self._orphan_parent_count += 1
+            self._started_span_ids.add(span_id)
+            self._active_spans[span_id] = parent_id
+            return
+
+        duration = _numeric_metric(event.get("duration_ms"))
+        if duration is not None and duration < 0:
+            self._negative_duration_count += 1
+        if span_id in self._ended_span_ids:
+            self._duplicate_span_end_count += 1
+            return
+        if len(self._ended_span_ids) >= _MAX_TRACKED_SPANS:
+            self._span_tracking_truncated = True
+            return
+        self._ended_span_ids.add(span_id)
+        if self._active_spans.pop(span_id, None) is None and span_id not in self._started_span_ids:
+            self._unmatched_span_end_count += 1
+
+    def integrity_report(self) -> dict[str, Any]:
+        """Return bounded structural validation counters for the trace stream."""
+        return {
+            "unknown_event_count": self._unknown_event_count,
+            "unknown_event_types": sorted(self._unknown_event_types),
+            "unknown_event_types_truncated": (
+                self._unknown_event_count > len(self._unknown_event_types)
+            ),
+            "duplicate_span_start_count": self._duplicate_span_start_count,
+            "duplicate_span_end_count": self._duplicate_span_end_count,
+            "unmatched_span_start_count": len(self._active_spans),
+            "unmatched_span_end_count": self._unmatched_span_end_count,
+            "orphan_parent_count": self._orphan_parent_count,
+            "negative_duration_count": self._negative_duration_count,
+            "span_tracking_truncated": self._span_tracking_truncated,
+        }
 
     def _add_tool_end(self, event: dict[str, Any]) -> None:
         tool_name = str(event.get("tool") or "unknown")[:256]
@@ -585,6 +677,11 @@ class _TraceStatsAccumulator:
             if self.resource_cpu_first is None:
                 self.resource_cpu_first = cpu
             self.resource_cpu_last = cpu
+        elapsed = _numeric_metric(event.get("sampler_elapsed_ms"))
+        if elapsed is not None:
+            if self.resource_elapsed_first is None:
+                self.resource_elapsed_first = elapsed
+            self.resource_elapsed_last = elapsed
         threads = _numeric_metric(event.get("thread_count"))
         if threads is not None:
             self.resource_thread_peak = max(self.resource_thread_peak, int(threads))
@@ -600,6 +697,18 @@ class _TraceStatsAccumulator:
             if 9 <= self.resource_sample_count <= 24:
                 self.resource_python_warm.append(current_int)
             self.resource_python_final.append(current_int)
+
+    def _add_event_loop_lag(self, event: dict[str, Any]) -> None:
+        lag = _numeric_metric(event.get("event_loop_lag_ms"))
+        if lag is None or lag < 0:
+            return
+        self.event_loop_lag_count += 1
+        self.event_loop_lag_seen += 1
+        self._bounded_latency_add(
+            self.event_loop_lag_samples,
+            lag,
+            seen=self.event_loop_lag_seen,
+        )
 
     def resource_report(self) -> dict[str, Any]:
         """生成 CPU、内存和事件循环资源采样摘要。"""
@@ -618,9 +727,20 @@ class _TraceStatsAccumulator:
                     4,
                 )
         if self.resource_cpu_first is not None and self.resource_cpu_last is not None:
-            result["process_cpu_delta_ms"] = round(
-                max(0.0, self.resource_cpu_last - self.resource_cpu_first), 1
-            )
+            cpu_delta = max(0.0, self.resource_cpu_last - self.resource_cpu_first)
+            result["process_cpu_delta_ms"] = round(cpu_delta, 1)
+            if (
+                self.resource_elapsed_first is not None
+                and self.resource_elapsed_last is not None
+            ):
+                elapsed_delta = self.resource_elapsed_last - self.resource_elapsed_first
+                if elapsed_delta > 0:
+                    single_core = max(0.0, cpu_delta / elapsed_delta * 100)
+                    result["cpu_single_core_percent"] = round(single_core, 2)
+                    result["cpu_machine_percent"] = round(
+                        single_core / max(1, os.cpu_count() or 1),
+                        2,
+                    )
         if self.resource_thread_peak:
             result["thread_peak"] = self.resource_thread_peak
         if self.resource_python_traced_peak:
@@ -634,6 +754,17 @@ class _TraceStatsAccumulator:
                 (final - warm) / warm if warm else 0.0,
                 4,
             )
+        if self.event_loop_lag_samples:
+            latency = _latency_summary(self.event_loop_lag_samples)
+            result["event_loop_lag"] = {
+                "count": self.event_loop_lag_count,
+                "sample_count": len(self.event_loop_lag_samples),
+                "sampled": self.event_loop_lag_count > len(self.event_loop_lag_samples),
+                "avg_ms": latency["avg_duration_ms"],
+                "p50_ms": latency["p50_duration_ms"],
+                "p95_ms": latency["p95_duration_ms"],
+                "max_ms": round(max(self.event_loop_lag_samples), 1),
+            }
         return result
 
     def _add_span_end(self, event: dict[str, Any]) -> None:
@@ -660,7 +791,9 @@ class _TraceStatsAccumulator:
             result[name] = {
                 "count": count,
                 "avg_duration_ms": round(float(stats["total_ms"]) / count, 1) if count else 0,
-                "avg_cpu_ms": round(float(stats["cpu_ms"]) / count, 1) if count else 0,
+                "avg_process_cpu_delta_ms": (
+                    round(float(stats["cpu_ms"]) / count, 1) if count else 0
+                ),
                 "failure_count": int(stats["fail"]),
             }
         return result
@@ -954,6 +1087,7 @@ def aggregate_trace_stats(
         "embedding": stats.embedding_report(),
         "resources": stats.resource_report(),
         "spans": stats.span_report(),
+        "integrity": stats.integrity_report(),
     }
 
 
@@ -1069,6 +1203,7 @@ def generate_daily_report(date: str | None = None) -> dict[str, Any]:
     report["embedding"] = stats.embedding_report()
     report["resources"] = stats.resource_report()
     report["spans"] = stats.span_report()
+    report["integrity"] = stats.integrity_report()
 
     # 摘要文本
     llm_count = report["llm"].get("request_count", 0)

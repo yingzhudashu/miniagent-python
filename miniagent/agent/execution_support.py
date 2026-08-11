@@ -35,6 +35,7 @@ _TOOL_INTENT_MAP: dict[str, str] = {
 
 
 def exec_retry_params(base: dict[str, Any], *, attempt: int, responses: bool) -> dict[str, Any]:
+    """Derive one retry request without mutating the caller's base parameters."""
     params = dict(base)
     if not responses or attempt == 0:
         return params
@@ -47,6 +48,7 @@ def exec_retry_params(base: dict[str, Any], *, attempt: int, responses: bool) ->
 
 
 def raise_if_task_cancelled() -> None:
+    """Propagate cancellation before entering another expensive execution step."""
     task = asyncio.current_task()
     if task is not None and task.cancelled():
         raise asyncio.CancelledError()
@@ -56,6 +58,7 @@ def append_context_or_error(
     context_manager: DefaultContextManager,
     message: dict[str, Any],
 ) -> str | None:
+    """Append context and convert budget exhaustion to a user-facing warning."""
     try:
         context_manager.append(message)
     except ContextBudgetExceeded as error:
@@ -65,6 +68,7 @@ def append_context_or_error(
 
 @lru_cache(maxsize=1)
 def tool_intent_in_thinking_enabled() -> bool:
+    """Return the process-cached tool-intent display switch."""
     return EXECUTION_TOOL_INTENT_IN_THINKING
 
 
@@ -74,11 +78,13 @@ def _tool_intent_max_chars() -> int:
 
 
 def reset_tool_intent_caches() -> None:
+    """Invalidate display caches after configuration replacement in tests."""
     tool_intent_in_thinking_enabled.cache_clear()
     _tool_intent_max_chars.cache_clear()
 
 
 def extract_tool_intent(tool_name: str, args: dict[str, Any]) -> str:
+    """Build a bounded, human-readable intent without serializing all arguments."""
     base = _TOOL_INTENT_MAP.get(tool_name, f"调用 {tool_name}")
     for key in ("path", "query", "command", "content", "url"):
         if key not in args:

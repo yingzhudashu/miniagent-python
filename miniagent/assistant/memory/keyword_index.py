@@ -196,7 +196,7 @@ class _SearchResult:
 
 @dataclass
 class _IndexEntry:
-    """关键词索引条目（性能优化：单一 dict 存储引用，消除双重存储）。
+    """关键词索引条目；单一映射保存条目引用和权重。
 
     使用 dict[str, float] 存储 entry_key -> weight 映射：
     - 自动去重（dict 键唯一）
@@ -228,7 +228,7 @@ def extract_keywords(text: str, max_keywords: int | None = None) -> list[str]:
     - 英文：按空格和标点分词，去除停用词，过滤单字符
     - 中文：提取 2-gram 和 3-gram 字符组合
     - 混合：同时应用两种策略
-    - 性能优化：限制最大关键词数，避免索引膨胀
+    - 每条记录限制关键词数，约束索引规模
 
     Args:
         text: 要提取关键词的文本
@@ -310,14 +310,14 @@ class KeywordIndex:
         import threading
 
         self._state_dir = state_dir
-        self._registry = registry or MemoryEntryRegistry(state_dir=state_dir)
+        self._registry = registry or MemoryEntryRegistry()
         self._index: collections.OrderedDict[str, _IndexEntry] = collections.OrderedDict()
         self._max_entries: int = get_config("memory.keyword_index_max", 20000)
         self._loaded = False
         self._dirty = False
         self._generation = 0
         self._index_lock = threading.RLock()
-        # 性能优化：自动清理过期索引
+        # 定期清理有独立节流时间，普通查询不会反复全量扫描。
         self._last_prune_time: float = time.time()
         self._prune_interval_seconds = get_config("memory.keyword_prune_interval", 86400)  # 24小时
 
@@ -330,9 +330,7 @@ class KeywordIndex:
     def _auto_prune_if_needed(self) -> None:
         """自动清理过期索引（定期执行）。
 
-        性能优化：
-        - 每24小时自动清理
-        - 避免手动调用遗漏
+        清理按配置周期节流；一次失败不会改变下次查询的索引契约。
         - 保持索引新鲜度
         """
         now = time.time()
@@ -404,7 +402,13 @@ class KeywordIndex:
             self.save()
         return removed
 
-    def index_entry(self, session_id: str, entry: MemoryEntryInput | MemoryEntry) -> None:
+    def index_entry(
+        self,
+        session_id: str,
+        entry: MemoryEntryInput | MemoryEntry,
+        *,
+        registered_key: str | None = None,
+    ) -> None:
         """索引一条记忆条目
 
         Args:
@@ -413,8 +417,7 @@ class KeywordIndex:
         """
         self._ensure_loaded()
 
-        # 注册到共享注册表
-        entry_key = self._registry.register(session_id, entry)
+        entry_key = registered_key or self._registry.register(session_id, entry)
 
         # 组合文本用于提取关键词
         facts = getattr(entry, "facts", []) or []
@@ -461,7 +464,7 @@ class KeywordIndex:
         """
         self._ensure_loaded()
 
-        # 性能优化：自动清理过期索引
+        # 查询入口负责触发节流后的过期项清理。
         self._auto_prune_if_needed()
 
         query_keywords = extract_keywords(query)

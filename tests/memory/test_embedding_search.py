@@ -68,7 +68,7 @@ class TestTextHash:
 
 class TestEmbeddingIndex:
     def _make_index(self, tmpdir: str) -> EmbeddingIndex:
-        registry = MemoryEntryRegistry(state_dir=tmpdir)
+        registry = MemoryEntryRegistry()
         return EmbeddingIndex(state_dir=tmpdir, registry=registry)
 
     def test_index_and_search(self, tmp_path):
@@ -104,7 +104,7 @@ class TestEmbeddingIndex:
         results = idx.search_relevant([0.0, 1.0, 0.0], min_score=0.5)
         assert len(results) == 0
 
-    def test_save_and_load(self, tmp_path):
+    def test_cache_hydration_and_load(self, tmp_path):
         idx = self._make_index(str(tmp_path))
         entry = MemoryEntryInput(
             timestamp="2026-05-22T10:00:00Z",
@@ -112,11 +112,23 @@ class TestEmbeddingIndex:
             summary="测试保存加载",
         )
         idx.index_entry("sess-1", entry, embedding=[0.5, 0.5, 0.707])
-        idx.save()
-        idx._registry.save()  # 同时保存注册表
-
-        # 创建新索引并加载
-        registry2 = MemoryEntryRegistry(state_dir=str(tmp_path))
+        vectors = idx._registry.list_embeddings(idx._model)
+        entries = [
+            {
+                "entry_key": key,
+                "scope": shared.session_id,
+                "metadata": {
+                    "timestamp": shared.timestamp,
+                    "user_snippet": shared.user_snippet,
+                    "summary": shared.summary,
+                    "facts": shared.facts,
+                },
+            }
+            for key, shared in idx._registry.all_entries()
+        ]
+        registry2 = MemoryEntryRegistry()
+        registry2.hydrate_entries(entries)
+        registry2.hydrate_embeddings(idx._model, vectors)
         idx2 = EmbeddingIndex(state_dir=str(tmp_path), registry=registry2)
         idx2._load()
         assert len(idx2._entries) == 1
@@ -271,7 +283,7 @@ class TestEmbeddingIndex:
             assert len(observed_batch_sizes) > 1
             assert max(observed_batch_sizes) <= 17
 
-    def test_index_entry_is_durable_without_explicit_save(self, tmp_path):
+    def test_index_entry_updates_shared_cache_without_explicit_save(self, tmp_path):
         idx = self._make_index(str(tmp_path))
         idx.index_entry(
             "session-1",
@@ -292,11 +304,10 @@ class TestEmbeddingIndex:
             embedding=[0.0, 1.0],
         )
 
-        restored = self._make_index(str(tmp_path))
         stored = {
             key: (list(vector), text_hash, norm)
-            for key, vector, text_hash, norm in restored._registry.list_embeddings(
-                restored._model
+            for key, vector, text_hash, norm in idx._registry.list_embeddings(
+                idx._model
             )
         }
         assert stored == {
@@ -305,7 +316,7 @@ class TestEmbeddingIndex:
         }
         assert [
             result.entry_key
-            for result in restored.search_relevant(
+            for result in idx.search_relevant(
                 [1.0, 0.0], limit=2, min_score=0.0
             )
         ] == ["session-1:1", "session-2:2"]
@@ -478,7 +489,7 @@ class TestEmbeddingSearchProvider:
         """未配置 embedding 端点时无供应商，回退到关键词索引。"""
         install_test_config(tmp_path, {})
         monkeypatch.delenv("MINIAGENT_EMBED_API_KEY", raising=False)
-        registry = MemoryEntryRegistry(state_dir=str(tmp_path))
+        registry = MemoryEntryRegistry()
         provider = EmbeddingSearchProvider(state_dir=str(tmp_path), registry=registry)
         assert len(provider._providers) == 0
 
@@ -494,7 +505,7 @@ class TestEmbeddingSearchProvider:
                 "secrets": {"embed_api_key": "test-key"},
             },
         )
-        registry = MemoryEntryRegistry(state_dir=str(tmp_path))
+        registry = MemoryEntryRegistry()
         provider = EmbeddingSearchProvider(state_dir=str(tmp_path), registry=registry)
         assert len(provider._providers) == 1
         assert provider._providers[0]["base_url"] == "https://embed.example.com/v1"
@@ -505,7 +516,7 @@ class TestEmbeddingSearchProvider:
         install_test_config(tmp_path, {})
         monkeypatch.setenv("OPENAI_API_KEY", "key1")
         monkeypatch.delenv("MINIAGENT_EMBED_API_KEY", raising=False)
-        registry = MemoryEntryRegistry(state_dir=str(tmp_path))
+        registry = MemoryEntryRegistry()
         provider = EmbeddingSearchProvider(state_dir=str(tmp_path), registry=registry)
         assert len(provider._providers) == 0
 

@@ -41,6 +41,7 @@ def load_secrets_from_config() -> None:
 
 
 def load_secrets_from_project_root() -> None:
+    """Publish secrets from the installed project configuration service."""
     load_secrets_from_config()
 
 

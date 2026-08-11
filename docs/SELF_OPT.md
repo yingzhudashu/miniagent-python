@@ -1,6 +1,6 @@
 # Self-Opt 自优化文档
 
-> Mini Agent Python | 版本: 5.0.0 | 最后更新: 2026-08-10 | 与 `miniagent.__version__` 对齐 | Self-Optimization Agent 扩展
+> Mini Agent Python | 版本: 5.0.0 | 最后更新: 2026-08-11 | 与 `miniagent.__version__` 对齐 | Self-Optimization Agent 扩展
 
 ## 概述
 
