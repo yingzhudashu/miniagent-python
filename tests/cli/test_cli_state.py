@@ -15,6 +15,7 @@ _EXPECTED_REQUIRED_KEYS = frozenset(
         "instance_id",
         "runtime_ctx",
         "feishu_p2p_synced_senders",
+        "xianyu_enabled",
     }
 )
 

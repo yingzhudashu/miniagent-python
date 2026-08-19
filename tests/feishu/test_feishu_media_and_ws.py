@@ -116,15 +116,15 @@ def test_feishu_poll_state_spawn_without_loop_closes_coroutine(monkeypatch) -> N
 
 def test_abandon_processing_claim_allows_retry_release_writes_disk_dedup(tmp_path):
     """失败路径应 abandon：同一 message_id 可再次 try_begin；release 后写入磁盘去重。"""
-    from miniagent.assistant.feishu.feishu_dedup import FeishuDeduplicator
+    from miniagent.assistant.infrastructure.inbound_dedup import InboundDeduplicator
 
     mid = f"dedup-test-{uuid.uuid4().hex}"
-    dedup = FeishuDeduplicator(str(tmp_path))
+    dedup = InboundDeduplicator("feishu", str(tmp_path))
     assert dedup.try_begin_processing(mid)
-    dedup.abandon_processing_claim(mid)
+    dedup.abandon(mid)
     assert dedup.try_begin_processing(mid)
 
-    dedup.release_processing(mid)
+    dedup.complete(mid)
     assert not dedup.try_begin_processing(mid)
 
 def test_extract_post_media_items_recurses_img_and_media():

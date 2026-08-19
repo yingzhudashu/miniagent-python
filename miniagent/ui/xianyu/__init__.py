@@ -1,5 +1,5 @@
-"""Xianyu UI adapters."""
+"""Pure Xianyu UI message normalization."""
 
-from miniagent.ui.xianyu.inbound import XianyuInboundProcessor
+from miniagent.ui.xianyu.inbound import normalize_message
 
-__all__ = ["XianyuInboundProcessor"]
+__all__ = ["normalize_message"]

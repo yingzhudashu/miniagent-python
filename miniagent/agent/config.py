@@ -104,7 +104,6 @@ def merge_agent_config(base: AgentConfig, overrides: dict[str, Any]) -> AgentCon
     ``session_config`` 与 ``feishu_config`` 接受分组字典并与基础分组逐字段合并；
     ``loop_detection`` 与 ``llm_overrides`` 增量合并，其余已知顶层键直接覆盖。
     未知键会被忽略并记录 debug 日志。
-
     Args:
         base: 基础 AgentConfig 对象
         overrides: 覆盖配置字典

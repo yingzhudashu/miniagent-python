@@ -112,6 +112,106 @@ def _nested_data(payload: Any) -> dict[str, Any]:
     return data
 
 
+async def _prepare_qr_session(http: httpx.AsyncClient) -> tuple[dict[str, str], str, str, str, str]:
+    """Prepare passport cookies and return polling parameters."""
+    await http.get("https://log.mmstat.com/eg.js")
+    cna = http.cookies.get("cna") or ""
+    if cna:
+        http.cookies.set("cna", cna, domain=".goofish.com", path="/")
+    for api in (
+        "mtop.taobao.idlehome.home.webpc.feed",
+        "mtop.gaia.nodejs.gaia.idle.data.gw.v2.index.get",
+    ):
+        await http.post(
+            f"https://h5api.m.goofish.com/h5/{api}/1.0/",
+            params={"jsv": "2.7.2", "appKey": "34839810", "t": str(int(time.time() * 1000)),
+                    "sign": "", "v": "1.0", "type": "originaljson", "dataType": "json",
+                    "timeout": "20000", "api": api, "sessionOption": "AutoLoginOnly",
+                    "spm_cnt": "a21ybx.home.0.0"},
+            content="data=%7B%7D",
+            headers=_MTOP_HEADERS,
+        )
+    tfstk = await _generate_tfstk()
+    http.cookies.set("tfstk", tfstk, domain=".goofish.com", path="/")
+    await http.get("https://passport.goofish.com/mini_login.htm", params={
+        "lang": "zh_cn", "appName": "xianyu", "appEntrance": "web", "styleType": "vertical",
+        "bizParams": "", "notLoadSsoView": "false", "notKeepLogin": "false", "isMobile": "false",
+        "qrCodeFirst": "false", "stie": "77",
+    }, headers={**_PASSPORT_HEADERS, "Referer": "https://www.goofish.com/"})
+    csrf = http.cookies.get("XSRF-TOKEN") or ""
+    cookie2 = http.cookies.get("cookie2") or ""
+    common = {"appName": "xianyu", "fromSite": "77", "appEntrance": "web", "_csrf_token": csrf,
+              "umidToken": "", "hsiz": cookie2,
+              "bizParams": f"taobaoBizLoginFrom=web&renderRefer={quote('https://www.goofish.com/')}",
+              "mainPage": "false", "isMobile": "false", "lang": "zh_CN", "returnUrl": "",
+              "umidTag": "SERVER"}
+    response = await http.get("https://passport.goofish.com/newlogin/qrcode/generate.do", params=common,
+                              headers={**_PASSPORT_HEADERS, "Referer": "https://passport.goofish.com/mini_login.htm"})
+    response.raise_for_status()
+    generated = _nested_data(response.json())
+    qr_url, qr_t, qr_ck = (str(generated.get(key) or "") for key in ("codeContent", "t", "ck"))
+    if not qr_url or not qr_t or not qr_ck:
+        raise XianyuProtocolError("闲鱼二维码响应缺少 codeContent/t/ck")
+    return common, cna, qr_url, qr_t, qr_ck
+
+
+async def _poll_login_token(
+    http: httpx.AsyncClient, common: dict[str, str], cna: str, qr_url: str, qr_t: str, qr_ck: str,
+    *, poll_interval: float, timeout: float, status: StatusCallback | None,
+) -> str:
+    """Display a QR code and poll until the user confirms it."""
+    _emit(status, _qr_lines(qr_url))
+    _emit(status, "请使用闲鱼 App 扫码并在手机上确认")
+    deadline, last_state = time.monotonic() + timeout, ""
+    while time.monotonic() < deadline:
+        await asyncio.sleep(poll_interval)
+        query = await http.post("https://passport.goofish.com/newlogin/qrcode/query.do",
+                                params={"appName": "xianyu", "fromSite": "77"},
+                                data={**common, "t": qr_t, "ck": qr_ck, "navlanguage": "zh-CN",
+                                      "navUserAgent": _UA, "navPlatform": "Win32", "isIframe": "true",
+                                      "documentReferer": "https://www.goofish.com/", "defaultView": "sms",
+                                      "deviceId": cna},
+                                headers={**_PASSPORT_HEADERS, "Content-Type": "application/x-www-form-urlencoded",
+                                         "Origin": "https://passport.goofish.com",
+                                         "Referer": "https://passport.goofish.com/mini_login.htm"})
+        query.raise_for_status()
+        data = _nested_data(query.json())
+        state = str(data.get("qrCodeStatus") or "")
+        if state != last_state:
+            _emit(status, {"NEW": "等待扫码", "SCANNED": "已扫码，请在手机确认", "CONFIRMED": "已确认"}.get(state, state))
+            last_state = state
+        if state == "CONFIRMED":
+            return str(data.get("token") or data.get("lgToken") or "")
+        if state == "EXPIRED":
+            raise TimeoutError("闲鱼登录二维码已过期")
+    raise TimeoutError("闲鱼扫码登录超时")
+
+
+async def _finish_login(http: httpx.AsyncClient, cna: str, login_token: str) -> str:
+    """Complete the passport exchange and return the filtered cookie header."""
+    if login_token:
+        completed = await http.post("https://passport.goofish.com/login_token/login.do",
+                                    params={"token": login_token, "subFlow": "DIALOG_CHECK_LOGIN_RPC",
+                                            "nextCode": "0018", "bizScene": "qrcode", "confirm": "true"},
+                                    data={"deviceId": cna},
+                                    headers={**_PASSPORT_HEADERS, "Content-Type": "application/x-www-form-urlencoded",
+                                             "Origin": "https://passport.goofish.com",
+                                             "Referer": "https://passport.goofish.com/mini_login.htm"})
+        completed.raise_for_status()
+    if not http.cookies.get("unb"):
+        raise TimeoutError("闲鱼扫码登录超时或未返回登录 Cookie")
+    await http.post("https://h5api.m.goofish.com/h5/mtop.idle.web.user.page.nav/1.0/",
+                    params={"jsv": "2.7.2", "appKey": "34839810", "t": str(int(time.time() * 1000)),
+                            "sign": "", "v": "1.0", "type": "originaljson", "dataType": "json",
+                            "timeout": "20000", "api": "mtop.idle.web.user.page.nav",
+                            "sessionOption": "AutoLoginOnly"}, content="data=%7B%7D", headers=_MTOP_HEADERS)
+    cookies = {cookie.name: cookie.value for cookie in http.cookies.jar
+               if cookie.domain and ("goofish.com" in cookie.domain or "mmstat.com" in cookie.domain)}
+    if not cookies.get("unb") or not cookies.get("_m_h5_tk"):
+        raise XianyuAuthenticationError("扫码成功，但登录 Cookie 不完整")
+    return format_cookie_header(cookies)
+
+
 async def qr_login(
     *,
     poll_interval: float = 3.0,
@@ -126,171 +226,12 @@ async def qr_login(
         follow_redirects=True,
         transport=transport,
     ) as http:
-        await http.get("https://log.mmstat.com/eg.js")
-        cna = http.cookies.get("cna") or ""
-        if cna:
-            http.cookies.set("cna", cna, domain=".goofish.com", path="/")
-        for api in (
-            "mtop.taobao.idlehome.home.webpc.feed",
-            "mtop.gaia.nodejs.gaia.idle.data.gw.v2.index.get",
-        ):
-            await http.post(
-                f"https://h5api.m.goofish.com/h5/{api}/1.0/",
-                params={
-                    "jsv": "2.7.2",
-                    "appKey": "34839810",
-                    "t": str(int(time.time() * 1000)),
-                    "sign": "",
-                    "v": "1.0",
-                    "type": "originaljson",
-                    "dataType": "json",
-                    "timeout": "20000",
-                    "api": api,
-                    "sessionOption": "AutoLoginOnly",
-                    "spm_cnt": "a21ybx.home.0.0",
-                },
-                content="data=%7B%7D",
-                headers=_MTOP_HEADERS,
-            )
-        tfstk = await _generate_tfstk()
-        http.cookies.set("tfstk", tfstk, domain=".goofish.com", path="/")
-        await http.get(
-            "https://passport.goofish.com/mini_login.htm",
-            params={
-                "lang": "zh_cn",
-                "appName": "xianyu",
-                "appEntrance": "web",
-                "styleType": "vertical",
-                "bizParams": "",
-                "notLoadSsoView": "false",
-                "notKeepLogin": "false",
-                "isMobile": "false",
-                "qrCodeFirst": "false",
-                "stie": "77",
-            },
-            headers={**_PASSPORT_HEADERS, "Referer": "https://www.goofish.com/"},
+        common, cna, qr_url, qr_t, qr_ck = await _prepare_qr_session(http)
+        login_token = await _poll_login_token(
+            http, common, cna, qr_url, qr_t, qr_ck,
+            poll_interval=poll_interval, timeout=timeout, status=status,
         )
-        csrf = http.cookies.get("XSRF-TOKEN") or ""
-        cookie2 = http.cookies.get("cookie2") or ""
-        common = {
-            "appName": "xianyu",
-            "fromSite": "77",
-            "appEntrance": "web",
-            "_csrf_token": csrf,
-            "umidToken": "",
-            "hsiz": cookie2,
-            "bizParams": f"taobaoBizLoginFrom=web&renderRefer={quote('https://www.goofish.com/')}",
-            "mainPage": "false",
-            "isMobile": "false",
-            "lang": "zh_CN",
-            "returnUrl": "",
-            "umidTag": "SERVER",
-        }
-        response = await http.get(
-            "https://passport.goofish.com/newlogin/qrcode/generate.do",
-            params=common,
-            headers={**_PASSPORT_HEADERS, "Referer": "https://passport.goofish.com/mini_login.htm"},
-        )
-        response.raise_for_status()
-        generated = _nested_data(response.json())
-        qr_url = str(generated.get("codeContent") or "")
-        qr_t = str(generated.get("t") or "")
-        qr_ck = str(generated.get("ck") or "")
-        if not qr_url or not qr_t or not qr_ck:
-            raise XianyuProtocolError("闲鱼二维码响应缺少 codeContent/t/ck")
-        _emit(status, _qr_lines(qr_url))
-        _emit(status, "请使用闲鱼 App 扫码并在手机上确认")
-        login_token = ""
-        deadline = time.monotonic() + timeout
-        last_state = ""
-        while time.monotonic() < deadline:
-            await asyncio.sleep(poll_interval)
-            query = await http.post(
-                "https://passport.goofish.com/newlogin/qrcode/query.do",
-                params={"appName": "xianyu", "fromSite": "77"},
-                data={
-                    **common,
-                    "t": qr_t,
-                    "ck": qr_ck,
-                    "navlanguage": "zh-CN",
-                    "navUserAgent": _UA,
-                    "navPlatform": "Win32",
-                    "isIframe": "true",
-                    "documentReferer": "https://www.goofish.com/",
-                    "defaultView": "sms",
-                    "deviceId": cna,
-                },
-                headers={
-                    **_PASSPORT_HEADERS,
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "Origin": "https://passport.goofish.com",
-                    "Referer": "https://passport.goofish.com/mini_login.htm",
-                },
-            )
-            query.raise_for_status()
-            query_data = _nested_data(query.json())
-            qr_state = str(query_data.get("qrCodeStatus") or "")
-            if qr_state != last_state:
-                _emit(
-                    status,
-                    {
-                        "NEW": "等待扫码",
-                        "SCANNED": "已扫码，请在手机确认",
-                        "CONFIRMED": "已确认",
-                    }.get(qr_state, qr_state),
-                )
-                last_state = qr_state
-            if qr_state == "CONFIRMED":
-                login_token = str(query_data.get("token") or query_data.get("lgToken") or "")
-                break
-            if qr_state == "EXPIRED":
-                raise TimeoutError("闲鱼登录二维码已过期")
-        if login_token:
-            completed = await http.post(
-                "https://passport.goofish.com/login_token/login.do",
-                params={
-                    "token": login_token,
-                    "subFlow": "DIALOG_CHECK_LOGIN_RPC",
-                    "nextCode": "0018",
-                    "bizScene": "qrcode",
-                    "confirm": "true",
-                },
-                data={"deviceId": cna},
-                headers={
-                    **_PASSPORT_HEADERS,
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "Origin": "https://passport.goofish.com",
-                    "Referer": "https://passport.goofish.com/mini_login.htm",
-                },
-            )
-            completed.raise_for_status()
-        if not http.cookies.get("unb"):
-            raise TimeoutError("闲鱼扫码登录超时或未返回登录 Cookie")
-        await http.post(
-            "https://h5api.m.goofish.com/h5/mtop.idle.web.user.page.nav/1.0/",
-            params={
-                "jsv": "2.7.2",
-                "appKey": "34839810",
-                "t": str(int(time.time() * 1000)),
-                "sign": "",
-                "v": "1.0",
-                "type": "originaljson",
-                "dataType": "json",
-                "timeout": "20000",
-                "api": "mtop.idle.web.user.page.nav",
-                "sessionOption": "AutoLoginOnly",
-            },
-            content="data=%7B%7D",
-            headers=_MTOP_HEADERS,
-        )
-        cookies = {
-            cookie.name: cookie.value
-            for cookie in http.cookies.jar
-            if cookie.domain and ("goofish.com" in cookie.domain or "mmstat.com" in cookie.domain)
-        }
-        if not cookies.get("unb") or not cookies.get("_m_h5_tk"):
-            raise XianyuAuthenticationError("扫码成功，但登录 Cookie 不完整")
-        return format_cookie_header(cookies)
+        return await _finish_login(http, cna, login_token)
 
 
 def persist_cookie(config_path: str | Path, cookie: str) -> bool:

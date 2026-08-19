@@ -78,6 +78,57 @@ def test_trace_stats_report_request_character_sizes() -> None:
     assert report["llm"]["by_phase"]["plan"]["avg_message_chars"] == 1300.0
 
 
+def test_detail_overflow_never_evicts_critical_event() -> None:
+    """Detail backpressure must preserve lifecycle and LLM events already queued."""
+    writer = AsyncTraceWriter(queue_max_size=2, batch_interval=1.0)
+    writer.emit({"type": "agent.run_start", "span_id": "a"})
+    writer.emit({"type": "llm.request", "call_id": "c"})
+    writer.emit({"type": "perf.resource_sample", "rss_bytes": 1})
+    queued = list(writer._queue.queue)  # type: ignore[attr-defined]
+    assert [event["type"] for event in queued if isinstance(event, dict)] == [
+        "agent.run_start",
+        "llm.request",
+    ]
+    assert writer.stats()["critical_dropped_count"] == 0
+
+
+@pytest.mark.parametrize("overflow_policy", ["drop_oldest", "drop_newest"])
+def test_critical_overflow_evicts_detail_behind_critical(overflow_policy: str) -> None:
+    """A queued detail event must not block a later critical event."""
+    writer = AsyncTraceWriter(
+        queue_max_size=2,
+        batch_interval=1.0,
+        overflow_policy=overflow_policy,
+    )
+    writer.emit({"type": "agent.run_start", "span_id": "first"})
+    writer.emit({"type": "perf.resource_sample", "rss_bytes": 1})
+    writer.emit({"type": "llm.request", "call_id": "second"})
+
+    queued = list(writer._queue.queue)  # type: ignore[attr-defined]
+    assert [event["type"] for event in queued if isinstance(event, dict)] == [
+        "agent.run_start",
+        "llm.request",
+    ]
+    stats = writer.stats()
+    assert stats["dropped_count"] == 1
+    assert stats["critical_dropped_count"] == 0
+
+
+def test_shutdown_writes_atomic_stats_sidecar(tmp_path: Path) -> None:
+    """A completed writer exposes terminal counters without recursive Trace events."""
+    clear_trace_hooks()
+    auto_register_trace_file_hook(
+        TraceRuntimeConfig(enabled=True, output_dir=str(tmp_path), writer_batch_interval=0.01)
+    )
+    emit_trace({"type": "agent.run_start", "span_id": "a"})
+    stats = shutdown_trace_writer()
+    assert stats is not None and stats["written_count"] == 1
+    files = list(tmp_path.glob("*.stats.json"))
+    assert len(files) == 1
+    payload = json.loads(files[0].read_text(encoding="utf-8"))
+    assert payload["emitted_count"] == payload["written_count"]
+
+
 class _CountingFile:
     """Delegate file operations while counting physical trace batches."""
 

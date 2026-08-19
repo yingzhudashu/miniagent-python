@@ -113,6 +113,24 @@ class TestTraceHooks:
         # good_hook 应该仍然被调用
         assert len(events) == 1
 
+    def test_hook_cost_and_failure_are_counted_by_writer(self, tmp_path: Path) -> None:
+        """Writer stats expose slow/failing synchronous hook behavior."""
+        auto_register_trace_file_hook(
+            TraceRuntimeConfig(enabled=True, output_dir=str(tmp_path))
+        )
+        register_trace_hook(lambda _event: None)
+
+        def failing_hook(_event: dict) -> None:
+            raise RuntimeError("hook error")
+
+        register_trace_hook(failing_hook)
+        emit_trace({"type": "agent.run_start"})
+        stats = get_trace_writer_stats()
+        assert stats is not None
+        assert stats["hook_call_count"] == 2
+        assert stats["hook_error_count"] == 1
+        assert stats["hook_duration_ms"] >= stats["hook_max_duration_ms"] >= 0
+
 
 class TestTraceFilePersistence:
     """测试 trace 事件持久化到文件"""
@@ -533,6 +551,24 @@ async def test_resource_sampler_records_event_loop_lag(monkeypatch) -> None:
     finally:
         sampler.shutdown()
     assert any(event.get("type") == "perf.event_loop_lag" for event in events)
+
+
+def test_resource_sampler_rebinds_when_event_loop_changes(monkeypatch) -> None:
+    """Repeated starts update loop ownership even while the sampler is running."""
+    monkeypatch.setattr(tracing.TraceResourceSampler, "_run", lambda self: self._stop.wait())
+    sampler = tracing.TraceResourceSampler(0.05)
+    loops: list[asyncio.AbstractEventLoop] = []
+
+    async def bind() -> None:
+        sampler.start()
+        loops.append(sampler._event_loop)  # type: ignore[arg-type]
+
+    try:
+        asyncio.run(bind())
+        asyncio.run(bind())
+    finally:
+        sampler.shutdown()
+    assert loops[0] is not loops[1]
 
 
 def test_resource_sampler_does_not_enable_tracemalloc_by_default() -> None:

@@ -91,7 +91,7 @@ async def test_tui_turn_success_and_error_paths(monkeypatch) -> None:
 
     engine = SimpleNamespace(
         session_turn=session_turn,
-        run_agent_with_thinking=AsyncMock(return_value=" reply "),
+        run_inbound_message=AsyncMock(return_value=" reply "),
     )
     runtime = SimpleNamespace(
         clawhub=None,
@@ -148,7 +148,7 @@ async def test_tui_turn_success_and_error_paths(monkeypatch) -> None:
     assert sent[-1].content == "reply"
     coordinator.end_turn.assert_called_once_with("session")
 
-    engine.run_agent_with_thinking.side_effect = RuntimeError("failed")
+    engine.run_inbound_message.side_effect = RuntimeError("failed")
     await process(message)
     assert "failed" in sent[-1].content
     assert sent[-1].kwargs["kind"] == "error"

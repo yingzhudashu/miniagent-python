@@ -163,6 +163,7 @@ async def test_runtime_graph_preserves_production_order_and_dependencies(
         "instance_heartbeat",
         "config_watch",
         "feishu",
+        "xianyu",
         "scheduled_tasks",
         "skills_watch",
     )

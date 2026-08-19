@@ -30,6 +30,10 @@ from miniagent.agent.observability import (
     emit_trace,
     shutdown_trace_writer,
 )
+from miniagent.agent.trace_events import (
+    EVENT_PERF_API_CONFIG_VALID,
+    EVENT_PERF_TOOL_EXECUTION_REAL_API,
+)
 from miniagent.assistant.infrastructure.json_config import get_config
 from miniagent.llm.factory import create_llm_gateway
 
@@ -234,7 +238,7 @@ class TestRealAPIPerformance:
 
             # 记录到trace系统
             emit_trace({
-                "type": "perf.tool_execution_real_api",
+                "type": EVENT_PERF_TOOL_EXECUTION_REAL_API,
                 "duration_ms": elapsed * 1000,
                 "success": True,
             })
@@ -250,7 +254,7 @@ class TestRealAPIPerformance:
         except Exception as e:
             elapsed = time.perf_counter() - start
             emit_trace({
-                "type": "perf.tool_execution_real_api",
+                "type": EVENT_PERF_TOOL_EXECUTION_REAL_API,
                 "duration_ms": elapsed * 1000,
                 "success": False,
                 "error": str(e),
@@ -349,7 +353,7 @@ class TestRealAPIPerformance:
 
         # 记录配置信息（不含密钥）
         emit_trace({
-            "type": "perf.api_config_valid",
+            "type": EVENT_PERF_API_CONFIG_VALID,
             "model": llm_overrides.get("model", "unknown"),
             "base_url": llm_overrides.get("base_url", "unknown")[:50] if llm_overrides.get("base_url") else "default",
         })

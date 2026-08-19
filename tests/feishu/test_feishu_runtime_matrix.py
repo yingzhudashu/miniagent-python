@@ -22,10 +22,10 @@ class _Dedup:
     def try_begin_processing(self, _message_id):
         return True
 
-    def release_processing(self, message_id):
+    def complete(self, message_id):
         self.released.append(message_id)
 
-    def abandon_processing_claim(self, message_id):
+    def abandon(self, message_id):
         self.abandoned.append(message_id)
 
 

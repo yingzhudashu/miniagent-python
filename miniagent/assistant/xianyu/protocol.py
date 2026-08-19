@@ -8,10 +8,10 @@ import json
 import random
 import time
 import uuid
-from dataclasses import dataclass
 from typing import Any, Literal, cast
 
 from miniagent.assistant.xianyu.errors import XianyuDependencyError, XianyuProtocolError
+from miniagent.ui.xianyu.inbound import XianyuInbound
 
 APP_KEY = "34839810"
 IM_APP_KEY = "444e9908a51d1cb236a27862abc769c9"
@@ -28,23 +28,28 @@ def parse_cookie_header(value: str) -> dict[str, str]:
 
 
 def format_cookie_header(cookies: dict[str, str]) -> str:
+    """Serialize cookie pairs into an HTTP Cookie header value."""
     return "; ".join(f"{name}={value}" for name, value in cookies.items())
 
 
 def mtop_sign(timestamp_ms: str | int, token: str, data: str) -> str:
+    """Create the MD5 signature required by Xianyu MTop requests."""
     raw = f"{token}&{timestamp_ms}&{APP_KEY}&{data}".encode()
-    return hashlib.md5(raw).hexdigest()  # noqa: S324 - required by the MTop protocol
+    return hashlib.md5(raw, usedforsecurity=False).hexdigest()
 
 
 def generate_mid() -> str:
+    """Generate a message identifier for an Xianyu RPC frame."""
     return f"{random.SystemRandom().randrange(1000):03d}{int(time.time() * 1000)} 0"
 
 
 def generate_message_uuid() -> str:
+    """Generate the client UUID used by outbound chat messages."""
     return f"-{int(time.time() * 1000)}{uuid.uuid4().int % 10}"
 
 
 def generate_device_id(user_id: str) -> str:
+    """Generate a stable-format device identifier for an account."""
     return f"{str(uuid.uuid4()).upper()}-{user_id}"
 
 
@@ -70,6 +75,7 @@ def decode_sync_payload(value: str) -> Any:
 
 
 def decode_custom_data(value: str) -> dict[str, Any]:
+    """Decode the base64 JSON payload embedded in a custom message."""
     try:
         decoded = base64.b64decode(value).decode("utf-8")
         result = json.loads(decoded)
@@ -81,6 +87,7 @@ def decode_custom_data(value: str) -> dict[str, Any]:
 
 
 def encode_message_content(kind: Literal["text", "image"], value: dict[str, Any]) -> str:
+    """Encode text or image content into Xianyu's custom payload format."""
     if kind == "text":
         payload = {"contentType": 1, "text": {"text": str(value["text"])}}
     elif kind == "image":
@@ -104,6 +111,7 @@ def encode_message_content(kind: Literal["text", "image"], value: dict[str, Any]
 
 
 def build_ack(frame: dict[str, Any]) -> dict[str, Any]:
+    """Build the protocol acknowledgement corresponding to an inbound frame."""
     headers = cast(dict[str, Any], frame.get("headers")) if isinstance(frame.get("headers"), dict) else {}
     ack_headers = {
         "mid": str(headers.get("mid") or generate_mid()),
@@ -116,6 +124,7 @@ def build_ack(frame: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_registration(access_token: str, device_id: str) -> dict[str, Any]:
+    """Build the WebSocket registration frame for an authenticated account."""
     return {
         "lwp": "/reg",
         "headers": {
@@ -133,6 +142,7 @@ def build_registration(access_token: str, device_id: str) -> dict[str, Any]:
 
 
 def build_sync_ack() -> dict[str, Any]:
+    """Build the initial synchronization acknowledgement frame."""
     now_ms = int(time.time() * 1000)
     return {
         "lwp": "/r/SyncStatus/ackDiff",
@@ -160,6 +170,7 @@ def build_send_message(
     kind: Literal["text", "image"],
     value: dict[str, Any],
 ) -> dict[str, Any]:
+    """Build a text or image message-send RPC frame."""
     custom_type = 1 if kind == "text" else 2
     return {
         "lwp": "/r/MessageSend/sendByReceiverScope",
@@ -188,6 +199,7 @@ def build_send_message(
 
 
 def build_create_chat(owner_id: str, receiver_id: str, item_id: str) -> dict[str, Any]:
+    """Build the RPC frame that creates a buyer conversation."""
     return {
         "lwp": "/r/SingleChatConversation/create",
         "headers": {"mid": generate_mid()},
@@ -204,25 +216,13 @@ def build_create_chat(owner_id: str, receiver_id: str, item_id: str) -> dict[str
 
 
 def build_history_request(conversation_id: str, cursor: int) -> tuple[str, dict[str, Any]]:
+    """Build one paginated conversation-history RPC request."""
     mid = generate_mid()
     return mid, {
         "lwp": "/r/MessageManager/listUserMessages",
         "headers": {"mid": mid},
         "body": [f"{conversation_id}@goofish", False, cursor, 20, False],
     }
-
-
-@dataclass(frozen=True, slots=True)
-class XianyuInbound:
-    message_id: str
-    conversation_id: str
-    sender_id: str
-    sender_name: str
-    kind: Literal["text", "image"]
-    text: str = ""
-    image_url: str = ""
-    occurred_at_ms: int = 0
-    item_id: str = ""
 
 
 def _walk(value: Any):

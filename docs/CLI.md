@@ -15,6 +15,7 @@ python -m miniagent --no-continue       # 禁用隐式继续，使用 default �
 python -m miniagent --session <ID>      # 启动并绑定到指定会话
 python -m miniagent --feishu            # CLI + 飞书同时启动
 python -m miniagent --feishu --continue # CLI + 飞书，并继续上次会话
+python -m miniagent --xianyu             # CLI + 闲鱼（需配置 secrets.xianyu_cookie）
 python -m miniagent --stop              # 列出运行中实例；交互选择停止
 python -m miniagent --stop --all        # 停止全部
 python -m miniagent --stop 1 2          # 停止指定 ID
@@ -173,6 +174,10 @@ On branch main
 | **飞书** | `/feishu start` | 启动飞书连接 |
 | | `/feishu stop` | 停止飞书连接 |
 | | `/feishu status` | 查看飞书状态 |
+| **闲鱼** | `/xianyu status` | 查看登录、连接和暂停状态 |
+| | `/xianyu start\|stop` | 启动或停止闲鱼连接 |
+| | `/xianyu pause\|resume [会话ID]` | 暂停或恢复自动回复 |
+| | `/xianyu login` | 仅 CLI 中扫码登录并保存 Cookie |
 | **队列** | `/queue status` | 查看消息队列状态 |
 | | `/query` | 同上（`/queue status` 短命令） |
 | | `/queue set <模式>` | 切换 queue / preemptive |

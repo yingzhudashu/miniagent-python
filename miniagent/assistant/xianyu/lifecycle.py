@@ -10,9 +10,9 @@ from miniagent.agent.lifecycle import HealthReport, HealthState
 from miniagent.assistant.infrastructure.json_config import get_config, get_user_config_path
 from miniagent.assistant.infrastructure.paths import resolve_state_dir
 from miniagent.assistant.state.sync import immediate_transaction, open_state_database
+from miniagent.assistant.xianyu.buyer import XianyuBuyerProcessor
 from miniagent.assistant.xianyu.login import persist_cookie, qr_login
 from miniagent.assistant.xianyu.runtime import XianyuRuntime
-from miniagent.ui.xianyu.inbound import XianyuInboundProcessor
 
 _PAUSE_STATE_KEY = "xianyu_pause"
 
@@ -27,13 +27,14 @@ class XianyuRuntimeLifecycleService:
         self.runtime = runtime
         self.container = container
         self.state = state
-        self.processor: XianyuInboundProcessor | None = None
+        self.processor: XianyuBuyerProcessor | None = None
         self._initialized = False
 
     async def initialize(self) -> None:
+        """Load persisted pause state and construct the buyer processor."""
         if self._initialized:
             return
-        self.processor = XianyuInboundProcessor(self.container, self.state)
+        self.processor = XianyuBuyerProcessor(self.container, self.state)
         paused, conversations = await asyncio.to_thread(self._load_pause_state)
         if paused:
             self.runtime.pause()
@@ -42,10 +43,12 @@ class XianyuRuntimeLifecycleService:
         self._initialized = True
 
     async def start(self) -> None:
+        """Start Xianyu when the channel is enabled in application state."""
         if self.enabled:
             await self.activate()
 
     async def activate(self) -> None:
+        """Connect the configured cookie session and enable inbound handling."""
         if not self._initialized:
             await self.initialize()
         cookie = str(get_config("secrets.xianyu_cookie", "") or "").strip()
@@ -60,11 +63,13 @@ class XianyuRuntimeLifecycleService:
         self.state["xianyu_enabled"] = True
 
     async def deactivate(self) -> None:
+        """Stop the connection while retaining initialized service state."""
         await self.runtime.stop()
         self.enabled = False
         self.state["xianyu_enabled"] = False
 
     async def login(self, status=None) -> None:
+        """Perform CLI QR login, persist changed cookies, and activate the channel."""
         cookie = await qr_login(status=status)
         changed = await asyncio.to_thread(persist_cookie, get_user_config_path(), cookie)
         if changed and self.container.config is not None:
@@ -74,14 +79,17 @@ class XianyuRuntimeLifecycleService:
         await self.activate()
 
     async def pause(self, conversation_id: str | None = None) -> None:
+        """Pause all buyer turns or one conversation and persist the state."""
         self.runtime.pause(conversation_id)
         await asyncio.to_thread(self._save_pause_state)
 
     async def resume(self, conversation_id: str | None = None) -> None:
+        """Resume all buyer turns or one conversation and persist the state."""
         self.runtime.resume(conversation_id)
         await asyncio.to_thread(self._save_pause_state)
 
     async def stop(self) -> None:
+        """Stop the runtime and release the buyer processor and owned resources."""
         await self.runtime.stop()
         if self.processor is not None:
             await self.processor.close()
@@ -89,6 +97,7 @@ class XianyuRuntimeLifecycleService:
         self._initialized = False
 
     def health(self) -> HealthReport:
+        """Return the channel health derived from the runtime connection state."""
         if not self.enabled:
             return HealthReport(HealthState.STOPPED, "disabled")
         return self.runtime.health()

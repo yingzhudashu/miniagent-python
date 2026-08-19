@@ -16,7 +16,7 @@ from miniagent.assistant.state import (
 
 
 @pytest.mark.asyncio
-async def test_empty_directory_creates_exact_v5_schema(tmp_path: Path) -> None:
+async def test_empty_directory_creates_exact_v6_schema(tmp_path: Path) -> None:
     async with StateStore(tmp_path) as store:
         row = await store.connection.execute_fetchall("PRAGMA user_version")
         assert row[0][0] == STATE_SCHEMA_VERSION
@@ -34,7 +34,7 @@ async def test_empty_directory_creates_exact_v5_schema(tmp_path: Path) -> None:
             "knowledge_documents",
             "knowledge_fts",
             "scheduled_tasks",
-            "feishu_message_claims",
+            "inbound_message_claims",
             "process_leases",
         } <= names
 
@@ -71,12 +71,12 @@ async def test_future_schema_version_is_rejected_without_rewriting_database(
         pass
     path = tmp_path / "state.sqlite3"
     connection = sqlite3.connect(path)
-    connection.execute("PRAGMA user_version=6")
+    connection.execute("PRAGMA user_version=7")
     connection.commit()
     connection.close()
     original = path.read_bytes()
 
-    with pytest.raises(StateSchemaError, match="schema v6"):
+    with pytest.raises(StateSchemaError, match="schema v7"):
         await StateStore(tmp_path).open()
     assert path.read_bytes() == original
 
@@ -94,7 +94,7 @@ async def test_corrupt_database_is_rejected_without_rewriting_file(tmp_path: Pat
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("damage", ["missing_table", "extra_column", "wrong_fts"])
-async def test_incomplete_or_incorrect_v5_schema_is_rejected(
+async def test_incomplete_or_incorrect_v6_schema_is_rejected(
     tmp_path: Path, damage: str
 ) -> None:
     async with StateStore(tmp_path):
@@ -361,8 +361,8 @@ async def test_independent_connections_have_one_claim_and_lease_winner(
 ) -> None:
     async with StateStore(tmp_path) as first, StateStore(tmp_path) as second:
         claims = await asyncio.gather(
-            first.claim_feishu_message("event", "worker-a", now=10.0),
-            second.claim_feishu_message("event", "worker-b", now=10.0),
+            first.claim_inbound_message("feishu", "event", "worker-a", now=10.0),
+            second.claim_inbound_message("feishu", "event", "worker-b", now=10.0),
         )
         assert sorted(claims) == [False, True]
 
@@ -393,11 +393,11 @@ async def test_process_lease_rejects_a_second_live_owner(tmp_path: Path) -> None
 @pytest.mark.asyncio
 async def test_feishu_claim_only_recovers_after_expiry(tmp_path: Path) -> None:
     async with StateStore(tmp_path) as store:
-        assert await store.claim_feishu_message("message", "worker-a", now=10.0, lease_seconds=20)
-        assert not await store.claim_feishu_message("message", "worker-b", now=20.0)
-        assert await store.claim_feishu_message("message", "worker-b", now=31.0)
-        await store.complete_feishu_message("message", "worker-b")
-        assert not await store.claim_feishu_message("message", "worker-a", now=100.0)
+        assert await store.claim_inbound_message("feishu", "message", "worker-a", now=10.0, lease_seconds=20)
+        assert not await store.claim_inbound_message("feishu", "message", "worker-b", now=20.0)
+        assert await store.claim_inbound_message("feishu", "message", "worker-b", now=31.0)
+        await store.complete_inbound_message("feishu", "message", "worker-b")
+        assert not await store.claim_inbound_message("feishu", "message", "worker-a", now=100.0)
 
 
 @pytest.mark.asyncio
@@ -520,6 +520,6 @@ async def test_lease_release_and_claim_ownership_failures_are_explicit(tmp_path:
         assert await store.release_lease("job", "owner")
         assert not await store.release_lease("job", "owner")
 
-        assert await store.claim_feishu_message("event", "owner", now=1.0)
+        assert await store.claim_inbound_message("feishu", "event", "owner", now=1.0)
         with pytest.raises(StateConflictError, match="not owned"):
-            await store.complete_feishu_message("event", "other")
+            await store.complete_inbound_message("feishu", "event", "other")

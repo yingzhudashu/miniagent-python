@@ -26,10 +26,10 @@ class _Deduplicator:
         self.claimed.add(message_id)
         return True
 
-    def release_processing(self, message_id: str) -> None:
+    def complete(self, message_id: str) -> None:
         self.released.append(message_id)
 
-    def abandon_processing_claim(self, message_id: str) -> None:
+    def abandon(self, message_id: str) -> None:
         self.abandoned.append(message_id)
 
 

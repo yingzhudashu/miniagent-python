@@ -80,6 +80,18 @@ def _runtime_help_sections() -> list[str]:
             ],
         ),
         _md_help_section(
+            "闲鱼控制",
+            "单账号闲鱼连接；扫码登录仅允许 CLI 执行。",
+            [
+                ("`/xianyu status`", "查看登录、连接和暂停状态"),
+                ("`/xianyu start`", "启动闲鱼 WebSocket 连接"),
+                ("`/xianyu stop`", "停止闲鱼连接"),
+                ("`/xianyu pause [会话ID]`", "暂停全局或指定会话自动回复"),
+                ("`/xianyu resume [会话ID]`", "恢复全局或指定会话自动回复"),
+                ("`/xianyu login`", "CLI 扫码登录并保存 Cookie"),
+            ],
+        ),
+        _md_help_section(
             "消息队列",
             "`queue` 为默认；`preemptive` 允许新消息插队。`/queue abort` / `/abort` 取消本 `chat_id` 上经 `dispatch` / `dispatch_wait` 投递的任务，**不是** `/stop`（停实例）。飞书侧可随时发送以打断卡住的 Agent；全屏 CLI 在单轮 Agent 执行中无法再次输入命令。",
             [

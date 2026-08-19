@@ -8,20 +8,20 @@ from types import SimpleNamespace
 
 import pytest
 
-from miniagent.assistant.feishu.feishu_dedup import FeishuDeduplicator
+from miniagent.assistant.infrastructure.inbound_dedup import InboundDeduplicator
 from miniagent.ui.feishu.types import FeishuConfig
 
 
 def test_deduplicator_evicts_oldest_completed_ids(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import miniagent.assistant.feishu.feishu_dedup as dedup_module
+    import miniagent.assistant.infrastructure.inbound_dedup as dedup_module
 
     monkeypatch.setattr(dedup_module, "DEDUP_MAX_SIZE", 2)
-    dedup = FeishuDeduplicator(str(tmp_path))
+    dedup = InboundDeduplicator("feishu", str(tmp_path))
     for message_id in ("one", "two", "three"):
         assert dedup.try_begin_processing(message_id)
-        dedup.release_processing(message_id)
+        dedup.complete(message_id)
     assert dedup.stats()["disk_dedup"] == 2
     assert dedup.try_begin_processing("one")
 

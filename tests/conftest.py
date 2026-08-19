@@ -121,6 +121,7 @@ def mock_cli_state() -> CliLoopState:
         "skill_toolboxes": [],
         "skill_prompts": [],
         "feishu_enabled": False,
+        "xianyu_enabled": False,
         "session_manager": None,
         "instance_id": 1,
         "runtime_ctx": runtime,

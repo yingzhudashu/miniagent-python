@@ -348,6 +348,7 @@
     "record_payload": "metrics_only",
     "resource_sample_interval_seconds": 0,
     "track_python_allocations": false,
+    "detail_sample_rate": 1.0,
     "stats_max_latency_samples": 100000,
     "stats_max_session_samples": 1000,
     "auto_cleanup": true,

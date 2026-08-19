@@ -27,6 +27,7 @@ class InboundDeduplicator:
         self._owner = f"{normalized}:{uuid4().hex}"
 
     def try_begin_processing(self, message_id: str) -> bool:
+        """Claim a message for processing, returning false for active/completed claims."""
         message_id = message_id.strip()
         if not message_id:
             return False
@@ -95,6 +96,7 @@ class InboundDeduplicator:
             )
 
     def stats(self) -> dict[str, Any]:
+        """Return current processing and completed-claim counts."""
         now_ms = int(time.time() * 1000)
         with open_state_database(self._state_dir) as connection:
             processing = int(
@@ -119,6 +121,7 @@ class InboundDeduplicator:
         }
 
     async def flush(self) -> None:
+        """Remove completed claims older than the deduplication retention window."""
         cutoff_ms = int(time.time() * 1000) - DEDUP_TTL_MS
         with open_state_database(self._state_dir) as connection:
             connection.execute(
@@ -128,6 +131,7 @@ class InboundDeduplicator:
             )
 
     async def close(self) -> None:
+        """Release this owner's unfinished claims and flush expired records."""
         with open_state_database(self._state_dir) as connection:
             connection.execute(
                 """DELETE FROM inbound_message_claims

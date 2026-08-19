@@ -50,6 +50,7 @@ class TraceRuntimeConfig:
     record_payload: str = "metrics_only"
     resource_sample_interval_seconds: float = 0.0
     track_python_allocations: bool = False
+    detail_sample_rate: float = 1.0
 
     def __post_init__(self) -> None:
         """Reject invalid observability settings instead of silently changing them."""
@@ -76,6 +77,8 @@ class TraceRuntimeConfig:
             raise ValueError(
                 "trace.resource_sample_interval_seconds must be zero or at least 0.05"
             )
+        if not 0.0 <= self.detail_sample_rate <= 1.0:
+            raise ValueError("trace.detail_sample_rate must be between zero and one")
 
     @classmethod
     def from_getter(cls, get_config: ConfigGetter) -> TraceRuntimeConfig:
@@ -102,6 +105,7 @@ class TraceRuntimeConfig:
             track_python_allocations=bool(
                 get_config("trace.track_python_allocations", False)
             ),
+            detail_sample_rate=float(get_config("trace.detail_sample_rate", 1.0)),
         )
 
 
@@ -123,6 +127,7 @@ _hooks: list[TraceHook] = []
 _TRACE_LOG_FILE: Path | None = None
 _TRACE_RECORD_PAYLOAD = "metrics_only"
 _TRACE_SHUTDOWN_TIMEOUT_SECONDS = 5.0
+_TRACE_DETAIL_SAMPLE_RATE = 1.0
 
 # 异步写入器实例
 _trace_writer: AsyncTraceWriter | None = None
@@ -286,6 +291,19 @@ _USAGE_DETAIL_KEYS = {
     "output_tokens_details",
     "prompt_tokens_details",
 }
+
+_CRITICAL_TRACE_TYPES = frozenset(
+    {
+        "agent.run_start", "agent.run_end", "agent.phase_start", "agent.phase_end",
+        "llm.request", "llm.response", "tool.start", "tool.end", "tool.error",
+        "error.collect", "trace.writer_end",
+    }
+)
+
+
+def _is_critical_trace_event(event: dict[str, Any]) -> bool:
+    """Return whether an event must be protected from detail backpressure."""
+    return str(event.get("type") or "") in _CRITICAL_TRACE_TYPES
 
 
 def _json_shape_char_count(value: Any, *, max_nodes: int = 100_000) -> tuple[int, bool]:
@@ -456,13 +474,10 @@ class TraceResourceSampler:
         self._started_ns = time.monotonic_ns()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._event_loop: asyncio.AbstractEventLoop | None = None
         self._process: Any = None
         self._tracemalloc: Any = None
         self._owns_tracemalloc = False
-        try:
-            self._event_loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
-        except RuntimeError:
-            self._event_loop = None
         self._loop_probe_pending = threading.Event()
         try:
             import psutil
@@ -483,6 +498,10 @@ class TraceResourceSampler:
 
     def start(self) -> None:
         """启动唯一的后台采样线程；重复调用保持幂等。"""
+        try:
+            self._event_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._event_loop = None
         if self._thread is not None and self._thread.is_alive():
             return
         self._stop.clear()
@@ -539,6 +558,14 @@ class TraceResourceSampler:
     def _emit_sample_and_probe(self) -> None:
         emit_trace(self._sample())
         loop = self._event_loop
+        if loop is not None and loop.is_closed():
+            self._event_loop = None
+            loop = None
+        if loop is None:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
         if loop is None or loop.is_closed() or self._loop_probe_pending.is_set():
             return
         scheduled_ns = time.monotonic_ns()
@@ -564,7 +591,11 @@ class TraceResourceSampler:
         thread = self._thread
         if thread is not None:
             thread.join(timeout=max(1.0, self.interval_seconds * 2))
+        if thread is not None and thread.is_alive():
+            _logger.error("Trace resource sampler did not stop before timeout")
+            return
         self._thread = None
+        self._event_loop = None
         if self._owns_tracemalloc and self._tracemalloc is not None:
             try:
                 self._tracemalloc.stop()
@@ -629,8 +660,14 @@ class AsyncTraceWriter:
         self._emitted_count = 0
         self._written_count = 0
         self._dropped_count = 0
+        self._sampled_count = 0
+        self._critical_dropped_count = 0
         self._serialization_error_count = 0
         self._write_error_count = 0
+        self._hook_call_count = 0
+        self._hook_error_count = 0
+        self._hook_duration_ns = 0
+        self._hook_max_duration_ns = 0
         self._drop_warned = False
         self._serialization_warned = False
         self._excluded_sessions: set[str] = set()
@@ -750,25 +787,55 @@ class AsyncTraceWriter:
                         self.queue_max_size,
                         self.overflow_policy,
                     )
-                if self.overflow_policy != TRACE_OVERFLOW_DROP_OLDEST:
-                    return
-                try:
-                    oldest = self._queue.get_nowait()
-                except queue.Empty:
-                    pass
-                else:
-                    if isinstance(oldest, _ExcludeSessionCommand):
-                        # Maintenance commands must never be sacrificed for a
-                        # trace event. Requeue it and drop the newest event.
-                        try:
-                            self._queue.put_nowait(oldest)
-                        except queue.Full:
-                            pass
+                critical = _is_critical_trace_event(event)
+                if critical:
+                    evicted = self._evict_oldest_detail()
+                    if not evicted:
+                        self._critical_dropped_count += 1
                         return
+                elif self.overflow_policy == TRACE_OVERFLOW_DROP_OLDEST:
+                    if not self._evict_oldest_detail(require_oldest=True):
+                        return
+                else:
+                    return
                 try:
                     self._queue.put_nowait(event)
                 except queue.Full:
-                    pass
+                    if critical:
+                        self._critical_dropped_count += 1
+
+    def _evict_oldest_detail(self, *, require_oldest: bool = False) -> bool:
+        """Remove one detail event without sacrificing critical/maintenance entries."""
+        with self._queue.mutex:
+            for index, queued in enumerate(self._queue.queue):
+                if index and require_oldest:
+                    return False
+                if isinstance(queued, dict) and not _is_critical_trace_event(queued):
+                    del self._queue.queue[index]
+                    self._queue.unfinished_tasks -= 1
+                    self._queue.not_full.notify()
+                    return True
+                if require_oldest:
+                    return False
+        return False
+
+    def record_sampled(self) -> None:
+        """Account for a detail event intentionally omitted by sampling."""
+        with self._enqueue_lock:
+            if self._shutdown:
+                return
+            self._emitted_count += 1
+            self._sampled_count += 1
+            self._dropped_count += 1
+
+    def record_hook_result(self, duration_ns: int, *, failed: bool) -> None:
+        """Record isolated synchronous hook cost without recursively tracing it."""
+        with self._enqueue_lock:
+            self._hook_call_count += 1
+            self._hook_duration_ns += max(0, duration_ns)
+            self._hook_max_duration_ns = max(self._hook_max_duration_ns, duration_ns)
+            if failed:
+                self._hook_error_count += 1
 
     def exclude_session(
         self,
@@ -1029,8 +1096,14 @@ class AsyncTraceWriter:
             "emitted_count": self._emitted_count,
             "written_count": self._written_count,
             "dropped_count": self._dropped_count,
+            "sampled_count": self._sampled_count,
+            "critical_dropped_count": self._critical_dropped_count,
             "serialization_error_count": self._serialization_error_count,
             "write_error_count": self._write_error_count,
+            "hook_call_count": self._hook_call_count,
+            "hook_error_count": self._hook_error_count,
+            "hook_duration_ms": self._hook_duration_ns / 1_000_000,
+            "hook_max_duration_ms": self._hook_max_duration_ns / 1_000_000,
             "redacted_count": self._redacted_count,
             "rotation_count": self._rotation_count,
             "active_date": self._active_date,
@@ -1126,6 +1199,7 @@ def clear_trace_hooks() -> None:
         _TRACE_LOG_FILE, \
         _TRACE_RECORD_PAYLOAD, \
         _TRACE_SHUTDOWN_TIMEOUT_SECONDS, \
+        _TRACE_DETAIL_SAMPLE_RATE, \
         _auto_initialized, \
         _resource_sampler, \
         _trace_writer
@@ -1148,6 +1222,7 @@ def clear_trace_hooks() -> None:
     _TRACE_LOG_FILE = None
     _TRACE_RECORD_PAYLOAD = TRACE_RECORD_PAYLOAD_METRICS_ONLY
     _TRACE_SHUTDOWN_TIMEOUT_SECONDS = 5.0
+    _TRACE_DETAIL_SAMPLE_RATE = 1.0
     _auto_initialized = False
     _refresh_trace_active()
 
@@ -1175,6 +1250,7 @@ def auto_register_trace_file_hook(config: TraceRuntimeConfig | None = None) -> N
         _TRACE_LOG_FILE, \
         _TRACE_RECORD_PAYLOAD, \
         _TRACE_SHUTDOWN_TIMEOUT_SECONDS, \
+        _TRACE_DETAIL_SAMPLE_RATE, \
         _resource_sampler, \
         _trace_writer
 
@@ -1226,6 +1302,7 @@ def auto_register_trace_file_hook(config: TraceRuntimeConfig | None = None) -> N
 
     _TRACE_LOG_FILE = target
     _TRACE_RECORD_PAYLOAD = config.record_payload
+    _TRACE_DETAIL_SAMPLE_RATE = config.detail_sample_rate
     _TRACE_SHUTDOWN_TIMEOUT_SECONDS = max(
         0.01, config.writer_shutdown_timeout_seconds
     )
@@ -1304,16 +1381,34 @@ def emit_trace(event: dict[str, Any]) -> None:
     # 异步文件写入（非阻塞）
     if _trace_writer:
         if _TRACE_RECORD_PAYLOAD == TRACE_RECORD_PAYLOAD_METRICS_ONLY:
-            _trace_writer.emit(_sanitize_trace_event_for_persistence(event_with_ts))
+            persisted = _sanitize_trace_event_for_persistence(event_with_ts)
         else:
-            _trace_writer.emit(event_with_ts)
+            persisted = event_with_ts
+        if (
+            not _is_critical_trace_event(persisted)
+            and _TRACE_DETAIL_SAMPLE_RATE < 1.0
+            and (hash(str(persisted.get("type") or "")) & 0xFFFF) / 0xFFFF
+            > _TRACE_DETAIL_SAMPLE_RATE
+        ):
+            _trace_writer.record_sampled()
+        else:
+            _trace_writer.emit(persisted)
 
     # 钩子按注册顺序同步调用
     for h in _hooks:  # 避免 list copy 开销
+        started_ns = time.monotonic_ns()
+        failed = False
         try:
             h(event_with_ts)
         except Exception as e:
+            failed = True
             _logger.debug("trace hook执行失败: %s", e)
+        finally:
+            if _trace_writer is not None:
+                _trace_writer.record_hook_result(
+                    time.monotonic_ns() - started_ns,
+                    failed=failed,
+                )
 
 
 def shutdown_trace_writer(timeout_seconds: float | None = None) -> dict[str, Any] | None:
@@ -1343,6 +1438,18 @@ def shutdown_trace_writer(timeout_seconds: float | None = None) -> dict[str, Any
     stats = writer.stats()
     if stats["shutdown_incomplete"]:
         return stats
+    trace_path = writer.file_path
+    if trace_path is not None:
+        summary_path = trace_path.with_suffix(".stats.json")
+        temporary = summary_path.with_suffix(summary_path.suffix + ".tmp")
+        try:
+            temporary.write_text(
+                json.dumps(stats, ensure_ascii=False, separators=(",", ":")) + "\n",
+                encoding="utf-8",
+            )
+            os.replace(temporary, summary_path)
+        finally:
+            temporary.unlink(missing_ok=True)
     _trace_writer = None
     _refresh_trace_active()
     _TRACE_LOG_FILE = None

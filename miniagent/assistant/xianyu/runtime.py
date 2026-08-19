@@ -40,6 +40,7 @@ InboundHandler = Callable[[XianyuInbound], Awaitable[str | None]]
 
 @dataclass(frozen=True, slots=True)
 class XianyuStatus:
+    """Snapshot of Xianyu connection, authentication, pause, and error state."""
     enabled: bool
     connected: bool
     authenticated: bool
@@ -70,6 +71,7 @@ class XianyuRuntime:
         self._deduplicator = InboundDeduplicator("xianyu")
 
     async def configure(self, cookie: str, handler: InboundHandler) -> None:
+        """Configure the single-account client and inbound buyer handler."""
         cookies = parse_cookie_header(cookie)
         if not cookies:
             raise XianyuAuthenticationError("secrets.xianyu_cookie is empty")
@@ -80,6 +82,7 @@ class XianyuRuntime:
             await previous.close()
 
     async def start(self) -> None:
+        """Start the reconnecting WebSocket runtime task."""
         if self._runner and not self._runner.done():
             return
         if self.client is None or self._handler is None:
@@ -90,6 +93,7 @@ class XianyuRuntime:
         await asyncio.sleep(0)
 
     async def stop(self) -> None:
+        """Cancel runtime tasks and close socket, HTTP client, and dedup state."""
         self._enabled = False
         self._stop.set()
         runner, self._runner = self._runner, None
@@ -254,6 +258,7 @@ class XianyuRuntime:
             self._pending.pop(mid, None)
 
     async def send_text(self, conversation_id: str, receiver_id: str, text: str) -> None:
+        """Send text to an existing buyer conversation."""
         if not text.strip():
             raise ValueError("text must not be empty")
         if self.client is None:
@@ -271,6 +276,7 @@ class XianyuRuntime:
     async def send_image(
         self, conversation_id: str, receiver_id: str, *, url: str, width: int, height: int
     ) -> None:
+        """Send an already-uploaded image to an existing conversation."""
         if self.client is None:
             raise RuntimeError("Xianyu runtime is not configured")
         await self._send_json(
@@ -284,6 +290,7 @@ class XianyuRuntime:
         )
 
     async def create_chat(self, receiver_id: str, item_id: str) -> str:
+        """Create a buyer conversation and return its conversation identifier."""
         if self.client is None:
             raise RuntimeError("Xianyu runtime is not configured")
         response = await self._request(
@@ -312,6 +319,7 @@ class XianyuRuntime:
         return conversation_id
 
     async def get_history(self, conversation_id: str) -> list[dict[str, Any]]:
+        """Fetch and normalize all pages of one conversation's history."""
         cursor = 9007199254740991
         result: list[dict[str, Any]] = []
         while True:
@@ -348,18 +356,21 @@ class XianyuRuntime:
                 raise XianyuProtocolError("Xianyu history pagination omitted nextCursor")
 
     def pause(self, conversation_id: str | None = None) -> None:
+        """Pause inbound replies globally or for one conversation."""
         if conversation_id:
             self._paused_conversations.add(conversation_id)
         else:
             self._paused = True
 
     def resume(self, conversation_id: str | None = None) -> None:
+        """Resume inbound replies globally or for one conversation."""
         if conversation_id:
             self._paused_conversations.discard(conversation_id)
         else:
             self._paused = False
 
     def status(self) -> XianyuStatus:
+        """Return the current runtime status snapshot."""
         return XianyuStatus(
             enabled=self._enabled,
             connected=self._connected,
@@ -371,6 +382,7 @@ class XianyuRuntime:
         )
 
     def health(self) -> HealthReport:
+        """Return a health report suitable for lifecycle monitoring."""
         status = self.status()
         if status.connected:
             return HealthReport(HealthState.READY)
@@ -394,11 +406,13 @@ _runtime: XianyuRuntime | None = None
 
 
 def install_xianyu_runtime(runtime: XianyuRuntime) -> None:
+    """Install the process-wide Xianyu runtime used by command handlers."""
     global _runtime
     _runtime = runtime
 
 
 def get_xianyu_runtime() -> XianyuRuntime:
+    """Return the installed process-wide Xianyu runtime."""
     if _runtime is None:
         raise RuntimeError("Xianyu runtime is not installed")
     return _runtime
