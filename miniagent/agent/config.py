@@ -24,6 +24,7 @@ from miniagent.agent.logging import get_logger
 from miniagent.agent.settings import get_config, get_config_bool, get_config_section
 from miniagent.agent.types.config import (
     AgentConfig,
+    ChannelBindingConfig,
     FeishuChannelConfig,
     SessionBindingConfig,
     normalize_conversation_history,
@@ -135,6 +136,15 @@ def merge_agent_config(base: AgentConfig, overrides: dict[str, Any]) -> AgentCon
         "cli_loop_state": base.feishu_config.cli_loop_state,
         "cli_dispatch_allow_mutations": base.feishu_config.cli_dispatch_allow_mutations,
     }
+    channel_binding_dict: dict[str, Any] = {
+        "channel": base.channel_binding.channel,
+        "conversation_id": base.channel_binding.conversation_id,
+        "sender_id": base.channel_binding.sender_id,
+        "message_id": base.channel_binding.message_id,
+        "thread_id": base.channel_binding.thread_id,
+        "reply_to": base.channel_binding.reply_to,
+        "metadata": dict(base.channel_binding.metadata),
+    }
     merged_dict: dict[str, Any] = {
         # 核心配置
         "max_turns": base.max_turns,
@@ -162,6 +172,7 @@ def merge_agent_config(base: AgentConfig, overrides: dict[str, Any]) -> AgentCon
         "history_progressive_compression": base.history_progressive_compression,
         "session_config": None,
         "feishu_config": None,
+        "channel_binding": None,
     }
 
     for key, value in overrides.items():
@@ -169,6 +180,8 @@ def merge_agent_config(base: AgentConfig, overrides: dict[str, Any]) -> AgentCon
             session_config_dict.update(value)
         elif key == "feishu_config" and isinstance(value, dict):
             feishu_config_dict.update(value)
+        elif key == "channel_binding" and isinstance(value, dict):
+            channel_binding_dict.update(value)
         elif key == "loop_detection" and isinstance(value, dict):
             merged_dict["loop_detection"].update(value)
         elif key == "llm_overrides" and isinstance(value, dict):
@@ -183,6 +196,7 @@ def merge_agent_config(base: AgentConfig, overrides: dict[str, Any]) -> AgentCon
     )
     merged_dict["session_config"] = SessionBindingConfig(**session_config_dict)
     merged_dict["feishu_config"] = FeishuChannelConfig(**feishu_config_dict)
+    merged_dict["channel_binding"] = ChannelBindingConfig(**channel_binding_dict)
 
     return AgentConfig(**merged_dict)
 

@@ -51,7 +51,9 @@ def _validate(connection: sqlite3.Connection) -> None:
         raise StateSchemaError("unversioned non-empty state database")
     allowed = set(_TABLE_COLUMNS) | set(_FTS_TABLES)
     for fts in _FTS_TABLES:
-        allowed.update(f"{fts}_{suffix}" for suffix in ("data", "idx", "content", "docsize", "config"))
+        allowed.update(
+            f"{fts}_{suffix}" for suffix in ("data", "idx", "content", "docsize", "config")
+        )
     for name, kind in objects:
         if kind not in {"table", "shadow"} or name not in allowed:
             raise StateSchemaError(f"unexpected {name} in state database")
@@ -60,9 +62,7 @@ def _validate(connection: sqlite3.Connection) -> None:
     if missing:
         raise StateSchemaError(f"state database is missing {', '.join(sorted(missing))}")
     for table, expected in _TABLE_COLUMNS.items():
-        actual = frozenset(
-            str(row[1]) for row in connection.execute(f"PRAGMA table_info({table})")
-        )
+        actual = frozenset(str(row[1]) for row in connection.execute(f"PRAGMA table_info({table})"))
         if actual != expected:
             raise StateSchemaError(f"state database has invalid {table} columns")
     for table in _FTS_TABLES:
@@ -71,20 +71,16 @@ def _validate(connection: sqlite3.Connection) -> None:
         ).fetchone()
         definition = str(row[0]) if row is not None and row[0] is not None else ""
         if "tokenize='trigram'" not in definition:
-            raise StateSchemaError(
-                f"state database {table} must use the FTS5 trigram tokenizer"
-            )
+            raise StateSchemaError(f"state database {table} must use the FTS5 trigram tokenizer")
 
 
 @contextmanager
 def open_state_database(state_dir: str | Path) -> Iterator[sqlite3.Connection]:
-    """Open the exact 5.0 project database and close it after the operation."""
+    """Open the exact 6.0 project database and close it after the operation."""
     root = Path(state_dir)
     root.mkdir(parents=True, exist_ok=True)
     try:
-        connection = sqlite3.connect(
-            root / _DATABASE_NAME, timeout=5.0, isolation_level=None
-        )
+        connection = sqlite3.connect(root / _DATABASE_NAME, timeout=5.0, isolation_level=None)
     except sqlite3.DatabaseError as error:
         raise StateSchemaError(f"cannot open state database: {error}") from error
     connection.row_factory = sqlite3.Row

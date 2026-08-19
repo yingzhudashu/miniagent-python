@@ -35,6 +35,7 @@ from miniagent.agent.types.confirmation import ConfirmationResult
 from miniagent.assistant.engine.commands.session_management import feishu_dot_commands_full_enabled
 from miniagent.assistant.infrastructure.json_config import get_config, get_config_snapshot
 from miniagent.assistant.session.manager import SessionOptions
+from miniagent.ui.messages import InboundMessage
 
 _logger = get_logger(__name__)
 
@@ -264,7 +265,9 @@ async def _build_turn_system_prompt(
         user_input=user_input,
         longterm=memory.longterm,
     )
-    combined = f"{skill_prompts}\n\n{layered}" if skill_prompts and layered else skill_prompts or layered
+    combined = (
+        f"{skill_prompts}\n\n{layered}" if skill_prompts and layered else skill_prompts or layered
+    )
     return combined.strip() if combined else None
 
 
@@ -391,6 +394,54 @@ class AssistantTurnService:
         from miniagent.agent.constants import EXECUTION_MAX_CONCURRENT_TOOLS
 
         self._tool_semaphore = asyncio.Semaphore(max(1, min(20, EXECUTION_MAX_CONCURRENT_TOOLS)))
+
+    async def run_inbound_message(
+        self,
+        message: InboundMessage,
+        skill_toolboxes: list,
+        skill_prompts: str | None,
+        *,
+        memory: MemoryRuntimeProtocol,
+        knowledge_registry: KnowledgeRegistryProtocol,
+        client: Any,
+        registry: Any = None,
+        monitor: Any = None,
+        session_manager: Any = None,
+        channel_router: Any = None,
+        clawhub: Any | None = None,
+        channel_config: Any | None = None,
+        cli_loop_state: Any | None = None,
+        agent_config_overrides: dict[str, Any] | None = None,
+        _hold_session_lock: bool = False,
+    ) -> str:
+        """Run one normalized channel-neutral inbound message."""
+        return await self.run_agent_with_thinking(
+            message.content,
+            message.route_key,
+            skill_toolboxes,
+            skill_prompts,
+            memory=memory,
+            knowledge_registry=knowledge_registry,
+            client=client,
+            is_feishu=message.channel == "feishu",
+            registry=registry,
+            monitor=monitor,
+            session_manager=session_manager,
+            channel_router=channel_router,
+            clawhub=clawhub,
+            feishu_config=(
+                channel_config if message.channel == "feishu" else None
+            ),
+            feishu_receive_chat_id=message.conversation_id if message.channel == "feishu" else None,
+            feishu_trigger_message_id=message.metadata.get("message_id") if message.channel == "feishu" else None,
+            feishu_root_id=message.metadata.get("root_id") if message.channel == "feishu" else None,
+            feishu_parent_id=message.metadata.get("parent_id") if message.channel == "feishu" else None,
+            feishu_thread_id=message.thread_id if message.channel == "feishu" else None,
+            feishu_im_receive_id=message.sender_id if message.channel == "feishu" else None,
+            cli_loop_state=cli_loop_state,
+            agent_config_overrides=agent_config_overrides,
+            _hold_session_lock=_hold_session_lock,
+        )
 
     async def run_agent_with_thinking(
         self,
@@ -689,21 +740,24 @@ class AssistantTurnService:
             recorder,
             self._on_plan_handler(request.session_key),
         )
-        runtime = AgentRuntime(AgentSpec(
-            settings=AgentSettings(get_config_snapshot()),
-            registry=request.registry,
-            memory=request.memory,
-            knowledge=request.knowledge_registry,
-            monitor=request.monitor,
-            observer=observer,
-            clawhub=request.clawhub,
-            clarifier=self._get_clarifier(),
-            confirmation_channel=self._get_confirmation_channel(request.session_key),
-            engine=self,
-            tool_semaphore=self._tool_semaphore,
-            owns_llm=False,
-            owns_memory=False,
-        ), request.client)
+        runtime = AgentRuntime(
+            AgentSpec(
+                settings=AgentSettings(get_config_snapshot()),
+                registry=request.registry,
+                memory=request.memory,
+                knowledge=request.knowledge_registry,
+                monitor=request.monitor,
+                observer=observer,
+                clawhub=request.clawhub,
+                clarifier=self._get_clarifier(),
+                confirmation_channel=self._get_confirmation_channel(request.session_key),
+                engine=self,
+                tool_semaphore=self._tool_semaphore,
+                owns_llm=False,
+                owns_memory=False,
+            ),
+            request.client,
+        )
         await runtime.start()
         try:
             agent_result = await runtime.run(

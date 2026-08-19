@@ -32,6 +32,7 @@ def create_application_container() -> ApplicationContainer:
     from miniagent.assistant.memory.runtime import create_memory_runtime
     from miniagent.assistant.skills import DefaultSkillRegistry, create_clawhub_client
     from miniagent.assistant.state import StateStore
+    from miniagent.assistant.xianyu.runtime import XianyuRuntime, install_xianyu_runtime
     from miniagent.llm.factory import create_llm_gateway
 
     state_root = resolve_state_dir()
@@ -55,6 +56,8 @@ def create_application_container() -> ApplicationContainer:
         get_config,
         cache_path=Path(resolve_state_dir()) / "llm-model-catalog.json",
     )
+    xianyu = XianyuRuntime()
+    install_xianyu_runtime(xianyu)
     return ApplicationContainer(
         registry=DefaultToolRegistry(),
         monitor=DefaultToolMonitor(),
@@ -64,6 +67,7 @@ def create_application_container() -> ApplicationContainer:
         channel_router=channel_router,
         message_queue=cast(MessageQueueProtocol, message_queue),
         feishu=FeishuRuntime(message_queue),
+        xianyu=xianyu,
         memory=cast(MemoryRuntimeProtocol, memory),
         knowledge_registry=KnowledgeRegistry(),
         background_tasks=BackgroundTaskManager(),

@@ -46,6 +46,7 @@
     "feishu_verification_token": null,
     "feishu_encrypt_key": null,
     "feishu_user_access_token": null,
+    "xianyu_cookie": null,
     "github_token": null,
     "agent_html_api_key": null
   },

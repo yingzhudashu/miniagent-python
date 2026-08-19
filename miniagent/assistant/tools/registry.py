@@ -61,6 +61,7 @@ _LAZY_EXPORTS = {
     "session_memory_tools": "miniagent.assistant.tools.session_memory",
     "skills_tools": "miniagent.assistant.tools.skills",
     "vision_tools": "miniagent.assistant.tools.vision",
+    "xianyu_tools": "miniagent.assistant.tools.xianyu_tools",
 }
 
 
@@ -97,6 +98,7 @@ def _build_all_tools() -> dict[str, Any]:
             "vision_tools",
             "knowledge_tools",
             "session_memory_tools",
+            "xianyu_tools",
         )
     ]
     collections.append(_build_html_upload_tools())

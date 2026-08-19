@@ -125,6 +125,7 @@ COMMAND_REGISTRY = CommandRegistry(
         CommandSpec("/session", "session", "管理会话", "/session <list|switch|create|rename|delete>", mutates_state=True),
         CommandSpec("/instance", "instance", "查看或停止实例", "/instance <list|stop>", mutates_state=True),
         CommandSpec("/feishu", "feishu", "管理飞书连接", "/feishu <status|start|stop>", mutates_state=True),
+        CommandSpec("/xianyu", "xianyu", "管理闲鱼连接", "/xianyu <status|start|stop|pause|resume|login>", mutates_state=True),
         CommandSpec("/queue", "queue", "管理消息队列", "/queue <status|mode|abort>", mutates_state=True),
         CommandSpec("/abort", "abort", "中止当前任务", "/abort", mutates_state=True),
         CommandSpec("/query", "query", "查看消息队列状态（/queue status 的只读别名）", "/query"),

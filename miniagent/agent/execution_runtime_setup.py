@@ -92,6 +92,7 @@ def build_tool_context(
         message_queue_abort_chat_id=(feishu.receive_chat_id or "").strip() or None,
         feishu_im_receive_id_type=receive_id_type_resolver(feishu.im_receive_id_type or ""),
         feishu_im_receive_id=(feishu.im_receive_id or "").strip() or None,
+        channel_binding=agent_config.channel_binding,
     )
 
 

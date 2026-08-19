@@ -59,8 +59,7 @@ def _validate(connection: sqlite3.Connection) -> None:
 
     if version not in {0, STATE_SCHEMA_VERSION}:
         raise StateSchemaError(
-            f"registry database uses schema v{version}; "
-            f"required schema v{STATE_SCHEMA_VERSION}"
+            f"registry database uses schema v{version}; required schema v{STATE_SCHEMA_VERSION}"
         )
     if not objects:
         try:
@@ -80,8 +79,7 @@ def _validate(connection: sqlite3.Connection) -> None:
         unexpected = ", ".join(sorted(name for name, _kind in objects))
         raise StateSchemaError(f"unexpected registry database objects: {unexpected}")
     actual = frozenset(
-        str(row[1])
-        for row in connection.execute("PRAGMA table_info(process_instances)")
+        str(row[1]) for row in connection.execute("PRAGMA table_info(process_instances)")
     )
     if actual != _REGISTRY_COLUMNS:
         raise StateSchemaError("registry database has invalid process_instances columns")
@@ -143,9 +141,7 @@ class ProcessInstance:
     def from_row(cls, row: sqlite3.Row) -> ProcessInstance:
         """Decode and validate one strict registry row."""
         sessions = json.loads(str(row["active_sessions_json"]))
-        if not isinstance(sessions, list) or not all(
-            isinstance(item, str) for item in sessions
-        ):
+        if not isinstance(sessions, list) or not all(isinstance(item, str) for item in sessions):
             raise StateSchemaError("process instance active_sessions must be strings")
         return cls(
             instance_id=int(row["instance_id"]),
@@ -201,9 +197,7 @@ class ProcessInstanceStore:
                     (project_dir,),
                 ).fetchone()
                 if conflict is not None:
-                    raise ProcessInstanceConflictError(
-                        ProcessInstance.from_row(conflict)
-                    )
+                    raise ProcessInstanceConflictError(ProcessInstance.from_row(conflict))
                 row = connection.execute(
                     "SELECT COALESCE(MAX(instance_id), 0) + 1 FROM process_instances"
                 ).fetchone()
@@ -305,8 +299,7 @@ class ProcessInstanceStore:
         stale_ids = [
             int(row["instance_id"])
             for row in rows
-            if int(row["heartbeat_at_ms"]) < stale_before_ms
-            or not bool(alive_pid(int(row["pid"])))
+            if int(row["heartbeat_at_ms"]) < stale_before_ms or not bool(alive_pid(int(row["pid"])))
         ]
         connection.executemany(
             "DELETE FROM process_instances WHERE instance_id=?",

@@ -39,6 +39,7 @@ class _CliLoopStateRequired(TypedDict):
     skill_toolboxes: list[Toolbox]  # 技能工具箱快照；热加载后由 apply_skill_snapshots_to_state 更新
     skill_prompts: list[str]  # 技能系统提示词快照（字符串列表，合并后注入 Agent）
     feishu_enabled: bool  # 是否启用飞书 WebSocket 模式
+    xianyu_enabled: bool  # 是否启用闲鱼 WebSocket 模式
     session_manager: SessionManagerProtocol | None  # 会话管理器；启动完成前为 None
     instance_id: int  # 多实例注册 ID
     runtime_ctx: ApplicationContainer  # 进程级组合根（队列、路由、引擎等）

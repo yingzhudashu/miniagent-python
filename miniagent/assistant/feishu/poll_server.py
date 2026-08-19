@@ -4,7 +4,7 @@
 
 核心机制（对齐 OpenClaw）：
 - 实例连接所有权：每个 ``FeishuRuntime`` 只维护一个活动 SDK 客户端
-- 内存+磁盘双重去重：防止重复处理同一消息（已拆分至 feishu_dedup.py）
+- 跨进程声明去重：防止重复处理同一消息
 - 聊天室顺序队列：防止并发导致上下文混乱
 - 消息防抖：合并同一发送者短时内的连续消息
 - 优雅关闭：SIGINT/SIGTERM 信号处理
@@ -20,7 +20,7 @@
 ``miniagent.assistant.infrastructure.message_queue``。
 
 **已拆分模块**：
-- feishu/feishu_dedup.py: 消息去重逻辑（内存+磁盘）— 本模块已导入使用
+- infrastructure/inbound_dedup.py: 通用入站消息声明
 - feishu/ws_client.py: WebSocket 连接管理
 - feishu/ws_health.py: WebSocket 健康监督
 """
@@ -106,13 +106,13 @@ class _FeishuPollCallbacks:
             if not self.state.deduplicator.try_begin_processing(message_id):
                 return
             create_time = self._create_time(message)
-            if create_time and time.time() - create_time > get_config("feishu.max_message_age", 600):
-                self.state.deduplicator.release_processing(message_id)
+            if create_time and time.time() - create_time > get_config(
+                "feishu.max_message_age", 600
+            ):
+                self.state.deduplicator.complete(message_id)
                 return
             sender = getattr(getattr(event, "event", None), "sender", None)
-            sender_id = (
-                getattr(getattr(sender, "sender_id", None), "open_id", "") or ""
-            )
+            sender_id = getattr(getattr(sender, "sender_id", None), "open_id", "") or ""
             context = {
                 "message_id": message_id,
                 "chat_id": message.chat_id or "",
@@ -129,11 +129,11 @@ class _FeishuPollCallbacks:
             elif message_type == "post" and self.media_handler:
                 self._route_post(message.content or "", context)
             else:
-                self.state.deduplicator.release_processing(message_id)
+                self.state.deduplicator.complete(message_id)
         except Exception as error:
             _logger.error("事件处理异常: %s", error)
             if message_id:
-                self.state.deduplicator.abandon_processing_claim(message_id)
+                self.state.deduplicator.abandon(message_id)
 
     @staticmethod
     def _create_time(message: Any) -> int:
@@ -164,7 +164,7 @@ class _FeishuPollCallbacks:
         text = self._extract_text(message_type, content)
         message_id = context["message_id"]
         if not text.strip():
-            self.state.deduplicator.release_processing(message_id)
+            self.state.deduplicator.complete(message_id)
             return
         message = context["message"]
         inbound = FeishuInboundText(
@@ -185,7 +185,7 @@ class _FeishuPollCallbacks:
             self.state, inbound.chat_id, inbound.sender_id, inbound.chat_type
         )
         if self._respond_to_clarification(channel, text):
-            self.state.deduplicator.release_processing(message_id)
+            self.state.deduplicator.complete(message_id)
             return
         self.state.spawn_callback_task(self._schedule_debounced(inbound))
 
@@ -231,9 +231,7 @@ class _FeishuPollCallbacks:
                 _logger.error("处理消息失败: %s", error)
             finally:
                 finalizer = (
-                    self.state.deduplicator.release_processing
-                    if success
-                    else self.state.deduplicator.abandon_processing_claim
+                    self.state.deduplicator.complete if success else self.state.deduplicator.abandon
                 )
                 for claim_id in claim_ids:
                     finalizer(claim_id)
@@ -246,13 +244,15 @@ class _FeishuPollCallbacks:
     def _route_media(self, message_type: str, content: str, context: dict[str, Any]) -> None:
         parsed = _parse_feishu_media_payload(message_type, content)
         if not parsed:
-            self.state.deduplicator.release_processing(context["message_id"])
+            self.state.deduplicator.complete(context["message_id"])
             return
         resource_type, file_key, suggested_name = parsed
         thread_id = (context["message"].thread_id or "").strip() or None
         self._spawn_dispatch(
             context["chat_id"],
-            self._media_job(context, message_type, resource_type, file_key, suggested_name, thread_id),
+            self._media_job(
+                context, message_type, resource_type, file_key, suggested_name, thread_id
+            ),
         )
 
     def _media_job(
@@ -302,7 +302,9 @@ class _FeishuPollCallbacks:
             except Exception as error:
                 _logger.error("处理飞书媒体失败: %s", error)
             finally:
-                finalizer = self.state.deduplicator.release_processing if success else self.state.deduplicator.abandon_processing_claim
+                finalizer = (
+                    self.state.deduplicator.complete if success else self.state.deduplicator.abandon
+                )
                 finalizer(context["message_id"])
 
         return job()
@@ -310,7 +312,7 @@ class _FeishuPollCallbacks:
     def _route_post(self, content: str, context: dict[str, Any]) -> None:
         items = _extract_post_media_items(content)
         if not items:
-            self.state.deduplicator.release_processing(context["message_id"])
+            self.state.deduplicator.complete(context["message_id"])
             return
         thread_id = (context["message"].thread_id or "").strip() or None
         self._spawn_dispatch(context["chat_id"], self._post_job(context, items, thread_id))
@@ -348,7 +350,9 @@ class _FeishuPollCallbacks:
                     if reply:
                         replies.append(reply)
                 if replies and not get_config("feishu.media.silent_reply", False):
-                    reply_id, in_thread = feishu_outbound_reply_params(context["message_id"], thread_id)
+                    reply_id, in_thread = feishu_outbound_reply_params(
+                        context["message_id"], thread_id
+                    )
                     await _send_reply(
                         self.config,
                         context["chat_id"],
@@ -360,7 +364,9 @@ class _FeishuPollCallbacks:
             except Exception as error:
                 _logger.error("处理飞书 post 媒体失败: %s", error)
             finally:
-                finalizer = self.state.deduplicator.release_processing if success else self.state.deduplicator.abandon_processing_claim
+                finalizer = (
+                    self.state.deduplicator.complete if success else self.state.deduplicator.abandon
+                )
                 finalizer(context["message_id"])
 
         return job()
@@ -381,7 +387,9 @@ class _FeishuPollCallbacks:
 
     def on_card_action(self, event: Any) -> Any:
         """解析卡片动作，优先处理确认控制命令，否则投递消息队列。"""
-        error = self._toast("error", "Mini Agent：缺少 miniagent_text 或 chat_id（请在按钮 value 中提供）")
+        error = self._toast(
+            "error", "Mini Agent：缺少 miniagent_text 或 chat_id（请在按钮 value 中提供）"
+        )
         try:
             self.state.ws_health.touch_inbound()
             payload = getattr(event, "event", None)
@@ -395,7 +403,9 @@ class _FeishuPollCallbacks:
 
             text = (inbound_text_from_card_action_value(value) or "").strip()
             context = getattr(payload, "context", None)
-            chat_id = str(value.get("chat_id") or getattr(context, "open_chat_id", "") or "").strip()
+            chat_id = str(
+                value.get("chat_id") or getattr(context, "open_chat_id", "") or ""
+            ).strip()
             operator = getattr(payload, "operator", None)
             sender_id = str(getattr(operator, "open_id", "") or "").strip()
             dedupe_key = str(value.get("dedupe_key") or "").strip()
@@ -403,9 +413,7 @@ class _FeishuPollCallbacks:
                 return self._toast("info", "已处理（重复操作已忽略）")
             if not text or not chat_id:
                 return error
-            confirmation_response = self._handle_card_confirmation(
-                text, chat_id, sender_id
-            )
+            confirmation_response = self._handle_card_confirmation(text, chat_id, sender_id)
             if confirmation_response is not None:
                 return confirmation_response
             inbound = FeishuInboundText(
@@ -424,14 +432,10 @@ class _FeishuPollCallbacks:
             _logger.warning("卡片动作入口异常: %s", exception)
             return self._toast("error", f"Mini Agent：{exception}")
 
-    def _handle_card_confirmation(
-        self, text: str, chat_id: str, sender_id: str
-    ) -> Any | None:
+    def _handle_card_confirmation(self, text: str, chat_id: str, sender_id: str) -> Any | None:
         if text not in ("/confirm", "/reject") and not text.startswith("/adjust "):
             return None
-        channel = _resolve_feishu_confirmation_channel(
-            self.state, chat_id, sender_id, "group"
-        )
+        channel = _resolve_feishu_confirmation_channel(self.state, chat_id, sender_id, "group")
         if channel is None or not channel.has_pending:
             return None
         from miniagent.agent.types.confirmation import ConfirmationResult
@@ -447,9 +451,7 @@ class _FeishuPollCallbacks:
             return None
         channel.respond(ConfirmationResult.adjust(adjustment))
         suffix = "…" if len(adjustment) > 40 else ""
-        return self._toast(
-            "success", f"{SUCCESS_PREFIX} 已调整：{adjustment[:40]}{suffix}"
-        )
+        return self._toast("success", f"{SUCCESS_PREFIX} 已调整：{adjustment[:40]}{suffix}")
 
     def _card_job(self, inbound: FeishuInboundText) -> Awaitable[None]:
         async def job() -> None:
@@ -640,8 +642,6 @@ async def start_feishu_poll_server(
         raise
     finally:
         runtime_state.shutdown_event = None
-
-
 
 
 # --- lark_md / GFM：规范化、宽表降级、卡片分片与 PATCH 节流（与 ThinkingDisplay 输出对齐）---

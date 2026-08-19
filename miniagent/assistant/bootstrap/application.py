@@ -52,6 +52,7 @@ class ApplicationContainer:
     memory: MemoryRuntimeProtocol
     knowledge_registry: KnowledgeRegistryProtocol
     background_tasks: Any
+    xianyu: Any | None = None
     state_store: Any | None = None
     config: ConfigurationService | None = None
     outbound_channels: ChannelRegistryProtocol = field(default_factory=ChannelRegistry)

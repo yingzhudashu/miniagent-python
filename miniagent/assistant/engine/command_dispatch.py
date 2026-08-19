@@ -34,6 +34,7 @@ from miniagent.assistant.engine.commands.runtime_commands import (
     handle_queue,
     handle_reload_skills,
     handle_stop,
+    handle_xianyu,
 )
 from miniagent.assistant.engine.commands.self_opt_commands import handle_self_opt
 from miniagent.assistant.engine.commands.session_commands import handle_session
@@ -84,6 +85,7 @@ _BOUND_HANDLERS: dict[str, CommandHandler] = {
     "confirm": handle_confirmation,
     "doctor": handle_doctor,
     "feishu": handle_feishu,
+    "xianyu": handle_xianyu,
     "help": handle_help,
     "improve": handle_improve,
     "instance": handle_instance,

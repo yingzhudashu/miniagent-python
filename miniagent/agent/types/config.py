@@ -121,6 +121,19 @@ class FeishuChannelConfig:
     cli_dispatch_allow_mutations: bool = True
 
 
+@dataclass
+class ChannelBindingConfig:
+    """通用通道绑定；平台字段放入 metadata，不让核心依赖厂商命名。"""
+
+    channel: str = ""
+    conversation_id: str = ""
+    sender_id: str = ""
+    message_id: str = ""
+    thread_id: str | None = None
+    reply_to: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
 # ============================================================================
 # AgentConfig — Agent 层配置
 # ============================================================================
@@ -211,6 +224,8 @@ class AgentConfig:
     # ── 会话绑定配置 ──
     session_config: SessionBindingConfig = field(default_factory=SessionBindingConfig)
 
+    channel_binding: ChannelBindingConfig = field(default_factory=ChannelBindingConfig)
+
     # ── 飞书通道配置 ──
     feishu_config: FeishuChannelConfig = field(default_factory=FeishuChannelConfig)
 
@@ -242,6 +257,7 @@ def normalize_conversation_history(value: Any) -> list[dict[str, Any]]:
 __all__ = [
     "SessionBindingConfig",
     "FeishuChannelConfig",
+    "ChannelBindingConfig",
     "AgentConfig",
     "normalize_conversation_history",
 ]

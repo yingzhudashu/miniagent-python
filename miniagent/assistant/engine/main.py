@@ -48,6 +48,7 @@ from miniagent.assistant.infrastructure.instance import (
 
 _logger = logging.getLogger(__name__)
 
+
 def _enable_windows_vt() -> None:
     """尽力启用 Windows VT；失败时保留 prompt_toolkit 降级。"""
     try:
@@ -62,11 +63,13 @@ def _enable_windows_vt() -> None:
         _logger.debug("Windows VT模式设置失败（降级到prompt_toolkit）: %s", error)
 
 
-def _initial_runtime_state(ctx: ApplicationContainer, feishu_mode: bool) -> CliLoopState:
+def _initial_runtime_state(
+    ctx: ApplicationContainer, feishu_mode: bool, xianyu_mode: bool = False
+) -> CliLoopState:
     """注册进程实例并构造显式 CLI 运行状态。"""
     try:
         registration = register_instance(
-            mode="both" if feishu_mode else "cli", active_sessions=[]
+            mode="both" if feishu_mode or xianyu_mode else "cli", active_sessions=[]
         )
     except ProjectDirConflictError as error:
         print(format_project_conflict_message(error.existing_meta))
@@ -76,6 +79,7 @@ def _initial_runtime_state(ctx: ApplicationContainer, feishu_mode: bool) -> CliL
         "skill_toolboxes": [],
         "skill_prompts": [],
         "feishu_enabled": feishu_mode,
+        "xianyu_enabled": xianyu_mode,
         "session_manager": None,
         "instance_id": registration.get("instance_id", 0),
         "runtime_ctx": ctx,
@@ -136,15 +140,13 @@ async def _start_runtime_services_traced(
 
     await ctx.memory.start()
 
-    _, skill_toolboxes, skill_prompts, active_session_id, session_manager = (
-        await init_subsystems(
-            ctx.registry,
-            ctx.skill_registry,
-            SessionManager,
-            ctx.channel_router,
-            clawhub=ctx.clawhub,
-            keyword_index=ctx.memory.keyword_index,
-        )
+    _, skill_toolboxes, skill_prompts, active_session_id, session_manager = await init_subsystems(
+        ctx.registry,
+        ctx.skill_registry,
+        SessionManager,
+        ctx.channel_router,
+        clawhub=ctx.clawhub,
+        keyword_index=ctx.memory.keyword_index,
     )
     state["active_session_id"] = active_session_id
     state["skill_toolboxes"] = skill_toolboxes
@@ -189,15 +191,19 @@ async def run_runtime(ctx: ApplicationContainer) -> None:
         raise RuntimeError("PersonalAssistantApplication requires an LLMGateway")
     model = ctx.llm_gateway.model_for_role("default").model
     from miniagent.assistant.engine.welcome import print_welcome
+
     feishu_mode = "--feishu" in sys.argv
-    state = _initial_runtime_state(ctx, feishu_mode)
+    xianyu_mode = "--xianyu" in sys.argv
+    state = _initial_runtime_state(ctx, feishu_mode, xianyu_mode)
     _dummy_stick: list[bool] = [True]
     ctx.create_feishu_handler_factory = lambda st: create_feishu_handler(st, ctx, _dummy_stick)
     _install_signal_shutdown(ctx, state)
 
     cli_returned = False
     try:
-        skill_toolboxes, skill_prompts, active_session_id = await _start_runtime_services(ctx, state)
+        skill_toolboxes, skill_prompts, active_session_id = await _start_runtime_services(
+            ctx, state
+        )
         print_welcome(
             ctx.registry,
             ctx.skill_registry,

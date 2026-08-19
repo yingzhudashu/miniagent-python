@@ -5,7 +5,7 @@
 
 项目状态保存到 ``state.sqlite3``；会话目录只保留 ``files/`` 与会话级
 ``skills/`` 等文件系统内容。会话、消息、记忆、FTS 和向量记录均由当前
-SQLite schema 5 管理；全局实例信息保存到独立 ``registry.sqlite3``。
+SQLite schema 6 管理；全局实例信息保存到独立 ``registry.sqlite3``。
 
 设计背景见 ``docs/ARCHITECTURE.md``（会话与记忆）；长期记忆文件布局见 ``docs/MEMORY_SYSTEM.md``。
 

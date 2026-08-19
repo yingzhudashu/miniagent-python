@@ -121,6 +121,7 @@ class ToolContext:
     message_queue_abort_chat_id: str | None = None
     feishu_im_receive_id_type: str | None = None
     feishu_im_receive_id: str | None = None
+    channel_binding: Any | None = None
 
 
 @dataclass

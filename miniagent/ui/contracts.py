@@ -48,9 +48,7 @@ class UIInput:
     sender_id: str = ""
     session_id: str | None = None
     attachments: tuple[Attachment, ...] = ()
-    metadata: Mapping[str, Any] = field(
-        default_factory=lambda: MappingProxyType({})
-    )
+    metadata: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
     idempotency_key: str | None = None
     trace_id: str | None = None
     input_id: str = field(default_factory=lambda: uuid4().hex)
@@ -79,4 +77,13 @@ class UISurface(LifecycleService, Protocol):
     async def render(self, event: AgentEvent, target: UITarget) -> None: ...
 
 
-__all__ = ["UIInput", "UIInputKind", "UISurface", "UITarget"]
+@runtime_checkable
+class ChannelTurnPresentation(Protocol):
+    """Minimal per-channel presentation boundary for one assistant turn."""
+
+    async def present_thinking(self, target: UITarget, text: str) -> None: ...
+
+    async def present_final(self, target: UITarget, text: str) -> None: ...
+
+
+__all__ = ["ChannelTurnPresentation", "UIInput", "UIInputKind", "UISurface", "UITarget"]

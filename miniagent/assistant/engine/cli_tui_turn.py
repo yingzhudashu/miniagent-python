@@ -107,9 +107,16 @@ class _TuiTurnProcessor:
 
     async def _run_agent(self, user_input: str, session_key: str) -> str:
         """调用统一引擎并显式注入本轮依赖。"""
-        return await self.engine.run_agent_with_thinking(
-            user_input,
-            session_key,
+        message = InboundMessage.create(
+            channel=CLI_CHANNEL,
+            conversation_id="__cli__",
+            sender_id="local-user",
+            content=user_input,
+            session_key=session_key,
+            metadata={"interface": "tui"},
+        )
+        return await self.engine.run_inbound_message(
+            message,
             self.skill_toolboxes(),
             self.skill_prompts(),
             registry=self.registry,

@@ -128,6 +128,60 @@ async def handle_feishu(
     return _respond(output, capture=capture)
 
 
+async def handle_xianyu(
+    text: str,
+    *,
+    state: dict[str, Any],
+    capture: bool = False,
+    **_kwargs: Any,
+) -> str | None:
+    """Query or control the single Xianyu runtime; QR login is CLI-only."""
+    runtime = _runtime(state)
+    if runtime is None:
+        return _missing_runtime(capture)
+    manager = runtime.lifecycle_manager
+    if manager is None:
+        return _respond(f"{ERROR_PREFIX} 闲鱼生命周期服务未初始化", capture=capture)
+    from miniagent.assistant.xianyu.lifecycle import XianyuRuntimeLifecycleService
+
+    service = manager.service("xianyu")
+    if not isinstance(service, XianyuRuntimeLifecycleService):
+        return _respond(f"{ERROR_PREFIX} 闲鱼生命周期服务类型错误", capture=capture)
+    parts = text.split(maxsplit=2)
+    action = parts[1].lower() if len(parts) > 1 else "status"
+    conversation_id = parts[2].strip() if len(parts) > 2 else None
+    try:
+        if action == "status":
+            status = runtime.xianyu.status()
+            output = (
+                f"闲鱼: enabled={status.enabled} connected={status.connected} "
+                f"authenticated={status.authenticated} paused={status.paused} "
+                f"owner={status.owner_id or '-'} error={status.last_error or '-'}"
+            )
+        elif action == "start":
+            await service.activate()
+            output = "闲鱼连接已启动"
+        elif action == "stop":
+            await service.deactivate()
+            output = "闲鱼连接已停止"
+        elif action == "pause":
+            await service.pause(conversation_id)
+            output = "闲鱼已暂停" + (f": {conversation_id}" if conversation_id else "")
+        elif action == "resume":
+            await service.resume(conversation_id)
+            output = "闲鱼已恢复" + (f": {conversation_id}" if conversation_id else "")
+        elif action == "login":
+            if capture:
+                return _respond(f"{WARNING_PREFIX} /xianyu login 只能在 CLI 使用", capture=True)
+            await service.login(status=print)
+            output = "闲鱼扫码登录完成"
+        else:
+            output = "用法: /xianyu <status|start|stop|pause|resume|login> [conversation_id]"
+    except Exception as error:
+        output = f"{ERROR_PREFIX} 闲鱼命令执行失败: {error}"
+    return _respond(output, capture=capture)
+
+
 async def handle_query(
     _text: str,
     *,
@@ -250,6 +304,7 @@ __all__ = [
     "handle_abort",
     "handle_background_task",
     "handle_feishu",
+    "handle_xianyu",
     "handle_query",
     "handle_queue",
     "handle_reload_skills",

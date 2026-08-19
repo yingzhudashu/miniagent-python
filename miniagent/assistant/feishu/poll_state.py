@@ -99,15 +99,15 @@ class FeishuPollState:
 
     def __init__(self) -> None:
         from miniagent.assistant.feishu.cards.dedupe import CardActionDeduplicator
-        from miniagent.assistant.feishu.feishu_dedup import FeishuDeduplicator
         from miniagent.assistant.feishu.message_debounce import FeishuMessageDebouncer
         from miniagent.assistant.feishu.ws_health import FeishuWsHealthState
+        from miniagent.assistant.infrastructure.inbound_dedup import InboundDeduplicator
 
         self.client: Any | None = None
         self.app_id: str | None = None
         self.shutdown_event: asyncio.Event | None = None
         self.debouncer = FeishuMessageDebouncer()
-        self.deduplicator = FeishuDeduplicator()
+        self.deduplicator = InboundDeduplicator("feishu")
         self.card_actions = CardActionDeduplicator()
         self.ws_health = FeishuWsHealthState()
         self.confirmation_engine: Any | None = None

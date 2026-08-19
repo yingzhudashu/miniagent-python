@@ -45,6 +45,12 @@ BUILTIN_TOOLBOXES: list[Toolbox] = [
         keywords=["飞书", "lark", "云文档", "多维表格", "bitable", "im"],
     ),
     Toolbox(
+        id="xianyu",
+        name="闲鱼",
+        description="闲鱼商品、聊天记录、图片、消息、主动建聊与商品发布",
+        keywords=["闲鱼", "咸鱼", "goofish", "商品", "买家", "发布"],
+    ),
+    Toolbox(
         id="miniagent_shell",
         name="MiniAgent 点命令",
         description=(

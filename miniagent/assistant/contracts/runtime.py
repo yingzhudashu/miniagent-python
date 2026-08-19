@@ -5,12 +5,16 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, Protocol, runtime_checkable
 
+from miniagent.ui.messages import InboundMessage
+
 
 @runtime_checkable
 class AssistantTurnServiceProtocol(Protocol):
     """定义通道适配器调用助手回合服务所需的最小接口。"""
 
     thinking: Any
+
+    async def run_inbound_message(self, message: InboundMessage, *args: Any, **kwargs: Any) -> Any: ...
 
     async def run_agent_with_thinking(
         self, user_input: str, *args: Any, **kwargs: Any

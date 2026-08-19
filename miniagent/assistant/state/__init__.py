@@ -1,7 +1,7 @@
-"""Transactional project state for the 5.0 runtime.
+"""Transactional project state for the 6.0 runtime.
 
 The store intentionally understands one schema version only.  A new, empty
-database is bootstrapped as version 5; every other on-disk shape is rejected
+database is bootstrapped as version 6; every other on-disk shape is rejected
 instead of being migrated or interpreted as legacy state.
 """
 
@@ -21,7 +21,7 @@ from typing import Any
 
 import aiosqlite
 
-STATE_SCHEMA_VERSION = 5
+STATE_SCHEMA_VERSION = 6
 _DATABASE_NAME = "state.sqlite3"
 
 
@@ -141,11 +141,13 @@ CREATE TABLE scheduled_tasks (
     updated_at_ms INTEGER NOT NULL
 ) STRICT;
 
-CREATE TABLE feishu_message_claims (
-    message_id TEXT PRIMARY KEY,
+CREATE TABLE inbound_message_claims (
+    channel TEXT NOT NULL,
+    message_id TEXT NOT NULL,
     owner TEXT NOT NULL,
     claim_until_ms INTEGER,
-    completed_at_ms INTEGER
+    completed_at_ms INTEGER,
+    PRIMARY KEY (channel, message_id)
 ) STRICT;
 
 CREATE TABLE process_leases (
@@ -163,17 +165,64 @@ CREATE TABLE maintenance_state (
 """
 
 _TABLE_COLUMNS: dict[str, frozenset[str]] = {
-    "sessions": frozenset({"session_id", "title", "description", "workspace_path", "files_path", "skills_path", "session_number", "chat_id", "sender_id", "created_at_ms", "updated_at_ms", "next_sequence"}),
-    "messages": frozenset({"session_id", "sequence", "message_id", "role", "content_json", "created_at_ms"}),
-    "channel_bindings": frozenset({"channel_type", "channel_id", "session_id", "metadata_json", "updated_at_ms"}),
+    "sessions": frozenset(
+        {
+            "session_id",
+            "title",
+            "description",
+            "workspace_path",
+            "files_path",
+            "skills_path",
+            "session_number",
+            "chat_id",
+            "sender_id",
+            "created_at_ms",
+            "updated_at_ms",
+            "next_sequence",
+        }
+    ),
+    "messages": frozenset(
+        {"session_id", "sequence", "message_id", "role", "content_json", "created_at_ms"}
+    ),
+    "channel_bindings": frozenset(
+        {"channel_type", "channel_id", "session_id", "metadata_json", "updated_at_ms"}
+    ),
     "cli_state": frozenset({"state_key", "value_json", "updated_at_ms"}),
     "memory_profiles": frozenset({"scope", "namespace", "metadata_json"}),
-    "memory_entries": frozenset({"id", "entry_key", "scope", "namespace", "content", "metadata_json", "created_at_ms", "updated_at_ms"}),
-    "memory_embeddings": frozenset({"memory_id", "model", "text_hash", "dimension", "vector_blob", "norm"}),
+    "memory_entries": frozenset(
+        {
+            "id",
+            "entry_key",
+            "scope",
+            "namespace",
+            "content",
+            "metadata_json",
+            "created_at_ms",
+            "updated_at_ms",
+        }
+    ),
+    "memory_embeddings": frozenset(
+        {"memory_id", "model", "text_hash", "dimension", "vector_blob", "norm"}
+    ),
     "knowledge_mounts": frozenset({"id", "name", "source_path", "updated_at_ms"}),
-    "knowledge_documents": frozenset({"id", "mount_id", "relative_path", "title", "content", "content_hash", "metadata_json", "updated_at_ms"}),
-    "scheduled_tasks": frozenset({"task_id", "task_json", "next_run_at_ms", "claim_owner", "claim_until_ms", "updated_at_ms"}),
-    "feishu_message_claims": frozenset({"message_id", "owner", "claim_until_ms", "completed_at_ms"}),
+    "knowledge_documents": frozenset(
+        {
+            "id",
+            "mount_id",
+            "relative_path",
+            "title",
+            "content",
+            "content_hash",
+            "metadata_json",
+            "updated_at_ms",
+        }
+    ),
+    "scheduled_tasks": frozenset(
+        {"task_id", "task_json", "next_run_at_ms", "claim_owner", "claim_until_ms", "updated_at_ms"}
+    ),
+    "inbound_message_claims": frozenset(
+        {"channel", "message_id", "owner", "claim_until_ms", "completed_at_ms"}
+    ),
     "process_leases": frozenset({"resource", "owner", "expires_at_ms", "generation"}),
     "maintenance_state": frozenset({"state_key", "value_json", "updated_at_ms"}),
 }
@@ -213,7 +262,9 @@ def _entry_created_ms(timestamp: str) -> int:
         return _milliseconds()
 
 
-async def _fetchone(connection: aiosqlite.Connection, sql: str, parameters: Sequence[Any] = ()) -> aiosqlite.Row | None:
+async def _fetchone(
+    connection: aiosqlite.Connection, sql: str, parameters: Sequence[Any] = ()
+) -> aiosqlite.Row | None:
     cursor = await connection.execute(sql, parameters)
     try:
         return await cursor.fetchone()
@@ -245,7 +296,7 @@ class StateStore:
         await self.close()
 
     async def open(self) -> StateStore:
-        """Open once and validate or bootstrap the exact schema 5 database."""
+        """Open once and validate or bootstrap the exact schema 6 database."""
         if self._connection is not None:
             return self
         async with self._open_lock:
@@ -310,7 +361,9 @@ class StateStore:
     async def _validate_objects(self, objects: set[tuple[str, str]]) -> None:
         allowed = set(_TABLE_COLUMNS) | set(_FTS_TABLES)
         for fts in _FTS_TABLES:
-            allowed.update(f"{fts}_{suffix}" for suffix in ("data", "idx", "content", "docsize", "config"))
+            allowed.update(
+                f"{fts}_{suffix}" for suffix in ("data", "idx", "content", "docsize", "config")
+            )
         for name, kind in objects:
             if kind not in {"table", "shadow"} or name not in allowed:
                 raise StateSchemaError(f"unexpected {name} in state database")
@@ -377,14 +430,20 @@ class StateStore:
 
     async def get_session(self, session_id: str) -> dict[str, Any] | None:
         """Return one raw typed session row or ``None``."""
-        row = await _fetchone(self.connection, "SELECT * FROM sessions WHERE session_id=?", (session_id,))
+        row = await _fetchone(
+            self.connection, "SELECT * FROM sessions WHERE session_id=?", (session_id,)
+        )
         return dict(row) if row is not None else None
 
-    async def append_message(self, session_id: str, message_id: str, role: str, content: Any) -> int:
+    async def append_message(
+        self, session_id: str, message_id: str, role: str, content: Any
+    ) -> int:
         """Allocate and append the next per-session sequence atomically."""
         now = _milliseconds()
         async with self.transaction() as connection:
-            row = await _fetchone(connection, "SELECT next_sequence FROM sessions WHERE session_id=?", (session_id,))
+            row = await _fetchone(
+                connection, "SELECT next_sequence FROM sessions WHERE session_id=?", (session_id,)
+            )
             if row is None:
                 raise StateSchemaError(f"unknown session {session_id}")
             sequence = int(row[0])
@@ -410,7 +469,9 @@ class StateStore:
             result.append(item)
         return result
 
-    async def bind_channel(self, channel_type: str, channel_id: str, session_id: str, *, metadata: Any | None = None) -> None:
+    async def bind_channel(
+        self, channel_type: str, channel_id: str, session_id: str, *, metadata: Any | None = None
+    ) -> None:
         """Bind one channel address to its current session route."""
         await self.connection.execute(
             """INSERT INTO channel_bindings VALUES (?, ?, ?, ?, ?)
@@ -432,7 +493,9 @@ class StateStore:
 
     async def list_scheduled_tasks(self) -> list[dict[str, Any]]:
         """Return decoded task definitions in stable identifier order."""
-        rows = await self.connection.execute_fetchall("SELECT task_json FROM scheduled_tasks ORDER BY task_id")
+        rows = await self.connection.execute_fetchall(
+            "SELECT task_json FROM scheduled_tasks ORDER BY task_id"
+        )
         return [json.loads(str(row[0])) for row in rows]
 
     async def load_memory_profile(
@@ -751,7 +814,9 @@ class StateStore:
             )
         return [str(row[1]) for row in rows]
 
-    async def add_memory(self, scope: str, namespace: str, content: str, *, metadata: Any | None = None) -> int:
+    async def add_memory(
+        self, scope: str, namespace: str, content: str, *, metadata: Any | None = None
+    ) -> int:
         """Insert one durable text memory and its FTS row atomically."""
         from uuid import uuid4
 
@@ -772,7 +837,9 @@ class StateStore:
             )
         return memory_id
 
-    async def put_memory_embedding(self, memory_id: int, model: str, embedding: Sequence[float]) -> None:
+    async def put_memory_embedding(
+        self, memory_id: int, model: str, embedding: Sequence[float]
+    ) -> None:
         """Validate and upsert a vector for one durable memory row."""
         values = [float(value) for value in embedding]
         if not values or any(not math.isfinite(value) for value in values):
@@ -800,7 +867,9 @@ class StateStore:
                 (memory_id, model, len(values), packed, norm),
             )
 
-    async def search_memory_fts(self, query: str, *, scope: str, namespace: str, limit: int = 20) -> list[dict[str, Any]]:
+    async def search_memory_fts(
+        self, query: str, *, scope: str, namespace: str, limit: int = 20
+    ) -> list[dict[str, Any]]:
         """Search one memory namespace with FTS5 trigram ranking."""
         rows = await self.connection.execute_fetchall(
             """SELECT e.* FROM memory_fts f
@@ -811,7 +880,9 @@ class StateStore:
         )
         return [dict(row) for row in rows]
 
-    async def search_memory_vector(self, query: Sequence[float], *, model: str, scope: str, namespace: str, limit: int = 20) -> list[dict[str, Any]]:
+    async def search_memory_vector(
+        self, query: Sequence[float], *, model: str, scope: str, namespace: str, limit: int = 20
+    ) -> list[dict[str, Any]]:
         """Return cosine-ranked rows for one model, scope, and namespace."""
         values = [float(value) for value in query]
         if not values or any(not math.isfinite(value) for value in values):
@@ -831,7 +902,9 @@ class StateStore:
                 raise StateSchemaError("embedding dimension mismatch")
             stored = array("d")
             stored.frombytes(bytes(row["vector_blob"]))
-            score = sum(left * right for left, right in zip(values, stored, strict=True)) / (norm * float(row["norm"]))
+            score = sum(left * right for left, right in zip(values, stored, strict=True)) / (
+                norm * float(row["norm"])
+            )
             item = dict(row)
             item.pop("vector_blob", None)
             item["score"] = score
@@ -843,7 +916,11 @@ class StateStore:
         """Acquire or take over an expired lease and return its generation."""
         now_ms, expires = _milliseconds(now), _milliseconds(now + ttl)
         async with self.transaction() as connection:
-            row = await _fetchone(connection, "SELECT owner, expires_at_ms, generation FROM process_leases WHERE resource=?", (resource,))
+            row = await _fetchone(
+                connection,
+                "SELECT owner, expires_at_ms, generation FROM process_leases WHERE resource=?",
+                (resource,),
+            )
             if row is not None and str(row[0]) != owner and int(row[1]) > now_ms:
                 raise StateConflictError(f"lease is owned by {row[0]}")
             generation = (int(row[2]) + 1) if row is not None else 1
@@ -855,15 +932,20 @@ class StateStore:
             )
         return generation
 
-    async def renew_lease(self, resource: str, owner: str, *, now: float, ttl: float = 20.0) -> None:
+    async def renew_lease(
+        self, resource: str, owner: str, *, now: float, ttl: float = 20.0
+    ) -> None:
         """Extend a lease only while ownership remains unchanged."""
         async with self.transaction() as connection:
-            row = await _fetchone(connection, "SELECT owner FROM process_leases WHERE resource=?", (resource,))
+            row = await _fetchone(
+                connection, "SELECT owner FROM process_leases WHERE resource=?", (resource,)
+            )
             if row is None or str(row[0]) != owner:
                 current = str(row[0]) if row is not None else "nobody"
                 raise StateConflictError(f"lease is owned by {current}")
             await connection.execute(
-                "UPDATE process_leases SET expires_at_ms=? WHERE resource=?", (_milliseconds(now + ttl), resource)
+                "UPDATE process_leases SET expires_at_ms=? WHERE resource=?",
+                (_milliseconds(now + ttl), resource),
             )
 
     async def release_lease(self, resource: str, owner: str) -> bool:
@@ -876,35 +958,48 @@ class StateStore:
         await cursor.close()
         return changed == 1
 
-    async def claim_feishu_message(self, message_id: str, owner: str, *, now: float, lease_seconds: float = 300.0) -> bool:
+    async def claim_inbound_message(
+        self,
+        channel: str,
+        message_id: str,
+        owner: str,
+        *,
+        now: float,
+        lease_seconds: float = 300.0,
+    ) -> bool:
         """Claim one inbound event exactly once until expiry or completion."""
         now_ms = _milliseconds(now)
         async with self.transaction() as connection:
-            row = await _fetchone(connection, "SELECT owner, claim_until_ms, completed_at_ms FROM feishu_message_claims WHERE message_id=?", (message_id,))
+            row = await _fetchone(
+                connection,
+                """SELECT owner, claim_until_ms, completed_at_ms
+                   FROM inbound_message_claims WHERE channel=? AND message_id=?""",
+                (channel, message_id),
+            )
             if row is not None:
                 if row[2] is not None:
                     return False
                 if row[1] is not None and int(row[1]) > now_ms:
                     return False
             await connection.execute(
-                """INSERT INTO feishu_message_claims VALUES (?, ?, ?, NULL)
-                   ON CONFLICT(message_id) DO UPDATE SET owner=excluded.owner,
+                """INSERT INTO inbound_message_claims VALUES (?, ?, ?, ?, NULL)
+                   ON CONFLICT(channel, message_id) DO UPDATE SET owner=excluded.owner,
                      claim_until_ms=excluded.claim_until_ms, completed_at_ms=NULL""",
-                (message_id, owner, _milliseconds(now + lease_seconds)),
+                (channel, message_id, owner, _milliseconds(now + lease_seconds)),
             )
         return True
 
-    async def complete_feishu_message(self, message_id: str, owner: str) -> None:
-        """Mark an owned Feishu claim complete or raise on lost ownership."""
+    async def complete_inbound_message(self, channel: str, message_id: str, owner: str) -> None:
+        """Mark an owned inbound claim complete or raise on lost ownership."""
         cursor = await self.connection.execute(
-            """UPDATE feishu_message_claims SET claim_until_ms=NULL, completed_at_ms=?
-               WHERE message_id=? AND owner=? AND completed_at_ms IS NULL""",
-            (_milliseconds(), message_id, owner),
+            """UPDATE inbound_message_claims SET claim_until_ms=NULL, completed_at_ms=?
+               WHERE channel=? AND message_id=? AND owner=? AND completed_at_ms IS NULL""",
+            (_milliseconds(), channel, message_id, owner),
         )
         changed = cursor.rowcount
         await cursor.close()
         if changed != 1:
-            raise StateConflictError("feishu message claim is not owned by caller")
+            raise StateConflictError("inbound message claim is not owned by caller")
 
     async def upsert_knowledge_mount(self, name: str, source_path: str) -> int:
         """Upsert one filesystem knowledge mount and return its row id."""
@@ -914,7 +1009,9 @@ class StateStore:
                  updated_at_ms=excluded.updated_at_ms""",
             (name, source_path, _milliseconds()),
         )
-        row = await _fetchone(self.connection, "SELECT id FROM knowledge_mounts WHERE name=?", (name,))
+        row = await _fetchone(
+            self.connection, "SELECT id FROM knowledge_mounts WHERE name=?", (name,)
+        )
         assert row is not None
         return int(row[0])
 
@@ -929,7 +1026,11 @@ class StateStore:
     ) -> int:
         """Commit document metadata, content, and its FTS row atomically."""
         async with self.transaction() as connection:
-            row = await _fetchone(connection, "SELECT id FROM knowledge_documents WHERE mount_id=? AND relative_path=?", (mount_id, relative_path))
+            row = await _fetchone(
+                connection,
+                "SELECT id FROM knowledge_documents WHERE mount_id=? AND relative_path=?",
+                (mount_id, relative_path),
+            )
             if row is None:
                 cursor = await connection.execute(
                     """INSERT INTO knowledge_documents(

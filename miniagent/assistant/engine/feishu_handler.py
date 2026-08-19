@@ -425,31 +425,35 @@ class _FeishuHandlerRuntime:
     async def _run_agent(
         self, content: str, session_key: str, message: Any, mirror: bool, session_manager: Any
     ) -> str:
-        return await self.engine.run_agent_with_thinking(
-            content,
-            session_key,
+        from miniagent.ui.messages import InboundMessage
+
+        message = InboundMessage.create(
+            channel="feishu",
+            conversation_id=message.conversation_id,
+            sender_id=message.sender_id,
+            content=content,
+            session_key=session_key,
+            thread_id=message.thread_id,
+            reply_to=str(message.metadata.get("parent_id") or "") or None,
+            idempotency_key=str(message.metadata.get("message_id") or "") or None,
+            metadata=dict(message.metadata),
+        )
+        return await self.engine.run_inbound_message(
+            message,
             self.skill_toolboxes(),
             self.skill_prompt_text(),
-            is_feishu=True,
             registry=self.registry,
             monitor=self.monitor,
             session_manager=session_manager,
-            feishu_config=self.ctx.feishu.get_config(),
             channel_router=self.channel_router,
             clawhub=self.ctx.clawhub,
+            channel_config=self.ctx.feishu.get_config(),
             memory=self.ctx.memory,
             knowledge_registry=self.ctx.knowledge_registry,
             client=getattr(
                 self.ctx, "llm_client", getattr(self.ctx, "llm_gateway", None)
             ),
-            feishu_receive_chat_id=message.conversation_id,
-            feishu_trigger_message_id=str(message.metadata.get("message_id") or "") or None,
-            feishu_root_id=message.metadata.get("root_id") if isinstance(message.metadata.get("root_id"), str) else None,
-            feishu_parent_id=message.metadata.get("parent_id") if isinstance(message.metadata.get("parent_id"), str) else None,
-            feishu_thread_id=message.thread_id,
-            feishu_im_receive_id=(message.sender_id or "").strip() or None,
             cli_loop_state=self.state,
-            feishu_mirror_cli=mirror,
             _hold_session_lock=True,
         )
 

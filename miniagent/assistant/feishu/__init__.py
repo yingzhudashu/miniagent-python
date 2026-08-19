@@ -8,7 +8,7 @@
 
 - ``poll_server``：长连接、消息派发、去重与防抖、卡片渲染
 - ``message_debounce``：入站文本防抖合并（``feishu.message_debounce_ms``）
-- ``feishu_dedup``：消息去重模块（内存+磁盘双重去重）
+- ``infrastructure.inbound_dedup``：通用入站消息声明
 - ``resource_io``：消息内 file/image 资源下载（依赖 lark-oapi）
 - ``upload_io``：IM 素材上传与 file/image 消息发送
 - ``im_send``：IM 创建/回复消息的统一发送入口

@@ -19,6 +19,7 @@ from miniagent.assistant.infrastructure.feishu_inbound_lock import (
 from miniagent.assistant.infrastructure.instance import heartbeat
 from miniagent.assistant.scheduled_tasks.ticker import start_scheduled_tasks_ticker
 from miniagent.assistant.skills.watch import start_skills_watch
+from miniagent.assistant.xianyu.lifecycle import XianyuRuntimeLifecycleService
 
 if TYPE_CHECKING:
     from miniagent.assistant.bootstrap.application import ApplicationContainer
@@ -71,6 +72,17 @@ def build_runtime_lifecycle_manager(
         state=state_dict,
         user_status=feishu_user_status,
     )
+    if ctx.xianyu is None:
+        from miniagent.assistant.xianyu.runtime import XianyuRuntime, install_xianyu_runtime
+
+        ctx.xianyu = XianyuRuntime()
+        install_xianyu_runtime(ctx.xianyu)
+    xianyu_service = XianyuRuntimeLifecycleService(
+        enabled=bool(state.get("xianyu_enabled", False)),
+        runtime=ctx.xianyu,
+        container=ctx,
+        state=state_dict,
+    )
 
     scheduled_tasks_stop = asyncio.Event()
     scheduled_service = AsyncTaskLifecycleService(
@@ -94,6 +106,7 @@ def build_runtime_lifecycle_manager(
             heartbeat_service,
             config_watch_service,
             feishu_service,
+            xianyu_service,
             scheduled_service,
             skills_watch_service,
         ]
