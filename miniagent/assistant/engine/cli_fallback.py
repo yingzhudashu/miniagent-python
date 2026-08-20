@@ -288,6 +288,7 @@ class _FallbackCliRuntime:
             capture=False,
             allow_session_mutations_when_capture=True,
             feishu_user_status=feishu_user_status_fn(self.ctx),
+            command_source="cli",
         )
         if self.state["active_session_id"] != previous_session:
             self.show_history("\n📜 已切换会话，最近历史如下：\n")

@@ -320,6 +320,7 @@ class _FeishuHandlerRuntime:
                 allow_session_mutations_when_capture=feishu_dot_commands_full_enabled(),
                 message_queue_abort_chat_id=inbound.chat_id,
                 confirmation_session_key=session_key,
+                command_source="feishu",
             )
             if reply == "__EXIT__":
                 return True, ""

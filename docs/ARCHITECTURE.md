@@ -650,7 +650,7 @@ flowchart LR
 
 ### 状态 schema
 
-项目运行状态固定保存到 `{project_state_dir}/state.sqlite3`，全局实例注册固定保存到 `{registry_state_dir}/registry.sqlite3`。空库创建 schema 5；非空数据库必须精确为 `PRAGMA user_version=5` 且表结构完整，否则启动立即失败。系统不探测、不导入、不修补任何旧 JSON 或旧数据库。
+项目运行状态固定保存到 `{project_state_dir}/state.sqlite3`，全局实例注册固定保存到 `{registry_state_dir}/registry.sqlite3`。项目空库创建 schema 6，全局注册表空库创建 schema 5；非空数据库必须精确匹配各自版本且表结构完整，否则启动立即失败。系统不探测、不导入、不修补任何旧 JSON 或旧数据库。
 
 `bootstrap.entrypoint` 加载 secrets 后构造唯一 `ApplicationContainer`，随后执行 `run_runtime(container)`。容器集中持有工具、引擎、路由、队列、出站注册表、生命周期 manager、飞书、记忆与 LLM 客户端；所有业务路径显式接收容器或所需依赖，不存在进程级 context locator。`runtime_services.build_runtime_lifecycle_manager()` 按 config watcher→Feishu→ticker→skills watcher 启动，并严格逆序关停。`FeishuRuntimeLifecycleService` 只编排既有 runtime API；退避重连、入站 owner lock 与 SDK 客户端均由 `FeishuRuntime` 自身负责并在 task `finally` 释放。`FeishuPollState` 同时持有消息去重、防抖、卡片动作去重、WebSocket 健康观测和确认路由依赖，不跨运行时共享业务状态。
 

@@ -122,6 +122,7 @@ async def dispatch_command(
     feishu_user_status: Callable[[str], None] | None = None,
     message_queue_abort_chat_id: str | None = None,
     confirmation_session_key: str | None = None,
+    command_source: str = "internal",
 ) -> str | None:
     """Resolve, authorize, and invoke one registered command."""
     normalized = _normalize_command_text(text)
@@ -143,6 +144,7 @@ async def dispatch_command(
             feishu_user_status=feishu_user_status,
             message_queue_abort_chat_id=message_queue_abort_chat_id,
             confirmation_session_key=confirmation_session_key,
+            command_source=command_source,
         )
     closest = _find_command_by_prefix(command_name) or _find_closest_command(command_name)
     if closest and closest.lower() != command_name:

@@ -289,6 +289,7 @@ async def _dispatch_tui_command(user_input: str, runtime: dict[str, Any]) -> boo
         capture=True,
         allow_session_mutations_when_capture=True,
         feishu_user_status=_feishu_user_status_fn(runtime["ctx"]),
+        command_source="cli",
     )
     if state["active_session_id"] != previous:
         runtime["reset_transcript"](reset_scroll_to_top=True)

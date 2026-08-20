@@ -42,6 +42,7 @@ async def _run_dot_command_handler(args: dict[str, Any], ctx: ToolContext) -> To
         allow_session_mutations_when_capture=ctx.cli_dispatch_allow_mutations,
         feishu_user_status=None,
         message_queue_abort_chat_id=ctx.message_queue_abort_chat_id,
+        command_source="agent",
     )
     if out is None:
         return ToolResult(success=False, content=f"{WARNING_PREFIX} 未识别的命令；请使用 /help 查看列表。")

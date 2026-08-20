@@ -75,6 +75,7 @@ async def test_run_dot_command_dispatches_capture_and_allow_flag(
         allow_session_mutations_when_capture,
         feishu_user_status,
         message_queue_abort_chat_id=None,
+        command_source="internal",
     ):
         captured["text"] = text
         captured["state"] = state
@@ -82,6 +83,7 @@ async def test_run_dot_command_dispatches_capture_and_allow_flag(
         captured["allow"] = allow_session_mutations_when_capture
         captured["feishu_user_status"] = feishu_user_status
         captured["message_queue_abort_chat_id"] = message_queue_abort_chat_id
+        captured["command_source"] = command_source
         return "mocked"
 
     monkeypatch.setattr(
@@ -113,6 +115,7 @@ async def test_run_dot_command_dispatches_capture_and_allow_flag(
     assert captured["allow"] is False
     assert captured["feishu_user_status"] is None
     assert captured["message_queue_abort_chat_id"] == "oc_tool_room"
+    assert captured["command_source"] == "agent"
 
 
 @pytest.mark.asyncio

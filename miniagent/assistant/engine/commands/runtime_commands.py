@@ -133,6 +133,7 @@ async def handle_xianyu(
     *,
     state: dict[str, Any],
     capture: bool = False,
+    command_source: str = "internal",
     **_kwargs: Any,
 ) -> str | None:
     """Query or control the single Xianyu runtime; QR login is CLI-only."""
@@ -171,8 +172,10 @@ async def handle_xianyu(
             await service.resume(conversation_id)
             output = "闲鱼已恢复" + (f": {conversation_id}" if conversation_id else "")
         elif action == "login":
-            if capture:
-                return _respond(f"{WARNING_PREFIX} /xianyu login 只能在 CLI 使用", capture=True)
+            if command_source != "cli":
+                return _respond(
+                    f"{WARNING_PREFIX} /xianyu login 只能在 CLI 使用", capture=capture
+                )
             await service.login(status=print)
             output = "闲鱼扫码登录完成"
         else:

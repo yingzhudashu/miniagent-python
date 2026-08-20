@@ -9,9 +9,10 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-from miniagent.assistant.state import STATE_SCHEMA_VERSION, StateSchemaError
+from miniagent.assistant.state import StateSchemaError
 
 REGISTRY_DATABASE_NAME = "registry.sqlite3"
+REGISTRY_SCHEMA_VERSION = 5
 
 _REGISTRY_SCHEMA = """
 CREATE TABLE process_instances (
@@ -57,16 +58,16 @@ def _validate(connection: sqlite3.Connection) -> None:
     except sqlite3.DatabaseError as error:
         raise StateSchemaError(f"invalid registry database: {error}") from error
 
-    if version not in {0, STATE_SCHEMA_VERSION}:
+    if version not in {0, REGISTRY_SCHEMA_VERSION}:
         raise StateSchemaError(
-            f"registry database uses schema v{version}; required schema v{STATE_SCHEMA_VERSION}"
+            f"registry database uses schema v{version}; required schema v{REGISTRY_SCHEMA_VERSION}"
         )
     if not objects:
         try:
             connection.executescript(
                 "BEGIN IMMEDIATE;\n"
                 + _REGISTRY_SCHEMA
-                + f"\nPRAGMA user_version={STATE_SCHEMA_VERSION};\nCOMMIT;"
+                + f"\nPRAGMA user_version={REGISTRY_SCHEMA_VERSION};\nCOMMIT;"
             )
         except sqlite3.DatabaseError as error:
             if connection.in_transaction:
@@ -312,5 +313,6 @@ __all__ = [
     "ProcessInstanceConflictError",
     "ProcessInstanceStore",
     "REGISTRY_DATABASE_NAME",
+    "REGISTRY_SCHEMA_VERSION",
     "open_registry_database",
 ]

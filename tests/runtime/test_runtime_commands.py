@@ -15,6 +15,7 @@ from miniagent.assistant.engine.commands.runtime_commands import (
     handle_queue,
     handle_reload_skills,
     handle_stop,
+    handle_xianyu,
 )
 
 
@@ -220,3 +221,35 @@ async def test_feishu_lifecycle_error_boundaries() -> None:
         assert "activate failed" in await handle_feishu(
             "/feishu start", state={"runtime_ctx": runtime}, capture=True
         )
+
+
+@pytest.mark.asyncio
+async def test_xianyu_login_uses_explicit_command_source() -> None:
+    class FakeXianyuService:
+        login = AsyncMock()
+
+    service = FakeXianyuService()
+    runtime = SimpleNamespace(
+        lifecycle_manager=SimpleNamespace(service=lambda _name: service),
+        xianyu=SimpleNamespace(),
+    )
+    state = {"runtime_ctx": runtime}
+    with patch(
+        "miniagent.assistant.xianyu.lifecycle.XianyuRuntimeLifecycleService",
+        FakeXianyuService,
+    ):
+        assert await handle_xianyu(
+            "/xianyu login", state=state, capture=True, command_source="cli"
+        ) == "闲鱼扫码登录完成"
+        service.login.assert_awaited_once()
+
+        service.login.reset_mock()
+        output = await handle_xianyu(
+            "/xianyu login", state=state, capture=True, command_source="feishu"
+        )
+        assert output is not None and "只能在 CLI" in output
+        service.login.assert_not_awaited()
+
+        output = await handle_xianyu("/xianyu login", state=state, capture=True)
+        assert output is not None and "只能在 CLI" in output
+        service.login.assert_not_awaited()

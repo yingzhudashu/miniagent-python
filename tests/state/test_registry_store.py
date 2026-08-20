@@ -7,9 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from miniagent.assistant.state import STATE_SCHEMA_VERSION, StateSchemaError
+from miniagent.assistant.state import StateSchemaError
 from miniagent.assistant.state.registry import (
     REGISTRY_DATABASE_NAME,
+    REGISTRY_SCHEMA_VERSION,
     ProcessInstanceConflictError,
     ProcessInstanceStore,
     open_registry_database,
@@ -40,7 +41,7 @@ def _register(
 def test_empty_directory_creates_exact_registry_v5_schema(tmp_path: Path) -> None:
     ProcessInstanceStore(tmp_path)
     with open_registry_database(tmp_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == STATE_SCHEMA_VERSION
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == REGISTRY_SCHEMA_VERSION
         columns = {
             row[1]
             for row in connection.execute("PRAGMA table_info(process_instances)")

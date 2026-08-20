@@ -236,7 +236,7 @@ Agent 会自动调用文件工具完成任务。
 
 **配置分层**：包内 `miniagent/assistant/resources/config.defaults.json` 顶部 `_config_guide` 列出 User 层与 Advanced 层。普通用户只需在 `config.user.json` 覆盖 User 层；Advanced 节（`memory`、`trace` 等）一般保持默认。优先级：**config.user.json > 包内 defaults**。运维/调试类环境变量（如 `MINIAGENT_PATHS_STATE_DIR`、`AGENT_DEBUG`）见 [ENGINEERING.md](docs/ENGINEERING.md) §1.2。
 
-5.0 的运行契约是当前配置与精确 SQLite schema 5。provider 配置、可选依赖和模型目录详见 [LLM_PROVIDERS.md](docs/LLM_PROVIDERS.md)。
+当前运行契约是项目状态 SQLite schema 6 与全局进程注册表 schema 5。provider 配置、可选依赖和模型目录详见 [LLM_PROVIDERS.md](docs/LLM_PROVIDERS.md)。
 
 ## 启动与退出
 
